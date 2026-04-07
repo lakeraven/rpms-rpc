@@ -44,6 +44,21 @@ class RpmsRpc::BmxClientTest < Minitest::Test
     assert_includes msg, "00022;1XUS SIGNON SETUP"
   end
 
+  # -- byte-safety (multibyte / binary) --------------------------------------
+
+  def test_build_bmx_message_is_binary_encoded
+    msg = Client.new.build_bmx_message("ECHO^hello")
+    assert_equal Encoding::ASCII_8BIT, msg.encoding
+  end
+
+  def test_build_bmx_message_uses_bytesize_for_multibyte_input
+    # body = "ECHO^héllo" = 4 + 1 + 5(héllo, where é=2) = 11 bytes (not 10 chars)
+    msg = Client.new.build_bmx_message("ECHO^héllo")
+    assert msg.start_with?("015RPMS_RPC;0;0;0;^".b)
+    # body bytesize 11 + 6 = 17 → "00017;1"
+    assert_includes msg, "00017;1ECHO^héllo".b
+  end
+
   # -- subclass contract ------------------------------------------------------
 
   def test_call_rpc_raises_when_not_connected

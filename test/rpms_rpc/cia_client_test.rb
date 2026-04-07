@@ -81,6 +81,62 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_equal({ type: :list, entries: { a: 1 } }, client.list_param(a: 1))
   end
 
+  # -- byte-safety (multibyte / binary) --------------------------------------
+
+  def test_spack_uses_bytesize_for_multibyte
+    # "é" is 2 bytes in UTF-8 → length prefix must be 2, not 1
+    result = Client.new.spack("é")
+    assert_equal Encoding::ASCII_8BIT, result.encoding
+    assert_equal 2, result.bytes[0]
+    assert_equal 3, result.bytesize # 1 byte length + 2 byte value
+  end
+
+  def test_spack_raises_when_value_exceeds_255_bytes
+    long = "x" * 256
+    assert_raises(Client::SpackTooLongError) { Client.new.spack(long) }
+  end
+
+  def test_spack_accepts_exactly_255_bytes
+    on_the_line = "x" * 255
+    result = Client.new.spack(on_the_line)
+    assert_equal 255, result.bytes[0]
+    assert_equal 256, result.bytesize
+  end
+
+  def test_lpack_uses_bytesize_for_multibyte
+    # "héllo" = 6 bytes in UTF-8 (h=1, é=2, l=1, l=1, o=1)
+    result = Client.new.lpack("héllo")
+    assert_equal Encoding::ASCII_8BIT, result.encoding
+    assert result.start_with?("006")
+    assert_equal 9, result.bytesize # "006" + 6 bytes
+  end
+
+  def test_lpack_uses_five_digit_width_at_byte_threshold
+    # 500 multibyte chars × 2 bytes = 1000 bytes → triggers 5-digit width
+    long = "é" * 500
+    result = Client.new.lpack(long)
+    assert result.start_with?("01000")
+    assert_equal 1005, result.bytesize
+  end
+
+  def test_build_rpc_message_is_binary_encoded
+    msg = Client.new.build_rpc_message("XUS SIGNON SETUP")
+    assert_equal Encoding::ASCII_8BIT, msg.encoding
+  end
+
+  def test_build_rpc_message_with_multibyte_param_uses_bytesize
+    client = Client.new
+    msg = client.build_rpc_message("ECHO", [ client.literal_param("héllo") ])
+    assert_equal Encoding::ASCII_8BIT, msg.encoding
+    # 6-byte body, 3-digit length width → "0006héllo" (in bytes)
+    assert_includes msg, "0006héllo".b
+  end
+
+  def test_build_connect_message_is_binary_encoded
+    msg = Client.new.build_connect_message("10.0.0.1", "myapp")
+    assert_equal Encoding::ASCII_8BIT, msg.encoding
+  end
+
   # -- subclass contract ------------------------------------------------------
 
   def test_call_rpc_raises_when_not_connected

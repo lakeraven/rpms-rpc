@@ -89,19 +89,23 @@ module RpmsRpc
 
     # -- packet construction (public for testing) -----------------------------
 
+    # BMX wire packets are byte streams. All length fields below count
+    # BYTES, never characters. Buffers are built in ASCII-8BIT (binary)
+    # so multibyte parameters frame correctly.
+
     # Build BMX protocol message from API content.
     # Matches BMXMBRK.m PRSP/PRSM/PRSA parsing expectations:
     #   Protocol header: LLLwkid;winh;prch;wish;
     #   Message:         LLL;1 + API_NAME^PARAMS
     def build_bmx_message(api_content)
-      proto_fields = "RPMS_RPC;0;0;0;"
-      proto_header = format("%03d", proto_fields.length) + proto_fields
+      proto_fields = "RPMS_RPC;0;0;0;".b
+      proto_header = format("%03d", proto_fields.bytesize).b + proto_fields
 
-      msg_body = api_content
-      msg_header = format("%05d", msg_body.length + 6) + ";1"
+      msg_body = api_content.to_s.b
+      msg_header = (format("%05d", msg_body.bytesize + 6) + ";1").b
       message = msg_header + msg_body
 
-      proto_header + "^" + message
+      proto_header + "^".b + message
     end
 
     private
@@ -112,8 +116,9 @@ module RpmsRpc
 
     # Send a packet for the initial monitor connection (pre-session)
     def send_bmx_packet(body)
-      length_str = format("%05d", body.length)
-      packet = BMX_PREFIX + length_str + body
+      bytes = body.to_s.b
+      length_str = format("%05d", bytes.bytesize).b
+      packet = BMX_PREFIX.b + length_str + bytes
       send_packet(packet)
     end
 
@@ -124,9 +129,10 @@ module RpmsRpc
     #   R #PLEN → body
     # Wire = {BMX} + LLLLL + PPPPP + body
     def send_bmx_session_packet(body)
-      plen = format("%05d", body.length)
-      total_len = format("%05d", body.length + 5)
-      packet = BMX_PREFIX + total_len + plen + body
+      bytes = body.to_s.b
+      plen = format("%05d", bytes.bytesize).b
+      total_len = format("%05d", bytes.bytesize + 5).b
+      packet = BMX_PREFIX.b + total_len + plen + bytes
       send_packet(packet)
     end
 

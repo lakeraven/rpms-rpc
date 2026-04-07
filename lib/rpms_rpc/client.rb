@@ -90,7 +90,12 @@ module RpmsRpc
 
     # -- connection state -----------------------------------------------------
 
+    # True only when the handshake completed AND the socket is still open.
+    # Both the @connected flag (set after handshake / cleared on error) and
+    # the live socket state must agree, so error/timeout paths can't leave
+    # the object reporting connected with a half-dead socket.
     def connected?
+      return false unless @connected
       return false unless @socket
       return false if @socket.closed?
       true

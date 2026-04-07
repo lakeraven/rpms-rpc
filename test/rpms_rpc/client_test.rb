@@ -82,6 +82,23 @@ class RpmsRpc::ClientTest < Minitest::Test
     assert_equal "123", client.duz
   end
 
+  def test_connected_predicate_requires_handshake_flag_not_just_socket
+    # A live socket alone is not enough — the handshake must have completed.
+    # This guards against the prior bug where error/timeout paths cleared
+    # @connected but connected? still returned true because the socket
+    # object existed.
+    client = Client.new
+    sock = StringIO.new
+    client.instance_variable_set(:@socket, sock)
+    refute client.connected?, "socket present but @connected=false → must report disconnected"
+
+    client.instance_variable_set(:@connected, true)
+    assert client.connected?
+
+    sock.close
+    refute client.connected?, "closed socket → must report disconnected"
+  end
+
   # -- xwb_encrypt ------------------------------------------------------------
 
   def test_xwb_encrypt_returns_string_with_index_chars
