@@ -26,5 +26,7 @@ Gem::Specification.new do |spec|
   spec.files = Dir.chdir(File.expand_path(__dir__)) do
     Dir["{lib,docs}/**/*", "MIT-LICENSE", "Rakefile", "README.md"]
   end
-  # No runtime dependencies — pure stdlib (socket, openssl, rexml).
+  # rexml is a default gem in Ruby 3.4+ but must be declared so Bundler
+  # adds it to the load path. Otherwise pure stdlib (socket, openssl).
+  spec.add_dependency "rexml", "~> 3.2"
 end
