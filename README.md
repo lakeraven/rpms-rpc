@@ -89,6 +89,12 @@ client.disconnect
 | `RPMS_ACCESS_CODE`   | `PROV123`   | Default access code (dev only)     |
 | `RPMS_VERIFY_CODE`   | `PROV123!!` | Default verify code (dev only)     |
 
+> **Security:** the `PROV123` / `PROV123!!` defaults exist for the
+> standard FOIA-RPMS dev image. **Never** ship a deployment that
+> falls through to those defaults — always set `RPMS_ACCESS_CODE`
+> and `RPMS_VERIFY_CODE` (or pass them explicitly to
+> `#authenticate`) for any host that talks to real PHI.
+
 ## Components
 
 | File                          | Purpose                                          |
@@ -101,6 +107,24 @@ client.disconnect
 | `RpmsRpc::XmlResponseParser`  | VistA RPC XML response parser                    |
 | `RpmsRpc::FilemanDateParser`  | FileMan ↔ Ruby Date/Time conversion              |
 | `RpmsRpc::PhiSanitizer`       | HIPAA-aligned log/error sanitizer                |
+
+### PhiSanitizer secret
+
+`RpmsRpc::PhiSanitizer` uses HMAC-SHA256 to hash patient identifiers
+into stable, non-reversible tokens for log lines. Under Rails it
+reads the secret from `Rails.application.secret_key_base`. Without
+Rails, set the secret explicitly so token hashes stay consistent
+across processes:
+
+```ruby
+RpmsRpc::PhiSanitizer.secret_key = ENV.fetch("PHI_SANITIZER_SECRET")
+```
+
+Leaving the secret unset is acceptable for local development
+(falls through to a fixed dev string), but **production deployments
+must set it** — otherwise log correlation across restarts and
+hosts breaks, and the dev fallback gives operators a false sense
+of unique tokens.
 
 ## CIA vs BMX
 
