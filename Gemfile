@@ -7,5 +7,5 @@ gemspec
 group :development, :test do
   gem "minitest", "~> 5.0"
   gem "rake", "~> 13.0"
-  gem "rubocop", require: false
+  gem "rubocop-rails-omakase", require: false
 end

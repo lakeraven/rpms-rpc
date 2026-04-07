@@ -5,8 +5,8 @@ require_relative "lib/rpms_rpc/version"
 Gem::Specification.new do |spec|
   spec.name        = "rpms-rpc"
   spec.version     = RpmsRpc::VERSION
-  spec.authors     = ["Lakeraven"]
-  spec.email       = ["eng@lakeraven.com"]
+  spec.authors     = [ "Lakeraven" ]
+  spec.email       = [ "eng@lakeraven.com" ]
   spec.homepage    = "https://github.com/lakeraven/rpms-rpc"
   spec.summary     = "Pure Ruby RPC client for VistA/RPMS (CIA/XWB and BMX protocols)"
   spec.description = "Pure Ruby gem providing wire-level access to VistA/RPMS RPC brokers " \
