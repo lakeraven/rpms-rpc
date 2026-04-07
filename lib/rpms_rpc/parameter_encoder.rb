@@ -18,12 +18,12 @@ module RpmsRpc
 
     def self.encode(param)
       value = case param
-              when nil   then ""
-              when true  then "true"
-              when false then "false"
-              when Array then param.map(&:to_s).join("\n")
-              else param.to_s
-              end
+      when nil   then ""
+      when true  then "true"
+      when false then "false"
+      when Array then param.map(&:to_s).join("\n")
+      else param.to_s
+      end
 
       byte_size = value.bytesize
       if byte_size > MAX_PARAM_LENGTH
