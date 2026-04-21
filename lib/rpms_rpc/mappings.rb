@@ -763,5 +763,24 @@ module RpmsRpc
       m.field 0, :direct_address
       m.field 1, :status
     end
+    # ========================================================================
+    # VFC ELIGIBILITY (BIPC*)
+    # ========================================================================
+
+    # BIPC ELIGGET — patient VFC eligibility code
+    # Format: CODE^LABEL
+    DataMapper.define(:vfc_eligibility) do |m|
+      m.rpc "BIPC ELIGGET"
+      m.field 0, :code
+      m.field 1, :label
+    end
+
+    # BIPC ELIGLIST — all VFC eligibility codes (multi-line)
+    # Format per line: CODE^LABEL
+    DataMapper.define(:vfc_eligibility_list) do |m|
+      m.rpc "BIPC ELIGLIST"
+      m.field 0, :code
+      m.field 1, :label
+    end
   end
 end
