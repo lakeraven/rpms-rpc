@@ -53,6 +53,26 @@ module RpmsRpc
         @fields << Field.new(position: position, attribute: attribute, type: type)
       end
 
+      # Declare a line-based field (one field per response line, not per caret).
+      # Used for RPCs like XUS AV CODE where each line has a distinct meaning.
+      def line_field(line_number, attribute, type = :string)
+        @line_fields ||= []
+        @line_fields << Field.new(position: line_number, attribute: attribute, type: type)
+      end
+
+      # Declare a scalar response (single value, no structure).
+      # Used for RPCs like ORWPT DIEDON that return one value.
+      def scalar(attribute, type = :string)
+        @scalar_attribute = attribute
+        @scalar_type = type
+      end
+
+      # Declare a text blob response (array of lines joined with newlines).
+      # Used for RPCs like ORWRP REPORT TEXT that return free text.
+      def text_blob(attribute)
+        @text_attribute = attribute
+      end
+
       # Parse a single-line RPC response into a hash.
       def parse_one(response, extras: {})
         line = normalize_line(response)
@@ -78,6 +98,38 @@ module RpmsRpc
           next if line.nil? || line.to_s.empty?
           parse_one(line)
         end
+      end
+
+      # Parse a line-based response where each LINE is a different field.
+      def parse_lines(response, extras: {})
+        return nil if response.nil? || response.empty?
+
+        result = {}
+        (@line_fields || []).each do |f|
+          raw = response[f.position]
+          result[f.attribute] = raw.nil? ? nil : coerce(raw.to_s, f.type)
+        end
+
+        extras.each { |k, v| result[k] = v }
+        result
+      end
+
+      # Parse a scalar response (single value).
+      def parse_scalar(response)
+        line = normalize_line(response)
+        return nil if line.nil? || line.empty?
+
+        coerce(line, @scalar_type || :string)
+      end
+
+      # Parse a text blob response (join lines with newlines).
+      def parse_text(response)
+        return nil if response.nil?
+        return nil if response.is_a?(Array) && response.empty?
+        return response if response.is_a?(String) && !response.empty?
+        return nil if response.is_a?(String) && response.empty?
+
+        response.join("\n")
       end
 
       private

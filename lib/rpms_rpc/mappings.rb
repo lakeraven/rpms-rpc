@@ -398,5 +398,370 @@ module RpmsRpc
       m.field 3, :status
       m.field 4, :last_done, :fileman_date
     end
+
+    # ORQQPX REMINDER DETAIL — single reminder detail (text blob)
+    DataMapper.define(:reminder_detail) do |m|
+      m.rpc "ORQQPX REMINDER DETAIL"
+      m.text_blob :detail_text
+    end
+
+    # ========================================================================
+    # SCALAR / BOOLEAN RPCs
+    # ========================================================================
+
+    # ORWPT DIEDON — deceased check (FileMan date or "0")
+    DataMapper.define(:patient_deceased) do |m|
+      m.rpc "ORWPT DIEDON"
+      m.scalar :deceased_date, :fileman_date
+    end
+
+    # ORWPT SELCHK — sensitive record check ("1" if sensitive)
+    DataMapper.define(:patient_sensitive) do |m|
+      m.rpc "ORWPT SELCHK"
+      m.scalar :sensitive, :boolean
+    end
+
+    # ORWU HASKEY — security key check
+    DataMapper.define(:user_has_key) do |m|
+      m.rpc "ORWU HASKEY"
+      m.scalar :has_key, :boolean
+    end
+
+    # ========================================================================
+    # LINE-BASED RESPONSES
+    # ========================================================================
+
+    # XUS SIGNON SETUP — signon setup (returns "OK" or error)
+    DataMapper.define(:signon_setup) do |m|
+      m.rpc "XUS SIGNON SETUP"
+      m.scalar :status, :string
+    end
+
+    # XUS AV CODE — authentication result (line-based)
+    # Line 0: DUZ (or 0 for failure)
+    # Line 1: 0
+    # Line 2: 0
+    # Line 3: greeting message
+    # Line 4: (blank)
+    # Line 5: number of tries remaining
+    DataMapper.define(:av_code) do |m|
+      m.rpc "XUS AV CODE"
+      m.line_field 0, :duz, :integer
+      m.line_field 3, :greeting
+      m.line_field 5, :tries, :integer
+    end
+
+    # XUS CVC — CVC verification
+    DataMapper.define(:cvc_verify) do |m|
+      m.rpc "XUS CVC"
+      m.scalar :verified, :boolean
+    end
+
+    # ORWU USERKEYS — user security keys (multi-line, one key per line)
+    DataMapper.define(:user_keys) do |m|
+      m.rpc "ORWU USERKEYS"
+      m.field 0, :key_name
+    end
+
+    # ========================================================================
+    # TEXT BLOB RESPONSES (free text reports)
+    # ========================================================================
+
+    # ORWRP REPORT TEXT — health summary report text
+    DataMapper.define(:report_text) do |m|
+      m.rpc "ORWRP REPORT TEXT"
+      m.text_blob :report_text
+    end
+
+    # ORWRP TYPE COMPONENTS — report type component list
+    DataMapper.define(:report_type_components) do |m|
+      m.rpc "ORWRP TYPE COMPONENTS"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+    end
+
+    # GMTS PWH REPORT — patient health summary report text
+    DataMapper.define(:health_summary_report) do |m|
+      m.rpc "GMTS PWH REPORT"
+      m.text_blob :report_text
+    end
+
+    # GMTS FLOWSHEET LIST — flowsheet items (multi-line)
+    DataMapper.define(:flowsheet_list) do |m|
+      m.rpc "GMTS FLOWSHEET LIST"
+      m.field 0, :ien
+      m.field 1, :name
+      m.field 2, :date, :fileman_date
+    end
+
+    # GMTS MAINT ITEMS — maintenance items (multi-line)
+    DataMapper.define(:maint_items) do |m|
+      m.rpc "GMTS MAINT ITEMS"
+      m.field 0, :ien
+      m.field 1, :name
+    end
+
+    # ORWLRR REPORT — full lab report text
+    DataMapper.define(:lab_report) do |m|
+      m.rpc "ORWLRR REPORT"
+      m.text_blob :report_text
+    end
+
+    # ORWLRR REPORT LIST — lab report list (multi-line)
+    DataMapper.define(:lab_report_list) do |m|
+      m.rpc "ORWLRR REPORT LIST"
+      m.field 0, :ien
+      m.field 1, :name
+      m.field 2, :date, :fileman_date
+    end
+
+    # ORWRA REPORT — full radiology report text
+    DataMapper.define(:radiology_report) do |m|
+      m.rpc "ORWRA REPORT"
+      m.text_blob :report_text
+    end
+
+    # ========================================================================
+    # CLINICAL DETAIL (single-record GET RPCs)
+    # ========================================================================
+
+    # ORQQPS DETAIL — medication detail (text blob)
+    DataMapper.define(:medication_detail) do |m|
+      m.rpc "ORQQPS DETAIL"
+      m.text_blob :detail_text
+    end
+
+    # ORQQCP GET — single care plan
+    DataMapper.define(:care_plan_detail) do |m|
+      m.rpc "ORQQCP GET"
+      m.field 0, :ien
+      m.field 1, :title
+      m.field 2, :status
+      m.field 3, :start_date, :fileman_date
+      m.field 4, :author
+      m.field 5, :description
+    end
+
+    # ORQQCT GET — single care team member
+    DataMapper.define(:care_team_detail) do |m|
+      m.rpc "ORQQCT GET"
+      m.field 0, :ien
+      m.field 1, :name
+      m.field 2, :role
+      m.field 3, :start_date, :fileman_date
+      m.field 4, :phone
+    end
+
+    # ORQQGO GET — single goal
+    DataMapper.define(:goal_detail) do |m|
+      m.rpc "ORQQGO GET"
+      m.field 0, :ien
+      m.field 1, :description
+      m.field 2, :status
+      m.field 3, :target_date, :fileman_date
+      m.field 4, :author
+    end
+
+    # ORWPCE PROCEDURE GET — single procedure
+    DataMapper.define(:procedure_detail) do |m|
+      m.rpc "ORWPCE PROCEDURE GET"
+      m.field 0, :ien
+      m.field 1, :name
+      m.field 2, :date,     :fileman_date
+      m.field 3, :provider
+      m.field 4, :status
+      m.field 5, :cpt_code
+    end
+
+    # ORWPCE IMPLANT GET — single implanted device
+    DataMapper.define(:device_detail) do |m|
+      m.rpc "ORWPCE IMPLANT GET"
+      m.field 0, :ien
+      m.field 1, :device_name
+      m.field 2, :implant_date, :fileman_date
+      m.field 3, :status
+      m.field 4, :udi
+      m.field 5, :manufacturer
+    end
+
+    # ========================================================================
+    # REFERRAL DETAIL & WRITE RPCs (BMCRPC*)
+    # ========================================================================
+
+    # BMCRPC GTRFBYID — single referral detail
+    DataMapper.define(:referral_detail) do |m|
+      m.rpc "BMCRPC GTRFBYID"
+      m.field 0, :ien
+      m.field 1, :patient_dfn, :integer
+      m.field 2, :status
+      m.field 3, :type
+      m.field 4, :date,     :fileman_date
+      m.field 5, :provider
+      m.field 6, :facility
+      m.field 7, :notes
+    end
+
+    # BMCRPC DELREFRL — referral deletion result
+    DataMapper.define(:referral_delete) do |m|
+      m.rpc "BMCRPC DELREFRL"
+      m.field 0, :success, :boolean
+      m.field 1, :message
+    end
+
+    # ========================================================================
+    # PATIENT RECENT LIST & AGG EDITING (ORWPT*, BEHOENCX*)
+    # ========================================================================
+
+    # ORWPT LIST RECENT — recent patients (multi-line)
+    # Format: DFN^NAME^LAST_ACCESSED
+    DataMapper.define(:patient_recent) do |m|
+      m.rpc "ORWPT LIST RECENT"
+      m.field 0, :dfn, :integer
+      m.field 1, :name
+      m.field 2, :last_accessed
+    end
+
+    # ORWPT SAVE RECENT — write-only (success/failure)
+    DataMapper.define(:patient_save_recent) do |m|
+      m.rpc "ORWPT SAVE RECENT"
+      m.scalar :success, :boolean
+    end
+
+    # BEHOENCX GET SECTION — section data (text blob, parsed by caller)
+    DataMapper.define(:section_data) do |m|
+      m.rpc "BEHOENCX GET SECTION"
+      m.text_blob :section_text
+    end
+
+    # BEHOENCX SAVE SECTION — write result
+    DataMapper.define(:section_save) do |m|
+      m.rpc "BEHOENCX SAVE SECTION"
+      m.scalar :success, :boolean
+    end
+
+    # BEHOENCX GET SECDEF — section definition (text blob, parsed by caller)
+    DataMapper.define(:section_definition) do |m|
+      m.rpc "BEHOENCX GET SECDEF"
+      m.text_blob :definition_text
+    end
+
+    # BEHOENCX LOCK — patient lock result
+    DataMapper.define(:patient_lock) do |m|
+      m.rpc "BEHOENCX LOCK"
+      m.field 0, :success, :boolean
+      m.field 1, :lock_id
+      m.field 2, :message
+    end
+
+    # BEHOENCX UNLOCK — patient unlock (boolean)
+    DataMapper.define(:patient_unlock) do |m|
+      m.rpc "BEHOENCX UNLOCK"
+      m.scalar :success, :boolean
+    end
+
+    # ========================================================================
+    # SECURITY KEY MANAGEMENT (XU KEY*)
+    # ========================================================================
+
+    # XU KEY LIST — key list (multi-line)
+    DataMapper.define(:key_list) do |m|
+      m.rpc "XU KEY LIST"
+      m.field 0, :key_name
+      m.field 1, :key_ien, :integer
+    end
+
+    # XU KEY GRANT — grant result
+    DataMapper.define(:key_grant) do |m|
+      m.rpc "XU KEY GRANT"
+      m.field 0, :success, :boolean
+      m.field 1, :message
+    end
+
+    # XU KEY REVOKE — revoke result
+    DataMapper.define(:key_revoke) do |m|
+      m.rpc "XU KEY REVOKE"
+      m.field 0, :success, :boolean
+      m.field 1, :message
+    end
+
+    # ========================================================================
+    # PHARMACY / E-PRESCRIBING (PSO*)
+    # ========================================================================
+
+    # PSO NEW RX — new prescription result
+    DataMapper.define(:prescription_new) do |m|
+      m.rpc "PSO NEW RX"
+      m.field 0, :success, :boolean
+      m.field 1, :rx_ien_or_error
+    end
+
+    # PSO ERX STATUS — e-prescribe status
+    DataMapper.define(:erx_status) do |m|
+      m.rpc "PSO ERX STATUS"
+      m.field 0, :status
+      m.field 1, :message
+    end
+
+    # PSO CANCEL RX — cancellation result
+    DataMapper.define(:prescription_cancel) do |m|
+      m.rpc "PSO CANCEL RX"
+      m.field 0, :success, :boolean
+      m.field 1, :message
+    end
+
+    # ========================================================================
+    # PHR / CCD (BEHOCCD*, BPHR*, BEHOCIR*)
+    # ========================================================================
+
+    # BEHOCCD PHR — CCD document (text blob)
+    DataMapper.define(:ccd_document) do |m|
+      m.rpc "BEHOCCD PHR"
+      m.text_blob :ccd_xml
+    end
+
+    # BEHOCCD GETREF — referral CCD (text blob)
+    DataMapper.define(:ccd_referral) do |m|
+      m.rpc "BEHOCCD GETREF"
+      m.text_blob :ccd_xml
+    end
+
+    # BEHOCIR GETTXT — immunization text
+    DataMapper.define(:immunization_text) do |m|
+      m.rpc "BEHOCIR GETTXT"
+      m.text_blob :immunization_text
+    end
+
+    # BEHOCIR GETNUM — immunization count
+    DataMapper.define(:immunization_count) do |m|
+      m.rpc "BEHOCIR GETNUM"
+      m.scalar :count, :integer
+    end
+
+    # BPHR RECORD ACCESS — PHR access check
+    DataMapper.define(:phr_access) do |m|
+      m.rpc "BPHR RECORD ACCESS"
+      m.scalar :has_access, :boolean
+    end
+
+    # BPHR PATIENT DIRECT — patient direct messaging
+    DataMapper.define(:phr_patient_direct) do |m|
+      m.rpc "BPHR PATIENT DIRECT"
+      m.field 0, :direct_address
+      m.field 1, :status
+    end
+
+    # BPHR PROVIDER DIRECT — provider direct messaging
+    DataMapper.define(:phr_provider_direct) do |m|
+      m.rpc "BPHR PROVIDER DIRECT"
+      m.field 0, :direct_address
+      m.field 1, :status
+    end
+
+    # BPHR FACILITY DIRECT — facility direct messaging
+    DataMapper.define(:phr_facility_direct) do |m|
+      m.rpc "BPHR FACILITY DIRECT"
+      m.field 0, :direct_address
+      m.field 1, :status
+    end
   end
 end
