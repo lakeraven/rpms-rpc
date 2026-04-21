@@ -1,0 +1,334 @@
+# frozen_string_literal: true
+
+require "minitest/autorun"
+require "date"
+require "rpms_rpc/mappings"
+
+class RpmsRpc::MappingsTest < Minitest::Test
+  # -- ORWPT SELECT ----------------------------------------------------------
+
+  def test_patient_select_parses_full_response
+    m = RpmsRpc::DataMapper[:patient_select]
+    result = m.parse_one("DOE,JOHN^M^2800115^111223333^^^^^^^^^^^45", extras: { dfn: 1 })
+
+    assert_equal 1, result[:dfn]
+    assert_equal "DOE,JOHN", result[:name]
+    assert_equal "M", result[:sex]
+    assert_equal Date.new(1980, 1, 15), result[:dob]
+    assert_equal "111223333", result[:ssn]
+    assert_equal 45, result[:age]
+  end
+
+  # -- ORWPT ID INFO ---------------------------------------------------------
+
+  def test_patient_id_info_parses_extended_fields
+    m = RpmsRpc::DataMapper[:patient_id_info]
+    result = m.parse_one("DOE,JOHN^M^2800115^111223333^AMERICAN INDIAN^123 Main St^Anchorage^AK^99501^907-555-1234^ANLC-12345^Anchorage^IHS")
+
+    assert_equal "AMERICAN INDIAN", result[:race]
+    assert_equal "123 Main St", result[:address_line1]
+    assert_equal "Anchorage", result[:city]
+    assert_equal "AK", result[:state]
+    assert_equal "99501", result[:zip_code]
+    assert_equal "907-555-1234", result[:phone]
+    assert_equal "ANLC-12345", result[:tribal_enrollment_number]
+    assert_equal "Anchorage", result[:service_area]
+    assert_equal "IHS", result[:coverage_type]
+  end
+
+  # -- SELECT + ID INFO merge ------------------------------------------------
+
+  def test_patient_merge
+    base = RpmsRpc::DataMapper[:patient_select].parse_one("DOE,JOHN^M^2800115^111223333^^^^^^^^^^^45", extras: { dfn: 1 })
+    ext = RpmsRpc::DataMapper[:patient_id_info].parse_one("DOE,JOHN^M^2800115^111223333^AMERICAN INDIAN^123 Main St^Anchorage^AK^99501^907-555-1234")
+    merged = base.merge(ext)
+
+    assert_equal 1, merged[:dfn]
+    assert_equal "DOE,JOHN", merged[:name]
+    assert_equal "AMERICAN INDIAN", merged[:race]
+    assert_equal "907-555-1234", merged[:phone]
+  end
+
+  # -- ORWPT LIST ALL --------------------------------------------------------
+
+  def test_patient_list
+    results = RpmsRpc::DataMapper[:patient_list].parse_many([ "1^DOE,JOHN", "2^SMITH,JANE" ])
+    assert_equal 2, results.size
+    assert_equal 1, results[0][:dfn]
+    assert_equal "SMITH,JANE", results[1][:name]
+  end
+
+  # -- ORWPT FULLSSN ---------------------------------------------------------
+
+  def test_patient_ssn
+    result = RpmsRpc::DataMapper[:patient_ssn].parse_one("42^DOE,JOHN^^111223333")
+    assert_equal 42, result[:dfn]
+    assert_equal "111223333", result[:ssn]
+  end
+
+  # -- ORWPT APPTLST ---------------------------------------------------------
+
+  def test_patient_appointments
+    results = RpmsRpc::DataMapper[:patient_appointments].parse_many([ "3260415.1000^1^Primary Care^KEPT" ])
+    assert_equal 1, results.size
+    assert_equal "Primary Care", results[0][:location]
+    assert_equal "KEPT", results[0][:status]
+  end
+
+  # -- ORQQAL LIST -----------------------------------------------------------
+
+  def test_allergy_list
+    results = RpmsRpc::DataMapper[:allergy_list].parse_many([ "PENICILLIN^RASH^MODERATE", "ASPIRIN^HIVES^SEVERE" ])
+    assert_equal 2, results.size
+    assert_equal "PENICILLIN", results[0][:allergen]
+    assert_equal "SEVERE", results[1][:severity]
+  end
+
+  # -- ORQQPL LIST -----------------------------------------------------------
+
+  def test_problem_list
+    result = RpmsRpc::DataMapper[:problem_list].parse_many([ "123^ACTIVE^Diabetes Type 2^E11.9^3200101^3250301^101" ]).first
+    assert_equal "123", result[:ien]
+    assert_equal "ACTIVE", result[:status]
+    assert_equal "E11.9", result[:icd_code]
+    assert_equal Date.new(2020, 1, 1), result[:onset_date]
+  end
+
+  # -- ORQQVI VITALS ---------------------------------------------------------
+
+  def test_vitals
+    results = RpmsRpc::DataMapper[:vitals].parse_many([ "BLOOD PRESSURE^120/80^mmHg^3260401" ])
+    assert_equal "BLOOD PRESSURE", results[0][:type]
+    assert_equal "120/80", results[0][:value]
+  end
+
+  # -- BHDPTRPC TRIBAL -------------------------------------------------------
+
+  def test_tribal_enrollment
+    result = RpmsRpc::DataMapper[:tribal_enrollment].parse_one("ANLC-12345^Alaska Native - Anchorage (ANLC)^3200101^ACTIVE^Anchorage^ANLC")
+    assert_equal "ANLC-12345", result[:enrollment_number]
+    assert_equal "Alaska Native - Anchorage (ANLC)", result[:tribe_name]
+    assert_equal "ACTIVE", result[:status]
+    assert_equal "ANLC", result[:tribe_code]
+  end
+
+  # -- BHDPTRPC TRIBALVAL ----------------------------------------------------
+
+  def test_tribal_validation
+    result = RpmsRpc::DataMapper[:tribal_validation].parse_one("1^ANLC^12345^ACTIVE^Valid enrollment")
+    assert_equal true, result[:valid]
+    assert_equal "ANLC", result[:tribe_code]
+    assert_equal "Valid enrollment", result[:message]
+  end
+
+  # -- BHDPTRPC TRIBELIST ----------------------------------------------------
+
+  def test_tribe_info
+    result = RpmsRpc::DataMapper[:tribe_info].parse_one("100^Alaska Native - Anchorage (ANLC)^ANLC^Anchorage^Alaska^Alaska Area")
+    assert_equal 100, result[:ien]
+    assert_equal "ANLC", result[:code]
+    assert_equal "Alaska Area", result[:area]
+  end
+
+  # -- BHDPTRPC TRIBALELG ----------------------------------------------------
+
+  def test_enrollment_eligibility
+    result = RpmsRpc::DataMapper[:enrollment_eligibility].parse_one("1^1^Anchorage^Eligible for IHS services^BASIC")
+    assert_equal true, result[:active]
+    assert_equal true, result[:eligible_for_ihs]
+    assert_equal "BASIC", result[:benefit_package]
+  end
+
+  # -- BHDPTRPC SU -----------------------------------------------------------
+
+  def test_service_unit
+    result = RpmsRpc::DataMapper[:service_unit].parse_one("1^Anchorage^Alaska")
+    assert_equal 1, result[:ien]
+    assert_equal "Anchorage", result[:name]
+    assert_equal "Alaska", result[:region]
+  end
+
+  # -- BHDPTRPC REGISTER ----------------------------------------------------
+
+  def test_patient_register_success
+    result = RpmsRpc::DataMapper[:patient_register].parse_one("1^42")
+    assert_equal true, result[:success]
+    assert_equal "42", result[:dfn_or_error]
+  end
+
+  def test_patient_register_failure
+    result = RpmsRpc::DataMapper[:patient_register].parse_one("0^Duplicate SSN")
+    assert_equal false, result[:success]
+    assert_equal "Duplicate SSN", result[:dfn_or_error]
+  end
+
+  # -- ORWU USERINFO ---------------------------------------------------------
+
+  def test_practitioner_info
+    result = RpmsRpc::DataMapper[:practitioner_info].parse_one(
+      "MARTINEZ,SARAH^MD^Internal Medicine^Cardiology^1234567890^AB1234567^907-555-9999^Physician",
+      extras: { ien: 101 }
+    )
+    assert_equal 101, result[:ien]
+    assert_equal "MARTINEZ,SARAH", result[:name]
+    assert_equal "Cardiology", result[:specialty]
+    assert_equal "1234567890", result[:npi]
+    assert_equal "Physician", result[:provider_class]
+  end
+
+  # -- ORWU NEWPERS ----------------------------------------------------------
+
+  def test_practitioner_list
+    results = RpmsRpc::DataMapper[:practitioner_list].parse_many([ "101^MARTINEZ,SARAH^MD", "102^CHEN,JAMES^DO" ])
+    assert_equal 2, results.size
+    assert_equal 101, results[0][:ien]
+    assert_equal "DO", results[1][:title]
+  end
+
+  # -- ORQQPS LIST -----------------------------------------------------------
+
+  def test_medication_list
+    result = RpmsRpc::DataMapper[:medication_list].parse_many([ "456^METFORMIN 500MG^TAKE ONE TABLET BY MOUTH TWICE DAILY^ACTIVE^3260101^3^MARTINEZ" ]).first
+    assert_equal "METFORMIN 500MG", result[:drug_name]
+    assert_equal "ACTIVE", result[:status]
+    assert_equal 3, result[:refills]
+  end
+
+  # -- BHDO HOSP LOC DATA ---------------------------------------------------
+
+  def test_hospital_location
+    result = RpmsRpc::DataMapper[:hospital_location].parse_one("1^Primary Care Clinic^PCC^C^101")
+    assert_equal 1, result[:ien]
+    assert_equal "Primary Care Clinic", result[:name]
+    assert_equal "PCC", result[:abbreviation]
+  end
+
+  # -- BHDO INST DATA --------------------------------------------------------
+
+  def test_institution
+    result = RpmsRpc::DataMapper[:institution].parse_one("1^Alaska Native Medical Center^463^4315 Diplomacy Dr^Anchorage^AK^99508^907-729-1900")
+    assert_equal 1, result[:ien]
+    assert_equal "463", result[:station_number]
+    assert_equal "AK", result[:state]
+  end
+
+  # -- XUS GET USER INFO -----------------------------------------------------
+
+  def test_user_info
+    result = RpmsRpc::DataMapper[:user_info].parse_one("101^MARTINEZ,SARAH^PROVIDER^1^1^PHYSICIAN")
+    assert_equal 101, result[:duz]
+    assert_equal true, result[:can_sign]
+    assert_equal true, result[:is_provider]
+  end
+
+  # -- Scalar RPCs -----------------------------------------------------------
+
+  def test_patient_deceased_scalar
+    m = RpmsRpc::DataMapper[:patient_deceased]
+    assert_equal Date.new(2025, 3, 15), m.parse_scalar("3250315")
+    assert_nil m.parse_scalar("0")
+  end
+
+  def test_patient_sensitive_scalar
+    m = RpmsRpc::DataMapper[:patient_sensitive]
+    assert_equal true, m.parse_scalar("1")
+    assert_equal false, m.parse_scalar("0")
+  end
+
+  def test_user_has_key_scalar
+    m = RpmsRpc::DataMapper[:user_has_key]
+    assert_equal true, m.parse_scalar("1")
+  end
+
+  # -- Line-based RPCs -------------------------------------------------------
+
+  def test_av_code_line_based
+    m = RpmsRpc::DataMapper[:av_code]
+    result = m.parse_lines([ "101", "0", "0", "Welcome to RPMS", "", "3" ])
+    assert_equal 101, result[:duz]
+    assert_equal "Welcome to RPMS", result[:greeting]
+    assert_equal 3, result[:tries]
+  end
+
+  def test_av_code_failure
+    m = RpmsRpc::DataMapper[:av_code]
+    result = m.parse_lines([ "0", "0", "0", "Not a valid ACCESS CODE/VERIFY CODE pair.", "", "2" ])
+    assert_equal 0, result[:duz]
+    assert_equal 2, result[:tries]
+  end
+
+  # -- Text blob RPCs --------------------------------------------------------
+
+  def test_report_text_blob
+    m = RpmsRpc::DataMapper[:report_text]
+    text = m.parse_text([ "Patient: DOE,JOHN", "Date: 2025-03-15", "Vitals normal." ])
+    assert_equal "Patient: DOE,JOHN\nDate: 2025-03-15\nVitals normal.", text
+  end
+
+  def test_lab_report_blob
+    m = RpmsRpc::DataMapper[:lab_report]
+    text = m.parse_text([ "CBC Results", "WBC: 7.2" ])
+    assert_equal "CBC Results\nWBC: 7.2", text
+  end
+
+  # -- Write result RPCs -----------------------------------------------------
+
+  def test_referral_delete
+    result = RpmsRpc::DataMapper[:referral_delete].parse_one("1^Referral deleted")
+    assert_equal true, result[:success]
+    assert_equal "Referral deleted", result[:message]
+  end
+
+  def test_key_grant
+    result = RpmsRpc::DataMapper[:key_grant].parse_one("1^Key granted")
+    assert_equal true, result[:success]
+  end
+
+  def test_prescription_new
+    result = RpmsRpc::DataMapper[:prescription_new].parse_one("1^12345")
+    assert_equal true, result[:success]
+    assert_equal "12345", result[:rx_ien_or_error]
+  end
+
+  # -- PHR RPCs --------------------------------------------------------------
+
+  def test_immunization_count
+    assert_equal 5, RpmsRpc::DataMapper[:immunization_count].parse_scalar("5")
+  end
+
+  def test_phr_access
+    assert_equal true, RpmsRpc::DataMapper[:phr_access].parse_scalar("1")
+  end
+
+  # -- Registry completeness -------------------------------------------------
+
+  def test_all_expected_mappings_registered
+    expected = %i[
+      patient_select patient_id_info patient_list patient_ssn
+      patient_appointments allergy_list problem_list vitals
+      tribal_enrollment tribal_validation tribe_info enrollment_eligibility
+      service_unit patient_register patient_update encounter_create
+      practitioner_info practitioner_list
+      medication_list care_plan_list care_team_list goal_list
+      procedure_list device_list lab_result_list radiology_list
+      hospital_location institution referral_search site_params
+      user_info report_types reminders_list
+      reminder_detail patient_deceased patient_sensitive user_has_key
+      signon_setup av_code cvc_verify user_keys
+      report_text report_type_components health_summary_report
+      flowsheet_list maint_items lab_report lab_report_list radiology_report
+      medication_detail care_plan_detail care_team_detail goal_detail
+      procedure_detail device_detail referral_detail referral_delete
+      patient_recent patient_save_recent
+      section_data section_save section_definition patient_lock patient_unlock
+      key_list key_grant key_revoke
+      prescription_new erx_status prescription_cancel
+      ccd_document ccd_referral immunization_text immunization_count
+      phr_access phr_patient_direct phr_provider_direct phr_facility_direct
+    ]
+
+    expected.each do |name|
+      assert RpmsRpc::DataMapper[name], "Missing mapping: #{name}"
+    end
+  end
+end
