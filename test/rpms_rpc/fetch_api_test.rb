@@ -15,7 +15,7 @@ class RpmsRpc::FetchApiTest < Minitest::Test
     attr_reader :calls
 
     def call_rpc(rpc_name, *params)
-      @calls << [rpc_name, *params]
+      @calls << [ rpc_name, *params ]
       @responses[rpc_name] || ""
     end
   end
@@ -44,11 +44,11 @@ class RpmsRpc::FetchApiTest < Minitest::Test
   # -- fetch_one -------------------------------------------------------------
 
   def test_fetch_one_calls_rpc_and_parses
-    client = MockClient.new("ORWPT SELECT" => ["DOE,JOHN^M^2800115^111223333^^^^^^^^^^^45"])
+    client = MockClient.new("ORWPT SELECT" => [ "DOE,JOHN^M^2800115^111223333^^^^^^^^^^^45" ])
 
     result = RpmsRpc::DataMapper.patient_select.fetch_one(client, "1", extras: { dfn: 1 })
 
-    assert_equal [["ORWPT SELECT", "1"]], client.calls
+    assert_equal [ [ "ORWPT SELECT", "1" ] ], client.calls
     assert_equal "DOE,JOHN", result[:name]
     assert_equal "M", result[:sex]
     assert_equal 1, result[:dfn]
@@ -62,20 +62,20 @@ class RpmsRpc::FetchApiTest < Minitest::Test
   end
 
   def test_fetch_one_passes_multiple_params
-    client = MockClient.new("ORWPT LIST ALL" => ["1^DOE,JOHN"])
+    client = MockClient.new("ORWPT LIST ALL" => [ "1^DOE,JOHN" ])
 
     RpmsRpc::DataMapper.patient_list.fetch_one(client, "DOE", "1")
-    assert_equal [["ORWPT LIST ALL", "DOE", "1"]], client.calls
+    assert_equal [ [ "ORWPT LIST ALL", "DOE", "1" ] ], client.calls
   end
 
   # -- fetch_many ------------------------------------------------------------
 
   def test_fetch_many_calls_rpc_and_parses_array
-    client = MockClient.new("ORQQAL LIST" => ["PENICILLIN^RASH^MODERATE", "ASPIRIN^HIVES^SEVERE"])
+    client = MockClient.new("ORQQAL LIST" => [ "PENICILLIN^RASH^MODERATE", "ASPIRIN^HIVES^SEVERE" ])
 
     results = RpmsRpc::DataMapper.allergy_list.fetch_many(client, "1")
 
-    assert_equal [["ORQQAL LIST", "1"]], client.calls
+    assert_equal [ [ "ORQQAL LIST", "1" ] ], client.calls
     assert_equal 2, results.size
     assert_equal "PENICILLIN", results[0][:allergen]
     assert_equal "ASPIRIN", results[1][:allergen]
@@ -89,7 +89,7 @@ class RpmsRpc::FetchApiTest < Minitest::Test
   end
 
   def test_fetch_many_for_patient_list
-    client = MockClient.new("ORWPT LIST ALL" => ["1^DOE,JOHN", "2^SMITH,JANE"])
+    client = MockClient.new("ORWPT LIST ALL" => [ "1^DOE,JOHN", "2^SMITH,JANE" ])
 
     results = RpmsRpc::DataMapper.patient_list.fetch_many(client, "DOE", "1")
 
@@ -117,7 +117,7 @@ class RpmsRpc::FetchApiTest < Minitest::Test
   # -- fetch_text ------------------------------------------------------------
 
   def test_fetch_text_calls_rpc_and_joins_lines
-    client = MockClient.new("ORWRP REPORT TEXT" => ["Line 1", "Line 2", "Line 3"])
+    client = MockClient.new("ORWRP REPORT TEXT" => [ "Line 1", "Line 2", "Line 3" ])
 
     result = RpmsRpc::DataMapper.report_text.fetch_text(client, "1")
     assert_equal "Line 1\nLine 2\nLine 3", result
@@ -133,7 +133,7 @@ class RpmsRpc::FetchApiTest < Minitest::Test
   # -- fetch_lines -----------------------------------------------------------
 
   def test_fetch_lines_calls_rpc_and_parses_by_line
-    client = MockClient.new("XUS AV CODE" => ["101", "0", "0", "Welcome", "", "3"])
+    client = MockClient.new("XUS AV CODE" => [ "101", "0", "0", "Welcome", "", "3" ])
 
     result = RpmsRpc::DataMapper.av_code.fetch_lines(client, "access;verify")
 
