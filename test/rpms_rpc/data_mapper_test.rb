@@ -162,13 +162,13 @@ class RpmsRpc::DataMapperTest < Minitest::Test
   # -- Merge (multi-RPC) ----------------------------------------------------
 
   def test_merge_combines_two_parsed_hashes
-    select_mapping = RpmsRpc::DataMapper.define(:patient_select) do
+    select_mapping = RpmsRpc::DataMapper.define(:merge_test_select) do
       rpc "ORWPT SELECT"
       field 0, :name
       field 1, :sex
     end
 
-    id_info_mapping = RpmsRpc::DataMapper.define(:patient_id_info) do
+    id_info_mapping = RpmsRpc::DataMapper.define(:merge_test_id_info) do
       rpc "ORWPT ID INFO"
       field 4, :race
       field 5, :address_line1
