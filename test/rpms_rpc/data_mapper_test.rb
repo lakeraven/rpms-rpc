@@ -8,7 +8,7 @@ class RpmsRpc::DataMapperTest < Minitest::Test
   # -- DSL declaration -------------------------------------------------------
 
   def test_define_creates_a_named_mapping
-    mapping = RpmsRpc::DataMapper.define(:patient_select) do
+    mapping = RpmsRpc::DataMapper.define(:dm_test_select) do
       rpc "ORWPT SELECT"
       field 0, :name
       field 1, :sex
@@ -17,7 +17,7 @@ class RpmsRpc::DataMapperTest < Minitest::Test
       field 14, :age, :integer
     end
 
-    assert_equal :patient_select, mapping.name
+    assert_equal :dm_test_select, mapping.name
     assert_equal "ORWPT SELECT", mapping.rpc_name
     assert_equal 5, mapping.fields.size
   end
@@ -43,7 +43,7 @@ class RpmsRpc::DataMapperTest < Minitest::Test
   # -- Single-line parsing ---------------------------------------------------
 
   def test_parse_one_extracts_fields_from_caret_delimited_line
-    mapping = RpmsRpc::DataMapper.define(:patient_select) do
+    mapping = RpmsRpc::DataMapper.define(:dm_test_select) do
       rpc "ORWPT SELECT"
       field 0, :name
       field 1, :sex
@@ -123,7 +123,7 @@ class RpmsRpc::DataMapperTest < Minitest::Test
   # -- Multi-line parsing (search results) -----------------------------------
 
   def test_parse_many_extracts_array_of_hashes
-    mapping = RpmsRpc::DataMapper.define(:patient_list) do
+    mapping = RpmsRpc::DataMapper.define(:dm_test_list) do
       rpc "ORWPT LIST ALL"
       field 0, :dfn, :integer
       field 1, :name
@@ -202,12 +202,12 @@ class RpmsRpc::DataMapperTest < Minitest::Test
   # -- Registry lookup -------------------------------------------------------
 
   def test_registry_stores_and_retrieves_mappings
-    RpmsRpc::DataMapper.define(:registry_test) do
+    RpmsRpc::DataMapper.define(:dm_test_registry) do
       rpc "TEST"
       field 0, :name
     end
 
-    mapping = RpmsRpc::DataMapper[:registry_test]
+    mapping = RpmsRpc::DataMapper[:dm_test_registry]
     assert_equal "TEST", mapping.rpc_name
   end
 end
