@@ -105,7 +105,7 @@ class RpmsRpc::DataMapperTest < Minitest::Test
       field 0, :name
     end
 
-    result = mapping.parse_one(["DOE,JOHN^M"])
+    result = mapping.parse_one([ "DOE,JOHN^M" ])
     assert_equal "DOE,JOHN", result[:name]
   end
 
@@ -129,7 +129,7 @@ class RpmsRpc::DataMapperTest < Minitest::Test
       field 1, :name
     end
 
-    lines = ["1^DOE,JOHN", "2^SMITH,JANE"]
+    lines = [ "1^DOE,JOHN", "2^SMITH,JANE" ]
     results = mapping.parse_many(lines)
 
     assert_equal 2, results.size
@@ -145,7 +145,7 @@ class RpmsRpc::DataMapperTest < Minitest::Test
       field 0, :name
     end
 
-    results = mapping.parse_many(["DOE,JOHN", "", "SMITH,JANE"])
+    results = mapping.parse_many([ "DOE,JOHN", "", "SMITH,JANE" ])
     assert_equal 2, results.size
   end
 

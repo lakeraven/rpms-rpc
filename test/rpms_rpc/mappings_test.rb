@@ -52,7 +52,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- ORWPT LIST ALL --------------------------------------------------------
 
   def test_patient_list
-    results = RpmsRpc::DataMapper[:patient_list].parse_many(["1^DOE,JOHN", "2^SMITH,JANE"])
+    results = RpmsRpc::DataMapper[:patient_list].parse_many([ "1^DOE,JOHN", "2^SMITH,JANE" ])
     assert_equal 2, results.size
     assert_equal 1, results[0][:dfn]
     assert_equal "SMITH,JANE", results[1][:name]
@@ -69,7 +69,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- ORWPT APPTLST ---------------------------------------------------------
 
   def test_patient_appointments
-    results = RpmsRpc::DataMapper[:patient_appointments].parse_many(["3260415.1000^1^Primary Care^KEPT"])
+    results = RpmsRpc::DataMapper[:patient_appointments].parse_many([ "3260415.1000^1^Primary Care^KEPT" ])
     assert_equal 1, results.size
     assert_equal "Primary Care", results[0][:location]
     assert_equal "KEPT", results[0][:status]
@@ -78,7 +78,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- ORQQAL LIST -----------------------------------------------------------
 
   def test_allergy_list
-    results = RpmsRpc::DataMapper[:allergy_list].parse_many(["PENICILLIN^RASH^MODERATE", "ASPIRIN^HIVES^SEVERE"])
+    results = RpmsRpc::DataMapper[:allergy_list].parse_many([ "PENICILLIN^RASH^MODERATE", "ASPIRIN^HIVES^SEVERE" ])
     assert_equal 2, results.size
     assert_equal "PENICILLIN", results[0][:allergen]
     assert_equal "SEVERE", results[1][:severity]
@@ -87,7 +87,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- ORQQPL LIST -----------------------------------------------------------
 
   def test_problem_list
-    result = RpmsRpc::DataMapper[:problem_list].parse_many(["123^ACTIVE^Diabetes Type 2^E11.9^3200101^3250301^101"]).first
+    result = RpmsRpc::DataMapper[:problem_list].parse_many([ "123^ACTIVE^Diabetes Type 2^E11.9^3200101^3250301^101" ]).first
     assert_equal "123", result[:ien]
     assert_equal "ACTIVE", result[:status]
     assert_equal "E11.9", result[:icd_code]
@@ -97,7 +97,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- ORQQVI VITALS ---------------------------------------------------------
 
   def test_vitals
-    results = RpmsRpc::DataMapper[:vitals].parse_many(["BLOOD PRESSURE^120/80^mmHg^3260401"])
+    results = RpmsRpc::DataMapper[:vitals].parse_many([ "BLOOD PRESSURE^120/80^mmHg^3260401" ])
     assert_equal "BLOOD PRESSURE", results[0][:type]
     assert_equal "120/80", results[0][:value]
   end
@@ -179,7 +179,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- ORWU NEWPERS ----------------------------------------------------------
 
   def test_practitioner_list
-    results = RpmsRpc::DataMapper[:practitioner_list].parse_many(["101^MARTINEZ,SARAH^MD", "102^CHEN,JAMES^DO"])
+    results = RpmsRpc::DataMapper[:practitioner_list].parse_many([ "101^MARTINEZ,SARAH^MD", "102^CHEN,JAMES^DO" ])
     assert_equal 2, results.size
     assert_equal 101, results[0][:ien]
     assert_equal "DO", results[1][:title]
@@ -188,7 +188,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- ORQQPS LIST -----------------------------------------------------------
 
   def test_medication_list
-    result = RpmsRpc::DataMapper[:medication_list].parse_many(["456^METFORMIN 500MG^TAKE ONE TABLET BY MOUTH TWICE DAILY^ACTIVE^3260101^3^MARTINEZ"]).first
+    result = RpmsRpc::DataMapper[:medication_list].parse_many([ "456^METFORMIN 500MG^TAKE ONE TABLET BY MOUTH TWICE DAILY^ACTIVE^3260101^3^MARTINEZ" ]).first
     assert_equal "METFORMIN 500MG", result[:drug_name]
     assert_equal "ACTIVE", result[:status]
     assert_equal 3, result[:refills]
@@ -244,7 +244,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
   def test_av_code_line_based
     m = RpmsRpc::DataMapper[:av_code]
-    result = m.parse_lines(["101", "0", "0", "Welcome to RPMS", "", "3"])
+    result = m.parse_lines([ "101", "0", "0", "Welcome to RPMS", "", "3" ])
     assert_equal 101, result[:duz]
     assert_equal "Welcome to RPMS", result[:greeting]
     assert_equal 3, result[:tries]
@@ -252,7 +252,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
   def test_av_code_failure
     m = RpmsRpc::DataMapper[:av_code]
-    result = m.parse_lines(["0", "0", "0", "Not a valid ACCESS CODE/VERIFY CODE pair.", "", "2"])
+    result = m.parse_lines([ "0", "0", "0", "Not a valid ACCESS CODE/VERIFY CODE pair.", "", "2" ])
     assert_equal 0, result[:duz]
     assert_equal 2, result[:tries]
   end
@@ -261,13 +261,13 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
   def test_report_text_blob
     m = RpmsRpc::DataMapper[:report_text]
-    text = m.parse_text(["Patient: DOE,JOHN", "Date: 2025-03-15", "Vitals normal."])
+    text = m.parse_text([ "Patient: DOE,JOHN", "Date: 2025-03-15", "Vitals normal." ])
     assert_equal "Patient: DOE,JOHN\nDate: 2025-03-15\nVitals normal.", text
   end
 
   def test_lab_report_blob
     m = RpmsRpc::DataMapper[:lab_report]
-    text = m.parse_text(["CBC Results", "WBC: 7.2"])
+    text = m.parse_text([ "CBC Results", "WBC: 7.2" ])
     assert_equal "CBC Results\nWBC: 7.2", text
   end
 
