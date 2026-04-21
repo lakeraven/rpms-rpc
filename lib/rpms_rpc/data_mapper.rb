@@ -132,6 +132,48 @@ module RpmsRpc
         response.join("\n")
       end
 
+      # -- fetch_* methods: call RPC + parse in one shot -------------------------
+
+      # Call RPC and parse a single-line response.
+      def fetch_one(client, *params, extras: {})
+        response = client.call_rpc(rpc_name, *params)
+        return nil if response.nil? || response.empty?
+
+        parse_one(response, extras: extras)
+      end
+
+      # Call RPC and parse a multi-line response.
+      def fetch_many(client, *params)
+        response = client.call_rpc(rpc_name, *params)
+        return [] if response.nil? || response.empty?
+
+        parse_many(response)
+      end
+
+      # Call RPC and parse a scalar response.
+      def fetch_scalar(client, *params)
+        response = client.call_rpc(rpc_name, *params)
+        return nil if response.nil? || response.empty?
+
+        parse_scalar(response)
+      end
+
+      # Call RPC and parse a text blob response.
+      def fetch_text(client, *params)
+        response = client.call_rpc(rpc_name, *params)
+        return nil if response.nil? || response.empty?
+
+        parse_text(response)
+      end
+
+      # Call RPC and parse a line-based response.
+      def fetch_lines(client, *params, extras: {})
+        response = client.call_rpc(rpc_name, *params)
+        return nil if response.nil? || response.empty?
+
+        parse_lines(response, extras: extras)
+      end
+
       private
 
       def normalize_line(response)
@@ -179,6 +221,16 @@ module RpmsRpc
 
     def self.[](name)
       @registry.fetch(name)
+    end
+
+    def self.method_missing(name, ...)
+      return @registry.fetch(name) if @registry.key?(name)
+
+      super
+    end
+
+    def self.respond_to_missing?(name, include_private = false)
+      @registry.key?(name) || super
     end
   end
 end
