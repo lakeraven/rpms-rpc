@@ -132,6 +132,31 @@ module RpmsRpc
         response.join("\n")
       end
 
+      # -- format_* methods: reverse of parse (hash → caret-delimited string) ----
+
+      # Format a hash into a caret-delimited string matching this mapping's field positions.
+      def format_one(attrs)
+        max_pos = @fields.map(&:position).max || 0
+        parts = Array.new(max_pos + 1, "")
+
+        @fields.each do |f|
+          val = attrs[f.attribute]
+          parts[f.position] = format_value(val, f.type)
+        end
+
+        parts.join("^")
+      end
+
+      # Format an array of hashes into an array of caret-delimited strings.
+      def format_many(attrs_list)
+        attrs_list.map { |attrs| format_one(attrs) }
+      end
+
+      # Format a scalar value for this mapping's scalar type.
+      def format_scalar(value)
+        format_value(value, @scalar_type || :string)
+      end
+
       # -- fetch_* methods: call RPC + parse in one shot -------------------------
 
       # Call RPC and parse a single-line response.
@@ -175,6 +200,21 @@ module RpmsRpc
       end
 
       private
+
+      def format_value(val, type)
+        return "" if val.nil?
+
+        case type
+        when :fileman_date
+          val.is_a?(Date) || val.is_a?(Time) ? FilemanDateParser.format_date(val) : val.to_s
+        when :integer
+          val.to_s
+        when :boolean
+          val ? "1" : "0"
+        else
+          val.to_s
+        end
+      end
 
       def normalize_line(response)
         return nil if response.nil?
