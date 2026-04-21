@@ -158,42 +158,39 @@ module RpmsRpc
       end
 
       # -- fetch_* methods: call RPC + parse in one shot -------------------------
+      #
+      # All fetch methods use RpmsRpc.client (configured at boot or via RpmsRpc.mock!).
 
-      # Call RPC and parse a single-line response.
-      def fetch_one(client, *params, extras: {})
-        response = client.call_rpc(rpc_name, *params)
+      def fetch_one(*params, extras: {})
+        response = RpmsRpc.client.call_rpc(rpc_name, *params)
         return nil if response.nil? || response.empty?
 
         parse_one(response, extras: extras)
       end
 
-      # Call RPC and parse a multi-line response.
-      def fetch_many(client, *params)
-        response = client.call_rpc(rpc_name, *params)
+      def fetch_many(*params)
+        response = RpmsRpc.client.call_rpc(rpc_name, *params)
         return [] if response.nil? || response.empty?
 
         parse_many(response)
       end
 
-      # Call RPC and parse a scalar response.
-      def fetch_scalar(client, *params)
-        response = client.call_rpc(rpc_name, *params)
+      def fetch_scalar(*params)
+        response = RpmsRpc.client.call_rpc(rpc_name, *params)
         return nil if response.nil? || response.empty?
 
         parse_scalar(response)
       end
 
-      # Call RPC and parse a text blob response.
-      def fetch_text(client, *params)
-        response = client.call_rpc(rpc_name, *params)
+      def fetch_text(*params)
+        response = RpmsRpc.client.call_rpc(rpc_name, *params)
         return nil if response.nil? || response.empty?
 
         parse_text(response)
       end
 
-      # Call RPC and parse a line-based response.
-      def fetch_lines(client, *params, extras: {})
-        response = client.call_rpc(rpc_name, *params)
+      def fetch_lines(*params, extras: {})
+        response = RpmsRpc.client.call_rpc(rpc_name, *params)
         return nil if response.nil? || response.empty?
 
         parse_lines(response, extras: extras)
