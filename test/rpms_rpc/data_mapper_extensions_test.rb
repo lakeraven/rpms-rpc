@@ -14,7 +14,7 @@ class RpmsRpc::DataMapperExtensionsTest < Minitest::Test
       m.line_field 5, :tries, :integer
     end
 
-    lines = ["101", "0", "0", "Welcome", "", "3"]
+    lines = [ "101", "0", "0", "Welcome", "", "3" ]
     result = mapping.parse_lines(lines)
 
     assert_equal 101, result[:duz]
@@ -28,7 +28,7 @@ class RpmsRpc::DataMapperExtensionsTest < Minitest::Test
       m.line_field 5, :missing
     end
 
-    result = mapping.parse_lines(["hello"])
+    result = mapping.parse_lines([ "hello" ])
     assert_equal "hello", result[:value]
     assert_nil result[:missing]
   end
@@ -39,7 +39,7 @@ class RpmsRpc::DataMapperExtensionsTest < Minitest::Test
       m.line_field 0, :name
     end
 
-    result = mapping.parse_lines(["DOE,JOHN"], extras: { source: "rpc" })
+    result = mapping.parse_lines([ "DOE,JOHN" ], extras: { source: "rpc" })
     assert_equal "DOE,JOHN", result[:name]
     assert_equal "rpc", result[:source]
   end
@@ -90,7 +90,7 @@ class RpmsRpc::DataMapperExtensionsTest < Minitest::Test
       m.scalar :active, :boolean
     end
 
-    assert_equal true, mapping.parse_scalar(["1", "extra"])
+    assert_equal true, mapping.parse_scalar([ "1", "extra" ])
   end
 
   def test_parse_scalar_returns_nil_for_empty
@@ -112,7 +112,7 @@ class RpmsRpc::DataMapperExtensionsTest < Minitest::Test
       m.text_blob :report_text
     end
 
-    lines = ["Patient: DOE,JOHN", "Date: 2025-03-15", "", "Report content here."]
+    lines = [ "Patient: DOE,JOHN", "Date: 2025-03-15", "", "Report content here." ]
     result = mapping.parse_text(lines)
 
     assert_equal "Patient: DOE,JOHN\nDate: 2025-03-15\n\nReport content here.", result
