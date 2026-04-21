@@ -221,6 +221,85 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal true, result[:is_provider]
   end
 
+  # -- Scalar RPCs -----------------------------------------------------------
+
+  def test_patient_deceased_scalar
+    m = RpmsRpc::DataMapper[:patient_deceased]
+    assert_equal Date.new(2025, 3, 15), m.parse_scalar("3250315")
+    assert_nil m.parse_scalar("0")
+  end
+
+  def test_patient_sensitive_scalar
+    m = RpmsRpc::DataMapper[:patient_sensitive]
+    assert_equal true, m.parse_scalar("1")
+    assert_equal false, m.parse_scalar("0")
+  end
+
+  def test_user_has_key_scalar
+    m = RpmsRpc::DataMapper[:user_has_key]
+    assert_equal true, m.parse_scalar("1")
+  end
+
+  # -- Line-based RPCs -------------------------------------------------------
+
+  def test_av_code_line_based
+    m = RpmsRpc::DataMapper[:av_code]
+    result = m.parse_lines(["101", "0", "0", "Welcome to RPMS", "", "3"])
+    assert_equal 101, result[:duz]
+    assert_equal "Welcome to RPMS", result[:greeting]
+    assert_equal 3, result[:tries]
+  end
+
+  def test_av_code_failure
+    m = RpmsRpc::DataMapper[:av_code]
+    result = m.parse_lines(["0", "0", "0", "Not a valid ACCESS CODE/VERIFY CODE pair.", "", "2"])
+    assert_equal 0, result[:duz]
+    assert_equal 2, result[:tries]
+  end
+
+  # -- Text blob RPCs --------------------------------------------------------
+
+  def test_report_text_blob
+    m = RpmsRpc::DataMapper[:report_text]
+    text = m.parse_text(["Patient: DOE,JOHN", "Date: 2025-03-15", "Vitals normal."])
+    assert_equal "Patient: DOE,JOHN\nDate: 2025-03-15\nVitals normal.", text
+  end
+
+  def test_lab_report_blob
+    m = RpmsRpc::DataMapper[:lab_report]
+    text = m.parse_text(["CBC Results", "WBC: 7.2"])
+    assert_equal "CBC Results\nWBC: 7.2", text
+  end
+
+  # -- Write result RPCs -----------------------------------------------------
+
+  def test_referral_delete
+    result = RpmsRpc::DataMapper[:referral_delete].parse_one("1^Referral deleted")
+    assert_equal true, result[:success]
+    assert_equal "Referral deleted", result[:message]
+  end
+
+  def test_key_grant
+    result = RpmsRpc::DataMapper[:key_grant].parse_one("1^Key granted")
+    assert_equal true, result[:success]
+  end
+
+  def test_prescription_new
+    result = RpmsRpc::DataMapper[:prescription_new].parse_one("1^12345")
+    assert_equal true, result[:success]
+    assert_equal "12345", result[:rx_ien_or_error]
+  end
+
+  # -- PHR RPCs --------------------------------------------------------------
+
+  def test_immunization_count
+    assert_equal 5, RpmsRpc::DataMapper[:immunization_count].parse_scalar("5")
+  end
+
+  def test_phr_access
+    assert_equal true, RpmsRpc::DataMapper[:phr_access].parse_scalar("1")
+  end
+
   # -- Registry completeness -------------------------------------------------
 
   def test_all_expected_mappings_registered
@@ -234,6 +313,18 @@ class RpmsRpc::MappingsTest < Minitest::Test
       procedure_list device_list lab_result_list radiology_list
       hospital_location institution referral_search site_params
       user_info report_types reminders_list
+      reminder_detail patient_deceased patient_sensitive user_has_key
+      signon_setup av_code cvc_verify user_keys
+      report_text report_type_components health_summary_report
+      flowsheet_list maint_items lab_report lab_report_list radiology_report
+      medication_detail care_plan_detail care_team_detail goal_detail
+      procedure_detail device_detail referral_detail referral_delete
+      patient_recent patient_save_recent
+      section_data section_save section_definition patient_lock patient_unlock
+      key_list key_grant key_revoke
+      prescription_new erx_status prescription_cancel
+      ccd_document ccd_referral immunization_text immunization_count
+      phr_access phr_patient_direct phr_provider_direct phr_facility_direct
     ]
 
     expected.each do |name|
