@@ -1,5 +1,9 @@
 # frozen_string_literal: true
 
+require_relative "security_keys"
+require_relative "user_roles"
+require_relative "capabilities"
+
 module RpmsRpc
   VERSION = "0.1.0"
 
