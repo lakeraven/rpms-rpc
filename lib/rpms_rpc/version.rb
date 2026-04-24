@@ -10,7 +10,7 @@ module RpmsRpc
   class NotConfiguredError < StandardError; end
 
   class Configuration
-    attr_accessor :client
+    attr_accessor :client, :fhir_client
   end
 
   class << self
@@ -30,6 +30,14 @@ module RpmsRpc
       )
     end
 
+    def fhir_client
+      configuration.fhir_client || raise(
+        NotConfiguredError,
+        "RpmsRpc.fhir_client is not configured. Call RpmsRpc.configure { |c| c.fhir_client = ... } " \
+        "or RpmsRpc.mock_fhir! for testing."
+      )
+    end
+
     def reset!
       @configuration = Configuration.new
     end
@@ -40,6 +48,16 @@ module RpmsRpc
       require_relative "mock_client"
       mock = MockClient.new
       configure { |c| c.client = mock }
+      yield(mock) if block_given?
+      mock
+    end
+
+    # Convenience: configure a MockFhirClient for testing.
+    # Optionally accepts a block for seeding FHIR resources.
+    def mock_fhir!
+      require_relative "mock_fhir_client"
+      mock = MockFhirClient.new
+      configure { |c| c.fhir_client = mock }
       yield(mock) if block_given?
       mock
     end
