@@ -56,6 +56,15 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal 2, results.size
     assert_equal 1, results[0][:dfn]
     assert_equal "SMITH,JANE", results[1][:name]
+    assert_nil results[0][:sex]
+    assert_nil results[0][:dob]
+  end
+
+  def test_patient_list_extended_line
+    results = RpmsRpc::DataMapper[:patient_list].parse_many([ "1^DOE,JOHN^M^2800115" ])
+    assert_equal 1, results.size
+    assert_equal "M", results[0][:sex]
+    assert_equal Date.new(1980, 1, 15), results[0][:dob]
   end
 
   # -- ORWPT FULLSSN ---------------------------------------------------------

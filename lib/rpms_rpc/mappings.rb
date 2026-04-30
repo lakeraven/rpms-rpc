@@ -45,11 +45,15 @@ module RpmsRpc
     end
 
     # ORWPT LIST ALL — patient search results (multi-line)
-    # Format per line: DFN^NAME
+    # Wire format is at least DFN^NAME. Some sites may append fields; mocks may seed
+    # SEX and DOB for parity with FHIR Patient?name&birthdate|gender filters. Missing
+    # trailing pieces parse as nil via DataMapper#coerce.
     DataMapper.define(:patient_list) do |m|
       m.rpc "ORWPT LIST ALL"
       m.field 0, :dfn, :integer
       m.field 1, :name
+      m.field 2, :sex
+      m.field 3, :dob, :fileman_date
     end
 
     # ORWPT FULLSSN — SSN lookup
