@@ -119,4 +119,74 @@ class RpmsRpc::MockClientTest < Minitest::Test
     assert_equal "DOE,JOHN", p1[:name]
     assert_equal "SMITH,JANE", p2[:name]
   end
+
+  # -- text_blob support -------------------------------------------------------
+
+  def test_seed_text_blob_and_fetch_text
+    RpmsRpc.mock! do |m|
+      m.seed(:section_data, "1", "Header\nName: DOE,JOHN\nDOB: 01/15/1980")
+    end
+
+    text = RpmsRpc::DataMapper.section_data.fetch_text("1")
+    assert_includes text, "DOE,JOHN"
+    assert_includes text, "Header"
+  end
+
+  def test_seed_text_blob_returns_nil_for_unknown_key
+    RpmsRpc.mock! do |m|
+      m.seed(:section_data, "1", "some text")
+    end
+
+    assert_nil RpmsRpc::DataMapper.section_data.fetch_text("999")
+  end
+
+  def test_seed_text_blob_with_multiline_content
+    content = "ALLERGIES:\n  Penicillin - Hives\n  Shellfish - Anaphylaxis\n\nMEDICATIONS:\n  Lisinopril 10mg"
+    RpmsRpc.mock! do |m|
+      m.seed(:health_summary_report, "1", content)
+    end
+
+    text = RpmsRpc::DataMapper.health_summary_report.fetch_text("1")
+    assert_includes text, "Penicillin"
+    assert_includes text, "Lisinopril"
+  end
+
+  def test_seed_section_definition_text_blob
+    RpmsRpc.mock! do |m|
+      m.seed(:section_definition, "Header", "1^name^string\n2^dob^date")
+    end
+
+    text = RpmsRpc::DataMapper.section_definition.fetch_text("Header")
+    assert_includes text, "name"
+    assert_includes text, "dob"
+  end
+
+  # -- smart seed auto-detection -----------------------------------------------
+
+  def test_seed_auto_detects_text_blob_mapping_with_string
+    RpmsRpc.mock! do |m|
+      m.seed(:section_data, "1", "raw text content")
+    end
+
+    text = RpmsRpc::DataMapper.section_data.fetch_text("1")
+    assert_equal "raw text content", text
+  end
+
+  def test_seed_auto_detects_scalar_mapping_with_hash
+    RpmsRpc.mock! do |m|
+      m.seed(:section_save, "1", { success: true })
+    end
+
+    result = RpmsRpc::DataMapper.section_save.fetch_scalar("1")
+    assert_equal true, result
+  end
+
+  def test_seed_field_based_mapping_still_works
+    RpmsRpc.mock! do |m|
+      m.seed(:patient_select, "99", { name: "TEST,AUTO", sex: "F" })
+    end
+
+    p = RpmsRpc::DataMapper.patient_select.fetch_one("99")
+    assert_equal "TEST,AUTO", p[:name]
+  end
 end

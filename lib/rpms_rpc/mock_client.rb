@@ -22,11 +22,28 @@ module RpmsRpc
     end
 
     # Seed a single record for a mapping.
+    # Auto-detects mapping type: text_blob stores raw text,
+    # scalar stores formatted scalar, field-based formats to caret-delimited.
     def seed(mapping_name, key, attrs)
       mapping = DataMapper[mapping_name]
-      formatted = mapping.format_one(attrs)
-      @records[mapping.rpc_name] ||= {}
-      @records[mapping.rpc_name][key.to_s] = formatted
+
+      if mapping.text_blob? && attrs.is_a?(String)
+        seed_text(mapping_name, key, attrs)
+      elsif mapping.scalar?
+        seed_scalar(mapping_name, key, attrs.is_a?(Hash) ? attrs.values.first : attrs)
+      else
+        formatted = mapping.format_one(attrs)
+        @records[mapping.rpc_name] ||= {}
+        @records[mapping.rpc_name][key.to_s] = formatted
+      end
+    end
+
+    # Seed raw text for a text_blob mapping.
+    def seed_text(mapping_name, key, text)
+      mapping = DataMapper[mapping_name]
+      @text_blobs ||= {}
+      @text_blobs[mapping.rpc_name] ||= {}
+      @text_blobs[mapping.rpc_name][key.to_s] = text
     end
 
     # Seed a collection (search results) for a mapping.
@@ -110,6 +127,12 @@ module RpmsRpc
       # Line-based responses (keyed by first param)
       if @lines&.dig(rpc_name, key)
         return @lines[rpc_name][key]
+      end
+
+      # Text blob responses (keyed by first param)
+      if @text_blobs&.dig(rpc_name, key)
+        text = @text_blobs[rpc_name][key]
+        return text.include?("\n") ? text.split("\n") : text
       end
 
       # Single records (keyed by first param)
