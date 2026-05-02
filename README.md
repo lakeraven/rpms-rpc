@@ -17,7 +17,7 @@ Historically the VistA RPC client lived inside a Rails app
 consumers — workers, scripts, and other engines that don't want
 ActiveSupport on the load path.
 
-This gem extracts just the wire layer:
+This gem owns the RPMS integration boundary:
 
 - Connection lifecycle (`connect`, `disconnect`, `connected?`)
 - Authentication (`XUS SIGNON SETUP`, `XUS AV CODE`, cipher encrypt)
@@ -26,10 +26,14 @@ This gem extracts just the wire layer:
 - Caret-delimited and XML response parsing
 - FileMan date conversions
 - HIPAA-aligned PHI sanitizer for log lines
+- **DataMapper** — declarative RPC-to-Ruby field mappings
+- **MockClient** — hermetic test double with seeded data (field, text_blob, scalar, collection)
+- **SecurityKeys / UserRoles / Capabilities** — symbolic RPMS authorization API
 
 What it does **not** include: ActiveRecord models, FHIR clients,
-domain-specific RPC wrappers, or an adapter contract. Those live
-in consumers (e.g. `lakeraven-ehr`).
+or Rails dependencies. Engine code (lakeraven-ehr, corvid) should
+call rpms-rpc's symbolic API — never reference DataMapper mappings,
+RPC names, or wire format details directly.
 
 See [ADR 0001](docs/adr/0001-scope-and-no-rails-coupling.md) for
 the full scope rationale.
@@ -107,6 +111,12 @@ client.disconnect
 | `RpmsRpc::XmlResponseParser`  | VistA RPC XML response parser                    |
 | `RpmsRpc::FilemanDateParser`  | FileMan ↔ Ruby Date/Time conversion              |
 | `RpmsRpc::PhiSanitizer`       | HIPAA-aligned log/error sanitizer                |
+| `RpmsRpc::DataMapper`          | Declarative RPC field/text_blob/scalar mappings  |
+| `RpmsRpc::MockClient`          | Hermetic test double with seeded data            |
+| `RpmsRpc::MockFhirClient`      | FHIR R4 mock for IRIS for Health reads           |
+| `RpmsRpc::SecurityKeys`        | Symbolic ↔ RPMS security key translation         |
+| `RpmsRpc::UserRoles`           | Role-based authorization (provider, nurse, etc.) |
+| `RpmsRpc::Capabilities`        | Feature-gated permission checks                  |
 
 ### PhiSanitizer secret
 
@@ -149,8 +159,39 @@ bundle install
 bundle exec rake test
 ```
 
-The test suite is hermetic — no sockets, no live RPMS. Wire-format
-tests construct packet bytes and assert their layout.
+The test suite is hermetic — no sockets, no live RPMS.
+
+- **Wire-format tests** construct packet bytes and assert their layout
+- **DataMapper tests** verify field/text_blob/scalar round-trip through parse + format
+- **MockClient tests** verify seeded data flows through the full fetch chain
+- **Gateway tests** (`test/rpms_rpc/gateways/`) exercise domain-specific RPC
+  patterns (patient sections, health summary, referral lifecycle) against
+  realistic mock data
+
+### MockClient usage
+
+```ruby
+RpmsRpc.mock! do |m|
+  # Field-based mapping (caret-delimited)
+  m.seed(:patient_select, "1", { name: "DOE,JOHN", sex: "M", dob: Date.new(1980, 1, 15) })
+
+  # Text blob mapping (raw text)
+  m.seed(:section_data, "1", "NAME: DOE,JOHN\nSEX: M\nDOB: 01/15/1980")
+
+  # Scalar mapping (single value)
+  m.seed(:section_save, "1", { success: true })
+
+  # Collection (search results with filtering)
+  m.seed_collection(:patient_list, [{ dfn: 1, name: "DOE,JOHN" }], filter_field: :name)
+end
+
+# Fetch through DataMapper — same API as production
+patient = RpmsRpc::DataMapper.patient_select.fetch_one("1")
+text = RpmsRpc::DataMapper.section_data.fetch_text("1")
+```
+
+`seed()` auto-detects the mapping type (field, text_blob, scalar) and
+stores data in the format that `fetch_*` expects.
 
 ## Contributing
 
