@@ -27,7 +27,7 @@ module RpmsRpc
   #   # => [{ dfn: 1, name: "DOE,JOHN" }, { dfn: 2, name: "SMITH,JANE" }]
   #
   module DataMapper
-    Field = Struct.new(:position, :attribute, :type, keyword_init: true)
+    Field = Struct.new(:position, :attribute, :type, :terminology, :pointer, keyword_init: true)
 
     class Mapping
       attr_reader :name, :rpc_name, :fields
@@ -49,8 +49,9 @@ module RpmsRpc
         @rpc_name = name
       end
 
-      def field(position, attribute, type = :string)
-        @fields << Field.new(position: position, attribute: attribute, type: type)
+      def field(position, attribute, type = :string, terminology: nil, pointer: nil)
+        @fields << Field.new(position: position, attribute: attribute, type: type,
+                             terminology: terminology, pointer: pointer)
       end
 
       # Declare a line-based field (one field per response line, not per caret).
@@ -79,6 +80,14 @@ module RpmsRpc
 
       def scalar?
         !@scalar_attribute.nil?
+      end
+
+      def terminology_fields
+        @fields.select { |f| !f.terminology.nil? }
+      end
+
+      def pointer_fields
+        @fields.select { |f| !f.pointer.nil? }
       end
 
       # Parse a single-line RPC response into a hash.
