@@ -30,7 +30,7 @@ class RpmsRpc::UserRolesTest < Minitest::Test
   def test_resolve_case_manager_from_keys
     assert_equal "case_manager", RpmsRpc::UserRoles.resolve(
       user_info: { is_provider: false, user_class: "3" },
-      security_keys: [:prc_supervisor]
+      security_keys: [ :prc_supervisor ]
     )
   end
 

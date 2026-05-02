@@ -9,7 +9,7 @@ class RpmsRpc::MockFhirClientTest < Minitest::Test
 
     @client.seed_resource("Patient", "1", {
       resourceType: "Patient", id: "1",
-      name: [{ family: "Anderson", given: ["Alice"] }],
+      name: [ { family: "Anderson", given: [ "Alice" ] } ],
       gender: "female", birthDate: "1980-05-15",
       identifier: [
         { system: "urn:oid:2.16.840.1.113883.4.349", value: "1" },
@@ -19,13 +19,13 @@ class RpmsRpc::MockFhirClientTest < Minitest::Test
 
     @client.seed_resource("Patient", "2", {
       resourceType: "Patient", id: "2",
-      name: [{ family: "Mouse", given: ["Mickey", "M"] }],
+      name: [ { family: "Mouse", given: [ "Mickey", "M" ] } ],
       gender: "male", birthDate: "2010-02-14"
     })
 
     @client.seed_resource("Patient", "3", {
       resourceType: "Patient", id: "3",
-      name: [{ family: "Doe", given: ["Jane"] }],
+      name: [ { family: "Doe", given: [ "Jane" ] } ],
       gender: "female", birthDate: "1990-12-25"
     })
 

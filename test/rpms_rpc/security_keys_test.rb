@@ -5,13 +5,13 @@ require_relative "../../lib/rpms_rpc/security_keys"
 
 class RpmsRpc::SecurityKeysTest < Minitest::Test
   def test_symbolize_known_keys
-    result = RpmsRpc::SecurityKeys.symbolize(["PRCFA SUPERVISOR", "GMRC MGR"])
-    assert_equal [:prc_supervisor, :consult_manager], result
+    result = RpmsRpc::SecurityKeys.symbolize([ "PRCFA SUPERVISOR", "GMRC MGR" ])
+    assert_equal [ :prc_supervisor, :consult_manager ], result
   end
 
   def test_symbolize_ignores_unknown_keys
-    result = RpmsRpc::SecurityKeys.symbolize(["PRCFA SUPERVISOR", "UNKNOWN KEY", "OR CPRS GUI CHART"])
-    assert_equal [:prc_supervisor, :cprs_gui_chart], result
+    result = RpmsRpc::SecurityKeys.symbolize([ "PRCFA SUPERVISOR", "UNKNOWN KEY", "OR CPRS GUI CHART" ])
+    assert_equal [ :prc_supervisor, :cprs_gui_chart ], result
   end
 
   def test_symbolize_empty

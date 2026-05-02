@@ -104,7 +104,7 @@ module RpmsRpc
     def operation_outcome(code, message)
       {
         "resourceType" => "OperationOutcome",
-        "issue" => [{ "severity" => "error", "code" => code, "diagnostics" => message }]
+        "issue" => [ { "severity" => "error", "code" => code, "diagnostics" => message } ]
       }
     end
 
