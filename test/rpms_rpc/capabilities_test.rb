@@ -8,12 +8,12 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
   User = Struct.new(:user_type, :security_keys, keyword_init: true)
 
   def test_can_approve_chs_with_supervisor_key
-    user = User.new(user_type: "case_manager", security_keys: [:prc_supervisor])
+    user = User.new(user_type: "case_manager", security_keys: [ :prc_supervisor ])
     assert RpmsRpc::Capabilities.can_approve_chs?(user)
   end
 
   def test_can_approve_chs_with_manager_key
-    user = User.new(user_type: "case_manager", security_keys: [:prc_manager])
+    user = User.new(user_type: "case_manager", security_keys: [ :prc_manager ])
     assert RpmsRpc::Capabilities.can_approve_chs?(user)
   end
 
@@ -23,12 +23,12 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
   end
 
   def test_can_process_chs
-    user = User.new(user_type: "clerk", security_keys: [:prc_tech])
+    user = User.new(user_type: "clerk", security_keys: [ :prc_tech ])
     assert RpmsRpc::Capabilities.can_process_chs?(user)
   end
 
   def test_can_manage_consults
-    user = User.new(user_type: "nurse", security_keys: [:consult_manager])
+    user = User.new(user_type: "nurse", security_keys: [ :consult_manager ])
     assert RpmsRpc::Capabilities.can_manage_consults?(user)
   end
 
@@ -38,12 +38,12 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
   end
 
   def test_can_access_behavioral_health
-    user = User.new(user_type: "provider", security_keys: [:bh_provider])
+    user = User.new(user_type: "provider", security_keys: [ :bh_provider ])
     assert RpmsRpc::Capabilities.can_access_behavioral_health?(user)
   end
 
   def test_can_access_dental
-    user = User.new(user_type: "provider", security_keys: [:dental_supervisor])
+    user = User.new(user_type: "provider", security_keys: [ :dental_supervisor ])
     assert RpmsRpc::Capabilities.can_access_dental?(user)
   end
 
@@ -78,7 +78,7 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
   end
 
   def test_capabilities_for_merges_role_and_keys
-    user = User.new(user_type: "clerk", security_keys: [:prc_tech])
+    user = User.new(user_type: "clerk", security_keys: [ :prc_tech ])
     caps = RpmsRpc::Capabilities.capabilities_for(user)
     assert_includes caps, :view_patients       # from role
     assert_includes caps, :process_claims      # from key
@@ -86,7 +86,7 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
   end
 
   def test_capabilities_for_case_manager_with_supervisor
-    user = User.new(user_type: "case_manager", security_keys: [:prc_supervisor])
+    user = User.new(user_type: "case_manager", security_keys: [ :prc_supervisor ])
     caps = RpmsRpc::Capabilities.capabilities_for(user)
     assert_includes caps, :manage_referrals     # from role
     assert_includes caps, :approve_referrals    # from role + key
@@ -96,6 +96,6 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
   def test_unknown_role_defaults_to_user
     user = User.new(user_type: "unknown", security_keys: [])
     perms = RpmsRpc::Capabilities.permissions_for(user)
-    assert_equal [:view_own_referrals], perms
+    assert_equal [ :view_own_referrals ], perms
   end
 end

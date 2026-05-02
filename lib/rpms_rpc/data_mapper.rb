@@ -73,6 +73,14 @@ module RpmsRpc
         @text_attribute = attribute
       end
 
+      def text_blob?
+        !@text_attribute.nil?
+      end
+
+      def scalar?
+        !@scalar_attribute.nil?
+      end
+
       # Parse a single-line RPC response into a hash.
       def parse_one(response, extras: {})
         line = normalize_line(response)
