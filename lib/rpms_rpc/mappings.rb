@@ -91,10 +91,10 @@ module RpmsRpc
       m.field 0, :ien
       m.field 1, :status
       m.field 2, :description
-      m.field 3, :icd_code
+      m.field 3, :icd_code, :string, terminology: :icd10
       m.field 4, :onset_date,    :fileman_date
       m.field 5, :recorded_date, :fileman_date
-      m.field 6, :provider_duz
+      m.field 6, :provider_duz, :string, pointer: { file: 200 }
     end
 
     # ORQQVI VITALS — patient vitals (multi-line)
@@ -222,12 +222,12 @@ module RpmsRpc
     DataMapper.define(:medication_list) do |m|
       m.rpc "ORQQPS LIST"
       m.field 0, :ien
-      m.field 1, :drug_name
+      m.field 1, :drug_name, :string, terminology: :rxnorm, pointer: { file: 50 }
       m.field 2, :sig
       m.field 3, :status
       m.field 4, :last_fill,   :fileman_date
       m.field 5, :refills,     :integer
-      m.field 6, :provider
+      m.field 6, :provider, :string, pointer: { file: 200 }
     end
 
     # ORQQCP LIST — care plan list (multi-line)
