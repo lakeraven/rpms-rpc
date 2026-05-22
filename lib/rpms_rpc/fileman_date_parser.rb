@@ -41,19 +41,23 @@ module RpmsRpc
       return nil unless parts[0].match?(/\A\d{7}\z/)
 
       time_part = parts[1]
-      return nil unless time_part.match?(/\A\d{2,4}\z/)
+      # Accept HH, HHMM, or HHMMSS — keeps round-trip symmetry with
+      # format_datetime(..., seconds: true).
+      return nil unless time_part.match?(/\A\d{2}(\d{2}(\d{2})?)?\z/)
 
       time_part = time_part.ljust(4, "0") if time_part.length == 2
+      time_part = time_part.ljust(6, "0") if time_part.length == 4
 
       date = parse_date(parts[0])
       return nil if date.nil?
 
       hh = time_part[0..1].to_i
       mm = time_part[2..3].to_i
+      ss = time_part[4..5].to_i
 
-      return nil if hh > 23 || mm > 59
+      return nil if hh > 23 || mm > 59 || ss > 59
 
-      Time.new(date.year, date.month, date.day, hh, mm, 0)
+      Time.new(date.year, date.month, date.day, hh, mm, ss)
     rescue ArgumentError
       nil
     end
@@ -69,8 +73,10 @@ module RpmsRpc
       "#{yyy}#{mm}#{dd}"
     end
 
-    # Format Ruby Time to FileMan datetime string (YYYMMDD.HHMM).
-    def self.format_datetime(datetime)
+    # Format Ruby Time to FileMan datetime string. Default precision is
+    # minutes (YYYMMDD.HHMM); pass `seconds: true` for YYYMMDD.HHMMSS
+    # (the precision BEHOVM SAVE accepts in VIT+ rows).
+    def self.format_datetime(datetime, seconds: false)
       return nil if datetime.nil?
 
       yyy = datetime.year - 1700
@@ -78,8 +84,11 @@ module RpmsRpc
       dd = datetime.day.to_s.rjust(2, "0")
       hh = datetime.hour.to_s.rjust(2, "0")
       min = datetime.min.to_s.rjust(2, "0")
+      base = "#{yyy}#{mm}#{dd}.#{hh}#{min}"
+      return base unless seconds
 
-      "#{yyy}#{mm}#{dd}.#{hh}#{min}"
+      sec = datetime.sec.to_s.rjust(2, "0")
+      "#{base}#{sec}"
     end
   end
 end

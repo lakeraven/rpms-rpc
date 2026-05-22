@@ -146,4 +146,68 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   def test_call_rpc_raw_raises_when_not_connected
     assert_raises(RpmsRpc::Client::ConnectionError) { Client.new.call_rpc_raw("XUS SIGNON SETUP") }
   end
+
+  # -- list-param encoding (for multi-line RPC payloads like BEHOVM SAVE) ----
+
+  def test_encode_param_wraps_scalar_as_literal
+    encoded = Client.new.encode_param("hello")
+    assert_equal({ type: :literal, value: "hello" }, encoded)
+  end
+
+  def test_encode_param_passes_through_prebuilt_literal
+    pre = { type: :literal, value: "x" }
+    assert_equal pre, Client.new.encode_param(pre)
+  end
+
+  def test_encode_param_passes_through_prebuilt_list
+    pre = { type: :list, entries: [ [ "1", "a" ] ] }
+    assert_equal pre, Client.new.encode_param(pre)
+  end
+
+  def test_encode_param_wraps_array_as_list_with_one_based_string_keys
+    encoded = Client.new.encode_param([ "HDR^^^v1", "VST^DT^now", "VIT+^TMP^0^^97" ])
+    assert_equal :list, encoded[:type]
+    keys = encoded[:entries].map(&:first)
+    vals = encoded[:entries].map(&:last)
+    assert_equal [ "1", "2", "3" ], keys
+    assert_equal [ "HDR^^^v1", "VST^DT^now", "VIT+^TMP^0^^97" ], vals
+  end
+
+  def test_encode_param_wraps_hash_as_list_with_string_keys
+    encoded = Client.new.encode_param(a: 1, b: 2)
+    assert_equal :list, encoded[:type]
+    assert_equal [ [ "a", "1" ], [ "b", "2" ] ], encoded[:entries]
+  end
+
+  # A business hash that incidentally has a :type key must still be encoded
+  # as a list param, not silently passed through. Only :type == :literal or
+  # :type == :list are protocol kinds.
+  def test_encode_param_wraps_business_hash_with_type_key_as_list
+    encoded = Client.new.encode_param(name: "foo", type: "user")
+    assert_equal :list, encoded[:type]
+    keys = encoded[:entries].map(&:first)
+    assert_includes keys, "name"
+    assert_includes keys, "type"
+  end
+
+  def test_encode_param_rejects_pass_through_for_unknown_type_value
+    encoded = Client.new.encode_param({ type: :something_random, value: "x" })
+    # Unknown :type should NOT be passed through; encode as a list.
+    assert_equal :list, encoded[:type]
+  end
+
+  def test_build_rpc_message_emits_list_param_bytes_for_array_payload
+    client = Client.new
+    msg = client.build_rpc_message("BEHOVM SAVE", [
+      client.encode_param("8791"),
+      client.encode_param([ "HDR^^^v1", "VST^DT^now" ])
+    ])
+    # XWB param spec uses "0" for literal, "2" for list. The list entries
+    # should appear verbatim in the packet body — NOT as a Ruby array
+    # literal (e.g. "[\"HDR^^^v1\", \"VST^DT^now\"]").
+    assert_includes msg, "BEHOVM SAVE"
+    assert_includes msg, "HDR^^^v1"
+    assert_includes msg, "VST^DT^now"
+    refute_includes msg, "[\"HDR", "Array params must be encoded as XWB list, not Ruby array literal"
+  end
 end
