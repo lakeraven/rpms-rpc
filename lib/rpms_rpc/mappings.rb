@@ -649,6 +649,37 @@ module RpmsRpc
       m.text_blob :definition_text
     end
 
+    # BEHOENCX GETVISIT — core visit detail by visit_ien
+    # Format: LOCATION_IEN^DATETIME_RAW^STATUS^PATIENT_DFN^WARD^?
+    DataMapper.define(:encounter_visit) do |m|
+      m.rpc "BEHOENCX GETVISIT"
+      m.field 0, :location_ien, :integer
+      m.field 1, :datetime_raw
+      m.field 2, :status
+      m.field 3, :patient_dfn, :integer
+      m.field 4, :ward
+    end
+
+    # BEHOENCX FETCH — hydrated visit context (location + provider names + ward)
+    # Format: CLINIC_NAME^CLINIC_ABBREV^^LOCATION_IEN^PROVIDER^VISIT_IEN^WARD^?
+    DataMapper.define(:encounter_fetch) do |m|
+      m.rpc "BEHOENCX FETCH"
+      m.field 0, :clinic_name
+      m.field 1, :clinic_abbrev
+      m.field 3, :location_ien, :integer
+      m.field 4, :provider
+      m.field 5, :visit_ien, :integer
+      m.field 6, :ward
+    end
+
+    # BEHOENCX CHKVISIT — missing-component report (multi-line)
+    # Format per line: COMPONENT^MESSAGE
+    DataMapper.define(:encounter_chkvisit) do |m|
+      m.rpc "BEHOENCX CHKVISIT"
+      m.field 0, :component
+      m.field 1, :message
+    end
+
     # BEHOENCX LOCK — patient lock result
     DataMapper.define(:patient_lock) do |m|
       m.rpc "BEHOENCX LOCK"
