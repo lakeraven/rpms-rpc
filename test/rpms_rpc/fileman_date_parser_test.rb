@@ -66,6 +66,37 @@ class RpmsRpc::FilemanDateParserTest < Minitest::Test
     assert_nil P.parse_datetime("3250101.2500")
   end
 
+  def test_parse_datetime_with_seconds
+    result = P.parse_datetime("3250101.091533")
+    assert_equal 2025, result.year
+    assert_equal 9, result.hour
+    assert_equal 15, result.min
+    assert_equal 33, result.sec
+  end
+
+  def test_parse_datetime_returns_nil_for_invalid_seconds
+    assert_nil P.parse_datetime("3250101.091560")
+  end
+
+  def test_parse_datetime_returns_nil_for_unsupported_length
+    assert_nil P.parse_datetime("3250101.09153")
+    assert_nil P.parse_datetime("3250101.0915334")
+  end
+
+  # -- format_datetime with seconds ------------------------------------------
+
+  def test_format_datetime_with_seconds_true_emits_six_digit_time
+    t = Time.new(2025, 1, 1, 9, 15, 33)
+    assert_equal "3250101.091533", P.format_datetime(t, seconds: true)
+  end
+
+  def test_format_datetime_seconds_round_trips_through_parse
+    t = Time.new(2025, 6, 15, 14, 30, 42)
+    formatted = P.format_datetime(t, seconds: true)
+    parsed = P.parse_datetime(formatted)
+    assert_equal t.sec, parsed.sec, "seconds should survive round-trip"
+  end
+
   # -- format_date ------------------------------------------------------------
 
   def test_format_date_basic

@@ -139,6 +139,36 @@ module RpmsRpc
       m.field 3, :recorded_date, :fileman_date
     end
 
+    # BEHOVM TEMPLATE — vital field definitions for a location (multi-line)
+    # Format per line: IEN^DISPLAY_ORDER^NAME^ABBREV^UNITS^LOW^HIGH^PERCENTILE_RPC^REQUIRED^DISPLAY_ROW
+    DataMapper.define(:vital_template) do |m|
+      m.rpc "BEHOVM TEMPLATE"
+      m.field 0, :ien,            :integer
+      m.field 1, :display_order,  :integer
+      m.field 2, :name
+      m.field 3, :abbreviation
+      m.field 4, :units
+      m.field 5, :low,            :integer
+      m.field 6, :high,           :integer
+      m.field 7, :percentile_rpc
+      m.field 8, :required,       :integer
+      m.field 9, :display_row,    :integer
+    end
+
+    # BEHOVM VALIDATE — server-side vital value validation (scalar)
+    # Returns echoed value when valid, error marker string otherwise.
+    DataMapper.define(:vital_validate) do |m|
+      m.rpc "BEHOVM VALIDATE"
+      m.scalar :validated_value
+    end
+
+    # BEHOVM SAVE — bulk vital save (scalar)
+    # Returns "0" for success; non-zero/non-empty for error.
+    DataMapper.define(:vital_save) do |m|
+      m.rpc "BEHOVM SAVE"
+      m.scalar :result_code
+    end
+
     # BHDPTRPC TRIBAL — tribal enrollment details
     # Format: ENROLLMENT_NUMBER^TRIBE_NAME^ENROLLMENT_DATE^STATUS^SERVICE_UNIT^TRIBE_CODE
     DataMapper.define(:tribal_enrollment) do |m|
