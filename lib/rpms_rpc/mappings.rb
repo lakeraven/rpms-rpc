@@ -75,6 +75,38 @@ module RpmsRpc
       m.field 3, :status
     end
 
+    # BEHOPTCX PTINFO — broad patient identity bundle for chart banner
+    # Format: NAME^SEX^DOB^SSN^^^^^^^MRN^^^^^^DESIGNATED_TEAM^PRIMARY_PROVIDER^^
+    DataMapper.define(:patient_ptinfo) do |m|
+      m.rpc "BEHOPTCX PTINFO"
+      m.field 0,  :name
+      m.field 1,  :sex
+      m.field 2,  :dob_raw
+      m.field 3,  :ssn
+      m.field 10, :mrn
+      m.field 16, :designated_team
+      m.field 17, :primary_provider
+    end
+
+    # BEHOPTPC GETBDP — designated primary provider detail
+    # Format: LABEL^PROVIDER_NAME^PROVIDER_IEN^TITLE^DATE
+    DataMapper.define(:patient_designated_provider) do |m|
+      m.rpc "BEHOPTPC GETBDP"
+      m.field 0, :label
+      m.field 1, :provider_name
+      m.field 2, :provider_ien, :integer
+      m.field 3, :title
+      m.field 4, :date_raw
+    end
+
+    # BEHOCACV CWAD — patient CWAD flags (scalar). Each letter present in
+    # the response indicates: C=Crises, W=Warnings, A=Allergies, D=Advance
+    # Directives. Empty string means none.
+    DataMapper.define(:patient_cwad) do |m|
+      m.rpc "BEHOCACV CWAD"
+      m.scalar :cwad
+    end
+
     # ORQQAL LIST — patient allergies (multi-line)
     # Format: ALLERGEN^REACTION^SEVERITY
     DataMapper.define(:allergy_list) do |m|
