@@ -52,7 +52,7 @@ module RpmsRpc
     def call_rpc(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
-      rpc_params = params.map { |p| literal_param(p.to_s) }
+      rpc_params = params.map { |p| encode_param(p) }
       msg = build_rpc_message(rpc_name, rpc_params)
 
       send_packet(msg)
@@ -74,7 +74,7 @@ module RpmsRpc
     def call_rpc_raw(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
-      rpc_params = params.map { |p| literal_param(p.to_s) }
+      rpc_params = params.map { |p| encode_param(p) }
       msg = build_rpc_message(rpc_name, rpc_params)
 
       send_packet(msg)
@@ -161,6 +161,28 @@ module RpmsRpc
     # Build a list parameter hash
     def list_param(entries)
       { type: :list, entries: entries }
+    end
+
+    # Encode a single param for transport.
+    # Already-wrapped {type: :literal|:list, ...} hashes pass through.
+    # Arrays become list_params with 1-based string keys (the RPMS broker
+    # convention for multi-line params like BEHOVM SAVE's payload).
+    # Hashes become list_params with their keys/values as entries.
+    # Everything else stringifies to a literal_param.
+    def encode_param(value)
+      # Pre-wrapped param hashes pass through, but only when their :type
+      # is one of the protocol's known kinds. A normal business hash that
+      # happens to have a :type key must still be encoded as a list_param.
+      return value if value.is_a?(Hash) && %i[literal list].include?(value[:type])
+      case value
+      when Array
+        entries = value.each_with_index.map { |v, i| [ (i + 1).to_s, v.to_s ] }
+        list_param(entries)
+      when Hash
+        list_param(value.map { |k, v| [ k.to_s, v.to_s ] })
+      else
+        literal_param(value.to_s)
+      end
     end
 
     private

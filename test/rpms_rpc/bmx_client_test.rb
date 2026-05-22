@@ -68,4 +68,26 @@ class RpmsRpc::BmxClientTest < Minitest::Test
   def test_call_rpc_raw_raises_when_not_connected
     assert_raises(RpmsRpc::Client::ConnectionError) { Client.new.call_rpc_raw("XUS SIGNON SETUP") }
   end
+
+  # -- list-param rejection (BMX wire format doesn't support multi-line) -----
+
+  def test_call_rpc_rejects_array_param_with_clear_error
+    client = Client.new
+    # Bypass not-connected check by stubbing connected?
+    client.define_singleton_method(:connected?) { true }
+    error = assert_raises(NotImplementedError) do
+      client.call_rpc("BEHOVM SAVE", "8791", [ "HDR^^^v1", "VST^DT^now" ])
+    end
+    assert_match(/BMX client does not yet support list/i, error.message)
+    assert_match(/BEHOVM SAVE/, error.message)
+  end
+
+  def test_call_rpc_rejects_hash_param_with_clear_error
+    client = Client.new
+    client.define_singleton_method(:connected?) { true }
+    error = assert_raises(NotImplementedError) do
+      client.call_rpc("SOME RPC", "scalar", { a: 1 })
+    end
+    assert_match(/BMX client does not yet support/i, error.message)
+  end
 end

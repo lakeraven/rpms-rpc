@@ -54,6 +54,7 @@ module RpmsRpc
     def call_rpc(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
+      reject_unsupported_params(params)
       param_string = params.map(&:to_s).join("^")
       api_content = rpc_name
       api_content += "^" + param_string unless param_string.empty?
@@ -78,6 +79,7 @@ module RpmsRpc
     def call_rpc_raw(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
+      reject_unsupported_params(params)
       param_string = params.map(&:to_s).join("^")
       api_content = rpc_name
       api_content += "^" + param_string unless param_string.empty?
@@ -109,6 +111,20 @@ module RpmsRpc
     end
 
     private
+
+    # BMX wire format is a caret-joined string and does not yet support
+    # multi-line / list params (the broker convention RPCs like BEHOVM
+    # SAVE require). Reject Arrays and Hashes up front rather than
+    # silently stringifying them to a Ruby Array literal on the wire.
+    def reject_unsupported_params(params)
+      params.each_with_index do |p, i|
+        next unless p.is_a?(Array) || p.is_a?(Hash)
+        raise NotImplementedError,
+              "BMX client does not yet support list/hash parameters " \
+              "(param ##{i + 1} is #{p.class}). Use CiaClient for RPCs " \
+              "with multi-line payloads (e.g. BEHOVM SAVE)."
+      end
+    end
 
     def default_port
       9200

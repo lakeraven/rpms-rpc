@@ -120,8 +120,16 @@ module RpmsRpc
       seed_keyed_collection(:user_keys, duz.to_s, key_attrs)
     end
 
+    # Records of every call_rpc invocation, for tests that need to assert on
+    # outgoing payloads (e.g. write RPCs that take complex multi-line params).
+    # Each entry: { rpc:, params: [...] }
+    def received_calls
+      @received_calls ||= []
+    end
+
     # Simulate call_rpc — returns formatted response matching the seeded data.
     def call_rpc(rpc_name, *params)
+      received_calls << { rpc: rpc_name, params: params }
       key = params.first.to_s
 
       # Line-based responses (keyed by first param)
