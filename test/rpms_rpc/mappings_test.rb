@@ -334,6 +334,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       prescription_new erx_status prescription_cancel
       ccd_document ccd_referral immunization_text immunization_count
       phr_access phr_patient_direct phr_provider_direct phr_facility_direct
+      vfc_eligibility vfc_eligibility_list
     ]
 
     expected.each do |name|
