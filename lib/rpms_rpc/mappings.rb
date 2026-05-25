@@ -293,14 +293,23 @@ module RpmsRpc
     end
 
     # ORQQCP LIST — care plan list (multi-line)
-    # Format: IEN^TITLE^STATUS^START_DATE^AUTHOR
+    # Format: IEN^TITLE^STATUS^INTENT^CATEGORY^START_DATE^END_DATE^
+    #         AUTHOR_DUZ^AUTHOR_NAME^GOAL_IENS^ACTIVITY^DESCRIPTION^NOTE
     DataMapper.define(:care_plan_list) do |m|
       m.rpc "ORQQCP LIST"
-      m.field 0, :ien
-      m.field 1, :title
-      m.field 2, :status
-      m.field 3, :start_date, :fileman_date
-      m.field 4, :author
+      m.field 0,  :ien
+      m.field 1,  :title
+      m.field 2,  :status
+      m.field 3,  :intent
+      m.field 4,  :category
+      m.field 5,  :start_date, :fileman_date
+      m.field 6,  :end_date,   :fileman_date
+      m.field 7,  :author_duz
+      m.field 8,  :author_name
+      m.field 9,  :goal_iens
+      m.field 10, :activity
+      m.field 11, :description
+      m.field 12, :note
     end
 
     # ORQQCT LIST — care team list (multi-line)
@@ -615,15 +624,23 @@ module RpmsRpc
       m.text_blob :detail_text
     end
 
-    # ORQQCP GET — single care plan
+    # ORQQCP GET — single care plan.
+    # First line: TITLE^STATUS^INTENT^CATEGORY^START_DATE^END_DATE^
+    #             AUTHOR_DUZ^AUTHOR_NAME^GOAL_IENS^ACTIVITY^(unused)^PATIENT_DFN
+    # Subsequent lines: free-text description (joined by the API module).
     DataMapper.define(:care_plan_detail) do |m|
       m.rpc "ORQQCP GET"
-      m.field 0, :ien
-      m.field 1, :title
-      m.field 2, :status
-      m.field 3, :start_date, :fileman_date
-      m.field 4, :author
-      m.field 5, :description
+      m.field 0,  :title
+      m.field 1,  :status
+      m.field 2,  :intent
+      m.field 3,  :category
+      m.field 4,  :start_date, :fileman_date
+      m.field 5,  :end_date,   :fileman_date
+      m.field 6,  :author_duz
+      m.field 7,  :author_name
+      m.field 8,  :goal_iens
+      m.field 9,  :activity
+      m.field 11, :patient_dfn
     end
 
     # ORQQCT GET — single care team member
