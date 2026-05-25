@@ -365,14 +365,19 @@ module RpmsRpc
     end
 
     # ORWRA REPORT LIST — radiology report list (multi-line)
-    # Format: IEN^EXAM_NAME^DATE^STATUS^IMPRESSION
+    # Format: IEN^EXAM_NAME^CPT_CODE^STATUS^EXAM_DATE^REPORT_DATE^RAD_DUZ^RAD_NAME^IMPRESSION^IMAGING_STUDY_IEN
     DataMapper.define(:radiology_list) do |m|
       m.rpc "ORWRA REPORT LIST"
-      m.field 0, :ien
+      m.field 0, :ien,                :integer
       m.field 1, :exam_name
-      m.field 2, :date,   :fileman_date
+      m.field 2, :cpt_code
       m.field 3, :status
-      m.field 4, :impression
+      m.field 4, :exam_date,          :fileman_date
+      m.field 5, :report_date,        :fileman_date
+      m.field 6, :radiologist_duz
+      m.field 7, :radiologist_name
+      m.field 8, :impression
+      m.field 9, :imaging_study_ien,  :integer
     end
 
     # ========================================================================
