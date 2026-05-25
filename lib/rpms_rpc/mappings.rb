@@ -350,16 +350,17 @@ module RpmsRpc
     # ========================================================================
 
     # ORWLRR RESULT LIST — lab result list (multi-line)
-    # Format: IEN^TEST_NAME^RESULT^UNITS^REF_RANGE^FLAG^DATE
+    # Format: IEN^TEST_NAME^RESULT^UNITS^REF_RANGE^ABNORMAL_FLAG^COLLECTION_DATE^STATUS
     DataMapper.define(:lab_result_list) do |m|
       m.rpc "ORWLRR RESULT LIST"
-      m.field 0, :ien
+      m.field 0, :ien,             :integer
       m.field 1, :test_name
       m.field 2, :result
       m.field 3, :units
-      m.field 4, :ref_range
-      m.field 5, :flag
-      m.field 6, :date, :fileman_date
+      m.field 4, :reference_range
+      m.field 5, :abnormal_flag
+      m.field 6, :collection_date, :fileman_date
+      m.field 7, :status
     end
 
     # ORWRA REPORT LIST — radiology report list (multi-line)
@@ -573,12 +574,15 @@ module RpmsRpc
       m.text_blob :report_text
     end
 
-    # ORWLRR REPORT LIST — lab report list (multi-line)
+    # ORWLRR REPORT LIST — DiagnosticReport-style aggregated panels (multi-line)
+    # Format: IEN^PANEL_NAME^PERFORMED_AT^STATUS^PERFORMING_LAB
     DataMapper.define(:lab_report_list) do |m|
       m.rpc "ORWLRR REPORT LIST"
-      m.field 0, :ien
-      m.field 1, :name
-      m.field 2, :date, :fileman_date
+      m.field 0, :ien,              :integer
+      m.field 1, :panel_name
+      m.field 2, :performed_at_raw
+      m.field 3, :status
+      m.field 4, :performing_lab
     end
 
     # ORWRA REPORT — full radiology report text
