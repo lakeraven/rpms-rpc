@@ -486,15 +486,14 @@ module RpmsRpc
     # ========================================================================
 
     # XUS GET USER INFO — authenticated user info
-    # Format: DUZ^NAME^USERCL^CANSIGN^ISPROVIDER^ORDERROLE
+    # Format: DUZ^NAME^ACCESS_CODE^VERIFY_CODE_EXISTS^DIVISION
     DataMapper.define(:user_info) do |m|
       m.rpc "XUS GET USER INFO"
       m.field 0, :duz, :integer
       m.field 1, :name
-      m.field 2, :user_class
-      m.field 3, :can_sign,    :boolean
-      m.field 4, :is_provider, :boolean
-      m.field 5, :order_role
+      m.field 2, :access_code
+      m.field 3, :verify_code_exists, :boolean
+      m.field 4, :division
     end
 
     # ========================================================================
@@ -560,22 +559,24 @@ module RpmsRpc
 
     # XUS AV CODE — authentication result (line-based)
     # Line 0: DUZ (or 0 for failure)
-    # Line 1: 0
-    # Line 2: 0
-    # Line 3: greeting message
-    # Line 4: (blank)
-    # Line 5: number of tries remaining
+    # Line 1: error code
+    # Line 2: verify-code-change flag
+    # Line 3: message / greeting
+    # Line 4: unused
+    # Line 5: user class
     DataMapper.define(:av_code) do |m|
       m.rpc "XUS AV CODE"
       m.line_field 0, :duz, :integer
-      m.line_field 3, :greeting
-      m.line_field 5, :tries, :integer
+      m.line_field 1, :error_code, :integer
+      m.line_field 2, :verify_needs_change, :integer
+      m.line_field 3, :message
+      m.line_field 5, :user_class, :integer
     end
 
     # XUS CVC — CVC verification
     DataMapper.define(:cvc_verify) do |m|
       m.rpc "XUS CVC"
-      m.scalar :verified, :boolean
+      m.line_field 0, :result_code, :integer
     end
 
     # ORWU USERKEYS — user security keys (multi-line, one key per line)
