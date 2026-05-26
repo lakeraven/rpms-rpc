@@ -237,10 +237,12 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- XUS GET USER INFO -----------------------------------------------------
 
   def test_user_info
-    result = RpmsRpc::DataMapper[:user_info].parse_one("101^MARTINEZ,SARAH^PROVIDER^1^1^PHYSICIAN")
+    result = RpmsRpc::DataMapper[:user_info].parse_one("101^PROVIDER,TEST^ACCESS123^1^PRIMARY")
     assert_equal 101, result[:duz]
-    assert_equal true, result[:can_sign]
-    assert_equal true, result[:is_provider]
+    assert_equal "PROVIDER,TEST", result[:name]
+    assert_equal "ACCESS123", result[:access_code]
+    assert_equal true, result[:verify_code_exists]
+    assert_equal "PRIMARY", result[:division]
   end
 
   # -- Scalar RPCs -----------------------------------------------------------
@@ -268,15 +270,24 @@ class RpmsRpc::MappingsTest < Minitest::Test
     m = RpmsRpc::DataMapper[:av_code]
     result = m.parse_lines([ "101", "0", "0", "Welcome to RPMS", "", "3" ])
     assert_equal 101, result[:duz]
-    assert_equal "Welcome to RPMS", result[:greeting]
-    assert_equal 3, result[:tries]
+    assert_equal 0, result[:error_code]
+    assert_equal 0, result[:verify_needs_change]
+    assert_equal "Welcome to RPMS", result[:message]
+    assert_equal 3, result[:user_class]
   end
 
   def test_av_code_failure
     m = RpmsRpc::DataMapper[:av_code]
-    result = m.parse_lines([ "0", "0", "0", "Not a valid ACCESS CODE/VERIFY CODE pair.", "", "2" ])
+    result = m.parse_lines([ "0", "1", "0", "Not a valid ACCESS CODE/VERIFY CODE pair.", "", "" ])
     assert_equal 0, result[:duz]
-    assert_equal 2, result[:tries]
+    assert_equal 1, result[:error_code]
+    assert_equal "Not a valid ACCESS CODE/VERIFY CODE pair.", result[:message]
+  end
+
+  def test_cvc_verify_line_based
+    m = RpmsRpc::DataMapper[:cvc_verify]
+    result = m.parse_lines([ "0" ])
+    assert_equal 0, result[:result_code]
   end
 
   # -- Text blob RPCs --------------------------------------------------------
