@@ -56,7 +56,16 @@ class VaccineLotTest < Minitest::Test
     lots = RpmsRpc::VaccineLot.for_facility
 
     assert_nil lots.last[:expiration_date]
+  end
+
+  def test_find_returns_nil_for_blank_or_nonpositive_ien
     assert_nil RpmsRpc::VaccineLot.find(nil)
+    assert_nil RpmsRpc::VaccineLot.find("")
+    assert_nil RpmsRpc::VaccineLot.find(0)
+    assert_nil RpmsRpc::VaccineLot.find(-1)
+
+    refute RpmsRpc.client.received_calls.any? { |c| c[:rpc] == "BIPC LOTGET" },
+      "BIPC LOTGET should not fire for invalid IEN"
   end
 
   private

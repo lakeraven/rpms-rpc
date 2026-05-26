@@ -8,11 +8,13 @@ module RpmsRpc
 
     def for_facility(facility_ien = nil)
       params = facility_ien.nil? ? [] : [ facility_ien.to_s ]
-      lots = DataMapper.vaccine_lot_list.fetch_many(*params)
+      lots = Array(DataMapper.vaccine_lot_list.fetch_many(*params))
       lots.map { |lot| normalize_lot(lot) }
     end
 
     def find(ien)
+      return nil if ien.nil? || ien.to_s.empty? || ien.to_i <= 0
+
       lot = DataMapper.vaccine_lot_detail.fetch_one(ien.to_s)
       normalize_lot(lot) if lot
     end
