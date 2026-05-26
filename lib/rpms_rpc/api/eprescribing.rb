@@ -38,6 +38,8 @@ module RpmsRpc
     #   { success: true, transmission_id: "..." }
     #   { success: false, error: "..." }
     def transmit(attrs)
+      return { success: false, error: "attrs hash is required" } unless attrs.is_a?(Hash)
+
       param = build_rx_param(attrs)
       result = DataMapper.prescription_new.fetch_one(param)
       return { success: false, error: "Empty response from RPMS" } if result.nil?
@@ -60,7 +62,9 @@ module RpmsRpc
 
       mapped = CANONICAL_STATUS.fetch(result[:status].to_s.strip.downcase, "queued")
       out = { status: mapped }
-      out[:error] = result[:message] if mapped == "error" && !blank?(result[:message])
+      if mapped == "error"
+        out[:error] = blank?(result[:message]) ? "RPMS reported error" : result[:message]
+      end
       out
     end
 

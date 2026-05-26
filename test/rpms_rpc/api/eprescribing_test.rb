@@ -33,6 +33,7 @@ class EprescribingTest < Minitest::Test
       m.seed(:erx_status, "TX-VOID",     { status: "voided",      message: nil })
       m.seed(:erx_status, "TX-XMIT",     { status: "transmitted", message: nil })
       m.seed(:erx_status, "TX-FAIL",     { status: "failed",      message: "downstream timeout" })
+      m.seed(:erx_status, "TX-FAIL-NOMSG", { status: "error",     message: nil })
       m.seed(:erx_status, "TX-WEIRD",    { status: "pending",     message: nil })
 
       # PSO CANCEL RX — success: "1^Cancelled", failure: "0^<error>"
@@ -84,6 +85,16 @@ class EprescribingTest < Minitest::Test
     assert_equal RX_COMPOSITE, call[:params].first
   end
 
+  def test_transmit_rejects_non_hash_attrs
+    [ nil, "string", 42, [ :a, :b ] ].each do |bad|
+      result = RpmsRpc::Eprescribing.transmit(bad)
+      assert_equal false, result[:success], "transmit(#{bad.inspect}) should fail"
+      refute_nil result[:error]
+    end
+    refute RpmsRpc.client.received_calls.any? { |c| c[:rpc] == "PSO NEW RX" },
+      "PSO NEW RX should not fire for non-Hash attrs"
+  end
+
   # === status ==============================================================
 
   def test_status_returns_canonical_delivered
@@ -106,6 +117,14 @@ class EprescribingTest < Minitest::Test
     result = RpmsRpc::Eprescribing.status("TX-FAIL")
     assert_equal "error", result[:status]
     assert_equal "downstream timeout", result[:error]
+  end
+
+  def test_status_always_includes_error_key_when_status_is_error
+    result = RpmsRpc::Eprescribing.status("TX-FAIL-NOMSG")
+    assert_equal "error", result[:status]
+    assert result.key?(:error),
+      ":error key must always be present when status is 'error', even when RPMS sends no message"
+    refute_nil result[:error]
   end
 
   def test_status_returns_queued_for_unknown_status_string
