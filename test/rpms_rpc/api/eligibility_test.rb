@@ -40,6 +40,9 @@ class EligibilityTest < Minitest::Test
   def test_for_patient_returns_nil_hash_for_invalid_dfn
     assert_equal NIL_ELIGIBILITY, RpmsRpc::Eligibility.for_patient(nil)
     assert_equal NIL_ELIGIBILITY, RpmsRpc::Eligibility.for_patient("")
+    assert_equal NIL_ELIGIBILITY, RpmsRpc::Eligibility.for_patient(0)
+    assert_equal NIL_ELIGIBILITY, RpmsRpc::Eligibility.for_patient(-1)
+    assert_equal NIL_ELIGIBILITY, RpmsRpc::Eligibility.for_patient("not-a-number")
   end
 
   def test_for_patient_returns_nil_hash_for_unknown_dfn
