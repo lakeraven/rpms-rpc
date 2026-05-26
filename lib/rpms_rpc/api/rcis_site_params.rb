@@ -21,6 +21,11 @@ module RpmsRpc
       return nil if rows.empty?
 
       params = rows.each_with_object({}) do |row, result|
+        # Gateway parses with default split("^") which drops trailing empties,
+        # then skips rows where fields.length < 2. So a "KEY^" line with a
+        # blank value is omitted entirely, not assigned a default.
+        next if blank?(row[:value])
+
         key = normalize_key(row[:key])
         result[key] = parse_param_value(row[:key], row[:value]) unless key.nil?
       end
@@ -50,7 +55,7 @@ module RpmsRpc
     end
 
     def blank?(val)
-      val.nil? || val.to_s.empty?
+      val.nil? || val.to_s.strip.empty?
     end
   end
 end

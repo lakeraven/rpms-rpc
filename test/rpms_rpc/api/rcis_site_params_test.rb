@@ -25,6 +25,15 @@ class RcisSiteParamsTest < Minitest::Test
         { key: "PRISYS", value: "" },
         { key: "FACILITY", value: "" }
       ])
+
+      # Partial-blank facility: blank-valued rows should be omitted entirely
+      # (matching gateway's `parse_line` + length-< 2 skip), populated rows kept.
+      m.seed_keyed_collection(:site_params, "57", [
+        { key: "COMMTHRESH", value: "" },
+        { key: "NOTIFYHR",   value: "48" },
+        { key: "PRISYS",     value: "" },
+        { key: "FACILITY",   value: "Test Clinic" }
+      ])
     end
   end
 
@@ -63,14 +72,22 @@ class RcisSiteParamsTest < Minitest::Test
     assert_nil RpmsRpc::RcisSiteParams.for_facility(999_999)
   end
 
-  def test_for_facility_applies_blank_field_defaults_from_gateway
-    params = RpmsRpc::RcisSiteParams.for_facility(56)
+  def test_for_facility_returns_nil_when_all_values_blank
+    # Gateway parses with default split("^") which drops trailing empties,
+    # then skips rows whose split length is < 2. So a facility whose response
+    # is all "KEY^" lines (blank values) yields an empty params hash, which
+    # the gateway returns as nil (`params.presence`).
+    assert_nil RpmsRpc::RcisSiteParams.for_facility(56)
+  end
+
+  def test_for_facility_skips_blank_valued_rows_keeping_populated_ones
+    params = RpmsRpc::RcisSiteParams.for_facility(57)
 
     refute_nil params
-    assert_equal 0, params[:committee_threshold]
-    assert_equal 0, params[:notification_grace_period]
-    assert_equal "traditional", params[:priority_system]
-    assert_nil params[:facility_name]
+    refute params.key?(:committee_threshold), "blank-valued row should be omitted"
+    refute params.key?(:priority_system),     "blank-valued row should be omitted"
+    assert_equal 48,            params[:notification_grace_period]
+    assert_equal "Test Clinic", params[:facility_name]
   end
 
   def test_module_exposes_documented_methods
