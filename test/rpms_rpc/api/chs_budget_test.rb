@@ -189,8 +189,8 @@ class ChsBudgetTest < Minitest::Test
 
     assert_equal 2, obligations.length
     pending = obligations.find { |o| o[:id] == "101" }
-    assert_equal 501, pending[:referral_ien]
-    assert_equal 8791, pending[:patient_dfn]
+    assert_equal "501", pending[:referral_ien]
+    assert_equal "8791", pending[:patient_dfn]
     assert_equal "15000.00", pending[:amount]
     assert_equal Date.new(2026, 1, 15), pending[:created_date]
   end
@@ -228,7 +228,22 @@ class ChsBudgetTest < Minitest::Test
 
     refute_nil obligation
     assert_equal "101", obligation[:id]
-    assert_equal 501, obligation[:referral_ien]
+    assert_equal "501", obligation[:referral_ien]
+  end
+
+  def test_by_referral_accepts_non_numeric_referral_id
+    RpmsRpc.client.seed(:chs_obligation_by_referral, "REF-001", {
+      id: "OBL-099",
+      referral_ien: "REF-001",
+      patient_dfn: "8791",
+      amount: "1200.00",
+      status: "PENDING"
+    })
+
+    obligation = RpmsRpc::ChsBudget.by_referral("REF-001")
+    refute_nil obligation, "non-numeric referral IDs must reach the RPC"
+    assert_equal "REF-001", obligation[:referral_ien]
+    assert_equal "OBL-099", obligation[:id]
   end
 
   def test_payments_returns_multi_line_payments

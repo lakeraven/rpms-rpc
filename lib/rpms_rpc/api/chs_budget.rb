@@ -46,7 +46,10 @@ module RpmsRpc
     end
 
     def by_referral(referral_ien)
-      return nil if invalid_id?(referral_ien)
+      # Referral IDs are opaque tokens (e.g. "REF-001"), not numeric IENs —
+      # the `to_i <= 0` guard would reject legitimate values. Only reject
+      # truly blank input.
+      return nil if blank?(referral_ien)
 
       DataMapper.chs_obligation_by_referral.fetch_one(referral_ien.to_s)
     end
@@ -175,7 +178,7 @@ module RpmsRpc
     end
 
     def blank?(value)
-      value.nil? || value.to_s.empty?
+      value.nil? || value.to_s.strip.empty?
     end
   end
 end

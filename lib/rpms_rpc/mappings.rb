@@ -606,8 +606,12 @@ module RpmsRpc
     DataMapper.define(:chs_obligation_list) do |m|
       m.rpc "BMCRPC GTOBLIG"
       m.field 0, :id
-      m.field 1, :referral_ien, :integer
-      m.field 2, :patient_dfn,  :integer
+      # :referral_ien and :patient_dfn are opaque string identifiers (the
+      # CHS mock fixtures use "REF-001" style tokens, and the rpms_redux
+      # gateway calls pick_string on these fields). Coercing to integer
+      # would turn legitimate values into 0.
+      m.field 1, :referral_ien
+      m.field 2, :patient_dfn
       m.field 3, :amount
       m.field 4, :status
       m.field 5, :service_type
@@ -619,8 +623,12 @@ module RpmsRpc
     DataMapper.define(:chs_obligation_detail) do |m|
       m.rpc "BMCRPC GTOBLIGID"
       m.field 0, :id
-      m.field 1, :referral_ien, :integer
-      m.field 2, :patient_dfn,  :integer
+      # :referral_ien and :patient_dfn are opaque string identifiers (the
+      # CHS mock fixtures use "REF-001" style tokens, and the rpms_redux
+      # gateway calls pick_string on these fields). Coercing to integer
+      # would turn legitimate values into 0.
+      m.field 1, :referral_ien
+      m.field 2, :patient_dfn
       m.field 3, :amount
       m.field 4, :amount_paid
       m.field 5, :status
@@ -634,8 +642,12 @@ module RpmsRpc
     DataMapper.define(:chs_obligation_by_referral) do |m|
       m.rpc "BMCRPC GTREFOBLIG"
       m.field 0, :id
-      m.field 1, :referral_ien, :integer
-      m.field 2, :patient_dfn,  :integer
+      # :referral_ien and :patient_dfn are opaque string identifiers (the
+      # CHS mock fixtures use "REF-001" style tokens, and the rpms_redux
+      # gateway calls pick_string on these fields). Coercing to integer
+      # would turn legitimate values into 0.
+      m.field 1, :referral_ien
+      m.field 2, :patient_dfn
       m.field 3, :amount
       m.field 4, :amount_paid
       m.field 5, :status
