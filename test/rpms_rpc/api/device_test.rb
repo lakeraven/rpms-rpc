@@ -127,13 +127,9 @@ class DeviceTest < Minitest::Test
   end
 
   def test_find_uses_first_line_from_multi_line_detail_response
-    rpc_name = RpmsRpc::DataMapper.device_detail.rpc_name
-    keyed_collections = RpmsRpc.client.instance_variable_get(:@keyed_collections)
-    keyed_collections[rpc_name] ||= {}
-    keyed_collections[rpc_name]["201"] = [
-      "UDI-201^DEV-201^^Neurostimulator^Acme Medical^^^^^^^^^^^^1",
-      "ignored continuation line"
-    ]
+    RpmsRpc.client.seed_text(:device_detail, "201",
+      "UDI-201^DEV-201^^Neurostimulator^Acme Medical^^^^^^^^^^^^1\n" \
+      "ignored continuation line")
 
     device = RpmsRpc::Device.find("201")
 
