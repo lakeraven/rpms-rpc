@@ -497,6 +497,141 @@ module RpmsRpc
     end
 
     # ========================================================================
+    # COMMUNICATION (MailMan XM*, XQAL*)
+    # ========================================================================
+
+    # XM GET MESSAGE / XM GET MESSAGES — MailMan message.
+    # Format: IEN^PATIENT_DFN^SENDER_DUZ^SENDER_NAME^RECIPIENT_DUZ^RECIPIENT_NAME^
+    #         SUBJECT^BODY^SENT_AT^READ_AT^STATUS^PRIORITY^CATEGORY^PARENT_ID^THREAD_ID^BASKET
+    DataMapper.define(:mailman_message) do |m|
+      m.rpc "XM GET MESSAGE"
+      m.field 0,  :ien, :integer
+      m.field 1,  :patient_dfn, :integer
+      m.field 2,  :sender_duz, :integer
+      m.field 3,  :sender_name
+      m.field 4,  :recipient_duz, :integer
+      m.field 5,  :recipient_name
+      m.field 6,  :subject
+      m.field 7,  :body
+      m.field 8,  :sent_at, :fileman_datetime
+      m.field 9,  :read_at, :fileman_datetime
+      m.field 10, :status
+      m.field 11, :priority
+      m.field 12, :category
+      m.field 13, :parent_id, :integer
+      m.field 14, :thread_id
+      m.field 15, :basket
+    end
+
+    # XM GET MESSAGES — patient-scoped MailMan messages (same wire shape as GET).
+    DataMapper.define(:mailman_messages_for_patient) do |m|
+      m.rpc "XM GET MESSAGES"
+      m.field 0,  :ien, :integer
+      m.field 1,  :patient_dfn, :integer
+      m.field 2,  :sender_duz, :integer
+      m.field 3,  :sender_name
+      m.field 4,  :recipient_duz, :integer
+      m.field 5,  :recipient_name
+      m.field 6,  :subject
+      m.field 7,  :body
+      m.field 8,  :sent_at, :fileman_datetime
+      m.field 9,  :read_at, :fileman_datetime
+      m.field 10, :status
+      m.field 11, :priority
+      m.field 12, :category
+      m.field 13, :parent_id, :integer
+      m.field 14, :thread_id
+      m.field 15, :basket
+    end
+
+    # XM SEND MESSAGE — write result: SUCCESS^MESSAGE_IEN^ERROR
+    DataMapper.define(:mailman_send) do |m|
+      m.rpc "XM SEND MESSAGE"
+      m.field 0, :success, :boolean
+      m.field 1, :message_ien, :integer
+      m.field 2, :error
+    end
+
+    # XM REPLY MESSAGE — write result: SUCCESS^MESSAGE_IEN^THREAD_ID^ERROR
+    DataMapper.define(:mailman_reply) do |m|
+      m.rpc "XM REPLY MESSAGE"
+      m.field 0, :success, :boolean
+      m.field 1, :message_ien, :integer
+      m.field 2, :thread_id
+      m.field 3, :error
+    end
+
+    # XM GET THREAD — MailMan thread messages (same wire shape as GET).
+    DataMapper.define(:mailman_thread) do |m|
+      m.rpc "XM GET THREAD"
+      m.field 0,  :ien, :integer
+      m.field 1,  :patient_dfn, :integer
+      m.field 2,  :sender_duz, :integer
+      m.field 3,  :sender_name
+      m.field 4,  :recipient_duz, :integer
+      m.field 5,  :recipient_name
+      m.field 6,  :subject
+      m.field 7,  :body
+      m.field 8,  :sent_at, :fileman_datetime
+      m.field 9,  :read_at, :fileman_datetime
+      m.field 10, :status
+      m.field 11, :priority
+      m.field 12, :category
+      m.field 13, :parent_id, :integer
+      m.field 14, :thread_id
+      m.field 15, :basket
+    end
+
+    # XM GET INBOX — MailMan inbox messages (same wire shape as GET).
+    DataMapper.define(:mailman_inbox) do |m|
+      m.rpc "XM GET INBOX"
+      m.field 0,  :ien, :integer
+      m.field 1,  :patient_dfn, :integer
+      m.field 2,  :sender_duz, :integer
+      m.field 3,  :sender_name
+      m.field 4,  :recipient_duz, :integer
+      m.field 5,  :recipient_name
+      m.field 6,  :subject
+      m.field 7,  :body
+      m.field 8,  :sent_at, :fileman_datetime
+      m.field 9,  :read_at, :fileman_datetime
+      m.field 10, :status
+      m.field 11, :priority
+      m.field 12, :category
+      m.field 13, :parent_id, :integer
+      m.field 14, :thread_id
+      m.field 15, :basket
+    end
+
+    # XQAL NEW ALERTS — pending alert list.
+    # Format: ALERT_IEN^USER_DUZ^MESSAGE^CREATED_AT^PRIORITY^CATEGORY^STATUS
+    DataMapper.define(:xqal_alert) do |m|
+      m.rpc "XQAL NEW ALERTS"
+      m.field 0, :alert_ien, :integer
+      m.field 1, :user_duz, :integer
+      m.field 2, :message
+      m.field 3, :created_at, :fileman_datetime
+      m.field 4, :priority
+      m.field 5, :category
+      m.field 6, :status
+    end
+
+    # XQAL MARK READ — write result: SUCCESS^ERROR
+    DataMapper.define(:xqal_mark_read) do |m|
+      m.rpc "XQAL MARK READ"
+      m.field 0, :success, :boolean
+      m.field 1, :error
+    end
+
+    # XQAL FORWARD — write result: SUCCESS^NEW_ALERT_IEN^ERROR
+    DataMapper.define(:xqal_forward) do |m|
+      m.rpc "XQAL FORWARD"
+      m.field 0, :success, :boolean
+      m.field 1, :new_alert_ien, :integer
+      m.field 2, :error
+    end
+
+    # ========================================================================
     # HEALTH SUMMARY & REMINDERS (ORWRP*, GMTS*, ORQQPX*)
     # ========================================================================
 
