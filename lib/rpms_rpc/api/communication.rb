@@ -80,6 +80,7 @@ module RpmsRpc
     def for_user(duz, basket: "IN")
       return [] if invalid_id?(duz)
 
+      basket = "IN" if blank?(basket)
       key = "#{duz}^#{basket}"
       Array(DataMapper.mailman_inbox.fetch_many(key)).map { |message| apply_message_defaults(message) }
     end
@@ -157,7 +158,11 @@ module RpmsRpc
     def validate_send_params!(params)
       raise ArgumentError, "Subject required" if blank?(params[:subject])
       raise ArgumentError, "Body required" if blank?(params[:body])
-      raise ArgumentError, "Recipients required" if Array(params[:recipients]).empty?
+
+      recipients = Array(params[:recipients]).reject { |r| blank?(r) }.map { |r| r.to_s.strip }
+      raise ArgumentError, "Recipients required" if recipients.empty?
+
+      params[:recipients] = recipients
     end
 
     def escape_multiline(value)

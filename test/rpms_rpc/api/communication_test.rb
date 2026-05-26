@@ -132,6 +132,12 @@ class CommunicationTest < Minitest::Test
     end
   end
 
+  def test_send_message_rejects_recipients_that_are_all_blank
+    assert_raises(ArgumentError) do
+      RpmsRpc::Communication.send_message(subject: "Subject", body: "Body", recipients: [ "", "  ", nil ])
+    end
+  end
+
   def test_reply_to_message_uses_parent_thread_context
     result = RpmsRpc::Communication.reply_to_message(2001, body: "Thanks\nAcknowledged", reply_all: true)
 
@@ -161,6 +167,18 @@ class CommunicationTest < Minitest::Test
     assert_equal 2004, messages.first[:ien]
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "XM GET INBOX" }
     assert_equal [ "#{DUZ}^IN" ], call[:params]
+  end
+
+  def test_for_user_coerces_blank_basket_to_default_in
+    RpmsRpc::Communication.for_user(DUZ, basket: "")
+    RpmsRpc::Communication.for_user(DUZ, basket: nil)
+    RpmsRpc::Communication.for_user(DUZ, basket: "   ")
+
+    calls = RpmsRpc.client.received_calls.select { |c| c[:rpc] == "XM GET INBOX" }
+    calls.each do |c|
+      assert_equal "#{DUZ}^IN", c[:params].first,
+        "blank basket should default to IN, not produce '#{DUZ}^' or '#{DUZ}^   '"
+    end
   end
 
   def test_get_alerts_and_count_default_blank_status
