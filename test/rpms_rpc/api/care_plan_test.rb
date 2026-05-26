@@ -57,16 +57,11 @@ class CarePlanTest < Minitest::Test
         author_name: "PROVIDER,TEST",
         goal_iens: "201;202",
         activity: "Monitor A1C quarterly",
-        patient_dfn: "8791"
+        patient_dfn: 8791
       })
       # 102 returns a multi-line text response: first line field-based,
-      # remaining lines are the prose description.
-      RpmsRpc.client.instance_variable_get(:@text_blobs).tap { |tb| tb ||= {} }
-      # Use seed_text-equivalent direct injection alongside the existing
-      # field-based record: when both exist the @lines / @text_blobs maps
-      # are checked first. We model the multi-line response by overriding
-      # via the @text_blobs path that MockClient already supports for the
-      # same key — that returns an Array split on \n.
+      # remaining lines are the prose description. seed_text returns an
+      # Array split on \n when the seeded value contains newlines.
       m.seed_text(:care_plan_detail, "102",
         "Hypertension Control^^^^^^^^^^^8791\n" \
         "Patient on lisinopril 10mg daily.\n" \
@@ -83,7 +78,7 @@ class CarePlanTest < Minitest::Test
         author_name: nil,
         goal_iens: nil,
         activity: nil,
-        patient_dfn: "8791"
+        patient_dfn: 8791
       })
     end
   end
@@ -144,7 +139,7 @@ class CarePlanTest < Minitest::Test
     assert_equal "PROVIDER,TEST",        plan[:author_name]
     assert_equal "201;202",              plan[:goal_iens]
     assert_equal "Monitor A1C quarterly", plan[:activity]
-    assert_equal "8791",                 plan[:patient_dfn]
+    assert_equal 8791,                 plan[:patient_dfn]
   end
 
   def test_find_joins_continuation_lines_into_description
@@ -152,7 +147,7 @@ class CarePlanTest < Minitest::Test
 
     refute_nil plan
     assert_equal "Hypertension Control", plan[:title]
-    assert_equal "8791",                 plan[:patient_dfn]
+    assert_equal 8791,                 plan[:patient_dfn]
     assert_equal "Patient on lisinopril 10mg daily.\nBP target <130/80.", plan[:description]
   end
 

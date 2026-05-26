@@ -640,7 +640,7 @@ module RpmsRpc
       m.field 7,  :author_name
       m.field 8,  :goal_iens
       m.field 9,  :activity
-      m.field 11, :patient_dfn
+      m.field 11, :patient_dfn, :integer
     end
 
     # ORQQCT GET — single care team member

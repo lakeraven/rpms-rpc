@@ -4,9 +4,11 @@ module RpmsRpc
   # Symbolic API for FHIR CarePlan data.
   # Underlying RPCs (ORQQCP family): LIST, GET.
   #
-  # Each entry: { ien:, title:, status:, intent:, category:, start_date:,
-  #               end_date:, author_duz:, author_name:, goal_iens:,
-  #               activity:, description:, note: }
+  # for_patient entries: { ien:, title:, status:, intent:, category:, start_date:,
+  #   end_date:, author_duz:, author_name:, goal_iens:, activity:, description:, note: }
+  #
+  # find result includes the same keys plus :patient_dfn (echoed from the GET
+  # response body). :note is always present (default nil) for shape parity.
   module CarePlan
     extend self
 
@@ -28,7 +30,7 @@ module RpmsRpc
     def find(ien)
       return nil if blank?(ien)
 
-      response = RpmsRpc.client.call_rpc("ORQQCP GET", ien.to_s)
+      response = RpmsRpc.client.call_rpc(DataMapper.care_plan_detail.rpc_name, ien.to_s)
       return nil if response.nil? || (response.respond_to?(:empty?) && response.empty?)
 
       lines = response.is_a?(Array) ? response : [ response.to_s ]
