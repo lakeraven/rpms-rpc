@@ -163,12 +163,15 @@ module RpmsRpc
       row[:service].to_s.downcase.include?(needle) || row[:specialty].to_s.downcase.include?(needle)
     end
 
+    # Vendor and contract IDs are opaque tokens (e.g. "VENDOR-001",
+    # "CONTRACT-001"), not numeric IENs — so the `to_i <= 0` guard used
+    # elsewhere would reject legitimate identifiers. Just check for blank.
     def invalid_ien?(ien)
-      blank?(ien) || ien.to_i <= 0
+      blank?(ien)
     end
 
     def blank?(val)
-      val.nil? || val.to_s.empty?
+      val.nil? || val.to_s.strip.empty?
     end
   end
 end

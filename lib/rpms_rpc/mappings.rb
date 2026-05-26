@@ -485,7 +485,10 @@ module RpmsRpc
     # Format: IEN^NAME^TYPE^SPECIALTY^PREFERRED^PHONE^CITY^STATE
     DataMapper.define(:vendor_list) do |m|
       m.rpc "BMCRPC SRCHVEND"
-      m.field 0, :ien, :integer
+      # :ien is left as a string — RCIS vendor identifiers are opaque
+      # tokens like "VENDOR-001", not numeric IENs (matches the gateway's
+      # pick_string of "IEN" / "Id" / "VendorIEN").
+      m.field 0, :ien
       m.field 1, :name
       m.field 2, :type
       m.field 3, :specialty
@@ -500,7 +503,7 @@ module RpmsRpc
     #         STREET^CITY^STATE^ZIP^CONTRACTED_SERVICES^CONTRACT_START^CONTRACT_END^ACTIVE
     DataMapper.define(:vendor_detail) do |m|
       m.rpc "BMCRPC GTVEND"
-      m.field 0,  :ien, :integer
+      m.field 0,  :ien
       m.field 1,  :name
       m.field 2,  :type
       m.field 3,  :specialties_raw
@@ -523,7 +526,7 @@ module RpmsRpc
     # Same response shape as BMCRPC SRCHVEND.
     DataMapper.define(:preferred_vendor_list) do |m|
       m.rpc "BMCRPC GTPREFVEND"
-      m.field 0, :ien, :integer
+      m.field 0, :ien
       m.field 1, :name
       m.field 2, :type
       m.field 3, :specialty
@@ -537,7 +540,7 @@ module RpmsRpc
     # Format: IEN^NAME^SERVICE^SPECIALTY^RATE^PREFERRED
     DataMapper.define(:vendor_service_list) do |m|
       m.rpc "BMCRPC SRCHVEND"
-      m.field 0, :ien, :integer
+      m.field 0, :ien
       m.field 1, :name
       m.field 2, :service
       m.field 3, :specialty
@@ -549,8 +552,10 @@ module RpmsRpc
     # Format: ID^VENDOR_IEN^START_DATE^END_DATE^SERVICES^NOTES
     DataMapper.define(:vendor_contract_list) do |m|
       m.rpc "BMCRPC GTCONTRACT"
-      m.field 0, :id, :integer
-      m.field 1, :vendor_ien, :integer
+      # Contract :id and :vendor_ien are opaque string identifiers
+      # (e.g. "CONTRACT-001", "VENDOR-001"); gateway uses pick_string.
+      m.field 0, :id
+      m.field 1, :vendor_ien
       m.field 2, :start_date, :fileman_date
       m.field 3, :end_date, :fileman_date
       m.field 4, :services_raw

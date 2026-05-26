@@ -109,7 +109,7 @@ class VendorTest < Minitest::Test
     vendors = RpmsRpc::Vendor.search(name: "Metro", specialty: "Cardiology", type: "FACILITY")
 
     assert_equal 1, vendors.length
-    assert_equal 101, vendors.first[:ien]
+    assert_equal "101", vendors.first[:ien]
     assert_equal "Metro Health Center", vendors.first[:name]
     assert_equal true, vendors.first[:preferred]
   end
@@ -130,7 +130,7 @@ class VendorTest < Minitest::Test
     vendor = RpmsRpc::Vendor.find(101)
 
     refute_nil vendor
-    assert_equal 101, vendor[:ien]
+    assert_equal "101", vendor[:ien]
     assert_equal "Metro Health Center", vendor[:name]
     assert_equal [ "Cardiology", "Internal Medicine" ], vendor[:specialties]
     assert_equal [ "MRI", "CT Scan", "Cardiology Consult" ], vendor[:contracted_services]
@@ -147,29 +147,44 @@ class VendorTest < Minitest::Test
     assert_equal [], vendor[:contracted_services]
   end
 
-  def test_find_rejects_blank_zero_negative_and_non_numeric_ien
+  def test_find_rejects_only_blank_ien
+    # Vendor IDs are opaque tokens (e.g. "VENDOR-001"), not numeric IENs,
+    # so the only invalid input is truly blank — non-numeric strings like
+    # "VENDOR-001" or "abc" must be allowed through to the RPC.
     assert_nil RpmsRpc::Vendor.find(nil)
     assert_nil RpmsRpc::Vendor.find("")
-    assert_nil RpmsRpc::Vendor.find(0)
-    assert_nil RpmsRpc::Vendor.find(-1)
-    assert_nil RpmsRpc::Vendor.find("abc")
+    assert_nil RpmsRpc::Vendor.find("   ")
   end
 
   def test_find_returns_nil_for_unknown_ien
     assert_nil RpmsRpc::Vendor.find(999_999)
   end
 
+  def test_find_accepts_non_numeric_vendor_id
+    RpmsRpc.client.seed(:vendor_detail, "VENDOR-001", {
+      ien: "VENDOR-001",
+      name: "Northwest Specialists",
+      type: "GROUP",
+      preferred: true,
+      active: true
+    })
+
+    vendor = RpmsRpc::Vendor.find("VENDOR-001")
+    refute_nil vendor, "non-numeric vendor IDs must reach the RPC"
+    assert_equal "VENDOR-001", vendor[:ien]
+  end
+
   def test_preferred_returns_preferred_vendors
     vendors = RpmsRpc::Vendor.preferred
 
-    assert_equal [ 101, 103 ], vendors.map { |v| v[:ien] }
+    assert_equal [ "101", "103" ], vendors.map { |v| v[:ien] }
     assert vendors.all? { |v| v[:preferred] }
   end
 
   def test_preferred_filters_by_specialty
     vendors = RpmsRpc::Vendor.preferred(specialty: "Radio")
 
-    assert_equal [ 103 ], vendors.map { |v| v[:ien] }
+    assert_equal [ "103" ], vendors.map { |v| v[:ien] }
   end
 
   def test_for_service_returns_vendors_with_rates
@@ -190,8 +205,8 @@ class VendorTest < Minitest::Test
 
     assert_equal 1, contracts.length
     contract = contracts.first
-    assert_equal 201, contract[:id]
-    assert_equal 101, contract[:vendor_ien]
+    assert_equal "201", contract[:id]
+    assert_equal "101", contract[:vendor_ien]
     assert_equal [ "MRI", "CT Scan", "Cardiology Consult" ], contract[:services]
     assert_equal "ACTIVE", contract[:status]
     assert_equal true, contract[:active]
@@ -213,7 +228,7 @@ class VendorTest < Minitest::Test
     contract = RpmsRpc::Vendor.active_contract(101)
 
     refute_nil contract
-    assert_equal 201, contract[:id]
+    assert_equal "201", contract[:id]
   end
 
   def test_active_predicate_is_false_for_expired_or_unknown_vendor

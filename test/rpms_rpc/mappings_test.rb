@@ -370,7 +370,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       [ "101^Metro Health Center^FACILITY^Cardiology^1^555-0100^Portland^OR" ]
     ).first
 
-    assert_equal 101, result[:ien]
+    assert_equal "101", result[:ien]
     assert_equal "Metro Health Center", result[:name]
     assert_equal "FACILITY", result[:type]
     assert_equal "Cardiology", result[:specialty]
@@ -383,7 +383,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       "101^Metro Health Center^FACILITY^Cardiology, Internal Medicine^1^555-0100^555-0101^contact@example.invalid^Primary Contact^123 Example Way^Portland^OR^97201^MRI, CT Scan^3240101^3271231^1"
     )
 
-    assert_equal 101, result[:ien]
+    assert_equal "101", result[:ien]
     assert_equal "Cardiology, Internal Medicine", result[:specialties_raw]
     assert_equal true, result[:preferred]
     assert_equal Date.new(2024, 1, 1), result[:contract_start_date]
@@ -396,7 +396,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       [ "101^Metro Health Center^MRI^Radiology^1500.00^1" ]
     ).first
 
-    assert_equal 101, result[:ien]
+    assert_equal "101", result[:ien]
     assert_equal "MRI", result[:service]
     assert_equal "Radiology", result[:specialty]
     assert_equal "1500.00", result[:rate]
@@ -408,8 +408,8 @@ class RpmsRpc::MappingsTest < Minitest::Test
       [ "201^101^3240101^3271231^MRI, CT Scan^Multi-year contract" ]
     ).first
 
-    assert_equal 201, result[:id]
-    assert_equal 101, result[:vendor_ien]
+    assert_equal "201", result[:id]
+    assert_equal "101", result[:vendor_ien]
     assert_equal Date.new(2024, 1, 1), result[:start_date]
     assert_equal Date.new(2027, 12, 31), result[:end_date]
     assert_equal "MRI, CT Scan", result[:services_raw]
