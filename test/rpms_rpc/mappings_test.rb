@@ -382,6 +382,9 @@ class RpmsRpc::MappingsTest < Minitest::Test
       key_list key_grant key_revoke
       prescription_new erx_status prescription_cancel
       ccd_document ccd_referral immunization_text immunization_count
+      immunization_exchange_vxu immunization_exchange_vxq
+      immunization_exchange_rsp immunization_exchange_process_result
+      immunization_exchange_status
       phr_access phr_patient_direct phr_provider_direct phr_facility_direct
       vfc_eligibility vfc_eligibility_list vaccine_lot_list vaccine_lot_detail
     ]
