@@ -33,7 +33,11 @@ module RpmsRpc
 
     def obligations(status: nil, fiscal_year: nil)
       fy = fiscal_year || current_fiscal_year
-      rows = DataMapper.chs_obligation_list.fetch_many(fy, status)
+      # Pass status only when present — sending a trailing empty param
+      # changes the RPC signature on some sites where BMCRPC GTOBLIG
+      # treats argument arity as significant.
+      params = blank?(status) ? [ fy ] : [ fy, status ]
+      rows = DataMapper.chs_obligation_list.fetch_many(*params)
       rows = rows.select { |obligation| obligation[:status] == status } unless blank?(status)
 
       rows
@@ -131,10 +135,14 @@ module RpmsRpc
 
     def apply_budget_defaults(row, fiscal_year)
       row ||= {}
-      row.merge(
+      # Always present the full shape so callers see stable keys even when
+      # the RPC returned nil/empty for an unknown fiscal year.
+      {
         fiscal_year: blank?(row[:fiscal_year]) ? fiscal_year : row[:fiscal_year],
-        total_budget: decimal(row[:total_budget])
-      )
+        total_budget: decimal(row[:total_budget]),
+        start_date: row[:start_date],
+        end_date: row[:end_date]
+      }
     end
 
     def apply_funds_defaults(row)

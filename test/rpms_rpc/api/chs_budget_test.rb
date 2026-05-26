@@ -9,14 +9,20 @@ require "rpms_rpc/api/chs_budget"
 
 class ChsBudgetTest < Minitest::Test
   FY = RpmsRpc::ChsBudget.current_fiscal_year
+  # Derive FY date bounds from the dynamic FY string so the test stays
+  # green across fiscal-year rollovers. FY runs Oct 1 (prior calendar year)
+  # through Sep 30 (FY year).
+  FY_YEAR  = FY.delete_prefix("FY").to_i
+  FY_START = Date.new(FY_YEAR - 1, 10, 1)
+  FY_END   = Date.new(FY_YEAR, 9, 30)
 
   def setup
     RpmsRpc.mock! do |m|
       m.seed(:chs_budget, FY, {
         fiscal_year: FY,
         total_budget: "1000000.00",
-        start_date: Date.new(2025, 10, 1),
-        end_date: Date.new(2026, 9, 30)
+        start_date: FY_START,
+        end_date: FY_END
       })
 
       m.seed(:chs_remaining_funds, FY, {
@@ -137,8 +143,8 @@ class ChsBudgetTest < Minitest::Test
 
     assert_equal FY, budget[:fiscal_year]
     assert_equal BigDecimal("1000000.00"), budget[:total_budget]
-    assert_equal Date.new(2025, 10, 1), budget[:start_date]
-    assert_equal Date.new(2026, 9, 30), budget[:end_date]
+    assert_equal FY_START, budget[:start_date]
+    assert_equal FY_END, budget[:end_date]
   end
 
   def test_fiscal_year_budget_defaults_unknown_or_blank_response
