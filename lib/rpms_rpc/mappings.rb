@@ -727,22 +727,25 @@ module RpmsRpc
     # ========================================================================
 
     # ORWRP TYPES — report type list (multi-line)
-    # Format: IEN^NAME
+    # Format: IEN^NAME^DESCRIPTION^OWNER
     DataMapper.define(:report_types) do |m|
       m.rpc "ORWRP TYPES"
       m.field 0, :ien, :integer
       m.field 1, :name
+      m.field 2, :description
+      m.field 3, :owner
     end
 
     # ORQQPX REMINDERS LIST — clinical reminders (multi-line)
-    # Format: IEN^NAME^DUE_DATE^STATUS^LAST_DONE
+    # Format: IEN^NAME^STATUS^DUE_DATE^LAST_DONE^PRIORITY
     DataMapper.define(:reminders_list) do |m|
       m.rpc "ORQQPX REMINDERS LIST"
-      m.field 0, :ien
+      m.field 0, :ien, :integer
       m.field 1, :name
-      m.field 2, :due_date,  :fileman_date
-      m.field 3, :status
+      m.field 2, :status
+      m.field 3, :due_date,  :fileman_date
       m.field 4, :last_done, :fileman_date
+      m.field 5, :priority
     end
 
     # ORQQPX REMINDER DETAIL — single reminder detail (text blob)
@@ -826,6 +829,8 @@ module RpmsRpc
       m.rpc "ORWRP TYPE COMPONENTS"
       m.field 0, :ien, :integer
       m.field 1, :name
+      m.field 2, :abbreviation
+      m.field 3, :sequence, :integer
     end
 
     # GMTS PWH REPORT — patient health summary report text
@@ -834,19 +839,30 @@ module RpmsRpc
       m.text_blob :report_text
     end
 
-    # GMTS FLOWSHEET LIST — flowsheet items (multi-line)
+    # GMTS FLOWSHEET LIST — flowsheet definitions (multi-line)
     DataMapper.define(:flowsheet_list) do |m|
       m.rpc "GMTS FLOWSHEET LIST"
-      m.field 0, :ien
+      m.field 0, :ien, :integer
       m.field 1, :name
-      m.field 2, :date, :fileman_date
+      m.field 2, :description
+    end
+
+    # GMTS FLOWSHEET DATA — patient flowsheet table text
+    DataMapper.define(:flowsheet_data) do |m|
+      m.rpc "GMTS FLOWSHEET DATA"
+      m.text_blob :flowsheet_text
     end
 
     # GMTS MAINT ITEMS — maintenance items (multi-line)
     DataMapper.define(:maint_items) do |m|
       m.rpc "GMTS MAINT ITEMS"
-      m.field 0, :ien
+      m.field 0, :ien, :integer
       m.field 1, :name
+      m.field 2, :category
+      m.field 3, :status
+      m.field 4, :last_done, :fileman_date
+      m.field 5, :next_due,  :fileman_date
+      m.field 6, :frequency
     end
 
     # ORWLRR REPORT — full lab report text

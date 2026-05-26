@@ -298,6 +298,67 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "Patient: DOE,JOHN\nDate: 2025-03-15\nVitals normal.", text
   end
 
+  def test_health_summary_report_types
+    result = RpmsRpc::DataMapper[:report_types].parse_many(
+      [ "1^STANDARD^Standard Health Summary^SYSTEM" ]
+    ).first
+
+    assert_equal 1, result[:ien]
+    assert_equal "STANDARD", result[:name]
+    assert_equal "Standard Health Summary", result[:description]
+    assert_equal "SYSTEM", result[:owner]
+  end
+
+  def test_health_summary_type_components
+    result = RpmsRpc::DataMapper[:report_type_components].parse_many(
+      [ "10^Demographics^DEM^1" ]
+    ).first
+
+    assert_equal 10, result[:ien]
+    assert_equal "Demographics", result[:name]
+    assert_equal "DEM", result[:abbreviation]
+    assert_equal 1, result[:sequence]
+  end
+
+  def test_health_summary_reminders
+    result = RpmsRpc::DataMapper[:reminders_list].parse_many(
+      [ "501^A1C Screening^DUE^^^HIGH" ]
+    ).first
+
+    assert_equal 501, result[:ien]
+    assert_equal "A1C Screening", result[:name]
+    assert_equal "DUE", result[:status]
+    assert_equal "HIGH", result[:priority]
+  end
+
+  def test_health_summary_flowsheet_list
+    result = RpmsRpc::DataMapper[:flowsheet_list].parse_many(
+      [ "701^Diabetes Measures^A1C and related measures" ]
+    ).first
+
+    assert_equal 701, result[:ien]
+    assert_equal "Diabetes Measures", result[:name]
+    assert_equal "A1C and related measures", result[:description]
+  end
+
+  def test_health_summary_flowsheet_data_blob
+    m = RpmsRpc::DataMapper[:flowsheet_data]
+    text = m.parse_text([ "Date^A1C", "05/01/2026^7.2" ])
+    assert_equal "Date^A1C\n05/01/2026^7.2", text
+  end
+
+  def test_health_summary_maintenance_items
+    result = RpmsRpc::DataMapper[:maint_items].parse_many(
+      [ "601^Diabetes Eye Exam^Preventive^DUE^^^Yearly" ]
+    ).first
+
+    assert_equal 601, result[:ien]
+    assert_equal "Diabetes Eye Exam", result[:name]
+    assert_equal "Preventive", result[:category]
+    assert_equal "DUE", result[:status]
+    assert_equal "Yearly", result[:frequency]
+  end
+
   def test_lab_report_blob
     m = RpmsRpc::DataMapper[:lab_report]
     text = m.parse_text([ "CBC Results", "WBC: 7.2" ])
@@ -454,7 +515,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       reminder_detail patient_deceased patient_sensitive user_has_key
       signon_setup av_code cvc_verify user_keys
       report_text report_type_components health_summary_report
-      flowsheet_list maint_items lab_report lab_report_list radiology_report
+      flowsheet_list flowsheet_data maint_items lab_report lab_report_list radiology_report
       medication_detail care_plan_detail care_team_detail goal_detail
       procedure_detail device_detail referral_detail referral_delete
       patient_recent patient_save_recent
