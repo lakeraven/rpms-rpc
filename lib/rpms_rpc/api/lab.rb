@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "date"
+
 module RpmsRpc
   # Symbolic API for laboratory data.
   # Underlying RPCs (ORWLRR family): RESULT LIST, REPORT LIST, REPORT.
@@ -12,9 +14,9 @@ module RpmsRpc
     # Each hash: { ien:, test_name:, result:, units:, reference_range:,
     #              abnormal:, abnormal_flag:, collection_date:, status: }
     def for_patient(dfn, days: 90)
-      return [] if dfn.nil? || dfn.to_s.empty? || dfn.to_i <= 0
+      return [] if blank?(dfn) || dfn.to_i <= 0
 
-      raw = DataMapper.lab_result_list.fetch_many(dfn.to_s, *date_range_params(days))
+      raw = DataMapper.lab_result_list.fetch_many(build_list_param(dfn, days))
       Array(raw).map { |row| decorate_result(row) }
     end
 
@@ -24,78 +26,142 @@ module RpmsRpc
     end
 
     # DiagnosticReport-style panel aggregation for a patient.
-    # Each hash: { ien:, panel_name:, performed_at_raw:, status:, performing_lab: }
     def reports(dfn)
-      return [] if dfn.nil? || dfn.to_s.empty? || dfn.to_i <= 0
+      return [] if blank?(dfn) || dfn.to_i <= 0
 
-      Array(DataMapper.lab_report_list.fetch_many(dfn.to_s))
+      Array(DataMapper.lab_report_list.fetch_many(dfn.to_s)).map { |r| apply_report_defaults(r) }
     end
 
     # Single lab / panel detail. Returns a hash or nil if not found.
-    # Parses the text-blob response (LABEL: VALUE lines) into a structured hash.
+    # The ORWLRR REPORT RPC takes a single composite param: "dfn^lab_ien".
+    # Response is a text blob: LABEL: VALUE lines plus optional caret-delimited
+    # component lines for panel tests.
     def find(dfn, lab_ien)
-      return nil if dfn.nil? || lab_ien.nil?
-      return nil if dfn.to_s.empty? || lab_ien.to_s.empty?
+      return nil if blank?(dfn) || blank?(lab_ien)
 
-      key = "#{dfn}|#{lab_ien}"
+      key = "#{dfn}^#{lab_ien}"
       text = DataMapper.lab_report.fetch_text(key)
       return nil if text.nil? || (text.respond_to?(:empty?) && text.empty?)
 
       parse_detail(text, lab_ien)
     end
 
-    private
-
-    # ORWLRR RESULT LIST takes (dfn, from_mm_dd_yyyy, to_mm_dd_yyyy).
-    # The MockClient keys on the first param (dfn) so the date params are
-    # transport-only; tests can ignore them. Returned for parity with the
-    # production RPC contract.
-    def date_range_params(days)
+    # Build the ORWLRR RESULT LIST composite param ("dfn^from^to").
+    # Public for tests / observability.
+    def build_list_param(dfn, days = 90)
       to_date   = Date.today
       from_date = to_date - days
-      [ from_date.strftime("%m/%d/%Y"), to_date.strftime("%m/%d/%Y") ]
+      "#{dfn}^#{from_date.strftime('%m/%d/%Y')}^#{to_date.strftime('%m/%d/%Y')}"
     end
+
+    private
 
     def decorate_result(row)
       flag = row[:abnormal_flag]
-      row.merge(abnormal: !flag.nil? && flag.to_s != "" && flag.to_s.upcase != "N")
+      row.merge(abnormal: !blank?(flag) && flag.to_s.upcase != "N")
     end
 
-    # Parse "LABEL: VALUE" text-blob into the detail-hash shape.
-    # Tolerant of label aliases (TEST/TEST NAME, COLLECTED/COLLECTION DATE, etc.).
+    def apply_report_defaults(row)
+      row.merge(status: blank?(row[:status]) ? "final" : row[:status])
+    end
+
+    # Parse the ORWLRR REPORT text-blob response. Lines come in two shapes:
+    # - "LABEL: VALUE" — assigned to a named attribute on the detail hash
+    # - "field0^field1^field2^..." — a panel component
     def parse_detail(text, lab_ien)
       detail = { ien: lab_ien.to_i, components: [] }
       lines = text.is_a?(String) ? text.split(/\r?\n/) : Array(text)
 
       lines.each do |line|
         next if line.nil? || line.strip.empty?
-        next unless line.include?(":")
 
-        label, value = line.split(":", 2).map(&:strip)
-        normalized = label.to_s.upcase
-        case normalized
-        when "TEST", "TEST NAME"         then detail[:test_name]         = value
-        when "RESULT"                    then detail[:result]            = value
-        when "UNITS"                     then detail[:units]             = value
-        when "REFERENCE RANGE",
-             "REF RANGE",
-             "NORMAL RANGE"              then detail[:reference_range]   = value
-        when "COLLECTED",
-             "COLLECTION DATE"           then detail[:collection_date]   = value
-        when "RECEIVED"                  then detail[:received_date]     = value
-        when "RESULTED",
-             "RESULT DATE"               then detail[:resulted_date]     = value
-        when "STATUS"                    then detail[:status]            = value.to_s.downcase
-        when "ORDERING PROVIDER",
-             "PROVIDER"                  then detail[:ordering_provider] = value
-        when "PERFORMING LAB", "LAB"     then detail[:performing_lab]    = value
-        when "SPECIMEN"                  then detail[:specimen]          = value
-        when "COMMENTS", "NOTES"         then detail[:comments]          = value
-        when "INTERPRETATION"            then detail[:interpretation]    = value
+        if label_value?(line)
+          assign_label(detail, line)
+        elsif line.include?("^")
+          component = parse_component(line)
+          detail[:components] << component if component
         end
       end
 
+      detail[:abnormal] = overall_abnormal(detail)
       detail
+    end
+
+    # A line is "LABEL: VALUE" only if it has a colon and the part before
+    # the first colon contains no caret (carets indicate a component line).
+    def label_value?(line)
+      return false unless line.include?(":")
+
+      head = line.split(":", 2).first.to_s
+      !head.empty? && !head.include?("^")
+    end
+
+    def assign_label(detail, line)
+      label, value = line.split(":", 2).map { |s| s.to_s.strip }
+      case label.upcase
+      when "TEST", "TEST NAME"
+        detail[:test_name] = value
+      when "RESULT"
+        detail[:result] = value
+      when "UNITS"
+        detail[:units] = value
+      when "REFERENCE RANGE", "REF RANGE", "NORMAL RANGE"
+        detail[:reference_range] = value
+      when "ABNORMAL FLAG"
+        detail[:abnormal_flag] = value
+      when "COLLECTED", "COLLECTION DATE"
+        detail[:collection_date] = parse_datetime(value)
+      when "RECEIVED"
+        detail[:received_date] = parse_datetime(value)
+      when "RESULTED", "RESULT DATE"
+        detail[:resulted_date] = parse_datetime(value)
+      when "STATUS"
+        detail[:status] = value.to_s.downcase
+      when "ORDERING PROVIDER", "PROVIDER"
+        detail[:ordering_provider] = value
+      when "PERFORMING LAB", "LAB"
+        detail[:performing_lab] = value
+      when "SPECIMEN"
+        detail[:specimen] = value
+      when "COMMENTS", "NOTES"
+        detail[:comments] = value
+      when "INTERPRETATION"
+        detail[:interpretation] = value
+      end
+    end
+
+    def parse_component(line)
+      fields = line.split("^", -1)
+      return nil if fields.length < 3
+
+      flag = fields[4]
+      {
+        name:            fields[0],
+        result:          fields[1],
+        units:           fields[2],
+        reference_range: fields[3],
+        abnormal:        !blank?(flag) && flag.to_s.upcase != "N",
+        abnormal_flag:   flag
+      }
+    end
+
+    def overall_abnormal(detail)
+      if detail[:components].any?
+        detail[:components].any? { |c| c[:abnormal] }
+      else
+        flag = detail[:abnormal_flag]
+        !blank?(flag) && flag.to_s.upcase != "N"
+      end
+    end
+
+    def parse_datetime(value)
+      return nil if blank?(value)
+
+      FilemanDateParser.parse_datetime(value) || value
+    end
+
+    def blank?(val)
+      val.nil? || val.to_s.empty?
     end
   end
 end
