@@ -313,13 +313,22 @@ module RpmsRpc
     end
 
     # ORQQCT LIST — care team list (multi-line)
-    # Format: IEN^NAME^ROLE^START_DATE
+    # Format: IEN^TEAM_NAME^STATUS^CATEGORY^START_DATE^END_DATE^
+    #         PARTICIPANTS^REASON_CODE^REASON_DISPLAY^ORGANIZATION
+    # The PARTICIPANTS field is a sub-encoded string parsed by the API module:
+    #   DUZ~NAME~ROLE~START~END;DUZ~NAME~ROLE~START~END;...
     DataMapper.define(:care_team_list) do |m|
       m.rpc "ORQQCT LIST"
       m.field 0, :ien
-      m.field 1, :name
-      m.field 2, :role
-      m.field 3, :start_date, :fileman_date
+      m.field 1, :team_name
+      m.field 2, :status
+      m.field 3, :category
+      m.field 4, :start_date, :fileman_date
+      m.field 5, :end_date,   :fileman_date
+      m.field 6, :participants_raw
+      m.field 7, :reason_code
+      m.field 8, :reason_display
+      m.field 9, :organization
     end
 
     # ORQQGO LIST — goal list (multi-line)
@@ -643,14 +652,22 @@ module RpmsRpc
       m.field 11, :patient_dfn, :integer
     end
 
-    # ORQQCT GET — single care team member
+    # ORQQCT GET — single care team. IEN is passed as the RPC param and
+    # echoed by the API module via extras (gateway does the same).
+    # First line: TEAM_NAME^STATUS^CATEGORY^START_DATE^END_DATE^
+    #             PARTICIPANTS^REASON_CODE^REASON_DISPLAY^ORGANIZATION^PATIENT_DFN
     DataMapper.define(:care_team_detail) do |m|
       m.rpc "ORQQCT GET"
-      m.field 0, :ien
-      m.field 1, :name
-      m.field 2, :role
+      m.field 0, :team_name
+      m.field 1, :status
+      m.field 2, :category
       m.field 3, :start_date, :fileman_date
-      m.field 4, :phone
+      m.field 4, :end_date,   :fileman_date
+      m.field 5, :participants_raw
+      m.field 6, :reason_code
+      m.field 7, :reason_display
+      m.field 8, :organization
+      m.field 9, :patient_dfn, :integer
     end
 
     # ORQQGO GET — single goal
