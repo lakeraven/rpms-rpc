@@ -69,7 +69,15 @@ module RpmsRpc
       ].join("^")
 
       parsed = DataMapper.cvc_verify.fetch_lines(cvc_param)
-      parsed&.dig(:result_code).to_i.zero? ? { success: true } : validation_error("Verify code change failed")
+      # `parsed&.dig(:result_code).to_i.zero?` was previously true for nil
+      # responses (`nil.to_i == 0`), masking timeouts / RPC drops as success.
+      # Require an explicit present `result_code` that equals `"0"`.
+      code = parsed && parsed[:result_code]
+      if code.to_s == "0"
+        { success: true }
+      else
+        validation_error("Verify code change failed")
+      end
     end
 
     def clear_cache!

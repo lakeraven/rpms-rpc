@@ -140,4 +140,18 @@ class AuthenticationTest < Minitest::Test
     assert_equal false, result[:success]
     assert_equal "New verify code is required", result[:error]
   end
+
+  def test_change_verify_code_treats_unseeded_response_as_failure
+    # Unseeded payload → MockClient returns "" → fetch_lines returns nil.
+    # Without an explicit result-code check, the previous code would treat
+    # this as success because `nil.to_i == 0`.
+    result = RpmsRpc::Authentication.change_verify_code(
+      old_verify_code: "WRONGOLD",
+      new_verify_code: "NEWVERIFY",
+      confirm_verify_code: "NEWVERIFY"
+    )
+
+    assert_equal false, result[:success]
+    assert_equal "Verify code change failed", result[:error]
+  end
 end
