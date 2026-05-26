@@ -365,6 +365,67 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "55", result[:facility_ien]
   end
 
+  def test_vendor_list
+    result = RpmsRpc::DataMapper[:vendor_list].parse_many(
+      [ "101^Metro Health Center^FACILITY^Cardiology^1^555-0100^Portland^OR" ]
+    ).first
+
+    assert_equal 101, result[:ien]
+    assert_equal "Metro Health Center", result[:name]
+    assert_equal "FACILITY", result[:type]
+    assert_equal "Cardiology", result[:specialty]
+    assert_equal true, result[:preferred]
+    assert_equal "OR", result[:state]
+  end
+
+  def test_vendor_detail
+    result = RpmsRpc::DataMapper[:vendor_detail].parse_one(
+      "101^Metro Health Center^FACILITY^Cardiology, Internal Medicine^1^555-0100^555-0101^contact@example.invalid^Primary Contact^123 Example Way^Portland^OR^97201^MRI, CT Scan^3240101^3271231^1"
+    )
+
+    assert_equal 101, result[:ien]
+    assert_equal "Cardiology, Internal Medicine", result[:specialties_raw]
+    assert_equal true, result[:preferred]
+    assert_equal Date.new(2024, 1, 1), result[:contract_start_date]
+    assert_equal Date.new(2027, 12, 31), result[:contract_end_date]
+    assert_equal true, result[:active]
+  end
+
+  def test_vendor_service_list
+    result = RpmsRpc::DataMapper[:vendor_service_list].parse_many(
+      [ "101^Metro Health Center^MRI^Radiology^1500.00^1" ]
+    ).first
+
+    assert_equal 101, result[:ien]
+    assert_equal "MRI", result[:service]
+    assert_equal "Radiology", result[:specialty]
+    assert_equal "1500.00", result[:rate]
+    assert_equal true, result[:preferred]
+  end
+
+  def test_vendor_contract_list
+    result = RpmsRpc::DataMapper[:vendor_contract_list].parse_many(
+      [ "201^101^3240101^3271231^MRI, CT Scan^Multi-year contract" ]
+    ).first
+
+    assert_equal 201, result[:id]
+    assert_equal 101, result[:vendor_ien]
+    assert_equal Date.new(2024, 1, 1), result[:start_date]
+    assert_equal Date.new(2027, 12, 31), result[:end_date]
+    assert_equal "MRI, CT Scan", result[:services_raw]
+  end
+
+  def test_vendor_rate_list
+    result = RpmsRpc::DataMapper[:vendor_rate_list].parse_many(
+      [ "MRI^1500.00^procedure^3240101" ]
+    ).first
+
+    assert_equal "MRI", result[:service]
+    assert_equal "1500.00", result[:rate]
+    assert_equal "procedure", result[:unit]
+    assert_equal Date.new(2024, 1, 1), result[:effective_date]
+  end
+
   def test_phr_access
     assert_equal true, RpmsRpc::DataMapper[:phr_access].parse_scalar("1")
   end
@@ -400,6 +461,8 @@ class RpmsRpc::MappingsTest < Minitest::Test
       immunization_exchange_status
       phr_access phr_patient_direct phr_provider_direct phr_facility_direct
       vfc_eligibility vfc_eligibility_list vaccine_lot_list vaccine_lot_detail
+      vendor_list vendor_detail preferred_vendor_list vendor_service_list
+      vendor_contract_list vendor_rate_list
     ]
 
     expected.each do |name|

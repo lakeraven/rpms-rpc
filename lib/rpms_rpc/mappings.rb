@@ -481,6 +481,92 @@ module RpmsRpc
       m.field 1, :value
     end
 
+    # BMCRPC SRCHVEND — CHS vendor search (multi-line)
+    # Format: IEN^NAME^TYPE^SPECIALTY^PREFERRED^PHONE^CITY^STATE
+    DataMapper.define(:vendor_list) do |m|
+      m.rpc "BMCRPC SRCHVEND"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+      m.field 2, :type
+      m.field 3, :specialty
+      m.field 4, :preferred, :boolean
+      m.field 5, :phone
+      m.field 6, :city
+      m.field 7, :state
+    end
+
+    # BMCRPC GTVEND — single CHS vendor detail
+    # Format: IEN^NAME^TYPE^SPECIALTIES^PREFERRED^PHONE^FAX^EMAIL^CONTACT_NAME^
+    #         STREET^CITY^STATE^ZIP^CONTRACTED_SERVICES^CONTRACT_START^CONTRACT_END^ACTIVE
+    DataMapper.define(:vendor_detail) do |m|
+      m.rpc "BMCRPC GTVEND"
+      m.field 0,  :ien, :integer
+      m.field 1,  :name
+      m.field 2,  :type
+      m.field 3,  :specialties_raw
+      m.field 4,  :preferred, :boolean
+      m.field 5,  :phone
+      m.field 6,  :fax
+      m.field 7,  :email
+      m.field 8,  :contact_name
+      m.field 9,  :street
+      m.field 10, :city
+      m.field 11, :state
+      m.field 12, :zip
+      m.field 13, :contracted_services_raw
+      m.field 14, :contract_start_date, :fileman_date
+      m.field 15, :contract_end_date, :fileman_date
+      m.field 16, :active, :boolean
+    end
+
+    # BMCRPC GTPREFVEND — preferred CHS vendors (multi-line)
+    # Same response shape as BMCRPC SRCHVEND.
+    DataMapper.define(:preferred_vendor_list) do |m|
+      m.rpc "BMCRPC GTPREFVEND"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+      m.field 2, :type
+      m.field 3, :specialty
+      m.field 4, :preferred, :boolean
+      m.field 5, :phone
+      m.field 6, :city
+      m.field 7, :state
+    end
+
+    # BMCRPC SRCHVEND — CHS vendors offering a service, with rates
+    # Format: IEN^NAME^SERVICE^SPECIALTY^RATE^PREFERRED
+    DataMapper.define(:vendor_service_list) do |m|
+      m.rpc "BMCRPC SRCHVEND"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+      m.field 2, :service
+      m.field 3, :specialty
+      m.field 4, :rate
+      m.field 5, :preferred, :boolean
+    end
+
+    # BMCRPC GTCONTRACT — CHS vendor contracts (multi-line)
+    # Format: ID^VENDOR_IEN^START_DATE^END_DATE^SERVICES^NOTES
+    DataMapper.define(:vendor_contract_list) do |m|
+      m.rpc "BMCRPC GTCONTRACT"
+      m.field 0, :id, :integer
+      m.field 1, :vendor_ien, :integer
+      m.field 2, :start_date, :fileman_date
+      m.field 3, :end_date, :fileman_date
+      m.field 4, :services_raw
+      m.field 5, :notes
+    end
+
+    # BMCRPC GTRATES — CHS vendor contracted rates (multi-line)
+    # Format: SERVICE^RATE^UNIT^EFFECTIVE_DATE
+    DataMapper.define(:vendor_rate_list) do |m|
+      m.rpc "BMCRPC GTRATES"
+      m.field 0, :service
+      m.field 1, :rate
+      m.field 2, :unit
+      m.field 3, :effective_date, :fileman_date
+    end
+
     # ========================================================================
     # AUTHENTICATION (XUS*)
     # ========================================================================
