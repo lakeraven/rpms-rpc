@@ -23,16 +23,16 @@ module RpmsRpc
     # Single goal by IEN. GET response is hybrid: first line is field-based,
     # any subsequent lines are free-text note (joined here).
     def find(ien)
-      return nil if blank?(ien)
+      return nil if blank?(ien) || ien.to_i <= 0
 
-      response = RpmsRpc.client.call_rpc("ORQQGO GET", ien.to_s)
+      response = RpmsRpc.client.call_rpc(DataMapper.goal_detail.rpc_name, ien.to_s)
       return nil if response.nil? || (response.respond_to?(:empty?) && response.empty?)
 
       lines = response.is_a?(Array) ? response : [ response.to_s ]
       first = lines.first
       return nil if first.nil? || first.to_s.empty?
 
-      parsed = DataMapper.goal_detail.parse_one(first, extras: { ien: ien })
+      parsed = DataMapper.goal_detail.parse_one(first, extras: { ien: ien.to_i })
       return nil if parsed.nil?
 
       note = lines.length > 1 ? lines[1..].join("\n") : nil

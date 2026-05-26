@@ -698,7 +698,7 @@ module RpmsRpc
       m.field 7,  :status_date, :fileman_date
       m.field 8,  :provider_duz
       m.field 9,  :provider_name
-      m.field 11, :patient_dfn
+      m.field 11, :patient_dfn, :integer
     end
 
     # ORWPCE PROCEDURE GET — single procedure

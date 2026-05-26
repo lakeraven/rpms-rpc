@@ -51,7 +51,7 @@ class GoalTest < Minitest::Test
         status_date: nil,
         provider_duz: "301",
         provider_name: "PROVIDER,TEST",
-        patient_dfn: "8791"
+        patient_dfn: 8791
       })
 
       # ORQQGO GET — multi-line response with prose note.
@@ -71,7 +71,7 @@ class GoalTest < Minitest::Test
         status_date: nil,
         provider_duz: nil,
         provider_name: nil,
-        patient_dfn: "8791"
+        patient_dfn: 8791
       })
     end
   end
@@ -125,14 +125,14 @@ class GoalTest < Minitest::Test
     assert_equal "Reduce A1C to <7.0", goal[:goal_text]
     assert_equal "active",             goal[:lifecycle_status]
     assert_equal "in-progress",        goal[:achievement_status]
-    assert_equal "8791",               goal[:patient_dfn]
+    assert_equal 8791,               goal[:patient_dfn]
   end
 
   def test_find_joins_continuation_lines_into_note
     goal = RpmsRpc::Goal.find(702)
     refute_nil goal
     assert_equal "Walk 30 min/day", goal[:goal_text]
-    assert_equal "8791",            goal[:patient_dfn]
+    assert_equal 8791,            goal[:patient_dfn]
     assert_equal "Started after 2026-03 visit.\nReassess at 90d.", goal[:note]
   end
 
@@ -142,9 +142,11 @@ class GoalTest < Minitest::Test
     assert_equal "active", goal[:lifecycle_status]
   end
 
-  def test_find_returns_nil_for_blank_ien
+  def test_find_returns_nil_for_blank_or_nonpositive_ien
     assert_nil RpmsRpc::Goal.find(nil)
     assert_nil RpmsRpc::Goal.find("")
+    assert_nil RpmsRpc::Goal.find(0)
+    assert_nil RpmsRpc::Goal.find(-5)
   end
 
   def test_find_returns_nil_for_unknown_ien
