@@ -332,7 +332,10 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- PHR RPCs --------------------------------------------------------------
 
   def test_immunization_count
-    assert_equal 5, RpmsRpc::DataMapper[:immunization_count].parse_scalar("5")
+    result = RpmsRpc::DataMapper[:immunization_count].parse_one("5^2")
+
+    assert_equal 5, result[:total]
+    assert_equal 2, result[:reconciled]
   end
 
   def test_vaccine_lot_list
@@ -427,7 +430,10 @@ class RpmsRpc::MappingsTest < Minitest::Test
   end
 
   def test_phr_access
-    assert_equal true, RpmsRpc::DataMapper[:phr_access].parse_scalar("1")
+    result = RpmsRpc::DataMapper[:phr_access].parse_one("1^Patient portal enabled")
+
+    assert_equal true, result[:has_access]
+    assert_equal "Patient portal enabled", result[:message]
   end
 
   # -- Registry completeness -------------------------------------------------
@@ -459,7 +465,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       immunization_exchange_vxu immunization_exchange_vxq
       immunization_exchange_rsp immunization_exchange_process_result
       immunization_exchange_status
-      phr_access phr_patient_direct phr_provider_direct phr_facility_direct
+      phr_access phr_record_access phr_patient_direct phr_provider_direct phr_facility_direct
       vfc_eligibility vfc_eligibility_list vaccine_lot_list vaccine_lot_detail
       vendor_list vendor_detail preferred_vendor_list vendor_service_list
       vendor_contract_list vendor_rate_list
