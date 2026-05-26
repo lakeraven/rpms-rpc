@@ -108,11 +108,25 @@ module RpmsRpc
       require_relative "security_keys"
       require_relative "user_roles"
 
+      user_class = UserRoles.class_for(role) || "0"
+
       # Credential response
-      seed_lines(:av_code, credentials, { duz: duz.to_i, greeting: "Welcome #{name}", tries: 3 })
+      seed_lines(:av_code, credentials.to_s.strip.upcase, {
+        duz: duz.to_i,
+        error_code: 0,
+        verify_needs_change: 0,
+        message: "Welcome #{name}",
+        user_class: user_class.to_i
+      })
 
       # User info
-      seed(:user_info, duz.to_s, UserRoles.mock_user_info(duz: duz, name: name, role: role))
+      seed(:user_info, duz.to_s, {
+        duz: duz.to_i,
+        name: name,
+        access_code: "",
+        verify_code_exists: true,
+        division: ""
+      })
 
       # Security keys (symbolic → RPMS strings)
       rpms_keys = security_keys.filter_map { |sym| SecurityKeys.rpms_name(sym) }
