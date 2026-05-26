@@ -363,14 +363,23 @@ module RpmsRpc
     end
 
     # ORWPCE IMPLANT LIST — implanted device list (multi-line)
-    # Format: IEN^DEVICE_NAME^IMPLANT_DATE^STATUS^UDI
+    # Format: IEN^UDI^DEVICE_ID^STATUS^DEVICE_NAME^MANUFACTURER^MODEL^SERIAL^LOT^MFG_DATE^EXP_DATE^TYPE_CODE^TYPE_DISPLAY^DISTINCT_ID
     DataMapper.define(:device_list) do |m|
       m.rpc "ORWPCE IMPLANT LIST"
       m.field 0, :ien
-      m.field 1, :device_name
-      m.field 2, :implant_date, :fileman_date
+      m.field 1, :udi
+      m.field 2, :device_identifier
       m.field 3, :status
-      m.field 4, :udi
+      m.field 4, :name
+      m.field 5, :manufacturer
+      m.field 6, :model_number
+      m.field 7, :serial_number
+      m.field 8, :lot_number
+      m.field 9, :manufacture_date, :fileman_date
+      m.field 10, :expiration_date, :fileman_date
+      m.field 11, :snomed_code
+      m.field 12, :device_type
+      m.field 13, :distinct_id
     end
 
     # ========================================================================
@@ -713,14 +722,23 @@ module RpmsRpc
     end
 
     # ORWPCE IMPLANT GET — single implanted device
+    # Format: UDI^DEVICE_ID^STATUS^DEVICE_NAME^MANUFACTURER^MODEL^SERIAL^LOT^MFG_DATE^EXP_DATE^TYPE_CODE^TYPE_DISPLAY^DISTINCT_ID^PATIENT_DFN
     DataMapper.define(:device_detail) do |m|
       m.rpc "ORWPCE IMPLANT GET"
-      m.field 0, :ien
-      m.field 1, :device_name
-      m.field 2, :implant_date, :fileman_date
-      m.field 3, :status
-      m.field 4, :udi
-      m.field 5, :manufacturer
+      m.field 0, :udi
+      m.field 1, :device_identifier
+      m.field 2, :status
+      m.field 3, :name
+      m.field 4, :manufacturer
+      m.field 5, :model_number
+      m.field 6, :serial_number
+      m.field 7, :lot_number
+      m.field 8, :manufacture_date, :fileman_date
+      m.field 9, :expiration_date, :fileman_date
+      m.field 10, :snomed_code
+      m.field 11, :device_type
+      m.field 12, :distinct_id
+      m.field 13, :patient_dfn
     end
 
     # ========================================================================
