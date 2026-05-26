@@ -572,6 +572,104 @@ module RpmsRpc
       m.field 3, :effective_date, :fileman_date
     end
 
+    # BMCRPC GTBUDGET — CHS/PRC budget allocation by fiscal year
+    # Format: FISCAL_YEAR^TOTAL_BUDGET^START_DATE^END_DATE
+    DataMapper.define(:chs_budget) do |m|
+      m.rpc "BMCRPC GTBUDGET"
+      m.field 0, :fiscal_year
+      m.field 1, :total_budget
+      m.field 2, :start_date, :fileman_date
+      m.field 3, :end_date,   :fileman_date
+    end
+
+    # BMCRPC GTREMAIN — remaining CHS/PRC funds for a fiscal year
+    # Format: REMAINING^OBLIGATED^EXPENDED
+    DataMapper.define(:chs_remaining_funds) do |m|
+      m.rpc "BMCRPC GTREMAIN"
+      m.field 0, :remaining
+      m.field 1, :obligated
+      m.field 2, :expended
+    end
+
+    # BMCRPC GTQTRALLOC — quarterly CHS/PRC allocation
+    # Format: QUARTER^ALLOCATED^SPENT^REMAINING
+    DataMapper.define(:chs_quarterly_allocation) do |m|
+      m.rpc "BMCRPC GTQTRALLOC"
+      m.field 0, :quarter
+      m.field 1, :allocated
+      m.field 2, :spent
+      m.field 3, :remaining
+    end
+
+    # BMCRPC GTOBLIG — CHS/PRC obligation list
+    # Format: ID^REFERRAL_IEN^PATIENT_DFN^AMOUNT^STATUS^SERVICE_TYPE^CREATED_DATE
+    DataMapper.define(:chs_obligation_list) do |m|
+      m.rpc "BMCRPC GTOBLIG"
+      m.field 0, :id
+      # :referral_ien and :patient_dfn are opaque string identifiers (the
+      # CHS mock fixtures use "REF-001" style tokens, and the rpms_redux
+      # gateway calls pick_string on these fields). Coercing to integer
+      # would turn legitimate values into 0.
+      m.field 1, :referral_ien
+      m.field 2, :patient_dfn
+      m.field 3, :amount
+      m.field 4, :status
+      m.field 5, :service_type
+      m.field 6, :created_date, :fileman_date
+    end
+
+    # BMCRPC GTOBLIGID — single CHS/PRC obligation
+    # Format: ID^REFERRAL_IEN^PATIENT_DFN^AMOUNT^AMOUNT_PAID^STATUS^SERVICE_TYPE^VENDOR_ID^CREATED_DATE^PAID_DATE
+    DataMapper.define(:chs_obligation_detail) do |m|
+      m.rpc "BMCRPC GTOBLIGID"
+      m.field 0, :id
+      # :referral_ien and :patient_dfn are opaque string identifiers (the
+      # CHS mock fixtures use "REF-001" style tokens, and the rpms_redux
+      # gateway calls pick_string on these fields). Coercing to integer
+      # would turn legitimate values into 0.
+      m.field 1, :referral_ien
+      m.field 2, :patient_dfn
+      m.field 3, :amount
+      m.field 4, :amount_paid
+      m.field 5, :status
+      m.field 6, :service_type
+      m.field 7, :vendor_id
+      m.field 8, :created_date, :fileman_date
+      m.field 9, :paid_date,    :fileman_date
+    end
+
+    # BMCRPC GTREFOBLIG — single CHS/PRC obligation by referral IEN
+    DataMapper.define(:chs_obligation_by_referral) do |m|
+      m.rpc "BMCRPC GTREFOBLIG"
+      m.field 0, :id
+      # :referral_ien and :patient_dfn are opaque string identifiers (the
+      # CHS mock fixtures use "REF-001" style tokens, and the rpms_redux
+      # gateway calls pick_string on these fields). Coercing to integer
+      # would turn legitimate values into 0.
+      m.field 1, :referral_ien
+      m.field 2, :patient_dfn
+      m.field 3, :amount
+      m.field 4, :amount_paid
+      m.field 5, :status
+      m.field 6, :service_type
+      m.field 7, :vendor_id
+      m.field 8, :created_date, :fileman_date
+      m.field 9, :paid_date,    :fileman_date
+    end
+
+    # BMCRPC GTPAYMENT — payments against a CHS/PRC obligation
+    # Format: ID^OBLIGATION_ID^AMOUNT^PAYMENT_DATE^CHECK_NUMBER^VENDOR_ID^CREATED_DATE
+    DataMapper.define(:chs_payment_list) do |m|
+      m.rpc "BMCRPC GTPAYMENT"
+      m.field 0, :id
+      m.field 1, :obligation_id
+      m.field 2, :amount
+      m.field 3, :payment_date, :fileman_date
+      m.field 4, :check_number
+      m.field 5, :vendor_id
+      m.field 6, :created_date, :fileman_date
+    end
+
     # ========================================================================
     # AUTHENTICATION (XUS*)
     # ========================================================================
