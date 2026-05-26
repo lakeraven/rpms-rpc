@@ -13,10 +13,25 @@ module RpmsRpc
     def enrollment_status(dfn)
       return disabled_status("Invalid patient") if invalid_id?(dfn)
 
-      row = DataMapper.phr_access.fetch_one(dfn.to_s)
-      return disabled_status("No response") if row.nil?
+      # BEHOCCD PHR is line-based, not caret-delimited:
+      #   line 0: "1" (has access) or "0" (no access)
+      #   line 1: optional human-readable message
+      # fetch_one normalizes to first line only, which would drop the
+      # message and would fail to coerce "1Some text" forms — so the
+      # parsing is done here against the raw response.
+      response = RpmsRpc.client.call_rpc(DataMapper.phr_access.rpc_name, dfn.to_s)
+      return disabled_status("No response") if blank_response?(response)
 
-      decorate_status(row)
+      lines = response.is_a?(Array) ? response : response.to_s.split(/\r?\n/)
+      status = lines.first.to_s.strip
+      message = lines[1].to_s.strip
+      has_access = status == "1"
+
+      {
+        enrolled: has_access,
+        has_access: has_access,
+        message: message.empty? ? default_status_message(has_access) : message
+      }
     end
 
     def has_access?(dfn)
@@ -78,15 +93,6 @@ module RpmsRpc
 
     private
 
-    def decorate_status(row)
-      has_access = row[:has_access] == true
-      {
-        enrolled: has_access,
-        has_access: has_access,
-        message: blank?(row[:message]) ? default_status_message(has_access) : row[:message]
-      }
-    end
-
     def decorate_ccd(row)
       row.merge(
         title: blank?(row[:title]) ? DEFAULT_CCD_TITLE : row[:title],
@@ -137,7 +143,11 @@ module RpmsRpc
     end
 
     def blank?(value)
-      value.nil? || value.to_s.empty?
+      value.nil? || value.to_s.strip.empty?
+    end
+
+    def blank_response?(response)
+      response.nil? || (response.respond_to?(:empty?) && response.empty?)
     end
   end
 end

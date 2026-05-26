@@ -15,8 +15,11 @@ class PhrTest < Minitest::Test
     ccd_key = "#{DFN}^05/26/2025^05/26/2026"
 
     RpmsRpc.mock! do |m|
-      m.seed(:phr_access, DFN.to_s, { has_access: true, message: "Patient portal enabled" })
-      m.seed(:phr_access, "123", { has_access: false, message: nil })
+      # BEHOCCD PHR is line-based: line 0 = "1"/"0", line 1 = optional message.
+      # seed_text models the multi-line wire shape; fetch_one would only see
+      # the first line.
+      m.seed_text(:phr_access, DFN.to_s, "1\nPatient portal enabled")
+      m.seed_text(:phr_access, "123", "0")
 
       m.seed_keyed_collection(:ccd_document, ccd_key, [
         {
