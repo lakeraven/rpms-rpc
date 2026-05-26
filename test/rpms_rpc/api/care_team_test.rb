@@ -5,8 +5,10 @@ require "rpms_rpc/mock_client"
 require "rpms_rpc/api/care_team"
 
 class CareTeamTest < Minitest::Test
-  # Participants sub-encoded format: DUZ~NAME~ROLE~START~END;DUZ~NAME~ROLE~START~END
-  PARTICIPANTS_RAW = "301~SMITH,JANE~primary;405~JONES,BOB~consulting~3260101~3260601"
+  # Participants sub-encoded format: DUZ~NAME~ROLE~START~END;DUZ~NAME~ROLE~START~END.
+  # Trailing fields may be empty — first chunk uses `~~` placeholders to demonstrate
+  # the 5-field shape is preserved even when START/END are blank.
+  PARTICIPANTS_RAW = "301~SMITH,JANE~primary~~;405~JONES,BOB~consulting~3260101~3260601"
 
   def setup
     RpmsRpc.mock! do |m|
@@ -49,7 +51,7 @@ class CareTeamTest < Minitest::Test
         reason_code: "Z00.00",
         reason_display: "General adult medical examination",
         organization: "Test Clinic",
-        patient_dfn: "8791"
+        patient_dfn: 8791
       })
 
       m.seed(:care_team_detail, "503_NO_PARTICIPANTS", {
@@ -62,7 +64,7 @@ class CareTeamTest < Minitest::Test
         reason_code: nil,
         reason_display: nil,
         organization: nil,
-        patient_dfn: "8791"
+        patient_dfn: 8791
       })
     end
   end
@@ -98,6 +100,8 @@ class CareTeamTest < Minitest::Test
     refute_nil smith
     assert_equal "SMITH,JANE", smith[:name]
     assert_equal "primary",    smith[:role]
+    assert_nil   smith[:start_date], "blank trailing fields should normalize to nil"
+    assert_nil   smith[:end_date]
 
     jones = participants.find { |p| p[:duz] == "405" }
     refute_nil jones
@@ -135,7 +139,7 @@ class CareTeamTest < Minitest::Test
     assert_equal "active",             team[:status]
     assert_equal "longitudinal",       team[:category]
     assert_equal "Test Clinic",        team[:organization]
-    assert_equal "8791",               team[:patient_dfn]
+    assert_equal 8791,                 team[:patient_dfn]
   end
 
   def test_find_parses_participants_in_detail_response
@@ -152,9 +156,11 @@ class CareTeamTest < Minitest::Test
     assert_equal [],       team[:participants]
   end
 
-  def test_find_returns_nil_for_blank_ien
+  def test_find_returns_nil_for_blank_or_nonpositive_ien
     assert_nil RpmsRpc::CareTeam.find(nil)
     assert_nil RpmsRpc::CareTeam.find("")
+    assert_nil RpmsRpc::CareTeam.find(0)
+    assert_nil RpmsRpc::CareTeam.find(-5)
   end
 
   def test_find_returns_nil_for_unknown_ien

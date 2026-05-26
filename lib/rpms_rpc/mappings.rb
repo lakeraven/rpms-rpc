@@ -667,7 +667,7 @@ module RpmsRpc
       m.field 6, :reason_code
       m.field 7, :reason_display
       m.field 8, :organization
-      m.field 9, :patient_dfn
+      m.field 9, :patient_dfn, :integer
     end
 
     # ORQQGO GET — single goal

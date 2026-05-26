@@ -24,7 +24,7 @@ module RpmsRpc
     end
 
     def find(ien)
-      return nil if blank?(ien)
+      return nil if blank?(ien) || ien.to_i <= 0
 
       parsed = DataMapper.care_team_detail.fetch_one(ien.to_s, extras: { ien: ien })
       return nil if parsed.nil?
@@ -45,17 +45,24 @@ module RpmsRpc
       return [] if blank?(raw)
 
       raw.to_s.split(";").filter_map do |chunk|
-        parts = chunk.split("~")
+        parts = chunk.split("~", -1)
         next if parts.empty? || parts.first.to_s.empty?
 
         {
-          duz:        parts[0],
-          name:       parts[1],
-          role:       parts[2],
-          start_date: parts[3],
-          end_date:   parts[4]
+          duz:        presence(parts[0]),
+          name:       presence(parts[1]),
+          role:       presence(parts[2]),
+          start_date: presence(parts[3]),
+          end_date:   presence(parts[4])
         }
       end
+    end
+
+    def presence(val)
+      return nil if val.nil?
+
+      s = val.to_s
+      s.empty? ? nil : s
     end
 
     def blank?(val)
