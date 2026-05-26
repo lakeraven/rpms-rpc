@@ -332,13 +332,23 @@ module RpmsRpc
     end
 
     # ORQQGO LIST — goal list (multi-line)
-    # Format: IEN^DESCRIPTION^STATUS^TARGET_DATE
+    # Format: IEN^GOAL_TEXT^LIFECYCLE_STATUS^ACHIEVEMENT_STATUS^CATEGORY^
+    #         PRIORITY^START_DATE^TARGET_DATE^STATUS_DATE^
+    #         PROVIDER_DUZ^PROVIDER_NAME^NOTE
     DataMapper.define(:goal_list) do |m|
       m.rpc "ORQQGO LIST"
-      m.field 0, :ien
-      m.field 1, :description
-      m.field 2, :status
-      m.field 3, :target_date, :fileman_date
+      m.field 0,  :ien
+      m.field 1,  :goal_text
+      m.field 2,  :lifecycle_status
+      m.field 3,  :achievement_status
+      m.field 4,  :category
+      m.field 5,  :priority
+      m.field 6,  :start_date,  :fileman_date
+      m.field 7,  :target_date, :fileman_date
+      m.field 8,  :status_date, :fileman_date
+      m.field 9,  :provider_duz
+      m.field 10, :provider_name
+      m.field 11, :note
     end
 
     # ORWPCE PROCEDURE LIST — procedure list (multi-line)
@@ -670,14 +680,25 @@ module RpmsRpc
       m.field 9, :patient_dfn, :integer
     end
 
-    # ORQQGO GET — single goal
+    # ORQQGO GET — single goal. IEN is passed as the RPC param and echoed
+    # by the API module via extras (gateway does the same).
+    # First line: GOAL_TEXT^LIFECYCLE_STATUS^ACHIEVEMENT_STATUS^CATEGORY^
+    #             PRIORITY^START_DATE^TARGET_DATE^STATUS_DATE^
+    #             PROVIDER_DUZ^PROVIDER_NAME^(unused)^PATIENT_DFN
+    # Subsequent lines: free-text note (joined by the API module).
     DataMapper.define(:goal_detail) do |m|
       m.rpc "ORQQGO GET"
-      m.field 0, :ien
-      m.field 1, :description
-      m.field 2, :status
-      m.field 3, :target_date, :fileman_date
-      m.field 4, :author
+      m.field 0,  :goal_text
+      m.field 1,  :lifecycle_status
+      m.field 2,  :achievement_status
+      m.field 3,  :category
+      m.field 4,  :priority
+      m.field 5,  :start_date,  :fileman_date
+      m.field 6,  :target_date, :fileman_date
+      m.field 7,  :status_date, :fileman_date
+      m.field 8,  :provider_duz
+      m.field 9,  :provider_name
+      m.field 11, :patient_dfn, :integer
     end
 
     # ORWPCE PROCEDURE GET — single procedure
