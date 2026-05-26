@@ -275,6 +275,15 @@ module RpmsRpc
       m.field 2, :title
     end
 
+    # ORWU NEWPERS — user management search results (multi-line)
+    # Format per line: DUZ^NAME^TITLE
+    DataMapper.define(:user_management_user_list) do |m|
+      m.rpc "ORWU NEWPERS"
+      m.field 0, :duz, :integer
+      m.field 1, :name
+      m.field 2, :title
+    end
+
     # ========================================================================
     # CLINICAL DATA (ORQQPS*, ORQQCP*, ORQQCT*, ORQQGO*, ORWPCE*)
     # ========================================================================
@@ -852,10 +861,11 @@ module RpmsRpc
     # ========================================================================
 
     # XU KEY LIST — key list (multi-line)
+    # Format per line: IEN^NAME
     DataMapper.define(:key_list) do |m|
       m.rpc "XU KEY LIST"
-      m.field 0, :key_name
-      m.field 1, :key_ien, :integer
+      m.field 0, :ien, :integer
+      m.field 1, :name
     end
 
     # XU KEY GRANT — grant result
