@@ -10,7 +10,6 @@ module RpmsRpc
   module Vendor
     extend self
 
-    VENDOR_TYPES = %w[FACILITY INDIVIDUAL GROUP].freeze
     DETAIL_RAW_KEYS = %i[
       specialties_raw
       phone
@@ -72,8 +71,7 @@ module RpmsRpc
       contract = active_contract(ien)
       return false if contract.nil?
 
-      end_date = contract[:end_date]
-      end_date.nil? || end_date >= Date.today
+      contract_active?(contract[:start_date], contract[:end_date])
     end
 
     private
@@ -107,12 +105,21 @@ module RpmsRpc
     end
 
     def decorate_contract(row)
-      active = row[:end_date].nil? || row[:end_date] >= Date.today
+      active = contract_active?(row[:start_date], row[:end_date])
       row.merge(
         status: active ? "ACTIVE" : "EXPIRED",
         active: active,
         services: parse_csv(row[:services_raw])
       ).tap { |contract| contract.delete(:services_raw) }
+    end
+
+    # A contract is active when today falls between its start (or open-ended)
+    # and its end (or open-ended). Both bounds are optional.
+    def contract_active?(start_date, end_date)
+      today = Date.today
+      started = start_date.nil? || start_date <= today
+      not_ended = end_date.nil? || end_date >= today
+      started && not_ended
     end
 
     def decorate_rate(row)
@@ -160,7 +167,7 @@ module RpmsRpc
 
     def matches_service?(row, service)
       needle = service.to_s.downcase
-      row[:service].to_s.downcase.include?(needle) || row[:specialty].to_s.downcase.include?(needle)
+      row[:service].to_s.downcase.include?(needle)
     end
 
     # Vendor and contract IDs are opaque tokens (e.g. "VENDOR-001",

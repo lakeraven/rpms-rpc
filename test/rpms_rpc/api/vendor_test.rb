@@ -6,6 +6,14 @@ require "rpms_rpc/mock_client"
 require "rpms_rpc/api/vendor"
 
 class VendorTest < Minitest::Test
+  # Relative dates so the suite stays time-independent. Active contracts use a
+  # 30-day window centered on today; expired contracts end before today.
+  ACTIVE_START      = Date.today - 365
+  ACTIVE_END        = Date.today + 365
+  EXPIRED_START     = Date.today - 730
+  EXPIRED_END       = Date.today - 365
+  RATE_EFFECTIVE_AT = Date.today - 90
+
   def setup
     RpmsRpc.mock! do |m|
       m.seed_collection(:vendor_list, [
@@ -49,8 +57,8 @@ class VendorTest < Minitest::Test
         state: "OR",
         zip: "97201",
         contracted_services_raw: "MRI, CT Scan, Cardiology Consult",
-        contract_start_date: Date.new(2024, 1, 1),
-        contract_end_date: Date.new(2027, 12, 31),
+        contract_start_date: ACTIVE_START,
+        contract_end_date: ACTIVE_END,
         active: true
       })
 
@@ -76,8 +84,8 @@ class VendorTest < Minitest::Test
         {
           id: 201,
           vendor_ien: 101,
-          start_date: Date.new(2024, 1, 1),
-          end_date: Date.new(2027, 12, 31),
+          start_date: ACTIVE_START,
+          end_date: ACTIVE_END,
           services_raw: "MRI, CT Scan, Cardiology Consult",
           notes: "Multi-year contract with preferred rates"
         }
@@ -87,16 +95,16 @@ class VendorTest < Minitest::Test
         {
           id: 204,
           vendor_ien: 104,
-          start_date: Date.new(2022, 1, 1),
-          end_date: Date.new(2023, 12, 31),
+          start_date: EXPIRED_START,
+          end_date: EXPIRED_END,
           services_raw: "General Consult",
           notes: "Expired contract"
         }
       ])
 
       m.seed_keyed_collection(:vendor_rate_list, "101", [
-        { service: "MRI", rate: "1500.00", unit: "procedure", effective_date: Date.new(2024, 1, 1) },
-        { service: "Cardiology Consult", rate: "350.00", unit: "visit", effective_date: Date.new(2024, 1, 1) }
+        { service: "MRI", rate: "1500.00", unit: "procedure", effective_date: RATE_EFFECTIVE_AT },
+        { service: "Cardiology Consult", rate: "350.00", unit: "visit", effective_date: RATE_EFFECTIVE_AT }
       ])
     end
   end
@@ -136,7 +144,7 @@ class VendorTest < Minitest::Test
     assert_equal [ "MRI", "CT Scan", "Cardiology Consult" ], vendor[:contracted_services]
     assert_equal "555-0100", vendor[:contact_info][:phone]
     assert_equal "123 Example Way", vendor[:address][:street]
-    assert_equal Date.new(2024, 1, 1), vendor[:contract_start_date]
+    assert_equal ACTIVE_START, vendor[:contract_start_date]
   end
 
   def test_find_defaults_blank_multi_value_fields_to_empty_arrays
@@ -236,6 +244,24 @@ class VendorTest < Minitest::Test
     assert_equal false, RpmsRpc::Vendor.active?(999_999)
   end
 
+  def test_active_predicate_is_false_for_future_start_contracts
+    RpmsRpc.client.seed_keyed_collection(:vendor_contract_list, "FUTURE-VEND", [
+      {
+        id: "FUTURE-001",
+        vendor_ien: "FUTURE-VEND",
+        start_date: Date.today + 30,
+        end_date: Date.today + 365,
+        services_raw: "MRI",
+        notes: "Not yet started"
+      }
+    ])
+
+    contracts = RpmsRpc::Vendor.contracts("FUTURE-VEND")
+    assert_equal "EXPIRED", contracts.first[:status],
+      "future-start contracts should NOT be marked ACTIVE"
+    assert_equal false, RpmsRpc::Vendor.active?("FUTURE-VEND")
+  end
+
   def test_rates_returns_contracted_rates
     rates = RpmsRpc::Vendor.rates(101)
 
@@ -244,7 +270,7 @@ class VendorTest < Minitest::Test
     assert_equal "MRI", rates.first[:service_type]
     assert_equal BigDecimal("1500.00"), rates.first[:amount]
     assert_equal "procedure", rates.first[:unit]
-    assert_equal Date.new(2024, 1, 1), rates.first[:effective_date]
+    assert_equal RATE_EFFECTIVE_AT, rates.first[:effective_date]
   end
 
   def test_rates_reject_invalid_ien
