@@ -90,7 +90,7 @@ module RpmsRpc
     private
 
     def blank?(val)
-      val.nil? || val.to_s.empty?
+      val.nil? || val.to_s.strip.empty?
     end
   end
 end

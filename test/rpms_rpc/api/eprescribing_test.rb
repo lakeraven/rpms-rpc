@@ -125,6 +125,15 @@ class EprescribingTest < Minitest::Test
     assert_equal "error", result[:status]
   end
 
+  def test_status_rejects_whitespace_only_transmission_id
+    result = RpmsRpc::Eprescribing.status("   ")
+
+    assert_equal "error", result[:status]
+    refute_nil result[:error]
+    refute RpmsRpc.client.received_calls.any? { |c| c[:rpc] == "PSO ERX STATUS" },
+      "PSO ERX STATUS should not fire when transmission_id is whitespace-only"
+  end
+
   # === cancel ==============================================================
 
   def test_cancel_returns_success_without_reason
@@ -168,6 +177,24 @@ class EprescribingTest < Minitest::Test
     assert_equal false, nil_result[:success]
     assert_equal false, empty_result[:success]
     refute_nil nil_result[:error]
+  end
+
+  def test_cancel_rejects_whitespace_only_transmission_id
+    result = RpmsRpc::Eprescribing.cancel("   ", reason: "patient request")
+
+    assert_equal false, result[:success]
+    refute_nil result[:error]
+    refute RpmsRpc.client.received_calls.any? { |c| c[:rpc] == "PSO CANCEL RX" },
+      "PSO CANCEL RX should not fire when transmission_id is whitespace-only"
+  end
+
+  def test_cancel_sends_bare_id_when_reason_is_whitespace_only
+    RpmsRpc::Eprescribing.cancel("TX001", reason: "   ")
+
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "PSO CANCEL RX" }
+    refute_nil call
+    assert_equal "TX001", call[:params].first,
+      "whitespace-only reason should be treated as no reason, sending bare id"
   end
 
   # === build_rx_param (public for observability) ===========================
