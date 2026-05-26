@@ -194,6 +194,13 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "DO", results[1][:title]
   end
 
+  def test_user_management_user_list
+    results = RpmsRpc::DataMapper[:user_management_user_list].parse_many([ "101^MARTINEZ,SARAH^MD", "102^CHEN,JAMES^DO" ])
+    assert_equal 2, results.size
+    assert_equal 101, results[0][:duz]
+    assert_equal "DO", results[1][:title]
+  end
+
   # -- ORQQPS LIST -----------------------------------------------------------
 
   def test_medication_list
@@ -299,6 +306,12 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal true, result[:success]
   end
 
+  def test_key_list
+    result = RpmsRpc::DataMapper[:key_list].parse_many([ "1^XUPROGMODE", "2^PROVIDER" ]).first
+    assert_equal 1, result[:ien]
+    assert_equal "XUPROGMODE", result[:name]
+  end
+
   def test_prescription_new
     result = RpmsRpc::DataMapper[:prescription_new].parse_one("1^12345")
     assert_equal true, result[:success]
@@ -353,7 +366,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       patient_appointments allergy_list problem_list vitals
       tribal_enrollment tribal_validation tribe_info enrollment_eligibility
       service_unit patient_register patient_update encounter_create
-      practitioner_info practitioner_list
+      practitioner_info practitioner_list user_management_user_list
       medication_list care_plan_list care_team_list goal_list
       procedure_list device_list lab_result_list radiology_list
       hospital_location institution referral_search site_params
