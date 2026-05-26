@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "date"
+
 module RpmsRpc
   # Symbolic API for state IIS immunization exchange.
   # Underlying RPCs (BYIMRT family): VXU, VXQ, RSP, STATUS.
@@ -44,7 +46,11 @@ module RpmsRpc
         default_error: "Response processing failed")
       return parsed unless parsed[:success]
 
-      { success: true, count: parsed[:message].to_s.scan(/\d+/).first.to_i }
+      # Gateway: `fields[1].to_s.scan(/\d+/).first&.to_i || 0` — `.first` returns
+      # nil when the message contains no digits, so the safe-nav + `|| 0` are
+      # both required to avoid NoMethodError on success-without-count responses.
+      count = parsed[:message].to_s.scan(/\d+/).first&.to_i || 0
+      { success: true, count: count }
     end
 
     def check_status
@@ -74,7 +80,18 @@ module RpmsRpc
     end
 
     def apply_defaults(row)
-      row.merge(status: blank?(row[:status]) ? DEFAULT_STATUS : row[:status])
+      row.merge(
+        status:          blank?(row[:status]) ? DEFAULT_STATUS : row[:status],
+        occurrence_date: parse_iso_date(row[:occurrence_date])
+      )
+    end
+
+    def parse_iso_date(value)
+      return nil if blank?(value)
+
+      Date.parse(value.to_s)
+    rescue Date::Error
+      nil
     end
 
     def invalid_patient_response
@@ -86,7 +103,7 @@ module RpmsRpc
     end
 
     def blank?(val)
-      val.nil? || val.to_s.empty?
+      val.nil? || val.to_s.strip.empty?
     end
 
     def positive_integer?(val)

@@ -132,6 +132,39 @@ class ImmunizationExchangeTest < Minitest::Test
     assert_equal({ success: true, count: 3 }, RpmsRpc::ImmunizationExchange.process_responses)
   end
 
+  def test_process_responses_handles_success_without_count_in_message
+    RpmsRpc.reset!
+    RpmsRpc.mock! do |m|
+      m.seed(:immunization_exchange_process_result, "", {
+        status_code: 1,
+        message: "OK" # no digits — `.scan(/\d+/).first` returns nil
+      })
+    end
+
+    # Without nil-safety the call would raise NoMethodError on `nil.to_i`.
+    assert_equal({ success: true, count: 0 }, RpmsRpc::ImmunizationExchange.process_responses)
+  end
+
+  def test_for_patient_parses_iso_format_occurrence_date_from_iis_bridge
+    RpmsRpc.reset!
+    RpmsRpc.mock! do |m|
+      m.seed_keyed_collection(:immunization_exchange_rsp, DFN.to_s, [
+        {
+          vaccine_code: "207",
+          vaccine_display: "COVID-19 mRNA",
+          occurrence_date: "2026-05-01", # ISO format, not FileMan
+          ndc_code: "59267-1000-01",
+          status: "completed"
+        }
+      ])
+    end
+
+    immunizations = RpmsRpc::ImmunizationExchange.for_patient(DFN)
+    assert_equal 1, immunizations.length
+    assert_equal Date.new(2026, 5, 1), immunizations.first[:occurrence_date],
+      "ISO-format occurrence_date should parse via Date.parse, not FileMan"
+  end
+
   def test_check_status_returns_available
     assert_equal({ available: true }, RpmsRpc::ImmunizationExchange.check_status)
   end

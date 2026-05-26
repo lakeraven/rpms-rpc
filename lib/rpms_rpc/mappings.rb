@@ -953,11 +953,14 @@ module RpmsRpc
 
     # BYIMRT RSP — inbound immunization response lines
     # Format: VACCINE_CODE^VACCINE_DISPLAY^OCCURRENCE_DATE^NDC_CODE^STATUS
+    # :occurrence_date is left as a raw string; the API parses it with
+    # Date.parse (matches the gateway — values arrive ISO-formatted from
+    # the IIS bridge, not FileMan).
     DataMapper.define(:immunization_exchange_rsp) do |m|
       m.rpc "BYIMRT RSP"
       m.field 0, :vaccine_code
       m.field 1, :vaccine_display
-      m.field 2, :occurrence_date, :fileman_date
+      m.field 2, :occurrence_date
       m.field 3, :ndc_code
       m.field 4, :status
     end
