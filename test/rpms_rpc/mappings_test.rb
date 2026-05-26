@@ -221,6 +221,12 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "AK", result[:state]
   end
 
+  def test_site_params
+    result = RpmsRpc::DataMapper[:site_params].parse_one("COMMTHRESH^50000")
+    assert_equal "COMMTHRESH", result[:key]
+    assert_equal "50000", result[:value]
+  end
+
   # -- XUS GET USER INFO -----------------------------------------------------
 
   def test_user_info

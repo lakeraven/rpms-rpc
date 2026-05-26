@@ -465,11 +465,11 @@ module RpmsRpc
     end
 
     # BMCRPC GTSITPRM — RCIS site parameters
+    # Format per line: KEY^VALUE
     DataMapper.define(:site_params) do |m|
       m.rpc "BMCRPC GTSITPRM"
-      m.field 0, :site_name
-      m.field 1, :station_number
-      m.field 2, :service_area
+      m.field 0, :key
+      m.field 1, :value
     end
 
     # ========================================================================
