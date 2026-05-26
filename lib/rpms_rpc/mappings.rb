@@ -349,17 +349,19 @@ module RpmsRpc
     # LAB & RADIOLOGY (ORWLRR*, ORWRA*)
     # ========================================================================
 
-    # ORWLRR RESULT LIST — lab result list (multi-line)
-    # Format: IEN^TEST_NAME^RESULT^UNITS^REF_RANGE^FLAG^DATE
+    # ORWLRR RESULT LIST — lab result list (multi-line).
+    # RPC is invoked with a single composite param: "dfn^from_date^to_date".
+    # Format: IEN^TEST_NAME^RESULT^UNITS^REF_RANGE^ABNORMAL_FLAG^COLLECTION_DATE^STATUS
     DataMapper.define(:lab_result_list) do |m|
       m.rpc "ORWLRR RESULT LIST"
-      m.field 0, :ien
+      m.field 0, :ien,             :integer
       m.field 1, :test_name
       m.field 2, :result
       m.field 3, :units
-      m.field 4, :ref_range
-      m.field 5, :flag
-      m.field 6, :date, :fileman_date
+      m.field 4, :reference_range
+      m.field 5, :abnormal_flag
+      m.field 6, :collection_date, :fileman_datetime
+      m.field 7, :status
     end
 
     # ORWRA REPORT LIST — radiology report list (multi-line)
@@ -573,12 +575,21 @@ module RpmsRpc
       m.text_blob :report_text
     end
 
-    # ORWLRR REPORT LIST — lab report list (multi-line)
+    # ORWLRR REPORT LIST — DiagnosticReport-style aggregated panels (multi-line)
+    # Format: IEN^REPORT_NAME^LOINC_CODE^STATUS^COLLECTION_DATE^RESULT_DATE^
+    #         VERIFIER_DUZ^VERIFIER_NAME^RESULT_IENS^INTERPRETATION
     DataMapper.define(:lab_report_list) do |m|
       m.rpc "ORWLRR REPORT LIST"
-      m.field 0, :ien
-      m.field 1, :name
-      m.field 2, :date, :fileman_date
+      m.field 0, :ien,             :integer
+      m.field 1, :report_name
+      m.field 2, :loinc_code
+      m.field 3, :status
+      m.field 4, :collection_date, :fileman_datetime
+      m.field 5, :result_date,     :fileman_datetime
+      m.field 6, :verifier_duz
+      m.field 7, :verifier_name
+      m.field 8, :result_iens
+      m.field 9, :interpretation
     end
 
     # ORWRA REPORT — full radiology report text
