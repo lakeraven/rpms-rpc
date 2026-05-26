@@ -970,5 +970,40 @@ module RpmsRpc
       m.field 0, :code
       m.field 1, :label
     end
+
+    # BIPC LOTLIST — vaccine inventory lots, optionally filtered by facility
+    # Format per line: IEN^LOT^CVX^DISPLAY^MANUFACTURER^NDC^SOURCE^STATUS^EXP^START_COUNT^UNUSED^FACILITY
+    DataMapper.define(:vaccine_lot_list) do |m|
+      m.rpc "BIPC LOTLIST"
+      m.field 0,  :ien
+      m.field 1,  :lot_number
+      m.field 2,  :vaccine_code
+      m.field 3,  :vaccine_display
+      m.field 4,  :manufacturer
+      m.field 5,  :ndc_code
+      m.field 6,  :funding_source
+      m.field 7,  :status
+      m.field 8,  :expiration_date
+      m.field 9,  :doses_start, :integer
+      m.field 10, :doses_unused, :integer
+      m.field 11, :facility_ien
+    end
+
+    # BIPC LOTGET — single vaccine inventory lot
+    DataMapper.define(:vaccine_lot_detail) do |m|
+      m.rpc "BIPC LOTGET"
+      m.field 0,  :ien
+      m.field 1,  :lot_number
+      m.field 2,  :vaccine_code
+      m.field 3,  :vaccine_display
+      m.field 4,  :manufacturer
+      m.field 5,  :ndc_code
+      m.field 6,  :funding_source
+      m.field 7,  :status
+      m.field 8,  :expiration_date
+      m.field 9,  :doses_start, :integer
+      m.field 10, :doses_unused, :integer
+      m.field 11, :facility_ien
+    end
   end
 end

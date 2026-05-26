@@ -305,6 +305,36 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal 5, RpmsRpc::DataMapper[:immunization_count].parse_scalar("5")
   end
 
+  def test_vaccine_lot_list
+    result = RpmsRpc::DataMapper[:vaccine_lot_list].parse_many(
+      [ "101^LOT-A^207^COVID-19 mRNA^PFIZER^59267-1000-01^VFC^ACTIVE^2026-12-31^120^45^55" ]
+    ).first
+
+    assert_equal "101", result[:ien]
+    assert_equal "LOT-A", result[:lot_number]
+    assert_equal "207", result[:vaccine_code]
+    assert_equal "COVID-19 mRNA", result[:vaccine_display]
+    assert_equal "PFIZER", result[:manufacturer]
+    assert_equal "59267-1000-01", result[:ndc_code]
+    assert_equal "VFC", result[:funding_source]
+    assert_equal "ACTIVE", result[:status]
+    assert_equal "2026-12-31", result[:expiration_date]
+    assert_equal 120, result[:doses_start]
+    assert_equal 45, result[:doses_unused]
+    assert_equal "55", result[:facility_ien]
+  end
+
+  def test_vaccine_lot_detail
+    result = RpmsRpc::DataMapper[:vaccine_lot_detail].parse_one(
+      "101^LOT-A^207^COVID-19 mRNA^PFIZER^59267-1000-01^VFC^ACTIVE^2026-12-31^120^45^55"
+    )
+
+    assert_equal "101", result[:ien]
+    assert_equal "LOT-A", result[:lot_number]
+    assert_equal 45, result[:doses_unused]
+    assert_equal "55", result[:facility_ien]
+  end
+
   def test_phr_access
     assert_equal true, RpmsRpc::DataMapper[:phr_access].parse_scalar("1")
   end
@@ -334,7 +364,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       prescription_new erx_status prescription_cancel
       ccd_document ccd_referral immunization_text immunization_count
       phr_access phr_patient_direct phr_provider_direct phr_facility_direct
-      vfc_eligibility vfc_eligibility_list
+      vfc_eligibility vfc_eligibility_list vaccine_lot_list vaccine_lot_detail
     ]
 
     expected.each do |name|
