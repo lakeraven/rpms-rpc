@@ -51,6 +51,15 @@ class UserManagementTest < Minitest::Test
       m.seed(:key_revoke, DUZ.to_s, { success: true, message: "Key revoked" })
       m.seed(:key_grant, "999", { success: false, message: "No such user" })
       m.seed(:key_revoke, "999", { success: false, message: "" })
+
+      # Non-caret error response — gateway strips a leading "0" to surface
+      # the raw error text. Seeded as raw text so it bypasses the field-based
+      # format and exercises the first-line parsing path.
+      m.seed_text(:key_grant,  "1234", "0No such key")
+      m.seed_text(:key_revoke, "5678", "0Permission denied")
+      # Non-caret success response — gateway treats any line starting with "1"
+      # as success regardless of trailing text or caret.
+      m.seed_text(:key_grant, "4321", "1OK")
     end
   end
 
@@ -123,6 +132,22 @@ class UserManagementTest < Minitest::Test
   def test_key_changes_return_rpc_errors_or_defaults
     assert_equal({ success: false, error: "No such user" }, RpmsRpc::UserManagement.grant_key(999, "PROVIDER"))
     assert_equal({ success: false, error: "Revoke failed" }, RpmsRpc::UserManagement.revoke_key(999, "PROVIDER"))
+  end
+
+  def test_key_changes_strip_bare_zero_prefix_from_non_caret_error_responses
+    grant = RpmsRpc::UserManagement.grant_key(1234, "PROVIDER")
+    assert_equal false,          grant[:success]
+    assert_equal "No such key",  grant[:error]
+
+    revoke = RpmsRpc::UserManagement.revoke_key(5678, "PROVIDER")
+    assert_equal false,                revoke[:success]
+    assert_equal "Permission denied",  revoke[:error]
+  end
+
+  def test_key_changes_accept_non_caret_success_responses
+    result = RpmsRpc::UserManagement.grant_key(4321, "PROVIDER")
+    assert_equal true, result[:success]
+    assert_match(/granted/, result[:message])
   end
 
   def test_list_all_keys_returns_file_19_1_entries

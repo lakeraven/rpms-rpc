@@ -52,15 +52,19 @@ module RpmsRpc
       key_name = key_name.to_s.strip
       return { success: false, error: "Key name required" } if key_name.empty?
 
-      mapping = DataMapper[mapping_name]
-      response = RpmsRpc.client.call_rpc(mapping.rpc_name, duz.to_s, key_name)
+      rpc_name = DataMapper[mapping_name].rpc_name
+      response = RpmsRpc.client.call_rpc(rpc_name, duz.to_s, key_name)
       first_line = response.is_a?(Array) ? response.first.to_s : response.to_s
-      parsed = mapping.parse_one(first_line)
 
-      if parsed&.fetch(:success, false)
+      # Gateway behavior: success when the first line starts with "1" (handles
+      # both "1", "1^message", and "1Some text" forms). Failure path strips a
+      # leading "0" or "0^" prefix to surface the actual error text from RPMS
+      # — e.g. "0No such key" → "No such key" — rather than masking it with
+      # the generic fallback.
+      if first_line.start_with?("1")
         { success: true, message: "Key #{key_name} #{verb} #{preposition} DUZ #{duz}" }
       else
-        error = presence(parsed && parsed[:message]) || fallback
+        error = presence(first_line.sub(/\A0\^?/, "")) || fallback
         { success: false, error: error }
       end
     end
