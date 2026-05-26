@@ -935,6 +935,52 @@ module RpmsRpc
       m.scalar :count, :integer
     end
 
+    # BYIMRT VXU — send patient immunizations to state IIS
+    # Format: STATUS^MESSAGE
+    DataMapper.define(:immunization_exchange_vxu) do |m|
+      m.rpc "BYIMRT VXU"
+      m.field 0, :status_code, :integer
+      m.field 1, :message
+    end
+
+    # BYIMRT VXQ — submit patient immunization query to state IIS
+    # Format: STATUS^MESSAGE
+    DataMapper.define(:immunization_exchange_vxq) do |m|
+      m.rpc "BYIMRT VXQ"
+      m.field 0, :status_code, :integer
+      m.field 1, :message
+    end
+
+    # BYIMRT RSP — inbound immunization response lines
+    # Format: VACCINE_CODE^VACCINE_DISPLAY^OCCURRENCE_DATE^NDC_CODE^STATUS
+    # :occurrence_date is left as a raw string; the API parses it with
+    # Date.parse (matches the gateway — values arrive ISO-formatted from
+    # the IIS bridge, not FileMan).
+    DataMapper.define(:immunization_exchange_rsp) do |m|
+      m.rpc "BYIMRT RSP"
+      m.field 0, :vaccine_code
+      m.field 1, :vaccine_display
+      m.field 2, :occurrence_date
+      m.field 3, :ndc_code
+      m.field 4, :status
+    end
+
+    # BYIMRT RSP — batch process result when called without patient context
+    # Format: STATUS^MESSAGE
+    DataMapper.define(:immunization_exchange_process_result) do |m|
+      m.rpc "BYIMRT RSP"
+      m.field 0, :status_code, :integer
+      m.field 1, :message
+    end
+
+    # BYIMRT STATUS — IIS exchange connectivity check
+    # Format: STATUS^MESSAGE
+    DataMapper.define(:immunization_exchange_status) do |m|
+      m.rpc "BYIMRT STATUS"
+      m.field 0, :status_code, :integer
+      m.field 1, :message
+    end
+
     # BPHR RECORD ACCESS — PHR access check
     DataMapper.define(:phr_access) do |m|
       m.rpc "BPHR RECORD ACCESS"
