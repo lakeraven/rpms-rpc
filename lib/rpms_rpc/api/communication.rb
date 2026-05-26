@@ -169,7 +169,7 @@ module RpmsRpc
     end
 
     def blank?(value)
-      value.nil? || value.to_s.empty?
+      value.nil? || value.to_s.strip.empty?
     end
   end
 end

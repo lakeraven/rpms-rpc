@@ -123,6 +123,15 @@ class CommunicationTest < Minitest::Test
     assert_raises(ArgumentError) { RpmsRpc::Communication.send_message(subject: "Subject", body: "Body") }
   end
 
+  def test_send_message_rejects_whitespace_only_subject_or_body
+    assert_raises(ArgumentError) do
+      RpmsRpc::Communication.send_message(subject: "   ", body: "Body", recipients: [ "301" ])
+    end
+    assert_raises(ArgumentError) do
+      RpmsRpc::Communication.send_message(subject: "Subject", body: "   ", recipients: [ "301" ])
+    end
+  end
+
   def test_reply_to_message_uses_parent_thread_context
     result = RpmsRpc::Communication.reply_to_message(2001, body: "Thanks\nAcknowledged", reply_all: true)
 
@@ -135,6 +144,7 @@ class CommunicationTest < Minitest::Test
   def test_reply_to_message_rejects_invalid_parent_or_body
     assert_equal false, RpmsRpc::Communication.reply_to_message(nil, body: "Thanks")[:success]
     assert_equal false, RpmsRpc::Communication.reply_to_message(2001, body: "")[:success]
+    assert_equal false, RpmsRpc::Communication.reply_to_message(2001, body: "   ")[:success]
     assert_equal false, RpmsRpc::Communication.reply_to_message(999_999, body: "Thanks")[:success]
   end
 
