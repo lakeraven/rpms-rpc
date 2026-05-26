@@ -24,19 +24,23 @@ module RpmsRpc
       procedures: "PRC"
     }.freeze
 
+    # Shape matches the :report_types mapping so callers see the same hash
+    # keys/types regardless of whether the RPC was reachable.
     DEFAULT_TYPES = [
-      { ien: "1", name: "STANDARD", description: "Standard Health Summary" },
-      { ien: "2", name: "BRIEF", description: "Brief Summary" },
-      { ien: "3", name: "COMPREHENSIVE", description: "Comprehensive Summary" },
-      { ien: "4", name: "PATIENT", description: "Patient-Facing Summary" }
+      { ien: 1, name: "STANDARD", description: "Standard Health Summary", owner: nil },
+      { ien: 2, name: "BRIEF", description: "Brief Summary", owner: nil },
+      { ien: 3, name: "COMPREHENSIVE", description: "Comprehensive Summary", owner: nil },
+      { ien: 4, name: "PATIENT", description: "Patient-Facing Summary", owner: nil }
     ].freeze
 
     def for_patient(dfn, summary_type: "STANDARD")
       return error_summary("Invalid patient DFN") if invalid_id?(dfn)
 
-      type_ien = summary_type_ien(summary_type)
-      text = DataMapper.report_text.fetch_text("#{dfn}^#{type_ien}^")
-      parse_health_summary(text, summary_type)
+      resolved = resolve_summary_type(summary_type)
+      text = DataMapper.report_text.fetch_text("#{dfn}^#{resolved[:ien]}^")
+      # Report the resolved type name (which may differ from the caller's input
+      # when the input was unknown and we fell back to the first available type).
+      parse_health_summary(text, resolved[:name])
     end
 
     def generate_selective(dfn, components:)
@@ -51,9 +55,10 @@ module RpmsRpc
     end
 
     def component_data(dfn, component)
-      return nil if invalid_id?(dfn)
+      return nil if invalid_id?(dfn) || component.nil?
 
-      code = COMPONENT_TYPES[component.to_sym]
+      sym = component.respond_to?(:to_sym) ? component.to_sym : nil
+      code = sym && COMPONENT_TYPES[sym]
       return nil if code.nil?
 
       text = DataMapper.report_text.fetch_text("#{dfn}^^#{code}")
@@ -120,8 +125,20 @@ module RpmsRpc
     private
 
     def summary_type_ien(type_name)
-      match = types.find { |type| type[:name].to_s.upcase == type_name.to_s.upcase }
-      match&.dig(:ien) || "1"
+      resolve_summary_type(type_name)[:ien]
+    end
+
+    # Resolve a caller-supplied summary type to the actual type that will be
+    # used. Returns the matched entry from `types` when found; otherwise
+    # falls back to the first available type so callers see the resolved
+    # name rather than their unrecognised input.
+    def resolve_summary_type(type_name)
+      available = types
+      match = available.find { |type| type[:name].to_s.upcase == type_name.to_s.upcase }
+      return { ien: match[:ien], name: match[:name] } if match
+
+      fallback = available.first || { ien: "1", name: "STANDARD" }
+      { ien: fallback[:ien], name: fallback[:name] }
     end
 
     def parse_health_summary(text, type)
