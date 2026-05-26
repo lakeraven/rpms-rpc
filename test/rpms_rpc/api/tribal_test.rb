@@ -3,7 +3,7 @@
 require "minitest/autorun"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/tribal"
-require "rpms_rpc/api/vfc"
+require "rpms_rpc/api/eligibility"
 
 # Tests for tribal/IHS symbolic APIs.
 class TribalTest < Minitest::Test
@@ -62,14 +62,14 @@ class TribalTest < Minitest::Test
   end
 
   def test_vfc_eligibility
-    result = RpmsRpc::VFC.eligibility(1)
+    result = RpmsRpc::Eligibility.for_patient("1")
 
     refute_nil result
     assert_equal "V04", result[:code]
   end
 
   def test_vfc_eligibility_codes
-    codes = RpmsRpc::VFC.eligibility_codes
+    codes = RpmsRpc::Eligibility.codes
 
     assert codes.is_a?(Array)
     assert codes.any? { |c| c[:code] == "V04" }
