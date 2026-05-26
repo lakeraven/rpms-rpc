@@ -12,11 +12,14 @@ class RadiologyTest < Minitest::Test
         { ien: 501, exam_name: "CHEST X-RAY",       cpt_code: "71045", status: "final",
           exam_date: nil, report_date: nil, radiologist_duz: "2843",
           radiologist_name: "SEVEN,HENRY L MD", impression: "No acute findings.",
-          imaging_study_ien: 9001 },
-        { ien: 502, exam_name: "CT ABDOMEN",        cpt_code: "74176", status: "final",
+          imaging_study_ien: 9001,
+          report_text: "FINDINGS: Lungs clear. Heart size normal. No effusions." },
+        { ien: 502, exam_name: "CT ABDOMEN",        cpt_code: "74176",
+          status: "",  # API should default to "final"
           exam_date: nil, report_date: nil, radiologist_duz: "2843",
           radiologist_name: "SEVEN,HENRY L MD", impression: "Possible mass; recommend follow-up.",
-          imaging_study_ien: 9002 }
+          imaging_study_ien: 9002,
+          report_text: nil }
       ])
 
       # ORWRA REPORT — text blob keyed by report IEN
@@ -43,6 +46,15 @@ class RadiologyTest < Minitest::Test
     assert_equal "SEVEN,HENRY L MD",       chest[:radiologist_name]
     assert_equal "No acute findings.",     chest[:impression]
     assert_equal 9001,                     chest[:imaging_study_ien]
+    assert_equal "FINDINGS: Lungs clear. Heart size normal. No effusions.",
+                                           chest[:report_text]
+  end
+
+  def test_for_patient_defaults_blank_status_to_final
+    reports = RpmsRpc::Radiology.for_patient(8791)
+    ct = reports.find { |r| r[:exam_name] == "CT ABDOMEN" }
+    refute_nil ct
+    assert_equal "final", ct[:status]
   end
 
   def test_for_patient_returns_empty_for_invalid_dfn

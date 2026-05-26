@@ -11,11 +11,11 @@ module RpmsRpc
     #
     # Each hash: { ien:, exam_name:, cpt_code:, status:, exam_date:,
     #              report_date:, radiologist_duz:, radiologist_name:,
-    #              impression:, imaging_study_ien: }
+    #              impression:, imaging_study_ien:, report_text: }
     def for_patient(dfn)
       return [] if dfn.nil? || dfn.to_s.empty? || dfn.to_i <= 0
 
-      Array(DataMapper.radiology_list.fetch_many(dfn.to_s))
+      Array(DataMapper.radiology_list.fetch_many(dfn.to_s)).map { |r| apply_defaults(r) }
     end
 
     # Single radiology report text by IEN. Returns the raw text blob
@@ -28,6 +28,16 @@ module RpmsRpc
       return nil if text.nil? || (text.respond_to?(:empty?) && text.empty?)
 
       text
+    end
+
+    private
+
+    def apply_defaults(row)
+      row.merge(status: blank?(row[:status]) ? "final" : row[:status])
+    end
+
+    def blank?(val)
+      val.nil? || val.to_s.empty?
     end
   end
 end
