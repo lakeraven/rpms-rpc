@@ -39,7 +39,10 @@ module RpmsRpc
       return nil if parsed.nil?
 
       description = lines.length > 1 ? lines[1..].join("\n") : nil
-      apply_defaults(parsed.merge(description: blank?(description) ? nil : description))
+      apply_defaults(parsed.merge(
+        description: blank?(description) ? nil : description,
+        note:        nil
+      ))
     end
 
     private

@@ -164,6 +164,14 @@ class CarePlanTest < Minitest::Test
     assert_equal "assess-plan", plan[:category]
   end
 
+  def test_find_always_includes_note_key_for_shape_parity_with_list
+    plan = RpmsRpc::CarePlan.find(101)
+    refute_nil plan
+    assert plan.key?(:note),
+      ":note must be present on the find result for shape parity with for_patient entries (gateway behavior)"
+    assert_nil plan[:note], "ORQQCP GET response carries no note today; default is nil"
+  end
+
   def test_find_returns_nil_for_blank_ien
     assert_nil RpmsRpc::CarePlan.find(nil)
     assert_nil RpmsRpc::CarePlan.find("")
