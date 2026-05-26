@@ -84,8 +84,13 @@ class HealthSummaryApiTest < Minitest::Test
     summary = RpmsRpc::HealthSummary.for_patient(DFN)
 
     assert_equal "STANDARD", summary[:type]
-    assert_equal 4, summary[:sections].length
-    assert_equal "Patient", summary[:sections].first[:name]
+    # Gateway behavior: only header sections that subsequently accumulate
+    # body content get retained. "PATIENT: Test Patient" / "DOB: ..." are
+    # header-only and produce no section because the next line is also a
+    # header. Only PROBLEMS and MEDICATIONS pick up body content.
+    assert_equal 2, summary[:sections].length
+    assert_equal "Problems", summary[:sections].first[:name]
+    assert_equal "Medications", summary[:sections].last[:name]
     assert_includes summary[:raw_content], "Type 2 diabetes"
   end
 
@@ -95,6 +100,33 @@ class HealthSummaryApiTest < Minitest::Test
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWRP REPORT TEXT" }
     refute_nil call
     assert_equal [ "#{DFN}^1^" ], call[:params]
+  end
+
+  def test_for_patient_skips_separator_only_lines_per_gateway
+    RpmsRpc.reset!
+    RpmsRpc.mock! do |m|
+      m.seed_text(:report_types, DFN.to_s, "1^STANDARD")
+      m.seed_text(:report_text, "#{DFN}^1^",
+        "===============\n" \
+        "PROBLEMS:\n" \
+        "---------------\n" \
+        "Hypertension\n" \
+        "***************\n" \
+        "MEDICATIONS:\n" \
+        "Lisinopril 10mg")
+    end
+
+    summary = RpmsRpc::HealthSummary.for_patient(DFN)
+    section_names = summary[:sections].map { |s| s[:name] }
+
+    # Separator-only lines (===, ---, ***) match the header regex but are
+    # then skipped entirely — they neither start new sections nor leak
+    # `[-=*]+` into existing content.
+    assert_includes section_names, "Problems"
+    assert_includes section_names, "Medications"
+    problems = summary[:sections].find { |s| s[:name] == "Problems" }
+    refute_match(/[-=*]{3,}/, problems[:content],
+      "separator lines should be skipped entirely, not appear in section content")
   end
 
   def test_for_patient_rejects_blank_zero_negative_and_unknown_dfn

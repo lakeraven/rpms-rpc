@@ -132,10 +132,20 @@ module RpmsRpc
 
       text.to_s.split(/\r?\n/).each do |line|
         stripped = line.strip
+
         if section_header?(stripped)
+          # Separator-only lines (just dashes / equals / asterisks) start a
+          # header context but contribute no content. Match the gateway by
+          # skipping them entirely.
+          next if stripped.match?(/^[-=*]+$/)
+
           sections << current if current && !blank?(current[:content])
-          name, content = split_section_header(stripped)
-          current = { name: titleize(name), content: content }
+
+          # Gateway strips ALL punctuation in [-*:=] from the line and uses the
+          # remainder as the section name. So "PATIENT: Test Patient" becomes
+          # the name "PATIENT Test Patient" with no inline content split.
+          section_name = stripped.gsub(/[-*:=]+/, "").strip
+          current = { name: titleize(section_name), content: "" }
         elsif current
           current[:content] += "#{line}\n"
         else
@@ -147,18 +157,13 @@ module RpmsRpc
       { type: type, generated_at: Time.now, sections: sections, raw_content: text }
     end
 
+    # Gateway recognises four header forms: ALL-CAPS-WITH-COLON, and lines of
+    # dashes / equals / asterisks (3+).
     def section_header?(stripped)
-      return false if stripped.match?(/^[-=*]+$/)
-
-      stripped.match?(/^[A-Z]{3,}:/)
-    end
-
-    def split_section_header(stripped)
-      return [ stripped.gsub(/[-*:=]+/, "").strip, "" ] unless stripped.include?(":")
-
-      name, inline_content = stripped.split(":", 2)
-      content = blank?(inline_content) ? "" : "#{inline_content.strip}\n"
-      [ name, content ]
+      stripped.match?(/^[A-Z]{3,}:/) ||
+        stripped.match?(/^-{3,}$/) ||
+        stripped.match?(/^={3,}$/) ||
+        stripped.match?(/^\*{3,}$/)
     end
 
     def parse_pwh_report(text)
@@ -222,7 +227,7 @@ module RpmsRpc
     end
 
     def blank?(value)
-      value.nil? || value.to_s.empty?
+      value.nil? || value.to_s.strip.empty?
     end
   end
 end
