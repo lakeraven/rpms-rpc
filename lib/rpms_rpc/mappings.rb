@@ -1138,28 +1138,41 @@ module RpmsRpc
     # PHR / CCD (BEHOCCD*, BPHR*, BEHOCIR*)
     # ========================================================================
 
-    # BEHOCCD PHR — CCD document (text blob)
+    # BEHOCIR1 GETCCDS — CCD documents for patient
+    # Format per line: IEN^DATE^SOURCE^TITLE^TYPE
     DataMapper.define(:ccd_document) do |m|
-      m.rpc "BEHOCCD PHR"
-      m.text_blob :ccd_xml
+      m.rpc "BEHOCIR1 GETCCDS"
+      m.field 0, :ien, :integer
+      m.field 1, :date, :fileman_date
+      m.field 2, :source
+      m.field 3, :title
+      m.field 4, :type
     end
 
-    # BEHOCCD GETREF — referral CCD (text blob)
+    # BEHOCCD GETREF — referrals with CCD status
+    # Format per line: REFERRAL_IEN^VISIT_IEN^HAS_CCD^CCD_SENT_DATE^PROVIDER^FACILITY
     DataMapper.define(:ccd_referral) do |m|
       m.rpc "BEHOCCD GETREF"
-      m.text_blob :ccd_xml
+      m.field 0, :referral_ien, :integer
+      m.field 1, :visit_ien, :integer
+      m.field 2, :has_ccd, :boolean
+      m.field 3, :ccd_sent_date, :fileman_date
+      m.field 4, :provider_name
+      m.field 5, :facility
     end
 
-    # BEHOCIR GETTXT — immunization text
+    # BEHOCIR GETTXT — CCD document content
     DataMapper.define(:immunization_text) do |m|
       m.rpc "BEHOCIR GETTXT"
-      m.text_blob :immunization_text
+      m.text_blob :content
     end
 
-    # BEHOCIR GETNUM — immunization count
+    # BEHOCIR GETNUM — CCD count and reconciliation status
+    # Format: TOTAL^RECONCILED
     DataMapper.define(:immunization_count) do |m|
       m.rpc "BEHOCIR GETNUM"
-      m.scalar :count, :integer
+      m.field 0, :total, :integer
+      m.field 1, :reconciled, :integer
     end
 
     # BYIMRT VXU — send patient immunizations to state IIS
@@ -1208,10 +1221,17 @@ module RpmsRpc
       m.field 1, :message
     end
 
-    # BPHR RECORD ACCESS — PHR access check
+    # BEHOCCD PHR — PHR enrollment/access check
     DataMapper.define(:phr_access) do |m|
+      m.rpc "BEHOCCD PHR"
+      m.field 0, :has_access, :boolean
+      m.field 1, :message
+    end
+
+    # BPHR RECORD ACCESS — records PHR access for reporting
+    DataMapper.define(:phr_record_access) do |m|
       m.rpc "BPHR RECORD ACCESS"
-      m.scalar :has_access, :boolean
+      m.scalar :success, :boolean
     end
 
     # BPHR PATIENT DIRECT — patient direct messaging
@@ -1234,6 +1254,7 @@ module RpmsRpc
       m.field 0, :direct_address
       m.field 1, :status
     end
+
     # ========================================================================
     # VFC ELIGIBILITY (BIPC*)
     # ========================================================================
