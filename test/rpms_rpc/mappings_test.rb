@@ -509,6 +509,9 @@ class RpmsRpc::MappingsTest < Minitest::Test
       medication_list care_plan_list care_team_list goal_list
       procedure_list device_list lab_result_list radiology_list
       hospital_location institution referral_search site_params
+      chs_budget chs_remaining_funds chs_quarterly_allocation
+      chs_obligation_list chs_obligation_detail chs_obligation_by_referral
+      chs_payment_list
       user_info mailman_message mailman_messages_for_patient mailman_send
       mailman_reply mailman_thread mailman_inbox xqal_alert xqal_mark_read
       xqal_forward report_types reminders_list
