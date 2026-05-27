@@ -24,7 +24,7 @@ class SiteTest < Minitest::Test
   def test_list_returns_divisions_user_can_access
     sites = RpmsRpc::Site.list("301")
     assert_equal 3, sites.length
-    assert_equal [539, 540, 541], sites.map { |s| s[:ien] }
+    assert_equal [ 539, 540, 541 ], sites.map { |s| s[:ien] }
   end
 
   def test_list_blank_duz_returns_empty
@@ -53,7 +53,7 @@ class SiteTest < Minitest::Test
 
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BEHOSICX SITEINFO" && c[:params].length == 2 }
     refute_nil call, "expected BEHOSICX SITEINFO to be called with [duz, site_ien]"
-    assert_equal ["301", "540"], call[:params]
+    assert_equal [ "301", "540" ], call[:params]
   end
 
   def test_select_returns_false_for_invalid_args
