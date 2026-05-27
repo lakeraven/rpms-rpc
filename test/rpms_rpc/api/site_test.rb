@@ -10,13 +10,13 @@ class SiteTest < Minitest::Test
       # BEHOSICX SITEINFO keyed by user DUZ: returns the divisions the user
       # can access, with the currently-selected division flagged.
       m.seed_keyed_collection(:site_info, "301", [
-        { ien: 539, name: "Yakama Service Unit", abbreviation: "YSU", current: true },
-        { ien: 540, name: "Toppenish Clinic", abbreviation: "TOP", current: false },
-        { ien: 541, name: "White Swan Clinic", abbreviation: "WS", current: false }
+        { ien: 539, name: "TEST SERVICE UNIT", abbreviation: "TSU", current: true },
+        { ien: 540, name: "TEST CLINIC A", abbreviation: "TCA", current: false },
+        { ien: 541, name: "TEST CLINIC B", abbreviation: "TCB", current: false }
       ])
 
       m.seed_keyed_collection(:site_info, "999", [
-        { ien: 539, name: "Yakama Service Unit", abbreviation: "YSU", current: false }
+        { ien: 539, name: "TEST SERVICE UNIT", abbreviation: "TSU", current: false }
       ])
     end
   end
@@ -36,7 +36,7 @@ class SiteTest < Minitest::Test
   def test_current_returns_the_flagged_division
     current = RpmsRpc::Site.current("301")
     assert_equal 539, current[:ien]
-    assert_equal "Yakama Service Unit", current[:name]
+    assert_equal "TEST SERVICE UNIT", current[:name]
   end
 
   def test_current_returns_nil_when_nothing_is_flagged
