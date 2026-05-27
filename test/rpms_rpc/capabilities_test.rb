@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "set"
+require_relative "../../lib/rpms_rpc/version"
 require_relative "../../lib/rpms_rpc/capabilities"
 require_relative "../../lib/rpms_rpc/mock_client"
 
@@ -144,5 +145,22 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
     refute RpmsRpc::Capabilities.imaging_user?(ImagingUser.new(duz: nil))
     refute RpmsRpc::Capabilities.imaging_user?(ImagingUser.new(duz: ""))
     refute RpmsRpc::Capabilities.imaging_user?(nil)
+  end
+
+  def test_clear_imaging_cache_forces_redispatch
+    RpmsRpc::Capabilities.clear_imaging_cache!
+    RpmsRpc.mock! do |m|
+      m.seed_keyed_collection(:imaging_user_keys, "301", [
+        { key_name: "MAG WINDOWS" }
+      ])
+    end
+
+    user = ImagingUser.new(duz: "301")
+    RpmsRpc::Capabilities.imaging_user?(user)
+    RpmsRpc::Capabilities.clear_imaging_cache!
+    RpmsRpc::Capabilities.imaging_user?(user)
+
+    rpcs = RpmsRpc.client.received_calls.count { |c| c[:rpc] == "MAGGUSERKEYS" }
+    assert_equal 2, rpcs, "expected clear_imaging_cache! to force a second RPC dispatch"
   end
 end
