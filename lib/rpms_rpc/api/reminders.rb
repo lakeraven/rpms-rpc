@@ -25,10 +25,19 @@ module RpmsRpc
 
     def decorate(row)
       code = row[:status_code].to_s
+      status =
+        if STATUS_MAP.key?(code)
+          STATUS_MAP[code]
+        elsif code.strip.empty?
+          nil
+        else
+          code.downcase.to_sym
+        end
+
       {
         id: row[:id],
         name: row[:name],
-        status: STATUS_MAP[code] || code.downcase.to_sym,
+        status: status,
         priority: row[:priority],
         due_date: row[:due_date]
       }

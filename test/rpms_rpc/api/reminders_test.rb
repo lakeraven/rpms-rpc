@@ -2,7 +2,7 @@
 
 require "minitest/autorun"
 require "date"
-require_relative "../../../lib/rpms_rpc/version"
+require "rpms_rpc/version"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/reminders"
 
@@ -19,6 +19,10 @@ class RemindersTest < Minitest::Test
         { id: 1003, name: "Mammogram",          status_code: "SATISFIED",  priority: 3, due_date: nil }
       ])
     end
+  end
+
+  def teardown
+    RpmsRpc.reset!
   end
 
   def test_for_visit_returns_documented_shape
@@ -69,5 +73,16 @@ class RemindersTest < Minitest::Test
 
     rows = RpmsRpc::Reminders.for_visit(PATIENT_DFN, VISIT_IEN)
     assert_equal :frozen, rows.first[:status]
+  end
+
+  def test_blank_status_code_yields_nil_not_empty_symbol
+    RpmsRpc.mock! do |m|
+      m.seed_keyed_collection(:reminder_summary, PATIENT_DFN, [
+        { id: 3001, name: "Missing State", status_code: "", priority: 1, due_date: nil }
+      ])
+    end
+
+    rows = RpmsRpc::Reminders.for_visit(PATIENT_DFN, VISIT_IEN)
+    assert_nil rows.first[:status]
   end
 end
