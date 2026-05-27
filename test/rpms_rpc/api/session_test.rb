@@ -13,7 +13,7 @@ class SessionTest < Minitest::Test
       m.seed(:session_registry, "", { root: "HKLM\\Software\\IHS\\CIAVM" })
       m.seed(:session_vim_info, "301", {
         site_ien: 539,
-        site_name: "Yakama Service Unit",
+        site_name: "TEST SERVICE UNIT",
         user_name: "PROVIDER,TEST"
       })
     end
@@ -24,7 +24,7 @@ class SessionTest < Minitest::Test
 
     assert_equal CONFIG_ROOT, result[:config_root]
     assert_equal({ root: "HKLM\\Software\\IHS\\CIAVM" }, result[:registry])
-    assert_equal "Yakama Service Unit", result[:vim_info][:site_name]
+    assert_equal "TEST SERVICE UNIT", result[:vim_info][:site_name]
     assert_equal 539, result[:default_site_ien]
   end
 
