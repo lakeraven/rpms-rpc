@@ -1480,5 +1480,24 @@ module RpmsRpc
       m.rpc "MAGGUSERKEYS"
       m.field 0, :key_name
     end
+
+    # ========================================================================
+    # CLINICAL REMINDERS (BGOTRG*, ORQQPX*)
+    # ========================================================================
+
+    # BGOTRG GETSUM — reminder summary for a (patient_dfn, visit_ien).
+    # Multi-line response; each line one reminder.
+    # Field positions are best-effort pending wider trace capture.
+    # ORQQPX NEW REMINDERS ACTIVE and ORQQPXRM REMINDERS APPLICABLE are
+    # referenced in the issue but not yet modeled; for_visit derives the
+    # full list from GETSUM alone.
+    DataMapper.define(:reminder_summary) do |m|
+      m.rpc "BGOTRG GETSUM"
+      m.field 0, :id, :integer
+      m.field 1, :name
+      m.field 2, :status_code
+      m.field 3, :priority, :integer
+      m.field 4, :due_date, :fileman_date
+    end
   end
 end
