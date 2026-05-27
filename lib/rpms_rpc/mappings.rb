@@ -1468,5 +1468,17 @@ module RpmsRpc
       m.field 2, :abbreviation
       m.field 3, :current, :boolean
     end
+
+    # ========================================================================
+    # IMAGING CAPABILITIES (MAG*)
+    # ========================================================================
+
+    # MAGGUSERKEYS — user's imaging keys (multi-line, one key per line).
+    # MAGGUSER2 (per-user permission detail) is referenced in trace but not
+    # yet modeled; the boolean predicate derives from key presence alone.
+    DataMapper.define(:imaging_user_keys) do |m|
+      m.rpc "MAGGUSERKEYS"
+      m.field 0, :key_name
+    end
   end
 end
