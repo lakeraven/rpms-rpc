@@ -1423,5 +1423,34 @@ module RpmsRpc
       m.field 10, :doses_unused, :integer
       m.field 11, :facility_ien
     end
+
+    # ========================================================================
+    # SESSION BOOTSTRAP (CIAVMRPC*, CIAVMCFG*, CIAVCXUS*)
+    # ========================================================================
+
+    # CIAVMRPC GETPAR — fetch a CIAVM parameter by name.
+    # Used at cold launch to retrieve "CIAVM DEFAULT SOURCE" → config root path.
+    DataMapper.define(:session_default_source) do |m|
+      m.rpc "CIAVMRPC GETPAR"
+      m.scalar :value, :string
+    end
+
+    # CIAVMCFG GETREG — fetch the launching client's registry settings.
+    # Field positions are best-effort pending wider trace capture; the RPC
+    # returns the registry/config root path used to locate cached config.
+    DataMapper.define(:session_registry) do |m|
+      m.rpc "CIAVMCFG GETREG"
+      m.field 0, :root
+    end
+
+    # CIAVCXUS VIMINFO — fetch the user's launch context (site/division).
+    # Field positions are best-effort pending wider trace capture; the RPC
+    # carries the user's launch site IEN among other context fields.
+    DataMapper.define(:session_vim_info) do |m|
+      m.rpc "CIAVCXUS VIMINFO"
+      m.field 0, :site_ien, :integer
+      m.field 1, :site_name
+      m.field 2, :user_name
+    end
   end
 end
