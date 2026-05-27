@@ -1452,5 +1452,21 @@ module RpmsRpc
       m.field 1, :site_name
       m.field 2, :user_name
     end
+
+    # ========================================================================
+    # SITE / DIVISION CONTEXT (BEHOSICX*)
+    # ========================================================================
+
+    # BEHOSICX SITEINFO — divisions the user can access, with the currently
+    # selected division flagged. Used at cold launch and on division switch.
+    # Field positions are best-effort pending wider trace capture; the public
+    # contract is { ien, name, abbreviation, current }.
+    DataMapper.define(:site_info) do |m|
+      m.rpc "BEHOSICX SITEINFO"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+      m.field 2, :abbreviation
+      m.field 3, :current, :boolean
+    end
   end
 end
