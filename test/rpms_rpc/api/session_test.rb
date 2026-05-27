@@ -41,14 +41,14 @@ class SessionTest < Minitest::Test
     RpmsRpc::Session.bootstrap("301")
 
     getpar = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "CIAVMRPC GETPAR" }
-    assert_equal ["CIAVM DEFAULT SOURCE"], getpar[:params]
+    assert_equal [ "CIAVM DEFAULT SOURCE" ], getpar[:params]
   end
 
   def test_bootstrap_passes_duz_to_viminfo
     RpmsRpc::Session.bootstrap("301")
 
     vim = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "CIAVCXUS VIMINFO" }
-    assert_equal ["301"], vim[:params]
+    assert_equal [ "301" ], vim[:params]
   end
 
   def test_bootstrap_returns_nil_for_blank_duz
