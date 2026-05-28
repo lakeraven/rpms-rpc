@@ -1629,6 +1629,121 @@ module RpmsRpc
     end
 
     # ========================================================================
+    # ORDERS (ORWOR*, ORWORR*)
+    # ========================================================================
+    # Field positions are best-effort pending wider trace capture.
+
+    DataMapper.define(:orders_unsigned) do |m|
+      m.rpc "ORWOR UNSIGN"
+      m.field 0, :ien, :integer
+      m.field 1, :patient_dfn, :integer
+      m.field 2, :patient_name
+      m.field 3, :order_text
+      m.field 4, :status
+      m.field 5, :datetime, :fileman_datetime
+    end
+
+    DataMapper.define(:orders_list) do |m|
+      m.rpc "ORWORR AGET"
+      m.field 0, :ien, :integer
+      m.field 1, :order_text
+      m.field 2, :status
+      m.field 3, :datetime, :fileman_datetime
+      m.field 4, :provider_duz
+      m.field 5, :provider_name
+    end
+
+    # ORWOR VWGET returns the view config for an ordering view (a small
+    # scalar string used to scope subsequent AGET / GET4LST calls).
+    DataMapper.define(:orders_view) do |m|
+      m.rpc "ORWOR VWGET"
+      m.scalar :view_spec
+    end
+
+    # ========================================================================
+    # REFERRAL CREATE (BGOREF SET)
+    # ========================================================================
+
+    DataMapper.define(:referral_create) do |m|
+      m.rpc "BGOREF SET"
+      m.scalar :ien
+    end
+
+    # ========================================================================
+    # SYMPTOM CATALOG (ORWDAL32*)
+    # ========================================================================
+    # Field positions are best-effort pending wider trace capture.
+
+    DataMapper.define(:symptom_search) do |m|
+      m.rpc "ORWDAL32 SYMPTOMS"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+      m.field 2, :snomed_code
+    end
+
+    DataMapper.define(:symptom_defaults) do |m|
+      m.rpc "ORWDAL32 DEF"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+      m.field 2, :snomed_code
+    end
+
+    # ========================================================================
+    # NOTIFICATIONS / ALERTS (BQI*)
+    # ========================================================================
+    # Field positions are best-effort pending wider trace capture.
+
+    DataMapper.define(:notifications_inbox) do |m|
+      m.rpc "BQI GET COMM ALERTS SPLASH"
+      m.field 0, :id, :integer
+      m.field 1, :type
+      m.field 2, :patient_dfn, :integer
+      m.field 3, :message
+      m.field 4, :severity
+      m.field 5, :created_at, :fileman_datetime
+      m.field 6, :read_at, :fileman_datetime
+    end
+
+    # Mark-read RPC name is a best-guess based on the BQI family; pending
+    # wider trace capture, update only the RPC string here if it changes.
+    DataMapper.define(:notification_mark_read) do |m|
+      m.rpc "BQI MARK ALERT READ"
+      m.scalar :result
+    end
+
+    # ========================================================================
+    # IMAGING (ORWRA IMAGING*, MAG*)
+    # ========================================================================
+    # Field positions are best-effort pending wider trace capture.
+
+    DataMapper.define(:image_exams) do |m|
+      m.rpc "ORWRA IMAGING EXAMS1"
+      m.field 0, :ien, :integer
+      m.field 1, :exam_type
+      m.field 2, :datetime, :fileman_datetime
+      m.field 3, :status
+      m.field 4, :modality
+      m.field 5, :description
+    end
+
+    # The MAG launch-token RPC is documented as a desktop handoff; the
+    # gateway returns the raw token string and lets the engine/integration
+    # layer compose the viewer URL.
+    DataMapper.define(:image_launch_token) do |m|
+      m.rpc "MAGG IMAGE LAUNCH TOKEN"
+      m.scalar :token
+    end
+
+    # ========================================================================
+    # IMMUNIZATION REFUSAL (BGOREP*)
+    # ========================================================================
+
+    DataMapper.define(:immunization_refusal_save) do |m|
+      m.rpc "BGOREP SET"
+      m.scalar :result
+    end
+
+    # ========================================================================
     # CLINICAL REMINDERS (BGOTRG*, ORQQPX*)
     # ========================================================================
 
