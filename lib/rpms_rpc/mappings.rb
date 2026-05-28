@@ -1296,7 +1296,7 @@ module RpmsRpc
       m.field 7,  :route
       m.field 8,  :performer_duz, :string, pointer: { file: 200 }
       m.field 9,  :performer_name
-      m.field 10, :occurrence_datetime, :fileman_date
+      m.field 10, :occurrence_datetime, :fileman_datetime
       m.field 11, :dose_quantity,       :float
       m.field 12, :dose_unit
       m.field 13, :manufacturer
@@ -1318,7 +1318,7 @@ module RpmsRpc
       m.field 7,  :route
       m.field 8,  :performer_duz, :string, pointer: { file: 200 }
       m.field 9,  :performer_name
-      m.field 10, :occurrence_datetime, :fileman_date
+      m.field 10, :occurrence_datetime, :fileman_datetime
       m.field 11, :dose_quantity,       :float
       m.field 12, :dose_unit
       m.field 13, :manufacturer
