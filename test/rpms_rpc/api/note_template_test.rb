@@ -40,13 +40,20 @@ class NoteTemplateTest < Minitest::Test
     assert_equal [ 11, 12 ], items.map { |i| i[:ien] }
   end
 
-  def test_boilerplate_returns_text_with_token_substitution_passthrough
+  # The gateway is a passthrough — token substitution happens in the
+  # underlying TIU TEMPLATE GETBOIL RPC (server-side). The mock returns
+  # what a real server would: already-substituted text. The test asserts
+  # the gateway returns it verbatim and does NOT see raw |TOKEN| markers.
+  def test_boilerplate_returns_server_substituted_text_verbatim
+    substituted = "Patient: DOE,JOHN\nVisit: 2026-05-27 10:30\nChief Complaint:"
+
     RpmsRpc.mock! do |m|
-      m.seed_text(:template_boilerplate, TEMPLATE, "Patient: |NAME|\nVisit: |VISIT|\n")
+      m.seed_text(:template_boilerplate, TEMPLATE, substituted)
     end
 
     body = RpmsRpc::NoteTemplate.boilerplate(TEMPLATE, dfn: DFN, visit_ien: VISIT_IEN)
-    assert_match(/Patient:/, body)
+    assert_equal substituted, body
+    refute_match(/\|[A-Z]+\|/, body, "gateway should not see raw |TOKEN| markers")
   end
 
   def test_boilerplate_dispatches_with_template_dfn_visit_params

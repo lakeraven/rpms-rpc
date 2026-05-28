@@ -56,8 +56,11 @@ module RpmsRpc
       DataMapper.tiu_lock_record.fetch_scalar(note_ien.to_s, user_duz.to_s) == true
     end
 
+    # Update returns a 2-key {success:, raw:} shape rather than the
+    # create/sign-style 3-key {success:, ien:, raw:} — there's no new IEN
+    # to surface, and an :ien key on an update would mislead callers.
     def update_text(note_ien, text)
-      return failure if invalid_id?(note_ien) || text.nil?
+      return update_failure if invalid_id?(note_ien) || text.nil?
 
       raw = DataMapper.tiu_set_document_text.fetch_scalar(note_ien.to_s, text.to_s)
       {
@@ -85,6 +88,10 @@ module RpmsRpc
 
     def failure
       { success: false, ien: nil, raw: nil }
+    end
+
+    def update_failure
+      { success: false, raw: nil }
     end
 
     def invalid_id?(value)

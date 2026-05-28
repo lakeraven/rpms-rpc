@@ -1620,6 +1620,14 @@ module RpmsRpc
       m.scalar :result
     end
 
+    # TIU WHICH SIGNATURE ACTION — server-side authoritative answer to
+    # "what signing action is this user allowed to take on this note?".
+    # Returns a code like S/C/A/empty; mapped to a symbol by the API.
+    DataMapper.define(:tiu_which_signature_action) do |m|
+      m.rpc "TIU WHICH SIGNATURE ACTION"
+      m.scalar :code
+    end
+
     # ========================================================================
     # CLINICAL REMINDERS (BGOTRG*, ORQQPX*)
     # ========================================================================

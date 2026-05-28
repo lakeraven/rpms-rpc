@@ -28,6 +28,19 @@ module RpmsRpc
       DataMapper.tiu_valid_signature.fetch_scalar(user_duz.to_s, signature_code.to_s) == true
     end
 
+    # Server-side authoritative answer for which signing action a given user
+    # is allowed to perform on a given note. Returns a symbol from
+    # ACTION_CODES (or `nil` if the server says no action is permitted /
+    # the user has no role on this note).
+    def which_action(note_ien, user_duz)
+      return nil if invalid_id?(note_ien) || invalid_id?(user_duz)
+
+      code = DataMapper.tiu_which_signature_action.fetch_scalar(note_ien.to_s, user_duz.to_s)
+      return nil if code.nil? || code.to_s.strip.empty?
+
+      ACTION_CODES.invert[code.to_s.upcase]
+    end
+
     def add(note_ien, user_duz, signature_code, action: :sign)
       return failure if invalid_id?(note_ien) || invalid_id?(user_duz) || blank?(signature_code)
 
