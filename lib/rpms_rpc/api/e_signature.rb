@@ -69,7 +69,7 @@ module RpmsRpc
 
     def result_shape(raw)
       {
-        success: raw.to_s.match?(/\A(?:0|\d+)\z/) && raw.to_s != "",
+        success: raw.to_s.match?(/\A\d+\z/),
         raw: raw
       }
     end
