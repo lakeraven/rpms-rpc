@@ -1526,6 +1526,109 @@ module RpmsRpc
     end
 
     # ========================================================================
+    # TIU NOTE TEMPLATES (TIU TEMPLATE*)
+    # ========================================================================
+    # Field positions are best-effort pending wider trace capture. Templates
+    # form a tree (roots → items) with each leaf carrying boilerplate text.
+
+    DataMapper.define(:template_roots) do |m|
+      m.rpc "TIU TEMPLATE GETROOTS"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+      m.field 2, :type
+    end
+
+    DataMapper.define(:template_items) do |m|
+      m.rpc "TIU TEMPLATE GETITEMS"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+      m.field 2, :type
+      m.field 3, :parent_ien, :integer
+    end
+
+    DataMapper.define(:template_boilerplate) do |m|
+      m.rpc "TIU TEMPLATE GETBOIL"
+      m.text_blob :body
+    end
+
+    DataMapper.define(:template_text) do |m|
+      m.rpc "TIU TEMPLATE GETTEXT"
+      m.text_blob :body
+    end
+
+    DataMapper.define(:template_access_level) do |m|
+      m.rpc "TIU TEMPLATE ACCESS LEVEL"
+      m.scalar :level
+    end
+
+    # ========================================================================
+    # TIU PROGRESS NOTES (TIU*)
+    # ========================================================================
+    # Field positions are best-effort pending wider trace capture.
+
+    DataMapper.define(:tiu_create_record) do |m|
+      m.rpc "TIU CREATE RECORD"
+      m.scalar :note_ien
+    end
+
+    DataMapper.define(:tiu_documents_by_context) do |m|
+      m.rpc "TIU DOCUMENTS BY CONTEXT"
+      m.field 0, :ien, :integer
+      m.field 1, :title
+      m.field 2, :status
+      m.field 3, :datetime, :fileman_datetime
+      m.field 4, :author_duz
+      m.field 5, :author_name
+    end
+
+    DataMapper.define(:tiu_get_record_text) do |m|
+      m.rpc "TIU GET RECORD TEXT"
+      m.text_blob :body
+    end
+
+    DataMapper.define(:tiu_authorization) do |m|
+      m.rpc "TIU AUTHORIZATION"
+      m.scalar :allowed, :boolean
+    end
+
+    DataMapper.define(:tiu_lock_record) do |m|
+      m.rpc "TIU LOCK RECORD"
+      m.scalar :locked, :boolean
+    end
+
+    DataMapper.define(:tiu_unlock_record) do |m|
+      m.rpc "TIU UNLOCK RECORD"
+      m.scalar :unlocked, :boolean
+    end
+
+    DataMapper.define(:tiu_set_document_text) do |m|
+      m.rpc "TIU SET DOCUMENT TEXT"
+      m.scalar :result
+    end
+
+    # ========================================================================
+    # E-SIGNATURE (ORWU VALIDSIG, TIU SIGN RECORD)
+    # ========================================================================
+
+    DataMapper.define(:tiu_valid_signature) do |m|
+      m.rpc "ORWU VALIDSIG"
+      m.scalar :valid, :boolean
+    end
+
+    DataMapper.define(:tiu_sign_record) do |m|
+      m.rpc "TIU SIGN RECORD"
+      m.scalar :result
+    end
+
+    # TIU WHICH SIGNATURE ACTION — server-side authoritative answer to
+    # "what signing action is this user allowed to take on this note?".
+    # Returns a code like S/C/A/empty; mapped to a symbol by the API.
+    DataMapper.define(:tiu_which_signature_action) do |m|
+      m.rpc "TIU WHICH SIGNATURE ACTION"
+      m.scalar :code
+    end
+
+    # ========================================================================
     # CLINICAL REMINDERS (BGOTRG*, ORQQPX*)
     # ========================================================================
 
