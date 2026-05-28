@@ -77,6 +77,16 @@ class RpmsRpc::DataMapperTest < Minitest::Test
     assert_equal Date.new(1980, 1, 15), result[:dob]
   end
 
+  def test_parse_one_coerces_float_fields
+    mapping = RpmsRpc::DataMapper.define(:test) do
+      rpc "TEST"
+      field 0, :amount, :float
+    end
+
+    assert_in_delta 0.3, mapping.parse_one("0.3")[:amount], 0.0001
+    assert_kind_of Float, mapping.parse_one("0.3")[:amount]
+  end
+
   def test_parse_one_coerces_boolean_fields
     mapping = RpmsRpc::DataMapper.define(:test) do
       rpc "TEST"

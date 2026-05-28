@@ -252,6 +252,8 @@ module RpmsRpc
           raw
         when :integer
           raw.to_i
+        when :float
+          Float(raw)
         when :fileman_date
           FilemanDateParser.parse_date(raw)
         when :fileman_datetime
