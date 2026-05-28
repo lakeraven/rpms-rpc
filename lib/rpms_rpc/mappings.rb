@@ -1482,6 +1482,50 @@ module RpmsRpc
     end
 
     # ========================================================================
+    # PROBLEM LIST WRITE PATHS (BGOPROB*)
+    # ========================================================================
+
+    # BGOPROB1 EDPROB — write a problem record (add/edit/delete by action marker
+    # in the payload). Returns the new/edited IEN on success; "0" or empty on
+    # failure. Wire payload is best-effort pending wider trace capture.
+    DataMapper.define(:problem_edit) do |m|
+      m.rpc "BGOPROB1 EDPROB"
+      m.scalar :result
+    end
+
+    # BGOPROB GET CLASS — problem list filtered by IPL scope class.
+    # Same row shape as :problem_list (ORQQPL LIST).
+    DataMapper.define(:problem_filter) do |m|
+      m.rpc "BGOPROB GET CLASS"
+      m.field 0, :ien
+      m.field 1, :status
+      m.field 2, :description
+      m.field 3, :icd_code, :string, terminology: :icd10
+      m.field 4, :onset_date,    :fileman_date
+      m.field 5, :recorded_date, :fileman_date
+      m.field 6, :provider_duz, :string, pointer: { file: 200 }
+    end
+
+    # ========================================================================
+    # VISIT DATA ENTRY WRITES (BGOVUPD*, BGOVCPT*, BGOVPOV*)
+    # ========================================================================
+
+    # BGOVUPD SET — generic visit-data writer used by POV, health factor,
+    # exam component, and measurement entry. Record-type marker is embedded
+    # in the payload. Returns the saved IEN on success; "0"/empty on failure.
+    # Wire payload is best-effort pending wider trace capture.
+    DataMapper.define(:visit_data_save) do |m|
+      m.rpc "BGOVUPD SET"
+      m.scalar :result
+    end
+
+    # BGOVCPT SET — visit CPT-code save. Returns the saved IEN on success.
+    DataMapper.define(:procedure_save) do |m|
+      m.rpc "BGOVCPT SET"
+      m.scalar :result
+    end
+
+    # ========================================================================
     # CLINICAL REMINDERS (BGOTRG*, ORQQPX*)
     # ========================================================================
 
