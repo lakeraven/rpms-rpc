@@ -139,16 +139,16 @@ class ClinicalDataApiTest < Minitest::Test
   # IMMUNIZATION
   # =============================================================================
 
-  def test_immunization_for_patient_returns_text
-    result = RpmsRpc::Immunization.for_patient("1")
+  def test_immunization_text_summary_returns_text
+    result = RpmsRpc::Immunization.text_summary("1")
+    flattened = Array(result).join("\n")
 
     refute_nil result
-    assert_includes result, "COVID-19"
+    assert_includes flattened, "COVID-19"
   end
 
-  def test_immunization_for_patient_nil_when_none
-    result = RpmsRpc::Immunization.for_patient("99999")
-
-    assert_nil result
+  def test_immunization_for_patient_returns_empty_when_none
+    # Structured list semantics: no seeded :immunization_list rows → [].
+    assert_equal [], RpmsRpc::Immunization.for_patient("99999")
   end
 end
