@@ -1281,6 +1281,51 @@ module RpmsRpc
       m.text_blob :content
     end
 
+    # BIPC IMMLIST — patient-scoped administered immunization records.
+    # Field positions are best-effort pending wider trace capture.
+    # Format: IEN^CVX^DISPLAY^STATUS^LOT^EXP^SITE^ROUTE^PRDUZ^PRNAME^OCC^DOSE^UNIT^MFG^VFC^FUND
+    DataMapper.define(:immunization_list) do |m|
+      m.rpc "BIPC IMMLIST"
+      m.field 0,  :ien
+      m.field 1,  :vaccine_code
+      m.field 2,  :vaccine_display
+      m.field 3,  :status
+      m.field 4,  :lot_number
+      m.field 5,  :expiration_date,     :fileman_date
+      m.field 6,  :site
+      m.field 7,  :route
+      m.field 8,  :performer_duz, :string, pointer: { file: 200 }
+      m.field 9,  :performer_name
+      m.field 10, :occurrence_datetime, :fileman_datetime
+      m.field 11, :dose_quantity,       :float
+      m.field 12, :dose_unit
+      m.field 13, :manufacturer
+      m.field 14, :vfc_eligibility_code
+      m.field 15, :funding_source
+    end
+
+    # BIPC IMMGET — single administered immunization record by IEN.
+    # Same field shape as :immunization_list.
+    DataMapper.define(:immunization_detail) do |m|
+      m.rpc "BIPC IMMGET"
+      m.field 0,  :ien
+      m.field 1,  :vaccine_code
+      m.field 2,  :vaccine_display
+      m.field 3,  :status
+      m.field 4,  :lot_number
+      m.field 5,  :expiration_date,     :fileman_date
+      m.field 6,  :site
+      m.field 7,  :route
+      m.field 8,  :performer_duz, :string, pointer: { file: 200 }
+      m.field 9,  :performer_name
+      m.field 10, :occurrence_datetime, :fileman_datetime
+      m.field 11, :dose_quantity,       :float
+      m.field 12, :dose_unit
+      m.field 13, :manufacturer
+      m.field 14, :vfc_eligibility_code
+      m.field 15, :funding_source
+    end
+
     # BEHOCIR GETNUM — CCD count and reconciliation status
     # Format: TOTAL^RECONCILED
     DataMapper.define(:immunization_count) do |m|
