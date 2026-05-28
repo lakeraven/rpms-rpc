@@ -1653,12 +1653,12 @@ module RpmsRpc
       m.field 5, :provider_name
     end
 
-    # ORWOR VWGET returns the view config for an ordering view (a small
-    # scalar string used to scope subsequent AGET / GET4LST calls).
-    DataMapper.define(:orders_view) do |m|
-      m.rpc "ORWOR VWGET"
-      m.scalar :view_spec
-    end
+    # ORWOR VWGET and ORWORR GET4LST are referenced in the issue trace
+    # alongside AGET. AGET alone is sufficient for the symbolic
+    # "list orders for patient at view+status" contract this module
+    # exposes — the two-step VWGET->AGET pattern is a desktop-client
+    # optimization that can be added when a real engine consumer needs
+    # the cached view spec or per-group detail. Not modeling speculatively.
 
     # ========================================================================
     # REFERRAL CREATE (BGOREF SET)

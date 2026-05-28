@@ -56,6 +56,15 @@ class NotificationsTest < Minitest::Test
     assert_equal [], RpmsRpc::Notifications.inbox("0")
   end
 
+  def test_inbox_raises_on_non_boolean_unread_value
+    RpmsRpc.mock! do |m|
+      m.seed_keyed_collection(:notifications_inbox, USER_DUZ, [])
+    end
+    assert_raises(ArgumentError) { RpmsRpc::Notifications.inbox(USER_DUZ, unread: "false") }
+    assert_raises(ArgumentError) { RpmsRpc::Notifications.inbox(USER_DUZ, unread: 0) }
+    assert_raises(ArgumentError) { RpmsRpc::Notifications.inbox(USER_DUZ, unread: :no) }
+  end
+
   def test_mark_read_dispatches_and_returns_success
     RpmsRpc.mock! do |m|
       m.seed_scalar(:notification_mark_read, NOTIF, "0")

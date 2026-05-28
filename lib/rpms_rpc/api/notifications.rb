@@ -11,9 +11,14 @@ module RpmsRpc
 
     # `unread: nil` returns everything; `unread: true` returns only items
     # without a read_at timestamp; `unread: false` returns only items that
-    # have been read.
+    # have been read. Any other value raises ArgumentError so a truthy
+    # surprise ("false" string, 0, etc.) can't silently flip the filter.
     def inbox(user_duz, unread: nil)
       return [] if invalid_id?(user_duz)
+
+      unless unread.nil? || unread == true || unread == false
+        raise ArgumentError, "unread must be nil, true, or false (got #{unread.inspect})"
+      end
 
       rows = Array(DataMapper.notifications_inbox.fetch_many(user_duz.to_s))
       return rows if unread.nil?

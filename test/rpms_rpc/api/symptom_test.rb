@@ -49,4 +49,13 @@ class SymptomTest < Minitest::Test
     rows = RpmsRpc::Symptom.defaults
     assert_equal 2, rows.length
   end
+
+  def test_defaults_dispatches_orwdal32_def
+    RpmsRpc.mock! do |m|
+      m.seed_collection(:symptom_defaults, [])
+    end
+    RpmsRpc::Symptom.defaults
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWDAL32 DEF" }
+    refute_nil call
+  end
 end

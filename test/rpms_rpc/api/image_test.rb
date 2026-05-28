@@ -53,7 +53,32 @@ class ImageTest < Minitest::Test
 
     before = Time.now
     result = RpmsRpc::Image.launch_token(DFN, STUDY_IEN, ttl_seconds: 60)
-    assert result[:expires_at] <= before + 61
+    after = Time.now
+
+    assert result[:expires_at] >= before + 60 - 1, "expires_at must be at least before+ttl"
+    assert result[:expires_at] <= after + 60 + 1, "expires_at must be at most after+ttl"
+  end
+
+  def test_launch_token_rejects_nil_zero_negative_or_non_numeric_ttl
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:image_launch_token, DFN, "tok-abc")
+    end
+
+    assert_nil RpmsRpc::Image.launch_token(DFN, STUDY_IEN, ttl_seconds: nil)
+    assert_nil RpmsRpc::Image.launch_token(DFN, STUDY_IEN, ttl_seconds: 0)
+    assert_nil RpmsRpc::Image.launch_token(DFN, STUDY_IEN, ttl_seconds: -10)
+    assert_nil RpmsRpc::Image.launch_token(DFN, STUDY_IEN, ttl_seconds: "not a number")
+  end
+
+  def test_launch_token_dispatches_magg_with_dfn_and_study_ien
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:image_launch_token, DFN, "tok-abc")
+    end
+
+    RpmsRpc::Image.launch_token(DFN, STUDY_IEN)
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "MAGG IMAGE LAUNCH TOKEN" }
+    refute_nil call
+    assert_equal [ DFN, STUDY_IEN ], call[:params]
   end
 
   def test_launch_token_blank_args_return_nil

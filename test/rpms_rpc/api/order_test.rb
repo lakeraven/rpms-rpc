@@ -26,6 +26,17 @@ class OrderTest < Minitest::Test
     assert_equal 1001, rows.first[:ien]
   end
 
+  def test_unsigned_for_user_dispatches_orwor_unsign
+    RpmsRpc.mock! do |m|
+      m.seed_keyed_collection(:orders_unsigned, USER_DUZ, [])
+    end
+
+    RpmsRpc::Order.unsigned_for_user(USER_DUZ)
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWOR UNSIGN" }
+    refute_nil call
+    assert_equal [ USER_DUZ ], call[:params]
+  end
+
   def test_unsigned_for_user_blank_returns_empty
     assert_equal [], RpmsRpc::Order.unsigned_for_user(nil)
     assert_equal [], RpmsRpc::Order.unsigned_for_user("0")
@@ -54,13 +65,16 @@ class OrderTest < Minitest::Test
     end
   end
 
-  def test_list_passes_status_code_too
-    RpmsRpc.mock! do |m|
-      m.seed_keyed_collection(:orders_list, DFN, [])
+  def test_list_passes_each_status_code_to_rpc
+    expected = { all: "*", active: "A", pending: "P", complete: "C", expired: "E" }
+    expected.each do |status, code|
+      RpmsRpc.mock! do |m|
+        m.seed_keyed_collection(:orders_list, DFN, [])
+      end
+      RpmsRpc::Order.list(DFN, status: status, view: :default)
+      call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWORR AGET" }
+      assert_equal code, call[:params][2], "status #{status} should map to #{code}"
     end
-    RpmsRpc::Order.list(DFN, status: :active, view: :default)
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWORR AGET" }
-    assert_equal [ DFN, "1", "A" ], call[:params]
   end
 
   def test_list_raises_on_unknown_view

@@ -23,6 +23,7 @@ module RpmsRpc
 
     def launch_token(dfn, study_ien, ttl_seconds: DEFAULT_TTL_SECONDS)
       return nil if invalid_id?(dfn) || invalid_id?(study_ien)
+      return nil unless valid_ttl?(ttl_seconds)
 
       token = DataMapper.image_launch_token.fetch_scalar(dfn.to_s, study_ien.to_s)
       return nil if token.nil? || token.to_s.strip.empty?
@@ -35,6 +36,15 @@ module RpmsRpc
     end
 
     private
+
+    # A nil/zero/negative TTL would silently yield an already-expired token.
+    # Require a positive integer-ish value; reject anything else.
+    def valid_ttl?(ttl_seconds)
+      return false if ttl_seconds.nil?
+      return false unless ttl_seconds.is_a?(Integer) || ttl_seconds.to_s.match?(/\A\d+\z/)
+
+      ttl_seconds.to_i.positive?
+    end
 
     def invalid_id?(value)
       value.nil? || value.to_s.strip.empty? || value.to_i <= 0
