@@ -128,4 +128,10 @@ class ImmunizationTest < Minitest::Test
     refute_nil call, "expected BEHOCIR GETTXT to be dispatched"
     assert_equal [ DFN ], call[:params]
   end
+
+  def test_text_summary_returns_nil_for_invalid_dfn
+    assert_nil RpmsRpc::Immunization.text_summary(nil)
+    assert_nil RpmsRpc::Immunization.text_summary("")
+    assert_nil RpmsRpc::Immunization.text_summary("0")
+  end
 end

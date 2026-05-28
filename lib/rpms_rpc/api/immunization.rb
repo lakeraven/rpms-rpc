@@ -32,6 +32,8 @@ module RpmsRpc
     # distinct accessor so callers that want the summary text don't have
     # to compete with the structured list shape on `for_patient`.
     def text_summary(dfn)
+      return nil if invalid_id?(dfn)
+
       DataMapper.immunization_text.fetch_text(dfn.to_s)
     end
 
