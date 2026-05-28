@@ -19,7 +19,7 @@ class PovTest < Minitest::Test
       m.seed_scalar(:visit_data_save, DFN, "9001")
     end
 
-    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD)
+    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
     assert result[:success]
     assert_equal 9001, result[:ien]
   end
@@ -40,15 +40,28 @@ class PovTest < Minitest::Test
     assert_includes call[:params][2], "Essential hypertension"
   end
 
-  def test_add_with_primary_modifier_marks_payload
+  def test_add_with_primary_modifier_marks_payload_p
     RpmsRpc.mock! do |m|
       m.seed_scalar(:visit_data_save, DFN, "9001")
     end
 
-    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, modifiers: { primary: true })
+    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "primary dx", modifiers: { primary: true })
 
     payload = RpmsRpc.client.received_calls.last[:params][2]
-    assert_includes payload, "P"
+    parts = payload.split("^")
+    assert_equal "P", parts[3], "primary modifier should encode as 'P' in payload field 3"
+  end
+
+  def test_add_with_secondary_modifier_marks_payload_s
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:visit_data_save, DFN, "9001")
+    end
+
+    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "secondary dx", modifiers: { secondary: true })
+
+    payload = RpmsRpc.client.received_calls.last[:params][2]
+    parts = payload.split("^")
+    assert_equal "S", parts[3], "secondary modifier should encode as 'S' in payload field 3"
   end
 
   def test_add_with_injury_cause_modifier
@@ -56,15 +69,19 @@ class PovTest < Minitest::Test
       m.seed_scalar(:visit_data_save, DFN, "9001")
     end
 
-    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, modifiers: { injury_cause: "FALL" })
+    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "ankle pain", modifiers: { injury_cause: "FALL" })
 
     payload = RpmsRpc.client.received_calls.last[:params][2]
     assert_includes payload, "FALL"
   end
 
+  def test_narrative_is_required_keyword
+    assert_raises(ArgumentError) { RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD) }
+  end
+
   def test_blank_args_return_failure
-    refute RpmsRpc::Pov.add(nil, VISIT_IEN, ICD)[:success]
-    refute RpmsRpc::Pov.add(DFN, nil, ICD)[:success]
-    refute RpmsRpc::Pov.add(DFN, VISIT_IEN, "")[:success]
+    refute RpmsRpc::Pov.add(nil, VISIT_IEN, ICD, narrative: "x")[:success]
+    refute RpmsRpc::Pov.add(DFN, nil, ICD, narrative: "x")[:success]
+    refute RpmsRpc::Pov.add(DFN, VISIT_IEN, "", narrative: "x")[:success]
   end
 end

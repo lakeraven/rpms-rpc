@@ -12,7 +12,7 @@ module RpmsRpc
 
     RECORD_TYPE = "HF"
 
-    def add(dfn, visit_ien, factor_code, level: nil, narrative: nil)
+    def add(dfn, visit_ien, factor_code, level:, narrative: nil)
       return failure if invalid_id?(dfn) || invalid_id?(visit_ien) || blank?(factor_code)
 
       payload = [ RECORD_TYPE, factor_code, level.to_s, narrative.to_s ].join("^")

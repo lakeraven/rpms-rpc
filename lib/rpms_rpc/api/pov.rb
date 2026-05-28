@@ -11,14 +11,20 @@ module RpmsRpc
 
     RECORD_TYPE = "POV"
 
-    def add(dfn, visit_ien, diagnosis_code, narrative: nil, modifiers: {})
+    def add(dfn, visit_ien, diagnosis_code, narrative:, modifiers: {})
       return failure if invalid_id?(dfn) || invalid_id?(visit_ien) || blank?(diagnosis_code)
+
+      diagnosis_role =
+        if modifiers[:primary] then "P"
+        elsif modifiers[:secondary] then "S"
+        else ""
+        end
 
       payload = [
         RECORD_TYPE,
         diagnosis_code,
         narrative.to_s,
-        modifiers[:primary] ? "P" : "",
+        diagnosis_role,
         modifiers[:injury_cause].to_s,
         modifiers[:fraction].to_s
       ].join("^")

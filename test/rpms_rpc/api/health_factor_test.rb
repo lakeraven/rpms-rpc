@@ -41,18 +41,13 @@ class HealthFactorTest < Minitest::Test
     assert_includes call[:params][2], "patient self-reported"
   end
 
-  def test_add_without_level_still_works
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "8001")
-    end
-
-    result = RpmsRpc::HealthFactor.add(DFN, VISIT_IEN, FACTOR)
-    assert result[:success]
+  def test_level_is_required_keyword
+    assert_raises(ArgumentError) { RpmsRpc::HealthFactor.add(DFN, VISIT_IEN, FACTOR) }
   end
 
   def test_blank_args_return_failure
-    refute RpmsRpc::HealthFactor.add(nil, VISIT_IEN, FACTOR)[:success]
-    refute RpmsRpc::HealthFactor.add(DFN, "0", FACTOR)[:success]
-    refute RpmsRpc::HealthFactor.add(DFN, VISIT_IEN, "")[:success]
+    refute RpmsRpc::HealthFactor.add(nil, VISIT_IEN, FACTOR, level: "HEAVY")[:success]
+    refute RpmsRpc::HealthFactor.add(DFN, "0", FACTOR, level: "HEAVY")[:success]
+    refute RpmsRpc::HealthFactor.add(DFN, VISIT_IEN, "", level: "HEAVY")[:success]
   end
 end
