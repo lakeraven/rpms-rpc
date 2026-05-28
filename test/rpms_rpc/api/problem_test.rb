@@ -96,6 +96,27 @@ class ProblemTest < Minitest::Test
     assert_raises(ArgumentError) { RpmsRpc::Problem.add(DFN, nil) }
   end
 
+  def test_add_raises_on_non_hash_problem
+    err = assert_raises(ArgumentError) { RpmsRpc::Problem.add(DFN, "not a hash") }
+    assert_match(/must be a Hash/, err.message)
+  end
+
+  def test_payload_field_order_is_deterministic_regardless_of_hash_insertion_order
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_edit, DFN, "5001")
+    end
+    RpmsRpc::Problem.add(DFN, { description: "Hypertension", icd_code: "I10", status: "active" })
+    a = RpmsRpc.client.received_calls.last[:params][1]
+
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_edit, DFN, "5001")
+    end
+    RpmsRpc::Problem.add(DFN, { icd_code: "I10", status: "active", description: "Hypertension" })
+    b = RpmsRpc.client.received_calls.last[:params][1]
+
+    assert_equal a, b, "payload must not depend on caller's Hash insertion order"
+  end
+
   def test_zero_or_blank_save_response_yields_failure
     RpmsRpc.mock! do |m|
       m.seed_scalar(:problem_edit, DFN, "0")

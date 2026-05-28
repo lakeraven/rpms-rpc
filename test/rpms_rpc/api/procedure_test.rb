@@ -53,4 +53,10 @@ class ProcedureTest < Minitest::Test
     end
     refute RpmsRpc::Procedure.add(DFN, VISIT_IEN, CPT)[:success]
   end
+
+  def test_nil_or_zero_quantity_returns_failure
+    refute RpmsRpc::Procedure.add(DFN, VISIT_IEN, CPT, quantity: nil)[:success]
+    refute RpmsRpc::Procedure.add(DFN, VISIT_IEN, CPT, quantity: 0)[:success]
+    refute RpmsRpc::Procedure.add(DFN, VISIT_IEN, CPT, quantity: -1)[:success]
+  end
 end

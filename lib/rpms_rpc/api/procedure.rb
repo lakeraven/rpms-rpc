@@ -14,6 +14,7 @@ module RpmsRpc
 
     def add(dfn, visit_ien, cpt_code, modifiers: [], narrative: nil, quantity: 1)
       return failure if invalid_id?(dfn) || invalid_id?(visit_ien) || blank?(cpt_code)
+      return failure if quantity.nil? || quantity.to_i <= 0
 
       modifier_str = Array(modifiers).join(",")
       payload = [ cpt_code, modifier_str, narrative.to_s, quantity.to_i ].join("^")

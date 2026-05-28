@@ -24,19 +24,24 @@ module RpmsRpc
       delete: "D"
     }.freeze
 
+    # Wire field order for BGOPROB1 EDPROB. Field positions are best-effort
+    # pending wider trace capture; this list locks the order so a caller's
+    # Hash key insertion order can't reshuffle the payload mid-flight.
+    EDPROB_FIELDS = %i[icd_code description status onset_date provider_duz reason].freeze
+
     def for_patient(dfn)
       DataMapper.problem_list.fetch_many(dfn.to_s)
     end
 
     def add(dfn, problem)
-      raise ArgumentError, "problem is required" if problem.nil? || !problem.is_a?(Hash)
+      raise ArgumentError, "problem must be a Hash" unless problem.is_a?(Hash)
       return failure if invalid_id?(dfn)
 
       write(dfn, EDIT_ACTIONS[:add], nil, problem)
     end
 
     def update(dfn, ien, changes)
-      raise ArgumentError, "changes is required" if changes.nil? || !changes.is_a?(Hash)
+      raise ArgumentError, "changes must be a Hash" unless changes.is_a?(Hash)
       return failure if invalid_id?(dfn) || invalid_id?(ien)
 
       write(dfn, EDIT_ACTIONS[:update], ien, changes)
@@ -73,7 +78,7 @@ module RpmsRpc
 
     def build_payload(action, ien, fields)
       pieces = [ action, ien.to_s ]
-      pieces.concat(fields.values.map(&:to_s))
+      pieces.concat(EDPROB_FIELDS.map { |k| fields[k].to_s })
       pieces.join("^")
     end
 
