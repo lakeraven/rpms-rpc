@@ -99,10 +99,18 @@ client.disconnect
 > **Strict-by-default credentials.** Outside a development environment
 > (`Rails.env.development?`, or `VISTA_RPC_ENV=development` when running
 > without Rails), `#authenticate` will raise `RpmsRpc::Client::CredentialError`
-> if `RPMS_ACCESS_CODE` / `RPMS_VERIFY_CODE` are missing, or if they are
-> set to the dev-only `PROV123` / `PROV123!!` debug values. This prevents
-> a misconfigured production deploy from silently talking to the broker
-> as a debug account.
+> in any of these cases:
+>
+> - `RPMS_ACCESS_CODE` / `RPMS_VERIFY_CODE` are missing, blank, or
+>   whitespace-only.
+> - The resolved access or verify code equals its dev-only `PROV123` /
+>   `PROV123!!` value — whether sourced from ENV, the legacy fallback,
+>   or passed *explicitly* as an argument to `#authenticate`.
+>
+> Explicit arguments take the same path as ENV-sourced values, so a
+> snippet like `client.authenticate("PROV123", "PROV123!!")` also
+> raises in production. This prevents a misconfigured deploy from
+> silently talking to the broker as a debug account.
 
 ## Components
 

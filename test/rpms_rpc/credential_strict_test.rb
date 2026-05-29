@@ -88,6 +88,36 @@ class CredentialStrictTest < Minitest::Test
     end
   end
 
+  def test_production_env_raises_on_blank_or_whitespace_credentials
+    ENV["VISTA_RPC_ENV"] = "production"
+    client = Client.new
+
+    [ "", "   ", "\t\n" ].each do |blank|
+      ENV["RPMS_ACCESS_CODE"] = blank
+      ENV["RPMS_VERIFY_CODE"] = "REAL!!"
+      assert_raises(RpmsRpc::Client::CredentialError) do
+        client.send(:resolve_credentials, nil, nil)
+      end
+
+      ENV["RPMS_ACCESS_CODE"] = "REAL"
+      ENV["RPMS_VERIFY_CODE"] = blank
+      assert_raises(RpmsRpc::Client::CredentialError) do
+        client.send(:resolve_credentials, nil, nil)
+      end
+    end
+  end
+
+  def test_production_env_raises_when_explicit_args_are_dev_defaults
+    # The doc + Copilot review correctly note: explicit args take the
+    # same path; passing PROV123 / PROV123!! literally must also raise.
+    ENV["VISTA_RPC_ENV"] = "production"
+    client = Client.new
+
+    assert_raises(RpmsRpc::Client::CredentialError) do
+      client.send(:resolve_credentials, DEV_ACCESS, DEV_VERIFY)
+    end
+  end
+
   def test_production_env_accepts_explicit_non_default_credentials
     ENV["VISTA_RPC_ENV"] = "production"
     client = Client.new

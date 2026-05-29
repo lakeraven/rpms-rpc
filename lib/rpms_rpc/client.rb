@@ -201,7 +201,9 @@ module RpmsRpc
         return [ ac, vc ]
       end
 
-      if ac.nil? || vc.nil?
+      # Blank strings (empty / whitespace-only) are just as broken as
+      # unset credentials. Don't let an empty ENV value bypass the check.
+      if blank_credential?(ac) || blank_credential?(vc)
         raise CredentialError,
               "RPMS credentials not configured. Set RPMS_ACCESS_CODE and " \
               "RPMS_VERIFY_CODE in the environment (or pass explicit args " \
@@ -230,6 +232,11 @@ module RpmsRpc
       end
     end
     private :development_environment?
+
+    def blank_credential?(value)
+      value.nil? || value.to_s.strip.empty?
+    end
+    private :blank_credential?
 
     # XWB cipher encryption (matches $$ENCRYP^XUSRB1 in M)
     def xwb_encrypt(plaintext)
