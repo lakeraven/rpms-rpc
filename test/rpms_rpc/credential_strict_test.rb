@@ -66,6 +66,28 @@ class CredentialStrictTest < Minitest::Test
     end
   end
 
+  def test_production_env_raises_when_only_access_code_is_a_dev_default
+    ENV["VISTA_RPC_ENV"] = "production"
+    ENV["RPMS_ACCESS_CODE"] = DEV_ACCESS
+    ENV["RPMS_VERIFY_CODE"] = "REAL!!"
+    client = Client.new
+
+    assert_raises(RpmsRpc::Client::CredentialError) do
+      client.send(:resolve_credentials, nil, nil)
+    end
+  end
+
+  def test_production_env_raises_when_only_verify_code_is_a_dev_default
+    ENV["VISTA_RPC_ENV"] = "production"
+    ENV["RPMS_ACCESS_CODE"] = "REAL"
+    ENV["RPMS_VERIFY_CODE"] = DEV_VERIFY
+    client = Client.new
+
+    assert_raises(RpmsRpc::Client::CredentialError) do
+      client.send(:resolve_credentials, nil, nil)
+    end
+  end
+
   def test_production_env_accepts_explicit_non_default_credentials
     ENV["VISTA_RPC_ENV"] = "production"
     client = Client.new
@@ -93,6 +115,59 @@ class CredentialStrictTest < Minitest::Test
     client = Client.new
     assert_raises(RpmsRpc::Client::CredentialError) do
       client.send(:resolve_credentials, nil, nil)
+    end
+  end
+
+  # --- Rails.env branches of development_environment? -----------------------
+
+  # Minimal Rails / Rails.env stub so tests don't need to load Rails.
+  class FakeRailsEnv
+    def initialize(name); @name = name; end
+    def development?; @name == "development"; end
+    def production?;  @name == "production"; end
+    def to_s; @name; end
+  end
+
+  module FakeRails
+    class << self
+      attr_accessor :env
+    end
+  end
+
+  def with_rails_const(env_name)
+    Object.const_set(:Rails, FakeRails)
+    FakeRails.env = env_name.nil? ? nil : FakeRailsEnv.new(env_name)
+    yield
+  ensure
+    Object.send(:remove_const, :Rails) if Object.const_defined?(:Rails)
+  end
+
+  def test_rails_development_env_uses_dev_fallback
+    with_rails_const("development") do
+      client = Client.new
+      ac, vc = client.send(:resolve_credentials, nil, nil)
+      assert_equal DEV_ACCESS, ac
+      assert_equal DEV_VERIFY, vc
+    end
+  end
+
+  def test_rails_production_env_raises_on_unset_credentials
+    with_rails_const("production") do
+      client = Client.new
+      assert_raises(RpmsRpc::Client::CredentialError) do
+        client.send(:resolve_credentials, nil, nil)
+      end
+    end
+  end
+
+  def test_rails_env_nil_falls_back_to_vista_rpc_env_check
+    # Rails defined but Rails.env is nil — treat as production-strict
+    # (the strict-by-default rule applies).
+    with_rails_const(nil) do
+      client = Client.new
+      assert_raises(RpmsRpc::Client::CredentialError) do
+        client.send(:resolve_credentials, nil, nil)
+      end
     end
   end
 

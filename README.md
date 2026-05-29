@@ -59,7 +59,9 @@ require "rpms_rpc/cia_client"
 
 client = RpmsRpc::CiaClient.new(host: "vista.example.com", port: 9100)
 client.connect
-client.authenticate("PROV123", "PROV123!!")
+# Real Access / Verify codes. In development you can set
+# VISTA_RPC_ENV=development and omit args to fall back to PROV123 / PROV123!!
+client.authenticate(ENV.fetch("RPMS_ACCESS_CODE"), ENV.fetch("RPMS_VERIFY_CODE"))
 client.create_context("OR CPRS GUI CHART")
 
 result = client.call_rpc("XUS SIGNON SETUP")

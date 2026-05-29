@@ -209,11 +209,14 @@ module RpmsRpc
               "the development PROV123 fallback."
       end
 
-      if ac == DEV_DEFAULT_ACCESS && vc == DEV_DEFAULT_VERIFY
+      # Reject if EITHER value equals its dev default — a half-copied
+      # config (one real value, one PROV123 placeholder) is just as
+      # broken as the all-defaults case.
+      if ac == DEV_DEFAULT_ACCESS || vc == DEV_DEFAULT_VERIFY
         raise CredentialError,
-              "RPMS credentials are set to the development PROV123 / " \
-              "PROV123!! defaults. Refusing to authenticate against a " \
-              "production broker with debug credentials."
+              "RPMS credentials include the development PROV123 / " \
+              "PROV123!! default value. Refusing to authenticate against " \
+              "a production broker with any debug credential."
       end
 
       [ ac, vc ]
