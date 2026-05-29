@@ -29,7 +29,7 @@ module RpmsRpc
       else
         @socket&.close
         @socket = nil
-        raise ConnectionError, "Server rejected handshake: #{response}"
+        raise ConnectionError, RpmsRpc.sanitize_error("Server rejected handshake: #{response}")
       end
 
       @connected

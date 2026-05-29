@@ -32,7 +32,7 @@ module RpmsRpc
       else
         @socket&.close
         @socket = nil
-        raise ConnectionError, "BMX server rejected handshake: #{response}"
+        raise ConnectionError, RpmsRpc.sanitize_error("BMX server rejected handshake: #{response}")
       end
 
       @connected
@@ -170,7 +170,7 @@ module RpmsRpc
         if sec_len > 0 && pos + sec_len <= raw.length
           sec_err = raw[pos, sec_len]
           pos += sec_len
-          raise ConnectionError, "BMX security error: #{sec_err}" unless sec_err.empty?
+          raise ConnectionError, RpmsRpc.sanitize_error("BMX security error: #{sec_err}") unless sec_err.empty?
         end
       end
 
@@ -181,7 +181,7 @@ module RpmsRpc
         if app_len > 0 && pos + app_len <= raw.length
           app_err = raw[pos, app_len]
           pos += app_len
-          raise RpcError, "BMX application error: #{app_err}" unless app_err.empty?
+          raise RpcError, RpmsRpc.sanitize_error("BMX application error: #{app_err}") unless app_err.empty?
         end
       end
 

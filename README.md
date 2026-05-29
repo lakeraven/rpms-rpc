@@ -131,6 +131,25 @@ client.disconnect
 | `RpmsRpc::UserRoles`           | Role-based authorization (provider, nurse, etc.) |
 | `RpmsRpc::Capabilities`        | Feature-gated permission checks                  |
 
+### Exception-message sanitization
+
+The gem doesn't emit internal logs of its own; the PHI risk vector is
+**exception messages** that interpolate raw broker response payloads
+(authentication errors, BMX security / application errors, handshake
+rejections). Those raise sites pass through `RpmsRpc.sanitize_error`,
+which scrubs PHI patterns via `RpmsRpc::PhiSanitizer.sanitize_message`
+before the exception propagates to the host.
+
+This is on by default. To opt out — for example, in a local
+forensic-capture session where the raw broker payload is what you
+need to see:
+
+```ruby
+RpmsRpc.configure { |c| c.unsafe_raw_errors = true }
+```
+
+Leave this off in production.
+
 ### PhiSanitizer secret
 
 `RpmsRpc::PhiSanitizer` uses HMAC-SHA256 to hash patient identifiers

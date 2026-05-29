@@ -10,7 +10,17 @@ module RpmsRpc
   class NotConfiguredError < StandardError; end
 
   class Configuration
-    attr_accessor :client, :fhir_client
+    # `unsafe_raw_errors` opts out of PhiSanitizer scrubbing for
+    # exception messages. Off by default — production deploys should
+    # leave it off. Turn on only for development / offline forensic
+    # captures where preserving raw broker payloads matters.
+    attr_accessor :client, :fhir_client, :unsafe_raw_errors
+
+    def initialize
+      @client = nil
+      @fhir_client = nil
+      @unsafe_raw_errors = false
+    end
   end
 
   class << self
@@ -40,6 +50,18 @@ module RpmsRpc
 
     def reset!
       @configuration = Configuration.new
+    end
+
+    # Scrub PHI patterns from `message` before it propagates to a host
+    # logger / exception handler. Used at exception-raise sites where
+    # the gem interpolates raw broker response payloads. Honors the
+    # `unsafe_raw_errors` flag.
+    def sanitize_error(message)
+      return "" if message.nil?
+      return message.to_s if configuration.unsafe_raw_errors
+
+      require_relative "phi_sanitizer"
+      PhiSanitizer.sanitize_message(message.to_s)
     end
 
     # Convenience: configure a MockClient for testing.

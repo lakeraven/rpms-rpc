@@ -153,7 +153,9 @@ module RpmsRpc
 
       if duz_str == "0" || duz_str.empty?
         err_msg = lines[3]&.strip if lines.length > 3
-        raise AuthenticationError, (err_msg.nil? || err_msg.empty? ? "Authentication failed" : err_msg)
+        raise AuthenticationError, RpmsRpc.sanitize_error(
+          err_msg.nil? || err_msg.empty? ? "Authentication failed" : err_msg
+        )
       end
 
       @authenticated = true
@@ -170,7 +172,9 @@ module RpmsRpc
       reply = call_rpc_raw("XWB CREATE CONTEXT", encrypted)
 
       unless reply&.strip == "1"
-        raise RpcError, "Failed to create context '#{option_name}': #{reply}"
+        raise RpcError, RpmsRpc.sanitize_error(
+          "Failed to create context '#{option_name}': #{reply}"
+        )
       end
 
       true
