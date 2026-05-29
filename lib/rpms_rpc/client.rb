@@ -22,6 +22,12 @@ module RpmsRpc
     # Error classes
     class ConnectionError < StandardError; end
     class AuthenticationError < StandardError; end
+    # Raised when RPMS credentials are missing or set to the dev-only
+    # PROV123/PROV123!! defaults outside a development environment.
+    # Subclass of AuthenticationError so existing rescue blocks keep
+    # working, but callers can distinguish "credential misconfigured"
+    # from "credential rejected by broker".
+    class CredentialError < AuthenticationError; end
     class RpcError < StandardError; end
     class TimeoutError < ConnectionError; end
 
@@ -132,8 +138,7 @@ module RpmsRpc
     def authenticate(access_code = nil, verify_code = nil, **)
       raise ConnectionError, "Not connected" unless connected?
 
-      ac = access_code || ENV.fetch("RPMS_ACCESS_CODE", "PROV123")
-      vc = verify_code || ENV.fetch("RPMS_VERIFY_CODE", "PROV123!!")
+      ac, vc = resolve_credentials(access_code, verify_code)
 
       # Step 1: XUS SIGNON SETUP
       signon_setup
@@ -170,6 +175,68 @@ module RpmsRpc
 
       true
     end
+
+    # -- credential resolution ------------------------------------------------
+
+    DEV_DEFAULT_ACCESS = "PROV123"
+    DEV_DEFAULT_VERIFY = "PROV123!!"
+    private_constant :DEV_DEFAULT_ACCESS, :DEV_DEFAULT_VERIFY
+
+    # Resolve the access / verify pair from (in order) explicit args,
+    # then ENV. In a non-development environment, refuses to fall through
+    # to the DEV_DEFAULT_* values — raises CredentialError so a
+    # misconfigured deploy can't silently talk to the broker as a debug
+    # account.
+    #
+    # Development detection: `Rails.env == "development"` if Rails is
+    # loaded; otherwise `ENV["VISTA_RPC_ENV"] == "development"`. Anything
+    # unset is treated as production for strict-by-default safety.
+    def resolve_credentials(access_code, verify_code)
+      ac = access_code || ENV["RPMS_ACCESS_CODE"]
+      vc = verify_code || ENV["RPMS_VERIFY_CODE"]
+
+      if development_environment?
+        ac ||= DEV_DEFAULT_ACCESS
+        vc ||= DEV_DEFAULT_VERIFY
+        return [ ac, vc ]
+      end
+
+      # Blank strings (empty / whitespace-only) are just as broken as
+      # unset credentials. Don't let an empty ENV value bypass the check.
+      if blank_credential?(ac) || blank_credential?(vc)
+        raise CredentialError,
+              "RPMS credentials not configured. Set RPMS_ACCESS_CODE and " \
+              "RPMS_VERIFY_CODE in the environment (or pass explicit args " \
+              "to #authenticate) — production deploys must not rely on " \
+              "the development PROV123 fallback."
+      end
+
+      # Reject if EITHER value equals its dev default — a half-copied
+      # config (one real value, one PROV123 placeholder) is just as
+      # broken as the all-defaults case.
+      if ac == DEV_DEFAULT_ACCESS || vc == DEV_DEFAULT_VERIFY
+        raise CredentialError,
+              "RPMS credentials include the development PROV123 / " \
+              "PROV123!! default value. Refusing to authenticate against " \
+              "a production broker with any debug credential."
+      end
+
+      [ ac, vc ]
+    end
+
+    def development_environment?
+      if defined?(Rails) && Rails.respond_to?(:env) && Rails.env
+        Rails.env.development?
+      else
+        ENV["VISTA_RPC_ENV"] == "development"
+      end
+    end
+    private :development_environment?
+
+    def blank_credential?(value)
+      value.nil? || value.to_s.strip.empty?
+    end
+    private :blank_credential?
 
     # XWB cipher encryption (matches $$ENCRYP^XUSRB1 in M)
     def xwb_encrypt(plaintext)
