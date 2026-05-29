@@ -90,14 +90,17 @@ client.disconnect
 | `VISTA_RPC_HOST`     | `localhost` | Broker hostname                    |
 | `VISTA_RPC_PORT`     | `9100`/`9200` | Default depends on subclass      |
 | `VISTA_RPC_TIMEOUT`  | `30`        | Read timeout in seconds            |
-| `RPMS_ACCESS_CODE`   | `PROV123`   | Default access code (dev only)     |
-| `RPMS_VERIFY_CODE`   | `PROV123!!` | Default verify code (dev only)     |
+| `RPMS_ACCESS_CODE`   | _(required)_ | Access code. In development only, falls back to `PROV123`. |
+| `RPMS_VERIFY_CODE`   | _(required)_ | Verify code. In development only, falls back to `PROV123!!`. |
+| `VISTA_RPC_ENV`      | _(unset = strict)_ | Set to `development` to opt into the PROV123/PROV123!! fallback. Unset or any other value is treated as production-strict. |
 
-> **Security:** the `PROV123` / `PROV123!!` defaults exist for the
-> standard FOIA-RPMS dev image. **Never** ship a deployment that
-> falls through to those defaults — always set `RPMS_ACCESS_CODE`
-> and `RPMS_VERIFY_CODE` (or pass them explicitly to
-> `#authenticate`) for any host that talks to real PHI.
+> **Strict-by-default credentials.** Outside a development environment
+> (`Rails.env.development?`, or `VISTA_RPC_ENV=development` when running
+> without Rails), `#authenticate` will raise `RpmsRpc::Client::CredentialError`
+> if `RPMS_ACCESS_CODE` / `RPMS_VERIFY_CODE` are missing, or if they are
+> set to the dev-only `PROV123` / `PROV123!!` debug values. This prevents
+> a misconfigured production deploy from silently talking to the broker
+> as a debug account.
 
 ## Components
 
