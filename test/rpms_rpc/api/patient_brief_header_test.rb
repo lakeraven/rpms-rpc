@@ -164,4 +164,36 @@ class PatientBriefHeaderTest < Minitest::Test
 
     assert_nil RpmsRpc::Patient.brief_header(8791)
   end
+
+  def test_brief_header_returns_nil_for_remote_procedure_not_found
+    raising_client = Class.new do
+      def call_rpc(*)
+        raise RpmsRpc::Client::RpcError, "Remote Procedure 'BEHOPTCX PTINFO' doesn't exist"
+      end
+    end.new
+
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = raising_client }
+
+    assert_nil RpmsRpc::Patient.brief_header(8791)
+  end
+
+  # Genuine M-runtime errors (e.g., <UNDEFINED>, <SUBSCRIPT>) and permission
+  # failures indicate a real problem, not "feature unavailable". They must
+  # propagate so they aren't silently masked.
+  def test_brief_header_propagates_non_missing_routine_rpc_errors
+    raising_client = Class.new do
+      def call_rpc(*)
+        raise RpmsRpc::Client::RpcError, "M  ERROR=<UNDEFINED>FOO+5^XYZ^"
+      end
+    end.new
+
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = raising_client }
+
+    err = assert_raises(RpmsRpc::Client::RpcError) do
+      RpmsRpc::Patient.brief_header(8791)
+    end
+    assert_includes err.message, "UNDEFINED"
+  end
 end

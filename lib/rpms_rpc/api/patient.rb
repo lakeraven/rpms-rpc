@@ -60,9 +60,13 @@ module RpmsRpc
         ad_flag:          cwad.to_s.include?("D"),
         primary_provider: provider
       }
-    rescue RpmsRpc::Client::RpcError
-      # BEHO* RPCs unavailable on this Broker (e.g., BHS package not
-      # installed). Treat as "feature unavailable", not as a hard error.
+    rescue RpmsRpc::Client::RpcError => e
+      # Only degrade to nil when the error signature indicates the RPC
+      # itself is unavailable on this Broker (BHS package not installed,
+      # OPTION lacks the RPC, etc.). Genuine M-runtime errors and
+      # permission/authorization failures must propagate so they aren't
+      # silently masked as "feature unavailable".
+      raise unless e.message.match?(/<NOLINE>|Remote Procedure .* (?:doesn't exist|not found)/i)
       nil
     end
 
