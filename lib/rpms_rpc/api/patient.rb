@@ -60,6 +60,10 @@ module RpmsRpc
         ad_flag:          cwad.to_s.include?("D"),
         primary_provider: provider
       }
+    rescue RpmsRpc::Client::RpcError
+      # BEHO* RPCs unavailable on this Broker (e.g., BHS package not
+      # installed). Treat as "feature unavailable", not as a hard error.
+      nil
     end
 
     # Compute integer years between dob and today. `today:` is a keyword arg

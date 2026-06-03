@@ -166,4 +166,40 @@ class RpmsRpc::ClientTest < Minitest::Test
   def test_create_context_raises_when_not_connected
     assert_raises(Client::ConnectionError) { Client.new.create_context }
   end
+
+  # -- check_for_rpc_error: VistA-M error frame detection --------------------
+
+  # Real wire shape observed against FOIA-RPMS when a BHS-namespace RPC
+  # targets a routine that isn't installed on the server. The Broker prefixes
+  # the error payload with \x18 (CAN, "wire-level error signal"), then the
+  # literal "M  ERROR=" frame, then the runtime context.
+  def test_check_for_rpc_error_raises_on_can_prefixed_m_error_frame
+    payload = "\x18M  ERROR=<NOLINE>PTINFO+22^BEHOPTCX^"
+    err = assert_raises(Client::RpcError) do
+      Client.new.send(:check_for_rpc_error, payload)
+    end
+    assert_includes err.message, "NOLINE"
+    assert_includes err.message, "BEHOPTCX"
+  end
+
+  # Some Brokers emit the error without the CAN sentinel. Keep the existing
+  # bare-"M  ERROR=" case working as a regression guard.
+  def test_check_for_rpc_error_raises_on_bare_m_error_frame
+    payload = "M  ERROR=<UNDEFINED>FOO+5^BAR^"
+    err = assert_raises(Client::RpcError) do
+      Client.new.send(:check_for_rpc_error, payload)
+    end
+    assert_includes err.message, "UNDEFINED"
+  end
+
+  # Patient name happens to contain "M" — must not be misread as M error.
+  def test_check_for_rpc_error_does_not_raise_on_data_containing_letter_m
+    payload = "1^MOUSE,MICKEY M^M^2840214^"
+    assert_nil Client.new.send(:check_for_rpc_error, payload)
+  end
+
+  def test_check_for_rpc_error_no_raise_on_empty_or_nil
+    assert_nil Client.new.send(:check_for_rpc_error, "")
+    assert_nil Client.new.send(:check_for_rpc_error, nil)
+  end
 end

@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "date"
+require "rpms_rpc/client"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/patient"
 
@@ -141,5 +142,26 @@ class PatientBriefHeaderTest < Minitest::Test
       m.seed(:patient_select, "1", { name: "TEST,ONE", sex: "F", age: 30 })
     end
     refute_nil RpmsRpc::Patient.find(1)
+  end
+
+  # === Broker error tolerance (issue #117) ===
+  #
+  # `brief_header` routes through BEHO* RPCs (BHS package). If the target
+  # Broker doesn't have BHS installed, the underlying call raises RpcError
+  # ("<NOLINE>" / "doesn't exist"). brief_header should treat that as
+  # "feature unavailable on this Broker" and return nil cleanly — silent
+  # garbage projection was the failure mode in #117.
+
+  def test_brief_header_returns_nil_when_broker_raises_rpc_error
+    raising_client = Class.new do
+      def call_rpc(*)
+        raise RpmsRpc::Client::RpcError, "M  ERROR=<NOLINE>PTINFO+22 BEHOPTCX"
+      end
+    end.new
+
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = raising_client }
+
+    assert_nil RpmsRpc::Patient.brief_header(8791)
   end
 end

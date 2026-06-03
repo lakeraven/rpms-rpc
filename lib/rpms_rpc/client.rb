@@ -397,11 +397,16 @@ module RpmsRpc
       raise ConnectionError, "Connection lost - network error: #{e.message}"
     end
 
-    # Check for M errors returned as data (not via SNDERR)
+    # Check for M errors returned as data (not via SNDERR).
+    #
+    # Some Brokers prefix error payloads with \x18 (CAN, wire-level error
+    # sentinel) before the "M  ERROR=" frame. String#strip does not remove
+    # \x18, so anchor-matching on the raw response misses these — peel the
+    # sentinel before the regex.
     def check_for_rpc_error(response)
       return if response.nil? || response.empty?
 
-      clean = response.strip.gsub(/\x00+$/, "")
+      clean = response.sub(/\A\x18/, "").strip.gsub(/\x00+$/, "")
       if clean.match?(/\A(?:M  ERROR|E?Remote Procedure '.*' doesn't exist|E?Remote Procedure '.*' not found)/i)
         raise RpcError, clean
       end
