@@ -41,6 +41,7 @@ module RpmsRpc
     # (no PTINFO and no GETBDP response).
     def brief_header(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
+      return nil unless RpmsRpc.client.supports?(:patient_chart_banner)
 
       ptinfo = DataMapper.patient_ptinfo.fetch_one(dfn.to_s)
       bdp    = DataMapper.patient_designated_provider.fetch_one(dfn.to_s)

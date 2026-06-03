@@ -3,6 +3,7 @@
 require "socket"
 require "rpms_rpc/parameter_encoder"
 require "rpms_rpc/xml_response_parser"
+require "rpms_rpc/server_capabilities"
 
 module RpmsRpc
   # Abstract base class for RPMS RPC broker clients.
@@ -161,6 +162,20 @@ module RpmsRpc
       @authenticated = true
       @duz = duz_str
       { success: true, duz: duz_str.to_i }
+    end
+
+    # Whether the Broker behind this client can service `feature`.
+    #
+    # First call per feature probes the underlying RPCs via
+    # ServerCapabilities; subsequent calls return the cached result.
+    # Engine code should consult this before issuing the underlying calls
+    # so that "feature unavailable" returns nil/empty without a wasted
+    # Broker round-trip.
+    def supports?(feature)
+      @capability_cache ||= {}
+      return @capability_cache[feature] if @capability_cache.key?(feature)
+
+      @capability_cache[feature] = ServerCapabilities.probe(self, feature)
     end
 
     # Set application context (required before calling most RPCs)

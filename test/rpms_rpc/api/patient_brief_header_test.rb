@@ -152,8 +152,14 @@ class PatientBriefHeaderTest < Minitest::Test
   # "feature unavailable on this Broker" and return nil cleanly — silent
   # garbage projection was the failure mode in #117.
 
+  # These tests exercise the rescue backstop (#117) — they assume the
+  # capability check has passed but the underlying RPC nevertheless raises.
+  # Define `supports?` to return true on the stub so we land in the
+  # rescue path, not the short-circuit.
+
   def test_brief_header_returns_nil_when_broker_raises_rpc_error
     raising_client = Class.new do
+      def supports?(_feature) = true
       def call_rpc(*)
         raise RpmsRpc::Client::RpcError, "M  ERROR=<NOLINE>PTINFO+22 BEHOPTCX"
       end
@@ -167,6 +173,7 @@ class PatientBriefHeaderTest < Minitest::Test
 
   def test_brief_header_returns_nil_for_remote_procedure_not_found
     raising_client = Class.new do
+      def supports?(_feature) = true
       def call_rpc(*)
         raise RpmsRpc::Client::RpcError, "Remote Procedure 'BEHOPTCX PTINFO' doesn't exist"
       end
@@ -178,11 +185,43 @@ class PatientBriefHeaderTest < Minitest::Test
     assert_nil RpmsRpc::Patient.brief_header(8791)
   end
 
+  # === Capability short-circuit (issue #118) ===
+  #
+  # When the Broker can't service the feature (BHS package not installed),
+  # brief_header should return nil immediately without issuing any of the
+  # underlying BEHO* RPC calls. Saves three Broker round-trips and gives
+  # engine UI a clean "feature unavailable" signal.
+
+  def test_brief_header_returns_nil_when_capability_unsupported
+    RpmsRpc.reset!
+    RpmsRpc.mock! do |m|
+      m.seed_capability(:patient_chart_banner, supported: false)
+      # Seed real data too — if the short-circuit fails, the test would
+      # still return data and we'd see the wrong assertion failure.
+      m.seed(:patient_ptinfo, "8791", { name: "SHOULD,NOT,APPEAR", sex: "F", dob_raw: "2860701", mrn: "120305" })
+    end
+
+    assert_nil RpmsRpc::Patient.brief_header(8791)
+  end
+
+  def test_brief_header_does_not_call_beho_rpcs_when_capability_unsupported
+    RpmsRpc.reset!
+    RpmsRpc.mock! do |m|
+      m.seed_capability(:patient_chart_banner, supported: false)
+    end
+
+    RpmsRpc::Patient.brief_header(8791)
+    rpcs_called = RpmsRpc.client.received_calls.map { |c| c[:rpc] }
+    assert_empty rpcs_called.grep(/^BEHO/),
+                 "Capability-unsupported short-circuit must skip BEHO* RPCs entirely"
+  end
+
   # Genuine M-runtime errors (e.g., <UNDEFINED>, <SUBSCRIPT>) and permission
   # failures indicate a real problem, not "feature unavailable". They must
   # propagate so they aren't silently masked.
   def test_brief_header_propagates_non_missing_routine_rpc_errors
     raising_client = Class.new do
+      def supports?(_feature) = true
       def call_rpc(*)
         raise RpmsRpc::Client::RpcError, "M  ERROR=<UNDEFINED>FOO+5^XYZ^"
       end

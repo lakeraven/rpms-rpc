@@ -141,6 +141,19 @@ module RpmsRpc
       @received_calls ||= []
     end
 
+    # Pre-populate a ServerCapabilities answer so `supports?` short-circuits
+    # without probing. Default is `true` (preserve backward compatibility:
+    # tests that don't seed see all features as available).
+    def seed_capability(feature, supported: true)
+      @capability_seeds ||= {}
+      @capability_seeds[feature] = supported
+    end
+
+    def supports?(feature)
+      @capability_seeds ||= {}
+      @capability_seeds.fetch(feature, true)
+    end
+
     # Simulate call_rpc — returns formatted response matching the seeded data.
     def call_rpc(rpc_name, *params)
       received_calls << { rpc: rpc_name, params: params }
