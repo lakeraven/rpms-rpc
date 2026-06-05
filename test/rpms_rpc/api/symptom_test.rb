@@ -38,21 +38,41 @@ class SymptomTest < Minitest::Test
     assert_equal [], RpmsRpc::Symptom.search("   ")
   end
 
-  def test_defaults_returns_default_symptom_set
+  def test_defaults_parses_the_typed_tree_into_categories_with_items
     RpmsRpc.mock! do |m|
-      m.seed_collection(:symptom_defaults, [
-        { ien: 10, name: "Hives", snomed_code: "247472004" },
-        { ien: 11, name: "Anaphylaxis", snomed_code: "39579001" }
-      ])
+      m.seed_text(:symptom_defaults, "", <<~TREE.chomp)
+        ~Reactions
+        iD^Drug
+        iF^Food
+        iO^Other
+        ~Top Ten
+        iO^Common Drug Reactions
+        ~Observ/Hist
+        io^Observed
+      TREE
     end
 
-    rows = RpmsRpc::Symptom.defaults
-    assert_equal 2, rows.length
+    categories = RpmsRpc::Symptom.defaults
+
+    assert_equal [ "Reactions", "Top Ten", "Observ/Hist" ], categories.map { |c| c[:category] }
+    assert_equal [
+      { code: "D", label: "Drug" },
+      { code: "F", label: "Food" },
+      { code: "O", label: "Other" }
+    ], categories.first[:items]
+    assert_equal [ { code: "o", label: "Observed" } ], categories.last[:items]
+  end
+
+  def test_defaults_returns_empty_when_response_is_blank
+    RpmsRpc.mock! do |m|
+      m.seed_text(:symptom_defaults, "", "")
+    end
+    assert_equal [], RpmsRpc::Symptom.defaults
   end
 
   def test_defaults_dispatches_orwdal32_def
     RpmsRpc.mock! do |m|
-      m.seed_collection(:symptom_defaults, [])
+      m.seed_text(:symptom_defaults, "", "~Reactions\niD^Drug")
     end
     RpmsRpc::Symptom.defaults
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWDAL32 DEF" }

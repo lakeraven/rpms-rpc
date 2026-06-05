@@ -1747,11 +1747,18 @@ module RpmsRpc
       m.field 2, :snomed_code
     end
 
+    # ORWDAL32 DEF — defaults tree for the allergy-symptom entry UI. Takes
+    # no params and returns a typed-tree response: lines starting with "~"
+    # are category headers, lines starting with "i" are items belonging to
+    # the most recent category and encode (type_code, label) via ^.
+    # Example:
+    #   ~Reactions
+    #   iD^Drug
+    #   iF^Food
+    # The mapping returns the raw lines; api/symptom.rb parses the tree.
     DataMapper.define(:symptom_defaults) do |m|
       m.rpc "ORWDAL32 DEF"
-      m.field 0, :ien, :integer
-      m.field 1, :name
-      m.field 2, :snomed_code
+      m.text_blob :tree_text
     end
 
     # ========================================================================
