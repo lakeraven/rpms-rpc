@@ -74,8 +74,8 @@ class AuthenticationTest < Minitest::Test
 
     assert_equal 301, info[:duz]
     assert_equal "PROVIDER,TEST", info[:name]
-    assert_nil info[:access_code]
-    assert_equal true, info[:verify_code_exists]
+    assert_equal "PROVIDER,TEST", info[:display_name]
+    assert_equal 3, info[:user_class]
   end
 
   def test_user_info_rejects_blank_zero_negative_and_non_numeric_duz

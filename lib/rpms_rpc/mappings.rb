@@ -674,15 +674,22 @@ module RpmsRpc
     # AUTHENTICATION (XUS*)
     # ========================================================================
 
-    # XUS GET USER INFO — authenticated user info
-    # Format: DUZ^NAME^ACCESS_CODE^VERIFY_CODE_EXISTS^DIVISION
+    # XUS GET USER INFO — authenticated user info. Response is line-based,
+    # one value per line — not caret-delimited. Live shape observed against
+    # staging:
+    #   [0] "1"                              → duz
+    #   [1] "PROVIDER,TEST"                  → name (FAMILY,GIVEN)
+    #   [2] "Adam Adam"                      → display_name
+    #   [3] "7819^DEMO IHS CLINIC^8904"      → current_site (IEN^NAME^ABBR)
+    #   [4]..[6] ""                          → reserved
+    #   [7] "30"                             → user_class_ien
     DataMapper.define(:user_info) do |m|
       m.rpc "XUS GET USER INFO"
-      m.field 0, :duz, :integer
-      m.field 1, :name
-      m.field 2, :access_code
-      m.field 3, :verify_code_exists, :boolean
-      m.field 4, :division
+      m.line_field 0, :duz,  :integer
+      m.line_field 1, :name
+      m.line_field 2, :display_name
+      m.line_field 3, :current_site
+      m.line_field 7, :user_class, :integer
     end
 
     # ========================================================================

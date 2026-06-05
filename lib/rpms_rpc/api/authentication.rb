@@ -40,7 +40,13 @@ module RpmsRpc
     def user_info(duz)
       return nil if invalid_id?(duz)
 
-      DataMapper.user_info.fetch_one(duz.to_s)
+      # XUS GET USER INFO returns the authenticated session user's info
+      # and takes no params; the duz arg is validated here only as an
+      # API guard, not passed to the broker.
+      info = DataMapper.user_info.fetch_lines
+      return nil if info.nil? || info[:duz].to_i != duz.to_i
+
+      info
     end
 
     def has_security_key?(duz, key_name)

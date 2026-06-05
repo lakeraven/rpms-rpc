@@ -237,12 +237,16 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- XUS GET USER INFO -----------------------------------------------------
 
   def test_user_info
-    result = RpmsRpc::DataMapper[:user_info].parse_one("101^PROVIDER,TEST^ACCESS123^1^PRIMARY")
+    # XUS GET USER INFO is line-based: one value per response line, not
+    # caret-delimited. Live shape against staging.
+    result = RpmsRpc::DataMapper[:user_info].parse_lines(
+      [ "101", "PROVIDER,TEST", "Adam Adam", "7819^DEMO IHS CLINIC^8904", "", "", "", "30" ]
+    )
     assert_equal 101, result[:duz]
     assert_equal "PROVIDER,TEST", result[:name]
-    assert_equal "ACCESS123", result[:access_code]
-    assert_equal true, result[:verify_code_exists]
-    assert_equal "PRIMARY", result[:division]
+    assert_equal "Adam Adam", result[:display_name]
+    assert_equal "7819^DEMO IHS CLINIC^8904", result[:current_site]
+    assert_equal 30, result[:user_class]
   end
 
   # -- Scalar RPCs -----------------------------------------------------------

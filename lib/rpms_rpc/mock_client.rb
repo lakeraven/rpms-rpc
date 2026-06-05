@@ -119,13 +119,14 @@ module RpmsRpc
         user_class: user_class.to_i
       })
 
-      # User info
-      seed(:user_info, duz.to_s, {
+      # User info (XUS GET USER INFO — line-based, no params; mock matches
+      # the live shape: one value per response line).
+      seed_lines(:user_info, "", {
         duz: duz.to_i,
         name: name,
-        access_code: "",
-        verify_code_exists: true,
-        division: ""
+        display_name: name,
+        current_site: "",
+        user_class: user_class.to_i
       })
 
       # Security keys (symbolic → RPMS strings)

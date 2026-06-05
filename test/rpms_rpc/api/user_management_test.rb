@@ -16,13 +16,12 @@ class UserManagementTest < Minitest::Test
         { duz: 405, name: "NURSE,TEST", title: "RN" }
       ], filter_field: :name)
 
-      m.seed(:user_info, DUZ.to_s, {
+      m.seed_lines(:user_info, "", {
         duz: DUZ,
         name: "PROVIDER,TEST",
-        user_class: "PROVIDER",
-        can_sign: true,
-        is_provider: true,
-        order_role: "PHYSICIAN"
+        display_name: "PROVIDER,TEST",
+        current_site: "7819^DEMO IHS CLINIC^8904",
+        user_class: 3
       })
 
       m.seed(:practitioner_info, DUZ.to_s, {
