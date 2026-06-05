@@ -171,4 +171,26 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
                  "create_context must invalidate the cache because RPC " \
                  "registration is OPTION-scoped"
   end
+
+  def test_open_socket_clears_capability_cache_for_implicit_reconnect
+    # Several network error paths only flip @connected = false without
+    # going through reset_connection. A caller can then re-enter
+    # open_socket against the same or a different Broker with stale
+    # capability answers still cached. The fix: clear the cache at the
+    # top of open_socket itself.
+    cia = RpmsRpc::CiaClient.new
+    cia.instance_variable_set(:@capability_cache, { patient_chart_banner: true })
+
+    # Force open_socket's TCPSocket.new to raise; the cache must already
+    # be cleared by the time the exception bubbles out.
+    TCPSocket.stub(:new, ->(*) { raise Errno::ECONNREFUSED }) do
+      assert_raises(RpmsRpc::Client::ConnectionError) do
+        cia.send(:open_socket, "localhost", 9100)
+      end
+    end
+
+    assert_nil cia.instance_variable_get(:@capability_cache),
+               "open_socket must clear capability cache on entry so a " \
+               "reconnect after a half-dead connection can't reuse stale answers"
+  end
 end

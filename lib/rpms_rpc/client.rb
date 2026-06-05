@@ -330,6 +330,11 @@ module RpmsRpc
 
     # Open a TCP socket to the broker
     def open_socket(host, port)
+      # Implicit reconnects (after a send/recv error path that only set
+      # @connected = false) re-enter here without going through
+      # reset_connection. Clear the capability cache so a reconnect to
+      # the same or a different Broker can never inherit stale answers.
+      @capability_cache = nil
       @host = host
       @port = port
       @socket = TCPSocket.new(host, port)
