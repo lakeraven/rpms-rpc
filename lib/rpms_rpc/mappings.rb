@@ -1509,16 +1509,30 @@ module RpmsRpc
     # SITE / DIVISION CONTEXT (BEHOSICX*)
     # ========================================================================
 
-    # BEHOSICX SITEINFO — divisions the user can access, with the currently
-    # selected division flagged. Used at cold launch and on division switch.
-    # Field positions are best-effort pending wider trace capture; the public
-    # contract is { ien, name, abbreviation, current }.
+    # BEHOSICX SITEINFO — the authenticated user's current site. The RPC
+    # takes no params and returns a single site across 11 response lines
+    # (not multi-record, not caret-delimited). Live shape:
+    #   [0]  "RPMS.MEDSPHERE.COM"   → domain
+    #   [1]  "DEMO IHS CLINIC"      → name
+    #   [2]  "8904"                 → abbreviation
+    #   [3]  "ILLINOIS"             → state
+    #   [4]  ""                     → (reserved)
+    #   [5]  "123 ELM STREET"       → address
+    #   [6]  ""                     → (reserved)
+    #   [7]  "ANYWHERE"             → city
+    #   [8]  "99999"                → zip
+    #   [9]  "7819"                 → ien
+    #   [10] (unknown, ignored)
     DataMapper.define(:site_info) do |m|
       m.rpc "BEHOSICX SITEINFO"
-      m.field 0, :ien, :integer
-      m.field 1, :name
-      m.field 2, :abbreviation
-      m.field 3, :current, :boolean
+      m.line_field 0, :domain
+      m.line_field 1, :name
+      m.line_field 2, :abbreviation
+      m.line_field 3, :state
+      m.line_field 5, :address
+      m.line_field 7, :city
+      m.line_field 8, :zip
+      m.line_field 9, :ien, :integer
     end
 
     # ========================================================================

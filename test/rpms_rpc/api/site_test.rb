@@ -7,58 +7,44 @@ require "rpms_rpc/api/site"
 class SiteTest < Minitest::Test
   def setup
     RpmsRpc.mock! do |m|
-      # BEHOSICX SITEINFO keyed by user DUZ: returns the divisions the user
-      # can access, with the currently-selected division flagged.
-      m.seed_keyed_collection(:site_info, "301", [
-        { ien: 539, name: "TEST SERVICE UNIT", abbreviation: "TSU", current: true },
-        { ien: 540, name: "TEST CLINIC A", abbreviation: "TCA", current: false },
-        { ien: 541, name: "TEST CLINIC B", abbreviation: "TCB", current: false }
-      ])
-
-      m.seed_keyed_collection(:site_info, "999", [
-        { ien: 539, name: "TEST SERVICE UNIT", abbreviation: "TSU", current: false }
-      ])
+      # BEHOSICX SITEINFO is line-based and takes no params; mock seeds the
+      # response under the empty key to mirror the dispatch behavior.
+      m.seed_lines(:site_info, "", {
+        domain: "RPMS.MEDSPHERE.COM",
+        name: "DEMO IHS CLINIC",
+        abbreviation: "8904",
+        state: "ILLINOIS",
+        address: "123 ELM STREET",
+        city: "ANYWHERE",
+        zip: "99999",
+        ien: 7819
+      })
     end
   end
 
-  def test_list_returns_divisions_user_can_access
+  def test_current_returns_the_authenticated_users_site
+    site = RpmsRpc::Site.current("301")
+    assert_equal 7819, site[:ien]
+    assert_equal "DEMO IHS CLINIC", site[:name]
+    assert_equal "8904", site[:abbreviation]
+    assert_equal "RPMS.MEDSPHERE.COM", site[:domain]
+  end
+
+  def test_current_blank_duz_returns_nil
+    assert_nil RpmsRpc::Site.current(nil)
+    assert_nil RpmsRpc::Site.current("")
+    assert_nil RpmsRpc::Site.current("0")
+  end
+
+  def test_list_returns_current_as_single_element_array
     sites = RpmsRpc::Site.list("301")
-    assert_equal 3, sites.length
-    assert_equal [ 539, 540, 541 ], sites.map { |s| s[:ien] }
+    assert_equal 1, sites.length
+    assert_equal 7819, sites.first[:ien]
   end
 
   def test_list_blank_duz_returns_empty
     assert_equal [], RpmsRpc::Site.list(nil)
     assert_equal [], RpmsRpc::Site.list("")
     assert_equal [], RpmsRpc::Site.list("0")
-  end
-
-  def test_current_returns_the_flagged_division
-    current = RpmsRpc::Site.current("301")
-    assert_equal 539, current[:ien]
-    assert_equal "TEST SERVICE UNIT", current[:name]
-  end
-
-  def test_current_returns_nil_when_nothing_is_flagged
-    assert_nil RpmsRpc::Site.current("999")
-  end
-
-  def test_current_blank_duz_returns_nil
-    assert_nil RpmsRpc::Site.current(nil)
-    assert_nil RpmsRpc::Site.current("")
-  end
-
-  def test_select_dispatches_to_the_site_info_rpc_with_duz_and_site_ien
-    RpmsRpc::Site.select("301", 540)
-
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BEHOSICX SITEINFO" && c[:params].length == 2 }
-    refute_nil call, "expected BEHOSICX SITEINFO to be called with [duz, site_ien]"
-    assert_equal [ "301", "540" ], call[:params]
-  end
-
-  def test_select_returns_false_for_invalid_args
-    refute RpmsRpc::Site.select(nil, 540)
-    refute RpmsRpc::Site.select("301", nil)
-    refute RpmsRpc::Site.select("301", 0)
   end
 end
