@@ -119,4 +119,56 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     # Cached false → no more calls on subsequent supports? invocations.
     assert_equal 1, raise_count[:n]
   end
+
+  # -- Cache invalidation ------------------------------------------------------
+  #
+  # The cache must not survive across connection or context boundaries: a
+  # different Broker, or even the same Broker under a different OPTION, can
+  # answer the same probe differently. Stale "true" → broken short-circuit
+  # to a missing RPC; stale "false" → never-resurrected capability.
+
+  def test_reset_connection_clears_capability_cache
+    cia = RpmsRpc::CiaClient.new
+    probe_count = { n: 0 }
+    cia.define_singleton_method(:call_rpc) do |_name, *_params|
+      probe_count[:n] += 1
+      ""
+    end
+
+    assert cia.supports?(:patient_chart_banner)
+    assert cia.supports?(:patient_chart_banner)
+    feature_size = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:patient_chart_banner].size
+    assert_equal feature_size, probe_count[:n], "second supports? must be cached"
+
+    cia.send(:reset_connection)
+
+    assert cia.supports?(:patient_chart_banner)
+    assert_equal feature_size * 2, probe_count[:n],
+                 "reset_connection must invalidate the cache so re-probe happens"
+  end
+
+  def test_create_context_clears_capability_cache
+    cia = RpmsRpc::CiaClient.new
+    cia.define_singleton_method(:connected?) { true }
+    cia.define_singleton_method(:authenticated?) { true }
+    probe_count = { n: 0 }
+    cia.define_singleton_method(:call_rpc) do |_name, *_params|
+      probe_count[:n] += 1
+      ""
+    end
+    # Stub the context-creation call so create_context succeeds without
+    # going to the wire; the assertion is purely about cache state.
+    cia.define_singleton_method(:call_rpc_raw) { |_, *_| "1" }
+
+    assert cia.supports?(:patient_chart_banner)
+    feature_size = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:patient_chart_banner].size
+    assert_equal feature_size, probe_count[:n]
+
+    cia.create_context("OR CPRS GUI CHART")
+
+    assert cia.supports?(:patient_chart_banner)
+    assert_equal feature_size * 2, probe_count[:n],
+                 "create_context must invalidate the cache because RPC " \
+                 "registration is OPTION-scoped"
+  end
 end

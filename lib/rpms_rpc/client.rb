@@ -192,6 +192,9 @@ module RpmsRpc
         )
       end
 
+      # RPC registration is OPTION-scoped; capabilities probed under the
+      # previous context may not hold under the new one.
+      @capability_cache = nil
       true
     end
 
@@ -322,6 +325,7 @@ module RpmsRpc
       @connected = false
       @authenticated = false
       @duz = nil
+      @capability_cache = nil
     end
 
     # Open a TCP socket to the broker
