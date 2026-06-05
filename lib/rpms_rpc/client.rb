@@ -3,6 +3,7 @@
 require "socket"
 require "rpms_rpc/parameter_encoder"
 require "rpms_rpc/xml_response_parser"
+require "rpms_rpc/server_capabilities"
 
 module RpmsRpc
   # Abstract base class for RPMS RPC broker clients.
@@ -163,6 +164,20 @@ module RpmsRpc
       { success: true, duz: duz_str.to_i }
     end
 
+    # Whether the Broker behind this client can service `feature`.
+    #
+    # First call per feature probes the underlying RPCs via
+    # ServerCapabilities; subsequent calls return the cached result.
+    # Engine code should consult this before issuing the underlying calls
+    # so that "feature unavailable" returns nil/empty without a wasted
+    # Broker round-trip.
+    def supports?(feature)
+      @capability_cache ||= {}
+      return @capability_cache[feature] if @capability_cache.key?(feature)
+
+      @capability_cache[feature] = ServerCapabilities.probe(self, feature)
+    end
+
     # Set application context (required before calling most RPCs)
     def create_context(option_name = "OR CPRS GUI CHART")
       raise ConnectionError, "Not connected" unless connected?
@@ -177,6 +192,9 @@ module RpmsRpc
         )
       end
 
+      # RPC registration is OPTION-scoped; capabilities probed under the
+      # previous context may not hold under the new one.
+      @capability_cache = nil
       true
     end
 
@@ -307,10 +325,16 @@ module RpmsRpc
       @connected = false
       @authenticated = false
       @duz = nil
+      @capability_cache = nil
     end
 
     # Open a TCP socket to the broker
     def open_socket(host, port)
+      # Implicit reconnects (after a send/recv error path that only set
+      # @connected = false) re-enter here without going through
+      # reset_connection. Clear the capability cache so a reconnect to
+      # the same or a different Broker can never inherit stale answers.
+      @capability_cache = nil
       @host = host
       @port = port
       @socket = TCPSocket.new(host, port)
