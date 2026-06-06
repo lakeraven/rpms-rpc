@@ -119,13 +119,17 @@ module RpmsRpc
         user_class: user_class.to_i
       })
 
-      # User info
-      seed(:user_info, duz.to_s, {
+      # User info (XUS GET USER INFO — line-based, no params; mock matches
+      # the live shape: one value per response line). user_class_ien is a
+      # pointer into USER CLASS file #8932.1, distinct from av_code's
+      # auth-class code — seed with a plausible IEN placeholder so tests
+      # don't conflate the two.
+      seed_lines(:user_info, "", {
         duz: duz.to_i,
         name: name,
-        access_code: "",
-        verify_code_exists: true,
-        division: ""
+        display_name: name,
+        current_site: "",
+        user_class_ien: 30
       })
 
       # Security keys (symbolic → RPMS strings)

@@ -3,36 +3,32 @@
 require_relative "../mappings"
 
 module RpmsRpc
-  # Symbolic API for site/division context. A user may have access to several
-  # divisions; one is selected at any given moment and scopes downstream RPCs.
-  # Underlying RPC: BEHOSICX SITEINFO.
+  # Symbolic API for the authenticated user's current site. BEHOSICX SITEINFO
+  # returns a single site (not a list) and takes no params; the duz arg is
+  # an API-level guard, not a broker param.
+  #
+  # Note: site selection requires a different RPC path that BEHOSICX SITEINFO
+  # does not implement — see rr-5tm for the tracking issue.
   module Site
     extend self
 
-    def list(user_duz)
-      return [] if invalid_duz?(user_duz)
-
-      Array(DataMapper.site_info.fetch_many(user_duz.to_s))
-    end
-
     def current(user_duz)
-      list(user_duz).find { |site| site[:current] }
+      return nil if invalid_duz?(user_duz)
+
+      DataMapper.site_info.fetch_lines
     end
 
-    def select(user_duz, site_ien)
-      return false if invalid_duz?(user_duz) || invalid_ien?(site_ien)
-
-      RpmsRpc.client.call_rpc(DataMapper.site_info.rpc_name, user_duz.to_s, site_ien.to_s)
-      true
+    # Backward-compat: list-of-sites callers still expect an Array. Returns
+    # [current] so existing iteration patterns keep working until callers
+    # migrate to `current`.
+    def list(user_duz)
+      site = current(user_duz)
+      site ? [ site ] : []
     end
 
     private
 
     def invalid_duz?(value)
-      value.nil? || value.to_s.strip.empty? || value.to_i <= 0
-    end
-
-    def invalid_ien?(value)
       value.nil? || value.to_s.strip.empty? || value.to_i <= 0
     end
   end

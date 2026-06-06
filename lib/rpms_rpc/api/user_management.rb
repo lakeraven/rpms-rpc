@@ -17,8 +17,11 @@ module RpmsRpc
       duz = normalize_duz(duz)
       return nil if duz.nil?
 
-      user_info = DataMapper.user_info.fetch_one(duz.to_s)
-      return nil if user_info.nil?
+      # XUS GET USER INFO takes no params and returns the authenticated
+      # session user. For arbitrary-DUZ lookup the practitioner_info call
+      # below (ORWU USERINFO) is the source of truth; tracked in rr-fyf.
+      user_info = DataMapper.user_info.fetch_lines
+      return nil if user_info.nil? || user_info[:duz].to_i != duz
 
       {
         user_info: user_info,

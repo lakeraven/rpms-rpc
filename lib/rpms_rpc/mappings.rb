@@ -674,15 +674,25 @@ module RpmsRpc
     # AUTHENTICATION (XUS*)
     # ========================================================================
 
-    # XUS GET USER INFO — authenticated user info
-    # Format: DUZ^NAME^ACCESS_CODE^VERIFY_CODE_EXISTS^DIVISION
+    # XUS GET USER INFO — authenticated user info. Response is line-based,
+    # one value per line — not caret-delimited. Live shape observed against
+    # staging:
+    #   [0] "1"                              → duz
+    #   [1] "PROVIDER,TEST"                  → name (FAMILY,GIVEN)
+    #   [2] "Adam Adam"                      → display_name
+    #   [3] "7819^DEMO IHS CLINIC^8904"      → current_site (IEN^NAME^ABBR)
+    #   [4]..[6] ""                          → reserved
+    #   [7] "30"                             → user_class_ien (pointer into
+    #                                          USER CLASS file #8932.1 —
+    #                                          NOT the auth class code that
+    #                                          av_code's :user_class returns)
     DataMapper.define(:user_info) do |m|
       m.rpc "XUS GET USER INFO"
-      m.field 0, :duz, :integer
-      m.field 1, :name
-      m.field 2, :access_code
-      m.field 3, :verify_code_exists, :boolean
-      m.field 4, :division
+      m.line_field 0, :duz,  :integer
+      m.line_field 1, :name
+      m.line_field 2, :display_name
+      m.line_field 3, :current_site
+      m.line_field 7, :user_class_ien, :integer
     end
 
     # ========================================================================
@@ -1502,16 +1512,30 @@ module RpmsRpc
     # SITE / DIVISION CONTEXT (BEHOSICX*)
     # ========================================================================
 
-    # BEHOSICX SITEINFO — divisions the user can access, with the currently
-    # selected division flagged. Used at cold launch and on division switch.
-    # Field positions are best-effort pending wider trace capture; the public
-    # contract is { ien, name, abbreviation, current }.
+    # BEHOSICX SITEINFO — the authenticated user's current site. The RPC
+    # takes no params and returns a single site across 11 response lines
+    # (not multi-record, not caret-delimited). Live shape:
+    #   [0]  "RPMS.MEDSPHERE.COM"   → domain
+    #   [1]  "DEMO IHS CLINIC"      → name
+    #   [2]  "8904"                 → abbreviation
+    #   [3]  "ILLINOIS"             → state
+    #   [4]  ""                     → (reserved)
+    #   [5]  "123 ELM STREET"       → address
+    #   [6]  ""                     → (reserved)
+    #   [7]  "ANYWHERE"             → city
+    #   [8]  "99999"                → zip
+    #   [9]  "7819"                 → ien
+    #   [10] (unknown, ignored)
     DataMapper.define(:site_info) do |m|
       m.rpc "BEHOSICX SITEINFO"
-      m.field 0, :ien, :integer
-      m.field 1, :name
-      m.field 2, :abbreviation
-      m.field 3, :current, :boolean
+      m.line_field 0, :domain
+      m.line_field 1, :name
+      m.line_field 2, :abbreviation
+      m.line_field 3, :state
+      m.line_field 5, :address
+      m.line_field 7, :city
+      m.line_field 8, :zip
+      m.line_field 9, :ien, :integer
     end
 
     # ========================================================================
@@ -1726,11 +1750,18 @@ module RpmsRpc
       m.field 2, :snomed_code
     end
 
+    # ORWDAL32 DEF — defaults tree for the allergy-symptom entry UI. Takes
+    # no params and returns a typed-tree response: lines starting with "~"
+    # are category headers, lines starting with "i" are items belonging to
+    # the most recent category and encode (type_code, label) via ^.
+    # Example:
+    #   ~Reactions
+    #   iD^Drug
+    #   iF^Food
+    # The mapping returns the raw lines; api/symptom.rb parses the tree.
     DataMapper.define(:symptom_defaults) do |m|
       m.rpc "ORWDAL32 DEF"
-      m.field 0, :ien, :integer
-      m.field 1, :name
-      m.field 2, :snomed_code
+      m.text_blob :tree_text
     end
 
     # ========================================================================

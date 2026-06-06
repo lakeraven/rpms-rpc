@@ -74,8 +74,11 @@ class AuthenticationTest < Minitest::Test
 
     assert_equal 301, info[:duz]
     assert_equal "PROVIDER,TEST", info[:name]
-    assert_nil info[:access_code]
-    assert_equal true, info[:verify_code_exists]
+    assert_equal "PROVIDER,TEST", info[:display_name]
+    # :user_class_ien is a pointer into USER CLASS file #8932.1; assert
+    # positivity rather than a specific value (the mock seeds a placeholder
+    # IEN, live values are site-specific).
+    assert info[:user_class_ien].is_a?(Integer) && info[:user_class_ien] > 0
   end
 
   def test_user_info_rejects_blank_zero_negative_and_non_numeric_duz
