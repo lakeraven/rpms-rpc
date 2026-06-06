@@ -42,12 +42,15 @@ class RpmsRpc::UserRolesTest < Minitest::Test
     )
   end
 
-  def test_resolve_defaults_to_user_when_class_unknown_or_nil
+  def test_resolve_defaults_to_user_when_class_unknown_blank_or_nil
     assert_equal "user", RpmsRpc::UserRoles.resolve(
       user_class: nil, security_keys: []
     )
     assert_equal "user", RpmsRpc::UserRoles.resolve(
       user_class: "", security_keys: []
+    )
+    assert_equal "user", RpmsRpc::UserRoles.resolve(
+      user_class: "99", security_keys: []
     )
   end
 end

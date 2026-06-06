@@ -23,10 +23,11 @@ module RpmsRpc
 
     # Return mock-friendly av_code attrs for a role. Caller mocks/seeds
     # this into the XUS AV CODE response so role-resolution drives off
-    # the correct field.
+    # the correct field. user_class is an Integer to match the av_code
+    # mapping's `line_field 5, :user_class, :integer` coercion.
     def self.mock_av_code(duz:, role:)
       { duz: duz.to_i, error_code: 0, verify_needs_change: 0,
-        message: "", user_class: class_for(role) || "0" }
+        message: "", user_class: (class_for(role) || "0").to_i }
     end
 
     # Determine role from the auth-class user_class (av_code line 5,
