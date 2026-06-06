@@ -21,32 +21,35 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
   # -- ORWPT ID INFO ---------------------------------------------------------
 
-  def test_patient_id_info_parses_extended_fields
+  def test_patient_id_info_parses_identifier_fields
     m = RpmsRpc::DataMapper[:patient_id_info]
-    result = m.parse_one("DOE,JOHN^M^2800115^111223333^AMERICAN INDIAN^123 Main St^Anchorage^AK^99501^907-555-1234^ANLC-12345^Anchorage^IHS")
+    # Live shape from staging: SSN^DOB^SEX^RACE_CODE^^SITE_IEN^^NAME
+    result = m.parse_one("000009999^2100214^M^N^^7819^^MOUSE,MICKEY M")
 
-    assert_equal "AMERICAN INDIAN", result[:race]
-    assert_equal "123 Main St", result[:address_line1]
-    assert_equal "Anchorage", result[:city]
-    assert_equal "AK", result[:state]
-    assert_equal "99501", result[:zip_code]
-    assert_equal "907-555-1234", result[:phone]
-    assert_equal "ANLC-12345", result[:tribal_enrollment_number]
-    assert_equal "Anchorage", result[:service_area]
-    assert_equal "IHS", result[:coverage_type]
+    assert_equal "000009999", result[:ssn]
+    assert_equal Date.new(1910, 2, 14), result[:dob]
+    assert_equal "M", result[:sex]
+    assert_equal "N", result[:race_code]
+    assert_equal 7819, result[:site_ien]
+    assert_equal "MOUSE,MICKEY M", result[:name]
   end
 
   # -- SELECT + ID INFO merge ------------------------------------------------
 
   def test_patient_merge
-    base = RpmsRpc::DataMapper[:patient_select].parse_one("DOE,JOHN^M^2800115^111223333^^^^^^^^^^^45", extras: { dfn: 1 })
-    ext = RpmsRpc::DataMapper[:patient_id_info].parse_one("DOE,JOHN^M^2800115^111223333^AMERICAN INDIAN^123 Main St^Anchorage^AK^99501^907-555-1234")
+    base = RpmsRpc::DataMapper[:patient_select].parse_one(
+      "MOUSE,MICKEY M^M^2100214^000009999^0^7819^^^0^^0^0^^^116^0",
+      extras: { dfn: 3 }
+    )
+    ext = RpmsRpc::DataMapper[:patient_id_info].parse_one(
+      "000009999^2100214^M^N^^7819^^MOUSE,MICKEY M"
+    )
     merged = base.merge(ext)
 
-    assert_equal 1, merged[:dfn]
-    assert_equal "DOE,JOHN", merged[:name]
-    assert_equal "AMERICAN INDIAN", merged[:race]
-    assert_equal "907-555-1234", merged[:phone]
+    assert_equal 3, merged[:dfn]
+    assert_equal "MOUSE,MICKEY M", merged[:name]
+    assert_equal "N", merged[:race_code]
+    assert_equal 7819, merged[:site_ien]
   end
 
   # -- ORWPT LIST ALL --------------------------------------------------------
