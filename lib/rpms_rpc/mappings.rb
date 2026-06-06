@@ -29,19 +29,24 @@ module RpmsRpc
       m.field 14, :age,       :integer
     end
 
-    # ORWPT ID INFO — extended patient demographics
-    # Format: NAME^SEX^DOB^SSN^RACE^ADDRESS^CITY^STATE^ZIP^PHONE^TRIBAL_NUM^SERVICE_AREA^COVERAGE
+    # ORWPT ID INFO — patient identifier projection. Live shape against
+    # staging (DFN=3 / MOUSE,MICKEY M):
+    #   "000009999^2100214^M^N^^7819^^MOUSE,MICKEY M"
+    #     [0] ssn       [1] dob (fileman) [2] sex      [3] race_code
+    #     [4] reserved  [5] site_ien      [6] reserved [7] name
+    # Despite the "ID INFO" name, this RPC does NOT return address,
+    # city, state, zip, phone, tribal enrollment, service area, or
+    # coverage — those fields were hallucinated in the prior mapping.
+    # IHS demographic detail lives in the BHDPTRPC family of RPCs (not
+    # installed on staging — see rr-6jr).
     DataMapper.define(:patient_id_info) do |m|
       m.rpc "ORWPT ID INFO"
-      m.field 4,  :race
-      m.field 5,  :address_line1
-      m.field 6,  :city
-      m.field 7,  :state
-      m.field 8,  :zip_code
-      m.field 9,  :phone
-      m.field 10, :tribal_enrollment_number
-      m.field 11, :service_area
-      m.field 12, :coverage_type
+      m.field 0, :ssn
+      m.field 1, :dob, :fileman_date
+      m.field 2, :sex
+      m.field 3, :race_code
+      m.field 5, :site_ien, :integer
+      m.field 7, :name
     end
 
     # ORWPT LIST ALL — patient search results (multi-line)
