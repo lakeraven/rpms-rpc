@@ -177,15 +177,17 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- ORWU USERINFO ---------------------------------------------------------
 
   def test_practitioner_info
+    # Live shape from staging (DUZ=1 PROVIDER,TEST). 25 caret pieces;
+    # only positions [0]=duz, [1]=name, [2]=user_class, [12]=domain,
+    # [23]=site_ien have verified semantics.
     result = RpmsRpc::DataMapper[:practitioner_info].parse_one(
-      "MARTINEZ,SARAH^MD^Internal Medicine^Cardiology^1234567890^AB1234567^907-555-9999^Physician",
-      extras: { ien: 101 }
+      "1^PROVIDER,TEST^3^1^1^5^0^99999^20^1^1^5^DEMO.IHS.GOV^0^180^^^^0^0^^1^0^8904^"
     )
-    assert_equal 101, result[:ien]
-    assert_equal "MARTINEZ,SARAH", result[:name]
-    assert_equal "Cardiology", result[:specialty]
-    assert_equal "1234567890", result[:npi]
-    assert_equal "Physician", result[:provider_class]
+    assert_equal 1, result[:duz]
+    assert_equal "PROVIDER,TEST", result[:name]
+    assert_equal 3, result[:user_class]
+    assert_equal "DEMO.IHS.GOV", result[:kernel_domain]
+    assert_equal 8904, result[:site_ien]
   end
 
   # -- ORWU NEWPERS ----------------------------------------------------------

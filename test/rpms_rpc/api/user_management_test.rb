@@ -24,15 +24,9 @@ class UserManagementTest < Minitest::Test
         user_class_ien: 30
       })
 
-      m.seed(:practitioner_info, DUZ.to_s, {
-        name: "PROVIDER,TEST",
-        title: "MD",
-        service_section: "Primary Care",
-        specialty: "Family Medicine",
-        npi: "1234567890",
-        dea_number: "AB1234567",
-        phone: "907-555-0100",
-        provider_class: "Physician"
+      m.seed(:practitioner_info, "", {
+        duz: DUZ, name: "PROVIDER,TEST", user_class: 3,
+        kernel_domain: "DEMO.IHS.GOV", site_ien: 8904
       })
 
       m.seed_keyed_collection(:user_keys, DUZ.to_s, [

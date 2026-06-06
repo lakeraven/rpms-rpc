@@ -257,18 +257,25 @@ module RpmsRpc
     # PRACTITIONER (ORWU*)
     # ========================================================================
 
-    # ORWU USERINFO — practitioner demographics
-    # Format: NAME^TITLE^SERVICE_SECTION^SPECIALTY^NPI^DEA^PHONE^PROVIDER_CLASS^SERVICE
+    # ORWU USERINFO — info about the AUTHENTICATED session user. Takes
+    # no params; broker raises <PARAMETER> when given any. Returns a
+    # single 25-piece caret-delimited line. Live shape against staging
+    # (DUZ=1 PROVIDER,TEST):
+    #   "1^PROVIDER,TEST^3^...^DEMO.IHS.GOV^...^8904^"
+    # The prior declaration aligned NAME^TITLE^SERVICE_SECTION^... at
+    # position 0; in reality position 0 is DUZ and the rest of the
+    # "demographic" fields (title, service_section, specialty, npi,
+    # dea_number, phone, provider_class) were invented — those are not
+    # in this response at all. Only fields with verified semantics are
+    # declared here; intermediate positions are small integer codes
+    # whose meaning would need the kernel data dictionary to interpret.
     DataMapper.define(:practitioner_info) do |m|
       m.rpc "ORWU USERINFO"
-      m.field 0, :name
-      m.field 1, :title
-      m.field 2, :service_section
-      m.field 3, :specialty
-      m.field 4, :npi
-      m.field 5, :dea_number
-      m.field 6, :phone
-      m.field 7, :provider_class
+      m.field 0,  :duz,           :integer
+      m.field 1,  :name
+      m.field 2,  :user_class,    :integer
+      m.field 12, :kernel_domain
+      m.field 23, :site_ien,      :integer
     end
 
     # ORWU NEWPERS — practitioner search results (multi-line)
