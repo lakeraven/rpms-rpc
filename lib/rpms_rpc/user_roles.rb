@@ -21,24 +21,26 @@ module RpmsRpc
       REVERSE_CLASS_MAP[role.to_s]
     end
 
-    # Return mock-friendly user_info attrs for a role.
-    def self.mock_user_info(duz:, name:, role:)
-      is_provider = (role.to_s == "provider")
-      user_class = class_for(role) || "0"
-      { duz: duz.to_i, name: name, user_class: user_class,
-        can_sign: is_provider, is_provider: is_provider, order_role: is_provider ? "1" : "" }
+    # Return mock-friendly av_code attrs for a role. Caller mocks/seeds
+    # this into the XUS AV CODE response so role-resolution drives off
+    # the correct field.
+    def self.mock_av_code(duz:, role:)
+      { duz: duz.to_i, error_code: 0, verify_needs_change: 0,
+        message: "", user_class: class_for(role) || "0" }
     end
 
-    # Determine role from user info and security keys.
-    # Security keys can elevate a role (e.g., PRCFA SUPERVISOR → case_manager).
-    def self.resolve(user_info:, security_keys:)
-      return "provider" if user_info&.dig(:is_provider)
-
+    # Determine role from the auth-class user_class (av_code line 5,
+    # captured at signon time — NOT user_info[:user_class_ien] which
+    # points into USER CLASS file #8932.1) plus security keys.
+    #
+    # Security keys can elevate a role above what user_class alone
+    # implies (e.g., PRCFA SUPERVISOR → case_manager).
+    def self.resolve(user_class:, security_keys:)
       if security_keys.include?(:prc_supervisor) || security_keys.include?(:prc_manager)
         return "case_manager"
       end
 
-      for_class(user_info&.dig(:user_class))
+      for_class(user_class)
     end
   end
 end

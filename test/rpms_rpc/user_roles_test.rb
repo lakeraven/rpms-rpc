@@ -20,31 +20,34 @@ class RpmsRpc::UserRolesTest < Minitest::Test
     assert_equal "nurse", RpmsRpc::UserRoles.for_class(4)
   end
 
-  def test_resolve_provider
+  def test_resolve_provider_from_av_code_class
     assert_equal "provider", RpmsRpc::UserRoles.resolve(
-      user_info: { is_provider: true, user_class: "3" },
-      security_keys: []
+      user_class: "3", security_keys: []
     )
   end
 
-  def test_resolve_case_manager_from_keys
+  def test_resolve_case_manager_from_security_key_elevation
+    # prc_supervisor elevates beyond whatever user_class would yield.
     assert_equal "case_manager", RpmsRpc::UserRoles.resolve(
-      user_info: { is_provider: false, user_class: "3" },
-      security_keys: [ :prc_supervisor ]
+      user_class: "3", security_keys: [ :prc_supervisor ]
+    )
+    assert_equal "case_manager", RpmsRpc::UserRoles.resolve(
+      user_class: "4", security_keys: [ :prc_manager ]
     )
   end
 
   def test_resolve_nurse_from_class
     assert_equal "nurse", RpmsRpc::UserRoles.resolve(
-      user_info: { is_provider: false, user_class: "4" },
-      security_keys: []
+      user_class: "4", security_keys: []
     )
   end
 
-  def test_resolve_defaults_to_user
+  def test_resolve_defaults_to_user_when_class_unknown_or_nil
     assert_equal "user", RpmsRpc::UserRoles.resolve(
-      user_info: nil,
-      security_keys: []
+      user_class: nil, security_keys: []
+    )
+    assert_equal "user", RpmsRpc::UserRoles.resolve(
+      user_class: "", security_keys: []
     )
   end
 end
