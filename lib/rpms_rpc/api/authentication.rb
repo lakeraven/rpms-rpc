@@ -141,7 +141,13 @@ module RpmsRpc
     end
 
     def invalid_id?(value)
-      blank?(value) || value.to_i <= 0
+      return true if blank?(value)
+      return false if value.is_a?(Integer) && value.positive?
+
+      # Strict-digit guard: prevents inputs like "301abc" from sneaking
+      # past to_i (which would return 301 and accidentally match the
+      # session user via user_info's post-fetch duz comparison).
+      !value.to_s.strip.match?(/\A[1-9]\d*\z/)
     end
 
     def presence(value)

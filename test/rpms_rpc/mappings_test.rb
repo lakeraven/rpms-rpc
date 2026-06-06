@@ -246,7 +246,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "PROVIDER,TEST", result[:name]
     assert_equal "Adam Adam", result[:display_name]
     assert_equal "7819^DEMO IHS CLINIC^8904", result[:current_site]
-    assert_equal 30, result[:user_class]
+    assert_equal 30, result[:user_class_ien]
   end
 
   # -- Scalar RPCs -----------------------------------------------------------

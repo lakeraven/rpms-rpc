@@ -21,7 +21,7 @@ class UserManagementTest < Minitest::Test
         name: "PROVIDER,TEST",
         display_name: "PROVIDER,TEST",
         current_site: "7819^DEMO IHS CLINIC^8904",
-        user_class: 3
+        user_class_ien: 30
       })
 
       m.seed(:practitioner_info, DUZ.to_s, {
