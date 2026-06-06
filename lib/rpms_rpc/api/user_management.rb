@@ -17,15 +17,21 @@ module RpmsRpc
       duz = normalize_duz(duz)
       return nil if duz.nil?
 
-      # XUS GET USER INFO takes no params and returns the authenticated
-      # session user. For arbitrary-DUZ lookup the practitioner_info call
-      # below (ORWU USERINFO) is the source of truth; tracked in rr-fyf.
+      # Both ORWU USERINFO and XUS GET USER INFO return info about the
+      # AUTHENTICATED session user — neither RPC accepts a DUZ param.
+      # Passing one to ORWU USERINFO raises <PARAMETER>. So find(duz)
+      # can only succeed when duz matches the session user; arbitrary-
+      # DUZ lookup would need a different RPC (BHDPTRPC / DDR LISTER /
+      # direct File 200 read) that isn't currently mapped.
       user_info = DataMapper.user_info.fetch_lines
       return nil if user_info.nil? || user_info[:duz].to_i != duz
 
+      practitioner = DataMapper.practitioner_info.fetch_one
+      return nil if practitioner.nil? || practitioner[:duz].to_i != duz
+
       {
         user_info: user_info,
-        practitioner: DataMapper.practitioner_info.fetch_one(duz.to_s, extras: { ien: duz }),
+        practitioner: practitioner,
         security_keys: security_keys(duz).sort
       }
     end

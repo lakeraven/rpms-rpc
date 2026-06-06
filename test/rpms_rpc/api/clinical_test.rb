@@ -11,7 +11,12 @@ require "rpms_rpc/api/referral"
 class ClinicalTest < Minitest::Test
   def setup
     RpmsRpc.mock! do |m|
-      m.seed(:practitioner_info, "101", { name: "MARTINEZ,SARAH", title: "MD", specialty: "Cardiology", npi: "1234567890" })
+      # ORWU USERINFO returns the authenticated session user only; mock
+      # under empty key to match the dispatch (fetch_one with no params).
+      m.seed(:practitioner_info, "", {
+        duz: 101, name: "MARTINEZ,SARAH", user_class: 3,
+        kernel_domain: "DEMO.IHS.GOV", site_ien: 8904
+      })
       m.seed_collection(:practitioner_list,
         [ { ien: 101, name: "MARTINEZ,SARAH", title: "MD" } ],
         filter_field: :name)
@@ -30,12 +35,14 @@ class ClinicalTest < Minitest::Test
   # PRACTITIONER
   # =============================================================================
 
-  def test_practitioner_find
+  def test_practitioner_find_returns_session_user_when_ien_matches
     result = RpmsRpc::Practitioner.find(101)
 
     refute_nil result
     assert_equal "MARTINEZ,SARAH", result[:name]
-    assert_equal "1234567890", result[:npi]
+    assert_equal 101, result[:duz]
+    assert_equal 101, result[:ien]
+    assert_equal 3, result[:user_class]
   end
 
   def test_practitioner_find_nil_for_unknown
