@@ -73,8 +73,11 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- ORWPT FULLSSN ---------------------------------------------------------
 
   def test_patient_ssn
-    result = RpmsRpc::DataMapper[:patient_ssn].parse_one("42^DOE,JOHN^^111223333")
+    # Live shape: DFN^NAME^DOB(fileman)^SSN
+    result = RpmsRpc::DataMapper[:patient_ssn].parse_one("42^DOE,JOHN^2800115^111223333")
     assert_equal 42, result[:dfn]
+    assert_equal "DOE,JOHN", result[:name]
+    assert_equal Date.new(1980, 1, 15), result[:dob]
     assert_equal "111223333", result[:ssn]
   end
 
@@ -193,17 +196,21 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- ORWU NEWPERS ----------------------------------------------------------
 
   def test_practitioner_list
-    results = RpmsRpc::DataMapper[:practitioner_list].parse_many([ "101^MARTINEZ,SARAH^MD", "102^CHEN,JAMES^DO" ])
+    # ORWU NEWPERS lines are IEN^NAME on staging. Extra pieces (e.g. a
+    # trailing TITLE on some sites) parse as ignored excess.
+    results = RpmsRpc::DataMapper[:practitioner_list].parse_many([ "101^MARTINEZ,SARAH", "102^CHEN,JAMES" ])
     assert_equal 2, results.size
     assert_equal 101, results[0][:ien]
-    assert_equal "DO", results[1][:title]
+    assert_equal "MARTINEZ,SARAH", results[0][:name]
+    assert_equal "CHEN,JAMES", results[1][:name]
   end
 
   def test_user_management_user_list
-    results = RpmsRpc::DataMapper[:user_management_user_list].parse_many([ "101^MARTINEZ,SARAH^MD", "102^CHEN,JAMES^DO" ])
+    results = RpmsRpc::DataMapper[:user_management_user_list].parse_many([ "101^MARTINEZ,SARAH", "102^CHEN,JAMES" ])
     assert_equal 2, results.size
     assert_equal 101, results[0][:duz]
-    assert_equal "DO", results[1][:title]
+    assert_equal "MARTINEZ,SARAH", results[0][:name]
+    assert_equal "CHEN,JAMES", results[1][:name]
   end
 
   # -- ORQQPS LIST -----------------------------------------------------------
