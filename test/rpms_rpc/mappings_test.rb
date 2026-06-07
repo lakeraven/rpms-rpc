@@ -73,8 +73,11 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- ORWPT FULLSSN ---------------------------------------------------------
 
   def test_patient_ssn
-    result = RpmsRpc::DataMapper[:patient_ssn].parse_one("42^DOE,JOHN^^111223333")
+    # Live shape: DFN^NAME^DOB(fileman)^SSN
+    result = RpmsRpc::DataMapper[:patient_ssn].parse_one("42^DOE,JOHN^2800115^111223333")
     assert_equal 42, result[:dfn]
+    assert_equal "DOE,JOHN", result[:name]
+    assert_equal Date.new(1980, 1, 15), result[:dob]
     assert_equal "111223333", result[:ssn]
   end
 
@@ -193,17 +196,30 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- ORWU NEWPERS ----------------------------------------------------------
 
   def test_practitioner_list
-    results = RpmsRpc::DataMapper[:practitioner_list].parse_many([ "101^MARTINEZ,SARAH^MD", "102^CHEN,JAMES^DO" ])
-    assert_equal 2, results.size
-    assert_equal 101, results[0][:ien]
-    assert_equal "DO", results[1][:title]
+    # ORWU NEWPERS lines are IEN^NAME on staging. IEN is kept as :string
+    # because FileMan permits fractional IENs (e.g., ".5" for Postmaster)
+    # that :integer coercion would collapse to 0.
+    results = RpmsRpc::DataMapper[:practitioner_list].parse_many(
+      [ "101^MARTINEZ,SARAH", "102^CHEN,JAMES", ".5^Postmaster" ]
+    )
+    assert_equal 3, results.size
+    assert_equal "101", results[0][:ien]
+    assert_equal "MARTINEZ,SARAH", results[0][:name]
+    assert_equal "CHEN,JAMES", results[1][:name]
+    assert_equal ".5", results[2][:ien]
+    assert_nil results[0][:title]
   end
 
   def test_user_management_user_list
-    results = RpmsRpc::DataMapper[:user_management_user_list].parse_many([ "101^MARTINEZ,SARAH^MD", "102^CHEN,JAMES^DO" ])
-    assert_equal 2, results.size
-    assert_equal 101, results[0][:duz]
-    assert_equal "DO", results[1][:title]
+    results = RpmsRpc::DataMapper[:user_management_user_list].parse_many(
+      [ "101^MARTINEZ,SARAH", "102^CHEN,JAMES", ".6^Shared,Mail" ]
+    )
+    assert_equal 3, results.size
+    assert_equal "101", results[0][:duz]
+    assert_equal "MARTINEZ,SARAH", results[0][:name]
+    assert_equal "CHEN,JAMES", results[1][:name]
+    assert_equal ".6", results[2][:duz]
+    assert_nil results[0][:title]
   end
 
   # -- ORQQPS LIST -----------------------------------------------------------

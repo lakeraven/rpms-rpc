@@ -64,9 +64,8 @@ class UserManagementTest < Minitest::Test
     users = RpmsRpc::UserManagement.search("PRO")
 
     assert_equal 1, users.length
-    assert_equal DUZ, users.first[:duz]
+    assert_equal DUZ.to_s, users.first[:duz]
     assert_equal "PROVIDER,TEST", users.first[:name]
-    assert_equal "MD", users.first[:title]
   end
 
   def test_search_returns_empty_for_blank_pattern

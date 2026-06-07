@@ -61,12 +61,14 @@ module RpmsRpc
       m.field 3, :dob, :fileman_date
     end
 
-    # ORWPT FULLSSN — SSN lookup
-    # Format: DFN^NAME^DOB_TEXT^SSN
+    # ORWPT FULLSSN — SSN lookup. Live shape against staging
+    # (Mickey's SSN 000009999):
+    #   "3^MOUSE,MICKEY M^2100214^000009999"
     DataMapper.define(:patient_ssn) do |m|
       m.rpc "ORWPT FULLSSN"
       m.field 0, :dfn,  :integer
       m.field 1, :name
+      m.field 2, :dob,  :fileman_date
       m.field 3, :ssn
     end
 
@@ -278,22 +280,22 @@ module RpmsRpc
       m.field 23, :site_ien,      :integer
     end
 
-    # ORWU NEWPERS — practitioner search results (multi-line)
-    # Format per line: IEN^NAME^TITLE
+    # ORWU NEWPERS — multi-line user/practitioner search. Live shape
+    # against staging is IEN^NAME (2 pieces); the TITLE piece declared
+    # in earlier versions doesn't appear in this broker's response.
+    # IEN/DUZ kept as :string because FileMan permits fractional IENs
+    # (e.g., ".5" for Postmaster, ".6" for Shared,Mail) which :integer
+    # coercion would collapse to 0.
     DataMapper.define(:practitioner_list) do |m|
       m.rpc "ORWU NEWPERS"
-      m.field 0, :ien, :integer
+      m.field 0, :ien
       m.field 1, :name
-      m.field 2, :title
     end
 
-    # ORWU NEWPERS — user management search results (multi-line)
-    # Format per line: DUZ^NAME^TITLE
     DataMapper.define(:user_management_user_list) do |m|
       m.rpc "ORWU NEWPERS"
-      m.field 0, :duz, :integer
+      m.field 0, :duz
       m.field 1, :name
-      m.field 2, :title
     end
 
     # ========================================================================
