@@ -64,7 +64,7 @@ class UserManagementTest < Minitest::Test
     users = RpmsRpc::UserManagement.search("PRO")
 
     assert_equal 1, users.length
-    assert_equal DUZ, users.first[:duz]
+    assert_equal DUZ.to_s, users.first[:duz]
     assert_equal "PROVIDER,TEST", users.first[:name]
   end
 

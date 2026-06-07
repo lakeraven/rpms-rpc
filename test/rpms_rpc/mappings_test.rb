@@ -196,21 +196,30 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- ORWU NEWPERS ----------------------------------------------------------
 
   def test_practitioner_list
-    # ORWU NEWPERS lines are IEN^NAME on staging. Extra pieces (e.g. a
-    # trailing TITLE on some sites) parse as ignored excess.
-    results = RpmsRpc::DataMapper[:practitioner_list].parse_many([ "101^MARTINEZ,SARAH", "102^CHEN,JAMES" ])
-    assert_equal 2, results.size
-    assert_equal 101, results[0][:ien]
+    # ORWU NEWPERS lines are IEN^NAME on staging. IEN is kept as :string
+    # because FileMan permits fractional IENs (e.g., ".5" for Postmaster)
+    # that :integer coercion would collapse to 0.
+    results = RpmsRpc::DataMapper[:practitioner_list].parse_many(
+      [ "101^MARTINEZ,SARAH", "102^CHEN,JAMES", ".5^Postmaster" ]
+    )
+    assert_equal 3, results.size
+    assert_equal "101", results[0][:ien]
     assert_equal "MARTINEZ,SARAH", results[0][:name]
     assert_equal "CHEN,JAMES", results[1][:name]
+    assert_equal ".5", results[2][:ien]
+    assert_nil results[0][:title]
   end
 
   def test_user_management_user_list
-    results = RpmsRpc::DataMapper[:user_management_user_list].parse_many([ "101^MARTINEZ,SARAH", "102^CHEN,JAMES" ])
-    assert_equal 2, results.size
-    assert_equal 101, results[0][:duz]
+    results = RpmsRpc::DataMapper[:user_management_user_list].parse_many(
+      [ "101^MARTINEZ,SARAH", "102^CHEN,JAMES", ".6^Shared,Mail" ]
+    )
+    assert_equal 3, results.size
+    assert_equal "101", results[0][:duz]
     assert_equal "MARTINEZ,SARAH", results[0][:name]
     assert_equal "CHEN,JAMES", results[1][:name]
+    assert_equal ".6", results[2][:duz]
+    assert_nil results[0][:title]
   end
 
   # -- ORQQPS LIST -----------------------------------------------------------

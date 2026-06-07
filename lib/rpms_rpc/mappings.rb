@@ -283,15 +283,18 @@ module RpmsRpc
     # ORWU NEWPERS — multi-line user/practitioner search. Live shape
     # against staging is IEN^NAME (2 pieces); the TITLE piece declared
     # in earlier versions doesn't appear in this broker's response.
+    # IEN/DUZ kept as :string because FileMan permits fractional IENs
+    # (e.g., ".5" for Postmaster, ".6" for Shared,Mail) which :integer
+    # coercion would collapse to 0.
     DataMapper.define(:practitioner_list) do |m|
       m.rpc "ORWU NEWPERS"
-      m.field 0, :ien, :integer
+      m.field 0, :ien
       m.field 1, :name
     end
 
     DataMapper.define(:user_management_user_list) do |m|
       m.rpc "ORWU NEWPERS"
-      m.field 0, :duz, :integer
+      m.field 0, :duz
       m.field 1, :name
     end
 
