@@ -45,6 +45,21 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     assert_includes rpcs, "BEHOCACV CWAD"
   end
 
+  def test_user_security_keys_list_feature_is_registered
+    assert RpmsRpc::ServerCapabilities::FEATURE_RPCS.key?(:user_security_keys_list),
+           "Registry must expose :user_security_keys_list — gates Authentication#user_security_keys / UserManagement#security_keys"
+  end
+
+  def test_user_security_keys_list_maps_to_orwu_userkeys
+    rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:user_security_keys_list]
+    assert_equal [ "ORWU USERKEYS" ], rpcs
+  end
+
+  def test_probe_returns_false_when_orwu_userkeys_missing
+    missing = ProbingClient.new(missing: [ "ORWU USERKEYS" ])
+    assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :user_security_keys_list)
+  end
+
   def test_unknown_feature_raises_argument_error
     assert_raises(ArgumentError) do
       RpmsRpc::ServerCapabilities.probe(@client, :no_such_feature)
