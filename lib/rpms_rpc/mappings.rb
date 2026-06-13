@@ -475,10 +475,12 @@ module RpmsRpc
     # SERVICE REQUESTS / REFERRALS (BMCRPC*)
     # ========================================================================
 
-    # BMCRPC SRCHREF — referral search (multi-line)
+    # BMC SEARCH REFERRAL — referral search (multi-line)
     # Format: IEN^PATIENT_DFN^STATUS^TYPE^DATE^PROVIDER
+    # Verified on staging file 8994 (2026-06-07): NAME is
+    # "BMC SEARCH REFERRAL", tag SRCHREF, routine BMCRPC1.
     DataMapper.define(:referral_search) do |m|
-      m.rpc "BMCRPC SRCHREF"
+      m.rpc "BMC SEARCH REFERRAL"
       m.field 0, :ien
       m.field 1, :patient_dfn, :integer
       m.field 2, :status
@@ -1119,9 +1121,11 @@ module RpmsRpc
     # REFERRAL DETAIL & WRITE RPCs (BMCRPC*)
     # ========================================================================
 
-    # BMCRPC GTRFBYID — single referral detail
+    # BMC GET REFERRAL — single referral detail
+    # Verified on staging file 8994 (2026-06-07): NAME is
+    # "BMC GET REFERRAL", tag GTRFBYID, routine BMCRPC1.
     DataMapper.define(:referral_detail) do |m|
-      m.rpc "BMCRPC GTRFBYID"
+      m.rpc "BMC GET REFERRAL"
       m.field 0, :ien
       m.field 1, :patient_dfn, :integer
       m.field 2, :status
