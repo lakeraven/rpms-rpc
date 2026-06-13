@@ -522,20 +522,18 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "Patient portal enabled", result[:message]
   end
 
-  # -- RPC names verified against live staging broker (2026-06-07) -----------
-  # File 8994 dump on staging RPMS (i-0cef6ae75fc88bb2a, BMC v4.0*13) shows
-  # the CHS/PRC referral RPCs registered with English-name NAMEs and the old
-  # BMCRPC* tags only as routine entry points. The gem previously declared
-  # NAME = routine+tag, which never matched the real broker.
+  # -- RPC names verified against staging file 8994 (2026-06-07) -------------
+  # BMC v4.0*13 registers the CHS/PRC referral RPCs with English-name NAMEs;
+  # the old BMCRPC* tags appear only as routine entry points. The gem
+  # previously declared NAME = routine+tag, which never matched the real
+  # broker.
 
   def test_referral_search_uses_broker_rpc_name
-    assert_equal "BMC SEARCH REFERRAL",
-      RpmsRpc::DataMapper[:referral_search].rpc_name
+    assert_equal "BMC SEARCH REFERRAL", RpmsRpc::DataMapper[:referral_search].rpc_name
   end
 
   def test_referral_detail_uses_broker_rpc_name
-    assert_equal "BMC GET REFERRAL",
-      RpmsRpc::DataMapper[:referral_detail].rpc_name
+    assert_equal "BMC GET REFERRAL", RpmsRpc::DataMapper[:referral_detail].rpc_name
   end
 
   # -- Registry completeness -------------------------------------------------
