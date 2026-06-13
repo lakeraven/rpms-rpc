@@ -24,6 +24,14 @@ module RpmsRpc
         "BEHOPTCX PTINFO",
         "BEHOPTPC GETBDP",
         "BEHOCACV CWAD"
+      ].freeze,
+
+      # Authentication#user_security_keys / UserManagement#security_keys —
+      # list of security keys held by a user. ORWU USERKEYS is absent on
+      # the 2026-06-07 staging dump; callers should gate via supports? and
+      # fall back to per-key probes (ORWU HASKEY) when unsupported.
+      user_security_keys_list: [
+        "ORWU USERKEYS"
       ].freeze
     }.freeze
 
