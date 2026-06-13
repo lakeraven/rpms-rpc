@@ -472,7 +472,7 @@ module RpmsRpc
     end
 
     # ========================================================================
-    # SERVICE REQUESTS / REFERRALS (BMCRPC*)
+    # SERVICE REQUESTS / REFERRALS (BMC* / BMCRPC*)
     # ========================================================================
 
     # BMC SEARCH REFERRAL — referral search (multi-line)
@@ -1118,7 +1118,7 @@ module RpmsRpc
     end
 
     # ========================================================================
-    # REFERRAL DETAIL & WRITE RPCs (BMCRPC*)
+    # REFERRAL DETAIL & WRITE RPCs (BMC* / BMCRPC*)
     # ========================================================================
 
     # BMC GET REFERRAL — single referral detail
