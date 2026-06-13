@@ -85,11 +85,14 @@ module RpmsRpc
 
     def personal_wellness_report(dfn)
       return { sections: [], error: "Invalid patient DFN" } if invalid_id?(dfn)
+      return { sections: [], error: "GMTS health summary not available on this server" } unless RpmsRpc.client.supports?(:health_summary_gmts)
 
       parse_pwh_report(DataMapper.health_summary_report.fetch_text(dfn.to_s))
     end
 
     def flowsheet_definitions
+      return [] unless RpmsRpc.client.supports?(:health_summary_gmts)
+
       DataMapper.flowsheet_list.fetch_many
     end
 
@@ -108,12 +111,14 @@ module RpmsRpc
 
     def health_maintenance(dfn)
       return [] if invalid_id?(dfn)
+      return [] unless RpmsRpc.client.supports?(:health_summary_gmts)
 
       DataMapper.maint_items.fetch_many(dfn.to_s)
     end
 
     def flowsheet(dfn, flowsheet_ien:, start_date: Date.today - 365, end_date: Date.today)
       return { items: [], error: "Invalid patient DFN" } if invalid_id?(dfn) || invalid_id?(flowsheet_ien)
+      return { items: [], error: "GMTS health summary not available on this server" } unless RpmsRpc.client.supports?(:health_summary_gmts)
 
       response = RpmsRpc.client.call_rpc(
         DataMapper.flowsheet_data.rpc_name,

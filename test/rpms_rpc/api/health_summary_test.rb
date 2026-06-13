@@ -249,4 +249,36 @@ class HealthSummaryApiTest < Minitest::Test
     assert_equal "PRB", RpmsRpc::HealthSummary::COMPONENT_TYPES[:problems]
     assert_equal "IMM", RpmsRpc::HealthSummary::COMPONENT_TYPES[:immunizations]
   end
+
+  # -- :health_summary_gmts capability gating --------------------------------
+
+  def test_personal_wellness_report_short_circuits_when_gmts_unsupported
+    RpmsRpc.client.seed_capability(:health_summary_gmts, supported: false)
+    result = RpmsRpc::HealthSummary.personal_wellness_report(DFN)
+
+    assert_equal [], result[:sections]
+    assert_match(/not (?:installed|available)/i, result[:error].to_s)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "GMTS PWH REPORT" }
+  end
+
+  def test_flowsheet_definitions_returns_empty_when_gmts_unsupported
+    RpmsRpc.client.seed_capability(:health_summary_gmts, supported: false)
+    assert_equal [], RpmsRpc::HealthSummary.flowsheet_definitions
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "GMTS FLOWSHEET LIST" }
+  end
+
+  def test_health_maintenance_returns_empty_when_gmts_unsupported
+    RpmsRpc.client.seed_capability(:health_summary_gmts, supported: false)
+    assert_equal [], RpmsRpc::HealthSummary.health_maintenance(DFN)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "GMTS MAINT ITEMS" }
+  end
+
+  def test_flowsheet_short_circuits_when_gmts_unsupported
+    RpmsRpc.client.seed_capability(:health_summary_gmts, supported: false)
+    result = RpmsRpc::HealthSummary.flowsheet(DFN, flowsheet_ien: 701)
+
+    assert_equal [], result[:items]
+    assert_match(/not (?:installed|available)/i, result[:error].to_s)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "GMTS FLOWSHEET DATA" }
+  end
 end
