@@ -51,6 +51,8 @@ module RpmsRpc
     private
 
     def security_keys(duz)
+      return [] unless RpmsRpc.client.supports?(:user_security_keys_list)
+
       DataMapper.user_keys.fetch_many(duz.to_s).filter_map { |row| presence(row[:key_name]) }
     end
 

@@ -57,6 +57,7 @@ module RpmsRpc
 
     def user_security_keys(duz)
       return [] if invalid_id?(duz)
+      return [] unless RpmsRpc.client.supports?(:user_security_keys_list)
 
       Array(DataMapper.user_keys.fetch_many(duz.to_s)).filter_map { |row| presence(row[:key_name]) }
     end

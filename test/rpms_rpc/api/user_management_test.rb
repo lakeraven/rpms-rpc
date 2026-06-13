@@ -96,6 +96,15 @@ class UserManagementTest < Minitest::Test
     assert_nil RpmsRpc::UserManagement.find(999_998)
   end
 
+  def test_find_returns_empty_security_keys_when_capability_unsupported
+    RpmsRpc.client.seed_capability(:user_security_keys_list, supported: false)
+    summary = RpmsRpc::UserManagement.find(DUZ)
+
+    refute_nil summary
+    assert_equal [], summary[:security_keys]
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWU USERKEYS" }
+  end
+
   def test_grant_key_calls_rpc_and_returns_success_message
     result = RpmsRpc::UserManagement.grant_key(DUZ, "PROVIDER")
 

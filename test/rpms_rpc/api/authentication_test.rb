@@ -105,6 +105,12 @@ class AuthenticationTest < Minitest::Test
     assert_equal [], RpmsRpc::Authentication.user_security_keys(-1)
   end
 
+  def test_user_security_keys_returns_empty_when_capability_unsupported
+    RpmsRpc.client.seed_capability(:user_security_keys_list, supported: false)
+    assert_equal [], RpmsRpc::Authentication.user_security_keys(301)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWU USERKEYS" }
+  end
+
   def test_has_security_key_uses_duz_and_key_name
     RpmsRpc.mock! do |m|
       m.seed_scalar(:user_has_key, "301", true)
