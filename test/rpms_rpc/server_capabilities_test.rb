@@ -60,6 +60,24 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :user_security_keys_list)
   end
 
+  def test_health_summary_gmts_feature_is_registered
+    assert RpmsRpc::ServerCapabilities::FEATURE_RPCS.key?(:health_summary_gmts),
+           "Registry must expose :health_summary_gmts — gates HealthSummary GMTS-namespace RPCs"
+  end
+
+  def test_health_summary_gmts_maps_to_gmts_cluster
+    rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:health_summary_gmts]
+    assert_includes rpcs, "GMTS PWH REPORT"
+    assert_includes rpcs, "GMTS FLOWSHEET LIST"
+    assert_includes rpcs, "GMTS FLOWSHEET DATA"
+    assert_includes rpcs, "GMTS MAINT ITEMS"
+  end
+
+  def test_probe_returns_false_when_any_gmts_rpc_missing
+    missing = ProbingClient.new(missing: [ "GMTS FLOWSHEET DATA" ])
+    assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :health_summary_gmts)
+  end
+
   def test_unknown_feature_raises_argument_error
     assert_raises(ArgumentError) do
       RpmsRpc::ServerCapabilities.probe(@client, :no_such_feature)

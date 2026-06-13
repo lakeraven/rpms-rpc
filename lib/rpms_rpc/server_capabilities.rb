@@ -32,6 +32,17 @@ module RpmsRpc
       # fall back to per-key probes (ORWU HASKEY) when unsupported.
       user_security_keys_list: [
         "ORWU USERKEYS"
+      ].freeze,
+
+      # HealthSummary — GMTS-namespace health summary, flowsheet, and
+      # maintenance-items reads. The GMTS package is absent entirely on
+      # the 2026-06-07 staging dump (zero entries on file 8994); callers
+      # should gate via supports? and skip the read when unsupported.
+      health_summary_gmts: [
+        "GMTS PWH REPORT",
+        "GMTS FLOWSHEET LIST",
+        "GMTS FLOWSHEET DATA",
+        "GMTS MAINT ITEMS"
       ].freeze
     }.freeze
 
