@@ -43,6 +43,14 @@ module RpmsRpc
         "GMTS FLOWSHEET LIST",
         "GMTS FLOWSHEET DATA",
         "GMTS MAINT ITEMS"
+      ].freeze,
+
+      # UserManagement#list_all_keys / #grant_key / #revoke_key — XU KEY
+      # namespace is absent entirely on the 2026-06-07 staging dump. Probe
+      # via the read-only XU KEY LIST; the GRANT/REVOKE writes gate by
+      # association so an unsupported broker never receives them.
+      xu_key_admin: [
+        "XU KEY LIST"
       ].freeze
     }.freeze
 

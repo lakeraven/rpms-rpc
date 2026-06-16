@@ -158,4 +158,28 @@ class UserManagementTest < Minitest::Test
     assert_equal({ ien: 1, name: "XUPROGMODE" }, keys.first)
     assert_equal({ ien: 2, name: "PROVIDER" }, keys.last)
   end
+
+  def test_list_all_keys_returns_empty_when_xu_key_admin_unsupported
+    RpmsRpc.client.seed_capability(:xu_key_admin, supported: false)
+    assert_equal [], RpmsRpc::UserManagement.list_all_keys
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "XU KEY LIST" }
+  end
+
+  def test_grant_key_short_circuits_when_xu_key_admin_unsupported
+    RpmsRpc.client.seed_capability(:xu_key_admin, supported: false)
+    result = RpmsRpc::UserManagement.grant_key(DUZ, "PROVIDER")
+
+    assert_equal false, result[:success]
+    assert_match(/not available/i, result[:error].to_s)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "XU KEY GRANT" }
+  end
+
+  def test_revoke_key_short_circuits_when_xu_key_admin_unsupported
+    RpmsRpc.client.seed_capability(:xu_key_admin, supported: false)
+    result = RpmsRpc::UserManagement.revoke_key(DUZ, "PROVIDER")
+
+    assert_equal false, result[:success]
+    assert_match(/not available/i, result[:error].to_s)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "XU KEY REVOKE" }
+  end
 end
