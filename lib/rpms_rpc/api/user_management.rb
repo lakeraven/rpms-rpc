@@ -45,6 +45,8 @@ module RpmsRpc
     end
 
     def list_all_keys
+      return [] unless RpmsRpc.client.supports?(:xu_key_admin)
+
       DataMapper.key_list.fetch_many
     end
 
@@ -62,6 +64,10 @@ module RpmsRpc
 
       key_name = key_name.to_s.strip
       return { success: false, error: "Key name required" } if key_name.empty?
+
+      unless RpmsRpc.client.supports?(:xu_key_admin)
+        return { success: false, error: "XU KEY admin not available on this server" }
+      end
 
       rpc_name = DataMapper[mapping_name].rpc_name
       response = RpmsRpc.client.call_rpc(rpc_name, duz.to_s, key_name)

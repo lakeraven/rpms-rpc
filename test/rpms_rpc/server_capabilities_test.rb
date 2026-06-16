@@ -78,6 +78,22 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :health_summary_gmts)
   end
 
+  def test_xu_key_admin_feature_is_registered
+    assert RpmsRpc::ServerCapabilities::FEATURE_RPCS.key?(:xu_key_admin),
+           "Registry must expose :xu_key_admin — gates UserManagement list_all_keys / grant_key / revoke_key"
+  end
+
+  def test_xu_key_admin_probes_read_only_xu_key_list
+    rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:xu_key_admin]
+    assert_equal [ "XU KEY LIST" ], rpcs,
+                 "Probe set must be read-only; XU KEY GRANT/REVOKE are writes and gate-by-association"
+  end
+
+  def test_probe_returns_false_when_xu_key_list_missing
+    missing = ProbingClient.new(missing: [ "XU KEY LIST" ])
+    assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :xu_key_admin)
+  end
+
   def test_unknown_feature_raises_argument_error
     assert_raises(ArgumentError) do
       RpmsRpc::ServerCapabilities.probe(@client, :no_such_feature)
