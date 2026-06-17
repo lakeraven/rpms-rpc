@@ -110,6 +110,22 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :pso_prescription_orders)
   end
 
+  def test_xqal_alert_actions_feature_is_registered
+    assert RpmsRpc::ServerCapabilities::FEATURE_RPCS.key?(:xqal_alert_actions),
+           "Registry must expose :xqal_alert_actions — gates Communication get_alerts / mark_alert_read / forward_alert"
+  end
+
+  def test_xqal_alert_actions_probes_xqal_new_alerts
+    rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:xqal_alert_actions]
+    assert_equal [ "XQAL NEW ALERTS" ], rpcs,
+                 "Read-only sentinel; XQAL MARK READ / FORWARD writes gate by association"
+  end
+
+  def test_probe_returns_false_when_xqal_new_alerts_missing
+    missing = ProbingClient.new(missing: [ "XQAL NEW ALERTS" ])
+    assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :xqal_alert_actions)
+  end
+
   def test_unknown_feature_raises_argument_error
     assert_raises(ArgumentError) do
       RpmsRpc::ServerCapabilities.probe(@client, :no_such_feature)

@@ -60,6 +60,17 @@ module RpmsRpc
       # so an unsupported broker never receives them.
       pso_prescription_orders: [
         "PSO ERX STATUS"
+      ].freeze,
+
+      # Communication#get_alerts / #mark_alert_read / #forward_alert —
+      # XQAL NEW ALERTS, MARK READ, and FORWARD are all absent on the
+      # 2026-06-07 staging dump. (Only XQAL GUI ALERTS is present; that's
+      # a different CPRS-GUI-format read API the gem doesn't currently
+      # consume — re-routing is a separate concern.) Probe via XQAL NEW
+      # ALERTS as the read sentinel; the MARK READ / FORWARD writes gate
+      # by association.
+      xqal_alert_actions: [
+        "XQAL NEW ALERTS"
       ].freeze
     }.freeze
 
