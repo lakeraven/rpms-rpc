@@ -147,13 +147,15 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
            "Registry must expose :orwlrr_lab_reports — gates Lab for_patient / reports / find"
   end
 
-  def test_orwlrr_lab_reports_probes_orwlrr_result_list
+  def test_orwlrr_lab_reports_probes_all_three_rpcs
     rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:orwlrr_lab_reports]
-    assert_equal [ "ORWLRR RESULT LIST" ], rpcs
+    assert_includes rpcs, "ORWLRR RESULT LIST"
+    assert_includes rpcs, "ORWLRR REPORT LIST"
+    assert_includes rpcs, "ORWLRR REPORT"
   end
 
-  def test_probe_returns_false_when_orwlrr_result_list_missing
-    missing = ProbingClient.new(missing: [ "ORWLRR RESULT LIST" ])
+  def test_probe_returns_false_when_any_orwlrr_rpc_missing
+    missing = ProbingClient.new(missing: [ "ORWLRR REPORT" ])
     assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :orwlrr_lab_reports)
   end
 
