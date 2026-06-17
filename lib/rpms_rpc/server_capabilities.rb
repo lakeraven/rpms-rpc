@@ -94,6 +94,16 @@ module RpmsRpc
         "ORWLRR RESULT LIST",
         "ORWLRR REPORT LIST",
         "ORWLRR REPORT"
+      ].freeze,
+
+      # Radiology#for_patient / #find — ORWRA REPORT and ORWRA REPORT
+      # LIST are absent on the 2026-06-07 staging dump (the ORWRA
+      # namespace has ORWRA REPORT TEXT / REPORT TEXT1 — possible rename
+      # situation worth follow-up investigation). Both gem-consumed RPCs
+      # are reads, so probe both per the all-reads cluster pattern.
+      orwra_radiology_reports: [
+        "ORWRA REPORT",
+        "ORWRA REPORT LIST"
       ].freeze
     }.freeze
 

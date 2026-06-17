@@ -14,6 +14,7 @@ module RpmsRpc
     #              impression:, imaging_study_ien:, report_text: }
     def for_patient(dfn)
       return [] if dfn.nil? || dfn.to_s.empty? || dfn.to_i <= 0
+      return [] unless RpmsRpc.client.supports?(:orwra_radiology_reports)
 
       Array(DataMapper.radiology_list.fetch_many(dfn.to_s)).map { |r| apply_defaults(r) }
     end
@@ -23,6 +24,7 @@ module RpmsRpc
     # want to apply site-specific parsing on the returned text.
     def find(ien)
       return nil if ien.nil? || ien.to_s.empty?
+      return nil unless RpmsRpc.client.supports?(:orwra_radiology_reports)
 
       text = DataMapper.radiology_report.fetch_text(ien.to_s)
       return nil if text.nil? || (text.respond_to?(:empty?) && text.empty?)

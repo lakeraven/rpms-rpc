@@ -159,6 +159,22 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :orwlrr_lab_reports)
   end
 
+  def test_orwra_radiology_reports_feature_is_registered
+    assert RpmsRpc::ServerCapabilities::FEATURE_RPCS.key?(:orwra_radiology_reports),
+           "Registry must expose :orwra_radiology_reports — gates Radiology for_patient / find"
+  end
+
+  def test_orwra_radiology_reports_probes_both_rpcs
+    rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:orwra_radiology_reports]
+    assert_includes rpcs, "ORWRA REPORT"
+    assert_includes rpcs, "ORWRA REPORT LIST"
+  end
+
+  def test_probe_returns_false_when_any_orwra_rpc_missing
+    missing = ProbingClient.new(missing: [ "ORWRA REPORT" ])
+    assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :orwra_radiology_reports)
+  end
+
   def test_unknown_feature_raises_argument_error
     assert_raises(ArgumentError) do
       RpmsRpc::ServerCapabilities.probe(@client, :no_such_feature)
