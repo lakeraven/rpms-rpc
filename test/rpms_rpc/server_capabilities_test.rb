@@ -192,6 +192,22 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :orwpce_clinical_logs)
   end
 
+  def test_orwrp_report_types_feature_is_registered
+    assert RpmsRpc::ServerCapabilities::FEATURE_RPCS.key?(:orwrp_report_types),
+           "Registry must expose :orwrp_report_types — gates HealthSummary types / type_components"
+  end
+
+  def test_orwrp_report_types_probes_both_rpcs
+    rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:orwrp_report_types]
+    assert_includes rpcs, "ORWRP TYPES"
+    assert_includes rpcs, "ORWRP TYPE COMPONENTS"
+  end
+
+  def test_probe_returns_false_when_any_orwrp_rpc_missing
+    missing = ProbingClient.new(missing: [ "ORWRP TYPE COMPONENTS" ])
+    assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :orwrp_report_types)
+  end
+
   def test_unknown_feature_raises_argument_error
     assert_raises(ArgumentError) do
       RpmsRpc::ServerCapabilities.probe(@client, :no_such_feature)

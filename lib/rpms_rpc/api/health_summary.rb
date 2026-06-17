@@ -73,12 +73,15 @@ module RpmsRpc
     end
 
     def types
+      return DEFAULT_TYPES.map(&:dup) unless RpmsRpc.client.supports?(:orwrp_report_types)
+
       rows = DataMapper.report_types.fetch_many
       rows.empty? ? DEFAULT_TYPES.map(&:dup) : rows
     end
 
     def type_components(ien)
       return [] if invalid_id?(ien)
+      return [] unless RpmsRpc.client.supports?(:orwrp_report_types)
 
       DataMapper.report_type_components.fetch_many(ien.to_s)
     end
