@@ -281,4 +281,20 @@ class HealthSummaryApiTest < Minitest::Test
     assert_match(/not (?:installed|available)/i, result[:error].to_s)
     assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "GMTS FLOWSHEET DATA" }
   end
+
+  # === :orwrp_report_types capability gating ================================
+
+  def test_types_falls_back_to_defaults_when_orwrp_unsupported
+    RpmsRpc.client.seed_capability(:orwrp_report_types, supported: false)
+    types = RpmsRpc::HealthSummary.types
+
+    assert_equal RpmsRpc::HealthSummary::DEFAULT_TYPES, types
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWRP TYPES" }
+  end
+
+  def test_type_components_returns_empty_when_orwrp_unsupported
+    RpmsRpc.client.seed_capability(:orwrp_report_types, supported: false)
+    assert_equal [], RpmsRpc::HealthSummary.type_components(101)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWRP TYPE COMPONENTS" }
+  end
 end

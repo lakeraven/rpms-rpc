@@ -117,6 +117,16 @@ module RpmsRpc
         "ORWPCE IMPLANT LIST",
         "ORWPCE IMPLANT GET",
         "ORWPCE PROCEDURE LIST"
+      ].freeze,
+
+      # HealthSummary#types / #type_components — ORWRP TYPES and
+      # ORWRP TYPE COMPONENTS are absent on the 2026-06-07 staging dump.
+      # Both are reads, so probe both (cluster-probe pattern). When
+      # unsupported, types falls back to DEFAULT_TYPES (existing
+      # graceful-degradation pattern); type_components returns [].
+      orwrp_report_types: [
+        "ORWRP TYPES",
+        "ORWRP TYPE COMPONENTS"
       ].freeze
     }.freeze
 
