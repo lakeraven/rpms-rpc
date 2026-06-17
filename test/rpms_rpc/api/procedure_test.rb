@@ -66,4 +66,12 @@ class ProcedureTest < Minitest::Test
     assert_equal [], RpmsRpc::Procedure.for_patient(DFN)
     assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWPCE PROCEDURE LIST" }
   end
+
+  def test_for_patient_returns_empty_for_invalid_dfn_without_probing
+    RpmsRpc.mock!
+    [ nil, "", 0, -1, "abc" ].each do |bad|
+      assert_equal [], RpmsRpc::Procedure.for_patient(bad)
+    end
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWPCE PROCEDURE LIST" }
+  end
 end
