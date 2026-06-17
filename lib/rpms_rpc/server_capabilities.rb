@@ -51,6 +51,15 @@ module RpmsRpc
       # association so an unsupported broker never receives them.
       xu_key_admin: [
         "XU KEY LIST"
+      ].freeze,
+
+      # Eprescribing#transmit / #status / #cancel — PSO namespace is absent
+      # entirely on the 2026-06-07 staging dump (no PSO entries on file
+      # 8994). Probe via PSO ERX STATUS as the read-leaning sentinel; PSO
+      # NEW RX and PSO CANCEL RX are clinical writes and gate by association
+      # so an unsupported broker never receives them.
+      pso_prescription_orders: [
+        "PSO ERX STATUS"
       ].freeze
     }.freeze
 

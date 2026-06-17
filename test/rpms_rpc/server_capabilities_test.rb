@@ -94,6 +94,22 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :xu_key_admin)
   end
 
+  def test_pso_prescription_orders_feature_is_registered
+    assert RpmsRpc::ServerCapabilities::FEATURE_RPCS.key?(:pso_prescription_orders),
+           "Registry must expose :pso_prescription_orders — gates Eprescribing.transmit / status / cancel"
+  end
+
+  def test_pso_prescription_orders_probes_pso_erx_status
+    rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:pso_prescription_orders]
+    assert_equal [ "PSO ERX STATUS" ], rpcs,
+                 "Probe set picks PSO ERX STATUS as the read-leaning sentinel; PSO NEW RX / CANCEL RX gate by association"
+  end
+
+  def test_probe_returns_false_when_pso_erx_status_missing
+    missing = ProbingClient.new(missing: [ "PSO ERX STATUS" ])
+    assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :pso_prescription_orders)
+  end
+
   def test_unknown_feature_raises_argument_error
     assert_raises(ArgumentError) do
       RpmsRpc::ServerCapabilities.probe(@client, :no_such_feature)

@@ -221,4 +221,33 @@ class EprescribingTest < Minitest::Test
   def test_build_rx_param_joins_attrs_in_pso_new_rx_order
     assert_equal RX_COMPOSITE, RpmsRpc::Eprescribing.build_rx_param(RX_ATTRS)
   end
+
+  # === :pso_prescription_orders capability gating ==========================
+
+  def test_transmit_short_circuits_when_pso_unsupported
+    RpmsRpc.client.seed_capability(:pso_prescription_orders, supported: false)
+    result = RpmsRpc::Eprescribing.transmit(RX_ATTRS)
+
+    assert_equal false, result[:success]
+    assert_match(/not available/i, result[:error].to_s)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "PSO NEW RX" }
+  end
+
+  def test_status_short_circuits_when_pso_unsupported
+    RpmsRpc.client.seed_capability(:pso_prescription_orders, supported: false)
+    result = RpmsRpc::Eprescribing.status("TX001")
+
+    assert_equal "error", result[:status]
+    assert_match(/not available/i, result[:error].to_s)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "PSO ERX STATUS" }
+  end
+
+  def test_cancel_short_circuits_when_pso_unsupported
+    RpmsRpc.client.seed_capability(:pso_prescription_orders, supported: false)
+    result = RpmsRpc::Eprescribing.cancel("TX001")
+
+    assert_equal false, result[:success]
+    assert_match(/not available/i, result[:error].to_s)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "PSO CANCEL RX" }
+  end
 end

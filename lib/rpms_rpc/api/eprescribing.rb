@@ -39,6 +39,7 @@ module RpmsRpc
     #   { success: false, error: "..." }
     def transmit(attrs)
       return { success: false, error: "attrs hash is required" } unless attrs.is_a?(Hash)
+      return { success: false, error: "PSO prescription orders not available on this server" } unless RpmsRpc.client.supports?(:pso_prescription_orders)
 
       param = build_rx_param(attrs)
       result = DataMapper.prescription_new.fetch_one(param)
@@ -56,6 +57,7 @@ module RpmsRpc
     # plus { error: "..." } when status is "error".
     def status(transmission_id)
       return { status: "error", error: "transmission_id is required" } if blank?(transmission_id)
+      return { status: "error", error: "PSO prescription orders not available on this server" } unless RpmsRpc.client.supports?(:pso_prescription_orders)
 
       result = DataMapper.erx_status.fetch_one(transmission_id.to_s)
       return { status: "error", error: "Empty response from RPMS" } if result.nil?
@@ -73,6 +75,7 @@ module RpmsRpc
     #   { success: false, error: "..." }
     def cancel(transmission_id, reason: nil)
       return { success: false, error: "transmission_id is required" } if blank?(transmission_id)
+      return { success: false, error: "PSO prescription orders not available on this server" } unless RpmsRpc.client.supports?(:pso_prescription_orders)
 
       param  = blank?(reason) ? transmission_id.to_s : "#{transmission_id}^#{reason}"
       result = DataMapper.prescription_cancel.fetch_one(param)
