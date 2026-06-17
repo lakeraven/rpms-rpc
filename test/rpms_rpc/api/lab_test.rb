@@ -230,4 +230,24 @@ class LabTest < Minitest::Test
     assert RpmsRpc::Lab.respond_to?(:find)
     assert RpmsRpc::Lab.respond_to?(:build_list_param)
   end
+
+  # === :orwlrr_lab_reports capability gating ===================================
+
+  def test_for_patient_returns_empty_when_orwlrr_unsupported
+    RpmsRpc.client.seed_capability(:orwlrr_lab_reports, supported: false)
+    assert_equal [], RpmsRpc::Lab.for_patient(DFN)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWLRR RESULT LIST" }
+  end
+
+  def test_reports_returns_empty_when_orwlrr_unsupported
+    RpmsRpc.client.seed_capability(:orwlrr_lab_reports, supported: false)
+    assert_equal [], RpmsRpc::Lab.reports(DFN)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWLRR REPORT LIST" }
+  end
+
+  def test_find_returns_nil_when_orwlrr_unsupported
+    RpmsRpc.client.seed_capability(:orwlrr_lab_reports, supported: false)
+    assert_nil RpmsRpc::Lab.find(DFN, 501)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWLRR REPORT" }
+  end
 end

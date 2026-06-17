@@ -15,6 +15,7 @@ module RpmsRpc
     #              abnormal:, abnormal_flag:, collection_date:, status: }
     def for_patient(dfn, days: 90)
       return [] if blank?(dfn) || dfn.to_i <= 0
+      return [] unless RpmsRpc.client.supports?(:orwlrr_lab_reports)
 
       raw = DataMapper.lab_result_list.fetch_many(build_list_param(dfn, days))
       Array(raw).map { |row| decorate_result(row) }
@@ -28,6 +29,7 @@ module RpmsRpc
     # DiagnosticReport-style panel aggregation for a patient.
     def reports(dfn)
       return [] if blank?(dfn) || dfn.to_i <= 0
+      return [] unless RpmsRpc.client.supports?(:orwlrr_lab_reports)
 
       Array(DataMapper.lab_report_list.fetch_many(dfn.to_s)).map { |r| apply_report_defaults(r) }
     end
@@ -38,6 +40,7 @@ module RpmsRpc
     # component lines for panel tests.
     def find(dfn, lab_ien)
       return nil if blank?(dfn) || blank?(lab_ien)
+      return nil unless RpmsRpc.client.supports?(:orwlrr_lab_reports)
 
       key = "#{dfn}^#{lab_ien}"
       text = DataMapper.lab_report.fetch_text(key)

@@ -80,6 +80,16 @@ module RpmsRpc
       # (logs PHR access for reporting) gates by association.
       bphr_phr_endpoints: [
         "BPHR PATIENT DIRECT"
+      ].freeze,
+
+      # Lab#for_patient / #reports / #find — ORWLRR RESULT LIST,
+      # ORWLRR REPORT LIST, and ORWLRR REPORT are all absent on the
+      # 2026-06-07 staging dump (the ORWLRR namespace IS installed, with
+      # entries like INTERIM / ATOMICS / SPEC — just not the three the
+      # gem consumes). Probe via ORWLRR RESULT LIST as the sentinel; all
+      # three are reads.
+      orwlrr_lab_reports: [
+        "ORWLRR RESULT LIST"
       ].freeze
     }.freeze
 
