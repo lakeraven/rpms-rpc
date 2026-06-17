@@ -92,4 +92,18 @@ class RadiologyTest < Minitest::Test
     assert RpmsRpc::Radiology.respond_to?(:for_patient)
     assert RpmsRpc::Radiology.respond_to?(:find)
   end
+
+  # === :orwra_radiology_reports capability gating ==============================
+
+  def test_for_patient_returns_empty_when_orwra_unsupported
+    RpmsRpc.client.seed_capability(:orwra_radiology_reports, supported: false)
+    assert_equal [], RpmsRpc::Radiology.for_patient(8791)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWRA REPORT LIST" }
+  end
+
+  def test_find_returns_nil_when_orwra_unsupported
+    RpmsRpc.client.seed_capability(:orwra_radiology_reports, supported: false)
+    assert_nil RpmsRpc::Radiology.find(501)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWRA REPORT" }
+  end
 end
