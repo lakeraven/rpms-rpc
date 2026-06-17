@@ -86,6 +86,7 @@ module RpmsRpc
 
     def record_access(dfn, access_type: "VIEW", date: Date.today)
       return nil if invalid_id?(dfn)
+      return nil unless RpmsRpc.client.supports?(:bphr_phr_endpoints)
 
       param = "#{dfn}^#{access_type}^#{format_date(date)}"
       DataMapper.phr_record_access.fetch_scalar(param)
@@ -102,6 +103,7 @@ module RpmsRpc
 
     def direct_address(mapping_name, id)
       return nil if invalid_id?(id)
+      return nil unless RpmsRpc.client.supports?(:bphr_phr_endpoints)
 
       row = DataMapper[mapping_name].fetch_one(id.to_s)
       return nil if row.nil?

@@ -71,6 +71,15 @@ module RpmsRpc
       # by association.
       xqal_alert_actions: [
         "XQAL NEW ALERTS"
+      ].freeze,
+
+      # Phr#patient_direct_address / #provider_direct_address /
+      # #facility_direct_domain / #record_access — BPHR namespace is
+      # absent entirely on the 2026-06-07 staging dump. Probe via the
+      # read-shape BPHR PATIENT DIRECT; the BPHR RECORD ACCESS write
+      # (logs PHR access for reporting) gates by association.
+      bphr_phr_endpoints: [
+        "BPHR PATIENT DIRECT"
       ].freeze
     }.freeze
 

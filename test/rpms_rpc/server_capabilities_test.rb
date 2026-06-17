@@ -126,6 +126,22 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :xqal_alert_actions)
   end
 
+  def test_bphr_phr_endpoints_feature_is_registered
+    assert RpmsRpc::ServerCapabilities::FEATURE_RPCS.key?(:bphr_phr_endpoints),
+           "Registry must expose :bphr_phr_endpoints — gates Phr patient/provider/facility direct + record_access"
+  end
+
+  def test_bphr_phr_endpoints_probes_bphr_patient_direct
+    rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:bphr_phr_endpoints]
+    assert_equal [ "BPHR PATIENT DIRECT" ], rpcs,
+                 "Read-only sentinel; BPHR RECORD ACCESS write gates by association"
+  end
+
+  def test_probe_returns_false_when_bphr_patient_direct_missing
+    missing = ProbingClient.new(missing: [ "BPHR PATIENT DIRECT" ])
+    assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :bphr_phr_endpoints)
+  end
+
   def test_unknown_feature_raises_argument_error
     assert_raises(ArgumentError) do
       RpmsRpc::ServerCapabilities.probe(@client, :no_such_feature)
