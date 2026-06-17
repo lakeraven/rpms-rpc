@@ -86,10 +86,14 @@ module RpmsRpc
       # ORWLRR REPORT LIST, and ORWLRR REPORT are all absent on the
       # 2026-06-07 staging dump (the ORWLRR namespace IS installed, with
       # entries like INTERIM / ATOMICS / SPEC — just not the three the
-      # gem consumes). Probe via ORWLRR RESULT LIST as the sentinel; all
-      # three are reads.
+      # gem consumes). All three are reads, so probe all three: a server
+      # could have one but not the others (sentinel pattern would risk a
+      # false positive). Same cluster-probe shape as :patient_chart_banner
+      # and :health_summary_gmts.
       orwlrr_lab_reports: [
-        "ORWLRR RESULT LIST"
+        "ORWLRR RESULT LIST",
+        "ORWLRR REPORT LIST",
+        "ORWLRR REPORT"
       ].freeze
     }.freeze
 
