@@ -204,6 +204,32 @@ class CommunicationTest < Minitest::Test
     assert_equal false, RpmsRpc::Communication.forward_alert(501, from_duz: DUZ, to_duz: 0)[:success]
   end
 
+  # === :xqal_alert_actions capability gating ===============================
+
+  def test_get_alerts_returns_empty_when_xqal_unsupported
+    RpmsRpc.client.seed_capability(:xqal_alert_actions, supported: false)
+    assert_equal [], RpmsRpc::Communication.get_alerts(DUZ)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "XQAL NEW ALERTS" }
+  end
+
+  def test_mark_alert_read_short_circuits_when_xqal_unsupported
+    RpmsRpc.client.seed_capability(:xqal_alert_actions, supported: false)
+    result = RpmsRpc::Communication.mark_alert_read(501, DUZ)
+
+    assert_equal false, result[:success]
+    assert_match(/not available/i, result[:error].to_s)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "XQAL MARK READ" }
+  end
+
+  def test_forward_alert_short_circuits_when_xqal_unsupported
+    RpmsRpc.client.seed_capability(:xqal_alert_actions, supported: false)
+    result = RpmsRpc::Communication.forward_alert(501, from_duz: DUZ, to_duz: 302)
+
+    assert_equal false, result[:success]
+    assert_match(/not available/i, result[:error].to_s)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "XQAL FORWARD" }
+  end
+
   private
 
   def message_attrs(overrides = {})

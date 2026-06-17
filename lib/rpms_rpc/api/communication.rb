@@ -87,6 +87,7 @@ module RpmsRpc
 
     def get_alerts(duz)
       return [] if invalid_id?(duz)
+      return [] unless RpmsRpc.client.supports?(:xqal_alert_actions)
 
       Array(DataMapper.xqal_alert.fetch_many(duz.to_s)).map { |alert| apply_alert_defaults(alert) }
     end
@@ -98,6 +99,7 @@ module RpmsRpc
     def mark_alert_read(alert_ien, duz)
       return { success: false, error: "Alert IEN required" } if invalid_id?(alert_ien)
       return { success: false, error: "User DUZ required" } if invalid_id?(duz)
+      return { success: false, error: "XQAL alert actions not available on this server" } unless RpmsRpc.client.supports?(:xqal_alert_actions)
 
       parsed = DataMapper.xqal_mark_read.fetch_one("#{alert_ien}^#{duz}")
 
@@ -111,6 +113,7 @@ module RpmsRpc
       return { success: false, error: "Alert IEN required" } if invalid_id?(alert_ien)
       return { success: false, error: "From DUZ required" } if invalid_id?(from_duz)
       return { success: false, error: "To DUZ required" } if invalid_id?(to_duz)
+      return { success: false, error: "XQAL alert actions not available on this server" } unless RpmsRpc.client.supports?(:xqal_alert_actions)
 
       parsed = DataMapper.xqal_forward.fetch_one(
         [ alert_ien, from_duz, to_duz, escape_multiline(comment) ].join("^")
