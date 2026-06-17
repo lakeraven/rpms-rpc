@@ -104,6 +104,19 @@ module RpmsRpc
       orwra_radiology_reports: [
         "ORWRA REPORT",
         "ORWRA REPORT LIST"
+      ].freeze,
+
+      # Device#for_patient / #find + Procedure#for_patient — ORWPCE
+      # IMPLANT LIST/GET and ORWPCE PROCEDURE LIST are absent on the
+      # 2026-06-07 staging dump (the ORWPCE namespace IS installed with
+      # DIAG / PROC / VISIT / IMM / etc. — just not the IMPLANT/PROCEDURE
+      # log variants the gem consumes). Probe all three live-consumer
+      # RPCs (cluster-probe, all-reads). procedure_detail's ORWPCE
+      # PROCEDURE GET has no live caller and isn't probed.
+      orwpce_clinical_logs: [
+        "ORWPCE IMPLANT LIST",
+        "ORWPCE IMPLANT GET",
+        "ORWPCE PROCEDURE LIST"
       ].freeze
     }.freeze
 

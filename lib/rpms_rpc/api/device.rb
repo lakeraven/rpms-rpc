@@ -6,12 +6,14 @@ module RpmsRpc
 
     def for_patient(dfn)
       return [] if blank?(dfn) || dfn.to_i <= 0
+      return [] unless RpmsRpc.client.supports?(:orwpce_clinical_logs)
 
       DataMapper.device_list.fetch_many(dfn.to_s).map { |device| apply_defaults(device) }
     end
 
     def find(ien)
       return nil if blank?(ien) || ien.to_i <= 0
+      return nil unless RpmsRpc.client.supports?(:orwpce_clinical_logs)
 
       device = DataMapper.device_detail.fetch_one(ien.to_s, extras: { ien: ien.to_s })
       apply_defaults(device) if device

@@ -138,4 +138,18 @@ class DeviceTest < Minitest::Test
     assert_equal "Neurostimulator", device[:name]
     assert_equal "active", device[:status]
   end
+
+  # === :orwpce_clinical_logs capability gating =================================
+
+  def test_for_patient_returns_empty_when_orwpce_unsupported
+    RpmsRpc.client.seed_capability(:orwpce_clinical_logs, supported: false)
+    assert_equal [], RpmsRpc::Device.for_patient("1")
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWPCE IMPLANT LIST" }
+  end
+
+  def test_find_returns_nil_when_orwpce_unsupported
+    RpmsRpc.client.seed_capability(:orwpce_clinical_logs, supported: false)
+    assert_nil RpmsRpc::Device.find("201")
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWPCE IMPLANT GET" }
+  end
 end

@@ -9,6 +9,8 @@ module RpmsRpc
     extend self
 
     def for_patient(dfn)
+      return [] unless RpmsRpc.client.supports?(:orwpce_clinical_logs)
+
       DataMapper.procedure_list.fetch_many(dfn.to_s)
     end
 

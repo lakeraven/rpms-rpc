@@ -59,4 +59,11 @@ class ProcedureTest < Minitest::Test
     refute RpmsRpc::Procedure.add(DFN, VISIT_IEN, CPT, quantity: 0)[:success]
     refute RpmsRpc::Procedure.add(DFN, VISIT_IEN, CPT, quantity: -1)[:success]
   end
+
+  def test_for_patient_returns_empty_when_orwpce_unsupported
+    RpmsRpc.mock!
+    RpmsRpc.client.seed_capability(:orwpce_clinical_logs, supported: false)
+    assert_equal [], RpmsRpc::Procedure.for_patient(DFN)
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWPCE PROCEDURE LIST" }
+  end
 end
