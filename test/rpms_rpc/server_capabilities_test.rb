@@ -175,6 +175,23 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :orwra_radiology_reports)
   end
 
+  def test_orwpce_clinical_logs_feature_is_registered
+    assert RpmsRpc::ServerCapabilities::FEATURE_RPCS.key?(:orwpce_clinical_logs),
+           "Registry must expose :orwpce_clinical_logs — gates Device for_patient / find + Procedure for_patient"
+  end
+
+  def test_orwpce_clinical_logs_probes_live_caller_rpcs
+    rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:orwpce_clinical_logs]
+    assert_includes rpcs, "ORWPCE IMPLANT LIST"
+    assert_includes rpcs, "ORWPCE IMPLANT GET"
+    assert_includes rpcs, "ORWPCE PROCEDURE LIST"
+  end
+
+  def test_probe_returns_false_when_any_orwpce_rpc_missing
+    missing = ProbingClient.new(missing: [ "ORWPCE PROCEDURE LIST" ])
+    assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :orwpce_clinical_logs)
+  end
+
   def test_unknown_feature_raises_argument_error
     assert_raises(ArgumentError) do
       RpmsRpc::ServerCapabilities.probe(@client, :no_such_feature)
