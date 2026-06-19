@@ -62,6 +62,86 @@ module RpmsRpc
       Array(DataMapper.problem_filter.fetch_many(dfn.to_s, code))
     end
 
+    # ORQQPL stock-VistA reads. Use these when the engine wants the
+    # stock-VistA lookup/audit surface rather than the IHS BGOPROB writes
+    # above. Returns nil / [] for invalid identifiers without raising.
+
+    def lex_search(text)
+      return [] if text.to_s.strip.empty?
+      return unsupported_list unless workflow_supported?
+
+      Array(DataMapper.problem_lex_search.fetch_many(text.to_s))
+    end
+
+    def clinic_search(clinic_ien)
+      return [] if invalid_id?(clinic_ien)
+      return unsupported_list unless workflow_supported?
+
+      Array(DataMapper.problem_clinic_search.fetch_many(clinic_ien.to_s))
+    end
+
+    def details(ien)
+      return nil if invalid_id?(ien)
+      return unsupported_detail unless workflow_supported?
+
+      DataMapper.problem_detail.fetch_one(ien.to_s)
+    end
+
+    def audit_history(ien)
+      return [] if invalid_id?(ien)
+      return unsupported_list unless workflow_supported?
+
+      Array(DataMapper.problem_audit_history.fetch_many(ien.to_s))
+    end
+
+    def comments(ien)
+      return [] if invalid_id?(ien)
+      return unsupported_list unless workflow_supported?
+
+      Array(DataMapper.problem_comments.fetch_many(ien.to_s))
+    end
+
+    def init_patient(dfn)
+      return nil if invalid_id?(dfn)
+      return unsupported_detail unless workflow_supported?
+
+      DataMapper.problem_init_patient.fetch_one(dfn.to_s)
+    end
+
+    def provider_list(dfn)
+      return [] if invalid_id?(dfn)
+      return unsupported_list unless workflow_supported?
+
+      Array(DataMapper.problem_provider_list.fetch_many(dfn.to_s))
+    end
+
+    def edit_load(ien)
+      return nil if invalid_id?(ien)
+      return unsupported_detail unless workflow_supported?
+
+      DataMapper.problem_edit_load.fetch_one(ien.to_s)
+    end
+
+    # ORQQPL stock-VistA state-change writes that don't overlap with the
+    # IHS BGOPROB API above. Inactivate and verify are clean adds; ADD
+    # SAVE / EDIT SAVE / DELETE / UPDATE / REPLACE are wired in mappings.rb
+    # for direct DataMapper use but not given Ruby-side wrappers here
+    # because they shadow the existing add/update/delete methods.
+
+    def inactivate(ien)
+      return unsupported_result unless workflow_supported?
+
+      raw = DataMapper.problem_inactivate.fetch_scalar(ien.to_s)
+      success_result(raw)
+    end
+
+    def verify(ien)
+      return unsupported_result unless workflow_supported?
+
+      raw = DataMapper.problem_verify.fetch_scalar(ien.to_s)
+      success_result(raw)
+    end
+
     private
 
     def write(dfn, action, ien, fields)
@@ -88,6 +168,34 @@ module RpmsRpc
 
     def invalid_id?(value)
       value.nil? || value.to_s.strip.empty? || value.to_i <= 0
+    end
+
+    def workflow_supported?
+      RpmsRpc.client.supports?(:orqqpl_problem_workflow)
+    rescue NotConfiguredError
+      false
+    end
+
+    def unsupported_list
+      []
+    end
+
+    def unsupported_detail
+      nil
+    end
+
+    def unsupported_result
+      { success: false, error: "ORQQPL problem workflow not available on this server", raw: nil }
+    end
+
+    def success_result(raw)
+      line = raw.to_s.strip
+      return { success: false, raw: raw } if line.empty?
+
+      # Stock-VistA convention: leading non-zero IEN OR "1^message" = success.
+      success = line.match?(/\A[1-9]\d*\z/) || line.start_with?("1^")
+      message = line.sub(/\A[01]\^/, "").strip
+      { success: success, message: message.empty? ? nil : message, raw: raw }
     end
   end
 end

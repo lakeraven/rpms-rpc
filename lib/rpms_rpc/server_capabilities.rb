@@ -134,6 +134,14 @@ module RpmsRpc
       # can have side effects, so API methods gate them by this association.
       bmc_referral_workflow: [
         "BMC GET REFERENCE DATA"
+      ].freeze,
+
+      # ORQQPL problem-list mutation + lookup surface — stock VistA.
+      # Probe with a read-only RPC (DETAIL) only; ADD SAVE, EDIT SAVE,
+      # DELETE, INACTIVATE, VERIFY, REPLACE, UPDATE are writes and must
+      # not be invoked just to test capability.
+      orqqpl_problem_workflow: [
+        "ORQQPL DETAIL"
       ].freeze
     }.freeze
 

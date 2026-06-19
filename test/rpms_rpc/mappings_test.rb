@@ -607,6 +607,14 @@ class RpmsRpc::MappingsTest < Minitest::Test
       bmc_patient_eligibility_status bmc_patient_face_sheet bmc_patient_health_summary
       bmc_print_referral bmc_providers bmc_referral_status_update
       bmc_search_referred_to bmc_update_referral
+      problem_add_save problem_audit_history problem_check_duplicate
+      problem_clinic_filter_list problem_clinic_search problem_delete
+      problem_detail problem_edit_load problem_edit_save problem_inactivate
+      problem_init_patient problem_init_user problem_comments problem_lex_search
+      problem_problem_list problem_provider_filter_list problem_provider_list
+      problem_replace problem_save_view problem_service_filter_list
+      problem_service_search problem_update problem_user_categories
+      problem_user_list problem_verify
     ]
 
     expected.each do |name|

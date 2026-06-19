@@ -224,6 +224,22 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :bmc_referral_workflow)
   end
 
+  def test_orqqpl_problem_workflow_feature_is_registered
+    assert RpmsRpc::ServerCapabilities::FEATURE_RPCS.key?(:orqqpl_problem_workflow),
+           "Registry must expose :orqqpl_problem_workflow — gates Problem ORQQPL lookup/mutation RPCs"
+  end
+
+  def test_orqqpl_problem_workflow_probes_read_only_detail
+    rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:orqqpl_problem_workflow]
+    assert_equal [ "ORQQPL DETAIL" ], rpcs,
+                 "Probe set must avoid ORQQPL write RPCs (ADD SAVE, EDIT SAVE, DELETE, INACTIVATE, VERIFY, REPLACE, UPDATE)"
+  end
+
+  def test_probe_returns_false_when_orqqpl_detail_missing
+    missing = ProbingClient.new(missing: [ "ORQQPL DETAIL" ])
+    assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :orqqpl_problem_workflow)
+  end
+
   def test_unknown_feature_raises_argument_error
     assert_raises(ArgumentError) do
       RpmsRpc::ServerCapabilities.probe(@client, :no_such_feature)
