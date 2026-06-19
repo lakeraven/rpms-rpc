@@ -158,7 +158,7 @@ module RpmsRpc
       return { success: false, raw: raw } if line.empty?
 
       success = line.start_with?("1") || line.match?(/\A[1-9]\d*\z/)
-      message = line.sub(/\A[01]\^?/, "").strip
+      message = line.sub(/\A[01]\^/, "").strip
       { success: success, message: message.empty? ? nil : message, raw: raw }
     end
 
