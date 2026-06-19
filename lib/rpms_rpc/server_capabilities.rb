@@ -127,6 +127,13 @@ module RpmsRpc
       orwrp_report_types: [
         "ORWRP TYPES",
         "ORWRP TYPE COMPONENTS"
+      ].freeze,
+
+      # Referral/RCIS workflows — IHS BMC package. Probe with a read-only
+      # reference-data RPC only; create/update/status/print calls are writes or
+      # can have side effects, so API methods gate them by this association.
+      bmc_referral_workflow: [
+        "BMC GET REFERENCE DATA"
       ].freeze
     }.freeze
 
