@@ -136,6 +136,139 @@ module RpmsRpc
       m.field 6, :provider_duz, :string, pointer: { file: 200 }
     end
 
+    # ORQQPL coverage — problem-list mutations + lookups + audit. Wire field
+    # formats below are best-effort pending broker trace capture; mapping
+    # names + RPC bindings are deliberate so the API layer can dispatch
+    # without re-deriving names. Callers using fetch_scalar / fetch_many on
+    # these mappings will get raw strings + simple keyed rows respectively.
+
+    DataMapper.define(:problem_add_save) do |m|
+      m.rpc "ORQQPL ADD SAVE"
+    end
+
+    # Best-effort field positions pending broker trace capture for
+    # problem_audit_history / problem_comments / problem_detail /
+    # problem_clinic_search / problem_lex_search / problem_provider_list /
+    # problem_edit_load — wire formats below mirror the closest analogous
+    # ORQQPL RPC (problem_list) and the standard VistA "IEN^DESCRIPTION..."
+    # convention. Refine when trace capture lands.
+
+    DataMapper.define(:problem_audit_history) do |m|
+      m.rpc "ORQQPL AUDIT HIST"
+      m.field 0, :event
+      m.field 1, :date, :fileman_date
+      m.field 2, :actor
+    end
+
+    DataMapper.define(:problem_check_duplicate) do |m|
+      m.rpc "ORQQPL CHECK DUP"
+    end
+
+    DataMapper.define(:problem_clinic_filter_list) do |m|
+      m.rpc "ORQQPL CLIN FILTER LIST"
+    end
+
+    DataMapper.define(:problem_clinic_search) do |m|
+      m.rpc "ORQQPL CLIN SRCH"
+      m.field 0, :ien
+      m.field 1, :description
+    end
+
+    DataMapper.define(:problem_delete) do |m|
+      m.rpc "ORQQPL DELETE"
+    end
+
+    DataMapper.define(:problem_detail) do |m|
+      m.rpc "ORQQPL DETAIL"
+      m.field 0, :ien
+      m.field 1, :status
+      m.field 2, :description
+    end
+
+    DataMapper.define(:problem_edit_load) do |m|
+      m.rpc "ORQQPL EDIT LOAD"
+      m.field 0, :ien
+      m.field 1, :status
+      m.field 2, :description
+    end
+
+    DataMapper.define(:problem_edit_save) do |m|
+      m.rpc "ORQQPL EDIT SAVE"
+    end
+
+    DataMapper.define(:problem_inactivate) do |m|
+      m.rpc "ORQQPL INACTIVATE"
+    end
+
+    DataMapper.define(:problem_init_patient) do |m|
+      m.rpc "ORQQPL INIT PT"
+      m.field 0, :dfn
+      m.field 1, :name
+    end
+
+    DataMapper.define(:problem_init_user) do |m|
+      m.rpc "ORQQPL INIT USER"
+    end
+
+    DataMapper.define(:problem_comments) do |m|
+      m.rpc "ORQQPL PROB COMMENTS"
+      m.field 0, :date, :fileman_date
+      m.field 1, :author
+      m.field 2, :comment
+    end
+
+    DataMapper.define(:problem_lex_search) do |m|
+      m.rpc "ORQQPL PROBLEM LEX SEARCH"
+      m.field 0, :code, :string, terminology: :icd10
+      m.field 1, :description
+    end
+
+    DataMapper.define(:problem_problem_list) do |m|
+      m.rpc "ORQQPL PROBLEM LIST"
+    end
+
+    DataMapper.define(:problem_provider_filter_list) do |m|
+      m.rpc "ORQQPL PROV FILTER LIST"
+    end
+
+    DataMapper.define(:problem_provider_list) do |m|
+      m.rpc "ORQQPL PROVIDER LIST"
+      m.field 0, :duz, :string, pointer: { file: 200 }
+      m.field 1, :name
+    end
+
+    DataMapper.define(:problem_replace) do |m|
+      m.rpc "ORQQPL REPLACE"
+    end
+
+    DataMapper.define(:problem_save_view) do |m|
+      m.rpc "ORQQPL SAVEVIEW"
+    end
+
+    DataMapper.define(:problem_service_filter_list) do |m|
+      m.rpc "ORQQPL SERV FILTER LIST"
+    end
+
+    DataMapper.define(:problem_service_search) do |m|
+      m.rpc "ORQQPL SRVC SRCH"
+    end
+
+    DataMapper.define(:problem_update) do |m|
+      m.rpc "ORQQPL UPDATE"
+    end
+
+    DataMapper.define(:problem_user_categories) do |m|
+      m.rpc "ORQQPL USER PROB CATS"
+    end
+
+    DataMapper.define(:problem_user_list) do |m|
+      m.rpc "ORQQPL USER PROB LIST"
+    end
+
+    DataMapper.define(:problem_verify) do |m|
+      m.rpc "ORQQPL VERIFY"
+    end
+
     # ORQQVI VITALS — patient vitals (multi-line)
     # Format: TYPE^VALUE^UNITS^DATE
     DataMapper.define(:vitals) do |m|
