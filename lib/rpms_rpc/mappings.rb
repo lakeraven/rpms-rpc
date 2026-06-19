@@ -489,6 +489,143 @@ module RpmsRpc
       m.field 5, :provider
     end
 
+    # BMC ADD C32 PRINT LOG — records health-summary print activity.
+    DataMapper.define(:bmc_add_c32_print_log) do |m|
+      m.rpc "BMC ADD C32 PRINT LOG"
+      m.scalar :result
+    end
+
+    # BMC ADD REFERRAL — creates a primary CHS/RCIS referral.
+    DataMapper.define(:bmc_add_referral) do |m|
+      m.rpc "BMC ADD REFERRAL"
+      m.scalar :result
+    end
+
+    # BMC ADD SECONDARY REFERRAL — creates a secondary referral on an existing request.
+    DataMapper.define(:bmc_add_secondary_referral) do |m|
+      m.rpc "BMC ADD SECONDARY REFERRAL"
+      m.scalar :result
+    end
+
+    # BMC CHK YEAR SITE PARAM — validates fiscal-year/site RCIS setup.
+    DataMapper.define(:bmc_check_year_site_param) do |m|
+      m.rpc "BMC CHK YEAR SITE PARAM"
+      m.scalar :result
+    end
+
+    # BMC CONSULTATION STATUS UPDATE — updates the linked consultation status.
+    DataMapper.define(:bmc_consultation_status_update) do |m|
+      m.rpc "BMC CONSULTATION STATUS UPDATE"
+      m.scalar :result
+    end
+
+    # BMC GET PURPOSE OF REF API — referral purpose lookup.
+    # Common shape: IEN^NAME^CODE; extra pieces remain available through raw RPC calls.
+    DataMapper.define(:bmc_purpose_of_referral_list) do |m|
+      m.rpc "BMC GET PURPOSE OF REF API"
+      m.field 0, :ien
+      m.field 1, :name
+      m.field 2, :code
+    end
+
+    # BMC GET RCIS TEMPLATE DETAIL — template detail text/lines.
+    DataMapper.define(:bmc_rcis_template_detail) do |m|
+      m.rpc "BMC GET RCIS TEMPLATE DETAIL"
+      m.text_blob :detail
+    end
+
+    # BMC GET RCIS TEMPLATE LIST — RCIS template lookup.
+    # Common shape: IEN^NAME^TYPE.
+    DataMapper.define(:bmc_rcis_template_list) do |m|
+      m.rpc "BMC GET RCIS TEMPLATE LIST"
+      m.field 0, :ien
+      m.field 1, :name
+      m.field 2, :type
+    end
+
+    # BMC GET REFERENCE DATA — RCIS reference-data lookup.
+    # Common shape: IEN^NAME^CODE.
+    DataMapper.define(:bmc_reference_data) do |m|
+      m.rpc "BMC GET REFERENCE DATA"
+      m.field 0, :ien
+      m.field 1, :name
+      m.field 2, :code
+    end
+
+    # BMC GET USERS/PROVIDERS — user/provider lookup.
+    # Common shape: DUZ^NAME^TITLE.
+    DataMapper.define(:bmc_users_providers) do |m|
+      m.rpc "BMC GET USERS/PROVIDERS"
+      m.field 0, :duz
+      m.field 1, :name
+      m.field 2, :title
+    end
+
+    # BMC HEALTH SUMMARY TYPE — health-summary type lookup.
+    # Common shape: IEN^NAME^ABBREVIATION.
+    DataMapper.define(:bmc_health_summary_type) do |m|
+      m.rpc "BMC HEALTH SUMMARY TYPE"
+      m.field 0, :ien
+      m.field 1, :name
+      m.field 2, :abbreviation
+    end
+
+    # BMC PATIENT ELIGIBILITY STATUS — CHS/RCIS eligibility status.
+    DataMapper.define(:bmc_patient_eligibility_status) do |m|
+      m.rpc "BMC PATIENT ELIGIBILITY STATUS"
+      m.field 0, :eligible, :boolean
+      m.field 1, :status
+      m.field 2, :message
+    end
+
+    # BMC PATIENT FACE SHEET — patient context text/lines.
+    DataMapper.define(:bmc_patient_face_sheet) do |m|
+      m.rpc "BMC PATIENT FACE SHEET"
+      m.text_blob :face_sheet
+    end
+
+    # BMC PATIENT HEALTH SUMMARY — patient health-summary text/lines.
+    DataMapper.define(:bmc_patient_health_summary) do |m|
+      m.rpc "BMC PATIENT HEALTH SUMMARY"
+      m.text_blob :health_summary
+    end
+
+    # BMC PRINT REFERRAL — print operation result.
+    DataMapper.define(:bmc_print_referral) do |m|
+      m.rpc "BMC PRINT REFERRAL"
+      m.scalar :result
+    end
+
+    # BMC PROVIDERS — provider lookup.
+    # Common shape: DUZ^NAME^TITLE.
+    DataMapper.define(:bmc_providers) do |m|
+      m.rpc "BMC PROVIDERS"
+      m.field 0, :duz
+      m.field 1, :name
+      m.field 2, :title
+    end
+
+    # BMC REFERRAL STATUS UPDATE — updates the referral status.
+    DataMapper.define(:bmc_referral_status_update) do |m|
+      m.rpc "BMC REFERRAL STATUS UPDATE"
+      m.scalar :result
+    end
+
+    # BMC SEARCH REFERRED TO — referred-to facility/provider lookup.
+    # Common shape: IEN^NAME^TYPE.
+    DataMapper.define(:bmc_search_referred_to) do |m|
+      m.rpc "BMC SEARCH REFERRED TO"
+      m.field 0, :ien
+      m.field 1, :name
+      m.field 2, :type
+    end
+
+    # BMC UPDATE REFERRAL — updates an existing CHS/RCIS referral.
+    DataMapper.define(:bmc_update_referral) do |m|
+      m.rpc "BMC UPDATE REFERRAL"
+      m.scalar :result
+    end
+
     # BMCRPC GTSITPRM — RCIS site parameters
     # Format per line: KEY^VALUE
     DataMapper.define(:site_params) do |m|
