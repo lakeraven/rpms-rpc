@@ -100,6 +100,20 @@ class ReferralTest < Minitest::Test
     assert_equal [ DFN, "44" ], call[:params]
   end
 
+  def test_add_referral_bare_ien_response_preserves_value
+    # A BMC RPC that returns a bare IEN like "10" (no STATUS^MESSAGE caret)
+    # must not be parsed as `message: "0"`. Only strip a leading 0/1 when
+    # followed by `^`.
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:bmc_add_referral, "8791", "10")
+    end
+
+    result = RpmsRpc::Referral.add(DFN, "44")
+
+    assert result[:success]
+    assert_equal "10", result[:message]
+  end
+
   def test_update_referral_status_calls_bmc_status_rpc
     RpmsRpc.mock! do |m|
       m.seed_scalar(:bmc_referral_status_update, "3001", "1^UPDATED")
