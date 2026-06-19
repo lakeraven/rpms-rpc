@@ -24,7 +24,7 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ">= 3.4.0"
 
   spec.files = Dir.chdir(File.expand_path(__dir__)) do
-    Dir["{lib,docs}/**/*", "MIT-LICENSE", "Rakefile", "README.md"]
+    Dir["{bin,data,lib,docs}/**/*", "MIT-LICENSE", "Rakefile", "README.md"]
   end
   # rexml is a default gem in Ruby 3.4+ but must be declared so Bundler
   # adds it to the load path. Otherwise pure stdlib (socket, openssl).
