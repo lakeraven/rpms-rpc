@@ -1884,6 +1884,59 @@ module RpmsRpc
     # optimization that can be added when a real engine consumer needs
     # the cached view spec or per-group detail. Not modeling speculatively.
 
+    # ORWOR RESULT — result text for a single order IEN. Word-processing
+    # shape (global array): the gateway returns a multi-line blob.
+    DataMapper.define(:order_result) do |m|
+      m.rpc "ORWOR RESULT"
+      m.text_blob :result_text
+    end
+
+    # ORWOR RESULT HISTORY — historical result values for an order IEN.
+    # Caret-delimited rows; positions best-effort pending wider trace
+    # capture, but the engine-facing contract is a list of result
+    # observations rather than the raw broker shape.
+    DataMapper.define(:order_result_history) do |m|
+      m.rpc "ORWOR RESULT HISTORY"
+      m.field 0, :result_datetime, :fileman_datetime
+      m.field 1, :value
+      m.field 2, :units
+      m.field 3, :abnormal_flag
+      m.field 4, :reference_range
+      m.field 5, :status
+    end
+
+    # ORWOR ACTION TEXT — text describing the user-facing action available
+    # on an order (release, sign, discontinue, etc). Takes ORDER_IEN and
+    # the action code; returns a free-text blob.
+    DataMapper.define(:order_action_text) do |m|
+      m.rpc "ORWOR ACTION TEXT"
+      m.text_blob :action_text
+    end
+
+    # ORWOR EXPIRED — boolean (1/0) for whether an order IEN is expired.
+    DataMapper.define(:order_expired) do |m|
+      m.rpc "ORWOR EXPIRED"
+      m.scalar :expired, :boolean
+    end
+
+    # ORWOR SHEETS — order sheets available for a patient (active, delayed
+    # release, transfer, etc). One row per sheet: IEN^NAME^TYPE^STATUS.
+    DataMapper.define(:order_sheets) do |m|
+      m.rpc "ORWOR SHEETS"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+      m.field 2, :sheet_type
+      m.field 3, :status
+    end
+
+    # ORWOR TSALL — site-level catalog of order sheets, independent of
+    # patient. One row per sheet: IEN^NAME.
+    DataMapper.define(:order_sheets_all) do |m|
+      m.rpc "ORWOR TSALL"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+    end
+
     # ========================================================================
     # REFERRAL CREATE (BGOREF SET)
     # ========================================================================
