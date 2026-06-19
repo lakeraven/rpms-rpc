@@ -150,6 +150,28 @@ RpmsRpc.configure { |c| c.unsafe_raw_errors = true }
 
 Leave this off in production.
 
+## RPC Coverage Matrix
+
+`docs/RPC_COVERAGE.md` is generated from wrapper mappings, broker dumps, and
+pillar allowlists:
+
+```sh
+rake coverage:matrix
+```
+
+To refresh an environment dump, set broker credentials and run:
+
+```sh
+RPMS_RPC_BROKER_HOST=vista.example.com \
+RPMS_RPC_BROKER_PORT=9100 \
+RPMS_RPC_ACCESS_CODE=... \
+RPMS_RPC_VERIFY_CODE=... \
+bin/probe_broker --env staging
+```
+
+The probe writes sorted unique rows to `data/broker_dumps/<env>_<YYYYMMDD>.txt`.
+Pillar allowlists live in `data/pillar_allowlists/`, one RPC name per line.
+
 ### PhiSanitizer secret
 
 `RpmsRpc::PhiSanitizer` uses HMAC-SHA256 to hash patient identifiers
