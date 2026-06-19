@@ -518,6 +518,123 @@ module RpmsRpc
       m.field 4, :status
     end
 
+    # ORWPCE PCE coverage — engine-facing subset of the PCE V-file
+    # surface (visit lookup, type-table reads, V-file writes, encounter
+    # wiring for note → visit binding). Wire field positions below are
+    # best-effort pending broker trace capture; refine when traces land.
+
+    # Reads — visit + type lookups
+
+    DataMapper.define(:pce_get_visit) do |m|
+      m.rpc "ORWPCE GET VISIT"
+      m.field 0, :ien
+      m.field 1, :datetime, :fileman_date
+      m.field 2, :location
+      m.field 3, :provider
+    end
+
+    DataMapper.define(:pce_exam_types) do |m|
+      m.rpc "ORWPCE GET EXAM TYPE"
+      m.field 0, :ien
+      m.field 1, :name
+    end
+
+    DataMapper.define(:pce_health_factor_types) do |m|
+      m.rpc "ORWPCE GET HEALTH FACTORS TY"
+      m.field 0, :ien
+      m.field 1, :name
+      m.field 2, :category
+    end
+
+    DataMapper.define(:pce_immunization_types) do |m|
+      m.rpc "ORWPCE GET IMMUNIZATION TYPE"
+      m.field 0, :ien
+      m.field 1, :name
+    end
+
+    DataMapper.define(:pce_skin_test_types) do |m|
+      m.rpc "ORWPCE GET SKIN TEST TYPE"
+      m.field 0, :ien
+      m.field 1, :name
+    end
+
+    DataMapper.define(:pce_treatment_types) do |m|
+      m.rpc "ORWPCE GET TREATMENT TYPE"
+      m.field 0, :ien
+      m.field 1, :name
+    end
+
+    DataMapper.define(:pce_education_topics) do |m|
+      m.rpc "ORWPCE GET EDUCATION TOPICS"
+      m.field 0, :ien
+      m.field 1, :name
+    end
+
+    DataMapper.define(:pce_set_of_codes) do |m|
+      m.rpc "ORWPCE GET SET OF CODES"
+      m.field 0, :code
+      m.field 1, :display
+    end
+
+    DataMapper.define(:pce_excluded) do |m|
+      m.rpc "ORWPCE GET EXCLUDED"
+      m.field 0, :code
+      m.field 1, :display
+    end
+
+    DataMapper.define(:pce_active_codes) do |m|
+      m.rpc "ORWPCE ACTIVE CODE"
+      m.field 0, :code
+      m.field 1, :display
+    end
+
+    DataMapper.define(:pce_active_providers) do |m|
+      m.rpc "ORWPCE ACTIVE PROV"
+      m.field 0, :duz, :string, pointer: { file: 200 }
+      m.field 1, :name
+    end
+
+    DataMapper.define(:pce_active_problems) do |m|
+      m.rpc "ORWPCE ACTPROB"
+      m.field 0, :ien
+      m.field 1, :description
+      m.field 2, :icd_code
+    end
+
+    # Writes — V-file mutations
+
+    DataMapper.define(:pce_save) do |m|
+      m.rpc "ORWPCE SAVE"
+    end
+
+    DataMapper.define(:pce_delete) do |m|
+      m.rpc "ORWPCE DELETE"
+    end
+
+    DataMapper.define(:pce_force) do |m|
+      m.rpc "ORWPCE FORCE"
+    end
+
+    # Encounter wiring — note ↔ visit binding
+
+    DataMapper.define(:pce_ask_pce) do |m|
+      m.rpc "ORWPCE ASKPCE"
+    end
+
+    DataMapper.define(:pce_anytime) do |m|
+      m.rpc "ORWPCE ANYTIME"
+    end
+
+    DataMapper.define(:pce_for_note) do |m|
+      m.rpc "ORWPCE PCE4NOTE"
+      m.field 0, :event_type
+      m.field 1, :description
+    end
+
+    DataMapper.define(:pce_note_visit_string) do |m|
+      m.rpc "ORWPCE NOTEVSTR"
+    end
+
     # ORWPCE IMPLANT LIST — implanted device list (multi-line)
     # Format: IEN^UDI^DEVICE_ID^STATUS^DEVICE_NAME^MANUFACTURER^MODEL^SERIAL^LOT^MFG_DATE^EXP_DATE^TYPE_CODE^TYPE_DISPLAY^DISTINCT_ID
     DataMapper.define(:device_list) do |m|

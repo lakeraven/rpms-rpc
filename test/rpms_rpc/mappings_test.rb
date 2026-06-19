@@ -615,6 +615,12 @@ class RpmsRpc::MappingsTest < Minitest::Test
       problem_replace problem_save_view problem_service_filter_list
       problem_service_search problem_update problem_user_categories
       problem_user_list problem_verify
+      pce_get_visit pce_exam_types pce_health_factor_types
+      pce_immunization_types pce_skin_test_types pce_treatment_types
+      pce_education_topics pce_set_of_codes pce_excluded
+      pce_active_codes pce_active_providers pce_active_problems
+      pce_save pce_delete pce_force
+      pce_ask_pce pce_anytime pce_for_note pce_note_visit_string
     ]
 
     expected.each do |name|

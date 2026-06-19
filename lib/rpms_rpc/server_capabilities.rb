@@ -142,6 +142,15 @@ module RpmsRpc
       # not be invoked just to test capability.
       orqqpl_problem_workflow: [
         "ORQQPL DETAIL"
+      ].freeze,
+
+      # ORWPCE PCE V-file event surface — stock VistA. Probe with a
+      # read-only RPC (GET VISIT) only; SAVE / DELETE / FORCE are V-file
+      # writes and must not be invoked just to test capability. Separate
+      # from :orwpce_clinical_logs (procedure/implant lists) because the
+      # PCE event surface is its own contract.
+      orwpce_pce_workflow: [
+        "ORWPCE GET VISIT"
       ].freeze
     }.freeze
 
