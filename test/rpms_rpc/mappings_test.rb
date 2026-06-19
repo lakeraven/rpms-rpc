@@ -536,6 +536,34 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "BMC GET REFERRAL", RpmsRpc::DataMapper[:referral_detail].rpc_name
   end
 
+  def test_bmc_referral_workflow_rpc_names_are_registered
+    expected = {
+      bmc_add_c32_print_log: "BMC ADD C32 PRINT LOG",
+      bmc_add_referral: "BMC ADD REFERRAL",
+      bmc_add_secondary_referral: "BMC ADD SECONDARY REFERRAL",
+      bmc_check_year_site_param: "BMC CHK YEAR SITE PARAM",
+      bmc_consultation_status_update: "BMC CONSULTATION STATUS UPDATE",
+      bmc_purpose_of_referral_list: "BMC GET PURPOSE OF REF API",
+      bmc_rcis_template_detail: "BMC GET RCIS TEMPLATE DETAIL",
+      bmc_rcis_template_list: "BMC GET RCIS TEMPLATE LIST",
+      bmc_reference_data: "BMC GET REFERENCE DATA",
+      bmc_users_providers: "BMC GET USERS/PROVIDERS",
+      bmc_health_summary_type: "BMC HEALTH SUMMARY TYPE",
+      bmc_patient_eligibility_status: "BMC PATIENT ELIGIBILITY STATUS",
+      bmc_patient_face_sheet: "BMC PATIENT FACE SHEET",
+      bmc_patient_health_summary: "BMC PATIENT HEALTH SUMMARY",
+      bmc_print_referral: "BMC PRINT REFERRAL",
+      bmc_providers: "BMC PROVIDERS",
+      bmc_referral_status_update: "BMC REFERRAL STATUS UPDATE",
+      bmc_search_referred_to: "BMC SEARCH REFERRED TO",
+      bmc_update_referral: "BMC UPDATE REFERRAL"
+    }
+
+    expected.each do |mapping, rpc_name|
+      assert_equal rpc_name, RpmsRpc::DataMapper[mapping].rpc_name
+    end
+  end
+
   # -- Registry completeness -------------------------------------------------
 
   def test_all_expected_mappings_registered
@@ -572,6 +600,13 @@ class RpmsRpc::MappingsTest < Minitest::Test
       vfc_eligibility vfc_eligibility_list vaccine_lot_list vaccine_lot_detail
       vendor_list vendor_detail preferred_vendor_list vendor_service_list
       vendor_contract_list vendor_rate_list
+      bmc_add_c32_print_log bmc_add_referral bmc_add_secondary_referral
+      bmc_check_year_site_param bmc_consultation_status_update
+      bmc_purpose_of_referral_list bmc_rcis_template_detail bmc_rcis_template_list
+      bmc_reference_data bmc_users_providers bmc_health_summary_type
+      bmc_patient_eligibility_status bmc_patient_face_sheet bmc_patient_health_summary
+      bmc_print_referral bmc_providers bmc_referral_status_update
+      bmc_search_referred_to bmc_update_referral
     ]
 
     expected.each do |name|

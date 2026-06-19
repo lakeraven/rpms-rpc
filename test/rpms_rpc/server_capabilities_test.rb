@@ -208,6 +208,22 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :orwrp_report_types)
   end
 
+  def test_bmc_referral_workflow_feature_is_registered
+    assert RpmsRpc::ServerCapabilities::FEATURE_RPCS.key?(:bmc_referral_workflow),
+           "Registry must expose :bmc_referral_workflow — gates Referral BMC/RCIS RPCs"
+  end
+
+  def test_bmc_referral_workflow_probes_read_only_reference_data
+    rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:bmc_referral_workflow]
+    assert_equal [ "BMC GET REFERENCE DATA" ], rpcs,
+                 "Probe set must avoid BMC referral write/print/status RPCs"
+  end
+
+  def test_probe_returns_false_when_bmc_reference_data_missing
+    missing = ProbingClient.new(missing: [ "BMC GET REFERENCE DATA" ])
+    assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :bmc_referral_workflow)
+  end
+
   def test_unknown_feature_raises_argument_error
     assert_raises(ArgumentError) do
       RpmsRpc::ServerCapabilities.probe(@client, :no_such_feature)
