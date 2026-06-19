@@ -11,4 +11,11 @@ Rake::TestTask.new(:test) do |t|
   t.verbose = false
 end
 
+namespace :coverage do
+  desc "Regenerate docs/RPC_COVERAGE.md"
+  task :matrix do
+    ruby "bin/build_coverage_matrix"
+  end
+end
+
 task default: :test

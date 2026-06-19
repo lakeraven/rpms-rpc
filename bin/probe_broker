@@ -1,0 +1,54 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "date"
+require "fileutils"
+require "optparse"
+
+$LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
+
+require "rpms_rpc/cia_client"
+
+options = {
+  env: ENV.fetch("RPMS_RPC_ENV_NAME", "staging"),
+  host: ENV["RPMS_RPC_BROKER_HOST"] || ENV["VISTA_RPC_HOST"],
+  port: ENV.fetch("RPMS_RPC_BROKER_PORT", ENV.fetch("VISTA_RPC_PORT", "9100")),
+  access: ENV["RPMS_RPC_ACCESS_CODE"] || ENV["RPMS_ACCESS_CODE"],
+  verify: ENV["RPMS_RPC_VERIFY_CODE"] || ENV["RPMS_VERIFY_CODE"],
+  context: ENV.fetch("RPMS_RPC_CONTEXT", "OR CPRS GUI CHART"),
+  rpc: ENV.fetch("RPMS_RPC_LIST_RPC", "XWB API LIST")
+}
+
+OptionParser.new do |parser|
+  parser.banner = "Usage: bin/probe_broker --env staging"
+  parser.on("--env NAME", "Environment name for the output file") { |value| options[:env] = value }
+  parser.on("--host HOST", "Broker host") { |value| options[:host] = value }
+  parser.on("--port PORT", Integer, "Broker port") { |value| options[:port] = value }
+  parser.on("--context NAME", "Application context to create before probing") { |value| options[:context] = value }
+  parser.on("--rpc NAME", "Introspection RPC to call") { |value| options[:rpc] = value }
+end.parse!
+
+missing = %i[host access verify].select { |key| options[key].to_s.strip.empty? }
+unless missing.empty?
+  abort "Missing required broker settings: #{missing.map { |key| "RPMS_RPC_#{key.to_s.upcase}" }.join(", ")}"
+end
+
+client = RpmsRpc::CiaClient.new(host: options[:host], port: options[:port].to_i)
+rows = nil
+
+begin
+  client.connect
+  client.authenticate(options[:access], options[:verify])
+  client.create_context(options[:context])
+  rows = client.call_rpc(options[:rpc])
+ensure
+  client.disconnect
+end
+
+normalized = Array(rows).map(&:to_s).map(&:strip).reject(&:empty?).uniq.sort
+output_dir = File.expand_path("../data/broker_dumps", __dir__)
+FileUtils.mkdir_p(output_dir)
+output_path = File.join(output_dir, "#{options[:env]}_#{Date.today.strftime("%Y%m%d")}.txt")
+File.write(output_path, "#{normalized.join("\n")}\n")
+
+puts "Wrote #{normalized.length} RPC rows to #{output_path}"
