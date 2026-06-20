@@ -240,6 +240,22 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :orqqpl_problem_workflow)
   end
 
+  def test_orwpce_pce_workflow_feature_is_registered
+    assert RpmsRpc::ServerCapabilities::FEATURE_RPCS.key?(:orwpce_pce_workflow),
+           "Registry must expose :orwpce_pce_workflow — gates ClinicalEvent PCE V-file RPCs"
+  end
+
+  def test_orwpce_pce_workflow_probes_read_only_get_visit
+    rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:orwpce_pce_workflow]
+    assert_equal [ "ORWPCE GET VISIT" ], rpcs,
+                 "Probe set must avoid ORWPCE write RPCs (SAVE, DELETE, FORCE)"
+  end
+
+  def test_probe_returns_false_when_orwpce_get_visit_missing
+    missing = ProbingClient.new(missing: [ "ORWPCE GET VISIT" ])
+    assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :orwpce_pce_workflow)
+  end
+
   def test_unknown_feature_raises_argument_error
     assert_raises(ArgumentError) do
       RpmsRpc::ServerCapabilities.probe(@client, :no_such_feature)
