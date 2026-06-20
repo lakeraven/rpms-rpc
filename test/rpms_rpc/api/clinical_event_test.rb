@@ -151,7 +151,7 @@ class ClinicalEventTest < Minitest::Test
     assert_match(/not available/, result[:error])
   end
 
-  def test_save_rejects_blank_payload
+  def test_save_rejects_blank_payload_with_validation_error
     RpmsRpc.mock! do |m|
       m.seed_capability(:orwpce_pce_workflow, supported: true)
     end
@@ -159,6 +159,45 @@ class ClinicalEventTest < Minitest::Test
     result = RpmsRpc::ClinicalEvent.save(VISIT_IEN, "")
 
     refute result[:success]
+    assert_match(/payload required/, result[:error])
+    refute_match(/workflow not available/, result[:error],
+                 "blank payload on supported server must not report capability failure")
+  end
+
+  def test_save_rejects_invalid_visit_with_validation_error
+    RpmsRpc.mock! do |m|
+      m.seed_capability(:orwpce_pce_workflow, supported: true)
+    end
+
+    result = RpmsRpc::ClinicalEvent.save("0", "PAYLOAD")
+
+    refute result[:success]
+    assert_match(/invalid visit_ien/, result[:error])
+  end
+
+  def test_delete_rejects_invalid_ids_with_validation_error
+    RpmsRpc.mock! do |m|
+      m.seed_capability(:orwpce_pce_workflow, supported: true)
+    end
+
+    result = RpmsRpc::ClinicalEvent.delete("0", EVENT_IEN)
+    refute result[:success]
+    assert_match(/invalid visit_ien/, result[:error])
+
+    result = RpmsRpc::ClinicalEvent.delete(VISIT_IEN, "0")
+    refute result[:success]
+    assert_match(/invalid event_ien/, result[:error])
+  end
+
+  def test_force_rejects_invalid_visit_with_validation_error
+    RpmsRpc.mock! do |m|
+      m.seed_capability(:orwpce_pce_workflow, supported: true)
+    end
+
+    result = RpmsRpc::ClinicalEvent.force("0")
+
+    refute result[:success]
+    assert_match(/invalid visit_ien/, result[:error])
   end
 
   def test_delete_dispatches_orwpce_delete
@@ -229,5 +268,62 @@ class ClinicalEventTest < Minitest::Test
     end
 
     assert_nil RpmsRpc::ClinicalEvent.note_visit_string("12345")
+  end
+
+  # -- Compact dispatch + gating coverage for remaining read helpers --------
+
+  TYPE_LOOKUPS = {
+    exam_types:         { mapping: :pce_exam_types,         rpc: "ORWPCE GET EXAM TYPE",         row: { ien: "1", name: "Hearing" } },
+    immunization_types: { mapping: :pce_immunization_types, rpc: "ORWPCE GET IMMUNIZATION TYPE", row: { ien: "1", name: "Influenza" } },
+    skin_test_types:    { mapping: :pce_skin_test_types,    rpc: "ORWPCE GET SKIN TEST TYPE",    row: { ien: "1", name: "PPD" } },
+    treatment_types:    { mapping: :pce_treatment_types,    rpc: "ORWPCE GET TREATMENT TYPE",    row: { ien: "1", name: "Dressing" } },
+    education_topics:   { mapping: :pce_education_topics,   rpc: "ORWPCE GET EDUCATION TOPICS",  row: { ien: "1", name: "Smoking" } },
+    excluded:           { mapping: :pce_excluded,           rpc: "ORWPCE GET EXCLUDED",          row: { code: "X", display: "Excluded" } },
+    active_codes:       { mapping: :pce_active_codes,       rpc: "ORWPCE ACTIVE CODE",           row: { code: "A", display: "Active" } },
+    active_providers:   { mapping: :pce_active_providers,   rpc: "ORWPCE ACTIVE PROV",           row: { duz: "10", name: "DOE,JANE" } }
+  }.freeze
+
+  TYPE_LOOKUPS.each do |method, spec|
+    define_method("test_#{method}_dispatches_#{spec[:mapping]}") do
+      RpmsRpc.mock! do |m|
+        m.seed_capability(:orwpce_pce_workflow, supported: true)
+        m.seed_collection(spec[:mapping], [ spec[:row] ])
+      end
+
+      rows = RpmsRpc::ClinicalEvent.public_send(method)
+
+      assert_equal 1, rows.length
+      call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == spec[:rpc] }
+      refute_nil call, "Expected #{spec[:rpc]} to be dispatched"
+    end
+
+    define_method("test_#{method}_returns_empty_when_unsupported") do
+      RpmsRpc.mock! do |m|
+        m.seed_capability(:orwpce_pce_workflow, supported: false)
+      end
+
+      assert_equal [], RpmsRpc::ClinicalEvent.public_send(method)
+    end
+  end
+
+  def test_anytime_dispatches_orwpce_anytime
+    RpmsRpc.mock! do |m|
+      m.seed_capability(:orwpce_pce_workflow, supported: true)
+      m.seed_scalar(:pce_anytime, "", "1")
+    end
+
+    answer = RpmsRpc::ClinicalEvent.anytime
+
+    assert_equal "1", answer
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWPCE ANYTIME" }
+    refute_nil call
+  end
+
+  def test_anytime_returns_nil_when_unsupported
+    RpmsRpc.mock! do |m|
+      m.seed_capability(:orwpce_pce_workflow, supported: false)
+    end
+
+    assert_nil RpmsRpc::ClinicalEvent.anytime
   end
 end

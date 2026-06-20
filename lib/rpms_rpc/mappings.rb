@@ -605,24 +605,29 @@ module RpmsRpc
 
     DataMapper.define(:pce_save) do |m|
       m.rpc "ORWPCE SAVE"
+      m.scalar :result
     end
 
     DataMapper.define(:pce_delete) do |m|
       m.rpc "ORWPCE DELETE"
+      m.scalar :result
     end
 
     DataMapper.define(:pce_force) do |m|
       m.rpc "ORWPCE FORCE"
+      m.scalar :result
     end
 
     # Encounter wiring — note ↔ visit binding
 
     DataMapper.define(:pce_ask_pce) do |m|
       m.rpc "ORWPCE ASKPCE"
+      m.scalar :answer
     end
 
     DataMapper.define(:pce_anytime) do |m|
       m.rpc "ORWPCE ANYTIME"
+      m.scalar :answer
     end
 
     DataMapper.define(:pce_for_note) do |m|
@@ -633,6 +638,7 @@ module RpmsRpc
 
     DataMapper.define(:pce_note_visit_string) do |m|
       m.rpc "ORWPCE NOTEVSTR"
+      m.scalar :visit_string
     end
 
     # ORWPCE IMPLANT LIST — implanted device list (multi-line)

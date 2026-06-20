@@ -101,7 +101,8 @@ module RpmsRpc
     # -- Writes ------------------------------------------------------------
 
     def save(visit_ien, payload)
-      return unsupported_result if invalid_id?(visit_ien) || payload.to_s.strip.empty?
+      return validation_error("invalid visit_ien") if invalid_id?(visit_ien)
+      return validation_error("payload required") if payload.to_s.strip.empty?
       return unsupported_result unless workflow_supported?
 
       raw = DataMapper.pce_save.fetch_scalar(visit_ien.to_s, payload.to_s)
@@ -109,7 +110,8 @@ module RpmsRpc
     end
 
     def delete(visit_ien, event_ien)
-      return unsupported_result if invalid_id?(visit_ien) || invalid_id?(event_ien)
+      return validation_error("invalid visit_ien") if invalid_id?(visit_ien)
+      return validation_error("invalid event_ien") if invalid_id?(event_ien)
       return unsupported_result unless workflow_supported?
 
       raw = DataMapper.pce_delete.fetch_scalar(visit_ien.to_s, event_ien.to_s)
@@ -117,7 +119,7 @@ module RpmsRpc
     end
 
     def force(visit_ien)
-      return unsupported_result if invalid_id?(visit_ien)
+      return validation_error("invalid visit_ien") if invalid_id?(visit_ien)
       return unsupported_result unless workflow_supported?
 
       raw = DataMapper.pce_force.fetch_scalar(visit_ien.to_s)
@@ -167,6 +169,10 @@ module RpmsRpc
 
     def unsupported_result
       { success: false, error: "ORWPCE PCE workflow not available on this server", raw: nil }
+    end
+
+    def validation_error(reason)
+      { success: false, error: reason, raw: nil }
     end
 
     def success_result(raw)
