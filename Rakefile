@@ -11,6 +11,8 @@ Rake::TestTask.new(:test) do |t|
   t.verbose = false
 end
 
+Dir.glob(File.expand_path("lib/tasks/*.rake", __dir__)).each { |r| load r }
+
 namespace :coverage do
   desc "Regenerate docs/RPC_COVERAGE.md"
   task :matrix do

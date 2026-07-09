@@ -1,0 +1,52 @@
+# SEED reference fingerprint for the bcer-5.0 rung — HAND-AUTHORED PLACEHOLDER.
+# Not a real per-rung capture: the authoritative reference will be emitted by
+# rpms-ops at release-cut (follow-up) and pinned here, replacing this file.
+# RPC names are real (drawn from the 2026-06-07 staging file-8994 dump); the
+# per-RPC tag/routine metadata is intentionally omitted until real capture.
+---
+backend: iris_rpms
+lineage: rpms
+release: bcer-5.0
+source:
+  kind: fixture
+  captured_at: "2026-07-09"
+  note: hand-authored seed placeholder pending rpms-ops per-rung emit
+rpcs:
+  "XWB ECHO STRING":
+  "XWB FILE LIST":
+  "XWB API LIST":
+  "XWB CREATE CONTEXT":
+  "XUS AV CODE":
+  "XUS SIGNON SETUP":
+  "DDR LISTER":
+  "DDR GETS ENTRY DATA":
+  "ORWPT SELECT":
+  "ORWPT ID INFO":
+  "ORWPT LIST ALL":
+  "ORWPT LAST5":
+  "ORWPT APPTLST":
+  "ORWU USERINFO":
+  "ORWU HASKEY":
+  "ORQQPL LIST":
+  "ORQQPL DETAIL":
+  "ORQQPL ADD SAVE":
+  "ORQQPL EDIT SAVE":
+  "ORWLRR INTERIM":
+  "ORWLRR ATOMICS":
+  "ORWLRR SPEC":
+  "ORWPCE DIAG":
+  "ORWPCE PROC":
+  "ORWPCE VISIT":
+  "ORWPCE IMM":
+  "ORWRA IMAGING EXAMS":
+  "ORWRA REPORT TEXT":
+  "ORWRP REPORT LISTS":
+  "ORWRP REPORT TEXT":
+  "XQAL GUI ALERTS":
+  "BEHOPTCX PTINFO":
+  "BEHOPTPC GETBDP":
+  "BEHOCACV CWAD":
+  "BMC GET REFERENCE DATA":
+packages: {}
+patches: []
+bmw_tables: {}

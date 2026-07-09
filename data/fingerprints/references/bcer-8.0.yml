@@ -1,0 +1,96 @@
+# SEED reference fingerprint for the bcer-8.0 rung — HAND-AUTHORED PLACEHOLDER.
+# Not a real per-rung capture: the authoritative reference will be emitted by
+# rpms-ops at release-cut (follow-up) and pinned here, replacing this file.
+# Composition: the bcer-5.0 seed core PLUS gem-required RPCs the 2026-06-07
+# staging dump lacks (drawn from the 87 known gem-only misses), so probing
+# staging against this rung reproduces the real capability gaps. Per-RPC
+# tag/routine metadata is intentionally omitted until real capture.
+---
+backend: iris_rpms
+lineage: rpms
+release: bcer-8.0
+source:
+  kind: fixture
+  captured_at: "2026-07-09"
+  note: hand-authored seed placeholder pending rpms-ops per-rung emit
+rpcs:
+  # -- bcer-5.0 seed core (present on the 2026-06-07 staging dump) ----------
+  "XWB ECHO STRING":
+  "XWB FILE LIST":
+  "XWB API LIST":
+  "XWB CREATE CONTEXT":
+  "XUS AV CODE":
+  "XUS SIGNON SETUP":
+  "DDR LISTER":
+  "DDR GETS ENTRY DATA":
+  "ORWPT SELECT":
+  "ORWPT ID INFO":
+  "ORWPT LIST ALL":
+  "ORWPT LAST5":
+  "ORWPT APPTLST":
+  "ORWU USERINFO":
+  "ORWU HASKEY":
+  "ORQQPL LIST":
+  "ORQQPL DETAIL":
+  "ORQQPL ADD SAVE":
+  "ORQQPL EDIT SAVE":
+  "ORWLRR INTERIM":
+  "ORWLRR ATOMICS":
+  "ORWLRR SPEC":
+  "ORWPCE DIAG":
+  "ORWPCE PROC":
+  "ORWPCE VISIT":
+  "ORWPCE IMM":
+  "ORWRA IMAGING EXAMS":
+  "ORWRA REPORT TEXT":
+  "ORWRP REPORT LISTS":
+  "ORWRP REPORT TEXT":
+  "XQAL GUI ALERTS":
+  "BEHOPTCX PTINFO":
+  "BEHOPTPC GETBDP":
+  "BEHOCACV CWAD":
+  "BMC GET REFERENCE DATA":
+  # -- gem-required RPCs absent from the 2026-06-07 staging dump ------------
+  # (subset of .gem_only_misses_20260607.txt; see server_capabilities.rb)
+  "GMTS PWH REPORT":
+  "GMTS FLOWSHEET LIST":
+  "GMTS FLOWSHEET DATA":
+  "GMTS MAINT ITEMS":
+  "PSO ERX STATUS":
+  "PSO NEW RX":
+  "PSO CANCEL RX":
+  "BPHR PATIENT DIRECT":
+  "BPHR PROVIDER DIRECT":
+  "BPHR FACILITY DIRECT":
+  "BPHR RECORD ACCESS":
+  "XU KEY LIST":
+  "XU KEY GRANT":
+  "XU KEY REVOKE":
+  "ORWU USERKEYS":
+  "ORWLRR RESULT LIST":
+  "ORWLRR REPORT LIST":
+  "ORWLRR REPORT":
+  "ORWRA REPORT":
+  "ORWRA REPORT LIST":
+  "ORWPCE IMPLANT LIST":
+  "ORWPCE IMPLANT GET":
+  "ORWPCE PROCEDURE LIST":
+  "ORWPCE PROCEDURE GET":
+  "ORWRP TYPES":
+  "ORWRP TYPE COMPONENTS":
+  "XQAL NEW ALERTS":
+  "XQAL MARK READ":
+  "XQAL FORWARD":
+# SEED packages face — hand-picked PACKAGE #9.4 name/version pairs observed on
+# the real capture (rpms-ops data/observed/packages_9_4.txt, PREFIX^NAME^VERSION
+# lines); NOT a per-rung capture. Replaced wholesale when rpms-ops emits
+# authoritative per-rung references. Exercises Delta.package_gaps and Classifier
+# package_coverage in integration tests (the committed staging fingerprint has
+# no packages face captured yet).
+packages:
+  "IHS PATIENT REGISTRATION": "7.2"
+  "IHS PERSONAL HEALTH RECORD": "2.1"
+  "IHS RPMS/PCC Health Summary": "2.0"
+  "IHS STANDARD TERMINOLOGY": "2.0"
+patches: []
+bmw_tables: {}
