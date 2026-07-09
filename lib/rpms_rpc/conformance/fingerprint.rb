@@ -2,6 +2,7 @@
 
 require "set"
 require "yaml"
+require "date"
 
 module RpmsRpc
   module Conformance

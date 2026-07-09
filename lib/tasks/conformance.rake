@@ -18,6 +18,8 @@ namespace :conformance do
   task :ingest do
     require "yaml"
     require "date"
+    require "set"
+    require "fileutils"
     require "rpms_rpc/conformance/package_dump"
 
     dump_path = ENV["DUMP"] or abort "conformance:ingest requires DUMP=<file-8994 export>"
