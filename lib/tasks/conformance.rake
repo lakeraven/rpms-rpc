@@ -12,7 +12,8 @@ namespace :conformance do
   FINGERPRINTS_DIR = File.expand_path("../../data/fingerprints", __dir__)
 
   desc "Ingest a file-8994 broker dump into data/fingerprints/<ENV>.yml " \
-       "(DUMP=, ENV=, BACKEND=iris_rpms, optional SUBSET= allowlist, CAPTURED_AT=, NOTE=)"
+       "(DUMP=, ENV=, BACKEND=iris_rpms, optional SUBSET= allowlist, CAPTURED_AT=, NOTE=; " \
+       "RELEASE= + DAT_SHA= stamp a per-rung reference for references/)"
   task :ingest do
     require "yaml"
     require "date"
@@ -47,12 +48,13 @@ namespace :conformance do
     fingerprint = {
       "backend" => backend,
       "lineage" => { "iris_rpms" => "rpms", "yottadb_vista" => "vista", "worldvista" => "worldvista" }.fetch(backend, "rpms"),
-      "release" => nil,
+      "release" => ENV["RELEASE"],
       "source" => {
         "kind" => "broker_dump",
         "captured_at" => captured_at,
+        "dat_sha" => ENV["DAT_SHA"],
         "note" => [ENV["NOTE"] || "file 8994 export (#{File.basename(dump_path)})", subset_note].compact.join("; ")
-      },
+      }.compact,
       "rpcs" => rpcs.sort.to_h,
       "packages" => {},
       "patches" => [],
