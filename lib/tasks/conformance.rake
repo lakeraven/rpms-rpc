@@ -9,7 +9,10 @@
 # `probe` is the CI-side step (needs only committed fingerprints).
 
 namespace :conformance do
-  FINGERPRINTS_DIR = File.expand_path("../../data/fingerprints", __dir__)
+  # Fingerprint corpus location. Overridable via FINGERPRINTS_DIR= so the
+  # tasks can serve other checkouts/gems (vista-rpc extraction seam);
+  # defaults to this repo's data/fingerprints for existing callers.
+  FINGERPRINTS_DIR = ENV["FINGERPRINTS_DIR"] ? File.expand_path(ENV["FINGERPRINTS_DIR"]) : File.expand_path("../../data/fingerprints", __dir__)
 
   desc "Ingest a file-8994 broker dump into data/fingerprints/<ENV>.yml " \
        "(DUMP=, ENV=, BACKEND=iris_rpms, optional SUBSET= allowlist, CAPTURED_AT=, NOTE=, " \
