@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "date"
 require "rpms_rpc/mock_client"
+require "rpms_rpc/mappings" # MockClient no longer force-loads mappings; seed against them explicitly
 
 class RpmsRpc::MockClientTest < Minitest::Test
   def teardown

@@ -1,13 +1,16 @@
 # frozen_string_literal: true
 
 require_relative "data_mapper"
-require_relative "mappings"
 
 module RpmsRpc
   # Mock RPC client for testing. Consumers seed data as hashes;
   # MockClient formats them into caret-delimited RPC responses
   # using the DataMapper mappings. High fidelity — responses go
   # through the same parse path as production.
+  #
+  # MockClient reads whatever is in the DataMapper registry; it does not
+  # load any specific mapping set (the RPMS mappings live in a separate
+  # layer). Callers require the mappings they intend to seed against.
   #
   #   RpmsRpc.mock! do |m|
   #     m.seed(:patient_select, "1", { name: "DOE,JOHN", sex: "M" })
