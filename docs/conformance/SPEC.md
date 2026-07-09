@@ -71,7 +71,7 @@ source:
 rpcs:                       # PROVISIONS — the RPC registry
   "XWB ECHO STRING": { tag: ECHO1, routine: XWBZ1, return_type: P }
   "DDR LISTER":      { tag: LISTC, routine: DDR,   return_type: R }
-packages: {}                # #9.4 — { "PHARMACY": "7.0" }  (empty until captured)
+packages: {}                # #9.4 — { "PHARMACY": "7.0" }  (ingest PACKAGES=packages_9_4.txt)
 patches: []                 # #9.7 — ["APSP*1.0*70", ...]   (empty until captured)
 bmw_tables: {}              # optional IRIS face — { "BMW.PATIENT": [col, col] }
 ```
@@ -98,8 +98,14 @@ match plus neighbors:
 
 - `coverage(ref)` = |ref.rpcs ∩ target.rpcs| / |ref.rpcs|
 - Best match = highest coverage; ties broken by smallest symmetric difference.
-- Output: `{ classified_as:, coverage:, ranked: [...] }`. A target between rungs
-  reports e.g. `bcer-7.0 (coverage 1.0), partial bcer-8.0 (coverage 0.62)`.
+- Output: `{ classified_as:, coverage:, package_coverage:, ranked: [...] }`. A
+  target between rungs reports e.g. `bcer-7.0 (coverage 1.0), partial bcer-8.0
+  (coverage 0.62)`.
+- **Package signal (additive):** each ranked entry also carries
+  `package_coverage(ref)` = fraction of the reference's `#9.4` packages whose
+  required version the target meets (`nil` when the reference declares no
+  packages — "no data", deliberately distinct from 1.0). It never influences
+  ranking or `classified_as`; RPC coverage stays the classification signal.
 
 ## Delta (prescription)
 
@@ -107,6 +113,13 @@ Given a target and a *required* release reference (or a requirements set):
 
 - `missing = required.rpcs − target.rpcs` (must be provisioned to reach target)
 - `extra   = target.rpcs − required.rpcs` (present but not required; informational)
+- **Package gaps (`Delta.package_gaps`):** the `#9.4` face of the prescription —
+  required packages the target lacks or holds at a *lower* version, as
+  `{ name => { required:, actual: } }` (name-sorted; `actual` nil = absent,
+  `""` = installed with no recorded version). Versions compare via
+  `Gem::Version` where both parse; unparseable outliers (e.g. `.5`) fall back
+  to string equality. Informational for now — the conformance gate stays
+  RPC-based until per-rung package references are authoritative.
 - Later: map `missing` RPCs → the KIDS patches / tribe migrations that provide
   them (capability→patch map), so the delta is *actionable*, not descriptive.
 

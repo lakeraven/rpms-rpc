@@ -45,7 +45,7 @@ module RpmsRpc
 
       # Load a committed YAML fingerprint (see data/fingerprints/).
       def self.load(yaml_path)
-        from_h(YAML.safe_load_file(yaml_path, permitted_classes: [Date]))
+        from_h(YAML.safe_load_file(yaml_path, permitted_classes: [ Date ]))
       end
 
       def initialize(backend: nil, lineage: nil, release: nil, source: {},
@@ -64,6 +64,14 @@ module RpmsRpc
       # The provision set used by Classifier/Delta.
       def rpc_names
         Set.new(rpcs.keys)
+      end
+
+      # The #9.4 package-version face, normalized for comparison: string
+      # keys and string values (YAML round-trips may yield numeric versions
+      # like 7.2; XPDUTL may return none — "" means "installed, version
+      # unknown"). Used by Delta.package_gaps and Classifier package_coverage.
+      def package_versions
+        packages.to_h { |name, version| [ name.to_s, version.to_s ] }
       end
 
       def to_h

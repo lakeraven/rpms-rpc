@@ -81,6 +81,16 @@ rpcs:
   "XQAL NEW ALERTS":
   "XQAL MARK READ":
   "XQAL FORWARD":
-packages: {}
+# SEED packages face — hand-picked PACKAGE #9.4 name/version pairs observed on
+# the real capture (rpms-ops data/observed/packages_9_4.txt, PREFIX^NAME^VERSION
+# lines); NOT a per-rung capture. Replaced wholesale when rpms-ops emits
+# authoritative per-rung references. Exercises Delta.package_gaps and Classifier
+# package_coverage in integration tests (the committed staging fingerprint has
+# no packages face captured yet).
+packages:
+  "IHS PATIENT REGISTRATION": "7.2"
+  "IHS PERSONAL HEALTH RECORD": "2.1"
+  "IHS RPMS/PCC Health Summary": "2.0"
+  "IHS STANDARD TERMINOLOGY": "2.0"
 patches: []
 bmw_tables: {}

@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative "conformance/fingerprint"
+require_relative "conformance/package_dump"
+require_relative "conformance/package_version"
 require_relative "conformance/reader"
 require_relative "conformance/classifier"
 require_relative "conformance/delta"

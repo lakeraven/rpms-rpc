@@ -20,7 +20,7 @@ class RpmsRpc::Conformance::FingerprintTest < Minitest::Test
       "DDR LISTER" => { "tag" => "LISTC", "routine" => "DDR", "return_type" => "R" }
     },
     "packages" => { "PHARMACY" => "7.0" },
-    "patches" => ["APSP*1.0*70"],
+    "patches" => [ "APSP*1.0*70" ],
     "bmw_tables" => { "BMW.PATIENT" => %w[NAME DOB] }
   }.freeze
 
@@ -35,7 +35,7 @@ class RpmsRpc::Conformance::FingerprintTest < Minitest::Test
     assert_equal 2, fp.rpcs.size
     assert_equal "ECHO1", fp.rpcs["XWB ECHO STRING"]["tag"]
     assert_equal({ "PHARMACY" => "7.0" }, fp.packages)
-    assert_equal ["APSP*1.0*70"], fp.patches
+    assert_equal [ "APSP*1.0*70" ], fp.patches
     assert_equal({ "BMW.PATIENT" => %w[NAME DOB] }, fp.bmw_tables)
   end
 
@@ -69,6 +69,36 @@ class RpmsRpc::Conformance::FingerprintTest < Minitest::Test
 
     assert_instance_of Set, fp.rpc_names
     assert_equal Set["XWB ECHO STRING", "DDR LISTER"], fp.rpc_names
+  end
+
+  def test_package_versions_normalizes_to_string_keys_and_values
+    fp = RpmsRpc::Conformance::Fingerprint.from_h(
+      "packages" => { "IHS KERNEL MENU OPTIONS" => 2, "IHS PATIENT REGISTRATION" => 7.2 }
+    )
+
+    assert_equal(
+      { "IHS KERNEL MENU OPTIONS" => "2", "IHS PATIENT REGISTRATION" => "7.2" },
+      fp.package_versions
+    )
+  end
+
+  def test_package_versions_is_empty_when_packages_face_is_empty
+    assert_equal({}, RpmsRpc::Conformance::Fingerprint.from_h({}).package_versions)
+  end
+
+  def test_packages_round_trip_through_to_h_and_load
+    fp = RpmsRpc::Conformance::Fingerprint.from_h(FULL_HASH)
+    assert_equal({ "PHARMACY" => "7.0" }, fp.package_versions)
+
+    reloaded = RpmsRpc::Conformance::Fingerprint.from_h(fp.to_h)
+    assert_equal fp.packages, reloaded.packages
+    assert_equal({ "PHARMACY" => "7.0" }, reloaded.package_versions)
+
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "fp.yml")
+      File.write(path, YAML.dump(fp.to_h))
+      assert_equal({ "PHARMACY" => "7.0" }, RpmsRpc::Conformance::Fingerprint.load(path).package_versions)
+    end
   end
 
   def test_to_h_round_trips_through_from_h

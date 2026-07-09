@@ -2,6 +2,7 @@
 
 require "set"
 require_relative "fingerprint"
+require_relative "package_version"
 
 module RpmsRpc
   module Conformance
@@ -25,6 +26,28 @@ module RpmsRpc
           missing: (required_names - target_names).sort,
           extra: (target_names - required_names).sort
         }
+      end
+
+      # PACKAGE #9.4 face of the prescription: packages whose required
+      # version the target does not meet — absent, or present at a LOWER
+      # version (PackageVersion semantics). `required` may be a Fingerprint
+      # (its package_versions are used) or an explicit { name => version }
+      # hash. Returns a name-sorted hash:
+      #
+      #   { "PHARMACY" => { required: "7.0", actual: "6.0" } }
+      #
+      # `actual` is nil when the package is absent from the target, "" when
+      # installed with no recorded version.
+      def self.package_gaps(target:, required:)
+        required_versions = required.respond_to?(:package_versions) ? required.package_versions : required
+        target_versions = target.package_versions
+
+        required_versions.sort.filter_map do |name, required_version|
+          actual = target_versions[name]
+          next if target_versions.key?(name) && PackageVersion.satisfies?(actual, required_version)
+
+          [ name, { required: required_version.to_s, actual: actual } ]
+        end.to_h
       end
     end
   end

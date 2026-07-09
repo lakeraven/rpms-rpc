@@ -2,7 +2,7 @@
 
 # Conformance-probe pipeline (docs/conformance/SPEC.md).
 #
-#   rake conformance:ingest DUMP=<file-8994 export> ENV=<name> [BACKEND=] [SUBSET=]
+#   rake conformance:ingest DUMP=<file-8994 export> ENV=<name> [BACKEND=] [SUBSET=] [PACKAGES=]
 #   rake conformance:probe  TARGET=<fingerprint.yml> [REQUIRED=<reference.yml>]
 #
 # `ingest` is the capture-side step (needs a raw broker dump on disk);
@@ -12,11 +12,13 @@ namespace :conformance do
   FINGERPRINTS_DIR = File.expand_path("../../data/fingerprints", __dir__)
 
   desc "Ingest a file-8994 broker dump into data/fingerprints/<ENV>.yml " \
-       "(DUMP=, ENV=, BACKEND=iris_rpms, optional SUBSET= allowlist, CAPTURED_AT=, NOTE=; " \
+       "(DUMP=, ENV=, BACKEND=iris_rpms, optional SUBSET= allowlist, CAPTURED_AT=, NOTE=, " \
+       "PACKAGES=<packages_9_4.txt> for the #9.4 versions face; " \
        "RELEASE= + DAT_SHA= stamp a per-rung reference for references/)"
   task :ingest do
     require "yaml"
     require "date"
+    require "rpms_rpc/conformance/package_dump"
 
     dump_path = ENV["DUMP"] or abort "conformance:ingest requires DUMP=<file-8994 export>"
     env_name = ENV["ENV"] or abort "conformance:ingest requires ENV=<fingerprint name>"
@@ -38,6 +40,11 @@ namespace :conformance do
       rpcs[name] = meta
     end
 
+    # PACKAGE #9.4 versions face (optional): a packages_9_4.txt capture
+    # (rpms-ops bin/capture.sh, PREFIX^NAME^VERSION lines) → { name => version }.
+    # Without PACKAGES= the face stays {} exactly as before.
+    packages = ENV["PACKAGES"] ? RpmsRpc::Conformance::PackageDump.parse_file(ENV["PACKAGES"]) : {}
+
     subset_note = nil
     if ENV["SUBSET"]
       allowlist = File.readlines(ENV["SUBSET"], chomp: true).map(&:strip).reject(&:empty?).to_set
@@ -53,10 +60,10 @@ namespace :conformance do
         "kind" => "broker_dump",
         "captured_at" => captured_at,
         "dat_sha" => ENV["DAT_SHA"],
-        "note" => [ENV["NOTE"] || "file 8994 export (#{File.basename(dump_path)})", subset_note].compact.join("; ")
+        "note" => [ ENV["NOTE"] || "file 8994 export (#{File.basename(dump_path)})", subset_note ].compact.join("; ")
       }.compact,
       "rpcs" => rpcs.sort.to_h,
-      "packages" => {},
+      "packages" => packages,
       "patches" => [],
       "bmw_tables" => {}
     }
@@ -67,12 +74,18 @@ namespace :conformance do
       header << "# NOTE: #{subset_note} — representative, reviewable slice of the\n"
       header << "# real export; every line below is a real registry entry from the dump.\n"
     end
-    header << "# packages/patches/bmw_tables faces are empty until captured (follow-up).\n"
+    if packages.empty?
+      header << "# packages/patches/bmw_tables faces are empty until captured (follow-up).\n"
+    else
+      header << "# packages face: #{packages.size} PACKAGE #9.4 entries from #{File.basename(ENV["PACKAGES"])}.\n"
+      header << "# patches/bmw_tables faces are empty until captured (follow-up).\n"
+    end
 
     out_path = File.join(FINGERPRINTS_DIR, "#{env_name}.yml")
     FileUtils.mkdir_p(File.dirname(out_path))
     File.write(out_path, header + YAML.dump(fingerprint))
-    puts "Wrote #{out_path} (#{rpcs.size} RPCs#{" of #{total} in dump" if subset_note})"
+    puts "Wrote #{out_path} (#{rpcs.size} RPCs#{" of #{total} in dump" if subset_note}" \
+         "#{", #{packages.size} packages" unless packages.empty?})"
   end
 
   desc "Classify TARGET= fingerprint against reference rungs; with REQUIRED=, " \
@@ -93,7 +106,9 @@ namespace :conformance do
     puts "Classified as: #{result[:classified_as] || "(no references)"} " \
          "(coverage #{format("%.2f", result[:coverage])})"
     result[:ranked].each do |entry|
-      puts "  #{entry[:release]}: coverage #{format("%.2f", entry[:coverage])}"
+      line = "  #{entry[:release]}: coverage #{format("%.2f", entry[:coverage])}"
+      line += ", package coverage #{format("%.2f", entry[:package_coverage])}" if entry[:package_coverage]
+      puts line
     end
 
     if ENV["REQUIRED"]
@@ -103,6 +118,16 @@ namespace :conformance do
       puts "Delta vs #{required.release || ENV["REQUIRED"]}: " \
            "#{delta[:missing].size} missing, #{delta[:extra].size} extra"
       delta[:missing].each { |rpc| puts "  missing: #{rpc}" }
+
+      # PACKAGE #9.4 face — informational for now; the conformance gate
+      # stays RPC-based until per-rung package references are authoritative.
+      package_gaps = RpmsRpc::Conformance::Delta.package_gaps(target: target, required: required)
+      unless package_gaps.empty?
+        puts "Package gaps vs #{required.release || ENV["REQUIRED"]}: #{package_gaps.size}"
+        package_gaps.each do |name, gap|
+          puts "  package: #{name} requires #{gap[:required]}, target has #{gap[:actual] || "(absent)"}"
+        end
+      end
 
       abort "Target does not conform to #{required.release || ENV["REQUIRED"]}" unless delta[:missing].empty?
     end
