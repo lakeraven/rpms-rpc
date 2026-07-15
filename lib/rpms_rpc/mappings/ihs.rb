@@ -16,6 +16,7 @@ module RpmsRpc
     # BEHOPTCX PTINFO — broad patient identity bundle for chart banner
     # Format: NAME^SEX^DOB^SSN^^^^^^^MRN^^^^^^DESIGNATED_TEAM^PRIMARY_PROVIDER^^
     DataMapper.define(:patient_ptinfo) do |m|
+      m.backend :rpms
       m.rpc "BEHOPTCX PTINFO"
       m.field 0,  :name
       m.field 1,  :sex
@@ -29,6 +30,7 @@ module RpmsRpc
     # BEHOPTPC GETBDP — designated primary provider detail
     # Format: LABEL^PROVIDER_NAME^PROVIDER_IEN^TITLE^DATE
     DataMapper.define(:patient_designated_provider) do |m|
+      m.backend :rpms
       m.rpc "BEHOPTPC GETBDP"
       m.field 0, :label
       m.field 1, :provider_name
@@ -41,6 +43,7 @@ module RpmsRpc
     # the response indicates: C=Crises, W=Warnings, A=Allergies, D=Advance
     # Directives. Empty string means none.
     DataMapper.define(:patient_cwad) do |m|
+      m.backend :rpms
       m.rpc "BEHOCACV CWAD"
       m.scalar :cwad
     end
@@ -48,6 +51,7 @@ module RpmsRpc
     # BEHOVM TEMPLATE — vital field definitions for a location (multi-line)
     # Format per line: IEN^DISPLAY_ORDER^NAME^ABBREV^UNITS^LOW^HIGH^PERCENTILE_RPC^REQUIRED^DISPLAY_ROW
     DataMapper.define(:vital_template) do |m|
+      m.backend :rpms
       m.rpc "BEHOVM TEMPLATE"
       m.field 0, :ien,            :integer
       m.field 1, :display_order,  :integer
@@ -64,6 +68,7 @@ module RpmsRpc
     # BEHOVM VALIDATE — server-side vital value validation (scalar)
     # Returns echoed value when valid, error marker string otherwise.
     DataMapper.define(:vital_validate) do |m|
+      m.backend :rpms
       m.rpc "BEHOVM VALIDATE"
       m.scalar :validated_value
     end
@@ -71,6 +76,7 @@ module RpmsRpc
     # BEHOVM SAVE — bulk vital save (scalar)
     # Returns "0" for success; non-zero/non-empty for error.
     DataMapper.define(:vital_save) do |m|
+      m.backend :rpms
       m.rpc "BEHOVM SAVE"
       m.scalar :result_code
     end
@@ -78,6 +84,7 @@ module RpmsRpc
     # BHDPTRPC TRIBAL — tribal enrollment details
     # Format: ENROLLMENT_NUMBER^TRIBE_NAME^ENROLLMENT_DATE^STATUS^SERVICE_UNIT^TRIBE_CODE
     DataMapper.define(:tribal_enrollment) do |m|
+      m.backend :rpms
       m.rpc "BHDPTRPC TRIBAL"
       m.field 0, :enrollment_number
       m.field 1, :tribe_name
@@ -90,6 +97,7 @@ module RpmsRpc
     # BHDPTRPC TRIBALVAL — tribal enrollment validation
     # Format: VALID^TRIBE_CODE^ENROLLMENT_NUMBER^STATUS^MESSAGE
     DataMapper.define(:tribal_validation) do |m|
+      m.backend :rpms
       m.rpc "BHDPTRPC TRIBALVAL"
       m.field 0, :valid,             :boolean
       m.field 1, :tribe_code
@@ -101,6 +109,7 @@ module RpmsRpc
     # BHDPTRPC TRIBELIST — tribe info lookup
     # Format: IEN^NAME^CODE^SERVICE_UNIT^REGION^AREA
     DataMapper.define(:tribe_info) do |m|
+      m.backend :rpms
       m.rpc "BHDPTRPC TRIBELIST"
       m.field 0, :ien,          :integer
       m.field 1, :name
@@ -113,6 +122,7 @@ module RpmsRpc
     # BHDPTRPC TRIBALELG — enrollment eligibility
     # Format: ACTIVE^ELIGIBLE_FOR_IHS^SERVICE_UNIT^MESSAGE^BENEFIT_PACKAGE
     DataMapper.define(:enrollment_eligibility) do |m|
+      m.backend :rpms
       m.rpc "BHDPTRPC TRIBALELG"
       m.field 0, :active,          :boolean
       m.field 1, :eligible_for_ihs, :boolean
@@ -124,6 +134,7 @@ module RpmsRpc
     # BHDPTRPC SU — service unit lookup
     # Format: SERVICE_UNIT_IEN^SERVICE_UNIT_NAME^REGION
     DataMapper.define(:service_unit) do |m|
+      m.backend :rpms
       m.rpc "BHDPTRPC SU"
       m.field 0, :ien,    :integer
       m.field 1, :name
@@ -133,6 +144,7 @@ module RpmsRpc
     # BHDPTRPC REGISTER — patient registration result
     # Format: "1^DFN" (success) or "0^error_message" (failure)
     DataMapper.define(:patient_register) do |m|
+      m.backend :rpms
       m.rpc "BHDPTRPC REGISTER"
       m.field 0, :success, :boolean
       m.field 1, :dfn_or_error
@@ -141,6 +153,7 @@ module RpmsRpc
     # BHDPTRPC UPDATE — patient update result
     # Format: "1^" (success) or "0^error_message" (failure)
     DataMapper.define(:patient_update) do |m|
+      m.backend :rpms
       m.rpc "BHDPTRPC UPDATE"
       m.field 0, :success, :boolean
       m.field 1, :error
@@ -149,6 +162,7 @@ module RpmsRpc
     # BHDPTRPC NEWVISIT — encounter creation result
     # Format: "1^VISIT_IEN" (success) or "0^error_message" (failure)
     DataMapper.define(:encounter_create) do |m|
+      m.backend :rpms
       m.rpc "BHDPTRPC NEWVISIT"
       m.field 0, :success,   :boolean
       m.field 1, :visit_ien_or_error
@@ -161,6 +175,7 @@ module RpmsRpc
     # BHDO HOSP LOC DATA — hospital location
     # Format: IEN^NAME^ABBREVIATION^TYPE^DIVISION
     DataMapper.define(:hospital_location) do |m|
+      m.backend :rpms
       m.rpc "BHDO HOSP LOC DATA"
       m.field 0, :ien, :integer
       m.field 1, :name
@@ -172,6 +187,7 @@ module RpmsRpc
     # BHDO INST DATA — institution data
     # Format: IEN^NAME^STATION_NUMBER^ADDRESS^CITY^STATE^ZIP^PHONE
     DataMapper.define(:institution) do |m|
+      m.backend :rpms
       m.rpc "BHDO INST DATA"
       m.field 0, :ien, :integer
       m.field 1, :name
@@ -192,6 +208,7 @@ module RpmsRpc
     # Verified on staging file 8994 (2026-06-07): NAME is
     # "BMC SEARCH REFERRAL", tag SRCHREF, routine BMCRPC1.
     DataMapper.define(:referral_search) do |m|
+      m.backend :rpms
       m.rpc "BMC SEARCH REFERRAL"
       m.field 0, :ien
       m.field 1, :patient_dfn, :integer
@@ -203,30 +220,35 @@ module RpmsRpc
 
     # BMC ADD C32 PRINT LOG — records health-summary print activity.
     DataMapper.define(:bmc_add_c32_print_log) do |m|
+      m.backend :rpms
       m.rpc "BMC ADD C32 PRINT LOG"
       m.scalar :result
     end
 
     # BMC ADD REFERRAL — creates a primary CHS/RCIS referral.
     DataMapper.define(:bmc_add_referral) do |m|
+      m.backend :rpms
       m.rpc "BMC ADD REFERRAL"
       m.scalar :result
     end
 
     # BMC ADD SECONDARY REFERRAL — creates a secondary referral on an existing request.
     DataMapper.define(:bmc_add_secondary_referral) do |m|
+      m.backend :rpms
       m.rpc "BMC ADD SECONDARY REFERRAL"
       m.scalar :result
     end
 
     # BMC CHK YEAR SITE PARAM — validates fiscal-year/site RCIS setup.
     DataMapper.define(:bmc_check_year_site_param) do |m|
+      m.backend :rpms
       m.rpc "BMC CHK YEAR SITE PARAM"
       m.scalar :result
     end
 
     # BMC CONSULTATION STATUS UPDATE — updates the linked consultation status.
     DataMapper.define(:bmc_consultation_status_update) do |m|
+      m.backend :rpms
       m.rpc "BMC CONSULTATION STATUS UPDATE"
       m.scalar :result
     end
@@ -234,6 +256,7 @@ module RpmsRpc
     # BMC GET PURPOSE OF REF API — referral purpose lookup.
     # Common shape: IEN^NAME^CODE; extra pieces remain available through raw RPC calls.
     DataMapper.define(:bmc_purpose_of_referral_list) do |m|
+      m.backend :rpms
       m.rpc "BMC GET PURPOSE OF REF API"
       m.field 0, :ien
       m.field 1, :name
@@ -242,6 +265,7 @@ module RpmsRpc
 
     # BMC GET RCIS TEMPLATE DETAIL — template detail text/lines.
     DataMapper.define(:bmc_rcis_template_detail) do |m|
+      m.backend :rpms
       m.rpc "BMC GET RCIS TEMPLATE DETAIL"
       m.text_blob :detail
     end
@@ -249,6 +273,7 @@ module RpmsRpc
     # BMC GET RCIS TEMPLATE LIST — RCIS template lookup.
     # Common shape: IEN^NAME^TYPE.
     DataMapper.define(:bmc_rcis_template_list) do |m|
+      m.backend :rpms
       m.rpc "BMC GET RCIS TEMPLATE LIST"
       m.field 0, :ien
       m.field 1, :name
@@ -258,6 +283,7 @@ module RpmsRpc
     # BMC GET REFERENCE DATA — RCIS reference-data lookup.
     # Common shape: IEN^NAME^CODE.
     DataMapper.define(:bmc_reference_data) do |m|
+      m.backend :rpms
       m.rpc "BMC GET REFERENCE DATA"
       m.field 0, :ien
       m.field 1, :name
@@ -267,6 +293,7 @@ module RpmsRpc
     # BMC GET USERS/PROVIDERS — user/provider lookup.
     # Common shape: DUZ^NAME^TITLE.
     DataMapper.define(:bmc_users_providers) do |m|
+      m.backend :rpms
       m.rpc "BMC GET USERS/PROVIDERS"
       m.field 0, :duz
       m.field 1, :name
@@ -276,6 +303,7 @@ module RpmsRpc
     # BMC HEALTH SUMMARY TYPE — health-summary type lookup.
     # Common shape: IEN^NAME^ABBREVIATION.
     DataMapper.define(:bmc_health_summary_type) do |m|
+      m.backend :rpms
       m.rpc "BMC HEALTH SUMMARY TYPE"
       m.field 0, :ien
       m.field 1, :name
@@ -284,6 +312,7 @@ module RpmsRpc
 
     # BMC PATIENT ELIGIBILITY STATUS — CHS/RCIS eligibility status.
     DataMapper.define(:bmc_patient_eligibility_status) do |m|
+      m.backend :rpms
       m.rpc "BMC PATIENT ELIGIBILITY STATUS"
       m.field 0, :eligible, :boolean
       m.field 1, :status
@@ -292,18 +321,21 @@ module RpmsRpc
 
     # BMC PATIENT FACE SHEET — patient context text/lines.
     DataMapper.define(:bmc_patient_face_sheet) do |m|
+      m.backend :rpms
       m.rpc "BMC PATIENT FACE SHEET"
       m.text_blob :face_sheet
     end
 
     # BMC PATIENT HEALTH SUMMARY — patient health-summary text/lines.
     DataMapper.define(:bmc_patient_health_summary) do |m|
+      m.backend :rpms
       m.rpc "BMC PATIENT HEALTH SUMMARY"
       m.text_blob :health_summary
     end
 
     # BMC PRINT REFERRAL — print operation result.
     DataMapper.define(:bmc_print_referral) do |m|
+      m.backend :rpms
       m.rpc "BMC PRINT REFERRAL"
       m.scalar :result
     end
@@ -311,6 +343,7 @@ module RpmsRpc
     # BMC PROVIDERS — provider lookup.
     # Common shape: DUZ^NAME^TITLE.
     DataMapper.define(:bmc_providers) do |m|
+      m.backend :rpms
       m.rpc "BMC PROVIDERS"
       m.field 0, :duz
       m.field 1, :name
@@ -319,6 +352,7 @@ module RpmsRpc
 
     # BMC REFERRAL STATUS UPDATE — updates the referral status.
     DataMapper.define(:bmc_referral_status_update) do |m|
+      m.backend :rpms
       m.rpc "BMC REFERRAL STATUS UPDATE"
       m.scalar :result
     end
@@ -326,6 +360,7 @@ module RpmsRpc
     # BMC SEARCH REFERRED TO — referred-to facility/provider lookup.
     # Common shape: IEN^NAME^TYPE.
     DataMapper.define(:bmc_search_referred_to) do |m|
+      m.backend :rpms
       m.rpc "BMC SEARCH REFERRED TO"
       m.field 0, :ien
       m.field 1, :name
@@ -334,6 +369,7 @@ module RpmsRpc
 
     # BMC UPDATE REFERRAL — updates an existing CHS/RCIS referral.
     DataMapper.define(:bmc_update_referral) do |m|
+      m.backend :rpms
       m.rpc "BMC UPDATE REFERRAL"
       m.scalar :result
     end
@@ -341,6 +377,7 @@ module RpmsRpc
     # BMCRPC GTSITPRM — RCIS site parameters
     # Format per line: KEY^VALUE
     DataMapper.define(:site_params) do |m|
+      m.backend :rpms
       m.rpc "BMCRPC GTSITPRM"
       m.field 0, :key
       m.field 1, :value
@@ -349,6 +386,7 @@ module RpmsRpc
     # BMCRPC SRCHVEND — CHS vendor search (multi-line)
     # Format: IEN^NAME^TYPE^SPECIALTY^PREFERRED^PHONE^CITY^STATE
     DataMapper.define(:vendor_list) do |m|
+      m.backend :rpms
       m.rpc "BMCRPC SRCHVEND"
       # :ien is left as a string — RCIS vendor identifiers are opaque
       # tokens like "VENDOR-001", not numeric IENs (matches the gateway's
@@ -367,6 +405,7 @@ module RpmsRpc
     # Format: IEN^NAME^TYPE^SPECIALTIES^PREFERRED^PHONE^FAX^EMAIL^CONTACT_NAME^
     #         STREET^CITY^STATE^ZIP^CONTRACTED_SERVICES^CONTRACT_START^CONTRACT_END^ACTIVE
     DataMapper.define(:vendor_detail) do |m|
+      m.backend :rpms
       m.rpc "BMCRPC GTVEND"
       m.field 0,  :ien
       m.field 1,  :name
@@ -390,6 +429,7 @@ module RpmsRpc
     # BMCRPC GTPREFVEND — preferred CHS vendors (multi-line)
     # Same response shape as BMCRPC SRCHVEND.
     DataMapper.define(:preferred_vendor_list) do |m|
+      m.backend :rpms
       m.rpc "BMCRPC GTPREFVEND"
       m.field 0, :ien
       m.field 1, :name
@@ -404,6 +444,7 @@ module RpmsRpc
     # BMCRPC SRCHVEND — CHS vendors offering a service, with rates
     # Format: IEN^NAME^SERVICE^SPECIALTY^RATE^PREFERRED
     DataMapper.define(:vendor_service_list) do |m|
+      m.backend :rpms
       m.rpc "BMCRPC SRCHVEND"
       m.field 0, :ien
       m.field 1, :name
@@ -416,6 +457,7 @@ module RpmsRpc
     # BMCRPC GTCONTRACT — CHS vendor contracts (multi-line)
     # Format: ID^VENDOR_IEN^START_DATE^END_DATE^SERVICES^NOTES
     DataMapper.define(:vendor_contract_list) do |m|
+      m.backend :rpms
       m.rpc "BMCRPC GTCONTRACT"
       # Contract :id and :vendor_ien are opaque string identifiers
       # (e.g. "CONTRACT-001", "VENDOR-001"); gateway uses pick_string.
@@ -430,6 +472,7 @@ module RpmsRpc
     # BMCRPC GTRATES — CHS vendor contracted rates (multi-line)
     # Format: SERVICE^RATE^UNIT^EFFECTIVE_DATE
     DataMapper.define(:vendor_rate_list) do |m|
+      m.backend :rpms
       m.rpc "BMCRPC GTRATES"
       m.field 0, :service
       m.field 1, :rate
@@ -440,6 +483,7 @@ module RpmsRpc
     # BMCRPC GTBUDGET — CHS/PRC budget allocation by fiscal year
     # Format: FISCAL_YEAR^TOTAL_BUDGET^START_DATE^END_DATE
     DataMapper.define(:chs_budget) do |m|
+      m.backend :rpms
       m.rpc "BMCRPC GTBUDGET"
       m.field 0, :fiscal_year
       m.field 1, :total_budget
@@ -450,6 +494,7 @@ module RpmsRpc
     # BMCRPC GTREMAIN — remaining CHS/PRC funds for a fiscal year
     # Format: REMAINING^OBLIGATED^EXPENDED
     DataMapper.define(:chs_remaining_funds) do |m|
+      m.backend :rpms
       m.rpc "BMCRPC GTREMAIN"
       m.field 0, :remaining
       m.field 1, :obligated
@@ -459,6 +504,7 @@ module RpmsRpc
     # BMCRPC GTQTRALLOC — quarterly CHS/PRC allocation
     # Format: QUARTER^ALLOCATED^SPENT^REMAINING
     DataMapper.define(:chs_quarterly_allocation) do |m|
+      m.backend :rpms
       m.rpc "BMCRPC GTQTRALLOC"
       m.field 0, :quarter
       m.field 1, :allocated
@@ -469,6 +515,7 @@ module RpmsRpc
     # BMCRPC GTOBLIG — CHS/PRC obligation list
     # Format: ID^REFERRAL_IEN^PATIENT_DFN^AMOUNT^STATUS^SERVICE_TYPE^CREATED_DATE
     DataMapper.define(:chs_obligation_list) do |m|
+      m.backend :rpms
       m.rpc "BMCRPC GTOBLIG"
       m.field 0, :id
       # :referral_ien and :patient_dfn are opaque string identifiers (the
@@ -486,6 +533,7 @@ module RpmsRpc
     # BMCRPC GTOBLIGID — single CHS/PRC obligation
     # Format: ID^REFERRAL_IEN^PATIENT_DFN^AMOUNT^AMOUNT_PAID^STATUS^SERVICE_TYPE^VENDOR_ID^CREATED_DATE^PAID_DATE
     DataMapper.define(:chs_obligation_detail) do |m|
+      m.backend :rpms
       m.rpc "BMCRPC GTOBLIGID"
       m.field 0, :id
       # :referral_ien and :patient_dfn are opaque string identifiers (the
@@ -505,6 +553,7 @@ module RpmsRpc
 
     # BMCRPC GTREFOBLIG — single CHS/PRC obligation by referral IEN
     DataMapper.define(:chs_obligation_by_referral) do |m|
+      m.backend :rpms
       m.rpc "BMCRPC GTREFOBLIG"
       m.field 0, :id
       # :referral_ien and :patient_dfn are opaque string identifiers (the
@@ -525,6 +574,7 @@ module RpmsRpc
     # BMCRPC GTPAYMENT — payments against a CHS/PRC obligation
     # Format: ID^OBLIGATION_ID^AMOUNT^PAYMENT_DATE^CHECK_NUMBER^VENDOR_ID^CREATED_DATE
     DataMapper.define(:chs_payment_list) do |m|
+      m.backend :rpms
       m.rpc "BMCRPC GTPAYMENT"
       m.field 0, :id
       m.field 1, :obligation_id
@@ -543,6 +593,7 @@ module RpmsRpc
     # Verified on staging file 8994 (2026-06-07): NAME is
     # "BMC GET REFERRAL", tag GTRFBYID, routine BMCRPC1.
     DataMapper.define(:referral_detail) do |m|
+      m.backend :rpms
       m.rpc "BMC GET REFERRAL"
       m.field 0, :ien
       m.field 1, :patient_dfn, :integer
@@ -556,6 +607,7 @@ module RpmsRpc
 
     # BMCRPC DELREFRL — referral deletion result
     DataMapper.define(:referral_delete) do |m|
+      m.backend :rpms
       m.rpc "BMCRPC DELREFRL"
       m.field 0, :success, :boolean
       m.field 1, :message
@@ -567,18 +619,21 @@ module RpmsRpc
 
     # BEHOENCX GET SECTION — section data (text blob, parsed by caller)
     DataMapper.define(:section_data) do |m|
+      m.backend :rpms
       m.rpc "BEHOENCX GET SECTION"
       m.text_blob :section_text
     end
 
     # BEHOENCX SAVE SECTION — write result
     DataMapper.define(:section_save) do |m|
+      m.backend :rpms
       m.rpc "BEHOENCX SAVE SECTION"
       m.scalar :success, :boolean
     end
 
     # BEHOENCX GET SECDEF — section definition (text blob, parsed by caller)
     DataMapper.define(:section_definition) do |m|
+      m.backend :rpms
       m.rpc "BEHOENCX GET SECDEF"
       m.text_blob :definition_text
     end
@@ -586,6 +641,7 @@ module RpmsRpc
     # BEHOENCX GETVISIT — core visit detail by visit_ien
     # Format: LOCATION_IEN^DATETIME_RAW^STATUS^PATIENT_DFN^WARD^?
     DataMapper.define(:encounter_visit) do |m|
+      m.backend :rpms
       m.rpc "BEHOENCX GETVISIT"
       m.field 0, :location_ien, :integer
       m.field 1, :datetime_raw
@@ -597,6 +653,7 @@ module RpmsRpc
     # BEHOENCX FETCH — hydrated visit context (location + provider names + ward)
     # Format: CLINIC_NAME^CLINIC_ABBREV^^LOCATION_IEN^PROVIDER^VISIT_IEN^WARD^?
     DataMapper.define(:encounter_fetch) do |m|
+      m.backend :rpms
       m.rpc "BEHOENCX FETCH"
       m.field 0, :clinic_name
       m.field 1, :clinic_abbrev
@@ -609,6 +666,7 @@ module RpmsRpc
     # BEHOENCX CHKVISIT — missing-component report (multi-line)
     # Format per line: COMPONENT^MESSAGE
     DataMapper.define(:encounter_chkvisit) do |m|
+      m.backend :rpms
       m.rpc "BEHOENCX CHKVISIT"
       m.field 0, :component
       m.field 1, :message
@@ -616,6 +674,7 @@ module RpmsRpc
 
     # BEHOENCX LOCK — patient lock result
     DataMapper.define(:patient_lock) do |m|
+      m.backend :rpms
       m.rpc "BEHOENCX LOCK"
       m.field 0, :success, :boolean
       m.field 1, :lock_id
@@ -624,6 +683,7 @@ module RpmsRpc
 
     # BEHOENCX UNLOCK — patient unlock (boolean)
     DataMapper.define(:patient_unlock) do |m|
+      m.backend :rpms
       m.rpc "BEHOENCX UNLOCK"
       m.scalar :success, :boolean
     end
@@ -635,6 +695,7 @@ module RpmsRpc
     # BEHOCIR1 GETCCDS — CCD documents for patient
     # Format per line: IEN^DATE^SOURCE^TITLE^TYPE
     DataMapper.define(:ccd_document) do |m|
+      m.backend :rpms
       m.rpc "BEHOCIR1 GETCCDS"
       m.field 0, :ien, :integer
       m.field 1, :date, :fileman_date
@@ -646,6 +707,7 @@ module RpmsRpc
     # BEHOCCD GETREF — referrals with CCD status
     # Format per line: REFERRAL_IEN^VISIT_IEN^HAS_CCD^CCD_SENT_DATE^PROVIDER^FACILITY
     DataMapper.define(:ccd_referral) do |m|
+      m.backend :rpms
       m.rpc "BEHOCCD GETREF"
       m.field 0, :referral_ien, :integer
       m.field 1, :visit_ien, :integer
@@ -657,6 +719,7 @@ module RpmsRpc
 
     # BEHOCIR GETTXT — CCD document content
     DataMapper.define(:immunization_text) do |m|
+      m.backend :rpms
       m.rpc "BEHOCIR GETTXT"
       m.text_blob :content
     end
@@ -665,6 +728,7 @@ module RpmsRpc
     # Field positions are best-effort pending wider trace capture.
     # Format: IEN^CVX^DISPLAY^STATUS^LOT^EXP^SITE^ROUTE^PRDUZ^PRNAME^OCC^DOSE^UNIT^MFG^VFC^FUND
     DataMapper.define(:immunization_list) do |m|
+      m.backend :rpms
       m.rpc "BIPC IMMLIST"
       m.field 0,  :ien
       m.field 1,  :vaccine_code
@@ -687,6 +751,7 @@ module RpmsRpc
     # BIPC IMMGET — single administered immunization record by IEN.
     # Same field shape as :immunization_list.
     DataMapper.define(:immunization_detail) do |m|
+      m.backend :rpms
       m.rpc "BIPC IMMGET"
       m.field 0,  :ien
       m.field 1,  :vaccine_code
@@ -709,6 +774,7 @@ module RpmsRpc
     # BEHOCIR GETNUM — CCD count and reconciliation status
     # Format: TOTAL^RECONCILED
     DataMapper.define(:immunization_count) do |m|
+      m.backend :rpms
       m.rpc "BEHOCIR GETNUM"
       m.field 0, :total, :integer
       m.field 1, :reconciled, :integer
@@ -717,6 +783,7 @@ module RpmsRpc
     # BYIMRT VXU — send patient immunizations to state IIS
     # Format: STATUS^MESSAGE
     DataMapper.define(:immunization_exchange_vxu) do |m|
+      m.backend :rpms
       m.rpc "BYIMRT VXU"
       m.field 0, :status_code, :integer
       m.field 1, :message
@@ -725,6 +792,7 @@ module RpmsRpc
     # BYIMRT VXQ — submit patient immunization query to state IIS
     # Format: STATUS^MESSAGE
     DataMapper.define(:immunization_exchange_vxq) do |m|
+      m.backend :rpms
       m.rpc "BYIMRT VXQ"
       m.field 0, :status_code, :integer
       m.field 1, :message
@@ -736,6 +804,7 @@ module RpmsRpc
     # Date.parse (matches the gateway — values arrive ISO-formatted from
     # the IIS bridge, not FileMan).
     DataMapper.define(:immunization_exchange_rsp) do |m|
+      m.backend :rpms
       m.rpc "BYIMRT RSP"
       m.field 0, :vaccine_code
       m.field 1, :vaccine_display
@@ -747,6 +816,7 @@ module RpmsRpc
     # BYIMRT RSP — batch process result when called without patient context
     # Format: STATUS^MESSAGE
     DataMapper.define(:immunization_exchange_process_result) do |m|
+      m.backend :rpms
       m.rpc "BYIMRT RSP"
       m.field 0, :status_code, :integer
       m.field 1, :message
@@ -755,6 +825,7 @@ module RpmsRpc
     # BYIMRT STATUS — IIS exchange connectivity check
     # Format: STATUS^MESSAGE
     DataMapper.define(:immunization_exchange_status) do |m|
+      m.backend :rpms
       m.rpc "BYIMRT STATUS"
       m.field 0, :status_code, :integer
       m.field 1, :message
@@ -762,6 +833,7 @@ module RpmsRpc
 
     # BEHOCCD PHR — PHR enrollment/access check
     DataMapper.define(:phr_access) do |m|
+      m.backend :rpms
       m.rpc "BEHOCCD PHR"
       m.field 0, :has_access, :boolean
       m.field 1, :message
@@ -769,12 +841,14 @@ module RpmsRpc
 
     # BPHR RECORD ACCESS — records PHR access for reporting
     DataMapper.define(:phr_record_access) do |m|
+      m.backend :rpms
       m.rpc "BPHR RECORD ACCESS"
       m.scalar :success, :boolean
     end
 
     # BPHR PATIENT DIRECT — patient direct messaging
     DataMapper.define(:phr_patient_direct) do |m|
+      m.backend :rpms
       m.rpc "BPHR PATIENT DIRECT"
       m.field 0, :direct_address
       m.field 1, :status
@@ -782,6 +856,7 @@ module RpmsRpc
 
     # BPHR PROVIDER DIRECT — provider direct messaging
     DataMapper.define(:phr_provider_direct) do |m|
+      m.backend :rpms
       m.rpc "BPHR PROVIDER DIRECT"
       m.field 0, :direct_address
       m.field 1, :status
@@ -789,6 +864,7 @@ module RpmsRpc
 
     # BPHR FACILITY DIRECT — facility direct messaging
     DataMapper.define(:phr_facility_direct) do |m|
+      m.backend :rpms
       m.rpc "BPHR FACILITY DIRECT"
       m.field 0, :direct_address
       m.field 1, :status
@@ -801,6 +877,7 @@ module RpmsRpc
     # BIPC ELIGGET — patient VFC eligibility code
     # Format: CODE^LABEL
     DataMapper.define(:vfc_eligibility) do |m|
+      m.backend :rpms
       m.rpc "BIPC ELIGGET"
       m.field 0, :code
       m.field 1, :label
@@ -809,6 +886,7 @@ module RpmsRpc
     # BIPC ELIGLIST — all VFC eligibility codes (multi-line)
     # Format per line: CODE^LABEL
     DataMapper.define(:vfc_eligibility_list) do |m|
+      m.backend :rpms
       m.rpc "BIPC ELIGLIST"
       m.field 0, :code
       m.field 1, :label
@@ -817,6 +895,7 @@ module RpmsRpc
     # BIPC LOTLIST — vaccine inventory lots, optionally filtered by facility
     # Format per line: IEN^LOT^CVX^DISPLAY^MANUFACTURER^NDC^SOURCE^STATUS^EXP^START_COUNT^UNUSED^FACILITY
     DataMapper.define(:vaccine_lot_list) do |m|
+      m.backend :rpms
       m.rpc "BIPC LOTLIST"
       m.field 0,  :ien
       m.field 1,  :lot_number
@@ -834,6 +913,7 @@ module RpmsRpc
 
     # BIPC LOTGET — single vaccine inventory lot
     DataMapper.define(:vaccine_lot_detail) do |m|
+      m.backend :rpms
       m.rpc "BIPC LOTGET"
       m.field 0,  :ien
       m.field 1,  :lot_number
@@ -856,6 +936,7 @@ module RpmsRpc
     # CIAVMRPC GETPAR — fetch a CIAVM parameter by name.
     # Used at cold launch to retrieve "CIAVM DEFAULT SOURCE" → config root path.
     DataMapper.define(:session_default_source) do |m|
+      m.backend :rpms
       m.rpc "CIAVMRPC GETPAR"
       m.scalar :value, :string
     end
@@ -864,6 +945,7 @@ module RpmsRpc
     # Field positions are best-effort pending wider trace capture; the RPC
     # returns the registry/config root path used to locate cached config.
     DataMapper.define(:session_registry) do |m|
+      m.backend :rpms
       m.rpc "CIAVMCFG GETREG"
       m.field 0, :root
     end
@@ -872,6 +954,7 @@ module RpmsRpc
     # Field positions are best-effort pending wider trace capture; the RPC
     # carries the user's launch site IEN among other context fields.
     DataMapper.define(:session_vim_info) do |m|
+      m.backend :rpms
       m.rpc "CIAVCXUS VIMINFO"
       m.field 0, :site_ien, :integer
       m.field 1, :site_name
@@ -897,6 +980,7 @@ module RpmsRpc
     #   [9]  "7819"                 → ien
     #   [10] (unknown, ignored)
     DataMapper.define(:site_info) do |m|
+      m.backend :rpms
       m.rpc "BEHOSICX SITEINFO"
       m.line_field 0, :domain
       m.line_field 1, :name
@@ -916,6 +1000,7 @@ module RpmsRpc
     # MAGGUSER2 (per-user permission detail) is referenced in trace but not
     # yet modeled; the boolean predicate derives from key presence alone.
     DataMapper.define(:imaging_user_keys) do |m|
+      m.backend :rpms
       m.rpc "MAGGUSERKEYS"
       m.field 0, :key_name
     end
@@ -928,6 +1013,7 @@ module RpmsRpc
     # in the payload). Returns the new/edited IEN on success; "0" or empty on
     # failure. Wire payload is best-effort pending wider trace capture.
     DataMapper.define(:problem_edit) do |m|
+      m.backend :rpms
       m.rpc "BGOPROB1 EDPROB"
       m.scalar :result
     end
@@ -935,6 +1021,7 @@ module RpmsRpc
     # BGOPROB GET CLASS — problem list filtered by IPL scope class.
     # Same row shape as :problem_list (ORQQPL LIST).
     DataMapper.define(:problem_filter) do |m|
+      m.backend :rpms
       m.rpc "BGOPROB GET CLASS"
       m.field 0, :ien
       m.field 1, :status
@@ -954,12 +1041,14 @@ module RpmsRpc
     # in the payload. Returns the saved IEN on success; "0"/empty on failure.
     # Wire payload is best-effort pending wider trace capture.
     DataMapper.define(:visit_data_save) do |m|
+      m.backend :rpms
       m.rpc "BGOVUPD SET"
       m.scalar :result
     end
 
     # BGOVCPT SET — visit CPT-code save. Returns the saved IEN on success.
     DataMapper.define(:procedure_save) do |m|
+      m.backend :rpms
       m.rpc "BGOVCPT SET"
       m.scalar :result
     end
@@ -969,6 +1058,7 @@ module RpmsRpc
     # ========================================================================
 
     DataMapper.define(:referral_create) do |m|
+      m.backend :rpms
       m.rpc "BGOREF SET"
       m.scalar :ien
     end
@@ -979,6 +1069,7 @@ module RpmsRpc
     # Field positions are best-effort pending wider trace capture.
 
     DataMapper.define(:notifications_inbox) do |m|
+      m.backend :rpms
       m.rpc "BQI GET COMM ALERTS SPLASH"
       m.field 0, :id, :integer
       m.field 1, :type
@@ -992,6 +1083,7 @@ module RpmsRpc
     # Mark-read RPC name is a best-guess based on the BQI family; pending
     # wider trace capture, update only the RPC string here if it changes.
     DataMapper.define(:notification_mark_read) do |m|
+      m.backend :rpms
       m.rpc "BQI MARK ALERT READ"
       m.scalar :result
     end
@@ -1005,6 +1097,7 @@ module RpmsRpc
     # gateway returns the raw token string and lets the engine/integration
     # layer compose the viewer URL.
     DataMapper.define(:image_launch_token) do |m|
+      m.backend :rpms
       m.rpc "MAGG IMAGE LAUNCH TOKEN"
       m.scalar :token
     end
@@ -1014,6 +1107,7 @@ module RpmsRpc
     # ========================================================================
 
     DataMapper.define(:immunization_refusal_save) do |m|
+      m.backend :rpms
       m.rpc "BGOREP SET"
       m.scalar :result
     end
@@ -1029,6 +1123,7 @@ module RpmsRpc
     # referenced in the issue but not yet modeled; for_visit derives the
     # full list from GETSUM alone.
     DataMapper.define(:reminder_summary) do |m|
+      m.backend :rpms
       m.rpc "BGOTRG GETSUM"
       m.field 0, :id, :integer
       m.field 1, :name

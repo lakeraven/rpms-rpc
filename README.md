@@ -152,25 +152,18 @@ Leave this off in production.
 
 ## RPC Coverage Matrix
 
-`docs/RPC_COVERAGE.md` is generated from wrapper mappings, broker dumps, and
-pillar allowlists:
+`docs/rpcs.md` (workspace root) is generated from `VistaRpc::DataMapper` definitions
+in both vista-rpc and rpms-rpc. It lists every mapped RPC, its namespace, mapping
+status, M source citation (or `unverified`), test status, and backend (VA/VistA
+or RPMS/IHS):
 
 ```sh
 rake coverage:matrix
 ```
 
-To refresh an environment dump, set broker credentials and run:
-
-```sh
-RPMS_RPC_BROKER_HOST=vista.example.com \
-RPMS_RPC_BROKER_PORT=9100 \
-RPMS_RPC_ACCESS_CODE=... \
-RPMS_RPC_VERIFY_CODE=... \
-bin/probe_broker --env staging
-```
-
-The probe writes sorted unique rows to `data/broker_dumps/<env>_<YYYYMMDD>.txt`.
-Pillar allowlists live in `data/pillar_allowlists/`, one RPC name per line.
+M source citations are stored per-mapping via `m.source "..."` in the
+mapping definition. RPCs without a stored source are marked `unverified` so the
+matrix remains reproducible from code.
 
 ### PhiSanitizer secret
 
