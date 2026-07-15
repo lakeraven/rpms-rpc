@@ -78,7 +78,7 @@ class RpmsRpc::ConfigurationTest < Minitest::Test
   end
 
   def test_fetch_one_raises_when_not_configured
-    assert_raises(RpmsRpc::NotConfiguredError) do
+    assert_raises(VistaRpc::NotConfiguredError) do
       RpmsRpc::DataMapper.patient_select.fetch_one("1")
     end
   end

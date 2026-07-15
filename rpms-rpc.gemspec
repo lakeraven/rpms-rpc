@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
-require_relative "lib/rpms_rpc/version"
+version = File.read(File.expand_path("lib/rpms_rpc/version.rb", __dir__)).match(/VERSION = "([^"]+)"/)[1]
 
 Gem::Specification.new do |spec|
   spec.name        = "rpms-rpc"
-  spec.version     = RpmsRpc::VERSION
+  spec.version     = version
   spec.authors     = [ "Lakeraven" ]
   spec.email       = [ "eng@lakeraven.com" ]
   spec.homepage    = "https://github.com/lakeraven/rpms-rpc"
@@ -29,4 +29,5 @@ Gem::Specification.new do |spec|
   # rexml is a default gem in Ruby 3.4+ but must be declared so Bundler
   # adds it to the load path. Otherwise pure stdlib (socket, openssl).
   spec.add_dependency "rexml", "~> 3.2"
+  spec.add_dependency "vista-rpc", "~> 0.1.0"
 end

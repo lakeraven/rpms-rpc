@@ -6,33 +6,25 @@ module RpmsRpc
   module Patient
     extend self
 
+    # Stock VistA patient methods live in VistaRpc. RPMS extends them with
+    # IHS-specific behavior below.
     def find(dfn)
-      return nil if dfn.nil? || dfn.to_i <= 0
-
-      attrs = DataMapper.patient_select.fetch_one(dfn.to_s, extras: { dfn: dfn.to_i })
-      return nil unless attrs
-
-      extended = DataMapper.patient_id_info.fetch_one(dfn.to_s)
-      attrs.merge!(extended) if extended
-
-      attrs
+      VistaRpc::Patient.find(dfn)
     end
 
     def search(name_pattern)
-      DataMapper.patient_list.fetch_many(name_pattern.to_s, "1")
+      VistaRpc::Patient.search(name_pattern)
     end
 
     def find_by_ssn(ssn)
-      return nil if ssn.nil? || ssn.to_s.empty?
-
-      DataMapper.patient_ssn.fetch_one(ssn.to_s)
+      VistaRpc::Patient.find_by_ssn(ssn)
     end
 
     # Chart-banner projection per issue #60 contract:
     #
     #   { name:, dob:, sex:, mrn:, age:, allergy_flag:, ad_flag:, primary_provider: }
     #
-    # Composed from three RPCs:
+    # Composed from three RPMS-specific RPCs:
     #   - BEHOPTCX PTINFO         (name, sex, DOB raw, MRN, primary provider name)
     #   - BEHOPTPC GETBDP         (designated primary provider — overrides if present)
     #   - BEHOCACV CWAD           (Crises/Warnings/Allergies/Directives flags)
