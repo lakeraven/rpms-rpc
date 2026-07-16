@@ -121,6 +121,45 @@ class RpmsRpc::MockClientTest < Minitest::Test
     assert_equal "SMITH,JANE", p2[:name]
   end
 
+  def test_seed_and_fetch_allergy_list
+    RpmsRpc.mock! do |m|
+      m.seed_collection(:allergy_list, [
+        { allergen: "PENICILLIN", reaction: "RASH", severity: "MODERATE", allergy_ien: 42 },
+        { allergen: "ASPIRIN", reaction: "HIVES", severity: "SEVERE", allergy_ien: 7 }
+      ])
+    end
+
+    results = RpmsRpc::DataMapper.allergy_list.fetch_many("1")
+    assert_equal 2, results.size
+    assert_equal "PENICILLIN", results[0][:allergen]
+    assert_equal "SEVERE", results[1][:severity]
+    assert_equal 7, results[1][:allergy_ien]
+  end
+
+  def test_seed_and_fetch_allergy_detail
+    RpmsRpc.mock! do |m|
+      m.seed(:allergy_detail, "42", {
+        allergen: "PENICILLIN",
+        originator: "PROVIDER,ONE",
+        originator_title: "PHYSICIAN",
+        verification_status: "VERIFIED",
+        observed_historical: "OBSERVED",
+        type: "DRUG",
+        observation_date: Date.new(2015, 1, 15),
+        severity: "MODERATE",
+        drug_class: "PENICILLINS",
+        symptoms: "RASH;HIVES",
+        comments: "No comments"
+      })
+    end
+
+    result = RpmsRpc::DataMapper.allergy_detail.fetch_one("42")
+    assert_equal "PENICILLIN", result[:allergen]
+    assert_equal "VERIFIED", result[:verification_status]
+    assert_equal Date.new(2015, 1, 15), result[:observation_date]
+    assert_equal "PENICILLINS", result[:drug_class]
+  end
+
   # -- text_blob support -------------------------------------------------------
 
   def test_seed_text_blob_and_fetch_text
