@@ -52,18 +52,13 @@ module RpmsRpc
       "XQAL NEW ALERTS"
     ])
 
-    # Lab#for_patient / #reports / #find — ORWLRR RESULT LIST,
-    # ORWLRR REPORT LIST, and ORWLRR REPORT are all absent on the
-    # 2026-06-07 staging dump (the ORWLRR namespace IS installed, with
-    # entries like INTERIM / ATOMICS / SPEC — just not the three the
-    # gem consumes). All three are reads, so probe all three: a server
-    # could have one but not the others (sentinel pattern would risk a
-    # false positive). Same cluster-probe shape as :patient_chart_banner
-    # and :health_summary_gmts.
+    # Lab#for_patient / #reports / #find — ORWLRR INTERIM is the VA result list,
+    # ORWLR REPORT LISTS is the lab report type catalog, and ORWRP REPORT TEXT
+    # returns the selected report text. All three are reads; probe all three.
     register(:orwlrr_lab_reports, [
-      "ORWLRR RESULT LIST",
-      "ORWLRR REPORT LIST",
-      "ORWLRR REPORT"
+      "ORWLRR INTERIM",
+      "ORWLR REPORT LISTS",
+      "ORWRP REPORT TEXT"
     ])
 
     # Radiology#for_patient / #find — ORWRA REPORT and ORWRA REPORT

@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
 require "date"
+require_relative "../fileman_date_parser"
 
 module RpmsRpc
   # Symbolic API for laboratory data.
-  # Underlying RPCs (ORWLRR family): RESULT LIST, REPORT LIST, REPORT.
+  # Underlying RPCs: ORWLRR INTERIM (result list), ORWLR REPORT LISTS (report
+  # type catalog), and ORWRP REPORT TEXT (report text).
   module Lab
     extend self
 
@@ -17,7 +19,8 @@ module RpmsRpc
       return [] if blank?(dfn) || dfn.to_i <= 0
       return [] unless RpmsRpc.client.supports?(:orwlrr_lab_reports)
 
-      raw = DataMapper.lab_result_list.fetch_many(build_list_param(dfn, days))
+      from_date, to_date = date_window(days)
+      raw = DataMapper.lab_result_list.fetch_many(dfn.to_s, from_date, to_date)
       Array(raw).map { |row| decorate_result(row) }
     end
 
@@ -26,38 +29,46 @@ module RpmsRpc
       for_patient(dfn, days: days).select { |r| r[:abnormal] }
     end
 
-    # DiagnosticReport-style panel aggregation for a patient.
+    # Lab report type catalog. ORWLR REPORT LISTS is a global catalog, not
+    # patient-scoped; the dfn argument is retained for API symmetry.
     def reports(dfn)
       return [] if blank?(dfn) || dfn.to_i <= 0
       return [] unless RpmsRpc.client.supports?(:orwlrr_lab_reports)
 
-      Array(DataMapper.lab_report_list.fetch_many(dfn.to_s)).map { |r| apply_report_defaults(r) }
+      Array(DataMapper.lab_report_list.fetch_many).map { |r| apply_report_defaults(r) }
     end
 
-    # Single lab / panel detail. Returns a hash or nil if not found.
-    # The ORWLRR REPORT RPC takes a single composite param: "dfn^lab_ien".
-    # Response is a text blob: LABEL: VALUE lines plus optional caret-delimited
-    # component lines for panel tests.
+    # Single lab report text. The lab_ien argument is interpreted as the
+    # VistA report ID (e.g. "CBC PROFILE") for ORWRP REPORT TEXT.
     def find(dfn, lab_ien)
       return nil if blank?(dfn) || blank?(lab_ien)
       return nil unless RpmsRpc.client.supports?(:orwlrr_lab_reports)
 
-      key = "#{dfn}^#{lab_ien}"
-      text = DataMapper.lab_report.fetch_text(key)
+      text = DataMapper.lab_report.fetch_text(
+        dfn.to_s, lab_ien.to_s, "", "365", "", "", ""
+      )
       return nil if text.nil? || (text.respond_to?(:empty?) && text.empty?)
 
       parse_detail(text, lab_ien)
     end
 
-    # Build the ORWLRR RESULT LIST composite param ("dfn^from^to").
-    # Public for tests / observability.
+    # Build the ORWLRR INTERIM parameter list: [DFN, DATE1, DATE2] in FileMan
+    # format. Public for tests / observability.
     def build_list_param(dfn, days = 90)
-      to_date   = Date.today
-      from_date = to_date - days
-      "#{dfn}^#{from_date.strftime('%m/%d/%Y')}^#{to_date.strftime('%m/%d/%Y')}"
+      date_window(days, dfn: dfn)
     end
 
     private
+
+    def date_window(days, dfn: nil)
+      to_date   = Date.today
+      from_date = to_date - days
+      [
+        dfn.to_s,
+        FilemanDateParser.format_date(from_date),
+        FilemanDateParser.format_date(to_date)
+      ].tap { |a| a.shift if dfn.nil? }
+    end
 
     def decorate_result(row)
       flag = row[:abnormal_flag]

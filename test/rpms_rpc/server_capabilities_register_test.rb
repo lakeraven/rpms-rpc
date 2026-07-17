@@ -68,7 +68,7 @@ class RpmsRpc::ServerCapabilitiesRegisterTest < Minitest::Test
     pso_prescription_orders: [ "PSO ERX STATUS" ],
     xqal_alert_actions: [ "XQAL NEW ALERTS" ],
     bphr_phr_endpoints: [ "BPHR PATIENT DIRECT" ],
-    orwlrr_lab_reports: [ "ORWLRR RESULT LIST", "ORWLRR REPORT LIST", "ORWLRR REPORT" ],
+    orwlrr_lab_reports: [ "ORWLRR INTERIM", "ORWLR REPORT LISTS", "ORWRP REPORT TEXT" ],
     orwra_radiology_reports: [ "ORWRA REPORT", "ORWRA REPORT LIST" ],
     orwpce_clinical_logs: [ "ORWPCE IMPLANT LIST", "ORWPCE IMPLANT GET", "ORWPCE PROCEDURE LIST" ],
     orwrp_report_types: [ "ORWRP TYPES", "ORWRP TYPE COMPONENTS" ],

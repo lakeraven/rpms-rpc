@@ -149,13 +149,13 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
 
   def test_orwlrr_lab_reports_probes_all_three_rpcs
     rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:orwlrr_lab_reports]
-    assert_includes rpcs, "ORWLRR RESULT LIST"
-    assert_includes rpcs, "ORWLRR REPORT LIST"
-    assert_includes rpcs, "ORWLRR REPORT"
+    assert_includes rpcs, "ORWLRR INTERIM"
+    assert_includes rpcs, "ORWLR REPORT LISTS"
+    assert_includes rpcs, "ORWRP REPORT TEXT"
   end
 
   def test_probe_returns_false_when_any_orwlrr_rpc_missing
-    missing = ProbingClient.new(missing: [ "ORWLRR REPORT" ])
+    missing = ProbingClient.new(missing: [ "ORWRP REPORT TEXT" ])
     assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :orwlrr_lab_reports)
   end
 

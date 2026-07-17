@@ -160,6 +160,44 @@ class RpmsRpc::MockClientTest < Minitest::Test
     assert_equal "PENICILLINS", result[:drug_class]
   end
 
+  def test_seed_and_fetch_consult_list
+    RpmsRpc.mock! do |m|
+      m.seed_collection(:consult_list, [
+        { ien: 123, request_date: DateTime.new(2015, 1, 15, 8, 30), status: "PENDING", consulting_service: "Cardiology", procedure: "Echocardiogram" },
+        { ien: 456, request_date: DateTime.new(2015, 1, 16, 9, 0), status: "ACTIVE", consulting_service: "Orthopedics", procedure: "Knee MRI" }
+      ])
+    end
+
+    results = RpmsRpc::DataMapper.consult_list.fetch_many("1")
+    assert_equal 2, results.size
+    assert_equal 123, results[0][:ien]
+    assert_equal "PENDING", results[0][:status]
+    assert_equal "Cardiology", results[0][:consulting_service]
+    assert_equal "Knee MRI", results[1][:procedure]
+  end
+
+  def test_seed_and_fetch_consult_detail
+    RpmsRpc.mock! do |m|
+      m.seed(:consult_detail, "123", {
+        entry_date: Date.new(2015, 1, 15),
+        patient_dfn: 1,
+        to_service: "123.5",
+        request_date: Date.new(2015, 1, 15),
+        procedure_type: "GMRCOR REQUEST",
+        cprs_status: "1",
+        sending_provider: "10;PROVIDER,ONE",
+        request_type: "P",
+        clinically_indicated_date: Date.new(2015, 1, 15)
+      })
+    end
+
+    result = RpmsRpc::DataMapper.consult_detail.fetch_one("123")
+    assert_equal 1, result[:patient_dfn]
+    assert_equal "123.5", result[:to_service]
+    assert_equal "10;PROVIDER,ONE", result[:sending_provider]
+    assert_equal "P", result[:request_type]
+  end
+
   # -- text_blob support -------------------------------------------------------
 
   def test_seed_text_blob_and_fetch_text
