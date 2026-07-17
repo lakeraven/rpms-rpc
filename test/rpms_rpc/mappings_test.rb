@@ -92,11 +92,15 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
   # -- ORQQAL LIST -----------------------------------------------------------
 
+  # Wire order verified against LIST^ORQQAL and live VEHU rows:
+  # ALLERGY_IEN^ALLERGEN^SEVERITY^REACTIONS ("; "-joined symptoms).
   def test_allergy_list
-    results = RpmsRpc::DataMapper[:allergy_list].parse_many([ "PENICILLIN^RASH^MODERATE", "ASPIRIN^HIVES^SEVERE" ])
+    results = RpmsRpc::DataMapper[:allergy_list].parse_many([ "42^PENICILLIN^MODERATE^RASH", "7^ASPIRIN^SEVERE^HIVES" ])
     assert_equal 2, results.size
+    assert_equal 42, results[0][:allergy_ien]
     assert_equal "PENICILLIN", results[0][:allergen]
     assert_equal "SEVERE", results[1][:severity]
+    assert_equal "HIVES", results[1][:reaction]
   end
 
   # -- ORQQPL LIST -----------------------------------------------------------

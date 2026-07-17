@@ -15,8 +15,8 @@ class ClinicalDataApiTest < Minitest::Test
   def setup
     RpmsRpc.mock! do |m|
       m.seed_collection(:allergy_list,
-        [ { ien: 1, allergen: "Penicillin", reaction: "Hives", severity: "moderate" },
-          { ien: 2, allergen: "Shellfish", reaction: "Anaphylaxis", severity: "severe" } ])
+        [ { allergy_ien: 1, allergen: "Penicillin", reaction: "Hives", severity: "moderate" },
+          { allergy_ien: 2, allergen: "Shellfish", reaction: "Anaphylaxis", severity: "severe" } ])
       m.seed_collection(:problem_list,
         [ { ien: 1, status: "A", icd_code: "E11.9", description: "Type 2 diabetes" },
           { ien: 2, status: "I", icd_code: "I10", description: "Hypertension" } ])
