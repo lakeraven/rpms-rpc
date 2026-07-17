@@ -35,8 +35,7 @@ class VehuCprsWorkflowsTest < Minitest::Test
     skip "VEHU container not reachable at #{HOST}:#{PORT}" unless vehu_reachable?
 
     @original_client = VistaRpc.configuration.client
-    @client = RpmsRpc::CiaClient.new(host: HOST, port: PORT)
-    @client.connect
+    @client = connect_with_retries
     auth = @client.authenticate(ACCESS, VERIFY)
     flunk "VEHU authentication failed" unless auth[:success]
 
@@ -144,5 +143,23 @@ class VehuCprsWorkflowsTest < Minitest::Test
     true
   rescue StandardError
     false
+  end
+
+  # A freshly booted VEHU accepts TCP connections before the broker handshake
+  # is stable and may close mid-connect (observed in CI). Retry a few times
+  # with a fresh client; a persistently failing broker still raises.
+  def connect_with_retries(attempts: 3)
+    attempt = 0
+    begin
+      attempt += 1
+      client = RpmsRpc::CiaClient.new(host: HOST, port: PORT)
+      client.connect
+      client
+    rescue RpmsRpc::Client::ConnectionError
+      raise if attempt >= attempts
+
+      sleep 2
+      retry
+    end
   end
 end

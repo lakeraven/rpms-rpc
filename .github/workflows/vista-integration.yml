@@ -114,14 +114,23 @@ jobs:
       # directly instead of the container health status. If the broker never
       # comes up, the integration tests self-skip and the job stays green —
       # reachability is asserted here only as a soft signal.
+      # A freshly booted VEHU accepts TCP before the broker handshake is
+      # stable, so require several consecutive successful connects before
+      # declaring readiness.
       - name: Wait for VEHU RPC broker (up to 15 minutes)
         run: |
-          for i in $(seq 1 90); do
+          consecutive=0
+          for i in $(seq 1 180); do
             if (exec 3<>/dev/tcp/127.0.0.1/9430) 2>/dev/null; then
-              echo "VEHU RPC broker is accepting connections"
-              exit 0
+              consecutive=$((consecutive + 1))
+              if [ "$consecutive" -ge 3 ]; then
+                echo "VEHU RPC broker is accepting connections (stable)"
+                exit 0
+              fi
+            else
+              consecutive=0
             fi
-            sleep 10
+            sleep 5
           done
           echo "::warning::VEHU broker not reachable after 15 minutes; integration tests will skip"
       - name: rpms-rpc tests with live VEHU workflows
