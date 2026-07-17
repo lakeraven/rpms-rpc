@@ -209,6 +209,7 @@ module RpmsRpc
     # "BMC SEARCH REFERRAL", tag SRCHREF, routine BMCRPC1.
     DataMapper.define(:referral_search) do |m|
       m.backend :rpms
+      m.source "BMCRPC1.m SRCHREF"
       m.rpc "BMC SEARCH REFERRAL"
       m.field 0, :ien
       m.field 1, :patient_dfn, :integer
@@ -594,6 +595,7 @@ module RpmsRpc
     # "BMC GET REFERRAL", tag GTRFBYID, routine BMCRPC1.
     DataMapper.define(:referral_detail) do |m|
       m.backend :rpms
+      m.source "BMCRPC1.m GTRFBYID"
       m.rpc "BMC GET REFERRAL"
       m.field 0, :ien
       m.field 1, :patient_dfn, :integer

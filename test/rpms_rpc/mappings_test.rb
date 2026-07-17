@@ -101,12 +101,18 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
   # -- ORQQPL LIST -----------------------------------------------------------
 
+  # Wire order verified against LIST^ORQQPL / LIST^GMPLUTL3: piece 2 is the
+  # provider narrative and piece 3 the status; piece 6 is date last modified
+  # and piece 7 the SC/NSC flag.
   def test_problem_list
-    result = RpmsRpc::DataMapper[:problem_list].parse_many([ "123^ACTIVE^Diabetes Type 2^E11.9^3200101^3250301^101" ]).first
+    result = RpmsRpc::DataMapper[:problem_list].parse_many([ "123^Diabetes Type 2^ACTIVE^E11.9^3200101^3250301^NSC" ]).first
     assert_equal "123", result[:ien]
+    assert_equal "Diabetes Type 2", result[:description]
     assert_equal "ACTIVE", result[:status]
     assert_equal "E11.9", result[:icd_code]
     assert_equal Date.new(2020, 1, 1), result[:onset_date]
+    assert_equal Date.new(2025, 3, 1), result[:modified_date]
+    assert_equal "NSC", result[:service_connected]
   end
 
   # -- ORQQVI VITALS ---------------------------------------------------------
@@ -224,10 +230,15 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
   # -- ORQQPS LIST -----------------------------------------------------------
 
+  # Wire order verified against LIST^ORQQPS and live VEHU rows:
+  # ID^NAMEFORM^STOP_DATE^ROUTE^SCHEDULE^REFILLS_REMAINING.
   def test_medication_list
-    result = RpmsRpc::DataMapper[:medication_list].parse_many([ "456^METFORMIN 500MG^TAKE ONE TABLET BY MOUTH TWICE DAILY^ACTIVE^3260101^3^MARTINEZ" ]).first
-    assert_equal "METFORMIN 500MG", result[:drug_name]
-    assert_equal "ACTIVE", result[:status]
+    result = RpmsRpc::DataMapper[:medication_list].parse_many([ "456R;O^METFORMIN 500MG TAB^3260101^PO^BID^3" ]).first
+    assert_equal "456R;O", result[:ien]
+    assert_equal "METFORMIN 500MG TAB", result[:drug_name]
+    assert_equal Date.new(2026, 1, 1), result[:stop_date]
+    assert_equal "PO", result[:route]
+    assert_equal "BID", result[:schedule]
     assert_equal 3, result[:refills]
   end
 
