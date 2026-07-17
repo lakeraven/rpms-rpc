@@ -1,0 +1,140 @@
+name: VistA Integration
+
+# Hermetic suites for all three gems plus live CPRS read workflows against a
+# WorldVistA VEHU service container. The only credentials used are the
+# synthetic development access/verify codes bundled with the public VEHU
+# image (see docs/research/docker-vista-setup.md in the workspace) — no
+# secrets or production values.
+
+on:
+  push:
+    branches: [main, vista-support, shared-infra]
+  pull_request:
+
+env:
+  RUBY_VERSION: "3.4"
+
+jobs:
+  hermetic-gems:
+    name: Hermetic tests (vista-rpc + rpms-rpc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: rpms-rpc
+      - name: Checkout vista-rpc (matching branch, else default)
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git clone --depth 1 --branch "$BRANCH" \
+            "https://github.com/${GITHUB_REPOSITORY_OWNER}/vista-rpc" vista-rpc ||
+          git clone --depth 1 \
+            "https://github.com/${GITHUB_REPOSITORY_OWNER}/vista-rpc" vista-rpc
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: true
+          working-directory: rpms-rpc
+      - name: vista-rpc tests
+        working-directory: vista-rpc
+        run: |
+          bundle install
+          bundle exec rake test
+      - name: rpms-rpc tests
+        working-directory: rpms-rpc
+        run: bundle exec rake test
+
+  hermetic-engine:
+    name: Hermetic tests (lakeraven-ehr)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      RAILS_ENV: test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/lakeraven_ehr_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: rpms-rpc
+      - name: Checkout siblings (matching branch, else default)
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          for repo in vista-rpc lakeraven-ehr; do
+            git clone --depth 1 --branch "$BRANCH" \
+              "https://github.com/${GITHUB_REPOSITORY_OWNER}/${repo}" "$repo" ||
+            git clone --depth 1 \
+              "https://github.com/${GITHUB_REPOSITORY_OWNER}/${repo}" "$repo"
+          done
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: true
+          working-directory: lakeraven-ehr
+      - name: lakeraven-ehr tests
+        working-directory: lakeraven-ehr
+        run: |
+          bundle exec rails db:create db:migrate
+          bundle exec rails test
+
+  vehu-integration:
+    name: Live VEHU integration
+    runs-on: ubuntu-latest
+    services:
+      vehu:
+        image: worldvista/vehu:latest
+        ports:
+          - 9430:9430
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: rpms-rpc
+      - name: Checkout vista-rpc (matching branch, else default)
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git clone --depth 1 --branch "$BRANCH" \
+            "https://github.com/${GITHUB_REPOSITORY_OWNER}/vista-rpc" vista-rpc ||
+          git clone --depth 1 \
+            "https://github.com/${GITHUB_REPOSITORY_OWNER}/vista-rpc" vista-rpc
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: true
+          working-directory: rpms-rpc
+      # The VEHU image's own healthcheck stays unhealthy even when the RPC
+      # broker answers (observed locally), so gate on the broker port
+      # directly instead of the container health status. If the broker never
+      # comes up, the integration tests self-skip and the job stays green —
+      # reachability is asserted here only as a soft signal.
+      # A freshly booted VEHU accepts TCP before the broker handshake is
+      # stable, so require several consecutive successful connects before
+      # declaring readiness.
+      - name: Wait for VEHU RPC broker (up to 15 minutes)
+        run: |
+          consecutive=0
+          for i in $(seq 1 180); do
+            if (exec 3<>/dev/tcp/127.0.0.1/9430) 2>/dev/null; then
+              consecutive=$((consecutive + 1))
+              if [ "$consecutive" -ge 3 ]; then
+                echo "VEHU RPC broker is accepting connections (stable)"
+                exit 0
+              fi
+            else
+              consecutive=0
+            fi
+            sleep 5
+          done
+          echo "::warning::VEHU broker not reachable after 15 minutes; integration tests will skip"
+      - name: rpms-rpc tests with live VEHU workflows
+        working-directory: rpms-rpc
+        env:
+          VEHU_INTEGRATION: "1"
+        run: bundle exec rake test

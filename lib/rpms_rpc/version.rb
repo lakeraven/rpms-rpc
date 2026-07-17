@@ -7,19 +7,26 @@ require_relative "capabilities"
 module RpmsRpc
   VERSION = "0.1.0"
 
-  class NotConfiguredError < StandardError; end
+  class NotConfiguredError < VistaRpc::NotConfiguredError; end
 
   class Configuration
     # `unsafe_raw_errors` opts out of PhiSanitizer scrubbing for
     # exception messages. Off by default — production deploys should
     # leave it off. Turn on only for development / offline forensic
     # captures where preserving raw broker payloads matters.
-    attr_accessor :client, :fhir_client, :unsafe_raw_errors
+    attr_accessor :fhir_client, :unsafe_raw_errors
 
     def initialize
-      @client = nil
       @fhir_client = nil
       @unsafe_raw_errors = false
+    end
+
+    def client
+      VistaRpc.configuration.client
+    end
+
+    def client=(client)
+      VistaRpc.configuration.client = client
     end
   end
 
@@ -33,11 +40,9 @@ module RpmsRpc
     end
 
     def client
-      configuration.client || raise(
-        NotConfiguredError,
-        "RpmsRpc.client is not configured. Call RpmsRpc.configure { |c| c.client = ... } " \
-        "or RpmsRpc.mock! for testing."
-      )
+      VistaRpc.client
+    rescue VistaRpc::NotConfiguredError => e
+      raise NotConfiguredError, e.message
     end
 
     def fhir_client
@@ -50,6 +55,7 @@ module RpmsRpc
 
     def reset!
       @configuration = Configuration.new
+      VistaRpc.reset!
     end
 
     # Scrub PHI patterns from `message` before it propagates to a host
@@ -69,7 +75,7 @@ module RpmsRpc
     def mock!
       require_relative "mock_client"
       mock = MockClient.new
-      configure { |c| c.client = mock }
+      VistaRpc.configure { |c| c.client = mock }
       yield(mock) if block_given?
       mock
     end

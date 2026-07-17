@@ -120,7 +120,7 @@ class RpmsRpc::FetchApiTest < Minitest::Test
   # -- fetch raises when not configured --------------------------------------
 
   def test_fetch_raises_when_not_configured
-    assert_raises(RpmsRpc::NotConfiguredError) do
+    assert_raises(VistaRpc::NotConfiguredError) do
       RpmsRpc::DataMapper.patient_select.fetch_one("1")
     end
   end

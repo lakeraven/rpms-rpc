@@ -15,8 +15,8 @@ class ClinicalDataApiTest < Minitest::Test
   def setup
     RpmsRpc.mock! do |m|
       m.seed_collection(:allergy_list,
-        [ { ien: 1, allergen: "Penicillin", reaction: "Hives", severity: "moderate" },
-          { ien: 2, allergen: "Shellfish", reaction: "Anaphylaxis", severity: "severe" } ])
+        [ { allergy_ien: 1, allergen: "Penicillin", reaction: "Hives", severity: "moderate" },
+          { allergy_ien: 2, allergen: "Shellfish", reaction: "Anaphylaxis", severity: "severe" } ])
       m.seed_collection(:problem_list,
         [ { ien: 1, status: "A", icd_code: "E11.9", description: "Type 2 diabetes" },
           { ien: 2, status: "I", icd_code: "I10", description: "Hypertension" } ])
@@ -74,6 +74,36 @@ class ClinicalDataApiTest < Minitest::Test
     results.each { |r| refute_nil r[:icd_code] }
   end
 
+  # LIST^ORQQPL(ORPY,DFN,STATUS) reads STATUS unguarded — the wire call must
+  # always include it or live VistA raises "Undefined local variable: STATUS".
+  def test_problem_for_patient_sends_status_param
+    RpmsRpc::Problem.for_patient("1")
+
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORQQPL LIST" }
+    assert_equal [ "1", "" ], call[:params]
+  end
+
+  def test_problem_for_patient_maps_status_keyword_to_wire_code
+    RpmsRpc::Problem.for_patient("1", status: :active)
+
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORQQPL LIST" }
+    assert_equal [ "1", "A" ], call[:params]
+  end
+
+  def test_problem_for_patient_rejects_unknown_status
+    assert_raises(ArgumentError) { RpmsRpc::Problem.for_patient("1", status: :bogus) }
+  end
+
+  # An empty problem list comes back as the sentinel row "^No problems found."
+  # (blank IEN piece), not as an empty response. Verified against VEHU.
+  def test_problem_for_patient_filters_no_problems_sentinel_row
+    RpmsRpc.mock! do |m|
+      m.seed_collection(:problem_list, [ { ien: "", status: "No problems found." } ])
+    end
+
+    assert_equal [], RpmsRpc::Problem.for_patient("1")
+  end
+
   # =============================================================================
   # VITAL
   # =============================================================================
@@ -107,6 +137,23 @@ class ClinicalDataApiTest < Minitest::Test
 
     refute_nil result
     assert_includes result, "Lisinopril 10mg"
+  end
+
+  # LIST^ORQQPS(ORY,ORPT,ORSTRTDT,ORSTOPDT) reads both dates unguarded — the
+  # wire call must always include them or live VistA raises
+  # "Undefined local variable: ORSTRTDT". Blank dates mean current profile.
+  def test_medication_for_patient_sends_date_params
+    RpmsRpc::Medication.for_patient("1")
+
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORQQPS LIST" }
+    assert_equal [ "1", "", "" ], call[:params]
+  end
+
+  def test_medication_for_patient_passes_fileman_date_range
+    RpmsRpc::Medication.for_patient("1", start_date: "3200101", stop_date: "3251231")
+
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORQQPS LIST" }
+    assert_equal [ "1", "3200101", "3251231" ], call[:params]
   end
 
   def test_medication_find_nil_for_unknown

@@ -29,8 +29,10 @@ module RpmsRpc
     # Hash key insertion order can't reshuffle the payload mid-flight.
     EDPROB_FIELDS = %i[icd_code description status onset_date provider_duz reason].freeze
 
-    def for_patient(dfn)
-      DataMapper.problem_list.fetch_many(dfn.to_s)
+    # The problem-list read is stock VistA (ORQQPL LIST) and lives in
+    # VistaRpc::Problem; IHS-specific writes (BGOPROB*) stay below.
+    def for_patient(dfn, status: :all)
+      VistaRpc::Problem.for_patient(dfn, status: status)
     end
 
     def add(dfn, problem)

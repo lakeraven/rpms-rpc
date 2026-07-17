@@ -7,39 +7,46 @@ require "rpms_rpc/api/lab"
 
 class LabTest < Minitest::Test
   DFN = 8791
+  OTHER_DFN = 18_791
 
   def setup
-    list_key = RpmsRpc::Lab.build_list_param(DFN)
+    recent = DateTime.now - 3
 
     RpmsRpc.mock! do |m|
-      # ORWLRR RESULT LIST — single composite param "dfn^from^to".
-      # Format per line: IEN^TEST_NAME^RESULT^UNITS^REF_RANGE^ABNORMAL_FLAG^COLLECTION_DATE^STATUS
-      m.seed_keyed_collection(:lab_result_list, list_key, [
-        { ien: 101, test_name: "GLUCOSE",        result: "95",  units: "mg/dL",  reference_range: "70-100", abnormal_flag: "N", collection_date: nil, status: "final" },
-        { ien: 102, test_name: "HEMOGLOBIN A1C", result: "7.2", units: "%",      reference_range: "<5.7",   abnormal_flag: "H", collection_date: nil, status: "final" },
-        { ien: 103, test_name: "CHOLESTEROL",    result: "210", units: "mg/dL",  reference_range: "<200",   abnormal_flag: "H", collection_date: nil, status: "final" }
+      # Structured labs come from the CPRS graphing RPC pair:
+      # ORWGRPC ITEMS (DFN, "63") enumerates the patient's lab tests, then
+      # ORWGRPC ITEMDATA ("63^<test ien>", START, DFN) returns datapoints.
+      # ITEMDATA is keyed by its FIRST param — the item, not the DFN.
+      m.seed_keyed_collection(:lab_graph_items, DFN.to_s, [
+        { file_number: "63", test_ien: 101, test_name: "GLUCOSE",        newest_result: recent },
+        { file_number: "63", test_ien: 102, test_name: "HEMOGLOBIN A1C", newest_result: recent },
+        { file_number: "63", test_ien: 103, test_name: "CHOLESTEROL",    newest_result: recent }
+      ])
+      m.seed_keyed_collection(:lab_graph_data, "63^101", [
+        { file_number: "63", test_ien: 101, collection_date: recent, result: "95",
+          abnormal_flag: "N", specimen_code: "70", specimen: "BLOOD",
+          reference_range: "70!100", units: "mg/dL" }
+      ])
+      m.seed_keyed_collection(:lab_graph_data, "63^102", [
+        { file_number: "63", test_ien: 102, collection_date: recent, result: "7.2",
+          abnormal_flag: "H", specimen_code: "70", specimen: "BLOOD",
+          reference_range: "", units: "%" }
+      ])
+      m.seed_keyed_collection(:lab_graph_data, "63^103", [
+        { file_number: "63", test_ien: 103, collection_date: recent, result: "210",
+          abnormal_flag: "H", specimen_code: "70", specimen: "BLOOD",
+          reference_range: "", units: "mg/dL" }
       ])
 
-      # ORWLRR REPORT LIST — 10-field aggregated panels (gateway shape).
-      m.seed_keyed_collection(:lab_report_list, DFN.to_s, [
-        {
-          ien: 201, report_name: "BASIC METABOLIC PANEL", loinc_code: "24323-8",
-          status: "final", collection_date: nil, result_date: nil,
-          verifier_duz: "301", verifier_name: "SEVEN,HENRY L",
-          result_iens: "1001;1002;1003", interpretation: nil
-        },
-        {
-          ien: 202, report_name: "LIPID PANEL", loinc_code: "57698-3",
-          status: "",  # API should default to "final"
-          collection_date: nil, result_date: nil,
-          verifier_duz: "301", verifier_name: "SEVEN,HENRY L",
-          result_iens: "1010;1011", interpretation: nil
-        }
+      # ORWLR REPORT LISTS — global report type catalog (no params).
+      # Format: REPORT_ID^REPORT_NAME^ENABLED_FLAG^REQUIRES_DATE_FLAG^MAX_OCCURRENCES
+      m.seed_collection(:lab_report_list, [
+        { report_id: "BASIC METABOLIC PANEL", report_name: "Basic Metabolic Panel", enabled_flag: "Y", requires_date_flag: "N", max_occurrences: 80 },
+        { report_id: "LIPID PANEL",           report_name: "Lipid Panel",           enabled_flag: "Y", requires_date_flag: "N", max_occurrences: 80 }
       ])
 
-      # ORWLRR REPORT — single composite key "dfn^lab_ien", text blob with
-      # LABEL: VALUE lines plus component lines.
-      m.seed_text(:lab_report, "#{DFN}^201",
+      # ORWRP REPORT TEXT — text blob keyed by DFN (first param).
+      m.seed_text(:lab_report, DFN.to_s,
         "TEST: BASIC METABOLIC PANEL\n" \
         "RESULT: see components\n" \
         "COLLECTED: 3260514.0900\n" \
@@ -52,7 +59,7 @@ class LabTest < Minitest::Test
 
       # Single-test detail (no components) — derives :abnormal from
       # the abnormal_flag label.
-      m.seed_text(:lab_report, "#{DFN}^202",
+      m.seed_text(:lab_report, OTHER_DFN.to_s,
         "TEST: GLUCOSE\n" \
         "RESULT: 250\n" \
         "UNITS: mg/dL\n" \
@@ -68,17 +75,18 @@ class LabTest < Minitest::Test
 
   # === for_patient — recent lab list ============================================
 
-  def test_for_patient_sends_caret_delimited_dfn_from_to_composite
+  def test_for_patient_uses_graphing_rpcs_on_the_wire
     RpmsRpc::Lab.for_patient(DFN)
 
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWLRR RESULT LIST" }
-    refute_nil call
-    assert_equal 1, call[:params].length, "ORWLRR RESULT LIST takes a single composite param"
-    assert_equal RpmsRpc::Lab.build_list_param(DFN), call[:params].first
-    parts = call[:params].first.split("^")
-    assert_equal "8791",  parts[0]
-    assert_match %r{\A\d{2}/\d{2}/\d{4}\z}, parts[1]
-    assert_match %r{\A\d{2}/\d{2}/\d{4}\z}, parts[2]
+    items_call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWGRPC ITEMS" }
+    refute_nil items_call
+    assert_equal [ "8791", "63" ], items_call[:params]
+
+    data_call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWGRPC ITEMDATA" }
+    refute_nil data_call
+    assert_equal "63^101", data_call[:params][0]
+    assert_match(/\A\d{7}\z/, data_call[:params][1], "START should be a FileMan date")
+    assert_equal "8791", data_call[:params][2]
   end
 
   def test_for_patient_returns_recent_lab_results
@@ -127,23 +135,22 @@ class LabTest < Minitest::Test
 
   # === reports — DiagnosticReport-style list ====================================
 
-  def test_reports_returns_diagnostic_report_panels_with_gateway_field_names
+  def test_reports_returns_report_type_catalog_with_gateway_field_names
     reports = RpmsRpc::Lab.reports(DFN)
 
     assert_kind_of Array, reports
     assert_equal 2, reports.length
-    bmp = reports.find { |r| r[:report_name] == "BASIC METABOLIC PANEL" }
+    bmp = reports.find { |r| r[:report_id] == "BASIC METABOLIC PANEL" }
     refute_nil bmp
-    assert_equal "24323-8",           bmp[:loinc_code]
-    assert_equal "final",             bmp[:status]
-    assert_equal "SEVEN,HENRY L",     bmp[:verifier_name]
-    assert_equal "301",               bmp[:verifier_duz]
-    assert_equal "1001;1002;1003",    bmp[:result_iens]
+    assert_equal "Basic Metabolic Panel", bmp[:report_name]
+    assert_equal "Y",                     bmp[:enabled_flag]
+    assert_equal "N",                     bmp[:requires_date_flag]
+    assert_equal 80,                      bmp[:max_occurrences]
   end
 
   def test_reports_defaults_blank_status_to_final
     reports = RpmsRpc::Lab.reports(DFN)
-    lipid = reports.find { |r| r[:report_name] == "LIPID PANEL" }
+    lipid = reports.find { |r| r[:report_id] == "LIPID PANEL" }
     assert_equal "final", lipid[:status]
   end
 
@@ -155,13 +162,14 @@ class LabTest < Minitest::Test
 
   # === find — single lab detail =================================================
 
-  def test_find_sends_caret_delimited_dfn_lab_ien_composite
+  def test_find_sends_orwrp_report_text_params
     RpmsRpc::Lab.find(DFN, 201)
 
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWLRR REPORT" }
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWRP REPORT TEXT" }
     refute_nil call
-    assert_equal 1, call[:params].length, "ORWLRR REPORT takes a single composite param"
-    assert_equal "#{DFN}^201", call[:params].first
+    assert_equal 7, call[:params].length, "ORWRP REPORT TEXT takes seven params"
+    assert_equal "8791", call[:params][0]
+    assert_equal "201",  call[:params][1]
   end
 
   def test_find_returns_lab_detail_by_ien
@@ -201,7 +209,7 @@ class LabTest < Minitest::Test
   end
 
   def test_find_falls_back_to_abnormal_flag_when_no_components
-    detail = RpmsRpc::Lab.find(DFN, 202)
+    detail = RpmsRpc::Lab.find(OTHER_DFN, 202)
     assert_empty detail[:components]
     assert_equal "H",  detail[:abnormal_flag]
     assert_equal true, detail[:abnormal]
@@ -218,7 +226,7 @@ class LabTest < Minitest::Test
   end
 
   def test_find_returns_nil_for_unknown_combination
-    assert_nil RpmsRpc::Lab.find(DFN, 999_999)
+    assert_nil RpmsRpc::Lab.find(99_999, 999_999)
   end
 
   # === Symbolic API contract ====================================================
@@ -236,18 +244,18 @@ class LabTest < Minitest::Test
   def test_for_patient_returns_empty_when_orwlrr_unsupported
     RpmsRpc.client.seed_capability(:orwlrr_lab_reports, supported: false)
     assert_equal [], RpmsRpc::Lab.for_patient(DFN)
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWLRR RESULT LIST" }
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWLRR INTERIM" }
   end
 
   def test_reports_returns_empty_when_orwlrr_unsupported
     RpmsRpc.client.seed_capability(:orwlrr_lab_reports, supported: false)
     assert_equal [], RpmsRpc::Lab.reports(DFN)
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWLRR REPORT LIST" }
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWLR REPORT LISTS" }
   end
 
   def test_find_returns_nil_when_orwlrr_unsupported
     RpmsRpc.client.seed_capability(:orwlrr_lab_reports, supported: false)
     assert_nil RpmsRpc::Lab.find(DFN, 501)
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWLRR REPORT" }
+    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWRP REPORT TEXT" }
   end
 end

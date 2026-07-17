@@ -4,8 +4,11 @@ module RpmsRpc
   module Allergy
     extend self
 
+    # The allergy read is stock VistA (ORQQAL LIST) and lives in
+    # VistaRpc::Allergy. RPMS can extend here when IHS-specific behavior
+    # is needed.
     def for_patient(dfn)
-      DataMapper.allergy_list.fetch_many(dfn.to_s)
+      VistaRpc::Allergy.for_patient(dfn)
     end
   end
 end
