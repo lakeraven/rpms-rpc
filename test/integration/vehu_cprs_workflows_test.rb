@@ -121,6 +121,21 @@ class VehuCprsWorkflowsTest < Minitest::Test
     end
   end
 
+  def test_lab_results_round_trip_with_structured_shape
+    # VEHU's bundled lab data is historical (2007/2015), so use a wide window.
+    labs = VistaRpc::Lab.for_patient(PROBE_DFN, days: 10_000)
+
+    refute_empty labs
+    labs.each do |l|
+      refute_empty l[:test_name].to_s
+      refute_empty l[:result].to_s
+      assert_equal "final", l[:status]
+      assert l.key?(:abnormal)
+    end
+    assert(labs.any? { |l| l[:units].to_s.length.positive? })
+    assert(labs.all? { |l| l[:collection_date].respond_to?(:year) })
+  end
+
   # -- order/consult read workflow ---------------------------------------------
 
   def test_consult_list_and_detail_round_trip

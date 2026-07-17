@@ -10,14 +10,32 @@ class LabTest < Minitest::Test
   OTHER_DFN = 18_791
 
   def setup
-    RpmsRpc.mock! do |m|
-      # ORWLRR INTERIM — three separate params: DFN, DATE1, DATE2.
-      # Format per line: IEN^TEST_NAME^RESULT^UNITS^REF_RANGE^ABNORMAL_FLAG^COLLECTION_DATE^STATUS
+    recent = DateTime.now - 3
 
-      m.seed_keyed_collection(:lab_result_list, DFN.to_s, [
-        { ien: 101, test_name: "GLUCOSE",        result: "95",  units: "mg/dL",  reference_range: "70-100", abnormal_flag: "N", collection_date: nil, status: "final" },
-        { ien: 102, test_name: "HEMOGLOBIN A1C", result: "7.2", units: "%",      reference_range: "<5.7",   abnormal_flag: "H", collection_date: nil, status: "final" },
-        { ien: 103, test_name: "CHOLESTEROL",    result: "210", units: "mg/dL",  reference_range: "<200",   abnormal_flag: "H", collection_date: nil, status: "final" }
+    RpmsRpc.mock! do |m|
+      # Structured labs come from the CPRS graphing RPC pair:
+      # ORWGRPC ITEMS (DFN, "63") enumerates the patient's lab tests, then
+      # ORWGRPC ITEMDATA ("63^<test ien>", START, DFN) returns datapoints.
+      # ITEMDATA is keyed by its FIRST param — the item, not the DFN.
+      m.seed_keyed_collection(:lab_graph_items, DFN.to_s, [
+        { file_number: "63", test_ien: 101, test_name: "GLUCOSE",        newest_result: recent },
+        { file_number: "63", test_ien: 102, test_name: "HEMOGLOBIN A1C", newest_result: recent },
+        { file_number: "63", test_ien: 103, test_name: "CHOLESTEROL",    newest_result: recent }
+      ])
+      m.seed_keyed_collection(:lab_graph_data, "63^101", [
+        { file_number: "63", test_ien: 101, collection_date: recent, result: "95",
+          abnormal_flag: "N", specimen_code: "70", specimen: "BLOOD",
+          reference_range: "70!100", units: "mg/dL" }
+      ])
+      m.seed_keyed_collection(:lab_graph_data, "63^102", [
+        { file_number: "63", test_ien: 102, collection_date: recent, result: "7.2",
+          abnormal_flag: "H", specimen_code: "70", specimen: "BLOOD",
+          reference_range: "", units: "%" }
+      ])
+      m.seed_keyed_collection(:lab_graph_data, "63^103", [
+        { file_number: "63", test_ien: 103, collection_date: recent, result: "210",
+          abnormal_flag: "H", specimen_code: "70", specimen: "BLOOD",
+          reference_range: "", units: "mg/dL" }
       ])
 
       # ORWLR REPORT LISTS — global report type catalog (no params).
@@ -57,15 +75,18 @@ class LabTest < Minitest::Test
 
   # === for_patient — recent lab list ============================================
 
-  def test_for_patient_sends_three_separate_params
+  def test_for_patient_uses_graphing_rpcs_on_the_wire
     RpmsRpc::Lab.for_patient(DFN)
 
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWLRR INTERIM" }
-    refute_nil call
-    assert_equal 3, call[:params].length, "ORWLRR INTERIM takes three separate params"
-    assert_equal "8791", call[:params][0]
-    assert_match(/\A\d{7}\z/, call[:params][1], "DATE1 should be a FileMan date")
-    assert_match(/\A\d{7}\z/, call[:params][2], "DATE2 should be a FileMan date")
+    items_call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWGRPC ITEMS" }
+    refute_nil items_call
+    assert_equal [ "8791", "63" ], items_call[:params]
+
+    data_call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWGRPC ITEMDATA" }
+    refute_nil data_call
+    assert_equal "63^101", data_call[:params][0]
+    assert_match(/\A\d{7}\z/, data_call[:params][1], "START should be a FileMan date")
+    assert_equal "8791", data_call[:params][2]
   end
 
   def test_for_patient_returns_recent_lab_results

@@ -589,7 +589,8 @@ class RpmsRpc::MappingsTest < Minitest::Test
       service_unit patient_register patient_update encounter_create
       practitioner_info practitioner_list user_management_user_list
       medication_list care_plan_list care_team_list goal_list
-      procedure_list device_list lab_result_list radiology_list
+      procedure_list device_list lab_interim_report lab_graph_items
+      lab_graph_data radiology_list
       hospital_location institution referral_search site_params
       chs_budget chs_remaining_funds chs_quarterly_allocation
       chs_obligation_list chs_obligation_detail chs_obligation_by_referral

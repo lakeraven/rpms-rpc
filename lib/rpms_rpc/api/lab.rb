@@ -19,9 +19,9 @@ module RpmsRpc
       return [] if blank?(dfn) || dfn.to_i <= 0
       return [] unless RpmsRpc.client.supports?(:orwlrr_lab_reports)
 
-      from_date, to_date = date_window(days)
-      raw = DataMapper.lab_result_list.fetch_many(dfn.to_s, from_date, to_date)
-      Array(raw).map { |row| decorate_result(row) }
+      # Structured results are stock VistA (ORWGRPC ITEMS/ITEMDATA) and live
+      # in VistaRpc::Lab; the capability gate above stays RPMS-specific.
+      VistaRpc::Lab.for_patient(dfn, days: days)
     end
 
     # Only the abnormal results within the window.
@@ -53,9 +53,13 @@ module RpmsRpc
     end
 
     # Build the ORWLRR INTERIM parameter list: [DFN, DATE1, DATE2] in FileMan
-    # format. Public for tests / observability.
+    # format, MOST-RECENT-FIRST — SELECT^LR7OGM inverts the dates itself and
+    # iterates reverse-chronologically, so forward order silently returns
+    # "No Data Found" (verified on VEHU 2026-07-17). Public for tests /
+    # observability.
     def build_list_param(dfn, days = 90)
-      date_window(days, dfn: dfn)
+      dfn_s, from_date, to_date = date_window(days, dfn: dfn)
+      [ dfn_s, to_date, from_date ]
     end
 
     private
