@@ -133,6 +133,16 @@ class PatientTest < Minitest::Test
     assert_nil RpmsRpc::Patient.register(NEW_PATIENT)
   end
 
+  def test_register_rejects_caret_in_field_values
+    attrs = NEW_PATIENT.merge(name: "RAVEN,NORA^M^3000101^000000000")
+
+    err = assert_raises(ArgumentError) { RpmsRpc::Patient.register(attrs) }
+
+    assert_match(/name must not contain '\^'/, err.message)
+    refute_match(/RAVEN/, err.message, "message must not echo the PHI value")
+    assert_empty RpmsRpc.client.received_calls, "no RPC should be sent"
+  end
+
   def test_register_accepts_preformatted_dob_string
     attrs = NEW_PATIENT.merge(dob: "2920311")
     seed_register_response(attrs, success: true, payload: "43")

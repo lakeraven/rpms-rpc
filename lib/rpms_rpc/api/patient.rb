@@ -52,16 +52,23 @@ module RpmsRpc
 
     # The single caret-delimited param BHDPTRPC REGISTER takes:
     #   NAME^SEX^DOB(fileman)^SSN
+    # Raises ArgumentError when a field value contains "^" — the wire delimiter
+    # — so one field can't overwrite the ones after it. (The message names the
+    # field but never echoes the value: these are demographics/PHI.)
     # Public so tests/mocks can seed against the exact key the RPC receives.
     def registration_param(attrs)
       dob = attrs[:dob]
       dob = FilemanDateParser.format_date(dob) if dob.is_a?(Date) || dob.is_a?(Time)
-      [
-        attrs[:name].to_s.strip.upcase,
-        attrs[:sex].to_s.strip.upcase,
-        dob.to_s,
-        attrs[:ssn].to_s.delete("-")
-      ].join("^")
+      fields = {
+        name: attrs[:name].to_s.strip.upcase,
+        sex: attrs[:sex].to_s.strip.upcase,
+        dob: dob.to_s,
+        ssn: attrs[:ssn].to_s.delete("-")
+      }
+      fields.each do |field, value|
+        raise ArgumentError, "registration #{field} must not contain '^'" if value.include?("^")
+      end
+      fields.values.join("^")
     end
 
     # Chart-banner projection per issue #60 contract:

@@ -74,14 +74,9 @@ module RpmsRpc
     #   clinic_code:     CLINIC STOP code (optional)
     #   provider:        check-in provider (optional)
     def checkin_appointment(appointment_ien, checkin_time:, clinic_code: nil, provider: nil)
-      result = DataMapper.scheduling_checkin_appointment.fetch_one(
-        appointment_ien.to_s, fm(checkin_time), clinic_code.to_s, provider.to_s
-      )
-      return nil unless result
-
-      error = result[:error].to_s
-      ok = error.empty? || error == "0"
-      ok ? { success: true } : { success: false, error: error }
+      error_write(:scheduling_checkin_appointment,
+                  appointment_ien.to_s, fm(checkin_time), clinic_code.to_s, provider.to_s,
+                  zero_ok: true)
     end
 
     # Mark / clear a no-show — BSDX NOSHOW (NOSHOW^BSDX31 → $$CANCEL^BSDAPI).
@@ -108,9 +103,15 @@ module RpmsRpc
 
     # Search availability blocks — BSDX SEARCH AVAILABILITY (SEARCH^BSDX24).
     #   resources: a resource name or Array of names (joined with "|")
+    # Raises ArgumentError when a resource name contains "|" — the wire
+    # delimiter — so one name can't smuggle in extra resources.
     # Returns an Array of { resource_name:, date:, access_type:, comment: }.
     def availability(resources:, start_date:, end_date:, access_types: nil, ampm: nil, weekdays: nil)
-      list = resources.is_a?(Array) ? resources.join("|") : resources.to_s
+      names = Array(resources).map(&:to_s)
+      names.each do |name|
+        raise ArgumentError, "resource name must not contain '|': #{name.inspect}" if name.include?("|")
+      end
+      list = names.join("|")
       DataMapper.scheduling_availability.fetch_many(
         list, fm(start_date), fm(end_date), access_types.to_s, ampm.to_s, weekdays.to_s
       )
@@ -135,18 +136,20 @@ module RpmsRpc
 
     private
 
-    # For single-ERRORID-column writes (cancel/uncancel) where an EMPTY error
-    # means success. fetch_one collapses an empty data row to nil — which we
+    # For single-ERRORID-column writes (cancel/uncancel/checkin) where an EMPTY
+    # error means success ("0" also means success where zero_ok is set, per
+    # CHECKIN^BSDX25). fetch_one collapses an empty data row to nil — which we
     # reserve for "unreachable" — so call the RPC directly: an Array response
     # (even [""]) means the broker answered, a "" / nil response means it did
     # not. Header rows (recordset column descriptors) are dropped defensively.
-    def error_write(mapping_name, *params)
+    def error_write(mapping_name, *params, zero_ok: false)
       mapping = DataMapper[mapping_name]
       resp = RpmsRpc.client.call_rpc(mapping.rpc_name, *params)
       return nil if resp.nil? || resp == "" || (resp.is_a?(Array) && resp.empty?)
 
       row = data_row(resp)
-      row.empty? ? { success: true } : { success: false, error: row }
+      ok = row.empty? || (zero_ok && row == "0")
+      ok ? { success: true } : { success: false, error: row }
     end
 
     # First non-header data row of a recordset response, as a String.

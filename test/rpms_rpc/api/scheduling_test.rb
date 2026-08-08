@@ -131,6 +131,19 @@ class SchedulingTest < Minitest::Test
     assert_equal [ "501", START_FM, "301", "PROVIDER,A" ], call[:params]
   end
 
+  # Regression: an EMPTY ERRORID is a SUCCESSFUL check-in. fetch_one collapses
+  # an empty data row to nil — the value reserved for "unreachable" — which
+  # read a successful check-in as a broker failure (latent double-check-in).
+  # Check-in now routes through the same direct-call helper as cancel/uncancel.
+  def test_checkin_appointment_success_on_empty_errorid
+    RpmsRpc.client.seed(:scheduling_checkin_appointment, "501", { error: "" })
+
+    result = RpmsRpc::Scheduling.checkin_appointment(501, checkin_time: START_T)
+
+    refute_nil result, "empty ERRORID must read as success, not unreachable"
+    assert result[:success]
+  end
+
   def test_checkin_appointment_failure
     RpmsRpc.client.seed(:scheduling_checkin_appointment, "501",
                         { error: "BSDX25: Invalid Appointment ID" })
@@ -199,6 +212,17 @@ class SchedulingTest < Minitest::Test
     # Resources joined with "|" into the first param.
     assert_equal "PEDIATRICIAN,DEMO|FUNAKOSHI,GICHIN",
                  RpmsRpc.client.received_calls.last[:params].first
+  end
+
+  def test_availability_rejects_pipe_in_resource_name
+    err = assert_raises(ArgumentError) do
+      RpmsRpc::Scheduling.availability(
+        resources: [ "PEDIATRICIAN,DEMO|SMUGGLED,RES" ],
+        start_date: Date.new(2026, 8, 12), end_date: Date.new(2026, 8, 19)
+      )
+    end
+    assert_match(/must not contain '\|'/, err.message)
+    assert_empty RpmsRpc.client.received_calls, "no RPC should be sent"
   end
 
   def test_all_appointments_returns_rows
