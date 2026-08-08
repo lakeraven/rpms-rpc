@@ -1036,5 +1036,125 @@ module RpmsRpc
       m.field 3, :priority, :integer
       m.field 4, :due_date, :fileman_date
     end
+
+    # ========================================================================
+    # SCHEDULING (BSDX — Clinical Scheduling for Windows)
+    # ========================================================================
+    #
+    # BSDX RPCs are BMX GLOBAL-ARRAY (recordset) RPCs: over the wire the first
+    # response row is a fixed-width column header (e.g. "I00020APPOINTMENTID^
+    # T00020ERRORID") and subsequent rows are the caret-delimited data. The
+    # mappings below target the single DATA row — the client/gateway is
+    # responsible for stripping the header row (same convention already used by
+    # :patient_register, whose "1^DFN" shape is the BHDPTRPC data row). RPC
+    # names and entry points are taken verbatim from the live #8994 REMOTE
+    # PROCEDURE registry dump; parameter shapes from the BSDX07/08/25/31
+    # routine entry points in FOIA-RPMS.
+    #
+    # NOTE: these do not dispatch against the current YDB releases — the #8994
+    # registry is absent there (blocked on rpms-ops#366); exercised via MockClient.
+
+    # BSDX ADD NEW APPOINTMENT — APPADD^BSDX07 → $$MAKE^BSDAPI (updates ^SC +
+    # ^BSDXAPPT / 9002018.4). Recordset data row: APPOINTMENTID^ERRORID.
+    # Success => APPOINTMENTID > 0 and ERRORID empty; failure => "0^<message>".
+    # Params (order per APPADD): START^END^DFN^RESOURCE_NAME^LENGTH_MINUTES^
+    #   NOTE^ACCESS_TYPE_ID (numeric IEN or literal "WALKIN")^CHART_REQUEST_FLAG.
+    DataMapper.define(:scheduling_add_appointment) do |m|
+      m.rpc "BSDX ADD NEW APPOINTMENT"
+      m.field 0, :appointment_id, :integer
+      m.field 1, :error
+    end
+
+    # BSDX CANCEL APPOINTMENT — APPDEL^BSDX08 → $$CANCEL^BSDAPI. Recordset data
+    # row is the single ERRORID column: empty => success, "<message>" => error.
+    # Params: BSDX_APPOINTMENT_IEN^TYPE ("C" clinic-cancelled | "PC" patient-
+    #   cancelled)^CANCELLATION_REASON_IEN (409.2)^USER_NOTE.
+    DataMapper.define(:scheduling_cancel_appointment) do |m|
+      m.rpc "BSDX CANCEL APPOINTMENT"
+      m.field 0, :error
+    end
+
+    # BSDX UNCANCEL APPT — APPUDEL^BSDX08 (undo a clinic cancellation; patient-
+    # cancelled appts cannot be uncancelled). Recordset ERRORID column: empty
+    # => success. Params: BSDX_APPOINTMENT_IEN.
+    DataMapper.define(:scheduling_uncancel_appointment) do |m|
+      m.rpc "BSDX UNCANCEL APPT"
+      m.field 0, :error
+    end
+
+    # BSDX CHECKIN APPOINTMENT — CHECKIN^BSDX25 (check-in via BSDAPI / ^DGPM
+    # check-in node). Recordset ERRORID column: "0" or empty => success.
+    # Params: BSDX_APPOINTMENT_IEN^CHECKIN_DATETIME^CLINIC_CODE^PROVIDER^
+    #   ROUTING_SLIP^VISIT_CLASS^VISIT_FORM^OTHER (trailing params optional).
+    DataMapper.define(:scheduling_checkin_appointment) do |m|
+      m.rpc "BSDX CHECKIN APPOINTMENT"
+      m.field 0, :error
+    end
+
+    # BSDX NOSHOW — NOSHOW^BSDX31 → $$CANCEL^BSDAPI (sets no-show on ^DPT).
+    # Recordset data row: ERRORID^ERRORTEXT. IMPORTANT: the ERRORID column here
+    # is a SUCCESS flag with INVERTED polarity vs BSDX ADD — the routine writes
+    # "1^" on success and "0^<message>" via its error path. So field 0 == 1
+    # means OK; field 0 == 0 with ERRORTEXT means failure.
+    # Params: BSDX_APPOINTMENT_IEN^NOSHOW_FLAG (1 = no-show, 0 = clear no-show).
+    DataMapper.define(:scheduling_noshow_appointment) do |m|
+      m.rpc "BSDX NOSHOW"
+      m.field 0, :result, :integer
+      m.field 1, :error
+    end
+
+    # BSDX SEARCH AVAILABILITY — SEARCH^BSDX24. Availability blocks between two
+    # dates for one or more resources. Header (authoritative, from the routine):
+    #   T RESOURCENAME ^ D DATE ^ T ACCESSTYPE ^ T COMMENT
+    # Params: RESOURCE_NAMES (pipe-delimited "RES1|RES2")^START^END^
+    #   ACCESS_TYPES^AMPM^WEEKDAYS.
+    DataMapper.define(:scheduling_availability) do |m|
+      m.rpc "BSDX SEARCH AVAILABILITY"
+      m.field 0, :resource_name
+      m.field 1, :date, :fileman_date
+      m.field 2, :access_type
+      m.field 3, :comment
+    end
+
+    # BSDX ALL APPOINTMENTS — APBLKALL^BSDX05. All appointments across resources
+    # in a date range. Header (authoritative): D START_TIME ^ D END_TIME ^
+    #   I PAT_ID. Params: START_DATE^END_DATE.
+    DataMapper.define(:scheduling_all_appointments) do |m|
+      m.rpc "BSDX ALL APPOINTMENTS"
+      m.field 0, :start_time, :fileman_datetime
+      m.field 1, :end_time,   :fileman_datetime
+      m.field 2, :patient_dfn, :integer
+    end
+
+    # BSDX HOSPITAL LOCATION — HOSPLOC^BSDX32. Active clinics from ^SC (file 44).
+    # Header (authoritative): I HOSPITAL_LOCATION_ID ^ T HOSPITAL_LOCATION ^
+    #   T DEFAULT_PROVIDER ^ T STOP_CODE_NUMBER ^ D INACTIVATE_DATE ^
+    #   D REACTIVATE_DATE. Params: (none).
+    DataMapper.define(:scheduling_hospital_location) do |m|
+      m.rpc "BSDX HOSPITAL LOCATION"
+      m.field 0, :location_ien, :integer
+      m.field 1, :location
+      m.field 2, :default_provider
+      m.field 3, :stop_code
+      m.field 4, :inactivate_date, :fileman_date
+      m.field 5, :reactivate_date, :fileman_date
+    end
+
+    # BSDX CLINIC SETUP — CLNSET^BSDX32. Per-clinic scheduling parameters.
+    # Header (authoritative): I HOSPITAL_LOCATION_ID ^ T HOSPITAL_LOCATION ^
+    #   T CREATE_VISIT ^ T VISIT_SERVICE_CATEGORY ^ T MULTIPLE_CLINIC_CODES_USED?
+    #   ^ T VISIT_PROVIDER_REQUIRED ^ T GENERATE_PCCPLUS_FORMS? ^ T MAX_OVERBOOKS.
+    # Params: (none).
+    DataMapper.define(:scheduling_clinic_setup) do |m|
+      m.rpc "BSDX CLINIC SETUP"
+      m.field 0, :location_ien, :integer
+      m.field 1, :location
+      m.field 2, :create_visit
+      m.field 3, :visit_service_category
+      m.field 4, :multiple_clinic_codes
+      m.field 5, :visit_provider_required
+      m.field 6, :generate_pccplus_forms
+      m.field 7, :max_overbooks, :integer
+    end
   end
 end

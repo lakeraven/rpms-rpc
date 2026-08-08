@@ -28,6 +28,49 @@ module RpmsRpc
       DataMapper.patient_ssn.fetch_one(ssn.to_s)
     end
 
+    # Register a new patient via BHDPTRPC REGISTER (#registration BDD line).
+    #
+    # attrs: { name:, dob:, sex:, ssn: } — name is FileMan "LAST,FIRST" form;
+    # dob may be a Date (formatted to FileMan) or a preformatted string.
+    #
+    # Returns { success: true, dfn: Integer } on success, or
+    #         { success: false, error: String } on failure (duplicate, invalid
+    #         demographics, etc. — the M-side message is passed through).
+    # Returns nil when the broker gives no response at all (infra failure) so
+    # callers can distinguish "rejected" from "unreachable".
+    def register(attrs)
+      param = registration_param(attrs)
+      result = DataMapper.patient_register.fetch_one(param)
+      return nil unless result
+
+      if result[:success]
+        { success: true, dfn: result[:dfn_or_error].to_i }
+      else
+        { success: false, error: result[:dfn_or_error].to_s }
+      end
+    end
+
+    # The single caret-delimited param BHDPTRPC REGISTER takes:
+    #   NAME^SEX^DOB(fileman)^SSN
+    # Raises ArgumentError when a field value contains "^" — the wire delimiter
+    # — so one field can't overwrite the ones after it. (The message names the
+    # field but never echoes the value: these are demographics/PHI.)
+    # Public so tests/mocks can seed against the exact key the RPC receives.
+    def registration_param(attrs)
+      dob = attrs[:dob]
+      dob = FilemanDateParser.format_date(dob) if dob.is_a?(Date) || dob.is_a?(Time)
+      fields = {
+        name: attrs[:name].to_s.strip.upcase,
+        sex: attrs[:sex].to_s.strip.upcase,
+        dob: dob.to_s,
+        ssn: attrs[:ssn].to_s.delete("-")
+      }
+      fields.each do |field, value|
+        raise ArgumentError, "registration #{field} must not contain '^'" if value.include?("^")
+      end
+      fields.values.join("^")
+    end
+
     # Chart-banner projection per issue #60 contract:
     #
     #   { name:, dob:, sex:, mrn:, age:, allergy_flag:, ad_flag:, primary_provider: }
