@@ -1158,5 +1158,48 @@ module RpmsRpc
       m.field 4, :modality
       m.field 5, :description
     end
+
+    # ========================================================================
+    # ADT / PATIENT MOVEMENT reads (ORWPT — stock VistA over ^DGPM #405)
+    # ========================================================================
+    #
+    # These are the ADT/movement RPCs that actually exist in the #8994 registry.
+    # There is NO stock movement-WRITE RPC (admit/transfer/discharge): the BPRM
+    # twin's ADT-write scenario (#15) requires a new FileMan-safe (^DIE/DGPMV*)
+    # server RPC to be authored — tracked with rpms-ops#366. Parameter/response
+    # shapes below are from ORWPT.m (Order Entry) entry points ADMITLST/INPLOC/
+    # DISCHRG in FOIA-RPMS.
+
+    # ORWPT ADMITLST — ADMITLST^ORWPT. A patient's admission movements (multi-
+    # line). Format: MOVE_DATETIME^HOSP_LOC_IEN^WARD_LOC_NAME^MOVEMENT_TYPE^
+    #   MOVEMENT_IEN^TIU_DISCHARGE_SUMMARY_DA. Param: DFN.
+    DataMapper.define(:patient_admissions) do |m|
+      m.rpc "ORWPT ADMITLST"
+      m.field 0, :movement_datetime, :fileman_datetime
+      m.field 1, :location_ien,      :integer
+      m.field 2, :location
+      m.field 3, :movement_type
+      m.field 4, :movement_ien,      :integer
+      m.field 5, :tiu_document_ien,  :integer
+    end
+
+    # ORWPT INPLOC — INPLOC^ORWPT. A patient's current inpatient location
+    # (single line; the leading piece is 0 when the patient is not admitted).
+    # Format: HOSP_LOC_IEN^WARD_NAME^WARD_SYNONYM (WARD LOCATION #42 0-node
+    # piece 3). Param: DFN.
+    DataMapper.define(:patient_current_location) do |m|
+      m.rpc "ORWPT INPLOC"
+      m.field 0, :location_ien, :integer
+      m.field 1, :ward
+      m.field 2, :ward_synonym
+    end
+
+    # ORWPT DISCHARGE — DISCHRG^ORWPT. Discharge date/time for the admission
+    # identified by (DFN, ADMIT_DATETIME); scalar FileMan date/time.
+    # Params: DFN^ADMIT_DATETIME.
+    DataMapper.define(:patient_discharge) do |m|
+      m.rpc "ORWPT DISCHARGE"
+      m.scalar :discharge_datetime, :fileman_datetime
+    end
   end
 end
