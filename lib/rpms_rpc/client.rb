@@ -33,7 +33,8 @@ module RpmsRpc
     class TimeoutError < ConnectionError; end
 
     # Shared constants
-    EOT = "\x04"
+    EOT = "\x04"        # frame terminator for XWB ([XWB]1130) and BMX ({BMX})
+    EOD = "\x1e"        # frame terminator for CIA ({CIA}, CIANBLIS)
     RECV_SIZE = 4096
     DEFAULT_TIMEOUT = 30 # seconds
 
@@ -365,8 +366,12 @@ module RpmsRpc
       raise ConnectionError, "Connection lost - network error: #{e.message}"
     end
 
-    # Read from socket until EOT (\x04), with timeout via IO.select
-    def read_until_eot_raw
+    # Back-compat alias for the XWB/BMX path (terminator EOT).
+    def read_until_eot_raw = read_until_raw(EOT)
+
+    # Read from socket until `terminator`, with timeout via IO.select. Terminator is
+    # protocol-specific: XWB/BMX use EOT (\x04), CIA uses EOD (\x1e). Shared by all clients.
+    def read_until_raw(terminator = EOT)
       return "" unless @socket
 
       chunks = []
@@ -393,8 +398,8 @@ module RpmsRpc
         if chunk.nil? || chunk.empty?
           raise ConnectionError, "Connection closed by server"
         end
-        if chunk.include?(EOT)
-          idx = chunk.index(EOT)
+        if chunk.include?(terminator)
+          idx = chunk.index(terminator)
           chunks << chunk[0...idx]
           break
         end
