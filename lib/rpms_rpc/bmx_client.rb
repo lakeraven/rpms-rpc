@@ -121,7 +121,7 @@ module RpmsRpc
         next unless p.is_a?(Array) || p.is_a?(Hash)
         raise NotImplementedError,
               "BMX client does not yet support list/hash parameters " \
-              "(param ##{i + 1} is #{p.class}). Use CiaClient for RPCs " \
+              "(param ##{i + 1} is #{p.class}). Use XwbClient/CiaBrokerClient for RPCs " \
               "with multi-line payloads (e.g. BEHOVM SAVE)."
       end
     end
