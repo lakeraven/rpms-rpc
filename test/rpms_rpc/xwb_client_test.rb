@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/cia_client"
+require "rpms_rpc/xwb_client"
 
-class RpmsRpc::CiaClientTest < Minitest::Test
-  Client = RpmsRpc::CiaClient
+class RpmsRpc::XwbClientTest < Minitest::Test
+  Client = RpmsRpc::XwbClient
   EOT = RpmsRpc::Client::EOT
 
   def setup

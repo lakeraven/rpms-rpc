@@ -9,7 +9,7 @@ module RpmsRpc
   # Abstract base class for RPMS RPC broker clients.
   #
   # Subclass this for protocol-specific clients (RpmsRpc::XwbClient,
-  # RpmsRpc::CiaBrokerClient, RpmsRpc::BmxClient). Provides connection lifecycle, authentication,
+  # RpmsRpc::CiaClient, RpmsRpc::BmxClient). Provides connection lifecycle, authentication,
   # cipher encryption, and response parsing helpers. Each subclass
   # implements its own wire protocol.
   #
