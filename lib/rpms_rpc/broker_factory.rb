@@ -6,7 +6,7 @@ module RpmsRpc
   # differ only in wire framing). rpms-rpc#173.
   #
   #   RpmsRpc.client_for(:xwb, host:, port:)  -> XwbClient        stock VistA: VA, WorldVistA, civilian
-  #   RpmsRpc.client_for(:cia, host:, port:)  -> CiaBrokerClient  IHS RPMS: CIANBLIS / VueCentric
+  #   RpmsRpc.client_for(:cia, host:, port:)  -> CiaClient  IHS RPMS: CIANBLIS / VueCentric
   #   RpmsRpc.client_for(:bmx, host:, port:)  -> BmxClient        IHS RPMS: BMXNet (.NET)
   #
   # With no kind, the default comes from ENV["VISTA_BROKER"] (default "xwb" — the portable
@@ -27,7 +27,7 @@ module RpmsRpc
     klass =
       case broker
       when :xwb then require "rpms_rpc/xwb_client"; XwbClient
-      when :cia then require "rpms_rpc/cia_broker_client"; CiaBrokerClient
+      when :cia then require "rpms_rpc/cia_client"; CiaClient
       when :bmx then require "rpms_rpc/bmx_client"; BmxClient
       end
     klass.new(host: host, port: port, timeout: timeout)

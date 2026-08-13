@@ -6,7 +6,7 @@ module RpmsRpc
   # XWB stock-VistA RPC Broker client — the standard [XWB]1130 / XWBTCPM protocol
   # (CPRS and every non-IHS VistA speak this). Renamed from the misnomer `CiaClient`:
   # this is NOT the IHS CIA {CIA} protocol. For the CIA broker (CIANBLIS, what
-  # VueCentric/RPMS-EHR use) see RpmsRpc::CiaBrokerClient.
+  # VueCentric/RPMS-EHR use) see RpmsRpc::CiaClient.
   #
   # Implements the [XWB] RPC Broker protocol used by XWBTCPM on port 9100.
   #

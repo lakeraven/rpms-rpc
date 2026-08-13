@@ -5,7 +5,7 @@ require "rpms_rpc/version"
 require "rpms_rpc/broker_factory"
 # the factory requires these lazily; load them here so the constants exist for the assertions
 require "rpms_rpc/xwb_client"
-require "rpms_rpc/cia_broker_client"
+require "rpms_rpc/cia_client"
 require "rpms_rpc/bmx_client"
 
 class RpmsRpc::BrokerFactoryTest < Minitest::Test
@@ -23,26 +23,26 @@ class RpmsRpc::BrokerFactoryTest < Minitest::Test
 
   def test_selects_the_client_for_each_broker
     assert_instance_of RpmsRpc::XwbClient, RpmsRpc.client_for(:xwb, host: "h")
-    assert_instance_of RpmsRpc::CiaBrokerClient, RpmsRpc.client_for(:cia, host: "h")
+    assert_instance_of RpmsRpc::CiaClient, RpmsRpc.client_for(:cia, host: "h")
     assert_instance_of RpmsRpc::BmxClient, RpmsRpc.client_for(:bmx, host: "h")
   end
 
   def test_accepts_aliases
     assert_instance_of RpmsRpc::XwbClient, RpmsRpc.client_for(:vista, host: "h")
     assert_instance_of RpmsRpc::XwbClient, RpmsRpc.client_for(:va, host: "h")
-    assert_instance_of RpmsRpc::CiaBrokerClient, RpmsRpc.client_for(:rpms, host: "h")
-    assert_instance_of RpmsRpc::CiaBrokerClient, RpmsRpc.client_for(:vuecentric, host: "h")
+    assert_instance_of RpmsRpc::CiaClient, RpmsRpc.client_for(:rpms, host: "h")
+    assert_instance_of RpmsRpc::CiaClient, RpmsRpc.client_for(:vuecentric, host: "h")
     assert_instance_of RpmsRpc::BmxClient, RpmsRpc.client_for(:bmxnet, host: "h")
   end
 
   def test_string_and_case_insensitive
-    assert_instance_of RpmsRpc::CiaBrokerClient, RpmsRpc.client_for("CIA", host: "h")
+    assert_instance_of RpmsRpc::CiaClient, RpmsRpc.client_for("CIA", host: "h")
   end
 
   def test_defaults_to_xwb_then_env
     assert_instance_of RpmsRpc::XwbClient, RpmsRpc.client_for(host: "h")
     ENV["VISTA_BROKER"] = "cia"
-    assert_instance_of RpmsRpc::CiaBrokerClient, RpmsRpc.client_for(host: "h")
+    assert_instance_of RpmsRpc::CiaClient, RpmsRpc.client_for(host: "h")
   end
 
   def test_passes_connection_options_through
