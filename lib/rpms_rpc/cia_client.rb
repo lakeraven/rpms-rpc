@@ -44,7 +44,7 @@ module RpmsRpc
 
       @authenticated = true
       @signon_user = greeting[/\b([A-Z][A-Z.'-]*,[A-Z][A-Z.'-]*)/, 1]&.strip
-      {success: true, user: @signon_user, greeting: greeting.strip}
+      { success: true, user: @signon_user, greeting: greeting.strip }
     end
 
     attr_reader :signon_user
@@ -53,8 +53,8 @@ module RpmsRpc
     def call_rpc(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
-      parts = [pk("UID"), pk(""), pk("1"), pk("RPC"), pk(""), pk(rpc_name)]
-      params.each_with_index { |p, i| parts.concat([pk((i + 1).to_s), pk(""), pk(p.to_s)]) }
+      parts = [ pk("UID"), pk(""), pk("1"), pk("RPC"), pk(""), pk(rpc_name) ]
+      params.each_with_index { |p, i| parts.concat([ pk((i + 1).to_s), pk(""), pk(p.to_s) ]) }
       printable(exchange("R", *parts))
     end
     alias_method :call_rpc_raw, :call_rpc
