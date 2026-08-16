@@ -396,6 +396,7 @@ module RpmsRpc
 
         chunk = @socket.recv(RECV_SIZE)
         if chunk.nil? || chunk.empty?
+          @connected = false
           raise ConnectionError, "Connection closed by server"
         end
         if chunk.include?(terminator)
