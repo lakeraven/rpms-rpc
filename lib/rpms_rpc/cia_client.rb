@@ -49,15 +49,21 @@ module RpmsRpc
 
     attr_reader :signon_user
 
-    # Call an RPC over the CIA broker. Literal string params (list/reference params TBD).
+    # Call an RPC over the CIA broker, returning a printable (human-readable) response.
+    # Literal string params (list/reference params TBD).
     def call_rpc(rpc_name, *params)
+      printable(call_rpc_raw(rpc_name, *params))
+    end
+
+    # Send an RPC and return the raw, unmodified broker response. Client contract:
+    # call_rpc_raw must not transform the payload (call_rpc applies printable()).
+    def call_rpc_raw(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
       parts = [ pk("UID"), pk(""), pk("1"), pk("RPC"), pk(""), pk(rpc_name) ]
       params.each_with_index { |p, i| parts.concat([ pk((i + 1).to_s), pk(""), pk(p.to_s) ]) }
-      printable(exchange("R", *parts))
+      exchange("R", *parts)
     end
-    alias_method :call_rpc_raw, :call_rpc
 
     def disconnect
       @socket&.close
