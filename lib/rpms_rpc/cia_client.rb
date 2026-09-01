@@ -120,8 +120,13 @@ module RpmsRpc
     end
 
     # Assemble a {CIA} frame, send it, read the reply via the shared base read loop.
+    # The header is fixed-width: DOACTION^CIANBLIS reads exactly 8 bytes
+    # ("{CIA}" + EOD + 1-byte sequence + action) and echoes the sequence byte
+    # back unmodified. The sequence must therefore always be exactly one byte —
+    # a counter that reaches 10 would put "1" in the sequence slot and "0" in
+    # the action slot, corrupting every frame from the tenth on — so cycle 1..9.
     def exchange(action, *fields)
-      @seq += 1
+      @seq = @seq % 9 + 1
       msg = ("{CIA}" + EOD + @seq.to_s + action + fields.join + EOD).b
       @socket.write(msg)
       read_until_raw(EOD) # base: shared read loop, CIA terminator

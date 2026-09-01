@@ -192,4 +192,23 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     err = assert_raises(RpmsRpc::Client::ConnectionError) { c.call_rpc("XWB IM HERE") }
     refute_kind_of RpmsRpc::Client::RpcTimeoutError, err
   end
+
+  # The {CIA} header is fixed-width: DOACTION^CIANBLIS reads exactly 8 bytes
+  # ("{CIA}" + EOD + 1-byte sequence + action) and echoes the sequence byte
+  # back. A counter that grows to "10" shifts the action byte out of its slot
+  # and corrupts every frame from the tenth on, so the client must wrap the
+  # counter to keep the sequence a single byte.
+  def test_seq_stays_one_byte_across_more_than_ten_exchanges
+    replies = Array.new(12) { |i| "#{(i % 9) + 1}\x00ok\r\n" + EOD }
+    c = connected_client(replies)
+    seqs = []
+    12.times do
+      c.call_rpc("XWB IM HERE")
+      frame = c.instance_variable_get(:@socket).writes.last
+      assert_equal "{CIA}#{EOD}", frame[0, 6], "frame must start with the fixed 6-byte prologue"
+      seqs << frame[6]
+      assert_equal "R", frame[7], "action byte must sit at offset 7, after a single sequence byte"
+    end
+    assert_equal %w[1 2 3 4 5 6 7 8 9 1 2 3], seqs
+  end
 end
