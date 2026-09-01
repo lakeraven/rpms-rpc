@@ -18,6 +18,7 @@ module RpmsRpc
     def connect(host = @host, port = @port)
       open_socket(host, port) # base: sets @socket, raises ConnectionError on failure
       @seq = 0
+      @session_uid = nil
       @uci = ENV.fetch("RPMS_UCI", "VEH,EXTERNAL")
       reply = exchange("C", pk("VER"), pk(""), pk("2.0"),
         pk("LP"), pk(""), pk(port.to_s),
@@ -25,9 +26,21 @@ module RpmsRpc
       raise ConnectionError, RpmsRpc.sanitize_error("CIA broker did not answer connect") if reply.empty?
 
       @connected = true
+    rescue StandardError
+      # A failed handshake (empty reply, timeout, write error) must not leak
+      # the open socket or leave a half-initialized client behind a retry.
+      reset_connection # base: close socket, defined disconnected state
+      raise
     end
 
     # Sign on via CIANBRPC AUTH with a client-side-encrypted access;verify (AVC).
+    #
+    # AUTH^CIANBRPC reply shape (lines are CR+LF separated, after the 1-byte
+    # sequence echo and \x00 ack): line 1 = status code ("0" = success),
+    # line 2 = session params "UID^netname^sitename", lines 3+ = greeting.
+    # The reply carries the broker-assigned session UID but NOT the DUZ; the
+    # broker saves DUZ into the session environment at sign-on, so it is
+    # fetched with the context-exempt CIANBRPC GETVAR ("DUZ=n" reply).
     def authenticate(access_code = nil, verify_code = nil, **)
       raise ConnectionError, "Not connected" unless connected?
 
@@ -44,10 +57,13 @@ module RpmsRpc
 
       @authenticated = true
       @signon_user = greeting[/\b([A-Z][A-Z.'-]*,[A-Z][A-Z.'-]*)/, 1]&.strip
-      { success: true, user: @signon_user, greeting: greeting.strip }
+      uid = session_params(reply)[0]
+      @session_uid = uid if uid&.match?(/\A\d+\z/) # failure params are "server^volume^UCI^port"
+      @duz = printable(call_rpc_raw("CIANBRPC GETVAR", "DUZ"))[/\bDUZ=(\d+)/, 1]
+      { success: true, user: @signon_user, duz: @duz&.to_i, greeting: greeting.strip }
     end
 
-    attr_reader :signon_user
+    attr_reader :signon_user, :session_uid
 
     # Call an RPC over the CIA broker, returning a printable (human-readable) response.
     # Literal string params (list/reference params TBD).
@@ -60,14 +76,26 @@ module RpmsRpc
     def call_rpc_raw(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
-      parts = [ pk("UID"), pk(""), pk("1"), pk("RPC"), pk(""), pk(rpc_name) ]
+      parts = [ pk("UID"), pk(""), pk(@session_uid || "1"), pk("RPC"), pk(""), pk(rpc_name) ]
       params.each_with_index { |p, i| parts.concat([ pk((i + 1).to_s), pk(""), pk(p.to_s) ]) }
       exchange("R", *parts)
+    rescue TimeoutError
+      # A CIA reply has no length framing — only the EOD terminator — so a
+      # reply abandoned mid-read cannot be resynchronized: the broker will
+      # eventually write the stale reply into the stream and corrupt every
+      # later exchange. Close the socket (defined state: disconnected, not
+      # authenticated) and raise a per-RPC timeout distinct from generic
+      # connection loss so callers can reconnect + re-authenticate.
+      @session_uid = nil
+      reset_connection # base
+      raise RpcTimeoutError, RpmsRpc.sanitize_error(
+        "RPC '#{rpc_name}' timed out after #{@timeout}s; connection closed — reconnect and re-authenticate"
+      )
     end
 
     def disconnect
-      @socket&.close
-      reset_connection # base
+      @session_uid = nil
+      reset_connection # base: closes the socket and clears state
     end
 
     def read_response = read_until_raw(EOD) # Client contract; CIA terminator
@@ -100,5 +128,14 @@ module RpmsRpc
     end
 
     def printable(str) = str.to_s.gsub(/[^\x20-\x7e]/, " ")
+
+    # Split a raw {CIA} RPC reply into the "^"-pieces of its params line
+    # (line 2; line 1 is the status code prefixed by the sequence echo and
+    # ack byte, lines 3+ are message text). Returns [] when absent.
+    def session_params(reply)
+      lines = reply.to_s.split("\r\n")
+      lines = reply.to_s.split("\n") if lines.length <= 1
+      lines[1].to_s.split("^")
+    end
   end
 end

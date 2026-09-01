@@ -31,6 +31,13 @@ module RpmsRpc
     class CredentialError < AuthenticationError; end
     class RpcError < StandardError; end
     class TimeoutError < ConnectionError; end
+    # Raised when a single RPC's reply times out mid-call. Subclass of
+    # TimeoutError (and so ConnectionError) so existing rescue blocks keep
+    # working, but distinct so callers can tell "this one RPC hung" from a
+    # dead broker. The client closes the socket first — a reply abandoned
+    # mid-read cannot be resynchronized — so callers may reconnect and
+    # re-authenticate rather than retrying on a corrupted stream.
+    class RpcTimeoutError < TimeoutError; end
 
     # Shared constants
     EOT = "\x04"        # frame terminator for XWB ([XWB]1130) and BMX ({BMX})
