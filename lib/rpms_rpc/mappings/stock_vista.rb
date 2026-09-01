@@ -1012,25 +1012,37 @@ module RpmsRpc
     end
 
     # ========================================================================
-    # E-SIGNATURE (ORWU VALIDSIG, TIU SIGN RECORD)
+    # E-SIGNATURE (ORWU VALIDSIG, TIU SIGN RECORD, TIU DELETE RECORD)
+    # Wire shapes verified against the M source (ORWU / TIUSRVP / TIUSRVA)
+    # and the RPC registry (file 8994); see RpmsRpc::ESignature for the
+    # full contract. Encrypted params are built by the API layer.
     # ========================================================================
 
+    # VALIDSIG(ESOK,X)^ORWU — one param: XWB-encrypted signature code.
     DataMapper.define(:tiu_valid_signature) do |m|
       m.rpc "ORWU VALIDSIG"
       m.scalar :valid, :boolean
     end
 
+    # SIGN(ERR,TIUDA,TIUX)^TIUSRVP — params: note IEN, encrypted sig code.
     DataMapper.define(:tiu_sign_record) do |m|
       m.rpc "TIU SIGN RECORD"
       m.scalar :result
     end
 
-    # TIU WHICH SIGNATURE ACTION — server-side authoritative answer to
-    # "what signing action is this user allowed to take on this note?".
-    # Returns a code like S/C/A/empty; mapped to a symbol by the API.
+    # DELETE(ERR,TIUDA,TIURSN,OVRRIDE)^TIUSRVP — params: note IEN,
+    # deletion reason, override flag.
+    DataMapper.define(:tiu_delete_record) do |m|
+      m.rpc "TIU DELETE RECORD"
+      m.scalar :result
+    end
+
+    # WHATACT(TIUY,TIUDA)^TIUSRVA — one param (note IEN); the user is the
+    # session DUZ. Returns "SIGNATURE"/"COSIGNATURE" (empty = no role);
+    # mapped to a symbol by the API.
     DataMapper.define(:tiu_which_signature_action) do |m|
       m.rpc "TIU WHICH SIGNATURE ACTION"
-      m.scalar :code
+      m.scalar :action
     end
 
     # ========================================================================
