@@ -26,6 +26,11 @@ module RpmsRpc
       raise ConnectionError, RpmsRpc.sanitize_error("CIA broker did not answer connect") if reply.empty?
 
       @connected = true
+    rescue StandardError
+      # A failed handshake (empty reply, timeout, write error) must not leak
+      # the open socket or leave a half-initialized client behind a retry.
+      reset_connection # base: close socket, defined disconnected state
+      raise
     end
 
     # Sign on via CIANBRPC AUTH with a client-side-encrypted access;verify (AVC).
@@ -89,9 +94,8 @@ module RpmsRpc
     end
 
     def disconnect
-      @socket&.close
       @session_uid = nil
-      reset_connection # base
+      reset_connection # base: closes the socket and clears state
     end
 
     def read_response = read_until_raw(EOD) # Client contract; CIA terminator

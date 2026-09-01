@@ -20,8 +20,8 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     def recv(_n) = @reads.empty? ? "" : @reads.shift
     def write(str) = (@writes << str) && str.bytesize
     def flush; end
-    def close; end
-    def closed? = false
+    def close = @closed = true
+    def closed? = !!@closed
     def setsockopt(*); end
   end
 
@@ -61,6 +61,19 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     c = connected_client([]) # recv → "" immediately
     assert_raises(RpmsRpc::Client::ConnectionError) { c.call_rpc_raw("X", "Y") }
     refute c.connected?, "peer-closed read must clear @connected"
+  end
+
+  # Fix (#178 Copilot): a failed connect handshake (empty reply, timeout, write
+  # error) must close the socket and reset state — not leak the open socket
+  # behind a retried connect.
+  def test_failed_connect_handshake_closes_socket_and_resets_state
+    c = Client.new
+    socket = FakeSocket.new([ EOD ]) # broker answers connect with an empty reply
+    c.define_singleton_method(:open_socket) { |_h, _p| @socket = socket }
+    assert_raises(RpmsRpc::Client::ConnectionError) { c.connect("localhost", 9100) }
+    assert socket.closed?, "failed handshake must close the socket, not leak it"
+    refute c.connected?
+    assert_nil c.instance_variable_get(:@socket)
   end
 
   # CIA length prefix: header byte = (num_length_bytes << 4) | (len % 16),
