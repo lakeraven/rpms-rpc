@@ -12,8 +12,21 @@ class ProgressNoteTest < Minitest::Test
   NOTE_IEN  = "5001"
   USER_DUZ  = "301"
 
+  # Broker stub that returns one canned raw response for every RPC —
+  # for exercising nil/garbage response paths MockClient can't produce.
+  class RawResponseClient
+    def initialize(response) = @response = response
+    def supports?(*) = true
+    def call_rpc(*) = @response
+  end
+
   def teardown
     RpmsRpc.reset!
+  end
+
+  def stub_broker_response(response)
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = RawResponseClient.new(response) }
   end
 
   def test_create_returns_new_note_ien_on_success
@@ -107,6 +120,89 @@ class ProgressNoteTest < Minitest::Test
     RpmsRpc::ProgressNote.update_text(NOTE_IEN, "BODY")
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "TIU SET DOCUMENT TEXT" }
     assert_equal [ NOTE_IEN, "BODY" ], call[:params]
+  end
+
+  def test_create_result_has_exact_gateway_shape
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:tiu_create_record, DFN, "5001")
+    end
+
+    result = RpmsRpc::ProgressNote.create(DFN, VISIT_IEN, TITLE_IEN)
+    assert_equal %i[success ien raw], result.keys
+    assert_equal "5001", result[:raw]
+  end
+
+  def test_create_error_string_response_returns_failure_with_raw
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:tiu_create_record, DFN, "-1^Invalid title")
+    end
+
+    result = RpmsRpc::ProgressNote.create(DFN, VISIT_IEN, TITLE_IEN)
+    refute result[:success]
+    assert_nil result[:ien]
+    assert_equal "-1^Invalid title", result[:raw]
+  end
+
+  def test_create_nil_broker_response_does_not_raise
+    stub_broker_response(nil)
+
+    result = RpmsRpc::ProgressNote.create(DFN, VISIT_IEN, TITLE_IEN)
+    assert_equal({ success: false, ien: nil, raw: nil }, result)
+  end
+
+  def test_list_scalar_error_response_does_not_raise
+    # A broker returning a bare error string where a list is expected
+    # must not crash (previously raised NoMethodError on String#filter_map).
+    stub_broker_response("-1^NO DOCUMENTS FOUND")
+
+    docs = RpmsRpc::ProgressNote.list(DFN)
+    assert_kind_of Array, docs
+  end
+
+  def test_list_nil_broker_response_returns_empty_array
+    stub_broker_response(nil)
+
+    assert_equal [], RpmsRpc::ProgressNote.list(DFN)
+  end
+
+  def test_fetch_text_nil_broker_response_returns_nil
+    stub_broker_response(nil)
+
+    assert_nil RpmsRpc::ProgressNote.fetch_text(NOTE_IEN)
+  end
+
+  def test_authorize_lock_unlock_garbage_response_returns_false
+    stub_broker_response("-1^SOMETHING WENT WRONG")
+
+    refute RpmsRpc::ProgressNote.authorize(NOTE_IEN, USER_DUZ)
+    refute RpmsRpc::ProgressNote.lock(NOTE_IEN, USER_DUZ)
+    refute RpmsRpc::ProgressNote.unlock(NOTE_IEN, USER_DUZ)
+  end
+
+  def test_update_text_result_has_exact_two_key_shape
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "0")
+    end
+
+    result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, "new text body")
+    assert_equal %i[success raw], result.keys
+  end
+
+  def test_update_text_nil_broker_response_does_not_raise
+    stub_broker_response(nil)
+
+    result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, "new text body")
+    assert_equal({ success: false, raw: nil }, result)
+  end
+
+  def test_update_text_garbage_response_returns_failure_with_raw
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "-1^Document locked")
+    end
+
+    result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, "new text body")
+    refute result[:success]
+    assert_equal "-1^Document locked", result[:raw]
   end
 
   def test_blank_args_return_safe_defaults
