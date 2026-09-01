@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-09-01
+
+CIA client wire-behavior corrections (#178, #179, #180, #177). Public API
+kept compatible.
+
+### Added
+
+- `RpmsRpc::Client::RpcTimeoutError` — raised when a single RPC's reply
+  times out mid-call. Subclass of `TimeoutError` (and so
+  `ConnectionError`), so existing rescue blocks keep working; the client
+  closes the socket first (a `{CIA}` reply abandoned mid-read cannot be
+  resynchronized), so callers reconnect and re-authenticate rather than
+  retrying on a corrupted stream. (#178)
+- `CiaClient#authenticate` populates `duz` at sign-on via the
+  context-exempt `CIANBRPC GETVAR`, and captures the broker-assigned
+  session UID for later calls. (#178)
+
+### Fixed
+
+- `CiaClient` sequence byte cycles 1–9 so the fixed-width `{CIA}` header
+  survives ten or more exchanges on one connection. (#179)
+- A failed CIA connect handshake closes the socket and resets to a
+  defined disconnected state instead of leaking the open socket behind a
+  retried connect. (#178)
+- `ESignature` sends the verified TIU/ORWU wire shapes: the signature
+  code crosses the wire XWB-encrypted, the signer rides the
+  authenticated session DUZ (never the wire), `remove` dispatches
+  `TIU DELETE RECORD`, and `action: :addend` raises `ArgumentError`
+  rather than mis-signing. (#180)
+- `DataMapper::Mapping#parse_many` no longer crashes on a bare String
+  where a list was expected; a broker `-1^message` error string yields
+  no rows instead of a bogus record parsed from the error text. (#177)
+
 ## [0.1.0] — 2026-04-07
 
 Initial release. Pure Ruby RPC client extracted from `rpms_redux`.

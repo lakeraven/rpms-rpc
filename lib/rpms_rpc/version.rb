@@ -5,7 +5,7 @@ require_relative "user_roles"
 require_relative "capabilities"
 
 module RpmsRpc
-  VERSION = "0.1.0"
+  VERSION = "0.2.0"
 
   class NotConfiguredError < StandardError; end
 
