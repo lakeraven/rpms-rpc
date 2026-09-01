@@ -10,8 +10,21 @@ class PovTest < Minitest::Test
   VISIT_IEN = "2090059"
   ICD       = "I10"
 
+  # Broker stub that returns one canned raw response for every RPC —
+  # for exercising nil/garbage response paths MockClient can't produce.
+  class RawResponseClient
+    def initialize(response) = @response = response
+    def supports?(*) = true
+    def call_rpc(*) = @response
+  end
+
   def teardown
     RpmsRpc.reset!
+  end
+
+  def stub_broker_response(response)
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = RawResponseClient.new(response) }
   end
 
   def test_add_returns_success_with_saved_ien
@@ -73,6 +86,67 @@ class PovTest < Minitest::Test
 
     payload = RpmsRpc.client.received_calls.last[:params][2]
     assert_includes payload, "FALL"
+  end
+
+  def test_add_pins_full_pov_record_shape
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:visit_data_save, DFN, "9001")
+    end
+
+    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD,
+      narrative: "Essential hypertension",
+      modifiers: { primary: true, injury_cause: "4", fraction: "2" })
+
+    call = RpmsRpc.client.received_calls.last
+    assert_equal "BGOVUPD SET", call[:rpc]
+    assert_equal [ DFN, VISIT_IEN, "POV^I10^Essential hypertension^P^4^2" ], call[:params]
+  end
+
+  def test_add_without_modifiers_leaves_trailing_fields_empty
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:visit_data_save, DFN, "9001")
+    end
+
+    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
+
+    payload = RpmsRpc.client.received_calls.last[:params][2]
+    assert_equal "POV^I10^Essential hypertension^^^", payload
+  end
+
+  def test_add_result_has_exact_gateway_shape
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:visit_data_save, DFN, "9001")
+    end
+
+    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
+    assert_equal %i[success ien raw], result.keys
+    assert_equal "9001", result[:raw]
+  end
+
+  def test_add_error_string_response_returns_failure_with_raw
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:visit_data_save, DFN, "-1^Visit not found")
+    end
+
+    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
+    refute result[:success]
+    assert_nil result[:ien]
+    assert_equal "-1^Visit not found", result[:raw]
+  end
+
+  def test_add_nil_broker_response_does_not_raise
+    stub_broker_response(nil)
+
+    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
+    assert_equal({ success: false, ien: nil, raw: nil }, result)
+  end
+
+  def test_add_garbage_array_response_does_not_raise
+    stub_broker_response([ "unexpected", "lines" ])
+
+    result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
+    refute result[:success]
+    assert_nil result[:ien]
   end
 
   def test_narrative_is_required_keyword
