@@ -108,14 +108,19 @@ module RpmsRpc
       end
 
       # Parse a multi-line RPC response into an array of hashes.
-      # Brokers occasionally return a bare scalar (e.g. an error string)
-      # where a list is expected — treat it as a single line rather than
-      # crashing on String#filter_map.
+      # Brokers occasionally return a bare String where a list is expected —
+      # previously that crashed on String#filter_map. A broker error string
+      # ("-1^message") yields no rows (never a bogus record built from the
+      # error text); any other String is split into its lines.
       def parse_many(response)
         return [] if response.nil? || response.empty?
 
-        lines = response.is_a?(Array) ? response : [ response ]
-        lines.filter_map do |line|
+        if response.is_a?(String)
+          return [] if response.start_with?("-1^")
+
+          response = response.split(/\r?\n/)
+        end
+        response.filter_map do |line|
           next if line.nil? || line.to_s.empty?
           parse_one(line)
         end

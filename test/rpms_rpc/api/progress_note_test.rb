@@ -150,13 +150,14 @@ class ProgressNoteTest < Minitest::Test
     assert_equal({ success: false, ien: nil, raw: nil }, result)
   end
 
-  def test_list_scalar_error_response_does_not_raise
+  def test_list_scalar_error_response_returns_empty_array
     # A broker returning a bare error string where a list is expected
-    # must not crash (previously raised NoMethodError on String#filter_map).
+    # must not crash (previously raised NoMethodError on String#filter_map)
+    # and must yield NO rows — never a bogus "document" parsed out of the
+    # error text (e.g. ien: -1, title: "NO DOCUMENTS FOUND").
     stub_broker_response("-1^NO DOCUMENTS FOUND")
 
-    docs = RpmsRpc::ProgressNote.list(DFN)
-    assert_kind_of Array, docs
+    assert_equal [], RpmsRpc::ProgressNote.list(DFN)
   end
 
   def test_list_nil_broker_response_returns_empty_array

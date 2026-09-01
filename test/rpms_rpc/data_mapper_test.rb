@@ -169,6 +169,29 @@ class RpmsRpc::DataMapperTest < Minitest::Test
     assert_equal [], mapping.parse_many([])
   end
 
+  def test_parse_many_broker_error_string_yields_no_rows
+    mapping = RpmsRpc::DataMapper.define(:test) do
+      rpc "TEST"
+      field 0, :ien, :integer
+      field 1, :title
+    end
+
+    # A "-1^message" scalar is the broker error convention — it must never
+    # be parsed into a bogus row like { ien: -1, title: "NO DOCUMENTS FOUND" }.
+    assert_equal [], mapping.parse_many("-1^NO DOCUMENTS FOUND")
+  end
+
+  def test_parse_many_splits_multiline_string_response
+    mapping = RpmsRpc::DataMapper.define(:test) do
+      rpc "TEST"
+      field 0, :dfn, :integer
+      field 1, :name
+    end
+
+    results = mapping.parse_many("1^DOE,JOHN\r\n2^SMITH,JANE")
+    assert_equal [ { dfn: 1, name: "DOE,JOHN" }, { dfn: 2, name: "SMITH,JANE" } ], results
+  end
+
   # -- Merge (multi-RPC) ----------------------------------------------------
 
   def test_merge_combines_two_parsed_hashes
