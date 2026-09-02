@@ -51,9 +51,20 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_equal raw, c.call_rpc_raw("CIANBRPC CANRUN", "XUS INTRO MSG")
   end
 
-  def test_call_rpc_strips_non_printables
-    c = connected_client([ "ab\x01\x1fcd" + EOD ])
+  # call_rpc deframes (strips the 1-byte seq echo + \x00 ack the broker
+  # prepends) then replaces remaining non-printables with spaces. Real wire
+  # framing: "<seq>\x00<body>".
+  def test_call_rpc_deframes_and_strips_non_printables
+    c = connected_client([ "5\x00ab\x01\x1fcd" + EOD ])
     assert_equal "ab  cd", c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
+  end
+
+  # A multi-line reply uses BARE CR (\r) delimiters on the wire (live:
+  # rpms-ydb-9.0, 2026-09-02). deframe must keep the line structure — printable
+  # no longer flattens \r/\n to spaces — so a DDR-style reply survives intact.
+  def test_call_rpc_preserves_bare_cr_line_structure
+    c = connected_client([ "6\x00[Data]\r4^ONE\r3^TWO\r" + EOD ])
+    assert_equal "[Data]\n4^ONE\n3^TWO", c.call_rpc("DDR LISTER", "9000001")
   end
 
   # Fix (#172 Copilot): a peer-closed read (empty recv) must clear @connected,
@@ -96,9 +107,14 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # lines 3+ greeting. DUZ is NOT in the reply; it is saved into the session
   # environment and fetched with CIANBRPC GETVAR ("DUZ=n").
 
-  AUTH_REPLY = "1\x000\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\n" \
-               "Good evening USER,DEMO\r\n     You last signed on today at 08:15\r\n"
-  GETVAR_REPLY = "2\x00DUZ=63\r\n"
+  # Real wire framing (rpms-ydb-9.0, 2026-09-02): "<seq echo>\x00<body>" with
+  # the body's lines delimited by BARE CR (\r), not CRLF. The session UID lives
+  # in body line index 1 piece 0 ("7^netname^sitename") — the whole point of
+  # the deframe fix is that this parses (the old \r\n/\n split missed bare CR,
+  # leaving session_uid/DUZ nil).
+  AUTH_REPLY = "1\x000\r7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\r" \
+               "Good evening USER,DEMO\r     You last signed on today at 08:15\r"
+  GETVAR_REPLY = "2\x00DUZ=63\r"
 
   def test_authenticate_populates_duz_via_session_env
     c = connected_client([ AUTH_REPLY + EOD, GETVAR_REPLY + EOD ])
@@ -110,7 +126,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   end
 
   def test_authenticate_captures_session_uid_and_uses_it_on_later_calls
-    c = connected_client([ AUTH_REPLY + EOD, GETVAR_REPLY + EOD, "3\x00ok\r\n" + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, GETVAR_REPLY + EOD, "3\x00ok\r" + EOD ])
     c.authenticate("SYN123", "SYN123!!")
     assert_equal "7", c.session_uid
     c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
@@ -119,7 +135,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   end
 
   def test_authenticate_duz_nil_when_session_env_lacks_it
-    c = connected_client([ AUTH_REPLY + EOD, "2\x00\r\n" + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, "2\x00\r" + EOD ])
     result = c.authenticate("SYN123", "SYN123!!")
     assert result[:success]
     assert_nil result[:duz]
@@ -326,16 +342,17 @@ class RpmsRpc::CiaClientTest < Minitest::Test
 
   def test_full_signon_round_trip_against_strict_broker
     c, broker = client_on_strict_broker([
-      "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", # CIANBRPC AUTH
-      "DUZ=63\r\n",                                                            # CIANBRPC GETVAR
-      "ok\r\n"                                                                 # the RPC proper
+      "0\r7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\rGood evening USER,DEMO\r", # CIANBRPC AUTH
+      "DUZ=63\r",                                                      # CIANBRPC GETVAR
+      "ok\r"                                                           # the RPC proper
     ])
     c.connect("localhost", 9100)
     result = c.authenticate("SYN123", "SYN123!!")
     assert result[:success]
     assert_equal 63, result[:duz]
     assert_equal "7", c.session_uid
-    assert_equal "4 ok  ", c.call_rpc("XWB IM HERE") # "4" seq echo + \x00 ack + body, printables
+    # deframed: seq echo "4" + \x00 ack stripped, trailing CR dropped
+    assert_equal "ok", c.call_rpc("XWB IM HERE")
     # every frame the broker saw parsed as {CIA}, with one-byte cycling seqs
     assert_equal %w[1 2 3 4], broker.frames.map { |f| f[:seq] }
     assert_equal %w[C R R R], broker.frames.map { |f| f[:action] }
@@ -354,7 +371,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # family (DDR/DDRROOT/DDRIENS lists) require.
 
   def signed_on_strict_client(rpc_bodies)
-    c, broker = client_on_strict_broker([ "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", "DUZ=63\r\n" ] + rpc_bodies)
+    c, broker = client_on_strict_broker([ "0\r7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\rGood evening USER,DEMO\r", "DUZ=63\r" ] + rpc_bodies)
     c.connect("localhost", 9100)
     c.authenticate("SYN123", "SYN123!!")
     [ c, broker ]
@@ -426,10 +443,10 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     # DATA(1)="server^volume^UCI^port" (NON-numeric piece 1), DATA(2)=intro text
     # (which still contains a "Good morning" greeting).
     RECONNECT_FAIL = "4^The reconnection attempt for session #1 has failed.  " \
-      "The session was authenticated for a different user.\r\n" \
-      ".gtm_sysid^ROU^VEH^9100\r\n\r\n" \
-      "Good morning MANAGER,SYSTEM.     You last signed on Oct 09, 2018 at 10:58\r\n"
-    SIGNON_OK = "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n"
+      "The session was authenticated for a different user.\r" \
+      ".gtm_sysid^ROU^VEH^9100\r\r" \
+      "Good morning MANAGER,SYSTEM.     You last signed on Oct 09, 2018 at 10:58\r"
+    SIGNON_OK = "0\r7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\rGood evening USER,DEMO\r"
 
     attr_reader :reconnect_attempted
 

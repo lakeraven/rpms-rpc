@@ -62,12 +62,17 @@ module RpmsRpc
     # MAX defaults to "*" — DDR.m:58).
     #
     # Returns { entries: [{ien:, pieces: [..]}], more: {value:, ien:}|nil,
-    # error: bool } or nil (no response). Reply grammar is the V0 shape —
-    # over the CIA broker XWBAPVER is unset (ACTR^CIANBACT reads it from
-    # the frame's VER field, CIANBACT.m:67, which RPC frames don't carry):
-    # optional "[Misc]" + "MORE^from^ien", "[Data]" + packed IEN-first rows,
-    # "[Errors]" marker (V0^DDR: DDR.m:21-30,45). NB: the exact packed-row
-    # column set rides LIST^DIC's "P" output; parse row pieces defensively.
+    # error: bool } or nil (no response). Reply is the marker grammar: optional
+    # "[Misc]" + "MORE^from^ien", "[Data]" + packed rows, "[Errors]"
+    # (V0^DDR: DDR.m:21-30,45). The DDR reply-version switch is XWBAPVER, set in
+    # DORPC^CIANBACT (CIANBACT.m:66-67) to $G(CIA("VER")) — over the CIA broker
+    # that IS carried: it's the connect-time VER ("2.0", see CiaClient#connect).
+    # Either way the "[Data]"/"[Misc]"/"[Errors]" markers below are what comes
+    # back — confirmed live against bcer-9.0-ydb (rpms-ydb-9.0, 2026-09-02):
+    # a no-FIELDS LISTER returns "[Data]" then BARE-IEN rows (V0 appends ";@" so
+    # rows carry no value pieces), e.g. "[Data]\r4\r3\r2". NB: with FIELDS the
+    # packed-row column set rides LIST^DIC's "P" output; parse row pieces
+    # defensively.
     def lister(file:, iens: nil, fields: nil, flags: nil, max: nil, from: nil,
                part: nil, xref: nil, screen: nil, id: nil, options: nil)
       param = lister_param(file: file, iens: iens, fields: fields, flags: flags, max: max,
@@ -105,10 +110,15 @@ module RpmsRpc
     # -- DDR LOCK/UNLOCK NODE ------------------------------------------------
 
     # Incremental M LOCK on a global node ('L +node:timeout',
-    # LOCKC^DDR1: DDR1.m:21-24). True iff the lock was acquired within
-    # `timeout` seconds; false on timeout or no broker response.
+    # LOCKC^DDR1: DDR1.m:21-24). Tri-state, so callers can tell contention from
+    # an unreachable broker (they are NOT the same — nil is the documented
+    # no-response contract shared by every api/ method, while "0" is a real
+    # LOCK timeout the server returned):
+    #   true  — DDROK "1", lock acquired
+    #   false — DDROK "0", lock timed out (contention)
+    #   nil   — no broker response at all (unreachable)
     def lock(node:, timeout: 5)
-      DataMapper.ddr_lock_unlock_node.fetch_scalar(lock_param(node: node, timeout: timeout)) == true
+      DataMapper.ddr_lock_unlock_node.fetch_scalar(lock_param(node: node, timeout: timeout))
     end
 
     # Release the lock ('L -node' — always "1", DDR1.m:25-27).
@@ -211,16 +221,39 @@ module RpmsRpc
     end
 
     # Extract the human-readable DIERR TEXT lines from a
-    # [BEGIN_diERRORS]..[END_diERRORS] block (ERROR^DDR3: DDR3.m:63-79 —
-    # per error: a caret-delimited header, caret-delimited PARAM rows, then
-    # plain text lines). Lines without "^" inside the block are the text;
-    # if none parse that way the whole block is returned verbatim.
+    # [BEGIN_diERRORS]..[END_diERRORS] block. ERROR^DDR3 (DDR3.m:66-79) emits,
+    # PER error, in this exact order:
+    #   header  = "<errnum>^<txtcnt>^<file>^<iens>^<field>^<paramcount>"
+    #   then <paramcount> PARAM rows  ("KEY^value")
+    #   then <txtcnt>    TEXT rows    (the human-readable message)
+    # So the structure is self-describing: the header's txtcnt (piece 1) and
+    # paramcount (piece 5) say exactly how many rows follow. Walk it that way
+    # rather than "drop every line containing ^" — a DIERR TEXT line can itself
+    # contain a caret (e.g. an echoed bad value), and the old filter silently
+    # dropped those. Falls back to the raw block if it doesn't parse.
     def error_block(reply)
       from = reply.index("[BEGIN_diERRORS]")
       return [] unless from
       to = reply.index("[END_diERRORS]") || reply.length
       block = reply[(from + 1)...to]
-      texts = block.reject { |l| l.include?("^") }
+
+      texts = []
+      i = 0
+      while i < block.length
+        header = block[i].to_s.split("^", -1)
+        # A well-formed header is "errnum^txtcnt^file^iens^field^paramcount"
+        # (>= 6 pieces, txtcnt + paramcount numeric). Anything else → bail to
+        # the verbatim fallback rather than mis-slicing.
+        break unless header.length >= 6 && header[1].match?(/\A\d+\z/) && header[5].match?(/\A\d+\z/)
+        txtcnt = header[1].to_i
+        paramcount = header[5].to_i
+        i += 1 + paramcount # skip the header and its PARAM rows
+        txtcnt.times do
+          texts << block[i] unless block[i].nil?
+          i += 1
+        end
+      end
+
       texts.empty? ? block : texts
     end
   end

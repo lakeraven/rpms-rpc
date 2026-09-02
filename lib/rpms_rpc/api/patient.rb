@@ -37,12 +37,29 @@ module RpmsRpc
     # REGISTER" placeholder wire name is retired — it never had a server
     # implementation anywhere (docs/RPC_COVERAGE.md, "BHDPTRPC provenance").
     #
-    # See RpmsRpc::Registration.register for the attrs contract and the
-    # per-step wire citations. Returns
+    # VALUE FORMAT — read before calling. The #9000001 completion values
+    # (tribe/classification/eligibility_status/community) and any pointer field
+    # are FileMan-INTERNAL: DDR FILER runs UPDATE^DIE/FILE^DIE with no "E" flag
+    # (DDR3.m:15,18), so pass the raw pointer IEN (e.g. the ^AUTTTRI IEN for
+    # tribe) and internal set codes verbatim — this layer derives nothing. The
+    # VAFC VOA ADD elements, by contrast, are FileMan-EXTERNAL (each runs
+    # through CHK^DIE server-side). service_connected/veteran are internal
+    # "Y"/"N". See RpmsRpc::Registration.register for the full attrs contract
+    # and the per-step wire citations.
+    #
+    # ONC SCOPE: this composed path is NOT part of any certification — it is
+    # additive and alters no certified-module behavior. §170.315(a)(5)
+    # demographics is certified via the AG/BPRM path, not this one; use this for
+    # demo / eval / greenfield-exempt registration (see the KNOWN DIVERGENCES in
+    # RpmsRpc::Registration: no HRN-uniqueness enforcement, no HL7 staging, no
+    # AG procedural validation).
+    #
+    # Returns
     #   { success: true, dfn:, created: }           on success,
     #   { success: false, error: Symbol, message: } on rejection
-    #     (:voa_rejected / :duplicate_identity / :lock_failed / :hrn_taken /
-    #      :filer_rejected — message carries the M-side text), or
+    #     (:voa_rejected / :identity_mismatch / :lock_failed / :filer_rejected —
+    #      message carries the M-side text; identity_mismatch = VOA resolved an
+    #      existing ICN to a DIFFERENT person, caught before any write), or
     #   nil when the broker gives no response at all (infra failure) so
     #   callers can distinguish "rejected" from "unreachable".
     def register(attrs)

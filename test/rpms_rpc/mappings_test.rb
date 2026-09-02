@@ -198,6 +198,22 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal false, RpmsRpc::DataMapper[:ddr_lock_unlock_node].parse_scalar("0")
   end
 
+  # Pin the LITERAL wire names of the composed-registration RPC family (name
+  # strings, not symbols) — a rename of any of these breaks the broker contract
+  # regardless of the Ruby symbol staying the same.
+  def test_registration_family_rpc_wire_names
+    {
+      voa_add_patient: "VAFC VOA ADD PATIENT",
+      ddr_filer: "DDR FILER",
+      ddr_lister: "DDR LISTER",
+      ddr_lock_unlock_node: "DDR LOCK/UNLOCK NODE",
+      ddr_gets_entry_data: "DDR GETS ENTRY DATA",
+      ddr_validator: "DDR VALIDATOR"
+    }.each do |mapping, wire_name|
+      assert_equal wire_name, RpmsRpc::DataMapper[mapping].rpc_name
+    end
+  end
+
   # -- ORWU USERINFO ---------------------------------------------------------
 
   def test_practitioner_info

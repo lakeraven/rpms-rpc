@@ -41,6 +41,19 @@ module RpmsRpc
       end
     end
 
+    # Seed a FIFO SEQUENCE of text-blob replies for successive calls to the
+    # same RPC+key. Each call_rpc consumes the next reply in order; once the
+    # queue is exhausted the mapping falls through to any single seeded reply
+    # (or "" for no response). This is what makes stateful, multi-pass flows
+    # testable — e.g. DDR FILER's two passes (stub then completion), or a
+    # partial-failure-then-retry: seed [stub_ok, completion_fail] and re-run.
+    def seed_sequence(mapping_name, key, texts)
+      mapping = DataMapper[mapping_name]
+      @sequences ||= {}
+      @sequences[mapping.rpc_name] ||= {}
+      (@sequences[mapping.rpc_name][key.to_s] ||= []).concat(Array(texts))
+    end
+
     # Seed raw text for a text_blob mapping.
     def seed_text(mapping_name, key, text)
       mapping = DataMapper[mapping_name]
@@ -165,6 +178,14 @@ module RpmsRpc
     def call_rpc(rpc_name, *params)
       received_calls << { rpc: rpc_name, params: params }
       key = params.first.to_s
+
+      # Sequenced text-blob replies (FIFO, keyed by first param) take priority
+      # while the queue for this RPC+key is non-empty — successive calls get
+      # successive replies (see #seed_sequence).
+      if (seq = @sequences&.dig(rpc_name, key)) && !seq.empty?
+        text = seq.shift
+        return text.to_s.include?("\n") ? text.split("\n") : text
+      end
 
       # Line-based responses (keyed by first param)
       if @lines&.dig(rpc_name, key)
