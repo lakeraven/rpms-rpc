@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "rpms_rpc/cia_client"
+require "rpms_rpc/xwb_client"
 
 class RpmsRpc::CiaClientTest < Minitest::Test
   Client = RpmsRpc::CiaClient
@@ -210,5 +211,150 @@ class RpmsRpc::CiaClientTest < Minitest::Test
       assert_equal "R", frame[7], "action byte must sit at offset 7, after a single sequence byte"
     end
     assert_equal %w[1 2 3 4 5 6 7 8 9 1 2 3], seqs
+  end
+
+  # -- strict {CIA} mock broker ----------------------------------------------
+  #
+  # The canned-reply FakeSocket above never PARSES what the client writes, so
+  # this suite would stay green even if the client stopped speaking {CIA}
+  # entirely — which is exactly how a wrong-protocol client (a pre-rename
+  # CiaClient that actually spoke stock XWB [XWB]1130) got mistaken for a live
+  # v0.2.0 connect regression against the real broker (rpms-ops evidence run,
+  # 2026-09-01). This socket emulates DOACTION^CIANBLIS as observed on the
+  # real wire (bcer-9.0-ydb, CIANBLIS on :9100):
+  #
+  #   C->S  {CIA}<EOD><seq byte><action byte><L()-packed fields ...><EOD>
+  #   S->C  <seq echo>   then   <\x00 ack><body><EOD>   (two separate chunks)
+  #
+  # Connect ("C") reply body observed live: "1^1^1.1^^1". And, like the real
+  # broker, it answers anything that is not a parseable {CIA} frame by CLOSING
+  # the session — the client sees EOF, never an error message. (^ZBLOG then
+  # shows only a clean connect/disconnect pair, no SERVETRAP.)
+  class StrictCiaBrokerSocket
+    CONNECT_BODY = "1^1^1.1^^1"
+
+    attr_reader :frames
+
+    # rpc_bodies: reply bodies (without seq echo / ack / EOD) for successive
+    # "R"-action frames, in order.
+    def initialize(rpc_bodies = [])
+      @rpc_bodies = rpc_bodies.dup
+      @frames = [] # parsed frames: { seq:, action:, fields: }
+      @pending = []
+      @closed_by_broker = false
+      @closed = false
+    end
+
+    def write(str)
+      return str.bytesize if @closed_by_broker
+
+      frame = parse_frame(str.b)
+      if frame.nil? # not a {CIA} frame — DOACTION ends the session
+        @closed_by_broker = true
+        @pending.clear
+        return str.bytesize
+      end
+      @frames << frame
+      body = frame[:action] == "C" ? CONNECT_BODY : @rpc_bodies.shift.to_s
+      @pending << frame[:seq] # the real broker delivers the seq echo ...
+      @pending << "\x00" + body + EOD # ... and the ack+body as separate chunks
+      str.bytesize
+    end
+
+    def recv(_n)
+      return "" if @closed_by_broker || @pending.empty?
+
+      @pending.shift
+    end
+
+    def flush; end
+    def close = @closed = true
+    def closed? = !!@closed
+    def setsockopt(*); end
+
+    private
+
+    # Parse one frame the way DOACTION^CIANBLIS reads it: exactly 8 header
+    # bytes ("{CIA}" + EOD + seq + action), then L()-packed fields that must
+    # land exactly on the trailing EOD. Returns nil (→ session close) on
+    # anything malformed.
+    def parse_frame(bytes)
+      return nil unless bytes.bytesize >= 9 && bytes[0, 6] == "{CIA}#{EOD}".b && bytes[-1] == EOD
+
+      fields = []
+      i = 8
+      while i < bytes.bytesize - 1
+        hdr = bytes.getbyte(i)
+        nlen = hdr >> 4
+        n = hdr & 0xf
+        i += 1
+        q = 0
+        nlen.times do
+          q = (q << 8) | bytes.getbyte(i).to_i
+          i += 1
+        end
+        len = (q << 4) | n
+        val = bytes.byteslice(i, len)
+        return nil if val.nil? || val.bytesize < len
+
+        fields << val
+        i += len
+      end
+      return nil unless i == bytes.bytesize - 1 # fields must end at the EOD
+
+      { seq: bytes[6], action: bytes[7], fields: fields }
+    end
+  end
+
+  def client_on_strict_broker(rpc_bodies = [])
+    c = Client.new
+    socket = StrictCiaBrokerSocket.new(rpc_bodies)
+    c.define_singleton_method(:open_socket) { |_h, _p| @socket = socket }
+    c.instance_variable_set(:@timeout, 5)
+    [ c, socket ]
+  end
+
+  def test_connect_survives_strict_broker_frame_parsing
+    c, broker = client_on_strict_broker
+    assert c.connect("localhost", 9100)
+    assert c.connected?
+    frame = broker.frames.first
+    assert_equal "1", frame[:seq]
+    assert_equal "C", frame[:action]
+    assert_equal [ "VER", "", "2.0", "LP", "", "9100", "UCI", "", "VEH,EXTERNAL" ], frame[:fields]
+  end
+
+  def test_full_signon_round_trip_against_strict_broker
+    c, broker = client_on_strict_broker([
+      "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", # CIANBRPC AUTH
+      "DUZ=63\r\n",                                                            # CIANBRPC GETVAR
+      "ok\r\n"                                                                 # the RPC proper
+    ])
+    c.connect("localhost", 9100)
+    result = c.authenticate("SYN123", "SYN123!!")
+    assert result[:success]
+    assert_equal 63, result[:duz]
+    assert_equal "7", c.session_uid
+    assert_equal "4 ok  ", c.call_rpc("XWB IM HERE") # "4" seq echo + \x00 ack + body, printables
+    # every frame the broker saw parsed as {CIA}, with one-byte cycling seqs
+    assert_equal %w[1 2 3 4], broker.frames.map { |f| f[:seq] }
+    assert_equal %w[C R R R], broker.frames.map { |f| f[:action] }
+    assert_equal "7", broker.frames.last[:fields][2], "post-auth UID field carries the session UID"
+  end
+
+  # Regression class: a client that does not speak {CIA} is CLOSED by the CIA
+  # broker, surfacing as "Connection closed by server" with no step completed.
+  # This is what running the pre-rename XWB-protocol CiaClient against the
+  # live CIANBLIS broker looks like — pin it offline so a wrong-protocol (or
+  # corrupted-framing) connect can never look like a healthy suite again.
+  def test_wrong_protocol_client_is_closed_by_strict_cia_broker
+    c = RpmsRpc::XwbClient.new
+    socket = StrictCiaBrokerSocket.new
+    c.define_singleton_method(:open_socket) { |_h, _p| @socket = socket }
+    c.instance_variable_set(:@timeout, 5)
+    err = assert_raises(RpmsRpc::Client::ConnectionError) { c.connect("localhost", 9100) }
+    assert_match(/Connection closed by server/, err.message)
+    assert_empty socket.frames, "an [XWB]1130 frame must not parse as {CIA}"
+    refute c.connected?
   end
 end
