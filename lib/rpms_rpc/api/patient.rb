@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "registration"
+
 module RpmsRpc
   # Symbolic API for patient data. Engine code calls these methods
   # instead of referencing DataMapper mappings directly.
@@ -28,52 +30,23 @@ module RpmsRpc
       DataMapper.patient_ssn.fetch_one(ssn.to_s)
     end
 
-    # Register a new patient. Dispatches the "BHDPTRPC REGISTER" wire name
-    # (#registration BDD line) — an UNVERIFIED PLACEHOLDER with no server
-    # implementation on any known system (see docs/RPC_COVERAGE.md,
-    # "BHDPTRPC provenance"). The real path forthcoming is VAFC VOA ADD
-    # PATIENT (PATIENT-#2 half) + the LR* completion shim (IHS half).
+    # Register a new patient — delegates to the composed
+    # RpmsRpc::Registration flow: VAFC VOA ADD PATIENT (PATIENT #2 half,
+    # ADD^VAFCPTAD) + the DDR FileMan family (IHS #9000001 half: HRN,
+    # tribe/community/classification/eligibility). The former "BHDPTRPC
+    # REGISTER" placeholder wire name is retired — it never had a server
+    # implementation anywhere (docs/RPC_COVERAGE.md, "BHDPTRPC provenance").
     #
-    # attrs: { name:, dob:, sex:, ssn: } — name is FileMan "LAST,FIRST" form;
-    # dob may be a Date (formatted to FileMan) or a preformatted string.
-    #
-    # Returns { success: true, dfn: Integer } on success, or
-    #         { success: false, error: String } on failure (duplicate, invalid
-    #         demographics, etc. — the M-side message is passed through).
-    # Returns nil when the broker gives no response at all (infra failure) so
-    # callers can distinguish "rejected" from "unreachable".
+    # See RpmsRpc::Registration.register for the attrs contract and the
+    # per-step wire citations. Returns
+    #   { success: true, dfn:, created: }           on success,
+    #   { success: false, error: Symbol, message: } on rejection
+    #     (:voa_rejected / :duplicate_identity / :lock_failed / :hrn_taken /
+    #      :filer_rejected — message carries the M-side text), or
+    #   nil when the broker gives no response at all (infra failure) so
+    #   callers can distinguish "rejected" from "unreachable".
     def register(attrs)
-      param = registration_param(attrs)
-      result = DataMapper.patient_register.fetch_one(param)
-      return nil unless result
-
-      if result[:success]
-        { success: true, dfn: result[:dfn_or_error].to_i }
-      else
-        { success: false, error: result[:dfn_or_error].to_s }
-      end
-    end
-
-    # The single caret-delimited param the placeholder "BHDPTRPC REGISTER"
-    # wire name takes — OUR contract definition, not an IHS one:
-    #   NAME^SEX^DOB(fileman)^SSN
-    # Raises ArgumentError when a field value contains "^" — the wire delimiter
-    # — so one field can't overwrite the ones after it. (The message names the
-    # field but never echoes the value: these are demographics/PHI.)
-    # Public so tests/mocks can seed against the exact key the RPC receives.
-    def registration_param(attrs)
-      dob = attrs[:dob]
-      dob = FilemanDateParser.format_date(dob) if dob.is_a?(Date) || dob.is_a?(Time)
-      fields = {
-        name: attrs[:name].to_s.strip.upcase,
-        sex: attrs[:sex].to_s.strip.upcase,
-        dob: dob.to_s,
-        ssn: attrs[:ssn].to_s.delete("-")
-      }
-      fields.each do |field, value|
-        raise ArgumentError, "registration #{field} must not contain '^'" if value.include?("^")
-      end
-      fields.values.join("^")
+      Registration.register(attrs)
     end
 
     # Chart-banner projection per issue #60 contract:

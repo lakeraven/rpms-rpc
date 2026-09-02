@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Composed patient registration replaces the last BHDPTRPC placeholder
+dispatch. Live round-trip verification is gated on the rpms-ops evidence
+run (contracts: rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`).
+
+### Added
+
+- `RpmsRpc::Registration` — patient registration composed from verified
+  stock-VistA RPCs: `VAFC VOA ADD PATIENT` (PATIENT #2 half, returns the
+  DFN) then `DDR LOCK/UNLOCK NODE` + `DDR LISTER` (HRN "D"-xref
+  uniqueness pre-check) + `DDR GETS ENTRY DATA` (idempotent-re-run
+  existence probe) + two `DDR FILER` passes (the #9000001 stub at the
+  DINUM IEN = DFN, then the HRN 41-multiple entry and
+  tribe/community/classification/eligibility fields). Explicit error
+  taxonomy: `:voa_rejected` / `:duplicate_identity` / `:lock_failed` /
+  `:hrn_taken` / `:filer_rejected` (message carries the M-side text).
+  Every wire shape cites its M routine (bcer-9.0-ydb corpus).
+- `RpmsRpc::DdrFileman` — wrapper for the FileMan Delphi Components RPC
+  family (`DDR FILER` / `DDR LISTER` / `DDR LOCK/UNLOCK NODE` /
+  `DDR GETS ENTRY DATA` / `DDR VALIDATOR`) with public request builders
+  and reply-grammar parsers.
+- `CiaClient` list params: `Hash` params encode as named-subscript
+  NAME/SUBSCRIPT/VALUE triples (string subscripts M-quoted, numeric bare
+  — the raw-splice contract of DOACTION^CIANBLIS), `Array` params as
+  1-based numeric subscripts; matches `XwbClient`'s public param
+  convention.
+
+### Changed
+
+- `Patient.register` now delegates to `Registration.register`; failures
+  return `{ success: false, error: Symbol, message: String }` instead of
+  `error: String`.
+
+### Removed
+
+- The `BHDPTRPC REGISTER` placeholder mapping and its single-caret-param
+  contract (`Patient.registration_param`) — the wire name never had a
+  server implementation anywhere (docs/RPC_COVERAGE.md, "BHDPTRPC
+  provenance").
+
 ## [0.2.0] — 2026-09-01
 
 CIA client wire-behavior corrections (#178, #179, #180, #177). Public API

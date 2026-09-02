@@ -91,67 +91,57 @@ class PatientTest < Minitest::Test
   end
 
   # =============================================================================
-  # REGISTER
+  # REGISTER — delegates to the composed RpmsRpc::Registration flow
+  # (VAFC VOA ADD PATIENT + DDR FileMan family). The former "BHDPTRPC
+  # REGISTER" wire name is retired — it never had a server implementation
+  # anywhere (docs/RPC_COVERAGE.md, "BHDPTRPC provenance"). The composed
+  # flow itself is covered in test/rpms_rpc/api/registration_test.rb.
   # =============================================================================
 
-  NEW_PATIENT = { name: "Raven,Nora", dob: Date.new(1992, 3, 11), sex: "F", ssn: "555-01-2345" }.freeze
+  NEW_PATIENT = {
+    name: "DEMOPATIENT,NORA", dob: Date.new(1992, 3, 11), sex: "F", ssn: "900012345",
+    station_number: "8994", full_icn: "1000000002V654321",
+    type: "NON-VETERAN (OTHER)", veteran: "N", service_connected: "NO"
+  }.freeze
 
-  def seed_register_response(attrs, success:, payload:)
-    key = RpmsRpc::Patient.registration_param(attrs)
-    RpmsRpc.client.seed(:patient_register, key, { success: success, dfn_or_error: payload })
+  def seed_composed_registration(attrs, dfn: "42")
+    m = RpmsRpc.client
+    m.seed(:voa_add_patient, RpmsRpc::Registration.voa_param(attrs).to_s,
+      { status: 1, dfn_or_error: dfn })
+    m.seed(:ddr_lock_unlock_node,
+      RpmsRpc::DdrFileman.lock_param(node: "^AUPNPAT(#{dfn})").to_s, true)
+    m.seed(:ddr_gets_entry_data,
+      RpmsRpc::DdrFileman.gets_entry_param(file: "9000001", iens: "#{dfn},", fields: ".01").to_s,
+      "[ERROR]")
+    m.seed(:ddr_filer, "ADD", "[Data]\n+1,^#{dfn}")
   end
 
-  def test_register_success_returns_dfn
-    seed_register_response(NEW_PATIENT, success: true, payload: "42")
+  def test_register_delegates_to_composed_flow_and_returns_dfn
+    seed_composed_registration(NEW_PATIENT)
 
     result = RpmsRpc::Patient.register(NEW_PATIENT)
 
     assert result[:success]
     assert_equal 42, result[:dfn]
+    rpcs = RpmsRpc.client.received_calls.map { |c| c[:rpc] }
+    assert_includes rpcs, "VAFC VOA ADD PATIENT"
+    assert_includes rpcs, "DDR FILER"
+    refute_includes rpcs, "BHDPTRPC REGISTER"
   end
 
-  def test_register_formats_param_as_name_sex_fileman_dob_ssn
-    seed_register_response(NEW_PATIENT, success: true, payload: "42")
-
-    RpmsRpc::Patient.register(NEW_PATIENT)
-
-    call = RpmsRpc.client.received_calls.last
-    assert_equal "BHDPTRPC REGISTER", call[:rpc]
-    # Name/sex upcased, DOB in FileMan form (2920311 = 1992-03-11), SSN dashes stripped.
-    assert_equal "RAVEN,NORA^F^2920311^555012345", call[:params].first
-  end
-
-  def test_register_failure_returns_error_message
-    seed_register_response(NEW_PATIENT, success: false, payload: "Patient with this SSN already exists")
+  def test_register_failure_returns_error_symbol_and_message
+    RpmsRpc.client.seed(:voa_add_patient, RpmsRpc::Registration.voa_param(NEW_PATIENT).to_s,
+      { status: -1, dfn_or_error: "Patient NAME is a required field." })
 
     result = RpmsRpc::Patient.register(NEW_PATIENT)
 
     refute result[:success]
-    assert_match(/already exists/, result[:error])
+    assert_equal :voa_rejected, result[:error]
+    assert_match(/required field/, result[:message])
   end
 
   def test_register_returns_nil_when_broker_gives_no_response
-    # Nothing seeded for this param — mock returns "" (no response).
+    # Nothing seeded — the mock returns "" (no response) for the VOA call.
     assert_nil RpmsRpc::Patient.register(NEW_PATIENT)
-  end
-
-  def test_register_rejects_caret_in_field_values
-    attrs = NEW_PATIENT.merge(name: "RAVEN,NORA^M^3000101^000000000")
-
-    err = assert_raises(ArgumentError) { RpmsRpc::Patient.register(attrs) }
-
-    assert_match(/name must not contain '\^'/, err.message)
-    refute_match(/RAVEN/, err.message, "message must not echo the PHI value")
-    assert_empty RpmsRpc.client.received_calls, "no RPC should be sent"
-  end
-
-  def test_register_accepts_preformatted_dob_string
-    attrs = NEW_PATIENT.merge(dob: "2920311")
-    seed_register_response(attrs, success: true, payload: "43")
-
-    result = RpmsRpc::Patient.register(attrs)
-
-    assert result[:success]
-    assert_equal 43, result[:dfn]
   end
 end
