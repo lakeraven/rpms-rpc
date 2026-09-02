@@ -12,6 +12,15 @@ module RpmsRpc
     # ========================================================================
     # PATIENT (ORWPT*, BHDPTRPC*)
     # ========================================================================
+    #
+    # PROVENANCE WARNING — the BHDPTRPC wire names below are UNVERIFIED
+    # PLACEHOLDERS with no known server implementation anywhere: not in the
+    # FOIA routine corpus, not on staging, not in IHS public RPC docs (see
+    # docs/RPC_COVERAGE.md, "BHDPTRPC provenance"). The field layouts are OUR
+    # contract definitions, not observed IHS interfaces. Slated for
+    # replacement by the LR* completion-shim contract (VAFC VOA ADD PATIENT
+    # for the PATIENT-#2 half + an LR* shim for the IHS half); the wire-name
+    # strings stay as-is until that shim lands so callers/tests don't churn.
 
     # BEHOPTCX PTINFO — broad patient identity bundle for chart banner
     # Format: NAME^SEX^DOB^SSN^^^^^^^MRN^^^^^^DESIGNATED_TEAM^PRIMARY_PROVIDER^^
@@ -75,7 +84,7 @@ module RpmsRpc
       m.scalar :result_code
     end
 
-    # BHDPTRPC TRIBAL — tribal enrollment details
+    # BHDPTRPC TRIBAL — tribal enrollment details (placeholder — see header note)
     # Format: ENROLLMENT_NUMBER^TRIBE_NAME^ENROLLMENT_DATE^STATUS^SERVICE_UNIT^TRIBE_CODE
     DataMapper.define(:tribal_enrollment) do |m|
       m.rpc "BHDPTRPC TRIBAL"
@@ -87,7 +96,7 @@ module RpmsRpc
       m.field 5, :tribe_code
     end
 
-    # BHDPTRPC TRIBALVAL — tribal enrollment validation
+    # BHDPTRPC TRIBALVAL — tribal enrollment validation (placeholder — see header note)
     # Format: VALID^TRIBE_CODE^ENROLLMENT_NUMBER^STATUS^MESSAGE
     DataMapper.define(:tribal_validation) do |m|
       m.rpc "BHDPTRPC TRIBALVAL"
@@ -98,7 +107,7 @@ module RpmsRpc
       m.field 4, :message
     end
 
-    # BHDPTRPC TRIBELIST — tribe info lookup
+    # BHDPTRPC TRIBELIST — tribe info lookup (placeholder — see header note)
     # Format: IEN^NAME^CODE^SERVICE_UNIT^REGION^AREA
     DataMapper.define(:tribe_info) do |m|
       m.rpc "BHDPTRPC TRIBELIST"
@@ -110,7 +119,7 @@ module RpmsRpc
       m.field 5, :area
     end
 
-    # BHDPTRPC TRIBALELG — enrollment eligibility
+    # BHDPTRPC TRIBALELG — enrollment eligibility (placeholder — see header note)
     # Format: ACTIVE^ELIGIBLE_FOR_IHS^SERVICE_UNIT^MESSAGE^BENEFIT_PACKAGE
     DataMapper.define(:enrollment_eligibility) do |m|
       m.rpc "BHDPTRPC TRIBALELG"
@@ -121,7 +130,7 @@ module RpmsRpc
       m.field 4, :benefit_package
     end
 
-    # BHDPTRPC SU — service unit lookup
+    # BHDPTRPC SU — service unit lookup (placeholder — see header note)
     # Format: SERVICE_UNIT_IEN^SERVICE_UNIT_NAME^REGION
     DataMapper.define(:service_unit) do |m|
       m.rpc "BHDPTRPC SU"
@@ -130,7 +139,7 @@ module RpmsRpc
       m.field 2, :region
     end
 
-    # BHDPTRPC REGISTER — patient registration result
+    # BHDPTRPC REGISTER — patient registration result (placeholder — see header note)
     # Format: "1^DFN" (success) or "0^error_message" (failure)
     DataMapper.define(:patient_register) do |m|
       m.rpc "BHDPTRPC REGISTER"
@@ -138,7 +147,7 @@ module RpmsRpc
       m.field 1, :dfn_or_error
     end
 
-    # BHDPTRPC UPDATE — patient update result
+    # BHDPTRPC UPDATE — patient update result (placeholder — see header note)
     # Format: "1^" (success) or "0^error_message" (failure)
     DataMapper.define(:patient_update) do |m|
       m.rpc "BHDPTRPC UPDATE"
@@ -146,7 +155,7 @@ module RpmsRpc
       m.field 1, :error
     end
 
-    # BHDPTRPC NEWVISIT — encounter creation result
+    # BHDPTRPC NEWVISIT — encounter creation result (placeholder — see header note)
     # Format: "1^VISIT_IEN" (success) or "0^error_message" (failure)
     DataMapper.define(:encounter_create) do |m|
       m.rpc "BHDPTRPC NEWVISIT"
@@ -1045,8 +1054,9 @@ module RpmsRpc
     # response row is a fixed-width column header (e.g. "I00020APPOINTMENTID^
     # T00020ERRORID") and subsequent rows are the caret-delimited data. The
     # mappings below target the single DATA row — the client/gateway is
-    # responsible for stripping the header row (same convention already used by
-    # :patient_register, whose "1^DFN" shape is the BHDPTRPC data row). RPC
+    # responsible for stripping the header row (same convention as
+    # :patient_register's "1^DFN" data row — a placeholder contract of ours,
+    # see the BHDPTRPC provenance note in the PATIENT section header). RPC
     # names and entry points are taken verbatim from the live #8994 REMOTE
     # PROCEDURE registry dump; parameter shapes from the BSDX07/08/25/31
     # routine entry points in FOIA-RPMS.

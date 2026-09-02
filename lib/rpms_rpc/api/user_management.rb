@@ -21,8 +21,8 @@ module RpmsRpc
       # AUTHENTICATED session user — neither RPC accepts a DUZ param.
       # Passing one to ORWU USERINFO raises <PARAMETER>. So find(duz)
       # can only succeed when duz matches the session user; arbitrary-
-      # DUZ lookup would need a different RPC (BHDPTRPC / DDR LISTER /
-      # direct File 200 read) that isn't currently mapped.
+      # DUZ lookup would need a different RPC (DDR LISTER / direct
+      # File 200 read) that isn't currently mapped.
       user_info = DataMapper.user_info.fetch_lines
       return nil if user_info.nil? || user_info[:duz].to_i != duz
 

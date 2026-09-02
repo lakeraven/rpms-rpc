@@ -10,7 +10,7 @@ require_relative "../data_mapper"
 module RpmsRpc
   module Mappings
     # ========================================================================
-    # PATIENT (ORWPT*, BHDPTRPC*)
+    # PATIENT (ORWPT*)
     # ========================================================================
 
     # ORWPT SELECT — core patient demographics
@@ -31,9 +31,12 @@ module RpmsRpc
     #     [4] reserved  [5] site_ien      [6] reserved [7] name
     # Despite the "ID INFO" name, this RPC does NOT return address,
     # city, state, zip, phone, tribal enrollment, service area, or
-    # coverage — those fields were hallucinated in the prior mapping.
-    # IHS demographic detail lives in the BHDPTRPC family of RPCs (not
-    # installed on staging — see rr-6jr).
+    # coverage — those fields were hallucinated in the prior mapping and
+    # have NO known RPC source. The earlier "lives in the BHDPTRPC family
+    # (not installed on staging)" attribution was itself unverified — no
+    # such RPC family is documented or observed anywhere (see
+    # docs/RPC_COVERAGE.md, "BHDPTRPC provenance"). A real demographics
+    # read path (AG/FileMan) is future work.
     DataMapper.define(:patient_id_info) do |m|
       m.rpc "ORWPT ID INFO"
       m.field 0, :ssn
