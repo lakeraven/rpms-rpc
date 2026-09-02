@@ -19,7 +19,7 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 
 | Pillar | Allowlist size | Wrapped | Coverage |
 | --- | --- | --- | --- |
-| CPRS GUI | 32 | 10 | 31.2% |
+| CPRS GUI | 32 | 15 | 46.9% |
 | VueCentric AMHG | 0 | 0 | 0.0% |
 | VueCentric BDMG | 0 | 0 | 0.0% |
 | VueCentric BSDX | 0 | 0 | 0.0% |
@@ -27,7 +27,7 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | VueCentric BHL | 0 | 0 | 0.0% |
 | VueCentric BWH | 0 | 0 | 0.0% |
 | BPRM | 5 | 1 | 20.0% |
-| **TOTAL (deduped)** | **37** | **11** | **29.7%** |
+| **TOTAL (deduped)** | **37** | **16** | **43.2%** |
 
 ## Detail Matrix
 
@@ -48,13 +48,14 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | BGOVCPT | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BGOVUPD | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BHDO | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| BHDPTRPC | 8 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| BHDPTRPC | 8 | n/a | ? | ? | ? | ? | out-of-scope | unverified placeholder (see provenance note) |
 | BIPC | 6 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BJPN | 0 | n/a | ? | ? | ? | ? | BPRM | unwrapped |
-| BMC | 2 | n/a | ? | ? | ? | ? | BPRM | partial (gap: 1) |
+| BMC | 21 | n/a | ? | ? | ? | ? | BPRM | partial (gap: 1) |
 | BMCRPC | 14 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BPHR | 4 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BQI | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| BSDX | 9 | n/a | ? | ? | ? | ? | VueCentric BSDX | not in 3-pillar scope |
 | BYIMRT | 4 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | CIAVCXUS | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | CIAVMCFG | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
@@ -67,7 +68,7 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | ORQQCP | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | ORQQCT | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | ORQQGO | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| ORQQPL | 1 | n/a | ? | ? | ? | ? | CPRS GUI | partial (gap: 4) |
+| ORQQPL | 26 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
 | ORQQPS | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | ORQQPX | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | ORQQVI | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
@@ -76,17 +77,28 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | ORWDX | 0 | n/a | ? | ? | ? | ? | CPRS GUI | unwrapped |
 | ORWDXM | 0 | n/a | ? | ? | ? | ? | CPRS GUI | unwrapped |
 | ORWLRR | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| ORWOR | 1 | n/a | ? | ? | ? | ? | CPRS GUI | unwrapped |
+| ORWOR | 7 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
 | ORWORDG | 0 | n/a | ? | ? | ? | ? | CPRS GUI | unwrapped |
 | ORWORR | 1 | n/a | ? | ? | ? | ? | CPRS GUI | partial (gap: 1) |
 | ORWPCE | 4 | n/a | ? | ? | ? | ? | CPRS GUI | not in 3-pillar scope |
-| ORWPT | 9 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
+| ORWPT | 12 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
 | ORWRA | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | ORWRP | 3 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
 | ORWU | 5 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | PSO | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| TIU | 14 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| TIU | 15 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | XM | 6 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | XQAL | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | XU | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | XUS | 4 | n/a | ? | ? | ? | ? | Broker/session plumbing | not in 3-pillar scope |
+
+### BHDPTRPC provenance
+
+> The BHDPTRPC family (and its "8 RPCs" count) has **no traceable source**: it was
+> introduced without citation in commit 7108ec5 — the same authoring pass whose
+> ORWPT ID INFO field layout was proven hallucinated and fixed in 3f76849, which then
+> relocated the disproven demographic fields to "BHDPTRPC (not installed on staging)".
+> The family appears nowhere in the 65,782-routine FOIA corpus, the staging fingerprint
+> (`data/fingerprints/staging-2026-06-07.yml`), or IHS public RPC documentation.
+> The wire names are retained in `lib/rpms_rpc/mappings/ihs.rb` only as placeholders
+> pending the LR* registration/visit completion shim (VAFC VOA ADD PATIENT + LR shim).

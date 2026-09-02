@@ -28,7 +28,11 @@ module RpmsRpc
       DataMapper.patient_ssn.fetch_one(ssn.to_s)
     end
 
-    # Register a new patient via BHDPTRPC REGISTER (#registration BDD line).
+    # Register a new patient. Dispatches the "BHDPTRPC REGISTER" wire name
+    # (#registration BDD line) — an UNVERIFIED PLACEHOLDER with no server
+    # implementation on any known system (see docs/RPC_COVERAGE.md,
+    # "BHDPTRPC provenance"). The real path forthcoming is VAFC VOA ADD
+    # PATIENT (PATIENT-#2 half) + the LR* completion shim (IHS half).
     #
     # attrs: { name:, dob:, sex:, ssn: } — name is FileMan "LAST,FIRST" form;
     # dob may be a Date (formatted to FileMan) or a preformatted string.
@@ -50,7 +54,8 @@ module RpmsRpc
       end
     end
 
-    # The single caret-delimited param BHDPTRPC REGISTER takes:
+    # The single caret-delimited param the placeholder "BHDPTRPC REGISTER"
+    # wire name takes — OUR contract definition, not an IHS one:
     #   NAME^SEX^DOB(fileman)^SSN
     # Raises ArgumentError when a field value contains "^" — the wire delimiter
     # — so one field can't overwrite the ones after it. (The message names the

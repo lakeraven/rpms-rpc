@@ -42,7 +42,9 @@ class PatientTest < Minitest::Test
 
     # ORWPT ID INFO contributes the site IEN and race code to the merge.
     # Extended demographics (address, city, state, phone, tribal, etc.)
-    # come from the BHDPTRPC family — not present on staging; see rr-6jr.
+    # have NO known RPC source — the old BHDPTRPC attribution was
+    # unverified (see docs/RPC_COVERAGE.md, "BHDPTRPC provenance");
+    # a real demographics read path (AG/FileMan) is future work.
     assert_equal "I", result[:race_code]
     assert_equal 7819, result[:site_ien]
   end

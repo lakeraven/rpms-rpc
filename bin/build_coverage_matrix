@@ -28,9 +28,10 @@ def read_rpc_list(path)
 end
 
 def mapping_rpcs(path)
-  return Set.new unless File.file?(path)
-
-  File.read(path).scan(/\.rpc\s+["']([^"']+)["']/).flatten.map(&:strip).to_set
+  # Accepts a single mappings file or one that has been split into a
+  # sibling directory of the same name (lib/rpms_rpc/mappings{.rb,/*.rb}).
+  files = [path, *Dir.glob(File.join(path.sub(/\.rb\z/, ""), "*.rb"))].select { |f| File.file?(f) }
+  files.flat_map { |f| File.read(f).scan(/\.rpc\s+["']([^"']+)["']/).flatten }.map(&:strip).to_set
 end
 
 def namespace_for(rpc_name)
@@ -126,6 +127,8 @@ detail_rows = all_namespaces.map do |namespace|
            else
              "partial (gap: #{scoped.length - scoped_wrapped})"
            end
+  # BHDPTRPC has no traceable source anywhere — see the provenance note below the table.
+  status = "unverified placeholder (see provenance note)" if namespace == "BHDPTRPC"
 
   [namespace, rpms_count.to_s, vista_count.zero? ? "n/a" : vista_count.to_s, *env_counts, used_by.to_a.sort.join(", "), status]
 end
@@ -155,6 +158,17 @@ generated = <<~MARKDOWN
   ## Detail Matrix
 
   #{markdown_table(detail_headers, detail_rows)}
+
+  ### BHDPTRPC provenance
+
+  > The BHDPTRPC family (and its "8 RPCs" count) has **no traceable source**: it was
+  > introduced without citation in commit 7108ec5 — the same authoring pass whose
+  > ORWPT ID INFO field layout was proven hallucinated and fixed in 3f76849, which then
+  > relocated the disproven demographic fields to "BHDPTRPC (not installed on staging)".
+  > The family appears nowhere in the 65,782-routine FOIA corpus, the staging fingerprint
+  > (`data/fingerprints/staging-2026-06-07.yml`), or IHS public RPC documentation.
+  > The wire names are retained in `lib/rpms_rpc/mappings/ihs.rb` only as placeholders
+  > pending the LR* registration/visit completion shim (VAFC VOA ADD PATIENT + LR shim).
 MARKDOWN
 
 File.write(File.join(ROOT, "docs/RPC_COVERAGE.md"), generated)
