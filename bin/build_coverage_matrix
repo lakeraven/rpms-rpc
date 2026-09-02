@@ -167,10 +167,14 @@ generated = <<~MARKDOWN
   > relocated the disproven demographic fields to "BHDPTRPC (not installed on staging)".
   > The family appears nowhere in the 65,782-routine FOIA corpus, the staging fingerprint
   > (`data/fingerprints/staging-2026-06-07.yml`), or IHS public RPC documentation.
-  > BHDPTRPC REGISTER is retired: patient registration now runs the verified composed
-  > path — VAFC VOA ADD PATIENT + the DDR FileMan family (`RpmsRpc::Registration`),
-  > contracts cited routine-by-routine in rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`.
-  > The remaining wire names are retained in `lib/rpms_rpc/mappings/ihs.rb` only as
+  > BHDPTRPC REGISTER is retired: patient registration now runs the composed path —
+  > VAFC VOA ADD PATIENT + the DDR FileMan family (`RpmsRpc::Registration`). Every wire
+  > shape is contract-cited routine-by-routine (rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`)
+  > and the reply grammar, VOA add, FILER, GETS and the identity-guard read are LIVE-VERIFIED
+  > end to end against rpms-ydb-9.0 (see the PR transcript / `releases/evidence`). NOTE the
+  > KNOWN DIVERGENCES from AG-native registration documented in `RpmsRpc::Registration`
+  > (no HRN-uniqueness enforcement, no HL7 staging, no AG procedural validation). The
+  > remaining BHDPTRPC wire names are retained in `lib/rpms_rpc/mappings/ihs.rb` only as
   > placeholders pending their own verified replacements.
 MARKDOWN
 

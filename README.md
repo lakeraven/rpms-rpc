@@ -131,6 +131,25 @@ client.disconnect
 | `RpmsRpc::UserRoles`           | Role-based authorization (provider, nurse, etc.) |
 | `RpmsRpc::Capabilities`        | Feature-gated permission checks                  |
 
+### Patient registration & ONC scope
+
+`RpmsRpc::Patient.register` composes patient registration from `VAFC VOA ADD
+PATIENT` (PATIENT #2 half) + the DDR FileMan family (IHS #9000001 half), with an
+identity guard on the resolved DFN. See `RpmsRpc::Registration` for the attrs
+contract, per-step wire citations, and the reply grammar/VOA/FILER/GETS paths
+that were live-verified against `rpms-ydb-9.0`.
+
+**ONC scope.** This composed registration path is **uncertified** and is
+intended for demo / eval / greenfield-exempt use pending modular certification.
+ONC §170.315(a)(5) demographics is certified through the AG/BPRM path, **not**
+this one. The path is **additive** — it alters no certified-module behavior —
+and it carries deliberate KNOWN DIVERGENCES from AG-native registration
+(documented in `RpmsRpc::Registration`): it does **not** enforce HRN uniqueness
+(an AG-procedural invariant, not FileMan-enforced), does **not** stage the
+`^XTMP("AGHL7")` HL7 ADT event, and validates fields with FileMan input
+transforms only (no AG2-class procedural checks). A future AGHL7 Z-wrapper is
+the path to parity.
+
 ### Exception-message sanitization
 
 The gem doesn't emit internal logs of its own; the PHI risk vector is

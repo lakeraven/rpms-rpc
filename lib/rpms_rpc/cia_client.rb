@@ -35,9 +35,10 @@ module RpmsRpc
 
     # Sign on via CIANBRPC AUTH with a client-side-encrypted access;verify (AVC).
     #
-    # AUTH^CIANBRPC reply shape (lines are CR+LF separated, after the 1-byte
-    # sequence echo and \x00 ack): line 1 = status code ("0" = success),
-    # line 2 = session params "UID^netname^sitename", lines 3+ = greeting.
+    # AUTH^CIANBRPC reply shape (after #deframe strips the 1-byte sequence echo
+    # and the \x00 ack, and normalizes the wire's bare-CR line delimiters to
+    # LF — see #deframe): line 1 = status code ("0" = success), line 2 =
+    # session params "UID^netname^sitename", lines 3+ = greeting.
     # The reply carries the broker-assigned session UID but NOT the DUZ; the
     # broker saves DUZ into the session environment at sign-on, so it is
     # fetched with the context-exempt CIANBRPC GETVAR ("DUZ=n" reply).
@@ -57,31 +58,35 @@ module RpmsRpc
 
       ac, vc = resolve_credentials(access_code, verify_code) # base
       avc = xwb_encrypt("#{ac};#{vc}") # base cipher — matches ENCRYP^XUSRB1
-      reply = exchange("R", pk("UID"), pk(""), pk("0"),
+      body = deframe(exchange("R", pk("UID"), pk(""), pk("0"),
         pk("RPC"), pk(""), pk("CIANBRPC AUTH"),
         pk("1"), pk(""), pk("CIANB MAIN MENU"),
-        pk("4"), pk(""), pk(avc))
-      greeting = printable(reply)
+        pk("4"), pk(""), pk(avc)))
+      greeting = printable(body)
       unless greeting.match?(/signed on|Good (morning|afternoon|evening)/i)
         raise AuthenticationError, RpmsRpc.sanitize_error("CIA sign-on rejected")
       end
 
       @authenticated = true
       @signon_user = greeting[/\b([A-Z][A-Z.'-]*,[A-Z][A-Z.'-]*)/, 1]&.strip
-      uid = session_params(reply)[0]
+      uid = session_params(body)[0]
       @session_uid = uid if uid&.match?(/\A\d+\z/) # failure params are "server^volume^UCI^port"
-      @duz = printable(call_rpc_raw("CIANBRPC GETVAR", "DUZ"))[/\bDUZ=(\d+)/, 1]
+      @duz = call_rpc("CIANBRPC GETVAR", "DUZ")[/\bDUZ=(\d+)/, 1]
       { success: true, user: @signon_user, duz: @duz&.to_i, greeting: greeting.strip }
     end
 
     attr_reader :signon_user, :session_uid
 
-    # Call an RPC over the CIA broker, returning a printable (human-readable) response.
+    # Call an RPC over the CIA broker, returning the deframed, printable
+    # (human-readable) response: the 1-byte sequence echo and \x00 ack the
+    # broker prepends are stripped and the wire's bare-CR line delimiters are
+    # normalized to LF, so multi-line replies (DDR LISTER / GETS / FILER) keep
+    # their line structure for the parsers downstream (see #deframe).
     # Literal string params, plus list params as Hash (named/numeric subscripts)
     # or Array (1-based numeric subscripts) — matching XwbClient's public
     # param convention.
     def call_rpc(rpc_name, *params)
-      printable(call_rpc_raw(rpc_name, *params))
+      printable(deframe(call_rpc_raw(rpc_name, *params)))
     end
 
     # Send an RPC and return the raw, unmodified broker response. Client contract:
@@ -173,15 +178,38 @@ module RpmsRpc
       s.match?(/\A-?(0|[1-9]\d*)(\.\d+)?\z/) ? s : %("#{s.gsub('"', '""')}")
     end
 
-    def printable(str) = str.to_s.gsub(/[^\x20-\x7e]/, " ")
+    # Strip the CIA reply framing and normalize line structure. Empirically
+    # (live wire, rpms-ydb-9.0 CIANBLIS on :9100, 2026-09-02) a reply is
+    #
+    #   <1-byte sequence echo><\x00 ack><body>
+    #
+    # where the body's own lines are delimited by a BARE CR (\x0d), not CRLF —
+    # e.g. a DDR LISTER reply reads (hex, seq+ack elided):
+    #   "[Data]\r4^DEMOPATIENT,REGTEST\r3^MOUSE,MICKEY M\r2^USER,TEST\r".
+    # The old code neither stripped the seq/ack (so every parse saw a stray
+    # leading "<seq> " and a corrupted first field) nor recognized bare-CR
+    # delimiters — printable() flattened ALL of \r/\n/\x00 to spaces, collapsing
+    # every multi-line DDR reply to one line and zeroing out session_params
+    # (which is exactly why session_uid/DUZ came back nil, cascading the client
+    # into a UID-1 reconnect). Deframe fixes both, ONCE, at the client layer:
+    # drop the seq echo + ack, normalize CR / CRLF / LF to LF, drop the single
+    # trailing delimiter. (#call_rpc_raw stays byte-exact — its contract is the
+    # unmodified reply; deframing is call_rpc's / authenticate's job.)
+    def deframe(raw)
+      s = raw.to_s.b
+      s = (s.byteslice(2..) || "".b) if s.bytesize >= 2 && s.getbyte(1) == 0
+      s.gsub(/\r\n|\r|\n/, "\n").sub(/\n\z/, "")
+    end
 
-    # Split a raw {CIA} RPC reply into the "^"-pieces of its params line
-    # (line 2; line 1 is the status code prefixed by the sequence echo and
-    # ack byte, lines 3+ are message text). Returns [] when absent.
-    def session_params(reply)
-      lines = reply.to_s.split("\r\n")
-      lines = reply.to_s.split("\n") if lines.length <= 1
-      lines[1].to_s.split("^")
+    # Replace non-printable bytes with spaces for human readability, but keep
+    # the LF line structure #deframe established (so line-oriented reply parsers
+    # still see their lines).
+    def printable(str) = str.to_s.gsub(/[^\x20-\x7e\n]/, " ")
+
+    # The "^"-pieces of a DEFRAMED reply's params line (line index 1; line 0 is
+    # the status code, lines 2+ are message text). Returns [] when absent.
+    def session_params(body)
+      body.to_s.split("\n")[1].to_s.split("^")
     end
   end
 end

@@ -107,9 +107,25 @@ class DdrFilemanTest < Minitest::Test
     result = Ddr.filer(mode: "ADD", rows: ROWS)
 
     refute result[:success]
-    # Message lines are the plain-text DIERR TEXT nodes inside the
-    # [BEGIN_diERRORS] block (ERROR^DDR3: DDR3.m:63-79)
+    # Message lines are the DIERR TEXT nodes inside the [BEGIN_diERRORS] block,
+    # located by the header's txtcnt/paramcount, NOT by dropping every ^-line
+    # (ERROR^DDR3: DDR3.m:66-79).
     assert_includes result[:errors].join, "The value is not valid."
+  end
+
+  # A DIERR TEXT line can itself contain a caret (e.g. an echoed bad value).
+  # The header (701^<txtcnt=1>^...^<paramcount=1>) says one PARAM row and one
+  # TEXT row follow, so the caret-bearing message survives (the old
+  # reject-every-^-line logic dropped it — ddr_fileman.rb:223).
+  def test_filer_error_block_keeps_caret_containing_text
+    @mock.seed(:ddr_filer, "ADD",
+      "[BEGIN_diERRORS]\n701^1^9000001^+1,^.02^1\nFIELD^.02\n" \
+      "The value 'A^B' for field HEALTH RECORD NO. is not valid.\n[END_diERRORS]")
+
+    result = Ddr.filer(mode: "ADD", rows: ROWS)
+
+    refute result[:success]
+    assert_includes result[:errors].join, "The value 'A^B' for field HEALTH RECORD NO. is not valid."
   end
 
   def test_filer_returns_nil_when_broker_gives_no_response
@@ -161,20 +177,23 @@ class DdrFilemanTest < Minitest::Test
   # DDR LOCK/UNLOCK NODE
   # ==========================================================================
 
+  # lock is tri-state so callers distinguish contention ("0") from an
+  # unreachable broker (nil) — the same no-response contract every api/ method
+  # follows. (DDROK: "1"/"0" — LOCKC^DDR1: DDR1.m:18-30.)
   def test_lock_true_on_1
     @mock.seed(:ddr_lock_unlock_node, Ddr.lock_param(node: "^AUPNPAT(42)").to_s, true)
 
-    assert Ddr.lock(node: "^AUPNPAT(42)")
+    assert_equal true, Ddr.lock(node: "^AUPNPAT(42)")
   end
 
-  def test_lock_false_on_0
+  def test_lock_false_on_0_contention
     @mock.seed(:ddr_lock_unlock_node, Ddr.lock_param(node: "^AUPNPAT(42)").to_s, false)
 
-    refute Ddr.lock(node: "^AUPNPAT(42)")
+    assert_equal false, Ddr.lock(node: "^AUPNPAT(42)")
   end
 
-  def test_lock_false_when_broker_gives_no_response
-    refute Ddr.lock(node: "^AUPNPAT(42)")
+  def test_lock_nil_when_broker_gives_no_response
+    assert_nil Ddr.lock(node: "^AUPNPAT(42)")
   end
 
   def test_unlock_sends_unlock_param

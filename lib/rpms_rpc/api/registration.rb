@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "date"
 require_relative "../mappings"
 require_relative "ddr_fileman"
 
@@ -16,59 +17,87 @@ module RpmsRpc
   #
   #   1. VAFC VOA ADD PATIENT  → PATIENT (#2) record, returns DFN
   #                              (ADD^VAFCPTAD — VAFCPTAD.m:4-147)
-  #   2. DDR LOCK/UNLOCK NODE  → lock ^AUPNPAT(DFN) for the completion writes
-  #   3. DDR LISTER            → HRN uniqueness pre-check on the "D"
-  #                              cross-reference ^AUPNPAT("D",HRN,DFN)
-  #                              (AG71A1.m:136-138)
+  #   2. IDENTITY GUARD        → ORWPT ID INFO on the resolved DFN; abort on a
+  #                              name/DOB/sex mismatch (wrong-patient safety)
+  #   3. DDR LOCK/UNLOCK NODE  → lock ^AUPNPAT(DFN) for the completion writes
   #   4. DDR GETS ENTRY DATA   → does ^AUPNPAT(DFN) already exist?
   #                              (idempotent re-run support)
-  #   5. DDR FILER (x2)        → UPDATE^DIE files the #9000001 stub (.01 at
-  #                              the DINUM IEN = DFN — creation convention
-  #                              AUPNLK2.m:57), then the HRN into the 41
-  #                              multiple + the optional IHS fields against
-  #                              "DFN," (the live-proven two-pass sequence,
-  #                              rpms-ops docs/REGISTRATION_RPC_CONTRACTS.md §6)
+  #   5. DDR FILER (x2)        → UPDATE^DIE files the #9000001 stub (.01/.02/.11
+  #                              at the DINUM IEN = DFN — AUPNLK2.m:55-58), then
+  #                              the HRN into the 41 multiple + the optional IHS
+  #                              fields (rpms-ops docs/REGISTRATION_RPC_CONTRACTS.md §6)
   #   6. unlock ^AUPNPAT(DFN)  → always, once locked
   #
-  # Designed for idempotent re-run after a partial failure: VOA returns the
-  # existing DFN for a known ICN (VAFCPTAD.m:55), the existence probe skips
-  # the stub pass when ^AUPNPAT(DFN) is already there, and an already-filed
-  # HRN row is skipped rather than re-added.
+  # Idempotent re-run after a partial failure: VOA returns the existing DFN for
+  # a known ICN (VAFCPTAD.m:55), the existence probe skips the stub pass when
+  # ^AUPNPAT(DFN) is already there, and the 41-multiple HRN row is DINUM'd to
+  # the facility IEN (AUPNLK2's .01 `S DINUM=X`), so UPDATE^DIE upserts it
+  # rather than duplicating on a re-run.
+  #
+  # KNOWN DIVERGENCES from AG-native registration (this path files through the
+  # generic DDR FileMan surface, NOT the AG package's ADD^AG* entry points, so
+  # AG's procedural side effects do not run):
+  #
+  #   * NO HRN uniqueness enforcement. On file #9000001.41, field .02 (HEALTH
+  #     RECORD NO.) has a format-only input transform and its "D" cross-reference
+  #     is a plain SET index (`S ^AUPNPAT("D",$E(X,1,30),DA(1),DA)=""`) — neither
+  #     rejects a duplicate (live DD, rpms-ydb-9.0 ^DD(9000001.41,.02), 2026-09-02).
+  #     RPMS enforces chart-number uniqueness PROCEDURALLY inside the AG package,
+  #     which is unreachable through DDR. This path will therefore FILE whatever
+  #     HRN it is given; callers that need uniqueness must enforce it upstream
+  #     (or wait for the Z-wrapper / AGHL7 decision — see below). The node lock
+  #     in step 3 gives record-level write safety on THIS patient's ^AUPNPAT(DFN)
+  #     entry; it does NOT and cannot make cross-patient HRN assignment atomic.
+  #   * NO HL7 staging. AG-native registration stages an ADT message under
+  #     ^XTMP("AGHL7") for the MPI/downstream feeds; ^XTMP is not a FileMan file,
+  #     so DDR cannot write it and this path does not.
+  #   * Field-level validation is FileMan transforms only (CHK^DIE per VOA
+  #     element, then the #9000001 fields' own input transforms) — the AG2-class
+  #     procedural invariants (e.g. inactive-tribe rejection) do NOT run.
+  #
+  # These divergences are acceptable for demo / eval / greenfield use; a future
+  # AGHL7 Z-wrapper (staging the ADT event + running the AG procedural checks)
+  # is the path to parity. This module is ADDITIVE — it alters no certified-module
+  # behavior — and is NOT part of any ONC certification (see README, "ONC
+  # scope"): §170.315(a)(5) demographics is certified via the AG/BPRM path, not
+  # this one.
   module Registration
     extend self
 
     # IHS PATIENT file (#9000001, ^AUPNPAT). Created against the PATIENT
-    # (#2) DFN with DINUM=DFN / DLAYGO=9000001 (AUPNLK2.m:57); AG pairs
-    # ^AUPNPAT(RECNO) with ^DPT(RECNO) 1:1 (AG71A1.m:138).
+    # (#2) DFN with DINUM=DFN / DLAYGO=9000001 (AUPNLK2.m:55-57); AG pairs
+    # ^AUPNPAT(RECNO) with ^DPT(RECNO) 1:1.
     PATIENT_FILE = "9000001"
 
-    # HEALTH RECORD multiple (subfile #9000001.41 — node header
-    # "^9000001.41IP^^", AG1.m:59). Entries are DINUM'd to the facility:
-    # AG edits use DA=DUZ(2) (AGACT.m:10; AG1.m:67); .01 is the facility
-    # pointer (filed via top-level 4101 with backtick-IEN — AG1.m:53) and
-    # .02 is the HRN/chart number (AG1.m:54,70; read back from
-    # $P(^AUPNPAT(DFN,41,site,0),U,2) — AGEDNAME.m:63).
+    # #9000001 stub fields, filed at the DINUM IEN = DFN. AG's IHSPAT^AUPNLK2
+    # files the stub as `.01` (via DINUM) PLUS `.02////`_DT_`;.11////`_DUZ
+    # (AUPNLK2.m:57) — DATE ESTABLISHED (#.02, an FM date) and ESTABLISHING
+    # USER (#.11, a pointer to NEW PERSON #200). Both are Required in the DD
+    # (^DD(9000001,.02)=..."RDI"...; ^DD(9000001,.11)=..."RP200'I"...), so the
+    # stub files them too rather than leaving a #9000001 record without its
+    # provenance.
+    STUB_NAME_FIELD = ".01"
+    STUB_DATE_FIELD = ".02"
+    STUB_USER_FIELD = ".11"
+
+    # HEALTH RECORD multiple (subfile #9000001.41). The subentry is DINUM'd to
+    # the facility: field .01 (HEALTH RECORD FAC) is
+    # `HEALTH RECORD FAC^P9999999.06'Xa^AUTTLOC(^0;1^S DINUM=X` (live DD
+    # ^DD(9000001.41,.01)) — so location_ien is a pointer into ^AUTTLOC
+    # (#9999999.06, the IHS LOCATION file), NOT the VistA INSTITUTION file
+    # ^DIC(4). The distinction matters: off this box, an INSTITUTION IEN is the
+    # wrong value here and would file (or DINUM the subentry to) a bad facility.
+    # The 41-entry IEN == that AUTTLOC IEN; .02 is the HRN/chart number.
     HRN_SUBFILE = "9000001.41"
     HRN_LOCATION_FIELD = ".01"
     HRN_FIELD = ".02"
 
-    # #9000001 completion fields. AUPNPAT field numbers are four-digit
-    # (node 11 pieces) — real AG DR strings write them that way
-    # (DR="1109////NONE;1110////NONE", AG2.m:19):
-    #   1108 TRIBE OF MEMBERSHIP        (AGED2.m:385; pointer to ^AUTTTRI —
-    #                                    read at $P(^AUPNPAT(DFN,11),U,8),
-    #                                    AG2.m:16-19)
-    #   1111 CLASSIFICATION/BENEFICIARY (AGED2.m:384; pointer to ^AUTTBEN —
-    #                                    $P(^(11),U,11), AG2.m:31)
-    #   1112 ELIGIBILITY STATUS         (AGED1.m:347; $P(^AUPNPAT(DFN,11),U,12),
-    #                                    AG0.m:48; set of codes I/D/C/P per
-    #                                    the live DD)
-    #   1118 CURRENT COMMUNITY          (AGED1.m:354; free text per the live DD)
-    # DDR FILER files INTERNAL-format values — UPDATE^DIE/FILE^DIE run with
-    # no "E" flag (DDR3.m:15,18) — so callers pass pointer IENs (e.g. the
-    # ^AUTTTRI IEN for tribe) and internal set codes verbatim; nothing is
-    # derived or hardcoded here. Field definitions confirmed against the
-    # live bcer-9.0-ydb DD in rpms-ops docs/REGISTRATION_RPC_CONTRACTS.md §5.
+    # #9000001 completion fields (four-digit AUPNPAT field numbers, node-11
+    # pieces): 1108 TRIBE OF MEMBERSHIP (ptr ^AUTTTRI), 1111
+    # CLASSIFICATION/BENEFICIARY (ptr ^AUTTBEN), 1112 ELIGIBILITY STATUS (set
+    # code), 1118 CURRENT COMMUNITY (free text). DDR FILER files INTERNAL-format
+    # values — UPDATE^DIE/FILE^DIE run with no "E" flag (DDR3.m:15,18) — so
+    # callers pass pointer IENs and internal set codes verbatim.
     FIELD_TRIBE = "1108"
     FIELD_CLASSIFICATION = "1111"
     FIELD_ELIGIBILITY = "1112"
@@ -96,21 +125,20 @@ module RpmsRpc
     #   full_icn:           "ICNVchecksum" (must contain "V", VAFCPTAD.m:45-46)
     #   type:               PATIENT #2 TYPE (#391) external value
     #   veteran:            "Y"/"N" (VAFCPTAD.m:105 keeps the first character)
-    #   service_connected:  "YES"/"NO"
+    #   service_connected:  internal "Y"/"N" (filed `///` into #.301, set
+    #                       Y:YES;N:NO; NOT CHK^DIE-validated — VAFCPTAD.m:90-94)
     #   pob_city:/pob_state:/mothers_maiden_name:  optional (VAFCPTAD.m:21-24)
     #   hrn:                health record number to file (with location_ien:)
     #   location_ien:       facility IEN for the 41 multiple's DINUM entry
     #   tribe:/classification:/eligibility_status:/community:
-    #                       optional #9000001 completion values (see above)
-    #   extra_fields:       [{ field:, value: }] escape hatch for additional
-    #                       #9000001 top-level fields
+    #                       optional #9000001 completion values, FileMan-INTERNAL
+    #                       (pointer IENs / internal set codes — see above)
     #
     # Returns:
     #   { success: true, dfn:, created: }               — registered (created:
     #     false = idempotent re-run against an existing #9000001 record)
     #   { success: false, error: Symbol, message: }     — rejected; error is
-    #     :voa_rejected / :duplicate_identity / :lock_failed / :hrn_taken /
-    #     :filer_rejected
+    #     :voa_rejected / :identity_mismatch / :lock_failed / :filer_rejected
     #   nil                                             — no broker response
     def register(attrs)
       voa = DataMapper.voa_add_patient.fetch_one(voa_param(attrs))
@@ -118,8 +146,19 @@ module RpmsRpc
       return voa_failure(voa) unless voa[:status] == 1
 
       dfn = voa[:dfn_or_error].to_i
+
+      # BLOCKER-3 identity guard: VOA returns "1^DFN" both for a freshly created
+      # patient AND for an ICN that already exists at this facility
+      # (VAFCPTAD.m:29,55), with NO identity re-validation. Verify the resolved
+      # record IS the person in the request before writing anything against it.
+      mismatch = identity_mismatch(attrs, dfn)
+      return mismatch if mismatch
+
       node = "^AUPNPAT(#{dfn})"
-      unless DdrFileman.lock(node: node)
+      case DdrFileman.lock(node: node)
+      when nil
+        return nil # no broker response to the lock — unreachable, not a rejection
+      when false
         return { success: false, error: :lock_failed,
                  message: "could not lock #{node}" }
       end
@@ -131,35 +170,22 @@ module RpmsRpc
       end
     end
 
-    # Steps 3-5 against an already-locked ^AUPNPAT(DFN).
+    # Steps 4-5 against an already-locked ^AUPNPAT(DFN).
     def complete_ihs_registration(attrs, dfn)
-      hrn = attrs[:hrn]&.to_s
-      hrn_filed = false
-
-      if hrn && !hrn.empty?
-        listing = hrn_listing(hrn)
-        return nil unless listing
-        taken, hrn_filed = hrn_status(listing, hrn, dfn)
-        return { success: false, error: :hrn_taken,
-                 message: "HRN #{hrn} is already assigned to another patient" } if taken
-      end
-
       exists = ihs_record_exists?(dfn)
       return nil if exists.nil?
 
-      # Two FILER passes, mirroring the live-proven round trip (rpms-ops
-      # docs/REGISTRATION_RPC_CONTRACTS.md §6): first the #9000001 stub at
-      # the DINUM IEN, then the HRN subentry + completion fields against
-      # the now-real "DFN," IENS.
+      # Two FILER passes, mirroring the AG-native round trip (AUPNLK2.m:55-58;
+      # rpms-ops docs/REGISTRATION_RPC_CONTRACTS.md §6): first the #9000001 stub
+      # (.01/.02/.11) at the DINUM IEN, then the HRN subentry + completion
+      # fields against the now-real "DFN," IENS.
       unless exists
-        stub = DdrFileman.filer(mode: "ADD",
-          rows: [ { file: PATIENT_FILE, field: ".01", iens: "+1,", value: dfn } ],
-          iens: { 1 => dfn })
+        stub = DdrFileman.filer(mode: "ADD", rows: stub_rows(dfn), iens: { 1 => dfn })
         failure = filer_failure(stub)
         return failure unless failure == :ok
       end
 
-      rows, pins = completion_rows(attrs, dfn, hrn_filed: hrn_filed)
+      rows, pins = completion_rows(attrs, dfn)
       return { success: true, dfn: dfn, created: !exists } if rows.empty?
 
       filed = DdrFileman.filer(mode: "ADD", rows: rows, iens: pins)
@@ -188,6 +214,8 @@ module RpmsRpc
         # SSN must be PRESENT but may be null — null files a pseudo-SSN
         # (VAFCPTAD.m:75-83).
         "SSN" => attrs[:ssn].to_s.delete("-"),
+        # SRVCNCTD is filed verbatim (no CHK^DIE) as internal "Y"/"N"
+        # (VAFCPTAD.m:90-94; REGISTRATION_RPC_CONTRACTS.md §1).
         "SRVCNCTD" => attrs[:service_connected].to_s,
         "TYPE" => attrs[:type].to_s,
         "VET" => attrs[:veteran].to_s,
@@ -202,13 +230,65 @@ module RpmsRpc
     private
 
     def voa_failure(voa)
-      message = voa[:dfn_or_error].to_s
-      # ADD^VAFCPTAD has no dedicated duplicate error (FILE^DICN runs with
-      # DIC(0)="FLZ" — no lookup screening, VAFCPTAD.m:130); classification
-      # here is a best-effort match on the -1 text. A known ICN is NOT an
-      # error — it returns "1^DFN" (VAFCPTAD.m:55).
-      error = message.match?(/duplicat|already (exist|register)/i) ? :duplicate_identity : :voa_rejected
-      { success: false, error: error, message: message }
+      # ADD^VAFCPTAD returns "-1^text" on failure (VAFCPTAD.m:28,140). There is
+      # no dedicated duplicate error — FILE^DICN runs "FLZ" with no lookup
+      # screening (VAFCPTAD.m:130), and a known ICN is NOT an error (it returns
+      # "1^DFN", VAFCPTAD.m:55, and is handled by the identity guard). So every
+      # -1 is simply :voa_rejected; the M-side text rides `message`.
+      { success: false, error: :voa_rejected, message: voa[:dfn_or_error].to_s }
+    end
+
+    # nil when the resolved DFN's identity matches the request (or cannot be
+    # read back); a rejection hash when ORWPT ID INFO returns a record whose
+    # name/DOB/sex disagrees with the request (wrong-patient — VOA resolved an
+    # existing ICN to a different person). The message names WHICH field
+    # diverged but never echoes the PHI values.
+    def identity_mismatch(attrs, dfn)
+      id = DataMapper.patient_id_info.fetch_one(dfn.to_s)
+      return nil if id.nil? # unverifiable (no record / RPC unavailable) — don't false-reject
+
+      want = request_identity(attrs)
+      diverged = %i[sex dob last_name].select { |field| identity_field_differs?(field, want, id) }
+      return nil if diverged.empty?
+
+      { success: false, error: :identity_mismatch,
+        message: "VOA resolved DFN #{dfn} to an existing patient whose " \
+                 "#{diverged.join('/')} does not match the registration request" }
+    end
+
+    # Normalize the request's identity fields for comparison.
+    def request_identity(attrs)
+      last, first = name_pieces(attrs).split("^", 2)
+      { last_name: last.to_s.upcase, first_name: first.to_s.upcase,
+        sex: attrs[:sex].to_s.strip[0, 1].to_s.upcase, dob: dob_key(attrs[:dob]) }
+    end
+
+    def identity_field_differs?(field, want, id)
+      case field
+      when :sex
+        got = id[:sex].to_s.strip[0, 1].to_s.upcase
+        !got.empty? && !want[:sex].empty? && got != want[:sex]
+      when :dob
+        got = dob_key(id[:dob])
+        !got.empty? && !want[:dob].empty? && got != want[:dob]
+      when :last_name
+        # id[:name] is "LAST,FIRST MIDDLE"; compare last-name tokens only.
+        got = id[:name].to_s.split(",", 2).first.to_s.strip.upcase
+        !got.empty? && !want[:last_name].empty? && got != want[:last_name]
+      end
+    end
+
+    # Reduce a DOB (Date/Time, a parsed FileMan Date from the mapping, or an
+    # external string) to a comparable YYYYMMDD key; "" when it can't be read.
+    def dob_key(value)
+      return value.strftime("%Y%m%d") if value.is_a?(Date) || value.is_a?(Time)
+      digits = value.to_s.gsub(/\D/, "")
+      # "MM/DD/YYYY" external → YYYYMMDD; leave already-8-digit values as-is.
+      if value.to_s =~ %r{\A(\d{1,2})/(\d{1,2})/(\d{4})\z}
+        format("%04d%02d%02d", $3.to_i, $1.to_i, $2.to_i)
+      else
+        digits
+      end
     end
 
     # NAME crosses the wire as LAST^FIRST^MIDDLE^SUFFIX; the server
@@ -239,36 +319,10 @@ module RpmsRpc
       value.to_s
     end
 
-    # LIST^DIC over the whole-file "D" cross-reference
-    # ^AUPNPAT("D",HRN,DFN) (AG71A1.m:136-138). PART narrows to entries
-    # whose HRN starts with ours; rows come back IEN-first.
-    def hrn_listing(hrn)
-      DdrFileman.lister(file: PATIENT_FILE, max: "*", part: hrn, xref: "D")
-    end
-
-    # → [taken_by_other_patient, already_filed_for_this_dfn]
-    # PART matching is prefix matching, so a row only counts as a conflict
-    # when its value piece is absent (can't disprove) or exactly ours.
-    def hrn_status(listing, hrn, dfn)
-      taken = false
-      filed = false
-      listing[:entries].each do |entry|
-        value = entry[:pieces]&.first
-        exact = value.nil? || value.to_s.casecmp?(hrn)
-        next unless exact
-        if entry[:ien].to_i == dfn
-          filed = true
-        else
-          taken = true
-        end
-      end
-      [ taken, filed ]
-    end
-
     # Existence probe for the idempotent re-run path: GETS^DIQ on the .01.
     # A missing record surfaces as the "[ERROR]" marker (DDR2.m:61).
     def ihs_record_exists?(dfn)
-      probe = DdrFileman.gets_entry(file: PATIENT_FILE, iens: "#{dfn},", fields: ".01")
+      probe = DdrFileman.gets_entry(file: PATIENT_FILE, iens: "#{dfn},", fields: STUB_NAME_FIELD)
       return nil unless probe
       !probe[:error] && !probe[:fields].empty?
     end
@@ -279,21 +333,49 @@ module RpmsRpc
       { success: false, error: :filer_rejected, message: filed[:errors].join("; ") }
     end
 
+    # #9000001 stub: .01 (name pointer, DINUM'd to the DFN via the "+1,"
+    # placeholder pinned to DFN), .02 DATE ESTABLISHED = today's FileMan date,
+    # .11 ESTABLISHING USER = the authenticated session DUZ (AUPNLK2.m:57
+    # files `.02////`_DT_`;.11////`_DUZ). DDR FILER files INTERNAL values, so
+    # .02 is the internal FileMan date. .11 is filed only when the client knows
+    # its DUZ; when it doesn't (no DUZ bound to the session) the pointer-to-200
+    # field is omitted rather than filed with a fabricated user.
+    def stub_rows(dfn)
+      rows = [
+        { file: PATIENT_FILE, field: STUB_NAME_FIELD, iens: "+1,", value: dfn },
+        { file: PATIENT_FILE, field: STUB_DATE_FIELD, iens: "+1,",
+          value: FilemanDateParser.format_date(Date.today) }
+      ]
+      duz = session_duz
+      rows << { file: PATIENT_FILE, field: STUB_USER_FIELD, iens: "+1,", value: duz } if duz
+      rows
+    end
+
+    # The authenticated session's DUZ, when the client exposes one (CiaClient
+    # captures it at sign-on, #178). Returns nil when unknown.
+    def session_duz
+      client = RpmsRpc.client
+      duz = client.respond_to?(:duz) ? client.duz : nil
+      duz.to_s.empty? ? nil : duz.to_s
+    end
+
     # Build the completion-pass DDR FILER rows against the existing #9000001
     # record ("DFN," IENS). All values are FileMan-INTERNAL — the filer runs
     # UPDATE^DIE/FILE^DIE with no "E" flag (DDR3.m:15,18).
-    def completion_rows(attrs, dfn, hrn_filed:)
+    #
+    # The 41-multiple HRN entry is DINUM'd to the facility IEN (.01's
+    # `S DINUM=X`), so re-filing on an idempotent re-run UPDATEs the same
+    # subentry rather than adding a duplicate — no pre-check needed (and none is
+    # possible: HRN uniqueness is not FileMan-enforced; see the module header).
+    def completion_rows(attrs, dfn)
       rows = []
       pins = {}
 
       hrn = attrs[:hrn]&.to_s
-      if hrn && !hrn.empty? && !hrn_filed
+      if hrn && !hrn.empty?
         location = attrs[:location_ien].to_s
         raise ArgumentError, "registration location_ien is required to file an HRN" if location.empty?
         sub_iens = "+1,#{dfn},"
-        # 41-multiple entry DINUM'd to the facility IEN (AGACT.m:10 edits at
-        # DA=DUZ(2); pinned here via DDRIENS — FILEC^DDR3: DDR3.m:12-13);
-        # .01 facility pointer (AG1.m:53), .02 HRN (AG1.m:54, AGEDNAME.m:63).
         rows << { file: HRN_SUBFILE, field: HRN_LOCATION_FIELD, iens: sub_iens, value: location }
         rows << { file: HRN_SUBFILE, field: HRN_FIELD, iens: sub_iens, value: hrn }
         pins[1] = location
@@ -303,11 +385,6 @@ module RpmsRpc
         value = attrs[key]
         next if value.nil? || value.to_s.empty?
         rows << { file: PATIENT_FILE, field: field, iens: "#{dfn},", value: value.to_s }
-      end
-
-      Array(attrs[:extra_fields]).each do |extra|
-        rows << { file: PATIENT_FILE, field: extra[:field].to_s, iens: "#{dfn},",
-                  value: extra[:value].to_s }
       end
 
       [ rows, pins ]

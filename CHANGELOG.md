@@ -8,25 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Composed patient registration replaces the last BHDPTRPC placeholder
-dispatch. Live round-trip verification is gated on the rpms-ops evidence
-run (contracts: rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`).
+dispatch. The CIA reply grammar, `VAFC VOA ADD PATIENT`, `DDR FILER`/`GETS`,
+and the identity-guard read are now LIVE-VERIFIED end to end against
+`rpms-ydb-9.0` (contracts: rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`).
 
 ### Added
 
-- `RpmsRpc::Registration` — patient registration composed from verified
-  stock-VistA RPCs: `VAFC VOA ADD PATIENT` (PATIENT #2 half, returns the
-  DFN) then `DDR LOCK/UNLOCK NODE` + `DDR LISTER` (HRN "D"-xref
-  uniqueness pre-check) + `DDR GETS ENTRY DATA` (idempotent-re-run
-  existence probe) + two `DDR FILER` passes (the #9000001 stub at the
-  DINUM IEN = DFN, then the HRN 41-multiple entry and
-  tribe/community/classification/eligibility fields). Explicit error
-  taxonomy: `:voa_rejected` / `:duplicate_identity` / `:lock_failed` /
-  `:hrn_taken` / `:filer_rejected` (message carries the M-side text).
-  Every wire shape cites its M routine (bcer-9.0-ydb corpus).
+- `RpmsRpc::Registration` — patient registration composed from stock-VistA
+  RPCs: `VAFC VOA ADD PATIENT` (PATIENT #2 half, returns the DFN) → an
+  **identity guard** (`ORWPT ID INFO`, aborts a wrong-patient ICN collision
+  before any write) → `DDR LOCK/UNLOCK NODE` + `DDR GETS ENTRY DATA`
+  (idempotent-re-run existence probe) + two `DDR FILER` passes (the #9000001
+  stub `.01`/`.02` DATE ESTABLISHED/`.11` ESTABLISHING USER at the DINUM
+  IEN = DFN — AUPNLK2.m:55-58, then the HRN 41-multiple entry and
+  tribe/community/classification/eligibility fields). Error taxonomy:
+  `:voa_rejected` / `:identity_mismatch` / `:lock_failed` / `:filer_rejected`
+  (message carries the M-side text). Documents the KNOWN DIVERGENCES from
+  AG-native registration: no HRN-uniqueness enforcement (proven not
+  FileMan-enforced — field .02 transform is format-only, its "D" xref a plain
+  SET index; uniqueness is AG-procedural), no `^XTMP("AGHL7")` HL7 staging,
+  FileMan-transform validation only.
 - `RpmsRpc::DdrFileman` — wrapper for the FileMan Delphi Components RPC
   family (`DDR FILER` / `DDR LISTER` / `DDR LOCK/UNLOCK NODE` /
   `DDR GETS ENTRY DATA` / `DDR VALIDATOR`) with public request builders
-  and reply-grammar parsers.
+  and reply-grammar parsers. `lock` is tri-state (`true`/`false`/`nil`) so
+  callers separate contention from an unreachable broker.
+- `MockClient#seed_sequence` — FIFO seeding of successive text-blob replies
+  for one RPC+key, making stateful multi-pass flows (FILER stub-then-completion,
+  partial-failure-then-retry) testable.
 - `CiaClient` list params: `Hash` params encode as named-subscript
   NAME/SUBSCRIPT/VALUE triples (string subscripts M-quoted, numeric bare
   — the raw-splice contract of DOACTION^CIANBLIS), `Array` params as
@@ -35,23 +44,42 @@ run (contracts: rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`).
 
 ### Fixed
 
-- `CiaClient#authenticate` now requests session UID `0` on first sign-on
-  (was hard-coded `"1"`). `AUTH^CIANBRPC` treats a non-zero UID as a
-  reconnect to that session; on any box with an existing session #1 it
-  failed "reconnection attempt for session #1 has failed. The session was
-  authenticated for a different user.", bound no DUZ and no context, and
-  every gated RPC then returned "Access denied for remote procedure." UID
-  `0` makes the broker allocate a fresh session (`CIANBRPC.m:58-59`) whose
-  UID the client now adopts and carries on later frames.
+- **CIA reply framing (blocker).** `CiaClient#call_rpc` now DEFRAMES the
+  broker reply: it strips the 1-byte sequence echo and `\x00` ack the broker
+  prepends, and normalizes the wire's **bare-CR** line delimiters to LF.
+  Previously `printable` flattened `\r`/`\n`/`\x00` all to spaces, so every
+  multi-line `DDR` reply collapsed to one line and `session_params` (splitting
+  on CRLF/LF, never bare CR) always missed the session UID — leaving
+  `session_uid`/`DUZ` nil and cascading the client into a UID-1 reconnect.
+  Verified live: with the fix `session_uid` is captured and the DDR reply
+  grammar parses. `call_rpc_raw` stays byte-exact (its contract is the
+  unmodified reply). (rpms-ydb-9.0, 2026-09-02.)
+- `DdrFileman` DIERR extraction now locates the human-readable TEXT lines by
+  the `ERROR^DDR3` header's txtcnt/paramcount (DDR3.m:66-79) instead of
+  dropping every `^`-containing line — a DIERR TEXT line that itself contains
+  a caret (e.g. an echoed bad value) is no longer silently lost.
+- `CiaClient#authenticate` requests session UID `0` on first sign-on (was
+  hard-coded `"1"`), so `AUTH^CIANBRPC` allocates a fresh session
+  (`CIANBRPC.m:58-59`) instead of a failing reconnect. (Carried from #186;
+  now proven together with the framing fix.)
 
 ### Changed
 
 - `Patient.register` now delegates to `Registration.register`; failures
   return `{ success: false, error: Symbol, message: String }` instead of
-  `error: String`.
+  `error: String`. Public docs hoist the FileMan-INTERNAL value requirement
+  and the ONC scoping statement (uncertified/additive; demographics is
+  certified via AG/BPRM, not this path).
 
 ### Removed
 
+- The recreated HRN "D"-xref uniqueness **pre-check** (`DDR LISTER`) — it was
+  unimplementable (a no-FIELDS LISTER returns bare-IEN rows, no HRN piece) and
+  FileMan does not enforce HRN uniqueness anyway; uniqueness is an AG-procedural
+  invariant unreachable via DDR. With it went the fabricated `:hrn_taken` and
+  `:duplicate_identity` error classes (the latter keyed off VOA `-1` text; a
+  real duplicate ICN is not a VOA error) and the `extra_fields` escape hatch
+  (it bypassed the declared schema — use `RpmsRpc::DdrFileman` for raw writes).
 - The `BHDPTRPC REGISTER` placeholder mapping and its single-caret-param
   contract (`Patient.registration_param`) — the wire name never had a
   server implementation anywhere (docs/RPC_COVERAGE.md, "BHDPTRPC

@@ -26,6 +26,25 @@ return format.
 - `XWB CREATE CONTEXT` is sent the option name through the same
   cipher and gates whether RPCs in that context can be invoked.
 
+## Patient registration (composed)
+
+`RpmsRpc::Patient.register` / `RpmsRpc::Registration` compose these RPCs to
+replace the retired `BHDPTRPC REGISTER` placeholder. All are LIST-param RPCs;
+the reply shapes are parsed by `RpmsRpc::DdrFileman`. Wire grammar and the
+identity-guard read were live-verified end to end against `rpms-ydb-9.0`
+(2026-09-02). See `RpmsRpc::Registration` for the KNOWN DIVERGENCES from
+AG-native registration (no HRN-uniqueness enforcement, no HL7 staging, no AG
+procedural checks).
+
+| RPC name                | Routine / Tag        | Params (LIST subscripts)                     | Return                                  | Status   |
+|-------------------------|----------------------|----------------------------------------------|-----------------------------------------|----------|
+| `VAFC VOA ADD PATIENT`  | `ADD^VAFCPTAD`       | PRFCLTY/NAME/GENDER/DOB/SSN/SRVCNCTD/TYPE/VET/FULLICN | `1^DFN` / `-1^error`            | verified |
+| `DDR FILER`             | `FILEC^DDR3`         | MODE, DDRROOT rows, FLAGS, DDRIENS           | `[Data]`+`+n,^IEN` / `[BEGIN_diERRORS]` | verified |
+| `DDR LISTER`            | `LISTC^DDR`          | FILE/IENS/FIELDS/FLAGS/MAX/FROM/PART/XREF/... | `[Data]`+rows / `[Misc]`+`MORE^..`       | verified |
+| `DDR LOCK/UNLOCK NODE`  | `LOCKC^DDR1`         | NODE, LOCKMODE, TIMEOUT                       | `1` acquired / `0` timeout               | verified |
+| `DDR GETS ENTRY DATA`   | `GETSC^DDR2`         | FILE/IENS/FIELDS/FLAGS                        | `[Data]`+field rows / `[ERROR]`          | verified |
+| `DDR VALIDATOR`         | `VALC^DDR3`          | FILE/IENS/FIELD/VALUE                         | `[FILLER]`/`[Data]`+internal/external    | verified |
+
 ## Conventions
 
 When new RPCs are added to the gem in downstream consumers
