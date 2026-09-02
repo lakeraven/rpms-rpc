@@ -66,18 +66,40 @@ module RpmsRpc
     attr_reader :signon_user, :session_uid
 
     # Call an RPC over the CIA broker, returning a printable (human-readable) response.
-    # Literal string params (list/reference params TBD).
+    # Literal string params, plus list params as Hash (named/numeric subscripts)
+    # or Array (1-based numeric subscripts) — matching XwbClient's public
+    # param convention.
     def call_rpc(rpc_name, *params)
       printable(call_rpc_raw(rpc_name, *params))
     end
 
     # Send an RPC and return the raw, unmodified broker response. Client contract:
     # call_rpc_raw must not transform the payload (call_rpc applies printable()).
+    #
+    # Param encoding: DOACTION^CIANBLIS reads NAME/SUBSCRIPT/VALUE triples of
+    # L()-packed fields; a numeric NAME with an empty SUBSCRIPT sets the
+    # scalar P<n>, and repeated triples with a non-empty SUBSCRIPT build the
+    # list P<n>(<SUBSCRIPT>) — the subscript text is spliced RAW into the M
+    # reference ('RT=RT_"("_SB_")"' then 'S @RT=VL', CIANBLIS.m DOACTION
+    # lines 128-134), so string subscripts must cross the wire in M-quoted
+    # form ("NAME", embedded quotes doubled) while numeric subscripts stay
+    # bare. ACTR^CIANBACT then passes P1..Pn positionally, by reference, to
+    # the RPC's tag^routine (DORPC^CIANBACT: CIANBACT.m:66-78).
     def call_rpc_raw(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
       parts = [ pk("UID"), pk(""), pk(@session_uid || "1"), pk("RPC"), pk(""), pk(rpc_name) ]
-      params.each_with_index { |p, i| parts.concat([ pk((i + 1).to_s), pk(""), pk(p.to_s) ]) }
+      params.each_with_index do |p, i|
+        n = (i + 1).to_s
+        case p
+        when Hash
+          p.each { |k, v| parts.concat([ pk(n), pk(m_subscript(k)), pk(v.to_s) ]) }
+        when Array
+          p.each_with_index { |v, j| parts.concat([ pk(n), pk((j + 1).to_s), pk(v.to_s) ]) }
+        else
+          parts.concat([ pk(n), pk(""), pk(p.to_s) ])
+        end
+      end
       exchange("R", *parts)
     rescue TimeoutError
       # A CIA reply has no length framing — only the EOD terminator — so a
@@ -130,6 +152,14 @@ module RpmsRpc
       msg = ("{CIA}" + EOD + @seq.to_s + action + fields.join + EOD).b
       @socket.write(msg)
       read_until_raw(EOD) # base: shared read loop, CIA terminator
+    end
+
+    # List-param subscript in M-literal form for DOACTION's raw splice into
+    # P<n>(<SB>) (CIANBLIS.m DOACTION lines 128-134): canonic numerics stay
+    # bare; anything else is quoted with embedded quotes doubled.
+    def m_subscript(key)
+      s = key.to_s
+      s.match?(/\A-?(0|[1-9]\d*)(\.\d+)?\z/) ? s : %("#{s.gsub('"', '""')}")
     end
 
     def printable(str) = str.to_s.gsub(/[^\x20-\x7e]/, " ")

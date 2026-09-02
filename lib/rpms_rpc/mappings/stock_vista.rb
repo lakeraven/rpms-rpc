@@ -1216,5 +1216,94 @@ module RpmsRpc
       m.rpc "ORWPT DISCHARGE"
       m.scalar :discharge_datetime, :fileman_datetime
     end
+
+    # ========================================================================
+    # REGISTRATION + GENERIC FILEMAN CRUD (VAFC VOA / DDR*)
+    # ========================================================================
+    #
+    # Stock-VistA RPCs used by the composed patient-registration flow
+    # (RpmsRpc::Registration) and the FileMan Delphi Components wrapper
+    # (RpmsRpc::DdrFileman). Every wire shape below is cited to the M
+    # routine serving the RPC in the bcer-9.0-ydb corpus
+    # (rpms-ops/data/standup/bcer-9.0-ydb/r/); tag^routine bindings are from
+    # the live #8994 REMOTE PROCEDURE dump (.broker_dumps_8994_20260607.txt):
+    #
+    #   VAFC VOA ADD PATIENT  → ADD^VAFCPTAD    (return type 2 = ARRAY)
+    #   DDR LISTER            → LISTC^DDR       (return type 4 = GLOBAL ARRAY)
+    #   DDR LOCK/UNLOCK NODE  → LOCKC^DDR1      (return type 1 = SINGLE VALUE)
+    #   DDR GETS ENTRY DATA   → GETSC^DDR2      (return type 2)
+    #   DDR FILER             → FILEC^DDR3      (return type 2)
+    #   DDR VALIDATOR         → VALC^DDR3       (return type 2)
+    #
+    # All take LIST params (named or numeric subscripts) — see
+    # CiaClient#call_rpc_raw for the {CIA} wire encoding of subscripted
+    # params (CIANBLIS.m, DOACTION lines 128-134).
+
+    # VAFC VOA ADD PATIENT — adds a PATIENT (#2) record. One list param
+    # (PARAM) with named subscripts PRFCLTY/NAME/GENDER/DOB/SSN/SRVCNCTD/
+    # TYPE/VET/FULLICN [+ POBCTY/POBST/MMN/ALIAS] (VAFCPTAD.m:10-25).
+    # Reply RETURN(1):
+    #   "-1^error text"          — add failed        (VAFCPTAD.m:28,140)
+    #   "1^DFN"                  — added, or the ICN already exists at this
+    #                              facility (idempotent: VAFCPTAD.m:29,55,145)
+    #   "1^DFN^ALIAS warning..." — added; ALIAS multiple failed
+    #                              (ALIAS^VAFCPTAD: VAFCPTAD.m:178)
+    DataMapper.define(:voa_add_patient) do |m|
+      m.rpc "VAFC VOA ADD PATIENT"
+      m.field 0, :status, :integer
+      m.field 1, :dfn_or_error
+      m.field 2, :warning
+    end
+
+    # DDR LISTER — LIST^DIC projection. One list param with subscripts
+    # FILE/IENS/FIELDS/FLAGS/MAX/FROM/PART/XREF/SCREEN/ID/OPTIONS
+    # (PARSE^DDR: DDR.m:53-65). Multi-line reply parsed by
+    # DdrFileman.lister ("[Misc]"/"MORE^..", "[Data]", packed rows,
+    # "[Errors]" — V0^DDR: DDR.m:21-30).
+    DataMapper.define(:ddr_lister) do |m|
+      m.rpc "DDR LISTER"
+      m.text_blob :lines
+    end
+
+    # DDR LOCK/UNLOCK NODE — incremental M LOCK on a global node. One list
+    # param: NODE, LOCKMODE (truthy = lock, absent = unlock), TIMEOUT
+    # (default 5s). Reply DDROK: "1" acquired/released, "0" timed out
+    # (LOCKC^DDR1: DDR1.m:18-30).
+    DataMapper.define(:ddr_lock_unlock_node) do |m|
+      m.rpc "DDR LOCK/UNLOCK NODE"
+      m.scalar :ok, :boolean
+    end
+
+    # DDR GETS ENTRY DATA — GETS^DIQ projection. One list param with
+    # subscripts FILE/IENS/FIELDS/FLAGS[/OPTIONS] (PARSE^DDR2:
+    # DDR2.m:113-121). Multi-line reply parsed by DdrFileman.gets_entry
+    # (default no-OPTIONS format: "[Data]" +
+    # "FILE^IEN^FIELD^INTERNAL^EXTERNAL" rows / "[ERROR]" — GETSC^DDR2:
+    # DDR2.m:22-43,61).
+    DataMapper.define(:ddr_gets_entry_data) do |m|
+      m.rpc "DDR GETS ENTRY DATA"
+      m.text_blob :lines
+    end
+
+    # DDR FILER — UPDATE^DIE ("ADD" mode) / FILE^DIE (other modes) filer.
+    # Params: MODE literal, DDRROOT list of "FILE^FIELD^IENS^VALUE" rows,
+    # FLAGS literal, DDRIENS list pinning placeholder IENs
+    # (FILEC^DDR3: DDR3.m:7-24; FDASET^DDR3: DDR3.m:26-35). Multi-line
+    # reply parsed by DdrFileman.filer ("[Data]" + "+n,^IEN" rows /
+    # "[BEGIN_diERRORS]" block — DDR3.m:19-23,63-79).
+    DataMapper.define(:ddr_filer) do |m|
+      m.rpc "DDR FILER"
+      m.text_blob :lines
+    end
+
+    # DDR VALIDATOR — VAL^DIE for one field value. One list param with
+    # subscripts FILE/IENS/FIELD/VALUE (VALC^DDR3: DDR3.m:37-44).
+    # Multi-line reply parsed by DdrFileman.validate_field ("[FILLER]",
+    # "[Data]", internal result — "^" when invalid — then the external
+    # form: DDR3.m:45-50).
+    DataMapper.define(:ddr_validator) do |m|
+      m.rpc "DDR VALIDATOR"
+      m.text_blob :lines
+    end
   end
 end
