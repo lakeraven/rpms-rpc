@@ -401,6 +401,109 @@ class RpmsRpc::CiaClientTest < Minitest::Test
                  broker.frames.last[:fields]
   end
 
+  # -- first sign-on must request a FRESH session UID (0), not reconnect to 1 --
+  #
+  # AUTH^CIANBRPC branches on the UID param the client sends (CIANBRPC.m:47-60):
+  #   UID > 0  → RECONNECT to that session — re-validates DUZ against the stored
+  #              session and, on mismatch, CHK(27,4,UID) sets DATA(0)=4 with
+  #              "reconnection attempt for session #1 has failed. The session
+  #              was authenticated for a different user.", zeroes DUZ, and binds
+  #              NO context (CIANBRPC.m:52).
+  #   UID = 0  → else-branch ALLOCATES a fresh session, CIA("UID")=$$UID^CIANBUTL
+  #              (CIANBRPC.m:58-59), returns it in DATA(1) piece 1, binds context.
+  # A client that hard-codes UID "1" therefore hits the reconnect path on any box
+  # that already has a session #1 (the live bcer-9.0-ydb evidence: session #1 was
+  # MANAGER,SYSTEM) — the reply still carries a "Good morning" intro line, so the
+  # greeting check falsely passes while session_uid stays nil and every gated RPC
+  # returns "Access denied for remote procedure." A first sign-on MUST pass UID 0.
+  #
+  # This broker enforces that: it rejects an AUTH frame whose UID is anything but
+  # "0" with the real reconnect-failure reply (verbatim from the evidence
+  # transcript), and answers UID "0" by allocating session 7.
+  class UidGatedCiaBrokerSocket < StrictCiaBrokerSocket
+    # Verbatim shape of the live reconnect-failure reply (rpms-ops evidence,
+    # releases/evidence/bcer-9.0-ydb-vuecentric.json "signon"): DATA(0)="4^<msg>",
+    # DATA(1)="server^volume^UCI^port" (NON-numeric piece 1), DATA(2)=intro text
+    # (which still contains a "Good morning" greeting).
+    RECONNECT_FAIL = "4^The reconnection attempt for session #1 has failed.  " \
+      "The session was authenticated for a different user.\r\n" \
+      ".gtm_sysid^ROU^VEH^9100\r\n\r\n" \
+      "Good morning MANAGER,SYSTEM.     You last signed on Oct 09, 2018 at 10:58\r\n"
+    SIGNON_OK = "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n"
+
+    attr_reader :reconnect_attempted
+
+    def initialize
+      super([])
+      @reconnect_attempted = false
+    end
+
+    private
+
+    # Same framing as the parent, but the reply BODY is chosen from the frame's
+    # own fields (UID + RPC name) instead of a canned queue.
+    def body_for(frame)
+      return CONNECT_BODY if frame[:action] == "C"
+
+      f = frame[:fields]
+      uid = f[2] # UID / "" / <value>
+      rpc = f[5] # RPC / "" / <name>
+      case rpc
+      when "CIANBRPC AUTH"
+        if uid == "0"
+          SIGNON_OK
+        else
+          @reconnect_attempted = true
+          RECONNECT_FAIL
+        end
+      when "CIANBRPC GETVAR" then "DUZ=63\r\n"
+      else "ok\r\n"
+      end
+    end
+
+    public
+
+    def write(str)
+      return str.bytesize if @closed_by_broker
+
+      frame = parse_frame(str.b)
+      if frame.nil?
+        @closed_by_broker = true
+        @pending.clear
+        return str.bytesize
+      end
+      @frames << frame
+      @pending << frame[:seq]
+      @pending << "\x00" + body_for(frame) + EOD
+      str.bytesize
+    end
+  end
+
+  def test_first_signon_requests_uid_zero_and_binds_a_fresh_session
+    c = Client.new
+    broker = UidGatedCiaBrokerSocket.new
+    c.define_singleton_method(:open_socket) { |_h, _p| @socket = broker }
+    c.instance_variable_set(:@timeout, 5)
+
+    c.connect("localhost", 9100)
+    result = c.authenticate("SYN123", "SYN123!!")
+
+    # The AUTH frame must carry UID "0" (fresh allocate), not "1" (reconnect).
+    auth_frame = broker.frames.find { |fr| fr[:fields].include?("CIANBRPC AUTH") }
+    assert_equal "0", auth_frame[:fields][2], "first sign-on must request session UID 0, not reconnect to 1"
+    refute broker.reconnect_attempted, "a UID-1 first sign-on takes the reconnect-failure path"
+
+    # And the broker-allocated UID must be captured and carried thereafter.
+    assert result[:success]
+    assert_equal "7", c.session_uid, "client must adopt the broker-allocated session UID"
+    assert_equal 63, result[:duz]
+
+    broker_bodies_before = broker.frames.length
+    c.call_rpc("BEHOPTCX PTINFO", "1")
+    assert_equal "7", broker.frames.last[:fields][2], "later frames must carry the allocated UID"
+    assert_operator broker.frames.length, :>, broker_bodies_before
+  end
+
   # Regression class: a client that does not speak {CIA} is CLOSED by the CIA
   # broker, surfacing as "Connection closed by server" with no step completed.
   # This is what running the pre-rename XWB-protocol CiaClient against the

@@ -41,12 +41,23 @@ module RpmsRpc
     # The reply carries the broker-assigned session UID but NOT the DUZ; the
     # broker saves DUZ into the session environment at sign-on, so it is
     # fetched with the context-exempt CIANBRPC GETVAR ("DUZ=n" reply).
+    #
+    # A first sign-on MUST request session UID 0. AUTH^CIANBRPC branches on the
+    # UID param (CIANBRPC.m:47-60): a non-zero UID is a RECONNECT to that session
+    # and, when its stored DUZ does not match, CHK(27,4,UID) fails with
+    # "reconnection attempt for session #1 has failed. The session was
+    # authenticated for a different user.", zeroes DUZ and binds NO context
+    # (CIANBRPC.m:52); UID 0 takes the else-branch that ALLOCATES a fresh session
+    # (CIANBRPC.m:58-59, CIA("UID")=$$UID^CIANBUTL) and returns it in DATA(1)
+    # piece 1. The client then adopts that broker-assigned UID (below) and
+    # carries it on every later frame — without it, gated RPCs return "Access
+    # denied for remote procedure."
     def authenticate(access_code = nil, verify_code = nil, **)
       raise ConnectionError, "Not connected" unless connected?
 
       ac, vc = resolve_credentials(access_code, verify_code) # base
       avc = xwb_encrypt("#{ac};#{vc}") # base cipher — matches ENCRYP^XUSRB1
-      reply = exchange("R", pk("UID"), pk(""), pk("1"),
+      reply = exchange("R", pk("UID"), pk(""), pk("0"),
         pk("RPC"), pk(""), pk("CIANBRPC AUTH"),
         pk("1"), pk(""), pk("CIANB MAIN MENU"),
         pk("4"), pk(""), pk(avc))

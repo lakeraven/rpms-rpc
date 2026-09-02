@@ -33,6 +33,17 @@ run (contracts: rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`).
   1-based numeric subscripts; matches `XwbClient`'s public param
   convention.
 
+### Fixed
+
+- `CiaClient#authenticate` now requests session UID `0` on first sign-on
+  (was hard-coded `"1"`). `AUTH^CIANBRPC` treats a non-zero UID as a
+  reconnect to that session; on any box with an existing session #1 it
+  failed "reconnection attempt for session #1 has failed. The session was
+  authenticated for a different user.", bound no DUZ and no context, and
+  every gated RPC then returned "Access denied for remote procedure." UID
+  `0` makes the broker allocate a fresh session (`CIANBRPC.m:58-59`) whose
+  UID the client now adopts and carries on later frames.
+
 ### Changed
 
 - `Patient.register` now delegates to `Registration.register`; failures
