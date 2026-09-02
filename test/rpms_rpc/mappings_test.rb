@@ -163,18 +163,39 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "Alaska", result[:region]
   end
 
-  # -- BHDPTRPC REGISTER ----------------------------------------------------
+  # -- VAFC VOA ADD PATIENT --------------------------------------------------
+  # (replaces the retired "BHDPTRPC REGISTER" placeholder)
 
-  def test_patient_register_success
-    result = RpmsRpc::DataMapper[:patient_register].parse_one("1^42")
-    assert_equal true, result[:success]
+  def test_voa_add_patient_success
+    # "1^DFN" on success (ADD^VAFCPTAD: VAFCPTAD.m:29,145)
+    result = RpmsRpc::DataMapper[:voa_add_patient].parse_one("1^42")
+    assert_equal 1, result[:status]
     assert_equal "42", result[:dfn_or_error]
+    assert_nil result[:warning]
   end
 
-  def test_patient_register_failure
-    result = RpmsRpc::DataMapper[:patient_register].parse_one("0^Duplicate SSN")
-    assert_equal false, result[:success]
-    assert_equal "Duplicate SSN", result[:dfn_or_error]
+  def test_voa_add_patient_failure
+    # "-1^error text" on failure (VAFCPTAD.m:28,140)
+    result = RpmsRpc::DataMapper[:voa_add_patient].parse_one("-1^PREFERRED FACILITY is a required field.")
+    assert_equal(-1, result[:status])
+    assert_match(/required field/, result[:dfn_or_error])
+  end
+
+  def test_voa_add_patient_alias_warning
+    # "1^DFN^Patient ... ALIAS data failed to update..." (ALIAS^VAFCPTAD:
+    # VAFCPTAD.m:178) — the record WAS added; piece 3+ is a warning.
+    result = RpmsRpc::DataMapper[:voa_add_patient].parse_one(
+      "1^42^Patient DEMOPATIENT,UNA was successfully added at 8994.  However, the ALIAS data failed to update."
+    )
+    assert_equal 1, result[:status]
+    assert_equal "42", result[:dfn_or_error]
+    assert_match(/ALIAS data failed/, result[:warning])
+  end
+
+  def test_ddr_lock_unlock_node_scalar
+    # DDROK: "1" locked / "0" lock timed out (LOCKC^DDR1: DDR1.m:18-27)
+    assert_equal true, RpmsRpc::DataMapper[:ddr_lock_unlock_node].parse_scalar("1")
+    assert_equal false, RpmsRpc::DataMapper[:ddr_lock_unlock_node].parse_scalar("0")
   end
 
   # -- ORWU USERINFO ---------------------------------------------------------
@@ -571,7 +592,9 @@ class RpmsRpc::MappingsTest < Minitest::Test
       patient_select patient_id_info patient_list patient_ssn
       patient_appointments allergy_list problem_list vitals
       tribal_enrollment tribal_validation tribe_info enrollment_eligibility
-      service_unit patient_register patient_update encounter_create
+      service_unit patient_update encounter_create
+      voa_add_patient ddr_lister ddr_lock_unlock_node ddr_gets_entry_data
+      ddr_filer ddr_validator
       practitioner_info practitioner_list user_management_user_list
       medication_list care_plan_list care_team_list goal_list
       procedure_list device_list lab_result_list radiology_list

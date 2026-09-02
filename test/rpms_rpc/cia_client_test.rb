@@ -342,6 +342,65 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_equal "7", broker.frames.last[:fields][2], "post-auth UID field carries the session UID"
   end
 
+  # -- list (subscripted) params on the wire ---------------------------------
+  #
+  # DOACTION^CIANBLIS reads each field as a NAME/SUBSCRIPT/VALUE triple of
+  # L()-packed values; a numeric NAME with a non-empty SUBSCRIPT builds the
+  # list param P<n>(<SUBSCRIPT>)=<VALUE> — and the subscript text is spliced
+  # RAW into the M reference ('RT=RT_"("_SB_")"' / 'S @RT=VL', CIANBLIS.m
+  # DOACTION lines 128-134), so string subscripts must cross the wire in
+  # M-quoted form ("NAME") while numeric subscripts stay bare. This is what
+  # VAFC VOA ADD PATIENT (PARAM list, ADD^VAFCPTAD) and the DDR FileMan
+  # family (DDR/DDRROOT/DDRIENS lists) require.
+
+  def signed_on_strict_client(rpc_bodies)
+    c, broker = client_on_strict_broker([ "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", "DUZ=63\r\n" ] + rpc_bodies)
+    c.connect("localhost", 9100)
+    c.authenticate("SYN123", "SYN123!!")
+    [ c, broker ]
+  end
+
+  def test_voa_add_patient_hash_param_frames_as_quoted_subscript_triples
+    c, broker = signed_on_strict_client([ "1^42\r\n" ])
+    c.call_rpc("VAFC VOA ADD PATIENT",
+      { "PRFCLTY" => "8994", "NAME" => "DEMOPATIENT^UNA", "SSN" => "" })
+    assert_equal [ "UID", "", "7", "RPC", "", "VAFC VOA ADD PATIENT",
+                   "1", "\"PRFCLTY\"", "8994",
+                   "1", "\"NAME\"", "DEMOPATIENT^UNA",
+                   "1", "\"SSN\"", "" ],
+                 broker.frames.last[:fields]
+  end
+
+  def test_ddr_filer_frames_scalar_and_numeric_subscript_list_params
+    c, broker = signed_on_strict_client([ "[Data]\r\n+1,^42\r\n" ])
+    # FILEC^DDR3(DDRDATA,DDRMODE,DDRROOT,DDRFLAGS,DDRIENS): P1 mode literal,
+    # P2 DDRROOT list, P3 flags literal, P4 DDRIENS list (DDR3.m:7).
+    c.call_rpc("DDR FILER", "ADD", { 1 => "9000001^.01^+1,^42" }, "", { 1 => "42" })
+    assert_equal [ "UID", "", "7", "RPC", "", "DDR FILER",
+                   "1", "", "ADD",
+                   "2", "1", "9000001^.01^+1,^42",
+                   "3", "", "",
+                   "4", "1", "42" ],
+                 broker.frames.last[:fields]
+  end
+
+  def test_array_param_frames_as_one_based_numeric_subscripts
+    c, broker = signed_on_strict_client([ "ok\r\n" ])
+    c.call_rpc("XWB EXAMPLE GET LIST", [ "alpha", "beta" ])
+    assert_equal [ "UID", "", "7", "RPC", "", "XWB EXAMPLE GET LIST",
+                   "1", "1", "alpha",
+                   "1", "2", "beta" ],
+                 broker.frames.last[:fields]
+  end
+
+  def test_hash_param_doubles_embedded_quotes_in_string_subscripts
+    c, broker = signed_on_strict_client([ "ok\r\n" ])
+    c.call_rpc("XWB EXAMPLE ECHO STRING", { 'A"B' => "x" })
+    assert_equal [ "UID", "", "7", "RPC", "", "XWB EXAMPLE ECHO STRING",
+                   "1", "\"A\"\"B\"", "x" ],
+                 broker.frames.last[:fields]
+  end
+
   # Regression class: a client that does not speak {CIA} is CLOSED by the CIA
   # broker, surfacing as "Connection closed by server" with no step completed.
   # This is what running the pre-rename XWB-protocol CiaClient against the

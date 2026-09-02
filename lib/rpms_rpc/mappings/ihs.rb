@@ -18,9 +18,11 @@ module RpmsRpc
     # FOIA routine corpus, not on staging, not in IHS public RPC docs (see
     # docs/RPC_COVERAGE.md, "BHDPTRPC provenance"). The field layouts are OUR
     # contract definitions, not observed IHS interfaces. Slated for
-    # replacement by the LR* completion-shim contract (VAFC VOA ADD PATIENT
-    # for the PATIENT-#2 half + an LR* shim for the IHS half); the wire-name
-    # strings stay as-is until that shim lands so callers/tests don't churn.
+    # replacement by verified stock-VistA paths: BHDPTRPC REGISTER is
+    # already retired in favor of the composed VAFC VOA ADD PATIENT +
+    # DDR FileMan flow (RpmsRpc::Registration; mappings in
+    # mappings/stock_vista.rb); the remaining wire-name strings stay as-is
+    # until their replacements land so callers/tests don't churn.
 
     # BEHOPTCX PTINFO — broad patient identity bundle for chart banner
     # Format: NAME^SEX^DOB^SSN^^^^^^^MRN^^^^^^DESIGNATED_TEAM^PRIMARY_PROVIDER^^
@@ -139,13 +141,9 @@ module RpmsRpc
       m.field 2, :region
     end
 
-    # BHDPTRPC REGISTER — patient registration result (placeholder — see header note)
-    # Format: "1^DFN" (success) or "0^error_message" (failure)
-    DataMapper.define(:patient_register) do |m|
-      m.rpc "BHDPTRPC REGISTER"
-      m.field 0, :success, :boolean
-      m.field 1, :dfn_or_error
-    end
+    # BHDPTRPC REGISTER — RETIRED. Patient registration now runs the
+    # verified composed path (RpmsRpc::Registration): VAFC VOA ADD PATIENT
+    # + the DDR FileMan family — see mappings/stock_vista.rb.
 
     # BHDPTRPC UPDATE — patient update result (placeholder — see header note)
     # Format: "1^" (success) or "0^error_message" (failure)
@@ -1054,9 +1052,7 @@ module RpmsRpc
     # response row is a fixed-width column header (e.g. "I00020APPOINTMENTID^
     # T00020ERRORID") and subsequent rows are the caret-delimited data. The
     # mappings below target the single DATA row — the client/gateway is
-    # responsible for stripping the header row (same convention as
-    # :patient_register's "1^DFN" data row — a placeholder contract of ours,
-    # see the BHDPTRPC provenance note in the PATIENT section header). RPC
+    # responsible for stripping the header row. RPC
     # names and entry points are taken verbatim from the live #8994 REMOTE
     # PROCEDURE registry dump; parameter shapes from the BSDX07/08/25/31
     # routine entry points in FOIA-RPMS.

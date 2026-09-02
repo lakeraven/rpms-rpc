@@ -48,7 +48,7 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | BGOVCPT | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BGOVUPD | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BHDO | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| BHDPTRPC | 8 | n/a | ? | ? | ? | ? | out-of-scope | unverified placeholder (see provenance note) |
+| BHDPTRPC | 7 | n/a | ? | ? | ? | ? | out-of-scope | unverified placeholder (see provenance note) |
 | BIPC | 6 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BJPN | 0 | n/a | ? | ? | ? | ? | BPRM | unwrapped |
 | BMC | 21 | n/a | ? | ? | ? | ? | BPRM | partial (gap: 1) |
@@ -60,6 +60,7 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | CIAVCXUS | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | CIAVMCFG | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | CIAVMRPC | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| DDR | 5 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | GMTS | 4 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | MAGG | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | MAGGUSERKEYS | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
@@ -87,6 +88,7 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | ORWU | 5 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | PSO | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | TIU | 15 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| VAFC | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | XM | 6 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | XQAL | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | XU | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
@@ -100,5 +102,8 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 > relocated the disproven demographic fields to "BHDPTRPC (not installed on staging)".
 > The family appears nowhere in the 65,782-routine FOIA corpus, the staging fingerprint
 > (`data/fingerprints/staging-2026-06-07.yml`), or IHS public RPC documentation.
-> The wire names are retained in `lib/rpms_rpc/mappings/ihs.rb` only as placeholders
-> pending the LR* registration/visit completion shim (VAFC VOA ADD PATIENT + LR shim).
+> BHDPTRPC REGISTER is retired: patient registration now runs the verified composed
+> path — VAFC VOA ADD PATIENT + the DDR FileMan family (`RpmsRpc::Registration`),
+> contracts cited routine-by-routine in rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`.
+> The remaining wire names are retained in `lib/rpms_rpc/mappings/ihs.rb` only as
+> placeholders pending their own verified replacements.
