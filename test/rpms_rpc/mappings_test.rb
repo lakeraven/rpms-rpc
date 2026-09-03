@@ -111,10 +111,15 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
   # -- ORQQVI VITALS ---------------------------------------------------------
 
+  # Verified wire shape (VITALS^ORQQVI: ORQQVI.m:4-26):
+  # "vital measurement ien^vital type^date/time taken^rate" — the prior
+  # TYPE^VALUE^UNITS^DATE fixture here was invented (no units on this wire).
   def test_vitals
-    results = RpmsRpc::DataMapper[:vitals].parse_many([ "BLOOD PRESSURE^120/80^mmHg^3260401" ])
-    assert_equal "BLOOD PRESSURE", results[0][:type]
+    results = RpmsRpc::DataMapper[:vitals].parse_many([ "5001^BP^3260401.0915^120/80" ])
+    assert_equal 5001, results[0][:measurement_ien]
+    assert_equal "BP", results[0][:type]
     assert_equal "120/80", results[0][:value]
+    assert_equal Time.new(2026, 4, 1, 9, 15, 0), results[0][:recorded_date]
   end
 
   # -- BHDPTRPC TRIBAL -------------------------------------------------------

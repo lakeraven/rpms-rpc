@@ -21,8 +21,8 @@ class ClinicalDataApiTest < Minitest::Test
         [ { ien: 1, status: "A", icd_code: "E11.9", description: "Type 2 diabetes" },
           { ien: 2, status: "I", icd_code: "I10", description: "Hypertension" } ])
       m.seed_keyed_collection(:vitals, "1",
-        [ { type: "BP", value: "120/80", units: "mm[Hg]" },
-          { type: "HR", value: "72", units: "/min" } ])
+        [ { measurement_ien: 5001, type: "BP", recorded_date: Time.new(2026, 1, 15, 8, 0, 0), value: "120/80" },
+          { measurement_ien: 5002, type: "HR", recorded_date: Time.new(2026, 1, 15, 8, 0, 0), value: "72" } ])
       m.seed_collection(:medication_list,
         [ { ien: 1, drug_name: "Lisinopril 10mg", sig: "1 tab daily", status: "active" } ])
       m.seed(:medication_detail, "1", "Drug: Lisinopril 10mg\nSIG: Take 1 tablet by mouth daily\nStatus: Active\nRefills: 3")
@@ -83,6 +83,37 @@ class ClinicalDataApiTest < Minitest::Test
 
     assert results.is_a?(Array)
     assert results.any? { |v| v[:type] == "BP" }
+  end
+
+  # ORQQVI VITALS real wire shape (VITALS^ORQQVI: ORQQVI.m:4-26):
+  # "vital measurement ien^vital type^date/time taken^rate". The prior
+  # mapping declared TYPE^VALUE^UNITS^DATE, which parsed the IEN as the
+  # type and the type as the value.
+  def test_vitals_mapping_parses_real_orqqvi_row
+    row = RpmsRpc::DataMapper[:vitals].parse_one("5001^BP^3250115.08^120/80")
+
+    assert_equal 5001,     row[:measurement_ien]
+    assert_equal "BP",     row[:type]
+    assert_equal "120/80", row[:value]
+    assert_equal Time.new(2025, 1, 15, 8, 0, 0), row[:recorded_date]
+  end
+
+  # Date-only date/time values must not be dropped by the datetime coercion.
+  def test_vitals_mapping_parses_date_only_datetime
+    row = RpmsRpc::DataMapper[:vitals].parse_one("5001^WT^3250115^180")
+
+    refute_nil row[:recorded_date]
+    assert_equal 2025, row[:recorded_date].year
+  end
+
+  # "^No vitals found." sentinel (ORQQVI.m:24) must not surface as a record.
+  def test_vital_for_patient_drops_no_vitals_sentinel_row
+    RpmsRpc.reset!
+    RpmsRpc.mock! do |m|
+      m.seed_keyed_collection(:vitals, "7", [ { type: "No vitals found." } ])
+    end
+
+    assert_equal [], RpmsRpc::Vital.for_patient("7")
   end
 
   def test_vital_for_patient_empty_when_none

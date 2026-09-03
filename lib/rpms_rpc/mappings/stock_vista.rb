@@ -235,14 +235,24 @@ module RpmsRpc
       m.rpc "ORQQPL VERIFY"
     end
 
-    # ORQQVI VITALS — patient vitals (multi-line)
-    # Format: TYPE^VALUE^UNITS^DATE
+    # ORQQVI VITALS — patient vitals (multi-line).
+    # Verified format (VITALS^ORQQVI: ORQQVI.m:4-26 — header line 6
+    # "vital measurement ien^vital type^date/time taken^rate", row
+    # construction line 23):
+    #   MEASUREMENT_IEN[1]^TYPE[2]^DATETIME[3]^VALUE(rate)[4]
+    # There is NO units piece on this wire — the prior
+    # "TYPE^VALUE^UNITS^DATE" declaration was invented (same failure
+    # class as BHDPTRPC; see docs/RPC_COVERAGE.md). Callers needing
+    # units/service-category should use RpmsRpc::Measurement.for_visit /
+    # .latest (BGOVMSR + BEHOENCX + BEHOVM2 composition). "No vitals"
+    # comes back as the sentinel row "^No vitals found." (ORQQVI.m:24) —
+    # position 0 empty, so :measurement_ien is nil and callers can drop it.
     DataMapper.define(:vitals) do |m|
       m.rpc "ORQQVI VITALS"
-      m.field 0, :type
-      m.field 1, :value
-      m.field 2, :units
-      m.field 3, :recorded_date, :fileman_date
+      m.field 0, :measurement_ien, :integer
+      m.field 1, :type
+      m.field 2, :recorded_date, :fileman_datetime
+      m.field 3, :value
     end
 
     # ========================================================================
