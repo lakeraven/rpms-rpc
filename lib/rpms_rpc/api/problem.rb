@@ -33,8 +33,11 @@ module RpmsRpc
     # shape IEN^NARRATIVE^STATUS^ICD^ONSET^LAST MODIFIED^SC^SPEXP^... (see
     # the :problem_list mapping). "No problems" comes back as the sentinel
     # row "^No problems found." (LIST^ORQQPL: ORQQPL.m:17) — no IEN, so it
-    # is dropped rather than surfaced as a phantom problem.
+    # is dropped rather than surfaced as a phantom problem. Invalid DFNs
+    # short-circuit to [] without dispatching an RPC.
     def for_patient(dfn)
+      return [] if invalid_id?(dfn)
+
       DataMapper.problem_list.fetch_many(dfn.to_s).reject { |r| r[:ien].to_s.empty? }
     end
 

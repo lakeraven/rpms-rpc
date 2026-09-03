@@ -21,12 +21,25 @@ run (contracts: rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`).
   with service category / capture mode / units like `.for_visit`. Returns
   `:patient_dfn` so id-addressed FHIR lookups (Provenance target search)
   can resolve the patient from a measurement IEN alone.
-- `RpmsRpc::Measurement.history` — a patient's full measurement history:
-  `ORQQVI VITALS` as the index (verified IEN^TYPE^DATETIME^VALUE rows),
-  each row decorated per measurement via the `.find` DDR read +
-  `BEHOENCX GETVISIT` + `BEHOVM2 VUNITS` (memoized). Decoration degrades
-  to nil fields (`capture_mode: :unknown`, `entered_in_error: nil`,
-  `units: nil`) — unknown is reported as unknown, never fabricated.
+- `RpmsRpc::Measurement.newest_by_type` — the patient's newest
+  measurement per vital type (optional FileMan date range) via
+  `ORQQVI VITALS`, each row decorated per measurement via the `.find`
+  DDR read + `BEHOENCX GETVISIT` + `BEHOVM2 VUNITS` (memoized).
+  Decoration degrades to nil fields (`capture_mode: :unknown`,
+  `entered_in_error: nil`, `units: nil`) — unknown is reported as
+  unknown, never fabricated. This replaces a briefly-added `.history`
+  method whose "full patient history" claim was false: the registered
+  `ORQQVI VITALS` dispatches to FASTVIT^ORQQVI (newest-per-type only).
+  No registered RPC currently provides a verifiable full V MEASUREMENT
+  history (see the `:vitals_for_date_range` mapping notes), so the gem
+  does not pretend to one.
+- Rows from the `Measurement` reads now carry `:date_source` labeling the
+  clinical-date provenance — `:event` (#9000010.01 field 1201, the taken
+  time the writer files — BEHOENPC.m:275,286), `:visit` (1201 empty →
+  the visit's own date, the canonical readers' fallback — BPXRMPX.m:60-64,
+  BGOVMSR.m:29), or `:entered` (only .07 TIME ENTERED available — an
+  administrative save timestamp (BEHOENPC.m:274,287; BPXRMPX.m:70),
+  surfaced labeled instead of silently substituted for clinical time).
 
 - `RpmsRpc::Measurement.for_visit` / `.latest` — measurement reads that
   carry FHIR-Provenance signals, composed entirely from existing
@@ -93,14 +106,46 @@ run (contracts: rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`).
   `Problem.for_patient` now also drops the `"^No problems found."`
   sentinel row (ORQQPL.m:17). `:problem_filter` (`BGOPROB GET CLASS`,
   still best-effort) is redeclared to match.
-- `:vitals` (`ORQQVI VITALS`) mapping matched an invented
-  `TYPE^VALUE^UNITS^DATE` shape; the real wire (VITALS^ORQQVI:
-  ORQQVI.m:4-26) is `MEASUREMENT_IEN^TYPE^DATETIME^VALUE` with no units
-  piece — the old mapping parsed the IEN as the type and the type as the
-  value. `Vital.for_patient` now also drops the `"^No vitals found."`
-  sentinel row instead of surfacing it as a record. `:fileman_datetime`
-  coercion falls back to date-only parsing rather than dropping timeless
-  values.
+- `:vitals` (`ORQQVI VITALS`) — fixed TWICE, and the second fix is the
+  lesson. The original mapping matched an invented `TYPE^VALUE^UNITS^DATE`
+  shape. The first correction read a plausibly-named tag
+  (VITALS^ORQQVI) and declared `IEN^TYPE^DATETIME^VALUE` — but the #8994
+  registry dispatches "ORQQVI VITALS" to **FASTVIT^ORQQVI**
+  (`.broker_dumps_8994_20260607.txt:565`), whose rows are
+  `IEN^TYPE^VALUE^DATETIME` (header ORQQVI.m:66-67; rows ORQQVI.m:113/
+  179) — value and date were swapped, and the RPC returns only the
+  NEWEST value per type, not history. The shape the first fix declared
+  belongs to a different RPC, "ORQQVI VITALS FOR DATE RANGE"
+  (dump line 795), now declared as `:vitals_for_date_range` with its
+  GMRV-#120.5-only limitation documented. Method: resolve the registry
+  name→tag mapping FIRST, then read that exact tag's return
+  construction — grepping a routine for a plausible tag finds the wrong
+  entry point. `Vital.for_patient` documents newest-per-type semantics,
+  takes an optional date range, and guards invalid DFNs; FASTVIT emits
+  no sentinel (that belongs to VITALS^ORQQVI), but IEN-less rows are
+  still dropped defensively. `:fileman_datetime` coercion now always
+  yields a `Time` (midnight for date-only values) instead of sometimes
+  `Time`, sometimes `Date`.
+- `:medication_list` (`ORQQPS LIST`) declared a fabricated
+  `IEN^DRUG_NAME^SIG^STATUS^LAST_FILL^REFILLS^PROVIDER` shape. Verified
+  wire (registry dump line 576 → LIST^ORQQPS: ORQQPS.m:4-55, header
+  ORQQPS.m:5) is `ID^NAME^STOP_DATE^ROUTE^SCHEDULE(or infusion
+  rate)^REFILLS(outpatient only)` — no SIG/STATUS/PROVIDER pieces exist.
+  `Medication.for_patient` drops the `"^No medications found."` sentinel
+  (ORQQPS.m:53) and guards invalid DFNs.
+- `DdrFileman.gets_entry` reports a reply with no parsed rows and no
+  `[Data]` marker as an error (broker error strings like `-1^...` match
+  neither), so `Measurement` EIE reads degrade to `nil`/unknown and
+  `Patient.contact` returns `nil` instead of fabricating
+  `entered_in_error: false` / "no telecom on file" from a failed read.
+- `Problem.for_patient` / `Vital.for_patient` / `Medication.for_patient`
+  short-circuit nil/blank/non-positive DFNs to `[]` without dispatching
+  an RPC.
+- `client.rb` requires `rpms_rpc/version` so a standalone
+  `require "rpms_rpc/cia_client"` (how the release evidence drivers load
+  the gem) keeps `RpmsRpc.sanitize_error`: without it every client error
+  path raised `NoMethodError` instead of the real broker error (observed
+  live against rpms-ydb-9.0).
 - `CiaClient#authenticate` now requests session UID `0` on first sign-on
   (was hard-coded `"1"`). `AUTH^CIANBRPC` treats a non-zero UID as a
   reconnect to that session; on any box with an existing session #1 it

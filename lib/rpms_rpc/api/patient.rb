@@ -135,6 +135,11 @@ module RpmsRpc
       return nil if reply.nil? || reply[:error]
 
       fields = reply[:fields]
+      # A reply that parsed NO field rows is a failed read, not "no telecom
+      # on file" — a real GETS^DIQ read of an existing entry returns one
+      # row per requested field even when the values are empty.
+      return nil if fields.empty?
+
       {
         dfn:        dfn.to_i,
         phone_home: external(fields, ".131"),

@@ -73,6 +73,14 @@ class PatientContactTest < Minitest::Test
     assert_nil result[:email]
   end
 
+  # A reply that parses to NO field rows (e.g. a broker error string like
+  # "-1^...") is a failed read — it must return nil, not a hash full of
+  # nils indistinguishable from "no telecom on file" (Copilot finding).
+  def test_contact_returns_nil_when_reply_parses_no_field_rows
+    seed_contact("-1^Application context has not been created")
+    assert_nil RpmsRpc::Patient.contact(DFN)
+  end
+
   def test_contact_returns_nil_on_fileman_error_marker
     seed_contact("[ERROR]")
     assert_nil RpmsRpc::Patient.contact(DFN)

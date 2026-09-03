@@ -275,9 +275,10 @@ module RpmsRpc
           FilemanDateParser.parse_date(raw)
         when :fileman_datetime
           # Date/time fields carry date-only values when no time was
-          # recorded ("3250115" vs "3250115.0800") — fall back to the
-          # date parser rather than dropping the value.
-          FilemanDateParser.parse_datetime(raw) || FilemanDateParser.parse_date(raw)
+          # recorded ("3250115" vs "3250115.0800") — fall back to a
+          # midnight Time rather than dropping the value. Always Time,
+          # never Date, so the mapped type is consistent for callers.
+          FilemanDateParser.parse_datetime_or_date(raw)
         when :boolean
           raw == "1" || raw.casecmp?("yes")
         else

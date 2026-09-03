@@ -134,6 +134,11 @@ module RpmsRpc
     #
     # Returns { fields: { "FIELD#" => {internal:, external:} }, error: bool }
     # or nil (no response). Word-processing fields yield {text: [lines]}.
+    # A reply that parses NO field rows and carries no "[Data]" marker is
+    # reported as an error: broker/M error strings ("-1^...", raw error
+    # text) don't match the FILE^IENS^FIELD^... grammar, and silently
+    # returning empty fields would let callers fabricate "value absent"
+    # from "read failed".
     def gets_entry(file:, iens:, fields:, flags: "")
       reply = lines(call(:ddr_gets_entry_data,
         gets_entry_param(file: file, iens: iens, fields: fields, flags: flags)))
@@ -161,7 +166,9 @@ module RpmsRpc
           result[field] = { internal: pieces[3], external: pieces[4..].join("^") }
         end
       end
-      { fields: result, error: reply.include?("[ERROR]") }
+      error = reply.include?("[ERROR]") ||
+              (result.empty? && !reply.include?("[Data]"))
+      { fields: result, error: error }
     end
 
     def gets_entry_param(file:, iens:, fields:, flags: "")

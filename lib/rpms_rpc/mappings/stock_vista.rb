@@ -251,20 +251,68 @@ module RpmsRpc
       m.rpc "ORQQPL VERIFY"
     end
 
-    # ORQQVI VITALS — patient vitals (multi-line).
-    # Verified format (VITALS^ORQQVI: ORQQVI.m:4-26 — header line 6
-    # "vital measurement ien^vital type^date/time taken^rate", row
-    # construction line 23):
-    #   MEASUREMENT_IEN[1]^TYPE[2]^DATETIME[3]^VALUE(rate)[4]
-    # There is NO units piece on this wire — the prior
-    # "TYPE^VALUE^UNITS^DATE" declaration was invented (same failure
-    # class as BHDPTRPC; see docs/RPC_COVERAGE.md). Callers needing
-    # units/service-category should use RpmsRpc::Measurement.for_visit /
-    # .latest (BGOVMSR + BEHOENCX + BEHOVM2 composition). "No vitals"
-    # comes back as the sentinel row "^No vitals found." (ORQQVI.m:24) —
-    # position 0 empty, so :measurement_ien is nil and callers can drop it.
+    # ORQQVI VITALS — the patient's MOST RECENT vital per type, optionally
+    # within a date range. NOT full history: the #8994 registry dispatches
+    # this RPC name to FASTVIT^ORQQVI
+    # (.broker_dumps_8994_20260607.txt:565 "ORQQVI VITALS^FASTVIT^ORQQVI"),
+    # which returns at most ONE row per vital type — the newest in range
+    # (FASTVIT^ORQQVI: ORQQVI.m:64-91; per-type newest-first walk with
+    # `Q:OK` — VITAL^ORQQVI: ORQQVI.m:104-105, MSR^ORQQVI: ORQQVI.m:170-171).
+    # Params: DFN, start date, end date (FileMan; both optional —
+    # ORQQVI.m:74-78 defaults to all time).
+    # Verified format (header ORQQVI.m:66-67 "vital measurement ien^vital
+    # type^rate^date/time taken"; row construction ORQQVI.m:113 (VA path) /
+    # ORQQVI.m:179 (IHS V MEASUREMENT path, taken when DUZ("AG")="I" —
+    # ORQQVI.m:96)):
+    #   MEASUREMENT_IEN[1]^TYPE[2]^VALUE(rate)[3]^DATETIME[4]^
+    #   DISPLAY[5]^METRIC_DISPLAY[6]^QUALIFIERS[7]
+    # An earlier revision of this mapping declared IEN^TYPE^DATETIME^VALUE —
+    # that shape belongs to a DIFFERENT registered RPC, "ORQQVI VITALS FOR
+    # DATE RANGE" → VITALS^ORQQVI (see :vitals_for_date_range below); the
+    # mapping had been verified against the wrong routine tag. Resolve the
+    # registry name→tag row FIRST, then read that tag.
+    # TYPE abbreviations differ by path: the IHS branch emits ^AUTTMSR
+    # abbreviations (TMP/PU/RS/BP/HT/WT/PA/O2 — ORQQVI.m:164), the VA
+    # branch T/P/R/BP/HT/WT/PN/POX. On the IHS branch MEASUREMENT_IEN is a
+    # V MEASUREMENT (#9000010.01) IEN (^PXRMINDX(9000010.01,...) walk,
+    # ORQQVI.m:170-171); on the VA branch it is a GMRV #120.5 IEN.
+    # DISPLAY is the value with US unit text ("98.6 F"), METRIC_DISPLAY the
+    # conversion ("(37.0 C)") where one applies (ORQQVI.m:180-223);
+    # QUALIFIERS is piece 7 (ORQQVI.m:224). POX rows carry supplemental O2
+    # flow at piece 8 (ORQQVI.m:211) — undeclared here. There is NO units
+    # piece and NO sentinel row: FASTVIT returns nothing when no vitals
+    # exist (the "^No vitals found." sentinel belongs to VITALS^ORQQVI,
+    # ORQQVI.m:24). Callers needing units/service-category should use
+    # RpmsRpc::Measurement (BGOVMSR + BEHOENCX + BEHOVM2 composition).
     DataMapper.define(:vitals) do |m|
       m.rpc "ORQQVI VITALS"
+      m.field 0, :measurement_ien, :integer
+      m.field 1, :type
+      m.field 2, :value
+      m.field 3, :recorded_date, :fileman_datetime
+      m.field 4, :display
+      m.field 5, :metric_display
+      m.field 6, :qualifiers
+    end
+
+    # ORQQVI VITALS FOR DATE RANGE — every vital in a date range, one row
+    # per measurement (registry: .broker_dumps_8994_20260607.txt:795
+    # "ORQQVI VITALS FOR DATE RANGE^VITALS^ORQQVI"). Params: DFN, start,
+    # end (FileMan date/times).
+    # Verified format (VITALS^ORQQVI: ORQQVI.m:4-26 — header ORQQVI.m:6
+    # "vital measurement ien^vital type^date/time taken^rate", row
+    # construction ORQQVI.m:23):
+    #   MEASUREMENT_IEN[1]^TYPE[2]^DATETIME[3]^VALUE(rate)[4]
+    # HONEST LIMITATION — this tag reads ONLY the GMRV VITAL MEASUREMENT
+    # file (#120.5) via EN1^GMRVUT0 (ORQQVI.m:13-16) and, unlike
+    # VITAL^ORQQVI (ORQQVI.m:96), has NO IHS DUZ("AG")="I" branch: on an
+    # RPMS system whose vitals live only in V MEASUREMENT (#9000010.01) it
+    # returns the sentinel row "^No vitals found." (ORQQVI.m:24 — piece 1
+    # empty, so :measurement_ien is nil and callers drop it). Where rows DO
+    # come back, MEASUREMENT_IEN is a #120.5 IEN — NOT a V MEASUREMENT
+    # IEN; do not feed it to #9000010.01 reads (DDR GETS, Measurement.find).
+    DataMapper.define(:vitals_for_date_range) do |m|
+      m.rpc "ORQQVI VITALS FOR DATE RANGE"
       m.field 0, :measurement_ien, :integer
       m.field 1, :type
       m.field 2, :recorded_date, :fileman_datetime
@@ -318,17 +366,31 @@ module RpmsRpc
     # CLINICAL DATA (ORQQPS*, ORQQCP*, ORQQCT*, ORQQGO*, ORWPCE*)
     # ========================================================================
 
-    # ORQQPS LIST — medication list (multi-line)
-    # Format: IEN^DRUG_NAME^SIG^STATUS^LAST_FILL^REFILLS^PROVIDER
+    # ORQQPS LIST — condensed medication list (multi-line). Registry:
+    # .broker_dumps_8994_20260607.txt:576 "ORQQPS LIST^LIST^ORQQPS".
+    # Verified format (LIST^ORQQPS: ORQQPS.m:4-55 — header ORQQPS.m:5
+    # "id^nameform^stop date^route^schedule/infusion rate^refills
+    # remaining"; row construction ORQQPS.m:32/37 (IV), 42 (unit dose),
+    # 47 (outpatient)):
+    #   ID[1]^NAME[2]^STOP_DATE[3]^ROUTE[4]^SCHEDULE[5]^REFILLS[6]
+    # ID is the pharmacy order id string PSOORRL emits (e.g. "403R;O") —
+    # NOT a bare file-50 pointer. STOP_DATE is FileMan (piece 4 of the
+    # ^TMP("PS") node — the reverse-chronology sort key, ORQQPS.m:45).
+    # SCHEDULE carries the infusion rate for IV rows (ORQQPS.m:32) and the
+    # schedule otherwise; REFILLS is present on outpatient rows only
+    # (ORQQPS.m:47). The prior declaration
+    # (IEN^DRUG_NAME^SIG^STATUS^LAST_FILL^REFILLS^PROVIDER) was fabricated —
+    # there is no SIG/STATUS/PROVIDER piece on this wire. "No medications"
+    # comes back as the sentinel row "^No medications found."
+    # (ORQQPS.m:53) — piece 1 empty, so :id is blank and callers drop it.
     DataMapper.define(:medication_list) do |m|
       m.rpc "ORQQPS LIST"
-      m.field 0, :ien
-      m.field 1, :drug_name, :string, terminology: :rxnorm, pointer: { file: 50 }
-      m.field 2, :sig
-      m.field 3, :status
-      m.field 4, :last_fill,   :fileman_date
-      m.field 5, :refills,     :integer
-      m.field 6, :provider, :string, pointer: { file: 200 }
+      m.field 0, :id
+      m.field 1, :name, :string, terminology: :rxnorm
+      m.field 2, :stop_date, :fileman_date
+      m.field 3, :route
+      m.field 4, :schedule
+      m.field 5, :refills, :integer
     end
 
     # ORQQCP LIST — care plan list (multi-line)

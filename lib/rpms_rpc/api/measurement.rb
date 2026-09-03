@@ -11,12 +11,15 @@ module RpmsRpc
   # downstream consumer needs interoperable units.
   # Underlying RPC: BGOVUPD SET with MSR record type.
   #
-  # Reads (.for_visit / .latest) compose four existing registered RPCs so
-  # the FHIR layer can build Observation + Provenance without new M code:
+  # Reads (.for_visit / .latest / .find / .newest_by_type) compose
+  # existing registered RPCs so the FHIR layer can build Observation +
+  # Provenance without new M code:
   #   BGOVMSR GET / BGOVMSR LAST  — measurement rows carrying the visit IEN
-  #   BEHOENCX GETVISIT           — the visit's SERVICE CATEGORY (#9000010 .07)
+  #   ORQQVI VITALS (FASTVIT)     — newest measurement per type
+  #   BEHOENCX GETVISIT           — the visit's SERVICE CATEGORY (#9000010
+  #                                 .07) + visit date (date fallback)
   #   DDR GETS ENTRY DATA         — #9000010.01 field 2 (ENTERED IN ERROR)
-  #                                 + 1201/.07 (internal FileMan date/time)
+  #                                 + 1201 event date / .07 entered time
   #   BEHOVM2 VUNITS              — display units for the raw stored value
   module Measurement
     extend self
@@ -69,7 +72,11 @@ module RpmsRpc
     #   .03 VISIT — internal is the visit IEN (APCDBMI.m:22, BHSMEA.m:87)
     #   .04 VALUE, 1201 event date/time, 2 ENTERED IN ERROR — the exact
     #        field set BTIUPCC4.m:19 reads (".03;.04;1201;2")
-    #   .07 date/time fallback (BEHOENP2.m:18-22 reads .07 then 1201)
+    #   .07 TIME ENTERED — administrative entry time, NOT the clinical
+    #        time: the writer files .07 = $$NOW at save and 1201 = the
+    #        taken date (SAVE^BEHOENPC: BEHOENPC.m:274,286-287), and the
+    #        canonical reader labels piece 7 "Time entered"
+    #        (VMEA^BPXRMPX: BPXRMPX.m:70). See resolve_date.
     CORE_FIELDS = ".01;.02;.03;.04;2;1201;.07"
 
     # One V MEASUREMENT by IEN, fully decorated — the read behind
@@ -86,16 +93,19 @@ module RpmsRpc
       type = external(fields, ".01")
       return nil if type.nil?
 
+      visit_memo = {}
       visit_ien = internal(fields, ".03")&.to_i
-      category = service_category_for(visit_ien, {})
-      raw_date = internal(fields, "1201") || internal(fields, ".07")
+      visit = visit_for(visit_ien, visit_memo)
+      category = visit && visit[:service_category]
+      date, date_source = resolve_date(fields, visit)
       {
         measurement_ien:  measurement_ien.to_i,
         patient_dfn:      internal(fields, ".02")&.to_i,
         type:             type,
         value:            internal(fields, ".04"),
         units:            units_for(type, {}),
-        date:             FilemanDateParser.parse_datetime(raw_date) || FilemanDateParser.parse_date(raw_date),
+        date:             date,
+        date_source:      date_source,
         visit_ien:        visit_ien,
         service_category: category,
         capture_mode:     capture_mode_for(category),
@@ -103,37 +113,62 @@ module RpmsRpc
       }
     end
 
-    # A patient's full measurement history, decorated for Provenance.
-    # ORQQVI VITALS is the index (verified MEASUREMENT_IEN^TYPE^DATETIME^
-    # VALUE rows — VITALS^ORQQVI: ORQQVI.m:4-26; the ":vitals" mapping);
-    # each row is then decorated per measurement via the CORE_FIELDS DDR
-    # read (visit pointer + entered-in-error), BEHOENCX GETVISIT (service
-    # category) and BEHOVM2 VUNITS (units). Sub-reads are memoized per
+    # The patient's NEWEST measurement per vital type (optionally within a
+    # date range), decorated for Provenance. This deliberately replaces an
+    # earlier `.history` method that claimed full patient history from the
+    # same index — a false claim: the registered "ORQQVI VITALS" RPC
+    # dispatches to FASTVIT^ORQQVI (.broker_dumps_8994_20260607.txt:565),
+    # which returns at most ONE row per type — the newest in range
+    # (ORQQVI.m:64-91, per-type `Q:OK` at ORQQVI.m:170-171).
+    #
+    # NO registered RPC provides a verifiable full V MEASUREMENT history
+    # for a patient today:
+    #   - "ORQQVI VITALS FOR DATE RANGE" (VITALS^ORQQVI, dump line 795 —
+    #     the :vitals_for_date_range mapping) IS full history over a
+    #     range, but reads only GMRV #120.5 (ORQQVI.m:13-16, no IHS
+    #     branch) and returns #120.5 IENs, which must NOT be fed to the
+    #     #9000010.01 DDR decoration this module does.
+    #   - "BEHOVM GRID" is IHS-aware full-range (QRYMSR^BEHOVM walks
+    #     ^AUPNVMSR) but returns a grid-subscripted global whose flattened
+    #     wire shape is unverified against a populated capture.
+    # Until one of those is captured against real populated data, this
+    # module does not pretend to a history read.
+    #
+    # Each FASTVIT row is decorated per measurement via the CORE_FIELDS
+    # DDR read (visit pointer + entered-in-error + clinical date),
+    # BEHOENCX GETVISIT (service category + visit-date fallback) and
+    # BEHOVM2 VUNITS (units). The decoration is valid on the IHS FASTVIT
+    # branch (DUZ("AG")="I" — ORQQVI.m:96), where row IENs are
+    # V MEASUREMENT IENs (ORQQVI.m:170-171). Sub-reads are memoized per
     # call and degrade to nil fields — :capture_mode :unknown,
     # :entered_in_error nil (unknown, never fabricated), :units nil (a
     # value without a source unit is for callers to drop, not guess).
-    # The "^No vitals found." sentinel row (ORQQVI.m:24) has no
-    # measurement IEN and is dropped.
-    def history(dfn)
+    # Rows without a measurement IEN are dropped.
+    def newest_by_type(dfn, start_date: nil, end_date: nil)
       return [] if invalid_id?(dfn)
 
       visit_memo = {}
       units_memo = {}
-      DataMapper.vitals.fetch_many(dfn.to_s).filter_map do |row|
+      params = [ dfn.to_s, fileman_bound(start_date), fileman_bound(end_date) ]
+      params.pop while params.last.empty? && params.length > 1
+      DataMapper.vitals.fetch_many(*params).filter_map do |row|
         ien = row[:measurement_ien]
         next if ien.nil?
 
         fields = core_fields(ien)
         type = (fields && external(fields, ".01")) || row[:type]
         visit_ien = fields && internal(fields, ".03")&.to_i
-        category = service_category_for(visit_ien, visit_memo)
+        visit = visit_for(visit_ien, visit_memo)
+        category = visit && visit[:service_category]
+        date, date_source = fields ? resolve_date(fields, visit) : [ row[:recorded_date], :wire ]
         {
           measurement_ien:  ien,
           patient_dfn:      dfn.to_i,
           type:             type,
           value:            row[:value],
           units:            units_for(type, units_memo),
-          date:             row[:recorded_date],
+          date:             date,
+          date_source:      date_source,
           visit_ien:        visit_ien,
           service_category: category,
           capture_mode:     capture_mode_for(category),
@@ -188,64 +223,109 @@ module RpmsRpc
 
     private
 
-    # Decorate BGOVMSR rows with service category (per distinct visit),
-    # entered-in-error + internal date (per measurement), and units (per
-    # distinct type). Sub-reads are memoized per call; any unreachable
-    # sub-read degrades to nil fields, never raises.
+    # Decorate BGOVMSR rows with service category + visit-date fallback
+    # (per distinct visit), entered-in-error + clinical date (per
+    # measurement), and units (per distinct type). Sub-reads are memoized
+    # per call; any unreachable sub-read degrades to nil fields, never
+    # raises.
     def decorate(rows)
       visit_memo = {}
       units_memo = {}
       rows.map do |row|
-        category = service_category_for(row[:visit_ien], visit_memo)
-        eie, date = eie_and_date(row[:measurement_ien])
+        visit = visit_for(row[:visit_ien], visit_memo)
+        category = visit && visit[:service_category]
+        fields = date_eie_fields(row[:measurement_ien])
+        date, date_source = fields ? resolve_date(fields, visit) : [ nil, nil ]
         row.merge(
           units:             units_for(row[:type], units_memo),
           date:              date,
+          date_source:       date_source,
           service_category:  category,
           capture_mode:      capture_mode_for(category),
-          entered_in_error:  eie
+          entered_in_error:  fields.nil? ? nil : internal(fields, "2") == "1"
         )
       end
     end
 
-    # Visit SERVICE CATEGORY via BEHOENCX GETVISIT — reply piece 3
-    # (GETVISIT^BEHOENCX: BEHOENCX.m:4-16 "hosp loc^visit date^service
-    # category^dfn^visit id^locked"). nil when the visit can't be read.
-    def service_category_for(visit_ien, memo)
+    # One visit row via BEHOENCX GETVISIT (registry:
+    # .broker_dumps_8994_20260607.txt:2191 "BEHOENCX GETVISIT^GETVISIT^
+    # BEHOENCX") — "hosp loc^visit date^service category^dfn^visit id^
+    # locked" (GETVISIT^BEHOENCX: BEHOENCX.m:5,8-15). Carries both the
+    # SERVICE CATEGORY (piece 3) and the visit date (piece 2 — the
+    # measurement-date fallback). nil when the visit can't be read.
+    def visit_for(visit_ien, memo)
       return nil if visit_ien.nil? || visit_ien.to_i <= 0
 
       memo.fetch(visit_ien) do
-        visit = DataMapper.encounter_visit.fetch_one(visit_ien.to_s)
-        memo[visit_ien] = visit && visit[:service_category]
+        memo[visit_ien] = DataMapper.encounter_visit.fetch_one(visit_ien.to_s)
       end
     end
 
-    # ENTERED IN ERROR flag + internal FileMan date/time for one
-    # V MEASUREMENT, via the registered generic FileMan read
-    # (DDR GETS ENTRY DATA — GETSC^DDR2: DDR2.m:17-43).
+    # ENTERED IN ERROR flag + date fields of one V MEASUREMENT, via the
+    # registered generic FileMan read (DDR GETS ENTRY DATA — registry
+    # .broker_dumps_8994_20260607.txt:16; GETSC^DDR2: DDR2.m:17-43).
     #   field 2    = ENTERED IN ERROR, set to 1 by the EIE store
     #                (EIE^BEHOVM2: BEHOVM2.m "BEHFDA(FNUM,BEHIENS,2)=1");
     #                read the same way BLDXRF^BEHOVM filters
     #                ("$$GET1^DIQ(9000010.01,VIEN,2,\"I\")").
-    #   field 1201 = event date/time, the date BEHOVM/BGOVMSR display
-    #                (GETMSR^BEHOVM "DATE=+X12"; SET^BGOVMSR files it)
-    #   field .07  = date/time fallback (BEHOENP2.m:18-22 reads .07 then
-    #                1201; SET^BGOVMSR files both)
-    # Returns [entered_in_error, date] — [nil, nil] when unreachable.
-    def eie_and_date(measurement_ien)
-      return [ nil, nil ] if measurement_ien.nil? || measurement_ien.to_i <= 0
+    #   field 1201 = event date/time (clinical taken time)
+    #   field .07  = TIME ENTERED (administrative — see resolve_date)
+    # Returns the parsed field hash, or nil when the read is unreachable,
+    # errored, or came back with NO parsed rows — an empty reply is
+    # indistinguishable from a mis-grammared error string, so it degrades
+    # to unknown rather than fabricating "not entered in error".
+    def date_eie_fields(measurement_ien)
+      return nil if measurement_ien.nil? || measurement_ien.to_i <= 0
 
       reply = DdrFileman.gets_entry(file: V_MEASUREMENT_FILE,
                                     iens: "#{measurement_ien.to_i},",
                                     fields: "2;.07;1201", flags: "IE")
-      return [ nil, nil ] if reply.nil? || reply[:error]
+      return nil if reply.nil? || reply[:error]
 
       fields = reply[:fields]
-      eie = internal(fields, "2") == "1"
-      raw_date = internal(fields, "1201") || internal(fields, ".07")
-      # 1201 may carry a time ("3260607.1430") or be date-only ("3260607").
-      date = FilemanDateParser.parse_datetime(raw_date) || FilemanDateParser.parse_date(raw_date)
-      [ eie, date ]
+      fields.empty? ? nil : fields
+    end
+
+    # Resolve the clinical date of one measurement, honestly labeled with
+    # its provenance (:date_source):
+    #   :event   — #9000010.01 field 1201 EVENT DATE/TIME: what the writer
+    #              files as the taken time (SAVE^BEHOENPC: BEHOENPC.m:275,
+    #              286 "FLD(1201)=TAKEN").
+    #   :visit   — 1201 empty; the VISIT's own date/time (#9000010 .01) —
+    #              the canonical readers' fallback (VMEA^BPXRMPX:
+    #              BPXRMPX.m:60-64; LAST^BGOVMSR: BGOVMSR.m:29 does the
+    #              same).
+    #   :entered — only .07 TIME ENTERED is available. That is the
+    #              administrative save time, NOT the clinical time (the
+    #              writer files .07 = $$NOW — BEHOENPC.m:274,287; the
+    #              reader labels piece 7 "Time entered" — BPXRMPX.m:70).
+    #              Surfaced labeled rather than silently substituted so
+    #              callers can treat it as capture-time provenance only.
+    #   nil      — no date recoverable.
+    # 1201/.07 may carry a time ("3260607.1430") or be date-only
+    # ("3260607") — both parse (to a midnight Time when date-only).
+    def resolve_date(fields, visit)
+      event = FilemanDateParser.parse_datetime_or_date(internal(fields, "1201"))
+      return [ event, :event ] if event
+
+      visit_date = visit && FilemanDateParser.parse_datetime_or_date(visit[:datetime_raw])
+      return [ visit_date, :visit ] if visit_date
+
+      entered = FilemanDateParser.parse_datetime_or_date(internal(fields, ".07"))
+      return [ entered, :entered ] if entered
+
+      [ nil, nil ]
+    end
+
+    # Coerce a Time/Date/FileMan-string range bound to the FileMan string
+    # FASTVIT expects; nil → "" (server-side default, ORQQVI.m:74-78).
+    def fileman_bound(value)
+      case value
+      when nil then ""
+      when Time then FilemanDateParser.format_datetime(value)
+      when Date then FilemanDateParser.format_date(value)
+      else value.to_s
+      end
     end
 
     # Display units for the raw stored value via BEHOVM2 VUNITS

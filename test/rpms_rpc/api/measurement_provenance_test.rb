@@ -346,17 +346,21 @@ class MeasurementProvenanceTest < Minitest::Test
                          fields: CORE_FIELDS, flags: "IE").to_s
   end
 
-  def seed_core_reply(m, ien, type: "WT", dfn: DFN, visit: VISIT_IEN, value: "180", eie: "0")
-    m.seed(:ddr_gets_entry_data, core_ddr_key(ien), <<~REPLY.chomp)
-      [Data]
-      9000010.01^#{ien}^.01^12^#{type}
-      9000010.01^#{ien}^.02^#{dfn}^DEMO,PATIENT
-      9000010.01^#{ien}^.03^#{visit}^JUN 07, 2026@14:30
-      9000010.01^#{ien}^.04^#{value}^#{value}
-      9000010.01^#{ien}^2^#{eie}^#{eie == '1' ? 'YES' : ''}
-      9000010.01^#{ien}^1201^3260607.1430^JUN 07, 2026@14:30
-      9000010.01^#{ien}^.07^3260607^JUN 07, 2026
-    REPLY
+  def seed_core_reply(m, ien, type: "WT", dfn: DFN, visit: VISIT_IEN, value: "180", eie: "0",
+                      include_1201: true, include_07: true)
+    lines = [ "[Data]",
+              "9000010.01^#{ien}^.01^12^#{type}",
+              "9000010.01^#{ien}^.02^#{dfn}^DEMO,PATIENT",
+              "9000010.01^#{ien}^.03^#{visit}^JUN 07, 2026@14:30",
+              "9000010.01^#{ien}^.04^#{value}^#{value}",
+              "9000010.01^#{ien}^2^#{eie}^#{eie == '1' ? 'YES' : ''}" ]
+    lines << if include_1201
+      "9000010.01^#{ien}^1201^3260607.1430^JUN 07, 2026@14:30"
+    else
+      "9000010.01^#{ien}^1201^^" # on file, no value — clinical time not recorded
+    end
+    lines << "9000010.01^#{ien}^.07^3260607^JUN 07, 2026" if include_07
+    m.seed(:ddr_gets_entry_data, core_ddr_key(ien), lines.join("\n"))
   end
 
   def seed_visit_and_units(m, service_category: "A")
@@ -382,6 +386,7 @@ class MeasurementProvenanceTest < Minitest::Test
     assert_equal "180",     row[:value]
     assert_equal "lb",      row[:units]
     assert_equal Time.new(2026, 6, 7, 14, 30, 0), row[:date]
+    assert_equal :event,    row[:date_source]
     assert_equal VISIT_IEN, row[:visit_ien]
     assert_equal "A",       row[:service_category]
     assert_equal :office,   row[:capture_mode]
@@ -411,40 +416,55 @@ class MeasurementProvenanceTest < Minitest::Test
   end
 
   # ==========================================================================
-  # Patient history (.history) — ORQQVI VITALS index rows decorated per
-  # measurement via the same DDR/BEHOENCX/VUNITS graph.
+  # Newest-per-type (.newest_by_type) — the registered "ORQQVI VITALS"
+  # dispatches to FASTVIT^ORQQVI (.broker_dumps_8994_20260607.txt:565),
+  # newest measurement per vital type in range (ORQQVI.m:64-91). This
+  # replaced a `.history` method whose full-history claim was false —
+  # FASTVIT returns at most one row per type (`Q:OK` at ORQQVI.m:170-171).
+  # Rows are decorated via the same DDR/BEHOENCX/VUNITS graph.
   # ==========================================================================
 
-  def seed_history_graph(service_category: "A")
+  def seed_newest_graph(service_category: "A")
     RpmsRpc.mock! do |m|
       m.seed_keyed_collection(:vitals, DFN, [
-        { measurement_ien: MSR_IEN,     type: "WT", recorded_date: Time.new(2026, 6, 7, 14, 30, 0), value: "180" },
-        { measurement_ien: MSR_IEN + 1, type: "WT", recorded_date: Time.new(2026, 6, 7, 14, 30, 0), value: "181" }
+        { measurement_ien: MSR_IEN,     type: "WT", value: "180", recorded_date: Time.new(2026, 6, 7, 14, 30, 0) },
+        { measurement_ien: MSR_IEN + 1, type: "BP", value: "120/80", recorded_date: Time.new(2026, 6, 7, 14, 30, 0) }
       ])
       seed_core_reply(m, MSR_IEN)
-      seed_core_reply(m, MSR_IEN + 1, value: "181")
+      seed_core_reply(m, MSR_IEN + 1, value: "120/80")
       seed_visit_and_units(m, service_category: service_category)
       yield m if block_given?
     end
   end
 
-  def test_history_dispatches_orqqvi_vitals_for_the_patient
-    seed_history_graph
-    Measurement.history(DFN)
+  def test_newest_by_type_dispatches_orqqvi_vitals_for_the_patient
+    seed_newest_graph
+    Measurement.newest_by_type(DFN)
 
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORQQVI VITALS" }
     refute_nil call
     assert_equal [ DFN ], call[:params]
   end
 
-  def test_history_returns_decorated_rows_with_distinct_iens
-    seed_history_graph
-    rows = Measurement.history(DFN)
+  def test_newest_by_type_passes_fileman_range_bounds
+    seed_newest_graph
+    Measurement.newest_by_type(DFN, start_date: Time.new(2026, 1, 1, 0, 0, 0),
+                                    end_date: Time.new(2026, 6, 30, 23, 59, 0))
+
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORQQVI VITALS" }
+    refute_nil call
+    # F1/F2 FileMan bounds (FASTVIT^ORQQVI: ORQQVI.m:69-70,74-78)
+    assert_equal [ DFN, "3260101.0000", "3260630.2359" ], call[:params]
+  end
+
+  def test_newest_by_type_returns_decorated_rows_with_distinct_iens
+    seed_newest_graph
+    rows = Measurement.newest_by_type(DFN)
 
     assert_equal 2, rows.length
     assert_equal [ MSR_IEN, MSR_IEN + 1 ], rows.map { |r| r[:measurement_ien] }
     rows.each do |row|
-      assert_equal "WT",      row[:type]
+      assert_equal "WT",      row[:type] # DDR .01 external wins over the wire code
       assert_equal "lb",      row[:units]
       assert_equal DFN.to_i,  row[:patient_dfn]
       assert_equal VISIT_IEN, row[:visit_ien]
@@ -452,45 +472,121 @@ class MeasurementProvenanceTest < Minitest::Test
       assert_equal :office,   row[:capture_mode]
       assert_equal false,     row[:entered_in_error]
       assert_equal Time.new(2026, 6, 7, 14, 30, 0), row[:date]
+      assert_equal :event,    row[:date_source]
     end
-    # Same type + same minute stays distinct — identity is the V-file IEN.
     assert_equal rows.map { |r| r[:measurement_ien] }.uniq.length, rows.length
   end
 
-  def test_history_classifies_reported_capture_mode
-    seed_history_graph(service_category: "T")
-    rows = Measurement.history(DFN)
+  def test_newest_by_type_classifies_reported_capture_mode
+    seed_newest_graph(service_category: "T")
+    rows = Measurement.newest_by_type(DFN)
 
     assert(rows.all? { |r| r[:capture_mode] == :reported })
   end
 
-  def test_history_degrades_to_unknown_when_decoration_unreachable
+  def test_newest_by_type_degrades_to_unknown_when_decoration_unreachable
     # Only the ORQQVI index is reachable — no DDR / visit / units seeds.
     RpmsRpc.mock! do |m|
       m.seed_keyed_collection(:vitals, DFN, [
-        { measurement_ien: MSR_IEN, type: "WT", recorded_date: Time.new(2026, 6, 7, 14, 30, 0), value: "180" }
+        { measurement_ien: MSR_IEN, type: "WT", value: "180", recorded_date: Time.new(2026, 6, 7, 14, 30, 0) }
       ])
     end
 
-    row = Measurement.history(DFN).first
-    assert_equal "WT", row[:type] # falls back to the ORQQVI type code
+    row = Measurement.newest_by_type(DFN).first
+    assert_equal "WT", row[:type] # falls back to the FASTVIT type code
     assert_equal "180", row[:value]
     assert_nil row[:visit_ien]
     assert_nil row[:service_category]
     assert_equal :unknown, row[:capture_mode]
     assert_nil row[:entered_in_error] # unknown, never fabricated
     assert_nil row[:units]
+    # The wire datetime survives, labeled as coming off the RPC wire
+    # (server-side it is 1201-else-visit — VMEA^BPXRMPX: BPXRMPX.m:60-64).
+    assert_equal Time.new(2026, 6, 7, 14, 30, 0), row[:date]
+    assert_equal :wire, row[:date_source]
   end
 
-  def test_history_drops_no_vitals_sentinel_row
+  def test_newest_by_type_drops_rows_without_measurement_ien
     stub_broker_response("^No vitals found.")
-    assert_equal [], Measurement.history(DFN)
+    assert_equal [], Measurement.newest_by_type(DFN)
   end
 
-  def test_history_rejects_invalid_dfn_without_rpc_call
+  def test_newest_by_type_rejects_invalid_dfn_without_rpc_call
     RpmsRpc.mock!
-    assert_equal [], Measurement.history(nil)
-    assert_equal [], Measurement.history(-2)
+    assert_equal [], Measurement.newest_by_type(nil)
+    assert_equal [], Measurement.newest_by_type(-2)
     assert_empty RpmsRpc.client.received_calls
+  end
+
+  # ==========================================================================
+  # Clinical-date provenance (:date_source) — 1201 EVENT DATE/TIME is the
+  # clinical taken time (SAVE^BEHOENPC: BEHOENPC.m:275,286); when it is
+  # empty the canonical fallback is the VISIT date (VMEA^BPXRMPX:
+  # BPXRMPX.m:60-64); .07 is TIME ENTERED, an administrative timestamp
+  # (BEHOENPC.m:274,287; BPXRMPX.m:70) — surfaced only labeled :entered,
+  # never silently substituted for the clinical time.
+  # ==========================================================================
+
+  def seed_find_graph(include_1201: true, include_07: true, visit_seeded: true)
+    RpmsRpc.mock! do |m|
+      seed_core_reply(m, MSR_IEN, include_1201: include_1201, include_07: include_07)
+      seed_visit_and_units(m) if visit_seeded
+    end
+  end
+
+  def test_find_date_source_is_event_when_1201_present
+    seed_find_graph
+    row = Measurement.find(MSR_IEN)
+
+    assert_equal Time.new(2026, 6, 7, 14, 30, 0), row[:date]
+    assert_equal :event, row[:date_source]
+  end
+
+  def test_find_falls_back_to_visit_date_when_1201_missing
+    seed_find_graph(include_1201: false)
+    row = Measurement.find(MSR_IEN)
+
+    # Visit datetime_raw "3260607.1430" (#9000010 .01 via BEHOENCX GETVISIT)
+    assert_equal Time.new(2026, 6, 7, 14, 30, 0), row[:date]
+    assert_equal :visit, row[:date_source]
+  end
+
+  def test_find_surfaces_entered_time_only_as_labeled_last_resort
+    seed_find_graph(include_1201: false, visit_seeded: false)
+    row = Measurement.find(MSR_IEN)
+
+    # .07 fixture is date-only ("3260607") → midnight Time, labeled :entered
+    assert_equal Time.new(2026, 6, 7), row[:date]
+    assert_equal :entered, row[:date_source]
+  end
+
+  def test_find_has_nil_date_and_source_when_no_date_recoverable
+    seed_find_graph(include_1201: false, include_07: false, visit_seeded: false)
+    row = Measurement.find(MSR_IEN)
+
+    assert_nil row[:date]
+    assert_nil row[:date_source]
+  end
+
+  # ==========================================================================
+  # DDR reply degradation — a broker error string that doesn't match the
+  # FILE^IENS^FIELD grammar must degrade to UNKNOWN (nil), never fabricate
+  # entered_in_error: false (Copilot finding on gets_entry).
+  # ==========================================================================
+
+  def test_for_visit_ddr_error_string_degrades_eie_to_unknown
+    RpmsRpc.mock! do |m|
+      m.seed_keyed_collection(:visit_measurements, "#{VISIT_IEN}^0", [
+        { type: "WT", value: "180", measurement_ien: MSR_IEN, visit_ien: VISIT_IEN }
+      ])
+      m.seed(:ddr_gets_entry_data, ddr_key(MSR_IEN),
+             "-1^Remote procedure DDR GETS ENTRY DATA failed")
+      seed_visit_and_units(m)
+    end
+
+    row = Measurement.for_visit(VISIT_IEN).first
+    assert_nil row[:entered_in_error]
+    assert_nil row[:date]
+    assert_nil row[:date_source]
   end
 end
