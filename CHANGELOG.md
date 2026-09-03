@@ -13,6 +13,22 @@ run (contracts: rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`).
 
 ### Added
 
+- Wire-shape contract gate (#189): `RpmsRpc::WireCapture` +
+  `rake wire:capture` capture curated RPC returns from a rung we own into
+  provenance-stamped fixtures (`test/fixtures/wire_captures/` — verbatim
+  raw + sha256 for live captures, M-source cites for write/faulting RPCs;
+  a fixture with neither provenance is rejected), and
+  `test/rpms_rpc/wire_contract_test.rb` gates every mapping with a
+  committed capture in CI: declared field positions must carry the cited
+  wire semantics and typed fields must survive the captured raw. Closes
+  the belief-mirroring-mock failure class (ORQQVI VITALS shipped
+  `TYPE^VALUE^UNITS^DATE` against a real wire of `IEN^TYPE^DATETIME^value`
+  and stayed green); on its first run the gate caught `:problem_list`
+  (status/description swapped, phantom provider-DUZ piece) and
+  `:patient_id_info` (position 3 is the VETERAN flag, not a race code;
+  position 5 the ward, not a site IEN) — pinned as known divergences for
+  their own mapping-fix PRs. See docs/WIRE_CONTRACTS.md.
+
 - `RpmsRpc::Measurement.for_visit` / `.latest` — measurement reads that
   carry FHIR-Provenance signals, composed entirely from existing
   registered RPCs (no new M): `BGOVMSR GET` / `BGOVMSR LAST` (rows with
