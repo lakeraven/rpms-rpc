@@ -74,6 +74,20 @@ class ClinicalDataApiTest < Minitest::Test
     results.each { |r| refute_nil r[:icd_code] }
   end
 
+  # "No problems" comes back as the sentinel row "^No problems found."
+  # (LIST^ORQQPL: ORQQPL.m:17) — piece 1 empty, so :ien is blank and the
+  # row must be dropped, not surfaced as a phantom problem.
+  def test_problem_for_patient_drops_no_problems_sentinel_row
+    client = RpmsRpc::MockClient.new
+    def client.call_rpc(_rpc, *_params) = [ "^No problems found." ]
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    assert_equal [], RpmsRpc::Problem.for_patient("1")
+  ensure
+    RpmsRpc.reset!
+  end
+
   # =============================================================================
   # VITAL
   # =============================================================================

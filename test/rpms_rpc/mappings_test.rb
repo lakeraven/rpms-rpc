@@ -101,12 +101,38 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
   # -- ORQQPL LIST -----------------------------------------------------------
 
+  # Verified wire shape (LIST^ORQQPL: ORQQPL.m:3-18, reshuffling the
+  # LIST^GMPLUTL3 row — GMPLUTL3.m:76-124):
+  #   IEN[1]^NARRATIVE[2]^STATUS[3]^ICD[4]^ONSET[5]^LAST MODIFIED[6]^
+  #   SC[7]^SPEXP[8]^TRANSCRIBED[9]^PRIORITY[10]^^DETAIL[12]
+  # The prior declaration put STATUS at piece 2 and DESCRIPTION at piece 3
+  # (swapped), and invented RECORDED DATE / PROVIDER DUZ at pieces 6-7
+  # (really LAST MODIFIED and SERVICE CONNECTED) — same fabrication class
+  # as the old ORQQVI mapping.
   def test_problem_list
-    result = RpmsRpc::DataMapper[:problem_list].parse_many([ "123^ACTIVE^Diabetes Type 2^E11.9^3200101^3250301^101" ]).first
+    result = RpmsRpc::DataMapper[:problem_list].parse_many(
+      [ "123^Type 2 diabetes mellitus^A^E11.9^3200101^3250301^NSC^^^*^^10" ]
+    ).first
     assert_equal "123", result[:ien]
-    assert_equal "ACTIVE", result[:status]
+    assert_equal "Type 2 diabetes mellitus", result[:description]
+    assert_equal "A", result[:status]
     assert_equal "E11.9", result[:icd_code]
     assert_equal Date.new(2020, 1, 1), result[:onset_date]
+    assert_equal Date.new(2025, 3, 1), result[:last_modified]
+    assert_equal "NSC", result[:service_connected]
+    assert_equal "*", result[:priority]
+  end
+
+  # A real INACTIVE row must parse status "I" at piece 3 — under the old
+  # swapped mapping :status got the narrative text and downstream FHIR
+  # mappers defaulted the unrecognized value to "active".
+  def test_problem_list_inactive_row_carries_status_i
+    result = RpmsRpc::DataMapper[:problem_list].parse_many(
+      [ "456^Sprain of ankle^I^S93.401A^3180601^3180615^^^^^^10" ]
+    ).first
+    assert_equal "I", result[:status]
+    assert_equal "Sprain of ankle", result[:description]
+    assert_equal "S93.401A", result[:icd_code]
   end
 
   # -- ORQQVI VITALS ---------------------------------------------------------

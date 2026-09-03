@@ -330,4 +330,167 @@ class MeasurementProvenanceTest < Minitest::Test
     assert_nil row[:entered_in_error]
     assert_nil row[:service_category]
   end
+
+  # ==========================================================================
+  # By-IEN read (.find) — DDR GETS ENTRY DATA on one V MEASUREMENT.
+  # Field numbers cited from corpus readers of #9000010.01:
+  #   .01 type (pointer whose external is the abbreviation — BEHOVM2.m:65-66)
+  #   .02 patient DFN (APCDBMI.m:20)   .03 visit IEN (APCDBMI.m:22, BHSMEA.m:87)
+  #   .04 value + 1201 event d/t + 2 EIE (BTIUPCC4.m:19 reads ".03;.04;1201;2")
+  # ==========================================================================
+
+  CORE_FIELDS = ".01;.02;.03;.04;2;1201;.07"
+
+  def core_ddr_key(measurement_ien)
+    Ddr.gets_entry_param(file: "9000010.01", iens: "#{measurement_ien},",
+                         fields: CORE_FIELDS, flags: "IE").to_s
+  end
+
+  def seed_core_reply(m, ien, type: "WT", dfn: DFN, visit: VISIT_IEN, value: "180", eie: "0")
+    m.seed(:ddr_gets_entry_data, core_ddr_key(ien), <<~REPLY.chomp)
+      [Data]
+      9000010.01^#{ien}^.01^12^#{type}
+      9000010.01^#{ien}^.02^#{dfn}^DEMO,PATIENT
+      9000010.01^#{ien}^.03^#{visit}^JUN 07, 2026@14:30
+      9000010.01^#{ien}^.04^#{value}^#{value}
+      9000010.01^#{ien}^2^#{eie}^#{eie == '1' ? 'YES' : ''}
+      9000010.01^#{ien}^1201^3260607.1430^JUN 07, 2026@14:30
+      9000010.01^#{ien}^.07^3260607^JUN 07, 2026
+    REPLY
+  end
+
+  def seed_visit_and_units(m, service_category: "A")
+    m.seed(:encounter_visit, VISIT_IEN.to_s, {
+      location_ien: 1608, datetime_raw: "3260607.1430",
+      service_category: service_category, patient_dfn: DFN.to_i,
+      visit_id: "5150", locked: false
+    })
+    m.seed(:vital_units, "WT", { us_unit: "lb", metric_unit: "kg" })
+  end
+
+  def test_find_returns_fully_decorated_measurement
+    RpmsRpc.mock! do |m|
+      seed_core_reply(m, MSR_IEN)
+      seed_visit_and_units(m, service_category: "A")
+    end
+
+    row = Measurement.find(MSR_IEN)
+    refute_nil row
+    assert_equal MSR_IEN,   row[:measurement_ien]
+    assert_equal DFN.to_i,  row[:patient_dfn]
+    assert_equal "WT",      row[:type]
+    assert_equal "180",     row[:value]
+    assert_equal "lb",      row[:units]
+    assert_equal Time.new(2026, 6, 7, 14, 30, 0), row[:date]
+    assert_equal VISIT_IEN, row[:visit_ien]
+    assert_equal "A",       row[:service_category]
+    assert_equal :office,   row[:capture_mode]
+    assert_equal false,     row[:entered_in_error]
+  end
+
+  def test_find_flags_entered_in_error
+    RpmsRpc.mock! do |m|
+      seed_core_reply(m, MSR_IEN, eie: "1")
+      seed_visit_and_units(m)
+    end
+
+    assert_equal true, Measurement.find(MSR_IEN)[:entered_in_error]
+  end
+
+  def test_find_returns_nil_for_invalid_or_unknown_ien
+    RpmsRpc.mock!
+    assert_nil Measurement.find(nil)
+    assert_nil Measurement.find(0)
+    assert_nil Measurement.find("garbage")
+    assert_nil Measurement.find(999_999_999) # unseeded → no DDR reply
+  end
+
+  def test_find_survives_broker_error_string
+    stub_broker_response("-1^Application context has not been created!")
+    assert_nil Measurement.find(MSR_IEN)
+  end
+
+  # ==========================================================================
+  # Patient history (.history) — ORQQVI VITALS index rows decorated per
+  # measurement via the same DDR/BEHOENCX/VUNITS graph.
+  # ==========================================================================
+
+  def seed_history_graph(service_category: "A")
+    RpmsRpc.mock! do |m|
+      m.seed_keyed_collection(:vitals, DFN, [
+        { measurement_ien: MSR_IEN,     type: "WT", recorded_date: Time.new(2026, 6, 7, 14, 30, 0), value: "180" },
+        { measurement_ien: MSR_IEN + 1, type: "WT", recorded_date: Time.new(2026, 6, 7, 14, 30, 0), value: "181" }
+      ])
+      seed_core_reply(m, MSR_IEN)
+      seed_core_reply(m, MSR_IEN + 1, value: "181")
+      seed_visit_and_units(m, service_category: service_category)
+      yield m if block_given?
+    end
+  end
+
+  def test_history_dispatches_orqqvi_vitals_for_the_patient
+    seed_history_graph
+    Measurement.history(DFN)
+
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORQQVI VITALS" }
+    refute_nil call
+    assert_equal [ DFN ], call[:params]
+  end
+
+  def test_history_returns_decorated_rows_with_distinct_iens
+    seed_history_graph
+    rows = Measurement.history(DFN)
+
+    assert_equal 2, rows.length
+    assert_equal [ MSR_IEN, MSR_IEN + 1 ], rows.map { |r| r[:measurement_ien] }
+    rows.each do |row|
+      assert_equal "WT",      row[:type]
+      assert_equal "lb",      row[:units]
+      assert_equal DFN.to_i,  row[:patient_dfn]
+      assert_equal VISIT_IEN, row[:visit_ien]
+      assert_equal "A",       row[:service_category]
+      assert_equal :office,   row[:capture_mode]
+      assert_equal false,     row[:entered_in_error]
+      assert_equal Time.new(2026, 6, 7, 14, 30, 0), row[:date]
+    end
+    # Same type + same minute stays distinct — identity is the V-file IEN.
+    assert_equal rows.map { |r| r[:measurement_ien] }.uniq.length, rows.length
+  end
+
+  def test_history_classifies_reported_capture_mode
+    seed_history_graph(service_category: "T")
+    rows = Measurement.history(DFN)
+
+    assert(rows.all? { |r| r[:capture_mode] == :reported })
+  end
+
+  def test_history_degrades_to_unknown_when_decoration_unreachable
+    # Only the ORQQVI index is reachable — no DDR / visit / units seeds.
+    RpmsRpc.mock! do |m|
+      m.seed_keyed_collection(:vitals, DFN, [
+        { measurement_ien: MSR_IEN, type: "WT", recorded_date: Time.new(2026, 6, 7, 14, 30, 0), value: "180" }
+      ])
+    end
+
+    row = Measurement.history(DFN).first
+    assert_equal "WT", row[:type] # falls back to the ORQQVI type code
+    assert_equal "180", row[:value]
+    assert_nil row[:visit_ien]
+    assert_nil row[:service_category]
+    assert_equal :unknown, row[:capture_mode]
+    assert_nil row[:entered_in_error] # unknown, never fabricated
+    assert_nil row[:units]
+  end
+
+  def test_history_drops_no_vitals_sentinel_row
+    stub_broker_response("^No vitals found.")
+    assert_equal [], Measurement.history(DFN)
+  end
+
+  def test_history_rejects_invalid_dfn_without_rpc_call
+    RpmsRpc.mock!
+    assert_equal [], Measurement.history(nil)
+    assert_equal [], Measurement.history(-2)
+    assert_empty RpmsRpc.client.received_calls
+  end
 end

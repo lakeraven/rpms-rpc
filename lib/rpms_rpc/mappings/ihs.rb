@@ -1011,16 +1011,21 @@ module RpmsRpc
     end
 
     # BGOPROB GET CLASS — problem list filtered by IPL scope class.
-    # Same row shape as :problem_list (ORQQPL LIST).
+    # Declared with the same row shape as :problem_list (ORQQPL LIST —
+    # verified there); the BGOPROB wire itself is still best-effort pending
+    # trace capture.
     DataMapper.define(:problem_filter) do |m|
       m.rpc "BGOPROB GET CLASS"
       m.field 0, :ien
-      m.field 1, :status
-      m.field 2, :description
+      m.field 1, :description
+      m.field 2, :status
       m.field 3, :icd_code, :string, terminology: :icd10
       m.field 4, :onset_date,    :fileman_date
-      m.field 5, :recorded_date, :fileman_date
-      m.field 6, :provider_duz, :string, pointer: { file: 200 }
+      m.field 5, :last_modified, :fileman_date
+      m.field 6, :service_connected
+      m.field 7, :special_exposures
+      m.field 8, :transcribed
+      m.field 9, :priority
     end
 
     # ========================================================================

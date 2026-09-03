@@ -58,6 +58,90 @@ module RpmsRpc
       SERVICE_CATEGORY_CAPTURE_MODE.fetch(service_category.to_s.strip.upcase, :unknown)
     end
 
+    # Core V MEASUREMENT fields for the by-IEN DDR read. Field numbers
+    # cited from corpus readers of #9000010.01:
+    #   .01 MEASUREMENT TYPE — internal is a #9999999.07 pointer whose .01
+    #        is the abbreviation ("WT"), so the external form is that
+    #        abbreviation (EIE^BEHOVM2: BEHOVM2.m:65-66 —
+    #        "$$GET1^DIQ(9000010.01,+BEHDATA,.01,\"I\")" then
+    #        "$$GET1^DIQ(9999999.07,CHK,.01)=\"WT\"")
+    #   .02 PATIENT — internal is the DFN (APCDBMI.m:20)
+    #   .03 VISIT — internal is the visit IEN (APCDBMI.m:22, BHSMEA.m:87)
+    #   .04 VALUE, 1201 event date/time, 2 ENTERED IN ERROR — the exact
+    #        field set BTIUPCC4.m:19 reads (".03;.04;1201;2")
+    #   .07 date/time fallback (BEHOENP2.m:18-22 reads .07 then 1201)
+    CORE_FIELDS = ".01;.02;.03;.04;2;1201;.07"
+
+    # One V MEASUREMENT by IEN, fully decorated — the read behind
+    # id-addressed FHIR lookups (Observation/{ien}, Provenance target
+    # search) where only the measurement IEN is known. Returns the same
+    # hash shape as .for_visit rows plus :patient_dfn, or nil when the
+    # IEN is invalid/unknown or the DDR read fails.
+    def find(measurement_ien)
+      return nil if invalid_id?(measurement_ien)
+
+      fields = core_fields(measurement_ien)
+      return nil if fields.nil?
+
+      type = external(fields, ".01")
+      return nil if type.nil?
+
+      visit_ien = internal(fields, ".03")&.to_i
+      category = service_category_for(visit_ien, {})
+      raw_date = internal(fields, "1201") || internal(fields, ".07")
+      {
+        measurement_ien:  measurement_ien.to_i,
+        patient_dfn:      internal(fields, ".02")&.to_i,
+        type:             type,
+        value:            internal(fields, ".04"),
+        units:            units_for(type, {}),
+        date:             FilemanDateParser.parse_datetime(raw_date) || FilemanDateParser.parse_date(raw_date),
+        visit_ien:        visit_ien,
+        service_category: category,
+        capture_mode:     capture_mode_for(category),
+        entered_in_error: internal(fields, "2") == "1"
+      }
+    end
+
+    # A patient's full measurement history, decorated for Provenance.
+    # ORQQVI VITALS is the index (verified MEASUREMENT_IEN^TYPE^DATETIME^
+    # VALUE rows — VITALS^ORQQVI: ORQQVI.m:4-26; the ":vitals" mapping);
+    # each row is then decorated per measurement via the CORE_FIELDS DDR
+    # read (visit pointer + entered-in-error), BEHOENCX GETVISIT (service
+    # category) and BEHOVM2 VUNITS (units). Sub-reads are memoized per
+    # call and degrade to nil fields — :capture_mode :unknown,
+    # :entered_in_error nil (unknown, never fabricated), :units nil (a
+    # value without a source unit is for callers to drop, not guess).
+    # The "^No vitals found." sentinel row (ORQQVI.m:24) has no
+    # measurement IEN and is dropped.
+    def history(dfn)
+      return [] if invalid_id?(dfn)
+
+      visit_memo = {}
+      units_memo = {}
+      DataMapper.vitals.fetch_many(dfn.to_s).filter_map do |row|
+        ien = row[:measurement_ien]
+        next if ien.nil?
+
+        fields = core_fields(ien)
+        type = (fields && external(fields, ".01")) || row[:type]
+        visit_ien = fields && internal(fields, ".03")&.to_i
+        category = service_category_for(visit_ien, visit_memo)
+        {
+          measurement_ien:  ien,
+          patient_dfn:      dfn.to_i,
+          type:             type,
+          value:            row[:value],
+          units:            units_for(type, units_memo),
+          date:             row[:recorded_date],
+          visit_ien:        visit_ien,
+          service_category: category,
+          capture_mode:     capture_mode_for(category),
+          entered_in_error: fields.nil? ? nil : internal(fields, "2") == "1"
+        }
+      end
+    end
+
     # All measurements recorded on one visit, decorated for Provenance.
     # Underlying RPC: BGOVMSR GET with INP "VISIT_IEN^0"
     # (GET^BGOVMSR: BGOVMSR.m:41-77; row shape in :visit_measurements).
@@ -177,8 +261,26 @@ module RpmsRpc
       end
     end
 
+    # All CORE_FIELDS of one V MEASUREMENT via the registered generic
+    # FileMan read (DDR GETS ENTRY DATA — GETSC^DDR2: DDR2.m:17-43).
+    # nil when the read is unreachable or errors.
+    def core_fields(measurement_ien)
+      reply = DdrFileman.gets_entry(file: V_MEASUREMENT_FILE,
+                                    iens: "#{measurement_ien.to_i},",
+                                    fields: CORE_FIELDS, flags: "IE")
+      return nil if reply.nil? || reply[:error]
+
+      fields = reply[:fields]
+      fields.empty? ? nil : fields
+    end
+
     def internal(fields, field_number)
       value = fields[field_number] && fields[field_number][:internal]
+      value.nil? || value.empty? ? nil : value
+    end
+
+    def external(fields, field_number)
+      value = fields[field_number] && fields[field_number][:external]
       value.nil? || value.empty? ? nil : value
     end
 

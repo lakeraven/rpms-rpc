@@ -13,6 +13,21 @@ run (contracts: rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`).
 
 ### Added
 
+- `RpmsRpc::Measurement.find` — one V MEASUREMENT by IEN via
+  `DDR GETS ENTRY DATA` on #9000010.01 (field numbers cited from corpus
+  readers: .02 patient DFN — APCDBMI.m:20; .03 visit — APCDBMI.m:22 /
+  BHSMEA.m:87; .04/1201/2 — the exact set BTIUPCC4.m:19 reads; .01 type
+  whose external form is the abbreviation — BEHOVM2.m:65-66), decorated
+  with service category / capture mode / units like `.for_visit`. Returns
+  `:patient_dfn` so id-addressed FHIR lookups (Provenance target search)
+  can resolve the patient from a measurement IEN alone.
+- `RpmsRpc::Measurement.history` — a patient's full measurement history:
+  `ORQQVI VITALS` as the index (verified IEN^TYPE^DATETIME^VALUE rows),
+  each row decorated per measurement via the `.find` DDR read +
+  `BEHOENCX GETVISIT` + `BEHOVM2 VUNITS` (memoized). Decoration degrades
+  to nil fields (`capture_mode: :unknown`, `entered_in_error: nil`,
+  `units: nil`) — unknown is reported as unknown, never fabricated.
+
 - `RpmsRpc::Measurement.for_visit` / `.latest` — measurement reads that
   carry FHIR-Provenance signals, composed entirely from existing
   registered RPCs (no new M): `BGOVMSR GET` / `BGOVMSR LAST` (rows with
@@ -67,6 +82,17 @@ run (contracts: rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`).
 
 ### Fixed
 
+- `:problem_list` (`ORQQPL LIST`) declared a fabricated row shape —
+  STATUS and DESCRIPTION swapped, and RECORDED_DATE / PROVIDER_DUZ
+  invented at pieces 6-7. Verified wire (LIST^ORQQPL: ORQQPL.m:3-18,
+  reshuffling the LIST^GMPLUTL3 row — GMPLUTL3.m:76-124) is
+  `IEN^NARRATIVE^STATUS^ICD^ONSET^LAST MODIFIED^SC^SPEXP^TRANSCRIBED^PRIORITY^^DETAIL`
+  with STATUS = #9000011 field .12 internal (`"A"`/`"I"`). Under the old
+  mapping a real inactive row put the narrative text into `:status`, so
+  downstream FHIR mappers defaulted the unrecognized value to "active".
+  `Problem.for_patient` now also drops the `"^No problems found."`
+  sentinel row (ORQQPL.m:17). `:problem_filter` (`BGOPROB GET CLASS`,
+  still best-effort) is redeclared to match.
 - `:vitals` (`ORQQVI VITALS`) mapping matched an invented
   `TYPE^VALUE^UNITS^DATE` shape; the real wire (VITALS^ORQQVI:
   ORQQVI.m:4-26) is `MEASUREMENT_IEN^TYPE^DATETIME^VALUE` with no units

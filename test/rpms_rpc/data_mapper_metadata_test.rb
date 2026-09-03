@@ -152,12 +152,13 @@ class DataMapperMetadataTest < Minitest::Test
       "problem_list should have :icd10 terminology on :icd_code field"
   end
 
-  def test_problem_list_has_pointer_on_provider_duz
+  # The old :provider_duz pointer field was fabricated — the verified
+  # ORQQPL LIST wire carries no provider piece (LIST^ORQQPL: ORQQPL.m:3-18).
+  def test_problem_list_carries_no_fabricated_provider_pointer
     mapping = RpmsRpc::DataMapper[:problem_list]
-    pf = mapping.pointer_fields
 
-    assert pf.any? { |f| f.attribute == :provider_duz && f.pointer[:file] == 200 },
-      "problem_list should have pointer to file 200 on :provider_duz field"
+    assert mapping.pointer_fields.none? { |f| f.attribute == :provider_duz },
+      "problem_list must not declare the fabricated :provider_duz pointer"
   end
 
   def test_medication_list_has_terminology

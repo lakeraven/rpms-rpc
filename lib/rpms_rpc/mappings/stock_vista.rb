@@ -89,17 +89,33 @@ module RpmsRpc
       m.field 2, :severity
     end
 
-    # ORQQPL LIST — patient problem list (multi-line)
-    # Format: IEN^STATUS^DESCRIPTION^ICD_CODE^ONSET_DATE^RECORDED_DATE^PROVIDER_DUZ
+    # ORQQPL LIST — patient problem list (multi-line).
+    # Verified format (LIST^ORQQPL: ORQQPL.m:3-18 — the row is a reshuffle
+    # of the LIST^GMPLUTL3 array, GMPLUTL3.m:76-124: IFN^ST^NARR^ICD^ONSET^
+    # LASTMOD^SC^SP^priority^transcribed^SCTC^SCTD; ORQQPL emits
+    # $P(X,U)_U_$P(X,U,3)_U_$P(X,U,2)_U_$P(X,U,4..8)_U_$P(X,U,10)_U_
+    # $P(X,U,9)_U_""_U_DETAIL):
+    #   IEN[1]^NARRATIVE[2]^STATUS[3]^ICD[4]^ONSET[5]^LAST MODIFIED[6]^
+    #   SC[7]^SPEXP[8]^TRANSCRIBED($)[9]^PRIORITY(*)[10]^^DETAIL[12]
+    # STATUS is #9000011 field .12 internal ("A"/"I" — GMPLUTL3.m NODE0
+    # "$P(GMPLZ0,U,12)"). The prior declaration swapped STATUS and
+    # DESCRIPTION and invented RECORDED_DATE / PROVIDER_DUZ at pieces 6-7
+    # (really LAST MODIFIED — ^AUPNPROB 0-node piece 3 — and SERVICE
+    # CONNECTED): same fabrication class as the old ORQQVI mapping. "No
+    # problems" comes back as the sentinel row "^No problems found."
+    # (ORQQPL.m:17) — piece 1 empty, so :ien is blank and callers drop it.
     DataMapper.define(:problem_list) do |m|
       m.rpc "ORQQPL LIST"
       m.field 0, :ien
-      m.field 1, :status
-      m.field 2, :description
+      m.field 1, :description
+      m.field 2, :status
       m.field 3, :icd_code, :string, terminology: :icd10
       m.field 4, :onset_date,    :fileman_date
-      m.field 5, :recorded_date, :fileman_date
-      m.field 6, :provider_duz, :string, pointer: { file: 200 }
+      m.field 5, :last_modified, :fileman_date
+      m.field 6, :service_connected
+      m.field 7, :special_exposures
+      m.field 8, :transcribed
+      m.field 9, :priority
     end
 
     # ORQQPL coverage — problem-list mutations + lookups + audit. Wire field
