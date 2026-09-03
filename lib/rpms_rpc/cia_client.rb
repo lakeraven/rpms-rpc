@@ -178,10 +178,14 @@ module RpmsRpc
     # Split a raw {CIA} RPC reply into the "^"-pieces of its params line
     # (line 2; line 1 is the status code prefixed by the sequence echo and
     # ack byte, lines 3+ are message text). Returns [] when absent.
+    #
+    # Line separator: CRLF, bare CR, or bare LF — the YDB-served broker
+    # (rpms-ydb-9.0, verified live 2026-09-03) writes reply lines with bare
+    # CR; splitting only on CRLF/LF left the params line unfound, so the
+    # broker-assigned session UID was never adopted and every later frame
+    # carried the default UID (working only when the broker didn't enforce it).
     def session_params(reply)
-      lines = reply.to_s.split("\r\n")
-      lines = reply.to_s.split("\n") if lines.length <= 1
-      lines[1].to_s.split("^")
+      reply.to_s.split(/\r\n|\r|\n/)[1].to_s.split("^")
     end
   end
 end
