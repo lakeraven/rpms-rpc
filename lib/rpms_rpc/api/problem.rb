@@ -29,8 +29,16 @@ module RpmsRpc
     # Hash key insertion order can't reshuffle the payload mid-flight.
     EDPROB_FIELDS = %i[icd_code description status onset_date provider_duz reason].freeze
 
+    # List a patient's problems. Underlying RPC: ORQQPL LIST — verified row
+    # shape IEN^NARRATIVE^STATUS^ICD^ONSET^LAST MODIFIED^SC^SPEXP^... (see
+    # the :problem_list mapping). "No problems" comes back as the sentinel
+    # row "^No problems found." (LIST^ORQQPL: ORQQPL.m:17) — no IEN, so it
+    # is dropped rather than surfaced as a phantom problem. Invalid DFNs
+    # short-circuit to [] without dispatching an RPC.
     def for_patient(dfn)
-      DataMapper.problem_list.fetch_many(dfn.to_s)
+      return [] if invalid_id?(dfn)
+
+      DataMapper.problem_list.fetch_many(dfn.to_s).reject { |r| r[:ien].to_s.empty? }
     end
 
     def add(dfn, problem)

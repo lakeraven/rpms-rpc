@@ -40,12 +40,13 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | BEHOPTCX | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BEHOPTPC | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BEHOSICX | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| BEHOVM | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| BEHOVM | 4 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BGOPROB | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BGOREF | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BGOREP | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BGOTRG | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BGOVCPT | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| BGOVMSR | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BGOVUPD | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BHDO | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BHDPTRPC | 7 | n/a | ? | ? | ? | ? | out-of-scope | unverified placeholder (see provenance note) |
@@ -72,7 +73,7 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | ORQQPL | 26 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
 | ORQQPS | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | ORQQPX | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| ORQQVI | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| ORQQVI | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | ORWCV | 0 | n/a | ? | ? | ? | ? | CPRS GUI | unwrapped |
 | ORWDAL | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | ORWDX | 0 | n/a | ? | ? | ? | ? | CPRS GUI | unwrapped |

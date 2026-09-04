@@ -101,20 +101,93 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
   # -- ORQQPL LIST -----------------------------------------------------------
 
+  # Verified wire shape (LIST^ORQQPL: ORQQPL.m:3-18, reshuffling the
+  # LIST^GMPLUTL3 row — GMPLUTL3.m:76-124):
+  #   IEN[1]^NARRATIVE[2]^STATUS[3]^ICD[4]^ONSET[5]^LAST MODIFIED[6]^
+  #   SC[7]^SPEXP[8]^TRANSCRIBED[9]^PRIORITY[10]^^DETAIL[12]
+  # The prior declaration put STATUS at piece 2 and DESCRIPTION at piece 3
+  # (swapped), and invented RECORDED DATE / PROVIDER DUZ at pieces 6-7
+  # (really LAST MODIFIED and SERVICE CONNECTED) — same fabrication class
+  # as the old ORQQVI mapping.
   def test_problem_list
-    result = RpmsRpc::DataMapper[:problem_list].parse_many([ "123^ACTIVE^Diabetes Type 2^E11.9^3200101^3250301^101" ]).first
+    result = RpmsRpc::DataMapper[:problem_list].parse_many(
+      [ "123^Type 2 diabetes mellitus^A^E11.9^3200101^3250301^NSC^^^*^^10" ]
+    ).first
     assert_equal "123", result[:ien]
-    assert_equal "ACTIVE", result[:status]
+    assert_equal "Type 2 diabetes mellitus", result[:description]
+    assert_equal "A", result[:status]
     assert_equal "E11.9", result[:icd_code]
     assert_equal Date.new(2020, 1, 1), result[:onset_date]
+    assert_equal Date.new(2025, 3, 1), result[:last_modified]
+    assert_equal "NSC", result[:service_connected]
+    assert_equal "*", result[:priority]
+  end
+
+  # A real INACTIVE row must parse status "I" at piece 3 — under the old
+  # swapped mapping :status got the narrative text and downstream FHIR
+  # mappers defaulted the unrecognized value to "active".
+  def test_problem_list_inactive_row_carries_status_i
+    result = RpmsRpc::DataMapper[:problem_list].parse_many(
+      [ "456^Sprain of ankle^I^S93.401A^3180601^3180615^^^^^^10" ]
+    ).first
+    assert_equal "I", result[:status]
+    assert_equal "Sprain of ankle", result[:description]
+    assert_equal "S93.401A", result[:icd_code]
   end
 
   # -- ORQQVI VITALS ---------------------------------------------------------
 
-  def test_vitals
-    results = RpmsRpc::DataMapper[:vitals].parse_many([ "BLOOD PRESSURE^120/80^mmHg^3260401" ])
-    assert_equal "BLOOD PRESSURE", results[0][:type]
-    assert_equal "120/80", results[0][:value]
+  # The registered "ORQQVI VITALS" RPC dispatches to FASTVIT^ORQQVI
+  # (.broker_dumps_8994_20260607.txt:565 "ORQQVI VITALS^FASTVIT^ORQQVI"),
+  # whose rows are "vital measurement ien^vital type^rate^date/time taken"
+  # (header ORQQVI.m:66-67; row construction ORQQVI.m:113/179) — VALUE at
+  # piece 3, DATETIME at piece 4. A prior revision declared
+  # IEN^TYPE^DATETIME^VALUE, the shape of a DIFFERENT RPC ("ORQQVI VITALS
+  # FOR DATE RANGE" → VITALS^ORQQVI — dump line 795): it had been verified
+  # against the wrong routine tag, swapping value and date.
+  def test_vitals_parses_real_fastvit_row
+    # IHS-branch FASTVIT row (MSR^ORQQVI: ORQQVI.m:179-186): a temperature
+    # with display piece, metric conversion, and a qualifier at piece 7.
+    results = RpmsRpc::DataMapper[:vitals].parse_many(
+      [ "5001^TMP^98.6^3260401.0915^98.6 F^(37.0 C)^ORAL" ]
+    )
+    assert_equal 5001, results[0][:measurement_ien]
+    assert_equal "TMP", results[0][:type]
+    assert_equal "98.6", results[0][:value]
+    assert_equal Time.new(2026, 4, 1, 9, 15, 0), results[0][:recorded_date]
+    assert_equal "98.6 F", results[0][:display]
+    assert_equal "(37.0 C)", results[0][:metric_display]
+    assert_equal "ORAL", results[0][:qualifiers]
+  end
+
+  # The swap regression pinned: under the old IEN^TYPE^DATETIME^VALUE
+  # declaration a real FASTVIT BP row fed "120/80" into :recorded_date and
+  # the FileMan datetime into :value. The corrected mapping must put each
+  # where FASTVIT actually emits it.
+  def test_vitals_fastvit_value_and_date_are_not_swapped
+    row = RpmsRpc::DataMapper[:vitals].parse_one("5002^BP^120/80^3260401.0915^120/80")
+    assert_equal "120/80", row[:value]
+    assert_equal Time.new(2026, 4, 1, 9, 15, 0), row[:recorded_date]
+  end
+
+  # -- ORQQVI VITALS FOR DATE RANGE ------------------------------------------
+
+  # VITALS^ORQQVI (.broker_dumps_8994_20260607.txt:795) — full history in
+  # range, GMRV #120.5 only: "vital measurement ien^vital type^date/time
+  # taken^rate" (header ORQQVI.m:6, row ORQQVI.m:23) — DATETIME at piece 3,
+  # VALUE at piece 4 (the reverse of FASTVIT).
+  def test_vitals_for_date_range
+    row = RpmsRpc::DataMapper[:vitals_for_date_range].parse_one("77^BP^3260401.0915^120/80")
+    assert_equal 77, row[:measurement_ien]
+    assert_equal "BP", row[:type]
+    assert_equal Time.new(2026, 4, 1, 9, 15, 0), row[:recorded_date]
+    assert_equal "120/80", row[:value]
+  end
+
+  # Its sentinel "^No vitals found." (ORQQVI.m:24) has no IEN.
+  def test_vitals_for_date_range_sentinel_has_no_ien
+    row = RpmsRpc::DataMapper[:vitals_for_date_range].parse_one("^No vitals found.")
+    assert_nil row[:measurement_ien]
   end
 
   # -- BHDPTRPC TRIBAL -------------------------------------------------------
@@ -245,11 +318,38 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
   # -- ORQQPS LIST -----------------------------------------------------------
 
-  def test_medication_list
-    result = RpmsRpc::DataMapper[:medication_list].parse_many([ "456^METFORMIN 500MG^TAKE ONE TABLET BY MOUTH TWICE DAILY^ACTIVE^3260101^3^MARTINEZ" ]).first
-    assert_equal "METFORMIN 500MG", result[:drug_name]
-    assert_equal "ACTIVE", result[:status]
+  # Verified wire shape (LIST^ORQQPS: ORQQPS.m:4-55, header ORQQPS.m:5
+  # "id^nameform^stop date^route^schedule/infusion rate^refills
+  # remaining"; outpatient row ORQQPS.m:47). The prior fixture
+  # (IEN^DRUG_NAME^SIG^STATUS^LAST_FILL^REFILLS^PROVIDER) was fabricated —
+  # no SIG/STATUS/PROVIDER piece exists on this wire.
+  def test_medication_list_parses_real_orqqps_row
+    result = RpmsRpc::DataMapper[:medication_list].parse_many(
+      [ "403R;O^METFORMIN 500MG TAB^3270101^PO^BID^3" ]
+    ).first
+    assert_equal "403R;O", result[:id]
+    assert_equal "METFORMIN 500MG TAB", result[:name]
+    assert_equal Date.new(2027, 1, 1), result[:stop_date]
+    assert_equal "PO", result[:route]
+    assert_equal "BID", result[:schedule]
     assert_equal 3, result[:refills]
+  end
+
+  # IV rows carry the infusion rate in the schedule position and no
+  # refills piece (ORQQPS.m:32).
+  def test_medication_list_iv_row_has_no_refills
+    result = RpmsRpc::DataMapper[:medication_list].parse_many(
+      [ "12V;I^AMPICILLIN 1GM in 0.9% NS 100 ML^3260901^IV^125 ml/hr" ]
+    ).first
+    assert_equal "12V;I", result[:id]
+    assert_equal "125 ml/hr", result[:schedule]
+    assert_nil result[:refills]
+  end
+
+  # Its sentinel "^No medications found." (ORQQPS.m:53) has no id.
+  def test_medication_list_sentinel_has_no_id
+    result = RpmsRpc::DataMapper[:medication_list].parse_one("^No medications found.")
+    assert_nil result[:id]
   end
 
   # -- BHDO HOSP LOC DATA ---------------------------------------------------
@@ -591,6 +691,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
     expected = %i[
       patient_select patient_id_info patient_list patient_ssn
       patient_appointments allergy_list problem_list vitals
+      vitals_for_date_range
       tribal_enrollment tribal_validation tribe_info enrollment_eligibility
       service_unit patient_update encounter_create
       voa_add_patient ddr_lister ddr_lock_unlock_node ddr_gets_entry_data

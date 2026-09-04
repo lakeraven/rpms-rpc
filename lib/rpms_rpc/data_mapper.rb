@@ -161,13 +161,21 @@ module RpmsRpc
       # -- format_* methods: reverse of parse (hash → caret-delimited string) ----
 
       # Format a hash into a caret-delimited string matching this mapping's field positions.
+      # A position may be declared twice (attribute alias — e.g. :status /
+      # :service_category on :encounter_visit); an alias the caller didn't
+      # seed must not blank out the value another alias wrote, so a
+      # position claimed by a seeded attribute is only overwritten by
+      # another seeded attribute.
       def format_one(attrs)
         max_pos = @fields.map(&:position).max || 0
         parts = Array.new(max_pos + 1, "")
+        claimed = {}
 
         @fields.each do |f|
-          val = attrs[f.attribute]
-          parts[f.position] = format_value(val, f.type)
+          next if claimed[f.position] && !attrs.key?(f.attribute)
+
+          parts[f.position] = format_value(attrs[f.attribute], f.type)
+          claimed[f.position] = true if attrs.key?(f.attribute)
         end
 
         parts.join("^")
@@ -266,7 +274,11 @@ module RpmsRpc
         when :fileman_date
           FilemanDateParser.parse_date(raw)
         when :fileman_datetime
-          FilemanDateParser.parse_datetime(raw)
+          # Date/time fields carry date-only values when no time was
+          # recorded ("3250115" vs "3250115.0800") — fall back to a
+          # midnight Time rather than dropping the value. Always Time,
+          # never Date, so the mapped type is consistent for callers.
+          FilemanDateParser.parse_datetime_or_date(raw)
         when :boolean
           raw == "1" || raw.casecmp?("yes")
         else

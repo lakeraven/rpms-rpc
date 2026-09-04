@@ -4,10 +4,26 @@ module RpmsRpc
   module Vital
     extend self
 
-    # List a patient's vitals.
-    # Underlying RPC: ORQQVI VITALS
-    def for_patient(dfn)
-      DataMapper.vitals.fetch_many(dfn.to_s)
+    # The patient's MOST RECENT vital per type, optionally within a
+    # FileMan date range — NOT full history. Underlying RPC: ORQQVI
+    # VITALS, which the #8994 registry dispatches to FASTVIT^ORQQVI
+    # (.broker_dumps_8994_20260607.txt:565) — newest-in-range per vital
+    # type only (ORQQVI.m:64-91; per-type `Q:OK` at ORQQVI.m:104-105/
+    # 170-171). Rows are MEASUREMENT_IEN^TYPE^VALUE^DATETIME^DISPLAY^
+    # METRIC^QUALIFIERS (ORQQVI.m:66-67,113,179; see the :vitals mapping).
+    # No units piece on this wire — use RpmsRpc::Measurement.for_visit /
+    # .latest for the units + provenance read. FASTVIT emits no sentinel
+    # row when the patient has no vitals (empty reply); rows without a
+    # measurement IEN are dropped defensively anyway.
+    #
+    # `start_date`/`end_date` accept Time/Date or FileMan strings
+    # (ORQQVI.m:74-78 — omitted means all time).
+    def for_patient(dfn, start_date: nil, end_date: nil)
+      return [] if invalid_id?(dfn)
+
+      params = [ dfn.to_s, fileman(start_date), fileman(end_date) ]
+      params.pop while params.last.empty? && params.length > 1
+      DataMapper.vitals.fetch_many(*params).reject { |r| r[:measurement_ien].nil? }
     end
 
     # Vital field metadata for a location — name, abbreviation, units, range,
@@ -98,6 +114,21 @@ module RpmsRpc
     end
 
     private
+
+    def invalid_id?(value)
+      value.nil? || value.to_s.strip.empty? || value.to_i <= 0
+    end
+
+    # Coerce a Time/Date/FileMan-string range bound to the FileMan string
+    # FASTVIT expects; nil → "" (server-side default, ORQQVI.m:74-78).
+    def fileman(value)
+      case value
+      when nil then ""
+      when Time then FilemanDateParser.format_datetime(value)
+      when Date then FilemanDateParser.format_date(value)
+      else value.to_s
+      end
+    end
 
     def valid_response?(validated, value)
       return false if validated.nil?

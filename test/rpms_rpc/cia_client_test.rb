@@ -533,4 +533,15 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_empty socket.frames, "an [XWB]1130 frame must not parse as {CIA}"
     refute c.connected?
   end
+
+  # A standalone `require "rpms_rpc/cia_client"` (how the release
+  # evidence drivers load the gem) must bring in RpmsRpc.sanitize_error:
+  # without it every error path raised NoMethodError instead of the real
+  # broker error — observed live against rpms-ydb-9.0 on 2026-09-03.
+  def test_cia_client_loads_standalone_with_error_helpers
+    lib = File.expand_path("../../lib", __dir__)
+    ok = system(RbConfig.ruby, "-I", lib, "-e",
+                'require "rpms_rpc/cia_client"; exit(RpmsRpc.respond_to?(:sanitize_error) ? 0 : 1)')
+    assert ok, "rpms_rpc/cia_client standalone load lost RpmsRpc.sanitize_error"
+  end
 end

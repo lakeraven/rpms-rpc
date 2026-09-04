@@ -86,6 +86,65 @@ module RpmsRpc
       m.scalar :result_code
     end
 
+    # BGOVMSR GET — every V MEASUREMENT on one visit (multi-line).
+    # One INP param: "VISIT_IEN^FORMAT" — format 0 = one row per
+    # measurement (GET^BGOVMSR: BGOVMSR.m:41-77):
+    #   TYPE[1]^VALUE[2]^DATE_DISPLAY[3]^MEASUREMENT_IEN[4]^VISIT_IEN[5]^
+    #   PROVIDER_NAME[6]^LOCKED[7]
+    # TYPE is the ^AUTTMSR .01 abbreviation ("WT"); VALUE is the raw stored
+    # ^AUPNVMSR 0-node piece 4 in US units — GET's own single-string branch
+    # converts WT lb→kg, HT in→cm, TMP F→C (BGOVMSR.m:60-63). DATE_DISPLAY
+    # is CDT display text ("JUN 07, 2026@14:30" — CDT^BGOVMSR:
+    # BGOVMSR.m:79-86), not a FileMan date; the internal date rides fields
+    # 1201/.07 of #9000010.01 (see Measurement.for_visit). NB: unlike the
+    # BEHOVM query path (BLDXRF^BEHOVM drops rows with field 2 set),
+    # GET^BGOVMSR does NOT filter entered-in-error rows — callers must
+    # check the flag themselves.
+    DataMapper.define(:visit_measurements) do |m|
+      m.rpc "BGOVMSR GET"
+      m.field 0, :type
+      m.field 1, :value
+      m.field 2, :date_display
+      m.field 3, :measurement_ien, :integer
+      m.field 4, :visit_ien,       :integer
+      m.field 5, :provider_name
+      m.field 6, :locked,          :boolean
+    end
+
+    # BGOVMSR LAST — most recent V MEASUREMENT per type (multi-line).
+    # One INP param: "DFN^TYPE_LIST^VISIT_IEN" — TYPE_LIST is ";"-separated
+    # abbreviations, server default "HT;WT;TMP;BP;PU;RS;PA"; VISIT_IEN
+    # restricts to one visit (LAST^BGOVMSR: BGOVMSR.m:3-35). Row format
+    # (BGOVMSR.m:35):
+    #   TYPE[1]^VALUE[2]^DATE_DISPLAY[3]^MEASUREMENT_IEN[4]^VISIT_IEN[5]^LOCKED[6]
+    # Same caveats as :visit_measurements (US-unit raw value, display
+    # date, no entered-in-error filter).
+    DataMapper.define(:latest_measurements) do |m|
+      m.rpc "BGOVMSR LAST"
+      m.field 0, :type
+      m.field 1, :value
+      m.field 2, :date_display
+      m.field 3, :measurement_ien, :integer
+      m.field 4, :visit_ien,       :integer
+      m.field 5, :locked,          :boolean
+    end
+
+    # BEHOVM2 VUNITS — units + normal range for one vital type, keyed by
+    # the type name/abbreviation (same ^BEHOVM(90460.01,"B",...) lookup
+    # the production GETCATS^BEHOVM2 call path uses — BEHOVM.m QUERY
+    # passes VABR). Reply: "US unit^LO^HI^Metric unit^LO^HI"
+    # (VUNITS^BEHOVM2: BEHOVM2.m:186-196 → UNITS^BEHOVM). Unknown type →
+    # empty reply (RET stays "").
+    DataMapper.define(:vital_units) do |m|
+      m.rpc "BEHOVM2 VUNITS"
+      m.field 0, :us_unit
+      m.field 1, :us_low
+      m.field 2, :us_high
+      m.field 3, :metric_unit
+      m.field 4, :metric_low
+      m.field 5, :metric_high
+    end
+
     # BHDPTRPC TRIBAL — tribal enrollment details (placeholder — see header note)
     # Format: ENROLLMENT_NUMBER^TRIBE_NAME^ENROLLMENT_DATE^STATUS^SERVICE_UNIT^TRIBE_CODE
     DataMapper.define(:tribal_enrollment) do |m|
@@ -590,15 +649,27 @@ module RpmsRpc
       m.text_blob :definition_text
     end
 
-    # BEHOENCX GETVISIT — core visit detail by visit_ien
-    # Format: LOCATION_IEN^DATETIME_RAW^STATUS^PATIENT_DFN^WARD^?
+    # BEHOENCX GETVISIT — core visit detail by visit_ien.
+    # Verified format (GETVISIT^BEHOENCX: BEHOENCX.m:4-16, header comment
+    # "Returns hosp loc^visit date^service category^dfn^visit id^locked"):
+    #   LOCATION_IEN^DATETIME_RAW^SERVICE_CATEGORY^PATIENT_DFN^VISIT_ID^LOCKED
+    # Position 2 is the visit's SERVICE CATEGORY — VISIT file #9000010
+    # field .07, ^AUPNVSIT(IEN,0) piece 7 (VIS2VSTR^BEHOENCX:
+    # BEHOENCX.m "$P(VSTR,U,7)"; BLDXRF^BEHOVM "CTYPE=$P(^AUPNVSIT(...),U,7)").
+    # :status is the legacy alias for the same position, kept for existing
+    # callers (RpmsRpc::Encounter). Position 4 is the VISIT ID, not a ward —
+    # the old :ward label predated corpus verification and is retained as an
+    # alias only.
     DataMapper.define(:encounter_visit) do |m|
       m.rpc "BEHOENCX GETVISIT"
       m.field 0, :location_ien, :integer
       m.field 1, :datetime_raw
       m.field 2, :status
+      m.field 2, :service_category
       m.field 3, :patient_dfn, :integer
       m.field 4, :ward
+      m.field 4, :visit_id
+      m.field 5, :locked, :boolean
     end
 
     # BEHOENCX FETCH — hydrated visit context (location + provider names + ward)
@@ -940,16 +1011,21 @@ module RpmsRpc
     end
 
     # BGOPROB GET CLASS — problem list filtered by IPL scope class.
-    # Same row shape as :problem_list (ORQQPL LIST).
+    # Declared with the same row shape as :problem_list (ORQQPL LIST —
+    # verified there); the BGOPROB wire itself is still best-effort pending
+    # trace capture.
     DataMapper.define(:problem_filter) do |m|
       m.rpc "BGOPROB GET CLASS"
       m.field 0, :ien
-      m.field 1, :status
-      m.field 2, :description
+      m.field 1, :description
+      m.field 2, :status
       m.field 3, :icd_code, :string, terminology: :icd10
       m.field 4, :onset_date,    :fileman_date
-      m.field 5, :recorded_date, :fileman_date
-      m.field 6, :provider_duz, :string, pointer: { file: 200 }
+      m.field 5, :last_modified, :fileman_date
+      m.field 6, :service_connected
+      m.field 7, :special_exposures
+      m.field 8, :transcribed
+      m.field 9, :priority
     end
 
     # ========================================================================

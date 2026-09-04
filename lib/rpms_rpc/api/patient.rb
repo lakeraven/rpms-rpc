@@ -92,6 +92,63 @@ module RpmsRpc
       nil
     end
 
+    # Patient telecom (FHIR Patient.telecom source) — home / work / cell
+    # phone + email, read via the registered generic FileMan read
+    # (DDR GETS ENTRY DATA — GETSC^DDR2: DDR2.m:17-43) against PATIENT
+    # (#2) fields .131 / .132 / .134 / .133. Piece↔field identity for the
+    # ^DPT(DFN,.13) node is cited from three independent corpus readers:
+    #   piece 1 = .131 residence phone, piece 2 = .132 work phone,
+    #   piece 3 = .133 email, piece 4 = .134 cellular
+    #   (PTINFO1^BEHOPTCX: BEHOPTCX.m:34-41 — header
+    #    "Phone(Res)^Phone(Work)^Phone(Cell)^Email" built from pieces
+    #    1,2,4,3; DGRRPSAM.m:84-88 home=1/work=2; BQIPLADR.m:76).
+    #
+    # Why DDR and not a purpose-built RPC: the full corpus×registry sweep
+    # of ^DPT(*,.13) readers found NO registered purpose-built RPC that
+    # returns the phone as a structured patient read —
+    #   BEHOPTCX PTINFO  — 20-piece identity bundle, no .13 data
+    #                      (PTINFO^BEHOPTCX: BEHOPTCX.m:7-31)
+    #   BEHOPTCX PTINFO1 — has exactly these fields but is NOT in the
+    #                      #8994 registry (.broker_dumps_8994_20260607.txt
+    #                      has PTINFO/PTINQ/LAST/... only)
+    #   BEHOPTCX PTINQ   — report text, not structured
+    #   DGRR GET PATIENT SERVICES DATA — home+work only, XML envelope
+    #                      (DGRRPSAM.m:35-37), no cellular
+    #   VEN ASQ GET DATA — home phone only, "|"-delimited ASQ projection
+    #                      (DATA^VENPCCQ: VENPCCQ.m:180-213)
+    #   BQI MAIL MERGE LIST — home/work in iCare BMX mail-merge format,
+    #                      executes ^APCLVSTS print templates (BQIPLADR.m)
+    #   BSDX WAITLIST    — waitlist rows, not a patient read (BSDX36.m:42)
+    # The cellular phone (.134) in particular is served by NO purpose-built
+    # registered RPC. DDR GETS ENTRY DATA is registered, already driven by
+    # this gem (RpmsRpc::Registration), and returns all four structured.
+    #
+    # Returns { dfn:, phone_home:, phone_work:, phone_cell:, email: }
+    # (missing values nil), or nil when the broker gives no response /
+    # FileMan errors, so callers can distinguish "no phone on file" from
+    # "unreachable".
+    def contact(dfn)
+      return nil if dfn.nil? || dfn.to_i <= 0
+
+      reply = DdrFileman.gets_entry(file: "2", iens: "#{dfn.to_i},",
+                                    fields: ".131;.132;.134;.133", flags: "IE")
+      return nil if reply.nil? || reply[:error]
+
+      fields = reply[:fields]
+      # A reply that parsed NO field rows is a failed read, not "no telecom
+      # on file" — a real GETS^DIQ read of an existing entry returns one
+      # row per requested field even when the values are empty.
+      return nil if fields.empty?
+
+      {
+        dfn:        dfn.to_i,
+        phone_home: external(fields, ".131"),
+        phone_work: external(fields, ".132"),
+        phone_cell: external(fields, ".134"),
+        email:      external(fields, ".133")
+      }
+    end
+
     # Compute integer years between dob and today. `today:` is a keyword arg
     # for testability — production callers omit it and get Date.today.
     # Default is `nil` (not `Date.today`) so the nil-DOB guard runs before
@@ -103,6 +160,15 @@ module RpmsRpc
       years = today.year - dob.year
       years -= 1 if today.month < dob.month || (today.month == dob.month && today.day < dob.day)
       years
+    end
+
+    private
+
+    # External (display) value of one field from a DdrFileman.gets_entry
+    # reply; empty-on-file → nil.
+    def external(fields, field_number)
+      value = fields[field_number] && fields[field_number][:external]
+      value.nil? || value.empty? ? nil : value
     end
   end
 end

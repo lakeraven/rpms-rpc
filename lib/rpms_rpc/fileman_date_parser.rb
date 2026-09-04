@@ -62,6 +62,18 @@ module RpmsRpc
       nil
     end
 
+    # Parse a FileMan date/time value that may or may not carry a time
+    # ("3250115.0800" vs "3250115") to a Ruby Time — midnight when the
+    # value is date-only. Always Time (never Date) so callers get one
+    # consistent type; nil when unparseable.
+    def self.parse_datetime_or_date(fileman_value)
+      parsed = parse_datetime(fileman_value)
+      return parsed if parsed
+
+      date = parse_date(fileman_value)
+      date && Time.new(date.year, date.month, date.day)
+    end
+
     # Format Ruby Date to FileMan date string (YYYMMDD).
     def self.format_date(date)
       return nil if date.nil?

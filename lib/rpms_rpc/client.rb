@@ -1,6 +1,11 @@
 # frozen_string_literal: true
 
 require "socket"
+# version.rb defines RpmsRpc.sanitize_error (and the configuration it
+# reads) — without this require, a client loaded standalone
+# (`require "rpms_rpc/cia_client"`, as the evidence drivers do) crashes
+# with NoMethodError on its ERROR paths, masking the real broker error.
+require "rpms_rpc/version"
 require "rpms_rpc/parameter_encoder"
 require "rpms_rpc/xml_response_parser"
 require "rpms_rpc/server_capabilities"
