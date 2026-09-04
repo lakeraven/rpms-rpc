@@ -13,6 +13,54 @@ run (contracts: rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`).
 
 ### Added
 
+- Wire-shape contract gate (#189): `RpmsRpc::WireCapture` +
+  `rake wire:capture` capture curated RPC returns from a rung we own into
+  provenance-stamped fixtures (`test/fixtures/wire_captures/` — verbatim
+  raw + sha256 for live captures, M-source cites for write/faulting RPCs;
+  a fixture with neither provenance is rejected), and
+  `test/rpms_rpc/wire_contract_test.rb` gates every mapping with a
+  committed capture in CI: declared field positions must carry the cited
+  wire semantics and typed fields must survive the captured raw. Closes
+  the belief-mirroring-mock failure class (ORQQVI VITALS shipped
+  `TYPE^VALUE^UNITS^DATE` against a real wire of `IEN^TYPE^DATETIME^value`
+  and stayed green); on its first run the gate caught `:problem_list`
+  (status/description swapped, phantom provider-DUZ piece) and
+  `:patient_id_info` (position 3 is the VETERAN flag, not a race code;
+  position 5 the ward, not a site IEN) — pinned as known divergences for
+  their own mapping-fix PRs. See docs/WIRE_CONTRACTS.md.
+
+- `RpmsRpc::Measurement.for_visit` / `.latest` — measurement reads that
+  carry FHIR-Provenance signals, composed entirely from existing
+  registered RPCs (no new M): `BGOVMSR GET` / `BGOVMSR LAST` (rows with
+  the visit IEN — GET/LAST^BGOVMSR), `BEHOENCX GETVISIT` (the visit's
+  SERVICE CATEGORY, #9000010 field .07 — GETVISIT^BEHOENCX),
+  `DDR GETS ENTRY DATA` (#9000010.01 field 2 ENTERED IN ERROR — the flag
+  `EIE^BEHOVM2` stores and `BLDXRF^BEHOVM` filters on — plus the internal
+  1201/.07 date/time), and `BEHOVM2 VUNITS` (display units for the raw
+  US-unit stored value). Each row:
+  `{ type:, value:, units:, date:, date_display:, measurement_ien:,
+  visit_ien:, service_category:, capture_mode:, entered_in_error:, ... }`
+  with `capture_mode` classifying the service category
+  (A/H/I/S/O/R/D → `:office`, T/M/E/C → `:reported`, else `:unknown` —
+  code set cited from PXRHS01.m:14-26 and APCDEIN.m:85). Note
+  `BGOVMSR GET`/`LAST` do NOT filter entered-in-error rows (unlike the
+  BEHOVM query path), which is why the explicit flag is part of the read.
+- `RpmsRpc::Patient.contact` — patient telecom
+  (`phone_home`/`phone_work`/`phone_cell`/`email`, PATIENT #2 fields
+  .131/.132/.134/.133) via the registered generic FileMan read
+  `DDR GETS ENTRY DATA`. The full corpus×registry sweep of
+  `^DPT(*,.13)` readers found no registered purpose-built structured
+  alternative: `BEHOPTCX PTINFO1` has exactly these fields but is not
+  in the #8994 registry; `DGRR GET PATIENT SERVICES DATA` (XML) and
+  `BQI MAIL MERGE LIST` / `VEN ASQ GET DATA` carry only subsets in
+  awkward envelopes; nothing purpose-built serves the cellular phone.
+- Mappings `:visit_measurements`, `:latest_measurements`, `:vital_units`;
+  `:encounter_visit` now exposes `:service_category` (verified reply
+  piece 3 — GETVISIT^BEHOENCX header), `:visit_id` (piece 5 is the visit
+  id, not a ward) and `:locked`, keeping `:status`/`:ward` as legacy
+  aliases. `DataMapper#format_one` supports aliased positions (an
+  unseeded alias no longer blanks a seeded one).
+
 - `RpmsRpc::Registration` — patient registration composed from verified
   stock-VistA RPCs: `VAFC VOA ADD PATIENT` (PATIENT #2 half, returns the
   DFN) then `DDR LOCK/UNLOCK NODE` + `DDR LISTER` (HRN "D"-xref
@@ -35,6 +83,14 @@ run (contracts: rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`).
 
 ### Fixed
 
+- `:vitals` (`ORQQVI VITALS`) mapping matched an invented
+  `TYPE^VALUE^UNITS^DATE` shape; the real wire (VITALS^ORQQVI:
+  ORQQVI.m:4-26) is `MEASUREMENT_IEN^TYPE^DATETIME^VALUE` with no units
+  piece — the old mapping parsed the IEN as the type and the type as the
+  value. `Vital.for_patient` now also drops the `"^No vitals found."`
+  sentinel row instead of surfacing it as a record. `:fileman_datetime`
+  coercion falls back to date-only parsing rather than dropping timeless
+  values.
 - `CiaClient#authenticate` now requests session UID `0` on first sign-on
   (was hard-coded `"1"`). `AUTH^CIANBRPC` treats a non-zero UID as a
   reconnect to that session; on any box with an existing session #1 it

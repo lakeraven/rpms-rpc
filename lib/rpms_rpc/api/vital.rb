@@ -5,9 +5,14 @@ module RpmsRpc
     extend self
 
     # List a patient's vitals.
-    # Underlying RPC: ORQQVI VITALS
+    # Underlying RPC: ORQQVI VITALS — rows are
+    # MEASUREMENT_IEN^TYPE^DATETIME^VALUE (VITALS^ORQQVI: ORQQVI.m:4-26);
+    # no units on this wire (see the :vitals mapping note — use
+    # RpmsRpc::Measurement.for_visit / .latest for the units + provenance
+    # read). The "^No vitals found." sentinel row (ORQQVI.m:24) has no
+    # measurement IEN and is dropped.
     def for_patient(dfn)
-      DataMapper.vitals.fetch_many(dfn.to_s)
+      DataMapper.vitals.fetch_many(dfn.to_s).reject { |r| r[:measurement_ien].nil? }
     end
 
     # Vital field metadata for a location — name, abbreviation, units, range,
