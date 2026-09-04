@@ -118,6 +118,20 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_includes c.instance_variable_get(:@socket).writes.last, "\x03UID\x00\x017".b
   end
 
+  # The YDB-served broker (rpms-ydb-9.0, live 2026-09-03) separates reply
+  # lines with bare CR, not CRLF — the session UID must still be adopted.
+  def test_authenticate_captures_session_uid_from_cr_only_reply_lines
+    cr_auth = "1\x001^VERIFY CODE must be changed before continued use.\r" \
+              "35^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\rGood evening USER,DEMO\r" \
+              "     You last signed on today at 08:15\r"
+    c = connected_client([ cr_auth + EOD, "2\x00DUZ=63\r" + EOD, "3\x00ok\r" + EOD ])
+    c.authenticate("SYN123", "SYN123!!")
+    assert_equal "35", c.session_uid
+    assert_equal "63", c.duz
+    c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
+    assert_includes c.instance_variable_get(:@socket).writes.last, "\x03UID\x00\x0235".b
+  end
+
   def test_authenticate_duz_nil_when_session_env_lacks_it
     c = connected_client([ AUTH_REPLY + EOD, "2\x00\r\n" + EOD ])
     result = c.authenticate("SYN123", "SYN123!!")
