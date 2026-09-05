@@ -7,12 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Composed patient registration replaces the last BHDPTRPC placeholder
-dispatch. Live round-trip verification is gated on the rpms-ops evidence
-run (contracts: rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`).
+The invented BHDPTRPC placeholder namespace is now fully removed
+(issues #174/#184: zero hits across the 65,782-routine FOIA corpus, the
+staging file-8994 fingerprint, and IHS public RPC docs). Composed
+registration replaced its REGISTER dispatch earlier; this release
+replaces the remaining seven wire names (TRIBAL, TRIBALVAL, TRIBELIST,
+TRIBALELG, SU, UPDATE, NEWVISIT) with verified paths. Live round-trip
+verification is gated on the rpms-ops evidence run (contracts: rpms-ops
+`docs/REGISTRATION_RPC_CONTRACTS.md`).
 
 ### Added
 
+- `RpmsRpc::Registration.update` / `Patient.update` — composed patient
+  edit: `DDR FILER` (`FILE^DIE`, internal values) for PATIENT (#2) and
+  IHS PATIENT (#9000001) fields under the same `^DPT(DFN)` lock
+  `EDIT^VAFCPTED` takes. The VA edit routine itself has no `^XWB(8994)`
+  registration on any observed target, so the registered generic filer
+  is the edit path.
+- `RpmsRpc::Encounter.create` — visit get-or-create over the registered
+  `BEHOENCX FETCH` with its CREATE flag (`-1` always / `0` never / `1`
+  if-not-found); creation descends to `GETVISIT^BSDAPI4`, the IHS PCC
+  visit-creation API. `GETVISIT^BEHOENCX` is a pure fetch and never
+  creates (rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md` §3). Reply
+  layout is source-derived (`:encounter_get_or_create`); live capture
+  pending.
+- `RpmsRpc::Tribal.tribes` — tribe list via `DDR LISTER` over the TRIBE
+  (#9999999.03) "B" index.
 - `RpmsRpc::Registration` — patient registration composed from verified
   stock-VistA RPCs: `VAFC VOA ADD PATIENT` (PATIENT #2 half, returns the
   DFN) then `DDR LOCK/UNLOCK NODE` + `DDR LISTER` (HRN "D"-xref
@@ -49,13 +69,28 @@ run (contracts: rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`).
 - `Patient.register` now delegates to `Registration.register`; failures
   return `{ success: false, error: Symbol, message: String }` instead of
   `error: String`.
+- `RpmsRpc::Tribal` reads now run on `DDR GETS ENTRY DATA` /
+  `DDR VALIDATOR` over the real files (#9000001 tribal fields verified
+  against the AG field maps and the live DD; TRIBE #9999999.03; SERVICE
+  UNIT #9999999.22). Semantics narrowed to what the server actually
+  offers: `enrollment`/`eligibility` project internal/external field
+  pairs (the invented `:active`/`:eligible_for_ihs`/`:benefit_package`/
+  `:region` keys are gone); `validate` is input-transform validation of
+  the enrollment number (#9000001 field .07) — no server-side
+  membership check exists; `service_unit`/`tribe_info` take table IENs
+  instead of a DFN/code.
 
 ### Removed
 
-- The `BHDPTRPC REGISTER` placeholder mapping and its single-caret-param
-  contract (`Patient.registration_param`) — the wire name never had a
-  server implementation anywhere (docs/RPC_COVERAGE.md, "BHDPTRPC
-  provenance").
+- The entire `BHDPTRPC` placeholder namespace. Earlier: the `REGISTER`
+  mapping and its single-caret-param contract
+  (`Patient.registration_param`). Now: the remaining seven wire names
+  and mappings — `TRIBAL`, `TRIBALVAL`, `TRIBELIST`, `TRIBALELG`, `SU`
+  (`:tribal_enrollment`, `:tribal_validation`, `:tribe_info`,
+  `:enrollment_eligibility`, `:service_unit` caret forms), `UPDATE`
+  (`:patient_update`), and `NEWVISIT` (`:encounter_create`). The
+  namespace was invented and never had a server implementation anywhere
+  (docs/RPC_COVERAGE.md provenance notes; issues #174/#184).
 
 ## [0.2.0] — 2026-09-01
 

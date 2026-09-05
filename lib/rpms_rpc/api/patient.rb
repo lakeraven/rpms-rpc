@@ -33,9 +33,7 @@ module RpmsRpc
     # Register a new patient — delegates to the composed
     # RpmsRpc::Registration flow: VAFC VOA ADD PATIENT (PATIENT #2 half,
     # ADD^VAFCPTAD) + the DDR FileMan family (IHS #9000001 half: HRN,
-    # tribe/community/classification/eligibility). The former "BHDPTRPC
-    # REGISTER" placeholder wire name is retired — it never had a server
-    # implementation anywhere (docs/RPC_COVERAGE.md, "BHDPTRPC provenance").
+    # tribe/community/classification/eligibility).
     #
     # See RpmsRpc::Registration.register for the attrs contract and the
     # per-step wire citations. Returns
@@ -47,6 +45,14 @@ module RpmsRpc
     #   callers can distinguish "rejected" from "unreachable".
     def register(attrs)
       Registration.register(attrs)
+    end
+
+    # Update patient fields — delegates to the composed
+    # RpmsRpc::Registration.update flow (DDR FILER / FILE^DIE under the
+    # ^DPT(DFN) lock). See that method for the field contracts and return
+    # shape.
+    def update(dfn, patient_fields: {}, ihs_fields: {})
+      Registration.update(dfn, patient_fields: patient_fields, ihs_fields: ihs_fields)
     end
 
     # Chart-banner projection per issue #60 contract:

@@ -117,54 +117,36 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "120/80", results[0][:value]
   end
 
-  # -- BHDPTRPC TRIBAL -------------------------------------------------------
+  # -- BEHOENCX FETCH (get-or-create form) -----------------------------------
 
-  def test_tribal_enrollment
-    result = RpmsRpc::DataMapper[:tribal_enrollment].parse_one("ANLC-12345^Alaska Native - Anchorage (ANLC)^3200101^ACTIVE^Anchorage^ANLC")
-    assert_equal "ANLC-12345", result[:enrollment_number]
-    assert_equal "Alaska Native - Anchorage (ANLC)", result[:tribe_name]
-    assert_equal "ACTIVE", result[:status]
-    assert_equal "ANLC", result[:tribe_code]
+  def test_encounter_get_or_create_parses_fetch_reply
+    # LOCNAME^LOCABBR^ROOMBED^PROVIEN^PROVNAME^VISITIEN^VISITID^LOCKED^ERRORTXT
+    # (FETCH^BEHOENCX header comment; source-derived, live capture pending)
+    result = RpmsRpc::DataMapper[:encounter_get_or_create].parse_one(
+      "EXAMPLE CLINIC^EXC^101-A^42^PROVIDER,TEST^2090070^5000.1^0^"
+    )
+    assert_equal "EXAMPLE CLINIC", result[:location_name]
+    assert_equal "EXC", result[:location_abbrev]
+    assert_equal "101-A", result[:room_bed]
+    assert_equal 42, result[:provider_ien]
+    assert_equal "PROVIDER,TEST", result[:provider_name]
+    assert_equal 2090070, result[:visit_ien]
+    assert_equal "5000.1", result[:visit_id]
+    assert_equal 0, result[:locked]
+    assert_nil result[:error]
   end
 
-  # -- BHDPTRPC TRIBALVAL ----------------------------------------------------
-
-  def test_tribal_validation
-    result = RpmsRpc::DataMapper[:tribal_validation].parse_one("1^ANLC^12345^ACTIVE^Valid enrollment")
-    assert_equal true, result[:valid]
-    assert_equal "ANLC", result[:tribe_code]
-    assert_equal "Valid enrollment", result[:message]
-  end
-
-  # -- BHDPTRPC TRIBELIST ----------------------------------------------------
-
-  def test_tribe_info
-    result = RpmsRpc::DataMapper[:tribe_info].parse_one("100^Alaska Native - Anchorage (ANLC)^ANLC^Anchorage^Alaska^Alaska Area")
-    assert_equal 100, result[:ien]
-    assert_equal "ANLC", result[:code]
-    assert_equal "Alaska Area", result[:area]
-  end
-
-  # -- BHDPTRPC TRIBALELG ----------------------------------------------------
-
-  def test_enrollment_eligibility
-    result = RpmsRpc::DataMapper[:enrollment_eligibility].parse_one("1^1^Anchorage^Eligible for IHS services^BASIC")
-    assert_equal true, result[:active]
-    assert_equal true, result[:eligible_for_ihs]
-    assert_equal "BASIC", result[:benefit_package]
-  end
-
-  # -- BHDPTRPC SU -----------------------------------------------------------
-
-  def test_service_unit
-    result = RpmsRpc::DataMapper[:service_unit].parse_one("1^Anchorage^Alaska")
-    assert_equal 1, result[:ien]
-    assert_equal "Anchorage", result[:name]
-    assert_equal "Alaska", result[:region]
+  def test_encounter_get_or_create_parses_error_reply
+    # IEN'>0 leaves pieces 6-8 empty and puts the error text in piece 9
+    # (FETCH^BEHOENCX error branch)
+    result = RpmsRpc::DataMapper[:encounter_get_or_create].parse_one(
+      "EXAMPLE CLINIC^EXC^^42^PROVIDER,TEST^^^^Visit not created"
+    )
+    assert_nil result[:visit_ien]
+    assert_equal "Visit not created", result[:error]
   end
 
   # -- VAFC VOA ADD PATIENT --------------------------------------------------
-  # (replaces the retired "BHDPTRPC REGISTER" placeholder)
 
   def test_voa_add_patient_success
     # "1^DFN" on success (ADD^VAFCPTAD: VAFCPTAD.m:29,145)
@@ -591,8 +573,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
     expected = %i[
       patient_select patient_id_info patient_list patient_ssn
       patient_appointments allergy_list problem_list vitals
-      tribal_enrollment tribal_validation tribe_info enrollment_eligibility
-      service_unit patient_update encounter_create
+      encounter_get_or_create
       voa_add_patient ddr_lister ddr_lock_unlock_node ddr_gets_entry_data
       ddr_filer ddr_validator
       practitioner_info practitioner_list user_management_user_list

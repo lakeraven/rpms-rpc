@@ -14,8 +14,8 @@ require "rpms_rpc/api/registration"
 #     the HRN into the 41 multiple, and tribe/community/classification/
 #     eligibility fields
 #
-# This replaces the retired "BHDPTRPC REGISTER" placeholder (no server
-# implementation anywhere — docs/RPC_COVERAGE.md, "BHDPTRPC provenance").
+# This replaces a removed placeholder wire name (no server implementation
+# anywhere — docs/RPC_COVERAGE.md provenance notes).
 # All data below is synthetic (DEMOPATIENT names, 900-series pseudo-SSNs).
 class RegistrationTest < Minitest::Test
   Reg = RpmsRpc::Registration
@@ -394,5 +394,60 @@ class RegistrationTest < Minitest::Test
     assert result[:success]
     assert_nil @mock.received_calls.find { |c| c[:rpc] == "DDR LISTER" }
     assert all_filer_rows.none? { |r| r.start_with?("9000001.41^") }
+  end
+
+  # ==========================================================================
+  # UPDATE — composed edit path (DDR FILER / FILE^DIE under the ^DPT lock;
+  # EDIT^VAFCPTED has no ^XWB(8994) registration on any observed target)
+  # ==========================================================================
+
+  def seed_update_lock(dfn: 42, ok: true)
+    @mock.seed(:ddr_lock_unlock_node, Ddr.lock_param(node: "^DPT(#{dfn})").to_s, ok)
+  end
+
+  def test_update_files_both_halves_through_one_edit_pass
+    seed_update_lock
+    @mock.seed(:ddr_filer, "EDIT", "[Data]")
+
+    result = Reg.update(42,
+      patient_fields: { ".111" => "123 EXAMPLE ST" },
+      ihs_fields: { "1118" => "EXAMPLE COMMUNITY" })
+
+    assert result[:success]
+    assert_equal 42, result[:dfn]
+    filer = filer_calls.last
+    assert_equal "EDIT", filer[:params][0]
+    assert_equal [ "2^.111^42,^123 EXAMPLE ST", "9000001^1118^42,^EXAMPLE COMMUNITY" ],
+                 filer[:params][1].values
+  end
+
+  def test_update_fails_and_skips_filer_when_dpt_lock_unavailable
+    seed_update_lock(ok: false)
+
+    result = Reg.update(42, patient_fields: { ".111" => "123 EXAMPLE ST" })
+
+    refute result[:success]
+    assert_equal :lock_failed, result[:error]
+    assert_empty filer_calls
+  end
+
+  def test_update_surfaces_filer_rejection_and_still_unlocks
+    seed_update_lock
+    @mock.seed(:ddr_filer, "EDIT",
+      "[BEGIN_diERRORS]\n701^1^2^42,^.111^0\nThe value is not valid.\n[END_diERRORS]")
+
+    result = Reg.update(42, patient_fields: { ".111" => "" })
+
+    refute result[:success]
+    assert_equal :filer_rejected, result[:error]
+    unlock = @mock.received_calls.last
+    assert_equal "DDR LOCK/UNLOCK NODE", unlock[:rpc]
+    assert_equal Ddr.unlock_param(node: "^DPT(42)"), unlock[:params].first
+  end
+
+  def test_update_rejects_invalid_dfn_and_empty_field_set
+    assert_equal :invalid_dfn, Reg.update(0, patient_fields: { ".111" => "X" })[:error]
+    assert_equal :no_fields, Reg.update(42)[:error]
+    assert_empty @mock.received_calls
   end
 end

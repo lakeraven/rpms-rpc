@@ -42,9 +42,8 @@ class PatientTest < Minitest::Test
 
     # ORWPT ID INFO contributes the site IEN and race code to the merge.
     # Extended demographics (address, city, state, phone, tribal, etc.)
-    # have NO known RPC source — the old BHDPTRPC attribution was
-    # unverified (see docs/RPC_COVERAGE.md, "BHDPTRPC provenance");
-    # a real demographics read path (AG/FileMan) is future work.
+    # have NO single-RPC source; tribal detail reads via DDR GETS ENTRY
+    # DATA over file #9000001 (RpmsRpc::Tribal).
     assert_equal "I", result[:race_code]
     assert_equal 7819, result[:site_ien]
   end
@@ -92,10 +91,8 @@ class PatientTest < Minitest::Test
 
   # =============================================================================
   # REGISTER — delegates to the composed RpmsRpc::Registration flow
-  # (VAFC VOA ADD PATIENT + DDR FileMan family). The former "BHDPTRPC
-  # REGISTER" wire name is retired — it never had a server implementation
-  # anywhere (docs/RPC_COVERAGE.md, "BHDPTRPC provenance"). The composed
-  # flow itself is covered in test/rpms_rpc/api/registration_test.rb.
+  # (VAFC VOA ADD PATIENT + DDR FileMan family). The composed flow itself
+  # is covered in test/rpms_rpc/api/registration_test.rb.
   # =============================================================================
 
   NEW_PATIENT = {
@@ -126,7 +123,35 @@ class PatientTest < Minitest::Test
     rpcs = RpmsRpc.client.received_calls.map { |c| c[:rpc] }
     assert_includes rpcs, "VAFC VOA ADD PATIENT"
     assert_includes rpcs, "DDR FILER"
-    refute_includes rpcs, "BHDPTRPC REGISTER"
+    # Only registered wire names cross the wire — no placeholder RPCs.
+    assert_empty rpcs - [ "VAFC VOA ADD PATIENT", "DDR LOCK/UNLOCK NODE",
+                          "DDR LISTER", "DDR GETS ENTRY DATA", "DDR FILER" ]
+  end
+
+  def test_update_delegates_to_composed_filer_flow
+    m = RpmsRpc.client
+    m.seed(:ddr_lock_unlock_node,
+      RpmsRpc::DdrFileman.lock_param(node: "^DPT(42)").to_s, true)
+    m.seed(:ddr_filer, "EDIT", "[Data]")
+
+    result = RpmsRpc::Patient.update(42,
+      patient_fields: { ".111" => "123 EXAMPLE ST" },
+      ihs_fields: { "1118" => "EXAMPLE COMMUNITY" })
+
+    assert result[:success]
+    assert_equal 42, result[:dfn]
+    filer = m.received_calls.find { |c| c[:rpc] == "DDR FILER" }
+    assert_equal "EDIT", filer[:params][0]
+    assert_equal [ "2^.111^42,^123 EXAMPLE ST", "9000001^1118^42,^EXAMPLE COMMUNITY" ],
+                 filer[:params][1].values
+  end
+
+  def test_update_rejects_empty_field_set_without_calling_broker
+    result = RpmsRpc::Patient.update(42)
+
+    refute result[:success]
+    assert_equal :no_fields, result[:error]
+    assert_empty RpmsRpc.client.received_calls
   end
 
   def test_register_failure_returns_error_symbol_and_message
