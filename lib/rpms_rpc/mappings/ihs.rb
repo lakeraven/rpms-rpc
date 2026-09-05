@@ -10,19 +10,8 @@ require_relative "../data_mapper"
 module RpmsRpc
   module Mappings
     # ========================================================================
-    # PATIENT (ORWPT*, BHDPTRPC*)
+    # PATIENT (BEHOPT*, BEHOVM*)
     # ========================================================================
-    #
-    # PROVENANCE WARNING — the BHDPTRPC wire names below are UNVERIFIED
-    # PLACEHOLDERS with no known server implementation anywhere: not in the
-    # FOIA routine corpus, not on staging, not in IHS public RPC docs (see
-    # docs/RPC_COVERAGE.md, "BHDPTRPC provenance"). The field layouts are OUR
-    # contract definitions, not observed IHS interfaces. Slated for
-    # replacement by verified stock-VistA paths: BHDPTRPC REGISTER is
-    # already retired in favor of the composed VAFC VOA ADD PATIENT +
-    # DDR FileMan flow (RpmsRpc::Registration; mappings in
-    # mappings/stock_vista.rb); the remaining wire-name strings stay as-is
-    # until their replacements land so callers/tests don't churn.
 
     # BEHOPTCX PTINFO — broad patient identity bundle for chart banner
     # Format: NAME^SEX^DOB^SSN^^^^^^^MRN^^^^^^DESIGNATED_TEAM^PRIMARY_PROVIDER^^
@@ -86,80 +75,18 @@ module RpmsRpc
       m.scalar :result_code
     end
 
-    # BHDPTRPC TRIBAL — tribal enrollment details (placeholder — see header note)
-    # Format: ENROLLMENT_NUMBER^TRIBE_NAME^ENROLLMENT_DATE^STATUS^SERVICE_UNIT^TRIBE_CODE
-    DataMapper.define(:tribal_enrollment) do |m|
-      m.rpc "BHDPTRPC TRIBAL"
-      m.field 0, :enrollment_number
-      m.field 1, :tribe_name
-      m.field 2, :enrollment_date, :fileman_date
-      m.field 3, :status
-      m.field 4, :service_unit
-      m.field 5, :tribe_code
-    end
-
-    # BHDPTRPC TRIBALVAL — tribal enrollment validation (placeholder — see header note)
-    # Format: VALID^TRIBE_CODE^ENROLLMENT_NUMBER^STATUS^MESSAGE
-    DataMapper.define(:tribal_validation) do |m|
-      m.rpc "BHDPTRPC TRIBALVAL"
-      m.field 0, :valid,             :boolean
-      m.field 1, :tribe_code
-      m.field 2, :enrollment_number
-      m.field 3, :status
-      m.field 4, :message
-    end
-
-    # BHDPTRPC TRIBELIST — tribe info lookup (placeholder — see header note)
-    # Format: IEN^NAME^CODE^SERVICE_UNIT^REGION^AREA
-    DataMapper.define(:tribe_info) do |m|
-      m.rpc "BHDPTRPC TRIBELIST"
-      m.field 0, :ien,          :integer
-      m.field 1, :name
-      m.field 2, :code
-      m.field 3, :service_unit
-      m.field 4, :region
-      m.field 5, :area
-    end
-
-    # BHDPTRPC TRIBALELG — enrollment eligibility (placeholder — see header note)
-    # Format: ACTIVE^ELIGIBLE_FOR_IHS^SERVICE_UNIT^MESSAGE^BENEFIT_PACKAGE
-    DataMapper.define(:enrollment_eligibility) do |m|
-      m.rpc "BHDPTRPC TRIBALELG"
-      m.field 0, :active,          :boolean
-      m.field 1, :eligible_for_ihs, :boolean
-      m.field 2, :service_unit
-      m.field 3, :message
-      m.field 4, :benefit_package
-    end
-
-    # BHDPTRPC SU — service unit lookup (placeholder — see header note)
-    # Format: SERVICE_UNIT_IEN^SERVICE_UNIT_NAME^REGION
-    DataMapper.define(:service_unit) do |m|
-      m.rpc "BHDPTRPC SU"
-      m.field 0, :ien,    :integer
-      m.field 1, :name
-      m.field 2, :region
-    end
-
-    # BHDPTRPC REGISTER — RETIRED. Patient registration now runs the
-    # verified composed path (RpmsRpc::Registration): VAFC VOA ADD PATIENT
-    # + the DDR FileMan family — see mappings/stock_vista.rb.
-
-    # BHDPTRPC UPDATE — patient update result (placeholder — see header note)
-    # Format: "1^" (success) or "0^error_message" (failure)
-    DataMapper.define(:patient_update) do |m|
-      m.rpc "BHDPTRPC UPDATE"
-      m.field 0, :success, :boolean
-      m.field 1, :error
-    end
-
-    # BHDPTRPC NEWVISIT — encounter creation result (placeholder — see header note)
-    # Format: "1^VISIT_IEN" (success) or "0^error_message" (failure)
-    DataMapper.define(:encounter_create) do |m|
-      m.rpc "BHDPTRPC NEWVISIT"
-      m.field 0, :success,   :boolean
-      m.field 1, :visit_ien_or_error
-    end
+    # The invented placeholder RPC family that used to sit here is fully
+    # removed (docs/RPC_COVERAGE.md provenance notes). The paths it claimed
+    # to cover run on verified RPCs instead:
+    #   - tribal / service-unit reads → DDR GETS ENTRY DATA, DDR LISTER,
+    #     DDR VALIDATOR over the real files (#9000001 IHS PATIENT, TRIBE
+    #     #9999999.03, SERVICE UNIT #9999999.22) — RpmsRpc::Tribal
+    #   - patient registration        → VAFC VOA ADD PATIENT + DDR FILER —
+    #     RpmsRpc::Registration.register
+    #   - patient update              → DDR FILER (FILE^DIE) —
+    #     RpmsRpc::Registration.update
+    #   - visit get-or-create         → BEHOENCX FETCH with the CREATE flag
+    #     (:encounter_get_or_create below) — RpmsRpc::Encounter.create
 
     # ========================================================================
     # LOCATION & ORGANIZATION (BHDO*)
@@ -611,6 +538,35 @@ module RpmsRpc
       m.field 4, :provider
       m.field 5, :visit_ien, :integer
       m.field 6, :ward
+    end
+
+    # BEHOENCX FETCH, get-or-create form — the visit-create path. Params
+    # positionally per FETCH(DATA,DFN,VSTR,PRV,CREATE) — FETCH^BEHOENCX:
+    # DFN, VSTR "LOC;FM_DATETIME;SVC_CAT", PRV (provider IEN, optional),
+    # CREATE (-1 = always create, 0 = never, 1 = create if not found).
+    # Creation descends VSTR2VIS → FNDVIS → GETVISIT^BSDAPI4 (the IHS PCC
+    # visit-creation API); GETVISIT^BEHOENCX itself is a pure fetch by
+    # visit IEN and never creates (rpms-ops
+    # docs/REGISTRATION_RPC_CONTRACTS.md §3). Registered in the staging
+    # file-8994 dump (FETCH^BEHOENCX, 2026-06-07).
+    # Reply per the FETCH header comment (source-derived; live capture
+    # pending):
+    #   LOCNAME^LOCABBR^ROOMBED^PROVIEN^PROVNAME^VISITIEN^VISITID^LOCKED^ERRORTXT
+    # VISITIEN present => found/created; otherwise piece 9 carries the
+    # error text. NB: :encounter_fetch above predates this source read and
+    # labels positions 3/6 differently — reconciling it (and
+    # Encounter.open's call shape) is tracked separately.
+    DataMapper.define(:encounter_get_or_create) do |m|
+      m.rpc "BEHOENCX FETCH"
+      m.field 0, :location_name
+      m.field 1, :location_abbrev
+      m.field 2, :room_bed
+      m.field 3, :provider_ien,  :integer
+      m.field 4, :provider_name
+      m.field 5, :visit_ien,     :integer
+      m.field 6, :visit_id
+      m.field 7, :locked,        :integer
+      m.field 8, :error
     end
 
     # BEHOENCX CHKVISIT — missing-component report (multi-line)

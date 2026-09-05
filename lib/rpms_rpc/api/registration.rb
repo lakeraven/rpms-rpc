@@ -7,10 +7,9 @@ module RpmsRpc
   # Composed patient registration: VAFC VOA ADD PATIENT creates the VistA
   # PATIENT (#2) half; the DDR FileMan family completes the IHS half —
   # file #9000001 (IHS PATIENT, ^AUPNPAT), the HRN, and the tribal /
-  # community / classification / eligibility fields. This replaces the
-  # retired "BHDPTRPC REGISTER" placeholder wire name, which never had a
-  # server implementation anywhere (docs/RPC_COVERAGE.md, "BHDPTRPC
-  # provenance").
+  # community / classification / eligibility fields. This replaces a
+  # removed placeholder wire name that never had a server implementation
+  # anywhere (docs/RPC_COVERAGE.md provenance notes).
   #
   # Flow (each step's wire contract cited in the method comments):
   #
@@ -126,6 +125,47 @@ module RpmsRpc
 
       begin
         complete_ihs_registration(attrs, dfn)
+      ensure
+        DdrFileman.unlock(node: node)
+      end
+    end
+
+    # Patient update — the composed edit path, replacing the removed
+    # placeholder update wire name (docs/RPC_COVERAGE.md provenance
+    # notes). The VA edit routine (EDIT^VAFCPTED — classic ^DIE filing
+    # under L +^DPT(DFN):60, returns no output; contract in rpms-ops
+    # docs/REGISTRATION_RPC_CONTRACTS.md §1) has NO ^XWB(8994)
+    # registration on any observed target (staging file-8994 dump
+    # 2026-06-07; live registry read 2026-09-02), so edits run through the
+    # registered DDR FILER instead: FILE^DIE gives the same input
+    # transform / cross-reference behavior (FILEC^DDR3: DDR3.m:16-18),
+    # under the same ^DPT(DFN) lock VAFCPTED takes.
+    #
+    #   patient_fields: { "field#" => value } edits to PATIENT (#2)
+    #   ihs_fields:     { "field#" => value } edits to IHS PATIENT (#9000001)
+    #
+    # Values are FileMan-INTERNAL (the filer runs with no "E" flag —
+    # DDR3.m:15,18). Returns { success: true, dfn: },
+    # { success: false, error:, message: } (:invalid_dfn / :no_fields /
+    # :lock_failed / :filer_rejected), or nil (no broker response).
+    def update(dfn, patient_fields: {}, ihs_fields: {})
+      dfn = dfn.to_i
+      return { success: false, error: :invalid_dfn, message: "a positive DFN is required" } if dfn <= 0
+
+      rows =
+        patient_fields.map { |field, value| { file: "2", field: field.to_s, iens: "#{dfn},", value: value.to_s } } +
+        ihs_fields.map { |field, value| { file: PATIENT_FILE, field: field.to_s, iens: "#{dfn},", value: value.to_s } }
+      return { success: false, error: :no_fields, message: "no fields to update" } if rows.empty?
+
+      node = "^DPT(#{dfn})"
+      unless DdrFileman.lock(node: node)
+        return { success: false, error: :lock_failed, message: "could not lock #{node}" }
+      end
+
+      begin
+        filed = DdrFileman.filer(mode: "EDIT", rows: rows)
+        failure = filer_failure(filed)
+        failure == :ok ? { success: true, dfn: dfn } : failure
       ensure
         DdrFileman.unlock(node: node)
       end
