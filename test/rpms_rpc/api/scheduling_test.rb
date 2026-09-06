@@ -279,6 +279,58 @@ class SchedulingTest < Minitest::Test
     assert_empty RpmsRpc.client.received_calls, "no RPC should be sent"
   end
 
+  # Regression: SEARCH^BSDX24 declares a D-typed DATE column but emits
+  # EXTERNAL-format dates — it runs the internal date through DD^%DT before
+  # writing the row (BSDX24.m:116-117), so the wire carries "SEP 04, 2026".
+  # Typed :fileman_date, every availability date parsed nil. The row also ends
+  # after ACCESSTYPE with a bare trailing "^" (BSDX24.m:124): COMMENT is
+  # declared in the header but never populated.
+  def test_availability_parses_external_format_dates_regression
+    stub_broker_response([
+      "T00030RESOURCENAME^D00030DATE^T00030ACCESSTYPE^T00030COMMENT\u001E",
+      "PEDIATRICIAN,DEMO^SEP 04, 2026^ROUTINE^\u001E",
+      ""
+    ])
+
+    blocks = RpmsRpc::Scheduling.availability(
+      resources: "PEDIATRICIAN,DEMO",
+      start_date: Date.new(2026, 9, 1), end_date: Date.new(2026, 9, 30)
+    )
+
+    assert_equal 1, blocks.size
+    block = blocks.first
+    assert_equal "PEDIATRICIAN,DEMO", block[:resource_name]
+    assert_equal Date.new(2026, 9, 4), block[:date],
+                 "DATE column is external format (DD^%DT), not FileMan internal"
+    assert_equal "ROUTINE", block[:access_type]
+    assert_nil block[:comment]
+  end
+
+  # Regression: APBLKALL^BSDX05 emits EXTERNAL-format datetimes — STCOMM runs
+  # X ^DD("DD") and translates the "@" to a space (BSDX05.m:100-101) — and a
+  # 4th RES_NAME column appended per-row by GATHER (BSDX05.m:65,76). The
+  # mapping typed the datetimes :fileman_datetime (parsed nil) and dropped
+  # RES_NAME entirely.
+  def test_all_appointments_parses_external_datetimes_and_resource_regression
+    stub_broker_response([
+      "D00030START_TIME^D00030END_TIME^I00010PAT_ID^T00030RES_NAME\u001E",
+      "SEP 04, 2026 09:00^SEP 04, 2026 09:30^100^PEDIATRICIAN,DEMO\u001E",
+      ""
+    ])
+
+    rows = RpmsRpc::Scheduling.all_appointments(
+      start_date: Date.new(2026, 9, 1), end_date: Date.new(2026, 9, 30)
+    )
+
+    assert_equal 1, rows.size
+    row = rows.first
+    assert_equal Time.new(2026, 9, 4, 9, 0, 0), row[:start_time],
+                 "START_TIME is external format (X ^DD(\"DD\") with @ -> space)"
+    assert_equal Time.new(2026, 9, 4, 9, 30, 0), row[:end_time]
+    assert_equal 100, row[:patient_dfn]
+    assert_equal "PEDIATRICIAN,DEMO", row[:resource_name]
+  end
+
   def test_all_appointments_returns_rows
     RpmsRpc.client.seed_collection(:scheduling_all_appointments, [
       { start_time: START_T, end_time: END_T, patient_dfn: 100 }

@@ -1066,26 +1066,37 @@ module RpmsRpc
     end
 
     # BSDX SEARCH AVAILABILITY — SEARCH^BSDX24. Availability blocks between two
-    # dates for one or more resources. Header (authoritative, from the routine):
+    # dates for one or more resources. Header (BSDX24.m:99):
     #   T RESOURCENAME ^ D DATE ^ T ACCESSTYPE ^ T COMMENT
+    # Despite the D-typed header, the DATE column is EXTERNAL format
+    # ("SEP 04, 2026"): the routine runs the internal date through DD^%DT
+    # before writing the row (BSDX24.m:116-117). The row ends after ACCESSTYPE
+    # with a bare trailing "^" — COMMENT is declared but never populated
+    # (TODO at BSDX24.m:123; row write at BSDX24.m:124), so :comment is
+    # always nil.
     # Params: RESOURCE_NAMES (pipe-delimited "RES1|RES2")^START^END^
     #   ACCESS_TYPES^AMPM^WEEKDAYS.
     DataMapper.define(:scheduling_availability) do |m|
       m.rpc "BSDX SEARCH AVAILABILITY"
       m.field 0, :resource_name
-      m.field 1, :date, :fileman_date
+      m.field 1, :date, :external_date
       m.field 2, :access_type
       m.field 3, :comment
     end
 
     # BSDX ALL APPOINTMENTS — APBLKALL^BSDX05. All appointments across resources
-    # in a date range. Header (authoritative): D START_TIME ^ D END_TIME ^
-    #   I PAT_ID. Params: START_DATE^END_DATE.
+    # in a date range. Header (BSDX05.m:65): D START_TIME ^ D END_TIME ^
+    #   I PAT_ID ^ T RES_NAME.
+    # Despite the D-typed header, START_TIME/END_TIME are EXTERNAL datetimes
+    # ("SEP 04, 2026 09:00"): STCOMM^BSDX05 runs X ^DD("DD") and translates
+    # the "@" to a space (BSDX05.m:100-101). RES_NAME is appended per row by
+    # GATHER^BSDX05 (BSDX05.m:76). Params: START_DATE^END_DATE.
     DataMapper.define(:scheduling_all_appointments) do |m|
       m.rpc "BSDX ALL APPOINTMENTS"
-      m.field 0, :start_time, :fileman_datetime
-      m.field 1, :end_time,   :fileman_datetime
+      m.field 0, :start_time, :external_datetime
+      m.field 1, :end_time,   :external_datetime
       m.field 2, :patient_dfn, :integer
+      m.field 3, :resource_name
     end
 
     # BSDX HOSPITAL LOCATION — HOSPLOC^BSDX32. Active clinics from ^SC (file 44).

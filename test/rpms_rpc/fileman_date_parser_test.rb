@@ -128,4 +128,58 @@ class RpmsRpc::FilemanDateParserTest < Minitest::Test
     assert_equal t.hour, parsed.hour
     assert_equal t.min, parsed.min
   end
+
+  # -- external format (DD^%DT output) ----------------------------------------
+  #
+  # DD^%DT emits "SEP 04, 2026" (3-letter month, comma-space, 4-digit year)
+  # with an optional "@HH:MM[:SS]" time; BSDX05 translates the "@" to a space
+  # before writing rows (BSDX05.m:100-101).
+
+  def test_parse_external_date
+    assert_equal Date.new(2026, 9, 4), P.parse_external_date("SEP 04, 2026")
+  end
+
+  def test_parse_external_date_tolerates_missing_space_after_comma
+    assert_equal Date.new(2026, 9, 4), P.parse_external_date("SEP 04,2026")
+  end
+
+  def test_parse_external_date_ignores_time_portion
+    assert_equal Date.new(2026, 9, 4), P.parse_external_date("SEP 04, 2026@09:00")
+  end
+
+  def test_parse_external_date_rejects_garbage
+    assert_nil P.parse_external_date("NOTAMONTH 04, 2026")
+    assert_nil P.parse_external_date("3260904")
+    assert_nil P.parse_external_date("")
+    assert_nil P.parse_external_date(nil)
+  end
+
+  def test_parse_external_datetime_space_separated
+    assert_equal Time.new(2026, 9, 4, 9, 0, 0),
+                 P.parse_external_datetime("SEP 04, 2026 09:00")
+  end
+
+  def test_parse_external_datetime_at_sign_and_seconds
+    assert_equal Time.new(2026, 9, 4, 14, 30, 22),
+                 P.parse_external_datetime("SEP 04, 2026@14:30:22")
+  end
+
+  def test_parse_external_datetime_without_time_is_midnight
+    assert_equal Time.new(2026, 9, 4, 0, 0, 0),
+                 P.parse_external_datetime("SEP 04, 2026")
+  end
+
+  def test_parse_external_datetime_rejects_garbage
+    assert_nil P.parse_external_datetime("3260904.0900")
+    assert_nil P.parse_external_datetime("")
+    assert_nil P.parse_external_datetime(nil)
+  end
+
+  def test_format_external_round_trip
+    assert_equal "SEP 04, 2026", P.format_external_date(Date.new(2026, 9, 4))
+    assert_equal "SEP 04, 2026 09:00",
+                 P.format_external_datetime(Time.new(2026, 9, 4, 9, 0, 0))
+    assert_equal Date.new(2026, 9, 4),
+                 P.parse_external_date(P.format_external_date(Date.new(2026, 9, 4)))
+  end
 end
