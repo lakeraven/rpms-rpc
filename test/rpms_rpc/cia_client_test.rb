@@ -3,6 +3,8 @@
 require "minitest/autorun"
 require "rpms_rpc/cia_client"
 require "rpms_rpc/xwb_client"
+require "rpms_rpc/version"
+require "rpms_rpc/api/agg"
 
 class RpmsRpc::CiaClientTest < Minitest::Test
   Client = RpmsRpc::CiaClient
@@ -516,6 +518,70 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     c.call_rpc("BEHOPTCX PTINFO", "1")
     assert_equal "7", broker.frames.last[:fields][2], "later frames must carry the allocated UID"
     assert_operator broker.frames.length, :>, broker_bodies_before
+  end
+
+  # -- AGG GLOBAL ARRAY reply framing (rpms-rpc#214) --------------------------
+  #
+  # The AGG registration RPCs (ADD^AGGPTADD etc.) return a GLOBAL ARRAY: a
+  # typed header row, then $C(30) (RS)-separated data records, ending $C(31)
+  # (US) before the frame EOD. Because RS == the CIA EOD (\x1e), the default
+  # call_rpc read stops at the header — call_rpc_global_array reads to the US
+  # sentinel instead. These frame the exact request P1/P2/P3 shape observed on
+  # the wire (P3 = $C(28)-delimited NAME=VALUE PARMS) and parse the reply
+  # layouts confirmed by the #214 live probe through RpmsRpc::Agg.
+
+  # An ADD^AGGPTADD success reply, verbatim shape from the #214 probe: typed
+  # header, one RS-terminated "1^^DFN" record, US end sentinel. The strict
+  # socket appends the frame EOD.
+  AGG_ADD_OK = "I00010RESULT^T00080MESSAGE^I00010DFN\x1e1^^9\x1e\x1f"
+  AGG_ADD_REJECT = "I00010RESULT^T00080MESSAGE^I00010DFN\x1e-1^NAME is required\x1e\x1f"
+
+  def test_call_rpc_global_array_frames_window_dfn_and_fs_delimited_parms
+    c, broker = signed_on_strict_client([ AGG_ADD_OK ])
+    parms = RpmsRpc::Agg.encode_parms("AGGPTLNM" => "PROBE", "AGGPTSEX" => "MALE")
+    c.call_rpc_global_array("AGG ADD NEW PATIENT", "Mini Registration", "", parms)
+
+    assert_equal [ "UID", "", "7", "RPC", "", "AGG ADD NEW PATIENT",
+                   "1", "", "Mini Registration",
+                   "2", "", "",
+                   "3", "", "AGGPTLNM=PROBE\x1cAGGPTSEX=MALE" ],
+                 broker.frames.last[:fields]
+  end
+
+  def test_call_rpc_global_array_reads_past_embedded_rs_to_the_us_sentinel
+    # The default read_until_raw(EOD) would truncate at the header's RS; the
+    # global-array read must return the whole reply so Agg can parse the data
+    # record after it.
+    c, = signed_on_strict_client([ AGG_ADD_OK ])
+    raw = c.call_rpc_global_array("AGG ADD NEW PATIENT", "Mini Registration", "", "AGGPTLNM=PROBE")
+
+    parsed = RpmsRpc::Agg.parse_reply(raw)
+    assert_equal [ { result: "1", message: "", dfn: "9" } ], parsed[:records]
+  end
+
+  def test_agg_add_patient_end_to_end_success_over_strict_broker
+    c, = signed_on_strict_client([ AGG_ADD_OK ])
+    RpmsRpc.configure { |cfg| cfg.client = c }
+
+    result = RpmsRpc::Agg.add_patient(params: { "AGGPTLNM" => "PROBE" })
+
+    assert result[:success]
+    assert_equal 9, result[:dfn]
+  ensure
+    RpmsRpc.reset!
+  end
+
+  def test_agg_add_patient_end_to_end_rejection_over_strict_broker
+    c, = signed_on_strict_client([ AGG_ADD_REJECT ])
+    RpmsRpc.configure { |cfg| cfg.client = c }
+
+    result = RpmsRpc::Agg.add_patient(params: { "AGGPTLNM" => "" })
+
+    refute result[:success]
+    assert_equal :agg_rejected, result[:error]
+    assert_match(/NAME is required/, result[:message])
+  ensure
+    RpmsRpc.reset!
   end
 
   # Regression class: a client that does not speak {CIA} is CLOSED by the CIA

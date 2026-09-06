@@ -12,6 +12,15 @@ module RpmsRpc
   # and the read loop (`read_until_raw`). This subclass adds only what is CIA-specific: the
   # `{CIA}` + EOD framing, the CIA length prefix, and the CIANBRPC AUTH sign-on.
   class CiaClient < Client
+    # End-of-array sentinel for GLOBAL ARRAY (return type 4) replies — the
+    # AGG registration RPCs (ADD^AGGPTADD etc.). Such a reply is a $C(30)
+    # (RS)-separated series of typed records that ends with $C(31) (US)
+    # before the frame's trailing EOD. Because RS == our EOD (\x1e), the
+    # default read_until_raw(EOD) truncates the reply at the header row;
+    # #call_rpc_global_array reads to the US sentinel instead. Wire contract
+    # + capture provenance: RpmsRpc::Agg.
+    AGG_ARRAY_END = "\x1f"
+
     def default_port = 9100
 
     # Open the socket and perform the {CIA} connect handshake.
@@ -99,31 +108,25 @@ module RpmsRpc
     def call_rpc_raw(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
-      parts = [ pk("UID"), pk(""), pk(@session_uid || "1"), pk("RPC"), pk(""), pk(rpc_name) ]
-      params.each_with_index do |p, i|
-        n = (i + 1).to_s
-        case p
-        when Hash
-          p.each { |k, v| parts.concat([ pk(n), pk(m_subscript(k)), pk(v.to_s) ]) }
-        when Array
-          p.each_with_index { |v, j| parts.concat([ pk(n), pk((j + 1).to_s), pk(v.to_s) ]) }
-        else
-          parts.concat([ pk(n), pk(""), pk(p.to_s) ])
-        end
-      end
-      exchange("R", *parts)
+      exchange("R", *rpc_frame_fields(rpc_name, params))
     rescue TimeoutError
-      # A CIA reply has no length framing — only the EOD terminator — so a
-      # reply abandoned mid-read cannot be resynchronized: the broker will
-      # eventually write the stale reply into the stream and corrupt every
-      # later exchange. Close the socket (defined state: disconnected, not
-      # authenticated) and raise a per-RPC timeout distinct from generic
-      # connection loss so callers can reconnect + re-authenticate.
-      @session_uid = nil
-      reset_connection # base
-      raise RpcTimeoutError, RpmsRpc.sanitize_error(
-        "RPC '#{rpc_name}' timed out after #{@timeout}s; connection closed — reconnect and re-authenticate"
-      )
+      handle_rpc_timeout(rpc_name)
+    end
+
+    # Call an RPC whose broker return type is GLOBAL ARRAY (type 4) and read
+    # the whole reply to its $C(31) (US) end sentinel — see AGG_ARRAY_END.
+    # The reply EMBEDS $C(30) (== EOD, \x1e) record separators, so the
+    # default call_rpc/call_rpc_raw read stops at the typed header; use this
+    # for the AGG registration RPCs (RpmsRpc::Agg). Returns the raw reply
+    # (seq echo + \x00 ack + typed header + \x1e-separated records); parse
+    # with RpmsRpc::Agg.parse_reply. Same param-encoding contract as
+    # call_rpc_raw.
+    def call_rpc_global_array(rpc_name, *params)
+      raise ConnectionError, "Not connected" unless connected?
+
+      exchange("R", *rpc_frame_fields(rpc_name, params), terminator: AGG_ARRAY_END)
+    rescue TimeoutError
+      handle_rpc_timeout(rpc_name)
     end
 
     def disconnect
@@ -158,11 +161,46 @@ module RpmsRpc
     # back unmodified. The sequence must therefore always be exactly one byte —
     # a counter that reaches 10 would put "1" in the sequence slot and "0" in
     # the action slot, corrupting every frame from the tenth on — so cycle 1..9.
-    def exchange(action, *fields)
+    def exchange(action, *fields, terminator: EOD)
       @seq = @seq % 9 + 1
       msg = ("{CIA}" + EOD + @seq.to_s + action + fields.join + EOD).b
       @socket.write(msg)
-      read_until_raw(EOD) # base: shared read loop, CIA terminator
+      read_until_raw(terminator) # base: shared read loop; CIA EOD, or AGG US sentinel
+    end
+
+    # Build the L()-packed UID/RPC/param fields shared by call_rpc_raw and
+    # call_rpc_global_array. Param encoding per DOACTION^CIANBLIS
+    # (CIANBLIS.m:128-134): scalar params are NAME/""/VALUE triples; a Hash
+    # builds a subscripted list param (string subscripts M-quoted, numerics
+    # bare); an Array builds 1-based numeric subscripts.
+    def rpc_frame_fields(rpc_name, params)
+      parts = [ pk("UID"), pk(""), pk(@session_uid || "1"), pk("RPC"), pk(""), pk(rpc_name) ]
+      params.each_with_index do |p, i|
+        n = (i + 1).to_s
+        case p
+        when Hash
+          p.each { |k, v| parts.concat([ pk(n), pk(m_subscript(k)), pk(v.to_s) ]) }
+        when Array
+          p.each_with_index { |v, j| parts.concat([ pk(n), pk((j + 1).to_s), pk(v.to_s) ]) }
+        else
+          parts.concat([ pk(n), pk(""), pk(p.to_s) ])
+        end
+      end
+      parts
+    end
+
+    # A CIA reply has no length framing — only the EOD terminator — so a
+    # reply abandoned mid-read cannot be resynchronized: the broker will
+    # eventually write the stale reply into the stream and corrupt every
+    # later exchange. Close the socket (defined state: disconnected, not
+    # authenticated) and raise a per-RPC timeout distinct from generic
+    # connection loss so callers can reconnect + re-authenticate.
+    def handle_rpc_timeout(rpc_name)
+      @session_uid = nil
+      reset_connection # base
+      raise RpcTimeoutError, RpmsRpc.sanitize_error(
+        "RPC '#{rpc_name}' timed out after #{@timeout}s; connection closed — reconnect and re-authenticate"
+      )
     end
 
     # List-param subscript in M-literal form for DOACTION's raw splice into
