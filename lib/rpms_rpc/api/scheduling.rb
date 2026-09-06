@@ -67,15 +67,22 @@ module RpmsRpc
     end
 
     # Check a patient in — BSDX CHECKIN APPOINTMENT (CHECKIN^BSDX25).
-    # ERRORID column is "0"/empty on success.
+    # Success row is "0^"_MESSAGE (BSDX25.m:74); failures are the error text
+    # ERR^BSDX25 writes (BSDX25.m:361-365).
     #
     #   appointment_ien: BSDX APPOINTMENT IEN
     #   checkin_time:    Date/Time or preformatted FileMan date/time
     #   clinic_code:     CLINIC STOP code (optional)
     #   provider:        check-in provider (optional)
+    #
+    # All 8 client formals (BSDX25.m:12 — APTID^CDT^CC^PRV^ROU^VCL^VFM^OG) are
+    # sent, the unused tail as empties: the routine passes BSDXVCL/BSDXVFM/
+    # BSDXOG to APCHK by value with no $G (BSDX25.m:63), so omitting them
+    # <UNDEF>s server-side whenever the resource links a hospital location.
     def checkin_appointment(appointment_ien, checkin_time:, clinic_code: nil, provider: nil)
       error_write(:scheduling_checkin_appointment,
                   appointment_ien.to_s, fm(checkin_time), clinic_code.to_s, provider.to_s,
+                  "", "", "", "",
                   zero_ok: true)
     end
 
@@ -142,19 +149,22 @@ module RpmsRpc
 
     private
 
-    # For single-ERRORID-column writes (cancel/uncancel/checkin) where an EMPTY
-    # error means success ("0" also means success where zero_ok is set, per
+    # For ERRORID-led writes (cancel/uncancel/checkin) where an EMPTY ERRORID
+    # piece means success ("0" also means success where zero_ok is set, per
     # CHECKIN^BSDX25). fetch_one collapses an empty data row to nil — which we
     # reserve for "unreachable" — so call the RPC directly: an Array response
     # (even [""]) means the broker answered, a "" / nil response means it did
-    # not. Header rows (recordset column descriptors) are dropped defensively.
+    # not. Success is judged on the FIRST caret piece: the live check-in
+    # success row is "0^"_MESSAGE (BSDX25.m:74), not a bare "0". Failure rows
+    # carry the error text in the first piece (ERR^BSDX25: BSDX25.m:361-365).
     def error_write(mapping_name, *params, zero_ok: false)
       mapping = DataMapper[mapping_name]
       resp = RpmsRpc.client.call_rpc(mapping.rpc_name, *params)
       return nil if resp.nil? || resp == "" || (resp.is_a?(Array) && resp.empty?)
 
       row = data_row(resp)
-      ok = row.empty? || (zero_ok && row == "0")
+      error_id = row.split("^", -1).first.to_s
+      ok = error_id.empty? || (zero_ok && error_id == "0")
       ok ? { success: true } : { success: false, error: row }
     end
 
