@@ -56,12 +56,11 @@ module RpmsRpc
       id.nil? || id.to_i <= 0
     end
 
+    # Time/DateTime keep their time of day (seconds preserved when nonzero —
+    # ^DGPM movement times are stored to the second and DISCHRG^ORWPT keys on
+    # the exact value); Date formats date-only; strings pass through.
     def fm(value)
-      case value
-      when Date then FilemanDateParser.format_date(value)
-      when Time then FilemanDateParser.format_datetime(value)
-      else value.to_s
-      end
+      FilemanDateParser.to_fileman(value)
     end
   end
 end

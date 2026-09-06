@@ -73,6 +73,21 @@ module RpmsRpc
       "#{yyy}#{mm}#{dd}"
     end
 
+    # Format an outgoing RPC date/time parameter. Time and DateTime carry a
+    # time of day, so they must be matched BEFORE Date — DateTime < Date in
+    # Ruby, and a bare `when Date` branch silently dropped DateTime times
+    # (date-only bookings). Seconds are included only when nonzero, matching
+    # FileMan's trailing-zero-trimmed storage so values parsed from the wire
+    # round-trip exactly. Anything else (preformatted strings, nil) passes
+    # through as a string.
+    def self.to_fileman(value)
+      case value
+      when Time, DateTime then format_datetime(value, seconds: value.sec.positive?)
+      when Date then format_date(value)
+      else value.to_s
+      end
+    end
+
     # Format Ruby Time to FileMan datetime string. Default precision is
     # minutes (YYYMMDD.HHMM); pass `seconds: true` for YYYMMDD.HHMMSS
     # (the precision BEHOVM SAVE accepts in VIT+ rows).

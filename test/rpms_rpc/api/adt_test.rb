@@ -89,4 +89,24 @@ class AdtTest < Minitest::Test
   def test_discharge_datetime_nil_for_invalid_dfn
     assert_nil RpmsRpc::Adt.discharge_datetime(0, ADMIT_T)
   end
+
+  # Regression: DateTime < Date in Ruby, so a `when Date` branch listed before
+  # `when Time` formatted DateTime admit datetimes date-only — DISCHRG^ORWPT
+  # then can't find the admission (it keys on the exact movement datetime).
+  def test_discharge_datetime_formats_datetime_admit_with_time_regression
+    RpmsRpc::Adt.discharge_datetime(100, DateTime.new(2026, 7, 1, 14, 30, 0))
+
+    call = RpmsRpc.client.received_calls.last
+    assert_equal [ "100", ADMIT_FM ], call[:params],
+                 "DateTime admit must format as FileMan date.time, not date-only"
+  end
+
+  # A movement datetime stored to the second (^DGPM stores HHMMSS) must
+  # round-trip through Time without truncating the seconds.
+  def test_discharge_datetime_preserves_seconds_in_admit_param
+    RpmsRpc::Adt.discharge_datetime(100, Time.new(2026, 7, 1, 14, 30, 22))
+
+    assert_equal [ "100", "3260701.143022" ],
+                 RpmsRpc.client.received_calls.last[:params]
+  end
 end

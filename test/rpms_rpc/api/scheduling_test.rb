@@ -57,6 +57,25 @@ class SchedulingTest < Minitest::Test
                    "30", "well child", "WALKIN", "1" ], call[:params]
   end
 
+  # Regression: DateTime < Date in Ruby, so a `when Date` branch listed before
+  # `when Time` swallowed DateTime inputs and formatted them date-only —
+  # silently booking appointments with no time of day.
+  def test_add_appointment_datetime_keeps_time_of_day_regression
+    RpmsRpc.client.seed(:scheduling_add_appointment, START_FM,
+                        { appointment_id: 501, error: "" })
+
+    RpmsRpc::Scheduling.add_appointment(
+      patient_dfn: 100, resource: "PEDIATRICIAN,DEMO",
+      start_time: DateTime.new(2026, 8, 12, 9, 0, 0),
+      end_time: DateTime.new(2026, 8, 12, 9, 30, 0), length_minutes: 30
+    )
+
+    call = RpmsRpc.client.received_calls.last
+    assert_equal START_FM, call[:params][0],
+                 "DateTime start must format as FileMan date.time, not date-only"
+    assert_equal END_FM, call[:params][1]
+  end
+
   def test_add_appointment_failure_returns_error
     RpmsRpc.client.seed(:scheduling_add_appointment, START_FM,
                         { appointment_id: 0, error: "BSDX07 Error: Invalid Resource ID" })
