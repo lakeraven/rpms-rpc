@@ -182,7 +182,53 @@ class SchedulingTest < Minitest::Test
     assert result[:success]
     call = RpmsRpc.client.received_calls.last
     assert_equal "BSDX CHECKIN APPOINTMENT", call[:rpc]
-    assert_equal [ "501", START_FM, "301", "PROVIDER,A" ], call[:params]
+  end
+
+  # Regression: only 4 of CHECKIN^BSDX25's client formals were sent. The
+  # routine passes BSDXVCL/BSDXVFM/BSDXOG to APCHK by value with no $G
+  # (BSDX25.m:63), so when the resource links a hospital location a 4-param
+  # call dies server-side with <UNDEF>. All 8 formals (BSDX25.m:12 —
+  # APTID^CDT^CC^PRV^ROU^VCL^VFM^OG) are now sent, trailing ones empty.
+  def test_checkin_appointment_sends_all_eight_formals_regression
+    RpmsRpc.client.seed(:scheduling_checkin_appointment, "501", { error: "0" })
+
+    RpmsRpc::Scheduling.checkin_appointment(501, checkin_time: START_T,
+                                            clinic_code: "301", provider: "PROVIDER,A")
+
+    assert_equal [ "501", START_FM, "301", "PROVIDER,A", "", "", "", "" ],
+                 RpmsRpc.client.received_calls.last[:params],
+                 "BSDXROU/BSDXVCL/BSDXVFM/BSDXOG must be sent (empty) to avoid <UNDEF>"
+  end
+
+  # Regression: the LIVE success row is "0^"_EMSG (BSDX25.m:74) — two pieces,
+  # ERRORID "0" plus an often-empty MESSAGE — but success was matched against
+  # the whole row ("0" exactly / empty), so every live check-in reported
+  # failure with error "0^".
+  def test_checkin_appointment_live_success_row_zero_caret_regression
+    stub_broker_response([
+      "T00020ERRORID^T00150MESSAGE",
+      "0^",
+      ""
+    ])
+
+    result = RpmsRpc::Scheduling.checkin_appointment(501, checkin_time: START_T)
+
+    assert result[:success], "\"0^\" ERRORID row is a successful check-in"
+  end
+
+  # A live failure row is the single-piece error text ERR^BSDX25 writes
+  # (BSDX25.m:361-365).
+  def test_checkin_appointment_live_failure_row
+    stub_broker_response([
+      "T00020ERRORID^T00150MESSAGE",
+      "Invalid Appointment ID",
+      ""
+    ])
+
+    result = RpmsRpc::Scheduling.checkin_appointment(999, checkin_time: START_T)
+
+    refute result[:success]
+    assert_match(/Invalid Appointment ID/, result[:error])
   end
 
   # Regression: an EMPTY ERRORID is a SUCCESSFUL check-in. fetch_one collapses

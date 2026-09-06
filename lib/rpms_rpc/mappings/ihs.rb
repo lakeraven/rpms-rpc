@@ -1045,9 +1045,13 @@ module RpmsRpc
     end
 
     # BSDX CHECKIN APPOINTMENT — CHECKIN^BSDX25 (check-in via BSDAPI / ^DGPM
-    # check-in node). Recordset ERRORID column: "0" or empty => success.
+    # check-in node). Recordset header ERRORID^MESSAGE (BSDX25.m:37); the
+    # success row is "0^"_MESSAGE (BSDX25.m:74), failures are ERR^BSDX25 text.
     # Params: BSDX_APPOINTMENT_IEN^CHECKIN_DATETIME^CLINIC_CODE^PROVIDER^
-    #   ROUTING_SLIP^VISIT_CLASS^VISIT_FORM^OTHER (trailing params optional).
+    #   ROUTING_SLIP^VISIT_CLASS^VISIT_FORM^OTHER. All 8 must be SENT (empty
+    #   ok): BSDXVCL/BSDXVFM/BSDXOG reach APCHK by value with no $G
+    #   (BSDX25.m:63) — omitting them <UNDEF>s when the resource links a
+    #   hospital location.
     DataMapper.define(:scheduling_checkin_appointment) do |m|
       m.rpc "BSDX CHECKIN APPOINTMENT"
       m.field 0, :error
