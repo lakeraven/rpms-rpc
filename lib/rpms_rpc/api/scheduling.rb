@@ -168,12 +168,11 @@ module RpmsRpc
       value.nil? || value.to_s.empty?
     end
 
+    # Time/DateTime keep their time of day; Date formats date-only; strings
+    # pass through. (Shared helper — the old local `when Date` branch caught
+    # DateTime first and dropped the time.)
     def fm(value)
-      case value
-      when Date then FilemanDateParser.format_date(value)
-      when Time then FilemanDateParser.format_datetime(value)
-      else value.to_s
-      end
+      FilemanDateParser.to_fileman(value)
     end
   end
 end
