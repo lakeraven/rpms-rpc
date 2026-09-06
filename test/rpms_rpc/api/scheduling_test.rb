@@ -15,12 +15,26 @@ class SchedulingTest < Minitest::Test
   START_FM = RpmsRpc::FilemanDateParser.format_datetime(START_T) # "3260812.0900"
   END_FM   = RpmsRpc::FilemanDateParser.format_datetime(END_T)
 
+  # Broker stub returning one canned raw reply for every RPC — for live-wire
+  # shapes MockClient can't produce (typed recordset header rows, $C(30)/$C(31)
+  # separators, external-format dates).
+  class RawResponseClient
+    def initialize(response) = @response = response
+    def supports?(*) = true
+    def call_rpc(*) = @response
+  end
+
   def setup
     RpmsRpc.mock!
   end
 
   def teardown
     RpmsRpc.reset!
+  end
+
+  def stub_broker_response(response)
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = RawResponseClient.new(response) }
   end
 
   # ===========================================================================
@@ -87,6 +101,27 @@ class SchedulingTest < Minitest::Test
 
     refute result[:success]
     assert_match(/Invalid Resource ID/, result[:error])
+  end
+
+  # Regression: on live dispatch a BMX recordset reply opens with the typed
+  # column-header row (APPADD^BSDX07 writes "I00020APPOINTMENTID^T00020ERRORID")
+  # and rows carry $C(30) separators / a closing $C(31). The header row was
+  # stripped only on the error_write path, so fetch_one parsed it as the data
+  # row and a SUCCESSFUL booking reported failure.
+  def test_add_appointment_live_recordset_header_is_not_data_regression
+    stub_broker_response([
+      "I00020APPOINTMENTID^T00020ERRORID",
+      "501^",
+      ""
+    ])
+
+    result = RpmsRpc::Scheduling.add_appointment(
+      patient_dfn: 100, resource: "PEDIATRICIAN,DEMO",
+      start_time: START_T, end_time: END_T, length_minutes: 30
+    )
+
+    assert result[:success], "header row must not be read as the data row"
+    assert_equal 501, result[:appointment_id]
   end
 
   def test_add_appointment_returns_nil_when_unreachable
