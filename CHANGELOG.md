@@ -9,10 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 The invented BHDPTRPC placeholder namespace is now fully removed
 (issues #174/#184: zero hits across the 65,782-routine FOIA corpus, the
-staging file-8994 fingerprint, and IHS public RPC docs). Composed
-registration replaced its REGISTER dispatch earlier; this release
-replaces the remaining seven wire names (TRIBAL, TRIBALVAL, TRIBELIST,
-TRIBALELG, SU, UPDATE, NEWVISIT) with verified paths. Live round-trip
+staging file-8994 fingerprint, and IHS public RPC docs), and patient
+registration now delegates to the IHS AG package when it is present,
+composing verified stock-VistA RPCs otherwise. Live round-trip
 verification is gated on the rpms-ops evidence run (contracts: rpms-ops
 `docs/REGISTRATION_RPC_CONTRACTS.md`).
 
@@ -33,16 +32,47 @@ verification is gated on the rpms-ops evidence run (contracts: rpms-ops
   pending.
 - `RpmsRpc::Tribal.tribes` — tribe list via `DDR LISTER` over the TRIBE
   (#9999999.03) "B" index.
-- `RpmsRpc::Registration` — patient registration composed from verified
-  stock-VistA RPCs: `VAFC VOA ADD PATIENT` (PATIENT #2 half, returns the
-  DFN) then `DDR LOCK/UNLOCK NODE` + `DDR LISTER` (HRN "D"-xref
-  uniqueness pre-check) + `DDR GETS ENTRY DATA` (idempotent-re-run
-  existence probe) + two `DDR FILER` passes (the #9000001 stub at the
-  DINUM IEN = DFN, then the HRN 41-multiple entry and
+
+- `RpmsRpc::Agg` — the AG-package GUI registration RPC surface
+  (`AGG ADD NEW PATIENT` = `ADD^AGGPTADD`, `AGG UPDATE PATIENT` =
+  `UPD^AGGPTUPD`, `AGG PATIENT EDIT CHECK` = `CHK^AGGEDCHK`), context option
+  `AGGRPC`. Request framing is P1 window name / P2 DFN / P3 `$C(28)`-delimited
+  `NAME=VALUE` PARMS; the reply is a GLOBAL ARRAY (typed header row, then
+  `$C(30)`-separated records, `$C(31)` end sentinel). `Agg.available?` gates
+  delegation on real registry evidence — `CIANBRPC CANRUN "AGG ADD NEW
+  PATIENT"` — which reports RPC presence WITHOUT executing the write RPC
+  (rpms-rpc#209/#214). Wire layouts capture-verified live on bcer-9.0-ydb.
+- `CiaClient#call_rpc_global_array` — reads a GLOBAL ARRAY (return type 4)
+  reply to its `$C(31)` sentinel. The default read stops at the first EOD,
+  which for AGG replies is the header's embedded `$C(30)` record separator
+  (== the CIA EOD), truncating the data records.
+- `RpmsRpc::Registration` delegation lineage — when `Agg.available?`,
+  registration calls `AGG ADD NEW PATIENT` / `AGG UPDATE PATIENT`, inheriting
+  the AG capsule's HL7/MPI staging, `^AGPATCH` register stamp and
+  edit-check completeness rules instead of reimplementing them.
+- `RpmsRpc::Registration` composition lineage (the lineage-portable floor for
+  civilian/stock VistA with no AG package): `VAFC VOA ADD PATIENT` (PATIENT
+  #2 half, returns the DFN) then `DDR LOCK/UNLOCK NODE` + `DDR GETS ENTRY
+  DATA` (idempotent-re-run existence probe) + two `DDR FILER` passes (the
+  #9000001 stub at the DINUM IEN = DFN, then the HRN 41-multiple entry and
   tribe/community/classification/eligibility fields). Explicit error
   taxonomy: `:voa_rejected` / `:duplicate_identity` / `:lock_failed` /
-  `:hrn_taken` / `:filer_rejected` (message carries the M-side text).
-  Every wire shape cites its M routine (bcer-9.0-ydb corpus).
+  `:filer_rejected` (composition), `:agg_rejected` / `:hrn_file_failed`
+  (delegation). Every wire shape cites its M routine (bcer-9.0-ydb corpus).
+
+### Changed
+
+- HRN handling (rpms-rpc#214): the client no longer assigns or enforces
+  HRNs. `Registration.hrn_mode` selects the policy. The greenfield default
+  `:derive_from_dfn` sets **HRN := DFN** — FileMan's IEN allocation is the
+  server-side atomic assigner, so the HRN is unique by construction with no
+  client logic and no race. The legacy `:clerk_supplied` mode files the
+  caller-supplied HRN as a plain passthrough. **The client-side HRN "D"-xref
+  uniqueness pre-check (`DDR LISTER`) has been removed** — no client-side HRN
+  validation remains in either mode. A server-held claim sequence
+  (`DDR LOCK` → all-holders D-xref walk → `DDR FILER` → unlock, in one broker
+  session) is documented follow-up for the clerk-supplied mode (#214), not
+  this change.
 - `RpmsRpc::DdrFileman` — wrapper for the FileMan Delphi Components RPC
   family (`DDR FILER` / `DDR LISTER` / `DDR LOCK/UNLOCK NODE` /
   `DDR GETS ENTRY DATA` / `DDR VALIDATOR`) with public request builders

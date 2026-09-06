@@ -1118,5 +1118,53 @@ module RpmsRpc
       m.field 6, :generate_pccplus_forms
       m.field 7, :max_overbooks, :integer
     end
+
+    # ========================================================================
+    # AG PACKAGE REGISTRATION (AGG*, context option AGGRPC)
+    # ========================================================================
+    #
+    # The AG GUI-generation registration write suite. Capture-verified live
+    # on bcer-9.0-ydb (rpms-rpc#214); response parsing is custom (a GLOBAL
+    # ARRAY of typed records, not caret-per-field), so these mappings carry
+    # only the RPC name — RpmsRpc::Agg does the encode/parse and
+    # CiaClient#call_rpc_global_array reads the reply to its $C(31) sentinel.
+    # The text_blob attribute lets MockClient.seed the raw reply verbatim.
+    # Names/registration confirmed in the observed #8994 registry
+    # (rpms-ops/data/observed/broker_8994.txt, per #203/#209).
+
+    # AGG ADD NEW PATIENT — ADD^AGGPTADD (return type GLOBAL ARRAY). Params:
+    # window name, DFN ("" = new), $C(28)-delimited NAME=VALUE PARMS. Reply
+    # header "I00010RESULT^T00080MESSAGE^I00010DFN"; "1^^DFN" ok / "-1^msg"
+    # rejected. Parsed by Agg.
+    DataMapper.define(:agg_add_patient) do |m|
+      m.rpc "AGG ADD NEW PATIENT"
+      m.text_blob :reply
+    end
+
+    # AGG UPDATE PATIENT — UPD^AGGPTUPD. Same PARMS convention; DFN required.
+    # Reply header "I00010RESULT^T01024ERROR^T01024OTHER_PARMS"; "1^^" ok.
+    # Parsed by Agg.
+    DataMapper.define(:agg_update_patient) do |m|
+      m.rpc "AGG UPDATE PATIENT"
+      m.text_blob :reply
+    end
+
+    # AGG PATIENT EDIT CHECK — CHK^AGGEDCHK. Params: DFN. Reply is the
+    # MANDATORY/WARNING completeness battery, header "I00010HIDE_ERROR_NUM^
+    # T00030MSG^T00001TYPE^T00030HIDE_WINDOW^T00008HIDE_FIELD^T00050HIDE_TAB^
+    # T00001HIDE_KEY". Parsed by Agg.
+    DataMapper.define(:agg_patient_edit_check) do |m|
+      m.rpc "AGG PATIENT EDIT CHECK"
+      m.text_blob :reply
+    end
+
+    # CIANBRPC CANRUN — CANRUN^CIANBACT broker gate. Params: RPC name.
+    # Scalar "1"/"0": is the RPC in the current context option's RPC
+    # multiple. Used by Agg.available? as real registry evidence (#209)
+    # without executing the write RPC.
+    DataMapper.define(:agg_canrun) do |m|
+      m.rpc "CIANBRPC CANRUN"
+      m.scalar :can_run
+    end
   end
 end

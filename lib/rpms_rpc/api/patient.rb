@@ -30,17 +30,19 @@ module RpmsRpc
       DataMapper.patient_ssn.fetch_one(ssn.to_s)
     end
 
-    # Register a new patient — delegates to the composed
-    # RpmsRpc::Registration flow: VAFC VOA ADD PATIENT (PATIENT #2 half,
-    # ADD^VAFCPTAD) + the DDR FileMan family (IHS #9000001 half: HRN,
-    # tribe/community/classification/eligibility).
+    # Register a new patient via RpmsRpc::Registration, which picks its
+    # lineage per broker: DELEGATION to the IHS AG capsule (AGG ADD NEW
+    # PATIENT / AGG UPDATE PATIENT) when it is installed, else COMPOSITION
+    # from stock-VistA RPCs (VAFC VOA ADD PATIENT + the DDR FileMan family
+    # for the IHS #9000001 half).
     #
-    # See RpmsRpc::Registration.register for the attrs contract and the
-    # per-step wire citations. Returns
+    # See RpmsRpc::Registration.register for the attrs contract, the HRN
+    # policy (Registration.hrn_mode), and the per-step wire citations. Returns
     #   { success: true, dfn:, created: }           on success,
     #   { success: false, error: Symbol, message: } on rejection
-    #     (:voa_rejected / :duplicate_identity / :lock_failed / :hrn_taken /
-    #      :filer_rejected — message carries the M-side text), or
+    #     (:voa_rejected / :duplicate_identity / :lock_failed /
+    #      :filer_rejected for composition; :agg_rejected / :hrn_file_failed
+    #      for delegation — message carries the M-side text), or
     #   nil when the broker gives no response at all (infra failure) so
     #   callers can distinguish "rejected" from "unreachable".
     def register(attrs)

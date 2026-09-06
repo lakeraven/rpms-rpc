@@ -2,39 +2,80 @@
 
 require_relative "../mappings"
 require_relative "ddr_fileman"
+require_relative "agg"
 
 module RpmsRpc
-  # Composed patient registration: VAFC VOA ADD PATIENT creates the VistA
-  # PATIENT (#2) half; the DDR FileMan family completes the IHS half —
-  # file #9000001 (IHS PATIENT, ^AUPNPAT), the HRN, and the tribal /
-  # community / classification / eligibility fields. This replaces a
-  # removed placeholder wire name that never had a server implementation
-  # anywhere (docs/RPC_COVERAGE.md provenance notes).
+  # Patient registration with two lineages, selected per broker at call time
+  # (both replace a removed placeholder wire name that never had a server
+  # implementation anywhere — docs/RPC_COVERAGE.md provenance notes):
   #
-  # Flow (each step's wire contract cited in the method comments):
+  #   * DELEGATION (RPMS with the AG package) — when Agg.available?, register
+  #     by calling AGG ADD NEW PATIENT / AGG UPDATE PATIENT (RpmsRpc::Agg).
+  #     The AG capsule owns demographics filing into PATIENT (#2) and IHS
+  #     PATIENT (#9000001), the 41-multiple HRN, HL7/MPI staging into
+  #     ^XTMP("AGHL7"), the ^AGPATCH register stamp, and the edit-check
+  #     battery — so delegation INHERITS that logic instead of drifting from
+  #     it. (Verdict "delegate": rpms-rpc#214, capture-verified.)
+  #
+  #   * COMPOSITION (civilian / stock VistA — no AG package) — the
+  #     lineage-portable floor: VAFC VOA ADD PATIENT creates the PATIENT (#2)
+  #     record, then the DDR FileMan family completes the IHS half (#9000001,
+  #     the HRN 41-multiple, tribe / community / classification / eligibility).
+  #     This replaces the retired "BHDPTRPC REGISTER" placeholder wire name,
+  #     which never had a server implementation anywhere (docs/RPC_COVERAGE.md,
+  #     "BHDPTRPC provenance").
+  #
+  # Composition flow (each step's wire contract cited in the method comments):
   #
   #   1. VAFC VOA ADD PATIENT  → PATIENT (#2) record, returns DFN
   #                              (ADD^VAFCPTAD — VAFCPTAD.m:4-147)
   #   2. DDR LOCK/UNLOCK NODE  → lock ^AUPNPAT(DFN) for the completion writes
-  #   3. DDR LISTER            → HRN uniqueness pre-check on the "D"
-  #                              cross-reference ^AUPNPAT("D",HRN,DFN)
-  #                              (AG71A1.m:136-138)
-  #   4. DDR GETS ENTRY DATA   → does ^AUPNPAT(DFN) already exist?
+  #   3. DDR GETS ENTRY DATA   → does ^AUPNPAT(DFN) already exist?
   #                              (idempotent re-run support)
-  #   5. DDR FILER (x2)        → UPDATE^DIE files the #9000001 stub (.01 at
+  #   4. DDR FILER (x2)        → UPDATE^DIE files the #9000001 stub (.01 at
   #                              the DINUM IEN = DFN — creation convention
   #                              AUPNLK2.m:57), then the HRN into the 41
   #                              multiple + the optional IHS fields against
   #                              "DFN," (the live-proven two-pass sequence,
   #                              rpms-ops docs/REGISTRATION_RPC_CONTRACTS.md §6)
-  #   6. unlock ^AUPNPAT(DFN)  → always, once locked
+  #   5. unlock ^AUPNPAT(DFN)  → always, once locked
   #
   # Designed for idempotent re-run after a partial failure: VOA returns the
-  # existing DFN for a known ICN (VAFCPTAD.m:55), the existence probe skips
-  # the stub pass when ^AUPNPAT(DFN) is already there, and an already-filed
-  # HRN row is skipped rather than re-added.
+  # existing DFN for a known ICN (VAFCPTAD.m:55) and the existence probe skips
+  # the stub + HRN pass when ^AUPNPAT(DFN) is already there.
+  #
+  # ## HRN handling (rpms-rpc#214)
+  #
+  # The client MUST NOT assign or enforce HRNs — HRN integrity is server
+  # business logic. Two modes, selected by `Registration.hrn_mode`:
+  #
+  #   * :derive_from_dfn (DEFAULT, greenfield) — HRN := DFN. FileMan's IEN
+  #     allocation IS the server-side atomic assigner, so the HRN is unique by
+  #     construction with zero client logic and no race: create the patient,
+  #     then file the returned DFN into the facility HRN field. (The DD input
+  #     transform accepts 1-9 numeric digits — live-verified.)
+  #
+  #   * :clerk_supplied (legacy) — file the caller-supplied HRN as a plain
+  #     passthrough. NO client-side uniqueness is performed here. A proper
+  #     server-held claim (DDR LOCK -> all-holders D-xref walk -> DDR FILER ->
+  #     unlock, all in one broker session so the M lock spans the sequence) is
+  #     documented follow-up work (#214), not this PR — this is the seam.
+  #
+  # There is deliberately NO client-side HRN uniqueness/validation in either
+  # mode (the PR #212 lineage's D-xref pre-check has been removed as
+  # deprecated-by-design per #214).
   module Registration
     extend self
+
+    # HRN assignment mode — see the module doc / rpms-rpc#214.
+    HRN_MODE_DERIVE = :derive_from_dfn # greenfield default: HRN := DFN
+    HRN_MODE_CLERK  = :clerk_supplied  # legacy: caller-supplied passthrough
+
+    @hrn_mode = HRN_MODE_DERIVE
+
+    # Site-selectable HRN mode (default :derive_from_dfn). Module-level state
+    # via `extend self`, so `Registration.hrn_mode = :clerk_supplied`.
+    attr_accessor :hrn_mode
 
     # IHS PATIENT file (#9000001, ^AUPNPAT). Created against the PATIENT
     # (#2) DFN with DINUM=DFN / DLAYGO=9000001 (AUPNLK2.m:57); AG pairs
@@ -80,6 +121,10 @@ module RpmsRpc
       community: FIELD_COMMUNITY
     }.freeze
 
+    # AG registration window used for delegation (file 9009068.3 — the
+    # minimal demographics set; see RpmsRpc::Agg).
+    AGG_WINDOW = Agg::DEFAULT_WINDOW
+
     # attrs (FileMan-external values unless noted — every VOA element runs
     # through CHK^DIE server-side, e.g. VAFCPTAD.m:41,64,70):
     #
@@ -97,8 +142,12 @@ module RpmsRpc
     #   veteran:            "Y"/"N" (VAFCPTAD.m:105 keeps the first character)
     #   service_connected:  "YES"/"NO"
     #   pob_city:/pob_state:/mothers_maiden_name:  optional (VAFCPTAD.m:21-24)
-    #   hrn:                health record number to file (with location_ien:)
+    #   hrn:                caller-supplied HRN — used ONLY in the
+    #                       :clerk_supplied legacy mode (see hrn_mode); the
+    #                       greenfield default derives HRN := DFN and ignores
+    #                       this. Never client-validated for uniqueness (#214).
     #   location_ien:       facility IEN for the 41 multiple's DINUM entry
+    #                       (composition path — required to file an HRN)
     #   tribe:/classification:/eligibility_status:/community:
     #                       optional #9000001 completion values (see above)
     #   extra_fields:       [{ field:, value: }] escape hatch for additional
@@ -108,10 +157,53 @@ module RpmsRpc
     #   { success: true, dfn:, created: }               — registered (created:
     #     false = idempotent re-run against an existing #9000001 record)
     #   { success: false, error: Symbol, message: }     — rejected; error is
-    #     :voa_rejected / :duplicate_identity / :lock_failed / :hrn_taken /
-    #     :filer_rejected
+    #     :voa_rejected / :duplicate_identity / :lock_failed / :filer_rejected
+    #     (composition) or :agg_rejected / :hrn_file_failed (delegation)
     #   nil                                             — no broker response
+    #
+    # Delegates to the AG capsule when it is installed on this broker
+    # (Agg.available?), else composes VOA + DDR. Same result contract either
+    # way, so engine code is lineage-agnostic.
     def register(attrs)
+      if Agg.available?
+        register_via_agg(attrs)
+      else
+        register_via_composition(attrs)
+      end
+    end
+
+    # DELEGATION path — the AG capsule (RPMS with AG). Create via AGG ADD NEW
+    # PATIENT, then file the HRN per hrn_mode. Prefer a short broker session
+    # per registration (AG routines leak locals into long sessions — see Agg).
+    def register_via_agg(attrs)
+      clerk = (hrn_mode == HRN_MODE_CLERK)
+      params = agg_add_params(attrs)
+      # Legacy clerk-supplied HRN rides the create call (the capsule files it
+      # into the 41-multiple). Greenfield sends no HRN — it is set to the DFN
+      # afterward, below.
+      params["AGGPTHRN"] = attrs[:hrn].to_s if clerk && present?(attrs[:hrn])
+
+      created = Agg.add_patient(window: AGG_WINDOW, params: params)
+      return created unless created && created[:success]
+
+      dfn = created[:dfn]
+      unless clerk
+        # Greenfield: HRN := DFN. FileMan's IEN allocation already assigned a
+        # unique DFN; echo it into the HRN field via the delegation update
+        # path. No client-side uniqueness — unique by construction (#214).
+        updated = Agg.update_patient(window: AGG_WINDOW, dfn: dfn, params: { "AGGPTHRN" => dfn.to_s })
+        unless updated && updated[:success]
+          return { success: false, error: :hrn_file_failed, dfn: dfn,
+                   message: updated&.dig(:message).to_s }
+        end
+      end
+
+      { success: true, dfn: dfn, created: true }
+    end
+
+    # COMPOSITION path — the lineage-portable floor (civilian / stock VistA,
+    # no AG package).
+    def register_via_composition(attrs)
       voa = DataMapper.voa_add_patient.fetch_one(voa_param(attrs))
       return nil unless voa
       return voa_failure(voa) unless voa[:status] == 1
@@ -175,26 +267,17 @@ module RpmsRpc
       end
     end
 
-    # Steps 3-5 against an already-locked ^AUPNPAT(DFN).
+    # Completion writes against an already-locked ^AUPNPAT(DFN).
     def complete_ihs_registration(attrs, dfn)
-      hrn = attrs[:hrn]&.to_s
-      hrn_filed = false
-
-      if hrn && !hrn.empty?
-        listing = hrn_listing(hrn)
-        return nil unless listing
-        taken, hrn_filed = hrn_status(listing, hrn, dfn)
-        return { success: false, error: :hrn_taken,
-                 message: "HRN #{hrn} is already assigned to another patient" } if taken
-      end
-
       exists = ihs_record_exists?(dfn)
       return nil if exists.nil?
 
       # Two FILER passes, mirroring the live-proven round trip (rpms-ops
       # docs/REGISTRATION_RPC_CONTRACTS.md §6): first the #9000001 stub at
       # the DINUM IEN, then the HRN subentry + completion fields against
-      # the now-real "DFN," IENS.
+      # the now-real "DFN," IENS. On an idempotent re-run (record already
+      # present) the stub and the 41-multiple HRN row are skipped — the HRN
+      # was filed on the original create.
       unless exists
         stub = DdrFileman.filer(mode: "ADD",
           rows: [ { file: PATIENT_FILE, field: ".01", iens: "+1,", value: dfn } ],
@@ -203,7 +286,7 @@ module RpmsRpc
         return failure unless failure == :ok
       end
 
-      rows, pins = completion_rows(attrs, dfn, hrn_filed: hrn_filed)
+      rows, pins = completion_rows(attrs, dfn, hrn_new: !exists)
       return { success: true, dfn: dfn, created: !exists } if rows.empty?
 
       filed = DdrFileman.filer(mode: "ADD", rows: rows, iens: pins)
@@ -283,32 +366,6 @@ module RpmsRpc
       value.to_s
     end
 
-    # LIST^DIC over the whole-file "D" cross-reference
-    # ^AUPNPAT("D",HRN,DFN) (AG71A1.m:136-138). PART narrows to entries
-    # whose HRN starts with ours; rows come back IEN-first.
-    def hrn_listing(hrn)
-      DdrFileman.lister(file: PATIENT_FILE, max: "*", part: hrn, xref: "D")
-    end
-
-    # → [taken_by_other_patient, already_filed_for_this_dfn]
-    # PART matching is prefix matching, so a row only counts as a conflict
-    # when its value piece is absent (can't disprove) or exactly ours.
-    def hrn_status(listing, hrn, dfn)
-      taken = false
-      filed = false
-      listing[:entries].each do |entry|
-        value = entry[:pieces]&.first
-        exact = value.nil? || value.to_s.casecmp?(hrn)
-        next unless exact
-        if entry[:ien].to_i == dfn
-          filed = true
-        else
-          taken = true
-        end
-      end
-      [ taken, filed ]
-    end
-
     # Existence probe for the idempotent re-run path: GETS^DIQ on the .01.
     # A missing record surfaces as the "[ERROR]" marker (DDR2.m:61).
     def ihs_record_exists?(dfn)
@@ -325,22 +382,33 @@ module RpmsRpc
 
     # Build the completion-pass DDR FILER rows against the existing #9000001
     # record ("DFN," IENS). All values are FileMan-INTERNAL — the filer runs
-    # UPDATE^DIE/FILE^DIE with no "E" flag (DDR3.m:15,18).
-    def completion_rows(attrs, dfn, hrn_filed:)
+    # UPDATE^DIE/FILE^DIE with no "E" flag (DDR3.m:15,18). The HRN 41-multiple
+    # row is filed only for a newly created record (hrn_new); a re-run against
+    # an existing record leaves the already-filed HRN untouched.
+    def completion_rows(attrs, dfn, hrn_new:)
       rows = []
       pins = {}
 
-      hrn = attrs[:hrn]&.to_s
-      if hrn && !hrn.empty? && !hrn_filed
-        location = attrs[:location_ien].to_s
-        raise ArgumentError, "registration location_ien is required to file an HRN" if location.empty?
-        sub_iens = "+1,#{dfn},"
-        # 41-multiple entry DINUM'd to the facility IEN (AGACT.m:10 edits at
-        # DA=DUZ(2); pinned here via DDRIENS — FILEC^DDR3: DDR3.m:12-13);
-        # .01 facility pointer (AG1.m:53), .02 HRN (AG1.m:54, AGEDNAME.m:63).
-        rows << { file: HRN_SUBFILE, field: HRN_LOCATION_FIELD, iens: sub_iens, value: location }
-        rows << { file: HRN_SUBFILE, field: HRN_FIELD, iens: sub_iens, value: hrn }
-        pins[1] = location
+      hrn = effective_hrn(attrs, dfn)
+      location = attrs[:location_ien].to_s
+      if hrn && !hrn.empty? && hrn_new
+        # The 41-multiple entry is keyed to a facility, so it can only be
+        # filed with a location_ien. A :clerk_supplied caller who provides an
+        # HRN but no facility is a misconfiguration → raise. Greenfield
+        # (HRN := DFN, auto) with no facility simply defers the HRN row —
+        # the patient is still created; the HRN can be filed once a facility
+        # is known.
+        if location.empty?
+          raise ArgumentError, "registration location_ien is required to file an HRN" if hrn_mode == HRN_MODE_CLERK
+        else
+          sub_iens = "+1,#{dfn},"
+          # 41-multiple entry DINUM'd to the facility IEN (AGACT.m:10 edits at
+          # DA=DUZ(2); pinned here via DDRIENS — FILEC^DDR3: DDR3.m:12-13);
+          # .01 facility pointer (AG1.m:53), .02 HRN (AG1.m:54, AGEDNAME.m:63).
+          rows << { file: HRN_SUBFILE, field: HRN_LOCATION_FIELD, iens: sub_iens, value: location }
+          rows << { file: HRN_SUBFILE, field: HRN_FIELD, iens: sub_iens, value: hrn }
+          pins[1] = location
+        end
       end
 
       OPTIONAL_FIELD_MAP.each do |key, field|
@@ -355,6 +423,62 @@ module RpmsRpc
       end
 
       [ rows, pins ]
+    end
+
+    # The HRN to file, per hrn_mode (#214). Greenfield derives it from the
+    # server-assigned DFN (unique by construction); legacy passes the
+    # caller-supplied value straight through. NO client-side uniqueness in
+    # either mode.
+    def effective_hrn(attrs, dfn)
+      if hrn_mode == HRN_MODE_CLERK
+        attrs[:hrn]&.to_s
+      else
+        dfn.to_s
+      end
+    end
+
+    # Demographics PARMS for AGG ADD NEW PATIENT (Mini Registration window).
+    # Values are FileMan-external — AGGPTSEX is the coded set value
+    # ("MALE"/"FEMALE"), dates MM/DD/YYYY. Absent attributes are omitted
+    # (Agg.encode_parms drops nils). HRN is handled by the caller per mode.
+    def agg_add_params(attrs)
+      last, first, middle, suffix = name_parts(attrs)
+      {
+        "AGGPTLNM" => last,
+        "AGGPTFNM" => first,
+        "AGGPTMNM" => blank_to_nil(middle),
+        "AGGPTSFX" => blank_to_nil(suffix),
+        "AGGPTDOB" => blank_to_nil(external_date(attrs[:dob])),
+        "AGGPTSEX" => agg_sex(attrs[:sex]),
+        "AGGPTSSN" => blank_to_nil(attrs[:ssn].to_s.delete("-"))
+      }
+    end
+
+    # AGG name pieces as [last, first, middle, suffix] — same "^"-splitting
+    # contract as name_pieces (raises on a "^" in any piece / a blank name).
+    def name_parts(attrs)
+      pieces = name_pieces(attrs).split("^", -1)
+      [ pieces[0].to_s, pieces[1].to_s, pieces[2].to_s, pieces[3].to_s ]
+    end
+
+    # AGGPTSEX is the C-type window param coded MALE^M / FEMALE^F — the
+    # client sends the external set value. Map the VOA-style "M"/"F" used
+    # elsewhere in this module; pass any other value through uppercased.
+    def agg_sex(sex)
+      case sex.to_s.strip.upcase
+      when "M", "MALE" then "MALE"
+      when "F", "FEMALE" then "FEMALE"
+      else blank_to_nil(sex.to_s.strip.upcase)
+      end
+    end
+
+    def blank_to_nil(value)
+      s = value.to_s
+      s.empty? ? nil : s
+    end
+
+    def present?(value)
+      !value.nil? && !value.to_s.strip.empty?
     end
   end
 end
