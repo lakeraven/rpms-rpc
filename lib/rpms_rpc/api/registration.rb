@@ -147,7 +147,11 @@ module RpmsRpc
     # Values are FileMan-INTERNAL (the filer runs with no "E" flag —
     # DDR3.m:15,18). Returns { success: true, dfn: },
     # { success: false, error:, message: } (:invalid_dfn / :no_fields /
-    # :lock_failed / :filer_rejected), or nil (no broker response).
+    # :lock_failed / :filer_rejected), or nil (no broker response during
+    # the filer step). NB: lock-step broker silence surfaces as
+    # :lock_failed, not nil — DDR LOCK/UNLOCK NODE's reply grammar makes
+    # no-response and lock-timeout indistinguishable (DdrFileman.lock
+    # returns false for both); treat :lock_failed as retryable.
     def update(dfn, patient_fields: {}, ihs_fields: {})
       dfn = dfn.to_i
       return { success: false, error: :invalid_dfn, message: "a positive DFN is required" } if dfn <= 0
