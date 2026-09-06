@@ -41,6 +41,10 @@ module RpmsRpc
       return nil unless parts[0].match?(/\A\d{7}\z/)
 
       time_part = parts[1]
+      # FileMan values produced with unary + drop trailing zeros (e.g.
+      # +VAIP(17,1) in DISCHRG^ORWPT returns "3260705.1" for 10:00): pad odd
+      # lengths back to the HH/HHMM/HHMMSS shape first.
+      time_part += "0" if time_part.length.odd?
       # Accept HH, HHMM, or HHMMSS — keeps round-trip symmetry with
       # format_datetime(..., seconds: true).
       return nil unless time_part.match?(/\A\d{2}(\d{2}(\d{2})?)?\z/)

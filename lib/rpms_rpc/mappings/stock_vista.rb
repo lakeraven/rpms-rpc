@@ -1198,9 +1198,13 @@ module RpmsRpc
     end
 
     # ORWPT INPLOC — INPLOC^ORWPT. A patient's current inpatient location
-    # (single line; the leading piece is 0 when the patient is not admitted).
-    # Format: HOSP_LOC_IEN^WARD_NAME^WARD_SYNONYM (WARD LOCATION #42 0-node
-    # piece 3). Param: DFN.
+    # (single line). Format: HOSP_LOC_IEN^WARD_NAME^WARD_SYNONYM (WARD
+    # LOCATION #42 0-node piece 3). Param: DFN.
+    # NB a leading 0 alone does not mean "not admitted": REC starts at 0 and
+    # only the HOSP_LOC piece stays 0 when the ward has no 44-node link, so
+    # an admitted patient on an unlinked ward is "0^MED WARD^MW"
+    # (ORWPT.m:222-227); not-admitted is "0^^". RpmsRpc::Adt.current_location
+    # makes the distinction.
     DataMapper.define(:patient_current_location) do |m|
       m.rpc "ORWPT INPLOC"
       m.field 0, :location_ien, :integer
@@ -1209,11 +1213,14 @@ module RpmsRpc
     end
 
     # ORWPT DISCHARGE — DISCHRG^ORWPT. Discharge date/time for the admission
-    # identified by (DFN, ADMIT_DATETIME); scalar FileMan date/time.
-    # Params: DFN^ADMIT_DATETIME.
+    # identified by (DFN, ADMIT_DATETIME). Params: DFN^ADMIT_DATETIME.
+    # Scalar kept as :string — the routine returns bare DT (today, date-only)
+    # on every miss (ORWPT.m:205,207), so RpmsRpc::Adt.discharge_datetime
+    # must see the raw value to treat date-only replies as the no-data
+    # sentinel rather than a discharge at midnight today.
     DataMapper.define(:patient_discharge) do |m|
       m.rpc "ORWPT DISCHARGE"
-      m.scalar :discharge_datetime, :fileman_datetime
+      m.scalar :discharge_datetime, :string
     end
 
     # ========================================================================
