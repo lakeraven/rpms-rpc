@@ -124,8 +124,9 @@ class PatientTest < Minitest::Test
     assert_includes rpcs, "VAFC VOA ADD PATIENT"
     assert_includes rpcs, "DDR FILER"
     # Only registered wire names cross the wire — no placeholder RPCs.
-    assert_empty rpcs - [ "VAFC VOA ADD PATIENT", "DDR LOCK/UNLOCK NODE",
-                          "DDR LISTER", "DDR GETS ENTRY DATA", "DDR FILER" ]
+    assert_empty rpcs - [ "CIANBRPC CANRUN", "VAFC VOA ADD PATIENT",
+                          "DDR LOCK/UNLOCK NODE", "DDR LISTER",
+                          "DDR GETS ENTRY DATA", "DDR FILER" ]
   end
 
   def test_update_delegates_to_composed_filer_flow
