@@ -30,24 +30,47 @@ module RpmsRpc
 
     # A patient's current inpatient location — ORWPT INPLOC (INPLOC^ORWPT).
     # Returns { location_ien:, ward:, ward_synonym: } when the patient is
-    # currently admitted, or nil when they are not an inpatient (the RPC
-    # returns a leading 0) or the DFN is invalid.
+    # currently admitted, or nil when they are not an inpatient or the DFN is
+    # invalid. A leading 0 alone does NOT mean "not admitted": the routine
+    # starts REC at 0 and only the HOSPITAL LOCATION piece stays 0 when the
+    # ward has no 44-node link — an admitted patient on an unlinked ward
+    # comes back "0^MED WARD^MW" with pieces 2-3 populated (ORWPT.m:222-227).
+    # Not-admitted is "0^^" (all ward pieces empty). :location_ien is nil
+    # when the ward lacks the link.
     def current_location(dfn)
       return nil if invalid_id?(dfn)
 
       rec = DataMapper.patient_current_location.fetch_one(dfn.to_s)
-      return nil if rec.nil? || rec[:location_ien].to_i.zero?
+      return nil if rec.nil?
 
+      linked = rec[:location_ien].to_i.positive?
+      return nil unless linked || !rec[:ward].to_s.empty?
+
+      rec[:location_ien] = nil unless linked
       rec
     end
 
     # Discharge date/time for a given admission — ORWPT DISCHARGE (DISCHRG^ORWPT).
-    #   admit_datetime: the admission's FileMan date/time (or Date/Time)
-    # Returns a Time (parsed from FileMan) or nil when unavailable.
+    #   admit_datetime: the EXACT admission movement datetime — pass the
+    #     :movement_datetime from admissions() through unchanged (Time
+    #     round-trips; seconds are preserved when nonzero). The routine keys
+    #     VAIP("D") on it, so an inexact value is a miss.
+    # Returns a Time, or nil when unavailable.
+    #
+    # The routine cannot say "not found": it returns bare DT — TODAY,
+    # date-only — both for an unknown admission (ORWPT.m:205) and for an
+    # admission with no discharge yet (ORWPT.m:207). A date-only reply is
+    # therefore treated as the no-data sentinel and reads as nil; real
+    # discharge movement values carry a time part (+VAIP(17,1),
+    # ORWPT.m:208-209). Consequence: a discharge recorded at exactly
+    # midnight is indistinguishable from a miss and also reads as nil.
     def discharge_datetime(dfn, admit_datetime)
       return nil if invalid_id?(dfn)
 
-      DataMapper.patient_discharge.fetch_scalar(dfn.to_s, fm(admit_datetime))
+      raw = DataMapper.patient_discharge.fetch_scalar(dfn.to_s, fm(admit_datetime))
+      return nil if raw.nil? || !raw.include?(".")
+
+      FilemanDateParser.parse_datetime(raw)
     end
 
     private

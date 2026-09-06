@@ -78,8 +78,12 @@ class RpmsRpc::FilemanDateParserTest < Minitest::Test
     assert_nil P.parse_datetime("3250101.091560")
   end
 
+  def test_parse_datetime_odd_length_is_a_truncated_trailing_zero
+    # FileMan's unary + drops trailing zeros: ".09153" is 09:15:30.
+    assert_equal Time.new(2025, 1, 1, 9, 15, 30), P.parse_datetime("3250101.09153")
+  end
+
   def test_parse_datetime_returns_nil_for_unsupported_length
-    assert_nil P.parse_datetime("3250101.09153")
     assert_nil P.parse_datetime("3250101.0915334")
   end
 
@@ -127,6 +131,13 @@ class RpmsRpc::FilemanDateParserTest < Minitest::Test
     assert_equal t.day, parsed.day
     assert_equal t.hour, parsed.hour
     assert_equal t.min, parsed.min
+  end
+
+  # FileMan values produced with unary + drop trailing zeros (e.g.
+  # +VAIP(17,1) in DISCHRG^ORWPT): ".1" is 10:00, ".093" is 09:30.
+  def test_parse_datetime_pads_odd_length_time_parts
+    assert_equal Time.new(2025, 1, 1, 10, 0, 0), P.parse_datetime("3250101.1")
+    assert_equal Time.new(2025, 1, 1, 9, 30, 0), P.parse_datetime("3250101.093")
   end
 
   # -- external format (DD^%DT output) ----------------------------------------

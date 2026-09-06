@@ -69,6 +69,23 @@ class AdtTest < Minitest::Test
     assert_nil RpmsRpc::Adt.current_location(nil)
   end
 
+  # Regression: INPLOC^ORWPT emits "0^MED WARD^MW" for an ADMITTED patient
+  # whose ward has no 44-node HOSPITAL LOCATION link (ORWPT.m:222-227 — REC
+  # starts at 0 and only the linked-location piece stays 0; pieces 2-3 still
+  # carry the ward). Testing only the leading piece read those inpatients as
+  # "not admitted". Not-admitted is "0^^" (pieces 2-3 empty).
+  def test_current_location_admitted_on_unlinked_ward_regression
+    RpmsRpc.client.seed(:patient_current_location, "100",
+                        { location_ien: 0, ward: "MED WARD", ward_synonym: "MW" })
+
+    loc = RpmsRpc::Adt.current_location(100)
+
+    refute_nil loc, "0^name^synonym is an admitted patient on an unlinked ward"
+    assert_nil loc[:location_ien], "no 44-node link -> no hospital-location IEN"
+    assert_equal "MED WARD", loc[:ward]
+    assert_equal "MW", loc[:ward_synonym]
+  end
+
   # ---- discharge_datetime --------------------------------------------------
 
   def test_discharge_datetime_parses_fileman
@@ -88,6 +105,29 @@ class AdtTest < Minitest::Test
 
   def test_discharge_datetime_nil_for_invalid_dfn
     assert_nil RpmsRpc::Adt.discharge_datetime(0, ADMIT_T)
+  end
+
+  # Regression pin: DISCHRG^ORWPT returns bare DT — TODAY, date-only — on
+  # every miss (unknown admission: ORWPT.m:205; admission without a
+  # discharge: ORWPT.m:207). It cannot say "not found", so a date-only reply
+  # is the routine's no-data sentinel and must read as nil, never as a
+  # discharge at midnight today.
+  def test_discharge_datetime_nil_on_date_only_dt_sentinel
+    RpmsRpc.client.seed_scalar(:patient_discharge, "100", "3260906")
+
+    assert_nil RpmsRpc::Adt.discharge_datetime(100, ADMIT_T)
+  end
+
+  # Regression: the routine returns +VAIP(17,1), and unary + drops trailing
+  # zeros — 10:00 arrives as "3260705.1" (ORWPT.m:208-209). The odd-length
+  # time part parsed nil, reading a REAL discharge as no-data.
+  def test_discharge_datetime_parses_plus_truncated_time_regression
+    RpmsRpc.client.seed_scalar(:patient_discharge, "100", "3260705.1")
+
+    result = RpmsRpc::Adt.discharge_datetime(100, ADMIT_T)
+
+    refute_nil result, "\"3260705.1\" is 2026-07-05 10:00, not a miss"
+    assert_equal Time.new(2026, 7, 5, 10, 0, 0), result
   end
 
   # Regression: DateTime < Date in Ruby, so a `when Date` branch listed before
