@@ -256,6 +256,10 @@ module RpmsRpc
           val.is_a?(Date) || val.is_a?(Time) ? FilemanDateParser.format_date(val) : val.to_s
         when :fileman_datetime
           val.is_a?(Date) || val.is_a?(Time) ? FilemanDateParser.format_datetime(val) : val.to_s
+        when :external_date
+          val.is_a?(Date) || val.is_a?(Time) ? FilemanDateParser.format_external_date(val) : val.to_s
+        when :external_datetime
+          val.is_a?(Time) ? FilemanDateParser.format_external_datetime(val) : val.to_s
         when :integer
           val.to_s
         when :boolean
@@ -295,6 +299,10 @@ module RpmsRpc
           FilemanDateParser.parse_date(raw)
         when :fileman_datetime
           FilemanDateParser.parse_datetime(raw)
+        when :external_date
+          FilemanDateParser.parse_external_date(raw)
+        when :external_datetime
+          FilemanDateParser.parse_external_datetime(raw)
         when :boolean
           raw == "1" || raw.casecmp?("yes")
         else

@@ -106,6 +106,9 @@ module RpmsRpc
     # Raises ArgumentError when a resource name contains "|" — the wire
     # delimiter — so one name can't smuggle in extra resources.
     # Returns an Array of { resource_name:, date:, access_type:, comment: }.
+    # :date is a Date parsed from the routine's EXTERNAL-format output
+    # (DD^%DT — BSDX24.m:116-117); :comment is always nil (the routine never
+    # populates it — BSDX24.m:123-124).
     def availability(resources:, start_date:, end_date:, access_types: nil, ampm: nil, weekdays: nil)
       names = Array(resources).map(&:to_s)
       names.each do |name|
@@ -119,7 +122,10 @@ module RpmsRpc
 
     # All appointments across resources in a date range — BSDX ALL APPOINTMENTS
     # (APBLKALL^BSDX05). Returns an Array of
-    # { start_time:, end_time:, patient_dfn: }.
+    # { start_time:, end_time:, patient_dfn:, resource_name: }.
+    # :start_time/:end_time are Times parsed from the routine's EXTERNAL-format
+    # output (X ^DD("DD") with "@" translated to a space — BSDX05.m:100-101);
+    # :resource_name is the 4th column GATHER^BSDX05 appends (BSDX05.m:65,76).
     def all_appointments(start_date:, end_date:)
       DataMapper.scheduling_all_appointments.fetch_many(fm(start_date), fm(end_date))
     end

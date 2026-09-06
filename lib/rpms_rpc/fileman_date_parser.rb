@@ -73,6 +73,70 @@ module RpmsRpc
       "#{yyy}#{mm}#{dd}"
     end
 
+    # -- EXTERNAL (DD^%DT) format ---------------------------------------------
+    #
+    # Some recordset RPCs emit dates already run through FileMan's external
+    # writer DD^%DT — "SEP 04, 2026", optionally "@HH:MM[:SS]" (DIDT.m DD tag);
+    # e.g. SEARCH^BSDX24 (BSDX24.m:116-117) and APBLKALL^BSDX05, which also
+    # translates the "@" to a space (BSDX05.m:100-101). Both separators are
+    # accepted, as is a missing space after the comma.
+
+    EXTERNAL_MONTHS = %w[JAN FEB MAR APR MAY JUN JUL AUG SEP OCT NOV DEC].freeze
+    EXTERNAL_FORMAT =
+      /\A([A-Z]{3})\s+(\d{1,2}),\s*(\d{4})(?:[@\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?\z/i
+
+    # Parse an external-format date ("SEP 04, 2026[@09:00]") to a Date.
+    # Any time portion is ignored. Returns nil for anything unparseable.
+    def self.parse_external_date(value)
+      parts = match_external(value)
+      parts && Date.new(parts[:year], parts[:month], parts[:day])
+    rescue ArgumentError
+      nil
+    end
+
+    # Parse an external-format datetime ("SEP 04, 2026 09:00" or "@09:00[:SS]")
+    # to a Time. A missing time portion reads as midnight. Returns nil for
+    # anything unparseable.
+    def self.parse_external_datetime(value)
+      parts = match_external(value)
+      return nil if parts.nil?
+      return nil if parts[:hour] > 23 || parts[:min] > 59 || parts[:sec] > 59
+
+      Time.new(parts[:year], parts[:month], parts[:day],
+               parts[:hour], parts[:min], parts[:sec])
+    rescue ArgumentError
+      nil
+    end
+
+    # Format a Date/Time as an external-format date ("SEP 04, 2026").
+    def self.format_external_date(date)
+      return nil if date.nil?
+
+      date.strftime("%b %d, %Y").upcase
+    end
+
+    # Format a Time as an external-format datetime in the space-separated form
+    # BSDX05 puts on the wire ("SEP 04, 2026 09:00"; seconds when nonzero).
+    def self.format_external_datetime(datetime)
+      return nil if datetime.nil?
+
+      time = format("%02d:%02d", datetime.hour, datetime.min)
+      time += format(":%02d", datetime.sec) if datetime.sec.positive?
+      "#{format_external_date(datetime)} #{time}"
+    end
+
+    def self.match_external(value)
+      md = EXTERNAL_FORMAT.match(value.to_s.strip)
+      return nil if md.nil?
+
+      month = EXTERNAL_MONTHS.index(md[1].upcase)
+      return nil if month.nil?
+
+      { year: md[3].to_i, month: month + 1, day: md[2].to_i,
+        hour: md[4].to_i, min: md[5].to_i, sec: md[6].to_i }
+    end
+    private_class_method :match_external
+
     # Format an outgoing RPC date/time parameter. Time and DateTime carry a
     # time of day, so they must be matched BEFORE Date — DateTime < Date in
     # Ruby, and a bare `when Date` branch silently dropped DateTime times
