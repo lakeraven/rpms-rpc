@@ -94,7 +94,7 @@ module RpmsRpc
     # { success: false, error: :agg_rejected, message: } on "-1^message",
     # or nil when the broker gives no response.
     def add_patient(params:, window: DEFAULT_WINDOW, dfn: "", client: RpmsRpc.client)
-      interpret_write(call_array(client, ADD_RPC, window, dfn.to_s, encode_parms(params)))
+      interpret_write(call_array(client, ADD_RPC, window, dfn.to_s, encode_parms(params)), require_dfn: true)
     end
 
     # UPD^AGGPTUPD — edit an existing patient (DFN required). Same PARMS
@@ -170,7 +170,10 @@ module RpmsRpc
       end
     end
 
-    def interpret_write(reply)
+    # require_dfn: ADD^AGGPTADD always fills the DFN piece on success, so a
+    # "1" result with a blank DFN is a malformed/partial reply for the add
+    # path; UPD^AGGPTUPD legitimately returns "1^" with no DFN.
+    def interpret_write(reply, require_dfn: false)
       parsed = parse_reply(reply)
       return nil if parsed.nil?
 
@@ -180,6 +183,10 @@ module RpmsRpc
       message = record[:message] || record[:error] || ""
       if record[:result].to_s == "1"
         dfn = record[:dfn].to_s
+        if dfn.empty? && require_dfn
+          return { success: false, error: :agg_malformed_reply,
+                   message: "AGG success record carried no DFN" }
+        end
         { success: true, dfn: dfn.empty? ? nil : dfn.to_i, message: message.to_s }
       else
         text = message.to_s.empty? ? record.values.compact.join("^") : message.to_s

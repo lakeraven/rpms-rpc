@@ -395,9 +395,12 @@ module RpmsRpc
         # The 41-multiple entry is keyed to a facility, so it can only be
         # filed with a location_ien. A :clerk_supplied caller who provides an
         # HRN but no facility is a misconfiguration → raise. Greenfield
-        # (HRN := DFN, auto) with no facility simply defers the HRN row —
-        # the patient is still created; the HRN can be filed once a facility
-        # is known.
+        # (HRN := DFN, auto) with no facility skips the HRN row — the
+        # patient is still created WITHOUT an HRN, and this path does not
+        # backfill it later: the row files only on the initial #9000001
+        # create (hrn_new), so an idempotent re-run with location_ien now
+        # supplied will NOT add it. Backfilling an HRN for an existing
+        # record is a Registration.update concern.
         if location.empty?
           raise ArgumentError, "registration location_ien is required to file an HRN" if hrn_mode == HRN_MODE_CLERK
         else
