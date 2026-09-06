@@ -152,16 +152,14 @@ module RpmsRpc
       ok ? { success: true } : { success: false, error: row }
     end
 
-    # First non-header data row of a recordset response, as a String.
+    # First non-header data row of a recordset response, as a String with the
+    # $C(30)/$C(31) record separators stripped (shared recordset framing
+    # rules live in DataMapper — see RECORDSET_SEPARATORS there). An empty row
+    # is kept: for ERRORID-only writes it means success.
     def data_row(resp)
-      lines = Array(resp).reject { |l| header_row?(l) }
-      lines.first.to_s
-    end
-
-    # BMX recordset column-header rows look like "T00020ERRORID" / "I00020APPT..."
-    # — a type char (I/T/D/F) followed by a 5-digit width. Data rows never match.
-    def header_row?(line)
-      line.to_s.match?(/\A[ITDF]\d{5}/)
+      Array(resp).map { |l| DataMapper.strip_recordset_separators(l) }
+                 .reject { |l| DataMapper.recordset_header_row?(l) }
+                 .first.to_s
     end
 
     def blank?(value)

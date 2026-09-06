@@ -194,6 +194,63 @@ class RpmsRpc::DataMapperTest < Minitest::Test
 
   # -- Merge (multi-RPC) ----------------------------------------------------
 
+  # -- BMX recordset hygiene (typed header row + record separators) ----------
+  #
+  # BMX GLOBAL-ARRAY (recordset) RPCs open the reply with a typed column-header
+  # row ("T00030NAME^..."), append a $C(30) record separator to every row, and
+  # close with a bare $C(31). Regression: this hygiene lived only on the
+  # Scheduling#error_write path, so every fetch_one/fetch_many recordset read
+  # parsed the header row as data on live dispatch.
+
+  def test_parse_many_strips_recordset_header_and_separators_regression
+    mapping = RpmsRpc::DataMapper.define(:dm_test_recordset_many) do
+      rpc "TEST RECORDSET"
+      field 0, :name
+      field 1, :value
+    end
+
+    result = mapping.parse_many([
+      "T00030NAME^T00030VALUE",
+      "ALPHA^1",
+      "BETA^2",
+      ""
+    ])
+
+    assert_equal 2, result.size, "header and end-sentinel rows are not data"
+    assert_equal({ name: "ALPHA", value: "1" }, result[0])
+    assert_equal({ name: "BETA", value: "2" }, result[1])
+  end
+
+  def test_parse_one_skips_recordset_header_row_regression
+    mapping = RpmsRpc::DataMapper.define(:dm_test_recordset_one) do
+      rpc "TEST RECORDSET ONE"
+      field 0, :appointment_id, :integer
+      field 1, :error
+    end
+
+    result = mapping.parse_one([
+      "I00020APPOINTMENTID^T00020ERRORID",
+      "501^",
+      ""
+    ])
+
+    assert_equal 501, result[:appointment_id],
+                 "first DATA row (not the typed header) is the record"
+    assert_nil result[:error]
+  end
+
+  def test_parse_one_still_reads_plain_single_line_responses
+    mapping = RpmsRpc::DataMapper.define(:dm_test_plain_one) do
+      rpc "TEST PLAIN"
+      field 0, :name
+      field 1, :sex
+    end
+
+    result = mapping.parse_one("DOE,JOHN^M")
+    assert_equal "DOE,JOHN", result[:name]
+    assert_equal "M", result[:sex]
+  end
+
   def test_merge_combines_two_parsed_hashes
     select_mapping = RpmsRpc::DataMapper.define(:merge_test_select) do
       rpc "ORWPT SELECT"

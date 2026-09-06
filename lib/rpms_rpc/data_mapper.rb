@@ -29,6 +29,29 @@ module RpmsRpc
   module DataMapper
     Field = Struct.new(:position, :attribute, :type, :terminology, :pointer, keyword_init: true)
 
+    # BMX GLOBAL-ARRAY (recordset) RPC replies open with a typed column-header
+    # row, append a $C(30) record separator to every row, and close with a bare
+    # $C(31) (e.g. SEARCH^BSDX24 writes "T00030RESOURCENAME^..."_$C(30), then
+    # $C(31)). The parse paths below strip that framing so recordset reads get
+    # DATA rows — previously only Scheduling#error_write did, and every
+    # fetch_one/fetch_many recordset read parsed the header row as data.
+    RECORDSET_SEPARATORS = /[\u001E\u001F]+\z/
+
+    # Trailing $C(30)/$C(31) record/end separators removed.
+    def self.strip_recordset_separators(line)
+      line.to_s.sub(RECORDSET_SEPARATORS, "")
+    end
+
+    # A recordset column-header row: every caret piece is a type char
+    # (I/T/D/F) followed by a 5-digit width and the column name (e.g.
+    # "I00020APPOINTMENTID^T00020ERRORID"). Data rows never match.
+    def self.recordset_header_row?(line)
+      s = strip_recordset_separators(line)
+      return false if s.empty?
+
+      s.split("^", -1).all? { |piece| piece.match?(/\A[ITDF]\d{5}/) }
+    end
+
     class Mapping
       attr_reader :name, :rpc_name, :fields
 
@@ -122,6 +145,7 @@ module RpmsRpc
         end
         response.filter_map do |line|
           next if line.nil? || line.to_s.empty?
+          next if DataMapper.recordset_header_row?(line)
           parse_one(line)
         end
       end
@@ -241,16 +265,20 @@ module RpmsRpc
         end
       end
 
+      # First DATA line of a response: recordset header rows and $C(30)/$C(31)
+      # separators (see RECORDSET_SEPARATORS) are not data.
       def normalize_line(response)
         return nil if response.nil?
         return nil if response.is_a?(String) && response.empty?
 
         if response.is_a?(Array)
-          return nil if response.empty?
-          return response.first.to_s
+          return response.lazy
+                         .map { |l| DataMapper.strip_recordset_separators(l) }
+                         .reject { |l| l.empty? || DataMapper.recordset_header_row?(l) }
+                         .first
         end
 
-        response.to_s
+        DataMapper.strip_recordset_separators(response)
       end
 
       def coerce(raw, type)
