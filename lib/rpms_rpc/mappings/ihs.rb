@@ -580,6 +580,7 @@ module RpmsRpc
     # BEHOENCX LOCK — patient lock result
     DataMapper.define(:patient_lock) do |m|
       m.rpc "BEHOENCX LOCK"
+      m.status_reply! # failure replies are the modeled record
       m.field 0, :success, :boolean
       m.field 1, :lock_id
       m.field 2, :message
@@ -719,6 +720,7 @@ module RpmsRpc
     # Format: STATUS^MESSAGE
     DataMapper.define(:immunization_exchange_status) do |m|
       m.rpc "BYIMRT STATUS"
+      m.status_reply! # "-1^message" is the modeled failure record
       m.field 0, :status_code, :integer
       m.field 1, :message
     end

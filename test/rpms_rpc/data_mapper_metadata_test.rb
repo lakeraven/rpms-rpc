@@ -152,12 +152,13 @@ class DataMapperMetadataTest < Minitest::Test
       "problem_list should have :icd10 terminology on :icd_code field"
   end
 
-  def test_problem_list_has_pointer_on_provider_duz
+  def test_problem_list_has_no_invented_pointer_fields
+    # The ORQQPL LIST wire has no provider piece (GMPLUTL3.m:120) — the old
+    # :provider_duz pointer field mapped the SC/NSC flag (#218).
     mapping = RpmsRpc::DataMapper[:problem_list]
-    pf = mapping.pointer_fields
 
-    assert pf.any? { |f| f.attribute == :provider_duz && f.pointer[:file] == 200 },
-      "problem_list should have pointer to file 200 on :provider_duz field"
+    assert_empty mapping.pointer_fields,
+      "problem_list has no pointer-valued pieces on the ORQQPL LIST wire"
   end
 
   def test_medication_list_has_terminology

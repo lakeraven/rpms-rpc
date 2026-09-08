@@ -80,25 +80,39 @@ module RpmsRpc
     end
 
     # ORQQAL LIST — patient allergies (multi-line)
-    # Format: ALLERGEN^REACTION^SEVERITY
+    # Wire per LIST^ORQQAL (ORQQAL.m:8,14 over EN1^GMRAOR1):
+    #   ALLERGY_IEN ^ AGENT ^ SEVERITY ^ SIGNS(";"-joined — ORQQAL.m:18-21)
+    # Assessment-state sentinels "^No Allergy Assessment" / "^No Known
+    # Allergies" / "^No allergies found." (ORQQAL.m:12-15) are filtered by
+    # DataMapper's sentinel guard; the three-state assessment result is
+    # surfaced by RpmsRpc::Allergy.assessment.
     DataMapper.define(:allergy_list) do |m|
       m.rpc "ORQQAL LIST"
-      m.field 0, :allergen
-      m.field 1, :reaction
+      m.field 0, :ien
+      m.field 1, :allergen
       m.field 2, :severity
+      m.field 3, :signs
     end
 
     # ORQQPL LIST — patient problem list (multi-line)
-    # Format: IEN^STATUS^DESCRIPTION^ICD_CODE^ONSET_DATE^RECORDED_DATE^PROVIDER_DUZ
+    # LIST^ORQQPL reorders the LIST^GMPLUTL2 row (ORQQPL.m:14) whose layout
+    # is IFN^ST^NARR^ICD^ONSET^LASTMOD^SC^SP (GMPLUTL3.m:120), so the wire is
+    #   IEN ^ NARRATIVE ^ STATUS ^ ICD ^ ONSET ^ LAST_MODIFIED ^ SC ^ SPEXP
+    # Piece 6 is date-last-modified ($P(GMPL0,U,3) — GMPLUTL3.m:109), piece 7
+    # is service-connected SC/NSC/"" (GMPLUTL3.m:111), piece 8 the special
+    # exposures marker (SCS^GMPLX1 — GMPLUTL3.m:112). Sentinels
+    # "^No problems found." / "^Problem list not available.^"
+    # (ORQQPL.m:17-18) are filtered by DataMapper's sentinel guard.
     DataMapper.define(:problem_list) do |m|
       m.rpc "ORQQPL LIST"
       m.field 0, :ien
-      m.field 1, :status
-      m.field 2, :description
+      m.field 1, :description
+      m.field 2, :status
       m.field 3, :icd_code, :string, terminology: :icd10
       m.field 4, :onset_date,    :fileman_date
-      m.field 5, :recorded_date, :fileman_date
-      m.field 6, :provider_duz, :string, pointer: { file: 200 }
+      m.field 5, :last_modified, :fileman_date
+      m.field 6, :service_connected
+      m.field 7, :special_exposure
     end
 
     # ORQQPL coverage — problem-list mutations + lookups + audit. Wire field
@@ -235,13 +249,17 @@ module RpmsRpc
     end
 
     # ORQQVI VITALS — patient vitals (multi-line)
-    # Format: TYPE^VALUE^UNITS^DATE
+    # Wire per VITALS^ORQQVI (ORQQVI.m:6, row at ORQQVI.m:23):
+    #   MEASUREMENT_IEN ^ TYPE ^ DATE/TIME_TAKEN ^ RATE
+    # There is no units piece — units are implied by the vital type. The
+    # "^No vitals found." sentinel (ORQQVI.m:24) is filtered by DataMapper's
+    # sentinel guard.
     DataMapper.define(:vitals) do |m|
       m.rpc "ORQQVI VITALS"
-      m.field 0, :type
-      m.field 1, :value
-      m.field 2, :units
-      m.field 3, :recorded_date, :fileman_date
+      m.field 0, :ien
+      m.field 1, :type
+      m.field 2, :recorded_date, :fileman_datetime
+      m.field 3, :value
     end
 
     # ========================================================================
@@ -292,16 +310,20 @@ module RpmsRpc
     # ========================================================================
 
     # ORQQPS LIST — medication list (multi-line)
-    # Format: IEN^DRUG_NAME^SIG^STATUS^LAST_FILL^REFILLS^PROVIDER
+    # Wire per LIST^ORQQPS (ORQQPS.m:5; outpatient rows at ORQQPS.m:47):
+    #   ID ^ NAME+FORM ^ STOP_DATE ^ ROUTE ^ SCHEDULE/INFUSION_RATE ^ REFILLS
+    # REFILLS is present only on outpatient rows (ORQQPS.m:42 vs :47). There
+    # are no sig/status/last-fill/provider pieces on this wire. The
+    # "^No medications found." sentinel (ORQQPS.m:53) is filtered by
+    # DataMapper's sentinel guard.
     DataMapper.define(:medication_list) do |m|
       m.rpc "ORQQPS LIST"
       m.field 0, :ien
       m.field 1, :drug_name, :string, terminology: :rxnorm, pointer: { file: 50 }
-      m.field 2, :sig
-      m.field 3, :status
-      m.field 4, :last_fill,   :fileman_date
-      m.field 5, :refills,     :integer
-      m.field 6, :provider, :string, pointer: { file: 200 }
+      m.field 2, :stop_date, :fileman_date
+      m.field 3, :route
+      m.field 4, :schedule
+      m.field 5, :refills,   :integer
     end
 
     # ORQQCP LIST — care plan list (multi-line)
@@ -1256,6 +1278,7 @@ module RpmsRpc
     #                              (ALIAS^VAFCPTAD: VAFCPTAD.m:178)
     DataMapper.define(:voa_add_patient) do |m|
       m.rpc "VAFC VOA ADD PATIENT"
+      m.status_reply! # "-1^error text" is the modeled rejection record
       m.field 0, :status, :integer
       m.field 1, :dfn_or_error
       m.field 2, :warning

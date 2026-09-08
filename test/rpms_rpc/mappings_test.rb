@@ -93,28 +93,38 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- ORQQAL LIST -----------------------------------------------------------
 
   def test_allergy_list
-    results = RpmsRpc::DataMapper[:allergy_list].parse_many([ "PENICILLIN^RASH^MODERATE", "ASPIRIN^HIVES^SEVERE" ])
+    # LIST^ORQQAL wire: ien^agent^severity^signs (ORQQAL.m:8,14,18-21)
+    results = RpmsRpc::DataMapper[:allergy_list].parse_many([ "667^PENICILLIN^MODERATE^RASH", "668^ASPIRIN^SEVERE^HIVES" ])
     assert_equal 2, results.size
     assert_equal "PENICILLIN", results[0][:allergen]
+    assert_equal "RASH", results[0][:signs]
     assert_equal "SEVERE", results[1][:severity]
   end
 
   # -- ORQQPL LIST -----------------------------------------------------------
 
   def test_problem_list
-    result = RpmsRpc::DataMapper[:problem_list].parse_many([ "123^ACTIVE^Diabetes Type 2^E11.9^3200101^3250301^101" ]).first
+    # LIST^ORQQPL wire: ien^narrative^status^icd^onset^lastmod^SC^SpExp
+    # (ORQQPL.m:14 over GMPLUTL3.m:120)
+    result = RpmsRpc::DataMapper[:problem_list].parse_many([ "123^Diabetes Type 2^A^E11.9^3200101^3250301^NSC^" ]).first
     assert_equal "123", result[:ien]
-    assert_equal "ACTIVE", result[:status]
+    assert_equal "Diabetes Type 2", result[:description]
+    assert_equal "A", result[:status]
     assert_equal "E11.9", result[:icd_code]
     assert_equal Date.new(2020, 1, 1), result[:onset_date]
+    assert_equal Date.new(2025, 3, 1), result[:last_modified]
+    assert_equal "NSC", result[:service_connected]
   end
 
   # -- ORQQVI VITALS ---------------------------------------------------------
 
   def test_vitals
-    results = RpmsRpc::DataMapper[:vitals].parse_many([ "BLOOD PRESSURE^120/80^mmHg^3260401" ])
-    assert_equal "BLOOD PRESSURE", results[0][:type]
+    # VITALS^ORQQVI wire: ien^type^datetime^rate (ORQQVI.m:6,23)
+    results = RpmsRpc::DataMapper[:vitals].parse_many([ "8001^BP^3260401.0815^120/80" ])
+    assert_equal "8001", results[0][:ien]
+    assert_equal "BP", results[0][:type]
     assert_equal "120/80", results[0][:value]
+    assert_equal Time.new(2026, 4, 1, 8, 15), results[0][:recorded_date]
   end
 
   # -- BEHOENCX FETCH (get-or-create form) -----------------------------------
@@ -228,9 +238,13 @@ class RpmsRpc::MappingsTest < Minitest::Test
   # -- ORQQPS LIST -----------------------------------------------------------
 
   def test_medication_list
-    result = RpmsRpc::DataMapper[:medication_list].parse_many([ "456^METFORMIN 500MG^TAKE ONE TABLET BY MOUTH TWICE DAILY^ACTIVE^3260101^3^MARTINEZ" ]).first
+    # LIST^ORQQPS wire: id^nameform^stop date^route^schedule^refills
+    # (ORQQPS.m:5, outpatient row at ORQQPS.m:47)
+    result = RpmsRpc::DataMapper[:medication_list].parse_many([ "456^METFORMIN 500MG^3260101^PO^BID^3" ]).first
     assert_equal "METFORMIN 500MG", result[:drug_name]
-    assert_equal "ACTIVE", result[:status]
+    assert_equal Date.new(2026, 1, 1), result[:stop_date]
+    assert_equal "PO", result[:route]
+    assert_equal "BID", result[:schedule]
     assert_equal 3, result[:refills]
   end
 
