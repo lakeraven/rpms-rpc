@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (BGO write APIs rebound to the real writers — #217)
+
+Four write APIs were bound to wrong-semantics RPCs; three silently faked
+success and one filed wrong clinical data. All rebound against the FOIA M
+source with the INP layouts each routine actually parses:
+
+- `Problem.add/update` now call **BGOPROB SET** (SET^BGOPROB) with the
+  "P"-line ARRAY contract; `Problem.delete` calls **BGOPROB DEL**. The old
+  binding, BGOPROB1 EDPROB, is a *read* ("Get active problems") — writes
+  were silently dropped while the API parsed a returned problem IEN as a
+  "saved" IEN. **Breaking:** the problem hash is now the BGOPROB "P"-line
+  contract (`PROB_FIELDS`: `:snomed_ct, :descriptive_ct, :description,
+  :icd_code, :location_ien, :onset_date, :status, :problem_class,
+  :problem_number, :priority`); `:location_ien` is required by the M side
+  (-1049 without it). `EDIT_ACTIONS`/`EDPROB_FIELDS` removed.
+- `Pov.add` → **BGOVPOV SET**, `HealthFactor.add` → **BGOVHF SET**,
+  `ExamComponent.add` → **BGOVEXAM SET**, `Measurement.add` →
+  **BGOVMSR SET**. The old shared binding BGOVUPD SET writes V
+  UPDATE/REVIEWED (#9000010.54) — none of the four visit-data entries were
+  ever filed. **Breaking:** `Measurement.add`'s `units:`/`qualifier:` are
+  no longer transmitted (BGOVMSR SET has no such pieces — units are fixed
+  by the measurement type); `Pov.add` modifier `:fraction` is now
+  `:fracture`; `HealthFactor.add` gains `provider_duz:`/`quantity:`;
+  `ExamComponent.add` gains `provider_duz:`.
+- `ImmunizationRefusal.record` → **BGOREF SET** with refusal type
+  "IMMUNIZATION" (the ^AUPNPREF personal-refusals writer). The old binding
+  BGOREP SET writes *reproductive history* (^AUPNREP) — and BGOREF/BGOREP
+  were swapped with the referral finding below. **Breaking:** signature is
+  now `record(dfn, vaccine_ien, reason_ien:, narrative:, refusal_date:,
+  provider_duz:)`; the invented `REASON_CODES` letter table is removed —
+  reasons are REFUSAL REASON (#9999999.102) IENs, listed by the new
+  `ImmunizationRefusal.reasons`. Success returns no IEN (the M API returns
+  "" on success); broker silence is a failure, not a success.
+- `Referral.create` is now honestly **`:not_implemented`**: BGOREF SET
+  files refusals, and the real referral writer (BMC ADD REFERRAL =
+  SETREFRL^BMCRPC2, 39 positional formals) cannot be faithfully driven
+  from `create`'s small hash — use `Referral.add` with the full RCIS
+  parameter list. `CREATE_FIELDS` removed.
+- Mappings: `:problem_edit`, `:visit_data_save`, `:referral_create`,
+  `:immunization_refusal_save` removed; `:problem_set`, `:problem_remove`,
+  `:pov_set`, `:health_factor_set`, `:exam_set`, `:measurement_set`,
+  `:refusal_set`, `:refusal_reasons` added.
+
 ### Fixed (clinical reads feeding FHIR — #218)
 
 - `:problem_list` (ORQQPL LIST) columns corrected to the real wire

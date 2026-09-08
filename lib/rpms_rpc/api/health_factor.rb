@@ -6,17 +6,31 @@ module RpmsRpc
   # Symbolic API for visit health-factor entry — IHS-specific structured
   # observations (tobacco use, food security, social risk, etc.) with an
   # optional severity level.
-  # Underlying RPC: BGOVUPD SET with HF record type.
+  # Underlying RPC: BGOVHF SET (SET^BGOVHF — BGOVHF.m:45).
   module HealthFactor
     extend self
 
-    RECORD_TYPE = "HF"
-
-    def add(dfn, visit_ien, factor_code, level:, narrative: nil)
+    # Add a health factor to an open visit.
+    #
+    # INP layout (BGOVHF.m:44; parsed :48-56,:68): HF Type IEN[1]^
+    # V File IEN[2]^Visit IEN[3]^Severity[4]^Provider IEN[5]^Quantity[6]^
+    # Comment[7]^Event dt[8]. factor_code is the HEALTH FACTOR (#9999999.64)
+    # type IEN — the routine reads it numerically (TYPE=+INP — BGOVHF.m:48).
+    # The patient is implied by the visit; dfn is validated but not on the
+    # wire. Returns the saved V HEALTH FACTOR IEN (BGOVHF.m:83).
+    def add(dfn, visit_ien, factor_code, level:, narrative: nil, provider_duz: nil, quantity: nil)
       return failure if invalid_id?(dfn) || invalid_id?(visit_ien) || blank?(factor_code)
 
-      payload = [ RECORD_TYPE, factor_code, level.to_s, narrative.to_s ].join("^")
-      raw = DataMapper.visit_data_save.fetch_scalar(dfn.to_s, visit_ien.to_s, payload)
+      inp = [
+        factor_code.to_s,
+        "",                 # V File IEN — empty for a new entry
+        visit_ien.to_s,
+        level.to_s,
+        provider_duz.to_s,
+        quantity.to_s,
+        narrative.to_s
+      ].join("^")
+      raw = DataMapper.health_factor_set.fetch_scalar(inp)
 
       saved_ien = raw.to_s.match(/\A\d+/)&.to_s&.to_i
       {

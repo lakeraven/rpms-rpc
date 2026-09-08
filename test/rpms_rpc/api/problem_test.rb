@@ -15,7 +15,7 @@ class ProblemTest < Minitest::Test
 
   def test_add_returns_success_with_saved_ien
     RpmsRpc.mock! do |m|
-      m.seed_scalar(:problem_edit, DFN, "5001")
+      m.seed_scalar(:problem_set, DFN, "5001")
     end
 
     result = RpmsRpc::Problem.add(DFN, { icd_code: "I10", description: "Hypertension" })
@@ -23,37 +23,53 @@ class ProblemTest < Minitest::Test
     assert_equal 5001, result[:ien]
   end
 
-  def test_add_dispatches_bgoprob1_edprob_with_action_marker
+  def test_add_dispatches_bgoprob_set_with_p_line
     RpmsRpc.mock! do |m|
-      m.seed_scalar(:problem_edit, DFN, "5001")
+      m.seed_scalar(:problem_set, DFN, "5001")
     end
 
-    RpmsRpc::Problem.add(DFN, { icd_code: "I10" })
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BGOPROB1 EDPROB" }
+    RpmsRpc::Problem.add(DFN, { icd_code: "I10", description: "HTN", location_ien: "3049" })
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BGOPROB SET" }
     refute_nil call
+    # Formals after RET: DFN, PRIEN, VIEN, ARRAY, SPEC (BGOPROB.m:225);
+    # "P" line per BGOPROB.m:218-220.
     assert_equal DFN, call[:params][0]
-    assert_match(/\AA\^/, call[:params][1]) # action=A for add
+    assert_equal "", call[:params][1]
+    assert_equal [ "P^^^HTN^I10^3049^^^^^" ], call[:params][3]
+    assert_equal "1", call[:params][4], "SPEC=1 takes the caller's mapped ICD (BGOPROB.m:251)"
   end
 
-  def test_update_uses_edit_action_marker
+  def test_update_sends_problem_ien_as_second_formal
     RpmsRpc.mock! do |m|
-      m.seed_scalar(:problem_edit, DFN, "5001")
+      m.seed_scalar(:problem_set, DFN, "5001")
     end
 
     RpmsRpc::Problem.update(DFN, IEN, { description: "Updated" })
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BGOPROB1 EDPROB" }
-    assert_match(/\AE\^/, call[:params][1]) # action=E for edit
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BGOPROB SET" }
+    assert_equal IEN, call[:params][1], "PRIEN is the second formal (BGOPROB.m:225)"
   end
 
-  def test_delete_uses_delete_action_marker_with_reason
+  def test_delete_dispatches_bgoprob_del_with_reason
     RpmsRpc.mock! do |m|
-      m.seed_scalar(:problem_edit, DFN, "5001")
+      m.seed_scalar(:problem_remove, "#{IEN}^^Entered in error", "")
     end
 
-    RpmsRpc::Problem.delete(DFN, IEN, reason: "Entered in error")
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BGOPROB1 EDPROB" }
-    assert_match(/\AD\^/, call[:params][1])
-    assert_includes call[:params][1], "Entered in error"
+    result = RpmsRpc::Problem.delete(DFN, IEN, reason: "Entered in error")
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BGOPROB DEL" }
+    refute_nil call
+    # Param: IEN ^ TYPE ^ REASON ^ COMMENT ^ PROB ID (BGOPROB.m:209)
+    assert_equal "#{IEN}^^Entered in error", call[:params][0]
+    assert result[:success], "DEL returns empty on success"
+  end
+
+  def test_delete_error_reply_is_failure
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_remove, "#{IEN}^^oops", "-1060^Entry in use")
+    end
+
+    result = RpmsRpc::Problem.delete(DFN, IEN, reason: "oops")
+    refute result[:success]
+    assert_equal "-1060^Entry in use", result[:raw]
   end
 
   def test_filter_dispatches_class_rpc_with_scope_code
@@ -103,16 +119,16 @@ class ProblemTest < Minitest::Test
 
   def test_payload_field_order_is_deterministic_regardless_of_hash_insertion_order
     RpmsRpc.mock! do |m|
-      m.seed_scalar(:problem_edit, DFN, "5001")
+      m.seed_scalar(:problem_set, DFN, "5001")
     end
-    RpmsRpc::Problem.add(DFN, { description: "Hypertension", icd_code: "I10", status: "active" })
-    a = RpmsRpc.client.received_calls.last[:params][1]
+    RpmsRpc::Problem.add(DFN, { description: "Hypertension", icd_code: "I10", status: "Chronic" })
+    a = RpmsRpc.client.received_calls.last[:params][3]
 
     RpmsRpc.mock! do |m|
-      m.seed_scalar(:problem_edit, DFN, "5001")
+      m.seed_scalar(:problem_set, DFN, "5001")
     end
-    RpmsRpc::Problem.add(DFN, { icd_code: "I10", status: "active", description: "Hypertension" })
-    b = RpmsRpc.client.received_calls.last[:params][1]
+    RpmsRpc::Problem.add(DFN, { icd_code: "I10", status: "Chronic", description: "Hypertension" })
+    b = RpmsRpc.client.received_calls.last[:params][3]
 
     assert_equal a, b, "payload must not depend on caller's Hash insertion order"
   end
@@ -278,7 +294,7 @@ class ProblemTest < Minitest::Test
 
   def test_zero_or_blank_save_response_yields_failure
     RpmsRpc.mock! do |m|
-      m.seed_scalar(:problem_edit, DFN, "0")
+      m.seed_scalar(:problem_set, DFN, "0")
     end
     result = RpmsRpc::Problem.add(DFN, { icd_code: "X" })
     refute result[:success]
