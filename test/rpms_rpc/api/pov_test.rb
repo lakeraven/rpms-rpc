@@ -10,113 +10,106 @@ class PovTest < Minitest::Test
   VISIT_IEN = "2090059"
   ICD       = "I10"
 
-  # Broker stub that returns one canned raw response for every RPC —
-  # for exercising nil/garbage response paths MockClient can't produce.
-  class RawResponseClient
-    def initialize(response) = @response = response
+  # Scripted broker: canned response per RPC name, records every call.
+  class ScriptedClient
+    attr_reader :calls
+
+    def initialize(responses = {})
+      @responses = responses
+      @calls = []
+    end
+
     def supports?(*) = true
-    def call_rpc(*) = @response
+
+    def call_rpc(rpc_name, *params)
+      @calls << { rpc: rpc_name, params: params }
+      @responses.fetch(rpc_name, "")
+    end
   end
 
   def teardown
     RpmsRpc.reset!
   end
 
-  def stub_broker_response(response)
+  def script(responses)
     RpmsRpc.reset!
-    RpmsRpc.configure { |cfg| cfg.client = RawResponseClient.new(response) }
+    client = ScriptedClient.new(responses)
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
   end
 
   def test_add_returns_success_with_saved_ien
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "9001")
-    end
+    script("BGOVPOV SET" => "9001")
 
     result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
     assert result[:success]
     assert_equal 9001, result[:ien]
   end
 
-  def test_add_dispatches_bgovupd_set_with_pov_record_type
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "9001")
-    end
+  def test_add_dispatches_bgovpov_set_with_single_inp_param
+    client = script("BGOVPOV SET" => "9001")
 
     RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
 
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BGOVUPD SET" }
+    call = client.calls.find { |c| c[:rpc] == "BGOVPOV SET" }
     refute_nil call
-    assert_equal DFN, call[:params][0]
-    assert_equal VISIT_IEN, call[:params][1]
-    assert_match(/\APOV\^/, call[:params][2])
-    assert_includes call[:params][2], ICD
-    assert_includes call[:params][2], "Essential hypertension"
+    inp = call[:params][0].split("^", -1)
+    assert_equal VISIT_IEN, inp[1], "Visit IEN is INP piece 2 (BGOVPOV.m:298)"
+    assert_equal DFN, inp[3], "Patient IEN is INP piece 4 (BGOVPOV.m:303)"
+    assert_equal "Essential hypertension", inp[4], "Prov Text is INP piece 5 (BGOVPOV.m:285)"
+    assert_equal ICD, inp[7], "ICD code is INP piece 8 (BGOVPOV.m:286)"
   end
 
-  def test_add_with_primary_modifier_marks_payload_p
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "9001")
-    end
+  def test_add_with_primary_modifier_marks_inp_piece_9_p
+    client = script("BGOVPOV SET" => "9001")
 
     RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "primary dx", modifiers: { primary: true })
 
-    payload = RpmsRpc.client.received_calls.last[:params][2]
-    parts = payload.split("^")
-    assert_equal "P", parts[3], "primary modifier should encode as 'P' in payload field 3"
+    inp = client.calls.last[:params][0].split("^", -1)
+    assert_equal "P", inp[8], "primary marker is INP piece 9 (BGOVPOV.m:286)"
   end
 
-  def test_add_with_secondary_modifier_marks_payload_s
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "9001")
-    end
+  def test_add_with_secondary_modifier_marks_inp_piece_9_s
+    client = script("BGOVPOV SET" => "9001")
 
     RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "secondary dx", modifiers: { secondary: true })
 
-    payload = RpmsRpc.client.received_calls.last[:params][2]
-    parts = payload.split("^")
-    assert_equal "S", parts[3], "secondary modifier should encode as 'S' in payload field 3"
+    inp = client.calls.last[:params][0].split("^", -1)
+    assert_equal "S", inp[8], "secondary marker is INP piece 9 (BGOVPOV.m:286)"
   end
 
-  def test_add_with_injury_cause_modifier
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "9001")
-    end
+  def test_add_with_injury_cause_modifier_rides_inj_formal
+    client = script("BGOVPOV SET" => "9001")
 
-    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "ankle pain", modifiers: { injury_cause: "FALL" })
+    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "ankle pain", modifiers: { injury_cause: "W01.0" })
 
-    payload = RpmsRpc.client.received_calls.last[:params][2]
-    assert_includes payload, "FALL"
+    call = client.calls.last
+    assert_equal "W01.0", call[:params][2].split("^", -1)[0],
+      "Cause DX is INJ piece 1, the third formal (BGOVPOV.m:288,291)"
+    refute_includes call[:params][0], "W01.0",
+      "injury cause must not leak into INP"
   end
 
-  def test_add_pins_full_pov_record_shape
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "9001")
-    end
+  def test_add_pins_full_inp_shape
+    client = script("BGOVPOV SET" => "9001")
 
     RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD,
       narrative: "Essential hypertension",
-      modifiers: { primary: true, injury_cause: "4", fraction: "2" })
+      modifiers: { primary: true, snomed_ct: "38341003", provider_duz: "42" })
 
-    call = RpmsRpc.client.received_calls.last
-    assert_equal "BGOVUPD SET", call[:rpc]
-    assert_equal [ DFN, VISIT_IEN, "POV^I10^Essential hypertension^P^4^2" ], call[:params]
-  end
-
-  def test_add_without_modifiers_leaves_trailing_fields_empty
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "9001")
-    end
-
-    RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
-
-    payload = RpmsRpc.client.received_calls.last[:params][2]
-    assert_equal "POV^I10^Essential hypertension^^^", payload
+    call = client.calls.last
+    assert_equal "BGOVPOV SET", call[:rpc]
+    # INP per BGOVPOV.m:285-286: VPOVIEN^VIEN^PROBIEN^DFN^PROVTEXT^DESCCT^
+    # SNOMED^ICD^PRI^PRV^ASTHMA^NORM^LAT^FRAC; QUAL and INJ ride formals 2-3.
+    assert_equal [
+      "^#{VISIT_IEN}^^#{DFN}^Essential hypertension^^38341003^#{ICD}^P^42^^^^",
+      "",
+      ""
+    ], call[:params]
   end
 
   def test_add_result_has_exact_gateway_shape
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "9001")
-    end
+    script("BGOVPOV SET" => "9001")
 
     result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
     assert_equal %i[success ien raw], result.keys
@@ -124,25 +117,32 @@ class PovTest < Minitest::Test
   end
 
   def test_add_error_string_response_returns_failure_with_raw
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "-1^Visit not found")
-    end
+    # CHKVISIT^BGOUTL error shape (BGOUTL.m:283-284)
+    script("BGOVPOV SET" => "-1003^Visit entry does not exist")
 
     result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
     refute result[:success]
     assert_nil result[:ien]
-    assert_equal "-1^Visit not found", result[:raw]
+    assert_equal "-1003^Visit entry does not exist", result[:raw]
   end
 
   def test_add_nil_broker_response_does_not_raise
-    stub_broker_response(nil)
+    client = Object.new
+    def client.supports?(*) = true
+    def client.call_rpc(*) = nil
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = client }
 
     result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
     assert_equal({ success: false, ien: nil, raw: nil }, result)
   end
 
   def test_add_garbage_array_response_does_not_raise
-    stub_broker_response([ "unexpected", "lines" ])
+    client = Object.new
+    def client.supports?(*) = true
+    def client.call_rpc(*) = [ "unexpected", "lines" ]
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = client }
 
     result = RpmsRpc::Pov.add(DFN, VISIT_IEN, ICD, narrative: "Essential hypertension")
     refute result[:success]

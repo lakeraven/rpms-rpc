@@ -8,128 +8,114 @@ require "rpms_rpc/api/measurement"
 class MeasurementTest < Minitest::Test
   DFN       = "8791"
   VISIT_IEN = "2090059"
-  TYPE      = "WT"
 
-  # Broker stub that returns one canned raw response for every RPC —
-  # for exercising nil/garbage response paths MockClient can't produce.
-  class RawResponseClient
-    def initialize(response) = @response = response
+  # Scripted broker: canned response per RPC name, records every call.
+  class ScriptedClient
+    attr_reader :calls
+
+    def initialize(responses = {})
+      @responses = responses
+      @calls = []
+    end
+
     def supports?(*) = true
-    def call_rpc(*) = @response
+
+    def call_rpc(rpc_name, *params)
+      @calls << { rpc: rpc_name, params: params }
+      @responses.fetch(rpc_name, "")
+    end
   end
 
   def teardown
     RpmsRpc.reset!
   end
 
-  def stub_broker_response(response)
+  def script(responses)
     RpmsRpc.reset!
-    RpmsRpc.configure { |cfg| cfg.client = RawResponseClient.new(response) }
+    client = ScriptedClient.new(responses)
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
   end
 
   def test_add_returns_success_with_saved_ien
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "4001")
-    end
+    script("BGOVMSR SET" => "2001")
 
-    result = RpmsRpc::Measurement.add(DFN, VISIT_IEN, TYPE, 72.5, units: "kg")
+    result = RpmsRpc::Measurement.add(DFN, VISIT_IEN, "WT", "82", units: "lbs")
     assert result[:success]
-    assert_equal 4001, result[:ien]
+    assert_equal 2001, result[:ien]
   end
 
-  def test_add_dispatches_bgovupd_set_with_msr_record_type_value_and_units
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "4001")
-    end
+  def test_add_dispatches_bgovmsr_set_with_inp_layout
+    client = script("BGOVMSR SET" => "2001")
 
-    RpmsRpc::Measurement.add(DFN, VISIT_IEN, TYPE, 72.5, units: "kg", qualifier: "EST")
+    RpmsRpc::Measurement.add(DFN, VISIT_IEN, "WT", "82", units: "lbs")
 
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BGOVUPD SET" }
+    call = client.calls.find { |c| c[:rpc] == "BGOVMSR SET" }
     refute_nil call
-    assert_match(/\AMSR\^/, call[:params][2])
-    assert_includes call[:params][2], TYPE
-    assert_includes call[:params][2], "72.5"
-    assert_includes call[:params][2], "kg"
-    assert_includes call[:params][2], "EST"
+    # INP per BGOVMSR.m:104: VIEN^VFIEN^TYPE^VALUE^DATETIME. There is no
+    # units piece — units are fixed by the AUTTMSR type (BGOVMSR.m:114-115).
+    assert_equal [ "#{VISIT_IEN}^^WT^82^" ], call[:params]
   end
 
-  def test_add_supports_ucum_compound_units
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "4002")
-    end
+  def test_add_accepts_type_abbreviation
+    client = script("BGOVMSR SET" => "2001")
 
-    result = RpmsRpc::Measurement.add(DFN, VISIT_IEN, "BMI", 28.4, units: "kg/m2")
-    assert result[:success]
-    payload = RpmsRpc.client.received_calls.last[:params][2]
-    assert_includes payload, "kg/m2"
-  end
+    RpmsRpc::Measurement.add(DFN, VISIT_IEN, "HT", "68", units: "in")
 
-  def test_add_pins_full_msr_record_shape
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "4001")
-    end
-
-    RpmsRpc::Measurement.add(DFN, VISIT_IEN, TYPE, 72.5, units: "kg", qualifier: "EST")
-
-    call = RpmsRpc.client.received_calls.last
-    assert_equal "BGOVUPD SET", call[:rpc]
-    assert_equal [ DFN, VISIT_IEN, "MSR^WT^72.5^kg^EST" ], call[:params]
-  end
-
-  def test_add_without_qualifier_leaves_trailing_field_empty
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "4001")
-    end
-
-    RpmsRpc::Measurement.add(DFN, VISIT_IEN, TYPE, 72.5, units: "kg")
-
-    assert_equal "MSR^WT^72.5^kg^", RpmsRpc.client.received_calls.last[:params][2]
+    inp = client.calls.last[:params][0].split("^", -1)
+    assert_equal "HT", inp[2],
+      "abbreviations resolve through the AUTTMSR B index (BGOVMSR.m:115)"
   end
 
   def test_add_result_has_exact_gateway_shape
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "4001")
-    end
+    script("BGOVMSR SET" => "2001")
 
-    result = RpmsRpc::Measurement.add(DFN, VISIT_IEN, TYPE, 72.5, units: "kg")
+    result = RpmsRpc::Measurement.add(DFN, VISIT_IEN, "WT", "82", units: "lbs")
     assert_equal %i[success ien raw], result.keys
-    assert_equal "4001", result[:raw]
+    assert_equal "2001", result[:raw]
   end
 
   def test_add_error_string_response_returns_failure_with_raw
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:visit_data_save, DFN, "-1^Measurement type not active")
-    end
+    # ERR^BGOUTL(1087) — bad measurement type (BGOVMSR.m:116)
+    script("BGOVMSR SET" => "-1087^Invalid measurement type")
 
-    result = RpmsRpc::Measurement.add(DFN, VISIT_IEN, TYPE, 72.5, units: "kg")
+    result = RpmsRpc::Measurement.add(DFN, VISIT_IEN, "WT", "82", units: "lbs")
     refute result[:success]
     assert_nil result[:ien]
-    assert_equal "-1^Measurement type not active", result[:raw]
+    assert_equal "-1087^Invalid measurement type", result[:raw]
   end
 
   def test_add_nil_broker_response_does_not_raise
-    stub_broker_response(nil)
+    client = Object.new
+    def client.supports?(*) = true
+    def client.call_rpc(*) = nil
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = client }
 
-    result = RpmsRpc::Measurement.add(DFN, VISIT_IEN, TYPE, 72.5, units: "kg")
+    result = RpmsRpc::Measurement.add(DFN, VISIT_IEN, "WT", "82", units: "lbs")
     assert_equal({ success: false, ien: nil, raw: nil }, result)
   end
 
   def test_add_garbage_array_response_does_not_raise
-    stub_broker_response([ "unexpected", "lines" ])
+    client = Object.new
+    def client.supports?(*) = true
+    def client.call_rpc(*) = [ "unexpected", "lines" ]
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = client }
 
-    result = RpmsRpc::Measurement.add(DFN, VISIT_IEN, TYPE, 72.5, units: "kg")
+    result = RpmsRpc::Measurement.add(DFN, VISIT_IEN, "WT", "82", units: "lbs")
     refute result[:success]
     assert_nil result[:ien]
   end
 
   def test_value_required_units_required
-    refute RpmsRpc::Measurement.add(DFN, VISIT_IEN, TYPE, nil, units: "kg")[:success]
-    refute RpmsRpc::Measurement.add(DFN, VISIT_IEN, TYPE, 70, units: "")[:success]
-    refute RpmsRpc::Measurement.add(DFN, VISIT_IEN, "", 70, units: "kg")[:success]
+    refute RpmsRpc::Measurement.add(DFN, VISIT_IEN, "WT", nil, units: "lbs")[:success]
+    refute RpmsRpc::Measurement.add(DFN, VISIT_IEN, "WT", "82", units: "")[:success]
   end
 
   def test_blank_ids_return_failure
-    refute RpmsRpc::Measurement.add(nil, VISIT_IEN, TYPE, 70, units: "kg")[:success]
-    refute RpmsRpc::Measurement.add(DFN, "0", TYPE, 70, units: "kg")[:success]
+    refute RpmsRpc::Measurement.add(nil, VISIT_IEN, "WT", "82", units: "lbs")[:success]
+    refute RpmsRpc::Measurement.add(DFN, nil, "WT", "82", units: "lbs")[:success]
+    refute RpmsRpc::Measurement.add(DFN, VISIT_IEN, "", "82", units: "lbs")[:success]
   end
 end

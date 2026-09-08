@@ -889,11 +889,25 @@ module RpmsRpc
     # PROBLEM LIST WRITE PATHS (BGOPROB*)
     # ========================================================================
 
-    # BGOPROB1 EDPROB — write a problem record (add/edit/delete by action marker
-    # in the payload). Returns the new/edited IEN on success; "0" or empty on
-    # failure. Wire payload is best-effort pending wider trace capture.
-    DataMapper.define(:problem_edit) do |m|
-      m.rpc "BGOPROB1 EDPROB"
+    # BGOPROB SET — SET^BGOPROB (BGOPROB.m:225), the IPL problem writer.
+    # Broker formals after RET: DFN, PRIEN (empty = new), VIEN, ARRAY (list
+    # param of "P"/"A"/"Q" lines — BGOPROB.m:218-222,232-236), SPEC, PIP.
+    # Returns the problem IEN on success (BGOPROB.m:322) or -CODE^text via
+    # ERR^BGOUTL (BGOUTL.m:408-409): -1001 unknown patient (:268), -1048
+    # unresolvable ICD (:273), -1049 missing location (:276).
+    # (The former binding here, BGOPROB1 EDPROB, is a READ — "Get active
+    # problems for a patient" — and silently ignored write payloads: #217.)
+    DataMapper.define(:problem_set) do |m|
+      m.rpc "BGOPROB SET"
+      m.scalar :result
+    end
+
+    # BGOPROB DEL — DEL^BGOPROB (BGOPROB.m:210) → DEL^BGOPROB3. One param:
+    # Problem IEN ^ TYPE ^ DELETE REASON ^ COMMENT ^ PROB ID (BGOPROB.m:209;
+    # REASON/COMMENT are pieces 3/4 in DEL^BGOPROB3). Logical delete: sets
+    # status "D" plus deletion audit fields. Returns "" on success.
+    DataMapper.define(:problem_remove) do |m|
+      m.rpc "BGOPROB DEL"
       m.scalar :result
     end
 
@@ -911,15 +925,54 @@ module RpmsRpc
     end
 
     # ========================================================================
-    # VISIT DATA ENTRY WRITES (BGOVUPD*, BGOVCPT*, BGOVPOV*)
+    # VISIT DATA ENTRY WRITES (BGOVPOV*, BGOVHF*, BGOVEXAM*, BGOVMSR*, BGOVCPT*)
     # ========================================================================
+    # Each visit-data type has its own SET RPC. (BGOVUPD SET, the former
+    # shared binding, writes V UPDATE/REVIEWED #9000010.54 only — #217.)
+    # All four return the saved V-file IEN on success or -CODE^text via
+    # ERR^BGOUTL; visit validation errors come from CHKVISIT^BGOUTL
+    # (-1002 no visit / -1003 unknown visit — BGOUTL.m:283-284).
 
-    # BGOVUPD SET — generic visit-data writer used by POV, health factor,
-    # exam component, and measurement entry. Record-type marker is embedded
-    # in the payload. Returns the saved IEN on success; "0"/empty on failure.
-    # Wire payload is best-effort pending wider trace capture.
-    DataMapper.define(:visit_data_save) do |m|
-      m.rpc "BGOVUPD SET"
+    # BGOVPOV SET — SET^BGOVPOV (BGOVPOV.m:291). Formals after RET:
+    # INP, QUAL, INJ, NORM, SPEC. INP (BGOVPOV.m:285-286, parsed :298-303):
+    #   VPOV IEN[1] ^ Visit IEN[2] ^ Problem IEN[3] ^ Patient IEN[4] ^
+    #   Prov Text[5] ^ Descriptive CT[6] ^ SNOMED CT[7] ^ ICD code[8] ^
+    #   Primary/Secondary[9] ^ Provider IEN[10] ^ asthma control[11] ^
+    #   norm/abn[12] ^ laterality[13] ^ fracture[14]
+    # INJ (BGOVPOV.m:288): Cause DX[1]^Injury Code[2]^Injury Place[3]^
+    #   First/Revisit[4]^Injury Dt[5]^Onset Date[6]
+    DataMapper.define(:pov_set) do |m|
+      m.rpc "BGOVPOV SET"
+      m.scalar :result
+    end
+
+    # BGOVHF SET — SET^BGOVHF (BGOVHF.m:45). One INP param (BGOVHF.m:44,
+    # parsed :48-56,:68):
+    #   HF Type IEN[1] ^ V File IEN[2] ^ Visit IEN[3] ^ Severity[4] ^
+    #   Provider IEN[5] ^ Quantity[6] ^ Comment[7] ^ Event dt[8]
+    DataMapper.define(:health_factor_set) do |m|
+      m.rpc "BGOVHF SET"
+      m.scalar :result
+    end
+
+    # BGOVEXAM SET — SET^BGOVEXAM (BGOVEXAM.m:106). One INP param
+    # (BGOVEXAM.m:103-104, parsed :109-129):
+    #   V Exam IEN[1] ^ Exam IEN[2] ^ Visit IEN[3] ^ Provider IEN[4] ^
+    #   Result[5] ^ Comment[6] ^ Event Date[7] ^ Location IEN[8] ^
+    #   Other Location[9] ^ Historical Flag[10] ^ DFN[11]
+    DataMapper.define(:exam_set) do |m|
+      m.rpc "BGOVEXAM SET"
+      m.scalar :result
+    end
+
+    # BGOVMSR SET — SET^BGOVMSR (BGOVMSR.m:105). One INP param
+    # (BGOVMSR.m:104, parsed :108-118):
+    #   Visit IEN[1] ^ V File IEN[2] ^ Type[3] ^ Value[4] ^ Date/Time[5]
+    # Type accepts the AUTTMSR abbreviation — non-numeric values go through
+    # the "B" cross-reference (BGOVMSR.m:115). There is NO units piece:
+    # units are fixed by the measurement type (file 9999999.07).
+    DataMapper.define(:measurement_set) do |m|
+      m.rpc "BGOVMSR SET"
       m.scalar :result
     end
 
@@ -930,12 +983,34 @@ module RpmsRpc
     end
 
     # ========================================================================
-    # REFERRAL CREATE (BGOREF SET)
+    # PERSONAL REFUSALS (BGOREF*)
     # ========================================================================
+    # BGOREF is the REFUSAL component — despite the name it does NOT write
+    # referrals (#217; referral creation is BMC ADD REFERRAL, see
+    # RpmsRpc::Referral.add).
 
-    DataMapper.define(:referral_create) do |m|
+    # BGOREF SET — SET^BGOREF (BGOREF.m:8), files ^AUPNPREF (#9000022) via
+    # $$REFSET2^BGOUTL2 (BGOREF.m:29). One INP param (BGOREF.m:4-5, parsed
+    # :11-20):
+    #   Refusal IEN[1] ^ Refusal Type[2] ^ Item IEN[3] ^ Patient IEN[4] ^
+    #   Refusal Date[5] ^ Comment[6] ^ Provider IEN[7] ^ Reason[8]
+    # Refusal Type is a REFUSAL TYPE (#9999999.73) name, e.g. "IMMUNIZATION"
+    # (BGOUTL2.m:76; BGOVIMM2.m:100); Reason is a REFUSAL REASON
+    # (#9999999.102) IEN (BGOREF.m:26-27). Returns "" on success
+    # (BGOUTL2.m:126-129) or -CODE^text (-1050/-1001 bad patient —
+    # BGOREF.m:12-13).
+    DataMapper.define(:refusal_set) do |m|
       m.rpc "BGOREF SET"
-      m.scalar :ien
+      m.scalar :result
+    end
+
+    # BGOREF GETREA — GETREA^BGOREF (BGOREF.m:62): SNOMED refusal reasons
+    # for a refusal type name (defaults "IMMUNIZATION" — BGOREF.m:67).
+    # Rows: IEN[1] ^ TEXT[2] (BGOREF.m:61).
+    DataMapper.define(:refusal_reasons) do |m|
+      m.rpc "BGOREF GETREA"
+      m.field 0, :ien
+      m.field 1, :text
     end
 
     # ========================================================================
@@ -974,14 +1049,11 @@ module RpmsRpc
       m.scalar :token
     end
 
-    # ========================================================================
-    # IMMUNIZATION REFUSAL (BGOREP*)
-    # ========================================================================
-
-    DataMapper.define(:immunization_refusal_save) do |m|
-      m.rpc "BGOREP SET"
-      m.scalar :result
-    end
+    # NOTE: immunization refusals file through BGOREF SET (:refusal_set)
+    # with type "IMMUNIZATION". The former :immunization_refusal_save
+    # binding, BGOREP SET, writes REPRODUCTIVE FACTORS (^AUPNREP —
+    # BGOREP.m:62-87; it errors on male patients at :86) and is not
+    # modeled here (#217).
 
     # ========================================================================
     # CLINICAL REMINDERS (BGOTRG*, ORQQPX*)

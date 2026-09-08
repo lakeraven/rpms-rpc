@@ -3,8 +3,8 @@
 require_relative "../mappings"
 
 module RpmsRpc
-  # Symbolic API for the problem list. Read via ORQQPL LIST; write/scope via
-  # BGOPROB1 EDPROB and BGOPROB GET CLASS.
+  # Symbolic API for the problem list. Read via ORQQPL LIST; write via
+  # BGOPROB SET / BGOPROB DEL; scope via BGOPROB GET CLASS.
   module Problem
     extend self
 
@@ -18,39 +18,47 @@ module RpmsRpc
       inactive: "I"
     }.freeze
 
-    EDIT_ACTIONS = {
-      add: "A",
-      update: "E",
-      delete: "D"
-    }.freeze
-
-    # Wire field order for BGOPROB1 EDPROB. Field positions are best-effort
-    # pending wider trace capture; this list locks the order so a caller's
-    # Hash key insertion order can't reshuffle the payload mid-flight.
-    EDPROB_FIELDS = %i[icd_code description status onset_date provider_duz reason].freeze
+    # "P"-line pieces after the "P" marker for SET^BGOPROB's ARRAY param
+    # (BGOPROB.m:218-220; parsed in PROB^BGOPROB — SNOMED CT :246,
+    # Descriptive CT :260, Provider text :241, Mapped ICD :240, Location
+    # :243, Onset :244, Status :262, Class :245, Problem # :269, Priority
+    # :271). The list locks the order so a caller's Hash key insertion
+    # order can't reshuffle the payload mid-flight.
+    PROB_FIELDS = %i[snomed_ct descriptive_ct description icd_code location_ien
+                     onset_date status problem_class problem_number priority].freeze
 
     def for_patient(dfn)
       DataMapper.problem_list.fetch_many(dfn.to_s)
     end
 
+    # Add a problem. The routine requires a resolvable ICD (or a SNOMED CT
+    # the site can map — BGOPROB.m:251-252,272-273) and a location IEN
+    # (-1049 without one — BGOPROB.m:276).
     def add(dfn, problem)
       raise ArgumentError, "problem must be a Hash" unless problem.is_a?(Hash)
       return failure if invalid_id?(dfn)
 
-      write(dfn, EDIT_ACTIONS[:add], nil, problem)
+      write(dfn, nil, problem)
     end
 
     def update(dfn, ien, changes)
       raise ArgumentError, "changes must be a Hash" unless changes.is_a?(Hash)
       return failure if invalid_id?(dfn) || invalid_id?(ien)
 
-      write(dfn, EDIT_ACTIONS[:update], ien, changes)
+      write(dfn, ien, changes)
     end
 
+    # Logical delete via DEL^BGOPROB (BGOPROB.m:209-211): status "D" plus
+    # deletion audit fields. Param: IEN ^ TYPE ^ REASON ^ COMMENT ^ PROB ID.
     def delete(dfn, ien, reason:)
       return failure if invalid_id?(dfn) || invalid_id?(ien)
 
-      write(dfn, EDIT_ACTIONS[:delete], ien, { reason: reason })
+      # Client called directly: DEL returns "" on success, which
+      # fetch_scalar would collapse into nil (indistinguishable from
+      # broker silence — and silence must never read as a delete).
+      raw = RpmsRpc.client.call_rpc(DataMapper.problem_remove.rpc_name, "#{ien}^^#{reason}")
+      success = raw.is_a?(String) && !raw.match?(/\A-\d+(?:\.\d+)?\^/)
+      { success: success, ien: success ? ien.to_i : nil, raw: raw }
     end
 
     def filter(dfn, scope:)
@@ -144,9 +152,15 @@ module RpmsRpc
 
     private
 
-    def write(dfn, action, ien, fields)
-      payload = build_payload(action, ien, fields)
-      raw = DataMapper.problem_edit.fetch_scalar(dfn.to_s, payload)
+    # SET^BGOPROB formals after RET: DFN, PRIEN, VIEN, ARRAY, SPEC, PIP
+    # (BGOPROB.m:225). SPEC=1 makes the routine take the caller's mapped
+    # ICD directly instead of re-deriving it from SNOMED (BGOPROB.m:251) —
+    # required for ICD-driven callers that send no SNOMED CT.
+    # Success reply is the problem IEN (BGOPROB.m:322); errors -CODE^text.
+    def write(dfn, ien, fields)
+      raw = DataMapper.problem_set.fetch_scalar(
+        dfn.to_s, ien.to_s, "", [ build_p_line(fields) ], "1"
+      )
 
       saved_ien = raw.to_s.match(/\A\d+/)&.to_s&.to_i
       {
@@ -156,10 +170,8 @@ module RpmsRpc
       }
     end
 
-    def build_payload(action, ien, fields)
-      pieces = [ action, ien.to_s ]
-      pieces.concat(EDPROB_FIELDS.map { |k| fields[k].to_s })
-      pieces.join("^")
+    def build_p_line(fields)
+      ([ "P" ] + PROB_FIELDS.map { |k| fields[k].to_s }).join("^")
     end
 
     def failure

@@ -4,14 +4,9 @@ require_relative "../mappings"
 
 module RpmsRpc
   # Symbolic API for referral records. Read via referral_search /
-  # referral_detail; write via BGOREF SET.
+  # referral_detail; write via the BMC RCIS RPCs (see {add}).
   module Referral
     extend self
-
-    # Wire field order for BGOREF SET. Field positions are best-effort
-    # pending wider trace capture; this list locks the order so a caller's
-    # Hash key insertion order can't reshuffle the payload mid-flight.
-    CREATE_FIELDS = %i[provider_ien specialty reason priority requested_date].freeze
 
     def for_patient(dfn)
       DataMapper.referral_search.fetch_many(dfn.to_s)
@@ -105,18 +100,25 @@ module RpmsRpc
       bmc_scalar_result(:bmc_add_c32_print_log, *params)
     end
 
+    # NOT IMPLEMENTED — and honestly so (#217). The former binding,
+    # BGOREF SET, is the personal REFUSALS writer (SET^BGOREF files
+    # ^AUPNPREF via $$REFSET2^BGOUTL2 — BGOREF.m:8,29): "creating a
+    # referral" was filing a refusal record. The real referral writer is
+    # BMC ADD REFERRAL (SETREFRL^BMCRPC2), whose 39 positional formals
+    # (referral date, type, IO/RO, ICD/CPT categories, purpose, priority,
+    # …) cannot be honestly derived from this method's small params hash —
+    # use {add} with the full BMC parameter list instead.
     def create(dfn, params)
       raise ArgumentError, "params must be a Hash" unless params.is_a?(Hash)
       return failure if invalid_id?(dfn)
 
-      payload = CREATE_FIELDS.map { |k| params[k].to_s }.join("^")
-      raw = DataMapper.referral_create.fetch_scalar(dfn.to_s, payload)
-
-      saved_ien = raw.to_s.match(/\A\d+/)&.to_s&.to_i
       {
-        success: !saved_ien.nil? && saved_ien.positive?,
-        ien: saved_ien,
-        raw: raw
+        success: false,
+        error: :not_implemented,
+        message: "Referral.create has no faithful RPC binding: BGOREF SET writes " \
+                 "refusals, not referrals. Use Referral.add (BMC ADD REFERRAL = " \
+                 "SETREFRL^BMCRPC2) with the full RCIS parameter list.",
+        raw: nil
       }
     end
 

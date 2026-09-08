@@ -12,61 +12,21 @@ class ReferralTest < Minitest::Test
     RpmsRpc.reset!
   end
 
-  def test_create_returns_success_with_saved_ien
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:referral_create, DFN, "3001")
-    end
+  # Referral.create is honestly :not_implemented (#217): its former binding
+  # BGOREF SET is the personal REFUSALS writer (SET^BGOREF files ^AUPNPREF —
+  # BGOREF.m:8,29), and the real referral writer (BMC ADD REFERRAL =
+  # SETREFRL^BMCRPC2, 39 positional formals) is exposed as Referral.add.
 
-    params = {
-      provider_ien: 500,
-      specialty: "CARDIOLOGY",
-      reason: "AFib evaluation",
-      priority: "ROUTINE",
-      requested_date: "2026-06-15"
-    }
-    result = RpmsRpc::Referral.create(DFN, params)
+  def test_create_is_not_implemented_and_calls_no_rpc
+    RpmsRpc.mock!
 
-    assert result[:success]
-    assert_equal 3001, result[:ien]
-  end
+    result = RpmsRpc::Referral.create(DFN, { specialty: "CARDIOLOGY" })
 
-  def test_create_dispatches_bgoref_set_with_dfn_and_payload
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:referral_create, DFN, "3001")
-    end
-
-    RpmsRpc::Referral.create(DFN, {
-      provider_ien: 500, specialty: "GI", reason: "polyp follow-up",
-      priority: "ROUTINE", requested_date: "2026-07-01"
-    })
-
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BGOREF SET" }
-    refute_nil call
-    assert_equal DFN, call[:params][0]
-    assert_includes call[:params][1], "500"
-    assert_includes call[:params][1], "GI"
-  end
-
-  def test_create_payload_field_order_is_deterministic
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:referral_create, DFN, "3001")
-    end
-    RpmsRpc::Referral.create(DFN, {
-      reason: "X", priority: "ROUTINE", provider_ien: 500,
-      requested_date: "2026-06-15", specialty: "CARDIO"
-    })
-    a = RpmsRpc.client.received_calls.last[:params][1]
-
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:referral_create, DFN, "3001")
-    end
-    RpmsRpc::Referral.create(DFN, {
-      provider_ien: 500, specialty: "CARDIO", reason: "X",
-      priority: "ROUTINE", requested_date: "2026-06-15"
-    })
-    b = RpmsRpc.client.received_calls.last[:params][1]
-
-    assert_equal a, b, "payload must not depend on caller's Hash insertion order"
+    refute result[:success]
+    assert_equal :not_implemented, result[:error]
+    assert_match(/BGOREF SET writes refusals/, result[:message])
+    assert_empty RpmsRpc.client.received_calls,
+      "create must not touch the broker — BGOREF SET would file a refusal"
   end
 
   def test_create_raises_on_non_hash_params
@@ -78,13 +38,6 @@ class ReferralTest < Minitest::Test
     result = RpmsRpc::Referral.create(nil, { provider_ien: 1 })
     refute result[:success]
     assert_nil result[:ien]
-  end
-
-  def test_create_zero_response_returns_failure
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:referral_create, DFN, "0")
-    end
-    refute RpmsRpc::Referral.create(DFN, { provider_ien: 1 })[:success]
   end
 
   def test_add_referral_calls_bmc_add_referral
