@@ -52,6 +52,34 @@ module RpmsRpc
       s.split("^", -1).all? { |piece| piece.match?(/\A[ITDF]\d{5}/) }
     end
 
+    # A broker error row: "-N^message" (ERR^BGOUTL emits -CODE^text —
+    # BGOUTL.m:408-409; SELECT^ORWPT emits "-1^^^^^Patient is unknown to
+    # CPRS." for a missing DFN — ORWPT.m:49). Never a data record.
+    def self.error_row?(line)
+      strip_recordset_separators(line).match?(/\A-\d+(?:\.\d+)?\^/)
+    end
+
+    # A no-data sentinel row: the stock-VistA "^message" convention — an
+    # empty first piece carrying a human-readable message in piece 2 with
+    # nothing after it. Examples: "^No problems found." (ORQQPL.m:17),
+    # "^Problem list not available.^" (ORQQPL.m:18), "^No vitals found."
+    # (ORQQVI.m:24), "^No medications found." (ORQQPS.m:53), and the
+    # allergy assessment-state markers "^No Allergy Assessment" /
+    # "^No Known Allergies" / "^No allergies found." (ORQQAL.m:12-15).
+    # Data rows never match: their first piece (IEN/name) is non-empty.
+    def self.sentinel_row?(line)
+      pieces = strip_recordset_separators(line).split("^", -1)
+      return false unless pieces.length >= 2 && pieces[0].empty?
+      return false unless pieces[1].match?(/\A[A-Za-z]/)
+
+      pieces[2..].all?(&:empty?)
+    end
+
+    # Rows that must never surface as data records.
+    def self.non_data_row?(line)
+      error_row?(line) || sentinel_row?(line)
+    end
+
     class Mapping
       attr_reader :name, :rpc_name, :fields
 
@@ -91,6 +119,19 @@ module RpmsRpc
         @scalar_type = type
       end
 
+      # Declare that this mapping models status/error replies as data —
+      # "-1^message" (and rows whose leading piece is legitimately empty)
+      # ARE the record (e.g. VAFC VOA ADD PATIENT's "-1^error text").
+      # Such mappings bypass the non_data_row? guard that otherwise keeps
+      # broker error rows and "^message" sentinels out of parsed records.
+      def status_reply!
+        @status_reply = true
+      end
+
+      def status_reply?
+        @status_reply == true
+      end
+
       # Declare a text blob response (array of lines joined with newlines).
       # Used for RPCs like ORWRP REPORT TEXT that return free text.
       def text_blob(attribute)
@@ -113,10 +154,13 @@ module RpmsRpc
         @fields.select { |f| !f.pointer.nil? }
       end
 
-      # Parse a single-line RPC response into a hash.
+      # Parse a single-line RPC response into a hash. Broker error rows
+      # ("-N^message") and no-data sentinel rows ("^message") return nil —
+      # they are not records (see DataMapper.non_data_row?).
       def parse_one(response, extras: {})
         line = normalize_line(response)
         return nil if line.nil? || line.empty?
+        return nil if !status_reply? && DataMapper.non_data_row?(line)
 
         parts = line.split("^", -1)
         result = {}
@@ -146,6 +190,7 @@ module RpmsRpc
         response.filter_map do |line|
           next if line.nil? || line.to_s.empty?
           next if DataMapper.recordset_header_row?(line)
+          next if !status_reply? && DataMapper.non_data_row?(line)
           parse_one(line)
         end
       end

@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (clinical reads feeding FHIR — #218)
+
+- `:problem_list` (ORQQPL LIST) columns corrected to the real wire
+  (IEN^NARRATIVE^STATUS^ICD^ONSET^LASTMOD^SC^SPEXP — ORQQPL.m:14 over
+  GMPLUTL3.m:120). **Breaking:** `:status`/`:description` positions were
+  swapped; `:recorded_date` (really date-last-modified) is now
+  `:last_modified`; `:provider_duz` (really the SC/NSC flag) is now
+  `:service_connected`; `:special_exposure` added.
+- `:vitals` (ORQQVI VITALS) columns corrected (IEN^TYPE^DATETIME^RATE —
+  ORQQVI.m:6,23). **Breaking:** `:type` no longer carries the IEN (new
+  `:ien` field), `:value` carries the rate (was the type name),
+  `:recorded_date` the datetime (was the numeric value); `:units` removed —
+  there is no units piece on this wire.
+- `:medication_list` (ORQQPS LIST) columns corrected
+  (ID^NAMEFORM^STOPDATE^ROUTE^SCHEDULE^REFILLS — ORQQPS.m:5,47).
+  **Breaking:** `:sig`/`:status`/`:last_fill`/`:provider` removed (no such
+  pieces exist); `:stop_date`/`:route`/`:schedule` added.
+- `:allergy_list` (ORQQAL LIST) columns corrected
+  (IEN^AGENT^SEVERITY^SIGNS — ORQQAL.m:8,14,18-21). **Breaking:**
+  `:allergen` no longer carries the IEN (new `:ien` field), `:reaction`
+  removed (it was the agent duplicated); `:signs` added (";"-joined
+  signs/symptoms).
+- `DataMapper` parse guard: broker error rows (`-N^message`) and no-data
+  sentinel rows (`^message` — "^No problems found.", "^No Allergy
+  Assessment", "^No Known Allergies", "^No vitals found.",
+  "^No medications found.", …) never surface as data records from
+  `parse_one`/`parse_many`. Mappings that legitimately model status/error
+  replies opt out with `status_reply!` (`:voa_add_patient`,
+  `:patient_lock`, `:immunization_exchange_status`).
+- `Patient.find` returns `nil` for an unknown DFN instead of a phantom
+  `{name: "-1"}` record (SELECT^ORWPT's `-1^^^^^Patient is unknown to
+  CPRS.` — ORWPT.m:49).
+
+### Added
+
+- `RpmsRpc::Allergy.assessment(dfn)` — three-state allergy result
+  `{ assessed:, nka:, allergies: [] }` so consumers (FHIR
+  AllergyIntolerance) can distinguish assessed-no-known-allergies from
+  not-assessed. `Allergy.for_patient` keeps the record-array shape and
+  yields `[]` for both empty states.
+
 The invented BHDPTRPC placeholder namespace is now fully removed
 (issues #174/#184: zero hits across the 65,782-routine FOIA corpus, the
 staging file-8994 fingerprint, and IHS public RPC docs), and patient
