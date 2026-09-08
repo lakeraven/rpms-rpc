@@ -319,7 +319,9 @@ module RpmsRpc
     DataMapper.define(:medication_list) do |m|
       m.rpc "ORQQPS LIST"
       m.field 0, :ien
-      m.field 1, :drug_name, :string, terminology: :rxnorm, pointer: { file: 50 }
+      # Piece 2 is the display name/form STRING (ORQQPS.m header "nameform"),
+      # not a File 50 pointer — no pointer metadata (review: PR #223).
+      m.field 1, :drug_name, :string, terminology: :rxnorm
       m.field 2, :stop_date, :fileman_date
       m.field 3, :route
       m.field 4, :schedule
