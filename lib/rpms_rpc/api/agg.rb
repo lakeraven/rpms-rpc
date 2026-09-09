@@ -47,7 +47,7 @@ module RpmsRpc
   #   AGG ADD NEW PATIENT        ADD^AGGPTADD      #214 live probe
   #   AGG UPDATE PATIENT         UPD^AGGPTUPD      #214 live probe
   #   AGG PATIENT EDIT CHECK     CHK^AGGEDCHK      #214 live probe
-  #   (presence gate)            CANRUN^CIANBACT   #214 live probe
+  #   CIANBRPC CANRUN            CANRUN^CIANBRPC   8994 registry (#225)
   module Agg
     extend self
 
@@ -55,7 +55,7 @@ module RpmsRpc
     ADD_RPC = "AGG ADD NEW PATIENT"           # ADD^AGGPTADD, return type GLOBAL ARRAY
     UPDATE_RPC = "AGG UPDATE PATIENT"         # UPD^AGGPTUPD
     EDIT_CHECK_RPC = "AGG PATIENT EDIT CHECK" # CHK^AGGEDCHK
-    CANRUN_RPC = "CIANBRPC CANRUN"            # CANRUN^CIANBACT (broker gate)
+    CANRUN_RPC = "CIANBRPC CANRUN"            # CANRUN^CIANBRPC (broker gate)
 
     # Registration window definitions (file 9009068.3). "Mini Registration"
     # (IEN 29) is the minimal demographics set; "New Patient" (IEN 28) is a
@@ -70,12 +70,60 @@ module RpmsRpc
 
     # Is the AGG registration suite installed and runnable for this client?
     #
-    # Real registry evidence (rpms-rpc#209, #214): CANRUN^CIANBACT checks
-    # "AGG ADD NEW PATIENT" against the current context option's RPC
-    # multiple and answers 1/0 WITHOUT executing the (write) RPC — so this
-    # never files anything, unlike an execution probe. Caveat: CANRUN has an
-    # unconditional bypass for holders of XUPROGMODE (returns 1 regardless),
-    # so a programmer session always sees AGG as available.
+    # ## The wire argument is the RPC NAME, not the file-8994 IEN (#225)
+    #
+    # The registered entry is `^XWB(8994,…,0) = "CIANBRPC CANRUN^CANRUN^
+    # CIANBRPC^1"` — TAG `CANRUN`, ROUTINE `CIANBRPC`, return type 1 (SINGLE
+    # VALUE). So the wire entry point is CANRUN^CIANBRPC, which resolves the
+    # IEN ITSELF and only then delegates to the CANRUN^CIANBACT helper:
+    #
+    #   CANRUN(DATA,RPC) ;                              CIANBRPC.m:173-175
+    #    S DATA=$$CANRUN^CIANBACT($$FIND1^DIC(8994,,"QX",RPC),CIA("CTX"))
+    #
+    # `$$FIND1^DIC(8994,,"QX",RPC)` is a quick ("Q") exact-match ("X") "B"-index
+    # lookup returning the IEN, or "" when the name is absent or ambiguous
+    # (DIC.m:87-106, `S DIFIND=+$G(DITARGET(1))` at :102). Passing the NAME
+    # here is therefore the correct contract; passing an IEN would be the
+    # defect — FIND1 would fail to resolve it, the inner call would receive ""
+    # and quit 0. Only the INNER CANRUN^CIANBACT takes an IEN.
+    #
+    #   CANRUN(RPC,CTX) ;                               CIANBACT.m:142-148
+    #    Q:'$G(DUZ)!'RPC 0                ; not signed on, or name unresolved
+    #    S CTX(0)=$$OPTLKP^CIANBUTL(CTX)
+    #    Q:$$ERRCHK('$L(CTX(0)),2,CTX) 0  ; CIA("CTX") missing/unresolvable
+    #    D:'$G(^XTMP("CIA",CIA("UID"),"C",CTX(0))) BLDCTX(CTX(0))
+    #    Q:$$KCHK^XUSRB("XUPROGMODE") 1   ; privileged bypass
+    #    Q $D(^XTMP("CIA",CIA("UID"),"C",CTX(0),RPC))
+    #
+    # The answer comes from the context option's RPC multiple — the "B" index
+    # merged at CIANBACT.m:155 (`M ^XTMP(…)=^DIC(19,OPT,"RPC","B")`), whose
+    # subscripts are 8994 IENs. Real registry evidence (rpms-rpc#209, #214),
+    # and it never executes the (write) RPC, so nothing is ever filed.
+    #
+    # ## Preconditions — the gate is per CONTEXT, not global
+    #
+    # Establish the AGGRPC context first (`client.create_context("AGGRPC")`).
+    # CANRUN answers "is this RPC in the CURRENT context option", so asking
+    # under any other context correctly answers 0. Note the context check
+    # (:145) runs BEFORE the XUPROGMODE bypass (:147): on a session where
+    # CIA("CTX") is undefined, even a programmer session is answered 0.
+    #
+    # ## The XUPROGMODE caveat, stated honestly
+    #
+    # Once a context resolves, a session holding XUPROGMODE is answered 1
+    # unconditionally (:147). Such a session therefore CANNOT prove this gate
+    # either way — not that AGG is present, and not that the context wiring is
+    # right. Only a NON-privileged session is evidence; that live proof is
+    # rpms-rpc#224 and has NOT been run. The tests below prove the Ruby side
+    # only.
+    #
+    # ## Failing to false is deliberate, and it is SAFE
+    #
+    # Every path that cannot establish availability — a "0" answer, an empty
+    # reply, an RpcError — returns false, and RpmsRpc::Registration composes
+    # VOA + DDR instead. That fallback is itself a correct registration path,
+    # chosen because AGG was not PROVEN runnable here — not a silent
+    # degradation.
     def available?(client = RpmsRpc.client)
       raw = if client.respond_to?(:call_rpc_raw)
         client.call_rpc_raw(CANRUN_RPC, ADD_RPC)

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Corrected provenance — `CIANBRPC CANRUN` takes the RPC NAME (#225)
+
+`Agg.available?` was reported as passing an RPC name to a gate that wants a
+file-8994 IEN, which would have made AGG delegation fail closed for every
+non-privileged session. **The M source says otherwise and no behavior
+changed.** The registered entry is `"CIANBRPC CANRUN^CANRUN^CIANBRPC^1"`, so
+the wire entry point is `CANRUN^CIANBRPC`, which resolves the IEN itself —
+`S DATA=$$CANRUN^CIANBACT($$FIND1^DIC(8994,,"QX",RPC),CIA("CTX"))`
+(`CIANBRPC.m:173-175`). Only the inner `CANRUN^CIANBACT` helper takes an IEN.
+Passing the name is correct; passing an IEN would be the defect.
+
+- `Agg::CANRUN_RPC`, the `Agg` wire-contract table and the `:agg_canrun`
+  mapping comment now cite `CANRUN^CIANBRPC` (they said `CANRUN^CIANBACT`,
+  the inner helper — the mislabel that produced the report).
+- `Agg.available?` documentation now carries the full derivation, the two
+  preconditions that legitimately answer 0 (the gate is per **context
+  option**, and the context check at `CIANBACT.m:145` runs *before* the
+  `XUPROGMODE` bypass at `:147`, so an un-contexted session is answered 0
+  even for a programmer), the honest statement that a privileged session
+  cannot prove the gate either way, and the fail-safe rationale for the
+  VOA + DDR fallback.
+- Regression tests pin the wire argument as the RPC **name** and prove a
+  gate keyed on anything else does not satisfy the probe.
+
+Live verification against a **non-privileged** session is still owed — that
+is #224.
+
 ### Fixed (BGO write APIs rebound to the real writers — #217)
 
 Four write APIs were bound to wrong-semantics RPCs; three silently faked

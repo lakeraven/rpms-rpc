@@ -167,4 +167,42 @@ class AggTest < Minitest::Test
     # Nothing seeded — mock returns "".
     refute Agg.available?
   end
+
+  # -- available? argument contract (rpms-rpc#225) ---------------------------
+  #
+  # The registered entry is "CIANBRPC CANRUN^CANRUN^CIANBRPC^1", i.e.
+  # CANRUN^CIANBRPC (CIANBRPC.m:173-175), which resolves the file-8994 IEN
+  # ITSELF with $$FIND1^DIC(8994,,"QX",RPC) and passes THAT to the
+  # CANRUN^CIANBACT helper. So P1 on the wire must be the RPC NAME. These
+  # tests pin that: sending an IEN instead would leave FIND1 unresolved ("",
+  # DIC.m:102) and CANRUN^CIANBACT would quit 0 at CIANBACT.m:143.
+
+  def test_available_sends_the_rpc_name_as_the_wire_argument
+    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "1")
+
+    Agg.available?
+
+    call = @mock.received_calls.find { |c| c[:rpc] == "CIANBRPC CANRUN" }
+
+    refute_nil call, "available? must probe CIANBRPC CANRUN"
+    assert_equal [ "AGG ADD NEW PATIENT" ], call[:params],
+      "P1 must be the RPC NAME — CANRUN^CIANBRPC does the 8994 lookup itself"
+  end
+
+  def test_available_false_when_the_gate_is_keyed_on_something_other_than_the_name
+    # A gate keyed on a file-8994 IEN (a synthetic one) answers 1, but the
+    # RPC name is unseeded. available? must still be false: it asks by name.
+    @mock.seed_scalar(:agg_canrun, "31337", "1")
+
+    refute Agg.available?,
+      "an IEN-keyed gate must not satisfy a name-argument probe"
+  end
+
+  def test_available_true_only_for_the_delegation_rpc_name
+    # Presence of a DIFFERENT AGG RPC does not make the delegation path
+    # available — the gate is per RPC name, per context option.
+    @mock.seed_scalar(:agg_canrun, "AGG UPDATE PATIENT", "1")
+
+    refute Agg.available?
+  end
 end
