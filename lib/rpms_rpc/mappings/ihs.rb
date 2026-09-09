@@ -1247,7 +1247,10 @@ module RpmsRpc
       m.text_blob :reply
     end
 
-    # CIANBRPC CANRUN — CANRUN^CIANBACT broker gate. Params: RPC name.
+    # CIANBRPC CANRUN — CANRUN^CIANBRPC broker gate. Params: P1 = RPC NAME
+    # (the wrapper resolves the file-8994 IEN itself via
+    # $$FIND1^DIC(8994,,"QX",RPC) before calling $$CANRUN^CIANBACT with the
+    # IEN — CIANBRPC.m:173-175; an IEN argument here would NOT resolve, #225).
     # Scalar "1"/"0": is the RPC in the current context option's RPC
     # multiple. Used by Agg.available? as real registry evidence (#209)
     # without executing the write RPC.
