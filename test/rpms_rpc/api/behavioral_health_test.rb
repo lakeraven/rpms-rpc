@@ -327,4 +327,134 @@ class BehavioralHealthTest < Minitest::Test
 
     assert_empty BH.visit_screenings(8801)
   end
+  # -- treatment plans -------------------------------------------------------
+
+  TPL_HEADER = "T00010BMXIEN^T00030SortDate^T00030DateEstablished^T00030Program^T00030Status^" \
+               "T00080Problem^T00030Provider^T00030ReviewDate^T00010Reviews^T00030ClosedDate"
+
+  TP_HEADER = "T00010BMXIEN^T00030DateEstablished^T00030Program^T00030TargetDate^T00030ReviewDate^" \
+              "T00030DateClosed^T00030DesignatedProvider^T00240ProblemList^T00030CaseAdmit^" \
+              "T00030ConcurredDate^T00030ConcurSupervisor^T00001dsm4"
+
+  REV_HEADER = "T00010BMXIEN^T00010BMXIEN2^T00030ReviewDate^T00030ReviewProvider^" \
+               "T00030ReviewSupervisor^T00030NextReviewDate^T00050ReviewProviderComplete^" \
+               "T00050ReviewSupervisorComplete"
+
+  def test_treatment_plans_parses_the_ten_field_row
+    @mock.seed_text(:amhg_treatment_plan_list, "3250101|3251231|100",
+                    [ TPL_HEADER + RS,
+                      "77^3250110^JAN 10, 2025^ADULT OUTPATIENT^ACTIVE^MAJOR DEPRESSIVE DISORDER^" \
+                      "THERAPIST,EXAMPLE^MAR 10, 2025^2^" + RS,
+                      US ].join("\n"))
+
+    plans = BH.treatment_plans(100, from: "3250101", to: "3251231")
+
+    assert_equal 1, plans.length
+    p = plans.first
+    assert_equal "77", p[:ien]
+    assert_equal "ACTIVE", p[:status]
+    assert_equal "MAJOR DEPRESSIVE DISORDER", p[:problem]
+    assert_equal "2", p[:review_count]
+    assert_nil p[:closed_date], "an open plan carries no closed date"
+  end
+
+  # AMHGD.m:186 formats ReviewDate through $$LVDT, while TP^AMHGDTP emits the
+  # SAME field as a raw internal FileMan date (AMHGDTP.m:24). A caller moving
+  # from list to detail sees two formats for one field; both are surfaced as
+  # they arrive rather than silently normalised.
+  def test_list_and_detail_disagree_on_date_format_and_we_do_not_hide_it
+    @mock.seed_text(:amhg_treatment_plan_list, "3250101|3251231|100",
+                    [ TPL_HEADER + RS,
+                      "77^3250110^JAN 10, 2025^ADULT OUTPATIENT^ACTIVE^DEPRESSION^" \
+                      "THERAPIST,EXAMPLE^MAR 10, 2025^2^" + RS, US ].join("\n"))
+    @mock.seed_text(:amhg_treatment_plan, "77",
+                    [ TP_HEADER + RS,
+                      "77^3250110^ADULT OUTPATIENT^3250401^3250310^^412~THERAPIST,EXAMPLE^" \
+                      "DEPRESSION^3250110^3250115^509~SUPERVISOR,EXAMPLE^1" + RS, US ].join("\n"))
+
+    listed = BH.treatment_plans(100, from: "3250101", to: "3251231").first
+    detail = BH.treatment_plan(77)
+
+    assert_equal "MAR 10, 2025", listed[:review_date], "list is $$LVDT-formatted (AMHGD.m:186)"
+    assert_equal "3250310", detail[:review_date], "detail is internal FileMan (AMHGDTP.m:24)"
+  end
+
+  # AMHGDTP.m:29 builds AMHPRGS as an IEN~name pair and AMHGDTP.m:44 emits the
+  # external AMHPRG instead — Program carries no IEN. DesignatedProvider and
+  # ConcurSupervisor do (AMHGDTP.m:32, :37).
+  def test_treatment_plan_pairs_only_where_the_wire_sends_them
+    @mock.seed_text(:amhg_treatment_plan, "77",
+                    [ TP_HEADER + RS,
+                      "77^3250110^ADULT OUTPATIENT^3250401^3250310^^412~THERAPIST,EXAMPLE^" \
+                      "DEPRESSION^3250110^3250115^509~SUPERVISOR,EXAMPLE^1" + RS, US ].join("\n"))
+
+    tp = BH.treatment_plan(77)
+
+    assert_equal "ADULT OUTPATIENT", tp[:program], "external only — AMHGDTP.m:44"
+    assert_equal({ ien: "412", name: "THERAPIST,EXAMPLE" }, tp[:designated_provider])
+    assert_equal({ ien: "509", name: "SUPERVISOR,EXAMPLE" }, tp[:concur_supervisor])
+    assert tp[:dsm4]
+  end
+
+  def test_treatment_plan_is_nil_when_the_ien_yields_no_row
+    @mock.seed_text(:amhg_treatment_plan, "999", [ TP_HEADER + RS, US ].join("\n"))
+
+    assert_nil BH.treatment_plan(999)
+  end
+
+  # AMHGDTP.m:197 — BMXIEN is the PLAN ien repeated; BMXIEN2 is the review
+  # subfile ien (AMHDA), the only addressable identifier on the row.
+  def test_reviews_expose_the_addressable_subfile_ien
+    seed_reviews
+
+    review = BH.treatment_plan_reviews(77).first
+
+    assert_equal "77", review[:plan_ien]
+    assert_equal "3", review[:ien], "BMXIEN2 is the review subfile IEN (AMHGDTP.m:197)"
+  end
+
+  # The columns named ReviewProviderComplete / ReviewSupervisorComplete do NOT
+  # carry completion status — AMHGDTP.m:193-194 build them as IEN~name pairs.
+  # A caller reading them as booleans would treat every named reviewer as
+  # "complete".
+  def test_review_complete_columns_are_ien_name_pairs_not_completion_flags
+    seed_reviews
+
+    review = BH.treatment_plan_reviews(77).first
+
+    assert_equal({ ien: "412", name: "THERAPIST,EXAMPLE" }, review[:review_provider])
+    assert_equal({ ien: "509", name: "SUPERVISOR,EXAMPLE" }, review[:review_supervisor])
+    refute review.key?(:review_provider_complete),
+           "the wire's *Complete columns are identity, not status"
+  end
+
+  def seed_reviews
+    @mock.seed_text(:amhg_treatment_plan_reviews, "77",
+                    [ REV_HEADER + RS,
+                      "77^3^MAR 10, 2025^THERAPIST,EXAMPLE^SUPERVISOR,EXAMPLE^JUN 10, 2025^" \
+                      "412~THERAPIST,EXAMPLE^509~SUPERVISOR,EXAMPLE" + RS, US ].join("\n"))
+  end
+
+  # AMHGDTP.m:215 emits the PLAN ien and never AMHDA, so a participant row
+  # carries no identifier of its own and cannot be addressed for edit.
+  def test_participants_are_not_individually_addressable
+    @mock.seed_text(:amhg_treatment_plan_participants, "77",
+                    [ "T00010BMXIEN^T00030Participant^T00030Relationship" + RS,
+                      "77^DOE,EXAMPLE^SPOUSE" + RS, US ].join("\n"))
+
+    participant = BH.treatment_plan_participants(77).first
+
+    assert_equal "DOE,EXAMPLE", participant[:participant]
+    assert_equal "SPOUSE", participant[:relationship]
+    refute participant.key?(:ien), "the subfile IEN is never emitted (AMHGDTP.m:215)"
+  end
+
+  # AMHGDTP.m:168 sends raw nodes with no caret sanitisation.
+  def test_narrative_returns_raw_lines_keeping_carets
+    @mock.seed_text(:amhg_treatment_plan_narrative, "77",
+                    [ "T00250TreatmentPlanNarrative" + RS,
+                      "Goal 1: reduce PHQ-9 ^ improve sleep" + RS, US ].join("\n"))
+
+    assert_equal [ "Goal 1: reduce PHQ-9 ^ improve sleep" ], BH.treatment_plan_narrative(77)
+  end
 end

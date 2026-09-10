@@ -1447,5 +1447,97 @@ module RpmsRpc
       m.field 4, :provider
       m.field 5, :comment
     end
+    # -- Treatment plans -------------------------------------------------------
+
+    # TPL^AMHGD (AMHGD.m:156). One param "begin|end|DFN". Screened per-user by
+    # $$ALLOWTP^AMHLETP (AMHGD.m:174), so an empty list means "none visible to
+    # this DUZ".
+    #
+    # BOUNDARY WARNING: the inverse-date adjustments are the REVERSE of
+    # VISITL^AMHGD — .0001/.9999 here (AMHGD.m:167-168) against .9999/.0001
+    # there (AMHGD.m:23-24). The two RPCs include their range edges
+    # differently, so one date range does not select equivalently across both.
+    #
+    # :problem falls back to the diagnosis node ^AMHPTXP(ien,21,1,0) when
+    # field 1101 is empty (AMHGD.m:178), so the column mixes problem text and
+    # diagnosis text.
+    #
+    # Dates here are $$LVDT-formatted for display; TP^AMHGDTP returns the same
+    # fields as raw internal FileMan dates.
+    DataMapper.define(:amhg_treatment_plan_list) do |m|
+      m.rpc "AMHG GET TREATMENT PLANS"
+      m.field 0, :ien
+      m.field 1, :sort_date          # internal FileMan
+      m.field 2, :date_established   # $$LVDT display
+      m.field 3, :program
+      m.field 4, :status
+      m.field 5, :problem
+      m.field 6, :provider
+      m.field 7, :review_date        # $$LVDT display
+      m.field 8, :review_count
+      m.field 9, :closed_date        # $$LVDT display
+    end
+
+    # TP^AMHGDTP (AMHGDTP.m:11). One param: the plan IEN.
+    #
+    # Dates are INTERNAL FileMan here, unlike the list above.
+    #
+    # AMHGDTP.m:29 builds AMHPRGS as an IEN~name pair and :44 emits the plain
+    # external AMHPRG instead, so program carries no IEN. designated_provider
+    # (:32) and concur_supervisor (:37) are genuine pairs.
+    DataMapper.define(:amhg_treatment_plan) do |m|
+      m.rpc "AMHG GET TREATMENT PLAN"
+      m.field 0,  :ien
+      m.field 1,  :date_established
+      m.field 2,  :program            # external only — AMHGDTP.m:44
+      m.field 3,  :target_date
+      m.field 4,  :review_date
+      m.field 5,  :date_closed
+      m.field 6,  :designated_provider_raw
+      m.field 7,  :problem_list
+      m.field 8,  :case_admit
+      m.field 9,  :concurred_date
+      m.field 10, :concur_supervisor_raw
+      m.field 11, :dsm4
+    end
+
+    # REV^AMHGDTP (AMHGDTP.m:175). Multi-row over ^AMHPTXP(plan,41).
+    #
+    # BMXIEN is the PLAN ien repeated; BMXIEN2 is the review subfile IEN
+    # (AMHDA) — the only addressable identifier on the row (AMHGDTP.m:197).
+    #
+    # The columns named ReviewProviderComplete / ReviewSupervisorComplete do
+    # NOT carry completion status: AMHGDTP.m:193-194 build them as IEN~name
+    # pairs. The plain ReviewProvider / ReviewSupervisor columns are the
+    # external names only. Reading the *Complete columns as booleans would
+    # mark every named reviewer complete.
+    DataMapper.define(:amhg_treatment_plan_reviews) do |m|
+      m.rpc "AMHG GET TP REVIEW"
+      m.field 0, :plan_ien
+      m.field 1, :ien                    # BMXIEN2 — the review subfile IEN
+      m.field 2, :review_date            # $$LVDT display
+      m.field 3, :review_provider_name
+      m.field 4, :review_supervisor_name
+      m.field 5, :next_review_date       # $$LVDT display
+      m.field 6, :review_provider_raw    # IEN~name despite "Complete"
+      m.field 7, :review_supervisor_raw  # IEN~name despite "Complete"
+    end
+
+    # PPAR^AMHGDTP (AMHGDTP.m:201). Multi-row over ^AMHPTXP(plan,17). BMXIEN
+    # is the PLAN ien repeated and AMHDA is never emitted (AMHGDTP.m:215), so
+    # a participant row cannot be addressed for edit or delete.
+    DataMapper.define(:amhg_treatment_plan_participants) do |m|
+      m.rpc "AMHG GET TP PLAN PARTICIPANTS"
+      m.field 0, :plan_ien
+      m.field 1, :participant
+      m.field 2, :relationship
+    end
+
+    # NARR^AMHGDTP (AMHGDTP.m:156). Single free-text column, multi-row over
+    # ^AMHPTXP(plan,18), raw nodes with no caret sanitisation (:168).
+    DataMapper.define(:amhg_treatment_plan_narrative) do |m|
+      m.rpc "AMHG GET TP NARRATIVE"
+      m.field 0, :text
+    end
   end
 end

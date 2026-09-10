@@ -154,6 +154,106 @@ module RpmsRpc
       end
     end
 
+    # -- treatment plans -----------------------------------------------------
+
+    # Treatment plans for a patient over a FileMan date range, newest first.
+    #
+    # Screened per-user by $$ALLOWTP^AMHLETP (AMHGD.m:174) — an empty list
+    # means "none visible to this DUZ", not "this patient has no plans".
+    #
+    # The range boundaries are NOT interchangeable with {visits}: AMHGD.m:167
+    # applies the inverse-date adjustments in the opposite order to
+    # VISITL^AMHGD, so the same from/to can include an edge date in one and
+    # exclude it in the other.
+    #
+    # :review_date, :date_established and :closed_date arrive $$LVDT-formatted
+    # for display. {treatment_plan} returns the same fields as raw internal
+    # FileMan dates. Both are passed through as received rather than
+    # normalised, because guessing which one a caller wants would hide the
+    # discrepancy instead of exposing it.
+    def treatment_plans(dfn, from:, to:)
+      mapping = DataMapper[:amhg_treatment_plan_list]
+      response = RpmsRpc.client.call_rpc(mapping.rpc_name, [ from, to, dfn ].join("|"))
+
+      mapping.parse_many(response).map do |row|
+        {
+          ien: row[:ien],
+          sort_date:        presence(row[:sort_date]),
+          date_established: presence(row[:date_established]),
+          program:          presence(row[:program]),
+          status:           presence(row[:status]),
+          # Falls back to the diagnosis node when field 1101 is empty
+          # (AMHGD.m:178) — this column mixes problem and diagnosis text.
+          problem:          presence(row[:problem]),
+          provider:         presence(row[:provider]),
+          review_date:      presence(row[:review_date]),
+          review_count:     presence(row[:review_count]),
+          closed_date:      presence(row[:closed_date])
+        }
+      end
+    end
+
+    # One treatment plan, or nil. Dates are INTERNAL FileMan here — see the
+    # note on {treatment_plans}.
+    def treatment_plan(plan_ien)
+      row = single_row(:amhg_treatment_plan, plan_ien)
+      return nil if row.nil?
+
+      {
+        ien: row[:ien],
+        date_established:    presence(row[:date_established]),
+        program:             presence(row[:program]),
+        target_date:         presence(row[:target_date]),
+        review_date:         presence(row[:review_date]),
+        date_closed:         presence(row[:date_closed]),
+        designated_provider: split_ien_name(row[:designated_provider_raw]),
+        problem_list:        presence(row[:problem_list]),
+        case_admit:          presence(row[:case_admit]),
+        concurred_date:      presence(row[:concurred_date]),
+        concur_supervisor:   split_ien_name(row[:concur_supervisor_raw]),
+        dsm4:                flag?(row[:dsm4])
+      }
+    end
+
+    # Reviews recorded against a plan.
+    #
+    # :ien is the review subfile IEN (the wire's BMXIEN2) — the addressable
+    # one. :plan_ien is the plan IEN repeated on every row.
+    #
+    # The wire's ReviewProviderComplete / ReviewSupervisorComplete columns are
+    # IEN~name pairs, not completion status (AMHGDTP.m:193-194). We surface
+    # them as :review_provider / :review_supervisor identities and expose no
+    # "complete" key at all, so the misnomer cannot propagate.
+    def treatment_plan_reviews(plan_ien)
+      mapping = DataMapper[:amhg_treatment_plan_reviews]
+      mapping.parse_many(call(mapping, plan_ien)).map do |row|
+        {
+          ien: row[:ien],
+          plan_ien:           row[:plan_ien],
+          review_date:        presence(row[:review_date]),
+          next_review_date:   presence(row[:next_review_date]),
+          review_provider:    split_ien_name(row[:review_provider_raw]),
+          review_supervisor:  split_ien_name(row[:review_supervisor_raw])
+        }
+      end
+    end
+
+    # Plan participants. No per-row identifier: AMHGDTP.m:215 emits the plan
+    # IEN and never the subfile IEN, so these cannot be addressed for edit.
+    def treatment_plan_participants(plan_ien)
+      mapping = DataMapper[:amhg_treatment_plan_participants]
+      mapping.parse_many(call(mapping, plan_ien)).map do |row|
+        { plan_ien: row[:plan_ien],
+          participant: presence(row[:participant]),
+          relationship: presence(row[:relationship]) }
+      end
+    end
+
+    # Plan narrative. Raw nodes, no caret sanitisation (AMHGDTP.m:168).
+    def treatment_plan_narrative(plan_ien)
+      text_lines(:amhg_treatment_plan_narrative, plan_ien)
+    end
+
     private
 
     # The wire's Signed column is a NEGATIVE marker, and the EHR path clears
