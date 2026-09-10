@@ -198,7 +198,7 @@ class AggTest < Minitest::Test
       "an IEN-keyed gate must not satisfy a name-argument probe"
   end
 
-  def test_available_true_only_for_the_delegation_rpc_name
+  def test_available_false_when_a_different_agg_rpc_is_runnable
     # Presence of a DIFFERENT AGG RPC does not make the delegation path
     # available — the gate is per RPC name, per context option.
     @mock.seed_scalar(:agg_canrun, "AGG UPDATE PATIENT", "1")
