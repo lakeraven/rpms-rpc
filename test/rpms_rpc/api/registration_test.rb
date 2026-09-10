@@ -199,6 +199,37 @@ class RegistrationTest < Minitest::Test
     assert_empty filer_calls, "delegation must not touch the DDR composition path"
   end
 
+  # rpms-rpc#225: the delegation decision is only meaningful under AGGRPC. The
+  # AGG* RPCs are registered to that option alone, so probing under whatever
+  # context the session happens to hold answers a truthful 0 — which reads as
+  # "AG is not installed" and drops every registration into the composition
+  # path, skipping the AG capsule's HL7/MPI staging and ^AGPATCH stamp.
+  def test_register_asks_the_delegation_question_under_the_agg_context
+    seed_agg(available: true)
+    seed_agg_add(dfn: "9")
+    seed_agg_update
+
+    Reg.register(ATTRS)
+
+    gate = @mock.received_calls.find { |c| c[:rpc] == "CIANBRPC CANRUN" }
+
+    assert_equal "AGGRPC", gate[:context], "the gate must be asked where AGG* is registered"
+    agg_calls("AGG ADD NEW PATIENT").each do |c|
+      assert_equal "AGGRPC", c[:context], "and the writes must run there too"
+    end
+  end
+
+  def test_composition_path_does_not_bind_the_agg_context_for_its_own_calls
+    seed_composition_happy_path
+
+    Reg.register(ATTRS)
+
+    filer_calls.each do |c|
+      refute_equal "AGGRPC", c[:context],
+        "the VOA + DDR floor must not inherit the probe's context"
+    end
+  end
+
   def test_delegation_add_frames_demographics_as_parms_without_hrn_in_greenfield
     seed_agg(available: true)
     seed_agg_add(dfn: "9")

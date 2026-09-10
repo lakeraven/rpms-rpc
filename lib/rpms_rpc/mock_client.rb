@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "data_mapper"
+require_relative "context_scope"
 
 module RpmsRpc
   # Mock RPC client for testing. Consumers seed data as hashes;
@@ -18,10 +19,46 @@ module RpmsRpc
   #   end
   #
   class MockClient
+    # Same context bookkeeping as a real Client, so tests can assert which
+    # context option an API scoped its calls to (RPC registration is
+    # OPTION-scoped — see RpmsRpc::ContextScope).
+    include ContextScope
+
+    # What a freshly signed-on session is assumed to be bound to.
+    DEFAULT_CONTEXT = "OR CPRS GUI CHART"
+
     def initialize
       @records = {}     # { rpc_name => { key => formatted_string } }
       @collections = {} # { rpc_name => { lines: [...], filter_field: Symbol?, filter_pos: Integer? } }
       @scalars = {}     # { rpc_name => { key => formatted_string } }
+      @context_binds = []
+      @unbindable_contexts = []
+      # A real signed-on client always holds SOME context (Client#create_context
+      # defaults to this; CiaClient binds its sign-on AID), so start bound —
+      # a nil context is the one state from which nothing can be restored.
+      @current_context = DEFAULT_CONTEXT
+    end
+
+    # Every context bound through this client, in order — including the
+    # restore. Lets a test prove a bind happened AND was undone.
+    attr_reader :context_binds
+
+    # Bind a context (no broker). Raises Client::RpcError for a context marked
+    # unbindable, so the fail-safe path can be tested.
+    def create_context(option_name = "OR CPRS GUI CHART")
+      if @unbindable_contexts.include?(option_name)
+        raise RpmsRpc::Client::RpcError, "context '#{option_name}' is not available"
+      end
+
+      @context_binds << option_name
+      @current_context = option_name
+      true
+    end
+
+    # Make `option_name` refuse to bind — the broker-side "you may not hold
+    # this option" case (OPTCHK^CIANBUTL lock, or the option not installed).
+    def unbindable_context!(option_name)
+      @unbindable_contexts << option_name
     end
 
     # Seed a single record for a mapping.
@@ -163,7 +200,9 @@ module RpmsRpc
 
     # Simulate call_rpc — returns formatted response matching the seeded data.
     def call_rpc(rpc_name, *params)
-      received_calls << { rpc: rpc_name, params: params }
+      # `context` records the option bound when the call was issued — an RPC
+      # is only servable from a context whose RPC multiple lists it.
+      received_calls << { rpc: rpc_name, params: params, context: current_context }
       key = params.first.to_s
 
       # Line-based responses (keyed by first param)

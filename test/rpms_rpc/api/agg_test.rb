@@ -205,4 +205,71 @@ class AggTest < Minitest::Test
 
     refute Agg.available?
   end
+
+  # -- AGGRPC context binding (rpms-rpc#225) ---------------------------------
+  #
+  # RPC registration is OPTION-scoped, and the AGG* RPCs are registered under
+  # AGGRPC only: ^DIC(19,13112,0)="AGGRPC^Patient Registration GUI^^B^…" with
+  # AGG ADD NEW PATIENT (8994 IEN 3374) at ^DIC(19,13112,"RPC","B",3374,20).
+  # They are absent from both contexts this gem can be sitting on — CIANB MAIN
+  # MENU (#10976, the CIA sign-on AID, no RPC multiple at all) and OR CPRS GUI
+  # CHART (#9649, 1004 RPCs, no 3374). CANRUN answers from the context bound
+  # right now (CIANBACT.m:148,155), so without the bind every AGG call — the
+  # availability probe included — is answered a truthful 0.
+
+  def test_available_probes_the_gate_under_the_agg_context
+    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "1")
+
+    Agg.available?
+
+    call = @mock.received_calls.find { |c| c[:rpc] == "CIANBRPC CANRUN" }
+
+    refute_nil call, "available? must probe CIANBRPC CANRUN"
+    assert_equal "AGGRPC", call[:context],
+      "the gate is answered from the CURRENT context option — probing outside " \
+      "AGGRPC asks a question whose answer is always 0"
+  end
+
+  def test_agg_writes_run_under_the_agg_context
+    @mock.seed(:agg_add_patient, Agg::DEFAULT_WINDOW,
+      "I00010RESULT^T00080MESSAGE^I00010DFN#{RS}1^^41#{RS}#{US}")
+
+    Agg.add_patient(params: { "AGGPTLNM" => "PROBE" })
+
+    call = @mock.received_calls.find { |c| c[:rpc] == "AGG ADD NEW PATIENT" }
+
+    assert_equal "AGGRPC", call[:context],
+      "an AGG write is denied outside AGGRPC (CIANBACT.m:55)"
+  end
+
+  def test_available_restores_the_callers_context
+    @mock.create_context("OR CPRS GUI CHART")
+    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "1")
+
+    assert Agg.available?
+    assert_equal "OR CPRS GUI CHART", @mock.current_context,
+      "binding AGGRPC under a caller mid-workflow in another context must be undone"
+    assert_equal [ "OR CPRS GUI CHART", "AGGRPC", "OR CPRS GUI CHART" ], @mock.context_binds
+  end
+
+  def test_available_does_not_rebind_a_context_already_held
+    @mock.create_context("AGGRPC")
+    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "1")
+
+    assert Agg.available?
+    assert_equal [ "AGGRPC" ], @mock.context_binds, "no round trip when already bound"
+  end
+
+  def test_available_false_and_warns_when_the_agg_context_will_not_bind
+    # The broker refusing the option (not installed, or OPTCHK^CIANBUTL lock)
+    # is exactly "AG is not usable here" — fall back, deliberately and loudly.
+    @mock.unbindable_context!("AGGRPC")
+    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "1")
+
+    result = nil
+    _out, err = capture_io { result = Agg.available? }
+
+    refute result, "an unbindable AGGRPC must fail SAFE to the composition path"
+    assert_match(/AGG delegation unavailable/, err, "the fallback must be logged, not silent")
+  end
 end
