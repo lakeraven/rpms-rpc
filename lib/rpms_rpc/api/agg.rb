@@ -116,8 +116,9 @@ module RpmsRpc
     #
     # The answer comes from the context option's RPC multiple — the "B" index
     # merged at CIANBACT.m:155 (`M ^XTMP(…)=^DIC(19,OPT,"RPC","B")`), whose
-    # subscripts are 8994 IENs. Real registry evidence (rpms-rpc#209, #214),
-    # and it never executes the (write) RPC, so nothing is ever filed.
+    # subscripts are 8994 IENs. This is real registry evidence (rpms-rpc#209,
+    # #214): the gate reads the option's RPC list rather than executing the
+    # (write) RPC, so probing never files anything.
     #
     # ## The question is per CONTEXT, so this method binds one
     #
@@ -137,7 +138,7 @@ module RpmsRpc
     # works. Only a NON-privileged session is evidence; that live proof is
     # rpms-rpc#224 and has NOT been run. The tests prove the Ruby side only.
     #
-    # ## Failing to false is deliberate, and it is SAFE
+    # ## Failing closed is deliberate, and it is SAFE
     #
     # Every path that cannot establish availability — a "0" answer, an empty
     # reply, a context that will not bind, an RpcError — returns false and
