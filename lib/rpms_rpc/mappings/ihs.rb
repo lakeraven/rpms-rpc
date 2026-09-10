@@ -1258,5 +1258,70 @@ module RpmsRpc
       m.rpc "CIANBRPC CANRUN"
       m.scalar :can_run
     end
+    # ========================================================================
+    # BEHAVIORAL HEALTH (AMHG) — rpms-rpc#227
+    # ========================================================================
+
+    # AMHG GET VISITS — VISITL^AMHGD (AMHGD.m:10). Visit list for the record
+    # selector. One pipe-delimited param, "begin|end|DFN", FileMan dates
+    # (#198). Rows arrive NEWEST FIRST: the loop walks ^AMHREC("AE") over
+    # INVERSE dates (AMHGD.m:23-26).
+    #
+    # The header at AMHGD.m:17-18 declares EIGHTEEN columns, the last being
+    # T00030DOBI. The row built at AMHGD.m:55 emits SEVENTEEN — AMHDOBI is
+    # computed at AMHGD.m:53 and never appended. Do not add an 18th field:
+    # the wire has no value for it.
+    #
+    # Rows are screened per-user by $$ALLOWVI^AMHUTIL(DUZ,AMHIEN)
+    # (AMHGD.m:33), so an absent visit is not evidence the visit does not
+    # exist — it may be screened from this DUZ.
+    DataMapper.define(:amhg_visit_list) do |m|
+      m.rpc "AMHG GET VISITS"
+      m.field 0,  :ien
+      m.field 1,  :visit_date       # internal FileMan date (AMHDT)
+      m.field 2,  :display_date     # $$LVDT^AMHGU of the same
+      m.field 3,  :pov
+      m.field 4,  :axis_v
+      m.field 5,  :clinic
+      m.field 6,  :activity
+      m.field 7,  :visit_type
+      m.field 8,  :contact_type
+      m.field 9,  :provider
+      m.field 10, :signed_marker    # "*" means NOT signed — AMHGD.m:47
+      m.field 11, :ehr_flag
+      m.field 12, :delete_intakes
+      m.field 13, :location
+      m.field 14, :group_flag
+      m.field 15, :program
+      m.field 16, :activity_time
+    end
+
+    # AMHG GET VISIT INFORMATION — VI^AMHGDVF (AMHGDVF.m:9). One param: the
+    # visit IEN. Twelve fields, header at AMHGDVF.m:16, row at AMHGDVF.m:52.
+    #
+    # Five columns carry an "IEN~external" pair (R="~", AMHGDVF.m:12):
+    # primary_provider, clinic, type_of_contact, encounter_location,
+    # community_of_service. Program and appointment_with are external-only —
+    # their internal variants are computed at AMHGDVF.m:27 and :45 and then
+    # the external value is emitted instead. Splitting is BehavioralHealth's
+    # job, not the mapper's.
+    #
+    # arrival_time is permanently blank: AMHGDVF.m:40 assigns AMHARR="" with
+    # the real computation commented out on the same line.
+    DataMapper.define(:amhg_visit_information) do |m|
+      m.rpc "AMHG GET VISIT INFORMATION"
+      m.field 0,  :ien
+      m.field 1,  :primary_provider_raw
+      m.field 2,  :program
+      m.field 3,  :clinic_raw
+      m.field 4,  :type_of_contact_raw
+      m.field 5,  :arrival_time      # always "" — AMHGDVF.m:40
+      m.field 6,  :encounter_date
+      m.field 7,  :encounter_location_raw
+      m.field 8,  :appointment_with
+      m.field 9,  :community_of_service_raw
+      m.field 10, :visit
+      m.field 11, :ehr_flag
+    end
   end
 end
