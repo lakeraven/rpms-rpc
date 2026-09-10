@@ -1539,5 +1539,89 @@ module RpmsRpc
       m.rpc "AMHG GET TP NARRATIVE"
       m.field 0, :text
     end
+    # -- Suicide risk forms ----------------------------------------------------
+
+    # SFL^AMHGD (AMHGD.m:235). One param "begin|end|DFN". Screened per-user by
+    # $$ALLOW^AMHSFR (AMHGD.m:252) — an empty list means "none visible to this
+    # DUZ". Inverse-date adjustments are .0001/.9999 (AMHGD.m:246-247), the
+    # same variant as the treatment-plan list and the OPPOSITE of VISITL.
+    #
+    # :incomplete_marker is "I" when the form is INCOMPLETE and empty when it
+    # is complete (AMHGD.m:256) — a presence flag, not a boolean.
+    DataMapper.define(:amhg_suicide_form_list) do |m|
+      m.rpc "AMHG GET SUICIDE FORMS"
+      m.field 0, :ien
+      m.field 1, :sort_date          # internal FileMan
+      m.field 2, :date               # $$LVDT display
+      m.field 3, :local_case_number
+      m.field 4, :provider
+      m.field 5, :suicidal_behavior
+      m.field 6, :incomplete_marker
+    end
+
+    # SF^AMHGDSF (AMHGDSF.m:11). One param: the form IEN. Single row.
+    #
+    # SIXTEEN columns. The header is built across TWO SET statements
+    # (AMHGDSF.m:19-20), so any reader that stops at the first sees only
+    # eleven and silently drops Lethality through DispositionText.
+    #
+    # provider, community_where_occurred and disposition are IEN~name pairs
+    # (AMHGDSF.m:22, :27, :43). date_of_act is internal FileMan (:24).
+    DataMapper.define(:amhg_suicide_form) do |m|
+      m.rpc "AMHG GET SUICIDE FORM"
+      m.field 0,  :ien
+      m.field 1,  :local_case_number
+      m.field 2,  :provider_raw
+      m.field 3,  :date_of_act
+      m.field 4,  :community_where_occurred_raw
+      m.field 5,  :relationship_status
+      m.field 6,  :employment_status
+      m.field 7,  :education
+      m.field 8,  :highest_grade
+      m.field 9,  :suicidal_behavior
+      m.field 10, :previous_attempts
+      m.field 11, :lethality
+      m.field 12, :location_of_act
+      m.field 13, :location_other
+      m.field 14, :disposition_raw
+      m.field 15, :disposition_text
+    end
+
+    # METH^AMHGDSF (AMHGDSF.m:48). Multi-row over ^AMHPSUIC(form,11).
+    #
+    # ROW COUNT IS NOT METHOD COUNT. Method 7 with recorded drugs emits ONE
+    # ROW PER DRUG (AMHGDSF.m:73), so a single method repeats across rows.
+    # Any other method emits exactly one row with the drug columns blank
+    # (:75-78). BMXIEN is the FORM ien repeated; the method subfile IEN
+    # (AMHDA) is never emitted, so rows cannot be grouped or addressed.
+    DataMapper.define(:amhg_suicide_form_methods) do |m|
+      m.rpc "AMHG GET SUICIDE FORM METHOD"
+      m.field 0, :form_ien
+      m.field 1, :method
+      m.field 2, :method_if_other
+      m.field 3, :drug_raw          # IEN~name when present
+      m.field 4, :drug_if_other
+    end
+
+    # SUB^AMHGDSF (AMHGDSF.m:82). Always emits at least one row: when field
+    # .26 is not "2" the routine still writes a row carrying the substance
+    # value with blank drug columns (AMHGDSF.m:106-108). An empty result
+    # therefore never means "not asked".
+    DataMapper.define(:amhg_suicide_form_substances) do |m|
+      m.rpc "AMHG GET SUICIDE FORM SUB"
+      m.field 0, :form_ien
+      m.field 1, :substance
+      m.field 2, :drug_raw          # IEN~name when present
+      m.field 3, :drug_if_other
+    end
+
+    # CF^AMHGDSF (AMHGDSF.m:112). Plain multi-row list over
+    # ^AMHPSUIC(form,13). BMXIEN is the form IEN repeated.
+    DataMapper.define(:amhg_suicide_form_contributing_factors) do |m|
+      m.rpc "AMHG GET SUICIDE FORM CF"
+      m.field 0, :form_ien
+      m.field 1, :contributing_factor
+      m.field 2, :if_other
+    end
   end
 end

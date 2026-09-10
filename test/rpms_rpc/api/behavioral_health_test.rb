@@ -457,4 +457,130 @@ class BehavioralHealthTest < Minitest::Test
 
     assert_equal [ "Goal 1: reduce PHQ-9 ^ improve sleep" ], BH.treatment_plan_narrative(77)
   end
+  # -- suicide risk ----------------------------------------------------------
+
+  SFL_HEADER = "T00010BMXIEN^T00030SortDate^T00030Date^T00030LocalCaseNumber^T00030Provider^" \
+               "T00080SuicidalBehavior^T00001Incomplete"
+
+  # SIXTEEN columns. The routine builds this across TWO SET statements
+  # (AMHGDSF.m:19-20); anything reading only the first sees eleven.
+  SF_HEADER = "T00010BMXIEN^T00030LocalCaseNumber^T00050Provider^T00030DateofAct^" \
+              "T00050CommunityWhereOccurred^T00010RelationshipStatus^T00010EmploymentStatus^" \
+              "T00010Education^T00010HighestGrade^T00010SuicidalBehavior^T00010PreviousAttempts^" \
+              "T00010Lethality^T00010LocationofAct^T00080LocationOther^T00050Disposition^" \
+              "T00080DispositionText"
+
+  # AMHGD.m:256 — "I" marks the form INCOMPLETE, empty marks it complete.
+  def test_suicide_forms_reports_completeness_from_the_incomplete_marker
+    @mock.seed_text(:amhg_suicide_form_list, "3250101|3251231|100",
+                    [ SFL_HEADER + RS,
+                      "31^3250114^JAN 14, 2025^LC-1001^THERAPIST,EXAMPLE^ATTEMPT^I" + RS,
+                      "32^3250102^JAN 02, 2025^LC-1002^THERAPIST,EXAMPLE^IDEATION^" + RS,
+                      US ].join("\n"))
+
+    incomplete, complete = BH.suicide_forms(100, from: "3250101", to: "3251231")
+
+    refute incomplete[:complete], '"I" marks the form incomplete (AMHGD.m:256)'
+    assert complete[:complete]
+    assert_equal "LC-1001", incomplete[:local_case_number]
+  end
+
+  def test_suicide_form_parses_all_sixteen_columns_not_the_eleven_a_single_set_would_show
+    seed_suicide_form
+
+    form = BH.suicide_form(31)
+
+    assert_equal "31", form[:ien]
+    assert_equal "LC-1001", form[:local_case_number]
+    assert_equal "3250114", form[:date_of_act], "internal FileMan (AMHGDSF.m:24)"
+    assert_equal "HIGH", form[:lethality], "column 12 — only reachable if all 16 are parsed"
+    assert_equal "HOSPITALIZED", form[:disposition][:name]
+    assert_equal "Transferred to inpatient unit", form[:disposition_text]
+  end
+
+  # AMHGDSF.m:22, :27, :43 — provider, community and disposition are IEN~name
+  # pairs; the rest are plain external values.
+  def test_suicide_form_pairs_only_the_three_pointer_columns
+    seed_suicide_form
+
+    form = BH.suicide_form(31)
+
+    assert_equal({ ien: "412", name: "THERAPIST,EXAMPLE" }, form[:provider])
+    assert_equal({ ien: "88", name: "EXAMPLE COMMUNITY" }, form[:community_where_occurred])
+    assert_equal({ ien: "4", name: "HOSPITALIZED" }, form[:disposition])
+    assert_equal "SINGLE", form[:relationship_status]
+  end
+
+  def seed_suicide_form
+    row = [ "31", "LC-1001", "412~THERAPIST,EXAMPLE", "3250114", "88~EXAMPLE COMMUNITY",
+            "SINGLE", "UNEMPLOYED", "HIGH SCHOOL", "12", "ATTEMPT", "1", "HIGH",
+            "HOME", "", "4~HOSPITALIZED", "Transferred to inpatient unit" ].join("^") + RS
+    @mock.seed_text(:amhg_suicide_form, "31", [ SF_HEADER + RS, row, US ].join("\n"))
+  end
+
+  METH_HEADER = "T00010BMXIEN^T00010Method^T00050MethodIfOther^T00050DrugIfOverdose^T00050DrugIfOther"
+
+  # AMHGDSF.m:73 — method 7 with recorded drugs emits ONE ROW PER DRUG, so a
+  # single method can appear many times. AMHDA (the method subfile IEN) is
+  # never emitted, so the rows carry no way to group or address them.
+  def test_overdose_method_emits_one_row_per_drug_and_no_method_identifier
+    @mock.seed_text(:amhg_suicide_form_methods, "31",
+                    [ METH_HEADER + RS,
+                      "31^7^^101~ACETAMINOPHEN^" + RS,
+                      "31^7^^102~IBUPROFEN^" + RS,
+                      US ].join("\n"))
+
+    methods = BH.suicide_form_methods(31)
+
+    assert_equal 2, methods.length
+    assert_equal %w[7 7], methods.map { _1[:method] }
+    assert_equal "ACETAMINOPHEN", methods.first[:drug][:name]
+    refute methods.first.key?(:ien), "the method subfile IEN is never emitted (AMHGDSF.m:73)"
+  end
+
+  # AMHGDSF.m:75-78 — a non-overdose method still emits a row, with the drug
+  # columns blank.
+  def test_non_overdose_method_emits_one_row_with_no_drug
+    @mock.seed_text(:amhg_suicide_form_methods, "31",
+                    [ METH_HEADER + RS, "31^3^^^" + RS, US ].join("\n"))
+
+    method = BH.suicide_form_methods(31).first
+
+    assert_equal "3", method[:method]
+    assert_nil method[:drug]
+  end
+
+  # AMHGDSF.m:106-108 — when field .26 is not "2" the routine still emits one
+  # row carrying the substance value with blank drug columns, so an empty
+  # result never means "not asked".
+  def test_substances_always_emit_at_least_one_row
+    @mock.seed_text(:amhg_suicide_form_substances, "31",
+                    [ "T00010BMXIEN^T00010Substance^T00050Drug^T00050DrugIfOther" + RS,
+                      "31^1^^" + RS, US ].join("\n"))
+
+    substances = BH.suicide_form_substances(31)
+
+    assert_equal 1, substances.length
+    assert_equal "1", substances.first[:substance]
+    assert_nil substances.first[:drug]
+  end
+
+  def test_substances_pair_the_drug_when_one_is_recorded
+    @mock.seed_text(:amhg_suicide_form_substances, "31",
+                    [ "T00010BMXIEN^T00010Substance^T00050Drug^T00050DrugIfOther" + RS,
+                      "31^2^77~ALCOHOL^" + RS, US ].join("\n"))
+
+    assert_equal({ ien: "77", name: "ALCOHOL" }, BH.suicide_form_substances(31).first[:drug])
+  end
+
+  def test_contributing_factors_are_a_plain_multi_row_list
+    @mock.seed_text(:amhg_suicide_form_contributing_factors, "31",
+                    [ "T00010BMXIEN^T00010ContributingFactor^T00050ContributingFactorIfOther" + RS,
+                      "31^4^" + RS, "31^99^Recent bereavement" + RS, US ].join("\n"))
+
+    factors = BH.suicide_form_contributing_factors(31)
+
+    assert_equal 2, factors.length
+    assert_equal "Recent bereavement", factors.last[:if_other]
+  end
 end

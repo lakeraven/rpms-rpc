@@ -254,6 +254,104 @@ module RpmsRpc
       text_lines(:amhg_treatment_plan_narrative, plan_ien)
     end
 
+    # -- suicide risk --------------------------------------------------------
+
+    # Suicide risk forms for a patient over a FileMan date range.
+    #
+    # Screened per-user by $$ALLOW^AMHSFR (AMHGD.m:252): an empty list means
+    # "none visible to this DUZ", never "this patient has no forms". For this
+    # cluster in particular, rendering absence as "no risk history" would be a
+    # clinical misstatement.
+    #
+    # :complete inverts the wire's "I" marker (AMHGD.m:256), which is present
+    # when the form is INCOMPLETE.
+    def suicide_forms(dfn, from:, to:)
+      mapping = DataMapper[:amhg_suicide_form_list]
+      response = RpmsRpc.client.call_rpc(mapping.rpc_name, [ from, to, dfn ].join("|"))
+
+      mapping.parse_many(response).map do |row|
+        {
+          ien: row[:ien],
+          sort_date:         presence(row[:sort_date]),
+          date:              presence(row[:date]),
+          local_case_number: presence(row[:local_case_number]),
+          provider:          presence(row[:provider]),
+          suicidal_behavior: presence(row[:suicidal_behavior]),
+          complete:          row[:incomplete_marker].to_s.strip != "I"
+        }
+      end
+    end
+
+    # One suicide risk form, or nil. All sixteen columns — the header is built
+    # across two SETs (AMHGDSF.m:19-20) and a reader that stops at the first
+    # loses Lethality, LocationofAct, LocationOther, Disposition and
+    # DispositionText.
+    def suicide_form(form_ien)
+      row = single_row(:amhg_suicide_form, form_ien)
+      return nil if row.nil?
+
+      {
+        ien: row[:ien],
+        local_case_number:        presence(row[:local_case_number]),
+        provider:                 split_ien_name(row[:provider_raw]),
+        date_of_act:              presence(row[:date_of_act]), # internal FileMan
+        community_where_occurred: split_ien_name(row[:community_where_occurred_raw]),
+        relationship_status:      presence(row[:relationship_status]),
+        employment_status:        presence(row[:employment_status]),
+        education:                presence(row[:education]),
+        highest_grade:            presence(row[:highest_grade]),
+        suicidal_behavior:        presence(row[:suicidal_behavior]),
+        previous_attempts:        presence(row[:previous_attempts]),
+        lethality:                presence(row[:lethality]),
+        location_of_act:          presence(row[:location_of_act]),
+        location_other:           presence(row[:location_other]),
+        disposition:              split_ien_name(row[:disposition_raw]),
+        disposition_text:         presence(row[:disposition_text])
+      }
+    end
+
+    # Methods recorded on a form.
+    #
+    # ROWS ARE NOT METHODS. An overdose (method 7) with recorded drugs emits
+    # one row per drug (AMHGDSF.m:73), so the same method repeats; any other
+    # method emits a single row with no drug (:75-78). The method subfile IEN
+    # is never sent, so rows cannot be grouped back into distinct methods —
+    # callers counting rows are counting method-drug pairs.
+    def suicide_form_methods(form_ien)
+      mapping = DataMapper[:amhg_suicide_form_methods]
+      mapping.parse_many(call(mapping, form_ien)).map do |row|
+        { form_ien: row[:form_ien],
+          method: presence(row[:method]),
+          method_if_other: presence(row[:method_if_other]),
+          drug: split_ien_name(row[:drug_raw]),
+          drug_if_other: presence(row[:drug_if_other]) }
+      end
+    end
+
+    # Substance use recorded on a form. Always at least one row — a "not 2"
+    # answer still emits the substance value with blank drug columns
+    # (AMHGDSF.m:106-108), so an empty array means the RPC returned nothing at
+    # all, not that the question went unasked.
+    def suicide_form_substances(form_ien)
+      mapping = DataMapper[:amhg_suicide_form_substances]
+      mapping.parse_many(call(mapping, form_ien)).map do |row|
+        { form_ien: row[:form_ien],
+          substance: presence(row[:substance]),
+          drug: split_ien_name(row[:drug_raw]),
+          drug_if_other: presence(row[:drug_if_other]) }
+      end
+    end
+
+    # Contributing factors recorded on a form.
+    def suicide_form_contributing_factors(form_ien)
+      mapping = DataMapper[:amhg_suicide_form_contributing_factors]
+      mapping.parse_many(call(mapping, form_ien)).map do |row|
+        { form_ien: row[:form_ien],
+          contributing_factor: presence(row[:contributing_factor]),
+          if_other: presence(row[:if_other]) }
+      end
+    end
+
     private
 
     # The wire's Signed column is a NEGATIVE marker, and the EHR path clears
