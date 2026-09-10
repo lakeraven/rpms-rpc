@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "behavioral_health/wire"
+
 module RpmsRpc
   # Symbolic API for IHS Behavioral Health (AMHG) — rpms-rpc#227.
   #
@@ -19,8 +21,7 @@ module RpmsRpc
   #   * arrival_time is permanently blank (AMHGDVF.m:40).
   module BehavioralHealth
     extend self
-
-    IEN_NAME_SEPARATOR = "~" # R="~" — AMHGDVF.m:12
+    extend Wire
 
     # Visit list for a patient over a FileMan date range, newest first.
     #
@@ -30,7 +31,7 @@ module RpmsRpc
     # render it as the latter.
     def visits(dfn, from:, to:)
       mapping = DataMapper[:amhg_visit_list]
-      response = RpmsRpc.client.call_rpc(mapping.rpc_name, [ from, to, dfn ].join("|"))
+      response = call_amhg(mapping, from, to, dfn)
 
       mapping.parse_many(response).map { |row| decorate_visit(row) }
     end
@@ -64,7 +65,7 @@ module RpmsRpc
 
     # Activity tab. One row (AMHGDVF.m:291).
     def visit_activity(visit_ien)
-      row = single_row(:amhg_visit_activity, visit_ien)
+      row = first_row(:amhg_visit_activity, visit_ien)
       return nil if row.nil?
 
       {
@@ -100,7 +101,7 @@ module RpmsRpc
     # (AMHGDVF.m:123) — we return the pair with nils rather than nil, because
     # "asked and both blank" is a real answer here.
     def visit_axis_v(visit_ien)
-      row = single_row(:amhg_visit_axis_v, visit_ien)
+      row = first_row(:amhg_visit_axis_v, visit_ien)
       return { axis_v: nil, gaf: nil } if row.nil?
 
       { axis_v: presence(row[:axis_v]), gaf: presence(row[:gaf]) }
@@ -148,7 +149,7 @@ module RpmsRpc
           visit_ien: row[:visit_ien], # BMXIEN is the visit IEN repeated
           screening_type: presence(row[:screening_type]),
           result:         presence(row[:result]),
-          provider:       split_ien_name([ row[:provider_ien], row[:provider] ].join(IEN_NAME_SEPARATOR)),
+          provider:       split_ien_name([ row[:provider_ien], row[:provider] ].join(Wire::IEN_NAME_SEPARATOR)),
           comment:        presence(row[:comment])
         }
       end
@@ -173,7 +174,7 @@ module RpmsRpc
     # discrepancy instead of exposing it.
     def treatment_plans(dfn, from:, to:)
       mapping = DataMapper[:amhg_treatment_plan_list]
-      response = RpmsRpc.client.call_rpc(mapping.rpc_name, [ from, to, dfn ].join("|"))
+      response = call_amhg(mapping, from, to, dfn)
 
       mapping.parse_many(response).map do |row|
         {
@@ -196,7 +197,7 @@ module RpmsRpc
     # One treatment plan, or nil. Dates are INTERNAL FileMan here — see the
     # note on {treatment_plans}.
     def treatment_plan(plan_ien)
-      row = single_row(:amhg_treatment_plan, plan_ien)
+      row = first_row(:amhg_treatment_plan, plan_ien)
       return nil if row.nil?
 
       {
@@ -267,7 +268,7 @@ module RpmsRpc
     # when the form is INCOMPLETE.
     def suicide_forms(dfn, from:, to:)
       mapping = DataMapper[:amhg_suicide_form_list]
-      response = RpmsRpc.client.call_rpc(mapping.rpc_name, [ from, to, dfn ].join("|"))
+      response = call_amhg(mapping, from, to, dfn)
 
       mapping.parse_many(response).map do |row|
         {
@@ -287,7 +288,7 @@ module RpmsRpc
     # loses Lethality, LocationofAct, LocationOther, Disposition and
     # DispositionText.
     def suicide_form(form_ien)
-      row = single_row(:amhg_suicide_form, form_ien)
+      row = first_row(:amhg_suicide_form, form_ien)
       return nil if row.nil?
 
       {
@@ -354,6 +355,10 @@ module RpmsRpc
 
     private
 
+    def call(mapping, param)
+      call_amhg(mapping, param)
+    end
+
     # The wire's Signed column is a NEGATIVE marker, and the EHR path clears
     # it regardless of the underlying field (AMHGD.m:47-49). We report the
     # boolean the column actually means and surface :ehr alongside, so a
@@ -381,32 +386,13 @@ module RpmsRpc
       }
     end
 
-    # "412~THERAPIST,EXAMPLE" -> { ien: "412", name: "THERAPIST,EXAMPLE" }.
-    # An empty column yields nil rather than a pair of blanks: the wire emits
-    # "" when the pointer is unset (the $S guards at AMHGDVF.m:22, :29, :33).
-    def split_ien_name(raw)
-      value = raw.to_s
-      return nil if value.empty?
-
-      ien, name = value.split(IEN_NAME_SEPARATOR, 2)
-      return { ien: nil, name: ien } if name.nil?
-
-      { ien: presence(ien), name: presence(name) }
-    end
 
     def flag?(value)
       v = value.to_s.strip
       !v.empty? && v != "0"
     end
 
-    def call(mapping, param)
-      RpmsRpc.client.call_rpc(mapping.rpc_name, param.to_s)
-    end
 
-    def single_row(mapping_name, param)
-      mapping = DataMapper[mapping_name]
-      mapping.parse_many(call(mapping, param)).first
-    end
 
     def code_rows(mapping_name, param)
       mapping = DataMapper[mapping_name]
@@ -415,28 +401,6 @@ module RpmsRpc
           code: presence(row[:code]),
           narrative: presence(row[:narrative]) }
       end
-    end
-
-    # Single-column free-text responses. Read whole lines: these columns carry
-    # unsanitised clinical text and caret-splitting them would fabricate
-    # fields out of punctuation.
-    def text_lines(mapping_name, param)
-      mapping = DataMapper[mapping_name]
-      response = call(mapping, param)
-      lines = response.is_a?(String) ? response.split(/\r?\n/) : Array(response)
-
-      lines.filter_map do |line|
-        next if line.nil?
-        next if DataMapper.recordset_header_row?(line)
-
-        stripped = DataMapper.strip_recordset_separators(line)
-        stripped.empty? ? nil : stripped
-      end
-    end
-
-    def presence(value)
-      v = value.to_s
-      v.empty? ? nil : v
     end
   end
 end
