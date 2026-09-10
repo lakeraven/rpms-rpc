@@ -21,6 +21,13 @@ module RpmsRpc
     # + capture provenance: RpmsRpc::Agg.
     AGG_ARRAY_END = "\x1f"
 
+    # Context option bound by sign-on. AUTH^CIANBRPC takes the application ID
+    # — the context option — as P1 and saves it as the session's AID
+    # (CIANBRPC.m:22,27,62); ACTR^CIANBACT falls back to that AID when a frame
+    # carries no CTX field (CIANBACT.m:49-51). So this is the option every RPC
+    # is gated against until something binds another one.
+    SIGNON_CONTEXT = "CIANB MAIN MENU"
+
     def default_port = 9100
 
     # Open the socket and perform the {CIA} connect handshake.
@@ -28,6 +35,7 @@ module RpmsRpc
       open_socket(host, port) # base: sets @socket, raises ConnectionError on failure
       @seq = 0
       @session_uid = nil
+      reset_context # a new session starts on whatever sign-on binds
       @uci = ENV.fetch("RPMS_UCI", "VEH,EXTERNAL")
       reply = exchange("C", pk("VER"), pk(""), pk("2.0"),
         pk("LP"), pk(""), pk(port.to_s),
@@ -68,7 +76,7 @@ module RpmsRpc
       avc = xwb_encrypt("#{ac};#{vc}") # base cipher — matches ENCRYP^XUSRB1
       reply = exchange("R", pk("UID"), pk(""), pk("0"),
         pk("RPC"), pk(""), pk("CIANBRPC AUTH"),
-        pk("1"), pk(""), pk("CIANB MAIN MENU"),
+        pk("1"), pk(""), pk(SIGNON_CONTEXT),
         pk("4"), pk(""), pk(avc))
       greeting = printable(reply)
       unless greeting.match?(/signed on|Good (morning|afternoon|evening)/i)
@@ -79,11 +87,43 @@ module RpmsRpc
       @signon_user = greeting[/\b([A-Z][A-Z.'-]*,[A-Z][A-Z.'-]*)/, 1]&.strip
       uid = session_params(reply)[0]
       @session_uid = uid if uid&.match?(/\A\d+\z/) # failure params are "server^volume^UCI^port"
+      @current_context = SIGNON_CONTEXT # ContextScope — AUTH bound it as the AID
       @duz = printable(call_rpc_raw("CIANBRPC GETVAR", "DUZ"))[/\bDUZ=(\d+)/, 1]
       { success: true, user: @signon_user, duz: @duz&.to_i, greeting: greeting.strip }
     end
 
     attr_reader :signon_user, :session_uid
+
+    # Bind a context option.
+    #
+    # CIA carries the context as a **CTX field on each RPC frame**, not as a
+    # separate call: DOACTION^CIANBLIS reads every non-numeric field name into
+    # CIA(<NAME>) and names CTX among the known ones (CIANBLIS.m:165,168),
+    # ACTR^CIANBACT persists it with SETVAR^CIANBUTL("CTX",…) (:50) and gates
+    # every non-CIANB* RPC on it (:55). So a CIA context switch is a
+    # client-side state change with NO round trip — and no XWB CREATE CONTEXT
+    # (CRCONTXT^XWBSEC), which is itself a non-CIANB* RPC and so would have to
+    # be registered to the option currently bound in order to change it.
+    #
+    # From here on every frame carries CTX. It has to: ACTR persists the CTX
+    # it was given (:50) and reads it back from the session when a frame omits
+    # one (:49), so a client that stopped sending CTX would silently stay on
+    # the last option it named — a "restore" that never happened. Before the
+    # first bind no CTX is sent at all, which leaves ACTR to fall back to the
+    # sign-on AID (:51) exactly as it does today.
+    #
+    # Pair with ContextScope#with_context to scope + restore (RpmsRpc::Agg).
+    def create_context(option_name = SIGNON_CONTEXT)
+      raise ConnectionError, "Not connected" unless connected?
+      raise AuthenticationError, "Not authenticated" unless authenticated?
+
+      @current_context = option_name
+      @context_bound = true # start naming CTX on every frame — see above
+      # RPC registration is OPTION-scoped; capabilities probed under the
+      # previous context may not hold under the new one.
+      @capability_cache = nil
+      true
+    end
 
     # Call an RPC over the CIA broker, returning a printable (human-readable) response.
     # Literal string params, plus list params as Hash (named/numeric subscripts)
@@ -131,6 +171,7 @@ module RpmsRpc
 
     def disconnect
       @session_uid = nil
+      reset_context
       reset_connection # base: closes the socket and clears state
     end
 
@@ -174,7 +215,15 @@ module RpmsRpc
     # builds a subscripted list param (string subscripts M-quoted, numerics
     # bare); an Array builds 1-based numeric subscripts.
     def rpc_frame_fields(rpc_name, params)
-      parts = [ pk("UID"), pk(""), pk(@session_uid || "1"), pk("RPC"), pk(""), pk(rpc_name) ]
+      parts = [ pk("UID"), pk(""), pk(@session_uid || "1") ]
+      # CTX names the context option this RPC is gated against
+      # (CIANBLIS.m:165,168 -> CIA("CTX"); CIANBACT.m:50,55). Sent only once a
+      # context has actually been bound through create_context — and then on
+      # EVERY frame, because ACTR persists the last CTX it saw (:50) and reuses
+      # it when a frame omits one (:49). Until then the field is absent and
+      # ACTR falls back to the sign-on AID (:51).
+      parts.concat([ pk("CTX"), pk(""), pk(@current_context.to_s) ]) if @context_bound
+      parts.concat([ pk("RPC"), pk(""), pk(rpc_name) ])
       params.each_with_index do |p, i|
         n = (i + 1).to_s
         case p
@@ -197,6 +246,7 @@ module RpmsRpc
     # connection loss so callers can reconnect + re-authenticate.
     def handle_rpc_timeout(rpc_name)
       @session_uid = nil
+      reset_context
       reset_connection # base
       raise RpcTimeoutError, RpmsRpc.sanitize_error(
         "RPC '#{rpc_name}' timed out after #{@timeout}s; connection closed — reconnect and re-authenticate"
@@ -206,6 +256,15 @@ module RpmsRpc
     # List-param subscript in M-literal form for DOACTION's raw splice into
     # P<n>(<SB>) (CIANBLIS.m DOACTION lines 128-134): canonic numerics stay
     # bare; anything else is quoted with embedded quotes doubled.
+    # Forget the bound context. The CTX a frame carries is persisted into the
+    # SESSION (SETVAR^CIANBUTL, CIANBACT.m:50), so a dead session takes the
+    # binding with it — carrying the old value into a new one would name a
+    # context this session never bound.
+    def reset_context
+      @current_context = nil
+      @context_bound = false
+    end
+
     def m_subscript(key)
       s = key.to_s
       s.match?(/\A-?(0|[1-9]\d*)(\.\d+)?\z/) ? s : %("#{s.gsub('"', '""')}")

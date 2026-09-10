@@ -376,6 +376,66 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     [ c, broker ]
   end
 
+  # -- CIA context binding (rpms-rpc#225) -------------------------------------
+  #
+  # CIA carries the context as a CTX field on the RPC frame — DOACTION^CIANBLIS
+  # reads any non-numeric field name into CIA(<NAME>) and names CTX among them
+  # (CIANBLIS.m:165,168); ACTR^CIANBACT persists it (SETVAR^CIANBUTL, :50),
+  # reuses the persisted value when a frame omits one (:49), and gates every
+  # non-CIANB* RPC on it (:55). So binding a context costs no round trip, and
+  # once bound the field must ride EVERY frame or a later "restore" is a no-op.
+
+  def test_create_context_binds_without_a_round_trip
+    c, broker = signed_on_strict_client([])
+    frames_before = broker.frames.length
+
+    assert c.create_context("AGGRPC")
+    assert_equal "AGGRPC", c.current_context
+    assert_equal frames_before, broker.frames.length,
+      "CIA binds context on the next RPC frame — no XWB CREATE CONTEXT call"
+  end
+
+  def test_bound_context_rides_every_later_frame
+    c, broker = signed_on_strict_client([ "1\r\n", "1\r\n" ])
+    c.create_context("AGGRPC")
+
+    c.call_rpc("CIANBRPC CANRUN", "AGG ADD NEW PATIENT")
+    assert_equal [ "UID", "", "7", "CTX", "", "AGGRPC",
+                   "RPC", "", "CIANBRPC CANRUN", "1", "", "AGG ADD NEW PATIENT" ],
+                 broker.frames.last[:fields]
+
+    # Restoring must keep NAMING the context: ACTR would otherwise reuse the
+    # persisted AGGRPC for a frame that carries no CTX (CIANBACT.m:49-50).
+    c.create_context(RpmsRpc::CiaClient::SIGNON_CONTEXT)
+    c.call_rpc("CIANBRPC CANRUN", "AGG ADD NEW PATIENT")
+    assert_equal [ "UID", "", "7", "CTX", "", "CIANB MAIN MENU",
+                   "RPC", "", "CIANBRPC CANRUN", "1", "", "AGG ADD NEW PATIENT" ],
+                 broker.frames.last[:fields]
+  end
+
+  def test_frames_carry_no_ctx_before_any_context_is_bound
+    c, broker = signed_on_strict_client([ "1^42\r\n" ])
+    c.call_rpc("VAFC VOA ADD PATIENT", { "PRFCLTY" => "8994" })
+
+    refute_includes broker.frames.last[:fields], "CTX",
+      "until something binds a context, ACTR falls back to the sign-on AID (CIANBACT.m:51)"
+  end
+
+  def test_with_context_scopes_and_restores_the_binding
+    c, broker = signed_on_strict_client([ "1\r\n" ])
+    c.create_context("OR CPRS GUI CHART")
+
+    inner = nil
+    c.with_context("AGGRPC") do
+      inner = c.current_context
+      c.call_rpc("CIANBRPC CANRUN", "AGG ADD NEW PATIENT")
+    end
+
+    assert_equal "AGGRPC", inner
+    assert_includes broker.frames.last[:fields], "AGGRPC"
+    assert_equal "OR CPRS GUI CHART", c.current_context, "the caller's context is restored"
+  end
+
   def test_voa_add_patient_hash_param_frames_as_quoted_subscript_triples
     c, broker = signed_on_strict_client([ "1^42\r\n" ])
     c.call_rpc("VAFC VOA ADD PATIENT",

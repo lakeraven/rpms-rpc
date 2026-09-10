@@ -5,6 +5,7 @@ require "rpms_rpc/parameter_encoder"
 require "rpms_rpc/xml_response_parser"
 require "rpms_rpc/server_capabilities"
 require "rpms_rpc/xwb_cipher"
+require "rpms_rpc/context_scope"
 
 module RpmsRpc
   # Abstract base class for RPMS RPC broker clients.
@@ -21,6 +22,10 @@ module RpmsRpc
   #   call_rpc_raw(name, *params) — send RPC, return raw string response
   #   read_response               — read and decode one protocol response
   class Client
+    # current_context / with_context — RPC registration is OPTION-scoped, so
+    # an API whose RPCs live under their own option scopes itself to it.
+    include ContextScope
+
     # Error classes
     class ConnectionError < StandardError; end
     class AuthenticationError < StandardError; end
@@ -185,6 +190,7 @@ module RpmsRpc
       # RPC registration is OPTION-scoped; capabilities probed under the
       # previous context may not hold under the new one.
       @capability_cache = nil
+      @current_context = option_name # ContextScope — lets APIs scope + restore
       true
     end
 

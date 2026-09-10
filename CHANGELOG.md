@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — AGG delegation never fired: the gate was asked in the wrong context (#225)
+
+`Registration.register` gated delegation on `Agg.available?`, but **nothing on
+that path ever bound the AGGRPC context**. RPC registration is OPTION-scoped —
+`CANRUN` answers from the RPC multiple of the option bound right now
+(`CIANBACT.m:148,155`) — and the AGG* RPCs are registered under AGGRPC alone
+(`^DIC(19,13112,0)="AGGRPC^Patient Registration GUI^^B^…"`, with AGG ADD NEW
+PATIENT / 8994 IEN 3374 at `^DIC(19,13112,"RPC","B",3374,20)`). They are absent
+from both contexts this gem can be sitting on: **CIANB MAIN MENU** (#10976, what
+CIA sign-on binds — no RPC multiple at all) and **OR CPRS GUI CHART** (#9649,
+1004 RPCs, no 3374). So on any non-privileged session the gate was answered a
+truthful 0, delegation silently never fired, and every registration fell back to
+the VOA + DDR composition — skipping the AG capsule's HL7/MPI staging, the
+`^AGPATCH` stamp and the edit-check rules that delegation exists to inherit. A
+session holding `XUPROGMODE` cannot see this: the bypass (`CIANBACT.m:147`)
+answers 1 either way.
+
+- **New `RpmsRpc::ContextScope`** (`current_context` / `with_context`), included
+  by `Client` and `MockClient`. `with_context` binds an option, runs the block
+  and restores the caller's — no round trip when it is already bound, so
+  nesting is free.
+- **`RpmsRpc::Agg` binds its own context.** `available?`, `add_patient`,
+  `update_patient` and `edit_check` all scope to `Agg::CONTEXT` ("AGGRPC")
+  rather than telling callers to do it. Deliberate: leaving the bind to the
+  caller is what made "not runnable HERE" indistinguishable from "AG not
+  installed".
+- **`CiaClient#create_context` now binds the CIA-native way — no round trip.**
+  CIA carries the context as a **CTX field on the RPC frame**
+  (`CIANBLIS.m:165,168` → `CIA("CTX")`; `CIANBACT.m:50,55`), so a switch is a
+  client-side state change, not an `XWB CREATE CONTEXT` call — which, being
+  `CRCONTXT^XWBSEC` (a non-`CIANB*` routine), would itself have to be
+  registered to the option currently bound in order to change it. Sign-on binds
+  `CIANB MAIN MENU` as the session AID (`CIANBRPC.m:22,27,62`), which the
+  client now tracks. **Frames are byte-identical to before until something
+  binds a context**; from the first bind onward every frame carries CTX,
+  because ACTR persists the last CTX it saw and reuses it when a frame omits
+  one — a restore that stopped naming the context would be a no-op.
+- **Fail-safe, and now loud.** A context that will not bind, a "0" answer, an
+  empty reply or an `RpcError` all return false and `warn` before composing
+  VOA + DDR. Scoping a session with no declared context warns too: there is no
+  "unbind", so it cannot be undone.
+
+Live verification against a **non-privileged** session is still owed — #224.
+
 ### Corrected provenance — `CIANBRPC CANRUN` takes the RPC NAME (#225)
 
 `Agg.available?` was reported as passing an RPC name to a gate that wants a

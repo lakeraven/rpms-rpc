@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../mappings"
+require_relative "../client"
 
 module RpmsRpc
   # Symbolic API for the IHS **AG** package's GUI registration RPCs (the AGG*
@@ -14,10 +15,24 @@ module RpmsRpc
   # AG is an RPMS-only package: civilian/stock VistA has no AG, so callers
   # gate on Agg.available? and fall back to the VOA + DDR composition.
   #
-  # Context: these RPCs are registered under the AGGRPC option (file 19 IEN
-  # 13112, "Patient Registration GUI"). Establish it with
-  # `client.create_context("AGGRPC")` before delegating — RPC registration is
-  # OPTION-scoped.
+  # ## Context — this module binds it, callers do not (rpms-rpc#225)
+  #
+  # The AGG* RPCs are registered under the AGGRPC option and ONLY there:
+  # `^DIC(19,13112,0)="AGGRPC^Patient Registration GUI^^B^…"` (TYPE "B", no
+  # LOCK) with AGG ADD NEW PATIENT (8994 IEN 3374) in its RPC multiple at
+  # `^DIC(19,13112,"RPC","B",3374,20)`. RPC registration is OPTION-scoped, so
+  # under any other context the broker denies them — and the AGG* RPCs are
+  # absent from both defaults this gem can be sitting on: CIANB MAIN MENU
+  # (#10976, what CIA sign-on binds — no RPC multiple at all) and OR CPRS GUI
+  # CHART (#9649, 1004 RPCs, none of them AGG*).
+  #
+  # Every public method here therefore scopes itself to AGGRPC via
+  # ContextScope#with_context (bind, run, restore the caller's context). That
+  # is deliberate: leaving the bind to the caller made Agg.available? answer
+  # "not runnable HERE", which is indistinguishable from "AG not installed" —
+  # so delegation silently never fired and every registration fell through to
+  # the composition path. A client that cannot scope contexts (a test double)
+  # is simply run as-is.
   #
   # Session hygiene (probe caveat, rpms-rpc#214): AG routines leak un-NEWed
   # locals (BN/SECFLD/BMXSEC/RESULT in ADD^AGGPTADD) into a long-lived CIA
@@ -56,6 +71,10 @@ module RpmsRpc
     UPDATE_RPC = "AGG UPDATE PATIENT"         # UPD^AGGPTUPD
     EDIT_CHECK_RPC = "AGG PATIENT EDIT CHECK" # CHK^AGGEDCHK
     CANRUN_RPC = "CIANBRPC CANRUN"            # CANRUN^CIANBRPC (broker gate)
+
+    # The context option the AGG* RPCs are registered under — file 19 IEN
+    # 13112, TYPE "B", no LOCK. Every method here binds it; see the module doc.
+    CONTEXT = "AGGRPC"
 
     # Registration window definitions (file 9009068.3). "Mini Registration"
     # (IEN 29) is the minimal demographics set; "New Patient" (IEN 28) is a
@@ -100,40 +119,36 @@ module RpmsRpc
     # subscripts are 8994 IENs. Real registry evidence (rpms-rpc#209, #214),
     # and it never executes the (write) RPC, so nothing is ever filed.
     #
-    # ## Preconditions — the gate is per CONTEXT, not global
+    # ## The question is per CONTEXT, so this method binds one
     #
-    # Establish the AGGRPC context first (`client.create_context("AGGRPC")`).
-    # CANRUN answers "is this RPC in the CURRENT context option", so asking
-    # under any other context correctly answers 0. Note the context check
-    # (:145) runs BEFORE the XUPROGMODE bypass (:147): on a session where
-    # CIA("CTX") is undefined, even a programmer session is answered 0.
+    # CANRUN answers "is this RPC in the CURRENT context option", so the probe
+    # only means "is AG installed" when it runs under AGGRPC — which is why
+    # this scopes itself (module doc). Asking under CIANB MAIN MENU or OR CPRS
+    # GUI CHART is answered a truthful 0 because AGG* is not registered there.
+    # Note the context check (:145) precedes the XUPROGMODE bypass (:147): a
+    # session whose CIA("CTX") does not resolve is answered 0 even for a
+    # programmer.
     #
     # ## The XUPROGMODE caveat, stated honestly
     #
     # Once a context resolves, a session holding XUPROGMODE is answered 1
     # unconditionally (:147). Such a session therefore CANNOT prove this gate
-    # either way — not that AGG is present, and not that the context wiring is
-    # right. Only a NON-privileged session is evidence; that live proof is
-    # rpms-rpc#224 and has NOT been run. The tests below prove the Ruby side
-    # only.
+    # either way — not that AGG is present, and not that the context bind
+    # works. Only a NON-privileged session is evidence; that live proof is
+    # rpms-rpc#224 and has NOT been run. The tests prove the Ruby side only.
     #
     # ## Failing to false is deliberate, and it is SAFE
     #
     # Every path that cannot establish availability — a "0" answer, an empty
-    # reply, an RpcError — returns false, and RpmsRpc::Registration composes
-    # VOA + DDR instead. That fallback is itself a correct registration path,
-    # chosen because AGG was not PROVEN runnable here — not a silent
-    # degradation.
+    # reply, a context that will not bind, an RpcError — returns false and
+    # WARNS, and RpmsRpc::Registration composes VOA + DDR instead. That
+    # fallback is itself a correct registration path, chosen because AGG was
+    # not PROVEN runnable here — not a silent degradation.
     def available?(client = RpmsRpc.client)
-      raw = if client.respond_to?(:call_rpc_raw)
-        client.call_rpc_raw(CANRUN_RPC, ADD_RPC)
-      else
-        client.call_rpc(CANRUN_RPC, ADD_RPC)
-      end
-      body = raw.to_s.b
-      body = body.split(ACK, 2).last.to_s if body.include?(ACK)
-      body.split(/[\r\n#{RECORD_SEP}]/).first.to_s.strip == "1"
-    rescue RpmsRpc::Client::RpcError
+      in_context(client) { canrun?(client) }
+    rescue RpmsRpc::Client::RpcError, RpmsRpc::Client::ConnectionError => e
+      warn "[rpms_rpc] AGG delegation unavailable: could not evaluate the " \
+           "#{CONTEXT} gate (#{e.class}) — composing VOA + DDR instead"
       false
     end
 
@@ -142,13 +157,17 @@ module RpmsRpc
     # { success: false, error: :agg_rejected, message: } on "-1^message",
     # or nil when the broker gives no response.
     def add_patient(params:, window: DEFAULT_WINDOW, dfn: "", client: RpmsRpc.client)
-      interpret_write(call_array(client, ADD_RPC, window, dfn.to_s, encode_parms(params)), require_dfn: true)
+      in_context(client) do
+        interpret_write(call_array(client, ADD_RPC, window, dfn.to_s, encode_parms(params)), require_dfn: true)
+      end
     end
 
     # UPD^AGGPTUPD — edit an existing patient (DFN required). Same PARMS
     # convention and reply shape as ADD (header RESULT^ERROR^OTHER_PARMS).
     def update_patient(dfn:, params:, window: DEFAULT_WINDOW, client: RpmsRpc.client)
-      interpret_write(call_array(client, UPDATE_RPC, window, dfn.to_s, encode_parms(params)))
+      in_context(client) do
+        interpret_write(call_array(client, UPDATE_RPC, window, dfn.to_s, encode_parms(params)))
+      end
     end
 
     # CHK^AGGEDCHK — the completeness edit-check battery for a patient.
@@ -156,7 +175,7 @@ module RpmsRpc
     # Returns { checks: [{ hide_error_num:, msg:, type: ("MANDATORY" /
     # "WARNING"), ... }] } or nil (no response).
     def edit_check(dfn:, client: RpmsRpc.client)
-      reply = parse_reply(call_array(client, EDIT_CHECK_RPC, dfn.to_s))
+      reply = in_context(client) { parse_reply(call_array(client, EDIT_CHECK_RPC, dfn.to_s)) }
       return nil if reply.nil?
 
       { checks: reply[:records] }
@@ -196,6 +215,31 @@ module RpmsRpc
     end
 
     private
+
+    # Bind AGGRPC for the duration of the block and restore the caller's
+    # context afterward (ContextScope#with_context — a no-op round-trip-wise
+    # when AGGRPC is already bound, so nesting these is free). A client that
+    # cannot scope contexts — a MockClient, any non-broker double — runs the
+    # block as-is.
+    def in_context(client, &block)
+      return block.call unless client.respond_to?(:with_context)
+
+      client.with_context(CONTEXT, &block)
+    end
+
+    # The CANRUN scalar read: strip the 1-byte sequence echo + \x00 ack, then
+    # take the first line. Return type 1 (SINGLE VALUE) is written as
+    # `W $C(0),$G(CIAD),!` (CIANBACT.m:112-113), so the payload is "1" or "0".
+    def canrun?(client)
+      raw = if client.respond_to?(:call_rpc_raw)
+        client.call_rpc_raw(CANRUN_RPC, ADD_RPC)
+      else
+        client.call_rpc(CANRUN_RPC, ADD_RPC)
+      end
+      body = raw.to_s.b
+      body = body.split(ACK, 2).last.to_s if body.include?(ACK)
+      body.split(/[\r\n#{RECORD_SEP}]/).first.to_s.strip == "1"
+    end
 
     # Route through the GLOBAL ARRAY read when the client supports it (live
     # CiaClient); fall back to plain call_rpc for a MockClient / non-CIA
