@@ -52,6 +52,9 @@ Order is: **contract row → fixture → failing test → mapping → API module
 - The fixture reproduces the layout the contract row records.
 - The test fails first. A test written after a passing implementation tests the
   implementation, not the contract.
+- The `DataMapper` field list and the API module cite the same `routine.m:line`
+  the contract row does, matching the existing convention
+  (`ORQQAL.m:12` in `stock_vista.rb`).
 
 **Synthetic fixtures start the work; they do not finish it.** The first failing
 test is written against a hand-built fixture derived from the contract row —
@@ -64,9 +67,6 @@ source reads.
 
 A mapping whose only evidence is a fixture the author wrote from the source is
 **unverified**, and must be labelled so rather than merged as done.
-- The `DataMapper` field list and the API module cite the same `routine.m:line`
-  the contract row does, matching the existing convention
-  (`ORQQAL.m:12` in `stock_vista.rb`).
 
 ### 3. Semantics are human judgement, stated in the API module
 
