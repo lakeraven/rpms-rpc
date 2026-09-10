@@ -49,10 +49,21 @@ This is evidence, not inference. It never guesses semantics.
 
 Order is: **contract row → fixture → failing test → mapping → API module.**
 
-- The fixture reproduces the layout the contract row records. **All fixture data
-  is synthetic** — never a capture containing real patient data.
+- The fixture reproduces the layout the contract row records.
 - The test fails first. A test written after a passing implementation tests the
   implementation, not the contract.
+
+**Synthetic fixtures start the work; they do not finish it.** The first failing
+test is written against a hand-built fixture derived from the contract row —
+that is what makes the test writable before a live instance is reachable. It is
+**not** sufficient for merge. Per ADR 0002 and #189, shipping requires the
+mapping to be contract-tested against a **captured real return**, sanitized of
+real patient data before it enters the repo. Both artifacts are synthetic *in
+the repo*; only the second is evidence that the RPC actually behaves as the
+source reads.
+
+A mapping whose only evidence is a fixture the author wrote from the source is
+**unverified**, and must be labelled so rather than merged as done.
 - The `DataMapper` field list and the API module cite the same `routine.m:line`
   the contract row does, matching the existing convention
   (`ORQQAL.m:12` in `stock_vista.rb`).
@@ -106,3 +117,15 @@ release is recorded in the output path for exactly this reason.
 served by the 9.0 baseline. Test-first does not fix that, and those tests prove
 wire shape against source rather than behaviour against an instance. They are
 honest tests of a real contract, and they should not be mistaken for coverage.
+
+## References
+
+- [ADR 0001 — Scope and no Rails coupling](0001-scope-and-no-rails-coupling.md) — why the BDD tier cannot live in this gem
+- [ADR 0002 — Verified routine policy](0002-verified-routine-policy.md) — the policy this ADR orders in time
+- `rpms-ops bin/rpc_contract_extract.rb` — generates the contract rows
+- `rpms-ops data/observed/<release>/rpc_contracts.tsv` — the current extract
+- `rpms-ops data/observed/<release>/broker_8994.txt` — `NAME^TAG^ROUTINE^RETURN_TYPE`
+- #189 — wire-shape mappings contract-tested against captured real returns, gated in CI
+- #193 — every mapping verified sound **and** complete against a real instance
+- #198 — AMH RPCs take a single pipe-delimited parameter (`YDB-E-ACTLSTTOOLONG`)
+- #227 `AMHG`, #228 `AGG` — the first families ordered under this ADR
