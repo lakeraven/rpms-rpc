@@ -1323,5 +1323,129 @@ module RpmsRpc
       m.field 10, :visit
       m.field 11, :ehr_flag
     end
+    # -- Visit detail tabs (AMHGDVF unless noted) -----------------------------
+    # All take one param: the visit IEN. All emit a typed header + $C(30)-
+    # separated rows + a bare $C(31). Single-column responses carry FREE TEXT
+    # and are read as raw lines by BehavioralHealth, not caret-split — see the
+    # per-mapping notes.
+
+    # ACT^AMHGDVF (AMHGDVF.m:291). Single row. activity_type and
+    # local_service_site are "IEN~external" pairs (R="~", AMHGDVF.m:294).
+    # interpreter_utilized is blanked when falsy (AMHGDVF.m:311).
+    DataMapper.define(:amhg_visit_activity) do |m|
+      m.rpc "AMHG GET VISIT ACTIVITY"
+      m.field 0, :ien
+      m.field 1, :activity_type_raw
+      m.field 2, :activity_time
+      m.field 3, :flag
+      m.field 4, :local_service_site_raw
+      m.field 5, :number_served
+      m.field 6, :interpreter_utilized
+    end
+
+    # AXIS2^AMHGDVF (AMHGDVF.m:55) — despite the name this is the POV
+    # (diagnosis) list. Multi-row over ^AMHRPRO("AD",visit).
+    #
+    # The column named BMXIEN is NOT the record IEN. It is field .01's
+    # INTERNAL value (AMHGDVF.m:67) — a pointer to the POV code file. The
+    # subfile IEN (AMHPOVI) is never emitted, so these rows cannot be used to
+    # address a specific POV entry for update or delete.
+    DataMapper.define(:amhg_visit_axis_ii) do |m|
+      m.rpc "AMHG GET VISIT AXIS II"
+      m.field 0, :code_pointer
+      m.field 1, :code
+      m.field 2, :narrative
+    end
+
+    # AXIS3^AMHGDVF (AMHGDVF.m:76). Single free-text column, multi-row over
+    # ^AMHREC(visit,53). Carets are translated to SPACES before transmission
+    # ($TR(...,U," "), AMHGDVF.m:88), so the text is caret-safe but any caret
+    # the clinician typed is already lost upstream.
+    DataMapper.define(:amhg_visit_axis_iii) do |m|
+      m.rpc "AMHG GET VISIT AXIS III"
+      m.field 0, :text
+    end
+
+    # AXIS4^AMHGDVF (AMHGDVF.m:95) — psychosocial stressors, multi-row over
+    # ^AMHREC(visit,61). Same BMXIEN caveat as AXIS II: the first column is a
+    # pointer into 9002012.9 (AMHGDVF.m:107), not the subfile IEN.
+    DataMapper.define(:amhg_visit_axis_iv) do |m|
+      m.rpc "AMHG GET VISIT AXIS IV"
+      m.field 0, :code_pointer
+      m.field 1, :code
+      m.field 2, :narrative
+    end
+
+    # AXIS5^AMHGDVF (AMHGDVF.m:115). Always exactly one row, even when both
+    # values are empty — there is no loop (AMHGDVF.m:123-125).
+    DataMapper.define(:amhg_visit_axis_v) do |m|
+      m.rpc "AMHG GET VISIT AXIS V"
+      m.field 0, :axis_v
+      m.field 1, :gaf
+    end
+
+    # CC^AMHGDVF (AMHGDVF.m:131). Always exactly one row. The value is the
+    # RAW node ^AMHREC(visit,21) with NO caret sanitisation (AMHGDVF.m:140),
+    # so a chief complaint containing "^" would split into phantom columns if
+    # caret-parsed. Read as a whole line.
+    DataMapper.define(:amhg_visit_chief_complaint) do |m|
+      m.rpc "AMHG GET VISIT CC"
+      m.field 0, :text
+    end
+
+    # COMAPP^AMHGDVF (AMHGDVF.m:166). Multi-row over ^AMHREC(visit,81), raw
+    # nodes, no caret sanitisation. Read as whole lines.
+    DataMapper.define(:amhg_visit_comment_appointment) do |m|
+      m.rpc "AMHG GET VISIT COMM APP"
+      m.field 0, :text
+    end
+
+    # SOAP^AMHGDVF (AMHGDVF.m:146). TWO SOURCES, ONE SHAPE: when piece 10 of
+    # ^AMHREC(visit,11) is set the routine delegates to TIU^AMHGDVF2 and
+    # returns early (AMHGDVF.m:153-154). Both paths emit the same
+    # "T00250Soap" header and $C(30)-separated free-text rows, so callers see
+    # one contract — but the text originates from TIU rather than
+    # ^AMHREC(visit,31). Raw nodes, no caret sanitisation.
+    DataMapper.define(:amhg_visit_soap) do |m|
+      m.rpc "AMHG GET VISIT SOAP"
+      m.field 0, :text
+    end
+
+    # ASSESS^AMHGDINT (AMHGDINT.m:103). Multi-row free text.
+    #
+    # The parameter is an INTAKE IEN, not a visit IEN, despite the RPC name:
+    # the loop walks ^AMHRINTK(ien,41) (AMHGDINT.m:114). A visit IEN yields an
+    # empty result rather than an error, because the read is guarded by
+    # I $G(AMHIEN) (AMHGDINT.m:113).
+    DataMapper.define(:amhg_visit_assessment) do |m|
+      m.rpc "AMHG GET VISIT ASSESSMENT"
+      m.field 0, :text
+    end
+
+    # SCREENN^AMHGDVF3 (AMHGDVF3.m:103).
+    #
+    # UPSTREAM DEFECT — at most ONE screening is ever returned. AMHI is
+    # incremented once at AMHGDVF3.m:157, BEFORE the F I= loop at :161; every
+    # matching screening then writes @RETVAL@(AMHI) with no further increment
+    # (:162 onward), so each overwrites the last. The survivor is whichever
+    # screening is LAST in the fixed list order and has a non-empty result:
+    # Alcohol, Depression, IPV/DV, Suicide Risk, Suicide Screening, Unhealthy
+    # Drug, SDOH Food, SDOH Housing, SDOH Transportation, SDOH Utilities,
+    # SDOH Interpersonal.
+    #
+    # A visit carrying both a Depression and a Suicide Risk screen therefore
+    # reports only Suicide Risk. Do not present this as a complete screening
+    # list.
+    #
+    # The BMXIEN column is the VISIT IEN repeated, not a per-screening id.
+    DataMapper.define(:amhg_visit_screening) do |m|
+      m.rpc "AMHG GET VISIT SCREENING"
+      m.field 0, :visit_ien
+      m.field 1, :screening_type
+      m.field 2, :result
+      m.field 3, :provider_ien
+      m.field 4, :provider
+      m.field 5, :comment
+    end
   end
 end

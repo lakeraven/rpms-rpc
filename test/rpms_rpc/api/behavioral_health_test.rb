@@ -193,4 +193,138 @@ class BehavioralHealthTest < Minitest::Test
 
     assert_nil BH.visit_information(9999)
   end
+  # -- visit detail tabs -----------------------------------------------------
+
+  def seed_tab(mapping, header, *rows)
+    @mock.seed_text(mapping, "8801", ([ header + RS ] + rows.map { |r| r + RS } + [ US ]).join("\n"))
+  end
+
+  # ACT^AMHGDVF (AMHGDVF.m:291) — one row, two IEN~name pairs.
+  def test_visit_activity_splits_pairs_and_reports_a_blank_interpreter_flag_as_false
+    seed_tab(:amhg_visit_activity,
+             "T00010BMXIEN^T00030ActivityType^T00010ActivityTime^T00010Flag^" \
+             "T00030LocalServiceSite^T00010NumberServed^T00001InterpreterUtilized",
+             "8801^12~INDIVIDUAL THERAPY^45^^7~EXAMPLE CLINIC SITE^1^")
+
+    act = BH.visit_activity(8801)
+
+    assert_equal({ ien: "12", name: "INDIVIDUAL THERAPY" }, act[:activity_type])
+    assert_equal({ ien: "7", name: "EXAMPLE CLINIC SITE" }, act[:local_service_site])
+    assert_equal "45", act[:activity_time]
+    refute act[:interpreter_utilized], "AMHGDVF.m:311 blanks the flag when falsy"
+  end
+
+  # AMHGDVF.m:67 — the column called BMXIEN is field .01's INTERNAL value, a
+  # pointer to the POV code file, not the subfile IEN. Naming it :code_pointer
+  # keeps a caller from using it as a record address.
+  def test_axis_ii_first_column_is_a_code_pointer_not_a_record_ien
+    seed_tab(:amhg_visit_axis_ii, "T00010BMXIEN^T00010Code^T00100Narrative",
+             "441^F32.9^MAJOR DEPRESSIVE DISORDER, UNSPECIFIED",
+             "512^F41.1^GENERALIZED ANXIETY DISORDER")
+
+    povs = BH.visit_axis_ii(8801)
+
+    assert_equal 2, povs.length
+    assert_equal "441", povs.first[:code_pointer]
+    refute povs.first.key?(:ien), "the subfile IEN is never emitted (AMHGDVF.m:64)"
+    assert_equal "F32.9", povs.first[:code]
+  end
+
+  def test_axis_iv_has_the_same_pointer_shape
+    seed_tab(:amhg_visit_axis_iv, "T00010BMXIEN^T00010Code^T00100Narrative",
+             "88^ECON^ECONOMIC PROBLEMS")
+
+    assert_equal "88", BH.visit_axis_iv(8801).first[:code_pointer]
+  end
+
+  # AXIS3 is free text, one column, many rows. A caret cannot appear: the wire
+  # translates it to a space (AMHGDVF.m:88).
+  def test_axis_iii_returns_raw_lines
+    seed_tab(:amhg_visit_axis_iii, "T00250AxisIII",
+             "HYPERTENSION, WELL CONTROLLED", "TYPE 2 DIABETES")
+
+    assert_equal [ "HYPERTENSION, WELL CONTROLLED", "TYPE 2 DIABETES" ], BH.visit_axis_iii(8801)
+  end
+
+  # AXIS5 always emits exactly one row — there is no loop (AMHGDVF.m:123).
+  def test_axis_v_returns_one_row_even_when_empty
+    seed_tab(:amhg_visit_axis_v, "T00010AxisV^T00020GAF", "^")
+
+    assert_equal({ axis_v: nil, gaf: nil }, BH.visit_axis_v(8801))
+  end
+
+  def test_axis_v_carries_the_gaf_score
+    seed_tab(:amhg_visit_axis_v, "T00010AxisV^T00020GAF", "55^55 - MODERATE SYMPTOMS")
+
+    assert_equal({ axis_v: "55", gaf: "55 - MODERATE SYMPTOMS" }, BH.visit_axis_v(8801))
+  end
+
+  # AMHGDVF.m:140 sends the raw node with NO caret sanitisation, so a chief
+  # complaint containing "^" must survive as one string.
+  def test_chief_complaint_keeps_carets_instead_of_splitting_into_columns
+    seed_tab(:amhg_visit_chief_complaint, "T00100ChiefComplaint",
+             "PATIENT REPORTS LOW MOOD ^ POOR SLEEP")
+
+    assert_equal "PATIENT REPORTS LOW MOOD ^ POOR SLEEP", BH.visit_chief_complaint(8801)
+  end
+
+  def test_chief_complaint_is_nil_when_the_single_row_is_blank
+    seed_tab(:amhg_visit_chief_complaint, "T00100ChiefComplaint", "")
+
+    assert_nil BH.visit_chief_complaint(8801)
+  end
+
+  def test_soap_returns_raw_lines_regardless_of_source
+    seed_tab(:amhg_visit_soap, "T00250Soap",
+             "S: Patient reports improved sleep.", "O: Affect brighter.")
+
+    assert_equal [ "S: Patient reports improved sleep.", "O: Affect brighter." ], BH.visit_soap(8801)
+  end
+
+  def test_comment_appointment_returns_raw_lines
+    seed_tab(:amhg_visit_comment_appointment, "T00250CommentAppointment",
+             "Next appointment in two weeks.")
+
+    assert_equal [ "Next appointment in two weeks." ], BH.visit_comment_appointment(8801)
+  end
+
+  # AMHGDINT.m:114 walks ^AMHRINTK(ien,41) — the parameter is an INTAKE IEN
+  # despite the RPC being named GET VISIT ASSESSMENT.
+  def test_assessment_is_keyed_by_intake_ien
+    @mock.seed_text(:amhg_visit_assessment, "5501",
+                    [ "T00250Assessment" + RS, "Client engaged, motivated." + RS, US ].join("\n"))
+
+    assert_equal [ "Client engaged, motivated." ], BH.visit_assessment(intake_ien: 5501)
+
+    call = @mock.received_calls.find { |c| c[:rpc] == "AMHG GET VISIT ASSESSMENT" }
+    assert_equal [ "5501" ], call[:params]
+  end
+
+  # AMHGDVF3.m:157 increments AMHI once BEFORE the F I= loop at :161, so every
+  # matching screening overwrites the previous one at the same subscript. The
+  # wire can only ever carry one. We surface what arrives and say so; we do
+  # not pretend the list is complete.
+  def test_screening_returns_at_most_one_row_because_the_wire_overwrites
+    seed_tab(:amhg_visit_screening,
+             "T00010BMXIEN^T00030ScreeningType^T00030ScreeningResult^" \
+             "T00010ScreeningProviderIEN^T00030ScreeningProvider^T00250ScreeningComment",
+             "8801^Suicide Risk^NEGATIVE^412^THERAPIST,EXAMPLE^No current ideation")
+
+    screenings = BH.visit_screenings(8801)
+
+    assert_equal 1, screenings.length
+    s = screenings.first
+    assert_equal "Suicide Risk", s[:screening_type]
+    assert_equal "NEGATIVE", s[:result]
+    assert_equal({ ien: "412", name: "THERAPIST,EXAMPLE" }, s[:provider])
+    assert_equal "8801", s[:visit_ien], "BMXIEN is the visit IEN repeated, not a screening id"
+  end
+
+  def test_screening_is_empty_when_no_screening_has_a_result
+    seed_tab(:amhg_visit_screening,
+             "T00010BMXIEN^T00030ScreeningType^T00030ScreeningResult^" \
+             "T00010ScreeningProviderIEN^T00030ScreeningProvider^T00250ScreeningComment")
+
+    assert_empty BH.visit_screenings(8801)
+  end
 end
