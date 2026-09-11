@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "client"
 require_relative "data_mapper"
 require_relative "context_scope"
 
@@ -198,8 +199,47 @@ module RpmsRpc
       @capability_seeds.fetch(feature, true)
     end
 
-    # Simulate call_rpc — returns formatted response matching the seeded data.
+    # The CIA frame terminator IS the record separator.
+    #
+    # RpmsRpc::Client::EOD is "\x1e" (client.rb:45) and GLOBAL ARRAY replies
+    # separate records with the same byte. A live CiaClient reading a recordset
+    # through plain #call_rpc therefore stops at the first separator — the end
+    # of the typed header row — and every data row is lost.
+    #
+    # This mock models that truncation, so a caller that picks the wrong read
+    # path fails here instead of in production. Code that routes correctly
+    # through #call_rpc_global_array is unaffected.
+    #
+    # A mock that cannot express a failure is not evidence against it. Forty
+    # AMHG reads shipped with exactly this defect while 1,354 tests stayed
+    # green, because this method used to hand back the seeded reply whole.
     def call_rpc(rpc_name, *params)
+      truncate_at_eod(seeded_reply(rpc_name, *params))
+    end
+
+    # A live CiaClient offers this and reads to the US sentinel instead, so the
+    # whole recordset survives. MockClient must offer it too — otherwise code
+    # that correctly prefers it is never exercised, and the preference itself
+    # goes untested.
+    def call_rpc_global_array(rpc_name, *params)
+      seeded_reply(rpc_name, *params)
+    end
+
+    # A live client reads BYTES, not lines: read_until_raw(EOD) stops at the
+    # first \x1e wherever it falls. Seeded replies may arrive here as an array
+    # of lines, so flatten to the wire form before truncating — otherwise the
+    # mock silently forgives a defect the wire would not.
+    def truncate_at_eod(reply)
+      return reply if reply.nil?
+
+      wire = reply.is_a?(Array) ? reply.join("\n") : reply
+      return reply unless wire.is_a?(String) && wire.include?(RpmsRpc::Client::EOD)
+
+      wire.split(RpmsRpc::Client::EOD, 2).first
+    end
+
+    # Returns the formatted response matching the seeded data.
+    def seeded_reply(rpc_name, *params)
       # `context` records the option bound when the call was issued — an RPC
       # is only servable from a context whose RPC multiple lists it.
       received_calls << { rpc: rpc_name, params: params, context: current_context }

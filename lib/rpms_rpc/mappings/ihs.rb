@@ -1258,5 +1258,370 @@ module RpmsRpc
       m.rpc "CIANBRPC CANRUN"
       m.scalar :can_run
     end
+    # ========================================================================
+    # BEHAVIORAL HEALTH (AMHG) — rpms-rpc#227
+    # ========================================================================
+
+    # AMHG GET VISITS — VISITL^AMHGD (AMHGD.m:10). Visit list for the record
+    # selector. One pipe-delimited param, "begin|end|DFN", FileMan dates
+    # (#198). Rows arrive NEWEST FIRST: the loop walks ^AMHREC("AE") over
+    # INVERSE dates (AMHGD.m:23-26).
+    #
+    # The header at AMHGD.m:17-18 declares EIGHTEEN columns, the last being
+    # T00030DOBI. The row built at AMHGD.m:55 emits SEVENTEEN — AMHDOBI is
+    # computed at AMHGD.m:53 and never appended. Do not add an 18th field:
+    # the wire has no value for it.
+    #
+    # Rows are screened per-user by $$ALLOWVI^AMHUTIL(DUZ,AMHIEN)
+    # (AMHGD.m:33), so an absent visit is not evidence the visit does not
+    # exist — it may be screened from this DUZ.
+    DataMapper.define(:amhg_visit_list) do |m|
+      m.rpc "AMHG GET VISITS"
+      m.field 0,  :ien
+      m.field 1,  :visit_date       # internal FileMan date (AMHDT)
+      m.field 2,  :display_date     # $$LVDT^AMHGU of the same
+      m.field 3,  :pov
+      m.field 4,  :axis_v
+      m.field 5,  :clinic
+      m.field 6,  :activity
+      m.field 7,  :visit_type
+      m.field 8,  :contact_type
+      m.field 9,  :provider
+      m.field 10, :signed_marker    # "*" means NOT signed — AMHGD.m:47
+      m.field 11, :ehr_flag
+      m.field 12, :delete_intakes
+      m.field 13, :location
+      m.field 14, :group_flag
+      m.field 15, :program
+      m.field 16, :activity_time
+    end
+
+    # AMHG GET VISIT INFORMATION — VI^AMHGDVF (AMHGDVF.m:9). One param: the
+    # visit IEN. Twelve fields, header at AMHGDVF.m:16, row at AMHGDVF.m:52.
+    #
+    # Five columns carry an "IEN~external" pair (R="~", AMHGDVF.m:12):
+    # primary_provider, clinic, type_of_contact, encounter_location,
+    # community_of_service. Program and appointment_with are external-only —
+    # their internal variants are computed at AMHGDVF.m:27 and :45 and then
+    # the external value is emitted instead. Splitting is BehavioralHealth's
+    # job, not the mapper's.
+    #
+    # arrival_time is permanently blank: AMHGDVF.m:40 assigns AMHARR="" with
+    # the real computation commented out on the same line.
+    DataMapper.define(:amhg_visit_information) do |m|
+      m.rpc "AMHG GET VISIT INFORMATION"
+      m.field 0,  :ien
+      m.field 1,  :primary_provider_raw
+      m.field 2,  :program
+      m.field 3,  :clinic_raw
+      m.field 4,  :type_of_contact_raw
+      m.field 5,  :arrival_time      # always "" — AMHGDVF.m:40
+      m.field 6,  :encounter_date
+      m.field 7,  :encounter_location_raw
+      m.field 8,  :appointment_with
+      m.field 9,  :community_of_service_raw
+      m.field 10, :visit
+      m.field 11, :ehr_flag
+    end
+    # -- Visit detail tabs (AMHGDVF unless noted) -----------------------------
+    # All take one param: the visit IEN. All emit a typed header + $C(30)-
+    # separated rows + a bare $C(31). Single-column responses carry FREE TEXT
+    # and are read as raw lines by BehavioralHealth, not caret-split — see the
+    # per-mapping notes.
+
+    # ACT^AMHGDVF (AMHGDVF.m:291). Single row. activity_type and
+    # local_service_site are "IEN~external" pairs (R="~", AMHGDVF.m:294).
+    # interpreter_utilized is blanked when falsy (AMHGDVF.m:311).
+    DataMapper.define(:amhg_visit_activity) do |m|
+      m.rpc "AMHG GET VISIT ACTIVITY"
+      m.field 0, :ien
+      m.field 1, :activity_type_raw
+      m.field 2, :activity_time
+      m.field 3, :flag
+      m.field 4, :local_service_site_raw
+      m.field 5, :number_served
+      m.field 6, :interpreter_utilized
+    end
+
+    # AXIS2^AMHGDVF (AMHGDVF.m:55) — despite the name this is the POV
+    # (diagnosis) list. Multi-row over ^AMHRPRO("AD",visit).
+    #
+    # The column named BMXIEN is NOT the record IEN. It is field .01's
+    # INTERNAL value (AMHGDVF.m:67) — a pointer to the POV code file. The
+    # subfile IEN (AMHPOVI) is never emitted, so these rows cannot be used to
+    # address a specific POV entry for update or delete.
+    DataMapper.define(:amhg_visit_axis_ii) do |m|
+      m.rpc "AMHG GET VISIT AXIS II"
+      m.field 0, :code_pointer
+      m.field 1, :code
+      m.field 2, :narrative
+    end
+
+    # AXIS3^AMHGDVF (AMHGDVF.m:76). Single free-text column, multi-row over
+    # ^AMHREC(visit,53). Carets are translated to SPACES before transmission
+    # ($TR(...,U," "), AMHGDVF.m:88), so the text is caret-safe but any caret
+    # the clinician typed is already lost upstream.
+    DataMapper.define(:amhg_visit_axis_iii) do |m|
+      m.rpc "AMHG GET VISIT AXIS III"
+      m.field 0, :text
+    end
+
+    # AXIS4^AMHGDVF (AMHGDVF.m:95) — psychosocial stressors, multi-row over
+    # ^AMHREC(visit,61). Same BMXIEN caveat as AXIS II: the first column is a
+    # pointer into 9002012.9 (AMHGDVF.m:107), not the subfile IEN.
+    DataMapper.define(:amhg_visit_axis_iv) do |m|
+      m.rpc "AMHG GET VISIT AXIS IV"
+      m.field 0, :code_pointer
+      m.field 1, :code
+      m.field 2, :narrative
+    end
+
+    # AXIS5^AMHGDVF (AMHGDVF.m:115). Always exactly one row, even when both
+    # values are empty — there is no loop (AMHGDVF.m:123-125).
+    DataMapper.define(:amhg_visit_axis_v) do |m|
+      m.rpc "AMHG GET VISIT AXIS V"
+      m.field 0, :axis_v
+      m.field 1, :gaf
+    end
+
+    # CC^AMHGDVF (AMHGDVF.m:131). Always exactly one row. The value is the
+    # RAW node ^AMHREC(visit,21) with NO caret sanitisation (AMHGDVF.m:140),
+    # so a chief complaint containing "^" would split into phantom columns if
+    # caret-parsed. Read as a whole line.
+    DataMapper.define(:amhg_visit_chief_complaint) do |m|
+      m.rpc "AMHG GET VISIT CC"
+      m.field 0, :text
+    end
+
+    # COMAPP^AMHGDVF (AMHGDVF.m:166). Multi-row over ^AMHREC(visit,81), raw
+    # nodes, no caret sanitisation. Read as whole lines.
+    DataMapper.define(:amhg_visit_comment_appointment) do |m|
+      m.rpc "AMHG GET VISIT COMM APP"
+      m.field 0, :text
+    end
+
+    # SOAP^AMHGDVF (AMHGDVF.m:146). TWO SOURCES, ONE SHAPE: when piece 10 of
+    # ^AMHREC(visit,11) is set the routine delegates to TIU^AMHGDVF2 and
+    # returns early (AMHGDVF.m:153-154). Both paths emit the same
+    # "T00250Soap" header and $C(30)-separated free-text rows, so callers see
+    # one contract — but the text originates from TIU rather than
+    # ^AMHREC(visit,31). Raw nodes, no caret sanitisation.
+    DataMapper.define(:amhg_visit_soap) do |m|
+      m.rpc "AMHG GET VISIT SOAP"
+      m.field 0, :text
+    end
+
+    # ASSESS^AMHGDINT (AMHGDINT.m:103). Multi-row free text.
+    #
+    # The parameter is an INTAKE IEN, not a visit IEN, despite the RPC name:
+    # the loop walks ^AMHRINTK(ien,41) (AMHGDINT.m:114). A visit IEN yields an
+    # empty result rather than an error, because the read is guarded by
+    # I $G(AMHIEN) (AMHGDINT.m:113).
+    DataMapper.define(:amhg_visit_assessment) do |m|
+      m.rpc "AMHG GET VISIT ASSESSMENT"
+      m.field 0, :text
+    end
+
+    # SCREENN^AMHGDVF3 (AMHGDVF3.m:103).
+    #
+    # UPSTREAM DEFECT — at most ONE screening is ever returned. AMHI is
+    # incremented once at AMHGDVF3.m:157, BEFORE the F I= loop at :161; every
+    # matching screening then writes @RETVAL@(AMHI) with no further increment
+    # (:162 onward), so each overwrites the last. The survivor is whichever
+    # screening is LAST in the fixed list order and has a non-empty result:
+    # Alcohol, Depression, IPV/DV, Suicide Risk, Suicide Screening, Unhealthy
+    # Drug, SDOH Food, SDOH Housing, SDOH Transportation, SDOH Utilities,
+    # SDOH Interpersonal.
+    #
+    # A visit carrying both a Depression and a Suicide Risk screen therefore
+    # reports only Suicide Risk. Do not present this as a complete screening
+    # list.
+    #
+    # The BMXIEN column is the VISIT IEN repeated, not a per-screening id.
+    DataMapper.define(:amhg_visit_screening) do |m|
+      m.rpc "AMHG GET VISIT SCREENING"
+      m.field 0, :visit_ien
+      m.field 1, :screening_type
+      m.field 2, :result
+      m.field 3, :provider_ien
+      m.field 4, :provider
+      m.field 5, :comment
+    end
+    # -- Treatment plans -------------------------------------------------------
+
+    # TPL^AMHGD (AMHGD.m:156). One param "begin|end|DFN". Screened per-user by
+    # $$ALLOWTP^AMHLETP (AMHGD.m:174), so an empty list means "none visible to
+    # this DUZ".
+    #
+    # BOUNDARY WARNING: the inverse-date adjustments are the REVERSE of
+    # VISITL^AMHGD — .0001/.9999 here (AMHGD.m:167-168) against .9999/.0001
+    # there (AMHGD.m:23-24). The two RPCs include their range edges
+    # differently, so one date range does not select equivalently across both.
+    #
+    # :problem falls back to the diagnosis node ^AMHPTXP(ien,21,1,0) when
+    # field 1101 is empty (AMHGD.m:178), so the column mixes problem text and
+    # diagnosis text.
+    #
+    # Dates here are $$LVDT-formatted for display; TP^AMHGDTP returns the same
+    # fields as raw internal FileMan dates.
+    DataMapper.define(:amhg_treatment_plan_list) do |m|
+      m.rpc "AMHG GET TREATMENT PLANS"
+      m.field 0, :ien
+      m.field 1, :sort_date          # internal FileMan
+      m.field 2, :date_established   # $$LVDT display
+      m.field 3, :program
+      m.field 4, :status
+      m.field 5, :problem
+      m.field 6, :provider
+      m.field 7, :review_date        # $$LVDT display
+      m.field 8, :review_count
+      m.field 9, :closed_date        # $$LVDT display
+    end
+
+    # TP^AMHGDTP (AMHGDTP.m:11). One param: the plan IEN.
+    #
+    # Dates are INTERNAL FileMan here, unlike the list above.
+    #
+    # AMHGDTP.m:29 builds AMHPRGS as an IEN~name pair and :44 emits the plain
+    # external AMHPRG instead, so program carries no IEN. designated_provider
+    # (:32) and concur_supervisor (:37) are genuine pairs.
+    DataMapper.define(:amhg_treatment_plan) do |m|
+      m.rpc "AMHG GET TREATMENT PLAN"
+      m.field 0,  :ien
+      m.field 1,  :date_established
+      m.field 2,  :program            # external only — AMHGDTP.m:44
+      m.field 3,  :target_date
+      m.field 4,  :review_date
+      m.field 5,  :date_closed
+      m.field 6,  :designated_provider_raw
+      m.field 7,  :problem_list
+      m.field 8,  :case_admit
+      m.field 9,  :concurred_date
+      m.field 10, :concur_supervisor_raw
+      m.field 11, :dsm4
+    end
+
+    # REV^AMHGDTP (AMHGDTP.m:175). Multi-row over ^AMHPTXP(plan,41).
+    #
+    # BMXIEN is the PLAN ien repeated; BMXIEN2 is the review subfile IEN
+    # (AMHDA) — the only addressable identifier on the row (AMHGDTP.m:197).
+    #
+    # The columns named ReviewProviderComplete / ReviewSupervisorComplete do
+    # NOT carry completion status: AMHGDTP.m:193-194 build them as IEN~name
+    # pairs. The plain ReviewProvider / ReviewSupervisor columns are the
+    # external names only. Reading the *Complete columns as booleans would
+    # mark every named reviewer complete.
+    DataMapper.define(:amhg_treatment_plan_reviews) do |m|
+      m.rpc "AMHG GET TP REVIEW"
+      m.field 0, :plan_ien
+      m.field 1, :ien                    # BMXIEN2 — the review subfile IEN
+      m.field 2, :review_date            # $$LVDT display
+      m.field 3, :review_provider_name
+      m.field 4, :review_supervisor_name
+      m.field 5, :next_review_date       # $$LVDT display
+      m.field 6, :review_provider_raw    # IEN~name despite "Complete"
+      m.field 7, :review_supervisor_raw  # IEN~name despite "Complete"
+    end
+
+    # PPAR^AMHGDTP (AMHGDTP.m:201). Multi-row over ^AMHPTXP(plan,17). BMXIEN
+    # is the PLAN ien repeated and AMHDA is never emitted (AMHGDTP.m:215), so
+    # a participant row cannot be addressed for edit or delete.
+    DataMapper.define(:amhg_treatment_plan_participants) do |m|
+      m.rpc "AMHG GET TP PLAN PARTICIPANTS"
+      m.field 0, :plan_ien
+      m.field 1, :participant
+      m.field 2, :relationship
+    end
+
+    # NARR^AMHGDTP (AMHGDTP.m:156). Single free-text column, multi-row over
+    # ^AMHPTXP(plan,18), raw nodes with no caret sanitisation (:168).
+    DataMapper.define(:amhg_treatment_plan_narrative) do |m|
+      m.rpc "AMHG GET TP NARRATIVE"
+      m.field 0, :text
+    end
+    # -- Suicide risk forms ----------------------------------------------------
+
+    # SFL^AMHGD (AMHGD.m:235). One param "begin|end|DFN". Screened per-user by
+    # $$ALLOW^AMHSFR (AMHGD.m:252) — an empty list means "none visible to this
+    # DUZ". Inverse-date adjustments are .0001/.9999 (AMHGD.m:246-247), the
+    # same variant as the treatment-plan list and the OPPOSITE of VISITL.
+    #
+    # :incomplete_marker is "I" when the form is INCOMPLETE and empty when it
+    # is complete (AMHGD.m:256) — a presence flag, not a boolean.
+    DataMapper.define(:amhg_suicide_form_list) do |m|
+      m.rpc "AMHG GET SUICIDE FORMS"
+      m.field 0, :ien
+      m.field 1, :sort_date          # internal FileMan
+      m.field 2, :date               # $$LVDT display
+      m.field 3, :local_case_number
+      m.field 4, :provider
+      m.field 5, :suicidal_behavior
+      m.field 6, :incomplete_marker
+    end
+
+    # SF^AMHGDSF (AMHGDSF.m:11). One param: the form IEN. Single row.
+    #
+    # SIXTEEN columns. The header is built across TWO SET statements
+    # (AMHGDSF.m:19-20), so any reader that stops at the first sees only
+    # eleven and silently drops Lethality through DispositionText.
+    #
+    # provider, community_where_occurred and disposition are IEN~name pairs
+    # (AMHGDSF.m:22, :27, :43). date_of_act is internal FileMan (:24).
+    DataMapper.define(:amhg_suicide_form) do |m|
+      m.rpc "AMHG GET SUICIDE FORM"
+      m.field 0,  :ien
+      m.field 1,  :local_case_number
+      m.field 2,  :provider_raw
+      m.field 3,  :date_of_act
+      m.field 4,  :community_where_occurred_raw
+      m.field 5,  :relationship_status
+      m.field 6,  :employment_status
+      m.field 7,  :education
+      m.field 8,  :highest_grade
+      m.field 9,  :suicidal_behavior
+      m.field 10, :previous_attempts
+      m.field 11, :lethality
+      m.field 12, :location_of_act
+      m.field 13, :location_other
+      m.field 14, :disposition_raw
+      m.field 15, :disposition_text
+    end
+
+    # METH^AMHGDSF (AMHGDSF.m:48). Multi-row over ^AMHPSUIC(form,11).
+    #
+    # ROW COUNT IS NOT METHOD COUNT. Method 7 with recorded drugs emits ONE
+    # ROW PER DRUG (AMHGDSF.m:73), so a single method repeats across rows.
+    # Any other method emits exactly one row with the drug columns blank
+    # (:75-78). BMXIEN is the FORM ien repeated; the method subfile IEN
+    # (AMHDA) is never emitted, so rows cannot be grouped or addressed.
+    DataMapper.define(:amhg_suicide_form_methods) do |m|
+      m.rpc "AMHG GET SUICIDE FORM METHOD"
+      m.field 0, :form_ien
+      m.field 1, :method
+      m.field 2, :method_if_other
+      m.field 3, :drug_raw          # IEN~name when present
+      m.field 4, :drug_if_other
+    end
+
+    # SUB^AMHGDSF (AMHGDSF.m:82). Always emits at least one row: when field
+    # .26 is not "2" the routine still writes a row carrying the substance
+    # value with blank drug columns (AMHGDSF.m:106-108). An empty result
+    # therefore never means "not asked".
+    DataMapper.define(:amhg_suicide_form_substances) do |m|
+      m.rpc "AMHG GET SUICIDE FORM SUB"
+      m.field 0, :form_ien
+      m.field 1, :substance
+      m.field 2, :drug_raw          # IEN~name when present
+      m.field 3, :drug_if_other
+    end
+
+    # CF^AMHGDSF (AMHGDSF.m:112). Plain multi-row list over
+    # ^AMHPSUIC(form,13). BMXIEN is the form IEN repeated.
+    DataMapper.define(:amhg_suicide_form_contributing_factors) do |m|
+      m.rpc "AMHG GET SUICIDE FORM CF"
+      m.field 0, :form_ien
+      m.field 1, :contributing_factor
+      m.field 2, :if_other
+    end
   end
 end

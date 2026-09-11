@@ -19,3 +19,14 @@ require_relative "data_mapper"
 # mapping set regardless of the bucketing.
 require_relative "mappings/stock_vista"
 require_relative "mappings/ihs"
+
+# IHS Behavioral Health (AMHG), split per cluster so the surface stays
+# navigable — 60 RPCs across visits, treatment plans, suicide risk, groups,
+# intake, case management and reference data (rpms-rpc#227). The visits,
+# treatment-plan and suicide-risk mappings live in mappings/ihs.rb; the rest
+# are here. All register into the same DataMapper registry, so requiring this
+# file still yields the complete set.
+require_relative "mappings/amhg_groups"
+require_relative "mappings/amhg_reference"
+require_relative "mappings/amhg_case_management"
+require_relative "mappings/amhg_intake"
