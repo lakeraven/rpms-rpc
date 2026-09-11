@@ -39,7 +39,7 @@ module RpmsRpc
     # Detail for one visit, or nil when the IEN yields no row.
     def visit_information(visit_ien)
       mapping = DataMapper[:amhg_visit_information]
-      response = RpmsRpc.client.call_rpc(mapping.rpc_name, visit_ien.to_s)
+      response = call_amhg(mapping, visit_ien)
       row = mapping.parse_many(response).first
       return nil if row.nil?
 

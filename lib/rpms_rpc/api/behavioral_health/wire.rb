@@ -24,9 +24,31 @@ module RpmsRpc
       # value and its external form.
       IEN_NAME_SEPARATOR = "~"
 
-      # One pipe-delimited actual. Pass the pieces in wire order.
+      # One pipe-delimited actual, read as a GLOBAL ARRAY.
+      #
+      # Every AMHG RPC registers RETURN VALUE TYPE 4 (GLOBAL ARRAY) and
+      # separates records with $C(30). On the CIA broker $C(30) is ALSO the
+      # frame terminator (Client::EOD, client.rb:45), so a plain #call_rpc
+      # truncates the reply at the first separator — which is the end of the
+      # typed header row. Every data row would be silently dropped and
+      # parse_many would return [].
+      #
+      # CiaClient#call_rpc_global_array reads to the US sentinel instead.
+      # Route through it whenever the client offers it, and fall back to
+      # #call_rpc for MockClient and non-CIA clients that hand back the seeded
+      # reply whole. Same pattern as RpmsRpc::Agg#call_array (agg.rb:155).
+      # A few entries take NO actual at all — CLN^AMHGTVF is CLN(RETVAL) with
+      # no AMHSTR formal, so even an empty string is an extra actual and
+      # YottaDB raises ACTLSTTOOLONG. Pass no pieces for those.
       def call_amhg(mapping, *pieces)
-        RpmsRpc.client.call_rpc(mapping.rpc_name, pieces.join("|"))
+        client = RpmsRpc.client
+        args = pieces.empty? ? [] : [ pieces.join("|") ]
+
+        if client.respond_to?(:call_rpc_global_array)
+          client.call_rpc_global_array(mapping.rpc_name, *args)
+        else
+          client.call_rpc(mapping.rpc_name, *args)
+        end
       end
 
       def rows(mapping_name, *pieces)
