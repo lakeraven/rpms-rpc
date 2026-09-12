@@ -41,8 +41,34 @@ class AuthenticationTest < Minitest::Test
 
     assert_equal [ "XUS SIGNON SETUP", "XUS AV CODE", "XUS GET USER INFO" ],
       RpmsRpc.client.received_calls.first(3).map { |c| c[:rpc] }
-    assert_equal [ "ACCESS123;VERIFY123" ],
-      RpmsRpc.client.received_calls.find { |c| c[:rpc] == "XUS AV CODE" }[:params]
+  end
+
+  # XUSRB.VALIDAV ALWAYS runs $$DECRYP^XUSRB1 on its parameter, so a cleartext
+  # access;verify pair can never authenticate against a real broker no matter
+  # how correct the credentials are (rpms-rpc#200). The pair must cross the
+  # wire through the XWB cipher, exactly as Client#authenticate and
+  # ESignature already do.
+  def test_authenticate_encrypts_the_av_pair_the_way_the_broker_decrypts_it
+    RpmsRpc::Authentication.authenticate(access_code: "access123", verify_code: "verify123")
+
+    params = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "XUS AV CODE" }[:params]
+
+    assert_equal 1, params.length,
+      "the ciphertext may contain ^, so it must cross the wire as ONE parameter"
+    refute_equal "ACCESS123;VERIFY123", params.first,
+      "cleartext reaches $$DECRYP^XUSRB1 as garbage — a real broker rejects valid credentials"
+    assert_equal "ACCESS123;VERIFY123", RpmsRpc::XwbCipher.decrypt(params.first),
+      "the broker must recover the normalized pair from the ciphertext"
+  end
+
+  # Verifying the gate, not just the fix: MockClient models $$DECRYP^XUSRB1,
+  # so a caller that reverts to a cleartext send fails here the way it would
+  # in production rather than passing on a mock that expected the bug.
+  def test_mock_broker_rejects_a_cleartext_av_parameter
+    parsed = RpmsRpc::DataMapper.av_code.fetch_lines("ACCESS123;VERIFY123")
+
+    assert_equal 0, parsed[:duz]
+    assert_equal 1, parsed[:error_code]
   end
 
   def test_authenticate_rejects_blank_access_or_verify_code
@@ -136,7 +162,12 @@ class AuthenticationTest < Minitest::Test
 
     assert_equal({ success: true }, result)
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "XUS CVC" }
-    assert_equal [ "OLDVERIFY^NEWVERIFY^NEWVERIFY" ], call[:params]
+
+    assert_equal 1, call[:params].length,
+      "the ciphertext may contain ^, so the triple must cross the wire as ONE parameter"
+    refute_equal "OLDVERIFY^NEWVERIFY^NEWVERIFY", call[:params].first,
+      "CVC^XUSRB decrypts its parameter like VALIDAV does — cleartext cannot change a verify code"
+    assert_equal "OLDVERIFY^NEWVERIFY^NEWVERIFY", RpmsRpc::XwbCipher.decrypt(call[:params].first)
   end
 
   def test_change_verify_code_rejects_blank_fields

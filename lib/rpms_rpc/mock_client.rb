@@ -3,6 +3,7 @@
 require_relative "client"
 require_relative "data_mapper"
 require_relative "context_scope"
+require_relative "xwb_cipher"
 
 module RpmsRpc
   # Mock RPC client for testing. Consumers seed data as hashes;
@@ -28,6 +29,25 @@ module RpmsRpc
     # What a freshly signed-on session is assumed to be bound to.
     DEFAULT_CONTEXT = "OR CPRS GUI CHART"
 
+    # RPCs whose first parameter the broker DECRYPTS ($$DECRYP^XUSRB1) before
+    # it is used. VALIDAV and CVC^XUSRB run the cipher unconditionally, so a
+    # cleartext send reaches them as garbage and can never match a user — no
+    # matter how correct the credentials are (rpms-rpc#200).
+    #
+    # A mock that cannot express a failure is not evidence against it: seeds
+    # are keyed on the PLAINTEXT, this mock decrypts on the way in, and an
+    # unencrypted parameter gets the broker's own rejection rather than a
+    # quiet miss. That is what makes a regression to cleartext fail in the
+    # ORDINARY tests instead of shipping green.
+    #
+    # Values are the rejection reply for each RPC, in that mapping's line shape.
+    DECRYPTED_FIRST_PARAM_RPCS = {
+      # av_code lines: DUZ, error code, verify-change flag, message, _, user class
+      "XUS AV CODE" => [ "0", "1", "0", "Not a valid ACCESS CODE/VERIFY CODE pair", "", "" ].freeze,
+      # cvc_verify lines: result code (non-zero = failed)
+      "XUS CVC" => [ "1" ].freeze
+    }.freeze
+
     def initialize
       @records = {}     # { rpc_name => { key => formatted_string } }
       @collections = {} # { rpc_name => { lines: [...], filter_field: Symbol?, filter_pos: Integer? } }
@@ -38,6 +58,7 @@ module RpmsRpc
       # defaults to this; CiaClient binds its sign-on AID), so start bound —
       # a nil context is the one state from which nothing can be restored.
       @current_context = DEFAULT_CONTEXT
+      @wire_lock = Monitor.new
     end
 
     # Every context bound through this client, in order — including the
@@ -199,6 +220,12 @@ module RpmsRpc
       @capability_seeds.fetch(feature, true)
     end
 
+    # Client#synchronize_wire stand-in. Reentrant like the real one, so tests
+    # exercise the same locking shape production code takes.
+    def synchronize_wire(&block)
+      @wire_lock.synchronize(&block)
+    end
+
     # The CIA frame terminator IS the record separator.
     #
     # RpmsRpc::Client::EOD is "\x1e" (client.rb:45) and GLOBAL ARRAY replies
@@ -243,7 +270,19 @@ module RpmsRpc
       # `context` records the option bound when the call was issued — an RPC
       # is only servable from a context whose RPC multiple lists it.
       received_calls << { rpc: rpc_name, params: params, context: current_context }
-      key = params.first.to_s
+
+      if (rejection = DECRYPTED_FIRST_PARAM_RPCS[rpc_name])
+        # The broker decrypts before it looks anything up. An unencrypted
+        # parameter never survives that, so fail the way RPMS fails.
+        return rejection.dup unless XwbCipher.framed?(params.first)
+
+        # Framed but unknown credentials still fall through to the normal
+        # "no seed matched" path, exactly as an unknown-but-encrypted pair
+        # reaches VALIDAV and comes back empty-handed.
+        key = XwbCipher.decrypt(params.first.to_s)
+      else
+        key = params.first.to_s
+      end
 
       # Line-based responses (keyed by first param)
       if @lines&.dig(rpc_name, key)

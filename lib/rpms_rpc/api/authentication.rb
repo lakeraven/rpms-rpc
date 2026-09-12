@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../mappings"
+require_relative "../xwb_cipher"
 
 module RpmsRpc
   # Symbolic API for VistA/RPMS authentication RPCs.
@@ -26,15 +27,28 @@ module RpmsRpc
       5 => "clerk"
     }.freeze
 
+    # Sign on with an access/verify pair.
+    #
+    # The pair crosses the wire ENCRYPTED. XUSRB.VALIDAV always runs
+    # $$DECRYP^XUSRB1 on its parameter, so a cleartext send reaches the broker
+    # as garbage and a real RPMS rejects correct credentials (rpms-rpc#200).
+    # The ciphertext goes as ONE parameter because it may contain "^".
+    #
+    # The whole sequence — SIGNON SETUP, AV CODE, and the user/key lookups it
+    # implies — runs under the client's wire lock. The broker session these
+    # RPCs read from is process-global state, so a second sign-on landing
+    # between this one's AV CODE and its user lookup would hand this caller
+    # the other clinician's name, role and security keys.
     def authenticate(access_code: nil, verify_code: nil)
       return validation_error("Access code is required") if blank?(access_code&.to_s&.strip)
       return validation_error("Verify code is required") if blank?(verify_code&.to_s&.strip)
 
-      signon_setup
       av_code = "#{normalize_code(access_code)};#{normalize_code(verify_code)}"
-      parsed = DataMapper.av_code.fetch_lines(av_code)
 
-      parse_auth_response(parsed)
+      with_wire_lock do
+        signon_setup
+        parse_auth_response(DataMapper.av_code.fetch_lines(XwbCipher.encrypt(av_code)))
+      end
     end
 
     def user_info(duz)
@@ -69,13 +83,16 @@ module RpmsRpc
         return validation_error("Confirm verify code is required")
       end
 
-      cvc_param = [
+      # CVC^XUSRB decrypts its parameter with $$DECRYP^XUSRB1 the same way
+      # VALIDAV does, so the caret-delimited triple is encrypted before it is
+      # sent — and rides as one parameter, since the ciphertext may contain "^".
+      cvc_param = XwbCipher.encrypt([
         normalize_code(old_verify_code),
         normalize_code(new_verify_code),
         normalize_code(confirm_verify_code)
-      ].join("^")
+      ].join("^"))
 
-      parsed = DataMapper.cvc_verify.fetch_lines(cvc_param)
+      parsed = with_wire_lock { DataMapper.cvc_verify.fetch_lines(cvc_param) }
       # `parsed&.dig(:result_code).to_i.zero?` was previously true for nil
       # responses (`nil.to_i == 0`), masking timeouts / RPC drops as success.
       # Require an explicit present `result_code` that equals `"0"`.
@@ -92,6 +109,16 @@ module RpmsRpc
     end
 
     private
+
+    # Run a multi-RPC sequence as one uninterruptible unit on the shared
+    # client. Reentrant, so nested calls that take the lock themselves are
+    # safe. Clients that predate the lock (or stand in for one) just yield.
+    def with_wire_lock(&block)
+      client = RpmsRpc.client
+      return yield unless client.respond_to?(:synchronize_wire)
+
+      client.synchronize_wire(&block)
+    end
 
     def signon_setup
       @signon_setup_cache ||= DataMapper.signon_setup.fetch_scalar
