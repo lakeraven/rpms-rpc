@@ -58,8 +58,12 @@ module RpmsRpc
       rpc_params = params.map { |p| encode_param(p) }
       msg = build_rpc_message(rpc_name, rpc_params)
 
-      send_packet(msg)
-      response = read_response
+      # Atomic send-then-read: the XWB stream has no correlation id, so an
+      # unlocked pair lets a concurrent caller consume this call's reply.
+      response = synchronize_wire do
+        send_packet(msg)
+        read_response
+      end
 
       check_for_rpc_error(response)
       split_response(response)
@@ -80,8 +84,10 @@ module RpmsRpc
       rpc_params = params.map { |p| encode_param(p) }
       msg = build_rpc_message(rpc_name, rpc_params)
 
-      send_packet(msg)
-      read_response
+      synchronize_wire do
+        send_packet(msg)
+        read_response
+      end
     end
 
     # Build disconnect packet (compatibility)

@@ -52,6 +52,24 @@ module RpmsRpc
       @configuration = Configuration.new
     end
 
+    # Run `block` with exclusive use of the shared broker client.
+    #
+    # `RpmsRpc.client` is ONE process-global object over a bare
+    # request/response socket with no per-message correlation id, so two
+    # threads calling through it can consume each other's replies. Any caller
+    # whose correctness spans more than one RPC — above all sign-on, which
+    # reads back the identity everything downstream is authorized as — must
+    # hold this lock for the whole sequence.
+    #
+    # Reentrant: nested synchronize_wire calls (and the per-call locking the
+    # transports do internally) do not deadlock.
+    def synchronize_wire(&block)
+      c = client
+      return yield unless c.respond_to?(:synchronize_wire)
+
+      c.synchronize_wire(&block)
+    end
+
     # Scrub PHI patterns from `message` before it propagates to a host
     # logger / exception handler. Used at exception-raise sites where
     # the gem interpolates raw broker response payloads. Honors the

@@ -74,22 +74,29 @@ module RpmsRpc
 
       ac, vc = resolve_credentials(access_code, verify_code) # base
       avc = xwb_encrypt("#{ac};#{vc}") # base cipher — matches ENCRYP^XUSRB1
-      reply = exchange("R", pk("UID"), pk(""), pk("0"),
-        pk("RPC"), pk(""), pk("CIANBRPC AUTH"),
-        pk("1"), pk(""), pk(SIGNON_CONTEXT),
-        pk("4"), pk(""), pk(avc))
-      greeting = printable(reply)
-      unless greeting.match?(/signed on|Good (morning|afternoon|evening)/i)
-        raise AuthenticationError, RpmsRpc.sanitize_error("CIA sign-on rejected")
-      end
 
-      @authenticated = true
-      @signon_user = greeting[/\b([A-Z][A-Z.'-]*,[A-Z][A-Z.'-]*)/, 1]&.strip
-      uid = session_params(reply)[0]
-      @session_uid = uid if uid&.match?(/\A\d+\z/) # failure params are "server^volume^UCI^port"
-      @current_context = SIGNON_CONTEXT # ContextScope — AUTH bound it as the AID
-      @duz = printable(call_rpc_raw("CIANBRPC GETVAR", "DUZ"))[/\bDUZ=(\d+)/, 1]
-      { success: true, user: @signon_user, duz: @duz&.to_i, greeting: greeting.strip }
+      # AUTH and the GETVAR that reads back DUZ are one indivisible sequence:
+      # the broker stores DUZ into the session environment at sign-on, so a
+      # concurrent sign-on landing between them returns the OTHER clinician's
+      # DUZ to this caller.
+      synchronize_wire do
+        reply = exchange("R", pk("UID"), pk(""), pk("0"),
+          pk("RPC"), pk(""), pk("CIANBRPC AUTH"),
+          pk("1"), pk(""), pk(SIGNON_CONTEXT),
+          pk("4"), pk(""), pk(avc))
+        greeting = printable(reply)
+        unless greeting.match?(/signed on|Good (morning|afternoon|evening)/i)
+          raise AuthenticationError, RpmsRpc.sanitize_error("CIA sign-on rejected")
+        end
+
+        @authenticated = true
+        @signon_user = greeting[/\b([A-Z][A-Z.'-]*,[A-Z][A-Z.'-]*)/, 1]&.strip
+        uid = session_params(reply)[0]
+        @session_uid = uid if uid&.match?(/\A\d+\z/) # failure params are "server^volume^UCI^port"
+        @current_context = SIGNON_CONTEXT # ContextScope — AUTH bound it as the AID
+        @duz = printable(call_rpc_raw("CIANBRPC GETVAR", "DUZ"))[/\bDUZ=(\d+)/, 1]
+        { success: true, user: @signon_user, duz: @duz&.to_i, greeting: greeting.strip }
+      end
     end
 
     attr_reader :signon_user, :session_uid
@@ -202,11 +209,17 @@ module RpmsRpc
     # back unmodified. The sequence must therefore always be exactly one byte —
     # a counter that reaches 10 would put "1" in the sequence slot and "0" in
     # the action slot, corrupting every frame from the tenth on — so cycle 1..9.
+    # Write a frame and read its reply. The pair is atomic (Client#synchronize_wire):
+    # the CIA stream carries no correlation id, so an unlocked send-then-read lets a
+    # concurrent caller consume this frame's reply — and @seq, which numbers the
+    # frames, is shared mutable state besides.
     def exchange(action, *fields, terminator: EOD)
-      @seq = @seq % 9 + 1
-      msg = ("{CIA}" + EOD + @seq.to_s + action + fields.join + EOD).b
-      @socket.write(msg)
-      read_until_raw(terminator) # base: shared read loop; CIA EOD, or AGG US sentinel
+      synchronize_wire do
+        @seq = @seq % 9 + 1
+        msg = ("{CIA}" + EOD + @seq.to_s + action + fields.join + EOD).b
+        @socket.write(msg)
+        read_until_raw(terminator) # base: shared read loop; CIA EOD, or AGG US sentinel
+      end
     end
 
     # Build the L()-packed UID/RPC/param fields shared by call_rpc_raw and
