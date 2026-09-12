@@ -18,36 +18,43 @@ module RpmsRpc
   class BmxClient < Client
     BMX_PREFIX = "{BMX}"
 
-    # Connect to RPMS BMX Broker
+    # Connect to RPMS BMX Broker.
+    # Synchronized: a reconnect that replaces @socket while another caller is
+    # mid-read hands that caller a stream it never wrote to.
     def connect(host = @host, port = @port)
-      open_socket(host, port)
+      synchronize_wire do
+        open_socket(host, port)
 
-      # BMX handshake: {BMX}LLLLL + TCPconnect
-      body = "TCPconnect"
-      send_bmx_packet(body)
-      response = read_response
+        # BMX handshake: {BMX}LLLLL + TCPconnect
+        send_bmx_packet("TCPconnect")
+        response = read_response
 
-      if response.include?("accept") || response.include?("CONNECTION OK")
-        @connected = true
-      else
-        @socket&.close
-        @socket = nil
-        raise ConnectionError, RpmsRpc.sanitize_error("BMX server rejected handshake: #{response}")
+        if response.include?("accept") || response.include?("CONNECTION OK")
+          @connected = true
+        else
+          @socket&.close
+          @socket = nil
+          raise ConnectionError, RpmsRpc.sanitize_error("BMX server rejected handshake: #{response}")
+        end
+
+        @connected
       end
-
-      @connected
     end
 
     # Disconnect from RPMS BMX Broker
+    # Synchronized: an unsynchronized teardown injects #BYE# into, or closes the
+    # socket under, another caller's in-flight RPC.
     def disconnect
-      if connected?
-        begin
-          send_bmx_session_packet("#BYE#")
-        rescue StandardError
-          # Best effort disconnect
+      synchronize_wire do
+        if connected?
+          begin
+            send_bmx_session_packet("#BYE#")
+          rescue StandardError
+            # Best effort disconnect
+          end
         end
+        reset_connection
       end
-      reset_connection
     end
 
     # Call an RPC via BMX protocol
@@ -55,15 +62,12 @@ module RpmsRpc
       raise ConnectionError, "Not connected" unless connected?
 
       reject_unsupported_params(params)
-      param_string = params.map(&:to_s).join("^")
-      api_content = rpc_name
-      api_content += "^" + param_string unless param_string.empty?
 
-      message = build_bmx_message(api_content)
-      # Atomic send-then-read: the BMX stream has no correlation id, so an
-      # unlocked pair lets a concurrent caller consume this call's reply.
-      response = synchronize_wire do
-        send_bmx_session_packet(message)
+      # Atomic send-then-read, with the frame built and the connection
+      # re-checked INSIDE the lock, and the socket torn down before release if
+      # the read times out. See Client#wire_operation.
+      response = wire_operation do
+        send_bmx_session_packet(build_bmx_message(bmx_api_content(rpc_name, params)))
         read_response
       end
       check_for_rpc_error(response)
@@ -83,15 +87,17 @@ module RpmsRpc
       raise ConnectionError, "Not connected" unless connected?
 
       reject_unsupported_params(params)
-      param_string = params.map(&:to_s).join("^")
-      api_content = rpc_name
-      api_content += "^" + param_string unless param_string.empty?
 
-      message = build_bmx_message(api_content)
-      synchronize_wire do
-        send_bmx_session_packet(message)
+      wire_operation do
+        send_bmx_session_packet(build_bmx_message(bmx_api_content(rpc_name, params)))
         read_response
       end
+    end
+
+    # RPC name plus caret-joined params, the BMX API content line.
+    def bmx_api_content(rpc_name, params)
+      param_string = params.map(&:to_s).join("^")
+      param_string.empty? ? rpc_name : "#{rpc_name}^#{param_string}"
     end
 
     # -- packet construction (public for testing) -----------------------------
