@@ -83,14 +83,23 @@ module RpmsRpc
         return validation_error("Confirm verify code is required")
       end
 
-      # CVC^XUSRB decrypts its parameter with $$DECRYP^XUSRB1 the same way
-      # VALIDAV does, so the caret-delimited triple is encrypted before it is
-      # sent — and rides as one parameter, since the ciphertext may contain "^".
-      cvc_param = XwbCipher.encrypt([
+      # CVC^XUSRB does NOT decrypt the way VALIDAV does. Read the M
+      # (XUSRB.m:70-71): it SPLITS ON "^" FIRST, then decrypts each piece.
+      #
+      #   S U="^",XU2=$P(XU1,U,2),XU3=$P(XU1,U,3),XU1=$P(XU1,U)
+      #   S XU1=$$DECRYP^XUSRB1(XU1),XU2=$$DECRYP^XUSRB1(XU2),XU3=$$DECRYP^XUSRB1(XU3)
+      #
+      # So each component is encrypted SEPARATELY and the ciphertexts are
+      # joined with "^". Encrypting the whole triple as one value puts the
+      # delimiter inside the ciphertext and the server decrypts three
+      # fragments of garbage. (This framing is safe because the cipher table
+      # deliberately omits "^" — see XwbCipher::TABLE — and verify codes
+      # exclude it too, per AVHLPTXT^XUS2.)
+      cvc_param = [
         normalize_code(old_verify_code),
         normalize_code(new_verify_code),
         normalize_code(confirm_verify_code)
-      ].join("^"))
+      ].map { |component| XwbCipher.encrypt(component) }.join("^")
 
       parsed = with_wire_lock { DataMapper.cvc_verify.fetch_lines(cvc_param) }
       # `parsed&.dig(:result_code).to_i.zero?` was previously true for nil
