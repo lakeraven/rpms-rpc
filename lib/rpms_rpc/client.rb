@@ -91,6 +91,37 @@ module RpmsRpc
       @wire_lock.synchronize(&block)
     end
 
+    # Run one send-then-read pair as an atomic wire operation.
+    #
+    # A lock around the write and the read is not enough on its own. THREE
+    # more things have to happen inside it, each of which leaked across
+    # callers when it did not:
+    #
+    #   * The connection re-check. Passing `connected?` before blocking on the
+    #     monitor proves nothing — the caller ahead may have timed out and torn
+    #     the socket down while this one waited.
+    #   * Building the frame. A frame assembled from @session_uid or the bound
+    #     context BEFORE the lock carries state a sign-on has since replaced,
+    #     and gets sent anyway. Pass a builder block, not built fields.
+    #   * Timeout cleanup. A read that times out leaves the reply IN FLIGHT and
+    #     the stream desynchronized; the next caller would read it as its own.
+    #     The socket is closed before the lock is released, so there is no
+    #     window in which anyone can pick it up.
+    def wire_operation(require_connection: true)
+      synchronize_wire do
+        raise ConnectionError, "Not connected" if require_connection && !connected?
+
+        begin
+          yield
+        rescue TimeoutError
+          # Desynchronized: the peer may still answer. Nobody may reuse this
+          # socket, so it does not survive the lock.
+          reset_connection
+          raise
+        end
+      end
+    end
+
     # -- subclass contract ----------------------------------------------------
 
     def connect(_host, _port)
@@ -162,28 +193,31 @@ module RpmsRpc
       # SETUP and AV CODE are one indivisible sequence: they establish the
       # broker session identity every later RPC on this client rides. A
       # concurrent sign-on landing between them re-binds that identity.
-      reply = synchronize_wire do
-        # Step 1: XUS SIGNON SETUP
-        signon_setup
+      # SETUP, AV CODE **and the commit of the resulting identity** are one
+      # indivisible sequence. Committing @duz after releasing the lock let a
+      # sign-on that had already been superseded write its DUZ over the live
+      # one: the client believed it was 301 while the broker session was 302.
+      synchronize_wire do
+        signon_setup # Step 1: XUS SIGNON SETUP
 
         # Step 2: XUS AV CODE with encrypted credentials
-        call_rpc_raw("XUS AV CODE", xwb_encrypt("#{ac};#{vc}"))
+        reply = call_rpc_raw("XUS AV CODE", xwb_encrypt("#{ac};#{vc}"))
+
+        lines = reply.split("\r\n")
+        lines = reply.split("\n") if lines.length <= 1
+        duz_str = lines[0]&.strip || "0"
+
+        if duz_str == "0" || duz_str.empty?
+          err_msg = lines[3]&.strip if lines.length > 3
+          raise AuthenticationError, RpmsRpc.sanitize_error(
+            err_msg.nil? || err_msg.empty? ? "Authentication failed" : err_msg
+          )
+        end
+
+        @authenticated = true
+        @duz = duz_str
+        { success: true, duz: duz_str.to_i }
       end
-
-      lines = reply.split("\r\n")
-      lines = reply.split("\n") if lines.length <= 1
-      duz_str = lines[0]&.strip || "0"
-
-      if duz_str == "0" || duz_str.empty?
-        err_msg = lines[3]&.strip if lines.length > 3
-        raise AuthenticationError, RpmsRpc.sanitize_error(
-          err_msg.nil? || err_msg.empty? ? "Authentication failed" : err_msg
-        )
-      end
-
-      @authenticated = true
-      @duz = duz_str
-      { success: true, duz: duz_str.to_i }
     end
 
     # Whether the Broker behind this client can service `feature`.

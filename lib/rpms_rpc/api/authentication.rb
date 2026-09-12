@@ -113,6 +113,8 @@ module RpmsRpc
       end
     end
 
+    # Retained for callers that clear state between tests. There is no longer
+    # a cache to clear — see #signon_setup.
     def clear_cache!
       @signon_setup_cache = nil
     end
@@ -129,8 +131,16 @@ module RpmsRpc
       client.synchronize_wire(&block)
     end
 
+    # XUS SIGNON SETUP establishes the partition the following AV CODE is
+    # validated in, so it belongs to the SIGN-ON, not to the process.
+    #
+    # This used to be memoized in a module-level ivar. That cache outlived the
+    # client it was populated for: a replaced client, or the same client after
+    # a reconnect, is a NEW broker session, and the next authentication skipped
+    # SETUP entirely and validated against a partition that was never set up.
+    # A per-sign-on RPC is cheap; a sign-on against the wrong partition is not.
     def signon_setup
-      @signon_setup_cache ||= DataMapper.signon_setup.fetch_scalar
+      DataMapper.signon_setup.fetch_scalar
     end
 
     def parse_auth_response(parsed)

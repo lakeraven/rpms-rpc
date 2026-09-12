@@ -31,23 +31,27 @@ module RpmsRpc
     def default_port = 9100
 
     # Open the socket and perform the {CIA} connect handshake.
+    # Synchronized: a reconnect that replaces @socket while another caller is
+    # mid-read hands that caller a stream it never wrote to.
     def connect(host = @host, port = @port)
-      open_socket(host, port) # base: sets @socket, raises ConnectionError on failure
-      @seq = 0
-      @session_uid = nil
-      reset_context # a new session starts on whatever sign-on binds
-      @uci = ENV.fetch("RPMS_UCI", "VEH,EXTERNAL")
-      reply = exchange("C", pk("VER"), pk(""), pk("2.0"),
-        pk("LP"), pk(""), pk(port.to_s),
-        pk("UCI"), pk(""), pk(@uci))
-      raise ConnectionError, RpmsRpc.sanitize_error("CIA broker did not answer connect") if reply.empty?
+      synchronize_wire do
+        open_socket(host, port) # base: sets @socket, raises ConnectionError on failure
+        @seq = 0
+        @session_uid = nil
+        reset_context # a new session starts on whatever sign-on binds
+        @uci = ENV.fetch("RPMS_UCI", "VEH,EXTERNAL")
+        reply = exchange("C", pk("VER"), pk(""), pk("2.0"),
+          pk("LP"), pk(""), pk(port.to_s),
+          pk("UCI"), pk(""), pk(@uci), require_connection: false)
+        raise ConnectionError, RpmsRpc.sanitize_error("CIA broker did not answer connect") if reply.empty?
 
-      @connected = true
-    rescue StandardError
-      # A failed handshake (empty reply, timeout, write error) must not leak
-      # the open socket or leave a half-initialized client behind a retry.
-      reset_connection # base: close socket, defined disconnected state
-      raise
+        @connected = true
+      rescue StandardError
+        # A failed handshake (empty reply, timeout, write error) must not leak
+        # the open socket or leave a half-initialized client behind a retry.
+        reset_connection # base: close socket, defined disconnected state
+        raise
+      end
     end
 
     # Sign on via CIANBRPC AUTH with a client-side-encrypted access;verify (AVC).
@@ -155,7 +159,7 @@ module RpmsRpc
     def call_rpc_raw(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
-      exchange("R", *rpc_frame_fields(rpc_name, params))
+      exchange("R") { rpc_frame_fields(rpc_name, params) }
     rescue TimeoutError
       handle_rpc_timeout(rpc_name)
     end
@@ -171,15 +175,19 @@ module RpmsRpc
     def call_rpc_global_array(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
-      exchange("R", *rpc_frame_fields(rpc_name, params), terminator: AGG_ARRAY_END)
+      exchange("R", terminator: AGG_ARRAY_END) { rpc_frame_fields(rpc_name, params) }
     rescue TimeoutError
       handle_rpc_timeout(rpc_name)
     end
 
+    # Synchronized: an unsynchronized teardown can close the socket, or inject
+    # its frame, in the middle of another caller's in-flight RPC.
     def disconnect
-      @session_uid = nil
-      reset_context
-      reset_connection # base: closes the socket and clears state
+      synchronize_wire do
+        @session_uid = nil
+        reset_context
+        reset_connection # base: closes the socket and clears state
+      end
     end
 
     def read_response = read_until_raw(EOD) # Client contract; CIA terminator
@@ -209,14 +217,21 @@ module RpmsRpc
     # back unmodified. The sequence must therefore always be exactly one byte —
     # a counter that reaches 10 would put "1" in the sequence slot and "0" in
     # the action slot, corrupting every frame from the tenth on — so cycle 1..9.
-    # Write a frame and read its reply. The pair is atomic (Client#synchronize_wire):
-    # the CIA stream carries no correlation id, so an unlocked send-then-read lets a
+    # Write a frame and read its reply, atomically (Client#wire_operation): the
+    # CIA stream carries no correlation id, so an unlocked send-then-read lets a
     # concurrent caller consume this frame's reply — and @seq, which numbers the
     # frames, is shared mutable state besides.
-    def exchange(action, *fields, terminator: EOD)
-      synchronize_wire do
+    #
+    # Callers whose frame depends on SESSION STATE (@session_uid, the bound
+    # context) must pass a BLOCK rather than pre-built fields. Fields evaluated
+    # at the call site are assembled before the lock is acquired, so a frame
+    # queued behind a sign-on captures the UID and context the sign-on is about
+    # to replace, and then sends them anyway.
+    def exchange(action, *fields, terminator: EOD, require_connection: true, &build_fields)
+      wire_operation(require_connection: require_connection) do
+        frame_fields = build_fields ? build_fields.call : fields
         @seq = @seq % 9 + 1
-        msg = ("{CIA}" + EOD + @seq.to_s + action + fields.join + EOD).b
+        msg = ("{CIA}" + EOD + @seq.to_s + action + frame_fields.join + EOD).b
         @socket.write(msg)
         read_until_raw(terminator) # base: shared read loop; CIA EOD, or AGG US sentinel
       end
