@@ -41,8 +41,54 @@ class AuthenticationTest < Minitest::Test
 
     assert_equal [ "XUS SIGNON SETUP", "XUS AV CODE", "XUS GET USER INFO" ],
       RpmsRpc.client.received_calls.first(3).map { |c| c[:rpc] }
-    assert_equal [ "ACCESS123;VERIFY123" ],
-      RpmsRpc.client.received_calls.find { |c| c[:rpc] == "XUS AV CODE" }[:params]
+  end
+
+  # XUSRB.VALIDAV ALWAYS runs $$DECRYP^XUSRB1 on its parameter, so a cleartext
+  # access;verify pair can never authenticate against a real broker no matter
+  # how correct the credentials are (rpms-rpc#200). The pair must cross the
+  # wire through the XWB cipher, exactly as Client#authenticate and
+  # ESignature already do.
+  def test_authenticate_encrypts_the_av_pair_the_way_the_broker_decrypts_it
+    RpmsRpc::Authentication.authenticate(access_code: "access123", verify_code: "verify123")
+
+    params = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "XUS AV CODE" }[:params]
+
+    assert_equal 1, params.length,
+      "the ciphertext may contain ^, so it must cross the wire as ONE parameter"
+    refute_equal "ACCESS123;VERIFY123", params.first,
+      "cleartext reaches $$DECRYP^XUSRB1 as garbage — a real broker rejects valid credentials"
+    assert_equal "ACCESS123;VERIFY123", RpmsRpc::XwbCipher.decrypt(params.first),
+      "the broker must recover the normalized pair from the ciphertext"
+  end
+
+  # Verifying the gate, not just the fix: MockClient models $$DECRYP^XUSRB1,
+  # so a caller that reverts to a cleartext send fails here the way it would
+  # in production rather than passing on a mock that expected the bug.
+  #
+  # The reply shape is VALIDAV^XUSRB's own, read from the M source:
+  #   RET(0)=DUZ  RET(1)=XUM  RET(2)=VCCH  RET(3)=message  RET(4)=0  RET(5)=msg count
+  # A bad A/V code leaves DUZ 0 and XUM 0 (XUM is 1 only for inhibited logons
+  # and the three-strike lock); UVALID^XUS returns 4 for DUZ'>0 and
+  # TXT^XUS3(4) is "Invalid A/V code.".
+  def test_mock_broker_rejects_a_cleartext_av_parameter
+    parsed = RpmsRpc::DataMapper.av_code.fetch_lines("ACCESS123;VERIFY123")
+
+    assert_equal 0, parsed[:duz]
+    assert_equal 0, parsed[:error_code]
+    assert_equal "Invalid A/V code.", parsed[:message]
+  end
+
+  # VALIDAV ALWAYS builds RET(0..5) — there is no path on which it answers
+  # with nothing. A mock that returned "" for unknown credentials was
+  # inventing a wire behaviour the broker does not have, and the old
+  # "Invalid response" assertion codified that fiction.
+  def test_unknown_but_encrypted_credentials_get_validavs_own_reply_shape
+    parsed = RpmsRpc::DataMapper.av_code.fetch_lines(RpmsRpc::XwbCipher.encrypt("NOSUCH;USER1"))
+
+    refute_nil parsed, "VALIDAV always returns structured lines, never an empty reply"
+    assert_equal 0, parsed[:duz]
+    assert_equal 0, parsed[:error_code]
+    assert_equal "Invalid A/V code.", parsed[:message]
   end
 
   def test_authenticate_rejects_blank_access_or_verify_code
@@ -56,7 +102,8 @@ class AuthenticationTest < Minitest::Test
     result = RpmsRpc::Authentication.authenticate(access_code: "BAD", verify_code: "CODES")
 
     assert_equal false, result[:success]
-    assert_equal "Invalid response", result[:error]
+    # VALIDAV's own message for a bad pair (TXT^XUS3(4)), not a synthesised one.
+    assert_equal "Invalid A/V code.", result[:error]
   end
 
   def test_authenticate_maps_verify_code_expired_response
@@ -136,7 +183,41 @@ class AuthenticationTest < Minitest::Test
 
     assert_equal({ success: true }, result)
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "XUS CVC" }
-    assert_equal [ "OLDVERIFY^NEWVERIFY^NEWVERIFY" ], call[:params]
+
+    assert_equal 1, call[:params].length, "the triple crosses the wire as ONE parameter"
+
+    # CVC^XUSRB (XUSRB.m:70-71) SPLITS ON ^ FIRST, THEN DECRYPTS EACH PIECE:
+    #   S XU2=$P(XU1,U,2),XU3=$P(XU1,U,3),XU1=$P(XU1,U)
+    #   S XU1=$$DECRYP^XUSRB1(XU1),XU2=$$DECRYP^XUSRB1(XU2),XU3=$$DECRYP^XUSRB1(XU3)
+    # so each component must be encrypted separately and joined with ^.
+    # Encrypting the whole triple as one blob is decrypted as garbage — the
+    # delimiter falls inside the ciphertext. (The cipher table deliberately
+    # omits ^, which is exactly what makes per-component framing safe; verify
+    # codes exclude it too, per AVHLPTXT^XUS2.)
+    pieces = call[:params].first.split("^", -1)
+    assert_equal 3, pieces.length, "CVC splits its parameter into three caret pieces before decrypting"
+
+    assert_equal %w[OLDVERIFY NEWVERIFY NEWVERIFY],
+      pieces.map { |piece| RpmsRpc::XwbCipher.decrypt(piece) }
+    refute_includes pieces, "OLDVERIFY", "the components must not cross the wire in cleartext"
+  end
+
+  # Gate for the CVC path, derived from CVC^XUSRB rather than from the AV path.
+  def test_mock_broker_rejects_a_cleartext_cvc_parameter
+    parsed = RpmsRpc::DataMapper.cvc_verify.fetch_lines("OLDVERIFY^NEWVERIFY^NEWVERIFY")
+
+    assert_equal 1, parsed[:result_code],
+      "BRCVC^XUS2 answers 1^msg when the current code does not match"
+  end
+
+  # A whole-triple encryption is the defect this PR originally shipped: the
+  # server splits on ^ before decrypting, so the pieces are garbage.
+  def test_mock_broker_rejects_a_whole_triple_encryption
+    parsed = RpmsRpc::DataMapper.cvc_verify.fetch_lines(
+      RpmsRpc::XwbCipher.encrypt("OLDVERIFY^NEWVERIFY^NEWVERIFY")
+    )
+
+    assert_equal 1, parsed[:result_code]
   end
 
   def test_change_verify_code_rejects_blank_fields

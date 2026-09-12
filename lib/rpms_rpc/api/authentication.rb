@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../mappings"
+require_relative "../xwb_cipher"
 
 module RpmsRpc
   # Symbolic API for VistA/RPMS authentication RPCs.
@@ -26,15 +27,28 @@ module RpmsRpc
       5 => "clerk"
     }.freeze
 
+    # Sign on with an access/verify pair.
+    #
+    # The pair crosses the wire ENCRYPTED. XUSRB.VALIDAV always runs
+    # $$DECRYP^XUSRB1 on its parameter, so a cleartext send reaches the broker
+    # as garbage and a real RPMS rejects correct credentials (rpms-rpc#200).
+    # The ciphertext goes as ONE parameter because it may contain "^".
+    #
+    # The whole sequence — SIGNON SETUP, AV CODE, and the user/key lookups it
+    # implies — runs under the client's wire lock. The broker session these
+    # RPCs read from is process-global state, so a second sign-on landing
+    # between this one's AV CODE and its user lookup would hand this caller
+    # the other clinician's name, role and security keys.
     def authenticate(access_code: nil, verify_code: nil)
       return validation_error("Access code is required") if blank?(access_code&.to_s&.strip)
       return validation_error("Verify code is required") if blank?(verify_code&.to_s&.strip)
 
-      signon_setup
       av_code = "#{normalize_code(access_code)};#{normalize_code(verify_code)}"
-      parsed = DataMapper.av_code.fetch_lines(av_code)
 
-      parse_auth_response(parsed)
+      with_wire_lock do
+        signon_setup
+        parse_auth_response(DataMapper.av_code.fetch_lines(XwbCipher.encrypt(av_code)))
+      end
     end
 
     def user_info(duz)
@@ -69,13 +83,25 @@ module RpmsRpc
         return validation_error("Confirm verify code is required")
       end
 
+      # CVC^XUSRB does NOT decrypt the way VALIDAV does. Read the M
+      # (XUSRB.m:70-71): it SPLITS ON "^" FIRST, then decrypts each piece.
+      #
+      #   S U="^",XU2=$P(XU1,U,2),XU3=$P(XU1,U,3),XU1=$P(XU1,U)
+      #   S XU1=$$DECRYP^XUSRB1(XU1),XU2=$$DECRYP^XUSRB1(XU2),XU3=$$DECRYP^XUSRB1(XU3)
+      #
+      # So each component is encrypted SEPARATELY and the ciphertexts are
+      # joined with "^". Encrypting the whole triple as one value puts the
+      # delimiter inside the ciphertext and the server decrypts three
+      # fragments of garbage. (This framing is safe because the cipher table
+      # deliberately omits "^" — see XwbCipher::TABLE — and verify codes
+      # exclude it too, per AVHLPTXT^XUS2.)
       cvc_param = [
         normalize_code(old_verify_code),
         normalize_code(new_verify_code),
         normalize_code(confirm_verify_code)
-      ].join("^")
+      ].map { |component| XwbCipher.encrypt(component) }.join("^")
 
-      parsed = DataMapper.cvc_verify.fetch_lines(cvc_param)
+      parsed = with_wire_lock { DataMapper.cvc_verify.fetch_lines(cvc_param) }
       # `parsed&.dig(:result_code).to_i.zero?` was previously true for nil
       # responses (`nil.to_i == 0`), masking timeouts / RPC drops as success.
       # Require an explicit present `result_code` that equals `"0"`.
@@ -87,14 +113,34 @@ module RpmsRpc
       end
     end
 
+    # Retained for callers that clear state between tests. There is no longer
+    # a cache to clear — see #signon_setup.
     def clear_cache!
       @signon_setup_cache = nil
     end
 
     private
 
+    # Run a multi-RPC sequence as one uninterruptible unit on the shared
+    # client. Reentrant, so nested calls that take the lock themselves are
+    # safe. Clients that predate the lock (or stand in for one) just yield.
+    def with_wire_lock(&block)
+      client = RpmsRpc.client
+      return yield unless client.respond_to?(:synchronize_wire)
+
+      client.synchronize_wire(&block)
+    end
+
+    # XUS SIGNON SETUP establishes the partition the following AV CODE is
+    # validated in, so it belongs to the SIGN-ON, not to the process.
+    #
+    # This used to be memoized in a module-level ivar. That cache outlived the
+    # client it was populated for: a replaced client, or the same client after
+    # a reconnect, is a NEW broker session, and the next authentication skipped
+    # SETUP entirely and validated against a partition that was never set up.
+    # A per-sign-on RPC is cheap; a sign-on against the wrong partition is not.
     def signon_setup
-      @signon_setup_cache ||= DataMapper.signon_setup.fetch_scalar
+      DataMapper.signon_setup.fetch_scalar
     end
 
     def parse_auth_response(parsed)

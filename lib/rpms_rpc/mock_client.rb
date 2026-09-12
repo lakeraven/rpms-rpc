@@ -3,6 +3,7 @@
 require_relative "client"
 require_relative "data_mapper"
 require_relative "context_scope"
+require_relative "xwb_cipher"
 
 module RpmsRpc
   # Mock RPC client for testing. Consumers seed data as hashes;
@@ -28,6 +29,56 @@ module RpmsRpc
     # What a freshly signed-on session is assumed to be bound to.
     DEFAULT_CONTEXT = "OR CPRS GUI CHART"
 
+    # RPCs whose first parameter the broker decrypts before it is used.
+    #
+    # MOCK FIDELITY IS DERIVED PER-RPC FROM THE M SOURCE, NEVER GENERALIZED
+    # FROM A SIBLING RPC. This table exists because that rule was learned the
+    # expensive way: VALIDAV and CVC both "decrypt the AV material", and
+    # assuming they did it the SAME way shipped a broken CVC path with a green
+    # suite over it — the very defect this file was changed to prevent, one
+    # entry-point over. Two RPCs in the same routine decrypt differently:
+    #
+    #   VALIDAV^XUSRB (XUSRB.m:29)  decrypts the WHOLE parameter:
+    #       S DUZ=$$CHECKAV^XUS($$DECRYP^XUSRB1(AVCODE),XUAPP)
+    #
+    #   CVC^XUSRB (XUSRB.m:70-71)   SPLITS ON "^" FIRST, then decrypts EACH piece:
+    #       S U="^",XU2=$P(XU1,U,2),XU3=$P(XU1,U,3),XU1=$P(XU1,U)
+    #       S XU1=$$DECRYP^XUSRB1(XU1),XU2=..,XU3=..
+    #
+    # Before adding an entry here, read the routine. Cite the line. A mock
+    # that cannot express a failure is not evidence against it — and a mock
+    # that expresses the WRONG failure is worse, because it argues for the bug.
+    #
+    # :decode   how the server recovers the plaintext lookup key, or nil when
+    #           the parameter is not validly framed ciphertext.
+    # :rejected the reply the routine actually builds when the material does
+    #           not resolve to a user. These routines ALWAYS answer with
+    #           structured lines; none of them answers with nothing.
+    DECRYPTED_FIRST_PARAM_RPCS = {
+      # Reply lines per VALIDAV^XUSRB (XUSRB.m:38):
+      #   RET(0)=DUZ  RET(1)=XUM  RET(2)=VCCH  RET(3)=message  RET(4)=0  RET(5)=msg count
+      # A bad pair leaves DUZ 0 and XUM 0 — XUM is 1 only for inhibited logons
+      # and the three-strike lock. UVALID^XUS returns 4 when DUZ'>0, and
+      # TXT^XUS3(4) is "Invalid A/V code.".
+      "XUS AV CODE" => {
+        decode: ->(param) { XwbCipher.framed?(param) ? XwbCipher.decrypt(param.to_s) : nil },
+        rejected: [ "0", "0", "0", "Invalid A/V code.", "0", "0" ].freeze
+      }.freeze,
+
+      # Reply lines per CVC^XUSRB (XUSRB.m:72): RET(0)=+XU3, RET(1)=message,
+      # where XU3 comes from BRCVC^XUS2 — "1^Sorry that isn't the correct
+      # current code" when the current code does not match (XUS2.m:190).
+      "XUS CVC" => {
+        decode: lambda { |param|
+          pieces = param.to_s.split("^", -1)
+          next nil unless pieces.length == 3 && pieces.all? { |piece| XwbCipher.framed?(piece) }
+
+          pieces.map { |piece| XwbCipher.decrypt(piece) }.join("^")
+        },
+        rejected: [ "1", "Sorry that isn't the correct current code" ].freeze
+      }.freeze
+    }.freeze
+
     def initialize
       @records = {}     # { rpc_name => { key => formatted_string } }
       @collections = {} # { rpc_name => { lines: [...], filter_field: Symbol?, filter_pos: Integer? } }
@@ -38,6 +89,7 @@ module RpmsRpc
       # defaults to this; CiaClient binds its sign-on AID), so start bound —
       # a nil context is the one state from which nothing can be restored.
       @current_context = DEFAULT_CONTEXT
+      @wire_lock = Monitor.new
     end
 
     # Every context bound through this client, in order — including the
@@ -199,6 +251,12 @@ module RpmsRpc
       @capability_seeds.fetch(feature, true)
     end
 
+    # Client#synchronize_wire stand-in. Reentrant like the real one, so tests
+    # exercise the same locking shape production code takes.
+    def synchronize_wire(&block)
+      @wire_lock.synchronize(&block)
+    end
+
     # The CIA frame terminator IS the record separator.
     #
     # RpmsRpc::Client::EOD is "\x1e" (client.rb:45) and GLOBAL ARRAY replies
@@ -243,7 +301,21 @@ module RpmsRpc
       # `context` records the option bound when the call was issued — an RPC
       # is only servable from a context whose RPC multiple lists it.
       received_calls << { rpc: rpc_name, params: params, context: current_context }
-      key = params.first.to_s
+
+      if (spec = DECRYPTED_FIRST_PARAM_RPCS[rpc_name])
+        # The broker decrypts before it looks anything up, each routine in its
+        # own way. A parameter that does not survive THIS routine's decoding
+        # never resolves to a user, so answer the way the routine answers.
+        key = spec[:decode].call(params.first)
+        return spec[:rejected].dup if key.nil?
+
+        # Decoded but unknown credentials get the same structured rejection —
+        # these routines always build their RET() array, so "no seed matched"
+        # must not come back as an empty reply.
+        return spec[:rejected].dup unless seeded_key?(rpc_name, key)
+      else
+        key = params.first.to_s
+      end
 
       # Line-based responses (keyed by first param)
       if @lines&.dig(rpc_name, key)
@@ -280,6 +352,20 @@ module RpmsRpc
     end
 
     private
+
+    # Whether anything at all is seeded for this RPC under `key`. Used by the
+    # decrypting RPCs, which must answer with their routine's own rejection
+    # rather than an empty reply when the credential is simply unknown.
+    def seeded_key?(rpc_name, key)
+      k = key.to_s
+      return true if @lines&.dig(rpc_name, k)
+      return true if @text_blobs&.dig(rpc_name, k)
+      return true if @records.dig(rpc_name, k)
+      return true if @keyed_collections&.dig(rpc_name, k)
+      return true if @scalars.dig(rpc_name, k)
+
+      false
+    end
 
     def filter_collection(col, pattern)
       lines = col[:lines]

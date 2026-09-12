@@ -19,47 +19,56 @@ module RpmsRpc
   class XwbClient < Client
     XWB_PREFIX = "[XWB]1130"
 
-    # Connect to RPMS XWB Broker
+    # Connect to RPMS XWB Broker.
+    # Synchronized: a reconnect that replaces @socket while another caller is
+    # mid-read hands that caller a stream it never wrote to.
     def connect(host = @host, port = @port)
-      open_socket(host, port)
+      synchronize_wire do
+        open_socket(host, port)
 
-      msg = build_connect_message(local_ip, "rpms-rpc")
-      send_packet(msg)
-      response = read_response
+        send_packet(build_connect_message(local_ip, "rpms-rpc"))
+        response = read_response
 
-      if response.start_with?("accept")
-        @connected = true
-      else
-        @socket&.close
-        @socket = nil
-        raise ConnectionError, RpmsRpc.sanitize_error("Server rejected handshake: #{response}")
+        if response.start_with?("accept")
+          @connected = true
+        else
+          @socket&.close
+          @socket = nil
+          raise ConnectionError, RpmsRpc.sanitize_error("Server rejected handshake: #{response}")
+        end
+
+        @connected
       end
-
-      @connected
     end
 
     # Disconnect from RPMS XWB Broker
+    # Synchronized: an unsynchronized teardown injects #BYE# into, or closes the
+    # socket under, another caller's in-flight RPC.
     def disconnect
-      if connected?
-        begin
-          msg = build_rpc_message("#BYE#")
-          send_packet(msg)
-        rescue StandardError
-          # Best effort disconnect
+      synchronize_wire do
+        if connected?
+          begin
+            send_packet(build_rpc_message("#BYE#"))
+          rescue StandardError
+            # Best effort disconnect
+          end
         end
+        reset_connection
       end
-      reset_connection
     end
 
     # Call an RPC via XWB protocol
     def call_rpc(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
-      rpc_params = params.map { |p| encode_param(p) }
-      msg = build_rpc_message(rpc_name, rpc_params)
-
-      send_packet(msg)
-      response = read_response
+      # Atomic send-then-read, with the frame built and the connection
+      # re-checked INSIDE the lock, and the socket torn down before release if
+      # the read times out — otherwise the next caller reads this call's late
+      # reply as its own. See Client#wire_operation.
+      response = wire_operation do
+        send_packet(build_rpc_message(rpc_name, params.map { |p| encode_param(p) }))
+        read_response
+      end
 
       check_for_rpc_error(response)
       split_response(response)
@@ -77,11 +86,10 @@ module RpmsRpc
     def call_rpc_raw(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
-      rpc_params = params.map { |p| encode_param(p) }
-      msg = build_rpc_message(rpc_name, rpc_params)
-
-      send_packet(msg)
-      read_response
+      wire_operation do
+        send_packet(build_rpc_message(rpc_name, params.map { |p| encode_param(p) }))
+        read_response
+      end
     end
 
     # Build disconnect packet (compatibility)
