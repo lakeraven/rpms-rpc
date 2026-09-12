@@ -60,9 +60,12 @@ module RpmsRpc
       api_content += "^" + param_string unless param_string.empty?
 
       message = build_bmx_message(api_content)
-      send_bmx_session_packet(message)
-
-      response = read_response
+      # Atomic send-then-read: the BMX stream has no correlation id, so an
+      # unlocked pair lets a concurrent caller consume this call's reply.
+      response = synchronize_wire do
+        send_bmx_session_packet(message)
+        read_response
+      end
       check_for_rpc_error(response)
       split_response(response)
     rescue IOError, Errno::ECONNRESET, Errno::EPIPE, Errno::ENOTCONN => e
@@ -85,8 +88,10 @@ module RpmsRpc
       api_content += "^" + param_string unless param_string.empty?
 
       message = build_bmx_message(api_content)
-      send_bmx_session_packet(message)
-      read_response
+      synchronize_wire do
+        send_bmx_session_packet(message)
+        read_response
+      end
     end
 
     # -- packet construction (public for testing) -----------------------------

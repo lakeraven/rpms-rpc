@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "socket"
+require "monitor"
 require "rpms_rpc/parameter_encoder"
 require "rpms_rpc/xml_response_parser"
 require "rpms_rpc/server_capabilities"
@@ -66,6 +67,28 @@ module RpmsRpc
       @connected = false
       @authenticated = false
       @duz = nil
+      @wire_lock = Monitor.new
+    end
+
+    # Serializes the send-then-read pair on this client's socket.
+    #
+    # The broker speaks a bare request/response stream with NO per-message
+    # correlation id: whoever reads next gets whatever the socket has. Two
+    # threads sharing one client therefore swap replies — and since
+    # `RpmsRpc.client` is process-global, "two threads" is "two clinicians
+    # signing on at once", each minted from the other's DUZ, role and
+    # security keys.
+    #
+    # Reentrant (Monitor), so a multi-RPC sequence can hold the lock across
+    # its own nested calls.
+    #
+    # RESIDUAL LIMIT — this makes a request/response pair atomic. It does NOT
+    # give each user their own broker session: one process-global client holds
+    # ONE authenticated RPMS identity, so a later sign-on still re-binds the
+    # shared session away from an earlier one. Per-session or pooled clients
+    # are the real fix — see rpms-rpc#234.
+    def synchronize_wire(&block)
+      @wire_lock.synchronize(&block)
     end
 
     # -- subclass contract ----------------------------------------------------
@@ -136,12 +159,16 @@ module RpmsRpc
 
       ac, vc = resolve_credentials(access_code, verify_code)
 
-      # Step 1: XUS SIGNON SETUP
-      signon_setup
+      # SETUP and AV CODE are one indivisible sequence: they establish the
+      # broker session identity every later RPC on this client rides. A
+      # concurrent sign-on landing between them re-binds that identity.
+      reply = synchronize_wire do
+        # Step 1: XUS SIGNON SETUP
+        signon_setup
 
-      # Step 2: XUS AV CODE with encrypted credentials
-      av_encrypted = xwb_encrypt("#{ac};#{vc}")
-      reply = call_rpc_raw("XUS AV CODE", av_encrypted)
+        # Step 2: XUS AV CODE with encrypted credentials
+        call_rpc_raw("XUS AV CODE", xwb_encrypt("#{ac};#{vc}"))
+      end
 
       lines = reply.split("\r\n")
       lines = reply.split("\n") if lines.length <= 1
