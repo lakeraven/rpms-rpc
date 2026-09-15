@@ -126,6 +126,18 @@ module RpmsRpc
       @lines[mapping.rpc_name][key.to_s] = lines
     end
 
+    # Seed a response as verbatim wire lines, bypassing the mapping's own
+    # formatter. Use this when the shape under test is the wire itself — a
+    # typed header row, an optional trailing column, or an M error arriving
+    # as a data row — none of which a formatter can produce, and all of which
+    # a caller has to survive on live dispatch.
+    def seed_raw_lines(mapping_name, key, lines)
+      mapping = DataMapper[mapping_name]
+      @lines ||= {}
+      @lines[mapping.rpc_name] ||= {}
+      @lines[mapping.rpc_name][key.to_s] = Array(lines)
+    end
+
     # Seed a keyed collection — different keys return different result sets.
     # Unlike seed_collection (one set for all keys), this stores per-key arrays.
     def seed_keyed_collection(mapping_name, key, attrs_list)

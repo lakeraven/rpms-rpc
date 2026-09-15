@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "registration"
+require_relative "../phi_sanitizer"
 
 module RpmsRpc
   # Symbolic API for patient data. Engine code calls these methods
@@ -22,6 +23,42 @@ module RpmsRpc
 
     def search(name_pattern)
       DataMapper.patient_list.fetch_many(name_pattern.to_s, "1")
+    end
+
+    # AGG LOOKUP PATIENTS — the IHS division-aware lookup (FND^AGGPTLKP).
+    #
+    # Prefer this over #search on a multi-divisional RPMS: stock
+    # ORWPT LIST ALL has no division screen, so it returns patients from
+    # every division to a user scoped to one.
+    #
+    #   all_divisions:    search beyond the caller's division (ALL)
+    #   include_inactive: include patients inactive at the division (INAC)
+    #   type:             search type code; "" searches all cross-references
+    #
+    # AGGPTLKP has NO result-limit parameter. A limit passed positionally
+    # would land on ALL or INAC and silently widen the search instead of
+    # narrowing it, so it is refused rather than accepted and ignored.
+    #
+    # SSN is masked on the wire to "XXX-XX-nnnn" when the caller lacks the
+    # AGZVIEWSSN security key (AGGPTLKP.m:124). That is a redaction, not an
+    # identifier — it is returned as ssn: nil with ssn_masked: true so a
+    # caller cannot persist it as though it were an SSN.
+    def lookup(text, type: "", all_divisions: false, include_inactive: false, **opts)
+      if opts.key?(:limit)
+        raise ArgumentError,
+              "AGG LOOKUP PATIENTS has no result-limit parameter; a limit " \
+              "passed positionally sets ALL or INAC and widens the search"
+      end
+      raise ArgumentError, "search text is required" if text.to_s.strip.empty?
+
+      rows = DataMapper.patient_lookup_agg.fetch_many(
+        text.to_s,
+        type.to_s,
+        all_divisions ? "1" : "",
+        include_inactive ? "1" : ""
+      )
+
+      rows.map { |row| normalize_lookup_row(row) }
     end
 
     def find_by_ssn(ssn)
@@ -105,6 +142,38 @@ module RpmsRpc
     # Default is `nil` (not `Date.today`) so the nil-DOB guard runs before
     # touching the Date constant, keeping the helper safe even if `Date`
     # hasn't been required by the caller.
+    # Masked-SSN shape from AGGPTLKP.m:124 (LST) and :194 (LST2). LST2 omits
+    # LST's SSN'="" guard, so a patient with no SSN comes back as the bare
+    # prefix "XXX-XX-" with no digits — both forms are redactions.
+    MASKED_SSN = /\AXXX-XX-\d*\z/
+
+    def normalize_lookup_row(row)
+      dfn = row[:dfn_raw].to_s.strip
+      unless dfn.match?(/\A\d+\z/)
+        raise Client::RpcError,
+              "AGG LOOKUP PATIENTS returned a non-numeric DFN (#{PhiSanitizer.sanitize_message(dfn)}) " \
+              "— an M error arriving as a data row, not a patient"
+      end
+
+      ssn = row[:ssn_raw].to_s.strip
+      masked = ssn.match?(MASKED_SSN)
+
+      {
+        dfn: dfn.to_i,
+        name: row[:name],
+        hrn: row[:hrn],
+        ssn: (masked || ssn.empty?) ? nil : ssn,
+        ssn_masked: masked,
+        dob: row[:dob],
+        dod: row[:dod],
+        sens_flag: row[:sens_flag],
+        alias: row[:alias],
+        inactive: row[:inactive_raw].to_s.strip.upcase == "Y",
+        community: row[:community],
+        mothers_maiden_name: row[:mothers_maiden_name]
+      }
+    end
+
     def age_from(dob, today: nil)
       return nil if dob.nil?
       today ||= Date.today
