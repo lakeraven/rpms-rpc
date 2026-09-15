@@ -1623,5 +1623,40 @@ module RpmsRpc
       m.field 1, :contributing_factor
       m.field 2, :if_other
     end
+
+    # ========================================================================
+    # PATIENT REGISTRATION GUI (AGG*)
+    # ========================================================================
+
+    # AGG LOOKUP PATIENTS — FND^AGGPTLKP. The IHS division-aware patient
+    # lookup: unlike stock ORWPT LIST ALL it screens on the calling user's
+    # division via ^AUPNPAT(DFN,41,DUZ(2)) and knows about inactive patients.
+    #
+    # Caller parameters (AGGPTLKP.m:7, FND(DATA,TEXT,TYPE,ALL,INAC)):
+    #   1 TEXT - search text          2 TYPE - search type code, "" = all xrefs
+    #   3 ALL  - "1" = all divisions  4 INAC - "1" = include inactive
+    # There is no result-limit parameter; see RpmsRpc::Patient.lookup.
+    #
+    # Typed header (AGGPTLKP.m:174), rows per AGGPTLKP.m:208:
+    #   DFN^PATIENT_NAME^HRN^SSN^DOB^DOD^SENS_FLAG^ALIAS^INACTIVE
+    # COMM and MOMDN are appended only when the facility's community-display
+    # flag is "Y" AND ALL=1 (AGGPTLKP.m:175).
+    #
+    # :dfn_raw is deliberately a string — an M error can arrive as a data row,
+    # and :integer coercion would turn "M ERROR" into a plausible-looking 0.
+    DataMapper.define(:patient_lookup_agg) do |m|
+      m.rpc "AGG LOOKUP PATIENTS"
+      m.field 0,  :dfn_raw
+      m.field 1,  :name
+      m.field 2,  :hrn
+      m.field 3,  :ssn_raw
+      m.field 4,  :dob
+      m.field 5,  :dod
+      m.field 6,  :sens_flag
+      m.field 7,  :alias
+      m.field 8,  :inactive_raw
+      m.field 9,  :community
+      m.field 10, :mothers_maiden_name
+    end
   end
 end
