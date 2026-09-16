@@ -48,7 +48,22 @@ module RpmsRpc
 
     # Shared constants
     EOT = "\x04"        # frame terminator for XWB ([XWB]1130) and BMX ({BMX})
-    EOD = "\x1e"        # frame terminator for CIA ({CIA}, CIANBLIS)
+    # Frame terminator for CIA ({CIA}, CIANBLIS). The client DECLARES it as
+    # header byte 6 and the broker adopts it (CIA("EOD")=$A(X,6), CIANBLIS.m:128);
+    # TCPREADL then ends the field list the instant a field's L() length-prefix
+    # HEADER byte equals it (`Q:X=CIA("EOD")`, CIANBLIS.m:233). That header is
+    # `(quotient_byte_count << 4) | (len % 16)`, so its high nibble is the number
+    # of length bytes the value needs (0-2 under 1 MB, <=4 under 4 GB). The
+    # terminator MUST therefore have a high nibble no field header can reach:
+    # \x7f (DEL, high nibble 7) would require a >= 2**52-byte value — impossible —
+    # so no L()-packed field can ever collide with it. The old \x1e (high nibble
+    # 1) collided with every value whose length was 14 mod 16 in 16..4095 bytes
+    # (a 30-byte list value packs header \x1e), truncating the frame mid-field
+    # and dropping the session on the second DDR FILER (rpms-rpc#241). DEL also
+    # never appears in RPMS ASCII reply text, so reply framing is unaffected —
+    # and the type-4 GLOBAL ARRAY reply's internal \x1e (RS) separators no longer
+    # collide with the terminator either.
+    EOD = "\x7f"
     RECV_SIZE = 4096
     DEFAULT_TIMEOUT = 30 # seconds
 
