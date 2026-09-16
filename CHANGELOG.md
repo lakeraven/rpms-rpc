@@ -312,7 +312,7 @@ kept compatible.
 
 ## [0.1.0] — 2026-04-07
 
-Initial release. Pure Ruby RPC client extracted from `rpms_redux`.
+Initial release. Pure Ruby RPC client extracted from the predecessor Rails app.
 
 ### Added
 
