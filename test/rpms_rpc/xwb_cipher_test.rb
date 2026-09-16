@@ -53,4 +53,34 @@ class XwbCipherTest < Minitest::Test
     assert_equal "HELLO", RpmsRpc::XwbCipher.decrypt(encrypted)
     assert_equal RpmsRpc::XwbCipher::TABLE, RpmsRpc::Client::CIPHER_TABLE
   end
+
+  # GATE for the BMX one-parameter guarantee (and the CVC "^"-joined framing
+  # on every transport): ciphertext of a caret-free plaintext can NEVER
+  # contain "^", because
+  #   * every TABLE row is exactly the 95 printable ASCII characters MINUS
+  #     "^" — the one printable deliberately absent from all twenty rows
+  #     (its absence is what makes "^" safe as the protocol delimiter), and
+  #   * the two framing bytes are chr(row + 32) for rows 0..19, i.e.
+  #     " ".."3" — all below "^" (94).
+  # If either property is ever broken, encrypted values would split on the
+  # BMX caret-join and inside CVC's caret-framed triple.
+  def test_cipher_output_alphabet_excludes_the_protocol_delimiter
+    printables_minus_caret = ((32..126).map(&:chr) - [ "^" ])
+
+    RpmsRpc::XwbCipher::TABLE.each_with_index do |row, i|
+      assert_equal printables_minus_caret.sort, row.chars.sort,
+        "TABLE row #{i} is not the 95 printables minus '^' — encrypted " \
+        "values could now contain (or fail to cover) the protocol delimiter"
+    end
+
+    100.times do
+      plaintext = "PROV#{rand(10_000)};VC#{rand(10_000)}!*"
+      refute_includes RpmsRpc::XwbCipher.encrypt(plaintext), "^"
+    end
+
+    # The converse, documented: "^" in the PLAINTEXT passes through (it is in
+    # no row, so substitution skips it). Valid access/verify codes exclude
+    # "^" (AVHLPTXT^XUS2); BmxClient rejects caret-bearing params anyway.
+    assert_includes RpmsRpc::XwbCipher.encrypt("A^B"), "^"
+  end
 end

@@ -127,13 +127,34 @@ module RpmsRpc
     # multi-line / list params (the broker convention RPCs like BEHOVM
     # SAVE require). Reject Arrays and Hashes up front rather than
     # silently stringifying them to a Ruby Array literal on the wire.
+    #
+    # A "^" INSIDE a scalar cannot cross either: PRSA^BMXMBRK (BMXMBRK.m:
+    # 69-70) treats the caret as STRUCTURAL — everything after the first one
+    # is the parameter string — and the protocol has no escape for it, so a
+    # caret-bearing value is indistinguishable on the wire from extra
+    # parameters. XUS CVC's payload (three ciphertexts joined with "^" for
+    # CVC^XUSRB to split server-side) would silently split and the RPC would
+    # run on a fragment; fail LOUD instead. The encrypted AV pair is safe by
+    # construction — XwbCipher's alphabet excludes "^" (every table row is
+    # the 95 printables minus "^"; framing bytes are chr(32..51)) — and this
+    # guard also catches the pathological caret-bearing plaintext, which the
+    # cipher passes through untranslated.
     def reject_unsupported_params(params)
       params.each_with_index do |p, i|
-        next unless p.is_a?(Array) || p.is_a?(Hash)
-        raise NotImplementedError,
-              "BMX client does not yet support list/hash parameters " \
-              "(param ##{i + 1} is #{p.class}). Use XwbClient/CiaClient for RPCs " \
-              "with multi-line payloads (e.g. BEHOVM SAVE)."
+        if p.is_a?(Array) || p.is_a?(Hash)
+          raise NotImplementedError,
+                "BMX client does not yet support list/hash parameters " \
+                "(param ##{i + 1} is #{p.class}). Use XwbClient/CiaClient for RPCs " \
+                "with multi-line payloads (e.g. BEHOVM SAVE)."
+        end
+        if p.to_s.include?("^")
+          raise NotImplementedError,
+                "BMX cannot carry '^' inside a parameter (param ##{i + 1}): the " \
+                "wire joins parameters with '^' and has no escape, so the value " \
+                "would silently split into multiple broker parameters. Use " \
+                "XwbClient/CiaClient, whose length-prefixed framing carries '^' " \
+                "byte-safely (required for XUS CVC's caret-joined payload)."
+        end
       end
     end
 
