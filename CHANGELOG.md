@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1]
+
+### Fixed — CIA frame terminator no longer collides with an L() length prefix (#241)
+
+- The `{CIA}` frame terminator moved from `\x1e` to `\x7f` (DEL). The client
+  declares the terminator as frame header byte 6 and the broker adopts it
+  (`CIA("EOD")=$A(X,6)`, CIANBLIS.m:128); `TCPREADL` ends the field list the
+  instant a field's L() length-prefix HEADER byte equals it
+  (`Q:X=CIA("EOD")`, CIANBLIS.m:233). That header is
+  `(quotient_byte_count << 4) | (len % 16)`, so `\x1e` (high nibble 1) collided
+  with every value whose byte length was `14 mod 16` in the 16..4095 range — a
+  30-byte list-param value packs header `\x1e`. Over the wire this truncated the
+  frame mid-field and the broker dropped the session, so a registration round
+  trip died on its SECOND `DDR FILER` ("Connection closed by server") while the
+  identical `FILEC^DDR3` succeeded in-process. `\x7f` (high nibble 7) would
+  require a `>= 2**52`-byte value to appear as a header, so no L()-packed field
+  can ever collide with it; DEL is also absent from RPMS ASCII reply text.
+- The `StrictCiaBrokerSocket` test double now models `TCPREADL`'s
+  terminate-on-`EOD`-header behaviour, so the two-FILER drop reproduces at the
+  unit level (it previously could not express the failure).
+- Corrected the call sites that documented `RS == the CIA EOD` as a standing
+  wire fact: `Agg::RECORD_SEP`, `Patient::LOOKUP_RECORD_SEP`,
+  `CiaClient::AGG_ARRAY_END`, `CiaClient#call_rpc_global_array`,
+  `Client#read_until_raw` and `MockClient#truncate_at_eod`. The record
+  separator stays `\x1e`; only the terminator moved, so those comments would
+  otherwise assert a collision this change removes. `call_rpc_global_array`
+  remains the correct read for type-4 replies — it frames on the `$C(31)`
+  sentinel rather than relying on the terminator not colliding.
+
 ## [Unreleased]
 
 ### Added — the gate can see line-based mappings at all (#190)
