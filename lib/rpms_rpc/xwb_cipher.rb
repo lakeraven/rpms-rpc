@@ -55,6 +55,25 @@ module RpmsRpc
       result + (rb + 32).chr
     end
 
+    # Whether `value` is framed as ciphertext this module produced: the first
+    # and last bytes name the two cipher rows, and #encrypt never picks the
+    # same row twice.
+    #
+    # This is a FRAMING check, not a proof of encryption — the cipher carries
+    # no integrity tag, so a cleartext string whose first and last bytes happen
+    # to land in the row range (32..51, i.e. space through "3") frames as
+    # valid and decrypts to garbage. That is exactly what the broker does with
+    # it too, so callers treating a framing failure as "this was never
+    # encrypted" are strictly safer than the server, never looser.
+    def framed?(value)
+      s = value.to_s
+      return false if s.length < 2
+
+      ra = s[0].ord - 32
+      rb = s[-1].ord - 32
+      (0..19).cover?(ra) && (0..19).cover?(rb) && ra != rb
+    end
+
     # Decrypt a value produced by #encrypt (matches $$DECRYP^XUSRB1).
     # Used in tests to round-trip-verify outgoing encrypted params.
     def decrypt(ciphertext)

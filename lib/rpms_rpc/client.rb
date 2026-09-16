@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "socket"
+require "monitor"
 require "rpms_rpc/parameter_encoder"
 require "rpms_rpc/xml_response_parser"
 require "rpms_rpc/server_capabilities"
@@ -66,6 +67,72 @@ module RpmsRpc
       @connected = false
       @authenticated = false
       @duz = nil
+      @wire_lock = Monitor.new
+    end
+
+    # Serializes the send-then-read pair on this client's socket.
+    #
+    # The broker speaks a bare request/response stream with NO per-message
+    # correlation id: whoever reads next gets whatever the socket has. Two
+    # threads sharing one client therefore swap replies — and since
+    # `RpmsRpc.client` is process-global, "two threads" is "two clinicians
+    # signing on at once", each minted from the other's DUZ, role and
+    # security keys.
+    #
+    # Reentrant (Monitor), so a multi-RPC sequence can hold the lock across
+    # its own nested calls.
+    #
+    # RESIDUAL LIMIT — this makes a request/response pair atomic. It does NOT
+    # give each user their own broker session: one process-global client holds
+    # ONE authenticated RPMS identity, so a later sign-on still re-binds the
+    # shared session away from an earlier one. Per-session or pooled clients
+    # are the real fix — see rpms-rpc#234.
+    def synchronize_wire(&block)
+      @wire_lock.synchronize(&block)
+    end
+
+    # Run one send-then-read pair as an atomic wire operation.
+    #
+    # A lock around the write and the read is not enough on its own. THREE
+    # more things have to happen inside it, each of which leaked across
+    # callers when it did not:
+    #
+    #   * The connection re-check. Passing `connected?` before blocking on the
+    #     monitor proves nothing — the caller ahead may have timed out and torn
+    #     the socket down while this one waited.
+    #   * Building the frame. A frame assembled from @session_uid or the bound
+    #     context BEFORE the lock carries state a sign-on has since replaced,
+    #     and gets sent anyway. Pass a builder block, not built fields.
+    #   * Timeout cleanup. A read that times out leaves the reply IN FLIGHT and
+    #     the stream desynchronized; the next caller would read it as its own.
+    #     The socket is closed before the lock is released, so there is no
+    #     window in which anyone can pick it up.
+    def wire_operation(require_connection: true)
+      synchronize_wire do
+        raise ConnectionError, "Not connected" if require_connection && !connected?
+
+        begin
+          yield
+        rescue TimeoutError
+          # Desynchronized: the peer may still answer. Nobody may reuse this
+          # socket, so it does not survive the lock.
+          reset_connection
+          raise
+        rescue ConnectionError
+          # Already typed by a lower layer — but the teardown still happens
+          # HERE, inside the lock, so the socket cannot be left half-dead
+          # (or torn down later by an unlocked recovery path).
+          reset_connection
+          raise
+        rescue SystemCallError, IOError => e
+          # A mid-write EPIPE/ECONNRESET (CIA writes its frame directly to
+          # the socket) must not propagate raw and leave @connected lying:
+          # type it, and tear the connection down under the lock.
+          reset_connection
+          raise ConnectionError,
+                "Connection lost mid-operation: #{RpmsRpc.sanitize_error(e.message)}"
+        end
+      end
     end
 
     # -- subclass contract ----------------------------------------------------
@@ -88,6 +155,20 @@ module RpmsRpc
 
     def read_response
       raise NotImplementedError, "#{self.class} must implement #read_response"
+    end
+
+    # Reply LINES, per this transport's reply grammar.
+    #
+    # Line-positional consumers (DataMapper#line_field mappings) must read
+    # through this, never through call_rpc: a transport whose call_rpc
+    # returns a String (CIA returns a printable String with the line
+    # separators flattened to spaces) would be indexed CHARACTER by
+    # character — a reply beginning with sequence echo "2" + ACK parses as
+    # DUZ 2, error 0, success: a plausible WRONG identity. Transports whose
+    # reply grammar is not "an array of lines already" override this.
+    def call_rpc_lines(rpc_name, *params)
+      reply = call_rpc(rpc_name, *params)
+      reply.is_a?(Array) ? reply : split_response(reply.to_s.dup)
     end
 
     # -- connection state -----------------------------------------------------
@@ -136,27 +217,34 @@ module RpmsRpc
 
       ac, vc = resolve_credentials(access_code, verify_code)
 
-      # Step 1: XUS SIGNON SETUP
-      signon_setup
+      # SETUP and AV CODE are one indivisible sequence: they establish the
+      # broker session identity every later RPC on this client rides. A
+      # concurrent sign-on landing between them re-binds that identity.
+      # SETUP, AV CODE **and the commit of the resulting identity** are one
+      # indivisible sequence. Committing @duz after releasing the lock let a
+      # sign-on that had already been superseded write its DUZ over the live
+      # one: the client believed it was 301 while the broker session was 302.
+      synchronize_wire do
+        signon_setup # Step 1: XUS SIGNON SETUP
 
-      # Step 2: XUS AV CODE with encrypted credentials
-      av_encrypted = xwb_encrypt("#{ac};#{vc}")
-      reply = call_rpc_raw("XUS AV CODE", av_encrypted)
+        # Step 2: XUS AV CODE with encrypted credentials
+        reply = call_rpc_raw("XUS AV CODE", xwb_encrypt("#{ac};#{vc}"))
 
-      lines = reply.split("\r\n")
-      lines = reply.split("\n") if lines.length <= 1
-      duz_str = lines[0]&.strip || "0"
+        lines = reply.split("\r\n")
+        lines = reply.split("\n") if lines.length <= 1
+        duz_str = lines[0]&.strip || "0"
 
-      if duz_str == "0" || duz_str.empty?
-        err_msg = lines[3]&.strip if lines.length > 3
-        raise AuthenticationError, RpmsRpc.sanitize_error(
-          err_msg.nil? || err_msg.empty? ? "Authentication failed" : err_msg
-        )
+        if duz_str == "0" || duz_str.empty?
+          err_msg = lines[3]&.strip if lines.length > 3
+          raise AuthenticationError, RpmsRpc.sanitize_error(
+            err_msg.nil? || err_msg.empty? ? "Authentication failed" : err_msg
+          )
+        end
+
+        @authenticated = true
+        @duz = duz_str
+        { success: true, duz: duz_str.to_i }
       end
-
-      @authenticated = true
-      @duz = duz_str
-      { success: true, duz: duz_str.to_i }
     end
 
     # Whether the Broker behind this client can service `feature`.
@@ -173,25 +261,34 @@ module RpmsRpc
       @capability_cache[feature] = ServerCapabilities.probe(self, feature)
     end
 
-    # Set application context (required before calling most RPCs)
+    # Set application context (required before calling most RPCs).
+    #
+    # Bind and commit are ONE unit under the wire lock. Committing
+    # @current_context after the lock released let a bind that had already
+    # been superseded overwrite the live one: client state and the broker's
+    # bound option then disagreed, and a later with_context for the stale
+    # name saw a match and SKIPPED the rebind — RPCs ran under the other
+    # thread's option. Same defect class as committing @duz after the lock.
     def create_context(option_name = "OR CPRS GUI CHART")
-      raise ConnectionError, "Not connected" unless connected?
-      raise AuthenticationError, "Not authenticated" unless authenticated?
+      synchronize_wire do
+        raise ConnectionError, "Not connected" unless connected?
+        raise AuthenticationError, "Not authenticated" unless authenticated?
 
-      encrypted = xwb_encrypt(option_name)
-      reply = call_rpc_raw("XWB CREATE CONTEXT", encrypted)
+        encrypted = xwb_encrypt(option_name)
+        reply = call_rpc_raw("XWB CREATE CONTEXT", encrypted)
 
-      unless reply&.strip == "1"
-        raise RpcError, RpmsRpc.sanitize_error(
-          "Failed to create context '#{option_name}': #{reply}"
-        )
+        unless reply&.strip == "1"
+          raise RpcError, RpmsRpc.sanitize_error(
+            "Failed to create context '#{option_name}': #{reply}"
+          )
+        end
+
+        # RPC registration is OPTION-scoped; capabilities probed under the
+        # previous context may not hold under the new one.
+        @capability_cache = nil
+        @current_context = option_name # ContextScope — lets APIs scope + restore
+        true
       end
-
-      # RPC registration is OPTION-scoped; capabilities probed under the
-      # previous context may not hold under the new one.
-      @capability_cache = nil
-      @current_context = option_name # ContextScope — lets APIs scope + restore
-      true
     end
 
     # -- credential resolution ------------------------------------------------
@@ -286,9 +383,11 @@ module RpmsRpc
       end
     end
 
-    # Read until EOT marker (compatibility alias)
+    # Read until EOT marker (compatibility alias).
+    # Synchronized: an unlocked public read consumes whatever reply is in
+    # flight on the socket — another caller's.
     def read_until_eot
-      read_response
+      synchronize_wire { read_response }
     end
 
     # Get local IP address
@@ -393,7 +492,11 @@ module RpmsRpc
 
       chunks.join
     rescue IO::TimeoutError => e
-      raise ConnectionError, "Connection timeout: #{e.message}"
+      # A timeout, not generic connection loss: it must reach the timeout
+      # teardown in wire_operation, or the desynchronized socket stays open
+      # and the next caller reads the abandoned reply as its own.
+      @connected = false
+      raise TimeoutError, "RPC read timed out: #{e.message}"
     rescue IOError => e
       @connected = false
       raise ConnectionError, "Connection lost - stream closed: #{e.message}"

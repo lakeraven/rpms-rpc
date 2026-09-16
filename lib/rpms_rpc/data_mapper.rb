@@ -199,6 +199,12 @@ module RpmsRpc
       def parse_lines(response, extras: {})
         return nil if response.nil? || response.empty?
 
+        # NEVER index a String by field position — String#[] returns
+        # CHARACTERS, so a raw reply would parse framing bytes as fields.
+        # A String here is split into lines; transports with a richer reply
+        # grammar must pre-split via Client#call_rpc_lines.
+        response = response.split(/\r\n|\r|\n/) if response.is_a?(String)
+
         result = {}
         (@line_fields || []).each do |f|
           raw = response[f.position]
@@ -285,7 +291,16 @@ module RpmsRpc
       end
 
       def fetch_lines(*params, extras: {})
-        response = RpmsRpc.client.call_rpc(rpc_name, *params)
+        client = RpmsRpc.client
+        # Line-positional parsing needs LINES, split by the transport's own
+        # reply grammar. call_rpc is not that on every transport: CIA's
+        # returns a printable String, which parse_lines would read character
+        # by character (sequence echo "2" + ACK -> DUZ 2, error 0, success).
+        response = if client.respond_to?(:call_rpc_lines)
+          client.call_rpc_lines(rpc_name, *params)
+        else
+          client.call_rpc(rpc_name, *params)
+        end
         return nil if response.nil? || response.empty?
 
         parse_lines(response, extras: extras)

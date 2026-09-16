@@ -43,23 +43,42 @@ module RpmsRpc
     # Either way `current_context` keeps naming the option actually bound, so
     # the next scope re-binds from a truthful starting point rather than
     # assuming.
-    def with_context(option_name)
-      return yield if current_context == option_name
+    # Held under the client's wire lock for its WHOLE duration, bind through
+    # restore. The bound option is per-session state that the broker consults
+    # on every frame, so a scope that only locked its individual calls let
+    # another thread re-bind between this one's bind and its call: the RPC —
+    # or a capability probe inside it — then ran under the wrong option, and
+    # the broker's truthful "not runnable here" is indistinguishable from
+    # "not installed".
+    #
+    # This serializes scoped workflows against each other. That is the honest
+    # cost of one session holding one context; per-session clients (#234) are
+    # what removes it.
+    def with_context(option_name, &block)
+      synchronize_context do
+        next block.call if current_context == option_name
 
-      previous = current_context
-      if previous.nil?
-        warn "[rpms_rpc] binding context #{option_name.inspect} on a session " \
-             "with no declared context — it cannot be restored afterward"
-      end
-      create_context(option_name)
-      begin
-        yield
-      ensure
-        restore_context(previous, option_name)
+        previous = current_context
+        if previous.nil?
+          warn "[rpms_rpc] binding context #{option_name.inspect} on a session " \
+               "with no declared context — it cannot be restored afterward"
+        end
+        create_context(option_name)
+        begin
+          block.call
+        ensure
+          restore_context(previous, option_name)
+        end
       end
     end
 
     private
+
+    # Clients carry the wire lock; anything else that mixes in ContextScope
+    # (or a stand-in in a test) simply runs the block.
+    def synchronize_context(&block)
+      respond_to?(:synchronize_wire) ? synchronize_wire(&block) : block.call
+    end
 
     def restore_context(previous, scoped)
       return if previous.nil? || previous == scoped

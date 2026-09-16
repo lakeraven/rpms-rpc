@@ -689,7 +689,11 @@ module RpmsRpc
     DataMapper.define(:av_code) do |m|
       m.rpc "XUS AV CODE"
       m.line_field 0, :duz, :integer
-      m.line_field 1, :error_code, :integer
+      # RAW, not :integer: " ".to_i == 0, so integer coercion read a
+      # whitespace-only error line as a zero-error SUCCESS. The consumer
+      # (Authentication#parse_auth_response) requires this line to be
+      # actually numeric before it converts.
+      m.line_field 1, :error_code
       m.line_field 2, :verify_needs_change, :integer
       m.line_field 3, :message
       m.line_field 5, :user_class, :integer

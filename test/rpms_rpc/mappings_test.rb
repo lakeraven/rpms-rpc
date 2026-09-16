@@ -312,7 +312,9 @@ class RpmsRpc::MappingsTest < Minitest::Test
     m = RpmsRpc::DataMapper[:av_code]
     result = m.parse_lines([ "101", "0", "0", "Welcome to RPMS", "", "3" ])
     assert_equal 101, result[:duz]
-    assert_equal 0, result[:error_code]
+    # error_code stays RAW: the facade requires it numeric before converting
+    # (" ".to_i == 0 would otherwise read a blank line as a zero-error success)
+    assert_equal "0", result[:error_code]
     assert_equal 0, result[:verify_needs_change]
     assert_equal "Welcome to RPMS", result[:message]
     assert_equal 3, result[:user_class]
@@ -322,7 +324,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
     m = RpmsRpc::DataMapper[:av_code]
     result = m.parse_lines([ "0", "1", "0", "Not a valid ACCESS CODE/VERIFY CODE pair.", "", "" ])
     assert_equal 0, result[:duz]
-    assert_equal 1, result[:error_code]
+    assert_equal "1", result[:error_code]
     assert_equal "Not a valid ACCESS CODE/VERIFY CODE pair.", result[:message]
   end
 

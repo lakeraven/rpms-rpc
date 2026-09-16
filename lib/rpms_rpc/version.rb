@@ -1,11 +1,19 @@
 # frozen_string_literal: true
 
+require "monitor"
+
 require_relative "security_keys"
 require_relative "user_roles"
 require_relative "capabilities"
 
 module RpmsRpc
-  VERSION = "0.2.0"
+  VERSION = "0.3.0"
+
+  # Process-wide fallback wire lock. Used ONLY when the configured client does
+  # not define its own #synchronize_wire — see RpmsRpc.synchronize_wire. A
+  # client that cannot serialize its own wire must still be serialized coarsely
+  # rather than run unlocked.
+  MODULE_WIRE_LOCK = Monitor.new
 
   class NotConfiguredError < StandardError; end
 
@@ -50,6 +58,33 @@ module RpmsRpc
 
     def reset!
       @configuration = Configuration.new
+    end
+
+    # Run `block` with exclusive use of the shared broker client.
+    #
+    # `RpmsRpc.client` is ONE process-global object over a bare
+    # request/response socket with no per-message correlation id, so two
+    # threads calling through it can consume each other's replies. Any caller
+    # whose correctness spans more than one RPC — above all sign-on, which
+    # reads back the identity everything downstream is authorized as — must
+    # hold this lock for the whole sequence.
+    #
+    # Reentrant: nested synchronize_wire calls (and the per-call locking the
+    # transports do internally) do not deadlock.
+    #
+    # FAIL CLOSED. A client that does not define #synchronize_wire (a wrapper
+    # or delegator that only forwards the RPC surface) is NOT yielded to
+    # unlocked: post-0.3.0 this module method always exists, so a consumer's
+    # `respond_to?(:synchronize_wire)` guard is vacuously true and its own
+    # fallback lock is dead code — yielding unlocked here would then be a
+    # SILENT miss, weaker than the pre-0.3.0 world where the absence was
+    # visible. Fall back to a process-wide lock so a non-conforming client is
+    # still serialized.
+    def synchronize_wire(&block)
+      c = client
+      return c.synchronize_wire(&block) if c.respond_to?(:synchronize_wire)
+
+      MODULE_WIRE_LOCK.synchronize(&block)
     end
 
     # Scrub PHI patterns from `message` before it propagates to a host

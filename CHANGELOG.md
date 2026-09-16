@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — sign-on encryption and an atomic wire (#235)
+
+- **`RpmsRpc.synchronize_wire` / `Client#synchronize_wire`** — reentrant lock
+  serializing every request/reply pair (and multi-RPC sequences such as
+  sign-on) on the shared broker client. New public API: consumers pinning the
+  gem need `>= 0.3.0` for it to exist.
+- **`Client#call_rpc_lines`** — reply LINES per each transport's reply
+  grammar. Line-positional consumers (`DataMapper#line_field`) read through
+  it; handing CIA's printable String to a line parser read framing bytes as
+  fields (sequence echo `"2"` + ACK parsed as DUZ 2 / error 0 / success).
+
+### Fixed
+
+- `XUS AV CODE` / `XUS CVC` now cross the wire encrypted, per-RPC per the M
+  source (`VALIDAV^XUSRB` decrypts the whole parameter; `CVC^XUSRB` splits on
+  `^` first).
+- Every failure path stays inside the wire lock: mid-write drops are typed
+  `ConnectionError`s with the socket torn down, `IO::TimeoutError` gets the
+  timeout teardown, CIA post-timeout recovery no longer resets a connection
+  it no longer owns, `create_context` commits under the lock, and public
+  receive methods can no longer consume another caller's in-flight reply.
+
 ### Fixed — AGG delegation never fired: the gate was asked in the wrong context (#225)
 
 `Registration.register` gated delegation on `Agg.available?`, but **nothing on

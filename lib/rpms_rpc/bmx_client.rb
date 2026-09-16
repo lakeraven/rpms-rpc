@@ -18,36 +18,43 @@ module RpmsRpc
   class BmxClient < Client
     BMX_PREFIX = "{BMX}"
 
-    # Connect to RPMS BMX Broker
+    # Connect to RPMS BMX Broker.
+    # Synchronized: a reconnect that replaces @socket while another caller is
+    # mid-read hands that caller a stream it never wrote to.
     def connect(host = @host, port = @port)
-      open_socket(host, port)
+      synchronize_wire do
+        open_socket(host, port)
 
-      # BMX handshake: {BMX}LLLLL + TCPconnect
-      body = "TCPconnect"
-      send_bmx_packet(body)
-      response = read_response
+        # BMX handshake: {BMX}LLLLL + TCPconnect
+        send_bmx_packet("TCPconnect")
+        response = read_response
 
-      if response.include?("accept") || response.include?("CONNECTION OK")
-        @connected = true
-      else
-        @socket&.close
-        @socket = nil
-        raise ConnectionError, RpmsRpc.sanitize_error("BMX server rejected handshake: #{response}")
+        if response.include?("accept") || response.include?("CONNECTION OK")
+          @connected = true
+        else
+          @socket&.close
+          @socket = nil
+          raise ConnectionError, RpmsRpc.sanitize_error("BMX server rejected handshake: #{response}")
+        end
+
+        @connected
       end
-
-      @connected
     end
 
     # Disconnect from RPMS BMX Broker
+    # Synchronized: an unsynchronized teardown injects #BYE# into, or closes the
+    # socket under, another caller's in-flight RPC.
     def disconnect
-      if connected?
-        begin
-          send_bmx_session_packet("#BYE#")
-        rescue StandardError
-          # Best effort disconnect
+      synchronize_wire do
+        if connected?
+          begin
+            send_bmx_session_packet("#BYE#")
+          rescue StandardError
+            # Best effort disconnect
+          end
         end
+        reset_connection
       end
-      reset_connection
     end
 
     # Call an RPC via BMX protocol
@@ -55,14 +62,14 @@ module RpmsRpc
       raise ConnectionError, "Not connected" unless connected?
 
       reject_unsupported_params(params)
-      param_string = params.map(&:to_s).join("^")
-      api_content = rpc_name
-      api_content += "^" + param_string unless param_string.empty?
 
-      message = build_bmx_message(api_content)
-      send_bmx_session_packet(message)
-
-      response = read_response
+      # Atomic send-then-read, with the frame built and the connection
+      # re-checked INSIDE the lock, and the socket torn down before release if
+      # the read times out. See Client#wire_operation.
+      response = wire_operation do
+        send_bmx_session_packet(build_bmx_message(bmx_api_content(rpc_name, params)))
+        read_response
+      end
       check_for_rpc_error(response)
       split_response(response)
     rescue IOError, Errno::ECONNRESET, Errno::EPIPE, Errno::ENOTCONN => e
@@ -80,13 +87,17 @@ module RpmsRpc
       raise ConnectionError, "Not connected" unless connected?
 
       reject_unsupported_params(params)
-      param_string = params.map(&:to_s).join("^")
-      api_content = rpc_name
-      api_content += "^" + param_string unless param_string.empty?
 
-      message = build_bmx_message(api_content)
-      send_bmx_session_packet(message)
-      read_response
+      wire_operation do
+        send_bmx_session_packet(build_bmx_message(bmx_api_content(rpc_name, params)))
+        read_response
+      end
+    end
+
+    # RPC name plus caret-joined params, the BMX API content line.
+    def bmx_api_content(rpc_name, params)
+      param_string = params.map(&:to_s).join("^")
+      param_string.empty? ? rpc_name : "#{rpc_name}^#{param_string}"
     end
 
     # -- packet construction (public for testing) -----------------------------
@@ -116,13 +127,34 @@ module RpmsRpc
     # multi-line / list params (the broker convention RPCs like BEHOVM
     # SAVE require). Reject Arrays and Hashes up front rather than
     # silently stringifying them to a Ruby Array literal on the wire.
+    #
+    # A "^" INSIDE a scalar cannot cross either: PRSA^BMXMBRK (BMXMBRK.m:
+    # 69-70) treats the caret as STRUCTURAL — everything after the first one
+    # is the parameter string — and the protocol has no escape for it, so a
+    # caret-bearing value is indistinguishable on the wire from extra
+    # parameters. XUS CVC's payload (three ciphertexts joined with "^" for
+    # CVC^XUSRB to split server-side) would silently split and the RPC would
+    # run on a fragment; fail LOUD instead. The encrypted AV pair is safe by
+    # construction — XwbCipher's alphabet excludes "^" (every table row is
+    # the 95 printables minus "^"; framing bytes are chr(32..51)) — and this
+    # guard also catches the pathological caret-bearing plaintext, which the
+    # cipher passes through untranslated.
     def reject_unsupported_params(params)
       params.each_with_index do |p, i|
-        next unless p.is_a?(Array) || p.is_a?(Hash)
-        raise NotImplementedError,
-              "BMX client does not yet support list/hash parameters " \
-              "(param ##{i + 1} is #{p.class}). Use XwbClient/CiaClient for RPCs " \
-              "with multi-line payloads (e.g. BEHOVM SAVE)."
+        if p.is_a?(Array) || p.is_a?(Hash)
+          raise NotImplementedError,
+                "BMX client does not yet support list/hash parameters " \
+                "(param ##{i + 1} is #{p.class}). Use XwbClient/CiaClient for RPCs " \
+                "with multi-line payloads (e.g. BEHOVM SAVE)."
+        end
+        if p.to_s.include?("^")
+          raise NotImplementedError,
+                "BMX cannot carry '^' inside a parameter (param ##{i + 1}): the " \
+                "wire joins parameters with '^' and has no escape, so the value " \
+                "would silently split into multiple broker parameters. Use " \
+                "XwbClient/CiaClient, whose length-prefixed framing carries '^' " \
+                "byte-safely (required for XUS CVC's caret-joined payload)."
+        end
       end
     end
 

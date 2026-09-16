@@ -31,23 +31,27 @@ module RpmsRpc
     def default_port = 9100
 
     # Open the socket and perform the {CIA} connect handshake.
+    # Synchronized: a reconnect that replaces @socket while another caller is
+    # mid-read hands that caller a stream it never wrote to.
     def connect(host = @host, port = @port)
-      open_socket(host, port) # base: sets @socket, raises ConnectionError on failure
-      @seq = 0
-      @session_uid = nil
-      reset_context # a new session starts on whatever sign-on binds
-      @uci = ENV.fetch("RPMS_UCI", "VEH,EXTERNAL")
-      reply = exchange("C", pk("VER"), pk(""), pk("2.0"),
-        pk("LP"), pk(""), pk(port.to_s),
-        pk("UCI"), pk(""), pk(@uci))
-      raise ConnectionError, RpmsRpc.sanitize_error("CIA broker did not answer connect") if reply.empty?
+      synchronize_wire do
+        open_socket(host, port) # base: sets @socket, raises ConnectionError on failure
+        @seq = 0
+        @session_uid = nil
+        reset_context # a new session starts on whatever sign-on binds
+        @uci = ENV.fetch("RPMS_UCI", "VEH,EXTERNAL")
+        reply = exchange("C", pk("VER"), pk(""), pk("2.0"),
+          pk("LP"), pk(""), pk(port.to_s),
+          pk("UCI"), pk(""), pk(@uci), require_connection: false)
+        raise ConnectionError, RpmsRpc.sanitize_error("CIA broker did not answer connect") if reply.empty?
 
-      @connected = true
-    rescue StandardError
-      # A failed handshake (empty reply, timeout, write error) must not leak
-      # the open socket or leave a half-initialized client behind a retry.
-      reset_connection # base: close socket, defined disconnected state
-      raise
+        @connected = true
+      rescue StandardError
+        # A failed handshake (empty reply, timeout, write error) must not leak
+        # the open socket or leave a half-initialized client behind a retry.
+        reset_connection # base: close socket, defined disconnected state
+        raise
+      end
     end
 
     # Sign on via CIANBRPC AUTH with a client-side-encrypted access;verify (AVC).
@@ -74,22 +78,29 @@ module RpmsRpc
 
       ac, vc = resolve_credentials(access_code, verify_code) # base
       avc = xwb_encrypt("#{ac};#{vc}") # base cipher — matches ENCRYP^XUSRB1
-      reply = exchange("R", pk("UID"), pk(""), pk("0"),
-        pk("RPC"), pk(""), pk("CIANBRPC AUTH"),
-        pk("1"), pk(""), pk(SIGNON_CONTEXT),
-        pk("4"), pk(""), pk(avc))
-      greeting = printable(reply)
-      unless greeting.match?(/signed on|Good (morning|afternoon|evening)/i)
-        raise AuthenticationError, RpmsRpc.sanitize_error("CIA sign-on rejected")
-      end
 
-      @authenticated = true
-      @signon_user = greeting[/\b([A-Z][A-Z.'-]*,[A-Z][A-Z.'-]*)/, 1]&.strip
-      uid = session_params(reply)[0]
-      @session_uid = uid if uid&.match?(/\A\d+\z/) # failure params are "server^volume^UCI^port"
-      @current_context = SIGNON_CONTEXT # ContextScope — AUTH bound it as the AID
-      @duz = printable(call_rpc_raw("CIANBRPC GETVAR", "DUZ"))[/\bDUZ=(\d+)/, 1]
-      { success: true, user: @signon_user, duz: @duz&.to_i, greeting: greeting.strip }
+      # AUTH and the GETVAR that reads back DUZ are one indivisible sequence:
+      # the broker stores DUZ into the session environment at sign-on, so a
+      # concurrent sign-on landing between them returns the OTHER clinician's
+      # DUZ to this caller.
+      synchronize_wire do
+        reply = exchange("R", pk("UID"), pk(""), pk("0"),
+          pk("RPC"), pk(""), pk("CIANBRPC AUTH"),
+          pk("1"), pk(""), pk(SIGNON_CONTEXT),
+          pk("4"), pk(""), pk(avc))
+        greeting = printable(reply)
+        unless greeting.match?(/signed on|Good (morning|afternoon|evening)/i)
+          raise AuthenticationError, RpmsRpc.sanitize_error("CIA sign-on rejected")
+        end
+
+        @authenticated = true
+        @signon_user = greeting[/\b([A-Z][A-Z.'-]*,[A-Z][A-Z.'-]*)/, 1]&.strip
+        uid = session_params(reply)[0]
+        @session_uid = uid if uid&.match?(/\A\d+\z/) # failure params are "server^volume^UCI^port"
+        @current_context = SIGNON_CONTEXT # ContextScope — AUTH bound it as the AID
+        @duz = printable(call_rpc_raw("CIANBRPC GETVAR", "DUZ"))[/\bDUZ=(\d+)/, 1]
+        { success: true, user: @signon_user, duz: @duz&.to_i, greeting: greeting.strip }
+      end
     end
 
     attr_reader :signon_user, :session_uid
@@ -113,16 +124,23 @@ module RpmsRpc
     # sign-on AID (:51) exactly as it does today.
     #
     # Pair with ContextScope#with_context to scope + restore (RpmsRpc::Agg).
+    # Synchronized even though it makes no wire call: @current_context drives
+    # the CTX field of every subsequent FRAME, so an unlocked bind lands
+    # inside another thread's held with_context scope and that thread's next
+    # RPC runs under the intruder's option. (Both gate seats found this
+    # independently.)
     def create_context(option_name = SIGNON_CONTEXT)
-      raise ConnectionError, "Not connected" unless connected?
-      raise AuthenticationError, "Not authenticated" unless authenticated?
+      synchronize_wire do
+        raise ConnectionError, "Not connected" unless connected?
+        raise AuthenticationError, "Not authenticated" unless authenticated?
 
-      @current_context = option_name
-      @context_bound = true # start naming CTX on every frame — see above
-      # RPC registration is OPTION-scoped; capabilities probed under the
-      # previous context may not hold under the new one.
-      @capability_cache = nil
-      true
+        @current_context = option_name
+        @context_bound = true # start naming CTX on every frame — see above
+        # RPC registration is OPTION-scoped; capabilities probed under the
+        # previous context may not hold under the new one.
+        @capability_cache = nil
+        true
+      end
     end
 
     # Call an RPC over the CIA broker, returning a printable (human-readable) response.
@@ -148,9 +166,19 @@ module RpmsRpc
     def call_rpc_raw(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
-      exchange("R", *rpc_frame_fields(rpc_name, params))
+      exchange("R") { rpc_frame_fields(rpc_name, params) }
     rescue TimeoutError
-      handle_rpc_timeout(rpc_name)
+      raise_rpc_timeout(rpc_name)
+    end
+
+    # Reply lines per the {CIA} reply grammar. Lines are split from the RAW
+    # reply because #call_rpc's printable() flattens the framing bytes to
+    # spaces: a line-positional parser handed THAT String reads characters as
+    # fields, minting the sequence echo into a DUZ. See #parse_cia_reply for
+    # the grammar and why a bare seq echo can never become a field.
+    def call_rpc_lines(rpc_name, *params)
+      body = parse_cia_reply(call_rpc_raw(rpc_name, *params))
+      body.split(/\r\n|\r|\n/).map { |line| printable(line) }
     end
 
     # Call an RPC whose broker return type is GLOBAL ARRAY (type 4) and read
@@ -164,18 +192,22 @@ module RpmsRpc
     def call_rpc_global_array(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
-      exchange("R", *rpc_frame_fields(rpc_name, params), terminator: AGG_ARRAY_END)
+      exchange("R", terminator: AGG_ARRAY_END) { rpc_frame_fields(rpc_name, params) }
     rescue TimeoutError
-      handle_rpc_timeout(rpc_name)
+      raise_rpc_timeout(rpc_name)
     end
 
+    # Synchronized: an unsynchronized teardown can close the socket, or inject
+    # its frame, in the middle of another caller's in-flight RPC.
     def disconnect
-      @session_uid = nil
-      reset_context
-      reset_connection # base: closes the socket and clears state
+      synchronize_wire do
+        reset_connection # closes the socket, clears state, session UID and context
+      end
     end
 
-    def read_response = read_until_raw(EOD) # Client contract; CIA terminator
+    # Client contract; CIA terminator. Synchronized: this is a PUBLIC read,
+    # and an unlocked public read consumes another caller's in-flight reply.
+    def read_response = synchronize_wire { read_until_raw(EOD) }
 
     private
 
@@ -202,11 +234,24 @@ module RpmsRpc
     # back unmodified. The sequence must therefore always be exactly one byte —
     # a counter that reaches 10 would put "1" in the sequence slot and "0" in
     # the action slot, corrupting every frame from the tenth on — so cycle 1..9.
-    def exchange(action, *fields, terminator: EOD)
-      @seq = @seq % 9 + 1
-      msg = ("{CIA}" + EOD + @seq.to_s + action + fields.join + EOD).b
-      @socket.write(msg)
-      read_until_raw(terminator) # base: shared read loop; CIA EOD, or AGG US sentinel
+    # Write a frame and read its reply, atomically (Client#wire_operation): the
+    # CIA stream carries no correlation id, so an unlocked send-then-read lets a
+    # concurrent caller consume this frame's reply — and @seq, which numbers the
+    # frames, is shared mutable state besides.
+    #
+    # Callers whose frame depends on SESSION STATE (@session_uid, the bound
+    # context) must pass a BLOCK rather than pre-built fields. Fields evaluated
+    # at the call site are assembled before the lock is acquired, so a frame
+    # queued behind a sign-on captures the UID and context the sign-on is about
+    # to replace, and then sends them anyway.
+    def exchange(action, *fields, terminator: EOD, require_connection: true, &build_fields)
+      wire_operation(require_connection: require_connection) do
+        frame_fields = build_fields ? build_fields.call : fields
+        @seq = @seq % 9 + 1
+        msg = ("{CIA}" + EOD + @seq.to_s + action + frame_fields.join + EOD).b
+        @socket.write(msg)
+        read_until_raw(terminator) # base: shared read loop; CIA EOD, or AGG US sentinel
+      end
     end
 
     # Build the L()-packed UID/RPC/param fields shared by call_rpc_raw and
@@ -238,16 +283,29 @@ module RpmsRpc
       parts
     end
 
-    # A CIA reply has no length framing — only the EOD terminator — so a
-    # reply abandoned mid-read cannot be resynchronized: the broker will
-    # eventually write the stale reply into the stream and corrupt every
-    # later exchange. Close the socket (defined state: disconnected, not
-    # authenticated) and raise a per-RPC timeout distinct from generic
-    # connection loss so callers can reconnect + re-authenticate.
-    def handle_rpc_timeout(rpc_name)
+    # The session UID and bound context die with the connection: both are
+    # per-broker-session state (AUTH^CIANBRPC allocates the UID;
+    # SETVAR^CIANBUTL persists the CTX), so EVERY teardown — including the
+    # timeout cleanup wire_operation runs INSIDE the lock — must clear them
+    # together with the socket. Overriding here keeps that cleanup under
+    # whatever lock the caller already holds. The previous shape re-ran it
+    # in a rescue AFTER the lock was released, by which time the socket and
+    # session state it reset could already belong to another caller that had
+    # reconnected and re-authenticated.
+    def reset_connection
       @session_uid = nil
       reset_context
-      reset_connection # base
+      super # base: close socket, clear connection/auth state
+    end
+
+    # A CIA reply has no length framing — only the EOD terminator — so a
+    # reply abandoned mid-read cannot be resynchronized, and wire_operation
+    # has already torn the connection down INSIDE the lock (reset_connection
+    # above). By the time this runs the lock is released, so it must not
+    # touch client state — it only names the RPC in a typed error, distinct
+    # from generic connection loss so callers reconnect + re-authenticate
+    # instead of retrying on a corrupted stream.
+    def raise_rpc_timeout(rpc_name)
       raise RpcTimeoutError, RpmsRpc.sanitize_error(
         "RPC '#{rpc_name}' timed out after #{@timeout}s; connection closed — reconnect and re-authenticate"
       )
@@ -263,6 +321,37 @@ module RpmsRpc
     def reset_context
       @current_context = nil
       @context_bound = false
+    end
+
+    # Split a raw {CIA} reply into (flag, body) and return the DATA body, or
+    # raise on an error reply. DOACTION^CIANBLIS writes the sequence echo for
+    # EVERY reply (`W SEQ`, CIANBLIS.m:136) — UNCONDITIONALLY, before it knows
+    # which of three shapes follows — then:
+    #
+    #   REPLY   `W $C(0),DATA`   the ack byte is \x00 (CIANBLIS.m:261)
+    #   SNDERR  `W $C(1)` + CIAERR text (CIANBLIS.m:265,268)
+    #   SNDEOD  nothing — sequence echo only, no flag byte (CIANBLIS.m:273)
+    #
+    # read_until_raw(EOD) stops before the trailing EOD, so the raw reply is
+    # `<seq><flag?><body?>`. The old strip only handled `<seq>\x00`, leaving
+    # the sequence echo glued to line 0 of the error and no-data shapes — so a
+    # rejection minted a DUZ from the sequence byte. Consume the seq echo
+    # UNCONDITIONALLY, then branch on the flag:
+    #
+    #   \x00  -> DATA; return the body
+    #   \x01  -> broker error; raise RpcError with the CIAERR text
+    #   none / anything else -> no data or malformed; return "" so the caller
+    #           fails closed. A byte that is not a known flag is NEVER treated
+    #           as the first field, which is what let the seq echo become a DUZ.
+    def parse_cia_reply(raw)
+      bytes = raw.to_s.b
+      rest = bytes.byteslice(1..) || "".b # drop the one-byte sequence echo
+      case rest.getbyte(0)
+      when 0x00 then (rest.byteslice(1..) || "".b)
+      when 0x01
+        raise RpcError, RpmsRpc.sanitize_error(printable(rest.byteslice(1..) || "").strip)
+      else "".b # SNDEOD (no flag) or malformed — never parse the seq byte as data
+      end
     end
 
     def m_subscript(key)
