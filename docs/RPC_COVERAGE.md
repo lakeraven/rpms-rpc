@@ -31,7 +31,7 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 
 ## Detail Matrix
 
-| Namespace | Wrapped (rpms-rpc) | Wrapped (vista-rpc) | staging | oroville | inera | jordan | Used by | Status |
+| Namespace | Wrapped (rpms-rpc) | Wrapped (vista-rpc) | staging | us-hospital | sweden | jordan | Used by | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | AGG | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BEHOCACV | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |

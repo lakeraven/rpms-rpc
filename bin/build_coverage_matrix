@@ -18,7 +18,7 @@ PILLAR_LABELS = {
 }.freeze
 
 PILLAR_ORDER = %w[cprs amhg bdmg bsdx bdw bhl bwh bprm].freeze
-DEFAULT_ENVIRONMENTS = %w[staging oroville inera jordan].freeze
+DEFAULT_ENVIRONMENTS = %w[staging us-hospital sweden jordan].freeze
 
 def read_rpc_list(path)
   File.readlines(path, chomp: true)

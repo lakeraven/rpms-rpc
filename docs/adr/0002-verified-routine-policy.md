@@ -11,7 +11,7 @@ M-language sources. RPC routines have specific tag names, parameter
 shapes, and return formats that change rarely but **do change** between
 RPMS releases.
 
-In a previous codebase (`rpms_redux`), we discovered that several RPC
+In a previous codebase (the predecessor Rails app), we discovered that several RPC
 calls were written against mocked responses without verifying against
 the actual M routine source. When deployed against a real RPMS instance,
 these calls failed because the assumed parameter order or return shape
@@ -50,14 +50,14 @@ manifest.
 
 ### Negative
 - Verification takes longer than mocking
-- Some legacy RPCs in rpms_redux may be unverified — they need backfill
+- Some legacy RPCs in the predecessor app may be unverified — they need backfill
   or removal during the port
 - Contributors without FOIA-RPMS access cannot verify, limiting external
   contributions to docs and bug fixes
 
 ### Alternatives considered
 - **Trust mocks, fix in production.** Rejected — we already learned this
-  lesson the hard way in rpms_redux.
+  lesson the hard way in the predecessor app.
 - **Verify only on first use.** Rejected — by then it's deployed
   somewhere, and rolling back is harder than verifying upfront.
 

@@ -13,7 +13,7 @@ the audit trail.
 ## Why a separate gem?
 
 Historically the VistA RPC client lived inside a Rails app
-(`rpms_redux`). That made it impossible to reuse from non-Rails
+(the predecessor Rails app). That made it impossible to reuse from non-Rails
 consumers — workers, scripts, and other engines that don't want
 ActiveSupport on the load path.
 

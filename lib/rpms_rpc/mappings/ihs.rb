@@ -406,7 +406,7 @@ module RpmsRpc
       m.rpc "BMCRPC GTOBLIG"
       m.field 0, :id
       # :referral_ien and :patient_dfn are opaque string identifiers (the
-      # CHS mock fixtures use "REF-001" style tokens, and the rpms_redux
+      # CHS mock fixtures use "REF-001" style tokens, and the predecessor-app
       # gateway calls pick_string on these fields). Coercing to integer
       # would turn legitimate values into 0.
       m.field 1, :referral_ien
@@ -423,7 +423,7 @@ module RpmsRpc
       m.rpc "BMCRPC GTOBLIGID"
       m.field 0, :id
       # :referral_ien and :patient_dfn are opaque string identifiers (the
-      # CHS mock fixtures use "REF-001" style tokens, and the rpms_redux
+      # CHS mock fixtures use "REF-001" style tokens, and the predecessor-app
       # gateway calls pick_string on these fields). Coercing to integer
       # would turn legitimate values into 0.
       m.field 1, :referral_ien
@@ -442,7 +442,7 @@ module RpmsRpc
       m.rpc "BMCRPC GTREFOBLIG"
       m.field 0, :id
       # :referral_ien and :patient_dfn are opaque string identifiers (the
-      # CHS mock fixtures use "REF-001" style tokens, and the rpms_redux
+      # CHS mock fixtures use "REF-001" style tokens, and the predecessor-app
       # gateway calls pick_string on these fields). Coercing to integer
       # would turn legitimate values into 0.
       m.field 1, :referral_ien
