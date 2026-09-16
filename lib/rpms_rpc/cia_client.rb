@@ -171,15 +171,14 @@ module RpmsRpc
       raise_rpc_timeout(rpc_name)
     end
 
-    # Reply lines per the {CIA} reply grammar: a 1-byte sequence echo and a
-    # \x00 ack, then CR / CRLF / LF-separated lines (the YDB-served broker
-    # writes bare CR — see #session_params). Lines are split from the RAW
-    # reply because #call_rpc's printable() flattens the separators (and the
-    # ack byte) to spaces: a line-positional parser handed THAT String reads
-    # characters as fields, minting the sequence echo into a DUZ.
+    # Reply lines per the {CIA} reply grammar. Lines are split from the RAW
+    # reply because #call_rpc's printable() flattens the framing bytes to
+    # spaces: a line-positional parser handed THAT String reads characters as
+    # fields, minting the sequence echo into a DUZ. See #parse_cia_reply for
+    # the grammar and why a bare seq echo can never become a field.
     def call_rpc_lines(rpc_name, *params)
-      raw = call_rpc_raw(rpc_name, *params).to_s.b
-      raw.sub(/\A[1-9]\x00/n, "").split(/\r\n|\r|\n/).map { |line| printable(line) }
+      body = parse_cia_reply(call_rpc_raw(rpc_name, *params))
+      body.split(/\r\n|\r|\n/).map { |line| printable(line) }
     end
 
     # Call an RPC whose broker return type is GLOBAL ARRAY (type 4) and read
@@ -322,6 +321,37 @@ module RpmsRpc
     def reset_context
       @current_context = nil
       @context_bound = false
+    end
+
+    # Split a raw {CIA} reply into (flag, body) and return the DATA body, or
+    # raise on an error reply. DOACTION^CIANBLIS writes the sequence echo for
+    # EVERY reply (`W SEQ`, CIANBLIS.m:136) — UNCONDITIONALLY, before it knows
+    # which of three shapes follows — then:
+    #
+    #   REPLY   `W $C(0),DATA`   the ack byte is \x00 (CIANBLIS.m:261)
+    #   SNDERR  `W $C(1)` + CIAERR text (CIANBLIS.m:265,268)
+    #   SNDEOD  nothing — sequence echo only, no flag byte (CIANBLIS.m:273)
+    #
+    # read_until_raw(EOD) stops before the trailing EOD, so the raw reply is
+    # `<seq><flag?><body?>`. The old strip only handled `<seq>\x00`, leaving
+    # the sequence echo glued to line 0 of the error and no-data shapes — so a
+    # rejection minted a DUZ from the sequence byte. Consume the seq echo
+    # UNCONDITIONALLY, then branch on the flag:
+    #
+    #   \x00  -> DATA; return the body
+    #   \x01  -> broker error; raise RpcError with the CIAERR text
+    #   none / anything else -> no data or malformed; return "" so the caller
+    #           fails closed. A byte that is not a known flag is NEVER treated
+    #           as the first field, which is what let the seq echo become a DUZ.
+    def parse_cia_reply(raw)
+      bytes = raw.to_s.b
+      rest = bytes.byteslice(1..) || "".b # drop the one-byte sequence echo
+      case rest.getbyte(0)
+      when 0x00 then (rest.byteslice(1..) || "".b)
+      when 0x01
+        raise RpcError, RpmsRpc.sanitize_error(printable(rest.byteslice(1..) || "").strip)
+      else "".b # SNDEOD (no flag) or malformed — never parse the seq byte as data
+      end
     end
 
     def m_subscript(key)

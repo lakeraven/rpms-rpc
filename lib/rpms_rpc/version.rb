@@ -1,11 +1,19 @@
 # frozen_string_literal: true
 
+require "monitor"
+
 require_relative "security_keys"
 require_relative "user_roles"
 require_relative "capabilities"
 
 module RpmsRpc
   VERSION = "0.3.0"
+
+  # Process-wide fallback wire lock. Used ONLY when the configured client does
+  # not define its own #synchronize_wire — see RpmsRpc.synchronize_wire. A
+  # client that cannot serialize its own wire must still be serialized coarsely
+  # rather than run unlocked.
+  MODULE_WIRE_LOCK = Monitor.new
 
   class NotConfiguredError < StandardError; end
 
@@ -63,11 +71,20 @@ module RpmsRpc
     #
     # Reentrant: nested synchronize_wire calls (and the per-call locking the
     # transports do internally) do not deadlock.
+    #
+    # FAIL CLOSED. A client that does not define #synchronize_wire (a wrapper
+    # or delegator that only forwards the RPC surface) is NOT yielded to
+    # unlocked: post-0.3.0 this module method always exists, so a consumer's
+    # `respond_to?(:synchronize_wire)` guard is vacuously true and its own
+    # fallback lock is dead code — yielding unlocked here would then be a
+    # SILENT miss, weaker than the pre-0.3.0 world where the absence was
+    # visible. Fall back to a process-wide lock so a non-conforming client is
+    # still serialized.
     def synchronize_wire(&block)
       c = client
-      return yield unless c.respond_to?(:synchronize_wire)
+      return c.synchronize_wire(&block) if c.respond_to?(:synchronize_wire)
 
-      c.synchronize_wire(&block)
+      MODULE_WIRE_LOCK.synchronize(&block)
     end
 
     # Scrub PHI patterns from `message` before it propagates to a host

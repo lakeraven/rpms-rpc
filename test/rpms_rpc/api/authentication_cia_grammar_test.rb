@@ -89,6 +89,12 @@ class RpmsRpc::AuthenticationCiaGrammarTest < Minitest::Test
   # The YDB-served broker writes reply lines with bare CR (verified live
   # 2026-09-03 — see CiaClient#session_params). The grammar parse must
   # split on it the same way session_params does.
+  #
+  # NOTE the name assertion: it reads line 1 of the SECOND reply (user_info).
+  # DUZ alone is a vacuous gate — "301 0 0 Good evening".to_i == 301 forgives
+  # an UNSPLIT line, so dropping bare-CR from the split would still pass a
+  # DUZ-only assertion. A line-1+ field only resolves if the lines actually
+  # split.
   def test_bare_cr_line_separators_parse_the_same_as_crlf
     RpmsRpc.configure do |c|
       c.client = cia_client([
@@ -102,5 +108,66 @@ class RpmsRpc::AuthenticationCiaGrammarTest < Minitest::Test
 
     assert result[:success]
     assert_equal 301, result[:duz]
+    assert_equal "BETA,BOB", result[:name],
+      "user_info line 1 did not resolve — the reply was not split into lines"
+  end
+
+  # -- the three broker reply shapes (CIANBLIS.m: W SEQ is UNCONDITIONAL) ----
+  #
+  # DOACTION^CIANBLIS writes the sequence echo for EVERY reply, then branches:
+  #   REPLY   $C(0) + data   (CIANBLIS.m:261)
+  #   SNDERR  $C(1) + CIAERR (CIANBLIS.m:265,268)
+  #   SNDEOD  seq only, no flag byte at all (CIANBLIS.m:273)
+  # Stripping only "[1-9]\x00" (the REPLY flag) left the sequence echo glued
+  # to line 0 for the error and no-data shapes — so a rejection minted a DUZ
+  # from the sequence byte.
+
+  # An ungated XUS AV CODE gets SNDERR "Access denied for remote procedure."
+  # The seq echo "3" + \x01 must NOT parse as DUZ 3 / success. A broker-level
+  # error is a typed RpcError, never a sign-on.
+  def test_a_cia_snderr_reply_is_a_typed_error_not_a_minted_duz
+    RpmsRpc.configure do |c|
+      c.client = cia_client([
+        "2\x00OK#{EOD}",                                      # XUS SIGNON SETUP
+        "3\x01Access denied for remote procedure.#{EOD}"     # XUS AV CODE — SNDERR
+      ])
+    end
+
+    assert_raises(RpmsRpc::Client::RpcError,
+      "a CIA SNDERR reply was parsed into a sign-on instead of raising") do
+      RpmsRpc::Authentication.authenticate(access_code: "AAA", verify_code: "BBB")
+    end
+  end
+
+  # A seq-only SNDEOD reply (no data, no flag) must fail closed — not mint a
+  # DUZ from the sequence byte "5".
+  def test_a_cia_no_data_reply_does_not_mint_a_duz
+    RpmsRpc.configure do |c|
+      c.client = cia_client([
+        "2\x00OK#{EOD}",  # XUS SIGNON SETUP
+        "5#{EOD}"          # XUS AV CODE — SNDEOD, sequence echo only
+      ])
+    end
+
+    result = RpmsRpc::Authentication.authenticate(access_code: "AAA", verify_code: "BBB")
+
+    refute result[:success], "a no-data reply was parsed as a successful sign-on"
+    assert_nil result[:duz], "the sequence echo byte was minted into a DUZ"
+  end
+
+  # A malformed reply whose byte after the seq echo is neither \x00 nor \x01
+  # (e.g. an ACK-less "2\r\n…", or the echo concatenated onto a digit) must
+  # fail closed, never parse the seq byte as a DUZ.
+  def test_an_ack_less_reply_does_not_mint_a_duz
+    [ "2\r\n0\r\n0\r\nInvalid A/V code.\r\n0\r\n0", "20\r\n0\r\n0\r\nInvalid\r\n0\r\n0", "2" ].each do |shape|
+      RpmsRpc.configure do |c|
+        c.client = cia_client([ "2\x00OK#{EOD}", "#{shape}#{EOD}" ])
+      end
+
+      result = RpmsRpc::Authentication.authenticate(access_code: "AAA", verify_code: "BBB")
+
+      refute result[:success], "an ACK-less reply #{shape.inspect} parsed as success"
+      assert_nil result[:duz], "the sequence echo of #{shape.inspect} was minted into a DUZ"
+    end
   end
 end

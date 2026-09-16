@@ -28,6 +28,51 @@ class RpmsRpc::ConfigurationTest < Minitest::Test
     assert_raises(RpmsRpc::NotConfiguredError) { RpmsRpc.client }
   end
 
+  # -- module-level synchronize_wire must FAIL CLOSED ------------------------
+
+  # A client that forwards call_rpc but does not define synchronize_wire
+  # (a wrapper / delegator) used to make RpmsRpc.synchronize_wire yield
+  # UNLOCKED. That is weaker than the pre-0.3.0 world, where the absence of
+  # the method was VISIBLE to callers (respond_to? false → their own mutex
+  # fallback). Post-0.3.0 the module method exists, so #486's respond_to?
+  # guard is vacuously true and its fallback is dead code — a non-conforming
+  # client would then unlock silently. The module path must serialize
+  # regardless, with a process-wide fallback lock.
+  class WireLocklessClient
+    attr_reader :log
+
+    def initialize
+      @log = []
+      @mutex = Mutex.new
+    end
+
+    # NOT synchronize_wire — this stands in for a wrapper that only forwards
+    # the RPC surface.
+    def call_rpc(_name, *_params)
+      @mutex.synchronize { @log << :enter }
+      sleep 0.02
+      @mutex.synchronize { @log << :exit }
+    end
+  end
+
+  def test_module_synchronize_wire_fails_closed_for_a_lockless_client
+    client = WireLocklessClient.new
+    refute client.respond_to?(:synchronize_wire), "precondition: client has no wire lock of its own"
+    RpmsRpc.configure { |c| c.client = client }
+
+    threads = Array.new(4) do
+      Thread.new { RpmsRpc.synchronize_wire { client.call_rpc("X") } }
+    end
+    threads.each(&:join)
+
+    # Serialized: every enter is immediately followed by its own exit.
+    client.log.each_slice(2) do |enter, exit|
+      assert_equal [ :enter, :exit ], [ enter, exit ],
+        "RpmsRpc.synchronize_wire yielded UNLOCKED for a client without its own " \
+        "wire lock: #{client.log.inspect}"
+    end
+  end
+
   # -- mock! convenience -----------------------------------------------------
 
   def test_mock_returns_a_mock_client

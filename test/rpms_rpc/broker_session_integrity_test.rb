@@ -214,6 +214,45 @@ class RpmsRpc::BrokerSessionIntegrityTest < Minitest::Test
     assert_includes b_reply.to_s, "B-REPLY"
   end
 
+  # The CIA case above cannot redden if only the BASE read_until_eot lock is
+  # removed: CiaClient#read_response RE-locks, so it stays safe regardless.
+  # XWB/BMX read_response does NOT re-lock, so the base wrapper is the only
+  # thing serializing an XWB public read — this case binds that lock.
+  def test_a_public_read_on_xwb_cannot_steal_an_in_flight_reply
+    replies = Queue.new
+    write_gate = Queue.new
+    a_wrote = Queue.new
+    socket = RecordingSocket.new
+    socket.define_singleton_method(:write) do |str|
+      a_wrote << :wrote
+      write_gate.pop
+      str.bytesize
+    end
+    socket.define_singleton_method(:recv) { |_n| replies.pop }
+
+    client = RpmsRpc::XwbClient.new
+    client.instance_variable_set(:@socket, socket)
+    client.instance_variable_set(:@connected, true)
+    client.instance_variable_set(:@timeout, 1)
+
+    a_reply = nil
+    a = Thread.new { a_reply = client.call_rpc_raw("A RPC") }
+    a_wrote.pop
+
+    b_reply = nil
+    b = Thread.new { b_reply = client.read_until_eot }
+    sleep 0.1
+
+    replies << "A-REPLY#{EOT}"
+    write_gate << :go
+    replies << "B-REPLY#{EOT}"
+    [ a, b ].each(&:join)
+
+    assert_includes a_reply.to_s, "A-REPLY",
+      "an unlocked XWB public read consumed another caller's in-flight reply"
+    assert_includes b_reply.to_s, "B-REPLY"
+  end
+
   # -- B: post-timeout recovery must not touch a connection it no longer owns
 
   # A's CIA call times out; the socket is torn down INSIDE the lock. The old

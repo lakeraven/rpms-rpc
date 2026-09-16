@@ -123,12 +123,11 @@ module RpmsRpc
 
     # Run a multi-RPC sequence as one uninterruptible unit on the shared
     # client. Reentrant, so nested calls that take the lock themselves are
-    # safe. Clients that predate the lock (or stand in for one) just yield.
+    # safe. Delegates to RpmsRpc.synchronize_wire, which FAILS CLOSED (a
+    # process-wide fallback lock) for a client that lacks its own wire lock —
+    # never an unlocked yield.
     def with_wire_lock(&block)
-      client = RpmsRpc.client
-      return yield unless client.respond_to?(:synchronize_wire)
-
-      client.synchronize_wire(&block)
+      RpmsRpc.synchronize_wire(&block)
     end
 
     # XUS SIGNON SETUP establishes the partition the following AV CODE is
@@ -145,6 +144,12 @@ module RpmsRpc
 
     def parse_auth_response(parsed)
       return validation_error("Invalid response") if parsed.nil? || parsed.empty?
+
+      # A well-formed XUS AV CODE reply carries BOTH the DUZ (line 0) and the
+      # error code (line 1). A missing error code is a short / malformed reply,
+      # NOT a zero-error success: `nil.to_i == 0` would otherwise wave a
+      # positive DUZ through. Fail closed instead.
+      return validation_error("Invalid response") if parsed[:duz].nil? || parsed[:error_code].nil?
 
       duz = parsed[:duz].to_i
       error_code = parsed[:error_code].to_i
