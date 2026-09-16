@@ -299,8 +299,19 @@ class RpmsRpc::CiaClientTest < Minitest::Test
 
       fields = []
       i = 8
-      while i < bytes.bytesize - 1
+      eod_byte = EOD.getbyte(0)
+      while i < bytes.bytesize
         hdr = bytes.getbyte(i)
+        # TCPREADL reads the L() header byte FIRST and ends the field list the
+        # instant that byte equals CIA("EOD") — `Q:X=CIA("EOD") ""`
+        # (CIANBLIS.m:233). It does NOT know whether this is the real trailing
+        # terminator or a field length-prefix that merely collides with it; a
+        # value whose L() header `(nlen<<4)|(len%16)` equals the EOD byte
+        # (e.g. a 30-byte value → `\x1e`) truncates the frame right here. The
+        # leftover bytes are then read as the next DOACTION's header, fail the
+        # `{CIA}` check, and the session is closed — exactly the two-FILER drop.
+        break if hdr == eod_byte
+
         nlen = hdr >> 4
         n = hdr & 0xf
         i += 1
@@ -316,6 +327,10 @@ class RpmsRpc::CiaClientTest < Minitest::Test
         fields << val
         i += len
       end
+      # A well-formed frame's field list ends exactly on the trailing EOD (the
+      # last byte). If an INTERIOR header byte collided with EOD, the loop broke
+      # early and `i` points before the last byte — leftover the real broker
+      # reads as a non-{CIA} frame → session close.
       return nil unless i == bytes.bytesize - 1 # fields must end at the EOD
 
       { seq: bytes[6], action: bytes[7], fields: fields }
@@ -411,6 +426,69 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_equal [ "UID", "", "7", "CTX", "", "CIANB MAIN MENU",
                    "RPC", "", "CIANBRPC CANRUN", "1", "", "AGG ADD NEW PATIENT" ],
                  broker.frames.last[:fields]
+  end
+
+  # -- L() length-prefix must never collide with the frame terminator --------
+  #
+  # rpms-rpc#241: over the wire, sign-on → VOA ADD → DDR GETS → first DDR FILER
+  # all succeed, then the SECOND FILER drops the connection ("Connection closed
+  # by server"). Root cause is purely wire-layer (the same FILEC^DDR3 succeeds
+  # in-process): the second FILER carries a 30-byte list-param value, and pk()
+  # packs its L() header as `(1<<4)|(30%16)` = `\x1e` — the SAME byte as the CIA
+  # frame terminator. TCPREADL reads that header, matches `Q:X=CIA("EOD")`
+  # (CIANBLIS.m:233), and ends the field list mid-frame; the leftover bytes
+  # fail the next DOACTION's {CIA} check and the broker closes the session.
+  #
+  # The invariant: no value the client L()-packs may produce a header byte
+  # equal to the terminator. The terminator's high nibble is the count of
+  # length-quotient bytes; a value would need that many bytes to store its
+  # length>>4, so a high nibble of 7 (`\x7f`) demands a >= 2**52-byte value —
+  # impossible — while `\x1e`'s high nibble of 1 collides across the entire
+  # common 16..4095-byte range whenever len % 16 == 14.
+  def test_pk_header_never_equals_the_frame_terminator
+    c = Client.new
+    eod = RpmsRpc::Client::EOD.getbyte(0)
+    # The exact witnessed trigger, plus every other length in the collision
+    # class the old \x1e terminator hit (len % 16 == 14, one quotient byte).
+    lengths = [ 30 ] + (0..300).to_a + (14..4094).step(16).to_a
+    colliding = lengths.select { |len| c.send(:pk, "x" * len).getbyte(0) == eod }
+    assert_empty colliding,
+      "pk() emits a header byte == the frame terminator for value lengths #{colliding.inspect}; " \
+      "the broker's TCPREADL would truncate the frame there (rpms-rpc#241)"
+  end
+
+  # End-to-end reproduction through the broker-faithful double: the two FILER
+  # frames the registration round trip sends (rpms-ops#501). The second frame's
+  # 30-byte P2(1) value is the #241 trigger — with a colliding terminator the
+  # double truncates the frame and closes the session, exactly as the live
+  # broker did.
+  def test_second_filer_with_thirty_byte_value_survives_the_wire
+    c, broker = signed_on_strict_client([ "[Data]\r+1,^990066\r", "[Data]\r+1,^7819\r" ])
+
+    # First FILER — 22-byte P2(1) value, no collision (header \x16).
+    c.call_rpc("DDR FILER", "ADD", { "1" => "9000001^.01^+1,^990066" }, "", { "1" => "990066" })
+    assert_equal "R", broker.frames.last[:action]
+
+    # Second FILER — P2(1) is exactly 30 bytes ("9000001.41^.01^+1,990066,^7819").
+    # This is the frame that dropped the live connection.
+    second = lambda do
+      c.call_rpc("DDR FILER", "ADD",
+        { "1" => "9000001.41^.01^+1,990066,^7819", "2" => "9000001.41^.02^+1,990066,^990066" },
+        "", { "1" => "7819" })
+    end
+
+    assert_equal 30, "9000001.41^.01^+1,990066,^7819".bytesize, "guard: the trigger value is 30 bytes"
+    refute_raises_connection_error(&second)
+    # The broker parsed the whole frame: all four params present, P2 subscripted.
+    fields = broker.frames.last[:fields]
+    assert_includes fields, "9000001.41^.01^+1,990066,^7819"
+    assert_includes fields, "9000001.41^.02^+1,990066,^990066"
+  end
+
+  def refute_raises_connection_error
+    yield
+  rescue RpmsRpc::Client::ConnectionError => e
+    flunk "the frame dropped the connection (rpms-rpc#241): #{e.message}"
   end
 
   def test_frames_carry_no_ctx_before_any_context_is_bound

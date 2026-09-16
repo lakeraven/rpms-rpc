@@ -7,7 +7,7 @@ require_relative "user_roles"
 require_relative "capabilities"
 
 module RpmsRpc
-  VERSION = "0.3.0"
+  VERSION = "0.3.1"
 
   # Process-wide fallback wire lock. Used ONLY when the configured client does
   # not define its own #synchronize_wire — see RpmsRpc.synchronize_wire. A
