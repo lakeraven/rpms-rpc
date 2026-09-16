@@ -13,7 +13,7 @@ code, and in practice it has been an end-of-work check.
 That ordering fails at scale. rpms-rpc models 224 RPCs; the 9.0 YDB baseline
 serves 5,557. Closing a family like `AMHG` (#227, 60 RPCs) or `AGG` (#228, 25)
 by writing implementations and verifying afterwards reproduces exactly the
-the predecessor-app failure ADR 0002 was written to prevent — the assumed parameter
+predecessor-app failure ADR 0002 was written to prevent — the assumed parameter
 order or return shape is wrong, and nothing catches it until a live instance
 does.
 
