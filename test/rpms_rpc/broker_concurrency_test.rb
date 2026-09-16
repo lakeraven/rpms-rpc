@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "rpms_rpc/cia_client"
+require "rpms_rpc/version"
 require "rpms_rpc/api/authentication"
 require "rpms_rpc/mock_client"
 
@@ -115,5 +116,115 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
   ensure
     RpmsRpc::Authentication.clear_cache!
     RpmsRpc.reset!
+  end
+
+  # A broker-faithful fake for the FULL sign-on contract: an AUTH binds the
+  # session identity (last AUTH wins — exactly the real broker's behaviour),
+  # a GETVAR DUZ answers with whatever identity the session holds RIGHT NOW,
+  # and replies are served strictly FIFO to whoever reads next.
+  class SignonBrokerSocket
+    attr_reader :frames
+
+    def initialize
+      @replies = Queue.new
+      @frames = []
+      @auths = 0
+      @session = 0 # which sign-on's identity the broker session holds NOW
+      @mutex = Mutex.new
+    end
+
+    def write(str)
+      @mutex.synchronize do
+        @frames << str.dup
+        if str.include?("CIANBRPC AUTH")
+          @auths += 1
+          @session = @auths
+          @replies << "0\r\n7#{@auths}^NET^SITE\r\nSigned on as USER#{@auths}\r\n#{EOD}"
+        elsif str.include?("LANE-")
+          @replies << "#{str[/LANE-[AB]/]}-OK#{EOD}"
+        else # CIANBRPC GETVAR DUZ — answers for the CURRENT session identity
+          @replies << "DUZ=#{300 + @session}#{EOD}"
+        end
+      end
+      sleep 0.01 # widen the send-then-read window a broken client would leak in
+      str.bytesize
+    end
+
+    def recv(_n) = @replies.pop
+    def flush; end
+    def close = @closed = true
+    def closed? = !!@closed
+    def setsockopt(*); end
+  end
+
+  # The contract lakeraven-ehr's SSO bridge (#486) rides: two clinicians
+  # driving sign-on + RPC through ONE shared client must never interleave
+  # frames inside a sign-on sequence, never consume each other's replies,
+  # and never reset each other's socket. Sign-on binds the session identity
+  # with AUTH and reads it back with GETVAR — if anything lands between the
+  # two, the reader is minted with the OTHER clinician's DUZ.
+  def test_two_threads_signing_on_and_calling_never_interleave_or_cross_reset
+    socket = SignonBrokerSocket.new
+    client = connected_client(socket)
+
+    threads = %i[a b].map do |lane|
+      Thread.new do
+        client.authenticate("USER#{lane}", "PW#{lane}")
+        client.call_rpc_raw("CIANBRPC GETVAR", "LANE-#{lane.to_s.upcase}")
+      end
+    end
+    threads.each(&:join)
+
+    socket_frames = socket.frames.map do |f|
+      if f.include?("CIANBRPC AUTH") then :auth
+      elsif f.include?("LANE-") then :lane_rpc
+      else :duz_getvar
+      end
+    end
+
+    # 1. Every AUTH is immediately followed by ITS DUZ read — no frame from
+    #    the other sign-on lands inside the pair.
+    socket_frames.each_with_index do |kind, i|
+      next unless kind == :auth
+
+      assert_equal :duz_getvar, socket_frames[i + 1],
+        "a frame interleaved into a sign-on sequence: #{socket_frames.inspect}"
+    end
+
+    refute socket.closed?, "a concurrent caller reset the shared socket mid-run"
+    assert client.connected?
+  end
+
+  # Same run, asserting the identities: each thread's sign-on result must
+  # carry the DUZ of the AUTH *it* performed (the greeting names which),
+  # and each thread's RPC reply must be its own.
+  def test_two_threads_signing_on_each_get_their_own_identity_and_replies
+    socket = SignonBrokerSocket.new
+    client = connected_client(socket)
+
+    results = {}
+    mutex = Mutex.new
+    threads = %i[a b].map do |lane|
+      Thread.new do
+        signon = client.authenticate("USER#{lane}", "PW#{lane}")
+        rpc_reply = client.call_rpc_raw("CIANBRPC GETVAR", "LANE-#{lane.to_s.upcase}")
+        mutex.synchronize { results[lane] = { signon: signon, rpc_reply: rpc_reply } }
+      end
+    end
+    threads.each(&:join)
+
+    duzes = %i[a b].map do |lane|
+      signon = results[lane][:signon]
+      auth_index = signon[:greeting][/USER(\d)/, 1].to_i
+      assert_equal 300 + auth_index, signon[:duz],
+        "lane #{lane} read back a DUZ bound by the OTHER lane's AUTH — " \
+        "the sign-on sequence interleaved: #{signon.inspect}"
+      assert_includes results[lane][:rpc_reply], "LANE-#{lane.to_s.upcase}-OK",
+        "lane #{lane} consumed the other lane's RPC reply"
+      signon[:duz]
+    end
+
+    assert_equal [ 301, 302 ], duzes.sort,
+      "the two sign-ons did not yield two distinct identities: #{duzes.inspect}"
   end
 end
