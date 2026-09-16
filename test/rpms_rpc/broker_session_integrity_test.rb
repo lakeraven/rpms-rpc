@@ -176,6 +176,209 @@ class RpmsRpc::BrokerSessionIntegrityTest < Minitest::Test
     assert socket.closed?, "a timed-out read must close the desynchronized socket"
   end
 
+  # -- B: a public receive method must not reach the socket unlocked --------
+
+  # Client#read_until_eot (and CIA's public read_response) reached the socket
+  # WITHOUT taking the wire lock: whoever reads next gets whatever the socket
+  # has, so a public read issued while another caller was between its send and
+  # its read consumed that caller's reply.
+  def test_a_public_read_cannot_steal_an_in_flight_reply
+    replies = Queue.new
+    write_gate = Queue.new
+    a_wrote = Queue.new
+    socket = RecordingSocket.new
+    socket.define_singleton_method(:write) do |str|
+      a_wrote << :wrote
+      write_gate.pop # park A INSIDE its wire operation, reply not yet read
+      str.bytesize
+    end
+    socket.define_singleton_method(:recv) { |_n| replies.pop }
+
+    client = cia_client(socket)
+
+    a_reply = nil
+    a = Thread.new { a_reply = client.call_rpc_raw("CIANBRPC GETVAR", "DUZ") }
+    a_wrote.pop
+
+    b_reply = nil
+    b = Thread.new { b_reply = client.read_until_eot }
+    sleep 0.1 # unlocked, B is now parked inside recv; locked, B waits for A
+
+    replies << "A-REPLY#{EOD}"
+    write_gate << :go
+    replies << "B-REPLY#{EOD}"
+    [ a, b ].each(&:join)
+
+    assert_includes a_reply.to_s, "A-REPLY",
+      "an unlocked public read consumed another caller's in-flight reply"
+    assert_includes b_reply.to_s, "B-REPLY"
+  end
+
+  # -- B: post-timeout recovery must not touch a connection it no longer owns
+
+  # A's CIA call times out; the socket is torn down INSIDE the lock. The old
+  # shape then ran a second cleanup in a rescue AFTER the lock was released —
+  # by which time the socket and session state can belong to another caller
+  # that has already reconnected and re-authenticated.
+  def test_timeout_recovery_does_not_reset_a_connection_it_no_longer_owns
+    socket = RecordingSocket.new
+    client = cia_client(socket)
+    client.instance_variable_set(:@timeout, 0) # the read times out immediately
+
+    lock_released = Queue.new
+    resume = Queue.new
+    original = client.method(:wire_operation)
+    client.define_singleton_method(:wire_operation) do |**kw, &blk|
+      original.call(**kw, &blk)
+    rescue RpmsRpc::Client::TimeoutError
+      lock_released << :released
+      resume.pop
+      raise
+    end
+
+    err = nil
+    a = Thread.new do
+      client.call_rpc_raw("CIANBRPC GETVAR", "DUZ")
+    rescue StandardError => e
+      err = e
+    end
+    lock_released.pop
+
+    # B reconnects and re-authenticates in the window between A's lock
+    # release and whatever A still runs on its timeout path.
+    fresh = RecordingSocket.new
+    client.synchronize_wire do
+      client.instance_variable_set(:@socket, fresh)
+      client.instance_variable_set(:@connected, true)
+      client.instance_variable_set(:@authenticated, true)
+      client.instance_variable_set(:@duz, "302")
+      client.instance_variable_set(:@session_uid, "9")
+    end
+
+    resume << :go
+    a.join
+
+    assert_kind_of RpmsRpc::Client::RpcTimeoutError, err
+    refute fresh.closed?, "A's timeout recovery closed a socket it no longer owns"
+    assert client.connected?, "A's timeout recovery disconnected B's live connection"
+    assert_equal "302", client.duz, "A's timeout recovery erased B's authenticated identity"
+    assert_equal "9", client.session_uid
+  end
+
+  # -- B: create_context commits its binding under the lock (XWB) -----------
+
+  # Same class as committing @duz after the lock: A binds its option on the
+  # wire, releases, B binds another; A then writes ITS option into
+  # @current_context — client state and broker bind now disagree, and a later
+  # with_context sees a match and skips the rebind.
+  def test_create_context_commits_its_binding_under_the_lock
+    socket = RecordingSocket.new([ "1#{EOT}", "1#{EOT}" ])
+    client = RpmsRpc::XwbClient.new
+    client.instance_variable_set(:@socket, socket)
+    client.instance_variable_set(:@connected, true)
+    client.instance_variable_set(:@authenticated, true)
+    client.instance_variable_set(:@timeout, 1)
+    client.define_singleton_method(:xwb_encrypt) { |s| s } # readable frames
+
+    parked = Queue.new
+    resume = Queue.new
+    original = client.method(:wire_operation)
+    client.define_singleton_method(:wire_operation) do |**kw, &blk|
+      r = original.call(**kw, &blk)
+      if Thread.current[:park_after_wire]
+        parked << :parked
+        resume.pop
+      end
+      r
+    end
+
+    a = Thread.new do
+      Thread.current[:park_after_wire] = true
+      client.create_context("OR CPRS GUI CHART")
+    end
+    parked.pop
+    b = Thread.new { client.create_context("AGGRPC") }
+    sleep 0.1
+    resume << :go
+    [ a, b ].each(&:join)
+
+    last_bound_on_wire = socket.writes.select { |w| w.include?("XWB CREATE CONTEXT") }
+                               .last[/OR CPRS GUI CHART|AGGRPC/]
+    assert_equal last_bound_on_wire, client.current_context,
+      "the client's context diverged from the broker's last CREATE CONTEXT — " \
+      "a later with_context will see a match and skip the rebind"
+  end
+
+  # -- B: CIA create_context must wait for a held context scope -------------
+
+  # CIA's context bind is pure client state (the CTX field on every later
+  # frame), so an unlocked create_context re-binds the context INSIDE another
+  # thread's with_context scope, and the scoped RPC's frame carries the
+  # intruder's option.
+  def test_cia_create_context_waits_for_the_wire_lock
+    socket = RecordingSocket.new([ "OK#{EOD}" ])
+    client = cia_client(socket)
+    client.instance_variable_set(:@authenticated, true)
+    client.create_context("BASE") # a declared starting context to restore to
+
+    in_scope = Queue.new
+    scoped = Thread.new do
+      client.with_context("AGGRPC") do
+        in_scope << :in
+        sleep 0.15 # the window the intruder lands in
+        client.call_rpc_raw("CIANBRPC GETVAR", "DUZ")
+      end
+    end
+    in_scope.pop
+    intruder = Thread.new { client.create_context("SOMETHING ELSE") }
+    [ scoped, intruder ].each(&:join)
+
+    frame = socket.writes.find { |w| w.include?("CIANBRPC GETVAR") }
+    ctx_field = client.send(:pk, "CTX") + client.send(:pk, "") + client.send(:pk, "AGGRPC")
+    assert_includes frame, ctx_field,
+      "another thread's create_context re-bound the context inside a held scope, " \
+      "so the scoped RPC ran under the wrong option"
+  end
+
+  # -- B: a mid-write connection drop must be typed and torn down -----------
+
+  # CIA writes its frame straight to the socket. A mid-write EPIPE/ECONNRESET
+  # propagated RAW and left @connected true — the next caller started an
+  # exchange on a client whose connection state was a lie.
+  def test_a_mid_write_drop_raises_typed_and_tears_the_connection_down
+    { Errno::EPIPE => "EPIPE", IOError => "stream closed" }.each do |error_class, label|
+      socket = RecordingSocket.new
+      socket.define_singleton_method(:write) { |*| raise error_class, label }
+      client = cia_client(socket)
+
+      err = assert_raises(RpmsRpc::Client::ConnectionError,
+        "a mid-write #{error_class} must surface as a typed ConnectionError") do
+        client.call_rpc_raw("CIANBRPC GETVAR", "DUZ")
+      end
+      refute_kind_of RpmsRpc::Client::TimeoutError, err
+      refute client.connected?, "#{error_class}: @connected still true over a dead socket"
+      assert socket.closed?, "#{error_class}: the dropped socket was left open"
+    end
+  end
+
+  # -- B: IO::TimeoutError is a TIMEOUT, and gets the timeout teardown ------
+
+  # Converting IO::TimeoutError to ConnectionError skipped the timeout
+  # cleanup entirely: the desynchronized socket stayed open and reusable,
+  # and the next caller could read the abandoned reply as its own.
+  def test_an_io_timeout_gets_the_same_teardown_as_a_deadline_timeout
+    socket = RecordingSocket.new
+    socket.define_singleton_method(:recv) { |*| raise IO::TimeoutError, "read timed out" }
+    client = cia_client(socket)
+
+    assert_raises(RpmsRpc::Client::TimeoutError,
+      "an IO::TimeoutError is a timeout — it must not be retyped as generic connection loss") do
+      client.call_rpc_raw("CIANBRPC GETVAR", "DUZ")
+    end
+    refute client.connected?
+    assert socket.closed?, "an IO::TimeoutError left a desynchronized socket reusable"
+  end
+
   # -- M: the sign-on setup cache crosses clients and survives reconnects --
 
   # XUS SIGNON SETUP establishes the partition each AV CODE is validated in.

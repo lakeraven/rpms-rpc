@@ -275,6 +275,15 @@ module RpmsRpc
       truncate_at_eod(seeded_reply(rpc_name, *params))
     end
 
+    # Client#call_rpc_lines stand-in. Seeded line replies are already arrays
+    # of lines; a String reply is split the way the base client splits.
+    def call_rpc_lines(rpc_name, *params)
+      reply = call_rpc(rpc_name, *params)
+      return reply if reply.nil? || reply.is_a?(Array)
+
+      reply.to_s.split(/\r\n|\r|\n/)
+    end
+
     # A live CiaClient offers this and reads to the US sentinel instead, so the
     # whole recordset survives. MockClient must offer it too — otherwise code
     # that correctly prefers it is never exercised, and the preference itself

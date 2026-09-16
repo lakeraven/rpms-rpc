@@ -124,16 +124,23 @@ module RpmsRpc
     # sign-on AID (:51) exactly as it does today.
     #
     # Pair with ContextScope#with_context to scope + restore (RpmsRpc::Agg).
+    # Synchronized even though it makes no wire call: @current_context drives
+    # the CTX field of every subsequent FRAME, so an unlocked bind lands
+    # inside another thread's held with_context scope and that thread's next
+    # RPC runs under the intruder's option. (Both gate seats found this
+    # independently.)
     def create_context(option_name = SIGNON_CONTEXT)
-      raise ConnectionError, "Not connected" unless connected?
-      raise AuthenticationError, "Not authenticated" unless authenticated?
+      synchronize_wire do
+        raise ConnectionError, "Not connected" unless connected?
+        raise AuthenticationError, "Not authenticated" unless authenticated?
 
-      @current_context = option_name
-      @context_bound = true # start naming CTX on every frame — see above
-      # RPC registration is OPTION-scoped; capabilities probed under the
-      # previous context may not hold under the new one.
-      @capability_cache = nil
-      true
+        @current_context = option_name
+        @context_bound = true # start naming CTX on every frame — see above
+        # RPC registration is OPTION-scoped; capabilities probed under the
+        # previous context may not hold under the new one.
+        @capability_cache = nil
+        true
+      end
     end
 
     # Call an RPC over the CIA broker, returning a printable (human-readable) response.
@@ -161,7 +168,18 @@ module RpmsRpc
 
       exchange("R") { rpc_frame_fields(rpc_name, params) }
     rescue TimeoutError
-      handle_rpc_timeout(rpc_name)
+      raise_rpc_timeout(rpc_name)
+    end
+
+    # Reply lines per the {CIA} reply grammar: a 1-byte sequence echo and a
+    # \x00 ack, then CR / CRLF / LF-separated lines (the YDB-served broker
+    # writes bare CR — see #session_params). Lines are split from the RAW
+    # reply because #call_rpc's printable() flattens the separators (and the
+    # ack byte) to spaces: a line-positional parser handed THAT String reads
+    # characters as fields, minting the sequence echo into a DUZ.
+    def call_rpc_lines(rpc_name, *params)
+      raw = call_rpc_raw(rpc_name, *params).to_s.b
+      raw.sub(/\A[1-9]\x00/n, "").split(/\r\n|\r|\n/).map { |line| printable(line) }
     end
 
     # Call an RPC whose broker return type is GLOBAL ARRAY (type 4) and read
@@ -177,20 +195,20 @@ module RpmsRpc
 
       exchange("R", terminator: AGG_ARRAY_END) { rpc_frame_fields(rpc_name, params) }
     rescue TimeoutError
-      handle_rpc_timeout(rpc_name)
+      raise_rpc_timeout(rpc_name)
     end
 
     # Synchronized: an unsynchronized teardown can close the socket, or inject
     # its frame, in the middle of another caller's in-flight RPC.
     def disconnect
       synchronize_wire do
-        @session_uid = nil
-        reset_context
-        reset_connection # base: closes the socket and clears state
+        reset_connection # closes the socket, clears state, session UID and context
       end
     end
 
-    def read_response = read_until_raw(EOD) # Client contract; CIA terminator
+    # Client contract; CIA terminator. Synchronized: this is a PUBLIC read,
+    # and an unlocked public read consumes another caller's in-flight reply.
+    def read_response = synchronize_wire { read_until_raw(EOD) }
 
     private
 
@@ -266,16 +284,29 @@ module RpmsRpc
       parts
     end
 
-    # A CIA reply has no length framing — only the EOD terminator — so a
-    # reply abandoned mid-read cannot be resynchronized: the broker will
-    # eventually write the stale reply into the stream and corrupt every
-    # later exchange. Close the socket (defined state: disconnected, not
-    # authenticated) and raise a per-RPC timeout distinct from generic
-    # connection loss so callers can reconnect + re-authenticate.
-    def handle_rpc_timeout(rpc_name)
+    # The session UID and bound context die with the connection: both are
+    # per-broker-session state (AUTH^CIANBRPC allocates the UID;
+    # SETVAR^CIANBUTL persists the CTX), so EVERY teardown — including the
+    # timeout cleanup wire_operation runs INSIDE the lock — must clear them
+    # together with the socket. Overriding here keeps that cleanup under
+    # whatever lock the caller already holds. The previous shape re-ran it
+    # in a rescue AFTER the lock was released, by which time the socket and
+    # session state it reset could already belong to another caller that had
+    # reconnected and re-authenticated.
+    def reset_connection
       @session_uid = nil
       reset_context
-      reset_connection # base
+      super # base: close socket, clear connection/auth state
+    end
+
+    # A CIA reply has no length framing — only the EOD terminator — so a
+    # reply abandoned mid-read cannot be resynchronized, and wire_operation
+    # has already torn the connection down INSIDE the lock (reset_connection
+    # above). By the time this runs the lock is released, so it must not
+    # touch client state — it only names the RPC in a typed error, distinct
+    # from generic connection loss so callers reconnect + re-authenticate
+    # instead of retrying on a corrupted stream.
+    def raise_rpc_timeout(rpc_name)
       raise RpcTimeoutError, RpmsRpc.sanitize_error(
         "RPC '#{rpc_name}' timed out after #{@timeout}s; connection closed — reconnect and re-authenticate"
       )
