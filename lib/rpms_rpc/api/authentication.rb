@@ -145,14 +145,19 @@ module RpmsRpc
     def parse_auth_response(parsed)
       return validation_error("Invalid response") if parsed.nil? || parsed.empty?
 
-      # A well-formed XUS AV CODE reply carries BOTH the DUZ (line 0) and the
-      # error code (line 1). A missing error code is a short / malformed reply,
-      # NOT a zero-error success: `nil.to_i == 0` would otherwise wave a
-      # positive DUZ through. Fail closed instead.
-      return validation_error("Invalid response") if parsed[:duz].nil? || parsed[:error_code].nil?
+      # A well-formed XUS AV CODE reply carries BOTH the DUZ (line 0) and a
+      # NUMERIC error code (line 1). A missing OR non-numeric (e.g.
+      # whitespace-only) error line is a short / malformed reply, NOT a
+      # zero-error success: `nil.to_i == 0` and `" ".to_i == 0` would each
+      # wave a positive DUZ through. Fail closed instead — the mapping keeps
+      # this line raw precisely so the blank is still visible here.
+      error_code_raw = parsed[:error_code].to_s.strip
+      if parsed[:duz].nil? || !error_code_raw.match?(/\A-?\d+\z/)
+        return validation_error("Invalid response")
+      end
 
       duz = parsed[:duz].to_i
-      error_code = parsed[:error_code].to_i
+      error_code = error_code_raw.to_i
       verify_needs_change = parsed[:verify_needs_change].to_i == 1
       message = parsed[:message].to_s
 

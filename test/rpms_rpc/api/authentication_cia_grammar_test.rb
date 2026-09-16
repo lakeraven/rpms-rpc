@@ -155,6 +155,27 @@ class RpmsRpc::AuthenticationCiaGrammarTest < Minitest::Test
     assert_nil result[:duz], "the sequence echo byte was minted into a DUZ"
   end
 
+  # A whitespace-only error-code line must not read as a zero-error success:
+  # " ".to_i == 0, so a blank line 1 waved a positive DUZ through — the same
+  # absence-as-success class as the MISSING error-code line, one shape over.
+  # The line must be actually numeric, not merely .to_i-able.
+  def test_a_whitespace_error_code_line_is_not_a_zero_error_success
+    [ " ", "\t" ].each do |blank|
+      RpmsRpc.configure do |c|
+        c.client = cia_client([
+          "2\x00OK#{EOD}",                                            # XUS SIGNON SETUP
+          "2\x00301\r\n#{blank}\r\n0\r\nGood evening\r\n0\r\n0#{EOD}", # AV CODE, blank error line
+          "2\x00301\r\nBETA,BOB#{EOD}"                                 # would-be user_info
+        ])
+      end
+
+      result = RpmsRpc::Authentication.authenticate(access_code: "AAA", verify_code: "BBB")
+
+      refute result[:success],
+        "a #{blank.inspect} error-code line was read as a zero-error success"
+    end
+  end
+
   # A malformed reply whose byte after the seq echo is neither \x00 nor \x01
   # (e.g. an ACK-less "2\r\n…", or the echo concatenated onto a digit) must
   # fail closed, never parse the seq byte as a DUZ.

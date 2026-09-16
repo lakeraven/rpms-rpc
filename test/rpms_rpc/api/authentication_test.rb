@@ -74,7 +74,7 @@ class AuthenticationTest < Minitest::Test
     parsed = RpmsRpc::DataMapper.av_code.fetch_lines("ACCESS123;VERIFY123")
 
     assert_equal 0, parsed[:duz]
-    assert_equal 0, parsed[:error_code]
+    assert_equal "0", parsed[:error_code] # raw line; facade validates + converts
     assert_equal "Invalid A/V code.", parsed[:message]
   end
 
@@ -87,7 +87,7 @@ class AuthenticationTest < Minitest::Test
 
     refute_nil parsed, "VALIDAV always returns structured lines, never an empty reply"
     assert_equal 0, parsed[:duz]
-    assert_equal 0, parsed[:error_code]
+    assert_equal "0", parsed[:error_code]
     assert_equal "Invalid A/V code.", parsed[:message]
   end
 
