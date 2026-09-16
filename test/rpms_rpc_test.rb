@@ -9,6 +9,6 @@ class RpmsRpcTest < Minitest::Test
   end
 
   def test_version_is_current
-    assert_equal "0.3.0", RpmsRpc::VERSION
+    assert_equal "0.3.1", RpmsRpc::VERSION
   end
 end

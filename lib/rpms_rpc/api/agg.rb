@@ -56,8 +56,10 @@ module RpmsRpc
   #            <type><5-digit-width><NAME>), then $C(30)-separated data
   #            records, ending $C(31). "1^^DFN" = success, "-1^message" =
   #            rejected. Read to the $C(31) sentinel — see
-  #            CiaClient#call_rpc_global_array (RS == the CIA EOD, so the
-  #            default read truncates at the header).
+  #            CiaClient#call_rpc_global_array. (RS was the CIA EOD until
+  #            #241 moved the terminator to \x7f; the default read no longer
+  #            truncates at the header, but the $C(31) read is still the
+  #            correct one — it is framed by the sentinel, not by luck.)
   #
   #   RPC                        routine^tag       source
   #   AGG ADD NEW PATIENT        ADD^AGGPTADD      #214 live probe
@@ -84,7 +86,7 @@ module RpmsRpc
 
     # PARMS framing bytes.
     PARM_DELIM = "\x1c" # $C(28) — NAME=VALUE separator in the PARMS string
-    RECORD_SEP = "\x1e" # $C(30) — record separator in the reply (== CIA EOD)
+    RECORD_SEP = "\x1e" # $C(30) — record separator in the reply
     ARRAY_END  = "\x1f" # $C(31) — end-of-array sentinel
     ACK = "\x00"        # broker ack byte following the 1-byte sequence echo
 

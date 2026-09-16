@@ -204,12 +204,14 @@ module RpmsRpc
     # sets DATA=$NA(^TMP("AGGPTLK",UID)) (AGGPTLKP.m:7), so the broker sends a
     # typed header followed by $C(30)-separated records, ending at $C(31).
     #
-    # $C(30) IS the CIA EOD, so the default read_until_raw(EOD) stops at the
-    # header row and every patient is lost — on the wire only; seeded tests
-    # still pass, which is how this survived review. CiaClient reads to the
-    # $C(31) sentinel in #call_rpc_global_array; RpmsRpc::Agg routes its AGG
-    # RPCs the same way (Agg#call_array).
-    LOOKUP_RECORD_SEP = "\x1e" # $C(30) — record separator (== CIA EOD)
+    # $C(30) WAS the CIA EOD until #241 moved the terminator to \x7f, so the
+    # default read_until_raw(EOD) used to stop at the header row and lose every
+    # patient — on the wire only; seeded tests still passed, which is how that
+    # survived review. CiaClient reads to the $C(31) sentinel in
+    # #call_rpc_global_array; RpmsRpc::Agg routes its AGG RPCs the same way
+    # (Agg#call_array). That remains the correct read: it is framed by the
+    # sentinel rather than relying on the terminator not colliding.
+    LOOKUP_RECORD_SEP = "\x1e" # $C(30) — record separator
     LOOKUP_ARRAY_END  = "\x1f" # $C(31) — end-of-array sentinel
     LOOKUP_ACK        = "\x00" # broker ack byte after the sequence echo
 
