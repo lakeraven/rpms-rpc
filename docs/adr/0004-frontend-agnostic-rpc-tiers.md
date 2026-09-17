@@ -40,8 +40,8 @@ Two pieces of evidence make this concrete:
 
 - **The trace itself.** 49% of the wire traffic (354 of 727 calls) is
   presentation or dialog protocol carrying no domain value.
-- **engage-health.** An independent RPMS derivative serving a non-tribal program
-  used **zero** `BGO*` and **zero** `BEHO*` RPCs across its own 343 routines,
+- **An independent RPMS derivative.** A separate modernization effort serving a
+  non-tribal program used **zero** `BGO*` and **zero** `BEHO*` across its 343 routines,
   while reading and writing PCC `^AUPNVSIT` and its V-files directly, and
   depending on IHS `BSD*` scheduling and `ABM*` billing. It replaced the
   component layer and kept the substrate. That is the seam, found twice
@@ -116,8 +116,8 @@ They are permitted **behind a narrow adapter that constructs the dialog payload
 internally**, from a domain-shaped argument. The adapter's dialog knowledge does
 not leak: no consumer ever sees an `ORDIALOG` reference, a dialog IEN, or a
 form ID. The quarantine set is expected to shrink — each member is a candidate
-for replacement by a direct FileMan/DDR path, which is the route engage-health
-took.
+for replacement by a direct FileMan/DDR path, which is the route that
+independent derivative took.
 
 ### 5. Replacement, not re-implementation, for the view tier
 
@@ -161,6 +161,19 @@ exists to make answerable.
 
 - [ADR 0001 — Scope and no Rails coupling](0001-scope-and-no-rails-coupling.md) — the same instinct applied to the web framework
 - `data/rpc_tiers/{canonical,quarantine,legacy}.txt` — the sets
-- `reference/traces/mvc_classification.tsv` — full per-RPC classification with call counts
-- `reference/traces/ANALYSIS.md` — the trace this was derived from
-- `reference/engage-health-rpms-modern` — independent evidence for the same seam
+- `data/rpc_tiers/rules.yml` — the curated judgement, separate from the code applying it
+- `bin/trace_classify` — regenerates the sets from a trace export
+- `docs/conformance/vuecentric-session-trace-2026-09-15.md` — the session this was derived from, sanitized
+- `data/rpc_tiers/observed/ehr-session-2026-09-15.tsv` — full per-RPC classification with call counts
+
+**Not committed, by decision.** The raw `TraceLogExport.xml` is held out of git:
+a VIM trace captures the electronic-signature token as sent, and the XWB cipher
+is reversible, so an export is credential material (finding S-1 in the
+conformance doc). Traces stay under an out-of-repo path; only sanitized
+derivatives land here. `bin/trace_classify` therefore takes a trace by path and
+is not wired to a committed fixture.
+
+The independent corroboration for the same seam — an RPMS derivative serving a
+non-tribal program that used zero `BGO*`/`BEHO*` while reading and writing PCC
+`^AUPNVSIT` directly — is an external checkout, not vendored here. Its findings
+are summarized in the Context section above rather than cited by path.

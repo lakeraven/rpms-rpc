@@ -1,0 +1,224 @@
+rpc	calls	tier	coupling	disposition
+ORWDX DGNM	64	C-dialog	cprs-dialog-machine	legacy
+TIU TEMPLATE GETBOIL	45	V	tiu-editor	legacy
+ORQQPXRM DIALOG PROMPTS	42	C-dialog	cprs-dialog-machine	legacy
+BEHOVM LIST	26	M		canonical
+BGOTRG GETSUM	19	V	vuecentric-component	legacy
+TIU TEMPLATE GETITEMS	18	V	tiu-editor	legacy
+TIU TEMPLATE GETTEXT	18	V	tiu-editor	legacy
+BGOUTL GETPARM	16	V	vuecentric-component	legacy
+CIAVMRPC GETPAR	16	V	vuecentric-framework	legacy
+BEHOUSCX HASKEYS	15	C		canonical
+BEHOVM VALIDATE	11	C		canonical
+ORWU DT	9	M		canonical
+TIU DOCUMENTS BY CONTEXT	9	M		canonical
+BGOCPTPR GETITEMS	8	V	vuecentric-component	legacy
+BGOCPTPR GETCATS	7	V	vuecentric-component	legacy
+CIAVMRPC STRTODAT	7	M	vuecentric-framework	canonical
+ORIMO IMOLOC	7	M		canonical
+BGOVPOV GET	6	M		canonical
+CIAVMRPC SETVAR	6	V	vuecentric-framework	legacy
+ORWDXM3 ISUDQO	6	C-dialog	cprs-dialog-machine	legacy
+ORWGRPC ALLVIEWS	6	V	cprs-chrome	legacy
+BEHOTIU RDLGACC	5	C		canonical
+BGOUTL SETPARM	5	V	vuecentric-component	legacy
+BGOVCPT CPTLKUP	5	M		canonical
+ORWDX UNLOCK ORDER	5	C		canonical
+ORWU NPHASKEY	5	C		canonical
+BEHOENCV LIST	4	M		canonical
+BEHOUSCX USERINFO	4	M		canonical
+BGOVHF GET	4	M		canonical
+BGOVPED GET	4	M		canonical
+BGOVPED2 GETPVED	4	M		canonical
+OREVNTX1 DLGIEN	4	M		canonical
+ORWDXM FORMID	4	C-dialog	cprs-dialog-machine	legacy
+ORWORR GETBYIFN	4	M		canonical
+ORWPCE NOTEVSTR	4	M		canonical
+TIU AUTHORIZATION	4	C		canonical
+TIU REQUIRES COSIGNATURE	4	C		canonical
+APSPFNC2 ERXOI	3	M		canonical
+APSPLIQ CHKLIQ	3	C		canonical
+BEHOENP1 LOAD	3	M		canonical
+BEHORXFN GETRXS	3	M		canonical
+BGOPROB1 GETONE	3	M		canonical
+BGOVEXAM GET	3	M		canonical
+CIANBRPC CANRUN	3	C	vuecentric-framework	canonical
+DDR GETS ENTRY DATA	3	M		canonical
+ORDEA CSVALUE	3	C		canonical
+OREVNTX1 GTEVT	3	M		canonical
+OREVNTX1 ODPTEVID	3	M		canonical
+ORIMO ISIVQO	3	M		canonical
+ORWCH LOADSIZ	3	V	cprs-chrome	legacy
+ORWCH SAVESIZ	3	V	cprs-chrome	legacy
+ORWD DT	3	M		canonical
+ORWDPS2 QOGRP	3	C-dialog	cprs-dialog-machine	legacy
+ORWDX AGAIN	3	C-dialog	cprs-dialog-machine	legacy
+ORWDX DLGDEF	3	C-dialog	cprs-dialog-machine	legacy
+ORWDX SAVE	3	C		quarantine
+ORWDXC ACCEPT	3	C		quarantine
+ORWDXC DISPLAY	3	C		canonical
+ORWDXIHS CLININD	3	M		canonical
+ORWDXM1 BLDQRSP	3	C-dialog	cprs-dialog-machine	legacy
+ORWDXM2 CLRRCL	3	C-dialog	cprs-dialog-machine	legacy
+ORWORR GET4LST	3	M		canonical
+ORWPCE VISIT	3	M		canonical
+ORWPS REASON	3	C-dialog	cprs-dialog-machine	legacy
+TIU FIELD LOAD	3	V	tiu-editor	legacy
+TIU GET RECORD TEXT	3	M		canonical
+TIU ID CAN ATTACH	3	C		canonical
+TIU ID CAN RECEIVE	3	C		canonical
+TIU TEMPLATE GETLINK	3	V	tiu-editor	legacy
+BEHOENP1 EXAMCODE	2	M		canonical
+BEHOPLCV LIST	2	M		canonical
+BEHORXF4 MAXDAYS	2	M		canonical
+BEHORXFN VITALFMT	2	V	cprs-chrome	legacy
+BEHOUSCX NEWPERS	2	M		canonical
+BEHOVM GRID	2	M		canonical
+BGOCC GET	2	M		canonical
+BGOPROB2 DUPCHK	2	C		canonical
+BGOSNLK SUBSET	2	M		canonical
+BGOSNOPR GETITEMS	2	V	vuecentric-component	legacy
+BGOUTL3 GETSET	2	V	vuecentric-component	legacy
+BGOVCPT GET	2	M		canonical
+BGOVEXAM GETRSLTS	2	M		canonical
+BGOVPOV RECENT	2	M		canonical
+BGOVTM GET	2	M		canonical
+BGOVTM SET	2	M		canonical
+ORQQCN DEFAULT REQUEST REASON	2	C-dialog	cprs-dialog-machine	legacy
+ORQQCN LIST	2	M		canonical
+ORQQCN2 GET PREREQUISITE	2	M		canonical
+ORQQPXRM REMINDER DIALOG	2	C-dialog	cprs-dialog-machine	legacy
+ORWD1 SIG4ONE	2	C		canonical
+ORWDPS1 SCHALL	2	M		canonical
+ORWDPS2 DAY2QTY	2	M		canonical
+ORWDPS2 MAXREF	2	M		canonical
+ORWDPS2 OISLCT	2	C-dialog	cprs-dialog-machine	legacy
+ORWDPS32 VALQTY	2	C		canonical
+ORWDPS32 VALSCH	2	C		canonical
+ORWDXA ISACTOI	2	C		canonical
+ORWGRPC GETPREF	2	V	cprs-chrome	legacy
+ORWGRPC TYPES	2	V	cprs-chrome	legacy
+ORWOR PKIUSE	2	C		canonical
+ORWORR AGET	2	M		canonical
+ORWORR GETTXT	2	V	cprs-chrome	legacy
+ORWPCE GET VISIT	2	M		canonical
+ORWPCE HASCPT	2	M		canonical
+ORWPCE HASVISIT	2	M		canonical
+ORWPT SELECT	2	M		canonical
+ORWRP3 EXPAND COLUMNS	2	V	cprs-chrome	legacy
+ORWU EXTNAME	2	M		canonical
+ORWU VALDT	2	C		canonical
+ORWUL FV4DG	2	V	cprs-chrome	legacy
+ORWUL FVSUB	2	V	cprs-chrome	legacy
+ORWUL QV4DG	2	V	cprs-chrome	legacy
+TIU GET DOCUMENT PARAMETERS	2	M		canonical
+TIU LONG LIST OF TITLES	2	M		canonical
+TIU PERSONAL TITLE LIST	2	M		canonical
+TIU SET DOCUMENT TEXT	2	C		canonical
+APSPFNC6 DEAOICLS	1	M		canonical
+APSPFNC6 GPKUP	1	M		canonical
+BEHOENCX ISSTOPCD	1	M		canonical
+BEHOENPC SAVE	1	M		canonical
+BEHOOUS KILL SS ALERT	1	C		canonical
+BEHOPTCX PTINFO1	1	M		canonical
+BEHORXF1 VALQUE	1	C		canonical
+BEHORXF3 TSTASSOC	1	C		canonical
+BEHORXF4 ERXCANCP	1	C		canonical
+BEHORXSP GHB	1	M		canonical
+BEHOVM SAVE	1	M		canonical
+BEHOVM TEMPLATE	1	M		canonical
+BGOASLK CHKASM	1	C		canonical
+BGOCC GETPL	1	M		canonical
+BGOCC SET	1	M		canonical
+BGOCPTPR GETMGRS	1	V	vuecentric-component	legacy
+BGOPROB GET	1	M		canonical
+BGOPROB GET CLASS	1	M		canonical
+BGOPROB NEXTID	1	M		canonical
+BGOPROB SET	1	M		canonical
+BGOPROB1 EDPROB	1	M		canonical
+BGOPROB2 MAP	1	M		canonical
+BGOSNOPR GETCATS	1	V	vuecentric-component	legacy
+BGOUTL CHKSEC	1	C	vuecentric-component	canonical
+BGOUTL DICLKUP	1	M	vuecentric-component	canonical
+BGOUTL FIRVIS	1	M	vuecentric-component	canonical
+BGOUTL VCLN	1	M	vuecentric-component	canonical
+BGOVEM GETDATA	1	M		canonical
+BGOVEM GETSL	1	M		canonical
+BGOVEXAM GETTYPES	1	M		canonical
+BGOVEXAM SET	1	M		canonical
+BGOVHF GETTYPES	1	M		canonical
+BGOVHF SET	1	M		canonical
+BGOVPED GETNAME	1	M		canonical
+BGOVPED GETTYPES	1	M		canonical
+BGOVPED SET	1	M		canonical
+BGOVPED2 PROBEDU	1	M		canonical
+BGOVPOV SET	1	M		canonical
+BGOVPOV1 FRAC	1	M		canonical
+BGOVPOV1 QUALLK	1	M		canonical
+BGOVPOV2 INJURY	1	M		canonical
+CIAURPC FILENT	1	M	vuecentric-framework	canonical
+ORALWORD ALLWORD	1	V	cprs-chrome	legacy
+ORDEA DEATEXT	1	C		canonical
+ORDEA SIGINFO	1	C		canonical
+ORQQCN EDIT DEFAULT REASON	1	C-dialog	cprs-dialog-machine	legacy
+ORQQCN PROVDX	1	M		canonical
+ORQQCN SVC W/SYNONYMS	1	M		canonical
+ORQQCN UNRESOLVED	1	M		canonical
+ORQQCN2 GET CONTEXT	1	M		canonical
+ORQQPX REM INSERT AT CURSOR	1	C-dialog	cprs-dialog-machine	legacy
+ORQQPXRM PROGRESS NOTE HEADER	1	C-dialog	cprs-dialog-machine	legacy
+ORQQPXRM REMINDER CATEGORIES	1	M		canonical
+ORQQPXRM REMINDERS UNEVALUATED	1	M		canonical
+ORWD1 SVONLY	1	C		canonical
+ORWD2 DEVINFO	1	M		canonical
+ORWDCN32 DEF	1	C-dialog	cprs-dialog-machine	legacy
+ORWDCN32 NEWDLG	1	C-dialog	cprs-dialog-machine	legacy
+ORWDPS1 DFLTSPLY	1	M		canonical
+ORWDPS1 FAILDEA	1	C		canonical
+ORWDPS1 ODSLCT	1	C-dialog	cprs-dialog-machine	legacy
+ORWDPS32 AUTH	1	C		canonical
+ORWDPS32 DRUGMSG	1	C		canonical
+ORWDX LOADRSP	1	C-dialog	cprs-dialog-machine	legacy
+ORWDX LOCK	1	C		canonical
+ORWDX SEND	1	C		quarantine
+ORWDX UNLOCK	1	C		canonical
+ORWDX WRLST	1	C-dialog	cprs-dialog-machine	legacy
+ORWDX2 DCREASON	1	C-dialog	cprs-dialog-machine	legacy
+ORWDXA DC	1	C		quarantine
+ORWDXA DCREQIEN	1	C		canonical
+ORWDXA VALID	1	C		canonical
+ORWDXC SAVECHK	1	C		quarantine
+ORWDXC SESSION	1	C		quarantine
+ORWLRR INTERIMG	1	M		canonical
+ORWLRR NEWOLD	1	M		canonical
+ORWOR PKISITE	1	C		canonical
+ORWOR UNSIGN	1	C		canonical
+ORWORB KILL EXPIR MED ALERT	1	C		canonical
+ORWORB KILL UNSIG ORDERS ALERT	1	C		canonical
+ORWORB KILL UNVER MEDS ALERT	1	C		canonical
+ORWORB KILL UNVER ORDERS ALERT	1	C		canonical
+ORWPCE GET SET OF CODES	1	M		canonical
+ORWPFSS IS PFSS ACTIVE?	1	C		canonical
+ORWPS1 NEWDLG	1	C-dialog	cprs-dialog-machine	legacy
+ORWPT INPLOC	1	M		canonical
+ORWRP REPORT LISTS	1	V	cprs-chrome	legacy
+ORWTIU CHKTXT	1	C		canonical
+ORWU VALIDSIG	1	C		canonical
+PXRM REMINDER DIALOG (TIU)	1	C-dialog	cprs-dialog-machine	legacy
+TIU CREATE RECORD	1	C		canonical
+TIU GET DOCUMENT TITLE	1	M		canonical
+TIU GET LIST OF OBJECTS	1	V	tiu-editor	legacy
+TIU GET PRINT NAME	1	M		canonical
+TIU GET REQUEST	1	M		canonical
+TIU IS THIS A CONSULT?	1	M		canonical
+TIU ISPRF	1	M		canonical
+TIU LOAD BOILERPLATE TEXT	1	V	tiu-editor	legacy
+TIU LOCK RECORD	1	C		canonical
+TIU ONE VISIT NOTE?	1	M		canonical
+TIU REM DLG OK AS TEMPLATE	1	V	tiu-editor	legacy
+TIU SIGN RECORD	1	C		canonical
+TIU TEMPLATE ACCESS LEVEL	1	C	tiu-editor	canonical
+TIU UNLOCK RECORD	1	C		canonical
+TIU UPDATE RECORD	1	C		canonical
+TIU WAS THIS SAVED?	1	C		canonical
+TIU WHICH SIGNATURE ACTION	1	C		canonical
