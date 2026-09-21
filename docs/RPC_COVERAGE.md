@@ -20,20 +20,21 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | Pillar | Allowlist size | Wrapped | Coverage |
 | --- | --- | --- | --- |
 | CPRS GUI | 32 | 15 | 46.9% |
-| VueCentric AMHG | 0 | 0 | 0.0% |
+| VueCentric AMHG | 71 | 40 | 56.3% |
 | VueCentric BDMG | 0 | 0 | 0.0% |
 | VueCentric BSDX | 0 | 0 | 0.0% |
 | VueCentric BDW | 0 | 0 | 0.0% |
 | VueCentric BHL | 0 | 0 | 0.0% |
 | VueCentric BWH | 0 | 0 | 0.0% |
 | BPRM | 5 | 1 | 20.0% |
-| **TOTAL (deduped)** | **37** | **16** | **43.2%** |
+| **TOTAL (deduped)** | **108** | **56** | **51.9%** |
 
 ## Detail Matrix
 
 | Namespace | Wrapped (rpms-rpc) | Wrapped (vista-rpc) | staging | us-hospital | sweden | jordan | Used by | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | AGG | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| AMHG | 40 | n/a | ? | ? | ? | ? | VueCentric AMHG | partial (gap: 31) |
 | BEHOCACV | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BEHOCCD | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BEHOCIR | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
