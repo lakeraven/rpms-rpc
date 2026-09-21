@@ -60,8 +60,9 @@ module RpmsRpc
     # sequence echo and \x00 ack): line 1 = status code ("0" = success),
     # line 2 = session params "UID^netname^sitename", lines 3+ = greeting.
     # The reply carries the broker-assigned session UID but NOT the DUZ; the
-    # broker saves DUZ into the session environment at sign-on, so it is
-    # fetched with the context-exempt CIANBRPC GETVAR ("DUZ=n" reply).
+    # broker saves DUZ into the session environment at sign-on, where the
+    # client cannot read it back (see #signon_duz), so it is asked for with
+    # XUS GET USER INFO.
     #
     # A first sign-on MUST request session UID 0. AUTH^CIANBRPC branches on the
     # UID param (CIANBRPC.m:47-60): a non-zero UID is a RECONNECT to that session
@@ -79,7 +80,7 @@ module RpmsRpc
       ac, vc = resolve_credentials(access_code, verify_code) # base
       avc = xwb_encrypt("#{ac};#{vc}") # base cipher — matches ENCRYP^XUSRB1
 
-      # AUTH and the GETVAR that reads back DUZ are one indivisible sequence:
+      # AUTH and the XUS GET USER INFO that reads back DUZ are one indivisible sequence:
       # the broker stores DUZ into the session environment at sign-on, so a
       # concurrent sign-on landing between them returns the OTHER clinician's
       # DUZ to this caller.
@@ -105,7 +106,7 @@ module RpmsRpc
         uid = session_params(reply)[0]
         @session_uid = uid if uid&.match?(/\A\d+\z/) # failure params are "server^volume^UCI^port"
         @current_context = SIGNON_CONTEXT # ContextScope — AUTH bound it as the AID
-        duz = printable(call_rpc_raw("CIANBRPC GETVAR", "DUZ"))[/\bDUZ=(\d+)/, 1]
+        duz = signon_duz
 
         # The greeting is a display string; the DUZ is the identity everything
         # downstream authorizes against. Gate on a positive DUZ, same as the
@@ -118,6 +119,33 @@ module RpmsRpc
         @duz = duz
         { success: true, user: @signon_user, duz: @duz.to_i, greeting: greeting.strip }
       end
+    end
+
+    # The DUZ of the user this connection just signed on as.
+    #
+    # Asked with XUS GET USER INFO (stock Kernel, USERINFO^XUSRB2): line 1 of the
+    # reply is the DUZ. It runs in this connection's own broker process, so it
+    # can only ever describe this connection's user, and it needs no application
+    # context - it answers right after AUTH, which is when this is called.
+    #
+    # NOT CIANBRPC GETVAR "DUZ", which this used to call and which can never
+    # work against a stock CIA broker. RESET^CIANBRPC stores the sign-on
+    # environment (DUZ, DUZ0, DUZ2, USER...) in session namespace 0, and
+    # GETVAR^CIANBRPC opens with `S:0[$G(NMSP) NMSP="@"` - an empty OR zero
+    # namespace is forced to "@", the client-variable namespace. Namespace 0 is
+    # unreachable through that RPC by design, so the reply is always "DUZ="
+    # with no digits. Verified live on bcer-9.0-20260921-134e4f1-ydb,
+    # 2026-09-21, no context bound:
+    #   CIANBRPC GETVAR  "DUZ"        -> DUZ=
+    #   CIANBRPC GETVAR  "DUZ","0"    -> DUZ=
+    #   XUS GET USER INFO             -> 4 / MANAGER,SYSTEM / System Manager / ...
+    # while ^XTMP("CIA",uid,"V",0,"DUZ") held 4 the whole time. Once #249 made
+    # a missing DUZ fatal, every CIA sign-on failed and so did the rpms-ops
+    # release gate.
+    def signon_duz
+      raw = call_rpc_raw("XUS GET USER INFO").to_s
+      body = raw.include?("\x00") ? raw.split("\x00", 2)[1].to_s : raw
+      body.split(/\r\n|\r|\n/).first.to_s[/\A\s*(\d+)\s*\z/, 1]
     end
 
     # Return the client to a fully signed-out state. Clears @duz too: a failed

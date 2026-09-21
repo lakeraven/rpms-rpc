@@ -142,8 +142,8 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
           @replies << "0\r\n7#{@auths}^NET^SITE\r\nSigned on as USER#{@auths}\r\n#{EOD}"
         elsif str.include?("LANE-")
           @replies << "#{str[/LANE-[AB]/]}-OK#{EOD}"
-        else # CIANBRPC GETVAR DUZ — answers for the CURRENT session identity
-          @replies << "DUZ=#{300 + @session}#{EOD}"
+        else # XUS GET USER INFO — line 1 is the DUZ of the CURRENT session identity
+          @replies << "#{300 + @session}\r\nUSER#{@session}\r\n#{EOD}"
         end
       end
       sleep 0.01 # widen the send-then-read window a broken client would leak in

@@ -95,12 +95,16 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   #
   # AUTH^CIANBRPC reply: <seq echo><\x00 ack>, then CR+LF-separated lines —
   # line 1 status ("0" = success), line 2 params "UID^netname^sitename",
-  # lines 3+ greeting. DUZ is NOT in the reply; it is saved into the session
-  # environment and fetched with CIANBRPC GETVAR ("DUZ=n").
+  # lines 3+ greeting. DUZ is NOT in the reply, and the session environment it
+  # is saved into cannot be read back by the client (GETVAR^CIANBRPC forces an
+  # empty or zero namespace to "@"; the sign-on DUZ lives in namespace 0). It is
+  # asked for with XUS GET USER INFO, whose first line is the DUZ. The fixture
+  # below is the shape a live broker returned on 2026-09-21.
 
   AUTH_REPLY = "1\x000\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\n" \
                "Good evening USER,DEMO\r\n     You last signed on today at 08:15\r\n"
-  GETVAR_REPLY = "2\x00DUZ=63\r\n"
+  USERINFO_REPLY = "2\x0063\r\nUSER,DEMO\r\nDemo User\r\n1^DEMO CLINIC^1234\r\nIRM\r\n99999\r\n"
+  GETVAR_REPLY = USERINFO_REPLY # older tests still name it this
 
   def test_authenticate_populates_duz_via_session_env
     c = connected_client([ AUTH_REPLY + EOD, GETVAR_REPLY + EOD ])
@@ -126,7 +130,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     cr_auth = "1\x001^VERIFY CODE must be changed before continued use.\r" \
               "35^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\rGood evening USER,DEMO\r" \
               "     You last signed on today at 08:15\r"
-    c = connected_client([ cr_auth + EOD, "2\x00DUZ=63\r" + EOD, "3\x00ok\r" + EOD ])
+    c = connected_client([ cr_auth + EOD, "2\x0063\rUSER,DEMO\rDemo User\r" + EOD, "3\x00ok\r" + EOD ])
     c.authenticate("SYN123", "SYN123!!")
     assert_equal "35", c.session_uid
     assert_equal "63", c.duz
@@ -144,7 +148,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # A DUZ=0 reply (broker's "no user") is absence of identity too, not a
   # positive resolution — must fail closed the same way.
   def test_authenticate_fails_closed_on_zero_duz
-    c = connected_client([ AUTH_REPLY + EOD, "2\x00DUZ=0\r\n" + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, "2\x000\r\n" + EOD ])
     assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
   end
 
@@ -166,7 +170,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # duz/authenticated/session_uid must all clear, not survive.
   def test_failed_reauth_clears_prior_users_identity
     c = connected_client([ AUTH_REPLY + EOD, GETVAR_REPLY + EOD,
-                           AUTH_REPLY + EOD, "4\x00DUZ=\r\n" + EOD ])
+                           AUTH_REPLY + EOD, "4\x00\r\n" + EOD ])
     first = c.authenticate("USERA", "USERA!!") # resolves DUZ 63
     assert_equal 63, first[:duz]
     assert_equal "63", c.duz
@@ -407,7 +411,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   def test_full_signon_round_trip_against_strict_broker
     c, broker = client_on_strict_broker([
       "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", # CIANBRPC AUTH
-      "DUZ=63\r\n",                                                            # CIANBRPC GETVAR
+      "63\r\nUSER,DEMO\r\n",                                                     # XUS GET USER INFO
       "ok\r\n"                                                                 # the RPC proper
     ])
     c.connect("localhost", 9100)
@@ -434,7 +438,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # family (DDR/DDRROOT/DDRIENS lists) require.
 
   def signed_on_strict_client(rpc_bodies)
-    c, broker = client_on_strict_broker([ "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", "DUZ=63\r\n" ] + rpc_bodies)
+    c, broker = client_on_strict_broker([ "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", "63\r\nUSER,DEMO\r\n" ] + rpc_bodies)
     c.connect("localhost", 9100)
     c.authenticate("SYN123", "SYN123!!")
     [ c, broker ]
@@ -596,7 +600,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
           @reconnect_attempted = true
           RECONNECT_FAIL
         end
-      when "CIANBRPC GETVAR" then "DUZ=63\r\n"
+      when "XUS GET USER INFO" then "63\r\nUSER,DEMO\r\n"
       else "ok\r\n"
       end
     end
