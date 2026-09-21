@@ -160,6 +160,38 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_nil c.signon_user
   end
 
+  # #245 (found in review): the process-global client is reused across
+  # sign-ons, so a FAILED re-auth must not leave a PRIOR user's identity
+  # readable. Pre-seed a resolved session, then fail a re-auth on no DUZ:
+  # duz/authenticated/session_uid must all clear, not survive.
+  def test_failed_reauth_clears_prior_users_identity
+    c = connected_client([ AUTH_REPLY + EOD, GETVAR_REPLY + EOD,
+                           AUTH_REPLY + EOD, "4\x00DUZ=\r\n" + EOD ])
+    first = c.authenticate("USERA", "USERA!!") # resolves DUZ 63
+    assert_equal 63, first[:duz]
+    assert_equal "63", c.duz
+
+    assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("USERB", "USERB!!") }
+    refute c.authenticated?, "a failed re-auth must not stay authenticated as the prior user"
+    assert_nil c.duz, "a failed re-auth must not leave the prior user's DUZ readable"
+    assert_nil c.session_uid
+    assert_nil c.signon_user
+  end
+
+  # Same fail-closed contract for the greeting-rejection branch: a rejected
+  # re-auth (bad code) must also clear a prior resolved identity.
+  def test_rejected_reauth_clears_prior_users_identity
+    rejected = "3\x00Not a valid ACCESS CODE/VERIFY CODE pair.\r\n"
+    c = connected_client([ AUTH_REPLY + EOD, GETVAR_REPLY + EOD, rejected + EOD ])
+    c.authenticate("USERA", "USERA!!")
+    assert_equal "63", c.duz
+
+    assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("BAD", "BAD!!") }
+    refute c.authenticated?
+    assert_nil c.duz
+    assert_nil c.session_uid
+  end
+
   # ADR 0002/0003 real-reply check (#245): the no-DUZ case in dispute is not a
   # synthetic fiction. This is the VERBATIM reply the live YDB-served broker
   # (rpms-ydb-9.0, :9100 via CIANBRPC GETVAR "DUZ") returns for a session with
