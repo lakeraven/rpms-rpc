@@ -1,0 +1,21 @@
+# Legacy-coupled wrappers that predate ADR 0004. This is a ratchet, not an
+# exemption: the set may SHRINK but never grow. Each carries its replacement
+# path. Enforced by test/rpms_rpc/rpc_tiers_test.rb, which compares this file
+# against the base branch — adding an entry fails CI regardless of what else
+# the PR edits. New exceptions go in JUSTIFIED_LEGACY_WRAPPERS (in the test),
+# with a reason.
+"CIAVMRPC GETPAR": >-
+  Fetches the VueCentric client's config root ('CIAVM DEFAULT SOURCE').
+  A frontend-agnostic consumer has no CIAVM config root. Delete with the
+  session-bootstrap path; no replacement needed.
+"BGOTRG GETSUM": >-
+  Scrapes the rendered triage-summary string for reminders because the real
+  reminder RPCs were never modelled (see the mapping's own comment). Replace
+  with ORQQPXRM REMINDERS UNEVALUATED + ORQQPXRM REMINDER CATEGORIES, both
+  canonical and both observed in the trace.
+"TIU TEMPLATE GETBOIL": >-
+  Note-template expansion; arguable tier, see ADR 0004 consequences.
+"TIU TEMPLATE GETITEMS": >-
+  Template tree traversal for an editor picker; arguable tier.
+"TIU TEMPLATE GETTEXT": >-
+  Template text for an editor widget; arguable tier.
