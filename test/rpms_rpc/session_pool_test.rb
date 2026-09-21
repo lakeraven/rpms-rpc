@@ -127,6 +127,118 @@ class RpmsRpc::SessionPoolTest < Minitest::Test
     assert_equal 1, @builds["shared"], "same session must authenticate once"
   end
 
+  # The first-touch race (PR #250 review): a second caller for the SAME new
+  # session must not be handed a half-built (nil) client while the first
+  # caller is still authenticating. Forces both threads into checkout with a
+  # build that blocks until released, so the second is genuinely mid-build —
+  # a real broker sign-on's I/O latency, not an instant fake.
+  def test_concurrent_first_touch_never_yields_a_nil_client
+    build_started = Queue.new
+    release_build = Queue.new
+    builds = 0
+    count_lock = Mutex.new
+    blocking_build = lambda do |key|
+      count_lock.synchronize { builds += 1 }
+      build_started << :started
+      release_build.pop # hold the build open until the test lets it finish
+      FakeClient.new(key)
+    end
+    pool = Pool.new(max_sessions: 4, build: blocking_build)
+
+    seen = Queue.new
+    a = Thread.new { pool.with_client("s") { |c| seen << c } }
+    build_started.pop           # A is mid-build: entry exists, client still nil
+    b = Thread.new { pool.with_client("s") { |c| seen << c } }
+    sleep 0.05                  # let B reach the wait on the building entry
+    release_build << :go        # A's build completes and signals waiters
+    a.join
+    b.join
+
+    first = seen.pop
+    second = seen.pop
+    refute_nil first, "a same-session caller must never be yielded a nil client"
+    refute_nil second, "a same-session caller must never be yielded a nil client"
+    assert_same first, second, "both callers must share the one built client"
+    assert_equal 1, builds, "the second caller must reuse the build, not start its own"
+  end
+
+  # A failed build must wake same-session waiters so one of them retries,
+  # rather than leaving them blocked forever on a build that never completes.
+  def test_failed_build_wakes_waiters_who_then_retry
+    attempts = 0
+    count_lock = Mutex.new
+    first_started = Queue.new
+    release_first = Queue.new
+    build = lambda do |key|
+      n = count_lock.synchronize { attempts += 1 }
+      if n == 1
+        first_started << :started
+        release_first.pop
+        raise "first build fails"
+      end
+      FakeClient.new(key)
+    end
+    pool = Pool.new(max_sessions: 4, build: build)
+
+    errors = Queue.new
+    results = Queue.new
+    a = Thread.new do
+      pool.with_client("s") { |c| results << c }
+    rescue StandardError => e
+      errors << e
+    end
+    first_started.pop            # A is mid-(doomed)-build; entry exists, nil client
+    b = Thread.new { pool.with_client("s") { |c| results << c } }
+    sleep 0.05                   # B waits on the building entry
+    release_first << :go         # A's build raises, removes the entry, wakes B
+    a.join
+    b.join
+
+    assert_equal 1, errors.size, "the builder whose build failed surfaces the error"
+    refute_nil results.pop, "the waiter retries the build and gets a real client"
+    assert_equal 2, attempts, "the waiter took over the build after the first failed"
+  end
+
+  # A non-StandardError from build (the reason checkout uses ensure, not
+  # rescue StandardError) must still drop the slot and wake waiters — never
+  # leave a same-session waiter blocked forever.
+  def test_non_standard_error_in_build_still_wakes_waiters
+    boom = Class.new(Exception)
+    attempts = 0
+    lock = Mutex.new
+    started = Queue.new
+    release = Queue.new
+    build = lambda do |key|
+      n = lock.synchronize { attempts += 1 }
+      if n == 1
+        started << :s
+        release.pop
+        raise boom, "non-standard build failure"
+      end
+      FakeClient.new(key)
+    end
+    pool = Pool.new(max_sessions: 4, build: build)
+
+    results = Queue.new
+    a = Thread.new do
+      Thread.current.report_on_exception = false
+      pool.with_client("s") { |c| results << c }
+    rescue boom
+      results << :boom
+    end
+    started.pop
+    b = Thread.new { pool.with_client("s") { |c| results << c } }
+    sleep 0.05
+    release << :go
+    assert a.join(5), "builder thread did not finish"
+    assert b.join(5), "waiter hung — ensure must wake waiters even on a non-StandardError"
+
+    got = [ results.pop, results.pop ]
+    assert_includes got, :boom
+    assert(got.any? { |x| x.is_a?(FakeClient) }, "the waiter must retake the build and get a real client")
+    assert_equal 2, attempts
+  end
+
   def test_shutdown_disconnects_idle_clients
     pool = Pool.new(max_sessions: 4, build: counting_builder)
     a = nil

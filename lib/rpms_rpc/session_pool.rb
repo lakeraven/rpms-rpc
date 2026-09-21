@@ -43,6 +43,9 @@ module RpmsRpc
       @clock = clock
       @entries = {} # session_key => Entry
       @monitor = Monitor.new
+      # Signalled when a build finishes (success or failure). Same-session
+      # waiters block on it rather than observing a half-built entry.
+      @build_done = @monitor.new_cond
     end
 
     # Check out the client for `session_key` (building + authenticating it via
@@ -52,7 +55,7 @@ module RpmsRpc
     def with_client(session_key)
       raise ArgumentError, "session_key required" if session_key.nil?
 
-      entry = checkout(session_key)
+      entry = checkout(freeze_key(session_key))
       begin
         yield entry.client
       ensure
@@ -72,41 +75,75 @@ module RpmsRpc
 
     # Drop and disconnect every idle client. In-use entries are left alone;
     # a caller inside with_client keeps its client until it checks back in.
-    # Returns the number of entries evicted.
+    # Returns the number of entries evicted. Disconnect I/O runs OUTSIDE the
+    # monitor so a wedged socket can't freeze the pool.
     def shutdown
-      @monitor.synchronize do
+      clients = @monitor.synchronize do
         idle = @entries.values.select { |e| e.refcount.zero? }
-        idle.each { |e| drop(e) }
-        idle.size
+        idle.each { |e| @entries.delete(e.session_key) }
+        idle.map(&:client)
       end
+      clients.each { |c| safe_disconnect(c) }
+      clients.size
     end
 
     private
 
+    # A caller-owned mutable String key, mutated after checkout, would corrupt
+    # @entries. Freeze a copy so the pool owns an immutable key. Non-String
+    # keys (symbols, integers) are already immutable enough.
+    def freeze_key(key)
+      key.is_a?(String) ? key.dup.freeze : key
+    end
+
+    def safe_disconnect(client)
+      client&.disconnect
+    rescue StandardError
+      nil
+    end
+
     def checkout(session_key)
       # Build outside the lock — authentication does broker I/O and must not
       # freeze every other session's checkout. Reserve the slot first so we
-      # respect capacity, then fill it.
+      # respect capacity, then fill it. A concurrent same-session caller that
+      # finds the entry still building WAITS for it, so it never observes a
+      # half-built (client: nil) entry.
       reserved = nil
+      evicted = nil
       @monitor.synchronize do
-        existing = @entries[session_key]
-        if existing
-          existing.refcount += 1
-          existing.last_used_at = @clock.call
-          return existing
+        loop do
+          existing = @entries[session_key]
+          if existing.nil?
+            evicted = make_room_or_raise # a client to disconnect, or nil
+            reserved = Entry.new(client: nil, session_key: session_key, refcount: 1, last_used_at: @clock.call)
+            @entries[session_key] = reserved
+            break # this thread owns the build; run it below, outside the lock
+          elsif existing.client
+            existing.refcount += 1
+            existing.last_used_at = @clock.call
+            return existing
+          else
+            @build_done.wait # another thread is building this key; sleep until it signals
+          end
         end
-
-        make_room_or_raise
-        reserved = Entry.new(client: nil, session_key: session_key, refcount: 1, last_used_at: @clock.call)
-        @entries[session_key] = reserved
       end
+      safe_disconnect(evicted) # off the lock — a wedged socket must not freeze checkout
 
+      # `ensure`, not `rescue StandardError`: a build that raises ANYTHING —
+      # including a non-StandardError — must still drop the poisoned slot and
+      # wake waiters, or a same-session waiter blocks on @build_done forever.
+      built = nil
       begin
-        reserved.client = @build.call(session_key)
-      rescue StandardError
-        # A failed build must not leave a poisoned, clientless slot behind.
-        @monitor.synchronize { @entries.delete(session_key) if @entries[session_key].equal?(reserved) }
-        raise
+        built = @build.call(session_key)
+      ensure
+        @monitor.synchronize do
+          if built
+            reserved.client = built
+          elsif @entries[session_key].equal?(reserved)
+            @entries.delete(session_key) # build failed — let a waiter retake it
+          end
+          @build_done.broadcast
+        end
       end
       reserved
     end
@@ -119,23 +156,16 @@ module RpmsRpc
     end
 
     # Caller holds the monitor. Evict the least-recently-used IDLE entry to fit
-    # a new session; raise if the pool is full and nothing is idle.
+    # a new session; raise if the pool is full and nothing is idle. Returns the
+    # evicted client (for the caller to disconnect off the lock), or nil.
     def make_room_or_raise
-      return if @entries.size < @max
+      return nil if @entries.size < @max
 
       victim = @entries.values.select { |e| e.refcount.zero? }.min_by(&:last_used_at)
       raise PoolExhaustedError, "session pool full (#{@max} in use)" unless victim
 
-      drop(victim)
-    end
-
-    # Caller holds the monitor. Remove an entry and disconnect its client,
-    # never raising out of teardown.
-    def drop(entry)
-      @entries.delete(entry.session_key)
-      entry.client&.disconnect
-    rescue StandardError
-      nil
+      @entries.delete(victim.session_key)
+      victim.client
     end
   end
 end
