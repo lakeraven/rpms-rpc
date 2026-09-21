@@ -2,6 +2,11 @@
 
 require "socket"
 require "monitor"
+# RpmsRpc.sanitize_error and RpmsRpc.configuration live in version.rb. Every raise site below calls
+# sanitize_error, so a consumer that requires a client file directly (rpms_rpc/cia_client, as the
+# rpms-ops release gate driver does) must still get it - otherwise any broker error surfaces as
+# NoMethodError and the real message is lost.
+require "rpms_rpc/version"
 require "rpms_rpc/parameter_encoder"
 require "rpms_rpc/xml_response_parser"
 require "rpms_rpc/server_capabilities"
