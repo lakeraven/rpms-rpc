@@ -98,8 +98,24 @@ module RpmsRpc
         uid = session_params(reply)[0]
         @session_uid = uid if uid&.match?(/\A\d+\z/) # failure params are "server^volume^UCI^port"
         @current_context = SIGNON_CONTEXT # ContextScope — AUTH bound it as the AID
-        @duz = printable(call_rpc_raw("CIANBRPC GETVAR", "DUZ"))[/\bDUZ=(\d+)/, 1]
-        { success: true, user: @signon_user, duz: @duz&.to_i, greeting: greeting.strip }
+        duz = printable(call_rpc_raw("CIANBRPC GETVAR", "DUZ"))[/\bDUZ=(\d+)/, 1]
+
+        # A sign-on that resolved no positive DUZ never happened (#245): the
+        # greeting is a display string, the DUZ is the identity everything
+        # downstream authorizes against. Same gate as the XUS path
+        # (api/authentication.rb duz.positive?). Roll back every piece of
+        # session state set above — a later call must not ride a half-bound
+        # session.
+        unless duz.to_i.positive?
+          @authenticated = false
+          @signon_user = nil
+          @session_uid = nil
+          @current_context = nil
+          raise AuthenticationError, RpmsRpc.sanitize_error("CIA sign-on resolved no DUZ")
+        end
+
+        @duz = duz
+        { success: true, user: @signon_user, duz: @duz.to_i, greeting: greeting.strip }
       end
     end
 
