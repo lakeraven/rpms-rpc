@@ -89,7 +89,14 @@ module RpmsRpc
           pk("1"), pk(""), pk(SIGNON_CONTEXT),
           pk("4"), pk(""), pk(avc))
         greeting = printable(reply)
+
+        # Every failure below fails CLOSED (#245): a rejected or unresolved
+        # sign-on must not leave the client attesting an identity — including a
+        # PRIOR successful one, since RpmsRpc.client is process-global and
+        # reused across sign-ons (client.rb; rpms-rpc#234). So clear session
+        # state before raising, not only on the missing-DUZ branch.
         unless greeting.match?(/signed on|Good (morning|afternoon|evening)/i)
+          clear_signon_state
           raise AuthenticationError, RpmsRpc.sanitize_error("CIA sign-on rejected")
         end
 
@@ -98,10 +105,32 @@ module RpmsRpc
         uid = session_params(reply)[0]
         @session_uid = uid if uid&.match?(/\A\d+\z/) # failure params are "server^volume^UCI^port"
         @current_context = SIGNON_CONTEXT # ContextScope — AUTH bound it as the AID
-        @duz = printable(call_rpc_raw("CIANBRPC GETVAR", "DUZ"))[/\bDUZ=(\d+)/, 1]
-        { success: true, user: @signon_user, duz: @duz&.to_i, greeting: greeting.strip }
+        duz = printable(call_rpc_raw("CIANBRPC GETVAR", "DUZ"))[/\bDUZ=(\d+)/, 1]
+
+        # The greeting is a display string; the DUZ is the identity everything
+        # downstream authorizes against. Gate on a positive DUZ, same as the
+        # XUS path (api/authentication.rb duz.positive?).
+        unless duz.to_i.positive?
+          clear_signon_state
+          raise AuthenticationError, RpmsRpc.sanitize_error("CIA sign-on resolved no DUZ")
+        end
+
+        @duz = duz
+        { success: true, user: @signon_user, duz: @duz.to_i, greeting: greeting.strip }
       end
     end
+
+    # Return the client to a fully signed-out state. Clears @duz too: a failed
+    # sign-on must not leave a prior user's DUZ readable via #duz.
+    def clear_signon_state
+      @authenticated = false
+      @signon_user = nil
+      @session_uid = nil
+      @duz = nil
+      @current_context = nil
+      @context_bound = false
+    end
+    private :clear_signon_state
 
     attr_reader :signon_user, :session_uid
 

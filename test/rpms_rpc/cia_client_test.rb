@@ -134,11 +134,75 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_includes c.instance_variable_get(:@socket).writes.last, "\x03UID\x00\x0235".b
   end
 
-  def test_authenticate_duz_nil_when_session_env_lacks_it
+  # #245: a greeting-only sign-on that resolves no DUZ is a refusal, not a
+  # success with a nil identity. GETVAR returns a reply with no "DUZ=<n>".
+  def test_authenticate_fails_closed_when_session_env_lacks_duz
     c = connected_client([ AUTH_REPLY + EOD, "2\x00\r\n" + EOD ])
-    result = c.authenticate("SYN123", "SYN123!!")
-    assert result[:success]
-    assert_nil result[:duz]
+    assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
+  end
+
+  # A DUZ=0 reply (broker's "no user") is absence of identity too, not a
+  # positive resolution — must fail closed the same way.
+  def test_authenticate_fails_closed_on_zero_duz
+    c = connected_client([ AUTH_REPLY + EOD, "2\x00DUZ=0\r\n" + EOD ])
+    assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
+  end
+
+  # A failed sign-on must leave NO half-bound session behind: a later caller
+  # must not ride @authenticated/@session_uid/@current_context set before the
+  # DUZ read.
+  def test_authenticate_rolls_back_session_state_on_duz_failure
+    c = connected_client([ AUTH_REPLY + EOD, "2\x00\r\n" + EOD ])
+    assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
+    refute c.authenticated?
+    assert_nil c.duz
+    assert_nil c.session_uid
+    assert_nil c.signon_user
+  end
+
+  # #245 (found in review): the process-global client is reused across
+  # sign-ons, so a FAILED re-auth must not leave a PRIOR user's identity
+  # readable. Pre-seed a resolved session, then fail a re-auth on no DUZ:
+  # duz/authenticated/session_uid must all clear, not survive.
+  def test_failed_reauth_clears_prior_users_identity
+    c = connected_client([ AUTH_REPLY + EOD, GETVAR_REPLY + EOD,
+                           AUTH_REPLY + EOD, "4\x00DUZ=\r\n" + EOD ])
+    first = c.authenticate("USERA", "USERA!!") # resolves DUZ 63
+    assert_equal 63, first[:duz]
+    assert_equal "63", c.duz
+
+    assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("USERB", "USERB!!") }
+    refute c.authenticated?, "a failed re-auth must not stay authenticated as the prior user"
+    assert_nil c.duz, "a failed re-auth must not leave the prior user's DUZ readable"
+    assert_nil c.session_uid
+    assert_nil c.signon_user
+  end
+
+  # Same fail-closed contract for the greeting-rejection branch: a rejected
+  # re-auth (bad code) must also clear a prior resolved identity.
+  def test_rejected_reauth_clears_prior_users_identity
+    rejected = "3\x00Not a valid ACCESS CODE/VERIFY CODE pair.\r\n"
+    c = connected_client([ AUTH_REPLY + EOD, GETVAR_REPLY + EOD, rejected + EOD ])
+    c.authenticate("USERA", "USERA!!")
+    assert_equal "63", c.duz
+
+    assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("BAD", "BAD!!") }
+    refute c.authenticated?
+    assert_nil c.duz
+    assert_nil c.session_uid
+  end
+
+  # ADR 0002/0003 real-reply check (#245): the no-DUZ case in dispute is not a
+  # synthetic fiction. This is the VERBATIM reply the live YDB-served broker
+  # (rpms-ydb-9.0, :9100 via CIANBRPC GETVAR "DUZ") returns for a session with
+  # no DUZ in its environment — captured 2026-09-21. Note it is "DUZ=" with no
+  # digits, NOT a missing line, so the /\bDUZ=(\d+)/ match genuinely fails on
+  # real broker output. Sign-on must refuse on it.
+  GETVAR_NO_DUZ_REAL = "2\x00DUZ=\r" # bytes [50,0,68,85,90,61,13] — rpms-ydb-9.0
+  def test_authenticate_fails_closed_on_real_broker_no_duz_reply
+    c = connected_client([ AUTH_REPLY + EOD, GETVAR_NO_DUZ_REAL + EOD ])
+    assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
+    refute c.authenticated?
     assert_nil c.duz
   end
 
