@@ -3,6 +3,8 @@
 require "minitest/autorun"
 require "set"
 require "yaml"
+require "open3"
+require_relative "../../lib/rpms_rpc/version"
 
 # Enforces ADR 0004: the canonical stack stays frontend-agnostic.
 #
@@ -12,6 +14,7 @@ require "yaml"
 class RpmsRpc::RpcTiersTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
   TIER_DIR = File.join(ROOT, "data", "rpc_tiers")
+  GRANDFATHERED_PATH = "data/rpc_tiers/grandfathered.yml"
 
   # Wrappers we knowingly keep despite a legacy classification, permanently.
   # Each entry needs a reason; an empty reason fails the test.
@@ -19,23 +22,11 @@ class RpmsRpc::RpcTiersTest < Minitest::Test
     # "ORWCH SAVESIZ" => "reason it must exist despite being view-tier"
   }.freeze
 
-  # Legacy-coupled wrappers that predate ADR 0004. This is a ratchet, not an
-  # exemption: the set may SHRINK but never grow, so no new coupling can enter
-  # while these are burned down. Each carries its replacement path.
-  GRANDFATHERED = {
-    "CIAVMRPC GETPAR" =>
-      "Fetches the VueCentric client's config root ('CIAVM DEFAULT SOURCE'). " \
-      "A frontend-agnostic consumer has no CIAVM config root. Delete with the " \
-      "session-bootstrap path; no replacement needed.",
-    "BGOTRG GETSUM" =>
-      "Scrapes the rendered triage-summary string for reminders because the real " \
-      "reminder RPCs were never modelled (see the mapping's own comment). Replace " \
-      "with ORQQPXRM REMINDERS UNEVALUATED + ORQQPXRM REMINDER CATEGORIES, both " \
-      "canonical and both observed in the trace.",
-    "TIU TEMPLATE GETBOIL" => "Note-template expansion; arguable tier, see ADR 0004 consequences.",
-    "TIU TEMPLATE GETITEMS" => "Template tree traversal for an editor picker; arguable tier.",
-    "TIU TEMPLATE GETTEXT" => "Template text for an editor widget; arguable tier."
-  }.freeze
+  # Legacy-coupled wrappers that predate ADR 0004. Lives in a data file so
+  # test_grandfathered_set_never_grows can diff it against the base branch:
+  # the set may SHRINK but never grow, and that is checked against git
+  # history rather than against whatever this commit says the baseline is.
+  GRANDFATHERED = YAML.safe_load_file(File.join(ROOT, GRANDFATHERED_PATH)).freeze
 
   def tier_set(name)
     File.readlines(File.join(TIER_DIR, "#{name}.txt"), chomp: true)
@@ -90,11 +81,44 @@ class RpmsRpc::RpcTiersTest < Minitest::Test
           wrong, and say why in the ADR, or
         - add it to JUSTIFIED_LEGACY_WRAPPERS here WITH a reason.
 
-      Do NOT add it to GRANDFATHERED — that set is closed and may only shrink.
+      Do NOT add it to #{GRANDFATHERED_PATH} — that set is closed and may
+      only shrink (enforced against the base branch).
     MSG
   end
 
-  # The ratchet. If a grandfathered wrapper has been removed, this fails and
+  # The closed half of the ratchet: no entry may be added to the grandfathered
+  # file, checked against the base branch's copy so the baseline cannot be
+  # co-edited by the same commit that grows it. In CI, GITHUB_BASE_REF is the
+  # PR's target branch; locally we compare against origin/main. If the base
+  # ref is not fetchable the test skips locally but FAILS in CI (which checks
+  # out full history precisely so this comparison can run), so a shallow
+  # checkout can never silently disable the gate.
+  def test_grandfathered_set_never_grows
+    base_ref = ENV["GITHUB_BASE_REF"] || "main"
+    resolved = [ "origin/#{base_ref}", base_ref ].find do |ref|
+      _, status = Open3.capture2e("git", "-C", ROOT, "rev-parse", "--verify", "--quiet", "#{ref}^{commit}")
+      status.success?
+    end
+    unless resolved
+      message = "cannot resolve base ref #{base_ref.inspect}; ratchet not checked"
+      ENV["CI"].to_s.empty? ? skip(message) : flunk(message)
+    end
+
+    base_yaml, status = Open3.capture2e("git", "-C", ROOT, "show", "#{resolved}:#{GRANDFATHERED_PATH}")
+    return if !status.success? # file absent on base: this commit introduces the ratchet
+
+    grown = GRANDFATHERED.keys.to_set - YAML.safe_load(base_yaml).keys.to_set
+    assert_empty grown.to_a, <<~MSG
+      #{GRANDFATHERED_PATH} gained entries relative to #{resolved}:
+
+        #{grown.to_a.sort.join("\n  ")}
+
+      The grandfathered set is closed and may only shrink. A new exception
+      belongs in JUSTIFIED_LEGACY_WRAPPERS, with a reason.
+    MSG
+  end
+
+  # The open half: if a grandfathered wrapper has been removed, this fails and
   # tells you to delete the entry, so the debt list cannot drift out of date.
   def test_grandfathered_set_only_shrinks
     stale = GRANDFATHERED.keys.to_set - wrapped_rpcs

@@ -16,6 +16,10 @@ jobs:
         ruby: ["3.4"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # rpc_tiers_test diffs data/rpc_tiers/grandfathered.yml against the
+          # base branch; a shallow checkout has no base ref to diff against.
+          fetch-depth: 0
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
