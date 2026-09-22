@@ -81,8 +81,10 @@ module RpmsRpc
 
     # Place an already-authenticated `client` under `session_key` and return
     # it. Does not call `build`. The entry is pinned (refcount 1) for the
-    # whole call, including the off-lock disconnect of any evicted client,
-    # then dropped back to 0 before return. adopt does not check the client
+    # whole call, including the off-lock disconnect of any evicted client;
+    # that pin is dropped before return, and the entry is stamped used at
+    # that moment. A concurrent `with_client` may hold its own ref, so the
+    # refcount is not necessarily 0 on return. adopt does not check the client
     # out to the caller; the next `with_client` does. After return the
     # session is idle.
     #
@@ -107,8 +109,15 @@ module RpmsRpc
         safe_disconnect(evicted) # off the lock — a wedged socket must not freeze the pool
       ensure
         # Drop only the pin taken above. A with_client that checked the same
-        # entry out during the disconnect holds its own ref.
-        @monitor.synchronize { entry.refcount -= 1 if entry.refcount.positive? }
+        # entry out during the disconnect holds its own ref. Stamp here, not at
+        # insertion: a parked disconnect would otherwise leave the freshest
+        # session carrying the oldest idle timestamp, making it the next LRU
+        # victim. No guard on the decrement — the pin is held on every path to
+        # here, so an imbalance must surface, not be clamped to zero.
+        @monitor.synchronize do
+          entry.refcount -= 1
+          entry.last_used_at = @clock.call
+        end
       end
       client
     end

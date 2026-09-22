@@ -713,6 +713,46 @@ class RpmsRpc::SessionPoolTest < Minitest::Test
     assert doomed.disconnected
   end
 
+  def test_adopt_stamps_last_used_at_when_the_pin_drops_not_at_insertion
+    # An adopted session is stamped when it is inserted, but the pin is not
+    # dropped until the evicted client's off-lock disconnect returns. If that
+    # disconnect is slow, the freshest session carries the oldest timestamp
+    # among the idle entries and becomes the next LRU victim — forcing the
+    # second sign-on adopt exists to prevent.
+    clock = 0.0
+    pool = Pool.new(max_sessions: 2, build: counting_builder, clock: -> { clock })
+    stale = nil
+    bystander = nil
+    clock = 1.0
+    pool.with_client("stale") { |c| stale = c }
+    clock = 2.0
+    pool.with_client("bystander") { |c| bystander = c }
+
+    started, release = blocking_disconnect(stale)
+    adopted = FakeClient.new("adopted")
+    clock = 3.0
+    adopter = Thread.new { pool.adopt("adopted", adopted) }
+    started.pop
+
+    # The bystander is used while the victim's disconnect is still parked, so
+    # it is genuinely more recently used than the adopted session's insertion.
+    clock = 4.0
+    pool.with_client("bystander") { |_c| }
+
+    clock = 5.0
+    release << :go
+    finish_threads([ adopter ])
+
+    clock = 6.0
+    pool.with_client("newcomer") { |_c| } # at capacity: evicts the LRU idle entry
+
+    refute adopted.disconnected,
+      "the session adopted last was evicted as LRU — it was stamped at insertion, before the parked disconnect"
+    assert bystander.disconnected
+    assert pool.include?("adopted")
+    assert_equal 0, @builds["adopted"], "losing the adopted binding forces a second sign-on"
+  end
+
   # Join with a timeout, then kill anything still blocked. A half-built (nil)
   # entry waits on @build_done with nobody to signal; a leaked waiter would
   # hold the suite open after the assertion already failed.
