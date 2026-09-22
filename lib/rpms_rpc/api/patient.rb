@@ -51,7 +51,8 @@ module RpmsRpc
       end
       raise ArgumentError, "search text is required" if text.to_s.strip.empty?
 
-      rows = DataMapper.patient_lookup_agg.fetch_many(
+      rows = fetch_lookup_rows(
+        DataMapper.patient_lookup_agg,
         text.to_s,
         type.to_s,
         all_divisions ? "1" : "",
@@ -142,6 +143,48 @@ module RpmsRpc
     # Default is `nil` (not `Date.today`) so the nil-DOB guard runs before
     # touching the Date constant, keeping the helper safe even if `Date`
     # hasn't been required by the caller.
+    # AGG LOOKUP PATIENTS is a GLOBAL ARRAY (return type 4) reply: FND^AGGPTLKP
+    # sets DATA=$NA(^TMP("AGGPTLK",UID)) (AGGPTLKP.m:7), so the broker sends a
+    # typed header followed by $C(30)-separated records, ending at $C(31).
+    #
+    # $C(30) IS the CIA EOD, so the default read_until_raw(EOD) stops at the
+    # header row and every patient is lost — on the wire only; seeded tests
+    # still pass, which is how this survived review. CiaClient reads to the
+    # $C(31) sentinel in #call_rpc_global_array; RpmsRpc::Agg routes its AGG
+    # RPCs the same way (Agg#call_array).
+    LOOKUP_RECORD_SEP = "\x1e" # $C(30) — record separator (== CIA EOD)
+    LOOKUP_ARRAY_END  = "\x1f" # $C(31) — end-of-array sentinel
+    LOOKUP_ACK        = "\x00" # broker ack byte after the sequence echo
+
+    def fetch_lookup_rows(mapping, *params)
+      client = RpmsRpc.client
+      raw = if client.respond_to?(:call_rpc_global_array)
+        client.call_rpc_global_array(mapping.rpc_name, *params)
+      else
+        client.call_rpc(mapping.rpc_name, *params)
+      end
+
+      mapping.parse_many(decode_global_array(raw))
+    end
+
+    # Returns the record lines when the reply carries global-array framing, or
+    # the payload untouched when it does not — a client without
+    # #call_rpc_global_array answers with an ordinary newline-delimited body,
+    # which parse_many splits itself.
+    def decode_global_array(raw)
+      # A client (or the mock) may already answer with line arrays; only a
+      # String can carry the wire framing, and raw.to_s on an Array would hand
+      # parse_many the inspect form.
+      return raw unless raw.is_a?(String)
+
+      body = raw.dup
+      body = body.split(LOOKUP_ACK, 2).last.to_s if body.include?(LOOKUP_ACK)
+      body = body.split(LOOKUP_ARRAY_END, 2).first.to_s
+      return body unless body.include?(LOOKUP_RECORD_SEP)
+
+      body.split(LOOKUP_RECORD_SEP).map { |row| row.force_encoding(Encoding::UTF_8) }
+    end
+
     # Masked-SSN shape from AGGPTLKP.m:124 (LST) and :194 (LST2). LST2 omits
     # LST's SSN'="" guard, so a patient with no SSN comes back as the bare
     # prefix "XXX-XX-" with no digits — both forms are redactions.

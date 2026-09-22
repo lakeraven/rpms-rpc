@@ -183,6 +183,71 @@ class AggPatientLookupTest < Minitest::Test
     assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Patient.lookup("ANDERSON") }
   end
 
+  # -- Wire framing: this RPC returns a GLOBAL ARRAY, not a printable string --
+  #
+  # FND^AGGPTLKP sets DATA=$NA(^TMP("AGGPTLK",UID)) — a global reference, so
+  # the broker sends a return-type-4 reply: typed header, then $C(30)-separated
+  # records, ending at $C(31). $C(30) IS the CIA EOD, so a plain call_rpc read
+  # stops at the header and every data row is lost on the wire while seeded
+  # tests still pass. CiaClient#call_rpc_global_array reads to the $C(31)
+  # sentinel instead; RpmsRpc::Agg already routes its AGG RPCs that way.
+  class GlobalArrayClient
+    RS = "\x1e"
+    US = "\x1f"
+
+    attr_reader :calls
+
+    def initialize(rows)
+      @rows = rows
+      @calls = []
+    end
+
+    # What the socket really yields: read_until_raw(EOD) stops at the first
+    # $C(30), so the caller sees the header and nothing else.
+    def call_rpc(rpc_name, *params)
+      @calls << [ :call_rpc, rpc_name, params ]
+      full_reply.split(RS, 2).first
+    end
+
+    def call_rpc_global_array(rpc_name, *params)
+      @calls << [ :call_rpc_global_array, rpc_name, params ]
+      full_reply
+    end
+
+    private
+
+    def full_reply = ([ HEADER ] + @rows).join(RS) + US
+  end
+
+  def test_lookup_reads_the_global_array_and_does_not_truncate_at_the_header
+    client = GlobalArrayClient.new([ "3^ANDERSON,ALICE^104827^000009999^05/15/1980^^^^N" ])
+    RpmsRpc.configure { |c| c.client = client }
+
+    rows = RpmsRpc::Patient.lookup("ANDERSON")
+
+    assert_equal [ :call_rpc_global_array ], client.calls.map(&:first),
+      "AGG LOOKUP PATIENTS is a global-array reply; a plain call_rpc read terminates at the $C(30) header"
+    assert_equal 1, rows.size, "the data row was lost — the reply was truncated at the header"
+    assert_equal "ANDERSON,ALICE", rows.first[:name]
+  end
+
+  def test_lookup_falls_back_to_call_rpc_when_the_client_has_no_global_array_read
+    plain = Class.new do
+      attr_reader :calls
+      def initialize = @calls = []
+      def call_rpc(rpc_name, *params)
+        @calls << rpc_name
+        [ HEADER, "3^ANDERSON,ALICE^104827^000009999^05/15/1980^^^^N" ].join("\n")
+      end
+    end.new
+    RpmsRpc.configure { |c| c.client = plain }
+
+    rows = RpmsRpc::Patient.lookup("ANDERSON")
+
+    assert_equal [ "AGG LOOKUP PATIENTS" ], plain.calls
+    assert_equal "ANDERSON,ALICE", rows.first[:name]
+  end
+
   private
 
   def seed(lines)
