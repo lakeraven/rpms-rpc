@@ -182,7 +182,12 @@ module RpmsRpc
       body = body.split(LOOKUP_ARRAY_END, 2).first.to_s
       return body unless body.include?(LOOKUP_RECORD_SEP)
 
-      body.split(LOOKUP_RECORD_SEP).map { |row| row.force_encoding(Encoding::UTF_8) }
+      # Rows stay in the reply's own encoding. The wire is binary and patient
+      # names are not guaranteed UTF-8 — force_encoding here would mislabel
+      # Latin-1 name bytes, and parse_many's separator regex then raises
+      # "invalid byte sequence in UTF-8" on a real lookup. Agg#parse_reply
+      # keeps .b for the same reason.
+      body.split(LOOKUP_RECORD_SEP)
     end
 
     # Masked-SSN shape from AGGPTLKP.m:124 (LST) and :194 (LST2). LST2 omits

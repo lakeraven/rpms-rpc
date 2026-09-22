@@ -231,6 +231,25 @@ class AggPatientLookupTest < Minitest::Test
     assert_equal "ANDERSON,ALICE", rows.first[:name]
   end
 
+  def test_a_non_utf8_patient_name_does_not_raise_on_decode
+    # The wire is binary and AGGPTLKP does not promise UTF-8: a Latin-1 name
+    # ("MARIA" with accented bytes) arrives as raw bytes. Labelling those rows
+    # UTF-8 makes them INVALID UTF-8, and parse_many's separator regex then
+    # raises "invalid byte sequence in UTF-8" on a real lookup while every
+    # ASCII-only test stays green. Rows keep the reply's own encoding.
+    latin1_row = "3^O\xE9,MAR\xEDA^104827^000009999^05/15/1980^^^^N".b
+    payload = ("5\x00" + HEADER + "\x1e" + latin1_row + "\x1e").b
+
+    client = Object.new
+    client.define_singleton_method(:call_rpc_global_array) { |*| payload }
+    RpmsRpc.configure { |c| c.client = client }
+
+    rows = RpmsRpc::Patient.lookup("O")
+
+    assert_equal 1, rows.size
+    assert_equal 3, rows.first[:dfn]
+  end
+
   def test_lookup_falls_back_to_call_rpc_when_the_client_has_no_global_array_read
     plain = Class.new do
       attr_reader :calls
