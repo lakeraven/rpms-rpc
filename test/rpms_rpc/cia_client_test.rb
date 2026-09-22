@@ -28,6 +28,20 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     def setsockopt(*); end
   end
 
+  # A refused sign-on leaves NOTHING bound. Asserting only `duz` is vacuous:
+  # @duz is assigned after the gate, so it is nil on every refusal path whether
+  # or not state was cleared. @authenticated, @session_uid, @current_context and
+  # @signon_user are set BEFORE the identity read — they are what a refusal has
+  # to unwind, and what a missing clear_signon_state would leave behind.
+  def assert_signed_off(client)
+    refute client.authenticated?, "a refused sign-on must not stay authenticated"
+    assert_nil client.duz
+    assert_nil client.session_uid, "a refused sign-on must not keep the broker session UID"
+    assert_nil client.signon_user, "a refused sign-on must not leave a user name readable"
+    assert_nil client.instance_variable_get(:@current_context),
+      "a refused sign-on must not leave the sign-on context bound"
+  end
+
   def connected_client(reads)
     c = Client.new
     c.instance_variable_set(:@socket, FakeSocket.new(reads))
@@ -95,15 +109,18 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   #
   # AUTH^CIANBRPC reply: <seq echo><\x00 ack>, then CR+LF-separated lines —
   # line 1 status ("0" = success), line 2 params "UID^netname^sitename",
-  # lines 3+ greeting. DUZ is NOT in the reply; it is saved into the session
-  # environment and fetched with CIANBRPC GETVAR ("DUZ=n").
+  # lines 3+ greeting. DUZ is NOT in the reply, and the session environment it
+  # is saved into cannot be read back by the client (GETVAR^CIANBRPC forces an
+  # empty or zero namespace to "@"; the sign-on DUZ lives in namespace 0). It is
+  # asked for with XUS GET USER INFO, whose first line is the DUZ. The fixture
+  # below is the shape a live broker returned on 2026-09-21.
 
   AUTH_REPLY = "1\x000\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\n" \
                "Good evening USER,DEMO\r\n     You last signed on today at 08:15\r\n"
-  GETVAR_REPLY = "2\x00DUZ=63\r\n"
+  USERINFO_REPLY = "2\x0063\r\nUSER,DEMO\r\nDemo User\r\n1^DEMO CLINIC^1234\r\nIRM\r\n99999\r\n"
 
-  def test_authenticate_populates_duz_via_session_env
-    c = connected_client([ AUTH_REPLY + EOD, GETVAR_REPLY + EOD ])
+  def test_authenticate_populates_duz_from_user_info
+    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD ])
     result = c.authenticate("SYN123", "SYN123!!")
     assert result[:success]
     assert_equal "USER,DEMO", result[:user]
@@ -112,7 +129,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   end
 
   def test_authenticate_captures_session_uid_and_uses_it_on_later_calls
-    c = connected_client([ AUTH_REPLY + EOD, GETVAR_REPLY + EOD, "3\x00ok\r\n" + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD, "3\x00ok\r\n" + EOD ])
     c.authenticate("SYN123", "SYN123!!")
     assert_equal "7", c.session_uid
     c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
@@ -126,7 +143,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     cr_auth = "1\x001^VERIFY CODE must be changed before continued use.\r" \
               "35^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\rGood evening USER,DEMO\r" \
               "     You last signed on today at 08:15\r"
-    c = connected_client([ cr_auth + EOD, "2\x00DUZ=63\r" + EOD, "3\x00ok\r" + EOD ])
+    c = connected_client([ cr_auth + EOD, "2\x0063\rUSER,DEMO\rDemo User\r" + EOD, "3\x00ok\r" + EOD ])
     c.authenticate("SYN123", "SYN123!!")
     assert_equal "35", c.session_uid
     assert_equal "63", c.duz
@@ -135,16 +152,54 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   end
 
   # #245: a greeting-only sign-on that resolves no DUZ is a refusal, not a
-  # success with a nil identity. GETVAR returns a reply with no "DUZ=<n>".
-  def test_authenticate_fails_closed_when_session_env_lacks_duz
+  # success with a nil identity. XUS GET USER INFO answers with an empty body.
+  def test_authenticate_fails_closed_when_user_info_lacks_duz
     c = connected_client([ AUTH_REPLY + EOD, "2\x00\r\n" + EOD ])
     assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
+  end
+
+  # Fix (#251 Copilot): the seq echo is not a field. A no-data reply (SNDEOD: sequence echo, no
+  # \x00 DATA flag) framed by hand — split on "\x00", fall back to the whole
+  # raw — leaves the echo as line 1, and a bare digit echo reads as a positive
+  # DUZ. Sign-on would then attest identity "2" for a user the broker never
+  # resolved. #parse_cia_reply exists to make that unrepresentable; signon_duz
+  # must go through it.
+  def test_authenticate_never_mints_the_sequence_echo_into_a_duz
+    c = connected_client([ AUTH_REPLY + EOD, "2" + EOD ]) # seq echo only, no flag
+    assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
+    assert_signed_off(c)
+  end
+
+  # Fix (#251, found verifying the Copilot finding above): a broker error reply
+  # (\x01 + CIAERR text) is a failure to resolve identity,
+  # and parse_cia_reply raises RpcError on it — sign-on must not swallow that
+  # into a silent nil DUZ or let it escape as something other than a refusal.
+  def test_authenticate_fails_closed_when_user_info_errors
+    c = connected_client([ AUTH_REPLY + EOD, "2\x01CIAERR: no such RPC\r\n" + EOD ])
+    assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
+    assert_signed_off(c)
+  end
+
+  # Fix (#251 Fable gate, F3): parse_cia_reply's "an unknown flag byte is NEVER
+  # data" guard had no test — mutating its `else ""` to return the body left all
+  # 1432 green. These pin it from the sign-on side, where minting a field out of
+  # an unrecognised frame means minting an identity.
+  def test_authenticate_fails_closed_on_a_reply_with_no_flag_byte
+    c = connected_client([ AUTH_REPLY + EOD, "263\r\n" + EOD ]) # seq echo, then a body, no flag
+    assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
+    assert_signed_off(c)
+  end
+
+  def test_authenticate_fails_closed_on_an_unrecognised_flag_byte
+    c = connected_client([ AUTH_REPLY + EOD, "2\x0263\r\n" + EOD ]) # \x02 is neither DATA nor ERROR
+    assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
+    assert_signed_off(c)
   end
 
   # A DUZ=0 reply (broker's "no user") is absence of identity too, not a
   # positive resolution — must fail closed the same way.
   def test_authenticate_fails_closed_on_zero_duz
-    c = connected_client([ AUTH_REPLY + EOD, "2\x00DUZ=0\r\n" + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, "2\x000\r\n" + EOD ])
     assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
   end
 
@@ -165,8 +220,8 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # readable. Pre-seed a resolved session, then fail a re-auth on no DUZ:
   # duz/authenticated/session_uid must all clear, not survive.
   def test_failed_reauth_clears_prior_users_identity
-    c = connected_client([ AUTH_REPLY + EOD, GETVAR_REPLY + EOD,
-                           AUTH_REPLY + EOD, "4\x00DUZ=\r\n" + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD,
+                           AUTH_REPLY + EOD, "4\x00\r\n" + EOD ])
     first = c.authenticate("USERA", "USERA!!") # resolves DUZ 63
     assert_equal 63, first[:duz]
     assert_equal "63", c.duz
@@ -182,7 +237,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # re-auth (bad code) must also clear a prior resolved identity.
   def test_rejected_reauth_clears_prior_users_identity
     rejected = "3\x00Not a valid ACCESS CODE/VERIFY CODE pair.\r\n"
-    c = connected_client([ AUTH_REPLY + EOD, GETVAR_REPLY + EOD, rejected + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD, rejected + EOD ])
     c.authenticate("USERA", "USERA!!")
     assert_equal "63", c.duz
 
@@ -195,15 +250,33 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # ADR 0002/0003 real-reply check (#245): the no-DUZ case in dispute is not a
   # synthetic fiction. This is the VERBATIM reply the live YDB-served broker
   # (rpms-ydb-9.0, :9100 via CIANBRPC GETVAR "DUZ") returns for a session with
-  # no DUZ in its environment — captured 2026-09-21. Note it is "DUZ=" with no
-  # digits, NOT a missing line, so the /\bDUZ=(\d+)/ match genuinely fails on
-  # real broker output. Sign-on must refuse on it.
+  # a DUZ in its environment — captured 2026-09-21. "DUZ=" with no digits is
+  # ALL that RPC can ever return (GETVAR^CIANBRPC cannot reach namespace 0),
+  # which is why sign-on now asks XUS GET USER INFO instead. Kept as a
+  # regression fixture: should anything route the identity read back through
+  # GETVAR, sign-on must refuse rather than attest a nil identity.
   GETVAR_NO_DUZ_REAL = "2\x00DUZ=\r" # bytes [50,0,68,85,90,61,13] — rpms-ydb-9.0
   def test_authenticate_fails_closed_on_real_broker_no_duz_reply
     c = connected_client([ AUTH_REPLY + EOD, GETVAR_NO_DUZ_REAL + EOD ])
     assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
     refute c.authenticated?
     assert_nil c.duz
+  end
+
+  # Fix (#251 Fable gate, F4): a connection torn down mid-sign-on cleared
+  # @authenticated, @duz, @session_uid and the context, but NOT @signon_user —
+  # so a client that reported itself signed off still named a clinician through
+  # the public reader, and a later failed re-auth left the PRIOR user's name
+  # readable. A wrong actor is worse than an absent one.
+  def test_connection_loss_does_not_leave_a_user_name_readable
+    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD ])
+    c.authenticate("SYN123", "SYN123!!")
+    assert_equal "USER,DEMO", c.signon_user
+
+    c.instance_variable_get(:@socket).define_singleton_method(:recv) { |_n| "" } # peer closed
+    assert_raises(RpmsRpc::Client::ConnectionError) { c.call_rpc("ANY RPC") }
+    refute c.authenticated?
+    assert_nil c.signon_user, "a torn-down connection must not keep naming a clinician"
   end
 
   # -- mid-call read timeout --------------------------------------------------
@@ -407,7 +480,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   def test_full_signon_round_trip_against_strict_broker
     c, broker = client_on_strict_broker([
       "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", # CIANBRPC AUTH
-      "DUZ=63\r\n",                                                            # CIANBRPC GETVAR
+      "63\r\nUSER,DEMO\r\n",                                                     # XUS GET USER INFO
       "ok\r\n"                                                                 # the RPC proper
     ])
     c.connect("localhost", 9100)
@@ -434,7 +507,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # family (DDR/DDRROOT/DDRIENS lists) require.
 
   def signed_on_strict_client(rpc_bodies)
-    c, broker = client_on_strict_broker([ "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", "DUZ=63\r\n" ] + rpc_bodies)
+    c, broker = client_on_strict_broker([ "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", "63\r\nUSER,DEMO\r\n" ] + rpc_bodies)
     c.connect("localhost", 9100)
     c.authenticate("SYN123", "SYN123!!")
     [ c, broker ]
@@ -596,7 +669,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
           @reconnect_attempted = true
           RECONNECT_FAIL
         end
-      when "CIANBRPC GETVAR" then "DUZ=63\r\n"
+      when "XUS GET USER INFO" then "63\r\nUSER,DEMO\r\n"
       else "ok\r\n"
       end
     end

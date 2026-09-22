@@ -120,7 +120,8 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
 
   # A broker-faithful fake for the FULL sign-on contract: an AUTH binds the
   # session identity (last AUTH wins — exactly the real broker's behaviour),
-  # a GETVAR DUZ answers with whatever identity the session holds RIGHT NOW,
+  # an XUS GET USER INFO answers with whatever identity the session holds
+  # RIGHT NOW,
   # and replies are served strictly FIFO to whoever reads next.
   class SignonBrokerSocket
     attr_reader :frames
@@ -136,14 +137,20 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
     def write(str)
       @mutex.synchronize do
         @frames << str.dup
+        # Fix (#251, found verifying the Copilot framing finding): every reply
+        # carries the frame's own sequence echo and the \x00 DATA flag, as a
+        # real broker's does — the client consumes both before it
+        # reads a field, and a fake that omits them lets a client that frames
+        # replies by hand pass. Sequence byte: {CIA}<EOD><seq><action>...
+        ack = "#{str[/\A\{CIA\}#{Regexp.escape(EOD)}(.)/, 1]}\x00"
         if str.include?("CIANBRPC AUTH")
           @auths += 1
           @session = @auths
-          @replies << "0\r\n7#{@auths}^NET^SITE\r\nSigned on as USER#{@auths}\r\n#{EOD}"
+          @replies << "#{ack}0\r\n7#{@auths}^NET^SITE\r\nSigned on as USER#{@auths}\r\n#{EOD}"
         elsif str.include?("LANE-")
-          @replies << "#{str[/LANE-[AB]/]}-OK#{EOD}"
-        else # CIANBRPC GETVAR DUZ — answers for the CURRENT session identity
-          @replies << "DUZ=#{300 + @session}#{EOD}"
+          @replies << "#{ack}#{str[/LANE-[AB]/]}-OK#{EOD}"
+        else # XUS GET USER INFO — line 1 is the DUZ of the CURRENT session identity
+          @replies << "#{ack}#{300 + @session}\r\nUSER#{@session}\r\n#{EOD}"
         end
       end
       sleep 0.01 # widen the send-then-read window a broken client would leak in
@@ -161,8 +168,8 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
   # driving sign-on + RPC through ONE shared client must never interleave
   # frames inside a sign-on sequence, never consume each other's replies,
   # and never reset each other's socket. Sign-on binds the session identity
-  # with AUTH and reads it back with GETVAR — if anything lands between the
-  # two, the reader is minted with the OTHER clinician's DUZ.
+  # with AUTH and reads it back with XUS GET USER INFO — if anything lands
+  # between the two, the reader is minted with the OTHER clinician's DUZ.
   def test_two_threads_signing_on_and_calling_never_interleave_or_cross_reset
     socket = SignonBrokerSocket.new
     client = connected_client(socket)
@@ -178,7 +185,7 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
     socket_frames = socket.frames.map do |f|
       if f.include?("CIANBRPC AUTH") then :auth
       elsif f.include?("LANE-") then :lane_rpc
-      else :duz_getvar
+      else :duz_read
       end
     end
 
@@ -187,7 +194,7 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
     socket_frames.each_with_index do |kind, i|
       next unless kind == :auth
 
-      assert_equal :duz_getvar, socket_frames[i + 1],
+      assert_equal :duz_read, socket_frames[i + 1],
         "a frame interleaved into a sign-on sequence: #{socket_frames.inspect}"
     end
 
@@ -201,6 +208,17 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
   def test_two_threads_signing_on_each_get_their_own_identity_and_replies
     socket = SignonBrokerSocket.new
     client = connected_client(socket)
+
+    # Fix (#251 Fable gate, F2): contend the window the OUTER sign-on lock
+    # exists to close — between AUTH's exchange releasing the wire and the
+    # identity read re-acquiring it. SignonBrokerSocket's own `sleep` sits
+    # inside exchange's per-frame lock, so it can never widen that gap: without
+    # this hook the outer `synchronize_wire` can be deleted outright and these
+    # assertions still pass, which makes them evidence for nothing.
+    client.define_singleton_method(:signon_duz) do
+      sleep 0.05 # let the other lane's AUTH land here, if anything lets it
+      super()
+    end
 
     results = {}
     mutex = Mutex.new
