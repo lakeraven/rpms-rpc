@@ -370,6 +370,7 @@ module RpmsRpc
     # reconnected and re-authenticated.
     def reset_connection
       @session_uid = nil
+      @signon_user = nil # identity, like the DUZ — a torn-down session names nobody
       reset_context
       super # base: close socket, clear connection/auth state
     end

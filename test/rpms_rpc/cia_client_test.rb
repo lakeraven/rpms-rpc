@@ -28,6 +28,20 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     def setsockopt(*); end
   end
 
+  # A refused sign-on leaves NOTHING bound. Asserting only `duz` is vacuous:
+  # @duz is assigned after the gate, so it is nil on every refusal path whether
+  # or not state was cleared. @authenticated, @session_uid, @current_context and
+  # @signon_user are set BEFORE the identity read — they are what a refusal has
+  # to unwind, and what a missing clear_signon_state would leave behind.
+  def assert_signed_off(client)
+    refute client.authenticated?, "a refused sign-on must not stay authenticated"
+    assert_nil client.duz
+    assert_nil client.session_uid, "a refused sign-on must not keep the broker session UID"
+    assert_nil client.signon_user, "a refused sign-on must not leave a user name readable"
+    assert_nil client.instance_variable_get(:@current_context),
+      "a refused sign-on must not leave the sign-on context bound"
+  end
+
   def connected_client(reads)
     c = Client.new
     c.instance_variable_set(:@socket, FakeSocket.new(reads))
@@ -153,7 +167,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   def test_authenticate_never_mints_the_sequence_echo_into_a_duz
     c = connected_client([ AUTH_REPLY + EOD, "2" + EOD ]) # seq echo only, no flag
     assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
-    assert_nil c.duz
+    assert_signed_off(c)
   end
 
   # Fix (#251, found verifying the Copilot finding above): a broker error reply
@@ -163,7 +177,23 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   def test_authenticate_fails_closed_when_user_info_errors
     c = connected_client([ AUTH_REPLY + EOD, "2\x01CIAERR: no such RPC\r\n" + EOD ])
     assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
-    assert_nil c.duz
+    assert_signed_off(c)
+  end
+
+  # Fix (#251 Fable gate, F3): parse_cia_reply's "an unknown flag byte is NEVER
+  # data" guard had no test — mutating its `else ""` to return the body left all
+  # 1432 green. These pin it from the sign-on side, where minting a field out of
+  # an unrecognised frame means minting an identity.
+  def test_authenticate_fails_closed_on_a_reply_with_no_flag_byte
+    c = connected_client([ AUTH_REPLY + EOD, "263\r\n" + EOD ]) # seq echo, then a body, no flag
+    assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
+    assert_signed_off(c)
+  end
+
+  def test_authenticate_fails_closed_on_an_unrecognised_flag_byte
+    c = connected_client([ AUTH_REPLY + EOD, "2\x0263\r\n" + EOD ]) # \x02 is neither DATA nor ERROR
+    assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
+    assert_signed_off(c)
   end
 
   # A DUZ=0 reply (broker's "no user") is absence of identity too, not a
@@ -231,6 +261,22 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
     refute c.authenticated?
     assert_nil c.duz
+  end
+
+  # Fix (#251 Fable gate, F4): a connection torn down mid-sign-on cleared
+  # @authenticated, @duz, @session_uid and the context, but NOT @signon_user —
+  # so a client that reported itself signed off still named a clinician through
+  # the public reader, and a later failed re-auth left the PRIOR user's name
+  # readable. A wrong actor is worse than an absent one.
+  def test_connection_loss_does_not_leave_a_user_name_readable
+    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD ])
+    c.authenticate("SYN123", "SYN123!!")
+    assert_equal "USER,DEMO", c.signon_user
+
+    c.instance_variable_get(:@socket).define_singleton_method(:recv) { |_n| "" } # peer closed
+    assert_raises(RpmsRpc::Client::ConnectionError) { c.call_rpc("ANY RPC") }
+    refute c.authenticated?
+    assert_nil c.signon_user, "a torn-down connection must not keep naming a clinician"
   end
 
   # -- mid-call read timeout --------------------------------------------------
