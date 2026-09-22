@@ -80,10 +80,13 @@ module RpmsRpc
       ac, vc = resolve_credentials(access_code, verify_code) # base
       avc = xwb_encrypt("#{ac};#{vc}") # base cipher — matches ENCRYP^XUSRB1
 
-      # AUTH and the XUS GET USER INFO that reads back DUZ are one indivisible sequence:
-      # the broker stores DUZ into the session environment at sign-on, so a
-      # concurrent sign-on landing between them returns the OTHER clinician's
-      # DUZ to this caller.
+      # AUTH and the XUS GET USER INFO that reads back the DUZ are one
+      # indivisible sequence. XUS GET USER INFO answers for whoever this broker
+      # process is signed on as RIGHT NOW, and AUTH is what sets that: a second
+      # sign-on landing between the two frames re-binds this connection, and the
+      # read then describes the LATER clinician while this caller adopts it as
+      # its own identity. (The lock is also what keeps the two send-then-read
+      # pairs from interleaving on the shared socket.)
       synchronize_wire do
         reply = exchange("R", pk("UID"), pk(""), pk("0"),
           pk("RPC"), pk(""), pk("CIANBRPC AUTH"),
@@ -106,7 +109,18 @@ module RpmsRpc
         uid = session_params(reply)[0]
         @session_uid = uid if uid&.match?(/\A\d+\z/) # failure params are "server^volume^UCI^port"
         @current_context = SIGNON_CONTEXT # ContextScope — AUTH bound it as the AID
-        duz = signon_duz
+        # A broker error on the identity read (parse_cia_reply raises RpcError on
+        # the \x01 flag) is a failure to resolve identity. It has to land in the
+        # same fail-closed refusal as a missing DUZ - left to propagate it would
+        # escape as an RpcError over a half-bound session (@authenticated and
+        # @session_uid are already set here).
+        duz = begin
+          signon_duz
+        rescue RpcError => e
+          clear_signon_state
+          raise AuthenticationError,
+            RpmsRpc.sanitize_error("CIA sign-on could not read the signed-on user (#{e.message})")
+        end
 
         # The greeting is a display string; the DUZ is the identity everything
         # downstream authorizes against. Gate on a positive DUZ, same as the
@@ -142,9 +156,14 @@ module RpmsRpc
     # while ^XTMP("CIA",uid,"V",0,"DUZ") held 4 the whole time. Once #249 made
     # a missing DUZ fatal, every CIA sign-on failed and so did the rpms-ops
     # release gate.
+    # Framed by #parse_cia_reply, never by hand: splitting on "\x00" and falling
+    # back to the whole raw reply leaves the sequence echo as line 1 on a no-data
+    # (SNDEOD) reply, and a bare digit echo reads as a positive DUZ - sign-on
+    # would attest an identity the broker never resolved. parse_cia_reply
+    # consumes the echo unconditionally and returns "" for a reply with no DATA
+    # flag, so absence stays absence and #authenticate fails closed on it.
     def signon_duz
-      raw = call_rpc_raw("XUS GET USER INFO").to_s
-      body = raw.include?("\x00") ? raw.split("\x00", 2)[1].to_s : raw
+      body = parse_cia_reply(call_rpc_raw("XUS GET USER INFO"))
       body.split(/\r\n|\r|\n/).first.to_s[/\A\s*(\d+)\s*\z/, 1]
     end
 
