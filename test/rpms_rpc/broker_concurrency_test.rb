@@ -137,8 +137,9 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
     def write(str)
       @mutex.synchronize do
         @frames << str.dup
-        # Every reply carries the frame's own sequence echo and the \x00 DATA
-        # flag, as a real broker's does — the client consumes both before it
+        # Fix (#251, found verifying the Copilot framing finding): every reply
+        # carries the frame's own sequence echo and the \x00 DATA flag, as a
+        # real broker's does — the client consumes both before it
         # reads a field, and a fake that omits them lets a client that frames
         # replies by hand pass. Sequence byte: {CIA}<EOD><seq><action>...
         ack = "#{str[/\A\{CIA\}#{Regexp.escape(EOD)}(.)/, 1]}\x00"

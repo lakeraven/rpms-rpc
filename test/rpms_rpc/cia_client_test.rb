@@ -144,7 +144,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
   end
 
-  # The seq echo is not a field. A no-data reply (SNDEOD: sequence echo, no
+  # Fix (#251 Copilot): the seq echo is not a field. A no-data reply (SNDEOD: sequence echo, no
   # \x00 DATA flag) framed by hand — split on "\x00", fall back to the whole
   # raw — leaves the echo as line 1, and a bare digit echo reads as a positive
   # DUZ. Sign-on would then attest identity "2" for a user the broker never
@@ -156,7 +156,8 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_nil c.duz
   end
 
-  # A broker error reply (\x01 + CIAERR text) is a failure to resolve identity,
+  # Fix (#251, found verifying the Copilot finding above): a broker error reply
+  # (\x01 + CIAERR text) is a failure to resolve identity,
   # and parse_cia_reply raises RpcError on it — sign-on must not swallow that
   # into a silent nil DUZ or let it escape as something other than a refusal.
   def test_authenticate_fails_closed_when_user_info_errors
