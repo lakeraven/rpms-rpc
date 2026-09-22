@@ -20,12 +20,18 @@ module RpmsRpc; end
 class RpmsRpc::StandaloneRequireTest < Minitest::Test
   LIB = File.expand_path("../../lib", __dir__)
 
-  FEATURES = %w[rpms_rpc/client rpms_rpc/cia_client rpms_rpc/xwb_client rpms_rpc/bmx_client].freeze
-
   # A standalone require must stay standalone. Requiring version.rb here would
-  # drag in the mappings, capability and role tables a bare client never uses,
-  # so the count is pinned: core.rb is the one file the fix may add.
-  MAX_STANDALONE_FILES = 12
+  # drag in the mappings, capability and role tables a bare client never uses
+  # (23 files against these 10). Pinned exactly, not capped: a ceiling lets
+  # gradual bloat through, and the point is to notice the first extra file.
+  # A legitimate new require means updating the number here, deliberately.
+  STANDALONE_FILES = {
+    "rpms_rpc/client" => 9,
+    "rpms_rpc/cia_client" => 10,
+    "rpms_rpc/xwb_client" => 10,
+    "rpms_rpc/bmx_client" => 10
+  }.freeze
+  FEATURES = STANDALONE_FILES.keys.freeze
 
   # The subprocess must not inherit this process's Ruby setup. RUBYOPT
   # (bundler/setup), RUBYLIB or a parent Gemfile can preload the gem, which
@@ -44,13 +50,15 @@ class RpmsRpc::StandaloneRequireTest < Minitest::Test
     end
 
     define_method("test_#{feature.tr("/", "_")}_alone_does_not_eagerly_load_the_gem") do
-      script = %(require "#{feature}"; print $LOADED_FEATURES.grep(%r{rpms_rpc}).size)
+      expected = STANDALONE_FILES.fetch(feature)
+      script = %(require "#{feature}"; print $LOADED_FEATURES.grep(%r{rpms_rpc}).sort.join("\n"))
       out, err, status = run_standalone(script)
       assert status.success?, err
-      loaded = out.to_i
-      assert_operator loaded, :<=, MAX_STANDALONE_FILES,
-        "requiring only #{feature} loaded #{loaded} gem files (max #{MAX_STANDALONE_FILES}) — " \
-        "something pulled in version.rb and its tables instead of core.rb"
+      loaded = out.split("\n")
+      assert_equal expected, loaded.size,
+        "requiring only #{feature} loaded #{loaded.size} gem files, expected exactly #{expected}. " \
+        "If version.rb crept back in, the tables came with it; if this is a deliberate new require, " \
+        "update STANDALONE_FILES.\nLoaded:\n  #{loaded.map { |f| f.split("lib/").last }.join("\n  ")}"
     end
   end
 end
