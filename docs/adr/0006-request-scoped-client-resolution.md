@@ -84,19 +84,44 @@ through an explicit opt-in (`RpmsRpc.global_client`) that request paths never
 call. Ambient state also crosses threads/fibers badly: any `Thread.new` inside a
 scope loses it, which must be documented and tested, not discovered.
 
-### C. Session facade over the existing modules
+### C. Scoped-API facade over the existing modules
 
 ```ruby
-session = pool.session(session_key)   # or RpmsRpc::Session.new(client)
-session.allergy.assessment(dfn)
-session.lab.results(dfn)
+scope = RpmsRpc::ScopedApi.new(pool, session_key)   # holds pool + key, NOT a client
+scope.allergy.assessment(dfn)
+scope.lab.results(dfn)
 ```
 
-`Session` binds a client and exposes the API modules through it; the modules
+`ScopedApi` exposes the API modules with a client threaded through; the modules
 keep their logic but take the client explicitly (internally, as in A).
 Structurally impossible to call without a client — the property ADR 0005 chose
 for the pool itself. Cost: a facade covering 52 modules, and consumers move from
-`Allergy.assessment(dfn)` to `session.allergy.assessment(dfn)`.
+`Allergy.assessment(dfn)` to `scope.allergy.assessment(dfn)`.
+
+**Naming.** Not `Session`: `RpmsRpc::Session` is already the cold-launch
+bootstrap API (`lib/rpms_rpc/api/session.rb:8`), so a class of that name is a
+constant conflict. `ScopedApi` is a placeholder — the name is open.
+
+**Lifetime — the part that must not be gotten wrong.** The facade must hold the
+**pool and the session key**, never a checked-out client. `SessionPool` pins an
+entry only for the duration of a `with_client` block (`session_pool.rb:71-79`:
+checkout, yield, checkin). A facade that retained a raw client between calls
+would sit at refcount 0, look idle to LRU eviction and `shutdown`, be
+disconnected, and then keep issuing RPCs on a dead socket — which is precisely
+the defect #252 fixed, reintroduced one layer up. So each facade operation
+acquires the client through `with_client` for the length of that operation:
+
+```ruby
+def call(rpc_name, *params)
+  @pool.with_client(@session_key) { |client| client.call_rpc(rpc_name, *params) }
+end
+```
+
+A multi-RPC sequence that must not interleave (sign-on, anything spanning more
+than one call) takes an explicit bounded lease instead — one `with_client` block
+around the whole sequence — rather than one pin per call. `SessionPool` has no
+`session`/factory method today; whether the facade is constructed directly or
+minted by the pool is an open question below.
 
 ## Decision
 
@@ -114,9 +139,20 @@ C keeps the 51 modules' logic untouched — the diff is a facade plus a threaded
 parameter, not 51 rewrites — while making "no session, no call" a type-level
 fact rather than a review checklist item.
 
+**A facade alone is not the guarantee.** The API modules stay directly callable,
+so `Allergy.assessment(dfn)` would still resolve the global and bypass the
+facade entirely. The structural claim only holds if the rollout *also* makes
+every request-facing entry point client-required — the module functions and the
+`DataMapper` fetch helpers take the client explicitly (option A's mechanism),
+and no request-facing path retains a global-backed signature. The facade is
+ergonomics over that enforcement, not a substitute for it. A rollout that adds
+the facade while leaving the global-backed entry points callable has not closed
+#234.
+
 `RpmsRpc.client` is **not** deleted. It stays for genuinely single-identity
 process-global paths (background jobs, single-tenant CLI, tests), which is what
-ADR 0005 said. What changes is that request-scoped code can no longer reach it.
+ADR 0005 said. What changes is that request-scoped code can no longer reach it —
+enforced by signature, not by convention.
 
 ## Open questions for human agreement
 
@@ -132,7 +168,13 @@ ADR 0005 said. What changes is that request-scoped code can no longer reach it.
 3. **Does `DataMapper` get a client parameter, or does the facade wrap it too?**
    The fetch helpers are used directly by API modules and by consumers.
 4. **Deprecation posture for `RpmsRpc.client`.** Warn on use from a
-   request-scoped context, or rely on the facade making it unreachable?
+   request-scoped context, or rely on the signatures making it unreachable?
+5. **Facade construction and name.** Direct (`ScopedApi.new(pool, key)`) or
+   minted by the pool (a new `SessionPool#scope`)? And what is it called, given
+   `Session` is taken?
+6. **Lease granularity.** Per-operation `with_client` is the safe default, but
+   any caller whose correctness spans several RPCs needs one block around the
+   sequence. Which API surfaces need an explicit multi-RPC lease?
 
 ## Consequences
 
