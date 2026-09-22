@@ -6,11 +6,15 @@ require "rbconfig"
 
 # A client file required ON ITS OWN must be able to raise its own errors.
 #
-# RpmsRpc.sanitize_error is defined in version.rb, and every raise site in the clients calls it.
-# Nothing required version.rb, so `require "rpms_rpc/cia_client"` followed by any broker error gave
-# NoMethodError instead of the real message. Found running the client against a live stack: the
-# server had answered "The server rejected the requested action (R)" and the caller saw only
-# "undefined method `sanitize_error' for module RpmsRpc".
+# RpmsRpc.sanitize_error lives in core.rb, and every raise site in the clients calls it. It was in
+# version.rb and nothing required that, so `require "rpms_rpc/cia_client"` followed by any broker
+# error gave NoMethodError instead of the real message. Found running the client against a live
+# stack: the server had answered "The server rejected the requested action (R)" and the caller saw
+# only "undefined method `sanitize_error' for module RpmsRpc".
+#
+# The boundary these tests guard: a client requires core.rb (module state, stdlib-only) and NOT
+# version.rb (which also pulls the mappings, capability and role tables). Both halves matter —
+# sanitize_error must resolve, and it must not cost the aggregate require to get there.
 #
 # This has to run in a FRESH interpreter: the test process has already loaded everything, which is
 # exactly how the gap stayed hidden.
