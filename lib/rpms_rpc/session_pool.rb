@@ -80,8 +80,11 @@ module RpmsRpc
     end
 
     # Place an already-authenticated `client` under `session_key` and return
-    # it. Does not call `build`. Refcount stays 0 — adopt does not check the
-    # client out; the next `with_client` does.
+    # it. Does not call `build`. The entry is pinned (refcount 1) for the
+    # whole call, including the off-lock disconnect of any evicted client,
+    # then dropped back to 0 before return. adopt does not check the client
+    # out to the caller; the next `with_client` does. After return the
+    # session is idle.
     #
     # Refuses, without mutating the pool, when the key is already reserved or
     # this client object is already bound. Replacing an occupied key would be
@@ -99,8 +102,14 @@ module RpmsRpc
       raise ArgumentError, "session_key required" if session_key.nil?
       raise ArgumentError, "client required" if client.nil?
 
-      evicted = @monitor.synchronize { reserve_adopted(freeze_key(session_key), client) }
-      safe_disconnect(evicted)
+      entry, evicted = @monitor.synchronize { reserve_adopted(freeze_key(session_key), client) }
+      begin
+        safe_disconnect(evicted) # off the lock — a wedged socket must not freeze the pool
+      ensure
+        # Drop only the pin taken above. A with_client that checked the same
+        # entry out during the disconnect holds its own ref.
+        @monitor.synchronize { entry.refcount -= 1 if entry.refcount.positive? }
+      end
       client
     end
 
@@ -154,9 +163,17 @@ module RpmsRpc
       release_condemned(client)
     end
 
-    # Caller holds the monitor. Insert `client` under `key`, or raise without
-    # changing @entries. Returns the idle client evicted to make room (the
-    # caller disconnects it off the lock), or nil.
+    # Caller holds the monitor. Insert `client` under `key` at refcount 1, or
+    # raise without changing @entries. Returns [entry, evicted]. `evicted` is
+    # the idle client removed to make room (the caller disconnects it off the
+    # lock), or nil. The caller drops exactly one ref after that disconnect.
+    #
+    # The pin is what makes the off-lock disconnect safe. Published at
+    # refcount 0, this entry is idle the moment the monitor is released, so
+    # another adopt can evict it — and every later replacement — while the
+    # previous disconnect is still blocked, and shutdown can drop it before
+    # adopt returns. Either way the caller is handed a client the pool has
+    # already disconnected, and the next with_client falls through to build.
     #
     # A mid-build entry (client still nil) is occupied too. Filling it here
     # would race the builder's ensure, which assigns `reserved.client` on that
@@ -175,8 +192,9 @@ module RpmsRpc
       end
 
       evicted = make_room_or_raise
-      @entries[key] = Entry.new(client: client, session_key: key, refcount: 0, last_used_at: @clock.call)
-      evicted
+      entry = Entry.new(client: client, session_key: key, refcount: 1, last_used_at: @clock.call)
+      @entries[key] = entry
+      [ entry, evicted ]
     end
 
     # Caller holds the monitor.

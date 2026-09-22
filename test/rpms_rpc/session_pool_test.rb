@@ -642,6 +642,77 @@ class RpmsRpc::SessionPoolTest < Minitest::Test
     refute pool.include?("rebound")
   end
 
+  # max_sessions: 1. adopt removes the idle victim and drops the monitor
+  # before safe_disconnect. The replacement is published at refcount 0, so a
+  # second adopt can evict it while that disconnect is still blocked — another
+  # authenticated socket in disconnect flight, and the first caller gets back
+  # a client this second adopt already disconnected. Hold the victim
+  # disconnect open and the chain is unbounded. The second adopt must fail
+  # closed instead, and the client still being adopted must stay connected.
+  def test_concurrent_adopt_does_not_disconnect_the_client_still_being_adopted
+    pool = Pool.new(max_sessions: 1, build: counting_builder)
+    doomed = FakeClient.new("old")
+    started, release = blocking_disconnect(doomed)
+    pool.adopt("old", doomed)
+
+    replacement = FakeClient.new("replacement")
+    intruder = FakeClient.new("intruder")
+    adopter = Thread.new { pool.adopt("replacement", replacement) }
+    begin
+      assert_equal :started, started.pop(timeout: 5), "eviction disconnect never started"
+      assert_raises(Pool::PoolExhaustedError) { pool.adopt("intruder", intruder) }
+      refute replacement.disconnected,
+        "the client being adopted must not be disconnected while its victim's disconnect is still blocked"
+      assert pool.include?("replacement")
+      refute pool.include?("intruder")
+      refute intruder.disconnected, "a refused adopt must not disconnect the caller's client"
+      assert_equal 1, pool.size
+    ensure
+      release << :go
+    end
+    finish_threads([ adopter ])
+
+    assert_same replacement, adopter.value
+    refute replacement.disconnected, "adopt must not return a client a concurrent adopt already disconnected"
+    assert pool.include?("replacement")
+    refute pool.include?("intruder")
+    pool.with_client("replacement") { |c| assert_same replacement, c }
+    assert_equal 0, @builds["replacement"], "the adopted session must not fall back to build"
+    assert doomed.disconnected
+  end
+
+  # Same publication, different thief. shutdown selects refcount 0. adopt has
+  # already inserted the new session and is blocked in the victim's
+  # disconnect, so shutdown disconnects that new client before adopt returns.
+  # The caller then with_client's a missing key and build runs a second sign-on.
+  def test_shutdown_during_adopt_does_not_drop_the_session_being_adopted
+    pool = Pool.new(max_sessions: 1, build: counting_builder)
+    doomed = FakeClient.new("old")
+    started, release = blocking_disconnect(doomed)
+    pool.adopt("old", doomed)
+
+    adopted = FakeClient.new("fresh")
+    adopter = Thread.new { pool.adopt("fresh", adopted) }
+    begin
+      assert_equal :started, started.pop(timeout: 5), "eviction disconnect never started"
+      assert_equal 0, pool.shutdown,
+        "shutdown must not treat a session whose adopt has not returned as idle"
+      refute adopted.disconnected,
+        "shutdown must not disconnect the client adopt has not finished handing off"
+      assert pool.include?("fresh")
+    ensure
+      release << :go
+    end
+    finish_threads([ adopter ])
+
+    assert_same adopted, adopter.value
+    refute adopted.disconnected
+    assert pool.include?("fresh")
+    pool.with_client("fresh") { |c| assert_same adopted, c }
+    assert_equal 0, @builds["fresh"], "losing the binding must not fall back to build"
+    assert doomed.disconnected
+  end
+
   # Join with a timeout, then kill anything still blocked. A half-built (nil)
   # entry waits on @build_done with nobody to signal; a leaked waiter would
   # hold the suite open after the assertion already failed.
