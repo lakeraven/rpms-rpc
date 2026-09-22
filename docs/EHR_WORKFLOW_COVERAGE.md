@@ -69,8 +69,20 @@ primary-care trace could not provide.
 
 ## Backlog, in priority order
 
-- **AMHG behavioral health — 31 unwrapped of 71** (the December gap). Highest
-  priority: the `SAVE`/`GET` treatment-plan, screening, and suicide-form RPCs.
+- **AMHG behavioral health — 31 unwrapped of 71** (the December gap). The GET
+  treatment-plan, screening and suicide RPCs are already among the 40 wrapped;
+  what is missing is the write path plus a set of read/display surfaces. The
+  full 31, by kind:
+
+  | Kind | Count | RPCs |
+  | --- | --- | --- |
+  | **Writes (highest priority)** | 21 | `AMHG SAVE` × 19 (activity, administrative activity, assessment, case management, community activity, group data, group IND PNCA, MH recs to group, POV, progress notes, screening, suicide continuing factors, suicide form, suicide method, suicide narrative, suicide substances, treatment plan, treatment review, visit), `AMHG CREATE TREATMENT PLAN`, `AMHG INTAKE DELETE` |
+  | Reads / display | 7 | `AMHG GET BROWSE VISITS`, `GET FACE SHEET`, `GET HEALTH SUMMARY`, `GET INTAKE DISPLAY`, `GET TABLE`, `GET VISITS ALL PATS`, `AMHG LIST ENCOUNTERS` |
+  | Print | 3 | `AMHG PRINT ENCOUNTER FORM`, `PRINT SUICIDE FORM`, `PRINT TREATMENT PLAN` |
+
+  The writes are the pilot-blocking subset: a clinician can read a treatment
+  plan today but cannot save one. The read/display and print RPCs are real gaps
+  but degrade the surface rather than block the workflow.
 - **AGG registration** — a further ~36 RPCs the modern client exercises that the
   primary-care trace did not.
 - Primary-care canonical backlog (~136) — deferred behind the BH pilot.
