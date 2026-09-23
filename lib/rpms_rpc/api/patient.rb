@@ -172,22 +172,28 @@ module RpmsRpc
     # #call_rpc_global_array answers with an ordinary newline-delimited body,
     # which parse_many splits itself.
     def decode_global_array(raw)
-      # A client (or the mock) may already answer with line arrays; only a
-      # String can carry the wire framing, and raw.to_s on an Array would hand
-      # parse_many the inspect form.
-      return raw unless raw.is_a?(String)
+      # XwbClient/BmxClient answer with an Array from split_response, and with
+      # word wrap off a type-4 reply arrives as ONE element holding the whole
+      # framed blob — join before looking for framing, or it reads as a single
+      # unparseable row. MockClient's seeded line arrays have no framing and
+      # fall through to the unchanged return below.
+      body = raw.is_a?(Array) ? raw.join : raw
+      return raw unless body.is_a?(String)
 
-      body = raw.dup
       body = body.split(LOOKUP_ACK, 2).last.to_s if body.include?(LOOKUP_ACK)
       body = body.split(LOOKUP_ARRAY_END, 2).first.to_s
-      return body unless body.include?(LOOKUP_RECORD_SEP)
+      return raw unless body.include?(LOOKUP_RECORD_SEP)
 
-      # Rows stay in the reply's own encoding. The wire is binary and patient
-      # names are not guaranteed UTF-8 — force_encoding here would mislabel
-      # Latin-1 name bytes, and parse_many's separator regex then raises
-      # "invalid byte sequence in UTF-8" on a real lookup. Agg#parse_reply
-      # keeps .b for the same reason.
-      body.split(LOOKUP_RECORD_SEP)
+      # The broker writes every node as `W @X,EOL,!` (CIANBACT.m:122), so a
+      # line feed follows each $C(30). Splitting on $C(30) alone leaves that
+      # feed leading the next record and a bare "\n" trailing the last one —
+      # which reaches normalize_lookup_row as a blank DFN and raises. Strip the
+      # framing feeds with byte prefixes, not a regex: these rows may hold
+      # non-UTF-8 name bytes and a regex over them raises.
+      body.split(LOOKUP_RECORD_SEP).filter_map do |row|
+        row = row.delete_prefix("\r\n").delete_prefix("\n")
+        row unless row.empty?
+      end
     end
 
     # Masked-SSN shape from AGGPTLKP.m:124 (LST) and :194 (LST2). LST2 omits

@@ -216,7 +216,11 @@ class AggPatientLookupTest < Minitest::Test
 
     private
 
-    def full_reply = ([ HEADER ] + @rows).join(RS) + US
+    # CIANBACT.m:122 `W @X,EOL,!` — the broker writes every node followed by a
+    # line feed, and AGGPTLKP ends each node with $C(30) (AGGPTLKP.m:30,140)
+    # plus a final $C(31)-only node (:73). A fixture that joins on RS alone
+    # omits the `!` and cannot see the framing this test exists to pin.
+    def full_reply = ([ HEADER ] + @rows).map { |n| n + RS + "\n" }.join + US + "\n"
   end
 
   def test_lookup_reads_the_global_array_and_does_not_truncate_at_the_header
@@ -231,6 +235,17 @@ class AggPatientLookupTest < Minitest::Test
     assert_equal "ANDERSON,ALICE", rows.first[:name]
   end
 
+  def test_a_no_match_reply_over_the_wire_is_empty_not_an_error
+    # Header, then the $C(31)-only node (AGGPTLKP.m:73), each followed by the
+    # broker's line feed. Splitting on $C(30) alone leaves a bare "\n" that
+    # reaches normalize_lookup_row as a blank DFN and raises RpcError — a
+    # patient search with no hits must return [], not blow up.
+    client = GlobalArrayClient.new([])
+    RpmsRpc.configure { |c| c.client = client }
+
+    assert_equal [], RpmsRpc::Patient.lookup("NOSUCHNAME")
+  end
+
   def test_a_non_utf8_patient_name_does_not_raise_on_decode
     # The wire is binary and AGGPTLKP does not promise UTF-8: a Latin-1 name
     # ("MARIA" with accented bytes) arrives as raw bytes. Labelling those rows
@@ -238,7 +253,7 @@ class AggPatientLookupTest < Minitest::Test
     # raises "invalid byte sequence in UTF-8" on a real lookup while every
     # ASCII-only test stays green. Rows keep the reply's own encoding.
     latin1_row = "3^O\xE9,MAR\xEDA^104827^000009999^05/15/1980^^^^N".b
-    payload = ("5\x00" + HEADER + "\x1e" + latin1_row + "\x1e").b
+    payload = ("5\x00" + HEADER + "\x1e\n" + latin1_row + "\x1e\n\x1f\n").b
 
     client = Object.new
     client.define_singleton_method(:call_rpc_global_array) { |*| payload }
