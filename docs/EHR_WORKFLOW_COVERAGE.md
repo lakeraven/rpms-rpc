@@ -61,7 +61,7 @@ canonical RPCs as the primary-care EHR backlog.
 
 **But primary care is not the pilot.** The trace never exercised behavioral
 health. Against the **AMHG behavioral-health pillar** — the December surface —
-coverage is **40 / 71 = 56%** (see `data/pillar_allowlists/amhg.txt`). The BH
+coverage is **40 / 71 = 56.3%** (see `data/pillar_allowlists/amhg.txt`). The BH
 call surface was recovered from the modern client's exercised set: intake,
 screening, treatment plans, suicide-risk forms, DSM axes, progress notes, group
 visits, case management. That is the empirical BH reference the VueCentric
@@ -76,9 +76,9 @@ primary-care trace could not provide.
 
   | Kind | Count | RPCs |
   | --- | --- | --- |
-  | **Writes (highest priority)** | 21 | `AMHG SAVE` × 19 (activity, administrative activity, assessment, case management, community activity, group data, group IND PNCA, MH recs to group, POV, progress notes, screening, suicide continuing factors, suicide form, suicide method, suicide narrative, suicide substances, treatment plan, treatment review, visit), `AMHG CREATE TREATMENT PLAN`, `AMHG INTAKE DELETE` |
-  | Reads / display | 7 | `AMHG GET BROWSE VISITS`, `GET FACE SHEET`, `GET HEALTH SUMMARY`, `GET INTAKE DISPLAY`, `GET TABLE`, `GET VISITS ALL PATS`, `AMHG LIST ENCOUNTERS` |
-  | Print | 3 | `AMHG PRINT ENCOUNTER FORM`, `PRINT SUICIDE FORM`, `PRINT TREATMENT PLAN` |
+  | **Writes (highest priority)** | 21 | `AMHG SAVE ACTIVITY`, `AMHG SAVE ADMINISTRATIVE ACTIVITY`, `AMHG SAVE ASSESSMENT`, `AMHG SAVE CASE MANAGEMENT`, `AMHG SAVE COMMUNITY ACTIVITY`, `AMHG SAVE GROUP DATA`, `AMHG SAVE GROUP IND PNCA`, `AMHG SAVE MH RECS TO GROUP`, `AMHG SAVE POV`, `AMHG SAVE PROGRESS NOTES`, `AMHG SAVE SCREENING`, `AMHG SAVE SUIC CONT FACTORS`, `AMHG SAVE SUICIDE FORM`, `AMHG SAVE SUICIDE METHOD`, `AMHG SAVE SUICIDE NARRATIVE`, `AMHG SAVE SUICIDE SUBSTANCES`, `AMHG SAVE TREATMENT PLAN`, `AMHG SAVE TREATMENT REVIEW`, `AMHG SAVE VISIT`, `AMHG CREATE TREATMENT PLAN`, `AMHG INTAKE DELETE` |
+  | Reads / display | 7 | `AMHG GET BROWSE VISITS`, `AMHG GET FACE SHEET`, `AMHG GET HEALTH SUMMARY`, `AMHG GET INTAKE DISPLAY`, `AMHG GET TABLE`, `AMHG GET VISITS ALL PATS`, `AMHG LIST ENCOUNTERS` |
+  | Print | 3 | `AMHG PRINT ENCOUNTER FORM`, `AMHG PRINT SUICIDE FORM`, `AMHG PRINT TREATMENT PLAN` |
 
   The writes are the pilot-blocking subset: a clinician can read a treatment
   plan today but cannot save one. The read/display and print RPCs are real gaps

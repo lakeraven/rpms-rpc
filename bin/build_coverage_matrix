@@ -92,7 +92,13 @@ captured_summary = captured.map { |key, rpcs| "#{PILLAR_LABELS.fetch(key, key.up
 pending_summary = pending.map { |key, _| PILLAR_LABELS.fetch(key, key.upcase) }.join(", ")
 
 capture_note =
-  if pending.empty?
+  if captured.empty?
+    "> **Allowlists pending capture.** Every pillar allowlist in " \
+    "`data/pillar_allowlists/` is still a placeholder: #{pending_summary}. " \
+    "Documented pillar union per `project_gui_replacement_scope.md` is " \
+    "~1,400–1,700 RPCs. Every percentage below is therefore 0% by construction, " \
+    "not by measurement."
+  elsif pending.empty?
     "> **Allowlists captured.** Every pillar allowlist in `data/pillar_allowlists/` " \
     "has entries: #{captured_summary}. Documented pillar union per " \
     "`project_gui_replacement_scope.md` is ~1,400–1,700 RPCs."
