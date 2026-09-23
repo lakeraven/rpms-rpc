@@ -154,54 +154,78 @@ process-global paths (background jobs, single-tenant CLI, tests), which is what
 ADR 0005 said. What changes is that request-scoped code can no longer reach it —
 enforced by signature, not by convention.
 
-## Answers (2026-09-23)
+## Answers — withdrawn and remeasured (2026-09-23)
 
-**1. Consumer-side churn: acceptable.** The ADR assumed C changes "every call
-site in `lakeraven-ehr`". Measured, it is **86 call sites across 25 files, and
-20 of those files are `app/gateways/`** — one architectural layer, not a sprawl.
-The gateway layer already exists as the RPMS boundary, which makes it the
-natural holder of the scope. Churn concentrated in a layer that exists to be
-that boundary is the cheap kind. Option B-with-strict-mode is **not** taken.
+The first set of answers was blocked by adversarial review. They rested on a
+regex count that was wrong in both directions, and the correction changes two of
+the six answers rather than just their numbers. Recorded here rather than
+quietly replaced, because the failure mode is the point: this ADR argued against
+estimating, then estimated with a bad instrument and presented it as measurement.
 
-**2. Staged — but across a version boundary, not inside one codebase.** A mixed
-state where both the old and new paths work is exactly where a request path
-silently keeps the global, so staging by tier is rejected. Instead:
-PR 1 (gem) adds the required client parameter to `DataMapper` and the modules
-*and* the facade together, released as a version bump; PR 2 updates
-`lakeraven-ehr` on that bump. The version boundary enforces what tier-staging
-could not — the same shape #519 used to take rpms-rpc 0.3.0.
+### What the count actually is
 
-**3. `DataMapper` takes the client explicitly.** It is the chokepoint: 48 of 52
-modules reach the global *only* through `fetch_one/many/scalar/text/lines`, so
-fixing `DataMapper` closes the indirect path for all of them in one move,
-leaving 22 direct users to update by hand. #254 reinforces this — three
-surfaces now need global-array decode (`Agg`, `Patient`, `Scheduling`), and a
-decode copied a third time belongs in `DataMapper` too. The same chokepoint
-argument answers both.
+**Gem side — all 52 of 52 API modules reach the global, not 51.** Classified by
+path rather than grepped:
 
-**4. Signatures, not warnings.** A deprecation warning is a convention, and
-this ADR's whole argument is that convention is what fails here. `RpmsRpc.client`
-stays for genuinely single-identity process-global paths (background jobs,
-single-tenant CLI, tests) and is not deprecated; what changes is that no
-request-facing signature can reach it. Unreachable beats warned.
+| Path to `RpmsRpc.client` | Modules |
+|---|---|
+| `fetch_*` only | 29 |
+| Direct, or direct *and* `fetch_*` | 21 |
+| Indirect via a sibling module | 2 — `Tribal` through `DdrFileman` (`ddr_fileman.rb:201`), `BehavioralHealth` through `Wire` (`wire.rb:44`) |
 
-**5. Minted by the pool: `SessionPool#scope(session_key)`, returning
-`RpmsRpc::ScopedApi`.** The load-bearing invariant is that the facade holds the
-pool and the key and never a checked-out client; minting it from the pool makes
-the wrong construction unavailable rather than merely discouraged. `Session` is
-taken by the cold-launch bootstrap API (`api/session.rb:8`), so `ScopedApi`
-stands unless something better surfaces during implementation.
+So "48 reach it only through `fetch_*`" was wrong; the figure is **29**. Fixing
+`DataMapper` closes fewer than half. `Capabilities` (`capabilities.rb:104`) and
+the four `BehavioralHealth::*` modules sit outside `api/*.rb` and bypass
+`fetch_*` the same way.
 
-**6. Per-operation `with_client` by default; explicit lease on four surfaces.**
-Any sequence whose correctness spans more than one RPC takes one block around
-the whole sequence:
-- **sign-on** — already holds the wire for the multi-RPC sequence
-- **AGG registration** — ADD then GETS against the same identity
-- **DDR FILER sequences** — #241 is literally "broker session should survive two
-  DDR FILER calls"; that is this lease, and the issue predates this ADR
-- **TIU note create-then-sign**
+**Consumer side — the earlier figure counted the wrong thing.** "86 call sites
+in 25 files" came from a regex for `RpmsRpc::Const.method`, which swept in
+comments and in-memory helpers (`Capabilities.can?`, `FilemanDateParser`,
+`UserRoles`) while *missing* the paths that actually reach a broker: gateways
+that resolve the module once in `default_provider` and call `via.method`, and —
+the significant one — **18 `RpcSupport.broker.call_rpc` sites that touch no API
+module at all**.
 
-Everything else is a single RPC and takes the per-operation pin.
+### The finding that changes the plan
+
+`RpcSupport.broker` is `AuditedBroker.wrap(RpmsRpc.client)`
+(`rpc_support.rb:33-35`) — **one accessor**, through which every gateway reaches
+the broker. ADR 0005 already identified it as the consumer-side seam. That means
+the consumer work is not "update N call sites"; it is **make one accessor
+session-aware**, plus the API-module signatures.
+
+It also means a gem-side version bump does **not** close the mixed state, which
+was the basis of answer 2: on the new gem, `RpcSupport.broker` still wraps the
+global and those 18 `call_rpc` sites still compile unchanged. A required keyword
+fails closed only for code that calls the methods carrying it.
+
+### Revised answers
+
+1. **Churn: acceptable, for a better reason than given.** Not "one layer of call
+   sites" but *one accessor* (`RpcSupport.broker`) plus the module signatures.
+   Option C stands; B-with-strict-mode still declined.
+2. **Staging: the version boundary is necessary but not sufficient.** The gem
+   bump must be paired with a consumer change that routes `RpcSupport.broker`
+   through the pool, or the 18 direct `call_rpc` sites keep the global on the
+   request path with every gem-side control in place. Two PRs, and the second is
+   not optional cleanup — it is where the defect actually closes.
+3. **`DataMapper` still takes the client, but it is not "the" chokepoint.** It
+   closes 29 modules. The remaining 21 direct users, the 2 indirect ones, and
+   `Capabilities` are hand work; `Tribal` and `BehavioralHealth` close only when
+   `DdrFileman` and `Wire` do.
+4. **Signatures, not warnings — unchanged**, with the caveat that signatures
+   constrain only the code that calls them. `RpcSupport.broker` must change
+   shape; leaving it as a zero-argument accessor over the global is the hole.
+5. **`SessionPool#scope(session_key)` returning `RpmsRpc::ScopedApi` — unchanged.**
+6. **Lease surfaces — unchanged** (sign-on, AGG registration, DDR FILER per
+   \#241, TIU create-then-sign), and still to be checked against the sequences in
+   `Registration`, which calls `Agg` and `DdrFileman` across several RPCs
+   (`registration.rb:168-194`, `:213`, `:262`, `:282`, `:292`, `:372`).
+
+### Still open after remeasurement
+
+Whether `Registration`'s multi-RPC paths need a lease of their own, and whether
+`AuditedBroker` stays a wrapper over a client or becomes a wrapper over a scope.
 
 ## Open questions as originally posed
 
