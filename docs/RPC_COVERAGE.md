@@ -27,7 +27,7 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 
 | Namespace | Wrapped (rpms-rpc) | Wrapped (vista-rpc) | staging | us-hospital | sweden | jordan | Used by | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| AGG | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| AGG | 4 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | AMHG | 40 | n/a | ? | ? | ? | ? | VueCentric AMHG | partial (gap: 31) |
 | BEHOCACV | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BEHOCCD | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
