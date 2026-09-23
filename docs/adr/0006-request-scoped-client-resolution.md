@@ -154,7 +154,56 @@ process-global paths (background jobs, single-tenant CLI, tests), which is what
 ADR 0005 said. What changes is that request-scoped code can no longer reach it —
 enforced by signature, not by convention.
 
-## Open questions for human agreement
+## Answers (2026-09-23)
+
+**1. Consumer-side churn: acceptable.** The ADR assumed C changes "every call
+site in `lakeraven-ehr`". Measured, it is **86 call sites across 25 files, and
+20 of those files are `app/gateways/`** — one architectural layer, not a sprawl.
+The gateway layer already exists as the RPMS boundary, which makes it the
+natural holder of the scope. Churn concentrated in a layer that exists to be
+that boundary is the cheap kind. Option B-with-strict-mode is **not** taken.
+
+**2. Staged — but across a version boundary, not inside one codebase.** A mixed
+state where both the old and new paths work is exactly where a request path
+silently keeps the global, so staging by tier is rejected. Instead:
+PR 1 (gem) adds the required client parameter to `DataMapper` and the modules
+*and* the facade together, released as a version bump; PR 2 updates
+`lakeraven-ehr` on that bump. The version boundary enforces what tier-staging
+could not — the same shape #519 used to take rpms-rpc 0.3.0.
+
+**3. `DataMapper` takes the client explicitly.** It is the chokepoint: 48 of 52
+modules reach the global *only* through `fetch_one/many/scalar/text/lines`, so
+fixing `DataMapper` closes the indirect path for all of them in one move,
+leaving 22 direct users to update by hand. #254 reinforces this — three
+surfaces now need global-array decode (`Agg`, `Patient`, `Scheduling`), and a
+decode copied a third time belongs in `DataMapper` too. The same chokepoint
+argument answers both.
+
+**4. Signatures, not warnings.** A deprecation warning is a convention, and
+this ADR's whole argument is that convention is what fails here. `RpmsRpc.client`
+stays for genuinely single-identity process-global paths (background jobs,
+single-tenant CLI, tests) and is not deprecated; what changes is that no
+request-facing signature can reach it. Unreachable beats warned.
+
+**5. Minted by the pool: `SessionPool#scope(session_key)`, returning
+`RpmsRpc::ScopedApi`.** The load-bearing invariant is that the facade holds the
+pool and the key and never a checked-out client; minting it from the pool makes
+the wrong construction unavailable rather than merely discouraged. `Session` is
+taken by the cold-launch bootstrap API (`api/session.rb:8`), so `ScopedApi`
+stands unless something better surfaces during implementation.
+
+**6. Per-operation `with_client` by default; explicit lease on four surfaces.**
+Any sequence whose correctness spans more than one RPC takes one block around
+the whole sequence:
+- **sign-on** — already holds the wire for the multi-RPC sequence
+- **AGG registration** — ADD then GETS against the same identity
+- **DDR FILER sequences** — #241 is literally "broker session should survive two
+  DDR FILER calls"; that is this lease, and the issue predates this ADR
+- **TIU note create-then-sign**
+
+Everything else is a single RPC and takes the per-operation pin.
+
+## Open questions as originally posed
 
 1. **Is the consumer-side churn acceptable?** C changes every call site in
    `lakeraven-ehr` from `Allergy.assessment(dfn)` to
