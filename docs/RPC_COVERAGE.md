@@ -7,33 +7,28 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 `data/pillar_allowlists/` and broker dumps to `data/broker_dumps/`, then run
 `rake coverage:matrix` to refresh this document.
 
-> **Allowlists pending capture.** The seed allowlists in `data/pillar_allowlists/`
-> are stubs — only CPRS (32) and BPRM (5) have any entries; the VueCentric
-> specialty apps are placeholders. Documented pillar union per
-> `project_gui_replacement_scope.md` is ~1,400–1,700 RPCs. Headline percentages
-> below understate the real target until the allowlists are populated by
-> probing each pillar's RPC option (`OR CPRS GUI CHART`, `BJPN PRM CONTEXT`,
-> `AMHGUI MENU`, `BDMG GUI CONTEXT`, etc.).
+> **Allowlists partially captured.** Populated: CPRS GUI (32), VueCentric AMHG (71), BPRM (5). Still placeholders: VueCentric BDMG, VueCentric BSDX, VueCentric BDW, VueCentric BHL, VueCentric BWH. Documented pillar union per `project_gui_replacement_scope.md` is ~1,400–1,700 RPCs. Headline percentages below understate the real target until the remaining allowlists are populated by probing each pillar's RPC option (`OR CPRS GUI CHART`, `BJPN PRM CONTEXT`, `AMHGUI MENU`, `BDMG GUI CONTEXT`, etc.).
 
 ## Headline Matrix
 
 | Pillar | Allowlist size | Wrapped | Coverage |
 | --- | --- | --- | --- |
 | CPRS GUI | 32 | 15 | 46.9% |
-| VueCentric AMHG | 0 | 0 | 0.0% |
+| VueCentric AMHG | 71 | 40 | 56.3% |
 | VueCentric BDMG | 0 | 0 | 0.0% |
 | VueCentric BSDX | 0 | 0 | 0.0% |
 | VueCentric BDW | 0 | 0 | 0.0% |
 | VueCentric BHL | 0 | 0 | 0.0% |
 | VueCentric BWH | 0 | 0 | 0.0% |
 | BPRM | 5 | 1 | 20.0% |
-| **TOTAL (deduped)** | **37** | **16** | **43.2%** |
+| **TOTAL (deduped)** | **108** | **56** | **51.9%** |
 
 ## Detail Matrix
 
 | Namespace | Wrapped (rpms-rpc) | Wrapped (vista-rpc) | staging | us-hospital | sweden | jordan | Used by | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| AGG | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| AGG | 4 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| AMHG | 40 | n/a | ? | ? | ? | ? | VueCentric AMHG | partial (gap: 31) |
 | BEHOCACV | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BEHOCCD | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BEHOCIR | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
