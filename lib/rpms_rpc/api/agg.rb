@@ -22,9 +22,10 @@ module RpmsRpc
   # LOCK) with AGG ADD NEW PATIENT (8994 IEN 3374) in its RPC multiple at
   # `^DIC(19,13112,"RPC","B",3374,20)`. RPC registration is OPTION-scoped, so
   # under any other context the broker denies them — and the AGG* RPCs are
-  # absent from both defaults this gem can be sitting on: CIANB MAIN MENU
-  # (#10976, what CIA sign-on binds — no RPC multiple at all) and OR CPRS GUI
-  # CHART (#9649, 1004 RPCs, none of them AGG*).
+  # absent from the defaults this gem can be sitting on: CIAV VUECENTRIC
+  # (#10979, what CIA sign-on binds), CIANB MAIN MENU (#10976, what it bound
+  # before 2026-09-23) and OR CPRS GUI CHART (#9649, 1004 RPCs, none of them
+  # AGG*).
   #
   # Every public method here therefore scopes itself to AGGRPC via
   # ContextScope#with_context (bind, run, restore the caller's context). That
@@ -124,8 +125,9 @@ module RpmsRpc
     #
     # CANRUN answers "is this RPC in the CURRENT context option", so the probe
     # only means "is AG installed" when it runs under AGGRPC — which is why
-    # this scopes itself (module doc). Asking under CIANB MAIN MENU or OR CPRS
-    # GUI CHART is answered a truthful 0 because AGG* is not registered there.
+    # this scopes itself (module doc). Asking under CIAV VUECENTRIC, CIANB MAIN
+    # MENU or OR CPRS GUI CHART is answered a truthful 0 because AGG* is not
+    # registered there.
     # Note the context check (:145) precedes the XUPROGMODE bypass (:147): a
     # session whose CIA("CTX") does not resolve is answered 0 even for a
     # programmer.

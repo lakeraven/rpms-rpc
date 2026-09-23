@@ -545,7 +545,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     # persisted AGGRPC for a frame that carries no CTX (CIANBACT.m:49-50).
     c.create_context(RpmsRpc::CiaClient::SIGNON_CONTEXT)
     c.call_rpc("CIANBRPC CANRUN", "AGG ADD NEW PATIENT")
-    assert_equal [ "UID", "", "7", "CTX", "", "CIANB MAIN MENU",
+    assert_equal [ "UID", "", "7", "CTX", "", "CIAV VUECENTRIC",
                    "RPC", "", "CIANBRPC CANRUN", "1", "", "AGG ADD NEW PATIENT" ],
                  broker.frames.last[:fields]
   end
@@ -705,6 +705,10 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     auth_frame = broker.frames.find { |fr| fr[:fields].include?("CIANBRPC AUTH") }
     assert_equal "0", auth_frame[:fields][2], "first sign-on must request session UID 0, not reconnect to 1"
     refute broker.reconnect_attempted, "a UID-1 first sign-on takes the reconnect-failure path"
+    # P1 is the application the session signs on under: VueCentric's, whose RPC
+    # multiple is what a user without XUPROGMODE is gated against (cloud-rpms#55).
+    assert_equal [ "1", "", "CIAV VUECENTRIC" ], auth_frame[:fields][6, 3],
+      "sign-on must bind CIAV VUECENTRIC as the AID, as VueCentric does"
 
     # And the broker-allocated UID must be captured and carried thereafter.
     assert result[:success]

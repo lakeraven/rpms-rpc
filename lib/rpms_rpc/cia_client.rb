@@ -26,7 +26,17 @@ module RpmsRpc
     # (CIANBRPC.m:22,27,62); ACTR^CIANBACT falls back to that AID when a frame
     # carries no CTX field (CIANBACT.m:49-51). So this is the option every RPC
     # is gated against until something binds another one.
-    SIGNON_CONTEXT = "CIANB MAIN MENU"
+    #
+    # CIAV VUECENTRIC, because that is what VueCentric signs on under: the
+    # clinical client this gem sits beside, captured server-side from the CIA
+    # activity log on bcer-9.0-20260921-134e4f1-ydb (2026-09-23; cloud-rpms#55).
+    # Its RPC multiple carries 1,723 RPCs, including the identity reads. The
+    # previous value, CIANB MAIN MENU, carries one, so a user without XUPROGMODE
+    # was denied everything but the CIANB* routines (ACTR exempts those,
+    # CIANBACT.m:49). XUPROGMODE skips the check, which is why SYS123 never
+    # showed it. Verified live as PROV123 (no XUPROGMODE): CIAVCXUS VIMINFO is
+    # denied under CIANB MAIN MENU and answered under CIAV VUECENTRIC.
+    SIGNON_CONTEXT = "CIAV VUECENTRIC"
 
     def default_port = 9100
 

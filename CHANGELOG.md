@@ -77,6 +77,11 @@ deliberately — as an asthma-classification read — if a caller needs one.
 
 ### Fixed
 
+- **CIA sign-on binds `CIAV VUECENTRIC`, the application VueCentric signs on
+  under,** instead of `CIANB MAIN MENU`. That option's RPC multiple carries
+  one RPC, so every call from a user without XUPROGMODE was "Access denied"
+  except the broker's own `CIANB*` routines. Captured from VueCentric's
+  server-side activity log and verified live as PROV123 (cloud-rpms#55).
 - `XUS AV CODE` / `XUS CVC` now cross the wire encrypted, per-RPC per the M
   source (`VALIDAV^XUSRB` decrypts the whole parameter; `CVC^XUSRB` splits on
   `^` first).
