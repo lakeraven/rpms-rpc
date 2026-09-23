@@ -73,6 +73,7 @@ module RpmsRpc
       @connected = false
       @authenticated = false
       @duz = nil
+      @rbuf = "".b # bytes received past the last reply's terminator; see #read_until_raw
       @wire_lock = Monitor.new
     end
 
@@ -412,6 +413,7 @@ module RpmsRpc
     def reset_connection
       @socket&.close
       @socket = nil
+      @rbuf = "".b # unread bytes belong to the dead socket
       @connected = false
       @authenticated = false
       @duz = nil
@@ -460,12 +462,30 @@ module RpmsRpc
 
     # Read from socket until `terminator`, with timeout via IO.select. Terminator is
     # protocol-specific: XWB/BMX use EOT (\x04), CIA uses EOD (\x1e). Shared by all clients.
+    # Read up to (not including) the next `terminator`, and KEEP whatever arrived after it.
+    #
+    # A recv returns whatever the kernel has, which can run past the terminator: two replies in
+    # one segment, or a reply whose body EMBEDS the terminator (a CIA global-array reply carries
+    # $C(30) record separators, and $C(30) is the CIA EOD). This used to keep the bytes before
+    # the terminator and silently discard the rest of the chunk. That lost data rows when they
+    # arrived in the same segment, and left them on the socket when they arrived in a later one,
+    # where the NEXT call read them as its own reply and every reply after that belonged to the
+    # call before it (rpms-rpc#254, measured 2026-09-23). The surplus now waits in @rbuf for the
+    # next read, and the transport decides what it is (CiaClient checks each reply's sequence
+    # echo and skips a stale tail).
     def read_until_raw(terminator = EOT)
       return "" unless @socket
 
-      chunks = []
+      term = terminator.b
+      buf = @rbuf || "".b
+      @rbuf = "".b
       deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @timeout
       loop do
+        if (idx = buf.index(term))
+          @rbuf = buf.byteslice((idx + term.bytesize)..) || "".b
+          return buf.byteslice(0, idx)
+        end
+
         remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
         if remaining <= 0
           @connected = false
@@ -488,15 +508,8 @@ module RpmsRpc
           @connected = false
           raise ConnectionError, "Connection closed by server"
         end
-        if chunk.include?(terminator)
-          idx = chunk.index(terminator)
-          chunks << chunk[0...idx]
-          break
-        end
-        chunks << chunk
+        buf << chunk.b
       end
-
-      chunks.join
     rescue IO::TimeoutError => e
       # A timeout, not generic connection loss: it must reach the timeout
       # teardown in wire_operation, or the desynchronized socket stays open
