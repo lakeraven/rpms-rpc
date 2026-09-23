@@ -120,7 +120,7 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
 
   # A broker-faithful fake for the FULL sign-on contract: an AUTH binds the
   # session identity (last AUTH wins — exactly the real broker's behaviour),
-  # an XUS GET USER INFO answers with whatever identity the session holds
+  # a CIAVCXUS VIMINFO answers with whatever identity the session holds
   # RIGHT NOW,
   # and replies are served strictly FIFO to whoever reads next.
   class SignonBrokerSocket
@@ -149,8 +149,8 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
           @replies << "#{ack}0\r\n7#{@auths}^NET^SITE\r\nSigned on as USER#{@auths}\r\n#{EOD}"
         elsif str.include?("LANE-")
           @replies << "#{ack}#{str[/LANE-[AB]/]}-OK#{EOD}"
-        else # XUS GET USER INFO — line 1 is the DUZ of the CURRENT session identity
-          @replies << "#{ack}#{300 + @session}\r\nUSER#{@session}\r\n#{EOD}"
+        else # CIAVCXUS VIMINFO — piece 1 is the DUZ of the CURRENT session identity
+          @replies << "#{ack}#{300 + @session}^USER#{@session}^1800;1800;60^0^0#{EOD}"
         end
       end
       sleep 0.01 # widen the send-then-read window a broken client would leak in
@@ -168,7 +168,7 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
   # driving sign-on + RPC through ONE shared client must never interleave
   # frames inside a sign-on sequence, never consume each other's replies,
   # and never reset each other's socket. Sign-on binds the session identity
-  # with AUTH and reads it back with XUS GET USER INFO — if anything lands
+  # with AUTH and reads it back with CIAVCXUS VIMINFO — if anything lands
   # between the two, the reader is minted with the OTHER clinician's DUZ.
   def test_two_threads_signing_on_and_calling_never_interleave_or_cross_reset
     socket = SignonBrokerSocket.new
