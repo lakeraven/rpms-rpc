@@ -235,6 +235,28 @@ class AggPatientLookupTest < Minitest::Test
     assert_equal "ANDERSON,ALICE", rows.first[:name]
   end
 
+  # `W @X,EOL,!` (CIANBACT.m:122) can put CRLF, a bare LF, a bare CR, or
+  # nothing after each $C(30): EOL is $C(13) only when the #8994 entry has word
+  # wrap on, and what `!` emits is device-dependent. Reviews of this path read
+  # those bytes differently, so all four are pinned rather than the one shape
+  # this broker happens to send today.
+  [ [ "crlf", "\r\n" ], [ "lf", "\n" ], [ "cr", "\r" ], [ "none", "" ] ].each do |label, feed|
+    define_method("test_decodes_a_reply_whose_nodes_are_followed_by_#{label}") do
+      row = "3^ANDERSON,ALICE^104827^000009999^05/15/1980^^^^N"
+      payload = ("5\x00" + HEADER + "\x1e" + feed + row + "\x1e" + feed + "\x1f" + feed).b
+
+      client = Object.new
+      client.define_singleton_method(:call_rpc_global_array) { |*| payload }
+      RpmsRpc.configure { |c| c.client = client }
+
+      rows = RpmsRpc::Patient.lookup("ANDERSON")
+
+      assert_equal 1, rows.size, "#{label} framing lost the data row"
+      assert_equal 3, rows.first[:dfn]
+      assert_equal "ANDERSON,ALICE", rows.first[:name]
+    end
+  end
+
   def test_a_no_match_reply_over_the_wire_is_empty_not_an_error
     # Header, then the $C(31)-only node (AGGPTLKP.m:73), each followed by the
     # broker's line feed. Splitting on $C(30) alone leaves a bare "\n" that

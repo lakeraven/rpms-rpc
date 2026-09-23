@@ -184,14 +184,20 @@ module RpmsRpc
       body = body.split(LOOKUP_ARRAY_END, 2).first.to_s
       return raw unless body.include?(LOOKUP_RECORD_SEP)
 
-      # The broker writes every node as `W @X,EOL,!` (CIANBACT.m:122), so a
-      # line feed follows each $C(30). Splitting on $C(30) alone leaves that
-      # feed leading the next record and a bare "\n" trailing the last one —
-      # which reaches normalize_lookup_row as a blank DFN and raises. Strip the
-      # framing feeds with byte prefixes, not a regex: these rows may hold
-      # non-UTF-8 name bytes and a regex over them raises.
+      # The broker writes every node as `W @X,EOL,!` (CIANBACT.m:122), so
+      # framing bytes can follow each $C(30): EOL is $C(13) when the #8994
+      # entry has word wrap on and empty when it does not, and what `!` itself
+      # emits depends on the device. Reviews of this path have read those bytes
+      # differently, so rather than depend on one reading, every combination is
+      # handled — CRLF, bare LF, bare CR, and none at all. Left unstripped they
+      # lead the next record and trail the last as a bare separator, reaching
+      # normalize_lookup_row as a blank DFN and raising.
+      #
+      # Stripped by byte prefix, not regex: these rows may hold non-UTF-8 name
+      # bytes and a regex over them raises. Only a LEADING feed goes — a
+      # newline inside a field is data and is left alone.
       body.split(LOOKUP_RECORD_SEP).filter_map do |row|
-        row = row.delete_prefix("\r\n").delete_prefix("\n")
+        row = row.delete_prefix("\r\n").delete_prefix("\n").delete_prefix("\r")
         row unless row.empty?
       end
     end
