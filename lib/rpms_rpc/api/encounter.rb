@@ -85,9 +85,15 @@ module RpmsRpc
     end
 
     # VSTR "LOC;FM_DATETIME;SVC_CAT" per VSTR2VIS^BEHOENCX.
+    # A Time or DateTime formats with its clock; a plain Date has none, so it
+    # formats as a FileMan date (a Date answers no #hour, and asking raised).
     def visit_string(location_ien, datetime, service_category)
       dt = datetime
-      dt = FilemanDateParser.format_datetime(dt) if dt.is_a?(Date) || dt.is_a?(Time)
+      if dt.is_a?(Time) || dt.is_a?(DateTime)
+        dt = FilemanDateParser.format_datetime(dt)
+      elsif dt.is_a?(Date)
+        dt = FilemanDateParser.format_date(dt)
+      end
       "#{location_ien};#{dt};#{service_category}"
     end
   end
