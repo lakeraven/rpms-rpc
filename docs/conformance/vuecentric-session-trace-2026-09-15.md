@@ -220,9 +220,10 @@ Full per-RPC classification: `data/rpc_tiers/observed/ehr-session-2026-09-15.tsv
 
 ### Why this matters for the pillar allowlists
 
-`docs/RPC_COVERAGE.md` currently carries the note *"Allowlists pending capture —
-the VueCentric specialty apps are placeholders."* This trace **is** a capture:
-223 empirically-observed RPCs for the EHR pillar's core clinical workflow, with
+`docs/RPC_COVERAGE.md` derives its capture note from the allowlists themselves;
+it currently reports VueCentric BDMG, BSDX, BDW, BHL and BWH as still
+placeholders, and carries no entry at all for the EHR pillar. This trace **is** a
+capture: 223 empirically-observed RPCs for the EHR pillar's core clinical workflow, with
 real parameter shapes and return formats. That is materially better evidence than
 probing an option's RPC list, because it tells us call *order* and *payload*, not
 just membership.
