@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — adversarial-gate findings on the measurement/provenance reads (#188)
+
+- `FilemanDateParser.parse_datetime_or_date` no longer degrades an
+  ILLEGAL time to midnight. `parse_date` keeps only the 7-digit prefix,
+  so `"3260607.9"` (hour 90) used to come back as midnight on the 7th —
+  and `Measurement#resolve_date` labels whatever it gets as the `:event`
+  (clinical) time and stops looking, publishing a fabricated moment of
+  care. A value carrying a time fraction now parses as a datetime or not
+  at all.
+- `Measurement.for_visit` / `.latest` / `.newest_by_type` return **nil**
+  when the read FAILED (broker unreachable, or a `-N^message` error row)
+  and `[]` only for no data. They previously collapsed both to `[]`, so
+  "this patient has no recorded weight" and "we could not ask" were
+  indistinguishable — the same collapse this work already fixed for
+  `Patient.contact`. New `DataMapper::Mapping#fetch_many_or_nil` carries
+  the distinction.
+- `Measurement.latest` / `.newest_by_type` strip carets from every
+  composed `INP` piece and require a numeric visit IEN. `types` and the
+  date bounds were interpolated raw into a caret-delimited param, so a
+  caller (or a FHIR `Observation?code=` query value) could inject extra
+  protocol pieces: `latest(dfn, types: ["WT^INJECTED"], visit_ien: "9^9^9")`
+  put six pieces on a three-piece wire.
+- `Vital.add` no longer tells callers to recover saved measurement IENs
+  via `Vital.for_patient`. That read is FASTVIT (newest-per-type), so a
+  backdated save is simply absent from the reply and the match misses
+  silently. Points at `Measurement.for_visit` instead.
+- The `newest_by_type` fixture gave every row's DDR `.01` the default
+  `"WT"`, so the test asserting both rows were `"WT"` matched the bad
+  fixture and would pass even if the mapping ignored the row entirely.
+  Each row now carries its own type, and the assertion is per row.
+
 ### Added — sign-on encryption and an atomic wire (#235)
 
 - **`RpmsRpc.synchronize_wire` / `Client#synchronize_wire`** — reentrant lock

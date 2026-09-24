@@ -284,6 +284,23 @@ module RpmsRpc
         parse_many(response)
       end
 
+      # fetch_many, but a FAILED read is nil instead of []. fetch_many
+      # cannot tell "nothing on file" from "the broker refused" — both come
+      # back empty — which is fine for a list a caller only renders, and
+      # wrong wherever the difference is clinical (a patient with no
+      # recorded weight vs a weight we could not read). Returns nil when the
+      # broker gave nothing or an error row ("-N^message"), otherwise the
+      # parsed rows, [] included.
+      def fetch_many_or_nil(*params)
+        response = RpmsRpc.client.call_rpc(rpc_name, *params)
+        return nil if response.nil? || response.empty?
+
+        first = response.is_a?(String) ? response.split(/\r?\n/).first : response.first
+        return nil if !first.nil? && DataMapper.error_row?(first.to_s)
+
+        parse_many(response)
+      end
+
       def fetch_scalar(*params)
         response = RpmsRpc.client.call_rpc(rpc_name, *params)
         return nil if response.nil? || response.empty?

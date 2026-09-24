@@ -72,8 +72,20 @@ module RpmsRpc
     # as the raw result code in a failure result.
     #
     # Note: BEHOVM SAVE does not return saved-measurement IENs in its
-    # response. Callers needing the IENs must follow up with
-    # `Vital.for_patient(dfn)` and match by recorded_date + abbreviation.
+    # response, and there is no reliable read-back for them.
+    #
+    # Do NOT recover them from `Vital.for_patient(dfn)`: that runs
+    # "ORQQVI VITALS", which the #8994 registry dispatches to FASTVIT^ORQQVI
+    # — at most ONE row per type, the newest in range. A backdated save, or
+    # a second value of a type that already has a newer row, is simply not
+    # in the reply, so a date+abbreviation match misses with no error and
+    # the caller concludes the save failed. (The full-range read,
+    # "ORQQVI VITALS FOR DATE RANGE", is GMRV #120.5 only — no IHS branch —
+    # so its IENs are not V MEASUREMENT IENs either.)
+    #
+    # A caller that needs the IEN of a specific measurement should read the
+    # visit instead: `RpmsRpc::Measurement.for_visit(visit_ien)` returns
+    # every V MEASUREMENT on that visit with its IEN.
     def add(dfn, visit_string, measurements, provider_duz:)
       # provider_duz is required regardless of measurement count — checking
       # before the empty-list early return so add(..., [], provider_duz: nil)

@@ -145,9 +145,12 @@ module RpmsRpc
 
       visit_memo = {}
       units_memo = {}
-      params = [ dfn.to_s, fileman_bound(start_date), fileman_bound(end_date) ]
+      params = [ dfn.to_i.to_s, fileman_bound(start_date), fileman_bound(end_date) ]
       params.pop while params.last.empty? && params.length > 1
-      DataMapper.vitals.fetch_many(*params).filter_map do |row|
+      rows = DataMapper.vitals.fetch_many_or_nil(*params)
+      return nil if rows.nil?
+
+      rows.filter_map do |row|
         ien = row[:measurement_ien]
         next if ien.nil?
 
@@ -177,15 +180,19 @@ module RpmsRpc
     # Underlying RPC: BGOVMSR GET with INP "VISIT_IEN^0"
     # (GET^BGOVMSR: BGOVMSR.m:41-77; row shape in :visit_measurements).
     #
-    # Returns [] for invalid input or no data; otherwise one hash per
-    # measurement:
+    # Returns [] for invalid input or a visit with no measurements, nil
+    # when the read itself failed (broker unreachable or "-N^message") —
+    # "no weights on file" and "we could not ask" are different clinical
+    # facts. Otherwise one hash per measurement:
     #   { type:, value:, units:, date:, date_display:, measurement_ien:,
     #     visit_ien:, provider_name:, locked:, service_category:,
     #     capture_mode:, entered_in_error: }
     def for_visit(visit_ien)
       return [] if invalid_id?(visit_ien)
 
-      rows = DataMapper.visit_measurements.fetch_many("#{visit_ien.to_i}^0")
+      rows = DataMapper.visit_measurements.fetch_many_or_nil("#{visit_ien.to_i}^0")
+      return nil if rows.nil?
+
       decorate(rows)
     end
 
@@ -197,8 +204,10 @@ module RpmsRpc
     def latest(dfn, types: nil, visit_ien: nil)
       return [] if invalid_id?(dfn)
 
-      inp = "#{dfn.to_i}^#{Array(types).join(';')}^#{visit_ien}"
-      rows = DataMapper.latest_measurements.fetch_many(inp)
+      inp = [ dfn.to_i, caret_free(Array(types).join(";")), numeric_or_blank(visit_ien) ].join("^")
+      rows = DataMapper.latest_measurements.fetch_many_or_nil(inp)
+      return nil if rows.nil?
+
       decorate(rows)
     end
 
@@ -340,8 +349,25 @@ module RpmsRpc
       when nil then ""
       when Time then FilemanDateParser.format_datetime(value)
       when Date then FilemanDateParser.format_date(value)
-      else value.to_s
+      else caret_free(value.to_s)
       end
+    end
+
+    # The RPC wire is caret-delimited, so a caret inside a value is not data
+    # — it is an extra protocol piece. Every composed param strips them
+    # rather than passing a caller's (or a query parameter's) carets
+    # through: `types` is where a FHIR `Observation?code=` value lands.
+    def caret_free(value)
+      value.to_s.delete("^")
+    end
+
+    # A visit IEN is a positive integer or nothing at all. to_i alone would
+    # let "12abc" through as 12; blank keeps the piece present but empty,
+    # which is what BGOVMSR LAST expects for "any visit" (BGOVMSR.m:12-13).
+    def numeric_or_blank(value)
+      return "" if value.nil? || !value.to_s.strip.match?(/\A\d+\z/)
+
+      value.to_s.strip
     end
 
     # Display units for the raw stored value via BEHOVM2 VUNITS

@@ -287,18 +287,77 @@ class MeasurementProvenanceTest < Minitest::Test
     assert_empty RpmsRpc.client.received_calls
   end
 
-  def test_for_visit_returns_empty_for_unknown_visit
+  # ==========================================================================
+  # Caret discipline on composed INP params
+  # ==========================================================================
+
+  # BGOVMSR LAST takes ONE caret-delimited INP param ("DFN^TYPES^VISIT_IEN"),
+  # so any caret a caller supplies becomes an extra protocol piece. dfn is
+  # coerced with to_i; types and visit_ien were interpolated raw, and `types`
+  # is exactly what a FHIR `Observation?code=` query parameter lands in.
+  def test_latest_never_lets_a_caller_inject_extra_inp_pieces
     RpmsRpc.mock!
-    assert_equal [], Measurement.for_visit(999_999_999)
+    Measurement.latest(26_664, types: [ "WT^INJECTED" ], visit_ien: "9^9^9")
+
+    inp = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BGOVMSR LAST" }[:params].first
+    assert_equal 3, inp.split("^", -1).length,
+      "INP must stay DFN^TYPES^VISIT_IEN — got #{inp.inspect}"
   end
 
-  def test_for_visit_survives_broker_error_string
+  def test_latest_rejects_a_non_numeric_visit_ien
+    RpmsRpc.mock!
+    Measurement.latest(26_664, types: [ "WT" ], visit_ien: "12abc")
+
+    inp = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BGOVMSR LAST" }[:params].first
+    refute_includes inp, "abc", "a visit IEN is numeric or absent, never free text"
+  end
+
+  # Same hazard on the FASTVIT date bounds, which take the raw value through.
+  def test_newest_by_type_never_lets_a_date_bound_inject_pieces
+    RpmsRpc.mock!
+    Measurement.newest_by_type(26_664, start_date: "3260101^X", end_date: "3260607")
+
+    params = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORQQVI VITALS" }[:params]
+    assert(params.none? { |p| p.to_s.include?("^") }, "no param may carry a caret")
+  end
+
+  # An EMPTY reply is genuinely ambiguous — a visit with no measurements and
+  # a broker that answered nothing look identical on the wire — so it takes
+  # the cautious reading (unknown), the same call date_eie_fields already
+  # documents in this module.
+  def test_for_visit_returns_nil_for_an_empty_reply
+    RpmsRpc.mock!
+    assert_nil Measurement.for_visit(999_999_999)
+  end
+
+  # A FAILED read and a visit with no measurements must not look alike. An
+  # empty array means "nothing on file"; a failed read is nil, so a caller
+  # can tell "this patient has no weights" from "we could not ask". Same
+  # distinction Patient.contact and DdrFileman.gets_entry already make.
+  def test_for_visit_returns_nil_on_a_broker_error_string
     stub_broker_response("-1^Application context has not been created!")
-    assert_equal [], Measurement.for_visit(VISIT_IEN)
+    assert_nil Measurement.for_visit(VISIT_IEN)
   end
 
-  def test_for_visit_survives_nil_broker_response
+  def test_for_visit_returns_nil_on_a_nil_broker_response
     stub_broker_response(nil)
+    assert_nil Measurement.for_visit(VISIT_IEN)
+  end
+
+  def test_latest_returns_nil_on_a_broker_error_string
+    stub_broker_response("-1^Application context has not been created!")
+    assert_nil Measurement.latest(DFN)
+  end
+
+  def test_newest_by_type_returns_nil_on_a_broker_error_string
+    stub_broker_response("-1^Application context has not been created!")
+    assert_nil Measurement.newest_by_type(DFN)
+  end
+
+  # ...but a reply the broker actually sent, carrying only a no-data
+  # sentinel, IS "nothing on file" — that one is [] , not nil.
+  def test_for_visit_returns_empty_array_for_a_no_data_sentinel_reply
+    stub_broker_response("^No measurements found.")
     assert_equal [], Measurement.for_visit(VISIT_IEN)
   end
 
@@ -370,6 +429,7 @@ class MeasurementProvenanceTest < Minitest::Test
       visit_id: "5150", locked: false
     })
     m.seed(:vital_units, "WT", { us_unit: "lb", metric_unit: "kg" })
+    m.seed(:vital_units, "BP", { us_unit: "mm[Hg]", metric_unit: "mm[Hg]" })
   end
 
   def test_find_returns_fully_decorated_measurement
@@ -431,7 +491,7 @@ class MeasurementProvenanceTest < Minitest::Test
         { measurement_ien: MSR_IEN + 1, type: "BP", value: "120/80", recorded_date: Time.new(2026, 6, 7, 14, 30, 0) }
       ])
       seed_core_reply(m, MSR_IEN)
-      seed_core_reply(m, MSR_IEN + 1, value: "120/80")
+      seed_core_reply(m, MSR_IEN + 1, type: "BP", value: "120/80")
       seed_visit_and_units(m, service_category: service_category)
       yield m if block_given?
     end
@@ -463,9 +523,11 @@ class MeasurementProvenanceTest < Minitest::Test
 
     assert_equal 2, rows.length
     assert_equal [ MSR_IEN, MSR_IEN + 1 ], rows.map { |r| r[:measurement_ien] }
+    # Each row keeps ITS OWN type — a fixture that defaulted every DDR .01 to
+    # "WT" would let a mapping that ignores the row entirely still pass here.
+    assert_equal [ "WT", "BP" ], rows.map { |r| r[:type] }
+    assert_equal [ "lb", "mm[Hg]" ], rows.map { |r| r[:units] }
     rows.each do |row|
-      assert_equal "WT",      row[:type] # DDR .01 external wins over the wire code
-      assert_equal "lb",      row[:units]
       assert_equal DFN.to_i,  row[:patient_dfn]
       assert_equal VISIT_IEN, row[:visit_ien]
       assert_equal "A",       row[:service_category]
