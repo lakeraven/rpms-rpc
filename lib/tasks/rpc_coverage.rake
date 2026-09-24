@@ -53,4 +53,15 @@ namespace :rpc do
       abort "rpc:coverage failed (#{problems.size})"
     end
   end
+
+  desc "Run the read catalogue against one live CIA backend and merge into data/rpc_coverage/live/<BACKEND>.json"
+  task :live do
+    abort "rpc:live needs a source checkout (#{rpc_tool} is not in the gem)" unless File.exist?(rpc_tool)
+    %w[BACKEND BROKER_PORT RPMS_ACCESS RPMS_VERIFY].each { |k| abort "rpc:live requires #{k}=" if ENV[k].to_s.empty? }
+    abort "BACKEND= must be a plain label ([a-z0-9._-])" unless ENV["BACKEND"].match?(/\A[a-z0-9._-]+\z/)
+
+    evidence = File.join(rpc_root, "data/rpc_coverage/live/#{ENV['BACKEND']}.json")
+    runner = File.join(rpc_root, "tools/rpc_coverage/live_runner.rb")
+    sh({ "EVIDENCE" => evidence }, RbConfig.ruby, runner)
+  end
 end
