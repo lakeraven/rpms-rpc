@@ -27,8 +27,16 @@ module RpmsRpc
     PROB_FIELDS = %i[snomed_ct descriptive_ct description icd_code location_ien
                      onset_date status problem_class problem_number priority].freeze
 
+    # List a patient's problems. Underlying RPC: ORQQPL LIST — verified row
+    # shape IEN^NARRATIVE^STATUS^ICD^ONSET^LAST MODIFIED^SC^SPEXP^... (see
+    # the :problem_list mapping). "No problems" comes back as the sentinel
+    # row "^No problems found." (LIST^ORQQPL: ORQQPL.m:17) — no IEN, so it
+    # is dropped rather than surfaced as a phantom problem. Invalid DFNs
+    # short-circuit to [] without dispatching an RPC.
     def for_patient(dfn)
-      DataMapper.problem_list.fetch_many(dfn.to_s)
+      return [] if invalid_id?(dfn)
+
+      DataMapper.problem_list.fetch_many(dfn.to_s).reject { |r| r[:ien].to_s.empty? }
     end
 
     # Add a problem. The routine requires a resolvable ICD (or a SNOMED CT
