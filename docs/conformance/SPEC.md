@@ -42,7 +42,7 @@ same INSTALL/PACKAGE data.
 
 ## Backend adapters (non-IRIS backends)
 
-`CiaClient` (XWB, :9100) and `BmxClient` (BMX, :9200) both route to the same
+`CiaClient` (XWB, :9100) and `BmxClient` (BMX, :9101) both route to the same
 registry `^XWB(8994)`; XWB is universal across the VistA family. So the portable
 reader works on IRIS/RPMS **and** YottaDB/stock VistA and
 WorldVistA. `BMW.*` exists only on IRIS/RPMS, so it is an optional face
