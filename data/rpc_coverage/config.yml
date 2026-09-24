@@ -15,5 +15,5 @@
 # declares. Re-point both at the same release once a container of the newest image is running.
 backend: local-ydb-0905
 registry: data/rpc_coverage/registry/bcer-9.0-20260913-1a2244c-ydb.txt
-minimum_percent: 0.0
+minimum_percent: 0.8
 max_unregistered: 77

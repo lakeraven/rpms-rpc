@@ -1,0 +1,430 @@
+{
+  "backend": "local-ydb-0905",
+  "runs": [
+    {
+      "at": "2026-09-24T19:48:14Z",
+      "rpms_rpc": "0.3.0 @ 98276f0",
+      "host_label": "local-ydb-0905",
+      "context": "CIANB MAIN MENU (sign-on)",
+      "cases": 79,
+      "tally": {
+        "ok": 41,
+        "broker-error": 35,
+        "stream-desync": 2,
+        "raised-before-wire": 1
+      },
+      "signons": 3
+    },
+    {
+      "at": "2026-09-24T19:53:23Z",
+      "rpms_rpc": "0.3.0 @ 98276f0",
+      "host_label": "local-ydb-0905",
+      "context": "CIANB MAIN MENU (sign-on)",
+      "cases": 79,
+      "tally": {
+        "ok": 42,
+        "broker-error": 35,
+        "stream-desync": 1,
+        "raised-before-wire": 1
+      },
+      "signons": 2
+    }
+  ],
+  "rpcs": {
+    "AMHG GET SUICIDE FORMS": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "AMHG GET TREATMENT PLANS": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "AMHG GET VISITS": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BEHOCACV CWAD": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BEHOCCD PHR": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BEHOCIR GETNUM": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BEHOCIR GETTXT": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BEHOPTCX PTINFO": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BEHOPTPC GETBDP": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BEHOSICX SITEINFO": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BEHOVM TEMPLATE": {
+      "outcome": "error",
+      "error": "1 The server has reported the following error:  TEMPLATE+2^BEHOVM, Undefined local variable: VSTR,150373850,-%YDB-E-LVUNDEF  A detailed log of the error has bee",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BGOPROB GET CLASS": {
+      "outcome": "error",
+      "error": "1 The server has reported the following error:  DICLASS^BGOASLK, More actual parameters than formal parameters: ,150374474,-%YDB-E-ACTLSTTOOLONG  A detailed log",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BGOREF GETREA": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BHDO HOSP LOC DATA": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: BHDO HOSP LOC DATA",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BIPC ELIGGET": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: BIPC ELIGGET",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BIPC ELIGLIST": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: BIPC ELIGLIST",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BIPC IMMLIST": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: BIPC IMMLIST",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BIPC LOTLIST": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: BIPC LOTLIST",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BMC GET PURPOSE OF REF API": {
+      "outcome": "error",
+      "error": "1 The server has reported the following error:  SUBLST+5^BSTSAPI, QUIT/ZHALT does not return to an extrinsic function: argument not allowed,150374450,-%YDB-E-NO",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BMC GET REFERENCE DATA": {
+      "outcome": "error",
+      "error": "1 The server has reported the following error:  S4+12^DICL2, Command expected but not found,150372458,-%YDB-E-CMD  A detailed log of the error has been created.",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BMC HEALTH SUMMARY TYPE": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BMC SEARCH REFERRAL": {
+      "outcome": "error",
+      "error": "1 The server has reported the following error:  SRCHREF+23^BMCRPC1, Undefined local variable: RECNMBR,150373850,-%YDB-E-LVUNDEF  A detailed log of the error has",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BMCRPC GTBUDGET": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: BMCRPC GTBUDGET",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BMCRPC GTQTRALLOC": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: BMCRPC GTQTRALLOC",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BMCRPC GTREMAIN": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: BMCRPC GTREMAIN",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BMCRPC SRCHVEND": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: BMCRPC SRCHVEND",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BQI GET COMM ALERTS SPLASH": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BSDX ALL APPOINTMENTS": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BSDX CLINIC SETUP": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "BSDX HOSPITAL LOCATION": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "CIAVCXUS VIMINFO": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "CIAVMCFG GETREG": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "CIAVMRPC GETPAR": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "DDR GETS ENTRY DATA": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "DDR LISTER": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "GMTS FLOWSHEET DATA": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: GMTS FLOWSHEET DATA",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "GMTS FLOWSHEET LIST": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: GMTS FLOWSHEET LIST",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "GMTS MAINT ITEMS": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: GMTS MAINT ITEMS",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "GMTS PWH REPORT": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: GMTS PWH REPORT",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORQQAL LIST": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORQQCP LIST": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: ORQQCP LIST",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORQQCT LIST": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: ORQQCT LIST",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORQQGO LIST": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: ORQQGO LIST",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORQQPL DETAIL": {
+      "outcome": "error",
+      "error": "1 The server has reported the following error:  DETAIL+3^ORQQPL, Undefined local variable: PROBIEN,150373850,-%YDB-E-LVUNDEF  A detailed log of the error has be",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORQQPL LIST": {
+      "outcome": "error",
+      "error": "1 The server has reported the following error:  LIST+7^ORQQPL, Undefined local variable: STATUS,150373850,-%YDB-E-LVUNDEF  A detailed log of the error has been ",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORQQPL PROBLEM LEX SEARCH": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORQQPL PROVIDER LIST": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORQQPS LIST": {
+      "outcome": "error",
+      "error": "1 The server has reported the following error:  LIST+3^ORQQPS, Undefined local variable: ORSTRTDT,150373850,-%YDB-E-LVUNDEF  A detailed log of the error has bee",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORQQPX REMINDERS LIST": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORQQVI VITALS": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWDAL32 DEF": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWDAL32 SYMPTOMS": {
+      "outcome": "error",
+      "error": "1 The server has reported the following error:  SYMPTOMS+9^ORWDAL32, Undefined local variable: DIR,150373850,-%YDB-E-LVUNDEF  A detailed log of the error has be",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWLRR REPORT": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: ORWLRR REPORT",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWLRR REPORT LIST": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: ORWLRR REPORT LIST",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWLRR RESULT LIST": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: ORWLRR RESULT LIST",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWOR RESULT": {
+      "outcome": "error",
+      "error": "1 The server has reported the following error:  ORDERS+4^ORCXPND1, Undefined local variable: ID,150373850,-%YDB-E-LVUNDEF  A detailed log of the error has been ",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWOR SHEETS": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWOR TSALL": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWOR UNSIGN": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWORR AGET": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWPCE IMPLANT GET": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: ORWPCE IMPLANT GET",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWPCE IMPLANT LIST": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: ORWPCE IMPLANT LIST",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWPCE PROCEDURE LIST": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: ORWPCE PROCEDURE LIST",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWPT ADMITLST": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWPT APPTLST": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWPT ID INFO": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWPT INPLOC": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWPT LIST ALL": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWPT SELECT": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWRA IMAGING EXAMS1": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWRA REPORT": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: ORWRA REPORT",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWRA REPORT LIST": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: ORWRA REPORT LIST",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWRP REPORT TEXT": {
+      "outcome": "error",
+      "error": "1 The server has reported the following error:  RPT+14^ORWRP, Undefined local variable: RPTID,150373850,-%YDB-E-LVUNDEF  A detailed log of the error has been cr",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWRP TYPE COMPONENTS": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: ORWRP TYPE COMPONENTS",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWRP TYPES": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: ORWRP TYPES",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWU NEWPERS": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWU USERINFO": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "ORWU USERKEYS": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: ORWU USERKEYS",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "TIU DOCUMENTS BY CONTEXT": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "TIU GET RECORD TEXT": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "TIU TEMPLATE GETITEMS": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "TIU TEMPLATE GETROOTS": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "TIU TEMPLATE GETTEXT": {
+      "outcome": "error",
+      "error": "1 The server has reported the following error:  GETTEXT+1^TIUSRVT, Undefined local variable: VSTR,150373850,-%YDB-E-LVUNDEF  A detailed log of the error has bee",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "XM GET INBOX": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: XM GET INBOX",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "XM GET MESSAGES": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: XM GET MESSAGES",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "XQAL NEW ALERTS": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: XQAL NEW ALERTS",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "XU KEY LIST": {
+      "outcome": "error",
+      "error": "3 Unknown remote procedure: XU KEY LIST",
+      "last_at": "2026-09-24T19:53:23Z"
+    },
+    "XUS GET USER INFO": {
+      "outcome": "ok",
+      "last_at": "2026-09-24T19:53:23Z"
+    }
+  }
+}
