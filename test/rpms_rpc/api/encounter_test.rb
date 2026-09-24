@@ -156,4 +156,23 @@ class EncounterTest < Minitest::Test
     assert_nil RpmsRpc::Encounter.create(31337,
       location_ien: 1608, datetime: "3260904.0900", service_category: "A")
   end
+
+  # === visit_string(location_ien, datetime, service_category) ===
+
+  def test_visit_string_formats_a_date_without_a_time
+    assert_equal "1608;3260924;A", RpmsRpc::Encounter.visit_string(1608, Date.new(2026, 9, 24), "A")
+  end
+
+  def test_visit_string_formats_a_time_to_the_minute
+    assert_equal "1608;3260924.0930;A", RpmsRpc::Encounter.visit_string(1608, Time.new(2026, 9, 24, 9, 30, 15), "A")
+  end
+
+  def test_visit_string_formats_a_datetime_to_the_minute
+    assert_equal "1608;3260924.1405;A",
+                 RpmsRpc::Encounter.visit_string(1608, DateTime.new(2026, 9, 24, 14, 5, 0), "A")
+  end
+
+  def test_visit_string_passes_a_fileman_string_through
+    assert_equal "1608;3260924.09;A", RpmsRpc::Encounter.visit_string(1608, "3260924.09", "A")
+  end
 end
