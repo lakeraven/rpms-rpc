@@ -1,0 +1,19 @@
+# rake rpc:coverage configuration (rpms-rpc#270).
+#
+# backend           label of the backend the number is about; its live evidence is
+#                   data/rpc_coverage/live/<backend>.json (written by `rake rpc:live BACKEND=<backend>`)
+# registry          the pinned #8994 registry of the release that backend runs
+# minimum_percent   CI floor for covered / (registered - excluded). Ratchet: raise it whenever the
+#                   measured value rises; never lower it.
+# max_unregistered  ceiling on names rpms-rpc uses that the registry does not register (#207).
+#                   Ratchet: lower it whenever the count falls; the goal is 0.
+#
+# NOTE: local-ydb-0905 is a local docker container of the 0905 image
+# (bcer-9.0-20260905-6899d69-ydb), measured against the 0913 registry below. The two differ by 6
+# RPCs (BEHOGMY DUSRXPAR, BEHOGMY GETCRDEF, BEHOGMY GETENLOC, BEHOGMY GIDTRNG, BGOVEM COLORDER,
+# BGOVEM GETCOLOR registered on 0913 only; BGOVIMM6 DUPALLOW on 0905 only), none of which rpms-rpc
+# declares. Re-point both at the same release once a container of the newest image is running.
+backend: local-ydb-0905
+registry: data/rpc_coverage/registry/bcer-9.0-20260913-1a2244c-ydb.txt
+minimum_percent: 0.0
+max_unregistered: 77
