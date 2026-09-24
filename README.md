@@ -150,8 +150,47 @@ RpmsRpc.configure { |c| c.unsafe_raw_errors = true }
 
 Leave this off in production.
 
-## RPC Coverage Matrix
+## RPC coverage against a backend (the headline number)
 
+The coverage number is measured against **one backend's registry**, not against allowlists
+(#270):
+
+```sh
+rake rpc:coverage
+# RPC coverage: 0.8% (45 / 5557 registered on bcer-9.0-20260913-1a2244c-ydb; 0 excluded) · declared 190 · unregistered names used 77
+```
+
+- **Denominator:** every #8994 name in the pinned registry
+  (`data/rpc_coverage/registry/<release-tag>.txt`, copied from the rpms-ops release inventory),
+  minus the names in `data/rpc_coverage/exclusions.yml`. Each exclusion carries a reason from a
+  fixed list, and is reviewed like code.
+- **Covered:** a live run against that backend got an answer that was not a broker error.
+  Mock-driven unit tests do not count: `MockClient` answers any name it is seeded with.
+- **Output:** the one-liner and per-status counts on stdout.
+  `coverage/rpc/rpcs.tsv` has every registered RPC, one row each, with its status
+  (`covered`, `live_error`, `declared_untested`, `not_declared`, `excluded:<reason>`).
+  `coverage/rpc/summary.json` has the same numbers as JSON.
+- **Ratchet:** `data/rpc_coverage/config.yml` sets `minimum_percent` (raise it as coverage grows;
+  never lower it) and `max_unregistered`, the names rpms-rpc uses that the registry does not
+  register (lower it toward 0, #207).
+  The task fails below the minimum, over the maximum, on a bad exclusion, on a malformed
+  registry, or when the live evidence contains a sign-on code.
+
+Live evidence for a backend is refreshed with a read-only run of the API catalogue, one broker
+connection at a time, which merges into `data/rpc_coverage/live/<BACKEND>.json`:
+
+```sh
+rake rpc:live BACKEND=local-ydb-0905 BROKER_HOST=127.0.0.1 BROKER_PORT=19200 \
+  RPMS_ACCESS=... RPMS_VERIFY=... [RPMS_CONTEXT="CIAV VUECENTRIC"]
+```
+
+The codes are read from the environment and never written. The implementation lives in
+`tools/rpc_coverage/`, which is not part of the gem.
+
+## RPC Coverage Matrix (allowlist-based)
+
+This matrix predates the registry-based number above and measures wrapper coverage against
+hand-kept pillar allowlists (108 names), so its percentages are not the headline.
 `docs/RPC_COVERAGE.md` is generated from wrapper mappings, broker dumps, and
 pillar allowlists:
 
