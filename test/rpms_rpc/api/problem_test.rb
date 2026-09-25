@@ -72,34 +72,39 @@ class ProblemTest < Minitest::Test
     assert_equal "-1060^Entry in use", result[:raw]
   end
 
-  def test_filter_dispatches_class_rpc_with_scope_code
-    RpmsRpc.mock! do |m|
-      m.seed_keyed_collection(:problem_filter, DFN, [
-        { ien: "1", description: "Diabetes", icd_code: "E11.9" }
-      ])
-    end
-
-    rows = RpmsRpc::Problem.filter(DFN, scope: :core)
-    assert_equal 1, rows.length
-
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BGOPROB GET CLASS" }
-    assert_equal [ DFN, "C" ], call[:params]
+  # RETIRED — Problem.filter and the :problem_filter mapping are gone.
+  #
+  # The #8994 registry binds "BGOPROB GET CLASS" to DICLASS^BGOASLK
+  # (.broker_dumps_8994_20260607.txt:3103 "BGOPROB GET CLASS^DICLASS^
+  # BGOASLK^2"), which is "Get the classifications for an asthma DX"
+  # (BGOASLK.m:52-67). It takes ONE param — "ICD ^ SNOMED ^ class type"
+  # (BGOASLK.m:53) — returns "" unless $$CHECK^BGOASLK says the dx is
+  # asthma (BGOASLK.m:58-60), and emits TWO-piece rows read out of
+  # ^APCDPLCL (BGOASLK.m:65: $P(CTYPE,U,1)_"^"_$P(CTYPE,U,2)).
+  #
+  # It is not a problem list, it is not scoped by patient, and it never
+  # took a DFN. The old wrapper sent (DFN, scope_code) and declared a
+  # ten-piece ORQQPL problem-list row over the reply; its "IPL scope
+  # classes" C/E/R/I appear nowhere in the routine. Same invented-capability
+  # class as the retired BHDPTRPC family (#174/#184).
+  def test_problem_filter_mapping_is_not_registered
+    refute_respond_to RpmsRpc::DataMapper, :problem_filter,
+      "an asthma-classification RPC must not be registered as a problem-list filter"
   end
 
-  def test_filter_maps_all_four_scope_symbols
-    expected = { core: "C", episodic: "E", routine_admin: "R", inactive: "I" }
-    expected.each do |scope, code|
-      RpmsRpc.mock! do |m|
-        m.seed_keyed_collection(:problem_filter, DFN, [])
-      end
-      RpmsRpc::Problem.filter(DFN, scope: scope)
-      call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BGOPROB GET CLASS" }
-      assert_equal code, call[:params][1], "scope #{scope} should map to #{code}"
-    end
+  # Nothing else may quietly re-bind the name to the old shape either.
+  def test_no_mapping_claims_bgoprob_get_class
+    registry = RpmsRpc::DataMapper.instance_variable_get(:@registry)
+    claimed = registry.values.select { |m| m.rpc_name == "BGOPROB GET CLASS" }
+
+    assert_empty claimed,
+      "BGOPROB GET CLASS is DICLASS^BGOASLK — bind it deliberately or not at all"
   end
 
-  def test_filter_raises_on_unknown_scope
-    assert_raises(ArgumentError) { RpmsRpc::Problem.filter(DFN, scope: :unknown) }
+  def test_problem_no_longer_exposes_the_fabricated_scope_filter
+    refute_respond_to RpmsRpc::Problem, :filter
+    refute RpmsRpc::Problem.const_defined?(:SCOPE_CODES, false),
+      "the invented IPL scope codes are gone with the method"
   end
 
   def test_blank_args_return_failure_shape

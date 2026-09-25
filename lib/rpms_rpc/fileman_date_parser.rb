@@ -66,6 +66,35 @@ module RpmsRpc
       nil
     end
 
+    # Parse a FileMan date/time value that may or may not carry a time
+    # ("3250115.0800" vs "3250115") to a Ruby Time — midnight when the
+    # value is date-only. Always Time (never Date) so callers get one
+    # consistent type; nil when unparseable.
+    #
+    # A value that CARRIES a time fraction is parsed as a datetime or not at
+    # all: it must never fall back to midnight. parse_date keeps only the
+    # 7-digit prefix, so without this guard "3260607.9" (hour 90) would
+    # come back as midnight on the 7th — and Measurement#resolve_date
+    # labels whatever it gets as the :event (clinical) time and stops
+    # looking, publishing a fabricated moment of care.
+    def self.parse_datetime_or_date(fileman_value)
+      parsed = parse_datetime(fileman_value)
+      return parsed if parsed
+
+      return nil if carries_time_fraction?(fileman_value)
+
+      date = parse_date(fileman_value)
+      date && Time.new(date.year, date.month, date.day)
+    end
+
+    # True when the value has a "." followed by anything — i.e. it is
+    # claiming to carry a time, whether or not that time is legal.
+    def self.carries_time_fraction?(fileman_value)
+      fraction = fileman_value.to_s.split(".", 2)[1]
+      !fraction.nil? && !fraction.empty?
+    end
+    private_class_method :carries_time_fraction?
+
     # Format Ruby Date to FileMan date string (YYYMMDD).
     def self.format_date(date)
       return nil if date.nil?

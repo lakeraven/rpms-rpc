@@ -193,4 +193,31 @@ class RpmsRpc::FilemanDateParserTest < Minitest::Test
     assert_equal Date.new(2026, 9, 4),
                  P.parse_external_date(P.format_external_date(Date.new(2026, 9, 4)))
   end
+
+  # -- parse_datetime_or_date ------------------------------------------------
+
+  def test_parse_datetime_or_date_reads_a_value_carrying_a_time
+    assert_equal Time.new(2026, 6, 7, 14, 30, 0),
+                 P.parse_datetime_or_date("3260607.1430")
+  end
+
+  def test_parse_datetime_or_date_reads_a_date_only_value_as_midnight
+    assert_equal Time.new(2026, 6, 7, 0, 0, 0), P.parse_datetime_or_date("3260607")
+  end
+
+  # A value that CARRIES a time fraction but whose time is illegal must not
+  # silently degrade to midnight: Measurement#resolve_date labels whatever
+  # comes back as the :event (clinical) time and stops looking, so a bogus
+  # midnight would be published as the moment of care.
+  def test_parse_datetime_or_date_rejects_an_illegal_time_rather_than_using_midnight
+    assert_nil P.parse_datetime_or_date("3260607.9"),   "hour 90 is not a time"
+    assert_nil P.parse_datetime_or_date("3260607.25"),  "hour 25 is not a time"
+    assert_nil P.parse_datetime_or_date("3260607.1465"), "minute 65 is not a time"
+  end
+
+  def test_parse_datetime_or_date_rejects_unparseable_values
+    assert_nil P.parse_datetime_or_date(nil)
+    assert_nil P.parse_datetime_or_date("")
+    assert_nil P.parse_datetime_or_date("garbage")
+  end
 end
