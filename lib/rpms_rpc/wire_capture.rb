@@ -239,14 +239,20 @@ module RpmsRpc
         return [ Violation.new(kind: :kind_mismatch, declared: kind, expected: fixture.kind) ] if
           kind != fixture.kind
 
-        return [] unless fixture.kind == "fields"
+        return [] unless %w[fields lines].include?(fixture.kind)
 
-        mapping.fields.flat_map { |field| field_violations(field, fixture) }
+        declared = fixture.kind == "lines" ? mapping.line_fields : mapping.fields
+        declared.flat_map { |field| field_violations(field, fixture) }
       end
 
       def mapping_kind(mapping)
         return "scalar" if mapping.scalar?
         return "text_blob" if mapping.text_blob?
+        # One field per LINE, not per caret piece (line_field). Without this
+        # a line-based mapping classified as "fields" and its line numbers
+        # were compared against caret positions — the wrong axis, and
+        # silently, since both are small integers.
+        return "lines" if mapping.line_fields?
 
         "fields"
       end
@@ -272,6 +278,11 @@ module RpmsRpc
       # type. This is the check that turns "98.6" under a :fileman_date
       # declaration red regardless of annotations.
       def raw_type_violations(field, fixture)
+        # A lines reply is ONE record whose fields are its lines; a fields
+        # reply is many records, each split on carets. Reading one as the
+        # other is the whole hazard this kind exists to prevent.
+        return line_type_violations(field, fixture) if fixture.kind == "lines"
+
         fixture.captured_rows.filter_map do |row|
           raw = row.split("^", -1)[field.position]
           next if raw.nil? || raw.empty? || raw_conforms?(raw, field.type)
@@ -279,6 +290,15 @@ module RpmsRpc
           Violation.new(kind: :type_mismatch, position: field.position,
                         declared: field.attribute, expected: field.type, detail: raw)
         end
+      end
+
+      # The captured lines ARE the field values, indexed by line number.
+      def line_type_violations(field, fixture)
+        raw = fixture.captured_rows[field.position]
+        return [] if raw.nil? || raw.empty? || raw_conforms?(raw, field.type)
+
+        [ Violation.new(kind: :type_mismatch, position: field.position,
+                        declared: field.attribute, expected: field.type, detail: raw) ]
       end
 
       def raw_conforms?(raw, type)

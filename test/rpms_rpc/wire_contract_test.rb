@@ -131,15 +131,25 @@ class RpmsRpc::WireContractTest < Minitest::Test
     refute_nil fixture
 
     violations = RpmsRpc::WireCapture::Contract.check(fabricated, fixture)
+    # Assert on the ATTRIBUTE mismatches specifically, and on the set of
+    # positions rather than one-violation-per-position: when this fixture is
+    # re-captured against a seeded box it becomes a live-capture, and
+    # raw_type_violations will start adding :type_mismatch entries — several
+    # at the same position — while the gate is still correctly flagging the
+    # fabrication. (Copilot, #190.)
+    mismatched = violations.select { |v| v.kind == :attribute_mismatch }
     # Positions 0-2 only. Position 3 is NOT a free pass for the fabrication —
     # it is a coincidence: the invented layout put a date at piece 4 and
     # FASTVIT really does carry the date/time taken there. (Against the
     # earlier, wrongly-cited VITALS^ORQQVI fixture this read as four
     # mismatches, which flattered the gate.) Three of four inventions caught
-    # on shape alone; the fourth needs the type check over real rows.
-    assert_equal [ 0, 1, 2 ], violations.map(&:position).sort,
+    # on shape alone; the fourth needs the type check over real rows — which
+    # is exactly what a populated capture would add here.
+    assert_equal [ 0, 1, 2 ], mismatched.map(&:position).uniq.sort,
                  "the fabricated TYPE^VALUE^UNITS^DATE layout must be flagged wherever it disagrees"
-    assert(violations.all? { |v| v.kind == :attribute_mismatch })
+    refute_empty mismatched
+    assert(violations.all? { |v| %i[attribute_mismatch type_mismatch].include?(v.kind) },
+           "only shape and type disagreements are expected here")
 
     # ...and the corrected mapping (#188) passes the same gate.
     corrected = RpmsRpc::WireCapture::Contract.check(RpmsRpc::DataMapper[:vitals], fixture)

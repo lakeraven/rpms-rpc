@@ -96,7 +96,14 @@ and in CI both. Concretely:
   (rpms-ops/data/standup/bcer-9.0-ydb/r/, file:line). A routine-cite
   fixture must **not** claim a `raw_return` (an illustrative row goes in
   `example_return`, which is never treated as evidence).
-- Every fixture — both kinds — must carry a `cite`: piece semantics always
+- `kind: lines` covers mappings declared with `line_field` — one field per
+  LINE of the reply, not per caret piece (19 registered mappings, including
+  the sign-on / user-info reads). The contract checks these on line number
+  and type-checks each captured line. Classification is automatic: a mapping
+  with any `line_field` is `lines`, so a line-based mapping can no longer be
+  gated as `fields`, which would have compared line numbers against caret
+  positions — the wrong axis, and silently, since both are small integers.
+- Every fixture — all kinds — must carry a `cite`: piece semantics always
   trace to the routine that builds the return, even when the bytes are live.
 - Synthetic data only. Captures run against build-time test patients
   (DEMOPATIENT-style) on rungs we own; nothing identifying a partner, tribe,
