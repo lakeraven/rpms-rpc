@@ -982,23 +982,18 @@ module RpmsRpc
       m.scalar :result
     end
 
-    # BGOPROB GET CLASS — problem list filtered by IPL scope class.
-    # Declared with the same row shape as :problem_list (ORQQPL LIST —
-    # verified there); the BGOPROB wire itself is still best-effort pending
-    # trace capture.
-    DataMapper.define(:problem_filter) do |m|
-      m.rpc "BGOPROB GET CLASS"
-      m.field 0, :ien
-      m.field 1, :description
-      m.field 2, :status
-      m.field 3, :icd_code, :string, terminology: :icd10
-      m.field 4, :onset_date,    :fileman_date
-      m.field 5, :last_modified, :fileman_date
-      m.field 6, :service_connected
-      m.field 7, :special_exposures
-      m.field 8, :transcribed
-      m.field 9, :priority
-    end
+    # BGOPROB GET CLASS — RETIRED, never bound. The #8994 registry sends
+    # this name to DICLASS^BGOASLK (.broker_dumps_8994_20260607.txt:3103
+    # "BGOPROB GET CLASS^DICLASS^BGOASLK^2"), which is "Get the
+    # classifications for an asthma DX" (BGOASLK.m:52-67): ONE param
+    # "ICD ^ SNOMED ^ class type" (BGOASLK.m:53), "" unless $$CHECK^BGOASLK
+    # says the dx is asthma (BGOASLK.m:58-60), and TWO-piece rows out of
+    # ^APCDPLCL (BGOASLK.m:65). It is not a problem list and takes no DFN.
+    # The former :problem_filter mapping declared a ten-piece ORQQPL row
+    # over it and Problem.filter called it with (DFN, scope_code) — an
+    # invented capability of the same class as the retired BHDPTRPC family
+    # (#174/#184). Rebind it deliberately, as an asthma-classification read,
+    # if a caller ever needs one.
 
     # ========================================================================
     # VISIT DATA ENTRY WRITES (BGOVPOV*, BGOVHF*, BGOVEXAM*, BGOVMSR*, BGOVCPT*)

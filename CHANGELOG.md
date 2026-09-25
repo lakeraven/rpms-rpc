@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed — `Problem.filter` / `:problem_filter` were never bound to a problem list (#188)
+
+The #8994 registry sends `BGOPROB GET CLASS` to **`DICLASS^BGOASLK`**
+(`.broker_dumps_8994_20260607.txt:3103`), which is *"Get the
+classifications for an asthma DX"* (BGOASLK.m:52-67):
+
+- ONE param — `ICD ^ SNOMED ^ class type` (BGOASLK.m:53). It never took a
+  DFN.
+- Returns `""` outright unless `$$CHECK^BGOASLK` says the diagnosis is
+  asthma (BGOASLK.m:58-60).
+- Emits TWO-piece rows read out of `^APCDPLCL` (BGOASLK.m:65).
+
+`:problem_filter` declared a ten-piece ORQQPL problem-list row over that
+reply, and `Problem.filter(dfn, scope:)` called it with `(DFN,
+scope_code)` using "IPL scope classes" `C`/`E`/`R`/`I` that appear
+nowhere in the routine. A real reply (`"1^MILD INTERMITTENT"`) would have
+parsed as a problem with no status — and an unrecognized status maps to
+**active** downstream. The tests seeded problem-list-shaped rows into the
+mock and asserted they came back, so the suite confirmed the fabrication
+rather than catching it.
+
+Retired whole, in the manner of the BHDPTRPC family (#174/#184), with the
+real binding documented at the mapping site so it can be bound
+deliberately — as an asthma-classification read — if a caller needs one.
+`Problem.filter` and `Problem::SCOPE_CODES` are gone.
+
 ### Fixed — adversarial-gate findings on the measurement/provenance reads (#188)
 
 - `FilemanDateParser.parse_datetime_or_date` no longer degrades an
@@ -369,8 +395,8 @@ verification is gated on the rpms-ops evidence run (contracts: rpms-ops
   mapping a real inactive row put the narrative text into `:status`, so
   downstream FHIR mappers defaulted the unrecognized value to "active".
   `Problem.for_patient` now also drops the `"^No problems found."`
-  sentinel row (ORQQPL.m:17). `:problem_filter` (`BGOPROB GET CLASS`,
-  still best-effort) is redeclared to match.
+  sentinel row (ORQQPL.m:17). `:problem_filter` (`BGOPROB GET CLASS`) is
+  **retired** rather than redeclared — see below.
 - `:vitals` (`ORQQVI VITALS`) — fixed TWICE, and the second fix is the
   lesson. The original mapping matched an invented `TYPE^VALUE^UNITS^DATE`
   shape. The first correction read a plausibly-named tag
