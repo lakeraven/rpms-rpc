@@ -26,13 +26,11 @@ class RpmsRpc::WireContractTest < Minitest::Test
   # violating positions: if the mapping is fixed, or drifts further, this
   # test fails and the entry must be updated/removed with the fix.
   KNOWN_DIVERGENCES = {
-    # :problem_list declares IEN^STATUS^DESCRIPTION^ICD^ONSET^RECORDED^
-    # PROVIDER_DUZ; LIST^ORQQPL really returns IEN^NARRATIVE^STATUS^ICD^
-    # ONSET^LAST-MODIFIED^SC^SP-EXP^TRANSCRIBED^PRIORITY (ORQQPL.m:3-18 over
-    # GMPLUTL3.m:76-99): status/description are swapped, position 5 is
-    # date-last-modified (not date-recorded), position 6 is the
-    # service-connected flag (no provider DUZ anywhere on this wire).
-    problem_list: [ 1, 2, 5, 6 ],
+    # (:problem_list was here with divergences [1, 2, 5, 6] — swapped
+    # status/description, a fabricated :recorded_date at 5 and a
+    # :provider_duz at 6 that this wire has no piece for. #188 corrected the
+    # mapping and the gate now reports none, so the entry left with the fix,
+    # exactly as this list's contract requires.)
     # :patient_id_info declares position 3 :race_code and position 5
     # :site_ien; IDINFO^ORWPT (ORWPT.m:6-11) returns PID^DOB^SEX^VET^SC%^
     # WARD^RM-BED^NAME — position 3 is the VETERAN flag (the live "N" that
@@ -115,10 +113,10 @@ class RpmsRpc::WireContractTest < Minitest::Test
   #
   # The ORQQVI VITALS mapping shipped on main declaring TYPE^VALUE^UNITS^DATE
   # — authored from belief, green against mocks that mirrored the belief —
-  # when the real wire is IEN^TYPE^DATETIME^value (VITALS^ORQQVI:
-  # ORQQVI.m:4-24; corrected mapping landed in #188, which this branch builds
-  # on). Rebuild that fabricated mapping verbatim and show this gate would
-  # have gone RED on it at every position.
+  # when the real wire is IEN^TYPE^value^DATETIME (FASTVIT^ORQQVI — the tag
+  # the #8994 registry actually serves this RPC name from, dump line 565;
+  # corrected mapping landed in #188). Rebuild that fabricated mapping
+  # verbatim and show this gate would have gone RED on it.
   def test_gate_red_flags_the_fabricated_orqqvi_vitals_mapping
     fabricated = RpmsRpc::DataMapper::Mapping.new(:fabricated_vitals)
     fabricated.configure do
@@ -133,8 +131,14 @@ class RpmsRpc::WireContractTest < Minitest::Test
     refute_nil fixture
 
     violations = RpmsRpc::WireCapture::Contract.check(fabricated, fixture)
-    assert_equal [ 0, 1, 2, 3 ], violations.map(&:position).sort,
-                 "the fabricated TYPE^VALUE^UNITS^DATE layout must be flagged at all four positions"
+    # Positions 0-2 only. Position 3 is NOT a free pass for the fabrication —
+    # it is a coincidence: the invented layout put a date at piece 4 and
+    # FASTVIT really does carry the date/time taken there. (Against the
+    # earlier, wrongly-cited VITALS^ORQQVI fixture this read as four
+    # mismatches, which flattered the gate.) Three of four inventions caught
+    # on shape alone; the fourth needs the type check over real rows.
+    assert_equal [ 0, 1, 2 ], violations.map(&:position).sort,
+                 "the fabricated TYPE^VALUE^UNITS^DATE layout must be flagged wherever it disagrees"
     assert(violations.all? { |v| v.kind == :attribute_mismatch })
 
     # ...and the corrected mapping (#188) passes the same gate.
