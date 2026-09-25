@@ -52,7 +52,11 @@ pieces:
 - position: 11
   attributes:
   - detail_flag
-source: live-capture
+source: no-data
+# Relabelled from live-capture: the call was real, but the reply carried no
+# data rows (bcer-9.0-ydb had nothing seeded for this patient), so the pieces
+# below are a source cite, not evidence. Re-run `rake wire:capture` against a
+# box with seeded clinical data to promote this back to live-capture.
 inputs:
 - '8'
 - ''

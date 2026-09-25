@@ -69,15 +69,26 @@ Same shape as the conformance pipeline, one level deeper:
 
 ## Provenance rules (what a fixture must prove)
 
-**A wire fixture without live-capture or routine-cite provenance is
-rejected** — `WireCapture::Fixture` raises on load, in the capture task and
-in CI both. Concretely:
+**A wire fixture without live-capture, no-data or routine-cite provenance
+is rejected** — `WireCapture::Fixture` raises on load, in the capture task
+and in CI both. Concretely:
 
 - `source: live-capture` — `raw_return` is the verbatim broker reply
   (including the `{CIA}` sequence-echo/ack framing; parsing strips framing
   at read time so captured bytes are never edited), sealed by `sha256`,
   stamped with `release_tag` + `captured_at`. An edited raw fails the sha
-  check and the fixture is rejected.
+  check and the fixture is rejected. It must also carry **at least one data
+  row**: a reply that is only protocol framing, an error row, or a no-data
+  sentinel proves the RPC answered and nothing about its field layout, and
+  the one check that reads real bytes (`raw_type_violations`) would iterate
+  an empty list and pass. Absence of data is never verification.
+- `source: no-data` — a real call that came back empty (nothing seeded for
+  that patient on the rung). The bytes and their `sha256` are kept as a
+  record of what the box actually said, but the `pieces:` block is a source
+  cite, not evidence, and the mapping counts as **uncovered**. Re-run the
+  capture against a seeded box to promote it to `live-capture`. Declaring
+  `live-capture` on an empty reply, or `no-data` on a reply that has data
+  rows, is rejected either way.
 - `source: routine-cite` — for RPCs that cannot be behaviorally captured
   (write RPCs like VAFC VOA ADD PATIENT; RPCs that fault the rung, like
   BEHOVM2 VUNITS on bcer-9.0-ydb). The shape is cited to the M routine

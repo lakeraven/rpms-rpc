@@ -131,12 +131,30 @@ class RpmsRpc::WireCaptureTest < Minitest::Test
   end
 
   def test_empty_raw_pieces_do_not_fail_type_validation
-    # The "^No vitals found." sentinel (ORQQVI.m:24) leaves typed positions
-    # empty — emptiness is not a type violation.
-    raw = "^No vitals found."
+    # A data row may legitimately leave a typed position empty — emptiness
+    # is not a type violation.
+    raw = "5001^TMP^^3260401.0915"
     fx = live_fixture("raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw))
     violations = RpmsRpc::WireCapture::Contract.check(RpmsRpc::DataMapper[:vitals], fx)
     assert_empty violations, violations.join("; ")
+  end
+
+  # A reply that is ONLY the "^No vitals found." sentinel (ORQQVI.m:24) has
+  # no data rows, so it cannot call itself a live capture.
+  def test_a_sentinel_only_reply_may_not_claim_live_capture
+    raw = "^No vitals found."
+    error = assert_raises(RpmsRpc::WireCapture::InvalidFixture) do
+      live_fixture("raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw))
+    end
+    assert_match(/captured no data rows/, error.message)
+  end
+
+  def test_a_sentinel_only_reply_is_a_valid_no_data_fixture
+    raw = "^No vitals found."
+    fx = live_fixture("source" => "no-data", "raw_return" => raw,
+                      "sha256" => Digest::SHA256.hexdigest(raw))
+    assert_equal "no-data", fx.source
+    assert_empty fx.captured_data_rows
   end
 
   def test_rpc_mismatch_is_flagged
