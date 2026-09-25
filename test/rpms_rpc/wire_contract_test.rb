@@ -45,6 +45,34 @@ class RpmsRpc::WireContractTest < Minitest::Test
     assert_operator FIXTURES.size, :>=, 10
   end
 
+  # THE GAP THIS GATE WAS BUILT TO CLOSE, TURNED ON ITSELF.
+  #
+  # A capture whose reply carried no data rows proves the RPC answered —
+  # nothing more. Its `pieces:` block is then hand-written from the M
+  # source like any routine-cite, but wears a `live-capture` label, and
+  # raw_type_violations (the one check that reads real bytes) iterates an
+  # empty array and passes. Absence of data is never verification, so a
+  # zero-row capture may not call itself live-capture.
+  def test_no_live_capture_fixture_is_actually_empty
+    empty = FIXTURES.select { |f| f.source == "live-capture" && f.captured_data_rows.empty? }
+
+    assert_empty empty.map { |f| File.basename(f.path) },
+      "these claim live-capture but captured no data rows — re-capture against " \
+      "a seeded box, or relabel them source: no-data"
+  end
+
+  # The corpus must say out loud how much of it is actually evidence, so a
+  # growing pile of no-data fixtures cannot read as growing coverage.
+  def test_capture_backed_coverage_is_reported_not_assumed
+    backed = FIXTURES.select { |f| f.captured_data_rows.any? }.map(&:mapping_name).sort
+    unbacked = (FIXTURES.map(&:mapping_name) - backed).sort
+
+    refute_empty backed, "no mapping has capture-backed evidence"
+    puts "\n  wire-contract evidence: #{backed.size} capture-backed " \
+         "(#{backed.join(', ')}); #{unbacked.size} source-derived only " \
+         "(#{unbacked.join(', ')})"
+  end
+
   def test_every_fixture_gates_a_registered_mapping
     FIXTURES.each do |fixture|
       assert RpmsRpc::DataMapper.respond_to?(fixture.mapping_name),

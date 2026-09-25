@@ -34,7 +34,11 @@ pieces:
   attributes:
   - locked
   fileman_type: boolean
-source: live-capture
+source: no-data
+# Relabelled from live-capture: the call was real, but the reply carried no
+# data rows (bcer-9.0-ydb had nothing seeded for this patient), so the pieces
+# below are a source cite, not evidence. Re-run `rake wire:capture` against a
+# box with seeded clinical data to promote this back to live-capture.
 inputs:
 - 1^0
 raw_return: "9\0"

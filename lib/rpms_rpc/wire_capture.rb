@@ -36,7 +36,12 @@ module RpmsRpc
   module WireCapture
     FIXTURES_DIR = File.expand_path("../../test/fixtures/wire_captures", __dir__)
 
-    SOURCES = [ "live-capture", "routine-cite" ].freeze
+    # live-capture — the broker returned DATA rows; the pieces below are
+    # evidence. no-data — the RPC answered but returned nothing to read
+    # (empty box, or a sentinel); the bytes are kept as a record, the
+    # pieces are a source cite, and it counts as coverage of nothing.
+    # routine-cite — shape read from the M source, no call made.
+    SOURCES = [ "live-capture", "no-data", "routine-cite" ].freeze
     KINDS = [ "fields", "scalar", "text_blob", "lines" ].freeze
 
     class InvalidFixture < StandardError; end
@@ -111,19 +116,43 @@ module RpmsRpc
         @raw_return.nil? ? [] : rows
       end
 
+      # The rows that are actually EVIDENCE of a wire shape. A broker error
+      # ("-N^message") or a no-data sentinel ("^No problems found.") proves
+      # the RPC answered and nothing about its field layout — counting
+      # those as capture backing is how an empty result set comes to look
+      # like a verified contract.
+      def captured_data_rows
+        captured_rows.reject { |row| non_data_row?(row) }
+      end
+
+      # Kept local rather than delegating to DataMapper.non_data_row?: this
+      # gate must be able to judge a capture even on a branch whose
+      # DataMapper predates that helper.
+      def non_data_row?(line)
+        return true if line.match?(/\A-\d+(?:\.\d+)?\^/)          # "-N^message"
+
+        pieces = line.split("^", -1)
+        pieces.length >= 2 && pieces[0].empty? &&
+          pieces[1].match?(/\A[A-Za-z]/) && pieces[2..].all?(&:empty?) # "^No X found."
+      end
+
       private
 
       def validate!
         fail!("missing rpc") if blank?(@rpc)
         fail!("missing mapping") if @mapping_name.nil?
         fail!("kind must be one of #{KINDS.join("/")}") unless KINDS.include?(@kind)
-        fail!("source must be live-capture or routine-cite — a hand-written wire " \
+        fail!("source must be one of #{SOURCES.join("/")} — a hand-written wire " \
               "fixture without capture provenance is rejected") unless SOURCES.include?(@source)
         fail!("missing cite — piece semantics must cite the M routine that " \
               "builds the return") if blank?(@cite)
         fail!("fields kind requires pieces annotations") if @kind == "fields" && @pieces.empty?
         validate_pieces!
-        @source == "live-capture" ? validate_live! : validate_routine_cite!
+        case @source
+        when "live-capture" then validate_live!
+        when "no-data" then validate_no_data!
+        else validate_routine_cite!
+        end
       end
 
       def validate_live!
@@ -134,6 +163,25 @@ module RpmsRpc
         actual = Digest::SHA256.hexdigest(@raw_return)
         fail!("sha256 does not match raw_return (#{actual}) — raw was edited " \
               "after capture") unless actual == @sha256
+        # The rule the corpus exists for: a reply with no data rows is not
+        # evidence of a field layout, whatever the label says.
+        fail!("live-capture captured no data rows (raw_return is framing, an " \
+              "error row, or a no-data sentinel) — re-capture against a seeded " \
+              "box, or declare source: no-data") if captured_data_rows.empty?
+      end
+
+      # A real call that came back empty. Worth keeping — it records what the
+      # box actually said, and re-running the capture against seeded data is
+      # the fix — but it backs no piece semantics.
+      def validate_no_data!
+        fail!("no-data requires the verbatim raw_return it observed") if blank?(@raw_return)
+        fail!("no-data requires release_tag") if blank?(@release_tag)
+        fail!("no-data requires captured_at") if blank?(@captured_at)
+        fail!("no-data requires sha256 of raw_return") if blank?(@sha256)
+        actual = Digest::SHA256.hexdigest(@raw_return)
+        fail!("sha256 does not match raw_return (#{actual})") unless actual == @sha256
+        fail!("no-data carries #{captured_data_rows.length} data row(s) — this is " \
+              "a live-capture, label it so") if captured_data_rows.any?
       end
 
       def validate_routine_cite!
