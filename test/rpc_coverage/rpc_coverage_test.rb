@@ -160,13 +160,13 @@ class RpcCoverageTest < Minitest::Test
     assert_equal [ "A ONE", "BB ONE", "BB TWO", "CIANBRPC AUTH" ], names
   end
 
+  # Live evidence is not in this repo (it lives in rpms-diffs), so it is checked when rpc:coverage
+  # reads it, not here.
   def test_the_pinned_registry_and_config_in_this_repo_pass_their_own_gates
     root = File.expand_path("../..", __dir__)
     cfg = YAML.safe_load_file(File.join(root, "data/rpc_coverage/config.yml"))
     reg = RpcCoverage.load_registry(File.join(root, cfg.fetch("registry")))
     assert_empty RpcCoverage.registry_problems(reg)
     assert_empty RpcCoverage.exclusion_problems(RpcCoverage.load_exclusions(File.join(root, "data/rpc_coverage/exclusions.yml")), reg)
-    ev = RpcCoverage.load_evidence(File.join(root, "data/rpc_coverage/live/#{cfg.fetch('backend')}.json"), cfg.fetch("backend"))
-    assert_empty RpcCoverage.evidence_problems(ev)
   end
 end

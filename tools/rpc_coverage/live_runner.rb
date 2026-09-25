@@ -16,7 +16,7 @@
 #
 # Env: BACKEND (evidence label), BROKER_HOST, BROKER_PORT, RPMS_ACCESS, RPMS_VERIFY,
 #      RPMS_CONTEXT (optional option to bind), CASE_TIMEOUT (default 45 s), DFN (optional),
-#      EVIDENCE (path of data/rpc_coverage/live/<BACKEND>.json to merge into)
+#      EVIDENCE (path of <rpms-diffs>/rpc-coverage/live/<BACKEND>.json to merge into)
 require "json"
 require "date"
 require "time"

@@ -9,7 +9,7 @@ require "yaml"
 #   denominator  every #8994 NAME in the pinned registry (data/rpc_coverage/registry/<tag>.txt),
 #                minus the names data/rpc_coverage/exclusions.yml excludes with a reason
 #   covered      registered, not excluded, and a live run against the backend
-#                (data/rpc_coverage/live/<backend>.json, written by `rake rpc:live`) got an answer
+#                (rpc-coverage/live/<backend>.json in rpms-diffs, written by `rake rpc:live`) got an answer
 #                that was not a broker error (data, or an empty reply)
 #
 # Mock-driven unit tests do not count: MockClient answers any name it is seeded with, including

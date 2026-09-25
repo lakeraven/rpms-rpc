@@ -177,7 +177,8 @@ rake rpc:coverage
   registry, or when the live evidence contains a sign-on code.
 
 Live evidence for a backend is refreshed with a read-only run of the API catalogue, one broker
-connection at a time, which merges into `data/rpc_coverage/live/<BACKEND>.json`:
+connection at a time, which merges into `rpc-coverage/live/<BACKEND>.json` in
+[lakeraven/rpms-diffs](https://github.com/lakeraven/rpms-diffs):
 
 ```sh
 rake rpc:live BACKEND=local-ydb-0905 BROKER_HOST=127.0.0.1 BROKER_PORT=19200 \
@@ -186,6 +187,12 @@ rake rpc:live BACKEND=local-ydb-0905 BROKER_HOST=127.0.0.1 BROKER_PORT=19200 \
 
 The codes are read from the environment and never written. The implementation lives in
 `tools/rpc_coverage/`, which is not part of the gem.
+
+Live evidence is specific to one build, so it lives in rpms-diffs rather than in this repo.
+Both tasks read and write it in `rpc-coverage/live/` of an rpms-diffs checkout, by default the sibling `../rpms-diffs`.
+Set `RPMS_DIFFS_DIR=` (the checkout) or `RPC_EVIDENCE_DIR=` (the directory) to point elsewhere.
+`rpc:coverage` fails when the directory or the backend's file is missing, rather than reporting 0%.
+After `rpc:live`, commit the JSON in rpms-diffs.
 
 ## RPC Coverage Matrix (allowlist-based)
 

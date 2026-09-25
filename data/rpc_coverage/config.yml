@@ -1,7 +1,7 @@
 # rake rpc:coverage configuration (rpms-rpc#270).
 #
 # backend           label of the backend the number is about; its live evidence is
-#                   data/rpc_coverage/live/<backend>.json (written by `rake rpc:live BACKEND=<backend>`)
+#                   rpc-coverage/live/<backend>.json in lakeraven/rpms-diffs (written by `rake rpc:live BACKEND=<backend>`)
 # registry          the pinned #8994 registry of the release that backend runs
 # minimum_percent   CI floor for covered / (registered - excluded). Ratchet: raise it whenever the
 #                   measured value rises; never lower it.
