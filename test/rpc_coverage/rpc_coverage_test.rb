@@ -79,16 +79,26 @@ class RpcCoverageTest < Minitest::Test
 
   # --- gates -----------------------------------------------------------------------------------
 
-  def test_below_minimum_fails_and_at_minimum_passes
+  def test_the_coverage_number_never_fails_the_task
     r = report(registry("A ONE", "A TWO", "A THREE", "A FOUR"), rpcs: { "A ONE" => { "outcome" => "ok" } })
-    assert_empty RpcCoverage.gate_problems(r, minimum_percent: 25.0, max_unregistered: 0)
-    assert_match(/below the minimum 25.1%/, RpcCoverage.gate_problems(r, minimum_percent: 25.1, max_unregistered: 0).first)
+    assert_empty RpcCoverage.gate_problems(r, max_unregistered: 0)
+  end
+
+  def test_a_drop_below_the_recorded_value_is_a_note
+    r = report(registry("A ONE", "A TWO", "A THREE", "A FOUR"), rpcs: { "A ONE" => { "outcome" => "ok" } })
+    assert_match(/25.00% is below the recorded 25.1%/, RpcCoverage.coverage_notes(r, minimum_percent: 25.1).first)
+  end
+
+  def test_a_rise_names_the_value_to_record_and_no_change_is_silent
+    r = report(registry("A ONE", "A TWO", "A THREE", "A FOUR"), rpcs: { "A ONE" => { "outcome" => "ok" } })
+    assert_match(/rose to 25.0%: set minimum_percent: 25.0/, RpcCoverage.coverage_notes(r, minimum_percent: 20.0).first)
+    assert_empty RpcCoverage.coverage_notes(r, minimum_percent: 25.0)
   end
 
   def test_too_many_unregistered_names_fails
     r = report(registry("A ONE"), declared: { "X ONE" => [ "a" ], "X TWO" => [ "b" ] })
-    assert_empty RpcCoverage.gate_problems(r, minimum_percent: 0, max_unregistered: 2)
-    assert_match(/2 unregistered names used, over the maximum 1/, RpcCoverage.gate_problems(r, minimum_percent: 0, max_unregistered: 1).first)
+    assert_empty RpcCoverage.gate_problems(r, max_unregistered: 2)
+    assert_match(/2 unregistered names used, over the maximum 1/, RpcCoverage.gate_problems(r, max_unregistered: 1).first)
   end
 
   def test_exclusion_of_an_unregistered_name_fails

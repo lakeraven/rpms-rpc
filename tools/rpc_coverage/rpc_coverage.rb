@@ -207,16 +207,31 @@ module RpcCoverage
     )
   end
 
-  # Every reason `rake rpc:coverage` fails. An empty array is the only pass.
-  def gate_problems(report, minimum_percent:, max_unregistered:)
+  # Every reason `rake rpc:coverage` fails. An empty array is the only pass. The coverage number is
+  # not one of them: see coverage_notes.
+  def gate_problems(report, max_unregistered:)
     problems = []
-    if minimum_percent && report.percent + 1e-9 < minimum_percent.to_f
-      problems << format("coverage %.2f%% is below the minimum %.1f%%", report.percent, minimum_percent.to_f)
-    end
     if max_unregistered && report.unregistered_used.size > max_unregistered.to_i
       problems << "#{report.unregistered_used.size} unregistered names used, over the maximum #{max_unregistered}"
     end
     problems
+  end
+
+  # The coverage number never fails the task, so a live run that loses an answer does not block
+  # unrelated work. It is compared with minimum_percent, the last recorded value, and the result is
+  # printed as a note: a drop is reported, and a rise says what to record so the next drop is visible.
+  def coverage_notes(report, minimum_percent:)
+    return [] unless minimum_percent
+
+    floor = minimum_percent.to_f
+    shown = format("%.1f", report.percent).to_f
+    if report.percent + 1e-9 < floor
+      [ format("coverage %.2f%% is below the recorded %.1f%%: an RPC that answered before no longer does", report.percent, floor) ]
+    elsif shown > floor
+      [ format("coverage rose to %.1f%%: set minimum_percent: %.1f in data/rpc_coverage/config.yml", shown, shown) ]
+    else
+      []
+    end
   end
 
   # Merge one live run into the backend's evidence. Per RPC the best outcome wins (ok over

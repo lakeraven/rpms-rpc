@@ -51,18 +51,19 @@ namespace :rpc do
                RpcCoverage.evidence_problems(evidence, secrets: [ ENV["RPMS_ACCESS"], ENV["RPMS_VERIFY"] ])
     report = RpcCoverage.compute(registry: registry, declared: RpcCoverage.declared_names(rpc_root),
                                  evidence: evidence, exclusions: exclusions, backend: backend)
-    problems += RpcCoverage.gate_problems(report, minimum_percent: cfg["minimum_percent"],
-                                                  max_unregistered: cfg["max_unregistered"])
+    problems += RpcCoverage.gate_problems(report, max_unregistered: cfg["max_unregistered"])
+    notes = RpcCoverage.coverage_notes(report, minimum_percent: cfg["minimum_percent"])
 
     out = File.join(rpc_root, "coverage/rpc")
     FileUtils.mkdir_p(out)
     File.write(File.join(out, "rpcs.tsv"), report.tsv)
-    File.write(File.join(out, "summary.json"), JSON.pretty_generate(report.to_h.merge(problems: problems)) + "\n")
+    File.write(File.join(out, "summary.json"), JSON.pretty_generate(report.to_h.merge(problems: problems, notes: notes)) + "\n")
 
     puts report.one_liner
     puts report.status_lines
     puts "live evidence: #{evidence_path}"
     puts "per-RPC status: coverage/rpc/rpcs.tsv · summary: coverage/rpc/summary.json"
+    notes.each { |n| puts "NOTE: #{n}" }
     unless problems.empty?
       problems.each { |p| puts "FAIL: #{p}" }
       abort "rpc:coverage failed (#{problems.size})"

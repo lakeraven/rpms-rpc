@@ -3,8 +3,9 @@
 # backend           label of the backend the number is about; its live evidence is
 #                   rpc-coverage/live/<backend>.json in lakeraven/rpms-diffs (written by `rake rpc:live BACKEND=<backend>`)
 # registry          the pinned #8994 registry of the release that backend runs
-# minimum_percent   CI floor for covered / (registered - excluded). Ratchet: raise it whenever the
-#                   measured value rises; never lower it.
+# minimum_percent   the last recorded covered / (registered - excluded). It never fails the task:
+#                   rpc:coverage prints a NOTE when coverage drops below it, and when coverage rises,
+#                   with the value to record here. Raise it then; never lower it.
 # max_unregistered  ceiling on names rpms-rpc uses that the registry does not register (#207).
 #                   Ratchet: lower it whenever the count falls; the goal is 0.
 #

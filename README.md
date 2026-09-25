@@ -170,11 +170,12 @@ rake rpc:coverage
   `coverage/rpc/rpcs.tsv` has every registered RPC, one row each, with its status
   (`covered`, `live_error`, `declared_untested`, `not_declared`, `excluded:<reason>`).
   `coverage/rpc/summary.json` has the same numbers as JSON.
-- **Ratchet:** `data/rpc_coverage/config.yml` sets `minimum_percent` (raise it as coverage grows;
-  never lower it) and `max_unregistered`, the names rpms-rpc uses that the registry does not
-  register (lower it toward 0, #207).
-  The task fails below the minimum, over the maximum, on a bad exclusion, on a malformed
-  registry, or when the live evidence contains a sign-on code.
+- **Direction, not a gate:** `data/rpc_coverage/config.yml` records `minimum_percent`, the last
+  coverage value. The number never fails the task. A drop below it prints a NOTE, and so does a
+  rise, together with the value to record. Raise it then, and never lower it.
+- **Fails on:** more than `max_unregistered` names that rpms-rpc uses but the registry does not
+  register (lower it toward 0, #207), a bad exclusion, a malformed registry, or a sign-on code in
+  the live evidence.
 
 Live evidence for a backend is refreshed with a read-only run of the API catalogue, one broker
 connection at a time, which merges into `rpc-coverage/live/<BACKEND>.json` in
