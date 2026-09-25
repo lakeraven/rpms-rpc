@@ -1,0 +1,13 @@
+# RPCs left out of the rpc:coverage denominator, each with a reason from this fixed vocabulary
+# (any other reason, or a name the registry does not register, fails the task):
+#
+#   no_routine_on_image   registered, but the routine it names is not on the backend image
+#   gui_plumbing          drives a thick-client GUI (layout, window state); no headless use (ADR-0004 tiers)
+#   write_needs_fixture   a write or side effect that needs a disposable fixture before it can run live
+#
+# An exclusion is a reviewed decision, not a way to raise the number: add one per PR, with the
+# evidence for its reason in the PR description.
+#
+# Example:
+#   "SOME RPC NAME": no_routine_on_image
+{}

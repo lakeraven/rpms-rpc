@@ -150,8 +150,55 @@ RpmsRpc.configure { |c| c.unsafe_raw_errors = true }
 
 Leave this off in production.
 
-## RPC Coverage Matrix
+## RPC coverage against a backend (the headline number)
 
+The coverage number is measured against **one backend's registry**, not against allowlists
+(#270):
+
+```sh
+rake rpc:coverage
+# RPC coverage: 0.8% (45 / 5557 registered on bcer-9.0-20260913-1a2244c-ydb; 0 excluded) · declared 190 · unregistered names used 77
+```
+
+- **Denominator:** every #8994 name in the pinned registry
+  (`data/rpc_coverage/registry/<release-tag>.txt`, copied from the rpms-ops release inventory),
+  minus the names in `data/rpc_coverage/exclusions.yml`. Each exclusion carries a reason from a
+  fixed list, and is reviewed like code.
+- **Covered:** a live run against that backend got an answer that was not a broker error.
+  Mock-driven unit tests do not count: `MockClient` answers any name it is seeded with.
+- **Output:** the one-liner and per-status counts on stdout.
+  `coverage/rpc/rpcs.tsv` has every registered RPC, one row each, with its status
+  (`covered`, `live_error`, `declared_untested`, `not_declared`, `excluded:<reason>`).
+  `coverage/rpc/summary.json` has the same numbers as JSON.
+- **Direction, not a gate:** `data/rpc_coverage/config.yml` records `minimum_percent`, the last
+  coverage value. The number never fails the task. A drop below it prints a NOTE, and so does a
+  rise, together with the value to record. Raise it then, and never lower it.
+- **Fails on:** more than `max_unregistered` names that rpms-rpc uses but the registry does not
+  register (lower it toward 0, #207), a bad exclusion, a malformed registry, or a sign-on code in
+  the live evidence.
+
+Live evidence for a backend is refreshed with a read-only run of the API catalogue, one broker
+connection at a time, which merges into `rpc-coverage/live/<BACKEND>.json` in
+[lakeraven/rpms-diffs](https://github.com/lakeraven/rpms-diffs):
+
+```sh
+rake rpc:live BACKEND=local-ydb-0905 BROKER_HOST=127.0.0.1 BROKER_PORT=19200 \
+  RPMS_ACCESS=... RPMS_VERIFY=... [RPMS_CONTEXT="CIAV VUECENTRIC"]
+```
+
+The codes are read from the environment and never written. The implementation lives in
+`tools/rpc_coverage/`, which is not part of the gem.
+
+Live evidence is specific to one build, so it lives in rpms-diffs rather than in this repo.
+Both tasks read and write it in `rpc-coverage/live/` of an rpms-diffs checkout, by default the sibling `../rpms-diffs`.
+Set `RPMS_DIFFS_DIR=` (the checkout) or `RPC_EVIDENCE_DIR=` (the directory) to point elsewhere.
+`rpc:coverage` fails when the directory or the backend's file is missing, rather than reporting 0%.
+After `rpc:live`, commit the JSON in rpms-diffs.
+
+## RPC Coverage Matrix (allowlist-based)
+
+This matrix predates the registry-based number above and measures wrapper coverage against
+hand-kept pillar allowlists (108 names), so its percentages are not the headline.
 `docs/RPC_COVERAGE.md` is generated from wrapper mappings, broker dumps, and
 pillar allowlists:
 
