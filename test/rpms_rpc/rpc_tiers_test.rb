@@ -89,12 +89,15 @@ class RpmsRpc::RpcTiersTest < Minitest::Test
   # The closed half of the ratchet: no entry may be added to the grandfathered
   # file, checked against the base branch's copy so the baseline cannot be
   # co-edited by the same commit that grows it. In CI, GITHUB_BASE_REF is the
-  # PR's target branch; locally we compare against origin/main. If the base
+  # PR's target branch; locally we compare against origin/main. On a push
+  # event Actions sets GITHUB_BASE_REF to an EMPTY string, not unset, and ""
+  # is truthy in Ruby, so an empty value must fall back to main as well:
+  # reading it with `||` made every push to main fail this test. If the base
   # ref is not fetchable the test skips locally but FAILS in CI (which checks
   # out full history precisely so this comparison can run), so a shallow
   # checkout can never silently disable the gate.
   def test_grandfathered_set_never_grows
-    base_ref = ENV["GITHUB_BASE_REF"] || "main"
+    base_ref = ENV["GITHUB_BASE_REF"].to_s.empty? ? "main" : ENV["GITHUB_BASE_REF"]
     resolved = [ "origin/#{base_ref}", base_ref ].find do |ref|
       _, status = Open3.capture2e("git", "-C", ROOT, "rev-parse", "--verify", "--quiet", "#{ref}^{commit}")
       status.success?
