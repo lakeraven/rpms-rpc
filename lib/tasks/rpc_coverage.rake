@@ -3,6 +3,7 @@
 # RPC coverage against ONE backend's registry (rpms-rpc#270).
 #
 #   rake rpc:coverage   offline, CI-safe: pinned registry x committed live evidence -> one number
+#   rake rpc:coverage_html  the same report in SimpleCov's HTML interface, one file per package
 #   rake rpc:live BACKEND=<label> BROKER_HOST= BROKER_PORT= RPMS_ACCESS= RPMS_VERIFY= [RPMS_CONTEXT=]
 #                       runs the read catalogue against a live CIA broker and merges the result
 #                       into <evidence dir>/<BACKEND>.json
@@ -68,6 +69,34 @@ namespace :rpc do
       problems.each { |p| puts "FAIL: #{p}" }
       abort "rpc:coverage failed (#{problems.size})"
     end
+  end
+
+  desc "RPC coverage drawn in SimpleCov's HTML interface: one file per package, one line per RPC (coverage/rpc/html)"
+  task :coverage_html do
+    abort "rpc:coverage_html needs a source checkout (#{rpc_tool} is not in the gem)" unless File.exist?(rpc_tool)
+    require rpc_tool
+    require File.join(rpc_root, "tools/rpc_coverage/html_report.rb")
+
+    cfg = rpc_config.call
+    backend = ENV["RPC_BACKEND"] || cfg.fetch("backend")
+    registry_path = File.expand_path(ENV["RPC_REGISTRY"] || cfg.fetch("registry"), rpc_root)
+    packages_path = File.expand_path(ENV["RPC_PACKAGES"] || cfg.fetch("packages"), rpc_root)
+    registry = RpcCoverage.load_registry(registry_path)
+    exclusions = RpcCoverage.load_exclusions(File.join(rpc_root, "data/rpc_coverage/exclusions.yml"))
+    evidence_path = File.join(rpc_evidence_dir.call, "#{backend}.json")
+    abort "no live evidence for #{backend} at #{evidence_path} (rake rpc:live BACKEND=#{backend} writes it)" unless File.exist?(evidence_path)
+    evidence = RpcCoverage.load_evidence(evidence_path, backend)
+    problems = RpcCoverage.registry_problems(registry) + RpcCoverage.exclusion_problems(exclusions, registry) +
+               RpcCoverage.evidence_problems(evidence, secrets: [ ENV["RPMS_ACCESS"], ENV["RPMS_VERIFY"] ])
+    abort "rpc:coverage_html: #{problems.join('; ')}" unless problems.empty?
+
+    report = RpcCoverage.compute(registry: registry, declared: RpcCoverage.declared_names(rpc_root),
+                                 evidence: evidence, exclusions: exclusions, backend: backend)
+    index = RpcCoverage::Html.render(report, RpcCoverage::Html.load_packages(packages_path),
+                                     File.join(rpc_root, "coverage/rpc"))
+    abort "rpc:coverage_html: no report at #{index}" unless File.size?(index)
+    puts report.one_liner
+    puts "open #{index.delete_prefix("#{rpc_root}/")}"
   end
 
   desc "Run the read catalogue against one live CIA backend and merge into <rpms-diffs>/rpc-coverage/live/<BACKEND>.json"

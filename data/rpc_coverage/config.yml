@@ -3,6 +3,7 @@
 # backend           label of the backend the number is about; its live evidence is
 #                   rpc-coverage/live/<backend>.json in lakeraven/rpms-diffs (written by `rake rpc:live BACKEND=<backend>`)
 # registry          the pinned #8994 registry of the release that backend runs
+# packages          the pinned #9.4 package list of the same release; groups RPCs by package in rpc:coverage_html
 # minimum_percent   the last recorded covered / (registered - excluded). It never fails the task:
 #                   rpc:coverage prints a NOTE when coverage drops below it, and when coverage rises,
 #                   with the value to record here. Raise it then; never lower it.
@@ -16,5 +17,6 @@
 # declares. Re-point both at the same release once a container of the newest image is running.
 backend: local-ydb-0905
 registry: data/rpc_coverage/registry/bcer-9.0-20260913-1a2244c-ydb.txt
+packages: data/rpc_coverage/registry/bcer-9.0-20260913-1a2244c-ydb-packages.txt
 minimum_percent: 0.8
 max_unregistered: 77

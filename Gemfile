@@ -8,4 +8,6 @@ group :development, :test do
   gem "minitest", "~> 5.0"
   gem "rake", "~> 13.0"
   gem "rubocop-rails-omakase", require: false
+  # rake rpc:coverage_html draws the RPC coverage report with SimpleCov's HTML formatter
+  gem "simplecov", "~> 0.22", require: false
 end

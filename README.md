@@ -195,6 +195,27 @@ Set `RPMS_DIFFS_DIR=` (the checkout) or `RPC_EVIDENCE_DIR=` (the directory) to p
 `rpc:coverage` fails when the directory or the backend's file is missing, rather than reporting 0%.
 After `rpc:live`, commit the JSON in rpms-diffs.
 
+The same report can be browsed in SimpleCov's HTML interface:
+
+```sh
+rake rpc:coverage_html
+open coverage/rpc/html/index.html
+```
+
+It maps RPC coverage onto SimpleCov's terms:
+
+| SimpleCov | RPC coverage |
+|---|---|
+| a file | one #9.4 package: the RPCs whose name begins with its namespace prefix (`data/rpc_coverage/registry/<release-tag>-packages.txt`, pinned from the same rpms-ops inventory) |
+| a line | one registered RPC, with its status and detail |
+| hit | `covered` |
+| missed | `live_error`, `declared_untested`, `not_declared` |
+| never relevant | `excluded:<reason>` |
+
+So each package's percentage uses the headline's arithmetic, and SimpleCov's total is the headline number.
+A registered RPC whose namespace has no #9.4 package is grouped under that namespace and labelled "not a #9.4 package".
+On the 0913 registry that covers AKFR, BMQ, the PCMM `SC*` RPCs, GMV and DDR.
+
 ## RPC Coverage Matrix (allowlist-based)
 
 This matrix predates the registry-based number above and measures wrapper coverage against
