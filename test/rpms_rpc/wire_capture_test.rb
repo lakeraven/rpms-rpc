@@ -10,7 +10,11 @@ require "rpms_rpc/mappings"
 # committed fixture checked against its registered mapping — lives in
 # wire_contract_test.rb.
 class RpmsRpc::WireCaptureTest < Minitest::Test
-  RAW = "17^TMP^3260901.1436^98.6\n18^BP^3260901.1436^120/80"
+  # FASTVIT^ORQQVI rows: ien^type^rate^date/time taken^display^metric^quals.
+  # ("ORQQVI VITALS" is served by FASTVIT, not VITALS — #8994 dump line 565;
+  # VITALS^ORQQVI serves "ORQQVI VITALS FOR DATE RANGE" and swaps pieces 3/4.)
+  RAW = "17^TMP^98.6^3260901.1436^98.6 F^(37.0 C)^ORAL\n" \
+        "18^BP^120/80^3260901.1436^120/80^^"
 
   def live_fixture(overrides = {})
     data = {
@@ -18,7 +22,7 @@ class RpmsRpc::WireCaptureTest < Minitest::Test
       "mapping" => "vitals",
       "kind" => "fields",
       "source" => "live-capture",
-      "cite" => "VITALS^ORQQVI (ORQQVI.m:4-24)",
+      "cite" => "FASTVIT^ORQQVI (r/ORQQVI.m:61-84)",
       "release_tag" => "bcer-9.0-ydb",
       "captured_at" => "2026-09-02T00:00:00Z",
       "inputs" => [ "8", "2900101", "3991231" ],
@@ -27,9 +31,12 @@ class RpmsRpc::WireCaptureTest < Minitest::Test
       "pieces" => [
         { "position" => 0, "attribute" => "measurement_ien", "fileman_type" => "integer" },
         { "position" => 1, "attribute" => "type" },
-        { "position" => 2, "attributes" => [ "recorded_date", "recorded_datetime" ],
+        { "position" => 2, "attributes" => [ "value", "rate" ] },
+        { "position" => 3, "attributes" => [ "recorded_date", "recorded_datetime" ],
           "fileman_type" => "fileman_datetime" },
-        { "position" => 3, "attributes" => [ "value", "rate" ] }
+        { "position" => 4, "attribute" => "display" },
+        { "position" => 5, "attribute" => "metric_display" },
+        { "position" => 6, "attribute" => "qualifiers" }
       ]
     }.merge(overrides)
     overrides.each_key { |k| data.delete(k) if overrides[k].nil? }
@@ -120,11 +127,12 @@ class RpmsRpc::WireCaptureTest < Minitest::Test
     mapping = RpmsRpc::DataMapper::Mapping.new(:wrong)
     mapping.configure do
       rpc "ORQQVI VITALS"
-      field 3, :value, :fileman_date # raw pieces are "98.6" / "120/80"
+      field 2, :value, :fileman_date # raw pieces are "98.6" / "120/80"
     end
 
     violations = RpmsRpc::WireCapture::Contract.check(mapping, live_fixture)
-    # :value is a legitimate name for position 3, so no attribute mismatch —
+    # :value is a legitimate name for position 2 on the FASTVIT wire, so no
+    # attribute mismatch —
     # but the captured raw pieces ("98.6", "120/80") cannot be FileMan dates.
     assert_equal [ :type_mismatch, :type_mismatch ], violations.map(&:kind)
     assert_equal [ "98.6", "120/80" ], violations.map(&:detail)
@@ -133,7 +141,7 @@ class RpmsRpc::WireCaptureTest < Minitest::Test
   def test_empty_raw_pieces_do_not_fail_type_validation
     # A data row may legitimately leave a typed position empty — emptiness
     # is not a type violation.
-    raw = "5001^TMP^^3260401.0915"
+    raw = "5001^TMP^^3260401.0915^^^"
     fx = live_fixture("raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw))
     violations = RpmsRpc::WireCapture::Contract.check(RpmsRpc::DataMapper[:vitals], fx)
     assert_empty violations, violations.join("; ")
