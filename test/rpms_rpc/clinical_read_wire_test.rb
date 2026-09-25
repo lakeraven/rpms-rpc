@@ -61,14 +61,20 @@ class ClinicalReadWireTest < Minitest::Test
     assert_equal [], RpmsRpc::DataMapper[:problem_list].parse_many([ "^Problem list not available.^" ])
   end
 
-  # -- ORQQVI VITALS (finding 2) -------------------------------------------
+  # -- ORQQVI VITALS FOR DATE RANGE (finding 2) ----------------------------
   # VITALS^ORQQVI row: "vital measurement ien^vital type^date/time taken^rate"
-  # (ORQQVI.m:6, written at ORQQVI.m:23).
+  # (ORQQVI.m:6, written at ORQQVI.m:23). This tag serves the registered
+  # "ORQQVI VITALS FOR DATE RANGE" RPC (#8994 dump line 795), NOT
+  # "ORQQVI VITALS", which dispatches to FASTVIT^ORQQVI (dump line 565) and
+  # emits ien^type^rate^datetime — see :vitals in mappings_test.rb. These
+  # assertions keep testing the ORQQVI.m:23 shape, now against the mapping
+  # that actually carries it.
 
   def test_vitals_row_matches_orqqvi_wire_order
-    row = RpmsRpc::DataMapper[:vitals].parse_many([ "8001^BP^3260401.0815^120/80" ]).first
+    row = RpmsRpc::DataMapper[:vitals_for_date_range]
+          .parse_many([ "8001^BP^3260401.0815^120/80" ]).first
 
-    assert_equal "8001", row[:ien], "piece 1 is the measurement IEN (ORQQVI.m:23)"
+    assert_equal 8001, row[:measurement_ien], "piece 1 is the measurement IEN (ORQQVI.m:23)"
     assert_equal "BP", row[:type], "piece 2 is the vital type abbreviation (ORQQVI.m:23)"
     assert_equal Time.new(2026, 4, 1, 8, 15), row[:recorded_date],
       "piece 3 is the date/time taken (ORQQVI.m:23)"
@@ -77,7 +83,7 @@ class ClinicalReadWireTest < Minitest::Test
 
   def test_vitals_no_vitals_sentinel_yields_no_rows
     # ORQQVI.m:24: I I=0 S ORY(1)="^No vitals found."
-    assert_equal [], RpmsRpc::DataMapper[:vitals].parse_many([ "^No vitals found." ])
+    assert_equal [], RpmsRpc::DataMapper[:vitals_for_date_range].parse_many([ "^No vitals found." ])
   end
 
   # -- ORQQPS LIST (finding 3) ---------------------------------------------
@@ -89,8 +95,8 @@ class ClinicalReadWireTest < Minitest::Test
       [ "5100;O^LISINOPRIL 10MG TAB^3270115^PO^QD^2" ]
     ).first
 
-    assert_equal "5100;O", row[:ien]
-    assert_equal "LISINOPRIL 10MG TAB", row[:drug_name]
+    assert_equal "5100;O", row[:id]   # piece 1 is the pharmacy order id ("403R;O"), not a file-50 IEN
+    assert_equal "LISINOPRIL 10MG TAB", row[:name]
     assert_equal Date.new(2027, 1, 15), row[:stop_date],
       "piece 3 is the stop date (ORQQPS.m:5), not a sig"
     assert_equal "PO", row[:route], "piece 4 is the med route (ORQQPS.m:13-16,47)"

@@ -11,13 +11,6 @@ module RpmsRpc
     # IPL scope codes match the live RPMS IPL UI tabs. The wire codes are
     # best-effort placeholders pending trace capture of BGOPROB GET CLASS
     # parameters; if the codes change, only this table needs updating.
-    SCOPE_CODES = {
-      core: "C",
-      episodic: "E",
-      routine_admin: "R",
-      inactive: "I"
-    }.freeze
-
     # "P"-line pieces after the "P" marker for SET^BGOPROB's ARRAY param
     # (BGOPROB.m:218-220; parsed in PROB^BGOPROB — SNOMED CT :246,
     # Descriptive CT :260, Provider text :241, Mapped ICD :240, Location
@@ -27,8 +20,16 @@ module RpmsRpc
     PROB_FIELDS = %i[snomed_ct descriptive_ct description icd_code location_ien
                      onset_date status problem_class problem_number priority].freeze
 
+    # List a patient's problems. Underlying RPC: ORQQPL LIST — verified row
+    # shape IEN^NARRATIVE^STATUS^ICD^ONSET^LAST MODIFIED^SC^SPEXP^... (see
+    # the :problem_list mapping). "No problems" comes back as the sentinel
+    # row "^No problems found." (LIST^ORQQPL: ORQQPL.m:17) — no IEN, so it
+    # is dropped rather than surfaced as a phantom problem. Invalid DFNs
+    # short-circuit to [] without dispatching an RPC.
     def for_patient(dfn)
-      DataMapper.problem_list.fetch_many(dfn.to_s)
+      return [] if invalid_id?(dfn)
+
+      DataMapper.problem_list.fetch_many(dfn.to_s).reject { |r| r[:ien].to_s.empty? }
     end
 
     # Add a problem. The routine requires a resolvable ICD (or a SNOMED CT
@@ -59,15 +60,6 @@ module RpmsRpc
       raw = RpmsRpc.client.call_rpc(DataMapper.problem_remove.rpc_name, "#{ien}^^#{reason}")
       success = raw.is_a?(String) && !raw.match?(/\A-\d+(?:\.\d+)?\^/)
       { success: success, ien: success ? ien.to_i : nil, raw: raw }
-    end
-
-    def filter(dfn, scope:)
-      return [] if invalid_id?(dfn)
-
-      code = SCOPE_CODES[scope]
-      raise ArgumentError, "unknown scope: #{scope.inspect}" if code.nil?
-
-      Array(DataMapper.problem_filter.fetch_many(dfn.to_s, code))
     end
 
     # ORQQPL stock-VistA reads. Use these when the engine wants the

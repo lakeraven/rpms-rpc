@@ -215,6 +215,32 @@ class DdrFilemanTest < Minitest::Test
     assert_nil Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01")
   end
 
+  # A broker/M error string ("-1^...") matches neither the "[Data]" marker
+  # nor the FILE^IENS^FIELD row grammar. It must be reported as an error —
+  # NOT as { fields: {}, error: false }, which would let callers fabricate
+  # "value absent" from "read failed" (Copilot finding).
+  def test_gets_entry_flags_non_ddr_error_string_as_error
+    key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01").to_s
+    @mock.seed(:ddr_gets_entry_data, key, "-1^Remote procedure DDR GETS ENTRY DATA doesn't exist")
+
+    result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01")
+
+    assert result[:error]
+    assert_empty result[:fields]
+  end
+
+  # An empty "[Data]" section (marker present, zero rows) stays a
+  # non-error reply — callers see empty fields and decide.
+  def test_gets_entry_empty_data_section_is_not_an_error
+    key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01").to_s
+    @mock.seed(:ddr_gets_entry_data, key, "[Data]")
+
+    result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01")
+
+    refute result[:error]
+    assert_empty result[:fields]
+  end
+
   # ==========================================================================
   # DDR VALIDATOR
   # ==========================================================================

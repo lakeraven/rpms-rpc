@@ -236,13 +236,21 @@ module RpmsRpc
       # -- format_* methods: reverse of parse (hash → caret-delimited string) ----
 
       # Format a hash into a caret-delimited string matching this mapping's field positions.
+      # A position may be declared twice (attribute alias — e.g. :status /
+      # :service_category on :encounter_visit); an alias the caller didn't
+      # seed must not blank out the value another alias wrote, so a
+      # position claimed by a seeded attribute is only overwritten by
+      # another seeded attribute.
       def format_one(attrs)
         max_pos = @fields.map(&:position).max || 0
         parts = Array.new(max_pos + 1, "")
+        claimed = {}
 
         @fields.each do |f|
-          val = attrs[f.attribute]
-          parts[f.position] = format_value(val, f.type)
+          next if claimed[f.position] && !attrs.key?(f.attribute)
+
+          parts[f.position] = format_value(attrs[f.attribute], f.type)
+          claimed[f.position] = true if attrs.key?(f.attribute)
         end
 
         parts.join("^")
@@ -272,6 +280,23 @@ module RpmsRpc
       def fetch_many(*params)
         response = RpmsRpc.client.call_rpc(rpc_name, *params)
         return [] if response.nil? || response.empty?
+
+        parse_many(response)
+      end
+
+      # fetch_many, but a FAILED read is nil instead of []. fetch_many
+      # cannot tell "nothing on file" from "the broker refused" — both come
+      # back empty — which is fine for a list a caller only renders, and
+      # wrong wherever the difference is clinical (a patient with no
+      # recorded weight vs a weight we could not read). Returns nil when the
+      # broker gave nothing or an error row ("-N^message"), otherwise the
+      # parsed rows, [] included.
+      def fetch_many_or_nil(*params)
+        response = RpmsRpc.client.call_rpc(rpc_name, *params)
+        return nil if response.nil? || response.empty?
+
+        first = response.is_a?(String) ? response.split(/\r?\n/).first : response.first
+        return nil if !first.nil? && DataMapper.error_row?(first.to_s)
 
         parse_many(response)
       end
@@ -358,7 +383,11 @@ module RpmsRpc
         when :fileman_date
           FilemanDateParser.parse_date(raw)
         when :fileman_datetime
-          FilemanDateParser.parse_datetime(raw)
+          # Date/time fields carry date-only values when no time was
+          # recorded ("3250115" vs "3250115.0800") — fall back to a
+          # midnight Time rather than dropping the value. Always Time,
+          # never Date, so the mapped type is consistent for callers.
+          FilemanDateParser.parse_datetime_or_date(raw)
         when :external_date
           FilemanDateParser.parse_external_date(raw)
         when :external_datetime

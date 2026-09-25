@@ -77,6 +77,23 @@ class RpmsRpc::DataMapperTest < Minitest::Test
     assert_equal Date.new(1980, 1, 15), result[:dob]
   end
 
+  # :fileman_datetime must yield ONE consistent type: Time — including for
+  # date-only wire values ("3250115"), which coerce to midnight rather
+  # than a Date (Copilot finding: the Date fallback made the mapped type
+  # sometimes Time, sometimes Date).
+  def test_parse_one_fileman_datetime_is_always_time
+    mapping = RpmsRpc::DataMapper.define(:test) do
+      rpc "TEST"
+      field 0, :taken, :fileman_datetime
+    end
+
+    with_time = mapping.parse_one("3250115.0830")[:taken]
+    date_only = mapping.parse_one("3250115")[:taken]
+    assert_equal Time.new(2025, 1, 15, 8, 30, 0), with_time
+    assert_equal Time.new(2025, 1, 15, 0, 0, 0), date_only
+    assert_kind_of Time, date_only
+  end
+
   def test_parse_one_coerces_float_fields
     mapping = RpmsRpc::DataMapper.define(:test) do
       rpc "TEST"
