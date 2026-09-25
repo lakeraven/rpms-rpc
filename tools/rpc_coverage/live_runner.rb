@@ -155,7 +155,10 @@ run = lambda do |name, &blk|
   error = nil
   begin
     Timeout.timeout(CASE_TIMEOUT) { value = blk.call }
-  rescue Exception => e # rubocop:disable Lint/RescueException -- Timeout::Error included; one case must not end the run
+  # One case must not end the run: StandardError covers Timeout::Error and every broker/client error,
+  # and NotImplementedError (a ScriptError) is what the clients raise for an unsupported path. Interrupt
+  # and SystemExit are left alone, so Ctrl-C still stops a live run.
+  rescue StandardError, NotImplementedError => e
     error = "#{e.class}: #{e.message}"[0, 200]
   end
   wire = WireTrace.log.dup
@@ -314,7 +317,12 @@ results.flat_map { |r| r[:wire] }.each do |w|
   outcomes[name] = ok ? { "outcome" => "ok", "last_at" => now } : { "outcome" => "error", "error" => w[:detail].to_s[0, 160], "last_at" => now }
 end
 tally = results.group_by { |r| r[:verdict] }.transform_values(&:size)
-rev = `git -C #{File.expand_path('../..', __dir__)} rev-parse --short HEAD 2>/dev/null`.strip
+# argv form, no shell: the checkout path may contain spaces. No git, or not a checkout -> no "@ rev".
+rev = begin
+  IO.popen([ "git", "-C", File.expand_path("../..", __dir__), "rev-parse", "--short", "HEAD" ], err: File::NULL, &:read).to_s.strip
+rescue SystemCallError
+  ""
+end
 run_meta = {
   "at" => now, "rpms_rpc" => "#{RpmsRpc::VERSION}#{rev.empty? ? '' : " @ #{rev}"}", "host_label" => BACKEND,
   "context" => CONTEXT || "#{RpmsRpc::CiaClient::SIGNON_CONTEXT} (sign-on)", "cases" => results.size,
