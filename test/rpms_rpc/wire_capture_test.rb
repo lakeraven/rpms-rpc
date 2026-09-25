@@ -123,6 +123,66 @@ class RpmsRpc::WireCaptureTest < Minitest::Test
     assert_equal [ :unannotated_position ], violations.map(&:kind)
   end
 
+  # -- line-based mappings ---------------------------------------------------
+
+  # 19 registered mappings declare line_field (one field per LINE, not per
+  # caret piece) — user_info and the sign-on reads among them. mapping_kind
+  # only asked scalar?/text_blob?, so every one of them classified as
+  # "fields" and a capture would have compared line numbers against caret
+  # positions: the wrong axis, silently.
+  def test_a_line_based_mapping_is_classified_as_lines
+    mapping = RpmsRpc::DataMapper::Mapping.new(:line_based)
+    mapping.configure do
+      rpc "XUS GET USER INFO"
+      line_field 0, :duz, :integer
+      line_field 1, :name
+    end
+
+    assert_equal "lines", RpmsRpc::WireCapture::Contract.mapping_kind(mapping)
+  end
+
+  def test_a_lines_fixture_gates_its_mapping_on_line_position
+    mapping = RpmsRpc::DataMapper::Mapping.new(:line_based)
+    mapping.configure do
+      rpc "XUS GET USER INFO"
+      line_field 0, :duz, :integer
+      line_field 1, :name
+    end
+    raw = "10000000020\nDEMOPROVIDER,ONE"
+    fx = live_fixture("rpc" => "XUS GET USER INFO", "mapping" => "line_based",
+                      "kind" => "lines", "cite" => "XUS GET USER INFO (XUS.m)",
+                      "raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw),
+                      "pieces" => [
+                        { "position" => 0, "attribute" => "duz", "fileman_type" => "integer" },
+                        { "position" => 1, "attribute" => "name" }
+                      ])
+
+    assert_empty RpmsRpc::WireCapture::Contract.check(mapping, fx)
+  end
+
+  def test_a_lines_fixture_flags_a_mapping_that_reads_the_wrong_line
+    mapping = RpmsRpc::DataMapper::Mapping.new(:line_based)
+    mapping.configure do
+      rpc "XUS GET USER INFO"
+      line_field 0, :name          # really the DUZ
+      line_field 1, :duz, :integer # really the name
+    end
+    raw = "10000000020\nDEMOPROVIDER,ONE"
+    fx = live_fixture("rpc" => "XUS GET USER INFO", "mapping" => "line_based",
+                      "kind" => "lines", "cite" => "XUS GET USER INFO (XUS.m)",
+                      "raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw),
+                      "pieces" => [
+                        { "position" => 0, "attribute" => "duz", "fileman_type" => "integer" },
+                        { "position" => 1, "attribute" => "name" }
+                      ])
+
+    violations = RpmsRpc::WireCapture::Contract.check(mapping, fx)
+    assert_equal [ 0, 1 ], violations.map(&:position).uniq.sort
+    # and the type check must read LINES, not carets: "DEMOPROVIDER,ONE" is
+    # not an integer.
+    assert_includes violations.map(&:detail), "DEMOPROVIDER,ONE"
+  end
+
   def test_declared_type_is_validated_against_captured_raw_pieces
     mapping = RpmsRpc::DataMapper::Mapping.new(:wrong)
     mapping.configure do

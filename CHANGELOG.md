@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the gate can see line-based mappings at all (#190)
+
+`Contract.mapping_kind` asked only `scalar?` / `text_blob?`, so the **19
+registered mappings declared with `line_field`** — one field per LINE of
+the reply, the sign-on and user-info reads among them — all classified as
+`fields`. A capture of any of them would have compared line numbers
+against caret-piece positions: the wrong axis, and silently, since both
+are small integers. `kind: lines` was already an allowed fixture kind with
+nothing behind it.
+
+`DataMapper::Mapping` now exposes `line_fields` / `line_fields?`,
+`mapping_kind` returns `"lines"` for them, and `Contract` gates them on
+line position with a type check that reads lines rather than carets.
+(Copilot, #190.)
+
 ### Fixed — the vitals capture cited the wrong ORQQVI tag (#190)
 
 `orqqvi-vitals.yml` cited `VITALS^ORQQVI` and declared
