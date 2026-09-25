@@ -289,6 +289,17 @@ module RpmsRpc
     # exist (the "^No vitals found." sentinel belongs to VITALS^ORQQVI,
     # ORQQVI.m:24). Callers needing units/service-category should use
     # RpmsRpc::Measurement (BGOVMSR + BEHOENCX + BEHOVM2 composition).
+    #
+    # SITE CAVEAT — on an IHS-agency box running the SHIPPED routine this
+    # RPC returns ONE row, not one per type. VITAL^ORQQVI dispatches to
+    # MSR^ORQQVI passing the row counter BY VALUE
+    # ("D MSR(VITAL,ABBREV,DFN,.ORY,CNT,F1,F2)" — bcer-9.0-ydb
+    # r/ORQQVI.m:96; note CNT with no leading dot), so each per-type call
+    # resets the counter and every vital overwrites ORY(1) — only the last
+    # type walked survives. rpms-ops carries a corrected overlay passing
+    # ".CNT" (reconciliation/yottadb-ubuntu/ORQQVI.m:103). A single-row
+    # reply for a patient with several vitals is this bug, not an empty
+    # chart: check the site's routine before chasing the data.
     DataMapper.define(:vitals) do |m|
       m.rpc "ORQQVI VITALS"
       m.field 0, :measurement_ien, :integer
