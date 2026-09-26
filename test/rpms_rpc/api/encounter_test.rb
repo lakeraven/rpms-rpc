@@ -98,6 +98,22 @@ class EncounterTest < Minitest::Test
     assert_nil RpmsRpc::Encounter.open(26664, 2090061)
   end
 
+  # visit_string accepts a Date as documented: a plain Date has no clock, so it
+  # is a FileMan date. It used to raise NoMethodError (Date#hour is private),
+  # found by a live read-API run against yotta-0921 (2026-09-23).
+  def test_visit_string_formats_a_plain_date_as_a_fileman_date
+    assert_equal "1;3260923;A", RpmsRpc::Encounter.visit_string(1, Date.new(2026, 9, 23), "A")
+  end
+
+  def test_visit_string_keeps_the_clock_of_a_time_or_datetime
+    assert_equal "1;3260923.1430;A", RpmsRpc::Encounter.visit_string(1, Time.new(2026, 9, 23, 14, 30), "A")
+    assert_equal "1;3260923.1430;A", RpmsRpc::Encounter.visit_string(1, DateTime.new(2026, 9, 23, 14, 30), "A")
+  end
+
+  def test_visit_string_passes_a_preformatted_fileman_string_through
+    assert_equal "6;3260915.003;A", RpmsRpc::Encounter.visit_string(6, "3260915.003", "A")
+  end
+
   def test_for_patient_still_works
     # Regression: the existing read API is unchanged.
     appointments = RpmsRpc::Encounter.for_patient("26664")
