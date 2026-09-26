@@ -1,0 +1,391 @@
+# frozen_string_literal: true
+
+require "minitest/autorun"
+require "digest"
+require "rpms_rpc/wire_capture"
+require "rpms_rpc/mappings"
+require "rpms_rpc/data_mapper"
+
+# Unit coverage for the wire-capture fixture model + contract checker
+# (lib/rpms_rpc/wire_capture.rb, issue #189). The CI gate itself — every
+# committed fixture checked against its registered mapping — lives in
+# wire_contract_test.rb.
+class RpmsRpc::WireCaptureTest < Minitest::Test
+  # FASTVIT^ORQQVI rows: ien^type^rate^date/time taken^display^metric^quals.
+  # ("ORQQVI VITALS" is served by FASTVIT, not VITALS — #8994 dump line 565;
+  # VITALS^ORQQVI serves "ORQQVI VITALS FOR DATE RANGE" and swaps pieces 3/4.)
+  RAW = "17^TMP^98.6^3260901.1436^98.6 F^(37.0 C)^ORAL\n" \
+        "18^BP^120/80^3260901.1436^120/80^^"
+
+  def live_fixture(overrides = {})
+    data = {
+      "rpc" => "ORQQVI VITALS",
+      "mapping" => "vitals",
+      "kind" => "fields",
+      "source" => "live-capture",
+      "cite" => "FASTVIT^ORQQVI (r/ORQQVI.m:61-84)",
+      "release_tag" => "bcer-9.0-ydb",
+      "captured_at" => "2026-09-02T00:00:00Z",
+      "inputs" => [ "8", "2900101", "3991231" ],
+      "raw_return" => RAW,
+      "sha256" => Digest::SHA256.hexdigest(RAW),
+      "pieces" => [
+        { "position" => 0, "attribute" => "measurement_ien", "fileman_type" => "integer" },
+        { "position" => 1, "attribute" => "type" },
+        { "position" => 2, "attributes" => [ "value", "rate" ] },
+        { "position" => 3, "attributes" => [ "recorded_date", "recorded_datetime" ],
+          "fileman_type" => "fileman_datetime" },
+        { "position" => 4, "attribute" => "display" },
+        { "position" => 5, "attribute" => "metric_display" },
+        { "position" => 6, "attribute" => "qualifiers" }
+      ]
+    }.merge(overrides)
+    overrides.each_key { |k| data.delete(k) if overrides[k].nil? }
+    RpmsRpc::WireCapture::Fixture.new(data)
+  end
+
+  # -- provenance validation -------------------------------------------------
+
+  def test_valid_live_capture_fixture_loads
+    fx = live_fixture
+    assert_equal "ORQQVI VITALS", fx.rpc
+    assert_equal :vitals, fx.mapping_name
+    assert_equal 2, fx.captured_rows.size
+  end
+
+  def test_fixture_without_recognized_source_is_rejected
+    error = assert_raises(RpmsRpc::WireCapture::InvalidFixture) do
+      live_fixture("source" => "hand-written")
+    end
+    assert_match(/without capture provenance is rejected/, error.message)
+  end
+
+  def test_live_capture_without_sha256_is_rejected
+    assert_raises(RpmsRpc::WireCapture::InvalidFixture) { live_fixture("sha256" => nil) }
+  end
+
+  def test_live_capture_with_edited_raw_is_rejected
+    error = assert_raises(RpmsRpc::WireCapture::InvalidFixture) do
+      live_fixture("raw_return" => RAW + "\n99^HT^3260901.1436^60")
+    end
+    assert_match(/raw was edited after capture/, error.message)
+  end
+
+  def test_fixture_without_cite_is_rejected
+    assert_raises(RpmsRpc::WireCapture::InvalidFixture) { live_fixture("cite" => nil) }
+  end
+
+  def test_routine_cite_fixture_must_not_claim_raw_return
+    error = assert_raises(RpmsRpc::WireCapture::InvalidFixture) do
+      live_fixture("source" => "routine-cite")
+    end
+    assert_match(/must not carry raw_return/, error.message)
+  end
+
+  def test_routine_cite_fixture_loads_with_example_return_only
+    fx = live_fixture("source" => "routine-cite", "raw_return" => nil, "sha256" => nil,
+                      "example_return" => "1^234")
+    assert_equal [ "1^234" ], fx.rows
+    assert_empty fx.captured_rows, "example rows are illustrative, never evidence"
+  end
+
+  def test_fields_fixture_requires_piece_annotations
+    assert_raises(RpmsRpc::WireCapture::InvalidFixture) { live_fixture("pieces" => []) }
+  end
+
+  # -- contract checking -----------------------------------------------------
+
+  def test_correct_mapping_passes_the_contract
+    violations = RpmsRpc::WireCapture::Contract.check(RpmsRpc::DataMapper[:vitals], live_fixture)
+    assert_empty violations, violations.join("; ")
+  end
+
+  def test_attribute_mismatch_is_flagged
+    mapping = RpmsRpc::DataMapper::Mapping.new(:wrong)
+    mapping.configure do
+      rpc "ORQQVI VITALS"
+      field 0, :type
+    end
+
+    violations = RpmsRpc::WireCapture::Contract.check(mapping, live_fixture)
+    assert_equal [ :attribute_mismatch ], violations.map(&:kind)
+    assert_equal 0, violations.first.position
+    assert_includes violations.first.expected, "measurement_ien"
+  end
+
+  def test_field_beyond_the_captured_layout_is_flagged
+    mapping = RpmsRpc::DataMapper::Mapping.new(:wrong)
+    mapping.configure do
+      rpc "ORQQVI VITALS"
+      field 9, :units
+    end
+
+    violations = RpmsRpc::WireCapture::Contract.check(mapping, live_fixture)
+    assert_equal [ :unannotated_position ], violations.map(&:kind)
+  end
+
+  # -- line-based mappings ---------------------------------------------------
+
+  # 19 registered mappings declare line_field (one field per LINE, not per
+  # caret piece) — user_info and the sign-on reads among them. mapping_kind
+  # only asked scalar?/text_blob?, so every one of them classified as
+  # "fields" and a capture would have compared line numbers against caret
+  # positions: the wrong axis, silently.
+  def test_a_line_based_mapping_is_classified_as_lines
+    mapping = RpmsRpc::DataMapper::Mapping.new(:line_based)
+    mapping.configure do
+      rpc "XUS GET USER INFO"
+      line_field 0, :duz, :integer
+      line_field 1, :name
+    end
+
+    assert_equal "lines", RpmsRpc::WireCapture::Contract.mapping_kind(mapping)
+  end
+
+  def test_a_lines_fixture_gates_its_mapping_on_line_position
+    mapping = RpmsRpc::DataMapper::Mapping.new(:line_based)
+    mapping.configure do
+      rpc "XUS GET USER INFO"
+      line_field 0, :duz, :integer
+      line_field 1, :name
+    end
+    raw = "10000000020\nDEMOPROVIDER,ONE"
+    fx = live_fixture("rpc" => "XUS GET USER INFO", "mapping" => "line_based",
+                      "kind" => "lines", "cite" => "XUS GET USER INFO (XUS.m)",
+                      "raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw),
+                      "pieces" => [
+                        { "position" => 0, "attribute" => "duz", "fileman_type" => "integer" },
+                        { "position" => 1, "attribute" => "name" }
+                      ])
+
+    assert_empty RpmsRpc::WireCapture::Contract.check(mapping, fx)
+  end
+
+  def test_a_lines_fixture_flags_a_mapping_that_reads_the_wrong_line
+    mapping = RpmsRpc::DataMapper::Mapping.new(:line_based)
+    mapping.configure do
+      rpc "XUS GET USER INFO"
+      line_field 0, :name          # really the DUZ
+      line_field 1, :duz, :integer # really the name
+    end
+    raw = "10000000020\nDEMOPROVIDER,ONE"
+    fx = live_fixture("rpc" => "XUS GET USER INFO", "mapping" => "line_based",
+                      "kind" => "lines", "cite" => "XUS GET USER INFO (XUS.m)",
+                      "raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw),
+                      "pieces" => [
+                        { "position" => 0, "attribute" => "duz", "fileman_type" => "integer" },
+                        { "position" => 1, "attribute" => "name" }
+                      ])
+
+    violations = RpmsRpc::WireCapture::Contract.check(mapping, fx)
+    assert_equal [ 0, 1 ], violations.map(&:position).uniq.sort
+    # and the type check must read LINES, not carets: "DEMOPROVIDER,ONE" is
+    # not an integer.
+    assert_includes violations.map(&:detail), "DEMOPROVIDER,ONE"
+  end
+
+  def test_declared_type_is_validated_against_captured_raw_pieces
+    mapping = RpmsRpc::DataMapper::Mapping.new(:wrong)
+    mapping.configure do
+      rpc "ORQQVI VITALS"
+      field 2, :value, :fileman_date # raw pieces are "98.6" / "120/80"
+    end
+
+    violations = RpmsRpc::WireCapture::Contract.check(mapping, live_fixture)
+    # :value is a legitimate name for position 2 on the FASTVIT wire, so no
+    # attribute mismatch —
+    # but the captured raw pieces ("98.6", "120/80") cannot be FileMan dates.
+    assert_equal [ :type_mismatch, :type_mismatch ], violations.map(&:kind)
+    assert_equal [ "98.6", "120/80" ], violations.map(&:detail)
+  end
+
+  def test_empty_raw_pieces_do_not_fail_type_validation
+    # A data row may legitimately leave a typed position empty — emptiness
+    # is not a type violation.
+    raw = "5001^TMP^^3260401.0915^^^"
+    fx = live_fixture("raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw))
+    violations = RpmsRpc::WireCapture::Contract.check(RpmsRpc::DataMapper[:vitals], fx)
+    assert_empty violations, violations.join("; ")
+  end
+
+  # A reply that is ONLY the "^No vitals found." sentinel (ORQQVI.m:24) has
+  # no data rows, so it cannot call itself a live capture.
+  def test_a_sentinel_only_reply_may_not_claim_live_capture
+    raw = "^No vitals found."
+    error = assert_raises(RpmsRpc::WireCapture::InvalidFixture) do
+      live_fixture("raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw))
+    end
+    assert_match(/captured no data rows/, error.message)
+  end
+
+  def test_a_sentinel_only_reply_is_a_valid_no_data_fixture
+    raw = "^No vitals found."
+    fx = live_fixture("source" => "no-data", "raw_return" => raw,
+                      "sha256" => Digest::SHA256.hexdigest(raw))
+    assert_equal "no-data", fx.source
+    assert_empty fx.captured_data_rows
+  end
+
+  def test_rpc_mismatch_is_flagged
+    violations = RpmsRpc::WireCapture::Contract.check(RpmsRpc::DataMapper[:patient_select],
+                                                      live_fixture)
+    assert_equal [ :rpc_mismatch ], violations.map(&:kind)
+  end
+
+  def test_kind_mismatch_is_flagged
+    mapping = RpmsRpc::DataMapper::Mapping.new(:wrong)
+    mapping.configure do
+      rpc "ORQQVI VITALS"
+      scalar :everything
+    end
+
+    violations = RpmsRpc::WireCapture::Contract.check(mapping, live_fixture)
+    assert_equal [ :kind_mismatch ], violations.map(&:kind)
+  end
+
+  # -- catalog sanity --------------------------------------------------------
+
+  def test_catalog_entries_bind_to_registered_mappings
+    RpmsRpc::WireCapture::CATALOG.each do |entry|
+      mapping = RpmsRpc::DataMapper[entry.mapping]
+      assert_equal entry.rpc, mapping.rpc_name,
+                   "catalog entry #{entry.rpc} must bind the mapping that declares that RPC"
+    end
+  end
+
+  def test_catalog_never_marks_a_write_rpc_live
+    add_patient = RpmsRpc::WireCapture::CATALOG.find { |e| e.rpc == "VAFC VOA ADD PATIENT" }
+    refute_nil add_patient
+    refute add_patient.live?, "VAFC VOA ADD PATIENT writes — capture must stay routine-cite"
+  end
+
+  # -- Review findings on #190 (Greptile). Each fails without its fix. --------
+
+  # A broker error keeps its \x01 ack flag, so the sequence prefix stayed glued
+  # to "-1^message" and non_data_row? never matched it. A FAILED RPC then
+  # produced a fixture that looked like a real live capture.
+  def test_broker_error_reply_is_not_accepted_as_a_live_capture
+    raw = "6\x01-1^No such patient"
+    err = assert_raises(RpmsRpc::WireCapture::InvalidFixture) do
+      live_fixture("raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw))
+    end
+    assert_match(/captured no data rows/, err.message,
+      "an error reply is not evidence of a wire shape")
+  end
+
+  def test_data_reply_is_still_counted
+    refute_empty live_fixture.captured_data_rows
+  end
+
+  # The type gate must ask exactly what the mapper asks. "3260607.9" has an
+  # invalid time fraction: parse_datetime_or_date (the mapper) returns nil,
+  # while parse_date (the old fallback) happily returns a Date.
+  def test_invalid_datetime_fraction_does_not_satisfy_a_fileman_datetime_field
+    refute RpmsRpc::WireCapture::Contract.send(:raw_conforms?, "3260607.9", :fileman_datetime),
+      "the gate must not pass a value whose mapped datetime would be nil"
+  end
+
+  def test_date_only_value_still_satisfies_a_fileman_datetime_field
+    assert RpmsRpc::WireCapture::Contract.send(:raw_conforms?, "3260607", :fileman_datetime),
+      "FileMan datetime values may legitimately omit the time part"
+  end
+
+  # The catalog regenerates the committed fixtures, so an entry citing the
+  # wrong entry point rewrites a correct fixture with the wrong layout. ORQQVI
+  # VITALS is served by FASTVIT (ien^type^RATE^datetime); VITALS^ORQQVI serves
+  # ORQQVI VITALS FOR DATE RANGE and swaps those two pieces -- the exact
+  # confusion that produced the shipped mapping this gate exists to catch.
+  def test_catalog_entry_for_orqqvi_vitals_follows_fastvit_not_vitals
+    entry = RpmsRpc::WireCapture::CATALOG.find { |e| e.rpc == "ORQQVI VITALS" }
+    refute_nil entry
+
+    assert_includes entry.cite, "FASTVIT^ORQQVI"
+    value = entry.pieces.find { |pc| pc.attributes.include?("value") }
+    datetime = entry.pieces.find { |pc| pc.attributes.include?("recorded_datetime") }
+    assert_equal 2, value.position, "FASTVIT puts rate/value at piece 2"
+    assert_equal 3, datetime.position, "FASTVIT puts date/time taken at piece 3"
+  end
+
+  # A lines reply is ONE record whose fields are its LINES, so a blank line is
+  # a field with no value. :user_info is exactly this shape -- its own comment
+  # documents lines [4]..[6] as reserved and empty, with an integer field at
+  # [7]. Compacting the blanks shifted every later field, so the checker read
+  # position 7 from the wrong line and reported a type violation against a
+  # capture that is in fact correct.
+  def test_blank_lines_keep_their_positions_when_a_lines_mapping_is_checked
+    raw = "4\x0030\nUSER,DEMO\nDemo User\nEXAMPLE SITE\n\n\n\n30\nORAL\nx\ny"
+    fixture = RpmsRpc::WireCapture::Fixture.new({
+      "rpc" => "XUS GET USER INFO", "mapping" => "user_info", "kind" => "lines",
+      "source" => "live-capture", "cite" => "GETUSER^XUS (r/XUS.m:1-9)",
+      "release_tag" => "bcer-9.0-test", "captured_at" => "2026-09-26T00:00:00Z",
+      "raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw),
+      "pieces" => (0..7).map { |i| { "position" => i, "attributes" => [ "f#{i}" ] } }
+    })
+
+    violations = RpmsRpc::WireCapture::Contract.check(
+      RpmsRpc::DataMapper[:user_info], fixture
+    )
+    type_violations = violations.select { |v| v.kind == :type_mismatch }
+
+    assert_empty type_violations,
+      "line 7 is \"30\" and parses as an integer; only compaction makes it look otherwise"
+  end
+
+  def test_positional_rows_keeps_blanks_but_the_evidence_view_compacts
+    raw = "4\x00first\n\n3260607"
+    f = RpmsRpc::WireCapture::Fixture.new({
+      "rpc" => "SOME LINES RPC", "mapping" => "user_info", "kind" => "lines",
+      "source" => "live-capture", "cite" => "X^Y (r/Y.m:1-9)",
+      "release_tag" => "bcer-9.0-test", "captured_at" => "2026-09-26T00:00:00Z",
+      "raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw),
+      "pieces" => [ { "position" => 0, "attributes" => [ "a" ] },
+                    { "position" => 2, "attributes" => [ "b" ] } ]
+    })
+
+    assert_equal [ "first", "", "3260607" ], f.positional_rows
+    assert_equal [ "first", "3260607" ], f.captured_rows
+  end
+
+  # A broker error must never look like "the box answered with nothing": the
+  # capture task would label it no-data and overwrite a capture-backed
+  # fixture, so a transient failure erases evidence.
+  def test_error_reply_is_distinguishable_from_an_empty_result
+    assert RpmsRpc::WireCapture.error_reply?("6\x01-1^No such patient")
+    refute RpmsRpc::WireCapture.error_reply?("4\x00"),
+      "an empty reply is an observation, not a failure"
+    refute RpmsRpc::WireCapture.error_reply?("4\x00^No vitals found."),
+      "a no-data sentinel is an observation, not a failure"
+    refute RpmsRpc::WireCapture.error_reply?("4\x0017^TMP^98.6^3260901.1436")
+  end
+
+  # CIA marks a failure with the \x01 ack byte, and the message can be
+  # free-form: "Access denied for remote procedure." has no "-N^" prefix, so
+  # matching the text shape alone let a denied call be written as live data.
+  def test_free_form_cia_error_is_recognized_by_its_ack_byte
+    assert RpmsRpc::WireCapture.error_reply?("6\x01Access denied for remote procedure."),
+      "the \\x01 ack byte is the authoritative failure signal"
+    assert RpmsRpc::WireCapture.error_reply?("6\x01"),
+      "an error flag with no message is still an error"
+    refute RpmsRpc::WireCapture.error_reply?("6\x00Access denied for remote procedure."),
+      "the same text under a data flag is data, however unlikely"
+  end
+
+  # For a lines fixture recording an empty result, there are no field values
+  # at all -- handing the sentinel back as position 0 made the type check read
+  # it as a field and fail an honest no-data fixture.
+  def test_no_data_lines_fixture_exposes_no_positional_fields
+    raw = "4\x00^No user found."
+    f = RpmsRpc::WireCapture::Fixture.new({
+      "rpc" => "XUS GET USER INFO", "mapping" => "user_info", "kind" => "lines",
+      "source" => "no-data", "cite" => "GETUSER^XUS (r/XUS.m:1-9)",
+      "release_tag" => "bcer-9.0-test", "captured_at" => "2026-09-26T00:00:00Z",
+      "raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw),
+      "pieces" => [ { "position" => 0, "attributes" => [ "duz" ] } ]
+    })
+
+    assert_empty f.positional_rows
+    violations = RpmsRpc::WireCapture::Contract.check(RpmsRpc::DataMapper[:user_info], f)
+    assert_empty violations.select { |v| v.kind == :type_mismatch },
+      "a no-data fixture provides no field evidence, so it cannot violate a field type"
+  end
+end
