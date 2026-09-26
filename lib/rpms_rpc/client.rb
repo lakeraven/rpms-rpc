@@ -480,11 +480,18 @@ module RpmsRpc
       buf = @rbuf || "".b
       @rbuf = "".b
       deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @timeout
+      # Resume each scan just behind the previous end of the buffer rather
+      # than from byte 0: a global-array reply arrives over many recvs, and
+      # rescanning the whole accumulation every time is quadratic in the
+      # reply size. The overlap keeps a terminator that straddles two chunks
+      # findable.
+      scan_from = 0
       loop do
-        if (idx = buf.index(term))
+        if (idx = buf.index(term, scan_from))
           @rbuf = buf.byteslice((idx + term.bytesize)..) || "".b
           return buf.byteslice(0, idx)
         end
+        scan_from = [ buf.bytesize - term.bytesize + 1, 0 ].max
 
         remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
         if remaining <= 0
