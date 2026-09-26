@@ -7,7 +7,7 @@ module RpmsRpc
   #
   # Implements the {BMX} protocol used by BMXMON. BMXMON takes its port as an argument
   # (FOIA sets none); 9101 is the BMX port on hosted RPMS stacks (rpms-ops docs/BROKER-PORTS.md).
-  # 9200 there is the IRIS CIA listener, a different protocol.
+  # 9200 on those stacks is the IRIS CIA listener, a different protocol.
   # Both BMX and CIA/XWB route to the same RPC registry (^XWB(8994))
   # and call the same M routines — the difference is the wire format.
   #

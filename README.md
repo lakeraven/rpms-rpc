@@ -90,7 +90,7 @@ client.disconnect
 | Variable             | Default     | Notes                              |
 |----------------------|-------------|------------------------------------|
 | `VISTA_RPC_HOST`     | `localhost` | Broker hostname                    |
-| `VISTA_RPC_PORT`     | `9100`/`9200` | Default depends on subclass      |
+| `VISTA_RPC_PORT`     | `9100` / `9101` / `9200` | Per subclass: `9100` XWB, `9101` BMX, `9200` CIA |
 | `VISTA_RPC_TIMEOUT`  | `30`        | Read timeout in seconds            |
 | `RPMS_ACCESS_CODE`   | _(required)_ | Access code. In development only, falls back to `PROV123`. |
 | `RPMS_VERIFY_CODE`   | _(required)_ | Verify code. In development only, falls back to `PROV123!!`. |
