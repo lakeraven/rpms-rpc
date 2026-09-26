@@ -93,6 +93,90 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_nil c.instance_variable_get(:@socket)
   end
 
+  # -- reply framing: nothing lost, nothing stale (rpms-rpc#254) ---------------
+  #
+  # A CIA reply ends at EOD, and a global-array reply EMBEDS EOD bytes, so a read
+  # can stop short. Measured 2026-09-23 against a YottaDB broker: BSDX HOSPITAL
+  # LOCATION's reply is HEADER<30>row<30>...<31><30>, and BMC HEALTH SUMMARY TYPE
+  # left ~190 bytes on the socket. The next call read that tail as its reply and
+  # the whole session answered one call late.
+
+  # A kernel-faithful fake: bytes the broker already sent sit in `arrived` until
+  # read; recv hands them out before the next scripted reply, and read_nonblock
+  # drains them, as a real socket does.
+  class StaleSocket
+    attr_reader :writes
+
+    def initialize(replies)
+      @replies = replies.dup
+      @arrived = +""
+      @writes = []
+    end
+
+    def arrive(bytes) = @arrived << bytes
+
+    def recv(_n)
+      unless @arrived.empty?
+        out = @arrived
+        @arrived = +""
+        return out
+      end
+      @replies.empty? ? "" : @replies.shift
+    end
+
+    def read_nonblock(_n)
+      raise IO::EAGAINWaitReadable if @arrived.empty?
+
+      out = @arrived
+      @arrived = +""
+      out
+    end
+
+    def write(str) = (@writes << str) && str.bytesize
+    def flush; end
+    def close = @closed = true
+    def closed? = !!@closed
+    def setsockopt(*); end
+  end
+
+  def client_on(socket)
+    c = Client.new
+    c.instance_variable_set(:@socket, socket)
+    c.instance_variable_set(:@connected, true)
+    c.instance_variable_set(:@timeout, 5)
+    c.instance_variable_set(:@seq, 0)
+    c
+  end
+
+  # The base reader keeps what arrived past the terminator instead of discarding
+  # the rest of the chunk: two pieces in one recv are two reads, not one.
+  def test_read_until_raw_keeps_bytes_past_the_terminator
+    c = client_on(FakeSocket.new([ "1\x00A#{EOD}ROW#{EOD}" ]))
+    assert_equal "1\x00A", c.send(:read_until_raw, EOD)
+    assert_equal "ROW", c.send(:read_until_raw, EOD), "bytes after the first EOD were discarded"
+  end
+
+  # The desync itself: request 1's reply is cut at an embedded EOD, the rest of
+  # it lands before request 2 is written, and request 2 must still get ITS reply.
+  def test_a_stale_tail_from_the_previous_reply_is_not_the_next_reply
+    socket = StaleSocket.new([ "1\x00HEADER#{EOD}", "2\x00OK#{EOD}" ])
+    c = client_on(socket)
+    assert_equal "1\x00HEADER", c.call_rpc_raw("BSDX HOSPITAL LOCATION")
+    socket.arrive("7^CHART REVIEW^^#{EOD}5^PHARMACY^^#{EOD}\x1f#{EOD}")
+    assert_equal "2\x00OK", c.call_rpc_raw("XUS INTRO MSG"),
+      "request 2 read request 1's leftover rows as its reply"
+  end
+
+  # The EOD after a global array's $C(31) can arrive after the next request goes
+  # out. An empty piece is never a reply (every reply starts with its sequence
+  # echo), so it is skipped rather than returned as request 2's answer.
+  def test_a_late_eod_after_a_global_array_is_skipped
+    socket = StaleSocket.new([ "1\x00HDR#{EOD}ROW#{EOD}\x1f", "#{EOD}2\x00OK#{EOD}" ])
+    c = client_on(socket)
+    assert_equal "1\x00HDR#{EOD}ROW#{EOD}", c.call_rpc_global_array("BSDX HOSPITAL LOCATION")
+    assert_equal "2\x00OK", c.call_rpc_raw("XUS INTRO MSG")
+  end
+
   # CIA length prefix: header byte = (num_length_bytes << 4) | (len % 16),
   # then big-endian length-quotient bytes, then the value.
   def test_pk_frames_short_value

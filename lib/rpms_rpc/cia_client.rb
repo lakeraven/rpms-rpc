@@ -345,9 +345,38 @@ module RpmsRpc
         frame_fields = build_fields ? build_fields.call : fields
         @seq = @seq % 9 + 1
         msg = ("{CIA}" + EOD + @seq.to_s + action + frame_fields.join + EOD).b
+        discard_stale_bytes
         @socket.write(msg)
-        read_until_raw(terminator) # base: shared read loop; CIA EOD, or AGG US sentinel
+        read_reply(terminator)
       end
+    end
+
+    # Nothing that reached this client BEFORE a request was written can be that request's reply:
+    # the wire lock admits one request at a time, so it is the unread tail of an earlier reply.
+    # That tail exists when a reply's body embedded the EOD byte (a global array's $C(30) record
+    # separators, or the EOD after its $C(31) sentinel) and the read stopped short. Read as the
+    # next call's reply, it put the whole session one call late (rpms-rpc#254, measured
+    # 2026-09-23 on BSDX HOSPITAL LOCATION and BMC HEALTH SUMMARY TYPE). Drop it, whether it is
+    # already buffered (#read_until_raw keeps bytes past the terminator) or still on the socket.
+    def discard_stale_bytes
+      @rbuf = "".b
+      return unless @socket.respond_to?(:read_nonblock)
+
+      loop { @socket.read_nonblock(65_536) }
+    rescue IO::WaitReadable, EOFError
+      nil # drained (or the peer closed: the write that follows reports that)
+    end
+
+    # Read this request's reply. An EMPTY piece is never a reply (every CIA reply starts with the
+    # request's sequence echo, CIANBLIS.m:136): it is a stale EOD that arrived late, such as the
+    # one after a global array's $C(31). Skip those; hand anything else to the caller unchanged,
+    # so #parse_cia_reply keeps judging malformed replies.
+    def read_reply(terminator)
+      8.times do
+        raw = read_until_raw(terminator) # base: shared read loop; CIA EOD, or AGG US sentinel
+        return raw unless raw.empty?
+      end
+      raise ConnectionError, "CIA reply stream out of step: only empty pieces after the request"
     end
 
     # Build the L()-packed UID/RPC/param fields shared by call_rpc_raw and
