@@ -76,6 +76,15 @@ module RpmsRpc
     def self.error_reply?(raw)
       return false if raw.nil?
 
+      # The ACK BYTE is authoritative, not the shape of the text. CIA marks an
+      # error reply with \x01 (parse_cia_reply raises RpcError on exactly that
+      # byte), and such a reply can be free-form -- "Access denied for remote
+      # procedure." carries no "-N^" prefix at all. Matching only the text
+      # shape let a denied call be labelled live-capture and overwrite a
+      # fixture with its error message as wire evidence.
+      return true if raw.match?(/\A\d+\x01/)
+
+      # Replies without CIA framing still announce failure in the row itself.
       raw.sub(/\A\d+[\x00\x01]/, "").split(/\r\n|\r|\n/)
          .reject(&:empty?)
          .any? { |row| row.match?(/\A-\d+(?:\.\d+)?\^/) }

@@ -358,6 +358,18 @@ class RpmsRpc::WireCaptureTest < Minitest::Test
     refute RpmsRpc::WireCapture.error_reply?("4\x0017^TMP^98.6^3260901.1436")
   end
 
+  # CIA marks a failure with the \x01 ack byte, and the message can be
+  # free-form: "Access denied for remote procedure." has no "-N^" prefix, so
+  # matching the text shape alone let a denied call be written as live data.
+  def test_free_form_cia_error_is_recognized_by_its_ack_byte
+    assert RpmsRpc::WireCapture.error_reply?("6\x01Access denied for remote procedure."),
+      "the \\x01 ack byte is the authoritative failure signal"
+    assert RpmsRpc::WireCapture.error_reply?("6\x01"),
+      "an error flag with no message is still an error"
+    refute RpmsRpc::WireCapture.error_reply?("6\x00Access denied for remote procedure."),
+      "the same text under a data flag is data, however unlikely"
+  end
+
   # For a lines fixture recording an empty result, there are no field values
   # at all -- handing the sentinel back as position 0 made the type check read
   # it as a field and fail an honest no-data fixture.
