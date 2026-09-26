@@ -141,6 +141,19 @@ module RpmsRpc
         @raw_return.nil? ? [] : rows
       end
 
+      # Rows as POSITIONS, not as evidence. For a lines reply the index IS the
+      # field number, so a blank line is a field with no value and has to keep
+      # its slot -- dropping it shifts every later field, and the gate then
+      # compares the wrong value: it can reject a correct mapping or pass an
+      # incorrect one, which is the failure this gate exists to prevent.
+      # A fields reply is many records, where a blank line is just filler.
+      def positional_rows
+        return captured_rows unless @kind == "lines"
+        return [] if @raw_return.nil?
+
+        @raw_return.sub(/\A\d+[\x00\x01]/, "").split(/\r\n|\r|\n/)
+      end
+
       # The rows that are actually EVIDENCE of a wire shape. A broker error
       # ("-N^message") or a no-data sentinel ("^No problems found.") proves
       # the RPC answered and nothing about its field layout — counting
@@ -317,9 +330,10 @@ module RpmsRpc
         end
       end
 
-      # The captured lines ARE the field values, indexed by line number.
+      # The captured lines ARE the field values, indexed by line number -- so
+      # index the view that preserves blank lines, not the compacted one.
       def line_type_violations(field, fixture)
-        raw = fixture.captured_rows[field.position]
+        raw = fixture.positional_rows[field.position]
         return [] if raw.nil? || raw.empty? || raw_conforms?(raw, field.type)
 
         [ Violation.new(kind: :type_mismatch, position: field.position,

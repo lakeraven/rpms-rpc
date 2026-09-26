@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "digest"
 require "rpms_rpc/wire_capture"
 require "rpms_rpc/mappings"
+require "rpms_rpc/data_mapper"
 
 # Unit coverage for the wire-capture fixture model + contract checker
 # (lib/rpms_rpc/wire_capture.rb, issue #189). The CI gate itself — every
@@ -303,5 +304,45 @@ class RpmsRpc::WireCaptureTest < Minitest::Test
     datetime = entry.pieces.find { |pc| pc.attributes.include?("recorded_datetime") }
     assert_equal 2, value.position, "FASTVIT puts rate/value at piece 2"
     assert_equal 3, datetime.position, "FASTVIT puts date/time taken at piece 3"
+  end
+
+  # A lines reply is ONE record whose fields are its LINES, so a blank line is
+  # a field with no value. :user_info is exactly this shape -- its own comment
+  # documents lines [4]..[6] as reserved and empty, with an integer field at
+  # [7]. Compacting the blanks shifted every later field, so the checker read
+  # position 7 from the wrong line and reported a type violation against a
+  # capture that is in fact correct.
+  def test_blank_lines_keep_their_positions_when_a_lines_mapping_is_checked
+    raw = "4\x0030\nUSER,DEMO\nDemo User\nEXAMPLE SITE\n\n\n\n30\nORAL\nx\ny"
+    fixture = RpmsRpc::WireCapture::Fixture.new({
+      "rpc" => "XUS GET USER INFO", "mapping" => "user_info", "kind" => "lines",
+      "source" => "live-capture", "cite" => "GETUSER^XUS (r/XUS.m:1-9)",
+      "release_tag" => "bcer-9.0-test", "captured_at" => "2026-09-26T00:00:00Z",
+      "raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw),
+      "pieces" => (0..7).map { |i| { "position" => i, "attributes" => [ "f#{i}" ] } }
+    })
+
+    violations = RpmsRpc::WireCapture::Contract.check(
+      RpmsRpc::DataMapper[:user_info], fixture
+    )
+    type_violations = violations.select { |v| v.kind == :type_mismatch }
+
+    assert_empty type_violations,
+      "line 7 is \"30\" and parses as an integer; only compaction makes it look otherwise"
+  end
+
+  def test_positional_rows_keeps_blanks_but_the_evidence_view_compacts
+    raw = "4\x00first\n\n3260607"
+    f = RpmsRpc::WireCapture::Fixture.new({
+      "rpc" => "SOME LINES RPC", "mapping" => "user_info", "kind" => "lines",
+      "source" => "live-capture", "cite" => "X^Y (r/Y.m:1-9)",
+      "release_tag" => "bcer-9.0-test", "captured_at" => "2026-09-26T00:00:00Z",
+      "raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw),
+      "pieces" => [ { "position" => 0, "attributes" => [ "a" ] },
+                    { "position" => 2, "attributes" => [ "b" ] } ]
+    })
+
+    assert_equal [ "first", "", "3260607" ], f.positional_rows
+    assert_equal [ "first", "3260607" ], f.captured_rows
   end
 end
