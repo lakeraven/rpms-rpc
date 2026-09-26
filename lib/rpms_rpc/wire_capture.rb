@@ -108,7 +108,12 @@ module RpmsRpc
         text = @raw_return || @example_return
         return [] if text.nil?
 
-        text.sub(/\A\d+\x00/, "").split(/\r\n|\r|\n/).reject(&:empty?)
+        # Strip the ack byte whatever it is: \x00 marks data, \x01 marks an
+        # error, and call_rpc_raw keeps the error flag attached. Stripping
+        # only \x00 left "6\x01-1^message" intact, so non_data_row?'s
+        # "-N^message" test never matched and a FAILED RPC was counted as a
+        # captured data row -- a valid-looking live fixture built from an error.
+        text.sub(/\A\d+[\x00\x01]/, "").split(/\r\n|\r|\n/).reject(&:empty?)
       end
 
       # Only live-captured rows are evidence; example rows illustrate a cite.
@@ -308,8 +313,13 @@ module RpmsRpc
         when :boolean then [ "0", "1" ].include?(raw) || raw.match?(/\A(yes|no)\z/i)
         when :fileman_date then !FilemanDateParser.parse_date(raw).nil?
         when :fileman_datetime
-          # FileMan datetime values may legitimately omit the time part.
-          !FilemanDateParser.parse_datetime(raw).nil? || !FilemanDateParser.parse_date(raw).nil?
+          # Ask exactly what the mapper asks. FileMan datetime values may omit
+          # the time part, which parse_datetime_or_date already allows -- but
+          # falling back to parse_date accepted values the mapper rejects:
+          # "3260607.9" has an invalid time fraction, so parse_date returns a
+          # Date while parse_datetime_or_date returns nil. The gate passed a
+          # capture whose mapped datetime would be lost.
+          !FilemanDateParser.parse_datetime_or_date(raw).nil?
         else true
         end
       end
@@ -330,15 +340,23 @@ module RpmsRpc
       CatalogEntry.new(
         rpc: "ORQQVI VITALS", mapping: :vitals, kind: "fields", mode: :live,
         inputs: [ "8", "2900101", "3991231" ],
-        cite: "VITALS^ORQQVI (ORQQVI.m:4-24): header line 6 'vital measurement " \
-              "ien^vital type^date/time taken^rate'; row construction line 23; " \
-              "'^No vitals found.' sentinel line 24",
+        # FASTVIT, not VITALS. The #8994 registry sends "ORQQVI VITALS" to
+        # FASTVIT (.broker_dumps_8994_20260607.txt:565), and FASTVIT's header
+        # is "ien^type^RATE^date/time taken" -- value at 2, datetime at 3.
+        # VITALS^ORQQVI serves "ORQQVI VITALS FOR DATE RANGE" and swaps those
+        # two, which is precisely the confusion that produced the shipped
+        # mapping. Citing VITALS here would make `rake wire:capture` overwrite
+        # the committed FASTVIT fixture with the other RPC's layout and
+        # reintroduce the defect this gate exists to catch.
+        cite: "FASTVIT^ORQQVI (ORQQVI.m:61-84): header 'vital measurement " \
+              "ien^vital type^rate^date/time taken'; registry mapping at " \
+              ".broker_dumps_8994_20260607.txt:565 \"ORQQVI VITALS^FASTVIT^ORQQVI\"",
         pieces: [
           Piece.new(position: 0, attributes: [ "measurement_ien" ], fileman_type: "integer"),
           Piece.new(position: 1, attributes: [ "type" ]),
-          Piece.new(position: 2, attributes: [ "recorded_date", "recorded_datetime" ],
-                    fileman_type: "fileman_datetime"),
-          Piece.new(position: 3, attributes: [ "value", "rate" ])
+          Piece.new(position: 2, attributes: [ "value", "rate" ]),
+          Piece.new(position: 3, attributes: [ "recorded_date", "recorded_datetime" ],
+                    fileman_type: "fileman_datetime")
         ],
         note: "The mapping this gate exists for: shipped as TYPE^VALUE^UNITS^DATE " \
               "with green mock tests; the real wire is IEN^TYPE^DATETIME^value."

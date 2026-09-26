@@ -257,4 +257,51 @@ class RpmsRpc::WireCaptureTest < Minitest::Test
     refute_nil add_patient
     refute add_patient.live?, "VAFC VOA ADD PATIENT writes — capture must stay routine-cite"
   end
+
+  # -- Review findings on #190 (Greptile). Each fails without its fix. --------
+
+  # A broker error keeps its \x01 ack flag, so the sequence prefix stayed glued
+  # to "-1^message" and non_data_row? never matched it. A FAILED RPC then
+  # produced a fixture that looked like a real live capture.
+  def test_broker_error_reply_is_not_accepted_as_a_live_capture
+    raw = "6\x01-1^No such patient"
+    err = assert_raises(RpmsRpc::WireCapture::InvalidFixture) do
+      live_fixture("raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw))
+    end
+    assert_match(/captured no data rows/, err.message,
+      "an error reply is not evidence of a wire shape")
+  end
+
+  def test_data_reply_is_still_counted
+    refute_empty live_fixture.captured_data_rows
+  end
+
+  # The type gate must ask exactly what the mapper asks. "3260607.9" has an
+  # invalid time fraction: parse_datetime_or_date (the mapper) returns nil,
+  # while parse_date (the old fallback) happily returns a Date.
+  def test_invalid_datetime_fraction_does_not_satisfy_a_fileman_datetime_field
+    refute RpmsRpc::WireCapture::Contract.send(:raw_conforms?, "3260607.9", :fileman_datetime),
+      "the gate must not pass a value whose mapped datetime would be nil"
+  end
+
+  def test_date_only_value_still_satisfies_a_fileman_datetime_field
+    assert RpmsRpc::WireCapture::Contract.send(:raw_conforms?, "3260607", :fileman_datetime),
+      "FileMan datetime values may legitimately omit the time part"
+  end
+
+  # The catalog regenerates the committed fixtures, so an entry citing the
+  # wrong entry point rewrites a correct fixture with the wrong layout. ORQQVI
+  # VITALS is served by FASTVIT (ien^type^RATE^datetime); VITALS^ORQQVI serves
+  # ORQQVI VITALS FOR DATE RANGE and swaps those two pieces -- the exact
+  # confusion that produced the shipped mapping this gate exists to catch.
+  def test_catalog_entry_for_orqqvi_vitals_follows_fastvit_not_vitals
+    entry = RpmsRpc::WireCapture::CATALOG.find { |e| e.rpc == "ORQQVI VITALS" }
+    refute_nil entry
+
+    assert_includes entry.cite, "FASTVIT^ORQQVI"
+    value = entry.pieces.find { |pc| pc.attributes.include?("value") }
+    datetime = entry.pieces.find { |pc| pc.attributes.include?("recorded_datetime") }
+    assert_equal 2, value.position, "FASTVIT puts rate/value at piece 2"
+    assert_equal 3, datetime.position, "FASTVIT puts date/time taken at piece 3"
+  end
 end
