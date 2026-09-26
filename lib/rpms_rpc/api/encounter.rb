@@ -86,8 +86,12 @@ module RpmsRpc
 
     # VSTR "LOC;FM_DATETIME;SVC_CAT" per VSTR2VIS^BEHOENCX.
     def visit_string(location_ien, datetime, service_category)
-      dt = datetime
-      dt = FilemanDateParser.format_datetime(dt) if dt.is_a?(Date) || dt.is_a?(Time)
+      # DateTime < Date, so the timed classes are matched first; a bare Date has no time of day.
+      dt = case datetime
+      when Time, DateTime then FilemanDateParser.format_datetime(datetime)
+      when Date then FilemanDateParser.format_date(datetime)
+      else datetime
+      end
       "#{location_ien};#{dt};#{service_category}"
     end
   end
