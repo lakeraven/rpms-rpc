@@ -340,11 +340,26 @@ module RpmsRpc
         when :fileman_date
           val.is_a?(Date) || val.is_a?(Time) ? FilemanDateParser.format_date(val) : val.to_s
         when :fileman_datetime
-          val.is_a?(Date) || val.is_a?(Time) ? FilemanDateParser.format_datetime(val) : val.to_s
+          # DateTime < Date, so the timed classes match first; a bare Date has
+          # no time of day and format_datetime would call #hour on it. FileMan
+          # stores a date-only value here as "3250115" -- which the parse side
+          # already accepts -- so emit that rather than raising. (#267)
+          case val
+          when DateTime, Time then FilemanDateParser.format_datetime(val)
+          when Date then FilemanDateParser.format_date(val)
+          else val.to_s
+          end
         when :external_date
           val.is_a?(Date) || val.is_a?(Time) ? FilemanDateParser.format_external_date(val) : val.to_s
         when :external_datetime
-          val.is_a?(Time) ? FilemanDateParser.format_external_datetime(val) : val.to_s
+          # Same shape, quieter failure: a bare Date fell through to #to_s and
+          # put an ISO string ("2026-01-15") on a wire that expects the
+          # external form, instead of raising where anyone would see it.
+          case val
+          when DateTime, Time then FilemanDateParser.format_external_datetime(val)
+          when Date then FilemanDateParser.format_external_date(val)
+          else val.to_s
+          end
         when :integer
           val.to_s
         when :boolean
