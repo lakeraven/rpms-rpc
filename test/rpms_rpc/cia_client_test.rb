@@ -112,15 +112,16 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # lines 3+ greeting. DUZ is NOT in the reply, and the session environment it
   # is saved into cannot be read back by the client (GETVAR^CIANBRPC forces an
   # empty or zero namespace to "@"; the sign-on DUZ lives in namespace 0). It is
-  # asked for with XUS GET USER INFO, whose first line is the DUZ. The fixture
-  # below is the shape a live broker returned on 2026-09-21.
+  # asked for with CIAVCXUS VIMINFO, as VueCentric does: one line, DUZ in
+  # piece 1. The fixture is the shape a live broker returned for PROV123 on
+  # 2026-09-23 (bcer-9.0-20260921-134e4f1-ydb), with the fixture's DUZ/name.
 
   AUTH_REPLY = "1\x000\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\n" \
                "Good evening USER,DEMO\r\n     You last signed on today at 08:15\r\n"
-  USERINFO_REPLY = "2\x0063\r\nUSER,DEMO\r\nDemo User\r\n1^DEMO CLINIC^1234\r\nIRM\r\n99999\r\n"
+  VIMINFO_REPLY = "2\x0063^USER,DEMO^1800;1800;60^0^0"
 
   def test_authenticate_populates_duz_from_user_info
-    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD ])
     result = c.authenticate("SYN123", "SYN123!!")
     assert result[:success]
     assert_equal "USER,DEMO", result[:user]
@@ -128,8 +129,30 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_equal "63", c.duz
   end
 
+  # The identity read is VueCentric's: CIAVCXUS VIMINFO, in CIAV VUECENTRIC's
+  # RPC multiple. XUS GET USER INFO is in no option sign-on binds, so a user
+  # without XUPROGMODE was "Access denied" and could not sign on at all.
+  def test_signon_reads_duz_with_ciavcxus_viminfo
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD ])
+    c.authenticate("SYN123", "SYN123!!")
+    frame = c.instance_variable_get(:@socket).writes.last
+    pk = ->(v) { c.send(:pk, v) }
+    assert_includes frame, pk["RPC"] + pk[""] + pk["CIAVCXUS VIMINFO"]
+    refute_includes frame, "XUS GET USER INFO".b
+  end
+
+  # The pre-fix failure, verbatim from a live broker for PROV123: should the
+  # identity read ever route through an RPC the bound option lacks, sign-on
+  # must refuse rather than attest a nil identity.
+  def test_signon_fails_closed_on_access_denied_identity_read
+    denied = "2\x014\rAccess denied for remote procedure: XUS GET USER INFO\r"
+    c = connected_client([ AUTH_REPLY + EOD, denied + EOD ])
+    assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
+    assert_signed_off(c)
+  end
+
   def test_authenticate_captures_session_uid_and_uses_it_on_later_calls
-    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD, "3\x00ok\r\n" + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, "3\x00ok\r\n" + EOD ])
     c.authenticate("SYN123", "SYN123!!")
     assert_equal "7", c.session_uid
     c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
@@ -143,7 +166,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     cr_auth = "1\x001^VERIFY CODE must be changed before continued use.\r" \
               "35^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\rGood evening USER,DEMO\r" \
               "     You last signed on today at 08:15\r"
-    c = connected_client([ cr_auth + EOD, "2\x0063\rUSER,DEMO\rDemo User\r" + EOD, "3\x00ok\r" + EOD ])
+    c = connected_client([ cr_auth + EOD, "2\x0063^USER,DEMO^1800;1800;60^0^0\r" + EOD, "3\x00ok\r" + EOD ])
     c.authenticate("SYN123", "SYN123!!")
     assert_equal "35", c.session_uid
     assert_equal "63", c.duz
@@ -152,7 +175,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   end
 
   # #245: a greeting-only sign-on that resolves no DUZ is a refusal, not a
-  # success with a nil identity. XUS GET USER INFO answers with an empty body.
+  # success with a nil identity. CIAVCXUS VIMINFO answers with an empty body.
   def test_authenticate_fails_closed_when_user_info_lacks_duz
     c = connected_client([ AUTH_REPLY + EOD, "2\x00\r\n" + EOD ])
     assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("SYN123", "SYN123!!") }
@@ -220,7 +243,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # readable. Pre-seed a resolved session, then fail a re-auth on no DUZ:
   # duz/authenticated/session_uid must all clear, not survive.
   def test_failed_reauth_clears_prior_users_identity
-    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD,
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD,
                            AUTH_REPLY + EOD, "4\x00\r\n" + EOD ])
     first = c.authenticate("USERA", "USERA!!") # resolves DUZ 63
     assert_equal 63, first[:duz]
@@ -237,7 +260,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # re-auth (bad code) must also clear a prior resolved identity.
   def test_rejected_reauth_clears_prior_users_identity
     rejected = "3\x00Not a valid ACCESS CODE/VERIFY CODE pair.\r\n"
-    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD, rejected + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, rejected + EOD ])
     c.authenticate("USERA", "USERA!!")
     assert_equal "63", c.duz
 
@@ -252,7 +275,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # (rpms-ydb-9.0, :9100 via CIANBRPC GETVAR "DUZ") returns for a session with
   # a DUZ in its environment — captured 2026-09-21. "DUZ=" with no digits is
   # ALL that RPC can ever return (GETVAR^CIANBRPC cannot reach namespace 0),
-  # which is why sign-on now asks XUS GET USER INFO instead. Kept as a
+  # which is why sign-on now asks CIAVCXUS VIMINFO instead. Kept as a
   # regression fixture: should anything route the identity read back through
   # GETVAR, sign-on must refuse rather than attest a nil identity.
   GETVAR_NO_DUZ_REAL = "2\x00DUZ=\r" # bytes [50,0,68,85,90,61,13] — rpms-ydb-9.0
@@ -269,7 +292,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # the public reader, and a later failed re-auth left the PRIOR user's name
   # readable. A wrong actor is worse than an absent one.
   def test_connection_loss_does_not_leave_a_user_name_readable
-    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD ])
     c.authenticate("SYN123", "SYN123!!")
     assert_equal "USER,DEMO", c.signon_user
 
@@ -480,7 +503,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   def test_full_signon_round_trip_against_strict_broker
     c, broker = client_on_strict_broker([
       "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", # CIANBRPC AUTH
-      "63\r\nUSER,DEMO\r\n",                                                     # XUS GET USER INFO
+      "63^USER,DEMO^1800;1800;60^0^0\r\n",                                     # CIAVCXUS VIMINFO
       "ok\r\n"                                                                 # the RPC proper
     ])
     c.connect("localhost", 9100)
@@ -507,7 +530,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # family (DDR/DDRROOT/DDRIENS lists) require.
 
   def signed_on_strict_client(rpc_bodies)
-    c, broker = client_on_strict_broker([ "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", "63\r\nUSER,DEMO\r\n" ] + rpc_bodies)
+    c, broker = client_on_strict_broker([ "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", "63^USER,DEMO^1800;1800;60^0^0\r\n" ] + rpc_bodies)
     c.connect("localhost", 9100)
     c.authenticate("SYN123", "SYN123!!")
     [ c, broker ]
@@ -545,7 +568,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     # persisted AGGRPC for a frame that carries no CTX (CIANBACT.m:49-50).
     c.create_context(RpmsRpc::CiaClient::SIGNON_CONTEXT)
     c.call_rpc("CIANBRPC CANRUN", "AGG ADD NEW PATIENT")
-    assert_equal [ "UID", "", "7", "CTX", "", "CIANB MAIN MENU",
+    assert_equal [ "UID", "", "7", "CTX", "", "CIAV VUECENTRIC",
                    "RPC", "", "CIANBRPC CANRUN", "1", "", "AGG ADD NEW PATIENT" ],
                  broker.frames.last[:fields]
   end
@@ -669,7 +692,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
           @reconnect_attempted = true
           RECONNECT_FAIL
         end
-      when "XUS GET USER INFO" then "63\r\nUSER,DEMO\r\n"
+      when "CIAVCXUS VIMINFO" then "63^USER,DEMO^1800;1800;60^0^0\r\n"
       else "ok\r\n"
       end
     end
@@ -705,6 +728,10 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     auth_frame = broker.frames.find { |fr| fr[:fields].include?("CIANBRPC AUTH") }
     assert_equal "0", auth_frame[:fields][2], "first sign-on must request session UID 0, not reconnect to 1"
     refute broker.reconnect_attempted, "a UID-1 first sign-on takes the reconnect-failure path"
+    # P1 is the application the session signs on under: VueCentric's, whose RPC
+    # multiple is what a user without XUPROGMODE is gated against (cloud-rpms#55).
+    assert_equal [ "1", "", "CIAV VUECENTRIC" ], auth_frame[:fields][6, 3],
+      "sign-on must bind CIAV VUECENTRIC as the AID, as VueCentric does"
 
     # And the broker-allocated UID must be captured and carried thereafter.
     assert result[:success]
