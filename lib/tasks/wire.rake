@@ -52,7 +52,7 @@ namespace :wire do
       sh "#{runtime} cp #{driver} #{container}:/tmp/rr_driver.rb"
       sh "#{runtime} exec -u root #{container} sh -lc 'chmod -R a+rX /tmp/rr /tmp/rr_driver.rb'"
 
-      json = `#{runtime} exec #{container} sh -lc "VISTA_RPC_ENV=development RPMS_RPC_LIB=/tmp/rr/lib BROKER_HOST=127.0.0.1 BROKER_PORT=#{port} RPMS_ACCESS=#{acc} RPMS_VERIFY=#{ver} ruby /tmp/rr_driver.rb"`
+      json = `#{runtime} exec #{container} sh -lc "VISTA_RPC_ENV=development RPMS_RPC_LIB=/tmp/rr/lib BROKER_HOST=127.0.0.1 BROKER_PORT=#{port} RPMS_ACCESS=#{acc} RPMS_VERIFY=#{ver} ONLY='#{only}' CITE_ONLY='#{cite_only.join(",")}' ruby /tmp/rr_driver.rb"`
       abort "wire:capture driver failed:\n#{json}" unless $?.success?
       captures = JSON.parse(json).fetch("captures")
     else
@@ -73,8 +73,16 @@ namespace :wire do
           next
         end
         raw = capture.fetch("raw")
+        # Label from what came back, not from the fact that the call returned.
+        # A reply with no data rows is a real observation ("no-data"), not a
+        # failed capture -- five committed fixtures record exactly that. Calling
+        # every successful call "live-capture" made the validator reject those
+        # on the way out, and the raise aborted the whole task before later
+        # entries were reached, so the task could not regenerate its own
+        # no-data fixtures.
+        source = RpmsRpc::WireCapture.data_rows(raw).empty? ? "no-data" : "live-capture"
         data = fixture_data(entry, release, captured_at).merge(
-          "source" => "live-capture",
+          "source" => source,
           "inputs" => entry.inputs,
           "raw_return" => raw,
           "sha256" => Digest::SHA256.hexdigest(raw)
@@ -84,8 +92,15 @@ namespace :wire do
       end
 
       # Round-trip through the validator so an invalid fixture can never be
-      # written, only rejected here at authoring time.
-      RpmsRpc::WireCapture::Fixture.new(data)
+      # written, only rejected here at authoring time. Rejection is per entry:
+      # one unwritable fixture must not abort the run and leave every later
+      # entry unprocessed.
+      begin
+        RpmsRpc::WireCapture::Fixture.new(data)
+      rescue RpmsRpc::WireCapture::InvalidFixture => e
+        warn "SKIP #{entry.rpc}: #{e.message} (existing fixture kept)"
+        next
+      end
 
       path = File.join(FIXTURES_DIR, "#{entry.rpc.downcase.tr(" /", "--")}.yml")
       File.write(path, fixture_header(entry, data) + YAML.dump(data))

@@ -57,6 +57,26 @@ module RpmsRpc
 
     # A committed wire capture. Validates provenance on load — an invalid
     # fixture raises InvalidFixture rather than silently entering the gate.
+    # Does a verbatim reply carry rows that are EVIDENCE of a field layout?
+    # Exposed at module level so the capture task can label a fixture from the
+    # bytes it actually received instead of assuming "live-capture" and then
+    # discovering at validation time that it was wrong.
+    def self.data_rows(raw)
+      return [] if raw.nil?
+
+      raw.sub(/\A\d+[\x00\x01]/, "").split(/\r\n|\r|\n/)
+         .reject(&:empty?)
+         .reject { |row| non_data_row?(row) }
+    end
+
+    def self.non_data_row?(line)
+      return true if line.match?(/\A-\d+(?:\.\d+)?\^/)
+
+      pieces = line.split("^", -1)
+      pieces.length >= 2 && pieces[0].empty? &&
+        pieces[1].match?(/\A[A-Za-z]/) && pieces[2..].all?(&:empty?)
+    end
+
     class Fixture
       attr_reader :path, :rpc, :mapping_name, :kind, :source, :cite, :inputs,
                   :raw_return, :example_return, :sha256, :release_tag, :captured_at,
@@ -127,7 +147,7 @@ module RpmsRpc
       # those as capture backing is how an empty result set comes to look
       # like a verified contract.
       def captured_data_rows
-        captured_rows.reject { |row| non_data_row?(row) }
+        captured_rows.reject { |row| WireCapture.non_data_row?(row) }
       end
 
       # Kept local rather than delegating to DataMapper.non_data_row?: this
