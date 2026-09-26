@@ -78,9 +78,10 @@ deliberately — as an asthma-classification read — if a caller needs one.
 ### Fixed
 
 - **CIA sign-on binds `CIAV VUECENTRIC`, the application VueCentric signs on
-  under,** instead of `CIANB MAIN MENU`. That option's RPC multiple carries
-  one RPC, so every call from a user without XUPROGMODE was "Access denied"
-  except the broker's own `CIANB*` routines. Captured from VueCentric's
+  under,** instead of `CIANB MAIN MENU`. It is `CIANB MAIN MENU` whose RPC
+  multiple carries just one RPC, so binding there left every call from a user
+  without XUPROGMODE "Access denied" except the broker's own `CIANB*`
+  routines; `CIAV VUECENTRIC` serves the set VueCentric actually calls. Captured from VueCentric's
   server-side activity log and verified live as PROV123 (cloud-rpms#55).
 - **CIA sign-on reads the DUZ with `CIAVCXUS VIMINFO`,** the first identity
   read VueCentric makes after AUTH (piece 1 of its one-line reply). The

@@ -118,10 +118,10 @@ class RpmsRpc::CiaClientTest < Minitest::Test
 
   AUTH_REPLY = "1\x000\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\n" \
                "Good evening USER,DEMO\r\n     You last signed on today at 08:15\r\n"
-  USERINFO_REPLY = "2\x0063^USER,DEMO^1800;1800;60^0^0"
+  VIMINFO_REPLY = "2\x0063^USER,DEMO^1800;1800;60^0^0"
 
   def test_authenticate_populates_duz_from_user_info
-    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD ])
     result = c.authenticate("SYN123", "SYN123!!")
     assert result[:success]
     assert_equal "USER,DEMO", result[:user]
@@ -133,7 +133,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # RPC multiple. XUS GET USER INFO is in no option sign-on binds, so a user
   # without XUPROGMODE was "Access denied" and could not sign on at all.
   def test_signon_reads_duz_with_ciavcxus_viminfo
-    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD ])
     c.authenticate("SYN123", "SYN123!!")
     frame = c.instance_variable_get(:@socket).writes.last
     pk = ->(v) { c.send(:pk, v) }
@@ -152,7 +152,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   end
 
   def test_authenticate_captures_session_uid_and_uses_it_on_later_calls
-    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD, "3\x00ok\r\n" + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, "3\x00ok\r\n" + EOD ])
     c.authenticate("SYN123", "SYN123!!")
     assert_equal "7", c.session_uid
     c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
@@ -243,7 +243,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # readable. Pre-seed a resolved session, then fail a re-auth on no DUZ:
   # duz/authenticated/session_uid must all clear, not survive.
   def test_failed_reauth_clears_prior_users_identity
-    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD,
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD,
                            AUTH_REPLY + EOD, "4\x00\r\n" + EOD ])
     first = c.authenticate("USERA", "USERA!!") # resolves DUZ 63
     assert_equal 63, first[:duz]
@@ -260,7 +260,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # re-auth (bad code) must also clear a prior resolved identity.
   def test_rejected_reauth_clears_prior_users_identity
     rejected = "3\x00Not a valid ACCESS CODE/VERIFY CODE pair.\r\n"
-    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD, rejected + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, rejected + EOD ])
     c.authenticate("USERA", "USERA!!")
     assert_equal "63", c.duz
 
@@ -292,7 +292,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # the public reader, and a later failed re-auth left the PRIOR user's name
   # readable. A wrong actor is worse than an absent one.
   def test_connection_loss_does_not_leave_a_user_name_readable
-    c = connected_client([ AUTH_REPLY + EOD, USERINFO_REPLY + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD ])
     c.authenticate("SYN123", "SYN123!!")
     assert_equal "USER,DEMO", c.signon_user
 
