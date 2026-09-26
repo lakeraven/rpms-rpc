@@ -317,4 +317,31 @@ class RpmsRpc::DataMapperTest < Minitest::Test
     mapping = RpmsRpc::DataMapper[:dm_test_registry]
     assert_equal "TEST", mapping.rpc_name
   end
+
+  # A bare Date reaching a *datetime* field is the #267 defect class: DateTime
+  # and Time answer #hour, Date does not. Encounter#visit_string was fixed at
+  # its own call site; these cover the shared formatter every other mapped
+  # field goes through, so the next field to hit it does not have to rediscover
+  # it. Reproduced before the fix: fileman_datetime raised NoMethodError, and
+  # external_datetime quietly emitted "2026-01-15".
+  def test_fileman_datetime_accepts_a_bare_date_as_a_date_only_value
+    m = RpmsRpc::DataMapper::Mapping.allocate
+    assert_equal "3260115", m.send(:format_value, Date.new(2026, 1, 15), :fileman_datetime)
+  end
+
+  def test_fileman_datetime_still_carries_the_time_when_there_is_one
+    m = RpmsRpc::DataMapper::Mapping.allocate
+    assert_equal "3260115.0930", m.send(:format_value, DateTime.new(2026, 1, 15, 9, 30), :fileman_datetime)
+    assert_equal "3260115.0930", m.send(:format_value, Time.new(2026, 1, 15, 9, 30), :fileman_datetime)
+  end
+
+  def test_external_datetime_formats_a_bare_date_externally_not_as_iso
+    m = RpmsRpc::DataMapper::Mapping.allocate
+    assert_equal "JAN 15, 2026", m.send(:format_value, Date.new(2026, 1, 15), :external_datetime)
+  end
+
+  def test_external_datetime_still_carries_the_time_when_there_is_one
+    m = RpmsRpc::DataMapper::Mapping.allocate
+    assert_equal "JAN 15, 2026 09:30", m.send(:format_value, Time.new(2026, 1, 15, 9, 30), :external_datetime)
+  end
 end
