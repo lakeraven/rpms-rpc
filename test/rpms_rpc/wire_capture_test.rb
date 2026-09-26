@@ -345,4 +345,35 @@ class RpmsRpc::WireCaptureTest < Minitest::Test
     assert_equal [ "first", "", "3260607" ], f.positional_rows
     assert_equal [ "first", "3260607" ], f.captured_rows
   end
+
+  # A broker error must never look like "the box answered with nothing": the
+  # capture task would label it no-data and overwrite a capture-backed
+  # fixture, so a transient failure erases evidence.
+  def test_error_reply_is_distinguishable_from_an_empty_result
+    assert RpmsRpc::WireCapture.error_reply?("6\x01-1^No such patient")
+    refute RpmsRpc::WireCapture.error_reply?("4\x00"),
+      "an empty reply is an observation, not a failure"
+    refute RpmsRpc::WireCapture.error_reply?("4\x00^No vitals found."),
+      "a no-data sentinel is an observation, not a failure"
+    refute RpmsRpc::WireCapture.error_reply?("4\x0017^TMP^98.6^3260901.1436")
+  end
+
+  # For a lines fixture recording an empty result, there are no field values
+  # at all -- handing the sentinel back as position 0 made the type check read
+  # it as a field and fail an honest no-data fixture.
+  def test_no_data_lines_fixture_exposes_no_positional_fields
+    raw = "4\x00^No user found."
+    f = RpmsRpc::WireCapture::Fixture.new({
+      "rpc" => "XUS GET USER INFO", "mapping" => "user_info", "kind" => "lines",
+      "source" => "no-data", "cite" => "GETUSER^XUS (r/XUS.m:1-9)",
+      "release_tag" => "bcer-9.0-test", "captured_at" => "2026-09-26T00:00:00Z",
+      "raw_return" => raw, "sha256" => Digest::SHA256.hexdigest(raw),
+      "pieces" => [ { "position" => 0, "attributes" => [ "duz" ] } ]
+    })
+
+    assert_empty f.positional_rows
+    violations = RpmsRpc::WireCapture::Contract.check(RpmsRpc::DataMapper[:user_info], f)
+    assert_empty violations.select { |v| v.kind == :type_mismatch },
+      "a no-data fixture provides no field evidence, so it cannot violate a field type"
+  end
 end

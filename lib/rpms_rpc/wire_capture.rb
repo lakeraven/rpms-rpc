@@ -69,6 +69,18 @@ module RpmsRpc
          .reject { |row| non_data_row?(row) }
     end
 
+    # An explicit broker error ("-N^message"), as opposed to a no-data
+    # sentinel. The difference matters when recapturing: nothing came back
+    # because the CALL failed, so the existing fixture is better evidence
+    # than anything this run could write.
+    def self.error_reply?(raw)
+      return false if raw.nil?
+
+      raw.sub(/\A\d+[\x00\x01]/, "").split(/\r\n|\r|\n/)
+         .reject(&:empty?)
+         .any? { |row| row.match?(/\A-\d+(?:\.\d+)?\^/) }
+    end
+
     def self.non_data_row?(line)
       return true if line.match?(/\A-\d+(?:\.\d+)?\^/)
 
@@ -150,6 +162,11 @@ module RpmsRpc
       def positional_rows
         return captured_rows unless @kind == "lines"
         return [] if @raw_return.nil?
+        # A reply that is only an error row or a no-data sentinel carries no
+        # field values at all. Handing that line back as position 0 made the
+        # type check read "-1^message" as an integer field and fail a fixture
+        # that is honestly recording an empty result.
+        return [] if captured_data_rows.empty?
 
         @raw_return.sub(/\A\d+[\x00\x01]/, "").split(/\r\n|\r|\n/)
       end

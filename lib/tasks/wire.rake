@@ -80,6 +80,15 @@ namespace :wire do
         # on the way out, and the raise aborted the whole task before later
         # entries were reached, so the task could not regenerate its own
         # no-data fixtures.
+        # A broker ERROR is not an observation of an empty result: the call
+        # failed, so the committed fixture is better evidence than anything
+        # this run can write. Downgrading it to no-data would let a transient
+        # failure erase a capture-backed contract.
+        if RpmsRpc::WireCapture.error_reply?(raw)
+          warn "SKIP #{entry.rpc}: broker returned an error reply (existing fixture kept)"
+          next
+        end
+
         source = RpmsRpc::WireCapture.data_rows(raw).empty? ? "no-data" : "live-capture"
         data = fixture_data(entry, release, captured_at).merge(
           "source" => source,
