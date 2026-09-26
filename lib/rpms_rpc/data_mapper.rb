@@ -107,6 +107,15 @@ module RpmsRpc
 
       # Declare a line-based field (one field per response line, not per caret).
       # Used for RPCs like XUS AV CODE where each line has a distinct meaning.
+      # The fields of a line-based mapping (one field per LINE), or [].
+      def line_fields
+        @line_fields || []
+      end
+
+      def line_fields?
+        line_fields.any?
+      end
+
       def line_field(line_number, attribute, type = :string)
         @line_fields ||= []
         @line_fields << Field.new(position: line_number, attribute: attribute, type: type)

@@ -1,0 +1,38 @@
+# Wire cite: ORQQVI VITALS FOR DATE RANGE — the OTHER ORQQVI reader.
+# No call was made against this RPC; the shape is read from the M source.
+# Gated by test/rpms_rpc/wire_contract_test.rb against mapping :vitals_for_date_range.
+---
+rpc: ORQQVI VITALS FOR DATE RANGE
+mapping: vitals_for_date_range
+kind: fields
+cite: 'VITALS^ORQQVI (bcer-9.0-ydb r/ORQQVI.m:11-30): the #8994 registry sends
+  "ORQQVI VITALS FOR DATE RANGE" here (.broker_dumps_8994_20260607.txt:795
+  "ORQQVI VITALS FOR DATE RANGE^VITALS^ORQQVI"). Header: "vital measurement
+  ien^vital type^date/time taken^rate" — DATETIME at piece 3, VALUE at piece 4,
+  the reverse of FASTVIT (see :vitals). Row construction ORY(I)=ORI_"^"_ORT_"^"_
+  $P(...,"^",8)_"^"_$P(^(ORI),"^"); "^No vitals found." sentinel when none.'
+note: 'These two RPCs share a routine and swap two pieces, which is how the
+  :vitals mapping came to be verified against the wrong tag. This fixture exists
+  so the shape that misled it is pinned to the RPC it actually belongs to.
+  HONEST LIMITATION: this tag reads only GMRV #120.5 via EN1^GMRVUT0 and has no
+  DUZ("AG")="I" branch, so on an IHS box its IENs are #120.5 IENs, NOT the
+  V MEASUREMENT (#9000010.01) IENs the Measurement decoration expects.'
+pieces:
+- position: 0
+  attributes:
+  - measurement_ien
+  fileman_type: integer
+- position: 1
+  attributes:
+  - type
+- position: 2
+  attributes:
+  - recorded_date
+  - recorded_datetime
+  fileman_type: fileman_datetime
+- position: 3
+  attributes:
+  - value
+  - rate
+source: routine-cite
+example_return: "77^BP^3260401.0915^120/80"

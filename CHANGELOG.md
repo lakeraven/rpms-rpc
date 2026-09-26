@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the gate can see line-based mappings at all (#190)
+
+`Contract.mapping_kind` asked only `scalar?` / `text_blob?`, so the **19
+registered mappings declared with `line_field`** — one field per LINE of
+the reply, the sign-on and user-info reads among them — all classified as
+`fields`. A capture of any of them would have compared line numbers
+against caret-piece positions: the wrong axis, and silently, since both
+are small integers. `kind: lines` was already an allowed fixture kind with
+nothing behind it.
+
+`DataMapper::Mapping` now exposes `line_fields` / `line_fields?`,
+`mapping_kind` returns `"lines"` for them, and `Contract` gates them on
+line position with a type check that reads lines rather than carets.
+(Copilot, #190.)
+
+### Fixed — the vitals capture cited the wrong ORQQVI tag (#190)
+
+`orqqvi-vitals.yml` cited `VITALS^ORQQVI` and declared
+`IEN^TYPE^DATETIME^value`. The #8994 registry serves "ORQQVI VITALS" from
+**`FASTVIT^ORQQVI`** (dump line 565), whose header reads
+`ien^type^rate^date/time taken` — pieces 3 and 4 are the reverse. The two
+tags live in one routine and differ by that swap, which is how the
+original mapping came to be "verified" against the wrong one.
+
+Rebased onto `main` after #188 merged, so the gate now runs against the
+corrected mapping. Consequences:
+
+- The fixture cites FASTVIT and declares all seven pieces, including the
+  IHS `MSR^ORQQVI` branch's display / metric-display / qualifiers.
+- New `orqqvi-vitals-for-date-range.yml` keeps the `VITALS^ORQQVI` shape
+  pinned to the RPC it actually belongs to, with its own limitation noted:
+  that tag reads only GMRV #120.5 and has no `DUZ("AG")="I"` branch, so its
+  IENs are not the V MEASUREMENT IENs the Measurement decoration expects.
+- The `:problem_list` KNOWN_DIVERGENCES entry is gone — #188 fixed the
+  mapping, the gate reports no divergence, and the entry left with the fix
+  exactly as that list's contract requires.
+- `test_gate_red_flags_the_fabricated_orqqvi_vitals_mapping` now expects
+  three flagged positions, not four. Position 3 is a coincidence, not a
+  pass: the invented layout happened to put a date where FASTVIT really
+  carries one. Against the mis-cited fixture it read as a fourth catch,
+  which flattered the gate.
+
+
 ### Removed — `Problem.filter` / `:problem_filter` were never bound to a problem list (#188)
 
 The #8994 registry sends `BGOPROB GET CLASS` to **`DICLASS^BGOASLK`**
@@ -234,6 +277,22 @@ source with the INP layouts each routine actually parses:
   CPRS.` — ORWPT.m:49).
 
 ### Added
+
+- Wire-shape contract gate (#189): `RpmsRpc::WireCapture` +
+  `rake wire:capture` capture curated RPC returns from a rung we own into
+  provenance-stamped fixtures (`test/fixtures/wire_captures/` — verbatim
+  raw + sha256 for live captures, M-source cites for write/faulting RPCs;
+  a fixture with neither provenance is rejected), and
+  `test/rpms_rpc/wire_contract_test.rb` gates every mapping with a
+  committed capture in CI: declared field positions must carry the cited
+  wire semantics and typed fields must survive the captured raw. Closes
+  the belief-mirroring-mock failure class (ORQQVI VITALS shipped
+  `TYPE^VALUE^UNITS^DATE` against a real wire of `IEN^TYPE^DATETIME^value`
+  and stayed green); on its first run the gate caught `:problem_list`
+  (status/description swapped, phantom provider-DUZ piece) and
+  `:patient_id_info` (position 3 is the VETERAN flag, not a race code;
+  position 5 the ward, not a site IEN) — pinned as known divergences for
+  their own mapping-fix PRs. See docs/WIRE_CONTRACTS.md.
 
 - `RpmsRpc::Allergy.assessment(dfn)` — three-state allergy result
   `{ assessed:, nka:, allergies: [] }` so consumers (FHIR
