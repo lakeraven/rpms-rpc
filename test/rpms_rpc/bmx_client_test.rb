@@ -19,8 +19,8 @@ class RpmsRpc::BmxClientTest < Minitest::Test
     assert Client < RpmsRpc::Client
   end
 
-  def test_default_port_is_9200
-    assert_equal 9200, Client.new.port
+  def test_default_port_is_9101
+    assert_equal 9101, Client.new.port
   end
 
   def test_bmx_prefix

@@ -1,7 +1,7 @@
 # rpms-rpc
 
 Pure Ruby RPC client for VistA / RPMS — speaks the **CIA/XWB**
-(port 9100) and **BMX** (port 9200) broker protocols. No Rails
+(port 9100) and **BMX** (port 9101) broker protocols. No Rails
 dependency, no Java, just stdlib.
 
 ## Status
@@ -70,12 +70,12 @@ result = client.call_rpc("XUS SIGNON SETUP")
 client.disconnect
 ```
 
-### BMX — port 9200
+### BMX — port 9101
 
 ```ruby
 require "rpms_rpc/bmx_client"
 
-client = RpmsRpc::BmxClient.new(host: "vista.example.com", port: 9200)
+client = RpmsRpc::BmxClient.new(host: "vista.example.com", port: 9101)
 client.connect
 client.authenticate
 client.create_context("OR CPRS GUI CHART")
@@ -118,7 +118,7 @@ client.disconnect
 |-------------------------------|--------------------------------------------------|
 | `RpmsRpc::Client`             | Abstract base — auth, cipher, socket helpers     |
 | `RpmsRpc::CiaClient`          | XWB/CIA wire protocol (port 9100)                |
-| `RpmsRpc::BmxClient`          | BMX wire protocol (port 9200)                    |
+| `RpmsRpc::BmxClient`          | BMX wire protocol (port 9101)                    |
 | `RpmsRpc::ParameterEncoder`   | VistA `1{len}00f{value}\x04` parameter encoding  |
 | `RpmsRpc::ResponseParser`     | Caret-delimited response parser                  |
 | `RpmsRpc::XmlResponseParser`  | VistA RPC XML response parser                    |

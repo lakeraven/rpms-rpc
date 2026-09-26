@@ -5,7 +5,9 @@ require "rpms_rpc/client"
 module RpmsRpc
   # BMX (M Transfer) Protocol Client.
   #
-  # Implements the {BMX} protocol used by BMXMON on port 9200.
+  # Implements the {BMX} protocol used by BMXMON. BMXMON takes its port as an argument
+  # (FOIA sets none); 9101 is the BMX port on hosted RPMS stacks (rpms-ops docs/BROKER-PORTS.md).
+  # 9200 there is the IRIS CIA listener, a different protocol.
   # Both BMX and CIA/XWB route to the same RPC registry (^XWB(8994))
   # and call the same M routines — the difference is the wire format.
   #
@@ -159,7 +161,7 @@ module RpmsRpc
     end
 
     def default_port
-      9200
+      9101
     end
 
     # Send a packet for the initial monitor connection (pre-session)
