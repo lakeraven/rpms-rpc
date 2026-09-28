@@ -249,7 +249,10 @@ module RpmsRpc
       synchronize_wire do
         signon_setup # Step 1: XUS SIGNON SETUP
 
-        # Step 2: XUS AV CODE with encrypted credentials
+        # Step 2: XUS AV CODE with encrypted credentials.
+        # NOT "BGU AVLOGON", which looks like an equivalent and is not: it sets
+        # DUZ(0)="@" three lines before it checks the codes and never clears it
+        # (rpms-ops#655). Enforced by test/rpms_rpc/forbidden_auth_rpcs_test.rb.
         reply = call_rpc_raw("XUS AV CODE", xwb_encrypt("#{ac};#{vc}"))
 
         lines = reply.split("\r\n")
