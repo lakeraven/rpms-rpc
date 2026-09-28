@@ -46,10 +46,25 @@ class ForbiddenAuthRpcsTest < Minitest::Test
   # `S DUZ(0)=$P(XUSER(0),U,4)`, unconditional.
   #
   # Tracked: rpms-ops#655.
+  # All eight live in that one context. AVLOGON is the sign-on defect above;
+  # ACCESSCODE/VERIFYCODE CHANGE are what the leaked "@" unlocks. The other
+  # four are here because of what they are, not because of that bug:
+  # BGUAPI's APICALL and RPCCALL both end in `X BGUMSG` — they EXECUTE M.
+  # Not arbitrary code off the wire (the message must already exist in
+  # ^BGUMCD("C",...) and be Active), but FILER, ROUTINE FILER and
+  # CREATERECORD are generic writers sitting in the same context, so the
+  # write-then-execute chain is a short one. Whether those writers can reach
+  # ^BGUMCD is NOT verified — which is a reason to keep all of them out of
+  # this client, not a reason to wait.
   FORBIDDEN = [
     "BGU AVLOGON",
     "BGU ACCESSCODE CHANGE",
-    "BGU VERIFYCODE CHANGE"
+    "BGU VERIFYCODE CHANGE",
+    "BGU APICALL",
+    "BGU RPCCALL",
+    "BGU FILER",
+    "BGU ROUTINE FILER",
+    "BGU CREATERECORD"
   ].freeze
 
   def test_no_bgu_sign_on_rpc_is_referenced_anywhere_in_lib
@@ -63,7 +78,7 @@ class ForbiddenAuthRpcsTest < Minitest::Test
     end
 
     assert_empty offenders, <<~WHY
-      A BGU sign-on RPC is referenced in lib/:
+      A forbidden BGU RPC is referenced in lib/:
 
         #{offenders.join("\n  ")}
 
