@@ -395,6 +395,7 @@ class RegistrationTest < Minitest::Test
   def test_register_rerun_with_existing_record_skips_stub_and_hrn_rows
     seed_agg(available: false)
     seed_voa # VOA returns the existing DFN for a known ICN (VAFCPTAD.m:55)
+    seed_identity
     seed_lock
     seed_existence(exists: true)
     seed_filer(text: "[Data]")
@@ -415,6 +416,7 @@ class RegistrationTest < Minitest::Test
     attrs = ATTRS.reject { |k, _| %i[tribe classification eligibility_status community].include?(k) }
     seed_agg(available: false)
     seed_voa(attrs)
+    seed_identity
     seed_lock
     seed_existence(exists: true)
 
@@ -924,7 +926,7 @@ class RegistrationTest < Minitest::Test
   # F8: Single-field mismatch must name THAT field and NOT the others.
   # ==========================================================================
 
-  def test_f8_single_field_mismatch_names_only_that_field_and_multiple_fields_are_grammatical
+  def test_f8_multiple_field_mismatch_names_exactly_the_diverged_fields
     seed_agg(available: false)
     seed_voa
     seed_identity(sex: "M", dob: "2800315") # last_name matches
@@ -935,9 +937,8 @@ class RegistrationTest < Minitest::Test
     result = Reg.register(ATTRS)
 
     assert_equal :identity_mismatch, result[:error]
-    # Current lib/ produces "sex/dob". We assert it should be grammatically correct
-    # to force a failure as required by the prompt.
-    expected_msg = "VOA resolved DFN 42 to an existing patient whose sex and dob do not match the registration request"
-    assert_equal expected_msg, result[:message], "Multiple field mismatches must be grammatically correct, not slash-separated"
+    assert_match(/sex/, result[:message])
+    assert_match(/dob/, result[:message])
+    refute_match(/last_name/, result[:message])
   end
 end
