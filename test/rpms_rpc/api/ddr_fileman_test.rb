@@ -173,8 +173,19 @@ class DdrFilemanTest < Minitest::Test
     refute Ddr.lock(node: "^AUPNPAT(42)")
   end
 
-  def test_lock_false_when_broker_gives_no_response
-    refute Ddr.lock(node: "^AUPNPAT(42)")
+  # Tri-state: nil (no broker response) must stay distinguishable from false
+  # (the broker answered "0" — contention). Collapsing them reports an
+  # unreachable broker as a busy record.
+  def test_lock_nil_when_broker_gives_no_response
+    assert_nil Ddr.lock(node: "^AUPNPAT(42)")
+  end
+
+  def test_lock_distinguishes_no_response_from_refusal
+    assert_nil Ddr.lock(node: "^AUPNPAT(42)"), "unseeded = no broker response"
+
+    @mock.seed(:ddr_lock_unlock_node, Ddr.lock_param(node: "^AUPNPAT(42)").to_s, false)
+
+    assert_equal false, Ddr.lock(node: "^AUPNPAT(42)"), "an answered refusal is false, not nil"
   end
 
   def test_unlock_sends_unlock_param
