@@ -578,7 +578,11 @@ class RegistrationTest < Minitest::Test
     refute result[:success]
     assert_equal :identity_mismatch, result[:error]
     assert_match(/does not match/, result[:message])
-    refute_match(/DEMOPATIENT|OTHERPATIENT/, result[:message], "message must not echo PHI")
+    refute_match(/DEMOPATIENT|OTHERPATIENT/, result[:message], "message must not echo a name")
+    refute_match(/900010001|2800315|19900102|2900102/, result[:message],
+      "message must not echo an SSN or a DOB in any representation")
+    assert_match(/\Asex\/dob\/last_name|sex|dob|last_name/, result[:message].split("whose").last.to_s,
+      "message must name the diverged fields")
     # The guard runs BEFORE the write path: no lock, no filing.
     assert_empty @mock.received_calls.select { |c| c[:rpc] == "DDR LOCK/UNLOCK NODE" }
     assert_empty filer_calls
@@ -622,6 +626,8 @@ class RegistrationTest < Minitest::Test
 
     assert_equal :identity_mismatch, result[:error]
     assert_match(/sex/, result[:message])
+    assert_empty filer_calls
+    assert_empty @mock.received_calls.select { |c| c[:rpc] == "DDR LOCK/UNLOCK NODE" }
   end
 
   def test_register_rejects_on_last_name_mismatch_alone
@@ -666,6 +672,30 @@ class RegistrationTest < Minitest::Test
     seed_filer
 
     assert Reg.register(ATTRS)[:success]
+  end
+
+  # Gate finding (Sol, r1): an external DOB string with surrounding whitespace
+  # missed the MM/DD/YYYY branch and fell through to digit-stripping, yielding
+  # "121990" instead of "19900102" — a FALSE REJECTION of a valid registration.
+  def test_register_tolerates_surrounding_whitespace_in_an_external_dob
+    seed_agg(available: false)
+    seed_voa(ATTRS.merge(dob: " 1/2/1990 "))
+    seed_identity # chart DOB is the same calendar day
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS.merge(dob: " 1/2/1990 "))
+
+    assert result[:success], "whitespace around an external DOB must not read as a different person"
+  end
+
+  def test_dob_key_normalizes_equivalent_external_forms
+    key = ->(v) { Reg.send(:dob_key, v) }
+
+    assert_equal key.call(Date.new(1990, 1, 2)), key.call("1/2/1990")
+    assert_equal key.call(Date.new(1990, 1, 2)), key.call(" 1/2/1990 ")
+    assert_equal key.call(Date.new(1990, 1, 2)), key.call("01/02/1990")
   end
 
   # A field the resolved record simply does not carry is unverifiable, not a
