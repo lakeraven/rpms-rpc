@@ -82,9 +82,20 @@ class RegistrationTest < Minitest::Test
     @mock.seed(:ddr_filer, "ADD", text)
   end
 
+  # The identity guard reads ORWPT ID INFO for the DFN that VOA resolved.
+  # The default seed matches ATTRS so the guard passes; pass explicit pieces
+  # to force a mismatch. Live shape: ssn^dob(FileMan)^sex^race^^site^^name
+  # (stock_vista.rb :patient_id_info).
+  def seed_identity(dfn: 42, ssn: "900010001", dob: "2900102", sex: "F",
+                    name: "DEMOPATIENT,UNA")
+    @mock.seed(:patient_id_info, dfn.to_s,
+      { ssn: ssn, dob: dob, sex: sex, name: name })
+  end
+
   def seed_composition_happy_path
     seed_agg(available: false)
     seed_voa
+    seed_identity
     seed_lock
     seed_existence
     seed_filer
@@ -543,5 +554,159 @@ class RegistrationTest < Minitest::Test
     assert_equal :invalid_dfn, Reg.update(0, patient_fields: { ".111" => "X" })[:error]
     assert_equal :no_fields, Reg.update(42)[:error]
     assert_empty @mock.received_calls
+  end
+
+  # ==========================================================================
+  # Identity guard — VOA ADD PATIENT returns "1^DFN" both for a freshly created
+  # patient AND for an ICN that already exists at this facility
+  # (VAFCPTAD.m:29,55), with NO identity re-validation. Without a guard, an ICN
+  # collision files this request's demographics onto ANOTHER person's chart.
+  # Salvaged from #187 (BLOCKER-3), which predates the AGG delegation split.
+  # ==========================================================================
+
+  def test_register_aborts_on_identity_mismatch_before_any_write
+    seed_agg(available: false)
+    seed_voa # resolves to DFN 42
+    # ORWPT ID INFO returns a DIFFERENT person (wrong-patient ICN collision).
+    seed_identity(sex: "M", name: "OTHERPATIENT,ZED", dob: "2800315")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    refute result[:success]
+    assert_equal :identity_mismatch, result[:error]
+    assert_match(/does not match/, result[:message])
+    refute_match(/DEMOPATIENT|OTHERPATIENT/, result[:message], "message must not echo PHI")
+    # The guard runs BEFORE the write path: no lock, no filing.
+    assert_empty @mock.received_calls.select { |c| c[:rpc] == "DDR LOCK/UNLOCK NODE" }
+    assert_empty filer_calls
+  end
+
+  def test_register_proceeds_when_identity_matches
+    seed_composition_happy_path # seed_identity matches ATTRS
+
+    result = Reg.register(ATTRS)
+
+    assert result[:success]
+    assert_equal 42, result[:dfn]
+  end
+
+  # Unverifiable is NOT mismatched: ORWPT ID INFO returning nothing (capability
+  # gap, or a record too fresh to read back) must not false-reject a valid
+  # registration. Absence of data is not evidence of a collision.
+  def test_register_proceeds_when_identity_unverifiable
+    seed_agg(available: false)
+    seed_voa
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS) # no seed_identity
+
+    assert result[:success]
+  end
+
+  # A single diverging field is enough, and the message names WHICH field
+  # diverged without echoing either value.
+  def test_register_rejects_on_sex_mismatch_alone
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(sex: "M") # name and DOB still match
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    assert_equal :identity_mismatch, result[:error]
+    assert_match(/sex/, result[:message])
+  end
+
+  def test_register_rejects_on_last_name_mismatch_alone
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(name: "OTHERPATIENT,UNA") # sex and DOB still match
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    assert_equal :identity_mismatch, result[:error]
+    assert_match(/last_name/, result[:message])
+    assert_empty filer_calls
+  end
+
+  def test_register_rejects_on_dob_mismatch_alone
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(dob: "2800315") # name and sex still match
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    assert_equal :identity_mismatch, result[:error]
+    assert_match(/dob/, result[:message])
+    assert_empty filer_calls
+  end
+
+  # Same last name, different first name is NOT a mismatch: the guard compares
+  # last-name tokens only, because VAFCPTAD reassembles "LAST,FIRST MIDDLE" and
+  # the first-name half does not round-trip reliably.
+  def test_register_proceeds_when_only_the_first_name_differs
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(name: "DEMOPATIENT,OTHERFIRST")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    assert Reg.register(ATTRS)[:success]
+  end
+
+  # A field the resolved record simply does not carry is unverifiable, not a
+  # divergence — blank must never read as "different".
+  def test_register_proceeds_when_resolved_record_omits_a_field
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(sex: "", dob: "", name: "")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    assert Reg.register(ATTRS)[:success]
+  end
+
+  # ==========================================================================
+  # Tri-state lock — a lock that got NO broker response is unreachable
+  # infrastructure, not contention. Collapsing the two reports an outage as a
+  # busy record. Salvaged from #187 (M4).
+  # ==========================================================================
+
+  def test_register_returns_nil_when_lock_gets_no_response
+    seed_agg(available: false)
+    seed_voa
+    seed_identity
+    # The lock RPC is deliberately NOT seeded -> no broker response.
+
+    assert_nil Reg.register(ATTRS), "no broker response must not be reported as contention"
+    assert_empty filer_calls
+  end
+
+  def test_register_reports_lock_failed_on_actual_contention
+    seed_agg(available: false)
+    seed_voa
+    seed_identity
+    seed_lock(ok: false) # DDROK "0" — a real, answered refusal
+
+    result = Reg.register(ATTRS)
+
+    refute result[:success]
+    assert_equal :lock_failed, result[:error]
+    assert_empty filer_calls
   end
 end

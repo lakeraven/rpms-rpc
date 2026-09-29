@@ -36,6 +36,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — registration identity guard and a tri-state FileMan lock (#187 salvage)
+
+- `Registration#register_via_composition` verifies the resolved DFN's identity
+  before writing. `VAFC VOA ADD PATIENT` returns `1^DFN` both for a freshly
+  created patient AND for an ICN that already exists at this facility
+  (VAFCPTAD.m:29,55), with no re-validation — so an ICN collision would file
+  this request's demographics onto another person's chart. The guard reads
+  `ORWPT ID INFO` for the resolved DFN and rejects with `:identity_mismatch`
+  when last name, DOB or sex disagrees, before the lock and before any filing.
+  The message names which field diverged and never echoes either value.
+  Unverifiable is not mismatched: a nil read-back proceeds rather than
+  false-rejecting a valid registration, and a blank on either side is unknown
+  rather than different.
+- `DdrFileman.lock` is tri-state: `true` = locked, `false` = the broker
+  ANSWERED and refused (DDROK "0" — contention), `nil` = no broker response.
+  Collapsing `nil` into `false` reported an unreachable broker as a busy
+  record. `Registration#register_via_composition` now returns `nil` for the
+  unreachable case and `:lock_failed` only for an answered refusal;
+  `Registration#update` deliberately keeps collapsing both into `:lock_failed`
+  to preserve its documented retryable contract.
+
 ### Added — the gate can see line-based mappings at all (#190)
 
 `Contract.mapping_kind` asked only `scalar?` / `text_blob?`, so the **19

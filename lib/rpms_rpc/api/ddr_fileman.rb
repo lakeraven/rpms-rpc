@@ -107,8 +107,14 @@ module RpmsRpc
     # Incremental M LOCK on a global node ('L +node:timeout',
     # LOCKC^DDR1: DDR1.m:21-24). True iff the lock was acquired within
     # `timeout` seconds; false on timeout or no broker response.
+    # TRI-STATE, deliberately: true = locked, false = the broker ANSWERED and
+    # refused (DDROK "0" — contention or timeout), nil = no broker response at
+    # all. Collapsing nil into false reports an unreachable broker as a busy
+    # record, which is the "absence of data is verification" failure: the
+    # caller retries a record that was never contended. Callers that cannot
+    # act on the distinction should compare against `true` explicitly.
     def lock(node:, timeout: 5)
-      DataMapper.ddr_lock_unlock_node.fetch_scalar(lock_param(node: node, timeout: timeout)) == true
+      DataMapper.ddr_lock_unlock_node.fetch_scalar(lock_param(node: node, timeout: timeout))
     end
 
     # Release the lock ('L -node' — always "1", DDR1.m:25-27).

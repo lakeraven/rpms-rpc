@@ -209,8 +209,19 @@ module RpmsRpc
       return voa_failure(voa) unless voa[:status] == 1
 
       dfn = voa[:dfn_or_error].to_i
+
+      # VOA returns "1^DFN" for a freshly created patient AND for an ICN that
+      # already exists at this facility (VAFCPTAD.m:29,55), with no identity
+      # re-validation. Verify the resolved record IS the person in the request
+      # before writing anything against it.
+      mismatch = identity_mismatch(attrs, dfn)
+      return mismatch if mismatch
+
       node = "^AUPNPAT(#{dfn})"
-      unless DdrFileman.lock(node: node)
+      case DdrFileman.lock(node: node)
+      when nil
+        return nil # no broker response to the lock — unreachable, not a refusal
+      when false
         return { success: false, error: :lock_failed,
                  message: "could not lock #{node}" }
       end
@@ -254,7 +265,9 @@ module RpmsRpc
       return { success: false, error: :no_fields, message: "no fields to update" } if rows.empty?
 
       node = "^DPT(#{dfn})"
-      unless DdrFileman.lock(node: node)
+      # DdrFileman.lock is tri-state; #update deliberately collapses nil (no
+      # response) into :lock_failed to keep its documented retryable contract.
+      unless DdrFileman.lock(node: node) == true
         return { success: false, error: :lock_failed, message: "could not lock #{node}" }
       end
 
@@ -327,6 +340,64 @@ module RpmsRpc
     end
 
     private
+
+    # nil when the resolved DFN's identity matches the request, or cannot be
+    # read back at all; a rejection hash when ORWPT ID INFO returns a record
+    # whose last name / DOB / sex disagrees with the request — a wrong-patient
+    # ICN collision. The message names WHICH field diverged and never echoes
+    # the PHI values on either side.
+    #
+    # Unverifiable is not mismatched: a nil read (capability gap, or a record
+    # too fresh to read back) proceeds. Absence of data is not evidence of a
+    # collision, and false-rejecting a valid registration is its own harm.
+    def identity_mismatch(attrs, dfn)
+      id = DataMapper.patient_id_info.fetch_one(dfn.to_s)
+      return nil if id.nil?
+
+      want = request_identity(attrs)
+      diverged = %i[sex dob last_name].select { |field| identity_field_differs?(field, want, id) }
+      return nil if diverged.empty?
+
+      { success: false, error: :identity_mismatch,
+        message: "VOA resolved DFN #{dfn} to an existing patient whose " \
+                 "#{diverged.join('/')} does not match the registration request" }
+    end
+
+    # Normalize the request's identity fields for comparison.
+    def request_identity(attrs)
+      last, first = name_pieces(attrs).split("^", 2)
+      { last_name: last.to_s.upcase, first_name: first.to_s.upcase,
+        sex: attrs[:sex].to_s.strip[0, 1].to_s.upcase, dob: dob_key(attrs[:dob]) }
+    end
+
+    # A field is "different" only when BOTH sides carry a value. A blank on
+    # either side is unknown, not divergent.
+    def identity_field_differs?(field, want, id)
+      case field
+      when :sex
+        got = id[:sex].to_s.strip[0, 1].to_s.upcase
+        !got.empty? && !want[:sex].empty? && got != want[:sex]
+      when :dob
+        got = dob_key(id[:dob])
+        !got.empty? && !want[:dob].empty? && got != want[:dob]
+      when :last_name
+        # id[:name] is "LAST,FIRST MIDDLE"; compare last-name tokens only.
+        got = id[:name].to_s.split(",", 2).first.to_s.strip.upcase
+        !got.empty? && !want[:last_name].empty? && got != want[:last_name]
+      end
+    end
+
+    # Reduce a DOB (Date/Time, a parsed FileMan date from the mapping, or an
+    # external string) to a comparable YYYYMMDD key; "" when it can't be read.
+    def dob_key(value)
+      return value.strftime("%Y%m%d") if value.is_a?(Date) || value.is_a?(Time)
+
+      if value.to_s =~ %r{\A(\d{1,2})/(\d{1,2})/(\d{4})\z}
+        format("%04d%02d%02d", $3.to_i, $1.to_i, $2.to_i)
+      else
+        value.to_s.gsub(/\D/, "")
+      end
+    end
 
     def voa_failure(voa)
       message = voa[:dfn_or_error].to_s

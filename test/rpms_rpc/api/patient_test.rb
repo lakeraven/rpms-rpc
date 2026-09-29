@@ -124,7 +124,9 @@ class PatientTest < Minitest::Test
     assert_includes rpcs, "VAFC VOA ADD PATIENT"
     assert_includes rpcs, "DDR FILER"
     # Only registered wire names cross the wire — no placeholder RPCs.
+    # ORWPT ID INFO is the registration identity guard's read-back.
     assert_empty rpcs - [ "CIANBRPC CANRUN", "VAFC VOA ADD PATIENT",
+                          "ORWPT ID INFO",
                           "DDR LOCK/UNLOCK NODE", "DDR LISTER",
                           "DDR GETS ENTRY DATA", "DDR FILER" ]
   end
