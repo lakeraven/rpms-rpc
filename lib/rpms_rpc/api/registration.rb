@@ -253,8 +253,11 @@ module RpmsRpc
     # :lock_failed / :filer_rejected), or nil (no broker response during
     # the filer step). NB: lock-step broker silence surfaces as
     # :lock_failed, not nil — DDR LOCK/UNLOCK NODE's reply grammar makes
-    # no-response and lock-timeout indistinguishable (DdrFileman.lock
-    # returns false for both); treat :lock_failed as retryable.
+    # no-response and lock-timeout equally unactionable HERE: DdrFileman.lock
+    # distinguishes them (nil vs false), but #update deliberately collapses
+    # both into :lock_failed to keep this contract stable. Treat :lock_failed
+    # as retryable. #register_via_composition does NOT collapse them — it
+    # returns nil for an unreachable broker.
     def update(dfn, patient_fields: {}, ihs_fields: {})
       dfn = dfn.to_i
       return { success: false, error: :invalid_dfn, message: "a positive DFN is required" } if dfn <= 0
@@ -392,10 +395,14 @@ module RpmsRpc
     def dob_key(value)
       return value.strftime("%Y%m%d") if value.is_a?(Date) || value.is_a?(Time)
 
-      if value.to_s =~ %r{\A(\d{1,2})/(\d{1,2})/(\d{4})\z}
+      # Strip before matching: surrounding whitespace used to miss this branch
+      # and fall through to digit-stripping, turning " 1/2/1990 " into
+      # "121990" and false-rejecting a valid registration (gate r1, Sol).
+      text = value.to_s.strip
+      if text =~ %r{\A(\d{1,2})/(\d{1,2})/(\d{4})\z}
         format("%04d%02d%02d", $3.to_i, $1.to_i, $2.to_i)
       else
-        value.to_s.gsub(/\D/, "")
+        text.gsub(/\D/, "")
       end
     end
 
