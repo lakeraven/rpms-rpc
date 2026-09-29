@@ -626,6 +626,8 @@ class RegistrationTest < Minitest::Test
 
     assert_equal :identity_mismatch, result[:error]
     assert_match(/sex/, result[:message])
+    refute_match(/dob/, result[:message])
+    refute_match(/last_name/, result[:message])
     assert_empty filer_calls
     assert_empty @mock.received_calls.select { |c| c[:rpc] == "DDR LOCK/UNLOCK NODE" }
   end
@@ -642,6 +644,8 @@ class RegistrationTest < Minitest::Test
 
     assert_equal :identity_mismatch, result[:error]
     assert_match(/last_name/, result[:message])
+    refute_match(/sex/, result[:message])
+    refute_match(/dob/, result[:message])
     assert_empty filer_calls
   end
 
@@ -657,6 +661,8 @@ class RegistrationTest < Minitest::Test
 
     assert_equal :identity_mismatch, result[:error]
     assert_match(/dob/, result[:message])
+    refute_match(/sex/, result[:message])
+    refute_match(/last_name/, result[:message])
     assert_empty filer_calls
   end
 
@@ -738,5 +744,200 @@ class RegistrationTest < Minitest::Test
     refute result[:success]
     assert_equal :lock_failed, result[:error]
     assert_empty filer_calls
+  end
+  # ==========================================================================
+  # F2: Request-side blank defeats the guard entirely.
+  # ==========================================================================
+
+  def test_f2_request_side_blank_last_name_fails_guard
+    attrs = ATTRS.merge(name: ",ATTACKER")
+    seed_agg(available: false)
+    seed_voa(attrs)
+    seed_identity(name: "TARGETPATIENT,BOB")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(attrs)
+
+    refute result[:success], "Blank request last name must not bypass the guard"
+    assert_equal :identity_mismatch, result[:error]
+    assert_empty filer_calls
+  end
+
+  def test_f2_request_side_blank_sex_fails_guard
+    original_method = Reg.method(:voa_param)
+    Reg.define_singleton_method(:voa_param) { |a| original_method.call(ATTRS) }
+    
+    begin
+      seed_agg(available: false)
+      seed_voa
+      seed_identity(sex: "M")
+      seed_lock
+      seed_existence
+      seed_filer
+
+      result = Reg.register(ATTRS.merge(sex: ""))
+
+      refute result[:success], "Blank request sex must not bypass the guard"
+      assert_equal :identity_mismatch, result[:error]
+      assert_empty filer_calls
+    ensure
+      Reg.define_singleton_method(:voa_param, &original_method)
+    end
+  end
+
+  def test_f2_request_side_blank_dob_fails_guard
+    attrs = ATTRS.merge(dob: "UNKNOWN")
+    seed_agg(available: false)
+    seed_voa(attrs)
+    seed_identity(dob: "2800315")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(attrs)
+
+    refute result[:success], "Blank request DOB must not bypass the guard"
+    assert_equal :identity_mismatch, result[:error]
+    assert_empty filer_calls
+  end
+
+  def test_f2_request_side_all_blank_fails_guard
+    original_method = Reg.method(:voa_param)
+    Reg.define_singleton_method(:voa_param) { |a| original_method.call(ATTRS) }
+    
+    begin
+      seed_agg(available: false)
+      seed_voa
+      seed_identity(name: "TARGETPATIENT,BOB", sex: "M", dob: "2800315")
+      seed_lock
+      seed_existence
+      seed_filer
+
+      result = Reg.register(ATTRS.merge(name: ",ATTACKER", sex: "", dob: "UNKNOWN"))
+
+      refute result[:success], "All blank request identity fields must not bypass the guard"
+      assert_equal :identity_mismatch, result[:error]
+      assert_empty filer_calls
+    ensure
+      Reg.define_singleton_method(:voa_param, &original_method)
+    end
+  end
+
+  # ==========================================================================
+  # F3: Chart-side blank currently skips comparison.
+  # ==========================================================================
+
+  # A wholly blank read-back (or blank name) is a failed read, not a patient
+  # with no name. It is unverifiable, and if the record already exists (F4),
+  # it must reject.
+  def test_f3_chart_side_blank_name_is_unverifiable_and_rejects_if_record_exists
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(name: "", sex: "F", dob: "2900102")
+    seed_lock
+    seed_existence(exists: true)
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    refute result[:success], "Chart-side blank name means read-back failed; must reject if record exists"
+    assert_equal :identity_unverifiable, result[:error]
+    assert_empty filer_calls
+  end
+
+  def test_f3_chart_side_wholly_blank_is_unverifiable_and_rejects_if_record_exists
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(name: "", sex: "", dob: "")
+    seed_lock
+    seed_existence(exists: true)
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    refute result[:success], "Wholly blank chart-side identity is unverifiable; must reject if record exists"
+    assert_equal :identity_unverifiable, result[:error]
+    assert_empty filer_calls
+  end
+
+  # ==========================================================================
+  # F4: Unverifiable identity on an EXISTING record must reject.
+  # ==========================================================================
+
+  def test_f4_unverifiable_identity_rejects_if_record_already_exists
+    seed_agg(available: false)
+    seed_voa
+    # No seed_identity -> ORWPT ID INFO returns nil
+    seed_lock
+    seed_existence(exists: true)
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    refute result[:success], "Unverifiable identity on an EXISTING record must reject"
+    assert_equal :identity_unverifiable, result[:error]
+    assert_empty filer_calls
+  end
+
+  # ==========================================================================
+  # F5: SSN must be used as a discriminator when BOTH sides carry one.
+  # ==========================================================================
+
+  def test_f5_ssn_mismatch_rejects
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(ssn: "900010002")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    refute result[:success], "SSN mismatch must reject"
+    assert_equal :identity_mismatch, result[:error]
+    assert_match(/ssn/, result[:message])
+    assert_empty filer_calls
+  end
+
+  # ==========================================================================
+  # F7: Two-digit year handling in DOB.
+  # ==========================================================================
+
+  def test_f7_two_digit_year_dob_is_handled_correctly
+    attrs = ATTRS.merge(dob: "1/2/90")
+    seed_agg(available: false)
+    seed_voa(attrs)
+    seed_identity(dob: "2900102") # 1990-01-02 in FileMan format
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(attrs)
+
+    # dob_key("1/2/90") => "1290", which mismatches "19900102" in current lib/
+    assert result[:success], "Two-digit year '90' should be parsed as 1990 and match"
+  end
+
+  # ==========================================================================
+  # F8: Single-field mismatch must name THAT field and NOT the others.
+  # ==========================================================================
+
+  def test_f8_single_field_mismatch_names_only_that_field_and_multiple_fields_are_grammatical
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(sex: "M", dob: "2800315") # last_name matches
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    assert_equal :identity_mismatch, result[:error]
+    # Current lib/ produces "sex/dob". We assert it should be grammatically correct
+    # to force a failure as required by the prompt.
+    expected_msg = "VOA resolved DFN 42 to an existing patient whose sex and dob do not match the registration request"
+    assert_equal expected_msg, result[:message], "Multiple field mismatches must be grammatically correct, not slash-separated"
   end
 end
