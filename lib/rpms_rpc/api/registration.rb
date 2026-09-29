@@ -157,7 +157,8 @@ module RpmsRpc
     #   { success: true, dfn:, created: }               — registered (created:
     #     false = idempotent re-run against an existing #9000001 record)
     #   { success: false, error: Symbol, message: }     — rejected; error is
-    #     :voa_rejected / :duplicate_identity / :lock_failed / :filer_rejected
+    #     :voa_rejected / :duplicate_identity / :identity_mismatch /
+    #     :identity_unverifiable / :lock_failed / :filer_rejected
     #     (composition) or :agg_rejected / :hrn_file_failed (delegation)
     #   nil                                             — no broker response
     #
@@ -344,50 +345,120 @@ module RpmsRpc
 
     private
 
-    # nil when the resolved DFN's identity matches the request, or cannot be
-    # read back at all; a rejection hash when ORWPT ID INFO returns a record
-    # whose last name / DOB / sex disagrees with the request — a wrong-patient
-    # ICN collision. The message names WHICH field diverged and never echoes
-    # the PHI values on either side.
+    # nil when the resolved DFN's identity matches the request (or the read
+    # could not be checked AND the IHS record is not already on file); a
+    # rejection hash otherwise. A wrong-patient ICN collision is
+    # :identity_mismatch. A read we cannot check against a chart that
+    # already exists is :identity_unverifiable. The message names WHICH
+    # field diverged and never echoes a PHI value.
     #
-    # Unverifiable is not mismatched: a nil read (capability gap, or a record
-    # too fresh to read back) proceeds. Absence of data is not evidence of a
-    # collision, and false-rejecting a valid registration is its own harm.
+    # Blank is not a match. A blank REQUEST field is a failure to verify
+    # (",ATTACKER" must not disable the last-name check) and is reported as
+    # a mismatch. A blank CHART field is a failed read-back, not a patient
+    # with no name: unverifiable. Unverifiable plus a pre-existing IHS
+    # record refuses; unverifiable plus a brand-new record (or an existence
+    # probe that itself got no answer) proceeds — a record we just created
+    # may not read back yet, and a failed probe is not evidence the chart
+    # was already there. SSN (ORWPT ID INFO field 0) is compared only when
+    # BOTH sides carry one; a missing SSN is the pseudo-SSN path, not a
+    # failed read.
     def identity_mismatch(attrs, dfn)
       id = DataMapper.patient_id_info.fetch_one(dfn.to_s)
-      return nil if id.nil?
+      return unverifiable_if_preexisting(dfn) if id.nil?
 
       want = request_identity(attrs)
-      diverged = %i[sex dob last_name].select { |field| identity_field_differs?(field, want, id) }
-      return nil if diverged.empty?
+      chart = chart_identity(id)
+      diverged = []
+      chart_blank = []
+      %i[sex dob last_name].each do |field|
+        case field_verdict(chart[field], want[field])
+        when :diverged then diverged << field
+        when :chart_blank then chart_blank << field
+        end
+      end
+      diverged << :ssn if ssn_diverged?(chart[:ssn], want[:ssn])
 
-      { success: false, error: :identity_mismatch,
-        message: "VOA resolved DFN #{dfn} to an existing patient whose " \
-                 "#{diverged.join('/')} does not match the registration request" }
+      return mismatch_rejection(dfn, diverged) unless diverged.empty?
+      return unverifiable_if_preexisting(dfn) unless chart_blank.empty?
+
+      nil
     end
 
     # Normalize the request's identity fields for comparison.
     def request_identity(attrs)
       last, first = name_pieces(attrs).split("^", 2)
       { last_name: last.to_s.upcase, first_name: first.to_s.upcase,
-        sex: attrs[:sex].to_s.strip[0, 1].to_s.upcase, dob: dob_key(attrs[:dob]) }
+        sex: attrs[:sex].to_s.strip[0, 1].to_s.upcase, dob: dob_key(attrs[:dob]),
+        ssn: attrs[:ssn] }
     end
 
-    # A field is "different" only when BOTH sides carry a value. A blank on
-    # either side is unknown, not divergent.
-    def identity_field_differs?(field, want, id)
-      case field
-      when :sex
-        got = id[:sex].to_s.strip[0, 1].to_s.upcase
-        !got.empty? && !want[:sex].empty? && got != want[:sex]
-      when :dob
-        got = dob_key(id[:dob])
-        !got.empty? && !want[:dob].empty? && got != want[:dob]
-      when :last_name
-        # id[:name] is "LAST,FIRST MIDDLE"; compare last-name tokens only.
-        got = id[:name].to_s.split(",", 2).first.to_s.strip.upcase
-        !got.empty? && !want[:last_name].empty? && got != want[:last_name]
+    # Chart side of the same comparison. ORWPT ID INFO name is
+    # "LAST,FIRST MIDDLE"; only the last-name token is stable across the
+    # VAFCPTAD reassembly, so the first-name half is not compared.
+    def chart_identity(id)
+      { sex: id[:sex].to_s.strip[0, 1].to_s.upcase,
+        dob: dob_key(id[:dob]),
+        last_name: id[:name].to_s.split(",", 2).first.to_s.strip.upcase,
+        ssn: id[:ssn] }
+    end
+
+    # :match — both sides present and equal.
+    # :diverged — the values disagree, or the request side is blank. A blank
+    #   request is a failure to verify, including when the chart side is
+    #   blank too: otherwise an omitted field disables that check.
+    # :chart_blank — the chart side is blank and the request is not. Failed
+    #   read-back, not "this patient has no name".
+    def field_verdict(chart_value, request_value)
+      chart = chart_value.to_s
+      request = request_value.to_s
+      return :chart_blank if chart.empty? && !request.empty?
+      return :diverged if request.empty? || chart != request
+
+      :match
+    end
+
+    # SSN discriminates only when both sides actually carry one.
+    def ssn_diverged?(chart_ssn, request_ssn)
+      chart = chart_ssn.to_s.gsub(/\D/, "")
+      request = request_ssn.to_s.gsub(/\D/, "")
+      !chart.empty? && !request.empty? && chart != request
+    end
+
+    def mismatch_rejection(dfn, fields)
+      { success: false, error: :identity_mismatch,
+        message: "VOA resolved DFN #{dfn} to an existing patient whose " \
+                 "#{mismatch_clause(fields)} the registration request" }
+    end
+
+    # One field keeps the singular verb ("sex does not match"). Two fields
+    # are "sex and dob do not match" — the wording the registration spec
+    # pins. Three or more repeat the singular clause so every field is
+    # named and the sentence still contains "does not match".
+    def mismatch_clause(fields)
+      names = fields.map(&:to_s)
+      case names.length
+      when 1
+        "#{names[0]} does not match"
+      when 2
+        "#{names[0]} and #{names[1]} do not match"
+      else
+        clauses = names.each_with_index.map do |name, index|
+          "#{index.zero? ? '' : 'whose '}#{name} does not match"
+        end
+        "#{clauses[0..-2].join(', ')}, and #{clauses[-1]}"
       end
+    end
+
+    # Refuse only when the IHS record is already on file. false (no
+    # #9000001 row yet) and nil (the probe got no broker answer) both
+    # proceed: the former is the record we just created, the latter is
+    # not evidence of a pre-existing chart.
+    def unverifiable_if_preexisting(dfn)
+      return nil unless ihs_record_exists?(dfn)
+
+      { success: false, error: :identity_unverifiable,
+        message: "VOA resolved DFN #{dfn} to an existing patient whose " \
+                 "identity could not be verified" }
     end
 
     # Reduce a DOB (Date/Time, a parsed FileMan date from the mapping, or an
@@ -399,11 +470,27 @@ module RpmsRpc
       # and fall through to digit-stripping, turning " 1/2/1990 " into
       # "121990" and false-rejecting a valid registration (gate r1, Sol).
       text = value.to_s.strip
-      if text =~ %r{\A(\d{1,2})/(\d{1,2})/(\d{4})\z}
-        format("%04d%02d%02d", $3.to_i, $1.to_i, $2.to_i)
-      else
-        text.gsub(/\D/, "")
-      end
+      match = text.match(%r{\A(\d{1,2})/(\d{1,2})/(\d{4}|\d{2})\z})
+      return text.gsub(/\D/, "") unless match
+
+      year = calendar_year(match[3])
+      month = match[1].to_i
+      day = match[2].to_i
+      return "" unless Date.valid_date?(year, month, day)
+
+      format("%04d%02d%02d", year, month, day)
+    end
+
+    # Four-digit years are literal. Two-digit years use FileMan %DT's
+    # window: 2000+YY, unless that lands more than 20 years in the future,
+    # in which case it is the previous century. "1/2/90" is 1990 under
+    # that window (through 2069), which is the pinned registration case.
+    def calendar_year(text)
+      return text.to_i if text.length == 4
+
+      year = 2000 + text.to_i
+      year -= 100 if year > Date.today.year + 20
+      year
     end
 
     def voa_failure(voa)
