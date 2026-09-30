@@ -15,10 +15,12 @@ module RpmsRpc
     # End-of-array sentinel for GLOBAL ARRAY (return type 4) replies — the
     # AGG registration RPCs (ADD^AGGPTADD etc.). Such a reply is a $C(30)
     # (RS)-separated series of typed records that ends with $C(31) (US)
-    # before the frame's trailing EOD. Because RS == our EOD (\x1e), the
-    # default read_until_raw(EOD) truncates the reply at the header row;
-    # #call_rpc_global_array reads to the US sentinel instead. Wire contract
-    # + capture provenance: RpmsRpc::Agg.
+    # before the frame's trailing EOD. RS used to equal our EOD (\x1e), so the
+    # default read_until_raw(EOD) truncated the reply at the header row; #241
+    # moved the terminator to \x7f and that collision is gone.
+    # #call_rpc_global_array still reads to the US sentinel, because framing on
+    # the sentinel is correct by construction rather than by the terminator
+    # happening not to collide. Wire contract + capture provenance: RpmsRpc::Agg.
     AGG_ARRAY_END = "\x1f"
 
     # Context option bound by sign-on. AUTH^CIANBRPC takes the application ID
@@ -279,9 +281,10 @@ module RpmsRpc
 
     # Call an RPC whose broker return type is GLOBAL ARRAY (type 4) and read
     # the whole reply to its $C(31) (US) end sentinel — see AGG_ARRAY_END.
-    # The reply EMBEDS $C(30) (== EOD, \x1e) record separators, so the
-    # default call_rpc/call_rpc_raw read stops at the typed header; use this
-    # for the AGG registration RPCs (RpmsRpc::Agg). Returns the raw reply
+    # The reply EMBEDS $C(30) record separators, which were the EOD before #241
+    # moved the terminator to \x7f; the default call_rpc/call_rpc_raw read then
+    # stopped at the typed header. Use this for the AGG registration RPCs
+    # (RpmsRpc::Agg) regardless — it is framed by the $C(31) sentinel. Returns the raw reply
     # (seq echo + \x00 ack + typed header + \x1e-separated records); parse
     # with RpmsRpc::Agg.parse_reply. Same param-encoding contract as
     # call_rpc_raw.

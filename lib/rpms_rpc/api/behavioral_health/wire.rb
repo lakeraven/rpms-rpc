@@ -27,13 +27,16 @@ module RpmsRpc
       # One pipe-delimited actual, read as a GLOBAL ARRAY.
       #
       # Every AMHG RPC registers RETURN VALUE TYPE 4 (GLOBAL ARRAY) and
-      # separates records with $C(30). On the CIA broker $C(30) is ALSO the
-      # frame terminator (Client::EOD, client.rb:45), so a plain #call_rpc
-      # truncates the reply at the first separator — which is the end of the
-      # typed header row. Every data row would be silently dropped and
-      # parse_many would return [].
+      # separates records with $C(30). $C(30) WAS also the CIA frame
+      # terminator until #241 moved it to \x7f, so a plain #call_rpc
+      # truncated the reply at the first separator — the end of the typed
+      # header row — and every data row was silently dropped, leaving
+      # parse_many returning []. That collision is gone; $C(30) is now
+      # payload.
       #
-      # CiaClient#call_rpc_global_array reads to the US sentinel instead.
+      # CiaClient#call_rpc_global_array still reads to the US sentinel, and
+      # remains the correct read: it frames on the $C(31) sentinel rather
+      # than relying on the terminator not colliding with the payload.
       # Route through it whenever the client offers it, and fall back to
       # #call_rpc for MockClient and non-CIA clients that hand back the seeded
       # reply whole. Same pattern as RpmsRpc::Agg#call_array (agg.rb:155).

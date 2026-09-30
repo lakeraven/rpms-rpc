@@ -269,12 +269,15 @@ module RpmsRpc
       @wire_lock.synchronize(&block)
     end
 
-    # The CIA frame terminator IS the record separator.
+    # Model truncation of a reply at the CIA frame terminator.
     #
-    # RpmsRpc::Client::EOD is "\x1e" (client.rb:45) and GLOBAL ARRAY replies
-    # separate records with the same byte. A live CiaClient reading a recordset
-    # through plain #call_rpc therefore stops at the first separator — the end
-    # of the typed header row — and every data row is lost.
+    # HISTORY: RpmsRpc::Client::EOD was "\x1e", the SAME byte GLOBAL ARRAY
+    # replies use to separate records, so a live CiaClient reading a recordset
+    # through plain #call_rpc stopped at the first separator — the end of the
+    # typed header row — and every data row was lost. #241 moved the terminator
+    # to \x7f, which no seeded reply contains, so this no longer fires for that
+    # case. It is retained for the general contract (a reply that embeds the
+    # terminator is truncated at it), NOT as live cover for the RS collision.
     #
     # This mock models that truncation, so a caller that picks the wrong read
     # path fails here instead of in production. Code that routes correctly
