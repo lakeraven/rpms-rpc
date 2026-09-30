@@ -26,9 +26,20 @@ module RpmsRpc
   # set (rpms-rpc#224), which is a different thing from a blocked backend.
   #
   # That distinction matters here: every method below reads a global-array reply
-  # through call_rpc, and $C(30) IS the CIA EOD, so on a CIA broker each read
-  # terminates at the column header and returns no rows — while the seeded tests
-  # pass. Same defect as AGG LOOKUP PATIENTS, fixed in #237. Tracked as #254.
+  # through call_rpc. On a CIA broker $C(30) was the frame terminator (until
+  # rpms-rpc#241/#244 moved it to \x7f), so each read terminated at the column
+  # header — while the seeded tests passed. Same defect as AGG LOOKUP PATIENTS,
+  # fixed in #237. Tracked as #254.
+  #
+  # The truncated read does NOT simply yield "no rows". call_rpc pipes the reply
+  # through printable(), which flattens the 1-byte sequence echo and the \x00
+  # ack to SPACES rather than dropping them, so the surviving line reaches
+  # DataMapper as "  I00020APPOINTMENTID^T00020ERRORID". Its first caret piece
+  # no longer matches /\A[ITDF]\d{5}/, so recordset_header_row? returns false
+  # and the header is consumed AS A DATA ROW. Reads therefore return one bogus
+  # record instead of an empty set, and writes report failure after the M side
+  # has already filed. Diagnose accordingly: an implausible row is the symptom,
+  # not an empty one.
   module Scheduling
     extend self
 
