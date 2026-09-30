@@ -7,8 +7,11 @@ require "rpms_rpc/mock_client"
 require "rpms_rpc/api/scheduling"
 
 # Tests for RpmsRpc::Scheduling — the BSDX scheduling surface consumed by the
-# lakeraven-ehr reg/sched twin (lakeraven-ehr#412). The broker is mocked; live
-# dispatch is blocked on rpms-ops#366 (YDB releases lack the #8994 registry).
+# lakeraven-ehr reg/sched twin (lakeraven-ehr#412). The broker is mocked — but
+# NOT because dispatch is blocked. rpms-ops#366 (YDB releases lacking the #8994
+# registry) closed 2026-08-23; ^XWB is force-included in the export and its
+# absence now fails the build. What is still missing is a live-dispatch proof
+# for this RPC set (rpms-rpc#224). See RpmsRpc::Scheduling's module comment.
 class SchedulingTest < Minitest::Test
   START_T = Time.new(2026, 8, 12, 9, 0, 0)
   END_T   = Time.new(2026, 8, 12, 9, 30, 0)

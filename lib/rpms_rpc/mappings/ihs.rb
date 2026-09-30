@@ -1158,8 +1158,11 @@ module RpmsRpc
     # PROCEDURE registry dump; parameter shapes from the BSDX07/08/25/31
     # routine entry points in FOIA-RPMS.
     #
-    # NOTE: these do not dispatch against the current YDB releases — the #8994
-    # registry is absent there (blocked on rpms-ops#366); exercised via MockClient.
+    # NOTE: these are exercised via MockClient because no live-dispatch proof
+    # exists for this RPC set yet (rpms-rpc#224) — NOT because the backend is
+    # blocked. rpms-ops#366 (the YDB releases lacking the #8994 registry) closed
+    # 2026-08-23: ^XWB is force-included in the export and its absence fails the
+    # build.
 
     # BSDX ADD NEW APPOINTMENT — APPADD^BSDX07 → $$MAKE^BSDAPI (updates ^SC +
     # ^BSDXAPPT / 9002018.4). Recordset data row: APPOINTMENTID^ERRORID.
