@@ -98,6 +98,10 @@ module RpmsRpc
       # read then describes the LATER clinician while this caller adopts it as
       # its own identity. (The lock is also what keeps the two send-then-read
       # pairs from interleaving on the shared socket.)
+      # CIANBRPC AUTH, never "BGU AVLOGON". BGU's is reachable on this broker
+      # family — it sits in the CIAV VUECENTRIC context — and it grants
+      # programmer access before authenticating (rpms-ops#655). Enforced by
+      # test/rpms_rpc/forbidden_auth_rpcs_test.rb.
       synchronize_wire do
         reply = exchange("R", pk("UID"), pk(""), pk("0"),
           pk("RPC"), pk(""), pk("CIANBRPC AUTH"),
