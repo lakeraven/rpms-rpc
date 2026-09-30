@@ -177,6 +177,56 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_equal "2\x00OK", c.call_rpc_raw("XUS INTRO MSG")
   end
 
+  # Fix (rpms-rpc#289): A non-empty stale tail whose byte 0 is a DIFFERENT sequence
+  # echo must be SKIPPED, not returned as this call's reply.
+  # FakeSocket does not implement read_nonblock, so discard_stale_bytes won't drain it.
+  # This simulates bytes arriving AFTER the drain.
+  # Note: To make these tests pass, lib/rpms_rpc/cia_client.rb must be updated to
+  # check the sequence echo (byte 0) and the ack flag (byte 1) in read_reply.
+  def test_skips_stale_tail_with_different_sequence_echo
+    # @seq will be 1. The stale tail has seq "9".
+    socket = FakeSocket.new([ "9\x00stale#{EOD}", "1\x00ok#{EOD}" ])
+    c = client_on(socket)
+    assert_equal "1\x00ok", c.call_rpc_raw("ANY RPC")
+  end
+
+  # Fix (rpms-rpc#289): A piece whose byte 0 matches the current echo IS this call's reply.
+  # Byte 1 must be a valid ack (0x00/0x01) or absent (SNDEOD); anything else is
+  # not this request's reply.
+  def test_skips_piece_with_matching_sequence_but_invalid_ack_flag
+    # @seq will be 1. The first piece has seq "1" but invalid ack "\x02".
+    socket = FakeSocket.new([ "1\x02invalid#{EOD}", "1\x00ok#{EOD}" ])
+    c = client_on(socket)
+    assert_equal "1\x00ok", c.call_rpc_raw("ANY RPC")
+  end
+
+  # Fix (rpms-rpc#289): The #254 desync scenario reproduces at the unit level and is
+  # then prevented: a global-array reply whose body embeds the terminator must not
+  # put the session one call late.
+  def test_global_array_stale_tail_arriving_after_drain_is_skipped
+    # Request 1 (seq 1) was a global array. We read its header, but the rest of it
+    # arrives AFTER request 2's discard_stale_bytes.
+    # Request 2 (seq 2) will then read the leftover rows ("ROW#{EOD}") and the
+    # sentinel ("\x1f#{EOD}"). These do not start with seq "2", so they must be skipped.
+    socket = FakeSocket.new([ "ROW#{EOD}", "\x1f#{EOD}", "2\x00OK#{EOD}" ])
+    c = client_on(socket)
+    # Advance seq to 1 so the next call uses 2
+    c.instance_variable_set(:@seq, 1)
+    
+    assert_equal "2\x00OK", c.call_rpc_raw("ANY RPC")
+  end
+
+  # Fix (rpms-rpc#289): The retry budget still terminates — a socket that only ever
+  # yields foreign pieces must not loop forever or hang.
+  def test_read_reply_terminates_when_only_yielding_foreign_pieces
+    # 8 foreign pieces. The 8.times loop should exhaust and raise ConnectionError.
+    socket = FakeSocket.new(Array.new(8) { "9\x00stale#{EOD}" })
+    c = client_on(socket)
+    
+    err = assert_raises(RpmsRpc::Client::ConnectionError) { c.call_rpc_raw("ANY RPC") }
+    assert_match(/CIA reply stream out of step/, err.message)
+  end
+
   # CIA length prefix: header byte = (num_length_bytes << 4) | (len % 16),
   # then big-endian length-quotient bytes, then the value.
   def test_pk_frames_short_value
