@@ -35,10 +35,18 @@ class ForbiddenAuthRpcsTest < Minitest::Test
   #
   # i.e. any signed-on user can change any other user's access or verify code.
   #
-  # We are clean today only by context. All three RPCs appear in exactly one
-  # option's #19.05 multiple — ^DIC(19,10979,...) = "CIAV VUECENTRIC" — and we
-  # sign on through OR CPRS GUI CHART / BGMH PROVIDER / BGMH SUPERVISOR. That
-  # separation is the whole mitigation, and nothing else enforces it.
+  # Context separation is a PARTIAL mitigation, and only for the XWB path.
+  # All three RPCs appear in exactly one option's #19.05 multiple —
+  # ^DIC(19,10979,...) = "CIAV VUECENTRIC". The XWB client signs on through
+  # OR CPRS GUI CHART / BGMH PROVIDER / BGMH SUPERVISOR, so that separation
+  # does hold there.
+  #
+  # It does NOT hold for the CIA client, which signs on under CIAV VUECENTRIC
+  # itself (CiaClient::SIGNON_CONTEXT, cia_client.rb:39) — the same context
+  # that carries these RPCs. On the CIA path nothing about context keeps them
+  # out of reach; the only thing standing between us and them is that we do
+  # not call them, which is exactly what the test below enforces. Do not read
+  # the option multiple as a safety boundary on that path.
   #
   # Use XUS AV CODE (client.rb) or CIANBRPC AUTH (cia_client.rb). Both bind
   # DUZ(0) from the user's own record AFTER the credentials are checked:
