@@ -229,14 +229,17 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
            "Registry must expose :orqqpl_problem_workflow — gates Problem ORQQPL lookup/mutation RPCs"
   end
 
-  def test_orqqpl_problem_workflow_probes_read_only_detail
+  # INITPT^ORQQPL1 quits on +$G(DFN)=0 (ORQQPL1.m:214-215), so it is the one
+  # ORQQPL read a parameterless probe can make without dying in M. DETAIL
+  # needs a real problem IEN (#259).
+  def test_orqqpl_problem_workflow_probes_read_only_init_pt
     rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:orqqpl_problem_workflow]
-    assert_equal [ "ORQQPL DETAIL" ], rpcs,
+    assert_equal [ "ORQQPL INIT PT" ], rpcs,
                  "Probe set must avoid ORQQPL write RPCs (ADD SAVE, EDIT SAVE, DELETE, INACTIVATE, VERIFY, REPLACE, UPDATE)"
   end
 
-  def test_probe_returns_false_when_orqqpl_detail_missing
-    missing = ProbingClient.new(missing: [ "ORQQPL DETAIL" ])
+  def test_probe_returns_false_when_orqqpl_init_pt_missing
+    missing = ProbingClient.new(missing: [ "ORQQPL INIT PT" ])
     assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :orqqpl_problem_workflow)
   end
 
@@ -250,6 +253,27 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
 
   def test_probe_returns_true_when_all_feature_rpcs_callable
     assert_equal true, RpmsRpc::ServerCapabilities.probe(@client, :patient_chart_banner)
+  end
+
+  # The probe frame must carry the formals the routine reads. PTINFO^BEHOPTCX,
+  # GETBDP^BEHOPTPC and CWAD^BEHOCACV each read DFN on their first lines
+  # (BEHOPTCX.m:7-10, BEHOPTPC.m:73-75, BEHOCACV.m:22-23); probed with no
+  # parameters they died in M on every sign-on (#259). DFN "0" names no
+  # patient and each answers empty.
+  def test_chart_banner_probe_sends_a_dfn_to_each_beho_rpc
+    recording = Class.new do
+      attr_reader :frames
+      def initialize = @frames = []
+      def call_rpc(rpc_name, *params)
+        @frames << [ rpc_name, params ]
+        ""
+      end
+    end.new
+
+    RpmsRpc::ServerCapabilities.probe(recording, :patient_chart_banner)
+
+    assert_equal [ [ "BEHOPTCX PTINFO", [ "0" ] ], [ "BEHOPTPC GETBDP", [ "0" ] ], [ "BEHOCACV CWAD", [ "0" ] ] ],
+                 recording.frames
   end
 
   def test_probe_returns_false_when_any_feature_rpc_missing
