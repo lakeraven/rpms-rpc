@@ -144,10 +144,10 @@ class RpmsRpc::MockClientTest < Minitest::Test
   def test_seed_text_blob_with_multiline_content
     content = "ALLERGIES:\n  Penicillin - Hives\n  Shellfish - Anaphylaxis\n\nMEDICATIONS:\n  Lisinopril 10mg"
     RpmsRpc.mock! do |m|
-      m.seed(:health_summary_report, "1", content)
+      m.seed(:report_text, "1", content)
     end
 
-    text = RpmsRpc::DataMapper.health_summary_report.fetch_text("1")
+    text = RpmsRpc::DataMapper.report_text.fetch_text("1")
     assert_includes text, "Penicillin"
     assert_includes text, "Lisinopril"
   end

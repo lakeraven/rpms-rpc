@@ -54,33 +54,26 @@ class RpmsRpc::ServerCapabilitiesRegisterTest < Minitest::Test
            "register must freeze the RPC list, matching the old frozen-literal behavior"
   end
 
-  # -- zero-behavior-change pin ------------------------------------------------
+  # -- feature-set pin ---------------------------------------------------------
   #
-  # Exact snapshot of FEATURE_RPCS before the register-API conversion.
-  # If this test fails, a feature was dropped, renamed, or its RPC list
-  # changed during the refactor.
+  # Exact snapshot of FEATURE_RPCS. If this test fails, a feature was
+  # dropped, renamed, or its RPC list changed. Every probe name must also
+  # be registered on a pinned registry (registered_rpc_names_test.rb): the
+  # nine stock-VistA features once pinned here beside these probed names no
+  # built 9.0 image registers, and went with their callers (#207).
 
-  PRE_REFACTOR_FEATURES = {
+  PINNED_FEATURES = {
     patient_chart_banner: [ "BEHOPTCX PTINFO", "BEHOPTPC GETBDP", "BEHOCACV CWAD" ],
-    user_security_keys_list: [ "ORWU USERKEYS" ],
-    health_summary_gmts: [ "GMTS PWH REPORT", "GMTS FLOWSHEET LIST", "GMTS FLOWSHEET DATA", "GMTS MAINT ITEMS" ],
-    xu_key_admin: [ "XU KEY LIST" ],
-    pso_prescription_orders: [ "PSO ERX STATUS" ],
-    xqal_alert_actions: [ "XQAL NEW ALERTS" ],
     bphr_phr_endpoints: [ "BPHR PATIENT DIRECT" ],
-    orwlrr_lab_reports: [ "ORWLRR RESULT LIST", "ORWLRR REPORT LIST", "ORWLRR REPORT" ],
-    orwra_radiology_reports: [ "ORWRA REPORT", "ORWRA REPORT LIST" ],
-    orwpce_clinical_logs: [ "ORWPCE IMPLANT LIST", "ORWPCE IMPLANT GET", "ORWPCE PROCEDURE LIST" ],
-    orwrp_report_types: [ "ORWRP TYPES", "ORWRP TYPE COMPONENTS" ],
     bmc_referral_workflow: [ "BMC GET REFERENCE DATA" ],
     orqqpl_problem_workflow: [ "ORQQPL DETAIL" ]
   }.freeze
 
-  def test_feature_set_is_identical_to_pre_refactor_constant
+  def test_feature_set_is_identical_to_the_pinned_constant
     actual = RpmsRpc::ServerCapabilities::FEATURE_RPCS.except(TEMP_FEATURE)
 
-    assert_equal PRE_REFACTOR_FEATURES.keys.sort, actual.keys.sort
-    PRE_REFACTOR_FEATURES.each do |feature, rpcs|
+    assert_equal PINNED_FEATURES.keys.sort, actual.keys.sort
+    PINNED_FEATURES.each do |feature, rpcs|
       assert_equal rpcs, actual[feature], "RPC list changed for #{feature.inspect}"
     end
   end

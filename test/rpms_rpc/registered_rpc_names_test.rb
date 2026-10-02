@@ -24,6 +24,24 @@ class RegisteredRpcNamesTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
   REGISTRY_DIR = File.join(ROOT, "data/rpc_coverage/registry")
 
+  # The IHS-cluster names the second #207 PR removes (BMCRPC, BIPC, BEHOENCX
+  # tags, BYIMRT, BPHR, BHDO, MAGG, BQI MARK ALERT READ). Each entry is
+  # tolerated only while the gem still uses it: an entry whose name the gem
+  # no longer sends fails the test, so the list cannot outlive the mappings.
+  # The list goes away with them; it is never a place to add a name.
+  ALLOWED_UNTIL_THE_IHS_PURGE = [
+    "BEHOENCX GET SECDEF", "BEHOENCX GET SECTION", "BEHOENCX LOCK", "BEHOENCX SAVE SECTION", "BEHOENCX UNLOCK",
+    "BHDO HOSP LOC DATA", "BHDO INST DATA",
+    "BIPC ELIGGET", "BIPC ELIGLIST", "BIPC IMMGET", "BIPC IMMLIST", "BIPC LOTGET", "BIPC LOTLIST",
+    "BMCRPC DELREFRL", "BMCRPC GTBUDGET", "BMCRPC GTCONTRACT", "BMCRPC GTOBLIG", "BMCRPC GTOBLIGID",
+    "BMCRPC GTPAYMENT", "BMCRPC GTPREFVEND", "BMCRPC GTQTRALLOC", "BMCRPC GTRATES", "BMCRPC GTREFOBLIG",
+    "BMCRPC GTREMAIN", "BMCRPC GTSITPRM", "BMCRPC GTVEND", "BMCRPC SRCHVEND",
+    "BPHR FACILITY DIRECT", "BPHR PATIENT DIRECT", "BPHR PROVIDER DIRECT", "BPHR RECORD ACCESS",
+    "BQI MARK ALERT READ",
+    "BYIMRT RSP", "BYIMRT STATUS", "BYIMRT VXQ", "BYIMRT VXU",
+    "MAGG IMAGE LAUNCH TOKEN", "MAGGUSERKEYS"
+  ].freeze
+
   def registries
     Dir[File.join(REGISTRY_DIR, "*.txt")].reject { |f| f.end_with?("-packages.txt") }.sort
   end
@@ -42,6 +60,10 @@ class RegisteredRpcNamesTest < Minitest::Test
     sites = RpcCoverage.declared_names(ROOT)
     unregistered = sites.keys.reject { |name| registered.include?(name) }.sort
 
+    stale = ALLOWED_UNTIL_THE_IHS_PURGE - unregistered
+    assert_empty stale, "no longer used or now registered; remove from ALLOWED_UNTIL_THE_IHS_PURGE: #{stale.join(', ')}"
+
+    unregistered -= ALLOWED_UNTIL_THE_IHS_PURGE
     detail = unregistered.map { |name| "  #{name}\t#{sites[name].join(' ')}" }.join("\n")
     assert_empty unregistered,
                  "#{unregistered.size} RPC name(s) used in lib/ are registered on no pinned registry " \

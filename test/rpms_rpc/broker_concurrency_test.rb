@@ -82,9 +82,9 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
   end
 
   # The multi-RPC sign-on sequence (XUS SIGNON SETUP -> XUS AV CODE ->
-  # XUS GET USER INFO -> ORWU USERKEYS) must not interleave with another
-  # sign-on either: a per-call lock alone still lets B's AV CODE land between
-  # A's AV CODE and A's user lookup, so A gets B's name and keys.
+  # XUS GET USER INFO) must not interleave with another sign-on either: a
+  # per-call lock alone still lets B's AV CODE land between A's AV CODE and
+  # A's user lookup, so A gets B's name.
   def test_signon_sequence_is_serialized_against_a_concurrent_signon
     RpmsRpc::Authentication.clear_cache!
     RpmsRpc.mock! do |m|

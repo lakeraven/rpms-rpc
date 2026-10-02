@@ -103,7 +103,7 @@ class RpmsRpc::FetchApiTest < Minitest::Test
 
   def test_fetch_text_joins_lines
     RpmsRpc.mock! do |m|
-      m.seed_collection(:report_types, [
+      m.seed_collection(:reminders_list, [
         { ien: 1, name: "Line 1" },
         { ien: 2, name: "Line 2" }
       ])

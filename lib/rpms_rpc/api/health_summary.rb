@@ -1,10 +1,19 @@
 # frozen_string_literal: true
 
-require "date"
 require_relative "../mappings"
 
 module RpmsRpc
-  # Symbolic API for RPMS Health Summary / GMTS-style reports.
+  # Symbolic API for RPMS Health Summary reports and clinical reminders.
+  # Underlying RPCs: ORWRP REPORT TEXT, ORQQPX REMINDERS LIST, ORQQPX
+  # REMINDER DETAIL.
+  #
+  # The report-type reads (`types`, `type_components`) and the GMTS reads
+  # (`personal_wellness_report`, `flowsheet_definitions`, `flowsheet`,
+  # `health_maintenance`) this module once offered sent ORWRP TYPES /
+  # TYPE COMPONENTS and GMTS * names no built 9.0 image registers; they
+  # were removed (#207). The registered health-summary surface is
+  # ORWRP2 HS * (component lists, report text); model it from the routines
+  # before adding those reads back (ADR 0003).
   module HealthSummary
     extend self
 
@@ -24,8 +33,10 @@ module RpmsRpc
       procedures: "PRC"
     }.freeze
 
-    # Shape matches the :report_types mapping so callers see the same hash
-    # keys/types regardless of whether the RPC was reachable.
+    # The summary types `for_patient` resolves `summary_type:` against. A
+    # static list: no registered RPC lists the HEALTH SUMMARY TYPE file
+    # (#142) this way, so the IENs here are assumptions the caller can
+    # override by passing a type name that is in the list.
     DEFAULT_TYPES = [
       { ien: 1, name: "STANDARD", description: "Standard Health Summary", owner: nil },
       { ien: 2, name: "BRIEF", description: "Brief Summary", owner: nil },
@@ -72,33 +83,6 @@ module RpmsRpc
       }
     end
 
-    def types
-      return DEFAULT_TYPES.map(&:dup) unless RpmsRpc.client.supports?(:orwrp_report_types)
-
-      rows = DataMapper.report_types.fetch_many
-      rows.empty? ? DEFAULT_TYPES.map(&:dup) : rows
-    end
-
-    def type_components(ien)
-      return [] if invalid_id?(ien)
-      return [] unless RpmsRpc.client.supports?(:orwrp_report_types)
-
-      DataMapper.report_type_components.fetch_many(ien.to_s)
-    end
-
-    def personal_wellness_report(dfn)
-      return { sections: [], error: "Invalid patient DFN" } if invalid_id?(dfn)
-      return { sections: [], error: "GMTS health summary not available on this server" } unless RpmsRpc.client.supports?(:health_summary_gmts)
-
-      parse_pwh_report(DataMapper.health_summary_report.fetch_text(dfn.to_s))
-    end
-
-    def flowsheet_definitions
-      return [] unless RpmsRpc.client.supports?(:health_summary_gmts)
-
-      DataMapper.flowsheet_list.fetch_many
-    end
-
     def clinical_reminders(dfn)
       return [] if invalid_id?(dfn)
 
@@ -112,40 +96,16 @@ module RpmsRpc
       blank?(text) ? nil : { content: text, parsed_at: Time.now }
     end
 
-    def health_maintenance(dfn)
-      return [] if invalid_id?(dfn)
-      return [] unless RpmsRpc.client.supports?(:health_summary_gmts)
-
-      DataMapper.maint_items.fetch_many(dfn.to_s)
-    end
-
-    def flowsheet(dfn, flowsheet_ien:, start_date: Date.today - 365, end_date: Date.today)
-      return { items: [], error: "Invalid patient DFN" } if invalid_id?(dfn) || invalid_id?(flowsheet_ien)
-      return { items: [], error: "GMTS health summary not available on this server" } unless RpmsRpc.client.supports?(:health_summary_gmts)
-
-      response = RpmsRpc.client.call_rpc(
-        DataMapper.flowsheet_data.rpc_name,
-        "#{dfn}^#{flowsheet_ien}^#{format_date(start_date)}^#{format_date(end_date)}"
-      )
-      parse_flowsheet(response)
-    end
-
     private
 
-    def summary_type_ien(type_name)
-      resolve_summary_type(type_name)[:ien]
-    end
-
-    # Resolve a caller-supplied summary type to the actual type that will be
-    # used. Returns the matched entry from `types` when found; otherwise
-    # falls back to the first available type so callers see the resolved
-    # name rather than their unrecognised input.
+    # Resolve a caller-supplied summary type to the entry of DEFAULT_TYPES
+    # that will be used; an unrecognised name falls back to the first type,
+    # so callers see the resolved name rather than their input.
     def resolve_summary_type(type_name)
-      available = types
-      match = available.find { |type| type[:name].to_s.upcase == type_name.to_s.upcase }
+      match = DEFAULT_TYPES.find { |type| type[:name].to_s.upcase == type_name.to_s.upcase }
       return { ien: match[:ien], name: match[:name] } if match
 
-      fallback = available.first || { ien: "1", name: "STANDARD" }
+      fallback = DEFAULT_TYPES.first
       { ien: fallback[:ien], name: fallback[:name] }
     end
 
@@ -191,56 +151,8 @@ module RpmsRpc
         stripped.match?(/^\*{3,}$/)
     end
 
-    def parse_pwh_report(text)
-      return { sections: [] } if blank?(text)
-
-      {
-        generated_at: Time.now,
-        content: text,
-        sections: parse_pwh_sections(text)
-      }
-    end
-
-    def parse_pwh_sections(text)
-      sections = []
-      current = nil
-
-      text.to_s.split(/\r?\n/).each do |line|
-        if line.match?(/^(WELLNESS|HEALTH|PREVENTIVE|LIFESTYLE|GOALS)/i)
-          sections << current if current
-          current = { name: titleize(line.strip), items: [] }
-        elsif current && !blank?(line)
-          current[:items] << line.strip
-        end
-      end
-
-      sections << current if current
-      sections
-    end
-
-    def parse_flowsheet(response)
-      lines = response.is_a?(Array) ? response : response.to_s.split(/\r?\n/)
-      return { items: [] } if lines.empty? || blank?(lines.first)
-
-      headers = lines.first.to_s.split("^", -1)
-      items = lines[1..].to_a.filter_map do |line|
-        next if blank?(line)
-
-        values = line.to_s.split("^", -1)
-        headers.each_with_index.to_h do |header, index|
-          [ header.downcase.gsub(/\s+/, "_").to_sym, values[index] ]
-        end
-      end
-
-      { headers: headers, items: items }
-    end
-
     def error_summary(message)
       { type: "ERROR", generated_at: Time.now, sections: [], error: message }
-    end
-
-    def format_date(date)
-      date.strftime("%m/%d/%Y")
     end
 
     def titleize(value)
