@@ -36,6 +36,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `av_code` line 5 is the post-sign-on message count, not a user class (#236)
+
+`DataMapper.define(:av_code)` declared `line_field 5, :user_class`. The
+reply is VALIDAV^XUSRB's RET() array — `RET(0)=DUZ RET(1)=XUM RET(2)=VCCH
+RET(3)=message RET(4)=0 RET(5)=post-sign-on message count RET(5+n)=the
+message lines` (XUSRB.m:9-11, :40, :85-87). `RET(5)` is 0 at entry (:16)
+and only ever reassigned as a line count in POST (:86-87). Against a real
+broker the "class" was therefore 0 for everyone, and
+`Authentication::USER_TYPES.fetch(0, "user")` resolved every user to
+`"user"`; the mock seeded the same invented number, so the suite was green
+over it. Line 5 is now `:post_signon_message_count` and the success result
+carries it.
+
+Where the user class actually comes from: nowhere in the sign-on sequence.
+USERINFO^XUSRB2 (`XUS GET USER INFO`) returns DUZ, name, standard name,
+division, title, service/section, language and DTIME (XUSRB2.m:25-35) —
+its line 7, declared here as `:user_class_ien`, is DTIME and is now
+`:dtime`. The one user class CPRS reports, USRCLS in `ORWU USERINFO`, is
+computed on the server **from security keys** (ORWU.m:19: ORES=3,
+ORELSE=2, OREMAS=1, else 0). So the role is derived from keys only.
+
+**Breaking:**
+
+- `Authentication.authenticate` no longer returns `:user_type`, and
+  `Authentication::USER_TYPES` is gone.
+- `UserRoles.resolve` takes `security_keys:` only. It answers
+  `case_manager` for PRCFA SUPERVISOR / BPRC MANAGER, then `provider` /
+  `nurse` / `clerk` for ORES / ORELSE / OREMAS in ORWU.m:19's precedence,
+  else `user`. `USER_CLASS_MAP`, `for_class`, `class_for` and
+  `mock_av_code` are removed — the 1/3/4/5 code table had no source.
+- `SecurityKeys` gains `:ores`, `:orelse`, `:oremas`, `:provider`.
+- `MockClient#seed_user(role:)` seeds the keys the role implies (ORES +
+  PROVIDER, ORELSE, OREMAS, PRCFA SUPERVISOR) into `ORWU USERKEYS`, ahead
+  of any `security_keys:` given, and seeds nothing into line 5. A consumer
+  that seeded `:av_code` with `user_class:` seeds
+  `post_signon_message_count:` instead; `:user_info` takes `dtime:` in
+  place of `user_class_ien:`.
+
+A consumer that resolved a role with
+`UserRoles.resolve(user_class: UserRoles.class_for(auth[:user_type]), security_keys: keys)`
+now calls `UserRoles.resolve(security_keys: keys)`; the keys it already
+reads from `ORWU USERKEYS` are the whole input.
+
 ### Added — the gate can see line-based mappings at all (#190)
 
 `Contract.mapping_kind` asked only `scalar?` / `text_blob?`, so the **19

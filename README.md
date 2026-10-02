@@ -128,7 +128,7 @@ client.disconnect
 | `RpmsRpc::MockClient`          | Hermetic test double with seeded data            |
 | `RpmsRpc::MockFhirClient`      | FHIR R4 mock for IRIS for Health reads           |
 | `RpmsRpc::SecurityKeys`        | Symbolic ↔ RPMS security key translation         |
-| `RpmsRpc::UserRoles`           | Role-based authorization (provider, nurse, etc.) |
+| `RpmsRpc::UserRoles`           | Role derived from security keys (ORES/ORELSE/OREMAS, PRCFA) |
 | `RpmsRpc::Capabilities`        | Feature-gated permission checks                  |
 
 ### Exception-message sanitization
