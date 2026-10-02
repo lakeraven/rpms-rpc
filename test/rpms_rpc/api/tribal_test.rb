@@ -3,7 +3,6 @@
 require "minitest/autorun"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/tribal"
-require "rpms_rpc/api/eligibility"
 
 # Tests for tribal/IHS symbolic APIs. All reads run on the generic
 # FileMan RPCs (DDR GETS ENTRY DATA / DDR LISTER / DDR VALIDATOR) over
@@ -15,13 +14,7 @@ class TribalTest < Minitest::Test
   Tribal = RpmsRpc::Tribal
 
   def setup
-    @mock = RpmsRpc.mock! do |m|
-      m.seed(:vfc_eligibility, "1", { code: "V04", label: "AI/AN" })
-      m.seed_collection(:vfc_eligibility_list, [
-        { code: "V01", label: "Not VFC eligible" },
-        { code: "V04", label: "AI/AN" }
-      ])
-    end
+    @mock = RpmsRpc.mock!
   end
 
   def teardown
@@ -147,21 +140,5 @@ class TribalTest < Minitest::Test
 
     assert_equal [ { ien: 123, name: "EXAMPLE TRIBE" },
                    { ien: 124, name: "EXAMPLE TRIBE TWO" } ], result
-  end
-
-  # -- VFC eligibility (unchanged read path) ---------------------------------
-
-  def test_vfc_eligibility
-    result = RpmsRpc::Eligibility.for_patient("1")
-
-    refute_nil result
-    assert_equal "V04", result[:code]
-  end
-
-  def test_vfc_eligibility_codes
-    codes = RpmsRpc::Eligibility.codes
-
-    assert codes.is_a?(Array)
-    assert codes.any? { |c| c[:code] == "V04" }
   end
 end

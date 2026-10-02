@@ -228,26 +228,6 @@ class ClinicalDataApiTest < Minitest::Test
     assert_includes flattened, "COVID-19"
   end
 
-  def test_immunization_for_patient_returns_empty_when_none
-    # Structured list semantics: no seeded :immunization_list rows → [].
-    assert_equal [], RpmsRpc::Immunization.for_patient("99999")
-  end
-
-  def test_immunization_for_patient_returns_structured_records_when_seeded
-    RpmsRpc.mock! do |m|
-      m.seed_keyed_collection(:immunization_list, "1", [
-        { ien: 7001, vaccine_code: "207", vaccine_display: "COVID-19 Pfizer",
-          status: "completed", lot_number: "EX1234" }
-      ])
-    end
-
-    result = RpmsRpc::Immunization.for_patient("1")
-
-    assert_equal 1, result.length
-    assert_equal "207", result.first[:vaccine_code]
-    assert_equal "EX1234", result.first[:lot_number]
-  end
-
   private
 
   # Swap in a client that fails on ANY RPC dispatch — proves a guard

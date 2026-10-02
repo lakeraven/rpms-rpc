@@ -14,15 +14,6 @@ module RpmsRpc
       "BEHOCACV CWAD"
     ])
 
-    # Phr#patient_direct_address / #provider_direct_address /
-    # #facility_direct_domain / #record_access — BPHR namespace is
-    # absent entirely on the 2026-06-07 staging dump. Probe via the
-    # read-shape BPHR PATIENT DIRECT; the BPHR RECORD ACCESS write
-    # (logs PHR access for reporting) gates by association.
-    register(:bphr_phr_endpoints, [
-      "BPHR PATIENT DIRECT"
-    ])
-
     # Referral/RCIS workflows — IHS BMC package. Probe with a read-only
     # reference-data RPC only; create/update/status/print calls are writes or
     # can have side effects, so API methods gate them by this association.
