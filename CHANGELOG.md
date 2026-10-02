@@ -36,6 +36,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — disconnect ends the CIA session the way the broker expects (#192)
+
+`CiaClient#disconnect` closed the TCP socket without sending the `{CIA}` quit
+action. The single-session listener (CIANBLIS) does not notice a vanished peer
+at EOF — only on its retry bound — so it sat draining a dead socket while the
+next connection waited, measured at ~45 s per orphaned close against a built 9.0
+YottaDB image. `disconnect` now sends the broker's disconnect action before
+closing:
+
+- The action is `"D"`. `DOACTION^CIANBLIS` takes the action from frame header
+  byte 8 (`ACT=$E(X,8)`, CIANBLIS.m:128) and dispatches
+  `D @("ACT"_ACT_"^CIANBACT")` (CIANBLIS.m:139). `ACTD^CIANBACT`
+  (CIANBACT.m:24-27) runs `RESET^CIANBRPC()` — the session logout/cleanup — then
+  sets `CIADATA=1` and `CIAQUIT=1`. `CIAQUIT` makes the listener's `QUIT()`
+  return true (CIANBLIS.m:151-152), so the loop ends and `TCPCLOSE` runs
+  (CIANBLIS.m:114-117) instead of the retry drain. The broker replies to ACTD
+  (`CIADATA=1` -> `REPLY`, CIANBLIS.m:142-143) and then closes.
+- `RESET^CIANBRPC` quits unless `CIA("UID")` is set (CIANBRPC.m:102), and
+  `DOACTION` only populates `CIA("UID")` from a `UID` field on the frame, so the
+  quit frame carries the session UID exactly as an RPC frame does — otherwise the
+  socket closes but the session's locks and `^XTMP` state never release.
+- The close can win the race (CIAQUIT drops the socket the instant ACTD
+  returns), so a peer-closed read or a broken-pipe write during the quit is the
+  expected outcome of a clean disconnect, not an error, and is swallowed;
+  `reset_connection` tears our side down regardless. A `disconnect` on a client
+  that never connected still sends nothing.
+
+Point 2 of #192 (`authenticate` returning `duz: nil`) was already resolved on
+`main`: sign-on reads identity with `CIAVCXUS VIMINFO`, not `CIANBRPC GETVAR
+"DUZ"`. `GETVAR^CIANBRPC` forces an empty or zero namespace to `"@"`
+(`S:0[$G(NMSP) NMSP="@"`, CIANBRPC.m:187), while the sign-on DUZ is stored under
+namespace `0` (RESET^CIANBRPC's ENVDATA loop), so that RPC can only ever return
+`"DUZ="` with no digits — no regex could have matched it. The routine's output
+shape is pinned by the `GETVAR_NO_DUZ_REAL` regression fixture. Point 3 (the
+one-byte sequence echo in replies) is addressed in #289.
+
 ### Added — the gate can see line-based mappings at all (#190)
 
 `Contract.mapping_kind` asked only `scalar?` / `text_blob?`, so the **19
