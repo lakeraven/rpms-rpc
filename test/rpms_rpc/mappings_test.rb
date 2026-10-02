@@ -21,17 +21,23 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
   # -- ORWPT ID INFO ---------------------------------------------------------
 
+  # IDINFO^ORWPT (ORWPT.m:6-11): PID^DOB^SEX^VET^SC%^WARD^RM-BED^NAME. The
+  # row below is the shape of the committed capture (wire_captures/
+  # orwpt-id-info.yml) with a ward and room-bed filled in.
   def test_patient_id_info_parses_identifier_fields
     m = RpmsRpc::DataMapper[:patient_id_info]
-    # Live shape from staging: SSN^DOB^SEX^RACE_CODE^^SITE_IEN^^NAME
-    result = m.parse_one("000009999^2100214^M^N^^7819^^MOUSE,MICKEY M")
+    result = m.parse_one("000009999^2100214^M^N^10^3 NORTH^301-B^MOUSE,MICKEY M")
 
     assert_equal "000009999", result[:ssn]
     assert_equal Date.new(1910, 2, 14), result[:dob]
     assert_equal "M", result[:sex]
-    assert_equal "N", result[:race_code]
-    assert_equal 7819, result[:site_ien]
+    assert_equal "N", result[:veteran], "piece 4 is the VETERAN flag (ORWPT.m:7), not a race code"
+    assert_equal "10", result[:sc_percent]
+    assert_equal "3 NORTH", result[:ward_location], "piece 6 is the ward location (ORWPT.m:7), not a site IEN"
+    assert_equal "301-B", result[:room_bed]
     assert_equal "MOUSE,MICKEY M", result[:name]
+    refute result.key?(:race_code), "no race code on this wire"
+    refute result.key?(:site_ien), "no site IEN on this wire"
   end
 
   # -- SELECT + ID INFO merge ------------------------------------------------
@@ -42,14 +48,14 @@ class RpmsRpc::MappingsTest < Minitest::Test
       extras: { dfn: 3 }
     )
     ext = RpmsRpc::DataMapper[:patient_id_info].parse_one(
-      "000009999^2100214^M^N^^7819^^MOUSE,MICKEY M"
+      "000009999^2100214^M^N^^^^MOUSE,MICKEY M"
     )
     merged = base.merge(ext)
 
     assert_equal 3, merged[:dfn]
     assert_equal "MOUSE,MICKEY M", merged[:name]
-    assert_equal "N", merged[:race_code]
-    assert_equal 7819, merged[:site_ien]
+    assert_equal "N", merged[:veteran]
+    assert_nil merged[:ward_location], "an outpatient has no ward"
   end
 
   # -- ORWPT LIST ALL --------------------------------------------------------
