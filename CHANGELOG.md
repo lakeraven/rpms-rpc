@@ -36,6 +36,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed — the `CIAVMRPC GETPAR` session-bootstrap mapping (#239) — **breaking**
+
+`:session_default_source` wrapped `CIAVMRPC GETPAR` to fetch
+`"CIAVM DEFAULT SOURCE"` at cold launch — the VueCentric client's own
+config root, the path the Windows shell loads its component registry from.
+Under ADR 0004 the RPC is tier V, coupling `vuecentric-framework`,
+disposition legacy (disqualifier 2: it reads client session/widget state),
+and it sat in the grandfathered ratchet. A frontend-agnostic consumer has
+no CIAVM config root, so there is nothing for the value to mean; its other
+use — reading site parameters such as `BGO CC PREFIX TEXT` — is site
+configuration for the captured L2/L3 overlay, not an RPC round-trip. No
+caller in this gem or in the consuming app read anything but the CIAVM
+parameter, so the mapping is deleted rather than narrowed.
+
+- `DataMapper[:session_default_source]` is gone; so is
+  `Session::DEFAULT_SOURCE_PARAM`.
+- `Session.bootstrap` no longer calls `CIAVMRPC GETPAR` and its result has
+  no `:config_root` key; `:registry`, `:vim_info` and `:default_site_ien`
+  are unchanged.
+- The `"CIAVMRPC GETPAR"` entry leaves `data/rpc_tiers/grandfathered.yml`
+  (the ratchet failed until it did), and `docs/RPC_COVERAGE.md` no longer
+  counts a `CIAVMRPC` wrapper.
+
+A consumer that seeded `:session_default_source` in its tests drops that
+seed; one that read `bootstrap(...)[:config_root]` has no replacement,
+because the value belongs to the legacy client.
+
 ### Added — the gate can see line-based mappings at all (#190)
 
 `Contract.mapping_kind` asked only `scalar?` / `text_blob?`, so the **19
