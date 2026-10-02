@@ -121,6 +121,13 @@ module RpmsRpc
       community: FIELD_COMMUNITY
     }.freeze
 
+    # Compared before any composition write, in the order a refusal names
+    # them. Last name, first name, sex, and DOB must each be present on both
+    # sides and equal — a blank is not a match. SSN is checked when either
+    # side has a real 9-digit SSN; the pseudo-SSN path (neither side does)
+    # is not a match against a chart that has one.
+    IDENTITY_FIELDS = %i[last_name first_name sex dob ssn].freeze
+
     # AG registration window used for delegation (file 9009068.3 — the
     # minimal demographics set; see RpmsRpc::Agg).
     AGG_WINDOW = Agg::DEFAULT_WINDOW
@@ -157,7 +164,8 @@ module RpmsRpc
     #   { success: true, dfn:, created: }               — registered (created:
     #     false = idempotent re-run against an existing #9000001 record)
     #   { success: false, error: Symbol, message: }     — rejected; error is
-    #     :voa_rejected / :duplicate_identity / :lock_failed / :filer_rejected
+    #     :voa_rejected / :duplicate_identity / :identity_mismatch /
+    #     :identity_unverified / :lock_failed / :filer_rejected
     #     (composition) or :agg_rejected / :hrn_file_failed (delegation)
     #   nil                                             — no broker response
     #
@@ -212,10 +220,11 @@ module RpmsRpc
 
       # VOA returns "1^DFN" for a freshly created patient AND for an ICN that
       # already exists at this facility (VAFCPTAD.m:29,55), with no identity
-      # re-validation. Verify the resolved record IS the person in the request
-      # before writing anything against it.
-      mismatch = identity_mismatch(attrs, dfn)
-      return mismatch if mismatch
+      # re-validation. Refuse before any write unless that record can be read
+      # and agrees with the request. A blank field or a missing read is not
+      # agreement — a write that cannot be verified is a wrong-patient write.
+      refusal = identity_mismatch(attrs, dfn)
+      return refusal if refusal
 
       node = "^AUPNPAT(#{dfn})"
       case DdrFileman.lock(node: node)
@@ -344,50 +353,108 @@ module RpmsRpc
 
     private
 
-    # nil when the resolved DFN's identity matches the request, or cannot be
-    # read back at all; a rejection hash when ORWPT ID INFO returns a record
-    # whose last name / DOB / sex disagrees with the request — a wrong-patient
-    # ICN collision. The message names WHICH field diverged and never echoes
-    # the PHI values on either side.
+    # nil when every compared field is present on both sides and equal.
+    # :identity_mismatch when a present value disagrees — a wrong-patient
+    # ICN collision. :identity_unverified when ORWPT ID INFO returned nothing,
+    # or a required field (or a one-sided SSN) is blank. The message names
+    # WHICH field and never echoes the PHI values on either side.
     #
-    # Unverifiable is not mismatched: a nil read (capability gap, or a record
-    # too fresh to read back) proceeds. Absence of data is not evidence of a
-    # collision, and false-rejecting a valid registration is its own harm.
+    # Absence of data is not verification. A blank surname used to compare
+    # equal to every chart (a leading comma in the request cleared the
+    # guard), and a nil read used to proceed. Both refuse.
     def identity_mismatch(attrs, dfn)
       id = DataMapper.patient_id_info.fetch_one(dfn.to_s)
-      return nil if id.nil?
+      return unverified_read(dfn) if id.nil?
 
       want = request_identity(attrs)
-      diverged = %i[sex dob last_name].select { |field| identity_field_differs?(field, want, id) }
-      return nil if diverged.empty?
-
-      { success: false, error: :identity_mismatch,
-        message: "VOA resolved DFN #{dfn} to an existing patient whose " \
-                 "#{diverged.join('/')} does not match the registration request" }
-    end
-
-    # Normalize the request's identity fields for comparison.
-    def request_identity(attrs)
-      last, first = name_pieces(attrs).split("^", 2)
-      { last_name: last.to_s.upcase, first_name: first.to_s.upcase,
-        sex: attrs[:sex].to_s.strip[0, 1].to_s.upcase, dob: dob_key(attrs[:dob]) }
-    end
-
-    # A field is "different" only when BOTH sides carry a value. A blank on
-    # either side is unknown, not divergent.
-    def identity_field_differs?(field, want, id)
-      case field
-      when :sex
-        got = id[:sex].to_s.strip[0, 1].to_s.upcase
-        !got.empty? && !want[:sex].empty? && got != want[:sex]
-      when :dob
-        got = dob_key(id[:dob])
-        !got.empty? && !want[:dob].empty? && got != want[:dob]
-      when :last_name
-        # id[:name] is "LAST,FIRST MIDDLE"; compare last-name tokens only.
-        got = id[:name].to_s.split(",", 2).first.to_s.strip.upcase
-        !got.empty? && !want[:last_name].empty? && got != want[:last_name]
+      got = chart_identity(id)
+      diverged = []
+      unverified = []
+      IDENTITY_FIELDS.each do |field|
+        case identity_verdict(field, want[field], got[field])
+        when :differ then diverged << field
+        when :unverified then unverified << field
+        end
       end
+      return nil if diverged.empty? && unverified.empty?
+
+      identity_refusal(dfn, diverged, unverified)
+    end
+
+    # :match — both present and equal.
+    # :differ — both present and unequal.
+    # :unverified — a required field is blank on either side, or SSN is
+    # present on only one side. A blank is not agreement.
+    # :skip — SSN is absent on both sides (the pseudo-SSN path). Nothing
+    # to compare, and it does not count as a field that was verified.
+    def identity_verdict(field, want, got)
+      return :skip if field == :ssn && want.empty? && got.empty?
+      return :unverified if want.empty? || got.empty?
+
+      want == got ? :match : :differ
+    end
+
+    def identity_refusal(dfn, diverged, unverified)
+      if diverged.any?
+        message = "VOA resolved DFN #{dfn} to an existing patient whose " \
+                  "#{diverged.join('/')} does not match the registration request"
+        message = "#{message}; #{unverified.join('/')} could not be verified" if unverified.any?
+        { success: false, error: :identity_mismatch, message: message }
+      else
+        { success: false, error: :identity_unverified,
+          message: "VOA resolved DFN #{dfn} but #{unverified.join('/')} could not be verified " \
+                   "against the registration request" }
+      end
+    end
+
+    def unverified_read(dfn)
+      { success: false, error: :identity_unverified,
+        message: "VOA resolved DFN #{dfn} but ORWPT ID INFO returned no identity; " \
+                 "refusing to write a patient that could not be verified" }
+    end
+
+    # Normalize the request's identity fields for comparison. The first name
+    # is the first token only: ORWPT returns "LAST,FIRST MIDDLE" and a
+    # middle name or suffix in the same piece does not round-trip as its
+    # own field (VAFCPTAD.m:57-63).
+    def request_identity(attrs)
+      pieces = name_pieces(attrs).split("^", -1)
+      { last_name: pieces[0].to_s.strip,
+        first_name: name_token(pieces[1]),
+        sex: attrs[:sex].to_s.strip[0, 1].to_s.upcase,
+        dob: dob_key(attrs[:dob]),
+        ssn: ssn_key(attrs[:ssn]) }
+    end
+
+    # ORWPT ID INFO: PID^DOB^SEX^...^NAME (IDINFO^ORWPT, ORWPT.m:4-8).
+    # NAME is ^DPT(DFN,0) piece 1, "LAST,FIRST MIDDLE".
+    def chart_identity(id)
+      last, rest = id[:name].to_s.strip.upcase.split(",", 2)
+      { last_name: last.to_s.strip,
+        first_name: name_token(rest),
+        sex: id[:sex].to_s.strip[0, 1].to_s.upcase,
+        dob: dob_key(id[:dob]),
+        ssn: ssn_key(id[:ssn]) }
+    end
+
+    def name_token(value)
+      value.to_s.strip.split(/\s+/, 2).first.to_s
+    end
+
+    # A comparable SSN is exactly nine digits. SSN^DPTLK1 returns the
+    # nine-digit value, or nine digits + "P **Pseudo SSN**" for a pseudo
+    # SSN, or "*SENSITIVE*" when the record is screened (DPTLK1.m:155-168).
+    # The pseudo display's digits are a generated placeholder — extracting
+    # them would treat that placeholder as the patient's SSN.
+    def ssn_key(value)
+      text = value.to_s.strip
+      return "" if text.empty?
+      return "" if text.match?(/\A\*SENSITIVE\*\z/i)
+      return "" if text.match?(/\A\d{9}P\b/i)
+      return "" if text.match?(/pseudo|\*{2,}|x{3,}/i)
+
+      digits = text.gsub(/\D/, "")
+      digits.match?(/\A\d{9}\z/) ? digits : ""
     end
 
     # Reduce a DOB (Date/Time, a parsed FileMan date from the mapping, or an
@@ -399,11 +466,31 @@ module RpmsRpc
       # and fall through to digit-stripping, turning " 1/2/1990 " into
       # "121990" and false-rejecting a valid registration (gate r1, Sol).
       text = value.to_s.strip
-      if text =~ %r{\A(\d{1,2})/(\d{1,2})/(\d{4})\z}
-        format("%04d%02d%02d", $3.to_i, $1.to_i, $2.to_i)
+      if (md = text.match(%r{\A(\d{1,2})/(\d{1,2})/(\d{4})\z}))
+        format("%04d%02d%02d", md[3].to_i, md[1].to_i, md[2].to_i)
+      elsif (md = text.match(%r{\A(\d{1,2})/(\d{1,2})/(\d{2})\z}))
+        two_digit_dob_key(md[1].to_i, md[2].to_i, md[3].to_i)
       else
         text.gsub(/\D/, "")
       end
+    end
+
+    # DIDT.m %DT (lines 63-72), without the "P"/"F" year flags. A two-digit
+    # year uses the current century, rolls forward when that lands more than
+    # 80 years in the past, and rolls back when it lands more than 20 years
+    # in the future. "1/2/90" in 2026 is 1990-01-02; digit-stripping it to
+    # "1290" false-rejected the registration (gate r1, Gemini).
+    def expand_two_digit_year(yy, today: Date.today)
+      year = (today.year / 100) * 100 + yy
+      year += 100 if today.year - year > 80
+      year -= 100 if year - today.year > 20
+      year
+    end
+
+    def two_digit_dob_key(month, day, yy)
+      Date.new(expand_two_digit_year(yy), month, day).strftime("%Y%m%d")
+    rescue ArgumentError
+      ""
     end
 
     def voa_failure(voa)

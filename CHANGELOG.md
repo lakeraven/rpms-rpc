@@ -43,12 +43,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   created patient AND for an ICN that already exists at this facility
   (VAFCPTAD.m:29,55), with no re-validation — so an ICN collision would file
   this request's demographics onto another person's chart. The guard reads
-  `ORWPT ID INFO` for the resolved DFN and rejects with `:identity_mismatch`
-  when last name, DOB or sex disagrees, before the lock and before any filing.
-  The message names which field diverged and never echoes either value.
-  Unverifiable is not mismatched: a nil read-back proceeds rather than
-  false-rejecting a valid registration, and a blank on either side is unknown
-  rather than different.
+  `ORWPT ID INFO` for the resolved DFN and refuses before the lock and before
+  any filing. Last name, first name, sex, and DOB must each be present on
+  both sides and equal. SSN (ORWPT piece 0, `SSN^DPTLK1`) is compared when
+  either side has a real 9-digit value; a pseudo-SSN display or `*SENSITIVE*`
+  is not an identifier, and a blank SSN does not match a chart that has one.
+  `:identity_mismatch` names the fields that disagree. `:identity_unverified`
+  names what could not be read — a nil ORWPT reply, or a blank on either
+  side. A blank is not a match: a leading comma used to clear the surname
+  and the guard. The message names fields only and never echoes either value.
+  Two-digit external years (`1/2/90`) follow the FileMan `%DT` window
+  (DIDT.m:63-72) instead of digit-stripping to `1290`.
 - `DdrFileman.lock` is tri-state: `true` = locked, `false` = the broker
   ANSWERED and refused (DDROK "0" — contention), `nil` = no broker response.
   Collapsing `nil` into `false` reported an unreachable broker as a busy
