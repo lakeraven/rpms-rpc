@@ -24,7 +24,31 @@ module RpmsRpc
       dental_supervisor: "DENTP SUPERVISOR",
 
       # CPRS
-      cprs_gui_chart: "OR CPRS GUI CHART"
+      cprs_gui_chart: "OR CPRS GUI CHART",
+
+      # The AG, SD and DG keys BPRM v4 gates registration, scheduling and ADT on.
+      # Each is real on the built baseline: an option LOCK in rpms-diffs
+      # inquire/19.norm and/or a user's KEY in inquire/200.norm (main, yotta-0930).
+      # Registration (AG)
+      registration_menu: "AGZMENU",
+      registration_manager: "AGZMGR",
+      registration_view_only: "AGZVIEWONLY",
+      registration_view_ssn: "AGZVIEWSSN",
+      benefits_case_reopen: "AGZCREOPN",
+
+      # Scheduling (SD)
+      scheduling_menu: "SDZMENU",
+      scheduling_supervisor: "SDZSUP",
+      scheduling_registration_menu: "SDZREGMENU",
+
+      # ADT (DG)
+      adt_menu: "DGZMENU",
+      adt_movement: "DGZADT",
+      adt_nurse: "DGZNUR",
+      adt_supervisor: "DGZSUP",
+      adt_system: "DGZSYS",
+      adt_incomplete_chart: "DGZICE",
+      adt_pcc: "DGZPCC"
     }.freeze
 
     REVERSE = REGISTRY.invert.freeze
