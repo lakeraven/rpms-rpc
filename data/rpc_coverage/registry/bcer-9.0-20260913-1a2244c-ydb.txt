@@ -2,6 +2,11 @@
 # source: rpms-ops releases/inventories/bcer-9.0-20260913-1a2244c-ydb-broker_8994.txt @ f6033a2
 # sha256 of source: 5f400d56a6f455061427e7fe6d63d656641063dd3463ca3cfbccfd8002affdec
 # Regenerate: git -C rpms-ops show <sha>:releases/inventories/bcer-9.0-20260913-1a2244c-ydb-broker_8994.txt | cut -d^ -f1 | LC_ALL=C sort -u
+#
+# Checked 2026-10-02 against the registries captured from a built 9.0 YottaDB image (5,557 names,
+# identical to this list) and a built 9.0 IRIS image (5,556: every name here but BGOVIMM6 DUPALLOW),
+# so this list is also the union of both. test/rpms_rpc/registered_rpc_names_test.rb fails when a
+# name the gem uses is on no pinned registry (rpms-rpc#207); pin a new capture here before mapping it.
 ADE APPT ADD
 ADE APPT CANCEL
 ADE APPT CONFLICT
