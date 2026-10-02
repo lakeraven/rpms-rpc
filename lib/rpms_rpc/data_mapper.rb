@@ -245,8 +245,8 @@ module RpmsRpc
       # -- format_* methods: reverse of parse (hash → caret-delimited string) ----
 
       # Format a hash into a caret-delimited string matching this mapping's field positions.
-      # A position may be declared twice (attribute alias — e.g. :status /
-      # :service_category on :encounter_visit); an alias the caller didn't
+      # A position may be declared twice (attribute alias — two attribute
+      # names reading the same piece); an alias the caller didn't
       # seed must not blank out the value another alias wrote, so a
       # position claimed by a seeded attribute is only overwritten by
       # another seeded attribute.

@@ -86,7 +86,7 @@ module RpmsRpc
     #   - patient update              → DDR FILER (FILE^DIE) —
     #     RpmsRpc::Registration.update
     #   - visit get-or-create         → BEHOENCX FETCH with the CREATE flag
-    #     (:encounter_get_or_create below) — RpmsRpc::Encounter.create
+    #     (:encounter_fetch below) — RpmsRpc::Encounter.create
 
     # BGOVMSR GET — every V MEASUREMENT on one visit (multi-line).
     # One INP param: "VISIT_IEN^FORMAT" — format 0 = one row per
@@ -576,58 +576,50 @@ module RpmsRpc
       m.text_blob :definition_text
     end
 
-    # BEHOENCX GETVISIT — core visit detail by visit_ien.
-    # Verified format (GETVISIT^BEHOENCX: BEHOENCX.m:4-16, header comment
-    # "Returns hosp loc^visit date^service category^dfn^visit id^locked"):
-    #   LOCATION_IEN^DATETIME_RAW^SERVICE_CATEGORY^PATIENT_DFN^VISIT_ID^LOCKED
-    # Position 2 is the visit's SERVICE CATEGORY — VISIT file #9000010
-    # field .07, ^AUPNVSIT(IEN,0) piece 7 (VIS2VSTR^BEHOENCX:
-    # BEHOENCX.m "$P(VSTR,U,7)"; BLDXRF^BEHOVM "CTYPE=$P(^AUPNVSIT(...),U,7)").
-    # :status is the legacy alias for the same position, kept for existing
-    # callers (RpmsRpc::Encounter). Position 4 is the VISIT ID, not a ward —
-    # the old :ward label predated corpus verification and is retained as an
-    # alias only.
+    # BEHOENCX GETVISIT(DATA,IEN) — one visit by VISIT file IEN.
+    # GETVISIT^BEHOENCX (BEHOENCX.m:5,8-15): LOOKUP^VSIT(IEN,"I",0) fills
+    # VSIT(field) and line 13 emits VSIT("LOC","VDT","SVC","PAT","VID") in
+    # that order, then line 14 appends $$ISLOCKED(IEN):
+    #   LOC^VDT^SVC^PAT^VID^LOCKED
+    # Those are VISIT #9000010 fields .22 HOSPITAL LOCATION, .01 VISIT/ADMIT
+    # DATE&TIME, .07 SERVICE CATEGORY, .05 PATIENT NAME, 15001 VISIT ID
+    # (FLD^VSITFLD: VSITFLD.m:15-33). Empty when the IEN is not a visit or
+    # the visit is DELETED (lines 11-12).
+    # Piece 3 is a service category ("A" ambulatory, "I" in-hospital, ...),
+    # not an encounter status, and piece 5 is the visit id, not a ward —
+    # the :status / :ward labels that sat there were never on this wire
+    # (#211). Live capture: test/fixtures/wire_captures/behoencx-getvisit.yml.
     DataMapper.define(:encounter_visit) do |m|
       m.rpc "BEHOENCX GETVISIT"
-      m.field 0, :location_ien, :integer
+      m.field 0, :location_ien,     :integer
       m.field 1, :datetime_raw
-      m.field 2, :status
       m.field 2, :service_category
-      m.field 3, :patient_dfn, :integer
-      m.field 4, :ward
+      m.field 3, :patient_dfn,      :integer
       m.field 4, :visit_id
-      m.field 5, :locked, :boolean
+      m.field 5, :locked,           :boolean
     end
 
-    # BEHOENCX FETCH — hydrated visit context (location + provider names + ward)
-    # Format: CLINIC_NAME^CLINIC_ABBREV^^LOCATION_IEN^PROVIDER^VISIT_IEN^WARD^?
-    DataMapper.define(:encounter_fetch) do |m|
-      m.rpc "BEHOENCX FETCH"
-      m.field 0, :clinic_name
-      m.field 1, :clinic_abbrev
-      m.field 3, :location_ien, :integer
-      m.field 4, :provider
-      m.field 5, :visit_ien, :integer
-      m.field 6, :ward
-    end
-
-    # BEHOENCX FETCH, get-or-create form — the visit-create path. Params
-    # positionally per FETCH(DATA,DFN,VSTR,PRV,CREATE) — FETCH^BEHOENCX:
-    # DFN, VSTR "LOC;FM_DATETIME;SVC_CAT", PRV (provider IEN, optional),
-    # CREATE (-1 = always create, 0 = never, 1 = create if not found).
-    # Creation descends VSTR2VIS → FNDVIS → GETVISIT^BSDAPI4 (the IHS PCC
-    # visit-creation API); GETVISIT^BEHOENCX itself is a pure fetch by
-    # visit IEN and never creates (rpms-ops
-    # docs/REGISTRATION_RPC_CONTRACTS.md §3). Registered in the staging
-    # file-8994 dump (FETCH^BEHOENCX, 2026-06-07).
-    # Reply per the FETCH header comment (source-derived; live capture
-    # pending):
+    # BEHOENCX FETCH(DATA,DFN,VSTR,PRV,CREATE) — resolve (and optionally
+    # create) a visit from a visit string, returning its context. The ONE
+    # mapping for this RPC (#213): Encounter.open sends CREATE=0 (a read),
+    # Encounter.create sends CREATE=1/-1 (the visit-create path).
+    # Params positionally (FETCH^BEHOENCX: BEHOENCX.m:32; registry formals
+    # DATA,DFN,VSTR,PRV,CREATE): DFN; VSTR "LOC;FM_DATETIME;SVC_CAT[;VISITIEN]"
+    # — with the 4th piece VSTR2VIS uses that IEN and never searches
+    # (BEHOENCX.m:107-111), without it FNDVIS searches a 60-minute window
+    # (lines 64-94); PRV (provider IEN, optional — line 36 defaults it to DUZ
+    # when the user is a provider); CREATE (-1 always create, 0 never — FNDVIS
+    # sets IN("NEVER ADD"), line 80 — 1 create if not found). Creation descends
+    # to GETVISIT^BSDAPI4 / GETVISIT^BEHOENC1 (lines 82-84), the IHS PCC
+    # visit API; GETVISIT^BEHOENCX itself never creates.
+    # Reply (header lines 30-31; built at lines 41-46):
     #   LOCNAME^LOCABBR^ROOMBED^PROVIEN^PROVNAME^VISITIEN^VISITID^LOCKED^ERRORTXT
-    # VISITIEN present => found/created; otherwise piece 9 carries the
-    # error text. NB: :encounter_fetch above predates this source read and
-    # labels positions 3/6 differently — reconciling it (and
-    # Encounter.open's call shape) is tracked separately.
-    DataMapper.define(:encounter_get_or_create) do |m|
+    # 1-2 = ^SC(LOC,0) pieces 1-2; 3 = ^DPT(DFN,.101) room-bed; 4 = PRV;
+    # 5 = ^VA(200,PRV,0) piece 1; 6-8 only when the visit resolved (IEN>0);
+    # 9 only when it did not ("-1^text" from FNDVIS or VIS2VSTR, lines 85
+    # and 117-118). There is no location IEN and no ward on this wire.
+    # Live capture (CREATE=0): test/fixtures/wire_captures/behoencx-fetch.yml.
+    DataMapper.define(:encounter_fetch) do |m|
       m.rpc "BEHOENCX FETCH"
       m.field 0, :location_name
       m.field 1, :location_abbrev
@@ -636,7 +628,7 @@ module RpmsRpc
       m.field 4, :provider_name
       m.field 5, :visit_ien,     :integer
       m.field 6, :visit_id
-      m.field 7, :locked,        :integer
+      m.field 7, :locked,        :boolean
       m.field 8, :error
     end
 
