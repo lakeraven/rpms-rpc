@@ -112,6 +112,39 @@ client.disconnect
 > raises in production. This prevents a misconfigured deploy from
 > silently talking to the broker as a debug account.
 
+### Interactive console (`bin/console`)
+
+A small REPL for short feedback loops against a real broker. It starts IRB with
+one signed-on client, chosen entirely by environment — there are **no defaults
+that name a real host or credential**, and it refuses to start (naming what is
+missing) if any required setting is absent.
+
+| Variable       | Required | Notes                                                        |
+|----------------|----------|--------------------------------------------------------------|
+| `BROKER`       | yes      | `cia` (CIANBLIS/VueCentric) or `bmx` (BMXNet/.NET)           |
+| `BROKER_HOST`  | yes      | broker host or IP                                            |
+| `BROKER_PORT`  | yes      | TCP port (e.g. `19200` local CIA, `29101` local BMX)        |
+| `RPMS_ACCESS`  | yes      | access code                                                  |
+| `RPMS_VERIFY`  | yes      | verify code                                                  |
+| `RPMS_CONTEXT` | no       | an option to bind after sign-on (e.g. `AGGRPC`)              |
+
+```sh
+# placeholders — fill in your own host/port/codes
+BROKER=cia BROKER_HOST=127.0.0.1 BROKER_PORT=19200 \
+  RPMS_ACCESS=... RPMS_VERIFY=... bin/console
+```
+
+At the prompt:
+
+```ruby
+rpc "ORWU USERINFO"                       # pretty-prints the RAW reply and the PARSED lines
+rpc "AGG LOOKUP PATIENTS", "DEMO", "N"    # params are passed straight through
+ctx                                       # show the bound context option
+ctx "AGGRPC"                              # bind a context option
+reconnect                                 # drop and re-establish connect + sign-on (+ RPMS_CONTEXT)
+client                                    # the underlying RpmsRpc client
+```
+
 ## Components
 
 | File                          | Purpose                                          |
