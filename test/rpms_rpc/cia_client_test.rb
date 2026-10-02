@@ -791,6 +791,22 @@ class RpmsRpc::CiaClientTest < Minitest::Test
                  broker.frames.last[:fields]
   end
 
+  # An Array key is a multi-level subscript: DOACTION splices the subscript
+  # text raw, so "1,0" lands as P3(1,0) — the TIUX(n,0) node BLRPLT^TIUSRVD
+  # reads for TIU TEMPLATE GETTEXT (TIUSRVD.m:82-83). Sent as a one-level
+  # string subscript it would be quoted ("1,0") and the text expand to
+  # nothing (#259).
+  def test_array_key_frames_as_a_multi_level_numeric_subscript
+    c, broker = signed_on_strict_client([ "^^2^2^3261002^^\r\n" ])
+    c.call_rpc("TIU TEMPLATE GETTEXT", "8", "349;3261002.09;A;7", { [ 1, 0 ] => "one", [ 2, 0 ] => "two" })
+    assert_equal [ "UID", "", "7", "RPC", "", "TIU TEMPLATE GETTEXT",
+                   "1", "", "8",
+                   "2", "", "349;3261002.09;A;7",
+                   "3", "1,0", "one",
+                   "3", "2,0", "two" ],
+                 broker.frames.last[:fields]
+  end
+
   def test_hash_param_doubles_embedded_quotes_in_string_subscripts
     c, broker = signed_on_strict_client([ "ok\r\n" ])
     c.call_rpc("XWB EXAMPLE ECHO STRING", { 'A"B' => "x" })

@@ -66,12 +66,32 @@ class NoteTemplateTest < Minitest::Test
     assert_equal [ TEMPLATE, DFN, VISIT_IEN ], call[:params]
   end
 
-  def test_text_returns_unsubstituted_template_body
+  # GETTEXT(TIUY,DFN,VSTR,TIUX) (TIUSRVT.m:67) expands the TEXT it is
+  # handed — there is no template IEN on this wire. The mock keys the
+  # reply by its first formal, the DFN (#259).
+  def test_text_returns_the_expanded_text
     RpmsRpc.mock! do |m|
-      m.seed_text(:template_text, TEMPLATE, "Raw |NAME|")
+      m.seed_text(:template_text, DFN, "^^1^1^3260527^^\nPatient: DOE,JOHN")
     end
 
-    assert_equal "Raw |NAME|", RpmsRpc::NoteTemplate.text(TEMPLATE)
+    assert_equal "^^1^1^3260527^^\nPatient: DOE,JOHN",
+                 RpmsRpc::NoteTemplate.text([ "Patient: |PATIENT NAME|" ], dfn: DFN, visit_string: VISIT_IEN)
+  end
+
+  def test_text_sends_each_line_as_a_tiux_n_0_node
+    RpmsRpc.mock! { |m| m.seed_text(:template_text, DFN, "x") }
+
+    RpmsRpc::NoteTemplate.text([ "one", "two" ], dfn: DFN, visit_string: "349;3260527.1;A;7")
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "TIU TEMPLATE GETTEXT" }
+    # BLRPLT^TIUSRVD reads @ROOT@(n,0) with ROOT="TIUX" (TIUSRVD.m:82-83).
+    assert_equal [ DFN, "349;3260527.1;A;7", { [ 1, 0 ] => "one", [ 2, 0 ] => "two" } ], call[:params]
+  end
+
+  def test_text_returns_nil_for_no_lines_or_no_patient
+    RpmsRpc.mock!
+    assert_nil RpmsRpc::NoteTemplate.text([], dfn: DFN)
+    assert_nil RpmsRpc::NoteTemplate.text([ "x" ], dfn: nil)
+    assert_empty RpmsRpc.client.received_calls
   end
 
   def test_access_level_returns_string
@@ -87,7 +107,7 @@ class NoteTemplateTest < Minitest::Test
     assert_equal [], RpmsRpc::NoteTemplate.items("0")
     assert_nil RpmsRpc::NoteTemplate.boilerplate(nil, dfn: DFN, visit_ien: VISIT_IEN)
     assert_nil RpmsRpc::NoteTemplate.boilerplate(TEMPLATE, dfn: nil, visit_ien: VISIT_IEN)
-    assert_nil RpmsRpc::NoteTemplate.text("")
+    assert_nil RpmsRpc::NoteTemplate.text([ "x" ], dfn: "")
     assert_nil RpmsRpc::NoteTemplate.access_level(TEMPLATE, nil)
   end
 

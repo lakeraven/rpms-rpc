@@ -179,6 +179,13 @@ class RpmsRpc::XwbClientTest < Minitest::Test
     assert_equal [ [ "a", "1" ], [ "b", "2" ] ], encoded[:entries]
   end
 
+  # An Array key is a multi-level subscript: [1, 0] is the TIUX(1,0) node
+  # BLRPLT^TIUSRVD reads for TIU TEMPLATE GETTEXT (TIUSRVD.m:82-83) (#259).
+  def test_encode_param_joins_array_keys_as_multi_level_subscripts
+    encoded = Client.new.encode_param({ [ 1, 0 ] => "line one", [ 2, 0 ] => "line two" })
+    assert_equal [ [ "1,0", "line one" ], [ "2,0", "line two" ] ], encoded[:entries]
+  end
+
   # A business hash that incidentally has a :type key must still be encoded
   # as a list param, not silently passed through. Only :type == :literal or
   # :type == :list are protocol kinds.
