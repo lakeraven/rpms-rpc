@@ -3,6 +3,10 @@
 require "minitest/autorun"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/behavioral_health"
+require "rpms_rpc/api/behavioral_health/case_management"
+require "rpms_rpc/api/behavioral_health/groups"
+require "rpms_rpc/api/behavioral_health/intake"
+require "rpms_rpc/api/behavioral_health/reference"
 
 # Tests for RpmsRpc::BehavioralHealth — the AMHG (IHS Behavioral Health) RPC
 # surface (rpms-rpc#227).
@@ -582,5 +586,128 @@ class BehavioralHealthTest < Minitest::Test
 
     assert_equal 2, factors.length
     assert_equal "Recent bereavement", factors.last[:if_other]
+  end
+
+  # -- AMHGRPC context binding (rpms-rpc#258) --------------------------------
+  #
+  # RPC registration is OPTION-scoped (RpmsRpc::ContextScope). On a built 9.0
+  # image every AMHG RPC this module and its clusters call is in the RPC
+  # multiple of ONE file-19 option, AMHGRPC (223 entries), and in none of the
+  # options a signed-on session is otherwise holding — a non-programmer under
+  # the sign-on option simply never hears back. Every AMHG call goes through
+  # Wire#call_amhg, so that is where AMHGRPC is bound and the caller's option
+  # restored, as RpmsRpc::Agg does for AGGRPC.
+
+  # Arguments that let every public method reach the wire. Nothing is seeded:
+  # the mock answers "" and still records the call with its context.
+  AMHG_CALLS = {
+    BH => {
+      visits: [ 100, { from: "3250101", to: "3251231" } ],
+      visit_information: [ 8801 ],
+      visit_activity: [ 8801 ],
+      visit_axis_ii: [ 8801 ],
+      visit_axis_iv: [ 8801 ],
+      visit_axis_iii: [ 8801 ],
+      visit_axis_v: [ 8801 ],
+      visit_chief_complaint: [ 8801 ],
+      visit_soap: [ 8801 ],
+      visit_comment_appointment: [ 8801 ],
+      visit_assessment: [ { intake_ien: 12 } ],
+      visit_screenings: [ 8801 ],
+      treatment_plans: [ 100, { from: "3250101", to: "3251231" } ],
+      treatment_plan: [ 55 ],
+      treatment_plan_reviews: [ 55 ],
+      treatment_plan_participants: [ 55 ],
+      treatment_plan_narrative: [ 55 ],
+      suicide_forms: [ 100, { from: "3250101", to: "3251231" } ],
+      suicide_form: [ 31 ],
+      suicide_form_methods: [ 31 ],
+      suicide_form_substances: [ 31 ],
+      suicide_form_contributing_factors: [ 31 ]
+    },
+    BH::CaseManagement => {
+      case_dates: [ 100, { from: "3250101", to: "3251231" } ],
+      case_management: [ 9 ],
+      community_activities: [ 412, { from: "3250101", to: "3251231" } ],
+      community_activity: [ 9 ]
+    },
+    BH::Groups => {
+      groups: [ 412, { from: "3250101", to: "3251231" } ],
+      group_information: [ 5 ],
+      group_patients: [ 5 ],
+      group_cpt: [ 5 ],
+      group_edu: [ 5 ],
+      group_pov: [ 5 ],
+      group_soap: [ 5 ],
+      group_secondary_providers: [ 5 ]
+    },
+    BH::Intake => {
+      intakes: [ 100, { from: "3250101", to: "3251231" } ],
+      intake_documents: [ 100, { program: "ADULT OUTPATIENT", from: "3250101", to: "3251231" } ]
+    },
+    BH::Reference => {
+      clinics: [],
+      patients: [ "PATIENT,EXAMPLE" ],
+      site_parameters: [ 1 ],
+      admin_records: [ 412, { from: "3250101", to: "3251231" } ]
+    }
+  }.freeze
+
+  def test_the_bind_table_names_every_public_method_of_every_cluster
+    AMHG_CALLS.each do |mod, table|
+      expected = mod.public_instance_methods(false).sort - RpmsRpc::BehavioralHealth::Wire.instance_methods
+
+      assert_equal expected, table.keys.sort,
+        "a new #{mod} method must be added to AMHG_CALLS so its context bind is proven"
+    end
+  end
+
+  def test_every_amhg_call_runs_under_amhgrpc_and_restores_the_callers_context
+    AMHG_CALLS.each do |mod, table|
+      table.each do |method, args|
+        mock = RpmsRpc.mock!
+        caller_context = mock.current_context
+        positional = args.reject { |a| a.is_a?(Hash) }
+        keywords = args.find { |a| a.is_a?(Hash) } || {}
+
+        mod.public_send(method, *positional, **keywords)
+
+        calls = mock.received_calls
+        refute_empty calls, "#{mod}.#{method} made no RPC call"
+        calls.each do |call|
+          assert_equal "AMHGRPC", call[:context],
+            "#{mod}.#{method} sent #{call[:rpc]} under #{call[:context].inspect}; the AMHG " \
+            "RPCs are registered under AMHGRPC only, so it is denied there"
+        end
+        assert_equal caller_context, mock.current_context,
+          "#{mod}.#{method} left the session on #{mock.current_context.inspect}"
+        assert_equal [ "AMHGRPC", caller_context ], mock.context_binds,
+          "#{mod}.#{method}: expected one bind and one restore"
+      end
+    end
+  end
+
+  def test_an_amhgrpc_that_will_not_bind_raises_before_any_rpc_is_sent
+    @mock.unbindable_context!("AMHGRPC")
+
+    assert_raises(RpmsRpc::Client::RpcError) { BH.visit_soap(8801) }
+    assert_empty @mock.received_calls
+  end
+
+  def test_a_client_that_cannot_scope_contexts_runs_as_is
+    plain = Class.new do
+      attr_reader :calls
+
+      def initialize = @calls = []
+
+      def call_rpc(rpc, *params)
+        @calls << [ rpc, params ]
+        [ "T00010BMXIEN^T00080SOAP", "8801^Plan reviewed" ]
+      end
+    end.new
+    RpmsRpc.configure { |c| c.client = plain }
+
+    assert_equal [ "8801^Plan reviewed" ], BH.visit_soap(8801)
+    assert_equal [ [ "AMHG GET VISIT SOAP", [ "8801" ] ] ], plain.calls
   end
 end
