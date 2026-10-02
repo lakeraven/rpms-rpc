@@ -374,16 +374,42 @@ module RpmsRpc
       nil # drained (or the peer closed: the write that follows reports that)
     end
 
-    # Read this request's reply. An EMPTY piece is never a reply (every CIA reply starts with the
-    # request's sequence echo, CIANBLIS.m:136): it is a stale EOD that arrived late, such as the
-    # one after a global array's $C(31). Skip those; hand anything else to the caller unchanged,
-    # so #parse_cia_reply keeps judging malformed replies.
+    # Read THIS request's reply, skipping any piece that is not ours.
+    #
+    # Every CIA reply begins with the request's one-byte sequence echo
+    # (CIANBLIS.m:135 `W SEQ`, written UNCONDITIONALLY ahead of REPLY/SNDERR/
+    # SNDEOD). That echo is the only correlation this length-free stream carries,
+    # so it is how a reply is told from a STALE TAIL of an earlier one that
+    # arrived in flight — after discard_stale_bytes drained the socket but before
+    # (or during) this read, which is the window #discard_stale_bytes cannot
+    # close. A non-empty tail (the remainder of a global-array reply whose body
+    # embedded EOD — BSDX/BMC, rpms-rpc#254, measured 2026-09-23) begins with
+    # that reply's DATA, not our echo, so it never matches @seq and is skipped;
+    # returning it put the whole session one call late (rpms-rpc#289). An empty
+    # piece (a late bare EOD, e.g. after a global array's $C(31)) carries no echo
+    # and is skipped the same way.
+    #
+    # A reply we RETURN is this request's by its echo; a well-formed one then
+    # carries a valid ack flag — \x00 DATA (CIANBLIS.m:261) or \x01 ERROR (:268)
+    # — or none at all (SNDEOD, :273-275, sequence echo only). That ack shape is
+    # enforced by #parse_cia_reply, which fails CLOSED (returns "" / raises) on
+    # anything else, so an echo-matching but malformed frame is still returned
+    # here and refused there rather than silently skipped into a desync.
+    #
+    # Fail closed on exhaustion: once the retry budget is spent with no piece
+    # carrying our echo, raise ConnectionError rather than hand the caller
+    # someone else's bytes.
     def read_reply(terminator)
+      echo = @seq.to_s.b # the one byte CIANBLIS.m:135 echoes for this frame
+      # A small bound: read past stale pieces, but fail closed on a desynced
+      # stream rather than loop.
       8.times do
         raw = read_until_raw(terminator) # base: shared read loop; CIA EOD, or AGG US sentinel
-        return raw unless raw.empty?
+        return raw if raw.byteslice(0, 1) == echo
       end
-      raise ConnectionError, "CIA reply stream out of step: only empty pieces after the request"
+      raise ConnectionError, RpmsRpc.sanitize_error(
+        "CIA reply stream out of step: no piece carried sequence echo #{@seq}"
+      )
     end
 
     # Build the L()-packed UID/RPC/param fields shared by call_rpc_raw and
