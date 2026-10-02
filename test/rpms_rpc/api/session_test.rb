@@ -19,6 +19,10 @@ class SessionTest < Minitest::Test
     end
   end
 
+  def teardown
+    RpmsRpc.reset!
+  end
+
   def test_bootstrap_returns_documented_hash_shape
     result = RpmsRpc::Session.bootstrap("301")
 
