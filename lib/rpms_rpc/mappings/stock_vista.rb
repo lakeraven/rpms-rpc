@@ -541,24 +541,25 @@ module RpmsRpc
     # ========================================================================
 
     # XUS GET USER INFO — authenticated user info. Response is line-based,
-    # one value per line — not caret-delimited. Live shape observed against
-    # staging:
-    #   [0] "1"                              → duz
-    #   [1] "PROVIDER,TEST"                  → name (FAMILY,GIVEN)
-    #   [2] "Adam Adam"                      → display_name
-    #   [3] "7819^DEMO IHS CLINIC^8904"      → current_site (IEN^NAME^ABBR)
-    #   [4]..[6] ""                          → reserved
-    #   [7] "30"                             → user_class_ien (pointer into
-    #                                          USER CLASS file #8932.1 —
-    #                                          NOT the auth class code that
-    #                                          av_code's :user_class returns)
+    # one value per line — not caret-delimited. The layout is USERINFO^XUSRB2's
+    # RET() array (XUSRB2.m:25-35), confirmed against a built 9.0 image:
+    #   [0] "1"                              → duz (:25)
+    #   [1] "PROVIDER,TEST"                  → name, file 200 .01 (:29)
+    #   [2] "Adam Adam"                      → display_name, $$NAME^XUSER (:30)
+    #   [3] "7819^DEMO IHS CLINIC^8904"      → current_site, DUZ(2)^$$NS^XUAF4 (:31)
+    #   [4] ""                               → title, file 3.1 name (:32)
+    #   [5] ""                               → service/section, file 49 name (:33)
+    #   [6] ""                               → DUZ("LANG") (:34)
+    #   [7] "30"                             → DTIME, the user's timed-read (:35)
+    # Line 7 was declared as a user-class pointer. It is DTIME; nothing in
+    # this reply is a user class (#236).
     DataMapper.define(:user_info) do |m|
       m.rpc "XUS GET USER INFO"
       m.line_field 0, :duz,  :integer
       m.line_field 1, :name
       m.line_field 2, :display_name
       m.line_field 3, :current_site
-      m.line_field 7, :user_class_ien, :integer
+      m.line_field 7, :dtime, :integer
     end
 
     # ========================================================================
@@ -760,13 +761,19 @@ module RpmsRpc
       m.scalar :status, :string
     end
 
-    # XUS AV CODE — authentication result (line-based)
-    # Line 0: DUZ (or 0 for failure)
-    # Line 1: error code
-    # Line 2: verify-code-change flag
-    # Line 3: message / greeting
-    # Line 4: unused
-    # Line 5: user class
+    # XUS AV CODE — authentication result, one value per line. The reply is
+    # VALIDAV^XUSRB's RET() array (XUSRB.m:9-11, :16, :40, :85-87):
+    #   RET(0)=DUZ (0 on failure)
+    #   RET(1)=XUM — 0 ok; 1 can't sign on (inhibited logons, three-strike lock)
+    #   RET(2)=VCCH — verify code needs changing
+    #   RET(3)=message — $$TXT^XUS3(XUMSG), "" on success
+    #   RET(4)=0
+    #   RET(5)=post-sign-on message COUNT: 0 at entry (:16); set to the number
+    #          of XUTEXT lines in POST (:86), zeroed when $$SHOWPOST is off (:87)
+    #   RET(5+n)=the message lines themselves (:86)
+    #   RET(RET(5)+6)=number of divisions the user must choose from (:11)
+    # Line 5 used to be declared as a user class. No line of this reply is one
+    # (#236); the role comes from security keys — see UserRoles.
     DataMapper.define(:av_code) do |m|
       m.rpc "XUS AV CODE"
       m.line_field 0, :duz, :integer
@@ -777,7 +784,7 @@ module RpmsRpc
       m.line_field 1, :error_code
       m.line_field 2, :verify_needs_change, :integer
       m.line_field 3, :message
-      m.line_field 5, :user_class, :integer
+      m.line_field 5, :post_signon_message_count, :integer
     end
 
     # XUS CVC — CVC verification

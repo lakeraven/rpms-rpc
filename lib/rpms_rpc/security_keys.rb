@@ -24,7 +24,15 @@ module RpmsRpc
       dental_supervisor: "DENTP SUPERVISOR",
 
       # CPRS
-      cprs_gui_chart: "OR CPRS GUI CHART"
+      cprs_gui_chart: "OR CPRS GUI CHART",
+
+      # Order authority — what ORWU USERINFO's USRCLS and CANSIGN/ISPROVIDER
+      # pieces are computed from (ORWU.m:19-21). UserRoles derives the role
+      # from these.
+      ores: "ORES",
+      orelse: "ORELSE",
+      oremas: "OREMAS",
+      provider: "PROVIDER"
     }.freeze
 
     REVERSE = REGISTRY.invert.freeze
