@@ -886,15 +886,16 @@ module RpmsRpc
     end
 
     # ========================================================================
-    # SESSION BOOTSTRAP (CIAVMRPC*, CIAVMCFG*, CIAVCXUS*)
+    # SESSION BOOTSTRAP (CIAVMCFG*, CIAVCXUS*)
     # ========================================================================
-
-    # CIAVMRPC GETPAR — fetch a CIAVM parameter by name.
-    # Used at cold launch to retrieve "CIAVM DEFAULT SOURCE" → config root path.
-    DataMapper.define(:session_default_source) do |m|
-      m.rpc "CIAVMRPC GETPAR"
-      m.scalar :value, :string
-    end
+    #
+    # CIAVMRPC GETPAR is deliberately NOT mapped (#239). It fetched the
+    # VueCentric client's own config root ("CIAVM DEFAULT SOURCE"), the path
+    # the Windows shell loads its component registry from: tier V, legacy
+    # under ADR 0004 (reads client session/widget state). A frontend-agnostic
+    # consumer has no CIAVM config root. Its other use, reading site
+    # parameters such as BGO CC PREFIX TEXT, is site configuration that
+    # belongs in the captured L2/L3 overlay, not in an RPC round-trip.
 
     # CIAVMCFG GETREG — fetch the launching client's registry settings.
     # Field positions are best-effort pending wider trace capture; the RPC
