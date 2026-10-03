@@ -5,6 +5,9 @@ require_relative "../mappings"
 module RpmsRpc
   # Symbolic API for the cold-launch session bootstrap sequence.
   # Underlying RPCs: CIAVMRPC GETPAR, CIAVMCFG GETREG, CIAVCXUS VIMINFO.
+  #
+  # There is no :default_site_ien: VIMINFO answers DUZ^NAME^timeouts^compose^
+  # design (CIAVCXUS.m:20-31) and names no site; the key read the DUZ (#221).
   module Session
     extend self
 
@@ -20,8 +23,7 @@ module RpmsRpc
       {
         config_root: presence(config_root),
         registry: registry,
-        vim_info: vim_info,
-        default_site_ien: vim_info[:site_ien]
+        vim_info: vim_info
       }
     end
 

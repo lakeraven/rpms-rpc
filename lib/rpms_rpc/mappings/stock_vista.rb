@@ -1244,13 +1244,19 @@ module RpmsRpc
     # ========================================================================
     # SYMPTOM CATALOG (ORWDAL32*)
     # ========================================================================
-    # Field positions are best-effort pending wider trace capture.
 
+    # ORWDAL32 SYMPTOMS — SYMPTOMS^ORWDAL32 as built (OR*3.0*233; the public
+    # FOIA tree still carries the pre-233 tag) answers Y(I)=IEN_U_FROM
+    # (ORWDAL32.m:118). Since 233 the walk also indexes each synonym as
+    # SYN_$C(9)_"<"_NAME_">"_U_NAME (ORWDAL32.m:109-111), so a synonym row is
+    #   IEN ^ SYNONYM<tab><NAME> ^ NAME
+    # and a plain row is IEN ^ NAME. There is no SNOMED column; piece 3 is the
+    # preferred symptom name, present on synonym rows only (#221).
     DataMapper.define(:symptom_search) do |m|
       m.rpc "ORWDAL32 SYMPTOMS"
       m.field 0, :ien, :integer
       m.field 1, :name
-      m.field 2, :snomed_code
+      m.field 2, :preferred_name
     end
 
     # ORWDAL32 DEF — defaults tree for the allergy-symptom entry UI. Takes
@@ -1349,6 +1355,8 @@ module RpmsRpc
     #   DDR GETS ENTRY DATA   → GETSC^DDR2      (return type 2)
     #   DDR FILER             → FILEC^DDR3      (return type 2)
     #   DDR VALIDATOR         → VALC^DDR3       (return type 2)
+    #   DDR KEY VALIDATOR     → KEYVAL^DDR3 as registered; the code is
+    #                           KEYVAL^DDR4 (return type 2)
     #
     # All take LIST params (named or numeric subscripts) — see
     # CiaClient#call_rpc_raw for the {CIA} wire encoding of subscripted
@@ -1419,6 +1427,16 @@ module RpmsRpc
     # form: DDR3.m:45-50).
     DataMapper.define(:ddr_validator) do |m|
       m.rpc "DDR VALIDATOR"
+      m.text_blob :lines
+    end
+
+    # DDR KEY VALIDATOR — $$KEYVAL^DIEVK over an FDA built from one list
+    # param of alternating "FILE^IENS^FIELD" / value rows (KEYVAL^DDR4 +
+    # FDASET2^DDR4: DDR4.m:4-19). Reply DDROUT(1) = "1" | "0", parsed by
+    # DdrFileman.validate_key. #8994 on bcer-9.0 names KEYVAL^DDR3, which
+    # does not exist: the live call answers %YDB-E-LABELMISSING.
+    DataMapper.define(:ddr_key_validator) do |m|
+      m.rpc "DDR KEY VALIDATOR"
       m.text_blob :lines
     end
   end

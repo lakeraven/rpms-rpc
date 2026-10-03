@@ -5,11 +5,11 @@ require "date"
 require "rpms_rpc/version"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/allergy"
-require "rpms_rpc/api/patient"
 
 # Regression tests for issue #218: the four clinical reads feeding FHIR
-# resources (Condition / Observation / MedicationRequest / AllergyIntolerance)
-# plus Patient.find. Every fixture below is derived from the M routine's
+# resources (Condition / Observation / MedicationRequest / AllergyIntolerance).
+# Patient.find's unknown-DFN guard (finding 5) is a live spec now
+# (test/live/patient_live_test.rb). Every fixture below is derived from the M routine's
 # actual write statement (routine:line cited per test).
 class ClinicalReadWireTest < Minitest::Test
   # Canned-response broker: returns one fixed response for every RPC.
@@ -165,20 +165,6 @@ class ClinicalReadWireTest < Minitest::Test
 
     assert_equal [], RpmsRpc::Allergy.for_patient("42"),
       "an NKA patient must not appear to HAVE an allergy named 'No Known Allergies'"
-  end
-
-  # -- ORWPT SELECT -1 guard (finding 5) ------------------------------------
-
-  def test_patient_select_unknown_dfn_error_line_parses_nil
-    # SELECT^ORWPT for a missing DFN: REC="-1^^^^^Patient is unknown to CPRS."
-    # (ORWPT.m:49)
-    assert_nil RpmsRpc::DataMapper[:patient_select].parse_one("-1^^^^^Patient is unknown to CPRS.")
-  end
-
-  def test_patient_find_returns_nil_for_unknown_dfn
-    stub_broker_response("-1^^^^^Patient is unknown to CPRS.")
-
-    assert_nil RpmsRpc::Patient.find(999_999)
   end
 
   def test_parse_many_skips_error_rows_inside_arrays

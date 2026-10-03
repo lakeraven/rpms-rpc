@@ -67,9 +67,30 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_equal raw, c.call_rpc_raw("CIANBRPC CANRUN", "XUS INTRO MSG")
   end
 
-  def test_call_rpc_strips_non_printables
+  def test_call_rpc_strips_non_printables_within_a_line
+    c = connected_client([ "1\x00ab\x1fcd" + EOD ])
+    assert_equal [ "ab cd" ], c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
+  end
+
+  # #195: a reply with no ack after the seq echo carries no data; the seq
+  # byte and what follows it never become a line.
+  def test_call_rpc_returns_no_lines_for_a_reply_without_an_ack
     c = connected_client([ "ab\x01\x1fcd" + EOD ])
-    assert_equal "ab  cd", c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
+    assert_equal [], c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
+  end
+
+  # A GLOBAL ARRAY (BMX recordset) reply has no line breaks on CIA: each node
+  # ends in $C(30) and a lone $C(31) node ends the array. Bytes as the pinned
+  # 0930 YDB build sent BSDX HOSPITAL LOCATION (HOSPLOC^BSDX32), trimmed.
+  def test_call_rpc_splits_a_recordset_on_its_record_separators
+    reply = "I00020HOSPITAL_LOCATION_ID^T00040HOSPITAL_LOCATION\x1e" \
+            "3^DEMO IHS CLINIC\x1e8^OTHER\x1e\x1f"
+    c = connected_client([ "4\x00#{reply}" + EOD ])
+    assert_equal [
+      "I00020HOSPITAL_LOCATION_ID^T00040HOSPITAL_LOCATION",
+      "3^DEMO IHS CLINIC",
+      "8^OTHER"
+    ], c.call_rpc("BSDX HOSPITAL LOCATION")
   end
 
   # Fix (#172 Copilot): a peer-closed read (empty recv) must clear @connected,
@@ -610,7 +631,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert result[:success]
     assert_equal 63, result[:duz]
     assert_equal "7", c.session_uid
-    assert_equal "4 ok  ", c.call_rpc("XWB IM HERE") # "4" seq echo + \x00 ack + body, printables
+    assert_equal [ "ok" ], c.call_rpc("XWB IM HERE") # "4" seq echo + \x00 ack stripped, lines
     # every frame the broker saw parsed as {CIA}, with one-byte cycling seqs
     assert_equal %w[1 2 3 4], broker.frames.map { |f| f[:seq] }
     assert_equal %w[C R R R], broker.frames.map { |f| f[:action] }
