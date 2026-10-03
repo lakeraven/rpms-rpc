@@ -36,6 +36,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — transport security: the broker connection is plaintext, and how to wrap it (#113)
+
+- `docs/tls.md` explains why the gem ships no TLS and gives the deployment
+  patterns: a private network or an SSM/SSH port forward, stunnel at both ends,
+  WireGuard/IPsec, and a customer-side connector. `SECURITY.md` gains a
+  "Transport security" section, and the README links both.
+- Sample stunnel configs (`docs/tls/stunnel-app-side.conf`,
+  `docs/tls/stunnel-rpms-side.conf`) with mutual TLS, chain and host checks and
+  a TLS 1.2 floor. `stunnel_sample_test.rb` runs them against a fake CIA broker.
+  CI installs stunnel for it.
+
 ### Added — the gate can see line-based mappings at all (#190)
 
 `Contract.mapping_kind` asked only `scalar?` / `text_blob?`, so the **19
