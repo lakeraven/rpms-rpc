@@ -36,7 +36,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added — the gate can see line-based mappings at all (#190)
+### Fixed — Referral, Scheduling and BehavioralHealth bind their package option (#258)
+
+RPC registration is OPTION-scoped: the broker answers "may this session run
+this RPC?" from the RPC multiple of the option bound right now. On a built
+9.0 image the RPCs these three APIs call are each listed under ONE file-19
+option and under none of the options a signed-on session is otherwise
+holding (not `CIAV VUECENTRIC`, which CIA sign-on binds since #257, and not
+`OR CPRS GUI CHART`):
+
+- the 21 `BMC *` names `RpmsRpc::Referral` calls — in `BMCRPC` only
+  (22 entries, the other being `ORWDXIHS CLININD`); `BMCRPC DELREFRL` behind
+  `Referral.delete` is registered in no option at all (#207) and the bind
+  cannot help it;
+- the 9 `BSDX *` names `RpmsRpc::Scheduling` calls — in `BSDXRPC` only
+  (69 entries);
+- the 40 `AMHG *` names `RpmsRpc::BehavioralHealth` and its clusters call —
+  in `AMHGRPC` only (223 entries).
+
+A user without `XUPROGMODE` was therefore denied every `BMC *`/`BSDX *` call
+and left waiting on every `AMHG *` call. Each API now scopes its calls to
+its option the way `RpmsRpc::Agg` scopes `AGGRPC`: bind, run, restore the
+caller's option (`ContextScope.scoped`, new; a client that cannot scope
+contexts runs as-is). `Referral` runs its `:bmc_referral_workflow`
+capability probe inside the same scope, since `BMC GET REFERENCE DATA` is in
+that multiple too. `BehavioralHealth::CONTEXT` lives in `wire.rb`, where
+`Wire#call_amhg` — the one seam every AMHG call passes through — binds it.
+
+Proven at the unit level only: a programmer-key session bypasses the context
+check on both broker lines, so the issue's acceptance (a non-programmer run)
+remains open.
 
 `Contract.mapping_kind` asked only `scalar?` / `text_blob?`, so the **19
 registered mappings declared with `line_field`** — one field per LINE of
