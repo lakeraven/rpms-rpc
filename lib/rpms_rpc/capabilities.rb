@@ -7,45 +7,17 @@ module RpmsRpc
   # Used by authorization policies in any engine (Pundit, Action Policy, etc.).
   #
   # All methods accept a user-like object that responds to:
-  #   - security_keys: Array of symbols (e.g., [:prc_supervisor, :consult_manager])
+  #   - security_keys: Array of symbols (e.g., [:scheduling_admin, :registration_manager])
   #   - user_type: String (e.g., "provider", "nurse")
   #
   # `imaging_user?` is RPC-backed and requires only `duz` on the user object.
   #
   module Capabilities
-    # PRC / CHS
-    def self.can_approve_chs?(user)
-      has_any_key?(user, :prc_supervisor, :prc_manager)
-    end
-
-    def self.can_process_chs?(user)
-      has_any_key?(user, :prc_tech, :prc_supervisor)
-    end
-
-    def self.can_manage_chs?(user)
-      has_any_key?(user, :prc_supervisor, :prc_tech, :prc_manager, :chs_approve, :chs_clerk)
-    end
-
-    # Clinical
-    def self.can_manage_consults?(user)
-      has_key?(user, :consult_manager)
-    end
-
-    def self.can_verify_eligibility?(user)
-      has_key?(user, :eligibility_verify)
-    end
-
+    # Each check names a SECURITY KEY on a built image (SecurityKeys). The
+    # CHS, consult, eligibility, behavioral health and dental checks were
+    # removed in #314: the names they tested are not keys on the image.
     def self.can_manage_scheduling?(user)
       has_key?(user, :scheduling_admin)
-    end
-
-    # Service line access (42 CFR Part 2 separation)
-    def self.can_access_behavioral_health?(user)
-      has_any_key?(user, :bh_provider, :bh_supervisor)
-    end
-
-    def self.can_access_dental?(user)
-      has_any_key?(user, :dental_provider, :dental_supervisor)
     end
 
     # Role-based permissions
@@ -70,14 +42,7 @@ module RpmsRpc
     def self.capabilities_for(user)
       caps = Set.new(permissions_for(user))
 
-      caps << :approve_referrals if can_approve_chs?(user)
-      caps << :deny_referrals if can_approve_chs?(user)
-      caps << :process_claims if can_process_chs?(user)
-      caps << :verify_eligibility if can_verify_eligibility?(user)
-      caps << :manage_consults if can_manage_consults?(user)
       caps << :manage_scheduling if can_manage_scheduling?(user)
-      caps << :access_behavioral_health if can_access_behavioral_health?(user)
-      caps << :access_dental if can_access_dental?(user)
 
       caps
     end

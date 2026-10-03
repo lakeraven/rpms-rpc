@@ -32,15 +32,10 @@ module RpmsRpc
 
     # Determine role from the auth-class user_class (av_code line 5,
     # captured at signon time — NOT user_info[:user_class_ien] which
-    # points into USER CLASS file #8932.1) plus security keys.
-    #
-    # Security keys can elevate a role above what user_class alone
-    # implies (e.g., PRCFA SUPERVISOR → case_manager).
-    def self.resolve(user_class:, security_keys:)
-      if security_keys.include?(:prc_supervisor) || security_keys.include?(:prc_manager)
-        return "case_manager"
-      end
-
+    # points into USER CLASS file #8932.1). No key elevates the role: the
+    # keys that did (PRCFA SUPERVISOR, BPRC MANAGER) are not keys on a built
+    # image (#314). security_keys is kept for callers' signatures.
+    def self.resolve(user_class:, security_keys: [])
       for_class(user_class)
     end
   end

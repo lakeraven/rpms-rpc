@@ -10,44 +10,16 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
   User = Struct.new(:user_type, :security_keys, keyword_init: true)
   ImagingUser = Struct.new(:duz, keyword_init: true)
 
-  def test_can_approve_chs_with_supervisor_key
-    user = User.new(user_type: "case_manager", security_keys: [ :prc_supervisor ])
-    assert RpmsRpc::Capabilities.can_approve_chs?(user)
+  def test_can_manage_scheduling_with_sd_supervisor
+    user = User.new(user_type: "clerk", security_keys: [ :scheduling_admin ])
+    assert RpmsRpc::Capabilities.can_manage_scheduling?(user)
   end
 
-  def test_can_approve_chs_with_manager_key
-    user = User.new(user_type: "case_manager", security_keys: [ :prc_manager ])
-    assert RpmsRpc::Capabilities.can_approve_chs?(user)
-  end
-
-  def test_cannot_approve_chs_without_keys
-    user = User.new(user_type: "clerk", security_keys: [])
-    refute RpmsRpc::Capabilities.can_approve_chs?(user)
-  end
-
-  def test_can_process_chs
-    user = User.new(user_type: "clerk", security_keys: [ :prc_tech ])
-    assert RpmsRpc::Capabilities.can_process_chs?(user)
-  end
-
-  def test_can_manage_consults
-    user = User.new(user_type: "nurse", security_keys: [ :consult_manager ])
-    assert RpmsRpc::Capabilities.can_manage_consults?(user)
-  end
-
-  def test_cannot_manage_consults_without_key
-    user = User.new(user_type: "nurse", security_keys: [])
-    refute RpmsRpc::Capabilities.can_manage_consults?(user)
-  end
-
-  def test_can_access_behavioral_health
-    user = User.new(user_type: "provider", security_keys: [ :bh_provider ])
-    assert RpmsRpc::Capabilities.can_access_behavioral_health?(user)
-  end
-
-  def test_can_access_dental
-    user = User.new(user_type: "provider", security_keys: [ :dental_supervisor ])
-    assert RpmsRpc::Capabilities.can_access_dental?(user)
+  def test_checks_on_names_that_are_not_keys_are_gone
+    %i[can_approve_chs? can_process_chs? can_manage_chs? can_manage_consults?
+       can_verify_eligibility? can_access_behavioral_health? can_access_dental?].each do |m|
+      refute RpmsRpc::Capabilities.respond_to?(m), "#{m} tested a name that is not a key on the image (#314)"
+    end
   end
 
   def test_role_permissions_for_provider
@@ -81,19 +53,17 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
   end
 
   def test_capabilities_for_merges_role_and_keys
-    user = User.new(user_type: "clerk", security_keys: [ :prc_tech ])
+    user = User.new(user_type: "clerk", security_keys: [ :scheduling_admin ])
     caps = RpmsRpc::Capabilities.capabilities_for(user)
     assert_includes caps, :view_patients       # from role
-    assert_includes caps, :process_claims      # from key
+    assert_includes caps, :manage_scheduling   # from key
     refute_includes caps, :create_referrals    # not in clerk role
   end
 
-  def test_capabilities_for_case_manager_with_supervisor
-    user = User.new(user_type: "case_manager", security_keys: [ :prc_supervisor ])
+  def test_capabilities_for_adds_nothing_for_names_that_are_not_keys
+    user = User.new(user_type: "clerk", security_keys: %i[prc_supervisor prc_tech bh_provider dental_provider])
     caps = RpmsRpc::Capabilities.capabilities_for(user)
-    assert_includes caps, :manage_referrals     # from role
-    assert_includes caps, :approve_referrals    # from role + key
-    assert_includes caps, :process_claims       # from key
+    assert_equal Set.new(RpmsRpc::Capabilities.permissions_for(user)), caps
   end
 
   def test_unknown_role_defaults_to_user
