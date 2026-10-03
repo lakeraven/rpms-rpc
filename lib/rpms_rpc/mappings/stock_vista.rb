@@ -722,6 +722,36 @@ module RpmsRpc
       m.field 5, :priority
     end
 
+    # ORQQPXRM REMINDERS APPLICABLE: the reminder engine's own evaluation of
+    # a patient's cover-sheet reminders, the method RPMS has in place for
+    # "which reminders apply, with status, due date and priority" (#238).
+    # APPL^ORQQPXRM (ORQQPXRM.m:10-11) -> EVALCOVR^ORQQPX (ORQQPX.m:232-236):
+    # GETLIST (the UNEVALUATED list, ORQQPX.m:225-231) then ALIST^PXRMRPCA
+    # (the REMINDER EVALUATION path) -> AVAL (PXRMRPCA.m:49-82).
+    # Params: ORPT (DFN), ORLOC (#44 hospital location; selects which
+    # cover-sheet reminders are evaluated, REMLIST ORQQPX.m:185-206).
+    # One row per reminder (PXRMRPCA.m:76 applicable, :80 not applicable):
+    #   IEN^PRINT NAME^DUE DATE^LAST DONE^PRIORITY^DUE FLAG^DIALOG^^^^WIPE
+    # - DUE DATE is kept RAW: a FileMan date, or the text "DUE NOW"
+    #   (PXRMDATE.m:132), "CNBD" (:129), "DISABLED" (PXRM.m:62), or empty
+    #   (PXRMDATE.m:119; PXRMOUTD.m:24,29; not-applicable rows).
+    # - LAST DONE is emptied when not a date (PXRMRPCA.m:70).
+    # - PRIORITY is #811.9 piece 10, default 2 (:72-74); empty on N/A rows.
+    # - DUE FLAG: 0 applicable, 1 due, 2 not applicable, 3 error,
+    #   4 cannot be determined (:56-67).
+    # - DIALOG = $$DLG (:112-117); WIPE = $$DLGWIPE (:119-123).
+    DataMapper.define(:reminders_applicable) do |m|
+      m.rpc "ORQQPXRM REMINDERS APPLICABLE"
+      m.field 0,  :ien,         :integer
+      m.field 1,  :print_name
+      m.field 2,  :due_date
+      m.field 3,  :last_done,   :fileman_date
+      m.field 4,  :priority,    :integer
+      m.field 5,  :due_flag,    :integer
+      m.field 6,  :dialog,      :boolean
+      m.field 10, :dialog_wipe, :boolean
+    end
+
     # ORQQPX REMINDER DETAIL — single reminder detail (text blob)
     DataMapper.define(:reminder_detail) do |m|
       m.rpc "ORQQPX REMINDER DETAIL"
