@@ -45,22 +45,6 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     assert_includes rpcs, "BEHOCACV CWAD"
   end
 
-  def test_bphr_phr_endpoints_feature_is_registered
-    assert RpmsRpc::ServerCapabilities::FEATURE_RPCS.key?(:bphr_phr_endpoints),
-           "Registry must expose :bphr_phr_endpoints — gates Phr patient/provider/facility direct + record_access"
-  end
-
-  def test_bphr_phr_endpoints_probes_bphr_patient_direct
-    rpcs = RpmsRpc::ServerCapabilities::FEATURE_RPCS[:bphr_phr_endpoints]
-    assert_equal [ "BPHR PATIENT DIRECT" ], rpcs,
-                 "Read-only sentinel; BPHR RECORD ACCESS write gates by association"
-  end
-
-  def test_probe_returns_false_when_bphr_patient_direct_missing
-    missing = ProbingClient.new(missing: [ "BPHR PATIENT DIRECT" ])
-    assert_equal false, RpmsRpc::ServerCapabilities.probe(missing, :bphr_phr_endpoints)
-  end
-
   def test_bmc_referral_workflow_feature_is_registered
     assert RpmsRpc::ServerCapabilities::FEATURE_RPCS.key?(:bmc_referral_workflow),
            "Registry must expose :bmc_referral_workflow — gates Referral BMC/RCIS RPCs"

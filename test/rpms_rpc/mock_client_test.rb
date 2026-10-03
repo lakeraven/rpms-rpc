@@ -46,20 +46,19 @@ class RpmsRpc::MockClientTest < Minitest::Test
 
   def test_seed_and_fetch_one
     RpmsRpc.mock! do |m|
-      m.seed(:institution, "1", { ien: 1, name: "ANMC", station_number: "463",
-                                  address: "4315 Diplomacy Dr", city: "Anchorage",
-                                  state: "AK", zip_code: "99508", phone: "907-729-1900" })
+      m.seed(:referral_detail, "1", { ien: "1", patient_dfn: 42, status: "draft", type: "Cardiology",
+                                      provider: "PROVIDER,TEST", facility: "Example Clinic" })
     end
 
-    result = RpmsRpc::DataMapper.institution.fetch_one("1")
-    assert_equal 1, result[:ien]
-    assert_equal "ANMC", result[:name]
-    assert_equal "AK", result[:state]
+    result = RpmsRpc::DataMapper.referral_detail.fetch_one("1")
+    assert_equal "1", result[:ien]
+    assert_equal "Cardiology", result[:type]
+    assert_equal "Example Clinic", result[:facility]
   end
 
   def test_fetch_one_returns_nil_for_unknown_key
     RpmsRpc.mock!
-    assert_nil RpmsRpc::DataMapper.institution.fetch_one("99999")
+    assert_nil RpmsRpc::DataMapper.referral_detail.fetch_one("99999")
   end
 
   def test_seed_and_fetch_patient
@@ -125,20 +124,20 @@ class RpmsRpc::MockClientTest < Minitest::Test
 
   def test_seed_text_blob_and_fetch_text
     RpmsRpc.mock! do |m|
-      m.seed(:section_data, "1", "Header\nName: DOE,JOHN\nDOB: 01/15/1980")
+      m.seed(:report_text, "1", "Header\nName: DOE,JOHN\nDOB: 01/15/1980")
     end
 
-    text = RpmsRpc::DataMapper.section_data.fetch_text("1")
+    text = RpmsRpc::DataMapper.report_text.fetch_text("1")
     assert_includes text, "DOE,JOHN"
     assert_includes text, "Header"
   end
 
   def test_seed_text_blob_returns_nil_for_unknown_key
     RpmsRpc.mock! do |m|
-      m.seed(:section_data, "1", "some text")
+      m.seed(:report_text, "1", "some text")
     end
 
-    assert_nil RpmsRpc::DataMapper.section_data.fetch_text("999")
+    assert_nil RpmsRpc::DataMapper.report_text.fetch_text("999")
   end
 
   def test_seed_text_blob_with_multiline_content
@@ -152,12 +151,12 @@ class RpmsRpc::MockClientTest < Minitest::Test
     assert_includes text, "Lisinopril"
   end
 
-  def test_seed_section_definition_text_blob
+  def test_seed_text_blob_with_caret_rows
     RpmsRpc.mock! do |m|
-      m.seed(:section_definition, "Header", "1^name^string\n2^dob^date")
+      m.seed(:immunization_text, "Header", "1^name^string\n2^dob^date")
     end
 
-    text = RpmsRpc::DataMapper.section_definition.fetch_text("Header")
+    text = RpmsRpc::DataMapper.immunization_text.fetch_text("Header")
     assert_includes text, "name"
     assert_includes text, "dob"
   end
@@ -166,19 +165,19 @@ class RpmsRpc::MockClientTest < Minitest::Test
 
   def test_seed_auto_detects_text_blob_mapping_with_string
     RpmsRpc.mock! do |m|
-      m.seed(:section_data, "1", "raw text content")
+      m.seed(:report_text, "1", "raw text content")
     end
 
-    text = RpmsRpc::DataMapper.section_data.fetch_text("1")
+    text = RpmsRpc::DataMapper.report_text.fetch_text("1")
     assert_equal "raw text content", text
   end
 
   def test_seed_auto_detects_scalar_mapping_with_hash
     RpmsRpc.mock! do |m|
-      m.seed(:section_save, "1", { success: true })
+      m.seed(:patient_sensitive, "1", { sensitive: true })
     end
 
-    result = RpmsRpc::DataMapper.section_save.fetch_scalar("1")
+    result = RpmsRpc::DataMapper.patient_sensitive.fetch_scalar("1")
     assert_equal true, result
   end
 

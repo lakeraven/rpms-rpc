@@ -3,7 +3,11 @@
 require "date"
 
 module RpmsRpc
-  # Symbolic API for Personal Health Record and CCD gateway RPCs.
+  # Symbolic API for Personal Health Record and CCD gateway RPCs
+  # (BEHOCCD*, BEHOCIR*). The Direct-messaging and access-log methods this
+  # module once offered (`patient_direct_address`, `provider_direct_address`,
+  # `facility_direct_domain`, `record_access`) sent BPHR * names no built
+  # 9.0 image registers; they were removed (#207).
   module Phr
     extend self
 
@@ -72,27 +76,6 @@ module RpmsRpc
       DataMapper.ccd_referral.fetch_many(ids.join("^"))
     end
 
-    def patient_direct_address(dfn)
-      direct_address(:phr_patient_direct, dfn)
-    end
-
-    def provider_direct_address(duz)
-      direct_address(:phr_provider_direct, duz)
-    end
-
-    def facility_direct_domain(location_ien)
-      direct_address(:phr_facility_direct, location_ien)
-    end
-
-    def record_access(dfn, access_type: "VIEW", date: nil)
-      return nil if invalid_id?(dfn)
-      return nil unless RpmsRpc.client.supports?(:bphr_phr_endpoints)
-
-      date ||= Date.today
-      param = "#{dfn}^#{access_type}^#{format_date(date)}"
-      DataMapper.phr_record_access.fetch_scalar(param)
-    end
-
     private
 
     def decorate_ccd(row)
@@ -100,19 +83,6 @@ module RpmsRpc
         title: blank?(row[:title]) ? DEFAULT_CCD_TITLE : row[:title],
         type: blank?(row[:type]) ? DEFAULT_CCD_TYPE : row[:type]
       )
-    end
-
-    def direct_address(mapping_name, id)
-      return nil if invalid_id?(id)
-      return nil unless RpmsRpc.client.supports?(:bphr_phr_endpoints)
-
-      row = DataMapper[mapping_name].fetch_one(id.to_s)
-      return nil if row.nil?
-
-      address = row[:direct_address].to_s.strip
-      return nil if address.empty? || address.start_with?("-1")
-
-      address
     end
 
     def detect_format(content)

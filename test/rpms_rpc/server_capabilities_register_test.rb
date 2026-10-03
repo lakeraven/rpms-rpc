@@ -59,12 +59,11 @@ class RpmsRpc::ServerCapabilitiesRegisterTest < Minitest::Test
   # Exact snapshot of FEATURE_RPCS. If this test fails, a feature was
   # dropped, renamed, or its RPC list changed. Every probe name must also
   # be registered on a pinned registry (registered_rpc_names_test.rb): the
-  # nine stock-VistA features once pinned here beside these probed names no
-  # built 9.0 image registers, and went with their callers (#207).
+  # ten features once pinned here beside these probed names no built 9.0
+  # image registers, and went with their callers (#207).
 
   PINNED_FEATURES = {
     patient_chart_banner: [ "BEHOPTCX PTINFO", "BEHOPTPC GETBDP", "BEHOCACV CWAD" ],
-    bphr_phr_endpoints: [ "BPHR PATIENT DIRECT" ],
     bmc_referral_workflow: [ "BMC GET REFERENCE DATA" ],
     orqqpl_problem_workflow: [ "ORQQPL DETAIL" ]
   }.freeze

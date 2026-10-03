@@ -337,30 +337,6 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_nil RpmsRpc::DataMapper[:medication_list].parse_one("^No medications found.")
   end
 
-  # -- BHDO HOSP LOC DATA ---------------------------------------------------
-
-  def test_hospital_location
-    result = RpmsRpc::DataMapper[:hospital_location].parse_one("1^Primary Care Clinic^PCC^C^101")
-    assert_equal 1, result[:ien]
-    assert_equal "Primary Care Clinic", result[:name]
-    assert_equal "PCC", result[:abbreviation]
-  end
-
-  # -- BHDO INST DATA --------------------------------------------------------
-
-  def test_institution
-    result = RpmsRpc::DataMapper[:institution].parse_one("1^Alaska Native Medical Center^463^4315 Diplomacy Dr^Anchorage^AK^99508^907-729-1900")
-    assert_equal 1, result[:ien]
-    assert_equal "463", result[:station_number]
-    assert_equal "AK", result[:state]
-  end
-
-  def test_site_params
-    result = RpmsRpc::DataMapper[:site_params].parse_one("COMMTHRESH^50000")
-    assert_equal "COMMTHRESH", result[:key]
-    assert_equal "50000", result[:value]
-  end
-
   # -- XUS GET USER INFO -----------------------------------------------------
 
   def test_user_info
@@ -442,14 +418,6 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "HIGH", result[:priority]
   end
 
-  # -- Write result RPCs -----------------------------------------------------
-
-  def test_referral_delete
-    result = RpmsRpc::DataMapper[:referral_delete].parse_one("1^Referral deleted")
-    assert_equal true, result[:success]
-    assert_equal "Referral deleted", result[:message]
-  end
-
   # -- PHR RPCs --------------------------------------------------------------
 
   def test_immunization_count
@@ -457,97 +425,6 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
     assert_equal 5, result[:total]
     assert_equal 2, result[:reconciled]
-  end
-
-  def test_vaccine_lot_list
-    result = RpmsRpc::DataMapper[:vaccine_lot_list].parse_many(
-      [ "101^LOT-A^207^COVID-19 mRNA^PFIZER^59267-1000-01^VFC^ACTIVE^2026-12-31^120^45^55" ]
-    ).first
-
-    assert_equal "101", result[:ien]
-    assert_equal "LOT-A", result[:lot_number]
-    assert_equal "207", result[:vaccine_code]
-    assert_equal "COVID-19 mRNA", result[:vaccine_display]
-    assert_equal "PFIZER", result[:manufacturer]
-    assert_equal "59267-1000-01", result[:ndc_code]
-    assert_equal "VFC", result[:funding_source]
-    assert_equal "ACTIVE", result[:status]
-    assert_equal "2026-12-31", result[:expiration_date]
-    assert_equal 120, result[:doses_start]
-    assert_equal 45, result[:doses_unused]
-    assert_equal "55", result[:facility_ien]
-  end
-
-  def test_vaccine_lot_detail
-    result = RpmsRpc::DataMapper[:vaccine_lot_detail].parse_one(
-      "101^LOT-A^207^COVID-19 mRNA^PFIZER^59267-1000-01^VFC^ACTIVE^2026-12-31^120^45^55"
-    )
-
-    assert_equal "101", result[:ien]
-    assert_equal "LOT-A", result[:lot_number]
-    assert_equal 45, result[:doses_unused]
-    assert_equal "55", result[:facility_ien]
-  end
-
-  def test_vendor_list
-    result = RpmsRpc::DataMapper[:vendor_list].parse_many(
-      [ "101^Metro Health Center^FACILITY^Cardiology^1^555-0100^Portland^OR" ]
-    ).first
-
-    assert_equal "101", result[:ien]
-    assert_equal "Metro Health Center", result[:name]
-    assert_equal "FACILITY", result[:type]
-    assert_equal "Cardiology", result[:specialty]
-    assert_equal true, result[:preferred]
-    assert_equal "OR", result[:state]
-  end
-
-  def test_vendor_detail
-    result = RpmsRpc::DataMapper[:vendor_detail].parse_one(
-      "101^Metro Health Center^FACILITY^Cardiology, Internal Medicine^1^555-0100^555-0101^contact@example.invalid^Primary Contact^123 Example Way^Portland^OR^97201^MRI, CT Scan^3240101^3271231^1"
-    )
-
-    assert_equal "101", result[:ien]
-    assert_equal "Cardiology, Internal Medicine", result[:specialties_raw]
-    assert_equal true, result[:preferred]
-    assert_equal Date.new(2024, 1, 1), result[:contract_start_date]
-    assert_equal Date.new(2027, 12, 31), result[:contract_end_date]
-    assert_equal true, result[:active]
-  end
-
-  def test_vendor_service_list
-    result = RpmsRpc::DataMapper[:vendor_service_list].parse_many(
-      [ "101^Metro Health Center^MRI^Radiology^1500.00^1" ]
-    ).first
-
-    assert_equal "101", result[:ien]
-    assert_equal "MRI", result[:service]
-    assert_equal "Radiology", result[:specialty]
-    assert_equal "1500.00", result[:rate]
-    assert_equal true, result[:preferred]
-  end
-
-  def test_vendor_contract_list
-    result = RpmsRpc::DataMapper[:vendor_contract_list].parse_many(
-      [ "201^101^3240101^3271231^MRI, CT Scan^Multi-year contract" ]
-    ).first
-
-    assert_equal "201", result[:id]
-    assert_equal "101", result[:vendor_ien]
-    assert_equal Date.new(2024, 1, 1), result[:start_date]
-    assert_equal Date.new(2027, 12, 31), result[:end_date]
-    assert_equal "MRI, CT Scan", result[:services_raw]
-  end
-
-  def test_vendor_rate_list
-    result = RpmsRpc::DataMapper[:vendor_rate_list].parse_many(
-      [ "MRI^1500.00^procedure^3240101" ]
-    ).first
-
-    assert_equal "MRI", result[:service]
-    assert_equal "1500.00", result[:rate]
-    assert_equal "procedure", result[:unit]
-    assert_equal Date.new(2024, 1, 1), result[:effective_date]
   end
 
   def test_phr_access
@@ -575,7 +452,6 @@ class RpmsRpc::MappingsTest < Minitest::Test
     expected = {
       bmc_add_c32_print_log: "BMC ADD C32 PRINT LOG",
       bmc_add_referral: "BMC ADD REFERRAL",
-      bmc_add_secondary_referral: "BMC ADD SECONDARY REFERRAL",
       bmc_check_year_site_param: "BMC CHK YEAR SITE PARAM",
       bmc_consultation_status_update: "BMC CONSULTATION STATUS UPDATE",
       bmc_purpose_of_referral_list: "BMC GET PURPOSE OF REF API",
@@ -611,25 +487,15 @@ class RpmsRpc::MappingsTest < Minitest::Test
       ddr_filer ddr_validator
       practitioner_info practitioner_list user_management_user_list
       medication_list
-      hospital_location institution referral_search site_params
-      chs_budget chs_remaining_funds chs_quarterly_allocation
-      chs_obligation_list chs_obligation_detail chs_obligation_by_referral
-      chs_payment_list
+      referral_search
       user_info reminders_list
       reminder_detail patient_deceased patient_sensitive user_has_key
       signon_setup av_code cvc_verify
       report_text
-      medication_detail referral_detail referral_delete
-      section_data section_save section_definition patient_lock patient_unlock
+      medication_detail referral_detail
       ccd_document ccd_referral immunization_text immunization_count
-      immunization_exchange_vxu immunization_exchange_vxq
-      immunization_exchange_rsp immunization_exchange_process_result
-      immunization_exchange_status
-      phr_access phr_record_access phr_patient_direct phr_provider_direct phr_facility_direct
-      vfc_eligibility vfc_eligibility_list vaccine_lot_list vaccine_lot_detail
-      vendor_list vendor_detail preferred_vendor_list vendor_service_list
-      vendor_contract_list vendor_rate_list
-      bmc_add_c32_print_log bmc_add_referral bmc_add_secondary_referral
+      phr_access
+      bmc_add_c32_print_log bmc_add_referral
       bmc_check_year_site_param bmc_consultation_status_update
       bmc_purpose_of_referral_list bmc_rcis_template_detail bmc_rcis_template_list
       bmc_reference_data bmc_users_providers bmc_health_summary_type

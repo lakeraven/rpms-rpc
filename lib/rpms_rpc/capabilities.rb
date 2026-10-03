@@ -10,8 +10,9 @@ module RpmsRpc
   #   - security_keys: Array of symbols (e.g., [:prc_supervisor, :consult_manager])
   #   - user_type: String (e.g., "provider", "nurse")
   #
-  # `imaging_user?` is RPC-backed and requires only `duz` on the user object.
-  #
+  # (An RPC-backed `imaging_user?` once lived here on MAGGUSERKEYS, a name
+  # no built 9.0 image registers; it was removed, #207. The registered
+  # imaging key check is MAGGDUZKEY.)
   module Capabilities
     # PRC / CHS
     def self.can_approve_chs?(user)
@@ -89,24 +90,6 @@ module RpmsRpc
     def self.has_any_key?(user, *key_symbols)
       keys = Array(user.security_keys)
       key_symbols.any? { |k| keys.include?(k) }
-    end
-
-    # Imaging access — probed on every chart open. Backed by MAGGUSERKEYS;
-    # cached per user_duz since imaging keys don't change mid-session.
-    def self.imaging_user?(user)
-      duz = user.respond_to?(:duz) ? user&.duz : nil
-      return false if duz.nil? || duz.to_s.strip.empty?
-
-      key = duz.to_s
-      @imaging_cache ||= {}
-      return @imaging_cache[key] if @imaging_cache.key?(key)
-
-      keys = Array(DataMapper.imaging_user_keys.fetch_many(key))
-      @imaging_cache[key] = keys.any? { |row| !row[:key_name].to_s.strip.empty? }
-    end
-
-    def self.clear_imaging_cache!
-      @imaging_cache = {}
     end
   end
 end

@@ -18,16 +18,8 @@ module RpmsRpc
       DataMapper.referral_detail.fetch_one(ien.to_s)
     end
 
-    def delete(ien, reason: nil)
-      DataMapper.referral_delete.fetch_one(ien.to_s, reason)
-    end
-
     def add(*params)
       bmc_scalar_result(:bmc_add_referral, *params)
-    end
-
-    def add_secondary(*params)
-      bmc_scalar_result(:bmc_add_secondary_referral, *params)
     end
 
     def update(ien, *params)
