@@ -57,6 +57,15 @@ module RpmsRpc
       end
     end
 
+    # XWB IS RPC AVAILABLE (CKRPC^XWBLIB, XWBLIB.m:35-45) answers 1 when the
+    # RPC is in file 8994 and not inactive for remote ("R") use, else 0. It is
+    # on the any-context list at XWBSEC.m:14, so no context is needed.
+    # Verified live 2026-10-03 (XWB, no context bound): 1 for a registered RPC,
+    # 0 for an unknown name. rpms-rpc#209.
+    def rpc_callable?(rpc_name)
+      Array(call_rpc("XWB IS RPC AVAILABLE", rpc_name, "R")).first.to_s.strip == "1"
+    end
+
     # Call an RPC via XWB protocol
     def call_rpc(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?

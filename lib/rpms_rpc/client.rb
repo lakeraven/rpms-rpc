@@ -286,6 +286,13 @@ module RpmsRpc
       @capability_cache[feature] = ServerCapabilities.probe(self, feature)
     end
 
+    # Is `rpc_name` registered and callable here, asked without running it?
+    # true/false from the broker's own check, or nil when this broker has no
+    # check a signed-on user may call regardless of context (rpms-rpc#209).
+    # BMX: CHKPRMIT^BMXMSEC exempts neither XWB IS RPC AVAILABLE nor
+    # CIANBRPC CANRUN, so it stays nil and ServerCapabilities calls the RPC.
+    def rpc_callable?(_rpc_name) = nil
+
     # Set application context (required before calling most RPCs).
     #
     # Bind and commit are ONE unit under the wire lock. Committing
