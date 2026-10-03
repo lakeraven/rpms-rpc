@@ -317,8 +317,15 @@ module RpmsRpc
 
     # Synchronized: an unsynchronized teardown can close the socket, or inject
     # its frame, in the middle of another caller's in-flight RPC.
+    #
+    # End the session the way the broker expects BEFORE dropping the socket.
+    # A peer that just vanishes is not noticed at EOF: the single-session
+    # listener only gives up on its retry bound, so it sits draining a dead
+    # socket while the next connection waits (rpms-rpc#192). Sending the quit
+    # action returns the listener to accept at once (#send_quit_action).
     def disconnect
       synchronize_wire do
+        send_quit_action if connected?
         reset_connection # closes the socket, clears state, session UID and context
       end
     end
@@ -371,6 +378,32 @@ module RpmsRpc
         @socket.write(msg)
         read_reply(terminator)
       end
+    end
+
+    # Tell the broker to end this session before the socket is dropped.
+    #
+    # The {CIA} disconnect is an ACTION frame, not an RPC: DOACTION^CIANBLIS
+    # takes the action from header byte 8 (ACT=$E(X,8), CIANBLIS.m:128) and
+    # dispatches D @("ACT"_ACT_"^CIANBACT") (CIANBLIS.m:139). Action "D" is
+    # ACTD^CIANBACT (CIANBACT.m:24-27): it runs RESET^CIANBRPC() — the session
+    # logout and cleanup — then sets CIADATA=1 and CIAQUIT=1. CIAQUIT makes the
+    # listener's QUIT() return true (CIANBLIS.m:151-152), so the main loop stops
+    # and TCPCLOSE runs (CIANBLIS.m:114-117) instead of the ~45 s retry drain.
+    #
+    # RESET^CIANBRPC quits immediately unless CIA("UID") is set
+    # (CIANBRPC.m:102), and DOACTION only populates CIA("UID") from a UID field
+    # on the frame, so the quit frame carries the session UID exactly as an RPC
+    # frame does — otherwise the broker closes the socket but never releases the
+    # session's locks or ^XTMP state.
+    #
+    # The broker replies to ACTD (CIADATA=1 -> REPLY, CIANBLIS.m:142-143) and
+    # then closes, but the close can win the race: a peer-closed read or a
+    # broken-pipe write here is the expected outcome of a clean quit, not an
+    # error, so swallow it — reset_connection drops our side regardless.
+    def send_quit_action
+      exchange("D") { [ pk("UID"), pk(""), pk(@session_uid || "1") ] }
+    rescue ConnectionError, IOError, SystemCallError
+      nil
     end
 
     # Nothing that reached this client BEFORE a request was written can be that request's reply:
