@@ -284,10 +284,11 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
 
   def test_client_supports_caches_after_first_probe
     cia = RpmsRpc::CiaClient.new
-    def cia.call_rpc(rpc_name, *_params)
+    # CIA probes ask CIANBRPC CANRUN through rpc_callable? (#209)
+    def cia.rpc_callable?(_rpc_name)
       @probe_calls ||= 0
       @probe_calls += 1
-      ""
+      true
     end
     def cia.probe_call_count = (@probe_calls || 0)
 
@@ -301,9 +302,9 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
   def test_client_supports_returns_cached_false_without_reprobing
     cia = RpmsRpc::CiaClient.new
     raise_count = { n: 0 }
-    cia.define_singleton_method(:call_rpc) do |_name, *_params|
+    cia.define_singleton_method(:rpc_callable?) do |_name|
       raise_count[:n] += 1
-      raise RpmsRpc::Client::RpcError, "Remote Procedure 'X' doesn't exist"
+      false
     end
 
     refute cia.supports?(:patient_chart_banner)
@@ -325,9 +326,9 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
   def test_reset_connection_clears_capability_cache
     cia = RpmsRpc::CiaClient.new
     probe_count = { n: 0 }
-    cia.define_singleton_method(:call_rpc) do |_name, *_params|
+    cia.define_singleton_method(:rpc_callable?) do |_name|
       probe_count[:n] += 1
-      ""
+      true
     end
 
     assert cia.supports?(:patient_chart_banner)
@@ -347,9 +348,9 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     cia.define_singleton_method(:connected?) { true }
     cia.define_singleton_method(:authenticated?) { true }
     probe_count = { n: 0 }
-    cia.define_singleton_method(:call_rpc) do |_name, *_params|
+    cia.define_singleton_method(:rpc_callable?) do |_name|
       probe_count[:n] += 1
-      ""
+      true
     end
     # Stub the context-creation call so create_context succeeds without
     # going to the wire; the assertion is purely about cache state.

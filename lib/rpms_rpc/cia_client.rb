@@ -245,6 +245,20 @@ module RpmsRpc
       end
     end
 
+    # CIANBRPC CANRUN (CANRUN^CIANBRPC, CIANBRPC.m:173-175) answers
+    # $D(^XTMP("CIA",UID,"C",CTX,RPC)) for the RPC's 8994 IEN: 0 when the name
+    # is unknown or not in the bound context option, 10 when it is (1 for an
+    # XUPROGMODE holder, CIANBACT.m:141). It is exempt from the context gate
+    # because its routine is CIANB* (CIANBACT.m:49); XWB IS RPC AVAILABLE is
+    # NOT, and the CIA broker answers it "Access denied". Verified live
+    # 2026-10-03: 10 for registered RPCs, 0 for an unknown name. rpms-rpc#209.
+    # Read through #call_rpc (#195): a refusal raises RpcError, so
+    # ServerCapabilities falls back to its call probe rather than reading the
+    # error frame's sequence echo as a count.
+    def rpc_callable?(rpc_name)
+      call_rpc("CIANBRPC CANRUN", rpc_name).first.to_s.strip.to_i.positive?
+    end
+
     # Call an RPC over the CIA broker and return its reply LINES, the shape
     # XwbClient#call_rpc and BmxClient#call_rpc return: the sequence echo and
     # ack stripped, one printable String per line, and a broker refusal

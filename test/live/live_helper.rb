@@ -6,11 +6,17 @@
 # by `rake test`.
 #
 # Env (all required, or every live spec skips):
-#   BROKER_HOST, BROKER_PORT   the CIA broker of the target
+#   BROKER_HOST, BROKER_PORT   the broker of the target (CIA unless BROKER_PROTOCOL says)
 #   RPMS_ACCESS, RPMS_VERIFY   the persona's sign-on pair (never logged)
 #   PERSONA                    which user that is, e.g. PROV123 or SYS123
 # The staging pair PROV123 also needs VISTA_RPC_ENV=development (Client's
 # credential guard).
+#
+# BROKER_PROTOCOL (optional, default cia; or xwb) names the broker at
+# BROKER_HOST:BROKER_PORT. A spec declares the broker it speaks with
+# `broker :xwb` (default :cia) and is skipped, saying so, against any other;
+# run `rake test:live` once per broker the build serves. An unknown
+# BROKER_PROTOCOL fails every spec.
 #
 # A spec that WRITES declares `writes!`. It runs only when the target is
 # declared disposable (LIVE_DISPOSABLE=1) and is on this machine (a loopback
@@ -19,12 +25,21 @@
 require "minitest/autorun"
 require "rpms_rpc/mappings"
 require "rpms_rpc/cia_client"
+require "rpms_rpc/xwb_client"
 
 module LiveSpec
   REQUIRED_ENV = %w[BROKER_HOST BROKER_PORT RPMS_ACCESS RPMS_VERIFY PERSONA].freeze
   LOOPBACK_HOSTS = %w[127.0.0.1 localhost ::1].freeze
+  CLIENTS = { cia: RpmsRpc::CiaClient, xwb: RpmsRpc::XwbClient }.freeze
 
   module_function
+
+  # The broker protocol the env targets, or nil when BROKER_PROTOCOL names none we speak.
+  def target_broker(env = ENV)
+    name = env["BROKER_PROTOCOL"].to_s.strip.downcase
+    name = "cia" if name.empty?
+    CLIENTS.key?(name.to_sym) ? name.to_sym : nil
+  end
 
   # The names of the required variables that are unset or blank.
   def missing_env(env = ENV)
@@ -44,6 +59,14 @@ module LiveSpec
       # Declare that this spec files data on the target.
       def writes! = (@writes = true)
       def writes? = @writes == true
+
+      # Declare (or read) the broker this spec speaks: :cia (default) or :xwb.
+      def broker(protocol = nil)
+        return @broker || :cia if protocol.nil?
+        raise ArgumentError, "unknown broker #{protocol.inspect}" unless CLIENTS.key?(protocol)
+
+        @broker = protocol
+      end
     end
 
     attr_reader :client
@@ -52,6 +75,9 @@ module LiveSpec
       super
       missing = LiveSpec.missing_env
       skip "live spec: set #{missing.join(', ')} to run against a broker" unless missing.empty?
+      target = LiveSpec.target_broker
+      flunk "live spec: BROKER_PROTOCOL #{ENV['BROKER_PROTOCOL'].inspect} is not one of #{CLIENTS.keys.join(', ')}" unless target
+      skip "live spec speaks #{self.class.broker}; the target is #{target} (BROKER_PROTOCOL)" unless target == self.class.broker
       if self.class.writes? && (reason = LiveSpec.write_refusal)
         flunk "live spec writes, refused: #{reason}"
       end
@@ -69,7 +95,7 @@ module LiveSpec
     private
 
     def sign_on
-      c = RpmsRpc::CiaClient.new(host: ENV.fetch("BROKER_HOST"), port: Integer(ENV.fetch("BROKER_PORT")), timeout: 30)
+      c = CLIENTS.fetch(self.class.broker).new(host: ENV.fetch("BROKER_HOST"), port: Integer(ENV.fetch("BROKER_PORT")), timeout: 30)
       c.connect
       c.authenticate(ENV.fetch("RPMS_ACCESS"), ENV.fetch("RPMS_VERIFY"))
       RpmsRpc.configure { |cfg| cfg.client = c }

@@ -29,4 +29,10 @@ class LiveSpecGuardTest < Minitest::Test
   def test_a_disposable_local_target_may_be_written
     assert_nil LiveSpec.write_refusal(FULL.merge("LIVE_DISPOSABLE" => "1"))
   end
+
+  def test_the_target_broker_is_cia_unless_broker_protocol_names_another
+    assert_equal :cia, LiveSpec.target_broker(FULL)
+    assert_equal :xwb, LiveSpec.target_broker(FULL.merge("BROKER_PROTOCOL" => "XWB"))
+    assert_nil LiveSpec.target_broker(FULL.merge("BROKER_PROTOCOL" => "bmx")), "an unknown protocol must fail, not run as CIA"
+  end
 end

@@ -9,8 +9,12 @@ module RpmsRpc
   #
   #   RpmsRpc.client.supports?(:patient_chart_banner)
   #
-  # Detection is a per-RPC probe (call with no params; the Broker reports
-  # "RPC doesn't exist" / "<NOLINE>" before any param validation runs).
+  # Detection asks the broker whether each RPC is registered and callable,
+  # without running it (rpms-rpc#209): XWB asks XWB IS RPC AVAILABLE, CIA asks
+  # CIANBRPC CANRUN (see Client#rpc_callable?). A broker with no such check
+  # (BMX) falls back to calling the RPC with no params; the Broker reports
+  # "RPC doesn't exist" / "<NOLINE>" before any param validation runs, but the
+  # RPC itself may die on an undefined parameter and log an error.
   # ALL FEATURES REGISTERED HERE MUST RESOLVE TO READ-ONLY RPCS — probing
   # would otherwise have side effects on write paths.
   #
@@ -50,6 +54,22 @@ module RpmsRpc
     end
 
     def self.rpc_present?(client, rpc_name)
+      answer = registry_answer(client, rpc_name)
+      answer.nil? ? call_probe(client, rpc_name) : answer
+    end
+
+    # The broker's own registered/callable check, or nil when this client has
+    # none or the check itself errored (then the call probe decides).
+    def self.registry_answer(client, rpc_name)
+      return nil unless client.respond_to?(:rpc_callable?)
+
+      client.rpc_callable?(rpc_name)
+    rescue RpmsRpc::Client::RpcError
+      nil
+    end
+
+    # Legacy probe: call the RPC with no params and read the error, if any.
+    def self.call_probe(client, rpc_name)
       client.call_rpc(rpc_name)
       true
     rescue RpmsRpc::Client::RpcError => e
