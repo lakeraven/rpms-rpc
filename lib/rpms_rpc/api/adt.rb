@@ -9,11 +9,12 @@ module RpmsRpc
   #
   # READS ONLY. There is no stock movement-WRITE RPC in the #8994 registry —
   # admit/transfer/discharge/cancel-movement have no broker-callable entry
-  # point. The BPRM twin's ADT-write scenario (lakeraven-ehr#412 scenario #15)
-  # therefore requires a NEW FileMan-safe (^DIE / DGPMV*) server-side RPC to be
-  # authored and re-exported before those writes can be wrapped here — tracked
-  # with rpms-ops#366. Until then this module exposes only the movement reads
-  # that ORWPT already provides.
+  # point, and IHS's movement API (ADD^/CANCEL^BDGAPI) is an M-level PEP no
+  # registered RPC runs. The BPRM twin's ADT-write scenario (lakeraven-ehr#412
+  # scenario #15) therefore needs a FileMan-safe server-side RPC before those
+  # writes can be wrapped here — tracked in rpms-ops#371. The contract this gem
+  # wants is specified as skipped tests in test/rpms_rpc/api/adt_test.rb (#281).
+  # Until then this module exposes only the movement reads that ORWPT provides.
   module Adt
     extend self
 
