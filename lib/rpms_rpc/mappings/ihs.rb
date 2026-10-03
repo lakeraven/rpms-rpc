@@ -904,14 +904,19 @@ module RpmsRpc
       m.field 0, :root
     end
 
-    # CIAVCXUS VIMINFO — fetch the user's launch context (site/division).
-    # Field positions are best-effort pending wider trace capture; the RPC
-    # carries the user's launch site IEN among other context fields.
+    # CIAVCXUS VIMINFO — VIMINFO^CIAVCXUS. One row, documented by the routine
+    # (CIAVCXUS.m:20-21) and built at CIAVCXUS.m:25-31:
+    #   DUZ ^ NAME ^ PTMOUT;STMOUT;CNTDN ^ COMPOSE MODE ^ DESIGN MODE
+    # Piece 3 holds the CIAVM PRIMARY/SECONDARY TIMEOUT and COUNTDOWN INTERVAL
+    # parameters joined by ";"; pieces 4-5 are $$HASKEY of CIAV COMPOSE and
+    # CIAV DESIGN (1/0). It carries no site: an unknown user answers "" (#221).
     DataMapper.define(:session_vim_info) do |m|
       m.rpc "CIAVCXUS VIMINFO"
-      m.field 0, :site_ien, :integer
-      m.field 1, :site_name
-      m.field 2, :user_name
+      m.field 0, :duz, :integer
+      m.field 1, :user_name
+      m.field 2, :timeouts
+      m.field 3, :compose_mode, :boolean
+      m.field 4, :design_mode, :boolean
     end
 
     # ========================================================================
@@ -1255,14 +1260,18 @@ module RpmsRpc
     # Header (authoritative): I HOSPITAL_LOCATION_ID ^ T HOSPITAL_LOCATION ^
     #   T DEFAULT_PROVIDER ^ T STOP_CODE_NUMBER ^ D INACTIVATE_DATE ^
     #   D REACTIVATE_DATE. Params: (none).
+    # Both dates come from $$GET1^DIQ with no "I" flag (BSDX32.m:35-36), so
+    # they are EXTERNAL ("JAN 15, 2025"), not FileMan internal (#221). The
+    # stop code is GET1^DIQ external too (BSDX32.m:40): the 40.7 NAME
+    # ("FAMILY PRACTICE"), not the number.
     DataMapper.define(:scheduling_hospital_location) do |m|
       m.rpc "BSDX HOSPITAL LOCATION"
       m.field 0, :location_ien, :integer
       m.field 1, :location
       m.field 2, :default_provider
       m.field 3, :stop_code
-      m.field 4, :inactivate_date, :fileman_date
-      m.field 5, :reactivate_date, :fileman_date
+      m.field 4, :inactivate_date, :external_date
+      m.field 5, :reactivate_date, :external_date
     end
 
     # BSDX CLINIC SETUP — CLNSET^BSDX32. Per-clinic scheduling parameters.
