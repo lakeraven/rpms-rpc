@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — Ruby 4.0 readiness (#47)
+
+- CI runs the suite on Ruby 3.4 and 4.0.
+- `bigdecimal` is now a declared runtime dependency. `lib/` requires it, and it
+  has been a bundled gem (not a default gem) since Ruby 3.4. Under Bundler it
+  only loaded because a development dependency happened to pull it in.
+- No test uses `minitest/mock`, which is not part of Minitest 6. The two `stub`
+  calls are now dependency injection: `Client#connect_tcp` is the overridable
+  TCP connect.
+- `bin/console` works on Ruby 4.0. `irb` is no longer a default gem there, so the
+  Gemfile declares it, and the console loads it only after its environment checks pass.
+
 ## [0.3.1]
 
 ### Fixed — CIA frame terminator no longer collides with an L() length prefix (#241)
