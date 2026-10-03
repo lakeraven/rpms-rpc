@@ -914,6 +914,17 @@ module RpmsRpc
       m.field 2, :user_name
     end
 
+    # CIAVCXUS HASKEYS — which of the named security keys the signed-on user
+    # holds (rpms-rpc#318). HASKEYS(DATA,KEYS), CIAVCXUS.m:14-18: one actual,
+    # the names joined with "^"; one reply line with a 0/1 per name, in order
+    # (HASKEY, CIAVCXUS.m:8-12, answers ''$D(^XUSEC(KEY,DUZ))). In CIAV
+    # VUECENTRIC's RPC multiple, so a least-privilege CIA user can ask.
+    # Consumer: Authentication.held_keys.
+    DataMapper.define(:user_held_keys) do |m|
+      m.rpc "CIAVCXUS HASKEYS"
+      m.line_field 0, :flags
+    end
+
     # ========================================================================
     # SITE / DIVISION CONTEXT (BEHOSICX*)
     # ========================================================================

@@ -616,7 +616,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       chs_obligation_list chs_obligation_detail chs_obligation_by_referral
       chs_payment_list
       user_info reminders_list
-      reminder_detail patient_deceased patient_sensitive user_has_key
+      reminder_detail patient_deceased patient_sensitive user_has_key user_held_keys
       signon_setup av_code cvc_verify
       report_text
       medication_detail referral_detail referral_delete
