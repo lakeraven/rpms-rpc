@@ -13,7 +13,7 @@ require "rbconfig"
 # only "undefined method `sanitize_error' for module RpmsRpc".
 #
 # The boundary these tests guard: a client requires core.rb (module state, stdlib-only) and NOT
-# version.rb (which also pulls the mappings, capability and role tables). Both halves matter —
+# the entry point rpms_rpc.rb (which also pulls the mappings, capability and role tables). Both halves matter —
 # sanitize_error must resolve, and it must not cost the aggregate require to get there.
 #
 # This has to run in a FRESH interpreter: the test process has already loaded everything, which is
@@ -24,16 +24,17 @@ module RpmsRpc; end
 class RpmsRpc::StandaloneRequireTest < Minitest::Test
   LIB = File.expand_path("../../lib", __dir__)
 
-  # A standalone require must stay standalone. Requiring version.rb here would
-  # drag in the mappings, capability and role tables a bare client never uses
-  # (23 files against these 10). Pinned exactly, not capped: a ceiling lets
-  # gradual bloat through, and the point is to notice the first extra file.
+  # A standalone require must stay standalone. Requiring the entry point
+  # (rpms_rpc.rb) here would drag in the mappings, capability and role tables
+  # and every API module, which a bare client never uses. Each count includes
+  # version.rb, which holds only VERSION (#7): one file, no tables.
+  # Pinned exactly, not capped: a ceiling lets gradual bloat through, and the point is to notice the first extra file.
   # A legitimate new require means updating the number here, deliberately.
   STANDALONE_FILES = {
-    "rpms_rpc/client" => 9,
-    "rpms_rpc/cia_client" => 10,
-    "rpms_rpc/xwb_client" => 10,
-    "rpms_rpc/bmx_client" => 10
+    "rpms_rpc/client" => 10,
+    "rpms_rpc/cia_client" => 11,
+    "rpms_rpc/xwb_client" => 11,
+    "rpms_rpc/bmx_client" => 11
   }.freeze
   FEATURES = STANDALONE_FILES.keys.freeze
 
@@ -61,7 +62,7 @@ class RpmsRpc::StandaloneRequireTest < Minitest::Test
       loaded = out.split("\n")
       assert_equal expected, loaded.size,
         "requiring only #{feature} loaded #{loaded.size} gem files, expected exactly #{expected}. " \
-        "If version.rb crept back in, the tables came with it; if this is a deliberate new require, " \
+        "If the entry point (rpms_rpc.rb) crept in, the tables came with it; if this is a deliberate new require, " \
         "update STANDALONE_FILES.\nLoaded:\n  #{loaded.map { |f| f.split("lib/").last }.join("\n  ")}"
     end
   end

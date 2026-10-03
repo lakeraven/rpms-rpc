@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/broker_factory"
 # the factory requires these lazily; load them here so the constants exist for the assertions
 require "rpms_rpc/xwb_client"

@@ -1,15 +1,14 @@
 # frozen_string_literal: true
 
 require "monitor"
+require_relative "version"
 
-# Core module state: version, configuration, the wire lock, and error
-# sanitizing. Deliberately dependency-free beyond stdlib so a consumer can
-# require a single client file (rpms_rpc/cia_client) without pulling in the
-# mappings, capabilities and role tables. Anything heavier belongs in
-# version.rb, which requires this and adds the aggregate surface.
+# Core module state: configuration, the wire lock, and error sanitizing.
+# Deliberately dependency-free beyond stdlib so a consumer can require a single
+# client file (rpms_rpc/cia_client) without pulling in the mappings,
+# capabilities and role tables. Anything heavier belongs in the entry point,
+# lib/rpms_rpc.rb, which requires this and adds the aggregate surface.
 module RpmsRpc
-  VERSION = "0.3.1"
-
   # Process-wide fallback wire lock. Used ONLY when the configured client does
   # not define its own #synchronize_wire — see RpmsRpc.synchronize_wire. A
   # client that cannot serialize its own wire must still be serialized coarsely
