@@ -202,6 +202,36 @@ module RpmsRpc
       { "FILE" => file.to_s, "IENS" => iens.to_s, "FIELD" => field.to_s, "VALUE" => value.to_s }
     end
 
+    # -- DDR KEY VALIDATOR ---------------------------------------------------
+
+    # Check that a set of field values would satisfy the file's FileMan KEYs
+    # (uniqueness) via $$KEYVAL^DIEVK. One list param: odd rows
+    # "FILE^IENS^FIELD", the following even row that field's value
+    # (FDASET2^DDR4: DDR4.m:10-19). The server strips CR, LF and commas from
+    # each value (DDR4.m:18). Reply DDROUT(1): "1" keys valid, "0" not
+    # (KEYVAL^DDR4: DDR4.m:4-8). Reads only; nothing is filed.
+    #
+    # Returns { valid:, error: } or nil (no response). Any reply other than
+    # "1"/"0" (e.g. an M error text) is valid: false with the text in :error.
+    # NB: the pinned bcer-9.0 #8994 entry points at KEYVAL^DDR3, a label that
+    # does not exist, so the live broker currently answers LABELMISSING.
+    def validate_key(values:)
+      reply = lines(call(:ddr_key_validator, key_validator_param(values: values)))
+      return nil if reply.nil?
+
+      verdict = reply.first.strip
+      return { valid: verdict == "1", error: nil } if %w[0 1].include?(verdict)
+
+      { valid: false, error: reply.join("\n") }
+    end
+
+    def key_validator_param(values:)
+      values.each_with_index.each_with_object({}) do |(v, i), param|
+        param[(2 * i + 1).to_s] = "#{v[:file]}^#{v[:iens]}^#{v[:field]}"
+        param[(2 * i + 2).to_s] = v[:value].to_s
+      end
+    end
+
     private
 
     def call(mapping_name, *params)
