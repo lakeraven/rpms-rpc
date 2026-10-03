@@ -12,7 +12,7 @@ class PatientTest < Minitest::Test
       m.seed(:patient_select, "1", { name: "DOE,JOHN", sex: "M", dob: Date.new(1980, 1, 15), ssn: "111223333", age: 45 })
       m.seed(:patient_id_info, "1", {
         ssn: "111223333", dob: Date.new(1980, 1, 15), sex: "M",
-        race_code: "I", site_ien: 7819, name: "DOE,JOHN"
+        veteran: "N", ward_location: "3 NORTH", name: "DOE,JOHN"
       })
       m.seed(:patient_ssn, "111-22-3333", { dfn: 1, name: "DOE,JOHN", ssn: "111-22-3333" })
       m.seed_collection(:patient_list,
@@ -40,12 +40,15 @@ class PatientTest < Minitest::Test
   def test_find_merges_identifier_fields
     result = RpmsRpc::Patient.find(1)
 
-    # ORWPT ID INFO contributes the site IEN and race code to the merge.
-    # Extended demographics (address, city, state, phone, tribal, etc.)
-    # have NO single-RPC source; tribal detail reads via DDR GETS ENTRY
-    # DATA over file #9000001 (RpmsRpc::Tribal).
-    assert_equal "I", result[:race_code]
-    assert_equal 7819, result[:site_ien]
+    # ORWPT ID INFO contributes the veteran flag and the ward location to
+    # the merge (IDINFO^ORWPT: ORWPT.m:6-11) — it carries no race code and
+    # no site IEN (#191). Extended demographics (address, city, state,
+    # phone, tribal, etc.) have NO single-RPC source; tribal detail reads
+    # via DDR GETS ENTRY DATA over file #9000001 (RpmsRpc::Tribal).
+    assert_equal "N", result[:veteran]
+    assert_equal "3 NORTH", result[:ward_location]
+    refute result.key?(:race_code)
+    refute result.key?(:site_ien)
   end
 
   def test_find_returns_nil_for_unknown

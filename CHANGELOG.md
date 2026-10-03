@@ -36,6 +36,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `:patient_id_info` reads ORWPT ID INFO as the routine writes it (#191)
+
+IDINFO^ORWPT returns `PID^DOB^SEX^VET^SC%^WARD^RM-BED^NAME` (ORWPT.m:6-11).
+The mapping declared piece 4 as `:race_code` and piece 6 as `:site_ien`; the
+wire-contract gate caught both on its first run against the committed
+capture (`test/fixtures/wire_captures/orwpt-id-info.yml`), where the "N"
+read as a race code is the VETERAN flag and the "site IEN" piece is the
+current ward, empty for an outpatient. The mapping now declares `:veteran`,
+`:sc_percent`, `:ward_location` and `:room_bed` at those positions, its
+`KNOWN_DIVERGENCES` pin is gone, and the gate is green on it. **Breaking:**
+`Patient.find` no longer merges `:race_code` / `:site_ien` from this RPC —
+they were never on it. The companion `:problem_list` divergence was already
+fixed by #188; the pin list is now empty. Verified live: the new layout
+parses a synthetic patient's reply from a local container of a built 9.0
+YottaDB image.
+
 ### Added — the gate can see line-based mappings at all (#190)
 
 `Contract.mapping_kind` asked only `scalar?` / `text_blob?`, so the **19
