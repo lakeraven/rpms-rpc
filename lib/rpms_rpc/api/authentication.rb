@@ -21,18 +21,20 @@ module RpmsRpc
       12 => "Verify code expired - must be changed"
     }.freeze
 
-    USER_TYPES = {
-      3 => "provider",
-      4 => "nurse",
-      5 => "clerk"
-    }.freeze
-
     # Sign on with an access/verify pair.
     #
     # The pair crosses the wire ENCRYPTED. XUSRB.VALIDAV always runs
     # $$DECRYP^XUSRB1 on its parameter, so a cleartext send reaches the broker
     # as garbage and a real RPMS rejects correct credentials (rpms-rpc#200).
     # The ciphertext goes as ONE parameter because it may contain "^".
+    #
+    # The result carries NO role. Neither reply in the sequence has a user
+    # class to read: VALIDAV^XUSRB answers DUZ, XUM, VCCH, message, 0 and the
+    # post-sign-on message count (XUSRB.m:40, :85-87) — the count was read as
+    # a class until #236 — and USERINFO^XUSRB2 answers name, division, title,
+    # service, language and DTIME (XUSRB2.m:25-35). A role is derived from the
+    # user's security keys (UserRoles.resolve), which is where CPRS gets its
+    # own USRCLS piece from (ORWU.m:19).
     #
     # The whole sequence — SIGNON SETUP, AV CODE, and the user/key lookups it
     # implies — runs under the client's wire lock. The broker session these
@@ -162,7 +164,7 @@ module RpmsRpc
       message = parsed[:message].to_s
 
       if duz.positive? && error_code.zero?
-        auth_success(duz, parsed[:user_class], message, verify_needs_change)
+        auth_success(duz, message, verify_needs_change, parsed[:post_signon_message_count].to_i)
       else
         {
           success: false,
@@ -174,14 +176,16 @@ module RpmsRpc
       end
     end
 
-    def auth_success(duz, user_class, message, verify_needs_change)
+    def auth_success(duz, message, verify_needs_change, post_signon_message_count)
       result = {
         success: true,
         duz: duz,
         provider_ien: duz,
         message: message,
         verify_needs_change: verify_needs_change,
-        user_type: USER_TYPES.fetch(user_class.to_i, "user")
+        # RET(5): how many post-sign-on message lines follow (XUSRB.m:86); 0
+        # when the site suppresses the message (:87).
+        post_signon_message_count: post_signon_message_count
       }
 
       info = user_info(duz)

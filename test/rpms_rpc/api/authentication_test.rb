@@ -19,7 +19,7 @@ class AuthenticationTest < Minitest::Test
         error_code: 12,
         verify_needs_change: 1,
         message: "Verify code expired",
-        user_class: 3
+        post_signon_message_count: 0
       })
       m.seed_lines(:cvc_verify, "OLDVERIFY^NEWVERIFY^NEWVERIFY", { result_code: 0 })
     end
@@ -36,11 +36,37 @@ class AuthenticationTest < Minitest::Test
     assert_equal true, result[:success]
     assert_equal 301, result[:duz]
     assert_equal 301, result[:provider_ien]
-    assert_equal "provider", result[:user_type]
     assert_equal "PROVIDER,TEST", result[:name]
+    assert_equal 0, result[:post_signon_message_count]
 
     assert_equal [ "XUS SIGNON SETUP", "XUS AV CODE", "XUS GET USER INFO" ],
       RpmsRpc.client.received_calls.first(3).map { |c| c[:rpc] }
+  end
+
+  # Neither VALIDAV^XUSRB (XUSRB.m:40, :85-87) nor USERINFO^XUSRB2
+  # (XUSRB2.m:25-35) returns a user class, so sign-on cannot claim a role.
+  # Line 5 of XUS AV CODE — which used to be read as a class and resolved
+  # through USER_TYPES — is the post-sign-on message count (#236).
+  def test_authenticate_does_not_claim_a_user_type
+    result = RpmsRpc::Authentication.authenticate(access_code: "ACCESS123", verify_code: "VERIFY123")
+
+    assert_equal true, result[:success]
+    refute result.key?(:user_type), "no sign-on reply carries a user class; the role comes from security keys"
+    refute RpmsRpc::Authentication.const_defined?(:USER_TYPES)
+  end
+
+  # The role a consumer derives from this sign-on comes from the keys RPMS
+  # holds for the user — the same source ORWU USERINFO's USRCLS piece is
+  # computed from (ORWU.m:19). A mock user seeded with a role therefore
+  # holds the keys that role implies, not a number on a wire that has none.
+  def test_seeded_role_is_carried_by_security_keys
+    keys = RpmsRpc::Authentication.user_security_keys(301)
+
+    assert_includes keys, "ORES"
+    assert_includes keys, "PROVIDER"
+    assert_equal "case_manager",
+      RpmsRpc::UserRoles.resolve(security_keys: RpmsRpc::SecurityKeys.symbolize(keys)),
+      "PRCFA SUPERVISOR elevates the ORES provider to case_manager"
   end
 
   # XUSRB.VALIDAV ALWAYS runs $$DECRYP^XUSRB1 on its parameter, so a cleartext
@@ -122,10 +148,10 @@ class AuthenticationTest < Minitest::Test
     assert_equal 301, info[:duz]
     assert_equal "PROVIDER,TEST", info[:name]
     assert_equal "PROVIDER,TEST", info[:display_name]
-    # :user_class_ien is a pointer into USER CLASS file #8932.1; assert
-    # positivity rather than a specific value (the mock seeds a placeholder
-    # IEN, live values are site-specific).
-    assert info[:user_class_ien].is_a?(Integer) && info[:user_class_ien] > 0
+    # Line 7 is the user's DTIME (USERINFO^XUSRB2, XUSRB2.m:35) — it was
+    # declared as a user-class pointer, which no line of this reply is.
+    assert info[:dtime].is_a?(Integer) && info[:dtime] > 0
+    refute info.key?(:user_class_ien)
   end
 
   def test_user_info_rejects_blank_zero_negative_and_non_numeric_duz
@@ -143,7 +169,9 @@ class AuthenticationTest < Minitest::Test
   def test_user_security_keys_returns_seeded_keys
     keys = RpmsRpc::Authentication.user_security_keys(301)
 
-    assert_equal [ "OR CPRS GUI CHART", "PRCFA SUPERVISOR" ], keys
+    # The :provider role is seeded as the keys it implies (ORES + PROVIDER,
+    # ORWU.m:19-21), ahead of the keys given explicitly.
+    assert_equal [ "ORES", "PROVIDER", "OR CPRS GUI CHART", "PRCFA SUPERVISOR" ], keys
   end
 
   def test_user_security_keys_rejects_invalid_duz

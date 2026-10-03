@@ -13,8 +13,9 @@ return format.
 
 | RPC name              | Routine / Tag           | Params              | Return                          | Status     |
 |-----------------------|-------------------------|---------------------|---------------------------------|------------|
-| `XUS SIGNON SETUP`    | `XUS^XUSRB`             | none                | array of environment lines      | verified   |
-| `XUS AV CODE`         | `AVCODE^XUSRB`          | encrypted "AC;VC"   | DUZ + status lines (CRLF/NL)    | verified   |
+| `XUS SIGNON SETUP`    | `SETUP^XUSRB`           | none                | array of environment lines      | verified   |
+| `XUS AV CODE`         | `VALIDAV^XUSRB`         | encrypted "AC;VC"   | DUZ, XUM, VCCH, message, 0, post-sign-on message count, then the message lines (XUSRB.m:9-11, :40, :85-87) | verified   |
+| `XUS GET USER INFO`   | `USERINFO^XUSRB2`       | none                | DUZ, name, standard name, division, title, service/section, language, DTIME (XUSRB2.m:25-35) | verified   |
 | `XWB CREATE CONTEXT`  | `CREATE^XWBSEC`         | encrypted option    | "1" on success, error otherwise | verified   |
 
 **Notes:**
@@ -23,6 +24,11 @@ return format.
   signon environment. It is required before `XUS AV CODE`.
 - `XUS AV CODE` requires the access/verify codes to be passed
   through the `xwb_encrypt` cipher (`$$ENCRYP^XUSRB1`).
+- No sign-on reply carries a user class. `XUS AV CODE` line 5 is the
+  post-sign-on message count (it was read as a class until #236), and
+  `XUS GET USER INFO` line 7 is DTIME. A role is derived from the user's
+  security keys (`UserRoles.resolve`), the way `ORWU USERINFO` computes its
+  own USRCLS piece from ORES/ORELSE/OREMAS (ORWU.m:19).
 - `XWB CREATE CONTEXT` is sent the option name through the same
   cipher and gates whether RPCs in that context can be invoked.
 

@@ -209,36 +209,46 @@ module RpmsRpc
     #     role: :provider,
     #     security_keys: [:prc_supervisor, :cprs_gui_chart])
     #
+    # The role is carried the way a live broker carries it: as the security
+    # keys that role implies (UserRoles derives it from them, the way
+    # ORWU.m:19 derives USRCLS). No reply line is seeded with a class — none
+    # has one (#236).
+    ROLE_KEYS = {
+      provider: %i[ores provider],
+      nurse: %i[orelse],
+      clerk: %i[oremas],
+      case_manager: %i[prc_supervisor]
+    }.freeze
+
     def seed_user(duz, credentials:, name:, role:, security_keys: [])
       require_relative "security_keys"
       require_relative "user_roles"
 
-      user_class = UserRoles.class_for(role) || "0"
-
-      # Credential response
+      # Credential response: VALIDAV^XUSRB's RET() array (XUSRB.m:40, :85-87).
+      # RET(5) is the post-sign-on message count; a successful mock sign-on
+      # sends no message, as a site with $$SHOWPOST off does.
       seed_lines(:av_code, credentials.to_s.strip.upcase, {
         duz: duz.to_i,
         error_code: 0,
         verify_needs_change: 0,
         message: "Welcome #{name}",
-        user_class: user_class.to_i
+        post_signon_message_count: 0
       })
 
       # User info (XUS GET USER INFO — line-based, no params; mock matches
-      # the live shape: one value per response line). user_class_ien is a
-      # pointer into USER CLASS file #8932.1, distinct from av_code's
-      # auth-class code — seed with a plausible IEN placeholder so tests
-      # don't conflate the two.
+      # the live shape: one value per response line, USERINFO^XUSRB2
+      # XUSRB2.m:25-35). Line 7 is the user's DTIME.
       seed_lines(:user_info, "", {
         duz: duz.to_i,
         name: name,
         display_name: name,
         current_site: "",
-        user_class_ien: 30
+        dtime: 300
       })
 
-      # Security keys (symbolic → RPMS strings)
-      rpms_keys = security_keys.filter_map { |sym| SecurityKeys.rpms_name(sym) }
+      # Security keys (symbolic → RPMS strings): the role's keys plus any given.
+      symbols = (ROLE_KEYS.fetch(role.to_s.to_sym, []) + security_keys).uniq
+      rpms_keys = symbols.filter_map { |sym| SecurityKeys.rpms_name(sym) }
       key_attrs = rpms_keys.map { |k| { key_name: k } }
       seed_keyed_collection(:user_keys, duz.to_s, key_attrs)
     end

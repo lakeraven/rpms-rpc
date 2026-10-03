@@ -365,7 +365,8 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
   def test_user_info
     # XUS GET USER INFO is line-based: one value per response line, not
-    # caret-delimited. Live shape against staging.
+    # caret-delimited — USERINFO^XUSRB2's RET() array (XUSRB2.m:25-35).
+    # Lines 4-6 are title, service/section and language; line 7 is DTIME.
     result = RpmsRpc::DataMapper[:user_info].parse_lines(
       [ "101", "PROVIDER,TEST", "Adam Adam", "7819^DEMO IHS CLINIC^8904", "", "", "", "30" ]
     )
@@ -373,7 +374,8 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "PROVIDER,TEST", result[:name]
     assert_equal "Adam Adam", result[:display_name]
     assert_equal "7819^DEMO IHS CLINIC^8904", result[:current_site]
-    assert_equal 30, result[:user_class_ien]
+    assert_equal 30, result[:dtime]
+    refute result.key?(:user_class_ien), "line 7 is DTIME (XUSRB2.m:35), not a user-class pointer"
   end
 
   # -- Scalar RPCs -----------------------------------------------------------
@@ -397,16 +399,29 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
   # -- Line-based RPCs -------------------------------------------------------
 
+  # The reply array is VALIDAV^XUSRB's own (XUSRB.m:9-11, :16, :40, :85-87):
+  #   RET(0)=DUZ  RET(1)=XUM  RET(2)=VCCH  RET(3)=message  RET(4)=0
+  #   RET(5)=post-sign-on message COUNT  RET(5+n)=the message lines
+  # RET(5) is 0 at entry (:16) and only ever reassigned as a line count in
+  # POST (:86), zeroed again when $$SHOWPOST says not to display it (:87).
+  # Nothing on this wire is a user class.
   def test_av_code_line_based
     m = RpmsRpc::DataMapper[:av_code]
-    result = m.parse_lines([ "101", "0", "0", "Welcome to RPMS", "", "3" ])
+    result = m.parse_lines([ "101", "0", "0", "Welcome to RPMS", "0", "0" ])
     assert_equal 101, result[:duz]
     # error_code stays RAW: the facade requires it numeric before converting
     # (" ".to_i == 0 would otherwise read a blank line as a zero-error success)
     assert_equal "0", result[:error_code]
     assert_equal 0, result[:verify_needs_change]
     assert_equal "Welcome to RPMS", result[:message]
-    assert_equal 3, result[:user_class]
+    assert_equal 0, result[:post_signon_message_count]
+    refute result.key?(:user_class), "VALIDAV returns no user class on any line"
+  end
+
+  def test_av_code_line_5_counts_the_post_signon_message_lines
+    m = RpmsRpc::DataMapper[:av_code]
+    result = m.parse_lines([ "101", "0", "0", "", "0", "2", "Welcome.", "Scheduled downtime tonight." ])
+    assert_equal 2, result[:post_signon_message_count]
   end
 
   def test_av_code_failure
