@@ -36,6 +36,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking): reminders come from the reminder engine, not the triage summary (#238)
+
+- `RpmsRpc::Reminders.for_visit(dfn, visit_ien)` is removed.
+  It read `BGOTRG GETSUM`, the triage summary.
+  `GETSUM^BGOTRG` renders chief complaint, vitals, reproductive history, pregnancy, immunizations, skin tests, education, exams, health factors, procedures and orders (`BGOTRG.m:27-158`).
+  It never reads a reminder, so the `id^name^status^priority^due` the mapping took from it did not exist on the wire.
+  The `:reminder_summary` mapping is gone, and so is its `data/rpc_tiers/grandfathered.yml` entry.
+- `RpmsRpc::Reminders.applicable(dfn, location_ien = nil)` replaces it.
+  It reads `ORQQPXRM REMINDERS APPLICABLE`, the method RPMS has in place for this question.
+  The call goes `APPL^ORQQPXRM` (`ORQQPXRM.m:10-11`) to `EVALCOVR^ORQQPX` (`ORQQPX.m:232-236`), which evaluates the cover-sheet reminder list through `AVAL^PXRMRPCA` (`PXRMRPCA.m:49-82`).
+  The new mapping `:reminders_applicable` declares that row as the routine builds it (`PXRMRPCA.m:76,80`).
+  Each row is a hash:
+  - `id` and `name`
+  - `due_flag` and `status`. Status is derived from the flag: 0 `:applicable`, 1 `:due`, 2 `:not_applicable`, 3 `:error`, 4 `:cannot_be_determined`.
+  - `due_date`: a `Date` only when RPMS sent a FileMan date.
+  - `due_now`: `true` when RPMS sent the literal `DUE NOW`.
+  - `last_done`, `priority` and `has_dialog`.
+
+  Not-applicable rows are returned, as RPMS returns them.
+  The status vocabulary changed: `:satisfied` is gone, and `:not_applicable`, `:error` and `:cannot_be_determined` are new.
+- RPMS keys this read by patient and hospital location (#44), not by visit.
+  **lakeraven-ehr must move its caller.**
+  - `app/gateways/lakeraven/ehr/reminders_gateway.rb:10-12` calls `via.for_visit(dfn, visit_ien)`.
+  - `app/services/lakeraven/ehr/encounter_lifecycle_service.rb:68` calls the gateway the same way.
+
+  Both should call `RpmsRpc::Reminders.applicable(dfn, location_ien)`.
+  The encounter's location is already available from `RpmsRpc::Encounter.open(dfn, visit_ien)[:location_ien]`.
+  The stubs in `features/step_definitions/encounter_lifecycle_steps.rb:37` and `test/gateways/lakeraven/ehr/reminders_gateway_test.rb:25,32` follow.
+- Formatted vitals were never a reminder concern.
+  Value, unit and timestamp as separate fields come from `RpmsRpc::Measurement.for_visit` / `.latest`.
+- The mapping is unverified under ADR 0003 sections 2 and 5.
+  Its wire fixture (`test/fixtures/wire_captures/orqqpxrm-reminders-applicable.yml`) is a `routine-cite`, and the live capture is still owed.
+
 ### Added — the gate can see line-based mappings at all (#190)
 
 `Contract.mapping_kind` asked only `scalar?` / `text_blob?`, so the **19

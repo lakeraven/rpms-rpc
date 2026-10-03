@@ -8,11 +8,6 @@
   Fetches the VueCentric client's config root ('CIAVM DEFAULT SOURCE').
   A frontend-agnostic consumer has no CIAVM config root. Delete with the
   session-bootstrap path; no replacement needed.
-"BGOTRG GETSUM": >-
-  Scrapes the rendered triage-summary string for reminders because the real
-  reminder RPCs were never modelled (see the mapping's own comment). Replace
-  with ORQQPXRM REMINDERS UNEVALUATED + ORQQPXRM REMINDER CATEGORIES, both
-  canonical and both observed in the trace.
 "TIU TEMPLATE GETBOIL": >-
   Note-template expansion; arguable tier, see ADR 0004 consequences.
 "TIU TEMPLATE GETITEMS": >-

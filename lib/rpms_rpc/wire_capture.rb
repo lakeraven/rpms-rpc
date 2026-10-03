@@ -528,6 +528,33 @@ module RpmsRpc
           Piece.new(position: 5, attributes: [ "locked" ], fileman_type: "boolean")
         ]
       ),
+      # ORQQPXRM REMINDERS APPLICABLE (#238): live-mode, but committed as a
+      # routine-cite (CITE_ONLY) until a capture runs against a rung whose
+      # cover-sheet reminder parameters (ORQQPX SEARCH ITEMS / ORQQPX COVER
+      # SHEET REMINDERS) are populated -- without them REMLIST yields no
+      # reminders and the reply is empty. Inputs: DFN 8, no location.
+      CatalogEntry.new(
+        rpc: "ORQQPXRM REMINDERS APPLICABLE", mapping: :reminders_applicable, kind: "fields",
+        mode: :live,
+        inputs: [ "8", "" ],
+        cite: "APPL^ORQQPXRM (ORQQPXRM.m:10-11) -> EVALCOVR^ORQQPX (ORQQPX.m:232-236) " \
+              "-> ALIST/AVAL^PXRMRPCA (PXRMRPCA.m:42-82): rows :76 (applicable) and " \
+              ":80 (not applicable) IEN^PRINT NAME^DUE DATE^LAST DONE^PRIORITY^" \
+              "DUE FLAG^DIALOG^^^^DIALOG WIPE; due date is a FileMan date or " \
+              "'DUE NOW'/'CNBD'/'DISABLED'/empty (PXRMDATE.m:119,129,132; PXRM.m:62)",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "ien" ], fileman_type: "integer"),
+          Piece.new(position: 1, attributes: [ "print_name" ]),
+          Piece.new(position: 2, attributes: [ "due_date" ]),
+          Piece.new(position: 3, attributes: [ "last_done" ], fileman_type: "fileman_date"),
+          Piece.new(position: 4, attributes: [ "priority" ], fileman_type: "integer"),
+          Piece.new(position: 5, attributes: [ "due_flag" ], fileman_type: "integer"),
+          Piece.new(position: 6, attributes: [ "dialog" ], fileman_type: "boolean"),
+          Piece.new(position: 10, attributes: [ "dialog_wipe" ], fileman_type: "boolean")
+        ],
+        note: "Shape from routine source only: no live capture yet. ADR 0003 sections 2 " \
+              "and 5 keep the mapping unverified until one lands (#238)."
+      ),
       # BEHOVM2 VUNITS is deliberately NOT live-captured: on the
       # bcer-9.0-ydb rung the call M-faults server-side and takes the
       # single ZBROKER job down with it (observed 2026-09-02: broker
