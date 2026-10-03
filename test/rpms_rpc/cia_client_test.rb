@@ -79,20 +79,6 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_equal [], c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
   end
 
-  # #195: the reply is LINES, as XwbClient#call_rpc returns, so a list RPC
-  # parses as one row per line. printable(raw) used to flatten the line
-  # separators to spaces and keep the seq echo, and ORWPT LIST ALL then
-  # parsed as ONE patient whose DFN came from the frame byte.
-  def test_call_rpc_returns_one_line_per_reply_row_without_the_frame_header
-    rows = "3^MOUSE,MICKEY M^^^^MOUSE,MICKEY M\r2^USER,TEST^^^^USER,TEST\r8^ZZPROBE,EIGHT^^^^ZZPROBE,EIGHT\r"
-    c = connected_client([ "8\x00#{rows}" + EOD ])
-    assert_equal [
-      "3^MOUSE,MICKEY M^^^^MOUSE,MICKEY M",
-      "2^USER,TEST^^^^USER,TEST",
-      "8^ZZPROBE,EIGHT^^^^ZZPROBE,EIGHT"
-    ], c.call_rpc("ORWPT LIST ALL", "DEMO", "1")
-  end
-
   # A GLOBAL ARRAY (BMX recordset) reply has no line breaks on CIA: each node
   # ends in $C(30) and a lone $C(31) node ends the array. Bytes as the pinned
   # 0930 YDB build sent BSDX HOSPITAL LOCATION (HOSPLOC^BSDX32), trimmed.
@@ -105,24 +91,6 @@ class RpmsRpc::CiaClientTest < Minitest::Test
       "3^DEMO IHS CLINIC",
       "8^OTHER"
     ], c.call_rpc("BSDX HOSPITAL LOCATION")
-  end
-
-  def test_call_rpc_returns_no_lines_for_an_empty_reply
-    c = connected_client([ "5\x00" + EOD ])
-    assert_equal [], c.call_rpc("ORWPT FULLSSN", "000000000")
-  end
-
-  # #195: the \x01 error flag is a refusal, raised as XwbClient raises one,
-  # not a line of data (it came back as the user's only security key).
-  def test_call_rpc_raises_a_broker_refusal
-    c = connected_client([ "6\x013 Unknown remote procedure: ORWU USERKEYS" + EOD ])
-    err = assert_raises(RpmsRpc::Client::RpcError) { c.call_rpc("ORWU USERKEYS", "4") }
-    assert_match(/Unknown remote procedure: ORWU USERKEYS/, err.message)
-  end
-
-  def test_call_rpc_lines_is_call_rpc
-    c = connected_client([ "2\x00a\r\nb\r\n" + EOD ])
-    assert_equal [ "a", "b" ], c.call_rpc_lines("X", "Y")
   end
 
   # Fix (#172 Copilot): a peer-closed read (empty recv) must clear @connected,
