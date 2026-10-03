@@ -140,7 +140,7 @@ class TribalTest < Minitest::Test
   end
 
   def test_tribes_lists_via_b_index
-    key = Ddr.lister_param(file: "9999999.03", part: "EX", xref: "B").to_s
+    key = Ddr.lister_param(file: "9999999.03", fields: "@;.01", part: "EX", xref: "B").to_s
     @mock.seed(:ddr_lister, key, "[Data]\n123^EXAMPLE TRIBE\n124^EXAMPLE TRIBE TWO")
 
     result = Tribal.tribes(part: "EX")
