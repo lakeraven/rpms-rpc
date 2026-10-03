@@ -1044,24 +1044,39 @@ module RpmsRpc
     # ========================================================================
     # TIU NOTE TEMPLATES (TIU TEMPLATE*)
     # ========================================================================
-    # Field positions are best-effort pending wider trace capture. Templates
-    # form a tree (roots → items) with each leaf carrying boilerplate text.
+    # Templates form a tree (roots -> items). GETROOTS and GETITEMS rows are
+    # NODEDATA^TIUSRVT (TIUSRVT.m:104-109), whose pieces TIUSRVT.m:4-29
+    # list: IEN^TYPE^STATUS^NAME^EXCLUDE FROM GROUP BOILERPLATE^BLANK
+    # LINES^PERSONAL OWNER^HAS CHILDREN (0 none, 1 active, 2 inactive,
+    # 3 both)^... A GETITEMS row names no parent: it is a child of the
+    # TIUDA asked about (#219).
 
     DataMapper.define(:template_roots) do |m|
       m.rpc "TIU TEMPLATE GETROOTS"
       m.field 0, :ien, :integer
-      m.field 1, :name
-      m.field 2, :type
+      m.field 1, :type
+      m.field 2, :status
+      m.field 3, :name
+      m.field 4, :exclude_from_group_boilerplate
+      m.field 5, :blank_lines, :integer
+      m.field 6, :personal_owner_duz
+      m.field 7, :has_children, :integer
     end
 
     DataMapper.define(:template_items) do |m|
       m.rpc "TIU TEMPLATE GETITEMS"
       m.field 0, :ien, :integer
-      m.field 1, :name
-      m.field 2, :type
-      m.field 3, :parent_ien, :integer
+      m.field 1, :type
+      m.field 2, :status
+      m.field 3, :name
+      m.field 4, :exclude_from_group_boilerplate
+      m.field 5, :blank_lines, :integer
+      m.field 6, :personal_owner_duz
+      m.field 7, :has_children, :integer
     end
 
+    # GETBOIL(TIUY,TIUDA)^TIUSRVT (TIUSRVT.m:55): the template's
+    # UNEXPANDED boilerplate, one line per node.
     DataMapper.define(:template_boilerplate) do |m|
       m.rpc "TIU TEMPLATE GETBOIL"
       m.text_blob :body
@@ -1080,21 +1095,32 @@ module RpmsRpc
     # ========================================================================
     # TIU PROGRESS NOTES (TIU*)
     # ========================================================================
-    # Field positions are best-effort pending wider trace capture.
+    # Every reply below is a status string the API reads, not a boolean:
+    # LOCK answers 0 when it HOLDS the lock and "1^message" when it does
+    # not (TIUSRVP.m:211-212), the reverse of a :boolean read (#219).
 
+    # MAKE(SUCCESS,DFN,TITLE,VDT,VLOC,VSIT,...)^TIUSRVP (TIUSRVP.m:7):
+    # the new note IEN, or "0^message".
     DataMapper.define(:tiu_create_record) do |m|
       m.rpc "TIU CREATE RECORD"
       m.scalar :note_ien
     end
 
+    # CONTEXT(TIUY,CLASS,CONTEXT,DFN,...)^TIUSRVLO (TIUSRVLO.m:16). Each
+    # row is DA_U_$$RESOLVE(DA) (TIUSRVLO.m:94); RESOLVE builds
+    # DOC^EDT^PT^AUT^LOC^STATUS^TIUADT^TIUDDT^... (TIUSRVLO.m:197), AUT
+    # being DUZ;SIGNATURE NAME;NAME (TIUSRVLO.m:195). The API splits it.
     DataMapper.define(:tiu_documents_by_context) do |m|
       m.rpc "TIU DOCUMENTS BY CONTEXT"
       m.field 0, :ien, :integer
       m.field 1, :title
-      m.field 2, :status
-      m.field 3, :datetime, :fileman_datetime
-      m.field 4, :author_duz
-      m.field 5, :author_name
+      m.field 2, :datetime, :fileman_datetime
+      m.field 3, :patient
+      m.field 4, :author
+      m.field 5, :location
+      m.field 6, :status
+      m.field 7, :visit
+      m.field 8, :discharge
     end
 
     DataMapper.define(:tiu_get_record_text) do |m|
@@ -1102,21 +1128,27 @@ module RpmsRpc
       m.text_blob :body
     end
 
+    # CANDO(TIUY,TIUDA,TIUACT)^TIUSRVA (TIUSRVA.m:20): 1, or "0^reason".
     DataMapper.define(:tiu_authorization) do |m|
       m.rpc "TIU AUTHORIZATION"
-      m.scalar :allowed, :boolean
+      m.scalar :result
     end
 
+    # LOCK(ERR,TIUDA)^TIUSRVP (TIUSRVP.m:210-212): 0 = locked,
+    # "1^ Another session has this record locked." = not.
     DataMapper.define(:tiu_lock_record) do |m|
       m.rpc "TIU LOCK RECORD"
-      m.scalar :locked, :boolean
+      m.scalar :result
     end
 
+    # UNLOCK(ERR,TIUDA)^TIUSRVP (TIUSRVP.m:214-215): always 0.
     DataMapper.define(:tiu_unlock_record) do |m|
       m.rpc "TIU UNLOCK RECORD"
-      m.scalar :unlocked, :boolean
+      m.scalar :result
     end
 
+    # SETTEXT(TIUY,TIUDA,TIUX,SUPPRESS)^TIUSRVPT (TIUSRVPT.m:7):
+    # TIUDA^PAGE^PAGES, or "0^0^0^message" (TIUSRVPT.m:10, 14, 38).
     DataMapper.define(:tiu_set_document_text) do |m|
       m.rpc "TIU SET DOCUMENT TEXT"
       m.scalar :result
