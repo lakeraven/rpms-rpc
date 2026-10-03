@@ -44,6 +44,7 @@ class LiveSpecGuardTest < Minitest::Test
     def teardown = nil
     def test_tracked = skip_tracked("#310", "the RPC is on no built image")
     def test_untracked = skip_tracked("soon", "no issue")
+    def test_bare = skip("no data")
   end
   # Specimens, run by hand below; never by the runner itself.
   Minitest::Runnable.runnables.delete(Probe)
@@ -73,6 +74,10 @@ class LiveSpecGuardTest < Minitest::Test
     untracked = Tracked.new(:test_untracked).run
     refute untracked.skipped?
     assert_match(/names no issue/, untracked.failure.message)
+
+    bare = Tracked.new(:test_bare).run
+    refute bare.skipped?
+    assert_match(/bare skip/, bare.failure.message)
   end
 
   # Invoking `rake test:live` means you meant to reach RPMS: without the

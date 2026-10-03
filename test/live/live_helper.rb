@@ -17,7 +17,7 @@
 # No silent skips. Missing data, a refused RPC or an unreachable broker fails
 # the spec with what is missing and what to do. The one acceptable skip is
 # skip_tracked("#NNN", why), which names a tracked issue; the run's summary
-# lists those by issue. test/rpms_rpc/fake_freeze_test.rb fails on a bare skip.
+# lists those by issue. A bare `skip` in a live spec fails the spec.
 #
 # A spec that WRITES declares `writes!`. It runs only when the target is
 # declared disposable (LIVE_DISPOSABLE=1) and is on this machine (a loopback
@@ -65,7 +65,15 @@ module LiveSpec
     def skip_tracked(issue, why)
       flunk "skip_tracked(#{issue.inspect}, ...) names no issue: pass \"#NNN\", or fail the spec instead" unless issue.to_s.match?(/\A#\d+\z/)
 
+      @tracked_skip = true
       skip "#{issue}: #{why}"
+    end
+
+    # A bare skip fails: say what is missing and what to do, or name the issue.
+    def skip(message = nil, _ignored = nil)
+      flunk "bare skip in a live spec#{" (#{message})" if message}: fail with what is missing, or use skip_tracked(\"#NNN\", why)" unless @tracked_skip
+
+      super
     end
 
     private
