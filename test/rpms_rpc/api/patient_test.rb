@@ -105,6 +105,11 @@ class PatientTest < Minitest::Test
     m = RpmsRpc.client
     m.seed(:voa_add_patient, RpmsRpc::Registration.voa_param(attrs).to_s,
       { status: 1, dfn_or_error: dfn })
+    # The composition guard refuses a write it cannot verify. This test is
+    # the happy path, so the read-back has to be this patient.
+    m.seed(:patient_id_info, dfn, {
+      ssn: attrs[:ssn], dob: attrs[:dob], sex: attrs[:sex], name: attrs[:name]
+    })
     m.seed(:ddr_lock_unlock_node,
       RpmsRpc::DdrFileman.lock_param(node: "^AUPNPAT(#{dfn})").to_s, true)
     m.seed(:ddr_gets_entry_data,
@@ -124,7 +129,9 @@ class PatientTest < Minitest::Test
     assert_includes rpcs, "VAFC VOA ADD PATIENT"
     assert_includes rpcs, "DDR FILER"
     # Only registered wire names cross the wire — no placeholder RPCs.
+    # ORWPT ID INFO is the registration identity guard's read-back.
     assert_empty rpcs - [ "CIANBRPC CANRUN", "VAFC VOA ADD PATIENT",
+                          "ORWPT ID INFO",
                           "DDR LOCK/UNLOCK NODE", "DDR LISTER",
                           "DDR GETS ENTRY DATA", "DDR FILER" ]
   end

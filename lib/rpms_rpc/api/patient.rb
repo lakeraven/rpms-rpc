@@ -78,9 +78,11 @@ module RpmsRpc
     # policy (Registration.hrn_mode), and the per-step wire citations. Returns
     #   { success: true, dfn:, created: }           on success,
     #   { success: false, error: Symbol, message: } on rejection
-    #     (:voa_rejected / :duplicate_identity / :lock_failed /
-    #      :filer_rejected for composition; :agg_rejected / :hrn_file_failed
-    #      for delegation — message carries the M-side text), or
+    #     (:voa_rejected / :duplicate_identity / :identity_mismatch /
+    #      :identity_unverified / :lock_failed / :filer_rejected for
+    #      composition; :agg_rejected / :hrn_file_failed for delegation —
+    #      message carries the M-side text, or which identity fields
+    #      diverged or could not be verified), or
     #   nil when the broker gives no response at all (infra failure) so
     #   callers can distinguish "rejected" from "unreachable".
     def register(attrs)

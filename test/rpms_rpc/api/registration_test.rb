@@ -82,9 +82,20 @@ class RegistrationTest < Minitest::Test
     @mock.seed(:ddr_filer, "ADD", text)
   end
 
+  # The identity guard reads ORWPT ID INFO for the DFN that VOA resolved.
+  # The default seed matches ATTRS so the guard passes; pass explicit pieces
+  # to force a mismatch. Live shape: ssn^dob(FileMan)^sex^race^^site^^name
+  # (stock_vista.rb :patient_id_info).
+  def seed_identity(dfn: 42, ssn: "900010001", dob: "2900102", sex: "F",
+                    name: "DEMOPATIENT,UNA")
+    @mock.seed(:patient_id_info, dfn.to_s,
+      { ssn: ssn, dob: dob, sex: sex, name: name })
+  end
+
   def seed_composition_happy_path
     seed_agg(available: false)
     seed_voa
+    seed_identity
     seed_lock
     seed_existence
     seed_filer
@@ -92,6 +103,27 @@ class RegistrationTest < Minitest::Test
 
   def filer_calls
     @mock.received_calls.select { |c| c[:rpc] == "DDR FILER" }
+  end
+
+  def lock_calls
+    @mock.received_calls.select { |c| c[:rpc] == "DDR LOCK/UNLOCK NODE" }
+  end
+
+  # Field names the refusal actually lists. A message that merely contains
+  # every field name ("sex/dob/last_name") does not match either pattern.
+  def diverged_fields(message)
+    message.to_s[/whose ([a-z_]+(?:\/[a-z_]+)*) does not match/, 1].to_s.split("/").reject(&:empty?)
+  end
+
+  def unverified_fields(message)
+    message.to_s[/but ([a-z_]+(?:\/[a-z_]+)*) could not be verified/, 1].to_s.split("/").reject(&:empty?)
+  end
+
+  def refute_identity_phi(message)
+    refute_match(/DEMOPATIENT|OTHERPATIENT|TARGETPATIENT|ATTACKER|OTHERFIRST/, message,
+      "message must not echo a name")
+    refute_match(/900010001|900019999|2800315|19900102|2900102|1290/, message,
+      "message must not echo an SSN or a DOB in any representation")
   end
 
   def all_filer_rows
@@ -384,6 +416,7 @@ class RegistrationTest < Minitest::Test
   def test_register_rerun_with_existing_record_skips_stub_and_hrn_rows
     seed_agg(available: false)
     seed_voa # VOA returns the existing DFN for a known ICN (VAFCPTAD.m:55)
+    seed_identity
     seed_lock
     seed_existence(exists: true)
     seed_filer(text: "[Data]")
@@ -404,6 +437,7 @@ class RegistrationTest < Minitest::Test
     attrs = ATTRS.reject { |k, _| %i[tribe classification eligibility_status community].include?(k) }
     seed_agg(available: false)
     seed_voa(attrs)
+    seed_identity
     seed_lock
     seed_existence(exists: true)
 
@@ -443,6 +477,7 @@ class RegistrationTest < Minitest::Test
   def test_register_lock_failure_stops_before_filing
     seed_agg(available: false)
     seed_voa
+    seed_identity
     seed_lock(ok: false)
 
     result = Reg.register(ATTRS)
@@ -459,6 +494,7 @@ class RegistrationTest < Minitest::Test
   def test_register_filer_rejection_surfaces_fileman_error_text
     seed_agg(available: false)
     seed_voa
+    seed_identity
     seed_lock
     seed_existence
     seed_filer(text: "[BEGIN_diERRORS]\n701^1^9000001^+1,^.01^0\nThe value is not valid.\n[END_diERRORS]")
@@ -473,6 +509,7 @@ class RegistrationTest < Minitest::Test
   def test_register_unlocks_even_when_filer_rejects
     seed_agg(available: false)
     seed_voa
+    seed_identity
     seed_lock
     seed_existence
     seed_filer(text: "[BEGIN_diERRORS]\n701^1^9000001^+1,^.01^0\nBad.\n[END_diERRORS]")
@@ -543,5 +580,536 @@ class RegistrationTest < Minitest::Test
     assert_equal :invalid_dfn, Reg.update(0, patient_fields: { ".111" => "X" })[:error]
     assert_equal :no_fields, Reg.update(42)[:error]
     assert_empty @mock.received_calls
+  end
+
+  # ==========================================================================
+  # Identity guard — VOA ADD PATIENT returns "1^DFN" both for a freshly created
+  # patient AND for an ICN that already exists at this facility
+  # (VAFCPTAD.m:29,55), with NO identity re-validation. Without a guard, an ICN
+  # collision files this request's demographics onto ANOTHER person's chart.
+  # Salvaged from #187 (BLOCKER-3), which predates the AGG delegation split.
+  # ==========================================================================
+
+  def test_register_aborts_on_identity_mismatch_before_any_write
+    seed_agg(available: false)
+    seed_voa # resolves to DFN 42
+    # ORWPT ID INFO returns a DIFFERENT person (wrong-patient ICN collision).
+    seed_identity(sex: "M", name: "OTHERPATIENT,ZED", dob: "2800315")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    refute result[:success]
+    assert_equal :identity_mismatch, result[:error]
+    assert_match(/does not match/, result[:message])
+    refute_match(/DEMOPATIENT|OTHERPATIENT/, result[:message], "message must not echo a name")
+    refute_match(/900010001|2800315|19900102|2900102/, result[:message],
+      "message must not echo an SSN or a DOB in any representation")
+    assert_match(/\Asex\/dob\/last_name|sex|dob|last_name/, result[:message].split("whose").last.to_s,
+      "message must name the diverged fields")
+    assert_equal %w[last_name first_name sex dob], diverged_fields(result[:message])
+    # The guard runs BEFORE the write path: no lock, no filing.
+    assert_empty @mock.received_calls.select { |c| c[:rpc] == "DDR LOCK/UNLOCK NODE" }
+    assert_empty filer_calls
+  end
+
+  def test_register_proceeds_when_identity_matches
+    seed_composition_happy_path # seed_identity matches ATTRS
+
+    result = Reg.register(ATTRS)
+
+    assert result[:success]
+    assert_equal 42, result[:dfn]
+  end
+
+  # Ballot r1 stalemate SELECTED B. The previous test expected this read to
+  # proceed ("unverifiable is not mismatched"). A nil ORWPT reply is not
+  # verification of the DFN VOA just resolved, so the write is refused and
+  # the message names the read that failed.
+  def test_register_refuses_when_identity_cannot_be_read
+    seed_agg(available: false)
+    seed_voa
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS) # no seed_identity
+
+    refute result[:success]
+    assert_equal :identity_unverified, result[:error]
+    assert_match(/ORWPT ID INFO returned no identity/, result[:message])
+    assert_match(/could not be verified/, result[:message])
+    refute_identity_phi(result[:message])
+    assert_empty diverged_fields(result[:message])
+    assert_empty unverified_fields(result[:message])
+    assert_empty filer_calls
+    assert_empty lock_calls
+  end
+
+  # A single diverging field is enough, and the message names WHICH field
+  # diverged without echoing either value.
+  def test_register_rejects_on_sex_mismatch_alone
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(sex: "M") # name and DOB still match
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    assert_equal :identity_mismatch, result[:error]
+    assert_match(/sex/, result[:message])
+    assert_equal %w[sex], diverged_fields(result[:message])
+    # A message hardcoded to the literal "sex/dob/last_name", or to the
+    # full sentence with every field, used to satisfy assert_match(/sex/).
+    assert_empty diverged_fields("sex/dob/last_name")
+    refute_equal %w[sex], diverged_fields(
+      "VOA resolved DFN 42 to an existing patient whose sex/dob/last_name does not match the registration request"
+    )
+    assert_empty unverified_fields(result[:message])
+    assert_empty filer_calls
+    assert_empty @mock.received_calls.select { |c| c[:rpc] == "DDR LOCK/UNLOCK NODE" }
+  end
+
+  def test_register_rejects_on_last_name_mismatch_alone
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(name: "OTHERPATIENT,UNA") # sex and DOB still match
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    assert_equal :identity_mismatch, result[:error]
+    assert_match(/last_name/, result[:message])
+    assert_equal %w[last_name], diverged_fields(result[:message])
+    assert_empty unverified_fields(result[:message])
+    assert_empty filer_calls
+  end
+
+  def test_register_rejects_on_dob_mismatch_alone
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(dob: "2800315") # name and sex still match
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    assert_equal :identity_mismatch, result[:error]
+    assert_match(/dob/, result[:message])
+    assert_equal %w[dob], diverged_fields(result[:message])
+    assert_empty unverified_fields(result[:message])
+    assert_empty filer_calls
+  end
+
+  # First name is on the wire ("LAST,FIRST MIDDLE") and was captured, then
+  # ignored. Same surname, sex, DOB, and SSN with a different first name is
+  # a different person.
+  def test_register_rejects_on_first_name_mismatch_alone
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(name: "DEMOPATIENT,OTHERFIRST")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    assert_equal :identity_mismatch, result[:error]
+    assert_equal %w[first_name], diverged_fields(result[:message])
+    refute_identity_phi(result[:message])
+    assert_empty filer_calls
+    assert_empty lock_calls
+  end
+
+  # Gate finding (Sol, r1): an external DOB string with surrounding whitespace
+  # missed the MM/DD/YYYY branch and fell through to digit-stripping, yielding
+  # "121990" instead of "19900102" — a FALSE REJECTION of a valid registration.
+  def test_register_tolerates_surrounding_whitespace_in_an_external_dob
+    seed_agg(available: false)
+    seed_voa(ATTRS.merge(dob: " 1/2/1990 "))
+    seed_identity # chart DOB is the same calendar day
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS.merge(dob: " 1/2/1990 "))
+
+    assert result[:success], "whitespace around an external DOB must not read as a different person"
+  end
+
+  def test_dob_key_normalizes_equivalent_external_forms
+    key = ->(v) { Reg.send(:dob_key, v) }
+
+    assert_equal key.call(Date.new(1990, 1, 2)), key.call("1/2/1990")
+    assert_equal key.call(Date.new(1990, 1, 2)), key.call(" 1/2/1990 ")
+    assert_equal key.call(Date.new(1990, 1, 2)), key.call("01/02/1990")
+    # "1/2/90" used to digit-strip to "1290" and false-reject this day.
+    assert_equal "19900102", key.call("1/2/90")
+    assert_equal "19900102", key.call(" 1/2/90 ")
+    assert_equal "19900102", key.call("01/02/90")
+    refute_equal "1290", key.call("1/2/90")
+    assert_equal "", key.call("2/31/90")
+    assert_equal "", key.call("2/29/01")
+  end
+
+  # DIDT.m %DT lines 63-72. Pinned to a date so the window does not drift
+  # with the clock the suite happens to run on.
+  def test_two_digit_year_uses_the_fileman_window
+    expand = ->(yy, today) { Reg.send(:expand_two_digit_year, yy, today: today) }
+    today = Date.new(2026, 10, 1)
+
+    assert_equal 1990, expand.call(90, today)
+    assert_equal 2046, expand.call(46, today)
+    assert_equal 1947, expand.call(47, today)
+    assert_equal 2000, expand.call(0, today)
+    assert_equal 1999, expand.call(99, today)
+    assert_equal 2100, expand.call(0, Date.new(2090, 1, 1))
+  end
+
+  def test_register_accepts_two_digit_year_dob_for_the_same_calendar_day
+    attrs = ATTRS.merge(dob: "1/2/90")
+    seed_agg(available: false)
+    seed_voa(attrs)
+    seed_identity
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(attrs)
+
+    assert result[:success], "1/2/90 must be 1990-01-02, not a digit-stripped 1290"
+  end
+
+  def test_register_still_rejects_a_different_two_digit_year
+    attrs = ATTRS.merge(dob: "3/15/80")
+    seed_agg(available: false)
+    seed_voa(attrs)
+    seed_identity
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(attrs)
+
+    assert_equal :identity_mismatch, result[:error]
+    assert_equal %w[dob], diverged_fields(result[:message])
+    assert_empty filer_calls
+  end
+
+  # Chart-side blanks used to skip comparison, the same way a blank request
+  # field did. SSN is still the matching 900010001, so it is not the reason.
+  def test_register_refuses_when_resolved_record_omits_a_field
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(sex: "", dob: "", name: "")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    refute result[:success]
+    assert_equal :identity_unverified, result[:error]
+    assert_equal %w[last_name first_name sex dob], unverified_fields(result[:message])
+    assert_empty diverged_fields(result[:message])
+    refute_identity_phi(result[:message])
+    assert_empty filer_calls
+    assert_empty lock_calls
+  end
+
+  # F2: a caller-supplied leading comma yields a blank surname. Sex, DOB,
+  # SSN, and the first name all match the chart. The blank must not compare
+  # equal to DEMOPATIENT.
+  def test_register_refuses_a_leading_comma_blank_surname
+    attrs = ATTRS.merge(name: ",UNA")
+    seed_agg(available: false)
+    seed_voa(attrs)
+    seed_identity
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(attrs)
+
+    refute result[:success]
+    assert_equal :identity_unverified, result[:error]
+    assert_equal %w[last_name], unverified_fields(result[:message])
+    assert_empty diverged_fields(result[:message])
+    refute_identity_phi(result[:message])
+    assert_empty filer_calls
+    assert_empty lock_calls
+  end
+
+  def test_register_refuses_a_blank_surname_piece
+    attrs = ATTRS.merge(name: nil, name_last: "", name_first: "UNA")
+    seed_agg(available: false)
+    seed_voa(attrs)
+    seed_identity
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(attrs)
+
+    assert_equal :identity_unverified, result[:error]
+    assert_equal %w[last_name], unverified_fields(result[:message])
+    assert_empty filer_calls
+  end
+
+  # The ballot probe: ",ATTACKER" against an unrelated chart. First name
+  # disagrees AND the surname is blank. Both reasons are named; nothing is written.
+  def test_register_refuses_attacker_leading_comma_against_another_patient
+    attrs = ATTRS.merge(name: ",ATTACKER")
+    seed_agg(available: false)
+    seed_voa(attrs)
+    seed_identity(name: "TARGETPATIENT,BOB")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(attrs)
+
+    refute result[:success]
+    assert_equal :identity_mismatch, result[:error]
+    assert_equal %w[first_name], diverged_fields(result[:message])
+    assert_match(/last_name could not be verified/, result[:message])
+    refute_identity_phi(result[:message])
+    refute_match(/BOB/, result[:message])
+    assert_empty filer_calls
+    assert_empty lock_calls
+  end
+
+  def test_request_identity_keeps_a_leading_comma_surname_blank
+    id = Reg.send(:request_identity, ATTRS.merge(name: ",ATTACKER", sex: "F", dob: "1/2/1990"))
+
+    assert_equal "", id[:last_name]
+    assert_equal "ATTACKER", id[:first_name]
+    assert_equal "F", id[:sex]
+    assert_equal "19900102", id[:dob]
+  end
+
+  def test_register_rejects_on_ssn_mismatch_alone
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(ssn: "900019999")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    assert_equal :identity_mismatch, result[:error]
+    assert_equal %w[ssn], diverged_fields(result[:message])
+    refute_identity_phi(result[:message])
+    assert_empty filer_calls
+    assert_empty lock_calls
+  end
+
+  # Omitting SSN must not skip a chart that has one. That was the same
+  # blank-equals-anything bypass, on the strong discriminator.
+  def test_register_refuses_when_request_omits_ssn_and_chart_has_one
+    attrs = ATTRS.merge(ssn: nil)
+    seed_agg(available: false)
+    seed_voa(attrs)
+    seed_identity
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(attrs)
+
+    assert_equal :identity_unverified, result[:error]
+    assert_equal %w[ssn], unverified_fields(result[:message])
+    assert_empty filer_calls
+  end
+
+  def test_register_refuses_when_chart_ssn_is_blank
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(ssn: "")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    assert_equal :identity_unverified, result[:error]
+    assert_equal %w[ssn], unverified_fields(result[:message])
+    assert_empty filer_calls
+  end
+
+  # Neither side has a real SSN (VAFCPTAD pseudo-SSN path; the chart shows
+  # SSN^DPTLK1's pseudo display). Name, first name, sex, and DOB still have
+  # to match. This must not be refused just because SSN is absent.
+  def test_register_proceeds_on_pseudo_ssn_path_when_chart_has_none
+    attrs = ATTRS.merge(ssn: nil)
+    seed_agg(available: false)
+    seed_voa(attrs)
+    seed_identity(ssn: "702000000P **Pseudo SSN**")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    assert Reg.register(attrs)[:success]
+  end
+
+  # The nine digits inside "#########P **Pseudo SSN**" are a generated
+  # placeholder (DPTLK1.m:166). Confirming a request SSN from them would
+  # treat the placeholder as the patient's SSN.
+  def test_pseudo_ssn_display_does_not_confirm_a_request_ssn
+    attrs = ATTRS.merge(ssn: "702000000")
+    seed_agg(available: false)
+    seed_voa(attrs)
+    seed_identity(ssn: "702000000P **Pseudo SSN**")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(attrs)
+
+    assert_equal :identity_unverified, result[:error]
+    assert_equal %w[ssn], unverified_fields(result[:message])
+    assert_empty filer_calls
+  end
+
+  # DOB^DPTLK1 returns "*SENSITIVE*" for a screened record (DPTLK1.m:182).
+  # The mapping cannot parse that as a date. A withheld DOB is not a match.
+  def test_register_refuses_when_chart_dob_is_withheld
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(dob: "*SENSITIVE*")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    assert_equal :identity_unverified, result[:error]
+    assert_equal %w[dob], unverified_fields(result[:message])
+    refute_match(/SENSITIVE/, result[:message])
+    assert_empty filer_calls
+  end
+
+  def test_register_refuses_when_chart_ssn_is_withheld
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(ssn: "*SENSITIVE*")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    result = Reg.register(ATTRS)
+
+    assert_equal :identity_unverified, result[:error]
+    assert_equal %w[ssn], unverified_fields(result[:message])
+    refute_match(/SENSITIVE/, result[:message])
+    assert_empty filer_calls
+  end
+
+  def test_ssn_key_ignores_pseudo_and_sensitive_displays
+    key = ->(v) { Reg.send(:ssn_key, v) }
+
+    assert_equal "900010001", key.call("900-01-0001")
+    assert_equal "900010001", key.call("900010001")
+    assert_equal "", key.call("702000000P **Pseudo SSN**")
+    assert_equal "", key.call("702000000P")
+    assert_equal "", key.call("*SENSITIVE*")
+    assert_equal "", key.call(nil)
+  end
+
+  def test_register_matches_a_dashed_chart_ssn
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(ssn: "900-01-0001")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    assert Reg.register(ATTRS)[:success]
+  end
+
+  # Middle name and suffix ride the same ORWPT piece as the first name.
+  # Comparing that whole piece false-rejects a registration whose middle
+  # name the wire folds in. The first token is the check.
+  def test_register_proceeds_when_only_the_middle_name_differs
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(name: "DEMOPATIENT,UNA MAE")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    assert Reg.register(ATTRS)[:success]
+  end
+
+  def test_register_matches_structured_name_pieces
+    attrs = ATTRS.merge(name: nil, name_last: "DEMOPATIENT", name_first: "UNA", name_middle: "MAE")
+    seed_agg(available: false)
+    seed_voa(attrs)
+    seed_identity(name: "DEMOPATIENT,UNA MAE")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    assert Reg.register(attrs)[:success]
+  end
+
+  def test_register_matches_sex_on_the_first_letter
+    attrs = ATTRS.merge(sex: "FEMALE")
+    seed_agg(available: false)
+    seed_voa(attrs)
+    seed_identity(sex: "F")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    assert Reg.register(attrs)[:success]
+  end
+
+  def test_register_matches_chart_name_case_insensitively
+    seed_agg(available: false)
+    seed_voa
+    seed_identity(name: "demopatient,una")
+    seed_lock
+    seed_existence
+    seed_filer
+
+    assert Reg.register(ATTRS)[:success]
+  end
+
+  # ==========================================================================
+  # Tri-state lock — a lock that got NO broker response is unreachable
+  # infrastructure, not contention. Collapsing the two reports an outage as a
+  # busy record. Salvaged from #187 (M4).
+  # ==========================================================================
+
+  def test_register_returns_nil_when_lock_gets_no_response
+    seed_agg(available: false)
+    seed_voa
+    seed_identity
+    # The lock RPC is deliberately NOT seeded -> no broker response.
+
+    assert_nil Reg.register(ATTRS), "no broker response must not be reported as contention"
+    assert_empty filer_calls
+  end
+
+  def test_register_reports_lock_failed_on_actual_contention
+    seed_agg(available: false)
+    seed_voa
+    seed_identity
+    seed_lock(ok: false) # DDROK "0" — a real, answered refusal
+
+    result = Reg.register(ATTRS)
+
+    refute result[:success]
+    assert_equal :lock_failed, result[:error]
+    assert_empty filer_calls
   end
 end
