@@ -147,9 +147,9 @@ module RpmsRpc
           reset_connection
           raise
         rescue SystemCallError, IOError => e
-          # A mid-write EPIPE/ECONNRESET (CIA writes its frame directly to
-          # the socket) must not propagate raw and leave @connected lying:
-          # type it, and tear the connection down under the lock.
+          # A mid-read EPIPE/ECONNRESET, or a write from a client that does not
+          # go through #send_packet, must not propagate raw and leave
+          # @connected lying: type it, and tear the connection down under the lock.
           reset_connection
           raise ConnectionError,
                 "Connection lost mid-operation: #{RpmsRpc.sanitize_error(e.message)}"

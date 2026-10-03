@@ -116,7 +116,7 @@ module RpmsRpc
         # state before raising, not only on the missing-DUZ branch.
         unless greeting.match?(/signed on|Good (morning|afternoon|evening)/i)
           clear_signon_state
-          raise AuthenticationError, RpmsRpc.sanitize_error("CIA sign-on rejected")
+          raise AuthenticationError, signon_rejection(reply, ac, vc, avc)
         end
 
         @authenticated = true
@@ -353,7 +353,7 @@ module RpmsRpc
         @seq = @seq % 9 + 1
         msg = ("{CIA}" + EOD + @seq.to_s + action + frame_fields.join + EOD).b
         discard_stale_bytes
-        @socket.write(msg)
+        send_packet(msg) # base: types a dead-socket write as ConnectionError, clears @connected
         read_reply(terminator)
       end
     end
@@ -485,6 +485,32 @@ module RpmsRpc
         raise RpcError, RpmsRpc.sanitize_error(printable(rest.byteslice(1..) || "").strip)
       else "".b # SNDEOD (no flag) or malformed — never parse the seq byte as data
       end
+    end
+
+    # Longest broker reason a sign-on refusal carries into its message. CHK^CIANBRPC texts are one
+    # short sentence (XUS3 / CIANBUTL dialog entries); anything longer is not a reason.
+    SIGNON_REASON_MAX = 160
+
+    # The message for a refused CIANBRPC AUTH: the broker's own reason, so a refusal is diagnosable
+    # without a packet capture (#175).
+    #
+    # AUTH^CIANBRPC refuses through CHK^CIANBRPC (CIANBRPC.m:142-144), which sets
+    # DATA(0) = RTN_U_text: line 1 of the reply is "code^message". For RTN 4 it then writes the
+    # environment (DATA(1)) and the login banner (INTRO^XUS1A into DATA(2)) - neither is a reason,
+    # so only line 1 is read. A \x01 reply is a broker error and its text is the reason.
+    #
+    # The credentials never reach the message: the access code, verify code and encrypted AVC are
+    # removed from the reason even if the broker echoed them, before the PHI sanitizer runs.
+    def signon_rejection(reply, *secrets)
+      rest = reply.to_s.b.byteslice(1..) || "".b # drop the one-byte sequence echo
+      rest = rest.byteslice(1..) || "".b if [ 0x00, 0x01 ].include?(rest.getbyte(0)) # DATA / error flag
+      line = rest.split(/\r\n|\r|\n/).find { |l| !l.strip.empty? }.to_s
+      reason = printable(line).sub(/\A\s*-?\d+\^/, "").squeeze(" ").strip
+      secrets.map { |s| printable(s) }.reject { |s| s.strip.empty? }.sort_by { |s| -s.length }.each do |s|
+        reason = reason.gsub(Regexp.new(Regexp.escape(s), Regexp::IGNORECASE), "[REDACTED]")
+      end
+      reason = "#{reason[0, SIGNON_REASON_MAX]}..." if reason.length > SIGNON_REASON_MAX
+      RpmsRpc.sanitize_error(reason.empty? ? "CIA sign-on rejected" : "CIA sign-on rejected: #{reason}")
     end
 
     def m_subscript(key)
