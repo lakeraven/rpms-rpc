@@ -10,6 +10,10 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
   User = Struct.new(:user_type, :security_keys, keyword_init: true)
   ImagingUser = Struct.new(:duz, keyword_init: true)
 
+  def teardown
+    RpmsRpc.reset!
+  end
+
   def test_can_approve_chs_with_supervisor_key
     user = User.new(user_type: "case_manager", security_keys: [ :prc_supervisor ])
     assert RpmsRpc::Capabilities.can_approve_chs?(user)
