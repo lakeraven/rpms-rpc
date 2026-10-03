@@ -26,20 +26,33 @@ class Ruby4ReadinessTest < Minitest::Test
   end
 
   # Ruby 3.4 and 4.0 turned default gems into bundled gems (bigdecimal, ostruct, mutex_m, drb,
-  # observer, abbrev, getoptlong, logger, benchmark ...). Under Bundler a bundled gem only loads if
-  # something declares it, so every non-default gem lib/ requires must be a runtime dependency.
-  def test_every_non_default_gem_lib_requires_is_a_runtime_dependency
-    spec = Gem::Specification.load(File.join(ROOT, "rpms-rpc.gemspec"))
-    declared = spec.runtime_dependencies.map(&:name)
-    required = Dir[File.join(ROOT, "lib/**/*.rb")].flat_map do |f|
-      File.read(f).scan(/^\s*require\s+["']([^"']+)["']/).flatten
-    end
-    gems = required.reject { |r| r.start_with?("rpms_rpc") }.map { |r| r.split("/").first }.uniq.sort
-    missing = gems.select do |name|
-      found = Gem::Specification.find_all_by_name(name)
-      found.any? && found.none?(&:default_gem?) && !declared.include?(name)
-    end
-    assert_empty missing, "lib/ requires these non-default gems without declaring them in the gemspec"
+  # observer, abbrev, getoptlong, logger, benchmark, irb ...). Under Bundler a bundled gem only loads
+  # if something declares it. Ruby's own list (Gem::BUNDLED_GEMS::SINCE, which on 3.4 already names
+  # the gems 4.0 unbundles) is the reference, so this fails on 3.4 for a 4.0 breakage.
+  def bundled_gems
+    require "bundled_gems"
+    Gem::BUNDLED_GEMS::SINCE.keys
+  end
+
+  def required_gems(files)
+    files.flat_map { |f| File.read(File.join(ROOT, f)).scan(/^\s*require\s+["']([^"']+)["']/).flatten }
+         .reject { |r| r.start_with?("rpms_rpc") }.map { |r| r.split("/").first }.uniq.sort
+  end
+
+  def gemspec = Gem::Specification.load(File.join(ROOT, "rpms-rpc.gemspec"))
+
+  def test_every_bundled_gem_lib_requires_is_a_runtime_dependency
+    lib = Dir.chdir(ROOT) { Dir["lib/**/*.rb"] }
+    missing = required_gems(lib) & bundled_gems - gemspec.runtime_dependencies.map(&:name)
+    assert_empty missing, "lib/ requires these bundled (non-default) gems without declaring them in the gemspec"
+  end
+
+  # bin/ scripts run from a checkout under Bundler, so the Gemfile may carry them instead.
+  def test_every_bundled_gem_bin_requires_is_in_the_bundle
+    declared = gemspec.dependencies.map(&:name) + File.read(File.join(ROOT, "Gemfile")).scan(/^\s*gem\s+["']([^"']+)["']/).flatten
+    bin = ruby_sources.select { |f| f.start_with?("bin/") }
+    missing = required_gems(bin) & bundled_gems - declared
+    assert_empty missing, "bin/ requires these bundled (non-default) gems without a Gemfile or gemspec entry"
   end
 
   def test_ci_runs_the_suite_on_ruby_3_4_and_4_0_with_frozen_string_literals

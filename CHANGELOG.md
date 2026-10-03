@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No test uses `minitest/mock`, which is not part of Minitest 6. The two `stub`
   calls are now dependency injection: `Client#connect_tcp` is the overridable
   TCP connect.
+- `bin/console` works on Ruby 4.0. `irb` is no longer a default gem there, so the
+  Gemfile declares it, and the console loads it only after its environment checks pass.
 
 ## [0.3.1]
 
