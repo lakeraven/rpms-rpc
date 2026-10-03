@@ -24,6 +24,10 @@ jobs:
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
+      # stunnel_sample_test.rb runs the docs/tls/ sample configs end to end;
+      # it skips without stunnel, so install it here to keep it running.
+      - name: Install stunnel
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq stunnel4
       - name: Run tests
         run: bundle exec rake test
 
