@@ -22,6 +22,10 @@ class SiteTest < Minitest::Test
     end
   end
 
+  def teardown
+    RpmsRpc.reset!
+  end
+
   def test_current_returns_the_authenticated_users_site
     site = RpmsRpc::Site.current("301")
     assert_equal 7819, site[:ien]

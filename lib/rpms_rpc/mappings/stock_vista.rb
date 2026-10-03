@@ -1244,13 +1244,19 @@ module RpmsRpc
     # ========================================================================
     # SYMPTOM CATALOG (ORWDAL32*)
     # ========================================================================
-    # Field positions are best-effort pending wider trace capture.
 
+    # ORWDAL32 SYMPTOMS — SYMPTOMS^ORWDAL32 as built (OR*3.0*233; the public
+    # FOIA tree still carries the pre-233 tag) answers Y(I)=IEN_U_FROM
+    # (ORWDAL32.m:118). Since 233 the walk also indexes each synonym as
+    # SYN_$C(9)_"<"_NAME_">"_U_NAME (ORWDAL32.m:109-111), so a synonym row is
+    #   IEN ^ SYNONYM<tab><NAME> ^ NAME
+    # and a plain row is IEN ^ NAME. There is no SNOMED column; piece 3 is the
+    # preferred symptom name, present on synonym rows only (#221).
     DataMapper.define(:symptom_search) do |m|
       m.rpc "ORWDAL32 SYMPTOMS"
       m.field 0, :ien, :integer
       m.field 1, :name
-      m.field 2, :snomed_code
+      m.field 2, :preferred_name
     end
 
     # ORWDAL32 DEF — defaults tree for the allergy-symptom entry UI. Takes

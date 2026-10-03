@@ -21,50 +21,11 @@ class RpmsRpc::ServerCapabilitiesPresenceTest < Minitest::Test
     calls
   end
 
-  # -- XWB: XWB IS RPC AVAILABLE (CKRPC^XWBLIB), exempt from context at XWBSEC.m:14
-
-  def test_xwb_asks_xwb_is_rpc_available_and_never_calls_the_probed_rpc
-    client = RpmsRpc::XwbClient.new
-    calls = stub_wire(client, :call_rpc,
-      [ "XWB IS RPC AVAILABLE", "ORWU USERKEYS", "R" ] => [ "1" ])
-
-    assert_equal true, RpmsRpc::ServerCapabilities.rpc_present?(client, "ORWU USERKEYS")
-    assert_equal [ [ "XWB IS RPC AVAILABLE", "ORWU USERKEYS", "R" ] ], calls
-  end
-
-  def test_xwb_answers_absent_for_zero
-    client = RpmsRpc::XwbClient.new
-    stub_wire(client, :call_rpc, [ "XWB IS RPC AVAILABLE", "ZZ NO SUCH RPC", "R" ] => [ "0" ])
-
-    assert_equal false, RpmsRpc::ServerCapabilities.rpc_present?(client, "ZZ NO SUCH RPC")
-  end
-
-  # -- CIA: CIANBRPC CANRUN (CANRUN^CIANBRPC). The CIA broker refuses XWB IS RPC
-  # AVAILABLE ("Access denied", CIANBACT.m:49 exempts only CIANB* routines).
-
-  def test_cia_asks_cianbrpc_canrun_and_never_calls_the_probed_rpc
-    client = RpmsRpc::CiaClient.new
-    # $D(^XTMP("CIA",UID,"C",CTX,RPC)) = 10 for a non-programmer (live, 2026-10-03)
-    calls = stub_wire(client, :call_rpc_raw,
-      [ "CIANBRPC CANRUN", "BEHOPTCX PTINFO" ] => "5\x0010")
-
-    assert_equal true, RpmsRpc::ServerCapabilities.rpc_present?(client, "BEHOPTCX PTINFO")
-    assert_equal [ [ "CIANBRPC CANRUN", "BEHOPTCX PTINFO" ] ], calls
-  end
-
-  def test_cia_answers_present_for_programmer_one
-    client = RpmsRpc::CiaClient.new
-    stub_wire(client, :call_rpc_raw, [ "CIANBRPC CANRUN", "ORWU USERINFO" ] => "4\x001")
-
-    assert_equal true, RpmsRpc::ServerCapabilities.rpc_present?(client, "ORWU USERINFO")
-  end
-
-  def test_cia_answers_absent_for_zero
-    client = RpmsRpc::CiaClient.new
-    stub_wire(client, :call_rpc_raw, [ "CIANBRPC CANRUN", "ZZ NO SUCH RPC" ] => "6\x000")
-
-    assert_equal false, RpmsRpc::ServerCapabilities.rpc_present?(client, "ZZ NO SUCH RPC")
-  end
+  # What each broker's check answers, and that the probe puts only the check on
+  # the wire, are proven live (ADR 0009): test/live/rpc_presence_probe_live_test.rb,
+  # against the CIA and the XWB broker. What stays here is client mechanics no
+  # server produces on demand: which client keeps the call probe, and the
+  # fall-back when the check itself errors.
 
   # -- BMX: CHKPRMIT^BMXMSEC exempts neither check, so BMX keeps the old probe.
 

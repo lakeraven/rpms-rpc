@@ -41,7 +41,8 @@ module RpmsRpc
     # RPC error messages that indicate the RPC itself is not installed
     # or not registered to the current OPTION. Anything else means the
     # RPC IS present (it ran far enough to raise a different error).
-    MISSING_RPC_PATTERN = /<NOLINE>|Remote Procedure .* (?:doesn't exist|not found)/i
+    # The CIA broker words it "Unknown remote procedure: NAME" (#195).
+    MISSING_RPC_PATTERN = /<NOLINE>|Remote Procedure .* (?:doesn't exist|not found)|Unknown remote procedure/i
 
     # Probe whether `client` can call all RPCs backing `feature`.
     # Short-circuits on first missing RPC.

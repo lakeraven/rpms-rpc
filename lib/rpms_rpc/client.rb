@@ -181,13 +181,12 @@ module RpmsRpc
 
     # Reply LINES, per this transport's reply grammar.
     #
-    # Line-positional consumers (DataMapper#line_field mappings) must read
-    # through this, never through call_rpc: a transport whose call_rpc
-    # returns a String (CIA returns a printable String with the line
-    # separators flattened to spaces) would be indexed CHARACTER by
-    # character — a reply beginning with sequence echo "2" + ACK parses as
-    # DUZ 2, error 0, success: a plausible WRONG identity. Transports whose
-    # reply grammar is not "an array of lines already" override this.
+    # Line-positional consumers (DataMapper#line_field mappings) read
+    # through this: a transport whose call_rpc returned a String would be
+    # indexed CHARACTER by character — a reply beginning with sequence echo
+    # "2" + ACK parses as DUZ 2, error 0, success: a plausible WRONG
+    # identity. Every live client's call_rpc returns lines (CIA since #195);
+    # the String branch is for stand-ins that return one.
     def call_rpc_lines(rpc_name, *params)
       reply = call_rpc(rpc_name, *params)
       reply.is_a?(Array) ? reply : split_response(reply.to_s.dup)
