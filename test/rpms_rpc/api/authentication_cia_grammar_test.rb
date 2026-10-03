@@ -2,7 +2,7 @@
 
 require "minitest/autorun"
 require "rpms_rpc/cia_client"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/api/authentication"
 
 # The Authentication facade parses XUS AV CODE by LINE POSITION. A CIA

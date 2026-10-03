@@ -2,7 +2,7 @@
 
 require "minitest/autorun"
 require "date"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/health_summary"
 
