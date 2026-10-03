@@ -361,6 +361,46 @@ text = RpmsRpc::DataMapper.section_data.fetch_text("1")
 `seed()` auto-detects the mapping type (field, text_blob, scalar) and
 stores data in the format that `fetch_*` expects.
 
+### Daily live report
+
+`rake report:daily` runs `rake test` once and `rake test:live` once per persona
+(PROV123 and SYS123) against the latest YottaDB build, times each, and writes a
+short markdown summary: the build tested against the newest `bcer-*-ydb` release
+of lakeraven/rpms-ops and the build `data/rpc_coverage/config.yml` pins, the
+rpms-rpc commit, a table per suite (tests, passed, failed, errors, skipped with
+the issues the skips track, wall time), the first failing test names, and the
+`rake rpc:coverage` headline (from committed live evidence; when that task cannot
+run, the line says why). It exits 1 when any suite fails, so a scheduler notices.
+
+```bash
+# a broker that is already running (its build: the local container publishing
+# that port, or BUILD=)
+BROKER_HOST=127.0.0.1 BROKER_PORT=19300 bundle exec rake report:daily
+
+# a fresh, disposable container of the latest build (ADR 0009), removed at the end
+FRESH=1 bundle exec rake report:daily
+FRESH=1 DRY_RUN=1 bundle exec rake report:daily   # print the plan, run nothing
+```
+
+Env:
+
+- `PROV123_ACCESS`, `PROV123_VERIFY`, `SYS123_ACCESS`, `SYS123_VERIFY`: each
+  persona's sign-on pair, never printed or written (`PERSONAS=` picks others).
+  PROV123 also needs `VISTA_RPC_ENV=development`.
+- `LIVE_DISPOSABLE=1` lets the writing specs run; `FRESH=1` sets it for its own
+  container. Set it yourself only for a local container you can throw away.
+- `FRESH=1` needs Docker and the latest build's image locally
+  (`ghcr.io/lakeraven/rpms-ydb:image-<release>-<key>-<arch>`). The key is not
+  derivable from the release, and listing GHCR tags needs a token with
+  `read:packages`, so pull the image or name it with `IMAGE=`.
+  `WAIT_SECONDS=` (default 300) bounds the wait for the broker.
+- Output: `rpc-coverage/daily/<date>-<build>.md` in the sibling rpms-diffs
+  checkout (`RPMS_DIFFS_DIR=`), or `OUT_DIR=` (a directory) or `OUT=` (a file).
+  The directory must exist.
+
+Nothing schedules it. Because it needs local Docker and a local broker, run it
+from a workstation: a launchd or cron entry, or Claude Code's `/loop`.
+
 ## Contributing
 
 Per [ADR 0002](docs/adr/0002-verified-routine-policy.md), every
