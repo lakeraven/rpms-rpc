@@ -750,6 +750,14 @@ module RpmsRpc
       m.scalar :has_key, :boolean
     end
 
+    # ORWU NPHASKEY — does person NP hold KEY: NPHASKEY^ORWU(VAL,NP,KEY),
+    # ''$D(^XUSEC(KEY,NP)). ORWU HASKEY takes the key only and answers for
+    # the signed-on DUZ; sending it a DUZ too is %YDB-E-ACTLSTTOOLONG (#296).
+    DataMapper.define(:person_has_key) do |m|
+      m.rpc "ORWU NPHASKEY"
+      m.scalar :has_key, :boolean
+    end
+
     # ========================================================================
     # LINE-BASED RESPONSES
     # ========================================================================

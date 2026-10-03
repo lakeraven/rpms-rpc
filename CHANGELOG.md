@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Deprecated — seven `Capabilities` checks that test names which are not security keys (#314)
+
+- `can_approve_chs?`, `can_process_chs?`, `can_manage_chs?`, `can_manage_consults?`,
+  `can_verify_eligibility?`, `can_access_behavioral_health?` and `can_access_dental?`
+  each warn once per process. Their answers, the `capabilities_for` entries they feed
+  and the `UserRoles.resolve` elevation on `:prc_supervisor`/`:prc_manager` are unchanged.
+  No signed-on user can hold the names they test, so on a real session they answer false.
+  Replacement: read the keys a user holds (#318) and decide policy in the host (ADR 0010).
+  Removal is #359.
+
+### Changed — `SecurityKeys::REGISTRY` names only keys on the pinned build (#314)
+
+- Removed the twelve names that are not SECURITY KEYs (#19.1) on the bcer-9.0 0930 image.
+  `symbolize` never returned them for a real session; `MockClient#seed_user` now drops them too.
+
 ## [0.3.1]
 
 ### Fixed — CIA frame terminator no longer collides with an L() length prefix (#241)
