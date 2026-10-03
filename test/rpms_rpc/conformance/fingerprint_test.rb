@@ -59,9 +59,9 @@ class RpmsRpc::Conformance::FingerprintTest < Minitest::Test
     assert fp.rpc_names.empty?
 
     seeded = RpmsRpc::Conformance::Fingerprint.from_h(
-      "rpcs" => { "GMTS PWH REPORT" => nil }
+      "rpcs" => { "ORWPT SELECT" => nil }
     )
-    assert_equal({}, seeded.rpcs["GMTS PWH REPORT"])
+    assert_equal({}, seeded.rpcs["ORWPT SELECT"])
   end
 
   def test_rpc_names_returns_a_set_of_names

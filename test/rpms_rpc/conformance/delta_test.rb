@@ -137,10 +137,12 @@ class RpmsRpc::Conformance::DeltaTest < Minitest::Test
     assert_equal({ missing: %w[B], extra: [] }, delta)
   end
 
-  # Integration: probing the committed staging fingerprint against the
-  # bcer-8.0 seed reference must reproduce a subset of the 87 known
-  # gem-only misses recorded on 2026-06-07 (.gem_only_misses_20260607.txt).
-  def test_staging_probe_reproduces_known_gem_misses
+  # Integration: the bcer-8.0 seed reference is the seed core the committed
+  # staging fingerprint carries, so probing one against the other reports
+  # nothing missing. (It used to also carry the gem's invented names as
+  # "known gem-only misses"; those were mappings no built image registers,
+  # removed with the mappings, #207.)
+  def test_staging_probe_reports_the_seed_core_present
     staging = RpmsRpc::Conformance::FixtureReader.new(
       File.join(FIXTURES_DIR, "staging-2026-06-07.yml")
     ).fingerprint
@@ -150,19 +152,9 @@ class RpmsRpc::Conformance::DeltaTest < Minitest::Test
 
     delta = RpmsRpc::Conformance::Delta.between(target: staging, required: required)
 
-    known_misses = [
-      "GMTS PWH REPORT", "PSO ERX STATUS", "BPHR PATIENT DIRECT",
-      "XU KEY LIST", "ORWU USERKEYS", "ORWLRR RESULT LIST",
-      "ORWRA REPORT", "ORWPCE IMPLANT LIST", "ORWRP TYPES",
-      "XQAL NEW ALERTS"
-    ]
-    known_misses.each do |rpc|
-      assert_includes delta[:missing], rpc
-    end
-
-    # Present-on-staging namespaces must NOT be reported missing.
+    assert_empty delta[:missing]
     [ "ORWPT SELECT", "ORQQPL DETAIL", "ORWLRR INTERIM", "XQAL GUI ALERTS" ].each do |rpc|
-      refute_includes delta[:missing], rpc
+      assert_includes required.rpc_names, rpc
     end
   end
 
