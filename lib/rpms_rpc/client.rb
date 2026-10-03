@@ -447,11 +447,17 @@ module RpmsRpc
       @capability_cache = nil
       @host = host
       @port = port
-      @socket = TCPSocket.new(host, port)
+      @socket = connect_tcp(host, port)
       @socket.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1)
     rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT, Errno::EHOSTUNREACH, Socket::ResolutionError => e
       @connected = false
       raise ConnectionError, "Failed to connect to #{host}:#{port} - #{e.message}"
+    end
+
+    # The TCP connection itself, apart so a test can inject a failure by
+    # overriding it in a subclass (no stubbing of TCPSocket).
+    def connect_tcp(host, port)
+      TCPSocket.new(host, port)
     end
 
     # Send raw bytes to the broker

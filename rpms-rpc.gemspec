@@ -26,7 +26,10 @@ Gem::Specification.new do |spec|
   spec.files = Dir.chdir(File.expand_path(__dir__)) do
     Dir["bin/*", "data/pillar_allowlists/*", "data/namespace_to_pillar.yml", "{lib,docs}/**/*", "MIT-LICENSE", "Rakefile", "README.md"]
   end
-  # rexml is a default gem in Ruby 3.4+ but must be declared so Bundler
-  # adds it to the load path. Otherwise pure stdlib (socket, openssl).
+  # rexml and bigdecimal are bundled gems (not default gems) since Ruby 3.4,
+  # so Bundler only puts them on the load path when declared. Otherwise
+  # pure stdlib (socket, openssl). test/rpms_rpc/ruby4_readiness_test.rb
+  # fails if lib/ requires another non-default gem without declaring it.
+  spec.add_dependency "bigdecimal", ">= 3.1"
   spec.add_dependency "rexml", "~> 3.2"
 end
