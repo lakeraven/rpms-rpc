@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Deprecated — seven `Capabilities` checks that test names which are not security keys (#314)
+
+- `can_approve_chs?`, `can_process_chs?`, `can_manage_chs?`, `can_manage_consults?`,
+  `can_verify_eligibility?`, `can_access_behavioral_health?` and `can_access_dental?`
+  each warn once per process. Their answers, the `capabilities_for` entries they feed
+  and the `UserRoles.resolve` elevation on `:prc_supervisor`/`:prc_manager` are unchanged.
+  No signed-on user can hold the names they test, so on a real session they answer false.
+  Replacement: read the keys a user holds (#318) and decide policy in the host (ADR 0010).
+  Removal is #359.
+
+### Changed — `SecurityKeys::REGISTRY` names only keys on the pinned build (#314)
+
+- Removed the twelve names that are not SECURITY KEYs (#19.1) on the bcer-9.0 0930 image.
+  `symbolize` never returned them for a real session; `MockClient#seed_user` now drops them too.
+
 ## [0.3.1]
 
 ### Fixed — CIA frame terminator no longer collides with an L() length prefix (#241)
@@ -35,6 +52,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sentinel rather than relying on the terminator not colliding.
 
 ## [Unreleased]
+
+### Fixed — AGG registration sends tribe, classification, eligibility and community through AG's own window (#297)
+
+`Registration.register` documents `tribe:`, `classification:`,
+`eligibility_status:` and `community:`, and on every RPMS stack (where
+`Agg.available?`) it dropped all four: the create went through the "Mini
+Registration" window, which has no parameter for them, and answered
+`{ success: true }`.
+
+The create now goes through **"New Patient"**, the window AG registers a new
+patient through, which carries them as `AGGPTTRI`, `AGGPTCLB`, `AGGPTELG`,
+and `AGGPTCOM` + `AGGPTCDT`. AG files them with the rest of the registration;
+nothing is filed around AG. The window's 28 parameters are committed as
+`test/fixtures/agg/new_patient_window.tsv` (read from `^AGG(9009068.3,28,10)`
+on bcer-9.0-20260905-ydb), and a test fails if the create sends a name the
+window does not define.
+
+- Community on this path is AG's shape: `community_ien:` (COMMUNITY
+  #9999999.05) with `community_since:` (the date moved). AG files the pointer
+  (1117) and a dated history entry (#9000001.51) and derives the text (1118).
+  One without the other raises `ArgumentError`. `community_since: :birth`
+  (or `"B"`) is sent as the date of birth, and a value that is not a date
+  raises: sent as `B`, AG answers success and files no community history.
+- A value AG's window has no parameter for is not sent and is named in the
+  result: `unfiled: [:community]` for free-text `community:` with no
+  `community_ien:`, `unfiled: [:extra_fields]` for the composition path's
+  escape hatch.
+- The HRN update still uses "Mini Registration", where it was captured (#214).
+
+Proven live on the 0905 image as a programmer-key user (a create with the
+five parameters filed 1108, 1111, 1112, 1117, the #9000001.51 entry and
+1118). Not yet proven as a least-privilege registration clerk.
 
 ### Fixed — disconnect ends the CIA session the way the broker expects (#192)
 
