@@ -65,6 +65,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the two registration paths name the community they do not file (#300)
+
+Each registration path ignored the other's community attribute without
+saying so. The composition path (no AG) now names `community_ien:` and
+`community_since:` in `unfiled:` when given: it files `community:` into 1118
+as free text and has no 1117 pointer or #9000001.51 history entry. The
+delegation path now names free-text `community:` in `unfiled:` even when the
+pointer is given too, since AG's window has no free-text parameter. The
+`Registration` module doc states what each path stores for community.
+
 ### Fixed — `:patient_id_info` reads ORWPT ID INFO as the routine writes it (#191)
 
 IDINFO^ORWPT returns `PID^DOB^SEX^VET^SC%^WARD^RM-BED^NAME` (ORWPT.m:6-11).
