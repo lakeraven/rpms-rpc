@@ -36,6 +36,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the gem conforms to a pinned rpms-ops build's RPC signature (#222, #160)
+
+- `rake conformance:pin RELEASE=<tag>` pins the RPC signature rpms-ops publishes on a
+  release: the `#8994` + `#9.4` inventory and the build record. It checks every file against
+  the release's asset digest, the sidecar, the artifact binding, and that the build record's
+  commit is the one the tag names. It commits the five files unchanged under
+  `data/inventories/<tag>/`, derives `data/fingerprints/references/<tag>.yml`, and records
+  tag, RPMS version, engine, build commit and sha256s in `data/fingerprints/rpms-ops.lock.yml`.
+  Pinned: `bcer-9.0-20260930-8c88e47-ydb` (the first real reference fingerprint).
+- `test/rpms_rpc/registered_rpc_names_test.rb` reads the pinned build. A name the gem uses
+  fails when it is not registered there, has no entry point, or is INACTIVE for local use.
+- `test/rpms_rpc/pinned_build_signature_test.rb` fails when the lock does not name the
+  build, when the committed signature or the fingerprint drifts from the lock, or when a
+  wire fixture cites a different entry point from the one the build registers for its RPC.
+- `rake conformance:ingest` reads the `#8994` 0-node by its DD: field 4 is RETURN VALUE TYPE
+  and field 5 AVAILABILITY. Before this, AVAILABILITY was stored as `return_type`.
+
+### Removed — `data/rpc_coverage/registry/` (#222)
+
+- The names-only copies of the 0913 registry and package list. `rake rpc:coverage` reads the
+  pinned signature (`release:` in `data/rpc_coverage/config.yml`). The 0930 `#8994` dump is
+  byte-identical to 0913's (same sha256), so the coverage number does not move.
+
 ### Removed — BREAKING: 77 RPC names no built image registers, with the API that sent them (#207, #295)
 
 A name is only real if a built baseline registers it. 77 of the names the
@@ -49,7 +72,7 @@ had its wire shape evidenced in the repo as the replacement, and the
 default for an invented name is deletion, not a guess at its real twin.
 
 `test/rpms_rpc/registered_rpc_names_test.rb` now fails when any name the
-gem uses is on no pinned registry (`data/rpc_coverage/registry/`), and
+gem uses is on no pinned registry (now the pinned rpms-ops build signature, #222), and
 `rake rpc:coverage`'s `max_unregistered` ratchet is 0. To add an RPC: pin
 its registry capture first, then map it (ADR 0003).
 

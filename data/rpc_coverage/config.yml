@@ -2,8 +2,10 @@
 #
 # backend           label of the backend the number is about; its live evidence is
 #                   rpc-coverage/live/<backend>.json in lakeraven/rpms-diffs (written by `rake rpc:live BACKEND=<backend>`)
-# registry          the pinned #8994 registry of the release that backend runs
-# packages          the pinned #9.4 package list of the same release; groups RPCs by package in rpc:coverage_html
+# release           the pinned rpms-ops build whose RPC signature the number is about; it must be pinned in
+#                   data/fingerprints/rpms-ops.lock.yml (`rake conformance:pin`, rpms-rpc#222)
+# registry          that build's #8994 registry, as committed by conformance:pin
+# packages          that build's #9.4 package list; groups RPCs by package in rpc:coverage_html
 # minimum_percent   the last recorded covered / (registered - excluded). It never fails the task:
 #                   rpc:coverage prints a NOTE when coverage drops below it, and when coverage rises,
 #                   with the value to record here. Raise it then; never lower it.
@@ -12,12 +14,14 @@
 #                   holds it there on every run. Never raise it.
 #
 # NOTE: local-ydb-0905 is a local docker container of the 0905 image
-# (bcer-9.0-20260905-6899d69-ydb), measured against the 0913 registry below. The two differ by 6
+# (bcer-9.0-20260905-6899d69-ydb), measured against the 0930 registry below. The two differ by 6
 # RPCs (BEHOGMY DUSRXPAR, BEHOGMY GETCRDEF, BEHOGMY GETENLOC, BEHOGMY GIDTRNG, BGOVEM COLORDER,
-# BGOVEM GETCOLOR registered on 0913 only; BGOVIMM6 DUPALLOW on 0905 only), none of which rpms-rpc
-# declares. Re-point both at the same release once a container of the newest image is running.
+# BGOVEM GETCOLOR registered on 0930 only; BGOVIMM6 DUPALLOW on 0905 only), none of which rpms-rpc
+# declares. (0930's #8994 dump is byte-identical to 0913's: same sha256.) Re-point both at the same
+# release once a container of the newest image is running.
 backend: local-ydb-0905
-registry: data/rpc_coverage/registry/bcer-9.0-20260913-1a2244c-ydb.txt
-packages: data/rpc_coverage/registry/bcer-9.0-20260913-1a2244c-ydb-packages.txt
+release: bcer-9.0-20260930-8c88e47-ydb
+registry: data/inventories/bcer-9.0-20260930-8c88e47-ydb/bcer-9.0-20260930-8c88e47-ydb-broker_8994.txt
+packages: data/inventories/bcer-9.0-20260930-8c88e47-ydb/bcer-9.0-20260930-8c88e47-ydb-packages_9_4.txt
 minimum_percent: 0.8
 max_unregistered: 0

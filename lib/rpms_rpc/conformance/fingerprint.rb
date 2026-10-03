@@ -10,13 +10,14 @@ module RpmsRpc
     # facts a Reader captures from a VistA-family instance (or a committed
     # fixture). Schema per docs/conformance/SPEC.md:
     #
-    #   backend:    iris_rpms | yottadb_vista | worldvista
+    #   backend:    iris_rpms | yottadb_rpms | yottadb_vista | worldvista
+    #               (yottadb_rpms = IHS RPMS on YottaDB, lineage rpms — the rpms-ops -ydb line)
     #   lineage:    rpms | vista | worldvista
     #   release:    set on reference fingerprints (e.g. "bcer-8.0"); nil on
     #               probed targets
     #   source:     { "kind" => ..., "captured_at" => ..., "note" => ... }
     #   rpcs:       file #8994 registry — { name => { "tag" =>, "routine" =>,
-    #               "return_type" => } }
+    #               "return_type" => (.04), "availability" => (.05), "inactive" => (.06) } }
     #   packages:   file #9.4  — { name => version }   (optional face)
     #   patches:    file #9.7  — [ "APSP*1.0*70", ... ] (optional face)
     #   bmw_tables: BMW.* SQL catalog — IRIS/RPMS only  (optional face)

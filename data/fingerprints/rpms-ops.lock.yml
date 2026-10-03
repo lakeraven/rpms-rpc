@@ -1,0 +1,23 @@
+# rpms-ops builds whose RPC signature rpms-rpc conforms to - written by `rake conformance:pin`; do not hand-edit.
+# Each entry pins the #8994 + #9.4 inventory and build record lakeraven/rpms-ops attaches to that release
+# (sha256 per asset; the bytes are committed under data/inventories/<tag>/), and names the fingerprint
+# ingested from exactly those bytes. test/rpms_rpc/pinned_build_signature_test.rb checks all three agree.
+---
+repo: lakeraven/rpms-ops
+releases:
+  bcer-9.0-20260930-8c88e47-ydb:
+    rpms_version: bcer-9.0
+    engine: yottadb
+    build_commit: 8c88e47e5b1bcc6af410fc0c7904e4f148fddfcd
+    artifact_sha256: sha256:fe88a1c3fd1519795a702b33797061745ec33e0551802b8a50a2483dba7ceabc
+    captured_at: '2026-09-30T20:47:58Z'
+    inventory_tool_commit: '06971cc0bd0f1e96e30e76564369403066520c0c'
+    provenance_schema: 3
+    assets:
+      bcer-9.0-20260930-8c88e47-ydb-INVENTORY-PROVENANCE.json: 4a46a16aff8223cf9344709b30536f324abd89b02d686633305826b55242fdf6
+      bcer-9.0-20260930-8c88e47-ydb-PROVENANCE.json: d2a413229ae304359617daee3cde70800cb44312471758eda443c07c3527cb8c
+      bcer-9.0-20260930-8c88e47-ydb-broker_8994.txt: 5f400d56a6f455061427e7fe6d63d656641063dd3463ca3cfbccfd8002affdec
+      bcer-9.0-20260930-8c88e47-ydb-packages_9_4.txt: e4ac1cb5cb7cc7a3132f4b71ac72a3cee076135e176d98c165d6e5f213256202
+    fingerprint: references/bcer-9.0-20260930-8c88e47-ydb
+    rpcs: 5557
+    packages: 287
