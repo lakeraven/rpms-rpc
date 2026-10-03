@@ -256,10 +256,22 @@ module RpmsRpc
     # text, every line separator became a space and an error flag became
     # data, so a multi-row reply parsed as ONE row whose first piece carried
     # the frame byte (ORWPT LIST ALL "DEMO" -> one patient, DFN wrong).
+    #
+    # A GLOBAL ARRAY reply (a BMX recordset: BSDX, AGG) is the array's nodes
+    # concatenated, each ending in $C(30), the last node a lone $C(31). The
+    # CIA broker sends no line break between nodes, so $C(30) is the row
+    # boundary and the $C(31) node is the end marker, not a row. Seen live on
+    # BSDX HOSPITAL LOCATION (HOSPLOC^BSDX32): the header and every clinic
+    # arrived as one line, and Scheduling.hospital_locations returned the
+    # header as its only row.
     def call_rpc(rpc_name, *params)
       body = parse_cia_reply(call_rpc_raw(rpc_name, *params))
-      body.split(/\r\n|\r|\n/).map { |line| printable(line) }
+      body.split(REPLY_ROW_BREAK).reject { |line| line == RECORDSET_END }.map { |line| printable(line) }
     end
+
+    REPLY_ROW_BREAK = /\r\n|\r|\n|\x1e/
+    RECORDSET_END = "\x1f".b
+    private_constant :REPLY_ROW_BREAK, :RECORDSET_END
 
     # Send an RPC and return the raw, unmodified broker response. Client contract:
     # call_rpc_raw must not transform the payload (call_rpc parses it).

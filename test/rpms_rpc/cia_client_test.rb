@@ -93,6 +93,20 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     ], c.call_rpc("ORWPT LIST ALL", "DEMO", "1")
   end
 
+  # A GLOBAL ARRAY (BMX recordset) reply has no line breaks on CIA: each node
+  # ends in $C(30) and a lone $C(31) node ends the array. Bytes as the pinned
+  # 0930 YDB build sent BSDX HOSPITAL LOCATION (HOSPLOC^BSDX32), trimmed.
+  def test_call_rpc_splits_a_recordset_on_its_record_separators
+    reply = "I00020HOSPITAL_LOCATION_ID^T00040HOSPITAL_LOCATION\x1e" \
+            "3^DEMO IHS CLINIC\x1e8^OTHER\x1e\x1f"
+    c = connected_client([ "4\x00#{reply}" + EOD ])
+    assert_equal [
+      "I00020HOSPITAL_LOCATION_ID^T00040HOSPITAL_LOCATION",
+      "3^DEMO IHS CLINIC",
+      "8^OTHER"
+    ], c.call_rpc("BSDX HOSPITAL LOCATION")
+  end
+
   def test_call_rpc_returns_no_lines_for_an_empty_reply
     c = connected_client([ "5\x00" + EOD ])
     assert_equal [], c.call_rpc("ORWPT FULLSSN", "000000000")
