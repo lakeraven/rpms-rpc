@@ -9,6 +9,9 @@ module RpmsRpc
   # It no longer reads CIAVMRPC GETPAR for "CIAVM DEFAULT SOURCE" (#239): that
   # value is the VueCentric client's own config root, which means nothing to a
   # consumer that is not that client. See the mapping file's note.
+  #
+  # There is no :default_site_ien: VIMINFO answers DUZ^NAME^timeouts^compose^
+  # design (CIAVCXUS.m:20-31) and names no site; the key read the DUZ (#221).
   module Session
     extend self
 
@@ -20,8 +23,7 @@ module RpmsRpc
 
       {
         registry: registry,
-        vim_info: vim_info,
-        default_site_ien: vim_info[:site_ien]
+        vim_info: vim_info
       }
     end
 

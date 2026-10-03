@@ -905,14 +905,19 @@ module RpmsRpc
       m.field 0, :root
     end
 
-    # CIAVCXUS VIMINFO — fetch the user's launch context (site/division).
-    # Field positions are best-effort pending wider trace capture; the RPC
-    # carries the user's launch site IEN among other context fields.
+    # CIAVCXUS VIMINFO — VIMINFO^CIAVCXUS. One row, documented by the routine
+    # (CIAVCXUS.m:20-21) and built at CIAVCXUS.m:25-31:
+    #   DUZ ^ NAME ^ PTMOUT;STMOUT;CNTDN ^ COMPOSE MODE ^ DESIGN MODE
+    # Piece 3 holds the CIAVM PRIMARY/SECONDARY TIMEOUT and COUNTDOWN INTERVAL
+    # parameters joined by ";"; pieces 4-5 are $$HASKEY of CIAV COMPOSE and
+    # CIAV DESIGN (1/0). It carries no site: an unknown user answers "" (#221).
     DataMapper.define(:session_vim_info) do |m|
       m.rpc "CIAVCXUS VIMINFO"
-      m.field 0, :site_ien, :integer
-      m.field 1, :site_name
-      m.field 2, :user_name
+      m.field 0, :duz, :integer
+      m.field 1, :user_name
+      m.field 2, :timeouts
+      m.field 3, :compose_mode, :boolean
+      m.field 4, :design_mode, :boolean
     end
 
     # ========================================================================
