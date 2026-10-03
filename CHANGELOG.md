@@ -65,6 +65,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — BREAKING: a missing RPC raises a typed error instead of answering empty (#363)
+
+- No API method checks whether the server serves its RPC before calling it.
+  The guards that answered `[]`, `nil` or a canned
+  `{ success: false, error: "... not available on this server" }` hash are
+  gone from `Patient.brief_header` (which also stops rescuing a
+  "doesn't exist" error into `nil`), the ten ORQQPL methods on `Problem`
+  (`lex_search`, `clinic_search`, `details`, `audit_history`, `comments`,
+  `init_patient`, `provider_list`, `edit_load`, `inactivate`, `verify`) and
+  the eighteen BMC methods on `Referral`. Each now sends its RPC and raises
+  when the server will not run it. A host that read empty as "feature
+  absent" must rescue the error instead.
+- New `Client::RpcNotAvailableError < RpcError`: the server does not serve
+  the RPC (no #8994 entry, or inactive). New `Client::RpcRefusedError <
+  RpcError`: the RPC is served, but not to this user in the bound context
+  option. Any other broker error is still a plain `RpcError` (chiefly an M
+  error from a routine that ran). CIA (error 3 / error 4), XWB and BMX raise
+  the same class for the same case.
+- XWB reads the SNDERR header by its length bytes. A refusal used to be
+  recognised only when its length byte happened to be absent or `E`, so most
+  "doesn't exist" refusals and every "not registered to the option" refusal
+  came back as reply data.
+- BMX raises `RpcNotAvailableError` / `RpcRefusedError` for a refusal in the
+  security packet, where it raised `ConnectionError`.
+
+### Removed — BREAKING: capability probes (#363)
+
+- `RpmsRpc::ServerCapabilities` (its feature registry, `register`, `probe`
+  and the `server_capabilities/` files), `Client#supports?` and
+  `MockClient#supports?` / `MockClient#seed_capability`. A host that passes
+  `supports?` through a wrapping broker (for example in a PASSTHROUGH list of
+  delegated client methods) must drop it.
+- `rake rpc:coverage` no longer reads capability-probe `register([...])`
+  lists, since there are none.
+
 ### Added — `Authentication.held_keys(names)`, through CIAVCXUS HASKEYS (#318)
 
 The registered way to ask which of several named security keys the

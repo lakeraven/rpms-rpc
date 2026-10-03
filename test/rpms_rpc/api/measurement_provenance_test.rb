@@ -27,7 +27,6 @@ class MeasurementProvenanceTest < Minitest::Test
   # exercises nil/garbage paths MockClient can't produce.
   class RawResponseClient
     def initialize(response) = @response = response
-    def supports?(*) = true
     def call_rpc(*) = @response
   end
 

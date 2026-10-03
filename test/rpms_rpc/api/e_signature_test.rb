@@ -14,7 +14,6 @@ class ESignatureTest < Minitest::Test
   # for exercising nil/garbage response paths MockClient can't produce.
   class RawResponseClient
     def initialize(response) = @response = response
-    def supports?(*) = true
     def call_rpc(*) = @response
   end
 

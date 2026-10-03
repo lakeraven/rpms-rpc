@@ -29,7 +29,6 @@ class BgoWriteRebindTest < Minitest::Test
       @calls = []
     end
 
-    def supports?(*) = true
 
     def call_rpc(rpc_name, *params)
       @calls << { rpc: rpc_name, params: params }
@@ -278,7 +277,6 @@ class BgoWriteRebindTest < Minitest::Test
   def test_immunization_refusal_nil_broker_response_is_failure_not_success
     RpmsRpc.reset!
     client = Object.new
-    def client.supports?(*) = true
     def client.call_rpc(*) = nil
     RpmsRpc.configure { |cfg| cfg.client = client }
 

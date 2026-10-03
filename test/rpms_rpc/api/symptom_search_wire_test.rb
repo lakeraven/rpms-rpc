@@ -13,7 +13,6 @@ require "rpms_rpc/api/symptom"
 class SymptomSearchWireTest < Minitest::Test
   class RawResponseClient
     def initialize(response) = @response = response
-    def supports?(*) = true
     def call_rpc(*) = @response
   end
 
