@@ -112,12 +112,45 @@ client.disconnect
 > raises in production. This prevents a misconfigured deploy from
 > silently talking to the broker as a debug account.
 
+### Interactive console (`bin/console`)
+
+A small REPL for short feedback loops against a real broker. It starts IRB with
+one signed-on client, chosen entirely by environment — there are **no defaults
+that name a real host or credential**, and it refuses to start (naming what is
+missing) if any required setting is absent.
+
+| Variable       | Required | Notes                                                        |
+|----------------|----------|--------------------------------------------------------------|
+| `BROKER`       | yes      | `cia` (CIANBLIS/VueCentric) or `bmx` (BMXNet/.NET)           |
+| `BROKER_HOST`  | yes      | broker host or IP                                            |
+| `BROKER_PORT`  | yes      | TCP port (e.g. `19200` local CIA, `29101` local BMX)        |
+| `RPMS_ACCESS`  | yes      | access code                                                  |
+| `RPMS_VERIFY`  | yes      | verify code                                                  |
+| `RPMS_CONTEXT` | no       | an option to bind after sign-on (e.g. `AGGRPC`)              |
+
+```sh
+# placeholders — fill in your own host/port/codes
+BROKER=cia BROKER_HOST=127.0.0.1 BROKER_PORT=19200 \
+  RPMS_ACCESS=... RPMS_VERIFY=... bin/console
+```
+
+At the prompt:
+
+```ruby
+rpc "ORWU USERINFO"                       # pretty-prints the RAW reply and the PARSED lines
+rpc "AGG LOOKUP PATIENTS", "DEMO", "N"    # params are passed straight through
+ctx                                       # show the bound context option
+ctx "AGGRPC"                              # bind a context option
+reconnect                                 # drop and re-establish connect + sign-on (+ RPMS_CONTEXT)
+client                                    # the underlying RpmsRpc client
+```
+
 ## Components
 
 | File                          | Purpose                                          |
 |-------------------------------|--------------------------------------------------|
 | `RpmsRpc::Client`             | Abstract base — auth, cipher, socket helpers     |
-| `RpmsRpc::CiaClient`          | XWB/CIA wire protocol (port 9100)                |
+| `RpmsRpc::CiaClient`          | CIA wire protocol (the VueCentric broker)        |
 | `RpmsRpc::BmxClient`          | BMX wire protocol (port 9101)                    |
 | `RpmsRpc::ParameterEncoder`   | VistA `1{len}00f{value}\x04` parameter encoding  |
 | `RpmsRpc::ResponseParser`     | Caret-delimited response parser                  |
@@ -258,21 +291,34 @@ must set it** — otherwise log correlation across restarts and
 hosts breaks, and the dev fallback gives operators a false sense
 of unique tokens.
 
-## CIA vs BMX
+## Which broker to use
 
-Both protocols call the same RPC registry (`^XWB(8994)`) and the
-same M routines. They differ only in wire framing:
+RPMS has three brokers in front of one RPC registry (`^XWB(8994)`). Any of
+them will run any RPC the session's context allows, but they are not
+interchangeable: part of an RPC's contract can live in the broker it was
+written for. **Call each RPC through the broker, and under the context, its own
+client uses** ([ADR 0007](docs/adr/0007-call-each-rpc-through-its-own-broker.md)).
 
-- **CIA/XWB** — `[XWB]1130` prefix, length-prefixed pack format,
-  used by CPRS / XWBTCPM. Implemented in
-  `FOIA-RPMS/Packages/RPC Broker/Routines/XWBTCPM.m`.
-- **BMX** — `{BMX}LLLLL` prefix, two-stage handshake (monitor
-  spawns session), used by BMXMON. Implemented in
-  `FOIA-RPMS/Packages/M Transfer/Routines/BMXMON.m` and
-  `BMXMBRK.m`.
+| Broker | Client class | Built for | Use it for |
+|---|---|---|---|
+| CIA | `RpmsRpc::CiaClient` | The VueCentric chart | Chart RPCs under `CIAV VUECENTRIC` |
+| XWB | `RpmsRpc::XwbClient` | CPRS and stock VistA clients | The same chart RPCs on stock VistA, under `OR CPRS GUI CHART` |
+| BMX | `RpmsRpc::BmxClient` | IHS's .NET applications | Registration (`AGG`), scheduling (`BSDX`), behavioral health (`AMHG`), referrals (`BMC`), each under its own option |
 
-Pick the protocol that matches the broker your site is running.
-Don't infer protocol from port — sites can and do remap.
+The wire formats differ too:
+
+- **XWB** — `[XWB]1130` prefix, length-prefixed pack format (XWBTCPM).
+- **CIA** — `{CIA}` framing (CIANBLIS).
+- **BMX** — `{BMX}LLLLL` prefix, two-stage handshake (the monitor spawns the
+  session), and a broker-level error returned with every reply (BMXMON,
+  BMXMBRK).
+
+The BMX applications' RPCs can report a failure through BMX's error channel
+rather than in the reply. Called over CIA, that failure is not delivered and
+the reply reads as a success. Where a backend serves no BMX listener, calling
+them over CIA is a deviation: label it, and verify a write by reading it back.
+
+Don't infer the protocol from the port — sites can and do remap.
 
 ## Testing
 
