@@ -34,6 +34,10 @@ class AggPatientLookupTest < Minitest::Test
     RpmsRpc.mock!
   end
 
+  def teardown
+    RpmsRpc.reset!
+  end
+
   # -- Parameter contract ----------------------------------------------------
 
   def test_sends_text_and_type_in_the_declared_order
