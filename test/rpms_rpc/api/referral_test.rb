@@ -102,19 +102,51 @@ class ReferralTest < Minitest::Test
     assert_equal "line one\nline two", RpmsRpc::Referral.rcis_template_detail(7)
   end
 
-  def test_patient_eligibility_status_returns_structured_status
+  # GTPTELST^BMCRPC4 (BMCRPC4.m:129): ELIGIBILITY STATUS (external) ^ preferred name.
+  def test_patient_eligibility_status_reads_the_status_text_and_preferred_name
     RpmsRpc.mock! do |m|
-      m.seed(:bmc_patient_eligibility_status, DFN, {
-        eligible: true,
-        status: "ELIGIBLE",
-        message: "Active CHS eligibility"
-      })
+      m.seed_scalar(:bmc_patient_eligibility_status, DFN, "CHS & DIRECT^JO")
     end
 
     result = RpmsRpc::Referral.patient_eligibility_status(DFN)
 
-    assert_equal true, result[:eligible]
-    assert_equal "ELIGIBLE", result[:status]
+    assert_equal "CHS & DIRECT", result[:status]
+    assert_equal "JO", result[:preferred_name]
+    refute result.key?(:eligible), "the routine returns no eligible flag"
+  end
+
+  # PROV^BMCRPC4 (BMCRPC4.m:136-141): one node, "-1^All~" then IEN^NAME~ per user.
+  def test_users_providers_parses_the_single_tilde_node
+    RpmsRpc.mock! do |m|
+      m.seed_text(:bmc_users_providers, "1", "-1^All~17^DOCTOR,ONE~42^NURSE,TWO~")
+    end
+
+    assert_equal [ { ien: "17", name: "DOCTOR,ONE" }, { ien: "42", name: "NURSE,TWO" } ],
+                 RpmsRpc::Referral.users_providers(1)
+  end
+
+  # SETREFRL^BMCRPC2 (BMCRPC2.m:155): success is "~`1^IEN".
+  def test_add_referral_sigil_success_is_success_with_the_ien
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:bmc_add_referral, DFN, "~`1^3001")
+    end
+
+    result = RpmsRpc::Referral.add(DFN, "44")
+
+    assert result[:success]
+    assert_equal "3001", result[:ien]
+  end
+
+  # SETREFRL^BMCRPC2 (BMCRPC2.m:58): failure is "~`0^message".
+  def test_add_referral_sigil_failure_carries_the_message
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:bmc_add_referral, DFN, "~`0^Required field missing")
+    end
+
+    result = RpmsRpc::Referral.add(DFN, "44")
+
+    refute result[:success]
+    assert_equal "Required field missing", result[:message]
   end
 
   def test_bmc_calls_short_circuit_when_capability_unsupported

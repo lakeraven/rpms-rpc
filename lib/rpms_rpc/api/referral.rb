@@ -2,6 +2,7 @@
 
 require_relative "../mappings"
 require_relative "../context_scope"
+require_relative "../rcis_wire"
 
 module RpmsRpc
   # Symbolic API for referral records. Read via referral_search /
@@ -83,8 +84,13 @@ module RpmsRpc
       bmc_many(:bmc_reference_data, *params)
     end
 
+    # PROV^BMCRPC4 answers one node, "-1^All~IEN^NAME~...": the "All"
+    # entry is a picker option, not a user, so it is dropped (#210).
     def users_providers(*params)
-      bmc_many(:bmc_users_providers, *params)
+      RcisWire.records(bmc_text(:bmc_users_providers, *params)).filter_map do |rec|
+        ien, name = rec.split("^", 2)
+        { ien: ien, name: name } if ien.to_i.positive?
+      end
     end
 
     def providers(*params)
@@ -201,6 +207,9 @@ module RpmsRpc
     end
 
     def result_from_raw(raw)
+      rcis = RcisWire.result(raw)
+      return rcis.merge(raw: raw) if rcis
+
       line = raw.to_s.strip
       return { success: false, raw: raw } if line.empty?
 
