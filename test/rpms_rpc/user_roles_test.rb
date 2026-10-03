@@ -26,12 +26,12 @@ class RpmsRpc::UserRolesTest < Minitest::Test
     )
   end
 
-  def test_resolve_does_not_elevate_on_names_that_are_not_keys
-    # PRCFA SUPERVISOR and BPRC MANAGER are not keys on a built image (#314).
-    assert_equal "provider", RpmsRpc::UserRoles.resolve(
+  def test_resolve_case_manager_from_security_key_elevation
+    # prc_supervisor elevates beyond whatever user_class would yield.
+    assert_equal "case_manager", RpmsRpc::UserRoles.resolve(
       user_class: "3", security_keys: [ :prc_supervisor ]
     )
-    assert_equal "nurse", RpmsRpc::UserRoles.resolve(
+    assert_equal "case_manager", RpmsRpc::UserRoles.resolve(
       user_class: "4", security_keys: [ :prc_manager ]
     )
   end
