@@ -177,12 +177,6 @@ module RpmsRpc
       m.scalar :result
     end
 
-    # BMC ADD SECONDARY REFERRAL — creates a secondary referral on an existing request.
-    DataMapper.define(:bmc_add_secondary_referral) do |m|
-      m.rpc "BMC ADD SECONDARY REFERRAL"
-      m.scalar :result
-    end
-
     # BMC CHK YEAR SITE PARAM — validates fiscal-year/site RCIS setup.
     DataMapper.define(:bmc_check_year_site_param) do |m|
       m.rpc "BMC CHK YEAR SITE PARAM"

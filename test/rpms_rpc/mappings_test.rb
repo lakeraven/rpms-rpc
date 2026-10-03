@@ -452,7 +452,6 @@ class RpmsRpc::MappingsTest < Minitest::Test
     expected = {
       bmc_add_c32_print_log: "BMC ADD C32 PRINT LOG",
       bmc_add_referral: "BMC ADD REFERRAL",
-      bmc_add_secondary_referral: "BMC ADD SECONDARY REFERRAL",
       bmc_check_year_site_param: "BMC CHK YEAR SITE PARAM",
       bmc_consultation_status_update: "BMC CONSULTATION STATUS UPDATE",
       bmc_purpose_of_referral_list: "BMC GET PURPOSE OF REF API",
@@ -496,7 +495,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       medication_detail referral_detail
       ccd_document ccd_referral immunization_text immunization_count
       phr_access
-      bmc_add_c32_print_log bmc_add_referral bmc_add_secondary_referral
+      bmc_add_c32_print_log bmc_add_referral
       bmc_check_year_site_param bmc_consultation_status_update
       bmc_purpose_of_referral_list bmc_rcis_template_detail bmc_rcis_template_list
       bmc_reference_data bmc_users_providers bmc_health_summary_type

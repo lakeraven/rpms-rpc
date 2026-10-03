@@ -22,10 +22,6 @@ module RpmsRpc
       bmc_scalar_result(:bmc_add_referral, *params)
     end
 
-    def add_secondary(*params)
-      bmc_scalar_result(:bmc_add_secondary_referral, *params)
-    end
-
     def update(ien, *params)
       bmc_scalar_result(:bmc_update_referral, ien, *params)
     end

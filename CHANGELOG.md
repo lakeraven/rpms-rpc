@@ -105,7 +105,8 @@ IHS clusters (second PR):
   `budget_summary`, `low_funds?`, `current_fiscal_year`, `current_quarter`):
   BMCRPC GTBUDGET / GTREMAIN / GTQTRALLOC / GTOBLIG / GTOBLIGID / GTREFOBLIG
   / GTPAYMENT. The names were built from RCIS's routine prefix; the real
-  RCIS surface is BMC *, all 21 of which the gem keeps.
+  RCIS surface is BMC *, 20 of which the gem keeps (BMC ADD SECONDARY
+  REFERRAL is dropped below).
 - `RpmsRpc::Vendor` (`search`, `find`, `preferred`, `for_service`,
   `contracts`, `active_contract`, `rates`, `active?`): BMCRPC SRCHVEND /
   GTVEND / GTPREFVEND / GTCONTRACT / GTRATES.
@@ -141,6 +142,12 @@ IHS clusters (second PR):
   SECTION / SAVE SECTION / GET SECDEF / LOCK / UNLOCK — the routine is real,
   these tags are not).
 - `ServerCapabilities` feature `:bphr_phr_endpoints`.
+- `RpmsRpc::Referral.add_secondary`: BMC ADD SECONDARY REFERRAL. Registered,
+  but not callable on any built image: #8994 points it at SETSCNRF^BMCRPC2,
+  and the tag lives in BMCRPC4 (FOIA BMCRPC4.m:144), so the broker finds no
+  entry point (rpms-ops#653). The registered-names gate cannot see this;
+  the 0921 RPC atlas classifies it `no-entry-point`. It comes back when the
+  build registers it where the routine is.
 
 The hand-authored `data/fingerprints/references/bcer-8.0.yml` seed no
 longer lists these names as "gem-required RPCs the staging dump lacks":
