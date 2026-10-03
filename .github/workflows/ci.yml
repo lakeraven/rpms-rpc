@@ -25,6 +25,10 @@ jobs:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
       - name: Run tests
+        # Every source file already says frozen_string_literal: true; the flag
+        # makes a file that forgets it fail here rather than on a default flip (#47).
+        env:
+          RUBYOPT: --enable-frozen-string-literal
         run: bundle exec rake test
 
   lint:
