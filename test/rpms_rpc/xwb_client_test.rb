@@ -173,10 +173,22 @@ class RpmsRpc::XwbClientTest < Minitest::Test
     assert_equal [ "HDR^^^v1", "VST^DT^now", "VIT+^TMP^0^^97" ], vals
   end
 
-  def test_encode_param_wraps_hash_as_list_with_string_keys
+  # LINST^XWBPRS splices each list subscript raw into A_"("_X_")"
+  # (XWBPRS.m:152-156), so a string subscript must arrive as an M string
+  # literal: an unquoted "a" is a reference to the local variable a.
+  def test_encode_param_wraps_hash_as_list_with_quoted_string_keys
     encoded = Client.new.encode_param(a: 1, b: 2)
     assert_equal :list, encoded[:type]
-    assert_equal [ [ "a", "1" ], [ "b", "2" ] ], encoded[:entries]
+    assert_equal [ [ '"a"', "1" ], [ '"b"', "2" ] ], encoded[:entries]
+  end
+
+  # TIU SET DOCUMENT TEXT reads TIUX("HDR") and TIUX("TEXT",n,0)
+  # (TIUSRVPT.m:12, 18): the comment above LINST names '"TEXT",1,0' as the
+  # subscript it expects (XWBPRS.m:152). Numeric levels stay bare and
+  # embedded quotes double, as CiaClient#m_subscript forms them (#219).
+  def test_encode_param_forms_m_literal_subscripts_for_tiux
+    encoded = Client.new.encode_param({ "HDR" => "1^1", [ "TEXT", 1, 0 ] => "S: cough", 'A"B' => "x" })
+    assert_equal [ [ '"HDR"', "1^1" ], [ '"TEXT",1,0', "S: cough" ], [ '"A""B"', "x" ] ], encoded[:entries]
   end
 
   # An Array key is a multi-level subscript: [1, 0] is the TIUX(1,0) node
@@ -193,8 +205,8 @@ class RpmsRpc::XwbClientTest < Minitest::Test
     encoded = Client.new.encode_param(name: "foo", type: "user")
     assert_equal :list, encoded[:type]
     keys = encoded[:entries].map(&:first)
-    assert_includes keys, "name"
-    assert_includes keys, "type"
+    assert_includes keys, '"name"'
+    assert_includes keys, '"type"'
   end
 
   def test_encode_param_rejects_pass_through_for_unknown_type_value

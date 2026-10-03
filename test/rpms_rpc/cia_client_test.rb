@@ -807,6 +807,18 @@ class RpmsRpc::CiaClientTest < Minitest::Test
                  broker.frames.last[:fields]
   end
 
+  # TIU SET DOCUMENT TEXT reads TIUX("HDR") and TIUX("TEXT",n,0)
+  # (TIUSRVPT.m:12, 18): a string level is quoted, a numeric one bare (#219).
+  def test_tiux_hash_frames_quoted_string_and_bare_numeric_levels
+    c, broker = signed_on_strict_client([ "5001^1^1\r\n" ])
+    c.call_rpc("TIU SET DOCUMENT TEXT", "5001", { "HDR" => "1^1", [ "TEXT", 1, 0 ] => "S: cough" })
+    assert_equal [ "UID", "", "7", "RPC", "", "TIU SET DOCUMENT TEXT",
+                   "1", "", "5001",
+                   "2", "\"HDR\"", "1^1",
+                   "2", "\"TEXT\",1,0", "S: cough" ],
+                 broker.frames.last[:fields]
+  end
+
   def test_hash_param_doubles_embedded_quotes_in_string_subscripts
     c, broker = signed_on_strict_client([ "ok\r\n" ])
     c.call_rpc("XWB EXAMPLE ECHO STRING", { 'A"B' => "x" })
