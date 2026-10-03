@@ -257,13 +257,12 @@ module RpmsRpc
       m.field 2, :code
     end
 
-    # BMC GET USERS/PROVIDERS — user/provider lookup.
-    # Common shape: DUZ^NAME^TITLE.
+    # BMC GET USERS/PROVIDERS — PROV^BMCRPC4(.Y,ISPROV): one node,
+    # "-1^All~IEN^NAME~IEN^NAME~..." (BMCRPC4.m:136-141); Referral#users_providers
+    # splits it with RcisWire.records.
     DataMapper.define(:bmc_users_providers) do |m|
       m.rpc "BMC GET USERS/PROVIDERS"
-      m.field 0, :duz
-      m.field 1, :name
-      m.field 2, :title
+      m.text_blob :providers
     end
 
     # BMC HEALTH SUMMARY TYPE — health-summary type lookup.
@@ -275,12 +274,12 @@ module RpmsRpc
       m.field 2, :abbreviation
     end
 
-    # BMC PATIENT ELIGIBILITY STATUS — CHS/RCIS eligibility status.
+    # BMC PATIENT ELIGIBILITY STATUS — GTPTELST^BMCRPC4 (BMCRPC4.m:129):
+    # ELIGIBILITY STATUS (#9000001 field 1112, external) ^ preferred name.
     DataMapper.define(:bmc_patient_eligibility_status) do |m|
       m.rpc "BMC PATIENT ELIGIBILITY STATUS"
-      m.field 0, :eligible, :boolean
-      m.field 1, :status
-      m.field 2, :message
+      m.field 0, :status
+      m.field 1, :preferred_name
     end
 
     # BMC PATIENT FACE SHEET — patient context text/lines.
