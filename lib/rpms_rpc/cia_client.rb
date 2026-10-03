@@ -446,7 +446,10 @@ module RpmsRpc
 
     # List-param subscript in M-literal form for DOACTION's raw splice into
     # P<n>(<SB>) (CIANBLIS.m DOACTION lines 128-134): canonic numerics stay
-    # bare; anything else is quoted with embedded quotes doubled.
+    # bare; anything else is quoted with embedded quotes doubled. An Array
+    # key is a multi-level subscript, each level formed the same way and
+    # joined with commas — [1, 0] splices as P<n>(1,0), which is how
+    # TIU TEMPLATE GETTEXT wants its text (TIUX(n,0), TIUSRVD.m:82-83).
     # Forget the bound context. The CTX a frame carries is persisted into the
     # SESSION (SETVAR^CIANBUTL, CIANBACT.m:50), so a dead session takes the
     # binding with it — carrying the old value into a new one would name a
@@ -488,6 +491,8 @@ module RpmsRpc
     end
 
     def m_subscript(key)
+      return key.map { |level| m_subscript(level) }.join(",") if key.is_a?(Array)
+
       s = key.to_s
       s.match?(/\A-?(0|[1-9]\d*)(\.\d+)?\z/) ? s : %("#{s.gsub('"', '""')}")
     end

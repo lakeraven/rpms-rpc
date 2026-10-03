@@ -178,7 +178,9 @@ module RpmsRpc
     # Already-wrapped {type: :literal|:list, ...} hashes pass through.
     # Arrays become list_params with 1-based string keys (the RPMS broker
     # convention for multi-line params like BEHOVM SAVE's payload).
-    # Hashes become list_params with their keys/values as entries.
+    # Hashes become list_params with their keys/values as entries; an Array
+    # key is a multi-level subscript joined with commas ([1, 0] => "1,0",
+    # the TIUX(n,0) shape TIU TEMPLATE GETTEXT reads).
     # Everything else stringifies to a literal_param.
     def encode_param(value)
       # Pre-wrapped param hashes pass through, but only when their :type
@@ -190,7 +192,7 @@ module RpmsRpc
         entries = value.each_with_index.map { |v, i| [ (i + 1).to_s, v.to_s ] }
         list_param(entries)
       when Hash
-        list_param(value.map { |k, v| [ k.to_s, v.to_s ] })
+        list_param(value.map { |k, v| [ k.is_a?(Array) ? k.join(",") : k.to_s, v.to_s ] })
       else
         literal_param(value.to_s)
       end

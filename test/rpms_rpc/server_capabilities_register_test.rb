@@ -27,6 +27,31 @@ class RpmsRpc::ServerCapabilitiesRegisterTest < Minitest::Test
 
   def teardown
     RpmsRpc::ServerCapabilities::FEATURE_RPCS.delete(TEMP_FEATURE)
+    RpmsRpc::ServerCapabilities::PROBE_PARAMS.delete("FAKE READ RPC")
+  end
+
+  # `probe:` names what the probe frame carries per RPC; an RPC registered
+  # without it is still probed bare (#259).
+  def test_register_probe_params_ride_the_probe_frame
+    recording = Class.new do
+      attr_reader :frames
+      def initialize = @frames = []
+      def call_rpc(rpc_name, *params)
+        @frames << [ rpc_name, params ]
+        ""
+      end
+    end
+
+    RpmsRpc::ServerCapabilities.register(TEMP_FEATURE, [ "FAKE READ RPC" ], probe: { "FAKE READ RPC" => [ 0, "" ] })
+    client = recording.new
+    RpmsRpc::ServerCapabilities.probe(client, TEMP_FEATURE)
+    assert_equal [ [ "FAKE READ RPC", [ "0", "" ] ] ], client.frames
+
+    RpmsRpc::ServerCapabilities::PROBE_PARAMS.delete("FAKE READ RPC")
+    RpmsRpc::ServerCapabilities.register(TEMP_FEATURE, [ "FAKE READ RPC" ])
+    client = recording.new
+    RpmsRpc::ServerCapabilities.probe(client, TEMP_FEATURE)
+    assert_equal [ [ "FAKE READ RPC", [] ] ], client.frames
   end
 
   # -- register API -----------------------------------------------------------
@@ -73,7 +98,7 @@ class RpmsRpc::ServerCapabilitiesRegisterTest < Minitest::Test
     orwpce_clinical_logs: [ "ORWPCE IMPLANT LIST", "ORWPCE IMPLANT GET", "ORWPCE PROCEDURE LIST" ],
     orwrp_report_types: [ "ORWRP TYPES", "ORWRP TYPE COMPONENTS" ],
     bmc_referral_workflow: [ "BMC GET REFERENCE DATA" ],
-    orqqpl_problem_workflow: [ "ORQQPL DETAIL" ]
+    orqqpl_problem_workflow: [ "ORQQPL INIT PT" ] # DETAIL until #259: it needs a real problem IEN
   }.freeze
 
   def test_feature_set_is_identical_to_pre_refactor_constant

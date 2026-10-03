@@ -29,7 +29,8 @@ class SymptomTest < Minitest::Test
     end
     RpmsRpc::Symptom.search("itching")
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWDAL32 SYMPTOMS" }
-    assert_equal [ "itching" ], call[:params]
+    # SYMPTOMS(Y,FROM,DIR) (ORWDAL32.m:61): DIR is the $O direction (#259).
+    assert_equal [ "itching", "1" ], call[:params]
   end
 
   def test_search_blank_returns_empty

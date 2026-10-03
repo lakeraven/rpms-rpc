@@ -9,8 +9,14 @@ module RpmsRpc
   #
   #   RpmsRpc.client.supports?(:patient_chart_banner)
   #
-  # Detection is a per-RPC probe (call with no params; the Broker reports
-  # "RPC doesn't exist" / "<NOLINE>" before any param validation runs).
+  # Detection is a per-RPC probe: the Broker reports "RPC doesn't exist" /
+  # "<NOLINE>" before the routine runs. The probe sends the formal list the
+  # routine declares (`probe:` on `register`), because a routine that reads
+  # a formal the frame did not carry dies in M before it answers:
+  # PTINFO^BEHOPTCX, GETBDP^BEHOPTPC and CWAD^BEHOCACV all read DFN on
+  # their first lines, and a no-parameter probe of each produced
+  # "%YDB-E-LVUNDEF Undefined local variable: DFN" on every sign-on while
+  # the fetch frames that followed, carrying the DFN, answered (#259).
   # ALL FEATURES REGISTERED HERE MUST RESOLVE TO READ-ONLY RPCS — probing
   # would otherwise have side effects on write paths.
   #
@@ -27,11 +33,18 @@ module RpmsRpc
     # Mutated only via `register`; treat as read-only everywhere else.
     FEATURE_RPCS = {} # rubocop:disable Style/MutableConstant
 
+    # Parameters a probe sends: RPC name => frozen list. An RPC absent here
+    # is probed with no parameters, which is right only when its routine
+    # $G's every formal it reads.
+    PROBE_PARAMS = {} # rubocop:disable Style/MutableConstant
+
     # Register the RPC list backing a symbolic feature. The list must
     # resolve to READ-ONLY RPCs only (see module doc) — associated write
-    # RPCs gate on the feature but are never probed.
-    def self.register(feature, rpcs)
+    # RPCs gate on the feature but are never probed. `probe:` names the
+    # parameters a probe sends per RPC (synthetic values, e.g. DFN "0").
+    def self.register(feature, rpcs, probe: {})
       FEATURE_RPCS[feature] = rpcs.dup.freeze
+      probe.each { |rpc, params| PROBE_PARAMS[rpc] = params.map(&:to_s).freeze }
     end
 
     # RPC error messages that indicate the RPC itself is not installed
@@ -49,7 +62,7 @@ module RpmsRpc
     end
 
     def self.rpc_present?(client, rpc_name)
-      client.call_rpc(rpc_name)
+      client.call_rpc(rpc_name, *PROBE_PARAMS.fetch(rpc_name, []))
       true
     rescue RpmsRpc::Client::RpcError => e
       !e.message.match?(MISSING_RPC_PATTERN)

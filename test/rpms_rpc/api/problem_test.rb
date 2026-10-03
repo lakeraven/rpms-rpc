@@ -172,15 +172,17 @@ class ProblemTest < Minitest::Test
     assert_equal [], RpmsRpc::Problem.lex_search("   ")
   end
 
+  # DETAIL(Y,DFN,PROBIEN,ID) (ORQQPL.m:21): the patient comes first, so the
+  # mock keys the reply by DFN (#259).
   def test_details_returns_row_for_ien
     RpmsRpc.mock! do |m|
       m.seed_capability(:orqqpl_problem_workflow, supported: true)
-      m.seed_keyed_collection(:problem_detail, "5001", [
+      m.seed_keyed_collection(:problem_detail, DFN, [
         { ien: "5001", status: "ACTIVE", description: "HTN" }
       ])
     end
 
-    row = RpmsRpc::Problem.details("5001")
+    row = RpmsRpc::Problem.details(DFN, "5001")
 
     refute_nil row
     assert_equal "5001", row[:ien]
@@ -192,7 +194,7 @@ class ProblemTest < Minitest::Test
       m.seed_capability(:orqqpl_problem_workflow, supported: false)
     end
 
-    assert_nil RpmsRpc::Problem.details("5001")
+    assert_nil RpmsRpc::Problem.details(DFN, "5001")
   end
 
   def test_details_returns_nil_for_invalid_ien
@@ -200,8 +202,10 @@ class ProblemTest < Minitest::Test
       m.seed_capability(:orqqpl_problem_workflow, supported: true)
     end
 
-    assert_nil RpmsRpc::Problem.details(nil)
-    assert_nil RpmsRpc::Problem.details("0")
+    assert_nil RpmsRpc::Problem.details(DFN, nil)
+    assert_nil RpmsRpc::Problem.details(DFN, "0")
+    assert_nil RpmsRpc::Problem.details(nil, "5001")
+    assert_nil RpmsRpc::Problem.details("0", "5001")
   end
 
   def test_audit_history_dispatches_orqqpl_audit_hist
