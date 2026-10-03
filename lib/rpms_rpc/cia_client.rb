@@ -245,16 +245,24 @@ module RpmsRpc
       end
     end
 
-    # Call an RPC over the CIA broker, returning a printable (human-readable) response.
-    # Literal string params, plus list params as Hash (named/numeric subscripts)
-    # or Array (1-based numeric subscripts) — matching XwbClient's public
-    # param convention.
+    # Call an RPC over the CIA broker and return its reply LINES, the shape
+    # XwbClient#call_rpc and BmxClient#call_rpc return: the sequence echo and
+    # ack stripped, one printable String per line, and a broker refusal
+    # raised as RpcError (#195). Literal string params, plus list params as
+    # Hash (named/numeric subscripts) or Array (1-based numeric subscripts) —
+    # matching XwbClient's public param convention.
+    #
+    # It used to return printable(raw): the seq echo and ack became leading
+    # text, every line separator became a space and an error flag became
+    # data, so a multi-row reply parsed as ONE row whose first piece carried
+    # the frame byte (ORWPT LIST ALL "DEMO" -> one patient, DFN wrong).
     def call_rpc(rpc_name, *params)
-      printable(call_rpc_raw(rpc_name, *params))
+      body = parse_cia_reply(call_rpc_raw(rpc_name, *params))
+      body.split(/\r\n|\r|\n/).map { |line| printable(line) }
     end
 
     # Send an RPC and return the raw, unmodified broker response. Client contract:
-    # call_rpc_raw must not transform the payload (call_rpc applies printable()).
+    # call_rpc_raw must not transform the payload (call_rpc parses it).
     #
     # Param encoding: DOACTION^CIANBLIS reads NAME/SUBSCRIPT/VALUE triples of
     # L()-packed fields; a numeric NAME with an empty SUBSCRIPT sets the
@@ -273,15 +281,10 @@ module RpmsRpc
       raise_rpc_timeout(rpc_name)
     end
 
-    # Reply lines per the {CIA} reply grammar. Lines are split from the RAW
-    # reply because #call_rpc's printable() flattens the framing bytes to
-    # spaces: a line-positional parser handed THAT String reads characters as
-    # fields, minting the sequence echo into a DUZ. See #parse_cia_reply for
-    # the grammar and why a bare seq echo can never become a field.
-    def call_rpc_lines(rpc_name, *params)
-      body = parse_cia_reply(call_rpc_raw(rpc_name, *params))
-      body.split(/\r\n|\r|\n/).map { |line| printable(line) }
-    end
+    # Reply lines per the {CIA} reply grammar: #call_rpc already returns
+    # them. See #parse_cia_reply for the grammar and why a bare seq echo can
+    # never become a field.
+    def call_rpc_lines(rpc_name, *params) = call_rpc(rpc_name, *params)
 
     # Call an RPC whose broker return type is GLOBAL ARRAY (type 4) and read
     # the whole reply to its $C(31) (US) end sentinel — see AGG_ARRAY_END.

@@ -67,9 +67,48 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_equal raw, c.call_rpc_raw("CIANBRPC CANRUN", "XUS INTRO MSG")
   end
 
-  def test_call_rpc_strips_non_printables
+  def test_call_rpc_strips_non_printables_within_a_line
+    c = connected_client([ "1\x00ab\x1fcd" + EOD ])
+    assert_equal [ "ab cd" ], c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
+  end
+
+  # #195: a reply with no ack after the seq echo carries no data; the seq
+  # byte and what follows it never become a line.
+  def test_call_rpc_returns_no_lines_for_a_reply_without_an_ack
     c = connected_client([ "ab\x01\x1fcd" + EOD ])
-    assert_equal "ab  cd", c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
+    assert_equal [], c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
+  end
+
+  # #195: the reply is LINES, as XwbClient#call_rpc returns, so a list RPC
+  # parses as one row per line. printable(raw) used to flatten the line
+  # separators to spaces and keep the seq echo, and ORWPT LIST ALL then
+  # parsed as ONE patient whose DFN came from the frame byte.
+  def test_call_rpc_returns_one_line_per_reply_row_without_the_frame_header
+    rows = "3^MOUSE,MICKEY M^^^^MOUSE,MICKEY M\r2^USER,TEST^^^^USER,TEST\r8^ZZPROBE,EIGHT^^^^ZZPROBE,EIGHT\r"
+    c = connected_client([ "8\x00#{rows}" + EOD ])
+    assert_equal [
+      "3^MOUSE,MICKEY M^^^^MOUSE,MICKEY M",
+      "2^USER,TEST^^^^USER,TEST",
+      "8^ZZPROBE,EIGHT^^^^ZZPROBE,EIGHT"
+    ], c.call_rpc("ORWPT LIST ALL", "DEMO", "1")
+  end
+
+  def test_call_rpc_returns_no_lines_for_an_empty_reply
+    c = connected_client([ "5\x00" + EOD ])
+    assert_equal [], c.call_rpc("ORWPT FULLSSN", "000000000")
+  end
+
+  # #195: the \x01 error flag is a refusal, raised as XwbClient raises one,
+  # not a line of data (it came back as the user's only security key).
+  def test_call_rpc_raises_a_broker_refusal
+    c = connected_client([ "6\x013 Unknown remote procedure: ORWU USERKEYS" + EOD ])
+    err = assert_raises(RpmsRpc::Client::RpcError) { c.call_rpc("ORWU USERKEYS", "4") }
+    assert_match(/Unknown remote procedure: ORWU USERKEYS/, err.message)
+  end
+
+  def test_call_rpc_lines_is_call_rpc
+    c = connected_client([ "2\x00a\r\nb\r\n" + EOD ])
+    assert_equal [ "a", "b" ], c.call_rpc_lines("X", "Y")
   end
 
   # Fix (#172 Copilot): a peer-closed read (empty recv) must clear @connected,
@@ -610,7 +649,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert result[:success]
     assert_equal 63, result[:duz]
     assert_equal "7", c.session_uid
-    assert_equal "4 ok  ", c.call_rpc("XWB IM HERE") # "4" seq echo + \x00 ack + body, printables
+    assert_equal [ "ok" ], c.call_rpc("XWB IM HERE") # "4" seq echo + \x00 ack stripped, lines
     # every frame the broker saw parsed as {CIA}, with one-byte cycling seqs
     assert_equal %w[1 2 3 4], broker.frames.map { |f| f[:seq] }
     assert_equal %w[C R R R], broker.frames.map { |f| f[:action] }
