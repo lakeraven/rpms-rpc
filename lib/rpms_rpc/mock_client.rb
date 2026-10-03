@@ -207,17 +207,18 @@ module RpmsRpc
     #     credentials: "testprovider;test123",
     #     name: "PROVIDER,TEST",
     #     role: :provider,
-    #     security_keys: [:prc_supervisor, :cprs_gui_chart])
+    #     security_keys: [:scheduling_admin, :registration_manager])
     #
     # The role is carried the way a live broker carries it: as the security
     # keys that role implies (UserRoles derives it from them, the way
     # ORWU.m:19 derives USRCLS). No reply line is seeded with a class — none
-    # has one (#236).
+    # has one (#236). No case_manager entry: the keys that elevated to it
+    # (PRCFA SUPERVISOR, BPRC MANAGER) are not security keys on the pinned
+    # build (#314), so no signed-on user carries that role.
     ROLE_KEYS = {
       provider: %i[ores provider],
       nurse: %i[orelse],
-      clerk: %i[oremas],
-      case_manager: %i[prc_supervisor]
+      clerk: %i[oremas]
     }.freeze
 
     def seed_user(duz, credentials:, name:, role:, security_keys: [])

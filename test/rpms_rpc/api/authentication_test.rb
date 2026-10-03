@@ -13,7 +13,7 @@ class AuthenticationTest < Minitest::Test
         credentials: "ACCESS123;VERIFY123",
         name: "PROVIDER,TEST",
         role: :provider,
-        security_keys: [ :cprs_gui_chart, :prc_supervisor ])
+        security_keys: [ :scheduling_admin, :registration_manager ])
       m.seed_lines(:av_code, "EXPIRED;VERIFY123", {
         duz: 301,
         error_code: 12,
@@ -64,9 +64,9 @@ class AuthenticationTest < Minitest::Test
 
     assert_includes keys, "ORES"
     assert_includes keys, "PROVIDER"
-    assert_equal "case_manager",
+    assert_equal "provider",
       RpmsRpc::UserRoles.resolve(security_keys: RpmsRpc::SecurityKeys.symbolize(keys)),
-      "PRCFA SUPERVISOR elevates the ORES provider to case_manager"
+      "ORES makes the seeded user a provider"
   end
 
   # XUSRB.VALIDAV ALWAYS runs $$DECRYP^XUSRB1 on its parameter, so a cleartext
@@ -171,7 +171,7 @@ class AuthenticationTest < Minitest::Test
 
     # The :provider role is seeded as the keys it implies (ORES + PROVIDER,
     # ORWU.m:19-21), ahead of the keys given explicitly.
-    assert_equal [ "ORES", "PROVIDER", "OR CPRS GUI CHART", "PRCFA SUPERVISOR" ], keys
+    assert_equal [ "ORES", "PROVIDER", "SD SUPERVISOR", "AGZMGR" ], keys
   end
 
   def test_user_security_keys_rejects_invalid_duz
@@ -186,19 +186,10 @@ class AuthenticationTest < Minitest::Test
     assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWU USERKEYS" }
   end
 
-  def test_has_security_key_uses_duz_and_key_name
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:user_has_key, "301", true)
-    end
-
-    assert_equal true, RpmsRpc::Authentication.has_security_key?(301, "OR CPRS GUI CHART")
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWU HASKEY" }
-    assert_equal [ "301", "OR CPRS GUI CHART" ], call[:params]
-  end
-
+  # has_security_key? on a real server: test/live/security_keys_live_test.rb.
   def test_has_security_key_rejects_invalid_arguments
-    assert_equal false, RpmsRpc::Authentication.has_security_key?(nil, "OR CPRS GUI CHART")
-    assert_equal false, RpmsRpc::Authentication.has_security_key?(0, "OR CPRS GUI CHART")
+    assert_equal false, RpmsRpc::Authentication.has_security_key?(nil, "SD SUPERVISOR")
+    assert_equal false, RpmsRpc::Authentication.has_security_key?(0, "SD SUPERVISOR")
     assert_equal false, RpmsRpc::Authentication.has_security_key?(301, "")
   end
 

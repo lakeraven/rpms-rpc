@@ -27,6 +27,12 @@ module RpmsRpc
     ].freeze
 
     # Keys that elevate any order role to case_manager.
+    #
+    # DEPRECATED elevation: :prc_supervisor and :prc_manager stood for
+    # PRCFA SUPERVISOR and BPRC MANAGER, which are not security keys on the
+    # pinned build (#314), so no signed-on user's keys carry them. It is kept
+    # because a host that builds its own key list still relies on it; roles
+    # leave the gem in #359 (ADR 0010: the host decides policy).
     ELEVATING_KEYS = %i[prc_supervisor prc_manager].freeze
 
     # security_keys: symbols from SecurityKeys.symbolize.

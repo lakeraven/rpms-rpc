@@ -59,7 +59,7 @@ class CiaReplyLinesLiveTest < LiveSpec::Test
   end
 
   def test_an_ssn_on_no_patient_finds_no_patient
-    on_file = ssn_of(first_patient)
+    _, on_file = patient_with_ssn
     refute_empty ssn_xref(on_file), "the SSN cross-reference does not find an SSN on file, so it proves nothing"
     assert_empty ssn_xref(ABSENT_SSN), "#{ABSENT_SSN} is on file here; pick another absent SSN"
 
@@ -67,8 +67,7 @@ class CiaReplyLinesLiveTest < LiveSpec::Test
   end
 
   def test_an_ssn_on_file_finds_that_patient
-    patient = first_patient
-    ssn = ssn_of(patient)
+    patient, ssn = patient_with_ssn
 
     found = RpmsRpc::Patient.find_by_ssn(ssn)
 
@@ -109,16 +108,17 @@ class CiaReplyLinesLiveTest < LiveSpec::Test
 
   private
 
-  def first_patient
-    row = RpmsRpc::Patient.search("DEMO").first
-    refute_nil row, "no patient from DEMO on"
-    row
-  end
-
-  def ssn_of(row)
-    ssn = RpmsRpc::Patient.find(row[:dfn])&.dig(:ssn).to_s
-    skip "patient #{row[:dfn]} has no SSN on file, so there is no SSN to look up" if ssn.empty?
-    ssn
+  # The first DEMO patient with an SSN on file. None is missing seed data,
+  # not a reason to pass: the spec fails and says so.
+  def patient_with_ssn
+    rows = RpmsRpc::Patient.search("DEMO")
+    refute_empty rows, "no patient from DEMO on: this build has no demo patients to read"
+    rows.each do |row|
+      ssn = RpmsRpc::Patient.find(row[:dfn])&.dig(:ssn).to_s
+      return [ row, ssn ] unless ssn.empty?
+    end
+    flunk "none of the #{rows.size} DEMO patients has an SSN on file; file one on a patient " \
+          "(file #2, field .09) on the container, or point the spec at a build whose demo data has one"
   end
 
   # Patients whose SSN cross-reference entry is exactly this SSN.
