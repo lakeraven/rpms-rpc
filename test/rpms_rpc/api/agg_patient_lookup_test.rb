@@ -93,6 +93,34 @@ class AggPatientLookupTest < Minitest::Test
     assert_empty RpmsRpc.client.received_calls
   end
 
+  # -- "LAST, FIRST" is normalised by the server, not the client (#199) ----
+  #
+  # FND^AGGPTLKP strips doubled spaces and turns ", " into "," before it
+  # searches (AGGPTLKP.m:53-56), then upper-cases the text (AGGPTLKP.m:61)
+  # and matches a prefix. Proven live on the pinned 0930 build in AGGRPC:
+  # "MOUSE, MICKEY M", "MOUSE,MICKEY M", "MOUSE, MICKEY", "MOUSE,  MICKEY",
+  # "mouse, mickey", "MOUSE, MIC" and "MOU" each return MOUSE,MICKEY M.
+  # So the client sends the text as typed, in one call, and never retries
+  # with the last name alone: a retry would widen a miss into every patient
+  # sharing that surname.
+
+  def test_last_comma_space_first_is_sent_as_typed_in_one_call
+    RpmsRpc::Patient.lookup("MOUSE, MICKEY M")
+
+    calls = RpmsRpc.client.received_calls.select { |c| c[:rpc] == "AGG LOOKUP PATIENTS" }
+    assert_equal 1, calls.length, "no client-side last-name retry"
+    assert_equal "MOUSE, MICKEY M", calls.first[:params][0],
+                 "the server normalises \", \" to \",\" (AGGPTLKP.m:55-56)"
+  end
+
+  def test_an_empty_last_first_result_is_not_retried_with_the_last_name
+    result = RpmsRpc::Patient.lookup("NOSUCH, PERSON")
+
+    assert_empty result
+    assert_equal [ "NOSUCH, PERSON" ],
+                 RpmsRpc.client.received_calls.map { |c| c[:params][0] }
+  end
+
   # -- Column contract -------------------------------------------------------
 
   def test_parses_a_row_into_the_declared_columns
