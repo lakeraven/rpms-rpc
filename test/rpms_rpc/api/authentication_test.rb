@@ -13,7 +13,7 @@ class AuthenticationTest < Minitest::Test
         credentials: "ACCESS123;VERIFY123",
         name: "PROVIDER,TEST",
         role: :provider,
-        security_keys: [ :cprs_gui_chart, :prc_supervisor ])
+        security_keys: [ :scheduling_admin, :registration_manager ])
       m.seed_lines(:av_code, "EXPIRED;VERIFY123", {
         duz: 301,
         error_code: 12,
@@ -143,7 +143,7 @@ class AuthenticationTest < Minitest::Test
   def test_user_security_keys_returns_seeded_keys
     keys = RpmsRpc::Authentication.user_security_keys(301)
 
-    assert_equal [ "OR CPRS GUI CHART", "PRCFA SUPERVISOR" ], keys
+    assert_equal [ "SD SUPERVISOR", "AGZMGR" ], keys
   end
 
   def test_user_security_keys_rejects_invalid_duz
@@ -160,8 +160,8 @@ class AuthenticationTest < Minitest::Test
 
   # has_security_key? on a real server: test/live/security_keys_live_test.rb.
   def test_has_security_key_rejects_invalid_arguments
-    assert_equal false, RpmsRpc::Authentication.has_security_key?(nil, "OR CPRS GUI CHART")
-    assert_equal false, RpmsRpc::Authentication.has_security_key?(0, "OR CPRS GUI CHART")
+    assert_equal false, RpmsRpc::Authentication.has_security_key?(nil, "SD SUPERVISOR")
+    assert_equal false, RpmsRpc::Authentication.has_security_key?(0, "SD SUPERVISOR")
     assert_equal false, RpmsRpc::Authentication.has_security_key?(301, "")
   end
 

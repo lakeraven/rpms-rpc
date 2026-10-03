@@ -3,28 +3,9 @@
 module RpmsRpc
   module SecurityKeys
     REGISTRY = {
-      # PRC/CHS
-      prc_supervisor: "PRCFA SUPERVISOR",
-      prc_tech: "PRCFA TECH",
-      prc_manager: "BPRC MANAGER",
-      chs_approve: "BGOZ CHS APPROVE",
-      chs_clerk: "BGOZ CHS CLERK",
-
-      # Clinical
-      consult_manager: "GMRC MGR",
-      eligibility_verify: "APCL VERIFY",
+      # Every name here is a SECURITY KEY (#19.1) on a built image, checked by
+      # test against data/security_keys/ (ADR 0008; #314).
       scheduling_admin: "SD SUPERVISOR",
-
-      # Behavioral Health (42 CFR Part 2)
-      bh_provider: "BGMH PROVIDER",
-      bh_supervisor: "BGMH SUPERVISOR",
-
-      # Dental
-      dental_provider: "DENTP PROVIDER",
-      dental_supervisor: "DENTP SUPERVISOR",
-
-      # CPRS
-      cprs_gui_chart: "OR CPRS GUI CHART",
 
       # The AG, SD and DG keys BPRM v4 gates registration, scheduling and ADT on.
       # Each is real on the built baseline: an option LOCK in rpms-diffs
