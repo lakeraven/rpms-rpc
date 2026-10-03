@@ -269,4 +269,51 @@ class DdrFilemanTest < Minitest::Test
   def test_validate_field_returns_nil_when_broker_gives_no_response
     assert_nil Ddr.validate_field(file: "9000001", iens: "42,", field: ".03", value: "X")
   end
+  # ==========================================================================
+  # DDR KEY VALIDATOR (KEYVAL^DDR4: DDR4.m:4-19)
+  # ==========================================================================
+
+  def test_key_validator_param_alternates_address_and_value_rows
+    param = Ddr.key_validator_param(values: [
+      { file: "200", iens: "+1,", field: ".01", value: "ZZTEST" },
+      { file: "200", iens: "+1,", field: "1", value: "ZZT" }
+    ])
+
+    # FDASET2^DDR4: odd rows "FILE^IENS^FIELD", even rows the value (DDR4.m:10-19)
+    assert_equal({ "1" => "200^+1,^.01", "2" => "ZZTEST", "3" => "200^+1,^1", "4" => "ZZT" }, param)
+  end
+
+  def test_validate_key_true_on_1
+    values = [ { file: "200", iens: "+1,", field: ".01", value: "ZZTEST" } ]
+    @mock.seed(:ddr_key_validator, Ddr.key_validator_param(values: values).to_s, "1")
+
+    assert_equal({ valid: true, error: nil }, Ddr.validate_key(values: values))
+  end
+
+  def test_validate_key_false_on_0
+    values = [ { file: "200", iens: "+1,", field: ".01", value: "TAKEN" } ]
+    @mock.seed(:ddr_key_validator, Ddr.key_validator_param(values: values).to_s, "0")
+
+    assert_equal({ valid: false, error: nil }, Ddr.validate_key(values: values))
+  end
+
+  # The pinned build registers DDR KEY VALIDATOR at KEYVAL^DDR3, a label that
+  # does not exist (the code is KEYVAL^DDR4), so the broker answers with an M
+  # error text. That is not a verdict on the key: valid is false and the text
+  # is surfaced.
+  def test_validate_key_surfaces_a_server_error_instead_of_a_verdict
+    values = [ { file: "200", iens: "+1,", field: ".01", value: "ZZTEST" } ]
+    error = "The server has reported the following error:\n\n" \
+            "DORPC+12^CIANBACT, Label referenced but not defined: KEYVAL,-%YDB-E-LABELMISSING"
+    @mock.seed(:ddr_key_validator, Ddr.key_validator_param(values: values).to_s, error)
+
+    result = Ddr.validate_key(values: values)
+
+    refute result[:valid]
+    assert_match(/LABELMISSING/, result[:error])
+  end
+
+  def test_validate_key_returns_nil_when_broker_gives_no_response
+    assert_nil Ddr.validate_key(values: [ { file: "200", iens: "+1,", field: ".01", value: "X" } ])
+  end
 end

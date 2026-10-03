@@ -1349,6 +1349,8 @@ module RpmsRpc
     #   DDR GETS ENTRY DATA   → GETSC^DDR2      (return type 2)
     #   DDR FILER             → FILEC^DDR3      (return type 2)
     #   DDR VALIDATOR         → VALC^DDR3       (return type 2)
+    #   DDR KEY VALIDATOR     → KEYVAL^DDR3 as registered; the code is
+    #                           KEYVAL^DDR4 (return type 2)
     #
     # All take LIST params (named or numeric subscripts) — see
     # CiaClient#call_rpc_raw for the {CIA} wire encoding of subscripted
@@ -1419,6 +1421,16 @@ module RpmsRpc
     # form: DDR3.m:45-50).
     DataMapper.define(:ddr_validator) do |m|
       m.rpc "DDR VALIDATOR"
+      m.text_blob :lines
+    end
+
+    # DDR KEY VALIDATOR — $$KEYVAL^DIEVK over an FDA built from one list
+    # param of alternating "FILE^IENS^FIELD" / value rows (KEYVAL^DDR4 +
+    # FDASET2^DDR4: DDR4.m:4-19). Reply DDROUT(1) = "1" | "0", parsed by
+    # DdrFileman.validate_key. #8994 on bcer-9.0 names KEYVAL^DDR3, which
+    # does not exist: the live call answers %YDB-E-LABELMISSING.
+    DataMapper.define(:ddr_key_validator) do |m|
+      m.rpc "DDR KEY VALIDATOR"
       m.text_blob :lines
     end
   end
