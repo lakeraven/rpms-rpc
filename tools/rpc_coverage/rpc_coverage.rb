@@ -6,7 +6,7 @@ require "yaml"
 # RPC coverage: how much of ONE backend's registered RPC surface rpms-rpc has shown working
 # against that backend (rpms-rpc#270). Offline; `rake rpc:coverage` drives it.
 #
-#   denominator  every #8994 NAME in the pinned registry (data/rpc_coverage/registry/<tag>.txt),
+#   denominator  every #8994 NAME on the pinned build (data/inventories/<tag>/<tag>-broker_8994.txt),
 #                minus the names data/rpc_coverage/exclusions.yml excludes with a reason
 #   covered      registered, not excluded, and a live run against the backend
 #                (rpc-coverage/live/<backend>.json in rpms-diffs, written by `rake rpc:live`) got an answer
@@ -46,9 +46,10 @@ module RpcCoverage
     File.readlines(path, chomp: true).each do |l|
       next if l.strip.empty?
 
-      l.start_with?("#") ? header << l : names << l
+      # An rpms-ops broker dump has one #8994 0-node per line, NAME first (#222).
+      l.start_with?("#") ? header << l : names << l.split("^", 2).first
     end
-    Registry.new(path: path, tag: File.basename(path, ".txt"), names: names, header: header)
+    Registry.new(path: path, tag: File.basename(path, ".txt").delete_suffix("-broker_8994"), names: names, header: header)
   end
 
   def registry_problems(registry)

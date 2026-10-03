@@ -190,11 +190,12 @@ The coverage number is measured against **one backend's registry**, not against 
 
 ```sh
 rake rpc:coverage
-# RPC coverage: 0.8% (45 / 5557 registered on bcer-9.0-20260913-1a2244c-ydb; 0 excluded) · declared 190 · unregistered names used 77
+# RPC coverage: 0.8% (45 / 5557 registered on bcer-9.0-20260930-8c88e47-ydb; 0 excluded) · declared 190 · unregistered names used 77
 ```
 
-- **Denominator:** every #8994 name in the pinned registry
-  (`data/rpc_coverage/registry/<release-tag>.txt`, copied from the rpms-ops release inventory),
+- **Denominator:** every #8994 name on the pinned rpms-ops build
+  (`data/inventories/<release-tag>/<release-tag>-broker_8994.txt`, the release's own inventory,
+  pinned by `rake conformance:pin`; see [docs/conformance/CAPTURE.md](docs/conformance/CAPTURE.md)),
   minus the names in `data/rpc_coverage/exclusions.yml`. Each exclusion carries a reason from a
   fixed list, and is reviewed like code.
 - **Covered:** a live run against that backend got an answer that was not a broker error.
@@ -215,9 +216,13 @@ connection at a time, which merges into `rpc-coverage/live/<BACKEND>.json` in
 [lakeraven/rpms-diffs](https://github.com/lakeraven/rpms-diffs):
 
 ```sh
-rake rpc:live BACKEND=local-ydb-0905 BROKER_HOST=127.0.0.1 BROKER_PORT=19200 \
+rake rpc:live BACKEND=local-ydb-0930 BROKER_HOST=127.0.0.1 BROKER_PORT=19300 \
   RPMS_ACCESS=... RPMS_VERIFY=... [RPMS_CONTEXT="CIAV VUECENTRIC"]
 ```
+
+The run merges: a name already in the file stays there, so a name the gem stops calling is never dropped.
+After removing RPC names, delete the backend's file and run again to rebuild it.
+The headline is measured as the least-privilege PROV123; it is the development default pair, so that run needs `VISTA_RPC_ENV=development`.
 
 The codes are read from the environment and never written. The implementation lives in
 `tools/rpc_coverage/`, which is not part of the gem.
@@ -239,7 +244,7 @@ It maps RPC coverage onto SimpleCov's terms:
 
 | SimpleCov | RPC coverage |
 |---|---|
-| a file | one #9.4 package: the RPCs whose name begins with its namespace prefix (`data/rpc_coverage/registry/<release-tag>-packages.txt`, pinned from the same rpms-ops inventory) |
+| a file | one #9.4 package: the RPCs whose name begins with its namespace prefix (`data/inventories/<release-tag>/<release-tag>-packages_9_4.txt`, from the same pinned inventory) |
 | a line | one registered RPC, with its status and detail |
 | hit | `covered` |
 | missed | `live_error`, `declared_untested`, `not_declared` |

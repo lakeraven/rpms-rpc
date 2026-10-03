@@ -158,6 +158,17 @@ class RpcCoverageTest < Minitest::Test
     assert_equal 2, ev["runs"].size
   end
 
+  # The registry rpc:coverage reads is the rpms-ops signature itself (#222): one #8994 0-node per
+  # line, NAME first. The release tag comes from the file name.
+  def test_load_registry_reads_an_rpms_ops_broker_dump
+    path = write("inventories/bcer-9.0-20260930-8c88e47-ydb/bcer-9.0-20260930-8c88e47-ydb-broker_8994.txt",
+                 "XWB ECHO STRING^ECHO1^XWBZ1^1^P\nBPC GETLABVISITDATA\nXUS CCOW VAULT PARAM^CCOWPC^XUSRB4^2^R^3^^0\n")
+    reg = RpcCoverage.load_registry(path)
+    assert_equal [ "XWB ECHO STRING", "BPC GETLABVISITDATA", "XUS CCOW VAULT PARAM" ], reg.names
+    assert_equal "bcer-9.0-20260930-8c88e47-ydb", reg.tag
+    assert_empty RpcCoverage.registry_problems(reg)
+  end
+
   # --- declared names --------------------------------------------------------------------------
 
   def test_declared_names_reads_mappings_probes_and_rpc_literals

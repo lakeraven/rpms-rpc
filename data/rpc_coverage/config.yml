@@ -2,8 +2,10 @@
 #
 # backend           label of the backend the number is about; its live evidence is
 #                   rpc-coverage/live/<backend>.json in lakeraven/rpms-diffs (written by `rake rpc:live BACKEND=<backend>`)
-# registry          the pinned #8994 registry of the release that backend runs
-# packages          the pinned #9.4 package list of the same release; groups RPCs by package in rpc:coverage_html
+# release           the pinned rpms-ops build whose RPC signature the number is about; it must be pinned in
+#                   data/fingerprints/rpms-ops.lock.yml (`rake conformance:pin`, rpms-rpc#222)
+# registry          that build's #8994 registry, as committed by conformance:pin
+# packages          that build's #9.4 package list; groups RPCs by package in rpc:coverage_html
 # minimum_percent   the last recorded covered / (registered - excluded). It never fails the task:
 #                   rpc:coverage prints a NOTE when coverage drops below it, and when coverage rises,
 #                   with the value to record here. Raise it then; never lower it.
@@ -11,13 +13,15 @@
 #                   0 since the 77 invented names were removed; test/rpms_rpc/registered_rpc_names_test.rb
 #                   holds it there on every run. Never raise it.
 #
-# NOTE: local-ydb-0905 is a local docker container of the 0905 image
-# (bcer-9.0-20260905-6899d69-ydb), measured against the 0913 registry below. The two differ by 6
-# RPCs (BEHOGMY DUSRXPAR, BEHOGMY GETCRDEF, BEHOGMY GETENLOC, BEHOGMY GIDTRNG, BGOVEM COLORDER,
-# BGOVEM GETCOLOR registered on 0913 only; BGOVIMM6 DUPALLOW on 0905 only), none of which rpms-rpc
-# declares. Re-point both at the same release once a container of the newest image is running.
-backend: local-ydb-0905
-registry: data/rpc_coverage/registry/bcer-9.0-20260913-1a2244c-ydb.txt
-packages: data/rpc_coverage/registry/bcer-9.0-20260913-1a2244c-ydb-packages.txt
+# NOTE: local-ydb-0930 is a local docker container of the pinned release's own image
+# (bcer-9.0-20260930-8c88e47-ydb), so the live evidence and the registry are the same build.
+# It replaced local-ydb-0905 on 2026-10-03; the per-RPC outcomes of the two were identical
+# (rpms-diffs#29). minimum_percent 0.8 was recorded from a programmer run; the evidence is now
+# taken as the least-privilege PROV123 (0.67%), so rpc:coverage prints a NOTE until coverage
+# climbs back past it.
+backend: local-ydb-0930
+release: bcer-9.0-20260930-8c88e47-ydb
+registry: data/inventories/bcer-9.0-20260930-8c88e47-ydb/bcer-9.0-20260930-8c88e47-ydb-broker_8994.txt
+packages: data/inventories/bcer-9.0-20260930-8c88e47-ydb/bcer-9.0-20260930-8c88e47-ydb-packages_9_4.txt
 minimum_percent: 0.8
 max_unregistered: 0
