@@ -158,16 +158,7 @@ class AuthenticationTest < Minitest::Test
     assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWU USERKEYS" }
   end
 
-  def test_has_security_key_uses_duz_and_key_name
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:user_has_key, "301", true)
-    end
-
-    assert_equal true, RpmsRpc::Authentication.has_security_key?(301, "OR CPRS GUI CHART")
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWU HASKEY" }
-    assert_equal [ "301", "OR CPRS GUI CHART" ], call[:params]
-  end
-
+  # has_security_key? on a real server: test/live/security_keys_live_test.rb.
   def test_has_security_key_rejects_invalid_arguments
     assert_equal false, RpmsRpc::Authentication.has_security_key?(nil, "OR CPRS GUI CHART")
     assert_equal false, RpmsRpc::Authentication.has_security_key?(0, "OR CPRS GUI CHART")
