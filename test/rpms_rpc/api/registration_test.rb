@@ -259,7 +259,7 @@ class RegistrationTest < Minitest::Test
     seed_agg_add(dfn: "9")
     seed_agg_update
 
-    result = Reg.register(ATTRS.merge(community_ien: "18186", community_since: Date.new(2020, 5, 1)))
+    result = Reg.register(ATTRS.merge(community: nil, community_ien: "18186", community_since: Date.new(2020, 5, 1)))
 
     pairs = agg_calls("AGG ADD NEW PATIENT").first[:params][2].split("\x1c")
     assert_includes pairs, "AGGPTTRI=123"
@@ -284,6 +284,22 @@ class RegistrationTest < Minitest::Test
     pairs = agg_calls("AGG ADD NEW PATIENT").first[:params][2].split("\x1c")
     assert pairs.none? { |p| p.start_with?("AGGPTCOM=", "AGGPTCDT=") }
     assert_empty filer_calls
+  end
+
+  # rpms-rpc#300 AC 4: free text given beside the pointer is still not sent
+  # (the window has no free-text community parameter), so it is named.
+  def test_delegation_names_free_text_community_as_unfiled_beside_the_pointer
+    seed_agg(available: true)
+    seed_agg_add(dfn: "9")
+    seed_agg_update
+
+    result = Reg.register(ATTRS.merge(community_ien: "18186", community_since: Date.new(2020, 5, 1)))
+
+    assert result[:success]
+    assert_equal [ :community ], result[:unfiled]
+    pairs = agg_calls("AGG ADD NEW PATIENT").first[:params][2].split("\x1c")
+    assert_includes pairs, "AGGPTCOM=18186"
+    assert_includes pairs, "AGGPTCDT=05/01/2020"
   end
 
   def test_delegation_names_extra_fields_as_unfiled
@@ -475,6 +491,53 @@ class RegistrationTest < Minitest::Test
     Reg.register(ATTRS.merge(extra_fields: [ { field: "1110", value: "4/4" } ]))
 
     assert_includes all_filer_rows, "9000001^1110^42,^4/4"
+  end
+
+  # rpms-rpc#300: the composition path files community as 1118 free text
+  # only. It has no 1117 pointer and no #9000001.51 history entry, so a
+  # pointer or a date moved given to it is named, never silently dropped.
+  def test_composition_names_community_pointer_and_date_as_unfiled
+    seed_composition_happy_path
+
+    result = Reg.register(ATTRS.merge(community_ien: "18186", community_since: Date.new(2020, 5, 1)))
+
+    assert result[:success]
+    assert_equal %i[community_ien community_since], result[:unfiled]
+    assert_includes all_filer_rows, "9000001^1118^42,^EXAMPLE COMMUNITY"
+    assert all_filer_rows.none? { |r| r.include?("^1117^") || r.start_with?("9000001.51^") },
+           "composition files no pointer and no history entry"
+  end
+
+  def test_composition_names_only_the_community_attrs_given
+    seed_composition_happy_path
+
+    result = Reg.register(ATTRS.merge(community_since: :birth))
+
+    assert_equal [ :community_since ], result[:unfiled]
+  end
+
+  def test_composition_free_text_community_is_filed_not_unfiled
+    seed_composition_happy_path
+
+    result = Reg.register(ATTRS)
+
+    assert result[:success]
+    refute result.key?(:unfiled), "free-text community is filed into 1118"
+    assert_includes all_filer_rows, "9000001^1118^42,^EXAMPLE COMMUNITY"
+  end
+
+  def test_composition_rerun_still_names_the_community_pointer
+    seed_agg(available: false)
+    seed_voa
+    seed_lock
+    seed_existence(exists: true)
+    seed_filer(text: "[Data]")
+
+    result = Reg.register(ATTRS.merge(community_ien: "18186"))
+
+    assert result[:success]
+    refute result[:created]
+    assert_equal [ :community_ien ], result[:unfiled]
   end
 
   # ==========================================================================
