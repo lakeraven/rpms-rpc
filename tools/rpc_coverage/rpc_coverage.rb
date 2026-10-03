@@ -12,6 +12,12 @@ require "yaml"
 #                (rpc-coverage/live/<backend>.json in rpms-diffs, written by `rake rpc:live`) got an answer
 #                that was not a broker error (data, or an empty reply)
 #
+# Personas (#335): the headline is measured as the least-privilege user (no XUPROGMODE), the user a
+# web client signs on as. A programmer run (XUPROGMODE skips the CIANBACT context check) is kept
+# beside it in <backend>.programmer.json and never counts toward the number: it only classifies the
+# RPCs the least-privilege run did not cover (PROGRAMMER_CLASSES), so a permission or context gap is
+# told apart from an RPC that is broken for everyone.
+#
 # Mock-driven unit tests do not count: MockClient answers any name it is seeded with, including
 # names no RPMS registers (#207, #255). Coverage here means "a real server answered".
 #
@@ -27,7 +33,17 @@ module RpcCoverage
   }.freeze
   STATUSES = %w[covered live_error declared_untested not_declared].freeze
   EVIDENCE_KEYS = %w[backend runs rpcs].freeze
-  RUN_KEYS = %w[at rpms_rpc host_label context cases tally signons].freeze
+  RUN_KEYS = %w[at rpms_rpc host_label persona context cases tally signons].freeze
+  PERSONAS = %w[least_privilege programmer].freeze
+  DEFAULT_PERSONA = "least_privilege"
+  # For an RPC the least-privilege run did not cover, what the programmer run got.
+  PROGRAMMER_CLASSES = {
+    "permission_gap" => "least-privilege got an error (refused, timed out, dropped); a programmer got an answer",
+    "programmer_only" => "least-privilege never sent it; a programmer got an answer",
+    "errors_for_both" => "an error for both users: broken for everyone, not a permission gap",
+    "errors_as_programmer" => "least-privilege never sent it; a programmer got an error",
+    "untested_as_programmer" => "no programmer evidence for this RPC"
+  }.freeze
   RPC_KEYS = %w[outcome error last_at].freeze
 
   class Error < StandardError; end
@@ -81,6 +97,36 @@ module RpcCoverage
     end
   end
 
+  # --- personas (#335) ------------------------------------------------------------------------
+
+  def persona(value)
+    v = value.to_s.empty? ? DEFAULT_PERSONA : value.to_s
+    raise Error, "PERSONA=#{v} is not one of #{PERSONAS.join(', ')}" unless PERSONAS.include?(v)
+
+    v
+  end
+
+  # The least-privilege file keeps the path it has always had; a programmer run is written beside it.
+  def evidence_path(dir, backend, persona)
+    File.join(dir, persona == DEFAULT_PERSONA ? "#{backend}.json" : "#{backend}.#{persona}.json")
+  end
+
+  # ORWU HASKEY XUPROGMODE as reply lines: "1" when the signed-on user holds the key. A refusal or
+  # an empty reply is "does not hold": a programmer is never refused, since XUPROGMODE skips the
+  # context check.
+  def holds_progmode?(lines)
+    Array(lines).map(&:to_s).map(&:strip) == [ "1" ]
+  end
+
+  # The persona label is a claim about the signed-on user, checked before any evidence is written.
+  def persona_problem(persona, holds_progmode:)
+    if persona == "programmer" && !holds_progmode
+      "PERSONA=programmer but the signed-on user does not hold XUPROGMODE"
+    elsif persona != "programmer" && holds_progmode
+      "PERSONA=#{persona} but the signed-on user holds XUPROGMODE (a programmer skips the context check)"
+    end
+  end
+
   def empty_evidence(backend)
     { "backend" => backend, "runs" => [], "rpcs" => {} }
   end
@@ -94,13 +140,22 @@ module RpcCoverage
   # Evidence is committed, so it must never carry a sign-on credential. The schema is closed
   # (no key can smuggle one in), and when the codes are in the environment the whole file is
   # searched for them.
-  def evidence_problems(evidence, secrets: [])
+  #
+  # With persona:, every run must be that persona's. A least-privilege run recorded before runs
+  # carried the label (#335) has none and is accepted; a programmer file must say so on every run.
+  def evidence_problems(evidence, secrets: [], persona: nil)
     problems = []
     extra = evidence.keys - EVIDENCE_KEYS
     problems << "live evidence has unexpected keys: #{extra.join(', ')}" unless extra.empty?
     Array(evidence["runs"]).each_with_index do |run, i|
       bad = run.keys - RUN_KEYS
       problems << "live evidence run #{i} has unexpected keys: #{bad.join(', ')}" unless bad.empty?
+      next unless persona
+
+      got = run["persona"]
+      next if got == persona || (got.nil? && persona == DEFAULT_PERSONA)
+
+      problems << "live evidence run #{i} is persona #{got.inspect}, not #{persona.inspect}"
     end
     (evidence["rpcs"] || {}).each do |name, e|
       bad = e.keys - RPC_KEYS
@@ -149,7 +204,7 @@ module RpcCoverage
   # --- the report -----------------------------------------------------------------------------
 
   Report = Struct.new(:registry, :backend, :rows, :counts, :covered, :denominator, :excluded,
-                      :declared_registered, :unregistered_used, :percent, keyword_init: true) do
+                      :declared_registered, :unregistered_used, :percent, :programmer, keyword_init: true) do
     def one_liner
       "RPC coverage: #{format('%.1f', percent)}% (#{covered} / #{denominator} registered on #{registry.tag}; " \
         "#{excluded} excluded) · declared #{declared_registered} · unregistered names used #{unregistered_used.size}"
@@ -160,24 +215,44 @@ module RpcCoverage
       order.map { |s| format("  %-22s %5d", s, counts.fetch(s, 0)) }
     end
 
+    # RPCs that answer only for a programmer: least-privilege got an error, a programmer an answer.
+    def permission_gaps
+      rows.select { |r| r[:programmer] == "permission_gap" }.map { |r| r[:name] }
+    end
+
+    def programmer_counts
+      rows.filter_map { |r| r[:programmer] }.tally.sort.to_h
+    end
+
+    def programmer_lines
+      return [ "programmer evidence: none (rake rpc:live PERSONA=programmer writes it); permission gaps not classified" ] unless programmer
+
+      gaps = permission_gaps
+      [ "programmer evidence: #{programmer_counts.map { |k, v| "#{k}=#{v}" }.join(' ')}",
+        "permission gaps (answer only for a programmer): #{gaps.size}" ] + gaps.map { |n| "  #{n}" }
+    end
+
     def tsv
       head = [
         "# #{one_liner}",
         "# backend: #{backend}",
         "# #{counts.sort.map { |k, v| "#{k}=#{v}" }.join(' ')}",
-        "name\tstatus\tdetail"
+        "# #{programmer_lines.first}",
+        "name\tstatus\tdetail\tprogrammer"
       ]
-      (head + rows.map { |r| [ r[:name], r[:status], r[:detail] ].join("\t") }).join("\n") + "\n"
+      (head + rows.map { |r| [ r[:name], r[:status], r[:detail], r[:programmer] ].join("\t") }).join("\n") + "\n"
     end
 
     def to_h
       { backend: backend, registry: registry.tag, percent: percent.round(2), covered: covered,
         denominator: denominator, excluded: excluded, declared_registered: declared_registered,
-        unregistered_used: unregistered_used, counts: counts }
+        unregistered_used: unregistered_used, counts: counts,
+        programmer: programmer ? { present: true, counts: programmer_counts, permission_gaps: permission_gaps } : { present: false } }
     end
   end
 
-  def compute(registry:, declared:, evidence:, exclusions:, backend:)
+  # programmer: the programmer persona's evidence, or nil. It never changes a status or the number.
+  def compute(registry:, declared:, evidence:, exclusions:, backend:, programmer: nil)
     live = evidence["rpcs"] || {}
     rows = registry.names.map do |name|
       e = live[name]
@@ -193,6 +268,7 @@ module RpcCoverage
         { name: name, status: "not_declared", detail: "" }
       end
     end
+    rows.each { |r| r[:programmer] = programmer_class(r[:status], programmer["rpcs"]&.dig(r[:name])) } if programmer
     counts = rows.map { |r| r[:status] }.tally
     excluded = rows.count { |r| r[:status].start_with?("excluded:") }
     denominator = registry.names.size - excluded
@@ -204,8 +280,22 @@ module RpcCoverage
       denominator: denominator, excluded: excluded,
       declared_registered: declared.keys.count { |n| known[n] },
       unregistered_used: used.reject { |n| known[n] }.sort,
-      percent: denominator.zero? ? 0.0 : 100.0 * covered / denominator
+      percent: denominator.zero? ? 0.0 : 100.0 * covered / denominator,
+      programmer: !programmer.nil?
     )
+  end
+
+  # Covered and excluded RPCs have no class: there is nothing for a programmer run to explain.
+  def programmer_class(status, prog)
+    return nil if status == "covered" || status.start_with?("excluded:")
+    return "untested_as_programmer" unless prog
+
+    sent = status == "live_error"
+    if prog["outcome"] == "ok"
+      sent ? "permission_gap" : "programmer_only"
+    else
+      sent ? "errors_for_both" : "errors_as_programmer"
+    end
   end
 
   # Every reason `rake rpc:coverage` fails. An empty array is the only pass. The coverage number is
