@@ -53,6 +53,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — AGG registration sends tribe, classification, eligibility and community through AG's own window (#297)
+
+`Registration.register` documents `tribe:`, `classification:`,
+`eligibility_status:` and `community:`, and on every RPMS stack (where
+`Agg.available?`) it dropped all four: the create went through the "Mini
+Registration" window, which has no parameter for them, and answered
+`{ success: true }`.
+
+The create now goes through **"New Patient"**, the window AG registers a new
+patient through, which carries them as `AGGPTTRI`, `AGGPTCLB`, `AGGPTELG`,
+and `AGGPTCOM` + `AGGPTCDT`. AG files them with the rest of the registration;
+nothing is filed around AG. The window's 28 parameters are committed as
+`test/fixtures/agg/new_patient_window.tsv` (read from `^AGG(9009068.3,28,10)`
+on bcer-9.0-20260905-ydb), and a test fails if the create sends a name the
+window does not define.
+
+- Community on this path is AG's shape: `community_ien:` (COMMUNITY
+  #9999999.05) with `community_since:` (the date moved). AG files the pointer
+  (1117) and a dated history entry (#9000001.51) and derives the text (1118).
+  One without the other raises `ArgumentError`. `community_since: :birth`
+  (or `"B"`) is sent as the date of birth, and a value that is not a date
+  raises: sent as `B`, AG answers success and files no community history.
+- A value AG's window has no parameter for is not sent and is named in the
+  result: `unfiled: [:community]` for free-text `community:` with no
+  `community_ien:`, `unfiled: [:extra_fields]` for the composition path's
+  escape hatch.
+- The HRN update still uses "Mini Registration", where it was captured (#214).
+
+Proven live on the 0905 image as a programmer-key user (a create with the
+five parameters filed 1108, 1111, 1112, 1117, the #9000001.51 entry and
+1118). Not yet proven as a least-privilege registration clerk.
+
 ### Added — the gate can see line-based mappings at all (#190)
 
 `Contract.mapping_kind` asked only `scalar?` / `text_blob?`, so the **19
