@@ -216,9 +216,13 @@ connection at a time, which merges into `rpc-coverage/live/<BACKEND>.json` in
 [lakeraven/rpms-diffs](https://github.com/lakeraven/rpms-diffs):
 
 ```sh
-rake rpc:live BACKEND=local-ydb-0905 BROKER_HOST=127.0.0.1 BROKER_PORT=19200 \
+rake rpc:live BACKEND=local-ydb-0930 BROKER_HOST=127.0.0.1 BROKER_PORT=19300 \
   RPMS_ACCESS=... RPMS_VERIFY=... [RPMS_CONTEXT="CIAV VUECENTRIC"]
 ```
+
+The run merges: a name already in the file stays there, so a name the gem stops calling is never dropped.
+After removing RPC names, delete the backend's file and run again to rebuild it.
+The headline is measured as the least-privilege PROV123; it is the development default pair, so that run needs `VISTA_RPC_ENV=development`.
 
 The codes are read from the environment and never written. The implementation lives in
 `tools/rpc_coverage/`, which is not part of the gem.
