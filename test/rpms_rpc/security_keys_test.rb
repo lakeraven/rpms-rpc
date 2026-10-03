@@ -72,6 +72,19 @@ class RpmsRpc::SecurityKeysTest < Minitest::Test
     assert_equal "SD SUPERVISOR", RpmsRpc::SecurityKeys.rpms_name(:scheduling_admin)
   end
 
+  # Each of them is a SECURITY KEY (#19.1) on the pinned build, checked
+  # against the key list read from that build (ADR 0008; #296, #314).
+  KEY_LIST = File.expand_path("../../data/security_keys/bcer-9.0-20260930-8c88e47-ydb.txt", __dir__)
+
+  def pinned_key_names
+    File.readlines(KEY_LIST, chomp: true).reject { |l| l.empty? || l.start_with?("#") }
+  end
+
+  def test_registration_scheduling_adt_keys_are_security_keys_on_the_built_image
+    missing = REGISTRATION_SCHEDULING_ADT_KEYS.values - pinned_key_names
+    assert_empty missing, "not a SECURITY KEY (#19.1) on the pinned image: #{missing.inspect}"
+  end
+
   def test_registry_has_no_duplicate_rpms_names
     names = RpmsRpc::SecurityKeys::REGISTRY.values
     assert_equal names.uniq, names, "every RPMS key name must map back to exactly one symbol"
