@@ -12,8 +12,10 @@ Rake::TestTask.new(:test) do |t|
 end
 
 # Live specs (ADR 0009): over the wire against a disposable container of the
-# pinned build. Skipped unless BROKER_HOST, BROKER_PORT, RPMS_ACCESS,
-# RPMS_VERIFY and PERSONA are set; see test/live/live_helper.rb.
+# pinned build, or a stack over an SSM tunnel. Invoking this task means you
+# meant to reach RPMS, so it FAILS, before loading a spec, unless BROKER_HOST,
+# BROKER_PORT, RPMS_ACCESS, RPMS_VERIFY and PERSONA are set; and a run in which
+# no live spec ran is never green. See test/live/live_helper.rb.
 namespace :test do
   Rake::TestTask.new(:live) do |t|
     t.libs << "test"
@@ -21,6 +23,14 @@ namespace :test do
     t.test_files = FileList["test/live/**/*_test.rb"]
     t.verbose = false
   end
+
+  task :live_settings do
+    require_relative "test/live/live_env"
+    missing = LiveSpec.missing_env
+    abort "rake test:live: #{LiveSpec.missing_env_message(missing)}" unless missing.empty?
+    ENV["LIVE_RUN"] = "1" # the summary fails a run in which no live spec ran
+  end
+  task live: :live_settings
 end
 
 Dir.glob(File.expand_path("lib/tasks/*.rake", __dir__)).each { |r| load r }
