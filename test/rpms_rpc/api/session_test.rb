@@ -12,8 +12,7 @@ class SessionTest < Minitest::Test
       m.seed_scalar(:session_default_source, "CIAVM DEFAULT SOURCE", CONFIG_ROOT)
       m.seed(:session_registry, "", { root: "HKLM\\Software\\IHS\\CIAVM" })
       m.seed(:session_vim_info, "301", {
-        site_ien: 539,
-        site_name: "TEST SERVICE UNIT",
+        duz: 301,
         user_name: "PROVIDER,TEST"
       })
     end
@@ -28,8 +27,8 @@ class SessionTest < Minitest::Test
 
     assert_equal CONFIG_ROOT, result[:config_root]
     assert_equal({ root: "HKLM\\Software\\IHS\\CIAVM" }, result[:registry])
-    assert_equal "TEST SERVICE UNIT", result[:vim_info][:site_name]
-    assert_equal 539, result[:default_site_ien]
+    assert_equal "PROVIDER,TEST", result[:vim_info][:user_name]
+    refute result.key?(:default_site_ien)
   end
 
   def test_bootstrap_issues_all_three_rpcs
@@ -70,7 +69,6 @@ class SessionTest < Minitest::Test
     result = RpmsRpc::Session.bootstrap("9999")
 
     assert_equal CONFIG_ROOT, result[:config_root]
-    assert_nil result[:default_site_ien]
     assert_equal({}, result[:vim_info])
   end
 end
