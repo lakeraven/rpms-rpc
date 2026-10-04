@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `rake rpc:api_coverage`: public methods proven by a live spec (#358)
+
+- Lists every public method of the API modules with the RPCs it sends (resolved statically
+  through DataMapper mappings and `call_rpc*` literals and constants), whether each is on the
+  pinned registry, and the live specs that call it. A method no live spec calls is reported as
+  not in the contract (ADR 0010, assertion 2).
+- Prints methods proven / public methods, per module, and writes `coverage/api/methods.json`
+  (`OUT=` to override); the schema is in the README. On main today: 50 / 256.
+
 ### Changed — Ruby 4.0 readiness (#47)
 
 - CI runs the suite on Ruby 3.4 and 4.0.
