@@ -163,6 +163,9 @@ ctx                                       # show the bound context option
 ctx "AGGRPC"                              # bind a context option
 reconnect                                 # drop and re-establish connect + sign-on (+ RPMS_CONTEXT)
 client                                    # the underlying RpmsRpc client
+
+RpmsRpc::Patient.find(4)                  # the public API answers too, through the same client
+RpmsRpc::Authentication.held_keys(%w[PROVIDER XUPROGMODE])
 ```
 
 ## Components
