@@ -31,7 +31,6 @@ class ESignatureTest < Minitest::Test
   # call, so a MockClient seed keyed by the ciphertext could never match.
   class SignatureCheckingClient
     def initialize(code) = @code = code
-    def supports?(*) = true
     def call_rpc(_rpc, *params) = RpmsRpc::XwbCipher.decrypt(params.first.to_s) == @code ? "1" : "0"
   end
 

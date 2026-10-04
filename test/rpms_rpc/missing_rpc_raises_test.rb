@@ -138,7 +138,7 @@ class MissingRpcRaisesTest < Minitest::Test
     "Patient.brief_header" => -> { RpmsRpc::Patient.brief_header(8791) },
     "Problem.lex_search" => -> { RpmsRpc::Problem.lex_search("diabetes") },
     "Problem.clinic_search" => -> { RpmsRpc::Problem.clinic_search(7) },
-    "Problem.details" => -> { RpmsRpc::Problem.details(5001) },
+    "Problem.details" => -> { RpmsRpc::Problem.details(8791, 5001) },
     "Problem.audit_history" => -> { RpmsRpc::Problem.audit_history(5001) },
     "Problem.comments" => -> { RpmsRpc::Problem.comments(5001) },
     "Problem.init_patient" => -> { RpmsRpc::Problem.init_patient(8791) },

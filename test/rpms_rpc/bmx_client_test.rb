@@ -157,7 +157,8 @@ class RpmsRpc::BmxClientTest < Minitest::Test
   end
 
   # The point of #282: an AG rejection comes back over BMX in the SECURITY
-  # packet, where the gem surfaces it as an error — whereas the CIA broker never
+  # packet, where the gem surfaces it as an error (since #363 the typed
+  # RpcRefusedError: served, but not to this user) — whereas the CIA broker never
   # returns BMXSEC, so the same rejection reads as success. These are the exact
   # bytes a non-exempt RPC drew pre-sign-on (CHKPRMIT^BMXMSEC via $$CHK^XQCS).
   def test_a_security_packet_rejection_surfaces_as_an_error
@@ -165,7 +166,7 @@ class RpmsRpc::BmxClientTest < Minitest::Test
     reply = msg.bytesize.chr + msg + "\x00" + "\x04"
     client = connected_client([ reply ])
 
-    error = assert_raises(RpmsRpc::Client::ConnectionError) do
+    error = assert_raises(RpmsRpc::Client::RpcRefusedError) do
       client.call_rpc("AGG ADD NEW PATIENT", "Mini Registration", "", "AGGPTLNM=DEMOPATIENT")
     end
     assert_match(/not registered to the option/i, error.message)

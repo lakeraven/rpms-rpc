@@ -61,7 +61,7 @@ class MissingRpcLiveTest < LiveSpec::Test
     "Patient.brief_header" => [ :read, [ "BEHOPTCX PTINFO", "BEHOPTPC GETBDP", "BEHOCACV CWAD" ], -> { RpmsRpc::Patient.brief_header(DFN) } ],
     "Problem.lex_search" => [ :read, [ "ORQQPL PROBLEM LEX SEARCH" ], -> { RpmsRpc::Problem.lex_search("diabetes") } ],
     "Problem.clinic_search" => [ :read, [ "ORQQPL CLIN SRCH" ], -> { RpmsRpc::Problem.clinic_search(CLINIC_IEN) } ],
-    "Problem.details" => [ :read, [ "ORQQPL DETAIL" ], -> { RpmsRpc::Problem.details(PROBLEM_IEN) } ],
+    "Problem.details" => [ :read, [ "ORQQPL DETAIL" ], -> { RpmsRpc::Problem.details(DFN, PROBLEM_IEN) } ],
     "Problem.audit_history" => [ :read, [ "ORQQPL AUDIT HIST" ], -> { RpmsRpc::Problem.audit_history(PROBLEM_IEN) } ],
     "Problem.comments" => [ :read, [ "ORQQPL PROB COMMENTS" ], -> { RpmsRpc::Problem.comments(PROBLEM_IEN) } ],
     "Problem.init_patient" => [ :read, [ "ORQQPL INIT PT" ], -> { RpmsRpc::Problem.init_patient(DFN) } ],
