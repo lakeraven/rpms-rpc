@@ -233,8 +233,8 @@ IHS clusters (second PR):
   FACILITY DIRECT, BPHR RECORD ACCESS. No BPHR RPC is registered.
 - BHDO HOSP LOC DATA, an invented namespace. `RpmsRpc::Location.find` is
   kept, rebuilt on DDR GETS ENTRY DATA over #44 (see "Kept" below).
-- `RpmsRpc::Organization.find` (BHDO INST DATA), the same invented
-  namespace. Institutions are served by DDR reads over #4.
+- BHDO INST DATA, the same invented namespace. `RpmsRpc::Organization.find`
+  is kept, rebuilt on DDR GETS ENTRY DATA over #4 (see "Kept" below).
 - `RpmsRpc::Capabilities.imaging_user?` and `.clear_imaging_cache!`:
   MAGGUSERKEYS. The registered imaging key check is MAGGDUZKEY.
 - `RpmsRpc::Image.launch_token` (and `Image::DEFAULT_TTL_SECONDS`): MAGG
@@ -282,6 +282,12 @@ and the provider persona:
   default LABEL ("Am Indian/AK Native" for beneficiary type 1 at an IHS
   site), which `for_patient` resolves to its code; any other default is
   `NIL_ELIGIBILITY`.
+
+- `RpmsRpc::Organization.find(ien)` → `{ien:, name:, station_number:,
+  address:, city:, state:, zip_code:, phone:}`: kept, rebuilt on DDR GETS
+  ENTRY DATA over INSTITUTION #4 (.01, 99, 1.01, 1.02, 1.03, .02, 1.04), in
+  CIAV VUECENTRIC. `state` is the state's name (the external form of the
+  pointer to #5). `phone` is always nil: file #4 has no phone field.
 
 ### Added — transport security: the broker connection is plaintext, and how to wrap it (#113)
 
