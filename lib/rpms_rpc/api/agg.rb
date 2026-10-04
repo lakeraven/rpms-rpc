@@ -84,6 +84,39 @@ module RpmsRpc
     # 28-param superset.
     DEFAULT_WINDOW = "Mini Registration"
 
+    # "New Patient" (IEN 28) is the window AG registers a new patient through:
+    # its 0-node names file 2, secondary file 9000001 and the save RPC AGG ADD
+    # NEW PATIENT. Its 28 parameters are in test/fixtures/agg/
+    # new_patient_window.tsv, read from ^AGG(9009068.3,28,10) on
+    # bcer-9.0-20260905-ydb. ADD^AGGPTADD refuses any name not in the window's
+    # "AC" index (AGGPTADD.m:44-45), so a name not in that fixture is rejected.
+    # The IHS PATIENT values it carries, and how ADD^AGGPTADD files them:
+    #
+    #   AGGPTCLB  Classification/Beneficiary  type T -> #9000001 1111, internal
+    #                                         (IEN of #9999999.25)
+    #   AGGPTELG  Eligibility Status          type C -> #9000001 1112; the
+    #                                         choice name ("DIRECT ONLY") or
+    #                                         the code ("D") - a value that is
+    #                                         not a choice name is filed as
+    #                                         given (AGGPTADD.m:48-51)
+    #   AGGPTTRI  Tribe of Membership         type T -> #9000001 1108, internal
+    #                                         (IEN of #9999999.03)
+    #   AGGPTCOM  Current Community           type T -> #9000001 1117 CURRENT
+    #                                         RESIDENCE PTR, internal (IEN of
+    #                                         #9999999.05)
+    #   AGGPTCDT  Date Moved                  with AGGPTCOM, files the PREVIOUS
+    #                                         COMMUNITY multiple (#9000001.51)
+    #                                         through COMM^AGGPTADD; that entry
+    #                                         is what sets 1118 CURRENT
+    #                                         COMMUNITY (the text)
+    #
+    # Types T/C/K are filed with FILE^DIE "I" (internal, AGGPTADD.m:79-81,103),
+    # so pointer values are IENs. Proven live 2026-10-02 on that image as a
+    # programmer-key user: a create with these five filed 1108, 1111, 1112,
+    # 1117, the #9000001.51 entry and 1118. Sending AGGPTCDT as "B" (at birth,
+    # which the GUI resolves before it sends) filed no #9000001.51 entry.
+    NEW_PATIENT_WINDOW = "New Patient"
+
     # PARMS framing bytes.
     PARM_DELIM = "\x1c" # $C(28) — NAME=VALUE separator in the PARMS string
     RECORD_SEP = "\x1e" # $C(30) — record separator in the reply

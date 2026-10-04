@@ -397,15 +397,16 @@ class RpmsRpc::ServerCapabilitiesTest < Minitest::Test
     # open_socket against the same or a different Broker with stale
     # capability answers still cached. The fix: clear the cache at the
     # top of open_socket itself.
-    cia = RpmsRpc::CiaClient.new
+    # Make open_socket's TCP connect raise; the cache must already be
+    # cleared by the time the exception bubbles out.
+    refusing = Class.new(RpmsRpc::CiaClient) do
+      def connect_tcp(*) = raise(Errno::ECONNREFUSED)
+    end
+    cia = refusing.new
     cia.instance_variable_set(:@capability_cache, { patient_chart_banner: true })
 
-    # Force open_socket's TCPSocket.new to raise; the cache must already
-    # be cleared by the time the exception bubbles out.
-    TCPSocket.stub(:new, ->(*) { raise Errno::ECONNREFUSED }) do
-      assert_raises(RpmsRpc::Client::ConnectionError) do
-        cia.send(:open_socket, "localhost", 9100)
-      end
+    assert_raises(RpmsRpc::Client::ConnectionError) do
+      cia.send(:open_socket, "localhost", 9100)
     end
 
     assert_nil cia.instance_variable_get(:@capability_cache),

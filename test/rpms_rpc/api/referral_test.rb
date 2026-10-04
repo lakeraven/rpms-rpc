@@ -102,19 +102,51 @@ class ReferralTest < Minitest::Test
     assert_equal "line one\nline two", RpmsRpc::Referral.rcis_template_detail(7)
   end
 
-  def test_patient_eligibility_status_returns_structured_status
+  # GTPTELST^BMCRPC4 (BMCRPC4.m:129): ELIGIBILITY STATUS (external) ^ preferred name.
+  def test_patient_eligibility_status_reads_the_status_text_and_preferred_name
     RpmsRpc.mock! do |m|
-      m.seed(:bmc_patient_eligibility_status, DFN, {
-        eligible: true,
-        status: "ELIGIBLE",
-        message: "Active CHS eligibility"
-      })
+      m.seed_scalar(:bmc_patient_eligibility_status, DFN, "CHS & DIRECT^JO")
     end
 
     result = RpmsRpc::Referral.patient_eligibility_status(DFN)
 
-    assert_equal true, result[:eligible]
-    assert_equal "ELIGIBLE", result[:status]
+    assert_equal "CHS & DIRECT", result[:status]
+    assert_equal "JO", result[:preferred_name]
+    refute result.key?(:eligible), "the routine returns no eligible flag"
+  end
+
+  # PROV^BMCRPC4 (BMCRPC4.m:136-141): one node, "-1^All~" then IEN^NAME~ per user.
+  def test_users_providers_parses_the_single_tilde_node
+    RpmsRpc.mock! do |m|
+      m.seed_text(:bmc_users_providers, "1", "-1^All~17^DOCTOR,ONE~42^NURSE,TWO~")
+    end
+
+    assert_equal [ { ien: "17", name: "DOCTOR,ONE" }, { ien: "42", name: "NURSE,TWO" } ],
+                 RpmsRpc::Referral.users_providers(1)
+  end
+
+  # SETREFRL^BMCRPC2 (BMCRPC2.m:155): success is "~`1^IEN".
+  def test_add_referral_sigil_success_is_success_with_the_ien
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:bmc_add_referral, DFN, "~`1^3001")
+    end
+
+    result = RpmsRpc::Referral.add(DFN, "44")
+
+    assert result[:success]
+    assert_equal "3001", result[:ien]
+  end
+
+  # SETREFRL^BMCRPC2 (BMCRPC2.m:58): failure is "~`0^message".
+  def test_add_referral_sigil_failure_carries_the_message
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:bmc_add_referral, DFN, "~`0^Required field missing")
+    end
+
+    result = RpmsRpc::Referral.add(DFN, "44")
+
+    refute result[:success]
+    assert_equal "Required field missing", result[:message]
   end
 
   def test_bmc_calls_short_circuit_when_capability_unsupported
@@ -132,5 +164,128 @@ class ReferralTest < Minitest::Test
     assert_match(/not available/i, result[:error])
     assert_equal [], RpmsRpc::Referral.reference_data("PURPOSE")
     assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc].start_with?("BMC ") }
+  end
+
+  # -- BMCRPC context binding (rpms-rpc#258) ---------------------------------
+  #
+  # RPC registration is OPTION-scoped (RpmsRpc::ContextScope). On a built 9.0
+  # image the BMC* RPCs are listed in the RPC multiple of ONE file-19 option,
+  # BMCRPC (22 entries: the 21 BMC names this module calls plus ORWDXIHS
+  # CLININD), and in no other — not CIAV VUECENTRIC, not OR CPRS GUI CHART.
+  # So every call here, the capability probe included, must run under BMCRPC
+  # and hand the caller's option back afterward, the way RpmsRpc::Agg does
+  # for AGGRPC.
+
+  # Arguments that let every public method reach the wire. Nothing is seeded:
+  # the mock answers "" and still records the call with its context.
+  BMC_CALLS = {
+    for_patient: [ DFN ],
+    find: [ "3001" ],
+    delete: [ "3001" ],
+    add: [ DFN, "44" ],
+    add_secondary: [ "3001" ],
+    update: [ "3001", "44" ],
+    print: [ "3001" ],
+    update_status: [ "3001", "APPROVED" ],
+    update_consultation_status: [ "7", "COMPLETE" ],
+    purposes: [],
+    reference_data: [ "PURPOSE" ],
+    users_providers: [],
+    providers: [],
+    search_referred_to: [ "CARD" ],
+    rcis_templates: [],
+    rcis_template_detail: [ "7" ],
+    patient_eligibility_status: [ DFN ],
+    patient_face_sheet: [ DFN ],
+    patient_health_summary: [ DFN ],
+    health_summary_types: [],
+    check_year_site_param: [],
+    add_c32_print_log: [ DFN ]
+  }.freeze
+
+  def test_the_bind_table_names_every_public_method_that_reaches_the_wire
+    expected = RpmsRpc::Referral.public_instance_methods(false).sort - [ :create ]
+
+    assert_equal expected, BMC_CALLS.keys.sort,
+      "a new Referral method must be added to BMC_CALLS so its context bind is proven"
+  end
+
+  def test_every_bmc_call_runs_under_bmcrpc_and_restores_the_callers_context
+    BMC_CALLS.each do |method, args|
+      mock = RpmsRpc.mock!
+      caller_context = mock.current_context
+
+      RpmsRpc::Referral.public_send(method, *args)
+
+      calls = mock.received_calls
+      refute_empty calls, "#{method} made no RPC call"
+      calls.each do |call|
+        assert_equal "BMCRPC", call[:context],
+          "#{method} sent #{call[:rpc]} under #{call[:context].inspect}; the BMC* RPCs " \
+          "are registered under BMCRPC only, so it is denied there"
+      end
+      assert_equal caller_context, mock.current_context,
+        "#{method} left the session on #{mock.current_context.inspect}"
+      assert_equal [ "BMCRPC", caller_context ], mock.context_binds,
+        "#{method}: expected one bind and one restore"
+    end
+  end
+
+  def test_the_capability_probe_is_answered_under_bmcrpc
+    # Client#supports? probes BMC GET REFERENCE DATA, which is itself in the
+    # BMCRPC multiple only: probed under the caller's option it answers
+    # "not here", and every BMC method would short-circuit to unsupported.
+    probing = Class.new(RpmsRpc::MockClient) do
+      attr_reader :probed_under
+
+      def supports?(feature)
+        @probed_under = current_context if feature == :bmc_referral_workflow
+        true
+      end
+    end.new
+    RpmsRpc.configure { |c| c.client = probing }
+
+    RpmsRpc::Referral.reference_data("PURPOSE")
+
+    assert_equal "BMCRPC", probing.probed_under
+  end
+
+  def test_create_binds_no_context
+    mock = RpmsRpc.mock!
+
+    RpmsRpc::Referral.create(DFN, { specialty: "CARDIOLOGY" })
+
+    assert_empty mock.context_binds, "create touches no RPC, so it has no option to bind"
+  end
+
+  def test_a_bmcrpc_that_will_not_bind_raises_before_any_rpc_is_sent
+    # The broker refusing the option (not installed, or not on the user's
+    # menu tree) is a session-level failure the caller must see — a BMC call
+    # sent anyway would be answered a truthful "not runnable here".
+    mock = RpmsRpc.mock!
+    mock.unbindable_context!("BMCRPC")
+
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Referral.purposes }
+    assert_empty mock.received_calls
+  end
+
+  def test_a_client_that_cannot_scope_contexts_runs_as_is
+    plain = Class.new do
+      attr_reader :calls
+
+      def initialize = @calls = []
+      def supports?(*) = true
+
+      def call_rpc(rpc, *params)
+        @calls << rpc
+        "1^3001"
+      end
+    end.new
+    RpmsRpc.configure { |c| c.client = plain }
+
+    result = RpmsRpc::Referral.add(DFN, "44")
+
+    assert result[:success]
+    assert_equal [ "BMC ADD REFERRAL" ], plain.calls
   end
 end

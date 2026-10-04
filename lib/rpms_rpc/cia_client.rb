@@ -245,16 +245,36 @@ module RpmsRpc
       end
     end
 
-    # Call an RPC over the CIA broker, returning a printable (human-readable) response.
-    # Literal string params, plus list params as Hash (named/numeric subscripts)
-    # or Array (1-based numeric subscripts) — matching XwbClient's public
-    # param convention.
+    # Call an RPC over the CIA broker and return its reply LINES, the shape
+    # XwbClient#call_rpc and BmxClient#call_rpc return: the sequence echo and
+    # ack stripped, one printable String per line, and a broker refusal
+    # raised as RpcError (#195). Literal string params, plus list params as
+    # Hash (named/numeric subscripts) or Array (1-based numeric subscripts) —
+    # matching XwbClient's public param convention.
+    #
+    # It used to return printable(raw): the seq echo and ack became leading
+    # text, every line separator became a space and an error flag became
+    # data, so a multi-row reply parsed as ONE row whose first piece carried
+    # the frame byte (ORWPT LIST ALL "DEMO" -> one patient, DFN wrong).
+    #
+    # A GLOBAL ARRAY reply (a BMX recordset: BSDX, AGG) is the array's nodes
+    # concatenated, each ending in $C(30), the last node a lone $C(31). The
+    # CIA broker sends no line break between nodes, so $C(30) is the row
+    # boundary and the $C(31) node is the end marker, not a row. Seen live on
+    # BSDX HOSPITAL LOCATION (HOSPLOC^BSDX32): the header and every clinic
+    # arrived as one line, and Scheduling.hospital_locations returned the
+    # header as its only row.
     def call_rpc(rpc_name, *params)
-      printable(call_rpc_raw(rpc_name, *params))
+      body = parse_cia_reply(call_rpc_raw(rpc_name, *params))
+      body.split(REPLY_ROW_BREAK).reject { |line| line == RECORDSET_END }.map { |line| printable(line) }
     end
 
+    REPLY_ROW_BREAK = /\r\n|\r|\n|\x1e/
+    RECORDSET_END = "\x1f".b
+    private_constant :REPLY_ROW_BREAK, :RECORDSET_END
+
     # Send an RPC and return the raw, unmodified broker response. Client contract:
-    # call_rpc_raw must not transform the payload (call_rpc applies printable()).
+    # call_rpc_raw must not transform the payload (call_rpc parses it).
     #
     # Param encoding: DOACTION^CIANBLIS reads NAME/SUBSCRIPT/VALUE triples of
     # L()-packed fields; a numeric NAME with an empty SUBSCRIPT sets the
@@ -273,15 +293,10 @@ module RpmsRpc
       raise_rpc_timeout(rpc_name)
     end
 
-    # Reply lines per the {CIA} reply grammar. Lines are split from the RAW
-    # reply because #call_rpc's printable() flattens the framing bytes to
-    # spaces: a line-positional parser handed THAT String reads characters as
-    # fields, minting the sequence echo into a DUZ. See #parse_cia_reply for
-    # the grammar and why a bare seq echo can never become a field.
-    def call_rpc_lines(rpc_name, *params)
-      body = parse_cia_reply(call_rpc_raw(rpc_name, *params))
-      body.split(/\r\n|\r|\n/).map { |line| printable(line) }
-    end
+    # Reply lines per the {CIA} reply grammar: #call_rpc already returns
+    # them. See #parse_cia_reply for the grammar and why a bare seq echo can
+    # never become a field.
+    def call_rpc_lines(rpc_name, *params) = call_rpc(rpc_name, *params)
 
     # Call an RPC whose broker return type is GLOBAL ARRAY (type 4) and read
     # the whole reply to its $C(31) (US) end sentinel — see AGG_ARRAY_END.
@@ -302,8 +317,15 @@ module RpmsRpc
 
     # Synchronized: an unsynchronized teardown can close the socket, or inject
     # its frame, in the middle of another caller's in-flight RPC.
+    #
+    # End the session the way the broker expects BEFORE dropping the socket.
+    # A peer that just vanishes is not noticed at EOF: the single-session
+    # listener only gives up on its retry bound, so it sits draining a dead
+    # socket while the next connection waits (rpms-rpc#192). Sending the quit
+    # action returns the listener to accept at once (#send_quit_action).
     def disconnect
       synchronize_wire do
+        send_quit_action if connected?
         reset_connection # closes the socket, clears state, session UID and context
       end
     end
@@ -358,6 +380,32 @@ module RpmsRpc
       end
     end
 
+    # Tell the broker to end this session before the socket is dropped.
+    #
+    # The {CIA} disconnect is an ACTION frame, not an RPC: DOACTION^CIANBLIS
+    # takes the action from header byte 8 (ACT=$E(X,8), CIANBLIS.m:128) and
+    # dispatches D @("ACT"_ACT_"^CIANBACT") (CIANBLIS.m:139). Action "D" is
+    # ACTD^CIANBACT (CIANBACT.m:24-27): it runs RESET^CIANBRPC() — the session
+    # logout and cleanup — then sets CIADATA=1 and CIAQUIT=1. CIAQUIT makes the
+    # listener's QUIT() return true (CIANBLIS.m:151-152), so the main loop stops
+    # and TCPCLOSE runs (CIANBLIS.m:114-117) instead of the ~45 s retry drain.
+    #
+    # RESET^CIANBRPC quits immediately unless CIA("UID") is set
+    # (CIANBRPC.m:102), and DOACTION only populates CIA("UID") from a UID field
+    # on the frame, so the quit frame carries the session UID exactly as an RPC
+    # frame does — otherwise the broker closes the socket but never releases the
+    # session's locks or ^XTMP state.
+    #
+    # The broker replies to ACTD (CIADATA=1 -> REPLY, CIANBLIS.m:142-143) and
+    # then closes, but the close can win the race: a peer-closed read or a
+    # broken-pipe write here is the expected outcome of a clean quit, not an
+    # error, so swallow it — reset_connection drops our side regardless.
+    def send_quit_action
+      exchange("D") { [ pk("UID"), pk(""), pk(@session_uid || "1") ] }
+    rescue ConnectionError, IOError, SystemCallError
+      nil
+    end
+
     # Nothing that reached this client BEFORE a request was written can be that request's reply:
     # the wire lock admits one request at a time, so it is the unread tail of an earlier reply.
     # That tail exists when a reply's body embedded the EOD byte (a global array's $C(30) record
@@ -374,16 +422,42 @@ module RpmsRpc
       nil # drained (or the peer closed: the write that follows reports that)
     end
 
-    # Read this request's reply. An EMPTY piece is never a reply (every CIA reply starts with the
-    # request's sequence echo, CIANBLIS.m:136): it is a stale EOD that arrived late, such as the
-    # one after a global array's $C(31). Skip those; hand anything else to the caller unchanged,
-    # so #parse_cia_reply keeps judging malformed replies.
+    # Read THIS request's reply, skipping any piece that is not ours.
+    #
+    # Every CIA reply begins with the request's one-byte sequence echo
+    # (CIANBLIS.m:135 `W SEQ`, written UNCONDITIONALLY ahead of REPLY/SNDERR/
+    # SNDEOD). That echo is the only correlation this length-free stream carries,
+    # so it is how a reply is told from a STALE TAIL of an earlier one that
+    # arrived in flight — after discard_stale_bytes drained the socket but before
+    # (or during) this read, which is the window #discard_stale_bytes cannot
+    # close. A non-empty tail (the remainder of a global-array reply whose body
+    # embedded EOD — BSDX/BMC, rpms-rpc#254, measured 2026-09-23) begins with
+    # that reply's DATA, not our echo, so it never matches @seq and is skipped;
+    # returning it put the whole session one call late (rpms-rpc#289). An empty
+    # piece (a late bare EOD, e.g. after a global array's $C(31)) carries no echo
+    # and is skipped the same way.
+    #
+    # A reply we RETURN is this request's by its echo; a well-formed one then
+    # carries a valid ack flag — \x00 DATA (CIANBLIS.m:261) or \x01 ERROR (:268)
+    # — or none at all (SNDEOD, :273-275, sequence echo only). That ack shape is
+    # enforced by #parse_cia_reply, which fails CLOSED (returns "" / raises) on
+    # anything else, so an echo-matching but malformed frame is still returned
+    # here and refused there rather than silently skipped into a desync.
+    #
+    # Fail closed on exhaustion: once the retry budget is spent with no piece
+    # carrying our echo, raise ConnectionError rather than hand the caller
+    # someone else's bytes.
     def read_reply(terminator)
+      echo = @seq.to_s.b # the one byte CIANBLIS.m:135 echoes for this frame
+      # A small bound: read past stale pieces, but fail closed on a desynced
+      # stream rather than loop.
       8.times do
         raw = read_until_raw(terminator) # base: shared read loop; CIA EOD, or AGG US sentinel
-        return raw unless raw.empty?
+        return raw if raw.byteslice(0, 1) == echo
       end
-      raise ConnectionError, "CIA reply stream out of step: only empty pieces after the request"
+      raise ConnectionError, RpmsRpc.sanitize_error(
+        "CIA reply stream out of step: no piece carried sequence echo #{@seq}"
+      )
     end
 
     # Build the L()-packed UID/RPC/param fields shared by call_rpc_raw and

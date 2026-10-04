@@ -13,14 +13,14 @@ class SymptomTest < Minitest::Test
   def test_search_returns_matching_symptoms
     RpmsRpc.mock! do |m|
       m.seed_keyed_collection(:symptom_search, "rash", [
-        { ien: 1, name: "Rash", snomed_code: "271807003" },
-        { ien: 2, name: "Rash, generalized", snomed_code: "247409008" }
+        { ien: 1, name: "Rash" },
+        { ien: 2, name: "Rash, generalized" }
       ])
     end
 
     rows = RpmsRpc::Symptom.search("rash")
     assert_equal 2, rows.length
-    assert_equal "271807003", rows.first[:snomed_code]
+    assert_equal "Rash", rows.first[:name]
   end
 
   def test_search_dispatches_orwdal32_symptoms

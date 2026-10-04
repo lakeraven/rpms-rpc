@@ -37,7 +37,7 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | BEHOPTPC | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BEHOSICX | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BEHOVM | 4 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| BGOPROB | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| BGOPROB | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BGOREF | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BGOTRG | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BGOVCPT | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
@@ -57,7 +57,6 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | CIANBRPC | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | CIAVCXUS | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | CIAVMCFG | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| CIAVMRPC | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | DDR | 5 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | GMTS | 4 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | MAGG | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
