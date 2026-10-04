@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — Ruby 4.0 readiness (#47)
+
+- CI runs the suite on Ruby 3.4 and 4.0.
+- `bigdecimal` is now a declared runtime dependency. `lib/` requires it, and it
+  has been a bundled gem (not a default gem) since Ruby 3.4. Under Bundler it
+  only loaded because a development dependency happened to pull it in.
+- No test uses `minitest/mock`, which is not part of Minitest 6. The two `stub`
+  calls are now dependency injection: `Client#connect_tcp` is the overridable
+  TCP connect.
+- `bin/console` works on Ruby 4.0. `irb` is no longer a default gem there, so the
+  Gemfile declares it, and the console loads it only after its environment checks pass.
+
+### Deprecated — seven `Capabilities` checks that test names which are not security keys (#314)
+
+- `can_approve_chs?`, `can_process_chs?`, `can_manage_chs?`, `can_manage_consults?`,
+  `can_verify_eligibility?`, `can_access_behavioral_health?` and `can_access_dental?`
+  each warn once per process. Their answers, the `capabilities_for` entries they feed
+  and the `UserRoles.resolve` elevation on `:prc_supervisor`/`:prc_manager` are unchanged.
+  No signed-on user can hold the names they test, so on a real session they answer false.
+  Replacement: read the keys a user holds (#318) and decide policy in the host (ADR 0010).
+  Removal is #359.
+
+### Changed — `SecurityKeys::REGISTRY` names only keys on the pinned build (#314)
+
+- Removed the twelve names that are not SECURITY KEYs (#19.1) on the bcer-9.0 0930 image.
+  `symbolize` never returned them for a real session; `MockClient#seed_user` now drops them too.
+
 ## [0.3.1]
 
 ### Fixed — CIA frame terminator no longer collides with an L() length prefix (#241)
@@ -49,6 +78,316 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Capabilities` or the mappings should `require "rpms_rpc"` instead.
 - The configuration surface stays in `rpms_rpc/core.rb`, so a single broker
   client (`require "rpms_rpc/cia_client"`) still loads without the tables.
+
+### Fixed — the two registration paths name the community they do not file (#300)
+
+Each registration path ignored the other's community attribute without
+saying so. The composition path (no AG) now names `community_ien:` and
+`community_since:` in `unfiled:` when given: it files `community:` into 1118
+as free text and has no 1117 pointer or #9000001.51 history entry. The
+delegation path now names free-text `community:` in `unfiled:` even when the
+pointer is given too, since AG's window has no free-text parameter. The
+`Registration` module doc states what each path stores for community.
+
+### Fixed — `:patient_id_info` reads ORWPT ID INFO as the routine writes it (#191)
+
+IDINFO^ORWPT returns `PID^DOB^SEX^VET^SC%^WARD^RM-BED^NAME` (ORWPT.m:6-11).
+The mapping declared piece 4 as `:race_code` and piece 6 as `:site_ien`; the
+wire-contract gate caught both on its first run against the committed
+capture (`test/fixtures/wire_captures/orwpt-id-info.yml`), where the "N"
+read as a race code is the VETERAN flag and the "site IEN" piece is the
+current ward, empty for an outpatient. The mapping now declares `:veteran`,
+`:sc_percent`, `:ward_location` and `:room_bed` at those positions, its
+`KNOWN_DIVERGENCES` pin is gone, and the gate is green on it. **Breaking:**
+`Patient.find` no longer merges `:race_code` / `:site_ien` from this RPC —
+they were never on it. The companion `:problem_list` divergence was already
+fixed by #188; the pin list is now empty. Verified live: the new layout
+parses a synthetic patient's reply from a local container of a built 9.0
+YottaDB image.
+
+### Fixed — the TIU note surface sends what its routines declare and reads what they answer (#219)
+
+Line numbers are the FOIA source (Text Integration Utility/Routines).
+
+- `ProgressNote.lock(note_ien)` — `LOCK(ERR,TIUDA)^TIUSRVP` answers `0` when
+  it holds the lock and `1^ Another session has this record locked.` when it
+  does not (TIUSRVP.m:210-212). The `:boolean` read reported a FAILED lock as
+  held. One actual; the user DUZ is gone. **Signature change.**
+- `ProgressNote.unlock(note_ien)` — `UNLOCK` always answers `0`
+  (TIUSRVP.m:214-215), which read as false. **Signature change.**
+- `ProgressNote.create(dfn, visit_ien, title_ien)` — frames
+  `MAKE(SUCCESS,DFN,TITLE,VDT,VLOC,VSIT,...)` (TIUSRVP.m:7) as DFN, TITLE,
+  `""`, `""`, VSIT. The old frame put the visit in TITLE and the title in VDT.
+- `ProgressNote.authorize(note_ien, action: "EDIT RECORD")` — `CANDO(TIUY,
+  TIUDA,TIUACT)^TIUSRVA` takes an action string, not a DUZ (TIUSRVA.m:20);
+  `1` is yes, `0^reason` no. **Signature change.**
+- `ProgressNote.list(dfn, context:, early:, late:, person:)` — sends CLASS 3
+  (progress notes, TIUSRVLO.m:8), CONTEXT, DFN (TIUSRVLO.m:16); the old
+  `(dfn, code)` frame always came back empty. Contexts are the routine's own
+  (TIUSRVLO.m:19-23): `:all_signed` (default), `:unsigned`, `:uncosigned`,
+  `:signed_by_author`, `:signed_by_date_range`; `:all`, `:by_author` and
+  `:by_visit` are gone. Rows parse as `DA^DOC^EDT^PT^AUT^LOC^STATUS^...`
+  (TIUSRVLO.m:94, 197), with `:author_duz` / `:author_name` split out of
+  AUT. **Signature change.**
+- `ProgressNote.update_text(note_ien, text)` — sends TIUX as a list,
+  `TIUX("HDR")="1^1"` and `TIUX("TEXT",n,0)` per line (TIUSRVPT.m:12, 18);
+  success is the `TIUDA^PAGE^PAGES` acknowledgement (TIUSRVPT.m:38). A flat
+  string failed every update with "Invalid text block header".
+- `XwbClient` forms list subscripts as M literals, as `CiaClient` does:
+  LINST^XWBPRS splices them raw (XWBPRS.m:152-156), so a string key is quoted
+  (`"HDR"`, `"TEXT",1,0`). An unquoted key was a variable reference.
+- `NoteTemplate.roots` / `items` — rows parse as NODEDATA's
+  `IEN^TYPE^STATUS^NAME^...^HAS CHILDREN` (TIUSRVT.m:4-29); the old mapping
+  read TYPE as the name, and `:parent_ien` (never in the row) is gone.
+- `NoteTemplate.boilerplate(template_ien)` — `GETBOIL(TIUY,TIUDA)`
+  (TIUSRVT.m:55) takes the template alone and returns UNEXPANDED text; the
+  three-actual frame died in M. **Signature change.**
+
+### Fixed — read calls send the formal list each routine declares (#259)
+
+Thirteen read calls died in M with `%YDB-E-LVUNDEF` (once with
+`%YDB-E-ACTLSTTOOLONG`) because the frame carried fewer arguments than the
+routine's label line declares. The formal lists come from the routines on a
+built 9.0 YottaDB image; every fix below was proven live against a local
+container of that image (the call answers, no M error).
+
+- `Medication.for_patient` — `LIST(ORY,ORPT,ORSTRTDT,ORSTOPDT)^ORQQPS`: sends
+  both dates, empty (OCL^PSOORRL `$G`s them and starts 120 days back).
+- `Problem.for_patient` — `LIST(ORPY,DFN,STATUS)^ORQQPL`: sends STATUS `""`
+  (all problems).
+- `Problem.details(dfn, ien)` — `DETAIL(Y,DFN,PROBIEN,ID)^ORQQPL`: the
+  patient comes first; the IEN-only frame put the IEN in DFN. **Signature
+  change.**
+- `HealthSummary.for_patient` / `component_data` —
+  `RPT(ROOT,DFN,RPTID,HSTYPE,DTRANGE,EXAMID,ALPHA,OMEGA)^ORWRP`: seven
+  formals instead of one `"DFN^type^"` string; RPTID is the Health Summary
+  entry of file 101.24 (ID 1), HSTYPE the type IEN. `component_data` now
+  fetches the summary and picks the component's section out of it: the RPC
+  has no component selector for that report.
+- `NoteTemplate.text(lines, dfn:, visit_string:)` —
+  `GETTEXT(TIUY,DFN,VSTR,TIUX)^TIUSRVT` expands boilerplate TEXT; there is no
+  template IEN on this wire, and the text must arrive as `TIUX(n,0)`
+  (BLRPLT^TIUSRVD). `CiaClient` and `XwbClient` now frame an Array list
+  key as a multi-level subscript (`[1, 0]` -> `P3(1,0)`). **Signature
+  change.**
+- `Order.result(dfn, order_ien)` — `RESULT(REF,DFN,ORID,ID)^ORWOR`: the
+  patient first, the order IEN as ORID and ID. **Signature change.**
+- `Symptom.search` — `SYMPTOMS(Y,FROM,DIR)^ORWDAL32`: sends DIR `1`.
+- `Vital.template(dfn, visit_string, metric: -1)` —
+  `TEMPLATE(DATA,DFN,VSTR,METRIC)^BEHOVM`: a patient and a visit string, not
+  a location IEN; METRIC as the routine reads it (-1 default units, 0 US,
+  1 metric). **Signature change.**
+- `Patient.brief_header` — the three `BEHO*` frames that died (`DFN`
+  undefined) were not the fetches, which carried the DFN, but the
+  `:patient_chart_banner` capability probe, which called each RPC with no
+  parameters. `ServerCapabilities.register` takes `probe:` parameters per
+  RPC and the banner probe sends DFN `"0"`, which each routine answers
+  empty. The same probe class explains the `ORQQPL DETAIL ... PROBIEN`
+  error logged under `Problem.provider_list` / `lex_search`: the
+  `:orqqpl_problem_workflow` probe called DETAIL bare, and DETAIL has no
+  safe synthetic input, so that feature now probes `ORQQPL INIT PT`
+  (quits on a zero DFN).
+- `BGOPROB GET CLASS` (more actuals than formals) was already unbound on
+  `main`; nothing in the gem sends it.
+
+### Fixed — CIA read_reply correlates a reply to its request by the sequence echo (#289)
+
+`CiaClient#read_reply` accepted any non-empty piece as this request's reply. It
+skipped an EMPTY piece (a late bare EOD), but a NON-EMPTY stale tail — the
+remainder of an earlier reply whose global-array body embedded EOD and was read
+short (#254, measured on BSDX HOSPITAL LOCATION / BMC HEALTH SUMMARY TYPE) —
+was returned as this call's answer, putting the whole session one call late.
+`discard_stale_bytes` drains the socket at one instant before the write; a tail
+still in flight at that instant arrives afterwards, which draining cannot catch.
+
+`read_reply` now matches on the one-byte **sequence echo** that CIANBLIS writes
+ahead of every reply (`W SEQ`, CIANBLIS.m:135). A piece whose first byte is not
+the current `@seq` is a stale tail (its first byte is an earlier reply's data,
+not our echo) and is skipped; once the small read budget is spent with no
+matching piece, it raises `ConnectionError` — fail closed, never hand the caller
+someone else's bytes. A well-formed reply we return then carries a valid ack
+flag — `\x00` DATA (CIANBLIS.m:261) or `\x01` ERROR (:268) — or none at all
+(SNDEOD, :273-275); that shape is enforced by `parse_cia_reply`, which already
+fails closed on anything else, so an echo-matching but malformed frame is
+returned here and refused there rather than silently skipped into a desync.
+
+New `test_an_in_flight_tail_with_a_mismatched_echo_is_not_the_next_reply`
+reproduces the in-flight case: drain, then deliver a non-empty tail from the
+previous reply, and assert the next call does not receive it. With the defect
+reintroduced (accept any non-empty piece) it goes red — request 2 returns
+`"7^CHART REVIEW^^"` instead of its own `"2\x00OK"`.
+
+**Spec amendment — CIA reply fixtures carry a real sequence echo.** Correlation
+by echo requires each canned reply to begin with the echo of the frame it
+answers, advancing with `@seq`. Fixtures that hard-coded a single echo across
+several exchanges (the re-auth and concurrency paths), or carried none at all,
+were artifacts of the echo-blind reader; they are amended to the shape a real
+broker sends, with the rationale recorded in each test. No production behaviour
+rode on the old fixtures — only the test doubles changed.
+
+### Fixed — BEHOENCX FETCH is sent its real signature; both visit layouts match the routine (#211, #213)
+
+- `Encounter.open` sent `BEHOENCX FETCH` the visit IEN as its only
+  parameter. The routine is `FETCH(DATA,DFN,VSTR,PRV,CREATE)`
+  (BEHOENCX.m:32), so the IEN landed in `DFN` and `VSTR` was undefined
+  (`S LOC=+VSTR` at VSTR2VIS+2, BEHOENCX.m:107). `open` now composes the
+  call as the server expects: `GETVISIT(IEN)` → the extended visit string
+  `LOC;VDT;SVC;IEN` from that reply → `FETCH(DFN, VSTR, "", CREATE=0)`.
+  With the IEN in the VSTR, VSTR2VIS resolves the visit directly
+  (BEHOENCX.m:107-111, no 60-minute FNDVIS window) and CREATE=0 can never
+  create one.
+- One mapping per RPC, each in the routine's layout with `routine.m:line`
+  cites. `:encounter_fetch` is now
+  `LOCNAME^LOCABBR^ROOMBED^PROVIEN^PROVNAME^VISITIEN^VISITID^LOCKED^ERRORTXT`
+  (BEHOENCX.m:30-31, built at 41-46): its old piece 4 `:location_ien` was
+  the PROVIDER ien and its piece 7 `:ward` the VISIT ID. The duplicate
+  `:encounter_get_or_create` (same RPC, already in this layout) is gone;
+  `Encounter.create` uses `:encounter_fetch`. `:encounter_visit` is
+  `LOC^VDT^SVC^PAT^VID^LOCKED` (BEHOENCX.m:5,8-15 over LOOKUP^VSIT; #9000010
+  fields .22/.01/.07/.05/15001 per VSITFLD.m:15-33); the `:status` alias on
+  the SERVICE CATEGORY piece and the `:ward` alias on the VISIT ID piece are
+  removed — nothing on either wire is an encounter status or a ward.
+- `open()` keys stay stable for consumers, each from the piece that really
+  carries it: `:location_ien` from GETVISIT's LOC (FETCH has none),
+  `:location`/`:clinic_abbrev`/`:provider` from FETCH's LOCNAME/LOCABBR/
+  PROVNAME, `:status` kept as the same value as the new
+  `:service_category`. New: `:provider_ien`, `:room_bed`, `:visit_id`,
+  `:locked`. Dropped: `:ward` (invented). `open` also returns nil when FETCH
+  answers with its error piece instead of a visit (e.g. VIS2VSTR's "Visit
+  does not belong to current patient", BEHOENCX.m:118).
+- `Encounter.visit_string` takes `visit_ien:` for the extended form.
+- Both RPCs are now in the wire-contract gate with **live captures** from a
+  local YottaDB container of a built 9.0 image (`behoencx-getvisit.yml`,
+  promoted from no-data; `behoencx-fetch.yml`, new, captured with
+  CREATE=0 against the build's own test visit). The gate flagged exactly
+  the positions the issues name (FETCH 3 and 6, GETVISIT 2 and 4) before the
+  mappings were corrected.
+
+### Removed — the `CIAVMRPC GETPAR` session-bootstrap mapping (#239) — **breaking**
+
+`:session_default_source` wrapped `CIAVMRPC GETPAR` to fetch
+`"CIAVM DEFAULT SOURCE"` at cold launch — the VueCentric client's own
+config root, the path the Windows shell loads its component registry from.
+Under ADR 0004 the RPC is tier V, coupling `vuecentric-framework`,
+disposition legacy (disqualifier 2: it reads client session/widget state),
+and it sat in the grandfathered ratchet. A frontend-agnostic consumer has
+no CIAVM config root, so there is nothing for the value to mean; its other
+use — reading site parameters such as `BGO CC PREFIX TEXT` — is site
+configuration for the captured L2/L3 overlay, not an RPC round-trip. No
+caller in this gem or in the consuming app read anything but the CIAVM
+parameter, so the mapping is deleted rather than narrowed.
+
+- `DataMapper[:session_default_source]` is gone; so is
+  `Session::DEFAULT_SOURCE_PARAM`.
+- `Session.bootstrap` no longer calls `CIAVMRPC GETPAR` and its result has
+  no `:config_root` key; `:registry`, `:vim_info` and `:default_site_ien`
+  are unchanged.
+- The `"CIAVMRPC GETPAR"` entry leaves `data/rpc_tiers/grandfathered.yml`
+  (the ratchet failed until it did), and `docs/RPC_COVERAGE.md` no longer
+  counts a `CIAVMRPC` wrapper.
+
+A consumer that seeded `:session_default_source` in its tests drops that
+seed; one that read `bootstrap(...)[:config_root]` has no replacement,
+because the value belongs to the legacy client.
+
+### Fixed — Referral, Scheduling and BehavioralHealth bind their package option (#258)
+
+RPC registration is OPTION-scoped: the broker answers "may this session run
+this RPC?" from the RPC multiple of the option bound right now. On a built
+9.0 image the RPCs these three APIs call are each listed under ONE file-19
+option and under none of the options a signed-on session is otherwise
+holding (not `CIAV VUECENTRIC`, which CIA sign-on binds since #257, and not
+`OR CPRS GUI CHART`):
+
+- the 21 `BMC *` names `RpmsRpc::Referral` calls — in `BMCRPC` only
+  (22 entries, the other being `ORWDXIHS CLININD`); `BMCRPC DELREFRL` behind
+  `Referral.delete` is registered in no option at all (#207) and the bind
+  cannot help it;
+- the 9 `BSDX *` names `RpmsRpc::Scheduling` calls — in `BSDXRPC` only
+  (69 entries);
+- the 40 `AMHG *` names `RpmsRpc::BehavioralHealth` and its clusters call —
+  in `AMHGRPC` only (223 entries).
+
+A user without `XUPROGMODE` was therefore denied every `BMC *`/`BSDX *` call
+and left waiting on every `AMHG *` call. Each API now scopes its calls to
+its option the way `RpmsRpc::Agg` scopes `AGGRPC`: bind, run, restore the
+caller's option (`ContextScope.scoped`, new; a client that cannot scope
+contexts runs as-is). `Referral` runs its `:bmc_referral_workflow`
+capability probe inside the same scope, since `BMC GET REFERENCE DATA` is in
+that multiple too. `BehavioralHealth::CONTEXT` lives in `wire.rb`, where
+`Wire#call_amhg` — the one seam every AMHG call passes through — binds it.
+
+Proven at the unit level only: a programmer-key session bypasses the context
+check on both broker lines, so the issue's acceptance (a non-programmer run)
+remains open.
+
+### Fixed — AGG registration sends tribe, classification, eligibility and community through AG's own window (#297)
+
+`Registration.register` documents `tribe:`, `classification:`,
+`eligibility_status:` and `community:`, and on every RPMS stack (where
+`Agg.available?`) it dropped all four: the create went through the "Mini
+Registration" window, which has no parameter for them, and answered
+`{ success: true }`.
+
+The create now goes through **"New Patient"**, the window AG registers a new
+patient through, which carries them as `AGGPTTRI`, `AGGPTCLB`, `AGGPTELG`,
+and `AGGPTCOM` + `AGGPTCDT`. AG files them with the rest of the registration;
+nothing is filed around AG. The window's 28 parameters are committed as
+`test/fixtures/agg/new_patient_window.tsv` (read from `^AGG(9009068.3,28,10)`
+on bcer-9.0-20260905-ydb), and a test fails if the create sends a name the
+window does not define.
+
+- Community on this path is AG's shape: `community_ien:` (COMMUNITY
+  #9999999.05) with `community_since:` (the date moved). AG files the pointer
+  (1117) and a dated history entry (#9000001.51) and derives the text (1118).
+  One without the other raises `ArgumentError`. `community_since: :birth`
+  (or `"B"`) is sent as the date of birth, and a value that is not a date
+  raises: sent as `B`, AG answers success and files no community history.
+- A value AG's window has no parameter for is not sent and is named in the
+  result: `unfiled: [:community]` for free-text `community:` with no
+  `community_ien:`, `unfiled: [:extra_fields]` for the composition path's
+  escape hatch.
+- The HRN update still uses "Mini Registration", where it was captured (#214).
+
+Proven live on the 0905 image as a programmer-key user (a create with the
+five parameters filed 1108, 1111, 1112, 1117, the #9000001.51 entry and
+1118). Not yet proven as a least-privilege registration clerk.
+
+### Fixed — disconnect ends the CIA session the way the broker expects (#192)
+
+`CiaClient#disconnect` closed the TCP socket without sending the `{CIA}` quit
+action. The single-session listener (CIANBLIS) does not notice a vanished peer
+at EOF — only on its retry bound — so it sat draining a dead socket while the
+next connection waited, measured at ~45 s per orphaned close against a built 9.0
+YottaDB image. `disconnect` now sends the broker's disconnect action before
+closing:
+
+- The action is `"D"`. `DOACTION^CIANBLIS` takes the action from frame header
+  byte 8 (`ACT=$E(X,8)`, CIANBLIS.m:128) and dispatches
+  `D @("ACT"_ACT_"^CIANBACT")` (CIANBLIS.m:139). `ACTD^CIANBACT`
+  (CIANBACT.m:24-27) runs `RESET^CIANBRPC()` — the session logout/cleanup — then
+  sets `CIADATA=1` and `CIAQUIT=1`. `CIAQUIT` makes the listener's `QUIT()`
+  return true (CIANBLIS.m:151-152), so the loop ends and `TCPCLOSE` runs
+  (CIANBLIS.m:114-117) instead of the retry drain. The broker replies to ACTD
+  (`CIADATA=1` -> `REPLY`, CIANBLIS.m:142-143) and then closes.
+- `RESET^CIANBRPC` quits unless `CIA("UID")` is set (CIANBRPC.m:102), and
+  `DOACTION` only populates `CIA("UID")` from a `UID` field on the frame, so the
+  quit frame carries the session UID exactly as an RPC frame does — otherwise the
+  socket closes but the session's locks and `^XTMP` state never release.
+- The close can win the race (CIAQUIT drops the socket the instant ACTD
+  returns), so a peer-closed read or a broken-pipe write during the quit is the
+  expected outcome of a clean disconnect, not an error, and is swallowed;
+  `reset_connection` tears our side down regardless. A `disconnect` on a client
+  that never connected still sends nothing.
+
+Point 2 of #192 (`authenticate` returning `duz: nil`) was already resolved on
+`main`: sign-on reads identity with `CIAVCXUS VIMINFO`, not `CIANBRPC GETVAR
+"DUZ"`. `GETVAR^CIANBRPC` forces an empty or zero namespace to `"@"`
+(`S:0[$G(NMSP) NMSP="@"`, CIANBRPC.m:187), while the sign-on DUZ is stored under
+namespace `0` (RESET^CIANBRPC's ENVDATA loop), so that RPC can only ever return
+`"DUZ="` with no digits — no regex could have matched it. The routine's output
+shape is pinned by the `GETVAR_NO_DUZ_REAL` regression fixture. Point 3 (the
+one-byte sequence echo in replies) is addressed in #289.
 
 ### Added — the gate can see line-based mappings at all (#190)
 

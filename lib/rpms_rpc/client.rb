@@ -446,11 +446,17 @@ module RpmsRpc
       @capability_cache = nil
       @host = host
       @port = port
-      @socket = TCPSocket.new(host, port)
+      @socket = connect_tcp(host, port)
       @socket.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1)
     rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT, Errno::EHOSTUNREACH, Socket::ResolutionError => e
       @connected = false
       raise ConnectionError, "Failed to connect to #{host}:#{port} - #{e.message}"
+    end
+
+    # The TCP connection itself, apart so a test can inject a failure by
+    # overriding it in a subclass (no stubbing of TCPSocket).
+    def connect_tcp(host, port)
+      TCPSocket.new(host, port)
     end
 
     # Send raw bytes to the broker
@@ -568,7 +574,11 @@ module RpmsRpc
       return if response.nil? || response.empty?
 
       clean = response.sub(/\A\x18/, "").strip.gsub(/\x00+$/, "")
-      if clean.match?(/\A(?:M  ERROR|E?Remote Procedure '.*' doesn't exist|E?Remote Procedure '.*' not found)/i)
+      # "M  ERROR" is the XWB/Kernel %ZTER frame (two spaces); BMXMON's ETRAP
+      # writes "M ERROR=" with ONE space (BMXMON.m ETRAP/CONNERR) and it arrives
+      # as DATA (sec/app packet lengths both 0), so allow one OR two spaces or
+      # the error would read as a successful reply (rpms-rpc#282).
+      if clean.match?(/\A(?:M {1,2}ERROR|E?Remote Procedure '.*' doesn't exist|E?Remote Procedure '.*' not found)/i)
         raise RpcError, clean
       end
     end

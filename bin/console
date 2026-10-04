@@ -28,7 +28,6 @@
 
 $LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
 
-require "irb"
 require "rpms_rpc/broker_factory"
 
 module RpmsRpc
@@ -122,6 +121,10 @@ banner = "rpms-rpc console — #{ENV['BROKER']} #{ENV['BROKER_HOST']}:#{ENV['BRO
          "#{ENV['RPMS_CONTEXT'].to_s.strip.empty? ? '' : " · ctx #{ENV['RPMS_CONTEXT']}"}"
 puts banner
 puts "helpers: rpc \"NAME\", *params · ctx [\"OPTION\"] · reconnect · client"
+
+# irb is a bundled gem since Ruby 4.0 (the Gemfile declares it); loaded only once the
+# environment checks pass, so a refusal never depends on it.
+require "irb"
 
 # Mix the helpers into IRB's top-level so they are callable bare at the prompt.
 IRB.setup(nil)
