@@ -196,7 +196,8 @@ IHS clusters (second PR):
   raises `Client::RpcError`. Proved live by
   `test/live/referral_cancel_live_test.rb`, which cancels a referral on a
   disposable container, reads the status back and files it active again.
-- `RpmsRpc::Eligibility` (`for_patient`, `codes`): BIPC ELIGGET / ELIGLIST.
+- BIPC ELIGGET / ELIGLIST. `RpmsRpc::Eligibility` (`for_patient`, `codes`)
+  is kept, rebuilt on BGOVIMM GETVFC / BGOVIMM2 GETELIG (see "Kept" below).
 - `RpmsRpc::VaccineLot` (`for_facility`, `find`): BIPC LOTLIST / LOTGET.
 - `RpmsRpc::Immunization.for_patient` and `.find`: BIPC IMMLIST / IMMGET.
   `Immunization.text_summary` (BEHOCIR GETTXT) stays. No BIPC RPC is
@@ -247,6 +248,14 @@ and the provider persona:
 - `RpmsRpc::Authentication.user_security_keys(duz)` → `[key names]`: kept,
   rebuilt on DDR LISTER over the user's KEYS multiple (#200 field 51,
   subfile 200.051; .01 KEY points to #19.1), in CIAV VUECENTRIC.
+
+- `RpmsRpc::Eligibility.codes` → `[{code:, label:}]` and
+  `.for_patient(dfn)` → `{code:, label:}`: kept, rebuilt on BGOVIMM2
+  GETELIG (active rows of #9002084.83) and BGOVIMM GETVFC, the reads of
+  VueCentric's immunization component, in CIAV VUECENTRIC. GETVFC answers a
+  default LABEL ("Am Indian/AK Native" for beneficiary type 1 at an IHS
+  site), which `for_patient` resolves to its code; any other default is
+  `NIL_ELIGIBILITY`.
 
 ### Added — transport security: the broker connection is plaintext, and how to wrap it (#113)
 
