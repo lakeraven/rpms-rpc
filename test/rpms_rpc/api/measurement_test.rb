@@ -18,7 +18,6 @@ class MeasurementTest < Minitest::Test
       @calls = []
     end
 
-    def supports?(*) = true
 
     def call_rpc(rpc_name, *params)
       @calls << { rpc: rpc_name, params: params }
@@ -87,7 +86,6 @@ class MeasurementTest < Minitest::Test
 
   def test_add_nil_broker_response_does_not_raise
     client = Object.new
-    def client.supports?(*) = true
     def client.call_rpc(*) = nil
     RpmsRpc.reset!
     RpmsRpc.configure { |cfg| cfg.client = client }
@@ -98,7 +96,6 @@ class MeasurementTest < Minitest::Test
 
   def test_add_garbage_array_response_does_not_raise
     client = Object.new
-    def client.supports?(*) = true
     def client.call_rpc(*) = [ "unexpected", "lines" ]
     RpmsRpc.reset!
     RpmsRpc.configure { |cfg| cfg.client = client }

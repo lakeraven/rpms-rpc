@@ -61,7 +61,7 @@ All adapters emit the **same** `Fingerprint`, tagged with backend + access metho
 ## Fingerprint schema (committed YAML)
 
 ```yaml
-backend: iris_rpms          # iris_rpms | yottadb_vista | worldvista
+backend: iris_rpms          # iris_rpms | yottadb_rpms | yottadb_vista | worldvista
 lineage: rpms               # rpms | vista | worldvista
 release: null               # set on reference fingerprints (e.g. bcer-8.0); null on probed targets
 source:
@@ -69,8 +69,10 @@ source:
   captured_at: "2026-06-07"
   note: "file 8994 export from staging"
 rpcs:                       # PROVISIONS — the RPC registry
-  "XWB ECHO STRING": { tag: ECHO1, routine: XWBZ1, return_type: P }
-  "DDR LISTER":      { tag: LISTC, routine: DDR,   return_type: R }
+  # from the #8994 0-node: .02 TAG, .03 ROUTINE, .04 RETURN VALUE TYPE (1-5),
+  # .05 AVAILABILITY (P/S/A/R), .06 INACTIVE (kept only when not 0)
+  "XWB ECHO STRING": { tag: ECHO1, routine: XWBZ1, return_type: "1", availability: P }
+  "DDR LISTER":      { tag: LISTC, routine: DDR,   return_type: "4", availability: R }
 packages: {}                # #9.4 — { "PHARMACY": "7.0" }  (ingest PACKAGES=packages_9_4.txt)
 patches: []                 # #9.7 — ["APSP*1.0*70", ...]   (empty until captured)
 bmw_tables: {}              # optional IRIS face — { "BMW.PATIENT": [col, col] }
@@ -84,7 +86,6 @@ per rung (follow-up: emitted by rpms-ops at release-cut, pinned here).
 Requirements are declared symbolically and resolve to a set of RPC names (and,
 later, packages/patches/BMW tables). Sources:
 
-- `ServerCapabilities::FEATURE_RPCS` — existing symbolic feature → RPC map.
 - `mappings.rb` — every `DataMapper` declares an `m.rpc`.
 - Client capability manifests (factory plan) — the per-client requirement set.
 

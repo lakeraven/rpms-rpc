@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `rake rpc:api_coverage`: public methods proven by a live spec (#358)
+
+- Lists every public method of the API modules with the RPCs it sends (resolved statically
+  through DataMapper mappings and `call_rpc*` literals and constants), whether each is on the
+  pinned registry, and the live specs that call it. A method no live spec calls is reported as
+  not in the contract (ADR 0010, assertion 2).
+- Prints methods proven / public methods, per module, and writes `coverage/api/methods.json`
+  (`OUT=` to override); the schema is in the README. On main today: 50 / 256.
+
 ### Changed — Ruby 4.0 readiness (#47)
 
 - CI runs the suite on Ruby 3.4 and 4.0.
@@ -90,6 +99,293 @@ formals; before, every one was a placeholder that shifted or dropped fields.
 - `Order.sheets_for_patient` — `SHEETS(LST,ORVP)^ORWOR` rows `TYPE;ID^label`
   (ORWOR.m:97-105) keep `sheet_id` whole and add `event_type`, `event_ref`,
   `label`.
+- `test/live/order_live_test.rb` proves the five reads against the pinned
+  build (AGET's header per filter id, rows checked against file 100, the
+  EXPIRED arithmetic against the server's NOW, the sheets every patient has,
+  the no-results report). The fabricated-reply cases in `order_test.rb` are
+  gone. Row-layout specs wait on an order in the demo data (#391).
+
+### Added — the gem conforms to a pinned rpms-ops build's RPC signature (#222, #160)
+
+- `rake conformance:pin RELEASE=<tag>` pins the RPC signature rpms-ops publishes on a
+  release: the `#8994` + `#9.4` inventory and the build record. It checks every file against
+  the release's asset digest, the sidecar, the artifact binding, and that the build record's
+  commit is the one the tag names. It commits the five files unchanged under
+  `data/inventories/<tag>/`, derives `data/fingerprints/references/<tag>.yml`, and records
+  tag, RPMS version, engine, build commit and sha256s in `data/fingerprints/rpms-ops.lock.yml`.
+  Pinned: `bcer-9.0-20260930-8c88e47-ydb` (the first real reference fingerprint).
+- `test/rpms_rpc/registered_rpc_names_test.rb` reads the pinned build. A name the gem uses
+  fails when it is not registered there, has no entry point, or is INACTIVE for local use.
+- `test/rpms_rpc/pinned_build_signature_test.rb` fails when the lock does not name the
+  build, when the committed signature or the fingerprint drifts from the lock, or when a
+  wire fixture cites a different entry point from the one the build registers for its RPC.
+- `rake conformance:ingest` reads the `#8994` 0-node by its DD: field 4 is RETURN VALUE TYPE
+  and field 5 AVAILABILITY. Before this, AVAILABILITY was stored as `return_type`.
+
+### Removed — `data/rpc_coverage/registry/` (#222)
+
+- The names-only copies of the 0913 registry and package list. `rake rpc:coverage` reads the
+  pinned signature (`release:` in `data/rpc_coverage/config.yml`). The 0930 `#8994` dump is
+  byte-identical to 0913's (same sha256), so the coverage number does not move.
+
+### Changed — BREAKING: a missing RPC raises a typed error instead of answering empty (#363)
+
+- No API method checks whether the server serves its RPC before calling it.
+  The guards that answered `[]`, `nil` or a canned
+  `{ success: false, error: "... not available on this server" }` hash are
+  gone from `Patient.brief_header` (which also stops rescuing a
+  "doesn't exist" error into `nil`), the ten ORQQPL methods on `Problem`
+  (`lex_search`, `clinic_search`, `details`, `audit_history`, `comments`,
+  `init_patient`, `provider_list`, `edit_load`, `inactivate`, `verify`) and
+  the eighteen BMC methods on `Referral`. Each now sends its RPC and raises
+  when the server will not run it. A host that read empty as "feature
+  absent" must rescue the error instead.
+- New `Client::RpcNotAvailableError < RpcError`: the server does not serve
+  the RPC (no #8994 entry, or inactive). New `Client::RpcRefusedError <
+  RpcError`: the RPC is served, but not to this user in the bound context
+  option. Any other broker error is still a plain `RpcError` (chiefly an M
+  error from a routine that ran). CIA (error 3 / error 4), XWB and BMX raise
+  the same class for the same case.
+- XWB reads the SNDERR header by its length bytes. A refusal used to be
+  recognised only when its length byte happened to be absent or `E`, so most
+  "doesn't exist" refusals and every "not registered to the option" refusal
+  came back as reply data.
+- BMX raises `RpcNotAvailableError` / `RpcRefusedError` for a refusal in the
+  security packet, where it raised `ConnectionError`.
+
+### Removed — BREAKING: capability probes (#363)
+
+- `RpmsRpc::ServerCapabilities` (its feature registry, `register`, `probe`
+  and the `server_capabilities/` files), `Client#supports?` and
+  `MockClient#supports?` / `MockClient#seed_capability`. A host that passes
+  `supports?` through a wrapping broker (for example in a PASSTHROUGH list of
+  delegated client methods) must drop it.
+- `rake rpc:coverage` no longer reads capability-probe `register([...])`
+  lists, since there are none.
+
+### Added — `Authentication.held_keys(names)`, through CIAVCXUS HASKEYS (#318)
+
+The registered way to ask which of several named security keys the
+signed-on user holds, replacing the removed `user_security_keys`. One
+`CIAVCXUS HASKEYS` call (HASKEYS^CIAVCXUS, CIAVCXUS.m:14-18: the names
+joined with `^`, one 0/1 piece per name), in `CIAV VUECENTRIC`, so a
+least-privilege CIA user can ask. Returns the names held, in the order
+asked; `nil` when the broker refuses or the reply does not answer every
+name, so a consumer can tell "holds none" (`[]`) from "could not ask"
+(`nil`); `[]` without a call for an empty list. Names containing `^` or
+beginning with `@` (a parameter, not a key, CIAVCXUS.m:11) raise
+`ArgumentError` before anything is sent.
+
+### Changed (breaking): reminders come from the reminder engine, not the triage summary (#238)
+
+- `RpmsRpc::Reminders.for_visit(dfn, visit_ien)` is removed.
+  It read `BGOTRG GETSUM`, the triage summary.
+  `GETSUM^BGOTRG` renders chief complaint, vitals, reproductive history, pregnancy, immunizations, skin tests, education, exams, health factors, procedures and orders (`BGOTRG.m:27-158`).
+  It never reads a reminder, so the `id^name^status^priority^due` the mapping took from it did not exist on the wire.
+  The `:reminder_summary` mapping is gone, and so is its `data/rpc_tiers/grandfathered.yml` entry.
+- `RpmsRpc::Reminders.applicable(dfn, location_ien = nil)` replaces it.
+  It reads `ORQQPXRM REMINDERS APPLICABLE`, the method RPMS has in place for this question.
+  The call goes `APPL^ORQQPXRM` (`ORQQPXRM.m:10-11`) to `EVALCOVR^ORQQPX` (`ORQQPX.m:232-236`), which evaluates the cover-sheet reminder list through `AVAL^PXRMRPCA` (`PXRMRPCA.m:49-82`).
+  The new mapping `:reminders_applicable` declares that row as the routine builds it (`PXRMRPCA.m:76,80`).
+  Each row is a hash:
+  - `id` and `name`
+  - `due_flag` and `status`. Status is derived from the flag: 0 `:applicable`, 1 `:due`, 2 `:not_applicable`, 3 `:error`, 4 `:cannot_be_determined`.
+  - `due_date`: a `Date` only when RPMS sent a FileMan date.
+  - `due_now`: `true` when RPMS sent the literal `DUE NOW`.
+  - `last_done`, `priority` and `has_dialog`.
+
+  Not-applicable rows are returned, as RPMS returns them.
+  The status vocabulary changed: `:satisfied` is gone, and `:not_applicable`, `:error` and `:cannot_be_determined` are new.
+- RPMS keys this read by patient and hospital location (#44), not by visit.
+  **lakeraven-ehr must move its caller.**
+  - `app/gateways/lakeraven/ehr/reminders_gateway.rb:10-12` calls `via.for_visit(dfn, visit_ien)`.
+  - `app/services/lakeraven/ehr/encounter_lifecycle_service.rb:68` calls the gateway the same way.
+
+  Both should call `RpmsRpc::Reminders.applicable(dfn, location_ien)`.
+  The encounter's location is already available from `RpmsRpc::Encounter.open(dfn, visit_ien)[:location_ien]`.
+  The stubs in `features/step_definitions/encounter_lifecycle_steps.rb:37` and `test/gateways/lakeraven/ehr/reminders_gateway_test.rb:25,32` follow.
+- Formatted vitals were never a reminder concern.
+  Value, unit and timestamp as separate fields come from `RpmsRpc::Measurement.for_visit` / `.latest`.
+- The mapping is unverified under ADR 0003 sections 2 and 5.
+  Its wire fixture (`test/fixtures/wire_captures/orqqpxrm-reminders-applicable.yml`) is a `routine-cite`, and the live capture is still owed.
+
+### Removed — BREAKING: 77 RPC names no built image registers, with the API that sent them (#207, #295)
+
+A name is only real if a built baseline registers it. 77 of the names the
+gem used (268 declared) are in `#8994 REMOTE PROCEDURE` on neither a built
+9.0 YottaDB image nor a built 9.0 IRIS image, and 75 of them appear nowhere
+in the FOIA source either: they were written from belief, and every one
+that was sent live answered `Unknown remote procedure`. They are gone,
+together with every API method, capability probe, mapping, fixture and test
+that existed only to send them. Nothing was repointed: no registered RPC
+had its wire shape evidenced in the repo as the replacement, and the
+default for an invented name is deletion, not a guess at its real twin.
+
+`test/rpms_rpc/registered_rpc_names_test.rb` now fails when any name the
+gem uses is on no pinned registry (now the pinned rpms-ops build signature, #222), and
+`rake rpc:coverage`'s `max_unregistered` ratchet is 0. To add an RPC: pin
+its registry capture first, then map it (ADR 0003).
+
+Stock-VistA clusters (first PR):
+
+- `RpmsRpc::Communication` — the whole module (`find`, `for_patient`,
+  `search`, `send_message`, `reply_to_message`, `get_thread`, `for_user`,
+  `get_alerts`, `alert_count`, `mark_alert_read`, `forward_alert`): XM GET
+  MESSAGE / MESSAGES / THREAD / INBOX, XM SEND / REPLY MESSAGE, XQAL NEW
+  ALERTS / MARK READ / FORWARD. No mail RPC surface is registered at all;
+  the registered alert read is XQAL GUI ALERTS.
+- `RpmsRpc::CarePlan`, `RpmsRpc::CareTeam`, `RpmsRpc::Goal` (`for_patient`,
+  `find`): ORQQCP / ORQQCT / ORQQGO LIST and GET — namespaces CPRS does not
+  have.
+- `RpmsRpc::Lab` (`for_patient`, `abnormal`, `reports`, `find`,
+  `build_list_param`): ORWLRR RESULT LIST / REPORT LIST / REPORT. The
+  registered ORWLRR reads are INTERIM / ATOMICS / CHART / GRID / ....
+- `RpmsRpc::Radiology` (`for_patient`, `find`): ORWRA REPORT LIST / REPORT.
+  The registered reads are ORWRA REPORT TEXT / REPORT TEXT1 and ORWRA
+  IMAGING EXAMS / EXAMS1 (`Image.exams_for_patient` keeps the latter).
+- `RpmsRpc::Device` (`for_patient`, `find`): ORWPCE IMPLANT LIST / GET.
+- `RpmsRpc::Procedure.for_patient`: ORWPCE PROCEDURE LIST (the unused
+  ORWPCE PROCEDURE GET mapping with it). `Procedure.add` (BGOVCPT SET) stays.
+  **Kept, rebuilt on BGOVCPT GET** (GET^BGOVCPT, the V CPT read VueCentric's
+  procedure component uses): same call, `for_patient(dfn)` still returns a
+  list of hashes with `:ien`, `:name`, `:date` and `:provider`. The field map
+  changes: `:ien` is the V CPT IEN, `:name` the provider narrative, `:date`
+  the visit date, `:provider` a name; added `:cpt_code`, `:cpt_name`,
+  `:visit_ien`, `:quantity`, `:diagnosis`, `:modifier_1`/`:modifier_2`,
+  `:facility`. V CPT has no status, so `:status` is gone. Proved live by
+  `test/live/procedure_live_test.rb` against a V CPT entry on the 0930 build.
+- `RpmsRpc::Eprescribing` (`transmit`, `status`, `cancel`,
+  `build_rx_param`): PSO NEW RX / ERX STATUS / CANCEL RX. No PSO RPC is
+  registered on either image.
+- `RpmsRpc::HealthSummary.types` and `.type_components` (ORWRP TYPES / TYPE
+  COMPONENTS), `.personal_wellness_report`, `.flowsheet_definitions`,
+  `.flowsheet`, `.health_maintenance` (GMTS PWH REPORT / FLOWSHEET LIST /
+  FLOWSHEET DATA / MAINT ITEMS). `for_patient(summary_type:)` now resolves
+  the type against the static `DEFAULT_TYPES` list — which is what every
+  real server already got, since the probe never found ORWRP TYPES. The
+  registered health-summary surface is ORWRP2 HS *.
+- ORWU USERKEYS. `RpmsRpc::Authentication.user_security_keys` is kept,
+  rebuilt on DDR LISTER (see "Kept" below).
+- `RpmsRpc::UserManagement.grant_key`, `.revoke_key`, `.list_all_keys`
+  (XU KEY GRANT / REVOKE / LIST); `UserManagement.find` no longer returns a
+  `:security_keys` entry (it came from ORWU USERKEYS).
+- Mappings with no caller: `:patient_recent` / `:patient_save_recent`
+  (ORWPT LIST RECENT / SAVE RECENT).
+- `ServerCapabilities` features `:user_security_keys_list`,
+  `:health_summary_gmts`, `:xu_key_admin`, `:pso_prescription_orders`,
+  `:xqal_alert_actions`, `:orwlrr_lab_reports`, `:orwra_radiology_reports`,
+  `:orwpce_clinical_logs`, `:orwrp_report_types` — all probed removed names.
+- `MockClient#seed_user` no longer takes `security_keys:` (it seeded ORWU
+  USERKEYS).
+
+IHS clusters (second PR):
+
+- `RpmsRpc::ChsBudget` — the whole module (`fiscal_year_budget`,
+  `remaining_funds`, `quarterly_allocation`, `obligations`, `find`,
+  `by_referral`, `payments`, `outstanding_obligations`, `obligation_summary`,
+  `budget_summary`, `low_funds?`, `current_fiscal_year`, `current_quarter`):
+  BMCRPC GTBUDGET / GTREMAIN / GTQTRALLOC / GTOBLIG / GTOBLIGID / GTREFOBLIG
+  / GTPAYMENT. The names were built from RCIS's routine prefix; the real
+  RCIS surface is BMC *, 20 of which the gem keeps (BMC ADD SECONDARY
+  REFERRAL is dropped below).
+- `RpmsRpc::Vendor` (`search`, `find`, `preferred`, `for_service`,
+  `contracts`, `active_contract`, `rates`, `active?`): BMCRPC SRCHVEND /
+  GTVEND / GTPREFVEND / GTCONTRACT / GTRATES.
+- `RpmsRpc::RcisSiteParams.for_facility`: BMCRPC GTSITPRM.
+- `RpmsRpc::Referral.delete`: BMCRPC DELREFRL. **Added `Referral.cancel(ien)`;
+  replaces `Referral.delete`.** RCIS has no delete; the real verb is a status
+  change. `cancel` files STATUS OF REFERRAL (90001, .15) as `X`
+  (CLOSED-NOT COMPLETED, which RCIS's reports treat as cancelled) through
+  BMC REFERRAL STATUS UPDATE (UPDTSTRF^BMCRPC3), under the BMCRPC option.
+  It takes no `reason:`, because the routine files no reason. It returns
+  `{ success:, message:, raw: }`. On builds without rpms-ops#702 a refusal
+  raises `Client::RpcError`. Proved live by
+  `test/live/referral_cancel_live_test.rb`, which cancels a referral on a
+  disposable container, reads the status back and files it active again.
+- BIPC ELIGGET / ELIGLIST. `RpmsRpc::Eligibility` (`for_patient`, `codes`)
+  is kept, rebuilt on BGOVIMM GETVFC / BGOVIMM2 GETELIG (see "Kept" below).
+- `RpmsRpc::VaccineLot` (`for_facility`, `find`): BIPC LOTLIST / LOTGET.
+- `RpmsRpc::Immunization.for_patient` and `.find`: BIPC IMMLIST / IMMGET.
+  `Immunization.text_summary` (BEHOCIR GETTXT) stays. No BIPC RPC is
+  registered; the registered immunization surface is BGOVIMM* and BYIM *.
+  **Kept, rebuilt on BGOVIMM GET** (GET^BGOVIMM5, the immunization history
+  VueCentric's immunization component reads): same calls, `for_patient(dfn)`
+  returns a list and `find(ien)` one dose or nil, with the removed read's
+  keys. `find` asks FileMan (DDR GETS ENTRY DATA, file 9000010.11) which
+  patient a dose belongs to and filters that patient's read. Changed: the
+  routine returns no CVX, status, expiration date, route, dose unit, VFC
+  eligibility code or funding source, so `:vaccine_code`, `:status`,
+  `:expiration_date`, `:route`, `:dose_unit`, `:vfc_eligibility_code` and
+  `:funding_source` are no longer returned. A key with no value is left out.
+  `:vaccine_display` is the vaccine's full name, and `:occurrence_datetime`
+  is the event date. Proved live by `test/live/immunization_live_test.rb`
+  against the V IMMUNIZATION entries on the 0930 build.
+- `RpmsRpc::ImmunizationExchange` — the whole module (`send_immunizations`,
+  `submit_query`, `for_patient`, `retrieve_response`, `process_responses`,
+  `check_status`): BYIMRT VXU / VXQ / RSP / STATUS. VXQ / VXU / RSP are
+  entry points in the routine, registered as RPCs nowhere; the registered
+  exchange RPCs are BYIM SEND IMMS TO SIIS / QUERY SIIS / DISPLAY IMM AND
+  FORECAST.
+- `RpmsRpc::Phr.patient_direct_address`, `.provider_direct_address`,
+  `.facility_direct_domain`, `.record_access`: BPHR PATIENT / PROVIDER /
+  FACILITY DIRECT, BPHR RECORD ACCESS. No BPHR RPC is registered.
+- BHDO HOSP LOC DATA, an invented namespace. `RpmsRpc::Location.find` is
+  kept, rebuilt on DDR GETS ENTRY DATA over #44 (see "Kept" below).
+- BHDO INST DATA, the same invented namespace. `RpmsRpc::Organization.find`
+  is kept, rebuilt on DDR GETS ENTRY DATA over #4 (see "Kept" below).
+- `RpmsRpc::Capabilities.imaging_user?` and `.clear_imaging_cache!`:
+  MAGGUSERKEYS. The registered imaging key check is MAGGDUZKEY.
+- `RpmsRpc::Image.launch_token` (and `Image::DEFAULT_TTL_SECONDS`): MAGG
+  IMAGE LAUNCH TOKEN.
+- `RpmsRpc::Notifications.mark_read`: BQI MARK ALERT READ. The registered
+  acknowledgement verbs are BQI SET COMM ALERTS * and BQI UPDATE
+  NOTIFICATION STATUS.
+- Mappings with no caller: `:section_data` / `:section_save` /
+  `:section_definition` / `:patient_lock` / `:patient_unlock` (BEHOENCX GET
+  SECTION / SAVE SECTION / GET SECDEF / LOCK / UNLOCK — the routine is real,
+  these tags are not).
+- `ServerCapabilities` feature `:bphr_phr_endpoints`.
+- `RpmsRpc::Referral.add_secondary`: BMC ADD SECONDARY REFERRAL. Registered,
+  but not callable on any built image: #8994 points it at SETSCNRF^BMCRPC2,
+  and the tag lives in BMCRPC4 (FOIA BMCRPC4.m:144), so the broker finds no
+  entry point (rpms-ops#653). The registered-names gate cannot see this;
+  the 0921 RPC atlas classifies it `no-entry-point`. It comes back when the
+  build registers it where the routine is.
+
+The hand-authored `data/fingerprints/references/bcer-8.0.yml` seed no
+longer lists these names as "gem-required RPCs the staging dump lacks":
+they were never capability gaps, only invented mappings.
+
+### Kept — rebuilt on the registered RPC (#207)
+
+Methods the host application calls whose invented RPC was removed above are
+kept with the same name, arguments and return shape, rebuilt on the RPC the
+built image really registers, and proven by a live spec as the programmer
+and the provider persona:
+
+- `RpmsRpc::Location.find(ien)` → `{ien:, name:, abbreviation:, type:,
+  division:}`: kept, rebuilt on DDR GETS ENTRY DATA over HOSPITAL LOCATION
+  #44 (.01, 1, 2, 3.5), in CIAV VUECENTRIC. `type` and `division` are the
+  external forms ("CLINIC", the division's name). BEHOENCX LOCINFO is not
+  usable: it M-errors (an extrinsic `QUIT` under `DO`).
+
+- `RpmsRpc::Authentication.user_security_keys(duz)` → `[key names]`: kept,
+  rebuilt on DDR LISTER over the user's KEYS multiple (#200 field 51,
+  subfile 200.051; .01 KEY points to #19.1), in CIAV VUECENTRIC.
+
+- `RpmsRpc::Eligibility.codes` → `[{code:, label:}]` and
+  `.for_patient(dfn)` → `{code:, label:}`: kept, rebuilt on BGOVIMM2
+  GETELIG (active rows of #9002084.83) and BGOVIMM GETVFC, the reads of
+  VueCentric's immunization component, in CIAV VUECENTRIC. GETVFC answers a
+  default LABEL ("Am Indian/AK Native" for beneficiary type 1 at an IHS
+  site), which `for_patient` resolves to its code; any other default is
+  `NIL_ELIGIBILITY`.
+
+- `RpmsRpc::Organization.find(ien)` → `{ien:, name:, station_number:,
+  address:, city:, state:, zip_code:, phone:}`: kept, rebuilt on DDR GETS
+  ENTRY DATA over INSTITUTION #4 (.01, 99, 1.01, 1.02, 1.03, .02, 1.04), in
+  CIAV VUECENTRIC. `state` is the state's name (the external form of the
+  pointer to #5). `phone` is always nil: file #4 has no phone field.
 
 ### Added — transport security: the broker connection is plaintext, and how to wrap it (#113)
 

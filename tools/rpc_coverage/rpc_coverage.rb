@@ -6,7 +6,7 @@ require "yaml"
 # RPC coverage: how much of ONE backend's registered RPC surface rpms-rpc has shown working
 # against that backend (rpms-rpc#270). Offline; `rake rpc:coverage` drives it.
 #
-#   denominator  every #8994 NAME in the pinned registry (data/rpc_coverage/registry/<tag>.txt),
+#   denominator  every #8994 NAME on the pinned build (data/inventories/<tag>/<tag>-broker_8994.txt),
 #                minus the names data/rpc_coverage/exclusions.yml excludes with a reason
 #   covered      registered, not excluded, and a live run against the backend
 #                (rpc-coverage/live/<backend>.json in rpms-diffs, written by `rake rpc:live`) got an answer
@@ -61,9 +61,10 @@ module RpcCoverage
     File.readlines(path, chomp: true).each do |l|
       next if l.strip.empty?
 
-      l.start_with?("#") ? header << l : names << l
+      # An rpms-ops broker dump has one #8994 0-node per line, NAME first (#222).
+      l.start_with?("#") ? header << l : names << l.split("^", 2).first
     end
-    Registry.new(path: path, tag: File.basename(path, ".txt"), names: names, header: header)
+    Registry.new(path: path, tag: File.basename(path, ".txt").delete_suffix("-broker_8994"), names: names, header: header)
   end
 
   def registry_problems(registry)
@@ -193,7 +194,7 @@ module RpcCoverage
   # Names rpms-rpc declares: `m.rpc "NAME"` in lib/rpms_rpc/mappings, plus quoted RPC-shaped
   # strings elsewhere in lib/ on a line whose CODE (string literals blanked, so a message that
   # merely mentions "RPC" does not count) sends or registers an RPC, or that builds a CIA RPC
-  # frame (`pk("RPC")`, cia_client.rb), or inside a capability-probe register([...]) block.
+  # frame (`pk("RPC")`, cia_client.rb).
   RPC_STRING = /"([A-Z][A-Z0-9%]+(?: [A-Z0-9?\/&()%.-]+)+)"/
   RPC_LINE = /call_rpc|_rpc\(|\brpc\b|rpcs?\s*=/i
   CIA_FRAME = /pk\("RPC"\)/
@@ -208,15 +209,12 @@ module RpcCoverage
     Dir[File.join(root, "lib/**/*.rb")].each do |f|
       next if f.include?("/mappings/") || f.end_with?("/mock_client.rb")
 
-      in_register = false
       File.readlines(f).each_with_index do |l, i|
         code = l.sub(/\s#.*$/, "")
         next if code.strip.start_with?("#")
 
-        in_register = true if code.match?(/\bregister\(/)
         sends = code.gsub(/"[^"]*"/, '""').match?(RPC_LINE) || code.match?(CIA_FRAME)
-        code.scan(RPC_STRING) { |(n)| sites[n] << "#{rel(f, root)}:#{i + 1}" } if in_register || sends
-        in_register = false if in_register && code.include?("])")
+        code.scan(RPC_STRING) { |(n)| sites[n] << "#{rel(f, root)}:#{i + 1}" } if sends
       end
     end
     sites

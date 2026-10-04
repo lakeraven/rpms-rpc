@@ -15,7 +15,6 @@ class ClinicalReadWireTest < Minitest::Test
   # Canned-response broker: returns one fixed response for every RPC.
   class RawResponseClient
     def initialize(response) = @response = response
-    def supports?(*) = true
     def call_rpc(*) = @response
   end
 

@@ -216,11 +216,41 @@ module RpmsRpc
       9100
     end
 
-    # Read XWB response: recv until EOT, strip \x00\x00 SNDERR prefix
+    # Read XWB response: recv until EOT, then the SNDERR header every reply
+    # carries (XWBRW.m:70-78): the security packet and the application packet,
+    # each a length byte and its text, then the data. A refusal of the RPC
+    # itself arrives as the security packet (XWBPRS.m:11-13): no #8994 entry
+    # or inactive raises RpcNotAvailableError, not in the context option
+    # raises RpcRefusedError; an application error raises RpcError (#363). Reading the header by its
+    # length bytes, not by matching text, is what makes this hold for every
+    # RPC name: the old check matched the refusal only when its length byte
+    # happened to be absent or "E".
     def read_response
-      raw = read_until_eot_raw
-      raw = raw[2..] if raw.start_with?("\x00\x00")
-      raw.to_s
+      raw = read_until_eot_raw.to_s
+      sec, err, data = snderr_split(raw)
+      return raw if data.nil? # not SNDERR-framed (e.g. a stand-in reply)
+
+      raise Client.rpc_error_for(sec), RpmsRpc.sanitize_error(sec) unless sec.empty?
+      raise Client.rpc_error_for(err), RpmsRpc.sanitize_error(err) unless err.empty?
+
+      data
+    end
+
+    # [security text, application text, data], or nil when the bytes cannot
+    # be the SNDERR header.
+    def snderr_split(raw)
+      bytes = raw.b
+      return nil if bytes.bytesize < 2
+
+      sec_len = bytes.getbyte(0)
+      err_at = 1 + sec_len
+      return nil if err_at >= bytes.bytesize
+
+      err_len = bytes.getbyte(err_at)
+      data_at = err_at + 1 + err_len
+      return nil if data_at > bytes.bytesize
+
+      [ bytes.byteslice(1, sec_len), bytes.byteslice(err_at + 1, err_len), raw.byteslice(data_at..) ]
     end
   end
 end

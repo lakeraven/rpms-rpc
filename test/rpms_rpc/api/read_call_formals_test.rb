@@ -56,7 +56,6 @@ class ReadCallFormalsTest < Minitest::Test
   # DETAIL(Y,DFN,PROBIEN,ID)^ORQQPL (ORQQPL.m:21): the problem IEN is the
   # THIRD formal, so a problem detail needs the patient in front of it.
   def test_problem_details_sends_dfn_then_problem_ien
-    RpmsRpc.client.seed_capability(:orqqpl_problem_workflow, supported: true)
     RpmsRpc::Problem.details(DFN, "5001")
     assert_equal [ DFN, "5001" ], params_sent_to("ORQQPL DETAIL")
   end

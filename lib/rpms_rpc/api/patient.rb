@@ -105,10 +105,11 @@ module RpmsRpc
     #   - BEHOCACV CWAD           (Crises/Warnings/Allergies/Directives flags)
     #
     # Returns nil for invalid (nil / zero / negative) DFNs and for unknown DFNs
-    # (no PTINFO and no GETBDP response).
+    # (no PTINFO and no GETBDP response). A broker that does not serve one of
+    # the three RPCs raises RpcNotAvailableError, one that serves it but not to
+    # this user raises RpcRefusedError, and an M error raises RpcError (#363).
     def brief_header(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
-      return nil unless RpmsRpc.client.supports?(:patient_chart_banner)
 
       ptinfo = DataMapper.patient_ptinfo.fetch_one(dfn.to_s)
       bdp    = DataMapper.patient_designated_provider.fetch_one(dfn.to_s)
@@ -128,14 +129,6 @@ module RpmsRpc
         ad_flag:          cwad.to_s.include?("D"),
         primary_provider: provider
       }
-    rescue RpmsRpc::Client::RpcError => e
-      # Only degrade to nil when the error signature indicates the RPC
-      # itself is unavailable on this Broker (BHS package not installed,
-      # OPTION lacks the RPC, etc.). Genuine M-runtime errors and
-      # permission/authorization failures must propagate so they aren't
-      # silently masked as "feature unavailable".
-      raise unless e.message.match?(/<NOLINE>|Remote Procedure .* (?:doesn't exist|not found)/i)
-      nil
     end
 
     # Patient telecom (FHIR Patient.telecom source) — home / work / cell
@@ -225,6 +218,7 @@ module RpmsRpc
 
       mapping.parse_many(decode_global_array(raw))
     end
+    private :fetch_lookup_rows
 
     # Returns the record lines when the reply carries global-array framing, or
     # the payload untouched when it does not — a client without
@@ -300,6 +294,7 @@ module RpmsRpc
       years -= 1 if today.month < dob.month || (today.month == dob.month && today.day < dob.day)
       years
     end
+    private :age_from
 
     private
 

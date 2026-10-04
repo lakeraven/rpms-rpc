@@ -4,11 +4,6 @@
 # against the base branch — adding an entry fails CI regardless of what else
 # the PR edits. New exceptions go in JUSTIFIED_LEGACY_WRAPPERS (in the test),
 # with a reason.
-"BGOTRG GETSUM": >-
-  Scrapes the rendered triage-summary string for reminders because the real
-  reminder RPCs were never modelled (see the mapping's own comment). Replace
-  with ORQQPXRM REMINDERS UNEVALUATED + ORQQPXRM REMINDER CATEGORIES, both
-  canonical and both observed in the trace.
 "TIU TEMPLATE GETBOIL": >-
   Note-template expansion; arguable tier, see ADR 0004 consequences.
 "TIU TEMPLATE GETITEMS": >-

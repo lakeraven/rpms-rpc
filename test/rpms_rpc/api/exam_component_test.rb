@@ -18,7 +18,6 @@ class ExamComponentTest < Minitest::Test
       @calls = []
     end
 
-    def supports?(*) = true
 
     def call_rpc(rpc_name, *params)
       @calls << { rpc: rpc_name, params: params }

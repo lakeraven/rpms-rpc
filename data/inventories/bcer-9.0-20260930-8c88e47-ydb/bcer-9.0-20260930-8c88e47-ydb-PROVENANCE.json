@@ -1,0 +1,31 @@
+{
+  "artifact": "bcer-ydb-genesis-export",
+  "source_iris_dat_sha256": "576682d",
+  "engine": "containers.intersystems.com/intersystems/irishealth:2022.1.3.670.1",
+  "namespace": "RPMS",
+  "method": "ydb_export.sh (ZWRITE globals + ^%RO->ro2m routines); BMW/BPRM omitted",
+  "global_nodes": 129754823,
+  "routine_m_files": 65676,
+  "excluded_internal_globals": 101,
+  "layout": "OSEHRA (r/*.m + globals/chunk_*.zwr.gz)",
+  "artifacts": {
+    "routines.tar.gz": {
+      "sha256": "4d5d014489dfd04a9fb4011005bb7efa0d99378c061d35426f0503e4c3829f37",
+      "bytes": 97703058
+    },
+    "globals.tar.gz": {
+      "sha256": "12846db37c78cb15ca53ee35bc2f2a804fcb0fba836c6967a23e3a483361d7c5",
+      "bytes": 651247308
+    },
+    "kernel.tar.gz": {
+      "sha256": "e2a79b14203d477c557ec05416f9bb22ba98ff4316d016cc59e6044934bb2328",
+      "bytes": 379233
+    }
+  },
+  "release": "bcer-9.0-20260930-8c88e47-ydb",
+  "build_instance_of": "bcer-9.0-20260909-576682d-ydb",
+  "genesis_note": "weekly cut 2026-09-30: carries #678/#679 (analyst yotta-0921 edits) and #682",
+  "rpms_ops_commit": "8c88e47e5b1bcc6af410fc0c7904e4f148fddfcd",
+  "genesis_assets": "carried forward UNCHANGED from bcer-9.0-20260929-0db1b06-ydb \u2014 this build instance changes the STANDUP SCRIPTS, not the exported data.",
+  "vuecentric_evidence": "NOT CLAIMED unless an application-level evidence JSON exists for THIS tag (#416). The build-level round-trip is a floor, not a qualification (#411): it has passed while real clients died."
+}

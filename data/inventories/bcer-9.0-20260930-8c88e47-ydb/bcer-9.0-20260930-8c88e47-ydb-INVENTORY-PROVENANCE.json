@@ -1,0 +1,23 @@
+{
+  "schema_version": 3,
+  "label": "inventory-bcer-9.0-20260930-8c88e47-ydb",
+  "release_tag": "bcer-9.0-20260930-8c88e47-ydb",
+  "artifact_sha256": "sha256:ead62b4214fea2f3b269a1c4c781e8999f2e04a92b45d2fdd2e3d5c974aca464",
+  "engine": "yottadb",
+  "m_backend": "yottadb",
+  "artifact_bound": true,
+  "transport": "local",
+  "instance_id": "",
+  "container": "rpms-ydb",
+  "namespace": "RPMS",
+  "captured_at": "2026-10-03T17:42:40Z",
+  "tool_git_sha": "5ff18803e3273b2fd7f89b686d640699962ac197",
+  "dumps": {
+    "packages": { "sha256": "811dd227728b569d0e4d899f5651875ae6caf45b357cd6d71fadfe63fa02eaa9", "records": 287 },
+    "builds": { "sha256": "41497e629a21c3843aa03ed1fb53c95b1aa34427d9ce72db331def64be4952c7", "records": 5669 },
+    "rpcs": { "sha256": "0948d9d979464feb139348985b56110be38f92d84b0e74c82d2665ba36f4611b", "records": 5557 },
+    "build_rpcs": { "sha256": "2e2ed79a0fb9a41780ae148f045c7eecedf6e7d0cb15b4d04ded6c432f9a8c09", "records": 43377 },
+    "installs": { "sha256": "ced03a792252ed65a11324c17e43e085174fe0ef4c7ad546d3ddea2519743225", "records": 6817 },
+    "package_files": { "sha256": "88d2682767f9d27cf6652ce14ca7b4eb9c59dcadaed14ec6a9e859196ec7981c", "records": 1354 }
+  }
+}

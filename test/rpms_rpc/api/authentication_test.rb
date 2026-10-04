@@ -12,8 +12,7 @@ class AuthenticationTest < Minitest::Test
       m.seed_user("301",
         credentials: "ACCESS123;VERIFY123",
         name: "PROVIDER,TEST",
-        role: :provider,
-        security_keys: [ :scheduling_admin, :registration_manager ])
+        role: :provider)
       m.seed_lines(:av_code, "EXPIRED;VERIFY123", {
         duz: 301,
         error_code: 12,
@@ -138,24 +137,6 @@ class AuthenticationTest < Minitest::Test
 
   def test_user_info_returns_nil_for_unknown_duz
     assert_nil RpmsRpc::Authentication.user_info(999_999)
-  end
-
-  def test_user_security_keys_returns_seeded_keys
-    keys = RpmsRpc::Authentication.user_security_keys(301)
-
-    assert_equal [ "SD SUPERVISOR", "AGZMGR" ], keys
-  end
-
-  def test_user_security_keys_rejects_invalid_duz
-    assert_equal [], RpmsRpc::Authentication.user_security_keys(nil)
-    assert_equal [], RpmsRpc::Authentication.user_security_keys(0)
-    assert_equal [], RpmsRpc::Authentication.user_security_keys(-1)
-  end
-
-  def test_user_security_keys_returns_empty_when_capability_unsupported
-    RpmsRpc.client.seed_capability(:user_security_keys_list, supported: false)
-    assert_equal [], RpmsRpc::Authentication.user_security_keys(301)
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWU USERKEYS" }
   end
 
   # has_security_key? on a real server: test/live/security_keys_live_test.rb.
