@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — live specs over XWB (#236)
+
+- `BROKER_PROTOCOL=xwb rake test:live` signs on with `XwbClient#authenticate` and runs the specs
+  in `test/live/xwb/`; the default (`cia`) runs `test/live/*_test.rb` as before. A spec declares
+  its broker line (`broker :xwb`) and fails, naming the setting, when loaded under the other;
+  `connect_only!` leaves the session for the spec to sign on itself. `LIVE_BUILD` names a target
+  that is not the pinned build in the run summary.
+- `test/live/xwb/authenticate_live_test.rb` proves `Authentication.authenticate` end to end:
+  DUZ, `post_signon_message_count` against the XUS AV CODE reply, and `user_type` against a
+  direct ORWU USERINFO read in the same session. A non-programmer's XWB session cannot run
+  ORWU USERINFO at that point, so its `user_type` is the fail-closed error until #393.
+
 ### Added — `rake rpc:api_coverage`: public methods proven by a live spec (#358)
 
 - Lists every public method of the API modules with the RPCs it sends (resolved statically

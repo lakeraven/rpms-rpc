@@ -33,6 +33,42 @@ class LiveSpecGuardTest < Minitest::Test
     assert_nil LiveSpec.write_refusal(FULL.merge("LIVE_DISPOSABLE" => "1"))
   end
 
+  # -- one broker line per run -------------------------------------------------
+
+  def test_the_protocol_is_cia_unless_named
+    assert_equal "cia", LiveSpec.protocol({})
+    assert_equal "xwb", LiveSpec.protocol("BROKER_PROTOCOL" => "XWB")
+    assert_nil LiveSpec.protocol_error("BROKER_PROTOCOL" => "xwb")
+    assert_match(/not one of cia, xwb/, LiveSpec.protocol_error("BROKER_PROTOCOL" => "bmx"))
+  end
+
+  # A mixed suite: each protocol's run loads only the specs written for it.
+  def test_each_protocol_loads_only_its_own_specs
+    root = File.expand_path("../..", __dir__)
+    cia = Dir[File.join(root, LiveSpec::SPEC_GLOBS.fetch("cia"))]
+    xwb = Dir[File.join(root, LiveSpec::SPEC_GLOBS.fetch("xwb"))]
+
+    refute_empty cia
+    refute_empty xwb
+    assert_empty cia & xwb
+    assert(xwb.all? { |f| f.include?("/test/live/xwb/") })
+  end
+
+  def test_a_spec_run_under_the_other_protocol_fails_and_names_the_setting
+    result = with_env(FULL.merge("BROKER_PROTOCOL" => "cia")) { XwbProbe.new(:test_reaches_the_broker).run }
+
+    refute result.skipped?
+    assert_match(/written for the xwb broker and this run speaks cia: set BROKER_PROTOCOL=xwb/, result.failure.message)
+  end
+
+  def test_the_summary_names_the_protocol_and_a_declared_build
+    summary = summarize(Tracked.new(:test_tracked).run,
+                        env: FULL.merge("BROKER_PROTOCOL" => "xwb", "LIVE_BUILD" => "some-build"))
+
+    assert_match(/backend\s+127\.0\.0\.1:19300 \(xwb\)/, summary[:io].string)
+    assert_match(/build\s+some-build \(declared by LIVE_BUILD, not verified\)/, summary[:io].string)
+  end
+
   # -- failure over silent skipping -------------------------------------------
 
   class Probe < LiveSpec::Test
@@ -46,8 +82,13 @@ class LiveSpecGuardTest < Minitest::Test
     def test_untracked = skip_tracked("soon", "no issue")
     def test_bare = skip("no data")
   end
+  class XwbProbe < LiveSpec::Test
+    broker :xwb
+    def test_reaches_the_broker = assert(client)
+  end
   # Specimens, run by hand below; never by the runner itself.
   Minitest::Runnable.runnables.delete(Probe)
+  Minitest::Runnable.runnables.delete(XwbProbe)
   Minitest::Runnable.runnables.delete(Tracked)
 
   def test_a_missing_setting_fails_and_names_it
