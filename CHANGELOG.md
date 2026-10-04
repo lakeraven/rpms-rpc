@@ -65,6 +65,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — CIA read_reply correlates a reply to its request by the sequence echo (#289)
+
+`CiaClient#read_reply` accepted any non-empty piece as this request's reply. It
+skipped an EMPTY piece (a late bare EOD), but a NON-EMPTY stale tail — the
+remainder of an earlier reply whose global-array body embedded EOD and was read
+short (#254, measured on BSDX HOSPITAL LOCATION / BMC HEALTH SUMMARY TYPE) —
+was returned as this call's answer, putting the whole session one call late.
+`discard_stale_bytes` drains the socket at one instant before the write; a tail
+still in flight at that instant arrives afterwards, which draining cannot catch.
+
+`read_reply` now matches on the one-byte **sequence echo** that CIANBLIS writes
+ahead of every reply (`W SEQ`, CIANBLIS.m:135). A piece whose first byte is not
+the current `@seq` is a stale tail (its first byte is an earlier reply's data,
+not our echo) and is skipped; once the small read budget is spent with no
+matching piece, it raises `ConnectionError` — fail closed, never hand the caller
+someone else's bytes. A well-formed reply we return then carries a valid ack
+flag — `\x00` DATA (CIANBLIS.m:261) or `\x01` ERROR (:268) — or none at all
+(SNDEOD, :273-275); that shape is enforced by `parse_cia_reply`, which already
+fails closed on anything else, so an echo-matching but malformed frame is
+returned here and refused there rather than silently skipped into a desync.
+
+New `test_an_in_flight_tail_with_a_mismatched_echo_is_not_the_next_reply`
+reproduces the in-flight case: drain, then deliver a non-empty tail from the
+previous reply, and assert the next call does not receive it. With the defect
+reintroduced (accept any non-empty piece) it goes red — request 2 returns
+`"7^CHART REVIEW^^"` instead of its own `"2\x00OK"`.
+
+**Spec amendment — CIA reply fixtures carry a real sequence echo.** Correlation
+by echo requires each canned reply to begin with the echo of the frame it
+answers, advancing with `@seq`. Fixtures that hard-coded a single echo across
+several exchanges (the re-auth and concurrency paths), or carried none at all,
+were artifacts of the echo-blind reader; they are amended to the shape a real
+broker sends, with the rationale recorded in each test. No production behaviour
+rode on the old fixtures — only the test doubles changed.
+
 ### Fixed — BEHOENCX FETCH is sent its real signature; both visit layouts match the routine (#211, #213)
 
 - `Encounter.open` sent `BEHOENCX FETCH` the visit IEN as its only
