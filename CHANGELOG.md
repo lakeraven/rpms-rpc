@@ -166,8 +166,8 @@ Stock-VistA clusters (first PR):
   the type against the static `DEFAULT_TYPES` list — which is what every
   real server already got, since the probe never found ORWRP TYPES. The
   registered health-summary surface is ORWRP2 HS *.
-- `RpmsRpc::Authentication.user_security_keys`: ORWU USERKEYS. Per-key
-  checks stay on ORWU HASKEY (`has_security_key?`).
+- ORWU USERKEYS. `RpmsRpc::Authentication.user_security_keys` is kept,
+  rebuilt on DDR LISTER (see "Kept" below).
 - `RpmsRpc::UserManagement.grant_key`, `.revoke_key`, `.list_all_keys`
   (XU KEY GRANT / REVOKE / LIST); `UserManagement.find` no longer returns a
   `:security_keys` entry (it came from ORWU USERKEYS).
@@ -204,7 +204,8 @@ IHS clusters (second PR):
   raises `Client::RpcError`. Proved live by
   `test/live/referral_cancel_live_test.rb`, which cancels a referral on a
   disposable container, reads the status back and files it active again.
-- `RpmsRpc::Eligibility` (`for_patient`, `codes`): BIPC ELIGGET / ELIGLIST.
+- BIPC ELIGGET / ELIGLIST. `RpmsRpc::Eligibility` (`for_patient`, `codes`)
+  is kept, rebuilt on BGOVIMM GETVFC / BGOVIMM2 GETELIG (see "Kept" below).
 - `RpmsRpc::VaccineLot` (`for_facility`, `find`): BIPC LOTLIST / LOTGET.
 - `RpmsRpc::Immunization.for_patient` and `.find`: BIPC IMMLIST / IMMGET.
   `Immunization.text_summary` (BEHOCIR GETTXT) stays. No BIPC RPC is
@@ -244,6 +245,25 @@ IHS clusters (second PR):
 The hand-authored `data/fingerprints/references/bcer-8.0.yml` seed no
 longer lists these names as "gem-required RPCs the staging dump lacks":
 they were never capability gaps, only invented mappings.
+
+### Kept — rebuilt on the registered RPC (#207)
+
+Methods the host application calls whose invented RPC was removed above are
+kept with the same name, arguments and return shape, rebuilt on the RPC the
+built image really registers, and proven by a live spec as the programmer
+and the provider persona:
+
+- `RpmsRpc::Authentication.user_security_keys(duz)` → `[key names]`: kept,
+  rebuilt on DDR LISTER over the user's KEYS multiple (#200 field 51,
+  subfile 200.051; .01 KEY points to #19.1), in CIAV VUECENTRIC.
+
+- `RpmsRpc::Eligibility.codes` → `[{code:, label:}]` and
+  `.for_patient(dfn)` → `{code:, label:}`: kept, rebuilt on BGOVIMM2
+  GETELIG (active rows of #9002084.83) and BGOVIMM GETVFC, the reads of
+  VueCentric's immunization component, in CIAV VUECENTRIC. GETVFC answers a
+  default LABEL ("Am Indian/AK Native" for beneficiary type 1 at an IHS
+  site), which `for_patient` resolves to its code; any other default is
+  `NIL_ELIGIBILITY`.
 
 ### Added — transport security: the broker connection is plaintext, and how to wrap it (#113)
 
