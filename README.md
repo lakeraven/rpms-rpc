@@ -52,6 +52,20 @@ Requires Ruby 3.4+.
 
 ## Usage
 
+### Loading the gem
+
+```ruby
+require "rpms_rpc"
+```
+
+loads the public API: configuration (`RpmsRpc.configure`, `client`, `mock!`,
+`reset!`), the response mappings, the security-key, role and capability tables,
+and every `RpmsRpc::<Api>` module under `lib/rpms_rpc/api/`. It does not open a
+socket or pick a broker. A script that needs only one broker client can require
+that file alone (`require "rpms_rpc/cia_client"`, below); it carries the
+configuration and error sanitizing it needs, and none of the tables.
+`require "rpms_rpc/version"` defines `RpmsRpc::VERSION` and nothing else.
+
 ### CIA (XWB) — port 9100
 
 ```ruby
@@ -359,6 +373,8 @@ reads the live evidence from an `rpms-diffs` checkout beside this repo, or `RPMS
 ### MockClient usage
 
 ```ruby
+require "rpms_rpc"
+
 RpmsRpc.mock! do |m|
   # Field-based mapping (caret-delimited)
   m.seed(:patient_select, "1", { name: "DOE,JOHN", sex: "M", dob: Date.new(1980, 1, 15) })

@@ -3,7 +3,7 @@
 require "minitest/autorun"
 require "rpms_rpc/cia_client"
 require "rpms_rpc/xwb_client"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/api/agg"
 
 # SPEC AMENDMENT (rpms-rpc#289) — CIA reply fixtures carry a real sequence echo.

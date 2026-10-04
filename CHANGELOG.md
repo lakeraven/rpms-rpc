@@ -65,6 +65,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — `require "rpms_rpc"` is the entry point; `rpms_rpc/version` holds only VERSION (#7)
+
+- New `lib/rpms_rpc.rb`: one `require "rpms_rpc"` loads configuration
+  (`configure`, `client`, `mock!`, `reset!`), the response mappings, the
+  security-key, role and capability tables, and every module under
+  `lib/rpms_rpc/api/`. Consumers no longer need to know that
+  `rpms_rpc/version` was the file that defined `mock!`.
+- **Breaking for anyone relying on the old side effect:** `require
+  "rpms_rpc/version"` now defines `RpmsRpc::VERSION` and nothing else (the
+  gemspec loads it). Code that required it to get `SecurityKeys`, `UserRoles`,
+  `Capabilities` or the mappings should `require "rpms_rpc"` instead.
+- The configuration surface stays in `rpms_rpc/core.rb`, so a single broker
+  client (`require "rpms_rpc/cia_client"`) still loads without the tables.
+
 ### Fixed — the two registration paths name the community they do not file (#300)
 
 Each registration path ignored the other's community attribute without
