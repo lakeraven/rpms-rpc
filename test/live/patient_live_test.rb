@@ -64,8 +64,8 @@ class PatientLiveTest < LiveSpec::Test
   end
 
   # The two RPCs find merges map the same patient independently: SELECT
-  # (NAME^SEX^DOB^SSN...) and ID INFO (SSN^DOB^SEX^RACE^^SITE^^NAME). They
-  # agree for every seed patient, so a shifted piece in either mapping fails.
+  # (NAME^SEX^DOB^SSN...) and ID INFO (PID^DOB^SEX^VET^SC%^WARD^RM-BED^NAME).
+  # They agree for every seed patient, so a shifted piece in either mapping fails.
   def test_select_and_id_info_agree_for_every_seed_patient
     demo_patients.each do |row|
       dfn = row[:dfn].to_s
@@ -82,8 +82,28 @@ class PatientLiveTest < LiveSpec::Test
     end
   end
 
-  def test_find_merges_the_race_code_from_id_info
-    assert_equal "N", RpmsRpc::Patient.find(MICKEY[:dfn])[:race_code]
+  # IDINFO^ORWPT (ORWPT.m:6-11) answers PID^DOB^SEX^VET^SC%^WARD^RM-BED^NAME
+  # (#191). MOUSE,MICKEY M's reply is "000009999^2100214^M^N^^^^MOUSE,MICKEY M":
+  # piece 4 is the VETERAN flag, not a race code, and pieces 5-7 are empty for
+  # an outpatient, so nothing on this wire is a site IEN.
+  def test_find_merges_the_veteran_flag_from_id_info
+    found = RpmsRpc::Patient.find(MICKEY[:dfn])
+
+    assert_equal "N", found[:veteran], "piece 4 of ORWPT ID INFO is the VETERAN flag"
+    %i[sc_percent ward_location room_bed].each { |k| assert_nil found[k], "#{k}: MOUSE,MICKEY M is an outpatient" }
+    refute found.key?(:race_code), "ORWPT ID INFO carries no race code"
+    refute found.key?(:site_ien), "ORWPT ID INFO carries no site IEN"
+  end
+
+  # No seed patient is admitted, so every one reads with no ward or room-bed,
+  # and the veteran flag, when the build has one, is Y or N.
+  def test_id_info_reads_every_seed_patient_as_an_outpatient
+    demo_patients.each do |row|
+      id_info = RpmsRpc::DataMapper.patient_id_info.fetch_one(row[:dfn].to_s)
+      assert_includes [ nil, "Y", "N" ], id_info[:veteran], "veteran for #{row[:dfn]}"
+      assert_nil id_info[:ward_location], "a seed patient is admitted now (#{row[:dfn]}): assert its ward"
+      assert_nil id_info[:room_bed], "room-bed for #{row[:dfn]}"
+    end
   end
 
   def test_find_returns_nil_for_a_dfn_on_no_patient

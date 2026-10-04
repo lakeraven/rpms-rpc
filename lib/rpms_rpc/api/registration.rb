@@ -16,6 +16,10 @@ module RpmsRpc
   #     ^XTMP("AGHL7"), the ^AGPATCH register stamp, and the edit-check
   #     battery — so delegation INHERITS that logic instead of drifting from
   #     it. (Verdict "delegate": rpms-rpc#214, capture-verified.)
+  #     The create goes through AG's "New Patient" window, which carries
+  #     tribe, classification, eligibility and community as its own
+  #     parameters (RpmsRpc::Agg::NEW_PATIENT_WINDOW; rpms-rpc#297), so AG
+  #     files them with everything else. Nothing is filed around AG.
   #
   #   * COMPOSITION (civilian / stock VistA — no AG package) — the
   #     lineage-portable floor: VAFC VOA ADD PATIENT creates the PATIENT (#2)
@@ -24,6 +28,27 @@ module RpmsRpc
   #     This replaces the retired "BHDPTRPC REGISTER" placeholder wire name,
   #     which never had a server implementation anywhere (docs/RPC_COVERAGE.md,
   #     "BHDPTRPC provenance").
+  #
+  # ## What each path stores for community (rpms-rpc#300)
+  #
+  # The two paths do not store the same thing, and the result says which
+  # attributes were not filed rather than dropping them silently:
+  #
+  #   * DELEGATION files `community_ien:` + `community_since:` through AG's
+  #     window: AG sets 1117 CURRENT RESIDENCE (the #9999999.05 pointer) and a
+  #     #9000001.51 history entry, and derives 1118 CURRENT COMMUNITY from
+  #     them. AG's window has no free-text community parameter, so
+  #     `community:` is never sent on this path and is always named in
+  #     `unfiled:`, with or without the pointer.
+  #
+  #   * COMPOSITION files `community:` straight into 1118 as free text. It
+  #     sets no 1117 pointer and writes no #9000001.51 entry, so its record
+  #     does not look like one AG registered (anything reading the pointer or
+  #     the history sees nothing). `community_ien:` and `community_since:` are
+  #     not filed on this path and are named in `unfiled:` when given.
+  #     Filing AG's shape here (option 1 of #300) would need the .51 DD and
+  #     the 1118 trigger checked live under DDR FILER; this path only runs
+  #     where AG is absent, which no RPMS stack is.
   #
   # Composition flow (each step's wire contract cited in the method comments):
   #
@@ -121,8 +146,10 @@ module RpmsRpc
       community: FIELD_COMMUNITY
     }.freeze
 
-    # AG registration window used for delegation (file 9009068.3 — the
-    # minimal demographics set; see RpmsRpc::Agg).
+    # AG windows used for delegation (file 9009068.3; see RpmsRpc::Agg). The
+    # create goes through "New Patient", the window AG registers through; the
+    # HRN update stays on "Mini Registration", where it was captured (#214).
+    AGG_ADD_WINDOW = Agg::NEW_PATIENT_WINDOW
     AGG_WINDOW = Agg::DEFAULT_WINDOW
 
     # attrs (FileMan-external values unless noted — every VOA element runs
@@ -150,6 +177,16 @@ module RpmsRpc
     #                       (composition path — required to file an HRN)
     #   tribe:/classification:/eligibility_status:/community:
     #                       optional #9000001 completion values (see above)
+    #   community_ien:/community_since:
+    #                       delegation path: the COMMUNITY (#9999999.05) IEN
+    #                       and the date the patient moved there (Date/Time,
+    #                       MM/DD/YYYY, or :birth for the date of birth; any
+    #                       other value raises). AG stores the community as a pointer
+    #                       (1117) plus a dated history entry (#9000001.51)
+    #                       and derives the text (1118) from them, so on that
+    #                       path the two go together and free-text community:
+    #                       cannot be sent; the composition path files
+    #                       neither and names them in unfiled:
     #   extra_fields:       [{ field:, value: }] escape hatch for additional
     #                       #9000001 top-level fields
     #
@@ -162,8 +199,23 @@ module RpmsRpc
     #   nil                                             — no broker response
     #
     # Delegates to the AG capsule when it is installed on this broker
-    # (Agg.available?), else composes VOA + DDR. Same result contract either
-    # way, so engine code is lineage-agnostic.
+    # (Agg.available?), else composes VOA + DDR. `:success` / `:dfn` /
+    # `:created` mean the same on both.
+    #
+    # The delegation path sends what AG's window takes and files nothing
+    # around it. A value AG's window has no parameter for is not sent, and the
+    # result names it, so a caller cannot mistake it for filed (rpms-rpc#297):
+    #
+    #   unfiled: [:community]     free-text community: with no community_ien:
+    #   unfiled: [:extra_fields]  the composition path's escape hatch
+    #
+    # The composition path names what it does not file the same way:
+    #
+    #   unfiled: [:community_ien, :community_since]  AG's pointer and date
+    #                             moved, which composition has no field for
+    #                             (only the ones given are named)
+    #
+    # `unfiled:` is absent when everything given was sent.
     def register(attrs)
       if Agg.available?
         register_via_agg(attrs)
@@ -183,7 +235,7 @@ module RpmsRpc
       # afterward, below.
       params["AGGPTHRN"] = attrs[:hrn].to_s if clerk && present?(attrs[:hrn])
 
-      created = Agg.add_patient(window: AGG_WINDOW, params: params)
+      created = Agg.add_patient(window: AGG_ADD_WINDOW, params: params)
       return created unless created && created[:success]
 
       dfn = created[:dfn]
@@ -198,7 +250,7 @@ module RpmsRpc
         end
       end
 
-      { success: true, dfn: dfn, created: true }
+      with_unfiled({ success: true, dfn: dfn, created: true }, agg_unsent(attrs))
     end
 
     # COMPOSITION path — the lineage-portable floor (civilian / stock VistA,
@@ -215,11 +267,12 @@ module RpmsRpc
                  message: "could not lock #{node}" }
       end
 
-      begin
+      result = begin
         complete_ihs_registration(attrs, dfn)
       ensure
         DdrFileman.unlock(node: node)
       end
+      with_unfiled(result, composition_unsent(attrs))
     end
 
     # Patient update — the composed edit path, replacing the removed
@@ -440,7 +493,7 @@ module RpmsRpc
       end
     end
 
-    # Demographics PARMS for AGG ADD NEW PATIENT (Mini Registration window).
+    # PARMS for AGG ADD NEW PATIENT (the "New Patient" window).
     # Values are FileMan-external — AGGPTSEX is the coded set value
     # ("MALE"/"FEMALE"), dates MM/DD/YYYY. Absent attributes are omitted
     # (Agg.encode_parms drops nils). HRN is handled by the caller per mode.
@@ -454,7 +507,66 @@ module RpmsRpc
         "AGGPTDOB" => blank_to_nil(external_date(attrs[:dob])),
         "AGGPTSEX" => agg_sex(attrs[:sex]),
         "AGGPTSSN" => blank_to_nil(attrs[:ssn].to_s.delete("-"))
+      }.merge(agg_ihs_params(attrs))
+    end
+
+    # The IHS PATIENT values the "New Patient" window carries (Agg module
+    # doc). Pointers are IENs and eligibility is the set code or its name: AG
+    # files them internal. Community is the pointer and the date moved
+    # together, as AG's window requires of both.
+    def agg_ihs_params(attrs)
+      community = present?(attrs[:community_ien])
+      since = present?(attrs[:community_since])
+      if community != since
+        raise ArgumentError, "community_ien and community_since go together " \
+                             "(AG files the community with the date moved)"
+      end
+
+      {
+        "AGGPTCLB" => blank_to_nil(attrs[:classification]),
+        "AGGPTELG" => blank_to_nil(attrs[:eligibility_status]),
+        "AGGPTTRI" => blank_to_nil(attrs[:tribe]),
+        "AGGPTCOM" => blank_to_nil(attrs[:community_ien]),
+        "AGGPTCDT" => (since ? agg_date_moved(attrs) : nil)
       }
+    end
+
+    # AGGPTCDT, the date moved. AG's window offers "B" for at birth, but its
+    # GUI turns that into a date before it sends: sent as "B",
+    # COMM^AGGPTADD files no #9000001.51 entry and the create still answers
+    # success (live, 2026-10-02). So :birth (or "B") becomes the date of
+    # birth here, and anything that is not a date is refused rather than
+    # sent to be dropped.
+    def agg_date_moved(attrs)
+      since = attrs[:community_since]
+      since = attrs[:dob] if since == :birth || since.to_s.strip.casecmp?("B")
+      raise ArgumentError, "community_since: :birth needs dob:" unless present?(since)
+
+      date = external_date(since)
+      return date if date.match?(%r{\A\d{1,2}/\d{1,2}/\d{4}\z})
+
+      raise ArgumentError, "community_since must be a Date, MM/DD/YYYY or :birth"
+    end
+
+    # What the caller gave that AG's window has no parameter for, by attr key.
+    def agg_unsent(attrs)
+      unsent = []
+      unsent << :community if present?(attrs[:community])
+      unsent << :extra_fields unless Array(attrs[:extra_fields]).empty?
+      unsent
+    end
+
+    # What the caller gave that the composition path has no field for:
+    # AG's community pointer and date moved (module doc, rpms-rpc#300).
+    def composition_unsent(attrs)
+      %i[community_ien community_since].select { |key| present?(attrs[key]) }
+    end
+
+    # A successful result names what was not filed; failures pass through.
+    def with_unfiled(result, unsent)
+      return result unless result.is_a?(Hash) && result[:success] && !unsent.empty?
+
+      result.merge(unfiled: unsent)
     end
 
     # AGG name pieces as [last, first, middle, suffix] — same "^"-splitting

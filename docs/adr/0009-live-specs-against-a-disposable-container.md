@@ -81,8 +81,11 @@ the failing test is a live spec where a container can serve it.
 
 ### Negative
 
-- Live specs need Docker and the pinned image; without them they skip, so a
-  merge can still land unproven unless review asks for the live run.
+- Live specs need a broker: a local container of the pinned image, or a stack
+  over an SSM tunnel. `rake test:live` fails without its settings rather than
+  skipping, and a run in which no live spec ran is never green; but `rake test`
+  does not run them, so a merge can still land unproven unless review asks for
+  the live run's summary.
 - CI runs only if an image for the runner's architecture exists (only arm64 is
   known locally).
 - Legacy wire-capture tests stay until live specs cover their RPCs (#347).

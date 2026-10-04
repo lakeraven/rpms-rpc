@@ -19,6 +19,10 @@ module RpmsRpc
   #   * Visit-information columns mix "IEN~external" pairs with external-only
   #     values (AMHGDVF.m:12, :27, :45).
   #   * arrival_time is permanently blank (AMHGDVF.m:40).
+  #
+  # Context: every AMHG call runs under AMHGRPC (BehavioralHealth::CONTEXT,
+  # bound and restored by Wire#call_amhg — rpms-rpc#258); callers do not
+  # bind it.
   module BehavioralHealth
     extend self
     extend Wire

@@ -93,9 +93,9 @@ class RpmsRpc::RpcTiersTest < Minitest::Test
   # event Actions sets GITHUB_BASE_REF to an EMPTY string, not unset, and ""
   # is truthy in Ruby, so an empty value must fall back to main as well:
   # reading it with `||` made every push to main fail this test. If the base
-  # ref is not fetchable the test skips locally but FAILS in CI (which checks
-  # out full history precisely so this comparison can run), so a shallow
-  # checkout can never silently disable the gate.
+  # ref is not in the checkout the test FAILS, locally and in CI (which checks
+  # out full history precisely so this comparison can run), and says to fetch
+  # it: an unchecked ratchet is never reported as a pass.
   def test_grandfathered_set_never_grows
     base_ref = ENV["GITHUB_BASE_REF"].to_s.empty? ? "main" : ENV["GITHUB_BASE_REF"]
     resolved = [ "origin/#{base_ref}", base_ref ].find do |ref|
@@ -103,8 +103,8 @@ class RpmsRpc::RpcTiersTest < Minitest::Test
       status.success?
     end
     unless resolved
-      message = "cannot resolve base ref #{base_ref.inspect}; ratchet not checked"
-      ENV["CI"].to_s.empty? ? skip(message) : flunk(message)
+      flunk "cannot resolve base ref #{base_ref.inspect}, so the ratchet cannot be checked. " \
+            "Run `git fetch origin #{base_ref}` (CI needs fetch-depth: 0)."
     end
 
     base_yaml, status = Open3.capture2e("git", "-C", ROOT, "show", "#{resolved}:#{GRANDFATHERED_PATH}")
