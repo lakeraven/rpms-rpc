@@ -27,7 +27,7 @@ class ProcedureLiveTest < LiveSpec::Test
 
   def test_a_v_cpt_row_matches_the_entry_it_came_from
     v_cpt_ien, dfn = first_v_cpt
-    skip_tracked("#373", "no V CPT on any demo visit (rpms-ops#721)") if v_cpt_ien.nil?
+    flunk "no V CPT on any patient: the pinned build ships one on DFN 4, visit 4; is this a fresh container of the pinned image?" if v_cpt_ien.nil?
 
     row = RpmsRpc::Procedure.for_patient(dfn).find { |r| r[:ien] == v_cpt_ien }
     refute_nil row, "V CPT #{v_cpt_ien} is on file for DFN #{dfn}, and Procedure.for_patient(#{dfn}) did not return it"
