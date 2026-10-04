@@ -95,10 +95,10 @@ def test_brief_header_raises_any_other_m_error
 
   def test_age_from_counts_whole_years_around_the_birthday
     dob = Date.new(1986, 7, 1)
-    assert_equal 39, RpmsRpc::Patient.age_from(dob, today: Date.new(2026, 6, 30)), "day before"
-    assert_equal 40, RpmsRpc::Patient.age_from(dob, today: Date.new(2026, 7, 1)), "on the day"
-    assert_equal 40, RpmsRpc::Patient.age_from(dob, today: Date.new(2026, 7, 2)), "day after"
-    assert_equal 39, RpmsRpc::Patient.age_from(dob, today: Date.new(2026, 5, 22))
-    assert_nil RpmsRpc::Patient.age_from(nil)
+    assert_equal 39, RpmsRpc::Patient.send(:age_from, dob, today: Date.new(2026, 6, 30)), "day before"
+    assert_equal 40, RpmsRpc::Patient.send(:age_from, dob, today: Date.new(2026, 7, 1)), "on the day"
+    assert_equal 40, RpmsRpc::Patient.send(:age_from, dob, today: Date.new(2026, 7, 2)), "day after"
+    assert_equal 39, RpmsRpc::Patient.send(:age_from, dob, today: Date.new(2026, 5, 22))
+    assert_nil RpmsRpc::Patient.send(:age_from, nil)
   end
 end
