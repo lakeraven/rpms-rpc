@@ -943,6 +943,34 @@ class RpmsRpc::CiaClientTest < Minitest::Test
                  broker.frames.last[:fields]
   end
 
+  # An Array key is a multi-level subscript: DOACTION splices the subscript
+  # text raw, so "1,0" lands as P3(1,0) — the TIUX(n,0) node BLRPLT^TIUSRVD
+  # reads for TIU TEMPLATE GETTEXT (TIUSRVD.m:82-83). Sent as a one-level
+  # string subscript it would be quoted ("1,0") and the text expand to
+  # nothing (#259).
+  def test_array_key_frames_as_a_multi_level_numeric_subscript
+    c, broker = signed_on_strict_client([ "^^2^2^3261002^^\r\n" ])
+    c.call_rpc("TIU TEMPLATE GETTEXT", "8", "349;3261002.09;A;7", { [ 1, 0 ] => "one", [ 2, 0 ] => "two" })
+    assert_equal [ "UID", "", "7", "RPC", "", "TIU TEMPLATE GETTEXT",
+                   "1", "", "8",
+                   "2", "", "349;3261002.09;A;7",
+                   "3", "1,0", "one",
+                   "3", "2,0", "two" ],
+                 broker.frames.last[:fields]
+  end
+
+  # TIU SET DOCUMENT TEXT reads TIUX("HDR") and TIUX("TEXT",n,0)
+  # (TIUSRVPT.m:12, 18): a string level is quoted, a numeric one bare (#219).
+  def test_tiux_hash_frames_quoted_string_and_bare_numeric_levels
+    c, broker = signed_on_strict_client([ "5001^1^1\r\n" ])
+    c.call_rpc("TIU SET DOCUMENT TEXT", "5001", { "HDR" => "1^1", [ "TEXT", 1, 0 ] => "S: cough" })
+    assert_equal [ "UID", "", "7", "RPC", "", "TIU SET DOCUMENT TEXT",
+                   "1", "", "5001",
+                   "2", "\"HDR\"", "1^1",
+                   "2", "\"TEXT\",1,0", "S: cough" ],
+                 broker.frames.last[:fields]
+  end
+
   def test_hash_param_doubles_embedded_quotes_in_string_subscripts
     c, broker = signed_on_strict_client([ "ok\r\n" ])
     c.call_rpc("XWB EXAMPLE ECHO STRING", { 'A"B' => "x" })

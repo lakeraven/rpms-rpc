@@ -65,6 +65,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the TIU note surface sends what its routines declare and reads what they answer (#219)
+
+Line numbers are the FOIA source (Text Integration Utility/Routines).
+
+- `ProgressNote.lock(note_ien)` — `LOCK(ERR,TIUDA)^TIUSRVP` answers `0` when
+  it holds the lock and `1^ Another session has this record locked.` when it
+  does not (TIUSRVP.m:210-212). The `:boolean` read reported a FAILED lock as
+  held. One actual; the user DUZ is gone. **Signature change.**
+- `ProgressNote.unlock(note_ien)` — `UNLOCK` always answers `0`
+  (TIUSRVP.m:214-215), which read as false. **Signature change.**
+- `ProgressNote.create(dfn, visit_ien, title_ien)` — frames
+  `MAKE(SUCCESS,DFN,TITLE,VDT,VLOC,VSIT,...)` (TIUSRVP.m:7) as DFN, TITLE,
+  `""`, `""`, VSIT. The old frame put the visit in TITLE and the title in VDT.
+- `ProgressNote.authorize(note_ien, action: "EDIT RECORD")` — `CANDO(TIUY,
+  TIUDA,TIUACT)^TIUSRVA` takes an action string, not a DUZ (TIUSRVA.m:20);
+  `1` is yes, `0^reason` no. **Signature change.**
+- `ProgressNote.list(dfn, context:, early:, late:, person:)` — sends CLASS 3
+  (progress notes, TIUSRVLO.m:8), CONTEXT, DFN (TIUSRVLO.m:16); the old
+  `(dfn, code)` frame always came back empty. Contexts are the routine's own
+  (TIUSRVLO.m:19-23): `:all_signed` (default), `:unsigned`, `:uncosigned`,
+  `:signed_by_author`, `:signed_by_date_range`; `:all`, `:by_author` and
+  `:by_visit` are gone. Rows parse as `DA^DOC^EDT^PT^AUT^LOC^STATUS^...`
+  (TIUSRVLO.m:94, 197), with `:author_duz` / `:author_name` split out of
+  AUT. **Signature change.**
+- `ProgressNote.update_text(note_ien, text)` — sends TIUX as a list,
+  `TIUX("HDR")="1^1"` and `TIUX("TEXT",n,0)` per line (TIUSRVPT.m:12, 18);
+  success is the `TIUDA^PAGE^PAGES` acknowledgement (TIUSRVPT.m:38). A flat
+  string failed every update with "Invalid text block header".
+- `XwbClient` forms list subscripts as M literals, as `CiaClient` does:
+  LINST^XWBPRS splices them raw (XWBPRS.m:152-156), so a string key is quoted
+  (`"HDR"`, `"TEXT",1,0`). An unquoted key was a variable reference.
+- `NoteTemplate.roots` / `items` — rows parse as NODEDATA's
+  `IEN^TYPE^STATUS^NAME^...^HAS CHILDREN` (TIUSRVT.m:4-29); the old mapping
+  read TYPE as the name, and `:parent_ien` (never in the row) is gone.
+- `NoteTemplate.boilerplate(template_ien)` — `GETBOIL(TIUY,TIUDA)`
+  (TIUSRVT.m:55) takes the template alone and returns UNEXPANDED text; the
+  three-actual frame died in M. **Signature change.**
+
+### Fixed — read calls send the formal list each routine declares (#259)
+
+Thirteen read calls died in M with `%YDB-E-LVUNDEF` (once with
+`%YDB-E-ACTLSTTOOLONG`) because the frame carried fewer arguments than the
+routine's label line declares. The formal lists come from the routines on a
+built 9.0 YottaDB image; every fix below was proven live against a local
+container of that image (the call answers, no M error).
+
+- `Medication.for_patient` — `LIST(ORY,ORPT,ORSTRTDT,ORSTOPDT)^ORQQPS`: sends
+  both dates, empty (OCL^PSOORRL `$G`s them and starts 120 days back).
+- `Problem.for_patient` — `LIST(ORPY,DFN,STATUS)^ORQQPL`: sends STATUS `""`
+  (all problems).
+- `Problem.details(dfn, ien)` — `DETAIL(Y,DFN,PROBIEN,ID)^ORQQPL`: the
+  patient comes first; the IEN-only frame put the IEN in DFN. **Signature
+  change.**
+- `HealthSummary.for_patient` / `component_data` —
+  `RPT(ROOT,DFN,RPTID,HSTYPE,DTRANGE,EXAMID,ALPHA,OMEGA)^ORWRP`: seven
+  formals instead of one `"DFN^type^"` string; RPTID is the Health Summary
+  entry of file 101.24 (ID 1), HSTYPE the type IEN. `component_data` now
+  fetches the summary and picks the component's section out of it: the RPC
+  has no component selector for that report.
+- `NoteTemplate.text(lines, dfn:, visit_string:)` —
+  `GETTEXT(TIUY,DFN,VSTR,TIUX)^TIUSRVT` expands boilerplate TEXT; there is no
+  template IEN on this wire, and the text must arrive as `TIUX(n,0)`
+  (BLRPLT^TIUSRVD). `CiaClient` and `XwbClient` now frame an Array list
+  key as a multi-level subscript (`[1, 0]` -> `P3(1,0)`). **Signature
+  change.**
+- `Order.result(dfn, order_ien)` — `RESULT(REF,DFN,ORID,ID)^ORWOR`: the
+  patient first, the order IEN as ORID and ID. **Signature change.**
+- `Symptom.search` — `SYMPTOMS(Y,FROM,DIR)^ORWDAL32`: sends DIR `1`.
+- `Vital.template(dfn, visit_string, metric: -1)` —
+  `TEMPLATE(DATA,DFN,VSTR,METRIC)^BEHOVM`: a patient and a visit string, not
+  a location IEN; METRIC as the routine reads it (-1 default units, 0 US,
+  1 metric). **Signature change.**
+- `Patient.brief_header` — the three `BEHO*` frames that died (`DFN`
+  undefined) were not the fetches, which carried the DFN, but the
+  `:patient_chart_banner` capability probe, which called each RPC with no
+  parameters. `ServerCapabilities.register` takes `probe:` parameters per
+  RPC and the banner probe sends DFN `"0"`, which each routine answers
+  empty. The same probe class explains the `ORQQPL DETAIL ... PROBIEN`
+  error logged under `Problem.provider_list` / `lex_search`: the
+  `:orqqpl_problem_workflow` probe called DETAIL bare, and DETAIL has no
+  safe synthetic input, so that feature now probes `ORQQPL INIT PT`
+  (quits on a zero DFN).
+- `BGOPROB GET CLASS` (more actuals than formals) was already unbound on
+  `main`; nothing in the gem sends it.
+
 ### Fixed — CIA read_reply correlates a reply to its request by the sequence echo (#289)
 
 `CiaClient#read_reply` accepted any non-empty piece as this request's reply. It
