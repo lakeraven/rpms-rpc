@@ -41,6 +41,9 @@ module RpmsRpc
       # value and its external form.
       IEN_NAME_SEPARATOR = "~"
 
+      # Helpers for the AMHG modules that extend Wire; not part of their public API.
+      private
+
       # One pipe-delimited actual, read as a GLOBAL ARRAY.
       #
       # Every AMHG RPC registers RETURN VALUE TYPE 4 (GLOBAL ARRAY) and
