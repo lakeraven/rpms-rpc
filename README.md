@@ -52,6 +52,20 @@ Requires Ruby 3.4+.
 
 ## Usage
 
+### Loading the gem
+
+```ruby
+require "rpms_rpc"
+```
+
+loads the public API: configuration (`RpmsRpc.configure`, `client`, `mock!`,
+`reset!`), the response mappings, the security-key, role and capability tables,
+and every `RpmsRpc::<Api>` module under `lib/rpms_rpc/api/`. It does not open a
+socket or pick a broker. A script that needs only one broker client can require
+that file alone (`require "rpms_rpc/cia_client"`, below); it carries the
+configuration and error sanitizing it needs, and none of the tables.
+`require "rpms_rpc/version"` defines `RpmsRpc::VERSION` and nothing else.
+
 ### CIA (XWB) — port 9100
 
 ```ruby
@@ -337,6 +351,26 @@ bundle exec rake test
 
 The test suite is hermetic — no sockets, no live RPMS.
 
+### Test results, quickly
+
+Run these whenever you want the current picture; there is no report to keep. The hermetic
+suite, then the live specs once per persona against a local container of the build you
+care about (the broker port published on loopback; `rake test:live` refuses any other host):
+
+```sh
+bundle exec rake test
+VISTA_RPC_ENV=development BROKER_HOST=127.0.0.1 BROKER_PORT=<port> PERSONA=PROV123 RPMS_ACCESS=... RPMS_VERIFY=... bundle exec rake test:live
+BROKER_HOST=127.0.0.1 BROKER_PORT=<port> PERSONA=SYS123 RPMS_ACCESS=... RPMS_VERIFY=... bundle exec rake test:live
+bundle exec rake rpc:coverage
+```
+
+Each prints its own summary: minitest's `runs, assertions, failures, errors, skips` line, the
+live run's skips listed by issue (a live run in which no spec ran fails), and the coverage
+headline from the committed live evidence. Any failure exits non-zero.
+
+PROV123 is a debug account, so its run also needs `VISTA_RPC_ENV=development`. `rake rpc:coverage`
+reads the live evidence from an `rpms-diffs` checkout beside this repo, or `RPMS_DIFFS_DIR=`.
+
 - **Wire-format tests** construct packet bytes and assert their layout
 - **DataMapper tests** verify field/text_blob/scalar round-trip through parse + format
 - **MockClient tests** verify seeded data flows through the full fetch chain
@@ -347,6 +381,8 @@ The test suite is hermetic — no sockets, no live RPMS.
 ### MockClient usage
 
 ```ruby
+require "rpms_rpc"
+
 RpmsRpc.mock! do |m|
   # Field-based mapping (caret-delimited)
   m.seed(:patient_select, "1", { name: "DOE,JOHN", sex: "M", dob: Date.new(1980, 1, 15) })

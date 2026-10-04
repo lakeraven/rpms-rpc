@@ -2,7 +2,7 @@
 
 require "minitest/autorun"
 require "rpms_rpc/cia_client"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/api/authentication"
 
 # The Authentication facade parses XUS AV CODE by LINE POSITION. A CIA
@@ -54,9 +54,9 @@ class RpmsRpc::AuthenticationCiaGrammarTest < Minitest::Test
   def test_a_cia_rejection_is_not_misparsed_into_a_plausible_duz
     RpmsRpc.configure do |c|
       c.client = cia_client([
-        "2\x00OK#{EOD}",                                          # XUS SIGNON SETUP
-        "2\x000\r\n0\r\n0\r\nInvalid A/V code.\r\n0\r\n0#{EOD}",  # XUS AV CODE — DUZ 0
-        "2\x00IRRELEVANT#{EOD}"                                    # would-be XUS GET USER INFO
+        "1\x00OK#{EOD}",                                          # XUS SIGNON SETUP (seq 1)
+        "2\x000\r\n0\r\n0\r\nInvalid A/V code.\r\n0\r\n0#{EOD}",  # XUS AV CODE (seq 2) — DUZ 0
+        "3\x00IRRELEVANT#{EOD}"                                    # would-be XUS GET USER INFO (seq 3)
       ])
     end
 
@@ -73,9 +73,9 @@ class RpmsRpc::AuthenticationCiaGrammarTest < Minitest::Test
   def test_a_cia_acceptance_parses_duz_from_the_reply_lines
     RpmsRpc.configure do |c|
       c.client = cia_client([
-        "2\x00OK#{EOD}",                                            # XUS SIGNON SETUP
-        "2\x00301\r\n0\r\n0\r\nGood evening\r\n0\r\n0#{EOD}",       # XUS AV CODE — DUZ 301
-        "2\x00301\r\nBETA,BOB\r\nBETA,BOB\r\nDEMO SITE#{EOD}"       # XUS GET USER INFO
+        "1\x00OK#{EOD}",                                            # XUS SIGNON SETUP (seq 1)
+        "2\x00301\r\n0\r\n0\r\nGood evening\r\n0\r\n0#{EOD}",       # XUS AV CODE (seq 2) — DUZ 301
+        "3\x00301\r\nBETA,BOB\r\nBETA,BOB\r\nDEMO SITE#{EOD}"       # XUS GET USER INFO (seq 3)
       ])
     end
 
@@ -98,9 +98,9 @@ class RpmsRpc::AuthenticationCiaGrammarTest < Minitest::Test
   def test_bare_cr_line_separators_parse_the_same_as_crlf
     RpmsRpc.configure do |c|
       c.client = cia_client([
-        "2\x00OK#{EOD}",
-        "2\x00301\r0\r0\rGood evening\r0\r0#{EOD}",
-        "2\x00301\rBETA,BOB\rBETA,BOB\rDEMO SITE#{EOD}"
+        "1\x00OK#{EOD}",                                  # XUS SIGNON SETUP (seq 1)
+        "2\x00301\r0\r0\rGood evening\r0\r0#{EOD}",       # XUS AV CODE (seq 2)
+        "3\x00301\rBETA,BOB\rBETA,BOB\rDEMO SITE#{EOD}"   # XUS GET USER INFO (seq 3)
       ])
     end
 
@@ -123,13 +123,13 @@ class RpmsRpc::AuthenticationCiaGrammarTest < Minitest::Test
   # from the sequence byte.
 
   # An ungated XUS AV CODE gets SNDERR "Access denied for remote procedure."
-  # The seq echo "3" + \x01 must NOT parse as DUZ 3 / success. A broker-level
+  # The seq echo "2" + \x01 must NOT parse as DUZ 2 / success. A broker-level
   # error is a typed RpcError, never a sign-on.
   def test_a_cia_snderr_reply_is_a_typed_error_not_a_minted_duz
     RpmsRpc.configure do |c|
       c.client = cia_client([
-        "2\x00OK#{EOD}",                                      # XUS SIGNON SETUP
-        "3\x01Access denied for remote procedure.#{EOD}"     # XUS AV CODE — SNDERR
+        "1\x00OK#{EOD}",                                     # XUS SIGNON SETUP (seq 1)
+        "2\x01Access denied for remote procedure.#{EOD}"    # XUS AV CODE (seq 2) — SNDERR
       ])
     end
 
@@ -140,12 +140,12 @@ class RpmsRpc::AuthenticationCiaGrammarTest < Minitest::Test
   end
 
   # A seq-only SNDEOD reply (no data, no flag) must fail closed — not mint a
-  # DUZ from the sequence byte "5".
+  # DUZ from the sequence echo byte "2".
   def test_a_cia_no_data_reply_does_not_mint_a_duz
     RpmsRpc.configure do |c|
       c.client = cia_client([
-        "2\x00OK#{EOD}",  # XUS SIGNON SETUP
-        "5#{EOD}"          # XUS AV CODE — SNDEOD, sequence echo only
+        "1\x00OK#{EOD}",  # XUS SIGNON SETUP (seq 1)
+        "2#{EOD}"          # XUS AV CODE (seq 2) — SNDEOD, sequence echo only
       ])
     end
 
@@ -163,9 +163,9 @@ class RpmsRpc::AuthenticationCiaGrammarTest < Minitest::Test
     [ " ", "\t" ].each do |blank|
       RpmsRpc.configure do |c|
         c.client = cia_client([
-          "2\x00OK#{EOD}",                                            # XUS SIGNON SETUP
-          "2\x00301\r\n#{blank}\r\n0\r\nGood evening\r\n0\r\n0#{EOD}", # AV CODE, blank error line
-          "2\x00301\r\nBETA,BOB#{EOD}"                                 # would-be user_info
+          "1\x00OK#{EOD}",                                            # XUS SIGNON SETUP (seq 1)
+          "2\x00301\r\n#{blank}\r\n0\r\nGood evening\r\n0\r\n0#{EOD}", # AV CODE (seq 2), blank error line
+          "3\x00301\r\nBETA,BOB#{EOD}"                                 # would-be user_info (seq 3)
         ])
       end
 
@@ -182,7 +182,10 @@ class RpmsRpc::AuthenticationCiaGrammarTest < Minitest::Test
   def test_an_ack_less_reply_does_not_mint_a_duz
     [ "2\r\n0\r\n0\r\nInvalid A/V code.\r\n0\r\n0", "20\r\n0\r\n0\r\nInvalid\r\n0\r\n0", "2" ].each do |shape|
       RpmsRpc.configure do |c|
-        c.client = cia_client([ "2\x00OK#{EOD}", "#{shape}#{EOD}" ])
+        # (#289) SIGNON SETUP is seq 1; the AV CODE shapes are seq 2, which is why
+        # each begins with "2" — the echo that read_reply matches before
+        # parse_cia_reply fails closed on the missing/invalid ack byte.
+        c.client = cia_client([ "1\x00OK#{EOD}", "#{shape}#{EOD}" ])
       end
 
       result = RpmsRpc::Authentication.authenticate(access_code: "AAA", verify_code: "BBB")

@@ -102,7 +102,7 @@ class RegistrationTest < Minitest::Test
 
   def seed_agg_add(dfn: "9", result: "1", message: "")
     reply = "I00010RESULT^T00080MESSAGE^I00010DFN\x1e#{result}^#{message}^#{dfn}\x1e\x1f"
-    @mock.seed(:agg_add_patient, Agg::DEFAULT_WINDOW, reply)
+    @mock.seed(:agg_add_patient, Agg::NEW_PATIENT_WINDOW, reply)
   end
 
   def seed_agg_update(result: "1", error: "")
@@ -239,7 +239,7 @@ class RegistrationTest < Minitest::Test
 
     add = agg_calls("AGG ADD NEW PATIENT").first
     window, dfn, parms = add[:params]
-    assert_equal Agg::DEFAULT_WINDOW, window
+    assert_equal Agg::NEW_PATIENT_WINDOW, window, "the create goes through the window AG registers through"
     assert_equal "", dfn, "new patient => empty DFN"
     pairs = parms.split("\x1c")
     assert_includes pairs, "AGGPTLNM=DEMOPATIENT"
@@ -249,6 +249,122 @@ class RegistrationTest < Minitest::Test
     assert_includes pairs, "AGGPTSSN=900010001"
     assert pairs.none? { |p| p.start_with?("AGGPTHRN=") },
            "greenfield must NOT send a clerk HRN on the create call"
+  end
+
+  # rpms-rpc#297: tribe, classification, eligibility and community are
+  # parameters of AG's own "New Patient" window, so they ride the create and
+  # AG files them. Nothing is filed around AG.
+  def test_delegation_sends_the_ihs_values_as_new_patient_window_parameters
+    seed_agg(available: true)
+    seed_agg_add(dfn: "9")
+    seed_agg_update
+
+    result = Reg.register(ATTRS.merge(community: nil, community_ien: "18186", community_since: Date.new(2020, 5, 1)))
+
+    pairs = agg_calls("AGG ADD NEW PATIENT").first[:params][2].split("\x1c")
+    assert_includes pairs, "AGGPTTRI=123"
+    assert_includes pairs, "AGGPTCLB=13"
+    assert_includes pairs, "AGGPTELG=I"
+    assert_includes pairs, "AGGPTCOM=18186"
+    assert_includes pairs, "AGGPTCDT=05/01/2020"
+    assert_empty filer_calls, "delegation files nothing through DDR FILER"
+    refute result.key?(:unfiled), "everything given was sent"
+  end
+
+  def test_delegation_names_free_text_community_as_unfiled
+    seed_agg(available: true)
+    seed_agg_add(dfn: "9")
+    seed_agg_update
+
+    result = Reg.register(ATTRS)
+
+    assert result[:success]
+    assert_equal [ :community ], result[:unfiled],
+                 "AG stores community as a pointer and a date moved; free text has no parameter"
+    pairs = agg_calls("AGG ADD NEW PATIENT").first[:params][2].split("\x1c")
+    assert pairs.none? { |p| p.start_with?("AGGPTCOM=", "AGGPTCDT=") }
+    assert_empty filer_calls
+  end
+
+  # rpms-rpc#300 AC 4: free text given beside the pointer is still not sent
+  # (the window has no free-text community parameter), so it is named.
+  def test_delegation_names_free_text_community_as_unfiled_beside_the_pointer
+    seed_agg(available: true)
+    seed_agg_add(dfn: "9")
+    seed_agg_update
+
+    result = Reg.register(ATTRS.merge(community_ien: "18186", community_since: Date.new(2020, 5, 1)))
+
+    assert result[:success]
+    assert_equal [ :community ], result[:unfiled]
+    pairs = agg_calls("AGG ADD NEW PATIENT").first[:params][2].split("\x1c")
+    assert_includes pairs, "AGGPTCOM=18186"
+    assert_includes pairs, "AGGPTCDT=05/01/2020"
+  end
+
+  def test_delegation_names_extra_fields_as_unfiled
+    seed_agg(available: true)
+    seed_agg_add(dfn: "9")
+    seed_agg_update
+
+    result = Reg.register(ATTRS.merge(community: nil, extra_fields: [ { field: "1110", value: "4/4" } ]))
+
+    assert_equal [ :extra_fields ], result[:unfiled]
+    assert_empty filer_calls
+  end
+
+  def test_delegation_community_needs_the_pointer_and_the_date_together
+    seed_agg(available: true)
+
+    err = assert_raises(ArgumentError) { Reg.register(ATTRS.merge(community_ien: "18186")) }
+
+    assert_match(/community_since/, err.message)
+    assert_empty agg_calls("AGG ADD NEW PATIENT"), "nothing is sent"
+  end
+
+  # AG's GUI resolves "B" (at birth) to a date before it sends; sent as "B"
+  # the create answers success and files no community history. So the gem
+  # resolves it, and refuses what is not a date.
+  def test_delegation_resolves_at_birth_to_the_date_of_birth
+    [ :birth, "B", "b" ].each do |since|
+      sent = Reg.send(:agg_add_params, ATTRS.merge(community_ien: "18186", community_since: since))
+      assert_equal "01/02/1990", sent["AGGPTCDT"], "#{since.inspect} is the date of birth"
+    end
+  end
+
+  def test_delegation_refuses_a_date_moved_that_is_not_a_date
+    seed_agg(available: true)
+
+    [ "TODAY", "last spring", "1990-01-02" ].each do |since|
+      err = assert_raises(ArgumentError) { Reg.register(ATTRS.merge(community_ien: "18186", community_since: since)) }
+      assert_match(/community_since/, err.message)
+    end
+    assert_empty agg_calls("AGG ADD NEW PATIENT"), "nothing is sent"
+  end
+
+  def test_delegation_at_birth_needs_a_date_of_birth
+    err = assert_raises(ArgumentError) do
+      Reg.send(:agg_add_params, ATTRS.merge(dob: nil, community_ien: "18186", community_since: :birth))
+    end
+    assert_match(/dob/, err.message)
+  end
+
+  # Every parameter the create sends must be one the window defines:
+  # ADD^AGGPTADD rejects a name that is not in the window's "AC" index
+  # (AGGPTADD.m:44-45). The fixture is the window as read from a built image.
+  def test_delegation_sends_only_parameters_the_new_patient_window_defines
+    window = File.readlines(File.expand_path("../../fixtures/agg/new_patient_window.tsv", __dir__))
+                 .reject { |l| l.start_with?("#") }.drop(1).map { |l| l.chomp.split("\t", -1) }
+    by_name = window.to_h { |row| [ row[1], row ] }
+
+    sent = Reg.send(:agg_add_params, ATTRS.merge(community_ien: "18186", community_since: "05/01/2020"))
+    assert_empty sent.keys - by_name.keys, "every PARMS name is a New Patient window parameter"
+
+    { "AGGPTTRI" => Reg::FIELD_TRIBE, "AGGPTCLB" => Reg::FIELD_CLASSIFICATION,
+      "AGGPTELG" => Reg::FIELD_ELIGIBILITY, "AGGPTCOM" => "1117" }.each do |name, field|
+      assert_equal field, by_name.fetch(name)[6], "#{name} files #9000001 field #{field}"
+    end
+    assert_includes by_name.keys, "AGGPTHRN", "clerk-mode HRN rides the same window"
   end
 
   def test_delegation_greenfield_files_hrn_equal_to_dfn_via_update
@@ -375,6 +491,53 @@ class RegistrationTest < Minitest::Test
     Reg.register(ATTRS.merge(extra_fields: [ { field: "1110", value: "4/4" } ]))
 
     assert_includes all_filer_rows, "9000001^1110^42,^4/4"
+  end
+
+  # rpms-rpc#300: the composition path files community as 1118 free text
+  # only. It has no 1117 pointer and no #9000001.51 history entry, so a
+  # pointer or a date moved given to it is named, never silently dropped.
+  def test_composition_names_community_pointer_and_date_as_unfiled
+    seed_composition_happy_path
+
+    result = Reg.register(ATTRS.merge(community_ien: "18186", community_since: Date.new(2020, 5, 1)))
+
+    assert result[:success]
+    assert_equal %i[community_ien community_since], result[:unfiled]
+    assert_includes all_filer_rows, "9000001^1118^42,^EXAMPLE COMMUNITY"
+    assert all_filer_rows.none? { |r| r.include?("^1117^") || r.start_with?("9000001.51^") },
+           "composition files no pointer and no history entry"
+  end
+
+  def test_composition_names_only_the_community_attrs_given
+    seed_composition_happy_path
+
+    result = Reg.register(ATTRS.merge(community_since: :birth))
+
+    assert_equal [ :community_since ], result[:unfiled]
+  end
+
+  def test_composition_free_text_community_is_filed_not_unfiled
+    seed_composition_happy_path
+
+    result = Reg.register(ATTRS)
+
+    assert result[:success]
+    refute result.key?(:unfiled), "free-text community is filed into 1118"
+    assert_includes all_filer_rows, "9000001^1118^42,^EXAMPLE COMMUNITY"
+  end
+
+  def test_composition_rerun_still_names_the_community_pointer
+    seed_agg(available: false)
+    seed_voa
+    seed_lock
+    seed_existence(exists: true)
+    seed_filer(text: "[Data]")
+
+    result = Reg.register(ATTRS.merge(community_ien: "18186"))
+
+    assert result[:success]
+    refute result[:created]
+    assert_equal [ :community_ien ], result[:unfiled]
   end
 
   # ==========================================================================
