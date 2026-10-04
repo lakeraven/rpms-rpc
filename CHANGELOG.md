@@ -65,6 +65,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — a refused CIA sign-on names the broker's reason; CIA frames go through send_packet (#175)
+
+- `CiaClient#authenticate` raised a bare `"CIA sign-on rejected"`. It now
+  carries the broker's reason: the text of `DATA(0)` from `CHK^CIANBRPC`
+  (e.g. `CIA sign-on rejected: Not a valid ACCESS CODE/VERIFY CODE pair.`), or
+  a `\x01` broker error's text. The login banner that follows a refusal is not
+  included. The access code, verify code and encrypted AVC are removed from the
+  reason even if the broker echoes them, the reason is capped at 160
+  characters, and the message still passes through `RpmsRpc.sanitize_error`.
+- `CiaClient#exchange` writes each frame through `Client#send_packet`, as the
+  XWB and BMX clients do, so a `SocketError` on write raises `ConnectionError`
+  and leaves the client disconnected instead of escaping raw.
+
 ### Changed — `require "rpms_rpc"` is the entry point; `rpms_rpc/version` holds only VERSION (#7)
 
 - New `lib/rpms_rpc.rb`: one `require "rpms_rpc"` loads configuration

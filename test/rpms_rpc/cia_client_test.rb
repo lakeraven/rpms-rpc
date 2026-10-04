@@ -1176,4 +1176,96 @@ class RpmsRpc::CiaClientTest < Minitest::Test
                 'require "rpms_rpc/cia_client"; exit(RpmsRpc.respond_to?(:sanitize_error) ? 0 : 1)')
     assert ok, "rpms_rpc/cia_client standalone load lost RpmsRpc.sanitize_error"
   end
+
+  # -- frame writes go through send_packet (#175 item 1) ----------------------
+
+  # A socket whose write fails the way a dead network does: SocketError is not
+  # an IOError or SystemCallError, so only send_packet types it.
+  class SocketErrorOnWrite < FakeSocket
+    def write(_str) = raise(SocketError, "getaddrinfo: nodename nor servname provided")
+  end
+
+  def test_exchange_writes_frames_through_send_packet
+    c = connected_client([ "1\x00ok" + EOD ])
+    packets = []
+    c.define_singleton_method(:send_packet) do |packet|
+      packets << packet
+      super(packet)
+    end
+    c.call_rpc_raw("XWB IM HERE")
+    assert_equal 1, packets.size, "the RPC frame must be written through send_packet"
+    assert packets.first.start_with?("{CIA}"), "send_packet carried the {CIA} frame"
+  end
+
+  def test_socket_error_on_write_raises_connection_error_and_disconnects
+    c = Client.new
+    c.instance_variable_set(:@socket, SocketErrorOnWrite.new([]))
+    c.instance_variable_set(:@connected, true)
+    c.instance_variable_set(:@timeout, 5)
+    c.instance_variable_set(:@seq, 0)
+    err = assert_raises(RpmsRpc::Client::ConnectionError) { c.call_rpc_raw("XWB IM HERE") }
+    assert_match(/network error/, err.message)
+    refute c.connected?, "a failed frame write must leave the client disconnected"
+  end
+
+  # -- a rejected sign-on names the broker's reason (#175 item 2) -------------
+  #
+  # AUTH^CIANBRPC reports a refusal through CHK^CIANBRPC (CIANBRPC.m:142-144):
+  # DATA(0) = RTN_U_text, so line 1 of the reply is "code^message". For RTN 4
+  # it then writes the environment (DATA(1) = "env^volume^UCI^port") and the
+  # login banner (INTRO^XUS1A into DATA(2)). The reason is DATA(0)'s text; the
+  # banner is not a reason.
+  REJECTED_AUTH_BODY = "4^Not a valid ACCESS CODE/VERIFY CODE pair.\r\n" \
+                       "DEMO^ROU^VEH^9100\r\n" \
+                       "This is a demonstration system banner.\r\n"
+
+  def test_rejected_signon_carries_the_brokers_reason
+    c, = client_on_strict_broker([ REJECTED_AUTH_BODY ])
+    c.connect("localhost", 9100)
+    err = assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("BADAC1", "BADVC1!!") }
+    assert_match(/CIA sign-on rejected/, err.message)
+    assert_match(/Not a valid ACCESS CODE\/VERIFY CODE pair\./, err.message)
+    refute_match(/banner/, err.message, "the login banner is not the reason")
+    assert_signed_off(c)
+  end
+
+  def test_rejected_signon_reason_never_carries_the_codes_or_the_avc
+    # A broker that echoes what it was sent (or a future CHK text that quotes
+    # it) must still not put a credential into an exception message.
+    c, broker = client_on_strict_broker([])
+    c.connect("localhost", 9100)
+    broker.define_singleton_method(:echo_auth!) do
+      original = method(:write)
+      define_singleton_method(:write) do |str|
+        n = original.call(str)
+        frame = @frames.last
+        if frame && frame[:fields][5] == "CIANBRPC AUTH"
+          avc = frame[:fields][11]
+          @pending[-1] = "\x004^Refused BADAC1 BADVC1!! #{avc}\r\n" + EOD
+        end
+        n
+      end
+    end
+    broker.echo_auth!
+    err = assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("BADAC1", "BADVC1!!") }
+    avc = broker.frames.last[:fields][11]
+    refute_empty avc
+    refute_includes err.message, "BADAC1"
+    refute_includes err.message, "BADVC1"
+    refute_includes err.message, avc
+    assert_match(/Refused/, err.message)
+  end
+
+  def test_signon_broker_error_reply_carries_the_error_text
+    # A \x01 reply is a broker error (CIAERR) rather than a CHK refusal.
+    c = connected_client([ "1\x01Remote procedure CIANBRPC AUTH not found" + EOD ])
+    err = assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("BADAC1", "BADVC1!!") }
+    assert_match(/Remote procedure CIANBRPC AUTH not found/, err.message)
+  end
+
+  def test_rejected_signon_reason_is_capped
+    c = connected_client([ "1\x004^#{"X" * 5000}\r\n" + EOD ])
+    err = assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("BADAC1", "BADVC1!!") }
+    assert_operator err.message.length, :<, 400
+  end
 end
