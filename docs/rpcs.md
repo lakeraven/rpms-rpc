@@ -24,11 +24,11 @@ return format.
   signon environment. It is required before `XUS AV CODE`.
 - `XUS AV CODE` requires the access/verify codes to be passed
   through the `xwb_encrypt` cipher (`$$ENCRYP^XUSRB1`).
-- No sign-on reply carries a user class. `XUS AV CODE` line 5 is the
+- Neither reply carries a user class. `XUS AV CODE` line 5 is the
   post-sign-on message count (it was read as a class until #236), and
-  `XUS GET USER INFO` line 7 is DTIME. A role is derived from the user's
-  security keys (`UserRoles.resolve`), the way `ORWU USERINFO` computes its
-  own USRCLS piece from ORES/ORELSE/OREMAS (ORWU.m:19).
+  `XUS GET USER INFO` line 7 is DTIME. The sign-on result's `user_type` is
+  read from `ORWU USERINFO` piece 3, USRCLS, which the server computes from
+  ORES/ORELSE/OREMAS (ORWU.m:19).
 - `XWB CREATE CONTEXT` is sent the option name through the same
   cipher and gates whether RPCs in that context can be invoked.
 

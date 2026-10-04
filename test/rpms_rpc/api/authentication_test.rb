@@ -11,7 +11,8 @@ class AuthenticationTest < Minitest::Test
       m.seed_scalar(:signon_setup, "", "OK")
       m.seed_user("301",
         credentials: "ACCESS123;VERIFY123",
-        name: "PROVIDER,TEST")
+        name: "PROVIDER,TEST",
+        role: :provider)
       m.seed_lines(:av_code, "EXPIRED;VERIFY123", {
         duz: 301,
         error_code: 12,
@@ -41,18 +42,20 @@ class AuthenticationTest < Minitest::Test
       RpmsRpc.client.received_calls.first(3).map { |c| c[:rpc] }
   end
 
-  # Neither VALIDAV^XUSRB (XUSRB.m:40, :85-87) nor USERINFO^XUSRB2
-  # (XUSRB2.m:25-35) returns a user class, so sign-on cannot claim a role.
-  # Line 5 of XUS AV CODE — which used to be read as a class and resolved
-  # through USER_TYPES — is the post-sign-on message count (#236).
-  def test_authenticate_does_not_claim_a_user_type
-    result = RpmsRpc::Authentication.authenticate(access_code: "ACCESS123", verify_code: "VERIFY123")
-
-    assert_equal true, result[:success]
-    refute result.key?(:user_type), "no sign-on reply carries a user class; the role comes from security keys"
-    refute RpmsRpc::Authentication.const_defined?(:USER_TYPES)
+  # The sign-on result's user_type is ORWU USERINFO's USRCLS (piece 3), which
+  # the server computes from the user's order keys (ORWU.m:19), named in the
+  # vocabulary hosts already read. Anything else is not a class RPMS reports,
+  # so it maps to nil, never to a default (#236).
+  def test_user_type_for_maps_orwu_usrcls
+    assert_equal "provider", RpmsRpc::Authentication.user_type_for(3)
+    assert_equal "nurse", RpmsRpc::Authentication.user_type_for(2)
+    assert_equal "clerk", RpmsRpc::Authentication.user_type_for(1)
+    assert_equal "user", RpmsRpc::Authentication.user_type_for(0)
+    assert_equal "provider", RpmsRpc::Authentication.user_type_for("3")
+    [ nil, "", 4, 5, -1, "x", "3x" ].each do |usrcls|
+      assert_nil RpmsRpc::Authentication.user_type_for(usrcls), "USRCLS #{usrcls.inspect} is not one ORWU.m:19 returns"
+    end
   end
-
 
   # XUSRB.VALIDAV ALWAYS runs $$DECRYP^XUSRB1 on its parameter, so a cleartext
   # access;verify pair can never authenticate against a real broker no matter

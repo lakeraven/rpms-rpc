@@ -93,7 +93,7 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
     RpmsRpc::Authentication.clear_cache!
     RpmsRpc.mock! do |m|
       m.seed_scalar(:signon_setup, "", "OK")
-      m.seed_user("301", credentials: "AAA;AAA1", name: "ALPHA,ANA")
+      m.seed_user("301", credentials: "AAA;AAA1", name: "ALPHA,ANA", role: :provider)
     end
 
     order = Queue.new

@@ -1,25 +1,24 @@
 # frozen_string_literal: true
 
 require_relative "live_helper"
-require "rpms_rpc/security_keys"
-require "rpms_rpc/user_roles"
 require "rpms_rpc/api/authentication"
 require "rpms_rpc/api/ddr_fileman"
 
-# No sign-on reply carries a user class (#236). XUS GET USER INFO's line 7 is
-# the user's DTIME (USERINFO^XUSRB2, XUSRB2.m:35), not a user-class pointer;
-# the one user class RPMS reports, USRCLS (piece 3 of ORWU USERINFO), is
-# computed from the user's security keys (ORWU.m:19). UserRoles.resolve
-# derives a role from the same keys, so for each persona it must agree with
-# the server's USRCLS.
+# The sign-on result's user_type is the server's own user class: USRCLS,
+# piece 3 of ORWU USERINFO, which ORWU.m:19 computes from the user's order
+# keys (3 ORES, 2 ORELSE, 1 OREMAS, 0 none) and which CPRS reads the same way.
+# Until #236 it was read from XUS AV CODE line 5, the post-sign-on message
+# count, so every user came back "user".
 #
-# XUS GET USER INFO is in the XUS SIGNON context; DDR LISTER (the key list)
-# and ORWU USERINFO are in CIAV VUECENTRIC, the option sign-on binds. The
-# spec reads only; it files nothing.
+# Authentication.authenticate itself cannot run over CIA: the broker refuses
+# XUS SIGNON SETUP and XUS AV CODE once CIANBRPC AUTH has signed the session
+# on. So this spec proves the step authenticate runs after AV CODE,
+# Authentication.signon_user_type, in the session and context a CIA sign-on
+# binds (CIAV VUECENTRIC), against a direct ORWU USERINFO call.
+#
+# XUS GET USER INFO is in the XUS SIGNON context; ORWU USERINFO and DDR GETS
+# are in CIAV VUECENTRIC. The spec reads only; it files nothing.
 class UserRoleLiveTest < LiveSpec::Test
-  # USRCLS (ORWU.m:19): 3 ORES, 2 ORELSE, 1 OREMAS, 0 none.
-  USRCLS_ROLES = { 3 => "provider", 2 => "nurse", 1 => "clerk", 0 => "user" }.freeze
-
   def test_user_info_line_7_is_the_users_dtime
     duz = client.duz
     info = client.with_context("XUS SIGNON") { RpmsRpc::Authentication.user_info(duz) }
@@ -34,14 +33,16 @@ class UserRoleLiveTest < LiveSpec::Test
     assert_equal Integer(timed_read), info[:dtime], "DTIME disagrees with #{persona}'s TIMED READ (200.1)"
   end
 
-  def test_role_from_keys_agrees_with_the_servers_usrcls
+  def test_signon_user_type_is_the_servers_usrcls
     duz = client.duz
     usrcls = Integer(Array(client.call_rpc("ORWU USERINFO")).first.to_s.split("^")[2])
-    keys = RpmsRpc::Authentication.user_security_keys(duz)
-    role = RpmsRpc::UserRoles.resolve(security_keys: RpmsRpc::SecurityKeys.symbolize(keys))
+    expected = RpmsRpc::Authentication.user_type_for(usrcls)
+    refute_nil expected, "ORWU USERINFO answered USRCLS #{usrcls} for #{persona}, which ORWU.m:19 never returns"
 
-    assert_equal USRCLS_ROLES.fetch(usrcls), role,
-                 "ORWU USERINFO says USRCLS #{usrcls} for #{persona}; the keys (#{keys.size}) resolve to #{role}"
-    puts "\n#{persona}: USRCLS #{usrcls} -> #{role}"
+    read = RpmsRpc::Authentication.signon_user_type(duz)
+
+    assert_equal({ user_type: expected }, read,
+                 "ORWU USERINFO says USRCLS #{usrcls} for #{persona}; sign-on read #{read.inspect}")
+    puts "\n#{persona}: USRCLS #{usrcls} -> user_type #{read[:user_type]}"
   end
 end

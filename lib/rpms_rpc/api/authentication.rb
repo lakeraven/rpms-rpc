@@ -26,6 +26,19 @@ module RpmsRpc
       12 => "Verify code expired - must be changed"
     }.freeze
 
+    # ORWU USERINFO's USRCLS (piece 3) -> the sign-on result's user_type.
+    # The server computes USRCLS from the user's order keys (ORWU.m:19):
+    #   $S($D(^XUSEC("ORES",DUZ)):3,$D(^XUSEC("ORELSE",DUZ)):2,
+    #      $D(^XUSEC("OREMAS",DUZ)):1,1:0)
+    # Until #236 this table keyed 3/4/5 off XUS AV CODE line 5, which is the
+    # post-sign-on message count, so everyone resolved to "user".
+    USER_TYPES = {
+      3 => "provider",
+      2 => "nurse",
+      1 => "clerk",
+      0 => "user"
+    }.freeze
+
     # Sign on with an access/verify pair.
     #
     # The pair crosses the wire ENCRYPTED. XUSRB.VALIDAV always runs
@@ -33,13 +46,9 @@ module RpmsRpc
     # as garbage and a real RPMS rejects correct credentials (rpms-rpc#200).
     # The ciphertext goes as ONE parameter because it may contain "^".
     #
-    # The result carries NO role. Neither reply in the sequence has a user
-    # class to read: VALIDAV^XUSRB answers DUZ, XUM, VCCH, message, 0 and the
-    # post-sign-on message count (XUSRB.m:40, :85-87) — the count was read as
-    # a class until #236 — and USERINFO^XUSRB2 answers name, division, title,
-    # service, language and DTIME (XUSRB2.m:25-35). A role is derived from the
-    # user's security keys (UserRoles.resolve), which is where CPRS gets its
-    # own USRCLS piece from (ORWU.m:19).
+    # A successful result carries :user_type, the server's own user class
+    # (see #signon_user_type), and :post_signon_message_count, XUS AV CODE
+    # line 5, which was read as a class until #236.
     #
     # The whole sequence — SIGNON SETUP, AV CODE, and the user/key lookups it
     # implies — runs under the client's wire lock. The broker session these
@@ -68,6 +77,43 @@ module RpmsRpc
       return nil if info.nil? || info[:duz].to_i != duz.to_i
 
       info
+    end
+
+    # The user_type for USRCLS, or nil for anything ORWU.m:19 does not return.
+    def user_type_for(usrcls)
+      text = usrcls.to_s.strip
+      return nil unless text.match?(/\A\d+\z/)
+
+      USER_TYPES[text.to_i]
+    end
+
+    # The signed-on user's class, as the server reports it: ORWU USERINFO
+    # piece 3, USRCLS (ORWU.m:12-19), the same read CPRS makes. The gem does
+    # not derive it from keys itself.
+    #
+    # It runs in whatever context the session holds, and binds none: a CIA
+    # sign-on binds CIAV VUECENTRIC, whose RPC multiple carries ORWU USERINFO.
+    # An XWB session that has created no context yet is refused.
+    #
+    # Returns { user_type: "provider" | "nurse" | "clerk" | "user" }, or, when
+    # the class cannot be read, { user_type: nil, user_type_error: reason }:
+    # the broker refused or failed the RPC, answered nothing, answered for a
+    # different DUZ, or answered a USRCLS ORWU.m:19 never returns. Never a
+    # default class: a host that asks provider? must hear "unknown", not "no".
+    def signon_user_type(duz)
+      record = DataMapper.practitioner_info.fetch_one
+      return user_type_error("ORWU USERINFO answered nothing") if record.nil?
+      unless record[:duz].to_i == duz.to_i
+        return user_type_error("ORWU USERINFO answered for another user, not DUZ #{duz}")
+      end
+
+      usrcls = record[:user_class]
+      user_type = user_type_for(usrcls)
+      return user_type_error("ORWU USERINFO answered USRCLS #{usrcls.inspect}, which ORWU.m:19 never returns") if user_type.nil?
+
+      { user_type: user_type }
+    rescue Client::RpcError => e
+      user_type_error("ORWU USERINFO failed: #{RpmsRpc.sanitize_error(e.message)}")
     end
 
     # Whether user DUZ holds the security key KEY_NAME, per ORWU NPHASKEY
@@ -246,7 +292,11 @@ module RpmsRpc
 
       info = user_info(duz)
       result[:name] = info[:name] if info
-      result
+      result.merge(signon_user_type(duz))
+    end
+
+    def user_type_error(reason)
+      { user_type: nil, user_type_error: reason }
     end
 
     def validation_error(message)

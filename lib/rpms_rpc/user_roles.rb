@@ -1,47 +1,53 @@
 # frozen_string_literal: true
 
 module RpmsRpc
-  # A user's role, derived from the security keys RPMS holds for them.
-  #
-  # Keys are the ONLY source. No sign-on reply carries a user class:
-  # VALIDAV^XUSRB returns DUZ, XUM, VCCH, message, 0 and the post-sign-on
-  # message count (XUSRB.m:9-11, :40, :85-87); USERINFO^XUSRB2 returns name,
-  # division, title, service/section, language and DTIME (XUSRB2.m:25-35).
-  # The one "user class" CPRS reports — USRCLS, piece 3 of ORWU USERINFO — is
-  # itself computed from keys on the server (ORWU.m:19):
-  #
-  #   S $P(REC,U,3)=$S($D(^XUSEC("ORES",DUZ)):3,$D(^XUSEC("ORELSE",DUZ)):2,
-  #                    $D(^XUSEC("OREMAS",DUZ)):1,1:0)
-  #
-  # so resolve follows the same precedence. Until #236 this module mapped a
-  # number read from av_code line 5 — the message count — through an invented
-  # 1/3/4/5 code table; that vocabulary is gone.
   module UserRoles
-    # Order-authority keys in ORWU.m:19's precedence, and the role each names.
-    # ORES signs orders (providers); ORELSE releases them (nurses and other
-    # clinicians); OREMAS enters them for signature (clerks).
-    ORDER_KEY_ROLES = [
-      [ :ores,   "provider" ],
-      [ :orelse, "nurse" ],
-      [ :oremas, "clerk" ]
-    ].freeze
+    USER_CLASS_MAP = {
+      "1" => "admin",
+      "3" => "provider",
+      "4" => "nurse",
+      "5" => "clerk"
+    }.freeze
 
-    # Keys that elevate any order role to case_manager.
+    REVERSE_CLASS_MAP = USER_CLASS_MAP.invert.freeze
+
+    # Resolve a VistA user class number to a role string.
+    def self.for_class(user_class)
+      USER_CLASS_MAP[user_class.to_s] || "user"
+    end
+
+    # Return the user_class string for a role (e.g., "provider" → "3").
+    def self.class_for(role)
+      REVERSE_CLASS_MAP[role.to_s]
+    end
+
+    # Return mock-friendly av_code attrs for a role. Caller mocks/seeds
+    # this into the XUS AV CODE response so role-resolution drives off
+    # the correct field. user_class is an Integer to match the av_code
+    # mapping's `line_field 5, :user_class, :integer` coercion.
+    def self.mock_av_code(duz:, role:)
+      { duz: duz.to_i, error_code: 0, verify_needs_change: 0,
+        message: "", user_class: (class_for(role) || "0").to_i }
+    end
+
+    # Determine role from the auth-class user_class (av_code line 5,
+    # captured at signon time — NOT user_info[:user_class_ien] which
+    # points into USER CLASS file #8932.1) plus security keys.
+    #
+    # Security keys can elevate a role above what user_class alone
+    # implies (e.g., PRCFA SUPERVISOR → case_manager).
     #
     # DEPRECATED elevation: :prc_supervisor and :prc_manager stood for
     # PRCFA SUPERVISOR and BPRC MANAGER, which are not security keys on the
     # pinned build (#314), so no signed-on user's keys carry them. It is kept
     # because a host that builds its own key list still relies on it; roles
     # leave the gem in #359 (ADR 0010: the host decides policy).
-    ELEVATING_KEYS = %i[prc_supervisor prc_manager].freeze
+    def self.resolve(user_class:, security_keys:)
+      if security_keys.include?(:prc_supervisor) || security_keys.include?(:prc_manager)
+        return "case_manager"
+      end
 
-    # security_keys: symbols from SecurityKeys.symbolize.
-    def self.resolve(security_keys:)
-      keys = Array(security_keys).map(&:to_sym)
-      return "case_manager" if keys.intersect?(ELEVATING_KEYS)
-
-      ORDER_KEY_ROLES.each { |key, role| return role if keys.include?(key) }
-      "user"
+      for_class(user_class)
     end
   end
 end

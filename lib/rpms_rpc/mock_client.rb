@@ -205,12 +205,19 @@ module RpmsRpc
     #
     #   m.seed_user("301",
     #     credentials: "testprovider;test123",
-    #     name: "PROVIDER,TEST")
+    #     name: "PROVIDER,TEST",
+    #     role: :provider)
     #
-    # No reply line is seeded with a role or user class: neither sign-on
-    # reply carries one (#236). A role is derived from the user's security
-    # keys (UserRoles.resolve), which live specs read from a real server.
-    def seed_user(duz, credentials:, name:)
+    # role: is the user_type sign-on should report. It is seeded where the
+    # server reports it, ORWU USERINFO's USRCLS (ORWU.m:19), as the class
+    # that names it: provider 3, nurse 2, clerk 1, anything else 0 ("user").
+    # One mock holds one session user, so the last seed_user wins the
+    # no-parameter reads (XUS GET USER INFO, ORWU USERINFO).
+    def seed_user(duz, credentials:, name:, role:)
+      require_relative "api/authentication"
+
+      usrcls = Authentication::USER_TYPES.key(role.to_s) || 0
+
       # Credential response: VALIDAV^XUSRB's RET() array (XUSRB.m:40, :85-87).
       # RET(5) is the post-sign-on message count; a successful mock sign-on
       # sends no message, as a site with $$SHOWPOST off does.
@@ -232,6 +239,8 @@ module RpmsRpc
         current_site: "",
         dtime: 300
       })
+
+      seed(:practitioner_info, "", { duz: duz.to_i, name: name, user_class: usrcls })
     end
 
     # Records of every call_rpc invocation, for tests that need to assert on

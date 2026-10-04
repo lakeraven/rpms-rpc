@@ -347,17 +347,18 @@ module RpmsRpc
     # ========================================================================
 
     # ORWU USERINFO — info about the AUTHENTICATED session user. Takes
-    # no params; broker raises <PARAMETER> when given any. Returns a
-    # single 25-piece caret-delimited line. Live shape against staging
-    # (DUZ=1 PROVIDER,TEST):
-    #   "1^PROVIDER,TEST^3^...^DEMO.IHS.GOV^...^8904^"
-    # The prior declaration aligned NAME^TITLE^SERVICE_SECTION^... at
-    # position 0; in reality position 0 is DUZ and the rest of the
-    # "demographic" fields (title, service_section, specialty, npi,
-    # dea_number, phone, provider_class) were invented — those are not
-    # in this response at all. Only fields with verified semantics are
-    # declared here; intermediate positions are small integer codes
-    # whose meaning would need the kernel data dictionary to interpret.
+    # no params; broker raises <PARAMETER> when given any. Returns one
+    # caret-delimited line, USERINFO^ORWU's REC (ORWU.m:12-25):
+    #   DUZ^NAME^USRCLS^CANSIGN^ISPROVIDER^ORDERROLE^NOORDER^DTIME^
+    #   COUNTDOWN^ENABLEVERIFY^NOTIFYAPPS^MSGHANG^DOMAIN^SERVICE^...
+    # Declared here: [0] DUZ, [1] NAME (file 200 .01), [2] USRCLS, [12]
+    # DOMAIN ($$KSP^XUPARAM("WHERE"), :31) and [23] the station.
+    # USRCLS is computed from the user's order keys (ORWU.m:19): 3 ORES,
+    # 2 ORELSE, 1 OREMAS, 0 none. It is the user class the sign-on result
+    # reports as :user_type (Authentication#signon_user_type, #236).
+    # Live, bcer-9.0-20260930 (YDB), under CIAV VUECENTRIC:
+    #   "200^PROVIDER,TEST^0^0^0^0^0^99999^20^1^1^5^DEMO.IHS.GOV^0^180^...^8904^^0"
+    #   "4^MANAGER,SYSTEM^3^1^1^3^0^99999^20^1^1^5^DEMO.IHS.GOV^1^180^...^8904^^0"
     DataMapper.define(:practitioner_info) do |m|
       m.rpc "ORWU USERINFO"
       m.field 0,  :duz,           :integer
@@ -546,7 +547,7 @@ module RpmsRpc
     #   RET(5+n)=the message lines themselves (:86)
     #   RET(RET(5)+6)=number of divisions the user must choose from (:11)
     # Line 5 used to be declared as a user class. No line of this reply is one
-    # (#236); the role comes from security keys — see UserRoles.
+    # (#236); the user class is ORWU USERINFO's USRCLS — see :practitioner_info.
     DataMapper.define(:av_code) do |m|
       m.rpc "XUS AV CODE"
       m.line_field 0, :duz, :integer

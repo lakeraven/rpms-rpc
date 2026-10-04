@@ -74,50 +74,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed — `av_code` line 5 is the post-sign-on message count, not a user class (#236)
+### Fixed — sign-on `user_type` is the server's user class, not the message count (#236)
 
 `DataMapper.define(:av_code)` declared `line_field 5, :user_class`. The
 reply is VALIDAV^XUSRB's RET() array — `RET(0)=DUZ RET(1)=XUM RET(2)=VCCH
 RET(3)=message RET(4)=0 RET(5)=post-sign-on message count RET(5+n)=the
-message lines` (XUSRB.m:9-11, :40, :85-87). `RET(5)` is 0 at entry (:16)
-and only ever reassigned as a line count in POST (:86-87). Against a real
-broker the "class" was therefore 0 for everyone, and
-`Authentication::USER_TYPES.fetch(0, "user")` resolved every user to
-`"user"`; the mock seeded the same invented number, so the suite was green
-over it. Line 5 is now `:post_signon_message_count` and the success result
-carries it.
+message lines` (XUSRB.m:9-11, :40, :85-87). Against a real broker the
+"class" was 0 for nearly everyone, so `Authentication::USER_TYPES` resolved
+every user to `"user"`, and a host reading `user_type` for
+provider/nurse/clerk checks saw them all false.
 
-Where the user class actually comes from: nowhere in the sign-on sequence.
-USERINFO^XUSRB2 (`XUS GET USER INFO`) returns DUZ, name, standard name,
-division, title, service/section, language and DTIME (XUSRB2.m:25-35) —
-its line 7, declared here as `:user_class_ien`, is DTIME and is now
-`:dtime`. The one user class CPRS reports, USRCLS in `ORWU USERINFO`, is
-computed on the server **from security keys** (ORWU.m:19: ORES=3,
-ORELSE=2, OREMAS=1, else 0). So the role is derived from keys only.
+- `Authentication.authenticate` keeps `:user_type` with the same values
+  (`"provider"`, `"nurse"`, `"clerk"`, `"user"`), now read from the
+  server: `ORWU USERINFO` piece 3, USRCLS, which ORWU.m:19 computes from the
+  user's order keys (3 ORES, 2 ORELSE, 1 OREMAS, 0 none) and which CPRS
+  reads the same way. It runs inside the sign-on sequence, under the wire
+  lock, in whatever context the session holds (a CIA sign-on binds CIAV
+  VUECENTRIC, which carries it). `Authentication::USER_TYPES` is re-keyed
+  to USRCLS; `Authentication.user_type_for(usrcls)` and
+  `Authentication.signon_user_type(duz)` are new.
+- When the class cannot be read (the RPC is refused or fails, answers
+  nothing, answers for another DUZ, or answers a USRCLS ORWU.m:19 never
+  returns), sign-on still succeeds but reports `user_type: nil` and a
+  `:user_type_error` reason. It never claims a default class.
+- Added: `:post_signon_message_count`, XUS AV CODE line 5, on the success
+  result. `:av_code` seeds take `post_signon_message_count:`.
+- `MockClient#seed_user(role:)` seeds the role as ORWU USERINFO's USRCLS.
 
-**Breaking:**
+**Breaking:** `Authentication.user_info(duz)[:user_class_ien]` is renamed
+`:dtime`. Line 7 of `XUS GET USER INFO` is DTIME (USERINFO^XUSRB2,
+XUSRB2.m:35), never a user class; no known host reads it. `:user_info`
+seeds take `dtime:`.
 
-- `Authentication.authenticate` no longer returns `:user_type`, and
-  `Authentication::USER_TYPES` is gone.
-- `UserRoles.resolve` takes `security_keys:` only. It answers
-  `case_manager` for PRCFA SUPERVISOR / BPRC MANAGER, then `provider` /
-  `nurse` / `clerk` for ORES / ORELSE / OREMAS in ORWU.m:19's precedence,
-  else `user`. `USER_CLASS_MAP`, `for_class`, `class_for` and
-  `mock_av_code` are removed — the 1/3/4/5 code table had no source.
-- `SecurityKeys` gains `:ores`, `:orelse`, `:oremas`, `:provider`.
-- `MockClient#seed_user` takes no `role:`: no reply line carries one, and
-  it seeds nothing into line 5. A consumer that seeded `:av_code` with
-  `user_class:` seeds `post_signon_message_count:` instead; `:user_info`
-  takes `dtime:` in place of `user_class_ien:`.
-- `test/live/user_role_live_test.rb` proves both against the pinned build,
-  for each persona: `XUS GET USER INFO` line 7 equals the user's TIMED READ
-  (200.1), and `UserRoles.resolve` over the user's keys
-  (`Authentication.user_security_keys`) agrees with the server's USRCLS.
+`test/live/user_role_live_test.rb` proves, for each persona, that
+`signon_user_type` equals the mapping of a direct `ORWU USERINFO` call, and
+that `XUS GET USER INFO` line 7 equals the user's TIMED READ (200.1).
 
-A consumer that resolved a role with
-`UserRoles.resolve(user_class: UserRoles.class_for(auth[:user_type]), security_keys: keys)`
-now calls `UserRoles.resolve(security_keys: SecurityKeys.symbolize(Authentication.user_security_keys(duz)))`;
-the user's keys are the whole input.
 ### Fixed — orders reads match what ORWOR / ORWORR emit (#220)
 
 Each mapping's parameters and row layout now come from the FOIA routine

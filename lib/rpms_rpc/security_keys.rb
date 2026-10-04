@@ -29,15 +29,7 @@ module RpmsRpc
       adt_supervisor: "DGZSUP",
       adt_system: "DGZSYS",
       adt_incomplete_chart: "DGZICE",
-      adt_pcc: "DGZPCC",
-
-      # Order authority: what ORWU USERINFO's USRCLS and CANSIGN/ISPROVIDER
-      # pieces are computed from (ORWU.m:19-21). UserRoles derives the role
-      # from these. Each is a key on the pinned build.
-      ores: "ORES",
-      orelse: "ORELSE",
-      oremas: "OREMAS",
-      provider: "PROVIDER"
+      adt_pcc: "DGZPCC"
     }.freeze
 
     REVERSE = REGISTRY.invert.freeze
