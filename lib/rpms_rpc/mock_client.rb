@@ -206,11 +206,9 @@ module RpmsRpc
     #   m.seed_user("301",
     #     credentials: "testprovider;test123",
     #     name: "PROVIDER,TEST",
-    #     role: :provider,
-    #     security_keys: [:scheduling_admin, :registration_manager])
+    #     role: :provider)
     #
-    def seed_user(duz, credentials:, name:, role:, security_keys: [])
-      require_relative "security_keys"
+    def seed_user(duz, credentials:, name:, role:)
       require_relative "user_roles"
 
       user_class = UserRoles.class_for(role) || "0"
@@ -236,11 +234,6 @@ module RpmsRpc
         current_site: "",
         user_class_ien: 30
       })
-
-      # Security keys (symbolic → RPMS strings)
-      rpms_keys = security_keys.filter_map { |sym| SecurityKeys.rpms_name(sym) }
-      key_attrs = rpms_keys.map { |k| { key_name: k } }
-      seed_keyed_collection(:user_keys, duz.to_s, key_attrs)
     end
 
     # Records of every call_rpc invocation, for tests that need to assert on

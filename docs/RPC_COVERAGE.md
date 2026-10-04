@@ -58,14 +58,10 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | CIAVCXUS | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | CIAVMCFG | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | DDR | 5 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| GMTS | 4 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | MAGG | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | MAGGUSERKEYS | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | ORQQAL | 1 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
 | ORQQCN | 0 | n/a | ? | ? | ? | ? | CPRS GUI | unwrapped |
-| ORQQCP | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| ORQQCT | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| ORQQGO | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | ORQQPL | 26 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
 | ORQQPS | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | ORQQPX | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
@@ -74,21 +70,15 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | ORWDAL | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | ORWDX | 0 | n/a | ? | ? | ? | ? | CPRS GUI | unwrapped |
 | ORWDXM | 0 | n/a | ? | ? | ? | ? | CPRS GUI | unwrapped |
-| ORWLRR | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | ORWOR | 7 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
 | ORWORDG | 0 | n/a | ? | ? | ? | ? | CPRS GUI | unwrapped |
 | ORWORR | 1 | n/a | ? | ? | ? | ? | CPRS GUI | partial (gap: 1) |
-| ORWPCE | 4 | n/a | ? | ? | ? | ? | CPRS GUI | not in 3-pillar scope |
-| ORWPT | 12 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
-| ORWRA | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| ORWRP | 3 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
-| ORWU | 5 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| PSO | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| ORWPT | 10 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
+| ORWRA | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| ORWRP | 1 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
+| ORWU | 4 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | TIU | 15 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | VAFC | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| XM | 6 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| XQAL | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| XU | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | XUS | 4 | n/a | ? | ? | ? | ? | Broker/session plumbing | not in 3-pillar scope |
 
 ### BHDPTRPC provenance (historical — family fully removed)

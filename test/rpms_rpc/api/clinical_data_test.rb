@@ -27,8 +27,6 @@ class ClinicalDataApiTest < Minitest::Test
         [ { id: "403R;O", name: "Lisinopril 10mg", stop_date: Date.new(2027, 1, 1),
             route: "PO", schedule: "QD", refills: 3 } ])
       m.seed(:medication_detail, "1", "Drug: Lisinopril 10mg\nSIG: Take 1 tablet by mouth daily\nStatus: Active\nRefills: 3")
-      m.seed_collection(:procedure_list,
-        [ { ien: 1, name: "CBC", date: Date.new(2026, 1, 15), status: "completed" } ])
       m.seed_collection(:patient_appointments,
         [ { datetime: Date.new(2026, 2, 1), location_ien: 1, location: "Primary Care", status: "scheduled" } ])
       m.seed(:immunization_text, "1", "01/15/2026  COVID-19 Vaccine  Pfizer  LOT-ABC  Site: Left Deltoid")
@@ -205,17 +203,6 @@ class ClinicalDataApiTest < Minitest::Test
 
   def test_medication_find_nil_for_unknown
     assert_nil RpmsRpc::Medication.find(99999)
-  end
-
-  # =============================================================================
-  # PROCEDURE
-  # =============================================================================
-
-  def test_procedure_for_patient_returns_array
-    results = RpmsRpc::Procedure.for_patient("1")
-
-    assert results.is_a?(Array)
-    assert_equal "CBC", results.first[:name]
   end
 
   # =============================================================================
