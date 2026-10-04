@@ -403,6 +403,43 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "HIGH", result[:priority]
   end
 
+  # -- ORQQPXRM REMINDERS APPLICABLE (#238) ----------------------------------
+  # AVAL^PXRMRPCA row (PXRMRPCA.m:76):
+  # IEN^PRINT NAME^DUE DATE^LAST DONE^PRIORITY^DUE FLAG^DIALOG^^^^DIALOG WIPE
+
+  def test_reminders_applicable_binds_the_evaluation_rpc
+    assert_equal "ORQQPXRM REMINDERS APPLICABLE", RpmsRpc::DataMapper[:reminders_applicable].rpc_name
+  end
+
+  def test_reminders_applicable_parses_the_aval_row_in_routine_order
+    result = RpmsRpc::DataMapper[:reminders_applicable].parse_many(
+      [ "1001^Diabetic Foot Exam^3261016^3251016.143^1^1^1^^^^1" ]
+    ).first
+
+    assert_equal 1001, result[:ien]
+    assert_equal "Diabetic Foot Exam", result[:print_name]
+    assert_equal "3261016", result[:due_date], "due-date piece stays raw so DUE NOW / CNBD survive"
+    assert_equal Date.new(2025, 10, 16), result[:last_done]
+    assert_equal 1, result[:priority]
+    assert_equal 1, result[:due_flag]
+    assert_equal true, result[:dialog]
+    assert_equal true, result[:dialog_wipe]
+  end
+
+  def test_reminders_applicable_keeps_the_due_now_sentinel
+    result = RpmsRpc::DataMapper[:reminders_applicable].parse_many(
+      [ "1002^Influenza Vaccine^DUE NOW^^2^1^0^^^^0" ]
+    ).first
+
+    assert_equal "DUE NOW", result[:due_date]
+    assert_nil result[:last_done]
+  end
+
+  def test_no_mapping_reads_reminders_from_the_triage_summary
+    refute RpmsRpc::DataMapper.respond_to?(:reminder_summary),
+           ":reminder_summary scraped BGOTRG GETSUM, which carries no reminder data (BGOTRG.m:27-158)"
+  end
+
   # -- PHR RPCs --------------------------------------------------------------
 
   def test_immunization_count
