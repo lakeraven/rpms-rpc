@@ -210,10 +210,11 @@ IHS clusters (second PR):
 - `RpmsRpc::Phr.patient_direct_address`, `.provider_direct_address`,
   `.facility_direct_domain`, `.record_access`: BPHR PATIENT / PROVIDER /
   FACILITY DIRECT, BPHR RECORD ACCESS. No BPHR RPC is registered.
-- `RpmsRpc::Location.find` (BHDO HOSP LOC DATA) and
-  `RpmsRpc::Organization.find` (BHDO INST DATA) — an invented namespace.
+- `RpmsRpc::Location.find` (BHDO HOSP LOC DATA), an invented namespace.
   Hospital locations are served by `Scheduling.hospital_locations` and
-  BEHOENCX HOSPLOC / LOCINFO; institutions by DDR reads over #4.
+  BEHOENCX HOSPLOC / LOCINFO.
+- BHDO INST DATA, the same invented namespace. `RpmsRpc::Organization.find`
+  is kept, rebuilt on DDR GETS ENTRY DATA over #4 (see "Kept" below).
 - `RpmsRpc::Capabilities.imaging_user?` and `.clear_imaging_cache!`:
   MAGGUSERKEYS. The registered imaging key check is MAGGDUZKEY.
 - `RpmsRpc::Image.launch_token` (and `Image::DEFAULT_TTL_SECONDS`): MAGG
@@ -236,6 +237,19 @@ IHS clusters (second PR):
 The hand-authored `data/fingerprints/references/bcer-8.0.yml` seed no
 longer lists these names as "gem-required RPCs the staging dump lacks":
 they were never capability gaps, only invented mappings.
+
+### Kept — rebuilt on the registered RPC (#207)
+
+Methods the host application calls whose invented RPC was removed above are
+kept with the same name, arguments and return shape, rebuilt on the RPC the
+built image really registers, and proven by a live spec as the programmer
+and the provider persona:
+
+- `RpmsRpc::Organization.find(ien)` → `{ien:, name:, station_number:,
+  address:, city:, state:, zip_code:, phone:}`: kept, rebuilt on DDR GETS
+  ENTRY DATA over INSTITUTION #4 (.01, 99, 1.01, 1.02, 1.03, .02, 1.04), in
+  CIAV VUECENTRIC. `state` is the state's name (the external form of the
+  pointer to #5). `phone` is always nil: file #4 has no phone field.
 
 ### Added — transport security: the broker connection is plaintext, and how to wrap it (#113)
 
