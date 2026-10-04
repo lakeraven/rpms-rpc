@@ -11,9 +11,7 @@ class AuthenticationTest < Minitest::Test
       m.seed_scalar(:signon_setup, "", "OK")
       m.seed_user("301",
         credentials: "ACCESS123;VERIFY123",
-        name: "PROVIDER,TEST",
-        role: :provider,
-        security_keys: [ :scheduling_admin, :registration_manager ])
+        name: "PROVIDER,TEST")
       m.seed_lines(:av_code, "EXPIRED;VERIFY123", {
         duz: 301,
         error_code: 12,
@@ -55,19 +53,6 @@ class AuthenticationTest < Minitest::Test
     refute RpmsRpc::Authentication.const_defined?(:USER_TYPES)
   end
 
-  # The role a consumer derives from this sign-on comes from the keys RPMS
-  # holds for the user — the same source ORWU USERINFO's USRCLS piece is
-  # computed from (ORWU.m:19). A mock user seeded with a role therefore
-  # holds the keys that role implies, not a number on a wire that has none.
-  def test_seeded_role_is_carried_by_security_keys
-    keys = RpmsRpc::Authentication.user_security_keys(301)
-
-    assert_includes keys, "ORES"
-    assert_includes keys, "PROVIDER"
-    assert_equal "provider",
-      RpmsRpc::UserRoles.resolve(security_keys: RpmsRpc::SecurityKeys.symbolize(keys)),
-      "ORES makes the seeded user a provider"
-  end
 
   # XUSRB.VALIDAV ALWAYS runs $$DECRYP^XUSRB1 on its parameter, so a cleartext
   # access;verify pair can never authenticate against a real broker no matter
@@ -164,26 +149,6 @@ class AuthenticationTest < Minitest::Test
 
   def test_user_info_returns_nil_for_unknown_duz
     assert_nil RpmsRpc::Authentication.user_info(999_999)
-  end
-
-  def test_user_security_keys_returns_seeded_keys
-    keys = RpmsRpc::Authentication.user_security_keys(301)
-
-    # The :provider role is seeded as the keys it implies (ORES + PROVIDER,
-    # ORWU.m:19-21), ahead of the keys given explicitly.
-    assert_equal [ "ORES", "PROVIDER", "SD SUPERVISOR", "AGZMGR" ], keys
-  end
-
-  def test_user_security_keys_rejects_invalid_duz
-    assert_equal [], RpmsRpc::Authentication.user_security_keys(nil)
-    assert_equal [], RpmsRpc::Authentication.user_security_keys(0)
-    assert_equal [], RpmsRpc::Authentication.user_security_keys(-1)
-  end
-
-  def test_user_security_keys_returns_empty_when_capability_unsupported
-    RpmsRpc.client.seed_capability(:user_security_keys_list, supported: false)
-    assert_equal [], RpmsRpc::Authentication.user_security_keys(301)
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWU USERKEYS" }
   end
 
   # has_security_key? on a real server: test/live/security_keys_live_test.rb.

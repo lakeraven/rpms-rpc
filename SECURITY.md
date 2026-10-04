@@ -23,6 +23,28 @@ specific production deployment should also be directed to that deployment's
 operator, since a deployment may hold configuration or data that is not part
 of this repository.
 
+## Transport security
+
+The broker protocols this gem speaks (XWB, BMX and CIA) are **plaintext TCP**.
+Access/verify codes, RPC parameters and PHI-bearing replies all cross the
+socket unencrypted.
+The XWB cipher applied to the access/verify codes is a published substitution
+table, not encryption.
+The gem does not provide TLS. The brokers have no TLS upgrade to negotiate.
+
+Reach a broker only over a network you control:
+
+- a private network shared only by the app hosts and the broker,
+- an SSM or SSH port forward,
+- stunnel at both ends with mutual TLS, or a WireGuard/IPsec tunnel, or
+- a customer-side connector that runs the gem next to the broker and dials out
+  over mTLS.
+
+[`docs/tls.md`](docs/tls.md) describes each pattern, with tested sample stunnel
+configs.
+`PhiSanitizer` scrubs logs and exception messages only and does not protect
+data on the wire.
+
 ## Supported versions
 
 Security fixes are applied to the latest released version on the default

@@ -2,7 +2,6 @@
 
 require_relative "live_helper"
 require "rpms_rpc/api/patient"
-require "rpms_rpc/api/authentication"
 require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/tribal"
 
@@ -16,8 +15,7 @@ require "rpms_rpc/api/tribal"
 #     the first row's name, a wrong-patient pairing;
 #   - ORWPT FULLSSN for an SSN on no patient came back as a match;
 #   - ORWU USERKEYS, not registered on the build, came back as the user's one
-#     security key (its refusal text), and the capability probe said the RPC
-#     was there;
+#     security key (its refusal text);
 #   - DDR LISTER rows lost their names (Tribal.tribes also asked LIST^DIC for
 #     no fields, so the rows were bare IENs).
 #
@@ -28,10 +26,7 @@ class CiaReplyLinesLiveTest < LiveSpec::Test
   ABSENT_SSN = "999999998"
   PATIENT_FILE = "2"
 
-  # A registered, read-only feature (BEHOPTCX PTINFO, BEHOPTPC GETBDP,
-  # BEHOCACV CWAD) and one whose only RPC is not registered on the build.
-  REGISTERED_FEATURE = :patient_chart_banner
-  UNREGISTERED_FEATURE = :user_security_keys_list
+  # Not registered on the build (#207).
   UNREGISTERED_RPC = "ORWU USERKEYS"
 
   def test_a_patient_list_parses_one_patient_per_row_each_with_its_own_dfn
@@ -78,20 +73,11 @@ class CiaReplyLinesLiveTest < LiveSpec::Test
   end
 
   # The lowest public API that sends an arbitrary RPC name is
-  # Client#call_rpc; Authentication.user_security_keys and the user_keys
-  # mapping are its callers for this RPC.
+  # Client#call_rpc. The refusal is the typed RpcNotAvailableError (#363);
+  # missing_rpc_live_test.rb holds the rest of that contract.
   def test_an_unregistered_rpc_is_a_refusal_never_data
-    duz = client.duz.to_s
-    err = assert_raises(RpmsRpc::Client::RpcError) { client.call_rpc(UNREGISTERED_RPC, duz) }
+    err = assert_raises(RpmsRpc::Client::RpcNotAvailableError) { client.call_rpc(UNREGISTERED_RPC, client.duz.to_s) }
     assert_match(/Unknown remote procedure: #{UNREGISTERED_RPC}/, err.message)
-
-    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::DataMapper.user_keys.fetch_many(duz) }
-    assert_equal [], RpmsRpc::Authentication.user_security_keys(duz)
-  end
-
-  def test_the_capability_probe_reads_a_cia_refusal_as_missing
-    refute client.supports?(UNREGISTERED_FEATURE), "#{UNREGISTERED_RPC} is not registered, so the feature is missing"
-    assert client.supports?(REGISTERED_FEATURE), "the #{REGISTERED_FEATURE} RPCs are registered"
   end
 
   def test_a_lister_page_carries_each_rows_name

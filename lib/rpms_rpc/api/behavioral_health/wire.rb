@@ -1,7 +1,24 @@
 # frozen_string_literal: true
 
+require_relative "../../context_scope"
+
 module RpmsRpc
   module BehavioralHealth
+    # The context option the AMHG RPCs are registered under (rpms-rpc#258).
+    #
+    # RPC registration is OPTION-scoped (RpmsRpc::ContextScope). On a built
+    # 9.0 image every AMHG RPC this module and its clusters call is listed in
+    # the RPC multiple of ONE file-19 option, AMHGRPC ("RPMS Behavioral Health
+    # GUI", 223 entries), and in no other — not the option a CIA sign-on binds
+    # (CIAV VUECENTRIC) and not OR CPRS GUI CHART. A user without XUPROGMODE
+    # calling them under the sign-on option never hears back (the calls ran
+    # into the read timeout rather than a denial). Wire#call_amhg, the one
+    # seam every AMHG call passes through, binds this and restores the
+    # caller's option, the way RpmsRpc::Agg does for AGGRPC. Defined here
+    # rather than in behavioral_health.rb so a cluster loaded on its own
+    # (Groups, Intake, Reference, CaseManagement) still finds it.
+    CONTEXT = "AMHGRPC"
+
     # Shared wire-decoding helpers for the AMHG surface (rpms-rpc#227).
     #
     # Every AMHG RPC takes a SINGLE pipe-delimited parameter — YottaDB rejects
@@ -24,6 +41,9 @@ module RpmsRpc
       # value and its external form.
       IEN_NAME_SEPARATOR = "~"
 
+      # Helpers for the AMHG modules that extend Wire; not part of their public API.
+      private
+
       # One pipe-delimited actual, read as a GLOBAL ARRAY.
       #
       # Every AMHG RPC registers RETURN VALUE TYPE 4 (GLOBAL ARRAY) and
@@ -43,14 +63,20 @@ module RpmsRpc
       # A few entries take NO actual at all — CLN^AMHGTVF is CLN(RETVAL) with
       # no AMHSTR formal, so even an empty string is an extra actual and
       # YottaDB raises ACTLSTTOOLONG. Pass no pieces for those.
+      #
+      # Runs under AMHGRPC (BehavioralHealth::CONTEXT), restoring the
+      # caller's option afterward; a client that cannot scope contexts runs
+      # as-is.
       def call_amhg(mapping, *pieces)
         client = RpmsRpc.client
         args = pieces.empty? ? [] : [ pieces.join("|") ]
 
-        if client.respond_to?(:call_rpc_global_array)
-          client.call_rpc_global_array(mapping.rpc_name, *args)
-        else
-          client.call_rpc(mapping.rpc_name, *args)
+        ContextScope.scoped(client, CONTEXT) do
+          if client.respond_to?(:call_rpc_global_array)
+            client.call_rpc_global_array(mapping.rpc_name, *args)
+          else
+            client.call_rpc(mapping.rpc_name, *args)
+          end
         end
       end
 

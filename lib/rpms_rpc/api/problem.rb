@@ -26,10 +26,14 @@ module RpmsRpc
     # row "^No problems found." (LIST^ORQQPL: ORQQPL.m:17) — no IEN, so it
     # is dropped rather than surfaced as a phantom problem. Invalid DFNs
     # short-circuit to [] without dispatching an RPC.
+    #
+    # Formals: LIST(ORPY,DFN,STATUS) (ORQQPL.m:3-5) — STATUS "A" active,
+    # "I" inactive, "" all. STATUS is read unconditionally, so it goes over
+    # the wire even when empty; a DFN-only frame died in M on it (#259).
     def for_patient(dfn)
       return [] if invalid_id?(dfn)
 
-      DataMapper.problem_list.fetch_many(dfn.to_s).reject { |r| r[:ien].to_s.empty? }
+      DataMapper.problem_list.fetch_many(dfn.to_s, "").reject { |r| r[:ien].to_s.empty? }
     end
 
     # Add a problem. The routine requires a resolvable ICD (or a SNOMED CT
@@ -64,60 +68,58 @@ module RpmsRpc
 
     # ORQQPL stock-VistA reads. Use these when the engine wants the
     # stock-VistA lookup/audit surface rather than the IHS BGOPROB writes
-    # above. Returns nil / [] for invalid identifiers without raising.
+    # above. Returns nil / [] for invalid identifiers without raising; a
+    # broker that does not serve the RPC raises RpcNotAvailableError, and one
+    # that serves it but not to this user raises RpcRefusedError (#363).
 
     def lex_search(text)
       return [] if text.to_s.strip.empty?
-      return unsupported_list unless workflow_supported?
 
       Array(DataMapper.problem_lex_search.fetch_many(text.to_s))
     end
 
     def clinic_search(clinic_ien)
       return [] if invalid_id?(clinic_ien)
-      return unsupported_list unless workflow_supported?
 
       Array(DataMapper.problem_clinic_search.fetch_many(clinic_ien.to_s))
     end
 
-    def details(ien)
-      return nil if invalid_id?(ien)
-      return unsupported_detail unless workflow_supported?
+    # Formals: DETAIL(Y,DFN,PROBIEN,ID) (ORQQPL.m:21) — the problem IEN is
+    # the third formal, after the patient; ID is declared but never read
+    # (ORQQPL.m:21-45). An IEN-only frame put the IEN in DFN and died in M
+    # on PROBIEN (#259).
+    def details(dfn, ien)
+      return nil if invalid_id?(dfn) || invalid_id?(ien)
 
-      DataMapper.problem_detail.fetch_one(ien.to_s)
+      DataMapper.problem_detail.fetch_one(dfn.to_s, ien.to_s)
     end
 
     def audit_history(ien)
       return [] if invalid_id?(ien)
-      return unsupported_list unless workflow_supported?
 
       Array(DataMapper.problem_audit_history.fetch_many(ien.to_s))
     end
 
     def comments(ien)
       return [] if invalid_id?(ien)
-      return unsupported_list unless workflow_supported?
 
       Array(DataMapper.problem_comments.fetch_many(ien.to_s))
     end
 
     def init_patient(dfn)
       return nil if invalid_id?(dfn)
-      return unsupported_detail unless workflow_supported?
 
       DataMapper.problem_init_patient.fetch_one(dfn.to_s)
     end
 
     def provider_list(dfn)
       return [] if invalid_id?(dfn)
-      return unsupported_list unless workflow_supported?
 
       Array(DataMapper.problem_provider_list.fetch_many(dfn.to_s))
     end
 
     def edit_load(ien)
       return nil if invalid_id?(ien)
-      return unsupported_detail unless workflow_supported?
 
       DataMapper.problem_edit_load.fetch_one(ien.to_s)
     end
@@ -129,15 +131,11 @@ module RpmsRpc
     # because they shadow the existing add/update/delete methods.
 
     def inactivate(ien)
-      return unsupported_result unless workflow_supported?
-
       raw = DataMapper.problem_inactivate.fetch_scalar(ien.to_s)
       success_result(raw)
     end
 
     def verify(ien)
-      return unsupported_result unless workflow_supported?
-
       raw = DataMapper.problem_verify.fetch_scalar(ien.to_s)
       success_result(raw)
     end
@@ -172,24 +170,6 @@ module RpmsRpc
 
     def invalid_id?(value)
       value.nil? || value.to_s.strip.empty? || value.to_i <= 0
-    end
-
-    def workflow_supported?
-      RpmsRpc.client.supports?(:orqqpl_problem_workflow)
-    rescue NotConfiguredError
-      false
-    end
-
-    def unsupported_list
-      []
-    end
-
-    def unsupported_detail
-      nil
-    end
-
-    def unsupported_result
-      { success: false, error: "ORQQPL problem workflow not available on this server", raw: nil }
     end
 
     def success_result(raw)

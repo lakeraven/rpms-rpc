@@ -1,8 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "date"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/health_summary"
 
@@ -11,33 +10,15 @@ class HealthSummaryApiTest < Minitest::Test
 
   def setup
     RpmsRpc.mock! do |m|
-      m.seed_collection(:report_types, [
-        { ien: 1, name: "STANDARD", description: "Standard Health Summary", owner: "SYSTEM" },
-        { ien: 2, name: "BRIEF", description: "Brief Summary", owner: "SYSTEM" }
-      ])
-
-      m.seed_keyed_collection(:report_type_components, "1", [
-        { ien: 10, name: "Demographics", abbreviation: "DEM", sequence: 1 },
-        { ien: 11, name: "Problems", abbreviation: "PRB", sequence: 2 }
-      ])
-
-      m.seed_text(:report_text, "#{DFN}^1^",
+      # ORWRP REPORT TEXT is keyed by its first formal, the DFN (#259); one
+      # summary serves for_patient and component_data alike.
+      m.seed_text(:report_text, DFN.to_s,
         "PATIENT: Test Patient\n" \
         "DOB: 01/01/1970\n" \
         "PROBLEMS:\n" \
         "Type 2 diabetes\n" \
         "MEDICATIONS:\n" \
-        "Metformin")
-
-      m.seed_text(:report_text, "#{DFN}^^MED",
-        "MEDICATIONS:\n" \
         "Metformin 500mg twice daily")
-
-      m.seed_text(:health_summary_report, DFN.to_s,
-        "WELLNESS GOALS\n" \
-        "Walk 30 minutes daily\n" \
-        "PREVENTIVE CARE\n" \
-        "Influenza vaccine due")
 
       m.seed_keyed_collection(:reminders_list, DFN.to_s, [
         {
@@ -53,26 +34,6 @@ class HealthSummaryApiTest < Minitest::Test
       m.seed_text(:reminder_detail, "#{DFN}^501",
         "A1C Screening\n" \
         "Patient is due for hemoglobin A1C.")
-
-      m.seed_keyed_collection(:maint_items, DFN.to_s, [
-        {
-          ien: 601,
-          name: "Diabetes Eye Exam",
-          category: "Preventive",
-          status: "",
-          last_done: nil,
-          next_due: nil,
-          frequency: "Yearly"
-        }
-      ])
-
-      m.seed_collection(:flowsheet_list, [
-        { ien: 701, name: "Diabetes Measures", description: "A1C and related measures" }
-      ])
-
-      m.seed_text(:flowsheet_data, "#{DFN}^701^01/01/2026^05/26/2026",
-        "Date^A1C\n" \
-        "05/01/2026^7.2")
     end
   end
 
@@ -99,14 +60,36 @@ class HealthSummaryApiTest < Minitest::Test
 
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWRP REPORT TEXT" }
     refute_nil call
-    assert_equal [ "#{DFN}^1^" ], call[:params]
+    # RPT(ROOT,DFN,RPTID,HSTYPE,DTRANGE,EXAMID,ALPHA,OMEGA) (ORWRP.m:88):
+    # report 1 is the Health Summary, HSTYPE the resolved type IEN (#259).
+    assert_equal [ DFN.to_s, "1", "1", "", "", "", "" ], call[:params]
+  end
+
+  def test_for_patient_resolves_the_summary_type_against_the_default_types
+    RpmsRpc.reset!
+    RpmsRpc.mock! do |m|
+      m.seed_text(:report_text, DFN.to_s, "PROBLEMS:\nHypertension")
+    end
+
+    summary = RpmsRpc::HealthSummary.for_patient(DFN, summary_type: "brief")
+
+    assert_equal "BRIEF", summary[:type]
+    # RPT^ORWRP's formals (#259): DFN, the Health Summary report id, then the
+    # resolved type's IEN (BRIEF = 2 in DEFAULT_TYPES); the rest empty.
+    assert_equal [ DFN.to_s, "1", "2", "", "", "", "" ],
+                 RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWRP REPORT TEXT" }[:params]
+  end
+
+  def test_for_patient_falls_back_to_the_first_default_type_for_an_unknown_name
+    summary = RpmsRpc::HealthSummary.for_patient(DFN, summary_type: "NO SUCH TYPE")
+
+    assert_equal "STANDARD", summary[:type]
   end
 
   def test_for_patient_skips_separator_only_lines_per_gateway
     RpmsRpc.reset!
     RpmsRpc.mock! do |m|
-      m.seed_text(:report_types, DFN.to_s, "1^STANDARD")
-      m.seed_text(:report_text, "#{DFN}^1^",
+      m.seed_text(:report_text, DFN.to_s,
         "===============\n" \
         "PROBLEMS:\n" \
         "---------------\n" \
@@ -140,23 +123,6 @@ class HealthSummaryApiTest < Minitest::Test
     assert_equal "No data returned", unknown[:error]
   end
 
-  def test_types_returns_gateway_field_positions
-    type = RpmsRpc::HealthSummary.types.first
-
-    assert_equal 1, type[:ien]
-    assert_equal "STANDARD", type[:name]
-    assert_equal "Standard Health Summary", type[:description]
-    assert_equal "SYSTEM", type[:owner]
-  end
-
-  def test_type_components_returns_components_for_summary_type
-    components = RpmsRpc::HealthSummary.type_components(1)
-
-    assert_equal 2, components.length
-    assert_equal "DEM", components.first[:abbreviation]
-    assert_equal 1, components.first[:sequence]
-  end
-
   def test_component_data_fetches_standard_component
     component = RpmsRpc::HealthSummary.component_data(DFN, :medications)
 
@@ -164,6 +130,11 @@ class HealthSummaryApiTest < Minitest::Test
     assert_equal "MED", component[:code]
     assert_equal "Medications", component[:name]
     assert_includes component[:content], "Metformin"
+    refute_includes component[:content], "Type 2 diabetes", "only the component's own section"
+  end
+
+  def test_component_data_returns_nil_when_the_summary_has_no_such_section
+    assert_nil RpmsRpc::HealthSummary.component_data(DFN, :allergies)
   end
 
   def test_component_data_returns_nil_for_invalid_component_or_dfn
@@ -177,15 +148,6 @@ class HealthSummaryApiTest < Minitest::Test
     assert_equal "SELECTIVE", summary[:type]
     assert_equal 1, summary[:sections].length
     assert_equal "MED", summary[:sections].first[:code]
-  end
-
-  def test_personal_wellness_report_parses_multiline_sections
-    report = RpmsRpc::HealthSummary.personal_wellness_report(DFN)
-
-    assert_includes report[:content], "WELLNESS GOALS"
-    assert_equal 2, report[:sections].length
-    assert_equal "Wellness Goals", report[:sections].first[:name]
-    assert_equal [ "Walk 30 minutes daily" ], report[:sections].first[:items]
   end
 
   def test_clinical_reminders_returns_gateway_field_positions
@@ -204,97 +166,9 @@ class HealthSummaryApiTest < Minitest::Test
     assert_includes detail[:content], "Patient is due"
   end
 
-  def test_health_maintenance_normalizes_blank_status_to_nil
-    item = RpmsRpc::HealthSummary.health_maintenance(DFN).first
-
-    assert_equal 601, item[:ien]
-    assert_equal "Diabetes Eye Exam", item[:name]
-    assert_nil item[:status]
-    assert_equal "Yearly", item[:frequency]
-  end
-
-  def test_health_maintenance_returns_empty_for_invalid_or_unknown_dfn
-    assert_equal [], RpmsRpc::HealthSummary.health_maintenance(nil)
-    assert_equal [], RpmsRpc::HealthSummary.health_maintenance("")
-    assert_equal [], RpmsRpc::HealthSummary.health_maintenance(0)
-    assert_equal [], RpmsRpc::HealthSummary.health_maintenance(-1)
-    assert_equal [], RpmsRpc::HealthSummary.health_maintenance(999_999)
-  end
-
-  def test_flowsheet_definitions_returns_gateway_field_positions
-    flow = RpmsRpc::HealthSummary.flowsheet_definitions.first
-
-    assert_equal 701, flow[:ien]
-    assert_equal "Diabetes Measures", flow[:name]
-    assert_equal "A1C and related measures", flow[:description]
-  end
-
-  def test_flowsheet_uses_mapping_rpc_name_and_parses_table
-    result = RpmsRpc::HealthSummary.flowsheet(
-      DFN,
-      flowsheet_ien: 701,
-      start_date: Date.new(2026, 1, 1),
-      end_date: Date.new(2026, 5, 26)
-    )
-
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "GMTS FLOWSHEET DATA" }
-    refute_nil call
-    assert_equal [ "#{DFN}^701^01/01/2026^05/26/2026" ], call[:params]
-    assert_equal [ "Date", "A1C" ], result[:headers]
-    assert_equal "7.2", result[:items].first[:a1c]
-  end
-
   def test_module_exposes_standard_component_types
     assert_equal "DEM", RpmsRpc::HealthSummary::COMPONENT_TYPES[:demographics]
     assert_equal "PRB", RpmsRpc::HealthSummary::COMPONENT_TYPES[:problems]
     assert_equal "IMM", RpmsRpc::HealthSummary::COMPONENT_TYPES[:immunizations]
-  end
-
-  # -- :health_summary_gmts capability gating --------------------------------
-
-  def test_personal_wellness_report_short_circuits_when_gmts_unsupported
-    RpmsRpc.client.seed_capability(:health_summary_gmts, supported: false)
-    result = RpmsRpc::HealthSummary.personal_wellness_report(DFN)
-
-    assert_equal [], result[:sections]
-    assert_match(/not (?:installed|available)/i, result[:error].to_s)
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "GMTS PWH REPORT" }
-  end
-
-  def test_flowsheet_definitions_returns_empty_when_gmts_unsupported
-    RpmsRpc.client.seed_capability(:health_summary_gmts, supported: false)
-    assert_equal [], RpmsRpc::HealthSummary.flowsheet_definitions
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "GMTS FLOWSHEET LIST" }
-  end
-
-  def test_health_maintenance_returns_empty_when_gmts_unsupported
-    RpmsRpc.client.seed_capability(:health_summary_gmts, supported: false)
-    assert_equal [], RpmsRpc::HealthSummary.health_maintenance(DFN)
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "GMTS MAINT ITEMS" }
-  end
-
-  def test_flowsheet_short_circuits_when_gmts_unsupported
-    RpmsRpc.client.seed_capability(:health_summary_gmts, supported: false)
-    result = RpmsRpc::HealthSummary.flowsheet(DFN, flowsheet_ien: 701)
-
-    assert_equal [], result[:items]
-    assert_match(/not (?:installed|available)/i, result[:error].to_s)
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "GMTS FLOWSHEET DATA" }
-  end
-
-  # === :orwrp_report_types capability gating ================================
-
-  def test_types_falls_back_to_defaults_when_orwrp_unsupported
-    RpmsRpc.client.seed_capability(:orwrp_report_types, supported: false)
-    types = RpmsRpc::HealthSummary.types
-
-    assert_equal RpmsRpc::HealthSummary::DEFAULT_TYPES, types
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWRP TYPES" }
-  end
-
-  def test_type_components_returns_empty_when_orwrp_unsupported
-    RpmsRpc.client.seed_capability(:orwrp_report_types, supported: false)
-    assert_equal [], RpmsRpc::HealthSummary.type_components(101)
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWRP TYPE COMPONENTS" }
   end
 end

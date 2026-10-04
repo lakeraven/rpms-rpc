@@ -52,6 +52,26 @@ Requires Ruby 3.4+.
 
 ## Usage
 
+> **The broker connection is plaintext.** XWB, BMX and CIA carry access/verify
+> codes and PHI unencrypted, and the gem has no TLS of its own. Reach a broker
+> only over a private network, a port forward, or a TLS tunnel. See
+> [Transport security](SECURITY.md#transport-security) and
+> [`docs/tls.md`](docs/tls.md).
+
+### Loading the gem
+
+```ruby
+require "rpms_rpc"
+```
+
+loads the public API: configuration (`RpmsRpc.configure`, `client`, `mock!`,
+`reset!`), the response mappings, the security-key, role and capability tables,
+and every `RpmsRpc::<Api>` module under `lib/rpms_rpc/api/`. It does not open a
+socket or pick a broker. A script that needs only one broker client can require
+that file alone (`require "rpms_rpc/cia_client"`, below); it carries the
+configuration and error sanitizing it needs, and none of the tables.
+`require "rpms_rpc/version"` defines `RpmsRpc::VERSION` and nothing else.
+
 ### CIA (XWB) — port 9100
 
 ```ruby
@@ -143,6 +163,9 @@ ctx                                       # show the bound context option
 ctx "AGGRPC"                              # bind a context option
 reconnect                                 # drop and re-establish connect + sign-on (+ RPMS_CONTEXT)
 client                                    # the underlying RpmsRpc client
+
+RpmsRpc::Patient.find(4)                  # the public API answers too, through the same client
+RpmsRpc::Authentication.held_keys(%w[PROVIDER XUPROGMODE])
 ```
 
 ## Components
@@ -190,13 +213,22 @@ The coverage number is measured against **one backend's registry**, not against 
 
 ```sh
 rake rpc:coverage
-# RPC coverage: 0.8% (45 / 5557 registered on bcer-9.0-20260913-1a2244c-ydb; 0 excluded) · declared 190 · unregistered names used 77
+# RPC coverage: 0.7% (37 / 4959 registered on bcer-9.0-20260930-8c88e47-ydb; 598 excluded) · declared 198 · unregistered names used 0
 ```
 
-- **Denominator:** every #8994 name in the pinned registry
-  (`data/rpc_coverage/registry/<release-tag>.txt`, copied from the rpms-ops release inventory),
+- **Denominator:** every #8994 name on the pinned rpms-ops build
+  (`data/inventories/<release-tag>/<release-tag>-broker_8994.txt`, the release's own inventory,
+  pinned by `rake conformance:pin`; see [docs/conformance/CAPTURE.md](docs/conformance/CAPTURE.md)),
   minus the names in `data/rpc_coverage/exclusions.yml`. Each exclusion carries a reason from a
   fixed list, and is reviewed like code.
+- **Unreachable RPCs are excluded from the RPC atlas (#278):** an RPC whose routine or entry point
+  is not on the image, that is inactive, that no context lists, or whose every context is out of
+  order cannot be called by any client. `rake rpc:exclusions ATLAS=<atlas.tsv>` regenerates those
+  exclusions from the atlas cloud-rpms `scripts/shared/rpc-atlas.sh` writes for the pinned
+  release, and records the atlas path, its sha256 and whether its #8994 input is the pinned
+  registry. Run it each release. Out-of-order RPCs get their own reason (`context_out_of_order`),
+  since a site can put a context back in service. Reviewed reasons (`gui_plumbing`,
+  `write_needs_fixture`) survive regeneration.
 - **Covered:** a live run against that backend got an answer that was not a broker error.
   Mock-driven unit tests do not count: `MockClient` answers any name it is seeded with.
 - **Output:** the one-liner and per-status counts on stdout.
@@ -207,17 +239,21 @@ rake rpc:coverage
   coverage value. The number never fails the task. A drop below it prints a NOTE, and so does a
   rise, together with the value to record. Raise it then, and never lower it.
 - **Fails on:** more than `max_unregistered` names that rpms-rpc uses but the registry does not
-  register (lower it toward 0, #207), a bad exclusion, a malformed registry, or a sign-on code in
-  the live evidence.
+  register (lower it toward 0, #207), a bad exclusion (unknown reason, unregistered name, or an
+  excluded RPC that answered live), a malformed registry, or a sign-on code in the live evidence.
 
 Live evidence for a backend is refreshed with a read-only run of the API catalogue, one broker
 connection at a time, which merges into `rpc-coverage/live/<BACKEND>.json` in
 [lakeraven/rpms-diffs](https://github.com/lakeraven/rpms-diffs):
 
 ```sh
-rake rpc:live BACKEND=local-ydb-0905 BROKER_HOST=127.0.0.1 BROKER_PORT=19200 \
+rake rpc:live BACKEND=local-ydb-0930 BROKER_HOST=127.0.0.1 BROKER_PORT=19300 \
   RPMS_ACCESS=... RPMS_VERIFY=... [RPMS_CONTEXT="CIAV VUECENTRIC"]
 ```
+
+The run merges: a name already in the file stays there, so a name the gem stops calling is never dropped.
+After removing RPC names, delete the backend's file and run again to rebuild it.
+The headline is measured as the least-privilege PROV123; it is the development default pair, so that run needs `VISTA_RPC_ENV=development`.
 
 The codes are read from the environment and never written. The implementation lives in
 `tools/rpc_coverage/`, which is not part of the gem.
@@ -239,7 +275,7 @@ It maps RPC coverage onto SimpleCov's terms:
 
 | SimpleCov | RPC coverage |
 |---|---|
-| a file | one #9.4 package: the RPCs whose name begins with its namespace prefix (`data/rpc_coverage/registry/<release-tag>-packages.txt`, pinned from the same rpms-ops inventory) |
+| a file | one #9.4 package: the RPCs whose name begins with its namespace prefix (`data/inventories/<release-tag>/<release-tag>-packages_9_4.txt`, from the same pinned inventory) |
 | a line | one registered RPC, with its status and detail |
 | hit | `covered` |
 | missed | `live_error`, `declared_untested`, `not_declared` |
@@ -248,6 +284,71 @@ It maps RPC coverage onto SimpleCov's terms:
 So each package's percentage uses the headline's arithmetic, and SimpleCov's total is the headline number.
 A registered RPC whose namespace has no #9.4 package is grouped under that namespace and labelled "not a #9.4 package".
 On the 0913 registry that covers AKFR, BMQ, the PCMM `SC*` RPCs, GMV and DDR.
+
+## API coverage: public methods proven by a live spec
+
+[ADR 0010](docs/adr/0010-the-consumer-contract.md), assertion 2: every public method is proven by a live spec, and a method without one is not part of the contract.
+`rake rpc:api_coverage` reports which methods those are.
+It is generated from the code on every run; nothing in it is maintained by hand.
+
+```sh
+rake rpc:api_coverage            # summary per module; VERBOSE=1 adds one line per method
+# API coverage: 50 / 256 public methods proven by a live spec (19.5%)
+#   RpmsRpc::Referral                                 19 /  22
+#   RpmsRpc::Problem                                  10 /  14
+#   RpmsRpc::Patient                                   7 /  12
+#   ...
+# unresolved: 21 methods have an RPC name static analysis could not resolve
+# unregistered RPCs sent: none
+```
+
+- **Public methods:** every public singleton method of a module under `RpmsRpc` whose source is in `lib/rpms_rpc/api/`, nested modules included (`RpmsRpc::BehavioralHealth::Groups`).
+  Public helpers mixed in from another module count, because a host can call them.
+- **RPCs:** static analysis (Prism) of the method body and of every `lib/rpms_rpc` method it calls, binding the arguments it passes.
+  A DataMapper mapping (`DataMapper.x`, `DataMapper[:x]`, or `:x` handed to a helper) resolves through the loaded mapping registry; a `call_rpc*` with a string literal or a String constant resolves to that string.
+  An RPC name the analysis cannot bind (a helper whose RPC is its own argument, an expression) is listed under `unresolved`, never guessed.
+- **Registered:** each RPC is looked up on the pinned #8994 registry named in `data/rpc_coverage/config.yml`, with its entry point `TAG^ROUTINE`.
+- **Live specs:** every `RpmsRpc::Module.method` call site in `test/live/**`.
+  The harness runs every live spec as the persona the run names, and a spec cannot declare its own, so a proven method runs as both the least-privilege and the programmer persona.
+- **Status:** `proven` when a live spec calls the method, `not_in_contract` when none does.
+  This is static: whether the spec passes is `rake test:live`'s answer, per persona.
+
+The JSON (default `coverage/api/methods.json`, `OUT=` to override) is the input for a resource-oriented view of the API:
+
+```json
+{
+  "schema": 1,
+  "registry": "bcer-9.0-20260930-8c88e47-ydb",
+  "personas": ["least-privilege", "programmer"],
+  "summary": { "proven": 50, "public": 256, "unresolved_methods": 21, "unregistered_rpcs": [],
+               "by_module": { "RpmsRpc::Patient": { "proven": 7, "public": 12 } } },
+  "methods": [
+    {
+      "module": "RpmsRpc::Patient",
+      "method": "find",
+      "arity": 1,
+      "params": [{ "name": "dfn", "kind": "req" }],
+      "rpcs": [{ "name": "ORWPT SELECT", "registered": true, "entry_point": "SELECT^ORWPT", "via": "mapping :patient_select" }],
+      "unresolved": [],
+      "live_specs": ["test/live/patient_live_test.rb:59"],
+      "personas": ["least-privilege", "programmer"],
+      "status": "proven"
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `module`, `method` | `RpmsRpc::Patient` and `find`: the call is `RpmsRpc::Patient.find` |
+| `arity`, `params` | Ruby's `Method#arity` and `#parameters`; `kind` is `req`, `opt`, `rest`, `keyreq`, `key`, `keyrest` or `block` |
+| `rpcs[]` | each RPC the method sends: `name`, `registered` on the pinned registry, `entry_point` (`TAG^ROUTINE`, `null` when not registered), `via` (`mapping :name` or `literal`) |
+| `unresolved[]` | RPC names the analysis could not bind, with where; empty when every send resolved |
+| `live_specs[]` | `file:line` of each call in `test/live/` |
+| `personas[]` | the personas those specs run as; empty when there are none |
+| `status` | `proven` or `not_in_contract` |
+
+The task is offline and reaches no broker. The implementation lives in `tools/api_coverage/`, which is not part of the gem.
 
 ## RPC Coverage Matrix (allowlist-based)
 
@@ -359,6 +460,8 @@ reads the live evidence from an `rpms-diffs` checkout beside this repo, or `RPMS
 ### MockClient usage
 
 ```ruby
+require "rpms_rpc"
+
 RpmsRpc.mock! do |m|
   # Field-based mapping (caret-delimited)
   m.seed(:patient_select, "1", { name: "DOE,JOHN", sex: "M", dob: Date.new(1980, 1, 15) })

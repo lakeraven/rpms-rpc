@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/health_factor"
 
@@ -18,7 +18,6 @@ class HealthFactorTest < Minitest::Test
       @calls = []
     end
 
-    def supports?(*) = true
 
     def call_rpc(rpc_name, *params)
       @calls << { rpc: rpc_name, params: params }

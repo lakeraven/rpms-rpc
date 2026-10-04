@@ -2,7 +2,7 @@
 
 require "minitest/autorun"
 require "date"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/allergy"
 
@@ -15,7 +15,6 @@ class ClinicalReadWireTest < Minitest::Test
   # Canned-response broker: returns one fixed response for every RPC.
   class RawResponseClient
     def initialize(response) = @response = response
-    def supports?(*) = true
     def call_rpc(*) = @response
   end
 

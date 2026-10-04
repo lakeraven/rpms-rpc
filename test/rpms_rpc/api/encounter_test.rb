@@ -13,23 +13,29 @@ class EncounterTest < Minitest::Test
         { datetime: nil, location_ien: 1608, location: "PS CLINICS", status: "scheduled" }
       ])
 
-      # Open: BEHOENCX GETVISIT — visit_ien -> visit detail
+      # Open: BEHOENCX GETVISIT — visit_ien -> LOC^VDT^SVC^PAT^VID^LOCKED
+      # (GETVISIT^BEHOENCX: BEHOENCX.m:5,8-15)
       m.seed(:encounter_visit, "2090061", {
         location_ien: 1608,
         datetime_raw: "3260514.1907",
-        status: "A",
+        service_category: "A",
         patient_dfn: 26664,
-        ward: "2D309-PAH"
+        visit_id: "5000.61",
+        locked: false
       })
 
-      # Open: BEHOENCX FETCH — hydrated visit context
-      m.seed(:encounter_fetch, "2090061", {
-        clinic_name:    "PS CLINICS",
-        clinic_abbrev:  "PSCL",
-        location_ien:   1608,
-        provider:       "SAND,ASH",
-        visit_ien:      2090061,
-        ward:           "2D309-PAH"
+      # Open: BEHOENCX FETCH(DFN,VSTR,PRV,CREATE) — keyed by its FIRST param,
+      # the DFN. LOCNAME^LOCABBR^ROOMBED^PROVIEN^PROVNAME^VISITIEN^VISITID^
+      # LOCKED^ERRORTXT (FETCH^BEHOENCX: BEHOENCX.m:30-31)
+      m.seed(:encounter_fetch, "26664", {
+        location_name:   "PS CLINICS",
+        location_abbrev: "PSCL",
+        room_bed:        "",
+        provider_ien:    101,
+        provider_name:   "SAND,ASH",
+        visit_ien:       2090061,
+        visit_id:        "5000.61",
+        locked:          false
       })
 
       # Open: BEHOENCX CHKVISIT — missing-component report (multi-line)
@@ -50,12 +56,47 @@ class EncounterTest < Minitest::Test
     refute_nil result, "Encounter.open should return a hash"
     assert_equal 2090061, result[:visit_ien]
     assert_equal 26664,   result[:patient_dfn]
-    assert_equal 1608,    result[:location_ien]
-    assert_equal "PS CLINICS", result[:location]
-    assert_equal "SAND,ASH",   result[:provider]
-    assert_equal "A", result[:status]
-    assert_equal "3260514.1907", result[:datetime_raw]
-    assert_equal "2D309-PAH",  result[:ward]
+    # Consumer keys, each from the piece that really carries it:
+    assert_equal 1608,    result[:location_ien]        # GETVISIT piece 1 (FETCH has no location IEN)
+    assert_equal "PS CLINICS", result[:location]       # FETCH piece 1 LOCNAME
+    assert_equal "PSCL",       result[:clinic_abbrev]  # FETCH piece 2 LOCABBR
+    assert_equal "SAND,ASH",   result[:provider]       # FETCH piece 5 PROVNAME
+    assert_equal 101,          result[:provider_ien]   # FETCH piece 4 PROVIEN
+    assert_equal "3260514.1907", result[:datetime_raw] # GETVISIT piece 2 VDT
+    assert_equal "A", result[:service_category]        # GETVISIT piece 3 SVC
+    assert_equal "A", result[:status]                  # same piece, the name consumers already read
+    assert_equal "5000.61", result[:visit_id]          # GETVISIT piece 5 / FETCH piece 7
+    assert_equal false, result[:locked]                # GETVISIT piece 6 / FETCH piece 8
+    refute result.key?(:ward), "no BEHOENCX reply carries a ward; the key was invented"
+  end
+
+  # FETCH's real signature is FETCH(DATA,DFN,VSTR,PRV,CREATE) (BEHOENCX.m:32).
+  # open() sends the DFN and the EXTENDED visit string built from GETVISIT —
+  # LOC;VDT;SVC;VISITIEN — so VSTR2VIS resolves the visit by IEN
+  # (BEHOENCX.m:107) and CREATE=0 never adds one. Sending the visit IEN alone
+  # put it in DFN and left VSTR undefined (<UNDEF> at VSTR2VIS+2).
+  def test_open_sends_fetch_the_dfn_and_the_extended_visit_string_with_create_0
+    RpmsRpc::Encounter.open(26664, 2090061)
+
+    fetch = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BEHOENCX FETCH" }
+    refute_nil fetch
+    assert_equal [ "26664", "1608;3260514.1907;A;2090061", "", "0" ], fetch[:params]
+
+    getvisit = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BEHOENCX GETVISIT" }
+    assert_equal [ "2090061" ], getvisit[:params]
+  end
+
+  # FETCH reports a visit it could not resolve by leaving VISITIEN empty and
+  # putting the text in piece 9 (BEHOENCX.m:46) — e.g. "-1^Visit does not
+  # belong to current patient" from VIS2VSTR (BEHOENCX.m:118). That is not a
+  # hydrated context.
+  def test_open_returns_nil_when_fetch_reports_an_error_instead_of_a_visit
+    RpmsRpc.client.seed(:encounter_fetch, "26664", {
+      location_name: "PS CLINICS", location_abbrev: "PSCL", provider_ien: 101,
+      provider_name: "SAND,ASH", error: "Visit does not belong to current patient"
+    })
+
+    assert_nil RpmsRpc::Encounter.open(26664, 2090061)
   end
 
   def test_open_reports_missing_components
@@ -90,8 +131,8 @@ class EncounterTest < Minitest::Test
     RpmsRpc.reset!
     RpmsRpc.mock! do |m|
       m.seed(:encounter_visit, "2090061", {
-        location_ien: 1608, datetime_raw: "3260514.1907", status: "A",
-        patient_dfn: 26664, ward: "2D309-PAH"
+        location_ien: 1608, datetime_raw: "3260514.1907", service_category: "A",
+        patient_dfn: 26664, visit_id: "5000.61", locked: false
       })
       # Intentionally no :encounter_fetch seed
       m.seed_keyed_collection(:encounter_chkvisit, "2090061", [])
@@ -115,6 +156,14 @@ class EncounterTest < Minitest::Test
     assert_equal "6;3260915.003;A", RpmsRpc::Encounter.visit_string(6, "3260915.003", "A")
   end
 
+  # The EXTENDED visit string carries the visit IEN as a 4th piece; VSTR2VIS
+  # reads it (BEHOENCX.m:107 "IEN=+$P(VSTR,\";\",4)") and skips the FNDVIS
+  # date-window search when it is set.
+  def test_visit_string_appends_the_visit_ien_when_given
+    assert_equal "6;3260915.003;A;1", RpmsRpc::Encounter.visit_string(6, "3260915.003", "A", visit_ien: 1)
+    assert_equal "6;3260915.003;A", RpmsRpc::Encounter.visit_string(6, "3260915.003", "A", visit_ien: nil)
+  end
+
   def test_for_patient_still_works
     # Regression: the existing read API is unchanged.
     appointments = RpmsRpc::Encounter.for_patient("26664")
@@ -130,7 +179,7 @@ class EncounterTest < Minitest::Test
   # ===========================================================================
 
   def test_create_returns_visit_context_and_sends_fetch_params
-    RpmsRpc.client.seed(:encounter_get_or_create, "26664", {
+    RpmsRpc.client.seed(:encounter_fetch, "26664", {
       location_name: "PS CLINICS", location_abbrev: "PSCL", provider_ien: 101,
       provider_name: "PROVIDER,TEST", visit_ien: 2090070, visit_id: "5000.1", locked: 0
     })
@@ -149,7 +198,7 @@ class EncounterTest < Minitest::Test
   end
 
   def test_create_formats_datetime_and_passes_provider_and_create_flag
-    RpmsRpc.client.seed(:encounter_get_or_create, "26664", { visit_ien: 2090071 })
+    RpmsRpc.client.seed(:encounter_fetch, "26664", { visit_ien: 2090071 })
 
     RpmsRpc::Encounter.create(26664,
       location_ien: 1608, datetime: Time.new(2026, 9, 4, 9, 0),
@@ -160,7 +209,7 @@ class EncounterTest < Minitest::Test
   end
 
   def test_create_surfaces_server_error_text
-    RpmsRpc.client.seed(:encounter_get_or_create, "26664", { error: "Visit not created" })
+    RpmsRpc.client.seed(:encounter_fetch, "26664", { error: "Visit not created" })
 
     result = RpmsRpc::Encounter.create(26664,
       location_ien: 1608, datetime: "3260904.0900", service_category: "A")

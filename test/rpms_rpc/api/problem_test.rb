@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/problem"
 
@@ -142,7 +142,6 @@ class ProblemTest < Minitest::Test
 
   def test_lex_search_returns_matching_rows
     RpmsRpc.mock! do |m|
-      m.seed_capability(:orqqpl_problem_workflow, supported: true)
       m.seed_keyed_collection(:problem_lex_search, "diab", [
         { code: "E11.9", description: "Type 2 diabetes mellitus" },
         { code: "E10.9", description: "Type 1 diabetes mellitus" }
@@ -155,58 +154,42 @@ class ProblemTest < Minitest::Test
     assert_equal "E11.9", rows.first[:code]
   end
 
-  def test_lex_search_returns_empty_when_unsupported
-    RpmsRpc.mock! do |m|
-      m.seed_capability(:orqqpl_problem_workflow, supported: false)
-    end
-
-    assert_equal [], RpmsRpc::Problem.lex_search("anything")
-  end
-
   def test_lex_search_returns_empty_for_blank_text
     RpmsRpc.mock! do |m|
-      m.seed_capability(:orqqpl_problem_workflow, supported: true)
     end
 
     assert_equal [], RpmsRpc::Problem.lex_search("")
     assert_equal [], RpmsRpc::Problem.lex_search("   ")
   end
 
+  # DETAIL(Y,DFN,PROBIEN,ID) (ORQQPL.m:21): the patient comes first, so the
+  # mock keys the reply by DFN (#259).
   def test_details_returns_row_for_ien
     RpmsRpc.mock! do |m|
-      m.seed_capability(:orqqpl_problem_workflow, supported: true)
-      m.seed_keyed_collection(:problem_detail, "5001", [
+      m.seed_keyed_collection(:problem_detail, DFN, [
         { ien: "5001", status: "ACTIVE", description: "HTN" }
       ])
     end
 
-    row = RpmsRpc::Problem.details("5001")
+    row = RpmsRpc::Problem.details(DFN, "5001")
 
     refute_nil row
     assert_equal "5001", row[:ien]
     assert_equal "HTN", row[:description]
   end
 
-  def test_details_returns_nil_when_unsupported
-    RpmsRpc.mock! do |m|
-      m.seed_capability(:orqqpl_problem_workflow, supported: false)
-    end
-
-    assert_nil RpmsRpc::Problem.details("5001")
-  end
-
   def test_details_returns_nil_for_invalid_ien
     RpmsRpc.mock! do |m|
-      m.seed_capability(:orqqpl_problem_workflow, supported: true)
     end
 
-    assert_nil RpmsRpc::Problem.details(nil)
-    assert_nil RpmsRpc::Problem.details("0")
+    assert_nil RpmsRpc::Problem.details(DFN, nil)
+    assert_nil RpmsRpc::Problem.details(DFN, "0")
+    assert_nil RpmsRpc::Problem.details(nil, "5001")
+    assert_nil RpmsRpc::Problem.details("0", "5001")
   end
 
   def test_audit_history_dispatches_orqqpl_audit_hist
     RpmsRpc.mock! do |m|
-      m.seed_capability(:orqqpl_problem_workflow, supported: true)
       m.seed_keyed_collection(:problem_audit_history, "5001", [
         { event: "ADDED", date: "20260615" }
       ])
@@ -222,7 +205,6 @@ class ProblemTest < Minitest::Test
 
   def test_comments_dispatches_orqqpl_prob_comments
     RpmsRpc.mock! do |m|
-      m.seed_capability(:orqqpl_problem_workflow, supported: true)
       m.seed_keyed_collection(:problem_comments, "5001", [
         { comment: "follow-up needed" }
       ])
@@ -237,7 +219,6 @@ class ProblemTest < Minitest::Test
 
   def test_inactivate_success_via_orqqpl_inactivate
     RpmsRpc.mock! do |m|
-      m.seed_capability(:orqqpl_problem_workflow, supported: true)
       m.seed_scalar(:problem_inactivate, "5001", "1^INACTIVATED")
     end
 
@@ -251,7 +232,6 @@ class ProblemTest < Minitest::Test
     # Defensive: an ORQQPL RPC that returns a bare IEN like "10" must
     # not be parsed as `message: "0"` (mirrors PR #157 BMC fix).
     RpmsRpc.mock! do |m|
-      m.seed_capability(:orqqpl_problem_workflow, supported: true)
       m.seed_scalar(:problem_inactivate, "5001", "10")
     end
 
@@ -263,7 +243,6 @@ class ProblemTest < Minitest::Test
 
   def test_inactivate_zero_response_yields_failure
     RpmsRpc.mock! do |m|
-      m.seed_capability(:orqqpl_problem_workflow, supported: true)
       m.seed_scalar(:problem_inactivate, "5001", "0^problem still active")
     end
 
@@ -273,20 +252,8 @@ class ProblemTest < Minitest::Test
     assert_equal "problem still active", result[:message]
   end
 
-  def test_inactivate_short_circuits_when_unsupported
-    RpmsRpc.mock! do |m|
-      m.seed_capability(:orqqpl_problem_workflow, supported: false)
-    end
-
-    result = RpmsRpc::Problem.inactivate("5001")
-
-    refute result[:success]
-    assert_match(/not available/, result[:error])
-  end
-
   def test_verify_dispatches_orqqpl_verify
     RpmsRpc.mock! do |m|
-      m.seed_capability(:orqqpl_problem_workflow, supported: true)
       m.seed_scalar(:problem_verify, "5001", "1")
     end
 

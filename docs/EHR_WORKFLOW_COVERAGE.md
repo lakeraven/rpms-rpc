@@ -40,9 +40,12 @@ Roughly a third of the primary-care traffic exists only to drive the fat client:
 
 A frontend-agnostic client renders its own dialogs, templates, and layout, and
 keeps its own parameter/UI state — so it calls none of these. The exception a
-BPRM-derived client keeps is the two **CIA-broker** RPCs (`CIANBRPC CANRUN`,
-`CIAVMRPC GETPAR`) — broker plumbing, not GUI — and the CPRS **order-dialog**
-subset if it reimplements ordering rather than modelling orders natively.
+BPRM-derived client keeps is the **CIA-broker** gate (`CIANBRPC CANRUN`) —
+broker plumbing, not GUI — and the CPRS **order-dialog** subset if it
+reimplements ordering rather than modelling orders natively. `CIAVMRPC GETPAR`
+is not plumbing: it reads the VueCentric shell's own parameters (its config
+root, widget text) and is legacy under ADR 0004; its mapping was removed in
+#239.
 
 ## Coverage
 

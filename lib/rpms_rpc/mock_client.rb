@@ -205,26 +205,12 @@ module RpmsRpc
     #
     #   m.seed_user("301",
     #     credentials: "testprovider;test123",
-    #     name: "PROVIDER,TEST",
-    #     role: :provider,
-    #     security_keys: [:scheduling_admin, :registration_manager])
+    #     name: "PROVIDER,TEST")
     #
-    # The role is carried the way a live broker carries it: as the security
-    # keys that role implies (UserRoles derives it from them, the way
-    # ORWU.m:19 derives USRCLS). No reply line is seeded with a class — none
-    # has one (#236). No case_manager entry: the keys that elevated to it
-    # (PRCFA SUPERVISOR, BPRC MANAGER) are not security keys on the pinned
-    # build (#314), so no signed-on user carries that role.
-    ROLE_KEYS = {
-      provider: %i[ores provider],
-      nurse: %i[orelse],
-      clerk: %i[oremas]
-    }.freeze
-
-    def seed_user(duz, credentials:, name:, role:, security_keys: [])
-      require_relative "security_keys"
-      require_relative "user_roles"
-
+    # No reply line is seeded with a role or user class: neither sign-on
+    # reply carries one (#236). A role is derived from the user's security
+    # keys (UserRoles.resolve), which live specs read from a real server.
+    def seed_user(duz, credentials:, name:)
       # Credential response: VALIDAV^XUSRB's RET() array (XUSRB.m:40, :85-87).
       # RET(5) is the post-sign-on message count; a successful mock sign-on
       # sends no message, as a site with $$SHOWPOST off does.
@@ -246,12 +232,6 @@ module RpmsRpc
         current_site: "",
         dtime: 300
       })
-
-      # Security keys (symbolic → RPMS strings): the role's keys plus any given.
-      symbols = (ROLE_KEYS.fetch(role.to_s.to_sym, []) + security_keys).uniq
-      rpms_keys = symbols.filter_map { |sym| SecurityKeys.rpms_name(sym) }
-      key_attrs = rpms_keys.map { |k| { key_name: k } }
-      seed_keyed_collection(:user_keys, duz.to_s, key_attrs)
     end
 
     # Records of every call_rpc invocation, for tests that need to assert on
@@ -259,19 +239,6 @@ module RpmsRpc
     # Each entry: { rpc:, params: [...] }
     def received_calls
       @received_calls ||= []
-    end
-
-    # Pre-populate a ServerCapabilities answer so `supports?` short-circuits
-    # without probing. Default is `true` (preserve backward compatibility:
-    # tests that don't seed see all features as available).
-    def seed_capability(feature, supported: true)
-      @capability_seeds ||= {}
-      @capability_seeds[feature] = supported
-    end
-
-    def supports?(feature)
-      @capability_seeds ||= {}
-      @capability_seeds.fetch(feature, true)
     end
 
     # Client#synchronize_wire stand-in. Reentrant like the real one, so tests

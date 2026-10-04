@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/procedure"
 
@@ -58,20 +58,5 @@ class ProcedureTest < Minitest::Test
     refute RpmsRpc::Procedure.add(DFN, VISIT_IEN, CPT, quantity: nil)[:success]
     refute RpmsRpc::Procedure.add(DFN, VISIT_IEN, CPT, quantity: 0)[:success]
     refute RpmsRpc::Procedure.add(DFN, VISIT_IEN, CPT, quantity: -1)[:success]
-  end
-
-  def test_for_patient_returns_empty_when_orwpce_unsupported
-    RpmsRpc.mock!
-    RpmsRpc.client.seed_capability(:orwpce_clinical_logs, supported: false)
-    assert_equal [], RpmsRpc::Procedure.for_patient(DFN)
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWPCE PROCEDURE LIST" }
-  end
-
-  def test_for_patient_returns_empty_for_invalid_dfn_without_probing
-    RpmsRpc.mock!
-    [ nil, "", 0, -1, "abc" ].each do |bad|
-      assert_equal [], RpmsRpc::Procedure.for_patient(bad)
-    end
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWPCE PROCEDURE LIST" }
   end
 end

@@ -78,7 +78,7 @@ class RpmsRpc::BrokerSessionIntegrityTest < Minitest::Test
     end
 
     uid_rebound.pop
-    socket.push_read("OK#{EOD}")
+    socket.push_read("1\x00OK#{EOD}") # (#289) the one call is seq 1; reply echoes it
     caller_thread = Thread.new { client.call_rpc_raw("CIANBRPC GETVAR", "DUZ") }
     [ holder, caller_thread ].each(&:join)
 
@@ -204,9 +204,9 @@ class RpmsRpc::BrokerSessionIntegrityTest < Minitest::Test
     b = Thread.new { b_reply = client.read_until_eot }
     sleep 0.1 # unlocked, B is now parked inside recv; locked, B waits for A
 
-    replies << "A-REPLY#{EOD}"
+    replies << "1\x00A-REPLY#{EOD}" # (#289) A's CIA call is seq 1; its reply echoes it
     write_gate << :go
-    replies << "B-REPLY#{EOD}"
+    replies << "B-REPLY#{EOD}"       # B reads via read_until_eot (read_response), not read_reply
     [ a, b ].each(&:join)
 
     assert_includes a_reply.to_s, "A-REPLY",
@@ -355,7 +355,7 @@ class RpmsRpc::BrokerSessionIntegrityTest < Minitest::Test
   # thread's with_context scope, and the scoped RPC's frame carries the
   # intruder's option.
   def test_cia_create_context_waits_for_the_wire_lock
-    socket = RecordingSocket.new([ "OK#{EOD}" ])
+    socket = RecordingSocket.new([ "1\x00OK#{EOD}" ]) # (#289) the one wire RPC is seq 1
     client = cia_client(socket)
     client.instance_variable_set(:@authenticated, true)
     client.create_context("BASE") # a declared starting context to restore to
@@ -428,7 +428,7 @@ class RpmsRpc::BrokerSessionIntegrityTest < Minitest::Test
     seed = lambda do
       RpmsRpc.mock! do |m|
         m.seed_scalar(:signon_setup, "", "OK")
-        m.seed_user("301", credentials: "AAA;AAA1", name: "ALPHA,ANA", role: :provider)
+        m.seed_user("301", credentials: "AAA;AAA1", name: "ALPHA,ANA")
       end
     end
 
