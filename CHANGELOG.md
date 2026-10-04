@@ -148,6 +148,14 @@ Stock-VistA clusters (first PR):
 - `RpmsRpc::Device` (`for_patient`, `find`): ORWPCE IMPLANT LIST / GET.
 - `RpmsRpc::Procedure.for_patient`: ORWPCE PROCEDURE LIST (the unused
   ORWPCE PROCEDURE GET mapping with it). `Procedure.add` (BGOVCPT SET) stays.
+  **Kept, rebuilt on BGOVCPT GET** (GET^BGOVCPT, the V CPT read VueCentric's
+  procedure component uses): same call, `for_patient(dfn)` still returns a
+  list of hashes with `:ien`, `:name`, `:date` and `:provider`. The field map
+  changes: `:ien` is the V CPT IEN, `:name` the provider narrative, `:date`
+  the visit date, `:provider` a name; added `:cpt_code`, `:cpt_name`,
+  `:visit_ien`, `:quantity`, `:diagnosis`, `:modifier_1`/`:modifier_2`,
+  `:facility`. V CPT has no status, so `:status` is gone. Proved live by
+  `test/live/procedure_live_test.rb` against a V CPT entry on the 0930 build.
 - `RpmsRpc::Eprescribing` (`transmit`, `status`, `cancel`,
   `build_rx_param`): PSO NEW RX / ERX STATUS / CANCEL RX. No PSO RPC is
   registered on either image.
@@ -158,8 +166,8 @@ Stock-VistA clusters (first PR):
   the type against the static `DEFAULT_TYPES` list — which is what every
   real server already got, since the probe never found ORWRP TYPES. The
   registered health-summary surface is ORWRP2 HS *.
-- `RpmsRpc::Authentication.user_security_keys`: ORWU USERKEYS. Per-key
-  checks stay on ORWU HASKEY (`has_security_key?`).
+- ORWU USERKEYS. `RpmsRpc::Authentication.user_security_keys` is kept,
+  rebuilt on DDR LISTER (see "Kept" below).
 - `RpmsRpc::UserManagement.grant_key`, `.revoke_key`, `.list_all_keys`
   (XU KEY GRANT / REVOKE / LIST); `UserManagement.find` no longer returns a
   `:security_keys` entry (it came from ORWU USERKEYS).
@@ -196,11 +204,24 @@ IHS clusters (second PR):
   raises `Client::RpcError`. Proved live by
   `test/live/referral_cancel_live_test.rb`, which cancels a referral on a
   disposable container, reads the status back and files it active again.
-- `RpmsRpc::Eligibility` (`for_patient`, `codes`): BIPC ELIGGET / ELIGLIST.
+- BIPC ELIGGET / ELIGLIST. `RpmsRpc::Eligibility` (`for_patient`, `codes`)
+  is kept, rebuilt on BGOVIMM GETVFC / BGOVIMM2 GETELIG (see "Kept" below).
 - `RpmsRpc::VaccineLot` (`for_facility`, `find`): BIPC LOTLIST / LOTGET.
 - `RpmsRpc::Immunization.for_patient` and `.find`: BIPC IMMLIST / IMMGET.
   `Immunization.text_summary` (BEHOCIR GETTXT) stays. No BIPC RPC is
   registered; the registered immunization surface is BGOVIMM* and BYIM *.
+  **Kept, rebuilt on BGOVIMM GET** (GET^BGOVIMM5, the immunization history
+  VueCentric's immunization component reads): same calls, `for_patient(dfn)`
+  returns a list and `find(ien)` one dose or nil, with the removed read's
+  keys. `find` asks FileMan (DDR GETS ENTRY DATA, file 9000010.11) which
+  patient a dose belongs to and filters that patient's read. Changed: the
+  routine returns no CVX, status, expiration date, route, dose unit, VFC
+  eligibility code or funding source, so `:vaccine_code`, `:status`,
+  `:expiration_date`, `:route`, `:dose_unit`, `:vfc_eligibility_code` and
+  `:funding_source` are no longer returned. A key with no value is left out.
+  `:vaccine_display` is the vaccine's full name, and `:occurrence_datetime`
+  is the event date. Proved live by `test/live/immunization_live_test.rb`
+  against the V IMMUNIZATION entries on the 0930 build.
 - `RpmsRpc::ImmunizationExchange` — the whole module (`send_immunizations`,
   `submit_query`, `for_patient`, `retrieve_response`, `process_responses`,
   `check_status`): BYIMRT VXU / VXQ / RSP / STATUS. VXQ / VXU / RSP are
@@ -210,9 +231,8 @@ IHS clusters (second PR):
 - `RpmsRpc::Phr.patient_direct_address`, `.provider_direct_address`,
   `.facility_direct_domain`, `.record_access`: BPHR PATIENT / PROVIDER /
   FACILITY DIRECT, BPHR RECORD ACCESS. No BPHR RPC is registered.
-- `RpmsRpc::Location.find` (BHDO HOSP LOC DATA), an invented namespace.
-  Hospital locations are served by `Scheduling.hospital_locations` and
-  BEHOENCX HOSPLOC / LOCINFO.
+- BHDO HOSP LOC DATA, an invented namespace. `RpmsRpc::Location.find` is
+  kept, rebuilt on DDR GETS ENTRY DATA over #44 (see "Kept" below).
 - BHDO INST DATA, the same invented namespace. `RpmsRpc::Organization.find`
   is kept, rebuilt on DDR GETS ENTRY DATA over #4 (see "Kept" below).
 - `RpmsRpc::Capabilities.imaging_user?` and `.clear_imaging_cache!`:
@@ -244,6 +264,24 @@ Methods the host application calls whose invented RPC was removed above are
 kept with the same name, arguments and return shape, rebuilt on the RPC the
 built image really registers, and proven by a live spec as the programmer
 and the provider persona:
+
+- `RpmsRpc::Location.find(ien)` → `{ien:, name:, abbreviation:, type:,
+  division:}`: kept, rebuilt on DDR GETS ENTRY DATA over HOSPITAL LOCATION
+  #44 (.01, 1, 2, 3.5), in CIAV VUECENTRIC. `type` and `division` are the
+  external forms ("CLINIC", the division's name). BEHOENCX LOCINFO is not
+  usable: it M-errors (an extrinsic `QUIT` under `DO`).
+
+- `RpmsRpc::Authentication.user_security_keys(duz)` → `[key names]`: kept,
+  rebuilt on DDR LISTER over the user's KEYS multiple (#200 field 51,
+  subfile 200.051; .01 KEY points to #19.1), in CIAV VUECENTRIC.
+
+- `RpmsRpc::Eligibility.codes` → `[{code:, label:}]` and
+  `.for_patient(dfn)` → `{code:, label:}`: kept, rebuilt on BGOVIMM2
+  GETELIG (active rows of #9002084.83) and BGOVIMM GETVFC, the reads of
+  VueCentric's immunization component, in CIAV VUECENTRIC. GETVFC answers a
+  default LABEL ("Am Indian/AK Native" for beneficiary type 1 at an IHS
+  site), which `for_patient` resolves to its code; any other default is
+  `NIL_ELIGIBILITY`.
 
 - `RpmsRpc::Organization.find(ien)` → `{ien:, name:, station_number:,
   address:, city:, state:, zip_code:, phone:}`: kept, rebuilt on DDR GETS

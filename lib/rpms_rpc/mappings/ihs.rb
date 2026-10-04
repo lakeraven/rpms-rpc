@@ -409,6 +409,33 @@ module RpmsRpc
       m.field 5, :facility
     end
 
+    # BGOVIMM GET — the patient's immunization history (multi-line). INP is
+    # DFN ^ what, "I" asking for the V IMMUNIZATION rows only (F forecast,
+    # C contraindications and R refusals are the other letters; GET^BGOVIMM5:
+    # BGOVIMM5.m:206-212). On an IHS site (DUZ("AG")="I") each dose is one
+    # "I" row built from the Immunization package's IMMHX^BIRPC data elements
+    # and then overlaid (BGOVIMM5.m:231-275); the positions match the
+    # non-IHS branch's documented row (:288-308):
+    #   "I" ^ SHORT_NAME ^ DATE (MM/DD/YYYY) ^ V_IMM_IEN ^ OTHER_LOC ^
+    #   GROUP ^ VACCINE_IEN ^ LOT ^ REACTION ^ VIS_DATE ^ AGE ^ VISIT_DATE ^
+    #   PROVIDER (IEN~NAME) ^ SITE (CODE~NAME) ^ VOLUME ^ VISIT_IEN ^
+    #   VISIT_CATEGORY ^ VACCINE_NAME ^ LOCATION (IEN~NAME) ^ VISIT_LOCKED ^
+    #   EVENT_DATE (FileMan, IHS only) ^ ... ^ VFC_ELIGIBILITY (label, :24) ^
+    #   ... ^ MANUFACTURER (:26) ^ "RPMS"
+    # Immunization.for_patient keeps the "I" rows and splits the ~ pairs.
+    DataMapper.define(:immunization_list) do |m|
+      m.rpc "BGOVIMM GET"
+      m.field 0,  :record_type
+      m.field 3,  :ien
+      m.field 7,  :lot_number
+      m.field 12, :performer
+      m.field 13, :site
+      m.field 14, :dose_quantity, :float
+      m.field 17, :vaccine_display
+      m.field 20, :occurrence_datetime, :fileman_datetime
+      m.field 25, :manufacturer
+    end
+
     # BEHOCIR GETTXT — CCD document content
     DataMapper.define(:immunization_text) do |m|
       m.rpc "BEHOCIR GETTXT"
@@ -597,10 +624,65 @@ module RpmsRpc
       m.scalar :result
     end
 
+    # BGOVCPT GET — the patient's V CPT entries (multi-line). INP is
+    # DFN ^ max ^ visit ^ type ^ format; DFN alone reads every V CPT on file
+    # for the patient, detailed (GET^BGOVCPT: BGOVCPT.m:28-41, G0 :45-47).
+    # Row (ARRAY^BGOVCPT: BGOVCPT.m:180-199):
+    #   VISIT_DATE (MM/DD/YYYY, $$FMTDATE^BGOUTL) ^ FAC_CODE ^ FAC_NAME ^
+    #   CPT ^ CPT_NAME ^ NARRATIVE ^ DX ^ PRIMARY ^ MOD1 ^ MOD2 ^
+    #   V_CPT_IEN ^ VISIT_IEN ^ CPT_IEN ^ QUANTITY ^ PROVIDER_NAME ^
+    #   TRAN_CODE_IEN ^ ICD0_IEN ^ VISIT_LOCKED ^ V_FILE ("CPT")
+    # MOD1/MOD2 are CODE~NAME. Procedure.for_patient parses the date.
+    DataMapper.define(:procedure_list) do |m|
+      m.rpc "BGOVCPT GET"
+      m.field 0,  :date
+      m.field 2,  :facility
+      m.field 3,  :cpt_code
+      m.field 4,  :cpt_name
+      m.field 5,  :name
+      m.field 6,  :diagnosis
+      m.field 8,  :modifier_1
+      m.field 9,  :modifier_2
+      m.field 10, :ien
+      m.field 11, :visit_ien
+      m.field 13, :quantity, :integer
+      m.field 14, :provider
+    end
+
     # BGOVCPT SET — visit CPT-code save. Returns the saved IEN on success.
     DataMapper.define(:procedure_save) do |m|
       m.rpc "BGOVCPT SET"
       m.scalar :result
+    end
+
+    # ========================================================================
+    # VFC ELIGIBILITY (BGOVIMM*, the immunization component's reads)
+    # ========================================================================
+
+    # BGOVIMM GETVFC — GETVFC^BGOVIMM2 (BGOVIMM2.m:157-172; #8994 points the
+    # BGOVIMM name at routine BGOVIMM2). One INP param, DFN in piece 1.
+    # Reply: IHS-site (Y/N)[1] ^ age[2] ^ default[3]. At an IHS site
+    # (DUZ("AG")="I") the default is the label "Am Indian/AK Native" when the
+    # patient's beneficiary type (#9000001 field 1111) is 1, else that type's
+    # IEN ($$BENTYP^BIUTL11, 0 when unset); elsewhere it is empty. The DFN is
+    # not validated: an unknown one answers "Y^<age>^0".
+    DataMapper.define(:vfc_default) do |m|
+      m.rpc "BGOVIMM GETVFC"
+      m.field 0, :ihs_site
+      m.field 1, :age
+      m.field 2, :default_label
+    end
+
+    # BGOVIMM2 GETELIG — GETELIG^BGOVIMM2 (BGOVIMM2.m:207-216): the ACTIVE
+    # rows of BI TABLE ELIGIBILITY CODES (#9002084.83, walked by its "AC"
+    # index). Rows: IEN[1] ^ ELIGIBILITY CODE .01[2] ^ LABEL-TEXT OF CODE
+    # .02[3] ^ LOCAL TEXT .04[4]. The DFN parameter is unused.
+    DataMapper.define(:vfc_eligibility_codes) do |m|
+      m.rpc "BGOVIMM2 GETELIG"
+      m.field 0, :ien
+      m.field 1, :code
+      m.field 2, :label
+      m.field 3, :local_text
     end
 
     # ========================================================================
