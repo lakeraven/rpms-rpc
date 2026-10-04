@@ -736,31 +736,34 @@ module RpmsRpc
     # ========================================================================
     # ORDERS (ORWOR*, ORWORR*)
     # ========================================================================
-    # Field positions are best-effort pending wider trace capture.
+    # Layouts and formals from FOIA ORWOR.m / ORWORR.m / ORWORR1.m (#220).
 
+    # UNSIGN(LST,ORVP,HAVE) (ORWOR.m:114): ORVP is the patient DFN, the user
+    # is the session DUZ (ORWOR.m:116,126). One piece per row, IFN_";"_ACT
+    # (ORWOR.m:127); Order.unsigned_for_patient splits the action off.
     DataMapper.define(:orders_unsigned) do |m|
       m.rpc "ORWOR UNSIGN"
-      m.field 0, :ien, :integer
-      m.field 1, :patient_dfn, :integer
-      m.field 2, :patient_name
-      m.field 3, :order_text
-      m.field 4, :status
-      m.field 5, :datetime, :fileman_datetime
+      m.field 0, :order_id
     end
 
+    # AGET(REF,DFN,FILTER,GROUPS,DTFROM,DTTHRU,EVENT) (ORWORR.m:25). GET1^ORWORR1
+    # writes IFN;ACT^DGrp^ActTm^PtEvtID^EvtName (ORWORR1.m:11) under a .1
+    # header TOT^TXTVW^ORYD (ORWORR1.m:13) that Order.list drops. Order text
+    # is not in this reply. Piece 1 is read twice: whole as :order_id, and
+    # its leading IFN as :ien.
     DataMapper.define(:orders_list) do |m|
       m.rpc "ORWORR AGET"
+      m.field 0, :order_id
       m.field 0, :ien, :integer
-      m.field 1, :order_text
-      m.field 2, :status
-      m.field 3, :datetime, :fileman_datetime
-      m.field 4, :provider_duz
-      m.field 5, :provider_name
+      m.field 1, :display_group_ien, :integer
+      m.field 2, :action_datetime, :fileman_datetime
+      m.field 3, :event_ien, :integer
+      m.field 4, :event_name
     end
 
     # ORWOR VWGET and ORWORR GET4LST are referenced in the issue trace
     # alongside AGET. AGET alone is sufficient for the symbolic
-    # "list orders for patient at view+status" contract this module
+    # "list a patient's orders under a filter" contract this module
     # exposes — the two-step VWGET->AGET pattern is a desktop-client
     # optimization that can be added when a real engine consumer needs
     # the cached view spec or per-group detail. Not modeling speculatively.
@@ -772,18 +775,12 @@ module RpmsRpc
       m.text_blob :result_text
     end
 
-    # ORWOR RESULT HISTORY — historical result values for an order IEN.
-    # Caret-delimited rows; positions best-effort pending wider trace
-    # capture, but the engine-facing contract is a list of result
-    # observations rather than the raw broker shape.
+    # RESHIST(REF,DFN,ORID,ID) (ORWOR.m:36): the formals of RESULT, and a
+    # display report in ^TMP("ORXPND",$J,n,0) (ORWOR.m:42, ORWOR2.m:14) --
+    # formatted text, not typed rows.
     DataMapper.define(:order_result_history) do |m|
       m.rpc "ORWOR RESULT HISTORY"
-      m.field 0, :result_datetime, :fileman_datetime
-      m.field 1, :value
-      m.field 2, :units
-      m.field 3, :abnormal_flag
-      m.field 4, :reference_range
-      m.field 5, :status
+      m.text_blob :history_text
     end
 
     # ORWOR ACTION TEXT — text describing the user-facing action available
@@ -794,20 +791,21 @@ module RpmsRpc
       m.text_blob :action_text
     end
 
-    # ORWOR EXPIRED — boolean (1/0) for whether an order IEN is expired.
+    # EXPIRED(ORY) (ORWOR.m:147): no parameter; NOW less the ORWOR EXPIRED
+    # ORDERS hours, the FileMan date/time to start a search for expired
+    # orders from (ORWOR.m:149-150). It says nothing about any one order.
     DataMapper.define(:order_expired) do |m|
       m.rpc "ORWOR EXPIRED"
-      m.scalar :expired, :boolean
+      m.scalar :search_start, :fileman_datetime
     end
 
-    # ORWOR SHEETS — order sheets available for a patient (active, delayed
-    # release, transfer, etc). One row per sheet: IEN^NAME^TYPE^STATUS.
+    # SHEETS(LST,ORVP) (ORWOR.m:91): rows "TYPE;ID^label" -- C;O current
+    # view, A;<ts> / A;-1 admit, T;<ts> / T;-1 transfer, D;0 discharge
+    # (ORWOR.m:97-105). Piece 1 is a composite id, kept whole; Order splits it.
     DataMapper.define(:order_sheets) do |m|
       m.rpc "ORWOR SHEETS"
-      m.field 0, :ien, :integer
-      m.field 1, :name
-      m.field 2, :sheet_type
-      m.field 3, :status
+      m.field 0, :sheet_id
+      m.field 1, :label
     end
 
     # ORWOR TSALL — site-level catalog of order sheets, independent of
