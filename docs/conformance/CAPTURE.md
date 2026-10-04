@@ -1,88 +1,95 @@
-# Capturing per-rung reference fingerprints
+# The pinned rpms-ops build signature
 
-The classifier ranks a target against every `data/fingerprints/references/*.yml`.
-This runbook captures one **real** reference fingerprint per bcer rung
-(5.0 / 6.1 / 7.0 / 8.0 / 8.3) from that release's live `#8994` registry.
+rpms-rpc conforms to the RPC signature of a named rpms-ops build (#160, #222).
+A reference fingerprint answers "what does build X provide?", and it is only a
+reference if its bytes trace to a real, artifact-bound capture of that build.
+rpms-ops produces that capture as a build output; this repo pins it like a
+dependency. Nothing here boots an engine.
 
-## Principle: capture once, commit, never rebuild
+## The contract
 
-A reference fingerprint is a durable artifact. Capture each rung **once**, stamp
-it with the release's DAT sha, and commit it. Conformance checks then run against
-the committed file forever — no rung is ever rebuilt just to re-answer "what does
-it provide." Re-capture only when a rung is re-cut (new DAT sha).
+For every gated release tag, rpms-ops attaches these assets to the GitHub release
+(rpms-ops `bin/release_inventory.sh`, run by the gate workflows, then
+`bin/publish_inventory.sh`):
 
-## Use a per-rung Docker image (build once, reuse)
+| asset | content |
+| --- | --- |
+| `<tag>-broker_8994.txt` | one `#8994` 0-node per registered RPC: `NAME^TAG^ROUTINE^RETURN VALUE TYPE^AVAILABILITY^INACTIVE^...` (`^DD(8994)` fields .01-.11, in order) |
+| `<tag>-packages_9_4.txt` | `PREFIX^NAME^VERSION`, one installed package per line |
+| `<tag>-INVENTORY-PROVENANCE.json` | engine, M backend, container, `artifact_bound`, `artifact_sha256`, per-dump sha256 + record counts, inventory tool commit |
+| `<tag>-INVENTORY.sha256` | sidecar over the three above (`shasum -a 256 -c`) |
+| `<tag>-PROVENANCE.json` | the build record: `release`, `rpms_ops_commit` (the commit the build was cut from) |
 
-Booting a rung by restoring its multi-GB DAT every time is slow and can wedge
-Docker. Instead, build a **Docker image per rung once** (recipe lives in
-rpms-ops, which owns release builds) from that rung's DAT/lock, tagged with the
-sha, e.g. `rpms-bcer:8.0-a3dbdc4a`. Thereafter capture is `docker run` → probe →
-stop, in seconds. The image is the reusable substrate for both fingerprint
-capture and the Tier-2 behavioral suite.
+A build tag is `bcer-<RPMS version>-<yyyymmdd>-<rpms-ops short commit>-<ydb|iris>`.
+The RPMS version and engine come from the tag; the build commit comes from the
+build record and must start with the tag's short commit.
 
-Constraints that remain:
+On this side (`lib/rpms_rpc/conformance/inventory_lock.rb`):
 
-- **Eval license is single-user — one IRIS container at a time.** Capture is
-  serial. Never run two rung containers concurrently.
-- **Local/private images only.** Publishing IRIS-embedded images needs an
-  InterSystems OEM agreement. These images do not leave the build host.
-- Build the images serially with memory headroom (a large LR load during a build
-  can wedge the Docker daemon).
+| file | role |
+| --- | --- |
+| `data/fingerprints/rpms-ops.lock.yml` | **the pin**: tag, RPMS version, engine, build commit, artifact sha, inventory tool commit, sha256 per asset, counts. Written by `conformance:pin`; never hand-edited. |
+| `data/inventories/<tag>/` | **the signature**: the five assets, byte for byte. |
+| `data/fingerprints/references/<tag>.yml` | the fingerprint ingested from exactly those bytes; its `source.inventory` face repeats the build and the shas. |
 
-## Serial capture loop (one rung at a time)
+## What the gates read
 
-For each rung, with **no other IRIS container running**:
+- `test/rpms_rpc/registered_rpc_names_test.rb`: every RPC name the gem uses is
+  available on every pinned build: registered, with an entry point (TAG and
+  ROUTINE), and not INACTIVE for local use (`.06` = 1 or 2).
+- `test/rpms_rpc/pinned_build_signature_test.rb`: the lock names the build; the
+  committed signature and the fingerprint match the lock; every wire fixture's RPC
+  is registered and its `cite:` leads with the entry point the build registers;
+  `rake rpc:coverage` reads the pinned signature (`data/rpc_coverage/config.yml`).
+- `rake conformance:check` runs the same lock check from the command line.
 
-```sh
-RUNG=8.0
-SHA=a3dbdc4a                      # that rung's DAT/lock sha (provenance)
+"Callable" is stronger than "available": the entry point must exist on the image,
+and a context (or a broker exemption) must allow the RPC. The release inventory
+does not carry that yet. It is requested in rpms-ops#713, and the names gate tightens
+to "callable" once it does. Whether a write files what it claims is proven by a
+live call (ADR 0008 rule 4), not by the signature.
 
-# 1. Boot the pre-built rung image (single-user).
-docker run -d --name bcer-$RUNG rpms-bcer:$RUNG-$SHA
-# ... wait for the broker to be ready (host-side healthcheck; do not open a
-#     second IRIS session to poll) ...
-
-# 2. Capture the #8994 registry to a dump (read-only; never writes).
-export RPMS_RPC_BROKER_HOST=... RPMS_RPC_ACCESS_CODE=... RPMS_RPC_VERIFY_CODE=...
-bin/probe_broker --env bcer-$RUNG           # writes data/broker_dumps/bcer-$RUNG_<date>.txt
-
-# 3. Turn the dump into a provenance-stamped reference fingerprint.
-bundle exec rake conformance:ingest \
-  DUMP=data/broker_dumps/bcer-$RUNG_<date>.txt \
-  ENV=references/bcer-$RUNG \
-  RELEASE=bcer-$RUNG \
-  DAT_SHA=$SHA \
-  NOTE="file 8994 export from bcer-$RUNG image"
-  # -> data/fingerprints/references/bcer-$RUNG.yml  (release + dat_sha stamped)
-
-# 4. Quiesce and remove the container before the next rung.
-docker stop bcer-$RUNG && docker rm bcer-$RUNG
-
-# 5. Commit this rung's reference immediately.
-git add data/fingerprints/references/bcer-$RUNG.yml
-git commit -m "Add bcer-$RUNG reference fingerprint (DAT $SHA)"
-```
-
-Repeat for 5.0, 6.1, 7.0, 8.0, 8.3. The two seed placeholders
-(`bcer-5.0.yml`, `bcer-8.0.yml`) are replaced by their real captures as they
-land — a real capture has `source.kind: broker_dump` and a `dat_sha`; a seed
-says `hand-authored seed placeholder`.
-
-## Verify
-
-After all five land:
+## Pin a build
 
 ```sh
-bundle exec rake conformance:probe TARGET=<some fingerprint>.yml
+bundle exec rake conformance:pin RELEASE=bcer-9.0-20260930-8c88e47-ydb
+# 1. gh release download the five assets above (REPO= overrides lakeraven/rpms-ops)
+# 2. each file's sha256 must equal the release's asset digest
+# 3. verify: sidecar matches bytes; provenance artifact_bound, release_tag == tag,
+#    engine == the tag's; registry line count == provenance rpcs records;
+#    build record release == tag, rpms_ops_commit starts with the tag's commit
+# 4. ingest -> data/fingerprints/references/<tag>.yml (backend iris_rpms | yottadb_rpms)
+# 5. record the pin in data/fingerprints/rpms-ops.lock.yml
+git add data/fingerprints/rpms-ops.lock.yml data/fingerprints/references/<tag>.yml data/inventories/<tag>
 ```
 
-The classifier now ranks across all five rungs, so "highest rung satisfied" is a
-real answer rather than a floor. For a target, the highest rung where
-`conformance:probe ... REQUIRED=references/bcer-<rung>.yml` exits 0 is the answer.
+`SOURCE=<dir>` copies the five assets from a directory instead of downloading them
+(a workflow artifact, say), and skips step 2.
+`ENV=` overrides the fingerprint name (default `references/<tag>`).
+To move `rake rpc:coverage` to the new build, point `release`, `registry` and
+`packages` in `data/rpc_coverage/config.yml` at it.
+
+A rejected inventory is not fixed here. A gap is data: fix the build, re-cut, re-pin.
+
+The pre-2026-09 seed placeholders (`references/bcer-5.0.yml`, `bcer-8.0.yml`) are not
+pinned and not checked. They are replaced as their rungs get an inventory published.
+
+Then, as before:
+
+```sh
+bundle exec rake conformance:probe TARGET=<some fingerprint>.yml [REQUIRED=references/<tag>.yml]
+```
+
+## Raw ingest (no gated release)
+
+`rake conformance:ingest DUMP=<broker_8994.txt> ENV=<name> [PACKAGES=] [RELEASE=] [DAT_SHA=]`
+is the same transformation without the pin: for a dump you captured yourself (rpms-ops
+`bin/assess_instance.sh --emit-flat --engine <iris|yottadb> ...` against any instance,
+including a deployed stack over SSM). The result carries no `source.inventory` face and
+is therefore an observation, not a reference; do not put it under `references/`.
 
 ## Do not
 
-- Do not probe a rung while its image is still building (wedges the build).
-- Do not run two rung containers at once (eval license).
-- Do not hand-edit a captured reference to "fix" a gap — a gap is data. Fix the
-  build, re-cut the rung, re-capture.
+- Do not hand-edit a lock entry, a committed signature or a fingerprint: the tests fail, by design.
+- Do not pin an inventory whose provenance is not `artifact_bound`: `pin` refuses it (rpms-ops#482).
+- Do not boot rung containers here to capture registries; that is rpms-ops's build side.
