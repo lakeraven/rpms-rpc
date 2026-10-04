@@ -27,16 +27,17 @@ module RpmsRpc
   # short-circuit to "BMC referral workflow not available". A client that
   # cannot scope contexts runs as-is. A programmer-key session bypasses the
   # check either way, so only a non-programmer run is evidence of this bind.
-  #
-  # Known gap: {delete} calls BMCRPC DELREFRL, which is registered in NO
-  # option on that image (rpms-rpc#207 lists it as an invented name); the
-  # bind cannot make an unregistered RPC runnable.
   module Referral
     extend self
 
     # The context option the BMC* RPCs are registered under — see the module
     # doc. Every method here binds it.
     CONTEXT = "BMCRPC"
+
+    # STATUS OF REFERRAL (file 90001, field .15) code for a cancelled
+    # referral: X, CLOSED-NOT COMPLETED. RCIS's own reports skip X as
+    # "cancelled" (BMCRR121.m:39, BMCRR41.m:38).
+    CANCELLED_STATUS = "X"
 
     def for_patient(dfn)
       in_context { DataMapper.referral_search.fetch_many(dfn.to_s) }
@@ -48,16 +49,8 @@ module RpmsRpc
       in_context { DataMapper.referral_detail.fetch_one(ien.to_s) }
     end
 
-    def delete(ien, reason: nil)
-      in_context { DataMapper.referral_delete.fetch_one(ien.to_s, reason) }
-    end
-
     def add(*params)
       bmc_scalar_result(:bmc_add_referral, *params)
-    end
-
-    def add_secondary(*params)
-      bmc_scalar_result(:bmc_add_secondary_referral, *params)
     end
 
     def update(ien, *params)
@@ -70,6 +63,26 @@ module RpmsRpc
 
     def update_status(ien, status, *params)
       bmc_scalar_result(:bmc_referral_status_update, ien.to_s, status.to_s, *params)
+    end
+
+    # Cancel a referral: file its status as CANCELLED_STATUS through BMC
+    # REFERRAL STATUS UPDATE (UPDTSTRF^BMCRPC3(RSLT,REFIEN,STATUS),
+    # BMCRPC3.m:176-187), under CONTEXT. RCIS has no delete; this replaces
+    # the removed `delete`. The routine files field .15 and nothing else, so
+    # there is no reason argument: a cancellation reason is not filed by it.
+    #
+    # Returns { success:, message:, raw: }. The routine answers "1" when it
+    # filed and "~`0^message" when it refused. On builds without
+    # rpms-ops#702 its refusal path QUITs with a value under a broker that
+    # DOes the tag, and the call raises Client::RpcError instead.
+    def cancel(ien)
+      return failure if invalid_id?(ien)
+
+      in_context do
+        result = bmc_scalar_result(:bmc_referral_status_update, ien.to_s.strip, CANCELLED_STATUS)
+        refusal = result[:raw].to_s.match(/\A~`0\^?(.*)\z/m)
+        refusal ? result.merge(success: false, message: refusal[1].strip) : result
+      end
     end
 
     def update_consultation_status(consultation_ien, status, *params)

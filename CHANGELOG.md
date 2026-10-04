@@ -78,14 +78,11 @@ had its wire shape evidenced in the repo as the replacement, and the
 default for an invented name is deletion, not a guess at its real twin.
 
 `test/rpms_rpc/registered_rpc_names_test.rb` now fails when any name the
-gem uses is on no pinned registry (`data/rpc_coverage/registry/`). This
-first PR removes the 39 stock-VistA names; the 38 IHS-cluster names
-(BMCRPC, BIPC, BEHOENCX tags, BYIMRT, BPHR, BHDO, MAGG, BQI MARK ALERT
-READ) are allow-listed in that test and in `rake rpc:coverage`'s
-`max_unregistered` ratchet (now 38) until the second PR removes them. To
-add an RPC: pin its registry capture first, then map it (ADR 0003).
+gem uses is on no pinned registry (`data/rpc_coverage/registry/`), and
+`rake rpc:coverage`'s `max_unregistered` ratchet is 0. To add an RPC: pin
+its registry capture first, then map it (ADR 0003).
 
-Stock-VistA clusters:
+Stock-VistA clusters (first PR):
 
 - `RpmsRpc::Communication` — the whole module (`find`, `for_patient`,
   `search`, `send_message`, `reply_to_message`, `get_thread`, `for_user`,
@@ -128,6 +125,67 @@ Stock-VistA clusters:
   `:orwpce_clinical_logs`, `:orwrp_report_types` — all probed removed names.
 - `MockClient#seed_user` no longer takes `security_keys:` (it seeded ORWU
   USERKEYS).
+
+IHS clusters (second PR):
+
+- `RpmsRpc::ChsBudget` — the whole module (`fiscal_year_budget`,
+  `remaining_funds`, `quarterly_allocation`, `obligations`, `find`,
+  `by_referral`, `payments`, `outstanding_obligations`, `obligation_summary`,
+  `budget_summary`, `low_funds?`, `current_fiscal_year`, `current_quarter`):
+  BMCRPC GTBUDGET / GTREMAIN / GTQTRALLOC / GTOBLIG / GTOBLIGID / GTREFOBLIG
+  / GTPAYMENT. The names were built from RCIS's routine prefix; the real
+  RCIS surface is BMC *, 20 of which the gem keeps (BMC ADD SECONDARY
+  REFERRAL is dropped below).
+- `RpmsRpc::Vendor` (`search`, `find`, `preferred`, `for_service`,
+  `contracts`, `active_contract`, `rates`, `active?`): BMCRPC SRCHVEND /
+  GTVEND / GTPREFVEND / GTCONTRACT / GTRATES.
+- `RpmsRpc::RcisSiteParams.for_facility`: BMCRPC GTSITPRM.
+- `RpmsRpc::Referral.delete`: BMCRPC DELREFRL. **Added `Referral.cancel(ien)`;
+  replaces `Referral.delete`.** RCIS has no delete; the real verb is a status
+  change. `cancel` files STATUS OF REFERRAL (90001, .15) as `X`
+  (CLOSED-NOT COMPLETED, which RCIS's reports treat as cancelled) through
+  BMC REFERRAL STATUS UPDATE (UPDTSTRF^BMCRPC3), under the BMCRPC option.
+  It takes no `reason:`, because the routine files no reason. It returns
+  `{ success:, message:, raw: }`. On builds without rpms-ops#702 a refusal
+  raises `Client::RpcError`. Proved live by
+  `test/live/referral_cancel_live_test.rb`, which cancels a referral on a
+  disposable container, reads the status back and files it active again.
+- `RpmsRpc::Eligibility` (`for_patient`, `codes`): BIPC ELIGGET / ELIGLIST.
+- `RpmsRpc::VaccineLot` (`for_facility`, `find`): BIPC LOTLIST / LOTGET.
+- `RpmsRpc::Immunization.for_patient` and `.find`: BIPC IMMLIST / IMMGET.
+  `Immunization.text_summary` (BEHOCIR GETTXT) stays. No BIPC RPC is
+  registered; the registered immunization surface is BGOVIMM* and BYIM *.
+- `RpmsRpc::ImmunizationExchange` — the whole module (`send_immunizations`,
+  `submit_query`, `for_patient`, `retrieve_response`, `process_responses`,
+  `check_status`): BYIMRT VXU / VXQ / RSP / STATUS. VXQ / VXU / RSP are
+  entry points in the routine, registered as RPCs nowhere; the registered
+  exchange RPCs are BYIM SEND IMMS TO SIIS / QUERY SIIS / DISPLAY IMM AND
+  FORECAST.
+- `RpmsRpc::Phr.patient_direct_address`, `.provider_direct_address`,
+  `.facility_direct_domain`, `.record_access`: BPHR PATIENT / PROVIDER /
+  FACILITY DIRECT, BPHR RECORD ACCESS. No BPHR RPC is registered.
+- `RpmsRpc::Location.find` (BHDO HOSP LOC DATA) and
+  `RpmsRpc::Organization.find` (BHDO INST DATA) — an invented namespace.
+  Hospital locations are served by `Scheduling.hospital_locations` and
+  BEHOENCX HOSPLOC / LOCINFO; institutions by DDR reads over #4.
+- `RpmsRpc::Capabilities.imaging_user?` and `.clear_imaging_cache!`:
+  MAGGUSERKEYS. The registered imaging key check is MAGGDUZKEY.
+- `RpmsRpc::Image.launch_token` (and `Image::DEFAULT_TTL_SECONDS`): MAGG
+  IMAGE LAUNCH TOKEN.
+- `RpmsRpc::Notifications.mark_read`: BQI MARK ALERT READ. The registered
+  acknowledgement verbs are BQI SET COMM ALERTS * and BQI UPDATE
+  NOTIFICATION STATUS.
+- Mappings with no caller: `:section_data` / `:section_save` /
+  `:section_definition` / `:patient_lock` / `:patient_unlock` (BEHOENCX GET
+  SECTION / SAVE SECTION / GET SECDEF / LOCK / UNLOCK — the routine is real,
+  these tags are not).
+- `ServerCapabilities` feature `:bphr_phr_endpoints`.
+- `RpmsRpc::Referral.add_secondary`: BMC ADD SECONDARY REFERRAL. Registered,
+  but not callable on any built image: #8994 points it at SETSCNRF^BMCRPC2,
+  and the tag lives in BMCRPC4 (FOIA BMCRPC4.m:144), so the broker finds no
+  entry point (rpms-ops#653). The registered-names gate cannot see this;
+  the 0921 RPC atlas classifies it `no-entry-point`. It comes back when the
+  build registers it where the routine is.
 
 The hand-authored `data/fingerprints/references/bcer-8.0.yml` seed no
 longer lists these names as "gem-required RPCs the staging dump lacks":

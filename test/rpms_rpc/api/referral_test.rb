@@ -181,9 +181,8 @@ class ReferralTest < Minitest::Test
   BMC_CALLS = {
     for_patient: [ DFN ],
     find: [ "3001" ],
-    delete: [ "3001" ],
+    cancel: [ "3001" ],
     add: [ DFN, "44" ],
-    add_secondary: [ "3001" ],
     update: [ "3001", "44" ],
     print: [ "3001" ],
     update_status: [ "3001", "APPROVED" ],

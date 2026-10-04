@@ -55,11 +55,6 @@ class PhrTest < Minitest::Test
           ccd_sent_date: nil, provider_name: "PROVIDER,TWO", facility: nil
         }
       ])
-
-      m.seed(:phr_patient_direct, DFN.to_s, { direct_address: "patient@example.direct", status: "active" })
-      m.seed(:phr_patient_direct, "123", { direct_address: "-1^No address", status: nil })
-      m.seed(:phr_provider_direct, "301", { direct_address: "provider@example.direct", status: "active" })
-      m.seed(:phr_facility_direct, "55", { direct_address: "clinic.example.direct", status: "active" })
     end
   end
 
@@ -175,50 +170,5 @@ class PhrTest < Minitest::Test
 
   def test_referrals_for_visits_rejects_invalid_ids
     assert_equal [], RpmsRpc::Phr.referrals_for_visits(INVALID_IDS)
-  end
-
-  def test_direct_address_methods_return_addresses
-    assert_equal "patient@example.direct", RpmsRpc::Phr.patient_direct_address(DFN)
-    assert_equal "provider@example.direct", RpmsRpc::Phr.provider_direct_address(301)
-    assert_equal "clinic.example.direct", RpmsRpc::Phr.facility_direct_domain(55)
-  end
-
-  def test_direct_address_methods_return_nil_for_errors_and_invalid_ids
-    assert_nil RpmsRpc::Phr.patient_direct_address(123)
-    assert_nil RpmsRpc::Phr.patient_direct_address(0)
-  end
-
-  def test_record_access_sends_bphr_record_access_payload
-    RpmsRpc::Phr.record_access(DFN, access_type: "DOWNLOAD", date: Date.new(2026, 5, 26))
-
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BPHR RECORD ACCESS" }
-    refute_nil call
-    assert_equal [ "#{DFN}^DOWNLOAD^05/26/2026" ], call[:params]
-  end
-
-  # === :bphr_phr_endpoints capability gating ===============================
-
-  def test_patient_direct_address_nil_when_bphr_unsupported
-    RpmsRpc.client.seed_capability(:bphr_phr_endpoints, supported: false)
-    assert_nil RpmsRpc::Phr.patient_direct_address(DFN)
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BPHR PATIENT DIRECT" }
-  end
-
-  def test_provider_direct_address_nil_when_bphr_unsupported
-    RpmsRpc.client.seed_capability(:bphr_phr_endpoints, supported: false)
-    assert_nil RpmsRpc::Phr.provider_direct_address(301)
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BPHR PROVIDER DIRECT" }
-  end
-
-  def test_facility_direct_domain_nil_when_bphr_unsupported
-    RpmsRpc.client.seed_capability(:bphr_phr_endpoints, supported: false)
-    assert_nil RpmsRpc::Phr.facility_direct_domain(55)
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BPHR FACILITY DIRECT" }
-  end
-
-  def test_record_access_nil_when_bphr_unsupported
-    RpmsRpc.client.seed_capability(:bphr_phr_endpoints, supported: false)
-    assert_nil RpmsRpc::Phr.record_access(DFN, access_type: "VIEW")
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BPHR RECORD ACCESS" }
   end
 end
