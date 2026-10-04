@@ -25,18 +25,14 @@ class RpmsRpc::WireContractTest < Minitest::Test
   # never edits a mapping to make itself pass). Each entry pins the exact
   # violating positions: if the mapping is fixed, or drifts further, this
   # test fails and the entry must be updated/removed with the fix.
-  KNOWN_DIVERGENCES = {
-    # (:problem_list was here with divergences [1, 2, 5, 6] — swapped
-    # status/description, a fabricated :recorded_date at 5 and a
-    # :provider_duz at 6 that this wire has no piece for. #188 corrected the
-    # mapping and the gate now reports none, so the entry left with the fix,
-    # exactly as this list's contract requires.)
-    # :patient_id_info declares position 3 :race_code and position 5
-    # :site_ien; IDINFO^ORWPT (ORWPT.m:6-11) returns PID^DOB^SEX^VET^SC%^
-    # WARD^RM-BED^NAME — position 3 is the VETERAN flag (the live "N" that
-    # was read as a race code) and position 5 the current ward location.
-    patient_id_info: [ 3, 5 ]
-  }.freeze
+  #
+  # Empty since #191: the two divergences the gate caught on its first run
+  # are fixed. :problem_list ([1, 2, 5, 6] — swapped status/description, a
+  # fabricated :recorded_date at 5 and a :provider_duz at 6 that the wire
+  # has no piece for) was corrected by #188; :patient_id_info ([3, 5] — the
+  # VETERAN flag read as :race_code, the ward location as :site_ien) by
+  # #191. Both left this list with their fixes, as its contract requires.
+  KNOWN_DIVERGENCES = {}.freeze
 
   def test_a_curated_capture_corpus_is_committed
     refute_empty FIXTURES, "no wire captures committed — run rake wire:capture"

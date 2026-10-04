@@ -19,5 +19,5 @@
 backend: local-ydb-0905
 registry: data/rpc_coverage/registry/bcer-9.0-20260913-1a2244c-ydb.txt
 packages: data/rpc_coverage/registry/bcer-9.0-20260913-1a2244c-ydb-packages.txt
-minimum_percent: 0.8
+minimum_percent: 0.9
 max_unregistered: 0

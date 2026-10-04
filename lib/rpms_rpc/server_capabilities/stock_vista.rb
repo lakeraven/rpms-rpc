@@ -13,11 +13,18 @@
 module RpmsRpc
   module ServerCapabilities
     # ORQQPL problem-list mutation + lookup surface — stock VistA.
-    # Probe with a read-only RPC (DETAIL) only; ADD SAVE, EDIT SAVE,
-    # DELETE, INACTIVATE, VERIFY, REPLACE, UPDATE are writes and must
-    # not be invoked just to test capability.
+    # Probe with a read-only RPC only; ADD SAVE, EDIT SAVE, DELETE,
+    # INACTIVATE, VERIFY, REPLACE, UPDATE are writes and must not be
+    # invoked just to test capability.
+    #
+    # ORQQPL INIT PT, not ORQQPL DETAIL: INITPT(RETURN,DFN)^ORQQPL1 quits
+    # on +$G(DFN)=0 (ORQQPL1.m:214-215), so a parameterless probe answers
+    # empty. DETAIL(Y,DFN,PROBIEN,ID) has no safe synthetic input: without
+    # a real problem IEN it dies in M on PROBIEN, or on the detail array
+    # DETAIL^GMPLUTL2 never built — which is what every Problem lookup
+    # logged as "DETAIL+3^ORQQPL undefined PROBIEN" before it ran (#259).
     register(:orqqpl_problem_workflow, [
-      "ORQQPL DETAIL"
+      "ORQQPL INIT PT"
     ])
   end
 end

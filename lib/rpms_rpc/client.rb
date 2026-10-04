@@ -5,8 +5,8 @@ require "monitor"
 # RpmsRpc.sanitize_error and RpmsRpc.configuration live in core.rb. Every raise site below calls
 # sanitize_error, so a consumer that requires a client file directly (rpms_rpc/cia_client, as the
 # rpms-ops release gate driver does) must still get it - otherwise any broker error surfaces as
-# NoMethodError and the real message is lost. Core, not version: version.rb also pulls the
-# mappings and capability tables, which a standalone client has no use for.
+# NoMethodError and the real message is lost. Core, not the entry point: rpms_rpc.rb also
+# pulls the mappings and capability tables, which a standalone client has no use for.
 require "rpms_rpc/core"
 require "rpms_rpc/parameter_encoder"
 require "rpms_rpc/xml_response_parser"
@@ -147,9 +147,9 @@ module RpmsRpc
           reset_connection
           raise
         rescue SystemCallError, IOError => e
-          # A mid-write EPIPE/ECONNRESET (CIA writes its frame directly to
-          # the socket) must not propagate raw and leave @connected lying:
-          # type it, and tear the connection down under the lock.
+          # A mid-read EPIPE/ECONNRESET, or a write from a client that does not
+          # go through #send_packet, must not propagate raw and leave
+          # @connected lying: type it, and tear the connection down under the lock.
           reset_connection
           raise ConnectionError,
                 "Connection lost mid-operation: #{RpmsRpc.sanitize_error(e.message)}"
@@ -446,11 +446,17 @@ module RpmsRpc
       @capability_cache = nil
       @host = host
       @port = port
-      @socket = TCPSocket.new(host, port)
+      @socket = connect_tcp(host, port)
       @socket.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1)
     rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT, Errno::EHOSTUNREACH, Socket::ResolutionError => e
       @connected = false
       raise ConnectionError, "Failed to connect to #{host}:#{port} - #{e.message}"
+    end
+
+    # The TCP connection itself, apart so a test can inject a failure by
+    # overriding it in a subclass (no stubbing of TCPSocket).
+    def connect_tcp(host, port)
+      TCPSocket.new(host, port)
     end
 
     # Send raw bytes to the broker
@@ -568,7 +574,11 @@ module RpmsRpc
       return if response.nil? || response.empty?
 
       clean = response.sub(/\A\x18/, "").strip.gsub(/\x00+$/, "")
-      if clean.match?(/\A(?:M  ERROR|E?Remote Procedure '.*' doesn't exist|E?Remote Procedure '.*' not found)/i)
+      # "M  ERROR" is the XWB/Kernel %ZTER frame (two spaces); BMXMON's ETRAP
+      # writes "M ERROR=" with ONE space (BMXMON.m ETRAP/CONNERR) and it arrives
+      # as DATA (sec/app packet lengths both 0), so allow one OR two spaces or
+      # the error would read as a successful reply (rpms-rpc#282).
+      if clean.match?(/\A(?:M {1,2}ERROR|E?Remote Procedure '.*' doesn't exist|E?Remote Procedure '.*' not found)/i)
         raise RpcError, clean
       end
     end

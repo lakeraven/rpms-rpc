@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/order"
 
@@ -92,22 +92,26 @@ class OrderTest < Minitest::Test
 
   # === result ===
 
+  # RESULT(REF,DFN,ORID,ID) (ORWOR.m:29): the patient comes first, so the
+  # mock keys the reply by DFN (#259).
   def test_result_returns_text_for_order
     RpmsRpc.mock! do |m|
-      m.seed_text(:order_result, "5001",
+      m.seed_text(:order_result, DFN,
         "GLUCOSE  102 mg/dL  (70-99)  H\nNOTE: fasting")
     end
-    text = RpmsRpc::Order.result("5001")
+    text = RpmsRpc::Order.result(DFN, "5001")
     assert_match(/GLUCOSE/, text)
     assert_match(/fasting/, text)
   end
 
   def test_result_returns_nil_for_invalid_or_unknown
-    assert_nil RpmsRpc::Order.result(nil)
-    assert_nil RpmsRpc::Order.result("0")
+    assert_nil RpmsRpc::Order.result(DFN, nil)
+    assert_nil RpmsRpc::Order.result(DFN, "0")
+    assert_nil RpmsRpc::Order.result(nil, "5001")
+    assert_nil RpmsRpc::Order.result("0", "5001")
 
-    RpmsRpc.mock! { |m| m.seed_text(:order_result, "5001", "x") }
-    assert_nil RpmsRpc::Order.result("9999")
+    RpmsRpc.mock! { |m| m.seed_text(:order_result, DFN, "x") }
+    assert_nil RpmsRpc::Order.result("9999", "5001")
   end
 
   # === result_history ===

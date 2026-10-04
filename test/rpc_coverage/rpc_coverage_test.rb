@@ -111,6 +111,74 @@ class RpcCoverageTest < Minitest::Test
     assert_match(/unknown reason "too_hard"/, problems.first)
   end
 
+  def test_every_unreachable_reason_is_accepted
+    reg = registry("A ONE", "A TWO", "A THREE", "A FOUR", "A FIVE")
+    exclusions = { "A ONE" => "no_routine_on_image", "A TWO" => "no_entry_point_on_image",
+                   "A THREE" => "inactive_on_image", "A FOUR" => "no_context", "A FIVE" => "context_out_of_order" }
+    assert_empty RpcCoverage.exclusion_problems(exclusions, reg)
+  end
+
+  def test_an_atlas_reach_class_spelled_as_a_reason_is_still_unknown
+    problems = RpcCoverage.exclusion_problems({ "A ONE" => "no-context" }, registry("A ONE"))
+    assert_match(/unknown reason "no-context"/, problems.first)
+  end
+
+  def test_an_excluded_rpc_that_answered_live_fails_as_a_stale_exclusion
+    reg = registry("A ONE", "A TWO")
+    ev = evidence("A ONE" => { "outcome" => "ok" }, "A TWO" => { "outcome" => "error", "error" => "no context" })
+    problems = RpcCoverage.exclusion_problems({ "A ONE" => "no_context", "A TWO" => "no_context" }, reg, evidence: ev)
+    assert_equal [ "exclusion \"A ONE\" (no_context) answered live: the exclusion is stale, remove it" ], problems
+  end
+
+  # --- exclusions generated from the cloud-rpms RPC atlas (#278) ------------------------------
+
+  ATLAS_HEAD = "name\tpackage\treach\texempt_on\tevidence\trpms_rpc\troutine\ttag\n"
+
+  def atlas(*rows)
+    write("atlas/atlas.tsv", ATLAS_HEAD + rows.map { |n, reach| "#{n}\tPKG\t#{reach}\t\tnone\tunwrapped\tRTN\tTAG" }.join("\n") + "\n")
+  end
+
+  def test_atlas_reach_classes_map_to_reasons_and_callable_rpcs_are_not_excluded
+    path = atlas([ "A ONE", "no-routine" ], [ "A TWO", "no-entry-point" ], [ "A THREE", "inactive" ],
+                 [ "A FOUR", "no-context" ], [ "A FIVE", "out-of-order" ],
+                 [ "A SIX", "broker-exempt" ], [ "A SEVEN", "client-callable" ])
+    assert_equal({ "A ONE" => "no_routine_on_image", "A TWO" => "no_entry_point_on_image",
+                   "A THREE" => "inactive_on_image", "A FOUR" => "no_context", "A FIVE" => "context_out_of_order" },
+                 RpcCoverage.unreachable_from_atlas(path))
+  end
+
+  def test_an_atlas_reach_class_this_tool_does_not_know_fails
+    path = atlas([ "A ONE", "maybe-callable" ])
+    assert_raises(RpcCoverage::Error) { RpcCoverage.unreachable_from_atlas(path) }
+  end
+
+  def test_an_atlas_without_name_and_reach_columns_fails
+    path = write("atlas/atlas.tsv", "rpc\tclass\nA ONE\tno-context\n")
+    assert_raises(RpcCoverage::Error) { RpcCoverage.unreachable_from_atlas(path) }
+  end
+
+  def test_regenerating_keeps_reviewed_exclusions_and_only_registered_names
+    reg = registry("A ONE", "A TWO", "A THREE")
+    current = { "A ONE" => "gui_plumbing", "A THREE" => "no_context" }
+    unreachable = { "A ONE" => "no_context", "A TWO" => "no_routine_on_image", "NOT REGISTERED" => "no_context" }
+    result = RpcCoverage.regenerate_exclusions(current, unreachable, reg)
+    assert_equal({ "A ONE" => "gui_plumbing", "A TWO" => "no_routine_on_image" }, result.exclusions,
+                 "the reviewed reason stays; A THREE is callable now, so its generated exclusion goes")
+    assert_equal [ "NOT REGISTERED" ], result.not_in_registry
+  end
+
+  def test_generated_exclusions_round_trip_and_cite_their_source
+    reg = registry("A ONE", "SD W/L PRIORITY(#409.3)", "A: B")
+    excl = { "SD W/L PRIORITY(#409.3)" => "no_context", "A ONE" => "no_routine_on_image", "A: B" => "gui_plumbing" }
+    text = RpcCoverage.exclusions_yaml(excl, source: [ "atlas: some/atlas.tsv", "sha256: abc" ])
+    path = write("exclusions.yml", text)
+    assert_equal excl, RpcCoverage.load_exclusions(path)
+    assert_empty RpcCoverage.exclusion_problems(RpcCoverage.load_exclusions(path), reg)
+    assert_includes text, "# atlas: some/atlas.tsv\n# sha256: abc\n"
+    assert_includes text, "#   context_out_of_order"
+    assert_equal %w[A\ ONE A:\ B SD\ W/L\ PRIORITY(#409.3)], RpcCoverage.load_exclusions(path).keys, "sorted by name"
+  end
+
   def test_registry_with_duplicates_or_over_long_names_fails
     problems = RpcCoverage.registry_problems(registry("A ONE", "A ONE", "THIS NAME IS FAR LONGER THAN THIRTY"))
     assert(problems.any? { |p| p.include?("duplicate names: A ONE") })
@@ -178,5 +246,21 @@ class RpcCoverageTest < Minitest::Test
     reg = RpcCoverage.load_registry(File.join(root, cfg.fetch("registry")))
     assert_empty RpcCoverage.registry_problems(reg)
     assert_empty RpcCoverage.exclusion_problems(RpcCoverage.load_exclusions(File.join(root, "data/rpc_coverage/exclusions.yml")), reg)
+  end
+
+  # #278: every RPC the atlas found unreachable on the pinned release is excluded with a reason, and
+  # the file says where that came from so the next release can regenerate it.
+  def test_the_committed_exclusions_cite_their_atlas_and_registry
+    root = File.expand_path("../..", __dir__)
+    path = File.join(root, "data/rpc_coverage/exclusions.yml")
+    text = File.read(path)
+    excl = RpcCoverage.load_exclusions(path)
+    refute_empty excl
+    assert_match(/^# atlas: .+atlas\.tsv$/, text)
+    assert_match(/^# atlas sha256: \h{64}$/, text)
+    assert_match(/^# registry: bcer-9\.0-20260913-1a2244c-ydb/, text)
+    assert_match(/^# regenerate: bundle exec rake rpc:exclusions ATLAS=/, text)
+    counts = text.scan(/^# count (\w+): (\d+)$/).to_h { |r, n| [ r, n.to_i ] }
+    assert_equal excl.values.tally, counts, "the header counts match the entries"
   end
 end

@@ -44,11 +44,17 @@ module RpmsRpc
       { ien: 4, name: "PATIENT", description: "Patient-Facing Summary", owner: nil }
     ].freeze
 
+    # The Health Summary entry of the OE/RR REPORT file (#101.24): ORWRP
+    # REPORT LISTS lists it as "1^Health Summary^...^HS^ORWRP1^...^ORWRP
+    # REPORT TEXT", and RPT^ORWRP resolves RPTID against that file's ID
+    # field (ORWRP.m:103-107) before dispatching to HS^ORWRP1.
+    HEALTH_SUMMARY_REPORT_ID = "1"
+
     def for_patient(dfn, summary_type: "STANDARD")
       return error_summary("Invalid patient DFN") if invalid_id?(dfn)
 
       resolved = resolve_summary_type(summary_type)
-      text = DataMapper.report_text.fetch_text("#{dfn}^#{resolved[:ien]}^")
+      text = report_text(dfn, HEALTH_SUMMARY_REPORT_ID, hs_type: resolved[:ien])
       # Report the resolved type name (which may differ from the caller's input
       # when the input was unknown and we fell back to the first available type).
       parse_health_summary(text, resolved[:name])
@@ -72,13 +78,20 @@ module RpmsRpc
       code = sym && COMPONENT_TYPES[sym]
       return nil if code.nil?
 
-      text = DataMapper.report_text.fetch_text("#{dfn}^^#{code}")
-      return nil if blank?(text)
+      # ORWRP REPORT TEXT has no component selector for the Health Summary
+      # report: HS^ORWRP1 runs the whole summary type (ORWRP1.m:12-28), and
+      # the "~component" suffix of RPTID feeds only the listview reports
+      # (ORWRP.m:91,103,124). So the summary is fetched whole and the
+      # component's section picked out of it here.
+      summary = for_patient(dfn)
+      name = titleize(component.to_s)
+      section = summary[:sections].find { |s| s[:name].casecmp?(name) }
+      return nil if section.nil? || blank?(section[:content])
 
       {
-        name: titleize(component.to_s),
+        name: name,
         code: code,
-        content: text,
+        content: section[:content],
         generated_at: Time.now
       }
     end
@@ -97,6 +110,19 @@ module RpmsRpc
     end
 
     private
+
+    # Formals: RPT(ROOT,DFN,RPTID,HSTYPE,DTRANGE,EXAMID,ALPHA,OMEGA)
+    # (ORWRP.m:88-96). RPTID is read unconditionally (ORWRP.m:102-103);
+    # the rest are $G'd: HSTYPE is merged into the report id when given
+    # (:124), DTRANGE is days back from today (:121), EXAMID a radiology
+    # exam (:125), ALPHA/OMEGA a FileMan date range (:113-122). Every
+    # formal goes over the wire, empty when unused. The old single
+    # "DFN^type^" parameter left RPTID undefined and the call died in M
+    # (#259).
+    def report_text(dfn, report_id, hs_type: "", days_back: "", exam_id: "", from: "", to: "")
+      DataMapper.report_text.fetch_text(dfn.to_s, report_id.to_s, hs_type.to_s, days_back.to_s,
+                                        exam_id.to_s, from.to_s, to.to_s)
+    end
 
     # Resolve a caller-supplied summary type to the entry of DEFAULT_TYPES
     # that will be used; an unrecognised name falls back to the first type,

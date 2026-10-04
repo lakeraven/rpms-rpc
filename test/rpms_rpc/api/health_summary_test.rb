@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/health_summary"
 
@@ -10,15 +10,13 @@ class HealthSummaryApiTest < Minitest::Test
 
   def setup
     RpmsRpc.mock! do |m|
-      m.seed_text(:report_text, "#{DFN}^1^",
+      # ORWRP REPORT TEXT is keyed by its first formal, the DFN (#259); one
+      # summary serves for_patient and component_data alike.
+      m.seed_text(:report_text, DFN.to_s,
         "PATIENT: Test Patient\n" \
         "DOB: 01/01/1970\n" \
         "PROBLEMS:\n" \
         "Type 2 diabetes\n" \
-        "MEDICATIONS:\n" \
-        "Metformin")
-
-      m.seed_text(:report_text, "#{DFN}^^MED",
         "MEDICATIONS:\n" \
         "Metformin 500mg twice daily")
 
@@ -62,19 +60,24 @@ class HealthSummaryApiTest < Minitest::Test
 
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWRP REPORT TEXT" }
     refute_nil call
-    assert_equal [ "#{DFN}^1^" ], call[:params]
+    # RPT(ROOT,DFN,RPTID,HSTYPE,DTRANGE,EXAMID,ALPHA,OMEGA) (ORWRP.m:88):
+    # report 1 is the Health Summary, HSTYPE the resolved type IEN (#259).
+    assert_equal [ DFN.to_s, "1", "1", "", "", "", "" ], call[:params]
   end
 
   def test_for_patient_resolves_the_summary_type_against_the_default_types
     RpmsRpc.reset!
     RpmsRpc.mock! do |m|
-      m.seed_text(:report_text, "#{DFN}^2^", "PROBLEMS:\nHypertension")
+      m.seed_text(:report_text, DFN.to_s, "PROBLEMS:\nHypertension")
     end
 
     summary = RpmsRpc::HealthSummary.for_patient(DFN, summary_type: "brief")
 
     assert_equal "BRIEF", summary[:type]
-    assert_equal [ "#{DFN}^2^" ], RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWRP REPORT TEXT" }[:params]
+    # RPT^ORWRP's formals (#259): DFN, the Health Summary report id, then the
+    # resolved type's IEN (BRIEF = 2 in DEFAULT_TYPES); the rest empty.
+    assert_equal [ DFN.to_s, "1", "2", "", "", "", "" ],
+                 RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWRP REPORT TEXT" }[:params]
   end
 
   def test_for_patient_falls_back_to_the_first_default_type_for_an_unknown_name
@@ -86,7 +89,7 @@ class HealthSummaryApiTest < Minitest::Test
   def test_for_patient_skips_separator_only_lines_per_gateway
     RpmsRpc.reset!
     RpmsRpc.mock! do |m|
-      m.seed_text(:report_text, "#{DFN}^1^",
+      m.seed_text(:report_text, DFN.to_s,
         "===============\n" \
         "PROBLEMS:\n" \
         "---------------\n" \
@@ -127,6 +130,11 @@ class HealthSummaryApiTest < Minitest::Test
     assert_equal "MED", component[:code]
     assert_equal "Medications", component[:name]
     assert_includes component[:content], "Metformin"
+    refute_includes component[:content], "Type 2 diabetes", "only the component's own section"
+  end
+
+  def test_component_data_returns_nil_when_the_summary_has_no_such_section
+    assert_nil RpmsRpc::HealthSummary.component_data(DFN, :allergies)
   end
 
   def test_component_data_returns_nil_for_invalid_component_or_dfn

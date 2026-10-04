@@ -22,9 +22,24 @@ module RpcCoverage
   NAME_MAX = 30
   EXCLUSION_REASONS = {
     "no_routine_on_image" => "registered, but the routine it names is not on the backend image",
+    "no_entry_point_on_image" => "registered, the routine is on the image, but the TAG it names is not",
+    "inactive_on_image" => "registered, but #8994 INACTIVE is set on the image",
+    "no_context" => "no option's RPC multiple lists it, so no client can bind a context that allows it",
+    "context_out_of_order" => "every context that lists it is OUT OF ORDER as shipped; a site can put one back in service",
     "gui_plumbing" => "drives a thick-client GUI (layout, window state); no headless use (ADR-0004 tiers)",
     "write_needs_fixture" => "a write or side effect that needs a disposable fixture before it can run live"
   }.freeze
+  # The RPC atlas (cloud-rpms scripts/shared/rpc-atlas.sh) gives each registered RPC one REACH class.
+  # The unreachable classes map to an exclusion reason; broker-exempt and client-callable RPCs stay
+  # in the denominator. A class missing from both lists fails, so a new atlas class is a decision here.
+  ATLAS_REACH_REASONS = {
+    "no-routine" => "no_routine_on_image",
+    "no-entry-point" => "no_entry_point_on_image",
+    "inactive" => "inactive_on_image",
+    "no-context" => "no_context",
+    "out-of-order" => "context_out_of_order"
+  }.freeze
+  ATLAS_REACHABLE = %w[broker-exempt client-callable].freeze
   STATUSES = %w[covered live_error declared_untested not_declared].freeze
   EVIDENCE_KEYS = %w[backend runs rpcs].freeze
   RUN_KEYS = %w[at rpms_rpc host_label context cases tally signons].freeze
@@ -70,14 +85,78 @@ module RpcCoverage
     data.transform_keys(&:to_s).transform_values(&:to_s)
   end
 
-  def exclusion_problems(exclusions, registry)
+  # With live evidence, an excluded RPC that answered is a stale exclusion: the reason no longer holds.
+  def exclusion_problems(exclusions, registry, evidence: nil)
     known = registry.names.to_h { |n| [ n, true ] }
+    live = (evidence && evidence["rpcs"]) || {}
     exclusions.flat_map do |name, reason|
       out = []
       out << "exclusion #{name.inspect} is not registered on #{registry.tag}" unless known[name]
       out << "exclusion #{name.inspect} has unknown reason #{reason.inspect} (allowed: #{EXCLUSION_REASONS.keys.join(', ')})" unless EXCLUSION_REASONS.key?(reason)
+      out << "exclusion #{name.inspect} (#{reason}) answered live: the exclusion is stale, remove it" if live.dig(name, "outcome") == "ok"
       out
     end
+  end
+
+  # --- exclusions generated from the RPC atlas (#278) -----------------------------------------
+
+  # name => reason for every RPC the atlas classes as unreachable.
+  def unreachable_from_atlas(path)
+    raise Error, "atlas not found: #{path}" unless File.exist?(path)
+
+    lines = File.readlines(path, chomp: true).reject { |l| l.strip.empty? || l.start_with?("#") }
+    head = lines.shift.to_s.split("\t")
+    ni = head.index("name")
+    ri = head.index("reach")
+    raise Error, "#{path} has no name and reach columns (not an rpc-atlas atlas.tsv?)" unless ni && ri
+
+    lines.each_with_object({}) do |l, out|
+      cols = l.split("\t", -1)
+      name = cols[ni]
+      reach = cols[ri]
+      next if ATLAS_REACHABLE.include?(reach)
+      raise Error, "#{path}: #{name.inspect} has reach #{reach.inspect}, which rpc_coverage.rb does not map" unless ATLAS_REACH_REASONS.key?(reach)
+
+      out[name] = ATLAS_REACH_REASONS.fetch(reach)
+    end
+  end
+
+  Regenerated = Struct.new(:exclusions, :not_in_registry, keyword_init: true)
+
+  # The atlas owns the atlas-derived reasons: they are replaced wholesale, so an RPC that became
+  # callable loses its exclusion. Any other reason is a reviewed decision and is kept as it is. Only
+  # names the pinned registry registers are excluded; the rest are returned as residue to report.
+  def regenerate_exclusions(current, unreachable, registry)
+    generated = ATLAS_REACH_REASONS.values
+    known = registry.names.to_h { |n| [ n, true ] }
+    kept = current.reject { |_, reason| generated.include?(reason) }
+    fresh = unreachable.select { |name, _| known[name] && !kept.key?(name) }
+    Regenerated.new(exclusions: kept.merge(fresh).sort.to_h,
+                    not_in_registry: unreachable.keys.reject { |n| known[n] }.sort)
+  end
+
+  def exclusions_yaml(exclusions, source:)
+    width = EXCLUSION_REASONS.keys.map(&:size).max
+    head = [
+      "# RPCs left out of the rpc:coverage denominator, each with a reason from this fixed vocabulary",
+      "# (any other reason, or a name the registry does not register, fails the task; so does an",
+      "# excluded RPC that answered live):",
+      "#"
+    ]
+    head += EXCLUSION_REASONS.map { |r, why| "#   #{r.ljust(width)}  #{why}" }
+    head += [
+      "#",
+      "# The unreachable reasons (no_routine_on_image .. context_out_of_order) are GENERATED from the",
+      "# cloud-rpms RPC atlas of the pinned release by `rake rpc:exclusions`; regenerate each release,",
+      "# never hand-edit them. gui_plumbing and write_needs_fixture are reviewed decisions: add one per",
+      "# PR with its evidence; regeneration keeps them.",
+      "#"
+    ]
+    head += source.map { |l| "# #{l}" }
+    head += exclusions.values.tally.sort.map { |r, n| "# count #{r}: #{n}" }
+    body = exclusions.sort.map { |name, reason| "#{name.to_json}: #{reason}" }
+    body = [ "{}" ] if body.empty?
+    (head + body).join("\n") + "\n"
   end
 
   def empty_evidence(backend)
@@ -156,7 +235,7 @@ module RpcCoverage
 
     def status_lines
       order = RpcCoverage::STATUSES + counts.keys.grep(/\Aexcluded:/).sort
-      order.map { |s| format("  %-22s %5d", s, counts.fetch(s, 0)) }
+      order.map { |s| format("  %-34s %5d", s, counts.fetch(s, 0)) }
     end
 
     def tsv

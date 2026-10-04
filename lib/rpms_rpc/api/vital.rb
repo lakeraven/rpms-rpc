@@ -26,11 +26,21 @@ module RpmsRpc
       DataMapper.vitals.fetch_many(*params).reject { |r| r[:measurement_ien].nil? }
     end
 
-    # Vital field metadata for a location — name, abbreviation, units, range,
+    # Vital field metadata for a visit — name, abbreviation, units, range,
     # required-flag, percentile RPC pointer. Drives the entry-grid UI.
-    # Underlying RPC: BEHOVM TEMPLATE
-    def template(location_ien)
-      DataMapper.vital_template.fetch_many(location_ien.to_s) || []
+    # Underlying RPC: BEHOVM TEMPLATE.
+    #
+    # Formals: TEMPLATE(DATA,DFN,VSTR,METRIC) (BEHOVM.m:57-63): a patient
+    # and a visit string ("LOC;DT;CAT;VISIT" — Encounter.visit_string), not
+    # a location IEN; the routine takes the location from +VSTR and
+    # defaults the visit piece to -1 (BEHOVM.m:59-60). METRIC is read as
+    # $G(METRIC,-1) and normalised to -1 / 0 / 1 (QUERY^BEHOVM:
+    # BEHOVM.m:95): -1 each vital's own default units, 0 US, 1 metric.
+    # A location-only frame died in M on VSTR (#259).
+    def template(dfn, visit_string, metric: -1)
+      return [] if invalid_id?(dfn) || visit_string.to_s.strip.empty?
+
+      DataMapper.vital_template.fetch_many(dfn.to_s, visit_string.to_s, metric.to_i.to_s) || []
     end
 
     # Pre-save validation of a set of measurements. Calls BEHOVM VALIDATE

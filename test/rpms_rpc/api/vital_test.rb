@@ -7,8 +7,10 @@ require "rpms_rpc/api/vital"
 class VitalTest < Minitest::Test
   def setup
     RpmsRpc.mock! do |m|
-      # Template: BEHOVM TEMPLATE — multi-line field metadata, keyed by location IEN
-      m.seed_keyed_collection(:vital_template, "349", [
+      # Template: BEHOVM TEMPLATE — multi-line field metadata. TEMPLATE(DATA,
+      # DFN,VSTR,METRIC) (BEHOVM.m:57) takes the patient first, so the mock
+      # keys it by DFN (#259).
+      m.seed_keyed_collection(:vital_template, "8791", [
         { ien: 3,  display_order: 3,  name: "TEMPERATURE",  abbreviation: "TMP", units: "F",     low: nil, high: nil, percentile_rpc: nil,            required: 1, display_row: 2 },
         { ien: 5,  display_order: 5,  name: "PULSE",        abbreviation: "PU",  units: "/min",  low: 60,  high: 100, percentile_rpc: nil,            required: 1, display_row: 2 },
         { ien: 4,  display_order: 4,  name: "BLOOD PRESSURE", abbreviation: "BP", units: "mmHg", low: 90,  high: 150, percentile_rpc: nil,            required: 1, display_row: 2 },
@@ -39,8 +41,10 @@ class VitalTest < Minitest::Test
 
   # === template ===
 
-  def test_template_returns_field_metadata_for_location
-    fields = RpmsRpc::Vital.template(349)
+  VSTR = "349;3260514.09;A;2090059"
+
+  def test_template_returns_field_metadata_for_visit
+    fields = RpmsRpc::Vital.template(8791, VSTR)
     assert_kind_of Array, fields
     assert_equal 5, fields.length
     tmp = fields.find { |f| f[:abbreviation] == "TMP" }
@@ -50,8 +54,14 @@ class VitalTest < Minitest::Test
     assert_equal 150, bp[:high]
   end
 
-  def test_template_returns_empty_for_unknown_location
-    assert_equal [], RpmsRpc::Vital.template(999999)
+  def test_template_returns_empty_for_unknown_patient
+    assert_equal [], RpmsRpc::Vital.template(999999, VSTR)
+  end
+
+  def test_template_returns_empty_without_a_visit_string_or_patient
+    assert_equal [], RpmsRpc::Vital.template(8791, "")
+    assert_equal [], RpmsRpc::Vital.template(nil, VSTR)
+    assert_empty RpmsRpc.client.received_calls.select { |c| c[:rpc] == "BEHOVM TEMPLATE" }
   end
 
   # === validate(dfn, measurements) — per issue #61 contract ===

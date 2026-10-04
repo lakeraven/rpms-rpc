@@ -52,7 +52,6 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | CIANBRPC | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | CIAVCXUS | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | CIAVMCFG | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| CIAVMRPC | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | DDR | 5 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | ORQQAL | 1 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
 | ORQQCN | 0 | n/a | ? | ? | ? | ? | CPRS GUI | unwrapped |
