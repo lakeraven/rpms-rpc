@@ -586,6 +586,31 @@ module RpmsRpc
       m.scalar :result
     end
 
+    # BGOVCPT GET — the patient's V CPT entries (multi-line). INP is
+    # DFN ^ max ^ visit ^ type ^ format; DFN alone reads every V CPT on file
+    # for the patient, detailed (GET^BGOVCPT: BGOVCPT.m:28-41, G0 :45-47).
+    # Row (ARRAY^BGOVCPT: BGOVCPT.m:180-199):
+    #   VISIT_DATE (MM/DD/YYYY, $$FMTDATE^BGOUTL) ^ FAC_CODE ^ FAC_NAME ^
+    #   CPT ^ CPT_NAME ^ NARRATIVE ^ DX ^ PRIMARY ^ MOD1 ^ MOD2 ^
+    #   V_CPT_IEN ^ VISIT_IEN ^ CPT_IEN ^ QUANTITY ^ PROVIDER_NAME ^
+    #   TRAN_CODE_IEN ^ ICD0_IEN ^ VISIT_LOCKED ^ V_FILE ("CPT")
+    # MOD1/MOD2 are CODE~NAME. Procedure.for_patient parses the date.
+    DataMapper.define(:procedure_list) do |m|
+      m.rpc "BGOVCPT GET"
+      m.field 0,  :date
+      m.field 2,  :facility
+      m.field 3,  :cpt_code
+      m.field 4,  :cpt_name
+      m.field 5,  :name
+      m.field 6,  :diagnosis
+      m.field 8,  :modifier_1
+      m.field 9,  :modifier_2
+      m.field 10, :ien
+      m.field 11, :visit_ien
+      m.field 13, :quantity, :integer
+      m.field 14, :provider
+    end
+
     # BGOVCPT SET — visit CPT-code save. Returns the saved IEN on success.
     DataMapper.define(:procedure_save) do |m|
       m.rpc "BGOVCPT SET"
