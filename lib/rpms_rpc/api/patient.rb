@@ -294,6 +294,7 @@ module RpmsRpc
       years -= 1 if today.month < dob.month || (today.month == dob.month && today.day < dob.day)
       years
     end
+    private :age_from
 
     private
 
