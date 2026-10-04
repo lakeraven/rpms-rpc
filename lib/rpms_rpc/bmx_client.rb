@@ -234,7 +234,17 @@ module RpmsRpc
         if sec_len > 0 && pos + sec_len <= raw.length
           sec_err = raw[pos, sec_len]
           pos += sec_len
-          raise ConnectionError, RpmsRpc.sanitize_error("BMX security error: #{sec_err}") unless sec_err.empty?
+          unless sec_err.empty?
+            # The security packet also carries the refusal of an RPC the broker
+            # will not run (BMXMBRK.m:157-161, BMXMSEC.m:27): that is the typed
+            # RpcNotAvailableError / RpcRefusedError every transport raises (#363),
+            # not a broken connection.
+            text = RpmsRpc.sanitize_error("BMX security error: #{sec_err}")
+            error = Client.rpc_error_for(sec_err)
+            raise error, text unless error == RpcError
+
+            raise ConnectionError, text
+          end
         end
       end
 
@@ -245,7 +255,10 @@ module RpmsRpc
         if app_len > 0 && pos + app_len <= raw.length
           app_err = raw[pos, app_len]
           pos += app_len
-          raise RpcError, RpmsRpc.sanitize_error("BMX application error: #{app_err}") unless app_err.empty?
+          unless app_err.empty?
+            text = RpmsRpc.sanitize_error("BMX application error: #{app_err}")
+            raise Client.rpc_error_for(app_err), text
+          end
         end
       end
 

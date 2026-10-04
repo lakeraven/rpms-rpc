@@ -23,7 +23,6 @@ class SchedulingTest < Minitest::Test
   # separators, external-format dates).
   class RawResponseClient
     def initialize(response) = @response = response
-    def supports?(*) = true
     def call_rpc(*) = @response
   end
 

@@ -17,7 +17,6 @@ class ImmunizationRefusalTest < Minitest::Test
       @calls = []
     end
 
-    def supports?(*) = true
 
     def call_rpc(rpc_name, *params)
       @calls << { rpc: rpc_name, params: params }
@@ -79,7 +78,6 @@ class ImmunizationRefusalTest < Minitest::Test
 
   def test_record_nil_broker_response_is_failure
     client = Object.new
-    def client.supports?(*) = true
     def client.call_rpc(*) = nil
     RpmsRpc.reset!
     RpmsRpc.configure { |cfg| cfg.client = client }

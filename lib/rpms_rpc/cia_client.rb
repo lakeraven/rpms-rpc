@@ -238,9 +238,6 @@ module RpmsRpc
 
         @current_context = option_name
         @context_bound = true # start naming CTX on every frame — see above
-        # RPC registration is OPTION-scoped; capabilities probed under the
-        # previous context may not hold under the new one.
-        @capability_cache = nil
         true
       end
     end
@@ -550,6 +547,7 @@ module RpmsRpc
     #
     #   \x00  -> DATA; return the body
     #   \x01  -> broker error; raise RpcError with the CIAERR text
+    #           (error 3 RpcNotAvailableError, error 4 RpcRefusedError, #363)
     #   none / anything else -> no data or malformed; return "" so the caller
     #           fails closed. A byte that is not a known flag is NEVER treated
     #           as the first field, which is what let the seq echo become a DUZ.
@@ -559,7 +557,8 @@ module RpmsRpc
       case rest.getbyte(0)
       when 0x00 then (rest.byteslice(1..) || "".b)
       when 0x01
-        raise RpcError, RpmsRpc.sanitize_error(printable(rest.byteslice(1..) || "").strip)
+        text = RpmsRpc.sanitize_error(printable(rest.byteslice(1..) || "").strip)
+        raise Client.rpc_error_for(text), text
       else "".b # SNDEOD (no flag) or malformed — never parse the seq byte as data
       end
     end

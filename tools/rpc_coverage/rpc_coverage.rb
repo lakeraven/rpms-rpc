@@ -193,7 +193,7 @@ module RpcCoverage
   # Names rpms-rpc declares: `m.rpc "NAME"` in lib/rpms_rpc/mappings, plus quoted RPC-shaped
   # strings elsewhere in lib/ on a line whose CODE (string literals blanked, so a message that
   # merely mentions "RPC" does not count) sends or registers an RPC, or that builds a CIA RPC
-  # frame (`pk("RPC")`, cia_client.rb), or inside a capability-probe register([...]) block.
+  # frame (`pk("RPC")`, cia_client.rb).
   RPC_STRING = /"([A-Z][A-Z0-9%]+(?: [A-Z0-9?\/&()%.-]+)+)"/
   RPC_LINE = /call_rpc|_rpc\(|\brpc\b|rpcs?\s*=/i
   CIA_FRAME = /pk\("RPC"\)/
@@ -208,15 +208,12 @@ module RpcCoverage
     Dir[File.join(root, "lib/**/*.rb")].each do |f|
       next if f.include?("/mappings/") || f.end_with?("/mock_client.rb")
 
-      in_register = false
       File.readlines(f).each_with_index do |l, i|
         code = l.sub(/\s#.*$/, "")
         next if code.strip.start_with?("#")
 
-        in_register = true if code.match?(/\bregister\(/)
         sends = code.gsub(/"[^"]*"/, '""').match?(RPC_LINE) || code.match?(CIA_FRAME)
-        code.scan(RPC_STRING) { |(n)| sites[n] << "#{rel(f, root)}:#{i + 1}" } if in_register || sends
-        in_register = false if in_register && code.include?("])")
+        code.scan(RPC_STRING) { |(n)| sites[n] << "#{rel(f, root)}:#{i + 1}" } if sends
       end
     end
     sites

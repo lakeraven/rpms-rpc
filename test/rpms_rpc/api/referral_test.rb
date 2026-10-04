@@ -149,30 +149,13 @@ class ReferralTest < Minitest::Test
     assert_equal "Required field missing", result[:message]
   end
 
-  def test_bmc_calls_short_circuit_when_capability_unsupported
-    RpmsRpc.mock! do |m|
-      m.seed_capability(:bmc_referral_workflow, supported: false)
-      m.seed_scalar(:bmc_add_referral, DFN, "1^3001")
-      m.seed_collection(:bmc_reference_data, [
-        { ien: "10", name: "CARDIOLOGY", code: "CARD" }
-      ])
-    end
-
-    result = RpmsRpc::Referral.add(DFN)
-
-    refute result[:success]
-    assert_match(/not available/i, result[:error])
-    assert_equal [], RpmsRpc::Referral.reference_data("PURPOSE")
-    assert_nil RpmsRpc.client.received_calls.find { |c| c[:rpc].start_with?("BMC ") }
-  end
-
   # -- BMCRPC context binding (rpms-rpc#258) ---------------------------------
   #
   # RPC registration is OPTION-scoped (RpmsRpc::ContextScope). On a built 9.0
   # image the BMC* RPCs are listed in the RPC multiple of ONE file-19 option,
   # BMCRPC (22 entries: the 21 BMC names this module calls plus ORWDXIHS
   # CLININD), and in no other — not CIAV VUECENTRIC, not OR CPRS GUI CHART.
-  # So every call here, the capability probe included, must run under BMCRPC
+  # So every call here must run under BMCRPC
   # and hand the caller's option back afterward, the way RpmsRpc::Agg does
   # for AGGRPC.
 
@@ -230,25 +213,6 @@ class ReferralTest < Minitest::Test
     end
   end
 
-  def test_the_capability_probe_is_answered_under_bmcrpc
-    # Client#supports? probes BMC GET REFERENCE DATA, which is itself in the
-    # BMCRPC multiple only: probed under the caller's option it answers
-    # "not here", and every BMC method would short-circuit to unsupported.
-    probing = Class.new(RpmsRpc::MockClient) do
-      attr_reader :probed_under
-
-      def supports?(feature)
-        @probed_under = current_context if feature == :bmc_referral_workflow
-        true
-      end
-    end.new
-    RpmsRpc.configure { |c| c.client = probing }
-
-    RpmsRpc::Referral.reference_data("PURPOSE")
-
-    assert_equal "BMCRPC", probing.probed_under
-  end
-
   def test_create_binds_no_context
     mock = RpmsRpc.mock!
 
@@ -273,7 +237,6 @@ class ReferralTest < Minitest::Test
       attr_reader :calls
 
       def initialize = @calls = []
-      def supports?(*) = true
 
       def call_rpc(rpc, *params)
         @calls << rpc

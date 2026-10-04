@@ -21,12 +21,13 @@ module RpmsRpc
   #
   # So every method that reaches the wire scopes itself to BMCRPC via
   # ContextScope.scoped (bind, run, restore the caller's option), the way
-  # RpmsRpc::Agg does for AGGRPC. That includes the bmc_supported? probe:
-  # BMC GET REFERENCE DATA is in that same multiple, so probed under the
-  # caller's option it would answer "not here" and every method would
-  # short-circuit to "BMC referral workflow not available". A client that
-  # cannot scope contexts runs as-is. A programmer-key session bypasses the
-  # check either way, so only a non-programmer run is evidence of this bind.
+  # RpmsRpc::Agg does for AGGRPC. A client that cannot scope contexts runs
+  # as-is. A programmer-key session bypasses the check either way, so only a
+  # non-programmer run is evidence of this bind.
+  #
+  # The BMC methods call their RPC unconditionally. A broker that does not
+  # serve it raises Client::RpcNotAvailableError; one that serves it but not
+  # to this user raises Client::RpcRefusedError (#363).
   module Referral
     extend self
 
@@ -124,8 +125,6 @@ module RpmsRpc
 
     def patient_eligibility_status(dfn, *params)
       in_context do
-        next nil unless bmc_supported?
-
         DataMapper.bmc_patient_eligibility_status.fetch_one(dfn.to_s, *params)
       end
     end
@@ -184,36 +183,21 @@ module RpmsRpc
 
     # Bind BMCRPC for the duration of the block and restore the caller's
     # option afterward (a no-op round-trip-wise when BMCRPC is already bound).
-    # Every wire-reaching path below goes through here, the capability probe
-    # inside the block so it is answered under the same option as the call.
+    # Every wire-reaching path below goes through here.
     def in_context(&block)
       ContextScope.scoped(RpmsRpc.client, CONTEXT, &block)
     end
 
-    def bmc_supported?
-      RpmsRpc.client.supports?(:bmc_referral_workflow)
-    end
-
     def bmc_many(mapping_name, *params)
-      in_context do
-        next [] unless bmc_supported?
-
-        DataMapper[mapping_name].fetch_many(*params.map(&:to_s))
-      end
+      in_context { DataMapper[mapping_name].fetch_many(*params.map(&:to_s)) }
     end
 
     def bmc_text(mapping_name, *params)
-      in_context do
-        next nil unless bmc_supported?
-
-        DataMapper[mapping_name].fetch_text(*params.map(&:to_s))
-      end
+      in_context { DataMapper[mapping_name].fetch_text(*params.map(&:to_s)) }
     end
 
     def bmc_scalar_result(mapping_name, *params)
       in_context do
-        next unsupported_result unless bmc_supported?
-
         raw = DataMapper[mapping_name].fetch_scalar(*params.map(&:to_s))
         result_from_raw(raw)
       end
@@ -229,10 +213,6 @@ module RpmsRpc
       success = line.start_with?("1") || line.match?(/\A[1-9]\d*\z/)
       message = line.sub(/\A[01]\^/, "").strip
       { success: success, message: message.empty? ? nil : message, raw: raw }
-    end
-
-    def unsupported_result
-      { success: false, error: "BMC referral workflow not available on this server", raw: nil }
     end
   end
 end

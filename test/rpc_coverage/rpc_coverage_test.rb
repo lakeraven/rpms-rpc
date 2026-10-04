@@ -228,14 +228,14 @@ class RpcCoverageTest < Minitest::Test
 
   # --- declared names --------------------------------------------------------------------------
 
-  def test_declared_names_reads_mappings_probes_and_rpc_literals
+  def test_declared_names_reads_mappings_and_rpc_literals
     root = File.join(@dir, "repo")
     write("repo/lib/rpms_rpc/mappings/a.rb", %(DataMapper.define(:a) do |m|\n  m.rpc "A ONE"\nend\n))
-    write("repo/lib/rpms_rpc/server_capabilities/x.rb", %(register(:x, [\n  "BB ONE",\n  "BB TWO"\n])\nOTHER = "NOT AN RPC"\nraise Error, "RPC FAILED HERE"\n))
+    write("repo/lib/rpms_rpc/api/x.rb", %(OTHER = "NOT AN RPC"\nraise Error, "RPC FAILED HERE"\n))
     write("repo/lib/rpms_rpc/cia_client.rb", %(pk("RPC"), pk("CIANBRPC AUTH")\nSIGNON = "CIANB MAIN MENU"\n))
     write("repo/lib/rpms_rpc/mock_client.rb", %(call_rpc("MOCK ONLY")\n))
     names = RpcCoverage.declared_names(root).keys.sort
-    assert_equal [ "A ONE", "BB ONE", "BB TWO", "CIANBRPC AUTH" ], names
+    assert_equal [ "A ONE", "CIANBRPC AUTH" ], names
   end
 
   # Live evidence is not in this repo (it lives in rpms-diffs), so it is checked when rpc:coverage
