@@ -193,12 +193,13 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_nil RpmsRpc::DataMapper[:vitals_for_date_range].parse_one("^No vitals found.")
   end
 
-  # -- BEHOENCX FETCH (get-or-create form) -----------------------------------
+  # -- BEHOENCX FETCH — ONE mapping for the RPC (#211/#213) -------------------
 
-  def test_encounter_get_or_create_parses_fetch_reply
+  def test_encounter_fetch_parses_the_fetch_reply
     # LOCNAME^LOCABBR^ROOMBED^PROVIEN^PROVNAME^VISITIEN^VISITID^LOCKED^ERRORTXT
-    # (FETCH^BEHOENCX header comment; source-derived, live capture pending)
-    result = RpmsRpc::DataMapper[:encounter_get_or_create].parse_one(
+    # (FETCH^BEHOENCX: BEHOENCX.m:30-31, 41-46; captured live in
+    # test/fixtures/wire_captures/behoencx-fetch.yml)
+    result = RpmsRpc::DataMapper[:encounter_fetch].parse_one(
       "EXAMPLE CLINIC^EXC^101-A^42^PROVIDER,TEST^2090070^5000.1^0^"
     )
     assert_equal "EXAMPLE CLINIC", result[:location_name]
@@ -208,18 +209,27 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "PROVIDER,TEST", result[:provider_name]
     assert_equal 2090070, result[:visit_ien]
     assert_equal "5000.1", result[:visit_id]
-    assert_equal 0, result[:locked]
+    assert_equal false, result[:locked]
     assert_nil result[:error]
+    # Piece 4 is the PROVIDER ien (BEHOENCX.m:43) and piece 7 the VISIT ID
+    # (BEHOENCX.m:45) — the labels the old :encounter_fetch put there.
+    refute result.key?(:location_ien)
+    refute result.key?(:ward)
   end
 
-  def test_encounter_get_or_create_parses_error_reply
+  def test_encounter_fetch_parses_the_error_reply
     # IEN'>0 leaves pieces 6-8 empty and puts the error text in piece 9
-    # (FETCH^BEHOENCX error branch)
-    result = RpmsRpc::DataMapper[:encounter_get_or_create].parse_one(
+    # (FETCH^BEHOENCX: BEHOENCX.m:46)
+    result = RpmsRpc::DataMapper[:encounter_fetch].parse_one(
       "EXAMPLE CLINIC^EXC^^42^PROVIDER,TEST^^^^Visit not created"
     )
     assert_nil result[:visit_ien]
     assert_equal "Visit not created", result[:error]
+  end
+
+  def test_the_get_or_create_duplicate_of_the_fetch_mapping_is_gone
+    refute RpmsRpc::DataMapper.respond_to?(:encounter_get_or_create),
+           "BEHOENCX FETCH has one mapping, :encounter_fetch"
   end
 
   # -- VAFC VOA ADD PATIENT --------------------------------------------------
@@ -682,7 +692,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
     expected = %i[
       patient_select patient_id_info patient_list patient_ssn
       patient_appointments allergy_list problem_list vitals
-      encounter_get_or_create
+      encounter_visit encounter_fetch encounter_chkvisit
       vitals_for_date_range
       voa_add_patient ddr_lister ddr_lock_unlock_node ddr_gets_entry_data
       ddr_filer ddr_validator

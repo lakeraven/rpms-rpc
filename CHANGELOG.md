@@ -65,6 +65,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — BEHOENCX FETCH is sent its real signature; both visit layouts match the routine (#211, #213)
+
+- `Encounter.open` sent `BEHOENCX FETCH` the visit IEN as its only
+  parameter. The routine is `FETCH(DATA,DFN,VSTR,PRV,CREATE)`
+  (BEHOENCX.m:32), so the IEN landed in `DFN` and `VSTR` was undefined
+  (`S LOC=+VSTR` at VSTR2VIS+2, BEHOENCX.m:107). `open` now composes the
+  call as the server expects: `GETVISIT(IEN)` → the extended visit string
+  `LOC;VDT;SVC;IEN` from that reply → `FETCH(DFN, VSTR, "", CREATE=0)`.
+  With the IEN in the VSTR, VSTR2VIS resolves the visit directly
+  (BEHOENCX.m:107-111, no 60-minute FNDVIS window) and CREATE=0 can never
+  create one.
+- One mapping per RPC, each in the routine's layout with `routine.m:line`
+  cites. `:encounter_fetch` is now
+  `LOCNAME^LOCABBR^ROOMBED^PROVIEN^PROVNAME^VISITIEN^VISITID^LOCKED^ERRORTXT`
+  (BEHOENCX.m:30-31, built at 41-46): its old piece 4 `:location_ien` was
+  the PROVIDER ien and its piece 7 `:ward` the VISIT ID. The duplicate
+  `:encounter_get_or_create` (same RPC, already in this layout) is gone;
+  `Encounter.create` uses `:encounter_fetch`. `:encounter_visit` is
+  `LOC^VDT^SVC^PAT^VID^LOCKED` (BEHOENCX.m:5,8-15 over LOOKUP^VSIT; #9000010
+  fields .22/.01/.07/.05/15001 per VSITFLD.m:15-33); the `:status` alias on
+  the SERVICE CATEGORY piece and the `:ward` alias on the VISIT ID piece are
+  removed — nothing on either wire is an encounter status or a ward.
+- `open()` keys stay stable for consumers, each from the piece that really
+  carries it: `:location_ien` from GETVISIT's LOC (FETCH has none),
+  `:location`/`:clinic_abbrev`/`:provider` from FETCH's LOCNAME/LOCABBR/
+  PROVNAME, `:status` kept as the same value as the new
+  `:service_category`. New: `:provider_ien`, `:room_bed`, `:visit_id`,
+  `:locked`. Dropped: `:ward` (invented). `open` also returns nil when FETCH
+  answers with its error piece instead of a visit (e.g. VIS2VSTR's "Visit
+  does not belong to current patient", BEHOENCX.m:118).
+- `Encounter.visit_string` takes `visit_ien:` for the extended form.
+- Both RPCs are now in the wire-contract gate with **live captures** from a
+  local YottaDB container of a built 9.0 image (`behoencx-getvisit.yml`,
+  promoted from no-data; `behoencx-fetch.yml`, new, captured with
+  CREATE=0 against the build's own test visit). The gate flagged exactly
+  the positions the issues name (FETCH 3 and 6, GETVISIT 2 and 4) before the
+  mappings were corrected.
+
 ### Removed — the `CIAVMRPC GETPAR` session-bootstrap mapping (#239) — **breaking**
 
 `:session_default_source` wrapped `CIAVMRPC GETPAR` to fetch
