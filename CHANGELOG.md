@@ -65,6 +65,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `Authentication.held_keys(names)`, through CIAVCXUS HASKEYS (#318)
+
+The registered way to ask which of several named security keys the
+signed-on user holds, replacing the removed `user_security_keys`. One
+`CIAVCXUS HASKEYS` call (HASKEYS^CIAVCXUS, CIAVCXUS.m:14-18: the names
+joined with `^`, one 0/1 piece per name), in `CIAV VUECENTRIC`, so a
+least-privilege CIA user can ask. Returns the names held, in the order
+asked; `nil` when the broker refuses or the reply does not answer every
+name, so a consumer can tell "holds none" (`[]`) from "could not ask"
+(`nil`); `[]` without a call for an empty list. Names containing `^` or
+beginning with `@` (a parameter, not a key, CIAVCXUS.m:11) raise
+`ArgumentError` before anything is sent.
+
 ### Changed (breaking): reminders come from the reminder engine, not the triage summary (#238)
 
 - `RpmsRpc::Reminders.for_visit(dfn, visit_ien)` is removed.
