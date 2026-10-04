@@ -8,6 +8,14 @@ module RpmsRpc
   module Referral
     extend self
 
+    # The broker option the BMC RPCs are registered under.
+    CONTEXT = "BMCRPC"
+
+    # STATUS OF REFERRAL (file 90001, field .15) code for a cancelled
+    # referral: X, CLOSED-NOT COMPLETED. RCIS's own reports skip X as
+    # "cancelled" (BMCRR121.m:39, BMCRR41.m:38).
+    CANCELLED_STATUS = "X"
+
     def for_patient(dfn)
       DataMapper.referral_search.fetch_many(dfn.to_s)
     end
@@ -32,6 +40,26 @@ module RpmsRpc
 
     def update_status(ien, status, *params)
       bmc_scalar_result(:bmc_referral_status_update, ien.to_s, status.to_s, *params)
+    end
+
+    # Cancel a referral: file its status as CANCELLED_STATUS through BMC
+    # REFERRAL STATUS UPDATE (UPDTSTRF^BMCRPC3(RSLT,REFIEN,STATUS),
+    # BMCRPC3.m:176-187), under CONTEXT. RCIS has no delete; this replaces
+    # the removed `delete`. The routine files field .15 and nothing else, so
+    # there is no reason argument: a cancellation reason is not filed by it.
+    #
+    # Returns { success:, message:, raw: }. The routine answers "1" when it
+    # filed and "~`0^message" when it refused. On builds without
+    # rpms-ops#702 its refusal path QUITs with a value under a broker that
+    # DOes the tag, and the call raises Client::RpcError instead.
+    def cancel(ien)
+      return failure if invalid_id?(ien)
+
+      in_bmc_context do
+        result = bmc_scalar_result(:bmc_referral_status_update, ien.to_s.strip, CANCELLED_STATUS)
+        refusal = result[:raw].to_s.match(/\A~`0\^?(.*)\z/m)
+        refusal ? result.merge(success: false, message: refusal[1].strip) : result
+      end
     end
 
     def update_consultation_status(consultation_ien, status, *params)
@@ -122,6 +150,15 @@ module RpmsRpc
 
     def invalid_id?(value)
       value.nil? || value.to_s.strip.empty? || value.to_i <= 0
+    end
+
+    # Run the block with CONTEXT bound, restoring the caller's option; a
+    # client that cannot scope contexts runs it as-is.
+    def in_bmc_context(&block)
+      client = RpmsRpc.client
+      return block.call unless client.respond_to?(:with_context)
+
+      client.with_context(CONTEXT, &block)
     end
 
     def bmc_supported?

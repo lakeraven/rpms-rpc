@@ -128,7 +128,16 @@ IHS clusters (second PR):
   `contracts`, `active_contract`, `rates`, `active?`): BMCRPC SRCHVEND /
   GTVEND / GTPREFVEND / GTCONTRACT / GTRATES.
 - `RpmsRpc::RcisSiteParams.for_facility`: BMCRPC GTSITPRM.
-- `RpmsRpc::Referral.delete`: BMCRPC DELREFRL.
+- `RpmsRpc::Referral.delete`: BMCRPC DELREFRL. **Added `Referral.cancel(ien)`;
+  replaces `Referral.delete`.** RCIS has no delete; the real verb is a status
+  change. `cancel` files STATUS OF REFERRAL (90001, .15) as `X`
+  (CLOSED-NOT COMPLETED, which RCIS's reports treat as cancelled) through
+  BMC REFERRAL STATUS UPDATE (UPDTSTRF^BMCRPC3), under the BMCRPC option.
+  It takes no `reason:`, because the routine files no reason. It returns
+  `{ success:, message:, raw: }`. On builds without rpms-ops#702 a refusal
+  raises `Client::RpcError`. Proved live by
+  `test/live/referral_cancel_live_test.rb`, which cancels a referral on a
+  disposable container, reads the status back and files it active again.
 - `RpmsRpc::Eligibility` (`for_patient`, `codes`): BIPC ELIGGET / ELIGLIST.
 - `RpmsRpc::VaccineLot` (`for_facility`, `find`): BIPC LOTLIST / LOTGET.
 - `RpmsRpc::Immunization.for_patient` and `.find`: BIPC IMMLIST / IMMGET.
