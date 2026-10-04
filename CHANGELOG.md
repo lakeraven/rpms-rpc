@@ -145,8 +145,8 @@ Stock-VistA clusters (first PR):
   the type against the static `DEFAULT_TYPES` list — which is what every
   real server already got, since the probe never found ORWRP TYPES. The
   registered health-summary surface is ORWRP2 HS *.
-- `RpmsRpc::Authentication.user_security_keys`: ORWU USERKEYS. Per-key
-  checks stay on ORWU HASKEY (`has_security_key?`).
+- ORWU USERKEYS. `RpmsRpc::Authentication.user_security_keys` is kept,
+  rebuilt on DDR LISTER (see "Kept" below).
 - `RpmsRpc::UserManagement.grant_key`, `.revoke_key`, `.list_all_keys`
   (XU KEY GRANT / REVOKE / LIST); `UserManagement.find` no longer returns a
   `:security_keys` entry (it came from ORWU USERKEYS).
@@ -223,6 +223,17 @@ IHS clusters (second PR):
 The hand-authored `data/fingerprints/references/bcer-8.0.yml` seed no
 longer lists these names as "gem-required RPCs the staging dump lacks":
 they were never capability gaps, only invented mappings.
+
+### Kept — rebuilt on the registered RPC (#207)
+
+Methods the host application calls whose invented RPC was removed above are
+kept with the same name, arguments and return shape, rebuilt on the RPC the
+built image really registers, and proven by a live spec as the programmer
+and the provider persona:
+
+- `RpmsRpc::Authentication.user_security_keys(duz)` → `[key names]`: kept,
+  rebuilt on DDR LISTER over the user's KEYS multiple (#200 field 51,
+  subfile 200.051; .01 KEY points to #19.1), in CIAV VUECENTRIC.
 
 ### Added — transport security: the broker connection is plaintext, and how to wrap it (#113)
 

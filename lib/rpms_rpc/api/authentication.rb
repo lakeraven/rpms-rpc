@@ -2,13 +2,15 @@
 
 require_relative "../mappings"
 require_relative "../xwb_cipher"
+require_relative "ddr_fileman"
 
 module RpmsRpc
   # Symbolic API for VistA/RPMS authentication RPCs.
   # Underlying RPCs: XUS SIGNON SETUP, XUS AV CODE, XUS CVC,
-  # XUS GET USER INFO, ORWU NPHASKEY. (A key LIST once sent ORWU USERKEYS,
-  # a name no built 9.0 image registers; `user_security_keys` was removed
-  # with it, #207. Per-key checks go through ORWU NPHASKEY.)
+  # XUS GET USER INFO, ORWU NPHASKEY, DDR LISTER. (The key list once sent
+  # ORWU USERKEYS, a name no built 9.0 image registers, #207; it now reads
+  # the user's KEYS multiple with DDR LISTER. Per-key checks go through ORWU
+  # NPHASKEY.)
   module Authentication
     extend self
 
@@ -72,6 +74,25 @@ module RpmsRpc
       return false if invalid_id?(duz) || blank_after_strip?(key_name)
 
       DataMapper.person_has_key.fetch_scalar(duz.to_s, key_name.to_s) == true
+    end
+
+    # The SECURITY KEY names user DUZ holds: the KEYS multiple of NEW PERSON
+    # (#200 field 51, subfile 200.051), whose .01 KEY points to SECURITY KEY
+    # #19.1, read with DDR LISTER (LIST^DIC; LISTC^DDR, DDR.m:6-27). FIELDS
+    # "@;.01" returns IEN^KEY-name rows, the pointer in its external form.
+    # DDR LISTER is in CIAV VUECENTRIC, the option sign-on binds, for a
+    # programmer and a provider alike.
+    #
+    # Returns an Array of key names; [] for an invalid DUZ, and [] (no keys,
+    # the least privilege) when the broker gives no reply or DDR reports an
+    # error.
+    def user_security_keys(duz)
+      return [] if invalid_id?(duz)
+
+      listed = DdrFileman.lister(file: "200.051", iens: ",#{duz},", fields: "@;.01")
+      return [] if listed.nil? || listed[:error]
+
+      listed[:entries].filter_map { |entry| presence(entry[:pieces].first) }
     end
 
     def change_verify_code(old_verify_code:, new_verify_code:, confirm_verify_code:, **_unused_keywords)
