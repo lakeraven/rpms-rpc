@@ -511,7 +511,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       medication_list
       referral_search
       user_info reminders_list
-      reminder_detail patient_deceased patient_sensitive user_has_key person_has_key
+      reminder_detail patient_deceased patient_sensitive user_has_key person_has_key user_held_keys
       signon_setup av_code cvc_verify
       report_text
       medication_detail referral_detail

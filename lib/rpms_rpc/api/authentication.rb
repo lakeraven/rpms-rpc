@@ -7,10 +7,11 @@ require_relative "ddr_fileman"
 module RpmsRpc
   # Symbolic API for VistA/RPMS authentication RPCs.
   # Underlying RPCs: XUS SIGNON SETUP, XUS AV CODE, XUS CVC,
-  # XUS GET USER INFO, ORWU NPHASKEY, DDR LISTER. (The key list once sent
-  # ORWU USERKEYS, a name no built 9.0 image registers, #207; it now reads
-  # the user's KEYS multiple with DDR LISTER. Per-key checks go through ORWU
-  # NPHASKEY.)
+  # XUS GET USER INFO, ORWU NPHASKEY, DDR LISTER, CIAVCXUS HASKEYS. (The key
+  # list once sent ORWU USERKEYS, a name no built 9.0 image registers, #207.
+  # `user_security_keys` now reads the user's KEYS multiple with DDR LISTER;
+  # `held_keys` asks about several named keys in one round trip with CIAVCXUS
+  # HASKEYS; `has_security_key?` asks about one, through ORWU NPHASKEY.)
   module Authentication
     extend self
 
@@ -95,6 +96,29 @@ module RpmsRpc
       listed[:entries].filter_map { |entry| presence(entry[:pieces].first) }
     end
 
+    # The subset of +names+ the signed-on user holds, in the order asked
+    # (rpms-rpc#318). One CIAVCXUS HASKEYS call, the names joined with "^"
+    # (HASKEYS^CIAVCXUS, CIAVCXUS.m:14-18), the reply read piecewise.
+    #
+    # Returns nil when the broker refuses or gives no usable answer, so a
+    # consumer can tell "holds none" ([]) from "could not ask" (nil). Blank
+    # names are dropped (HASKEY answers 1 for an empty key, CIAVCXUS.m:9); no
+    # names left sends nothing and returns []. A name with "^" (it would shift
+    # every later piece) or a leading "@" (HASKEY reads that as a PARAMETER,
+    # CIAVCXUS.m:11) is not a key name: ArgumentError, before anything is sent.
+    def held_keys(names)
+      asked = Array(names).map { |name| name.to_s.strip }.reject(&:empty?)
+      return [] if asked.empty?
+
+      misread = asked.select { |name| name.include?("^") || name.start_with?("@") }
+      raise ArgumentError, "not security key names: #{misread.join(', ')}" unless misread.empty?
+
+      flags = held_key_flags(asked)
+      return nil if flags.nil?
+
+      asked.each_index.select { |i| flags[i] == "1" }.map { |i| asked[i] }
+    end
+
     def change_verify_code(old_verify_code:, new_verify_code:, confirm_verify_code:, **_unused_keywords)
       return validation_error("Old verify code is required") if blank?(old_verify_code&.to_s&.strip)
       return validation_error("New verify code is required") if blank?(new_verify_code&.to_s&.strip)
@@ -159,6 +183,19 @@ module RpmsRpc
     # A per-sign-on RPC is cheap; a sign-on against the wrong partition is not.
     def signon_setup
       DataMapper.signon_setup.fetch_scalar
+    end
+
+    # The HASKEYS reply as one "0"/"1" per name asked, or nil for a refusal,
+    # an empty reply, or one whose pieces do not answer every name.
+    def held_key_flags(asked)
+      reply = DataMapper.user_held_keys.fetch_lines(asked.join("^"))
+      flags = reply && reply[:flags].to_s.strip.split("^", -1)
+      return nil if flags.nil? || flags.size != asked.size
+      return nil unless flags.all? { |flag| %w[0 1].include?(flag) }
+
+      flags
+    rescue Client::RpcError
+      nil
     end
 
     def parse_auth_response(parsed)
