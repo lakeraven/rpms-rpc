@@ -51,10 +51,15 @@ module RpmsRpc
 
     # Result text for a single order. Returns the raw text blob or nil
     # if the order is unknown / has no result.
-    def result(order_ien)
-      return nil if invalid_id?(order_ien)
+    #
+    # Formals: RESULT(REF,DFN,ORID,ID) (ORWOR.m:29-34): DFN builds the
+    # patient variable pointer, and ORDERS^ORCXPND1 reads ID as the file
+    # 100 IEN (ORCXPND1.m:91). The order IEN fills both ORID and ID. An
+    # IEN-only frame put the IEN in DFN and died in M on ID (#259).
+    def result(dfn, order_ien)
+      return nil if invalid_id?(dfn) || invalid_id?(order_ien)
 
-      text = DataMapper.order_result.fetch_text(order_ien.to_s)
+      text = DataMapper.order_result.fetch_text(dfn.to_s, order_ien.to_s, order_ien.to_s)
       return nil if blank?(text)
 
       text

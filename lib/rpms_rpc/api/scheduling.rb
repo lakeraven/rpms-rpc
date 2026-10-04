@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../mappings"
+require_relative "../context_scope"
 
 module RpmsRpc
   # Symbolic API for RPMS appointment scheduling — the BSDX package (Clinical
@@ -40,8 +41,26 @@ module RpmsRpc
   # record instead of an empty set, and writes report failure after the M side
   # has already filed. Diagnose accordingly: an implausible row is the symptom,
   # not an empty one.
+  #
+  # ## Context — this module binds it, callers do not (rpms-rpc#258)
+  #
+  # RPC registration is OPTION-scoped (RpmsRpc::ContextScope). On a built 9.0
+  # image every BSDX RPC below is listed in the RPC multiple of ONE file-19
+  # option, BSDXRPC ("WINDOWS SCHEDULING PROCEDURE CALLS", 69 entries), and in
+  # no other — not the option a CIA sign-on binds (CIAV VUECENTRIC) and not
+  # OR CPRS GUI CHART. A user without XUPROGMODE calling them under the
+  # sign-on option is denied before any data is returned. So every public
+  # method scopes itself to BSDXRPC via ContextScope.scoped (bind, run,
+  # restore the caller's option), the way RpmsRpc::Agg does for AGGRPC. A
+  # client that cannot scope contexts runs as-is. A programmer-key session
+  # bypasses the check either way, so only a non-programmer run is evidence
+  # of this bind.
   module Scheduling
     extend self
+
+    # The context option the BSDX RPCs are registered under — see the module
+    # doc. Every method here binds it.
+    CONTEXT = "BSDXRPC"
 
     # Book an appointment — BSDX ADD NEW APPOINTMENT (APPADD^BSDX07 → $$MAKE^BSDAPI).
     #
@@ -56,10 +75,12 @@ module RpmsRpc
     # Returns { success: true, appointment_id: Integer } / { success: false, error: } / nil.
     def add_appointment(patient_dfn:, resource:, start_time:, end_time:, length_minutes:,
                         note: nil, access_type: nil, chart_request: false)
-      result = DataMapper.scheduling_add_appointment.fetch_one(
-        fm(start_time), fm(end_time), patient_dfn.to_s, resource.to_s,
-        length_minutes.to_s, note.to_s, access_type.to_s, (chart_request ? "1" : "")
-      )
+      result = in_context do
+        DataMapper.scheduling_add_appointment.fetch_one(
+          fm(start_time), fm(end_time), patient_dfn.to_s, resource.to_s,
+          length_minutes.to_s, note.to_s, access_type.to_s, (chart_request ? "1" : "")
+        )
+      end
       return nil unless result
 
       if result[:appointment_id].to_i.positive? && blank?(result[:error])
@@ -114,9 +135,11 @@ module RpmsRpc
     # NOTE the routine's ERRORID column is a SUCCESS flag with INVERTED polarity
     # vs the other BSDX writes: 1 == success, 0 == failure (with ERRORTEXT).
     def mark_no_show(appointment_ien, no_show: true)
-      result = DataMapper.scheduling_noshow_appointment.fetch_one(
-        appointment_ien.to_s, (no_show ? "1" : "0")
-      )
+      result = in_context do
+        DataMapper.scheduling_noshow_appointment.fetch_one(
+          appointment_ien.to_s, (no_show ? "1" : "0")
+        )
+      end
       return nil unless result
 
       if result[:result].to_i == 1
@@ -142,9 +165,11 @@ module RpmsRpc
         raise ArgumentError, "resource name must not contain '|': #{name.inspect}" if name.include?("|")
       end
       list = names.join("|")
-      DataMapper.scheduling_availability.fetch_many(
-        list, fm(start_date), fm(end_date), access_types.to_s, ampm.to_s, weekdays.to_s
-      )
+      in_context do
+        DataMapper.scheduling_availability.fetch_many(
+          list, fm(start_date), fm(end_date), access_types.to_s, ampm.to_s, weekdays.to_s
+        )
+      end
     end
 
     # All appointments across resources in a date range — BSDX ALL APPOINTMENTS
@@ -154,20 +179,27 @@ module RpmsRpc
     # output (X ^DD("DD") with "@" translated to a space — BSDX05.m:100-101);
     # :resource_name is the 4th column GATHER^BSDX05 appends (BSDX05.m:65,76).
     def all_appointments(start_date:, end_date:)
-      DataMapper.scheduling_all_appointments.fetch_many(fm(start_date), fm(end_date))
+      in_context { DataMapper.scheduling_all_appointments.fetch_many(fm(start_date), fm(end_date)) }
     end
 
     # Active clinics from ^SC — BSDX HOSPITAL LOCATION (HOSPLOC^BSDX32).
     def hospital_locations
-      DataMapper.scheduling_hospital_location.fetch_many
+      in_context { DataMapper.scheduling_hospital_location.fetch_many }
     end
 
     # Per-clinic scheduling parameters — BSDX CLINIC SETUP (CLNSET^BSDX32).
     def clinic_setup
-      DataMapper.scheduling_clinic_setup.fetch_many
+      in_context { DataMapper.scheduling_clinic_setup.fetch_many }
     end
 
     private
+
+    # Bind BSDXRPC for the duration of the block and restore the caller's
+    # option afterward (a no-op round-trip-wise when BSDXRPC is already
+    # bound). Every wire-reaching path above goes through here.
+    def in_context(&block)
+      ContextScope.scoped(RpmsRpc.client, CONTEXT, &block)
+    end
 
     # For ERRORID-led writes (cancel/uncancel/checkin) where an EMPTY ERRORID
     # piece means success ("0" also means success where zero_ok is set, per
@@ -179,7 +211,7 @@ module RpmsRpc
     # carry the error text in the first piece (ERR^BSDX25: BSDX25.m:361-365).
     def error_write(mapping_name, *params, zero_ok: false)
       mapping = DataMapper[mapping_name]
-      resp = RpmsRpc.client.call_rpc(mapping.rpc_name, *params)
+      resp = in_context { RpmsRpc.client.call_rpc(mapping.rpc_name, *params) }
       return nil if resp.nil? || resp == "" || (resp.is_a?(Array) && resp.empty?)
 
       row = data_row(resp)

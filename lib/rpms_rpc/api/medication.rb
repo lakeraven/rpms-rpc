@@ -11,10 +11,16 @@ module RpmsRpc
     # (ORQQPS.m:53) — no id, so it is dropped rather than surfaced as a
     # phantom medication. Invalid DFNs short-circuit to [] without
     # dispatching an RPC.
+    #
+    # Formals: LIST(ORY,ORPT,ORSTRTDT,ORSTOPDT) (ORQQPS.m:4). Both dates go
+    # over the wire, empty: the routine hands them straight to
+    # OCL^PSOORRL, which reads $G(BDT)/$G(EDT) and starts the list 120 days
+    # back when the start is empty (PSOORRL.m:13-15). A frame with only the
+    # DFN left ORSTRTDT undefined and the call died in M (#259).
     def for_patient(dfn)
       return [] if dfn.nil? || dfn.to_s.strip.empty? || dfn.to_i <= 0
 
-      DataMapper.medication_list.fetch_many(dfn.to_s).reject { |r| r[:id].to_s.empty? }
+      DataMapper.medication_list.fetch_many(dfn.to_s, "", "").reject { |r| r[:id].to_s.empty? }
     end
 
     def find(ien)

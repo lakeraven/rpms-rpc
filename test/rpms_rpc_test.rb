@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/version"
+require "rpms_rpc"
 
 class RpmsRpcTest < Minitest::Test
   def test_version_is_defined

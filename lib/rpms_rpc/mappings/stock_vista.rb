@@ -24,11 +24,16 @@ module RpmsRpc
       m.field 14, :age,       :integer
     end
 
-    # ORWPT ID INFO — patient identifier projection. Live shape against
-    # staging (DFN=3 / MOUSE,MICKEY M):
-    #   "000009999^2100214^M^N^^7819^^MOUSE,MICKEY M"
-    #     [0] ssn       [1] dob (fileman) [2] sex      [3] race_code
-    #     [4] reserved  [5] site_ien      [6] reserved [7] name
+    # ORWPT ID INFO — patient identifier projection.
+    # Verified format (IDINFO^ORWPT: ORWPT.m:6-11 — header line 7
+    # "PID^DOB^SEX^VET^SC%^WARD^RM-BED^NAME", REC construction line 10):
+    #   PID[1]^DOB[2]^SEX[3]^VET[4]^SC%[5]^WARD[6]^RM-BED[7]^NAME[8]
+    # VET is the VETERAN (Y/N) flag and WARD the current ward location.
+    # The prior declaration read piece 4 as :race_code and piece 6 as
+    # :site_ien — the captured "N" at piece 4 is the veteran flag, and
+    # piece 6 is empty for an outpatient; neither value was ever what it
+    # claimed (#191, caught by the wire-contract gate against
+    # test/fixtures/wire_captures/orwpt-id-info.yml).
     # Despite the "ID INFO" name, this RPC does NOT return address,
     # city, state, zip, phone, tribal enrollment, service area, or
     # coverage — those fields were hallucinated in the prior mapping and
@@ -41,8 +46,10 @@ module RpmsRpc
       m.field 0, :ssn
       m.field 1, :dob, :fileman_date
       m.field 2, :sex
-      m.field 3, :race_code
-      m.field 5, :site_ien, :integer
+      m.field 3, :veteran
+      m.field 4, :sc_percent
+      m.field 5, :ward_location
+      m.field 6, :room_bed
       m.field 7, :name
     end
 
@@ -750,6 +757,14 @@ module RpmsRpc
       m.scalar :has_key, :boolean
     end
 
+    # ORWU NPHASKEY — does person NP hold KEY: NPHASKEY^ORWU(VAL,NP,KEY),
+    # ''$D(^XUSEC(KEY,NP)). ORWU HASKEY takes the key only and answers for
+    # the signed-on DUZ; sending it a DUZ too is %YDB-E-ACTLSTTOOLONG (#296).
+    DataMapper.define(:person_has_key) do |m|
+      m.rpc "ORWU NPHASKEY"
+      m.scalar :has_key, :boolean
+    end
+
     # ========================================================================
     # LINE-BASED RESPONSES
     # ========================================================================
@@ -1044,24 +1059,39 @@ module RpmsRpc
     # ========================================================================
     # TIU NOTE TEMPLATES (TIU TEMPLATE*)
     # ========================================================================
-    # Field positions are best-effort pending wider trace capture. Templates
-    # form a tree (roots → items) with each leaf carrying boilerplate text.
+    # Templates form a tree (roots -> items). GETROOTS and GETITEMS rows are
+    # NODEDATA^TIUSRVT (TIUSRVT.m:104-109), whose pieces TIUSRVT.m:4-29
+    # list: IEN^TYPE^STATUS^NAME^EXCLUDE FROM GROUP BOILERPLATE^BLANK
+    # LINES^PERSONAL OWNER^HAS CHILDREN (0 none, 1 active, 2 inactive,
+    # 3 both)^... A GETITEMS row names no parent: it is a child of the
+    # TIUDA asked about (#219).
 
     DataMapper.define(:template_roots) do |m|
       m.rpc "TIU TEMPLATE GETROOTS"
       m.field 0, :ien, :integer
-      m.field 1, :name
-      m.field 2, :type
+      m.field 1, :type
+      m.field 2, :status
+      m.field 3, :name
+      m.field 4, :exclude_from_group_boilerplate
+      m.field 5, :blank_lines, :integer
+      m.field 6, :personal_owner_duz
+      m.field 7, :has_children, :integer
     end
 
     DataMapper.define(:template_items) do |m|
       m.rpc "TIU TEMPLATE GETITEMS"
       m.field 0, :ien, :integer
-      m.field 1, :name
-      m.field 2, :type
-      m.field 3, :parent_ien, :integer
+      m.field 1, :type
+      m.field 2, :status
+      m.field 3, :name
+      m.field 4, :exclude_from_group_boilerplate
+      m.field 5, :blank_lines, :integer
+      m.field 6, :personal_owner_duz
+      m.field 7, :has_children, :integer
     end
 
+    # GETBOIL(TIUY,TIUDA)^TIUSRVT (TIUSRVT.m:55): the template's
+    # UNEXPANDED boilerplate, one line per node.
     DataMapper.define(:template_boilerplate) do |m|
       m.rpc "TIU TEMPLATE GETBOIL"
       m.text_blob :body
@@ -1080,21 +1110,32 @@ module RpmsRpc
     # ========================================================================
     # TIU PROGRESS NOTES (TIU*)
     # ========================================================================
-    # Field positions are best-effort pending wider trace capture.
+    # Every reply below is a status string the API reads, not a boolean:
+    # LOCK answers 0 when it HOLDS the lock and "1^message" when it does
+    # not (TIUSRVP.m:211-212), the reverse of a :boolean read (#219).
 
+    # MAKE(SUCCESS,DFN,TITLE,VDT,VLOC,VSIT,...)^TIUSRVP (TIUSRVP.m:7):
+    # the new note IEN, or "0^message".
     DataMapper.define(:tiu_create_record) do |m|
       m.rpc "TIU CREATE RECORD"
       m.scalar :note_ien
     end
 
+    # CONTEXT(TIUY,CLASS,CONTEXT,DFN,...)^TIUSRVLO (TIUSRVLO.m:16). Each
+    # row is DA_U_$$RESOLVE(DA) (TIUSRVLO.m:94); RESOLVE builds
+    # DOC^EDT^PT^AUT^LOC^STATUS^TIUADT^TIUDDT^... (TIUSRVLO.m:197), AUT
+    # being DUZ;SIGNATURE NAME;NAME (TIUSRVLO.m:195). The API splits it.
     DataMapper.define(:tiu_documents_by_context) do |m|
       m.rpc "TIU DOCUMENTS BY CONTEXT"
       m.field 0, :ien, :integer
       m.field 1, :title
-      m.field 2, :status
-      m.field 3, :datetime, :fileman_datetime
-      m.field 4, :author_duz
-      m.field 5, :author_name
+      m.field 2, :datetime, :fileman_datetime
+      m.field 3, :patient
+      m.field 4, :author
+      m.field 5, :location
+      m.field 6, :status
+      m.field 7, :visit
+      m.field 8, :discharge
     end
 
     DataMapper.define(:tiu_get_record_text) do |m|
@@ -1102,21 +1143,27 @@ module RpmsRpc
       m.text_blob :body
     end
 
+    # CANDO(TIUY,TIUDA,TIUACT)^TIUSRVA (TIUSRVA.m:20): 1, or "0^reason".
     DataMapper.define(:tiu_authorization) do |m|
       m.rpc "TIU AUTHORIZATION"
-      m.scalar :allowed, :boolean
+      m.scalar :result
     end
 
+    # LOCK(ERR,TIUDA)^TIUSRVP (TIUSRVP.m:210-212): 0 = locked,
+    # "1^ Another session has this record locked." = not.
     DataMapper.define(:tiu_lock_record) do |m|
       m.rpc "TIU LOCK RECORD"
-      m.scalar :locked, :boolean
+      m.scalar :result
     end
 
+    # UNLOCK(ERR,TIUDA)^TIUSRVP (TIUSRVP.m:214-215): always 0.
     DataMapper.define(:tiu_unlock_record) do |m|
       m.rpc "TIU UNLOCK RECORD"
-      m.scalar :unlocked, :boolean
+      m.scalar :result
     end
 
+    # SETTEXT(TIUY,TIUDA,TIUX,SUPPRESS)^TIUSRVPT (TIUSRVPT.m:7):
+    # TIUDA^PAGE^PAGES, or "0^0^0^message" (TIUSRVPT.m:10, 14, 38).
     DataMapper.define(:tiu_set_document_text) do |m|
       m.rpc "TIU SET DOCUMENT TEXT"
       m.scalar :result
@@ -1244,13 +1291,19 @@ module RpmsRpc
     # ========================================================================
     # SYMPTOM CATALOG (ORWDAL32*)
     # ========================================================================
-    # Field positions are best-effort pending wider trace capture.
 
+    # ORWDAL32 SYMPTOMS — SYMPTOMS^ORWDAL32 as built (OR*3.0*233; the public
+    # FOIA tree still carries the pre-233 tag) answers Y(I)=IEN_U_FROM
+    # (ORWDAL32.m:118). Since 233 the walk also indexes each synonym as
+    # SYN_$C(9)_"<"_NAME_">"_U_NAME (ORWDAL32.m:109-111), so a synonym row is
+    #   IEN ^ SYNONYM<tab><NAME> ^ NAME
+    # and a plain row is IEN ^ NAME. There is no SNOMED column; piece 3 is the
+    # preferred symptom name, present on synonym rows only (#221).
     DataMapper.define(:symptom_search) do |m|
       m.rpc "ORWDAL32 SYMPTOMS"
       m.field 0, :ien, :integer
       m.field 1, :name
-      m.field 2, :snomed_code
+      m.field 2, :preferred_name
     end
 
     # ORWDAL32 DEF — defaults tree for the allergy-symptom entry UI. Takes
@@ -1349,6 +1402,8 @@ module RpmsRpc
     #   DDR GETS ENTRY DATA   → GETSC^DDR2      (return type 2)
     #   DDR FILER             → FILEC^DDR3      (return type 2)
     #   DDR VALIDATOR         → VALC^DDR3       (return type 2)
+    #   DDR KEY VALIDATOR     → KEYVAL^DDR3 as registered; the code is
+    #                           KEYVAL^DDR4 (return type 2)
     #
     # All take LIST params (named or numeric subscripts) — see
     # CiaClient#call_rpc_raw for the {CIA} wire encoding of subscripted
@@ -1419,6 +1474,16 @@ module RpmsRpc
     # form: DDR3.m:45-50).
     DataMapper.define(:ddr_validator) do |m|
       m.rpc "DDR VALIDATOR"
+      m.text_blob :lines
+    end
+
+    # DDR KEY VALIDATOR — $$KEYVAL^DIEVK over an FDA built from one list
+    # param of alternating "FILE^IENS^FIELD" / value rows (KEYVAL^DDR4 +
+    # FDASET2^DDR4: DDR4.m:4-19). Reply DDROUT(1) = "1" | "0", parsed by
+    # DdrFileman.validate_key. #8994 on bcer-9.0 names KEYVAL^DDR3, which
+    # does not exist: the live call answers %YDB-E-LABELMISSING.
+    DataMapper.define(:ddr_key_validator) do |m|
+      m.rpc "DDR KEY VALIDATOR"
       m.text_blob :lines
     end
   end

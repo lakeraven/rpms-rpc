@@ -2,7 +2,7 @@
 
 require "minitest/autorun"
 require "rpms_rpc/cia_client"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/api/authentication"
 require "rpms_rpc/mock_client"
 
@@ -31,7 +31,11 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
 
     def write(str)
       key = @answers.keys.find { |k| str.include?(k) }
-      @replies << (@answers[key] || "")
+      # (#289) A real reply opens with the frame's own sequence echo (CIANBLIS.m:135)
+      # and \x00 DATA ack; read_reply now matches on that echo, so the fake must
+      # stamp it — the request's seq byte sits at offset 6, after "{CIA}"+EOD.
+      seq = str[/\A\{CIA\}#{Regexp.escape(EOD)}(.)/m, 1]
+      @replies << "#{seq}\x00#{@answers[key]}"
       pause_once
       str.bytesize
     end
