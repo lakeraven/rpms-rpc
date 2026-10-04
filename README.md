@@ -329,6 +329,26 @@ bundle exec rake test
 
 The test suite is hermetic — no sockets, no live RPMS.
 
+### Test results, quickly
+
+Run these whenever you want the current picture; there is no report to keep. The hermetic
+suite, then the live specs once per persona against a local container of the build you
+care about (the broker port published on loopback; `rake test:live` refuses any other host):
+
+```sh
+bundle exec rake test
+VISTA_RPC_ENV=development BROKER_HOST=127.0.0.1 BROKER_PORT=<port> PERSONA=PROV123 RPMS_ACCESS=... RPMS_VERIFY=... bundle exec rake test:live
+BROKER_HOST=127.0.0.1 BROKER_PORT=<port> PERSONA=SYS123 RPMS_ACCESS=... RPMS_VERIFY=... bundle exec rake test:live
+bundle exec rake rpc:coverage
+```
+
+Each prints its own summary: minitest's `runs, assertions, failures, errors, skips` line, the
+live run's skips listed by issue (a live run in which no spec ran fails), and the coverage
+headline from the committed live evidence. Any failure exits non-zero.
+
+PROV123 is a debug account, so its run also needs `VISTA_RPC_ENV=development`. `rake rpc:coverage`
+reads the live evidence from an `rpms-diffs` checkout beside this repo, or `RPMS_DIFFS_DIR=`.
+
 - **Wire-format tests** construct packet bytes and assert their layout
 - **DataMapper tests** verify field/text_blob/scalar round-trip through parse + format
 - **MockClient tests** verify seeded data flows through the full fetch chain

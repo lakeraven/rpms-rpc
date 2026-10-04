@@ -36,6 +36,12 @@ module RpmsRpc
     #
     # Security keys can elevate a role above what user_class alone
     # implies (e.g., PRCFA SUPERVISOR → case_manager).
+    #
+    # DEPRECATED elevation: :prc_supervisor and :prc_manager stood for
+    # PRCFA SUPERVISOR and BPRC MANAGER, which are not security keys on the
+    # pinned build (#314), so no signed-on user's keys carry them. It is kept
+    # because a host that builds its own key list still relies on it; roles
+    # leave the gem in #359 (ADR 0010: the host decides policy).
     def self.resolve(user_class:, security_keys:)
       if security_keys.include?(:prc_supervisor) || security_keys.include?(:prc_manager)
         return "case_manager"
