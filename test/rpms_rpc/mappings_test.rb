@@ -405,6 +405,10 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal true, m.parse_scalar("1")
   end
 
+  def test_person_has_key_is_orwu_nphaskey
+    assert_equal "ORWU NPHASKEY", RpmsRpc::DataMapper[:person_has_key].rpc_name
+  end
+
   # -- Line-based RPCs -------------------------------------------------------
 
   def test_av_code_line_based
@@ -702,7 +706,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       user_info mailman_message mailman_messages_for_patient mailman_send
       mailman_reply mailman_thread mailman_inbox xqal_alert xqal_mark_read
       xqal_forward report_types reminders_list
-      reminder_detail patient_deceased patient_sensitive user_has_key
+      reminder_detail patient_deceased patient_sensitive user_has_key person_has_key
       signon_setup av_code cvc_verify user_keys
       report_text report_type_components health_summary_report
       flowsheet_list flowsheet_data maint_items lab_report lab_report_list radiology_report

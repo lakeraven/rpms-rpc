@@ -257,13 +257,12 @@ module RpmsRpc
       m.field 2, :code
     end
 
-    # BMC GET USERS/PROVIDERS — user/provider lookup.
-    # Common shape: DUZ^NAME^TITLE.
+    # BMC GET USERS/PROVIDERS — PROV^BMCRPC4(.Y,ISPROV): one node,
+    # "-1^All~IEN^NAME~IEN^NAME~..." (BMCRPC4.m:136-141); Referral#users_providers
+    # splits it with RcisWire.records.
     DataMapper.define(:bmc_users_providers) do |m|
       m.rpc "BMC GET USERS/PROVIDERS"
-      m.field 0, :duz
-      m.field 1, :name
-      m.field 2, :title
+      m.text_blob :providers
     end
 
     # BMC HEALTH SUMMARY TYPE — health-summary type lookup.
@@ -275,12 +274,12 @@ module RpmsRpc
       m.field 2, :abbreviation
     end
 
-    # BMC PATIENT ELIGIBILITY STATUS — CHS/RCIS eligibility status.
+    # BMC PATIENT ELIGIBILITY STATUS — GTPTELST^BMCRPC4 (BMCRPC4.m:129):
+    # ELIGIBILITY STATUS (#9000001 field 1112, external) ^ preferred name.
     DataMapper.define(:bmc_patient_eligibility_status) do |m|
       m.rpc "BMC PATIENT ELIGIBILITY STATUS"
-      m.field 0, :eligible, :boolean
-      m.field 1, :status
-      m.field 2, :message
+      m.field 0, :status
+      m.field 1, :preferred_name
     end
 
     # BMC PATIENT FACE SHEET — patient context text/lines.
@@ -878,15 +877,16 @@ module RpmsRpc
     end
 
     # ========================================================================
-    # SESSION BOOTSTRAP (CIAVMRPC*, CIAVMCFG*, CIAVCXUS*)
+    # SESSION BOOTSTRAP (CIAVMCFG*, CIAVCXUS*)
     # ========================================================================
-
-    # CIAVMRPC GETPAR — fetch a CIAVM parameter by name.
-    # Used at cold launch to retrieve "CIAVM DEFAULT SOURCE" → config root path.
-    DataMapper.define(:session_default_source) do |m|
-      m.rpc "CIAVMRPC GETPAR"
-      m.scalar :value, :string
-    end
+    #
+    # CIAVMRPC GETPAR is deliberately NOT mapped (#239). It fetched the
+    # VueCentric client's own config root ("CIAVM DEFAULT SOURCE"), the path
+    # the Windows shell loads its component registry from: tier V, legacy
+    # under ADR 0004 (reads client session/widget state). A frontend-agnostic
+    # consumer has no CIAVM config root. Its other use, reading site
+    # parameters such as BGO CC PREFIX TEXT, is site configuration that
+    # belongs in the captured L2/L3 overlay, not in an RPC round-trip.
 
     # CIAVMCFG GETREG — fetch the launching client's registry settings.
     # Field positions are best-effort pending wider trace capture; the RPC
@@ -896,14 +896,19 @@ module RpmsRpc
       m.field 0, :root
     end
 
-    # CIAVCXUS VIMINFO — fetch the user's launch context (site/division).
-    # Field positions are best-effort pending wider trace capture; the RPC
-    # carries the user's launch site IEN among other context fields.
+    # CIAVCXUS VIMINFO — VIMINFO^CIAVCXUS. One row, documented by the routine
+    # (CIAVCXUS.m:20-21) and built at CIAVCXUS.m:25-31:
+    #   DUZ ^ NAME ^ PTMOUT;STMOUT;CNTDN ^ COMPOSE MODE ^ DESIGN MODE
+    # Piece 3 holds the CIAVM PRIMARY/SECONDARY TIMEOUT and COUNTDOWN INTERVAL
+    # parameters joined by ";"; pieces 4-5 are $$HASKEY of CIAV COMPOSE and
+    # CIAV DESIGN (1/0). It carries no site: an unknown user answers "" (#221).
     DataMapper.define(:session_vim_info) do |m|
       m.rpc "CIAVCXUS VIMINFO"
-      m.field 0, :site_ien, :integer
-      m.field 1, :site_name
-      m.field 2, :user_name
+      m.field 0, :duz, :integer
+      m.field 1, :user_name
+      m.field 2, :timeouts
+      m.field 3, :compose_mode, :boolean
+      m.field 4, :design_mode, :boolean
     end
 
     # ========================================================================
@@ -1247,14 +1252,18 @@ module RpmsRpc
     # Header (authoritative): I HOSPITAL_LOCATION_ID ^ T HOSPITAL_LOCATION ^
     #   T DEFAULT_PROVIDER ^ T STOP_CODE_NUMBER ^ D INACTIVATE_DATE ^
     #   D REACTIVATE_DATE. Params: (none).
+    # Both dates come from $$GET1^DIQ with no "I" flag (BSDX32.m:35-36), so
+    # they are EXTERNAL ("JAN 15, 2025"), not FileMan internal (#221). The
+    # stop code is GET1^DIQ external too (BSDX32.m:40): the 40.7 NAME
+    # ("FAMILY PRACTICE"), not the number.
     DataMapper.define(:scheduling_hospital_location) do |m|
       m.rpc "BSDX HOSPITAL LOCATION"
       m.field 0, :location_ien, :integer
       m.field 1, :location
       m.field 2, :default_provider
       m.field 3, :stop_code
-      m.field 4, :inactivate_date, :fileman_date
-      m.field 5, :reactivate_date, :fileman_date
+      m.field 4, :inactivate_date, :external_date
+      m.field 5, :reactivate_date, :external_date
     end
 
     # BSDX CLINIC SETUP — CLNSET^BSDX32. Per-clinic scheduling parameters.

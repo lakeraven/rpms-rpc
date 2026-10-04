@@ -36,6 +36,8 @@ module RpmsRpc
     extend self
 
     TRIBE_FILE = "9999999.03"
+    # LIST^DIC FIELDS for an IEN^name row: "@" drops the default, ".01" adds the name.
+    NAME_ONLY = "@;.01"
     SERVICE_UNIT_FILE = "9999999.22"
 
     FIELD_ENROLLMENT_NUMBER = ".07"
@@ -129,13 +131,15 @@ module RpmsRpc
     end
 
     # List tribes via LIST^DIC over the "B" (name) index — packed rows come
-    # back IEN-first with the .01 value (V0 reply shape, LISTC^DDR).
+    # back IEN-first with the .01 value (V0 reply shape, LISTC^DDR). The .01
+    # rides only when FIELDS asks for it: with no FIELDS the rows are bare
+    # IENs (seen live, #195), so the names came back nil.
     #   part: narrows to names starting with the given text
     #   from: resume point for paging (see DdrFileman.lister's :more)
     # Returns [{ ien:, name: }] ([] for an empty page), or nil (no broker
     # response).
     def tribes(part: nil, from: nil)
-      listing = DdrFileman.lister(file: TRIBE_FILE, part: part, from: from, xref: "B")
+      listing = DdrFileman.lister(file: TRIBE_FILE, fields: NAME_ONLY, part: part, from: from, xref: "B")
       return nil if listing.nil?
       return [] if listing[:error]
 

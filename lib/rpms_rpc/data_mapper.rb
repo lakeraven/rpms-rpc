@@ -327,9 +327,9 @@ module RpmsRpc
       def fetch_lines(*params, extras: {})
         client = RpmsRpc.client
         # Line-positional parsing needs LINES, split by the transport's own
-        # reply grammar. call_rpc is not that on every transport: CIA's
-        # returns a printable String, which parse_lines would read character
-        # by character (sequence echo "2" + ACK -> DUZ 2, error 0, success).
+        # reply grammar. A client whose call_rpc returns a String would be
+        # read character by character (sequence echo "2" + ACK -> DUZ 2,
+        # error 0, success), so ask for lines when the client offers them.
         response = if client.respond_to?(:call_rpc_lines)
           client.call_rpc_lines(rpc_name, *params)
         else

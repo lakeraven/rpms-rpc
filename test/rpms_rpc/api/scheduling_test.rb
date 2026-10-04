@@ -417,4 +417,76 @@ class SchedulingTest < Minitest::Test
     assert_equal 44, setup.first[:location_ien]
     assert_equal 2, setup.first[:max_overbooks]
   end
+
+  # -- BSDXRPC context binding (rpms-rpc#258) --------------------------------
+  #
+  # RPC registration is OPTION-scoped (RpmsRpc::ContextScope). On a built 9.0
+  # image every BSDX RPC this module calls sits in the RPC multiple of ONE
+  # file-19 option, BSDXRPC (69 entries), and in none of the options a
+  # signed-on session is otherwise holding. A user without XUPROGMODE is
+  # denied BSDX* under the sign-on option, so each method binds BSDXRPC
+  # around its call and hands the caller's option back, as RpmsRpc::Agg does
+  # for AGGRPC.
+
+  # Arguments that let every public method reach the wire. Nothing is seeded:
+  # the mock answers "" and still records the call with its context.
+  BSDX_CALLS = {
+    add_appointment: [ { patient_dfn: 100, resource: "PEDIATRICIAN,DEMO", start_time: START_T,
+                         end_time: END_T, length_minutes: 30 } ],
+    cancel_appointment: [ 501, { reason: 3 } ],
+    uncancel_appointment: [ 501 ],
+    checkin_appointment: [ 501, { checkin_time: START_T } ],
+    mark_no_show: [ 501 ],
+    availability: [ { resources: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],
+    all_appointments: [ { start_date: START_T, end_date: END_T } ],
+    hospital_locations: [],
+    clinic_setup: []
+  }.freeze
+
+  def test_the_bind_table_names_every_public_method
+    expected = RpmsRpc::Scheduling.public_instance_methods(false).sort
+
+    assert_equal expected, BSDX_CALLS.keys.sort,
+      "a new Scheduling method must be added to BSDX_CALLS so its context bind is proven"
+  end
+
+  def test_every_bsdx_call_runs_under_bsdxrpc_and_restores_the_callers_context
+    BSDX_CALLS.each do |method, args|
+      mock = RpmsRpc.mock!
+      caller_context = mock.current_context
+      positional = args.reject { |a| a.is_a?(Hash) }
+      keywords = args.find { |a| a.is_a?(Hash) } || {}
+
+      RpmsRpc::Scheduling.public_send(method, *positional, **keywords)
+
+      calls = mock.received_calls
+      refute_empty calls, "#{method} made no RPC call"
+      calls.each do |call|
+        assert_equal "BSDXRPC", call[:context],
+          "#{method} sent #{call[:rpc]} under #{call[:context].inspect}; the BSDX RPCs " \
+          "are registered under BSDXRPC only, so it is denied there"
+      end
+      assert_equal caller_context, mock.current_context,
+        "#{method} left the session on #{mock.current_context.inspect}"
+      assert_equal [ "BSDXRPC", caller_context ], mock.context_binds,
+        "#{method}: expected one bind and one restore"
+    end
+  end
+
+  def test_a_bsdxrpc_that_will_not_bind_raises_before_any_rpc_is_sent
+    mock = RpmsRpc.mock!
+    mock.unbindable_context!("BSDXRPC")
+
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Scheduling.hospital_locations }
+    assert_empty mock.received_calls
+  end
+
+  def test_a_client_that_cannot_scope_contexts_runs_as_is
+    # RawResponseClient has no with_context; the scope is skipped, not refused.
+    stub_broker_response([ "T00020BMXIEN^T00030HOSPITAL_LOCATION", "44^PEDIATRIC CLINIC" ])
+
+    clinics = RpmsRpc::Scheduling.hospital_locations
+
+    assert_equal 1, clinics.length
+  end
 end

@@ -4,24 +4,26 @@ require_relative "../mappings"
 
 module RpmsRpc
   # Symbolic API for the cold-launch session bootstrap sequence.
-  # Underlying RPCs: CIAVMRPC GETPAR, CIAVMCFG GETREG, CIAVCXUS VIMINFO.
+  # Underlying RPCs: CIAVMCFG GETREG, CIAVCXUS VIMINFO.
+  #
+  # It no longer reads CIAVMRPC GETPAR for "CIAVM DEFAULT SOURCE" (#239): that
+  # value is the VueCentric client's own config root, which means nothing to a
+  # consumer that is not that client. See the mapping file's note.
+  #
+  # There is no :default_site_ien: VIMINFO answers DUZ^NAME^timeouts^compose^
+  # design (CIAVCXUS.m:20-31) and names no site; the key read the DUZ (#221).
   module Session
     extend self
-
-    DEFAULT_SOURCE_PARAM = "CIAVM DEFAULT SOURCE"
 
     def bootstrap(user_duz)
       return nil if invalid_duz?(user_duz)
 
-      config_root = DataMapper.session_default_source.fetch_scalar(DEFAULT_SOURCE_PARAM)
-      registry    = DataMapper.session_registry.fetch_one || {}
-      vim_info    = DataMapper.session_vim_info.fetch_one(user_duz.to_s) || {}
+      registry = DataMapper.session_registry.fetch_one || {}
+      vim_info = DataMapper.session_vim_info.fetch_one(user_duz.to_s) || {}
 
       {
-        config_root: presence(config_root),
         registry: registry,
-        vim_info: vim_info,
-        default_site_ien: vim_info[:site_ien]
+        vim_info: vim_info
       }
     end
 
@@ -29,13 +31,6 @@ module RpmsRpc
 
     def invalid_duz?(value)
       value.nil? || value.to_s.strip.empty? || value.to_i <= 0
-    end
-
-    def presence(val)
-      return nil if val.nil?
-
-      str = val.to_s
-      str.empty? ? nil : str
     end
   end
 end

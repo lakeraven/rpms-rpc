@@ -1,0 +1,135 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# bin/console — an IRB session with a signed-on rpms-rpc broker client, so a
+# change can be tried against a real broker in one short loop.
+#
+# Everything comes from the environment. There are NO defaults that name a real
+# host or credential: a missing setting refuses to start with a clear message.
+#
+#   BROKER        cia | bmx         cia = CIANBLIS/VueCentric ({CIA}); bmx = BMXNet/.NET ({BMX})
+#   BROKER_HOST   host or IP of the broker
+#   BROKER_PORT   TCP port          (e.g. 19200 local CIA, 9100 CIA on a stack, 29101/9101 BMX)
+#   RPMS_ACCESS   access code
+#   RPMS_VERIFY   verify code
+#   RPMS_CONTEXT  optional          an option to bind after sign-on (e.g. "AGGRPC")
+#
+# Example (placeholders — fill in your own):
+#   BROKER=cia BROKER_HOST=127.0.0.1 BROKER_PORT=19200 \
+#     RPMS_ACCESS=... RPMS_VERIFY=... bin/console
+#
+# Helpers once the prompt is up:
+#   rpc "ORWU USERINFO"            call an RPC; pretty-prints the raw AND parsed reply
+#   rpc "AGG LOOKUP PATIENTS", "DEMO", "N"
+#   ctx                            show the bound context option
+#   ctx "AGGRPC"                   bind a context option (CIA: client-side; XWB/BMX: XWB CREATE CONTEXT)
+#   reconnect                      drop and re-establish connect + sign-on (+ RPMS_CONTEXT)
+#   client                         the underlying RpmsRpc client
+
+$LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
+
+require "rpms_rpc/broker_factory"
+
+module RpmsRpc
+  # Console wiring: validate the environment, build a signed-on client, and the
+  # three short-loop helpers. Kept here (not in the gem) so the gem stays a
+  # library; bin/console is a tool.
+  module Console
+    module_function
+
+    REQUIRED = %w[BROKER BROKER_HOST BROKER_PORT RPMS_ACCESS RPMS_VERIFY].freeze
+
+    # Refuse to start, listing exactly what is missing. Returns normally only
+    # when every required setting is present.
+    def check_env!(out: $stderr)
+      missing = REQUIRED.select { |k| ENV[k].to_s.strip.empty? }
+      return if missing.empty?
+
+      out.puts <<~MSG
+        rpms-rpc console: refusing to start — missing: #{missing.join(", ")}.
+
+        Set these in the environment (no defaults name a real host or credential):
+          BROKER        cia | bmx
+          BROKER_HOST   broker host or IP
+          BROKER_PORT   TCP port (e.g. 19200 local CIA, 29101 local BMX)
+          RPMS_ACCESS   access code
+          RPMS_VERIFY   verify code
+          RPMS_CONTEXT  (optional) option to bind after sign-on
+
+        Example (placeholders):
+          BROKER=cia BROKER_HOST=127.0.0.1 BROKER_PORT=19200 \\
+            RPMS_ACCESS=... RPMS_VERIFY=... bin/console
+      MSG
+      exit 1
+    end
+
+    # Build, connect, sign on, and bind RPMS_CONTEXT if one was given.
+    def connect!
+      c = RpmsRpc.client_for(ENV.fetch("BROKER"),
+        host: ENV.fetch("BROKER_HOST"),
+        port: Integer(ENV.fetch("BROKER_PORT")))
+      c.connect
+      c.authenticate(ENV.fetch("RPMS_ACCESS"), ENV.fetch("RPMS_VERIFY"))
+      ctx = ENV["RPMS_CONTEXT"].to_s.strip
+      c.create_context(ctx) unless ctx.empty?
+      c
+    end
+
+    # The short-loop helpers, mixed into the IRB top-level.
+    module Helpers
+      # Call an RPC and pretty-print the raw reply (bytes, inspected) and the
+      # parsed reply (printable lines). Returns the parsed lines.
+      def rpc(name, *params)
+        raw = client.call_rpc_raw(name, *params)
+        puts "── #{name} #{params.inspect}"
+        puts "raw   (#{raw.bytesize} bytes): #{raw.inspect}"
+        lines = client.call_rpc_lines(name, *params)
+        puts "parsed (#{lines.length} line#{"s" unless lines.length == 1}):"
+        lines.each_with_index { |l, i| puts format("  [%d] %s", i, l) }
+        lines
+      rescue RpmsRpc::Client::RpcError, RpmsRpc::Client::ConnectionError => e
+        puts "error (#{e.class}): #{e.message}"
+        nil
+      end
+
+      # Show the bound context, or bind one.
+      def ctx(option = nil)
+        return client.current_context if option.nil?
+
+        client.create_context(option)
+        puts "bound context: #{client.current_context}"
+        client.current_context
+      end
+
+      # Drop and re-establish the connection + sign-on (+ RPMS_CONTEXT).
+      def reconnect
+        client.disconnect
+        $rpms_rpc_client = RpmsRpc::Console.connect!
+        puts "reconnected (#{ENV['BROKER']} #{ENV['BROKER_HOST']}:#{ENV['BROKER_PORT']})"
+        true
+      end
+
+      def client = $rpms_rpc_client
+    end
+  end
+end
+
+RpmsRpc::Console.check_env!
+$rpms_rpc_client = RpmsRpc::Console.connect!
+
+banner = "rpms-rpc console — #{ENV['BROKER']} #{ENV['BROKER_HOST']}:#{ENV['BROKER_PORT']}" \
+         "#{ENV['RPMS_CONTEXT'].to_s.strip.empty? ? '' : " · ctx #{ENV['RPMS_CONTEXT']}"}"
+puts banner
+puts "helpers: rpc \"NAME\", *params · ctx [\"OPTION\"] · reconnect · client"
+
+# irb is a bundled gem since Ruby 4.0 (the Gemfile declares it); loaded only once the
+# environment checks pass, so a refusal never depends on it.
+require "irb"
+
+# Mix the helpers into IRB's top-level so they are callable bare at the prompt.
+IRB.setup(nil)
+workspace = IRB::WorkSpace.new(Object.new.extend(RpmsRpc::Console::Helpers))
+irb = IRB::Irb.new(workspace)
+IRB.conf[:MAIN_CONTEXT] = irb.context
+at_exit { $rpms_rpc_client&.disconnect }
+irb.run(IRB.conf)
