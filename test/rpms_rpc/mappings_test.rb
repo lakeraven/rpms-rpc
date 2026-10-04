@@ -19,38 +19,9 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal 45, result[:age]
   end
 
-  # -- ORWPT ID INFO ---------------------------------------------------------
-
-  def test_patient_id_info_parses_identifier_fields
-    m = RpmsRpc::DataMapper[:patient_id_info]
-    # Live shape from staging: SSN^DOB^SEX^RACE_CODE^^SITE_IEN^^NAME
-    result = m.parse_one("000009999^2100214^M^N^^7819^^MOUSE,MICKEY M")
-
-    assert_equal "000009999", result[:ssn]
-    assert_equal Date.new(1910, 2, 14), result[:dob]
-    assert_equal "M", result[:sex]
-    assert_equal "N", result[:race_code]
-    assert_equal 7819, result[:site_ien]
-    assert_equal "MOUSE,MICKEY M", result[:name]
-  end
-
-  # -- SELECT + ID INFO merge ------------------------------------------------
-
-  def test_patient_merge
-    base = RpmsRpc::DataMapper[:patient_select].parse_one(
-      "MOUSE,MICKEY M^M^2100214^000009999^0^7819^^^0^^0^0^^^116^0",
-      extras: { dfn: 3 }
-    )
-    ext = RpmsRpc::DataMapper[:patient_id_info].parse_one(
-      "000009999^2100214^M^N^^7819^^MOUSE,MICKEY M"
-    )
-    merged = base.merge(ext)
-
-    assert_equal 3, merged[:dfn]
-    assert_equal "MOUSE,MICKEY M", merged[:name]
-    assert_equal "N", merged[:race_code]
-    assert_equal 7819, merged[:site_ien]
-  end
+  # ORWPT ID INFO (:patient_id_info) has no parse test here: its layout is
+  # proven live against the pinned build in test/live/patient_live_test.rb
+  # (ADR 0009, #191), not against a reply written by hand.
 
   # -- ORWPT LIST ALL --------------------------------------------------------
 

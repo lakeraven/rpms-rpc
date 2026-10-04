@@ -24,11 +24,16 @@ module RpmsRpc
       m.field 14, :age,       :integer
     end
 
-    # ORWPT ID INFO — patient identifier projection. Live shape against
-    # staging (DFN=3 / MOUSE,MICKEY M):
-    #   "000009999^2100214^M^N^^7819^^MOUSE,MICKEY M"
-    #     [0] ssn       [1] dob (fileman) [2] sex      [3] race_code
-    #     [4] reserved  [5] site_ien      [6] reserved [7] name
+    # ORWPT ID INFO — patient identifier projection.
+    # Verified format (IDINFO^ORWPT: ORWPT.m:6-11 — header line 7
+    # "PID^DOB^SEX^VET^SC%^WARD^RM-BED^NAME", REC construction line 10):
+    #   PID[1]^DOB[2]^SEX[3]^VET[4]^SC%[5]^WARD[6]^RM-BED[7]^NAME[8]
+    # VET is the VETERAN (Y/N) flag and WARD the current ward location.
+    # The prior declaration read piece 4 as :race_code and piece 6 as
+    # :site_ien — the captured "N" at piece 4 is the veteran flag, and
+    # piece 6 is empty for an outpatient; neither value was ever what it
+    # claimed (#191, caught by the wire-contract gate against
+    # test/fixtures/wire_captures/orwpt-id-info.yml).
     # Despite the "ID INFO" name, this RPC does NOT return address,
     # city, state, zip, phone, tribal enrollment, service area, or
     # coverage — those fields were hallucinated in the prior mapping and
@@ -41,8 +46,10 @@ module RpmsRpc
       m.field 0, :ssn
       m.field 1, :dob, :fileman_date
       m.field 2, :sex
-      m.field 3, :race_code
-      m.field 5, :site_ien, :integer
+      m.field 3, :veteran
+      m.field 4, :sc_percent
+      m.field 5, :ward_location
+      m.field 6, :room_bed
       m.field 7, :name
     end
 
