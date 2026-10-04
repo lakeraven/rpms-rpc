@@ -178,7 +178,13 @@ module RpmsRpc
     # Already-wrapped {type: :literal|:list, ...} hashes pass through.
     # Arrays become list_params with 1-based string keys (the RPMS broker
     # convention for multi-line params like BEHOVM SAVE's payload).
-    # Hashes become list_params with their keys/values as entries.
+    # Hashes become list_params with their keys/values as entries, each key
+    # formed as an M subscript: LINST^XWBPRS splices it raw into
+    # A_"("_X_")" (XWBPRS.m:152-156), so a string level is quoted (embedded
+    # quotes doubled) and a canonic number stays bare. An Array key is a
+    # multi-level subscript joined with commas ([1, 0] => "1,0", the TIUX(n,0)
+    # TIU TEMPLATE GETTEXT reads; ["TEXT", 1, 0] => "\"TEXT\",1,0", the
+    # TIUX("TEXT",n,0) TIU SET DOCUMENT TEXT reads) (#219).
     # Everything else stringifies to a literal_param.
     def encode_param(value)
       # Pre-wrapped param hashes pass through, but only when their :type
@@ -190,13 +196,21 @@ module RpmsRpc
         entries = value.each_with_index.map { |v, i| [ (i + 1).to_s, v.to_s ] }
         list_param(entries)
       when Hash
-        list_param(value.map { |k, v| [ k.to_s, v.to_s ] })
+        list_param(value.map { |k, v| [ m_subscript(k), v.to_s ] })
       else
         literal_param(value.to_s)
       end
     end
 
     private
+
+    # Same subscript grammar as CiaClient#m_subscript.
+    def m_subscript(key)
+      return key.map { |level| m_subscript(level) }.join(",") if key.is_a?(Array)
+
+      s = key.to_s
+      s.match?(/\A-?(0|[1-9]\d*)(\.\d+)?\z/) ? s : %("#{s.gsub('"', '""')}")
+    end
 
     def default_port
       9100

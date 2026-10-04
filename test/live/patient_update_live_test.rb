@@ -41,7 +41,7 @@ class PatientUpdateLiveTest < LiveSpec::Test
   # Email (.133) and cell phone (.134) file, but a #2 cross-reference run by
   # DIKC reads an undefined DFN and the filer reply is an M error.
   def test_update_files_email_and_cell_phone
-    skip "rpms-rpc#351: filing #2 .133/.134 over DDR FILER raises <LVUNDEF> DFN in DIKC though the value files"
+    skip_tracked("#351", "filing #2 .133/.134 over DDR FILER raises <LVUNDEF> DFN in DIKC though the value files")
 
     before = RpmsRpc::Patient.contact(DFN)
     refute_nil before, "no telecom read for seed patient #{DFN}: is this the pinned build?"
