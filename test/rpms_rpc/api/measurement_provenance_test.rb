@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/measurement"
 
@@ -103,30 +103,20 @@ class MeasurementProvenanceTest < Minitest::Test
     assert_equal true, row[:locked]
   end
 
-  # GETVISIT^BEHOENCX reply (BEHOENCX.m:4-16):
+  # GETVISIT^BEHOENCX reply (BEHOENCX.m:5,8-15):
   # hosp loc^visit date^service category^dfn^visit id^locked
   def test_encounter_visit_mapping_reads_service_category_at_piece_3
     visit = RpmsRpc::DataMapper[:encounter_visit]
             .parse_one("1608^3260607.1430^T^26664^5150^0")
 
     assert_equal "T", visit[:service_category]
-    assert_equal "T", visit[:status] # legacy alias, same position
     assert_equal 26664, visit[:patient_dfn]
     assert_equal "5150", visit[:visit_id]
     assert_equal false, visit[:locked]
-  end
-
-  # Legacy seeds that only set :status must still round-trip — the unseeded
-  # :service_category alias may not blank the position (format_one guard).
-  def test_encounter_visit_status_only_seed_round_trips_service_category
-    wire = RpmsRpc::DataMapper[:encounter_visit].format_one(
-      { location_ien: 1608, datetime_raw: "3260607.1430", status: "A",
-        patient_dfn: 26664, ward: "5150" }
-    )
-    parsed = RpmsRpc::DataMapper[:encounter_visit].parse_one(wire)
-
-    assert_equal "A", parsed[:status]
-    assert_equal "A", parsed[:service_category]
+    # The pre-#211 labels for pieces 3 and 5 were belief, not source: a
+    # service category is not a status and a visit id is not a ward.
+    refute visit.key?(:status)
+    refute visit.key?(:ward)
   end
 
   # ==========================================================================

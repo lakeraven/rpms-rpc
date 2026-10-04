@@ -258,7 +258,6 @@ cases = {
   "Phr.enrollment_status" => -> { RpmsRpc::Phr.enrollment_status(d) },
   "Phr.counts" => -> { RpmsRpc::Phr.counts(d) },
   "Order.sheets_for_patient" => -> { RpmsRpc::Order.sheets_for_patient(d) },
-  "Problem.filter(:core)" => -> { RpmsRpc::Problem.filter(d, scope: :core) },
   "Problem.provider_list" => -> { RpmsRpc::Problem.provider_list(d) },
   "HealthSummary.types" => -> { RpmsRpc::HealthSummary.types },
   "HealthSummary.for_patient" => -> { RpmsRpc::HealthSummary.for_patient(d) },
@@ -295,7 +294,8 @@ cases["Order.result"] = -> { RpmsRpc::Order.result(ctx[:order]) } if ctx[:order]
 cases["Problem.details"] = -> { RpmsRpc::Problem.details(ctx[:problem]) } if ctx[:problem]
 cases["Problem.audit_history"] = -> { RpmsRpc::Problem.audit_history(ctx[:problem]) } if ctx[:problem]
 cases["NoteTemplate.items"] = -> { RpmsRpc::NoteTemplate.items(ctx[:template]) } if ctx[:template]
-cases["NoteTemplate.text"] = -> { RpmsRpc::NoteTemplate.text(ctx[:template]) } if ctx[:template]
+cases["NoteTemplate.boilerplate"] = -> { RpmsRpc::NoteTemplate.boilerplate(ctx[:template]) } if ctx[:template]
+cases["NoteTemplate.text"] = -> { RpmsRpc::NoteTemplate.text([ "|PATIENT NAME|" ], dfn: ctx[:dfn]) }
 
 cases.each { |name, fn| run.call(name) { fn.call } }
 

@@ -1,0 +1,34 @@
+# AGG WINDOW DEFINITION (#9009068.3) entry 28 "New Patient": its parameters (the 10 multiple).
+# Read from ^AGG(9009068.3,28,10) on image bcer-9.0-20260905-6899d69-ydb, 2026-10-02.
+# Window 0-node: file 2 (PATIENT), secondary file 9000001 (IHS PATIENT), save RPC AGG ADD NEW PATIENT.
+# type: X text, D date, C choice, T table (pointer), K check box, W word processing. required: R or O as AG marks it.
+# field files to #2; secondary_field files to #9000001. filing_code Y = the entry has its own M filing code.
+ien	parameter	label	type	required	field	secondary_field	filing_code
+1	AGGPTLNM	Last Name	X	R			
+2	AGGPTFNM	First Name	X	R			
+3	AGGPTMNM	Middle Name	X				
+4	AGGPTSFX	Suffix	X				
+5	AGGPTSSN	Social Security Number	X		.09		
+6	AGGNOSSN	Reason for No SSN	C			.24	
+7	AGGPTHRN	Health Record Number	X	R			
+8	AGGPTDOB	Date of Birth	D	R	.03		
+9	AGGPTSEX	Sex	C	R	.02		
+10	AGGPTMAR	Marital Status	T		.05		
+11	AGGPTHME	Location of Home	W				Y
+12	AGGPTCLB	Classification/Beneficiary	T	R		1111	
+13	AGGPTELG	Eligibility Status	C	O		1112	
+14	AGGPTBLQ	Indian Blood Quantum	X	O		1110	
+15	AGGPTTRI	Tribe of Membership	T	O		1108	
+16	AGGPTTRQ	Tribe Quantum	X	O		1109	
+17	AGGPTTEN	Tribal Enrollment Number	X	O		.07	
+18	AGGPTAD1	Street Address [Line 1]	X	O	.111		
+19	AGGPTCTY	City	X	O	.114		
+20	AGGPTSTE	State	T	O	.115		
+21	AGGPTZIP	Zip Code	X	O			Y
+22	AGGPTCOM	Current Community of Residence	T	R		1117	
+23	AGGPTCDT	Date Moved	X	R			
+24	AGGPTHPH	Residence Phone	X	O	.131		
+25	AGGPTWPH	Work Phone	X	O	.132		
+26	AGGPTPBC	Place of Birth [City]	X	O	.092		
+27	AGGPTPBS	Place of Birth [State]	T	O	.093		
+28	AGGPTVET	Veteran	K	R	1901		

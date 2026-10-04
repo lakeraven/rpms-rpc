@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/client"
 require "rpms_rpc/phi_sanitizer"
 

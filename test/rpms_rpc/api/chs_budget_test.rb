@@ -3,7 +3,7 @@
 require "bigdecimal"
 require "date"
 require "minitest/autorun"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/chs_budget"
 

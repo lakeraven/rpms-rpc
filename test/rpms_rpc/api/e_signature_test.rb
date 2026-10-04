@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/version"
+require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/e_signature"
 
@@ -27,23 +27,27 @@ class ESignatureTest < Minitest::Test
     RpmsRpc.configure { |cfg| cfg.client = RawResponseClient.new(response) }
   end
 
-  # MockClient keys scalar seeds by the first wire param; encryption is
-  # randomized per call, so tests that need a seeded VALIDSIG hit pin the
-  # cipher to a fixed output.
-  def with_fixed_encryption(value = "ENCRYPTED", &block)
-    RpmsRpc::XwbCipher.stub(:encrypt, value, &block)
+  # Answers ORWU VALIDSIG the way the server does: decrypt the one wire
+  # param and compare it with the stored code. Encryption is randomized per
+  # call, so a MockClient seed keyed by the ciphertext could never match.
+  class SignatureCheckingClient
+    def initialize(code) = @code = code
+    def supports?(*) = true
+    def call_rpc(_rpc, *params) = RpmsRpc::XwbCipher.decrypt(params.first.to_s) == @code ? "1" : "0"
+  end
+
+  def with_server_signature(code)
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = SignatureCheckingClient.new(code) }
   end
 
   # -- validate (ORWU VALIDSIG) ---------------------------------------------
 
   def test_validate_returns_true_for_known_signature
-    with_fixed_encryption do
-      RpmsRpc.mock! do |m|
-        m.seed_scalar(:tiu_valid_signature, "ENCRYPTED", true)
-      end
+    with_server_signature(SIG_CODE)
 
-      assert RpmsRpc::ESignature.validate(USER_DUZ, SIG_CODE)
-    end
+    assert RpmsRpc::ESignature.validate(USER_DUZ, SIG_CODE)
+    refute RpmsRpc::ESignature.validate(USER_DUZ, "wrong-code")
   end
 
   def test_validate_sends_one_encrypted_param_and_no_duz
