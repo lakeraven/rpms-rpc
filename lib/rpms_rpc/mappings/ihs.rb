@@ -409,6 +409,33 @@ module RpmsRpc
       m.field 5, :facility
     end
 
+    # BGOVIMM GET — the patient's immunization history (multi-line). INP is
+    # DFN ^ what, "I" asking for the V IMMUNIZATION rows only (F forecast,
+    # C contraindications and R refusals are the other letters; GET^BGOVIMM5:
+    # BGOVIMM5.m:206-212). On an IHS site (DUZ("AG")="I") each dose is one
+    # "I" row built from the Immunization package's IMMHX^BIRPC data elements
+    # and then overlaid (BGOVIMM5.m:231-275); the positions match the
+    # non-IHS branch's documented row (:288-308):
+    #   "I" ^ SHORT_NAME ^ DATE (MM/DD/YYYY) ^ V_IMM_IEN ^ OTHER_LOC ^
+    #   GROUP ^ VACCINE_IEN ^ LOT ^ REACTION ^ VIS_DATE ^ AGE ^ VISIT_DATE ^
+    #   PROVIDER (IEN~NAME) ^ SITE (CODE~NAME) ^ VOLUME ^ VISIT_IEN ^
+    #   VISIT_CATEGORY ^ VACCINE_NAME ^ LOCATION (IEN~NAME) ^ VISIT_LOCKED ^
+    #   EVENT_DATE (FileMan, IHS only) ^ ... ^ VFC_ELIGIBILITY (label, :24) ^
+    #   ... ^ MANUFACTURER (:26) ^ "RPMS"
+    # Immunization.for_patient keeps the "I" rows and splits the ~ pairs.
+    DataMapper.define(:immunization_list) do |m|
+      m.rpc "BGOVIMM GET"
+      m.field 0,  :record_type
+      m.field 3,  :ien
+      m.field 7,  :lot_number
+      m.field 12, :performer
+      m.field 13, :site
+      m.field 14, :dose_quantity, :float
+      m.field 17, :vaccine_display
+      m.field 20, :occurrence_datetime, :fileman_datetime
+      m.field 25, :manufacturer
+    end
+
     # BEHOCIR GETTXT — CCD document content
     DataMapper.define(:immunization_text) do |m|
       m.rpc "BEHOCIR GETTXT"

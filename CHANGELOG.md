@@ -210,6 +210,18 @@ IHS clusters (second PR):
 - `RpmsRpc::Immunization.for_patient` and `.find`: BIPC IMMLIST / IMMGET.
   `Immunization.text_summary` (BEHOCIR GETTXT) stays. No BIPC RPC is
   registered; the registered immunization surface is BGOVIMM* and BYIM *.
+  **Kept, rebuilt on BGOVIMM GET** (GET^BGOVIMM5, the immunization history
+  VueCentric's immunization component reads): same calls, `for_patient(dfn)`
+  returns a list and `find(ien)` one dose or nil, with the removed read's
+  keys. `find` asks FileMan (DDR GETS ENTRY DATA, file 9000010.11) which
+  patient a dose belongs to and filters that patient's read. Changed: the
+  routine returns no CVX, status, expiration date, route, dose unit, VFC
+  eligibility code or funding source, so `:vaccine_code`, `:status`,
+  `:expiration_date`, `:route`, `:dose_unit`, `:vfc_eligibility_code` and
+  `:funding_source` are no longer returned. A key with no value is left out.
+  `:vaccine_display` is the vaccine's full name, and `:occurrence_datetime`
+  is the event date. Proved live by `test/live/immunization_live_test.rb`
+  against the V IMMUNIZATION entries on the 0930 build.
 - `RpmsRpc::ImmunizationExchange` — the whole module (`send_immunizations`,
   `submit_query`, `for_patient`, `retrieve_response`, `process_responses`,
   `check_status`): BYIMRT VXU / VXQ / RSP / STATUS. VXQ / VXU / RSP are
