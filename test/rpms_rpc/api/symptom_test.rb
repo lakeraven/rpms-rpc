@@ -13,14 +13,14 @@ class SymptomTest < Minitest::Test
   def test_search_returns_matching_symptoms
     RpmsRpc.mock! do |m|
       m.seed_keyed_collection(:symptom_search, "rash", [
-        { ien: 1, name: "Rash", snomed_code: "271807003" },
-        { ien: 2, name: "Rash, generalized", snomed_code: "247409008" }
+        { ien: 1, name: "Rash" },
+        { ien: 2, name: "Rash, generalized" }
       ])
     end
 
     rows = RpmsRpc::Symptom.search("rash")
     assert_equal 2, rows.length
-    assert_equal "271807003", rows.first[:snomed_code]
+    assert_equal "Rash", rows.first[:name]
   end
 
   def test_search_dispatches_orwdal32_symptoms
@@ -29,7 +29,8 @@ class SymptomTest < Minitest::Test
     end
     RpmsRpc::Symptom.search("itching")
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWDAL32 SYMPTOMS" }
-    assert_equal [ "itching" ], call[:params]
+    # SYMPTOMS(Y,FROM,DIR) (ORWDAL32.m:61): DIR is the $O direction (#259).
+    assert_equal [ "itching", "1" ], call[:params]
   end
 
   def test_search_blank_returns_empty

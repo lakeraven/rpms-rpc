@@ -6,9 +6,25 @@ require "rpms_rpc/xwb_client"
 require "rpms_rpc/version"
 require "rpms_rpc/api/agg"
 
+# SPEC AMENDMENT (rpms-rpc#289) — CIA reply fixtures carry a real sequence echo.
+#
+# #read_reply now correlates a reply to its request by the one-byte sequence
+# echo CIANBLIS writes ahead of EVERY reply (`W SEQ`, CIANBLIS.m:135): a piece
+# whose first byte is not the current @seq is a stale tail from an earlier reply
+# that arrived in flight, and is skipped rather than returned as this call's
+# answer (the one-call-late desync of #254). Correlation therefore requires each
+# canned reply to begin with the echo of the frame it answers, advancing with
+# @seq (1..9, wrapping). Fixtures that hard-coded a single echo across several
+# exchanges, or carried no echo at all, were pre-#289 artifacts of a reader that
+# accepted any non-empty piece; they are amended here to the shape a real broker
+# sends. #reseq restamps a shared fixture with the echo of a later exchange.
 class RpmsRpc::CiaClientTest < Minitest::Test
   Client = RpmsRpc::CiaClient
   EOD = RpmsRpc::Client::EOD
+
+  # Restamp a canned reply's one-byte sequence echo for a later exchange — the
+  # same broker reply, answering frame n instead of frame 1.
+  def reseq(reply, n) = (n.to_s + reply.to_s.byteslice(1..).to_s).b
 
   # Minimal fake socket: canned recv chunks, records writes. An exhausted read
   # queue returns "" — i.e. the peer closed the connection.
@@ -61,15 +77,41 @@ class RpmsRpc::CiaClientTest < Minitest::Test
 
   # Fix (#172 Copilot): call_rpc_raw must return the UNMODIFIED broker response —
   # it is no longer an alias of call_rpc, which strips non-printables.
+  # (#289) The reply carries the sequence echo "1" + \x00 ack a real frame does,
+  # so read_reply recognises it as this (seq 1) request's reply; those framing
+  # bytes are part of the raw response and come back untouched.
   def test_call_rpc_raw_returns_unmodified_response
-    raw = "ab\x01\x1fcd" # embedded non-printable bytes (\x1f != EOD \x1e)
+    raw = "1\x00ab\x01\x1fcd" # seq echo 1, \x00 ack, body with embedded non-printables (\x1f != EOD \x7f)
     c = connected_client([ raw + EOD ])
     assert_equal raw, c.call_rpc_raw("CIANBRPC CANRUN", "XUS INTRO MSG")
   end
 
-  def test_call_rpc_strips_non_printables
-    c = connected_client([ "ab\x01\x1fcd" + EOD ])
-    assert_equal "ab  cd", c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
+  def test_call_rpc_strips_non_printables_within_a_line
+    c = connected_client([ "1\x00ab\x1fcd" + EOD ]) # seq echo 1 + \x00 ack + body
+    assert_equal [ "ab cd" ], c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
+  end
+
+  # #195: a reply with no ack after the seq echo carries no data; the seq
+  # byte and what follows it never become a line. (#289) The piece carries
+  # this frame's echo "1", so read_reply returns it; "a" is no ack flag.
+  def test_call_rpc_returns_no_lines_for_a_reply_without_an_ack
+    c = connected_client([ "1ab\x01\x1fcd" + EOD ])
+    assert_equal [], c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
+  end
+
+  # A GLOBAL ARRAY (BMX recordset) reply has no line breaks on CIA: each node
+  # ends in $C(30) and a lone $C(31) node ends the array. Bytes as the pinned
+  # 0930 YDB build sent BSDX HOSPITAL LOCATION (HOSPLOC^BSDX32), trimmed;
+  # (#289) its echo restamped to "1", the seq of this client's first frame.
+  def test_call_rpc_splits_a_recordset_on_its_record_separators
+    reply = "I00020HOSPITAL_LOCATION_ID^T00040HOSPITAL_LOCATION\x1e" \
+            "3^DEMO IHS CLINIC\x1e8^OTHER\x1e\x1f"
+    c = connected_client([ "1\x00#{reply}" + EOD ])
+    assert_equal [
+      "I00020HOSPITAL_LOCATION_ID^T00040HOSPITAL_LOCATION",
+      "3^DEMO IHS CLINIC",
+      "8^OTHER"
+    ], c.call_rpc("BSDX HOSPITAL LOCATION")
   end
 
   # Fix (#172 Copilot): a peer-closed read (empty recv) must clear @connected,
@@ -175,6 +217,49 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     c = client_on(socket)
     assert_equal "1\x00HDR#{EOD}ROW#{EOD}", c.call_rpc_global_array("BSDX HOSPITAL LOCATION")
     assert_equal "2\x00OK", c.call_rpc_raw("XUS INTRO MSG")
+  end
+
+  # -- in-flight stale tail: the piece discard_stale_bytes cannot catch (#289) -
+  #
+  # #discard_stale_bytes drains the socket at ONE instant, before the write. A
+  # tail still in flight at that instant arrives afterwards — on the next recv,
+  # after the request has gone out — so draining never saw it. It is the
+  # remainder of an earlier reply (a global-array body that embedded EOD, #254),
+  # so it begins with THAT reply's data, not this request's sequence echo.
+  # read_reply skips it on the echo mismatch and reads on to the real reply;
+  # before #289 it returned the tail and the session answered one call late.
+
+  # recv hands back scripted pieces in order; read_nonblock finds nothing to
+  # drain (EAGAIN), so the first piece reaches read_reply as an in-flight tail.
+  class InFlightSocket
+    attr_reader :writes
+
+    def initialize(pieces)
+      @pieces = pieces.dup
+      @writes = []
+    end
+
+    def recv(_n) = @pieces.empty? ? "" : @pieces.shift
+    def read_nonblock(_n) = raise(IO::EAGAINWaitReadable) # nothing buffered at drain time
+    def write(str) = (@writes << str) && str.bytesize
+    def flush; end
+    def close = @closed = true
+    def closed? = !!@closed
+    def setsockopt(*); end
+  end
+
+  def test_an_in_flight_tail_with_a_mismatched_echo_is_not_the_next_reply
+    # Request 1 read "1\x00HEADER" and left the rest of its global-array body
+    # unread; that tail lands on the socket only after request 2 (seq 2) has
+    # drained and been written, so discard_stale_bytes cannot remove it. Its
+    # first byte is reply 1's data, not reply 2's echo "2", so it is skipped.
+    stale_tail = "7^CHART REVIEW^^#{EOD}5^PHARMACY^^"
+    real_reply = "2\x00OK"
+    c = client_on(InFlightSocket.new([ stale_tail + EOD, real_reply + EOD ]))
+    c.instance_variable_set(:@seq, 1) # the next exchange uses seq 2
+
+    assert_equal real_reply, c.call_rpc_raw("XUS INTRO MSG"),
+      "request 2 accepted an in-flight stale tail whose sequence echo was not its own"
   end
 
   # CIA length prefix: header byte = (num_length_bytes << 4) | (len % 16),
@@ -327,8 +412,10 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # readable. Pre-seed a resolved session, then fail a re-auth on no DUZ:
   # duz/authenticated/session_uid must all clear, not survive.
   def test_failed_reauth_clears_prior_users_identity
+    # (#289) The SECOND sign-on's AUTH is the third exchange, so its reply
+    # carries echo "3" and its DUZ read echo "4" — the echoes advance with @seq.
     c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD,
-                           AUTH_REPLY + EOD, "4\x00\r\n" + EOD ])
+                           reseq(AUTH_REPLY, 3) + EOD, "4\x00\r\n" + EOD ])
     first = c.authenticate("USERA", "USERA!!") # resolves DUZ 63
     assert_equal 63, first[:duz]
     assert_equal "63", c.duz
@@ -384,6 +471,71 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_raises(RpmsRpc::Client::ConnectionError) { c.call_rpc("ANY RPC") }
     refute c.authenticated?
     assert_nil c.signon_user, "a torn-down connection must not keep naming a clinician"
+  end
+
+  # -- disconnect sends the {CIA} quit action (rpms-rpc#192) ------------------
+  #
+  # CIANBLIS serves one session at a time and does not notice a vanished peer at
+  # EOF — only on its retry bound, ~45 s later, while the next connection waits.
+  # disconnect must therefore send the broker's quit action before closing the
+  # socket. The action is "D": DOACTION^CIANBLIS dispatches on header byte 8
+  # (CIANBLIS.m:128,139) to ACTD^CIANBACT, which logs the session out via
+  # RESET^CIANBRPC() and sets CIAQUIT=1 so the listener returns to accept at
+  # once (CIANBACT.m:24-27). RESET quits unless CIA("UID") is set
+  # (CIANBRPC.m:102), so the quit frame must carry the session UID field.
+
+  def test_disconnect_sends_the_cia_quit_action_then_closes_the_socket
+    # ACTD's reply is <seq echo>\x00<CIADATA=1>; the broker then closes.
+    c = connected_client([ "1\x001" + EOD ])
+    c.instance_variable_set(:@session_uid, "7")
+    socket = c.instance_variable_get(:@socket)
+
+    c.disconnect
+
+    pk = ->(v) { c.send(:pk, v) }
+    expected = ("{CIA}#{EOD}1D".b + pk["UID"] + pk[""] + pk["7"] + EOD).b
+    assert_equal expected, socket.writes.last,
+      "disconnect must send the {CIA} 'D' action frame carrying the session UID"
+    assert socket.closed?, "disconnect must close the socket after the quit action"
+    refute c.connected?
+  end
+
+  # The quit must still go out when sign-on never allocated a session UID, so
+  # the frame falls back to the default UID the RPC frames use.
+  def test_disconnect_quit_frame_falls_back_to_the_default_uid
+    c = connected_client([ "1\x001" + EOD ])
+    socket = c.instance_variable_get(:@socket)
+
+    c.disconnect
+
+    pk = ->(v) { c.send(:pk, v) }
+    expected = ("{CIA}#{EOD}1D".b + pk["UID"] + pk[""] + pk["1"] + EOD).b
+    assert_equal expected, socket.writes.last
+  end
+
+  # The broker closes the socket as soon as ACTD returns (CIAQUIT=1), so the
+  # reply read can hit EOF first. A clean quit that races the close must not
+  # raise out of disconnect, and must still leave the client disconnected.
+  def test_disconnect_tolerates_a_broker_that_closes_before_replying
+    c = connected_client([]) # recv -> "" immediately: broker already gone
+    c.instance_variable_set(:@session_uid, "7")
+    socket = c.instance_variable_get(:@socket)
+
+    c.disconnect # must not raise
+
+    pk = ->(v) { c.send(:pk, v) }
+    assert_equal ("{CIA}#{EOD}1D".b + pk["UID"] + pk[""] + pk["7"] + EOD).b, socket.writes.last,
+      "the quit action must be attempted even if the broker then closes first"
+    assert socket.closed?
+    refute c.connected?
+  end
+
+  # A disconnect on a client that never connected sends nothing and is a no-op
+  # teardown — there is no session for the broker to quit.
+  def test_disconnect_on_an_unconnected_client_sends_no_frame
+    c = Client.new
+    c.disconnect
+    refute c.connected?
   end
 
   # -- mid-call read timeout --------------------------------------------------
@@ -610,7 +762,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert result[:success]
     assert_equal 63, result[:duz]
     assert_equal "7", c.session_uid
-    assert_equal "4 ok  ", c.call_rpc("XWB IM HERE") # "4" seq echo + \x00 ack + body, printables
+    assert_equal [ "ok" ], c.call_rpc("XWB IM HERE") # "4" seq echo + \x00 ack stripped, lines
     # every frame the broker saw parsed as {CIA}, with one-byte cycling seqs
     assert_equal %w[1 2 3 4], broker.frames.map { |f| f[:seq] }
     assert_equal %w[C R R R], broker.frames.map { |f| f[:action] }
@@ -788,6 +940,34 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_equal [ "UID", "", "7", "RPC", "", "XWB EXAMPLE GET LIST",
                    "1", "1", "alpha",
                    "1", "2", "beta" ],
+                 broker.frames.last[:fields]
+  end
+
+  # An Array key is a multi-level subscript: DOACTION splices the subscript
+  # text raw, so "1,0" lands as P3(1,0) — the TIUX(n,0) node BLRPLT^TIUSRVD
+  # reads for TIU TEMPLATE GETTEXT (TIUSRVD.m:82-83). Sent as a one-level
+  # string subscript it would be quoted ("1,0") and the text expand to
+  # nothing (#259).
+  def test_array_key_frames_as_a_multi_level_numeric_subscript
+    c, broker = signed_on_strict_client([ "^^2^2^3261002^^\r\n" ])
+    c.call_rpc("TIU TEMPLATE GETTEXT", "8", "349;3261002.09;A;7", { [ 1, 0 ] => "one", [ 2, 0 ] => "two" })
+    assert_equal [ "UID", "", "7", "RPC", "", "TIU TEMPLATE GETTEXT",
+                   "1", "", "8",
+                   "2", "", "349;3261002.09;A;7",
+                   "3", "1,0", "one",
+                   "3", "2,0", "two" ],
+                 broker.frames.last[:fields]
+  end
+
+  # TIU SET DOCUMENT TEXT reads TIUX("HDR") and TIUX("TEXT",n,0)
+  # (TIUSRVPT.m:12, 18): a string level is quoted, a numeric one bare (#219).
+  def test_tiux_hash_frames_quoted_string_and_bare_numeric_levels
+    c, broker = signed_on_strict_client([ "5001^1^1\r\n" ])
+    c.call_rpc("TIU SET DOCUMENT TEXT", "5001", { "HDR" => "1^1", [ "TEXT", 1, 0 ] => "S: cough" })
+    assert_equal [ "UID", "", "7", "RPC", "", "TIU SET DOCUMENT TEXT",
+                   "1", "", "5001",
+                   "2", "\"HDR\"", "1^1",
+                   "2", "\"TEXT\",1,0", "S: cough" ],
                  broker.frames.last[:fields]
   end
 
