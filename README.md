@@ -52,6 +52,12 @@ Requires Ruby 3.4+.
 
 ## Usage
 
+> **The broker connection is plaintext.** XWB, BMX and CIA carry access/verify
+> codes and PHI unencrypted, and the gem has no TLS of its own. Reach a broker
+> only over a private network, a port forward, or a TLS tunnel. See
+> [Transport security](SECURITY.md#transport-security) and
+> [`docs/tls.md`](docs/tls.md).
+
 ### Loading the gem
 
 ```ruby
