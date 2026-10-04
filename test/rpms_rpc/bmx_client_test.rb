@@ -28,35 +28,52 @@ class RpmsRpc::BmxClientTest < Minitest::Test
   end
 
   # -- build_bmx_message ------------------------------------------------------
+  #
+  # Framing verified on a live stock BMX broker (a local IRIS container of a
+  # built 9.0 image, rpms-rpc#282). The earlier form — a "^" between the proto
+  # header and the message, and ";1" after the 5-digit length — made PRSP^BMXMBRK
+  # read an empty protocol string and mangled the RPC name. The forms below
+  # resolve the RPC on the stock parser.
 
-  def test_build_bmx_message_includes_proto_header_and_msg_header
-    msg = Client.new.build_bmx_message("ECHO^hello")
-    # Proto header: "015" + "RPMS_RPC;0;0;0;" (15 chars)
-    assert msg.start_with?("015RPMS_RPC;0;0;0;^")
-    # Message header: "%05d;1" where %05d = body.length + 6
-    # body = "ECHO^hello" (10 chars) → 10 + 6 = 16 → "00016;1"
-    assert_includes msg, "00016;1ECHO^hello"
+  def test_build_bmx_message_no_params_proto_header_then_message_no_caret
+    msg = Client.new.build_bmx_message("XUS SIGNON SETUP")
+    # proto_header "015RPMS_RPC;0;0;0;" is followed IMMEDIATELY by the message
+    # (no caret), then the 5-digit length, a single "0" flag byte, then the name.
+    # text bytesize 16 + 6 = 22 → "00022" + "0" + name.
+    assert msg.start_with?("015RPMS_RPC;0;0;0;00022" + "0" + "XUS SIGNON SETUP")
+    refute_includes msg, ";1"
+    refute_includes msg, "RPMS_RPC;0;0;0;^"
   end
 
-  def test_build_bmx_message_with_empty_params
-    msg = Client.new.build_bmx_message("XUS SIGNON SETUP")
-    # body = "XUS SIGNON SETUP" (16 chars) → 16 + 6 = 22 → "00022;1"
-    assert_includes msg, "00022;1XUS SIGNON SETUP"
+  def test_build_bmx_message_frames_scalar_params_length_prefixed
+    # PRSB param block: MMMMM (total) + per param LLL(value_len+1) + TYPE "0" + value.
+    msg = Client.new.build_bmx_message("AGG LOOKUP PATIENTS", [ "DEMO", "N" ])
+    # text = "AGG LOOKUP PATIENTS^" + block
+    #   block = "00013" + ("005" "0" "DEMO") + ("002" "0" "N")   # 8+5 = 13 bytes
+    assert_includes msg, "AGG LOOKUP PATIENTS^00013" + "0050DEMO" + "0020N"
+  end
+
+  def test_build_bmx_message_carries_a_caret_inside_a_scalar_value
+    # PRSA splits only at the FIRST caret (name|block); PRSB then reads the value
+    # by length, so a caret INSIDE a value crosses intact (the old scheme could
+    # not — it is why XUS CVC was unsupported over BMX before #282).
+    msg = Client.new.build_bmx_message("XUS CVC", [ "encA^encB^encC" ])
+    # value is 14 bytes → LLL = 15 → "015"; inner = 3+1+14 = 18 → block "00018"
+    assert_includes msg, "XUS CVC^00018" + "015" + "0" + "encA^encB^encC"
   end
 
   # -- byte-safety (multibyte / binary) --------------------------------------
 
   def test_build_bmx_message_is_binary_encoded
-    msg = Client.new.build_bmx_message("ECHO^hello")
+    msg = Client.new.build_bmx_message("XUS SIGNON SETUP")
     assert_equal Encoding::ASCII_8BIT, msg.encoding
   end
 
   def test_build_bmx_message_uses_bytesize_for_multibyte_input
-    # body = "ECHO^héllo" = 4 + 1 + 5(héllo, where é=2) = 11 bytes (not 10 chars)
-    msg = Client.new.build_bmx_message("ECHO^héllo")
-    assert msg.start_with?("015RPMS_RPC;0;0;0;^".b)
-    # body bytesize 11 + 6 = 17 → "00017;1"
-    assert_includes msg, "00017;1ECHO^héllo".b
+    # value "héllo" = 6 bytes (é=2) → LLL = 6+1 = 7 → "007"
+    msg = Client.new.build_bmx_message("ECHO", [ "héllo" ])
+    assert msg.start_with?("015RPMS_RPC;0;0;0;".b)
+    assert_includes msg, "ECHO^00010" + "0070héllo".b
   end
 
   # -- subclass contract ------------------------------------------------------
@@ -91,14 +108,11 @@ class RpmsRpc::BmxClientTest < Minitest::Test
     assert_match(/BMX client does not yet support/i, error.message)
   end
 
-  # -- "^" cannot cross the BMX wire inside a parameter ----------------------
+  # -- hermetic round trip, built from bytes captured on a live stock broker --
   #
-  # PRSA^BMXMBRK (BMXMBRK.m:69-70) takes everything after the FIRST "^" of
-  # the content line as the parameter string — the caret is STRUCTURAL and
-  # the protocol has no escape for it. A scalar containing "^" is therefore
-  # indistinguishable on the wire from extra parameters: XUS CVC's payload
-  # (three ciphertexts joined with "^", which CVC^XUSRB itself splits) would
-  # silently split and the RPC would run on a fragment. Fail loud instead.
+  # A local IRIS container of a built 9.0 image (rpms-rpc#282), 2026-10-02. The
+  # replies below are the real framing: SNDERR writes len(security)+security +
+  # len(app)+app, then the data, then EOT (BMXMON.m SNDERR/SND).
 
   class RecordingSocket
     attr_reader :writes
@@ -108,8 +122,8 @@ class RpmsRpc::BmxClientTest < Minitest::Test
       @writes = []
     end
 
-    def write(str) = (@writes << str) && str.bytesize
-    def recv(_n) = @reads.empty? ? "" : @reads.shift
+    def write(str) = (@writes << str.b) && str.bytesize
+    def recv(_n) = @reads.empty? ? "" : @reads.shift.b
     def flush; end
     def close = @closed = true
     def closed? = !!@closed
@@ -124,43 +138,60 @@ class RpmsRpc::BmxClientTest < Minitest::Test
     c
   end
 
-  def test_a_caret_bearing_param_is_rejected_before_it_reaches_the_wire
-    client = connected_client
-    error = assert_raises(NotImplementedError,
-      "a '^'-bearing param must fail LOUD — the wire would silently split it") do
-      client.call_rpc_raw("XUS CVC", "encA^encB^encC")
-    end
-    assert_match(/\^/, error.message)
-    assert_empty client.instance_variable_get(:@socket).writes,
-      "the split frame reached the wire"
+  # Connect is TWO packets: the monitor TCPconnect that spawns the child session
+  # (no reply), then the session-framed TCPconnect the child answers with
+  # "accept"+EOT. A client that sends one packet and reads hangs.
+  def test_connect_sends_monitor_then_session_tcpconnect_and_accepts
+    client = Client.new
+    client.instance_variable_set(:@timeout, 1)
+    sock = RecordingSocket.new([ "\x00\x00accept\x04" ])
+    client.define_singleton_method(:open_socket) { |*| @socket = sock }
+
+    assert client.connect
+    assert client.connected?
+    writes = sock.writes
+    assert_equal 2, writes.length, "connect must send monitor + session TCPconnect"
+    assert_equal "{BMX}00010TCPconnect", writes[0]
+    # session packet: {BMX} + TTTTT(=PLEN+5) + PPPPP + "TCPconnect"
+    assert_equal "{BMX}0001500010TCPconnect", writes[1]
   end
 
-  # The facade path: change_verify_code's payload is BY DESIGN a "^"-joined
-  # triple (CVC^XUSRB splits it server-side), so on BMX it must raise the
-  # typed transport limitation — never write a frame the broker would read
-  # as three separate parameters, and never dress the wreckage up as a
-  # generic failure.
-  def test_change_verify_code_over_bmx_raises_the_transport_limitation
-    require "rpms_rpc/api/authentication"
-    client = connected_client([ "\x00\x00" ]) # never reached
-    RpmsRpc.configure { |c| c.client = client }
+  # The point of #282: an AG rejection comes back over BMX in the SECURITY
+  # packet, where the gem surfaces it as an error (since #363 the typed
+  # RpcRefusedError: served, but not to this user) — whereas the CIA broker never
+  # returns BMXSEC, so the same rejection reads as success. These are the exact
+  # bytes a non-exempt RPC drew pre-sign-on (CHKPRMIT^BMXMSEC via $$CHK^XQCS).
+  def test_a_security_packet_rejection_surfaces_as_an_error
+    msg = "The remote procedure AGG ADD NEW PATIENT is not registered to the option XUS SIGNON."
+    reply = msg.bytesize.chr + msg + "\x00" + "\x04"
+    client = connected_client([ reply ])
 
-    assert_raises(NotImplementedError) do
-      RpmsRpc::Authentication.change_verify_code(
-        old_verify_code: "OLD1!", new_verify_code: "NEW2!", confirm_verify_code: "NEW2!"
-      )
+    error = assert_raises(RpmsRpc::Client::RpcRefusedError) do
+      client.call_rpc("AGG ADD NEW PATIENT", "Mini Registration", "", "AGGPTLNM=DEMOPATIENT")
     end
-    assert_empty client.instance_variable_get(:@socket).writes
-  ensure
-    RpmsRpc.reset!
+    assert_match(/not registered to the option/i, error.message)
   end
 
-  # WIRE-LEVEL regression for the sign-on path: the encoded frame — not the
-  # pre-serialization argument list — must carry the encrypted AV pair as
-  # exactly ONE parameter, and that parameter must decrypt back to the pair.
-  # (XwbCipher's table is the 95 printables minus "^" in every row, and its
-  # framing bytes are chr(32..51), so ciphertext of a caret-free pair can
-  # never contain the joiner — asserted as a gate in xwb_cipher_test.)
+  # A clean data reply (both packet lengths 0) passes through unchanged on the
+  # raw path.
+  def test_a_resolved_data_reply_passes_through
+    client = connected_client([ "\x00\x00" + "1^DATA^ROW" + "\x04" ])
+    assert_equal "1^DATA^ROW", client.call_rpc_raw("SOME READ")
+  end
+
+  # BMXMON's ETRAP writes "M ERROR=" with ONE space and it arrives as DATA
+  # (both packet lengths 0), so check_for_rpc_error must catch the one-space
+  # form or it reads as a successful reply (the <NOTOPEN> seen live on #282).
+  def test_a_one_space_m_error_is_detected_on_call_rpc
+    client = connected_client([ "\x00\x00" + "M ERROR=<NOTOPEN>CAPI+5^BMXMBRK2" + "\x04" ])
+    error = assert_raises(RpmsRpc::Client::RpcError) { client.call_rpc("XWB IM HERE") }
+    assert_match(/NOTOPEN/, error.message)
+  end
+
+  # WIRE-LEVEL regression for the sign-on path: the encoded frame must carry the
+  # encrypted AV pair as exactly ONE length-framed BMX parameter, and that
+  # parameter must decrypt back to the pair. PRSB reads the value by length, so
+  # the ciphertext crosses intact regardless of its bytes.
   def test_the_encrypted_av_pair_crosses_the_bmx_wire_as_one_parameter
     client = connected_client([
       "\x00\x00OK\x04",                    # XUS SIGNON SETUP
@@ -170,13 +201,37 @@ class RpmsRpc::BmxClientTest < Minitest::Test
     result = client.authenticate("AC123", "VC123!")
     assert result[:success]
 
+    # Decode the one parameter back OUT of the frame (the cipher is
+    # non-deterministic, so re-encrypting would not match): after "XUS AV CODE^"
+    # comes the 5-digit block total, then one param: 3-digit (len+1), 1 type
+    # byte, then the value.
     av_frame = client.instance_variable_get(:@socket).writes.last
-    content = av_frame[/;1(.+)\z/m, 1]
-    pieces = content.split("^", -1)
-    assert_equal 2, pieces.length,
-      "the AV ciphertext split into multiple BMX parameters on the wire: #{pieces.inspect}"
-    assert_equal "XUS AV CODE", pieces[0]
-    assert_equal "AC123;VC123!", RpmsRpc::XwbCipher.decrypt(pieces[1]),
+    block = av_frame.b.split("XUS AV CODE^".b, 2).last
+    inner = block.byteslice(5, block.byteslice(0, 5).to_i)
+    vlen = inner.byteslice(0, 3).to_i - 1
+    value = inner.byteslice(4, vlen)
+    assert_equal vlen, value.bytesize,
+      "the AV pair did not cross as one length-framed BMX parameter"
+    assert_equal "AC123;VC123!", RpmsRpc::XwbCipher.decrypt(value),
       "the single wire parameter does not decrypt back to the AV pair"
+  end
+
+  # A caret-bearing scalar (XUS CVC's "^"-joined triple) now crosses as ONE
+  # param — PRSB reads by length — so change_verify_code no longer raises a
+  # transport limitation on BMX; it writes the frame.
+  def test_change_verify_code_over_bmx_sends_the_frame
+    require "rpms_rpc/api/authentication"
+    client = connected_client([
+      "\x00\x00OK\x04",          # XUS SIGNON SETUP (resolve)
+      "\x00\x001\x04"            # XUS CVC -> success
+    ])
+    RpmsRpc.configure { |c| c.client = client }
+
+    RpmsRpc::Authentication.change_verify_code(
+      old_verify_code: "OLD1!", new_verify_code: "NEW2!", confirm_verify_code: "NEW2!"
+    )
+    refute_empty client.instance_variable_get(:@socket).writes
+  ensure
+    RpmsRpc.reset!
   end
 end

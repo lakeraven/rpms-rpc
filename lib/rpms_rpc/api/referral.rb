@@ -1,21 +1,53 @@
 # frozen_string_literal: true
 
 require_relative "../mappings"
+require_relative "../context_scope"
+require_relative "../rcis_wire"
 
 module RpmsRpc
   # Symbolic API for referral records. Read via referral_search /
   # referral_detail; write via the BMC RCIS RPCs (see {add}).
+  #
+  # ## Context — this module binds it, callers do not (rpms-rpc#258)
+  #
+  # RPC registration is OPTION-scoped (RpmsRpc::ContextScope): the broker
+  # answers "may this session run this RPC?" from the RPC multiple of the
+  # option bound right now. On a built 9.0 image the BMC* RPCs are listed in
+  # the RPC multiple of ONE file-19 option, BMCRPC ("the broker context for
+  # RCIS component in the EHR GUI"; 22 entries: the 21 BMC names below plus
+  # ORWDXIHS CLININD), and in no other — not the option a CIA sign-on binds
+  # (CIAV VUECENTRIC) and not OR CPRS GUI CHART. A user without XUPROGMODE
+  # calling them under the sign-on option is simply denied.
+  #
+  # So every method that reaches the wire scopes itself to BMCRPC via
+  # ContextScope.scoped (bind, run, restore the caller's option), the way
+  # RpmsRpc::Agg does for AGGRPC. A client that cannot scope contexts runs
+  # as-is. A programmer-key session bypasses the check either way, so only a
+  # non-programmer run is evidence of this bind.
+  #
+  # The BMC methods call their RPC unconditionally. A broker that does not
+  # serve it raises Client::RpcNotAvailableError; one that serves it but not
+  # to this user raises Client::RpcRefusedError (#363).
   module Referral
     extend self
 
+    # The context option the BMC* RPCs are registered under — see the module
+    # doc. Every method here binds it.
+    CONTEXT = "BMCRPC"
+
+    # STATUS OF REFERRAL (file 90001, field .15) code for a cancelled
+    # referral: X, CLOSED-NOT COMPLETED. RCIS's own reports skip X as
+    # "cancelled" (BMCRR121.m:39, BMCRR41.m:38).
+    CANCELLED_STATUS = "X"
+
     def for_patient(dfn)
-      DataMapper.referral_search.fetch_many(dfn.to_s)
+      in_context { DataMapper.referral_search.fetch_many(dfn.to_s) }
     end
 
     def find(ien)
       return nil if ien.nil?
 
-      DataMapper.referral_detail.fetch_one(ien.to_s)
+      in_context { DataMapper.referral_detail.fetch_one(ien.to_s) }
     end
 
     def add(*params)
@@ -34,6 +66,26 @@ module RpmsRpc
       bmc_scalar_result(:bmc_referral_status_update, ien.to_s, status.to_s, *params)
     end
 
+    # Cancel a referral: file its status as CANCELLED_STATUS through BMC
+    # REFERRAL STATUS UPDATE (UPDTSTRF^BMCRPC3(RSLT,REFIEN,STATUS),
+    # BMCRPC3.m:176-187), under CONTEXT. RCIS has no delete; this replaces
+    # the removed `delete`. The routine files field .15 and nothing else, so
+    # there is no reason argument: a cancellation reason is not filed by it.
+    #
+    # Returns { success:, message:, raw: }. The routine answers "1" when it
+    # filed and "~`0^message" when it refused. On builds without
+    # rpms-ops#702 its refusal path QUITs with a value under a broker that
+    # DOes the tag, and the call raises Client::RpcError instead.
+    def cancel(ien)
+      return failure if invalid_id?(ien)
+
+      in_context do
+        result = bmc_scalar_result(:bmc_referral_status_update, ien.to_s.strip, CANCELLED_STATUS)
+        refusal = result[:raw].to_s.match(/\A~`0\^?(.*)\z/m)
+        refusal ? result.merge(success: false, message: refusal[1].strip) : result
+      end
+    end
+
     def update_consultation_status(consultation_ien, status, *params)
       bmc_scalar_result(:bmc_consultation_status_update, consultation_ien.to_s, status.to_s, *params)
     end
@@ -46,8 +98,13 @@ module RpmsRpc
       bmc_many(:bmc_reference_data, *params)
     end
 
+    # PROV^BMCRPC4 answers one node, "-1^All~IEN^NAME~...": the "All"
+    # entry is a picker option, not a user, so it is dropped (#210).
     def users_providers(*params)
-      bmc_many(:bmc_users_providers, *params)
+      RcisWire.records(bmc_text(:bmc_users_providers, *params)).filter_map do |rec|
+        ien, name = rec.split("^", 2)
+        { ien: ien, name: name } if ien.to_i.positive?
+      end
     end
 
     def providers(*params)
@@ -67,9 +124,9 @@ module RpmsRpc
     end
 
     def patient_eligibility_status(dfn, *params)
-      return nil unless bmc_supported?
-
-      DataMapper.bmc_patient_eligibility_status.fetch_one(dfn.to_s, *params)
+      in_context do
+        DataMapper.bmc_patient_eligibility_status.fetch_one(dfn.to_s, *params)
+      end
     end
 
     def patient_face_sheet(dfn, *params)
@@ -124,40 +181,38 @@ module RpmsRpc
       value.nil? || value.to_s.strip.empty? || value.to_i <= 0
     end
 
-    def bmc_supported?
-      RpmsRpc.client.supports?(:bmc_referral_workflow)
+    # Bind BMCRPC for the duration of the block and restore the caller's
+    # option afterward (a no-op round-trip-wise when BMCRPC is already bound).
+    # Every wire-reaching path below goes through here.
+    def in_context(&block)
+      ContextScope.scoped(RpmsRpc.client, CONTEXT, &block)
     end
 
     def bmc_many(mapping_name, *params)
-      return [] unless bmc_supported?
-
-      DataMapper[mapping_name].fetch_many(*params.map(&:to_s))
+      in_context { DataMapper[mapping_name].fetch_many(*params.map(&:to_s)) }
     end
 
     def bmc_text(mapping_name, *params)
-      return nil unless bmc_supported?
-
-      DataMapper[mapping_name].fetch_text(*params.map(&:to_s))
+      in_context { DataMapper[mapping_name].fetch_text(*params.map(&:to_s)) }
     end
 
     def bmc_scalar_result(mapping_name, *params)
-      return unsupported_result unless bmc_supported?
-
-      raw = DataMapper[mapping_name].fetch_scalar(*params.map(&:to_s))
-      result_from_raw(raw)
+      in_context do
+        raw = DataMapper[mapping_name].fetch_scalar(*params.map(&:to_s))
+        result_from_raw(raw)
+      end
     end
 
     def result_from_raw(raw)
+      rcis = RcisWire.result(raw)
+      return rcis.merge(raw: raw) if rcis
+
       line = raw.to_s.strip
       return { success: false, raw: raw } if line.empty?
 
       success = line.start_with?("1") || line.match?(/\A[1-9]\d*\z/)
       message = line.sub(/\A[01]\^/, "").strip
       { success: success, message: message.empty? ? nil : message, raw: raw }
-    end
-
-    def unsupported_result
-      { success: false, error: "BMC referral workflow not available on this server", raw: nil }
     end
   end
 end

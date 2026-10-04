@@ -1,13 +1,623 @@
 # RPCs left out of the rpc:coverage denominator, each with a reason from this fixed vocabulary
-# (any other reason, or a name the registry does not register, fails the task):
+# (any other reason, or a name the registry does not register, fails the task; so does an
+# excluded RPC that answered live):
 #
-#   no_routine_on_image   registered, but the routine it names is not on the backend image
-#   gui_plumbing          drives a thick-client GUI (layout, window state); no headless use (ADR-0004 tiers)
-#   write_needs_fixture   a write or side effect that needs a disposable fixture before it can run live
+#   no_routine_on_image      registered, but the routine it names is not on the backend image
+#   no_entry_point_on_image  registered, the routine is on the image, but the TAG it names is not
+#   inactive_on_image        registered, but #8994 INACTIVE is set on the image
+#   no_context               no option's RPC multiple lists it, so no client can bind a context that allows it
+#   context_out_of_order     every context that lists it is OUT OF ORDER as shipped; a site can put one back in service
+#   gui_plumbing             drives a thick-client GUI (layout, window state); no headless use (ADR-0004 tiers)
+#   write_needs_fixture      a write or side effect that needs a disposable fixture before it can run live
 #
-# An exclusion is a reviewed decision, not a way to raise the number: add one per PR, with the
-# evidence for its reason in the PR description.
+# The unreachable reasons (no_routine_on_image .. context_out_of_order) are GENERATED from the
+# cloud-rpms RPC atlas of the pinned release by `rake rpc:exclusions`; regenerate each release,
+# never hand-edit them. gui_plumbing and write_needs_fixture are reviewed decisions: add one per
+# PR with its evidence; regeneration keeps them.
 #
-# Example:
-#   "SOME RPC NAME": no_routine_on_image
-{}
+# atlas: cloud-rpms docs/analyst/rpc-atlas/bcer-9.0-20260921-e6f4f0c-ydb-20260925T215238Z/atlas.tsv
+# atlas sha256: f91ca284c0dde03b20c3c6e71615f3ed4ad0e1a2ff8aae8cbe3456d5bfcaaf29
+# registry: bcer-9.0-20260913-1a2244c-ydb (5557 names); atlas registry matches: yes, the atlas's #8994 input has the pinned source sha256
+# regenerate: bundle exec rake rpc:exclusions ATLAS=<cloud-rpms>/docs/analyst/rpc-atlas/<run>/atlas.tsv
+# count context_out_of_order: 80
+# count no_context: 227
+# count no_entry_point_on_image: 88
+# count no_routine_on_image: 203
+"ADE APPT ADD": no_routine_on_image
+"ADE APPT CANCEL": no_routine_on_image
+"ADE APPT CONFLICT": no_routine_on_image
+"ADE APPT DISPLAY": no_routine_on_image
+"ADE GET VARIABLE VALUE": no_routine_on_image
+"ADE MULTIPLE PARAM TEST": no_routine_on_image
+"ADE PATIENT ADDRESS": no_routine_on_image
+"ADE PATIENT LOOKUP": no_routine_on_image
+"ADECompiledStatistics": no_routine_on_image
+"ADEGetFac": no_routine_on_image
+"ADEPatientList": no_routine_on_image
+"ADESetFac": no_routine_on_image
+"ADEStatisticsAvailable": no_routine_on_image
+"AGG DAILY REPORT": no_context
+"AGG DELETE POLICY MEMBER": no_entry_point_on_image
+"AKFRACH": no_routine_on_image
+"AKFRACOM": no_routine_on_image
+"AKFRADD": no_routine_on_image
+"AKFRALLERG": no_routine_on_image
+"AKFRAMEND": no_routine_on_image
+"AKFRAORD": no_routine_on_image
+"AKFRCDX": no_routine_on_image
+"AKFRCLIN": no_routine_on_image
+"AKFRCOM": no_routine_on_image
+"AKFRCOS": no_routine_on_image
+"AKFRDATG": no_routine_on_image
+"AKFRDEM": no_routine_on_image
+"AKFRDS": no_routine_on_image
+"AKFRDSL": no_routine_on_image
+"AKFRDT": no_routine_on_image
+"AKFRDXC": no_routine_on_image
+"AKFRDXS": no_routine_on_image
+"AKFRELIG": no_routine_on_image
+"AKFREMP": no_routine_on_image
+"AKFRENROL": no_routine_on_image
+"AKFRES": no_routine_on_image
+"AKFRESCHK": no_routine_on_image
+"AKFRESCLR": no_routine_on_image
+"AKFRESFILE": no_routine_on_image
+"AKFRESIG": no_routine_on_image
+"AKFRFAPP1": no_routine_on_image
+"AKFRFAPPT": no_routine_on_image
+"AKFRFLAB": no_routine_on_image
+"AKFRGPA": no_routine_on_image
+"AKFRGPNA": no_routine_on_image
+"AKFRGPNF": no_routine_on_image
+"AKFRGPNT": no_routine_on_image
+"AKFRGPNTXT": no_routine_on_image
+"AKFRGPSIG": no_routine_on_image
+"AKFRGTMP": no_routine_on_image
+"AKFRHSUM": no_routine_on_image
+"AKFRIND": no_routine_on_image
+"AKFRINS": no_routine_on_image
+"AKFRLAB": no_routine_on_image
+"AKFRLABG": no_routine_on_image
+"AKFRLABI": no_routine_on_image
+"AKFRLABL": no_routine_on_image
+"AKFRLABR": no_routine_on_image
+"AKFRLIR": no_routine_on_image
+"AKFRLVISIT": no_routine_on_image
+"AKFRMAP": no_routine_on_image
+"AKFRMEDL": no_routine_on_image
+"AKFRMOD": no_routine_on_image
+"AKFRNCHK": no_routine_on_image
+"AKFROERR": no_routine_on_image
+"AKFRPAT": no_routine_on_image
+"AKFRPATH": no_routine_on_image
+"AKFRPATL": no_routine_on_image
+"AKFRPFILE": no_routine_on_image
+"AKFRPL": no_routine_on_image
+"AKFRPLAB": no_routine_on_image
+"AKFRPLC": no_routine_on_image
+"AKFRPLCMNT": no_routine_on_image
+"AKFRPLD": no_routine_on_image
+"AKFRPLEDT": no_routine_on_image
+"AKFRPLINACT": no_routine_on_image
+"AKFRPLS": no_routine_on_image
+"AKFRPNC": no_routine_on_image
+"AKFRPNCL": no_routine_on_image
+"AKFRPND": no_routine_on_image
+"AKFRPNL": no_routine_on_image
+"AKFRPNR": no_routine_on_image
+"AKFRPNTITLE": no_routine_on_image
+"AKFRPNTL": no_routine_on_image
+"AKFRPNTMP": no_routine_on_image
+"AKFRPOV": no_routine_on_image
+"AKFRPP": no_routine_on_image
+"AKFRPSC": no_routine_on_image
+"AKFRPT": no_routine_on_image
+"AKFRPXS": no_routine_on_image
+"AKFRRAD": no_routine_on_image
+"AKFRSAMP": no_routine_on_image
+"AKFRSCD": no_routine_on_image
+"AKFRSIGBLK": no_routine_on_image
+"AKFRSPL": no_routine_on_image
+"AKFRSRH": no_routine_on_image
+"AKFRTD": no_routine_on_image
+"AKFRTMP": no_routine_on_image
+"AKFRTMPCHK": no_routine_on_image
+"AKFRTP": no_routine_on_image
+"AKFRTPCE": no_routine_on_image
+"AKFRTPL": no_routine_on_image
+"AKFRTPL-POP": no_routine_on_image
+"AKFRTV": no_routine_on_image
+"AKFRUNP": no_routine_on_image
+"AKFRUSER": no_routine_on_image
+"AKFRVF": no_routine_on_image
+"AKFRVFD": no_routine_on_image
+"AKFRVFP": no_routine_on_image
+"AKFRVFPCE": no_routine_on_image
+"AKFRVFV": no_routine_on_image
+"AKFRVITC": no_routine_on_image
+"AKFRVITF": no_routine_on_image
+"AKFRVITL": no_routine_on_image
+"AKFRVITV": no_routine_on_image
+"AKFRVL": no_routine_on_image
+"AKFRVTC": no_routine_on_image
+"AKFRVTS": no_routine_on_image
+"AKFRXUS": no_routine_on_image
+"AMHG GET GROUP DATA": no_entry_point_on_image
+"AMHG GET GROUP PATIENT DATA": no_entry_point_on_image
+"AMHG GET SITE PARAMTERS": no_entry_point_on_image
+"AMHG GET TREATMENT NARRATIVE": no_entry_point_on_image
+"AMHG GET TREATMENT PARTICIPANT": no_entry_point_on_image
+"AMHG GET TREATMENT PROBLEM": no_entry_point_on_image
+"AMHG GET TREATMENT PROGRESS": no_entry_point_on_image
+"AMHG GET TREATMENT REVIEW": no_entry_point_on_image
+"AMHG SAVE MRS PATIENT": no_entry_point_on_image
+"BDMG GET REPORT": no_entry_point_on_image
+"BDMG QUEUE DM AUDIT 12": no_entry_point_on_image
+"BDMG QUEUE DM AUDIT 12 P": no_entry_point_on_image
+"BDMG QUEUE MULT SUMMARIES": no_entry_point_on_image
+"BGOPROB1 INPT": no_entry_point_on_image
+"BGOVIMM6 DUPALLOW": no_context
+"BGPG 06 CHK COMM TAX NTL": no_entry_point_on_image
+"BGPG 06 CMP PAT LIST": no_entry_point_on_image
+"BGPG 07 CHK COMM TAX NTL": no_entry_point_on_image
+"BGPG 07 CMP PAT LIST": no_entry_point_on_image
+"BGPG 07 XP 2008": no_entry_point_on_image
+"BGPG 07 XP 2009": no_entry_point_on_image
+"BGPG 07 XP 2010": no_entry_point_on_image
+"BGPG 07 XP 2011": no_entry_point_on_image
+"BGPG 07 XP 2012": no_entry_point_on_image
+"BGPG 08 CHK COMM TAX NTL": no_entry_point_on_image
+"BGPG 08 CMP PAT LIST": no_entry_point_on_image
+"BGPG 20 AREA ELDER CARE": no_entry_point_on_image
+"BGPG 20 AREA EO": no_entry_point_on_image
+"BGPG 20 AREA HEDIS": no_entry_point_on_image
+"BGPG 20 AREA ONM": no_entry_point_on_image
+"BGPG 20 AREA PAT ED": no_entry_point_on_image
+"BGPG 20 CH HT/WT": no_entry_point_on_image
+"BGPG 20 CMS REPORT": no_entry_point_on_image
+"BGPG 20 EO REPORT": no_entry_point_on_image
+"BGPG 20 HEDIS REPORT": no_entry_point_on_image
+"BGPG 20 LOCAL HT/WT": no_entry_point_on_image
+"BGPG 20 ONM REPORT": no_entry_point_on_image
+"BGPG 20 PAT ED RPT": no_entry_point_on_image
+"BGPG 20 PAT ED RPT PP": no_entry_point_on_image
+"BGPG 20 XP": no_entry_point_on_image
+"BGPG 21 AREA ELDER CARE": no_entry_point_on_image
+"BGPG 21 AREA ONM": no_entry_point_on_image
+"BGPG 21 AREA PAT ED": no_entry_point_on_image
+"BGPG 21 PAT ED RPT": no_entry_point_on_image
+"BGPG 21 PAT ED RPT PP": no_entry_point_on_image
+"BGPG 22 AREA ELDER CARE": no_entry_point_on_image
+"BGPG 22 AREA ONM": no_entry_point_on_image
+"BGPG 22 AREA PAT ED": no_entry_point_on_image
+"BGPG 22 PAT ED RPT": no_entry_point_on_image
+"BGPG 22 PAT ED RPT PP": no_entry_point_on_image
+"BGPG 23 AREA ELDER CARE": no_entry_point_on_image
+"BGPG 23 AREA ONM": no_entry_point_on_image
+"BGPG 23 AREA PAT ED": no_entry_point_on_image
+"BGPG 23 PAT ED RPT": no_entry_point_on_image
+"BGPG 23 PAT ED RPT PP": no_entry_point_on_image
+"BGPG 24 AREA ELDER CARE": no_entry_point_on_image
+"BGPG 24 AREA ONM": no_entry_point_on_image
+"BGPG 24 AREA PAT ED": no_entry_point_on_image
+"BGPG 24 PAT ED RPT": no_entry_point_on_image
+"BGPG 24 PAT ED RPT PP": no_entry_point_on_image
+"BGPG 25 AREA ELDER CARE": no_entry_point_on_image
+"BGPG 25 AREA ONM": no_entry_point_on_image
+"BGPG 25 AREA PAT ED": no_entry_point_on_image
+"BGPG 25 PAT ED RPT": no_entry_point_on_image
+"BGPG 25 PAT ED RPT PP": no_entry_point_on_image
+"BGPG 25 QUEUE AREA EXTRACT": no_entry_point_on_image
+"BGPG 25 QUEUE MANUAL EXTRACT": no_entry_point_on_image
+"BGU CREATERECORD": no_routine_on_image
+"BGU EDITREFERRAL": no_routine_on_image
+"BGU FIELDNAMES": no_routine_on_image
+"BGU FIND": no_routine_on_image
+"BGU GETCLINLIST": no_routine_on_image
+"BGU GETCPTCATS": no_routine_on_image
+"BGU GETCPTLIST": no_routine_on_image
+"BGU GETDRGLIST": no_routine_on_image
+"BGU GETDXLIST": no_routine_on_image
+"BGU GETFACEDATA": no_routine_on_image
+"BGU GETICDCATS": no_routine_on_image
+"BGU GETLOCALSERVICECAT": no_routine_on_image
+"BGU GETLOCATIONS": no_routine_on_image
+"BGU GETPROVIDERS": no_routine_on_image
+"BGU GETRCISPROV": no_routine_on_image
+"BGU GETRCSITEPARAM": no_routine_on_image
+"BGU GETRECORD": no_routine_on_image
+"BGU GETREFERRALDATA": no_routine_on_image
+"BGU GETREFERRALDEF": no_routine_on_image
+"BGU GETREFERRALS": no_routine_on_image
+"BGU GETREFLETTER": no_routine_on_image
+"BGU GETTEMPLATELIST": no_routine_on_image
+"BGU GETVENDORS": no_routine_on_image
+"BGUapitable": no_routine_on_image
+"BGUrpctable": no_routine_on_image
+"BI LOCATION NAMES GET MATCHING": no_context
+"BI LOT NUMBER ADD": no_context
+"BI LOT NUMBERS GET MATCHING": no_context
+"BI PATIENT DEMOG DATA GET": no_context
+"BI PATIENT FACE SHEET GET": no_entry_point_on_image
+"BI PATIENT FORECAST GET": no_context
+"BI PATIENT HEALTH SUMMARY GET": no_entry_point_on_image
+"BI PATIENT IMM HISTORY GET": no_context
+"BI PATIENT PROFILE GET": no_context
+"BI VACCINE NAMES GET ALL": no_context
+"BI VISIT ADD/EDIT": no_context
+"BI VISIT DELETE": no_context
+"BI VISIT GET": no_context
+"BJPN SET FLAG": no_entry_point_on_image
+"BMAG FILTER SAVE USER DEFAULT": no_context
+"BMAG IMAGE INFO ADVANCED": no_context
+"BMC ADD SECONDARY REFERRAL": no_entry_point_on_image
+"BMQGSecInfo": no_routine_on_image
+"BMQapicall": no_routine_on_image
+"BMQapidmsg": no_routine_on_image
+"BMQapitable": no_routine_on_image
+"BMQapitmsg": no_routine_on_image
+"BMQrpccall": no_routine_on_image
+"BMQrpctable": no_routine_on_image
+"BMQrpctmsg": no_routine_on_image
+"BMQsecurity": no_routine_on_image
+"BMX CVC": no_context
+"BMX FIND FACILITY": no_entry_point_on_image
+"BMXNRC": no_routine_on_image
+"BMXProviderLookupRS": no_routine_on_image
+"BNI ADD SITE": no_entry_point_on_image
+"BPC CHARTDATA": no_context
+"BPC EDITNOTE": no_context
+"BPC EDITPROBLEM": no_context
+"BPC EDITREFERRAL": no_context
+"BPC EDUCVISIT SAVE": no_routine_on_image
+"BPC GET IMM FORECAST DATA": no_context
+"BPC GET IMM HISTORY DATA": no_context
+"BPC GET IMM PARAMS": no_entry_point_on_image
+"BPC GET INITIAL LAB LIST": no_context
+"BPC GET RX NEXT NUMBER": no_context
+"BPC GET SD APPT DATA": no_context
+"BPC GET TODAY'S LABS": no_routine_on_image
+"BPC GETAGENTS": no_context
+"BPC GETALLERG": no_context
+"BPC GETBENEFICIARIES": no_context
+"BPC GETBWDATA": no_context
+"BPC GETCLINLIST": no_context
+"BPC GETCOMMUNITIES": no_context
+"BPC GETCPTCATS": no_context
+"BPC GETCPTLIST": no_context
+"BPC GETDBS": no_context
+"BPC GETDIAGNOSISLIST": no_context
+"BPC GETDRGLIST": no_context
+"BPC GETDUPPAT": no_context
+"BPC GETDXLIST": no_context
+"BPC GETFACEDATA": no_context
+"BPC GETHSDATA": no_context
+"BPC GETICDCATS": no_context
+"BPC GETINTERIMLABS": no_context
+"BPC GETLABVISITDATA": no_routine_on_image
+"BPC GETLOCALSERVICECAT": no_context
+"BPC GETLOCATIONS": no_context
+"BPC GETMEDPROFILE": no_routine_on_image
+"BPC GETMYLABS": no_context
+"BPC GETPATIENTLIST": no_context
+"BPC GETPCCMEDPROFILE": no_routine_on_image
+"BPC GETPICKLIST": no_context
+"BPC GETPROBLEMS": no_context
+"BPC GETPROVIDERS": no_context
+"BPC GETRCISPROV": no_context
+"BPC GETRCSITEPARAM": no_context
+"BPC GETRECORD": no_routine_on_image
+"BPC GETREFERRALDATA": no_context
+"BPC GETREFERRALDEF": no_context
+"BPC GETREFERRALS": no_context
+"BPC GETREFLETTER": no_context
+"BPC GETRELIGIONS": no_context
+"BPC GETSTATES": no_context
+"BPC GETTEMPLATELIST": no_context
+"BPC GETTRIBES": no_context
+"BPC GETVENDORS": no_context
+"BPC IMM HIDOSE": no_context
+"BPC IMM LOT REQUIRED": no_context
+"BPC IMM VISIT SAVE": no_context
+"BPC LAB INTERIM": no_context
+"BPC MEASTYPE HELP": no_context
+"BPC MEASVAL VALIDATE": no_context
+"BPC MEASVISIT SAVE": no_context
+"BPC ORDER LABS": no_context
+"BPC ORDERSCREEN": no_context
+"BPC PMR": no_context
+"BPC PRINT LAB ORDER": no_context
+"BPC PSRPC": no_context
+"BPC RX EXPAND SIG": no_context
+"BPC RX FILE DATA": no_context
+"BPC RXALLERGY DATA": no_context
+"BPC UPDATE PCC FILE": no_context
+"BPCBH BROWSE VISITS": no_context
+"BPCBH DELETE RECORD": no_context
+"BPCBH DISPLAY LAST VISIT": no_context
+"BPCBH ENCOUNTER FORM": no_context
+"BPCBH INTAKE FORM": no_context
+"BPCBH LIST VISIT DATES": no_context
+"BPCBH PCC LINK ADD/EDIT": no_context
+"BPCBH RECORD DISPLAY": no_context
+"BPCBH RPT ACTIVE CLIENT": no_context
+"BPCBH RPT GARS1": no_context
+"BPCBH RPT GARS2": no_context
+"BPCBH RPT NO SHOW 1 PAT": no_context
+"BPCBH RPT SUICIDE STANDARD": no_context
+"BPCBH RPT TP NEED RESOLVED": no_context
+"BPCBH RPT TP NEED REVIEWED": no_context
+"BPCBH SUICIDE FORM DSP": no_context
+"BPCBH TIU NOTES": no_context
+"BPCBH TP PRINT": no_context
+"BQI GET AUTOPOP REPORT": no_context
+"BQI GET REGISTER DISPLAY": no_context
+"BQI MU GET PROV CQM EXPORT": no_routine_on_image
+"BQI MU GET PROV EXPORT": no_routine_on_image
+"BQI PAT FAM HISTORY DETAIL": no_context
+"BQI PATIENT DUE/OVERDUE": no_entry_point_on_image
+"BQI UPDATE FAMILY PLANNING": no_context
+"BQI VFILE TRIGGER FH": no_context
+"BRANCLNI REQUIRED": no_context
+"BTPW FOLLOWUP DUE TRIGGER": no_routine_on_image
+"BTPW SET CMET VIEW": no_context
+"BYIM DISPLAY IMM AND FORECAST": no_context
+"BYIM QUERY SIIS": no_context
+"BYIM SEND IMMS TO SIIS": no_context
+"CIAVCXPT PTINQ": no_context
+"CIAVCXUS GETALRTS": no_entry_point_on_image
+"CIAVMRPC UNINIT": no_entry_point_on_image
+"CIAZG DEFINITION CHILD": no_context
+"CIAZG DEFINITION CLEANUP": no_context
+"CIAZG DEFINITION CLONE": no_context
+"CIAZG DEFINITION CRITERIA": no_context
+"CIAZG DEFINITION DELETE": no_context
+"CIAZG ITEM CLEANUP": no_context
+"CIAZG JOIN FIELDS": no_context
+"CIAZG QUERY ABORT": no_context
+"CIAZG QUERY FETCH": no_context
+"CIAZG QUERY RERUN": no_context
+"CIAZG QUERY RUN": no_context
+"CIAZG USER": no_context
+"DBTS NEW DRUG": no_routine_on_image
+"DBTS NEW PATIENT": no_entry_point_on_image
+"DDR KEY VALIDATOR": no_entry_point_on_image
+"FSC RPC": no_routine_on_image
+"GIS GET BACKGROUND PROCESS": no_context
+"GIS REFRESH BACKGROUND PROCESS": no_context
+"GIS START BACKGROUND PROCESS": no_context
+"GIS STOP BACKGROUND PROCESS": no_context
+"IBD GET INPUT OBJECT BY CLINIC": no_context
+"IBD GET INPUT OBJECT BY FORM": no_context
+"IBD GET ONE INPUT OBJECT": no_context
+"MAG ABSJB": no_routine_on_image
+"MAG CONSULT MSG CREATE": no_routine_on_image
+"MAG DUZ LOOKUP": no_routine_on_image
+"MAG GXUS": no_routine_on_image
+"MAG OLU CONSULT": no_routine_on_image
+"MAG TEST": no_routine_on_image
+"MAGGADDIMAGE": no_routine_on_image
+"MAGGDUZKEY": no_routine_on_image
+"MAGGECHO": no_routine_on_image
+"MAGGHS": no_routine_on_image
+"MAGGHSLIST": no_routine_on_image
+"MAGGLISTPROC": no_routine_on_image
+"MAGGLKP": no_routine_on_image
+"MAGGPATADD": no_routine_on_image
+"MAGGPATDUPCHK": no_routine_on_image
+"MAGGPATINFO": no_routine_on_image
+"MAGGPATINTINF": no_routine_on_image
+"MAGGPATPROC": no_routine_on_image
+"MAGGPINF1": no_routine_on_image
+"MAGGPROCIMAGE": no_routine_on_image
+"MAGGRADLIST": no_routine_on_image
+"MAGGRADPTR": no_routine_on_image
+"MAGGRPT": no_routine_on_image
+"MAGGTEST1": no_routine_on_image
+"MAGGTEST2": no_routine_on_image
+"MAGGTESTLISTSEND": no_routine_on_image
+"MAGGXUS": no_routine_on_image
+"MAGGXUS2": no_routine_on_image
+"MAGOGLU": no_routine_on_image
+"MAGOLU": no_routine_on_image
+"MAGPUT": no_routine_on_image
+"MAGRGETWRITE": no_routine_on_image
+"MAGRTELW": no_routine_on_image
+"ORQQPX GET NOT PURPOSE": no_routine_on_image
+"ORQQPXRM GET WH LETTER TEXT": no_routine_on_image
+"ORQQPXRM GET WH LETTER TYPE": no_routine_on_image
+"ORQQPXRM GET WH PROC RESULT": no_routine_on_image
+"ORWDX SENDP": no_entry_point_on_image
+"ORWDXA DCREASON": no_entry_point_on_image
+"ORWGEPT CLINRNG": no_routine_on_image
+"ORWPCE SAVE": no_routine_on_image
+"PSB LOCK": no_entry_point_on_image
+"PXRM EDUCATION SUBTOPICS": no_context
+"PXRM EDUCATION SUMMARY": no_context
+"PXRM EDUCATION TOPIC": no_context
+"PXRM MENTAL HEALTH": no_context
+"PXRM MENTAL HEALTH RESULTS": no_context
+"PXRM MENTAL HEALTH SAVE": no_context
+"PXRM PROGRESS NOTE HEADER": no_context
+"PXRM REMINDER CATEGORIES": no_context
+"PXRM REMINDER DETAIL": no_context
+"PXRM REMINDER DIALOG": no_context
+"PXRM REMINDER DIALOG PROMPTS": no_context
+"PXRM REMINDER EVALUATION": no_context
+"PXRM REMINDER INQUIRY": no_context
+"PXRM REMINDER WEB": no_context
+"PXRM REMINDERS (UNEVALUATED)": no_context
+"RAMAG EXAM CANCEL": no_context
+"RAMAG EXAM COMPLETE": no_context
+"RAMAG EXAM ORDER": no_context
+"RAMAG EXAM REGISTER": no_context
+"RAMAG EXAM STATUS REQUIREMENTS": no_context
+"RAMAG EXAMINED": no_context
+"RAMAG ORDER CANCEL": no_context
+"SC ACTIVE POSITION ASSIGNMENTS": context_out_of_order
+"SC BLD NOPC TM LIST": context_out_of_order
+"SC BLD PAT APT LIST": context_out_of_order
+"SC BLD PAT CLN LIST": context_out_of_order
+"SC BLD PAT LIST": context_out_of_order
+"SC BLD PAT POS LIST": context_out_of_order
+"SC BLD PAT SCDE LIST": context_out_of_order
+"SC BLD PAT TM LIST": context_out_of_order
+"SC CHANGE HISTORY OK": context_out_of_order
+"SC CHECK FOR ENROLLMENT": context_out_of_order
+"SC CHECK FOR PC POS": context_out_of_order
+"SC DELETE ENTRY": context_out_of_order
+"SC DELETE HISTORY": context_out_of_order
+"SC EXTEND BUILD LIST": context_out_of_order
+"SC EXTEND FILE LIST": context_out_of_order
+"SC FILE ALL PAT POS ASGN": context_out_of_order
+"SC FILE ALL PAT TM ASGN": context_out_of_order
+"SC FILE ASSOCIATE CLINICS": context_out_of_order
+"SC FILE NUMBER": context_out_of_order
+"SC FILE PAT POS ASGN": context_out_of_order
+"SC FILE PAT TM ASGN": context_out_of_order
+"SC FILE SINGLE VALUE": context_out_of_order
+"SC FIND": context_out_of_order
+"SC FTEE BUILD LIST": context_out_of_order
+"SC FTEE FILE LIST": context_out_of_order
+"SC GET ASSOCIATE CLINICS": context_out_of_order
+"SC GET PAT BLOCK": context_out_of_order
+"SC GLOBAL NODE": context_out_of_order
+"SC GLOBAL NODE COUNT": context_out_of_order
+"SC HISTORY STATUS OK": context_out_of_order
+"SC INACTIVATE ENTRY": context_out_of_order
+"SC KEY CHECK": context_out_of_order
+"SC LOCK/UNLOCK NODE": context_out_of_order
+"SC MAILMAN": context_out_of_order
+"SC MEAN TEST": context_out_of_order
+"SC NEW HISTORY OK": context_out_of_order
+"SC PAT ASGN MAILMAN": context_out_of_order
+"SC PAT ENROLL CLN": context_out_of_order
+"SC PATIENT LOOKUP": context_out_of_order
+"SC PC PROVIDER": context_out_of_order
+"SC POSITION MEMBERS": context_out_of_order
+"SC POSITION RESIDENT ROLE": context_out_of_order
+"SC PRIMARY CARE TEAM": context_out_of_order
+"SC PRTP": context_out_of_order
+"SC SC CONDITION LIST": context_out_of_order
+"SC STAFF LOOKUP": context_out_of_order
+"SC TEAM LIST": context_out_of_order
+"SC USER CLASS STATUS": context_out_of_order
+"SC VALIDATOR": context_out_of_order
+"SCMC AUTO INACTIVATION RPT": context_out_of_order
+"SCMC BLD POS PAT LIST": context_out_of_order
+"SCMC BLD REASSIGN PAT LIST": context_out_of_order
+"SCMC BLD TEAM PAT LIST": context_out_of_order
+"SCMC DIS TEAM POS": context_out_of_order
+"SCMC FILE INACTIVATION END": context_out_of_order
+"SCMC FILE PAT POS REASGN": context_out_of_order
+"SCMC FILE PAT TM REASGN": context_out_of_order
+"SCMC GET PARAMETER IEN": context_out_of_order
+"SCMC PCMM CHECK FTEE": context_out_of_order
+"SCMC POSITION ASSIGN LIST": context_out_of_order
+"SCMC POSITION PC CHECK": context_out_of_order
+"SCMC PRECEPTOR MOVE - LIST": context_out_of_order
+"SCMC PRECEPTOR MOVE - MOVE": context_out_of_order
+"SCMC ROLE": context_out_of_order
+"SCMC VERIFY C/S SYNC": context_out_of_order
+"SCMC WAIT LIST ENTRY": context_out_of_order
+"SCRP DEFINITION GETRECORD": context_out_of_order
+"SCRP FILE ENTRY GETSELECTION": context_out_of_order
+"SCRP QUERY CHECK NAME": context_out_of_order
+"SCRP QUERY DELETE": context_out_of_order
+"SCRP QUERY GETRECORD": context_out_of_order
+"SCRP QUERY SAVE": context_out_of_order
+"SCRP QUERY VALIDATE": context_out_of_order
+"SCRP REPORT PRINT": context_out_of_order
+"SCRP SELECTION SOURCE": context_out_of_order
+"SCTM AUTOLINK GETLINK": context_out_of_order
+"SCTM AUTOLINK GETRECORD": context_out_of_order
+"SCTM AUTOLINK SETRECORD": context_out_of_order
+"SCUT GET USER RECORD": context_out_of_order
+"SCUT SET USER QUERY DEFAULT": context_out_of_order
+"SD W/L CREATE DISPOSITION": no_entry_point_on_image
+"SD W/L CREATE FILE": no_context
+"SD W/L CREATE M/R": no_entry_point_on_image
+"SD W/L CURRENT STATUS(409.3)": no_context
+"SD W/L DISPOSITION(409.3)": no_context
+"SD W/L NEW ENROLLEE(409.3)": no_context
+"SD W/L PACKAGE(409.3)": no_context
+"SD W/L PRIORITY(#409.3)": no_context
+"SD W/L REQ BY(409.3)": no_context
+"SD W/L RETRIVE BRIEF": no_context
+"SD W/L RETRIVE DISPOSITION": no_context
+"SD W/L RETRIVE FULL DATA": no_context
+"SD W/L RETRIVE HOSP LOC(#44)": no_context
+"SD W/L RETRIVE MEDICAL REVIEW": no_entry_point_on_image
+"SD W/L RETRIVE PERSON(200)": no_context
+"SD W/L TYPE(409.3)": no_context
+"SDOE ASSIGNED A DIAGNOSIS": no_context
+"SDOE ASSIGNED A PROCEDURE": no_context
+"SDOE ASSIGNED A PROVIDER": no_context
+"SDOE FIND DIAGNOSIS": no_context
+"SDOE FIND FIRST ENCOUNTER": no_context
+"SDOE FIND FIRST STANDALONE": no_context
+"SDOE FIND LAST STANDALONE": no_context
+"SDOE FIND PROCEDURE": no_context
+"SDOE FIND PROVIDER": no_context
+"SDOE GET DIAGNOSES": no_context
+"SDOE GET GENERAL DATA": no_context
+"SDOE GET PRIMARY DIAGNOSIS": no_context
+"SDOE GET PROCEDURES": no_context
+"SDOE GET PROVIDERS": no_context
+"SDOE GET ZERO NODE": no_context
+"SDOE LIST ENCOUNTERS FOR DATES": no_context
+"SDOE LIST ENCOUNTERS FOR PAT": no_context
+"SDOE LIST ENCOUNTERS FOR VISIT": no_context
+"SDOE PARSE GENERAL DATA": no_context
+"TIU GET ASSOCIATED IMAGES": no_context
+"TIU GET DOC COUNT BY VISIT": no_context
+"TIU GET DOCUMENTS FOR IMAGE": no_context
+"TIU LINK DOCUMENT TO IMAGE": no_context
+"TIU REMOVE LINK TO IMAGE": no_context
+"TIU TEMPLATE GETGROUP": no_context
+"TIU TEMPLATE GROUPTEXT": no_context
+"VAFC AA UPDATE": no_entry_point_on_image
+"VAFC LOCAL GETCORRESPONDINGIDS": no_context
+"VAFC NEW NC TREATING FACILITY": no_context
+"VAFC REMOTE AUDIT": no_context
+"VAFC REMOTE PDAT": no_context
+"VEN WCM DEV BENCHMARKS TX POP": no_context
+"VEN WCM DEV COMMENTS TX POP": no_context
+"VEN WCM DEVEL TX FLUSH": no_context
+"VEN WCM EXAM TX FLUSH": no_context
+"VEN WCM EXAM TX POP": no_context
+"VEN WCM GG POP": no_context
+"VEN WCM LIST PROVIDERS": no_context
+"VEN WCM NUTR TODAY": no_context
+"VEN WCM NUTRITION TX FLUSH": no_context
+"VEN WCM NUTRITION TX POP": no_context
+"VEN WCM PT ED TX FLUSH": no_context
+"VEN WCM PT ED TX POP": no_context
+"VEN WCM PTED TODAY": no_context
+"XDR ADD POTENTIAL PATIENT DUP": no_context
+"XDR UPD SUPPR EMAIL": no_context
+"XHD GET ALL PARAMETER DEFS": no_context
+"XHD GET MUTABLE CONFIGURATION": no_context
+"XHD GET PARAMETER DEFINITION": no_context
+"XHD GET PARAMETER DEFINITIONS": no_context
+"XOBV TEST NOT IN CONTEXT": no_context
+"XU REBUILD MENU TREE": no_context
+"XUS GET VISITOR": no_context
+"XUS SEND KEYS": no_entry_point_on_image
+"XWB API LIST": no_context
+"XWB ARE RPCS AVAILABLE": no_context
+"XWB DEFERRED CLEAR": no_context
+"XWB DEFERRED GETDATA": no_context
+"XWB DEFERRED RPC": no_context
+"XWB DEFERRED STATUS": no_context
+"XWB ECHO BIG LIST": no_context
+"XWB ECHO GLOBAL NODE": no_context
+"XWB ECHO LIST": no_context
+"XWB ECHO MEMO": no_context
+"XWB ECHO SORT LIST": no_context
+"XWB ECHO STRING": no_context
+"XWB EXAMPLE TRAP PARAMS": no_entry_point_on_image
+"XWB FILE LIST": no_context
+"XWB FILENAME CHECK": no_context
+"XWB M2M EXAMPLE LARRY": no_context
+"XWB M2M EXAMPLE REF": no_context

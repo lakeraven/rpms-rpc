@@ -6,8 +6,8 @@ require "rpms_rpc/client"
 require "rpms_rpc/api/patient"
 
 # RpmsRpc::Patient mechanics a server cannot show: arguments refused before
-# the wire, the capability short-circuit, the age arithmetic, and how
-# brief_header classifies an M error. Every RPC behaviour (search, find,
+# the wire, the age arithmetic, and that brief_header raises a broker
+# error instead of answering nil (#363). Every RPC behaviour (search, find,
 # find_by_ssn, brief_header, contact, update) is a live spec in
 # test/live/patient_live_test.rb and patient_update_live_test.rb (ADR 0009).
 #
@@ -18,21 +18,17 @@ class PatientTest < Minitest::Test
   class NoWireClient
     class WireReached < StandardError; end
 
-    def initialize(supports: true) = @supports = supports
-    def supports?(_feature) = @supports
-
     %i[call_rpc call_rpc_lines call_rpc_global_array].each do |name|
       define_method(name) { |rpc, *| raise WireReached, "#{rpc} reached the wire" }
     end
   end
 
-  # brief_header's rescue (#117) is decided by the error text of an M error
-  # a server cannot be made to raise on demand (<NOLINE> in BEHOPTCX, an
-  # <UNDEFINED> in a routine). This double raises that text; it never replies.
+  # A broker error a server cannot be made to raise on demand (<NOLINE> in
+  # BEHOPTCX, an <UNDEFINED> in a routine). This double raises it; it never
+  # replies.
   class RaisingClient
-    def initialize(message) = @message = message
-    def supports?(_feature) = true
-    def call_rpc(*) = raise(RpmsRpc::Client::RpcError, @message)
+    def initialize(message, error: RpmsRpc::Client::RpcError) = (@message, @error = message, error)
+    def call_rpc(*) = raise(@error, @message)
   end
 
   def teardown
@@ -74,26 +70,22 @@ class PatientTest < Minitest::Test
     assert_equal :no_fields, result[:error]
   end
 
-  # -- capability short-circuit (#118) --------------------------------------
+# -- errors propagate (#363) ------------------------------------------------
 
-  def test_brief_header_sends_nothing_when_the_broker_lacks_the_chart_banner
-    use NoWireClient.new(supports: false)
-    assert_nil RpmsRpc::Patient.brief_header(8791)
-  end
+# Before #363 these answered nil: a missing chart banner looked like a
+# patient with no banner.
+def test_brief_header_raises_when_the_rpc_is_not_served
+  use RaisingClient.new("3 Unknown remote procedure: BEHOPTCX PTINFO", error: RpmsRpc::Client::RpcNotAvailableError)
+  assert_raises(RpmsRpc::Client::RpcNotAvailableError) { RpmsRpc::Patient.brief_header(8791) }
+end
 
-  # -- error classification (#117) ------------------------------------------
+def test_brief_header_raises_when_the_routine_is_missing
+  use RaisingClient.new("M  ERROR=<NOLINE>PTINFO+22 BEHOPTCX")
+  err = assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Patient.brief_header(8791) }
+  assert_includes err.message, "NOLINE"
+end
 
-  def test_brief_header_is_nil_when_the_routine_is_missing
-    use RaisingClient.new("M  ERROR=<NOLINE>PTINFO+22 BEHOPTCX")
-    assert_nil RpmsRpc::Patient.brief_header(8791)
-  end
-
-  def test_brief_header_is_nil_when_the_rpc_does_not_exist
-    use RaisingClient.new("Remote Procedure 'BEHOPTCX PTINFO' doesn't exist")
-    assert_nil RpmsRpc::Patient.brief_header(8791)
-  end
-
-  def test_brief_header_raises_any_other_m_error
+def test_brief_header_raises_any_other_m_error
     use RaisingClient.new("M  ERROR=<UNDEFINED>FOO+5^XYZ^")
     err = assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Patient.brief_header(8791) }
     assert_includes err.message, "UNDEFINED"

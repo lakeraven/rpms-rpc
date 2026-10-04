@@ -264,14 +264,15 @@ cases = {
 }
 cases["Vital.template"] = -> { RpmsRpc::Vital.template(ctx[:location]) } if ctx[:location]
 cases["Encounter.visit_string"] = -> { RpmsRpc::Encounter.visit_string(ctx[:location], today, "A") } if ctx[:location]
-cases["Reminders.for_visit"] = -> { RpmsRpc::Reminders.for_visit(d, ctx[:visit]) } if ctx[:visit]
+cases["Reminders.applicable"] = -> { RpmsRpc::Reminders.applicable(d, ctx[:location]) } # location optional: sent empty when unknown (#238)
 cases["BehavioralHealth.visit_information"] = -> { RpmsRpc::BehavioralHealth.visit_information(ctx[:visit]) } if ctx[:visit]
 cases["ProgressNote.fetch_text"] = -> { RpmsRpc::ProgressNote.fetch_text(ctx[:note]) } if ctx[:note]
 cases["Order.result"] = -> { RpmsRpc::Order.result(ctx[:order]) } if ctx[:order]
 cases["Problem.details"] = -> { RpmsRpc::Problem.details(ctx[:problem]) } if ctx[:problem]
 cases["Problem.audit_history"] = -> { RpmsRpc::Problem.audit_history(ctx[:problem]) } if ctx[:problem]
 cases["NoteTemplate.items"] = -> { RpmsRpc::NoteTemplate.items(ctx[:template]) } if ctx[:template]
-cases["NoteTemplate.text"] = -> { RpmsRpc::NoteTemplate.text(ctx[:template]) } if ctx[:template]
+cases["NoteTemplate.boilerplate"] = -> { RpmsRpc::NoteTemplate.boilerplate(ctx[:template]) } if ctx[:template]
+cases["NoteTemplate.text"] = -> { RpmsRpc::NoteTemplate.text([ "|PATIENT NAME|" ], dfn: ctx[:dfn]) }
 
 cases.each { |name, fn| run.call(name) { fn.call } }
 

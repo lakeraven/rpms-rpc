@@ -23,5 +23,5 @@ backend: local-ydb-0930
 release: bcer-9.0-20260930-8c88e47-ydb
 registry: data/inventories/bcer-9.0-20260930-8c88e47-ydb/bcer-9.0-20260930-8c88e47-ydb-broker_8994.txt
 packages: data/inventories/bcer-9.0-20260930-8c88e47-ydb/bcer-9.0-20260930-8c88e47-ydb-packages_9_4.txt
-minimum_percent: 0.8
+minimum_percent: 0.9
 max_unregistered: 0

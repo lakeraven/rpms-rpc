@@ -5,12 +5,11 @@ require "monitor"
 # RpmsRpc.sanitize_error and RpmsRpc.configuration live in core.rb. Every raise site below calls
 # sanitize_error, so a consumer that requires a client file directly (rpms_rpc/cia_client, as the
 # rpms-ops release gate driver does) must still get it - otherwise any broker error surfaces as
-# NoMethodError and the real message is lost. Core, not version: version.rb also pulls the
-# mappings and capability tables, which a standalone client has no use for.
+# NoMethodError and the real message is lost. Core, not the entry point: rpms_rpc.rb also
+# pulls the mappings and key-capability tables, which a standalone client has no use for.
 require "rpms_rpc/core"
 require "rpms_rpc/parameter_encoder"
 require "rpms_rpc/xml_response_parser"
-require "rpms_rpc/server_capabilities"
 require "rpms_rpc/xwb_cipher"
 require "rpms_rpc/context_scope"
 
@@ -43,6 +42,20 @@ module RpmsRpc
     # from "credential rejected by broker".
     class CredentialError < AuthenticationError; end
     class RpcError < StandardError; end
+    # Broker errors, kept distinct so a host can tell them apart (#363), in the
+    # spirit of HTTP status classes:
+    #   RpcNotAvailableError  the server does not serve this RPC: no #8994 entry
+    #                         on the build, or marked inactive (404/501-like)
+    #   RpcRefusedError       the RPC is served, but not to this user in the bound
+    #                         context option (403-like)
+    #   RpcError              any other broker error, chiefly an M error raised by
+    #                         a routine that did run (500-like)
+    #   ConnectionError       the connection was lost (502/503-like)
+    #   RpcTimeoutError       the reply did not come in time (504-like)
+    # Every transport (CIA, XWB, BMX) raises the same class for the same case.
+    # An API method never answers empty in place of any of them.
+    class RpcNotAvailableError < RpcError; end
+    class RpcRefusedError < RpcError; end
     class TimeoutError < ConnectionError; end
     # Raised when a single RPC's reply times out mid-call. Subclass of
     # TimeoutError (and so ConnectionError) so existing rescue blocks keep
@@ -51,6 +64,35 @@ module RpmsRpc
     # mid-read cannot be resynchronized — so callers may reconnect and
     # re-authenticate rather than retrying on a corrupted stream.
     class RpcTimeoutError < TimeoutError; end
+
+    # How each broker words "this RPC is not served" (#363):
+    #   CIA      3 Unknown remote procedure: NAME                     no #8994 entry (CIANBACT)
+    #   XWB/BMX  Remote Procedure 'NAME' doesn't exist on the server. (XWBPRS.m:130, BMXMBRK.m:72)
+    #   XWB/BMX  Remote Procedure 'NAME' cannot be run at this time.  INACTIVE (same lines)
+    NOT_AVAILABLE_PATTERN = /
+      Unknown\ remote\ procedure
+      | Remote\ Procedure\ '.*'\ (?:doesn't\ exist|cannot\ be\ run|not\ found)
+    /xi
+
+    # How each broker words "served, but not to this session" (#363):
+    #   CIA      4 Access denied for remote procedure: NAME   $$CANRUN^CIANBACT false (CIANBACT.m:49)
+    #   XWB      The remote procedure NAME is not registered to the option OPT.  (XQCS.m:75)
+    #   XWB/BMX  Application context has not been created!    (XWBSEC.m:26, BMXMSEC.m:27)
+    REFUSED_PATTERN = /
+      Access\ denied\ for\ remote\ procedure
+      | remote\ procedure\ .*\ is\ not\ registered\ to\ the\ option
+      | Application\ context\ has\ not\ been\ created
+    /xi
+
+    # The error class a broker error message raises: RpcNotAvailableError,
+    # RpcRefusedError, or RpcError for anything else.
+    def self.rpc_error_for(message)
+      text = message.to_s
+      return RpcNotAvailableError if text.match?(NOT_AVAILABLE_PATTERN)
+      return RpcRefusedError if text.match?(REFUSED_PATTERN)
+
+      RpcError
+    end
 
     # Shared constants
     EOT = "\x04"        # frame terminator for XWB ([XWB]1130) and BMX ({BMX})
@@ -147,9 +189,9 @@ module RpmsRpc
           reset_connection
           raise
         rescue SystemCallError, IOError => e
-          # A mid-write EPIPE/ECONNRESET (CIA writes its frame directly to
-          # the socket) must not propagate raw and leave @connected lying:
-          # type it, and tear the connection down under the lock.
+          # A mid-read EPIPE/ECONNRESET, or a write from a client that does not
+          # go through #send_packet, must not propagate raw and leave
+          # @connected lying: type it, and tear the connection down under the lock.
           reset_connection
           raise ConnectionError,
                 "Connection lost mid-operation: #{RpmsRpc.sanitize_error(e.message)}"
@@ -271,20 +313,6 @@ module RpmsRpc
       end
     end
 
-    # Whether the Broker behind this client can service `feature`.
-    #
-    # First call per feature probes the underlying RPCs via
-    # ServerCapabilities; subsequent calls return the cached result.
-    # Engine code should consult this before issuing the underlying calls
-    # so that "feature unavailable" returns nil/empty without a wasted
-    # Broker round-trip.
-    def supports?(feature)
-      @capability_cache ||= {}
-      return @capability_cache[feature] if @capability_cache.key?(feature)
-
-      @capability_cache[feature] = ServerCapabilities.probe(self, feature)
-    end
-
     # Set application context (required before calling most RPCs).
     #
     # Bind and commit are ONE unit under the wire lock. Committing
@@ -307,9 +335,6 @@ module RpmsRpc
           )
         end
 
-        # RPC registration is OPTION-scoped; capabilities probed under the
-        # previous context may not hold under the new one.
-        @capability_cache = nil
         @current_context = option_name # ContextScope — lets APIs scope + restore
         true
       end
@@ -434,23 +459,23 @@ module RpmsRpc
       @connected = false
       @authenticated = false
       @duz = nil
-      @capability_cache = nil
     end
 
     # Open a TCP socket to the broker
     def open_socket(host, port)
-      # Implicit reconnects (after a send/recv error path that only set
-      # @connected = false) re-enter here without going through
-      # reset_connection. Clear the capability cache so a reconnect to
-      # the same or a different Broker can never inherit stale answers.
-      @capability_cache = nil
       @host = host
       @port = port
-      @socket = TCPSocket.new(host, port)
+      @socket = connect_tcp(host, port)
       @socket.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1)
     rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT, Errno::EHOSTUNREACH, Socket::ResolutionError => e
       @connected = false
       raise ConnectionError, "Failed to connect to #{host}:#{port} - #{e.message}"
+    end
+
+    # The TCP connection itself, apart so a test can inject a failure by
+    # overriding it in a subclass (no stubbing of TCPSocket).
+    def connect_tcp(host, port)
+      TCPSocket.new(host, port)
     end
 
     # Send raw bytes to the broker
@@ -568,8 +593,12 @@ module RpmsRpc
       return if response.nil? || response.empty?
 
       clean = response.sub(/\A\x18/, "").strip.gsub(/\x00+$/, "")
-      if clean.match?(/\A(?:M  ERROR|E?Remote Procedure '.*' doesn't exist|E?Remote Procedure '.*' not found)/i)
-        raise RpcError, clean
+      # "M  ERROR" is the XWB/Kernel %ZTER frame (two spaces); BMXMON's ETRAP
+      # writes "M ERROR=" with ONE space (BMXMON.m ETRAP/CONNERR) and it arrives
+      # as DATA (sec/app packet lengths both 0), so allow one OR two spaces or
+      # the error would read as a successful reply (rpms-rpc#282).
+      if clean.match?(/\A(?:M {1,2}ERROR|E?Remote Procedure '.*' doesn't exist|E?Remote Procedure '.*' not found)/i)
+        raise Client.rpc_error_for(clean), clean
       end
     end
 

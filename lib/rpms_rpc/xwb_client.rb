@@ -178,7 +178,13 @@ module RpmsRpc
     # Already-wrapped {type: :literal|:list, ...} hashes pass through.
     # Arrays become list_params with 1-based string keys (the RPMS broker
     # convention for multi-line params like BEHOVM SAVE's payload).
-    # Hashes become list_params with their keys/values as entries.
+    # Hashes become list_params with their keys/values as entries, each key
+    # formed as an M subscript: LINST^XWBPRS splices it raw into
+    # A_"("_X_")" (XWBPRS.m:152-156), so a string level is quoted (embedded
+    # quotes doubled) and a canonic number stays bare. An Array key is a
+    # multi-level subscript joined with commas ([1, 0] => "1,0", the TIUX(n,0)
+    # TIU TEMPLATE GETTEXT reads; ["TEXT", 1, 0] => "\"TEXT\",1,0", the
+    # TIUX("TEXT",n,0) TIU SET DOCUMENT TEXT reads) (#219).
     # Everything else stringifies to a literal_param.
     def encode_param(value)
       # Pre-wrapped param hashes pass through, but only when their :type
@@ -190,7 +196,7 @@ module RpmsRpc
         entries = value.each_with_index.map { |v, i| [ (i + 1).to_s, v.to_s ] }
         list_param(entries)
       when Hash
-        list_param(value.map { |k, v| [ k.to_s, v.to_s ] })
+        list_param(value.map { |k, v| [ m_subscript(k), v.to_s ] })
       else
         literal_param(value.to_s)
       end
@@ -198,15 +204,53 @@ module RpmsRpc
 
     private
 
+    # Same subscript grammar as CiaClient#m_subscript.
+    def m_subscript(key)
+      return key.map { |level| m_subscript(level) }.join(",") if key.is_a?(Array)
+
+      s = key.to_s
+      s.match?(/\A-?(0|[1-9]\d*)(\.\d+)?\z/) ? s : %("#{s.gsub('"', '""')}")
+    end
+
     def default_port
       9100
     end
 
-    # Read XWB response: recv until EOT, strip \x00\x00 SNDERR prefix
+    # Read XWB response: recv until EOT, then the SNDERR header every reply
+    # carries (XWBRW.m:70-78): the security packet and the application packet,
+    # each a length byte and its text, then the data. A refusal of the RPC
+    # itself arrives as the security packet (XWBPRS.m:11-13): no #8994 entry
+    # or inactive raises RpcNotAvailableError, not in the context option
+    # raises RpcRefusedError; an application error raises RpcError (#363). Reading the header by its
+    # length bytes, not by matching text, is what makes this hold for every
+    # RPC name: the old check matched the refusal only when its length byte
+    # happened to be absent or "E".
     def read_response
-      raw = read_until_eot_raw
-      raw = raw[2..] if raw.start_with?("\x00\x00")
-      raw.to_s
+      raw = read_until_eot_raw.to_s
+      sec, err, data = snderr_split(raw)
+      return raw if data.nil? # not SNDERR-framed (e.g. a stand-in reply)
+
+      raise Client.rpc_error_for(sec), RpmsRpc.sanitize_error(sec) unless sec.empty?
+      raise Client.rpc_error_for(err), RpmsRpc.sanitize_error(err) unless err.empty?
+
+      data
+    end
+
+    # [security text, application text, data], or nil when the bytes cannot
+    # be the SNDERR header.
+    def snderr_split(raw)
+      bytes = raw.b
+      return nil if bytes.bytesize < 2
+
+      sec_len = bytes.getbyte(0)
+      err_at = 1 + sec_len
+      return nil if err_at >= bytes.bytesize
+
+      err_len = bytes.getbyte(err_at)
+      data_at = err_at + 1 + err_len
+      return nil if data_at > bytes.bytesize
+
+      [ bytes.byteslice(1, sec_len), bytes.byteslice(err_at + 1, err_len), raw.byteslice(data_at..) ]
     end
   end
 end

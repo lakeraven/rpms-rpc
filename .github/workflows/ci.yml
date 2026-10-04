@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ruby: ["3.4"]
+        ruby: ["3.4", "4.0"]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -24,7 +24,15 @@ jobs:
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
+      # stunnel_sample_test.rb runs the docs/tls/ sample configs end to end;
+      # it skips without stunnel, so install it here to keep it running.
+      - name: Install stunnel
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq stunnel4
       - name: Run tests
+        # Every source file already says frozen_string_literal: true; the flag
+        # makes a file that forgets it fail here rather than on a default flip (#47).
+        env:
+          RUBYOPT: --enable-frozen-string-literal
         run: bundle exec rake test
 
   lint:

@@ -86,7 +86,7 @@ module RpmsRpc
     #   - patient update              → DDR FILER (FILE^DIE) —
     #     RpmsRpc::Registration.update
     #   - visit get-or-create         → BEHOENCX FETCH with the CREATE flag
-    #     (:encounter_get_or_create below) — RpmsRpc::Encounter.create
+    #     (:encounter_fetch below) — RpmsRpc::Encounter.create
 
     # BGOVMSR GET — every V MEASUREMENT on one visit (multi-line).
     # One INP param: "VISIT_IEN^FORMAT" — format 0 = one row per
@@ -222,13 +222,12 @@ module RpmsRpc
       m.field 2, :code
     end
 
-    # BMC GET USERS/PROVIDERS — user/provider lookup.
-    # Common shape: DUZ^NAME^TITLE.
+    # BMC GET USERS/PROVIDERS — PROV^BMCRPC4(.Y,ISPROV): one node,
+    # "-1^All~IEN^NAME~IEN^NAME~..." (BMCRPC4.m:136-141); Referral#users_providers
+    # splits it with RcisWire.records.
     DataMapper.define(:bmc_users_providers) do |m|
       m.rpc "BMC GET USERS/PROVIDERS"
-      m.field 0, :duz
-      m.field 1, :name
-      m.field 2, :title
+      m.text_blob :providers
     end
 
     # BMC HEALTH SUMMARY TYPE — health-summary type lookup.
@@ -240,12 +239,12 @@ module RpmsRpc
       m.field 2, :abbreviation
     end
 
-    # BMC PATIENT ELIGIBILITY STATUS — CHS/RCIS eligibility status.
+    # BMC PATIENT ELIGIBILITY STATUS — GTPTELST^BMCRPC4 (BMCRPC4.m:129):
+    # ELIGIBILITY STATUS (#9000001 field 1112, external) ^ preferred name.
     DataMapper.define(:bmc_patient_eligibility_status) do |m|
       m.rpc "BMC PATIENT ELIGIBILITY STATUS"
-      m.field 0, :eligible, :boolean
-      m.field 1, :status
-      m.field 2, :message
+      m.field 0, :status
+      m.field 1, :preferred_name
     end
 
     # BMC PATIENT FACE SHEET — patient context text/lines.
@@ -319,58 +318,50 @@ module RpmsRpc
     # ENCOUNTERS / VISITS (BEHOENCX*)
     # ========================================================================
 
-    # BEHOENCX GETVISIT — core visit detail by visit_ien.
-    # Verified format (GETVISIT^BEHOENCX: BEHOENCX.m:4-16, header comment
-    # "Returns hosp loc^visit date^service category^dfn^visit id^locked"):
-    #   LOCATION_IEN^DATETIME_RAW^SERVICE_CATEGORY^PATIENT_DFN^VISIT_ID^LOCKED
-    # Position 2 is the visit's SERVICE CATEGORY — VISIT file #9000010
-    # field .07, ^AUPNVSIT(IEN,0) piece 7 (VIS2VSTR^BEHOENCX:
-    # BEHOENCX.m "$P(VSTR,U,7)"; BLDXRF^BEHOVM "CTYPE=$P(^AUPNVSIT(...),U,7)").
-    # :status is the legacy alias for the same position, kept for existing
-    # callers (RpmsRpc::Encounter). Position 4 is the VISIT ID, not a ward —
-    # the old :ward label predated corpus verification and is retained as an
-    # alias only.
+    # BEHOENCX GETVISIT(DATA,IEN) — one visit by VISIT file IEN.
+    # GETVISIT^BEHOENCX (BEHOENCX.m:5,8-15): LOOKUP^VSIT(IEN,"I",0) fills
+    # VSIT(field) and line 13 emits VSIT("LOC","VDT","SVC","PAT","VID") in
+    # that order, then line 14 appends $$ISLOCKED(IEN):
+    #   LOC^VDT^SVC^PAT^VID^LOCKED
+    # Those are VISIT #9000010 fields .22 HOSPITAL LOCATION, .01 VISIT/ADMIT
+    # DATE&TIME, .07 SERVICE CATEGORY, .05 PATIENT NAME, 15001 VISIT ID
+    # (FLD^VSITFLD: VSITFLD.m:15-33). Empty when the IEN is not a visit or
+    # the visit is DELETED (lines 11-12).
+    # Piece 3 is a service category ("A" ambulatory, "I" in-hospital, ...),
+    # not an encounter status, and piece 5 is the visit id, not a ward —
+    # the :status / :ward labels that sat there were never on this wire
+    # (#211). Live capture: test/fixtures/wire_captures/behoencx-getvisit.yml.
     DataMapper.define(:encounter_visit) do |m|
       m.rpc "BEHOENCX GETVISIT"
-      m.field 0, :location_ien, :integer
+      m.field 0, :location_ien,     :integer
       m.field 1, :datetime_raw
-      m.field 2, :status
       m.field 2, :service_category
-      m.field 3, :patient_dfn, :integer
-      m.field 4, :ward
+      m.field 3, :patient_dfn,      :integer
       m.field 4, :visit_id
-      m.field 5, :locked, :boolean
+      m.field 5, :locked,           :boolean
     end
 
-    # BEHOENCX FETCH — hydrated visit context (location + provider names + ward)
-    # Format: CLINIC_NAME^CLINIC_ABBREV^^LOCATION_IEN^PROVIDER^VISIT_IEN^WARD^?
-    DataMapper.define(:encounter_fetch) do |m|
-      m.rpc "BEHOENCX FETCH"
-      m.field 0, :clinic_name
-      m.field 1, :clinic_abbrev
-      m.field 3, :location_ien, :integer
-      m.field 4, :provider
-      m.field 5, :visit_ien, :integer
-      m.field 6, :ward
-    end
-
-    # BEHOENCX FETCH, get-or-create form — the visit-create path. Params
-    # positionally per FETCH(DATA,DFN,VSTR,PRV,CREATE) — FETCH^BEHOENCX:
-    # DFN, VSTR "LOC;FM_DATETIME;SVC_CAT", PRV (provider IEN, optional),
-    # CREATE (-1 = always create, 0 = never, 1 = create if not found).
-    # Creation descends VSTR2VIS → FNDVIS → GETVISIT^BSDAPI4 (the IHS PCC
-    # visit-creation API); GETVISIT^BEHOENCX itself is a pure fetch by
-    # visit IEN and never creates (rpms-ops
-    # docs/REGISTRATION_RPC_CONTRACTS.md §3). Registered in the staging
-    # file-8994 dump (FETCH^BEHOENCX, 2026-06-07).
-    # Reply per the FETCH header comment (source-derived; live capture
-    # pending):
+    # BEHOENCX FETCH(DATA,DFN,VSTR,PRV,CREATE) — resolve (and optionally
+    # create) a visit from a visit string, returning its context. The ONE
+    # mapping for this RPC (#213): Encounter.open sends CREATE=0 (a read),
+    # Encounter.create sends CREATE=1/-1 (the visit-create path).
+    # Params positionally (FETCH^BEHOENCX: BEHOENCX.m:32; registry formals
+    # DATA,DFN,VSTR,PRV,CREATE): DFN; VSTR "LOC;FM_DATETIME;SVC_CAT[;VISITIEN]"
+    # — with the 4th piece VSTR2VIS uses that IEN and never searches
+    # (BEHOENCX.m:107-111), without it FNDVIS searches a 60-minute window
+    # (lines 64-94); PRV (provider IEN, optional — line 36 defaults it to DUZ
+    # when the user is a provider); CREATE (-1 always create, 0 never — FNDVIS
+    # sets IN("NEVER ADD"), line 80 — 1 create if not found). Creation descends
+    # to GETVISIT^BSDAPI4 / GETVISIT^BEHOENC1 (lines 82-84), the IHS PCC
+    # visit API; GETVISIT^BEHOENCX itself never creates.
+    # Reply (header lines 30-31; built at lines 41-46):
     #   LOCNAME^LOCABBR^ROOMBED^PROVIEN^PROVNAME^VISITIEN^VISITID^LOCKED^ERRORTXT
-    # VISITIEN present => found/created; otherwise piece 9 carries the
-    # error text. NB: :encounter_fetch above predates this source read and
-    # labels positions 3/6 differently — reconciling it (and
-    # Encounter.open's call shape) is tracked separately.
-    DataMapper.define(:encounter_get_or_create) do |m|
+    # 1-2 = ^SC(LOC,0) pieces 1-2; 3 = ^DPT(DFN,.101) room-bed; 4 = PRV;
+    # 5 = ^VA(200,PRV,0) piece 1; 6-8 only when the visit resolved (IEN>0);
+    # 9 only when it did not ("-1^text" from FNDVIS or VIS2VSTR, lines 85
+    # and 117-118). There is no location IEN and no ward on this wire.
+    # Live capture (CREATE=0): test/fixtures/wire_captures/behoencx-fetch.yml.
+    DataMapper.define(:encounter_fetch) do |m|
       m.rpc "BEHOENCX FETCH"
       m.field 0, :location_name
       m.field 1, :location_abbrev
@@ -379,7 +370,7 @@ module RpmsRpc
       m.field 4, :provider_name
       m.field 5, :visit_ien,     :integer
       m.field 6, :visit_id
-      m.field 7, :locked,        :integer
+      m.field 7, :locked,        :boolean
       m.field 8, :error
     end
 
@@ -418,6 +409,33 @@ module RpmsRpc
       m.field 5, :facility
     end
 
+    # BGOVIMM GET — the patient's immunization history (multi-line). INP is
+    # DFN ^ what, "I" asking for the V IMMUNIZATION rows only (F forecast,
+    # C contraindications and R refusals are the other letters; GET^BGOVIMM5:
+    # BGOVIMM5.m:206-212). On an IHS site (DUZ("AG")="I") each dose is one
+    # "I" row built from the Immunization package's IMMHX^BIRPC data elements
+    # and then overlaid (BGOVIMM5.m:231-275); the positions match the
+    # non-IHS branch's documented row (:288-308):
+    #   "I" ^ SHORT_NAME ^ DATE (MM/DD/YYYY) ^ V_IMM_IEN ^ OTHER_LOC ^
+    #   GROUP ^ VACCINE_IEN ^ LOT ^ REACTION ^ VIS_DATE ^ AGE ^ VISIT_DATE ^
+    #   PROVIDER (IEN~NAME) ^ SITE (CODE~NAME) ^ VOLUME ^ VISIT_IEN ^
+    #   VISIT_CATEGORY ^ VACCINE_NAME ^ LOCATION (IEN~NAME) ^ VISIT_LOCKED ^
+    #   EVENT_DATE (FileMan, IHS only) ^ ... ^ VFC_ELIGIBILITY (label, :24) ^
+    #   ... ^ MANUFACTURER (:26) ^ "RPMS"
+    # Immunization.for_patient keeps the "I" rows and splits the ~ pairs.
+    DataMapper.define(:immunization_list) do |m|
+      m.rpc "BGOVIMM GET"
+      m.field 0,  :record_type
+      m.field 3,  :ien
+      m.field 7,  :lot_number
+      m.field 12, :performer
+      m.field 13, :site
+      m.field 14, :dose_quantity, :float
+      m.field 17, :vaccine_display
+      m.field 20, :occurrence_datetime, :fileman_datetime
+      m.field 25, :manufacturer
+    end
+
     # BEHOCIR GETTXT — CCD document content
     DataMapper.define(:immunization_text) do |m|
       m.rpc "BEHOCIR GETTXT"
@@ -440,15 +458,16 @@ module RpmsRpc
     end
 
     # ========================================================================
-    # SESSION BOOTSTRAP (CIAVMRPC*, CIAVMCFG*, CIAVCXUS*)
+    # SESSION BOOTSTRAP (CIAVMCFG*, CIAVCXUS*)
     # ========================================================================
-
-    # CIAVMRPC GETPAR — fetch a CIAVM parameter by name.
-    # Used at cold launch to retrieve "CIAVM DEFAULT SOURCE" → config root path.
-    DataMapper.define(:session_default_source) do |m|
-      m.rpc "CIAVMRPC GETPAR"
-      m.scalar :value, :string
-    end
+    #
+    # CIAVMRPC GETPAR is deliberately NOT mapped (#239). It fetched the
+    # VueCentric client's own config root ("CIAVM DEFAULT SOURCE"), the path
+    # the Windows shell loads its component registry from: tier V, legacy
+    # under ADR 0004 (reads client session/widget state). A frontend-agnostic
+    # consumer has no CIAVM config root. Its other use, reading site
+    # parameters such as BGO CC PREFIX TEXT, is site configuration that
+    # belongs in the captured L2/L3 overlay, not in an RPC round-trip.
 
     # CIAVMCFG GETREG — fetch the launching client's registry settings.
     # Field positions are best-effort pending wider trace capture; the RPC
@@ -471,6 +490,17 @@ module RpmsRpc
       m.field 2, :timeouts
       m.field 3, :compose_mode, :boolean
       m.field 4, :design_mode, :boolean
+    end
+
+    # CIAVCXUS HASKEYS — which of the named security keys the signed-on user
+    # holds (rpms-rpc#318). HASKEYS(DATA,KEYS), CIAVCXUS.m:14-18: one actual,
+    # the names joined with "^"; one reply line with a 0/1 per name, in order
+    # (HASKEY, CIAVCXUS.m:8-12, answers ''$D(^XUSEC(KEY,DUZ))). In CIAV
+    # VUECENTRIC's RPC multiple, so a least-privilege CIA user can ask.
+    # Consumer: Authentication.held_keys.
+    DataMapper.define(:user_held_keys) do |m|
+      m.rpc "CIAVCXUS HASKEYS"
+      m.line_field 0, :flags
     end
 
     # ========================================================================
@@ -594,10 +624,65 @@ module RpmsRpc
       m.scalar :result
     end
 
+    # BGOVCPT GET — the patient's V CPT entries (multi-line). INP is
+    # DFN ^ max ^ visit ^ type ^ format; DFN alone reads every V CPT on file
+    # for the patient, detailed (GET^BGOVCPT: BGOVCPT.m:28-41, G0 :45-47).
+    # Row (ARRAY^BGOVCPT: BGOVCPT.m:180-199):
+    #   VISIT_DATE (MM/DD/YYYY, $$FMTDATE^BGOUTL) ^ FAC_CODE ^ FAC_NAME ^
+    #   CPT ^ CPT_NAME ^ NARRATIVE ^ DX ^ PRIMARY ^ MOD1 ^ MOD2 ^
+    #   V_CPT_IEN ^ VISIT_IEN ^ CPT_IEN ^ QUANTITY ^ PROVIDER_NAME ^
+    #   TRAN_CODE_IEN ^ ICD0_IEN ^ VISIT_LOCKED ^ V_FILE ("CPT")
+    # MOD1/MOD2 are CODE~NAME. Procedure.for_patient parses the date.
+    DataMapper.define(:procedure_list) do |m|
+      m.rpc "BGOVCPT GET"
+      m.field 0,  :date
+      m.field 2,  :facility
+      m.field 3,  :cpt_code
+      m.field 4,  :cpt_name
+      m.field 5,  :name
+      m.field 6,  :diagnosis
+      m.field 8,  :modifier_1
+      m.field 9,  :modifier_2
+      m.field 10, :ien
+      m.field 11, :visit_ien
+      m.field 13, :quantity, :integer
+      m.field 14, :provider
+    end
+
     # BGOVCPT SET — visit CPT-code save. Returns the saved IEN on success.
     DataMapper.define(:procedure_save) do |m|
       m.rpc "BGOVCPT SET"
       m.scalar :result
+    end
+
+    # ========================================================================
+    # VFC ELIGIBILITY (BGOVIMM*, the immunization component's reads)
+    # ========================================================================
+
+    # BGOVIMM GETVFC — GETVFC^BGOVIMM2 (BGOVIMM2.m:157-172; #8994 points the
+    # BGOVIMM name at routine BGOVIMM2). One INP param, DFN in piece 1.
+    # Reply: IHS-site (Y/N)[1] ^ age[2] ^ default[3]. At an IHS site
+    # (DUZ("AG")="I") the default is the label "Am Indian/AK Native" when the
+    # patient's beneficiary type (#9000001 field 1111) is 1, else that type's
+    # IEN ($$BENTYP^BIUTL11, 0 when unset); elsewhere it is empty. The DFN is
+    # not validated: an unknown one answers "Y^<age>^0".
+    DataMapper.define(:vfc_default) do |m|
+      m.rpc "BGOVIMM GETVFC"
+      m.field 0, :ihs_site
+      m.field 1, :age
+      m.field 2, :default_label
+    end
+
+    # BGOVIMM2 GETELIG — GETELIG^BGOVIMM2 (BGOVIMM2.m:207-216): the ACTIVE
+    # rows of BI TABLE ELIGIBILITY CODES (#9002084.83, walked by its "AC"
+    # index). Rows: IEN[1] ^ ELIGIBILITY CODE .01[2] ^ LABEL-TEXT OF CODE
+    # .02[3] ^ LOCAL TEXT .04[4]. The DFN parameter is unused.
+    DataMapper.define(:vfc_eligibility_codes) do |m|
+      m.rpc "BGOVIMM2 GETELIG"
+      m.field 0, :ien
+      m.field 1, :code
+      m.field 2, :label
+      m.field 3, :local_text
     end
 
     # ========================================================================
@@ -653,24 +738,10 @@ module RpmsRpc
     # BGOREP.m:62-87; it errors on male patients at :86) and is not
     # modeled here (#217).
 
-    # ========================================================================
-    # CLINICAL REMINDERS (BGOTRG*, ORQQPX*)
-    # ========================================================================
-
-    # BGOTRG GETSUM — reminder summary for a (patient_dfn, visit_ien).
-    # Multi-line response; each line one reminder.
-    # Field positions are best-effort pending wider trace capture.
-    # ORQQPX NEW REMINDERS ACTIVE and ORQQPXRM REMINDERS APPLICABLE are
-    # referenced in the issue but not yet modeled; for_visit derives the
-    # full list from GETSUM alone.
-    DataMapper.define(:reminder_summary) do |m|
-      m.rpc "BGOTRG GETSUM"
-      m.field 0, :id, :integer
-      m.field 1, :name
-      m.field 2, :status_code
-      m.field 3, :priority, :integer
-      m.field 4, :due_date, :fileman_date
-    end
+    # (Clinical reminders: BGOTRG GETSUM is the triage summary, GETSUM^BGOTRG
+    # (BGOTRG.m:5-158), and carries no reminder data; the reminder read is
+    # :reminders_applicable in stock_vista.rb, ORQQPXRM REMINDERS APPLICABLE,
+    # #238.)
 
     # ========================================================================
     # SCHEDULING (BSDX — Clinical Scheduling for Windows)

@@ -52,6 +52,26 @@ Requires Ruby 3.4+.
 
 ## Usage
 
+> **The broker connection is plaintext.** XWB, BMX and CIA carry access/verify
+> codes and PHI unencrypted, and the gem has no TLS of its own. Reach a broker
+> only over a private network, a port forward, or a TLS tunnel. See
+> [Transport security](SECURITY.md#transport-security) and
+> [`docs/tls.md`](docs/tls.md).
+
+### Loading the gem
+
+```ruby
+require "rpms_rpc"
+```
+
+loads the public API: configuration (`RpmsRpc.configure`, `client`, `mock!`,
+`reset!`), the response mappings, the security-key, role and capability tables,
+and every `RpmsRpc::<Api>` module under `lib/rpms_rpc/api/`. It does not open a
+socket or pick a broker. A script that needs only one broker client can require
+that file alone (`require "rpms_rpc/cia_client"`, below); it carries the
+configuration and error sanitizing it needs, and none of the tables.
+`require "rpms_rpc/version"` defines `RpmsRpc::VERSION` and nothing else.
+
 ### CIA (XWB) — port 9100
 
 ```ruby
@@ -190,7 +210,7 @@ The coverage number is measured against **one backend's registry**, not against 
 
 ```sh
 rake rpc:coverage
-# RPC coverage: 0.8% (45 / 5557 registered on bcer-9.0-20260930-8c88e47-ydb; 0 excluded) · declared 190 · unregistered names used 77
+# RPC coverage: 0.7% (37 / 4959 registered on bcer-9.0-20260930-8c88e47-ydb; 598 excluded) · declared 198 · unregistered names used 0
 ```
 
 - **Denominator:** every #8994 name on the pinned rpms-ops build
@@ -198,6 +218,14 @@ rake rpc:coverage
   pinned by `rake conformance:pin`; see [docs/conformance/CAPTURE.md](docs/conformance/CAPTURE.md)),
   minus the names in `data/rpc_coverage/exclusions.yml`. Each exclusion carries a reason from a
   fixed list, and is reviewed like code.
+- **Unreachable RPCs are excluded from the RPC atlas (#278):** an RPC whose routine or entry point
+  is not on the image, that is inactive, that no context lists, or whose every context is out of
+  order cannot be called by any client. `rake rpc:exclusions ATLAS=<atlas.tsv>` regenerates those
+  exclusions from the atlas cloud-rpms `scripts/shared/rpc-atlas.sh` writes for the pinned
+  release, and records the atlas path, its sha256 and whether its #8994 input is the pinned
+  registry. Run it each release. Out-of-order RPCs get their own reason (`context_out_of_order`),
+  since a site can put a context back in service. Reviewed reasons (`gui_plumbing`,
+  `write_needs_fixture`) survive regeneration.
 - **Covered:** a live run against that backend got an answer that was not a broker error.
   Mock-driven unit tests do not count: `MockClient` answers any name it is seeded with.
 - **Output:** the one-liner and per-status counts on stdout.
@@ -208,8 +236,8 @@ rake rpc:coverage
   coverage value. The number never fails the task. A drop below it prints a NOTE, and so does a
   rise, together with the value to record. Raise it then, and never lower it.
 - **Fails on:** more than `max_unregistered` names that rpms-rpc uses but the registry does not
-  register (lower it toward 0, #207), a bad exclusion, a malformed registry, or a sign-on code in
-  the live evidence.
+  register (lower it toward 0, #207), a bad exclusion (unknown reason, unregistered name, or an
+  excluded RPC that answered live), a malformed registry, or a sign-on code in the live evidence.
 
 Live evidence for a backend is refreshed with a read-only run of the API catalogue, one broker
 connection at a time, which merges into `rpc-coverage/live/<BACKEND>.json` in
@@ -334,6 +362,26 @@ bundle exec rake test
 
 The test suite is hermetic — no sockets, no live RPMS.
 
+### Test results, quickly
+
+Run these whenever you want the current picture; there is no report to keep. The hermetic
+suite, then the live specs once per persona against a local container of the build you
+care about (the broker port published on loopback; `rake test:live` refuses any other host):
+
+```sh
+bundle exec rake test
+VISTA_RPC_ENV=development BROKER_HOST=127.0.0.1 BROKER_PORT=<port> PERSONA=PROV123 RPMS_ACCESS=... RPMS_VERIFY=... bundle exec rake test:live
+BROKER_HOST=127.0.0.1 BROKER_PORT=<port> PERSONA=SYS123 RPMS_ACCESS=... RPMS_VERIFY=... bundle exec rake test:live
+bundle exec rake rpc:coverage
+```
+
+Each prints its own summary: minitest's `runs, assertions, failures, errors, skips` line, the
+live run's skips listed by issue (a live run in which no spec ran fails), and the coverage
+headline from the committed live evidence. Any failure exits non-zero.
+
+PROV123 is a debug account, so its run also needs `VISTA_RPC_ENV=development`. `rake rpc:coverage`
+reads the live evidence from an `rpms-diffs` checkout beside this repo, or `RPMS_DIFFS_DIR=`.
+
 - **Wire-format tests** construct packet bytes and assert their layout
 - **DataMapper tests** verify field/text_blob/scalar round-trip through parse + format
 - **MockClient tests** verify seeded data flows through the full fetch chain
@@ -344,6 +392,8 @@ The test suite is hermetic — no sockets, no live RPMS.
 ### MockClient usage
 
 ```ruby
+require "rpms_rpc"
+
 RpmsRpc.mock! do |m|
   # Field-based mapping (caret-delimited)
   m.seed(:patient_select, "1", { name: "DOE,JOHN", sex: "M", dob: Date.new(1980, 1, 15) })

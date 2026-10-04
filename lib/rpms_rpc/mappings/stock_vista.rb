@@ -24,11 +24,16 @@ module RpmsRpc
       m.field 14, :age,       :integer
     end
 
-    # ORWPT ID INFO — patient identifier projection. Live shape against
-    # staging (DFN=3 / MOUSE,MICKEY M):
-    #   "000009999^2100214^M^N^^7819^^MOUSE,MICKEY M"
-    #     [0] ssn       [1] dob (fileman) [2] sex      [3] race_code
-    #     [4] reserved  [5] site_ien      [6] reserved [7] name
+    # ORWPT ID INFO — patient identifier projection.
+    # Verified format (IDINFO^ORWPT: ORWPT.m:6-11 — header line 7
+    # "PID^DOB^SEX^VET^SC%^WARD^RM-BED^NAME", REC construction line 10):
+    #   PID[1]^DOB[2]^SEX[3]^VET[4]^SC%[5]^WARD[6]^RM-BED[7]^NAME[8]
+    # VET is the VETERAN (Y/N) flag and WARD the current ward location.
+    # The prior declaration read piece 4 as :race_code and piece 6 as
+    # :site_ien — the captured "N" at piece 4 is the veteran flag, and
+    # piece 6 is empty for an outpatient; neither value was ever what it
+    # claimed (#191, caught by the wire-contract gate against
+    # test/fixtures/wire_captures/orwpt-id-info.yml).
     # Despite the "ID INFO" name, this RPC does NOT return address,
     # city, state, zip, phone, tribal enrollment, service area, or
     # coverage — those fields were hallucinated in the prior mapping and
@@ -41,8 +46,10 @@ module RpmsRpc
       m.field 0, :ssn
       m.field 1, :dob, :fileman_date
       m.field 2, :sex
-      m.field 3, :race_code
-      m.field 5, :site_ien, :integer
+      m.field 3, :veteran
+      m.field 4, :sc_percent
+      m.field 5, :ward_location
+      m.field 6, :room_bed
       m.field 7, :name
     end
 
@@ -450,6 +457,36 @@ module RpmsRpc
       m.field 5, :priority
     end
 
+    # ORQQPXRM REMINDERS APPLICABLE: the reminder engine's own evaluation of
+    # a patient's cover-sheet reminders, the method RPMS has in place for
+    # "which reminders apply, with status, due date and priority" (#238).
+    # APPL^ORQQPXRM (ORQQPXRM.m:10-11) -> EVALCOVR^ORQQPX (ORQQPX.m:232-236):
+    # GETLIST (the UNEVALUATED list, ORQQPX.m:225-231) then ALIST^PXRMRPCA
+    # (the REMINDER EVALUATION path) -> AVAL (PXRMRPCA.m:49-82).
+    # Params: ORPT (DFN), ORLOC (#44 hospital location; selects which
+    # cover-sheet reminders are evaluated, REMLIST ORQQPX.m:185-206).
+    # One row per reminder (PXRMRPCA.m:76 applicable, :80 not applicable):
+    #   IEN^PRINT NAME^DUE DATE^LAST DONE^PRIORITY^DUE FLAG^DIALOG^^^^WIPE
+    # - DUE DATE is kept RAW: a FileMan date, or the text "DUE NOW"
+    #   (PXRMDATE.m:132), "CNBD" (:129), "DISABLED" (PXRM.m:62), or empty
+    #   (PXRMDATE.m:119; PXRMOUTD.m:24,29; not-applicable rows).
+    # - LAST DONE is emptied when not a date (PXRMRPCA.m:70).
+    # - PRIORITY is #811.9 piece 10, default 2 (:72-74); empty on N/A rows.
+    # - DUE FLAG: 0 applicable, 1 due, 2 not applicable, 3 error,
+    #   4 cannot be determined (:56-67).
+    # - DIALOG = $$DLG (:112-117); WIPE = $$DLGWIPE (:119-123).
+    DataMapper.define(:reminders_applicable) do |m|
+      m.rpc "ORQQPXRM REMINDERS APPLICABLE"
+      m.field 0,  :ien,         :integer
+      m.field 1,  :print_name
+      m.field 2,  :due_date
+      m.field 3,  :last_done,   :fileman_date
+      m.field 4,  :priority,    :integer
+      m.field 5,  :due_flag,    :integer
+      m.field 6,  :dialog,      :boolean
+      m.field 10, :dialog_wipe, :boolean
+    end
+
     # ORQQPX REMINDER DETAIL — single reminder detail (text blob)
     DataMapper.define(:reminder_detail) do |m|
       m.rpc "ORQQPX REMINDER DETAIL"
@@ -545,24 +582,39 @@ module RpmsRpc
     # ========================================================================
     # TIU NOTE TEMPLATES (TIU TEMPLATE*)
     # ========================================================================
-    # Field positions are best-effort pending wider trace capture. Templates
-    # form a tree (roots → items) with each leaf carrying boilerplate text.
+    # Templates form a tree (roots -> items). GETROOTS and GETITEMS rows are
+    # NODEDATA^TIUSRVT (TIUSRVT.m:104-109), whose pieces TIUSRVT.m:4-29
+    # list: IEN^TYPE^STATUS^NAME^EXCLUDE FROM GROUP BOILERPLATE^BLANK
+    # LINES^PERSONAL OWNER^HAS CHILDREN (0 none, 1 active, 2 inactive,
+    # 3 both)^... A GETITEMS row names no parent: it is a child of the
+    # TIUDA asked about (#219).
 
     DataMapper.define(:template_roots) do |m|
       m.rpc "TIU TEMPLATE GETROOTS"
       m.field 0, :ien, :integer
-      m.field 1, :name
-      m.field 2, :type
+      m.field 1, :type
+      m.field 2, :status
+      m.field 3, :name
+      m.field 4, :exclude_from_group_boilerplate
+      m.field 5, :blank_lines, :integer
+      m.field 6, :personal_owner_duz
+      m.field 7, :has_children, :integer
     end
 
     DataMapper.define(:template_items) do |m|
       m.rpc "TIU TEMPLATE GETITEMS"
       m.field 0, :ien, :integer
-      m.field 1, :name
-      m.field 2, :type
-      m.field 3, :parent_ien, :integer
+      m.field 1, :type
+      m.field 2, :status
+      m.field 3, :name
+      m.field 4, :exclude_from_group_boilerplate
+      m.field 5, :blank_lines, :integer
+      m.field 6, :personal_owner_duz
+      m.field 7, :has_children, :integer
     end
 
+    # GETBOIL(TIUY,TIUDA)^TIUSRVT (TIUSRVT.m:55): the template's
+    # UNEXPANDED boilerplate, one line per node.
     DataMapper.define(:template_boilerplate) do |m|
       m.rpc "TIU TEMPLATE GETBOIL"
       m.text_blob :body
@@ -581,21 +633,32 @@ module RpmsRpc
     # ========================================================================
     # TIU PROGRESS NOTES (TIU*)
     # ========================================================================
-    # Field positions are best-effort pending wider trace capture.
+    # Every reply below is a status string the API reads, not a boolean:
+    # LOCK answers 0 when it HOLDS the lock and "1^message" when it does
+    # not (TIUSRVP.m:211-212), the reverse of a :boolean read (#219).
 
+    # MAKE(SUCCESS,DFN,TITLE,VDT,VLOC,VSIT,...)^TIUSRVP (TIUSRVP.m:7):
+    # the new note IEN, or "0^message".
     DataMapper.define(:tiu_create_record) do |m|
       m.rpc "TIU CREATE RECORD"
       m.scalar :note_ien
     end
 
+    # CONTEXT(TIUY,CLASS,CONTEXT,DFN,...)^TIUSRVLO (TIUSRVLO.m:16). Each
+    # row is DA_U_$$RESOLVE(DA) (TIUSRVLO.m:94); RESOLVE builds
+    # DOC^EDT^PT^AUT^LOC^STATUS^TIUADT^TIUDDT^... (TIUSRVLO.m:197), AUT
+    # being DUZ;SIGNATURE NAME;NAME (TIUSRVLO.m:195). The API splits it.
     DataMapper.define(:tiu_documents_by_context) do |m|
       m.rpc "TIU DOCUMENTS BY CONTEXT"
       m.field 0, :ien, :integer
       m.field 1, :title
-      m.field 2, :status
-      m.field 3, :datetime, :fileman_datetime
-      m.field 4, :author_duz
-      m.field 5, :author_name
+      m.field 2, :datetime, :fileman_datetime
+      m.field 3, :patient
+      m.field 4, :author
+      m.field 5, :location
+      m.field 6, :status
+      m.field 7, :visit
+      m.field 8, :discharge
     end
 
     DataMapper.define(:tiu_get_record_text) do |m|
@@ -603,21 +666,27 @@ module RpmsRpc
       m.text_blob :body
     end
 
+    # CANDO(TIUY,TIUDA,TIUACT)^TIUSRVA (TIUSRVA.m:20): 1, or "0^reason".
     DataMapper.define(:tiu_authorization) do |m|
       m.rpc "TIU AUTHORIZATION"
-      m.scalar :allowed, :boolean
+      m.scalar :result
     end
 
+    # LOCK(ERR,TIUDA)^TIUSRVP (TIUSRVP.m:210-212): 0 = locked,
+    # "1^ Another session has this record locked." = not.
     DataMapper.define(:tiu_lock_record) do |m|
       m.rpc "TIU LOCK RECORD"
-      m.scalar :locked, :boolean
+      m.scalar :result
     end
 
+    # UNLOCK(ERR,TIUDA)^TIUSRVP (TIUSRVP.m:214-215): always 0.
     DataMapper.define(:tiu_unlock_record) do |m|
       m.rpc "TIU UNLOCK RECORD"
-      m.scalar :unlocked, :boolean
+      m.scalar :result
     end
 
+    # SETTEXT(TIUY,TIUDA,TIUX,SUPPRESS)^TIUSRVPT (TIUSRVPT.m:7):
+    # TIUDA^PAGE^PAGES, or "0^0^0^message" (TIUSRVPT.m:10, 14, 38).
     DataMapper.define(:tiu_set_document_text) do |m|
       m.rpc "TIU SET DOCUMENT TEXT"
       m.scalar :result

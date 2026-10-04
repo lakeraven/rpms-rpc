@@ -24,8 +24,7 @@ require_relative "../../tools/rpc_coverage/rpc_coverage"
 #
 # The names considered are the ones `rake rpc:coverage` counts as used
 # (RpcCoverage.declared_names): every `m.rpc "..."` in the mappings, every
-# RPC-shaped string literal on a line of lib/ that sends an RPC, and every
-# capability-probe `register([...])` list.
+# RPC-shaped string literal on a line of lib/ that sends an RPC.
 #
 # To add an RPC: pin a build that serves it first (`rake conformance:pin`), then
 # map it (ADR 0003).

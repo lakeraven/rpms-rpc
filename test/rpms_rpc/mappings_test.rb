@@ -19,38 +19,9 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal 45, result[:age]
   end
 
-  # -- ORWPT ID INFO ---------------------------------------------------------
-
-  def test_patient_id_info_parses_identifier_fields
-    m = RpmsRpc::DataMapper[:patient_id_info]
-    # Live shape from staging: SSN^DOB^SEX^RACE_CODE^^SITE_IEN^^NAME
-    result = m.parse_one("000009999^2100214^M^N^^7819^^MOUSE,MICKEY M")
-
-    assert_equal "000009999", result[:ssn]
-    assert_equal Date.new(1910, 2, 14), result[:dob]
-    assert_equal "M", result[:sex]
-    assert_equal "N", result[:race_code]
-    assert_equal 7819, result[:site_ien]
-    assert_equal "MOUSE,MICKEY M", result[:name]
-  end
-
-  # -- SELECT + ID INFO merge ------------------------------------------------
-
-  def test_patient_merge
-    base = RpmsRpc::DataMapper[:patient_select].parse_one(
-      "MOUSE,MICKEY M^M^2100214^000009999^0^7819^^^0^^0^0^^^116^0",
-      extras: { dfn: 3 }
-    )
-    ext = RpmsRpc::DataMapper[:patient_id_info].parse_one(
-      "000009999^2100214^M^N^^7819^^MOUSE,MICKEY M"
-    )
-    merged = base.merge(ext)
-
-    assert_equal 3, merged[:dfn]
-    assert_equal "MOUSE,MICKEY M", merged[:name]
-    assert_equal "N", merged[:race_code]
-    assert_equal 7819, merged[:site_ien]
-  end
+  # ORWPT ID INFO (:patient_id_info) has no parse test here: its layout is
+  # proven live against the pinned build in test/live/patient_live_test.rb
+  # (ADR 0009, #191), not against a reply written by hand.
 
   # -- ORWPT LIST ALL --------------------------------------------------------
 
@@ -193,12 +164,13 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_nil RpmsRpc::DataMapper[:vitals_for_date_range].parse_one("^No vitals found.")
   end
 
-  # -- BEHOENCX FETCH (get-or-create form) -----------------------------------
+  # -- BEHOENCX FETCH — ONE mapping for the RPC (#211/#213) -------------------
 
-  def test_encounter_get_or_create_parses_fetch_reply
+  def test_encounter_fetch_parses_the_fetch_reply
     # LOCNAME^LOCABBR^ROOMBED^PROVIEN^PROVNAME^VISITIEN^VISITID^LOCKED^ERRORTXT
-    # (FETCH^BEHOENCX header comment; source-derived, live capture pending)
-    result = RpmsRpc::DataMapper[:encounter_get_or_create].parse_one(
+    # (FETCH^BEHOENCX: BEHOENCX.m:30-31, 41-46; captured live in
+    # test/fixtures/wire_captures/behoencx-fetch.yml)
+    result = RpmsRpc::DataMapper[:encounter_fetch].parse_one(
       "EXAMPLE CLINIC^EXC^101-A^42^PROVIDER,TEST^2090070^5000.1^0^"
     )
     assert_equal "EXAMPLE CLINIC", result[:location_name]
@@ -208,18 +180,27 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "PROVIDER,TEST", result[:provider_name]
     assert_equal 2090070, result[:visit_ien]
     assert_equal "5000.1", result[:visit_id]
-    assert_equal 0, result[:locked]
+    assert_equal false, result[:locked]
     assert_nil result[:error]
+    # Piece 4 is the PROVIDER ien (BEHOENCX.m:43) and piece 7 the VISIT ID
+    # (BEHOENCX.m:45) — the labels the old :encounter_fetch put there.
+    refute result.key?(:location_ien)
+    refute result.key?(:ward)
   end
 
-  def test_encounter_get_or_create_parses_error_reply
+  def test_encounter_fetch_parses_the_error_reply
     # IEN'>0 leaves pieces 6-8 empty and puts the error text in piece 9
-    # (FETCH^BEHOENCX error branch)
-    result = RpmsRpc::DataMapper[:encounter_get_or_create].parse_one(
+    # (FETCH^BEHOENCX: BEHOENCX.m:46)
+    result = RpmsRpc::DataMapper[:encounter_fetch].parse_one(
       "EXAMPLE CLINIC^EXC^^42^PROVIDER,TEST^^^^Visit not created"
     )
     assert_nil result[:visit_ien]
     assert_equal "Visit not created", result[:error]
+  end
+
+  def test_the_get_or_create_duplicate_of_the_fetch_mapping_is_gone
+    refute RpmsRpc::DataMapper.respond_to?(:encounter_get_or_create),
+           "BEHOENCX FETCH has one mapping, :encounter_fetch"
   end
 
   # -- VAFC VOA ADD PATIENT --------------------------------------------------
@@ -422,6 +403,43 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "HIGH", result[:priority]
   end
 
+  # -- ORQQPXRM REMINDERS APPLICABLE (#238) ----------------------------------
+  # AVAL^PXRMRPCA row (PXRMRPCA.m:76):
+  # IEN^PRINT NAME^DUE DATE^LAST DONE^PRIORITY^DUE FLAG^DIALOG^^^^DIALOG WIPE
+
+  def test_reminders_applicable_binds_the_evaluation_rpc
+    assert_equal "ORQQPXRM REMINDERS APPLICABLE", RpmsRpc::DataMapper[:reminders_applicable].rpc_name
+  end
+
+  def test_reminders_applicable_parses_the_aval_row_in_routine_order
+    result = RpmsRpc::DataMapper[:reminders_applicable].parse_many(
+      [ "1001^Diabetic Foot Exam^3261016^3251016.143^1^1^1^^^^1" ]
+    ).first
+
+    assert_equal 1001, result[:ien]
+    assert_equal "Diabetic Foot Exam", result[:print_name]
+    assert_equal "3261016", result[:due_date], "due-date piece stays raw so DUE NOW / CNBD survive"
+    assert_equal Date.new(2025, 10, 16), result[:last_done]
+    assert_equal 1, result[:priority]
+    assert_equal 1, result[:due_flag]
+    assert_equal true, result[:dialog]
+    assert_equal true, result[:dialog_wipe]
+  end
+
+  def test_reminders_applicable_keeps_the_due_now_sentinel
+    result = RpmsRpc::DataMapper[:reminders_applicable].parse_many(
+      [ "1002^Influenza Vaccine^DUE NOW^^2^1^0^^^^0" ]
+    ).first
+
+    assert_equal "DUE NOW", result[:due_date]
+    assert_nil result[:last_done]
+  end
+
+  def test_no_mapping_reads_reminders_from_the_triage_summary
+    refute RpmsRpc::DataMapper.respond_to?(:reminder_summary),
+           ":reminder_summary scraped BGOTRG GETSUM, which carries no reminder data (BGOTRG.m:27-158)"
+  end
+
   # -- PHR RPCs --------------------------------------------------------------
 
   def test_immunization_count
@@ -485,7 +503,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
     expected = %i[
       patient_select patient_id_info patient_list patient_ssn
       patient_appointments allergy_list problem_list vitals
-      encounter_get_or_create
+      encounter_visit encounter_fetch encounter_chkvisit
       vitals_for_date_range
       voa_add_patient ddr_lister ddr_lock_unlock_node ddr_gets_entry_data
       ddr_filer ddr_validator
@@ -493,7 +511,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       medication_list
       referral_search
       user_info reminders_list
-      reminder_detail patient_deceased patient_sensitive user_has_key person_has_key
+      reminder_detail patient_deceased patient_sensitive user_has_key person_has_key user_held_keys
       signon_setup av_code cvc_verify
       report_text
       medication_detail referral_detail

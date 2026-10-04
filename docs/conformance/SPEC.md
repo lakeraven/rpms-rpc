@@ -86,7 +86,6 @@ per rung (follow-up: emitted by rpms-ops at release-cut, pinned here).
 Requirements are declared symbolically and resolve to a set of RPC names (and,
 later, packages/patches/BMW tables). Sources:
 
-- `ServerCapabilities::FEATURE_RPCS` — existing symbolic feature → RPC map.
 - `mappings.rb` — every `DataMapper` declares an `m.rpc`.
 - Client capability manifests (factory plan) — the per-client requirement set.
 
