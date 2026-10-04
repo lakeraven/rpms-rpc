@@ -50,37 +50,10 @@ rpcs:
   "BEHOPTPC GETBDP":
   "BEHOCACV CWAD":
   "BMC GET REFERENCE DATA":
-  # -- gem-required RPCs absent from the 2026-06-07 staging dump ------------
-  # (subset of .gem_only_misses_20260607.txt; see server_capabilities.rb)
-  "GMTS PWH REPORT":
-  "GMTS FLOWSHEET LIST":
-  "GMTS FLOWSHEET DATA":
-  "GMTS MAINT ITEMS":
-  "PSO ERX STATUS":
-  "PSO NEW RX":
-  "PSO CANCEL RX":
-  "BPHR PATIENT DIRECT":
-  "BPHR PROVIDER DIRECT":
-  "BPHR FACILITY DIRECT":
-  "BPHR RECORD ACCESS":
-  "XU KEY LIST":
-  "XU KEY GRANT":
-  "XU KEY REVOKE":
-  "ORWU USERKEYS":
-  "ORWLRR RESULT LIST":
-  "ORWLRR REPORT LIST":
-  "ORWLRR REPORT":
-  "ORWRA REPORT":
-  "ORWRA REPORT LIST":
-  "ORWPCE IMPLANT LIST":
-  "ORWPCE IMPLANT GET":
-  "ORWPCE PROCEDURE LIST":
-  "ORWPCE PROCEDURE GET":
-  "ORWRP TYPES":
-  "ORWRP TYPE COMPONENTS":
-  "XQAL NEW ALERTS":
-  "XQAL MARK READ":
-  "XQAL FORWARD":
+  # The "gem-required RPCs absent from the staging dump" block that followed
+  # (GMTS/PSO/BPHR/XU KEY/ORWU USERKEYS/ORWLRR/ORWRA/ORWPCE/ORWRP/XQAL names)
+  # listed names no built image registers; they were invented mappings, not
+  # capability gaps, and left with those mappings (#207).
 # SEED packages face — hand-picked PACKAGE #9.4 name/version pairs observed on
 # the real capture (rpms-ops data/observed/packages_9_4.txt, PREFIX^NAME^VERSION
 # lines); NOT a per-rung capture. Replaced wholesale when rpms-ops emits

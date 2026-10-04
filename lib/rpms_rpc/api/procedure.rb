@@ -3,17 +3,13 @@
 require_relative "../mappings"
 
 module RpmsRpc
-  # Symbolic API for visit procedures (CPT codes). Read via ORWPCE PROCEDURE GET
-  # (single) and procedure_list (multi); write via BGOVCPT SET.
+  # Symbolic API for visit procedures (CPT codes). Write via BGOVCPT SET.
+  # The read this module once offered (`for_patient`) sent ORWPCE PROCEDURE
+  # LIST, a name no built 9.0 image registers; it was removed (#207). The
+  # registered reads are ORWPCE PROC / BGOVCPT GET; model them from the
+  # routines before adding a read back (ADR 0003).
   module Procedure
     extend self
-
-    def for_patient(dfn)
-      return [] if invalid_id?(dfn)
-      return [] unless RpmsRpc.client.supports?(:orwpce_clinical_logs)
-
-      DataMapper.procedure_list.fetch_many(dfn.to_s)
-    end
 
     def add(dfn, visit_ien, cpt_code, modifiers: [], narrative: nil, quantity: 1)
       return failure if invalid_id?(dfn) || invalid_id?(visit_ien) || blank?(cpt_code)

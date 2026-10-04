@@ -416,28 +416,6 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "Patient: DOE,JOHN\nDate: 2025-03-15\nVitals normal.", text
   end
 
-  def test_health_summary_report_types
-    result = RpmsRpc::DataMapper[:report_types].parse_many(
-      [ "1^STANDARD^Standard Health Summary^SYSTEM" ]
-    ).first
-
-    assert_equal 1, result[:ien]
-    assert_equal "STANDARD", result[:name]
-    assert_equal "Standard Health Summary", result[:description]
-    assert_equal "SYSTEM", result[:owner]
-  end
-
-  def test_health_summary_type_components
-    result = RpmsRpc::DataMapper[:report_type_components].parse_many(
-      [ "10^Demographics^DEM^1" ]
-    ).first
-
-    assert_equal 10, result[:ien]
-    assert_equal "Demographics", result[:name]
-    assert_equal "DEM", result[:abbreviation]
-    assert_equal 1, result[:sequence]
-  end
-
   def test_health_summary_reminders
     result = RpmsRpc::DataMapper[:reminders_list].parse_many(
       [ "501^A1C Screening^DUE^^^HIGH" ]
@@ -486,63 +464,12 @@ class RpmsRpc::MappingsTest < Minitest::Test
            ":reminder_summary scraped BGOTRG GETSUM, which carries no reminder data (BGOTRG.m:27-158)"
   end
 
-  def test_health_summary_flowsheet_list
-    result = RpmsRpc::DataMapper[:flowsheet_list].parse_many(
-      [ "701^Diabetes Measures^A1C and related measures" ]
-    ).first
-
-    assert_equal 701, result[:ien]
-    assert_equal "Diabetes Measures", result[:name]
-    assert_equal "A1C and related measures", result[:description]
-  end
-
-  def test_health_summary_flowsheet_data_blob
-    m = RpmsRpc::DataMapper[:flowsheet_data]
-    text = m.parse_text([ "Date^A1C", "05/01/2026^7.2" ])
-    assert_equal "Date^A1C\n05/01/2026^7.2", text
-  end
-
-  def test_health_summary_maintenance_items
-    result = RpmsRpc::DataMapper[:maint_items].parse_many(
-      [ "601^Diabetes Eye Exam^Preventive^DUE^^^Yearly" ]
-    ).first
-
-    assert_equal 601, result[:ien]
-    assert_equal "Diabetes Eye Exam", result[:name]
-    assert_equal "Preventive", result[:category]
-    assert_equal "DUE", result[:status]
-    assert_equal "Yearly", result[:frequency]
-  end
-
-  def test_lab_report_blob
-    m = RpmsRpc::DataMapper[:lab_report]
-    text = m.parse_text([ "CBC Results", "WBC: 7.2" ])
-    assert_equal "CBC Results\nWBC: 7.2", text
-  end
-
   # -- Write result RPCs -----------------------------------------------------
 
   def test_referral_delete
     result = RpmsRpc::DataMapper[:referral_delete].parse_one("1^Referral deleted")
     assert_equal true, result[:success]
     assert_equal "Referral deleted", result[:message]
-  end
-
-  def test_key_grant
-    result = RpmsRpc::DataMapper[:key_grant].parse_one("1^Key granted")
-    assert_equal true, result[:success]
-  end
-
-  def test_key_list
-    result = RpmsRpc::DataMapper[:key_list].parse_many([ "1^XUPROGMODE", "2^PROVIDER" ]).first
-    assert_equal 1, result[:ien]
-    assert_equal "XUPROGMODE", result[:name]
-  end
-
-  def test_prescription_new
-    result = RpmsRpc::DataMapper[:prescription_new].parse_one("1^12345")
-    assert_equal true, result[:success]
-    assert_equal "12345", result[:rx_ien_or_error]
   end
 
   # -- PHR RPCs --------------------------------------------------------------
@@ -705,25 +632,17 @@ class RpmsRpc::MappingsTest < Minitest::Test
       voa_add_patient ddr_lister ddr_lock_unlock_node ddr_gets_entry_data
       ddr_filer ddr_validator
       practitioner_info practitioner_list user_management_user_list
-      medication_list care_plan_list care_team_list goal_list
-      procedure_list device_list lab_result_list radiology_list
+      medication_list
       hospital_location institution referral_search site_params
       chs_budget chs_remaining_funds chs_quarterly_allocation
       chs_obligation_list chs_obligation_detail chs_obligation_by_referral
       chs_payment_list
-      user_info mailman_message mailman_messages_for_patient mailman_send
-      mailman_reply mailman_thread mailman_inbox xqal_alert xqal_mark_read
-      xqal_forward report_types reminders_list
+      user_info reminders_list
       reminder_detail patient_deceased patient_sensitive user_has_key person_has_key
-      signon_setup av_code cvc_verify user_keys
-      report_text report_type_components health_summary_report
-      flowsheet_list flowsheet_data maint_items lab_report lab_report_list radiology_report
-      medication_detail care_plan_detail care_team_detail goal_detail
-      procedure_detail device_detail referral_detail referral_delete
-      patient_recent patient_save_recent
+      signon_setup av_code cvc_verify
+      report_text
+      medication_detail referral_detail referral_delete
       section_data section_save section_definition patient_lock patient_unlock
-      key_list key_grant key_revoke
-      prescription_new erx_status prescription_cancel
       ccd_document ccd_referral immunization_text immunization_count
       immunization_exchange_vxu immunization_exchange_vxq
       immunization_exchange_rsp immunization_exchange_process_result

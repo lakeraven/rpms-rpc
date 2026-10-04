@@ -17,7 +17,8 @@ require "rpms_rpc/api/tribal"
 #   - ORWPT FULLSSN for an SSN on no patient came back as a match;
 #   - ORWU USERKEYS, not registered on the build, came back as the user's one
 #     security key (its refusal text), and the capability probe said the RPC
-#     was there;
+#     was there (the gem no longer sends it, #207; the spec still asks for it
+#     by name, as the refusal case);
 #   - DDR LISTER rows lost their names (Tribal.tribes also asked LIST^DIC for
 #     no fields, so the rows were bare IENs).
 #
@@ -29,9 +30,9 @@ class CiaReplyLinesLiveTest < LiveSpec::Test
   PATIENT_FILE = "2"
 
   # A registered, read-only feature (BEHOPTCX PTINFO, BEHOPTPC GETBDP,
-  # BEHOCACV CWAD) and one whose only RPC is not registered on the build.
+  # BEHOCACV CWAD), and an RPC name the build does not register. No feature
+  # probes that name any more (#207), so the probe is asked about it directly.
   REGISTERED_FEATURE = :patient_chart_banner
-  UNREGISTERED_FEATURE = :user_security_keys_list
   UNREGISTERED_RPC = "ORWU USERKEYS"
 
   def test_a_patient_list_parses_one_patient_per_row_each_with_its_own_dfn
@@ -78,19 +79,16 @@ class CiaReplyLinesLiveTest < LiveSpec::Test
   end
 
   # The lowest public API that sends an arbitrary RPC name is
-  # Client#call_rpc; Authentication.user_security_keys and the user_keys
-  # mapping are its callers for this RPC.
+  # Client#call_rpc.
   def test_an_unregistered_rpc_is_a_refusal_never_data
     duz = client.duz.to_s
     err = assert_raises(RpmsRpc::Client::RpcError) { client.call_rpc(UNREGISTERED_RPC, duz) }
     assert_match(/Unknown remote procedure: #{UNREGISTERED_RPC}/, err.message)
-
-    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::DataMapper.user_keys.fetch_many(duz) }
-    assert_equal [], RpmsRpc::Authentication.user_security_keys(duz)
   end
 
   def test_the_capability_probe_reads_a_cia_refusal_as_missing
-    refute client.supports?(UNREGISTERED_FEATURE), "#{UNREGISTERED_RPC} is not registered, so the feature is missing"
+    refute RpmsRpc::ServerCapabilities.rpc_present?(client, UNREGISTERED_RPC),
+           "#{UNREGISTERED_RPC} is not registered, so the probe must call it missing"
     assert client.supports?(REGISTERED_FEATURE), "the #{REGISTERED_FEATURE} RPCs are registered"
   end
 

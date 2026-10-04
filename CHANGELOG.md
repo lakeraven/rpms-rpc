@@ -98,6 +98,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The mapping is unverified under ADR 0003 sections 2 and 5.
   Its wire fixture (`test/fixtures/wire_captures/orqqpxrm-reminders-applicable.yml`) is a `routine-cite`, and the live capture is still owed.
 
+### Removed — BREAKING: 77 RPC names no built image registers, with the API that sent them (#207, #295)
+
+A name is only real if a built baseline registers it. 77 of the names the
+gem used (268 declared) are in `#8994 REMOTE PROCEDURE` on neither a built
+9.0 YottaDB image nor a built 9.0 IRIS image, and 75 of them appear nowhere
+in the FOIA source either: they were written from belief, and every one
+that was sent live answered `Unknown remote procedure`. They are gone,
+together with every API method, capability probe, mapping, fixture and test
+that existed only to send them. Nothing was repointed: no registered RPC
+had its wire shape evidenced in the repo as the replacement, and the
+default for an invented name is deletion, not a guess at its real twin.
+
+`test/rpms_rpc/registered_rpc_names_test.rb` now fails when any name the
+gem uses is on no pinned registry (`data/rpc_coverage/registry/`). This
+first PR removes the 39 stock-VistA names; the 38 IHS-cluster names
+(BMCRPC, BIPC, BEHOENCX tags, BYIMRT, BPHR, BHDO, MAGG, BQI MARK ALERT
+READ) are allow-listed in that test and in `rake rpc:coverage`'s
+`max_unregistered` ratchet (now 38) until the second PR removes them. To
+add an RPC: pin its registry capture first, then map it (ADR 0003).
+
+Stock-VistA clusters:
+
+- `RpmsRpc::Communication` — the whole module (`find`, `for_patient`,
+  `search`, `send_message`, `reply_to_message`, `get_thread`, `for_user`,
+  `get_alerts`, `alert_count`, `mark_alert_read`, `forward_alert`): XM GET
+  MESSAGE / MESSAGES / THREAD / INBOX, XM SEND / REPLY MESSAGE, XQAL NEW
+  ALERTS / MARK READ / FORWARD. No mail RPC surface is registered at all;
+  the registered alert read is XQAL GUI ALERTS.
+- `RpmsRpc::CarePlan`, `RpmsRpc::CareTeam`, `RpmsRpc::Goal` (`for_patient`,
+  `find`): ORQQCP / ORQQCT / ORQQGO LIST and GET — namespaces CPRS does not
+  have.
+- `RpmsRpc::Lab` (`for_patient`, `abnormal`, `reports`, `find`,
+  `build_list_param`): ORWLRR RESULT LIST / REPORT LIST / REPORT. The
+  registered ORWLRR reads are INTERIM / ATOMICS / CHART / GRID / ....
+- `RpmsRpc::Radiology` (`for_patient`, `find`): ORWRA REPORT LIST / REPORT.
+  The registered reads are ORWRA REPORT TEXT / REPORT TEXT1 and ORWRA
+  IMAGING EXAMS / EXAMS1 (`Image.exams_for_patient` keeps the latter).
+- `RpmsRpc::Device` (`for_patient`, `find`): ORWPCE IMPLANT LIST / GET.
+- `RpmsRpc::Procedure.for_patient`: ORWPCE PROCEDURE LIST (the unused
+  ORWPCE PROCEDURE GET mapping with it). `Procedure.add` (BGOVCPT SET) stays.
+- `RpmsRpc::Eprescribing` (`transmit`, `status`, `cancel`,
+  `build_rx_param`): PSO NEW RX / ERX STATUS / CANCEL RX. No PSO RPC is
+  registered on either image.
+- `RpmsRpc::HealthSummary.types` and `.type_components` (ORWRP TYPES / TYPE
+  COMPONENTS), `.personal_wellness_report`, `.flowsheet_definitions`,
+  `.flowsheet`, `.health_maintenance` (GMTS PWH REPORT / FLOWSHEET LIST /
+  FLOWSHEET DATA / MAINT ITEMS). `for_patient(summary_type:)` now resolves
+  the type against the static `DEFAULT_TYPES` list — which is what every
+  real server already got, since the probe never found ORWRP TYPES. The
+  registered health-summary surface is ORWRP2 HS *.
+- `RpmsRpc::Authentication.user_security_keys`: ORWU USERKEYS. Per-key
+  checks stay on ORWU HASKEY (`has_security_key?`).
+- `RpmsRpc::UserManagement.grant_key`, `.revoke_key`, `.list_all_keys`
+  (XU KEY GRANT / REVOKE / LIST); `UserManagement.find` no longer returns a
+  `:security_keys` entry (it came from ORWU USERKEYS).
+- Mappings with no caller: `:patient_recent` / `:patient_save_recent`
+  (ORWPT LIST RECENT / SAVE RECENT).
+- `ServerCapabilities` features `:user_security_keys_list`,
+  `:health_summary_gmts`, `:xu_key_admin`, `:pso_prescription_orders`,
+  `:xqal_alert_actions`, `:orwlrr_lab_reports`, `:orwra_radiology_reports`,
+  `:orwpce_clinical_logs`, `:orwrp_report_types` — all probed removed names.
+- `MockClient#seed_user` no longer takes `security_keys:` (it seeded ORWU
+  USERKEYS).
+
+The hand-authored `data/fingerprints/references/bcer-8.0.yml` seed no
+longer lists these names as "gem-required RPCs the staging dump lacks":
+they were never capability gaps, only invented mappings.
+
 ### Added — transport security: the broker connection is plaintext, and how to wrap it (#113)
 
 - `docs/tls.md` explains why the gem ships no TLS and gives the deployment

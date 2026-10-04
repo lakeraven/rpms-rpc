@@ -6,7 +6,9 @@ require_relative "../xwb_cipher"
 module RpmsRpc
   # Symbolic API for VistA/RPMS authentication RPCs.
   # Underlying RPCs: XUS SIGNON SETUP, XUS AV CODE, XUS CVC,
-  # XUS GET USER INFO, ORWU NPHASKEY, ORWU USERKEYS.
+  # XUS GET USER INFO, ORWU NPHASKEY. (A key LIST once sent ORWU USERKEYS,
+  # a name no built 9.0 image registers; `user_security_keys` was removed
+  # with it, #207. Per-key checks go through ORWU NPHASKEY.)
   module Authentication
     extend self
 
@@ -70,13 +72,6 @@ module RpmsRpc
       return false if invalid_id?(duz) || blank_after_strip?(key_name)
 
       DataMapper.person_has_key.fetch_scalar(duz.to_s, key_name.to_s) == true
-    end
-
-    def user_security_keys(duz)
-      return [] if invalid_id?(duz)
-      return [] unless RpmsRpc.client.supports?(:user_security_keys_list)
-
-      Array(DataMapper.user_keys.fetch_many(duz.to_s)).filter_map { |row| presence(row[:key_name]) }
     end
 
     def change_verify_code(old_verify_code:, new_verify_code:, confirm_verify_code:, **_unused_keywords)
