@@ -148,6 +148,14 @@ Stock-VistA clusters (first PR):
 - `RpmsRpc::Device` (`for_patient`, `find`): ORWPCE IMPLANT LIST / GET.
 - `RpmsRpc::Procedure.for_patient`: ORWPCE PROCEDURE LIST (the unused
   ORWPCE PROCEDURE GET mapping with it). `Procedure.add` (BGOVCPT SET) stays.
+  **Kept, rebuilt on BGOVCPT GET** (GET^BGOVCPT, the V CPT read VueCentric's
+  procedure component uses): same call, `for_patient(dfn)` still returns a
+  list of hashes with `:ien`, `:name`, `:date` and `:provider`. The field map
+  changes: `:ien` is the V CPT IEN, `:name` the provider narrative, `:date`
+  the visit date, `:provider` a name; added `:cpt_code`, `:cpt_name`,
+  `:visit_ien`, `:quantity`, `:diagnosis`, `:modifier_1`/`:modifier_2`,
+  `:facility`. V CPT has no status, so `:status` is gone. Proved live by
+  `test/live/procedure_live_test.rb` against a V CPT entry on the 0930 build.
 - `RpmsRpc::Eprescribing` (`transmit`, `status`, `cancel`,
   `build_rx_param`): PSO NEW RX / ERX STATUS / CANCEL RX. No PSO RPC is
   registered on either image.
