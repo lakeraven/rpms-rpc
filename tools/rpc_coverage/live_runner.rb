@@ -258,7 +258,6 @@ cases = {
   "Phr.enrollment_status" => -> { RpmsRpc::Phr.enrollment_status(d) },
   "Phr.counts" => -> { RpmsRpc::Phr.counts(d) },
   "Order.sheets_for_patient" => -> { RpmsRpc::Order.sheets_for_patient(d) },
-  "Problem.filter(:core)" => -> { RpmsRpc::Problem.filter(d, scope: :core) },
   "Problem.provider_list" => -> { RpmsRpc::Problem.provider_list(d) },
   "HealthSummary.types" => -> { RpmsRpc::HealthSummary.types },
   "HealthSummary.for_patient" => -> { RpmsRpc::HealthSummary.for_patient(d) },

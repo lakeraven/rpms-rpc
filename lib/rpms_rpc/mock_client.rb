@@ -207,7 +207,7 @@ module RpmsRpc
     #     credentials: "testprovider;test123",
     #     name: "PROVIDER,TEST",
     #     role: :provider,
-    #     security_keys: [:prc_supervisor, :cprs_gui_chart])
+    #     security_keys: [:scheduling_admin, :registration_manager])
     #
     def seed_user(duz, credentials:, name:, role:, security_keys: [])
       require_relative "security_keys"

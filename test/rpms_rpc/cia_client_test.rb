@@ -67,9 +67,30 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_equal raw, c.call_rpc_raw("CIANBRPC CANRUN", "XUS INTRO MSG")
   end
 
-  def test_call_rpc_strips_non_printables
+  def test_call_rpc_strips_non_printables_within_a_line
+    c = connected_client([ "1\x00ab\x1fcd" + EOD ])
+    assert_equal [ "ab cd" ], c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
+  end
+
+  # #195: a reply with no ack after the seq echo carries no data; the seq
+  # byte and what follows it never become a line.
+  def test_call_rpc_returns_no_lines_for_a_reply_without_an_ack
     c = connected_client([ "ab\x01\x1fcd" + EOD ])
-    assert_equal "ab  cd", c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
+    assert_equal [], c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
+  end
+
+  # A GLOBAL ARRAY (BMX recordset) reply has no line breaks on CIA: each node
+  # ends in $C(30) and a lone $C(31) node ends the array. Bytes as the pinned
+  # 0930 YDB build sent BSDX HOSPITAL LOCATION (HOSPLOC^BSDX32), trimmed.
+  def test_call_rpc_splits_a_recordset_on_its_record_separators
+    reply = "I00020HOSPITAL_LOCATION_ID^T00040HOSPITAL_LOCATION\x1e" \
+            "3^DEMO IHS CLINIC\x1e8^OTHER\x1e\x1f"
+    c = connected_client([ "4\x00#{reply}" + EOD ])
+    assert_equal [
+      "I00020HOSPITAL_LOCATION_ID^T00040HOSPITAL_LOCATION",
+      "3^DEMO IHS CLINIC",
+      "8^OTHER"
+    ], c.call_rpc("BSDX HOSPITAL LOCATION")
   end
 
   # Fix (#172 Copilot): a peer-closed read (empty recv) must clear @connected,
@@ -386,6 +407,71 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_nil c.signon_user, "a torn-down connection must not keep naming a clinician"
   end
 
+  # -- disconnect sends the {CIA} quit action (rpms-rpc#192) ------------------
+  #
+  # CIANBLIS serves one session at a time and does not notice a vanished peer at
+  # EOF — only on its retry bound, ~45 s later, while the next connection waits.
+  # disconnect must therefore send the broker's quit action before closing the
+  # socket. The action is "D": DOACTION^CIANBLIS dispatches on header byte 8
+  # (CIANBLIS.m:128,139) to ACTD^CIANBACT, which logs the session out via
+  # RESET^CIANBRPC() and sets CIAQUIT=1 so the listener returns to accept at
+  # once (CIANBACT.m:24-27). RESET quits unless CIA("UID") is set
+  # (CIANBRPC.m:102), so the quit frame must carry the session UID field.
+
+  def test_disconnect_sends_the_cia_quit_action_then_closes_the_socket
+    # ACTD's reply is <seq echo>\x00<CIADATA=1>; the broker then closes.
+    c = connected_client([ "1\x001" + EOD ])
+    c.instance_variable_set(:@session_uid, "7")
+    socket = c.instance_variable_get(:@socket)
+
+    c.disconnect
+
+    pk = ->(v) { c.send(:pk, v) }
+    expected = ("{CIA}#{EOD}1D".b + pk["UID"] + pk[""] + pk["7"] + EOD).b
+    assert_equal expected, socket.writes.last,
+      "disconnect must send the {CIA} 'D' action frame carrying the session UID"
+    assert socket.closed?, "disconnect must close the socket after the quit action"
+    refute c.connected?
+  end
+
+  # The quit must still go out when sign-on never allocated a session UID, so
+  # the frame falls back to the default UID the RPC frames use.
+  def test_disconnect_quit_frame_falls_back_to_the_default_uid
+    c = connected_client([ "1\x001" + EOD ])
+    socket = c.instance_variable_get(:@socket)
+
+    c.disconnect
+
+    pk = ->(v) { c.send(:pk, v) }
+    expected = ("{CIA}#{EOD}1D".b + pk["UID"] + pk[""] + pk["1"] + EOD).b
+    assert_equal expected, socket.writes.last
+  end
+
+  # The broker closes the socket as soon as ACTD returns (CIAQUIT=1), so the
+  # reply read can hit EOF first. A clean quit that races the close must not
+  # raise out of disconnect, and must still leave the client disconnected.
+  def test_disconnect_tolerates_a_broker_that_closes_before_replying
+    c = connected_client([]) # recv -> "" immediately: broker already gone
+    c.instance_variable_set(:@session_uid, "7")
+    socket = c.instance_variable_get(:@socket)
+
+    c.disconnect # must not raise
+
+    pk = ->(v) { c.send(:pk, v) }
+    assert_equal ("{CIA}#{EOD}1D".b + pk["UID"] + pk[""] + pk["7"] + EOD).b, socket.writes.last,
+      "the quit action must be attempted even if the broker then closes first"
+    assert socket.closed?
+    refute c.connected?
+  end
+
+  # A disconnect on a client that never connected sends nothing and is a no-op
+  # teardown — there is no session for the broker to quit.
+  def test_disconnect_on_an_unconnected_client_sends_no_frame
+    c = Client.new
+    c.disconnect
+    refute c.connected?
+  end
+
   # -- mid-call read timeout --------------------------------------------------
   #
   # A {CIA} reply has no length framing (EOD terminator only), so a reply
@@ -610,7 +696,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert result[:success]
     assert_equal 63, result[:duz]
     assert_equal "7", c.session_uid
-    assert_equal "4 ok  ", c.call_rpc("XWB IM HERE") # "4" seq echo + \x00 ack + body, printables
+    assert_equal [ "ok" ], c.call_rpc("XWB IM HERE") # "4" seq echo + \x00 ack stripped, lines
     # every frame the broker saw parsed as {CIA}, with one-byte cycling seqs
     assert_equal %w[1 2 3 4], broker.frames.map { |f| f[:seq] }
     assert_equal %w[C R R R], broker.frames.map { |f| f[:action] }
