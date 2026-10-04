@@ -5,84 +5,57 @@ require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/order"
 
+# What list, unsigned_for_patient, expired_search_start, sheets_for_patient
+# and result_history send and how they read a reply is proven live in
+# test/live/order_live_test.rb (#220). For those, these cases cover only what
+# the gem decides without the server: argument guards and removed methods.
 class OrderTest < Minitest::Test
-  USER_DUZ = "301"
-  DFN      = "8791"
+  DFN = "8791"
 
   def teardown
     RpmsRpc.reset!
   end
 
-  def test_unsigned_for_user_returns_unsigned_queue
-    RpmsRpc.mock! do |m|
-      m.seed_keyed_collection(:orders_unsigned, USER_DUZ, [
-        { ien: 1001, patient_dfn: 8791, patient_name: "TEST PATIENT A", order_text: "Lasix 20mg PO QD", status: "unsigned" },
-        { ien: 1002, patient_dfn: 8792, patient_name: "TEST PATIENT B", order_text: "Metformin 500mg", status: "unsigned" }
-      ])
-    end
+  # === unsigned_for_patient (ORWOR UNSIGN) ===
+  #
+  # UNSIGN(LST,ORVP,HAVE) (ORWOR.m:114): the patient is ORVP, made into a
+  # variable pointer at ORWOR.m:117; the user is the session DUZ
+  # (ORWOR.m:116,126). Each row is IFN_";"_ACT and nothing else
+  # (ORWOR.m:127).
 
-    rows = RpmsRpc::Order.unsigned_for_user(USER_DUZ)
-    assert_equal 2, rows.length
-    assert_equal 1001, rows.first[:ien]
+  def test_unsigned_for_patient_blank_returns_empty
+    assert_equal [], RpmsRpc::Order.unsigned_for_patient(nil)
+    assert_equal [], RpmsRpc::Order.unsigned_for_patient("0")
   end
 
-  def test_unsigned_for_user_dispatches_orwor_unsign
-    RpmsRpc.mock! do |m|
-      m.seed_keyed_collection(:orders_unsigned, USER_DUZ, [])
-    end
-
-    RpmsRpc::Order.unsigned_for_user(USER_DUZ)
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWOR UNSIGN" }
-    refute_nil call
-    assert_equal [ USER_DUZ ], call[:params]
+  def test_unsigned_for_user_is_gone
+    refute_respond_to RpmsRpc::Order, :unsigned_for_user
   end
 
-  def test_unsigned_for_user_blank_returns_empty
-    assert_equal [], RpmsRpc::Order.unsigned_for_user(nil)
-    assert_equal [], RpmsRpc::Order.unsigned_for_user("0")
+  # === list (ORWORR AGET) ===
+  #
+  # AGET(REF,DFN,FILTER,GROUPS,DTFROM,DTTHRU,EVENT) (ORWORR.m:25). FILTER is
+  # an ORDSTS^ORCHANG2 view id (ORCHANG2.m:37-63); GROUPS and FILTER default
+  # to 1 and 2 (ORWORR.m:33). GET1^ORWORR1 writes rows
+  # IFN;ACT^DGrp^ActTm^PtEvtID^EvtName (ORWORR1.m:11) under a .1 header
+  # TOT^TXTVW^ORYD (ORWORR1.m:13), which sorts first.
+
+  def test_filter_ids_are_the_orchang2_view_ids
+    expected = {
+      all: "1", active: "2", current: "23", discontinued: "3",
+      discontinued_or_entered_in_error: "28", completed_or_expired: "4",
+      expiring: "5", pending: "7", on_hold: "18", new: "19", unsigned: "11",
+      unverified: "8", unverified_by_nursing: "9", unverified_by_clerk: "10",
+      unverified_chart_review: "20", verbal: "13", verbal_unsigned: "14",
+      flagged: "12", recent_activity: "6", delayed: "24",
+      delayed_admission: "15", delayed_transfer: "17", delayed_discharge: "16",
+      delayed_return_from_or: "25", delayed_manual_release: "26", lapsed: "22"
+    }
+    assert_equal expected, RpmsRpc::Order::FILTER_IDS
   end
 
-  def test_list_returns_orders_for_patient
-    RpmsRpc.mock! do |m|
-      m.seed_keyed_collection(:orders_list, DFN, [
-        { ien: 2001, order_text: "Labs: CBC", status: "active" }
-      ])
-    end
-
-    rows = RpmsRpc::Order.list(DFN)
-    assert_equal 1, rows.length
-  end
-
-  def test_list_passes_each_view_code_to_rpc
-    expected = { default: "1", active: "2", expiring: "3", expired: "4", scheduled: "5" }
-    expected.each do |view, code|
-      RpmsRpc.mock! do |m|
-        m.seed_keyed_collection(:orders_list, DFN, [])
-      end
-      RpmsRpc::Order.list(DFN, view: view)
-      call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWORR AGET" }
-      assert_equal code, call[:params][1], "view #{view} should map to #{code}"
-    end
-  end
-
-  def test_list_passes_each_status_code_to_rpc
-    expected = { all: "*", active: "A", pending: "P", complete: "C", expired: "E" }
-    expected.each do |status, code|
-      RpmsRpc.mock! do |m|
-        m.seed_keyed_collection(:orders_list, DFN, [])
-      end
-      RpmsRpc::Order.list(DFN, status: status, view: :default)
-      call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWORR AGET" }
-      assert_equal code, call[:params][2], "status #{status} should map to #{code}"
-    end
-  end
-
-  def test_list_raises_on_unknown_view
-    assert_raises(ArgumentError) { RpmsRpc::Order.list(DFN, view: :nope) }
-  end
-
-  def test_list_raises_on_unknown_status
-    assert_raises(ArgumentError) { RpmsRpc::Order.list(DFN, status: :nope) }
+  def test_list_raises_on_unknown_filter
+    assert_raises(ArgumentError) { RpmsRpc::Order.list(DFN, filter: :nope) }
   end
 
   def test_list_blank_dfn_returns_empty
@@ -114,32 +87,16 @@ class OrderTest < Minitest::Test
     assert_nil RpmsRpc::Order.result("9999", "5001")
   end
 
-  # === result_history ===
+  # === result_history (ORWOR RESULT HISTORY) ===
+  #
+  # RESHIST(REF,DFN,ORID,ID) (ORWOR.m:36): the same formals as RESULT;
+  # ORDHIST^ORWOR2 reads ID as the file 100 IEN (ORWOR2.m:7) and writes a
+  # display report into ^TMP("ORXPND",$J,n,0) (ORWOR.m:42, ORWOR2.m:14).
 
-  def test_result_history_returns_rows
-    RpmsRpc.mock! do |m|
-      m.seed_keyed_collection(:order_result_history, "5001", [
-        { value: "102", units: "mg/dL", abnormal_flag: "H", reference_range: "70-99", status: "final" },
-        { value: "94",  units: "mg/dL", abnormal_flag: "",  reference_range: "70-99", status: "final" }
-      ])
-    end
-    rows = RpmsRpc::Order.result_history("5001")
-    assert_equal 2, rows.length
-    assert_equal "102", rows.first[:value]
-    assert_equal "H",   rows.first[:abnormal_flag]
-  end
-
-  def test_result_history_dispatches_rpc
-    RpmsRpc.mock! { |m| m.seed_keyed_collection(:order_result_history, "5001", []) }
-    RpmsRpc::Order.result_history("5001")
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWOR RESULT HISTORY" }
-    refute_nil call
-    assert_equal [ "5001" ], call[:params]
-  end
-
-  def test_result_history_returns_empty_for_invalid
-    assert_equal [], RpmsRpc::Order.result_history(nil)
-    assert_equal [], RpmsRpc::Order.result_history("0")
+  def test_result_history_returns_nil_for_invalid_ids
+    assert_nil RpmsRpc::Order.result_history(DFN, nil)
+    assert_nil RpmsRpc::Order.result_history(nil, "5001")
+    assert_nil RpmsRpc::Order.result_history("0", "5001")
   end
 
   # === action_text ===
@@ -167,36 +124,20 @@ class OrderTest < Minitest::Test
     assert_nil RpmsRpc::Order.action_text("5001", "")
   end
 
-  # === expired? ===
+  # === expired_search_start (ORWOR EXPIRED) ===
+  #
+  # EXPIRED(ORY) (ORWOR.m:147) takes no parameter and answers NOW less the
+  # ORWOR EXPIRED ORDERS hours, as a FileMan date/time (ORWOR.m:149-150).
 
-  def test_expired_returns_true_when_broker_says_so
-    RpmsRpc.mock! { |m| m.seed_scalar(:order_expired, "5001", true) }
-    assert_equal true, RpmsRpc::Order.expired?("5001")
+  def test_expired_predicate_is_gone
+    refute_respond_to RpmsRpc::Order, :expired?
   end
 
-  def test_expired_returns_false_when_broker_says_so
-    RpmsRpc.mock! { |m| m.seed_scalar(:order_expired, "5001", false) }
-    assert_equal false, RpmsRpc::Order.expired?("5001")
-  end
-
-  def test_expired_returns_nil_for_invalid_input
-    assert_nil RpmsRpc::Order.expired?(nil)
-    assert_nil RpmsRpc::Order.expired?("0")
-  end
-
-  # === sheets_for_patient ===
-
-  def test_sheets_for_patient_returns_rows
-    RpmsRpc.mock! do |m|
-      m.seed_keyed_collection(:order_sheets, DFN, [
-        { ien: 1, name: "Current",      sheet_type: "A", status: "active" },
-        { ien: 2, name: "Delay Release", sheet_type: "D", status: "delayed" }
-      ])
-    end
-    rows = RpmsRpc::Order.sheets_for_patient(DFN)
-    assert_equal 2, rows.length
-    assert_equal "Current", rows.first[:name]
-  end
+  # === sheets_for_patient (ORWOR SHEETS) ===
+  #
+  # SHEETS(LST,ORVP) (ORWOR.m:91) writes "TYPE;ID^label" rows: C;O current
+  # view, A;<ts>/A;-1 admit, T;<ts>/T;-1 transfer, D;0 discharge
+  # (ORWOR.m:97-105).
 
   def test_sheets_for_patient_returns_empty_for_invalid
     assert_equal [], RpmsRpc::Order.sheets_for_patient(nil)
