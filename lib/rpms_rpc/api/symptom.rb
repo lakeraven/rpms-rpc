@@ -9,10 +9,15 @@ module RpmsRpc
   module Symptom
     extend self
 
+    # Formals: SYMPTOMS(Y,FROM,DIR) (ORWDAL32.m:61-64) — a subset of file
+    # 120.83 walked with $O(^GMRD(120.83,"B",FROM),DIR), so FROM is the
+    # text to start AFTER and DIR the direction; 1 walks forward, as the
+    # list-box "next page" idiom does. A FROM-only frame died in M on DIR
+    # (#259).
     def search(query)
       return [] if blank?(query)
 
-      Array(DataMapper.symptom_search.fetch_many(query.to_s))
+      Array(DataMapper.symptom_search.fetch_many(query.to_s, "1"))
     end
 
     # Parse the ORWDAL32 DEF typed tree into

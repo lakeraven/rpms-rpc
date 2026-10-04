@@ -23,6 +23,19 @@ module RpmsRpc
   # XWBSEC.m:5), so a programmer session cannot detect a missing bind: it is
   # answered 1 either way. Only a NON-privileged session is evidence.
   module ContextScope
+    # Run the block with `option_name` bound on `client` when the client can
+    # scope contexts, and as-is when it cannot (a non-broker double, a plain
+    # stub) — the package APIs' entry point (RpmsRpc::Referral / BMCRPC,
+    # RpmsRpc::Scheduling / BSDXRPC, RpmsRpc::BehavioralHealth / AMHGRPC, the
+    # same shape RpmsRpc::Agg uses for AGGRPC). A client that cannot bind an
+    # option cannot be denied by one either, so skipping the scope there
+    # loses nothing.
+    def self.scoped(client, option_name, &block)
+      return block.call unless client.respond_to?(:with_context)
+
+      client.with_context(option_name, &block)
+    end
+
     # The context option this client believes is bound, or nil when unknown
     # (never bound through this client — e.g. before sign-on).
     attr_reader :current_context

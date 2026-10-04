@@ -11,14 +11,34 @@ module RpmsRpc
     end
 
     # Open an active encounter — hydrates the visit context the chart needs:
-    # location, provider, datetime, status, ward, and a missing-components report.
+    # location, provider, datetime, service category, lock state, and a
+    # missing-components report.
     #
-    # Returns nil when the visit doesn't exist, when the BEHOENCX FETCH companion
-    # response is missing (incomplete hydration is treated as a miss rather than
-    # silently returning partial data), or when the visit belongs to a different
-    # DFN than the caller passed (prevents cross-patient visit access).
+    # Composed as the server expects (BEHOENCX.m):
+    #   1. BEHOENCX GETVISIT(IEN)  -> LOC^VDT^SVC^PAT^VID^LOCKED (lines 5,8-15)
+    #   2. the EXTENDED visit string "LOC;VDT;SVC;IEN" from that reply
+    #   3. BEHOENCX FETCH(DFN,VSTR,PRV="",CREATE=0) -> LOCNAME^LOCABBR^ROOMBED^
+    #      PROVIEN^PROVNAME^VISITIEN^VISITID^LOCKED^ERRORTXT (lines 30-47).
+    #      With the IEN in the VSTR, VSTR2VIS resolves the visit directly
+    #      (line 107) — no 60-minute FNDVIS window — and CREATE=0 can never
+    #      add one. FETCH used to be sent the visit IEN as its only param,
+    #      which landed in DFN and left VSTR undefined (#211).
+    #   4. BEHOENCX CHKVISIT(IEN) -> COMPONENT^MESSAGE rows (lines 329-337)
     #
-    # Underlying RPCs (composed): BEHOENCX GETVISIT, BEHOENCX FETCH, BEHOENCX CHKVISIT
+    # Returns nil when the visit doesn't exist, when the FETCH companion
+    # response is missing or reports an error instead of a visit (incomplete
+    # hydration is treated as a miss rather than silently returning partial
+    # data), or when the visit belongs to a different DFN than the caller
+    # passed (prevents cross-patient visit access — checked here from
+    # GETVISIT's PAT piece, and again server-side by VIS2VSTR, line 118).
+    #
+    # Output keys are stable for consumers; each now comes from the piece
+    # that carries it. :location_ien is GETVISIT's LOC (FETCH has no location
+    # IEN — its piece 4 is the provider IEN, exposed as :provider_ien).
+    # :status is the same value as :service_category — GETVISIT's SVC piece —
+    # kept under the name consumers already read; no BEHOENCX reply carries
+    # an encounter status. :ward is gone: nothing on either wire is a ward
+    # (the pieces so labelled were the visit id, now :visit_id).
     def open(dfn, visit_ien)
       return nil if dfn.nil? || visit_ien.nil?
 
@@ -27,26 +47,32 @@ module RpmsRpc
       return nil if visit.nil?
 
       # Cross-patient guard: BEHOENCX GETVISIT returns the visit's owning DFN
-      # in field 3. If the caller passed a different DFN, reject.
+      # in piece 4. If the caller passed a different DFN, reject.
       if visit[:patient_dfn] && visit[:patient_dfn].to_i != dfn.to_i
         return nil
       end
 
-      fetch = DataMapper.encounter_fetch.fetch_one(key)
-      return nil if fetch.nil?
+      vstr = visit_string(visit[:location_ien], visit[:datetime_raw], visit[:service_category],
+                          visit_ien: visit_ien)
+      fetch = DataMapper.encounter_fetch.fetch_one(dfn.to_s, vstr, "", "0")
+      return nil if fetch.nil? || fetch[:visit_ien].nil?
 
       missing = DataMapper.encounter_chkvisit.fetch_many(key)
 
       {
         visit_ien:          visit_ien.to_i,
         patient_dfn:        (visit[:patient_dfn] || dfn).to_i,
-        location_ien:       fetch[:location_ien] || visit[:location_ien],
-        location:           fetch[:clinic_name],
-        clinic_abbrev:      fetch[:clinic_abbrev],
-        provider:           fetch[:provider],
+        location_ien:       visit[:location_ien],
+        location:           fetch[:location_name],
+        clinic_abbrev:      fetch[:location_abbrev],
+        room_bed:           fetch[:room_bed],
+        provider:           fetch[:provider_name],
+        provider_ien:       fetch[:provider_ien],
         datetime_raw:       visit[:datetime_raw],
-        status:             visit[:status],
-        ward:               fetch[:ward] || visit[:ward],
+        service_category:   visit[:service_category],
+        status:             visit[:service_category],
+        visit_id:           visit[:visit_id] || fetch[:visit_id],
+        locked:             visit[:locked],
         missing_components: missing
       }
     end
@@ -54,7 +80,7 @@ module RpmsRpc
     # Get-or-create a visit — the visit-create path, replacing the removed
     # placeholder visit-create wire name (docs/RPC_COVERAGE.md provenance
     # notes). Runs the registered BEHOENCX FETCH with its CREATE flag
-    # (FETCH^BEHOENCX; params/reply on :encounter_get_or_create). Creation
+    # (FETCH^BEHOENCX; params/reply on :encounter_fetch). Creation
     # descends to GETVISIT^BSDAPI4, the IHS PCC visit-creation API —
     # GETVISIT^BEHOENCX itself never creates (rpms-ops
     # docs/REGISTRATION_RPC_CONTRACTS.md §3).
@@ -75,7 +101,7 @@ module RpmsRpc
       return nil if dfn.nil?
 
       vstr = visit_string(location_ien, datetime, service_category)
-      result = DataMapper.encounter_get_or_create.fetch_one(
+      result = DataMapper.encounter_fetch.fetch_one(
         dfn.to_s, vstr, provider_ien.to_s, create.to_s
       )
       return nil if result.nil?
@@ -84,17 +110,20 @@ module RpmsRpc
       result.merge(success: true)
     end
 
-    # VSTR "LOC;FM_DATETIME;SVC_CAT" per VSTR2VIS^BEHOENCX.
+    # VSTR "LOC;FM_DATETIME;SVC_CAT" per VSTR2VIS^BEHOENCX (BEHOENCX.m:107),
+    # or the EXTENDED form "LOC;FM_DATETIME;SVC_CAT;VISITIEN" when visit_ien
+    # is given: VSTR2VIS then takes that IEN and skips the FNDVIS search.
     # A Time or DateTime formats with its clock; a plain Date has none, so it
     # formats as a FileMan date (a Date answers no #hour, and asking raised).
-    def visit_string(location_ien, datetime, service_category)
+    def visit_string(location_ien, datetime, service_category, visit_ien: nil)
       dt = datetime
       if dt.is_a?(Time) || dt.is_a?(DateTime)
         dt = FilemanDateParser.format_datetime(dt)
       elsif dt.is_a?(Date)
         dt = FilemanDateParser.format_date(dt)
       end
-      "#{location_ien};#{dt};#{service_category}"
+      vstr = "#{location_ien};#{dt};#{service_category}"
+      visit_ien.nil? ? vstr : "#{vstr};#{visit_ien}"
     end
   end
 end

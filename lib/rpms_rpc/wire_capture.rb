@@ -513,20 +513,55 @@ module RpmsRpc
           Piece.new(position: 6, attributes: [ "locked" ], fileman_type: "boolean")
         ]
       ),
+      # Pieces 1-5 are VSIT("LOC"/"VDT"/"SVC"/"PAT"/"VID") from
+      # LOOKUP^VSIT(IEN,"I") — VISIT #9000010 fields .22 (HOSPITAL LOCATION),
+      # .01 (VISIT/ADMIT DATE&TIME), .07 (SERVICE CATEGORY), .05 (PATIENT
+      # NAME) and 15001 (VISIT ID), per FLD^VSITFLD (VSITFLD.m:15-33). None
+      # of them is an encounter status or a ward: the old :status / :ward
+      # labels at 2 and 4 were belief, and are no longer accepted here (#211).
       CatalogEntry.new(
         rpc: "BEHOENCX GETVISIT", mapping: :encounter_visit, kind: "fields", mode: :live,
         inputs: [ "1" ],
-        cite: "GETVISIT^BEHOENCX (BEHOENCX.m:4-16): header 'Returns hosp loc^" \
-              "visit date^service category^dfn^visit id^locked'; service category " \
-              "= VISIT #9000010 field .07 (VIS2VSTR^BEHOENCX)",
+        cite: "GETVISIT^BEHOENCX (BEHOENCX.m:5,8-15): 'Returns hosp loc^visit date^" \
+              "service category^dfn^visit id^locked' = VSIT(\"LOC\",\"VDT\",\"SVC\"," \
+              "\"PAT\",\"VID\") from LOOKUP^VSIT (#9000010 fields .22/.01/.07/.05/15001, " \
+              "FLD^VSITFLD: VSITFLD.m:15-33) then $$ISLOCKED (BEHOENCX.m:280-290)",
         pieces: [
           Piece.new(position: 0, attributes: [ "location_ien" ], fileman_type: "integer"),
-          Piece.new(position: 1, attributes: [ "datetime_raw" ]),
-          Piece.new(position: 2, attributes: [ "service_category", "status" ]),
+          Piece.new(position: 1, attributes: [ "datetime_raw" ], fileman_type: "fileman_datetime"),
+          Piece.new(position: 2, attributes: [ "service_category" ]),
           Piece.new(position: 3, attributes: [ "patient_dfn" ], fileman_type: "integer"),
-          Piece.new(position: 4, attributes: [ "visit_id", "ward" ]),
+          Piece.new(position: 4, attributes: [ "visit_id" ]),
           Piece.new(position: 5, attributes: [ "locked" ], fileman_type: "boolean")
         ]
+      ),
+      # BEHOENCX FETCH with CREATE=0 is a read: VSTR2VIS^BEHOENCX takes the
+      # visit IEN from the 4th VSTR piece and never reaches FNDVIS
+      # (BEHOENCX.m:107-111), and even a 3-piece VSTR runs FNDVIS with
+      # IN("NEVER ADD")=1 (BEHOENCX.m:80). The inputs name the one visit the
+      # rung carries at build time (visit IEN 1 of the build's test patient,
+      # DFN 2, at hospital location 6) by DFN and extended VSTR.
+      CatalogEntry.new(
+        rpc: "BEHOENCX FETCH", mapping: :encounter_fetch, kind: "fields", mode: :live,
+        inputs: [ "2", "6;3260825.09;A;1", "", "0" ],
+        cite: "FETCH^BEHOENCX (BEHOENCX.m:24-47): header lines 30-31 LOCNAME^LOCABBR^" \
+              "ROOMBED^PROVIEN^PROVNAME^VISITIEN^VISITID^LOCKED^ERRORTXT; pieces 1-2 " \
+              "^SC(LOC,0) (line 41), 3 ^DPT(DFN,.101) (42), 4 PRV (43), 5 ^VA(200,PRV,0) " \
+              "(44), 6-8 only when IEN>0 (45), 9 only on error (46)",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "location_name" ]),
+          Piece.new(position: 1, attributes: [ "location_abbrev" ]),
+          Piece.new(position: 2, attributes: [ "room_bed" ]),
+          Piece.new(position: 3, attributes: [ "provider_ien" ], fileman_type: "integer"),
+          Piece.new(position: 4, attributes: [ "provider_name" ]),
+          Piece.new(position: 5, attributes: [ "visit_ien" ], fileman_type: "integer"),
+          Piece.new(position: 6, attributes: [ "visit_id" ]),
+          Piece.new(position: 7, attributes: [ "locked" ], fileman_type: "boolean"),
+          Piece.new(position: 8, attributes: [ "error" ])
+        ],
+        note: "Params positionally FETCH(DATA,DFN,VSTR,PRV,CREATE) (registry formals " \
+              "DATA,DFN,VSTR,PRV,CREATE). CREATE=0 is the read form; CREATE=1/-1 " \
+              "creates a VISIT and is never sent by the capture task."
       ),
       # BEHOVM2 VUNITS is deliberately NOT live-captured: on the
       # bcer-9.0-ydb rung the call M-faults server-side and takes the
