@@ -29,6 +29,27 @@ module RpmsRpc
   #     which never had a server implementation anywhere (docs/RPC_COVERAGE.md,
   #     "BHDPTRPC provenance").
   #
+  # ## What each path stores for community (rpms-rpc#300)
+  #
+  # The two paths do not store the same thing, and the result says which
+  # attributes were not filed rather than dropping them silently:
+  #
+  #   * DELEGATION files `community_ien:` + `community_since:` through AG's
+  #     window: AG sets 1117 CURRENT RESIDENCE (the #9999999.05 pointer) and a
+  #     #9000001.51 history entry, and derives 1118 CURRENT COMMUNITY from
+  #     them. AG's window has no free-text community parameter, so
+  #     `community:` is never sent on this path and is always named in
+  #     `unfiled:`, with or without the pointer.
+  #
+  #   * COMPOSITION files `community:` straight into 1118 as free text. It
+  #     sets no 1117 pointer and writes no #9000001.51 entry, so its record
+  #     does not look like one AG registered (anything reading the pointer or
+  #     the history sees nothing). `community_ien:` and `community_since:` are
+  #     not filed on this path and are named in `unfiled:` when given.
+  #     Filing AG's shape here (option 1 of #300) would need the .51 DD and
+  #     the 1118 trigger checked live under DDR FILER; this path only runs
+  #     where AG is absent, which no RPMS stack is.
+  #
   # Composition flow (each step's wire contract cited in the method comments):
   #
   #   1. VAFC VOA ADD PATIENT  → PATIENT (#2) record, returns DFN
@@ -164,7 +185,8 @@ module RpmsRpc
     #                       (1117) plus a dated history entry (#9000001.51)
     #                       and derives the text (1118) from them, so on that
     #                       path the two go together and free-text community:
-    #                       cannot be sent
+    #                       cannot be sent; the composition path files
+    #                       neither and names them in unfiled:
     #   extra_fields:       [{ field:, value: }] escape hatch for additional
     #                       #9000001 top-level fields
     #
@@ -186,6 +208,12 @@ module RpmsRpc
     #
     #   unfiled: [:community]     free-text community: with no community_ien:
     #   unfiled: [:extra_fields]  the composition path's escape hatch
+    #
+    # The composition path names what it does not file the same way:
+    #
+    #   unfiled: [:community_ien, :community_since]  AG's pointer and date
+    #                             moved, which composition has no field for
+    #                             (only the ones given are named)
     #
     # `unfiled:` is absent when everything given was sent.
     def register(attrs)
@@ -222,9 +250,7 @@ module RpmsRpc
         end
       end
 
-      unsent = agg_unsent(attrs)
-      result = { success: true, dfn: dfn, created: true }
-      unsent.empty? ? result : result.merge(unfiled: unsent)
+      with_unfiled({ success: true, dfn: dfn, created: true }, agg_unsent(attrs))
     end
 
     # COMPOSITION path — the lineage-portable floor (civilian / stock VistA,
@@ -241,11 +267,12 @@ module RpmsRpc
                  message: "could not lock #{node}" }
       end
 
-      begin
+      result = begin
         complete_ihs_registration(attrs, dfn)
       ensure
         DdrFileman.unlock(node: node)
       end
+      with_unfiled(result, composition_unsent(attrs))
     end
 
     # Patient update — the composed edit path, replacing the removed
@@ -524,9 +551,22 @@ module RpmsRpc
     # What the caller gave that AG's window has no parameter for, by attr key.
     def agg_unsent(attrs)
       unsent = []
-      unsent << :community if present?(attrs[:community]) && !present?(attrs[:community_ien])
+      unsent << :community if present?(attrs[:community])
       unsent << :extra_fields unless Array(attrs[:extra_fields]).empty?
       unsent
+    end
+
+    # What the caller gave that the composition path has no field for:
+    # AG's community pointer and date moved (module doc, rpms-rpc#300).
+    def composition_unsent(attrs)
+      %i[community_ien community_since].select { |key| present?(attrs[key]) }
+    end
+
+    # A successful result names what was not filed; failures pass through.
+    def with_unfiled(result, unsent)
+      return result unless result.is_a?(Hash) && result[:success] && !unsent.empty?
+
+      result.merge(unfiled: unsent)
     end
 
     # AGG name pieces as [last, first, middle, suffix] — same "^"-splitting
