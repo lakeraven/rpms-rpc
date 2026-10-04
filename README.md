@@ -285,6 +285,71 @@ So each package's percentage uses the headline's arithmetic, and SimpleCov's tot
 A registered RPC whose namespace has no #9.4 package is grouped under that namespace and labelled "not a #9.4 package".
 On the 0913 registry that covers AKFR, BMQ, the PCMM `SC*` RPCs, GMV and DDR.
 
+## API coverage: public methods proven by a live spec
+
+[ADR 0010](docs/adr/0010-the-consumer-contract.md), assertion 2: every public method is proven by a live spec, and a method without one is not part of the contract.
+`rake rpc:api_coverage` reports which methods those are.
+It is generated from the code on every run; nothing in it is maintained by hand.
+
+```sh
+rake rpc:api_coverage            # summary per module; VERBOSE=1 adds one line per method
+# API coverage: 50 / 256 public methods proven by a live spec (19.5%)
+#   RpmsRpc::Referral                                 19 /  22
+#   RpmsRpc::Problem                                  10 /  14
+#   RpmsRpc::Patient                                   7 /  12
+#   ...
+# unresolved: 21 methods have an RPC name static analysis could not resolve
+# unregistered RPCs sent: none
+```
+
+- **Public methods:** every public singleton method of a module under `RpmsRpc` whose source is in `lib/rpms_rpc/api/`, nested modules included (`RpmsRpc::BehavioralHealth::Groups`).
+  Public helpers mixed in from another module count, because a host can call them.
+- **RPCs:** static analysis (Prism) of the method body and of every `lib/rpms_rpc` method it calls, binding the arguments it passes.
+  A DataMapper mapping (`DataMapper.x`, `DataMapper[:x]`, or `:x` handed to a helper) resolves through the loaded mapping registry; a `call_rpc*` with a string literal or a String constant resolves to that string.
+  An RPC name the analysis cannot bind (a helper whose RPC is its own argument, an expression) is listed under `unresolved`, never guessed.
+- **Registered:** each RPC is looked up on the pinned #8994 registry named in `data/rpc_coverage/config.yml`, with its entry point `TAG^ROUTINE`.
+- **Live specs:** every `RpmsRpc::Module.method` call site in `test/live/**`.
+  The harness runs every live spec as the persona the run names, and a spec cannot declare its own, so a proven method runs as both the least-privilege and the programmer persona.
+- **Status:** `proven` when a live spec calls the method, `not_in_contract` when none does.
+  This is static: whether the spec passes is `rake test:live`'s answer, per persona.
+
+The JSON (default `coverage/api/methods.json`, `OUT=` to override) is the input for a resource-oriented view of the API:
+
+```json
+{
+  "schema": 1,
+  "registry": "bcer-9.0-20260930-8c88e47-ydb",
+  "personas": ["least-privilege", "programmer"],
+  "summary": { "proven": 50, "public": 256, "unresolved_methods": 21, "unregistered_rpcs": [],
+               "by_module": { "RpmsRpc::Patient": { "proven": 7, "public": 12 } } },
+  "methods": [
+    {
+      "module": "RpmsRpc::Patient",
+      "method": "find",
+      "arity": 1,
+      "params": [{ "name": "dfn", "kind": "req" }],
+      "rpcs": [{ "name": "ORWPT SELECT", "registered": true, "entry_point": "SELECT^ORWPT", "via": "mapping :patient_select" }],
+      "unresolved": [],
+      "live_specs": ["test/live/patient_live_test.rb:59"],
+      "personas": ["least-privilege", "programmer"],
+      "status": "proven"
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `module`, `method` | `RpmsRpc::Patient` and `find`: the call is `RpmsRpc::Patient.find` |
+| `arity`, `params` | Ruby's `Method#arity` and `#parameters`; `kind` is `req`, `opt`, `rest`, `keyreq`, `key`, `keyrest` or `block` |
+| `rpcs[]` | each RPC the method sends: `name`, `registered` on the pinned registry, `entry_point` (`TAG^ROUTINE`, `null` when not registered), `via` (`mapping :name` or `literal`) |
+| `unresolved[]` | RPC names the analysis could not bind, with where; empty when every send resolved |
+| `live_specs[]` | `file:line` of each call in `test/live/` |
+| `personas[]` | the personas those specs run as; empty when there are none |
+| `status` | `proven` or `not_in_contract` |
+
+The task is offline and reaches no broker. The implementation lives in `tools/api_coverage/`, which is not part of the gem.
+
 ## RPC Coverage Matrix (allowlist-based)
 
 This matrix predates the registry-based number above and measures wrapper coverage against
