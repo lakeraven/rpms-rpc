@@ -60,7 +60,7 @@ class PatientLiveTest < LiveSpec::Test
 
     refute_nil found, "ORWPT SELECT found no patient #{MICKEY[:dfn]}"
     MICKEY.each { |k, v| assert_equal v, found[k], k.to_s }
-    assert_equal RpmsRpc::Patient.age_from(MICKEY[:dob]), found[:age], "the age ORWPT SELECT computed"
+    assert_equal RpmsRpc::Patient.send(:age_from, MICKEY[:dob]), found[:age], "the age ORWPT SELECT computed"
   end
 
   # The two RPCs find merges map the same patient independently: SELECT
@@ -137,7 +137,7 @@ class PatientLiveTest < LiveSpec::Test
     refute_nil header, "no chart banner for #{DEMO_ONE[:name]}"
     assert_equal HEADER_KEYS.sort, header.keys.sort, "the issue #60 contract"
     DEMO_ONE.except(:dfn).each { |k, v| assert_equal v, header[k], k.to_s }
-    assert_equal RpmsRpc::Patient.age_from(DEMO_ONE[:dob]), header[:age]
+    assert_equal RpmsRpc::Patient.send(:age_from, DEMO_ONE[:dob]), header[:age]
   end
 
   # DEMO,PATIENT ONE's CWAD is "WA": allergies yes, advance directive no. No

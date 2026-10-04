@@ -36,7 +36,7 @@ class ImmunizationLiveTest < LiveSpec::Test
 
   def test_a_v_immunization_row_matches_the_entry_it_came_from
     v_imm_ien, dfn = first_v_immunization
-    skip_tracked("#373", "no V IMMUNIZATION on any demo patient (rpms-ops#721)") if v_imm_ien.nil?
+    flunk "no V IMMUNIZATION on any patient: the pinned build ships two on DFN 4, visit 4; is this a fresh container of the pinned image?" if v_imm_ien.nil?
 
     row = RpmsRpc::Immunization.for_patient(dfn).find { |r| r[:ien] == v_imm_ien }
     refute_nil row, "V IMMUNIZATION #{v_imm_ien} is on file for DFN #{dfn}, and Immunization.for_patient(#{dfn}) did not return it"
@@ -53,7 +53,7 @@ class ImmunizationLiveTest < LiveSpec::Test
 
   def test_find_returns_the_row_for_patient_returns
     v_imm_ien, dfn = first_v_immunization
-    skip_tracked("#373", "no V IMMUNIZATION on any demo patient (rpms-ops#721)") if v_imm_ien.nil?
+    flunk "no V IMMUNIZATION on any patient: the pinned build ships two on DFN 4, visit 4; is this a fresh container of the pinned image?" if v_imm_ien.nil?
 
     expected = RpmsRpc::Immunization.for_patient(dfn).find { |r| r[:ien] == v_imm_ien }
     assert_equal expected, RpmsRpc::Immunization.find(v_imm_ien)

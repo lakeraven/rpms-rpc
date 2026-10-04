@@ -218,6 +218,7 @@ module RpmsRpc
 
       mapping.parse_many(decode_global_array(raw))
     end
+    private :fetch_lookup_rows
 
     # Returns the record lines when the reply carries global-array framing, or
     # the payload untouched when it does not — a client without
@@ -293,6 +294,7 @@ module RpmsRpc
       years -= 1 if today.month < dob.month || (today.month == dob.month && today.day < dob.day)
       years
     end
+    private :age_from
 
     private
 

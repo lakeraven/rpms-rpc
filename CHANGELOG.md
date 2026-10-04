@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `rake rpc:api_coverage`: public methods proven by a live spec (#358)
+
+- Lists every public method of the API modules with the RPCs it sends (resolved statically
+  through DataMapper mappings and `call_rpc*` literals and constants), whether each is on the
+  pinned registry, and the live specs that call it. A method no live spec calls is reported as
+  not in the contract (ADR 0010, assertion 2).
+- Prints methods proven / public methods, per module, and writes `coverage/api/methods.json`
+  (`OUT=` to override); the schema is in the README. On main today: 50 / 256.
+
 ### Changed — Ruby 4.0 readiness (#47)
 
 - CI runs the suite on Ruby 3.4 and 4.0.
@@ -64,6 +73,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sentinel rather than relying on the terminator not colliding.
 
 ## [Unreleased]
+
+### Fixed — orders reads match what ORWOR / ORWORR emit (#220)
+
+Each mapping's parameters and row layout now come from the FOIA routine
+(`ORWOR.m`, `ORWORR.m`, `ORWORR1.m`, `ORWOR2.m`) and the pinned registry
+formals; before, every one was a placeholder that shifted or dropped fields.
+
+- `Order.list(dfn, filter: :active, display_group: 1)` —
+  `AGET(REF,DFN,FILTER,GROUPS,...)^ORWORR`: FILTER is an `ORDSTS^ORCHANG2`
+  view id (`Order::FILTER_IDS`), GROUPS a file 100.98 IEN (AGET's default 1).
+  Rows are `IFN;ACT^DGrp^ActTm^PtEvtID^EvtName` (ORWORR1.m:11) ->
+  `order_id`, `ien`, `display_group_ien`, `action_datetime`, `event_ien`,
+  `event_name`; the `.1` header `TOT^TXTVW^ORYD` is dropped. AGET returns no
+  order text. **Signature change** (`view:` / `status:` are gone).
+- `Order.unsigned_for_patient(dfn)` replaces `unsigned_for_user(duz)` —
+  `UNSIGN(LST,ORVP,HAVE)^ORWOR` takes the patient; rows are `IFN;ACT`
+  (ORWOR.m:127) -> `order_id`, `ien`, `action_ien`.
+- `Order.expired_search_start` replaces `expired?(order_ien)` —
+  `EXPIRED(ORY)^ORWOR` takes nothing and answers the FileMan date/time to
+  search for expired orders from (ORWOR.m:147-150), now a `Time`.
+- `Order.result_history(dfn, order_ien)` — `RESHIST(REF,DFN,ORID,ID)^ORWOR`:
+  RESULT's formals, and a display report returned as text, not typed rows.
+  **Signature change.**
+- `Order.sheets_for_patient` — `SHEETS(LST,ORVP)^ORWOR` rows `TYPE;ID^label`
+  (ORWOR.m:97-105) keep `sheet_id` whole and add `event_type`, `event_ref`,
+  `label`.
+- `test/live/order_live_test.rb` proves the five reads against the pinned
+  build (AGET's header per filter id, rows checked against file 100, the
+  EXPIRED arithmetic against the server's NOW, the sheets every patient has,
+  the no-results report). The fabricated-reply cases in `order_test.rb` are
+  gone. Row-layout specs wait on an order in the demo data (#391).
 
 ### Added — the gem conforms to a pinned rpms-ops build's RPC signature (#222, #160)
 
