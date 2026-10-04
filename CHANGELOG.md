@@ -219,10 +219,10 @@ IHS clusters (second PR):
 - `RpmsRpc::Phr.patient_direct_address`, `.provider_direct_address`,
   `.facility_direct_domain`, `.record_access`: BPHR PATIENT / PROVIDER /
   FACILITY DIRECT, BPHR RECORD ACCESS. No BPHR RPC is registered.
-- `RpmsRpc::Location.find` (BHDO HOSP LOC DATA) and
-  `RpmsRpc::Organization.find` (BHDO INST DATA) — an invented namespace.
-  Hospital locations are served by `Scheduling.hospital_locations` and
-  BEHOENCX HOSPLOC / LOCINFO; institutions by DDR reads over #4.
+- BHDO HOSP LOC DATA, an invented namespace. `RpmsRpc::Location.find` is
+  kept, rebuilt on DDR GETS ENTRY DATA over #44 (see "Kept" below).
+- `RpmsRpc::Organization.find` (BHDO INST DATA), the same invented
+  namespace. Institutions are served by DDR reads over #4.
 - `RpmsRpc::Capabilities.imaging_user?` and `.clear_imaging_cache!`:
   MAGGUSERKEYS. The registered imaging key check is MAGGDUZKEY.
 - `RpmsRpc::Image.launch_token` (and `Image::DEFAULT_TTL_SECONDS`): MAGG
@@ -252,6 +252,12 @@ Methods the host application calls whose invented RPC was removed above are
 kept with the same name, arguments and return shape, rebuilt on the RPC the
 built image really registers, and proven by a live spec as the programmer
 and the provider persona:
+
+- `RpmsRpc::Location.find(ien)` → `{ien:, name:, abbreviation:, type:,
+  division:}`: kept, rebuilt on DDR GETS ENTRY DATA over HOSPITAL LOCATION
+  #44 (.01, 1, 2, 3.5), in CIAV VUECENTRIC. `type` and `division` are the
+  external forms ("CLINIC", the division's name). BEHOENCX LOCINFO is not
+  usable: it M-errors (an extrinsic `QUIT` under `DO`).
 
 - `RpmsRpc::Authentication.user_security_keys(duz)` → `[key names]`: kept,
   rebuilt on DDR LISTER over the user's KEYS multiple (#200 field 51,
