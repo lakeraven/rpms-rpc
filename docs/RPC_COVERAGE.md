@@ -32,7 +32,7 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | BEHOCACV | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BEHOCCD | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BEHOCIR | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| BEHOENCX | 8 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| BEHOENCX | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BEHOPTCX | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BEHOPTPC | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BEHOSICX | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
@@ -44,21 +44,14 @@ not against every RPC installed on a broker. Add one-RPC-per-line allowlists to
 | BGOVHF | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BGOVMSR | 3 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BGOVPOV | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| BHDO | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| BIPC | 6 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BJPN | 0 | n/a | ? | ? | ? | ? | BPRM | unwrapped |
 | BMC | 21 | n/a | ? | ? | ? | ? | BPRM | partial (gap: 1) |
-| BMCRPC | 14 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| BPHR | 4 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| BQI | 2 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
+| BQI | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | BSDX | 9 | n/a | ? | ? | ? | ? | VueCentric BSDX | not in 3-pillar scope |
-| BYIMRT | 4 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | CIANBRPC | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | CIAVCXUS | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | CIAVMCFG | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | DDR | 5 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| MAGG | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
-| MAGGUSERKEYS | 1 | n/a | ? | ? | ? | ? | out-of-scope | not in 3-pillar scope |
 | ORQQAL | 1 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
 | ORQQCN | 0 | n/a | ? | ? | ? | ? | CPRS GUI | unwrapped |
 | ORQQPL | 26 | n/a | ? | ? | ? | ? | CPRS GUI | covered |
