@@ -19,7 +19,7 @@ require "rpms_rpc/api/scheduling"
 # Each method below was guarded by a capability probe until #363 and now
 # calls its RPC unconditionally. Its spec asks the broker first, through
 # CIANBRPC CANRUN (the same $$CANRUN the refusal is decided by), whether this
-# persona may run the RPC, and then:
+# persona may run the RPC IN THE OPTION THE METHOD BINDS, and then:
 #
 #   - may not: the method raises RpcRefusedError. Safe for writes too,
 #     since the refusal comes before the routine.
@@ -31,6 +31,14 @@ require "rpms_rpc/api/scheduling"
 #   - may, a write: CANRUN's answer is the proof. The spec does not call it,
 #     so nothing is filed.
 #
+# The option is the method's, not the sign-on's. CIANBRPC CANRUN answers
+# for the CTX on its own frame (CANRUN^CIANBRPC passes CIA("CTX") to
+# $$CANRUN^CIANBACT), and a module that declares a CONTEXT binds it around
+# every RPC it sends (ContextScope.scoped): Referral binds BMCRPC, Scheduling
+# BSDXRPC. A module that declares none (Patient, Problem) runs under the
+# sign-on option, CIAV VUECENTRIC. So the oracle binds the same option the
+# method will before it asks.
+#
 # These specs read only; they file nothing.
 class MissingRpcLiveTest < LiveSpec::Test
   NotAvailable = RpmsRpc::Client::RpcNotAvailableError
@@ -39,6 +47,7 @@ class MissingRpcLiveTest < LiveSpec::Test
   # Registered on no pinned registry (#207); the gem no longer sends it.
   UNREGISTERED_RPC = "ORWU USERKEYS"
   CANRUN_RPC = "CIANBRPC CANRUN"
+  SIGNON_CONTEXT = RpmsRpc::CiaClient::SIGNON_CONTEXT
 
   # Registered reads that the sign-on option CIAV VUECENTRIC does not list for
   # the provider persona: refused, not missing.
@@ -49,10 +58,17 @@ class MissingRpcLiveTest < LiveSpec::Test
   PROBLEM_IEN = 1
   CLINIC_IEN = 7
 
-  # Served, but the routine fails with an M error on the pinned build (#364).
+  # Served, but the routine fails with an M error on the pinned build (#364),
+  # for both personas, under the option the method binds:
+  #   Problem.edit_load            GETFLDS+20^GMPLEDT3, undefined GMPVAMC
+  #   Referral.purposes            SUBLST+5, QUIT does not return to an extrinsic
+  #   Referral.reference_data      S4+12^DICL2, command expected
+  #   Referral.providers           PROV^ORQPTQ2, more actual than formal parameters
+  #   Referral.search_referred_to  SRRFRDTO+3^BMCRPC1, QUIT does not return to an extrinsic
+  #   Referral.rcis_templates      GTTMPLST+9^BMCRPC3, QUIT does not return to an extrinsic
   KNOWN_BINDING_BUGS = %w[
-    Problem.details Problem.edit_load
-    Referral.reference_data Referral.purposes Referral.providers
+    Problem.edit_load
+    Referral.purposes Referral.reference_data Referral.providers
     Referral.search_referred_to Referral.rcis_templates
   ].freeze
 
@@ -100,10 +116,20 @@ class MissingRpcLiveTest < LiveSpec::Test
     assert_instance_of NotAvailable, err
   end
 
+  # Sent bare, under the sign-on option, which does not list it.
   def test_a_registered_rpc_outside_the_option_is_refused_not_missing
     if canrun?(HOSPITAL_LOCATION_RPC)
-      rows = RpmsRpc::Scheduling.hospital_locations
-      refute_empty rows, "#{persona} may run #{HOSPITAL_LOCATION_RPC}; it answered no clinics"
+      refute_empty client.call_rpc(HOSPITAL_LOCATION_RPC), "#{persona} may run #{HOSPITAL_LOCATION_RPC}; it answered no clinics"
+    else
+      err = assert_raises(Refused) { client.call_rpc(HOSPITAL_LOCATION_RPC) }
+      assert_match(/Access denied for remote procedure: #{HOSPITAL_LOCATION_RPC}/, err.message)
+    end
+  end
+
+  # The same RPC through the API, which binds BSDXRPC, the option that lists it.
+  def test_scheduling_hospital_locations_binds_the_option_that_lists_its_rpc
+    if canrun?(HOSPITAL_LOCATION_RPC, RpmsRpc::Scheduling::CONTEXT)
+      refute_empty RpmsRpc::Scheduling.hospital_locations, "#{persona} may run #{HOSPITAL_LOCATION_RPC} in BSDXRPC; it answered no clinics"
     else
       err = assert_raises(Refused) { RpmsRpc::Scheduling.hospital_locations }
       assert_match(/Access denied for remote procedure: #{HOSPITAL_LOCATION_RPC}/, err.message)
@@ -126,10 +152,11 @@ class MissingRpcLiveTest < LiveSpec::Test
 
   FORMERLY_GUARDED.each do |name, (kind, rpcs, call)|
     define_method("test_#{name.downcase.tr('.', '_')}_answers_or_raises_never_empty") do
-      denied = rpcs.reject { |rpc| canrun?(rpc) }
+      context = bound_context(name)
+      denied = rpcs.reject { |rpc| canrun?(rpc, context) }
 
       if denied.any?
-        err = assert_raises(Refused, "#{name} as #{persona}: #{denied.join(', ')} refused, so it must raise") { call.call }
+        err = assert_raises(Refused, "#{name} as #{persona}: #{denied.join(', ')} refused in #{context}, so it must raise") { call.call }
         assert_match(/Access denied for remote procedure/, err.message)
       elsif kind == :write
         pass # CANRUN says this persona may run every RPC it sends; not called, so nothing is filed.
@@ -141,11 +168,23 @@ class MissingRpcLiveTest < LiveSpec::Test
 
   private
 
-  # $$CANRUN^CIANBACT for this RPC in the bound option, without running it.
-  # It answers $D of the context node (CIANBACT.m:148): 1, 10 or 11 when
-  # the option lists the RPC (10 for the provider persona), 0 when not.
-  def canrun?(rpc)
-    client.call_rpc(CANRUN_RPC, rpc).first.to_i.positive?
+  # $$CANRUN^CIANBACT for this RPC in `context`, without running it. The
+  # frame carries `context` as its CTX, which is the option CANRUN asks about
+  # (CIANBRPC.m:174); the sign-on option is restored afterward. It answers $D
+  # of the context node (CIANBACT.m:148): 1, 10 or 11 when the option lists
+  # the RPC (10 for the provider persona), 0 when not.
+  def canrun?(rpc, context = SIGNON_CONTEXT)
+    RpmsRpc::ContextScope.scoped(client, context) do
+      client.call_rpc(CANRUN_RPC, rpc).first.to_i.positive?
+    end
+  end
+
+  # The option `name` ("Module.method") binds for its RPCs: its module's
+  # CONTEXT, which the module binds around every RPC it sends, or the sign-on
+  # option when it declares none.
+  def bound_context(name)
+    mod = RpmsRpc.const_get(name.split(".").first, false)
+    mod.const_defined?(:CONTEXT, false) ? mod::CONTEXT : SIGNON_CONTEXT
   end
 
   def assert_served(name)
