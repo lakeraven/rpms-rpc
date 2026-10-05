@@ -31,6 +31,18 @@ class PatientTest < Minitest::Test
     def call_rpc(*) = raise(@error, @message)
   end
 
+  # Records what would go on the wire and answers that nothing is on file.
+  class RecordingClient
+    attr_reader :calls
+
+    def initialize = (@calls = [])
+
+    def call_rpc(rpc, *params)
+      @calls << [ rpc, *params ]
+      ""
+    end
+  end
+
   def teardown
     RpmsRpc.reset!
   end
@@ -49,7 +61,47 @@ class PatientTest < Minitest::Test
 
   def test_find_by_ssn_sends_nothing_for_a_blank_ssn
     use NoWireClient.new
-    [ nil, "" ].each { |ssn| assert_nil RpmsRpc::Patient.find_by_ssn(ssn), ssn.inspect }
+    [ nil, "", " ", "--" ].each { |ssn| assert_nil RpmsRpc::Patient.find_by_ssn(ssn), ssn.inspect }
+  end
+
+  # -- shaped before the wire (#352) -----------------------------------------
+
+  # ORWPT FULLSSN matches the "SSN" index exactly, and the index holds no
+  # punctuation: a dashed SSN sent as given finds nobody.
+  def test_find_by_ssn_sends_the_ssn_without_punctuation
+    [ "000-00-9999", "000 00 9999", " 000009999 ", "000009999", 9999.to_s.rjust(9, "0") ].each do |ssn|
+      use(client = RecordingClient.new)
+      RpmsRpc::Patient.find_by_ssn(ssn)
+
+      assert_equal [ [ "ORWPT FULLSSN", "000009999" ] ], client.calls, ssn.inspect
+    end
+  end
+
+  def test_find_by_ssn_keeps_the_p_of_a_pseudo_ssn
+    use(client = RecordingClient.new)
+    RpmsRpc::Patient.find_by_ssn("000-00-9999P")
+
+    assert_equal [ [ "ORWPT FULLSSN", "000009999P" ] ], client.calls
+  end
+
+  # ORWPT LIST ALL answers the names AFTER its from-text, so search sends the
+  # string just before the text: the page then begins at the text itself.
+  def test_search_starts_the_page_just_before_the_text
+    { "MOUSE,MICKEY M" => "MOUSE,MICKEY L~", "DEMO" => "DEMN~", "A" => "@~" }.each do |text, from|
+      use(client = RecordingClient.new)
+
+      assert_equal [], RpmsRpc::Patient.search(text)
+      assert_equal [ [ "ORWPT LIST ALL", from, "1" ] ], client.calls, text
+    end
+  end
+
+  def test_search_with_no_text_starts_at_the_top_of_the_index
+    [ nil, "" ].each do |text|
+      use(client = RecordingClient.new)
+      RpmsRpc::Patient.search(text)
+
+      assert_equal [ [ "ORWPT LIST ALL", "", "1" ] ], client.calls, text.inspect
+    end
   end
 
   def test_brief_header_sends_nothing_for_a_blank_or_non_positive_dfn
