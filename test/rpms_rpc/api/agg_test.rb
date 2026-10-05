@@ -157,6 +157,22 @@ class AggTest < Minitest::Test
     assert Agg.available?
   end
 
+  # CANRUN answers a $DATA value (#367): 10 or 11 for a listed RPC as a
+  # non-programmer; only the XUPROGMODE bypass answers a literal 1.
+  def test_available_true_when_canrun_reports_ten_or_eleven
+    %w[10 11].each do |answer|
+      @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", answer)
+
+      assert Agg.available?, "CANRUN answered #{answer}"
+    end
+  end
+
+  def test_available_false_when_canrun_reports_nothing
+    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "")
+
+    refute Agg.available?
+  end
+
   def test_available_false_when_canrun_reports_zero
     @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "0")
 

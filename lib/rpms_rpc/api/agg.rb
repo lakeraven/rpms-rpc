@@ -267,7 +267,9 @@ module RpmsRpc
 
     # The CANRUN scalar read: strip the 1-byte sequence echo + \x00 ack, then
     # take the first line. Return type 1 (SINGLE VALUE) is written as
-    # `W $C(0),$G(CIAD),!` (CIANBACT.m:112-113), so the payload is "1" or "0".
+    # `W $C(0),$G(CIAD),!` (CIANBACT.m:112-113). CANRUN answers with a $DATA value
+    # (CIANBACT.m:148): 1, 10 or 11 when the context lists the RPC, 0 when it does
+    # not; only the XUPROGMODE bypass answers a literal 1. Any positive value is yes.
     def canrun?(client)
       raw = if client.respond_to?(:call_rpc_raw)
         client.call_rpc_raw(CANRUN_RPC, ADD_RPC)
@@ -276,7 +278,7 @@ module RpmsRpc
       end
       body = raw.to_s.b
       body = body.split(ACK, 2).last.to_s if body.include?(ACK)
-      body.split(/[\r\n#{RECORD_SEP}]/).first.to_s.strip == "1"
+      body.split(/[\r\n#{RECORD_SEP}]/).first.to_s.strip.to_i.positive?
     end
 
     # Route through the GLOBAL ARRAY read when the client supports it (live
