@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the conformance gate requires every RPC the gem sends to be callable on the pinned build (#394)
+
+- `rake conformance:pin` now pins the release's reach face (`<tag>-rpc_reach.txt`) and RPC
+  signatures (`<tag>-rpc_signatures.txt`) with the registry, checksum-verified against the
+  sidecar, the release's asset digests and the provenance's `rpc_reach` / `rpc_signatures`
+  faces, and records the image digest and reach class counts in the lock. A release published
+  before rpms-ops#713 has no reach face and cannot be pinned until re-gated.
+- `bcer-9.0-20260930-8c88e47-ydb` re-pinned after rpms-ops#740 backfilled its inventory: new
+  provenance and sidecar, two new assets; the registry and package bytes are unchanged.
+- `RpmsRpc::Conformance::BuildSurface` is the one reader of the pinned files (registry, reach,
+  signatures, packages). The names gate, the new callable gate, `rpc:exclusions`, `rpc:coverage`,
+  `rpc:api_coverage` and the pin all read through it; it is the seam the OpenAPI generator (#395)
+  and rpms-ops's structured `<tag>-rpcs.json` (rpms-ops#732) plug into.
+- `test/rpms_rpc/callable_rpc_names_test.rb` fails on any RPC a public method sends whose reach
+  class is not `client-callable` or `broker-exempt`, naming the RPC, the class and the methods.
+  On this pin two are build defects, recorded with their issues in
+  `data/fingerprints/uncallable_exceptions.yml` and printed on every run: `DDR KEY VALIDATOR`
+  (no-entry-point, rpms-ops#720) and `VAFC VOA ADD PATIENT` (no-context in the published image,
+  rpms-ops#737/#740).
+- `rake rpc:api_coverage` reports each RPC's `reach` beside its `entry_point`.
+
+### Changed — `rake rpc:exclusions` reads the pinned reach face, not a local RPC atlas (#394)
+
+- No `ATLAS=`: the unreachable exclusions are generated from the pinned build's reach face.
+  On 0930: 597 exclusions (was 598 from the 0921 atlas). `BGOVIMM6 DUPALLOW` and `BMX CVC` are
+  callable on 0930 and leave; `VAFC VOA ADD PATIENT` is no-context in the published face and
+  joins. Coverage: 37 / 4960.
+
 ### Added — `rake rpc:api_coverage`: public methods proven by a live spec (#358)
 
 - Lists every public method of the API modules with the RPCs it sends (resolved statically

@@ -1,0 +1,27 @@
+# RPCs the gem sends that are NOT callable on a pinned rpms-ops build, kept only because the build
+# is defective, each with the issue that tracks the fix. test/rpms_rpc/callable_rpc_names_test.rb
+# (rpms-rpc#394) prints every entry loudly on each run, and fails when an entry is stale: the RPC
+# became callable, the gem stopped sending it, its reach class changed, or the tag is not pinned.
+#
+# This is not a place to park an RPC the gem should not send. An RPC that no build serves is
+# removed from the gem (ADR 0008 rule 3); an entry here names a build defect filed upstream.
+# Remove an entry when the re-pinned build serves the RPC.
+#
+# Shape: <tag> => { <RPC name> => { reach:, issue: <owner/repo#N>, why: } }
+---
+bcer-9.0-20260930-8c88e47-ydb:
+  DDR KEY VALIDATOR:
+    reach: no-entry-point
+    issue: lakeraven/rpms-ops#720
+    why: >-
+      #8994 registers it at KEYVAL^DDR3, a label that does not exist; the code is KEYVAL^DDR4.
+      Every build of the 9.0 line carries the defect; a live call answers LABELMISSING.
+      Sent by RpmsRpc::DdrFileman.validate_key.
+  VAFC VOA ADD PATIENT:
+    reach: no-context
+    issue: lakeraven/rpms-ops#737
+    why: >-
+      The image the release names (sha256:ead62b42...) lacks the LR REGISTRATION CONTEXT option,
+      which other images pushed under the same tag, and the local build, carry (rpms-ops#740);
+      in the published reach face no option lists the RPC. Sent by RpmsRpc::Patient.register,
+      RpmsRpc::Registration.register and RpmsRpc::Registration.register_via_composition.

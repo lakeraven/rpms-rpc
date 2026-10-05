@@ -4,6 +4,7 @@ require "date"
 require "digest"
 require "json"
 require "yaml"
+require "rpms_rpc/conformance/build_surface"
 require "rpms_rpc/conformance/ingest"
 
 module RpmsRpc
@@ -17,23 +18,31 @@ module RpmsRpc
     #   <tag>-broker_8994.txt            one #8994 0-node per registered RPC:
     #                                    NAME^TAG^ROUTINE^RETURN VALUE TYPE^AVAILABILITY^INACTIVE^...
     #   <tag>-packages_9_4.txt           PREFIX^NAME^VERSION per installed package
-    #   <tag>-INVENTORY-PROVENANCE.json  engine, artifact binding, per-dump sha256 + counts, tool sha
-    #   <tag>-INVENTORY.sha256           sidecar over the three above (shasum -c shape)
+    #   <tag>-rpc_reach.txt              whether each of those RPCs is CALLABLE on the image, same order:
+    #                                    NAME^REACH^ROUTINE_PRESENT^TAG_PRESENT^CONTEXTS^EXEMPT_ON (#394)
+    #   <tag>-rpc_signatures.txt         each RPC's #8994 node, DESCRIPTION, INPUT PARAMETERs, RETURN
+    #                                    PARAMETER DESCRIPTION and entry-point formals (ZRPCCAT)
+    #   <tag>-INVENTORY-PROVENANCE.json  engine, artifact binding, per-dump sha256 + counts, tool sha,
+    #                                    the reach face's sha256 + class counts, the image digest
+    #   <tag>-INVENTORY.sha256           sidecar over the five above (shasum -c shape)
     #   <tag>-PROVENANCE.json            the build record: release, rpms_ops_commit (not in the sidecar)
     #
     # This class is the Gemfile.lock side of that contract:
     #
     #   data/fingerprints/rpms-ops.lock.yml    what is pinned: tag, RPMS version, engine, build
     #                                          commit, artifact sha, per-asset sha256, counts
-    #   data/inventories/<tag>/                the five assets, byte for byte (the signature)
+    #   data/inventories/<tag>/                the seven assets, byte for byte (the signature)
     #   data/fingerprints/references/<tag>.yml what was derived from exactly those bytes (Ingest)
     #
     # `rake conformance:pin RELEASE=<tag>` downloads, verifies, ingests and writes the lock;
     # `check` proves OFFLINE that the committed signature and fingerprint still match the lock.
+    # The committed files are READ through BuildSurface, the one reader of them (#394, #395).
     class InventoryLock
       DEFAULT_PATH = "rpms-ops.lock.yml"
       DEFAULT_REPO = "lakeraven/rpms-ops"
-      ASSET_SUFFIXES = %w[broker_8994.txt packages_9_4.txt INVENTORY-PROVENANCE.json].freeze
+      # The reach face and the signatures are required: the callable gate (#394) reads the first, and
+      # a release published before rpms-ops#713 has neither, so it cannot be pinned until re-gated.
+      ASSET_SUFFIXES = %w[broker_8994.txt packages_9_4.txt rpc_reach.txt rpc_signatures.txt INVENTORY-PROVENANCE.json].freeze
       SIDECAR_SUFFIX = "INVENTORY.sha256"
       BUILD_RECORD_SUFFIX = "PROVENANCE.json"
       ENGINES = %w[iris yottadb].freeze
@@ -53,6 +62,10 @@ module RpmsRpc
         def engine = provenance["engine"]
         def rpms_version = InventoryLock.parse_tag(tag)[:rpms_version]
         def build_commit = build_record["rpms_ops_commit"]
+        def image_ref = provenance.dig("image", "ref")
+
+        # The build's RPC surface, read from these verified files.
+        def surface = BuildSurface.load(dir, tag)
 
         # The facts Ingest stamps into the fingerprint's source.inventory face.
         def to_source
@@ -64,9 +77,12 @@ module RpmsRpc
             "artifact_sha256" => provenance["artifact_sha256"],
             "broker_8994_sha256" => shas["#{tag}-broker_8994.txt"],
             "packages_9_4_sha256" => shas["#{tag}-packages_9_4.txt"],
+            "rpc_reach_sha256" => shas["#{tag}-rpc_reach.txt"],
+            "rpc_signatures_sha256" => shas["#{tag}-rpc_signatures.txt"],
             "provenance_sha256" => shas["#{tag}-INVENTORY-PROVENANCE.json"],
-            "inventory_tool_commit" => provenance["tool_git_sha"]
-          }
+            "inventory_tool_commit" => provenance["tool_git_sha"],
+            "image" => image_ref
+          }.compact
         end
       end
 
@@ -78,12 +94,16 @@ module RpmsRpc
           engine: m[:engine] == "ydb" ? "yottadb" : "iris" }
       end
 
-      # Why an RPC is not available on a build, from its fingerprint entry; nil when it is.
+      # Why an RPC is not available on a build, from its #8994 entry (a BuildSurface::Rpc, or a
+      # fingerprint entry hash); nil when it is.
       # Available = registered, with an entry point (TAG and ROUTINE), not inactive locally.
+      # Whether that entry point exists and a context serves it is the callable gate's question.
       def self.unavailable_reason(meta)
         return "not registered" if meta.nil?
-        return "registered without an entry point" if meta["tag"].to_s.empty? || meta["routine"].to_s.empty?
-        return "INACTIVE=#{meta['inactive']} in #8994" if LOCALLY_INACTIVE.include?(meta["inactive"].to_s)
+
+        tag, routine, inactive = meta.is_a?(Hash) ? meta.values_at("tag", "routine", "inactive") : [ meta.tag, meta.routine, meta.inactive ]
+        return "registered without an entry point" if tag.to_s.empty? || routine.to_s.empty?
+        return "INACTIVE=#{inactive} in #8994" if LOCALLY_INACTIVE.include?(inactive.to_s)
 
         nil
       end
@@ -138,6 +158,7 @@ module RpmsRpc
         problems << "provenance records no rpcs dump" unless records.positive?
         lines = File.foreach(File.join(dir, "#{tag}-broker_8994.txt")).count { |l| !l.strip.empty? }
         problems << "registry has #{lines} lines but provenance counted #{records} rpcs records (truncated?)" if records.positive? && lines != records
+        problems.concat(face_problems(tag, provenance, shas, records))
         problems << "build record release #{build_record['release'].inspect} != #{tag.inspect}" unless build_record["release"] == tag
         commit = build_record["rpms_ops_commit"].to_s
         unless commit.match?(/\A[0-9a-f]{40}\z/) && commit.start_with?(parts[:short_commit])
@@ -145,7 +166,36 @@ module RpmsRpc
         end
         raise Error, "#{tag}: " + problems.join("; ") unless problems.empty?
 
+        begin
+          surface = BuildSurface.load(dir, tag)
+        rescue BuildSurface::Error => e
+          raise Error, "#{tag}: #{e.message}"
+        end
+        classes = provenance.dig("rpc_reach", "classes").to_h
+        unless surface.reach_counts == classes.sort.to_h
+          raise Error, "#{tag}: rpc_reach.txt classes #{surface.reach_counts} != provenance #{classes.sort.to_h}"
+        end
+
         Inventory.new(tag: tag, dir: dir, shas: shas, provenance: provenance, build_record: build_record)
+      end
+
+      # The reach and signature faces as the provenance describes them, against the bytes; and the
+      # image a -ydb release pins (rpms-ops#727), whose digest is the artifact's.
+      def self.face_problems(tag, provenance, shas, records)
+        problems = []
+        { "rpc_reach" => "rpc_reach.txt", "rpc_signatures" => "rpc_signatures.txt" }.each do |key, suffix|
+          face = provenance[key]
+          next problems << "provenance has no #{key} face (published before rpms-ops#713? re-gate the release)" unless face.is_a?(Hash)
+
+          problems << "provenance #{key}.sha256 #{face['sha256']} is not #{suffix}'s #{shas["#{tag}-#{suffix}"]}" unless face["sha256"] == shas["#{tag}-#{suffix}"]
+          count = face["records"] || face["rpcs"]
+          problems << "provenance #{key} counts #{count.inspect} RPCs, the registry #{records}" unless count.to_i == records
+        end
+        image = provenance["image"]
+        if image.is_a?(Hash) && image["digest"] != provenance["artifact_sha256"]
+          problems << "provenance image.digest #{image['digest']} is not artifact_sha256 #{provenance['artifact_sha256']}"
+        end
+        problems
       end
 
       def self.load(path)
@@ -177,17 +227,19 @@ module RpmsRpc
           "captured_at" => prov["captured_at"],
           "inventory_tool_commit" => prov["tool_git_sha"],
           "provenance_schema" => prov["schema_version"],
+          "image" => inventory.image_ref,
+          "reach_classes" => prov.dig("rpc_reach", "classes").to_h.sort.to_h,
           "assets" => inventory.shas.sort.to_h,
           "fingerprint" => fingerprint,
           "rpcs" => rpcs,
           "packages" => packages
-        }
+        }.compact
         entries[inventory.tag]
       end
 
       def save
         header = "# rpms-ops builds whose RPC signature rpms-rpc conforms to - written by `rake conformance:pin`; do not hand-edit.\n" \
-                 "# Each entry pins the #8994 + #9.4 inventory and build record lakeraven/rpms-ops attaches to that release\n" \
+                 "# Each entry pins the #8994 + #9.4 inventory, reach face, signatures and build record lakeraven/rpms-ops attaches to that release\n" \
                  "# (sha256 per asset; the bytes are committed under data/inventories/<tag>/), and names the fingerprint\n" \
                  "# ingested from exactly those bytes. test/rpms_rpc/pinned_build_signature_test.rb checks all three agree.\n"
         sorted = { "repo" => repo, "releases" => entries.sort.to_h }
@@ -195,12 +247,9 @@ module RpmsRpc
         path
       end
 
-      # { tag => { rpc name => fingerprint entry } } for every pinned build.
-      def pinned_rpcs(fingerprints_dir:)
-        entries.to_h do |tag, entry|
-          fp = YAML.safe_load_file(File.join(fingerprints_dir, "#{entry['fingerprint']}.yml"), permitted_classes: [ Date ]) || {}
-          [ tag, fp["rpcs"] || {} ]
-        end
+      # { tag => BuildSurface } for every pinned build, read from its committed files.
+      def surfaces(inventories_dir:)
+        entries.keys.to_h { |tag| [ tag, BuildSurface.load(File.join(inventories_dir, tag), tag) ] }
       end
 
       # Offline consistency: every pinned tag has its fingerprint, and the fingerprint's

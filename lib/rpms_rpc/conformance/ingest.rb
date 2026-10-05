@@ -3,6 +3,7 @@
 require "date"
 require "fileutils"
 require "yaml"
+require "rpms_rpc/conformance/build_surface"
 require "rpms_rpc/conformance/package_dump"
 
 module RpmsRpc
@@ -24,20 +25,20 @@ module RpmsRpc
       #   .01 NAME ^ .02 TAG ^ .03 ROUTINE ^ .04 RETURN VALUE TYPE (1-5) ^ .05 AVAILABILITY (P/S/A/R)
       #   ^ .06 INACTIVE (0-3) ^ ...
       # A name with no entry point keeps tag/routine nil. Returns [rpcs_hash, total_lines].
+      # The line itself is parsed by BuildSurface.parse_registry_line, the one #8994 parser (#394).
       def self.parse_dump(path)
         total = 0
         rpcs = {}
         File.foreach(path) do |line|
-          line = line.chomp
-          next if line.empty?
+          next if line.chomp.empty?
 
           total += 1
-          name, tag, routine, return_type, availability, inactive = line.split("^")
-          meta = { "tag" => tag, "routine" => routine }
-          meta["return_type"] = return_type unless return_type.to_s.empty?
-          meta["availability"] = availability unless availability.to_s.empty?
-          meta["inactive"] = inactive unless inactive.to_s.empty? || inactive == "0"
-          rpcs[name] = meta
+          r = BuildSurface.parse_registry_line(line) or next
+          meta = { "tag" => r[:tag], "routine" => r[:routine] }
+          meta["return_type"] = r[:return_type] if r[:return_type]
+          meta["availability"] = r[:availability] if r[:availability]
+          meta["inactive"] = r[:inactive] if r[:inactive]
+          rpcs[r[:name]] = meta
         end
         [ rpcs, total ]
       end

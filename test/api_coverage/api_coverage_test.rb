@@ -135,15 +135,6 @@ class ApiCoverageTest < Minitest::Test
     end
   end
 
-  def test_load_registry_reads_name_and_entry_point
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "r.txt")
-      File.write(path, "# source: fixture\nORWPT SELECT^SELECT^ORWPT^2\nNO ENTRY^^\n")
-
-      assert_equal({ "ORWPT SELECT" => "SELECT^ORWPT", "NO ENTRY" => nil }, ApiCoverage.load_registry(path))
-    end
-  end
-
   # --- the JSON ------------------------------------------------------------------------------
 
   def test_json_has_one_entry_per_public_method_in_the_documented_shape
@@ -157,7 +148,7 @@ class ApiCoverageTest < Minitest::Test
       assert_equal %w[module method arity params rpcs unresolved live_specs personas status], e.keys
       assert_includes ApiCoverage::STATUSES, e["status"]
       assert_equal e["live_specs"].empty?, e["status"] == "not_in_contract"
-      e["rpcs"].each { |r| assert_equal %w[name registered entry_point via], r.keys }
+      e["rpcs"].each { |r| assert_equal %w[name registered entry_point reach via], r.keys }
       e["live_specs"].each { |s| assert_match(%r{\Atest/live/.+\.rb:\d+\z}, s) }
     end
     find = doc["methods"].find { |e| e["module"] == "RpmsRpc::Patient" && e["method"] == "find" }

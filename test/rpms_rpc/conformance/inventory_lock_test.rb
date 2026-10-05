@@ -22,13 +22,37 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
     XUS CCOW VAULT PARAM^CCOWPC^XUSRB4^2^R^3^^0
   TXT
   PACKAGES = "XWB^RPC BROKER^1.1\nOR^ORDER ENTRY/RESULTS REPORTING^3.0\n"
+  # The reach face, same RPCs in the same order: NAME^REACH^ROUTINE_PRESENT^TAG_PRESENT^CONTEXTS^EXEMPT_ON
+  REACH = <<~TXT
+    XWB IM HERE^broker-exempt^1^1^^xwb
+    ORWPT SELECT^client-callable^1^1^OR CPRS GUI CHART;CIAV VUECENTRIC^
+    BEHOVM2 VUNITS^client-callable^1^1^CIAV VUECENTRIC^
+    XUS CCOW VAULT PARAM^no-context^1^1^^
+  TXT
+  REACH_CLASSES = { "broker-exempt" => 1, "client-callable" => 2, "no-context" => 1 }.freeze
+  # ZRPCCAT's walk (tab-separated), ending in its EXPLICIT SUCCESS line.
+  SIGNATURES = [
+    "RPC\t1\tXWB IM HERE\tIMHERE\tXWBIMHER\t1\tP\t\t\t\t\t\t\t1\t1\tRESULT",
+    "DESC\t1\tReturns 1 when the broker is alive.",
+    "RPC\t2\tORWPT SELECT\tSELECT\tORWPT\t1\t\t\t\t\t\t\t\t1\t1\tY,DFN",
+    "PARAM\t2\t\tDFN\t1\t\t1",
+    "PDESC\t2\t\tThe patient's internal entry number.",
+    "RET\t2\tDFN^NAME^SEX^DOB...",
+    "RPC\t3\tBEHOVM2 VUNITS\tVUNITS\tBEHOVM2\t1\t\t\t1\t\t\t\t\t1\t1\tRET",
+    "RPC\t4\tXUS CCOW VAULT PARAM\tCCOWPC\tXUSRB4\t2\tR\t3\t\t\t\t\t\t1\t1\tRES",
+    "EXPLICIT SUCCESS: rpcs=4 description-lines=1 parameters=1"
+  ].join("\n") + "\n"
 
   # Write the four rpms-ops assets for TAG into DIR (what bin/release_inventory.sh produces).
   def write_inventory(dir, tag: TAG, registry: REGISTRY, bound: true, release_tag: nil, records: nil, engine: "yottadb",
-                      build_commit: BUILD_COMMIT, build_release: nil)
+                      build_commit: BUILD_COMMIT, build_release: nil, reach: REACH, reach_classes: REACH_CLASSES,
+                      signatures: SIGNATURES, image_digest: "sha256:deadbeef", faces: true)
     FileUtils.mkdir_p(dir)
     File.write(File.join(dir, "#{tag}-broker_8994.txt"), registry)
     File.write(File.join(dir, "#{tag}-packages_9_4.txt"), PACKAGES)
+    File.write(File.join(dir, "#{tag}-rpc_reach.txt"), reach)
+    File.write(File.join(dir, "#{tag}-rpc_signatures.txt"), signatures)
+    sha = ->(suffix) { Digest::SHA256.file(File.join(dir, "#{tag}-#{suffix}")).hexdigest }
     prov = {
       "schema_version" => 3, "label" => "inventory-#{tag}", "release_tag" => release_tag || tag,
       "artifact_sha256" => "sha256:deadbeef", "engine" => engine, "m_backend" => engine,
@@ -37,6 +61,12 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
       "dumps" => { "packages" => { "records" => 2 }, "builds" => { "records" => 9 },
                    "rpcs" => { "records" => records || registry.lines.count } }
     }
+    if faces
+      prov["rpc_reach"] = { "sha256" => sha.("rpc_reach.txt"), "records" => reach.lines.count, "classes" => reach_classes }
+      prov["rpc_signatures"] = { "sha256" => sha.("rpc_signatures.txt"), "rpcs" => registry.lines.count }
+      prov["image"] = { "repository" => "ghcr.io/lakeraven/rpms-ydb", "digest" => image_digest,
+                        "ref" => "ghcr.io/lakeraven/rpms-ydb@#{image_digest}" }
+    end
     File.write(File.join(dir, "#{tag}-INVENTORY-PROVENANCE.json"), JSON.pretty_generate(prov))
     sidecar = Lock::ASSET_SUFFIXES.map do |s|
       name = "#{tag}-#{s}"
@@ -53,7 +83,7 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
     Dir.mktmpdir do |dir|
       inv = Lock.verify_dir(TAG, write_inventory(dir))
       assert_equal "yottadb", inv.engine
-      assert_equal 3, Lock::ASSET_SUFFIXES.size
+      assert_equal 5, Lock::ASSET_SUFFIXES.size
       assert_equal Digest::SHA256.hexdigest(REGISTRY), inv.shas["#{TAG}-broker_8994.txt"]
       assert_equal TAG, inv.to_source["tag"]
       assert_equal "sha256:deadbeef", inv.to_source["artifact_sha256"]
@@ -61,6 +91,85 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
       assert_equal BUILD_COMMIT, inv.build_commit
       assert_equal BUILD_COMMIT, inv.to_source["build_commit"]
       assert_equal "0123456789abcdef", inv.to_source["inventory_tool_commit"]
+      assert_equal Digest::SHA256.hexdigest(REACH), inv.to_source["rpc_reach_sha256"]
+      assert_equal "ghcr.io/lakeraven/rpms-ydb@sha256:deadbeef", inv.image_ref
+      assert_equal REACH_CLASSES.sort.to_h, inv.surface.reach_counts
+    end
+  end
+
+  # --- the reach face and the signatures (#394) ----------------------------------------------
+
+  def test_verify_dir_rejects_a_release_without_the_reach_face
+    Dir.mktmpdir do |dir|
+      write_inventory(dir)
+      File.delete(File.join(dir, "#{TAG}-rpc_reach.txt"))
+      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, dir) }
+      assert_match(/missing or empty asset #{TAG}-rpc_reach.txt/, e.message)
+    end
+  end
+
+  def test_verify_dir_rejects_a_provenance_without_the_reach_face
+    Dir.mktmpdir do |dir|
+      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, faces: false)) }
+      assert_match(/no rpc_reach face/, e.message)
+    end
+  end
+
+  def test_verify_dir_rejects_a_reach_face_out_of_step_with_the_registry
+    Dir.mktmpdir do |dir|
+      reach = REACH.lines.reverse.join
+      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, reach: reach)) }
+      assert_match(/rpc_reach.txt does not name the registry's 4 RPCs in order/, e.message)
+    end
+  end
+
+  def test_verify_dir_rejects_reach_classes_the_provenance_does_not_count
+    Dir.mktmpdir do |dir|
+      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, reach_classes: { "client-callable" => 4 })) }
+      assert_match(/classes/, e.message)
+    end
+  end
+
+  def test_verify_dir_rejects_an_unknown_reach_class
+    Dir.mktmpdir do |dir|
+      reach = REACH.sub("no-context", "maybe-callable")
+      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, reach: reach)) }
+      assert_match(/maybe-callable/, e.message)
+    end
+  end
+
+  def test_verify_dir_rejects_a_truncated_signatures_walk
+    Dir.mktmpdir do |dir|
+      sigs = SIGNATURES.lines[0..-2].join
+      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, signatures: sigs)) }
+      assert_match(/EXPLICIT SUCCESS/, e.message)
+    end
+  end
+
+  def test_verify_dir_rejects_an_image_that_is_not_the_artifact
+    Dir.mktmpdir do |dir|
+      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, image_digest: "sha256:0ther")) }
+      assert_match(/image.digest/, e.message)
+    end
+  end
+
+  def test_the_surface_reads_signatures_reach_and_registry_together
+    Dir.mktmpdir do |dir|
+      surface = Lock.verify_dir(TAG, write_inventory(dir)).surface
+      select = surface["ORWPT SELECT"]
+      assert_equal "SELECT^ORWPT", select.entry_point
+      assert_equal "client-callable", select.reach
+      assert select.callable?
+      assert_equal %w[Y DFN], select.formals
+      assert_equal [ "DFN" ], select.params.map(&:name)
+      assert_equal [ "The patient's internal entry number." ], select.params.first.description
+      assert select.params.first.required
+      assert_equal [ "DFN^NAME^SEX^DOB..." ], select.returns
+      assert_equal [ "Returns 1 when the broker is alive." ], surface["XWB IM HERE"].description
+      assert_equal [ "xwb" ], surface["XWB IM HERE"].exempt_on
+      assert_equal "3", surface["XUS CCOW VAULT PARAM"].inactive
+      assert_equal({ "XUS CCOW VAULT PARAM" => "no-context" }, surface.uncallable)
+      assert_equal 2, surface.packages.size
     end
   end
 
@@ -167,7 +276,9 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
       assert_equal BUILD_COMMIT, reloaded[TAG]["build_commit"]
       assert_equal "sha256:deadbeef", reloaded[TAG]["artifact_sha256"]
       assert_empty reloaded.check(fingerprints_dir: fp_dir, inventories_dir: File.join(root, "inventories"))
-      assert_equal 4, reloaded.pinned_rpcs(fingerprints_dir: fp_dir)[TAG].size
+      assert_equal 4, reloaded.surfaces(inventories_dir: File.join(root, "inventories"))[TAG].names.size
+      assert_equal "ghcr.io/lakeraven/rpms-ydb@sha256:deadbeef", reloaded[TAG]["image"]
+      assert_equal REACH_CLASSES.sort.to_h, reloaded[TAG]["reach_classes"]
 
       # A hand-edited fingerprint no longer matches its pin.
       File.write(r[:path], File.read(r[:path]).sub("BEHOVM2 VUNITS", "BEHOVM2 VUNITZ"))
