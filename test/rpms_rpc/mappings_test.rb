@@ -25,20 +25,14 @@ class RpmsRpc::MappingsTest < Minitest::Test
 
   # -- ORWPT LIST ALL --------------------------------------------------------
 
+  # A row as LISTALL^ORWPT sets it: DFN^NAME^^^^NAME. It carries no sex and no
+  # date of birth, so a row is the DFN and the name and nothing else (#352).
   def test_patient_list
-    results = RpmsRpc::DataMapper[:patient_list].parse_many([ "1^DOE,JOHN", "2^SMITH,JANE" ])
-    assert_equal 2, results.size
-    assert_equal 1, results[0][:dfn]
-    assert_equal "SMITH,JANE", results[1][:name]
-    assert_nil results[0][:sex]
-    assert_nil results[0][:dob]
-  end
+    results = RpmsRpc::DataMapper[:patient_list].parse_many(
+      [ "3^MOUSE,MICKEY M^^^^MOUSE,MICKEY M", "4^DEMO,PATIENT ONE^^^^DEMO,PATIENT ONE" ]
+    )
 
-  def test_patient_list_extended_line
-    results = RpmsRpc::DataMapper[:patient_list].parse_many([ "1^DOE,JOHN^M^2800115" ])
-    assert_equal 1, results.size
-    assert_equal "M", results[0][:sex]
-    assert_equal Date.new(1980, 1, 15), results[0][:dob]
+    assert_equal [ { dfn: 3, name: "MOUSE,MICKEY M" }, { dfn: 4, name: "DEMO,PATIENT ONE" } ], results
   end
 
   # -- ORWPT FULLSSN ---------------------------------------------------------
