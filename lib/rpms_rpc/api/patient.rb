@@ -21,8 +21,19 @@ module RpmsRpc
       attrs
     end
 
+    # ORWPT LIST ALL (LISTALL^ORWPT): ONE PAGE of the PATIENT "B" (name)
+    # index, in index order, starting AT the text. It is not a filter (#352):
+    #
+    #   - the page is at most 44 rows and runs past the names that begin with
+    #     the text: search("MOUSE") also lists NIGHTSHADE,FINLEY;
+    #   - names are stored upper-case, so lower-case text collates after every
+    #     name and answers [];
+    #   - each row is { dfn:, name: } and nothing else.
+    #
+    # A caller that wants only matching names filters the page itself. For a
+    # division-aware lookup use #lookup.
     def search(name_pattern)
-      DataMapper.patient_list.fetch_many(name_pattern.to_s, "1")
+      DataMapper.patient_list.fetch_many(page_start(name_pattern.to_s), "1")
     end
 
     # AGG LOOKUP PATIENTS — the IHS division-aware lookup (FND^AGGPTLKP).
@@ -62,10 +73,15 @@ module RpmsRpc
       rows.map { |row| normalize_lookup_row(row) }
     end
 
+    # ORWPT FULLSSN (FULLSSN^ORWPT) reads the "SSN" index by exact value, and
+    # the index holds the SSN without punctuation ("000009999", or
+    # "000009999P" for a pseudo-SSN). Punctuation in the SSN given here is
+    # stripped before the call, so "000-00-9999" finds the same patient (#352).
     def find_by_ssn(ssn)
-      return nil if ssn.nil? || ssn.to_s.empty?
+      bare = ssn.to_s.gsub(/[^0-9A-Za-z]/, "")
+      return nil if bare.empty?
 
-      DataMapper.patient_ssn.fetch_one(ssn.to_s)
+      DataMapper.patient_ssn.fetch_one(bare)
     end
 
     # Register a new patient via RpmsRpc::Registration, which picks its
@@ -297,6 +313,17 @@ module RpmsRpc
     private :age_from
 
     private
+
+    # LISTALL^ORWPT pages with $ORDER, which answers the name AFTER the text it
+    # is given, so the exact name sent as-is is the one name the page leaves
+    # out. The from-text is therefore the string just before the text in
+    # collation: its last character stepped back one, then "~" (above every
+    # character a name holds). CPRS's patient selector sends the same form.
+    def page_start(text)
+      return text if text.empty?
+
+      "#{text[0...-1]}#{text[-1].ord.pred.chr(text.encoding)}~"
+    end
 
     # External (display) value of one field from a DdrFileman.gets_entry
     # reply; empty-on-file → nil.
