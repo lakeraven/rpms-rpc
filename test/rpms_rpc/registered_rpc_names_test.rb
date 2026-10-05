@@ -20,7 +20,8 @@ require_relative "../../tools/rpc_coverage/rpc_coverage"
 #   - has an entry point: TAG and ROUTINE are both set;
 #   - not inactive for local use: INACTIVE is not 1 (inactive) or 2 (local inactive).
 # Whether that entry point exists on the image and a context allows it (callable)
-# is not in the signature yet (rpms-ops#713).
+# is the stricter gate in callable_rpc_names_test.rb (#394), from the build's reach face.
+# Both read the pinned files through RpmsRpc::Conformance::BuildSurface.
 #
 # The names considered are the ones `rake rpc:coverage` counts as used
 # (RpcCoverage.declared_names): every `m.rpc "..."` in the mappings, every
@@ -34,21 +35,21 @@ class RegisteredRpcNamesTest < Minitest::Test
   LOCK = RpmsRpc::Conformance::InventoryLock.load(File.join(FINGERPRINTS_DIR, "rpms-ops.lock.yml"))
 
   def pinned_builds
-    LOCK.pinned_rpcs(fingerprints_dir: FINGERPRINTS_DIR)
+    @pinned_builds ||= LOCK.surfaces(inventories_dir: File.join(ROOT, "data/inventories"))
   end
 
   def test_a_build_is_pinned
     refute_empty pinned_builds, "no rpms-ops build pinned in #{LOCK.path}"
-    pinned_builds.each do |tag, rpcs|
-      assert_operator rpcs.size, :>, 5_000, "#{tag}: a #8994 registry of a built 9.0 image has thousands of names"
+    pinned_builds.each do |tag, surface|
+      assert_operator surface.names.size, :>, 5_000, "#{tag}: a #8994 registry of a built 9.0 image has thousands of names"
     end
   end
 
   def test_every_rpc_name_the_gem_uses_is_available_on_every_pinned_build
     sites = RpcCoverage.declared_names(ROOT)
-    problems = pinned_builds.flat_map do |tag, rpcs|
+    problems = pinned_builds.flat_map do |tag, surface|
       sites.keys.sort.filter_map do |name|
-        why = RpmsRpc::Conformance::InventoryLock.unavailable_reason(rpcs[name])
+        why = RpmsRpc::Conformance::InventoryLock.unavailable_reason(surface[name])
         "  #{name}\t#{why} on #{tag}\t#{sites[name].join(' ')}" if why
       end
     end
@@ -72,5 +73,16 @@ class RegisteredRpcNamesTest < Minitest::Test
     assert_nil reason.({ "tag" => "CCOWPC", "routine" => "XUSRB4", "inactive" => "3" })
     assert_nil reason.({ "tag" => "A", "routine" => "B", "inactive" => "0" })
     assert_nil reason.({ "tag" => "A", "routine" => "B" })
+  end
+
+  # The same reasons from the reader's records.
+  def test_unavailable_reasons_from_the_build_surface
+    surface = pinned_builds.values.first
+    reason = ->(name) { RpmsRpc::Conformance::InventoryLock.unavailable_reason(surface[name]) }
+
+    assert_equal "registered without an entry point", reason.("BPC GETLABVISITDATA")
+    assert_nil reason.("XUS CCOW VAULT PARAM")
+    assert_nil reason.("ORWPT SELECT")
+    assert_equal "not registered", reason.("ZZZ NOT REGISTERED")
   end
 end

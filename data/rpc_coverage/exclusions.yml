@@ -11,16 +11,17 @@
 #   write_needs_fixture      a write or side effect that needs a disposable fixture before it can run live
 #
 # The unreachable reasons (no_routine_on_image .. context_out_of_order) are GENERATED from the
-# cloud-rpms RPC atlas of the pinned release by `rake rpc:exclusions`; regenerate each release,
-# never hand-edit them. gui_plumbing and write_needs_fixture are reviewed decisions: add one per
-# PR with its evidence; regeneration keeps them.
+# pinned release's reach face (data/inventories/<tag>/<tag>-rpc_reach.txt, published by rpms-ops)
+# by `rake rpc:exclusions`; regenerate on every re-pin, never hand-edit them. gui_plumbing and
+# write_needs_fixture are reviewed decisions: add one per PR with its evidence; regeneration keeps them.
 #
-# atlas: cloud-rpms docs/analyst/rpc-atlas/bcer-9.0-20260921-e6f4f0c-ydb-20260925T215238Z/atlas.tsv
-# atlas sha256: f91ca284c0dde03b20c3c6e71615f3ed4ad0e1a2ff8aae8cbe3456d5bfcaaf29
-# registry: bcer-9.0-20260913-1a2244c-ydb (5557 names); atlas registry matches: yes, the atlas's #8994 input has the pinned source sha256
-# regenerate: bundle exec rake rpc:exclusions ATLAS=<cloud-rpms>/docs/analyst/rpc-atlas/<run>/atlas.tsv
+# reach: data/inventories/bcer-9.0-20260930-8c88e47-ydb/bcer-9.0-20260930-8c88e47-ydb-rpc_reach.txt
+# reach sha256: 4642ea0d611289b34aae101b5837513f74dca18c9fa822a26c95c4b3a02c7861 (pinned in data/fingerprints/rpms-ops.lock.yml)
+# reach classes: broker-exempt=21 client-callable=4939 no-context=226 no-entry-point=88 no-routine=203 out-of-order=80
+# registry: bcer-9.0-20260930-8c88e47-ydb (5557 names)
+# regenerate: bundle exec rake rpc:exclusions
 # count context_out_of_order: 80
-# count no_context: 227
+# count no_context: 226
 # count no_entry_point_on_image: 88
 # count no_routine_on_image: 203
 "ADE APPT ADD": no_routine_on_image
@@ -156,7 +157,6 @@
 "BDMG QUEUE DM AUDIT 12 P": no_entry_point_on_image
 "BDMG QUEUE MULT SUMMARIES": no_entry_point_on_image
 "BGOPROB1 INPT": no_entry_point_on_image
-"BGOVIMM6 DUPALLOW": no_context
 "BGPG 06 CHK COMM TAX NTL": no_entry_point_on_image
 "BGPG 06 CMP PAT LIST": no_entry_point_on_image
 "BGPG 07 CHK COMM TAX NTL": no_entry_point_on_image
@@ -260,7 +260,6 @@
 "BMQrpctable": no_routine_on_image
 "BMQrpctmsg": no_routine_on_image
 "BMQsecurity": no_routine_on_image
-"BMX CVC": no_context
 "BMX FIND FACILITY": no_entry_point_on_image
 "BMXNRC": no_routine_on_image
 "BMXProviderLookupRS": no_routine_on_image
@@ -581,6 +580,7 @@
 "VAFC NEW NC TREATING FACILITY": no_context
 "VAFC REMOTE AUDIT": no_context
 "VAFC REMOTE PDAT": no_context
+"VAFC VOA ADD PATIENT": no_context
 "VEN WCM DEV BENCHMARKS TX POP": no_context
 "VEN WCM DEV COMMENTS TX POP": no_context
 "VEN WCM DEVEL TX FLUSH": no_context

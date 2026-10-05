@@ -118,7 +118,7 @@ class RpcCoverageTest < Minitest::Test
     assert_empty RpcCoverage.exclusion_problems(exclusions, reg)
   end
 
-  def test_an_atlas_reach_class_spelled_as_a_reason_is_still_unknown
+  def test_a_reach_class_spelled_as_a_reason_is_still_unknown
     problems = RpcCoverage.exclusion_problems({ "A ONE" => "no-context" }, registry("A ONE"))
     assert_match(/unknown reason "no-context"/, problems.first)
   end
@@ -130,31 +130,40 @@ class RpcCoverageTest < Minitest::Test
     assert_equal [ "exclusion \"A ONE\" (no_context) answered live: the exclusion is stale, remove it" ], problems
   end
 
-  # --- exclusions generated from the cloud-rpms RPC atlas (#278) ------------------------------
+  # --- exclusions generated from the pinned build's reach face (#278, #394) ------------------
 
-  ATLAS_HEAD = "name\tpackage\treach\texempt_on\tevidence\trpms_rpc\troutine\ttag\n"
-
-  def atlas(*rows)
-    write("atlas/atlas.tsv", ATLAS_HEAD + rows.map { |n, reach| "#{n}\tPKG\t#{reach}\t\tnone\tunwrapped\tRTN\tTAG" }.join("\n") + "\n")
+  # A pinned build's files: the registry and its reach face, same RPCs in the same order.
+  def surface(*rows)
+    tag = "bcer-9.0-20260930-8c88e47-ydb"
+    write("inventories/#{tag}/#{tag}-broker_8994.txt", rows.map { |n, _| "#{n}^TAG^RTN^2" }.join("\n") + "\n")
+    write("inventories/#{tag}/#{tag}-rpc_reach.txt", rows.map { |n, reach| "#{n}^#{reach}^1^1^^" }.join("\n") + "\n")
+    RpmsRpc::Conformance::BuildSurface.load(File.join(@dir, "inventories", tag), tag)
   end
 
-  def test_atlas_reach_classes_map_to_reasons_and_callable_rpcs_are_not_excluded
-    path = atlas([ "A ONE", "no-routine" ], [ "A TWO", "no-entry-point" ], [ "A THREE", "inactive" ],
-                 [ "A FOUR", "no-context" ], [ "A FIVE", "out-of-order" ],
-                 [ "A SIX", "broker-exempt" ], [ "A SEVEN", "client-callable" ])
+  def test_reach_classes_map_to_reasons_and_callable_rpcs_are_not_excluded
+    s = surface([ "A ONE", "no-routine" ], [ "A TWO", "no-entry-point" ], [ "A THREE", "inactive" ],
+                [ "A FOUR", "no-context" ], [ "A FIVE", "out-of-order" ],
+                [ "A SIX", "broker-exempt" ], [ "A SEVEN", "client-callable" ])
     assert_equal({ "A ONE" => "no_routine_on_image", "A TWO" => "no_entry_point_on_image",
                    "A THREE" => "inactive_on_image", "A FOUR" => "no_context", "A FIVE" => "context_out_of_order" },
-                 RpcCoverage.unreachable_from_atlas(path))
+                 RpcCoverage.unreachable_from_surface(s))
   end
 
-  def test_an_atlas_reach_class_this_tool_does_not_know_fails
-    path = atlas([ "A ONE", "maybe-callable" ])
-    assert_raises(RpcCoverage::Error) { RpcCoverage.unreachable_from_atlas(path) }
+  # Every reach class rpms-ops publishes is either callable or mapped to a reason: a class added
+  # upstream is a decision here, not a silent pass.
+  def test_every_reach_class_is_callable_or_has_a_reason
+    classes = RpmsRpc::Conformance::BuildSurface::REACH_CLASSES
+    assert_equal classes.sort, (RpcCoverage::REACH_REASONS.keys + RpmsRpc::Conformance::BuildSurface::CALLABLE).sort
+    RpcCoverage::REACH_REASONS.each_value { |r| assert RpcCoverage::EXCLUSION_REASONS.key?(r), r }
   end
 
-  def test_an_atlas_without_name_and_reach_columns_fails
-    path = write("atlas/atlas.tsv", "rpc\tclass\nA ONE\tno-context\n")
-    assert_raises(RpcCoverage::Error) { RpcCoverage.unreachable_from_atlas(path) }
+  def test_a_reach_class_the_reader_does_not_know_fails
+    assert_raises(RpmsRpc::Conformance::BuildSurface::Error) { surface([ "A ONE", "maybe-callable" ]) }
+  end
+
+  def test_a_build_without_a_reach_face_cannot_generate_exclusions
+    s = RpmsRpc::Conformance::BuildSurface.from_files(registry: write("r/bcer-test-broker_8994.txt", "A ONE^T^R\n"))
+    assert_raises(RpcCoverage::Error) { RpcCoverage.unreachable_from_surface(s) }
   end
 
   def test_regenerating_keeps_reviewed_exclusions_and_only_registered_names
@@ -170,11 +179,11 @@ class RpcCoverageTest < Minitest::Test
   def test_generated_exclusions_round_trip_and_cite_their_source
     reg = registry("A ONE", "SD W/L PRIORITY(#409.3)", "A: B")
     excl = { "SD W/L PRIORITY(#409.3)" => "no_context", "A ONE" => "no_routine_on_image", "A: B" => "gui_plumbing" }
-    text = RpcCoverage.exclusions_yaml(excl, source: [ "atlas: some/atlas.tsv", "sha256: abc" ])
+    text = RpcCoverage.exclusions_yaml(excl, source: [ "reach: some/rpc_reach.txt", "sha256: abc" ])
     path = write("exclusions.yml", text)
     assert_equal excl, RpcCoverage.load_exclusions(path)
     assert_empty RpcCoverage.exclusion_problems(RpcCoverage.load_exclusions(path), reg)
-    assert_includes text, "# atlas: some/atlas.tsv\n# sha256: abc\n"
+    assert_includes text, "# reach: some/rpc_reach.txt\n# sha256: abc\n"
     assert_includes text, "#   context_out_of_order"
     assert_equal %w[A\ ONE A:\ B SD\ W/L\ PRIORITY(#409.3)], RpcCoverage.load_exclusions(path).keys, "sorted by name"
   end
@@ -259,19 +268,32 @@ class RpcCoverageTest < Minitest::Test
     assert_empty RpcCoverage.exclusion_problems(RpcCoverage.load_exclusions(File.join(root, "data/rpc_coverage/exclusions.yml")), reg)
   end
 
-  # #278: every RPC the atlas found unreachable on the pinned release is excluded with a reason, and
-  # the file says where that came from so the next release can regenerate it.
-  def test_the_committed_exclusions_cite_their_atlas_and_registry
+  # #278, #394: every RPC the pinned release's reach face says no client can call is excluded with
+  # a reason, the file cites the pinned reach face it came from, and regenerating it from that face
+  # changes nothing (the committed file is what `rake rpc:exclusions` writes, not a local atlas).
+  def test_the_committed_exclusions_are_generated_from_the_pinned_reach_face
     root = File.expand_path("../..", __dir__)
+    cfg = YAML.safe_load_file(File.join(root, "data/rpc_coverage/config.yml"))
+    tag = cfg.fetch("release")
     path = File.join(root, "data/rpc_coverage/exclusions.yml")
     text = File.read(path)
     excl = RpcCoverage.load_exclusions(path)
     refute_empty excl
-    assert_match(/^# atlas: .+atlas\.tsv$/, text)
-    assert_match(/^# atlas sha256: \h{64}$/, text)
-    assert_match(/^# registry: bcer-9\.0-20260913-1a2244c-ydb/, text)
-    assert_match(/^# regenerate: bundle exec rake rpc:exclusions ATLAS=/, text)
+
+    reach_file = "#{tag}-rpc_reach.txt"
+    lock = YAML.safe_load_file(File.join(root, "data/fingerprints/rpms-ops.lock.yml"))
+    assert_includes text, "# reach: data/inventories/#{tag}/#{reach_file}\n"
+    assert_includes text, "# reach sha256: #{lock.dig('releases', tag, 'assets', reach_file)} "
+    assert_match(/^# registry: #{Regexp.escape(tag)} \(\d+ names\)$/, text)
+    assert_match(/^# regenerate: bundle exec rake rpc:exclusions$/, text)
+    refute_match(/atlas/i, text)
     counts = text.scan(/^# count (\w+): (\d+)$/).to_h { |r, n| [ r, n.to_i ] }
     assert_equal excl.values.tally, counts, "the header counts match the entries"
+
+    surface = RpmsRpc::Conformance::BuildSurface.load(File.join(root, "data/inventories", tag), tag)
+    registry = RpcCoverage.load_registry(File.join(root, cfg.fetch("registry")))
+    regenerated = RpcCoverage.regenerate_exclusions(excl, RpcCoverage.unreachable_from_surface(surface), registry)
+    assert_equal excl, regenerated.exclusions, "exclusions.yml is stale against the pinned reach face: run rake rpc:exclusions"
+    assert_empty regenerated.not_in_registry
   end
 end

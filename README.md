@@ -213,7 +213,7 @@ The coverage number is measured against **one backend's registry**, not against 
 
 ```sh
 rake rpc:coverage
-# RPC coverage: 0.7% (37 / 4959 registered on bcer-9.0-20260930-8c88e47-ydb; 598 excluded) · declared 198 · unregistered names used 0
+# RPC coverage: 0.7% (37 / 4960 registered on bcer-9.0-20260930-8c88e47-ydb; 597 excluded) · declared 198 · unregistered names used 0
 ```
 
 - **Denominator:** every #8994 name on the pinned rpms-ops build
@@ -221,12 +221,12 @@ rake rpc:coverage
   pinned by `rake conformance:pin`; see [docs/conformance/CAPTURE.md](docs/conformance/CAPTURE.md)),
   minus the names in `data/rpc_coverage/exclusions.yml`. Each exclusion carries a reason from a
   fixed list, and is reviewed like code.
-- **Unreachable RPCs are excluded from the RPC atlas (#278):** an RPC whose routine or entry point
-  is not on the image, that is inactive, that no context lists, or whose every context is out of
-  order cannot be called by any client. `rake rpc:exclusions ATLAS=<atlas.tsv>` regenerates those
-  exclusions from the atlas cloud-rpms `scripts/shared/rpc-atlas.sh` writes for the pinned
-  release, and records the atlas path, its sha256 and whether its #8994 input is the pinned
-  registry. Run it each release. Out-of-order RPCs get their own reason (`context_out_of_order`),
+- **Unreachable RPCs are excluded from the pinned build's reach face (#278, #394):** an RPC whose
+  routine or entry point is not on the image, that is inactive, that no context lists, or whose
+  every context is out of order cannot be called by any client. rpms-ops publishes that class per
+  RPC (`<tag>-rpc_reach.txt`), `rake conformance:pin` commits it, and `rake rpc:exclusions`
+  regenerates the exclusions from it, recording its path and pinned sha256. Run it after every
+  re-pin; a test fails when the committed file is stale against the pinned face. Out-of-order RPCs get their own reason (`context_out_of_order`),
   since a site can put a context back in service. Reviewed reasons (`gui_plumbing`,
   `write_needs_fixture`) survive regeneration.
 - **Covered:** a live run against that backend got an answer that was not a broker error.
@@ -328,7 +328,7 @@ The JSON (default `coverage/api/methods.json`, `OUT=` to override) is the input 
       "method": "find",
       "arity": 1,
       "params": [{ "name": "dfn", "kind": "req" }],
-      "rpcs": [{ "name": "ORWPT SELECT", "registered": true, "entry_point": "SELECT^ORWPT", "via": "mapping :patient_select" }],
+      "rpcs": [{ "name": "ORWPT SELECT", "registered": true, "entry_point": "SELECT^ORWPT", "reach": "client-callable", "via": "mapping :patient_select" }],
       "unresolved": [],
       "live_specs": ["test/live/patient_live_test.rb:59"],
       "personas": ["least-privilege", "programmer"],
@@ -342,7 +342,7 @@ The JSON (default `coverage/api/methods.json`, `OUT=` to override) is the input 
 |---|---|
 | `module`, `method` | `RpmsRpc::Patient` and `find`: the call is `RpmsRpc::Patient.find` |
 | `arity`, `params` | Ruby's `Method#arity` and `#parameters`; `kind` is `req`, `opt`, `rest`, `keyreq`, `key`, `keyrest` or `block` |
-| `rpcs[]` | each RPC the method sends: `name`, `registered` on the pinned registry, `entry_point` (`TAG^ROUTINE`, `null` when not registered), `via` (`mapping :name` or `literal`) |
+| `rpcs[]` | each RPC the method sends: `name`, `registered` on the pinned registry, `entry_point` (`TAG^ROUTINE`, `null` when not registered), `reach` (its class in the pinned build's `rpc_reach.txt`: `client-callable`, `broker-exempt`, `no-context`, ...; `null` when not registered), `via` (`mapping :name` or `literal`) |
 | `unresolved[]` | RPC names the analysis could not bind, with where; empty when every send resolved |
 | `live_specs[]` | `file:line` of each call in `test/live/` |
 | `personas[]` | the personas those specs run as; empty when there are none |

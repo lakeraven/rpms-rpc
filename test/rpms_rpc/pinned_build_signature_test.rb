@@ -39,6 +39,11 @@ class PinnedBuildSignatureTest < Minitest::Test
              "#{tag}: build_commit #{entry['build_commit']} is not the commit the tag names"
       assert_match(/\Asha256:[0-9a-f]{64}\z/, entry["artifact_sha256"].to_s, "#{tag}: artifact_sha256")
       assert_match(/\A[0-9a-f]{40}\z/, entry["inventory_tool_commit"].to_s, "#{tag}: inventory_tool_commit")
+      # The image a -ydb release pins, by digest (rpms-ops#727), is the artifact the lock names.
+      assert_equal "ghcr.io/lakeraven/rpms-ydb@#{entry['artifact_sha256']}", entry["image"], "#{tag}: image" if parts[:engine] == "yottadb"
+      assert_equal RpmsRpc::Conformance::BuildSurface::REACH_CLASSES.sort & entry["reach_classes"].keys, entry["reach_classes"].keys.sort,
+                   "#{tag}: reach_classes names only reach classes"
+      assert_equal entry["rpcs"], entry["reach_classes"].values.sum, "#{tag}: every pinned RPC has one reach class"
       expected_assets = (Lock::ASSET_SUFFIXES + [ Lock::BUILD_RECORD_SUFFIX ]).map { |s| "#{tag}-#{s}" }.sort
       assert_equal expected_assets, entry["assets"].keys.sort, "#{tag}: pinned assets"
       entry["assets"].each_value { |sha| assert_match(/\A[0-9a-f]{64}\z/, sha) }
@@ -71,17 +76,17 @@ class PinnedBuildSignatureTest < Minitest::Test
   # entry point it read; the build's #8994 entry says which entry point the RPC
   # name actually runs (FASTVIT^ORQQVI, not VITALS^ORQQVI, for ORQQVI VITALS: #188).
   def test_every_wire_fixture_cites_the_entry_point_the_pinned_build_registers
-    builds = LOCK.pinned_rpcs(fingerprints_dir: FINGERPRINTS_DIR)
+    builds = LOCK.surfaces(inventories_dir: INVENTORIES_DIR)
     fixtures = RpmsRpc::WireCapture::Fixture.load_all
     refute_empty fixtures
 
-    problems = builds.flat_map do |tag, rpcs|
+    problems = builds.flat_map do |tag, surface|
       fixtures.filter_map do |fixture|
         name = File.basename(fixture.path)
-        meta = rpcs[fixture.rpc]
-        next "#{name}: #{fixture.rpc} is not registered on #{tag}" unless meta
+        rpc = surface[fixture.rpc]
+        next "#{name}: #{fixture.rpc} is not registered on #{tag}" unless rpc
 
-        registered = "#{meta['tag']}^#{meta['routine']}"
+        registered = rpc.entry_point
         cited = Lock.cited_entry_point(fixture.cite)
         next if cited == registered
 

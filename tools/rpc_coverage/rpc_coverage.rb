@@ -2,6 +2,7 @@
 
 require "json"
 require "yaml"
+require_relative "../../lib/rpms_rpc/conformance/build_surface"
 
 # RPC coverage: how much of ONE backend's registered RPC surface rpms-rpc has shown working
 # against that backend (rpms-rpc#270). Offline; `rake rpc:coverage` drives it.
@@ -35,17 +36,17 @@ module RpcCoverage
     "gui_plumbing" => "drives a thick-client GUI (layout, window state); no headless use (ADR-0004 tiers)",
     "write_needs_fixture" => "a write or side effect that needs a disposable fixture before it can run live"
   }.freeze
-  # The RPC atlas (cloud-rpms scripts/shared/rpc-atlas.sh) gives each registered RPC one REACH class.
-  # The unreachable classes map to an exclusion reason; broker-exempt and client-callable RPCs stay
-  # in the denominator. A class missing from both lists fails, so a new atlas class is a decision here.
-  ATLAS_REACH_REASONS = {
+  # The pinned build's reach face (<tag>-rpc_reach.txt, rpms-ops#713) gives each registered RPC one
+  # REACH class. The uncallable classes map to an exclusion reason; the callable ones
+  # (BuildSurface::CALLABLE: client-callable, broker-exempt) stay in the denominator. A class in
+  # neither fails, so a new reach class is a decision here (#394).
+  REACH_REASONS = {
     "no-routine" => "no_routine_on_image",
     "no-entry-point" => "no_entry_point_on_image",
     "inactive" => "inactive_on_image",
     "no-context" => "no_context",
     "out-of-order" => "context_out_of_order"
   }.freeze
-  ATLAS_REACHABLE = %w[broker-exempt client-callable].freeze
   STATUSES = %w[covered live_error declared_untested not_declared].freeze
   EVIDENCE_KEYS = %w[backend runs rpcs].freeze
   RUN_KEYS = %w[at rpms_rpc host_label persona context cases tally signons].freeze
@@ -63,24 +64,20 @@ module RpcCoverage
 
   class Error < StandardError; end
 
-  Registry = Struct.new(:path, :tag, :names, :header, keyword_init: true)
+  # surface: the RpmsRpc::Conformance::BuildSurface the registry was read through.
+  Registry = Struct.new(:path, :tag, :names, :header, :surface, keyword_init: true)
 
   module_function
 
   # --- inputs ---------------------------------------------------------------------------------
 
+  # An rpms-ops broker dump has one #8994 0-node per line, NAME first (#222). It is read through
+  # BuildSurface, the one reader of the pinned files (#394); the tag comes from the file name.
   def load_registry(path)
     raise Error, "registry not found: #{path}" unless File.exist?(path)
 
-    header = []
-    names = []
-    File.readlines(path, chomp: true).each do |l|
-      next if l.strip.empty?
-
-      # An rpms-ops broker dump has one #8994 0-node per line, NAME first (#222).
-      l.start_with?("#") ? header << l : names << l.split("^", 2).first
-    end
-    Registry.new(path: path, tag: File.basename(path, ".txt").delete_suffix("-broker_8994"), names: names, header: header)
+    surface = RpmsRpc::Conformance::BuildSurface.from_files(registry: path)
+    Registry.new(path: path, tag: surface.tag, names: surface.names, header: surface.header, surface: surface)
   end
 
   def registry_problems(registry)
@@ -115,36 +112,26 @@ module RpcCoverage
     end
   end
 
-  # --- exclusions generated from the RPC atlas (#278) -----------------------------------------
+  # --- exclusions generated from the pinned build's reach face (#278, #394) ------------------
 
-  # name => reason for every RPC the atlas classes as unreachable.
-  def unreachable_from_atlas(path)
-    raise Error, "atlas not found: #{path}" unless File.exist?(path)
+  # name => reason for every RPC the pinned build's reach face classes as not callable.
+  def unreachable_from_surface(surface)
+    raise Error, "#{surface.tag}: no rpc_reach.txt pinned; re-pin the release (rake conformance:pin)" unless surface.reach?
 
-    lines = File.readlines(path, chomp: true).reject { |l| l.strip.empty? || l.start_with?("#") }
-    head = lines.shift.to_s.split("\t")
-    ni = head.index("name")
-    ri = head.index("reach")
-    raise Error, "#{path} has no name and reach columns (not an rpc-atlas atlas.tsv?)" unless ni && ri
+    surface.uncallable.to_h do |name, reach|
+      raise Error, "#{surface.tag}: #{name.inspect} has reach #{reach.inspect}, which rpc_coverage.rb does not map" unless REACH_REASONS.key?(reach)
 
-    lines.each_with_object({}) do |l, out|
-      cols = l.split("\t", -1)
-      name = cols[ni]
-      reach = cols[ri]
-      next if ATLAS_REACHABLE.include?(reach)
-      raise Error, "#{path}: #{name.inspect} has reach #{reach.inspect}, which rpc_coverage.rb does not map" unless ATLAS_REACH_REASONS.key?(reach)
-
-      out[name] = ATLAS_REACH_REASONS.fetch(reach)
+      [ name, REACH_REASONS.fetch(reach) ]
     end
   end
 
   Regenerated = Struct.new(:exclusions, :not_in_registry, keyword_init: true)
 
-  # The atlas owns the atlas-derived reasons: they are replaced wholesale, so an RPC that became
+  # The reach face owns the reach-derived reasons: they are replaced wholesale, so an RPC that became
   # callable loses its exclusion. Any other reason is a reviewed decision and is kept as it is. Only
   # names the pinned registry registers are excluded; the rest are returned as residue to report.
   def regenerate_exclusions(current, unreachable, registry)
-    generated = ATLAS_REACH_REASONS.values
+    generated = REACH_REASONS.values
     known = registry.names.to_h { |n| [ n, true ] }
     kept = current.reject { |_, reason| generated.include?(reason) }
     fresh = unreachable.select { |name, _| known[name] && !kept.key?(name) }
@@ -164,9 +151,9 @@ module RpcCoverage
     head += [
       "#",
       "# The unreachable reasons (no_routine_on_image .. context_out_of_order) are GENERATED from the",
-      "# cloud-rpms RPC atlas of the pinned release by `rake rpc:exclusions`; regenerate each release,",
-      "# never hand-edit them. gui_plumbing and write_needs_fixture are reviewed decisions: add one per",
-      "# PR with its evidence; regeneration keeps them.",
+      "# pinned release's reach face (data/inventories/<tag>/<tag>-rpc_reach.txt, published by rpms-ops)",
+      "# by `rake rpc:exclusions`; regenerate on every re-pin, never hand-edit them. gui_plumbing and",
+      "# write_needs_fixture are reviewed decisions: add one per PR with its evidence; regeneration keeps them.",
       "#"
     ]
     head += source.map { |l| "# #{l}" }
