@@ -33,15 +33,15 @@ module RpmsRpc
     include ContextScope
 
     # Error classes
-    class ConnectionError < StandardError; end
-    class AuthenticationError < StandardError; end
+    class ConnectionError < Error; end
+    class AuthenticationError < Error; end
     # Raised when RPMS credentials are missing or set to the dev-only
     # PROV123/PROV123!! defaults outside a development environment.
     # Subclass of AuthenticationError so existing rescue blocks keep
     # working, but callers can distinguish "credential misconfigured"
     # from "credential rejected by broker".
     class CredentialError < AuthenticationError; end
-    class RpcError < StandardError; end
+    class RpcError < Error; end
     # Broker errors, kept distinct so a host can tell them apart (#363), in the
     # spirit of HTTP status classes:
     #   RpcNotAvailableError  the server does not serve this RPC: no #8994 entry

@@ -2,6 +2,7 @@
 
 require "digest"
 require "yaml"
+require_relative "core"
 require_relative "fileman_date_parser"
 
 module RpmsRpc
@@ -44,7 +45,7 @@ module RpmsRpc
     SOURCES = [ "live-capture", "no-data", "routine-cite" ].freeze
     KINDS = [ "fields", "scalar", "text_blob", "lines" ].freeze
 
-    class InvalidFixture < StandardError; end
+    class InvalidFixture < Error; end
 
     Piece = Struct.new(:position, :attributes, :fileman_type, keyword_init: true)
 
