@@ -179,6 +179,17 @@ class AggTest < Minitest::Test
     refute Agg.available?
   end
 
+  # A broker error reply (\x01 flag) raises through the client's reply grammar; it is never
+  # read as a positive answer (the first raw byte is the sequence echo, a digit).
+  def test_available_false_when_the_broker_answers_with_an_error
+    erroring = Class.new do
+      def call_rpc_lines(*) = raise(RpmsRpc::Client::RpcError, "CANRUN: error 4")
+      def call_rpc(*) = raise(RpmsRpc::Client::RpcError, "CANRUN: error 4")
+    end.new
+
+    refute Agg.available?(erroring)
+  end
+
   def test_available_false_when_rpc_absent
     # Nothing seeded — mock returns "".
     refute Agg.available?

@@ -14,13 +14,13 @@ require "rpms_rpc/api/agg"
 class AggAvailableLiveTest < LiveSpec::Test
   def test_available_agrees_with_the_canrun_answer
     answer = begin
-      raw = client.with_context(RpmsRpc::Agg::CONTEXT) do
-        client.call_rpc_raw(RpmsRpc::Agg::CANRUN_RPC, RpmsRpc::Agg::ADD_RPC)
+      lines = client.with_context(RpmsRpc::Agg::CONTEXT) do
+        client.call_rpc_lines(RpmsRpc::Agg::CANRUN_RPC, RpmsRpc::Agg::ADD_RPC)
       end
-      # the raw reply is the 1-byte sequence echo, a NUL, then the value
-      raw.to_s.b.split("\x00".b, 2).last.to_s[/\d+/].to_i
+      # the client's reply grammar: a \x01 reply raised above; a bare echo is no lines
+      Array(lines).first&.strip&.to_i
     rescue RpmsRpc::Client::RpcError
-      nil # the user cannot bind the context at all
+      nil # the broker refused: the user cannot bind the context, or the RPC
     end
 
     expected = !answer.nil? && answer.positive?
