@@ -265,18 +265,20 @@ module RpmsRpc
       client.with_context(CONTEXT, &block)
     end
 
-    # The CANRUN scalar read: strip the 1-byte sequence echo + \x00 ack, then
-    # take the first line. Return type 1 (SINGLE VALUE) is written as
-    # `W $C(0),$G(CIAD),!` (CIANBACT.m:112-113), so the payload is "1" or "0".
+    # The CANRUN scalar, read through the client's reply grammar (CiaClient#parse_cia_reply):
+    # a \x00 reply yields its lines, a \x01 reply raises RpcError (which available? turns into
+    # "not available"), and a bare sequence echo yields nothing. Never the raw frame: on an
+    # error reply the first byte is the sequence echo, and reading it as the answer would call
+    # AGG available when CANRUN said nothing of the kind. CANRUN answers with a $DATA value
+    # (CIANBACT.m:148): 1, 10 or 11 when the context lists the RPC, 0 when it does not; only
+    # the XUPROGMODE bypass answers a literal 1. Any positive value is yes.
     def canrun?(client)
-      raw = if client.respond_to?(:call_rpc_raw)
-        client.call_rpc_raw(CANRUN_RPC, ADD_RPC)
+      lines = if client.respond_to?(:call_rpc_lines)
+        client.call_rpc_lines(CANRUN_RPC, ADD_RPC)
       else
         client.call_rpc(CANRUN_RPC, ADD_RPC)
       end
-      body = raw.to_s.b
-      body = body.split(ACK, 2).last.to_s if body.include?(ACK)
-      body.split(/[\r\n#{RECORD_SEP}]/).first.to_s.strip == "1"
+      Array(lines).first.to_s.strip.to_i.positive?
     end
 
     # Route through the GLOBAL ARRAY read when the client supports it (live
