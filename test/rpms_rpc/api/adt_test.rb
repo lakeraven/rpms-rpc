@@ -9,7 +9,7 @@ require "rpms_rpc/api/adt"
 # Tests for RpmsRpc::Adt — the ADT/patient-movement read surface (ORWPT over
 # ^DGPM). The broker is mocked. There is no stock movement-WRITE RPC; ADT writes
 # for the reg/sched twin (lakeraven-ehr#412 scenario #15) await a new FileMan-
-# safe server RPC (rpms-ops#366), so only reads are wrapped here.
+# safe server RPC (rpms-ops#371), so only reads are wrapped here.
 class AdtTest < Minitest::Test
   ADMIT_T = Time.new(2026, 7, 1, 14, 30, 0)
   ADMIT_FM = RpmsRpc::FilemanDateParser.format_datetime(ADMIT_T)
