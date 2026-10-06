@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Deprecated — `RpmsRpc::FhirClient` and `RpmsRpc.fhir_client` (#360)
+
+- Both warn on every call: a FHIR client is host knowledge (ADR 0010, assertion 7) and leaves
+  the gem in a later release. They still behave as before. A host that uses them should carry
+  its own copy before then.
+
 ### Added — live specs over XWB (#236)
 
 - `BROKER_PROTOCOL=xwb rake test:live` signs on with `XwbClient#authenticate` and runs the specs

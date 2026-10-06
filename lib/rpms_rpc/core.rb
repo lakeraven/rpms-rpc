@@ -56,7 +56,10 @@ module RpmsRpc
       )
     end
 
+    # DEPRECATED (#360): a FHIR client is host knowledge (ADR 0010, assertion 7).
+    # Every call warns; the method and FhirClient go in a later release.
     def fhir_client
+      warn_fhir_client_deprecated("RpmsRpc.fhir_client", uplevel: 2)
       configuration.fhir_client || raise(
         NotConfiguredError,
         "RpmsRpc.fhir_client is not configured. Call RpmsRpc.configure { |c| c.fhir_client = ... } " \
@@ -66,6 +69,15 @@ module RpmsRpc
 
     def reset!
       @configuration = Configuration.new
+    end
+
+    # One wording for both deprecated entry points, so a host reading its log
+    # sees the same notice from either. `uplevel` points the warning at the
+    # host's call site, not at the gem.
+    def warn_fhir_client_deprecated(name, uplevel:)
+      warn "[rpms_rpc] DEPRECATED: #{name} is leaving the gem (#360): a FHIR client is host " \
+           "knowledge (ADR 0010, assertion 7). Keep a copy in the host; it will be removed in a later release.",
+           uplevel: uplevel
     end
 
     # Run `block` with exclusive use of the shared broker client.
