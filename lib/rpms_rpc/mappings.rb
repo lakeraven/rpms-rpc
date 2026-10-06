@@ -14,8 +14,10 @@ require_relative "data_mapper"
 #
 # The mapping data is bucketed by origin ahead of the vista-rpc extraction:
 # stock-VistA namespaces (ORW*/ORQQ*/TIU/XUS/...) vs IHS/RPMS-only
-# namespaces (B*/MAGG*/CIAV*). Both files register into the one DataMapper
+# namespaces (B*/MAGG*/CIAV*), plus mappings/sandbox.rb for definitions NOT
+# backed by any live RPC. All three files register into the one DataMapper
 # registry at load time, so requiring this file yields the identical full
 # mapping set regardless of the bucketing.
 require_relative "mappings/stock_vista"
 require_relative "mappings/ihs"
+require_relative "mappings/sandbox"

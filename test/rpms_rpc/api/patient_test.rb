@@ -91,6 +91,31 @@ class PatientTest < Minitest::Test
   end
 
   # =============================================================================
+  # FIND BY BUSINESS IDENTIFIER — sandbox-only lookup, no live RPC on this
+  # commit (see mappings/sandbox.rb). Resolves to a full patient record via
+  # `find`, exercising the merge of patient_select + patient_id_info.
+  # =============================================================================
+
+  def test_find_by_business_identifier_returns_full_patient_record
+    RpmsRpc.client.seed(:patient_business_identifier, "ORHC-A", { dfn: 1, identifier: "ORHC-A" })
+
+    result = RpmsRpc::Patient.find_by_business_identifier("ORHC-A")
+
+    refute_nil result
+    assert_equal "DOE,JOHN", result[:name]
+    assert_equal "I", result[:race_code]
+  end
+
+  def test_find_by_business_identifier_returns_nil_for_unknown
+    assert_nil RpmsRpc::Patient.find_by_business_identifier("NO-SUCH-ID")
+  end
+
+  def test_find_by_business_identifier_returns_nil_for_blank
+    assert_nil RpmsRpc::Patient.find_by_business_identifier("")
+    assert_nil RpmsRpc::Patient.find_by_business_identifier(nil)
+  end
+
+  # =============================================================================
   # REGISTER — delegates to the composed RpmsRpc::Registration flow
   # (VAFC VOA ADD PATIENT + DDR FileMan family). The former "BHDPTRPC
   # REGISTER" wire name is retired — it never had a server implementation

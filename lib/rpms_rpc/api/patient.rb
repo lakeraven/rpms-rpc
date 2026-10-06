@@ -30,6 +30,20 @@ module RpmsRpc
       DataMapper.patient_ssn.fetch_one(ssn.to_s)
     end
 
+    # Resolve a patient by a caller-supplied business identifier. Backed by
+    # DataMapper.patient_business_identifier — see
+    # mappings/sandbox.rb for what that mapping is (and is explicitly not:
+    # no live RPC on this commit) and what the real path is. Callers get a
+    # full patient record (same shape as `find`), never wire details.
+    def find_by_business_identifier(identifier)
+      return nil if identifier.nil? || identifier.to_s.empty?
+
+      hit = DataMapper.patient_business_identifier.fetch_one(identifier.to_s)
+      return nil unless hit
+
+      find(hit[:dfn])
+    end
+
     # Register a new patient — delegates to the composed
     # RpmsRpc::Registration flow: VAFC VOA ADD PATIENT (PATIENT #2 half,
     # ADD^VAFCPTAD) + the DDR FileMan family (IHS #9000001 half: HRN,
