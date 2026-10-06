@@ -46,9 +46,10 @@ module RpmsRpc
     # as garbage and a real RPMS rejects correct credentials (rpms-rpc#200).
     # The ciphertext goes as ONE parameter because it may contain "^".
     #
-    # A successful result carries :user_type, the server's own user class
-    # (see #signon_user_type), and :post_signon_message_count, XUS AV CODE
-    # line 5, which was read as a class until #236.
+    # A successful result carries the sign-on facts only: DUZ, the message,
+    # the verify flag and :post_signon_message_count (XUS AV CODE line 5,
+    # which was read as a user class until #236). The user's class is a
+    # separate read the host makes once it holds a context: #user_type.
     #
     # The whole sequence — SIGNON SETUP, AV CODE, and the user/key lookups it
     # implies — runs under the client's wire lock. The broker session these
@@ -91,29 +92,27 @@ module RpmsRpc
     # piece 3, USRCLS (ORWU.m:12-19), the same read CPRS makes. The gem does
     # not derive it from keys itself.
     #
-    # It runs in whatever context the session holds, and binds none: a CIA
-    # sign-on binds CIAV VUECENTRIC, whose RPC multiple carries ORWU USERINFO.
-    # An XWB session that has created no context yet is refused.
+    # A separate call, not part of #authenticate: ORWU USERINFO runs in the
+    # context the session holds, and a fresh XWB session holds none, so the
+    # host calls this after it binds its context (a CIA sign-on already holds
+    # CIAV VUECENTRIC, which carries ORWU USERINFO).
     #
-    # Returns { user_type: "provider" | "nurse" | "clerk" | "user" }, or, when
-    # the class cannot be read, { user_type: nil, user_type_error: reason }:
-    # the broker refused or failed the RPC, answered nothing, answered for a
-    # different DUZ, or answered a USRCLS ORWU.m:19 never returns. Never a
-    # default class: a host that asks provider? must hear "unknown", not "no".
-    def signon_user_type(duz)
+    # Returns "provider", "nurse", "clerk" or "user". Raises Client::RpcError
+    # when the class cannot be read: the broker refused or failed the RPC,
+    # answered nothing, answered for a different DUZ, or answered a USRCLS
+    # that ORWU.m:19 never returns (the raw piece is checked, not a number
+    # coerced from it). Never a default class: a host that asks provider?
+    # must hear "unknown", not "no".
+    def user_type(duz)
       record = DataMapper.practitioner_info.fetch_one
-      return user_type_error("ORWU USERINFO answered nothing") if record.nil?
+      raise Client::RpcError, "ORWU USERINFO answered nothing" if record.nil?
       unless record[:duz].to_i == duz.to_i
-        return user_type_error("ORWU USERINFO answered for another user, not DUZ #{duz}")
+        raise Client::RpcError, "ORWU USERINFO answered for another user, not DUZ #{duz}"
       end
 
-      usrcls = record[:user_class]
-      user_type = user_type_for(usrcls)
-      return user_type_error("ORWU USERINFO answered USRCLS #{usrcls.inspect}, which ORWU.m:19 never returns") if user_type.nil?
-
-      { user_type: user_type }
-    rescue Client::RpcError => e
-      user_type_error("ORWU USERINFO failed: #{RpmsRpc.sanitize_error(e.message)}")
+      usrcls = record[:usrcls]
+      user_type_for(usrcls) ||
+        raise(Client::RpcError, "ORWU USERINFO answered USRCLS #{usrcls.inspect}, which ORWU.m:19 never returns")
     end
 
     # Whether user DUZ holds the security key KEY_NAME, per ORWU NPHASKEY
@@ -292,11 +291,7 @@ module RpmsRpc
 
       info = user_info(duz)
       result[:name] = info[:name] if info
-      result.merge(signon_user_type(duz))
-    end
-
-    def user_type_error(reason)
-      { user_type: nil, user_type_error: reason }
+      result
     end
 
     def validation_error(message)

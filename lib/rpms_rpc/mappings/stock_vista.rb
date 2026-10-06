@@ -353,7 +353,7 @@ module RpmsRpc
     # DOMAIN ($$KSP^XUPARAM("WHERE"), :31) and [23] the station.
     # USRCLS is computed from the user's order keys (ORWU.m:19): 3 ORES,
     # 2 ORELSE, 1 OREMAS, 0 none. It is the user class the sign-on result
-    # reports as :user_type (Authentication#signon_user_type, #236).
+    # Authentication.user_type reports (#236).
     # Live, bcer-9.0-20260930 (YDB), under CIAV VUECENTRIC:
     #   "200^PROVIDER,TEST^0^0^0^0^0^99999^20^1^1^5^DEMO.IHS.GOV^0^180^...^8904^^0"
     #   "4^MANAGER,SYSTEM^3^1^1^3^0^99999^20^1^1^5^DEMO.IHS.GOV^1^180^...^8904^^0"
@@ -362,6 +362,7 @@ module RpmsRpc
       m.field 0,  :duz,           :integer
       m.field 1,  :name
       m.field 2,  :user_class,    :integer
+      m.field 2,  :usrcls                 # the same piece as sent: Authentication.user_type validates it raw
       m.field 12, :kernel_domain
       m.field 23, :site_ien,      :integer
     end

@@ -37,9 +37,32 @@ class AuthenticationTest < Minitest::Test
     assert_equal 301, result[:provider_ien]
     assert_equal "PROVIDER,TEST", result[:name]
     assert_equal 0, result[:post_signon_message_count]
+    refute result.key?(:user_type), "the sign-on result carries no user class (Authentication.user_type is the read)"
 
     assert_equal [ "XUS SIGNON SETUP", "XUS AV CODE", "XUS GET USER INFO" ],
-      RpmsRpc.client.received_calls.first(3).map { |c| c[:rpc] }
+      RpmsRpc.client.received_calls.map { |c| c[:rpc] }
+  end
+
+  # The user's class is a separate read, ORWU USERINFO's USRCLS, in the vocabulary
+  # hosts read. The mock seeds the :provider role as USRCLS 3.
+  def test_user_type_reads_orwu_usrcls
+    assert_equal "provider", RpmsRpc::Authentication.user_type(301)
+    assert_equal [ "ORWU USERINFO" ], RpmsRpc.client.received_calls.map { |c| c[:rpc] }
+  end
+
+  # The raw piece is validated, not a number coerced from it: "3x" is not a class.
+  def test_user_type_raises_on_a_usrcls_orwu_never_returns
+    [ "3x", " ", "4" ].each do |usrcls|
+      RpmsRpc.client.seed(:practitioner_info, "", { duz: 301, name: "PROVIDER,TEST", user_class: usrcls })
+      e = assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Authentication.user_type(301) }
+      assert_includes e.message, usrcls.inspect
+    end
+  end
+
+  def test_user_type_raises_when_the_answer_is_for_another_user
+    RpmsRpc.client.seed(:practitioner_info, "", { duz: 999, name: "OTHER,USER", user_class: "3" })
+    e = assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Authentication.user_type(301) }
+    assert_includes e.message, "another user"
   end
 
   # The sign-on result's user_type is ORWU USERINFO's USRCLS (piece 3), which

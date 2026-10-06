@@ -15,8 +15,10 @@ require "rpms_rpc/api/authentication"
 #     number of post-sign-on lines that follow it, RET(6..5+n), or 0 when the
 #     site suppresses the message ($$SHOWPOST, XUSRB.m:87), in which case the
 #     lines are still sent and the count says not to show them;
-#   * user_type is the mapping of the USRCLS a direct ORWU USERINFO answers in
-#     the same session, with no :user_type_error.
+#   * the sign-on result carries no user class: Authentication.user_type is
+#     the host's separate read, made once the session holds a context, and
+#     it equals the mapping of the USRCLS a direct ORWU USERINFO answers in
+#     that context.
 #
 # The harness only connects (connect_only!): the sign-on under test is the
 # spec's own. It reads only; it files nothing.
@@ -36,6 +38,9 @@ class AuthenticateXwbLiveTest < LiveSpec::Test
     end
   end
 
+  # The option a host binds before it reads the user's class; OR CPRS GUI CHART carries ORWU USERINFO.
+  CONTEXT = "OR CPRS GUI CHART"
+
   def test_authenticate_signs_on_and_reports_the_message_count_and_user_class
     client.singleton_class.prepend(AvCodeTap)
 
@@ -50,7 +55,8 @@ class AuthenticateXwbLiveTest < LiveSpec::Test
     assert_operator result[:duz], :>, 0
 
     assert_message_count(result[:post_signon_message_count], client.av_code_reply)
-    assert_user_type(result)
+    refute result.key?(:user_type), "the sign-on result carries no user class; Authentication.user_type is the read"
+    assert_user_type(result[:duz])
   end
 
   private
@@ -68,22 +74,18 @@ class AuthenticateXwbLiveTest < LiveSpec::Test
     puts "\n#{persona}: post_signon_message_count #{count}, #{following} line(s) after RET(5)"
   end
 
-  def assert_user_type(result)
-    usrcls = Integer(Array(client.call_rpc("ORWU USERINFO")).first.to_s.split("^")[2])
-  rescue RpmsRpc::Client::RpcError => e
-    # The session cannot run ORWU USERINFO, so neither could authenticate:
-    # the result must say so, never default a class.
-    assert_nil result[:user_type]
-    assert_includes result[:user_type_error].to_s, e.message,
-                    "authenticate's user_type_error does not name the refusal the direct read got"
-    skip_tracked("#393", "#{persona}'s XWB session cannot run ORWU USERINFO right after sign-on " \
-                         "(#{e.message}), so authenticate reports user_type_error")
-  else
+  def assert_user_type(duz)
+    unless client.create_context(CONTEXT)
+      flunk "#{persona} cannot bind #{CONTEXT} on this build, so no user class can be read over XWB; " \
+            "give the persona that option, or pick one that carries ORWU USERINFO."
+    end
+    usrcls = Array(client.call_rpc("ORWU USERINFO")).first.to_s.split("^")[2]
     expected = RpmsRpc::Authentication.user_type_for(usrcls)
-    refute_nil expected, "ORWU USERINFO answered USRCLS #{usrcls} for #{persona}, which ORWU.m:19 never returns"
-    refute result.key?(:user_type_error), "authenticate reported #{result[:user_type_error].inspect}"
-    assert_equal expected, result[:user_type],
-                 "ORWU USERINFO says USRCLS #{usrcls} for #{persona}; authenticate said #{result[:user_type].inspect}"
-    puts "#{persona}: DUZ #{result[:duz]}, USRCLS #{usrcls} -> user_type #{result[:user_type]}"
+    refute_nil expected, "ORWU USERINFO answered USRCLS #{usrcls.inspect} for #{persona}, which ORWU.m:19 never returns"
+
+    read = RpmsRpc::Authentication.user_type(duz)
+
+    assert_equal expected, read, "ORWU USERINFO says USRCLS #{usrcls} for #{persona}; user_type said #{read.inspect}"
+    puts "#{persona}: DUZ #{duz}, USRCLS #{usrcls} -> user_type #{read}"
   end
 end

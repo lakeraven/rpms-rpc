@@ -26,7 +26,7 @@ return format.
   through the `xwb_encrypt` cipher (`$$ENCRYP^XUSRB1`).
 - Neither reply carries a user class. `XUS AV CODE` line 5 is the
   post-sign-on message count (it was read as a class until #236), and
-  `XUS GET USER INFO` line 7 is DTIME. The sign-on result's `user_type` is
+  `XUS GET USER INFO` line 7 is DTIME. The user's class, `Authentication.user_type`, is
   read from `ORWU USERINFO` piece 3, USRCLS, which the server computes from
   ORES/ORELSE/OREMAS (ORWU.m:19).
 - `XWB CREATE CONTEXT` is sent the option name through the same

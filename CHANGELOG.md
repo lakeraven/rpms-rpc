@@ -133,19 +133,18 @@ message lines` (XUSRB.m:9-11, :40, :85-87). Against a real broker the
 every user to `"user"`, and a host reading `user_type` for
 provider/nurse/clerk checks saw them all false.
 
-- `Authentication.authenticate` keeps `:user_type` with the same values
-  (`"provider"`, `"nurse"`, `"clerk"`, `"user"`), now read from the
-  server: `ORWU USERINFO` piece 3, USRCLS, which ORWU.m:19 computes from the
-  user's order keys (3 ORES, 2 ORELSE, 1 OREMAS, 0 none) and which CPRS
-  reads the same way. It runs inside the sign-on sequence, under the wire
-  lock, in whatever context the session holds (a CIA sign-on binds CIAV
-  VUECENTRIC, which carries it). `Authentication::USER_TYPES` is re-keyed
-  to USRCLS; `Authentication.user_type_for(usrcls)` and
-  `Authentication.signon_user_type(duz)` are new.
-- When the class cannot be read (the RPC is refused or fails, answers
-  nothing, answers for another DUZ, or answers a USRCLS ORWU.m:19 never
-  returns), sign-on still succeeds but reports `user_type: nil` and a
-  `:user_type_error` reason. It never claims a default class.
+- **Breaking:** `Authentication.authenticate` no longer carries `:user_type`.
+  The class is a separate read, `Authentication.user_type(duz)`, made once the
+  session holds a context: `ORWU USERINFO` piece 3, USRCLS, which ORWU.m:19
+  computes from the user's order keys (3 ORES, 2 ORELSE, 1 OREMAS, 0 none)
+  and which CPRS reads the same way. It answers `"provider"`, `"nurse"`,
+  `"clerk"` or `"user"`, and raises `Client::RpcError` when the class cannot
+  be read (the RPC is refused or fails, answers nothing, answers for another
+  DUZ, or answers a USRCLS ORWU.m:19 never returns; the raw piece is checked,
+  not a coerced number). It never claims a default class. A host that stored
+  `user_type` from the sign-on result calls `user_type` after binding its
+  context. `Authentication::USER_TYPES` is re-keyed to USRCLS;
+  `Authentication.user_type_for(usrcls)` is new.
 - Added: `:post_signon_message_count`, XUS AV CODE line 5, on the success
   result. `:av_code` seeds take `post_signon_message_count:`.
 - `MockClient#seed_user(role:)` seeds the role as ORWU USERINFO's USRCLS.
@@ -156,7 +155,7 @@ XUSRB2.m:35), never a user class; no known host reads it. `:user_info`
 seeds take `dtime:`.
 
 `test/live/user_role_live_test.rb` proves, for each persona, that
-`signon_user_type` equals the mapping of a direct `ORWU USERINFO` call, and
+`Authentication.user_type` equals the mapping of a direct `ORWU USERINFO` call, and
 that `XUS GET USER INFO` line 7 equals the user's TIMED READ (200.1).
 
 ### Fixed — orders reads match what ORWOR / ORWORR emit (#220)

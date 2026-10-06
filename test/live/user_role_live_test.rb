@@ -4,7 +4,7 @@ require_relative "live_helper"
 require "rpms_rpc/api/authentication"
 require "rpms_rpc/api/ddr_fileman"
 
-# The sign-on result's user_type is the server's own user class: USRCLS,
+# The user's class the gem reports is the server's own: USRCLS,
 # piece 3 of ORWU USERINFO, which ORWU.m:19 computes from the user's order
 # keys (3 ORES, 2 ORELSE, 1 OREMAS, 0 none) and which CPRS reads the same way.
 # Until #236 it was read from XUS AV CODE line 5, the post-sign-on message
@@ -13,7 +13,7 @@ require "rpms_rpc/api/ddr_fileman"
 # Authentication.authenticate itself cannot run over CIA: the broker refuses
 # XUS SIGNON SETUP and XUS AV CODE once CIANBRPC AUTH has signed the session
 # on. So this spec proves the step authenticate runs after AV CODE,
-# Authentication.signon_user_type, in the session and context a CIA sign-on
+# Authentication.user_type, in the session and context a CIA sign-on
 # binds (CIAV VUECENTRIC), against a direct ORWU USERINFO call.
 #
 # XUS GET USER INFO is in the XUS SIGNON context; ORWU USERINFO and DDR GETS
@@ -33,16 +33,15 @@ class UserRoleLiveTest < LiveSpec::Test
     assert_equal Integer(timed_read), info[:dtime], "DTIME disagrees with #{persona}'s TIMED READ (200.1)"
   end
 
-  def test_signon_user_type_is_the_servers_usrcls
+  def test_user_type_is_the_servers_usrcls
     duz = client.duz
     usrcls = Integer(Array(client.call_rpc("ORWU USERINFO")).first.to_s.split("^")[2])
     expected = RpmsRpc::Authentication.user_type_for(usrcls)
     refute_nil expected, "ORWU USERINFO answered USRCLS #{usrcls} for #{persona}, which ORWU.m:19 never returns"
 
-    read = RpmsRpc::Authentication.signon_user_type(duz)
+    read = RpmsRpc::Authentication.user_type(duz)
 
-    assert_equal({ user_type: expected }, read,
-                 "ORWU USERINFO says USRCLS #{usrcls} for #{persona}; sign-on read #{read.inspect}")
-    puts "\n#{persona}: USRCLS #{usrcls} -> user_type #{read[:user_type]}"
+    assert_equal expected, read, "ORWU USERINFO says USRCLS #{usrcls} for #{persona}; user_type read #{read.inspect}"
+    puts "\n#{persona}: USRCLS #{usrcls} -> user_type #{read}"
   end
 end
