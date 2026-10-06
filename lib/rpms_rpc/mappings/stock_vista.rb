@@ -861,7 +861,7 @@ module RpmsRpc
     # These are the ADT/movement RPCs that actually exist in the #8994 registry.
     # There is NO stock movement-WRITE RPC (admit/transfer/discharge): the BPRM
     # twin's ADT-write scenario (#15) requires a new FileMan-safe (^DIE/DGPMV*)
-    # server RPC to be authored — tracked with rpms-ops#366. Parameter/response
+    # server RPC to be authored — tracked with rpms-ops#371. Parameter/response
     # shapes below are from ORWPT.m (Order Entry) entry points ADMITLST/INPLOC/
     # DISCHRG in FOIA-RPMS.
 
