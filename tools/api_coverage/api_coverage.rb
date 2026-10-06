@@ -3,6 +3,7 @@
 require "prism"
 require "json"
 require "yaml"
+require_relative "../../lib/rpms_rpc/conformance/build_surface"
 
 # API coverage (rpms-rpc#358, ADR 0010 assertion 2): which public methods of the API modules a live
 # spec proves. Generated from the code each run; there is no hand-maintained list.
@@ -16,7 +17,8 @@ require "yaml"
 #               or a String constant resolves to that string. Anything else is reported as unresolved,
 #               never guessed.
 #   registered  whether each RPC is a #8994 NAME on the pinned registry (data/rpc_coverage/config.yml),
-#               with its entry point TAG^ROUTINE
+#               with its entry point TAG^ROUTINE and its reach class on that build (#394), read through
+#               RpmsRpc::Conformance::BuildSurface
 #   live_specs  every `RpmsRpc::Module.method` call site under test/live/ (static)
 #   status      proven (a live spec calls it) or not_in_contract (none does)
 #
@@ -169,16 +171,6 @@ module ApiCoverage
       end
     end
     out
-  end
-
-  # #8994 0-node lines (NAME^TAG^ROUTINE^...) -> { name => "TAG^ROUTINE" }.
-  def load_registry(path)
-    File.readlines(path, chomp: true).each_with_object({}) do |l, out|
-      next if l.strip.empty? || l.start_with?("#")
-
-      name, tag, routine = l.split("^", 4)
-      out[name] = tag.to_s.empty? && routine.to_s.empty? ? nil : "#{tag}^#{routine}"
-    end
   end
 
   def rel(path, root) = path.delete_prefix("#{File.expand_path(root)}/")
@@ -344,19 +336,19 @@ module ApiCoverage
   # --- the report ----------------------------------------------------------------------------
 
   # The whole report for a source checkout at root, with lib/rpms_rpc loaded:
-  # { entries:, registry_tag: }. The registry is the pinned one in data/rpc_coverage/config.yml.
+  # { entries:, registry_tag: }. The build is the pinned release in data/rpc_coverage/config.yml.
   def build(root)
-    registry_path = File.expand_path(YAML.safe_load_file(File.join(root, "data/rpc_coverage/config.yml")).fetch("registry"), root)
-    registry = load_registry(registry_path)
-    raise "no #8994 names in #{registry_path}" if registry.empty?
+    cfg = YAML.safe_load_file(File.join(root, "data/rpc_coverage/config.yml"))
+    registry_path = File.expand_path(cfg.fetch("registry"), root)
+    surface = RpmsRpc::Conformance::BuildSurface.load(File.dirname(registry_path), cfg.fetch("release"))
+    raise "no #8994 names in #{registry_path}" if surface.names.empty?
 
     methods = public_methods_of(RpmsRpc, File.join(root, "lib/rpms_rpc/api"))
     raise "found no public API methods under lib/rpms_rpc/api (was it loaded?)" if methods.empty?
 
     resolver = Resolver.new(lib_dir: File.join(root, "lib"), mappings: mapping_rpcs)
     live = live_call_sites(Dir[File.join(root, "test/live/**/*.rb")], root: root)
-    { entries: entries(methods, resolver: resolver, live: live, registry: registry),
-      registry_tag: File.basename(registry_path, ".txt").delete_suffix("-broker_8994") }
+    { entries: entries(methods, resolver: resolver, live: live, surface: surface), registry_tag: surface.tag }
   end
 
   # { mapping name => RPC name } for every loaded DataMapper mapping.
@@ -365,8 +357,8 @@ module ApiCoverage
   end
 
   # One entry per public method. methods: [[module, name]]; live: live_call_sites output;
-  # registry: load_registry output.
-  def entries(methods, resolver:, live:, registry:)
+  # surface: the pinned build's RpmsRpc::Conformance::BuildSurface.
+  def entries(methods, resolver:, live:, surface:)
     methods.map do |mod, m|
       r = resolver.resolve(mod, m)
       specs = live.dig(mod.name, m) || []
@@ -375,7 +367,10 @@ module ApiCoverage
         method: m.to_s,
         arity: mod.method(m).arity,
         params: mod.method(m).parameters.map { |kind, name| { name: name.to_s, kind: kind.to_s } },
-        rpcs: r[:rpcs].map { |x| { name: x[:name], registered: registry.key?(x[:name]), entry_point: registry[x[:name]], via: x[:via] } },
+        rpcs: r[:rpcs].map do |x|
+          rpc = surface[x[:name]]
+          { name: x[:name], registered: !rpc.nil?, entry_point: rpc&.entry_point, reach: rpc&.reach, via: x[:via] }
+        end,
         unresolved: r[:unresolved],
         live_specs: specs,
         personas: specs.empty? ? [] : PERSONAS,

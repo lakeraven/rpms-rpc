@@ -14,9 +14,9 @@
 # One broker connection at a time; a dropped or desynced session is closed and signed on again.
 # The access and verify codes are read from the environment and never written anywhere.
 #
-# Env: BACKEND (evidence label), BROKER_HOST, BROKER_PORT, RPMS_ACCESS, RPMS_VERIFY,
+# Env: BACKEND (evidence label), PERSONA (least_privilege, the default, or programmer: #335), BROKER_HOST, BROKER_PORT, RPMS_ACCESS, RPMS_VERIFY,
 #      RPMS_CONTEXT (optional option to bind), CASE_TIMEOUT (default 45 s), DFN (optional),
-#      EVIDENCE (path of <rpms-diffs>/rpc-coverage/live/<BACKEND>.json to merge into)
+#      EVIDENCE (path of <rpms-diffs>/rpc-coverage/live/<BACKEND>.json, or <BACKEND>.programmer.json, to merge into)
 require "json"
 require "date"
 require "time"
@@ -29,8 +29,10 @@ require "rpms_rpc/cia_client"
 require "rpms_rpc/mappings"
 Dir[File.join(LIB, "rpms_rpc/api/*.rb")].each { |f| require f }
 require_relative "rpc_coverage"
+require_relative "wire_trace"
 
 BACKEND = ENV.fetch("BACKEND")
+PERSONA = RpcCoverage.persona(ENV["PERSONA"])
 HOST = ENV.fetch("BROKER_HOST", "127.0.0.1")
 PORT = Integer(ENV.fetch("BROKER_PORT"))
 ACCESS = ENV.fetch("RPMS_ACCESS")
@@ -42,36 +44,7 @@ CASE_TIMEOUT = Integer(ENV.fetch("CASE_TIMEOUT", "45"))
 # either way (CIANBACT), so only a non-programmer run measures context gating (#263).
 CONTEXT = ENV["RPMS_CONTEXT"].to_s.empty? ? nil : ENV["RPMS_CONTEXT"]
 
-# Record every wire call the API makes, with the reply's CIA flag.
-module WireTrace
-  def self.log = (@log ||= [])
-
-  def self.classify(raw)
-    rest = raw.to_s.b.byteslice(1..) || "".b
-    case rest.getbyte(0)
-    when 0x00 then [ :data, (rest.bytesize - 1) ]
-    when 0x01 then [ :error, rest.byteslice(1..).to_s.gsub(/[^\x20-\x7e]/, " ").strip[0, 160] ]
-    else [ :no_data, 0 ]
-    end
-  end
-
-  def call_rpc_raw(rpc_name, *params)
-    raw = super
-    kind, detail = WireTrace.classify(raw)
-    WireTrace.log << { rpc: rpc_name, reply: kind, detail: detail }
-    raw
-  rescue RpmsRpc::Client::ConnectionError, IOError, SystemCallError => e
-    WireTrace.log << { rpc: rpc_name, reply: :transport_error, detail: "#{e.class}: #{e.message}"[0, 160] }
-    raise
-  end
-
-  def call_rpc_global_array(rpc_name, *params)
-    raw = super
-    kind, detail = WireTrace.classify(raw)
-    WireTrace.log << { rpc: rpc_name, reply: kind, detail: detail }
-    raw
-  end
-end
+WireTrace = RpcCoverage::WireTrace
 RpmsRpc::CiaClient.prepend(WireTrace)
 
 # Back-to-back connections through an SSM tunnel are flaky (the broker side closes the
@@ -141,6 +114,19 @@ def first_ien(list, *keys)
 end
 
 client = sign_on
+# The persona is a claim about the user the codes sign on as; check it before anything is recorded.
+# ORWU HASKEY is read as reply LINES: call_rpc's printable() keeps the sequence echo, so
+# Authentication.has_security_key? reads "5 1" as not-held over CIA.
+progmode = begin
+  RpcCoverage.holds_progmode?(client.call_rpc_lines("ORWU HASKEY", "XUPROGMODE"))
+rescue RpmsRpc::Client::ConnectionError, IOError, SystemCallError
+  client = sign_on
+  false
+end
+if (problem = RpcCoverage.persona_problem(PERSONA, holds_progmode: progmode))
+  abort("!! #{problem}; no evidence written")
+end
+WireTrace.log.clear
 duz = client.duz.to_s
 ctx = { duz: duz }
 results = []
@@ -192,6 +178,7 @@ run = lambda do |name, &blk|
   value
 end
 
+puts "persona: #{PERSONA} (XUPROGMODE #{progmode ? 'held' : 'not held'})"
 puts "context: #{CONTEXT || "#{RpmsRpc::CiaClient::SIGNON_CONTEXT} (sign-on)"}"
 puts "signed on: DUZ=#{duz} user=#{client.respond_to?(:signon_user) ? client.signon_user : '?'}"
 
@@ -303,13 +290,13 @@ rescue SystemCallError
   ""
 end
 run_meta = {
-  "at" => now, "rpms_rpc" => "#{RpmsRpc::VERSION}#{rev.empty? ? '' : " @ #{rev}"}", "host_label" => BACKEND,
+  "at" => now, "rpms_rpc" => "#{RpmsRpc::VERSION}#{rev.empty? ? '' : " @ #{rev}"}", "host_label" => BACKEND, "persona" => PERSONA,
   "context" => CONTEXT || "#{RpmsRpc::CiaClient::SIGNON_CONTEXT} (sign-on)", "cases" => results.size,
   "tally" => tally, "signons" => $signons
 }
 evidence = RpcCoverage.load_evidence(EVIDENCE, BACKEND)
 evidence = RpcCoverage.merge_run(evidence, run_meta, outcomes)
-problems = RpcCoverage.evidence_problems(evidence, secrets: [ ACCESS, VERIFY ])
+problems = RpcCoverage.evidence_problems(evidence, secrets: [ ACCESS, VERIFY ], persona: PERSONA)
 abort("!! refusing to write evidence: #{problems.join('; ')}") unless problems.empty?
 File.write(EVIDENCE, JSON.pretty_generate(evidence) + "\n")
 

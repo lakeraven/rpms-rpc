@@ -26,7 +26,7 @@ testable because the container is thrown away.
 
 1. **Inventory.** Every RPC the build registers is accounted for: callable,
    or excluded with a reason (the pinned build signature, #330 and
-   rpms-ops#713; the exclusions, #323).
+   rpms-ops#713; the exclusions, #323, generated from the pinned reach face, #394).
 2. **Contract.** A generated live sweep makes one safe read call per callable
    RPC from its `#8994` input parameters and RETURN VALUE TYPE, and records the
    reply's shape per build and persona (#348). Its output is the build's

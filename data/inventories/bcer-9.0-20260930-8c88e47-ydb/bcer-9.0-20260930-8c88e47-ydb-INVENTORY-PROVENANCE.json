@@ -8,16 +8,63 @@
   "artifact_bound": true,
   "transport": "local",
   "instance_id": "",
-  "container": "rpms-ydb",
+  "container": "inv731-ead62b",
   "namespace": "RPMS",
-  "captured_at": "2026-10-03T17:42:40Z",
-  "tool_git_sha": "5ff18803e3273b2fd7f89b686d640699962ac197",
+  "captured_at": "2026-10-05T00:07:41Z",
+  "tool_git_sha": "e5b0641e685685e2a42be8a4e0a0a4fe90c45914",
   "dumps": {
-    "packages": { "sha256": "811dd227728b569d0e4d899f5651875ae6caf45b357cd6d71fadfe63fa02eaa9", "records": 287 },
-    "builds": { "sha256": "41497e629a21c3843aa03ed1fb53c95b1aa34427d9ce72db331def64be4952c7", "records": 5669 },
-    "rpcs": { "sha256": "0948d9d979464feb139348985b56110be38f92d84b0e74c82d2665ba36f4611b", "records": 5557 },
-    "build_rpcs": { "sha256": "2e2ed79a0fb9a41780ae148f045c7eecedf6e7d0cb15b4d04ded6c432f9a8c09", "records": 43377 },
-    "installs": { "sha256": "ced03a792252ed65a11324c17e43e085174fe0ef4c7ad546d3ddea2519743225", "records": 6817 },
-    "package_files": { "sha256": "88d2682767f9d27cf6652ce14ca7b4eb9c59dcadaed14ec6a9e859196ec7981c", "records": 1354 }
+    "packages": {
+      "sha256": "811dd227728b569d0e4d899f5651875ae6caf45b357cd6d71fadfe63fa02eaa9",
+      "records": 287
+    },
+    "builds": {
+      "sha256": "41497e629a21c3843aa03ed1fb53c95b1aa34427d9ce72db331def64be4952c7",
+      "records": 5669
+    },
+    "rpcs": {
+      "sha256": "0948d9d979464feb139348985b56110be38f92d84b0e74c82d2665ba36f4611b",
+      "records": 5557
+    },
+    "build_rpcs": {
+      "sha256": "2e2ed79a0fb9a41780ae148f045c7eecedf6e7d0cb15b4d04ded6c432f9a8c09",
+      "records": 43377
+    },
+    "installs": {
+      "sha256": "ced03a792252ed65a11324c17e43e085174fe0ef4c7ad546d3ddea2519743225",
+      "records": 6817
+    },
+    "package_files": {
+      "sha256": "88d2682767f9d27cf6652ce14ca7b4eb9c59dcadaed14ec6a9e859196ec7981c",
+      "records": 1354
+    }
+  },
+  "rpms_ops_commit": "8c88e47e5b1bcc6af410fc0c7904e4f148fddfcd",
+  "rpms_version": "bcer-9.0",
+  "build_provenance": {
+    "source": "bcer-9.0-20260930-8c88e47-ydb-PROVENANCE.json",
+    "sha256": "d2a413229ae304359617daee3cde70800cb44312471758eda443c07c3527cb8c"
+  },
+  "rpc_reach": {
+    "sha256": "4642ea0d611289b34aae101b5837513f74dca18c9fa822a26c95c4b3a02c7861",
+    "records": 5557,
+    "classes": {
+      "broker-exempt": 21,
+      "client-callable": 4939,
+      "no-context": 226,
+      "no-entry-point": 88,
+      "no-routine": 203,
+      "out-of-order": 80
+    }
+  },
+  "rpc_signatures": {
+    "sha256": "dbde82334b76cb10d02f3aaa9e42dbb60cd8aca2eac035c1a61281c0f5b2d368",
+    "rpcs": 5557,
+    "parameters": 2287,
+    "description_lines": 4097
+  },
+  "image": {
+    "repository": "ghcr.io/lakeraven/rpms-ydb",
+    "digest": "sha256:ead62b4214fea2f3b269a1c4c781e8999f2e04a92b45d2fdd2e3d5c974aca464",
+    "ref": "ghcr.io/lakeraven/rpms-ydb@sha256:ead62b4214fea2f3b269a1c4c781e8999f2e04a92b45d2fdd2e3d5c974aca464"
   }
 }

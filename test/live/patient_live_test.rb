@@ -53,6 +53,32 @@ class PatientLiveTest < LiveSpec::Test
     assert_equal [], RpmsRpc::Patient.search("ZZZZZ")
   end
 
+  # LISTALL^ORWPT answers the names AFTER its from-text, so the exact name
+  # sent as-is was the one name the page left out (#352). search starts the
+  # page just before the text, and the patient heads it.
+  def test_search_by_the_exact_name_finds_that_patient
+    rows = RpmsRpc::Patient.search(MICKEY[:name])
+
+    refute_empty rows, "the page from #{MICKEY[:name]} on is empty"
+    assert_equal MICKEY.slice(:dfn, :name), rows.first
+  end
+
+  # Every row on the wire is DFN^NAME^^^^NAME: the RPC sends no sex and no
+  # date of birth, which is why :patient_list maps neither (#352). A build
+  # that fills piece 3 or 4 fails here and says so.
+  def test_list_all_rows_carry_a_dfn_and_a_name_and_no_sex_or_dob
+    lines = client.call_rpc_lines("ORWPT LIST ALL", "DEMO", "1")
+
+    refute_empty lines, "ORWPT LIST ALL listed nobody from DEMO on"
+    lines.each do |line|
+      dfn, name, sex, dob = line.split("^", -1)
+      assert_match(/\A\d+\z/, dfn, line)
+      refute_empty name.to_s, line
+      assert_equal [ "", "" ], [ sex.to_s, dob.to_s ], "this build sends piece 3 or 4: map it in :patient_list (#{line})"
+    end
+    assert_equal %i[dfn name], RpmsRpc::Patient.search("DEMO").flat_map(&:keys).uniq
+  end
+
   # -- find (ORWPT SELECT merged with ORWPT ID INFO) --------------------------
 
   def test_find_returns_the_patients_demographics
@@ -117,6 +143,17 @@ class PatientLiveTest < LiveSpec::Test
 
     refute_nil found, "ORWPT FULLSSN found nobody for MOUSE,MICKEY M's SSN"
     assert_equal MICKEY.slice(:dfn, :name, :dob, :ssn), found
+  end
+
+  # ORWPT FULLSSN finds nobody for "000-00-9999" sent as given (#352):
+  # find_by_ssn strips the punctuation, so the dashed form finds the patient.
+  def test_find_by_ssn_finds_the_patient_for_a_dashed_ssn
+    dashed = MICKEY[:ssn].sub(/\A(\d{3})(\d{2})(\d{4})\z/, '\1-\2-\3')
+    assert_equal "000-00-9999", dashed
+
+    sent_as_given = Array(client.call_rpc_lines("ORWPT FULLSSN", dashed)).reject(&:empty?)
+    assert_empty sent_as_given, "this build matches a dashed SSN itself"
+    assert_equal MICKEY.slice(:dfn, :name, :dob, :ssn), RpmsRpc::Patient.find_by_ssn(dashed)
   end
 
   # Every seed patient's SSN, read off ORWPT SELECT, finds that patient.
