@@ -12,7 +12,7 @@ module RpmsRpc
   # point. The BPRM twin's ADT-write scenario (lakeraven-ehr#412 scenario #15)
   # therefore requires a NEW FileMan-safe (^DIE / DGPMV*) server-side RPC to be
   # authored and re-exported before those writes can be wrapped here — tracked
-  # with rpms-ops#366. Until then this module exposes only the movement reads
+  # with rpms-ops#371. Until then this module exposes only the movement reads
   # that ORWPT already provides.
   module Adt
     extend self

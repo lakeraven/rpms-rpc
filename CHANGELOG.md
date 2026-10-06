@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `Patient.search`, `find_by_ssn` and `:patient_list` match what ORWPT answers (#352)
+
+- `Patient.find_by_ssn` strips punctuation before ORWPT FULLSSN, which matches the SSN index
+  exactly: `"000-00-9999"` now finds the patient `"000009999"` finds.
+- `Patient.search` starts its ORWPT LIST ALL page just before the text, so a search by the exact
+  name lists that patient first. It is documented as one page (44 rows at most) of the name
+  index from the text on, not a filter.
+- **Breaking:** `:patient_list` no longer maps `:sex` and `:dob`. ORWPT LIST ALL rows are
+  `DFN^NAME^^^^NAME`; both were always nil against a server.
+
 ### Added — the conformance gate requires every RPC the gem sends to be callable on the pinned build (#394)
 
 - `rake conformance:pin` now pins the release's reach face (`<tag>-rpc_reach.txt`) and RPC
