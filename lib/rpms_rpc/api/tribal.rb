@@ -8,7 +8,7 @@ module RpmsRpc
   # on the generic FileMan RPCs (DDR GETS ENTRY DATA / DDR LISTER /
   # DDR VALIDATOR via RpmsRpc::DdrFileman) over the real files — the
   # invented placeholder wire names that used to back this module are
-  # removed (docs/RPC_COVERAGE.md provenance notes).
+  # removed (docs/rpcs.md, BHDPTRPC provenance notes).
   #
   # Files and fields (file numbers verified against the FOIA data
   # dictionary; #9000001 field numbers against the live DD cited in

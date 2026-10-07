@@ -7,7 +7,7 @@ require_relative "agg"
 module RpmsRpc
   # Patient registration with two lineages, selected per broker at call time
   # (both replace a removed placeholder wire name that never had a server
-  # implementation anywhere — docs/RPC_COVERAGE.md provenance notes):
+  # implementation anywhere — docs/rpcs.md, BHDPTRPC provenance notes):
   #
   #   * DELEGATION (RPMS with the AG package) — when Agg.available?, register
   #     by calling AGG ADD NEW PATIENT / AGG UPDATE PATIENT (RpmsRpc::Agg).
@@ -26,7 +26,7 @@ module RpmsRpc
   #     record, then the DDR FileMan family completes the IHS half (#9000001,
   #     the HRN 41-multiple, tribe / community / classification / eligibility).
   #     This replaces the retired "BHDPTRPC REGISTER" placeholder wire name,
-  #     which never had a server implementation anywhere (docs/RPC_COVERAGE.md,
+  #     which never had a server implementation anywhere (docs/rpcs.md,
   #     "BHDPTRPC provenance").
   #
   # ## What each path stores for community (rpms-rpc#300)
@@ -276,7 +276,7 @@ module RpmsRpc
     end
 
     # Patient update — the composed edit path, replacing the removed
-    # placeholder update wire name (docs/RPC_COVERAGE.md provenance
+    # placeholder update wire name (docs/rpcs.md, BHDPTRPC provenance
     # notes). The VA edit routine (EDIT^VAFCPTED — classic ^DIE filing
     # under L +^DPT(DFN):60, returns no output; contract in rpms-ops
     # docs/REGISTRATION_RPC_CONTRACTS.md §1) has NO ^XWB(8994)

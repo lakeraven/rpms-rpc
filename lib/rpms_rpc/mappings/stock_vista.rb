@@ -38,7 +38,7 @@ module RpmsRpc
     # city, state, zip, phone, tribal enrollment, service area, or
     # coverage — those fields were hallucinated in the prior mapping and
     # have NO known RPC source (an earlier attribution to an invented RPC
-    # family was removed — docs/RPC_COVERAGE.md provenance notes). IHS
+    # family was removed — docs/rpcs.md, BHDPTRPC provenance notes). IHS
     # demographic/tribal detail lives in file #9000001 (^AUPNPAT), read
     # via DDR GETS ENTRY DATA (RpmsRpc::Tribal / RpmsRpc::DdrFileman).
     DataMapper.define(:patient_id_info) do |m|

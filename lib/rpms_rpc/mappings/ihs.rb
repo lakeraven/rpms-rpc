@@ -76,7 +76,7 @@ module RpmsRpc
     end
 
     # The invented placeholder RPC family that used to sit here is fully
-    # removed (docs/RPC_COVERAGE.md provenance notes). The paths it claimed
+    # removed (docs/rpcs.md, BHDPTRPC provenance notes). The paths it claimed
     # to cover run on verified RPCs instead:
     #   - tribal / service-unit reads → DDR GETS ENTRY DATA, DDR LISTER,
     #     DDR VALIDATOR over the real files (#9000001 IHS PATIENT, TRIBE

@@ -78,7 +78,7 @@ module RpmsRpc
     end
 
     # Get-or-create a visit — the visit-create path, replacing the removed
-    # placeholder visit-create wire name (docs/RPC_COVERAGE.md provenance
+    # placeholder visit-create wire name (docs/rpcs.md, BHDPTRPC provenance
     # notes). Runs the registered BEHOENCX FETCH with its CREATE flag
     # (FETCH^BEHOENCX; params/reply on :encounter_fetch). Creation
     # descends to GETVISIT^BSDAPI4, the IHS PCC visit-creation API —

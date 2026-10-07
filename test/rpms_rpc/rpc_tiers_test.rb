@@ -35,8 +35,7 @@ class RpmsRpc::RpcTiersTest < Minitest::Test
         .to_set
   end
 
-  # Same source-scan the coverage matrix uses (bin/build_coverage_matrix:34),
-  # so the gate and the reported numbers can never disagree.
+  # Every RPC name a mapping declares, scanned from the mapping sources.
   def wrapped_rpcs
     Dir.glob(File.join(ROOT, "lib/{rpms_rpc,vista_rpc}/mappings{.rb,/*.rb}"))
        .flat_map { |f| File.read(f).scan(/\.rpc\s+["']([^"']+)["']/).flatten }
