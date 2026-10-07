@@ -7,8 +7,9 @@ require "fileutils"
 # SimpleCov renders files made of lines, each hit, missed or never relevant. Here:
 #   file  one #9.4 PACKAGE: the RPCs whose NAME begins with that package's namespace PREFIX
 #         (longest prefix wins). A name no prefix claims is grouped by its own namespace and
-#         labelled "not a #9.4 package" (AKFR, BMQ, the PCMM SC* RPCs, GMV, DDR on the 0913
-#         registry): registered RPCs from namespaces the release has no PACKAGE entry for.
+#         labelled "not a #9.4 package" (on the pinned 0930 registry: AKFR, BMQ, the PCMM SC*
+#         RPCs, GMV, DDR, VAFC and a dozen more): registered RPCs from namespaces the release has
+#         no PACKAGE entry for.
 #   line  one registered RPC, its text "NAME  status  detail" from the rpc:coverage row
 #   hit       covered            a live run against the backend got an answer (not a broker error)
 #   missed    live_error, declared_untested, not_declared

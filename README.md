@@ -283,7 +283,7 @@ It maps RPC coverage onto SimpleCov's terms:
 
 So each package's percentage uses the headline's arithmetic, and SimpleCov's total is the headline number.
 A registered RPC whose namespace has no #9.4 package is grouped under that namespace and labelled "not a #9.4 package".
-On the 0913 registry that covers AKFR, BMQ, the PCMM `SC*` RPCs, GMV and DDR.
+On the pinned 0930 registry that is 18 namespaces: AKFR, BEHW, BMQ, BMQG, CIAB, CIAZ, DBTS, DDR, FSC, GMV, the PCMM `SC*` RPCs, VAFC, XDR and XQAL.
 
 ## API coverage: public methods proven by a live spec
 
