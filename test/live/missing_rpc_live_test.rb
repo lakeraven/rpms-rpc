@@ -3,6 +3,7 @@
 require_relative "live_helper"
 require "rpms_rpc/api/patient"
 require "rpms_rpc/api/problem"
+require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/referral"
 require "rpms_rpc/api/scheduling"
 
@@ -60,19 +61,18 @@ class MissingRpcLiveTest < LiveSpec::Test
 
   # Served, but the routine fails with an M error on the pinned build (#364),
   # for both personas, under the option the method binds:
-  #   Problem.edit_load            GETFLDS+20^GMPLEDT3, undefined GMPVAMC
   #   Referral.purposes            SUBLST+5, QUIT does not return to an extrinsic
   #   Referral.reference_data      S4+12^DICL2, command expected
   #   Referral.providers           PROV^ORQPTQ2, more actual than formal parameters
   #   Referral.search_referred_to  SRRFRDTO+3^BMCRPC1, QUIT does not return to an extrinsic
   #   Referral.rcis_templates      GTTMPLST+9^BMCRPC3, QUIT does not return to an extrinsic
   KNOWN_BINDING_BUGS = %w[
-    Problem.edit_load
     Referral.purposes Referral.reference_data Referral.providers
     Referral.search_referred_to Referral.rcis_templates
   ].freeze
 
-  # method => [kind, RPCs it sends, the call]
+  # method => [kind, RPCs it sends, the call]. The call runs on the test
+  # instance (instance_exec), so it may use `client` and the helpers below.
   FORMERLY_GUARDED = {
     "Patient.brief_header" => [ :read, [ "BEHOPTCX PTINFO", "BEHOPTPC GETBDP", "BEHOCACV CWAD" ], -> { RpmsRpc::Patient.brief_header(DFN) } ],
     "Problem.lex_search" => [ :read, [ "ORQQPL PROBLEM LEX SEARCH" ], -> { RpmsRpc::Problem.lex_search("diabetes") } ],
@@ -82,7 +82,7 @@ class MissingRpcLiveTest < LiveSpec::Test
     "Problem.comments" => [ :read, [ "ORQQPL PROB COMMENTS" ], -> { RpmsRpc::Problem.comments(PROBLEM_IEN) } ],
     "Problem.init_patient" => [ :read, [ "ORQQPL INIT PT" ], -> { RpmsRpc::Problem.init_patient(DFN) } ],
     "Problem.provider_list" => [ :read, [ "ORQQPL PROVIDER LIST" ], -> { RpmsRpc::Problem.provider_list(DFN) } ],
-    "Problem.edit_load" => [ :read, [ "ORQQPL EDIT LOAD" ], -> { RpmsRpc::Problem.edit_load(PROBLEM_IEN) } ],
+    "Problem.edit_load" => [ :read, [ "ORQQPL EDIT LOAD" ], -> { RpmsRpc::Problem.edit_load(PROBLEM_IEN, provider_duz: client.duz, institution_ien: institution_ien) } ],
     "Problem.inactivate" => [ :write, [ "ORQQPL INACTIVATE" ], -> { RpmsRpc::Problem.inactivate(PROBLEM_IEN) } ],
     "Problem.verify" => [ :write, [ "ORQQPL VERIFY" ], -> { RpmsRpc::Problem.verify(PROBLEM_IEN) } ],
     "Referral.purposes" => [ :read, [ "BMC GET PURPOSE OF REF API" ], -> { RpmsRpc::Referral.purposes } ],
@@ -156,12 +156,12 @@ class MissingRpcLiveTest < LiveSpec::Test
       denied = rpcs.reject { |rpc| canrun?(rpc, context) }
 
       if denied.any?
-        err = assert_raises(Refused, "#{name} as #{persona}: #{denied.join(', ')} refused in #{context}, so it must raise") { call.call }
+        err = assert_raises(Refused, "#{name} as #{persona}: #{denied.join(', ')} refused in #{context}, so it must raise") { instance_exec(&call) }
         assert_match(/Access denied for remote procedure/, err.message)
       elsif kind == :write
         pass # CANRUN says this persona may run every RPC it sends; not called, so nothing is filed.
       else
-        assert_served(name, &call)
+        assert_served(name) { instance_exec(&call) }
       end
     end
   end
@@ -185,6 +185,18 @@ class MissingRpcLiveTest < LiveSpec::Test
   def bound_context(name)
     mod = RpmsRpc.const_get(name.split(".").first, false)
     mod.const_defined?(:CONTEXT, false) ? mod::CONTEXT : SIGNON_CONTEXT
+  end
+
+  # The facility EDLOAD^ORQQPL1 wants as GMPVAMC: the INSTITUTION (#4) the
+  # build's first MEDICAL CENTER DIVISION (#40.8) points at (field .07), as
+  # organization_find_live_test.rb reads it. DDR LISTER is in the sign-on
+  # option.
+  def institution_ien
+    divisions = RpmsRpc::DdrFileman.lister(file: 40.8, fields: "@;.07I", max: 5)
+    flunk "DDR LISTER on #40.8 answered nothing or with errors: #{divisions.inspect}" if divisions.nil? || divisions[:error]
+    ien = divisions[:entries].map { |e| e[:pieces][0] }.find { |v| v.to_s.match?(/\A\d+\z/) }
+    flunk "no MEDICAL CENTER DIVISION (#40.8) points at an institution (field .07)" if ien.nil?
+    ien
   end
 
   def assert_served(name)
