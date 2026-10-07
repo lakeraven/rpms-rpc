@@ -140,9 +140,14 @@ namespace :conformance do
     target_path = ENV["TARGET"] or abort "conformance:probe requires TARGET=<fingerprint.yml>"
     target = RpmsRpc::Conformance::FixtureReader.new(target_path).fingerprint
 
-    references = Dir.glob(File.join(FINGERPRINTS_DIR, "references", "*.yml")).sort.map do |path|
+    references_dir = File.join(FINGERPRINTS_DIR, "references")
+    references = RpmsRpc::Conformance::FixtureReader.reference_paths(references_dir).map do |path|
       RpmsRpc::Conformance::FixtureReader.new(path).fingerprint
     end
+    placeholders = Dir.glob(File.join(references_dir, "*.yml")).sort.select do |path|
+      RpmsRpc::Conformance::FixtureReader.placeholder?(path)
+    end
+    puts "Not ranked (hand-authored placeholders): #{placeholders.map { |p| File.basename(p) }.join(", ")}" unless placeholders.empty?
 
     puts "Target: #{target_path} (#{target.rpc_names.size} RPCs, backend #{target.backend})"
 

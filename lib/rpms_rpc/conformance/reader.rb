@@ -18,6 +18,22 @@ module RpmsRpc
     # Loads a committed YAML fingerprint (data/fingerprints/*.yml).
     # Build-free: CI and tests probe without any live instance.
     class FixtureReader < Reader
+      # A reference file whose first line says so is a hand-authored seed, not
+      # a capture of a built release (docs/conformance/CAPTURE.md): it names
+      # real RPCs, but nothing was ever pinned from it.
+      PLACEHOLDER_MARK = "PLACEHOLDER"
+
+      def self.placeholder?(path)
+        File.open(path) { |f| f.gets.to_s.include?(PLACEHOLDER_MARK) }
+      end
+
+      # The reference fingerprints a probe ranks against: every *.yml in `dir`,
+      # sorted, minus the placeholders. A placeholder would otherwise rank as
+      # a rung, and a target can be "classified as" a release nobody captured.
+      def self.reference_paths(dir)
+        Dir.glob(File.join(dir, "*.yml")).sort.reject { |path| placeholder?(path) }
+      end
+
       def initialize(path)
         super()
         @path = path
