@@ -278,6 +278,12 @@ module RpmsRpc
     end
 
     def auth_success(duz, message, verify_needs_change, post_signon_message_count)
+      # The broker session is now this user's, so the client is signed on: a host
+      # that signs on here binds its context next (create_context refuses a client
+      # that is not). The mock client has no such gate and no hook.
+      client = RpmsRpc.client
+      client.set_authenticated(duz.to_s) if client.respond_to?(:set_authenticated)
+
       result = {
         success: true,
         duz: duz,

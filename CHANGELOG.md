@@ -152,6 +152,9 @@ provider/nurse/clerk checks saw them all false.
   `user_type` from the sign-on result calls `user_type` after binding its
   context. `Authentication::USER_TYPES` is re-keyed to USRCLS;
   `Authentication.user_type_for(usrcls)` is new.
+- Fixed: `Authentication.authenticate` now marks the client signed on (`Client#set_authenticated`)
+  when the broker accepts the pair. It did not, so a host that signed on through it could not bind
+  the context `user_type` needs: `create_context` raised "Not authenticated".
 - Added: `:post_signon_message_count`, XUS AV CODE line 5, on the success
   result. `:av_code` seeds take `post_signon_message_count:`.
 - `MockClient#seed_user(role:)` seeds the role as ORWU USERINFO's USRCLS.

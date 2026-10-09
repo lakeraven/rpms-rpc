@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "rpms_rpc/mock_client"
+require "rpms_rpc/xwb_client"
 require "rpms_rpc/api/authentication"
 
 class AuthenticationTest < Minitest::Test
@@ -41,6 +42,30 @@ class AuthenticationTest < Minitest::Test
 
     assert_equal [ "XUS SIGNON SETUP", "XUS AV CODE", "XUS GET USER INFO" ],
       RpmsRpc.client.received_calls.map { |c| c[:rpc] }
+  end
+
+  # A host that signs on through this API binds its context next (ORWU USERINFO,
+  # for #user_type, needs one), so the client must come out of it signed on.
+  def test_a_sign_on_here_lets_the_client_bind_a_context
+    replies = {
+      "XUS SIGNON SETUP" => [ "OK" ],
+      "XUS AV CODE" => [ "301", "0", "0", "", "", "0" ],
+      "XUS GET USER INFO" => [ "301", "PROVIDER,TEST" ]
+    }
+    client = RpmsRpc::XwbClient.new
+    client.instance_variable_set(:@connected, true)
+    client.instance_variable_set(:@socket, Object.new.tap { |o| o.define_singleton_method(:closed?) { false } })
+    client.define_singleton_method(:call_rpc_lines) { |rpc, *| replies.fetch(rpc) }
+    client.define_singleton_method(:call_rpc) { |rpc, *| replies.fetch(rpc).join("\r\n") }
+    client.define_singleton_method(:call_rpc_raw) { |rpc, *| rpc == "XWB CREATE CONTEXT" ? "1" : flunk("unexpected #{rpc}") }
+    RpmsRpc.configure { |c| c.client = client }
+    refute client.authenticated?
+
+    assert RpmsRpc::Authentication.authenticate(access_code: "ACCESS123", verify_code: "VERIFY123")[:success]
+
+    assert client.authenticated?
+    assert_equal "301", client.duz
+    assert client.create_context("OR CPRS GUI CHART")
   end
 
   # The user's class is a separate read, ORWU USERINFO's USRCLS, in the vocabulary
