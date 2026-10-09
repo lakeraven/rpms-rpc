@@ -49,6 +49,32 @@ client.
 None. The gem refuses to merge an RPC call that has not been verified
 against M source per ADR 0002.
 
+### BHDPTRPC provenance (historical — family fully removed)
+
+> The BHDPTRPC family (and its "8 RPCs" count) had **no traceable source**: it was
+> introduced without citation in commit 7108ec5 — the same authoring pass whose
+> ORWPT ID INFO field layout was proven hallucinated and fixed in 3f76849, which then
+> relocated the disproven demographic fields to "BHDPTRPC (not installed on staging)".
+> The family appears nowhere in the 65,782-routine FOIA corpus, the staging fingerprint
+> (`data/fingerprints/staging-2026-06-07.yml`), or IHS public RPC documentation
+> (issue #184). Every wire name in the family is now **removed** and replaced by
+> verified paths:
+>
+> - registration → `VAFC VOA ADD PATIENT` + the DDR FileMan family
+>   (`RpmsRpc::Registration.register`; contracts cited routine-by-routine in
+>   rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`)
+> - patient update → `DDR FILER` / `FILE^DIE` under the `^DPT(DFN)` lock
+>   (`RpmsRpc::Registration.update`; `EDIT^VAFCPTED` has no `^XWB(8994)`
+>   registration on any observed target)
+> - tribal / service-unit reads → `DDR GETS ENTRY DATA` / `DDR LISTER` /
+>   `DDR VALIDATOR` over #9000001, TRIBE #9999999.03, SERVICE UNIT #9999999.22
+>   (`RpmsRpc::Tribal`)
+> - visit create → `BEHOENCX FETCH` with its CREATE flag
+>   (`RpmsRpc::Encounter.create`; `GETVISIT^BEHOENCX` is a pure fetch)
+>
+> Replacement response layouts derive from M source and the live DD; rows without
+> live captures are marked pending-capture at their mappings.
+
 ## See also
 
 - [ADR 0001 — Scope and no Rails coupling](adr/0001-scope-and-no-rails-coupling.md)

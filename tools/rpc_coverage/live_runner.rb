@@ -6,10 +6,11 @@
 # READ-ONLY by construction: the catalogue below names only methods that list, find or
 # summarize. Nothing that files, locks, signs, sends or registers is called.
 #
-# Verdicts come from the WIRE, not from the API's return value. CiaClient#call_rpc flattens a
-# broker error reply ($C(1)+text) to printable text instead of raising (#195), so an API method
-# can return a non-nil "result" that is really an error. Each raw reply is classified by its
-# CIA flag byte: \x00 -> data, \x01 -> broker error, no flag -> no data (SNDEOD).
+# Verdicts come from the WIRE, not from the API's return value: an API method may rescue or
+# reshape what the client raised, so its return value alone cannot say what the broker answered.
+# (CiaClient#call_rpc once flattened a broker error reply to text, #195; parse_cia_reply now
+# raises on the \x01 flag.) Each raw reply is classified by its CIA flag byte:
+# \x00 -> data, \x01 -> broker error, no flag -> no data (SNDEOD).
 #
 # One broker connection at a time; a dropped or desynced session is closed and signed on again.
 # The access and verify codes are read from the environment and never written anywhere.

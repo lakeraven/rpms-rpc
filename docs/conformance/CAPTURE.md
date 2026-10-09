@@ -103,7 +103,9 @@ To move `rake rpc:coverage` to the new build, point `release`, `registry` and
 A rejected inventory is not fixed here. A gap is data: fix the build, re-cut, re-pin.
 
 The pre-2026-09 seed placeholders (`references/bcer-5.0.yml`, `bcer-8.0.yml`) are not
-pinned and not checked. They are replaced as their rungs get an inventory published.
+pinned and not checked, and `conformance:probe` does not rank against them: a file whose
+first line says `PLACEHOLDER` is listed as "Not ranked". They are replaced as their rungs
+get an inventory published.
 
 Then, as before:
 

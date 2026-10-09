@@ -25,6 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   direct ORWU USERINFO read in the same session. A non-programmer's XWB session cannot run
   ORWU USERINFO at that point, so its `user_type` is the fail-closed error until #393.
 
+### Removed — the allowlist-based coverage matrix, superseded by `rake rpc:coverage` (#270)
+
+- `rake coverage:matrix`, `bin/build_coverage_matrix`, `bin/probe_broker`, `data/pillar_allowlists/`,
+  `data/namespace_to_pillar.yml`, `data/broker_dumps/`, `docs/RPC_COVERAGE.md` and
+  `docs/EHR_WORKFLOW_COVERAGE.md`. The headline number is measured against the pinned registry
+  and live evidence; the pillar allowlists were hand-kept and no task or test read them.
+  The BHDPTRPC provenance note that `RPC_COVERAGE.md` carried now lives in `docs/rpcs.md`.
+  `data/rpc_tiers/` (ADR 0004) and `data/rpc_coverage/` stay.
+
+### Changed — `conformance:probe` ranks only captured references
+
+- A reference whose first line says `PLACEHOLDER` (the hand-authored seeds `bcer-5.0.yml` and
+  `bcer-8.0.yml`) is listed as "Not ranked" instead of competing with the pinned build for
+  `Classified as`. `FixtureReader.reference_paths(dir)` and `.placeholder?(path)` are the rule.
+
 ### Added — one base class for every error the gem raises (#357)
 
 - `RpmsRpc::Error < StandardError` is the base of every exception class in `lib/`: a host

@@ -24,7 +24,7 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ">= 3.4.0"
 
   spec.files = Dir.chdir(File.expand_path(__dir__)) do
-    Dir["bin/*", "data/pillar_allowlists/*", "data/namespace_to_pillar.yml", "{lib,docs}/**/*", "MIT-LICENSE", "Rakefile", "README.md"]
+    Dir["bin/*", "{lib,docs}/**/*", "MIT-LICENSE", "Rakefile", "README.md"]
   end
   # rexml and bigdecimal are bundled gems (not default gems) since Ruby 3.4,
   # so Bundler only puts them on the load path when declared. Otherwise

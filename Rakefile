@@ -40,11 +40,4 @@ end
 
 Dir.glob(File.expand_path("lib/tasks/*.rake", __dir__)).each { |r| load r }
 
-namespace :coverage do
-  desc "Regenerate docs/RPC_COVERAGE.md"
-  task :matrix do
-    ruby "bin/build_coverage_matrix"
-  end
-end
-
 task default: :test

@@ -283,7 +283,7 @@ It maps RPC coverage onto SimpleCov's terms:
 
 So each package's percentage uses the headline's arithmetic, and SimpleCov's total is the headline number.
 A registered RPC whose namespace has no #9.4 package is grouped under that namespace and labelled "not a #9.4 package".
-On the 0913 registry that covers AKFR, BMQ, the PCMM `SC*` RPCs, GMV and DDR.
+On the pinned 0930 registry that is 18 namespaces: AKFR, BEHW, BMQ, BMQG, CIAB, CIAZ, DBTS, DDR, FSC, GMV, the PCMM `SC*` RPCs, VAFC, XDR and XQAL.
 
 ## API coverage: public methods proven by a live spec
 
@@ -350,31 +350,7 @@ The JSON (default `coverage/api/methods.json`, `OUT=` to override) is the input 
 
 The task is offline and reaches no broker. The implementation lives in `tools/api_coverage/`, which is not part of the gem.
 
-## RPC Coverage Matrix (allowlist-based)
-
-This matrix predates the registry-based number above and measures wrapper coverage against
-hand-kept pillar allowlists (108 names), so its percentages are not the headline.
-`docs/RPC_COVERAGE.md` is generated from wrapper mappings, broker dumps, and
-pillar allowlists:
-
-```sh
-rake coverage:matrix
-```
-
-To refresh an environment dump, set broker credentials and run:
-
-```sh
-RPMS_RPC_BROKER_HOST=vista.example.com \
-RPMS_RPC_BROKER_PORT=9100 \
-RPMS_RPC_ACCESS_CODE=... \
-RPMS_RPC_VERIFY_CODE=... \
-bin/probe_broker --env staging
-```
-
-The probe writes sorted unique rows to `data/broker_dumps/<env>_<YYYYMMDD>.txt`.
-Pillar allowlists live in `data/pillar_allowlists/`, one RPC name per line.
-
-### PhiSanitizer secret
+## PhiSanitizer secret
 
 `RpmsRpc::PhiSanitizer` uses HMAC-SHA256 to hash patient identifiers
 into stable, non-reversible tokens for log lines. Under Rails it
