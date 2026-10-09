@@ -49,10 +49,18 @@ class FhirClientDeprecationTest < Minitest::Test
     assert_equal 1, err.scan("DEPRECATED").size
   end
 
-  # The warning is attributed to the caller, not to a line inside the gem.
-  def test_warning_points_at_the_callers_line
+  # Each warning is attributed to the caller's exact line, not to a line inside the gem.
+  def test_fhir_client_new_warning_points_at_the_callers_line
+    line = __LINE__ + 1
     _, err = capture_io { RpmsRpc::FhirClient.new(base_url: "http://fhir.example.test") }
-    assert_match(/\A#{Regexp.escape(__FILE__)}:\d+: warning: /, err)
+    assert_match(/\A#{Regexp.escape(__FILE__)}:#{line}: warning: /, err)
+  end
+
+  def test_fhir_client_warning_points_at_the_callers_line
+    RpmsRpc.mock_fhir!
+    line = __LINE__ + 1
+    _, err = capture_io { RpmsRpc.fhir_client }
+    assert_match(/\A#{Regexp.escape(__FILE__)}:#{line}: warning: /, err)
   end
 
   private
