@@ -68,6 +68,32 @@ class AuthenticationTest < Minitest::Test
     assert client.create_context("OR CPRS GUI CHART")
   end
 
+  # A failed second sign-on leaves the client signed on as nobody, not as the
+  # first user: the attempt re-bound the broker session.
+  def test_a_failed_second_sign_on_clears_the_first_identity
+    replies = {
+      "XUS SIGNON SETUP" => [ "OK" ],
+      "XUS AV CODE" => [ "301", "0", "0", "", "", "0" ],
+      "XUS GET USER INFO" => [ "301", "PROVIDER,TEST" ]
+    }
+    client = RpmsRpc::XwbClient.new
+    client.instance_variable_set(:@connected, true)
+    client.instance_variable_set(:@socket, Object.new.tap { |o| o.define_singleton_method(:closed?) { false } })
+    client.define_singleton_method(:call_rpc_lines) { |rpc, *| replies.fetch(rpc) }
+    client.define_singleton_method(:call_rpc) { |rpc, *| replies.fetch(rpc).join("\r\n") }
+    client.define_singleton_method(:call_rpc_raw) { |rpc, *| flunk("unexpected #{rpc}") }
+    RpmsRpc.configure { |c| c.client = client }
+    assert RpmsRpc::Authentication.authenticate(access_code: "ACCESS123", verify_code: "VERIFY123")[:success]
+    assert_equal "301", client.duz
+
+    replies["XUS AV CODE"] = [ "0", "0", "0", "Not a valid ACCESS CODE/VERIFY CODE pair.", "", "0" ]
+    refute RpmsRpc::Authentication.authenticate(access_code: "ACCESS123", verify_code: "WRONG123")[:success]
+
+    refute client.authenticated?
+    assert_nil client.duz
+    assert_raises(RpmsRpc::Client::AuthenticationError) { client.create_context("OR CPRS GUI CHART") }
+  end
+
   # The user's class is a separate read, ORWU USERINFO's USRCLS, in the vocabulary
   # hosts read. The mock seeds the :provider role as USRCLS 3.
   def test_user_type_reads_orwu_usrcls

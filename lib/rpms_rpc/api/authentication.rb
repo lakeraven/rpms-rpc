@@ -63,6 +63,11 @@ module RpmsRpc
       av_code = "#{normalize_code(access_code)};#{normalize_code(verify_code)}"
 
       with_wire_lock do
+        # This attempt re-binds the broker session, so the client is nobody's
+        # until it succeeds: a failed second sign-on must not leave the first
+        # user's DUZ standing (auth_success sets it again).
+        client = RpmsRpc.client
+        client.clear_authenticated if client.respond_to?(:clear_authenticated)
         signon_setup
         parse_auth_response(DataMapper.av_code.fetch_lines(XwbCipher.encrypt(av_code)))
       end

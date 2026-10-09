@@ -260,6 +260,13 @@ module RpmsRpc
       @duz = duz
     end
 
+    # Forget the signed-on identity: a new sign-on is re-binding the broker
+    # session, so until it succeeds the client is nobody's.
+    def clear_authenticated
+      @authenticated = false
+      @duz = nil
+    end
+
     def duz
       @duz
     end

@@ -164,6 +164,9 @@ provider/nurse/clerk checks saw them all false.
 - Fixed: `Authentication.authenticate` now marks the client signed on (`Client#set_authenticated`)
   when the broker accepts the pair. It did not, so a host that signed on through it could not bind
   the context `user_type` needs: `create_context` raised "Not authenticated".
+- Fixed: each sign-on attempt clears the client's identity before it re-binds the broker session
+  (`Client#clear_authenticated`), so a failed second sign-on no longer leaves the client signed on
+  as the first user.
 - Added: `:post_signon_message_count`, XUS AV CODE line 5, on the success
   result. `:av_code` seeds take `post_signon_message_count:`.
 - `MockClient#seed_user(role:)` seeds the role as ORWU USERINFO's USRCLS.
