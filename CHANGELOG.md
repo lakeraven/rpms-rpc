@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   direct ORWU USERINFO read in the same session. A non-programmer's XWB session cannot run
   ORWU USERINFO at that point, so its `user_type` is the fail-closed error until #393.
 
+### Added — one base class for every error the gem raises (#357)
+
+- `RpmsRpc::Error < StandardError` is the base of every exception class in `lib/`: a host
+  rescues it in one place and tells the failures apart by subclass. Class names and the
+  relationships between them are unchanged (`CredentialError < AuthenticationError`,
+  `RpcTimeoutError < TimeoutError < ConnectionError`, `RpcNotAvailableError` and
+  `RpcRefusedError < RpcError`), so existing rescues keep working. `ArgumentError` and
+  `NotImplementedError` for caller misuse stay as they are.
+
 ### Fixed — `Problem.edit_load` sends the three formals of EDLOAD^ORQQPL1 (#364)
 
 - `Problem.edit_load(ien, provider_duz:, institution_ien:)` sends the problem IEN, the provider

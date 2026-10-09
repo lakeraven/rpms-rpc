@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "rpms_rpc/core"
+
 module RpmsRpc
   module Conformance
     # The RPC surface of ONE pinned rpms-ops build, read from the files rpms-ops publishes for it
@@ -32,7 +34,7 @@ module RpmsRpc
       # "Callable is client-callable or broker-exempt" (rpms-ops releases/README.md).
       CALLABLE = %w[client-callable broker-exempt].freeze
 
-      class Error < StandardError; end
+      class Error < RpmsRpc::Error; end
 
       # seq is #8994.02 SEQUENCE NUMBER as stored (often empty); the array order is the walk order.
       Param = Struct.new(:seq, :name, :type, :max_length, :required, :description, keyword_init: true)

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "monitor"
+require "rpms_rpc/core"
 
 module RpmsRpc
   # A bounded pool of broker clients keyed by an opaque session key. Each
@@ -29,7 +30,7 @@ module RpmsRpc
   class SessionPool
     # Raised when every session slot is full and in use. Fail closed — never
     # silently reuse another session's client, never block forever.
-    class PoolExhaustedError < StandardError; end
+    class PoolExhaustedError < Error; end
 
     # Raised when adopt would break the one-identity binding. The key is
     # already reserved (idle, in use, or mid-build), or this client object is
@@ -37,7 +38,7 @@ module RpmsRpc
     # take the client. A "client is disconnecting" refusal means a
     # pool-initiated disconnect of that object is already in flight — the
     # caller must not keep using it.
-    class SessionOccupiedError < StandardError; end
+    class SessionOccupiedError < Error; end
 
     # `refcount` is the number of callers currently inside with_client for this
     # entry; an entry is idle (evictable) only at 0.

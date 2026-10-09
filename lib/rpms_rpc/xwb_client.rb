@@ -105,7 +105,7 @@ module RpmsRpc
     # The helpers below are byte-safe; do not introduce String#length here.
 
     # SpackTooLongError raised when a value exceeds S-PACK's 255-byte limit.
-    class SpackTooLongError < StandardError; end
+    class SpackTooLongError < Error; end
 
     # S-PACK: one-byte length prefix + value (max 255 bytes)
     def spack(value)

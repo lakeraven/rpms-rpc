@@ -52,7 +52,7 @@ module RpmsRpc
       # 0 ACTIVE and 3 REMOTE INACTIVE (ACTIVE LOCALLY) do not.
       LOCALLY_INACTIVE = %w[1 2].freeze
 
-      class Error < StandardError; end
+      class Error < RpmsRpc::Error; end
 
       # A verified inventory directory for one tag.
       Inventory = Struct.new(:tag, :dir, :shas, :provenance, :build_record, keyword_init: true) do

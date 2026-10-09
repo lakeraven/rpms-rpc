@@ -15,7 +15,15 @@ module RpmsRpc
   # rather than run unlocked.
   MODULE_WIRE_LOCK = Monitor.new
 
-  class NotConfiguredError < StandardError; end
+  # The base class of every exception the gem raises (ADR 0010, assertion 4;
+  # #357): a host rescues RpmsRpc::Error in one place and tells the failures
+  # apart by subclass. Every other error class in lib/ descends from it; the
+  # names and the relationships between them (CredentialError <
+  # AuthenticationError, RpcTimeoutError < TimeoutError < ConnectionError, ...)
+  # are unchanged, so existing rescues keep working.
+  class Error < StandardError; end
+
+  class NotConfiguredError < Error; end
 
   class Configuration
     # `unsafe_raw_errors` opts out of PhiSanitizer scrubbing for
