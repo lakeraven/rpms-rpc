@@ -8,11 +8,25 @@
 # Env (all required; a spec FAILS without them, it never skips: a live spec
 # is loaded only by `rake test:live` or by path, so a missing setting is a
 # mistake, not an opt-out):
-#   BROKER_HOST, BROKER_PORT   the CIA broker of the target
+#   BROKER_HOST, BROKER_PORT   the broker of the target
 #   RPMS_ACCESS, RPMS_VERIFY   the persona's sign-on pair (never logged)
 #   PERSONA                    which user that is, e.g. PROV123 or SYS123
 # The staging pair PROV123 also needs VISTA_RPC_ENV=development (Client's
 # credential guard).
+#
+# Optional:
+#   BROKER_PROTOCOL            cia (default) or xwb: the broker line spoken
+#   LIVE_BUILD                 the target's build, when it is not the pin
+#
+# One broker line per run. A spec is written for one line and declares it
+# (`broker :xwb`; undeclared is :cia). CIA specs live in test/live/, XWB specs
+# in test/live/xwb/, and `rake test:live` loads only the directory of the
+# run's BROKER_PROTOCOL, so a mixed suite never runs a spec on the wrong line.
+# A spec loaded by path under the other protocol fails, naming the setting.
+# Over CIA the harness signs on with CiaClient (CIANBRPC AUTH); over XWB with
+# XwbClient#authenticate (XUS SIGNON SETUP, XUS AV CODE). A spec that proves
+# sign-on itself declares `connect_only!`: the harness connects and leaves
+# the session unauthenticated.
 #
 # No silent skips. Missing data, a refused RPC or an unreachable broker fails
 # the spec with what is missing and what to do. The one acceptable skip is
@@ -30,6 +44,7 @@
 require "minitest/autorun"
 require "rpms_rpc/mappings"
 require "rpms_rpc/cia_client"
+require "rpms_rpc/xwb_client"
 require_relative "live_env"
 
 module LiveSpec
@@ -38,6 +53,16 @@ module LiveSpec
       # Declare that this spec files data on the target.
       def writes! = (@writes = true)
       def writes? = @writes == true
+
+      # Declare the broker line this spec is written for (:cia or :xwb).
+      def broker(name = nil)
+        @broker = name.to_s if name
+        @broker || (superclass.respond_to?(:broker) ? superclass.broker : "cia")
+      end
+
+      # Declare that this spec signs on itself: connect, but do not sign on.
+      def connect_only! = (@connect_only = true)
+      def connect_only? = @connect_only == true
     end
 
     attr_reader :client
@@ -46,6 +71,12 @@ module LiveSpec
       super
       missing = LiveSpec.missing_env
       flunk LiveSpec.missing_env_message(missing) unless missing.empty?
+      error = LiveSpec.protocol_error
+      flunk error if error
+      unless self.class.broker == LiveSpec.protocol
+        flunk "#{self.class} is written for the #{self.class.broker} broker and this run speaks " \
+              "#{LiveSpec.protocol}: set BROKER_PROTOCOL=#{self.class.broker} and its broker's port"
+      end
       if self.class.writes? && (reason = LiveSpec.write_refusal)
         flunk "live spec writes, refused: #{reason}"
       end
@@ -78,16 +109,21 @@ module LiveSpec
 
     private
 
+    BROKER_CLIENTS = { "cia" => RpmsRpc::CiaClient, "xwb" => RpmsRpc::XwbClient }.freeze
+
     def sign_on
       host = ENV.fetch("BROKER_HOST")
       port = ENV.fetch("BROKER_PORT")
-      c = RpmsRpc::CiaClient.new(host: host, port: Integer(port), timeout: 30)
+      c = BROKER_CLIENTS.fetch(LiveSpec.protocol).new(host: host, port: Integer(port), timeout: 30)
       begin
         c.connect
       rescue RpmsRpc::Client::ConnectionError => e
         flunk "no broker answers at #{host}:#{port} (#{e.class.name.split('::').last}). " \
               "Start the container or the SSM tunnel, or fix BROKER_HOST/BROKER_PORT."
       end
+      RpmsRpc.configure { |cfg| cfg.client = c }
+      return c if self.class.connect_only?
+
       begin
         c.authenticate(ENV.fetch("RPMS_ACCESS"), ENV.fetch("RPMS_VERIFY"))
       rescue RpmsRpc::Client::CredentialError => e
@@ -97,7 +133,6 @@ module LiveSpec
         flunk "sign-on as #{persona} refused at #{host}:#{port}: #{e.message}. " \
               "Check RPMS_ACCESS/RPMS_VERIFY are #{persona}'s pair on that build."
       end
-      RpmsRpc.configure { |cfg| cfg.client = c }
       c
     end
   end
@@ -127,8 +162,8 @@ module LiveSpec
 
       io.puts
       io.puts "== live run " + ("=" * 56)
-      io.puts format("%-9s %s", "backend", "#{@env['BROKER_HOST']}:#{@env['BROKER_PORT']}")
-      io.puts format("%-9s %s", "build", LiveSpec.build_label)
+      io.puts format("%-9s %s", "backend", "#{@env['BROKER_HOST']}:#{@env['BROKER_PORT']} (#{LiveSpec.protocol(@env)})")
+      io.puts format("%-9s %s", "build", LiveSpec.build_label(@env))
       io.puts format("%-9s %s", "persona", @env["PERSONA"])
       io.puts format("%-9s %d runs, %d assertions, %d failures, %d errors, %d skips",
                      "result", count, assertions, failures, errors, skips)

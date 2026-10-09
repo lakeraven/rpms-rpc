@@ -50,6 +50,13 @@ Coverage is reported per layer: accounted for, contract known, typed in the gem.
   programmer SYS123. A spec binds the context the RPC's package serves it under.
 - A spec that writes declares so, and fails closed unless the target is
   declared disposable and on this machine.
+- A run speaks one broker line, `BROKER_PROTOCOL=cia` (the default) or `xwb`.
+  CIA specs live in `test/live/`, XWB specs in `test/live/xwb/`, and
+  `rake test:live` loads only the directory for the run's protocol. A spec
+  declares its line (`broker :xwb`) and fails, naming the setting, when loaded
+  by path under the other. XWB is where `Authentication.authenticate` runs end
+  to end (XUS SIGNON SETUP, XUS AV CODE): the CIA broker refuses both once
+  CIANBRPC AUTH has signed the session on.
 - **A read or write mapping change is done only when a live spec proves it.**
   Run live before merge (locally, or by an agent against the local container),
   and nightly in CI if the image can run there.

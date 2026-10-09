@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — live specs over XWB (#236)
+
+- `BROKER_PROTOCOL=xwb rake test:live` signs on with `XwbClient#authenticate` and runs the specs
+  in `test/live/xwb/`; the default (`cia`) runs `test/live/*_test.rb` as before. A spec declares
+  its broker line (`broker :xwb`) and fails, naming the setting, when loaded under the other;
+  `connect_only!` leaves the session for the spec to sign on itself. `LIVE_BUILD` names a target
+  that is not the pinned build in the run summary.
+- `test/live/xwb/authenticate_live_test.rb` proves `Authentication.authenticate` end to end:
+  DUZ, `post_signon_message_count` against the XUS AV CODE reply, and `user_type` against a
+  direct ORWU USERINFO read in the same session. A non-programmer's XWB session cannot run
+  ORWU USERINFO at that point, so its `user_type` is the fail-closed error until #393.
+
 ### Added — one base class for every error the gem raises (#357)
 
 - `RpmsRpc::Error < StandardError` is the base of every exception class in `lib/`: a host
@@ -60,7 +72,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   On 0930: 597 exclusions (was 598 from the 0921 atlas). `BGOVIMM6 DUPALLOW` and `BMX CVC` are
   callable on 0930 and leave; `VAFC VOA ADD PATIENT` is no-context in the published face and
   joins. Coverage: 37 / 4960.
-
 ### Added — `rake rpc:api_coverage`: public methods proven by a live spec (#358)
 
 - Lists every public method of the API modules with the RPCs it sends (resolved statically
@@ -127,6 +138,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sentinel rather than relying on the terminator not colliding.
 
 ## [Unreleased]
+
+### Fixed — sign-on `user_type` is the server's user class, not the message count (#236)
+
+`DataMapper.define(:av_code)` declared `line_field 5, :user_class`. The
+reply is VALIDAV^XUSRB's RET() array — `RET(0)=DUZ RET(1)=XUM RET(2)=VCCH
+RET(3)=message RET(4)=0 RET(5)=post-sign-on message count RET(5+n)=the
+message lines` (XUSRB.m:9-11, :40, :85-87). Against a real broker the
+"class" was 0 for nearly everyone, so `Authentication::USER_TYPES` resolved
+every user to `"user"`, and a host reading `user_type` for
+provider/nurse/clerk checks saw them all false.
+
+- **Breaking:** `Authentication.authenticate` no longer carries `:user_type`.
+  The class is a separate read, `Authentication.user_type(duz)`, made once the
+  session holds a context: `ORWU USERINFO` piece 3, USRCLS, which ORWU.m:19
+  computes from the user's order keys (3 ORES, 2 ORELSE, 1 OREMAS, 0 none)
+  and which CPRS reads the same way. It answers `"provider"`, `"nurse"`,
+  `"clerk"` or `"user"`, and raises `Client::RpcError` when the class cannot
+  be read (the RPC is refused or fails, answers nothing, answers for another
+  DUZ, or answers a USRCLS ORWU.m:19 never returns; the raw piece is checked,
+  not a coerced number). It never claims a default class. A host that stored
+  `user_type` from the sign-on result calls `user_type` after binding its
+  context. `Authentication::USER_TYPES` is re-keyed to USRCLS;
+  `Authentication.user_type_for(usrcls)` is new.
+- Fixed: `Authentication.authenticate` now marks the client signed on (`Client#set_authenticated`)
+  when the broker accepts the pair. It did not, so a host that signed on through it could not bind
+  the context `user_type` needs: `create_context` raised "Not authenticated".
+- Fixed: each sign-on attempt clears the client's identity before it re-binds the broker session
+  (`Client#clear_authenticated`), so a failed second sign-on no longer leaves the client signed on
+  as the first user.
+- Added: `:post_signon_message_count`, XUS AV CODE line 5, on the success
+  result. `:av_code` seeds take `post_signon_message_count:`.
+- `MockClient#seed_user(role:)` seeds the role as ORWU USERINFO's USRCLS.
+
+**Breaking:** `Authentication.user_info(duz)[:user_class_ien]` is renamed
+`:dtime`. Line 7 of `XUS GET USER INFO` is DTIME (USERINFO^XUSRB2,
+XUSRB2.m:35), never a user class; no known host reads it. `:user_info`
+seeds take `dtime:`.
+
+`test/live/user_role_live_test.rb` proves, for each persona, that
+`Authentication.user_type` equals the mapping of a direct `ORWU USERINFO` call, and
+that `XUS GET USER INFO` line 7 equals the user's TIMED READ (200.1).
 
 ### Fixed — orders reads match what ORWOR / ORWORR emit (#220)
 

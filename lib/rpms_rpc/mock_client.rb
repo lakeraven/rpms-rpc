@@ -208,32 +208,39 @@ module RpmsRpc
     #     name: "PROVIDER,TEST",
     #     role: :provider)
     #
+    # role: is the user_type sign-on should report. It is seeded where the
+    # server reports it, ORWU USERINFO's USRCLS (ORWU.m:19), as the class
+    # that names it: provider 3, nurse 2, clerk 1, anything else 0 ("user").
+    # One mock holds one session user, so the last seed_user wins the
+    # no-parameter reads (XUS GET USER INFO, ORWU USERINFO).
     def seed_user(duz, credentials:, name:, role:)
-      require_relative "user_roles"
+      require_relative "api/authentication"
 
-      user_class = UserRoles.class_for(role) || "0"
+      usrcls = Authentication::USER_TYPES.key(role.to_s) || 0
 
-      # Credential response
+      # Credential response: VALIDAV^XUSRB's RET() array (XUSRB.m:40, :85-87).
+      # RET(5) is the post-sign-on message count; a successful mock sign-on
+      # sends no message, as a site with $$SHOWPOST off does.
       seed_lines(:av_code, credentials.to_s.strip.upcase, {
         duz: duz.to_i,
         error_code: 0,
         verify_needs_change: 0,
         message: "Welcome #{name}",
-        user_class: user_class.to_i
+        post_signon_message_count: 0
       })
 
       # User info (XUS GET USER INFO — line-based, no params; mock matches
-      # the live shape: one value per response line). user_class_ien is a
-      # pointer into USER CLASS file #8932.1, distinct from av_code's
-      # auth-class code — seed with a plausible IEN placeholder so tests
-      # don't conflate the two.
+      # the live shape: one value per response line, USERINFO^XUSRB2
+      # XUSRB2.m:25-35). Line 7 is the user's DTIME.
       seed_lines(:user_info, "", {
         duz: duz.to_i,
         name: name,
         display_name: name,
         current_site: "",
-        user_class_ien: 30
+        dtime: 300
       })
+
+      seed(:practitioner_info, "", { duz: duz.to_i, name: name, user_class: usrcls })
     end
 
     # Records of every call_rpc invocation, for tests that need to assert on

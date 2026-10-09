@@ -26,10 +26,17 @@ module RpmsRpc
       12 => "Verify code expired - must be changed"
     }.freeze
 
+    # ORWU USERINFO's USRCLS (piece 3) -> the sign-on result's user_type.
+    # The server computes USRCLS from the user's order keys (ORWU.m:19):
+    #   $S($D(^XUSEC("ORES",DUZ)):3,$D(^XUSEC("ORELSE",DUZ)):2,
+    #      $D(^XUSEC("OREMAS",DUZ)):1,1:0)
+    # Until #236 this table keyed 3/4/5 off XUS AV CODE line 5, which is the
+    # post-sign-on message count, so everyone resolved to "user".
     USER_TYPES = {
       3 => "provider",
-      4 => "nurse",
-      5 => "clerk"
+      2 => "nurse",
+      1 => "clerk",
+      0 => "user"
     }.freeze
 
     # Sign on with an access/verify pair.
@@ -38,6 +45,11 @@ module RpmsRpc
     # $$DECRYP^XUSRB1 on its parameter, so a cleartext send reaches the broker
     # as garbage and a real RPMS rejects correct credentials (rpms-rpc#200).
     # The ciphertext goes as ONE parameter because it may contain "^".
+    #
+    # A successful result carries the sign-on facts only: DUZ, the message,
+    # the verify flag and :post_signon_message_count (XUS AV CODE line 5,
+    # which was read as a user class until #236). The user's class is a
+    # separate read the host makes once it holds a context: #user_type.
     #
     # The whole sequence — SIGNON SETUP, AV CODE, and the user/key lookups it
     # implies — runs under the client's wire lock. The broker session these
@@ -51,6 +63,11 @@ module RpmsRpc
       av_code = "#{normalize_code(access_code)};#{normalize_code(verify_code)}"
 
       with_wire_lock do
+        # This attempt re-binds the broker session, so the client is nobody's
+        # until it succeeds: a failed second sign-on must not leave the first
+        # user's DUZ standing (auth_success sets it again).
+        client = RpmsRpc.client
+        client.clear_authenticated if client.respond_to?(:clear_authenticated)
         signon_setup
         parse_auth_response(DataMapper.av_code.fetch_lines(XwbCipher.encrypt(av_code)))
       end
@@ -66,6 +83,41 @@ module RpmsRpc
       return nil if info.nil? || info[:duz].to_i != duz.to_i
 
       info
+    end
+
+    # The user_type for USRCLS, or nil for anything ORWU.m:19 does not return.
+    def user_type_for(usrcls)
+      text = usrcls.to_s.strip
+      return nil unless text.match?(/\A\d+\z/)
+
+      USER_TYPES[text.to_i]
+    end
+
+    # The signed-on user's class, as the server reports it: ORWU USERINFO
+    # piece 3, USRCLS (ORWU.m:12-19), the same read CPRS makes. The gem does
+    # not derive it from keys itself.
+    #
+    # A separate call, not part of #authenticate: ORWU USERINFO runs in the
+    # context the session holds, and a fresh XWB session holds none, so the
+    # host calls this after it binds its context (a CIA sign-on already holds
+    # CIAV VUECENTRIC, which carries ORWU USERINFO).
+    #
+    # Returns "provider", "nurse", "clerk" or "user". Raises Client::RpcError
+    # when the class cannot be read: the broker refused or failed the RPC,
+    # answered nothing, answered for a different DUZ, or answered a USRCLS
+    # that ORWU.m:19 never returns (the raw piece is checked, not a number
+    # coerced from it). Never a default class: a host that asks provider?
+    # must hear "unknown", not "no".
+    def user_type(duz)
+      record = DataMapper.practitioner_info.fetch_one
+      raise Client::RpcError, "ORWU USERINFO answered nothing" if record.nil?
+      unless record[:duz].to_i == duz.to_i
+        raise Client::RpcError, "ORWU USERINFO answered for another user, not DUZ #{duz}"
+      end
+
+      usrcls = record[:usrcls]
+      user_type_for(usrcls) ||
+        raise(Client::RpcError, "ORWU USERINFO answered USRCLS #{usrcls.inspect}, which ORWU.m:19 never returns")
     end
 
     # Whether user DUZ holds the security key KEY_NAME, per ORWU NPHASKEY
@@ -218,7 +270,7 @@ module RpmsRpc
       message = parsed[:message].to_s
 
       if duz.positive? && error_code.zero?
-        auth_success(duz, parsed[:user_class], message, verify_needs_change)
+        auth_success(duz, message, verify_needs_change, parsed[:post_signon_message_count].to_i)
       else
         {
           success: false,
@@ -230,14 +282,22 @@ module RpmsRpc
       end
     end
 
-    def auth_success(duz, user_class, message, verify_needs_change)
+    def auth_success(duz, message, verify_needs_change, post_signon_message_count)
+      # The broker session is now this user's, so the client is signed on: a host
+      # that signs on here binds its context next (create_context refuses a client
+      # that is not). The mock client has no such gate and no hook.
+      client = RpmsRpc.client
+      client.set_authenticated(duz.to_s) if client.respond_to?(:set_authenticated)
+
       result = {
         success: true,
         duz: duz,
         provider_ien: duz,
         message: message,
         verify_needs_change: verify_needs_change,
-        user_type: USER_TYPES.fetch(user_class.to_i, "user")
+        # RET(5): how many post-sign-on message lines follow (XUSRB.m:86); 0
+        # when the site suppresses the message (:87).
+        post_signon_message_count: post_signon_message_count
       }
 
       info = user_info(duz)

@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "rpms_rpc/mock_client"
+require "rpms_rpc/xwb_client"
 require "rpms_rpc/api/authentication"
 
 class AuthenticationTest < Minitest::Test
@@ -18,7 +19,7 @@ class AuthenticationTest < Minitest::Test
         error_code: 12,
         verify_needs_change: 1,
         message: "Verify code expired",
-        user_class: 3
+        post_signon_message_count: 0
       })
       m.seed_lines(:cvc_verify, "OLDVERIFY^NEWVERIFY^NEWVERIFY", { result_code: 0 })
     end
@@ -35,11 +36,99 @@ class AuthenticationTest < Minitest::Test
     assert_equal true, result[:success]
     assert_equal 301, result[:duz]
     assert_equal 301, result[:provider_ien]
-    assert_equal "provider", result[:user_type]
     assert_equal "PROVIDER,TEST", result[:name]
+    assert_equal 0, result[:post_signon_message_count]
+    refute result.key?(:user_type), "the sign-on result carries no user class (Authentication.user_type is the read)"
 
     assert_equal [ "XUS SIGNON SETUP", "XUS AV CODE", "XUS GET USER INFO" ],
-      RpmsRpc.client.received_calls.first(3).map { |c| c[:rpc] }
+      RpmsRpc.client.received_calls.map { |c| c[:rpc] }
+  end
+
+  # A host that signs on through this API binds its context next (ORWU USERINFO,
+  # for #user_type, needs one), so the client must come out of it signed on.
+  def test_a_sign_on_here_lets_the_client_bind_a_context
+    replies = {
+      "XUS SIGNON SETUP" => [ "OK" ],
+      "XUS AV CODE" => [ "301", "0", "0", "", "", "0" ],
+      "XUS GET USER INFO" => [ "301", "PROVIDER,TEST" ]
+    }
+    client = RpmsRpc::XwbClient.new
+    client.instance_variable_set(:@connected, true)
+    client.instance_variable_set(:@socket, Object.new.tap { |o| o.define_singleton_method(:closed?) { false } })
+    client.define_singleton_method(:call_rpc_lines) { |rpc, *| replies.fetch(rpc) }
+    client.define_singleton_method(:call_rpc) { |rpc, *| replies.fetch(rpc).join("\r\n") }
+    client.define_singleton_method(:call_rpc_raw) { |rpc, *| rpc == "XWB CREATE CONTEXT" ? "1" : flunk("unexpected #{rpc}") }
+    RpmsRpc.configure { |c| c.client = client }
+    refute client.authenticated?
+
+    assert RpmsRpc::Authentication.authenticate(access_code: "ACCESS123", verify_code: "VERIFY123")[:success]
+
+    assert client.authenticated?
+    assert_equal "301", client.duz
+    assert client.create_context("OR CPRS GUI CHART")
+  end
+
+  # A failed second sign-on leaves the client signed on as nobody, not as the
+  # first user: the attempt re-bound the broker session.
+  def test_a_failed_second_sign_on_clears_the_first_identity
+    replies = {
+      "XUS SIGNON SETUP" => [ "OK" ],
+      "XUS AV CODE" => [ "301", "0", "0", "", "", "0" ],
+      "XUS GET USER INFO" => [ "301", "PROVIDER,TEST" ]
+    }
+    client = RpmsRpc::XwbClient.new
+    client.instance_variable_set(:@connected, true)
+    client.instance_variable_set(:@socket, Object.new.tap { |o| o.define_singleton_method(:closed?) { false } })
+    client.define_singleton_method(:call_rpc_lines) { |rpc, *| replies.fetch(rpc) }
+    client.define_singleton_method(:call_rpc) { |rpc, *| replies.fetch(rpc).join("\r\n") }
+    client.define_singleton_method(:call_rpc_raw) { |rpc, *| flunk("unexpected #{rpc}") }
+    RpmsRpc.configure { |c| c.client = client }
+    assert RpmsRpc::Authentication.authenticate(access_code: "ACCESS123", verify_code: "VERIFY123")[:success]
+    assert_equal "301", client.duz
+
+    replies["XUS AV CODE"] = [ "0", "0", "0", "Not a valid ACCESS CODE/VERIFY CODE pair.", "", "0" ]
+    refute RpmsRpc::Authentication.authenticate(access_code: "ACCESS123", verify_code: "WRONG123")[:success]
+
+    refute client.authenticated?
+    assert_nil client.duz
+    assert_raises(RpmsRpc::Client::AuthenticationError) { client.create_context("OR CPRS GUI CHART") }
+  end
+
+  # The user's class is a separate read, ORWU USERINFO's USRCLS, in the vocabulary
+  # hosts read. The mock seeds the :provider role as USRCLS 3.
+  def test_user_type_reads_orwu_usrcls
+    assert_equal "provider", RpmsRpc::Authentication.user_type(301)
+    assert_equal [ "ORWU USERINFO" ], RpmsRpc.client.received_calls.map { |c| c[:rpc] }
+  end
+
+  # The raw piece is validated, not a number coerced from it: "3x" is not a class.
+  def test_user_type_raises_on_a_usrcls_orwu_never_returns
+    [ "3x", " ", "4" ].each do |usrcls|
+      RpmsRpc.client.seed(:practitioner_info, "", { duz: 301, name: "PROVIDER,TEST", user_class: usrcls })
+      e = assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Authentication.user_type(301) }
+      assert_includes e.message, usrcls.inspect
+    end
+  end
+
+  def test_user_type_raises_when_the_answer_is_for_another_user
+    RpmsRpc.client.seed(:practitioner_info, "", { duz: 999, name: "OTHER,USER", user_class: "3" })
+    e = assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Authentication.user_type(301) }
+    assert_includes e.message, "another user"
+  end
+
+  # The sign-on result's user_type is ORWU USERINFO's USRCLS (piece 3), which
+  # the server computes from the user's order keys (ORWU.m:19), named in the
+  # vocabulary hosts already read. Anything else is not a class RPMS reports,
+  # so it maps to nil, never to a default (#236).
+  def test_user_type_for_maps_orwu_usrcls
+    assert_equal "provider", RpmsRpc::Authentication.user_type_for(3)
+    assert_equal "nurse", RpmsRpc::Authentication.user_type_for(2)
+    assert_equal "clerk", RpmsRpc::Authentication.user_type_for(1)
+    assert_equal "user", RpmsRpc::Authentication.user_type_for(0)
+    assert_equal "provider", RpmsRpc::Authentication.user_type_for("3")
+    [ nil, "", 4, 5, -1, "x", "3x" ].each do |usrcls|
+      assert_nil RpmsRpc::Authentication.user_type_for(usrcls), "USRCLS #{usrcls.inspect} is not one ORWU.m:19 returns"
+    end
   end
 
   # XUSRB.VALIDAV ALWAYS runs $$DECRYP^XUSRB1 on its parameter, so a cleartext
@@ -121,10 +210,10 @@ class AuthenticationTest < Minitest::Test
     assert_equal 301, info[:duz]
     assert_equal "PROVIDER,TEST", info[:name]
     assert_equal "PROVIDER,TEST", info[:display_name]
-    # :user_class_ien is a pointer into USER CLASS file #8932.1; assert
-    # positivity rather than a specific value (the mock seeds a placeholder
-    # IEN, live values are site-specific).
-    assert info[:user_class_ien].is_a?(Integer) && info[:user_class_ien] > 0
+    # Line 7 is the user's DTIME (USERINFO^XUSRB2, XUSRB2.m:35) — it was
+    # declared as a user-class pointer, which no line of this reply is.
+    assert info[:dtime].is_a?(Integer) && info[:dtime] > 0
+    refute info.key?(:user_class_ien)
   end
 
   def test_user_info_rejects_blank_zero_negative_and_non_numeric_duz

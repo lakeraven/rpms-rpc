@@ -75,7 +75,8 @@ class RpmsRpc::AuthenticationCiaGrammarTest < Minitest::Test
       c.client = cia_client([
         "1\x00OK#{EOD}",                                            # XUS SIGNON SETUP (seq 1)
         "2\x00301\r\n0\r\n0\r\nGood evening\r\n0\r\n0#{EOD}",       # XUS AV CODE (seq 2) — DUZ 301
-        "3\x00301\r\nBETA,BOB\r\nBETA,BOB\r\nDEMO SITE#{EOD}"       # XUS GET USER INFO (seq 3)
+        "3\x00301\r\nBETA,BOB\r\nBETA,BOB\r\nDEMO SITE#{EOD}",      # XUS GET USER INFO (seq 3)
+        "4\x00301^BETA,BOB^3#{EOD}"                                  # ORWU USERINFO (seq 4)
       ])
     end
 
@@ -100,7 +101,8 @@ class RpmsRpc::AuthenticationCiaGrammarTest < Minitest::Test
       c.client = cia_client([
         "1\x00OK#{EOD}",                                  # XUS SIGNON SETUP (seq 1)
         "2\x00301\r0\r0\rGood evening\r0\r0#{EOD}",       # XUS AV CODE (seq 2)
-        "3\x00301\rBETA,BOB\rBETA,BOB\rDEMO SITE#{EOD}"   # XUS GET USER INFO (seq 3)
+        "3\x00301\rBETA,BOB\rBETA,BOB\rDEMO SITE#{EOD}",  # XUS GET USER INFO (seq 3)
+        "4\x00301^BETA,BOB^3#{EOD}"                      # ORWU USERINFO (seq 4)
       ])
     end
 
