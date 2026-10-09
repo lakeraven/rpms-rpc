@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   direct ORWU USERINFO read in the same session. A non-programmer's XWB session cannot run
   ORWU USERINFO at that point, so its `user_type` is the fail-closed error until #393.
 
+### Fixed — `Problem.edit_load` sends the three formals of EDLOAD^ORQQPL1 (#364)
+
+- `Problem.edit_load(ien, provider_duz:, institution_ien:)` sends the problem IEN, the provider
+  DUZ and the facility (an INSTITUTION #4 IEN), the formals `EDLOAD(RETURN,DA,GMPROV,GMPVAMC)`
+  declares (ORQQPL1.m:83). The IEN-only frame died in M on GMPVAMC (GETFLDS+20^GMPLEDT3).
+  **Breaking:** the two keywords are required.
+
 ### Fixed — `Patient.search`, `find_by_ssn` and `:patient_list` match what ORWPT answers (#352)
 
 - `Patient.find_by_ssn` strips punctuation before ORWPT FULLSSN, which matches the SSN index

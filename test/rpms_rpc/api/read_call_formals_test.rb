@@ -60,6 +60,26 @@ class ReadCallFormalsTest < Minitest::Test
     assert_equal [ DFN, "5001" ], params_sent_to("ORQQPL DETAIL")
   end
 
+  # EDLOAD(RETURN,DA,GMPROV,GMPVAMC)^ORQQPL1 (ORQQPL1.m:83): the problem IEN,
+  # the provider DUZ, then the facility (an INSTITUTION #4 IEN; DUZ(2) in
+  # the roll-and-scroll Problem List, GMPLUTL.m:89). GETFLDS^GMPLEDT3 reads
+  # GMPVAMC unconditionally (GMPLEDT3.m:55), so an IEN-only frame died in M.
+  def test_problem_edit_load_sends_ien_provider_then_institution
+    RpmsRpc::Problem.edit_load("5001", provider_duz: 301, institution_ien: 7)
+    assert_equal [ "5001", "301", "7" ], params_sent_to("ORQQPL EDIT LOAD")
+  end
+
+  def test_problem_edit_load_requires_the_provider_and_the_institution
+    assert_raises(ArgumentError) { RpmsRpc::Problem.edit_load("5001", provider_duz: nil, institution_ien: 7) }
+    assert_raises(ArgumentError) { RpmsRpc::Problem.edit_load("5001", provider_duz: 301, institution_ien: nil) }
+    assert_empty RpmsRpc.client.received_calls, "a frame must not go out without both formals"
+  end
+
+  def test_problem_edit_load_sends_nothing_for_an_invalid_ien
+    assert_nil RpmsRpc::Problem.edit_load("0", provider_duz: 301, institution_ien: 7)
+    assert_empty RpmsRpc.client.received_calls
+  end
+
   # RPT(ROOT,DFN,RPTID,HSTYPE,DTRANGE,EXAMID,ALPHA,OMEGA)^ORWRP (ORWRP.m:88).
   # The Health Summary report is ID 1 in file 101.24 (ORWRP REPORT LISTS
   # row "1^Health Summary^..."); HSTYPE is the summary type IEN.

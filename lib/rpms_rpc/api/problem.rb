@@ -118,10 +118,19 @@ module RpmsRpc
       Array(DataMapper.problem_provider_list.fetch_many(dfn.to_s))
     end
 
-    def edit_load(ien)
+    # Formals: EDLOAD(RETURN,DA,GMPROV,GMPVAMC) (ORQQPL1.m:83) — the problem
+    # IEN, then the provider DUZ, then the facility: an INSTITUTION (#4) IEN,
+    # DUZ(2) in the roll-and-scroll Problem List (GMPLUTL.m:89). The pinned
+    # registry names them IFN, provider, vamc. GETFLDS^GMPLEDT3 reads
+    # GMPVAMC unconditionally to find the facility's note multiple
+    # (GMPLEDT3.m:55) and GMPROV to keep only that provider's notes
+    # (GMPLEDT3.m:57); an IEN-only frame died in M on GMPVAMC (#364).
+    def edit_load(ien, provider_duz:, institution_ien:)
+      raise ArgumentError, "provider_duz is required (got nil)" if provider_duz.nil?
+      raise ArgumentError, "institution_ien is required (got nil)" if institution_ien.nil?
       return nil if invalid_id?(ien)
 
-      DataMapper.problem_edit_load.fetch_one(ien.to_s)
+      DataMapper.problem_edit_load.fetch_one(ien.to_s, provider_duz.to_s, institution_ien.to_s)
     end
 
     # ORQQPL stock-VistA state-change writes that don't overlap with the
