@@ -9,9 +9,11 @@
 #   00f   = flags/format
 #   {value} = actual value
 #   \x04  = EOT terminator
+require "rpms_rpc/core"
+
 module RpmsRpc
   class ParameterEncoder
-    class ParameterTooLongError < StandardError; end
+    class ParameterTooLongError < Error; end
 
     EOT = "\x04"
     MAX_PARAM_LENGTH = 999

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "rexml/document"
+require "rpms_rpc/core"
 
 # Parses XML responses from VistA RPC calls.
 #
@@ -9,11 +10,11 @@ require "rexml/document"
 # - Error:  <vistalink type="VA.RPC.Error"><errors><error>
 module RpmsRpc
   class XmlResponseParser
-    class RpcError < StandardError
+    class RpcError < Error
       attr_accessor :code
     end
 
-    class ParseError < StandardError; end
+    class ParseError < Error; end
 
     def self.parse(xml_string)
       raise ParseError, "XML string cannot be nil" if xml_string.nil?
