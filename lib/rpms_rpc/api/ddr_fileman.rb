@@ -106,9 +106,9 @@ module RpmsRpc
 
     # Incremental M LOCK on a global node ('L +node:timeout',
     # LOCKC^DDR1: DDR1.m:21-24). True iff the lock was acquired within
-    # `timeout` seconds; false on timeout or no broker response.
+    # `timeout` seconds; false on timeout; nil on no broker response.
     def lock(node:, timeout: 5)
-      DataMapper.ddr_lock_unlock_node.fetch_scalar(lock_param(node: node, timeout: timeout)) == true
+      DataMapper.ddr_lock_unlock_node.fetch_scalar(lock_param(node: node, timeout: timeout))
     end
 
     # Release the lock ('L -node' — always "1", DDR1.m:25-27).

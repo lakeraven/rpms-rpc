@@ -167,10 +167,10 @@ class AggTest < Minitest::Test
     end
   end
 
-  def test_available_false_when_canrun_reports_nothing
+  def test_available_nil_when_canrun_reports_nothing
     @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "")
 
-    refute Agg.available?
+    assert_nil Agg.available?
   end
 
   def test_available_false_when_canrun_reports_zero
@@ -181,18 +181,18 @@ class AggTest < Minitest::Test
 
   # A broker error reply (\x01 flag) raises through the client's reply grammar; it is never
   # read as a positive answer (the first raw byte is the sequence echo, a digit).
-  def test_available_false_when_the_broker_answers_with_an_error
+  def test_available_propagates_a_broker_error
     erroring = Class.new do
       def call_rpc_lines(*) = raise(RpmsRpc::Client::RpcError, "CANRUN: error 4")
       def call_rpc(*) = raise(RpmsRpc::Client::RpcError, "CANRUN: error 4")
     end.new
 
-    refute Agg.available?(erroring)
+    assert_raises(RpmsRpc::Client::RpcError) { Agg.available?(erroring) }
   end
 
-  def test_available_false_when_rpc_absent
-    # Nothing seeded — mock returns "".
-    refute Agg.available?
+  def test_available_nil_when_the_broker_gives_no_response
+    # Nothing seeded — mock returns ""; this is not an answered absence.
+    assert_nil Agg.available?
   end
 
   # -- available? argument contract (rpms-rpc#225) ---------------------------
@@ -287,16 +287,10 @@ class AggTest < Minitest::Test
     assert_equal [ "AGGRPC" ], @mock.context_binds, "no round trip when already bound"
   end
 
-  def test_available_false_and_warns_when_the_agg_context_will_not_bind
-    # The broker refusing the option (not installed, or OPTCHK^CIANBUTL lock)
-    # is exactly "AG is not usable here" — fall back, deliberately and loudly.
+  def test_available_propagates_a_context_bind_error
     @mock.unbindable_context!("AGGRPC")
     @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", "1")
 
-    result = nil
-    _out, err = capture_io { result = Agg.available? }
-
-    refute result, "an unbindable AGGRPC must fail SAFE to the composition path"
-    assert_match(/AGG delegation unavailable/, err, "the fallback must be logged, not silent")
+    assert_raises(RpmsRpc::Client::RpcError) { Agg.available? }
   end
 end

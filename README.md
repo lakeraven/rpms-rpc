@@ -168,6 +168,8 @@ RpmsRpc::Patient.find(4)                  # the public API answers too, through 
 RpmsRpc::Authentication.held_keys(%w[PROVIDER XUPROGMODE])
 ```
 
+Registration write guards and their limits are described in [Registration identity checks](docs/REGISTRATION_SAFETY.md).
+
 ## Components
 
 | File                          | Purpose                                          |

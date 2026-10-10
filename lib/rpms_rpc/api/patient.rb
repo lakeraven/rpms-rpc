@@ -54,7 +54,10 @@ module RpmsRpc
     # AGZVIEWSSN security key (AGGPTLKP.m:124). That is a redaction, not an
     # identifier — it is returned as ssn: nil with ssn_masked: true so a
     # caller cannot persist it as though it were an SSN.
-    def lookup(text, type: "", all_divisions: false, include_inactive: false, **opts)
+    #
+    # require_response: true is for registration preflight: a missing or
+    # malformed header raises RpcError instead of looking like no candidates.
+    def lookup(text, type: "", all_divisions: false, include_inactive: false, require_response: false, **opts)
       if opts.key?(:limit)
         raise ArgumentError,
               "AGG LOOKUP PATIENTS has no result-limit parameter; a limit " \
@@ -67,10 +70,17 @@ module RpmsRpc
         text.to_s,
         type.to_s,
         all_divisions ? "1" : "",
-        include_inactive ? "1" : ""
+        include_inactive ? "1" : "",
+        require_response: require_response
       )
 
-      rows.map { |row| normalize_lookup_row(row) }
+      rows.map do |row|
+        patient = normalize_lookup_row(row)
+        if require_response && patient[:dfn] <= 0
+          raise Client::RpcError, "AGG LOOKUP PATIENTS returned an invalid DFN"
+        end
+        patient
+      end
     end
 
     # ORWPT FULLSSN (FULLSSN^ORWPT) reads the "SSN" index by exact value, and
@@ -96,7 +106,10 @@ module RpmsRpc
     #   { success: false, error: Symbol, message: } on rejection
     #     (:voa_rejected / :duplicate_identity / :lock_failed /
     #      :filer_rejected for composition; :agg_rejected / :hrn_file_failed
-    #      for delegation — message carries the M-side text), or
+    #      for delegation; :identity_unverifiable on either path and
+    #      :identity_mismatch on composition), or
+    #   AG duplicates include candidate_dfns; allow_duplicate: true explicitly
+    #   overrides a matching candidate result. Availability errors propagate.
     #   nil when the broker gives no response at all (infra failure) so
     #   callers can distinguish "rejected" from "unreachable".
     def register(attrs)
@@ -224,7 +237,7 @@ module RpmsRpc
     LOOKUP_ARRAY_END  = "\x1f" # $C(31) — end-of-array sentinel
     LOOKUP_ACK        = "\x00" # broker ack byte after the sequence echo
 
-    def fetch_lookup_rows(mapping, *params)
+    def fetch_lookup_rows(mapping, *params, require_response: false)
       client = RpmsRpc.client
       raw = if client.respond_to?(:call_rpc_global_array)
         client.call_rpc_global_array(mapping.rpc_name, *params)
@@ -232,7 +245,14 @@ module RpmsRpc
         client.call_rpc(mapping.rpc_name, *params)
       end
 
-      mapping.parse_many(decode_global_array(raw))
+      decoded = decode_global_array(raw)
+      if require_response
+        header = (decoded.is_a?(Array) ? decoded.first : decoded.to_s.lines.first).to_s.strip
+        unless header.start_with?("I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB")
+          raise Client::RpcError, "AGG LOOKUP PATIENTS did not return a patient header"
+        end
+      end
+      mapping.parse_many(decoded)
     end
     private :fetch_lookup_rows
 

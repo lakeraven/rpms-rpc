@@ -170,11 +170,11 @@ class DdrFilemanTest < Minitest::Test
   def test_lock_false_on_0
     @mock.seed(:ddr_lock_unlock_node, Ddr.lock_param(node: "^AUPNPAT(42)").to_s, false)
 
-    refute Ddr.lock(node: "^AUPNPAT(42)")
+    assert_equal false, Ddr.lock(node: "^AUPNPAT(42)")
   end
 
-  def test_lock_false_when_broker_gives_no_response
-    refute Ddr.lock(node: "^AUPNPAT(42)")
+  def test_lock_nil_when_broker_gives_no_response
+    assert_nil Ddr.lock(node: "^AUPNPAT(42)")
   end
 
   def test_unlock_sends_unlock_param

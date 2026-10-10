@@ -46,6 +46,10 @@ class RegistrationTest < Minitest::Test
   def setup
     @mock = RpmsRpc.mock!
     Reg.hrn_mode = Reg::HRN_MODE_DERIVE
+    seed_agg(available: false)
+    @mock.seed(:patient_id_info, "42", ATTRS)
+    @mock.seed_raw_lines(:patient_lookup_agg, "DEMOPATIENT,UNA",
+      [ "I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB" ])
   end
 
   def teardown
@@ -56,8 +60,8 @@ class RegistrationTest < Minitest::Test
   # -- capability gating -----------------------------------------------------
 
   # Agg.available? probes CIANBRPC CANRUN "AGG ADD NEW PATIENT". Seed "0"
-  # (or leave unseeded → mock returns "") to force the composition lineage;
-  # seed "1" to force delegation.
+  # to force the composition lineage; seed "1" to force delegation.
+  # An unseeded (silent) gate must not select either write path.
   def seed_agg(available:)
     @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", available ? "1" : "0")
   end

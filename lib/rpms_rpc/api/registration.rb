@@ -190,12 +190,18 @@ module RpmsRpc
     #   extra_fields:       [{ field:, value: }] escape hatch for additional
     #                       #9000001 top-level fields
     #
+    #   allow_duplicate:    true explicitly permits adding despite AG lookup
+    #                       candidates. Does not bypass failed verification.
+    #
     # Returns:
     #   { success: true, dfn:, created: }               — registered (created:
     #     false = idempotent re-run against an existing #9000001 record)
     #   { success: false, error: Symbol, message: }     — rejected; error is
     #     :voa_rejected / :duplicate_identity / :lock_failed / :filer_rejected
-    #     (composition) or :agg_rejected / :hrn_file_failed (delegation)
+    #     (composition) or :agg_rejected / :hrn_file_failed (delegation).
+    #     Both paths may return :identity_unverifiable; composition also
+    #     returns :identity_mismatch. AG :duplicate_identity includes
+    #     candidate_dfns: [Integer, ...], with no demographics in the message.
     #   nil                                             — no broker response
     #
     # Delegates to the AG capsule when it is installed on this broker
@@ -215,9 +221,14 @@ module RpmsRpc
     #                             moved, which composition has no field for
     #                             (only the ones given are named)
     #
-    # `unfiled:` is absent when everything given was sent.
+    # `unfiled:` is absent when everything given was sent. Availability RPC,
+    # connection and context errors propagate; only an answered false selects
+    # composition. A silent availability probe returns nil without writing.
     def register(attrs)
-      if Agg.available?
+      available = Agg.available?
+      return nil if available.nil?
+
+      if available
         register_via_agg(attrs)
       else
         register_via_composition(attrs)
@@ -228,6 +239,13 @@ module RpmsRpc
     # PATIENT, then file the HRN per hrn_mode. Prefer a short broker session
     # per registration (AG routines leak locals into long sessions — see Agg).
     def register_via_agg(attrs)
+      identity = request_identity(attrs)
+      invalid = identity_missing(identity)
+      return invalid if invalid
+
+      duplicate = duplicate_identity(attrs, identity)
+      return duplicate if duplicate
+
       clerk = (hrn_mode == HRN_MODE_CLERK)
       params = agg_add_params(attrs)
       # Legacy clerk-supplied HRN rides the create call (the capsule files it
@@ -256,13 +274,26 @@ module RpmsRpc
     # COMPOSITION path — the lineage-portable floor (civilian / stock VistA,
     # no AG package).
     def register_via_composition(attrs)
+      identity = request_identity(attrs)
+      invalid = identity_missing(identity)
+      return invalid if invalid
+
       voa = DataMapper.voa_add_patient.fetch_one(voa_param(attrs))
       return nil unless voa
       return voa_failure(voa) unless voa[:status] == 1
 
-      dfn = voa[:dfn_or_error].to_i
+      dfn_text = voa[:dfn_or_error].to_s
+      unless dfn_text.match?(/\A[1-9]\d*\z/)
+        return { success: false, error: :identity_unverifiable, message: "patient identity could not be verified" }
+      end
+      dfn = dfn_text.to_i
+      guard = verify_identity(identity, dfn)
+      return guard if guard
+
       node = "^AUPNPAT(#{dfn})"
-      unless DdrFileman.lock(node: node)
+      locked = DdrFileman.lock(node: node)
+      return nil if locked.nil?
+      unless locked
         return { success: false, error: :lock_failed,
                  message: "could not lock #{node}" }
       end
@@ -294,9 +325,8 @@ module RpmsRpc
     # { success: false, error:, message: } (:invalid_dfn / :no_fields /
     # :lock_failed / :filer_rejected), or nil (no broker response during
     # the filer step). NB: lock-step broker silence surfaces as
-    # :lock_failed, not nil — DDR LOCK/UNLOCK NODE's reply grammar makes
-    # no-response and lock-timeout indistinguishable (DdrFileman.lock
-    # returns false for both); treat :lock_failed as retryable.
+    # :lock_failed, not nil — update deliberately treats both a refused lock
+    # and broker silence as retryable, preserving its existing contract.
     def update(dfn, patient_fields: {}, ihs_fields: {})
       dfn = dfn.to_i
       return { success: false, error: :invalid_dfn, message: "a positive DFN is required" } if dfn <= 0
@@ -380,6 +410,80 @@ module RpmsRpc
     end
 
     private
+
+    # ORWPT returns LAST,FIRST MIDDLE SUFFIX without separate name fields.
+    # Compare the whole given-name portion, including middle/suffix when
+    # supplied, so compound first names cannot bypass identity verification.
+    def request_identity(attrs)
+      last, *given = (attrs[:name_last] || present?(attrs[:name])) ? name_parts(attrs) : []
+      { last_name: last.to_s.strip.upcase,
+        first_name: given.join(" ").strip.upcase.gsub(/\s+/, " "),
+        dob: identity_date(attrs[:dob]), sex: agg_sex(attrs[:sex]),
+        ssn: attrs[:ssn].to_s.strip.delete("-").upcase }
+    end
+
+    def identity_date(value)
+      return value.to_date if value.is_a?(Date) || value.is_a?(Time)
+
+      text = value.to_s.strip
+      case text
+      when /\A\d{1,2}\/\d{1,2}\/\d{2}\z/ then Date.strptime(text, "%m/%d/%y")
+      when /\A\d{1,2}\/\d{1,2}\/\d{4}\z/ then Date.strptime(text, "%m/%d/%Y")
+      when /\A\d{4}-\d{2}-\d{2}\z/ then Date.iso8601(text)
+      else FilemanDateParser.parse_date(text) || FilemanDateParser.parse_external_date(text)
+      end
+    rescue ArgumentError
+      nil
+    end
+
+    def identity_missing(identity)
+      fields = %i[last_name dob sex].reject { |field| present?(identity[field]) }
+      return if fields.empty?
+
+      { success: false, error: :identity_unverifiable,
+        message: "patient identity missing or invalid: #{fields.join(', ')}" }
+    end
+
+    def verify_identity(expected, dfn)
+      chart = DataMapper.patient_id_info.fetch_one(dfn.to_s)
+      unless chart && present?(chart[:name])
+        return { success: false, error: :identity_unverifiable, message: "patient identity could not be verified" }
+      end
+
+      actual = request_identity(chart)
+      missing = identity_missing(actual)
+      return missing if missing
+
+      fields = %i[last_name first_name dob sex]
+      fields << :ssn if present?(expected[:ssn])
+      differences = fields.select { |field| expected[field] != actual[field] }
+      return if differences.empty?
+
+      { success: false, error: :identity_mismatch,
+        message: "patient identity differs: #{differences.join(', ')}" }
+    rescue Client::RpcError, Client::ConnectionError
+      { success: false, error: :identity_unverifiable, message: "patient identity could not be verified" }
+    end
+
+    def duplicate_identity(attrs, identity)
+      text = [ identity[:last_name], identity[:first_name] ].join(",")
+      candidates = Agg.lookup_patients(text)
+      matches = candidates.select do |candidate|
+        actual = request_identity(candidate)
+        # An incomplete candidate cannot safely be ruled out. Sex is not
+        # returned by this RPC; name and DOB are enough to require review.
+        !present?(actual[:last_name]) || actual[:dob].nil? ||
+          (actual[:last_name] == identity[:last_name] &&
+           actual[:first_name] == identity[:first_name] && actual[:dob] == identity[:dob])
+      end
+      return if matches.empty? || attrs[:allow_duplicate] == true
+
+      { success: false, error: :duplicate_identity,
+        candidate_dfns: matches.map { |candidate| candidate[:dfn] }.uniq.sort,
+        message: "matching patient candidates require explicit override" }
+    rescue Client::RpcError, Client::ConnectionError
+      { success: false, error: :identity_unverifiable, message: "patient duplicate lookup could not be verified" }
+    end
 
     def voa_failure(voa)
       message = voa[:dfn_or_error].to_s

@@ -175,19 +175,23 @@ module RpmsRpc
     # works. Only a NON-privileged session is evidence; that live proof is
     # rpms-rpc#224 and has NOT been run. The tests prove the Ruby side only.
     #
-    # ## Failing closed is deliberate, and it is SAFE
-    #
-    # Every path that cannot establish availability — a "0" answer, an empty
-    # reply, a context that will not bind, an RpcError — returns false and
-    # WARNS, and RpmsRpc::Registration composes VOA + DDR instead. That
-    # fallback is itself a correct registration path, chosen because AGG was
-    # not PROVEN runnable here — not a silent degradation.
+    # Only an answered zero establishes that AG is unavailable. Silence is
+    # nil; RPC, connection and context errors propagate. Registration must
+    # never select a different write path because this probe failed (#407).
     def available?(client = RpmsRpc.client)
       in_context(client) { canrun?(client) }
-    rescue RpmsRpc::Client::RpcError, RpmsRpc::Client::ConnectionError => e
-      warn "[rpms_rpc] AGG delegation unavailable: could not evaluate the " \
-           "#{CONTEXT} gate (#{e.class}) — composing VOA + DDR instead"
-      false
+    end
+
+    # Registration searches every division, including inactive charts. A
+    # header-only reply proves no candidates; silence or malformed replies
+    # cannot authorize creation. Reuse the patient lookup wire decoder.
+    def lookup_patients(text)
+      require_relative "patient"
+
+      in_context(RpmsRpc.client) do
+        Patient.lookup(text, type: "N", all_divisions: true,
+                       include_inactive: true, require_response: true)
+      end
     end
 
     # ADD^AGGPTADD — create a patient from a demographics PARMS hash.
@@ -266,8 +270,8 @@ module RpmsRpc
     end
 
     # The CANRUN scalar, read through the client's reply grammar (CiaClient#parse_cia_reply):
-    # a \x00 reply yields its lines, a \x01 reply raises RpcError (which available? turns into
-    # "not available"), and a bare sequence echo yields nothing. Never the raw frame: on an
+    # a \x00 reply yields its lines, a \x01 reply raises RpcError (which available?
+    # propagates), and a bare sequence echo yields nothing. Never the raw frame: on an
     # error reply the first byte is the sequence echo, and reading it as the answer would call
     # AGG available when CANRUN said nothing of the kind. CANRUN answers with a $DATA value
     # (CIANBACT.m:148): 1, 10 or 11 when the context lists the RPC, 0 when it does not; only
@@ -278,7 +282,13 @@ module RpmsRpc
       else
         client.call_rpc(CANRUN_RPC, ADD_RPC)
       end
-      Array(lines).first.to_s.strip.to_i.positive?
+      answer = Array(lines).first.to_s.strip
+      return nil if answer.empty?
+      unless answer.match?(/\A\d+\z/)
+        raise Client::RpcError, "AG availability probe returned an invalid answer"
+      end
+
+      answer.to_i.positive?
     end
 
     # Route through the GLOBAL ARRAY read when the client supports it (live
