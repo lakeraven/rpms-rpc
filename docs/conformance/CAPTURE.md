@@ -77,7 +77,7 @@ what it claims is proven by a live call (ADR 0008 rule 4), not by the signature.
 ## Pin a build
 
 ```sh
-bundle exec rake conformance:pin RELEASE=bcer-9.0-20260930-8c88e47-ydb
+bundle exec rake conformance:pin RELEASE=bcer-9.0-20261012-e7923a4-ydb
 # 1. gh release download the seven assets above (REPO= overrides lakeraven/rpms-ops)
 # 2. each file's sha256 must equal the release's asset digest
 # 3. verify: sidecar matches bytes; provenance artifact_bound, release_tag == tag,
@@ -99,6 +99,10 @@ After a re-pin, run `rake rpc:exclusions` (the unreachable exclusions come from 
 `ENV=` overrides the fingerprint name (default `references/<tag>`).
 To move `rake rpc:coverage` to the new build, point `release`, `registry` and
 `packages` in `data/rpc_coverage/config.yml` at it.
+To retire the build it replaces, remove that tag's entry from the lock through
+`InventoryLock` (`entries.delete(tag)`, then `save`, which keeps the header and order), delete its
+`data/inventories/<tag>/` and its entries in `data/fingerprints/uncallable_exceptions.yml`.
+Its `references/<tag>.yml` fingerprint stays, as a rung `conformance:probe` ranks against.
 
 A rejected inventory is not fixed here. A gap is data: fix the build, re-cut, re-pin.
 

@@ -60,9 +60,10 @@ against M source per ADR 0002.
 > (issue #184). Every wire name in the family is now **removed** and replaced by
 > verified paths:
 >
-> - registration → `VAFC VOA ADD PATIENT` + the DDR FileMan family
->   (`RpmsRpc::Registration.register`; contracts cited routine-by-routine in
->   rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md`)
+> - registration → the AG package's `AGG ADD NEW PATIENT` / `AGG UPDATE PATIENT`
+>   under `AGGRPC` (`RpmsRpc::Registration.register`). The `VAFC VOA ADD PATIENT`
+>   + DDR composition that first replaced it was removed in #409: no RPMS
+>   context serves `VAFC VOA ADD PATIENT` (rpms-ops#499, #674)
 > - patient update → `DDR FILER` / `FILE^DIE` under the `^DPT(DFN)` lock
 >   (`RpmsRpc::Registration.update`; `EDIT^VAFCPTED` has no `^XWB(8994)`
 >   registration on any observed target)

@@ -22,10 +22,10 @@
       "bytes": 379233
     }
   },
-  "release": "bcer-9.0-20260930-8c88e47-ydb",
+  "release": "bcer-9.0-20261012-e7923a4-ydb",
   "build_instance_of": "bcer-9.0-20260909-576682d-ydb",
-  "genesis_note": "weekly cut 2026-09-30: carries #678/#679 (analyst yotta-0921 edits) and #682",
-  "rpms_ops_commit": "8c88e47e5b1bcc6af410fc0c7904e4f148fddfcd",
-  "genesis_assets": "carried forward UNCHANGED from bcer-9.0-20260929-0db1b06-ydb \u2014 this build instance changes the STANDUP SCRIPTS, not the exported data.",
+  "genesis_note": "Monday cut 2026-10-12 from rpms-ops main e7923a4",
+  "rpms_ops_commit": "e7923a473fa27060c40978f4d46be3de391c97ae",
+  "genesis_assets": "carried forward UNCHANGED from bcer-9.0-20261005-17411fa-ydb \u2014 this build instance changes the STANDUP SCRIPTS, not the exported data. Checked against the committed lineage record releases/lineages/bcer-9.0-ydb.json.",
   "vuecentric_evidence": "NOT CLAIMED unless an application-level evidence JSON exists for THIS tag (#416). The build-level round-trip is a floor, not a qualification (#411): it has passed while real clients died."
 }

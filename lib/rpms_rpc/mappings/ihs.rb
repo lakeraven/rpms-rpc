@@ -81,8 +81,8 @@ module RpmsRpc
     #   - tribal / service-unit reads → DDR GETS ENTRY DATA, DDR LISTER,
     #     DDR VALIDATOR over the real files (#9000001 IHS PATIENT, TRIBE
     #     #9999999.03, SERVICE UNIT #9999999.22) — RpmsRpc::Tribal
-    #   - patient registration        → VAFC VOA ADD PATIENT + DDR FILER —
-    #     RpmsRpc::Registration.register
+    #   - patient registration        → AGG ADD NEW PATIENT / AGG UPDATE
+    #     PATIENT (AGGRPC) — RpmsRpc::Registration.register
     #   - patient update              → DDR FILER (FILE^DIE) —
     #     RpmsRpc::Registration.update
     #   - visit get-or-create         → BEHOENCX FETCH with the CREATE flag

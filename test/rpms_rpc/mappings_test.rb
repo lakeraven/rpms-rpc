@@ -197,34 +197,6 @@ class RpmsRpc::MappingsTest < Minitest::Test
            "BEHOENCX FETCH has one mapping, :encounter_fetch"
   end
 
-  # -- VAFC VOA ADD PATIENT --------------------------------------------------
-
-  def test_voa_add_patient_success
-    # "1^DFN" on success (ADD^VAFCPTAD: VAFCPTAD.m:29,145)
-    result = RpmsRpc::DataMapper[:voa_add_patient].parse_one("1^42")
-    assert_equal 1, result[:status]
-    assert_equal "42", result[:dfn_or_error]
-    assert_nil result[:warning]
-  end
-
-  def test_voa_add_patient_failure
-    # "-1^error text" on failure (VAFCPTAD.m:28,140)
-    result = RpmsRpc::DataMapper[:voa_add_patient].parse_one("-1^PREFERRED FACILITY is a required field.")
-    assert_equal(-1, result[:status])
-    assert_match(/required field/, result[:dfn_or_error])
-  end
-
-  def test_voa_add_patient_alias_warning
-    # "1^DFN^Patient ... ALIAS data failed to update..." (ALIAS^VAFCPTAD:
-    # VAFCPTAD.m:178) — the record WAS added; piece 3+ is a warning.
-    result = RpmsRpc::DataMapper[:voa_add_patient].parse_one(
-      "1^42^Patient DEMOPATIENT,UNA was successfully added at 8994.  However, the ALIAS data failed to update."
-    )
-    assert_equal 1, result[:status]
-    assert_equal "42", result[:dfn_or_error]
-    assert_match(/ALIAS data failed/, result[:warning])
-  end
-
   def test_ddr_lock_unlock_node_scalar
     # DDROK: "1" locked / "0" lock timed out (LOCKC^DDR1: DDR1.m:18-27)
     assert_equal true, RpmsRpc::DataMapper[:ddr_lock_unlock_node].parse_scalar("1")
@@ -514,7 +486,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       patient_appointments allergy_list problem_list vitals
       encounter_visit encounter_fetch encounter_chkvisit
       vitals_for_date_range
-      voa_add_patient ddr_lister ddr_lock_unlock_node ddr_gets_entry_data
+      ddr_lister ddr_lock_unlock_node ddr_gets_entry_data
       ddr_filer ddr_validator
       practitioner_info practitioner_list user_management_user_list
       medication_list

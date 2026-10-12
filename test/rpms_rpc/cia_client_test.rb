@@ -776,9 +776,8 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # list param P<n>(<SUBSCRIPT>)=<VALUE> — and the subscript text is spliced
   # RAW into the M reference ('RT=RT_"("_SB_")"' / 'S @RT=VL', CIANBLIS.m
   # DOACTION lines 128-134), so string subscripts must cross the wire in
-  # M-quoted form ("NAME") while numeric subscripts stay bare. This is what
-  # VAFC VOA ADD PATIENT (PARAM list, ADD^VAFCPTAD) and the DDR FileMan
-  # family (DDR/DDRROOT/DDRIENS lists) require.
+  # M-quoted form ("FILE") while numeric subscripts stay bare. This is what
+  # the DDR FileMan family (DDR/DDRROOT/DDRIENS lists) requires.
 
   def signed_on_strict_client(rpc_bodies)
     c, broker = client_on_strict_broker([ "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", "63^USER,DEMO^1800;1800;60^0^0\r\n" ] + rpc_bodies)
@@ -888,8 +887,8 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   end
 
   def test_frames_carry_no_ctx_before_any_context_is_bound
-    c, broker = signed_on_strict_client([ "1^42\r\n" ])
-    c.call_rpc("VAFC VOA ADD PATIENT", { "PRFCLTY" => "8994" })
+    c, broker = signed_on_strict_client([ "[Data]\r\n" ])
+    c.call_rpc("DDR LISTER", { "FILE" => "2" })
 
     refute_includes broker.frames.last[:fields], "CTX",
       "until something binds a context, ACTR falls back to the sign-on AID (CIANBACT.m:51)"
@@ -910,14 +909,14 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_equal "OR CPRS GUI CHART", c.current_context, "the caller's context is restored"
   end
 
-  def test_voa_add_patient_hash_param_frames_as_quoted_subscript_triples
-    c, broker = signed_on_strict_client([ "1^42\r\n" ])
-    c.call_rpc("VAFC VOA ADD PATIENT",
-      { "PRFCLTY" => "8994", "NAME" => "DEMOPATIENT^UNA", "SSN" => "" })
-    assert_equal [ "UID", "", "7", "RPC", "", "VAFC VOA ADD PATIENT",
-                   "1", "\"PRFCLTY\"", "8994",
-                   "1", "\"NAME\"", "DEMOPATIENT^UNA",
-                   "1", "\"SSN\"", "" ],
+  def test_named_list_param_frames_as_quoted_subscript_triples
+    c, broker = signed_on_strict_client([ "[Data]\r\n" ])
+    c.call_rpc("DDR LISTER",
+      { "FILE" => "2", "PART" => "DEMOPATIENT^UNA", "SCREEN" => "" })
+    assert_equal [ "UID", "", "7", "RPC", "", "DDR LISTER",
+                   "1", "\"FILE\"", "2",
+                   "1", "\"PART\"", "DEMOPATIENT^UNA",
+                   "1", "\"SCREEN\"", "" ],
                  broker.frames.last[:fields]
   end
 

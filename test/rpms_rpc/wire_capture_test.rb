@@ -253,12 +253,6 @@ class RpmsRpc::WireCaptureTest < Minitest::Test
     end
   end
 
-  def test_catalog_never_marks_a_write_rpc_live
-    add_patient = RpmsRpc::WireCapture::CATALOG.find { |e| e.rpc == "VAFC VOA ADD PATIENT" }
-    refute_nil add_patient
-    refute add_patient.live?, "VAFC VOA ADD PATIENT writes — capture must stay routine-cite"
-  end
-
   # -- Review findings on #190 (Greptile). Each fails without its fix. --------
 
   # A broker error keeps its \x01 ack flag, so the sequence prefix stayed glued

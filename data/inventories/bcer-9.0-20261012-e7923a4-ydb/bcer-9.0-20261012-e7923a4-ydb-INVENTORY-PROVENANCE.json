@@ -1,0 +1,70 @@
+{
+  "schema_version": 3,
+  "label": "inventory-bcer-9.0-20261012-e7923a4-ydb",
+  "release_tag": "bcer-9.0-20261012-e7923a4-ydb",
+  "artifact_sha256": "sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7",
+  "engine": "yottadb",
+  "m_backend": "yottadb",
+  "artifact_bound": true,
+  "transport": "local",
+  "instance_id": "",
+  "container": "rpms-ydb",
+  "namespace": "RPMS",
+  "captured_at": "2026-10-12T16:07:01Z",
+  "tool_git_sha": "e7923a473fa27060c40978f4d46be3de391c97ae",
+  "dumps": {
+    "packages": {
+      "sha256": "811dd227728b569d0e4d899f5651875ae6caf45b357cd6d71fadfe63fa02eaa9",
+      "records": 287
+    },
+    "builds": {
+      "sha256": "cf2aa58175888083b3fb4df3beccdc6ea7b174d6d6dee419d3de720049d286c9",
+      "records": 5668
+    },
+    "rpcs": {
+      "sha256": "7a4ddbffd534e7d9ba9a7083bfb15a524ed49e5cf3c62a2b53687b3341e88118",
+      "records": 5557
+    },
+    "build_rpcs": {
+      "sha256": "2e2ed79a0fb9a41780ae148f045c7eecedf6e7d0cb15b4d04ded6c432f9a8c09",
+      "records": 43377
+    },
+    "installs": {
+      "sha256": "810f89b91ee075a502782f1061c4f68b62f123a9c5198b2e7a24d59b09a7525d",
+      "records": 6816
+    },
+    "package_files": {
+      "sha256": "88d2682767f9d27cf6652ce14ca7b4eb9c59dcadaed14ec6a9e859196ec7981c",
+      "records": 1354
+    }
+  },
+  "rpms_ops_commit": "e7923a473fa27060c40978f4d46be3de391c97ae",
+  "rpms_version": "bcer-9.0",
+  "build_provenance": {
+    "source": "bcer-9.0-20261012-e7923a4-ydb-PROVENANCE.json",
+    "sha256": "3755e07247a8d480e65c769e85bb5f566b2987e141fb2a0d845d78f6d4ce6933"
+  },
+  "rpc_reach": {
+    "sha256": "810b6a5d357414b54bea986075cd221934e203fe29b404cc0dd0a778278bbcf6",
+    "records": 5557,
+    "classes": {
+      "broker-exempt": 21,
+      "client-callable": 4940,
+      "no-context": 226,
+      "no-entry-point": 87,
+      "no-routine": 203,
+      "out-of-order": 80
+    }
+  },
+  "rpc_signatures": {
+    "sha256": "5040d2d4789c511f15e52cfbc1e7f1b86a7e56a753bea4bf720442931ced7313",
+    "rpcs": 5557,
+    "parameters": 2287,
+    "description_lines": 4097
+  },
+  "image": {
+    "repository": "ghcr.io/lakeraven/rpms-ydb",
+    "digest": "sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7",
+    "ref": "ghcr.io/lakeraven/rpms-ydb@sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7"
+  }
+}
