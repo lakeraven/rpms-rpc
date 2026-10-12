@@ -45,11 +45,10 @@ Everything else matches what the raw files give: every verb and path, the tags, 
 rpcs.v2 carries all of them; re-pinning to the first release that publishes it (`rake openapi:pin RELEASE=<tag>`) restores them, with no code change.
 
 **Which build.**
-The surface's pin is its own (`data/openapi/`), not `data/fingerprints/rpms-ops.lock.yml`.
-That lock's builds are the ones every conformance gate holds the gem to, and the first build to publish `rpcs.json`, `bcer-9.0-20261012-e7923a4-ydb`, does not pass them.
-There, rpms-ops deliberately serves `VAFC VOA ADD PATIENT` (sent by `Patient.register` and `Registration.register`) from no context (rpms-ops#499, rpms-ops#674).
-Moving the repo-wide pin waits on rpms-rpc#409.
-So the two documents can name different builds today: the client API names the build `data/rpc_coverage/config.yml` pins, and each document says which in `x-rpms-build.tag`.
+Both documents name the same build.
+`data/rpc_coverage/config.yml`, which the client API's analysis reads, and `data/openapi/rpcs.lock.yml`, which the surface reads, both pin `bcer-9.0-20261012-e7923a4-ydb`.
+`rake openapi` refuses to report success when the two documents' `x-rpms-build.tag` differ, and a test holds the defaults to the same tag.
+The surface keeps a pin of its own because `conformance:pin` does not fetch `<tag>-rpcs.json`, so a re-pin is both commands with the same tag: `rake conformance:pin RELEASE=<tag>` and `rake openapi:pin RELEASE=<tag>`.
 
 **The client API** runs `rake rpc:api_coverage`'s analysis in process (`METHODS=<file>` reads a JSON it wrote instead); its build is the one `data/rpc_coverage/config.yml` pins.
 
@@ -73,7 +72,7 @@ To attach them to an existing release, run the workflow by hand with that tag.
 | `x-rpms-gem.name`, `.version` | `rpms-rpc` and `RpmsRpc::VERSION` |
 | `x-rpms-gem.commit` | the gem commit the document was generated from (`GEM_COMMIT=` overrides `git rev-parse HEAD`) |
 | `x-rpms-gem.dirty` | `true` when the checkout had uncommitted changes, so the document is not exactly the commit's; absent otherwise |
-| `x-rpms-build.tag` | the rpms-ops build tag (`bcer-9.0-20260930-8c88e47-ydb`) |
+| `x-rpms-build.tag` | the rpms-ops build tag (`bcer-9.0-20261012-e7923a4-ydb`) |
 
 The surface's `x-rpms-build` also carries `rpms_version`, `engine`, `rpms_ops_commit` (the rpcs.json header's), `source` (`<tag>-rpcs.json`, its sha256 and its `schema`) and `inputs` (each raw file rpms-ops projected it from, with the sha256 the header names).
 Its `info.version` is the RPMS version (`bcer-9.0`); the client API's is the gem version.

@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "fileutils"
 require "json"
 require "tmpdir"
+require "yaml"
 require "rpms_rpc"
 require_relative "../../tools/openapi/surface"
 require_relative "../../tools/openapi/rpcs_pin"
@@ -93,6 +94,15 @@ class OpenApiPinnedDocumentsTest < Minitest::Test
     assert_equal self.class.methods["methods"].map { |m| "#{m['module'].delete_prefix('RpmsRpc::')}.#{m['method']}" }.sort, placed.sort
     assert_equal api["operations"], ids.size
     assert_equal self.class.methods["registry"], doc["x-rpms-build"]["tag"]
+  end
+
+  # The surface's pin (data/openapi/rpcs.lock.yml) and the client API's (data/rpc_coverage/config.yml)
+  # are kept apart because conformance:pin does not fetch rpcs.json; the defaults must still name one build.
+  def test_both_documents_name_the_same_build
+    surface = JSON.parse(self.class.surface_text).dig("x-rpms-build", "tag")
+    api = JSON.parse(self.class.api_text).dig("x-rpms-build", "tag")
+    assert_equal surface, api, "re-pin both with the same RELEASE=: rake conformance:pin and rake openapi:pin"
+    assert_equal YAML.safe_load_file(File.join(ROOT, "data/rpc_coverage/config.yml")).fetch("release"), surface
   end
 
   def test_the_same_inputs_give_byte_identical_documents

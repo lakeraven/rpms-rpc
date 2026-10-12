@@ -125,5 +125,14 @@ namespace :openapi do
   end
 end
 
-desc "Both OpenAPI documents, into pkg/openapi/ (rake openapi:surface + openapi:api)"
-task openapi: %w[openapi:surface openapi:api]
+desc "Both OpenAPI documents, into pkg/openapi/ (rake openapi:surface + openapi:api); they must name one build"
+task openapi: %w[openapi:surface openapi:api] do
+  require "json"
+  dir = File.expand_path("../../pkg/openapi", __dir__)
+  # Only meaningful for the default outputs: OUT= writes one task's document elsewhere.
+  next puts "openapi: OUT= set; the build-tag check needs the default outputs" if ENV["OUT"]
+
+  tags = %w[rpc-surface.openapi.json client-api.openapi.json].to_h { |f| [ f, JSON.parse(File.read(File.join(dir, f))).dig("x-rpms-build", "tag") ] }
+  abort "openapi: the documents name different builds: #{tags} (re-pin both: conformance:pin and openapi:pin, same RELEASE=)" unless tags.values.uniq.size == 1
+  puts "EXPLICIT SUCCESS: openapi: both documents name #{tags.values.first}"
+end
