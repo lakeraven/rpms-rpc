@@ -59,7 +59,7 @@ It generates both documents at the release's tag, attaches them as release asset
 A consumer fetches them by the gem's tag:
 
 ```sh
-gh release download v0.3.1 -R lakeraven/rpms-rpc -p rpc-surface.openapi.json -p client-api.openapi.json
+gh release download v0.4.0 -R lakeraven/rpms-rpc -p rpc-surface.openapi.json -p client-api.openapi.json
 ```
 
 or by URL, `https://github.com/lakeraven/rpms-rpc/releases/download/<tag>/<asset>` (`releases/latest/download/<asset>` for the newest release).
