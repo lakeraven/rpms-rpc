@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.4.0] — 2026-10-12
-
 ### Removed — the VAFC VOA ADD PATIENT + DDR registration path (#409)
 
 - `Registration.register` and `Patient.register` register through the AG package only
