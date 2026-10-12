@@ -38,6 +38,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Coverage: 37 / 4961. The live evidence is still `local-ydb-0930`; the config notes how the
   two builds differ.
 
+### Added — the OpenAPI documents: the RPC surface and the client API (#395)
+
+- `rake openapi:surface` writes `pkg/openapi/rpc-surface.openapi.json`: every RPC the pinned build
+  registers, addressed as a resource (`XUS DIVISION GET` is `GET /kernel/division`), with its real
+  name, arguments in broker order, reply, and `x-rpms` (entry point, reach and contexts, parameter
+  source). It reads the pinned files only through `BuildSurface`, after `InventoryLock` verifies them.
+- `rake openapi:api` writes `pkg/openapi/client-api.openapi.json`: the gem's public methods as
+  resource operations (`Patient.find` is `GET /patients/{dfn}`), each naming its RPCs and whether a
+  live spec proves it, from `rake rpc:api_coverage`'s analysis.
+- Both name the gem commit and the build tag, are byte-identical for the same inputs, and fail unless
+  they validate as OpenAPI 3.1 with every verb + path unique. `.github/workflows/openapi-release.yml`
+  attaches both to each published GitHub release. The fields are defined in `docs/openapi.md`.
+  Ported from rpms-ux `bin/rpc-catalog.mjs` and `bin/api-catalog.mjs`, which retire with rpms-ux#21.
+- `BuildSurface` reads a signatures line that is not UTF-8 as Latin-1 (a `\xB7` bullet was `?`), and
+  refuses a walk whose RPC or parameter count disagrees with what its `EXPLICIT SUCCESS` line reports.
+- Development dependency: `json_schemer`, for the OpenAPI 3.1 schema check.
+
 ### Deprecated — `RpmsRpc::FhirClient` and `RpmsRpc.fhir_client` (#360)
 
 - Both warn on every call: a FHIR client is host knowledge (ADR 0010, assertion 7) and leaves

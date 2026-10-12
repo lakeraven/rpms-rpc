@@ -6,8 +6,8 @@ module RpmsRpc
   module Conformance
     # The RPC surface of ONE pinned rpms-ops build, read from the files rpms-ops publishes for it
     # (rpms-rpc#394, #395). This is the only reader of those files in this repo: the registered-names
-    # gate, the callable gate, `rake rpc:exclusions`, `rpc:coverage`, `rpc:api_coverage` and
-    # `conformance:pin`/`check` all go through it, and so will the OpenAPI generator (#395). When
+    # gate, the callable gate, `rake rpc:exclusions`, `rpc:coverage`, `rpc:api_coverage`,
+    # `conformance:pin`/`check` and `openapi:surface` (#395) all go through it. When
     # rpms-ops publishes one structured file of the surface (`<tag>-rpcs.json`, rpms-ops#732), it
     # becomes a second constructor here and the per-file parsers below go; callers do not change.
     #
@@ -160,14 +160,21 @@ module RpmsRpc
         end
       end
 
-      # ZRPCCAT output can carry non-UTF-8 bytes in descriptions: read binary, keep the text as
-      # UTF-8 with any invalid byte replaced.
+      # ZRPCCAT writes M text as stored: mostly ASCII, sometimes Latin-1 (bcer-9.0-20260930's XQ
+      # descriptions carry a \xB7 bullet). Read binary; a line that is not valid UTF-8 is Latin-1,
+      # transcoded to UTF-8.
+      def self.text(raw)
+        utf8 = raw.dup.force_encoding("UTF-8")
+        utf8.valid_encoding? ? utf8 : raw.dup.force_encoding("ISO-8859-1").encode("UTF-8")
+      end
+
       def read_signatures(path)
         by_ien = {}
         order = []
         complete = false
+        params = 0
         File.foreach(path, chomp: true, encoding: "ASCII-8BIT") do |raw|
-          line = raw.dup.force_encoding("UTF-8").scrub("?")
+          line = self.class.text(raw)
           f = line.split("\t", -1)
           case f[0]
           when "RPC"
@@ -183,6 +190,7 @@ module RpmsRpc
             order << rpc.name
           when "DESC" then signature_rpc(by_ien, f, path).description << f[2].to_s
           when "PARAM"
+            params += 1
             signature_rpc(by_ien, f, path).params << Param.new(seq: blank_field(f[2]), name: f[3], type: blank_field(f[4]),
                                                                max_length: blank_field(f[5]), required: f[6] == "1", description: [])
           when "PDESC"
@@ -194,7 +202,14 @@ module RpmsRpc
             param.description << f[3].to_s
           when "RET" then signature_rpc(by_ien, f, path).returns << f[2].to_s
           else
-            complete = true if line.start_with?("EXPLICIT SUCCESS")
+            if line.start_with?("EXPLICIT SUCCESS")
+              complete = true
+              # The walk's own counts, when it reports them: a PARAM line lost in transit is a truncation too.
+              { "rpcs" => order.size, "parameters" => params }.each do |key, seen|
+                reported = line[/\b#{key}=(\d+)/, 1] or next
+                raise Error, "#{File.basename(path)}: #{seen} #{key} read, the walk reports #{key}=#{reported}" unless reported.to_i == seen
+              end
+            end
             raise Error, "#{File.basename(path)} reports #{line}" if line.start_with?("EXPLICIT FAILURE")
           end
         end

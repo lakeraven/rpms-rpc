@@ -47,8 +47,8 @@ not know, and a truncated walk. Checksums are `InventoryLock`'s job; it verifies
 then reads them through this class.
 
 The registered-names gate, the callable gate, `rake rpc:exclusions`, `rake rpc:coverage`,
-`rake rpc:api_coverage` and `conformance:pin`/`check` all read through it, and so will the
-OpenAPI generator (#395). When rpms-ops publishes one structured file of the surface
+`rake rpc:api_coverage`, `conformance:pin`/`check` and `rake openapi:surface` (#395,
+[docs/openapi.md](../openapi.md)) all read through it. When rpms-ops publishes one structured file of the surface
 (`<tag>-rpcs.json`, rpms-ops#732), it becomes a second constructor of this class and the
 per-file parsers go; no caller changes (#394 AC 4).
 | `data/fingerprints/references/<tag>.yml` | the fingerprint ingested from exactly those bytes; its `source.inventory` face repeats the build and the shas. |
