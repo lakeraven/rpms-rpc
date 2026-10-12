@@ -622,22 +622,6 @@ module RpmsRpc
         pieces: [],
         note: "text_blob mapping — the gate checks reply-kind consistency and " \
               "records the real reply grammar; row parsing lives in DdrFileman.gets_entry."
-      ),
-      # VAFC VOA ADD PATIENT is a WRITE RPC — never called by the capture
-      # task (read-only discipline; conformance SPEC non-negotiable). Its
-      # reply shape is routine-cited instead.
-      CatalogEntry.new(
-        rpc: "VAFC VOA ADD PATIENT", mapping: :voa_add_patient, kind: "fields", mode: :routine_cite,
-        inputs: nil,
-        cite: "ADD^VAFCPTAD (VAFCPTAD.m:28-29,55,140,145,178): RETURN(1) is " \
-              "'-1^error text' | '1^DFN' | '1^DFN^ALIAS warning...'",
-        pieces: [
-          Piece.new(position: 0, attributes: [ "status" ], fileman_type: "integer"),
-          Piece.new(position: 1, attributes: [ "dfn_or_error" ]),
-          Piece.new(position: 2, attributes: [ "warning" ])
-        ],
-        note: "Write RPC: shape verified from routine source only; " \
-              "example rows are illustrative, not captured."
       )
     ].freeze
   end

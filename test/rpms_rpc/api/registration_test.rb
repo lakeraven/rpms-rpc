@@ -4,11 +4,10 @@ require "minitest/autorun"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/registration"
 
-# Tests for RpmsRpc::Registration — patient registration with two lineages
-# (rpms-rpc#214):
-#
-#   * DELEGATION (Agg.available?) — AGG ADD NEW PATIENT / AGG UPDATE PATIENT.
-#   * COMPOSITION (no AG package)  — VAFC VOA ADD PATIENT + DDR FileMan.
+# Tests for RpmsRpc::Registration — patient registration through the IHS AG
+# package (rpms-rpc#214): AGG ADD NEW PATIENT / AGG UPDATE PATIENT. The VAFC
+# VOA ADD PATIENT + DDR composition is gone: no RPMS context serves VOA
+# (rpms-rpc#409).
 #
 # HRN handling has two modes: :derive_from_dfn (default greenfield, HRN := DFN)
 # and :clerk_supplied (legacy passthrough). NO client-side HRN uniqueness in
@@ -24,24 +23,15 @@ class RegistrationTest < Minitest::Test
     dob: Date.new(1990, 1, 2),
     sex: "F",
     ssn: "900010001",
-    station_number: "8994",
-    full_icn: "1000000001V123456",
-    type: "NON-VETERAN (OTHER)",
-    veteran: "N",
-    service_connected: "N",
     hrn: "100001",
-    location_ien: 5,
-    # Completion values are FileMan-INTERNAL (DDR FILER runs UPDATE^DIE with
-    # no "E" flag — DDR3.m:15,18): pointer IENs for tribe (^AUTTTRI) and
-    # classification (^AUTTBEN), the I/D/C/P set code for eligibility,
-    # free text for community.
+    # AG window values: pointer IENs for tribe (#9999999.03) and
+    # classification (#9999999.25), the set code for eligibility; free-text
+    # community has no AG parameter and is named in unfiled:.
     tribe: "123",
     classification: "13",
     eligibility_status: "I",
     community: "EXAMPLE COMMUNITY"
   }.freeze
-
-  LOCK_NODE = "^AUPNPAT(42)"
 
   def setup
     @mock = RpmsRpc.mock!
@@ -53,49 +43,14 @@ class RegistrationTest < Minitest::Test
     RpmsRpc.reset!
   end
 
-  # -- capability gating -----------------------------------------------------
-
-  # Agg.available? probes CIANBRPC CANRUN "AGG ADD NEW PATIENT". Seed "0"
-  # (or leave unseeded → mock returns "") to force the composition lineage;
-  # seed "1" to force delegation.
-  def seed_agg(available:)
-    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", available ? "1" : "0")
-  end
-
-  # -- composition seeding helpers -------------------------------------------
-
-  def seed_voa(attrs = ATTRS, reply: { status: 1, dfn_or_error: "42" })
-    @mock.seed(:voa_add_patient, Reg.voa_param(attrs).to_s, reply)
-  end
-
-  def seed_lock(node: LOCK_NODE, ok: true)
-    @mock.seed(:ddr_lock_unlock_node, Ddr.lock_param(node: node).to_s, ok)
-  end
-
-  def seed_existence(dfn: 42, exists: false)
-    key = Ddr.gets_entry_param(file: "9000001", iens: "#{dfn},", fields: ".01").to_s
-    text = exists ? "[Data]\n9000001^#{dfn}^.01^#{dfn}^DEMOPATIENT,UNA" : "[ERROR]"
-    @mock.seed(:ddr_gets_entry_data, key, text)
-  end
-
-  def seed_filer(text: "[Data]\n+1,^42\n+2,^5")
-    @mock.seed(:ddr_filer, "ADD", text)
-  end
-
-  def seed_composition_happy_path
-    seed_agg(available: false)
-    seed_voa
-    seed_lock
-    seed_existence
-    seed_filer
+  # Agg.available? probes CIANBRPC CANRUN "AGG ADD NEW PATIENT". Registration
+  # no longer asks; a test seeds "0" to show it does not fall back.
+  def seed_agg_canrun(answer)
+    @mock.seed_scalar(:agg_canrun, "AGG ADD NEW PATIENT", answer)
   end
 
   def filer_calls
     @mock.received_calls.select { |c| c[:rpc] == "DDR FILER" }
-  end
-
-  def all_filer_rows
-    filer_calls.flat_map { |c| c[:params][1].values }
   end
 
   # -- delegation seeding helpers --------------------------------------------
@@ -115,78 +70,10 @@ class RegistrationTest < Minitest::Test
   end
 
   # ==========================================================================
-  # VOA param construction
+  # Registration goes through AG, and only AG (rpms-rpc#409)
   # ==========================================================================
 
-  def test_voa_param_builds_named_list_in_vafcptad_order
-    param = Reg.voa_param(ATTRS)
-
-    assert_equal(
-      {
-        "PRFCLTY" => "8994",
-        "NAME" => "DEMOPATIENT^UNA",
-        "GENDER" => "F",
-        "DOB" => "01/02/1990",
-        "SSN" => "900010001",
-        "SRVCNCTD" => "N",
-        "TYPE" => "NON-VETERAN (OTHER)",
-        "VET" => "N",
-        "FULLICN" => "1000000001V123456"
-      },
-      param
-    )
-  end
-
-  def test_voa_param_splits_name_at_first_comma_only
-    param = Reg.voa_param(ATTRS.merge(name: "DEMOPATIENT,UNA MAE"))
-
-    assert_equal "DEMOPATIENT^UNA MAE", param["NAME"]
-  end
-
-  def test_voa_param_accepts_name_pieces
-    param = Reg.voa_param(ATTRS.merge(
-      name: nil, name_last: "DEMOPATIENT", name_first: "UNA", name_middle: "MAE", name_suffix: "JR"
-    ))
-
-    assert_equal "DEMOPATIENT^UNA^MAE^JR", param["NAME"]
-  end
-
-  def test_voa_param_allows_blank_ssn_for_pseudo_ssn_path
-    param = Reg.voa_param(ATTRS.merge(ssn: nil))
-
-    assert_equal "", param["SSN"]
-  end
-
-  def test_voa_param_includes_optional_elements_when_given
-    param = Reg.voa_param(ATTRS.merge(
-      pob_city: "EXAMPLE CITY", pob_state: "MT", mothers_maiden_name: "DEMOMAIDEN,ONE"
-    ))
-
-    assert_equal "EXAMPLE CITY", param["POBCTY"]
-    assert_equal "MT", param["POBST"]
-    assert_equal "DEMOMAIDEN,ONE", param["MMN"]
-  end
-
-  def test_voa_param_rejects_missing_required_field_without_echoing_phi
-    err = assert_raises(ArgumentError) { Reg.voa_param(ATTRS.merge(full_icn: nil)) }
-
-    assert_match(/full_icn/, err.message)
-    refute_match(/DEMOPATIENT/, err.message)
-  end
-
-  def test_voa_param_rejects_caret_in_name_piece
-    err = assert_raises(ArgumentError) { Reg.voa_param(ATTRS.merge(name: "DEMO^PATIENT,UNA")) }
-
-    assert_match(/name/, err.message)
-    refute_match(/DEMO\^PATIENT/, err.message, "message must not echo the PHI value")
-  end
-
-  # ==========================================================================
-  # Delegation lineage (AG capsule)
-  # ==========================================================================
-
-  def test_register_delegates_to_agg_when_available
-    seed_agg(available: true)
+  def test_register_creates_through_agg_and_files_the_hrn
     seed_agg_add(dfn: "9")
     seed_agg_update
 
@@ -196,42 +83,75 @@ class RegistrationTest < Minitest::Test
     assert_equal 9, result[:dfn]
     assert result[:created]
     assert_equal 1, agg_calls("AGG ADD NEW PATIENT").length, "must call the AGG create RPC"
-    assert_empty filer_calls, "delegation must not touch the DDR composition path"
+    assert_empty filer_calls, "registration files nothing through DDR"
   end
 
-  # rpms-rpc#225: the delegation decision is only meaningful under AGGRPC. The
-  # AGG* RPCs are registered to that option alone, so probing under whatever
-  # context the session happens to hold answers a truthful 0 — which reads as
-  # "AG is not installed" and drops every registration into the composition
-  # path, skipping the AG capsule's HL7/MPI staging and ^AGPATCH stamp.
-  def test_register_asks_the_delegation_question_under_the_agg_context
-    seed_agg(available: true)
+  # The AGG* RPCs are registered to AGGRPC alone (rpms-rpc#225), so the writes
+  # bind it.
+  def test_register_runs_the_agg_writes_under_the_agg_context
     seed_agg_add(dfn: "9")
     seed_agg_update
 
     Reg.register(ATTRS)
 
-    gate = @mock.received_calls.find { |c| c[:rpc] == "CIANBRPC CANRUN" }
-
-    assert_equal "AGGRPC", gate[:context], "the gate must be asked where AGG* is registered"
-    agg_calls("AGG ADD NEW PATIENT").each do |c|
-      assert_equal "AGGRPC", c[:context], "and the writes must run there too"
-    end
+    calls = agg_calls("AGG ADD NEW PATIENT") + agg_calls("AGG UPDATE PATIENT")
+    refute_empty calls
+    calls.each { |c| assert_equal "AGGRPC", c[:context] }
   end
 
-  def test_composition_path_does_not_bind_the_agg_context_for_its_own_calls
-    seed_composition_happy_path
+  # The old fallback sent VAFC VOA ADD PATIENT when CANRUN said no. No RPMS
+  # context serves that RPC, so there is nothing to fall back to: register
+  # neither asks nor composes.
+  def test_register_does_not_fall_back_to_vafc_voa_add_patient
+    seed_agg_canrun("0")
+    seed_agg_add(dfn: "9")
+    seed_agg_update
 
     Reg.register(ATTRS)
 
-    filer_calls.each do |c|
-      refute_equal "AGGRPC", c[:context],
-        "the VOA + DDR floor must not inherit the probe's context"
-    end
+    sent = @mock.received_calls.map { |c| c[:rpc] }
+    refute_includes sent, "VAFC VOA ADD PATIENT"
+    refute_includes sent, "CIANBRPC CANRUN"
+    assert_includes sent, "AGG ADD NEW PATIENT"
+  end
+
+  def test_register_returns_nil_when_broker_gives_no_response
+    # Nothing seeded: the mock answers "" for AGG ADD NEW PATIENT.
+    assert_nil Reg.register(ATTRS)
+  end
+
+  def test_register_splits_the_name_at_the_first_comma_only
+    seed_agg_add(dfn: "9")
+    seed_agg_update
+
+    Reg.register(ATTRS.merge(name: "DEMOPATIENT,UNA MAE"))
+
+    pairs = agg_calls("AGG ADD NEW PATIENT").first[:params][2].split("\x1c")
+    assert_includes pairs, "AGGPTLNM=DEMOPATIENT"
+    assert_includes pairs, "AGGPTFNM=UNA MAE"
+  end
+
+  def test_register_accepts_name_pieces
+    seed_agg_add(dfn: "9")
+    seed_agg_update
+
+    Reg.register(ATTRS.merge(name: nil, name_last: "DEMOPATIENT", name_first: "UNA",
+                             name_middle: "MAE", name_suffix: "JR"))
+
+    pairs = agg_calls("AGG ADD NEW PATIENT").first[:params][2].split("\x1c")
+    assert_includes pairs, "AGGPTMNM=MAE"
+    assert_includes pairs, "AGGPTSFX=JR"
+  end
+
+  def test_register_rejects_caret_in_name_piece_without_echoing_phi
+    err = assert_raises(ArgumentError) { Reg.register(ATTRS.merge(name: "DEMO^PATIENT,UNA")) }
+
+    assert_match(/name/, err.message)
+    refute_match(/DEMO\^PATIENT/, err.message, "message must not echo the PHI value")
+    assert_empty @mock.received_calls
   end
 
   def test_delegation_add_frames_demographics_as_parms_without_hrn_in_greenfield
-    seed_agg(available: true)
     seed_agg_add(dfn: "9")
     seed_agg_update
 
@@ -255,7 +175,6 @@ class RegistrationTest < Minitest::Test
   # parameters of AG's own "New Patient" window, so they ride the create and
   # AG files them. Nothing is filed around AG.
   def test_delegation_sends_the_ihs_values_as_new_patient_window_parameters
-    seed_agg(available: true)
     seed_agg_add(dfn: "9")
     seed_agg_update
 
@@ -272,7 +191,6 @@ class RegistrationTest < Minitest::Test
   end
 
   def test_delegation_names_free_text_community_as_unfiled
-    seed_agg(available: true)
     seed_agg_add(dfn: "9")
     seed_agg_update
 
@@ -289,7 +207,6 @@ class RegistrationTest < Minitest::Test
   # rpms-rpc#300 AC 4: free text given beside the pointer is still not sent
   # (the window has no free-text community parameter), so it is named.
   def test_delegation_names_free_text_community_as_unfiled_beside_the_pointer
-    seed_agg(available: true)
     seed_agg_add(dfn: "9")
     seed_agg_update
 
@@ -303,7 +220,6 @@ class RegistrationTest < Minitest::Test
   end
 
   def test_delegation_names_extra_fields_as_unfiled
-    seed_agg(available: true)
     seed_agg_add(dfn: "9")
     seed_agg_update
 
@@ -314,8 +230,6 @@ class RegistrationTest < Minitest::Test
   end
 
   def test_delegation_community_needs_the_pointer_and_the_date_together
-    seed_agg(available: true)
-
     err = assert_raises(ArgumentError) { Reg.register(ATTRS.merge(community_ien: "18186")) }
 
     assert_match(/community_since/, err.message)
@@ -333,8 +247,6 @@ class RegistrationTest < Minitest::Test
   end
 
   def test_delegation_refuses_a_date_moved_that_is_not_a_date
-    seed_agg(available: true)
-
     [ "TODAY", "last spring", "1990-01-02" ].each do |since|
       err = assert_raises(ArgumentError) { Reg.register(ATTRS.merge(community_ien: "18186", community_since: since)) }
       assert_match(/community_since/, err.message)
@@ -368,7 +280,6 @@ class RegistrationTest < Minitest::Test
   end
 
   def test_delegation_greenfield_files_hrn_equal_to_dfn_via_update
-    seed_agg(available: true)
     seed_agg_add(dfn: "9")
     seed_agg_update
 
@@ -383,7 +294,6 @@ class RegistrationTest < Minitest::Test
 
   def test_delegation_clerk_mode_sends_supplied_hrn_on_create_and_skips_update
     Reg.hrn_mode = Reg::HRN_MODE_CLERK
-    seed_agg(available: true)
     seed_agg_add(dfn: "9")
 
     result = Reg.register(ATTRS)
@@ -396,7 +306,6 @@ class RegistrationTest < Minitest::Test
   end
 
   def test_delegation_surfaces_agg_rejection
-    seed_agg(available: true)
     seed_agg_add(result: "-1", message: "MISSING MANDATORY FIELD", dfn: "")
 
     result = Reg.register(ATTRS)
@@ -408,7 +317,6 @@ class RegistrationTest < Minitest::Test
   end
 
   def test_delegation_hrn_update_failure_surfaces_with_dfn
-    seed_agg(available: true)
     seed_agg_add(dfn: "9")
     seed_agg_update(result: "-1", error: "HRN FIELD REJECTED")
 
@@ -417,240 +325,6 @@ class RegistrationTest < Minitest::Test
     refute result[:success]
     assert_equal :hrn_file_failed, result[:error]
     assert_equal 9, result[:dfn], "the patient was created; surface the DFN for retry"
-  end
-
-  # ==========================================================================
-  # Composition lineage — greenfield happy path (HRN := DFN)
-  # ==========================================================================
-
-  def test_register_success_returns_dfn_and_created
-    seed_composition_happy_path
-
-    result = Reg.register(ATTRS)
-
-    assert result[:success]
-    assert_equal 42, result[:dfn]
-    assert result[:created]
-  end
-
-  def test_register_files_stub_then_hrn_and_ihs_fields_in_two_filer_passes
-    seed_composition_happy_path
-
-    Reg.register(ATTRS)
-
-    stub, completion = filer_calls.map { |c| c[:params] }
-    refute_nil completion, "expected two DDR FILER passes (stub + completion)"
-    # Pass 1 — #9000001 .01 stub filed at the DINUM IEN = DFN.
-    assert_equal [ "ADD", { 1 => "9000001^.01^+1,^42" }, "", { 1 => "42" } ], stub
-    # Pass 2 — greenfield HRN := DFN (42) rides the 41 multiple; then the IHS
-    # completion fields (1108/1111/1112/1118).
-    mode, root, flags, iens = completion
-    assert_equal "ADD", mode
-    assert_equal "", flags
-    assert_equal "9000001.41^.01^+1,42,^5", root[1]
-    assert_equal "9000001.41^.02^+1,42,^42", root[2]
-    assert_equal "9000001^1108^42,^123", root[3]
-    assert_equal "9000001^1111^42,^13", root[4]
-    assert_equal "9000001^1112^42,^I", root[5]
-    assert_equal "9000001^1118^42,^EXAMPLE COMMUNITY", root[6]
-    assert_equal({ 1 => "5" }, iens)
-  end
-
-  def test_composition_clerk_mode_files_supplied_hrn
-    Reg.hrn_mode = Reg::HRN_MODE_CLERK
-    seed_composition_happy_path
-
-    Reg.register(ATTRS)
-
-    assert_includes all_filer_rows, "9000001.41^.02^+1,42,^100001",
-                    "clerk-supplied mode files the caller HRN verbatim"
-  end
-
-  def test_register_locks_then_unlocks_aupnpat_node
-    seed_composition_happy_path
-
-    Reg.register(ATTRS)
-
-    lock_calls = @mock.received_calls.select { |c| c[:rpc] == "DDR LOCK/UNLOCK NODE" }
-    assert_equal [ Ddr.lock_param(node: LOCK_NODE), Ddr.unlock_param(node: LOCK_NODE) ],
-                 lock_calls.map { |c| c[:params].first }
-  end
-
-  def test_register_does_no_client_side_hrn_uniqueness_lister_precheck
-    seed_composition_happy_path
-
-    Reg.register(ATTRS)
-
-    assert_nil @mock.received_calls.find { |c| c[:rpc] == "DDR LISTER" },
-               "no client-side HRN uniqueness pre-check (#214)"
-  end
-
-  def test_register_supports_extra_fields_escape_hatch
-    seed_composition_happy_path
-
-    Reg.register(ATTRS.merge(extra_fields: [ { field: "1110", value: "4/4" } ]))
-
-    assert_includes all_filer_rows, "9000001^1110^42,^4/4"
-  end
-
-  # rpms-rpc#300: the composition path files community as 1118 free text
-  # only. It has no 1117 pointer and no #9000001.51 history entry, so a
-  # pointer or a date moved given to it is named, never silently dropped.
-  def test_composition_names_community_pointer_and_date_as_unfiled
-    seed_composition_happy_path
-
-    result = Reg.register(ATTRS.merge(community_ien: "18186", community_since: Date.new(2020, 5, 1)))
-
-    assert result[:success]
-    assert_equal %i[community_ien community_since], result[:unfiled]
-    assert_includes all_filer_rows, "9000001^1118^42,^EXAMPLE COMMUNITY"
-    assert all_filer_rows.none? { |r| r.include?("^1117^") || r.start_with?("9000001.51^") },
-           "composition files no pointer and no history entry"
-  end
-
-  def test_composition_names_only_the_community_attrs_given
-    seed_composition_happy_path
-
-    result = Reg.register(ATTRS.merge(community_since: :birth))
-
-    assert_equal [ :community_since ], result[:unfiled]
-  end
-
-  def test_composition_free_text_community_is_filed_not_unfiled
-    seed_composition_happy_path
-
-    result = Reg.register(ATTRS)
-
-    assert result[:success]
-    refute result.key?(:unfiled), "free-text community is filed into 1118"
-    assert_includes all_filer_rows, "9000001^1118^42,^EXAMPLE COMMUNITY"
-  end
-
-  def test_composition_rerun_still_names_the_community_pointer
-    seed_agg(available: false)
-    seed_voa
-    seed_lock
-    seed_existence(exists: true)
-    seed_filer(text: "[Data]")
-
-    result = Reg.register(ATTRS.merge(community_ien: "18186"))
-
-    assert result[:success]
-    refute result[:created]
-    assert_equal [ :community_ien ], result[:unfiled]
-  end
-
-  # ==========================================================================
-  # Composition — idempotent re-run (safe after partial failure)
-  # ==========================================================================
-
-  def test_register_rerun_with_existing_record_skips_stub_and_hrn_rows
-    seed_agg(available: false)
-    seed_voa # VOA returns the existing DFN for a known ICN (VAFCPTAD.m:55)
-    seed_lock
-    seed_existence(exists: true)
-    seed_filer(text: "[Data]")
-
-    result = Reg.register(ATTRS)
-
-    assert result[:success]
-    assert_equal 42, result[:dfn]
-    refute result[:created]
-    # No stub pass, no 41-multiple rows — only field edits against "42,".
-    assert_equal 1, filer_calls.length
-    refute_includes all_filer_rows, "9000001^.01^+1,^42"
-    assert all_filer_rows.none? { |r| r.start_with?("9000001.41^") }
-    assert_includes all_filer_rows, "9000001^1108^42,^123"
-  end
-
-  def test_register_rerun_with_nothing_left_to_file_skips_filer
-    attrs = ATTRS.reject { |k, _| %i[tribe classification eligibility_status community].include?(k) }
-    seed_agg(available: false)
-    seed_voa(attrs)
-    seed_lock
-    seed_existence(exists: true)
-
-    result = Reg.register(attrs)
-
-    assert result[:success]
-    refute result[:created]
-    assert_empty filer_calls, "no DDR FILER call expected when everything is already filed"
-  end
-
-  # ==========================================================================
-  # Composition — error taxonomy
-  # ==========================================================================
-
-  def test_register_voa_rejection_returns_error_with_message
-    seed_agg(available: false)
-    seed_voa(reply: { status: -1, dfn_or_error: "PREFERRED FACILITY is a required field." })
-
-    result = Reg.register(ATTRS)
-
-    refute result[:success]
-    assert_equal :voa_rejected, result[:error]
-    assert_match(/PREFERRED FACILITY/, result[:message])
-    ddr = @mock.received_calls.select { |c| c[:rpc].start_with?("DDR ") }
-    assert_empty ddr, "no DDR call may follow a VOA rejection"
-  end
-
-  def test_register_classifies_duplicate_identity
-    seed_agg(available: false)
-    seed_voa(reply: { status: -1, dfn_or_error: "Patient already exists" })
-
-    result = Reg.register(ATTRS)
-
-    assert_equal :duplicate_identity, result[:error]
-  end
-
-  def test_register_lock_failure_stops_before_filing
-    seed_agg(available: false)
-    seed_voa
-    seed_lock(ok: false)
-
-    result = Reg.register(ATTRS)
-
-    refute result[:success]
-    assert_equal :lock_failed, result[:error]
-    assert_empty filer_calls
-    unlocks = @mock.received_calls.select do |c|
-      c[:rpc] == "DDR LOCK/UNLOCK NODE" && c[:params].first == Ddr.unlock_param(node: LOCK_NODE)
-    end
-    assert_empty unlocks, "must not unlock a node it never locked"
-  end
-
-  def test_register_filer_rejection_surfaces_fileman_error_text
-    seed_agg(available: false)
-    seed_voa
-    seed_lock
-    seed_existence
-    seed_filer(text: "[BEGIN_diERRORS]\n701^1^9000001^+1,^.01^0\nThe value is not valid.\n[END_diERRORS]")
-
-    result = Reg.register(ATTRS)
-
-    refute result[:success]
-    assert_equal :filer_rejected, result[:error]
-    assert_match(/not valid/, result[:message])
-  end
-
-  def test_register_unlocks_even_when_filer_rejects
-    seed_agg(available: false)
-    seed_voa
-    seed_lock
-    seed_existence
-    seed_filer(text: "[BEGIN_diERRORS]\n701^1^9000001^+1,^.01^0\nBad.\n[END_diERRORS]")
-
-    Reg.register(ATTRS)
-
-    unlock = @mock.received_calls.last
-    assert_equal "DDR LOCK/UNLOCK NODE", unlock[:rpc]
-    assert_equal Ddr.unlock_param(node: LOCK_NODE), unlock[:params].first
-  end
-
-  def test_register_returns_nil_when_broker_gives_no_response
-    seed_agg(available: false)
-    # Nothing else seeded — the mock returns "" for the VOA call.
-    assert_nil Reg.register(ATTRS)
   end
 
   # ==========================================================================

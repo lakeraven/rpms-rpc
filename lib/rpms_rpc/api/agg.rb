@@ -12,8 +12,10 @@ module RpmsRpc
   # edit-check battery — so a client that DELEGATES to them inherits the
   # capsule instead of reimplementing it (see RpmsRpc::Registration).
   #
-  # AG is an RPMS-only package: civilian/stock VistA has no AG, so callers
-  # gate on Agg.available? and fall back to the VOA + DDR composition.
+  # AG is an RPMS-only package, on every RPMS baseline (rpms-rpc#407).
+  # RpmsRpc::Registration registers through it alone: the VOA + DDR
+  # composition it once fell back to is served by no context on RPMS
+  # (rpms-rpc#409).
   #
   # ## Context — this module binds it, callers do not (rpms-rpc#225)
   #
@@ -32,8 +34,8 @@ module RpmsRpc
   # is deliberate: leaving the bind to the caller made Agg.available? answer
   # "not runnable HERE", which is indistinguishable from "AG not installed" —
   # so delegation silently never fired and every registration fell through to
-  # the composition path. A client that cannot scope contexts (a test double)
-  # is simply run as-is.
+  # a composition path (since removed, rpms-rpc#409). A client that cannot
+  # scope contexts (a test double) is simply run as-is.
   #
   # Session hygiene (probe caveat, rpms-rpc#214): AG routines leak un-NEWed
   # locals (BN/SECFLD/BMXSEC/RESULT in ADD^AGGPTADD) into a long-lived CIA
@@ -175,18 +177,17 @@ module RpmsRpc
     # works. Only a NON-privileged session is evidence; that live proof is
     # rpms-rpc#224 and has NOT been run. The tests prove the Ruby side only.
     #
-    # ## Failing closed is deliberate, and it is SAFE
+    # ## Failing closed
     #
     # Every path that cannot establish availability — a "0" answer, an empty
     # reply, a context that will not bind, an RpcError — returns false and
-    # WARNS, and RpmsRpc::Registration composes VOA + DDR instead. That
-    # fallback is itself a correct registration path, chosen because AGG was
-    # not PROVEN runnable here — not a silent degradation.
+    # WARNS. RpmsRpc::Registration does not ask: it calls AG and lets a
+    # refusal surface (rpms-rpc#409).
     def available?(client = RpmsRpc.client)
       in_context(client) { canrun?(client) }
     rescue RpmsRpc::Client::RpcError, RpmsRpc::Client::ConnectionError => e
       warn "[rpms_rpc] AGG delegation unavailable: could not evaluate the " \
-           "#{CONTEXT} gate (#{e.class}) — composing VOA + DDR instead"
+           "#{CONTEXT} gate (#{e.class})"
       false
     end
 

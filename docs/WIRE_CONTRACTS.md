@@ -90,7 +90,7 @@ and in CI both. Concretely:
   `live-capture` on an empty reply, or `no-data` on a reply that has data
   rows, is rejected either way.
 - `source: routine-cite` — for RPCs that cannot be behaviorally captured
-  (write RPCs like VAFC VOA ADD PATIENT; RPCs that fault the rung, like
+  (write RPCs; RPCs that fault the rung, like
   BEHOVM2 VUNITS on bcer-9.0-ydb). The shape is cited to the M routine
   serving the RPC in the release corpus
   (rpms-ops/data/standup/bcer-9.0-ydb/r/, file:line). A routine-cite

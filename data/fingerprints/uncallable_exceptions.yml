@@ -8,20 +8,9 @@
 # Remove an entry when the re-pinned build serves the RPC.
 #
 # Shape: <tag> => { <RPC name> => { reach:, issue: <owner/repo#N>, why: } }
----
-bcer-9.0-20260930-8c88e47-ydb:
-  DDR KEY VALIDATOR:
-    reach: no-entry-point
-    issue: lakeraven/rpms-ops#720
-    why: >-
-      #8994 registers it at KEYVAL^DDR3, a label that does not exist; the code is KEYVAL^DDR4.
-      Every build of the 9.0 line carries the defect; a live call answers LABELMISSING.
-      Sent by RpmsRpc::DdrFileman.validate_key.
-  VAFC VOA ADD PATIENT:
-    reach: no-context
-    issue: lakeraven/rpms-ops#737
-    why: >-
-      The image the release names (sha256:ead62b42...) lacks the LR REGISTRATION CONTEXT option,
-      which other images pushed under the same tag, and the local build, carry (rpms-ops#740);
-      in the published reach face no option lists the RPC. Sent by RpmsRpc::Patient.register,
-      RpmsRpc::Registration.register and RpmsRpc::Registration.register_via_composition.
+#
+# None on bcer-9.0-20261012-e7923a4-ydb. The two 0930 entries left with that pin (rpms-rpc#409):
+# DDR KEY VALIDATOR is client-callable on 1012 (rpms-ops#720 fixed), and VAFC VOA ADD PATIENT was
+# never a build defect - no RPMS context serves it, by design (rpms-ops#499, #674) - so the gem
+# stopped sending it.
+--- {}

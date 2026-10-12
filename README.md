@@ -213,7 +213,7 @@ The coverage number is measured against **one backend's registry**, not against 
 
 ```sh
 rake rpc:coverage
-# RPC coverage: 0.7% (37 / 4960 registered on bcer-9.0-20260930-8c88e47-ydb; 597 excluded) · declared 198 · unregistered names used 0
+# RPC coverage: 0.7% (37 / 4961 registered on bcer-9.0-20261012-e7923a4-ydb; 596 excluded) · declared 197 · unregistered names used 0
 ```
 
 - **Denominator:** every #8994 name on the pinned rpms-ops build
@@ -318,7 +318,7 @@ The JSON (default `coverage/api/methods.json`, `OUT=` to override) is the input 
 ```json
 {
   "schema": 1,
-  "registry": "bcer-9.0-20260930-8c88e47-ydb",
+  "registry": "bcer-9.0-20261012-e7923a4-ydb",
   "personas": ["least-privilege", "programmer"],
   "summary": { "proven": 50, "public": 256, "unresolved_methods": 21, "unregistered_rpcs": [],
                "by_module": { "RpmsRpc::Patient": { "proven": 7, "public": 12 } } },

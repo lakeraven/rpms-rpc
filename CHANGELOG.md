@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed — the VAFC VOA ADD PATIENT + DDR registration path (#409)
+
+- `Registration.register` and `Patient.register` register through the AG package only
+  (`AGG ADD NEW PATIENT` / `AGG UPDATE PATIENT` under `AGGRPC`). They no longer ask
+  `Agg.available?` first, and never fall back to composing `VAFC VOA ADD PATIENT` with the DDR
+  FileMan family: no RPMS context serves `VAFC VOA ADD PATIENT`. Stock RPMS lists it in no option,
+  and rpms-ops keeps it that way on purpose (`FIXDDRCX`, rpms-ops#499, #500, #674), so both
+  brokers refuse it to any client (ADR 0008 rule 3). A broker where `AGGRPC` will not bind now
+  raises the client's error instead of composing.
+- **Breaking:** `Registration.register_via_composition`, `Registration.voa_param`, the
+  `:voa_add_patient` mapping and its wire-capture catalog entry are removed. The VOA-only
+  attributes (`station_number:`, `full_icn:`, `type:`, `veteran:`, `service_connected:`,
+  `pob_city:`, `pob_state:`, `mothers_maiden_name:`, `location_ien:`) are no longer read; the AG
+  path never sent them. `Registration::OPTIONAL_FIELD_MAP` and the `HRN_SUBFILE` /
+  `HRN_LOCATION_FIELD` / `HRN_FIELD` constants go with the path; the `FIELD_*` constants stay
+  (`RpmsRpc::Tribal` reads them).
+- `Registration.update` is unchanged: it files through `DDR FILER`, which `CIAV VUECENTRIC` serves.
+
+### Changed — the pinned rpms-ops build is bcer-9.0-20261012-e7923a4-ydb (#409)
+
+- `data/fingerprints/rpms-ops.lock.yml` pins `bcer-9.0-20261012-e7923a4-ydb` in place of
+  `bcer-9.0-20260930-8c88e47-ydb`, and `data/rpc_coverage/config.yml` names it. The 0930
+  inventory is removed; its reference fingerprint stays as a `conformance:probe` rung.
+- `data/fingerprints/uncallable_exceptions.yml` is empty. Both 0930 entries left with the pin:
+  `DDR KEY VALIDATOR` is client-callable on 1012 (rpms-ops#720), and the `VAFC VOA ADD PATIENT`
+  entry cited rpms-ops#737, an image-drift issue that was not the cause. The RPC is served by no
+  context by design, so it was never a build defect the file allows.
+- `rake rpc:exclusions` on 1012: 596 exclusions (`DDR KEY VALIDATOR` is callable and leaves).
+  Coverage: 37 / 4961. The live evidence is still `local-ydb-0930`; the config notes how the
+  two builds differ.
+
 ### Deprecated — `RpmsRpc::FhirClient` and `RpmsRpc.fhir_client` (#360)
 
 - Both warn on every call: a FHIR client is host knowledge (ADR 0010, assertion 7) and leaves

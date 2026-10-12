@@ -15,14 +15,14 @@
 # by `rake rpc:exclusions`; regenerate on every re-pin, never hand-edit them. gui_plumbing and
 # write_needs_fixture are reviewed decisions: add one per PR with its evidence; regeneration keeps them.
 #
-# reach: data/inventories/bcer-9.0-20260930-8c88e47-ydb/bcer-9.0-20260930-8c88e47-ydb-rpc_reach.txt
-# reach sha256: 4642ea0d611289b34aae101b5837513f74dca18c9fa822a26c95c4b3a02c7861 (pinned in data/fingerprints/rpms-ops.lock.yml)
-# reach classes: broker-exempt=21 client-callable=4939 no-context=226 no-entry-point=88 no-routine=203 out-of-order=80
-# registry: bcer-9.0-20260930-8c88e47-ydb (5557 names)
+# reach: data/inventories/bcer-9.0-20261012-e7923a4-ydb/bcer-9.0-20261012-e7923a4-ydb-rpc_reach.txt
+# reach sha256: 810b6a5d357414b54bea986075cd221934e203fe29b404cc0dd0a778278bbcf6 (pinned in data/fingerprints/rpms-ops.lock.yml)
+# reach classes: broker-exempt=21 client-callable=4940 no-context=226 no-entry-point=87 no-routine=203 out-of-order=80
+# registry: bcer-9.0-20261012-e7923a4-ydb (5557 names)
 # regenerate: bundle exec rake rpc:exclusions
 # count context_out_of_order: 80
 # count no_context: 226
-# count no_entry_point_on_image: 88
+# count no_entry_point_on_image: 87
 # count no_routine_on_image: 203
 "ADE APPT ADD": no_routine_on_image
 "ADE APPT CANCEL": no_routine_on_image
@@ -380,7 +380,6 @@
 "CIAZG USER": no_context
 "DBTS NEW DRUG": no_routine_on_image
 "DBTS NEW PATIENT": no_entry_point_on_image
-"DDR KEY VALIDATOR": no_entry_point_on_image
 "FSC RPC": no_routine_on_image
 "GIS GET BACKGROUND PROCESS": no_context
 "GIS REFRESH BACKGROUND PROCESS": no_context

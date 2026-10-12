@@ -130,7 +130,7 @@ module RpmsRpc
 
       # Declare that this mapping models status/error replies as data —
       # "-1^message" (and rows whose leading piece is legitimately empty)
-      # ARE the record (e.g. VAFC VOA ADD PATIENT's "-1^error text").
+      # ARE the record (e.g. a write RPC's "-1^error text" rejection).
       # Such mappings bypass the non_data_row? guard that otherwise keeps
       # broker error rows and "^message" sentinels out of parsed records.
       def status_reply!

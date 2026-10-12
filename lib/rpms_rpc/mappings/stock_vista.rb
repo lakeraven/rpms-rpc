@@ -914,17 +914,15 @@ module RpmsRpc
     end
 
     # ========================================================================
-    # REGISTRATION + GENERIC FILEMAN CRUD (VAFC VOA / DDR*)
+    # GENERIC FILEMAN CRUD (DDR*)
     # ========================================================================
     #
-    # Stock-VistA RPCs used by the composed patient-registration flow
-    # (RpmsRpc::Registration) and the FileMan Delphi Components wrapper
-    # (RpmsRpc::DdrFileman). Every wire shape below is cited to the M
+    # Stock-VistA RPCs used by the FileMan Delphi Components wrapper
+    # (RpmsRpc::DdrFileman), Registration.update and RpmsRpc::Tribal. Every wire shape below is cited to the M
     # routine serving the RPC in the bcer-9.0-ydb corpus
     # (rpms-ops/data/standup/bcer-9.0-ydb/r/); tag^routine bindings are from
     # the live #8994 REMOTE PROCEDURE dump (.broker_dumps_8994_20260607.txt):
     #
-    #   VAFC VOA ADD PATIENT  → ADD^VAFCPTAD    (return type 2 = ARRAY)
     #   DDR LISTER            → LISTC^DDR       (return type 4 = GLOBAL ARRAY)
     #   DDR LOCK/UNLOCK NODE  → LOCKC^DDR1      (return type 1 = SINGLE VALUE)
     #   DDR GETS ENTRY DATA   → GETSC^DDR2      (return type 2)
@@ -936,23 +934,6 @@ module RpmsRpc
     # All take LIST params (named or numeric subscripts) — see
     # CiaClient#call_rpc_raw for the {CIA} wire encoding of subscripted
     # params (CIANBLIS.m, DOACTION lines 128-134).
-
-    # VAFC VOA ADD PATIENT — adds a PATIENT (#2) record. One list param
-    # (PARAM) with named subscripts PRFCLTY/NAME/GENDER/DOB/SSN/SRVCNCTD/
-    # TYPE/VET/FULLICN [+ POBCTY/POBST/MMN/ALIAS] (VAFCPTAD.m:10-25).
-    # Reply RETURN(1):
-    #   "-1^error text"          — add failed        (VAFCPTAD.m:28,140)
-    #   "1^DFN"                  — added, or the ICN already exists at this
-    #                              facility (idempotent: VAFCPTAD.m:29,55,145)
-    #   "1^DFN^ALIAS warning..." — added; ALIAS multiple failed
-    #                              (ALIAS^VAFCPTAD: VAFCPTAD.m:178)
-    DataMapper.define(:voa_add_patient) do |m|
-      m.rpc "VAFC VOA ADD PATIENT"
-      m.status_reply! # "-1^error text" is the modeled rejection record
-      m.field 0, :status, :integer
-      m.field 1, :dfn_or_error
-      m.field 2, :warning
-    end
 
     # DDR LISTER — LIST^DIC projection. One list param with subscripts
     # FILE/IENS/FIELDS/FLAGS/MAX/FROM/PART/XREF/SCREEN/ID/OPTIONS
