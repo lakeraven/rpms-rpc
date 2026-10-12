@@ -9,8 +9,8 @@ module RpmsRpc
     # (rpms-rpc#394, #395). This is the only reader of those files in this repo: the registered-names
     # gate, the callable gate, `rake rpc:exclusions`, `rpc:coverage`, `rpc:api_coverage`,
     # `conformance:pin`/`check` and `openapi:surface` (#395) all go through it. When
-    # rpms-ops publishes one structured file of the surface (`<tag>-rpcs.json`, rpms-ops#732), it
-    # becomes a second constructor here and the per-file parsers below go; callers do not change.
+    # rpms-ops publishes one structured file of the surface (`<tag>-rpcs.json`, rpms-ops#732), and
+    # from_rpcs_json is its constructor; the per-file parsers below go once every caller reads it.
     #
     # The facts, as rpms-ops publishes them (rpms-ops releases/README.md, "Inventory"):
     #
@@ -32,17 +32,21 @@ module RpmsRpc
     # The second constructor, BuildSurface.from_rpcs_json, reads the same facts from the one structured
     # file rpms-ops#732 publishes, <tag>-rpcs.json (schema rpcs.v1, rpms-ops
     # releases/schema/rpcs.v1.schema.json): reach and signature structure, one record per RPC in byte
-    # order of its name. It carries no #8994 text (DESCRIPTION, INPUT PARAMETER descriptions, RETURN
-    # PARAMETER DESCRIPTION) and no IEN, MAX LENGTH, SEQUENCE NUMBER, WORD WRAP or VERSION, so those
-    # fields stay empty (texts? is false).
+    # order of its name. rpcs.v1 carries no #8994 text (DESCRIPTION, INPUT PARAMETER descriptions, RETURN
+    # PARAMETER DESCRIPTION) and no MAX LENGTH, SEQUENCE NUMBER, WORD WRAP or VERSION, so those fields stay
+    # empty (texts? is false); rpcs.v2 (rpms-ops#877) carries them all (texts? is true). Neither carries the IEN.
     # Checksums are not this class's job: InventoryLock verifies the bytes before anything reads them.
     class BuildSurface
       # rpms-ops bin/rpc_reach_face.rb, in its order of precedence.
       REACH_CLASSES = %w[no-routine no-entry-point inactive client-callable broker-exempt no-context out-of-order].freeze
       # "Callable is client-callable or broker-exempt" (rpms-ops releases/README.md).
       CALLABLE = %w[client-callable broker-exempt].freeze
-      # The <tag>-rpcs.json schema this reader knows (rpms-ops#732).
-      RPCS_SCHEMA = "rpcs.v1"
+      # The <tag>-rpcs.json schemas this reader knows: rpcs.v1 (rpms-ops#732) and rpcs.v2, which adds
+      # #8994's text (rpms-ops#877). A release keeps the schema it was published with.
+      RPCS_SCHEMAS = %w[rpcs.v1 rpcs.v2].freeze
+      # The schemas that carry #8994's text: DESCRIPTION, RETURN PARAMETER DESCRIPTION, WORD WRAP, VERSION,
+      # and each INPUT PARAMETER's description, MAXIMUM DATA LENGTH and SEQUENCE NUMBER.
+      RPCS_TEXT_SCHEMAS = %w[rpcs.v2].freeze
 
       class Error < RpmsRpc::Error; end
 
@@ -104,7 +108,7 @@ module RpmsRpc
         rescue JSON::ParserError => e
           raise Error, "#{File.basename(path)} is not JSON: #{e.message[0, 120]}"
         end
-        raise Error, "#{File.basename(path)} has schema #{doc['schema'].inspect}, not #{RPCS_SCHEMA}" unless doc.is_a?(Hash) && doc["schema"] == RPCS_SCHEMA
+        raise Error, "#{File.basename(path)} has schema #{doc['schema'].inspect}, not one of #{RPCS_SCHEMAS.join(', ')}" unless doc.is_a?(Hash) && RPCS_SCHEMAS.include?(doc["schema"])
         raise Error, "#{File.basename(path)} names tag #{doc['tag'].inspect}, not #{tag}" if tag && doc["tag"] != tag
 
         new(tag: doc["tag"], rpcs_json: doc, path: path)
@@ -151,8 +155,9 @@ module RpmsRpc
       def rpcs_json? = sources.key?(:rpcs)
       def reach? = sources.key?(:reach) || rpcs_json?
       def signatures? = sources.key?(:signatures) || rpcs_json?
-      # Whether the #8994 text (descriptions, return description) was read: only rpc_signatures.txt carries it.
-      def texts? = sources.key?(:signatures)
+      # Whether the #8994 text (descriptions, return description, word wrap, version, parameter max
+      # length and sequence) was read: rpc_signatures.txt and an rpcs.v2 file carry it, rpcs.v1 does not.
+      def texts? = sources.key?(:signatures) || RPCS_TEXT_SCHEMAS.include?(meta["schema"])
 
       # The reach class of NAME: nil when it is not registered (or there is no reach file).
       def reach(name) = self[name]&.reach
@@ -270,13 +275,16 @@ module RpmsRpc
 
       def blank_field(value) = value.to_s.empty? ? nil : value
 
-      # rpcs.v1 records -> Rpcs. Codes are kept as stored (null when empty); INACTIVE 0 is nil, as
+      # rpcs.v1 / rpcs.v2 records -> Rpcs. Codes are kept as stored (null when empty); INACTIVE 0 is nil, as
       # the registry reader keeps it. Its parameters list holds #8994's INPUT PARAMETERs (source
       # "8994") or, when there are none, the formals after the reply variable (source "formals");
       # params holds only the first kind, as the signatures reader does, and the second must be
-      # exactly what the formals say.
+      # exactly what the formals say. rpcs.v2 adds the text, as stored: each byte is the Latin-1 code
+      # point of the same value, the characters the signatures reader gives for a non-UTF-8 line. With
+      # rpcs.v1 the text fields stay empty, as they are without a signatures file.
       def read_rpcs_json(doc, path)
         file = File.basename(path.to_s)
+        text = RPCS_TEXT_SCHEMAS.include?(doc["schema"])
         Array(doc["rpcs"]).each do |r|
           ep = r["entry_point"] || {}
           reach = r["reach"] || {}
@@ -295,8 +303,12 @@ module RpmsRpc
             availability: r["availability"], inactive: inactive.to_s.empty? || inactive == "0" ? nil : inactive,
             reach: reach["class"], routine_present: reach["routine_present"], tag_present: reach["tag_present"],
             contexts: Array(reach["contexts"]), exempt_on: Array(reach["exemptions"]),
-            formals: formals, description: [], returns: [],
-            params: from_8994.map { |p| Param.new(seq: nil, name: p["name"], type: p["type"], max_length: nil, required: p["required"] == true, description: []) },
+            formals: formals, description: text ? Array(r["description"]) : [], returns: text ? Array(r["returns"]) : [],
+            word_wrap: (r["word_wrap"] if text), version: (r["version"] if text),
+            params: from_8994.map do |p|
+              Param.new(seq: (p["sequence"] if text), name: p["name"], type: p["type"], max_length: (p["max_length"] if text),
+                        required: p["required"] == true, description: text ? Array(p["description"]) : [])
+            end,
             package: r["package"] && { prefix: r["package"]["prefix"], name: r["package"]["name"], version: r["package"]["version"] }
           )
         end

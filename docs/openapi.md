@@ -27,6 +27,12 @@ Before anything is read, `openapi:surface` proves the pin offline:
 
 It reads the file through `RpmsRpc::Conformance::BuildSurface.from_rpcs_json`, the second constructor of the one reader of rpms-ops files (#394).
 
+**rpcs.v1 and rpcs.v2.**
+A release keeps the schema it was published with: `bcer-9.0-20261012-e7923a4-ydb`, the build pinned now, publishes rpcs.v1, and releases gated after rpms-ops#877 publish rpcs.v2.
+`openapi:pin` fetches the schema the file's `schema` field names, at the build's own commit, and the lock records which (`schema`).
+rpcs.v2 adds #8994's text, kept as stored (each byte is the Latin-1 code point of its value).
+From an rpcs.v2 file the surface is the document the raw files give, field for field: on 1012, a v2 file regenerated with rpms-ops#877's generator gives a document byte-identical to the one from the raw files.
+
 **What rpcs.v1 does not carry.**
 It has no #8994 text and none of a few #8994 fields, so the surface leaves out what it would otherwise take from them:
 - the operation's DESCRIPTION (the description then says the file lacks it);
@@ -36,7 +42,7 @@ It has no #8994 text and none of a few #8994 fields, so the surface leaves out w
 
 On `bcer-9.0-20261012-e7923a4-ydb` that is 1,733 operation descriptions, 1,829 argument descriptions, 571 maximum lengths, 1,360 sequence numbers and 1,028 reply descriptions.
 Everything else matches what the raw files give: every verb and path, the tags, the counts, entry points, reach and contexts, packages, formals, and the order, type and required flag of each argument.
-rpms-ops#877 asks for the text to be added to the file.
+rpcs.v2 carries all of them; re-pinning to the first release that publishes it (`rake openapi:pin RELEASE=<tag>`) restores them, with no code change.
 
 **Which build.**
 The surface's pin is its own (`data/openapi/`), not `data/fingerprints/rpms-ops.lock.yml`.

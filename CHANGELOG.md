@@ -45,9 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name, arguments in broker order, reply, and `x-rpms` (entry point, reach and contexts, parameter
   source). It reads ONE rpms-ops file, the build's `<tag>-rpcs.json` (rpms-ops#732), pinned by tag and
   sha256 under `data/openapi/` by `rake openapi:pin` (now `bcer-9.0-20261012-e7923a4-ydb`), with the
-  rpcs.v1 schema it is validated against. rpcs.v1 carries no #8994 text (descriptions, max length,
-  sequence, word wrap, version), so the document leaves those out until rpms-ops#877. The repo-wide
-  pin stays on 0930 until #409.
+  schema it is validated against. It reads rpcs.v1 and rpcs.v2 (rpms-ops#877). The pinned 1012 file is
+  rpcs.v1, which carries no #8994 text (descriptions, max length, sequence, word wrap, version), so the
+  document leaves those out until a release publishing rpcs.v2 is pinned; from rpcs.v2 the document is
+  the raw files' document, field for field. The repo-wide pin stays on 0930
+  until #409.
 - `rake openapi:api` writes `pkg/openapi/client-api.openapi.json`: the gem's public methods as
   resource operations (`Patient.find` is `GET /patients/{dfn}`), each naming its RPCs and whether a
   live spec proves it, from `rake rpc:api_coverage`'s analysis.

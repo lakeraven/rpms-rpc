@@ -208,6 +208,33 @@ class OpenApiSurfaceTest < Minitest::Test
     end
   end
 
+  # The same four RPCs as rpcs.v2 (rpms-ops#877) projects them: v1 plus #8994's text, as stored in the walk above.
+  RPCS_V2_JSON = RPCS_JSON.merge(
+    "schema" => "rpcs.v2",
+    "rpcs" => RPCS_JSON["rpcs"].map do |r|
+      text = {
+        "XUS AV CODE" => { "description" => [ "This API checks if a ACCESS/VERIFY code pair is valid.   ", "R(0)=DUZ if sign-on was OK, zero if not OK." ],
+                           "returns" => [ "R(0) is the DUZ." ] },
+        "ORWPT SELECT" => { "description" => [ "Selects a patient." ], "returns" => [] }
+      }.fetch(r["name"], { "description" => [], "returns" => [] })
+      params = r["parameters"].map do |p|
+        extra = p["source"] == "8994" ? { "sequence" => "1", "max_length" => "50", "description" => [ "The access;verify pair, encrypted." ] } : { "sequence" => nil, "max_length" => nil, "description" => [] }
+        p.merge(extra)
+      end
+      r.merge(text, "word_wrap" => nil, "version" => nil, "parameters" => params)
+    end
+  ).freeze
+
+  # With the text, a document from rpcs.json alone is the document from the raw files, field for field.
+  def test_rpcs_v2_gives_exactly_the_document_the_raw_files_give
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "#{TAG}-rpcs.json")
+      File.write(path, JSON.generate(RPCS_V2_JSON))
+      from_json = Surface.document(RpmsRpc::Conformance::BuildSurface.from_rpcs_json(path, tag: TAG), build: BUILD, gem: GEM)
+      assert_equal OpenApi.pretty(doc), OpenApi.pretty(from_json)
+    end
+  end
+
   def test_the_same_inputs_give_the_same_bytes
     assert_equal OpenApi.pretty(doc), OpenApi.pretty(doc)
   end

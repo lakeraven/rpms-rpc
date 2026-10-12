@@ -75,7 +75,7 @@ class RpmsRpc::Conformance::BuildSurfaceTest < Minitest::Test
   end
 
   def test_rpcs_json_is_refused_for_another_schema_another_tag_or_formals_that_disagree
-    assert_raises(Surface::Error) { from_json(rpcs_doc([ rpc_record("X Y", tag: "A", routine: "B") ], schema: "rpcs.v2")) }
+    assert_raises(Surface::Error) { from_json(rpcs_doc([ rpc_record("X Y", tag: "A", routine: "B") ], schema: "rpcs.v3")) }
     assert_raises(Surface::Error) { from_json(rpcs_doc([ rpc_record("X Y", tag: "A", routine: "B") ]).merge("tag" => "bcer-0.0-other-ydb")) }
     e = assert_raises(Surface::Error) do
       from_json(rpcs_doc([ rpc_record("X Y", tag: "A", routine: "B", formals: %w[RET DFN], parameters: [ { "name" => "IEN", "type" => nil, "required" => nil, "source" => "formals" } ]) ]))
@@ -91,5 +91,22 @@ class RpmsRpc::Conformance::BuildSurfaceTest < Minitest::Test
       s = Surface.load(dir, TAG)
       assert_equal [ "LONGER", nil, nil ], [ s["ORWPT SELECT"].package&.dig(:name), s["ZZ NONE"].package, s["BPC GETLABVISITDATA"].package ]
     end
+  end
+
+  # rpcs.v2 (rpms-ops#877) adds #8994's text, as stored: each byte is the Latin-1 code point of its value.
+  def test_rpcs_v2_carries_the_8994_text
+    rec = rpc_record("XUS AV CODE", tag: "VALIDAV", routine: "XUSRB", formals: %w[RET AVCODE],
+                                    parameters: [ { "name" => "AVCODE", "type" => "1", "required" => true, "source" => "8994",
+                                                    "sequence" => "1", "max_length" => "50", "description" => [ "The pair." ] } ])
+    rec = rec.merge("description" => [ "· Checks a pair.", "" ], "returns" => [ "R(0) is the DUZ." ], "word_wrap" => "1", "version" => "2")
+    s = from_json(rpcs_doc([ rec ], schema: "rpcs.v2"))
+    assert s.texts?
+    r = s["XUS AV CODE"]
+    assert_equal [ [ "· Checks a pair.", "" ], [ "R(0) is the DUZ." ], "1", "2" ], [ r.description, r.returns, r.word_wrap, r.version ]
+    assert_equal [ [ "1", "50", [ "The pair." ] ] ], r.params.map { |p| [ p.seq, p.max_length, p.description ] }
+
+    v1 = from_json(rpcs_doc([ rec ]))["XUS AV CODE"]
+    refute from_json(rpcs_doc([ rec ])).texts?, "rpcs.v1 carries no text, so none is read"
+    assert_equal [ [], [], nil, nil, nil, nil ], [ v1.description, v1.returns, v1.word_wrap, v1.version, v1.params[0].seq, v1.params[0].max_length ]
   end
 end
