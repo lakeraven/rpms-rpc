@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/lakeraven/rpms-ops/blob/main/releases/schema/rpcs.v1.schema.json",
+  "title": "rpms-ops release RPC facts, v1 (<tag>-rpcs.json)",
+  "description": "Every RPC a release's build registers (#8994), one record per RPC in byte order of its name, projected from the release's raw inventory files by bin/release_rpcs_json.rb (rpms-ops#732). Facts only: each value is read from broker_8994.txt, rpc_signatures.txt, rpc_reach.txt or packages_9_4.txt; codes are kept as stored, never decoded. The raw files stay canonical; this file is a view of them, and its header names their sha256s.",
+  "type": "object",
+  "required": ["schema", "tag", "commit", "engine", "rpms_version", "inputs", "rpcs"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "rpcs.v1"},
+    "tag": {"type": "string", "pattern": "^bcer-[0-9]+\\.[0-9]+-(.*-)?(ydb|iris)$", "description": "The release tag."},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{7,40}$", "description": "The build's rpms-ops commit (INVENTORY-PROVENANCE.json rpms_ops_commit)."},
+    "engine": {"enum": ["yottadb", "iris"], "description": "INVENTORY-PROVENANCE.json engine; agrees with the tag suffix."},
+    "rpms_version": {"type": "string", "pattern": "^bcer-[0-9]+\\.[0-9]+$", "description": "INVENTORY-PROVENANCE.json rpms_version."},
+    "inputs": {
+      "type": "object",
+      "description": "Each file read, by its name after the <tag>- prefix (the release asset is <tag>-<key>), and its sha256: the values <tag>-INVENTORY.sha256 seals.",
+      "required": ["broker_8994.txt", "rpc_signatures.txt", "rpc_reach.txt", "packages_9_4.txt", "INVENTORY-PROVENANCE.json"],
+      "additionalProperties": false,
+      "properties": {
+        "broker_8994.txt": {"$ref": "#/$defs/sha256"},
+        "rpc_signatures.txt": {"$ref": "#/$defs/sha256"},
+        "rpc_reach.txt": {"$ref": "#/$defs/sha256"},
+        "packages_9_4.txt": {"$ref": "#/$defs/sha256"},
+        "INVENTORY-PROVENANCE.json": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "rpcs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/rpc"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "code": {"type": ["string", "null"], "description": "A #8994 field as stored (null when empty)."},
+    "rpc": {
+      "type": "object",
+      "required": ["name", "entry_point", "availability", "inactive", "return_type", "parameters", "package", "reach"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "description": "#8994 NAME (.01), the name sent over the broker."},
+        "entry_point": {
+          "type": "object",
+          "required": ["tag", "routine", "formals"],
+          "additionalProperties": false,
+          "properties": {
+            "tag": {"$ref": "#/$defs/code", "description": "#8994 TAG (.02); null when empty (the routine's first line)."},
+            "routine": {"$ref": "#/$defs/code", "description": "#8994 ROUTINE (.03)."},
+            "formals": {"type": "array", "items": {"type": "string"}, "description": "The formal list on the entry point's own line (rpc_signatures.txt), in order; empty when it has none or the entry point is absent."}
+          }
+        },
+        "availability": {"$ref": "#/$defs/code", "description": "#8994 AVAILABILITY (.05) as stored: P, S, A or R."},
+        "inactive": {"$ref": "#/$defs/code", "description": "#8994 INACTIVE (.06) as stored: 0-3, null when empty."},
+        "return_type": {"$ref": "#/$defs/code", "description": "#8994 RETURN VALUE TYPE (.04) as stored: 1-5."},
+        "parameters": {
+          "type": "array",
+          "description": "The arguments in the order rpc_signatures.txt lists them. #8994 INPUT PARAMETERs (source 8994) when the RPC defines any; otherwise the entry point's formals after the first, which is the reply variable every broker passes (source formals, with type and required null).",
+          "items": {"$ref": "#/$defs/parameter"}
+        },
+        "package": {
+          "type": ["object", "null"],
+          "description": "The #9.4 package whose PREFIX is the longest prefix of the routine (first in packages_9_4.txt among equals); null when none is, or the RPC names no routine.",
+          "required": ["prefix", "name", "version"],
+          "additionalProperties": false,
+          "properties": {
+            "prefix": {"type": "string", "minLength": 1},
+            "name": {"type": "string"},
+            "version": {"type": ["string", "null"]}
+          }
+        },
+        "reach": {
+          "type": "object",
+          "description": "rpc_reach.txt's row for the RPC.",
+          "required": ["class", "routine_present", "tag_present", "contexts", "exemptions"],
+          "additionalProperties": false,
+          "properties": {
+            "class": {"enum": ["no-routine", "no-entry-point", "inactive", "client-callable", "broker-exempt", "no-context", "out-of-order"]},
+            "routine_present": {"type": "boolean"},
+            "tag_present": {"type": "boolean"},
+            "contexts": {"type": "array", "items": {"type": "string"}, "description": "The options (#19) whose RPC multiple lists it, usable or not."},
+            "exemptions": {"type": "array", "items": {"enum": ["cia", "xwb"]}, "description": "The brokers that run it in any context."}
+          }
+        }
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "required": ["name", "type", "required", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string"},
+        "type": {"$ref": "#/$defs/code", "description": "#8994.02 PARAMETER TYPE as stored (1-4); null for source formals."},
+        "required": {"type": ["boolean", "null"], "description": "#8994.02 REQUIRED is 1; null for source formals."},
+        "source": {"enum": ["8994", "formals"]}
+      }
+    }
+  }
+}

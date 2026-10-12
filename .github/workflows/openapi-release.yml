@@ -1,0 +1,53 @@
+name: OpenAPI release assets
+# Attaches the two OpenAPI documents (rpms-rpc#395) to the gem's GitHub release, so a consumer (rpms-ux
+# /rpc/ and /api/) fetches them by the gem's tag:
+#   rpc-surface.openapi.json   every RPC the pinned build registers   (rake openapi:surface)
+#   client-api.openapi.json    the gem's public methods, as resources (rake openapi:api)
+# Each names the gem commit (x-rpms-gem) and the build tag (x-rpms-build); the fields are in docs/openapi.md.
+# Runs when a release is published; workflow_dispatch re-attaches them to an existing release.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to attach the documents to (e.g. v0.3.1)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - name: Generate and check both documents
+        # Each task fails unless its document is valid OpenAPI 3.1 with every verb + path unique.
+        run: |
+          export GEM_COMMIT="$(git rev-parse HEAD)"
+          bundle exec rake openapi
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$TAG" pkg/openapi/rpc-surface.openapi.json pkg/openapi/client-api.openapi.json --clobber
+      - name: Prove the release carries both, byte for byte
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/released
+          for f in rpc-surface.openapi.json client-api.openapi.json; do
+            gh release download "$TAG" --pattern "$f" --dir tmp/released --clobber
+            cmp "pkg/openapi/$f" "tmp/released/$f"
+          done
+          echo "EXPLICIT SUCCESS: $TAG carries rpc-surface.openapi.json and client-api.openapi.json"

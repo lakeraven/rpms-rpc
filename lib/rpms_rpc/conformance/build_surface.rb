@@ -1,15 +1,16 @@
 # frozen_string_literal: true
 
+require "json"
 require "rpms_rpc/core"
 
 module RpmsRpc
   module Conformance
     # The RPC surface of ONE pinned rpms-ops build, read from the files rpms-ops publishes for it
     # (rpms-rpc#394, #395). This is the only reader of those files in this repo: the registered-names
-    # gate, the callable gate, `rake rpc:exclusions`, `rpc:coverage`, `rpc:api_coverage` and
-    # `conformance:pin`/`check` all go through it, and so will the OpenAPI generator (#395). When
-    # rpms-ops publishes one structured file of the surface (`<tag>-rpcs.json`, rpms-ops#732), it
-    # becomes a second constructor here and the per-file parsers below go; callers do not change.
+    # gate, the callable gate, `rake rpc:exclusions`, `rpc:coverage`, `rpc:api_coverage`,
+    # `conformance:pin`/`check` and `openapi:surface` (#395) all go through it. When
+    # rpms-ops publishes one structured file of the surface (`<tag>-rpcs.json`, rpms-ops#732), and
+    # from_rpcs_json is its constructor; the per-file parsers below go once every caller reads it.
     #
     # The facts, as rpms-ops publishes them (rpms-ops releases/README.md, "Inventory"):
     #
@@ -27,12 +28,25 @@ module RpmsRpc
     #
     # The registry is required; reach and signatures are read when present (a release published
     # before rpms-ops#713 has neither) and must then name the same RPCs in the same order.
+    #
+    # The second constructor, BuildSurface.from_rpcs_json, reads the same facts from the one structured
+    # file rpms-ops#732 publishes, <tag>-rpcs.json (schema rpcs.v1, rpms-ops
+    # releases/schema/rpcs.v1.schema.json): reach and signature structure, one record per RPC in byte
+    # order of its name. rpcs.v1 carries no #8994 text (DESCRIPTION, INPUT PARAMETER descriptions, RETURN
+    # PARAMETER DESCRIPTION) and no MAX LENGTH, SEQUENCE NUMBER, WORD WRAP or VERSION, so those fields stay
+    # empty (texts? is false); rpcs.v2 (rpms-ops#877) carries them all (texts? is true). Neither carries the IEN.
     # Checksums are not this class's job: InventoryLock verifies the bytes before anything reads them.
     class BuildSurface
       # rpms-ops bin/rpc_reach_face.rb, in its order of precedence.
       REACH_CLASSES = %w[no-routine no-entry-point inactive client-callable broker-exempt no-context out-of-order].freeze
       # "Callable is client-callable or broker-exempt" (rpms-ops releases/README.md).
       CALLABLE = %w[client-callable broker-exempt].freeze
+      # The <tag>-rpcs.json schemas this reader knows: rpcs.v1 (rpms-ops#732) and rpcs.v2, which adds
+      # #8994's text (rpms-ops#877). A release keeps the schema it was published with.
+      RPCS_SCHEMAS = %w[rpcs.v1 rpcs.v2].freeze
+      # The schemas that carry #8994's text: DESCRIPTION, RETURN PARAMETER DESCRIPTION, WORD WRAP, VERSION,
+      # and each INPUT PARAMETER's description, MAXIMUM DATA LENGTH and SEQUENCE NUMBER.
+      RPCS_TEXT_SCHEMAS = %w[rpcs.v2].freeze
 
       class Error < RpmsRpc::Error; end
 
@@ -40,11 +54,13 @@ module RpmsRpc
       Param = Struct.new(:seq, :name, :type, :max_length, :required, :description, keyword_init: true)
 
       # One registered RPC. Registry fields are always set; reach fields are nil without a reach
-      # file, signature fields nil without a signatures file.
+      # file, signature fields nil without a signatures file. package is the #9.4 package
+      # ({prefix:, name:, version:}) whose PREFIX is the longest prefix of the routine, the first in
+      # packages_9_4.txt among equals; nil when none is, or without a packages file.
       Rpc = Struct.new(
         :name, :ien, :tag, :routine, :return_type, :availability, :inactive,
         :reach, :routine_present, :tag_present, :contexts, :exempt_on,
-        :word_wrap, :version, :formals, :description, :params, :returns,
+        :word_wrap, :version, :formals, :description, :params, :returns, :package,
         keyword_init: true
       ) do
         # TAG^ROUTINE as #8994 stores it; nil when neither is set. An empty TAG ("^BGUPMR") is the
@@ -82,13 +98,44 @@ module RpmsRpc
             registry: registry, reach: reach, signatures: signatures, packages: packages)
       end
 
-      attr_reader :tag, :rpcs, :packages, :header, :sources
+      # The build's surface from <tag>-rpcs.json alone (rpms-ops#732). Refuses a file whose schema is
+      # not rpcs.v1, that names another tag, or whose records disagree with themselves.
+      def self.from_rpcs_json(path, tag: nil)
+        raise Error, "rpcs.json not found: #{path}" unless File.file?(path)
 
-      def initialize(tag:, registry:, reach: nil, signatures: nil, packages: nil)
+        doc = begin
+          JSON.parse(File.read(path, encoding: "UTF-8"))
+        rescue JSON::ParserError => e
+          raise Error, "#{File.basename(path)} is not JSON: #{e.message[0, 120]}"
+        end
+        raise Error, "#{File.basename(path)} has schema #{doc['schema'].inspect}, not one of #{RPCS_SCHEMAS.join(', ')}" unless doc.is_a?(Hash) && RPCS_SCHEMAS.include?(doc["schema"])
+        raise Error, "#{File.basename(path)} names tag #{doc['tag'].inspect}, not #{tag}" if tag && doc["tag"] != tag
+
+        new(tag: doc["tag"], rpcs_json: doc, path: path)
+      end
+
+      # header: the registry's "#" lines; meta: rpcs.json's header fields (schema, tag, commit, engine,
+      # rpms_version, inputs), empty for the raw files.
+      attr_reader :tag, :rpcs, :packages, :header, :sources, :meta
+
+      # From the raw files (registry: and the optional others) or a parsed rpcs.json (rpcs_json:, path:).
+      def initialize(tag:, registry: nil, reach: nil, signatures: nil, packages: nil, rpcs_json: nil, path: nil)
         @tag = tag
-        @sources = { registry: registry, reach: reach, signatures: signatures, packages: packages }.compact
         @header = []
+        @meta = {}
         @rpcs = []
+        if rpcs_json
+          @meta = rpcs_json.except("rpcs")
+          @sources = { rpcs: path }.compact
+          read_rpcs_json(rpcs_json, path)
+          @by_name = @rpcs.to_h { |r| [ r.name, r ] }
+          raise Error, "#{File.basename(path.to_s)} names #{@rpcs.size - @by_name.size} RPC(s) twice" unless @by_name.size == @rpcs.size
+
+          @packages = @rpcs.filter_map(&:package).uniq.sort_by { |p| p[:prefix] }
+          return
+        end
+
+        @sources = { registry: registry, reach: reach, signatures: signatures, packages: packages }.compact
         File.foreach(registry) do |line|
           next @header << line.chomp if line.start_with?("#")
 
@@ -99,13 +146,18 @@ module RpmsRpc
         read_reach(reach) if reach
         read_signatures(signatures) if signatures
         @packages = packages ? read_packages(packages) : []
+        assign_packages
       end
 
       def names = rpcs.map(&:name)
       def [](name) = @by_name[name]
       def registered?(name) = @by_name.key?(name)
-      def reach? = sources.key?(:reach)
-      def signatures? = sources.key?(:signatures)
+      def rpcs_json? = sources.key?(:rpcs)
+      def reach? = sources.key?(:reach) || rpcs_json?
+      def signatures? = sources.key?(:signatures) || rpcs_json?
+      # Whether the #8994 text (descriptions, return description, word wrap, version, parameter max
+      # length and sequence) was read: rpc_signatures.txt and an rpcs.v2 file carry it, rpcs.v1 does not.
+      def texts? = sources.key?(:signatures) || RPCS_TEXT_SCHEMAS.include?(meta["schema"])
 
       # The reach class of NAME: nil when it is not registered (or there is no reach file).
       def reach(name) = self[name]&.reach
@@ -160,14 +212,21 @@ module RpmsRpc
         end
       end
 
-      # ZRPCCAT output can carry non-UTF-8 bytes in descriptions: read binary, keep the text as
-      # UTF-8 with any invalid byte replaced.
+      # ZRPCCAT writes M text as stored: mostly ASCII, sometimes Latin-1 (bcer-9.0-20260930's XQ
+      # descriptions carry a \xB7 bullet). Read binary; a line that is not valid UTF-8 is Latin-1,
+      # transcoded to UTF-8.
+      def self.text(raw)
+        utf8 = raw.dup.force_encoding("UTF-8")
+        utf8.valid_encoding? ? utf8 : raw.dup.force_encoding("ISO-8859-1").encode("UTF-8")
+      end
+
       def read_signatures(path)
         by_ien = {}
         order = []
         complete = false
+        params = 0
         File.foreach(path, chomp: true, encoding: "ASCII-8BIT") do |raw|
-          line = raw.dup.force_encoding("UTF-8").scrub("?")
+          line = self.class.text(raw)
           f = line.split("\t", -1)
           case f[0]
           when "RPC"
@@ -183,6 +242,7 @@ module RpmsRpc
             order << rpc.name
           when "DESC" then signature_rpc(by_ien, f, path).description << f[2].to_s
           when "PARAM"
+            params += 1
             signature_rpc(by_ien, f, path).params << Param.new(seq: blank_field(f[2]), name: f[3], type: blank_field(f[4]),
                                                                max_length: blank_field(f[5]), required: f[6] == "1", description: [])
           when "PDESC"
@@ -194,7 +254,14 @@ module RpmsRpc
             param.description << f[3].to_s
           when "RET" then signature_rpc(by_ien, f, path).returns << f[2].to_s
           else
-            complete = true if line.start_with?("EXPLICIT SUCCESS")
+            if line.start_with?("EXPLICIT SUCCESS")
+              complete = true
+              # The walk's own counts, when it reports them: a PARAM line lost in transit is a truncation too.
+              { "rpcs" => order.size, "parameters" => params }.each do |key, seen|
+                reported = line[/\b#{key}=(\d+)/, 1] or next
+                raise Error, "#{File.basename(path)}: #{seen} #{key} read, the walk reports #{key}=#{reported}" unless reported.to_i == seen
+              end
+            end
             raise Error, "#{File.basename(path)} reports #{line}" if line.start_with?("EXPLICIT FAILURE")
           end
         end
@@ -207,6 +274,53 @@ module RpmsRpc
       end
 
       def blank_field(value) = value.to_s.empty? ? nil : value
+
+      # rpcs.v1 / rpcs.v2 records -> Rpcs. Codes are kept as stored (null when empty); INACTIVE 0 is nil, as
+      # the registry reader keeps it. Its parameters list holds #8994's INPUT PARAMETERs (source
+      # "8994") or, when there are none, the formals after the reply variable (source "formals");
+      # params holds only the first kind, as the signatures reader does, and the second must be
+      # exactly what the formals say. rpcs.v2 adds the text, as stored: each byte is the Latin-1 code
+      # point of the same value, the characters the signatures reader gives for a non-UTF-8 line. With
+      # rpcs.v1 the text fields stay empty, as they are without a signatures file.
+      def read_rpcs_json(doc, path)
+        file = File.basename(path.to_s)
+        text = RPCS_TEXT_SCHEMAS.include?(doc["schema"])
+        Array(doc["rpcs"]).each do |r|
+          ep = r["entry_point"] || {}
+          reach = r["reach"] || {}
+          raise Error, "#{file}: #{r['name'].inspect} has reach #{reach['class'].inspect}, not one of #{REACH_CLASSES.join(', ')}" unless REACH_CLASSES.include?(reach["class"])
+
+          formals = Array(ep["formals"])
+          from_8994, from_formals = Array(r["parameters"]).partition { |p| p["source"] == "8994" }
+          expected = from_8994.empty? ? formals.drop(1) : []
+          unless from_formals.map { |p| p["name"] } == expected
+            raise Error, "#{file}: #{r['name']}'s formals-sourced parameters #{from_formals.map { |p| p['name'] }} are not #{expected}"
+          end
+
+          inactive = r["inactive"]
+          @rpcs << Rpc.new(
+            name: r["name"], tag: ep["tag"], routine: ep["routine"], return_type: r["return_type"],
+            availability: r["availability"], inactive: inactive.to_s.empty? || inactive == "0" ? nil : inactive,
+            reach: reach["class"], routine_present: reach["routine_present"], tag_present: reach["tag_present"],
+            contexts: Array(reach["contexts"]), exempt_on: Array(reach["exemptions"]),
+            formals: formals, description: text ? Array(r["description"]) : [], returns: text ? Array(r["returns"]) : [],
+            word_wrap: (r["word_wrap"] if text), version: (r["version"] if text),
+            params: from_8994.map do |p|
+              Param.new(seq: (p["sequence"] if text), name: p["name"], type: p["type"], max_length: (p["max_length"] if text),
+                        required: p["required"] == true, description: text ? Array(p["description"]) : [])
+            end,
+            package: r["package"] && { prefix: r["package"]["prefix"], name: r["package"]["name"], version: r["package"]["version"] }
+          )
+        end
+        raise Error, "#{file} lists no RPCs" if @rpcs.empty?
+      end
+
+      # Each RPC's package: the #9.4 PREFIX that is the longest prefix of its routine, the first in
+      # packages_9_4.txt among equals (the rule rpms-ops#732's rpcs.json applies).
+      def assign_packages
+        by_length = @packages.reject { |p| p[:prefix].to_s.empty? }.each_with_index.sort_by { |p, i| [ -p[:prefix].length, i ] }.map(&:first)
+        @rpcs.each { |r| r.package = r.routine.to_s.empty? ? nil : by_length.find { |p| r.routine.start_with?(p[:prefix]) } }
+      end
 
       def read_packages(path)
         File.readlines(path, chomp: true).reject { |l| l.strip.empty? }.map do |l|
