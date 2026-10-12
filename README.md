@@ -355,12 +355,13 @@ The task is offline and reaches no broker. The implementation lives in `tools/ap
 rpms-rpc generates two OpenAPI 3.1 documents (#395), and every GitHub release of the gem carries them as assets (`.github/workflows/openapi-release.yml`).
 
 ```sh
+rake openapi:pin RELEASE=<tag>  # pin that rpms-ops release's <tag>-rpcs.json (data/openapi/)
 rake openapi:surface   # pkg/openapi/rpc-surface.openapi.json: every RPC the pinned build registers, addressed as a resource
 rake openapi:api       # pkg/openapi/client-api.openapi.json: the gem's public methods, each with the RPCs behind it
 rake openapi           # both
 ```
 
-The surface reads the pinned build only through `BuildSurface`, after `InventoryLock` has verified it; the client API is `rake rpc:api_coverage`'s analysis.
+The surface reads one rpms-ops file, the pinned build's `<tag>-rpcs.json` (rpms-ops#732), through `BuildSurface`, after proving its sha256 and validating it against the rpcs.v1 schema; the client API is `rake rpc:api_coverage`'s analysis.
 Both name the gem commit and the build tag, are byte-identical for the same inputs, and fail unless they are valid OpenAPI 3.1 with every verb and path unique.
 [docs/openapi.md](docs/openapi.md) defines every `x-rpms` field, the addressing rules and how to fetch the documents from a release.
 

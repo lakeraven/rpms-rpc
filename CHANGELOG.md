@@ -43,7 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rake openapi:surface` writes `pkg/openapi/rpc-surface.openapi.json`: every RPC the pinned build
   registers, addressed as a resource (`XUS DIVISION GET` is `GET /kernel/division`), with its real
   name, arguments in broker order, reply, and `x-rpms` (entry point, reach and contexts, parameter
-  source). It reads the pinned files only through `BuildSurface`, after `InventoryLock` verifies them.
+  source). It reads ONE rpms-ops file, the build's `<tag>-rpcs.json` (rpms-ops#732), pinned by tag and
+  sha256 under `data/openapi/` by `rake openapi:pin` (now `bcer-9.0-20261012-e7923a4-ydb`), with the
+  rpcs.v1 schema it is validated against. rpcs.v1 carries no #8994 text (descriptions, max length,
+  sequence, word wrap, version), so the document leaves those out until rpms-ops#877. The repo-wide
+  pin stays on 0930 until #409.
 - `rake openapi:api` writes `pkg/openapi/client-api.openapi.json`: the gem's public methods as
   resource operations (`Patient.find` is `GET /patients/{dfn}`), each naming its RPCs and whether a
   live spec proves it, from `rake rpc:api_coverage`'s analysis.
@@ -51,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   they validate as OpenAPI 3.1 with every verb + path unique. `.github/workflows/openapi-release.yml`
   attaches both to each published GitHub release. The fields are defined in `docs/openapi.md`.
   Ported from rpms-ux `bin/rpc-catalog.mjs` and `bin/api-catalog.mjs`, which retire with rpms-ux#21.
+- `BuildSurface.from_rpcs_json` reads `<tag>-rpcs.json`, refusing a schema other than rpcs.v1, another
+  tag, or formals-sourced parameters that disagree with the formals. `Rpc#package` is set by both
+  constructors, by the same longest-prefix rule.
 - `BuildSurface` reads a signatures line that is not UTF-8 as Latin-1 (a `\xB7` bullet was `?`), and
   refuses a walk whose RPC or parameter count disagrees with what its `EXPLICIT SUCCESS` line reports.
 - Development dependency: `json_schemer`, for the OpenAPI 3.1 schema check.

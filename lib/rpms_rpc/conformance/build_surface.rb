@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "json"
 require "rpms_rpc/core"
 
 module RpmsRpc
@@ -27,12 +28,21 @@ module RpmsRpc
     #
     # The registry is required; reach and signatures are read when present (a release published
     # before rpms-ops#713 has neither) and must then name the same RPCs in the same order.
+    #
+    # The second constructor, BuildSurface.from_rpcs_json, reads the same facts from the one structured
+    # file rpms-ops#732 publishes, <tag>-rpcs.json (schema rpcs.v1, rpms-ops
+    # releases/schema/rpcs.v1.schema.json): reach and signature structure, one record per RPC in byte
+    # order of its name. It carries no #8994 text (DESCRIPTION, INPUT PARAMETER descriptions, RETURN
+    # PARAMETER DESCRIPTION) and no IEN, MAX LENGTH, SEQUENCE NUMBER, WORD WRAP or VERSION, so those
+    # fields stay empty (texts? is false).
     # Checksums are not this class's job: InventoryLock verifies the bytes before anything reads them.
     class BuildSurface
       # rpms-ops bin/rpc_reach_face.rb, in its order of precedence.
       REACH_CLASSES = %w[no-routine no-entry-point inactive client-callable broker-exempt no-context out-of-order].freeze
       # "Callable is client-callable or broker-exempt" (rpms-ops releases/README.md).
       CALLABLE = %w[client-callable broker-exempt].freeze
+      # The <tag>-rpcs.json schema this reader knows (rpms-ops#732).
+      RPCS_SCHEMA = "rpcs.v1"
 
       class Error < RpmsRpc::Error; end
 
@@ -40,11 +50,13 @@ module RpmsRpc
       Param = Struct.new(:seq, :name, :type, :max_length, :required, :description, keyword_init: true)
 
       # One registered RPC. Registry fields are always set; reach fields are nil without a reach
-      # file, signature fields nil without a signatures file.
+      # file, signature fields nil without a signatures file. package is the #9.4 package
+      # ({prefix:, name:, version:}) whose PREFIX is the longest prefix of the routine, the first in
+      # packages_9_4.txt among equals; nil when none is, or without a packages file.
       Rpc = Struct.new(
         :name, :ien, :tag, :routine, :return_type, :availability, :inactive,
         :reach, :routine_present, :tag_present, :contexts, :exempt_on,
-        :word_wrap, :version, :formals, :description, :params, :returns,
+        :word_wrap, :version, :formals, :description, :params, :returns, :package,
         keyword_init: true
       ) do
         # TAG^ROUTINE as #8994 stores it; nil when neither is set. An empty TAG ("^BGUPMR") is the
@@ -82,13 +94,44 @@ module RpmsRpc
             registry: registry, reach: reach, signatures: signatures, packages: packages)
       end
 
-      attr_reader :tag, :rpcs, :packages, :header, :sources
+      # The build's surface from <tag>-rpcs.json alone (rpms-ops#732). Refuses a file whose schema is
+      # not rpcs.v1, that names another tag, or whose records disagree with themselves.
+      def self.from_rpcs_json(path, tag: nil)
+        raise Error, "rpcs.json not found: #{path}" unless File.file?(path)
 
-      def initialize(tag:, registry:, reach: nil, signatures: nil, packages: nil)
+        doc = begin
+          JSON.parse(File.read(path, encoding: "UTF-8"))
+        rescue JSON::ParserError => e
+          raise Error, "#{File.basename(path)} is not JSON: #{e.message[0, 120]}"
+        end
+        raise Error, "#{File.basename(path)} has schema #{doc['schema'].inspect}, not #{RPCS_SCHEMA}" unless doc.is_a?(Hash) && doc["schema"] == RPCS_SCHEMA
+        raise Error, "#{File.basename(path)} names tag #{doc['tag'].inspect}, not #{tag}" if tag && doc["tag"] != tag
+
+        new(tag: doc["tag"], rpcs_json: doc, path: path)
+      end
+
+      # header: the registry's "#" lines; meta: rpcs.json's header fields (schema, tag, commit, engine,
+      # rpms_version, inputs), empty for the raw files.
+      attr_reader :tag, :rpcs, :packages, :header, :sources, :meta
+
+      # From the raw files (registry: and the optional others) or a parsed rpcs.json (rpcs_json:, path:).
+      def initialize(tag:, registry: nil, reach: nil, signatures: nil, packages: nil, rpcs_json: nil, path: nil)
         @tag = tag
-        @sources = { registry: registry, reach: reach, signatures: signatures, packages: packages }.compact
         @header = []
+        @meta = {}
         @rpcs = []
+        if rpcs_json
+          @meta = rpcs_json.except("rpcs")
+          @sources = { rpcs: path }.compact
+          read_rpcs_json(rpcs_json, path)
+          @by_name = @rpcs.to_h { |r| [ r.name, r ] }
+          raise Error, "#{File.basename(path.to_s)} names #{@rpcs.size - @by_name.size} RPC(s) twice" unless @by_name.size == @rpcs.size
+
+          @packages = @rpcs.filter_map(&:package).uniq.sort_by { |p| p[:prefix] }
+          return
+        end
+
+        @sources = { registry: registry, reach: reach, signatures: signatures, packages: packages }.compact
         File.foreach(registry) do |line|
           next @header << line.chomp if line.start_with?("#")
 
@@ -99,13 +142,17 @@ module RpmsRpc
         read_reach(reach) if reach
         read_signatures(signatures) if signatures
         @packages = packages ? read_packages(packages) : []
+        assign_packages
       end
 
       def names = rpcs.map(&:name)
       def [](name) = @by_name[name]
       def registered?(name) = @by_name.key?(name)
-      def reach? = sources.key?(:reach)
-      def signatures? = sources.key?(:signatures)
+      def rpcs_json? = sources.key?(:rpcs)
+      def reach? = sources.key?(:reach) || rpcs_json?
+      def signatures? = sources.key?(:signatures) || rpcs_json?
+      # Whether the #8994 text (descriptions, return description) was read: only rpc_signatures.txt carries it.
+      def texts? = sources.key?(:signatures)
 
       # The reach class of NAME: nil when it is not registered (or there is no reach file).
       def reach(name) = self[name]&.reach
@@ -222,6 +269,46 @@ module RpmsRpc
       end
 
       def blank_field(value) = value.to_s.empty? ? nil : value
+
+      # rpcs.v1 records -> Rpcs. Codes are kept as stored (null when empty); INACTIVE 0 is nil, as
+      # the registry reader keeps it. Its parameters list holds #8994's INPUT PARAMETERs (source
+      # "8994") or, when there are none, the formals after the reply variable (source "formals");
+      # params holds only the first kind, as the signatures reader does, and the second must be
+      # exactly what the formals say.
+      def read_rpcs_json(doc, path)
+        file = File.basename(path.to_s)
+        Array(doc["rpcs"]).each do |r|
+          ep = r["entry_point"] || {}
+          reach = r["reach"] || {}
+          raise Error, "#{file}: #{r['name'].inspect} has reach #{reach['class'].inspect}, not one of #{REACH_CLASSES.join(', ')}" unless REACH_CLASSES.include?(reach["class"])
+
+          formals = Array(ep["formals"])
+          from_8994, from_formals = Array(r["parameters"]).partition { |p| p["source"] == "8994" }
+          expected = from_8994.empty? ? formals.drop(1) : []
+          unless from_formals.map { |p| p["name"] } == expected
+            raise Error, "#{file}: #{r['name']}'s formals-sourced parameters #{from_formals.map { |p| p['name'] }} are not #{expected}"
+          end
+
+          inactive = r["inactive"]
+          @rpcs << Rpc.new(
+            name: r["name"], tag: ep["tag"], routine: ep["routine"], return_type: r["return_type"],
+            availability: r["availability"], inactive: inactive.to_s.empty? || inactive == "0" ? nil : inactive,
+            reach: reach["class"], routine_present: reach["routine_present"], tag_present: reach["tag_present"],
+            contexts: Array(reach["contexts"]), exempt_on: Array(reach["exemptions"]),
+            formals: formals, description: [], returns: [],
+            params: from_8994.map { |p| Param.new(seq: nil, name: p["name"], type: p["type"], max_length: nil, required: p["required"] == true, description: []) },
+            package: r["package"] && { prefix: r["package"]["prefix"], name: r["package"]["name"], version: r["package"]["version"] }
+          )
+        end
+        raise Error, "#{file} lists no RPCs" if @rpcs.empty?
+      end
+
+      # Each RPC's package: the #9.4 PREFIX that is the longest prefix of its routine, the first in
+      # packages_9_4.txt among equals (the rule rpms-ops#732's rpcs.json applies).
+      def assign_packages
+        by_length = @packages.reject { |p| p[:prefix].to_s.empty? }.each_with_index.sort_by { |p, i| [ -p[:prefix].length, i ] }.map(&:first)
+        @rpcs.each { |r| r.package = r.routine.to_s.empty? ? nil : by_length.find { |p| r.routine.start_with?(p[:prefix]) } }
+      end
 
       def read_packages(path)
         File.readlines(path, chomp: true).reject { |l| l.strip.empty? }.map do |l|

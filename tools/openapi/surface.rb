@@ -5,9 +5,9 @@ require_relative "document"
 
 module OpenApi
   # The RPC surface of one pinned build as OpenAPI 3.1 (rpms-rpc#395): every RPC the build registers in
-  # REMOTE PROCEDURE (#8994), with its arguments, its reply and its reach. Read through
-  # RpmsRpc::Conformance::BuildSurface, the one reader of the pinned rpms-ops files (#394); ported from
-  # rpms-ux bin/rpc-catalog.mjs. The fields are documented in docs/openapi.md.
+  # REMOTE PROCEDURE (#8994), with its arguments, its reply and its reach. Read from the build's
+  # <tag>-rpcs.json (rpms-ops#732) through RpmsRpc::Conformance::BuildSurface, the one reader of rpms-ops
+  # files (#394, #395); ported from rpms-ux bin/rpc-catalog.mjs. The fields are documented in docs/openapi.md.
   #
   # Each RPC is one operation, addressed as a resource: <verb> /<package>/<resource>, both derived from the
   # RPC's name by Surface.address. The path is only an address for people and viewers: the summary and
@@ -115,11 +115,6 @@ module OpenApi
       list.to_h { |x| [ x[:name], { verb: x[:verb], path: path_of.(x), verb_rule: x[:verb_rule], path_rule: TIERS[x[:tier]] } ] }
     end
 
-    # The package of each RPC: the #9.4 PREFIX that is the longest prefix of its routine.
-    def packages_by_prefix(packages)
-      packages.reject { |p| p[:prefix].to_s.empty? }.each_with_index.sort_by { |p, i| [ -p[:prefix].length, i ] }.map(&:first)
-    end
-
     def param_schema(param)
       type = PARAM_TYPES[param.type.to_s] || "LITERAL"
       schema = case type
@@ -165,7 +160,16 @@ module OpenApi
       end
     end
 
-    def operation(rpc, pkg, addr)
+    # Without #8994's text the description says which file lacks it, not that #8994 does.
+    def no_description(rpc, entry, texts)
+      where = entry ? "entry point #{entry}" : "no entry point"
+      return "#8994 carries no description for #{rpc.name} (#{where})." if texts
+
+      "#{rpc.name} (#{where}). The rpcs.v1 file this document is generated from carries no #8994 DESCRIPTION."
+    end
+
+    # texts: whether the source carries #8994's text (rpc_signatures.txt does; rpcs.v1 does not).
+    def operation(rpc, pkg, addr, texts: true)
       entry = rpc.entry_point
       props, required, source = arguments(rpc, entry)
       return_type = RETURN_TYPES[rpc.return_type.to_s] || rpc.return_type.to_s
@@ -176,7 +180,7 @@ module OpenApi
       op = {
         "operationId" => rpc.name.downcase.gsub(/[^a-z0-9]+/, "_").gsub(/\A_|_\z/, ""),
         "summary" => rpc.name,
-        "description" => desc.empty? ? "#8994 carries no description for #{rpc.name} (#{entry ? "entry point #{entry}" : 'no entry point'})." : desc,
+        "description" => desc.empty? ? no_description(rpc, entry, texts) : desc,
         "tags" => [ pkg ? pkg[:name] : "UNASSIGNED" ],
         "responses" => { "200" => { "description" => ret.empty? ? return_type : ret, "content" => { MEDIA => { "schema" => reply } } } },
         "x-rpms" => OpenApi.compact(
@@ -201,18 +205,18 @@ module OpenApi
     end
 
     # The whole document for one build. surface: an RpmsRpc::Conformance::BuildSurface with reach and
-    # signatures; build: the provenance of its files (OpenApi.build_provenance); gem: OpenApi.gem_provenance.
+    # signature structure (from <tag>-rpcs.json, or the raw files); build: the provenance of its source
+    # (OpenApi::RpcsPin.build_provenance); gem: OpenApi.gem_provenance.
     def document(surface, build:, gem:)
-      raise Refused, "#{surface.tag}: no rpc_reach.txt pinned" unless surface.reach?
-      raise Refused, "#{surface.tag}: no rpc_signatures.txt pinned" unless surface.signatures?
+      raise Refused, "#{surface.tag}: no reach face" unless surface.reach?
+      raise Refused, "#{surface.tag}: no signatures" unless surface.signatures?
 
       rpcs = surface.rpcs
-      prefixes = packages_by_prefix(surface.packages)
-      pkg_of = rpcs.to_h { |r| [ r.name, prefixes.find { |p| r.routine.to_s.start_with?(p[:prefix]) } ] }
+      pkg_of = rpcs.to_h { |r| [ r.name, r.package ] }
       tag_of = ->(r) { pkg_of[r.name]&.dig(:name) || "UNASSIGNED" }
       addr = {}
       rpcs.group_by(&tag_of).each { |t, rs| addr.merge!(addresses(rs.map(&:name).sort, slug(t))) }
-      items = rpcs.map { |r| [ addr[r.name], operation(r, pkg_of[r.name], addr[r.name]) ] }
+      items = rpcs.map { |r| [ addr[r.name], operation(r, pkg_of[r.name], addr[r.name], texts: surface.texts?) ] }
       # Sorted by path, then by method in a fixed order, so the document diffs by RPC.
       items = items.each_with_index.sort_by { |(a, _), i| [ a[:path], METHODS.index(a[:verb]), i ] }.map(&:first)
       paths = {}
@@ -227,7 +231,7 @@ module OpenApi
           "version" => surface.tag[/\Abcer-\d+(?:\.\d+)*/] || surface.tag,
           "description" => "Every RPC build #{surface.tag} registers in REMOTE PROCEDURE (#8994), with its arguments, its reply " \
                            "and, from the build's reach face, where it can be called from. Generated by rpms-rpc `rake openapi:surface` " \
-                           "from the rpms-ops release inventory the gem pins. An RPC is not an HTTP endpoint: each operation is sent " \
+                           "from the build's <tag>-rpcs.json (rpms-ops#732), which the gem pins. An RPC is not an HTTP endpoint: each operation is sent " \
                            "over the RPC broker (XWB, BMX or CIA) by name, its arguments in x-position order. The path and verb are " \
                            "derived from that name, to read it as a resource; the summary and x-rpms.rpc are the exact name the " \
                            "broker is sent. The x-rpms fields are documented in rpms-rpc docs/openapi.md."

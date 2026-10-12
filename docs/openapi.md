@@ -4,7 +4,7 @@ rpms-rpc generates two OpenAPI 3.1 documents (#395), and this page is where thei
 
 | Document | Task | Release asset | What it describes |
 |---|---|---|---|
-| RPC surface | `rake openapi:surface` | `rpc-surface.openapi.json` | every RPC the pinned build registers in REMOTE PROCEDURE (#8994), sent over the broker by name |
+| RPC surface | `rake openapi:surface` | `rpc-surface.openapi.json` | every RPC the pinned build registers in REMOTE PROCEDURE (#8994), sent over the broker by name, from its `<tag>-rpcs.json` |
 | Client API | `rake openapi:api` | `client-api.openapi.json` | the gem's public methods, each addressed as a resource, with the RPCs behind it |
 
 `rake openapi` writes both into `pkg/openapi/` (`OUT=` overrides the path of one).
@@ -13,11 +13,39 @@ The same inputs give byte-identical output: nothing in either document is a time
 
 ## Where the facts come from
 
-**The surface** reads the pinned rpms-ops build named in `data/rpc_coverage/config.yml` (`RELEASE=` picks another pinned tag).
-It reads the pinned files only through `RpmsRpc::Conformance::BuildSurface`, the one reader of rpms-ops files (#394), and only after `InventoryLock` has verified them against the sidecar, the provenance and `data/fingerprints/rpms-ops.lock.yml`.
-When rpms-ops publishes `<tag>-rpcs.json` (rpms-ops#732) it becomes a second constructor of `BuildSurface`, and this generator does not change.
+**The surface** reads ONE rpms-ops file: the pinned build's `<tag>-rpcs.json` (rpms-ops#732), the structured view rpms-ops projects from a release's raw inventory files.
+`rake openapi:pin RELEASE=<tag>` pins it the way `conformance:pin` pins the raw files:
+- it downloads the file and checks it against the release asset's digest;
+- it fetches rpms-ops's `releases/schema/rpcs.v1.schema.json` at the build's own commit;
+- it validates the file and commits both under `data/openapi/`, with `data/openapi/rpcs.lock.yml` recording the tag, the sha256 of each, and the schema's source.
 
-**The client API** runs `rake rpc:api_coverage`'s analysis in process (`METHODS=<file>` reads a JSON it wrote instead), so it names the same build as the surface.
+Before anything is read, `openapi:surface` proves the pin offline:
+- the file's sha256 is the pinned one;
+- its `schema` field is `rpcs.v1`;
+- it validates against the closed schema;
+- its header names the pinned tag.
+
+It reads the file through `RpmsRpc::Conformance::BuildSurface.from_rpcs_json`, the second constructor of the one reader of rpms-ops files (#394).
+
+**What rpcs.v1 does not carry.**
+It has no #8994 text and none of a few #8994 fields, so the surface leaves out what it would otherwise take from them:
+- the operation's DESCRIPTION (the description then says the file lacks it);
+- INPUT PARAMETER descriptions, MAX LENGTH (`maxLength`) and SEQUENCE NUMBER (`x-rpms-sequence`);
+- RETURN PARAMETER DESCRIPTION (the response is described by its type);
+- WORD WRAP (`word_wrap` reads `false`) and VERSION.
+
+On `bcer-9.0-20261012-e7923a4-ydb` that is 1,733 operation descriptions, 1,829 argument descriptions, 571 maximum lengths, 1,360 sequence numbers and 1,028 reply descriptions.
+Everything else matches what the raw files give: every verb and path, the tags, the counts, entry points, reach and contexts, packages, formals, and the order, type and required flag of each argument.
+rpms-ops#877 asks for the text to be added to the file.
+
+**Which build.**
+The surface's pin is its own (`data/openapi/`), not `data/fingerprints/rpms-ops.lock.yml`.
+That lock's builds are the ones every conformance gate holds the gem to, and the first build to publish `rpcs.json`, `bcer-9.0-20261012-e7923a4-ydb`, does not pass them.
+There, rpms-ops deliberately serves `VAFC VOA ADD PATIENT` (sent by `Patient.register` and `Registration.register`) from no context (rpms-ops#499, rpms-ops#674).
+Moving the repo-wide pin waits on rpms-rpc#409.
+So the two documents can name different builds today: the client API names the build `data/rpc_coverage/config.yml` pins, and each document says which in `x-rpms-build.tag`.
+
+**The client API** runs `rake rpc:api_coverage`'s analysis in process (`METHODS=<file>` reads a JSON it wrote instead); its build is the one `data/rpc_coverage/config.yml` pins.
 
 ## Publishing
 
@@ -41,7 +69,7 @@ To attach them to an existing release, run the workflow by hand with that tag.
 | `x-rpms-gem.dirty` | `true` when the checkout had uncommitted changes, so the document is not exactly the commit's; absent otherwise |
 | `x-rpms-build.tag` | the rpms-ops build tag (`bcer-9.0-20260930-8c88e47-ydb`) |
 
-The surface's `x-rpms-build` also carries `rpms_version`, `engine`, `rpms_ops_commit`, `image` and `sources` (each pinned input file with its sha256).
+The surface's `x-rpms-build` also carries `rpms_version`, `engine`, `rpms_ops_commit` (the rpcs.json header's), `source` (`<tag>-rpcs.json`, its sha256 and its `schema`) and `inputs` (each raw file rpms-ops projected it from, with the sha256 the header names).
 Its `info.version` is the RPMS version (`bcer-9.0`); the client API's is the gem version.
 
 ## The RPC surface
@@ -66,8 +94,8 @@ The reply (`responses.200`) is a string for SINGLE VALUE and GLOBAL INSTANCE and
 | `x-rpms.return_value_type` | `SINGLE VALUE`, `ARRAY`, `WORD PROCESSING`, `GLOBAL ARRAY` or `GLOBAL INSTANCE` |
 | `x-rpms.availability` | `PUBLIC`, `SUBSCRIPTION`, `AGREEMENT` or `RESTRICTED` (`""` when unset) |
 | `x-rpms.inactive` | `ACTIVE`, `INACTIVE`, `LOCAL INACTIVE (ACTIVE REMOTELY)` or `REMOTE INACTIVE (ACTIVE LOCALLY)` |
-| `x-rpms.word_wrap` | #8994 WORD WRAP ON |
-| `x-rpms.version` | #8994 VERSION, when set |
+| `x-rpms.word_wrap` | #8994 WORD WRAP ON (`false` when the source is rpcs.v1, which does not carry it) |
+| `x-rpms.version` | #8994 VERSION, when set and carried |
 | `x-rpms.params_source` | where the arguments came from: `8994` (INPUT PARAMETER), `routine` (the formals) or `none` |
 | `x-rpms.package` | `{prefix, name, version}` of the #9.4 package; absent when none matches |
 | `x-rpms.reach` | from the build's reach face: `class` (`client-callable`, `broker-exempt`, `no-context`, `no-entry-point`, `no-routine`, `inactive`, `out-of-order`), `contexts` (the options whose RPC multiple lists it), `exempt_on` (the broker lines it needs no context on) |
@@ -78,7 +106,7 @@ On an argument:
 | Field | Meaning |
 |---|---|
 | `x-position` | its place in the broker call, from 1 |
-| `x-rpms-sequence` | #8994 SEQUENCE NUMBER as stored, when there is one |
+| `x-rpms-sequence` | #8994 SEQUENCE NUMBER as stored, when there is one and the source carries it |
 | `x-rpms-name` | the name as registered, when #8994 registers one name twice for an RPC and the repeat is keyed `<name> (2)` |
 | `x-rpms-param-type` | `LITERAL`, `LIST`, `WORD PROCESSING` or `REFERENCE` |
 

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "json"
 require "tmpdir"
 require_relative "../../tools/openapi/surface"
 
@@ -160,6 +161,51 @@ class OpenApiSurfaceTest < Minitest::Test
       "XUS DIVISION SET" => "PUT /p/division (base)"
     }, names.to_h { |n| [ n, "#{a[n][:verb].upcase} #{a[n][:path]} (#{a[n][:path_rule]})" ] })
     assert_raises(OpenApi::Refused) { Surface.addresses([ "XU WHO?", "XU WHO!" ], "p") }
+  end
+
+  # The same four RPCs as rpms-ops#732's <tag>-rpcs.json projects them from the raw files above.
+  RPCS_JSON = {
+    "schema" => "rpcs.v1", "tag" => TAG, "commit" => "abc1234", "engine" => "yottadb", "rpms_version" => "bcer-0.0", "inputs" => {},
+    "rpcs" => [
+      [ "BMC GONE", "GONE", "BMCNOPE", [], "1", nil, "1", [], [ "BMC", "REFERRED CARE INFO SYSTEM", "4.0" ], [ "no-routine", false, false, [ "BMCRPC" ] ] ],
+      [ "ORWPT SELECT", "SELECT", "ORWPT", %w[REC DFN], "1", nil, nil, [ [ "DFN", nil, nil, "formals" ] ], [ "ORWPT", "SHOULD NOT WIN", "9" ],
+        [ "client-callable", true, true, [ "OR CPRS GUI CHART", "CIAV VUECENTRIC" ] ] ],
+      [ "ORWU WHO?", "WHO", "ORWU", %w[Y], "1", nil, nil, [], [ "OR", "ORDER ENTRY/RESULTS REPORTING", "3.0" ], [ "no-context", true, true, [] ] ],
+      [ "XUS AV CODE", "VALIDAV", "XUSRB", %w[RET AVCODE], "2", "R", "0", [ [ "AVCODE", "1", true, "8994" ] ], [ "XU", "KERNEL", "8.0" ],
+        [ "client-callable", true, true, [ "XUS SIGNON" ] ] ]
+    ].map do |name, tag, routine, formals, ret, avail, inactive, params, (prefix, pname, version), (klass, rp, tp, contexts)|
+      { "name" => name, "entry_point" => { "tag" => tag, "routine" => routine, "formals" => formals }, "availability" => avail,
+        "inactive" => inactive, "return_type" => ret,
+        "parameters" => params.map { |n, t, r, src| { "name" => n, "type" => t, "required" => r, "source" => src } },
+        "package" => { "prefix" => prefix, "name" => pname, "version" => version },
+        "reach" => { "class" => klass, "routine_present" => rp, "tag_present" => tp, "contexts" => contexts, "exemptions" => [] } }
+    end
+  }.freeze
+
+  # #8994's text that rpcs.v1 does not carry: everything else about an operation is the same from either source.
+  def without_text(document)
+    ops = OpenApi.operations(document["paths"]).to_h do |verb, path, op|
+      op = JSON.parse(JSON.generate(op))
+      op.delete("description")
+      op["responses"]["200"].delete("description")
+      op["x-rpms"].delete("version")
+      op["x-rpms"].delete("word_wrap")
+      op.dig("requestBody", "content", Surface::MEDIA, "schema", "properties")&.each_value { |p| %w[description maxLength x-rpms-sequence].each { |k| p.delete(k) } }
+      [ "#{verb} #{path}", op ]
+    end
+    [ ops, document["tags"], document["x-rpms-counts"] ]
+  end
+
+  def test_rpcs_json_gives_the_same_document_as_the_raw_files_but_for_8994_text
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "#{TAG}-rpcs.json")
+      File.write(path, JSON.generate(RPCS_JSON))
+      from_json = Surface.document(RpmsRpc::Conformance::BuildSurface.from_rpcs_json(path, tag: TAG), build: BUILD, gem: GEM)
+      assert_equal without_text(doc), without_text(from_json)
+      assert_equal "XUS AV CODE (entry point VALIDAV^XUSRB). The rpcs.v1 file this document is generated from carries no #8994 DESCRIPTION.",
+                   op(from_json, "XUS AV CODE")["description"]
+      assert_empty OpenApi.problems(from_json)
+    end
   end
 
   def test_the_same_inputs_give_the_same_bytes

@@ -50,18 +50,6 @@ module OpenApi
     [ out.strip, status.success? ]
   end
 
-  # The build a surface came from, from its verified inventory (InventoryLock::Inventory).
-  def build_provenance(inventory)
-    compact(
-      "tag" => inventory.tag,
-      "rpms_version" => inventory.rpms_version,
-      "engine" => inventory.engine,
-      "rpms_ops_commit" => inventory.build_commit,
-      "image" => inventory.image_ref,
-      "sources" => inventory.surface.sources.values.map { |path| { "file" => File.basename(path), "sha256" => inventory.shas.fetch(File.basename(path)) } }
-    )
-  end
-
   def pretty(document) = JSON.pretty_generate(document) + "\n"
 
   # Write DOCUMENT to PATH and prove it: the bytes on disk parse back to the same document.
