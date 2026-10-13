@@ -367,6 +367,21 @@ module RpmsRpc
       m.field 23, :site_ien,      :integer
     end
 
+    # TIU DIV AND CLASS INFO — USERINFO^TIUSRVT1(ORY,USER) (TIUSRVT1.m:64-78),
+    # for any NEW PERSON IEN, in OR CPRS GUI CHART. One "KIND^IEN" row per
+    # role the user holds:
+    #   D^ien  a DIVISION (#200 field 16) the user may sign on to: an
+    #          INSTITUTION (#4) IEN (:67-69)
+    #   C^ien  a USR CLASS (#8930) the user is an active member of today,
+    #          per $$ISA^USRLM (:71-75); every user is a member of USER
+    #   S^ien  the user's SERVICE/SECTION (#49), field 29 (:76-77)
+    # Live, bcer-9.0-20261005 (YDB), DUZ 4: "D^7819" "C^55" "C^546" "C^561" "S^1".
+    DataMapper.define(:practitioner_roles) do |m|
+      m.rpc "TIU DIV AND CLASS INFO"
+      m.field 0, :kind
+      m.field 1, :ien
+    end
+
     # ORWU NEWPERS — multi-line user/practitioner search. Live shape
     # against staging is IEN^NAME (2 pieces); the TITLE piece declared
     # in earlier versions doesn't appear in this broker's response.

@@ -488,7 +488,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       vitals_for_date_range
       ddr_lister ddr_lock_unlock_node ddr_gets_entry_data
       ddr_filer ddr_validator
-      practitioner_info practitioner_list user_management_user_list
+      practitioner_info practitioner_list practitioner_roles user_management_user_list
       medication_list
       referral_search
       user_info reminders_list
