@@ -107,8 +107,11 @@ module RpmsRpc
       end
     end
 
-    def providers(*params)
-      bmc_many(:bmc_providers, *params)
+    # Active holders of the PROVIDER key, { duz:, name: } each (PROV^ORQPTQ2,
+    # ORQPTQ2.m:95-101). PROV(Y) takes no parameter: one sent anyway is "more
+    # actual than formal parameters" (#364).
+    def providers
+      bmc_many(:bmc_providers)
     end
 
     def search_referred_to(*params)
