@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `Client::RpcMError`: an M error has a class of its own (#357)
+
+- `RpmsRpc::Client::RpcMError < RpcError` is raised when the server reports an M error: CIA error 1
+  ("The server has reported the following error", from ETRAP2^CIANBLIS), before the data ack or
+  after it (#414), and the `M  ERROR=` / `M ERROR=` frames of XWB and BMX. It was a plain
+  `RpcError`. A rescue of `RpcError` still catches it.
+- New live specs provoke the two transport failures on a real session: a one-second client timeout
+  on a 6-second lexicon search raises `RpcTimeoutError`, and a connection cut by a relay the spec
+  owns raises `ConnectionError`.
+
+### Fixed — `Referral.for_patient` sends all six formals of SRCHREF^BMCRPC1 (#210)
+
+- It sent the DFN alone, and the routine reads `+RECNMBR` without `$G` (BMCRPC1.m:32), so every
+  call died with `LVUNDEF RECNMBR`. It now sends the patient and five empty filters (no provider,
+  no dates, every record, any status).
+
 ### Added — `client.compatibility`: which RPCs this release needs that the server does not serve (#366)
 
 - Run once after sign-on, as CPRS checks `XWB IS RPC AVAILABLE` at startup. It returns an

@@ -16,11 +16,13 @@ require "rpms_rpc/api/referral"
 # same class for the same case, kept distinct so a host can tell them apart:
 # RpcNotAvailableError when the server does not serve the RPC (404/501-like),
 # RpcRefusedError when it serves it but not to this user in the bound option
-# (403-like), RpcError for an M error from a routine that ran (500-like).
+# (403-like), RpcMError for an M error from a routine that ran (500-like,
+# #357). Each is an RpcError, so an existing rescue of RpcError still works.
 # The live half of this contract is test/live/missing_rpc_live_test.rb.
 class MissingRpcRaisesTest < Minitest::Test
   NotAvailable = RpmsRpc::Client::RpcNotAvailableError
   Refused = RpmsRpc::Client::RpcRefusedError
+  MError = RpmsRpc::Client::RpcMError
 
   def teardown
     RpmsRpc.reset!
@@ -54,8 +56,19 @@ class MissingRpcRaisesTest < Minitest::Test
     err = assert_raises(RpmsRpc::Client::RpcError) do
       cia_parse("2\x011 The server has reported the following error: DETAIL+3^ORQQPL, Undefined local variable")
     end
-    refute_kind_of NotAvailable, err
-    refute_kind_of Refused, err
+    assert_instance_of MError, err
+  end
+
+  # Recorded 2026-10-16 on bcer-9.0-20261012-e7923a4-ydb (local arm64 image,
+  # CIA, BMCRPC, SYS123): BMC SEARCH REFERRAL with the DFN only, before #210's
+  # fix sent all six formals. The routine dies before any ack: error 1.
+  ERROR_BEFORE_ACK = "4\x011\rThe server has reported the following error:\r\r" \
+                     "SRCHREF+23^BMCRPC1, Undefined local variable: RECNMBR,150373850,-%YDB-E-LVUNDEF\r\r" \
+                     "A detailed log of the error has been created.\r"
+
+  def test_cia_m_error_before_the_ack_raises_m_error
+    err = assert_raises(MError) { cia_parse(ERROR_BEFORE_ACK) }
+    assert_includes err.message, "SRCHREF+23^BMCRPC1"
   end
 
   # -- CIA: an M error after the data ack (#414) -----------------------------
@@ -70,8 +83,7 @@ class MissingRpcRaisesTest < Minitest::Test
 
   def test_cia_m_error_after_the_data_ack_raises_not_rows
     err = assert_raises(RpmsRpc::Client::RpcError) { cia_parse(ERROR_AFTER_ACK) }
-    refute_kind_of NotAvailable, err
-    refute_kind_of Refused, err
+    assert_instance_of MError, err
     assert_includes err.message, "OUT+5^CIANBACT"
     refute_match(/[^\x20-\x7e]/, err.message, "the error text is sanitized to printable")
   end
