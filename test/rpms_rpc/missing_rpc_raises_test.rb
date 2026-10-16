@@ -58,6 +58,41 @@ class MissingRpcRaisesTest < Minitest::Test
     refute_kind_of Refused, err
   end
 
+  # -- CIA: an M error after the data ack (#414) -----------------------------
+  #
+  # DATAOUT^CIANBACT writes the \x00 ack before OUT streams the rows; when OUT
+  # fails, ETRAP2^CIANBLIS records the error and SNDERR writes \x01 + CIAERR
+  # into the same reply. Recorded 2026-10-13 on bcer-9.0-20261005-17411fa-ydb
+  # (CIA, BMCRPC): BMC SEARCH REFERRED TO with the search text only.
+  ERROR_AFTER_ACK = "4\x00\x011\rThe server has reported the following error:\r\r" \
+                    "OUT+5^CIANBACT, Indirection string contains extra trailing characters," \
+                    "150373010,-%YDB-E-INDEXTRACHARS\r\rA detailed log of the error has been created.\r"
+
+  def test_cia_m_error_after_the_data_ack_raises_not_rows
+    err = assert_raises(RpmsRpc::Client::RpcError) { cia_parse(ERROR_AFTER_ACK) }
+    refute_kind_of NotAvailable, err
+    refute_kind_of Refused, err
+    assert_includes err.message, "OUT+5^CIANBACT"
+    refute_match(/[^\x20-\x7e]/, err.message, "the error text is sanitized to printable")
+  end
+
+  # The same trap fires when OUT fails partway: rows, then \x01 + CIAERR. No
+  # data row carries \x01, so the first one anywhere in the body is the error.
+  def test_cia_m_error_after_some_rows_raises
+    raw = "4\x00row 1\rrow 2\r\x011\rThe server has reported the following error:\r\rOUT+5^CIANBACT, Undefined\r"
+    err = assert_raises(RpmsRpc::Client::RpcError) { cia_parse(raw) }
+    assert_includes err.message, "OUT+5^CIANBACT"
+    refute_includes err.message, "row 1"
+  end
+
+  def test_cia_m_error_after_the_ack_keeps_its_typed_class
+    assert_raises(Refused) { cia_parse("4\x00\x014 Access denied for remote procedure: BMC PROVIDERS") }
+  end
+
+  def test_cia_data_without_an_error_byte_is_still_data
+    assert_equal "row 1\rrow 2\r", cia_parse("4\x00row 1\rrow 2\r")
+  end
+
   # -- XWB: the refusal is the SNDERR security packet (XWBPRS.m:11-13) ------
 
   def test_xwb_unregistered_rpc_raises_not_available
