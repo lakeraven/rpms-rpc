@@ -1,0 +1,296 @@
+{
+  "build": "bcer-9.0-20261012-e7923a4-ydb",
+  "modules": {
+    "RpmsRpc::Adt": [
+      "ORWPT ADMITLST",
+      "ORWPT DISCHARGE",
+      "ORWPT INPLOC"
+    ],
+    "RpmsRpc::Agg": [
+      "AGG ADD NEW PATIENT",
+      "AGG LOCK PATIENT",
+      "AGG PATIENT EDIT CHECK",
+      "AGG UNLOCK PATIENT",
+      "AGG UPDATE PATIENT",
+      "CIANBRPC CANRUN"
+    ],
+    "RpmsRpc::Allergy": [
+      "ORQQAL LIST"
+    ],
+    "RpmsRpc::Authentication": [
+      "CIAVCXUS HASKEYS",
+      "DDR LISTER",
+      "ORWU NPHASKEY",
+      "ORWU USERINFO",
+      "XUS AV CODE",
+      "XUS CVC",
+      "XUS GET USER INFO",
+      "XUS SIGNON SETUP"
+    ],
+    "RpmsRpc::BehavioralHealth": [
+      "AMHG GET SUICIDE FORM",
+      "AMHG GET SUICIDE FORM CF",
+      "AMHG GET SUICIDE FORM METHOD",
+      "AMHG GET SUICIDE FORM SUB",
+      "AMHG GET SUICIDE FORMS",
+      "AMHG GET TP NARRATIVE",
+      "AMHG GET TP PLAN PARTICIPANTS",
+      "AMHG GET TP REVIEW",
+      "AMHG GET TREATMENT PLAN",
+      "AMHG GET TREATMENT PLANS",
+      "AMHG GET VISIT ACTIVITY",
+      "AMHG GET VISIT ASSESSMENT",
+      "AMHG GET VISIT AXIS II",
+      "AMHG GET VISIT AXIS III",
+      "AMHG GET VISIT AXIS IV",
+      "AMHG GET VISIT AXIS V",
+      "AMHG GET VISIT CC",
+      "AMHG GET VISIT COMM APP",
+      "AMHG GET VISIT INFORMATION",
+      "AMHG GET VISIT SCREENING",
+      "AMHG GET VISIT SOAP",
+      "AMHG GET VISITS"
+    ],
+    "RpmsRpc::BehavioralHealth::CaseManagement": [
+      "AMHG GET CASE DATES",
+      "AMHG GET CASE MANAGEMENT",
+      "AMHG GET COMMUNITY ACTIVITIES",
+      "AMHG GET COMMUNITY ACTIVITY"
+    ],
+    "RpmsRpc::BehavioralHealth::Groups": [
+      "AMHG GET GROUP CPT",
+      "AMHG GET GROUP EDU",
+      "AMHG GET GROUP INFORMATION",
+      "AMHG GET GROUP PATIENTS",
+      "AMHG GET GROUP POV",
+      "AMHG GET GROUP SEC PROVIDERS",
+      "AMHG GET GROUP SOAP",
+      "AMHG GET GROUPS"
+    ],
+    "RpmsRpc::BehavioralHealth::Intake": [
+      "AMHG GET INTAKE",
+      "AMHG GET INTAKE DOCUMENTS"
+    ],
+    "RpmsRpc::BehavioralHealth::Reference": [
+      "AMHG GET ADMIN RECORDS",
+      "AMHG GET CLINICS",
+      "AMHG GET PATIENT",
+      "AMHG GET SITE PARAMETERS"
+    ],
+    "RpmsRpc::DdrFileman": [
+      "DDR FILER",
+      "DDR GETS ENTRY DATA",
+      "DDR KEY VALIDATOR",
+      "DDR LISTER",
+      "DDR LOCK/UNLOCK NODE",
+      "DDR VALIDATOR"
+    ],
+    "RpmsRpc::ESignature": [
+      "ORWU VALIDSIG",
+      "TIU DELETE RECORD",
+      "TIU SIGN RECORD",
+      "TIU WHICH SIGNATURE ACTION"
+    ],
+    "RpmsRpc::Eligibility": [
+      "BGOVIMM GETVFC",
+      "BGOVIMM2 GETELIG"
+    ],
+    "RpmsRpc::Encounter": [
+      "BEHOENCX CHKVISIT",
+      "BEHOENCX FETCH",
+      "BEHOENCX GETVISIT",
+      "ORWPT APPTLST"
+    ],
+    "RpmsRpc::ExamComponent": [
+      "BGOVEXAM SET"
+    ],
+    "RpmsRpc::HealthFactor": [
+      "BGOVHF SET"
+    ],
+    "RpmsRpc::HealthSummary": [
+      "ORQQPX REMINDER DETAIL",
+      "ORQQPX REMINDERS LIST",
+      "ORWRP REPORT TEXT"
+    ],
+    "RpmsRpc::Image": [
+      "ORWRA IMAGING EXAMS1"
+    ],
+    "RpmsRpc::Immunization": [
+      "BEHOCIR GETTXT",
+      "BGOVIMM GET",
+      "DDR GETS ENTRY DATA"
+    ],
+    "RpmsRpc::ImmunizationRefusal": [
+      "BGOREF GETREA",
+      "BGOREF SET"
+    ],
+    "RpmsRpc::Location": [
+      "DDR GETS ENTRY DATA"
+    ],
+    "RpmsRpc::Measurement": [
+      "BEHOENCX GETVISIT",
+      "BEHOVM2 VUNITS",
+      "BGOVMSR GET",
+      "BGOVMSR LAST",
+      "BGOVMSR SET",
+      "DDR GETS ENTRY DATA",
+      "ORQQVI VITALS"
+    ],
+    "RpmsRpc::Medication": [
+      "ORQQPS DETAIL",
+      "ORQQPS LIST",
+      "ORWPS ACTIVE"
+    ],
+    "RpmsRpc::NoteTemplate": [
+      "TIU TEMPLATE ACCESS LEVEL",
+      "TIU TEMPLATE GETBOIL",
+      "TIU TEMPLATE GETITEMS",
+      "TIU TEMPLATE GETROOTS",
+      "TIU TEMPLATE GETTEXT"
+    ],
+    "RpmsRpc::Notifications": [
+      "BQI GET COMM ALERTS SPLASH"
+    ],
+    "RpmsRpc::Order": [
+      "ORWOR ACTION TEXT",
+      "ORWOR EXPIRED",
+      "ORWOR RESULT",
+      "ORWOR RESULT HISTORY",
+      "ORWOR SHEETS",
+      "ORWOR TSALL",
+      "ORWOR UNSIGN",
+      "ORWORR AGET"
+    ],
+    "RpmsRpc::Organization": [
+      "DDR GETS ENTRY DATA"
+    ],
+    "RpmsRpc::Patient": [
+      "AGG ADD NEW PATIENT",
+      "AGG LOCK PATIENT",
+      "AGG LOOKUP PATIENTS",
+      "AGG UNLOCK PATIENT",
+      "AGG UPDATE PATIENT",
+      "BEHOCACV CWAD",
+      "BEHOPTCX PTINFO",
+      "BEHOPTPC GETBDP",
+      "DDR GETS ENTRY DATA",
+      "ORWPT FULLSSN",
+      "ORWPT ID INFO",
+      "ORWPT LIST ALL",
+      "ORWPT SELECT"
+    ],
+    "RpmsRpc::Phr": [
+      "BEHOCCD GETREF",
+      "BEHOCCD PHR",
+      "BEHOCIR GETNUM",
+      "BEHOCIR GETTXT",
+      "BEHOCIR1 GETCCDS"
+    ],
+    "RpmsRpc::Pov": [
+      "BGOVPOV SET"
+    ],
+    "RpmsRpc::Practitioner": [
+      "DDR GETS ENTRY DATA",
+      "ORWU NEWPERS",
+      "ORWU USERINFO",
+      "TIU DIV AND CLASS INFO"
+    ],
+    "RpmsRpc::Problem": [
+      "BGOPROB DEL",
+      "BGOPROB SET",
+      "ORQQPL AUDIT HIST",
+      "ORQQPL CLIN SRCH",
+      "ORQQPL DETAIL",
+      "ORQQPL EDIT LOAD",
+      "ORQQPL INACTIVATE",
+      "ORQQPL INIT PT",
+      "ORQQPL LIST",
+      "ORQQPL PROB COMMENTS",
+      "ORQQPL PROBLEM LEX SEARCH",
+      "ORQQPL PROVIDER LIST",
+      "ORQQPL VERIFY"
+    ],
+    "RpmsRpc::Procedure": [
+      "BGOVCPT GET",
+      "BGOVCPT SET"
+    ],
+    "RpmsRpc::ProgressNote": [
+      "TIU AUTHORIZATION",
+      "TIU CREATE RECORD",
+      "TIU DOCUMENTS BY CONTEXT",
+      "TIU GET RECORD TEXT",
+      "TIU LOCK RECORD",
+      "TIU SET DOCUMENT TEXT",
+      "TIU UNLOCK RECORD"
+    ],
+    "RpmsRpc::Referral": [
+      "BMC ADD C32 PRINT LOG",
+      "BMC ADD REFERRAL",
+      "BMC CHK YEAR SITE PARAM",
+      "BMC CONSULTATION STATUS UPDATE",
+      "BMC GET PURPOSE OF REF API",
+      "BMC GET RCIS TEMPLATE DETAIL",
+      "BMC GET RCIS TEMPLATE LIST",
+      "BMC GET REFERENCE DATA",
+      "BMC GET REFERRAL",
+      "BMC GET USERS/PROVIDERS",
+      "BMC HEALTH SUMMARY TYPE",
+      "BMC PATIENT ELIGIBILITY STATUS",
+      "BMC PATIENT FACE SHEET",
+      "BMC PATIENT HEALTH SUMMARY",
+      "BMC PRINT REFERRAL",
+      "BMC PROVIDERS",
+      "BMC REFERRAL STATUS UPDATE",
+      "BMC SEARCH REFERRAL",
+      "BMC SEARCH REFERRED TO",
+      "BMC UPDATE REFERRAL"
+    ],
+    "RpmsRpc::Registration": [
+      "AGG ADD NEW PATIENT",
+      "AGG LOCK PATIENT",
+      "AGG UNLOCK PATIENT",
+      "AGG UPDATE PATIENT"
+    ],
+    "RpmsRpc::Reminders": [
+      "ORQQPXRM REMINDERS APPLICABLE"
+    ],
+    "RpmsRpc::Scheduling": [
+      "BSDX ADD NEW APPOINTMENT",
+      "BSDX ALL APPOINTMENTS",
+      "BSDX CANCEL APPOINTMENT",
+      "BSDX CHECKIN APPOINTMENT",
+      "BSDX CLINIC SETUP",
+      "BSDX HOSPITAL LOCATION",
+      "BSDX NOSHOW",
+      "BSDX SEARCH AVAILABILITY",
+      "BSDX UNCANCEL APPT"
+    ],
+    "RpmsRpc::Session": [
+      "CIAVCXUS VIMINFO",
+      "CIAVMCFG GETREG"
+    ],
+    "RpmsRpc::Site": [
+      "BEHOSICX SITEINFO"
+    ],
+    "RpmsRpc::Symptom": [
+      "ORWDAL32 DEF",
+      "ORWDAL32 SYMPTOMS"
+    ],
+    "RpmsRpc::Tribal": [
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER",
+      "DDR VALIDATOR"
+    ],
+    "RpmsRpc::UserManagement": [
+      "ORWU NEWPERS",
+      "ORWU USERINFO",
+      "XUS GET USER INFO"
+    ],
+    "RpmsRpc::Vital": [
+      "BEHOVM SAVE",
+      "BEHOVM TEMPLATE",
+      "BEHOVM VALIDATE",
+      "ORQQVI VITALS"
+    ]
+  }
+}

@@ -92,6 +92,28 @@ module RpmsRpc
       end
     end
 
+    # The RPC CPRS asks before it relies on another (#366): CKRPC^XWBLIB
+    # answers 1 when NAME has a REMOTE PROCEDURE (#8994) entry that is not
+    # inactive for the use asked, else 0, without running it (XWBLIB.m:35-45).
+    # CHKPRMIT^XWBSEC lets it run in any context (XWBSEC.m:14), and the pinned
+    # reach face has it broker-exempt on xwb.
+    SERVED_RPCS_RPC = "XWB IS RPC AVAILABLE"
+    # "L", local use, as a CPRS-style client is: refuses INACTIVE 1 and 2
+    # (RPCAVAIL^XWBLIB), the same entries CIANBRPC GETRPCS leaves out.
+    LOCAL_USE = "L"
+
+    # Client#served_rpcs over XWB: one XWB IS RPC AVAILABLE per name, as XWB
+    # has no bulk form a client may call (XWB ARE RPCS AVAILABLE is listed by
+    # no option and exempt from none: no-context on the pinned reach face).
+    def served_rpcs(names)
+      names.each_with_object(Set.new) do |name, served|
+        answer = call_rpc(SERVED_RPCS_RPC, name, LOCAL_USE).first.to_s.strip
+        raise RpcError, "#{SERVED_RPCS_RPC} #{name}: expected 1 or 0, got #{answer.inspect}" unless %w[0 1].include?(answer)
+
+        served << name if answer == "1"
+      end
+    end
+
     # Build disconnect packet (compatibility)
     def build_disconnect_packet
       build_rpc_message("#BYE#")

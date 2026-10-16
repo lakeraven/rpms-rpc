@@ -64,6 +64,10 @@ module RpmsRpc
     # mid-read cannot be resynchronized — so callers may reconnect and
     # re-authenticate rather than retrying on a corrupted stream.
     class RpcTimeoutError < TimeoutError; end
+    # Raised when a reply arrived but cannot be read in the shape the call
+    # promises (e.g. a list whose row boundaries the server did not send,
+    # rpms-ops#957). The data is not returned: a misread reply is never data.
+    class ParseError < Error; end
 
     # How each broker words "this RPC is not served" (#363):
     #   CIA      3 Unknown remote procedure: NAME                     no #8994 entry (CIANBACT)
@@ -269,6 +273,28 @@ module RpmsRpc
 
     def duz
       @duz
+    end
+
+    # -- compatibility (#366) -------------------------------------------------
+
+    # Which RPCs this release of the gem sends that the server does not serve:
+    # an RpmsRpc::Compatibility::Report, grouped by API module. Run it once,
+    # after sign-on. It reports by default; strict: true raises
+    # Compatibility::MissingRpcsError when anything is missing, for a host that
+    # wants to fail at boot. See RpmsRpc::Compatibility. Required here, not at
+    # the top: a standalone client require stays as small as it was
+    # (standalone_require_test.rb).
+    def compatibility(strict: false)
+      require "rpms_rpc/compatibility"
+      Compatibility.check(self, strict: strict)
+    end
+
+    # The subset of `names` the server serves, as a Set, asked without running
+    # any of them. Each broker client answers with the RPC its broker offers
+    # for the question (CiaClient, XwbClient); a client without one raises.
+    def served_rpcs(_names)
+      raise Error, "#{self.class.name} cannot ask its server which RPCs it serves; " \
+                   "the compatibility check runs over CIA (CiaClient) or XWB (XwbClient)"
     end
 
     # -- VistA signon ---------------------------------------------------------

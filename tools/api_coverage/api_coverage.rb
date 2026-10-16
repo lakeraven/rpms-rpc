@@ -408,6 +408,19 @@ module ApiCoverage
     lines
   end
 
+  # The release's RPC list for RpmsRpc::Compatibility (#366): every RPC each public API module
+  # sends, sorted, in lib/rpms_rpc/required_rpcs.json. `rake rpc:required_rpcs` writes it;
+  # test/api_coverage/required_rpcs_test.rb fails when it is stale.
+  def required_rpcs(entries, build:)
+    modules = entries.group_by { |e| e[:module] }.filter_map do |mod, es|
+      names = es.flat_map { |e| e[:rpcs].map { |r| r[:name] } }.uniq.sort
+      [ mod, names ] unless names.empty?
+    end
+    { "build" => build, "modules" => modules.sort.to_h }
+  end
+
+  def required_rpcs_json(doc) = "#{JSON.pretty_generate(doc)}\n"
+
   def method_lines(entries)
     entries.map do |e|
       rpcs = e[:rpcs].map { |r| r[:registered] ? r[:name] : "#{r[:name]} (NOT REGISTERED)" }

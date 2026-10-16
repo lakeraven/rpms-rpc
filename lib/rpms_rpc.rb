@@ -12,6 +12,7 @@
 # require it directly. MockClient loads on `RpmsRpc.mock!`.
 require_relative "rpms_rpc/version"
 require_relative "rpms_rpc/core"
+require_relative "rpms_rpc/compatibility"
 require_relative "rpms_rpc/data_mapper"
 require_relative "rpms_rpc/mappings"
 require_relative "rpms_rpc/security_keys"
