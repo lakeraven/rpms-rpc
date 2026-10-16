@@ -48,14 +48,16 @@ module RpmsRpc
     #                         on the build, or marked inactive (404/501-like)
     #   RpcRefusedError       the RPC is served, but not to this user in the bound
     #                         context option (403-like)
-    #   RpcError              any other broker error, chiefly an M error raised by
-    #                         a routine that did run (500-like)
+    #   RpcMError             an M error: the routine ran and failed, or the broker
+    #                         failed writing its reply (500-like, #357)
+    #   RpcError              any other broker error
     #   ConnectionError       the connection was lost (502/503-like)
     #   RpcTimeoutError       the reply did not come in time (504-like)
     # Every transport (CIA, XWB, BMX) raises the same class for the same case.
     # An API method never answers empty in place of any of them.
     class RpcNotAvailableError < RpcError; end
     class RpcRefusedError < RpcError; end
+    class RpcMError < RpcError; end
     class TimeoutError < ConnectionError; end
     # Raised when a single RPC's reply times out mid-call. Subclass of
     # TimeoutError (and so ConnectionError) so existing rescue blocks keep
@@ -88,12 +90,24 @@ module RpmsRpc
       | Application\ context\ has\ not\ been\ created
     /xi
 
+    # How each broker words "the M code failed" (#357):
+    #   CIA      1 The server has reported the following error: <$ZS>
+    #            error 1: ETRAP2^CIANBLIS calls ERRCHK^CIANBACT(1,1,ECSAV) (CIANBLIS.m:253-256),
+    #            the text is dialog 199412001 (GETDLG^CIANBUTL, CIANBUTL.m:175-181)
+    #   XWB      M  ERROR=<$ZS>   the Kernel %ZTER frame (two spaces)
+    #   BMX      M ERROR=<$ZS>    BMXMON ETRAP (one space, rpms-rpc#282)
+    M_ERROR_PATTERN = /
+      \A1\s+The\ server\ has\ reported\ the\ following\ error
+      | \A\x18?M\ {1,2}ERROR
+    /x
+
     # The error class a broker error message raises: RpcNotAvailableError,
-    # RpcRefusedError, or RpcError for anything else.
+    # RpcRefusedError, RpcMError, or RpcError for anything else.
     def self.rpc_error_for(message)
       text = message.to_s
       return RpcNotAvailableError if text.match?(NOT_AVAILABLE_PATTERN)
       return RpcRefusedError if text.match?(REFUSED_PATTERN)
+      return RpcMError if text.match?(M_ERROR_PATTERN)
 
       RpcError
     end

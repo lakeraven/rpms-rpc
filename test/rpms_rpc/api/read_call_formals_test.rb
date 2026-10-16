@@ -11,6 +11,7 @@ require "rpms_rpc/api/note_template"
 require "rpms_rpc/api/order"
 require "rpms_rpc/api/symptom"
 require "rpms_rpc/api/vital"
+require "rpms_rpc/api/referral"
 
 # Issue #259: each read call sends the formal list its routine declares.
 #
@@ -151,5 +152,14 @@ class ReadCallFormalsTest < Minitest::Test
       assert_match(/\A\d+\z/, call[:params].first.to_s,
                    "#{call[:rpc]} frame has no DFN in P1: #{call[:params].inspect}")
     end
+  end
+
+  # SRCHREF^BMCRPC1(RSLT,PATIENT,REFPRVDR,STRTDATE,ENDDATE,RECNMBR,STATUS)
+  # (BMCRPC1.m:9) reads +RECNMBR without $G (BMCRPC1.m:32): a DFN-only frame
+  # died live with LVUNDEF RECNMBR (#210). The frame only; the live proof is
+  # test/live/referral_search_live_test.rb.
+  def test_referral_for_patient_sends_all_six_formals
+    RpmsRpc::Referral.for_patient(DFN)
+    assert_equal [ DFN, "", "", "", "", "" ], params_sent_to("BMC SEARCH REFERRAL")
   end
 end
