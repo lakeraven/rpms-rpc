@@ -489,7 +489,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       ddr_lister ddr_lock_unlock_node ddr_gets_entry_data
       ddr_filer ddr_validator
       practitioner_info practitioner_list practitioner_roles user_management_user_list
-      medication_list
+      medication_list medication_active
       referral_search
       user_info reminders_list
       reminder_detail patient_deceased patient_sensitive user_has_key person_has_key user_held_keys

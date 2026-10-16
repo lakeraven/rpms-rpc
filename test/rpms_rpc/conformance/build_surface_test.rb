@@ -109,4 +109,71 @@ class RpmsRpc::Conformance::BuildSurfaceTest < Minitest::Test
     refute from_json(rpcs_doc([ rec ])).texts?, "rpcs.v1 carries no text, so none is read"
     assert_equal [ [], [], nil, nil, nil, nil ], [ v1.description, v1.returns, v1.word_wrap, v1.version, v1.params[0].seq, v1.params[0].max_length ]
   end
+
+  # --- <tag>-contexts_19_05.txt (rpms-rpc#416, rpms-ops#626) -------------------------------------
+
+  CONTEXTS = [
+    "OPTION|TYPE|LOCK|RPC|RPC_KEY|RPC_RULES",
+    "ADEKRPC|B|ADEZMENU|XQ OPT|ADEZMENU|",
+    "OR CPRS GUI CHART|B||XQ OPT||",
+    "XUS SIGNON|B||XUS AV CODE||"
+  ].map { |l| l.tr("|", "\t") }.join("\n") + "\n"
+
+  def with_contexts(contexts = CONTEXTS, reach: nil)
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "#{TAG}-broker_8994.txt"),
+                 "XQ OPT^OPT^XQ^1\nXUS AV CODE^VALIDAV^XUSRB^2\nXWB CREATE CONTEXT^CRCONTXT^XWBSEC^1\nORWPT SELECT^SELECT^ORWPT^1\n")
+      File.write(File.join(dir, "#{TAG}-rpc_reach.txt"), reach) if reach
+      File.write(File.join(dir, "#{TAG}-contexts_19_05.txt"), contexts)
+      yield Surface.load(dir, TAG)
+    end
+  end
+
+  def test_a_context_serves_only_the_rpcs_its_rpc_multiple_lists
+    with_contexts do |s|
+      assert s.contexts?
+      assert_nil s.context_refusal("OR CPRS GUI CHART", "XQ OPT")
+      assert_equal "OR CPRS GUI CHART does not serve ORWPT SELECT on #{TAG}", s.context_refusal("OR CPRS GUI CHART", "ORWPT SELECT")
+      assert_equal "NO SUCH OPTION serves no RPC on #{TAG}", s.context_refusal("NO SUCH OPTION", "XQ OPT")
+    end
+  end
+
+  def test_a_locked_context_or_a_keyed_rpc_needs_its_key
+    with_contexts do |s|
+      assert_equal "ADEKRPC is locked by ADEZMENU", s.bind_refusal("ADEKRPC")
+      assert_nil s.bind_refusal("ADEKRPC", keys: [ "ADEZMENU" ])
+      assert_nil s.bind_refusal("OR CPRS GUI CHART")
+      assert_equal "The context 'NO SUCH OPTION' does not exist on server.", s.bind_refusal("NO SUCH OPTION")
+      assert_equal "XQ OPT under ADEKRPC needs key ADEZMENU", s.context_refusal("ADEKRPC", "XQ OPT")
+      assert_nil s.context_refusal("ADEKRPC", "XQ OPT", keys: [ "ADEZMENU" ])
+    end
+  end
+
+  # XWBSEC lets a session run XUS SIGNON's RPCs and the broker-exempt ones whatever is bound:
+  # sign-on is never refused by the context table.
+  def test_sign_on_and_broker_exempt_rpcs_are_never_refused
+    reach = "XQ OPT^client-callable^1^1^OR CPRS GUI CHART^\nXUS AV CODE^client-callable^1^1^XUS SIGNON^\n" \
+            "XWB CREATE CONTEXT^broker-exempt^1^1^^xwb\nORWPT SELECT^no-context^1^1^^\n"
+    with_contexts(reach: reach) do |s|
+      assert_nil s.context_refusal("OR CPRS GUI CHART", "XUS AV CODE")
+      assert_nil s.context_refusal("OR CPRS GUI CHART", "XWB CREATE CONTEXT")
+      refute_nil s.context_refusal("OR CPRS GUI CHART", "ORWPT SELECT")
+    end
+  end
+
+  def test_a_contexts_file_without_its_header_or_with_a_short_row_is_refused
+    e = assert_raises(Surface::Error) { with_contexts(CONTEXTS.lines.drop(1).join) { nil } }
+    assert_match(/header is not OPTION TYPE LOCK RPC RPC_KEY RPC_RULES/, e.message)
+    e = assert_raises(Surface::Error) { with_contexts(CONTEXTS + "XUS SIGNON\tB\n") { nil } }
+    assert_match(/has 2 fields, not 6/, e.message)
+  end
+
+  def test_without_a_contexts_file_the_refusal_question_is_an_error
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "#{TAG}-broker_8994.txt"), "XQ OPT^OPT^XQ^1\n")
+      s = Surface.load(dir, TAG)
+      refute s.contexts?
+      assert_raises(Surface::Error) { s.context_refusal("OR CPRS GUI CHART", "XQ OPT") }
+    end
+  end
 end

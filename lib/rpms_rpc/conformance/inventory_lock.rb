@@ -22,16 +22,18 @@ module RpmsRpc
     #                                    NAME^REACH^ROUTINE_PRESENT^TAG_PRESENT^CONTEXTS^EXEMPT_ON (#394)
     #   <tag>-rpc_signatures.txt         each RPC's #8994 node, DESCRIPTION, INPUT PARAMETERs, RETURN
     #                                    PARAMETER DESCRIPTION and entry-point formals (ZRPCCAT)
+    #   <tag>-contexts_19_05.txt         one row per #19.05 entry, tab-separated under its header:
+    #                                    OPTION TYPE LOCK RPC RPC_KEY RPC_RULES (rpms-ops#626, #416)
     #   <tag>-INVENTORY-PROVENANCE.json  engine, artifact binding, per-dump sha256 + counts, tool sha,
     #                                    the reach face's sha256 + class counts, the image digest
-    #   <tag>-INVENTORY.sha256           sidecar over the five above (shasum -c shape)
+    #   <tag>-INVENTORY.sha256           sidecar over the six above (shasum -c shape)
     #   <tag>-PROVENANCE.json            the build record: release, rpms_ops_commit (not in the sidecar)
     #
     # This class is the Gemfile.lock side of that contract:
     #
     #   data/fingerprints/rpms-ops.lock.yml    what is pinned: tag, RPMS version, engine, build
     #                                          commit, artifact sha, per-asset sha256, counts
-    #   data/inventories/<tag>/                the seven assets, byte for byte (the signature)
+    #   data/inventories/<tag>/                the eight assets, byte for byte (the signature)
     #   data/fingerprints/references/<tag>.yml what was derived from exactly those bytes (Ingest)
     #
     # `rake conformance:pin RELEASE=<tag>` downloads, verifies, ingests and writes the lock;
@@ -42,7 +44,8 @@ module RpmsRpc
       DEFAULT_REPO = "lakeraven/rpms-ops"
       # The reach face and the signatures are required: the callable gate (#394) reads the first, and
       # a release published before rpms-ops#713 has neither, so it cannot be pinned until re-gated.
-      ASSET_SUFFIXES = %w[broker_8994.txt packages_9_4.txt rpc_reach.txt rpc_signatures.txt INVENTORY-PROVENANCE.json].freeze
+      # So is the contexts face (#19.05, rpms-ops#626, rpms-rpc#416), published from bcer-9.0-20261012-e7923a4-ydb on.
+      ASSET_SUFFIXES = %w[broker_8994.txt packages_9_4.txt rpc_reach.txt rpc_signatures.txt contexts_19_05.txt INVENTORY-PROVENANCE.json].freeze
       SIDECAR_SUFFIX = "INVENTORY.sha256"
       BUILD_RECORD_SUFFIX = "PROVENANCE.json"
       ENGINES = %w[iris yottadb].freeze
@@ -79,6 +82,7 @@ module RpmsRpc
             "packages_9_4_sha256" => shas["#{tag}-packages_9_4.txt"],
             "rpc_reach_sha256" => shas["#{tag}-rpc_reach.txt"],
             "rpc_signatures_sha256" => shas["#{tag}-rpc_signatures.txt"],
+            "contexts_19_05_sha256" => shas["#{tag}-contexts_19_05.txt"],
             "provenance_sha256" => shas["#{tag}-INVENTORY-PROVENANCE.json"],
             "inventory_tool_commit" => provenance["tool_git_sha"],
             "image" => image_ref
