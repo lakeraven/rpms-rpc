@@ -545,22 +545,38 @@ module RpmsRpc
     # rejection minted a DUZ from the sequence byte. Consume the seq echo
     # UNCONDITIONALLY, then branch on the flag:
     #
-    #   \x00  -> DATA; return the body
+    #   \x00  -> DATA; return the body, unless it carries \x01 (below)
     #   \x01  -> broker error; raise RpcError with the CIAERR text
     #           (error 3 RpcNotAvailableError, error 4 RpcRefusedError, #363)
     #   none / anything else -> no data or malformed; return "" so the caller
     #           fails closed. A byte that is not a known flag is NEVER treated
     #           as the first field, which is what let the seq echo become a DUZ.
+    #
+    # An M error can also arrive AFTER the \x00 ack (#414): DATAOUT^CIANBACT
+    # writes the ack before OUT streams the rows (CIANBACT.m:105-110), and when
+    # OUT fails ETRAP2^CIANBLIS records the error and SNDERR writes \x01 + the
+    # CIAERR text into the same reply (CIANBLIS.m:253-269) — right after the
+    # ack, or after whatever rows OUT had already written. No data row carries
+    # \x01, so the first \x01 anywhere in a DATA body is that error: raise it,
+    # and drop any partial rows before it (a half-written read is not a result).
     def parse_cia_reply(raw)
       bytes = raw.to_s.b
       rest = bytes.byteslice(1..) || "".b # drop the one-byte sequence echo
       case rest.getbyte(0)
-      when 0x00 then (rest.byteslice(1..) || "".b)
-      when 0x01
-        text = RpmsRpc.sanitize_error(printable(rest.byteslice(1..) || "").strip)
-        raise Client.rpc_error_for(text), text
+      when 0x00
+        body = rest.byteslice(1..) || "".b
+        err_at = body.index("\x01".b)
+        raise_cia_error(body.byteslice((err_at + 1)..)) if err_at
+        body
+      when 0x01 then raise_cia_error(rest.byteslice(1..))
       else "".b # SNDEOD (no flag) or malformed — never parse the seq byte as data
       end
+    end
+
+    # Raise the typed error for a CIAERR text (the bytes after its \x01 flag), sanitized.
+    def raise_cia_error(err_bytes)
+      text = RpmsRpc.sanitize_error(printable(err_bytes || "").strip)
+      raise Client.rpc_error_for(text), text
     end
 
     # Longest broker reason a sign-on refusal carries into its message. CHK^CIANBRPC texts are one
