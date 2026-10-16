@@ -67,6 +67,8 @@ module RpmsRpc
   #   AGG ADD NEW PATIENT        ADD^AGGPTADD      #214 live probe
   #   AGG UPDATE PATIENT         UPD^AGGPTUPD      #214 live probe
   #   AGG PATIENT EDIT CHECK     CHK^AGGEDCHK      #214 live probe
+  #   AGG LOCK PATIENT           LOCK^AGGLOCK      8994 registry (#381)
+  #   AGG UNLOCK PATIENT         UNLOCK^AGGLOCK    8994 registry (#381)
   #   CIANBRPC CANRUN            CANRUN^CIANBRPC   8994 registry (#225)
   module Agg
     extend self
@@ -76,6 +78,8 @@ module RpmsRpc
     UPDATE_RPC = "AGG UPDATE PATIENT"         # UPD^AGGPTUPD
     EDIT_CHECK_RPC = "AGG PATIENT EDIT CHECK" # CHK^AGGEDCHK
     CANRUN_RPC = "CIANBRPC CANRUN"            # CANRUN^CIANBRPC (broker gate)
+    LOCK_RPC = "AGG LOCK PATIENT"             # LOCK^AGGLOCK, return type GLOBAL ARRAY
+    UNLOCK_RPC = "AGG UNLOCK PATIENT"         # UNLOCK^AGGLOCK, return type GLOBAL ARRAY
 
     # The context option the AGG* RPCs are registered under — file 19 IEN
     # 13112, TYPE "B", no LOCK. Every method here binds it; see the module doc.
@@ -209,6 +213,41 @@ module RpmsRpc
       end
     end
 
+    # Run the block holding AG's own edit lock on the patient, under AGGRPC,
+    # and release it afterward. This is the lock AG ships for editing a
+    # registration ("This event is locked for editing by ...", AGGLOCK.m:50;
+    # the GUI that calls it is not in FOIA, so its call order is not
+    # visible). LOCK^AGGLOCK (AGG LOCK PATIENT, P1 = DFN) takes
+    # ^DPT(DFN) and then ^AUPNPAT(DFN), each with a 1-second timeout
+    # (AGGLOCK.m:40-41), and records who holds it in ^XTMP("AGGLCK",DFN)
+    # (AGGLOCK.m:52-55). UPD^AGGPTUPD takes no lock of its own, so without
+    # this two editors could interleave. UNLOCK^AGGLOCK releases both
+    # (AGGLOCK.m:85,109-119). Both are registered under AGGRPC (the
+    # captured registry and reach files in data/inventories/).
+    #
+    # Reply: header "I00010RESULT^T00080MESSAGE" (AGGLOCK.m:27), then
+    # RESULT^MESSAGE (AGGLOCK.m:91): 1 locked, 0 held by someone else (the
+    # MESSAGE names who, AGGLOCK.m:46-50), -1 no such patient in #2 or
+    # #9000001 (AGGLOCK.m:34-35,104-107).
+    #
+    # Returns the block's value. When the lock is not taken it does not
+    # yield, and returns { success: false, error: :lock_failed, message: }
+    # (:invalid_dfn for -1). No reply counts as not taken.
+    def editing(dfn:, client: RpmsRpc.client)
+      in_context(client) do
+        lock = lock_result(parse_reply(call_array(client, LOCK_RPC, dfn.to_s)))
+        if lock
+          lock
+        else
+          begin
+            yield
+          ensure
+            call_array(client, UNLOCK_RPC, dfn.to_s)
+          end
+        end
+      end
+    end
+
     # CHK^AGGEDCHK — the completeness edit-check battery for a patient.
     # Exposed for UX-grade validation feedback; NOT an integrity gate.
     # Returns { checks: [{ hide_error_num:, msg:, type: ("MANDATORY" /
@@ -301,6 +340,16 @@ module RpmsRpc
         m = piece.match(/\A[A-Z]\d{5}(.*)\z/m)
         (m ? m[1] : piece).downcase.to_sym
       end
+    end
+
+    # nil when the lock was taken; the failure hash otherwise.
+    def lock_result(parsed)
+      record = parsed && parsed[:records].first
+      return { success: false, error: :lock_failed, message: "AGG LOCK PATIENT gave no reply" } if record.nil?
+      return nil if record[:result].to_s == "1"
+
+      error = record[:result].to_s == "-1" ? :invalid_dfn : :lock_failed
+      { success: false, error: error, message: record[:message].to_s }
     end
 
     # require_dfn: ADD^AGGPTADD always fills the DFN piece on success, so a

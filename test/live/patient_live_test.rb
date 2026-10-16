@@ -203,15 +203,15 @@ class PatientLiveTest < LiveSpec::Test
     assert_nil RpmsRpc::Patient.brief_header(absent_dfn)
   end
 
-  # -- contact (DDR GETS ENTRY DATA, #2 .131/.132/.134/.133) ------------------
+  # -- contact (DDR GETS ENTRY DATA, #2 .131/.132/.134, #9000001 1801/1802) ---
 
   def test_contact_reads_the_patients_telecom
     assert_equal(
-      { dfn: 4, phone_home: "907-901-0101", phone_work: "907-910-1010", phone_cell: nil, email: nil },
+      { dfn: 4, phone_home: "907-901-0101", phone_work: "907-910-1010", phone_cell: nil, phone_other: nil, email: nil },
       RpmsRpc::Patient.contact(DEMO_ONE[:dfn])
     )
     assert_equal(
-      { dfn: 3, phone_home: "555-555-5555", phone_work: "555-555-5566", phone_cell: nil, email: nil },
+      { dfn: 3, phone_home: "555-555-5555", phone_work: "555-555-5566", phone_cell: nil, phone_other: nil, email: nil },
       RpmsRpc::Patient.contact(MICKEY[:dfn])
     )
   end

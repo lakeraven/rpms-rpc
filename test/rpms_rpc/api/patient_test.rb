@@ -114,6 +114,51 @@ class PatientTest < Minitest::Test
     [ nil, 0, "-5" ].each { |dfn| assert_nil RpmsRpc::Patient.contact(dfn), dfn.inspect }
   end
 
+  # -- contact reads email where AG files it (#381) ---------------------------
+
+  def gets_key(file, fields)
+    RpmsRpc::DdrFileman.gets_entry_param(file: file, iens: "42,", fields: fields, flags: "IE").to_s
+  end
+
+  def seed_contact(mock, ihs: true)
+    mock.seed(:ddr_gets_entry_data, gets_key("2", ".131;.132;.134"), <<~REPLY.chomp)
+      [Data]
+      2^42,^.131^406-555-0101^406-555-0101
+      2^42,^.132^^
+      2^42,^.134^406-555-0198^406-555-0198
+    REPLY
+    return unless ihs
+
+    mock.seed(:ddr_gets_entry_data, gets_key("9000001", "1801;1802"), <<~REPLY.chomp)
+      [Data]
+      9000001^42,^1801^MSG 406-555-0100^MSG 406-555-0100
+      9000001^42,^1802^una@example.test^una@example.test
+    REPLY
+  end
+
+  def test_contact_reads_email_and_other_phone_from_ihs_patient
+    seed_contact(RpmsRpc.mock!)
+
+    assert_equal({ dfn: 42, phone_home: "406-555-0101", phone_work: nil, phone_cell: "406-555-0198",
+                   phone_other: "MSG 406-555-0100", email: "una@example.test" },
+                 RpmsRpc::Patient.contact(42))
+  end
+
+  def test_contact_is_nil_when_the_ihs_patient_read_fails
+    seed_contact(RpmsRpc.mock!, ihs: false)
+
+    assert_nil RpmsRpc::Patient.contact(42)
+  end
+
+  def test_update_takes_named_attributes_and_refuses_field_numbers_before_the_wire
+    use NoWireClient.new
+
+    assert_raises(RpmsRpc::Registration::AttributeNotOfferedError) do
+      RpmsRpc::Patient.update(42, patient_fields: { ".133" => "una@example.test" })
+    end
+    assert_raises(RpmsRpc::Registration::AttributeNotOfferedError) { RpmsRpc::Patient.update(42, phone_cell: "1") }
+  end
+
   def test_update_with_no_fields_sends_nothing
     use NoWireClient.new
     result = RpmsRpc::Patient.update(42)

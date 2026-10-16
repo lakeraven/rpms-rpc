@@ -15,7 +15,6 @@ require "rpms_rpc/api/registration"
 # pseudo-SSNs).
 class RegistrationTest < Minitest::Test
   Reg = RpmsRpc::Registration
-  Ddr = RpmsRpc::DdrFileman
   Agg = RpmsRpc::Agg
 
   ATTRS = {
@@ -328,57 +327,217 @@ class RegistrationTest < Minitest::Test
   end
 
   # ==========================================================================
-  # UPDATE — composed edit path (DDR FILER / FILE^DIE under the ^DPT lock;
-  # EDIT^VAFCPTED has no ^XWB(8994) registration on any observed target)
+  # UPDATE — through AG: AGG UPDATE PATIENT per window, under AGG LOCK
+  # PATIENT (rpms-rpc#381). The windows are AG's own definitions, extracted
+  # from the FOIA AGG WINDOW DEFINITION export (fixture), not written here.
   # ==========================================================================
 
-  def seed_update_lock(dfn: 42, ok: true)
-    @mock.seed(:ddr_lock_unlock_node, Ddr.lock_param(node: "^DPT(#{dfn})").to_s, ok)
+  WINDOWS_TSV = File.expand_path("../../fixtures/agg/update_patient_windows.tsv", __dir__)
+  NEW_PATIENT_TSV = File.expand_path("../../fixtures/agg/new_patient_window.tsv", __dir__)
+
+  def self.read_tsv(path)
+    rows = File.readlines(path).reject { |l| l.start_with?("#") }.map { |l| l.chomp.split("\t", -1) }
+    header = rows.shift
+    rows.map { |row| header.zip(row).to_h }
   end
 
-  def test_update_files_both_halves_through_one_edit_pass
-    seed_update_lock
-    @mock.seed(:ddr_filer, "EDIT", "[Data]")
+  # { window name => { parameter => row } }
+  UPDATE_WINDOWS = read_tsv(WINDOWS_TSV).group_by { |r| r["window_name"] }
+                                       .transform_values { |rs| rs.to_h { |r| [ r["parameter"], r ] } }
 
-    result = Reg.update(42,
-      patient_fields: { ".111" => "123 EXAMPLE ST" },
-      ihs_fields: { "1118" => "EXAMPLE COMMUNITY" })
+  LOCK_OK = "I00010RESULT^T00080MESSAGE\x1e1^\x1e\x1f"
 
-    assert result[:success]
-    assert_equal 42, result[:dfn]
-    filer = filer_calls.last
-    assert_equal "EDIT", filer[:params][0]
-    assert_equal [ "2^.111^42,^123 EXAMPLE ST", "9000001^1118^42,^EXAMPLE COMMUNITY" ],
-                 filer[:params][1].values
+  def seed_lock(dfn: 42, reply: LOCK_OK)
+    @mock.seed(:agg_lock_patient, dfn.to_s, reply)
+    @mock.seed(:agg_unlock_patient, dfn.to_s, LOCK_OK)
   end
 
-  def test_update_fails_and_skips_filer_when_dpt_lock_unavailable
-    seed_update_lock(ok: false)
+  def seed_window(window, result: "1", error: "")
+    @mock.seed(:agg_update_patient, window,
+               "I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1e#{result}^#{error}^\x1e\x1f")
+  end
 
-    result = Reg.update(42, patient_fields: { ".111" => "123 EXAMPLE ST" })
+  def update_calls
+    agg_calls("AGG UPDATE PATIENT")
+  end
 
-    refute result[:success]
+  # [window, { NAME => VALUE }] per AGG UPDATE PATIENT call.
+  def sent_windows
+    update_calls.map do |c|
+      window, _dfn, parms = c[:params]
+      [ window, parms.split(Agg::PARM_DELIM).to_h { |pair| pair.split("=", 2) } ]
+    end
+  end
+
+  # The attribute table is AG's: each attribute is a parameter of its
+  # window's "AC" index, filing the field it claims, with the type its value
+  # form assumes.
+  def test_every_update_attribute_is_a_parameter_of_its_ag_window
+    forms = { date: "D", sex: "C", choice: "C", pointer: "T", text: "X", ssn: "X", date_moved: "X" }
+    Reg::UPDATE_ATTRIBUTES.each do |name, attribute|
+      window = UPDATE_WINDOWS.fetch(attribute.window)
+      row = window.fetch(attribute.parameter) { flunk "#{name}: #{attribute.parameter} is not in #{attribute.window}" }
+      assert_equal "AGG UPDATE PATIENT", row["save_rpc"], "#{attribute.window} saves through UPD^AGGPTUPD"
+      assert_equal forms.fetch(attribute.form), row["type"], "#{name}: window type"
+      next if attribute.field.nil?
+
+      filed = if row["field"] == attribute.field then row["file"]
+      elsif row["secondary_field"] == attribute.field then row["secondary_file"]
+      end
+      assert_equal attribute.file, filed, "#{name}: #{attribute.parameter} files ##{attribute.file} #{attribute.field}"
+    end
+  end
+
+  def test_the_choice_values_sent_are_ag_choice_names
+    sex = UPDATE_WINDOWS.dig(Reg::WINDOW_PERSONAL_DETAIL, "AGGPTSEX", "choices").split(";").map { |c| c.split("=").first }
+    assert_equal [ "MALE", "FEMALE" ], sex
+    assert_equal [ "FEMALE", "MALE" ], %w[F m].map { |v| Reg.send(:update_value, Reg::UPDATE_ATTRIBUTES[:sex], v, {}) }
+  end
+
+  # The zip and date-moved parameters have no field of their own: zip is
+  # filed by the window's M code (PTZP^AGGUL2), date moved by COMM^AGGPTADD.
+  def test_zip_and_date_moved_are_filed_by_ag_code_not_a_field
+    address = UPDATE_WINDOWS.fetch(Reg::WINDOW_ADDRESS)
+    assert_equal "Y", address.dig("AGGPTZIP", "filing_code")
+    assert_equal [ "", "" ], address.fetch("AGGPTCDT").values_at("field", "secondary_field")
+  end
+
+  # The FOIA export is the same layout the built image carries: the
+  # parameters the Address window shares with the live-read New Patient
+  # window file the same fields.
+  def test_the_foia_windows_agree_with_the_live_new_patient_window
+    live = self.class.read_tsv(NEW_PATIENT_TSV).to_h { |r| [ r["parameter"], r ] }
+    shared = UPDATE_WINDOWS.values.flat_map(&:values).select { |r| live.key?(r["parameter"]) }
+    refute_empty shared
+    shared.each do |row|
+      l = live.fetch(row["parameter"])
+      foia = row["file"] == "2" ? [ row["field"], row["secondary_field"] ] : [ row["secondary_field"], row["field"] ]
+      assert_equal [ l["field"], l["secondary_field"] ], foia, "#{row['parameter']} files the same field live and in FOIA"
+    end
+  end
+
+  def test_update_sends_one_agg_update_per_window_under_the_ag_lock
+    seed_lock
+    [ Reg::WINDOW_PERSONAL_DETAIL, Reg::WINDOW_ADDRESS, Reg::WINDOW_ELIGIBILITY ].each { |w| seed_window(w) }
+
+    result = Reg.update(42, dob: Date.new(1990, 1, 2), phone_home: "406-555-0101", email: "una@example.test",
+                            tribe: "123", eligibility_status: "direct only")
+
+    assert_equal({ success: true, dfn: 42 }, result)
+    assert_equal [
+      [ "Personal Detail", { "AGGPTDOB" => "01/02/1990" } ],
+      [ "Address", { "AGGPTHPH" => "406-555-0101", "AGGPTEML" => "una@example.test" } ],
+      [ "Eligibility", { "AGGPTTRI" => "123", "AGGPTELG" => "DIRECT ONLY" } ]
+    ], sent_windows
+    assert(update_calls.all? { |c| c[:params][1] == "42" })
+    rpcs = @mock.received_calls.map { |c| c[:rpc] }
+    assert_equal "AGG LOCK PATIENT", rpcs.first
+    assert_equal "AGG UNLOCK PATIENT", rpcs.last
+    assert(@mock.received_calls.all? { |c| c[:context] == Agg::CONTEXT || c[:rpc] !~ /\AAGG/ })
+    refute_includes rpcs, "DDR FILER"
+  end
+
+  def test_update_sends_only_the_windows_it_touches
+    seed_lock
+    seed_window(Reg::WINDOW_ADDRESS)
+
+    Reg.update(42, phone_work: "406-555-0199")
+
+    assert_equal [ [ "Address", { "AGGPTWPH" => "406-555-0199" } ] ], sent_windows
+  end
+
+  # UPD re-converts AGGPTCDT before every later parameter (AGGPTUPD.m:61);
+  # sent last it is converted once, by COMM^AGGPTADD.
+  def test_update_sends_the_date_moved_last_in_its_window
+    seed_lock
+    seed_window(Reg::WINDOW_ADDRESS)
+
+    Reg.update(42, community_since: Date.new(2020, 5, 1), community_ien: "18186", phone_home: "406-555-0101")
+
+    window, params = sent_windows.first
+    assert_equal "Address", window
+    assert_equal [ "AGGPTCOM", "AGGPTHPH", "AGGPTCDT" ], params.keys
+    assert_equal "05/01/2020", params["AGGPTCDT"]
+  end
+
+  def test_update_sends_an_empty_value_to_clear
+    seed_lock
+    seed_window(Reg::WINDOW_ADDRESS)
+
+    Reg.update(42, phone_work: "", email: nil)
+
+    assert_equal [ [ "Address", { "AGGPTWPH" => "" } ] ], sent_windows
+  end
+
+  def test_update_refuses_fields_ag_does_not_file_before_sending
+    { phone_cell: /\.134/, pager: /\.135/, community: /1118/ }.each do |name, why|
+      err = assert_raises(Reg::AttributeNotOfferedError) { Reg.update(42, name => "X") }
+      assert_match(/#{name}:/, err.message)
+      assert_match why, err.message
+      assert_kind_of RpmsRpc::Error, err
+    end
+    assert_empty @mock.received_calls
+  end
+
+  def test_update_refuses_the_removed_field_number_hashes_with_their_migration
+    err = assert_raises(Reg::AttributeNotOfferedError) do
+      Reg.update(42, patient_fields: { ".131" => "1", ".133" => "a@b", ".134" => "2" }, ihs_fields: { "1118" => "X" })
+    end
+    assert_match(/#2 \.131: use phone_home:/, err.message)
+    assert_match(/#2 \.133: not offered \(AG keeps email on #9000001 1802: use email:\)/, err.message)
+    assert_match(/#2 \.134: not offered/, err.message)
+    assert_match(/#9000001 1118: not offered/, err.message)
+    assert_empty @mock.received_calls
+  end
+
+  def test_update_refuses_unknown_attributes_and_bad_values_before_sending
+    assert_raises(ArgumentError) { Reg.update(42, nickname: "X") }
+    assert_raises(ArgumentError) { Reg.update(42, tribe: "CHEROKEE") }
+    assert_raises(ArgumentError) { Reg.update(42, community_ien: "18186") }
+    assert_raises(ArgumentError) { Reg.update(42, community_ien: "", community_since: "05/01/2020") }
+    assert_empty @mock.received_calls
+  end
+
+  def test_update_does_not_edit_when_the_ag_lock_is_held
+    seed_lock(reply: "I00010RESULT^T00080MESSAGE\x1e0^This event is locked for editing by DEMO,USER.\x1e\x1f")
+
+    result = Reg.update(42, phone_home: "406-555-0101")
+
+    assert_equal({ success: false, error: :lock_failed, message: "This event is locked for editing by DEMO,USER." }, result)
+    assert_empty update_calls
+    refute_includes @mock.received_calls.map { |c| c[:rpc] }, "AGG UNLOCK PATIENT"
+  end
+
+  def test_update_answers_lock_failed_when_the_lock_does_not_answer
+    result = Reg.update(42, phone_home: "406-555-0101")
+
     assert_equal :lock_failed, result[:error]
-    assert_empty filer_calls
+    assert_empty update_calls
   end
 
-  def test_update_surfaces_filer_rejection_and_still_unlocks
-    seed_update_lock
-    @mock.seed(:ddr_filer, "EDIT",
-      "[BEGIN_diERRORS]\n701^1^2^42,^.111^0\nThe value is not valid.\n[END_diERRORS]")
+  def test_update_answers_invalid_dfn_for_a_patient_ag_cannot_lock
+    seed_lock(reply: "I00010RESULT^T00080MESSAGE\x1e-1^Invalid Patient selected\x1e\x1f")
 
-    result = Reg.update(42, patient_fields: { ".111" => "" })
-
-    refute result[:success]
-    assert_equal :filer_rejected, result[:error]
-    unlock = @mock.received_calls.last
-    assert_equal "DDR LOCK/UNLOCK NODE", unlock[:rpc]
-    assert_equal Ddr.unlock_param(node: "^DPT(42)"), unlock[:params].first
+    assert_equal :invalid_dfn, Reg.update(42, phone_home: "1")[:error]
   end
 
-  def test_update_rejects_invalid_dfn_and_empty_field_set
-    assert_equal :invalid_dfn, Reg.update(0, patient_fields: { ".111" => "X" })[:error]
+  def test_update_stops_at_a_refused_window_names_what_was_filed_and_unlocks
+    seed_lock
+    seed_window(Reg::WINDOW_PERSONAL_DETAIL)
+    seed_window(Reg::WINDOW_ADDRESS, result: "-1", error: "The value is not valid.")
+
+    result = Reg.update(42, sex: "F", phone_home: "X", tribe: "123")
+
+    assert_equal({ success: false, error: :agg_rejected, window: "Address",
+                   message: "The value is not valid.", filed_windows: [ "Personal Detail" ] }, result)
+    assert_equal [ "Personal Detail", "Address" ], sent_windows.map(&:first)
+    assert_equal "AGG UNLOCK PATIENT", @mock.received_calls.last[:rpc]
+  end
+
+  def test_update_rejects_invalid_dfn_and_empty_attributes
+    assert_equal :invalid_dfn, Reg.update(0, phone_home: "X")[:error]
     assert_equal :no_fields, Reg.update(42)[:error]
+    assert_equal :no_fields, Reg.update(42, email: nil)[:error]
     assert_empty @mock.received_calls
   end
 end
