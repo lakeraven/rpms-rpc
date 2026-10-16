@@ -99,7 +99,7 @@ module RpmsRpc
     # reach face has it broker-exempt on xwb.
     SERVED_RPCS_RPC = "XWB IS RPC AVAILABLE"
     # "L", local use, as a CPRS-style client is: refuses INACTIVE 1 and 2
-    # (RPCAVAIL^XWBLIB), the same entries CIANBRPC GETRPCS leaves out.
+    # (RPCAVAIL^XWBLIB), the same entries CiaClient#served_rpcs leaves out.
     LOCAL_USE = "L"
 
     # Client#served_rpcs over XWB: one XWB IS RPC AVAILABLE per name, as XWB

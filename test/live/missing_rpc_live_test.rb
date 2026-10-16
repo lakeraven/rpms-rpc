@@ -15,7 +15,8 @@ require "rpms_rpc/api/scheduling"
 # raises Client::RpcNotAvailableError (the server does not serve it,
 # 404/501-like); error 4, $$CANRUN^CIANBACT false for this user in the bound
 # option (CIANBACT.m:49), raises Client::RpcRefusedError (served, not to
-# you, 403-like). An M error from a routine that ran is a plain RpcError.
+# you, 403-like). An M error from a routine that ran raises
+# Client::RpcMError (CIA error 1, 500-like, #357). All three are RpcErrors.
 #
 # Each method below was guarded by a capability probe until #363 and now
 # calls its RPC unconditionally. Its spec asks the broker first, through
@@ -44,6 +45,7 @@ require "rpms_rpc/api/scheduling"
 class MissingRpcLiveTest < LiveSpec::Test
   NotAvailable = RpmsRpc::Client::RpcNotAvailableError
   Refused = RpmsRpc::Client::RpcRefusedError
+  MError = RpmsRpc::Client::RpcMError
 
   # Registered on no pinned registry (#207); the gem no longer sends it.
   UNREGISTERED_RPC = "ORWU USERKEYS"
@@ -149,9 +151,22 @@ class MissingRpcLiveTest < LiveSpec::Test
     err = assert_raises(RpmsRpc::Client::RpcError) do
       RpmsRpc::ContextScope.scoped(client, RpmsRpc::Referral::CONTEXT) { client.call_rpc("BMC SEARCH REFERRED TO", "A") }
     end
-    refute_kind_of NotAvailable, err
-    refute_kind_of Refused, err
+    assert_instance_of MError, err
     assert_match(/\^CIANBACT/, err.message)
+  end
+
+  # An M error in the routine itself, before any ack: SRCHREF^BMCRPC1 reads
+  # +RECNMBR without $G (BMCRPC1.m:32), so the DFN alone leaves its fifth
+  # formal undefined. The broker traps it as error 1 (ETRAP2^CIANBLIS), which
+  # raises RpcMError (#357). Referral.for_patient sends all six since #210.
+  def test_an_m_error_in_the_routine_raises_m_error
+    flunk "#{persona} may not run BMC SEARCH REFERRAL in BMCRPC; the M error cannot be provoked" unless canrun?("BMC SEARCH REFERRAL", RpmsRpc::Referral::CONTEXT)
+
+    err = assert_raises(RpmsRpc::Client::RpcError) do
+      RpmsRpc::ContextScope.scoped(client, RpmsRpc::Referral::CONTEXT) { client.call_rpc("BMC SEARCH REFERRAL", DFN.to_s) }
+    end
+    assert_instance_of MError, err
+    assert_match(/SRCHREF\+\d+\^BMCRPC1/, err.message)
   end
 
   def test_the_refusal_leaves_the_session_usable
