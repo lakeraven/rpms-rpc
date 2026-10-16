@@ -92,7 +92,7 @@ client.disconnect
 
 Once signed on, a host can check that the server serves every RPC this release of the gem sends (#366), the way CPRS checks at startup.
 It reports by default; `strict: true` raises `RpmsRpc::Compatibility::MissingRpcsError` naming each missing RPC by API module.
-Over CIA it is one `CIANBRPC GETRPCS`; over XWB, one `XWB IS RPC AVAILABLE` per RPC.
+Over CIA it reads REMOTE PROCEDURE (#8994) with a paged `DDR LISTER` in the sign-on option, `CIAV VUECENTRIC`; over XWB, one `XWB IS RPC AVAILABLE` per RPC.
 
 ```ruby
 report = client.compatibility

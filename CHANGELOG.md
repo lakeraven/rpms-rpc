@@ -13,14 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RpmsRpc::Compatibility::Report`: `ok?`, `missing` (`{ "RpmsRpc::Referral" => [names] }`, by API
   module), `missing_rpcs` and a printable `to_s`. It reports by default; `compatibility(strict: true)`
   raises `RpmsRpc::Compatibility::MissingRpcsError` naming them, for a host that fails at boot.
-- It asks without running the RPCs: over CIA, one `CIANBRPC GETRPCS` (the server's active #8994
-  registry, the same screen the broker applies before it answers "Unknown remote procedure"); over
-  XWB, one `XWB IS RPC AVAILABLE` per RPC, for local use. BMX has no such RPC and raises.
-- **On a YottaDB build the CIA check raises until rpms-ops#957 lands.** The YDB broker sends
-  `CIANBRPC GETRPCS` with every name run together on one line (no row boundaries for a wrap-off
-  array reply), and the names cannot be split apart. The check fails closed: any reply line longer
-  than a #8994 NAME (30 characters) raises the new `RpmsRpc::Client::ParseError`, naming rpms-ops#957,
-  instead of reporting every RPC missing.
+- It asks without running the RPCs. Over CIA it reads REMOTE PROCEDURE (#8994), each entry's NAME
+  and INACTIVE, with `DDR LISTER` in the sign-on option (`CIAV VUECENTRIC`, restored afterwards),
+  1,000 rows a call: six calls for the 5,557 entries on the 1012 pin. An RPC is served when it has an
+  entry with INACTIVE "", 0 or 3, the screen the broker applies before it answers "Unknown remote
+  procedure". Over XWB it asks `XWB IS RPC AVAILABLE` once per RPC, for local use. BMX has no such
+  RPC and raises.
+- Not `CIANBRPC GETRPCS`, though it lists the same entries: its #8994 entry has WORD WRAP ON unset,
+  and the CIA broker ends each row of such a reply with a bare `W !`, which sends no bytes on IRIS
+  (the socket is opened "DS" or "S", with no line terminator) or on YottaDB. Every name arrives on
+  one line that cannot be split (rpms-ops#957). `DDR LISTER` is wrap-on, so its rows end in CR.
+- The read fails closed with the new `RpmsRpc::Client::ParseError` when a row is not
+  IEN^NAME^INACTIVE, and with `RpcError` on an empty registry or a FileMan error reply, rather than
+  report RPCs missing. A user whose menu lacks `CIAV VUECENTRIC` gets the broker's refusal.
 - "This release needs" is `lib/rpms_rpc/required_rpcs.json`: every RPC each public API module sends,
   written by `rake rpc:required_rpcs` from the static analysis the callable gate reads; a test fails
   when it is stale.

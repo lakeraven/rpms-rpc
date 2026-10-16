@@ -312,41 +312,37 @@ module RpmsRpc
       raise_rpc_timeout(rpc_name)
     end
 
-    # The RPC that lists every RPC the CIA broker serves (#366): GETRPCS^CIANBRPC
-    # is LIST^DIC on REMOTE PROCEDURE (#8994) screened to INACTIVE "", 0 or 3
-    # (CIANBRPC.m:166-171), and returns each NAME. That is the same screen
-    # ACTR^CIANBACT applies before it runs an RPC: no #8994 entry is error 3
-    # and INACTIVE outside "03" is error 5 (CIANBACT.m), the two refusals that
-    # raise RpcNotAvailableError. A CIANB* routine is exempt from the option
-    # check (CIANBACT.m:49), so any signed-on user may call it; the pinned
-    # reach face has it broker-exempt on cia.
-    SERVED_RPCS_RPC = "CIANBRPC GETRPCS"
+    # Client#served_rpcs over CIA reads REMOTE PROCEDURE (#8994) itself: each
+    # entry's NAME and INACTIVE, with DDR LISTER, a page at a time. An RPC is
+    # served when it has an entry and its INACTIVE is "", 0 or 3, the screen
+    # ACTR^CIANBACT applies before it runs one: no entry is error 3, INACTIVE
+    # outside "03" is error 5 (CIANBACT.m:46-50), the two refusals that raise
+    # RpcNotAvailableError.
+    #
+    # Not CIANBRPC GETRPCS, though it lists the same entries
+    # (CIANBRPC.m:166-171): its #8994 entry is a GLOBAL ARRAY with WORD WRAP
+    # ON unset, so OUT^CIANBACT ends each name with a bare `W !`, and the CIA
+    # socket has no line terminator on any engine (IRIS opens it "DS" or "S",
+    # CIANBLIS TCPOPEN and ZISTCP.m:30-31; YDB with no DELIMITER). The names
+    # arrive as one line no client can split (rpms-ops#957). DDR LISTER is a
+    # GLOBAL ARRAY with WORD WRAP ON, so each of its rows ends in CR.
+    #
+    # DDR LISTER needs an option that lists it: the read binds the sign-on
+    # option, CIAV VUECENTRIC, and restores the caller's. A user without that
+    # option gets the broker's refusal (RpcRefusedError), not a report.
+    REGISTRY_RPC = "DDR LISTER"
+    REGISTRY_PAGE = 1000
+    SERVED_INACTIVE = [ "", "0", "3" ].freeze
 
     # The longest NAME #8994 holds: its .01 input transform kills a value
-    # over 30 characters (^DD(8994,.01,0)). A longer reply line is not a name.
+    # over 30 characters (^DD(8994,.01,0)).
     MAX_RPC_NAME = 30
 
-    # Client#served_rpcs over CIA: one registry read, whatever the number of
-    # names. It fails closed: an empty registry is a failed read, not a server
-    # that serves nothing, and a line longer than any #8994 NAME means the
-    # names came back run together, which no client can split (names contain
-    # spaces). The YottaDB broker sends GETRPCS that way: its GLOBAL ARRAY
-    # reply with WORD WRAP off writes `W !` per node, which emits nothing on
-    # the YDB socket, so all 5k names arrive as one 105 KB line
-    # (rpms-ops#957; seen on bcer-9.0-20261015-46dd047-ydb, PR #429). Either
-    # case raises rather than report every RPC missing.
+    # It fails closed: an empty registry is a failed read, not a server that
+    # serves nothing, and a row that is not IEN^NAME^INACTIVE is a reply this
+    # client misread. Either raises rather than report RPCs missing.
     def served_rpcs(names)
-      lines = call_rpc(SERVED_RPCS_RPC).map(&:strip).reject(&:empty?)
-      raise RpcError, "#{SERVED_RPCS_RPC} answered no RPC names" if lines.empty?
-
-      too_long = lines.find { |line| line.length > MAX_RPC_NAME }
-      if too_long
-        raise ParseError, "#{SERVED_RPCS_RPC} answered a #{too_long.length}-character line, longer than any " \
-                          "#8994 NAME (#{MAX_RPC_NAME}): the server sent the names without row boundaries, " \
-                          "so they cannot be split (rpms-ops#957, the YottaDB broker's wrap-off array reply)"
-      end
-
-      names.to_set & lines.to_set
+      names.to_set & with_context(SIGNON_CONTEXT) { registry_names }
     end
 
     # Synchronized: an unsynchronized teardown can close the socket, or inject
@@ -369,6 +365,47 @@ module RpmsRpc
     def read_response = synchronize_wire { read_until_raw(EOD) }
 
     private
+
+    # The served NAMEs in #8994, read with DDR LISTER (LISTC^DDR) by the B
+    # index, REGISTRY_PAGE rows a call: "IEN^NAME^INACTIVE" rows, then a
+    # "MORE^<last NAME>^" row while there are more. The next page starts FROM
+    # that NAME alone: "<NAME>^" would make the caret part of the start value,
+    # and a name that only extends it ("BGOCPTPR CLONEOTH" after "BGOCPTPR
+    # CLONE") sorts before it and is skipped. NAME is unique (#8994 .01), so
+    # resuming by value loses no entry.
+    def registry_names
+      served = Set.new
+      from = nil
+      loop do
+        params = { "FILE" => "8994", "FIELDS" => "@;.01;.06I", "FLAGS" => "IP", "MAX" => REGISTRY_PAGE.to_s }
+        params["FROM"] = from if from
+        more = nil
+        reply = call_rpc(REGISTRY_RPC, params)
+        if reply.any? { |row| [ "[Errors]", "[BEGIN_diERRORS]" ].include?(row) }
+          raise RpcError, "#{REGISTRY_RPC} on #8994 answered errors: #{reply.join(' | ')[0, 300]}"
+        end
+
+        reply.each do |row|
+          next if row.empty? || row.start_with?("[")
+
+          pieces = row.split("^", -1)
+          next more = pieces[1] if pieces[0] == "MORE"
+
+          ien, name, inactive = pieces
+          unless pieces.size == 3 && ien.match?(/\A\d+\z/) && name.length.between?(1, MAX_RPC_NAME)
+            raise ParseError, "#{REGISTRY_RPC} on #8994 answered #{row[0, 60].inspect}, not IEN^NAME^INACTIVE"
+          end
+          served << name if SERVED_INACTIVE.include?(inactive)
+        end
+        break if more.nil?
+        raise ParseError, "#{REGISTRY_RPC} on #8994 did not advance past #{from.inspect}" if more.empty? || more == from
+
+        from = more
+      end
+      raise RpcError, "#{REGISTRY_RPC} on #8994 answered no RPC names" if served.empty?
+
+      served
+    end
 
     # CIA length prefix ("L()"): header byte = (num_length_bytes << 4) | (len % 16),
     # then the big-endian length-quotient bytes, then the value. CIA-specific (XWB uses
