@@ -151,18 +151,38 @@ module RpmsRpc
     # SERVICE REQUESTS / REFERRALS (BMC*)
     # ========================================================================
 
-    # BMC SEARCH REFERRAL — referral search (multi-line)
-    # Format: IEN^PATIENT_DFN^STATUS^TYPE^DATE^PROVIDER
-    # Verified on staging file 8994 (2026-06-07): NAME is
-    # "BMC SEARCH REFERRAL", tag SRCHREF, routine BMCRPC1.
+    # BMC SEARCH REFERRAL — SRCHREF^BMCRPC1(RSLT,PATIENT,REFPRVDR,STRTDATE,
+    # ENDDATE,RECNMBR,STATUS), one RCIS record per referral (#210). The line
+    # is CRTMSG^BMCRPC4 with DETAIL=0 (BMCRPC4.m:60-61); its file-90001
+    # values come from LIST^DIC (BMCRPC1.m:42), external unless noted.
     DataMapper.define(:referral_search) do |m|
       m.rpc "BMC SEARCH REFERRAL"
-      m.field 0, :ien
-      m.field 1, :patient_dfn, :integer
-      m.field 2, :status
-      m.field 3, :type
-      m.field 4, :date,     :fileman_date
-      m.field 5, :provider
+      m.rcis_record!
+      m.field 0, :ien                                # REFIEN (BMCRPC4.m:15)
+      m.field 1, :date, :external_date               # REFDATE, .01 (:16)
+      m.field 2, :referral_number                    # REFNMBR, .02 (:17, " - C1" suffix :47)
+      m.field 3, :patient_dfn, :integer              # PATIEN, .03 I (:19)
+      m.field 4, :patient_name                       # PATNAME, .03 E or preferred name (:18,22)
+      m.field 5, :hrn                                # PATHRN, 9000001.41 .02 (:24)
+      m.field 6, :provider                           # RQSTPRV, .06 (:33)
+      m.field 7, :facility                           # FCLTYRFT, .0999 (:34)
+      m.field 8, :appointment_date                   # APPTDT, AVDOS^BMCRLU (:36)
+      m.field 9, :status                             # REFSTATUS, .15 (:38)
+      m.field 10, :purpose                           # REFPRPS, 1201 (:39)
+      m.field 11, :denial_reason                     # DENLRSN, 1114 (:44)
+      m.field 12, :chs_eligibility                   # CHSELIG, 9000001 1112 (:25)
+      m.field 13, :va_eligibility                    # VAELIG, 2 1901 (:54)
+      m.field 14, :scheduling_notes                  # SCHNOTES, 1301 (:45)
+      m.field 15, :suffix                            # SUFFIX, 101 (:46)
+      m.field 16, :c32_printed_by                    # C32DATA, 90001.6 .02 (:58)
+      m.field 17, :c32_printed_date                  # C32DATA, 90001.6 .01 (:58)
+      m.field 18, :c32_document_type                 # C32DATA, 90001.6 .04 (:58)
+      m.field 19, :consultation_status               # REFCNST, 1306 (:41)
+      m.field 20, :consultation_date                 # REFCNDT, 1307 (:42)
+      m.field 21, :consulted_by                      # REFCNBY, 1308 (:43)
+      m.field 22, :patient_dob                       # PATDOB, 2 .03 (:23)
+      m.field 23, :primary_care_provider             # PCP, 9000001 .14 (:40)
+      m.field 24, :acknowledged_date                 # ACKDATE, 90001.6 .03 (:59)
     end
 
     # BMC ADD C32 PRINT LOG — records health-summary print activity.
@@ -259,10 +279,12 @@ module RpmsRpc
       m.text_blob :health_summary
     end
 
-    # BMC PRINT REFERRAL — print operation result.
+    # BMC PRINT REFERRAL — PRINT^BMCRPC5(ROOT,BMCREF,BMCPCSE) compiles the
+    # STANDARD IHS REFERRAL LETTER into ^TMP("BMCDATA",$J,1) (BMCRPC5.m:50-64):
+    # a text array, not a success flag (#210).
     DataMapper.define(:bmc_print_referral) do |m|
       m.rpc "BMC PRINT REFERRAL"
-      m.scalar :result
+      m.text_blob :letter
     end
 
     # BMC PROVIDERS — provider lookup.
@@ -299,19 +321,63 @@ module RpmsRpc
     # REFERRAL DETAIL (BMC*)
     # ========================================================================
 
-    # BMC GET REFERRAL — single referral detail
-    # Verified on staging file 8994 (2026-06-07): NAME is
-    # "BMC GET REFERRAL", tag GTRFBYID, routine BMCRPC1.
+    # BMC GET REFERRAL — GTRFBYID^BMCRPC1(RSLT,REFIEN), one RCIS record
+    # (#210). The line is CRTMSG^BMCRPC4 with DETAIL=1 (BMCRPC4.m:116-119);
+    # its file-90001 values come from LIST^DIC (FIELDS, BMCRPC1.m:62),
+    # external unless the field carries I. After piece 47 the line carries
+    # the diagnosis section and the MEDHX note sections (RcisWire.sections),
+    # which Referral.find names.
     DataMapper.define(:referral_detail) do |m|
       m.rpc "BMC GET REFERRAL"
-      m.field 0, :ien
-      m.field 1, :patient_dfn, :integer
-      m.field 2, :status
-      m.field 3, :type
-      m.field 4, :date,     :fileman_date
-      m.field 5, :provider
-      m.field 6, :facility
-      m.field 7, :notes
+      m.rcis_record! sections: :sections
+      m.field 0, :ien                                # REFIEN (BMCRPC4.m:15)
+      m.field 1, :date, :external_date               # REFDATE, .01 (:16)
+      m.field 2, :referral_number                    # REFNMBR, .02 (:17)
+      m.field 3, :patient_dfn, :integer              # PATIEN, .03 I (:19)
+      m.field 4, :patient_name                       # PATNAME (:18,22)
+      m.field 5, :hrn                                # PATHRN (:24,52)
+      m.field 6, :provider_ien                       # RQSTPRV, .06 internal (:69)
+      m.field 7, :facility                           # FCLTYRFT, .0999 (:34, "<UNKNOWN>" :78)
+      m.field 8, :appointment_date                   # APPTDT (:36)
+      m.field 9, :chs_status                         # CHSSTATS, 1112 (:37)
+      m.field 10, :purpose                           # REFPRPS, 1201 (:39)
+      m.field 11, :denial_reason                     # DENLRSN, 1114 (:44)
+      m.field 12, :chs_eligibility                   # CHSELIG (:25,53)
+      m.field 13, :va_eligibility                    # VAELIG (:54)
+      m.field 14, :scheduling_notes                  # SCHNOTES, 1301 (:45)
+      m.field 15, :type                              # REFTYPE, .04 I: C/I/O/N (:64)
+      m.field 16, :visit_type                        # VSTTYPE, .14 I (:65)
+      m.field 17, :visit_number                      # VSTNMBR, 1111 (:66)
+      m.field 18, :icd_category_ien                  # ICDCATID, .12 I (:67)
+      m.field 19, :cpt_category_ien                  # CPTCATID, .13 I (:68)
+      m.field 20, :referred_to_ien                   # TYPEEXT: .07/.08/.23 I by type (:70-75)
+      m.field 21, :suffix                            # SUFFIX, 101 (:46)
+      m.field 22, :schedule_within_days              # SCHWIDAY, 1302 (:79)
+      m.field 23, :include_consultation_report       # INCLCSRP, 411 (:90)
+      m.field 24, :include_face_sheet                # INCLFSHT, 405 (:84)
+      m.field 25, :include_health_summary            # INCLHLSM, 406 (:85)
+      m.field 26, :include_history_and_physical      # INCLHSPH, 408 (:87)
+      m.field 27, :include_ekg                       # INCLEKG, 407 (:86)
+      m.field 28, :include_lab_report                # INCLLBRP, 412 (:91)
+      m.field 29, :include_pcc_visit_form            # INCLPCC, 401 (:80)
+      m.field 30, :include_prenatal_record           # INCLPRNL, 403 (:82)
+      m.field 31, :include_tubal_consent             # INCLTUBL, 404 (:83)
+      m.field 32, :include_clinic_notes              # INCLCLNT, 402 (:81)
+      m.field 33, :include_xray_report               # INCLXRYR, 409 (:88)
+      m.field 34, :include_xray_film                 # INCLXRYF, 410 (:89)
+      m.field 35, :priority                          # PRIORITY, "IEN~NAME CODE" (:48-49)
+      m.field 36, :problem_ien                       # PROBLEM, 9000010.59 .04 I (:30)
+      m.field 37, :other_type_ien                    # OTHERTYPE, .09 I (:71,73)
+      m.field 38, :other_type                        # OTHERTYPETEXT (:76-77)
+      m.field 39, :snomed_ct                         # SNOMEDCT, 9000010.59 .01 (:29)
+      m.field 40, :snomed_term                       # SNOMEDPT, 9000010.59 .019 (:31)
+      m.field 41, :consultation_status               # REFCNST, 1306 (:41)
+      m.field 42, :consultation_date                 # REFCNDT, 1307 (:42)
+      m.field 43, :consulted_by                      # REFCNBY, 1308 (:43)
+      m.field 44, :status                            # REFSTATUS, .15 (:92)
+      m.field 45, :snomed_code                       # ^BMCREF(REFIEN,22,1,0), 90001.22 .01 (:119)
+      m.field 46, :visit_ien                         # VISIT, 9000010.59 .03 I (:32)
+      m.field 47, :called_in_by                      # CALLINBY, 104 (:93)
     end
 
     # ========================================================================
