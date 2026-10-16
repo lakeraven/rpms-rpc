@@ -18,8 +18,9 @@ For every gated release tag, rpms-ops attaches these assets to the GitHub releas
 | `<tag>-packages_9_4.txt` | `PREFIX^NAME^VERSION`, one installed package per line |
 | `<tag>-rpc_reach.txt` | whether each registered RPC is **callable**, same RPCs in the same order: `NAME^REACH^ROUTINE_PRESENT^TAG_PRESENT^CONTEXTS^EXEMPT_ON` (rpms-ops#713) |
 | `<tag>-rpc_signatures.txt` | each RPC's #8994 node, DESCRIPTION, INPUT PARAMETERs, RETURN PARAMETER DESCRIPTION and entry-point formals: rpms-ops `bin/m/ZRPCCAT.m`'s tab-separated walk, ending in `EXPLICIT SUCCESS` |
+| `<tag>-contexts_19_05.txt` | which **context** (option) serves which RPC: one row per `#19.05` RPC multiple entry, tab-separated and byte-sorted under the header `OPTION TYPE LOCK RPC RPC_KEY RPC_RULES`; `LOCK` is `#19` piece 6 (rpms-ops#626, from `bcer-9.0-20261012-e7923a4-ydb`) |
 | `<tag>-INVENTORY-PROVENANCE.json` | engine, M backend, container, `artifact_bound`, `artifact_sha256`, per-dump sha256 + record counts, inventory tool commit; the reach face's sha256 + class counts (`rpc_reach`), the signatures' sha256 + counts (`rpc_signatures`), and for `-ydb` the image by digest (`image`, rpms-ops#727) |
-| `<tag>-INVENTORY.sha256` | sidecar over the five above (`shasum -a 256 -c`) |
+| `<tag>-INVENTORY.sha256` | sidecar over the six above (`shasum -a 256 -c`) |
 | `<tag>-PROVENANCE.json` | the build record: `release`, `rpms_ops_commit` (the commit the build was cut from) |
 
 A build tag is `bcer-<RPMS version>-<yyyymmdd>-<rpms-ops short commit>-<ydb|iris>`.
@@ -31,7 +32,7 @@ On this side (`lib/rpms_rpc/conformance/inventory_lock.rb`):
 | file | role |
 | --- | --- |
 | `data/fingerprints/rpms-ops.lock.yml` | **the pin**: tag, RPMS version, engine, build commit, artifact sha, image (by digest), inventory tool commit, reach class counts, sha256 per asset, counts. Written by `conformance:pin`; never hand-edited. |
-| `data/inventories/<tag>/` | **the signature**: the seven assets, byte for byte. |
+| `data/inventories/<tag>/` | **the signature**: the eight assets, byte for byte. |
 | `data/fingerprints/uncallable_exceptions.yml` | RPCs the gem sends that a pinned build does not let a client call, kept only as a recorded build defect with its upstream issue. Printed on every run; a stale entry fails. |
 
 ## One reader
@@ -45,6 +46,13 @@ description, `returns`, `formals`, `word_wrap`, `version`), plus the packages. I
 face or a signatures walk that does not name the registry's RPCs in order, a reach class it does
 not know, and a truncated walk. Checksums are `InventoryLock`'s job; it verifies the bytes and
 then reads them through this class.
+
+With `<tag>-contexts_19_05.txt` pinned, `contexts?` is true and the surface answers the broker's context
+questions: `bind_refusal(option, keys:)` (the option is not a context on the build, or its `LOCK` is a key not
+held) and `context_refusal(option, rpc, keys:)` (the bound option's RPC multiple does not list the RPC, or its
+`RPC_KEY` is not held; XUS SIGNON's RPCs and broker-exempt ones are never refused, and `RPC_RULES` is not run).
+`MockClient#enforce_contexts!(surface, keys:)` holds a mock to them, so a test sees the refusal the server would
+give (rpms-rpc#416).
 
 The registered-names gate, the callable gate, `rake rpc:exclusions`, `rake rpc:coverage`,
 `rake rpc:api_coverage` and `conformance:pin`/`check` all read through it.
@@ -80,7 +88,7 @@ what it claims is proven by a live call (ADR 0008 rule 4), not by the signature.
 
 ```sh
 bundle exec rake conformance:pin RELEASE=bcer-9.0-20261012-e7923a4-ydb
-# 1. gh release download the seven assets above (REPO= overrides lakeraven/rpms-ops)
+# 1. gh release download the eight assets above (REPO= overrides lakeraven/rpms-ops)
 # 2. each file's sha256 must equal the release's asset digest
 # 3. verify: sidecar matches bytes; provenance artifact_bound, release_tag == tag,
 #    engine == the tag's; registry line count == provenance rpcs records;
@@ -96,7 +104,7 @@ git add data/rpc_coverage/exclusions.yml data/fingerprints/rpms-ops.lock.yml dat
 A release published before rpms-ops#713 has no reach face and cannot be pinned until it is re-gated.
 After a re-pin, run `rake rpc:exclusions` (the unreachable exclusions come from the pinned reach face).
 
-`SOURCE=<dir>` copies the seven assets from a directory instead of downloading them
+`SOURCE=<dir>` copies the eight assets from a directory instead of downloading them
 (a workflow artifact, say), and skips step 2.
 `ENV=` overrides the fingerprint name (default `references/<tag>`).
 To move `rake rpc:coverage` to the new build, point `release`, `registry` and

@@ -29,6 +29,11 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
     BEHOVM2 VUNITS^client-callable^1^1^CIAV VUECENTRIC^
     XUS CCOW VAULT PARAM^no-context^1^1^^
   TXT
+  # #19.05, tab-separated, header first (rpms-ops#626): which contexts serve which RPCs.
+  CONTEXTS = "OPTION\tTYPE\tLOCK\tRPC\tRPC_KEY\tRPC_RULES\n" \
+             "CIAV VUECENTRIC\tB\t\tBEHOVM2 VUNITS\t\t\n" \
+             "CIAV VUECENTRIC\tB\t\tORWPT SELECT\t\t\n" \
+             "OR CPRS GUI CHART\tB\t\tORWPT SELECT\t\t\n"
   REACH_CLASSES = { "broker-exempt" => 1, "client-callable" => 2, "no-context" => 1 }.freeze
   # ZRPCCAT's walk (tab-separated), ending in its EXPLICIT SUCCESS line.
   SIGNATURES = [
@@ -46,12 +51,13 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
   # Write the four rpms-ops assets for TAG into DIR (what bin/release_inventory.sh produces).
   def write_inventory(dir, tag: TAG, registry: REGISTRY, bound: true, release_tag: nil, records: nil, engine: "yottadb",
                       build_commit: BUILD_COMMIT, build_release: nil, reach: REACH, reach_classes: REACH_CLASSES,
-                      signatures: SIGNATURES, image_digest: "sha256:deadbeef", faces: true)
+                      signatures: SIGNATURES, contexts: CONTEXTS, image_digest: "sha256:deadbeef", faces: true)
     FileUtils.mkdir_p(dir)
     File.write(File.join(dir, "#{tag}-broker_8994.txt"), registry)
     File.write(File.join(dir, "#{tag}-packages_9_4.txt"), PACKAGES)
     File.write(File.join(dir, "#{tag}-rpc_reach.txt"), reach)
     File.write(File.join(dir, "#{tag}-rpc_signatures.txt"), signatures)
+    File.write(File.join(dir, "#{tag}-contexts_19_05.txt"), contexts)
     sha = ->(suffix) { Digest::SHA256.file(File.join(dir, "#{tag}-#{suffix}")).hexdigest }
     prov = {
       "schema_version" => 3, "label" => "inventory-#{tag}", "release_tag" => release_tag || tag,
@@ -83,7 +89,7 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
     Dir.mktmpdir do |dir|
       inv = Lock.verify_dir(TAG, write_inventory(dir))
       assert_equal "yottadb", inv.engine
-      assert_equal 5, Lock::ASSET_SUFFIXES.size
+      assert_equal 6, Lock::ASSET_SUFFIXES.size
       assert_equal Digest::SHA256.hexdigest(REGISTRY), inv.shas["#{TAG}-broker_8994.txt"]
       assert_equal TAG, inv.to_source["tag"]
       assert_equal "sha256:deadbeef", inv.to_source["artifact_sha256"]
@@ -98,6 +104,34 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
   end
 
   # --- the reach face and the signatures (#394) ----------------------------------------------
+
+  # rpms-rpc#416: the contexts face is a pinned asset, held to the sidecar like the others.
+  def test_verify_dir_rejects_a_release_without_the_contexts_face
+    Dir.mktmpdir do |dir|
+      write_inventory(dir)
+      File.delete(File.join(dir, "#{TAG}-contexts_19_05.txt"))
+      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, dir) }
+      assert_match(/missing or empty asset #{TAG}-contexts_19_05.txt/, e.message)
+    end
+  end
+
+  def test_verify_dir_rejects_a_contexts_face_the_sidecar_does_not_match
+    Dir.mktmpdir do |dir|
+      write_inventory(dir)
+      File.write(File.join(dir, "#{TAG}-contexts_19_05.txt"), CONTEXTS.sub("OR CPRS GUI CHART", "OR CPRS GUI CHARX"))
+      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, dir) }
+      assert_match(/sha256 mismatch for #{TAG}-contexts_19_05.txt/, e.message)
+    end
+  end
+
+  def test_the_verified_surface_reads_the_contexts_face
+    Dir.mktmpdir do |dir|
+      surface = Lock.verify_dir(TAG, write_inventory(dir)).surface
+      assert surface.contexts?
+      assert_nil surface.context_refusal("OR CPRS GUI CHART", "ORWPT SELECT")
+      assert_match(/does not serve BEHOVM2 VUNITS/, surface.context_refusal("OR CPRS GUI CHART", "BEHOVM2 VUNITS"))
+    end
+  end
 
   def test_verify_dir_rejects_a_release_without_the_reach_face
     Dir.mktmpdir do |dir|

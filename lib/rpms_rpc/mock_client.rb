@@ -102,6 +102,9 @@ module RpmsRpc
       if @unbindable_contexts.include?(option_name)
         raise RpmsRpc::Client::RpcError, "context '#{option_name}' is not available"
       end
+      if @context_surface && (why = @context_surface.bind_refusal(option_name, keys: @context_keys))
+        raise RpmsRpc::Client::RpcError, why
+      end
 
       @context_binds << option_name
       @current_context = option_name
@@ -113,6 +116,22 @@ module RpmsRpc
     def unbindable_context!(option_name)
       @unbindable_contexts << option_name
     end
+
+# Hold this mock to a pinned build's contexts (rpms-rpc#416): SURFACE is a
+# Conformance::BuildSurface read with its <tag>-contexts_19_05.txt (#19.05,
+# rpms-ops#626); KEYS are the security keys the signed-on user holds. From
+# then on a bind of a context the build does not have, or whose LOCK is a
+# key not held, raises Client::RpcError; so does an RPC the bound context
+# does not serve (or whose #19.05 RPC KEY is not held), the way XWBSEC and
+# XQCS refuse it. Sign-on RPCs and broker-exempt ones are never refused.
+# Off by default: a mock without it refuses nothing it did not before.
+def enforce_contexts!(surface, keys: [])
+  raise ArgumentError, "#{surface.tag}: no contexts_19_05.txt pinned" unless surface.contexts?
+
+  @context_surface = surface
+  @context_keys = keys.dup
+  self
+end
 
     # Seed a single record for a mapping.
     # Auto-detects mapping type: text_blob stores raw text,
@@ -312,6 +331,9 @@ module RpmsRpc
       # `context` records the option bound when the call was issued — an RPC
       # is only servable from a context whose RPC multiple lists it.
       received_calls << { rpc: rpc_name, params: params, context: current_context }
+      if @context_surface && (why = @context_surface.context_refusal(current_context, rpc_name, keys: @context_keys))
+        raise RpmsRpc::Client::RpcError, why
+      end
 
       if (spec = DECRYPTED_FIRST_PARAM_RPCS[rpc_name])
         # The broker decrypts before it looks anything up, each routine in its
