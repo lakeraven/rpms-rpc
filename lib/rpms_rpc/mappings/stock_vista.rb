@@ -416,6 +416,28 @@ module RpmsRpc
       m.field 5, :refills, :integer
     end
 
+    # ORWPS ACTIVE — active inpatient and outpatient medications
+    # (ACTIVE^ORWPS, ORWPS.m:17-51). The broker frame is DFN only
+    # (ACTIVE(LST,DFN); LST is the return array — broker_8994
+    # "ORWPS ACTIVE^ACTIVE^ORWPS^2"). Each medication is one "~" header,
+    # then instruction lines and "t"-prefixed comment lines until the next
+    # "~" (ORWPS.m:45-48):
+    #   ~TYPE^FIELDS
+    # FIELDS is ^TMP("PS",$J,n,0) from OCL^PSOORRL. Status is piece 9 for
+    # every row type — outpatient PSOORRL.m:21-25 (ST appended at :25),
+    # unit dose PSJORRE.m:42 (STAT), non-VA TMPBLD PSOORRL.m:122-123 —
+    # so on the wire ("~"_TYPE_U_FIELDS, ORWPS.m:45) it is piece 10 of the
+    # header. Stop/expiration is piece 4, a FileMan date (PSOORRL.m:21
+    # $P(RX2,"^",6); PSJORRE.m:42 $P(ND2,U,4)); a non-VA row overwrites
+    # piece 4 with the start date (ORWPS.m:44). A leading "\" is CPRS's
+    # line-break marker (ORWPS.m:43, :64, :81, :108). The typed tree is
+    # not one caret-row per line; api/medication.rb groups it. This does
+    # not replace :medication_list (ORQQPS LIST).
+    DataMapper.define(:medication_active) do |m|
+      m.rpc "ORWPS ACTIVE"
+      m.text_blob :active_text
+    end
+
     # ========================================================================
     # AUTHENTICATION (XUS*)
     # ========================================================================

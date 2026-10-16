@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../fileman_date_parser"
+
 module RpmsRpc
   module Medication
     extend self
@@ -23,10 +25,80 @@ module RpmsRpc
       DataMapper.medication_list.fetch_many(dfn.to_s, "", "").reject { |r| r[:id].to_s.empty? }
     end
 
+    # Active inpatient and outpatient medications, one record per "~" header.
+    # Underlying RPC: ORWPS ACTIVE (ACTIVE^ORWPS, ORWPS.m:17-51; see the
+    # :medication_active mapping). Status is piece 9 of the OCL node for
+    # every row type, read as sent — a discontinued prescription whose
+    # expiration is still in the future stays DISCONTINUED, and an empty
+    # status piece stays nil. Instruction lines join into :instructions;
+    # "t" lines, prefix stripped, are :comments. A leading "\" is CPRS's
+    # line-break marker, not text. Invalid DFNs short-circuit to [] without
+    # dispatching an RPC. This does not replace for_patient.
+    #
+    # Formals: ACTIVE(LST,DFN) (ORWPS.m:17). LST is the return array the
+    # broker supplies; only DFN goes over the wire (broker_8994:
+    # ORWPS ACTIVE^ACTIVE^ORWPS^2).
+    def active_for_patient(dfn)
+      return [] if dfn.nil? || dfn.to_s.strip.empty? || dfn.to_i <= 0
+
+      text = DataMapper.medication_active.fetch_text(dfn.to_s)
+      return [] if text.nil? || text.empty?
+
+      parse_active(text)
+    end
+
     def find(ien)
       return nil if ien.nil? || ien.to_i <= 0
 
       DataMapper.medication_detail.fetch_text(ien.to_s)
+    end
+
+    private
+
+    # "~"TYPE^FIELDS. TYPE occupies index 0, so OCL node piece N stays at
+    # index N (status, node piece 9, is piece 10 of the header line).
+    def parse_active(text)
+      rows = []
+      current = nil
+      text.each_line do |raw|
+        line = raw.chomp
+        if line.start_with?("~")
+          rows << finish_active(current) if current
+          current = active_header(line)
+        elsif current.nil?
+          next
+        elsif line.start_with?("t")
+          current[:comments] << strip_line_break(line.delete_prefix("t"))
+        else
+          current[:instructions] << strip_line_break(line)
+        end
+      end
+      rows << finish_active(current) if current
+      rows
+    end
+
+    def active_header(line)
+      pieces = line.delete_prefix("~").split("^", -1)
+      status = pieces[9]
+      {
+        order_id: pieces[1].to_s,
+        type: pieces[0].to_s,
+        name: pieces[2].to_s,
+        status: status.nil? || status.empty? ? nil : status,
+        stop_date: FilemanDateParser.parse_date(pieces[4]),
+        instructions: [],
+        comments: []
+      }
+    end
+
+    def finish_active(row)
+      row[:instructions] = row[:instructions].join("\n")
+      row
+    end
+
+    # A leading "\" marks a CPRS line break (ORWPS.m:43, :64, :81, :108).
+    def strip_line_break(line)
+      line.start_with?("\\") ? line[1..] : line
     end
   end
 end
