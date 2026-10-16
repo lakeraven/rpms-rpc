@@ -26,6 +26,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when it is stale.
 - Advisory only: each API call still raises its typed error when its RPC is missing (#363).
 
+### Fixed — registration checks patient candidates before adding (#407)
+
+- `Patient.register` sends the name pieces and DOB to `AGG LOOKUP PATIENTS`
+  in `AGGRPC` before any write. Candidates return `:duplicate_identity` and
+  `candidate_dfns`; only `allow_duplicate: true` permits adding after review.
+  Failed or malformed lookups return `:identity_unverifiable`, including when
+  an override was supplied. Blank/invalid identity refuses before lookup.
+- DOB is parsed and sent identically to lookup and add, including two-digit
+  slash years. AG parameter delimiters in values are rejected before lookup.
+- `DdrFileman.lock` preserves `true` / `false` / `nil` (acquired / refused /
+  unanswered). `Registration.update` keeps its retryable `:lock_failed`
+  contract for both refusal and silence. Registration remains AG-only (#409).
+- See [registration safety](docs/REGISTRATION_SAFETY.md) for the conservative
+  candidate policy, live evidence, and limits of a non-atomic preflight.
+
 ### Changed — BMC referral reads follow the RCIS wire layout (#210)
 
 - `Referral.for_patient` (`BMC SEARCH REFERRAL`) and `Referral.find` (`BMC GET REFERRAL`) read the

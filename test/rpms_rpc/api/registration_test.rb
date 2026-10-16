@@ -36,6 +36,11 @@ class RegistrationTest < Minitest::Test
   def setup
     @mock = RpmsRpc.mock!
     Reg.hrn_mode = Reg::HRN_MODE_DERIVE
+    header = "I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE"
+    [ [ "UNA", "", "" ], [ "UNA MAE", "", "" ], [ "UNA", "MAE", "JR" ] ].each do |first, middle, suffix|
+      query = "AGGPTLNM=DEMOPATIENT\x1cAGGPTFNM=#{first}\x1cAGGPTMNM=#{middle}\x1cAGGPTSFX=#{suffix}\x1cAGGPTDOB=01/02/1990"
+      @mock.seed_raw_lines(:patient_lookup_agg, query, [ header ])
+    end
   end
 
   def teardown
@@ -116,7 +121,7 @@ class RegistrationTest < Minitest::Test
   end
 
   def test_register_returns_nil_when_broker_gives_no_response
-    # Nothing seeded: the mock answers "" for AGG ADD NEW PATIENT.
+    # Lookup answered no candidates; the add itself gives no response.
     assert_nil Reg.register(ATTRS)
   end
 

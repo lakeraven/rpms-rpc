@@ -10,6 +10,9 @@ Pre-1.0. The wire protocol layer is functional and verified against
 the FOIA-RPMS routine sources. See [docs/rpcs.md](docs/rpcs.md) for
 the audit trail.
 
+Patient registration checks AG's name/DOB candidates before adding. See
+[registration safety and duplicate overrides](docs/REGISTRATION_SAFETY.md).
+
 ## Why a separate gem?
 
 Historically the VistA RPC client lived inside a Rails app
