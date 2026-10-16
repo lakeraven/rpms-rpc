@@ -241,7 +241,7 @@ module RpmsRpc
             # not a broken connection.
             text = RpmsRpc.sanitize_error("BMX security error: #{sec_err}")
             error = Client.rpc_error_for(sec_err)
-            raise error, text unless error == RpcError
+            raise error, text if [ RpcNotAvailableError, RpcRefusedError ].include?(error)
 
             raise ConnectionError, text
           end

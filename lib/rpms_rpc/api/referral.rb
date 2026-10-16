@@ -40,8 +40,21 @@ module RpmsRpc
     # "cancelled" (BMCRR121.m:39, BMCRR41.m:38).
     CANCELLED_STATUS = "X"
 
+    # Every referral on file for one patient: BMC SEARCH REFERRAL, which is
+    # SRCHREF^BMCRPC1(RSLT,PATIENT,REFPRVDR,STRTDATE,ENDDATE,RECNMBR,STATUS)
+    # (BMCRPC1.m:9). All six formals are sent, because the routine reads
+    # RECNMBR and REFPRVDR without $G (BMCRPC1.m:32,34) and a formal the
+    # broker is not sent is undefined: a DFN-only frame died with LVUNDEF
+    # RECNMBR at SRCHREF+23 (#210). The five after the patient mean "no filter":
+    #   REFPRVDR ""  no referring-provider screen (BMCRPC1.m:34)
+    #   STRTDATE ""  no start date (BMCRPC1.m:40)
+    #   ENDDATE  ""  no end date (BMCRPC1.m:41)
+    #   RECNMBR  ""  +"" is not > 0, so "*": every record (BMCRPC1.m:32)
+    #   STATUS   ""  no status screen (BMCRPC1.m:25,35)
+    SEARCH_NO_FILTERS = [ "", "", "", "", "" ].freeze
+
     def for_patient(dfn)
-      in_context { DataMapper.referral_search.fetch_many(dfn.to_s) }
+      in_context { DataMapper.referral_search.fetch_many(dfn.to_s, *SEARCH_NO_FILTERS) }
     end
 
     # One referral by RCIS REFERRAL (#90001) IEN, with its diagnoses and

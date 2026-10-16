@@ -26,6 +26,7 @@ class ErrorHierarchyTest < Minitest::Test
     RpmsRpc::Client::RpcError,
     RpmsRpc::Client::RpcNotAvailableError,
     RpmsRpc::Client::RpcRefusedError,
+    RpmsRpc::Client::RpcMError,
     RpmsRpc::Client::ParseError,
     RpmsRpc::XmlResponseParser::RpcError,
     RpmsRpc::XmlResponseParser::ParseError,
@@ -66,6 +67,17 @@ class ErrorHierarchyTest < Minitest::Test
     assert_operator RpmsRpc::Client::RpcTimeoutError, :<, RpmsRpc::Client::TimeoutError
     assert_operator RpmsRpc::Client::RpcNotAvailableError, :<, RpmsRpc::Client::RpcError
     assert_operator RpmsRpc::Client::RpcRefusedError, :<, RpmsRpc::Client::RpcError
+    assert_operator RpmsRpc::Client::RpcMError, :<, RpmsRpc::Client::RpcError
+  end
+
+  # The three RpcError kinds a host tells apart (#357): not served (404/501),
+  # refused (403), M error (500). None is a subclass of another.
+  def test_the_rpc_error_kinds_are_distinct
+    kinds = [ RpmsRpc::Client::RpcNotAvailableError, RpmsRpc::Client::RpcRefusedError, RpmsRpc::Client::RpcMError ]
+    kinds.combination(2).each do |a, b|
+      refute_operator a, :<=, b, "#{a} should not be a #{b}"
+      refute_operator b, :<=, a, "#{b} should not be a #{a}"
+    end
   end
 
   # A host that rescues StandardError, or a specific class, is unaffected.
