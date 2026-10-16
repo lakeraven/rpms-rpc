@@ -32,14 +32,15 @@ module RpmsRpc
     # expiration is still in the future stays DISCONTINUED, and an empty
     # status piece stays nil. :instructions and :comments are each an Array
     # of logical lines. The first line of a channel, or a line starting with
-    # "\", begins a new logical line (the "\" is dropped); any other line is
-    # appended to the previous logical line as sent, then each logical line
-    # is stripped. A "t" prefix is removed from comment lines before that
-    # reassembly. A non-VA row carries no date: piece 4 is the CPRS start
-    # date and can belong to another drug (ORWPS.m:25, :44, :116-118), so
-    # :stop_date is nil and there is no :start_date key. Invalid DFNs
-    # short-circuit to [] without dispatching an RPC. This does not replace
-    # for_patient.
+    # "\", begins a new logical line (the "\" is dropped). A continuation
+    # that begins with whitespace is appended as sent; one that does not is
+    # joined to the previous logical line with a single space. Each logical
+    # line is then stripped. A "t" prefix is removed from comment lines
+    # before that reassembly. A non-VA row carries no date: piece 4 is the
+    # CPRS start date and can belong to another drug (ORWPS.m:25, :44,
+    # :116-118), so :stop_date is nil and there is no :start_date key.
+    # Invalid DFNs short-circuit to [] without dispatching an RPC. This does
+    # not replace for_patient.
     #
     # Formals: ACTIVE(LST,DFN) (ORWPS.m:17). LST is the return array the
     # broker supplies; only DFN goes over the wire (broker_8994:
@@ -115,15 +116,20 @@ module RpmsRpc
     end
 
     # The first line of a channel, or a line starting with "\", begins a
-    # new logical line (the "\" is dropped). Any other line continues the
-    # previous one, appended as sent — wrapped chunks keep their leading
-    # space (ORWPS.m:66, :82, :109; PSOORRL.m:48). Stripping happens once
-    # the logical line is complete.
+    # new logical line (the "\" is dropped). A continuation that begins
+    # with whitespace is appended as sent — wrapped chunks keep their
+    # leading space (ORWPS.m:66, :82, :109; PSOORRL.m:48). One that does
+    # not is joined with a single space (non-VA reason lines are raw
+    # word-processing text, ORWPS.m:48 via WPVAL^ORWDXR; a unit dose with
+    # no dose or sig sends its route bare, ORWPS.m:64-66). Stripping
+    # happens once the logical line is complete.
     def append_logical_line(lines, line)
       if lines.empty? || line.start_with?("\\")
         lines << line.delete_prefix("\\")
-      else
+      elsif line.match?(/\A\s/)
         lines[-1] += line
+      else
+        lines[-1] += " #{line}"
       end
     end
   end
