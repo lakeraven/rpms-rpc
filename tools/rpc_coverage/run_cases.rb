@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
 # Run rpms-ops' wire-level conformance cases against ONE live CIA broker (rpms-ops#834):
-# `rake rpc:cases`. The cases are data (see case_runner.rb); this signs on, checks the persona,
-# runs the rows written for that persona and writes one verdict per case.
+# `rake rpc:cases`. The cases are data (see case_runner.rb); this signs on, reads the persona from
+# who signed on (#397), runs the rows written for that persona and writes one verdict per case.
 #
 # Env: CASES (path to cases.jsonl), BROKER_HOST (default 127.0.0.1), BROKER_PORT, RPMS_ACCESS,
-#      RPMS_VERIFY, PERSONA (least_privilege, the default, or programmer), CASE_TIMEOUT (45 s),
+#      RPMS_VERIFY, PERSONA (optional expectation: least_privilege or programmer), CASE_TIMEOUT (45 s),
 #      OUT (optional: write the verdicts there, one JSON object per line)
 # Exit: 0 = every case of the persona gave its expected verdict; 1 = anything else.
 # The access and verify codes are read from the environment and never written.
@@ -17,7 +17,7 @@ require "rpms_rpc/cia_client"
 require_relative "case_runner"
 
 cases_path = ENV.fetch("CASES")
-persona = RpcCoverage.persona(ENV["PERSONA"])
+expected = RpcCoverage.expected_persona(ENV["PERSONA"])
 host = ENV.fetch("BROKER_HOST", "127.0.0.1")
 port = Integer(ENV.fetch("BROKER_PORT"))
 access = ENV.fetch("RPMS_ACCESS")
@@ -25,9 +25,6 @@ verify = ENV.fetch("RPMS_VERIFY")
 out = ENV["OUT"].to_s
 
 rows = RpcCoverage::Cases.load(cases_path)
-mine = rows.select { |r| r["persona"] == persona }
-abort("!! #{cases_path} has no case for persona #{persona}") if mine.empty?
-
 signons = 0
 connect = lambda do
   attempt = 0
@@ -48,9 +45,12 @@ end
 
 client = connect.call
 progmode = RpcCoverage.holds_progmode?(client.call_rpc_lines("ORWU HASKEY", "XUPROGMODE"))
-if (problem = RpcCoverage.persona_problem(persona, holds_progmode: progmode))
+persona = RpcCoverage.persona_of(holds_progmode: progmode)
+if (problem = RpcCoverage.persona_problem(expected, persona))
   abort("!! #{problem}")
 end
+mine = rows.select { |r| r["persona"] == persona }
+abort("!! #{cases_path} has no case for persona #{persona}") if mine.empty?
 duz = client.duz.to_s
 puts "cases: #{cases_path} (#{mine.size} for #{persona}, #{rows.size - mine.size} for other personas)"
 puts "signed on: DUZ=#{duz} persona=#{persona} (XUPROGMODE #{progmode ? 'held' : 'not held'})"

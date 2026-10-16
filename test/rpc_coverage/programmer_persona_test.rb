@@ -62,13 +62,30 @@ class RpcCoverageProgrammerPersonaTest < Minitest::Test
     assert_empty RpcCoverage.evidence_problems(evidence({}, persona: "programmer"), persona: "programmer")
   end
 
-  # --- AC2: the claim is checked against XUPROGMODE ---------------------------------------------
+  # --- AC2: the run is labelled by who signed on (#397) ----------------------------------------
 
-  def test_programmer_must_hold_xuprogmode_and_least_privilege_must_not
-    assert_nil RpcCoverage.persona_problem("programmer", holds_progmode: true)
-    assert_nil RpcCoverage.persona_problem("least_privilege", holds_progmode: false)
-    assert_match(/does not hold XUPROGMODE/, RpcCoverage.persona_problem("programmer", holds_progmode: false))
-    assert_match(/holds XUPROGMODE/, RpcCoverage.persona_problem("least_privilege", holds_progmode: true))
+  def test_the_persona_is_read_from_xuprogmode_not_claimed
+    assert_equal "programmer", RpcCoverage.persona_of(holds_progmode: true)
+    assert_equal "least_privilege", RpcCoverage.persona_of(holds_progmode: false)
+  end
+
+  # SYS123 (the operator every rpms-ops image ships) with no PERSONA set is a programmer run, not a refusal.
+  def test_no_persona_set_expects_nothing_so_any_signed_on_user_is_recorded
+    assert_nil RpcCoverage.expected_persona(nil)
+    assert_nil RpcCoverage.expected_persona("")
+    assert_nil RpcCoverage.persona_problem(nil, "programmer")
+    assert_nil RpcCoverage.persona_problem(nil, "least_privilege")
+  end
+
+  def test_a_set_persona_is_an_expectation_the_signed_on_user_must_meet
+    assert_equal "programmer", RpcCoverage.expected_persona("programmer")
+    assert_raises(RpcCoverage::Error) { RpcCoverage.expected_persona("admin") }
+    assert_nil RpcCoverage.persona_problem("programmer", "programmer")
+    assert_nil RpcCoverage.persona_problem("least_privilege", "least_privilege")
+    assert_match(/PERSONA=programmer but the signed-on user is least_privilege \(XUPROGMODE not held\)/,
+                 RpcCoverage.persona_problem("programmer", "least_privilege"))
+    assert_match(/PERSONA=least_privilege but the signed-on user is programmer \(XUPROGMODE held\)/,
+                 RpcCoverage.persona_problem("least_privilege", "programmer"))
   end
 
   def test_holds_progmode_reads_the_orwu_haskey_reply_lines
