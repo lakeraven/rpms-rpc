@@ -23,6 +23,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   call died with `LVUNDEF RECNMBR`. It now sends the patient and five empty filters (no provider,
   no dates, every record, any status).
 
+### Changed — `Patient.update` writes through AG: AGG UPDATE PATIENT with named attributes (#381, #351)
+
+- **Breaking:** `Patient.update` / `Registration.update` take named attributes (`phone_home:`,
+  `email:`, `community_ien:`, ...), each mapped to one parameter of an AG window. They file through
+  `AGG UPDATE PATIENT` (`UPD^AGGPTUPD`), one call per window touched (Personal Detail, Address,
+  Eligibility), under AG's own edit lock `AGG LOCK PATIENT` / `AGG UNLOCK PATIENT` (`LOCK^AGGLOCK`), all
+  bound to `AGGRPC`. `DDR FILER` is no longer used for #2 or #9000001. AG's side effects run on every
+  update: #9000001 `.03`/`.12` stamps, `EDIT^AGGEXPRT`, and email history.
+- Values take AG's forms: dates as `Date` or MM/DD/YYYY (AG converts them), choices by name or code,
+  pointers as IENs. `""` clears a field.
+- The window layout is pinned in `test/fixtures/agg/update_patient_windows.tsv`, extracted from the FOIA
+  AGG WINDOW DEFINITION export.
+- **Breaking:** these raise `Registration::AttributeNotOfferedError` (an `RpmsRpc::Error`) before anything
+  is sent, because no AG window files the field: `phone_cell:` (#2 `.134`), `pager:` (`.135`),
+  `community:` (#9000001 `1118`, which AG derives from `community_ien:`), and the removed
+  `patient_fields:` / `ihs_fields:` hashes. The error message maps each field number given to its
+  attribute. An unknown attribute or a malformed value raises `ArgumentError`.
+- **Breaking:** a refused window returns `{ success: false, error: :agg_rejected, window:, message:,
+  filed_windows: }`; the windows before it are already filed. A lock held elsewhere returns `:lock_failed`, and its message names the holder.
+  `:filer_rejected` is gone.
+- **Breaking:** `Patient.contact` reads `email:` from #9000001 `1802`, where AG files it, not from #2
+  `.133`. It adds `phone_other:` (#9000001 `1801`). It answers nil when either read fails.
+- #351 (`<LVUNDEF>` DFN from the #2 cross-reference AXENR13) cannot occur: nothing in the gem writes
+  #2 `.133`/`.134` any more.
+
+  | Old field (`patient_fields:` / `ihs_fields:`) | New attribute |
+  |---|---|
+  | #2 `.02` | `sex:` |
+  | #2 `.03` | `dob:` |
+  | #2 `.05` | `marital_status:` |
+  | #2 `.09` | `ssn:` |
+  | #2 `.092` / `.093` | `birth_city:` / `birth_state:` |
+  | #2 `.111` / `.112` / `.113` | `address_line1:` / `address_line2:` / `address_line3:` |
+  | #2 `.114` / `.115` | `city:` / `state:` |
+  | #2 `.116` / `.1112` | `zip:` (AG picks the field by length) |
+  | #2 `.131` / `.132` | `phone_home:` / `phone_work:` |
+  | #2 `.133` | not offered: use `email:` (#9000001 `1802`) |
+  | #2 `.134` | not offered (in no AG window); `phone_other:` is #9000001 `1801` |
+  | #2 `.135` | not offered |
+  | #9000001 `1108` / `1111` / `1112` | `tribe:` / `classification:` / `eligibility_status:` |
+  | #9000001 `1117` | `community_ien:` with `community_since:` |
+  | #9000001 `1118` | not offered: AG sets it from `community_ien:` |
+  | #9000001 `1801` / `1802` | `phone_other:` / `email:` (new) |
+  | any other field | not offered |
+
 ### Added — `client.compatibility`: which RPCs this release needs that the server does not serve (#366)
 
 - Run once after sign-on, as CPRS checks `XWB IS RPC AVAILABLE` at startup. It returns an

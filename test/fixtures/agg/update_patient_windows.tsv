@@ -1,0 +1,57 @@
+# AGG WINDOW DEFINITION (#9009068.3) entries 1 "Personal Detail", 2 "Address" and 3 "Eligibility": the
+# windows whose save RPC is AGG UPDATE PATIENT and that RpmsRpc::Registration.update files through.
+# Extracted verbatim from FOIA-RPMS "Packages/IHS Patient Registration/Globals/9009068.3+AGG WINDOW
+# DEFINITION.zwr" (OSEHRA ZGO export, 17-JUL-2019; FOIA update 2026-02-14), 2026-10-16. Only parameters
+# listed in the window's "AC" index are kept: UPD^AGGPTUPD refuses any other name (AGGPTUPD.m:48-49).
+# The same export's entry 28 matches the live read in new_patient_window.tsv (bcer-9.0-20260905-ydb)
+# parameter for parameter.
+# 0-node: file = piece 2 (UPD's FILE), secondary_file = piece 14 (SECFILE), save_rpc = piece 12
+# (AGGPTUPD.m:22). Per parameter: name = node 0 piece 7 (the "AC" key), type = node 1 piece 1
+# (X text, D date, C choice, T table/pointer, K check box, W word processing, N number, M multiple),
+# field = node 3 piece 1 (a field of `file`), secondary_field = node 3 piece 7 (a field of
+# `secondary_file`) (AGGPTUPD.m:62,74), filing_code Y = node 7 holds M that files it instead
+# (AGGPTUPD.m:75-76), choices = node 5 entries NAME=CODE (AGGPTUPD.m:53-56).
+window	window_name	file	secondary_file	save_rpc	ien	parameter	label	type	field	secondary_field	filing_code	choices
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	1	AGGPTLNM	Last Name	X				
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	2	AGGPTFNM	First Name	X				
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	3	AGGPTMNM	Middle Name	X				
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	4	AGGPTSFX	Suffix	X				
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	5	PTNAME	Patient Name	X	.01			
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	6	AGGPTSSN	Social Security Number	X	.09			
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	7	AGGNOSSN	Reason for No SSN	C		.24		NOT AVAILABLE=1;PATIENT REFUSED=2;PATIENT WILL SUBMIT=3
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	8	AGGPTDOB	Date of Birth	D	.03			
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	9	AGGPTSEX	Gender	C	.02			MALE=M;FEMALE=F
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	10	AGGPTMAR	Marital Status	T	.05			
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	11	AGGPTSSV	SSN Verification Status	X				
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	12	AGGPTHRN	Health Record Number	X				
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	13	AGGPTPBC	Place of Birth [City]	X	.092			
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	14	AGGPTPBS	Place of Birth [State]	T	.093			
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	15	AGGPTMPI	MPI	X	991.01			
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	16	AGGAGE	AGE	X				
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	17	AGGPTEPL	Employer	T		.19		
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	18	AGGEMSTS	Employment Status	C		.21		FULL-TIME=1;PART-TIME=2;UNEMPLOYED=3;SELF EMPLOYED=4;RETIRED=5;ACTIVE MILITARY DUTY=6;UNKNOWN=9
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	19	DFN	DFN	N				
+1	Personal Detail	2	9000001	AGG UPDATE PATIENT	20	AGGPTRLG	Religious Preference	T	.08			
+2	Address	2	9000001	AGG UPDATE PATIENT	1	AGGPTAD1	Street Address [Line 1]	X	.111			
+2	Address	2	9000001	AGG UPDATE PATIENT	2	AGGPTAD2	Street Address [Line 2]	X	.112			
+2	Address	2	9000001	AGG UPDATE PATIENT	3	AGGPTAD3	Street Address [Line 3]	X	.113			
+2	Address	2	9000001	AGG UPDATE PATIENT	4	AGGPTCTY	City	X	.114			
+2	Address	2	9000001	AGG UPDATE PATIENT	5	AGGPTSTE	State	T	.115			
+2	Address	2	9000001	AGG UPDATE PATIENT	6	AGGPTZIP	Zip Code	X			Y	
+2	Address	2	9000001	AGG UPDATE PATIENT	7	AGGPTHME	Location of Home	W			Y	
+2	Address	2	9000001	AGG UPDATE PATIENT	8	AGGPTCOM	Current Community of Residence	T		1117		
+2	Address	2	9000001	AGG UPDATE PATIENT	9	AGGPTCDT	Date Moved	X				
+2	Address	2	9000001	AGG UPDATE PATIENT	10	AGGPTHPH	Phone Number [Residence]	X	.131			
+2	Address	2	9000001	AGG UPDATE PATIENT	11	AGGPTWPH	Phone Number [Work]	X	.132			
+2	Address	2	9000001	AGG UPDATE PATIENT	12	AGGPTOPH	Other Phone	X		1801		
+2	Address	2	9000001	AGG UPDATE PATIENT	13	AGGPTEML	Email Address	X		1802		
+2	Address	2	9000001	AGG UPDATE PATIENT	14	AGGCMCNY	County	X				
+3	Eligibility	9000001	2	AGG UPDATE PATIENT	1	AGGPTELG	Eligibility Status	C	1112			INELIGIBLE=I;DIRECT ONLY=D;CHS & DIRECT=C;PENDING VERIFICATION=P
+3	Eligibility	9000001	2	AGG UPDATE PATIENT	2	AGGPTCLB	Classification/Beneficiary	T	1111			
+3	Eligibility	9000001	2	AGG UPDATE PATIENT	3	AGGPTBLQ	Indian Blood Quantum	X	1110			
+3	Eligibility	9000001	2	AGG UPDATE PATIENT	4	AGGPTTRI	Tribe of Membership	T	1108			
+3	Eligibility	9000001	2	AGG UPDATE PATIENT	5	AGGPTTRQ	Tribe Quantum	X	1109			
+3	Eligibility	9000001	2	AGG UPDATE PATIENT	6	AGGPTTEN	Tribal Enrollment No.	X	.07			
+3	Eligibility	9000001	2	AGG UPDATE PATIENT	7	OTHTRIB	Other Tribe	M				
+3	Eligibility	9000001	2	AGG UPDATE PATIENT	9	RIEN	Patient IEN	N				
+3	Eligibility	9000001	2	AGG UPDATE PATIENT	10	AGGOTRB	Other Tribe List	X				

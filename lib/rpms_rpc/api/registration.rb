@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require_relative "../mappings"
-require_relative "ddr_fileman"
 require_relative "agg"
 
 module RpmsRpc
@@ -179,49 +178,138 @@ module RpmsRpc
       with_unfiled({ success: true, dfn: dfn, created: true }, agg_unsent(attrs))
     end
 
-    # Patient update — the composed edit path, replacing the removed
-    # placeholder update wire name (docs/rpcs.md, BHDPTRPC provenance
-    # notes). The VA edit routine (EDIT^VAFCPTED — classic ^DIE filing
-    # under L +^DPT(DFN):60, returns no output; contract in rpms-ops
-    # docs/REGISTRATION_RPC_CONTRACTS.md §1) has NO ^XWB(8994)
-    # registration on any observed target (staging file-8994 dump
-    # 2026-06-07; live registry read 2026-09-02), so edits run through the
-    # registered DDR FILER instead: FILE^DIE gives the same input
-    # transform / cross-reference behavior (FILEC^DDR3: DDR3.m:16-18),
-    # under the same ^DPT(DFN) lock VAFCPTED takes.
+    # -- Patient update through AG (rpms-rpc#381) -----------------------------
     #
-    #   patient_fields: { "field#" => value } edits to PATIENT (#2)
-    #   ihs_fields:     { "field#" => value } edits to IHS PATIENT (#9000001)
+    # An edit goes through AG's own update RPC, AGG UPDATE PATIENT
+    # (UPD^AGGPTUPD, AGGPTUPD.m:4), under AG's edit lock (Agg.editing), the
+    # way a create goes through AGG ADD NEW PATIENT. AG decides what can be
+    # edited: UPD takes a window name and that window's parameter names, never
+    # field numbers. It refuses a name outside the window's "AC" index
+    # (AGGPTUPD.m:48-49), and each name files at most one field, a field of
+    # the window's file or of its secondary file (AGGPTUPD.m:20-22,62,74).
+    # After filing, it stamps #9000001 .03/.12 and runs EDIT^AGGEXPRT
+    # (AGGPTUPD.m:130-133). DDR FILER is not used: the owning package's RPC
+    # edits its records.
     #
-    # Values are FileMan-INTERNAL (the filer runs with no "E" flag —
-    # DDR3.m:15,18). Returns { success: true, dfn: },
-    # { success: false, error:, message: } (:invalid_dfn / :no_fields /
-    # :lock_failed / :filer_rejected), or nil (no broker response during
-    # the filer step). NB: lock-step broker silence surfaces as
-    # :lock_failed, not nil — DDR LOCK/UNLOCK NODE's reply grammar makes
-    # no-response and lock-timeout indistinguishable (DdrFileman.lock
-    # returns false for both); treat :lock_failed as retryable.
-    def update(dfn, patient_fields: {}, ihs_fields: {})
+    # Each attribute below is one parameter of one AGG WINDOW DEFINITION
+    # (#9009068.3) entry, as test/fixtures/agg/update_patient_windows.tsv
+    # extracts it from the FOIA export. An update sends one AGG UPDATE
+    # PATIENT call per window it touches.
+    #
+    #   attribute           window           parameter  type  files
+    #   dob                 Personal Detail  AGGPTDOB   D     #2 .03
+    #   sex                 Personal Detail  AGGPTSEX   C     #2 .02
+    #   ssn                 Personal Detail  AGGPTSSN   X     #2 .09
+    #   marital_status      Personal Detail  AGGPTMAR   T     #2 .05
+    #   birth_city          Personal Detail  AGGPTPBC   X     #2 .092
+    #   birth_state         Personal Detail  AGGPTPBS   T     #2 .093
+    #   address_line1..3    Address          AGGPTAD1-3 X     #2 .111-.113
+    #   city                Address          AGGPTCTY   X     #2 .114
+    #   state               Address          AGGPTSTE   T     #2 .115
+    #   zip                 Address          AGGPTZIP   X     #2 .116 or .1112
+    #                                                         (PTZP^AGGUL2,
+    #                                                         AGGUL2.m:227-234)
+    #   phone_home          Address          AGGPTHPH   X     #2 .131
+    #   phone_work          Address          AGGPTWPH   X     #2 .132
+    #   phone_other         Address          AGGPTOPH   X     #9000001 1801
+    #   email               Address          AGGPTEML   X     #9000001 1802
+    #                                                         (+ 9000001.82
+    #                                                         history,
+    #                                                         EML^AGGUL1)
+    #   community_ien       Address          AGGPTCOM   T     #9000001 1117
+    #                                                         (+ 1118 text,
+    #                                                         AGGPTUPD.m:92-93)
+    #   community_since     Address          AGGPTCDT   X     #9000001.51 entry
+    #                                                         (COMM^AGGPTADD)
+    #   tribe               Eligibility      AGGPTTRI   T     #9000001 1108
+    #   classification      Eligibility      AGGPTCLB   T     #9000001 1111
+    #   eligibility_status  Eligibility      AGGPTELG   C     #9000001 1112
+    #
+    # Value forms are AG's (AGGPTUPD.m:50-56): D is an external date that
+    # AG converts ($$DATE^AGGUL1, %DT "TS"), so a Date goes as MM/DD/YYYY; C
+    # is the choice name (MALE/FEMALE; DIRECT ONLY or the code D); T is the
+    # pointed-to IEN, filed internal; X is the text. An empty string clears
+    # a field that has a value: UPD turns it into "@" (AGGPTUPD.m:63-64).
+    UpdateAttribute = Struct.new(:window, :parameter, :file, :field, :form)
+
+    WINDOW_PERSONAL_DETAIL = "Personal Detail" # #9009068.3 entry 1
+    WINDOW_ADDRESS = "Address"                 # #9009068.3 entry 2
+    WINDOW_ELIGIBILITY = "Eligibility"         # #9009068.3 entry 3
+
+    UPDATE_ATTRIBUTES = {
+      dob:                UpdateAttribute.new(WINDOW_PERSONAL_DETAIL, "AGGPTDOB", "2", ".03", :date),
+      sex:                UpdateAttribute.new(WINDOW_PERSONAL_DETAIL, "AGGPTSEX", "2", ".02", :sex),
+      ssn:                UpdateAttribute.new(WINDOW_PERSONAL_DETAIL, "AGGPTSSN", "2", ".09", :ssn),
+      marital_status:     UpdateAttribute.new(WINDOW_PERSONAL_DETAIL, "AGGPTMAR", "2", ".05", :pointer),
+      birth_city:         UpdateAttribute.new(WINDOW_PERSONAL_DETAIL, "AGGPTPBC", "2", ".092", :text),
+      birth_state:        UpdateAttribute.new(WINDOW_PERSONAL_DETAIL, "AGGPTPBS", "2", ".093", :pointer),
+      address_line1:      UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTAD1", "2", ".111", :text),
+      address_line2:      UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTAD2", "2", ".112", :text),
+      address_line3:      UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTAD3", "2", ".113", :text),
+      city:               UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTCTY", "2", ".114", :text),
+      state:              UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTSTE", "2", ".115", :pointer),
+      zip:                UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTZIP", "2", nil, :text),
+      phone_home:         UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTHPH", "2", ".131", :text),
+      phone_work:         UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTWPH", "2", ".132", :text),
+      phone_other:        UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTOPH", PATIENT_FILE, "1801", :text),
+      email:              UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTEML", PATIENT_FILE, "1802", :text),
+      community_ien:      UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTCOM", PATIENT_FILE, "1117", :pointer),
+      community_since:    UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTCDT", PATIENT_FILE, nil, :date_moved),
+      tribe:              UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTTRI", PATIENT_FILE, FIELD_TRIBE, :pointer),
+      classification:     UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTCLB", PATIENT_FILE, FIELD_CLASSIFICATION, :pointer),
+      eligibility_status: UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTELG", PATIENT_FILE, FIELD_ELIGIBILITY, :choice)
+    }.freeze
+
+    # Raised before anything is sent when an update names something AG's
+    # update windows do not file.
+    class AttributeNotOfferedError < RpmsRpc::Error; end
+
+    # Fields no AG window files (the FOIA AGG WINDOW DEFINITION export has
+    # none of them in any window), by the attribute a caller might reach for.
+    NOT_OFFERED = {
+      phone_cell: "#2 .134 PHONE NUMBER [CELLULAR] is in no AG window; AG keeps a second " \
+                  "number on #9000001 1801 (phone_other:)",
+      pager: "#2 .135 PAGER NUMBER is in no AG window",
+      community: "#9000001 1118 CURRENT COMMUNITY is not filed directly: AG sets it from " \
+                 "community_ien: (AGGPTUPD.m:92-93)"
+    }.freeze
+
+    # Why a field-number edit has no attribute, for the migration message.
+    FIELD_NOT_OFFERED = {
+      [ "2", ".133" ] => "AG keeps email on #9000001 1802: use email:",
+      [ "2", ".134" ] => NOT_OFFERED[:phone_cell],
+      [ "2", ".135" ] => NOT_OFFERED[:pager],
+      [ PATIENT_FILE, "1118" ] => NOT_OFFERED[:community]
+    }.freeze
+
+    # Update a patient through AG. attrs are the UPDATE_ATTRIBUTES keys; a
+    # nil value is not sent and "" clears. community_ien: and
+    # community_since: go together, as for register (AG files the
+    # community with the date moved), and community_since: takes :birth
+    # when dob: is given.
+    #
+    # Raises AttributeNotOfferedError for phone_cell:, pager:, community:
+    # and the removed patient_fields:/ihs_fields: hashes (its message maps
+    # each field number to its attribute), and ArgumentError for any other
+    # unknown attribute or a malformed value, all before sending anything.
+    #
+    # Returns:
+    #   { success: true, dfn: }
+    #   { success: false, error: :invalid_dfn / :no_fields, message: }
+    #     (:invalid_dfn also when AG finds no #2 or #9000001 entry to lock)
+    #   { success: false, error: :lock_failed, message: }  AG's lock is held
+    #     elsewhere (the message names who) or did not answer; retryable
+    #   { success: false, error: :agg_rejected, window:, message:,
+    #     filed_windows: [...] }  a window AG refused; each window is its
+    #     own AGG UPDATE PATIENT call, so the windows before it are filed
+    #   nil  no broker reply to an AGG UPDATE PATIENT call
+    def update(dfn, **attrs)
+      params_by_window = update_params(attrs)
       dfn = dfn.to_i
       return { success: false, error: :invalid_dfn, message: "a positive DFN is required" } if dfn <= 0
+      return { success: false, error: :no_fields, message: "no attributes to update" } if params_by_window.empty?
 
-      rows =
-        patient_fields.map { |field, value| { file: "2", field: field.to_s, iens: "#{dfn},", value: value.to_s } } +
-        ihs_fields.map { |field, value| { file: PATIENT_FILE, field: field.to_s, iens: "#{dfn},", value: value.to_s } }
-      return { success: false, error: :no_fields, message: "no fields to update" } if rows.empty?
-
-      node = "^DPT(#{dfn})"
-      unless DdrFileman.lock(node: node)
-        return { success: false, error: :lock_failed, message: "could not lock #{node}" }
-      end
-
-      begin
-        filed = DdrFileman.filer(mode: "EDIT", rows: rows)
-        failure = filer_failure(filed)
-        failure == :ok ? { success: true, dfn: dfn } : failure
-      ensure
-        DdrFileman.unlock(node: node)
-      end
+      Agg.editing(dfn: dfn) { update_windows(dfn, params_by_window) }
     end
 
     private
@@ -252,10 +340,109 @@ module RpmsRpc
       value.to_s
     end
 
-    def filer_failure(filed)
-      return nil if filed.nil?
-      return :ok if filed[:success]
-      { success: false, error: :filer_rejected, message: filed[:errors].join("; ") }
+    # One AGG UPDATE PATIENT call per window, in order; stop at the first
+    # window AG refuses or does not answer.
+    def update_windows(dfn, params_by_window)
+      filed = []
+      params_by_window.each do |window, params|
+        result = Agg.update_patient(window: window, dfn: dfn, params: params)
+        return nil if result.nil?
+        unless result[:success]
+          return { success: false, error: :agg_rejected, window: window,
+                   message: result[:message].to_s, filed_windows: filed }
+        end
+
+        filed << window
+      end
+      { success: true, dfn: dfn }
+    end
+
+    # { window => { PARAMETER => value } } for the attributes given, after
+    # refusing anything AG's update windows do not file.
+    def update_params(attrs)
+      refuse_unoffered(attrs)
+      given = attrs.reject { |_, value| value.nil? }
+      check_community(given)
+
+      by_window = {}
+      given.each do |name, value|
+        attribute = UPDATE_ATTRIBUTES.fetch(name)
+        (by_window[attribute.window] ||= {})[attribute.parameter] = update_value(attribute, value, given)
+      end
+      move_date_moved_last(by_window)
+    end
+
+    def refuse_unoffered(attrs)
+      legacy = attrs.slice(:patient_fields, :ihs_fields)
+      raise AttributeNotOfferedError, legacy_migration_message(legacy) unless legacy.empty?
+
+      attrs.each_key do |name|
+        raise AttributeNotOfferedError, "#{name}: is not offered: #{NOT_OFFERED[name]}" if NOT_OFFERED.key?(name)
+        raise ArgumentError, "unknown patient attribute #{name}:" unless UPDATE_ATTRIBUTES.key?(name)
+      end
+    end
+
+    # The message for a caller still sending field numbers: each field's
+    # attribute, or why there is none.
+    def legacy_migration_message(legacy)
+      files = { patient_fields: "2", ihs_fields: PATIENT_FILE }
+      lines = legacy.flat_map do |key, fields|
+        Hash(fields).keys.map do |field|
+          file = files.fetch(key)
+          name = UPDATE_ATTRIBUTES.find { |_, a| a.file == file && a.field == field.to_s }&.first
+          why = FIELD_NOT_OFFERED[[ file, field.to_s ]] || "not in AG's update windows"
+          "##{file} #{field}: #{name ? "use #{name}:" : "not offered (#{why})"}"
+        end
+      end
+      "patient_fields:/ihs_fields: were removed; Patient.update takes named attributes " \
+        "that AG files (rpms-rpc#381). #{lines.join('; ')}"
+    end
+
+    def check_community(given)
+      if given.key?(:community_ien) != given.key?(:community_since)
+        raise ArgumentError, "community_ien and community_since go together " \
+                             "(AG files the community with the date moved)"
+      end
+      # UPD reads ^AUTTCOM(AGGPTCOM,0) with no $G (AGGPTUPD.m:93), so a
+      # cleared community would be an M error, not a cleared field.
+      return unless given.key?(:community_ien) && given[:community_ien].to_s.strip.empty?
+
+      raise ArgumentError, "community_ien cannot be cleared through AG"
+    end
+
+    # AGGPTCDT goes last in its window: UPD re-converts it with
+    # $$DATE^AGGUL1 at the top of every later parameter's turn
+    # (AGGPTUPD.m:61), while COMM^AGGPTADD converts an external date itself
+    # (AGGPTADD.m:151). Sent last, it is converted exactly once.
+    def move_date_moved_last(by_window)
+      params = by_window[WINDOW_ADDRESS]
+      date_moved = UPDATE_ATTRIBUTES[:community_since].parameter
+      params[date_moved] = params.delete(date_moved) if params&.key?(date_moved)
+      by_window
+    end
+
+    # The value in the form AG's window type takes (see UPDATE_ATTRIBUTES).
+    def update_value(attribute, value, given)
+      return "" if value.to_s.strip.empty? && attribute.form != :date_moved
+
+      case attribute.form
+      when :date then external_date(value)
+      when :date_moved then agg_date_moved(community_since: value, dob: given[:dob])
+      when :sex then agg_sex(value)
+      when :ssn then value.to_s.delete("-")
+      when :choice then value.to_s.strip.upcase
+      when :pointer then pointer_value(attribute, value)
+      else value.to_s
+      end
+    end
+
+    # T parameters file internal (AGGPTUPD.m:82-85,125), so the value must
+    # be an IEN.
+    def pointer_value(attribute, value)
+      ien = value.to_s.strip
+      return ien if ien.match?(/\A\d+\z/)
+
+      raise ArgumentError, "#{attribute.parameter} takes the pointed-to IEN (digits only)"
     end
 
     # PARMS for AGG ADD NEW PATIENT (the "New Patient" window).

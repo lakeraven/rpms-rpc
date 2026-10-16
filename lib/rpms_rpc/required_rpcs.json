@@ -8,7 +8,9 @@
     ],
     "RpmsRpc::Agg": [
       "AGG ADD NEW PATIENT",
+      "AGG LOCK PATIENT",
       "AGG PATIENT EDIT CHECK",
+      "AGG UNLOCK PATIENT",
       "AGG UPDATE PATIENT",
       "CIANBRPC CANRUN"
     ],
@@ -164,14 +166,14 @@
     ],
     "RpmsRpc::Patient": [
       "AGG ADD NEW PATIENT",
+      "AGG LOCK PATIENT",
       "AGG LOOKUP PATIENTS",
+      "AGG UNLOCK PATIENT",
       "AGG UPDATE PATIENT",
       "BEHOCACV CWAD",
       "BEHOPTCX PTINFO",
       "BEHOPTPC GETBDP",
-      "DDR FILER",
       "DDR GETS ENTRY DATA",
-      "DDR LOCK/UNLOCK NODE",
       "ORWPT FULLSSN",
       "ORWPT ID INFO",
       "ORWPT LIST ALL",
@@ -245,9 +247,9 @@
     ],
     "RpmsRpc::Registration": [
       "AGG ADD NEW PATIENT",
-      "AGG UPDATE PATIENT",
-      "DDR FILER",
-      "DDR LOCK/UNLOCK NODE"
+      "AGG LOCK PATIENT",
+      "AGG UNLOCK PATIENT",
+      "AGG UPDATE PATIENT"
     ],
     "RpmsRpc::Reminders": [
       "ORQQPXRM REMINDERS APPLICABLE"
