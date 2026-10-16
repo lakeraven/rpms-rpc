@@ -90,6 +90,16 @@ result = client.call_rpc("XUS SIGNON SETUP")
 client.disconnect
 ```
 
+Once signed on, a host can check that the server serves every RPC this release of the gem sends (#366), the way CPRS checks at startup.
+It reports by default; `strict: true` raises `RpmsRpc::Compatibility::MissingRpcsError` naming each missing RPC by API module.
+Over CIA it is one `CIANBRPC GETRPCS`; over XWB, one `XWB IS RPC AVAILABLE` per RPC.
+
+```ruby
+report = client.compatibility
+warn report.to_s unless report.ok?  # report.missing => { "RpmsRpc::Referral" => ["BMC ADD REFERRAL"] }
+client.compatibility(strict: true)  # fail at boot instead
+```
+
 ### BMX — port 9101
 
 ```ruby
