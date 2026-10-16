@@ -26,6 +26,7 @@ class ErrorHierarchyTest < Minitest::Test
     RpmsRpc::Client::RpcError,
     RpmsRpc::Client::RpcNotAvailableError,
     RpmsRpc::Client::RpcRefusedError,
+    RpmsRpc::Client::ParseError,
     RpmsRpc::XmlResponseParser::RpcError,
     RpmsRpc::XmlResponseParser::ParseError,
     RpmsRpc::ParameterEncoder::ParameterTooLongError,

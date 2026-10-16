@@ -104,6 +104,34 @@ class RpmsRpc::CompatibilityTest < Minitest::Test
     assert_match(/CIANBRPC GETRPCS answered no RPC names/, err.message)
   end
 
+  # The reply yotta-1016 sent (bcer-9.0-20261015-46dd047-ydb, PR #429): sequence echo, ack, then
+  # the names run together with no CR, LF or \x1e (rpms-ops#957). Here the first ten; live it was
+  # 105,373 bytes. Read through the real reply parser (call_rpc_raw stubbed, call_rpc not).
+  RUN_TOGETHER_REPLY = "4\x00ADE APPT ADDADE APPT CANCELADE APPT CONFLICTADE APPT DISPLAYADE GET VARIABLE VALUE" \
+                       "ADE MULTIPLE PARAM TESTADE PATIENT ADDRESSADE PATIENT LOOKUPADECompiledStatisticsADEGetFac"
+
+  def test_cia_names_run_together_fail_closed_naming_the_build_issue
+    client = RpmsRpc::CiaClient.new(host: "127.0.0.1", port: 9100)
+    client.set_authenticated(42)
+    client.define_singleton_method(:call_rpc_raw) { |_name, *_params| RUN_TOGETHER_REPLY.b }
+
+    err = assert_raises(RpmsRpc::Client::ParseError) { Compatibility.check(client, required: REQUIRED) }
+    assert_kind_of RpmsRpc::Error, err
+    assert_match(/longer than any #8994 NAME \(30\)/, err.message)
+    assert_match(/rpms-ops#957/, err.message)
+  end
+
+  def test_cia_one_line_over_30_characters_is_enough_to_fail_closed
+    long = "ORWPT SELECTORWPT ID INFOORQQVI VITALS"
+    assert_raises(RpmsRpc::Client::ParseError) { Compatibility.check(cia(every_required + [ long ]), required: REQUIRED) }
+  end
+
+  def test_cia_a_30_character_name_is_a_name
+    name = "BMC GET RCIS TEMPLATE DETAIL X"
+    assert_equal 30, name.length
+    assert_predicate Compatibility.check(cia(every_required + [ name ]), required: REQUIRED), :ok?
+  end
+
   def test_cia_a_broker_that_refuses_the_read_raises_its_typed_error
     client = RpmsRpc::CiaClient.new(host: "127.0.0.1", port: 9100).extend(Canned).setup_canned({})
     assert_raises(RpmsRpc::Client::RpcNotAvailableError) { Compatibility.check(client, required: REQUIRED) }

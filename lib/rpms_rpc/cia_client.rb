@@ -322,15 +322,31 @@ module RpmsRpc
     # reach face has it broker-exempt on cia.
     SERVED_RPCS_RPC = "CIANBRPC GETRPCS"
 
-    # Client#served_rpcs over CIA: one registry read, whatever the number of
-    # names. An empty registry is a failed read, not a server that serves
-    # nothing, and raises.
-    def served_rpcs(names)
-      registry = call_rpc(SERVED_RPCS_RPC).to_set(&:strip)
-      registry.delete("")
-      raise RpcError, "#{SERVED_RPCS_RPC} answered no RPC names" if registry.empty?
+    # The longest NAME #8994 holds: its .01 input transform kills a value
+    # over 30 characters (^DD(8994,.01,0)). A longer reply line is not a name.
+    MAX_RPC_NAME = 30
 
-      names.to_set & registry
+    # Client#served_rpcs over CIA: one registry read, whatever the number of
+    # names. It fails closed: an empty registry is a failed read, not a server
+    # that serves nothing, and a line longer than any #8994 NAME means the
+    # names came back run together, which no client can split (names contain
+    # spaces). The YottaDB broker sends GETRPCS that way: its GLOBAL ARRAY
+    # reply with WORD WRAP off writes `W !` per node, which emits nothing on
+    # the YDB socket, so all 5k names arrive as one 105 KB line
+    # (rpms-ops#957; seen on bcer-9.0-20261015-46dd047-ydb, PR #429). Either
+    # case raises rather than report every RPC missing.
+    def served_rpcs(names)
+      lines = call_rpc(SERVED_RPCS_RPC).map(&:strip).reject(&:empty?)
+      raise RpcError, "#{SERVED_RPCS_RPC} answered no RPC names" if lines.empty?
+
+      too_long = lines.find { |line| line.length > MAX_RPC_NAME }
+      if too_long
+        raise ParseError, "#{SERVED_RPCS_RPC} answered a #{too_long.length}-character line, longer than any " \
+                          "#8994 NAME (#{MAX_RPC_NAME}): the server sent the names without row boundaries, " \
+                          "so they cannot be split (rpms-ops#957, the YottaDB broker's wrap-off array reply)"
+      end
+
+      names.to_set & lines.to_set
     end
 
     # Synchronized: an unsynchronized teardown can close the socket, or inject

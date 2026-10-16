@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - It asks without running the RPCs: over CIA, one `CIANBRPC GETRPCS` (the server's active #8994
   registry, the same screen the broker applies before it answers "Unknown remote procedure"); over
   XWB, one `XWB IS RPC AVAILABLE` per RPC, for local use. BMX has no such RPC and raises.
+- **On a YottaDB build the CIA check raises until rpms-ops#957 lands.** The YDB broker sends
+  `CIANBRPC GETRPCS` with every name run together on one line (no row boundaries for a wrap-off
+  array reply), and the names cannot be split apart. The check fails closed: any reply line longer
+  than a #8994 NAME (30 characters) raises the new `RpmsRpc::Client::ParseError`, naming rpms-ops#957,
+  instead of reporting every RPC missing.
 - "This release needs" is `lib/rpms_rpc/required_rpcs.json`: every RPC each public API module sends,
   written by `rake rpc:required_rpcs` from the static analysis the callable gate reads; a test fails
   when it is stale.
