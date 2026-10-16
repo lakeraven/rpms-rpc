@@ -60,16 +60,10 @@ class MissingRpcLiveTest < LiveSpec::Test
   CLINIC_IEN = 7
 
   # Served, but the routine fails with an M error on the pinned build (#364),
-  # for both personas, under the option the method binds:
-  #   Referral.purposes            SUBLST+5, QUIT does not return to an extrinsic
-  #   Referral.reference_data      S4+12^DICL2, command expected
-  #   Referral.providers           PROV^ORQPTQ2, more actual than formal parameters
-  #   Referral.search_referred_to  SRRFRDTO+3^BMCRPC1, QUIT does not return to an extrinsic
-  #   Referral.rcis_templates      GTTMPLST+9^BMCRPC3, QUIT does not return to an extrinsic
-  KNOWN_BINDING_BUGS = %w[
-    Referral.purposes Referral.reference_data Referral.providers
-    Referral.search_referred_to Referral.rcis_templates
-  ].freeze
+  # under the option the method binds. Empty: the four BMC rows answer since
+  # the YottaDB overrides of BMCRPC1-5 (rpms-ops#702), and Referral.providers
+  # sends no parameter to PROV^ORQPTQ2. A method added here names its M error.
+  KNOWN_BINDING_BUGS = %w[].freeze
 
   # method => [kind, RPCs it sends, the call]. The call runs on the test
   # instance (instance_exec), so it may use `client` and the helpers below.
@@ -88,8 +82,8 @@ class MissingRpcLiveTest < LiveSpec::Test
     "Referral.purposes" => [ :read, [ "BMC GET PURPOSE OF REF API" ], -> { RpmsRpc::Referral.purposes } ],
     "Referral.reference_data" => [ :read, [ "BMC GET REFERENCE DATA" ], -> { RpmsRpc::Referral.reference_data } ],
     "Referral.users_providers" => [ :read, [ "BMC GET USERS/PROVIDERS" ], -> { RpmsRpc::Referral.users_providers } ],
-    "Referral.providers" => [ :read, [ "BMC PROVIDERS" ], -> { RpmsRpc::Referral.providers("A") } ],
-    "Referral.search_referred_to" => [ :read, [ "BMC SEARCH REFERRED TO" ], -> { RpmsRpc::Referral.search_referred_to("A") } ],
+    "Referral.providers" => [ :read, [ "BMC PROVIDERS" ], -> { RpmsRpc::Referral.providers } ],
+    "Referral.search_referred_to" => [ :read, [ "BMC SEARCH REFERRED TO" ], -> { RpmsRpc::Referral.search_referred_to("A", "N") } ],
     "Referral.rcis_templates" => [ :read, [ "BMC GET RCIS TEMPLATE LIST" ], -> { RpmsRpc::Referral.rcis_templates } ],
     "Referral.rcis_template_detail" => [ :read, [ "BMC GET RCIS TEMPLATE DETAIL" ], -> { RpmsRpc::Referral.rcis_template_detail(1) } ],
     "Referral.patient_eligibility_status" => [ :read, [ "BMC PATIENT ELIGIBILITY STATUS" ], -> { RpmsRpc::Referral.patient_eligibility_status(DFN) } ],

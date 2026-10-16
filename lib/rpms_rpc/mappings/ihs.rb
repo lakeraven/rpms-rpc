@@ -287,13 +287,13 @@ module RpmsRpc
       m.text_blob :letter
     end
 
-    # BMC PROVIDERS — provider lookup.
-    # Common shape: DUZ^NAME^TITLE.
+    # BMC PROVIDERS — PROV^ORQPTQ2: "IEN^NAME", one row per active PROVIDER
+    # key holder (ORQPTQ2.m:100). There is no third piece; the TITLE this
+    # mapping once named was never sent (#364).
     DataMapper.define(:bmc_providers) do |m|
       m.rpc "BMC PROVIDERS"
       m.field 0, :duz
       m.field 1, :name
-      m.field 2, :title
     end
 
     # BMC REFERRAL STATUS UPDATE — updates the referral status.
