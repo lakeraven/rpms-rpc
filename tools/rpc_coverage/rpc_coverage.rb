@@ -184,13 +184,23 @@ module RpcCoverage
     Array(lines).map(&:to_s).map(&:strip) == [ "1" ]
   end
 
-  # The persona label is a claim about the signed-on user, checked before any evidence is written.
-  def persona_problem(persona, holds_progmode:)
-    if persona == "programmer" && !holds_progmode
-      "PERSONA=programmer but the signed-on user does not hold XUPROGMODE"
-    elsif persona != "programmer" && holds_progmode
-      "PERSONA=#{persona} but the signed-on user holds XUPROGMODE (a programmer skips the context check)"
-    end
+  # A run is labelled by who signed on (#397): a user holding XUPROGMODE is a programmer (CIANBACT
+  # skips the context check for them), anyone else is least-privilege. Whoever signs on, the run is
+  # recorded under what that user is.
+  def persona_of(holds_progmode:)
+    holds_progmode ? "programmer" : DEFAULT_PERSONA
+  end
+
+  # PERSONA is optional: unset expects nothing; set, it names the persona the caller meant to sign on as.
+  def expected_persona(value)
+    value.to_s.empty? ? nil : persona(value)
+  end
+
+  # The run fails only when the caller stated an expectation the signed-on user does not meet.
+  def persona_problem(expected, actual)
+    return if expected.nil? || expected == actual
+
+    "PERSONA=#{expected} but the signed-on user is #{actual} (XUPROGMODE #{actual == 'programmer' ? 'held' : 'not held'})"
   end
 
   def empty_evidence(backend)
@@ -288,7 +298,7 @@ module RpcCoverage
     end
 
     def programmer_lines
-      return [ "programmer evidence: none (rake rpc:live PERSONA=programmer writes it); permission gaps not classified" ] unless programmer
+      return [ "programmer evidence: none (rake rpc:live signed on as a XUPROGMODE holder writes it); permission gaps not classified" ] unless programmer
 
       gaps = permission_gaps
       [ "programmer evidence: #{programmer_counts.map { |k, v| "#{k}=#{v}" }.join(' ')}",

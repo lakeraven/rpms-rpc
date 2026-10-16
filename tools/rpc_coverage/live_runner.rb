@@ -15,9 +15,11 @@
 # One broker connection at a time; a dropped or desynced session is closed and signed on again.
 # The access and verify codes are read from the environment and never written anywhere.
 #
-# Env: BACKEND (evidence label), PERSONA (least_privilege, the default, or programmer: #335), BROKER_HOST, BROKER_PORT, RPMS_ACCESS, RPMS_VERIFY,
+# Env: BACKEND (evidence label), BROKER_HOST, BROKER_PORT, RPMS_ACCESS, RPMS_VERIFY,
+#      PERSONA (optional expectation, least_privilege or programmer: the run is labelled by who signed on, #397),
 #      RPMS_CONTEXT (optional option to bind), CASE_TIMEOUT (default 45 s), DFN (optional),
-#      EVIDENCE (path of <rpms-diffs>/rpc-coverage/live/<BACKEND>.json, or <BACKEND>.programmer.json, to merge into)
+#      EVIDENCE_DIR (<rpms-diffs>/rpc-coverage/live: the run merges into <BACKEND>.json, or <BACKEND>.programmer.json
+#      for a programmer) or EVIDENCE (an explicit file to merge into)
 require "json"
 require "date"
 require "time"
@@ -33,12 +35,11 @@ require_relative "rpc_coverage"
 require_relative "wire_trace"
 
 BACKEND = ENV.fetch("BACKEND")
-PERSONA = RpcCoverage.persona(ENV["PERSONA"])
+EXPECTED_PERSONA = RpcCoverage.expected_persona(ENV["PERSONA"])
 HOST = ENV.fetch("BROKER_HOST", "127.0.0.1")
 PORT = Integer(ENV.fetch("BROKER_PORT"))
 ACCESS = ENV.fetch("RPMS_ACCESS")
 VERIFY = ENV.fetch("RPMS_VERIFY")
-EVIDENCE = ENV.fetch("EVIDENCE")
 CASE_TIMEOUT = Integer(ENV.fetch("CASE_TIMEOUT", "45"))
 # Context option to bind after sign-on. Unset = stay on the option the client signed on under
 # (RpmsRpc::CiaClient::SIGNON_CONTEXT). A user holding XUPROGMODE bypasses the context check
@@ -115,18 +116,24 @@ def first_ien(list, *keys)
 end
 
 client = sign_on
-# The persona is a claim about the user the codes sign on as; check it before anything is recorded.
+# The persona is what the user the codes sign on as is (#397), read before anything is recorded.
 # ORWU HASKEY is read as reply LINES: call_rpc's printable() keeps the sequence echo, so
-# Authentication.has_security_key? reads "5 1" as not-held over CIA.
+# Authentication.has_security_key? reads "5 1" as not-held over CIA. The label now comes from this
+# reply, so a dropped session is signed on again and asked again rather than read as "not held".
+haskey_tries = 0
 progmode = begin
+  haskey_tries += 1
   RpcCoverage.holds_progmode?(client.call_rpc_lines("ORWU HASKEY", "XUPROGMODE"))
-rescue RpmsRpc::Client::ConnectionError, IOError, SystemCallError
+rescue RpmsRpc::Client::ConnectionError, IOError, SystemCallError => e
+  abort("!! ORWU HASKEY XUPROGMODE did not answer (#{e.class}); persona unknown, no evidence written") if haskey_tries >= 2
   client = sign_on
-  false
+  retry
 end
-if (problem = RpcCoverage.persona_problem(PERSONA, holds_progmode: progmode))
+PERSONA = RpcCoverage.persona_of(holds_progmode: progmode)
+if (problem = RpcCoverage.persona_problem(EXPECTED_PERSONA, PERSONA))
   abort("!! #{problem}; no evidence written")
 end
+EVIDENCE = ENV["EVIDENCE"].to_s.empty? ? RpcCoverage.evidence_path(ENV.fetch("EVIDENCE_DIR"), BACKEND, PERSONA) : ENV["EVIDENCE"]
 WireTrace.log.clear
 duz = client.duz.to_s
 ctx = { duz: duz }
