@@ -16,6 +16,21 @@ module RpmsRpc
       end
     end
 
+    # The sections a record line carries after its fields, by tag letter
+    # (GTRFBYID^BMCRPC1 via CRTMSG^BMCRPC4): raw is what follows the second
+    # sigil. Each section opens "~`T'~T" and separates its entries with
+    # "T'~T" (D = diagnoses, BMCRPC4.m:97,114; M, B, C = notes, GETMEDHX,
+    # BMCRPC1.m:129,143). Each entry is its "^" pieces.
+    def self.sections(raw)
+      raw.to_s.split(SIGIL).each_with_object({}) do |section, out|
+        tag = section[0]
+        next if tag.nil?
+
+        entries = section.split("#{tag}'~#{tag}").reject(&:empty?)
+        (out[tag] ||= []).concat(entries.map { |e| e.split("^", -1) })
+      end
+    end
+
     # A sigil write result as a Hash, or nil when raw does not carry the sigil.
     def self.result(raw)
       line = raw.to_s.strip

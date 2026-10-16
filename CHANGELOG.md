@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — BMC referral reads follow the RCIS wire layout (#210)
+
+- `Referral.for_patient` (`BMC SEARCH REFERRAL`) and `Referral.find` (`BMC GET REFERRAL`) read the
+  25- and 48-piece lines CRTMSG^BMCRPC4 builds (DETAIL=0 and DETAIL=1), each field cited by routine
+  line in `mappings/ihs.rb`. The old 6- and 8-field layouts were wrong after piece 0: `patient_dfn`
+  read the referral date. A line without the RCIS sigil "~`" is a message, not a record, so
+  `Referral.find` answers nil for "Not a valid Referral Ien".
+- `Referral.find` adds `diagnoses:` (RCIS DIAGNOSIS entries) and `notes:` (`medical_history`,
+  `business_office`, `case`) from the sections GTRFBYID^BMCRPC1 appends after the fields.
+- `DataMapper` mappings can declare `rcis_record!`: strip the sigil, reject lines without it, and
+  optionally parse the appended sections (`RcisWire.sections`).
+- **Breaking:** the detail's piece 6 is the requesting provider's internal IEN, so it is
+  `:provider_ien`, not `:provider`; `:notes` is now the notes hash (the free-text scheduling notes
+  are `:scheduling_notes`). `Referral.print` returns the letter text PRINT^BMCRPC5 compiles, not a
+  `{ success: }` hash.
+
+### Added — `rake rpc:cases`: rpms-ops' wire-level cases, run as data (rpms-ops#834)
+
+- `tools/rpc_coverage/run_cases.rb` reads rpms-ops' `data/conformance/cases.jsonl` (RPC, context,
+  persona, literal parameters, expected verdict) and runs each row through `CiaClient#call_rpc_raw`,
+  with the verdict read from the CIA reply flag byte. It calls no API method, so the cases are the
+  build's, and any client can run the same file. Not part of the gem.
+
 ## [0.4.0] — 2026-10-12
 
 ### Removed — the VAFC VOA ADD PATIENT + DDR registration path (#409)
