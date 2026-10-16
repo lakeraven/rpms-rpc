@@ -12,9 +12,12 @@ require "rpms_rpc/api/medication"
 #
 # Instructions and comments are each an Array of logical lines. The first line
 # of either channel, and any line starting with "\", begins a new logical line
-# (the "\" is dropped); any other line continues the previous one, appended as
-# sent (wrapped chunks carry their own leading space: ORWPS.m:66, :82, :109;
-# PSOORRL.m:48). Each logical line is then stripped of surrounding whitespace.
+# (the "\" is dropped); any other line continues the previous one. A continuation
+# that already begins with whitespace is appended as sent (wrapped chunks carry
+# their own leading space: ORWPS.m:66, :82, :109; PSOORRL.m:48); one that does
+# not is joined with a single space (non-VA reason lines are raw word-processing
+# text, ORWPS.m:48 via WPVAL^ORWDXR; a unit dose with no dose or sig sends its
+# route bare, ORWPS.m:64-66). Each logical line is then stripped.
 class MedicationActiveTest < Minitest::Test
   DFN = "8791"
 
@@ -151,8 +154,8 @@ class MedicationActiveTest < Minitest::Test
   def test_active_for_patient_parses_iv_row_with_status_stop_and_instructions
     with_orwps_active_wire([
       "~IV^#{IV_ACTIVE_FIELDS}",
-      " D5W 1000ML",
-      "\\125 ml/hr"
+      " POTASSIUM CHLORIDE 20 MEQ",
+      "\\in D5W 1000 ML 125 ml/hr"
     ])
     rows = RpmsRpc::Medication.active_for_patient(DFN)
     assert_equal 1, rows.length
@@ -164,8 +167,8 @@ class MedicationActiveTest < Minitest::Test
     assert_equal "ACTIVE", row[:status]
     assert_equal Date.new(2027, 12, 1), row[:stop_date]
     assert_equal [
-      "D5W 1000ML",
-      "125 ml/hr"
+      "POTASSIUM CHLORIDE 20 MEQ",
+      "in D5W 1000 ML 125 ml/hr"
     ], row[:instructions]
     assert_equal [], row[:comments]
   end
@@ -175,7 +178,8 @@ class MedicationActiveTest < Minitest::Test
       "~NV^#{NV_ACTIVE_FIELDS}",
       " ASPIRIN 81MG TAB",
       "\\ TAKE ONE TABLET BY MOUTH DAILY",
-      "t\\ Patient takes OTC supply from home"
+      "tNon-VA medication recommended by VA provider.",
+      "tPatient wants to buy from Non-VA pharmacy."
     ])
     rows = RpmsRpc::Medication.active_for_patient(DFN)
     assert_equal 1, rows.length
@@ -192,8 +196,22 @@ class MedicationActiveTest < Minitest::Test
       "TAKE ONE TABLET BY MOUTH DAILY"
     ], row[:instructions]
     assert_equal [
-      "Patient takes OTC supply from home"
+      "Non-VA medication recommended by VA provider. Patient wants to buy from Non-VA pharmacy."
     ], row[:comments]
+  end
+
+  # UDINST with pieces 6 and 7 and the sig all empty leaves @RST at 1, so the
+  # MDR line overwrites subscript 2 without "\" or a leading space (ORWPS.m:61-66).
+  def test_active_for_patient_joins_bare_unit_dose_route_with_a_space
+    with_orwps_active_wire([
+      "~UD^99U;I^HYDROCORTISONE 1% CREAM^^3271201^^^^^ACTIVE",
+      " HYDROCORTISONE 1% CREAM",
+      "TOPICAL",
+      " BID"
+    ])
+    rows = RpmsRpc::Medication.active_for_patient(DFN)
+
+    assert_equal [ "HYDROCORTISONE 1% CREAM TOPICAL BID" ], rows.first[:instructions]
   end
 
   def test_active_for_patient_non_va_rows_carry_no_date_when_piece_four_is_stale
