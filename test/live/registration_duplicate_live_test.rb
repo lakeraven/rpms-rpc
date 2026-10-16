@@ -10,6 +10,10 @@ class RegistrationDuplicateLiveTest < LiveSpec::Test
   writes!
 
   def test_second_registration_refuses_without_creating_another_chart
+    privilege = client.call_rpc("ORWU HASKEY", "XUPROGMODE")
+    assert_includes [ [ "0" ], [ "1" ] ], privilege
+    puts "\n#{persona}: XUPROGMODE=#{privilege.first} (read from server)"
+
     # Alphabetic suffix keeps the synthetic FileMan name valid and unique.
     suffix = SecureRandom.hex(6).tr("0-9", "G-P").upcase
     attrs = { name_last: "ZZREGSAFETY#{suffix}", name_first: "DEMO",

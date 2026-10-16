@@ -58,7 +58,7 @@ use a DDR lock.
 
 - The focused tests were run against unchanged main first: 38 failures and
   three errors in 42 tests, exposing unguarded writes and absent lookups.
-- The full offline suite passed: 1,638 tests, 7,610 assertions, no failures,
+- The full offline suite passed: 1,677 tests, 7,966 assertions, no failures,
   errors or skips (Ruby 3.4.9).
 - Fourteen deliberate mutations were caught: omit the duplicate guard; accept
   a truthy override; override a failed lookup; omit identity validation;
@@ -69,7 +69,8 @@ use a DDR lock.
   disposable container of `ghcr.io/lakeraven/rpms-ydb:local-arm64-46dd047`, as
   both SYS123 and PROV123, with the default HRN flow. It registers a synthetic
   identity, opens a fresh session, repeats registration, and checks that the
-  lookup still finds exactly one DFN. Each run: one test, four assertions.
+  lookup still finds exactly one DFN. Each run: one test, six assertions. The test reads `XUPROGMODE` from
+  the server: SYS123 held it (1), PROV123 did not (0).
   This is evidence on that local image, not a claim about every release or
   the repository's different pinned image. Discard the container afterwards;
   there is no supported patient-delete RPC.

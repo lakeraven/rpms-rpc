@@ -8,6 +8,7 @@
     ],
     "RpmsRpc::Agg": [
       "AGG ADD NEW PATIENT",
+      "AGG LOOKUP PATIENTS",
       "AGG PATIENT EDIT CHECK",
       "AGG UPDATE PATIENT",
       "CIANBRPC CANRUN"
@@ -245,6 +246,7 @@
     ],
     "RpmsRpc::Registration": [
       "AGG ADD NEW PATIENT",
+      "AGG LOOKUP PATIENTS",
       "AGG UPDATE PATIENT",
       "DDR FILER",
       "DDR LOCK/UNLOCK NODE"
