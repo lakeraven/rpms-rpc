@@ -23,6 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are `:scheduling_notes`). `Referral.print` returns the letter text PRINT^BMCRPC5 compiles, not a
   `{ success: }` hash.
 
+### Changed — `rake rpc:live` and `rake rpc:cases` label a run by who signed on (#397)
+
+- The persona comes from `ORWU HASKEY XUPROGMODE`: held is `programmer`, not held is
+  `least_privilege`. A `SYS123` run with no `PERSONA` set is recorded as a programmer run
+  (`<BACKEND>.programmer.json`) instead of being refused (rpms-ops#790).
+- `PERSONA=` is now an optional expectation: set, the run fails when the signed-on user is not
+  that persona; unset, any user is recorded under what it is. Evidence paths and the `persona:`
+  checks on recorded evidence are unchanged.
+
 ### Added — `rake rpc:cases`: rpms-ops' wire-level cases, run as data (rpms-ops#834)
 
 - `tools/rpc_coverage/run_cases.rb` reads rpms-ops' `data/conformance/cases.jsonl` (RPC, context,
