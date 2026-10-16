@@ -25,6 +25,9 @@ module RpmsRpc
     #                             DESC ien text | PARAM ien seq name type max-length required
     #                             PDESC ien seq text | RET ien text; ends in EXPLICIT SUCCESS
     #   <tag>-packages_9_4.txt    raw: PREFIX^NAME^VERSION per installed package
+    #   <tag>-contexts_19_05.txt  raw: one row per #19.05 RPC multiple entry, tab-separated, byte-sorted,
+    #                             under a header row: OPTION TYPE LOCK RPC RPC_KEY RPC_RULES
+    #                             (LOCK is #19 piece 6; rpms-ops#626, rpms-rpc#416)
     #
     # The registry is required; reach and signatures are read when present (a release published
     # before rpms-ops#713 has neither) and must then name the same RPCs in the same order.
@@ -48,7 +51,16 @@ module RpmsRpc
       # and each INPUT PARAMETER's description, MAXIMUM DATA LENGTH and SEQUENCE NUMBER.
       RPCS_TEXT_SCHEMAS = %w[rpcs.v2].freeze
 
+      # The header row rpms-ops writes over <tag>-contexts_19_05.txt (rpms-ops#626).
+      CONTEXTS_HEADER = %w[OPTION TYPE LOCK RPC RPC_KEY RPC_RULES].freeze
+      # XWBSEC.m:11-19: a session holds XUS SIGNON before any context is created, and may always run its RPCs.
+      SIGNON_CONTEXT = "XUS SIGNON"
+
       class Error < RpmsRpc::Error; end
+
+      # One #19 option as a broker context: its TYPE, its LOCK (#19 piece 6, nil when none) and the RPCs its
+      # RPC multiple lists, each with its #19.05 RPC KEY and RULES (nil when empty).
+      Context = Struct.new(:option, :type, :lock, :rpcs, keyword_init: true)
 
       # seq is #8994.02 SEQUENCE NUMBER as stored (often empty); the array order is the walk order.
       Param = Struct.new(:seq, :name, :type, :max_length, :required, :description, keyword_init: true)
@@ -88,14 +100,15 @@ module RpmsRpc
         path = ->(suffix) { File.join(dir, "#{tag}-#{suffix}") }
         optional = ->(suffix) { File.file?(path.(suffix)) ? path.(suffix) : nil }
         from_files(tag: tag, registry: path.("broker_8994.txt"), reach: optional.("rpc_reach.txt"),
-                   signatures: optional.("rpc_signatures.txt"), packages: optional.("packages_9_4.txt"))
+                   signatures: optional.("rpc_signatures.txt"), packages: optional.("packages_9_4.txt"),
+                   contexts: optional.("contexts_19_05.txt"))
       end
 
-      def self.from_files(registry:, tag: nil, reach: nil, signatures: nil, packages: nil)
+      def self.from_files(registry:, tag: nil, reach: nil, signatures: nil, packages: nil, contexts: nil)
         raise Error, "registry not found: #{registry}" unless File.file?(registry)
 
         new(tag: tag || File.basename(registry, ".txt").delete_suffix("-broker_8994"),
-            registry: registry, reach: reach, signatures: signatures, packages: packages)
+            registry: registry, reach: reach, signatures: signatures, packages: packages, contexts: contexts)
       end
 
       # The build's surface from <tag>-rpcs.json alone (rpms-ops#732). Refuses a file whose schema is
@@ -119,11 +132,12 @@ module RpmsRpc
       attr_reader :tag, :rpcs, :packages, :header, :sources, :meta
 
       # From the raw files (registry: and the optional others) or a parsed rpcs.json (rpcs_json:, path:).
-      def initialize(tag:, registry: nil, reach: nil, signatures: nil, packages: nil, rpcs_json: nil, path: nil)
+      def initialize(tag:, registry: nil, reach: nil, signatures: nil, packages: nil, contexts: nil, rpcs_json: nil, path: nil)
         @tag = tag
         @header = []
         @meta = {}
         @rpcs = []
+        @contexts = {}
         if rpcs_json
           @meta = rpcs_json.except("rpcs")
           @sources = { rpcs: path }.compact
@@ -135,7 +149,7 @@ module RpmsRpc
           return
         end
 
-        @sources = { registry: registry, reach: reach, signatures: signatures, packages: packages }.compact
+        @sources = { registry: registry, reach: reach, signatures: signatures, packages: packages, contexts: contexts }.compact
         File.foreach(registry) do |line|
           next @header << line.chomp if line.start_with?("#")
 
@@ -147,6 +161,7 @@ module RpmsRpc
         read_signatures(signatures) if signatures
         @packages = packages ? read_packages(packages) : []
         assign_packages
+        @contexts = contexts ? read_contexts(contexts) : {}
       end
 
       def names = rpcs.map(&:name)
@@ -185,7 +200,69 @@ module RpmsRpc
         rpcs.map(&:reach).tally.sort.to_h
       end
 
+      # --- the contexts face: which option serves which RPC (#19.05, rpms-rpc#416) ----------------
+
+      def contexts? = sources.key?(:contexts)
+
+      # The Context for OPTION, nil when no #19.05 row names it.
+      def context(option) = @contexts[option]
+
+      # Why binding OPTION is refused for a user holding KEYS (CRCONTXT^XWBSEC, XWBSEC.m:30-40), nil
+      # when it is not: the option is not a context on this build, or its LOCK is a key not held.
+      # An option with no RPC multiple has no row, so it reads as not existing: it serves nothing anyway.
+      def bind_refusal(option, keys: [])
+        require_contexts!
+        ctx = @contexts[option] or return "The context '#{option}' does not exist on server."
+        return "#{option} is locked by #{ctx.lock}" if ctx.lock && !keys.include?(ctx.lock)
+
+        nil
+      end
+
+      # Why NAME is refused under the bound OPTION for a user holding KEYS ($$CHK^XQCS, XWBSEC.m:22-25),
+      # nil when it is not. XUS SIGNON's RPCs and broker-exempt RPCs (the reach face's broker-exempt
+      # class or EXEMPT_ON, XWBSEC.m:13-15) are never refused, so sign-on is untouched. RPC_RULES (M
+      # code run by XQCS) is not modelled.
+      def context_refusal(option, name, keys: [])
+        require_contexts!
+        return nil if @contexts[SIGNON_CONTEXT]&.rpcs&.key?(name)
+
+        rpc = self[name]
+        return nil if rpc && (rpc.reach == "broker-exempt" || Array(rpc.exempt_on).any?)
+
+        ctx = @contexts[option] or return "#{option} serves no RPC on #{tag}"
+        return "#{option} does not serve #{name} on #{tag}" unless ctx.rpcs.key?(name)
+
+        key = ctx.rpcs[name][:key]
+        return "#{name} under #{option} needs key #{key}" if key && !keys.include?(key)
+
+        nil
+      end
+
       private
+
+      def require_contexts!
+        raise Error, "#{tag}: no contexts_19_05.txt pinned (a release from before rpms-ops#626; re-pin it)" unless contexts?
+      end
+
+      # { option => Context } from <tag>-contexts_19_05.txt. Refuses a file without rpms-ops' header,
+      # a row that is not six fields, and an option whose rows disagree on TYPE or LOCK.
+      def read_contexts(path)
+        file = File.basename(path)
+        rows = File.readlines(path, chomp: true).reject { |l| l.strip.empty? }
+        header = rows.shift.to_s.split("\t", -1)
+        raise Error, "#{file}: header is not #{CONTEXTS_HEADER.join(' ')} (got #{header.join(' ').inspect})" unless header == CONTEXTS_HEADER
+
+        rows.each_with_object({}) do |line, out|
+          f = line.split("\t", -1)
+          raise Error, "#{file}: row #{line.inspect} has #{f.size} fields, not #{CONTEXTS_HEADER.size}" unless f.size == CONTEXTS_HEADER.size
+
+          option, type, lock, rpc, key, rules = f.map { |v| self.class.blank(v) }
+          ctx = out[option] ||= Context.new(option: option, type: type, lock: lock, rpcs: {})
+          raise Error, "#{file}: #{option} has rows with TYPE/LOCK #{[ ctx.type, ctx.lock ]} and #{[ type, lock ]}" unless [ ctx.type, ctx.lock ] == [ type, lock ]
+
+          ctx.rpcs[rpc] = { key: key, rules: rules }
+        end
+      end
 
       def require_reach!
         raise Error, "#{tag}: no rpc_reach.txt pinned (a release from before rpms-ops#713; re-pin it)" unless reach?
