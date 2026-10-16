@@ -47,6 +47,13 @@ class ReadCallFormalsTest < Minitest::Test
     assert_equal [ DFN, "", "" ], params_sent_to("ORQQPS LIST")
   end
 
+  # ACTIVE(LST,DFN) (ORWPS.m:17): return array LST is broker-supplied; only DFN
+  # is sent from the client (broker_8994: ORWPS ACTIVE^ACTIVE^ORWPS^2).
+  def test_medication_active_for_patient_sends_dfn_only
+    RpmsRpc::Medication.active_for_patient(DFN)
+    assert_equal [ DFN ], params_sent_to("ORWPS ACTIVE")
+  end
+
   # LIST(ORPY,DFN,STATUS)^ORQQPL (ORQQPL.m:3-5): STATUS "" = all problems.
   def test_problem_for_patient_sends_dfn_and_status
     RpmsRpc::Problem.for_patient(DFN)
