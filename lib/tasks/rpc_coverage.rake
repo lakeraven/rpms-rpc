@@ -7,6 +7,9 @@
 #   rake rpc:exclusions regenerates the unreachable exclusions (no routine, no entry point, inactive,
 #                       no context, out of order) from the pinned release's reach face, the
 #                       <tag>-rpc_reach.txt rpms-ops publishes and conformance:pin commits (#278, #394)
+#   rake rpc:cases CASES=<cases.jsonl> BROKER_HOST= BROKER_PORT= RPMS_ACCESS= RPMS_VERIFY= [PERSONA=] [OUT=]
+#                       runs rpms-ops' wire-level cases (data, not API calls; rpms-ops#834) and
+#                       exits 1 unless every case of the persona gives its expected verdict
 #   rake rpc:live BACKEND=<label> BROKER_HOST= BROKER_PORT= RPMS_ACCESS= RPMS_VERIFY= [RPMS_CONTEXT=] [PERSONA=]
 #                       runs the read catalogue against a live CIA broker and merges the result
 #                       into <evidence dir>/<BACKEND>.json, or with PERSONA=programmer into
@@ -191,5 +194,13 @@ namespace :rpc do
     evidence = RpcCoverage.evidence_path(rpc_evidence_dir.call, ENV["BACKEND"], persona)
     runner = File.join(rpc_root, "tools/rpc_coverage/live_runner.rb")
     sh({ "EVIDENCE" => evidence, "PERSONA" => persona }, RbConfig.ruby, runner)
+  end
+
+  desc "Run rpms-ops' wire-level cases (CASES=<data/conformance/cases.jsonl>) against one live CIA backend (rpms-ops#834)"
+  task :cases do
+    runner = File.join(rpc_root, "tools/rpc_coverage/run_cases.rb")
+    abort "rpc:cases needs a source checkout (#{runner} is not in the gem)" unless File.exist?(runner)
+    %w[CASES BROKER_PORT RPMS_ACCESS RPMS_VERIFY].each { |k| abort "rpc:cases requires #{k}=" if ENV[k].to_s.empty? }
+    sh(RbConfig.ruby, runner)
   end
 end

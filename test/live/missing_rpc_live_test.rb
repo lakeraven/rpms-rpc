@@ -139,6 +139,21 @@ class MissingRpcLiveTest < LiveSpec::Test
     end
   end
 
+  # An M error the broker hits after the data ack raises, never comes back as
+  # rows (#414). With the search text only, SRRFRDTO^BMCRPC1 returns a message
+  # where the broker expects a global name, and OUT+5^CIANBACT fails after the
+  # \x00 ack has gone out (2026-10-13, bcer-9.0-20261005-17411fa-ydb).
+  def test_an_m_error_after_the_data_ack_raises
+    flunk "#{persona} may not run BMC SEARCH REFERRED TO in BMCRPC; the M error cannot be provoked" unless canrun?("BMC SEARCH REFERRED TO", RpmsRpc::Referral::CONTEXT)
+
+    err = assert_raises(RpmsRpc::Client::RpcError) do
+      RpmsRpc::ContextScope.scoped(client, RpmsRpc::Referral::CONTEXT) { client.call_rpc("BMC SEARCH REFERRED TO", "A") }
+    end
+    refute_kind_of NotAvailable, err
+    refute_kind_of Refused, err
+    assert_match(/\^CIANBACT/, err.message)
+  end
+
   def test_the_refusal_leaves_the_session_usable
     assert_raises(NotAvailable) { client.call_rpc(UNREGISTERED_RPC) }
     assert_operator RpmsRpc::Problem.lex_search("diabetes").size, :>, 0, "the next RPC on the session did not answer"

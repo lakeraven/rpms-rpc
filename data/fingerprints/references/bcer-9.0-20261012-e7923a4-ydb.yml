@@ -24,6 +24,7 @@ source:
     packages_9_4_sha256: e4ac1cb5cb7cc7a3132f4b71ac72a3cee076135e176d98c165d6e5f213256202
     rpc_reach_sha256: 810b6a5d357414b54bea986075cd221934e203fe29b404cc0dd0a778278bbcf6
     rpc_signatures_sha256: 5040d2d4789c511f15e52cfbc1e7f1b86a7e56a753bea4bf720442931ced7313
+    contexts_19_05_sha256: 259ee9fb052524fbe565b03f55d8296eced657e8a32a7c403e255f6e5a1b3f38
     provenance_sha256: 4f24d6ac53af588ab8d755c66f2e81cc8d3047b877d0f14098c7b13ce79a7e6a
     inventory_tool_commit: e7923a473fa27060c40978f4d46be3de391c97ae
     image: ghcr.io/lakeraven/rpms-ydb@sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7

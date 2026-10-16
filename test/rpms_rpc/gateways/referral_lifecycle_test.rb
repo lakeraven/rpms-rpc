@@ -8,11 +8,11 @@ class ReferralLifecycleTest < Minitest::Test
   def setup
     RpmsRpc.mock! do |m|
       m.seed(:referral_detail, "SR-001", { ien: "SR-001", status: "draft", patient_dfn: 1,
-                                            type: "Cardiology", provider: "MARTINEZ,SARAH", facility: "ANMC" })
+                                            type: "Cardiology", provider_ien: "201", facility: "ANMC" })
       m.seed(:referral_detail, "SR-002", { ien: "SR-002", status: "pending", patient_dfn: 1,
-                                            type: "Orthopedics", provider: "CHEN,JAMES", facility: "ANMC" })
+                                            type: "Orthopedics", provider_ien: "202", facility: "ANMC" })
       m.seed(:referral_detail, "SR-003", { ien: "SR-003", status: "authorized", patient_dfn: 1,
-                                            type: "Neurology", provider: "MARTINEZ,SARAH", facility: "ANMC" })
+                                            type: "Neurology", provider_ien: "201", facility: "ANMC" })
     end
   end
 
@@ -47,11 +47,11 @@ class ReferralLifecycleTest < Minitest::Test
     assert_nil RpmsRpc::DataMapper.referral_detail.fetch_one("NONEXISTENT")
   end
 
-  def test_referral_detail_includes_type_and_provider
+  def test_referral_detail_includes_type_and_provider_ien
     result = RpmsRpc::DataMapper.referral_detail.fetch_one("SR-003")
 
     assert_equal "Neurology", result[:type]
-    assert_equal "MARTINEZ,SARAH", result[:provider]
+    assert_equal "201", result[:provider_ien]
     assert_equal "ANMC", result[:facility]
   end
 end
