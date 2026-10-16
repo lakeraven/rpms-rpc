@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "fileman_date_parser"
+require_relative "rcis_wire"
 
 module RpmsRpc
   # Declarative mapping from RPMS RPC caret-delimited responses to hashes.
@@ -141,6 +142,21 @@ module RpmsRpc
         @status_reply == true
       end
 
+      # Declare an RCIS (BMC) record mapping (#210). CRTMSG^BMCRPC4 opens
+      # every record line with the sigil "~`" (BMCRPC4.m:60,116), so a line
+      # without it is a message, not a record (e.g. "Not a valid Referral
+      # Ien", BMCRPC1.m:55). A further "~`" in the line starts the sections
+      # appended after the fields; with +sections+ they are parsed by
+      # RcisWire.sections into that attribute.
+      def rcis_record!(sections: nil)
+        @rcis_record = true
+        @rcis_sections = sections
+      end
+
+      def rcis_record?
+        @rcis_record == true
+      end
+
       # Declare a text blob response (array of lines joined with newlines).
       # Used for RPCs like ORWRP REPORT TEXT that return free text.
       def text_blob(attribute)
@@ -169,6 +185,12 @@ module RpmsRpc
       def parse_one(response, extras: {})
         line = normalize_line(response)
         return nil if line.nil? || line.empty?
+
+        if rcis_record?
+          return nil unless line.start_with?(RcisWire::SIGIL)
+
+          line, rest = line.delete_prefix(RcisWire::SIGIL).split(RcisWire::SIGIL, 2)
+        end
         return nil if !status_reply? && DataMapper.non_data_row?(line)
 
         parts = line.split("^", -1)
@@ -178,6 +200,7 @@ module RpmsRpc
           raw = parts[f.position]
           result[f.attribute] = coerce(raw, f.type)
         end
+        result[@rcis_sections] = RcisWire.sections(rest) if @rcis_sections
 
         extras.each { |k, v| result[k] = v }
         result
@@ -262,7 +285,8 @@ module RpmsRpc
           claimed[f.position] = true if attrs.key?(f.attribute)
         end
 
-        parts.join("^")
+        line = parts.join("^")
+        rcis_record? ? RcisWire::SIGIL + line : line
       end
 
       # Format an array of hashes into an array of caret-delimited strings.

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — BMC referral reads follow the RCIS wire layout (#210)
+
+- `Referral.for_patient` (`BMC SEARCH REFERRAL`) and `Referral.find` (`BMC GET REFERRAL`) read the
+  25- and 48-piece lines CRTMSG^BMCRPC4 builds (DETAIL=0 and DETAIL=1), each field cited by routine
+  line in `mappings/ihs.rb`. The old 6- and 8-field layouts were wrong after piece 0: `patient_dfn`
+  read the referral date. A line without the RCIS sigil "~`" is a message, not a record, so
+  `Referral.find` answers nil for "Not a valid Referral Ien".
+- `Referral.find` adds `diagnoses:` (RCIS DIAGNOSIS entries) and `notes:` (`medical_history`,
+  `business_office`, `case`) from the sections GTRFBYID^BMCRPC1 appends after the fields.
+- `DataMapper` mappings can declare `rcis_record!`: strip the sigil, reject lines without it, and
+  optionally parse the appended sections (`RcisWire.sections`).
+- **Breaking:** the detail's piece 6 is the requesting provider's internal IEN, so it is
+  `:provider_ien`, not `:provider`; `:notes` is now the notes hash (the free-text scheduling notes
+  are `:scheduling_notes`). `Referral.print` returns the letter text PRINT^BMCRPC5 compiles, not a
+  `{ success: }` hash.
+
 ### Changed — `rake rpc:live` and `rake rpc:cases` label a run by who signed on (#397)
 
 - The persona comes from `ORWU HASKEY XUPROGMODE`: held is `programmer`, not held is

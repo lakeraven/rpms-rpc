@@ -41,16 +41,17 @@ namespace :conformance do
 
   # ---- the pinned-dependency contract with rpms-ops (rpms-rpc#160, #222) -----------------------
   # rpms-ops attaches, to every gated release, the #8994 + #9.4 inventory that build serves
-  # (<tag>-broker_8994.txt, -packages_9_4.txt, -INVENTORY-PROVENANCE.json, -INVENTORY.sha256;
+  # (<tag>-broker_8994.txt, -packages_9_4.txt, -rpc_reach.txt, -rpc_signatures.txt, -contexts_19_05.txt,
+  # -INVENTORY-PROVENANCE.json, -INVENTORY.sha256;
   # rpms-ops bin/release_inventory.sh + bin/publish_inventory.sh) and the build record
   # (<tag>-PROVENANCE.json, naming the commit). `pin` is the `bundle install` of that contract,
-  # `check` its `bundle check`. The five files are committed under data/inventories/<tag>/:
+  # `check` its `bundle check`. The assets are committed under data/inventories/<tag>/:
   # they are the signature the gem is held to.
   INVENTORIES_DIR = ENV["INVENTORIES_DIR"] ? File.expand_path(ENV["INVENTORIES_DIR"]) : File.expand_path("../../data/inventories", __dir__)
   LOCK_PATH = File.join(FINGERPRINTS_DIR, "rpms-ops.lock.yml")
 
   desc "Pin the RPC signature of an rpms-ops build: RELEASE=<tag> [REPO=lakeraven/rpms-ops] " \
-       "[SOURCE=<dir holding the five assets; skips the download>] [ENV=references/<tag>]. " \
+       "[SOURCE=<dir holding the assets; skips the download>] [ENV=references/<tag>]. " \
        "Downloads the inventory + build record (gh release download), checks each against the " \
        "release's asset digest, verifies sidecar, binding and build commit, commits the bytes to " \
        "data/inventories/<tag>/, ingests the fingerprint and records the pin in data/fingerprints/rpms-ops.lock.yml."
