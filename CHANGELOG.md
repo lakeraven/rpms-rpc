@@ -39,6 +39,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the verdict read from the CIA reply flag byte. It calls no API method, so the cases are the
   build's, and any client can run the same file. Not part of the gem.
 
+### Fixed — `Referral.providers` answers (#364)
+
+- `Referral.providers` sends no parameter: `PROV^ORQPTQ2` (`BMC PROVIDERS`) takes none, and the
+  one it was sent raised "more actual than formal parameters". Each row is `{ duz:, name: }`, an
+  active holder of the PROVIDER key (ORQPTQ2.m:95-101).
+- **Breaking:** `Referral.providers` takes no arguments, and its rows no longer carry `:title`;
+  `PROV^ORQPTQ2` never sent one.
+- The four other BMC reads #364 listed (`purposes`, `reference_data`, `search_referred_to`,
+  `rcis_templates`) answer on YottaDB builds that carry the BMCRPC1-5 overrides (rpms-ops#702), so
+  `KNOWN_BINDING_BUGS` in the missing-RPC live spec is empty. The live spec calls
+  `search_referred_to` with a referral type: without one, `SRRFRDTO^BMCRPC1` returns a message
+  where the broker expects a global name.
+
 ### Added — `Practitioner.roles(duz)` (#167)
 
 - `Practitioner.roles(duz)` reads one user's roles: `{ duz:, name:, provider_class:,

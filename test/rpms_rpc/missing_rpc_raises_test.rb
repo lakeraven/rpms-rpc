@@ -189,7 +189,7 @@ class MissingRpcRaisesTest < Minitest::Test
     "Referral.purposes" => -> { RpmsRpc::Referral.purposes },
     "Referral.reference_data" => -> { RpmsRpc::Referral.reference_data },
     "Referral.users_providers" => -> { RpmsRpc::Referral.users_providers },
-    "Referral.providers" => -> { RpmsRpc::Referral.providers("A") },
+    "Referral.providers" => -> { RpmsRpc::Referral.providers },
     "Referral.search_referred_to" => -> { RpmsRpc::Referral.search_referred_to("A") },
     "Referral.rcis_templates" => -> { RpmsRpc::Referral.rcis_templates },
     "Referral.rcis_template_detail" => -> { RpmsRpc::Referral.rcis_template_detail(1) },
