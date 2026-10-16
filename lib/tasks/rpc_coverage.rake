@@ -12,9 +12,11 @@
 #                       exits 1 unless every case of the persona gives its expected verdict
 #   rake rpc:live BACKEND=<label> BROKER_HOST= BROKER_PORT= RPMS_ACCESS= RPMS_VERIFY= [RPMS_CONTEXT=] [PERSONA=]
 #                       runs the read catalogue against a live CIA broker and merges the result
-#                       into <evidence dir>/<BACKEND>.json, or with PERSONA=programmer into
-#                       <evidence dir>/<BACKEND>.programmer.json (#335). The headline reads only the first;
-#                       the programmer file classifies what the least-privilege user could not reach.
+#                       into <evidence dir>/<BACKEND>.json, or, when the signed-on user holds XUPROGMODE,
+#                       into <evidence dir>/<BACKEND>.programmer.json (#335). The run is labelled by who
+#                       signed on (#397); PERSONA= is only an expectation that fails the run when unmet.
+#                       The headline reads only the first file; the programmer file classifies what the
+#                       least-privilege user could not reach.
 #
 # Live evidence is a build-specific artifact, so it lives in lakeraven/rpms-diffs, not here:
 # <evidence dir> is rpc-coverage/live/ in an rpms-diffs checkout, by default the sibling of this
@@ -183,17 +185,17 @@ namespace :rpc do
     abort "rpc:live needs a source checkout (#{rpc_tool} is not in the gem)" unless File.exist?(rpc_tool)
     %w[BACKEND BROKER_PORT RPMS_ACCESS RPMS_VERIFY].each { |k| abort "rpc:live requires #{k}=" if ENV[k].to_s.empty? }
     abort "BACKEND= must be a plain label ([a-z0-9._-])" unless ENV["BACKEND"].match?(/\A[a-z0-9._-]+\z/)
-    abort "BACKEND= must not end in .programmer (PERSONA=programmer names that file)" if ENV["BACKEND"].end_with?(".programmer")
+    abort "BACKEND= must not end in .programmer (a programmer sign-on names that file)" if ENV["BACKEND"].end_with?(".programmer")
     require rpc_tool
-    persona = begin
-      RpcCoverage.persona(ENV["PERSONA"])
+    begin
+      RpcCoverage.expected_persona(ENV["PERSONA"])
     rescue RpcCoverage::Error => e
       abort "rpc:live: #{e.message}"
     end
 
-    evidence = RpcCoverage.evidence_path(rpc_evidence_dir.call, ENV["BACKEND"], persona)
+    # The runner picks the file once it knows who signed on (#397).
     runner = File.join(rpc_root, "tools/rpc_coverage/live_runner.rb")
-    sh({ "EVIDENCE" => evidence, "PERSONA" => persona }, RbConfig.ruby, runner)
+    sh({ "EVIDENCE_DIR" => rpc_evidence_dir.call, "EVIDENCE" => nil }, RbConfig.ruby, runner)
   end
 
   desc "Run rpms-ops' wire-level cases (CASES=<data/conformance/cases.jsonl>) against one live CIA backend (rpms-ops#834)"
