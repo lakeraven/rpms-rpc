@@ -44,10 +44,13 @@ module RpmsRpc
       in_context { DataMapper.referral_search.fetch_many(dfn.to_s) }
     end
 
+    # One referral by RCIS REFERRAL (#90001) IEN, with its diagnoses and
+    # notes named from the sections GTRFBYID^BMCRPC1 appends (#210).
     def find(ien)
       return nil if ien.nil?
 
-      in_context { DataMapper.referral_detail.fetch_one(ien.to_s) }
+      record = in_context { DataMapper.referral_detail.fetch_one(ien.to_s) }
+      record && name_sections(record)
     end
 
     def add(*params)
@@ -58,8 +61,9 @@ module RpmsRpc
       bmc_scalar_result(:bmc_update_referral, ien, *params)
     end
 
+    # The STANDARD IHS REFERRAL LETTER as text (PRINT^BMCRPC5, BMCRPC5.m:50-64).
     def print(ien, *params)
-      bmc_scalar_result(:bmc_print_referral, ien.to_s, *params)
+      bmc_text(:bmc_print_referral, ien.to_s, *params)
     end
 
     def update_status(ien, status, *params)
@@ -175,6 +179,30 @@ module RpmsRpc
 
     def failure
       { success: false, ien: nil, raw: nil }
+    end
+
+    # RCIS DIAGNOSIS (#90001.01) entry pieces, BMCRPC4.m:104-114.
+    DIAGNOSIS_FIELDS = %i[ien icd_ien patient_dfn referral_ien type primary_secondary
+                          narrative_ien icd_code narrative].freeze
+
+    # Note sections by GETMEDHX tag (BMCRPC1.m:124-128): S (secondary
+    # referral notes) is sent under B.
+    NOTE_SECTIONS = { medical_history: "M", business_office: "B", case: "C" }.freeze
+
+    def name_sections(record)
+      sections = record.delete(:sections) || {}
+      diagnoses = (sections["D"] || []).map { |pieces| DIAGNOSIS_FIELDS.zip(pieces).to_h }
+      notes = NOTE_SECTIONS.transform_values do |tag|
+        (sections[tag] || []).map { |pieces| note(pieces) }
+      end
+      record.merge(diagnoses: diagnoses, notes: notes)
+    end
+
+    # RFCMTIEN^CMDATE^REVIEWER^text, word-processing lines joined by "~"
+    # (BMCRPC1.m:136-143).
+    def note(pieces)
+      ien, date, reviewer, *text = pieces
+      { ien: ien, date: date, reviewer: reviewer, text: text.join("^").tr("~", "\n") }
     end
 
     def invalid_id?(value)
