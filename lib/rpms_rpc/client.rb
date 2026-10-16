@@ -271,6 +271,28 @@ module RpmsRpc
       @duz
     end
 
+    # -- compatibility (#366) -------------------------------------------------
+
+    # Which RPCs this release of the gem sends that the server does not serve:
+    # an RpmsRpc::Compatibility::Report, grouped by API module. Run it once,
+    # after sign-on. It reports by default; strict: true raises
+    # Compatibility::MissingRpcsError when anything is missing, for a host that
+    # wants to fail at boot. See RpmsRpc::Compatibility. Required here, not at
+    # the top: a standalone client require stays as small as it was
+    # (standalone_require_test.rb).
+    def compatibility(strict: false)
+      require "rpms_rpc/compatibility"
+      Compatibility.check(self, strict: strict)
+    end
+
+    # The subset of `names` the server serves, as a Set, asked without running
+    # any of them. Each broker client answers with the RPC its broker offers
+    # for the question (CiaClient, XwbClient); a client without one raises.
+    def served_rpcs(_names)
+      raise Error, "#{self.class.name} cannot ask its server which RPCs it serves; " \
+                   "the compatibility check runs over CIA (CiaClient) or XWB (XwbClient)"
+    end
+
     # -- VistA signon ---------------------------------------------------------
 
     # Run XUS SIGNON SETUP (returns environment data array)

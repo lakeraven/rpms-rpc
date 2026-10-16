@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `client.compatibility`: which RPCs this release needs that the server does not serve (#366)
+
+- Run once after sign-on, as CPRS checks `XWB IS RPC AVAILABLE` at startup. It returns an
+  `RpmsRpc::Compatibility::Report`: `ok?`, `missing` (`{ "RpmsRpc::Referral" => [names] }`, by API
+  module), `missing_rpcs` and a printable `to_s`. It reports by default; `compatibility(strict: true)`
+  raises `RpmsRpc::Compatibility::MissingRpcsError` naming them, for a host that fails at boot.
+- It asks without running the RPCs: over CIA, one `CIANBRPC GETRPCS` (the server's active #8994
+  registry, the same screen the broker applies before it answers "Unknown remote procedure"); over
+  XWB, one `XWB IS RPC AVAILABLE` per RPC, for local use. BMX has no such RPC and raises.
+- "This release needs" is `lib/rpms_rpc/required_rpcs.json`: every RPC each public API module sends,
+  written by `rake rpc:required_rpcs` from the static analysis the callable gate reads; a test fails
+  when it is stale.
+- Advisory only: each API call still raises its typed error when its RPC is missing (#363).
+
 ### Changed — BMC referral reads follow the RCIS wire layout (#210)
 
 - `Referral.for_patient` (`BMC SEARCH REFERRAL`) and `Referral.find` (`BMC GET REFERRAL`) read the

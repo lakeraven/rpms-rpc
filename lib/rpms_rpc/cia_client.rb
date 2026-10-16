@@ -312,6 +312,27 @@ module RpmsRpc
       raise_rpc_timeout(rpc_name)
     end
 
+    # The RPC that lists every RPC the CIA broker serves (#366): GETRPCS^CIANBRPC
+    # is LIST^DIC on REMOTE PROCEDURE (#8994) screened to INACTIVE "", 0 or 3
+    # (CIANBRPC.m:166-171), and returns each NAME. That is the same screen
+    # ACTR^CIANBACT applies before it runs an RPC: no #8994 entry is error 3
+    # and INACTIVE outside "03" is error 5 (CIANBACT.m), the two refusals that
+    # raise RpcNotAvailableError. A CIANB* routine is exempt from the option
+    # check (CIANBACT.m:49), so any signed-on user may call it; the pinned
+    # reach face has it broker-exempt on cia.
+    SERVED_RPCS_RPC = "CIANBRPC GETRPCS"
+
+    # Client#served_rpcs over CIA: one registry read, whatever the number of
+    # names. An empty registry is a failed read, not a server that serves
+    # nothing, and raises.
+    def served_rpcs(names)
+      registry = call_rpc(SERVED_RPCS_RPC).to_set(&:strip)
+      registry.delete("")
+      raise RpcError, "#{SERVED_RPCS_RPC} answered no RPC names" if registry.empty?
+
+      names.to_set & registry
+    end
+
     # Synchronized: an unsynchronized teardown can close the socket, or inject
     # its frame, in the middle of another caller's in-flight RPC.
     #
