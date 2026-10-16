@@ -52,6 +52,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `search_referred_to` with a referral type: without one, `SRRFRDTO^BMCRPC1` returns a message
   where the broker expects a global name.
 
+### Added — `Practitioner.roles(duz)` (#167)
+
+- `Practitioner.roles(duz)` reads one user's roles: `{ duz:, name:, provider_class:,
+  service_section:, divisions: [{ ien:, name: }], user_classes: [{ ien:, name: }] }`. Divisions
+  (INSTITUTION #4) and active USR CLASS (#8930) memberships come from `TIU DIV AND CLASS INFO`
+  (`USERINFO^TIUSRVT1`, in OR CPRS GUI CHART), which answers for any user. The name, PROVIDER
+  CLASS and SERVICE/SECTION come from `DDR GETS ENTRY DATA` on NEW PERSON (#200), in CIAV
+  VUECENTRIC. It is nil for an unknown or invalid IEN, and for Kernel's system entries .5 and .6.
+  A role whose `name` is nil points at no entry.
+
 ## [0.4.0] — 2026-10-12
 
 ### Removed — the VAFC VOA ADD PATIENT + DDR registration path (#409)
