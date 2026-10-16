@@ -20,9 +20,9 @@ module RpmsRpc
   # `rake rpc:required_rpcs` from the same static analysis the callable gate reads (ApiCoverage),
   # and held current by test/api_coverage/required_rpcs_test.rb. It is not a hand-kept list.
   #
-  # How the server is asked is the broker client's (Client#served_rpcs): one bulk registry read on
-  # CIA (CIANBRPC GETRPCS), one XWB IS RPC AVAILABLE per RPC on XWB. Neither runs the RPCs it asks
-  # about. "Served" is the server's registry: registered in REMOTE PROCEDURE (#8994) and not
+  # How the server is asked is the broker client's (Client#served_rpcs): on CIA a paged DDR LISTER
+  # of #8994 in the sign-on option (six calls for 5,557 entries), on XWB one XWB IS RPC AVAILABLE
+  # per RPC. Neither runs the RPCs it asks about. "Served" is the server's registry: registered in REMOTE PROCEDURE (#8994) and not
   # inactive for a local client, which is what a call answers RpcNotAvailableError for. Whether
   # this user may run an RPC in a given option is a different question (RpcRefusedError), and not
   # this one.

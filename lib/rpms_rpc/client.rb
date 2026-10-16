@@ -67,8 +67,8 @@ module RpmsRpc
     # re-authenticate rather than retrying on a corrupted stream.
     class RpcTimeoutError < TimeoutError; end
     # Raised when a reply arrived but cannot be read in the shape the call
-    # promises (e.g. a list whose row boundaries the server did not send,
-    # rpms-ops#957). The data is not returned: a misread reply is never data.
+    # promises (e.g. a registry row that is not IEN^NAME^INACTIVE). The data
+    # is not returned: a misread reply is never data.
     class ParseError < Error; end
 
     # How each broker words "this RPC is not served" (#363):

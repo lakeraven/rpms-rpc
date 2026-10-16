@@ -23,25 +23,45 @@ class RpmsRpc::CompatibilityTest < Minitest::Test
   }.freeze
 
   # A signed-on client whose call_rpc answers from `replies` (name => lines or a proc of params).
+  # A CIA session has the sign-on option bound, as CIANBRPC AUTH leaves it; each call records the
+  # option it ran under.
   module Canned
-    attr_reader :calls
+    attr_reader :calls, :contexts
 
     def setup_canned(replies)
       @replies = replies
       @calls = []
+      @contexts = []
       set_authenticated(42)
+      @current_context = RpmsRpc::CiaClient::SIGNON_CONTEXT if is_a?(RpmsRpc::CiaClient)
       self
     end
 
     def call_rpc(name, *params)
       @calls << [ name, *params ]
+      @contexts << current_context
       reply = @replies.fetch(name) { raise RpmsRpc::Client::RpcNotAvailableError, "Unknown remote procedure: #{name}" }
       reply.respond_to?(:call) ? reply.call(*params) : reply
     end
   end
 
+  # `registry` is NAME => INACTIVE, or a list of NAMEs (all active).
   def cia(registry)
-    RpmsRpc::CiaClient.new(host: "127.0.0.1", port: 9100).extend(Canned).setup_canned("CIANBRPC GETRPCS" => registry)
+    RpmsRpc::CiaClient.new(host: "127.0.0.1", port: 9100).extend(Canned).setup_canned("DDR LISTER" => lister_8994(registry))
+  end
+
+  # DDR LISTER on #8994 the way LISTC^DDR pages it: the NAMEs that sort after FROM (a string
+  # compare, as $O walks the B index), at most MAX of them as IEN^NAME^INACTIVE, then
+  # MORE^<last NAME>^ while any remain.
+  def lister_8994(registry)
+    rows = registry.is_a?(Hash) ? registry : registry.to_h { |name| [ name, "" ] }
+    sorted = rows.keys.sort
+    lambda do |params|
+      after = sorted.select { |name| name > params.fetch("FROM", "") }
+      page = after.first(Integer(params.fetch("MAX")))
+      more = after.size > page.size ? [ "[Misc]", "MORE^#{page.last}^" ] : []
+      more + [ "[Data]" ] + page.map { |name| "#{sorted.index(name) + 1}^#{name}^#{rows[name]}" }
+    end
   end
 
   def xwb(served)
@@ -92,38 +112,82 @@ class RpmsRpc::CompatibilityTest < Minitest::Test
     assert_match(/RpmsRpc::Referral: ORWPT SELECT/, report.to_s)
   end
 
-  def test_cia_asks_once_whatever_the_number_of_rpcs
+  def test_cia_reads_the_registry_with_ddr_lister_in_the_sign_on_option
     client = cia(every_required)
     Compatibility.check(client, required: REQUIRED)
 
-    assert_equal [ [ "CIANBRPC GETRPCS" ] ], client.calls
+    assert_equal [ [ "DDR LISTER", { "FILE" => "8994", "FIELDS" => "@;.01;.06I", "FLAGS" => "IP", "MAX" => "1000" } ] ],
+                 client.calls
+    assert_equal [ "CIAV VUECENTRIC" ], client.contexts
+  end
+
+  # INACTIVE "", 0 and 3 run (ACTR^CIANBACT: error 5 is INACTIVE outside "03"); 1 (inactive) and 2
+  # (inactive for local use) answer "not available" to a CIA client.
+  def test_cia_an_inactive_entry_is_not_served
+    registry = { "ORWPT SELECT" => "1", "ORWPT ID INFO" => "2", "ORQQVI VITALS" => "3", "BMC ADD REFERRAL" => "0" }
+    report = Compatibility.check(cia(registry), required: REQUIRED)
+
+    assert_equal [ "ORWPT ID INFO", "ORWPT SELECT" ], report.missing_rpcs
+  end
+
+  # Each page starts FROM the last NAME alone. "BGOCPTPR CLONE^" (with the caret) sorts after
+  # "BGOCPTPR CLONEOTH", which was skipped when it opened a page (found live on the 1012 pin:
+  # 5,556 of 5,557 entries).
+  def test_cia_pages_resume_from_the_last_name_and_lose_no_entry
+    filler = (1..999).map { |i| format("AAA FILLER %04d", i) }
+    client = cia(filler + [ "BGOCPTPR CLONE", "BGOCPTPR CLONEOTH" ] + every_required)
+    required = { "build" => "t", "modules" => { "RpmsRpc::Probe" => [ "BGOCPTPR CLONEOTH" ] } }
+
+    assert_predicate Compatibility.check(client, required: required), :ok?
+    assert_equal [ nil, "BGOCPTPR CLONE" ], client.calls.map { |_name, params| params["FROM"] }
   end
 
   def test_cia_an_empty_registry_is_a_failed_read_not_everything_missing
-    err = assert_raises(RpmsRpc::Client::RpcError) { Compatibility.check(cia([ "", " " ]), required: REQUIRED) }
-    assert_match(/CIANBRPC GETRPCS answered no RPC names/, err.message)
+    err = assert_raises(RpmsRpc::Client::RpcError) { Compatibility.check(cia([]), required: REQUIRED) }
+    assert_match(/DDR LISTER on #8994 answered no RPC names/, err.message)
   end
 
-  # The reply yotta-1016 sent (bcer-9.0-20261015-46dd047-ydb, PR #429): sequence echo, ack, then
-  # the names run together with no CR, LF or \x1e (rpms-ops#957). Here the first ten; live it was
-  # 105,373 bytes. Read through the real reply parser (call_rpc_raw stubbed, call_rpc not).
-  RUN_TOGETHER_REPLY = "4\x00ADE APPT ADDADE APPT CANCELADE APPT CONFLICTADE APPT DISPLAYADE GET VARIABLE VALUE" \
-                       "ADE MULTIPLE PARAM TESTADE PATIENT ADDRESSADE PATIENT LOOKUPADECompiledStatisticsADEGetFac"
+  def test_cia_a_fileman_error_reply_raises
+    client = RpmsRpc::CiaClient.new(host: "127.0.0.1", port: 9100).extend(Canned)
+                                .setup_canned("DDR LISTER" => [ "[BEGIN_diERRORS]", "^401^^", "File #8994 does not exist.", "[END_diERRORS]" ])
+    err = assert_raises(RpmsRpc::Client::RpcError) { Compatibility.check(client, required: REQUIRED) }
+    assert_match(/answered errors: .*File #8994 does not exist/, err.message)
+  end
 
-  def test_cia_names_run_together_fail_closed_naming_the_build_issue
-    client = RpmsRpc::CiaClient.new(host: "127.0.0.1", port: 9100)
-    client.set_authenticated(42)
-    client.define_singleton_method(:call_rpc_raw) { |_name, *_params| RUN_TOGETHER_REPLY.b }
+  def test_cia_a_page_that_does_not_advance_raises_rather_than_loop
+    stuck = ->(_params) { [ "[Misc]", "MORE^ORWPT SELECT^", "[Data]", "1^ORWPT SELECT^" ] }
+    client = RpmsRpc::CiaClient.new(host: "127.0.0.1", port: 9100).extend(Canned).setup_canned("DDR LISTER" => stuck)
+    err = assert_raises(RpmsRpc::Client::ParseError) { Compatibility.check(client, required: REQUIRED) }
+    assert_match(/did not advance past "ORWPT SELECT"/, err.message)
+  end
 
+  # What CIANBRPC GETRPCS sends on every engine (rpms-ops#957): the names run together, because
+  # its entry has WORD WRAP ON unset and `W !` ends a row with no bytes on the CIA socket. A row
+  # that is not IEN^NAME^INACTIVE fails closed rather than become a name.
+  def test_cia_a_row_that_is_not_ien_name_inactive_fails_closed
+    run_together = "ADE APPT ADDADE APPT CANCELADE APPT CONFLICTADE APPT DISPLAY"
+    client = RpmsRpc::CiaClient.new(host: "127.0.0.1", port: 9100).extend(Canned)
+                                .setup_canned("DDR LISTER" => [ "[Data]", "1^ORWPT SELECT^", run_together ])
     err = assert_raises(RpmsRpc::Client::ParseError) { Compatibility.check(client, required: REQUIRED) }
     assert_kind_of RpmsRpc::Error, err
-    assert_match(/longer than any #8994 NAME \(30\)/, err.message)
-    assert_match(/rpms-ops#957/, err.message)
+    assert_match(/not IEN\^NAME\^INACTIVE/, err.message)
   end
 
-  def test_cia_one_line_over_30_characters_is_enough_to_fail_closed
+  def test_cia_a_name_over_30_characters_fails_closed
     long = "ORWPT SELECTORWPT ID INFOORQQVI VITALS"
     assert_raises(RpmsRpc::Client::ParseError) { Compatibility.check(cia(every_required + [ long ]), required: REQUIRED) }
+  end
+
+  # The real reply parser, as the YottaDB broker frames a wrap-on DDR LISTER page: sequence echo,
+  # ack, then each node followed by CR (OUT^CIANBACT, EOL=$C(13); `W !` adds nothing).
+  def test_cia_reads_a_cr_terminated_reply_through_the_real_parser
+    raw = "4\x00[Data]\r1^ORWPT SELECT^\r2^ORWPT ID INFO^0\r3^BMC ADD REFERRAL^\r4^ORQQVI VITALS^3\r"
+    client = RpmsRpc::CiaClient.new(host: "127.0.0.1", port: 9100)
+    client.set_authenticated(42)
+    client.instance_variable_set(:@current_context, RpmsRpc::CiaClient::SIGNON_CONTEXT)
+    client.define_singleton_method(:call_rpc_raw) { |_name, *_params| raw.b }
+
+    assert_predicate Compatibility.check(client, required: REQUIRED), :ok?
   end
 
   def test_cia_a_30_character_name_is_a_name
