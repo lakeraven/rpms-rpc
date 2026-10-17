@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "date"
 require "json"
+require "psych"
 require "tmpdir"
 require "rpms_rpc"
 require_relative "../../tools/api_coverage/api_coverage"
@@ -218,14 +219,134 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
     end
   end
 
+  def test_load_raises_on_duplicate_top_level_keys
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "retry_safety.yml")
+      File.write(path, <<~YAML)
+        "RpmsRpc::Patient.find": read
+        "RpmsRpc::Patient.find": non_idempotent_write
+      YAML
+      error = assert_raises(ArgumentError) { RpmsRpc::RetrySafety.load(path) }
+      assert_match(/RpmsRpc::Patient\.find/, error.message)
+    end
+  end
+
+  def test_committed_retry_safety_yml_has_unique_sorted_top_level_keys
+    path = File.expand_path(RpmsRpc::RetrySafety::PATH, ROOT)
+    mapping = Psych.parse_file(path).children.find { |c| c.is_a?(Psych::Nodes::Mapping) }
+    keys = mapping.children.each_with_index.filter_map do |node, i|
+      node.value if i.even? && node.is_a?(Psych::Nodes::Scalar)
+    end
+
+    assert_equal keys.size, keys.uniq.size, "duplicate top-level keys in #{path}"
+    assert_equal keys, keys.sort, "top-level keys must be sorted in #{path}"
+  end
+
+  def test_load_raises_on_malformed_yaml
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "retry_safety.yml")
+      File.write(path, "key: [\n")
+      assert_raises(Psych::SyntaxError, ArgumentError) { RpmsRpc::RetrySafety.load(path) }
+    end
+  end
+
+  def test_load_raises_when_file_is_missing
+    path = File.join(Dir.mktmpdir, "missing_retry_safety.yml")
+    assert_raises(Errno::ENOENT) { RpmsRpc::RetrySafety.load(path) }
+  end
+
+  def test_load_raises_when_document_is_not_a_hash
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "retry_safety.yml")
+      File.write(path, "plain string document\n")
+      error = assert_raises(ArgumentError) { RpmsRpc::RetrySafety.load(path) }
+      assert_match(/not a Hash/i, error.message)
+    end
+  end
+
+  def test_load_raises_on_empty_file
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "retry_safety.yml")
+      File.write(path, "")
+      assert_raises(ArgumentError) { RpmsRpc::RetrySafety.load(path) }
+    end
+  end
+
+  def test_load_raises_on_non_string_key
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "retry_safety.yml")
+      File.write(path, <<~YAML)
+        1: read
+      YAML
+      error = assert_raises(ArgumentError) { RpmsRpc::RetrySafety.load(path) }
+      assert_match(/not a String key/i, error.message)
+    end
+  end
+
+  def test_load_raises_on_non_string_classification_value
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "retry_safety.yml")
+      File.write(path, <<~YAML)
+        "RpmsRpc::Patient.find": 1
+      YAML
+      error = assert_raises(ArgumentError) { RpmsRpc::RetrySafety.load(path) }
+      assert_match(/RpmsRpc::Patient\.find/, error.message)
+    end
+  end
+
+  # --- RetrySafety.lint ------------------------------------------------------
+
+  def test_lint_reports_unclassified_labels_and_stale_table_keys
+    table = { "RpmsRpc::Synth::A.m" => :read }
+    labels = [ "RpmsRpc::Synth::A.m", "RpmsRpc::Synth::B.m" ]
+    result = RpmsRpc::RetrySafety.lint(labels, table)
+    assert_equal [ "RpmsRpc::Synth::B.m" ], result[:unclassified]
+    assert_empty result[:stale]
+
+    table_with_stale = table.merge("RpmsRpc::Synth::Stale.m" => :read)
+    result = RpmsRpc::RetrySafety.lint([ "RpmsRpc::Synth::A.m" ], table_with_stale)
+    assert_empty result[:unclassified]
+    assert_equal [ "RpmsRpc::Synth::Stale.m" ], result[:stale]
+
+    clean = RpmsRpc::RetrySafety.lint([ "RpmsRpc::Synth::A.m" ], table)
+    assert_empty clean[:unclassified]
+    assert_empty clean[:stale]
+  end
+
+  def test_lint_is_clean_for_current_public_api_and_committed_table
+    labels = api_method_pairs.map { |mod, name| method_label(mod, name) }
+    result = RpmsRpc::RetrySafety.lint(labels, RpmsRpc::RetrySafety.table)
+    assert_empty result[:unclassified]
+    assert_empty result[:stale]
+  end
+
   # --- auto_retry_safe? ------------------------------------------------------
 
   def test_only_reads_are_auto_retry_safe
     assert RpmsRpc::RetrySafety.auto_retry_safe?(RpmsRpc::Patient, :find)
-    refute RpmsRpc::RetrySafety.auto_retry_safe?(RpmsRpc::Referral, :create)
-    refute RpmsRpc::RetrySafety.auto_retry_safe?(RpmsRpc::Procedure, :delete)
-    refute RpmsRpc::RetrySafety.auto_retry_safe?(RpmsRpc::Agg, :add_patient)
+
+    [
+      [ RpmsRpc::Referral, :create ],
+      [ RpmsRpc::Problem, :delete ],
+      [ RpmsRpc::Agg, :add_patient ],
+      [ RpmsRpc::Encounter, :create ]
+    ].each do |mod, name|
+      assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(mod, name),
+                   "#{method_label(mod, name)} must be :non_idempotent_write"
+      refute RpmsRpc::RetrySafety.auto_retry_safe?(mod, name),
+             "#{method_label(mod, name)} must not be auto-retry-safe"
+    end
+
     refute RpmsRpc::RetrySafety.auto_retry_safe?(RpmsRpc::Patient, :__unknown_retry_safety_method__)
+  end
+
+  # DdrFileman.lister passes caller-supplied SCREEN and ID into LIST^DIC as M code,
+  # so a retry can repeat a side effect. Notifications.inbox uses BQI GET COMM ALERTS
+  # SPLASH; mapping is best-effort pending trace capture and a splash read may record
+  # that alerts were shown.
+  def test_fail_closed_when_code_does_not_establish_read_only_effect
+    assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::DdrFileman, :lister)
+    assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::Notifications, :inbox)
   end
 
   # --- static RPC resolution vs classification -------------------------------
@@ -259,15 +380,24 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
   def test_classification_follows_the_mock_client
     MOCK_READ_CALLS.each do |spec|
       mod, name, args, seed = spec.values_at(:mod, :method, :args, :seed)
+      label = method_label(mod, name)
       assert_equal :read, RpmsRpc::RetrySafety.for(mod, name),
-                   "#{method_label(mod, name)} must be classified :read for this test"
+                   "#{label} must be classified :read for this test"
+      expected_rpcs = resolver.resolve(mod, name)[:rpcs].map { |r| r[:name] }
 
       RpmsRpc.mock! do |m|
         seed.call(m)
         mod.public_send(name, *args)
-        write_calls = RpmsRpc.client.received_calls.select { |c| write_rpc?(c[:rpc]) }
+        calls = RpmsRpc.client.received_calls
+        refute_empty calls, "#{label} must send at least one RPC on the mock client"
+        received_rpc_names = calls.map { |c| c[:rpc] }
+        expected_rpcs.each do |rpc|
+          assert_includes received_rpc_names, rpc,
+                          "#{label} must send #{rpc} (static ApiCoverage resolver)"
+        end
+        write_calls = calls.select { |c| write_rpc?(c[:rpc]) }
         assert_empty write_calls,
-                     "#{method_label(mod, name)} issued write RPCs: #{write_calls.map { |c| c[:rpc] }.join(", ")}"
+                     "#{label} issued write RPCs: #{write_calls.map { |c| c[:rpc] }.join(", ")}"
       end
     ensure
       RpmsRpc.reset!
