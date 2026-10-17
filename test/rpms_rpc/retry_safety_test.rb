@@ -231,6 +231,31 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
     end
   end
 
+  def test_load_raises_on_multi_document_file
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "retry_safety.yml")
+      File.write(path, <<~YAML)
+        "A.b": read
+        ---
+        "A.b": non_idempotent_write
+        "C.d": read
+      YAML
+      assert_raises(ArgumentError) { RpmsRpc::RetrySafety.load(path) }
+    end
+  end
+
+  def test_load_accepts_single_document_with_explicit_document_markers
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "retry_safety.yml")
+      File.write(path, <<~YAML)
+        ---
+        "A.b": read
+        ...
+      YAML
+      assert_equal({ "A.b" => :read }, RpmsRpc::RetrySafety.load(path))
+    end
+  end
+
   def test_committed_retry_safety_yml_has_unique_sorted_top_level_keys
     path = File.expand_path(RpmsRpc::RetrySafety::PATH, ROOT)
     mapping = Psych.parse_file(path).children.find { |c| c.is_a?(Psych::Nodes::Mapping) }
