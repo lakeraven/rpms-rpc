@@ -59,7 +59,7 @@ registration nor AG updates use the DDR lock helper.
 
 - The focused tests were run against unchanged main first: 38 failures and
   three errors in 42 tests, exposing unguarded writes and absent lookups.
-- The full offline suite passed: 1,677 tests, 7,966 assertions, no failures,
+- The full offline suite passed: 1,700 tests, 8,150 assertions, no failures,
   errors or skips (Ruby 3.4.9).
 - Fourteen deliberate mutations were caught: omit the duplicate guard; accept
   a truthy override; override a failed lookup; omit identity validation;

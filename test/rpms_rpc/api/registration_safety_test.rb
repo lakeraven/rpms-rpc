@@ -160,5 +160,4 @@ class RegistrationSafetyTest < Minitest::Test
     assert_raises(ArgumentError) { Reg.register(ATTRS.merge(tribe: "123\x1cAGGPTLNM=OTHERDEMO")) }
     assert_empty @mock.received_calls
   end
-
 end
