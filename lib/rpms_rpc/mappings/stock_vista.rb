@@ -962,7 +962,7 @@ module RpmsRpc
     # ========================================================================
     #
     # Stock-VistA RPCs used by the FileMan Delphi Components wrapper
-    # (RpmsRpc::DdrFileman), Registration.update and RpmsRpc::Tribal. Every wire shape below is cited to the M
+    # (RpmsRpc::DdrFileman), Patient.contact and RpmsRpc::Tribal. Every wire shape below is cited to the M
     # routine serving the RPC in the bcer-9.0-ydb corpus
     # (rpms-ops/data/standup/bcer-9.0-ydb/r/); tag^routine bindings are from
     # the live #8994 REMOTE PROCEDURE dump (.broker_dumps_8994_20260607.txt):

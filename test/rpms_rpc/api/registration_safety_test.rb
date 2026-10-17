@@ -161,9 +161,4 @@ class RegistrationSafetyTest < Minitest::Test
     assert_empty @mock.received_calls
   end
 
-  def test_silent_update_lock_still_returns_retryable_lock_failed
-    assert_equal({ success: false, error: :lock_failed, message: "could not lock ^DPT(42)" },
-                 Reg.update(42, patient_fields: { ".111" => "EXAMPLE" }))
-    assert_equal [ "DDR LOCK/UNLOCK NODE" ], @mock.received_calls.map { |c| c[:rpc] }
-  end
 end

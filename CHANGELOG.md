@@ -7,20 +7,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `Client::RpcMError`: an M error has a class of its own (#357)
+
+- `RpmsRpc::Client::RpcMError < RpcError` is raised when the server reports an M error: CIA error 1
+  ("The server has reported the following error", from ETRAP2^CIANBLIS), before the data ack or
+  after it (#414), and the `M  ERROR=` / `M ERROR=` frames of XWB and BMX. It was a plain
+  `RpcError`. A rescue of `RpcError` still catches it.
+- New live specs provoke the two transport failures on a real session: a one-second client timeout
+  on a 6-second lexicon search raises `RpcTimeoutError`, and a connection cut by a relay the spec
+  owns raises `ConnectionError`.
+
+### Fixed — `Referral.for_patient` sends all six formals of SRCHREF^BMCRPC1 (#210)
+
+- It sent the DFN alone, and the routine reads `+RECNMBR` without `$G` (BMCRPC1.m:32), so every
+  call died with `LVUNDEF RECNMBR`. It now sends the patient and five empty filters (no provider,
+  no dates, every record, any status).
+
+### Changed — `Patient.update` writes through AG: AGG UPDATE PATIENT with named attributes (#381, #351)
+
+- **Breaking:** `Patient.update` / `Registration.update` take named attributes (`phone_home:`,
+  `email:`, `community_ien:`, ...), each mapped to one parameter of an AG window. They file through
+  `AGG UPDATE PATIENT` (`UPD^AGGPTUPD`), one call per window touched (Personal Detail, Address,
+  Eligibility), under AG's own edit lock `AGG LOCK PATIENT` / `AGG UNLOCK PATIENT` (`LOCK^AGGLOCK`), all
+  bound to `AGGRPC`. `DDR FILER` is no longer used for #2 or #9000001. AG's side effects run on every
+  update: #9000001 `.03`/`.12` stamps, `EDIT^AGGEXPRT`, and email history.
+- Values take AG's forms: dates as `Date` or MM/DD/YYYY (AG converts them), choices by name or code,
+  pointers as IENs. `""` clears a field.
+- The window layout is pinned in `test/fixtures/agg/update_patient_windows.tsv`, extracted from the FOIA
+  AGG WINDOW DEFINITION export.
+- **Breaking:** these raise `Registration::AttributeNotOfferedError` (an `RpmsRpc::Error`) before anything
+  is sent, because no AG window files the field: `phone_cell:` (#2 `.134`), `pager:` (`.135`),
+  `community:` (#9000001 `1118`, which AG derives from `community_ien:`), and the removed
+  `patient_fields:` / `ihs_fields:` hashes. The error message maps each field number given to its
+  attribute. An unknown attribute or a malformed value raises `ArgumentError`.
+- **Breaking:** a refused window returns `{ success: false, error: :agg_rejected, window:, message:,
+  filed_windows: }`; the windows before it are already filed. A lock held elsewhere returns `:lock_failed`, and its message names the holder.
+  `:filer_rejected` is gone.
+- **Breaking:** `Patient.contact` reads `email:` from #9000001 `1802`, where AG files it, not from #2
+  `.133`. It adds `phone_other:` (#9000001 `1801`). It answers nil when either read fails.
+- #351 (`<LVUNDEF>` DFN from the #2 cross-reference AXENR13) cannot occur: nothing in the gem writes
+  #2 `.133`/`.134` any more.
+
+  | Old field (`patient_fields:` / `ihs_fields:`) | New attribute |
+  |---|---|
+  | #2 `.02` | `sex:` |
+  | #2 `.03` | `dob:` |
+  | #2 `.05` | `marital_status:` |
+  | #2 `.09` | `ssn:` |
+  | #2 `.092` / `.093` | `birth_city:` / `birth_state:` |
+  | #2 `.111` / `.112` / `.113` | `address_line1:` / `address_line2:` / `address_line3:` |
+  | #2 `.114` / `.115` | `city:` / `state:` |
+  | #2 `.116` / `.1112` | `zip:` (AG picks the field by length) |
+  | #2 `.131` / `.132` | `phone_home:` / `phone_work:` |
+  | #2 `.133` | not offered: use `email:` (#9000001 `1802`) |
+  | #2 `.134` | not offered (in no AG window); `phone_other:` is #9000001 `1801` |
+  | #2 `.135` | not offered |
+  | #9000001 `1108` / `1111` / `1112` | `tribe:` / `classification:` / `eligibility_status:` |
+  | #9000001 `1117` | `community_ien:` with `community_since:` |
+  | #9000001 `1118` | not offered: AG sets it from `community_ien:` |
+  | #9000001 `1801` / `1802` | `phone_other:` / `email:` (new) |
+  | any other field | not offered |
+
 ### Added — `client.compatibility`: which RPCs this release needs that the server does not serve (#366)
 
 - Run once after sign-on, as CPRS checks `XWB IS RPC AVAILABLE` at startup. It returns an
   `RpmsRpc::Compatibility::Report`: `ok?`, `missing` (`{ "RpmsRpc::Referral" => [names] }`, by API
   module), `missing_rpcs` and a printable `to_s`. It reports by default; `compatibility(strict: true)`
   raises `RpmsRpc::Compatibility::MissingRpcsError` naming them, for a host that fails at boot.
-- It asks without running the RPCs: over CIA, one `CIANBRPC GETRPCS` (the server's active #8994
-  registry, the same screen the broker applies before it answers "Unknown remote procedure"); over
-  XWB, one `XWB IS RPC AVAILABLE` per RPC, for local use. BMX has no such RPC and raises.
-- **On a YottaDB build the CIA check raises until rpms-ops#957 lands.** The YDB broker sends
-  `CIANBRPC GETRPCS` with every name run together on one line (no row boundaries for a wrap-off
-  array reply), and the names cannot be split apart. The check fails closed: any reply line longer
-  than a #8994 NAME (30 characters) raises the new `RpmsRpc::Client::ParseError`, naming rpms-ops#957,
-  instead of reporting every RPC missing.
+- It asks without running the RPCs. Over CIA it reads REMOTE PROCEDURE (#8994), each entry's NAME
+  and INACTIVE, with `DDR LISTER` in the sign-on option (`CIAV VUECENTRIC`, restored afterwards),
+  1,000 rows a call: six calls for the 5,557 entries on the 1012 pin. An RPC is served when it has an
+  entry with INACTIVE "", 0 or 3, the screen the broker applies before it answers "Unknown remote
+  procedure". Over XWB it asks `XWB IS RPC AVAILABLE` once per RPC, for local use. BMX has no such
+  RPC and raises.
+- Not `CIANBRPC GETRPCS`, though it lists the same entries: its #8994 entry has WORD WRAP ON unset,
+  and the CIA broker ends each row of such a reply with a bare `W !`, which sends no bytes on IRIS
+  (the socket is opened "DS" or "S", with no line terminator) or on YottaDB. Every name arrives on
+  one line that cannot be split (rpms-ops#957). `DDR LISTER` is wrap-on, so its rows end in CR.
+- The read fails closed with the new `RpmsRpc::Client::ParseError` when a row is not
+  IEN^NAME^INACTIVE, and with `RpcError` on an empty registry or a FileMan error reply, rather than
+  report RPCs missing. A user whose menu lacks `CIAV VUECENTRIC` gets the broker's refusal.
 - "This release needs" is `lib/rpms_rpc/required_rpcs.json`: every RPC each public API module sends,
   written by `rake rpc:required_rpcs` from the static analysis the callable gate reads; a test fails
   when it is stale.
@@ -36,8 +102,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DOB is parsed and sent identically to lookup and add, including two-digit
   slash years. AG parameter delimiters in values are rejected before lookup.
 - `DdrFileman.lock` preserves `true` / `false` / `nil` (acquired / refused /
-  unanswered). `Registration.update` keeps its retryable `:lock_failed`
-  contract for both refusal and silence. Registration remains AG-only (#409).
+  unanswered). Registration remains AG-only (#409), and updates retain the
+  AG locking and retryable failures introduced by #430.
 - See [registration safety](docs/REGISTRATION_SAFETY.md) for the conservative
   candidate policy, live evidence, and limits of a non-atomic preflight.
 

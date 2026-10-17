@@ -64,9 +64,9 @@ against M source per ADR 0002.
 >   under `AGGRPC` (`RpmsRpc::Registration.register`). The `VAFC VOA ADD PATIENT`
 >   + DDR composition that first replaced it was removed in #409: no RPMS
 >   context serves `VAFC VOA ADD PATIENT` (rpms-ops#499, #674)
-> - patient update → `DDR FILER` / `FILE^DIE` under the `^DPT(DFN)` lock
->   (`RpmsRpc::Registration.update`; `EDIT^VAFCPTED` has no `^XWB(8994)`
->   registration on any observed target)
+> - patient update → the AG package's `AGG UPDATE PATIENT`, one call per AG window, under
+>   `AGG LOCK PATIENT` (`RpmsRpc::Registration.update`, #381). It replaced a `DDR FILER`
+>   path: `EDIT^VAFCPTED` has no `^XWB(8994)` registration on any observed target
 > - tribal / service-unit reads → `DDR GETS ENTRY DATA` / `DDR LISTER` /
 >   `DDR VALIDATOR` over #9000001, TRIBE #9999999.03, SERVICE UNIT #9999999.22
 >   (`RpmsRpc::Tribal`)

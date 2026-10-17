@@ -10,35 +10,29 @@ require "rpms_rpc/api/ddr_fileman"
 # DDR GETS ENTRY DATA is return type 2, ARRAY (bcer-9.0 #8994:
 # "DDR GETS ENTRY DATA^GETSC^DDR2^2^R"). GETSC^DDR2 sets one node per row:
 # "[Data]", then FILE^IENS^FIELD^INTERNAL^EXTERNAL per field, the IENS
-# without its trailing comma (DDR2.m:29-40). The CIA broker writes an ARRAY
-# reply with DATAOUT^CIANBACT -> OUT("CIAD",1): the $C(0) ack, then each node
-# followed by $C(13) and the device's line terminator (CIANBACT.m DATAOUT/OUT,
-# `W @X,EOL,!` with EOL=$C(13)). The YottaDB broker's terminator adds nothing,
-# so the rows arrive CR-separated (seen live on the CIA sign-on reply,
-# 2026-09-03); a CRLF terminator (rows ending CR CR LF) is covered too.
+# without its trailing comma (DDR2.m:29-40). The CIA broker writes each row
+# followed by CR (CIANBACT.m DATAOUT/OUT, `W @X,EOL,!` with EOL=$C(13)).
 #
 # Before #195 (627c67c) CiaClient#call_rpc returned printable(raw): every
 # separator became a space, so the reply parsed as ONE row and every later
 # field was glued into the first field's external value - the run-together
 # line #333 reports from rpms-rpc 0f0bc6e on the 2026-09-30 build.
 #
-# The reply bytes here are routine-cited, not a recording: no live
-# multi-field CIA capture of DDR GETS ENTRY DATA exists yet.
+# The replies below are RECORDED, not built from the routine text:
+# yotta-1016 (bcer-9.0-20261015-46dd047-ydb), CIA on 9100 over an SSM port
+# forward, 2026-10-16, persona SYS123, rpms-rpc f85d76e. Each is the reply as
+# read up to the EOD terminator: the one-byte sequence echo, the \x00 data
+# ack, then the CR-terminated rows (evidence: the 2026-10-16 comment on #333).
 class RpmsRpc::DdrFilemanCiaTest < Minitest::Test
   EOD = RpmsRpc::Client::EOD
 
-  ROWS = [
-    "[Data]",
-    "2^1^.01^DEMOPATIENT,ONE^DEMOPATIENT,ONE",
-    "2^1^.02^F^FEMALE",
-    "2^1^.03^2450101^JAN 01, 1945"
-  ].freeze
+  # gets_entry(file: 2, iens: "4,", fields: ".01;.02;.03", flags: "IE")
+  PATIENT_REPLY = "6\x00[Data]\r2^4^.01^DEMO,PATIENT ONE^DEMO,PATIENT ONE\r" \
+                  "2^4^.02^F^FEMALE\r2^4^.03^3010101^01/01/2001\r"
 
-  EXPECTED = {
-    ".01" => { internal: "DEMOPATIENT,ONE", external: "DEMOPATIENT,ONE" },
-    ".02" => { internal: "F", external: "FEMALE" },
-    ".03" => { internal: "2450101", external: "JAN 01, 1945" }
-  }.freeze
+  # gets_entry(file: 200, iens: "4,", fields: ".01;1;4", flags: "IE")
+  USER_REPLY = "7\x00[Data]\r200^4^.01^MANAGER,SYSTEM^MANAGER,SYSTEM\r" \
+               "200^4^1^SM^SM\r200^4^4^M^MALE\r"
 
   class FakeSocket
     attr_reader :writes
@@ -56,12 +50,13 @@ class RpmsRpc::DdrFilemanCiaTest < Minitest::Test
     def setsockopt(*); end
   end
 
-  def configure_cia(body)
+  # The recorded reply, answering the request whose sequence number it echoes.
+  def replay(reply)
     c = RpmsRpc::CiaClient.new
-    c.instance_variable_set(:@socket, FakeSocket.new([ "1\x00#{body}" + EOD ]))
+    c.instance_variable_set(:@socket, FakeSocket.new([ reply + EOD ]))
     c.instance_variable_set(:@connected, true)
     c.instance_variable_set(:@timeout, 1)
-    c.instance_variable_set(:@seq, 0)
+    c.instance_variable_set(:@seq, Integer(reply[0]) - 1)
     c.instance_variable_set(:@session_uid, "1")
     RpmsRpc.configure { |cfg| cfg.client = c }
   end
@@ -70,19 +65,33 @@ class RpmsRpc::DdrFilemanCiaTest < Minitest::Test
     RpmsRpc.reset!
   end
 
-  def gets_entry
-    RpmsRpc::DdrFileman.gets_entry(file: "2", iens: "1,", fields: ".01;.02;.03", flags: "IE")
+  def test_recorded_patient_reply_returns_each_field
+    replay(PATIENT_REPLY)
+
+    result = RpmsRpc::DdrFileman.gets_entry(file: "2", iens: "4,", fields: ".01;.02;.03", flags: "IE")
+
+    assert_equal({
+      fields: {
+        ".01" => { internal: "DEMO,PATIENT ONE", external: "DEMO,PATIENT ONE" },
+        ".02" => { internal: "F", external: "FEMALE" },
+        ".03" => { internal: "3010101", external: "01/01/2001" }
+      },
+      error: false
+    }, result)
   end
 
-  def test_multi_field_reply_with_cr_terminated_rows_returns_each_field
-    configure_cia(ROWS.map { |row| "#{row}\r" }.join)
+  def test_recorded_user_reply_returns_each_field
+    replay(USER_REPLY)
 
-    assert_equal({ fields: EXPECTED, error: false }, gets_entry)
-  end
+    result = RpmsRpc::DdrFileman.gets_entry(file: "200", iens: "4,", fields: ".01;1;4", flags: "IE")
 
-  def test_multi_field_reply_with_cr_crlf_terminated_rows_returns_each_field
-    configure_cia(ROWS.map { |row| "#{row}\r\r\n" }.join)
-
-    assert_equal({ fields: EXPECTED, error: false }, gets_entry)
+    assert_equal({
+      fields: {
+        ".01" => { internal: "MANAGER,SYSTEM", external: "MANAGER,SYSTEM" },
+        "1" => { internal: "SM", external: "SM" },
+        "4" => { internal: "M", external: "MALE" }
+      },
+      error: false
+    }, result)
   end
 end

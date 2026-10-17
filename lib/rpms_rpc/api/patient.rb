@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "registration"
+require_relative "ddr_fileman"
 require_relative "../phi_sanitizer"
 
 module RpmsRpc
@@ -105,12 +106,14 @@ module RpmsRpc
       Registration.register(attrs)
     end
 
-    # Update patient fields — delegates to the composed
-    # RpmsRpc::Registration.update flow (DDR FILER / FILE^DIE under the
-    # ^DPT(DFN) lock). See that method for the field contracts and return
-    # shape.
-    def update(dfn, patient_fields: {}, ihs_fields: {})
-      Registration.update(dfn, patient_fields: patient_fields, ihs_fields: ihs_fields)
+    # Update a patient through AG: AGG UPDATE PATIENT, one call per AG
+    # window touched, under AG's edit lock (rpms-rpc#381). Takes named
+    # attributes (phone_home:, email:, community_ien:, ...); see
+    # RpmsRpc::Registration.update for the attribute table, value forms and
+    # return shape. Attributes AG does not file raise
+    # Registration::AttributeNotOfferedError before anything is sent.
+    def update(dfn, **attrs)
+      Registration.update(dfn, **attrs)
     end
 
     # Chart-banner projection per issue #60 contract:
@@ -149,10 +152,14 @@ module RpmsRpc
       }
     end
 
-    # Patient telecom (FHIR Patient.telecom source) — home / work / cell
-    # phone + email, read via the registered generic FileMan read
-    # (DDR GETS ENTRY DATA — GETSC^DDR2: DDR2.m:17-43) against PATIENT
-    # (#2) fields .131 / .132 / .134 / .133. Piece↔field identity for the
+    # Patient telecom (FHIR Patient.telecom source) — home / work / cell /
+    # other phone + email, read via the registered generic FileMan read
+    # (DDR GETS ENTRY DATA — GETSC^DDR2: DDR2.m:17-43): PATIENT (#2) fields
+    # .131 / .132 / .134, and IHS PATIENT (#9000001) 1801 OTHER PHONE and
+    # 1802 CURRENT EMAIL ADDRESS. Email is read where AG files it: AG's
+    # Address window maps AGGPTEML to #9000001 1802 and keeps the previous
+    # ones in 9000001.82 (EML^AGGUL1); no AG window files #2 .133, so
+    # update and read use 1802 (rpms-rpc#381). Piece↔field identity for the
     # ^DPT(DFN,.13) node is cited from three independent corpus readers:
     #   piece 1 = .131 residence phone, piece 2 = .132 work phone,
     #   piece 3 = .133 email, piece 4 = .134 cellular
@@ -180,31 +187,43 @@ module RpmsRpc
     # registered RPC. DDR GETS ENTRY DATA is registered, already driven by
     # this gem (RpmsRpc::Registration), and returns all four structured.
     #
-    # Returns { dfn:, phone_home:, phone_work:, phone_cell:, email: }
-    # (missing values nil), or nil when the broker gives no response /
-    # FileMan errors, so callers can distinguish "no phone on file" from
-    # "unreachable".
+    # Returns { dfn:, phone_home:, phone_work:, phone_cell:, phone_other:,
+    # email: } (missing values nil), or nil when the broker gives no
+    # response / FileMan errors on either read, so callers can distinguish
+    # "no phone on file" from "unreachable". AG pairs every PATIENT with an
+    # IHS PATIENT entry (AG71A1.m:138), so a missing #9000001 entry is a
+    # failed read too.
     def contact(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
 
-      reply = DdrFileman.gets_entry(file: "2", iens: "#{dfn.to_i},",
-                                    fields: ".131;.132;.134;.133", flags: "IE")
-      return nil if reply.nil? || reply[:error]
+      patient = telecom_fields("2", dfn, ".131;.132;.134")
+      return nil if patient.nil?
 
-      fields = reply[:fields]
-      # A reply that parsed NO field rows is a failed read, not "no telecom
-      # on file" — a real GETS^DIQ read of an existing entry returns one
-      # row per requested field even when the values are empty.
-      return nil if fields.empty?
+      ihs = telecom_fields(Registration::PATIENT_FILE, dfn, "1801;1802")
+      return nil if ihs.nil?
 
       {
-        dfn:        dfn.to_i,
-        phone_home: external(fields, ".131"),
-        phone_work: external(fields, ".132"),
-        phone_cell: external(fields, ".134"),
-        email:      external(fields, ".133")
+        dfn:         dfn.to_i,
+        phone_home:  external(patient, ".131"),
+        phone_work:  external(patient, ".132"),
+        phone_cell:  external(patient, ".134"),
+        phone_other: external(ihs, "1801"),
+        email:       external(ihs, "1802")
       }
     end
+
+    # The parsed fields of one DDR GETS ENTRY DATA read, or nil when it
+    # failed. A reply that parsed NO field rows is a failed read, not
+    # "nothing on file": a GETS^DIQ read of an existing entry returns one row
+    # per requested field even when the values are empty.
+    def telecom_fields(file, dfn, fields)
+      reply = DdrFileman.gets_entry(file: file, iens: "#{dfn.to_i},", fields: fields, flags: "IE")
+      return nil if reply.nil? || reply[:error] || reply[:fields].empty?
+
+      reply[:fields]
+    end
+
+    private :telecom_fields
 
     # Compute integer years between dob and today. `today:` is a keyword arg
     # for testability — production callers omit it and get Date.today.

@@ -50,9 +50,10 @@ AG lookup results in an explicit failure and no write.
 
 The remaining AG path has the required pre-add lookup and explicit override.
 `DdrFileman.lock` also preserves three states: `true` acquired, `false` refused,
-`nil` unanswered. `Registration.update` deliberately maps both latter states
-to its documented retryable `:lock_failed`. AG registration itself does not
-use a DDR lock.
+`nil` unanswered. `Registration.update` now uses AG locking after #430 (which removed DDR
+patient edits); its unchanged retryable `:lock_failed` behavior for a refused
+or unanswered AG lock is covered by the upstream update suite. Neither AG
+registration nor AG updates use the DDR lock helper.
 
 ## Evidence and limits
 

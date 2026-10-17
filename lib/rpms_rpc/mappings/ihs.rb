@@ -83,8 +83,8 @@ module RpmsRpc
     #     #9999999.03, SERVICE UNIT #9999999.22) — RpmsRpc::Tribal
     #   - patient registration        → AGG ADD NEW PATIENT / AGG UPDATE
     #     PATIENT (AGGRPC) — RpmsRpc::Registration.register
-    #   - patient update              → DDR FILER (FILE^DIE) —
-    #     RpmsRpc::Registration.update
+    #   - patient update              → AGG UPDATE PATIENT per AG window,
+    #     under AGG LOCK PATIENT (AGGRPC) — RpmsRpc::Registration.update
     #   - visit get-or-create         → BEHOENCX FETCH with the CREATE flag
     #     (:encounter_fetch below) — RpmsRpc::Encounter.create
 
@@ -977,6 +977,20 @@ module RpmsRpc
     # Parsed by Agg.
     DataMapper.define(:agg_update_patient) do |m|
       m.rpc "AGG UPDATE PATIENT"
+      m.text_blob :reply
+    end
+
+    # AGG LOCK PATIENT / AGG UNLOCK PATIENT — LOCK^AGGLOCK / UNLOCK^AGGLOCK
+    # (return type GLOBAL ARRAY). Param: DFN. Reply header
+    # "I00010RESULT^T00080MESSAGE"; RESULT 1 locked, 0 held elsewhere, -1 no
+    # such patient (AGGLOCK.m:27,46-50,91,104-107). Parsed by Agg.editing.
+    DataMapper.define(:agg_lock_patient) do |m|
+      m.rpc "AGG LOCK PATIENT"
+      m.text_blob :reply
+    end
+
+    DataMapper.define(:agg_unlock_patient) do |m|
+      m.rpc "AGG UNLOCK PATIENT"
       m.text_blob :reply
     end
 
