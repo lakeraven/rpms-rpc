@@ -80,7 +80,9 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
       method: :for_patient,
       args: [ 1 ],
       seed: lambda do |m|
-        m.seed_collection(:allergy_list, [ "^No Known Allergies" ])
+        m.seed_collection(:allergy_list, [
+          { ien: 1, allergen: "SYNTH-ALLERGEN", severity: "MODERATE", signs: "SYNTH-SIGNS" }
+        ])
       end
     },
     {
@@ -190,10 +192,18 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
     assert_kind_of Hash, table
     assert table.frozen?
     refute_empty table
+    each_keys = []
     table.each do |key, value|
-      assert_match(/\ARpmsRpc::.+?\.\w+\z/, key)
+      assert_match(/\ARpmsRpc::.+?\.\w+[?!=]?\z/, key)
       assert_kind_of Symbol, value
       assert_includes RpmsRpc::RetrySafety::CLASSES, value
+      each_keys << key
+    end
+
+    api_method_pairs.each do |mod, name|
+      key = method_label(mod, name)
+      assert_includes table.keys, key
+      assert_includes each_keys, key
     end
   end
 
