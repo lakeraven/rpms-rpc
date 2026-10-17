@@ -294,6 +294,80 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
     end
   end
 
+  def scalar_pairs_from_psych(path)
+    mapping = Psych.parse_file(path).children.find { |c| c.is_a?(Psych::Nodes::Mapping) }
+    pairs = {}
+    mapping.children.each_with_index do |node, index|
+      next unless index.even? && node.is_a?(Psych::Nodes::Scalar)
+
+      value_node = mapping.children[index + 1]
+      next unless value_node.is_a?(Psych::Nodes::Scalar)
+
+      pairs[node.value] = value_node.value
+    end
+    pairs
+  end
+
+  def test_committed_table_load_matches_psych_scalar_pairs
+    path = File.expand_path(RpmsRpc::RetrySafety::PATH, ROOT)
+    expected = scalar_pairs_from_psych(path).transform_values(&:to_sym)
+    loaded = RpmsRpc::RetrySafety.load(path)
+
+    assert_equal expected, loaded
+  end
+
+  def test_load_raises_on_yaml_merge_key
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "retry_safety.yml")
+      File.write(path, <<~YAML)
+        "RpmsRpc::Referral.create": non_idempotent_write
+        "<<": {"RpmsRpc::Referral.create": read}
+      YAML
+      assert_raises(ArgumentError) { RpmsRpc::RetrySafety.load(path) }
+    end
+  end
+
+  def test_load_raises_on_yaml_anchor_alias_value
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "retry_safety.yml")
+      File.write(path, <<~YAML)
+        "RpmsRpc::Synth::A.m": &w non_idempotent_write
+        "RpmsRpc::Synth::B.m": *w
+      YAML
+      assert_raises(ArgumentError) { RpmsRpc::RetrySafety.load(path) }
+    end
+  end
+
+  def test_load_raises_on_nested_mapping_value
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "retry_safety.yml")
+      File.write(path, <<~YAML)
+        "RpmsRpc::Patient.find": { nested: read }
+      YAML
+      assert_raises(ArgumentError) { RpmsRpc::RetrySafety.load(path) }
+    end
+  end
+
+  def test_load_raises_on_sequence_value
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "retry_safety.yml")
+      File.write(path, <<~YAML)
+        "RpmsRpc::Patient.find": [read]
+      YAML
+      assert_raises(ArgumentError) { RpmsRpc::RetrySafety.load(path) }
+    end
+  end
+
+  def test_load_raises_on_explicitly_tagged_classification_value
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "retry_safety.yml")
+      File.write(path, <<~YAML)
+        "RpmsRpc::Patient.find": !ruby/symbol read
+      YAML
+      assert_raises(ArgumentError) { RpmsRpc::RetrySafety.load(path) }
+    end
+  end
+
   # --- RetrySafety.lint ------------------------------------------------------
 
   def test_lint_reports_unclassified_labels_and_stale_table_keys
