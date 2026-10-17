@@ -128,12 +128,16 @@ module RpmsRpc
     #                       (1117) plus a dated history entry (#9000001.51)
     #                       and derives the text (1118) from them, so the two
     #                       go together
+    #   allow_duplicate:    only literal true permits adding after the caller
+    #                       reviews AG's name/DOB candidates. Lookup failures
+    #                       and invalid identity cannot be overridden.
     #
     # Returns:
     #   { success: true, dfn:, created: true }          — registered
     #   { success: false, error: Symbol, message: }     — rejected; error is
+    #     :duplicate_identity (includes candidate_dfns), :identity_unverifiable,
     #     :agg_rejected / :hrn_file_failed
-    #   nil                                             — no broker response
+    #   nil                                             — no add response
     #
     # It sends what AG's window takes and files nothing around it. A value
     # AG's window has no parameter for is not sent, and the result names it,
@@ -142,9 +146,12 @@ module RpmsRpc
     #   unfiled: [:community]     free-text community: with no community_ien:
     #   unfiled: [:extra_fields]  the removed composition path's escape hatch
     #
-    # `unfiled:` is absent when everything given was sent. A broker where
-    # AGGRPC will not bind raises the client's error rather than answering
-    # with a registration it cannot do (ADR 0008).
+    # `unfiled:` is absent when everything given was sent. The pre-add lookup
+    # must answer in AGGRPC; a bind/read failure is :identity_unverifiable.
+    # No availability probe or alternative write path is attempted (#409).
+    # Name/DOB lookup candidates are conservative: sex is not returned, and
+    # a different DOB does not prove a same-name add cannot resolve a chart.
+    # See docs/REGISTRATION_SAFETY.md for limits of this two-RPC preflight.
     def register(attrs)
       register_via_agg(attrs)
     end
@@ -155,10 +162,19 @@ module RpmsRpc
     def register_via_agg(attrs)
       clerk = (hrn_mode == HRN_MODE_CLERK)
       params = agg_add_params(attrs)
+      invalid = validate_identity(params)
+      return invalid if invalid
+
       # Legacy clerk-supplied HRN rides the create call (the capsule files it
       # into the 41-multiple). Greenfield sends no HRN — it is set to the DFN
       # afterward, below.
       params["AGGPTHRN"] = attrs[:hrn].to_s if clerk && present?(attrs[:hrn])
+
+      # Validate all values before lookup: a parameter delimiter in even an
+      # IHS field must not replace the identity after it has been checked.
+      Agg.encode_parms(params)
+      duplicate = duplicate_identity(params, allow_duplicate: attrs[:allow_duplicate])
+      return duplicate if duplicate
 
       created = Agg.add_patient(window: AGG_ADD_WINDOW, params: params)
       return created unless created && created[:success]
@@ -313,6 +329,48 @@ module RpmsRpc
     end
 
     private
+
+    def validate_identity(params)
+      date = identity_date(params["AGGPTDOB"])
+      fields = []
+      fields << :last_name unless present?(params["AGGPTLNM"])
+      fields << :first_name unless present?(params["AGGPTFNM"])
+      fields << :dob unless date
+      fields << :sex unless %w[MALE FEMALE].include?(params["AGGPTSEX"])
+      unless fields.empty?
+        return { success: false, error: :identity_unverifiable,
+                 message: "patient identity missing or invalid: #{fields.join(', ')}" }
+      end
+
+      # Use the same unambiguous date in the lookup and the subsequent add.
+      params["AGGPTDOB"] = date.strftime("%m/%d/%Y")
+      nil
+    end
+
+    def identity_date(value)
+      text = value.to_s.strip
+      case text
+      when %r{\A\d{1,2}/\d{1,2}/\d{4}\z} then Date.strptime(text, "%m/%d/%Y")
+      when %r{\A\d{1,2}/\d{1,2}/\d{2}\z} then Date.strptime(text, "%m/%d/%y")
+      when /\A\d{4}-\d{2}-\d{2}\z/ then Date.iso8601(text)
+      when /\A\d{7}\z/ then FilemanDateParser.parse_date(text)
+      else FilemanDateParser.parse_external_date(text)
+      end
+    rescue ArgumentError
+      nil
+    end
+
+    def duplicate_identity(params, allow_duplicate:)
+      candidates = Agg.registration_candidates(params)
+      return if candidates.empty? || allow_duplicate == true
+
+      { success: false, error: :duplicate_identity,
+        candidate_dfns: candidates.map { |candidate| candidate[:dfn] }.uniq.sort,
+        message: "matching patient candidates require explicit override" }
+    rescue Client::RpcError, Client::ConnectionError
+      { success: false, error: :identity_unverifiable,
+        message: "patient duplicate lookup could not be verified" }
+    end
 
     # The name as LAST^FIRST^MIDDLE^SUFFIX, which name_parts splits into
     # AG's AGGPTLNM/FNM/MNM/SFX. A "LAST,REST" string is split at the first

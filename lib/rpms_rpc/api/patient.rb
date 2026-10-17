@@ -55,7 +55,9 @@ module RpmsRpc
     # AGZVIEWSSN security key (AGGPTLKP.m:124). That is a redaction, not an
     # identifier — it is returned as ssn: nil with ssn_masked: true so a
     # caller cannot persist it as though it were an SSN.
-    def lookup(text, type: "", all_divisions: false, include_inactive: false, **opts)
+    # require_response: registration needs a complete header and valid rows;
+    # an unreadable reply must never look like permission to create a patient.
+    def lookup(text, type: "", all_divisions: false, include_inactive: false, require_response: false, **opts)
       if opts.key?(:limit)
         raise ArgumentError,
               "AGG LOOKUP PATIENTS has no result-limit parameter; a limit " \
@@ -68,7 +70,8 @@ module RpmsRpc
         text.to_s,
         type.to_s,
         all_divisions ? "1" : "",
-        include_inactive ? "1" : ""
+        include_inactive ? "1" : "",
+        require_response: require_response
       )
 
       rows.map { |row| normalize_lookup_row(row) }
@@ -94,10 +97,11 @@ module RpmsRpc
     # policy (Registration.hrn_mode). Returns
     #   { success: true, dfn:, created: }           on success,
     #   { success: false, error: Symbol, message: } on rejection
-    #     (:agg_rejected / :hrn_file_failed — message carries the M-side
-    #      text), or
-    #   nil when the broker gives no response at all (infra failure) so
-    #   callers can distinguish "rejected" from "unreachable".
+    #     (:duplicate_identity with candidate_dfns; :identity_unverifiable;
+    #      :agg_rejected / :hrn_file_failed), or
+    #   nil when the add gives no response. A missing lookup response is
+    #   :identity_unverifiable and never authorizes an add. Only literal
+    #   allow_duplicate: true overrides reviewed lookup candidates.
     def register(attrs)
       Registration.register(attrs)
     end
@@ -241,7 +245,7 @@ module RpmsRpc
     LOOKUP_ARRAY_END  = "\x1f" # $C(31) — end-of-array sentinel
     LOOKUP_ACK        = "\x00" # broker ack byte after the sequence echo
 
-    def fetch_lookup_rows(mapping, *params)
+    def fetch_lookup_rows(mapping, *params, require_response: false)
       client = RpmsRpc.client
       raw = if client.respond_to?(:call_rpc_global_array)
         client.call_rpc_global_array(mapping.rpc_name, *params)
@@ -249,9 +253,29 @@ module RpmsRpc
         client.call_rpc(mapping.rpc_name, *params)
       end
 
-      mapping.parse_many(decode_global_array(raw))
+      decoded = decode_global_array(raw)
+      validate_lookup_reply!(decoded) if require_response
+      mapping.parse_many(decoded)
     end
     private :fetch_lookup_rows
+
+    # HDR^AGGPTLKP has nine columns, with two optional community columns.
+    # Validate before DataMapper skips headers or coerces malformed values.
+    def validate_lookup_reply!(decoded)
+      rows = (decoded.is_a?(Array) ? decoded : decoded.to_s.split(/\r?\n/)).reject { |row| row.to_s.empty? }
+      header = rows.shift.to_s.split("^", -1)
+      expected = %w[I00010DFN T00030PATIENT_NAME T00030HRN T00009SSN D00030DOB D00030DOD T00003SENS_FLAG T01024ALIAS T00001INACTIVE]
+      unless header == expected || header == expected + %w[T00030COMM T00030MOMDN]
+        raise Client::RpcError, "AGG LOOKUP PATIENTS did not return a patient header"
+      end
+      rows.each do |row|
+        fields = row.to_s.split("^", -1)
+        unless fields.length == header.length && fields.first.match?(/\A[1-9]\d*\z/)
+          raise Client::RpcError, "AGG LOOKUP PATIENTS returned an invalid patient row"
+        end
+      end
+    end
+    private :validate_lookup_reply!
 
     # Returns the record lines when the reply carries global-array framing, or
     # the payload untouched when it does not — a client without

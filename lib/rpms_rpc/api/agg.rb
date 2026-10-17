@@ -195,6 +195,21 @@ module RpmsRpc
       false
     end
 
+    # FND^AGGPTLKP's $C(28) branch searches by name OR DOB (LST2), using
+    # the same XLFNAME1 formatter as ADD. Include every division and inactive
+    # chart. Send all name pieces, including empty ones, to clear server
+    # locals left by an earlier call. Candidates require review, not a Ruby
+    # guess that a different DOB/sex makes a name collision safe (#407).
+    def registration_candidates(params)
+      require_relative "patient"
+
+      names = %w[AGGPTLNM AGGPTFNM AGGPTMNM AGGPTSFX AGGPTDOB]
+      text = encode_parms(names.to_h { |name| [ name, params[name].to_s ] })
+      in_context(RpmsRpc.client) do
+        Patient.lookup(text, all_divisions: true, include_inactive: true, require_response: true)
+      end
+    end
+
     # ADD^AGGPTADD — create a patient from a demographics PARMS hash.
     # Returns { success: true, dfn:, message: } on "1^^DFN",
     # { success: false, error: :agg_rejected, message: } on "-1^message",
@@ -263,6 +278,10 @@ module RpmsRpc
     # nil values are dropped; everything is sent as-is (FileMan-external —
     # AGGPTSEX is the coded set value "MALE"/"FEMALE", dates MM/DD/YYYY).
     def encode_parms(params)
+      if params.any? { |name, value| name.to_s.include?(PARM_DELIM) || value.to_s.include?(PARM_DELIM) }
+        raise ArgumentError, "AG parameters must not contain the parameter delimiter"
+      end
+
       params.reject { |_, v| v.nil? }
             .map { |name, value| "#{name}=#{value}" }
             .join(PARM_DELIM)
