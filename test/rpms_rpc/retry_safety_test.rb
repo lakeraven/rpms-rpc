@@ -393,6 +393,22 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
     end
   end
 
+  def test_load_raises_on_tagged_root_mapping
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "retry_safety.yml")
+      File.write(path, "--- !custom\n\"A.b\": read\n")
+      assert_raises(ArgumentError) { RpmsRpc::RetrySafety.load(path) }
+    end
+  end
+
+  def test_load_raises_on_anchored_root_mapping
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "retry_safety.yml")
+      File.write(path, "--- &root\n\"A.b\": read\n")
+      assert_raises(ArgumentError) { RpmsRpc::RetrySafety.load(path) }
+    end
+  end
+
   # --- RetrySafety.lint ------------------------------------------------------
 
   def test_lint_reports_unclassified_labels_and_stale_table_keys

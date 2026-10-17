@@ -5,6 +5,9 @@ require "open3"
 require "tmpdir"
 
 # rpms-rpc#110: rpc:retry_safety lint task (lib/tasks/retry_safety.rake).
+# The module is opened here rather than loaded: this file must not require the gem itself.
+module RpmsRpc; end
+
 class RpmsRpc::RetrySafetyRakeTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
 
