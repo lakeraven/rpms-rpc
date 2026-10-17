@@ -20,7 +20,7 @@ module RpmsRpc
       raise ArgumentError, "retry safety document is not a Hash" unless stream.children.one?
 
       mapping = stream.children.first.root
-      raise ArgumentError, "retry safety document is not a Hash" unless mapping.is_a?(Psych::Nodes::Mapping)
+      raise ArgumentError, "retry safety document is not a Hash" unless mapping.is_a?(Psych::Nodes::Mapping) && mapping.tag.nil? && mapping.anchor.nil?
 
       table = {}
       mapping.children.each_slice(2) do |key_node, value_node|
