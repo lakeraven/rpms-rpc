@@ -16,8 +16,10 @@ module RpmsRpc
     # Keys are the real method name, including a trailing ?, !, or =.
     # One walk of the node tree: safe_load would apply "<<" and keep the last duplicate.
     def load(path)
-      document = Psych.parse_file(path)
-      mapping = document.root if document.respond_to?(:root) && document.children.one?
+      stream = File.open(path, "r:bom|utf-8") { |file| Psych.parse_stream(file, filename: path) }
+      raise ArgumentError, "retry safety document is not a Hash" unless stream.children.one?
+
+      mapping = stream.children.first.root
       raise ArgumentError, "retry safety document is not a Hash" unless mapping.is_a?(Psych::Nodes::Mapping)
 
       table = {}
