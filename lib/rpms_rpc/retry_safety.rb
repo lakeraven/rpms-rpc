@@ -14,13 +14,19 @@ module RpmsRpc
     PATH = File.expand_path("retry_safety.yml", __dir__).freeze
 
     # Keys are the real method name, including a trailing ?, !, or =.
+    # One walk of the node tree: safe_load would apply "<<" and keep the last duplicate.
     def load(path)
-      reject_duplicate_keys(path)
-      document = YAML.safe_load_file(path)
-      raise ArgumentError, "retry safety document #{document.inspect} is not a Hash" unless document.is_a?(Hash)
+      document = Psych.parse_file(path)
+      mapping = document.root if document.respond_to?(:root) && document.children.one?
+      raise ArgumentError, "retry safety document is not a Hash" unless mapping.is_a?(Psych::Nodes::Mapping)
 
       table = {}
-      document.each { |key, value| table[string_key(key, value)] = classification(key, value) }
+      mapping.children.each_slice(2) do |key_node, value_node|
+        key = string_key(key_node, value_node)
+        raise ArgumentError, "retry safety duplicate key #{key}" if table.key?(key)
+
+        table[key] = classification(key, value_node)
+      end
       table.freeze
     end
 
@@ -52,34 +58,59 @@ module RpmsRpc
       mod.is_a?(Module) ? mod.name : mod.to_s
     end
 
-    # safe_load keeps the last duplicate, so read the root mapping scalars first.
-    def reject_duplicate_keys(path)
-      root = Psych.parse_file(path)
-      return unless root.respond_to?(:children)
+    def string_key(key_node, value_node)
+      plain_scalar!(key_node)
+      key = scalar_object(key_node)
+      raise ArgumentError, "retry safety key #{key}" if key == "<<"
+      return key if key.is_a?(String) && quoted_or_plain?(key_node)
 
-      mapping = root.children.find { |node| node.is_a?(Psych::Nodes::Mapping) }
-      return unless mapping
-
-      seen = {}
-      mapping.children.each_with_index do |node, index|
-        next unless index.even? && node.is_a?(Psych::Nodes::Scalar)
-        raise ArgumentError, "retry safety duplicate key #{node.value}" if seen.key?(node.value)
-
-        seen[node.value] = true
-      end
+      shown = value_inspect(value_node)
+      extra = shown ? " value #{shown}" : ""
+      raise ArgumentError, "retry safety key #{key.inspect}#{extra} is not a String key"
     end
 
-    def string_key(key, value)
-      return key if key.is_a?(String)
-
-      raise ArgumentError, "retry safety key #{key.inspect} value #{value.inspect} is not a String key"
-    end
-
-    def classification(key, value)
-      klass = value.to_sym if value.is_a?(String)
+    def classification(key, node)
+      plain_scalar!(node, key)
+      value = scalar_object(node)
+      klass = value.to_sym if value.is_a?(String) && quoted_or_plain?(node)
       return klass if CLASSES.include?(klass)
 
       raise ArgumentError, "retry safety #{key} has class #{value.inspect}"
+    end
+
+    def plain_scalar!(node, key = nil)
+      return if node.is_a?(Psych::Nodes::Scalar) && node.tag.nil? && node.anchor.nil?
+
+      raise ArgumentError, "retry safety key #{key || node_label(node)}"
+    end
+
+    def quoted_or_plain?(node)
+      node.plain || node.style == Psych::Nodes::Scalar::SINGLE_QUOTED ||
+        node.style == Psych::Nodes::Scalar::DOUBLE_QUOTED
+    end
+
+    def scalar_object(node)
+      return node.value unless node.plain
+
+      scanner.tokenize(node.value)
+    end
+
+    def value_inspect(node)
+      return unless node.is_a?(Psych::Nodes::Scalar) && node.tag.nil? && node.anchor.nil?
+
+      scalar_object(node).inspect
+    end
+
+    def node_label(node)
+      case node
+      when Psych::Nodes::Scalar then node.value
+      when Psych::Nodes::Alias then "*#{node.anchor}"
+      else node.class.name
+      end
+    end
+
+    def scanner
+      @scanner ||= Psych::ScalarScanner.new(Psych::ClassLoader.new)
     end
   end
 end
