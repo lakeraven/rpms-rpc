@@ -85,7 +85,7 @@
 "RpmsRpc::DdrFileman.gets_entry": read
 "RpmsRpc::DdrFileman.gets_entry_param": read
 "RpmsRpc::DdrFileman.key_validator_param": read
-"RpmsRpc::DdrFileman.lister": read
+"RpmsRpc::DdrFileman.lister": non_idempotent_write
 "RpmsRpc::DdrFileman.lister_param": read
 "RpmsRpc::DdrFileman.lock": non_idempotent_write
 "RpmsRpc::DdrFileman.lock_param": read
@@ -132,7 +132,7 @@
 "RpmsRpc::NoteTemplate.items": read
 "RpmsRpc::NoteTemplate.roots": read
 "RpmsRpc::NoteTemplate.text": read
-"RpmsRpc::Notifications.inbox": read
+"RpmsRpc::Notifications.inbox": non_idempotent_write
 "RpmsRpc::Order.action_text": read
 "RpmsRpc::Order.all_sheets": read
 "RpmsRpc::Order.expired_search_start": read

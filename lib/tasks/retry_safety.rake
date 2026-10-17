@@ -20,10 +20,11 @@ namespace :rpc do
 
     pairs = ApiCoverage.public_methods_of(RpmsRpc, File.join(root, "lib/rpms_rpc/api"))
     labels = pairs.map { |mod, name| "#{mod.name}.#{name}" }
-    table = RpmsRpc::RetrySafety.table
-
-    missing = labels.reject { |label| table.key?(label) }.sort
-    extra = table.keys.reject { |key| labels.include?(key) }.sort
+    path = ENV["RETRY_SAFETY_TABLE"]
+    table = path ? RpmsRpc::RetrySafety.load(path) : RpmsRpc::RetrySafety.table
+    lint = RpmsRpc::RetrySafety.lint(labels, table)
+    missing = lint[:unclassified]
+    extra = lint[:stale]
     missing.each { |label| puts "unclassified: #{label}" }
     extra.each { |key| puts "stale: #{key}" }
     abort "rpc:retry_safety failed (#{missing.size + extra.size})" unless missing.empty? && extra.empty?

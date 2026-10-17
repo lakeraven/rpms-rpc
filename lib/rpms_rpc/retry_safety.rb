@@ -15,6 +15,7 @@ module RpmsRpc
 
     # Keys are the real method name, including a trailing ?, !, or =.
     def load(path)
+      reject_duplicate_keys(path)
       document = YAML.safe_load_file(path)
       raise ArgumentError, "retry safety document #{document.inspect} is not a Hash" unless document.is_a?(Hash)
 
@@ -38,10 +39,34 @@ module RpmsRpc
       false
     end
 
+    def lint(labels, table)
+      {
+        unclassified: (labels - table.keys).sort,
+        stale: (table.keys - labels).sort
+      }
+    end
+
     private
 
     def module_name(mod)
       mod.is_a?(Module) ? mod.name : mod.to_s
+    end
+
+    # safe_load keeps the last duplicate, so read the root mapping scalars first.
+    def reject_duplicate_keys(path)
+      root = Psych.parse_file(path)
+      return unless root.respond_to?(:children)
+
+      mapping = root.children.find { |node| node.is_a?(Psych::Nodes::Mapping) }
+      return unless mapping
+
+      seen = {}
+      mapping.children.each_with_index do |node, index|
+        next unless index.even? && node.is_a?(Psych::Nodes::Scalar)
+        raise ArgumentError, "retry safety duplicate key #{node.value}" if seen.key?(node.value)
+
+        seen[node.value] = true
+      end
     end
 
     def string_key(key, value)
