@@ -171,6 +171,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `can_verify_eligibility?`, `can_access_behavioral_health?` and `can_access_dental?`) already warn
   since 0.4.0 (#337). All of them will be removed in a later release (#359 follow-up). Read the
   keys a user holds (#318) and decide roles in the host (ADR 0010).
+- `RpmsRpc::Capabilities::ROLE_PERMISSIONS`, `Capabilities::DEPRECATED_CHECKS`,
+  `UserRoles::USER_CLASS_MAP` and `UserRoles::REVERSE_CLASS_MAP` are deprecated with the modules.
+  They do not warn when read. Both modules and their constants are removed in the first release
+  after the one that ships these warnings (#359 follow-up).
 
 ## [0.4.0] — 2026-10-12
 
