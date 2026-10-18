@@ -57,9 +57,88 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
     end
   end
 
-  def test_capabilities_for_does_not_warn
+  def deprecated_lines(io)
+    io.lines.grep(/DEPRECATED/)
+  end
+
+  def assert_deprecated_api_warns_once(method)
+    _, err = capture_io { yield }
+    assert_equal 1, deprecated_lines(err).size, "#{method} emits exactly one DEPRECATED line"
+    line = deprecated_lines(err).first
+    assert_match(/\[rpms_rpc\] DEPRECATED: RpmsRpc::Capabilities\.#{Regexp.escape(method.to_s)}/, line)
+    assert_includes line, "#318"
+    assert_includes line, "ADR 0010"
+    assert_includes line, "#359"
+
+    _, again = capture_io { yield }
+    assert_empty deprecated_lines(again), "#{method} warns once per process, not on every call"
+  end
+
+  def test_can_warns_once_naming_replacement
+    user = User.new(user_type: "provider", security_keys: [])
+    assert_deprecated_api_warns_once(:can?) { RpmsRpc::Capabilities.can?(user, :view_patients) }
+  end
+
+  def test_permissions_for_warns_once_naming_replacement
+    user = User.new(user_type: "provider", security_keys: [])
+    assert_deprecated_api_warns_once(:permissions_for) { RpmsRpc::Capabilities.permissions_for(user) }
+  end
+
+  def test_capabilities_for_warns_once_naming_replacement
     user = User.new(user_type: "case_manager", security_keys: %i[prc_supervisor bh_provider])
-    assert_output("", "") { RpmsRpc::Capabilities.capabilities_for(user) }
+    assert_deprecated_api_warns_once(:capabilities_for) { RpmsRpc::Capabilities.capabilities_for(user) }
+  end
+
+  def test_deprecated_methods_return_unchanged_results
+    user = User.new(user_type: "case_manager", security_keys: %i[prc_supervisor bh_provider])
+    expected_perms = RpmsRpc::Capabilities::ROLE_PERMISSIONS.fetch("case_manager")
+
+    capture_io do
+      assert_equal expected_perms, RpmsRpc::Capabilities.permissions_for(user)
+      assert RpmsRpc::Capabilities.can?(user, :approve_referrals)
+      refute RpmsRpc::Capabilities.can?(user, :create_referrals)
+
+      caps = RpmsRpc::Capabilities.capabilities_for(user)
+      expected_perms.each { |p| assert_includes caps, p }
+      assert_includes caps, :process_claims
+      assert_includes caps, :access_behavioral_health
+      refute_includes caps, :manage_scheduling
+    end
+  end
+
+  def test_capabilities_for_emits_exactly_one_warning_not_one_per_internal_check
+    user = User.new(user_type: "case_manager", security_keys: %i[prc_supervisor bh_provider])
+    RpmsRpc::Capabilities.reset_deprecation_warnings!
+
+    _, err = capture_io { RpmsRpc::Capabilities.capabilities_for(user) }
+    dep = deprecated_lines(err)
+    assert_equal 1, dep.size, "capabilities_for must not warn once per internal deprecated_check"
+    assert_match(/\[rpms_rpc\] DEPRECATED: RpmsRpc::Capabilities\.capabilities_for/, dep.first)
+
+    _, can_err = capture_io { RpmsRpc::Capabilities.can?(user, :view_patients) }
+    assert_equal 1, deprecated_lines(can_err).size, "can? must still warn after capabilities_for"
+
+    _, chs_err = capture_io { RpmsRpc::Capabilities.can_approve_chs?(user) }
+    assert_equal 1, deprecated_lines(chs_err).size, "can_approve_chs? must still warn after capabilities_for"
+  end
+
+  def test_can_warns_only_once_when_permissions_for_called_internally
+    user = User.new(user_type: "provider", security_keys: [])
+    RpmsRpc::Capabilities.reset_deprecation_warnings!
+
+    _, err = capture_io { RpmsRpc::Capabilities.can?(user, :view_patients) }
+    assert_equal 1, deprecated_lines(err).size
+    assert_match(/\[rpms_rpc\] DEPRECATED: RpmsRpc::Capabilities\.can\?/, deprecated_lines(err).first)
+    refute_match(/permissions_for/, err)
+  end
+
+  def test_can_manage_scheduling_does_not_warn
+    user = User.new(user_type: "clerk", security_keys: %i[scheduling_admin])
+    RpmsRpc::Capabilities.reset_deprecation_warnings!
+
+    _, err = capture_io { RpmsRpc::Capabilities.can_manage_scheduling?(user) }
+    assert_empty deprecated_lines(err)
+    assert RpmsRpc::Capabilities.can_manage_scheduling?(user)
   end
 
   def test_can_approve_chs_with_supervisor_key
