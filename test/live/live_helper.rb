@@ -43,7 +43,10 @@
 # which no live spec ran is a failure, and those counts are written for the
 # release guard: coverage/live/<persona>.json for CIA, and
 # coverage/live/<persona>.<protocol>.json otherwise (LIVE_SUMMARY_DIR overrides).
-# An unsafe persona is reported and not written.
+# An unsafe persona is reported and not written. So is a filtered run (TEST,
+# TESTOPTS, or --name/--exclude) and a run that reported fewer live specs
+# than were loaded: Ctrl-C still reaches report, and writing either one would
+# replace the pending marker with a green-looking file.
 require "minitest/autorun"
 require "rpms_rpc/mappings"
 require "rpms_rpc/cia_client"
@@ -142,12 +145,15 @@ module LiveSpec
 
   # The end-of-run block. Counts live specs only, so a plain `rake test` that
   # loads this helper (the guard test) prints nothing. A live run also writes
-  # the file LiveSummary.path_for names; the writer itself stays quiet without
-  # LIVE_RUN=1 and a broker host, and the file never holds the host or credentials.
+  # the file LiveSummary.path_for names, unless the run was filtered or stopped
+  # short of the loaded specs: then it says NOT RECORDED and leaves the file
+  # that is already there. The writer itself stays quiet without LIVE_RUN=1
+  # and a broker host, and the file never holds the host or credentials.
   class Summary < Minitest::StatisticsReporter
-    def initialize(io = $stdout, env: ENV)
-      super(io)
+    def initialize(io = $stdout, env: ENV, expected_runs: nil, options: {})
+      super(io, options)
       @env = env
+      @expected_runs = expected_runs
     end
 
     def record(result)
@@ -156,6 +162,17 @@ module LiveSpec
 
     def live_run? = @env["LIVE_RUN"] == "1"
     def none_ran? = (count - skips).zero?
+
+    # The count a caller passed, or else the live spec methods loaded for
+    # this process. LiveSpec::Test itself is the harness, not a spec.
+    def expected_runs
+      return @expected_runs unless @expected_runs.nil?
+
+      Minitest::Runnable.runnables
+                        .grep(Class)
+                        .select { |klass| klass < LiveSpec::Test && klass != LiveSpec::Test }
+                        .sum { |klass| klass.runnable_methods.size }
+    end
 
     def passed?
       super && !(live_run? && none_ran?)
@@ -188,8 +205,19 @@ module LiveSpec
     # unsafe persona or protocol is reported and not written; any other
     # failure of the writer is reported and not raised, so a pending marker
     # left by test:live_summary_pending stays on disk and the guard refuses.
-    # The file never holds the host or the sign-on pair.
+    # A filtered run, and a count short of the loaded specs, refuse the same
+    # way: print the reason, write nothing. The file never holds the host
+    # or the sign-on pair.
     def write_summary
+      if filtered?
+        io.puts "NOT RECORDED: filtered by TEST/TESTOPTS/--name"
+        return
+      end
+      if count < expected_runs
+        io.puts "NOT RECORDED: partial run: #{count} of #{expected_runs} live specs reported (interrupted?)"
+        return
+      end
+
       require "rpms_rpc/live_summary"
       root = File.expand_path("../..", __dir__)
       identity = RpmsRpc::LiveSummary.run_identity(@env, root: root)
@@ -200,6 +228,15 @@ module LiveSpec
       io.puts "NOT RECORDED: #{e.message}"
     rescue StandardError => e
       io.puts "NOT RECORDED: #{e.class}: #{e.message}"
+    end
+
+    # TEST= and TESTOPTS= are how rake filters; --name/--exclude arrive on
+    # the minitest options the plugin passes in.
+    def filtered?
+      !@env["TEST"].to_s.strip.empty? ||
+        !@env["TESTOPTS"].to_s.strip.empty? ||
+        !options[:filter].nil? ||
+        !options[:exclude].nil?
     end
 
     def summary_document(identity)
@@ -232,7 +269,7 @@ end
 
 module Minitest
   def self.plugin_live_summary_init(options)
-    reporter << LiveSpec::Summary.new(options[:io])
+    reporter << LiveSpec::Summary.new(options[:io], options: options)
   end
 end
 Minitest.extensions << "live_summary" unless Minitest.extensions.include?("live_summary")
