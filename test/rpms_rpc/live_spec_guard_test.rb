@@ -1,7 +1,11 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "fileutils"
+require "json"
 require "open3"
+require "tmpdir"
+require "rpms_rpc/live_summary"
 require_relative "../live/live_helper"
 
 # The live-spec harness fails closed (ADR 0009): a spec FAILS, never skips,
@@ -147,10 +151,36 @@ class LiveSpecGuardTest < Minitest::Test
   end
 
   def test_a_live_run_with_no_live_spec_is_not_green
-    summary = summarize(env: FULL.merge("LIVE_RUN" => "1"))
+    Dir.mktmpdir do |tmpdir|
+      summary = summarize(env: FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir))
 
-    refute summary[:reporter].passed?
-    assert_match(/no live spec ran/, summary[:io].string)
+      refute summary[:reporter].passed?
+      assert_match(/no live spec ran/, summary[:io].string)
+    end
+  end
+
+  def test_a_live_report_writes_only_into_the_summary_dir
+    Dir.mktmpdir do |tmpdir|
+      summarize(env: FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir))
+
+      paths = Dir[File.join(tmpdir, "*.json")]
+      assert_equal 1, paths.size
+      data = JSON.parse(File.read(paths.first))
+      assert_equal 0, data["runs"]
+
+      ok, reasons = RpmsRpc::LiveSummary.check(dir: tmpdir, build: data["build"])
+      refute ok
+      assert_match(/no live spec ran|pending/i, reasons.join(" "))
+    end
+  end
+
+  def test_an_unsafe_persona_is_reported_not_recorded
+    Dir.mktmpdir do |tmpdir|
+      summary = summarize(env: FULL.merge("LIVE_RUN" => "1", "PERSONA" => "../x", "LIVE_SUMMARY_DIR" => tmpdir))
+
+      assert_match(/NOT RECORDED/, summary[:io].string)
+      assert_empty Dir[File.join(tmpdir, "*.json")]
+    end
   end
 
   def test_the_summary_ignores_results_that_are_not_live_specs
@@ -163,12 +193,20 @@ class LiveSpecGuardTest < Minitest::Test
   private
 
   def summarize(*results, env:)
+    env = env.dup
+    tmpdir = nil
+    if env["LIVE_RUN"] == "1" && env["LIVE_SUMMARY_DIR"].to_s.strip.empty?
+      tmpdir = Dir.mktmpdir("live-summary-")
+      env["LIVE_SUMMARY_DIR"] = tmpdir
+    end
     io = StringIO.new
     reporter = LiveSpec::Summary.new(io, env: env)
     reporter.start
     results.each { |r| reporter.record(r) }
     reporter.report
-    { io: io, reporter: reporter }
+    { io: io, reporter: reporter, summary_dir: env["LIVE_SUMMARY_DIR"], tmpdir: tmpdir }
+  ensure
+    FileUtils.rm_rf(tmpdir) if tmpdir
   end
 
   def with_env(env)
