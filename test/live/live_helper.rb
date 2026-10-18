@@ -40,7 +40,8 @@
 #
 # The run ends in one summary block (LiveSpec::Summary): backend, build,
 # persona, counts, skips by issue. Under `rake test:live` (LIVE_RUN=1) a run in
-# which no live spec ran is a failure.
+# which no live spec ran is a failure, and those counts are written to
+# coverage/live/<persona>.json for the release guard (LIVE_SUMMARY_DIR overrides).
 require "minitest/autorun"
 require "rpms_rpc/mappings"
 require "rpms_rpc/cia_client"
@@ -138,7 +139,9 @@ module LiveSpec
   end
 
   # The end-of-run block. Counts live specs only, so a plain `rake test` that
-  # loads this helper (the guard test) prints nothing.
+  # loads this helper (the guard test) prints nothing. A live run also writes
+  # coverage/live/<persona>.json; the writer itself stays quiet without
+  # LIVE_RUN=1 and a broker host, and the file never holds credentials.
   class Summary < Minitest::StatisticsReporter
     def initialize(io = $stdout, env: ENV)
       super(io)
@@ -172,9 +175,46 @@ module LiveSpec
       end
       io.puts "NOT GREEN: no live spec ran" if none_ran?
       io.puts "=" * 68
+      write_summary if live_run?
     end
 
     private
+
+    # Machine-readable copy of the block above, for release:live_guard.
+    # PERSONA is the file name, so anything but a plain token is refused
+    # rather than written. The build is LIVE_BUILD when the runner named one,
+    # otherwise the pin in data/rpc_coverage/config.yml.
+    def write_summary
+      persona = @env["PERSONA"].to_s
+      return unless persona.match?(/\A[A-Za-z0-9_-]+\z/)
+
+      require "rpms_rpc/live_summary"
+      root = File.expand_path("../..", __dir__)
+      dir = File.expand_path(RpmsRpc::LiveSummary.dir(@env), root)
+      RpmsRpc::LiveSummary.write(File.join(dir, "#{persona}.json"), summary_document(persona), env: @env)
+    end
+
+    def summary_document(persona)
+      declared = @env["LIVE_BUILD"].to_s.strip
+      build, source = declared.empty? ? [ pinned_release, "pinned" ] : [ declared, "declared" ]
+      {
+        "build" => build,
+        "build_source" => source,
+        "protocol" => LiveSpec.protocol(@env),
+        "persona" => persona,
+        "runs" => count,
+        "assertions" => assertions,
+        "failures" => failures,
+        "errors" => errors,
+        "skips" => skips
+      }
+    end
+
+    def pinned_release
+      YAML.safe_load_file(LiveSpec::COVERAGE_CONFIG)["release"].to_s.strip
+    rescue StandardError
+      ""
+    end
 
     def skipped_by_issue
       results.select(&:skipped?).group_by { |r| r.failure.message[/\A#\d+/] || "(none)" }

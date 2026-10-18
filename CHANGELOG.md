@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A release refuses to tag unless live summaries on disk show a green `rake test:live` against the pinned build (#361).
+
 ### Added — `Client::RpcMError`: an M error has a class of its own (#357)
 
 - `RpmsRpc::Client::RpcMError < RpcError` is raised when the server reports an M error: CIA error 1
