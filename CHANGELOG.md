@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `Patient.address`, `Patient.race`, and `Practitioner.detail` (#294)
+
+- `Patient.address(dfn)` reads the mailing address from PATIENT (#2) with `DDR GETS ENTRY DATA`:
+  `{ dfn:, line1:, line2:, line3:, city:, state:, state_ien:, zip:, zip4: }`. `state` is the
+  external of `.115` (the STATE #5 NAME); `state_ien` is the internal IEN. It is nil for a blank or
+  non-positive DFN, no reply, a FileMan error, or a reply with no field rows.
+- `Patient.race(dfn)` reads `.06` RACE the same way: `{ dfn:, race: }`. The input transform is
+  historical-only ("ENTRY OF DATA NOT ALLOWED"); the value is still readable. The USCDI race and
+  ethnicity multiples are out of scope.
+- `Practitioner.detail(duz)` reads NEW PERSON (#200) in `CIAV VUECENTRIC`: `{ duz:, title:,
+  service_section:, provider_class:, person_class:, npi:, npi_entry_status:, dea_number:, dea_state:,
+  dea_expires: }`. `npi` is returned only when `41.97` AUTHORIZE RELEASE OF NPI is internal `"1"`.
+  `dea_expires` is a `Date` from the `747.44` internal FileMan date. #200 has no SPECIALTY field;
+  PERSON CLASS is the NUCC taxonomy analogue.
+
 ### Added — `Client::RpcMError`: an M error has a class of its own (#357)
 
 - `RpmsRpc::Client::RpcMError < RpcError` is raised when the server reports an M error: CIA error 1

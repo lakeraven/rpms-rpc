@@ -212,6 +212,65 @@ module RpmsRpc
       }
     end
 
+    # Mailing address on PATIENT (#2), read via the registered generic
+    # FileMan read (DDR GETS ENTRY DATA — GETSC^DDR2), the same path as
+    # #contact. The DD fields were read from the live data dictionary on
+    # the bcer-9.0 container per issue #294, and a live spec has not yet
+    # proven them (ADR 0009):
+    #
+    #   .111 STREET ADDRESS [LINE 1]
+    #   .112 STREET ADDRESS [LINE 2]
+    #   .113 STREET ADDRESS [LINE 3]
+    #   .114 CITY
+    #   .115 STATE (P5, pointer to STATE #5; external is the NAME)
+    #   .116 ZIP CODE
+    #   .1112 ZIP+4
+    #
+    # state is the .115 external. state_ien is the .115 internal as an
+    # Integer, nil when empty or not a positive whole number. The
+    # abbreviation is not resolved from STATE #5.
+    #
+    # Returns { dfn:, line1:, line2:, line3:, city:, state:, state_ien:,
+    # zip:, zip4: } (missing values nil), or nil when the DFN is blank or
+    # not positive, the broker gives no reply, FileMan errors, or the reply
+    # has no field rows.
+    def address(dfn)
+      return nil if dfn.nil? || dfn.to_i <= 0
+
+      fields = telecom_fields("2", dfn, ".111;.112;.113;.114;.115;.116;.1112")
+      return nil if fields.nil?
+
+      {
+        dfn:       dfn.to_i,
+        line1:     external(fields, ".111"),
+        line2:     external(fields, ".112"),
+        line3:     external(fields, ".113"),
+        city:      external(fields, ".114"),
+        state:     external(fields, ".115"),
+        state_ien: internal_ien(fields, ".115"),
+        zip:       external(fields, ".116"),
+        zip4:      external(fields, ".1112")
+      }
+    end
+
+    # PATIENT (#2) field .06 RACE is P10'X. Its input transform is
+    # historical-only ("ENTRY OF DATA NOT ALLOWED") but the value is
+    # readable, via DDR GETS ENTRY DATA the same way as #address. The
+    # USCDI multiples (2 RACE INFORMATION, 6 ETHNICITY INFORMATION) are
+    # out of scope for #294.
+    #
+    # Returns { dfn:, race: } (the external value, or nil when empty), or
+    # nil when the DFN is blank or not positive, the broker gives no reply,
+    # FileMan errors, or the reply has no field rows.
+    def race(dfn)
+      return nil if dfn.nil? || dfn.to_i <= 0
+
+      fields = telecom_fields("2", dfn, ".06")
+      return nil if fields.nil?
+
+      { dfn: dfn.to_i, race: external(fields, ".06") }
+    end
+
     # The parsed fields of one DDR GETS ENTRY DATA read, or nil when it
     # failed. A reply that parsed NO field rows is a failed read, not
     # "nothing on file": a GETS^DIQ read of an existing entry returns one row
@@ -371,6 +430,13 @@ module RpmsRpc
     def external(fields, field_number)
       value = fields[field_number] && fields[field_number][:external]
       value.nil? || value.empty? ? nil : value
+    end
+
+    # Internal value of a pointer field as a positive IEN, or nil when it
+    # is empty or not a positive whole number.
+    def internal_ien(fields, field_number)
+      value = fields[field_number] && fields[field_number][:internal]
+      value.to_s.match?(/\A[1-9]\d*\z/) ? value.to_i : nil
     end
   end
 end
