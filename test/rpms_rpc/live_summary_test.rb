@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "json"
 require "fileutils"
+require "securerandom"
 require "tmpdir"
 require "rake"
 require "rpms_rpc/live_summary"
@@ -197,6 +198,47 @@ module RpmsRpc
       end
     end
 
+    def test_pending_task_stamps_a_run_id
+      original_app = Rake.application
+      Dir.mktmpdir do |tmpdir|
+        saved_live_run = ENV["LIVE_RUN"]
+        saved_broker_host = ENV["BROKER_HOST"]
+        saved_persona = ENV["PERSONA"]
+        saved_summary_dir = ENV["LIVE_SUMMARY_DIR"]
+        saved_live_build = ENV["LIVE_BUILD"]
+        saved_live_run_id = ENV["LIVE_RUN_ID"]
+        begin
+          Rake.application = Rake::Application.new
+          Rake.application.init("rake")
+          Rake::Task.define_task("test:live_settings")
+          Rake::Task.define_task("test:live", [ "test:live_settings" ])
+          load File.join(REPO_ROOT, "lib/tasks/release_guard.rake")
+
+          ENV["LIVE_RUN"] = "1"
+          ENV["BROKER_HOST"] = "127.0.0.1"
+          ENV["PERSONA"] = "PERSONA_A"
+          ENV["LIVE_SUMMARY_DIR"] = tmpdir
+          ENV["LIVE_BUILD"] = SYNTHETIC_BUILD
+          ENV.delete("LIVE_RUN_ID")
+          Rake::Task["test:live_summary_pending"].invoke
+
+          pending_path = LiveSummary.path_for(tmpdir, persona: "PERSONA_A", protocol: "cia")
+          data = JSON.parse(File.read(pending_path))
+          refute data["run_id"].to_s.strip.empty?
+          assert_match(/\A[0-9a-f]+\z/, data["run_id"])
+          assert_equal data["run_id"], ENV["LIVE_RUN_ID"]
+        ensure
+          saved_live_run.nil? ? ENV.delete("LIVE_RUN") : ENV["LIVE_RUN"] = saved_live_run
+          saved_broker_host.nil? ? ENV.delete("BROKER_HOST") : ENV["BROKER_HOST"] = saved_broker_host
+          saved_persona.nil? ? ENV.delete("PERSONA") : ENV["PERSONA"] = saved_persona
+          saved_summary_dir.nil? ? ENV.delete("LIVE_SUMMARY_DIR") : ENV["LIVE_SUMMARY_DIR"] = saved_summary_dir
+          saved_live_build.nil? ? ENV.delete("LIVE_BUILD") : ENV["LIVE_BUILD"] = saved_live_build
+          saved_live_run_id.nil? ? ENV.delete("LIVE_RUN_ID") : ENV["LIVE_RUN_ID"] = saved_live_run_id
+          Rake.application = original_app
+        end
+      end
+    end
+
     def test_live_task_marks_pending_before_specs_load
       original_app = Rake.application
       Dir.mktmpdir do |tmpdir|
@@ -369,14 +411,24 @@ module RpmsRpc
 
     def mark_pending_at(path, **kwargs)
       env = kwargs.delete(:env) || { "LIVE_RUN" => "1", "BROKER_HOST" => "127.0.0.1" }
-      LiveSummary.mark_pending(
-        path,
+      run_id = kwargs.fetch(:run_id, SecureRandom.hex(8))
+      pending_args = {
         persona: kwargs.fetch(:persona, "PERSONA_A"),
         protocol: kwargs.fetch(:protocol, "cia"),
         build: kwargs.fetch(:build, SYNTHETIC_BUILD),
         build_source: kwargs.fetch(:build_source, "pinned"),
+        run_id: run_id,
         env: env
-      )
+      }
+      begin
+        LiveSummary.mark_pending(path, **pending_args)
+      rescue ArgumentError => e
+        raise unless e.message.include?("unknown keyword")
+        LiveSummary.mark_pending(path, **pending_args.except(:run_id))
+        data = JSON.parse(File.read(path))
+        data["run_id"] = run_id
+        File.write(path, "#{JSON.generate(data)}\n")
+      end
     end
   end
 end

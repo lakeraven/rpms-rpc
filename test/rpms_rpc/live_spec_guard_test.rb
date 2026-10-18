@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "fileutils"
 require "json"
 require "open3"
+require "securerandom"
 require "tmpdir"
 require "rpms_rpc/live_summary"
 require_relative "../live/live_helper"
@@ -188,9 +189,81 @@ class LiveSpecGuardTest < Minitest::Test
     end
   end
 
+  def test_a_report_without_this_runs_pending_marker_is_not_recorded
+    Dir.mktmpdir do |tmpdir|
+      root = File.expand_path("../..", __dir__)
+      identity = RpmsRpc::LiveSummary.run_identity(FULL, root: root)
+      path = RpmsRpc::LiveSummary.path_for(tmpdir, persona: identity[:persona], protocol: identity[:protocol])
+      RpmsRpc::LiveSummary.write(
+        path,
+        {
+          "build" => identity[:build],
+          "build_source" => identity[:build_source],
+          "protocol" => identity[:protocol],
+          "persona" => identity[:persona],
+          "runs" => 7,
+          "assertions" => 0,
+          "failures" => 1,
+          "errors" => 0,
+          "skips" => 0
+        },
+        env: FULL.merge("LIVE_RUN" => "1")
+      )
+
+      env = FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir)
+      io = StringIO.new
+      reporter = LiveSpec::Summary.new(io, env: env, expected_runs: 1)
+      reporter.start
+      reporter.record(PassingProbe.new(:test_passes).run)
+      reporter.report
+
+      assert_match(/NOT RECORDED/, io.string)
+      assert_match(/pending marker/, io.string)
+      data = JSON.parse(File.read(path))
+      assert_equal 1, data["failures"]
+      assert_equal 7, data["runs"]
+    end
+  end
+
+  def test_a_report_for_another_runs_pending_marker_is_not_recorded
+    Dir.mktmpdir do |tmpdir|
+      env = FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir, "LIVE_RUN_ID" => "bbbb")
+      path = mark_pending_in(tmpdir, env: env, run_id: "aaaa")
+
+      io = StringIO.new
+      reporter = LiveSpec::Summary.new(io, env: env, expected_runs: 1)
+      reporter.start
+      reporter.record(PassingProbe.new(:test_passes).run)
+      reporter.report
+
+      assert_match(/NOT RECORDED/, io.string)
+      data = JSON.parse(File.read(path))
+      assert_equal true, data["pending"]
+      assert_equal "aaaa", data["run_id"]
+    end
+  end
+
+  def test_a_report_matching_its_pending_marker_is_recorded
+    Dir.mktmpdir do |tmpdir|
+      run_token = "abcd1234"
+      env = FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir, "LIVE_RUN_ID" => run_token)
+      mark_pending_in(tmpdir, env: env, run_id: run_token)
+
+      summary = summarize(PassingProbe.new(:test_passes).run, env: env, expected_runs: 1)
+
+      refute_match(/NOT RECORDED/, summary[:io].string)
+      paths = Dir[File.join(tmpdir, "*.json")]
+      assert_equal 1, paths.size
+      data = JSON.parse(File.read(paths.first))
+      refute data["pending"]
+      assert_equal 1, data["runs"]
+    end
+  end
+
   def test_a_complete_live_run_is_recorded
     Dir.mktmpdir do |tmpdir|
       env = FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir)
+      mark_pending_in(tmpdir, env: env)
       summary = summarize(PassingProbe.new(:test_passes).run, env: env, expected_runs: 1)
 
       refute_match(/NOT RECORDED/, summary[:io].string)
@@ -264,7 +337,9 @@ class LiveSpecGuardTest < Minitest::Test
 
   def test_a_live_report_writes_only_into_the_summary_dir
     Dir.mktmpdir do |tmpdir|
-      summarize(env: FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir), expected_runs: 0)
+      env = FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir)
+      mark_pending_in(tmpdir, env: env)
+      summarize(env: env, expected_runs: 0)
 
       paths = Dir[File.join(tmpdir, "*.json")]
       assert_equal 1, paths.size
@@ -320,18 +395,36 @@ class LiveSpecGuardTest < Minitest::Test
     env.each_key { |k| saved.key?(k) ? ENV[k] = saved[k] : ENV.delete(k) }
   end
 
-  def mark_pending_in(dir, env:)
+  def mark_pending_in(dir, env:, run_id: nil)
+    env = env.dup
+    marker_run_id = run_id || env["LIVE_RUN_ID"].to_s.strip
+    marker_run_id = SecureRandom.hex(8) if marker_run_id.empty?
+    env["LIVE_RUN_ID"] = marker_run_id if env["LIVE_RUN_ID"].to_s.strip.empty?
+
     root = File.expand_path("../..", __dir__)
     identity = RpmsRpc::LiveSummary.run_identity(env, root: root)
     path = RpmsRpc::LiveSummary.path_for(dir, persona: identity[:persona], protocol: identity[:protocol])
-    RpmsRpc::LiveSummary.mark_pending(
-      path,
+    pending_args = {
       persona: identity[:persona],
       protocol: identity[:protocol],
       build: identity[:build],
       build_source: identity[:build_source],
+      run_id: marker_run_id,
       env: env
-    )
+    }
+    begin
+      RpmsRpc::LiveSummary.mark_pending(path, **pending_args)
+    rescue ArgumentError => e
+      raise unless e.message.include?("unknown keyword")
+      RpmsRpc::LiveSummary.mark_pending(path, **pending_args.except(:run_id))
+      stamp_pending_run_id(path, marker_run_id)
+    end
     path
+  end
+
+  def stamp_pending_run_id(path, run_id)
+    data = JSON.parse(File.read(path))
+    data["run_id"] = run_id
+    File.write(path, "#{JSON.generate(data)}\n")
   end
 end
