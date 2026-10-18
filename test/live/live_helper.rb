@@ -40,8 +40,10 @@
 #
 # The run ends in one summary block (LiveSpec::Summary): backend, build,
 # persona, counts, skips by issue. Under `rake test:live` (LIVE_RUN=1) a run in
-# which no live spec ran is a failure, and those counts are written to
-# coverage/live/<persona>.json for the release guard (LIVE_SUMMARY_DIR overrides).
+# which no live spec ran is a failure, and those counts are written for the
+# release guard: coverage/live/<persona>.json for CIA, and
+# coverage/live/<persona>.<protocol>.json otherwise (LIVE_SUMMARY_DIR overrides).
+# An unsafe persona is reported and not written.
 require "minitest/autorun"
 require "rpms_rpc/mappings"
 require "rpms_rpc/cia_client"
@@ -140,8 +142,8 @@ module LiveSpec
 
   # The end-of-run block. Counts live specs only, so a plain `rake test` that
   # loads this helper (the guard test) prints nothing. A live run also writes
-  # coverage/live/<persona>.json; the writer itself stays quiet without
-  # LIVE_RUN=1 and a broker host, and the file never holds credentials.
+  # the file LiveSummary.path_for names; the writer itself stays quiet without
+  # LIVE_RUN=1 and a broker host, and the file never holds the host or credentials.
   class Summary < Minitest::StatisticsReporter
     def initialize(io = $stdout, env: ENV)
       super(io)
@@ -181,39 +183,37 @@ module LiveSpec
     private
 
     # Machine-readable copy of the block above, for release:live_guard.
-    # PERSONA is the file name, so anything but a plain token is refused
-    # rather than written. The build is LIVE_BUILD when the runner named one,
-    # otherwise the pin in data/rpc_coverage/config.yml.
+    # The path and the build identity come from LiveSummary, the same helper
+    # the pending marker uses, so the two cannot name different files. An
+    # unsafe persona or protocol is reported and not written; any other
+    # failure of the writer is reported and not raised, so a pending marker
+    # left by test:live_summary_pending stays on disk and the guard refuses.
+    # The file never holds the host or the sign-on pair.
     def write_summary
-      persona = @env["PERSONA"].to_s
-      return unless persona.match?(/\A[A-Za-z0-9_-]+\z/)
-
       require "rpms_rpc/live_summary"
       root = File.expand_path("../..", __dir__)
+      identity = RpmsRpc::LiveSummary.run_identity(@env, root: root)
       dir = File.expand_path(RpmsRpc::LiveSummary.dir(@env), root)
-      RpmsRpc::LiveSummary.write(File.join(dir, "#{persona}.json"), summary_document(persona), env: @env)
+      path = RpmsRpc::LiveSummary.path_for(dir, persona: identity[:persona], protocol: identity[:protocol])
+      RpmsRpc::LiveSummary.write(path, summary_document(identity), env: @env)
+    rescue ArgumentError => e
+      io.puts "NOT RECORDED: #{e.message}"
+    rescue StandardError => e
+      io.puts "NOT RECORDED: #{e.class}: #{e.message}"
     end
 
-    def summary_document(persona)
-      declared = @env["LIVE_BUILD"].to_s.strip
-      build, source = declared.empty? ? [ pinned_release, "pinned" ] : [ declared, "declared" ]
+    def summary_document(identity)
       {
-        "build" => build,
-        "build_source" => source,
-        "protocol" => LiveSpec.protocol(@env),
-        "persona" => persona,
+        "build" => identity[:build],
+        "build_source" => identity[:build_source],
+        "protocol" => identity[:protocol],
+        "persona" => identity[:persona],
         "runs" => count,
         "assertions" => assertions,
         "failures" => failures,
         "errors" => errors,
         "skips" => skips
       }
-    end
-
-    def pinned_release
-      YAML.safe_load_file(LiveSpec::COVERAGE_CONFIG)["release"].to_s.strip
-    rescue StandardError
-      ""
     end
 
     def skipped_by_issue

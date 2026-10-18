@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- A release refuses to tag unless live summaries on disk show a green `rake test:live` against the pinned build (#361).
+- A release refuses to tag unless live summaries on disk show a green `rake test:live` against the pinned build (#361). CIA and XWB keep separate summary files, a run that dies before the summary is written leaves a pending file the guard refuses, and the same guard leads `release:source_control_push` and `release:rubygem_push`.
 
 ### Added — `Client::RpcMError`: an M error has a class of its own (#357)
 
