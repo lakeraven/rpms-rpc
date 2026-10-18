@@ -396,10 +396,15 @@ class LiveSpecGuardTest < Minitest::Test
   end
 
   def mark_pending_in(dir, env:, run_id: nil)
-    env = env.dup
-    marker_run_id = run_id || env["LIVE_RUN_ID"].to_s.strip
-    marker_run_id = SecureRandom.hex(8) if marker_run_id.empty?
-    env["LIVE_RUN_ID"] = marker_run_id if env["LIVE_RUN_ID"].to_s.strip.empty?
+    if run_id
+      marker_run_id = run_id
+    else
+      marker_run_id = env["LIVE_RUN_ID"].to_s.strip
+      if marker_run_id.empty?
+        marker_run_id = SecureRandom.hex(8)
+        env["LIVE_RUN_ID"] = marker_run_id
+      end
+    end
 
     root = File.expand_path("../..", __dir__)
     identity = RpmsRpc::LiveSummary.run_identity(env, root: root)
@@ -412,19 +417,7 @@ class LiveSpecGuardTest < Minitest::Test
       run_id: marker_run_id,
       env: env
     }
-    begin
-      RpmsRpc::LiveSummary.mark_pending(path, **pending_args)
-    rescue ArgumentError => e
-      raise unless e.message.include?("unknown keyword")
-      RpmsRpc::LiveSummary.mark_pending(path, **pending_args.except(:run_id))
-      stamp_pending_run_id(path, marker_run_id)
-    end
+    RpmsRpc::LiveSummary.mark_pending(path, **pending_args)
     path
-  end
-
-  def stamp_pending_run_id(path, run_id)
-    data = JSON.parse(File.read(path))
-    data["run_id"] = run_id
-    File.write(path, "#{JSON.generate(data)}\n")
   end
 end
