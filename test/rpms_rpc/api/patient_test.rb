@@ -198,4 +198,155 @@ def test_brief_header_raises_any_other_m_error
     assert_equal 39, RpmsRpc::Patient.send(:age_from, dob, today: Date.new(2026, 5, 22))
     assert_nil RpmsRpc::Patient.send(:age_from, nil)
   end
+
+  # -- address (DDR GETS ENTRY DATA, PATIENT #2) ----------------------------
+
+  ADDRESS_FIELDS = ".111;.112;.113;.114;.115;.116;.1112"
+  ADDRESS_KEYS = %i[dfn line1 line2 line3 city state state_ien zip zip4].freeze
+  ADDRESS_FIXTURE = {
+    line1: "100 Example Street",
+    line2: "SUITE 200",
+    line3: "BUILDING B",
+    city: "Exampleville",
+    state: "EXAMPLE STATE",
+    state_ien: 99,
+    zip: "00000",
+    zip4: "0000"
+  }.freeze
+
+  def gets_key_for(dfn, file, fields)
+    RpmsRpc::DdrFileman.gets_entry_param(file: file, iens: "#{dfn},", fields: fields, flags: "IE").to_s
+  end
+
+  def seed_address(mock, dfn: 42, **overrides)
+    values = ADDRESS_FIXTURE.merge(overrides)
+    mock.seed(:ddr_gets_entry_data, gets_key_for(dfn, "2", ADDRESS_FIELDS), <<~REPLY.chomp)
+      [Data]
+      2^#{dfn},^.111^#{values[:line1]}^#{values[:line1]}
+      2^#{dfn},^.112^#{values[:line2]}^#{values[:line2]}
+      2^#{dfn},^.113^#{values[:line3]}^#{values[:line3]}
+      2^#{dfn},^.114^#{values[:city]}^#{values[:city]}
+      2^#{dfn},^.115^#{values[:state_ien]}^#{values[:state]}
+      2^#{dfn},^.116^#{values[:zip]}^#{values[:zip]}
+      2^#{dfn},^.1112^#{values[:zip4]}^#{values[:zip4]}
+    REPLY
+    values
+  end
+
+  def assert_logs_no_secrets(secrets)
+    out, err = capture_io { yield }
+    combined = out + err
+    secrets.each { |secret| refute_includes combined, secret.to_s, "logged or printed a field value" }
+  end
+
+  def test_address_maps_each_field_number
+    seed_address(RpmsRpc.mock!)
+
+    result = RpmsRpc::Patient.address(42)
+
+    expected = { dfn: 42, **ADDRESS_FIXTURE }
+    assert_equal ADDRESS_KEYS, result.keys
+    assert_equal expected, result
+  end
+
+  def test_address_blank_or_nonpositive_id_sends_nothing
+    use NoWireClient.new
+    [ nil, 0, "-5", "" ].each { |dfn| assert_nil RpmsRpc::Patient.address(dfn), dfn.inspect }
+  end
+
+  def test_address_empty_fields_are_nil_not_raised_or_invented
+    mock = RpmsRpc.mock!
+    dfn = 42
+    mock.seed(:ddr_gets_entry_data, gets_key_for(dfn, "2", ADDRESS_FIELDS), <<~REPLY.chomp)
+      [Data]
+      2^#{dfn},^.111^^
+      2^#{dfn},^.112^^
+      2^#{dfn},^.113^^
+      2^#{dfn},^.114^^
+      2^#{dfn},^.115^^
+      2^#{dfn},^.116^^
+      2^#{dfn},^.1112^^
+    REPLY
+
+    result = RpmsRpc::Patient.address(dfn)
+
+    assert_equal ADDRESS_KEYS, result.keys
+    assert_equal({ dfn: 42, line1: nil, line2: nil, line3: nil, city: nil, state: nil, state_ien: nil, zip: nil,
+                   zip4: nil }, result)
+
+    mock.seed(:ddr_gets_entry_data, gets_key_for(43, "2", ADDRESS_FIELDS), "[Data]")
+    assert_nil RpmsRpc::Patient.address(43)
+  end
+
+  def test_address_nil_when_read_errors
+    mock = RpmsRpc.mock!
+    mock.seed(:ddr_gets_entry_data, gets_key_for(42, "2", ADDRESS_FIELDS), "[ERROR]")
+    assert_nil RpmsRpc::Patient.address(42)
+    assert_nil RpmsRpc::Patient.address(99)
+  end
+
+  def test_address_logs_no_field_values
+    values = seed_address(RpmsRpc.mock!)
+    secrets = values.values_at(:line1, :line2, :line3, :city, :state, :zip, :zip4).map(&:to_s)
+
+    assert_logs_no_secrets(secrets) { RpmsRpc::Patient.address(42) }
+  end
+
+  # -- race (DDR GETS ENTRY DATA, PATIENT #2 field .06) ---------------------
+
+  RACE_FIELDS = ".06"
+  RACE_KEYS = %i[dfn race].freeze
+  RACE_EXTERNAL = "EXAMPLE RACE CATEGORY"
+
+  def seed_race(mock, dfn: 42, internal: "7", external: RACE_EXTERNAL)
+    mock.seed(:ddr_gets_entry_data, gets_key_for(dfn, "2", RACE_FIELDS), <<~REPLY.chomp)
+      [Data]
+      2^#{dfn},^.06^#{internal}^#{external}
+    REPLY
+    external
+  end
+
+  def test_race_maps_each_field_number
+    seed_race(RpmsRpc.mock!)
+
+    result = RpmsRpc::Patient.race(42)
+
+    assert_equal RACE_KEYS, result.keys
+    assert_equal({ dfn: 42, race: RACE_EXTERNAL }, result)
+  end
+
+  def test_race_blank_or_nonpositive_id_sends_nothing
+    use NoWireClient.new
+    [ nil, 0, "-5", "" ].each { |dfn| assert_nil RpmsRpc::Patient.race(dfn), dfn.inspect }
+  end
+
+  def test_race_empty_fields_are_nil_not_raised_or_invented
+    mock = RpmsRpc.mock!
+    dfn = 42
+    mock.seed(:ddr_gets_entry_data, gets_key_for(dfn, "2", RACE_FIELDS), <<~REPLY.chomp)
+      [Data]
+      2^#{dfn},^.06^^
+    REPLY
+
+    result = RpmsRpc::Patient.race(dfn)
+
+    assert_equal RACE_KEYS, result.keys
+    assert_equal({ dfn: 42, race: nil }, result)
+
+    mock.seed(:ddr_gets_entry_data, gets_key_for(43, "2", RACE_FIELDS), "[Data]")
+    assert_nil RpmsRpc::Patient.race(43)
+  end
+
+  def test_race_nil_when_read_errors
+    mock = RpmsRpc.mock!
+    mock.seed(:ddr_gets_entry_data, gets_key_for(42, "2", RACE_FIELDS), "[ERROR]")
+    assert_nil RpmsRpc::Patient.race(42)
+    assert_nil RpmsRpc::Patient.race(99)
+  end
+
+  def test_race_logs_no_field_values
+    external = seed_race(RpmsRpc.mock!)
+
+    assert_logs_no_secrets([ external ]) { RpmsRpc::Patient.race(42) }
+  end
 end
