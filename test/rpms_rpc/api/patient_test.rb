@@ -114,6 +114,11 @@ class PatientTest < Minitest::Test
     [ nil, 0, "-5" ].each { |dfn| assert_nil RpmsRpc::Patient.contact(dfn), dfn.inspect }
   end
 
+  def test_contact_refuses_a_malformed_dfn_before_the_wire
+    use NoWireClient.new
+    [ nil, 0, "-5", "", 4.5, "42abc", " 42" ].each { |dfn| assert_nil RpmsRpc::Patient.contact(dfn), dfn.inspect }
+  end
+
   # -- contact reads email where AG files it (#381) ---------------------------
 
   def gets_key(file, fields)
@@ -251,7 +256,47 @@ def test_brief_header_raises_any_other_m_error
 
   def test_address_blank_or_nonpositive_id_sends_nothing
     use NoWireClient.new
-    [ nil, 0, "-5", "" ].each { |dfn| assert_nil RpmsRpc::Patient.address(dfn), dfn.inspect }
+    [ nil, 0, "-5", "", 4.5, "4.9", "42abc", " 42" ].each { |dfn| assert_nil RpmsRpc::Patient.address(dfn), dfn.inspect }
+  end
+
+  def test_address_reads_in_ciav_vuecentric_and_restores_the_callers_context
+    mock = RpmsRpc.mock!
+    caller_context = mock.current_context
+    seed_address(mock)
+
+    RpmsRpc::Patient.address(42)
+
+    ddr_calls = mock.received_calls.select { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
+    refute_empty ddr_calls
+    ddr_calls.each do |call|
+      assert_equal "CIAV VUECENTRIC", call[:context],
+                   "address must read FileMan under CIAV VUECENTRIC"
+    end
+    assert_equal [ "CIAV VUECENTRIC", caller_context ], mock.context_binds
+  end
+
+  def test_address_nil_state_ien_when_pointer_internal_is_not_a_positive_whole_number
+    dfn = 42
+    state_name = "EXAMPLE STATE"
+    [ "0", "12abc" ].each do |bad_internal|
+      RpmsRpc.reset!
+      mock = RpmsRpc.mock!
+      mock.seed(:ddr_gets_entry_data, gets_key_for(dfn, "2", ADDRESS_FIELDS), <<~REPLY.chomp)
+        [Data]
+        2^#{dfn},^.111^100 Example Street^100 Example Street
+        2^#{dfn},^.112^^
+        2^#{dfn},^.113^^
+        2^#{dfn},^.114^Exampleville^Exampleville
+        2^#{dfn},^.115^#{bad_internal}^#{state_name}
+        2^#{dfn},^.116^00000^00000
+        2^#{dfn},^.1112^0000^0000
+      REPLY
+
+      result = RpmsRpc::Patient.address(dfn)
+
+      assert_nil result[:state_ien], "internal #{bad_internal.inspect}"
+      assert_equal state_name, result[:state]
+    end
   end
 
   def test_address_empty_fields_are_nil_not_raised_or_invented
@@ -317,7 +362,39 @@ def test_brief_header_raises_any_other_m_error
 
   def test_race_blank_or_nonpositive_id_sends_nothing
     use NoWireClient.new
-    [ nil, 0, "-5", "" ].each { |dfn| assert_nil RpmsRpc::Patient.race(dfn), dfn.inspect }
+    [ nil, 0, "-5", "", 4.5, "4.9", "42abc", " 42" ].each { |dfn| assert_nil RpmsRpc::Patient.race(dfn), dfn.inspect }
+  end
+
+  def test_race_reads_in_ciav_vuecentric_and_restores_the_callers_context
+    mock = RpmsRpc.mock!
+    caller_context = mock.current_context
+    seed_race(mock)
+
+    RpmsRpc::Patient.race(42)
+
+    ddr_calls = mock.received_calls.select { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
+    refute_empty ddr_calls
+    ddr_calls.each do |call|
+      assert_equal "CIAV VUECENTRIC", call[:context],
+                   "race must read FileMan under CIAV VUECENTRIC"
+    end
+    assert_equal [ "CIAV VUECENTRIC", caller_context ], mock.context_binds
+  end
+
+  def test_contact_reads_in_ciav_vuecentric_and_restores_the_callers_context
+    mock = RpmsRpc.mock!
+    caller_context = mock.current_context
+    seed_contact(mock)
+
+    RpmsRpc::Patient.contact(42)
+
+    ddr_calls = mock.received_calls.select { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
+    refute_empty ddr_calls
+    ddr_calls.each do |call|
+      assert_equal "CIAV VUECENTRIC", call[:context],
+                   "contact must read FileMan under CIAV VUECENTRIC"
+    end
+    assert_equal [ "CIAV VUECENTRIC", caller_context ], mock.context_binds
   end
 
   def test_race_empty_fields_are_nil_not_raised_or_invented

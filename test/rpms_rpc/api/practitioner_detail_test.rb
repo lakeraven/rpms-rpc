@@ -49,12 +49,15 @@ class PractitionerDetailTest < Minitest::Test
     dea_state = overrides.fetch(:dea_state, "EXAMPLE STATE")
     dea_expires_internal = overrides.fetch(:dea_expires_internal, "3291231")
     dea_expires_external = overrides.fetch(:dea_expires_external, "DEC 31, 2029")
+    authorize_external = overrides.fetch(:authorize_external) do
+      authorize_npi == "1" ? "YES" : authorize_npi
+    end
 
     mock.seed(:ddr_gets_entry_data, gets_key(duz), <<~REPLY.chomp)
       [Data]
       200^#{duz},^8^#{title}^#{title}
       200^#{duz},^29^1^#{service_section}
-      200^#{duz},^41.97^#{authorize_npi}^#{authorize_npi == '1' ? 'YES' : authorize_npi}
+      200^#{duz},^41.97^#{authorize_npi}^#{authorize_external}
       200^#{duz},^41.98^1^#{npi_entry_status}
       200^#{duz},^41.99^#{npi}^#{npi}
       200^#{duz},^53.2^#{dea_number}^#{dea_number}
@@ -163,6 +166,36 @@ class PractitionerDetailTest < Minitest::Test
     mock.seed(:ddr_gets_entry_data, gets_key(101), "[ERROR]")
     assert_nil Practitioner.detail(101)
     assert_nil Practitioner.detail(999)
+  end
+
+  def test_detail_withholds_npi_when_internal_is_not_one_even_if_external_is_yes
+    [
+      [ "Y", "YES" ],
+      [ "0", "YES" ]
+    ].each do |authorize_npi, authorize_external|
+      RpmsRpc.reset!
+      seed_detail(RpmsRpc.mock!, authorize_npi: authorize_npi, authorize_external: authorize_external)
+
+      result = Practitioner.detail(101)
+
+      assert_nil result[:npi], "41.97 internal #{authorize_npi.inspect} external #{authorize_external.inspect}"
+    end
+  end
+
+  def test_detail_parses_dea_expires_from_internal_not_external
+    seed_detail(RpmsRpc.mock!, dea_expires_internal: "3291231", dea_expires_external: "JAN 1, 2031")
+
+    result = Practitioner.detail(101)
+
+    assert_equal Date.new(2029, 12, 31), result[:dea_expires]
+  end
+
+  def test_detail_npi_nil_when_release_authorized_but_npi_field_empty
+    seed_detail(RpmsRpc.mock!, authorize_npi: "1", npi: "")
+
+    result = Practitioner.detail(101)
+
+    assert_nil result[:npi]
   end
 
   def test_detail_withholds_npi_unless_release_authorized
