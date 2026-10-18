@@ -41,6 +41,7 @@ class PractitionerDetailTest < Minitest::Test
 
   def seed_detail(mock, duz: 101, authorize_npi: "1", npi: "0000000000", **overrides)
     title = overrides.fetch(:title, "EXAMPLE,PROVIDER")
+    title_internal = overrides.fetch(:title_internal, "7")
     service_section = overrides.fetch(:service_section, "EXAMPLE SERVICE")
     provider_class = overrides.fetch(:provider_class, "EXAMPLE PROVIDER CLASS")
     person_class = overrides.fetch(:person_class, "EXAMPLE PERSON CLASS")
@@ -55,7 +56,7 @@ class PractitionerDetailTest < Minitest::Test
 
     mock.seed(:ddr_gets_entry_data, gets_key(duz), <<~REPLY.chomp)
       [Data]
-      200^#{duz},^8^#{title}^#{title}
+      200^#{duz},^8^#{title_internal}^#{title}
       200^#{duz},^29^1^#{service_section}
       200^#{duz},^41.97^#{authorize_npi}^#{authorize_external}
       200^#{duz},^41.98^1^#{npi_entry_status}
@@ -212,7 +213,7 @@ class PractitionerDetailTest < Minitest::Test
     duz = 43
     mock.seed(:ddr_gets_entry_data, gets_key(duz), <<~REPLY.chomp)
       [Data]
-      200^#{duz},^8^EXAMPLE,PROVIDER^EXAMPLE,PROVIDER
+      200^#{duz},^8^7^EXAMPLE,PROVIDER
       200^#{duz},^29^1^EXAMPLE SERVICE
       200^#{duz},^41.98^1^ACTIVE
       200^#{duz},^41.99^0000000000^0000000000
