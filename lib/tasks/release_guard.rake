@@ -28,14 +28,18 @@ namespace :release do
   end
 end
 
-# Written before test:live loads a spec. A crash (SyntaxError, a raised
-# exception) then leaves pending on disk, and the guard refuses it instead
-# of trusting the previous green file. The marker follows test:live_settings,
-# which sets LIVE_RUN=1 and refuses an incomplete broker env; without that
-# the writer stays quiet and the stale file would survive.
+# Written before test:live loads a spec, stamped with a fresh LIVE_RUN_ID
+# the spec process inherits. A crash (SyntaxError, a raised exception) then
+# leaves pending on disk, and the guard refuses it instead of trusting the
+# previous green file. Only a summary whose run id matches that marker may
+# replace it, so a spec invoked by path cannot paint a red run green. The
+# marker follows test:live_settings, which sets LIVE_RUN=1 and refuses an
+# incomplete broker env; without that the writer stays quiet and the stale
+# file would survive.
 namespace :test do
-  desc "Mark this live run's summary pending before specs load"
+  desc "Mark this live run's summary pending, with a run id, before specs load"
   task :live_summary_pending do
+    require "securerandom"
     require_relative "../rpms_rpc/live_summary"
 
     root = File.expand_path("../..", __dir__)
@@ -44,12 +48,15 @@ namespace :test do
       identity = summary.run_identity(ENV, root: root)
       dir = File.expand_path(summary.dir, root)
       path = summary.path_for(dir, persona: identity[:persona], protocol: identity[:protocol])
+      token = SecureRandom.hex(8)
+      ENV["LIVE_RUN_ID"] = token
       summary.mark_pending(
         path,
         persona: identity[:persona],
         protocol: identity[:protocol],
         build: identity[:build],
-        build_source: identity[:build_source]
+        build_source: identity[:build_source],
+        run_id: token
       )
     rescue ArgumentError => e
       abort "test:live_summary_pending: #{e.message}; check PERSONA and BROKER_PROTOCOL"

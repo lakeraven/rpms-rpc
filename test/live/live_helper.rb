@@ -44,9 +44,10 @@
 # release guard: coverage/live/<persona>.json for CIA, and
 # coverage/live/<persona>.<protocol>.json otherwise (LIVE_SUMMARY_DIR overrides).
 # An unsafe persona is reported and not written. So is a filtered run (TEST,
-# TESTOPTS, or --name/--exclude) and a run that reported fewer live specs
-# than were loaded: Ctrl-C still reaches report, and writing either one would
-# replace the pending marker with a green-looking file.
+# TESTOPTS, or --name/--exclude), a run that reported fewer live specs than
+# were loaded, and a run whose file is not the pending marker for this
+# LIVE_RUN_ID: Ctrl-C still reaches report, and writing any of those would
+# replace the pending marker, or another run's file, with a green-looking one.
 require "minitest/autorun"
 require "rpms_rpc/mappings"
 require "rpms_rpc/cia_client"
@@ -145,10 +146,11 @@ module LiveSpec
 
   # The end-of-run block. Counts live specs only, so a plain `rake test` that
   # loads this helper (the guard test) prints nothing. A live run also writes
-  # the file LiveSummary.path_for names, unless the run was filtered or stopped
-  # short of the loaded specs: then it says NOT RECORDED and leaves the file
-  # that is already there. The writer itself stays quiet without LIVE_RUN=1
-  # and a broker host, and the file never holds the host or credentials.
+  # the file LiveSummary.path_for names, unless the run was filtered, stopped
+  # short of the loaded specs, or the file is not this run's pending marker:
+  # then it says NOT RECORDED and leaves the file that is already there. The
+  # writer itself stays quiet without LIVE_RUN=1 and a broker host, and the
+  # file never holds the host or credentials.
   class Summary < Minitest::StatisticsReporter
     def initialize(io = $stdout, env: ENV, expected_runs: nil, options: {})
       super(io, options)
@@ -205,9 +207,11 @@ module LiveSpec
     # unsafe persona or protocol is reported and not written; any other
     # failure of the writer is reported and not raised, so a pending marker
     # left by test:live_summary_pending stays on disk and the guard refuses.
-    # A filtered run, and a count short of the loaded specs, refuse the same
-    # way: print the reason, write nothing. The file never holds the host
-    # or the sign-on pair.
+    # A filtered run, a count short of the loaded specs, and a file that is
+    # not this run's pending marker refuse the same way: print the reason,
+    # write nothing. The marker matches when it is pending and its run_id
+    # equals the non-blank LIVE_RUN_ID; a blank LIVE_RUN_ID never matches.
+    # The file never holds the host or the sign-on pair.
     def write_summary
       if filtered?
         io.puts "NOT RECORDED: filtered by TEST/TESTOPTS/--name"
@@ -223,6 +227,10 @@ module LiveSpec
       identity = RpmsRpc::LiveSummary.run_identity(@env, root: root)
       dir = File.expand_path(RpmsRpc::LiveSummary.dir(@env), root)
       path = RpmsRpc::LiveSummary.path_for(dir, persona: identity[:persona], protocol: identity[:protocol])
+      unless RpmsRpc::LiveSummary.pending_for?(path, @env["LIVE_RUN_ID"])
+        io.puts "NOT RECORDED: no pending marker for this run (run the live specs with rake test:live)"
+        return
+      end
       RpmsRpc::LiveSummary.write(path, summary_document(identity), env: @env)
     rescue ArgumentError => e
       io.puts "NOT RECORDED: #{e.message}"

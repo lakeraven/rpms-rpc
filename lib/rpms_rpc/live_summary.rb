@@ -11,8 +11,9 @@ require "yaml"
 # <persona>.<protocol>.json — so a green run of one line cannot replace a
 # red run of another. The release guard reads them back and refuses to tag
 # unless every file is a green run of the single pinned build. A pending
-# marker is written before specs load, so a run that dies before the summary
-# is recorded cannot leave the previous green file in place. Not loaded by
+# marker, carrying this run's id, is written before specs load, so a run
+# that dies before the summary is recorded cannot leave the previous green
+# file in place, and only that run may replace the marker. Not loaded by
 # the gem entry point: a host process never needs it.
 module RpmsRpc
   module LiveSummary
@@ -59,10 +60,14 @@ module RpmsRpc
       path
     end
 
-    # The file `rake test:live` writes before specs load. Counts are zero and
-    # pending is true, so check refuses it until a finished summary replaces
-    # it. Same env gate as write.
-    def mark_pending(path, persona:, protocol:, build:, build_source:, env: ENV)
+    # The file `rake test:live` writes before specs load. Counts are zero,
+    # pending is true, and run_id is the non-blank token for this run, so
+    # check refuses it until that same run's finished summary replaces it.
+    # A blank run_id raises ArgumentError. Same env gate as write.
+    def mark_pending(path, persona:, protocol:, build:, build_source:, run_id:, env: ENV)
+      token = run_id.to_s.strip
+      raise ArgumentError, "run_id #{run_id.inspect} is blank" if token.empty?
+
       write(path, {
         "build" => build,
         "build_source" => build_source,
@@ -73,8 +78,22 @@ module RpmsRpc
         "failures" => 0,
         "errors" => 0,
         "skips" => 0,
-        "pending" => true
+        "pending" => true,
+        "run_id" => token
       }, env: env)
+    end
+
+    # True when path is this run's pending marker: a JSON object with pending
+    # true and run_id equal to the non-blank token. A blank LIVE_RUN_ID never
+    # matches. Missing, unreadable, or malformed is false.
+    def pending_for?(path, run_id)
+      token = run_id.to_s.strip
+      return false if token.empty?
+
+      data = JSON.parse(File.read(path))
+      data.is_a?(Hash) && data["pending"] == true && data["run_id"] == token
+    rescue JSON::ParserError, SystemCallError, EncodingError
+      false
     end
 
     # [ok, reasons]. Fail closed: a blank build, a missing directory, or any
