@@ -9,10 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — `Patient.address`, `Patient.race`, and `Practitioner.detail` (#294)
 
-- `Patient.address(dfn)` reads the mailing address from PATIENT (#2) with `DDR GETS ENTRY DATA`:
+- `Patient.address(dfn)`, `Patient.race(dfn)`, and `Patient.contact(dfn)` read with
+  `DDR GETS ENTRY DATA` bound to `CIAV VUECENTRIC`, then restore the caller's option.
+  `Patient.contact` refuses a non-integer DFN before the wire; address and race use that same
+  positive-whole-number guard.
+- `Patient.address(dfn)` reads the mailing address from PATIENT (#2):
   `{ dfn:, line1:, line2:, line3:, city:, state:, state_ien:, zip:, zip4: }`. `state` is the
-  external of `.115` (the STATE #5 NAME); `state_ien` is the internal IEN. It is nil for a blank or
-  non-positive DFN, no reply, a FileMan error, or a reply with no field rows.
+  external of `.115` (the STATE #5 NAME); `state_ien` is the internal IEN. It is nil for a DFN that
+  is not a positive whole number, no reply, a FileMan error, or a reply with no field rows.
 - `Patient.race(dfn)` reads `.06` RACE the same way: `{ dfn:, race: }`. The input transform is
   historical-only ("ENTRY OF DATA NOT ALLOWED"); the value is still readable. The USCDI race and
   ethnicity multiples are out of scope.
