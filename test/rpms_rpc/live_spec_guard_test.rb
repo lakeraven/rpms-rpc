@@ -90,10 +90,17 @@ class LiveSpecGuardTest < Minitest::Test
     broker :xwb
     def test_reaches_the_broker = assert(client)
   end
+
+  class PassingProbe < LiveSpec::Test
+    def setup = nil
+    def teardown = nil
+    def test_passes = assert(true)
+  end
   # Specimens, run by hand below; never by the runner itself.
   Minitest::Runnable.runnables.delete(Probe)
   Minitest::Runnable.runnables.delete(XwbProbe)
   Minitest::Runnable.runnables.delete(Tracked)
+  Minitest::Runnable.runnables.delete(PassingProbe)
 
   def test_a_missing_setting_fails_and_names_it
     result = with_env(FULL.merge("RPMS_VERIFY" => nil, "PERSONA" => nil)) { Probe.new(:test_reaches_the_broker).run }
@@ -152,16 +159,112 @@ class LiveSpecGuardTest < Minitest::Test
 
   def test_a_live_run_with_no_live_spec_is_not_green
     Dir.mktmpdir do |tmpdir|
-      summary = summarize(env: FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir))
+      summary = summarize(env: FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir),
+                          expected_runs: 0)
 
       refute summary[:reporter].passed?
       assert_match(/no live spec ran/, summary[:io].string)
     end
   end
 
+  def test_an_interrupted_live_run_is_not_recorded
+    Dir.mktmpdir do |tmpdir|
+      env = FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir)
+      path = mark_pending_in(tmpdir, env: env)
+
+      io = StringIO.new
+      reporter = LiveSpec::Summary.new(io, env: env, expected_runs: 3)
+      reporter.start
+      reporter.record(PassingProbe.new(:test_passes).run)
+      reporter.report
+
+      assert_match(/NOT RECORDED/, io.string)
+      assert_match(/1 of 3|partial|interrupted/, io.string)
+      data = JSON.parse(File.read(path))
+      assert_equal true, data["pending"]
+      ok, reasons = RpmsRpc::LiveSummary.check(dir: tmpdir, build: data["build"])
+      refute ok
+      assert_match(/pending/i, reasons.join(" "))
+    end
+  end
+
+  def test_a_complete_live_run_is_recorded
+    Dir.mktmpdir do |tmpdir|
+      env = FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir)
+      summary = summarize(PassingProbe.new(:test_passes).run, env: env, expected_runs: 1)
+
+      refute_match(/NOT RECORDED/, summary[:io].string)
+      paths = Dir[File.join(tmpdir, "*.json")]
+      assert_equal 1, paths.size
+      data = JSON.parse(File.read(paths.first))
+      refute data["pending"]
+      assert_equal 1, data["runs"]
+    end
+  end
+
+  def test_a_run_filtered_by_TEST_is_not_recorded
+    Dir.mktmpdir do |tmpdir|
+      env = FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir, "TEST" => "test/live/x_test.rb")
+      path = mark_pending_in(tmpdir, env: env)
+
+      io = StringIO.new
+      reporter = LiveSpec::Summary.new(io, env: env, expected_runs: 1)
+      reporter.start
+      reporter.record(PassingProbe.new(:test_passes).run)
+      reporter.report
+
+      assert_match(/NOT RECORDED/, io.string)
+      assert_match(/filter|TEST/i, io.string)
+      assert_equal true, JSON.parse(File.read(path))["pending"]
+    end
+  end
+
+  def test_a_run_filtered_by_name_is_not_recorded
+    base_env = FULL.merge("LIVE_RUN" => "1")
+
+    Dir.mktmpdir do |tmpdir|
+      env = base_env.merge("LIVE_SUMMARY_DIR" => tmpdir)
+      path = mark_pending_in(tmpdir, env: env)
+
+      io = StringIO.new
+      reporter = LiveSpec::Summary.new(io, env: env, expected_runs: 1, options: { filter: "/only/" })
+      reporter.start
+      reporter.record(PassingProbe.new(:test_passes).run)
+      reporter.report
+
+      assert_match(/NOT RECORDED/, io.string)
+      assert_match(/filter|TEST/i, io.string)
+      assert_equal true, JSON.parse(File.read(path))["pending"]
+    end
+
+    Dir.mktmpdir do |tmpdir|
+      env = base_env.merge("LIVE_SUMMARY_DIR" => tmpdir, "TESTOPTS" => "--name=x")
+      path = mark_pending_in(tmpdir, env: env)
+
+      io = StringIO.new
+      reporter = LiveSpec::Summary.new(io, env: env, expected_runs: 1)
+      reporter.start
+      reporter.record(PassingProbe.new(:test_passes).run)
+      reporter.report
+
+      assert_match(/NOT RECORDED/, io.string)
+      assert_match(/filter|TEST/i, io.string)
+      assert_equal true, JSON.parse(File.read(path))["pending"]
+    end
+  end
+
+  def test_expected_runs_counts_loaded_live_test_methods
+    expected = Minitest::Runnable.runnables
+                                  .grep(Class)
+                                  .select { |klass| klass < LiveSpec::Test && klass != LiveSpec::Test }
+                                  .sum { |klass| klass.runnable_methods.size }
+
+    assert_equal expected, LiveSpec::Summary.new(StringIO.new, env: {}).expected_runs
+  end
+
   def test_a_live_report_writes_only_into_the_summary_dir
     Dir.mktmpdir do |tmpdir|
-      summarize(env: FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir))
+      summarize(env: FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir), expected_runs: 0)
 
       paths = Dir[File.join(tmpdir, "*.json")]
       assert_equal 1, paths.size
@@ -192,7 +295,7 @@ class LiveSpecGuardTest < Minitest::Test
 
   private
 
-  def summarize(*results, env:)
+  def summarize(*results, env:, **summary_kwargs)
     env = env.dup
     tmpdir = nil
     if env["LIVE_RUN"] == "1" && env["LIVE_SUMMARY_DIR"].to_s.strip.empty?
@@ -200,7 +303,7 @@ class LiveSpecGuardTest < Minitest::Test
       env["LIVE_SUMMARY_DIR"] = tmpdir
     end
     io = StringIO.new
-    reporter = LiveSpec::Summary.new(io, env: env)
+    reporter = LiveSpec::Summary.new(io, env: env, **summary_kwargs)
     reporter.start
     results.each { |r| reporter.record(r) }
     reporter.report
@@ -215,5 +318,20 @@ class LiveSpecGuardTest < Minitest::Test
     yield
   ensure
     env.each_key { |k| saved.key?(k) ? ENV[k] = saved[k] : ENV.delete(k) }
+  end
+
+  def mark_pending_in(dir, env:)
+    root = File.expand_path("../..", __dir__)
+    identity = RpmsRpc::LiveSummary.run_identity(env, root: root)
+    path = RpmsRpc::LiveSummary.path_for(dir, persona: identity[:persona], protocol: identity[:protocol])
+    RpmsRpc::LiveSummary.mark_pending(
+      path,
+      persona: identity[:persona],
+      protocol: identity[:protocol],
+      build: identity[:build],
+      build_source: identity[:build_source],
+      env: env
+    )
+    path
   end
 end
