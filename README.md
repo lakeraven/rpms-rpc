@@ -197,8 +197,8 @@ RpmsRpc::Authentication.held_keys(%w[PROVIDER XUPROGMODE])
 | `RpmsRpc::MockClient`          | Hermetic test double with seeded data            |
 | `RpmsRpc::MockFhirClient`      | FHIR R4 mock for IRIS for Health reads           |
 | `RpmsRpc::SecurityKeys`        | Symbolic ↔ RPMS security key translation         |
-| `RpmsRpc::UserRoles`           | Role-based authorization (provider, nurse, etc.) |
-| `RpmsRpc::Capabilities`        | Feature-gated permission checks                  |
+| `RpmsRpc::UserRoles`           | Role-based authorization (provider, nurse, etc.) (deprecated, #359) |
+| `RpmsRpc::Capabilities`        | Feature-gated permission checks (deprecated, #359)                  |
 
 ### Exception-message sanitization
 
