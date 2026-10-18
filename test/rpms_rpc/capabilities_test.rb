@@ -101,6 +101,40 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
     assert_deprecated_api_warns_once(:capabilities_for) { RpmsRpc::Capabilities.capabilities_for(user) }
   end
 
+  def test_each_capabilities_deprecated_entry_point_warns_once_independently
+    provider = User.new(user_type: "provider", security_keys: [])
+    case_manager = User.new(user_type: "case_manager", security_keys: %i[prc_supervisor bh_provider])
+    RpmsRpc::Capabilities.reset_deprecation_warnings!
+
+    [
+      [ :can?, -> { RpmsRpc::Capabilities.can?(provider, :view_patients) } ],
+      [ :permissions_for, -> { RpmsRpc::Capabilities.permissions_for(provider) } ],
+      [ :capabilities_for, -> { RpmsRpc::Capabilities.capabilities_for(case_manager) } ]
+    ].each do |method, call|
+      _, err = capture_io { call.call }
+      assert_deprecation_warned_from_this_test(err)
+      assert_equal 1, deprecated_lines(err).size, "#{method} emits exactly one DEPRECATED line on first call"
+      assert_match(/\[rpms_rpc\] DEPRECATED: RpmsRpc::Capabilities\.#{Regexp.escape(method.to_s)}/,
+                   deprecated_lines(err).first)
+    end
+
+    DEPRECATED.each_key do |check|
+      _, err = capture_io { RpmsRpc::Capabilities.public_send(check, provider) }
+      assert_deprecation_warned_from_this_test(err)
+      assert_equal 1, deprecated_lines(err).size, "#{check} emits exactly one DEPRECATED line on first call"
+      assert_match(/\[rpms_rpc\] DEPRECATED: RpmsRpc::Capabilities\.#{Regexp.escape(check.to_s)}/,
+                   deprecated_lines(err).first)
+    end
+
+    _, again = capture_io do
+      RpmsRpc::Capabilities.can?(provider, :view_patients)
+      RpmsRpc::Capabilities.permissions_for(provider)
+      RpmsRpc::Capabilities.capabilities_for(case_manager)
+      DEPRECATED.each_key { |check| RpmsRpc::Capabilities.public_send(check, provider) }
+    end
+    assert_empty deprecated_lines(again), "each entry point warns once per process, not on every call"
+  end
+
   def test_deprecated_methods_return_unchanged_results
     user = User.new(user_type: "case_manager", security_keys: %i[prc_supervisor bh_provider])
     expected_perms = RpmsRpc::Capabilities::ROLE_PERMISSIONS.fetch("case_manager")
@@ -245,6 +279,14 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
     capture_io do
       assert RpmsRpc::Capabilities.can?(user, :view_patients)
       refute RpmsRpc::Capabilities.can?(user, :approve_referrals)
+    end
+  end
+
+  def test_can_accepts_string_permission
+    user = User.new(user_type: "provider", security_keys: [])
+    capture_io do
+      assert RpmsRpc::Capabilities.can?(user, "view_patients")
+      refute RpmsRpc::Capabilities.can?(user, "approve_referrals")
     end
   end
 

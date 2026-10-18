@@ -56,6 +56,31 @@ class RpmsRpc::UserRolesTest < Minitest::Test
     end
   end
 
+  def test_each_user_roles_method_warns_once_independently
+    RpmsRpc::UserRoles.reset_deprecation_warnings!
+
+    [
+      [ :for_class, -> { RpmsRpc::UserRoles.for_class("3") } ],
+      [ :class_for, -> { RpmsRpc::UserRoles.class_for("provider") } ],
+      [ :mock_av_code, -> { RpmsRpc::UserRoles.mock_av_code(duz: 1, role: "provider") } ],
+      [ :resolve, -> { RpmsRpc::UserRoles.resolve(user_class: "3", security_keys: []) } ]
+    ].each do |method, call|
+      _, err = capture_io { call.call }
+      assert_deprecation_warned_from_this_test(err)
+      assert_equal 1, deprecated_lines(err).size, "#{method} emits exactly one DEPRECATED line on first call"
+      assert_match(/\[rpms_rpc\] DEPRECATED: RpmsRpc::UserRoles\.#{Regexp.escape(method.to_s)}/,
+                   deprecated_lines(err).first)
+    end
+
+    _, again = capture_io do
+      RpmsRpc::UserRoles.for_class("3")
+      RpmsRpc::UserRoles.class_for("provider")
+      RpmsRpc::UserRoles.mock_av_code(duz: 1, role: "provider")
+      RpmsRpc::UserRoles.resolve(user_class: "3", security_keys: [])
+    end
+    assert_empty deprecated_lines(again), "each method warns once per process, not on every call"
+  end
+
   def test_mock_av_code_warns_only_once_when_class_for_called_internally
     RpmsRpc::UserRoles.reset_deprecation_warnings!
 
@@ -102,6 +127,19 @@ class RpmsRpc::UserRolesTest < Minitest::Test
     capture_io do
       assert_equal "user", RpmsRpc::UserRoles.for_class("99")
       assert_equal "user", RpmsRpc::UserRoles.for_class("")
+    end
+  end
+
+  def test_roles_without_class_number_fail_closed_to_user_class_zero
+    capture_io do
+      assert_nil RpmsRpc::UserRoles.class_for("case_manager")
+      assert_nil RpmsRpc::UserRoles.class_for("nobody")
+      assert_nil RpmsRpc::UserRoles.class_for(nil)
+
+      assert_equal 0, RpmsRpc::UserRoles.mock_av_code(duz: 7, role: "case_manager")[:user_class]
+      assert_equal 0, RpmsRpc::UserRoles.mock_av_code(duz: 7, role: "nobody")[:user_class]
+
+      assert_equal "user", RpmsRpc::UserRoles.for_class(0)
     end
   end
 
