@@ -20,8 +20,20 @@ class RpmsRpc::NoRoleVocabularyTest < Minitest::Test
     ROLE_BARE_WORDS.map { |word| /\b#{word}\b/ }
   )
 
+  CAPABILITY_BARE_WORDS = %w[
+    view_patients view_referrals create_referrals edit_own_referrals
+    update_referral_status approve_referrals deny_referrals manage_referrals
+    view_own_referrals process_claims verify_eligibility manage_consults
+    manage_scheduling access_behavioral_health access_dental
+  ].freeze
+
+  CAPABILITY_WORD_PATTERN = Regexp.union(
+    CAPABILITY_BARE_WORDS.map { |word| /\b#{word}\b/ }
+  )
+
   VOCABULARY_PATTERNS = [
     ROLE_WORD_PATTERN,
+    CAPABILITY_WORD_PATTERN,
     /\bcan_\w+\?/,
     /ROLE_PERMISSIONS/,
     /USER_CLASS_MAP/,
@@ -56,6 +68,13 @@ class RpmsRpc::NoRoleVocabularyTest < Minitest::Test
       end
     RUBY
     assert vocabulary?(snippet), "probe-like copy must be flagged as role vocabulary"
+  end
+
+  def test_vocabulary_detects_copied_permission_table_shape
+    snippet = <<~RUBY
+      module RpmsRpc; module HostPolicyCopy; PERMS = { "admin" => %i[view_patients approve_referrals] }.freeze; end; end
+    RUBY
+    assert vocabulary?(snippet), "permission-table copy must be flagged as role vocabulary"
   end
 
   def test_lib_defines_role_vocabulary_only_in_allowlisted_files
