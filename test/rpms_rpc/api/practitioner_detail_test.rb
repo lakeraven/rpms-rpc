@@ -121,7 +121,16 @@ class PractitionerDetailTest < Minitest::Test
 
   def test_detail_blank_or_nonpositive_id_sends_nothing
     use NoWireClient.new
-    [ nil, 0, "-5", "" ].each { |duz| assert_nil Practitioner.detail(duz), duz.inspect }
+    [ nil, 0, "-5", "", 4.5, "4.9", "42abc", " 42" ].each { |duz| assert_nil Practitioner.detail(duz), duz.inspect }
+  end
+
+  def test_detail_restores_the_callers_context_when_the_read_raises
+    mock = RpmsRpc.mock!
+    caller_context = mock.current_context
+    def mock.call_rpc(*) = raise(RpmsRpc::Client::RpcError, "boom")
+
+    assert_raises(RpmsRpc::Client::RpcError) { Practitioner.detail(101) }
+    assert_equal caller_context, mock.current_context
   end
 
   def test_detail_empty_fields_are_nil_not_raised_or_invented
@@ -195,6 +204,28 @@ class PractitionerDetailTest < Minitest::Test
 
     result = Practitioner.detail(101)
 
+    assert_nil result[:npi]
+  end
+
+  def test_detail_withholds_npi_when_the_release_row_is_absent
+    mock = RpmsRpc.mock!
+    duz = 43
+    mock.seed(:ddr_gets_entry_data, gets_key(duz), <<~REPLY.chomp)
+      [Data]
+      200^#{duz},^8^EXAMPLE,PROVIDER^EXAMPLE,PROVIDER
+      200^#{duz},^29^1^EXAMPLE SERVICE
+      200^#{duz},^41.98^1^ACTIVE
+      200^#{duz},^41.99^0000000000^0000000000
+      200^#{duz},^53.2^XX0000000^XX0000000
+      200^#{duz},^53.5^1^EXAMPLE PROVIDER CLASS
+      200^#{duz},^54.2^99^EXAMPLE STATE
+      200^#{duz},^747.44^3291231^DEC 31, 2029
+      200^#{duz},^8932.1^1^EXAMPLE PERSON CLASS
+    REPLY
+
+    result = Practitioner.detail(duz)
+
+    refute_nil result
     assert_nil result[:npi]
   end
 

@@ -67,6 +67,7 @@ class PatientAddressRacePractitionerDetailLiveTest < LiveSpec::Test
     refute_empty people
 
     authorized_count = 0
+    invalid_release_codes = []
     people.each do |entry|
       ien = entry[:ien]
       detail = RpmsRpc::Practitioner.detail(ien)
@@ -80,6 +81,9 @@ class PatientAddressRacePractitionerDetailLiveTest < LiveSpec::Test
       refute_nil release
       refute release[:error], "41.97/41.99 read for DUZ #{ien} answered with an error"
       internal = release[:fields].dig("41.97", :internal).to_s
+      if !internal.empty? && internal != "0" && internal != "1"
+        invalid_release_codes << { duz: ien.to_i, internal: internal }
+      end
       if internal == "1"
         authorized_count += 1
         expected_npi = external_or_nil(release[:fields]["41.99"])
@@ -89,6 +93,13 @@ class PatientAddressRacePractitionerDetailLiveTest < LiveSpec::Test
       end
 
       assert(detail[:dea_expires].nil? || detail[:dea_expires].is_a?(Date))
+    end
+
+    unless invalid_release_codes.empty?
+      codes = invalid_release_codes.map { |row| row[:internal] }.uniq
+      duzs = invalid_release_codes.map { |row| row[:duz] }
+      flunk "41.97's code set on this build is not 1/0 and Practitioner.detail's gate must be re-verified; " \
+            "offending internal codes: #{codes.inspect}, DUZ: #{duzs.inspect}"
     end
 
     puts "listed NEW PERSON entries with 41.97 internal \"1\": #{authorized_count}"
@@ -114,24 +125,31 @@ class PatientAddressRacePractitionerDetailLiveTest < LiveSpec::Test
   end
 
   def absent_patient_dfn
-    listed = client.with_context(CONTEXT) do
-      RpmsRpc::DdrFileman.lister(file: PATIENT_FILE, fields: "@;.01", max: 25)
-    end
-    refute_nil listed, "DDR LISTER on #2 gave no reply"
-    refute listed[:error], "DDR LISTER on #2 answered with errors"
-    refute_empty listed[:entries], "the build has no PATIENT (#2) entry"
-    max_dfn = listed[:entries].map { |entry| entry[:ien].to_i }.max
-    max_dfn + 1_000_000
+    absent_ien_for(file: PATIENT_FILE)
   end
 
   def absent_practitioner_duz
+    absent_ien_for(file: 200)
+  end
+
+  # A FileMan IEN with no entry on file, proven per run through DDR GETS ENTRY
+  # DATA — not through the RPC under test.
+  def absent_ien_for(file:)
     listed = client.with_context(CONTEXT) do
-      RpmsRpc::DdrFileman.lister(file: 200, fields: "@;.01", max: 25)
+      RpmsRpc::DdrFileman.lister(file: file, fields: "@;.01", max: 25)
     end
-    refute_nil listed, "DDR LISTER on #200 gave no reply"
-    refute listed[:error], "DDR LISTER on #200 answered with errors"
-    refute_empty listed[:entries], "the build has no NEW PERSON (#200) entry"
-    max_duz = listed[:entries].map { |entry| entry[:ien].to_i }.max
-    max_duz + 1_000_000
+    refute_nil listed, "DDR LISTER on #{file} gave no reply"
+    refute listed[:error], "DDR LISTER on #{file} answered with errors"
+    refute_empty listed[:entries], "the build has no file #{file} entry"
+    max_ien = listed[:entries].map { |entry| entry[:ien].to_i }.max
+    candidates = (1..4).map { |n| max_ien + (n * 1_000_000) }
+    candidates.each do |ien|
+      reply = client.with_context(CONTEXT) do
+        RpmsRpc::DdrFileman.gets_entry(file: file, iens: "#{ien},", fields: ".01")
+      end
+      refute_nil reply, "DDR GETS ENTRY DATA gave no reply for IEN #{ien}"
+      return ien if reply[:error]
+    end
+    flunk "IEN #{candidates.last} is present on file #{file}: pick another absent IEN"
   end
 end

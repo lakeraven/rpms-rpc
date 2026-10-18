@@ -275,6 +275,15 @@ def test_brief_header_raises_any_other_m_error
     assert_equal [ "CIAV VUECENTRIC", caller_context ], mock.context_binds
   end
 
+  def test_address_restores_the_callers_context_when_the_read_raises
+    mock = RpmsRpc.mock!
+    caller_context = mock.current_context
+    def mock.call_rpc(*) = raise(RpmsRpc::Client::RpcError, "boom")
+
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Patient.address(42) }
+    assert_equal caller_context, mock.current_context
+  end
+
   def test_address_nil_state_ien_when_pointer_internal_is_not_a_positive_whole_number
     dfn = 42
     state_name = "EXAMPLE STATE"
@@ -381,6 +390,15 @@ def test_brief_header_raises_any_other_m_error
     assert_equal [ "CIAV VUECENTRIC", caller_context ], mock.context_binds
   end
 
+  def test_race_restores_the_callers_context_when_the_read_raises
+    mock = RpmsRpc.mock!
+    caller_context = mock.current_context
+    def mock.call_rpc(*) = raise(RpmsRpc::Client::RpcError, "boom")
+
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Patient.race(42) }
+    assert_equal caller_context, mock.current_context
+  end
+
   def test_contact_reads_in_ciav_vuecentric_and_restores_the_callers_context
     mock = RpmsRpc.mock!
     caller_context = mock.current_context
@@ -395,6 +413,15 @@ def test_brief_header_raises_any_other_m_error
                    "contact must read FileMan under CIAV VUECENTRIC"
     end
     assert_equal [ "CIAV VUECENTRIC", caller_context ], mock.context_binds
+  end
+
+  def test_contact_restores_the_callers_context_when_the_read_raises
+    mock = RpmsRpc.mock!
+    caller_context = mock.current_context
+    def mock.call_rpc(*) = raise(RpmsRpc::Client::RpcError, "boom")
+
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Patient.contact(42) }
+    assert_equal caller_context, mock.current_context
   end
 
   def test_race_empty_fields_are_nil_not_raised_or_invented
