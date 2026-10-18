@@ -12,10 +12,21 @@ class RpmsRpc::UserRolesTest < Minitest::Test
     io.lines.grep(/DEPRECATED/)
   end
 
+  def assert_deprecation_warned_from_this_test(err)
+    base = File.basename(__FILE__)
+    deprecated_lines(err).each do |line|
+      assert_match(/#{Regexp.escape(base)}:\d+: warning:/, line,
+                   "warning must attribute to caller in #{base}, not lib: #{line}")
+      refute_match(/capabilities\.rb:\d+: warning:/, line)
+      refute_match(/user_roles\.rb:\d+: warning:/, line)
+    end
+  end
+
   def assert_deprecated_api_warns_once(method)
     _, err = capture_io { yield }
     assert_equal 1, deprecated_lines(err).size, "#{method} emits exactly one DEPRECATED line"
     line = deprecated_lines(err).first
+    assert_deprecation_warned_from_this_test(err)
     assert_match(/\[rpms_rpc\] DEPRECATED: RpmsRpc::UserRoles\.#{Regexp.escape(method.to_s)}/, line)
     assert_includes line, "#318"
     assert_includes line, "ADR 0010"
@@ -49,6 +60,7 @@ class RpmsRpc::UserRolesTest < Minitest::Test
     RpmsRpc::UserRoles.reset_deprecation_warnings!
 
     _, err = capture_io { RpmsRpc::UserRoles.mock_av_code(duz: 42, role: "nurse") }
+    assert_deprecation_warned_from_this_test(err)
     assert_equal 1, deprecated_lines(err).size
     assert_match(/\[rpms_rpc\] DEPRECATED: RpmsRpc::UserRoles\.mock_av_code/, deprecated_lines(err).first)
     refute_match(/class_for/, err)
@@ -58,6 +70,7 @@ class RpmsRpc::UserRolesTest < Minitest::Test
     RpmsRpc::UserRoles.reset_deprecation_warnings!
 
     _, err = capture_io { RpmsRpc::UserRoles.resolve(user_class: "4", security_keys: []) }
+    assert_deprecation_warned_from_this_test(err)
     assert_equal 1, deprecated_lines(err).size
     assert_match(/\[rpms_rpc\] DEPRECATED: RpmsRpc::UserRoles\.resolve/, deprecated_lines(err).first)
     refute_match(/for_class/, err)

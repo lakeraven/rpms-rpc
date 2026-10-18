@@ -34,6 +34,7 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
     user = User.new(user_type: "clerk", security_keys: [])
     DEPRECATED.each do |check, key_names|
       _, err = capture_io { RpmsRpc::Capabilities.public_send(check, user) }
+      assert_deprecation_warned_from_this_test(err)
       assert_match(/\[rpms_rpc\] DEPRECATED: RpmsRpc::Capabilities\.#{Regexp.escape(check.to_s)} /, err)
       key_names.each { |k| assert_includes err, k, "#{check} must name #{k}" }
       assert_includes err, "not a security key on the pinned build"
@@ -61,10 +62,21 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
     io.lines.grep(/DEPRECATED/)
   end
 
+  def assert_deprecation_warned_from_this_test(err)
+    base = File.basename(__FILE__)
+    deprecated_lines(err).each do |line|
+      assert_match(/#{Regexp.escape(base)}:\d+: warning:/, line,
+                   "warning must attribute to caller in #{base}, not lib: #{line}")
+      refute_match(/capabilities\.rb:\d+: warning:/, line)
+      refute_match(/user_roles\.rb:\d+: warning:/, line)
+    end
+  end
+
   def assert_deprecated_api_warns_once(method)
     _, err = capture_io { yield }
     assert_equal 1, deprecated_lines(err).size, "#{method} emits exactly one DEPRECATED line"
     line = deprecated_lines(err).first
+    assert_deprecation_warned_from_this_test(err)
     assert_match(/\[rpms_rpc\] DEPRECATED: RpmsRpc::Capabilities\.#{Regexp.escape(method.to_s)}/, line)
     assert_includes line, "#318"
     assert_includes line, "ADR 0010"
@@ -103,6 +115,21 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
       assert_includes caps, :process_claims
       assert_includes caps, :access_behavioral_health
       refute_includes caps, :manage_scheduling
+
+      clerk_supervisor = User.new(user_type: "clerk", security_keys: %i[prc_supervisor])
+      assert_equal Set[:view_patients, :view_referrals, :approve_referrals, :deny_referrals, :process_claims],
+                   RpmsRpc::Capabilities.capabilities_for(clerk_supervisor)
+
+      clerk_keys = User.new(
+        user_type: "clerk",
+        security_keys: %i[consult_manager eligibility_verify scheduling_admin bh_provider dental_provider]
+      )
+      assert_equal Set[:view_patients, :view_referrals, :manage_consults, :verify_eligibility,
+                         :manage_scheduling, :access_behavioral_health, :access_dental],
+                   RpmsRpc::Capabilities.capabilities_for(clerk_keys)
+
+      unknown = User.new(user_type: "unknown", security_keys: [])
+      assert_equal Set[:view_own_referrals], RpmsRpc::Capabilities.capabilities_for(unknown)
     end
   end
 
@@ -111,6 +138,7 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
     RpmsRpc::Capabilities.reset_deprecation_warnings!
 
     _, err = capture_io { RpmsRpc::Capabilities.capabilities_for(user) }
+    assert_deprecation_warned_from_this_test(err)
     dep = deprecated_lines(err)
     assert_equal 1, dep.size, "capabilities_for must not warn once per internal deprecated_check"
     assert_match(/\[rpms_rpc\] DEPRECATED: RpmsRpc::Capabilities\.capabilities_for/, dep.first)
@@ -127,6 +155,7 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
     RpmsRpc::Capabilities.reset_deprecation_warnings!
 
     _, err = capture_io { RpmsRpc::Capabilities.can?(user, :view_patients) }
+    assert_deprecation_warned_from_this_test(err)
     assert_equal 1, deprecated_lines(err).size
     assert_match(/\[rpms_rpc\] DEPRECATED: RpmsRpc::Capabilities\.can\?/, deprecated_lines(err).first)
     refute_match(/permissions_for/, err)
@@ -183,53 +212,67 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
 
   def test_role_permissions_for_provider
     user = User.new(user_type: "provider", security_keys: [])
-    perms = RpmsRpc::Capabilities.permissions_for(user)
-    assert_includes perms, :view_patients
-    assert_includes perms, :create_referrals
-    refute_includes perms, :approve_referrals
+    capture_io do
+      perms = RpmsRpc::Capabilities.permissions_for(user)
+      assert_includes perms, :view_patients
+      assert_includes perms, :create_referrals
+      refute_includes perms, :approve_referrals
+    end
   end
 
   def test_role_permissions_for_nurse
     user = User.new(user_type: "nurse", security_keys: [])
-    perms = RpmsRpc::Capabilities.permissions_for(user)
-    assert_includes perms, :view_patients
-    assert_includes perms, :update_referral_status
-    refute_includes perms, :create_referrals
+    capture_io do
+      perms = RpmsRpc::Capabilities.permissions_for(user)
+      assert_includes perms, :view_patients
+      assert_includes perms, :update_referral_status
+      refute_includes perms, :create_referrals
+    end
   end
 
   def test_role_permissions_for_clerk
     user = User.new(user_type: "clerk", security_keys: [])
-    perms = RpmsRpc::Capabilities.permissions_for(user)
-    assert_includes perms, :view_patients
-    refute_includes perms, :create_referrals
-    refute_includes perms, :approve_referrals
+    capture_io do
+      perms = RpmsRpc::Capabilities.permissions_for(user)
+      assert_includes perms, :view_patients
+      refute_includes perms, :create_referrals
+      refute_includes perms, :approve_referrals
+    end
   end
 
   def test_can_check
     user = User.new(user_type: "provider", security_keys: [])
-    assert RpmsRpc::Capabilities.can?(user, :view_patients)
-    refute RpmsRpc::Capabilities.can?(user, :approve_referrals)
+    capture_io do
+      assert RpmsRpc::Capabilities.can?(user, :view_patients)
+      refute RpmsRpc::Capabilities.can?(user, :approve_referrals)
+    end
   end
 
   def test_capabilities_for_merges_role_and_keys
     user = User.new(user_type: "clerk", security_keys: [ :prc_tech ])
-    caps = RpmsRpc::Capabilities.capabilities_for(user)
-    assert_includes caps, :view_patients       # from role
-    assert_includes caps, :process_claims      # from key
-    refute_includes caps, :create_referrals    # not in clerk role
+    capture_io do
+      caps = RpmsRpc::Capabilities.capabilities_for(user)
+      assert_includes caps, :view_patients       # from role
+      assert_includes caps, :process_claims      # from key
+      refute_includes caps, :create_referrals    # not in clerk role
+    end
   end
 
   def test_capabilities_for_case_manager_with_supervisor
     user = User.new(user_type: "case_manager", security_keys: [ :prc_supervisor ])
-    caps = RpmsRpc::Capabilities.capabilities_for(user)
-    assert_includes caps, :manage_referrals     # from role
-    assert_includes caps, :approve_referrals    # from role + key
-    assert_includes caps, :process_claims       # from key
+    capture_io do
+      caps = RpmsRpc::Capabilities.capabilities_for(user)
+      assert_includes caps, :manage_referrals     # from role
+      assert_includes caps, :approve_referrals    # from role + key
+      assert_includes caps, :process_claims       # from key
+    end
   end
 
   def test_unknown_role_defaults_to_user
     user = User.new(user_type: "unknown", security_keys: [])
-    perms = RpmsRpc::Capabilities.permissions_for(user)
-    assert_equal [ :view_own_referrals ], perms
+    capture_io do
+      perms = RpmsRpc::Capabilities.permissions_for(user)
+      assert_equal [ :view_own_referrals ], perms
+    end
   end
 end
