@@ -190,4 +190,28 @@ class RpmsRpc::UserRolesTest < Minitest::Test
       )
     end
   end
+
+  def test_class_for_accepts_symbol_role
+    capture_io do
+      assert_equal "3", RpmsRpc::UserRoles.class_for(:provider)
+    end
+  end
+
+  def test_mock_av_code_accepts_symbol_role_and_coerces_string_duz
+    capture_io do
+      assert_equal 3, RpmsRpc::UserRoles.mock_av_code(duz: 1, role: :provider)[:user_class]
+      assert_equal 9, RpmsRpc::UserRoles.mock_av_code(duz: "9", role: "provider")[:duz]
+    end
+  end
+
+  def test_resolve_does_not_elevate_on_string_supervisor_keys
+    capture_io do
+      assert_equal "provider", RpmsRpc::UserRoles.resolve(
+        user_class: "3", security_keys: %w[prc_supervisor]
+      )
+      assert_equal "provider", RpmsRpc::UserRoles.resolve(
+        user_class: "3", security_keys: %w[prc_manager]
+      )
+    end
+  end
 end

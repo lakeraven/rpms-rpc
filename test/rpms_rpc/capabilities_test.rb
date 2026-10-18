@@ -317,4 +317,26 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
       assert_equal [ :view_own_referrals ], perms
     end
   end
+
+  def test_nil_security_keys_do_not_grant_deprecated_checks_or_key_capabilities
+    user = User.new(user_type: "clerk", security_keys: nil)
+    capture_io do
+      DEPRECATED.each_key do |check|
+        refute RpmsRpc::Capabilities.public_send(check, user), "#{check} must not grant when security_keys is nil"
+      end
+      refute RpmsRpc::Capabilities.has_key?(user, :scheduling_admin)
+      refute RpmsRpc::Capabilities.can_manage_scheduling?(user)
+      assert_equal Set[:view_patients, :view_referrals],
+                   RpmsRpc::Capabilities.capabilities_for(user)
+    end
+  end
+
+  def test_string_security_keys_do_not_match_symbol_deprecated_checks
+    user = User.new(user_type: "clerk", security_keys: %w[prc_supervisor prc_manager])
+    capture_io do
+      refute RpmsRpc::Capabilities.can_approve_chs?(user)
+      caps = RpmsRpc::Capabilities.capabilities_for(user)
+      refute_includes caps, :approve_referrals
+    end
+  end
 end
