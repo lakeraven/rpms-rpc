@@ -33,12 +33,12 @@ end
 # leaves pending on disk, and the guard refuses it instead of trusting the
 # previous green file. Only a summary whose run id matches that marker may
 # replace it, so a spec invoked by path cannot paint a red run green. The
-# marker follows test:live_settings, which sets LIVE_RUN=1 and refuses an
-# incomplete broker env; without that the writer stays quiet and the stale
-# file would survive.
+# marker depends on test:live_settings, which sets LIVE_RUN=1 and refuses an
+# incomplete broker env. List order alone does not enforce this under rake -m;
+# without the dependency the writer can stay quiet and a stale file survives.
 namespace :test do
   desc "Mark this live run's summary pending, with a run id, before specs load"
-  task :live_summary_pending do
+  task live_summary_pending: "test:live_settings" do
     require "securerandom"
     require_relative "../rpms_rpc/live_summary"
 
@@ -64,10 +64,9 @@ namespace :test do
   end
 end
 
-# Appended, so it runs after test:live_settings. If that settings task exists
-# but is not yet a prerequisite, link it first: Rake treats a bare argument
-# list as task arguments, not prerequisites, and the marker writes nothing
-# unless LIVE_RUN is already set.
+# The marker is a prerequisite of the live action, and its own dependency
+# above ensures settings finish first even under parallel prerequisite
+# execution. Retain the explicit settings link for ordinary task listings.
 if Rake::Task.task_defined?("test:live")
   live = Rake::Task["test:live"]
   if Rake::Task.task_defined?("test:live_settings") && !live.prerequisites.include?("test:live_settings")

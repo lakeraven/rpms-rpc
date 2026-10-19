@@ -239,6 +239,37 @@ module RpmsRpc
       end
     end
 
+    def test_pending_task_initializes_settings_when_invoked_first
+      with_parallel_live_tasks do |path, build|
+        # Request the marker before settings, a prerequisite order -m may
+        # choose. No sleeps or scheduler luck: the marker must initialize
+        # its own dependency even when LIVE_RUN was not exported.
+        Rake::Task["test:live_summary_pending"].invoke
+
+        assert_equal "1", ENV["LIVE_RUN"]
+        assert LiveSummary.pending_for?(path, ENV["LIVE_RUN_ID"]),
+               "the marker must replace the old green summary before specs load"
+        ok, reasons = LiveSummary.check(dir: File.dirname(path), build: build)
+        refute ok
+        assert_match(/pending/, reasons.join(" "))
+      end
+    end
+
+    def test_parallel_live_failure_blocks_release_instead_of_reusing_old_green
+      with_parallel_live_tasks do |path, _build|
+        Rake::Task["test:live"].enhance { raise "synthetic live process failed before reporting" }
+
+        error = assert_raises(RuntimeError) { Rake::Task["test:live"].invoke }
+        assert_equal "synthetic live process failed before reporting", error.message
+        assert LiveSummary.pending_for?(path, ENV["LIVE_RUN_ID"])
+
+        _out, err = capture_io do
+          assert_raises(SystemExit) { Rake::Task["release"].invoke }
+        end
+        assert_match(/pending live run was not recorded/, err)
+      end
+    end
+
     def test_live_task_marks_pending_before_specs_load
       original_app = Rake.application
       Dir.mktmpdir do |tmpdir|
@@ -380,6 +411,33 @@ module RpmsRpc
     end
 
     private
+
+    def with_parallel_live_tasks
+      original_app = Rake.application
+      keys = %w[LIVE_RUN LIVE_RUN_ID BROKER_HOST BROKER_PROTOCOL PERSONA LIVE_SUMMARY_DIR LIVE_BUILD]
+      saved = ENV.to_h.slice(*keys)
+      Dir.mktmpdir do |dir|
+        build = LiveSummary.pinned_build(File.join(REPO_ROOT, "data/fingerprints/rpms-ops.lock.yml"))
+        write_summary(dir, "PERSONA_A.json", summary_fields("build" => build))
+        assert LiveSummary.check(dir: dir, build: build).first, "fixture must start green"
+
+        ENV.delete("LIVE_RUN")
+        ENV.delete("LIVE_RUN_ID")
+        ENV.update("BROKER_HOST" => "127.0.0.1", "BROKER_PROTOCOL" => "cia", "PERSONA" => "PERSONA_A",
+                   "LIVE_SUMMARY_DIR" => dir, "LIVE_BUILD" => build)
+        Rake.application = Rake::Application.new
+        Rake.application.options.always_multitask = true # rake -m
+        Rake::Task.define_task("test:live_settings") { ENV["LIVE_RUN"] = "1" }
+        Rake::Task.define_task("test:live" => [ "test:live_settings" ])
+        Rake::Task.define_task("release") { flunk "release action must not run after a failed live run" }
+        load File.join(REPO_ROOT, "lib/tasks/release_guard.rake")
+
+        yield File.join(dir, "PERSONA_A.json"), build
+      end
+    ensure
+      keys.each { |key| saved.key?(key) ? ENV[key] = saved[key] : ENV.delete(key) }
+      Rake.application = original_app
+    end
 
     def summary_fields(overrides = {})
       {
