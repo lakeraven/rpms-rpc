@@ -214,4 +214,25 @@ class RpmsRpc::UserRolesTest < Minitest::Test
       )
     end
   end
+
+  ELEVATED_ROLES = %w[case_manager admin].freeze
+
+  def test_resolve_with_nil_security_keys_does_not_elevate
+    capture_io do
+      result = nil
+      raised = false
+      begin
+        result = RpmsRpc::UserRoles.resolve(user_class: "3", security_keys: nil)
+      rescue NoMethodError
+        raised = true
+      end
+
+      unless raised
+        refute_includes ELEVATED_ROLES, result,
+                        "resolve with nil security_keys must not return an elevated role"
+        assert_equal "provider", result,
+                     "resolve with nil security_keys must fall back to user_class when it does not raise"
+      end
+    end
+  end
 end

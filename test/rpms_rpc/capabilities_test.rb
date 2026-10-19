@@ -339,4 +339,69 @@ class RpmsRpc::CapabilitiesTest < Minitest::Test
       refute_includes caps, :approve_referrals
     end
   end
+
+  KEY_DERIVED_CAPABILITIES = {
+    approve_referrals: %i[prc_supervisor prc_manager],
+    deny_referrals: %i[prc_supervisor prc_manager],
+    process_claims: %i[prc_tech prc_supervisor],
+    verify_eligibility: %i[eligibility_verify],
+    manage_consults: %i[consult_manager],
+    manage_scheduling: %i[scheduling_admin],
+    access_behavioral_health: %i[bh_provider bh_supervisor],
+    access_dental: %i[dental_provider dental_supervisor]
+  }.freeze
+
+  def public_can_checks
+    RpmsRpc::Capabilities.public_methods(false).select do |method|
+      method.to_s.match?(/^can_.+\?$/) && method != :can?
+    end.sort
+  end
+
+  def keys_for_can_check(check)
+    if check == :can_manage_scheduling?
+      %i[scheduling_admin]
+    else
+      RpmsRpc::Capabilities::DEPRECATED_CHECKS.fetch(check).first
+    end
+  end
+
+  def test_string_security_keys_never_match_symbol_checks_or_key_capabilities
+    capture_io do
+      public_can_checks.each do |check|
+        keys_for_can_check(check).each do |sym_key|
+          user = User.new(user_type: "clerk", security_keys: [ sym_key.to_s ])
+          refute RpmsRpc::Capabilities.public_send(check, user),
+                 "#{check} must not grant for string key #{sym_key.inspect}"
+          refute RpmsRpc::Capabilities.has_key?(user, sym_key),
+                 "has_key?(user, #{sym_key.inspect}) must be false when keys are strings"
+
+          symbol_user = User.new(user_type: "clerk", security_keys: [ sym_key ])
+          refute RpmsRpc::Capabilities.has_key?(symbol_user, sym_key.to_s),
+                 "has_key?(user, #{sym_key.inspect} string) must be false when keys are symbols"
+        end
+      end
+
+      KEY_DERIVED_CAPABILITIES.each do |capability, keys|
+        keys.each do |sym_key|
+          user = User.new(user_type: "clerk", security_keys: [ sym_key.to_s ])
+          caps = RpmsRpc::Capabilities.capabilities_for(user)
+          refute_includes caps, capability,
+                          "capabilities_for must not include #{capability} for string key #{sym_key.inspect}"
+        end
+      end
+
+      role_only_permissions = RpmsRpc::Capabilities::ROLE_PERMISSIONS.values.flatten.uniq
+      key_derived = KEY_DERIVED_CAPABILITIES.keys
+      (role_only_permissions - key_derived).each do |permission|
+        user = User.new(user_type: "provider", security_keys: [])
+        perms = RpmsRpc::Capabilities.permissions_for(user)
+        next unless perms.include?(permission)
+
+        user_with_noise = User.new(user_type: "provider", security_keys: %w[prc_supervisor prc_tech])
+        perms_with_strings = RpmsRpc::Capabilities.permissions_for(user_with_noise)
+        assert_equal perms, perms_with_strings,
+                     "permissions_for must not change when security_keys are unrelated strings"
+      end
+    end
+  end
 end

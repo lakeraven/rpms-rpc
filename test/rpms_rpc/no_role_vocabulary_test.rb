@@ -86,7 +86,15 @@ class RpmsRpc::NoRoleVocabularyTest < Minitest::Test
       assert_path_exists path, "allowlisted file must exist: #{rel}"
     end
 
-    Dir.glob(File.join(root, "lib/**/*.rb")).sort.each do |abs|
+    lib_root = File.join(root, "lib")
+    paths = []
+    Dir.glob(File.join(lib_root, "**", "*")).sort.each do |abs|
+      next unless File.file?(abs)
+
+      paths << abs
+    end
+
+    paths.each do |abs|
       rel = abs.delete_prefix("#{root}/")
       next if ALLOWLISTED.include?(rel)
 
