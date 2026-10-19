@@ -37,16 +37,23 @@ Same shape as the conformance pipeline, one level deeper:
    write RPC (the conformance SPEC's non-negotiable applies here verbatim).
 
    ```sh
+   bundle exec rake wire:capture BROKER_HOST=127.0.0.1 BROKER_PORT=<port> RELEASE=bcer-9.0-ydb
    bundle exec rake wire:capture CONTAINER=rpms-ydb-9.0 RELEASE=bcer-9.0-ydb
-   # without CONTAINER=, only routine-cite fixtures are (re)written
+   # without CONTAINER= or BROKER_HOST=, only routine-cite fixtures are (re)written
+   # WIRE_FIXTURES_DIR=<dir> writes the fixtures there instead (a scratch capture)
    # ONLY="RPC NAME" limits the run; CITE_ONLY="RPC A,RPC B" forces
    # routine-cite output for live entries (e.g. broker unavailable)
    ```
 
    Re-run when a rung changes (new release tag), like re-ingesting a
-   fingerprint. The task stages `lib/` plus `bin/wire_capture_driver.rb`
-   into the container (the rpms-ops evidence-script pattern) and refuses to
-   write any fixture that fails provenance validation.
+   fingerprint. With `BROKER_HOST=` (host mode) the driver,
+   `bin/wire_capture_driver.rb`, runs on this machine's Ruby against the
+   broker over the network; a release image carries no Ruby, so this is the
+   mode that works on a release (rpms-ops#975, whose `make fresh-up` /
+   `make fresh-capture` start a fresh container of a release and capture from
+   it into a scratch directory). With `CONTAINER=` the task stages `lib/` and
+   the driver into a container that has a Ruby and runs it there. Either way
+   it refuses to write any fixture that fails provenance validation.
 
 2. **Contract test** (`test/rpms_rpc/wire_contract_test.rb`, the always-on
    CI gate — like `conformance:probe`): runs against **committed fixtures
