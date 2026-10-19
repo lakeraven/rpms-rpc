@@ -5,7 +5,8 @@
 # - core: configuration (`configure`, `client`, `mock!`, `reset!`), the wire
 #   lock and error sanitizing. It lives in its own file because a single
 #   broker client (`require "rpms_rpc/cia_client"`) needs it without the rest.
-# - the reference tables: security keys, user roles, capabilities.
+# - the reference tables: security keys, user roles, capabilities, and the
+#   retry-safety classification (the gem never retries; rpms-rpc#110).
 # - the response mappings, and every symbolic API module under rpms_rpc/api/.
 #
 # Broker clients are not loaded here: pick one with RpmsRpc::BrokerFactory or
@@ -18,5 +19,6 @@ require_relative "rpms_rpc/mappings"
 require_relative "rpms_rpc/security_keys"
 require_relative "rpms_rpc/user_roles"
 require_relative "rpms_rpc/capabilities"
+require_relative "rpms_rpc/retry_safety"
 
 Dir[File.join(__dir__, "rpms_rpc", "api", "**", "*.rb")].sort.each { |api| require api }
