@@ -254,7 +254,9 @@ module RpmsRpc
       line = raw.to_s.strip
       return { success: false, raw: raw } if line.empty?
 
-      success = line.start_with?("1") || line.match?(/\A[1-9]\d*\z/)
+      # Non-sigil success is exactly "1", "1^..." (a 1 followed by a caret), or a
+      # bare positive integer (/\A[1-9]\d*\z/). Anything else fails closed (#210).
+      success = line.start_with?("1^") || line.match?(/\A[1-9]\d*\z/)
       message = line.sub(/\A[01]\^/, "").strip
       { success: success, message: message.empty? ? nil : message, raw: raw }
     end
