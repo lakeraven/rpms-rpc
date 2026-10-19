@@ -63,8 +63,10 @@ module LiveSpec
     declared = env["LIVE_BUILD"].to_s.strip
     return "#{declared} (declared by LIVE_BUILD, not verified)" unless declared.empty?
 
-    registry = YAML.safe_load_file(COVERAGE_CONFIG)["registry"].to_s
-    "#{File.basename(registry, '.txt')} (pinned, not verified: data/rpc_coverage/config.yml)"
+    release = YAML.safe_load_file(COVERAGE_CONFIG)["release"].to_s.strip
+    raise ArgumentError, "no release" if release.empty?
+
+    "#{release} (pinned, not verified: data/rpc_coverage/config.yml)"
   rescue StandardError => e
     "unknown (no pinned release readable: #{e.class})"
   end

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Live summaries name the source they tested: a SHA-256 over every file the gemspec ships (#441). The release guard refuses a summary whose source is not the tree being released, a run during which a shipped file changed is not recorded, and summaries move to schema 2, so older ones are refused until `rake test:live` is re-run. The live run block names the pinned release, as the summary file does, rather than the registry file.
 - A release refuses to tag unless live summaries on disk show a green `rake test:live` against the pinned build (#361). CIA and XWB keep separate summary files, a run that dies before the summary is written leaves a pending file the guard refuses, and the same guard leads `release:source_control_push` and `release:rubygem_push`. `rake test:live` aborts before loading a spec when its pending file is not on disk, and the guard's OK names, per file, how many live specs passed and how many were skipped.
 
 ### Added — `Client::RpcMError`: an M error has a class of its own (#357)
