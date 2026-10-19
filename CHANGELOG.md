@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `rake wire:capture` host mode and `rake wire:compare` (rpms-ops#975)
+
+- `rake wire:capture BROKER_HOST=<host> BROKER_PORT=<port>` (no `CONTAINER=`) runs the capture driver on this
+  machine's Ruby against the broker over the network. A release image carries no Ruby, so staging the driver
+  into the container failed there (`sh: 1: ruby: not found`). The sign-on pair reaches the driver through its
+  environment, never its argv.
+- `rake wire:compare CAPTURED=<dir> [OUT=<tsv>]` prints SAME / SAME-ROWS / DIFFERENT / NEW / NOT-CAPTURED per
+  RPC for a scratch capture (`WIRE_FIXTURES_DIR=<dir>`) against the committed fixtures, so a capture from a
+  drifted container is visible before it replaces one (`RpmsRpc::WireCapture.compare`).
+
 ### Added — `Client::RpcMError`: an M error has a class of its own (#357)
 
 - `RpmsRpc::Client::RpcMError < RpcError` is raised when the server reports an M error: CIA error 1
