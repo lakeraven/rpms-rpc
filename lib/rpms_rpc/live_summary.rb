@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "digest"
 require "fileutils"
 require "json"
 require "time"
@@ -13,12 +14,14 @@ require "yaml"
 # unless every file is a green run of the single pinned build. A pending
 # marker, carrying this run's id, is written before specs load, so a run
 # that dies before the summary is recorded cannot leave the previous green
-# file in place, and only that run may replace the marker. Not loaded by
-# the gem entry point: a host process never needs it.
+# file in place, and only that run may replace the marker. Each summary
+# names the source it tested (source_fingerprint), and the guard refuses one
+# that is not the source being released (rpms-rpc#441). Not loaded by the gem
+# entry point: a host process never needs it.
 module RpmsRpc
   module LiveSummary
-    SCHEMA = 1
-    REQUIRED_FIELDS = %w[schema build build_source protocol persona runs assertions failures errors skips written_at].freeze
+    SCHEMA = 2
+    REQUIRED_FIELDS = %w[schema build build_source source protocol persona runs assertions failures errors skips written_at].freeze
     COUNT_FIELDS = %w[runs skips failures errors].freeze
     DEFAULT_DIR = "coverage/live"
     # The file name is the persona and the protocol, so anything else is refused.
@@ -64,13 +67,14 @@ module RpmsRpc
     # pending is true, and run_id is the non-blank token for this run, so
     # check refuses it until that same run's finished summary replaces it.
     # A blank run_id raises ArgumentError. Same env gate as write.
-    def mark_pending(path, persona:, protocol:, build:, build_source:, run_id:, env: ENV)
+    def mark_pending(path, persona:, protocol:, build:, build_source:, source:, run_id:, env: ENV)
       token = run_id.to_s.strip
       raise ArgumentError, "run_id #{run_id.inspect} is blank" if token.empty?
 
       write(path, {
         "build" => build,
         "build_source" => build_source,
+        "source" => source,
         "protocol" => protocol,
         "persona" => persona,
         "runs" => 0,
@@ -96,11 +100,50 @@ module RpmsRpc
       false
     end
 
-    # [ok, reasons]. Fail closed: a blank build, a missing directory, or any
+    # The source a pending marker was written for, or nil. The reporter
+    # compares it with the source at the end of the run, so a change made
+    # while the specs ran is never recorded as tested.
+    def marker_source(path)
+      data = JSON.parse(File.read(path))
+      data["source"] if data.is_a?(Hash)
+    rescue JSON::ParserError, SystemCallError, EncodingError
+      nil
+    end
+
+    # What the gem ships, as one token: SHA-256 over every file the gemspec
+    # in root lists, plus the gemspec, read from the working tree so an
+    # uncommitted change counts. CHANGELOG.md is not shipped, so a release
+    # section that quotes the live summary does not change it; a version bump
+    # does, so bump before the live run. ArgumentError without a gemspec.
+    def source_fingerprint(root)
+      gemspec = Dir.glob(File.join(root, "*.gemspec")).first
+      raise ArgumentError, "no gemspec in #{root}" unless gemspec
+
+      # Evaluated afresh: Gem::Specification.load caches by path, and a cached
+      # file list would miss a shipped file added since.
+      spec = eval(File.read(gemspec), TOPLEVEL_BINDING, gemspec) # rubocop:disable Security/Eval
+      names = (spec.files + [ File.basename(gemspec) ]).uniq.sort
+      digest = Digest::SHA256.new
+      names.each do |name|
+        path = File.join(root, name)
+        next unless File.file?(path)
+
+        digest << name << "    # [ok, reasons]. Fail closed: a blank build, a missing directory, or any
     # file that is not a green run of `build` is a reason. An exception in
     # one file becomes a reason for that file; it does not escape.
     def check(dir:, build:)
       reasons = refusal_reasons(dir, build)
+" << Digest::SHA256.file(path).hexdigest << "\n"
+      end
+      "sha256:#{digest.hexdigest}"
+    end
+
+    # [ok, reasons]. Fail closed: a blank build or source, a missing
+    # directory, or any file that is not a green run of `build` on `source`
+    # is a reason. An exception in one file becomes a reason for that file;
+    # it does not escape.
+    def check(dir:, build:, source:)
+      reasons = refusal_reasons(dir, build, source)
       [ reasons.empty?, reasons ]
     rescue StandardError => e
       [ false, [ "#{e.class}: #{e.message}" ] ]
@@ -141,7 +184,8 @@ module RpmsRpc
         persona: env["PERSONA"].to_s.strip,
         protocol: broker_protocol(env),
         build: build,
-        build_source: build_source
+        build_source: build_source,
+        source: source_fingerprint(root)
       }
     end
 
@@ -151,21 +195,22 @@ module RpmsRpc
       fields.to_h { |key, value| [ key.to_s, value ] }
     end
 
-    def refusal_reasons(dir, build)
+    def refusal_reasons(dir, build, source)
       return [ "expected build is blank" ] if build.nil? || build.to_s.strip.empty?
+      return [ "expected source is blank" ] if source.nil? || source.to_s.strip.empty?
       return [ missing_summary(dir) ] unless dir.is_a?(String) && File.directory?(dir)
 
       paths = Dir.glob(File.join(dir, "*.json")).sort
       return [ missing_summary(dir) ] if paths.empty?
 
-      paths.flat_map { |path| reasons_for(path, build) }
+      paths.flat_map { |path| reasons_for(path, build, source) }
     end
 
     def missing_summary(dir)
       "no live summary in #{dir} (missing or empty): run `rake test:live` against the pinned build"
     end
 
-    def reasons_for(path, build)
+    def reasons_for(path, build, source)
       name = File.basename(path)
       data = JSON.parse(File.read(path))
       return [ "#{name}: malformed JSON: expected an object" ] unless data.is_a?(Hash)
@@ -175,7 +220,10 @@ module RpmsRpc
         reasons << "#{name}: missing field #{field}" if !data.key?(field) || data[field].nil?
       end
       unless data["schema"].is_a?(Integer) && data["schema"] == SCHEMA
-        reasons << "#{name}: schema must be #{SCHEMA} (got #{data['schema'].inspect})" unless data["schema"].nil?
+        reasons << "#{name}: schema must be #{SCHEMA} (got #{data['schema'].inspect}); re-run `rake test:live` to replace it" unless data["schema"].nil?
+      end
+      if data.key?("source") && !data["source"].nil? && data["source"] != source
+        reasons << "#{name}: tested source #{data['source']} is not the source being released (#{source}); re-run `rake test:live`"
       end
       if data.key?("build") && !data["build"].nil? && data["build"] != build
         reasons << "#{name}: build #{data['build'].inspect} is not #{build}; re-run `rake test:live` for it, or delete the file"

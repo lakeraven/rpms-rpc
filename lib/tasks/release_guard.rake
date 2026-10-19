@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 
 # A release may be tagged only when live summaries prove a green run against
-# the single pinned rpms-ops build (rpms-rpc#361, ADR 0010 assertion 10).
+# the single pinned rpms-ops build (rpms-rpc#361, ADR 0010 assertion 10), of
+# the very files the gem ships (rpms-rpc#441).
 # This task runs before Bundler tags or pushes. It does not tag, publish,
 # or read the build off a server.
 namespace :release do
@@ -17,10 +18,16 @@ namespace :release do
       abort "release:live_guard: refusing to release: #{e.message}"
     end
 
+    begin
+      source = RpmsRpc::LiveSummary.source_fingerprint(root)
+    rescue StandardError => e
+      abort "release:live_guard: refusing to release: #{e.message}"
+    end
+
     dir = File.expand_path(RpmsRpc::LiveSummary.dir, root)
-    ok, reasons = RpmsRpc::LiveSummary.check(dir: dir, build: build)
+    ok, reasons = RpmsRpc::LiveSummary.check(dir: dir, build: build, source: source)
     if ok
-      puts "release:live_guard: OK #{build} (not verified against the server)"
+      puts "release:live_guard: OK #{build} on source #{source} (build not verified against the server)"
       RpmsRpc::LiveSummary.outcomes(dir).each { |line| puts "  #{line}" }
     else
       abort [ "release:live_guard: refusing to release:", *reasons ].join("\n")
@@ -57,6 +64,7 @@ namespace :test do
         protocol: identity[:protocol],
         build: identity[:build],
         build_source: identity[:build_source],
+        source: identity[:source],
         run_id: token
       )
       abort "test:live_summary_pending: no pending marker at #{path}; refusing to run" unless summary.pending_for?(path, token)

@@ -48,6 +48,7 @@
 # were loaded, and a run whose file is not the pending marker for this
 # LIVE_RUN_ID: Ctrl-C still reaches report, and writing any of those would
 # replace the pending marker, or another run's file, with a green-looking one.
+# So is a run during which the files the gem ships changed (rpms-rpc#441).
 require "minitest/autorun"
 require "rpms_rpc/mappings"
 require "rpms_rpc/cia_client"
@@ -231,6 +232,10 @@ module LiveSpec
         io.puts "NOT RECORDED: no pending marker for this run (run the live specs with rake test:live)"
         return
       end
+      unless RpmsRpc::LiveSummary.marker_source(path) == identity[:source]
+        io.puts "NOT RECORDED: the shipped source changed during the run (rpms-rpc#441); re-run rake test:live"
+        return
+      end
       RpmsRpc::LiveSummary.write(path, summary_document(identity), env: @env)
     rescue ArgumentError => e
       io.puts "NOT RECORDED: #{e.message}"
@@ -251,6 +256,7 @@ module LiveSpec
       {
         "build" => identity[:build],
         "build_source" => identity[:build_source],
+        "source" => identity[:source],
         "protocol" => identity[:protocol],
         "persona" => identity[:persona],
         "runs" => count,

@@ -151,7 +151,7 @@ class LiveSpecGuardTest < Minitest::Test
 
     out = summary[:io].string
     assert_match(/backend\s+127\.0\.0\.1:19300/, out)
-    assert_match(/build\s+\S+.*pinned, not verified/, out)
+    assert_match(/build\s+bcer-9\.0-\S+-(ydb|iris) \(pinned, not verified/, out)
     assert_match(/persona\s+PROV123/, out)
     assert_match(/1 runs, 0 assertions, 0 failures, 0 errors, 1 skips/, out)
     assert_match(/#310\s+1\s/, out)
@@ -183,9 +183,30 @@ class LiveSpecGuardTest < Minitest::Test
       assert_match(/1 of 3|partial|interrupted/, io.string)
       data = JSON.parse(File.read(path))
       assert_equal true, data["pending"]
-      ok, reasons = RpmsRpc::LiveSummary.check(dir: tmpdir, build: data["build"])
+      ok, reasons = RpmsRpc::LiveSummary.check(dir: tmpdir, build: data["build"], source: data["source"])
       refute ok
       assert_match(/pending/i, reasons.join(" "))
+    end
+  end
+
+  # rpms-rpc#441: a run whose shipped files changed after the marker was written
+  # is not recorded, so the result is never attributed to a source it did not test.
+  def test_a_run_whose_source_changed_midway_is_not_recorded
+    Dir.mktmpdir do |tmpdir|
+      env = FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir)
+      path = mark_pending_in(tmpdir, env: env)
+      data = JSON.parse(File.read(path))
+      data["source"] = "sha256:#{'0' * 64}" # the tree as it stood when the run began
+      File.write(path, "#{JSON.generate(data)}\n")
+
+      io = StringIO.new
+      reporter = LiveSpec::Summary.new(io, env: env, expected_runs: 1)
+      reporter.start
+      reporter.record(PassingProbe.new(:test_passes).run)
+      reporter.report
+
+      assert_match(/NOT RECORDED: the shipped source changed during the run/, io.string)
+      assert_equal true, JSON.parse(File.read(path))["pending"]
     end
   end
 
@@ -346,7 +367,7 @@ class LiveSpecGuardTest < Minitest::Test
       data = JSON.parse(File.read(paths.first))
       assert_equal 0, data["runs"]
 
-      ok, reasons = RpmsRpc::LiveSummary.check(dir: tmpdir, build: data["build"])
+      ok, reasons = RpmsRpc::LiveSummary.check(dir: tmpdir, build: data["build"], source: data["source"])
       refute ok
       assert_match(/no live spec ran|pending/i, reasons.join(" "))
     end
@@ -414,6 +435,7 @@ class LiveSpecGuardTest < Minitest::Test
       protocol: identity[:protocol],
       build: identity[:build],
       build_source: identity[:build_source],
+      source: identity[:source],
       run_id: marker_run_id,
       env: env
     }

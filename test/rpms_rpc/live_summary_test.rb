@@ -14,17 +14,18 @@ module RpmsRpc
   class LiveSummaryTest < Minitest::Test
     REPO_ROOT = File.expand_path("../..", __dir__)
     SYNTHETIC_BUILD = "bcer-9.0-20990101-abc1234-ydb"
+    SYNTHETIC_SOURCE = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
     def test_missing_summary_refuses
       Dir.mktmpdir do |parent|
         missing = File.join(parent, "no-such-live-summary-dir")
-        _ok, reasons = LiveSummary.check(dir: missing, build: SYNTHETIC_BUILD)
+        _ok, reasons = LiveSummary.check(dir: missing, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE)
         refute _ok
         assert_match(/no summary|missing|empty/i, reasons.join(" "))
 
         empty = File.join(parent, "empty")
         FileUtils.mkdir_p(empty)
-        _ok, reasons = LiveSummary.check(dir: empty, build: SYNTHETIC_BUILD)
+        _ok, reasons = LiveSummary.check(dir: empty, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE)
         refute _ok
         assert_match(/no summary|missing|empty/i, reasons.join(" "))
       end
@@ -93,16 +94,84 @@ module RpmsRpc
 
     def test_unknown_schema_refuses
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("schema" => 2))
+        write_summary(dir, "PERSONA_A.json", summary_fields("schema" => 3))
         _ok, reasons = refuse_check(dir)
         assert_match(/schema/i, reasons.join(" "))
+      end
+    end
+
+    # rpms-rpc#441: a summary from before source identity says how to replace it.
+    def test_a_summary_without_source_identity_refuses_and_says_rerun
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields("schema" => 1).except("source"))
+        _ok, reasons = refuse_check(dir)
+        assert_match(/schema must be 2 \(got 1\); re-run `rake test:live`/, reasons.join(" "))
+        assert_match(/missing field source/, reasons.join(" "))
+      end
+    end
+
+    # rpms-rpc#441: green evidence for revision A cannot release revision B on the same build.
+    def test_green_evidence_for_another_source_refuses_on_the_same_build
+      Dir.mktmpdir do |dir|
+        revision_a = "sha256:#{'a' * 64}"
+        revision_b = "sha256:#{'b' * 64}"
+        write_summary(dir, "PERSONA_A.json", summary_fields("source" => revision_a))
+
+        assert LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: revision_a).first
+        _ok, reasons = refuse_check(dir, source: revision_b)
+        assert_match(/tested source #{revision_a} is not the source being released \(#{revision_b}\)/, reasons.join(" "))
+      end
+    end
+
+    def test_a_blank_expected_source_refuses
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields)
+        _ok, reasons = refuse_check(dir, source: " ")
+        assert_equal [ "expected source is blank" ], reasons
+      end
+    end
+
+    # The fingerprint is the files the gemspec ships, read from the working tree.
+    def test_source_fingerprint_follows_the_shipped_files_only
+      Dir.mktmpdir do |root|
+        File.write(File.join(root, "probe.gemspec"), <<~SPEC)
+          Gem::Specification.new do |spec|
+            spec.name = "probe"
+            spec.version = "0.0.1"
+            spec.summary = "probe"
+            spec.authors = [ "probe" ]
+            spec.files = Dir.chdir(__dir__) { Dir["lib/**/*"] }
+          end
+        SPEC
+        FileUtils.mkdir_p(File.join(root, "lib"))
+        File.write(File.join(root, "lib/probe.rb"), "A = 1\n")
+        File.write(File.join(root, "CHANGELOG.md"), "one\n")
+        first = LiveSummary.source_fingerprint(root)
+        assert_match(/\Asha256:[0-9a-f]{64}\z/, first)
+
+        File.write(File.join(root, "CHANGELOG.md"), "two: the release section quotes the live summary\n")
+        assert_equal first, LiveSummary.source_fingerprint(root), "CHANGELOG.md is not shipped"
+
+        File.write(File.join(root, "lib/probe.rb"), "A = 2\n")
+        changed = LiveSummary.source_fingerprint(root)
+        refute_equal first, changed, "an uncommitted edit to a shipped file counts"
+
+        File.write(File.join(root, "lib/added.rb"), "B = 1\n")
+        refute_equal changed, LiveSummary.source_fingerprint(root), "a shipped file added since counts"
+      end
+    end
+
+    def test_source_fingerprint_without_a_gemspec_raises
+      Dir.mktmpdir do |root|
+        error = assert_raises(ArgumentError) { LiveSummary.source_fingerprint(root) }
+        assert_match(/no gemspec/, error.message)
       end
     end
 
     def test_single_persona_is_allowed
       Dir.mktmpdir do |dir|
         write_summary(dir, "PERSONA_A.json", summary_fields)
-        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD)
+        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE)
         assert ok, reasons.join("\n")
         assert_empty reasons
 
@@ -116,7 +185,7 @@ module RpmsRpc
       Dir.mktmpdir do |dir|
         write_summary(dir, "PERSONA_A.json", summary_fields)
         write_summary(dir, "PERSONA_B.json", summary_fields("persona" => "PERSONA_B"))
-        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD)
+        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE)
         assert ok, reasons.join("\n")
         assert_empty reasons
       end
@@ -149,7 +218,7 @@ module RpmsRpc
         LiveSummary.write(path, fields, env: env)
         assert File.file?(path)
 
-        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD)
+        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE)
         assert ok, reasons.join("\n")
         assert_empty reasons
       end
@@ -251,7 +320,7 @@ module RpmsRpc
         assert_equal "1", ENV["LIVE_RUN"]
         assert LiveSummary.pending_for?(path, ENV["LIVE_RUN_ID"]),
                "the marker must replace the old green summary before specs load"
-        ok, reasons = LiveSummary.check(dir: File.dirname(path), build: build)
+        ok, reasons = LiveSummary.check(dir: File.dirname(path), build: build, source: repo_source)
         refute ok
         assert_match(/pending/, reasons.join(" "))
       end
@@ -384,7 +453,7 @@ module RpmsRpc
         ENV["LIVE_SUMMARY_DIR"] = tmpdir
         begin
           path = File.join(tmpdir, "PERSONA_A.json")
-          write_summary(tmpdir, "PERSONA_A.json", summary_fields("build" => build, "build_source" => "pinned"))
+          write_summary(tmpdir, "PERSONA_A.json", summary_fields("build" => build, "build_source" => "pinned", "source" => repo_source))
 
           Rake.application = Rake::Application.new
           Rake.application.init("rake")
@@ -427,14 +496,17 @@ module RpmsRpc
 
     private
 
+    # What the release tasks fingerprint when they run from this checkout.
+    def repo_source = @repo_source ||= LiveSummary.source_fingerprint(REPO_ROOT)
+
     def with_parallel_live_tasks
       original_app = Rake.application
       keys = %w[LIVE_RUN LIVE_RUN_ID BROKER_HOST BROKER_PROTOCOL PERSONA LIVE_SUMMARY_DIR LIVE_BUILD]
       saved = ENV.to_h.slice(*keys)
       Dir.mktmpdir do |dir|
         build = LiveSummary.pinned_build(File.join(REPO_ROOT, "data/fingerprints/rpms-ops.lock.yml"))
-        write_summary(dir, "PERSONA_A.json", summary_fields("build" => build))
-        assert LiveSummary.check(dir: dir, build: build).first, "fixture must start green"
+        write_summary(dir, "PERSONA_A.json", summary_fields("build" => build, "source" => repo_source))
+        assert LiveSummary.check(dir: dir, build: build, source: repo_source).first, "fixture must start green"
 
         ENV.delete("LIVE_RUN")
         ENV.delete("LIVE_RUN_ID")
@@ -456,9 +528,10 @@ module RpmsRpc
 
     def summary_fields(overrides = {})
       {
-        "schema" => 1,
+        "schema" => 2,
         "build" => SYNTHETIC_BUILD,
         "build_source" => "pinned",
+        "source" => SYNTHETIC_SOURCE,
         "protocol" => "cia",
         "persona" => "PERSONA_A",
         "runs" => 120,
@@ -475,8 +548,8 @@ module RpmsRpc
       File.write(File.join(dir, filename), JSON.generate(fields))
     end
 
-    def refuse_check(dir, build: SYNTHETIC_BUILD)
-      ok, reasons = LiveSummary.check(dir: dir, build: build)
+    def refuse_check(dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE)
+      ok, reasons = LiveSummary.check(dir: dir, build: build, source: source)
       refute ok
       refute_empty reasons
       [ ok, reasons ]
@@ -490,6 +563,7 @@ module RpmsRpc
         protocol: kwargs.fetch(:protocol, "cia"),
         build: kwargs.fetch(:build, SYNTHETIC_BUILD),
         build_source: kwargs.fetch(:build_source, "pinned"),
+        source: kwargs.fetch(:source, SYNTHETIC_SOURCE),
         run_id: run_id,
         env: env
       }
