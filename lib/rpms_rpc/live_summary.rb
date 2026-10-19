@@ -106,12 +106,14 @@ module RpmsRpc
       [ false, [ "#{e.class}: #{e.message}" ] ]
     end
 
-    # build_source values the summaries in dir name, once each, sorted.
-    # The guard prints them; it does not ask the server which build answered.
-    def build_sources(dir)
+    # One line per summary in dir, for the guard's OK message: how many live
+    # specs passed and how many were skipped, and the build_source. The guard
+    # passes a run with skips, so it says how many; it does not ask the server
+    # which build answered.
+    def outcomes(dir)
       return [] unless dir.is_a?(String) && File.directory?(dir)
 
-      Dir.glob(File.join(dir, "*.json")).sort.filter_map { |path| source_of(path) }.uniq.sort
+      Dir.glob(File.join(dir, "*.json")).sort.filter_map { |path| outcome_of(path) }
     end
 
     # The one release in the rpms-ops lock. Zero or several is an error:
@@ -176,7 +178,7 @@ module RpmsRpc
         reasons << "#{name}: schema must be #{SCHEMA} (got #{data['schema'].inspect})" unless data["schema"].nil?
       end
       if data.key?("build") && !data["build"].nil? && data["build"] != build
-        reasons << "#{name}: build #{data['build'].inspect} is not #{build}"
+        reasons << "#{name}: build #{data['build'].inspect} is not #{build}; re-run `rake test:live` for it, or delete the file"
       end
       counts = count_reasons(name, data, reasons)
       if counts.key?("failures") && counts.key?("errors") && counts["failures"] + counts["errors"] > 0
@@ -235,18 +237,19 @@ module RpmsRpc
       ""
     end
 
-    def source_of(path)
+    def outcome_of(path)
       data = JSON.parse(File.read(path))
       return nil unless data.is_a?(Hash)
 
-      source = data["build_source"]
-      source.to_s unless source.nil? || source.to_s.strip.empty?
+      runs = data["runs"].to_i
+      skips = data["skips"].to_i
+      "#{File.basename(path)}: #{runs - skips} passed, #{skips} skipped (#{data['build_source']})"
     rescue JSON::ParserError, SystemCallError
       nil
     end
 
     private_class_method :stringify_keys, :refusal_reasons, :missing_summary, :reasons_for,
                          :count_reasons, :release_keys, :summary_token, :broker_protocol,
-                         :coverage_release, :source_of
+                         :coverage_release, :outcome_of
   end
 end

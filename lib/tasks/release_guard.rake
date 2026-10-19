@@ -20,8 +20,8 @@ namespace :release do
     dir = File.expand_path(RpmsRpc::LiveSummary.dir, root)
     ok, reasons = RpmsRpc::LiveSummary.check(dir: dir, build: build)
     if ok
-      sources = RpmsRpc::LiveSummary.build_sources(dir).join(", ")
-      puts "release:live_guard: OK #{build} (#{sources}, not verified against the server)"
+      puts "release:live_guard: OK #{build} (not verified against the server)"
+      RpmsRpc::LiveSummary.outcomes(dir).each { |line| puts "  #{line}" }
     else
       abort [ "release:live_guard: refusing to release:", *reasons ].join("\n")
     end
@@ -36,6 +36,7 @@ end
 # marker depends on test:live_settings, which sets LIVE_RUN=1 and refuses an
 # incomplete broker env. List order alone does not enforce this under rake -m;
 # without the dependency the writer can stay quiet and a stale file survives.
+# The task then reads the marker back and aborts when it is not on disk.
 namespace :test do
   desc "Mark this live run's summary pending, with a run id, before specs load"
   task live_summary_pending: "test:live_settings" do
@@ -58,22 +59,16 @@ namespace :test do
         build_source: identity[:build_source],
         run_id: token
       )
+      abort "test:live_summary_pending: no pending marker at #{path}; refusing to run" unless summary.pending_for?(path, token)
     rescue ArgumentError => e
       abort "test:live_summary_pending: #{e.message}; check PERSONA and BROKER_PROTOCOL"
     end
   end
 end
 
-# The marker is a prerequisite of the live action, and its own dependency
-# above ensures settings finish first even under parallel prerequisite
-# execution. Retain the explicit settings link for ordinary task listings.
-if Rake::Task.task_defined?("test:live")
-  live = Rake::Task["test:live"]
-  if Rake::Task.task_defined?("test:live_settings") && !live.prerequisites.include?("test:live_settings")
-    live.enhance([ "test:live_settings" ])
-  end
-  live.enhance([ "test:live_summary_pending" ])
-end
+# The marker is a prerequisite of the live action; its own dependency above
+# makes settings finish first even under parallel prerequisite execution.
+Rake::Task["test:live"].enhance([ "test:live_summary_pending" ]) if Rake::Task.task_defined?("test:live")
 
 # Bundler defines `release` before lib/tasks is loaded. enhance appends, and
 # a prerequisite runs in list order, so the guard has to lead: otherwise

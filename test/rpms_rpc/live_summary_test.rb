@@ -35,6 +35,8 @@ module RpmsRpc
         write_summary(dir, "PERSONA_A.json", summary_fields("build" => "bcer-9.0-20990102-other000-ydb"))
         _ok, reasons = refuse_check(dir)
         assert_match(/build/i, reasons.join(" "))
+        # After a pin bump, a persona not re-run keeps the old build; say how out.
+        assert_match(/re-run `rake test:live` for it, or delete the file/, reasons.join(" "))
       end
     end
 
@@ -211,7 +213,7 @@ module RpmsRpc
           Rake.application = Rake::Application.new
           Rake.application.init("rake")
           Rake::Task.define_task("test:live_settings")
-          Rake::Task.define_task("test:live", [ "test:live_settings" ])
+          Rake::Task.define_task("test:live" => [ "test:live_settings" ])
           load File.join(REPO_ROOT, "lib/tasks/release_guard.rake")
 
           ENV["LIVE_RUN"] = "1"
@@ -282,15 +284,13 @@ module RpmsRpc
           Rake.application = Rake::Application.new
           Rake.application.init("rake")
           Rake::Task.define_task("test:live_settings")
-          Rake::Task.define_task("test:live", [ "test:live_settings" ])
+          Rake::Task.define_task("test:live" => [ "test:live_settings" ])
           load File.join(REPO_ROOT, "lib/tasks/release_guard.rake")
 
-          prereqs = Rake::Task["test:live"].prerequisites
-          idx_settings = prereqs.index("test:live_settings")
-          idx_pending = prereqs.index("test:live_summary_pending")
-          refute_nil idx_settings, prereqs.inspect
-          refute_nil idx_pending, prereqs.inspect
-          assert_operator idx_pending, :>, idx_settings
+          # The marker leads the live action, and settings lead the marker:
+          # a dependency, so it holds under rake -m where list order does not.
+          assert_includes Rake::Task["test:live"].prerequisites, "test:live_summary_pending"
+          assert_includes Rake::Task["test:live_summary_pending"].prerequisites, "test:live_settings"
 
           ENV["LIVE_RUN"] = "1"
           ENV["BROKER_HOST"] = "127.0.0.1"
@@ -325,7 +325,7 @@ module RpmsRpc
           Rake.application = Rake::Application.new
           Rake.application.init("rake")
           Rake::Task.define_task("test:live_settings")
-          Rake::Task.define_task("test:live", [ "test:live_settings" ])
+          Rake::Task.define_task("test:live" => [ "test:live_settings" ])
           load File.join(REPO_ROOT, "lib/tasks/release_guard.rake")
 
           ENV["LIVE_RUN"] = "1"
@@ -341,6 +341,19 @@ module RpmsRpc
           saved_summary_dir.nil? ? ENV.delete("LIVE_SUMMARY_DIR") : ENV["LIVE_SUMMARY_DIR"] = saved_summary_dir
           Rake.application = original_app
         end
+      end
+    end
+
+    def test_pending_task_aborts_when_the_marker_is_not_written
+      with_parallel_live_tasks do |path, _build|
+        # The writer stays quiet without a broker host. The task must not then
+        # run the specs with the old green summary still in place.
+        ENV["BROKER_HOST"] = " "
+        _out, err = capture_io do
+          assert_raises(SystemExit) { Rake::Task["test:live_summary_pending"].invoke }
+        end
+        assert_match(/no pending marker/, err)
+        refute LiveSummary.pending_for?(path, ENV["LIVE_RUN_ID"])
       end
     end
 
@@ -378,7 +391,9 @@ module RpmsRpc
           load File.join(REPO_ROOT, "lib/tasks/release_guard.rake")
 
           out, err = capture_io { Rake::Task["release:live_guard"].invoke }
-          assert_match(/OK .*(pinned|declared)/, out + err)
+          assert_match(/OK #{Regexp.escape(build)}/, out + err)
+          # A run with skips passes, so the OK names how many were skipped.
+          assert_match(/PERSONA_A\.json: 117 passed, 3 skipped \(pinned\)/, out + err)
         ensure
           saved_summary_dir.nil? ? ENV.delete("LIVE_SUMMARY_DIR") : ENV["LIVE_SUMMARY_DIR"] = saved_summary_dir
           Rake.application = original_app
@@ -478,15 +493,7 @@ module RpmsRpc
         run_id: run_id,
         env: env
       }
-      begin
-        LiveSummary.mark_pending(path, **pending_args)
-      rescue ArgumentError => e
-        raise unless e.message.include?("unknown keyword")
-        LiveSummary.mark_pending(path, **pending_args.except(:run_id))
-        data = JSON.parse(File.read(path))
-        data["run_id"] = run_id
-        File.write(path, "#{JSON.generate(data)}\n")
-      end
+      LiveSummary.mark_pending(path, **pending_args)
     end
   end
 end
