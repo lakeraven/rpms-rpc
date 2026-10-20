@@ -22,6 +22,16 @@ namespace :rpc do
 
     report = ApiCoverage.build(api_root)
     entries = report[:entries]
+    conflicts = ApiCoverage.shape_conflicts(entries)
+    unless conflicts.empty?
+      detail = conflicts.map do |group|
+        shape = group.first[:shape]
+        names = group.map { |e| "#{e[:module]}.#{e[:method]}" }.sort.join(", ")
+        "#{shape[:verb]} #{shape[:path]} (#{names})"
+      end
+      abort "rpc:api_coverage: declared shapes share a verb and path: #{detail.join('; ')}"
+    end
+
     out = File.expand_path(ENV["OUT"] || "coverage/api/methods.json", api_root)
     FileUtils.mkdir_p(File.dirname(out))
     File.write(out, JSON.pretty_generate(ApiCoverage.document(entries, registry_tag: report[:registry_tag])) + "\n")
