@@ -54,20 +54,28 @@ module RpmsRpc
       "user" => %i[view_own_referrals]
     }.freeze
 
+    # DEPRECATED (#359): each warns once per process. Answers are unchanged.
+    # can? and capabilities_for read permissions through role_permissions, so
+    # they do not also warn as permissions_for. Replacement: read the keys a
+    # user holds (#318) and decide policy in the host (ADR 0010).
     def self.permissions_for(user)
-      ROLE_PERMISSIONS[user.user_type] || ROLE_PERMISSIONS["user"]
+      warn_deprecated(:permissions_for)
+      role_permissions(user)
     end
 
     def self.can?(user, permission)
-      permissions_for(user).include?(permission.to_sym)
+      warn_deprecated(:can?)
+      role_permissions(user).include?(permission.to_sym)
     end
 
     # Aggregate all capabilities (role-based + key-derived) into a Set.
     def self.capabilities_for(user)
-      caps = Set.new(permissions_for(user))
+      warn_deprecated(:capabilities_for)
+      caps = Set.new(role_permissions(user))
 
-      # The deprecated checks still feed these, without warning: a host that
-      # reads capabilities_for gets what it got before (#314; removal is #359).
+      # The deprecated checks still feed these, without their own warning: a
+      # host that reads capabilities_for gets what it got before (#314;
+      # removal is #359). capabilities_for itself warns once, above.
       caps << :approve_referrals if deprecated_check(:can_approve_chs?, user)
       caps << :deny_referrals if deprecated_check(:can_approve_chs?, user)
       caps << :process_claims if deprecated_check(:can_process_chs?, user)
@@ -80,6 +88,13 @@ module RpmsRpc
       caps
     end
 
+    # Non-warning path. can? and capabilities_for call this so a host that
+    # calls them does not also see a permissions_for warning.
+    def self.role_permissions(user)
+      ROLE_PERMISSIONS[user.user_type] || ROLE_PERMISSIONS["user"]
+    end
+    private_class_method :role_permissions
+
     def self.deprecated_check(check, user)
       has_any_key?(user, *DEPRECATED_CHECKS.fetch(check).first)
     end
@@ -88,17 +103,29 @@ module RpmsRpc
     @deprecation_warned = {}
     @deprecation_lock = Mutex.new
 
+    # Public methods call this directly. uplevel 2 attributes the warning to
+    # their caller (the host), not to a frame in this file.
     def self.warn_deprecated(check)
       first = @deprecation_lock.synchronize { !@deprecation_warned.key?(check) && (@deprecation_warned[check] = true) }
       return unless first
 
-      names = DEPRECATED_CHECKS.fetch(check).last.join(", ")
-      warn "[rpms_rpc] DEPRECATED: RpmsRpc::Capabilities.#{check} tests names that are " \
-           "not a security key on the pinned build (#314), so no signed-on user holds them: #{names}. " \
-           "It will be removed (#359). Read the keys a user holds (#318) and decide policy in the host (ADR 0010).",
-           uplevel: 2
+      warn deprecation_message(check), uplevel: 2
     end
     private_class_method :warn_deprecated
+
+    def self.deprecation_message(check)
+      entry = DEPRECATED_CHECKS[check]
+      if entry
+        names = entry.last.join(", ")
+        "[rpms_rpc] DEPRECATED: RpmsRpc::Capabilities.#{check} tests names that are " \
+          "not a security key on the pinned build (#314), so no signed-on user holds them: #{names}. " \
+          "It will be removed (#359). Read the keys a user holds (#318) and decide policy in the host (ADR 0010)."
+      else
+        "[rpms_rpc] DEPRECATED: RpmsRpc::Capabilities.#{check} is role vocabulary in the gem. " \
+          "It will be removed (#359). Read the keys a user holds (#318) and decide policy in the host (ADR 0010)."
+      end
+    end
+    private_class_method :deprecation_message
 
     # For tests: let each deprecated check warn again.
     def self.reset_deprecation_warnings!
