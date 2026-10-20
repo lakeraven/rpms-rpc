@@ -1,8 +1,10 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "json"
 require "rpms_rpc"
 require_relative "../../tools/api_coverage/api_coverage"
+require_relative "../../tools/openapi/client_api"
 
 # Issue #389: declared resource/verb/path per public API method; rpc:api_coverage reports shape.
 class ShapeTest < Minitest::Test
@@ -66,6 +68,10 @@ class ShapeTest < Minitest::Test
     refute_empty shape[:resource].to_s
     refute_empty shape[:path].to_s
 
+    validate_shape = RpmsRpc::Shape.for(RpmsRpc::Vital, :validate)
+    assert_equal "POST", validate_shape[:verb]
+    assert_equal "/patients/{dfn}/vitals/validate", validate_shape[:path]
+
     rpc_sending = ApiCoverage.build(ROOT)[:entries].select do |e|
       e[:module] == "RpmsRpc::Vital" && !e[:rpcs].empty?
     end
@@ -73,6 +79,34 @@ class ShapeTest < Minitest::Test
 
     rpc_sending.each do |e|
       assert_equal "declared", e[:shape_status], "#{e[:module]}.#{e[:method]}"
+    end
+  end
+
+  def test_declared_shapes_have_no_verb_and_path_conflicts
+    entries = ApiCoverage.build(ROOT)[:entries]
+    conflicts = ApiCoverage.shape_conflicts(entries)
+    message = conflicts.map do |group|
+      shape = group.first[:shape]
+      methods = group.map { |e| "#{e[:module]}.#{e[:method]}" }.sort.join(", ")
+      "#{shape[:verb]} #{shape[:path]}: #{methods}"
+    end.join("\n")
+
+    assert_empty conflicts, message
+  end
+
+  def test_declared_vital_shapes_match_openapi_client_api
+    vital_entries = ApiCoverage.build(ROOT)[:entries].select do |e|
+      e[:module] == "RpmsRpc::Vital" && e[:shape_status] == "declared"
+    end
+    refute_empty vital_entries, "expected declared Vital shapes"
+
+    vital_entries.each do |entry|
+      openapi = OpenApi::ClientApi.address(JSON.parse(JSON.generate(entry)))
+      declared = entry[:shape]
+      assert_equal openapi[:verb].upcase, declared[:verb],
+                   "#{entry[:module]}.#{entry[:method]} verb"
+      assert_equal openapi[:path], declared[:path],
+                   "#{entry[:module]}.#{entry[:method]} path (OpenAPI #{openapi[:verb].upcase} #{openapi[:path]})"
     end
   end
 
@@ -192,6 +226,60 @@ class ShapeTest < Minitest::Test
         RpmsRpc::Shape.declare(mod, :slot, verb: verb, **attrs)
       end
     end
+  end
+
+  def test_declare_rejects_resource_with_surrounding_whitespace
+    mod = Module.new do
+      extend self
+      def real; end
+    end
+    shape = { resource: " vitals ", verb: "GET", path: "/vitals" }
+
+    assert_raises(ArgumentError) do
+      RpmsRpc::Shape.declare(mod, :real, **shape)
+    end
+  end
+
+  def test_declare_rejects_non_canonical_paths
+    mod = Module.new do
+      extend self
+      def real; end
+    end
+    valid_shape = { resource: "vitals", verb: "GET" }
+
+    [
+      "/a//b",
+      "/a/./b",
+      "/a/../b",
+      "/a b",
+      "/a?q=1",
+      "/a#x",
+      "/a\n"
+    ].each do |path|
+      assert_raises(ArgumentError) do
+        RpmsRpc::Shape.declare(mod, :real, **valid_shape, path: path)
+      end
+    end
+
+    RpmsRpc::Shape.declare(mod, :real, **valid_shape, path: "/patients/{dfn}/vitals")
+    singleton = Module.new { def self.real; end }
+    RpmsRpc::Shape.declare(singleton, :real, **valid_shape, path: "/")
+  end
+
+  def test_declared_shape_strings_are_frozen_copies
+    mod = Module.new do
+      extend self
+      def real; end
+    end
+    path = +"/x"
+    RpmsRpc::Shape.declare(mod, :real, resource: "vitals", verb: "GET", path: path)
+    path << "/y"
+
+    shape = RpmsRpc::Shape.for(mod, :real)
+    assert_equal "/x", shape[:path]
+    assert shape[:path].frozen?
+    assert shape[:resource].frozen?
+    assert shape[:verb].frozen?
   end
 
   def test_shape_conflicts_treats_placeholder_names_as_same_route
