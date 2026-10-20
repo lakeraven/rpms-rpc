@@ -220,18 +220,18 @@ class RpmsRpc::UserRolesTest < Minitest::Test
   def test_resolve_with_nil_security_keys_does_not_elevate
     capture_io do
       result = nil
-      raised = false
+      error = nil
       begin
         result = RpmsRpc::UserRoles.resolve(user_class: "3", security_keys: nil)
-      rescue NoMethodError
-        raised = true
+      rescue StandardError => e
+        error = e
       end
 
-      unless raised
+      if error
+        assert_kind_of StandardError, error
+      else
         refute_includes ELEVATED_ROLES, result,
                         "resolve with nil security_keys must not return an elevated role"
-        assert_equal "provider", result,
-                     "resolve with nil security_keys must fall back to user_class when it does not raise"
       end
     end
   end

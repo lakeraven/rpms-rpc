@@ -45,9 +45,13 @@ class RpmsRpc::NoRoleVocabularyTest < Minitest::Test
     VOCABULARY_PATTERNS.any? { |pat| source.match?(pat) }
   end
 
+  def read_source_utf8(path)
+    File.binread(path).encode("UTF-8", invalid: :replace, undef: :replace)
+  end
+
   def allowlisted_sources
     root = File.expand_path("../..", __dir__)
-    ALLOWLISTED.map { |rel| File.read(File.join(root, rel), encoding: "UTF-8") }
+    ALLOWLISTED.map { |rel| read_source_utf8(File.join(root, rel)) }
   end
 
   def test_each_vocabulary_pattern_matches_an_allowlisted_file
@@ -88,8 +92,11 @@ class RpmsRpc::NoRoleVocabularyTest < Minitest::Test
 
     lib_root = File.join(root, "lib")
     paths = []
-    Dir.glob(File.join(lib_root, "**", "*")).sort.each do |abs|
+    Dir.glob(File.join(lib_root, "**", "*"), File::FNM_DOTMATCH).sort.each do |abs|
       next unless File.file?(abs)
+
+      base = File.basename(abs)
+      next if base == "." || base == ".."
 
       paths << abs
     end
@@ -98,7 +105,7 @@ class RpmsRpc::NoRoleVocabularyTest < Minitest::Test
       rel = abs.delete_prefix("#{root}/")
       next if ALLOWLISTED.include?(rel)
 
-      source = File.read(abs, encoding: "UTF-8")
+      source = read_source_utf8(abs)
       next unless vocabulary?(source)
 
       violations << rel
