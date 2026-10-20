@@ -8,6 +8,8 @@ require_relative "../../tools/api_coverage/api_coverage"
 class ShapeTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
   BASELINE = File.join(__dir__, "undeclared_baseline.txt")
+  # Baseline line count when the ratchet was introduced; may only be lowered.
+  UNDECLARED_BASELINE_MAX_LINES = 199
 
   def test_every_public_method_that_sends_rpcs_is_declared_or_baselined
     report = ApiCoverage.build(ROOT)
@@ -122,5 +124,120 @@ class ShapeTest < Minitest::Test
     error = assert_raises { RpmsRpc::Shape.declare(mod, :not_defined_here, resource: "x", verb: "GET", path: "/x") }
     refute_match(/uninitialized constant/, error.message, "RpmsRpc::Shape must exist")
     assert_includes [ ArgumentError, NameError ], error.class
+  end
+
+  def test_declare_accepts_only_methods_defined_by_the_module_itself
+    extend_self_mod = Module.new do
+      extend self
+      def real; end
+
+      private
+
+      def helper; end
+    end
+    singleton_mod = Module.new do
+      def self.real; end
+    end
+    valid_shape = { resource: "vitals", verb: "GET", path: "/vitals" }
+
+    %i[name freeze print open send].each do |method|
+      assert_raises(ArgumentError) do
+        RpmsRpc::Shape.declare(extend_self_mod, method, **valid_shape)
+      end
+    end
+
+    assert_raises(ArgumentError) do
+      RpmsRpc::Shape.declare(extend_self_mod, :helper, **valid_shape)
+    end
+
+    assert_declare_rejected(RpmsRpc::Vital, :invalid_id?, valid_shape)
+    assert_declare_rejected(RpmsRpc::Vital, :shape, valid_shape)
+
+    RpmsRpc::Shape.declare(extend_self_mod, :real, **valid_shape)
+    RpmsRpc::Shape.declare(singleton_mod, :real, **valid_shape)
+  end
+
+  def test_redeclaring_with_different_shape_raises
+    mod = Module.new { def self.slot; end }
+    first = { resource: "vitals", verb: "GET", path: "/vitals" }
+    second = { resource: "vitals", verb: "GET", path: "/vitals/alt" }
+
+    RpmsRpc::Shape.declare(mod, :slot, **first)
+    assert_raises(ArgumentError) do
+      RpmsRpc::Shape.declare(mod, :slot, **second)
+    end
+  end
+
+  def test_redeclaring_with_identical_shape_is_idempotent
+    mod = Module.new { def self.slot; end }
+    shape = { resource: "vitals", verb: "GET", path: "/vitals" }
+
+    RpmsRpc::Shape.declare(mod, :slot, **shape)
+    RpmsRpc::Shape.declare(mod, :slot, **shape)
+  end
+
+  def test_declare_validates_resource_and_path
+    mod = Module.new { def self.slot; end }
+    verb = "GET"
+    invalid = [
+      { resource: nil, path: nil },
+      { resource: nil, path: "/vitals" },
+      { resource: "", path: "/vitals" },
+      { resource: "vitals", path: "vitals" },
+      { resource: "vitals", path: "/vitals/" }
+    ]
+
+    invalid.each do |attrs|
+      assert_raises(ArgumentError) do
+        RpmsRpc::Shape.declare(mod, :slot, verb: verb, **attrs)
+      end
+    end
+  end
+
+  def test_shape_conflicts_treats_placeholder_names_as_same_route
+    entry = lambda do |verb, path, method|
+      {
+        module: "Synthetic",
+        method: method,
+        rpcs: [ { name: "SYNTH RPC" } ],
+        shape_status: "declared",
+        shape: { resource: "vitals", verb: verb, path: path }
+      }
+    end
+
+    dfn_path = entry.call("GET", "/patients/{dfn}/vitals", "with_dfn")
+    id_path = entry.call("GET", "/patients/{id}/vitals", "with_id")
+    conflicts = ApiCoverage.shape_conflicts([ dfn_path, id_path ])
+    refute_empty conflicts,
+                 "expected conflict for paths that differ only in placeholder name"
+
+    post = entry.call("POST", "/patients/{dfn}/vitals", "post_variant")
+    assert_empty ApiCoverage.shape_conflicts([ dfn_path, post ])
+  end
+
+  def test_undeclared_baseline_has_no_duplicates_and_bounded_size
+    lines = File.readlines(BASELINE, chomp: true).reject(&:empty?)
+    duplicates = lines.tally.select { |_line, count| count > 1 }.keys
+
+    assert_empty duplicates,
+                 "duplicate baseline entries:\n#{duplicates.join("\n")}"
+    assert_operator lines.size, :<=, UNDECLARED_BASELINE_MAX_LINES,
+                    "baseline has #{lines.size} lines; lower UNDECLARED_BASELINE_MAX_LINES when shrinking"
+  end
+
+  def assert_declare_rejected(mod, method, shape)
+    raised = false
+    begin
+      RpmsRpc::Shape.declare(mod, method, **shape)
+    rescue ArgumentError
+      raised = true
+    ensure
+      undeclare_shape(mod, method) unless raised
+    end
+    assert raised, "expected ArgumentError declaring #{mod}.#{method}"
+  end
+
+  def undeclare_shape(mod, method)
+    RpmsRpc::Shape.send(:declarations).delete([ mod, method.to_sym ])
   end
 end
