@@ -5,13 +5,17 @@ module RpmsRpc
   # A declaration names the shape a host's HTTP facade would expose. It does not
   # send an RPC, and it does not change a mapping or the wire.
   #
-  # Verbs are GET, PUT, POST and DELETE. resource is a non-blank String. path is
-  # a String starting with "/" and not ending with "/" (the root path "/" is
-  # allowed). The method must be public and defined by the module itself: a
-  # public singleton method, or a public instance method when the module extends
-  # itself. Inherited methods and private methods are refused. Declaring the
-  # same method again with a different shape raises ArgumentError; an identical
-  # declaration is left as it is.
+  # Verbs are GET, PUT, POST and DELETE. resource is a non-blank String with no
+  # leading or trailing whitespace. path is a canonical absolute path: a String
+  # starting with "/", "/" alone allowed; otherwise no trailing "/", every
+  # segment non-empty and neither "." nor "..", and no whitespace, "?" or "#".
+  # resource and path are stored as frozen copies, so changing the caller's
+  # string later does not change the declaration. The method must be public and
+  # defined by the module itself: a public singleton method, or a public
+  # instance method when the module extends itself. Inherited methods and
+  # private methods are refused. Declaring the same method again with a
+  # different shape raises ArgumentError; an identical declaration (same values)
+  # is left as it is.
   module Shape
     VERBS = %w[GET PUT POST DELETE].freeze
 
@@ -27,13 +31,16 @@ module RpmsRpc
       def declare(mod, method, resource:, verb:, path:)
         verb = verb.to_s
         raise ArgumentError, "verb must be one of #{VERBS.join(', ')} (got #{verb.inspect})" unless VERBS.include?(verb)
-        raise ArgumentError, "resource must be a non-blank String (got #{resource.inspect})" unless non_blank_string?(resource)
-        raise ArgumentError, "path must be a String starting with / and not ending with / (got #{path.inspect})" unless valid_path?(path)
+        raise ArgumentError, "resource must be a non-blank String with no leading or trailing whitespace (got #{resource.inspect})" unless valid_resource?(resource)
+        raise ArgumentError, "path must be a canonical absolute path (got #{path.inspect})" unless valid_path?(path)
 
         name = method.to_sym
         raise ArgumentError, "#{mod} does not define #{name}" unless defines?(mod, name)
 
-        shape = { resource: resource, verb: verb, path: path }.freeze
+        # Copies, not the caller's objects: a later mutation of those strings
+        # must not change the stored shape. Equality stays by value, so an
+        # identical redeclare still matches.
+        shape = { resource: String.new(resource).freeze, verb: String.new(verb).freeze, path: String.new(path).freeze }.freeze
         key = [ mod, name ].freeze
         existing = declarations[key]
         return existing if existing == shape
@@ -57,13 +64,19 @@ module RpmsRpc
         @declarations ||= {}
       end
 
-      def non_blank_string?(value)
-        value.is_a?(String) && !value.strip.empty?
+      # Non-blank, and no leading or trailing whitespace (a stripped copy would differ).
+      def valid_resource?(value)
+        value.is_a?(String) && !value.empty? && value == value.strip
       end
 
-      # "/" is a path. Every other path starts with "/" and does not end with "/".
+      # "/" is a path. Every other path starts with "/", does not end with "/",
+      # has no empty, "." or ".." segment, and contains no whitespace, "?" or "#".
       def valid_path?(path)
-        path.is_a?(String) && path.start_with?("/") && (path == "/" || !path.end_with?("/"))
+        return false unless path.is_a?(String) && path.start_with?("/") && !path.match?(/[\s?#]/)
+        return true if path == "/"
+        return false if path.end_with?("/")
+
+        path.split("/", -1).drop(1).none? { |segment| segment.empty? || segment == "." || segment == ".." }
       end
 
       # A public method defined on mod, not inherited. `extend self` publishes

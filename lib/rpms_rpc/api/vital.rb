@@ -73,7 +73,7 @@ module RpmsRpc
       end
       { valid: errors.empty?, errors: errors }
     end
-    shape :validate, resource: "vitals", verb: "POST", path: "/patients/{dfn}/vitals/validation"
+    shape :validate, resource: "vitals", verb: "POST", path: "/patients/{dfn}/vitals/validate"
 
     # Bulk-save a set of measurements against an open visit.
     #
