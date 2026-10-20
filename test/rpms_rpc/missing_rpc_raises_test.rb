@@ -252,9 +252,15 @@ class MissingRpcRaisesTest < Minitest::Test
     c.call_rpc("ANY RPC")
   end
 
+  # BmxClient reads the SNDERR packets by their length bytes, then the data to
+  # EOT (rpms-rpc#200), so the frame goes in through the socket, EOT and all.
   def bmx_read(raw)
     c = RpmsRpc::BmxClient.new
-    c.define_singleton_method(:read_until_eot_raw) { raw.dup }
+    frame = raw.b + RpmsRpc::Client::EOT.b
+    socket = Object.new
+    socket.define_singleton_method(:recv) { |_n| frame.empty? ? "" : frame.slice!(0, frame.bytesize) }
+    c.instance_variable_set(:@socket, socket)
+    c.instance_variable_set(:@timeout, 1)
     c.send(:read_response)
   end
 end
