@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — BMX replies: recordsets split into rows, M errors in a recordset raise, the error packets read by length (#200)
+
+- `BmxClient#call_rpc` splits a GLOBAL ARRAY recordset (BMX SQL and the other BMX ADO reads) at `$C(30)` and
+  drops the `$C(31)` end marker, as `CiaClient#call_rpc` does. It returned the whole recordset as one line.
+  A query that matches nothing answers its typed header alone: an empty result, not an error.
+- ERRTRAP^BMXSQL's `M_ERROR` recordset (its row is `$$EC^%ZOSV`, e.g. `%YDB-E-LVUNDEF`) raises `RpcMError`,
+  and a query error written after the end marker (ERRTACK^BMXSQL, `"\x1FFIELD NOT FOUND"`) raises `RpcError`.
+  Both were returned as data.
+- The security and application packets are read by their length bytes before the data and its EOT. Reading to
+  the first EOT stopped inside a refusal that quoted an RPC name carrying an EOT byte, returned part of it as
+  data and left the rest for the next call.
+- `BROKER_PROTOCOL=bmx` runs the new live specs in `test/live/bmx/`; `test/fixtures/bmx/replies.yml` holds the
+  frames captured from a live BMX session.
+
+### Added — `rake wire:capture` host mode and `rake wire:compare` (rpms-ops#975)
+
+- `rake wire:capture BROKER_HOST=<host> BROKER_PORT=<port>` (no `CONTAINER=`) runs the capture driver on this
+  machine's Ruby against the broker over the network. A release image carries no Ruby, so staging the driver
+  into the container failed there (`sh: 1: ruby: not found`). The sign-on pair reaches the driver through its
+  environment, never its argv.
+- `rake wire:compare CAPTURED=<dir> [OUT=<tsv>]` prints SAME / SAME-ROWS / DIFFERENT / NEW / NOT-CAPTURED per
+  RPC for a scratch capture (`WIRE_FIXTURES_DIR=<dir>`) against the committed fixtures, so a capture from a
+  drifted container is visible before it replaces one (`RpmsRpc::WireCapture.compare`).
+
 ### Added — `Client::RpcMError`: an M error has a class of its own (#357)
 
 - `RpmsRpc::Client::RpcMError < RpcError` is raised when the server reports an M error: CIA error 1
