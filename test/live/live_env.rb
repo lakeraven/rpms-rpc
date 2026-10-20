@@ -11,13 +11,14 @@ module LiveSpec
 
   # The broker line a run speaks, from BROKER_PROTOCOL (default cia). Each
   # spec is written for one line: CIA specs live in test/live/, XWB specs in
-  # test/live/xwb/, and `rake test:live` loads only the directory of the
+  # test/live/xwb/, BMX specs in test/live/bmx/, and `rake test:live` loads only the directory of the
   # protocol the run names. A spec declares its line (`broker :xwb`), so one
   # loaded by path under the other protocol fails, naming the setting.
-  PROTOCOLS = %w[cia xwb].freeze
+  PROTOCOLS = %w[cia xwb bmx].freeze
   SPEC_GLOBS = {
     "cia" => "test/live/*_test.rb",
-    "xwb" => "test/live/xwb/**/*_test.rb"
+    "xwb" => "test/live/xwb/**/*_test.rb",
+    "bmx" => "test/live/bmx/**/*_test.rb"
   }.freeze
 
   module_function
@@ -27,7 +28,7 @@ module LiveSpec
     REQUIRED_ENV.select { |k| env[k].to_s.strip.empty? }
   end
 
-  # The run's broker protocol, "cia" or "xwb".
+  # The run's broker protocol: "cia", "xwb" or "bmx".
   def protocol(env = ENV)
     value = env["BROKER_PROTOCOL"].to_s.strip.downcase
     value.empty? ? "cia" : value
