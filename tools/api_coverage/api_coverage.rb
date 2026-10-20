@@ -432,12 +432,14 @@ module ApiCoverage
   end
 
   # Declared entries that share a verb and path. Resource is not part of the key.
+  # Placeholder names are normalized before grouping: each "{...}" becomes "{}",
+  # so "{dfn}" and "{id}" are the same route, while the verb stays in the key.
   # Returns the groups that contain more than one entry; an empty array when every
   # declared verb+path is unique. Entries with no shape are ignored.
   def shape_conflicts(entries)
     entries
       .select { |e| e[:shape_status] == "declared" && e[:shape] }
-      .group_by { |e| [ e[:shape][:verb], e[:shape][:path] ] }
+      .group_by { |e| [ e[:shape][:verb], e[:shape][:path].gsub(/\{[^}]*\}/, "{}") ] }
       .values
       .select { |group| group.size > 1 }
   end
