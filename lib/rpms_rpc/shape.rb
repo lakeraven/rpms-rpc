@@ -5,15 +5,20 @@ module RpmsRpc
   # A declaration names the shape a host's HTTP facade would expose. It does not
   # send an RPC, and it does not change a mapping or the wire.
   #
-  # Verbs are GET, PUT, POST and DELETE. resource is a non-blank String with no
-  # leading or trailing whitespace. path is a canonical absolute path: a String
-  # starting with "/", "/" alone allowed; otherwise no trailing "/", every
-  # segment non-empty and neither "." nor "..", and no whitespace, "?" or "#".
-  # resource and path are stored as frozen copies, so changing the caller's
-  # string later does not change the declaration. The method must be public and
-  # defined by the module itself: a public singleton method, or a public
-  # instance method when the module extends itself. Inherited methods and
-  # private methods are refused. Declaring the same method again with a
+  # Verbs are GET, PUT, POST and DELETE. resource is a single token matching
+  # /\A[a-z0-9_-]+\z/i (letters, digits, underscore, hyphen; no whitespace or
+  # other characters). path is a canonical absolute path: a String starting
+  # with "/", "/" alone allowed; otherwise no trailing "/", every segment
+  # non-empty and neither "." nor "..", and no whitespace, "?" or "#". A
+  # segment that contains "{" or "}" must be exactly "{name}", with name
+  # matching /\A[a-z_][a-z0-9_]*\z/i; any other brace use is refused
+  # ("/p/{dfn", "/p/dfn}", "/p/{}", "/p/{a/b}", "/p/{a}{b}"). resource and
+  # path are stored as frozen copies, so changing the caller's string later
+  # does not change the declaration. The method must be defined by the module
+  # itself and publicly callable on it (mod.respond_to?(name)): a public
+  # singleton method, or a public instance method when the module extends
+  # itself. Inherited methods, private methods, and a method hidden with
+  # private_class_method are refused. Declaring the same method again with a
   # different shape raises ArgumentError; an identical declaration (same values)
   # is left as it is.
   module Shape
@@ -31,8 +36,8 @@ module RpmsRpc
       def declare(mod, method, resource:, verb:, path:)
         verb = verb.to_s
         raise ArgumentError, "verb must be one of #{VERBS.join(', ')} (got #{verb.inspect})" unless VERBS.include?(verb)
-        raise ArgumentError, "resource must be a non-blank String with no leading or trailing whitespace (got #{resource.inspect})" unless valid_resource?(resource)
-        raise ArgumentError, "path must be a canonical absolute path (got #{path.inspect})" unless valid_path?(path)
+        raise ArgumentError, "resource must be a single token matching /\\A[a-z0-9_-]+\\z/i (got #{resource.inspect})" unless valid_resource?(resource)
+        raise ArgumentError, "path must be a canonical absolute path; a segment containing braces must be {name} (got #{path.inspect})" unless valid_path?(path)
 
         name = method.to_sym
         raise ArgumentError, "#{mod} does not define #{name}" unless defines?(mod, name)
@@ -64,25 +69,40 @@ module RpmsRpc
         @declarations ||= {}
       end
 
-      # Non-blank, and no leading or trailing whitespace (a stripped copy would differ).
+      # A single token: letters, digits, underscore and hyphen. The pattern
+      # already excludes a blank string and any surrounding or embedded whitespace.
       def valid_resource?(value)
-        value.is_a?(String) && !value.empty? && value == value.strip
+        value.is_a?(String) && value.match?(/\A[a-z0-9_-]+\z/i)
       end
 
       # "/" is a path. Every other path starts with "/", does not end with "/",
       # has no empty, "." or ".." segment, and contains no whitespace, "?" or "#".
+      # A segment containing "{" or "}" must be exactly "{name}".
       def valid_path?(path)
         return false unless path.is_a?(String) && path.start_with?("/") && !path.match?(/[\s?#]/)
         return true if path == "/"
         return false if path.end_with?("/")
 
-        path.split("/", -1).drop(1).none? { |segment| segment.empty? || segment == "." || segment == ".." }
+        path.split("/", -1).drop(1).all? { |segment| valid_segment?(segment) }
       end
 
-      # A public method defined on mod, not inherited. `extend self` publishes
-      # the module's own public instance methods; Shape::Declarable (shape)
-      # and private helpers stay out.
+      # Plain segments stay non-empty and neither "." nor "..". Braces are
+      # allowed only as a whole-segment "{name}" placeholder.
+      def valid_segment?(segment)
+        if segment.include?("{") || segment.include?("}")
+          segment.match?(/\A\{[a-z_][a-z0-9_]*\}\z/i)
+        else
+          !segment.empty? && segment != "." && segment != ".."
+        end
+      end
+
+      # Defined on mod, not inherited, and publicly callable (`mod.respond_to?`).
+      # `extend self` publishes the module's own public instance methods;
+      # Shape::Declarable (shape), private helpers, and `private_class_method`
+      # stay out. The instance method can remain public after
+      # `private_class_method`, so callability is checked separately.
       def defines?(mod, name)
+        return false unless mod.respond_to?(name)
         return true if mod.singleton_class.public_method_defined?(name, false)
         return false unless extends_self?(mod)
 
