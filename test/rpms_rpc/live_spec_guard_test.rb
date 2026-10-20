@@ -44,7 +44,8 @@ class LiveSpecGuardTest < Minitest::Test
     assert_equal "cia", LiveSpec.protocol({})
     assert_equal "xwb", LiveSpec.protocol("BROKER_PROTOCOL" => "XWB")
     assert_nil LiveSpec.protocol_error("BROKER_PROTOCOL" => "xwb")
-    assert_match(/not one of cia, xwb/, LiveSpec.protocol_error("BROKER_PROTOCOL" => "bmx"))
+    assert_nil LiveSpec.protocol_error("BROKER_PROTOCOL" => "bmx")
+    assert_match(/not one of cia, xwb, bmx/, LiveSpec.protocol_error("BROKER_PROTOCOL" => "rcis"))
   end
 
   # A mixed suite: each protocol's run loads only the specs written for it.

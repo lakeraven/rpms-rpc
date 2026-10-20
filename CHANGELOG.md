@@ -7,8 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the release guard reads live summaries bound to the pinned build and the released source (#361, #441)
+
 - Live summaries name the source they tested: a SHA-256 over every file the gemspec ships (#441). The release guard refuses a summary whose source is not the tree being released, a run during which a shipped file changed is not recorded, and summaries move to schema 2, so older ones are refused until `rake test:live` is re-run. The live run block names the pinned release, as the summary file does, rather than the registry file.
 - A release refuses to tag unless live summaries on disk show a green `rake test:live` against the pinned build (#361). CIA and XWB keep separate summary files, a run that dies before the summary is written leaves a pending file the guard refuses, and the same guard leads `release:source_control_push` and `release:rubygem_push`. `rake test:live` aborts before loading a spec when its pending file is not on disk, and the guard's OK names, per file, how many live specs passed and how many were skipped.
+
+### Fixed — BMX replies: recordsets split into rows, M errors in a recordset raise, the error packets read by length (#200)
+
+- `BmxClient#call_rpc` splits a GLOBAL ARRAY recordset (BMX SQL and the other BMX ADO reads) at `$C(30)` and
+  drops the `$C(31)` end marker, as `CiaClient#call_rpc` does. It returned the whole recordset as one line.
+  A query that matches nothing answers its typed header alone: an empty result, not an error.
+- ERRTRAP^BMXSQL's `M_ERROR` recordset (its row is `$$EC^%ZOSV`, e.g. `%YDB-E-LVUNDEF`) raises `RpcMError`,
+  and a query error written after the end marker (ERRTACK^BMXSQL, `"\x1FFIELD NOT FOUND"`) raises `RpcError`.
+  Both were returned as data.
+- The security and application packets are read by their length bytes before the data and its EOT. Reading to
+  the first EOT stopped inside a refusal that quoted an RPC name carrying an EOT byte, returned part of it as
+  data and left the rest for the next call.
+- `BROKER_PROTOCOL=bmx` runs the new live specs in `test/live/bmx/`; `test/fixtures/bmx/replies.yml` holds the
+  frames captured from a live BMX session.
+
+### Added — `rake wire:capture` host mode and `rake wire:compare` (rpms-ops#975)
+
+- `rake wire:capture BROKER_HOST=<host> BROKER_PORT=<port>` (no `CONTAINER=`) runs the capture driver on this
+  machine's Ruby against the broker over the network. A release image carries no Ruby, so staging the driver
+  into the container failed there (`sh: 1: ruby: not found`). The sign-on pair reaches the driver through its
+  environment, never its argv.
+- `rake wire:compare CAPTURED=<dir> [OUT=<tsv>]` prints SAME / SAME-ROWS / DIFFERENT / NEW / NOT-CAPTURED per
+  RPC for a scratch capture (`WIRE_FIXTURES_DIR=<dir>`) against the committed fixtures, so a capture from a
+  drifted container is visible before it replaces one (`RpmsRpc::WireCapture.compare`).
 
 ### Added — `Client::RpcMError`: an M error has a class of its own (#357)
 
@@ -164,6 +190,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CLASS and SERVICE/SECTION come from `DDR GETS ENTRY DATA` on NEW PERSON (#200), in CIAV
   VUECENTRIC. It is nil for an unknown or invalid IEN, and for Kernel's system entries .5 and .6.
   A role whose `name` is nil points at no entry.
+
+### Deprecated — Capabilities and UserRoles role vocabulary (#359)
+
+- `Capabilities.can?`, `Capabilities.permissions_for` and `Capabilities.capabilities_for` each warn
+  once per process, as do `UserRoles.for_class`, `UserRoles.class_for`, `UserRoles.mock_av_code`
+  and `UserRoles.resolve`. Their answers are unchanged. The seven `can_*?` checks
+  (`can_approve_chs?`, `can_process_chs?`, `can_manage_chs?`, `can_manage_consults?`,
+  `can_verify_eligibility?`, `can_access_behavioral_health?` and `can_access_dental?`) already warn
+  since 0.4.0 (#337). All of them will be removed in a later release (#359 follow-up). Read the
+  keys a user holds (#318) and decide roles in the host (ADR 0010).
+- `RpmsRpc::Capabilities::ROLE_PERMISSIONS`, `Capabilities::DEPRECATED_CHECKS`,
+  `UserRoles::USER_CLASS_MAP` and `UserRoles::REVERSE_CLASS_MAP` are deprecated with the modules.
+  They do not warn when read. Both modules and their constants are removed in the first release
+  after the one that ships these warnings (#359 follow-up).
 
 ## [0.4.0] — 2026-10-12
 

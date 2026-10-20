@@ -91,6 +91,34 @@ module RpmsRpc
          .any? { |row| row.match?(/\A-\d+(?:\.\d+)?\^/) }
     end
 
+    # Verdicts for a scratch capture against committed fixtures (rpms-ops#975),
+    # one [rpc, verdict, committed source, captured source] row per RPC called
+    # on either side. SAME: raw bytes identical. SAME-ROWS: the data rows
+    # match and only the CIA frame header differs (it counts the session's
+    # calls). DIFFERENT. NEW: the committed fixture has no raw return
+    # (routine-cite, or none). NOT-CAPTURED: the committed fixture has a raw
+    # return and the capture has none.
+    COMPARE_VERDICTS = %w[SAME SAME-ROWS DIFFERENT NEW NOT-CAPTURED].freeze
+
+    def self.compare(committed_dir, captured_dir)
+      load = ->(dir) { Fixture.load_all(dir).to_h { |f| [ f.rpc, f ] } }
+      committed = load.call(committed_dir)
+      captured = load.call(captured_dir)
+      (committed.keys | captured.keys).sort.filter_map do |rpc|
+        was = committed[rpc]&.raw_return
+        now = captured[rpc]&.raw_return
+        next if was.nil? && now.nil? # routine-cite on both sides: nothing was called
+
+        verdict = if now.nil? then "NOT-CAPTURED"
+        elsif was.nil? then "NEW"
+        elsif now == was then "SAME"
+        elsif data_rows(now) == data_rows(was) then "SAME-ROWS"
+        else "DIFFERENT"
+        end
+        [ rpc, verdict, committed[rpc]&.source || "-", captured[rpc]&.source || "-" ]
+      end
+    end
+
     def self.non_data_row?(line)
       return true if line.match?(/\A-\d+(?:\.\d+)?\^/)
 

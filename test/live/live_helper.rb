@@ -15,16 +15,17 @@
 # credential guard).
 #
 # Optional:
-#   BROKER_PROTOCOL            cia (default) or xwb: the broker line spoken
+#   BROKER_PROTOCOL            cia (default), xwb or bmx: the broker line spoken
 #   LIVE_BUILD                 the target's build, when it is not the pin
 #
 # One broker line per run. A spec is written for one line and declares it
 # (`broker :xwb`; undeclared is :cia). CIA specs live in test/live/, XWB specs
-# in test/live/xwb/, and `rake test:live` loads only the directory of the
+# in test/live/xwb/, BMX specs in test/live/bmx/, and `rake test:live` loads only the directory of the
 # run's BROKER_PROTOCOL, so a mixed suite never runs a spec on the wrong line.
 # A spec loaded by path under the other protocol fails, naming the setting.
 # Over CIA the harness signs on with CiaClient (CIANBRPC AUTH); over XWB with
-# XwbClient#authenticate (XUS SIGNON SETUP, XUS AV CODE). A spec that proves
+# XwbClient#authenticate (XUS SIGNON SETUP, XUS AV CODE); over BMX with
+# BmxClient#authenticate (the same two RPCs, BMX-framed). A spec that proves
 # sign-on itself declares `connect_only!`: the harness connects and leaves
 # the session unauthenticated.
 #
@@ -53,6 +54,7 @@ require "minitest/autorun"
 require "rpms_rpc/mappings"
 require "rpms_rpc/cia_client"
 require "rpms_rpc/xwb_client"
+require "rpms_rpc/bmx_client"
 require_relative "live_env"
 
 module LiveSpec
@@ -62,7 +64,7 @@ module LiveSpec
       def writes! = (@writes = true)
       def writes? = @writes == true
 
-      # Declare the broker line this spec is written for (:cia or :xwb).
+      # Declare the broker line this spec is written for (:cia, :xwb or :bmx).
       def broker(name = nil)
         @broker = name.to_s if name
         @broker || (superclass.respond_to?(:broker) ? superclass.broker : "cia")
@@ -117,7 +119,7 @@ module LiveSpec
 
     private
 
-    BROKER_CLIENTS = { "cia" => RpmsRpc::CiaClient, "xwb" => RpmsRpc::XwbClient }.freeze
+    BROKER_CLIENTS = { "cia" => RpmsRpc::CiaClient, "xwb" => RpmsRpc::XwbClient, "bmx" => RpmsRpc::BmxClient }.freeze
 
     def sign_on
       host = ENV.fetch("BROKER_HOST")

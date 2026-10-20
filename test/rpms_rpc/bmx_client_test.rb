@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "yaml"
 require "rpms_rpc/bmx_client"
+require "rpms_rpc/data_mapper"
 
 class RpmsRpc::BmxClientTest < Minitest::Test
   Client = RpmsRpc::BmxClient
@@ -233,5 +235,81 @@ class RpmsRpc::BmxClientTest < Minitest::Test
     refute_empty client.instance_variable_get(:@socket).writes
   ensure
     RpmsRpc.reset!
+  end
+  # -- replies captured from a live stock BMX session (rpms-rpc#200) ----------
+  #
+  # test/fixtures/bmx/replies.yml holds each frame VERBATIM, every byte the
+  # broker wrote for one call (see its header for the image and date). No frame
+  # below is hand-written.
+
+  REPLIES = YAML.safe_load_file(File.expand_path("../fixtures/bmx/replies.yml", __dir__))
+
+  def frame(name) = REPLIES.fetch(name).fetch("frame").b
+
+  # A recordset is ONE line on the BMX wire: $C(30) ends each node, $C(31)
+  # starts the last. call_rpc splits at $C(30) and drops the end marker, as
+  # CiaClient#call_rpc does, so the DataMapper sees the header row and records.
+  def test_a_recordset_reply_splits_into_its_header_and_rows
+    client = connected_client([ frame("rows") ])
+    assert_equal [ "T00016NAME", "ADAM,ADAM", "BSTS,PROXY USER" ], client.call_rpc("BMX SQL", "q")
+  end
+
+  def test_a_multi_column_recordset_keeps_each_row_caret_delimited
+    client = connected_client([ frame("rows_two_columns") ])
+    assert_equal [ "T00015NAME^T00005SEX", "USER,TEST^MALE", "MOUSE,MICKEY M^MALE" ],
+                 client.call_rpc("BMX SQL", "q")
+  end
+
+  # A query that matches nothing answers its typed header and the end marker:
+  # an empty result set, not an error, and no data row.
+  def test_a_header_only_reply_is_an_empty_result_not_an_error
+    rows = connected_client([ frame("header_only") ]).call_rpc("BMX SQL", "q")
+    assert_equal [ "T00050NAME" ], rows
+    assert_empty rows.reject { |r| RpmsRpc::DataMapper.recordset_header_row?(r) }
+  end
+
+  # ERRTRAP^BMXSQL answers an M error as a one-column recordset, M_ERROR, whose
+  # row is $$EC^%ZOSV (here %YDB-E-LVUNDEF). It is an RpcMError, never a row.
+  def test_an_m_error_recordset_raises_instead_of_returning_rows
+    client = connected_client([ frame("m_error_recordset") ])
+    error = assert_raises(RpmsRpc::Client::RpcMError) { client.call_rpc("BMX SQL", "q") }
+    assert_includes error.message, "%YDB-E-LVUNDEF"
+    assert_includes error.message, "FIELDS+14~BMXSQL6"
+  end
+
+  # ERRTACK^BMXSQL writes the query error AFTER the $C(31) end marker.
+  def test_text_after_the_recordset_end_marker_raises_as_a_query_error
+    client = connected_client([ frame("query_error") ])
+    error = assert_raises(RpmsRpc::Client::RpcError) { client.call_rpc("BMX SQL", "q") }
+    refute_kind_of RpmsRpc::Client::RpcMError, error
+    assert_includes error.message, "FIELD NOT FOUND"
+  end
+
+  # BMXMON's ETRAP: "M ERROR=" (one space) as DATA, both packet lengths 0.
+  def test_an_etrap_m_error_with_a_ydb_code_raises
+    client = connected_client([ frame("m_error_etrap") ])
+    error = assert_raises(RpmsRpc::Client::RpcMError) { client.call_rpc("BMX SQL", "a", "b", "c", "d", "e") }
+    assert_includes error.message, "%YDB-E-ACTLSTTOOLONG"
+  end
+
+  # The read order: len(security) + security, len(application) + application,
+  # data, EOT. An unknown RPC is refused in the security packet.
+  def test_an_unknown_rpc_is_refused_in_the_security_packet
+    client = connected_client([ frame("unknown_rpc") ])
+    assert_raises(RpmsRpc::Client::RpcNotAvailableError) { client.call_rpc("ZZZ NO SUCH RPC") }
+  end
+
+  # The security text quotes the RPC name, so it can carry an EOT byte. Read by
+  # its length byte, the whole frame is consumed and the NEXT call reads its own
+  # reply. Both frames arrive in one segment, and again a byte at a time.
+  def test_an_eot_inside_the_security_text_does_not_desynchronize_the_socket
+    [ [ frame("unknown_rpc_eot_in_name") + frame("header_only") ],
+      (frame("unknown_rpc_eot_in_name") + frame("header_only")).chars ].each do |reads|
+      client = connected_client(reads)
+      error = assert_raises(RpmsRpc::Client::RpcNotAvailableError) { client.call_rpc("ZZ\x04ZZ") }
+      assert_includes error.message, "doesn't exist on the server"
+      assert_equal [ "T00050NAME" ], client.call_rpc("BMX SQL", "q"),
+                   "the next call read the tail of the previous reply"
+    end
   end
 end

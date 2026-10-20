@@ -197,8 +197,8 @@ RpmsRpc::Authentication.held_keys(%w[PROVIDER XUPROGMODE])
 | `RpmsRpc::MockClient`          | Hermetic test double with seeded data            |
 | `RpmsRpc::MockFhirClient`      | FHIR R4 mock for IRIS for Health reads           |
 | `RpmsRpc::SecurityKeys`        | Symbolic ↔ RPMS security key translation         |
-| `RpmsRpc::UserRoles`           | Role-based authorization (provider, nurse, etc.) |
-| `RpmsRpc::Capabilities`        | Feature-gated permission checks                  |
+| `RpmsRpc::UserRoles`           | Role-based authorization (provider, nurse, etc.) (deprecated, #359) |
+| `RpmsRpc::Capabilities`        | Feature-gated permission checks (deprecated, #359)                  |
 
 ### Exception-message sanitization
 
@@ -362,6 +362,10 @@ The JSON (default `coverage/api/methods.json`, `OUT=` to override) is the input 
 | `status` | `proven` or `not_in_contract` |
 
 The task is offline and reaches no broker. The implementation lives in `tools/api_coverage/`, which is not part of the gem.
+
+## Retry safety
+
+The gem never retries. `RpmsRpc::RetrySafety` and `lib/rpms_rpc/retry_safety.yml` classify each public method as `read`, `idempotent_write`, or `non_idempotent_write`, as advice to hosts. Only `:read` is `auto_retry_safe?`. An unclassified method is never retry-safe. `bundle exec rake rpc:retry_safety` fails when a public method is unclassified or an entry is stale.
 
 ## OpenAPI documents: the RPC surface and the client API
 

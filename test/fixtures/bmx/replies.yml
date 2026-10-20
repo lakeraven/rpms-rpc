@@ -1,0 +1,48 @@
+# BMX reply frames, VERBATIM from a live stock BMX session (BMXMON SESSION, served by ZBMX)
+# captured by rpms-rpc#200 on ghcr.io/lakeraven/rpms-ydb:local-arm64-46dd047 (bcer-9.0-20261012-e7923a4-ydb, rpms-ops 46dd047) at 2026-10-20T00:58:12Z.
+# Each frame is every byte the broker wrote for one call: len(security)+security,
+# len(application)+application, data, EOT. Signed on as the demo operator, context BMXRPC.
+# Do not hand-edit: re-capture instead.
+---
+rows:
+  rpc: BMX SQL
+  params:
+  - SELECT NAME FROM NEW_PERSON MAXRECORDS:2
+  frame: "\0\0T00016NAME\x1EADAM,ADAM\x1EBSTS,PROXY USER\x1E\x1F\x04"
+rows_two_columns:
+  rpc: BMX SQL
+  params:
+  - SELECT NAME, SEX FROM PATIENT MAXRECORDS:2
+  frame: "\0\0T00015NAME^T00005SEX\x1EUSER,TEST^MALE\x1EMOUSE,MICKEY M^MALE\x1E\x1F\x04"
+header_only:
+  rpc: BMX SQL
+  params:
+  - SELECT NAME FROM NEW_PERSON WHERE NAME = 'ZZZNOMATCH'
+  frame: "\0\0T00050NAME\x1E\x1F\x04"
+m_error_recordset:
+  rpc: BMX SQL
+  params:
+  - SELECT FROM
+  frame: "\0\0T00030M_ERROR\x1EFIELDS+14~BMXSQL6, Undefined local variable: BMXFLDO,150373850,-%YDB-E-LVUNDEF\x1E\x1F\x04"
+query_error:
+  rpc: BMX SQL
+  params:
+  - SELECT NAME FROM NOSUCHFILE
+  frame: "\0\0\x1FFIELD NOT FOUND\x04"
+m_error_etrap:
+  rpc: BMX SQL
+  params:
+  - a
+  - b
+  - c
+  - d
+  - e
+  frame: "\0\0M ERROR=SQL^BMXSQL, More actual parameters than formal parameters: ,150374474,-%YDB-E-ACTLSTTOOLONG\r\nLAST REF=^XUSEC(\"XUPROGMODE\",4)\x04"
+unknown_rpc:
+  rpc: ZZZ NO SUCH RPC
+  params: []
+  frame: "?Remote Procedure 'ZZZ NO SUCH RPC' doesn't exist on the server.\0\x04"
+unknown_rpc_eot_in_name:
+  rpc: "ZZ\x04ZZ"
+  params: []
+  frame: "5Remote Procedure 'ZZ\x04ZZ' doesn't exist on the server.\0\x04"
