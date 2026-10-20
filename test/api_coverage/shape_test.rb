@@ -94,13 +94,16 @@ class ShapeTest < Minitest::Test
     assert_empty conflicts, message
   end
 
-  def test_declared_vital_shapes_match_openapi_client_api
-    vital_entries = ApiCoverage.build(ROOT)[:entries].select do |e|
-      e[:module] == "RpmsRpc::Vital" && e[:shape_status] == "declared"
+  def test_declared_shapes_match_openapi_client_api
+    declared_entries = ApiCoverage.build(ROOT)[:entries].select do |e|
+      e[:shape_status] == "declared"
     end
+    vital_entries = declared_entries.select { |e| e[:module] == "RpmsRpc::Vital" }
     refute_empty vital_entries, "expected declared Vital shapes"
 
-    vital_entries.each do |entry|
+    # Only Vital declares today; this loop guards any future declared module too.
+    refute_empty declared_entries, "expected at least one declared shape"
+    declared_entries.each do |entry|
       openapi = OpenApi::ClientApi.address(JSON.parse(JSON.generate(entry)))
       declared = entry[:shape]
       assert_equal openapi[:verb].upcase, declared[:verb],
@@ -158,6 +161,18 @@ class ShapeTest < Minitest::Test
     error = assert_raises { RpmsRpc::Shape.declare(mod, :not_defined_here, resource: "x", verb: "GET", path: "/x") }
     refute_match(/uninitialized constant/, error.message, "RpmsRpc::Shape must exist")
     assert_includes [ ArgumentError, NameError ], error.class
+  end
+
+  def test_declare_rejects_method_not_publicly_callable_on_module
+    mod = Module.new do
+      extend self
+      def a; end
+      private_class_method :a
+    end
+    refute mod.respond_to?(:a), "private_class_method must hide :a from callers"
+    assert_raises(ArgumentError) do
+      RpmsRpc::Shape.declare(mod, :a, resource: "vitals", verb: "GET", path: "/vitals")
+    end
   end
 
   def test_declare_accepts_only_methods_defined_by_the_module_itself
@@ -264,6 +279,51 @@ class ShapeTest < Minitest::Test
     RpmsRpc::Shape.declare(mod, :real, **valid_shape, path: "/patients/{dfn}/vitals")
     singleton = Module.new { def self.real; end }
     RpmsRpc::Shape.declare(singleton, :real, **valid_shape, path: "/")
+  end
+
+  def test_declare_rejects_malformed_path_placeholders
+    mod = Module.new do
+      extend self
+      def real; end
+    end
+    valid_shape = { resource: "vitals", verb: "GET" }
+    malformed = [
+      "/p/{dfn",
+      "/p/dfn}",
+      "/p/{}",
+      "/p/{a/b}",
+      "/p/{a}{b}"
+    ]
+
+    malformed.each do |path|
+      assert_raises(ArgumentError, "expected ArgumentError for path #{path.inspect}") do
+        RpmsRpc::Shape.declare(mod, :real, **valid_shape, path: path)
+      end
+    end
+
+    RpmsRpc::Shape.declare(mod, :real, **valid_shape, path: "/patients/{dfn}/vitals")
+
+    adjacent = Module.new do
+      extend self
+      def slot; end
+    end
+    RpmsRpc::Shape.declare(adjacent, :slot, **valid_shape, path: "/p/{a}/{b}")
+  end
+
+  def test_declare_rejects_resource_that_is_not_a_single_token
+    mod = Module.new do
+      extend self
+      def real; end
+    end
+    shape = { verb: "GET", path: "/vitals" }
+
+    [ "r\nx", "vital signs" ].each do |resource|
+      assert_raises(ArgumentError, "expected ArgumentError for resource #{resource.inspect}") do
+        RpmsRpc::Shape.declare(mod, :real, **shape, resource: resource)
+      end
+    end
+
+    RpmsRpc::Shape.declare(mod, :real, **shape, resource: "vitals")
   end
 
   def test_declared_shape_strings_are_frozen_copies
