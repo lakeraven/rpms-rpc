@@ -83,7 +83,7 @@ class ShapeTest < Minitest::Test
 
     shape = for_patient[:shape]
     refute_nil shape
-    assert_equal %i[resource verb path], shape.keys.sort
+    assert_equal %i[path resource verb], shape.keys.sort
     refute_empty shape[:resource].to_s
     refute_empty shape[:verb].to_s
     refute_empty shape[:path].to_s
