@@ -82,6 +82,20 @@ class ShapeTest < Minitest::Test
     end
   end
 
+  def test_every_declaration_names_an_api_coverage_entry
+    listed = ApiCoverage.build(ROOT)[:entries].to_h { |e| [ [ e[:module], e[:method] ], true ] }
+
+    unlisted = RpmsRpc::Shape.all.filter_map do |(mod, meth), _shape|
+      next if mod.name.nil? || mod.name.empty?
+
+      label = "#{mod.name}.#{meth}"
+      next label unless listed[[ mod.name, meth.to_s ]]
+    end
+
+    assert_empty unlisted,
+                 "declarations must name an api_coverage entry:\n#{unlisted.sort.join("\n")}"
+  end
+
   def test_declared_shapes_have_no_verb_and_path_conflicts
     entries = ApiCoverage.build(ROOT)[:entries]
     conflicts = ApiCoverage.shape_conflicts(entries)
