@@ -85,7 +85,11 @@ module RpmsRpc
     # piece 1. The client then adopts that broker-assigned UID (below) and
     # carries it on every later frame — without it, gated RPCs return "Access
     # denied for remote procedure."
-    def authenticate(access_code = nil, verify_code = nil, **)
+    #
+    # The division (DUZ(2)) is then bound explicitly, as VueCentric does: see
+    # #bind_division. Pass division: (an INSTITUTION #4 IEN the user may sign
+    # on to) to choose it; a user with more than one division must.
+    def authenticate(access_code = nil, verify_code = nil, division: nil, **)
       raise ConnectionError, "Not connected" unless connected?
 
       ac, vc = resolve_credentials(access_code, verify_code) # base
@@ -146,7 +150,8 @@ module RpmsRpc
         end
 
         @duz = duz
-        { success: true, user: @signon_user, duz: @duz.to_i, greeting: greeting.strip }
+        bind_division(division)
+        { success: true, user: @signon_user, duz: @duz.to_i, division: @division[:ien], greeting: greeting.strip }
       end
     end
 
@@ -188,10 +193,84 @@ module RpmsRpc
     # would attest an identity the broker never resolved. parse_cia_reply
     # consumes the echo unconditionally and returns "" for a reply with no DATA
     # flag, so absence stays absence and #authenticate fails closed on it.
+
     def signon_duz
       body = parse_cia_reply(call_rpc_raw("CIAVCXUS VIMINFO"))
       body.split(/\r\n|\r|\n/).first.to_s.split("^").first.to_s[/\A\s*(\d+)\s*\z/, 1]
     end
+
+    # Bind the session's division, DUZ(2), the way VueCentric does (rpms-rpc#293).
+    #
+    # VueCentric's sign-on calls CIANBRPC DIVGET straight after AUTH (the
+    # captured login sequence, cloud-rpms docs/SIMULATE_VUECENTRIC_LOGIN.md),
+    # and CIANBRPC DIVSET when the user picks another division. Both are
+    # registered on the pinned build (broker_8994.txt) and are CIANB* RPCs,
+    # which ACTR^CIANBACT runs under any context.
+    #
+    # DIVGET^CIANBRPC (CIANBRPC.m:80-89) lists the user's DIVISION multiple
+    # (#200 field 16) as "ien^name^station" rows after DATA(0), the division it
+    # chose: the one marked default, else the first, else the DUZ(2) Kernel
+    # sign-on set. It then calls DIVSET with that choice, so DIVGET is not a
+    # pure read: it resets DUZ(2) to the default. DIVSET (:91-95) sets DUZ(2)
+    # and saves it in the session, so every later RPC on this connection runs
+    # in that division; it accepts ANY number and checks nothing, so the
+    # membership check is ours. Live on bcer-9.0 (YDB), 2026-10-20:
+    #   SYS123   DIVGET -> "7819" "7819^DEMO IHS CLINIC^8904"
+    #   PROV123  DIVGET -> "1" "1^^"
+    #
+    # Fails closed, and signs the client off, when the requested division is
+    # not one of the user's, when the user has none, or when the user has
+    # several and the caller named none: the acting division is a stated
+    # input or an unambiguous one, never whichever RPMS defaulted to.
+    DIVISION_LIST_RPC = "CIANBRPC DIVGET"
+    DIVISION_SET_RPC = "CIANBRPC DIVSET"
+
+    # The division this connection acts in, { ien:, name:, station: }, and
+    # every division the signed-on user may act in.
+    attr_reader :division, :divisions
+
+    def bind_division(requested)
+      chosen, *rows = call_rpc(DIVISION_LIST_RPC)
+      @divisions = rows.map do |row|
+        ien, name, station = row.split("^", -1)
+        { ien: ien.to_i, name: name.to_s, station: station.to_s }
+      end.select { |d| d[:ien].positive? }.freeze
+      target = requested.nil? ? default_division(chosen) : requested_division(requested)
+
+      if target[:ien] != chosen.to_i
+        reply = call_rpc(DIVISION_SET_RPC, target[:ien].to_s)
+        division_refused("#{DIVISION_SET_RPC} #{target[:ien]} answered #{reply.inspect}") unless reply == [ "1" ]
+      end
+      @division = target
+    rescue RpcError => e
+      division_refused("#{e.class.name.split('::').last}: #{e.message}")
+    end
+    private :bind_division
+
+    def default_division(chosen)
+      division_refused("DUZ #{@duz} has no DIVISION (#200 field 16)") if @divisions.empty?
+      if @divisions.size > 1
+        division_refused("DUZ #{@duz} may act in #{@divisions.size} divisions " \
+                         "(#{@divisions.map { |d| d[:ien] }.join(', ')}): name one with division:")
+      end
+      division_refused("#{DIVISION_LIST_RPC} chose #{chosen.inspect}, not the user's division") if @divisions.first[:ien] != chosen.to_i
+      @divisions.first
+    end
+    private :default_division
+
+    def requested_division(requested)
+      ien = requested.to_s[/\A\s*(\d+)\s*\z/, 1].to_i
+      @divisions.find { |d| d[:ien] == ien } ||
+        division_refused("division #{requested.inspect} is not one of DUZ #{@duz}'s divisions " \
+                         "(#{@divisions.map { |d| d[:ien] }.join(', ')})")
+    end
+    private :requested_division
+
+    def division_refused(why)
+      clear_signon_state
+      raise AuthenticationError, RpmsRpc.sanitize_error("CIA sign-on bound no division: #{why}")
+    end
+    private :division_refused
 
     # Return the client to a fully signed-out state. Clears @duz too: a failed
     # sign-on must not leave a prior user's DUZ readable via #duz.
@@ -199,6 +278,8 @@ module RpmsRpc
       @authenticated = false
       @signon_user = nil
       @session_uid = nil
+      @division = nil
+      @divisions = nil
       @duz = nil
       @current_context = nil
       @context_bound = false
@@ -572,6 +653,8 @@ module RpmsRpc
     def reset_connection
       @session_uid = nil
       @signon_user = nil # identity, like the DUZ — a torn-down session names nobody
+      @division = nil
+      @divisions = nil
       reset_context
       super # base: close socket, clear connection/auth state
     end
