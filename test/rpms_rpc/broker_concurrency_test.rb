@@ -153,6 +153,8 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
           @replies << "#{ack}0\r\n7#{@auths}^NET^SITE\r\nSigned on as USER#{@auths}\r\n#{EOD}"
         elsif str.include?("LANE-")
           @replies << "#{ack}#{str[/LANE-[AB]/]}-OK#{EOD}"
+        elsif str.include?("CIANBRPC DIVGET") # the user's one division (#293)
+          @replies << "#{ack}7819\r7819^DEMO IHS CLINIC^8904\r#{EOD}"
         else # CIAVCXUS VIMINFO — piece 1 is the DUZ of the CURRENT session identity
           @replies << "#{ack}#{300 + @session}^USER#{@session}^1800;1800;60^0^0#{EOD}"
         end
@@ -189,6 +191,7 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
     socket_frames = socket.frames.map do |f|
       if f.include?("CIANBRPC AUTH") then :auth
       elsif f.include?("LANE-") then :lane_rpc
+      elsif f.include?("CIANBRPC DIVGET") then :division_read
       else :duz_read
       end
     end
@@ -198,7 +201,7 @@ class RpmsRpc::BrokerConcurrencyTest < Minitest::Test
     socket_frames.each_with_index do |kind, i|
       next unless kind == :auth
 
-      assert_equal :duz_read, socket_frames[i + 1],
+      assert_equal [ :duz_read, :division_read ], socket_frames[i + 1, 2],
         "a frame interleaved into a sign-on sequence: #{socket_frames.inspect}"
     end
 
