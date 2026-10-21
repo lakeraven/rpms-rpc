@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `Referral.patient_health_summary` sends the health summary type (#448)
+
+- `EN^BQIRHS(DATA,DFN,SUMMTYP)` reads `SUMMTYP` with no `$G`, so a DFN-only call died `LVUNDEF SUMMTYP` at `EN+32^BQIRHS`
+  (YottaDB) or `<UNDEFINED>` (IRIS) before building anything, and left one error-trap entry per run (rpms-ops#986).
+  The HEALTH SUMMARY TYPE (#9001015) IEN is now a required second argument; `health_summary_types` lists them, and the
+  live sweep sends the first one.
+
 ### Fixed — CIA sign-on binds the division (DUZ(2)) explicitly, as VueCentric does (#293)
 
 - `CiaClient#authenticate` calls `CIANBRPC DIVGET` after the identity read, the call VueCentric makes after

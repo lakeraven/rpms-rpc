@@ -179,7 +179,7 @@ class ReferralTest < Minitest::Test
     rcis_template_detail: [ "7" ],
     patient_eligibility_status: [ DFN ],
     patient_face_sheet: [ DFN ],
-    patient_health_summary: [ DFN ],
+    patient_health_summary: [ DFN, "1" ],
     health_summary_types: [],
     check_year_site_param: [],
     add_c32_print_log: [ DFN ]
