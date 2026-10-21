@@ -230,15 +230,14 @@ module LiveSpec
       identity = RpmsRpc::LiveSummary.run_identity(@env, root: root)
       dir = File.expand_path(RpmsRpc::LiveSummary.dir(@env), root)
       path = RpmsRpc::LiveSummary.path_for(dir, persona: identity[:persona], protocol: identity[:protocol])
-      unless RpmsRpc::LiveSummary.pending_for?(path, @env["LIVE_RUN_ID"])
+      # The check and the write are one step under the summary lock that mark_pending also takes.
+      case RpmsRpc::LiveSummary.replace_pending(path, @env["LIVE_RUN_ID"], identity[:source],
+                                                summary_document(identity), env: @env)
+      when :not_pending
         io.puts "NOT RECORDED: no pending marker for this run (run the live specs with rake test:live)"
-        return
-      end
-      unless RpmsRpc::LiveSummary.marker_source(path) == identity[:source]
+      when :source_changed
         io.puts "NOT RECORDED: the shipped source changed during the run (rpms-rpc#441); re-run rake test:live"
-        return
       end
-      RpmsRpc::LiveSummary.write(path, summary_document(identity), env: @env)
     rescue ArgumentError => e
       io.puts "NOT RECORDED: #{e.message}"
     rescue StandardError => e

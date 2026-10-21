@@ -71,6 +71,34 @@ module RpmsRpc
       token = run_id.to_s.strip
       raise ArgumentError, "run_id #{run_id.inspect} is blank" if token.empty?
 
+      with_lock(path) { write_pending(path, persona:, protocol:, build:, build_source:, source:, token:, env:) }
+    end
+
+    # Replace this run's pending marker with its finished summary, as one step under the summary's
+    # lock, so another run's mark_pending cannot land between the check and the write (PR #440 review).
+    # :written when replaced; :not_pending when path is not this run's marker; :source_changed when
+    # the marker was written for other source (rpms-rpc#441). before_write is a test seam only.
+    def replace_pending(path, run_id, source, fields, env: ENV, before_write: nil)
+      with_lock(path) do
+        next :not_pending unless pending_for?(path, run_id)
+        next :source_changed unless marker_source(path) == source
+
+        before_write&.call
+        write(path, fields, env: env)
+        :written
+      end
+    end
+
+    # Hold an exclusive lock on <path>.lock (flock: across processes) for the block.
+    def with_lock(path)
+      FileUtils.mkdir_p(File.dirname(path))
+      File.open("#{path}.lock", File::RDWR | File::CREAT, 0o644) do |f|
+        f.flock(File::LOCK_EX)
+        yield
+      end
+    end
+
+    def write_pending(path, persona:, protocol:, build:, build_source:, source:, token:, env:)
       write(path, {
         "build" => build,
         "build_source" => build_source,
@@ -298,6 +326,6 @@ module RpmsRpc
 
     private_class_method :stringify_keys, :refusal_reasons, :missing_summary, :reasons_for,
                          :count_reasons, :release_keys, :summary_token, :broker_protocol,
-                         :coverage_release, :outcome_of
+                         :coverage_release, :outcome_of, :write_pending
   end
 end

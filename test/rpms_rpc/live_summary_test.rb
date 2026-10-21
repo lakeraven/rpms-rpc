@@ -494,6 +494,50 @@ module RpmsRpc
       end
     end
 
+    # PR #440 review: run A checks its marker, run B marks pending, A writes over B's marker. With the
+    # check and the write one step under the summary lock, B's mark_pending waits until A has written,
+    # so B's marker is the one left on disk, and the guard refuses until B reports.
+    def test_a_competing_mark_pending_waits_for_the_replace_and_its_marker_survives
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "PERSONA_A.json")
+        env = { "LIVE_RUN" => "1", "BROKER_HOST" => "127.0.0.1" }
+        mark_pending_at(path, run_id: "run-a", env: env)
+        b = nil
+        result = LiveSummary.replace_pending(path, "run-a", SYNTHETIC_SOURCE, summary_fields, env: env,
+                                             before_write: lambda {
+                                               b = Thread.new { mark_pending_at(path, run_id: "run-b", env: env) }
+                                               refute b.join(0.3), "run B marked pending inside run A's check-and-write"
+                                             })
+        assert_equal :written, result
+        b.join(5)
+        refute b.alive?, "run B never marked pending after run A released the lock"
+        data = JSON.parse(File.read(path))
+        assert_equal true, data["pending"], "run A's summary overwrote run B's pending marker"
+        assert_equal "run-b", data["run_id"]
+      end
+    end
+
+    def test_replace_refuses_when_another_run_marked_pending_first
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "PERSONA_A.json")
+        env = { "LIVE_RUN" => "1", "BROKER_HOST" => "127.0.0.1" }
+        mark_pending_at(path, run_id: "run-a", env: env)
+        mark_pending_at(path, run_id: "run-b", env: env)
+        assert_equal :not_pending, LiveSummary.replace_pending(path, "run-a", SYNTHETIC_SOURCE, summary_fields, env: env)
+        assert_equal "run-b", JSON.parse(File.read(path))["run_id"]
+      end
+    end
+
+    def test_replace_refuses_a_marker_written_for_other_source
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "PERSONA_A.json")
+        env = { "LIVE_RUN" => "1", "BROKER_HOST" => "127.0.0.1" }
+        mark_pending_at(path, run_id: "run-a", env: env)
+        assert_equal :source_changed, LiveSummary.replace_pending(path, "run-a", "other-source", summary_fields, env: env)
+        assert_equal true, JSON.parse(File.read(path))["pending"]
+      end
+    end
+
     private
 
     # What the release tasks fingerprint when they run from this checkout.
