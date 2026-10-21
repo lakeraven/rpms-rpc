@@ -27,12 +27,12 @@ end
 class SignonDivisionLiveTest < LiveSpec::Test
   include SignonDivisionLive
 
-  # The harness signed on with no division named: a one-division user acts in
-  # that division, and the server's DUZ(2) is the one the client reports.
-  def test_signon_binds_the_users_one_division
+  # The harness signed on with no division named: the session acts in the
+  # division DIVGET chose, one of the user's, and the server's DUZ(2) is the
+  # one the client reports.
+  def test_signon_binds_the_division_divget_chose
     refute_empty client.divisions, "#{persona} has no DIVISION (#200 field 16), so sign-on should have refused"
-    assert_equal 1, client.divisions.size, "#{persona} has several divisions; sign-on without division: should have refused"
-    assert_equal client.divisions.first, client.division
+    assert_includes client.divisions, client.division
     assert_equal client.division[:ien], server_division(client),
       "the server's DUZ(2) is not the division the client says it bound"
     puts "\n#{persona}: division #{client.division.inspect}"

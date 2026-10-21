@@ -13,8 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   AUTH, and `CIANBRPC DIVSET` when the caller names another of the user's divisions with `division:` (an
   INSTITUTION #4 IEN). The session used to act in whatever DUZ(2) Kernel sign-on left, which is not always the
   division VueCentric binds: on the 10-05 YDB image Kernel left PROV123 in 7819 while DIVGET puts it in 1.
-- Fails closed (signed off, `AuthenticationError`) when the named division is not one of the user's (DIVSET
-  itself accepts any number), when the user has no division, or when the user has several and none was named.
+- With no division named it takes DIVGET's choice, as VueCentric does, however many divisions the user has.
+  Fails closed (signed off, `AuthenticationError`) when the named division is not one of the user's (DIVSET
+  itself accepts any number), or when the user has no division at all.
 - `#division` and `#divisions` report what was bound and what the user may act in; the sign-on result carries
   `division:`. Live spec: `test/live/signon_division_live_test.rb`, read back with `BEHOSICX SITEINFO`.
 

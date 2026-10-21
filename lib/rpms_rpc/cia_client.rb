@@ -88,7 +88,7 @@ module RpmsRpc
     #
     # The division (DUZ(2)) is then bound explicitly, as VueCentric does: see
     # #bind_division. Pass division: (an INSTITUTION #4 IEN the user may sign
-    # on to) to choose it; a user with more than one division must.
+    # on to) to choose another of the user's divisions than DIVGET's default.
     def authenticate(access_code = nil, verify_code = nil, division: nil, **)
       raise ConnectionError, "Not connected" unless connected?
 
@@ -218,10 +218,13 @@ module RpmsRpc
     #   SYS123   DIVGET -> "7819" "7819^DEMO IHS CLINIC^8904"
     #   PROV123  DIVGET -> "1" "1^^"
     #
-    # Fails closed, and signs the client off, when the requested division is
-    # not one of the user's, when the user has none, or when the user has
-    # several and the caller named none: the acting division is a stated
-    # input or an unambiguous one, never whichever RPMS defaulted to.
+    # With no division named, the session acts in the one DIVGET chose, as
+    # VueCentric's does: rpms-rpc follows the chart's login, it does not
+    # reshape it. A named division must be one of the user's: DIVSET checks
+    # nothing, so sign-on fails closed, and signs the client off, on one the
+    # user lacks, and on a user with no division at all. A division whose
+    # INSTITUTION has no name is bound as the chart binds it (rpms-ops#970
+    # fixed that in the seeds; a guard here would hide stale data).
     DIVISION_LIST_RPC = "CIANBRPC DIVGET"
     DIVISION_SET_RPC = "CIANBRPC DIVSET"
 
@@ -247,14 +250,12 @@ module RpmsRpc
     end
     private :bind_division
 
+    # No division named: the one DIVGET chose, as VueCentric takes it, however
+    # many the user has. DIVGET falls back to the DUZ(2) Kernel sign-on set,
+    # so it answers 0 only when the user has no division at all.
     def default_division(chosen)
-      division_refused("DUZ #{@duz} has no DIVISION (#200 field 16)") if @divisions.empty?
-      if @divisions.size > 1
-        division_refused("DUZ #{@duz} may act in #{@divisions.size} divisions " \
-                         "(#{@divisions.map { |d| d[:ien] }.join(', ')}): name one with division:")
-      end
-      division_refused("#{DIVISION_LIST_RPC} chose #{chosen.inspect}, not the user's division") if @divisions.first[:ien] != chosen.to_i
-      @divisions.first
+      @divisions.find { |d| d[:ien] == chosen.to_i } ||
+        division_refused("DUZ #{@duz} has no DIVISION (#{DIVISION_LIST_RPC} chose #{chosen.inspect})")
     end
     private :default_division
 
