@@ -95,22 +95,38 @@ class ShapeTest < Minitest::Test
   end
 
   def test_declared_shapes_match_openapi_client_api
-    declared_entries = ApiCoverage.build(ROOT)[:entries].select do |e|
-      e[:shape_status] == "declared"
-    end
+    report = ApiCoverage.build(ROOT)
+    declared_entries = report[:entries].select { |e| e[:shape_status] == "declared" }
     vital_entries = declared_entries.select { |e| e[:module] == "RpmsRpc::Vital" }
     refute_empty vital_entries, "expected declared Vital shapes"
 
     # Only Vital declares today; this loop guards any future declared module too.
     refute_empty declared_entries, "expected at least one declared shape"
-    declared_entries.each do |entry|
-      openapi = OpenApi::ClientApi.address(JSON.parse(JSON.generate(entry)))
-      declared = entry[:shape]
-      assert_equal openapi[:verb].upcase, declared[:verb],
-                   "#{entry[:module]}.#{entry[:method]} verb"
-      assert_equal openapi[:path], declared[:path],
-                   "#{entry[:module]}.#{entry[:method]} path (OpenAPI #{openapi[:verb].upcase} #{openapi[:path]})"
+    mismatches = declared_shape_catalog_mismatches(report[:entries], registry_tag: report[:registry_tag])
+    assert_empty mismatches, mismatches.join("\n")
+  end
+
+  def test_declared_shapes_compared_against_catalog_not_first_choice_address
+    report = ApiCoverage.build(ROOT)
+    entries = JSON.parse(JSON.generate(report[:entries]), symbolize_names: true)
+    lookup = entries.find { |e| e[:module] == "RpmsRpc::Patient" && e[:method] == "lookup" }
+    refute_nil lookup, "expected Patient.lookup in api_coverage entries"
+
+    declare_lookup = lambda do |path|
+      copy = JSON.parse(JSON.generate(entries), symbolize_names: true)
+      row = copy.find { |e| e[:module] == "RpmsRpc::Patient" && e[:method] == "lookup" }
+      row[:shape_status] = "declared"
+      row[:shape] = { resource: "patients", verb: "GET", path: path }
+      copy
     end
+
+    wrong = declared_shape_catalog_mismatches(declare_lookup.call("/patients"), registry_tag: report[:registry_tag])
+    refute_empty wrong,
+                 "GET /patients on lookup should disagree with catalog (search owns the collection)"
+    assert wrong.any? { |line| line.include?("RpmsRpc::Patient.lookup") }, wrong.join("\n")
+
+    right = declared_shape_catalog_mismatches(declare_lookup.call("/patients/lookup"), registry_tag: report[:registry_tag])
+    assert_empty right, right.join("\n")
   end
 
   def test_methods_json_carries_shape_for_declared_and_marks_undeclared
@@ -371,6 +387,41 @@ class ShapeTest < Minitest::Test
                  "duplicate baseline entries:\n#{duplicates.join("\n")}"
     assert_operator lines.size, :<=, UNDECLARED_BASELINE_MAX_LINES,
                     "baseline has #{lines.size} lines; lower UNDECLARED_BASELINE_MAX_LINES when shrinking"
+  end
+
+  # Declared shapes must match where OpenApi::ClientApi.catalog publishes each method (not address()'s
+  # first-choice route). Returns human-readable mismatch lines; empty when every declared shape matches.
+  def declared_shape_catalog_mismatches(entries, registry_tag:)
+    doc = JSON.parse(JSON.generate(ApiCoverage.document(entries, registry_tag: registry_tag)))
+    catalog = OpenApi::ClientApi.catalog(doc)
+    by_method = catalog[:entries].to_h do |e|
+      m = e[:method]
+      [ [ m["module"], m["method"] ], e ]
+    end
+
+    entries.select { |e| e[:shape_status] == "declared" }.filter_map do |entry|
+      catalog_entry = by_method[[ entry[:module], entry[:method] ]]
+      label = "#{entry[:module]}.#{entry[:method]}"
+      unless catalog_entry
+        next "#{label}: declared shape is not published in OpenAPI catalog " \
+             "(excluded as no_rpc/unresolved/unregistered, or folded into another operation)"
+      end
+
+      declared = entry[:shape]
+      addr = catalog_entry[:addr]
+      collection = catalog_entry[:collection]
+      problems = []
+      unless addr[:verb].upcase == declared[:verb]
+        problems << "#{label} verb: declared #{declared[:verb]}, catalog #{addr[:verb].upcase}"
+      end
+      unless addr[:path] == declared[:path]
+        problems << "#{label} path: declared #{declared[:path]}, catalog #{addr[:verb].upcase} #{addr[:path]}"
+      end
+      unless collection == declared[:resource]
+        problems << "#{label} resource: declared #{declared[:resource].inspect}, catalog #{collection.inspect}"
+      end
+      problems.empty? ? nil : problems.join("; ")
+    end
   end
 
   def assert_declare_rejected(mod, method, shape)
