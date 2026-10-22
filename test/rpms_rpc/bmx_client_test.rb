@@ -197,7 +197,9 @@ class RpmsRpc::BmxClientTest < Minitest::Test
   def test_the_encrypted_av_pair_crosses_the_bmx_wire_as_one_parameter
     client = connected_client([
       "\x00\x00OK\x04",                    # XUS SIGNON SETUP
-      "\x00\x00301\r\n0\r\n0\r\nHi\x04"    # XUS AV CODE
+      "\x00\x00301\r\n0\r\n0\r\nHi\x04",   # XUS AV CODE
+      "\x00\x000\x04",                   # XUS DIVISION GET (#450): one division, set server-side
+      "\x00\x004\r\nX\r\nX\r\n7819^DEMO IHS CLINIC^8904\x04" # XUS GET USER INFO
     ])
 
     result = client.authenticate("AC123", "VC123!")
@@ -207,7 +209,7 @@ class RpmsRpc::BmxClientTest < Minitest::Test
     # non-deterministic, so re-encrypting would not match): after "XUS AV CODE^"
     # comes the 5-digit block total, then one param: 3-digit (len+1), 1 type
     # byte, then the value.
-    av_frame = client.instance_variable_get(:@socket).writes.last
+    av_frame = client.instance_variable_get(:@socket).writes.find { |w| w.b.include?("XUS AV CODE^".b) }
     block = av_frame.b.split("XUS AV CODE^".b, 2).last
     inner = block.byteslice(5, block.byteslice(0, 5).to_i)
     vlen = inner.byteslice(0, 3).to_i - 1
@@ -311,5 +313,102 @@ class RpmsRpc::BmxClientTest < Minitest::Test
       assert_equal [ "T00050NAME" ], client.call_rpc("BMX SQL", "q"),
                    "the next call read the tail of the previous reply"
     end
+  end
+end
+
+# -- #450: sign-on binds the division as the stock XWB/BMX client does ------
+class BmxClientDivisionTest < Minitest::Test
+  Client = RpmsRpc::BmxClient
+
+  SETUP = "\x00\x00OK\x04"
+  AV_OK = "\x00\x00301\r\n0\r\n0\r\nHi\x04"
+  # DIVGET^XUSRB2 for a one-division user: it set DUZ(2) itself and answers 0, no rows
+  ONE_DIVISION = "\x00\x000\x04"
+  USER_INFO = "\x00\x004\r\nMANAGER,SYSTEM\r\nMANAGER,SYSTEM\r\n7819^DEMO IHS CLINIC^8904\r\n\r\n\r\n\r\n300\x04"
+  TWO_DIVISIONS = "\x00\x002\r\n7819^DEMO IHS CLINIC^8904^0\r\n7870^TUCSON MEDICAL CENTER^8905^1\x04"
+  TWO_NO_DEFAULT = "\x00\x002\r\n7819^DEMO IHS CLINIC^8904^0\r\n7870^TUCSON MEDICAL CENTER^8905^0\x04"
+  SET_OK = "\x00\x001\x04"
+  SET_NO = "\x00\x000\x04"
+
+  def connected_client(reads)
+    c = Client.new
+    c.instance_variable_set(:@socket, RpmsRpc::BmxClientTest::RecordingSocket.new(reads))
+    c.instance_variable_set(:@connected, true)
+    c.instance_variable_set(:@timeout, 5)
+    c
+  end
+
+  def writes(c) = c.instance_variable_get(:@socket).writes
+
+  # One division: DIVGET set DUZ(2) itself and answered 0, so no DIVSET is
+  # sent and the bound division is read back from XUS GET USER INFO.
+  def test_one_division_binds_without_a_set
+    c = connected_client([ SETUP, AV_OK, ONE_DIVISION, USER_INFO ])
+    result = c.authenticate("AC123", "VC123!")
+    assert_equal 7819, result[:division]
+    assert_equal({ ien: 7819, name: "DEMO IHS CLINIC", station: "8904", default: true }, c.division)
+    assert_equal [ c.division ], c.divisions
+    refute(writes(c).any? { |w| w.include?("XUS DIVISION SET") })
+    assert(writes(c).any? { |w| w.include?("XUS GET USER INFO") })
+  end
+
+  # One division and a named one: DIVSET decides (the server checks membership).
+  def test_one_division_named_goes_through_divset
+    c = connected_client([ SETUP, AV_OK, ONE_DIVISION, SET_OK, USER_INFO ])
+    result = c.authenticate("AC123", "VC123!", division: 7819)
+    assert_equal 7819, result[:division]
+    assert(writes(c).any? { |w| w.include?("XUS DIVISION SET") && w.include?("`7819") })
+  end
+
+  def test_one_division_named_wrongly_is_refused_by_the_server
+    c = connected_client([ SETUP, AV_OK, ONE_DIVISION, SET_NO ])
+    error = assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("AC123", "VC123!", division: 9999) }
+    assert_match(/XUS DIVISION SET 9999 answered/, error.message)
+    refute c.authenticated?
+  end
+
+  # Several divisions, none named: the one flagged default is set, as the
+  # stock client's picker would preselect it.
+  def test_several_divisions_bind_the_default_with_a_set
+    c = connected_client([ SETUP, AV_OK, TWO_DIVISIONS, SET_OK ])
+    result = c.authenticate("AC123", "VC123!")
+    assert_equal 7870, result[:division]
+    assert(writes(c).any? { |w| w.include?("XUS DIVISION SET") && w.include?("`7870") })
+  end
+
+  # Several divisions and no default: the client does not guess.
+  def test_several_divisions_with_no_default_fail_closed
+    c = connected_client([ SETUP, AV_OK, TWO_NO_DEFAULT ])
+    error = assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("AC123", "VC123!") }
+    assert_match(/none is the default/, error.message)
+    refute c.authenticated?
+    assert_nil c.duz
+  end
+
+  # A named division is one of the user's and DIVSET answers 1.
+  def test_naming_one_of_the_users_divisions_sets_it
+    c = connected_client([ SETUP, AV_OK, TWO_DIVISIONS, SET_OK ])
+    result = c.authenticate("AC123", "VC123!", division: 7819)
+    assert_equal 7819, result[:division]
+    assert(writes(c).any? { |w| w.include?("XUS DIVISION SET") && w.include?("`7819") })
+  end
+
+  # A division the user lacks is refused before any DIVSET, signed off.
+  def test_naming_a_division_the_user_lacks_fails_closed
+    c = connected_client([ SETUP, AV_OK, TWO_DIVISIONS ])
+    error = assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("AC123", "VC123!", division: 9999) }
+    assert_match(/not one of DUZ 301's divisions/, error.message)
+    refute(writes(c).any? { |w| w.include?("XUS DIVISION SET") })
+    refute c.authenticated?
+    assert_nil c.division
+  end
+
+  # DIVSET^XUSRB2 answers 0 when it did not set DUZ(2): the client believes
+  # the server, not its own list.
+  def test_a_set_the_server_refuses_fails_closed
+    c = connected_client([ SETUP, AV_OK, TWO_DIVISIONS, SET_NO ])
+    error = assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("AC123", "VC123!", division: 7819) }
+    assert_match(/XUS DIVISION SET 7819 answered/, error.message)
+    refute c.authenticated?
   end
 end

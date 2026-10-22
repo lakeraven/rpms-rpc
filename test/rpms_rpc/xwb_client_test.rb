@@ -230,3 +230,48 @@ class RpmsRpc::XwbClientTest < Minitest::Test
     refute_includes msg, "[\"HDR", "Array params must be encoded as XWB list, not Ruby array literal"
   end
 end
+
+# -- #450: XWB sign-on binds the division as the stock client does --------
+# (the sequence and the fail-closed cases are pinned on BMX, which shares
+# Client#authenticate; this proves the XWB frame grammar carries it)
+class XwbClientDivisionTest < Minitest::Test
+  class RecordingSocket
+    attr_reader :writes
+
+    def initialize(reads = [])
+      @reads = reads.dup
+      @writes = []
+    end
+
+    def write(str) = (@writes << str.b) && str.bytesize
+    def recv(_n) = @reads.empty? ? "" : @reads.shift.b
+    def flush; end
+    def close = @closed = true
+    def closed? = !!@closed
+    def setsockopt(*); end
+  end
+
+  def connected_client(reads)
+    c = RpmsRpc::XwbClient.new
+    c.instance_variable_set(:@socket, RecordingSocket.new(reads))
+    c.instance_variable_set(:@connected, true)
+    c.instance_variable_set(:@timeout, 1)
+    c
+  end
+
+  def test_signon_binds_the_one_division_divget_set_and_sends_no_divset
+    c = connected_client([
+      "\x00\x00OK\x04",                              # XUS SIGNON SETUP
+      "\x00\x00301\r\n0\r\n0\r\nHi\x04",             # XUS AV CODE
+      "\x00\x000\x04",                              # XUS DIVISION GET: one division, bound server-side
+      "\x00\x004\r\nX\r\nX\r\n7819^DEMO IHS CLINIC^8904\x04" # XUS GET USER INFO
+    ])
+    result = c.authenticate("AC123", "VC123!")
+    assert_equal 7819, result[:division]
+    assert_equal 7819, c.division[:ien]
+    writes = c.instance_variable_get(:@socket).writes
+    assert(writes.any? { |w| w.include?("XUS DIVISION GET") })
+    assert(writes.any? { |w| w.include?("XUS GET USER INFO") })
+    refute(writes.any? { |w| w.include?("XUS DIVISION SET") })
+  end
+end
