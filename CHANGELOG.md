@@ -12,6 +12,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Live summaries name the source they tested: a SHA-256 over every file the gemspec ships (#441). The release guard refuses a summary whose source is not the tree being released, a run during which a shipped file changed is not recorded, and summaries move to schema 2, so older ones are refused until `rake test:live` is re-run. The live run block names the pinned release, as the summary file does, rather than the registry file.
 - A release refuses to tag unless live summaries on disk show a green `rake test:live` against the pinned build (#361). CIA and XWB keep separate summary files, a run that dies before the summary is written leaves a pending file the guard refuses, and the same guard leads `release:source_control_push` and `release:rubygem_push`. `rake test:live` aborts before loading a spec when its pending file is not on disk, and the guard's OK names, per file, how many live specs passed and how many were skipped.
 
+### Added — XWB and BMX sign-on bind the division (DUZ(2)) as the stock XWB client does (#450)
+
+- `Client#authenticate` (XwbClient, BmxClient) calls `XUS DIVISION GET` after `XUS AV CODE`, as the Delphi RPC Broker does, and
+  `XUS DIVISION SET` when `division:` names one of the user's divisions or the user has several (the one flagged default; with none
+  flagged the sign-on fails closed rather than guess). `DIVSET^XUSRB2` checks membership itself and answers 1 only when it set
+  `DUZ(2)`; a refusal leaves the client signed off. The result carries `division:`; `#division` / `#divisions` read what was bound.
+  Two stock details, read on an IRIS stack (2026-10-21): the registered routine is `DIVGET^XUSRB2`, which answers 0 and no rows
+  for a one-division user after setting `DUZ(2)` itself, so the client reads the bound division back from `XUS GET USER INFO`
+  (line 4, `ien^name^station`); and `DIVSET` resolves its argument with `FIND1^DIC`, so a bare IEN answers 0 and the client
+  sends the backtick form (`` `7819 ``). The twin of #449 (CIA). Live: `test/live/xwb/signon_division_live_test.rb`,
+  3/3 as SYS123 and PROV123 on an IRIS stack over XWB.
+
+### Fixed — CIA sign-on binds the division (DUZ(2)) explicitly, as VueCentric does (#293)
+
+- `CiaClient#authenticate` calls `CIANBRPC DIVGET` after the identity read, the call VueCentric makes after
+  AUTH, and `CIANBRPC DIVSET` when the caller names another of the user's divisions with `division:` (an
+  INSTITUTION #4 IEN). The session used to act in whatever DUZ(2) Kernel sign-on left, which is not always the
+  division VueCentric binds: on the 10-05 YDB image Kernel left PROV123 in 7819 while DIVGET puts it in 1.
+- With no division named it takes DIVGET's choice, as VueCentric does, however many divisions the user has.
+  Fails closed (signed off, `AuthenticationError`) when the named division is not one of the user's (DIVSET
+  itself accepts any number), or when the user has no division at all.
+- `#division` and `#divisions` report what was bound and what the user may act in; the sign-on result carries
+  `division:`. Live spec: `test/live/signon_division_live_test.rb`, read back with `BEHOSICX SITEINFO`.
+
 ### Fixed — BMX replies: recordsets split into rows, M errors in a recordset raise, the error packets read by length (#200)
 
 - `BmxClient#call_rpc` splits a GLOBAL ARRAY recordset (BMX SQL and the other BMX ADO reads) at `$C(30)` and

@@ -1,8 +1,11 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
+
 module RpmsRpc
   module Vital
     extend self
+    extend Shape::Declarable
 
     # The patient's MOST RECENT vital per type, optionally within a
     # FileMan date range — NOT full history. Underlying RPC: ORQQVI
@@ -25,6 +28,7 @@ module RpmsRpc
       params.pop while params.last.empty? && params.length > 1
       DataMapper.vitals.fetch_many(*params).reject { |r| r[:measurement_ien].nil? }
     end
+    shape :for_patient, resource: "vitals", verb: "GET", path: "/patients/{dfn}/vitals"
 
     # Vital field metadata for a visit — name, abbreviation, units, range,
     # required-flag, percentile RPC pointer. Drives the entry-grid UI.
@@ -42,6 +46,7 @@ module RpmsRpc
 
       DataMapper.vital_template.fetch_many(dfn.to_s, visit_string.to_s, metric.to_i.to_s) || []
     end
+    shape :template, resource: "vitals", verb: "GET", path: "/patients/{dfn}/vitals/template"
 
     # Pre-save validation of a set of measurements. Calls BEHOVM VALIDATE
     # per-field and returns aggregated field-level errors without persisting.
@@ -70,6 +75,7 @@ module RpmsRpc
       end
       { valid: errors.empty?, errors: errors }
     end
+    shape :validate, resource: "vitals", verb: "POST", path: "/patients/{dfn}/vitals/validate"
 
     # Bulk-save a set of measurements against an open visit.
     #
@@ -115,6 +121,7 @@ module RpmsRpc
         payload:           payload
       }
     end
+    shape :add, resource: "vitals", verb: "POST", path: "/patients/{dfn}/vitals"
 
     # Build the BEHOVM SAVE second-param payload — an array of caret-delimited
     # lines: HDR (visit string), VST (date/patient), and one VIT+ per measurement.
