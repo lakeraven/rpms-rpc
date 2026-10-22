@@ -40,6 +40,39 @@ class ShapeTest < Minitest::Test
                  "#{violations.join("\n")}"
   end
 
+  def test_every_get_declaration_is_classified_read
+    mod = Module.new do
+      def self.get_on_non_read; end
+    end
+    mod_name = "RpmsRpc::ShapeTest::GetOnNonRead"
+    mod.define_singleton_method(:name) { mod_name }
+    shape = { resource: "shape_test", verb: "GET", path: "/shape_test/get_on_non_read" }
+    RpmsRpc::Shape.declare(mod, :get_on_non_read, **shape)
+
+    synthetic_entry = {
+      module: mod_name,
+      method: "get_on_non_read",
+      shape_status: "declared",
+      shape: shape
+    }
+    retry_table = RpmsRpc::RetrySafety.table.merge("#{mod_name}.get_on_non_read" => :non_idempotent_write)
+    synthetic_violations = declared_get_declarations_not_classified_read(
+      [ synthetic_entry ],
+      retry_table: retry_table
+    )
+    refute_empty synthetic_violations,
+                 "helper must flag GET declared on a non-read retry class"
+    assert_match(/requires retry class read/, synthetic_violations.join("\n"))
+
+    report = ApiCoverage.build(ROOT)
+    violations = declared_get_declarations_not_classified_read(report[:entries])
+    assert_empty violations,
+                 "GET-declared methods must be classified read in retry_safety.yml:\n" \
+                 "#{violations.join("\n")}"
+  ensure
+    undeclare_shape(mod, :get_on_non_read) if mod
+  end
+
   def test_baseline_lists_no_declared_or_missing_method
     baseline = File.readlines(BASELINE, chomp: true).reject(&:empty?)
     by_key = ApiCoverage.build(ROOT)[:entries].to_h { |e| [ "#{e[:module]}.#{e[:method]}", e ] }
@@ -418,6 +451,19 @@ class ShapeTest < Minitest::Test
       m = e[:method]
       [ [ m["module"], m["method"] ], e ]
     end
+  end
+
+  # Declared GET shapes must name methods classified :read in retry_safety.yml.
+  def declared_get_declarations_not_classified_read(entries, retry_table: RpmsRpc::RetrySafety.table)
+    entries.filter_map do |entry|
+      next unless entry[:shape_status] == "declared"
+      next unless entry[:shape] && entry[:shape][:verb].to_s.upcase == "GET"
+
+      key = "#{entry[:module]}.#{entry[:method]}"
+      next if retry_table[key] == :read
+
+      "#{key}: a GET declaration requires retry class read; reclassify or declare another verb"
+    end.sort
   end
 
   # RPC-sending methods classified read in retry_safety.yml and published GET in the catalog, still undeclared.
