@@ -207,7 +207,7 @@ class MissingRpcRaisesTest < Minitest::Test
     "Referral.rcis_template_detail" => -> { RpmsRpc::Referral.rcis_template_detail(1) },
     "Referral.patient_eligibility_status" => -> { RpmsRpc::Referral.patient_eligibility_status(8791) },
     "Referral.patient_face_sheet" => -> { RpmsRpc::Referral.patient_face_sheet(8791) },
-    "Referral.patient_health_summary" => -> { RpmsRpc::Referral.patient_health_summary(8791) },
+    "Referral.patient_health_summary" => -> { RpmsRpc::Referral.patient_health_summary(8791, 1) },
     "Referral.health_summary_types" => -> { RpmsRpc::Referral.health_summary_types },
     "Referral.check_year_site_param" => -> { RpmsRpc::Referral.check_year_site_param },
     "Referral.add_c32_print_log" => -> { RpmsRpc::Referral.add_c32_print_log("1") }
