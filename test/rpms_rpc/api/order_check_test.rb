@@ -109,7 +109,7 @@ class OrderCheckTest < Minitest::Test
 
     assert result.available?
     refute result.override_required?
-    assert_equal [ :moderate, :low ], result.checks.map(&:severity).sort
+    assert_equal %i[low moderate], result.checks.map(&:severity).sort
   end
 
   def test_check_cdl_99_is_unknown_severity_and_requires_override
