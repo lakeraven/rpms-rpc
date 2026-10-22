@@ -140,6 +140,17 @@ class PatientAddressRacePractitionerDetailLiveTest < LiveSpec::Test
 
     if lister_errors == people.size
       puts "200.05 is not a subfile on this build: DDR LISTER errors for all #{lister_errors} probed NEW PERSON users"
+      direct_person_class_count = 0
+      people.each do |entry|
+        detail = RpmsRpc::Practitioner.detail(entry[:ien])
+        refute_nil detail, "Practitioner.detail(#{entry[:ien]}) found nothing, but #200 lists it"
+        pc = detail[:person_class]
+        direct_person_class_count += 1 if pc.is_a?(String) && !pc.empty?
+      end
+      if direct_person_class_count.zero?
+        skip "200.05 is not a subfile on this build and no sampled user had a direct PERSON CLASS value " \
+             "(probed #{people.size} NEW PERSON users)"
+      end
       people.each do |entry|
         detail = RpmsRpc::Practitioner.detail(entry[:ien])
         refute_nil detail, "Practitioner.detail(#{entry[:ien]}) found nothing, but #200 lists it"
@@ -149,6 +160,9 @@ class PatientAddressRacePractitionerDetailLiveTest < LiveSpec::Test
     else
       puts "NEW PERSON users probed for 200.05: #{people.size}; lister errors: #{lister_errors}; " \
            "users with 200.05 rows: #{users_with_person_class_rows}"
+      if users_with_person_class_rows.zero?
+        skip "probed #{people.size} NEW PERSON users; none held a 200.05 row"
+      end
     end
   end
 
