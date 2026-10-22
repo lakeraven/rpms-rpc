@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "digest"
 require "json"
 require "fileutils"
 require "securerandom"
@@ -15,17 +16,18 @@ module RpmsRpc
     REPO_ROOT = File.expand_path("../..", __dir__)
     SYNTHETIC_BUILD = "bcer-9.0-20990101-abc1234-ydb"
     SYNTHETIC_SOURCE = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    SYNTHETIC_SUITE = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
     def test_missing_summary_refuses
       Dir.mktmpdir do |parent|
         missing = File.join(parent, "no-such-live-summary-dir")
-        _ok, reasons = LiveSummary.check(dir: missing, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE)
+        _ok, reasons = LiveSummary.check(dir: missing, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
         refute _ok
         assert_match(/no summary|missing|empty/i, reasons.join(" "))
 
         empty = File.join(parent, "empty")
         FileUtils.mkdir_p(empty)
-        _ok, reasons = LiveSummary.check(dir: empty, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE)
+        _ok, reasons = LiveSummary.check(dir: empty, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
         refute _ok
         assert_match(/no summary|missing|empty/i, reasons.join(" "))
       end
@@ -94,7 +96,7 @@ module RpmsRpc
 
     def test_unknown_schema_refuses
       Dir.mktmpdir do |dir|
-        write_summary(dir, "PERSONA_A.json", summary_fields("schema" => 3))
+        write_summary(dir, "PERSONA_A.json", summary_fields("schema" => 2))
         _ok, reasons = refuse_check(dir)
         assert_match(/schema/i, reasons.join(" "))
       end
@@ -105,8 +107,47 @@ module RpmsRpc
       Dir.mktmpdir do |dir|
         write_summary(dir, "PERSONA_A.json", summary_fields("schema" => 1).except("source"))
         _ok, reasons = refuse_check(dir)
-        assert_match(/schema must be 2 \(got 1\); re-run `rake test:live`/, reasons.join(" "))
+        assert_match(/schema must be 3 \(got 1\); re-run `rake test:live`/, reasons.join(" "))
         assert_match(/missing field source/, reasons.join(" "))
+      end
+    end
+
+    def test_passed_false_refuses_even_when_counts_are_zero
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields("failures" => 0, "errors" => 0, "passed" => false))
+        _ok, reasons = refuse_check(dir)
+        assert_match(/passed/i, reasons.join(" "))
+      end
+    end
+
+    def test_missing_passed_refuses
+      Dir.mktmpdir do |dir|
+        fields = summary_fields
+        fields.delete("passed")
+        write_summary(dir, "PERSONA_A.json", fields)
+        _ok, reasons = refuse_check(dir)
+        assert_match(/passed/i, reasons.join(" "))
+      end
+    end
+
+    def test_green_evidence_for_another_suite_refuses_on_the_same_source
+      Dir.mktmpdir do |dir|
+        suite_a = "sha256:#{'a' * 64}"
+        suite_b = "sha256:#{'b' * 64}"
+        write_summary(dir, "PERSONA_A.json", summary_fields("suite" => suite_a))
+
+        assert LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: suite_a).first
+        _ok, reasons = refuse_check(dir, suite: suite_b)
+        assert_match(/suite/i, reasons.join(" "))
+      end
+    end
+
+    def test_persona_and_protocol_must_match_the_summary_file_name
+      Dir.mktmpdir do |dir|
+        # CIA content for alice, but the file name is bob over xwb.
+        write_summary(dir, "bob.xwb.json", summary_fields("persona" => "alice", "protocol" => "cia"))
+        _ok, reasons = refuse_check(dir)
+        assert_match(/persona|protocol|bob\.xwb\.json/i, reasons.join(" "))
       end
     end
 
@@ -117,7 +158,7 @@ module RpmsRpc
         revision_b = "sha256:#{'b' * 64}"
         write_summary(dir, "PERSONA_A.json", summary_fields("source" => revision_a))
 
-        assert LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: revision_a).first
+        assert LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: revision_a, suite: SYNTHETIC_SUITE).first
         _ok, reasons = refuse_check(dir, source: revision_b)
         assert_match(/tested source #{revision_a} is not the source being released \(#{revision_b}\)/, reasons.join(" "))
       end
@@ -168,10 +209,70 @@ module RpmsRpc
       end
     end
 
+    # Pin the algorithm: name, newline, per-file SHA-256 hex, newline; then digest the concatenation.
+    def test_source_fingerprint_matches_the_documented_algorithm
+      Dir.mktmpdir do |root|
+        File.write(File.join(root, "tiny.gemspec"), <<~SPEC)
+          Gem::Specification.new do |spec|
+            spec.name = "tiny"
+            spec.version = "0.0.1"
+            spec.summary = "tiny"
+            spec.authors = [ "tiny" ]
+            spec.files = %w[lib/tiny.rb]
+          end
+        SPEC
+        FileUtils.mkdir_p(File.join(root, "lib"))
+        File.write(File.join(root, "lib/tiny.rb"), "T = 1\n")
+
+        expected = documented_source_fingerprint(root)
+        assert_equal expected, LiveSummary.source_fingerprint(root)
+      end
+    end
+
+    def test_suite_fingerprint_covers_test_live_and_coverage_config
+      Dir.mktmpdir do |root|
+        live = File.join(root, "test/live")
+        FileUtils.mkdir_p(live)
+        File.write(File.join(live, "one.rb"), "# one\n")
+        FileUtils.mkdir_p(File.join(root, "data/rpc_coverage"))
+        File.write(File.join(root, "data/rpc_coverage/config.yml"), "release: pin\n")
+
+        first = LiveSummary.suite_fingerprint(root)
+        assert_match(/\Asha256:[0-9a-f]{64}\z/, first)
+
+        File.write(File.join(live, "two.rb"), "# two\n")
+        refute_equal first, LiveSummary.suite_fingerprint(root)
+
+        File.write(File.join(root, "data/rpc_coverage/config.yml"), "release: pin-bumped\n")
+        refute_equal first, LiveSummary.suite_fingerprint(root)
+      end
+    end
+
+    def test_source_fingerprint_ignores_test_live
+      Dir.mktmpdir do |root|
+        File.write(File.join(root, "probe.gemspec"), <<~SPEC)
+          Gem::Specification.new do |spec|
+            spec.name = "probe"
+            spec.version = "0.0.1"
+            spec.summary = "probe"
+            spec.authors = [ "probe" ]
+            spec.files = %w[lib/probe.rb]
+          end
+        SPEC
+        FileUtils.mkdir_p(File.join(root, "lib"))
+        File.write(File.join(root, "lib/probe.rb"), "A = 1\n")
+        first = LiveSummary.source_fingerprint(root)
+
+        FileUtils.mkdir_p(File.join(root, "test/live"))
+        File.write(File.join(root, "test/live/gutted.rb"), "# removed every assertion\n")
+        assert_equal first, LiveSummary.source_fingerprint(root)
+      end
+    end
+
     def test_single_persona_is_allowed
       Dir.mktmpdir do |dir|
         write_summary(dir, "PERSONA_A.json", summary_fields)
-        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE)
+        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
         assert ok, reasons.join("\n")
         assert_empty reasons
 
@@ -185,7 +286,7 @@ module RpmsRpc
       Dir.mktmpdir do |dir|
         write_summary(dir, "PERSONA_A.json", summary_fields)
         write_summary(dir, "PERSONA_B.json", summary_fields("persona" => "PERSONA_B"))
-        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE)
+        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
         assert ok, reasons.join("\n")
         assert_empty reasons
       end
@@ -218,7 +319,7 @@ module RpmsRpc
         LiveSummary.write(path, fields, env: env)
         assert File.file?(path)
 
-        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE)
+        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
         assert ok, reasons.join("\n")
         assert_empty reasons
       end
@@ -320,7 +421,7 @@ module RpmsRpc
         assert_equal "1", ENV["LIVE_RUN"]
         assert LiveSummary.pending_for?(path, ENV["LIVE_RUN_ID"]),
                "the marker must replace the old green summary before specs load"
-        ok, reasons = LiveSummary.check(dir: File.dirname(path), build: build, source: repo_source)
+        ok, reasons = LiveSummary.check(dir: File.dirname(path), build: build, source: repo_source, suite: repo_suite)
         refute ok
         assert_match(/pending/, reasons.join(" "))
       end
@@ -453,7 +554,8 @@ module RpmsRpc
         ENV["LIVE_SUMMARY_DIR"] = tmpdir
         begin
           path = File.join(tmpdir, "PERSONA_A.json")
-          write_summary(tmpdir, "PERSONA_A.json", summary_fields("build" => build, "build_source" => "pinned", "source" => repo_source))
+          write_summary(tmpdir, "PERSONA_A.json", summary_fields("build" => build, "build_source" => "pinned",
+                                                                 "source" => repo_source, "suite" => repo_suite))
 
           Rake.application = Rake::Application.new
           Rake.application.init("rake")
@@ -543,6 +645,22 @@ module RpmsRpc
     # What the release tasks fingerprint when they run from this checkout.
     def repo_source = @repo_source ||= LiveSummary.source_fingerprint(REPO_ROOT)
 
+    def repo_suite = @repo_suite ||= LiveSummary.suite_fingerprint(REPO_ROOT)
+
+    def documented_source_fingerprint(root)
+      gemspec = Dir.glob(File.join(root, "*.gemspec")).first
+      spec = eval(File.read(gemspec), TOPLEVEL_BINDING, gemspec) # rubocop:disable Security/Eval
+      names = (spec.files + [ File.basename(gemspec) ]).uniq.sort
+      digest = Digest::SHA256.new
+      names.each do |name|
+        path = File.join(root, name)
+        next unless File.file?(path)
+
+        digest << name << "\n" << Digest::SHA256.file(path).hexdigest << "\n"
+      end
+      "sha256:#{digest.hexdigest}"
+    end
+
     def with_parallel_live_tasks
       original_app = Rake.application
       keys = %w[LIVE_RUN LIVE_RUN_ID BROKER_HOST BROKER_PROTOCOL PERSONA LIVE_SUMMARY_DIR LIVE_BUILD]
@@ -550,7 +668,7 @@ module RpmsRpc
       Dir.mktmpdir do |dir|
         build = LiveSummary.pinned_build(File.join(REPO_ROOT, "data/fingerprints/rpms-ops.lock.yml"))
         write_summary(dir, "PERSONA_A.json", summary_fields("build" => build, "source" => repo_source))
-        assert LiveSummary.check(dir: dir, build: build, source: repo_source).first, "fixture must start green"
+        assert LiveSummary.check(dir: dir, build: build, source: repo_source, suite: repo_suite).first, "fixture must start green"
 
         ENV.delete("LIVE_RUN")
         ENV.delete("LIVE_RUN_ID")
@@ -572,12 +690,14 @@ module RpmsRpc
 
     def summary_fields(overrides = {})
       {
-        "schema" => 2,
+        "schema" => 3,
         "build" => SYNTHETIC_BUILD,
         "build_source" => "pinned",
         "source" => SYNTHETIC_SOURCE,
+        "suite" => SYNTHETIC_SUITE,
         "protocol" => "cia",
         "persona" => "PERSONA_A",
+        "passed" => true,
         "runs" => 120,
         "assertions" => 400,
         "failures" => 0,
@@ -592,8 +712,8 @@ module RpmsRpc
       File.write(File.join(dir, filename), JSON.generate(fields))
     end
 
-    def refuse_check(dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE)
-      ok, reasons = LiveSummary.check(dir: dir, build: build, source: source)
+    def refuse_check(dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
+      ok, reasons = LiveSummary.check(dir: dir, build: build, source: source, suite: suite)
       refute ok
       refute_empty reasons
       [ ok, reasons ]

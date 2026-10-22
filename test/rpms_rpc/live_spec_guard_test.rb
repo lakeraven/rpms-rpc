@@ -184,7 +184,8 @@ class LiveSpecGuardTest < Minitest::Test
       assert_match(/1 of 3|partial|interrupted/, io.string)
       data = JSON.parse(File.read(path))
       assert_equal true, data["pending"]
-      ok, reasons = RpmsRpc::LiveSummary.check(dir: tmpdir, build: data["build"], source: data["source"])
+      ok, reasons = RpmsRpc::LiveSummary.check(dir: tmpdir, build: data["build"], source: data["source"],
+                                                suite: repo_suite)
       refute ok
       assert_match(/pending/i, reasons.join(" "))
     end
@@ -348,6 +349,18 @@ class LiveSpecGuardTest < Minitest::Test
     end
   end
 
+  def test_a_run_filtered_by_TESTOPT_is_not_recorded
+    assert_filtered_env_not_recorded("TESTOPT" => "--name=x")
+  end
+
+  def test_a_run_filtered_by_TEST_OPTS_is_not_recorded
+    assert_filtered_env_not_recorded("TEST_OPTS" => "--name=x")
+  end
+
+  def test_a_run_filtered_by_TEST_OPT_is_not_recorded
+    assert_filtered_env_not_recorded("TEST_OPT" => "--name=x")
+  end
+
   def test_expected_runs_counts_loaded_live_test_methods
     expected = Minitest::Runnable.runnables
                                   .grep(Class)
@@ -368,7 +381,8 @@ class LiveSpecGuardTest < Minitest::Test
       data = JSON.parse(File.read(paths.first))
       assert_equal 0, data["runs"]
 
-      ok, reasons = RpmsRpc::LiveSummary.check(dir: tmpdir, build: data["build"], source: data["source"])
+      ok, reasons = RpmsRpc::LiveSummary.check(dir: tmpdir, build: data["build"], source: data["source"],
+                                                suite: repo_suite)
       refute ok
       assert_match(/no live spec ran|pending/i, reasons.join(" "))
     end
@@ -391,6 +405,27 @@ class LiveSpecGuardTest < Minitest::Test
   end
 
   private
+
+  def repo_root = @repo_root ||= File.expand_path("../..", __dir__)
+
+  def repo_suite = @repo_suite ||= RpmsRpc::LiveSummary.suite_fingerprint(repo_root)
+
+  def assert_filtered_env_not_recorded(filter_env)
+    Dir.mktmpdir do |tmpdir|
+      env = FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir).merge(filter_env)
+      path = mark_pending_in(tmpdir, env: env)
+
+      io = StringIO.new
+      reporter = LiveSpec::Summary.new(io, env: env, expected_runs: 1)
+      reporter.start
+      reporter.record(PassingProbe.new(:test_passes).run)
+      reporter.report
+
+      assert_match(/NOT RECORDED/, io.string)
+      assert_match(/filter|TEST/i, io.string)
+      assert_equal true, JSON.parse(File.read(path))["pending"]
+    end
+  end
 
   def summarize(*results, env:, **summary_kwargs)
     env = env.dup
