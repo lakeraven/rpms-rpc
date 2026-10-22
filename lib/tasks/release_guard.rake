@@ -2,7 +2,8 @@
 
 # A release may be tagged only when live summaries prove a green run against
 # the single pinned rpms-ops build (rpms-rpc#361, ADR 0010 assertion 10), of
-# the very files the gem ships (rpms-rpc#441).
+# the very files the gem ships (rpms-rpc#441) and the live suite that produced
+# the summary (schema 3: passed and suite).
 # This task runs before Bundler tags or pushes. It does not tag, publish,
 # or read the build off a server.
 namespace :release do
@@ -20,12 +21,13 @@ namespace :release do
 
     begin
       source = RpmsRpc::LiveSummary.source_fingerprint(root)
+      suite = RpmsRpc::LiveSummary.suite_fingerprint(root)
     rescue StandardError => e
       abort "release:live_guard: refusing to release: #{e.message}"
     end
 
     dir = File.expand_path(RpmsRpc::LiveSummary.dir, root)
-    ok, reasons = RpmsRpc::LiveSummary.check(dir: dir, build: build, source: source)
+    ok, reasons = RpmsRpc::LiveSummary.check(dir: dir, build: build, source: source, suite: suite)
     if ok
       puts "release:live_guard: OK #{build} on source #{source} (build not verified against the server)"
       RpmsRpc::LiveSummary.outcomes(dir).each { |line| puts "  #{line}" }
@@ -65,6 +67,7 @@ namespace :test do
         build: identity[:build],
         build_source: identity[:build_source],
         source: identity[:source],
+        suite: identity[:suite],
         run_id: token
       )
       abort "test:live_summary_pending: no pending marker at #{path}; refusing to run" unless summary.pending_for?(path, token)

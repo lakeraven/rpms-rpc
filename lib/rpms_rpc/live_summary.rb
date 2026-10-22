@@ -15,13 +15,16 @@ require "yaml"
 # marker, carrying this run's id, is written before specs load, so a run
 # that dies before the summary is recorded cannot leave the previous green
 # file in place, and only that run may replace the marker. Each summary
-# names the source it tested (source_fingerprint), and the guard refuses one
-# that is not the source being released (rpms-rpc#441). Not loaded by the gem
-# entry point: a host process never needs it.
+# names the source it tested (source_fingerprint) and the suite it ran
+# (suite_fingerprint), and records passed: true only when every non-skipped
+# result passed. The guard refuses a summary that is not the source or suite
+# being released, or whose passed is not true (rpms-rpc#361, #441). Schema 3;
+# an older summary is refused until `rake test:live` replaces it. Not loaded
+# by the gem entry point: a host process never needs it.
 module RpmsRpc
   module LiveSummary
-    SCHEMA = 2
-    REQUIRED_FIELDS = %w[schema build build_source source protocol persona runs assertions failures errors skips written_at].freeze
+    SCHEMA = 3
+    REQUIRED_FIELDS = %w[schema build build_source source suite protocol persona passed runs assertions failures errors skips written_at].freeze
     COUNT_FIELDS = %w[runs skips failures errors].freeze
     DEFAULT_DIR = "coverage/live"
     # The file name is the persona and the protocol, so anything else is refused.
@@ -66,22 +69,27 @@ module RpmsRpc
     # The file `rake test:live` writes before specs load. Counts are zero,
     # pending is true, and run_id is the non-blank token for this run, so
     # check refuses it until that same run's finished summary replaces it.
-    # A blank run_id raises ArgumentError. Same env gate as write.
-    def mark_pending(path, persona:, protocol:, build:, build_source:, source:, run_id:, env: ENV)
+    # A blank run_id raises ArgumentError. Same env gate as write. suite is
+    # the suite_fingerprint at the start of the run, carried the same way as
+    # source so a suite that changes before the summary is written is refused.
+    def mark_pending(path, persona:, protocol:, build:, build_source:, source:, run_id:, env: ENV, suite: nil)
       token = run_id.to_s.strip
       raise ArgumentError, "run_id #{run_id.inspect} is blank" if token.empty?
 
-      with_lock(path) { write_pending(path, persona:, protocol:, build:, build_source:, source:, token:, env:) }
+      with_lock(path) { write_pending(path, persona:, protocol:, build:, build_source:, source:, suite:, token:, env:) }
     end
 
     # Replace this run's pending marker with its finished summary, as one step under the summary's
     # lock, so another run's mark_pending cannot land between the check and the write (PR #440 review).
     # :written when replaced; :not_pending when path is not this run's marker; :source_changed when
-    # the marker was written for other source (rpms-rpc#441). before_write is a test seam only.
+    # the marker was written for other source (rpms-rpc#441); :suite_changed when it was written for
+    # another suite. before_write is a test seam only. A marker that did not carry a suite (callers
+    # that predate it) is not a suite change.
     def replace_pending(path, run_id, source, fields, env: ENV, before_write: nil)
       with_lock(path) do
         next :not_pending unless pending_for?(path, run_id)
         next :source_changed unless marker_source(path) == source
+        next :suite_changed unless marker_suite_matches?(path, fields)
 
         before_write&.call
         write(path, fields, env: env)
@@ -98,11 +106,12 @@ module RpmsRpc
       end
     end
 
-    def write_pending(path, persona:, protocol:, build:, build_source:, source:, token:, env:)
+    def write_pending(path, persona:, protocol:, build:, build_source:, source:, token:, env:, suite: nil)
       write(path, {
         "build" => build,
         "build_source" => build_source,
         "source" => source,
+        "suite" => suite,
         "protocol" => protocol,
         "persona" => persona,
         "runs" => 0,
@@ -132,10 +141,13 @@ module RpmsRpc
     # compares it with the source at the end of the run, so a change made
     # while the specs ran is never recorded as tested.
     def marker_source(path)
-      data = JSON.parse(File.read(path))
-      data["source"] if data.is_a?(Hash)
-    rescue JSON::ParserError, SystemCallError, EncodingError
-      nil
+      marker_value(path, "source")
+    end
+
+    # The suite a pending marker was written for, or nil. Compared the same
+    # way as the source: a suite that changes during the run is not recorded.
+    def marker_suite(path)
+      marker_value(path, "suite")
     end
 
     # What the gem ships, as one token: SHA-256 over every file the gemspec
@@ -151,27 +163,30 @@ module RpmsRpc
       # file list would miss a shipped file added since.
       spec = eval(File.read(gemspec), TOPLEVEL_BINDING, gemspec) # rubocop:disable Security/Eval
       names = (spec.files + [ File.basename(gemspec) ]).uniq.sort
-      digest = Digest::SHA256.new
-      names.each do |name|
-        path = File.join(root, name)
-        next unless File.file?(path)
-
-        digest << name << "    # [ok, reasons]. Fail closed: a blank build, a missing directory, or any
-    # file that is not a green run of `build` is a reason. An exception in
-    # one file becomes a reason for that file; it does not escape.
-    def check(dir:, build:)
-      reasons = refusal_reasons(dir, build)
-" << Digest::SHA256.file(path).hexdigest << "\n"
-      end
-      "sha256:#{digest.hexdigest}"
+      digest_named_files(root, names)
     end
 
-    # [ok, reasons]. Fail closed: a blank build or source, a missing
+    # The live suite, as one token: SHA-256 over every file under test/live/
+    # plus data/rpc_coverage/config.yml. Same per-file scheme as
+    # source_fingerprint (relative name, newline, hex digest, newline), sorted.
+    # A gutted spec or a pin bump is a different suite, so it cannot ride a
+    # summary of the previous one.
+    def suite_fingerprint(root)
+      root = File.expand_path(root)
+      names = Dir.glob(File.join(root, "test", "live", "**", "*"), File::FNM_DOTMATCH)
+                 .select { |path| File.file?(path) }
+                 .map { |path| relative_name(root, path) }
+      config = "data/rpc_coverage/config.yml"
+      names << config if File.file?(File.join(root, config))
+      digest_named_files(root, names.uniq.sort)
+    end
+
+    # [ok, reasons]. Fail closed: a blank build, source, or suite, a missing
     # directory, or any file that is not a green run of `build` on `source`
-    # is a reason. An exception in one file becomes a reason for that file;
-    # it does not escape.
-    def check(dir:, build:, source:)
-      reasons = refusal_reasons(dir, build, source)
+    # and `suite` is a reason. An exception in one file becomes a reason for
+    # that file; it does not escape.
+    def check(dir:, build:, source:, suite:)
+      reasons = refusal_reasons(dir, build, source, suite)
       [ reasons.empty?, reasons ]
     rescue StandardError => e
       [ false, [ "#{e.class}: #{e.message}" ] ]
@@ -213,7 +228,8 @@ module RpmsRpc
         protocol: broker_protocol(env),
         build: build,
         build_source: build_source,
-        source: source_fingerprint(root)
+        source: source_fingerprint(root),
+        suite: suite_fingerprint(root)
       }
     end
 
@@ -223,22 +239,23 @@ module RpmsRpc
       fields.to_h { |key, value| [ key.to_s, value ] }
     end
 
-    def refusal_reasons(dir, build, source)
+    def refusal_reasons(dir, build, source, suite)
       return [ "expected build is blank" ] if build.nil? || build.to_s.strip.empty?
       return [ "expected source is blank" ] if source.nil? || source.to_s.strip.empty?
+      return [ "expected suite is blank" ] if suite.nil? || suite.to_s.strip.empty?
       return [ missing_summary(dir) ] unless dir.is_a?(String) && File.directory?(dir)
 
       paths = Dir.glob(File.join(dir, "*.json")).sort
       return [ missing_summary(dir) ] if paths.empty?
 
-      paths.flat_map { |path| reasons_for(path, build, source) }
+      paths.flat_map { |path| reasons_for(path, build, source, suite) }
     end
 
     def missing_summary(dir)
       "no live summary in #{dir} (missing or empty): run `rake test:live` against the pinned build"
     end
 
-    def reasons_for(path, build, source)
+    def reasons_for(path, build, source, suite)
       name = File.basename(path)
       data = JSON.parse(File.read(path))
       return [ "#{name}: malformed JSON: expected an object" ] unless data.is_a?(Hash)
@@ -253,9 +270,16 @@ module RpmsRpc
       if data.key?("source") && !data["source"].nil? && data["source"] != source
         reasons << "#{name}: tested source #{data['source']} is not the source being released (#{source}); re-run `rake test:live`"
       end
+      if data.key?("suite") && !data["suite"].nil? && data["suite"] != suite
+        reasons << "#{name}: tested suite #{data['suite']} is not the suite being released (#{suite}); re-run `rake test:live`"
+      end
       if data.key?("build") && !data["build"].nil? && data["build"] != build
         reasons << "#{name}: build #{data['build'].inspect} is not #{build}; re-run `rake test:live` for it, or delete the file"
       end
+      if data.key?("passed") && !data["passed"].nil? && data["passed"] != true
+        reasons << "#{name}: passed is not true"
+      end
+      identity_reasons(name, data, reasons)
       counts = count_reasons(name, data, reasons)
       if counts.key?("failures") && counts.key?("errors") && counts["failures"] + counts["errors"] > 0
         reasons << "#{name}: #{counts['failures']} failures, #{counts['errors']} errors"
@@ -313,6 +337,73 @@ module RpmsRpc
       ""
     end
 
+    # name, newline, per-file SHA-256 hex, newline. Missing files are skipped
+    # so a listed name that is not on disk does not raise inside the digest.
+    def digest_named_files(root, names)
+      digest = Digest::SHA256.new
+      names.each do |name|
+        path = File.join(root, name)
+        next unless File.file?(path)
+
+        digest << name << "\n" << Digest::SHA256.file(path).hexdigest << "\n"
+      end
+      "sha256:#{digest.hexdigest}"
+    end
+
+    def relative_name(root, path)
+      File.expand_path(path).delete_prefix("#{File.expand_path(root)}/")
+    end
+
+    def marker_value(path, key)
+      data = JSON.parse(File.read(path))
+      data[key] if data.is_a?(Hash)
+    rescue JSON::ParserError, SystemCallError, EncodingError
+      nil
+    end
+
+    # True when the marker carried no suite, or the summary names that same suite.
+    def marker_suite_matches?(path, fields)
+      marked = marker_suite(path)
+      return true if marked.nil? || marked.to_s.strip.empty?
+
+      current = fields.is_a?(Hash) ? fields["suite"] || fields[:suite] : nil
+      marked == current
+    end
+
+    # CIA summaries are <persona>.json. Every other protocol is
+    # <persona>.<protocol>.json. The file name is the identity; content that
+    # names another persona or protocol is not evidence for this file.
+    def filename_identity(basename)
+      stem = basename.delete_suffix(".json")
+      return nil if stem == basename
+
+      if stem.include?(".")
+        persona, protocol = stem.split(".", 2)
+      else
+        persona = stem
+        protocol = "cia"
+      end
+      return nil unless persona.match?(PERSONA_TOKEN) && protocol.match?(PROTOCOL_TOKEN)
+      return nil if protocol == "cia" && stem.include?(".")
+
+      [ persona, protocol ]
+    end
+
+    def identity_reasons(name, data, reasons)
+      expected = filename_identity(name)
+      if expected.nil?
+        reasons << "#{name}: persona and protocol do not match the file name"
+        return
+      end
+
+      persona, protocol = expected
+      return unless data.key?("persona") && data.key?("protocol")
+      return if data["persona"].nil? || data["protocol"].nil?
+      return if data["persona"] == persona && data["protocol"] == protocol
+
+      reasons << "#{name}: persona #{data['persona'].inspect} and protocol #{data['protocol'].inspect} do not match the file name"
+    end
+
     def outcome_of(path)
       data = JSON.parse(File.read(path))
       return nil unless data.is_a?(Hash)
@@ -326,6 +417,8 @@ module RpmsRpc
 
     private_class_method :stringify_keys, :refusal_reasons, :missing_summary, :reasons_for,
                          :count_reasons, :release_keys, :summary_token, :broker_protocol,
-                         :coverage_release, :outcome_of, :write_pending
+                         :coverage_release, :outcome_of, :write_pending, :digest_named_files,
+                         :relative_name, :marker_value, :marker_suite_matches?, :filename_identity,
+                         :identity_reasons
   end
 end

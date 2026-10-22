@@ -45,11 +45,12 @@
 # release guard: coverage/live/<persona>.json for CIA, and
 # coverage/live/<persona>.<protocol>.json otherwise (LIVE_SUMMARY_DIR overrides).
 # An unsafe persona is reported and not written. So is a filtered run (TEST,
-# TESTOPTS, or --name/--exclude), a run that reported fewer live specs than
-# were loaded, and a run whose file is not the pending marker for this
-# LIVE_RUN_ID: Ctrl-C still reaches report, and writing any of those would
-# replace the pending marker, or another run's file, with a green-looking one.
-# So is a run during which the files the gem ships changed (rpms-rpc#441).
+# TESTOPTS, TESTOPT, TEST_OPTS, TEST_OPT, or --name/--exclude), a run that
+# reported fewer live specs than were loaded, and a run whose file is not the
+# pending marker for this LIVE_RUN_ID: Ctrl-C still reaches report, and writing
+# any of those would replace the pending marker, or another run's file, with a
+# green-looking one. So is a run during which the files the gem ships changed
+# (rpms-rpc#441), or the live suite (test/live and the coverage pin) changed.
 require "minitest/autorun"
 require "rpms_rpc/mappings"
 require "rpms_rpc/cia_client"
@@ -237,6 +238,8 @@ module LiveSpec
         io.puts "NOT RECORDED: no pending marker for this run (run the live specs with rake test:live)"
       when :source_changed
         io.puts "NOT RECORDED: the shipped source changed during the run (rpms-rpc#441); re-run rake test:live"
+      when :suite_changed
+        io.puts "NOT RECORDED: the live suite changed during the run; re-run rake test:live"
       end
     rescue ArgumentError => e
       io.puts "NOT RECORDED: #{e.message}"
@@ -244,11 +247,11 @@ module LiveSpec
       io.puts "NOT RECORDED: #{e.class}: #{e.message}"
     end
 
-    # TEST= and TESTOPTS= are how rake filters; --name/--exclude arrive on
-    # the minitest options the plugin passes in.
+    # TEST= and TESTOPTS= are how rake filters. TESTOPT, TEST_OPTS and TEST_OPT
+    # are that same filter under another name. --name/--exclude arrive on the
+    # minitest options the plugin passes in.
     def filtered?
-      !@env["TEST"].to_s.strip.empty? ||
-        !@env["TESTOPTS"].to_s.strip.empty? ||
+      %w[TEST TESTOPTS TESTOPT TEST_OPTS TEST_OPT].any? { |key| !@env[key].to_s.strip.empty? } ||
         !options[:filter].nil? ||
         !options[:exclude].nil?
     end
@@ -258,8 +261,10 @@ module LiveSpec
         "build" => identity[:build],
         "build_source" => identity[:build_source],
         "source" => identity[:source],
+        "suite" => identity[:suite],
         "protocol" => identity[:protocol],
         "persona" => identity[:persona],
+        "passed" => results.reject(&:skipped?).all?(&:passed?),
         "runs" => count,
         "assertions" => assertions,
         "failures" => failures,
