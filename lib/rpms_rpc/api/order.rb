@@ -4,12 +4,13 @@ require_relative "../mappings"
 
 module RpmsRpc
   # Symbolic API for clinical orders — list-side, a patient's orders and
-  # the patient's unsigned actions, plus per-order result reads
-  # and order-sheet catalog reads for the order-review surface.
-  # Underlying RPCs (layouts per FOIA ORWOR.m / ORWORR.m, #220):
+  # the patient's unsigned actions, plus per-order result reads,
+  # order-sheet catalog reads for the order-review surface, and order
+  # checks when an order is accepted.
+  # Underlying RPCs (layouts per FOIA ORWOR.m / ORWORR.m / ORWDXC.m, #220, #454):
   # ORWOR UNSIGN, ORWORR AGET, ORWOR RESULT,
   # ORWOR RESULT HISTORY, ORWOR ACTION TEXT, ORWOR EXPIRED, ORWOR SHEETS,
-  # ORWOR TSALL.
+  # ORWOR TSALL, ORWDXC ACCEPT.
   module Order
     extend self
 
@@ -46,6 +47,41 @@ module RpmsRpc
 
     # AGET's own default display group (ORWORR.m:33).
     DEFAULT_DISPLAY_GROUP = 1
+
+    # CDL on a CHK2LST row (ORKCHK.m:114-115). 99, blank, or anything else
+    # is unknown (ORCHECK.m:88) and requires an override, as does high.
+    CDL_SEVERITY = {
+      "1" => :high,
+      "2" => :moderate,
+      "3" => :low
+    }.freeze
+
+    # ORKCHK.m:20-21. After RETURN^ORCHECK the row is
+    # NEW^^99^Order Checking Unavailable - ... (the text is the reason).
+    ORDER_CHECKING_UNAVAILABLE = "Order Checking Unavailable"
+
+    # One CHK2LST row: ORID^checkIEN^CDL^text (ORWDXC.m:138-147).
+    Check = Data.define(:order_id, :check_ien, :severity, :text) do
+      def override_required? = severity == :high || severity == :unknown
+    end
+
+    # Whole ACCEPT reply. Unavailable results have no checks; an empty or
+    # unreadable reply cannot be told from a failure, so it fails closed.
+    CheckResult = Data.define(:available, :unavailable_reason, :checks) do
+      def self.ready(checks)
+        new(available: true, unavailable_reason: nil, checks: checks.freeze)
+      end
+
+      def self.unavailable(reason)
+        new(available: false, unavailable_reason: reason.to_s.freeze, checks: [].freeze)
+      end
+
+      def available? = available
+
+      def override_required?
+        !available || checks.any?(&:override_required?)
+      end
+    end
 
     # The patient's unsigned order actions the signed-on user may sign.
     # Each row: { order_id: "IFN;ACT", ien:, action_ien: }.
@@ -145,6 +181,33 @@ module RpmsRpc
       Array(DataMapper.order_sheets_all.fetch_many)
     end
 
+    # Order checks for orderables being accepted.
+    #
+    # ACCEPT(LST,DFN,FID,STRT,ORL,OIL,ORIFN) (FOIA-RPMS ORWDXC.m:45). Stock
+    # VistA adds an unread eighth formal ORREN (ORWDXC.m:23); the seven
+    # shared parameters are what is sent. FID is the filler namespace from
+    # FILLID^ORWDXC (ORWDXC.m:7-16). OIL(n) is OIptr^PKG^PkgInfo
+    # (ORWDXC.m:46), indexed from 1. ORIFN is the existing order, or "" for
+    # a new one. STRT may be empty.
+    #
+    # CHK2LST answers ORID^checkIEN^CDL^text (ORWDXC.m:138-147). An empty
+    # reply cannot be told from a failure, so it is unavailable — never
+    # "no checks found". An in-band Order Checking Unavailable row
+    # (ORKCHK.m:20-21) or any malformed row fails the whole result closed.
+    # Broker errors propagate.
+    def check(dfn, filler_id:, location:, items:, start: "", order_id: nil)
+      return check_unavailable("invalid patient id") if invalid_id?(dfn)
+      return check_unavailable("invalid filler id") if blank?(filler_id)
+      return check_unavailable("invalid location") if invalid_id?(location)
+
+      oil = oil_list(items)
+      return check_unavailable("no orderable items") if oil.nil?
+
+      reply = RpmsRpc.client.call_rpc("ORWDXC ACCEPT", dfn.to_s, filler_id.to_s, start.to_s,
+                                      location.to_s, oil, order_id.to_s)
+      parse_accept_reply(reply)
+    end
+
     private
 
     # GET1^ORWORR1 sets the .1 node to TOT^TXTVW^ORYD (ORWORR1.m:13), and
@@ -162,6 +225,87 @@ module RpmsRpc
 
     def blank?(value)
       value.nil? || value.to_s.strip.empty?
+    end
+
+    def check_unavailable(why)
+      CheckResult.unavailable("order checks unavailable: #{why}")
+    end
+
+    # Strings pass through as OIL rows. Hashes are OIptr^PKG^PkgInfo
+    # (ORWDXC.m:46). Anything else, or an empty list, is not a frame.
+    def oil_list(items)
+      return nil unless items.is_a?(Array) && !items.empty?
+
+      rows = items.map { |item| oil_row(item) }
+      return nil if rows.any?(&:nil?)
+
+      rows
+    end
+
+    def oil_row(item)
+      case item
+      when String
+        item.strip.empty? ? nil : item
+      when Hash
+        orderable = hash_field(item, :orderable_item)
+        return nil if orderable.strip.empty?
+
+        "#{orderable}^#{hash_field(item, :package)}^#{hash_field(item, :package_info)}"
+      end
+    end
+
+    def hash_field(item, key)
+      value = item.key?(key) ? item[key] : item[key.to_s]
+      value.to_s
+    end
+
+    def parse_accept_reply(reply)
+      lines = accept_lines(reply)
+      return check_unavailable("empty reply") if blank_reply?(lines)
+
+      rows = lines.map { |line| parse_chk2lst_row(line) }
+      reason = rows.find { |row| row.is_a?(String) }
+      return CheckResult.unavailable(reason) if reason
+      return check_unavailable("malformed reply") if rows.any?(&:nil?)
+
+      CheckResult.ready(rows)
+    end
+
+    def blank_reply?(lines)
+      lines.empty? || lines.all? { |line| line.strip.empty? }
+    end
+
+    def accept_lines(reply)
+      case reply
+      when nil
+        []
+      when String
+        return [] if reply.strip.empty?
+
+        reply.split(/\r?\n/)
+      else
+        Array(reply).map { |line| line.to_s.delete_suffix("\r") }
+      end
+    end
+
+    # nil is a malformed row (the whole reply then fails closed). A String
+    # is the Order Checking Unavailable reason (ORKCHK.m:20-21).
+    def parse_chk2lst_row(line)
+      pieces = line.to_s.split("^", 4)
+      return nil if pieces.length < 4
+
+      order_id, check_ien, cdl, text = pieces
+      return text if text.to_s.lstrip.start_with?(ORDER_CHECKING_UNAVAILABLE)
+
+      ien = check_ien.to_s
+      return nil unless ien.match?(/\A\d+\z/)
+
+      Check.new(
+        order_id: order_id.to_s.freeze,
+        check_ien: ien.freeze,
+        severity: CDL_SEVERITY.fetch(cdl.to_s, :unknown),
+        text: text.to_s.freeze
+      )
     end
   end
 end
