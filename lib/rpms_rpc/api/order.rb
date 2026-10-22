@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../mappings"
+require_relative "../shape"
 
 module RpmsRpc
   # Symbolic API for clinical orders — list-side, a patient's orders and
@@ -13,6 +14,7 @@ module RpmsRpc
   # ORWOR TSALL, ORWDXC ACCEPT.
   module Order
     extend self
+    extend Shape::Declarable
 
     # Order view ids from ORDSTS^ORCHANG2 (ORCHANG2.m:37-63), which AGET
     # takes as FILTER (ORWORR.m:25,34) -- the list REVSTS^ORWORDG serves.
@@ -105,12 +107,15 @@ module RpmsRpc
     # collected; the value is a Hash of DFN strings and must not reference
     # the client. A different DFN, or a new client, starts clean.
     #
-    # CLIENT_CHECK_LOCKS is one Mutex per client object. check holds it
-    # across call_rpc and the memo read/write, so two checks on that
-    # client run in the order the broker ran them. Another client's check
-    # is not blocked. CLIENT_CHECK_LOCKS_MUTEX only installs that Mutex.
-    # SESSION_INCOMPLETE guards the memo map and is never held across
-    # call_rpc.
+    # check holds RpmsRpc.synchronize_wire across the ACCEPT call_rpc and
+    # the memo update. That is the client's reentrant Monitor when the
+    # client defines #synchronize_wire, otherwise MODULE_WIRE_LOCK — the
+    # same lock call_rpc takes, so there is one lock order with the
+    # client's wire lock. Nested use reenters, including from inside a
+    # host's synchronize_wire sequence, instead of deadlocking on a
+    # second mutex. Two checks on that client run in the order the
+    # broker ran them. SESSION_INCOMPLETE guards the WeakKeyMap only and
+    # is never held while calling the RPC.
     #
     # A reconnect on the same client object over-reports. The new broker
     # job has an empty OPOS global, and this memo still says the DFN was
@@ -118,12 +123,9 @@ module RpmsRpc
     # requires an override.
     SESSION_INCOMPLETE = Mutex.new
     SESSION_INCOMPLETE_DFNS = ObjectSpace::WeakKeyMap.new
-    CLIENT_CHECK_LOCKS = ObjectSpace::WeakKeyMap.new
-    CLIENT_CHECK_LOCKS_MUTEX = Mutex.new
     SESSION_INCOMPLETE_REASON =
       "order checks were reported incomplete earlier in this broker session"
-    private_constant :SESSION_INCOMPLETE, :SESSION_INCOMPLETE_DFNS, :SESSION_INCOMPLETE_REASON,
-                     :CLIENT_CHECK_LOCKS, :CLIENT_CHECK_LOCKS_MUTEX
+    private_constant :SESSION_INCOMPLETE, :SESSION_INCOMPLETE_DFNS, :SESSION_INCOMPLETE_REASON
 
     # One CHK2LST row: ORID^checkIEN^CDL^text (FOIA ORWDXC.m:138-147,
     # stock WorldVistA ORWDXC.m:128-154). check_ien is the ORDER CHECKS
@@ -294,10 +296,12 @@ module RpmsRpc
     # object remembers a DFN when the raw lines carry the incomplete-checks
     # banner or the remote-checking row, including a reply that fails
     # closed. An empty reply does not. Later results for that DFN stay
-    # incomplete. Two checks on one client object run one at a time, so
-    # the memo follows the order the broker ran them. A reconnect on that
-    # object over-reports, which errs safe: the new job has forgotten the
-    # banner, and this side still refuses to call the checks complete.
+    # incomplete. The ACCEPT call and the memo update share
+    # RpmsRpc.synchronize_wire (one lock order with the client's wire
+    # lock; reentrant from inside a host's synchronize_wire sequence),
+    # so the memo follows the order the broker ran them. A reconnect on
+    # that object over-reports, which errs safe: the new job has forgotten
+    # the banner, and this side still refuses to call the checks complete.
     #
     # CHK2LST answers ORID^checkIEN^CDL^text (FOIA ORWDXC.m:138-147, stock
     # WorldVistA ORWDXC.m:128-154). check_ien is the ORDER CHECKS (#100.8)
@@ -317,12 +321,16 @@ module RpmsRpc
       return check_unavailable(oil) if oil.is_a?(String)
 
       client = RpmsRpc.client
-      with_client_check_lock(client) do
+      # Wire lock, then the memo mutex: the same lock call_rpc takes, so a
+      # host already inside synchronize_wire reenters instead of inverting
+      # lock order. SESSION_INCOMPLETE stays off the RPC itself.
+      RpmsRpc.synchronize_wire do
         reply = client.call_rpc("ORWDXC ACCEPT", dfn.to_s, filler_id.to_s, start.to_s,
                                 location.to_s, oil, order_id.to_s)
         parse_accept_reply(reply, client, dfn.to_s)
       end
     end
+    shape :check, resource: "orders", verb: "GET", path: "/patients/{dfn}/orders/check"
 
     private
 
@@ -446,14 +454,6 @@ module RpmsRpc
       value.to_s
     end
 
-    # Per-client Mutex from CLIENT_CHECK_LOCKS. The map mutex is released
-    # before this Mutex is taken, and SESSION_INCOMPLETE is taken only
-    # inside the block, after call_rpc has returned.
-    def with_client_check_lock(client)
-      lock = CLIENT_CHECK_LOCKS_MUTEX.synchronize { CLIENT_CHECK_LOCKS[client] ||= Mutex.new }
-      lock.synchronize { yield }
-    end
-
     def parse_accept_reply(reply, client, dfn)
       lines = accept_lines(reply)
       return check_unavailable("empty reply") if blank_reply?(lines)
@@ -485,7 +485,9 @@ module RpmsRpc
     # Nil when this reply is complete. A reply that itself has an
     # incomplete check is remembered for (client, dfn) and names those
     # checks. A later reply for that pair names the earlier report.
-    # The memo is read and written under SESSION_INCOMPLETE.
+    # Read and written under SESSION_INCOMPLETE only. That mutex guards
+    # the WeakKeyMap and is never held while calling the RPC; the wire
+    # lock is already held by check.
     def apply_session_incomplete(client, dfn, checks)
       SESSION_INCOMPLETE.synchronize do
         if checks.any?(&:incomplete?)
