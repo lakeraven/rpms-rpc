@@ -3,10 +3,12 @@
 require_relative "ddr_fileman"
 require_relative "../context_scope"
 require_relative "../fileman_date_parser"
+require_relative "../shape"
 
 module RpmsRpc
   module Practitioner
     extend self
+    extend Shape::Declarable
 
     # The option that lists TIU DIV AND CLASS INFO, and the one that lists
     # DDR GETS ENTRY DATA (the pinned build's reach face).
@@ -137,6 +139,7 @@ module RpmsRpc
         dea_expires: FilemanDateParser.parse_date(fields.dig("747.44", :internal))
       }
     end
+    shape :detail, resource: "practitioners", verb: "GET", path: "/users/{duz}/practitioners"
 
     private
 

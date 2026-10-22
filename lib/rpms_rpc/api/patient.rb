@@ -4,12 +4,14 @@ require_relative "registration"
 require_relative "ddr_fileman"
 require_relative "../context_scope"
 require_relative "../phi_sanitizer"
+require_relative "../shape"
 
 module RpmsRpc
   # Symbolic API for patient data. Engine code calls these methods
   # instead of referencing DataMapper mappings directly.
   module Patient
     extend self
+    extend Shape::Declarable
 
     # The option that lists DDR GETS ENTRY DATA on the pinned build, as in
     # Practitioner.
@@ -264,6 +266,7 @@ module RpmsRpc
         zip4:      external(fields, ".1112")
       }
     end
+    shape :address, resource: "patients", verb: "GET", path: "/patients/{dfn}/address"
 
     # PATIENT (#2) field .06 RACE is P10'X. Its input transform is
     # historical-only ("ENTRY OF DATA NOT ALLOWED") but the value is
@@ -286,6 +289,7 @@ module RpmsRpc
 
       { dfn: dfn.to_i, race: external(fields, ".06") }
     end
+    shape :race, resource: "patients", verb: "GET", path: "/patients/{dfn}/race"
 
     # The parsed fields of one DDR GETS ENTRY DATA read, or nil when it
     # failed. A reply that parsed NO field rows is a failed read, not
