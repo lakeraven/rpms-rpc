@@ -105,6 +105,11 @@ class RpmsRpc::BrokerSessionIntegrityTest < Minitest::Test
 
     observed = Queue.new
     client.define_singleton_method(:signon_setup) { "" }
+    # #450: sign-on now binds the division after AV CODE (XUS DIVISION GET, then
+    # XUS GET USER INFO when it answers 0); answered off the wire, like SETUP.
+    client.define_singleton_method(:call_rpc_lines) do |name, *_params|
+      name == "XUS DIVISION GET" ? [ "0" ] : [ Thread.current[:duz], "X", "X", "7819^DEMO IHS CLINIC^8904" ]
+    end
     client.define_singleton_method(:call_rpc_raw) do |_name, *_params|
       duz = Thread.current[:duz]
       observed << duz

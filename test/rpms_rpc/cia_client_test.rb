@@ -288,9 +288,14 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   AUTH_REPLY = "1\x000\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\n" \
                "Good evening USER,DEMO\r\n     You last signed on today at 08:15\r\n"
   VIMINFO_REPLY = "2\x0063^USER,DEMO^1800;1800;60^0^0"
+  # CIANBRPC DIVGET, the division read VueCentric makes after AUTH (#293):
+  # DATA(0) the chosen division, then "ien^name^station" per division the user
+  # may sign on to. Verbatim from the local YDB container for SYS123,
+  # bcer-9.0, 2026-10-20 (the echo restamped for the third exchange).
+  DIVGET_REPLY = "3\x007819\r7819^DEMO IHS CLINIC^8904\r"
 
   def test_authenticate_populates_duz_from_user_info
-    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, DIVGET_REPLY + EOD ])
     result = c.authenticate("SYN123", "SYN123!!")
     assert result[:success]
     assert_equal "USER,DEMO", result[:user]
@@ -298,15 +303,39 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_equal "63", c.duz
   end
 
+  # #293: sign-on binds the division DIVGET lists, and a one-division user
+  # needs no DIVSET (DIVGET already set DUZ(2) to its choice).
+  def test_authenticate_binds_the_division_divget_lists
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, DIVGET_REPLY + EOD ])
+    result = c.authenticate("SYN123", "SYN123!!")
+    assert_equal 7819, result[:division]
+    assert_equal({ ien: 7819, name: "DEMO IHS CLINIC", station: "8904" }, c.division)
+    refute(c.instance_variable_get(:@socket).writes.any? { |w| w.include?("CIANBRPC DIVSET") })
+  end
+
+  # DIVSET^CIANBRPC sets DUZ(2) to any number it is given, so the membership
+  # check is the client's: a division the user lacks is refused before any
+  # DIVSET is sent, and the client is left signed off.
+  def test_authenticate_refuses_a_division_the_user_lacks_without_setting_it
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, DIVGET_REPLY + EOD ])
+    error = assert_raises(RpmsRpc::Client::AuthenticationError) do
+      c.authenticate("SYN123", "SYN123!!", division: 1)
+    end
+    assert_match(/division 1 is not one of DUZ 63's divisions \(7819\)/, error.message)
+    refute(c.instance_variable_get(:@socket).writes.any? { |w| w.include?("CIANBRPC DIVSET") })
+    assert_signed_off(c)
+    assert_nil c.division
+  end
+
   # The identity read is VueCentric's: CIAVCXUS VIMINFO, in CIAV VUECENTRIC's
   # RPC multiple. XUS GET USER INFO is in no option sign-on binds, so a user
   # without XUPROGMODE was "Access denied" and could not sign on at all.
   def test_signon_reads_duz_with_ciavcxus_viminfo
-    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, DIVGET_REPLY + EOD ])
     c.authenticate("SYN123", "SYN123!!")
-    frame = c.instance_variable_get(:@socket).writes.last
     pk = ->(v) { c.send(:pk, v) }
-    assert_includes frame, pk["RPC"] + pk[""] + pk["CIAVCXUS VIMINFO"]
+    frame = c.instance_variable_get(:@socket).writes.find { |w| w.include?(pk["CIAVCXUS VIMINFO"]) }
+    assert_includes frame.to_s, pk["RPC"] + pk[""] + pk["CIAVCXUS VIMINFO"]
     refute_includes frame, "XUS GET USER INFO".b
   end
 
@@ -321,7 +350,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   end
 
   def test_authenticate_captures_session_uid_and_uses_it_on_later_calls
-    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, "3\x00ok\r\n" + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, DIVGET_REPLY + EOD, "4\x00ok\r\n" + EOD ])
     c.authenticate("SYN123", "SYN123!!")
     assert_equal "7", c.session_uid
     c.call_rpc("CIANBRPC CANRUN", "XUS INTRO MSG")
@@ -335,7 +364,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     cr_auth = "1\x001^VERIFY CODE must be changed before continued use.\r" \
               "35^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\rGood evening USER,DEMO\r" \
               "     You last signed on today at 08:15\r"
-    c = connected_client([ cr_auth + EOD, "2\x0063^USER,DEMO^1800;1800;60^0^0\r" + EOD, "3\x00ok\r" + EOD ])
+    c = connected_client([ cr_auth + EOD, "2\x0063^USER,DEMO^1800;1800;60^0^0\r" + EOD, DIVGET_REPLY + EOD, "4\x00ok\r" + EOD ])
     c.authenticate("SYN123", "SYN123!!")
     assert_equal "35", c.session_uid
     assert_equal "63", c.duz
@@ -412,10 +441,11 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # readable. Pre-seed a resolved session, then fail a re-auth on no DUZ:
   # duz/authenticated/session_uid must all clear, not survive.
   def test_failed_reauth_clears_prior_users_identity
-    # (#289) The SECOND sign-on's AUTH is the third exchange, so its reply
-    # carries echo "3" and its DUZ read echo "4" — the echoes advance with @seq.
-    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD,
-                           reseq(AUTH_REPLY, 3) + EOD, "4\x00\r\n" + EOD ])
+    # (#289) The SECOND sign-on's AUTH is the fourth exchange (AUTH, VIMINFO,
+    # DIVGET came first), so its reply carries echo "4" and its DUZ read echo
+    # "5" — the echoes advance with @seq.
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, DIVGET_REPLY + EOD,
+                           reseq(AUTH_REPLY, 4) + EOD, "5\x00\r\n" + EOD ])
     first = c.authenticate("USERA", "USERA!!") # resolves DUZ 63
     assert_equal 63, first[:duz]
     assert_equal "63", c.duz
@@ -430,8 +460,8 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # Same fail-closed contract for the greeting-rejection branch: a rejected
   # re-auth (bad code) must also clear a prior resolved identity.
   def test_rejected_reauth_clears_prior_users_identity
-    rejected = "3\x00Not a valid ACCESS CODE/VERIFY CODE pair.\r\n"
-    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, rejected + EOD ])
+    rejected = "4\x00Not a valid ACCESS CODE/VERIFY CODE pair.\r\n"
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, DIVGET_REPLY + EOD, rejected + EOD ])
     c.authenticate("USERA", "USERA!!")
     assert_equal "63", c.duz
 
@@ -463,7 +493,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # the public reader, and a later failed re-auth left the PRIOR user's name
   # readable. A wrong actor is worse than an absent one.
   def test_connection_loss_does_not_leave_a_user_name_readable
-    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD ])
+    c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, DIVGET_REPLY + EOD ])
     c.authenticate("SYN123", "SYN123!!")
     assert_equal "USER,DEMO", c.signon_user
 
@@ -755,6 +785,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     c, broker = client_on_strict_broker([
       "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", # CIANBRPC AUTH
       "63^USER,DEMO^1800;1800;60^0^0\r\n",                                     # CIAVCXUS VIMINFO
+      "7819\r7819^DEMO IHS CLINIC^8904\r",                                     # CIANBRPC DIVGET
       "ok\r\n"                                                                 # the RPC proper
     ])
     c.connect("localhost", 9100)
@@ -764,8 +795,8 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     assert_equal "7", c.session_uid
     assert_equal [ "ok" ], c.call_rpc("XWB IM HERE") # "4" seq echo + \x00 ack stripped, lines
     # every frame the broker saw parsed as {CIA}, with one-byte cycling seqs
-    assert_equal %w[1 2 3 4], broker.frames.map { |f| f[:seq] }
-    assert_equal %w[C R R R], broker.frames.map { |f| f[:action] }
+    assert_equal %w[1 2 3 4 5], broker.frames.map { |f| f[:seq] }
+    assert_equal %w[C R R R R], broker.frames.map { |f| f[:action] }
     assert_equal "7", broker.frames.last[:fields][2], "post-auth UID field carries the session UID"
   end
 
@@ -780,7 +811,8 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # the DDR FileMan family (DDR/DDRROOT/DDRIENS lists) requires.
 
   def signed_on_strict_client(rpc_bodies)
-    c, broker = client_on_strict_broker([ "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", "63^USER,DEMO^1800;1800;60^0^0\r\n" ] + rpc_bodies)
+    c, broker = client_on_strict_broker([ "0\r\n7^DEMO.EXAMPLE.ORG^DEMO CLINIC\r\n\r\nGood evening USER,DEMO\r\n", "63^USER,DEMO^1800;1800;60^0^0\r\n",
+                                                  "7819\r7819^DEMO IHS CLINIC^8904\r" ] + rpc_bodies)
     c.connect("localhost", 9100)
     c.authenticate("SYN123", "SYN123!!")
     [ c, broker ]
@@ -1034,6 +1066,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
           RECONNECT_FAIL
         end
       when "CIAVCXUS VIMINFO" then "63^USER,DEMO^1800;1800;60^0^0\r\n"
+      when "CIANBRPC DIVGET" then "7819\r7819^DEMO IHS CLINIC^8904\r"
       else "ok\r\n"
       end
     end

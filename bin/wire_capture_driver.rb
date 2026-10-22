@@ -1,12 +1,13 @@
 # frozen_string_literal: true
 
-# In-container half of `rake wire:capture` (issue #189). Staged into the rung
-# container alongside rpms-rpc/lib (the rpms-ops evidence-script pattern —
-# rpms-ops/bin/rpms_rpc_evidence.sh) and run with:
+# Client half of `rake wire:capture` (issue #189). In host mode (BROKER_HOST=,
+# rpms-ops#975) the task runs it on this machine against the broker; with
+# CONTAINER= it is staged into the rung container alongside rpms-rpc/lib (the
+# rpms-ops evidence-script pattern) and run there. Either way it runs as:
 #
 #   VISTA_RPC_ENV=development RPMS_RPC_LIB=/tmp/rr/lib \
 #     BROKER_HOST=127.0.0.1 BROKER_PORT=9100 \
-#     RPMS_ACCESS=... RPMS_VERIFY=... ruby /tmp/rr_driver.rb
+#     RPMS_ACCESS=... RPMS_VERIFY=... ruby wire_capture_driver.rb
 #
 # Connects the real client (RpmsRpc::CiaClient) to the rung's broker, calls
 # every LIVE-mode entry in RpmsRpc::WireCapture::CATALOG — read-only

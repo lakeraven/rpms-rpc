@@ -197,8 +197,8 @@ RpmsRpc::Authentication.held_keys(%w[PROVIDER XUPROGMODE])
 | `RpmsRpc::MockClient`          | Hermetic test double with seeded data            |
 | `RpmsRpc::MockFhirClient`      | FHIR R4 mock for IRIS for Health reads           |
 | `RpmsRpc::SecurityKeys`        | Symbolic ↔ RPMS security key translation         |
-| `RpmsRpc::UserRoles`           | Role-based authorization (provider, nurse, etc.) |
-| `RpmsRpc::Capabilities`        | Feature-gated permission checks                  |
+| `RpmsRpc::UserRoles`           | Role-based authorization (provider, nurse, etc.) (deprecated, #359) |
+| `RpmsRpc::Capabilities`        | Feature-gated permission checks (deprecated, #359)                  |
 
 ### Exception-message sanitization
 
@@ -242,6 +242,15 @@ rake rpc:coverage
   re-pin; a test fails when the committed file is stale against the pinned face. Out-of-order RPCs get their own reason (`context_out_of_order`),
   since a site can put a context back in service. Reviewed reasons (`gui_plumbing`,
   `write_needs_fixture`) survive regeneration.
+- **"Not in FOIA" is not "not real"; registration is the test (rpms-ops `docs/CLIENTS.md`).** FOIA is a
+  partial public copy of what IHS distributes. On bcer-8.3, 550 registered RPCs had backing routines absent
+  from the FOIA *source tree*, and every one was legitimate IHS: most from packages registered in `#9.4`
+  whose source IHS does not publish (Clinical Reporting BGP, imaging MAG, dental ADE, BPC), the rest from IHS
+  namespaces with no `#9.4` row (AKFR, BMQ). The *built image* closes much of that gap, since KIDS installs
+  routines FOIA lacks: `bcer-9.0-20261020-f28336e-iris` marks 203 RPCs `no-routine` and 95 `no-entry-point`
+  in its reach face. So: never drop or "fix" a mapping because its routine is missing from FOIA; check the
+  pinned registry and reach face, and treat a name registered nowhere (no `#8994` row on any captured
+  build) as the only sign of an invented RPC. Every invented name found so far was client-side.
 - **Covered:** a live run against that backend got an answer that was not a broker error.
   Mock-driven unit tests do not count: `MockClient` answers any name it is seeded with.
 - **Output:** the one-liner and per-status counts on stdout.
@@ -362,6 +371,10 @@ The JSON (default `coverage/api/methods.json`, `OUT=` to override) is the input 
 | `status` | `proven` or `not_in_contract` |
 
 The task is offline and reaches no broker. The implementation lives in `tools/api_coverage/`, which is not part of the gem.
+
+## Retry safety
+
+The gem never retries. `RpmsRpc::RetrySafety` and `lib/rpms_rpc/retry_safety.yml` classify each public method as `read`, `idempotent_write`, or `non_idempotent_write`, as advice to hosts. Only `:read` is `auto_retry_safe?`. An unclassified method is never retry-safe. `bundle exec rake rpc:retry_safety` fails when a public method is unclassified or an entry is stale.
 
 ## OpenAPI documents: the RPC surface and the client API
 

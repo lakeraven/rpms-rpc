@@ -98,7 +98,7 @@ module RpmsRpc
         read_response
       end
       check_for_rpc_error(response)
-      split_response(response)
+      split_bmx_reply(response)
     rescue IOError, Errno::ECONNRESET, Errno::EPIPE, Errno::ENOTCONN => e
       @connected = false
       raise ConnectionError, "Connection lost during RPC call: #{e.message}"
@@ -171,6 +171,42 @@ module RpmsRpc
 
     private
 
+    # GLOBAL ARRAY (recordset) replies: BMX SQL and the other BMX ADO reads
+    # write a typed column-header node, every node ending in $C(30), and a last
+    # node that starts with $C(31) (BMXSQL.m ERRTACK). BMX sends no line break
+    # between nodes, so the whole recordset arrives as ONE line and $C(30) is
+    # the row boundary (as on CIA, CiaClient#call_rpc). Captured live
+    # (rpms-rpc#200, test/fixtures/bmx/replies.yml):
+    #
+    #   rows           "T00016NAME\x1EADAM,ADAM\x1EBSTS,PROXY USER\x1E\x1F"
+    #   header only    "T00050NAME\x1E\x1F"            an empty result, not an error
+    #   M error        "T00030M_ERROR\x1E<$ZS>\x1E\x1F" ERRTRAP^BMXSQL
+    #   query error    "\x1FFIELD NOT FOUND"            ERRTACK: text after $C(31)
+    RECORD_SEPARATOR = "\x1e"
+    RECORDSET_END = "\x1f"
+    # The one column ERRTRAP^BMXSQL writes: the rows under it are $$EC^%ZOSV.
+    M_ERROR_HEADER = /\A[ITDF]\d{5}M_ERROR\z/
+    private_constant :RECORD_SEPARATOR, :RECORDSET_END, :M_ERROR_HEADER
+
+    # Reply lines: a recordset split at $C(30) with its header row kept (the
+    # DataMapper drops typed headers, as for CIA), else CR/LF lines. An M error
+    # or query error the recordset carries as data raises instead.
+    def split_bmx_reply(response)
+      return split_response(response) unless response.include?(RECORD_SEPARATOR) || response.include?(RECORDSET_END)
+
+      body, ended, trailer = response.partition(RECORDSET_END)
+      unless ended.empty? || trailer.empty?
+        raise RpcError, RpmsRpc.sanitize_error("BMX query error: #{trailer}")
+      end
+
+      rows = body.split(RECORD_SEPARATOR)
+      if rows.first&.match?(M_ERROR_HEADER)
+        detail = rows.drop(1).join(" ")
+        raise RpcMError, RpmsRpc.sanitize_error("M ERROR=#{detail}")
+      end
+      rows
+    end
+
     # BMX frames each param length-prefixed (PRSB, BMXMBRK.m:116-159), so a
     # SCALAR value crosses byte-safely — including one that contains "^" (PRSA
     # splits only at the FIRST caret, between the name and the block; everything
@@ -216,53 +252,87 @@ module RpmsRpc
       send_packet(packet)
     end
 
-    # Read BMX response: SNDERR packets + data + EOT
-    #   byte(security_error_len) + security_error
-    #   byte(app_error_len) + app_error
-    #   data
-    #   \x04 (EOT)
+    # Read one BMX reply in the order SNDERR and SND write it (BMXMON.m
+    # SNDERR/SND, and ETRAP's SNDERR then WRITE):
+    #
+    #   byte(len) + security text     read BY LENGTH
+    #   byte(len) + application text  read BY LENGTH
+    #   data                          read up to EOT (\x04)
+    #
+    # Both error packets are read by their length byte, and the frame is
+    # drained through its EOT before anything is raised. Reading the whole
+    # frame "up to the first EOT" first is wrong: the security text can carry
+    # an EOT byte (it quotes the RPC name the client sent, and PRSM reads that
+    # name by length), and a length byte can itself be \x04. Seen live
+    # (rpms-rpc#200): an unknown RPC named "ZZ\x04ZZ" drew
+    # "5Remote Procedure 'ZZ\x04ZZ' doesn't exist on the server.\x00\x04"; the
+    # old read stopped inside the text, returned part of it as DATA, and left
+    # the rest on the socket for the next call to read as its own reply.
     def read_response
-      raw = read_until_eot_raw
-      return "" if raw.nil? || raw.empty?
+      security = read_counted_packet
+      application = read_counted_packet
+      data = read_until_eot_raw
 
-      pos = 0
+      unless security.empty?
+        # The security packet also carries the refusal of an RPC the broker
+        # will not run (BMXMBRK.m:157-161, BMXMSEC.m:27): that is the typed
+        # RpcNotAvailableError / RpcRefusedError every transport raises (#363),
+        # not a broken connection.
+        text = RpmsRpc.sanitize_error("BMX security error: #{security}")
+        error = Client.rpc_error_for(security)
+        raise error, text if [ RpcNotAvailableError, RpcRefusedError ].include?(error)
 
-      # Security error packet
-      if pos < raw.length
-        sec_len = raw[pos].ord
-        pos += 1
-        if sec_len > 0 && pos + sec_len <= raw.length
-          sec_err = raw[pos, sec_len]
-          pos += sec_len
-          unless sec_err.empty?
-            # The security packet also carries the refusal of an RPC the broker
-            # will not run (BMXMBRK.m:157-161, BMXMSEC.m:27): that is the typed
-            # RpcNotAvailableError / RpcRefusedError every transport raises (#363),
-            # not a broken connection.
-            text = RpmsRpc.sanitize_error("BMX security error: #{sec_err}")
-            error = Client.rpc_error_for(sec_err)
-            raise error, text if [ RpcNotAvailableError, RpcRefusedError ].include?(error)
-
-            raise ConnectionError, text
-          end
-        end
+        raise ConnectionError, text
       end
 
-      # Application error packet
-      if pos < raw.length
-        app_len = raw[pos].ord
-        pos += 1
-        if app_len > 0 && pos + app_len <= raw.length
-          app_err = raw[pos, app_len]
-          pos += app_len
-          unless app_err.empty?
-            text = RpmsRpc.sanitize_error("BMX application error: #{app_err}")
-            raise Client.rpc_error_for(app_err), text
-          end
-        end
+      unless application.empty?
+        text = RpmsRpc.sanitize_error("BMX application error: #{application}")
+        raise Client.rpc_error_for(application), text
       end
 
-      pos < raw.length ? raw[pos..] : ""
+      data
+    end
+
+    # One SNDERR packet: a length byte, then that many bytes.
+    def read_counted_packet
+      len = read_exact_raw(1).ord
+      len.zero? ? "".b : read_exact_raw(len)
+    end
+
+    # Exactly n bytes, sharing read_until_raw's buffer (@rbuf), timeout and
+    # error mapping.
+    def read_exact_raw(count)
+      raise ConnectionError, "Not connected" unless @socket
+
+      buf = @rbuf || "".b
+      @rbuf = "".b
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @timeout
+      while buf.bytesize < count
+        remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        if remaining <= 0
+          @connected = false
+          raise TimeoutError, "RPC read timed out after #{@timeout}s"
+        end
+        if (@socket.is_a?(BasicSocket) || @socket.is_a?(IO)) && !IO.select([ @socket ], nil, nil, remaining)
+          @connected = false
+          raise TimeoutError, "RPC read timed out after #{@timeout}s"
+        end
+
+        chunk = @socket.recv(RECV_SIZE)
+        if chunk.nil? || chunk.empty?
+          @connected = false
+          raise ConnectionError, "Connection closed by server"
+        end
+        buf << chunk.b
+      end
+      @rbuf = buf.byteslice(count..) || "".b
+      buf.byteslice(0, count)
+    rescue IO::TimeoutError => e
+      @connected = false
+      raise TimeoutError, "RPC read timed out: #{e.message}"
+    rescue IOError, Errno::ECONNRESET, Errno::EPIPE, Errno::ENOTCONN => e
+      @connected = false
+      raise ConnectionError, "Connection lost: #{e.message}"
     end
   end
 end

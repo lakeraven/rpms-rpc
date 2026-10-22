@@ -153,8 +153,13 @@ module RpmsRpc
       bmc_text(:bmc_patient_face_sheet, dfn.to_s, *params)
     end
 
-    def patient_health_summary(dfn, *params)
-      bmc_text(:bmc_patient_health_summary, dfn.to_s, *params)
+    # BMC PATIENT HEALTH SUMMARY runs EN^BQIRHS(DATA,DFN,SUMMTYP) and reads
+    # SUMMTYP with no $G (BQIRHS+38), so the HEALTH SUMMARY TYPE (#9001015)
+    # IEN is required: a DFN-only call dies LVUNDEF/<UNDEFINED> on either
+    # engine before it builds anything (#448). health_summary_types lists
+    # the IENs.
+    def patient_health_summary(dfn, type_ien)
+      bmc_text(:bmc_patient_health_summary, dfn.to_s, type_ien.to_s)
     end
 
     def health_summary_types(*params)
@@ -254,7 +259,9 @@ module RpmsRpc
       line = raw.to_s.strip
       return { success: false, raw: raw } if line.empty?
 
-      success = line.start_with?("1") || line.match?(/\A[1-9]\d*\z/)
+      # Non-sigil success is exactly "1", "1^..." (a 1 followed by a caret), or a
+      # bare positive integer (/\A[1-9]\d*\z/). Anything else fails closed (#210).
+      success = line.start_with?("1^") || line.match?(/\A[1-9]\d*\z/)
       message = line.sub(/\A[01]\^/, "").strip
       { success: success, message: message.empty? ? nil : message, raw: raw }
     end

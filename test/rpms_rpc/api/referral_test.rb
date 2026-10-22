@@ -179,7 +179,7 @@ class ReferralTest < Minitest::Test
     rcis_template_detail: [ "7" ],
     patient_eligibility_status: [ DFN ],
     patient_face_sheet: [ DFN ],
-    patient_health_summary: [ DFN ],
+    patient_health_summary: [ DFN, "1" ],
     health_summary_types: [],
     check_year_site_param: [],
     add_c32_print_log: [ DFN ]
@@ -249,5 +249,127 @@ class ReferralTest < Minitest::Test
 
     assert result[:success]
     assert_equal [ "BMC ADD REFERRAL" ], plain.calls
+  end
+
+  RESULT_FROM_RAW_CASES = [
+    [ "~`1^3001", :success, { ien: "3001" } ],
+    [ "~`0^Required field missing", :failure, { message: "Required field missing" } ],
+    [ "~`-1^dup prompt", :failure, {} ],
+    [ "~` ", :failure, {} ],
+    [ "~`x^y", :failure, {} ],
+    [ "1", :success, {} ],
+    [ "1^OK", :success, { message: "OK" } ],
+    [ "10", :success, {} ],
+    [ "1garbage", :failure, {} ],
+    [ "0", :failure, {} ],
+    [ "0^no", :failure, {} ],
+    [ "~0^no", :failure, {} ],
+    [ "", :failure, {} ],
+    [ nil, :failure, {} ],
+    [ "  \n", :failure, {} ],
+    [ "Not a valid Referral Ien", :failure, {} ]
+  ].freeze
+
+  def test_result_from_raw_fail_closed_table
+    RESULT_FROM_RAW_CASES.each do |raw, expectation, attrs|
+      result = RpmsRpc::Referral.send(:result_from_raw, raw)
+      label = raw.inspect
+
+      if expectation == :success
+        assert result[:success], "expected success for #{label}"
+        attrs.each { |key, val| assert_equal val, result[key], "for #{label}" }
+      else
+        refute result[:success], "expected failure for #{label}"
+        attrs.each { |key, val| assert_equal val, result[key], "for #{label}" }
+      end
+    end
+  end
+
+  def test_update_referral_sigil_success_is_success_with_the_ien
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:bmc_update_referral, "3001", "~`1^3001")
+    end
+
+    result = RpmsRpc::Referral.update("3001", "44")
+
+    assert result[:success]
+    assert_equal "3001", result[:ien]
+  end
+
+  def test_update_referral_sigil_failure_carries_the_message
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:bmc_update_referral, "3001", "~`0^Required field missing")
+    end
+
+    result = RpmsRpc::Referral.update("3001", "44")
+
+    refute result[:success]
+    assert_equal "Required field missing", result[:message]
+  end
+
+  def test_update_status_sigil_success_is_success_with_the_ien
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:bmc_referral_status_update, "3001", "~`1^3001")
+    end
+
+    result = RpmsRpc::Referral.update_status("3001", "APPROVED")
+
+    assert result[:success]
+    assert_equal "3001", result[:ien]
+  end
+
+  def test_update_status_sigil_failure_carries_the_message
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:bmc_referral_status_update, "3001", "~`0^Required field missing")
+    end
+
+    result = RpmsRpc::Referral.update_status("3001", "APPROVED")
+
+    refute result[:success]
+    assert_equal "Required field missing", result[:message]
+  end
+
+  def test_update_consultation_status_sigil_success_is_success_with_the_ien
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:bmc_consultation_status_update, "7", "~`1^3001")
+    end
+
+    result = RpmsRpc::Referral.update_consultation_status("7", "COMPLETE")
+
+    assert result[:success]
+    assert_equal "3001", result[:ien]
+  end
+
+  def test_update_consultation_status_sigil_failure_carries_the_message
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:bmc_consultation_status_update, "7", "~`0^Required field missing")
+    end
+
+    result = RpmsRpc::Referral.update_consultation_status("7", "COMPLETE")
+
+    refute result[:success]
+    assert_equal "Required field missing", result[:message]
+  end
+
+  def test_cancel_sigil_success_is_success_with_the_ien
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:bmc_referral_status_update, "3001", "~`1^3001")
+    end
+
+    result = RpmsRpc::Referral.cancel("3001")
+
+    assert result[:success]
+    assert_equal "3001", result[:ien]
+  end
+
+  def test_cancel_sigil_failure_carries_the_message
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:bmc_referral_status_update, "3001", "~`0^Required field missing")
+    end
+
+    result = RpmsRpc::Referral.cancel("3001")
+
+    refute result[:success]
+    assert_equal "Required field missing", result[:message]
   end
 end

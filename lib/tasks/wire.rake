@@ -4,6 +4,14 @@
 #
 #   rake wire:capture CONTAINER=rpms-ydb-9.0 RELEASE=bcer-9.0-ydb
 #     [RUNTIME=docker] [BROKER_PORT=9100] [RPMS_ACCESS=] [RPMS_VERIFY=] [ONLY="RPC NAME"]
+#   rake wire:capture BROKER_HOST=127.0.0.1 BROKER_PORT=<port> RELEASE=bcer-9.0-ydb ...
+#
+# Two ways to reach the broker. With CONTAINER= the driver is staged into the
+# container and run there with the container's ruby. With BROKER_HOST= and no
+# CONTAINER= (host mode, rpms-ops#975) it runs on THIS machine's ruby against
+# the broker over the network, as every other client does: a release image
+# carries no ruby, so host mode is the one that works on a release. The sign-on
+# pair reaches the host-mode driver through its environment, never its argv.
 #
 # `wire:capture` is the human/agent capture-side step (needs the live rung
 # container — like conformance:ingest needs a broker dump); the contract
@@ -43,7 +51,19 @@ namespace :wire do
     root = File.expand_path("../..", __dir__)
 
     captures = {}
-    if container
+    host = ENV["BROKER_HOST"].to_s.strip
+    if container.nil? && !host.empty?
+      require "open3"
+      require "rbconfig"
+      driver = File.join(root, "bin", "wire_capture_driver.rb")
+      env = { "VISTA_RPC_ENV" => "development", "RPMS_RPC_LIB" => File.join(root, "lib"),
+              "BROKER_HOST" => host, "BROKER_PORT" => port, "RPMS_ACCESS" => acc,
+              "RPMS_VERIFY" => ver, "ONLY" => only.to_s, "CITE_ONLY" => cite_only.join(",") }
+      puts "Capturing from the broker at #{host}:#{port} with this machine's ruby (host mode)."
+      json, status = Open3.capture2(env, RbConfig.ruby, driver)
+      abort "wire:capture driver failed (exit #{status.exitstatus}):\n#{json}" unless status.success?
+      captures = JSON.parse(json).fetch("captures")
+    elsif container
       driver = File.join(root, "bin", "wire_capture_driver.rb")
       # Stage lib + driver as root (`docker cp` writes as root; chmod opens the
       # tree to a non-root exec user) — the rpms-ops evidence-script pattern.
@@ -56,7 +76,7 @@ namespace :wire do
       abort "wire:capture driver failed:\n#{json}" unless $?.success?
       captures = JSON.parse(json).fetch("captures")
     else
-      puts "No CONTAINER= given — writing routine-cite fixtures only."
+      puts "No CONTAINER= or BROKER_HOST= given — writing routine-cite fixtures only."
     end
 
     FileUtils.mkdir_p(FIXTURES_DIR)
@@ -117,6 +137,34 @@ namespace :wire do
       written += 1
     end
     puts "#{written} fixture(s) written to #{FIXTURES_DIR}"
+  end
+
+  # A scratch capture against the committed fixtures (rpms-ops#975): a capture
+  # is only evidence when it comes from a fresh container of the release, and a
+  # drifted one must be visible BEFORE it replaces a committed fixture. Prints
+  # one row per RPC and, with OUT=, writes the same as TSV (rpc, verdict,
+  # committed source, captured source).
+  #
+  #   rake wire:compare CAPTURED=<dir written by WIRE_FIXTURES_DIR=<dir> rake wire:capture>
+  #
+  # The verdicts are RpmsRpc::WireCapture.compare's.
+  desc "Compare a scratch wire capture (CAPTURED=<dir>) with the committed fixtures: SAME/DIFFERENT per RPC [OUT=<tsv>]"
+  task :compare do
+    require "rpms_rpc/wire_capture"
+
+    captured_dir = ENV["CAPTURED"].to_s
+    abort "wire:compare: set CAPTURED=<dir> (a WIRE_FIXTURES_DIR capture)" if captured_dir.empty?
+    abort "wire:compare: no fixtures in #{captured_dir}" if Dir.glob(File.join(captured_dir, "*.yml")).empty?
+
+    rows = RpmsRpc::WireCapture.compare(RpmsRpc::WireCapture::FIXTURES_DIR, captured_dir)
+
+    width = rows.map { |r| r[0].length }.max.to_i
+    puts format("%-#{width}s  %-12s  %-12s  %s", "RPC", "VERDICT", "COMMITTED", "CAPTURED")
+    rows.each { |r| puts format("%-#{width}s  %-12s  %-12s  %s", *r) }
+    counts = rows.group_by { |r| r[1] }.transform_values(&:size)
+    puts "wire:compare: #{rows.size} RPC(s): " +
+         RpmsRpc::WireCapture::COMPARE_VERDICTS.map { |v| "#{counts.fetch(v, 0)} #{v}" }.join(", ")
+    File.write(ENV["OUT"], rows.map { |r| r.join("\t") }.join("\n") + "\n") if ENV["OUT"] && !ENV["OUT"].empty?
   end
 
   def fixture_data(entry, release, captured_at)

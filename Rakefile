@@ -17,8 +17,9 @@ end
 # BROKER_PORT, RPMS_ACCESS, RPMS_VERIFY and PERSONA are set; and a run in which
 # no live spec ran is never green. See test/live/live_helper.rb.
 #
-# BROKER_PROTOCOL (cia, the default, or xwb) picks the broker line and the
-# specs written for it: test/live/*_test.rb for CIA, test/live/xwb/ for XWB.
+# BROKER_PROTOCOL (cia, the default, xwb or bmx) picks the broker line and the
+# specs written for it: test/live/*_test.rb for CIA, test/live/xwb/ for XWB,
+# test/live/bmx/ for BMX.
 require_relative "test/live/live_env"
 namespace :test do
   Rake::TestTask.new(:live) do |t|

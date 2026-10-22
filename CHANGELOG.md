@@ -26,6 +26,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dea_expires` is a `Date` from the `747.44` internal FileMan date. #200 has no SPECIALTY field;
   PERSON CLASS is the NUCC taxonomy analogue.
 
+### Added — XWB and BMX sign-on bind the division (DUZ(2)) as the stock XWB client does (#450)
+
+- `Client#authenticate` (XwbClient, BmxClient) calls `XUS DIVISION GET` after `XUS AV CODE`, as the Delphi RPC Broker does, and
+  `XUS DIVISION SET` when `division:` names one of the user's divisions or the user has several (the one flagged default; with none
+  flagged the sign-on fails closed rather than guess). `DIVSET^XUSRB2` checks membership itself and answers 1 only when it set
+  `DUZ(2)`; a refusal leaves the client signed off. The result carries `division:`; `#division` / `#divisions` read what was bound.
+  Two stock details, read on an IRIS stack (2026-10-21): the registered routine is `DIVGET^XUSRB2`, which answers 0 and no rows
+  for a one-division user after setting `DUZ(2)` itself, so the client reads the bound division back from `XUS GET USER INFO`
+  (line 4, `ien^name^station`); and `DIVSET` resolves its argument with `FIND1^DIC`, so a bare IEN answers 0 and the client
+  sends the backtick form (`` `7819 ``). The twin of #449 (CIA). Live: `test/live/xwb/signon_division_live_test.rb`,
+  3/3 as SYS123 and PROV123 on an IRIS stack over XWB.
+
+### Fixed — CIA sign-on binds the division (DUZ(2)) explicitly, as VueCentric does (#293)
+
+- `CiaClient#authenticate` calls `CIANBRPC DIVGET` after the identity read, the call VueCentric makes after
+  AUTH, and `CIANBRPC DIVSET` when the caller names another of the user's divisions with `division:` (an
+  INSTITUTION #4 IEN). The session used to act in whatever DUZ(2) Kernel sign-on left, which is not always the
+  division VueCentric binds: on the 10-05 YDB image Kernel left PROV123 in 7819 while DIVGET puts it in 1.
+- With no division named it takes DIVGET's choice, as VueCentric does, however many divisions the user has.
+  Fails closed (signed off, `AuthenticationError`) when the named division is not one of the user's (DIVSET
+  itself accepts any number), or when the user has no division at all.
+- `#division` and `#divisions` report what was bound and what the user may act in; the sign-on result carries
+  `division:`. Live spec: `test/live/signon_division_live_test.rb`, read back with `BEHOSICX SITEINFO`.
+
+### Fixed — BMX replies: recordsets split into rows, M errors in a recordset raise, the error packets read by length (#200)
+
+- `BmxClient#call_rpc` splits a GLOBAL ARRAY recordset (BMX SQL and the other BMX ADO reads) at `$C(30)` and
+  drops the `$C(31)` end marker, as `CiaClient#call_rpc` does. It returned the whole recordset as one line.
+  A query that matches nothing answers its typed header alone: an empty result, not an error.
+- ERRTRAP^BMXSQL's `M_ERROR` recordset (its row is `$$EC^%ZOSV`, e.g. `%YDB-E-LVUNDEF`) raises `RpcMError`,
+  and a query error written after the end marker (ERRTACK^BMXSQL, `"\x1FFIELD NOT FOUND"`) raises `RpcError`.
+  Both were returned as data.
+- The security and application packets are read by their length bytes before the data and its EOT. Reading to
+  the first EOT stopped inside a refusal that quoted an RPC name carrying an EOT byte, returned part of it as
+  data and left the rest for the next call.
+- `BROKER_PROTOCOL=bmx` runs the new live specs in `test/live/bmx/`; `test/fixtures/bmx/replies.yml` holds the
+  frames captured from a live BMX session.
+
+### Added — `rake wire:capture` host mode and `rake wire:compare` (rpms-ops#975)
+
+- `rake wire:capture BROKER_HOST=<host> BROKER_PORT=<port>` (no `CONTAINER=`) runs the capture driver on this
+  machine's Ruby against the broker over the network. A release image carries no Ruby, so staging the driver
+  into the container failed there (`sh: 1: ruby: not found`). The sign-on pair reaches the driver through its
+  environment, never its argv.
+- `rake wire:compare CAPTURED=<dir> [OUT=<tsv>]` prints SAME / SAME-ROWS / DIFFERENT / NEW / NOT-CAPTURED per
+  RPC for a scratch capture (`WIRE_FIXTURES_DIR=<dir>`) against the committed fixtures, so a capture from a
+  drifted container is visible before it replaces one (`RpmsRpc::WireCapture.compare`).
+
 ### Added — `Client::RpcMError`: an M error has a class of its own (#357)
 
 - `RpmsRpc::Client::RpcMError < RpcError` is raised when the server reports an M error: CIA error 1
@@ -180,6 +228,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CLASS and SERVICE/SECTION come from `DDR GETS ENTRY DATA` on NEW PERSON (#200), in CIAV
   VUECENTRIC. It is nil for an unknown or invalid IEN, and for Kernel's system entries .5 and .6.
   A role whose `name` is nil points at no entry.
+
+### Deprecated — Capabilities and UserRoles role vocabulary (#359)
+
+- `Capabilities.can?`, `Capabilities.permissions_for` and `Capabilities.capabilities_for` each warn
+  once per process, as do `UserRoles.for_class`, `UserRoles.class_for`, `UserRoles.mock_av_code`
+  and `UserRoles.resolve`. Their answers are unchanged. The seven `can_*?` checks
+  (`can_approve_chs?`, `can_process_chs?`, `can_manage_chs?`, `can_manage_consults?`,
+  `can_verify_eligibility?`, `can_access_behavioral_health?` and `can_access_dental?`) already warn
+  since 0.4.0 (#337). All of them will be removed in a later release (#359 follow-up). Read the
+  keys a user holds (#318) and decide roles in the host (ADR 0010).
+- `RpmsRpc::Capabilities::ROLE_PERMISSIONS`, `Capabilities::DEPRECATED_CHECKS`,
+  `UserRoles::USER_CLASS_MAP` and `UserRoles::REVERSE_CLASS_MAP` are deprecated with the modules.
+  They do not warn when read. Both modules and their constants are removed in the first release
+  after the one that ships these warnings (#359 follow-up).
 
 ## [0.4.0] — 2026-10-12
 

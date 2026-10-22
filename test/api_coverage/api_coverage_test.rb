@@ -143,9 +143,9 @@ class ApiCoverageTest < Minitest::Test
 
     assert_equal %w[schema registry personas summary methods], doc.keys
     assert_equal methods.size, doc["methods"].size
-    assert_equal %w[proven public unresolved_methods unregistered_rpcs by_module], doc["summary"].keys
+    assert_equal %w[proven public unresolved_methods unregistered_rpcs undeclared by_module], doc["summary"].keys
     doc["methods"].each do |e|
-      assert_equal %w[module method arity params rpcs unresolved live_specs personas status], e.keys
+      assert_equal %w[module method arity params rpcs unresolved live_specs personas status shape shape_status], e.keys
       assert_includes ApiCoverage::STATUSES, e["status"]
       assert_equal e["live_specs"].empty?, e["status"] == "not_in_contract"
       e["rpcs"].each { |r| assert_equal %w[name registered entry_point reach via], r.keys }

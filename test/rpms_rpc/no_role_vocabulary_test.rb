@@ -1,0 +1,118 @@
+# frozen_string_literal: true
+
+require "minitest/autorun"
+require_relative "../../lib/rpms_rpc/version"
+
+class RpmsRpc::NoRoleVocabularyTest < Minitest::Test
+  # Delete both files and this allowlist together at removal (#359 follow-up).
+  ALLOWLISTED = [
+    "lib/rpms_rpc/capabilities.rb",
+    "lib/rpms_rpc/user_roles.rb"
+  ].freeze
+
+  ROLE_BARE_WORDS = %w[
+    prc_supervisor prc_manager prc_tech case_manager consult_manager
+    eligibility_verify bh_provider bh_supervisor dental_provider
+    dental_supervisor chs_approve chs_clerk
+  ].freeze
+
+  ROLE_WORD_PATTERN = Regexp.union(
+    ROLE_BARE_WORDS.map { |word| /\b#{word}\b/ }
+  )
+
+  CAPABILITY_BARE_WORDS = %w[
+    view_patients view_referrals create_referrals edit_own_referrals
+    update_referral_status approve_referrals deny_referrals manage_referrals
+    view_own_referrals process_claims verify_eligibility manage_consults
+    manage_scheduling access_behavioral_health access_dental
+  ].freeze
+
+  CAPABILITY_WORD_PATTERN = Regexp.union(
+    CAPABILITY_BARE_WORDS.map { |word| /\b#{word}\b/ }
+  )
+
+  VOCABULARY_PATTERNS = [
+    ROLE_WORD_PATTERN,
+    CAPABILITY_WORD_PATTERN,
+    /\bcan_\w+\?/,
+    /ROLE_PERMISSIONS/,
+    /USER_CLASS_MAP/,
+    /REVERSE_CLASS_MAP/,
+    /DEPRECATED_CHECKS/
+  ].freeze
+
+  def vocabulary?(source)
+    VOCABULARY_PATTERNS.any? { |pat| source.match?(pat) }
+  end
+
+  def read_source_utf8(path)
+    File.binread(path).encode("UTF-8", invalid: :replace, undef: :replace)
+  end
+
+  def allowlisted_sources
+    root = File.expand_path("../..", __dir__)
+    ALLOWLISTED.map { |rel| read_source_utf8(File.join(root, rel)) }
+  end
+
+  def test_each_vocabulary_pattern_matches_an_allowlisted_file
+    sources = allowlisted_sources
+    VOCABULARY_PATTERNS.each_with_index do |pat, idx|
+      assert sources.any? { |src| src.match?(pat) },
+             "pattern #{idx} must match capabilities.rb or user_roles.rb"
+    end
+  end
+
+  def test_vocabulary_detects_copied_deprecated_checks_shape
+    snippet = <<~RUBY
+      ZZ_PROBE = {
+        can_approve_chs?: [ %i[prc_supervisor prc_manager], [] ],
+      }.freeze
+      ZZ_PROBE.each_key do |check|
+        define_singleton_method(check) { |_user| true }
+      end
+    RUBY
+    assert vocabulary?(snippet), "probe-like copy must be flagged as role vocabulary"
+  end
+
+  def test_vocabulary_detects_copied_permission_table_shape
+    snippet = <<~RUBY
+      module RpmsRpc; module HostPolicyCopy; PERMS = { "admin" => %i[view_patients approve_referrals] }.freeze; end; end
+    RUBY
+    assert vocabulary?(snippet), "permission-table copy must be flagged as role vocabulary"
+  end
+
+  def test_lib_defines_role_vocabulary_only_in_allowlisted_files
+    root = File.expand_path("../..", __dir__)
+    violations = []
+
+    ALLOWLISTED.each do |rel|
+      path = File.join(root, rel)
+      assert_path_exists path, "allowlisted file must exist: #{rel}"
+    end
+
+    lib_root = File.join(root, "lib")
+    paths = []
+    Dir.glob(File.join(lib_root, "**", "*"), File::FNM_DOTMATCH).sort.each do |abs|
+      next unless File.file?(abs)
+
+      base = File.basename(abs)
+      next if base == "." || base == ".."
+
+      paths << abs
+    end
+
+    paths.each do |abs|
+      rel = abs.delete_prefix("#{root}/")
+      next if ALLOWLISTED.include?(rel)
+
+      source = read_source_utf8(abs)
+      next unless vocabulary?(source)
+
+      violations << rel
+    end
+
+    assert_empty violations,
+                 "role/capability vocabulary must only live in #{ALLOWLISTED.join(', ')}; " \
+                 "also found in: #{violations.join(', ')}"
+  end
+end
