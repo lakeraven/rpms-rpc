@@ -34,6 +34,7 @@ class OrderCheckTest < Minitest::Test
     "NEW^99^2^Remote Order Checking not available - checks done on local data only"
 
   CONCURRENT_JOIN_LIMIT = 5
+  WIRE_LOCK_DEADLOCK_JOIN_LIMIT = 3
 
   def teardown
     RpmsRpc.reset!
@@ -300,6 +301,64 @@ class OrderCheckTest < Minitest::Test
     session_reason = result_b.incomplete_reason.to_s
     assert_match(/incomplete/i, session_reason)
     assert_match(/session/i, session_reason)
+  end
+
+  # Production Client#call_rpc runs inside wire_operation → synchronize_wire.
+  # Order.check must serialize on that same reentrant lock (via RpmsRpc.synchronize_wire),
+  # not a separate per-client Mutex held across call_rpc — opposite lock order deadlocks.
+  def test_check_nested_synchronize_wire_returns_result
+    client = wire_locked_orwdxc_accept_client([ ORDINARY_LOW_CHECK ])
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    result = RpmsRpc.synchronize_wire do
+      RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    end
+
+    assert result.available?
+    assert result.complete?
+    refute result.override_required?
+  end
+
+  def test_check_concurrent_with_host_synchronize_wire_finishes_without_deadlock
+    client = wire_locked_orwdxc_accept_client([ ORDINARY_LOW_CHECK ], rpc_sleep: 0.05)
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    result_a = nil
+    result_b = nil
+    errors = []
+    thread_a = nil
+    thread_b = Thread.new do
+      RpmsRpc.synchronize_wire do
+        sleep 0.05
+        result_b = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+      end
+    rescue StandardError => e
+      errors << e
+    end
+
+    sleep 0.01
+
+    thread_a = Thread.new do
+      result_a = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    rescue StandardError => e
+      errors << e
+    end
+
+    threads = [ thread_a, thread_b ]
+    begin
+      threads.each do |thread|
+        assert thread.join(WIRE_LOCK_DEADLOCK_JOIN_LIMIT),
+               "thread #{thread} did not finish within #{WIRE_LOCK_DEADLOCK_JOIN_LIMIT}s (wire/check lock inversion?)"
+      end
+      assert_empty errors, errors.map(&:message).join("; ")
+      assert result_a&.available?
+      assert result_b&.available?
+    ensure
+      threads.each { |thread| thread.kill if thread&.alive? }
+      threads.each { |thread| thread.join(0.1) }
+    end
   end
 
   def test_check_fail_closed_malformed_reply_with_incomplete_banner_still_memoizes_dfn
@@ -697,6 +756,26 @@ class OrderCheckTest < Minitest::Test
         define_method(meth) do |rpc, *params|
           @calls << [ rpc, *params ]
           raise "RPC must not run for invalid Order.check arguments"
+        end
+      end
+    end.new
+  end
+
+  # Like XwbClient#wire_operation: call_rpc holds the same reentrant Monitor as #synchronize_wire.
+  def wire_locked_orwdxc_accept_client(lines, rpc_sleep: 0.01)
+    wire_lock = Monitor.new
+    reply = Array(lines)
+    Class.new do
+      define_method(:synchronize_wire) { |&block| wire_lock.synchronize(&block) }
+
+      %i[call_rpc call_rpc_lines call_rpc_global_array].each do |meth|
+        define_method(meth) do |rpc_name, *_params|
+          raise "unexpected RPC #{rpc_name.inspect}" unless rpc_name == "ORWDXC ACCEPT"
+
+          wire_lock.synchronize do
+            sleep rpc_sleep
+            reply
+          end
         end
       end
     end.new
