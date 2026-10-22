@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -19,6 +20,7 @@ module RpmsRpc
   # callers can distinguish "rejected" from "unreachable".
   module DdrFileman
     extend self
+    extend Shape::Declarable
 
     # -- DDR FILER -----------------------------------------------------------
 
@@ -170,6 +172,7 @@ module RpmsRpc
               (result.empty? && !reply.include?("[Data]"))
       { fields: result, error: error }
     end
+    shape :gets_entry, resource: "files", verb: "GET", path: "/files/{file}/entries/{iens}"
 
     def gets_entry_param(file:, iens:, fields:, flags: "")
       param = { "FILE" => file.to_s, "IENS" => iens.to_s, "FIELDS" => fields.to_s }

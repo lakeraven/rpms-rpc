@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "ddr_fileman"
 require_relative "registration"
 
@@ -34,6 +35,7 @@ module RpmsRpc
   # invents response layouts — unknown semantics stay unprojected.
   module Tribal
     extend self
+    extend Shape::Declarable
 
     TRIBE_FILE = "9999999.03"
     # LIST^DIC FIELDS for an IEN^name row: "@" drops the default, ".01" adds the name.
@@ -78,6 +80,7 @@ module RpmsRpc
         community:            external(fields, Registration::FIELD_COMMUNITY)
       }
     end
+    shape :enrollment, resource: "tribes", verb: "GET", path: "/patients/{dfn}/tribes/enrollment"
 
     # Eligibility projection — the 1111/1112 subset of the same read.
     # eligibility_status is the internal set code (I/D/C/P per the live
@@ -95,6 +98,7 @@ module RpmsRpc
         classification:          external(fields, Registration::FIELD_CLASSIFICATION)
       }
     end
+    shape :eligibility, resource: "tribes", verb: "GET", path: "/patients/{dfn}/tribes/eligibility"
 
     # Syntactic validation of a tribal enrollment number against the live
     # input transform of #9000001 field .07 (VAL^DIE via DDR VALIDATOR).
@@ -121,6 +125,7 @@ module RpmsRpc
 
       { ien: ien.to_i, name: external(fields, ".01") }
     end
+    shape :service_unit, resource: "tribes", verb: "GET", path: "/tribes/{ien}/service-unit"
 
     # TRIBE (#9999999.03) table entry by IEN — .01 NAME, .02 code.
     def tribe_info(ien)
@@ -129,6 +134,7 @@ module RpmsRpc
 
       { ien: ien.to_i, name: external(fields, ".01"), code: external(fields, ".02") }
     end
+    shape :tribe_info, resource: "tribes", verb: "GET", path: "/tribes/{ien}/info"
 
     # List tribes via LIST^DIC over the "B" (name) index — packed rows come
     # back IEN-first with the .01 value (V0 reply shape, LISTC^DDR). The .01
@@ -147,6 +153,7 @@ module RpmsRpc
         { ien: entry[:ien].to_i, name: entry[:pieces]&.first }
       end
     end
+    shape :tribes, resource: "tribes", verb: "GET", path: "/tribes"
 
     private
 

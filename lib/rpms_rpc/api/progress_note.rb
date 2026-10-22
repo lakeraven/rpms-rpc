@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -16,6 +17,7 @@ module RpmsRpc
   # booleans: LOCK answers 0 when it HOLDS the lock.
   module ProgressNote
     extend self
+    extend Shape::Declarable
 
     # CLASS for CONTEXT^TIUSRVLO: the TIU DOCUMENT DEFINITION (#8925.1)
     # NOTES^TIUSRVLO lists progress notes under (TIUSRVLO.m:8).
@@ -59,12 +61,14 @@ module RpmsRpc
       params.pop while params.last.empty?
       Array(DataMapper.tiu_documents_by_context.fetch_many(*params)).map { |row| with_author(row) }
     end
+    shape :list, resource: "progress-notes", verb: "GET", path: "/patients/{dfn}/progress-notes"
 
     def fetch_text(note_ien)
       return nil if invalid_id?(note_ien)
 
       DataMapper.tiu_get_record_text.fetch_text(note_ien.to_s)
     end
+    shape :fetch_text, resource: "progress-notes", verb: "GET", path: "/progress-notes/{note_ien}/text"
 
     # CANDO(TIUY,TIUDA,TIUACT) (TIUSRVA.m:20): may the signed-on user take
     # +action+ on the note? 1 is yes (TIUSRVA.m:30); "0^reason" is no
@@ -75,6 +79,7 @@ module RpmsRpc
       raw = DataMapper.tiu_authorization.fetch_scalar(note_ien.to_s, action.to_s)
       first_piece(raw) == "1"
     end
+    shape :authorize, resource: "progress-notes", verb: "GET", path: "/progress-notes/{note_ien}/authorize"
 
     # LOCK(ERR,TIUDA) (TIUSRVP.m:210): true when the lock is held (ERR=0,
     # TIUSRVP.m:211), false on "1^ Another session has this record
