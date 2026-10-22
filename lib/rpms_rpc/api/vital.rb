@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
+
 module RpmsRpc
   module Vital
     extend self

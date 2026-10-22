@@ -51,10 +51,8 @@ class ShapeTest < Minitest::Test
   end
 
   def test_declare_rejects_unknown_verb
-    mod = Module.new { def self.placeholder; end }
-    RpmsRpc::Shape.declare(mod, :placeholder, resource: "vitals", verb: "GET", path: "/vitals")
-
     %w[PATCH FETCH].each do |verb|
+      mod = Module.new { def self.placeholder; end }
       assert_raises(ArgumentError) do
         RpmsRpc::Shape.declare(mod, :placeholder, resource: "vitals", verb: verb, path: "/vitals")
       end
