@@ -56,17 +56,44 @@ module RpmsRpc
       "3" => :low
     }.freeze
 
-    # ORKCHK.m:20-21. After RETURN^ORCHECK the row is
-    # NEW^^99^Order Checking Unavailable - ... (the text is the reason).
+    # ORKCHK.m:20-21 writes ^^^Order Checking Unavailable - ... (the text
+    # is the reason). CHK2LST drops a row whose raw CDL piece is blank
+    # (FOIA ORWDXC.m:145, stock WorldVistA ORWDXC.m:151), so that row
+    # normally never reaches the wire. The fail-closed branch in
+    # parse_chk2lst_row is defensive for a row that does.
     ORDER_CHECKING_UNAVAILABLE = "Order Checking Unavailable"
 
-    # One CHK2LST row: ORID^checkIEN^CDL^text (ORWDXC.m:138-147).
-    Check = Data.define(:order_id, :check_ien, :severity, :text) do
-      def override_required? = severity == :high || severity == :unknown
+    # FDBDOWN^ORCHECK (WorldVistA ORCHECK.m:192-199) writes this sentence
+    # when drug checks did not run. Matched at any check ien or CDL.
+    INCOMPLETE_CHECK_TEXT = "These checks could not be completed for this patient:"
+
+    # ||<key>&<line> (WorldVistA ORCHECK.m:199). Key is up to the first &.
+    EXTENDED_TEXT = /\A\|\|([^&]*)&(.*)\z/
+
+    # DFN, location, and the orderable-item pointer. No sign, suffix, or
+    # leading zero. invalid_id? is looser and stays shared by other methods.
+    CANONICAL_ID = /\A[1-9]\d*\z/
+
+    # Filler namespace spliced into a |-delimited ORX record
+    # (WorldVistA ORWDXC.m:38,47).
+    CANONICAL_FILLER_ID = /\A[A-Z][A-Z0-9]*\z/
+
+    # One CHK2LST row: ORID^checkIEN^CDL^text (FOIA ORWDXC.m:138-147,
+    # stock WorldVistA ORWDXC.m:128-154). check_ien is the ORDER CHECKS
+    # (#100.8) pointer, the check type. ||<key>&<line> stores <line> as
+    # text and <key> as extended_text_key; plain text has a nil key.
+    Check = Data.define(:order_id, :check_ien, :severity, :text, :extended_text_key) do
+      def incomplete? = text.include?(INCOMPLETE_CHECK_TEXT)
+
+      def override_required?
+        severity == :high || severity == :unknown || incomplete?
+      end
     end
 
     # Whole ACCEPT reply. Unavailable results have no checks; an empty or
     # unreadable reply cannot be told from a failure, so it fails closed.
+    # complete? is false when the reply is unavailable or any check is the
+    # incomplete-checks banner. override_required? stays true for both.
     CheckResult = Data.define(:available, :unavailable_reason, :checks) do
       def self.ready(checks)
         new(available: true, unavailable_reason: nil, checks: checks.freeze)
@@ -77,6 +104,8 @@ module RpmsRpc
       end
 
       def available? = available
+
+      def complete? = available && checks.none?(&:incomplete?)
 
       def override_required?
         !available || checks.any?(&:override_required?)
@@ -184,24 +213,35 @@ module RpmsRpc
     # Order checks for orderables being accepted.
     #
     # ACCEPT(LST,DFN,FID,STRT,ORL,OIL,ORIFN) (FOIA-RPMS ORWDXC.m:45). Stock
-    # VistA adds an unread eighth formal ORREN (ORWDXC.m:23); the seven
-    # shared parameters are what is sent. FID is the filler namespace from
-    # FILLID^ORWDXC (ORWDXC.m:7-16). OIL(n) is OIptr^PKG^PkgInfo
-    # (ORWDXC.m:46), indexed from 1. ORIFN is the existing order, or "" for
-    # a new one. STRT may be empty.
+    # VistA adds an unread eighth formal ORREN (WorldVistA ORWDXC.m:23); the
+    # seven shared parameters are what is sent. FID is the filler namespace
+    # from FILLID^ORWDXC (ORWDXC.m:7-16), spliced into a |-delimited record
+    # (WorldVistA ORWDXC.m:38,47). OIL(n) is OIptr^PKG^PkgInfo (ORWDXC.m:46),
+    # indexed from 1. ORIFN is the existing order, or "" for a new one.
+    # STRT may be empty. DFN, FID, location, and each orderable are checked
+    # before any RPC; a bad argument comes back unavailable.
     #
-    # CHK2LST answers ORID^checkIEN^CDL^text (ORWDXC.m:138-147). An empty
-    # reply cannot be told from a failure, so it is unavailable — never
-    # "no checks found". An in-band Order Checking Unavailable row
-    # (ORKCHK.m:20-21) or any malformed row fails the whole result closed.
-    # Broker errors propagate.
+    # Stock ACCEPT adds REMDUPS, FDBDOWN, OPOS, and CHECKIT (WorldVistA
+    # ORWDXC.m:52-55,128-154). OPOS writes ^TMP($J,"OC-OPOS",DFN)
+    # (WorldVistA ORWDXC.m:53,214-229), so a repeat call in the same session
+    # omits the incomplete-checks notice. check is a non-idempotent write
+    # because of that session write.
+    #
+    # CHK2LST answers ORID^checkIEN^CDL^text (FOIA ORWDXC.m:138-147, stock
+    # WorldVistA ORWDXC.m:128-154). check_ien is the ORDER CHECKS (#100.8)
+    # pointer, the check type. CHK2LST drops a row whose raw CDL piece is
+    # blank (FOIA ORWDXC.m:145, stock :151), so the in-band Order Checking
+    # Unavailable rows (ORKCHK.m:20-21) normally never reach the wire; one
+    # that does still fails the whole result closed. An empty reply cannot
+    # be told from a failure, so it is unavailable — never "no checks
+    # found". Any malformed row fails closed. Broker errors propagate.
     def check(dfn, filler_id:, location:, items:, start: "", order_id: nil)
-      return check_unavailable("invalid patient id") if invalid_id?(dfn)
-      return check_unavailable("invalid filler id") if blank?(filler_id)
-      return check_unavailable("invalid location") if invalid_id?(location)
+      return check_unavailable("invalid patient id") unless strict_positive_id?(dfn)
+      return check_unavailable("invalid filler id") unless canonical_filler_id?(filler_id)
+      return check_unavailable("invalid location") unless strict_positive_id?(location)
 
       oil = oil_list(items)
-      return check_unavailable("no orderable items") if oil.nil?
+      return check_unavailable(oil) if oil.is_a?(String)
 
       reply = RpmsRpc.client.call_rpc("ORWDXC ACCEPT", dfn.to_s, filler_id.to_s, start.to_s,
                                       location.to_s, oil, order_id.to_s)
@@ -219,8 +259,26 @@ module RpmsRpc
       lines.drop(1)
     end
 
+    # Shared by the other Order reads. to_i accepts a trailing suffix
+    # ("8791abc"); those methods keep this. Order.check does not.
     def invalid_id?(value)
       value.nil? || value.to_s.strip.empty? || value.to_i <= 0
+    end
+
+    # ACCEPT DFN and ORL. A positive Integer, or a canonical digit string.
+    def strict_positive_id?(value)
+      case value
+      when Integer
+        value > 0
+      when String
+        value.match?(CANONICAL_ID)
+      else
+        false
+      end
+    end
+
+    def canonical_filler_id?(value)
+      value.is_a?(String) && value.match?(CANONICAL_FILLER_ID)
     end
 
     def blank?(value)
@@ -232,12 +290,17 @@ module RpmsRpc
     end
 
     # Strings pass through as OIL rows. Hashes are OIptr^PKG^PkgInfo
-    # (ORWDXC.m:46). Anything else, or an empty list, is not a frame.
+    # (ORWDXC.m:46). The orderable pointer (first ^ piece, or
+    # :orderable_item) must be a canonical id: stock ACCEPT skips a
+    # non-numeric OIL (WorldVistA ORWDXC.m:35,45) and would still report
+    # the other items. No piece may contain "|", because those pieces are
+    # spliced into a |-delimited record (WorldVistA ORWDXC.m:38,47).
+    # Returns the rows, or a reason string when the list cannot be sent.
     def oil_list(items)
-      return nil unless items.is_a?(Array) && !items.empty?
+      return "no orderable items" unless items.is_a?(Array) && !items.empty?
 
       rows = items.map { |item| oil_row(item) }
-      return nil if rows.any?(&:nil?)
+      return "invalid orderable item" if rows.any?(&:nil?)
 
       rows
     end
@@ -245,13 +308,35 @@ module RpmsRpc
     def oil_row(item)
       case item
       when String
-        item.strip.empty? ? nil : item
+        string_oil_row(item)
       when Hash
-        orderable = hash_field(item, :orderable_item)
-        return nil if orderable.strip.empty?
-
-        "#{orderable}^#{hash_field(item, :package)}^#{hash_field(item, :package_info)}"
+        hash_oil_row(item)
       end
+    end
+
+    def string_oil_row(item)
+      return nil if item.strip.empty?
+
+      pieces = item.split("^", -1)
+      return nil unless acceptable_oil_pieces?(pieces)
+
+      item
+    end
+
+    def hash_oil_row(item)
+      pieces = [
+        hash_field(item, :orderable_item),
+        hash_field(item, :package),
+        hash_field(item, :package_info)
+      ]
+      return nil unless acceptable_oil_pieces?(pieces)
+
+      pieces.join("^")
+    end
+
+    # Pointer is the first piece. Every piece is rejected if it contains "|".
+    def acceptable_oil_pieces?(pieces)
+      pieces.first.to_s.match?(CANONICAL_ID) && pieces.none? { |piece| piece.to_s.include?("|") }
     end
 
     def hash_field(item, key)
@@ -289,23 +374,35 @@ module RpmsRpc
     end
 
     # nil is a malformed row (the whole reply then fails closed). A String
-    # is the Order Checking Unavailable reason (ORKCHK.m:20-21).
+    # is the Order Checking Unavailable reason (ORKCHK.m:20-21). CHK2LST
+    # drops a blank raw CDL piece before such a row would be sent (FOIA
+    # ORWDXC.m:145, stock WorldVistA ORWDXC.m:151); failing closed here
+    # is defensive.
     def parse_chk2lst_row(line)
       pieces = line.to_s.split("^", 4)
       return nil if pieces.length < 4
 
-      order_id, check_ien, cdl, text = pieces
-      return text if text.to_s.lstrip.start_with?(ORDER_CHECKING_UNAVAILABLE)
+      order_id, check_ien, cdl, raw_text = pieces
+      return raw_text if raw_text.to_s.lstrip.start_with?(ORDER_CHECKING_UNAVAILABLE)
 
       ien = check_ien.to_s
       return nil unless ien.match?(/\A\d+\z/)
 
+      text, extended_key = split_extended_text(raw_text)
       Check.new(
         order_id: order_id.to_s.freeze,
         check_ien: ien.freeze,
         severity: CDL_SEVERITY.fetch(cdl.to_s, :unknown),
-        text: text.to_s.freeze
+        text: text.freeze,
+        extended_text_key: extended_key&.freeze
       )
+    end
+
+    def split_extended_text(raw)
+      match = EXTENDED_TEXT.match(raw.to_s)
+      return [ raw.to_s, nil ] unless match
+
+      [ match[2], match[1] ]
     end
   end
 end

@@ -135,7 +135,7 @@
 "RpmsRpc::Notifications.inbox": non_idempotent_write
 "RpmsRpc::Order.action_text": read
 "RpmsRpc::Order.all_sheets": read
-"RpmsRpc::Order.check": read
+"RpmsRpc::Order.check": non_idempotent_write
 "RpmsRpc::Order.expired_search_start": read
 "RpmsRpc::Order.list": read
 "RpmsRpc::Order.result": read
