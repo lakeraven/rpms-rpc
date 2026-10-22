@@ -11,7 +11,7 @@ class ShapeTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
   BASELINE = File.join(__dir__, "undeclared_baseline.txt")
   # Baseline line count when the ratchet was introduced; may only be lowered.
-  UNDECLARED_BASELINE_MAX_LINES = 199
+  UNDECLARED_BASELINE_MAX_LINES = 116
 
   def test_every_public_method_that_sends_rpcs_is_declared_or_baselined
     report = ApiCoverage.build(ROOT)
@@ -29,6 +29,15 @@ class ShapeTest < Minitest::Test
     assert_empty violations,
                  "undeclared RPC-sending methods not in baseline:\n" \
                  "#{violations.map { |e| "#{e[:module]}.#{e[:method]}" }.join("\n")}"
+  end
+
+  def test_every_read_method_published_as_get_is_declared
+    report = ApiCoverage.build(ROOT)
+    violations = undeclared_read_methods_published_as_get(report)
+
+    assert_empty violations,
+                 "undeclared read methods published as GET in OpenAPI catalog:\n" \
+                 "#{violations.join("\n")}"
   end
 
   def test_baseline_lists_no_declared_or_missing_method
@@ -112,7 +121,7 @@ class ShapeTest < Minitest::Test
     vital_entries = declared_entries.select { |e| e[:module] == "RpmsRpc::Vital" }
     refute_empty vital_entries, "expected declared Vital shapes"
 
-    # Only Vital declares today; this loop guards any future declared module too.
+    # Vital was slice 1; later slices declare more modules. This loop guards every declared module.
     refute_empty declared_entries, "expected at least one declared shape"
     mismatches = declared_shape_catalog_mismatches(report[:entries], registry_tag: report[:registry_tag])
     assert_empty mismatches, mismatches.join("\n")
@@ -401,15 +410,40 @@ class ShapeTest < Minitest::Test
                     "baseline has #{lines.size} lines; lower UNDECLARED_BASELINE_MAX_LINES when shrinking"
   end
 
-  # Declared shapes must match where OpenApi::ClientApi.catalog publishes each method (not address()'s
-  # first-choice route). Returns human-readable mismatch lines; empty when every declared shape matches.
-  def declared_shape_catalog_mismatches(entries, registry_tag:)
+  # OpenApi::ClientApi.catalog keyed by [module, method], same source as declared_shape_catalog_mismatches.
+  def openapi_catalog_by_method(entries, registry_tag:)
     doc = JSON.parse(JSON.generate(ApiCoverage.document(entries, registry_tag: registry_tag)))
     catalog = OpenApi::ClientApi.catalog(doc)
-    by_method = catalog[:entries].to_h do |e|
+    catalog[:entries].to_h do |e|
       m = e[:method]
       [ [ m["module"], m["method"] ], e ]
     end
+  end
+
+  # RPC-sending methods classified read in retry_safety.yml and published GET in the catalog, still undeclared.
+  def undeclared_read_methods_published_as_get(report)
+    retry_table = RpmsRpc::RetrySafety.table
+    catalog_by_method = openapi_catalog_by_method(report[:entries], registry_tag: report[:registry_tag])
+
+    report[:entries].filter_map do |entry|
+      next if entry[:rpcs].empty?
+      next unless entry[:shape_status] != "declared"
+
+      key = "#{entry[:module]}.#{entry[:method]}"
+      next unless retry_table[key] == :read
+
+      catalog_entry = catalog_by_method[[ entry[:module], entry[:method] ]]
+      next unless catalog_entry
+      next unless catalog_entry[:addr][:verb].upcase == "GET"
+
+      key
+    end.sort
+  end
+
+  # Declared shapes must match where OpenApi::ClientApi.catalog publishes each method (not address()'s
+  # first-choice route). Returns human-readable mismatch lines; empty when every declared shape matches.
+  def declared_shape_catalog_mismatches(entries, registry_tag:)
+    by_method = openapi_catalog_by_method(entries, registry_tag: registry_tag)
 
     entries.select { |e| e[:shape_status] == "declared" }.filter_map do |entry|
       catalog_entry = by_method[[ entry[:module], entry[:method] ]]
