@@ -21,6 +21,10 @@ require_relative "../../lib/rpms_rpc/conformance/build_surface"
 #               RpmsRpc::Conformance::BuildSurface
 #   live_specs  every `RpmsRpc::Module.method` call site under test/live/ (static)
 #   status      proven (a live spec calls it) or not_in_contract (none does)
+#   shape       { resource:, verb:, path: } from RpmsRpc::Shape, or nil when the method has none
+#   shape_status "declared" when a shape is registered; "undeclared" when the method sends RPCs
+#               and has none; nil when the method sends no RPCs (nothing to declare, and not counted
+#               as undeclared). The summary's undeclared is the count of "undeclared" entries.
 #
 # "proven" is static: a live spec calls the method. Whether that spec passes is `rake test:live`'s
 # answer, run per persona. Lives under tools/ so it never ships in the gem.
@@ -362,6 +366,7 @@ module ApiCoverage
     methods.map do |mod, m|
       r = resolver.resolve(mod, m)
       specs = live.dig(mod.name, m) || []
+      shape = shape_for(mod, m)
       {
         module: mod.name,
         method: m.to_s,
@@ -374,9 +379,25 @@ module ApiCoverage
         unresolved: r[:unresolved],
         live_specs: specs,
         personas: specs.empty? ? [] : PERSONAS,
-        status: specs.empty? ? "not_in_contract" : "proven"
+        status: specs.empty? ? "not_in_contract" : "proven",
+        shape: shape,
+        shape_status: shape_status(shape, r[:rpcs])
       }
     end
+  end
+
+  # { resource:, verb:, path: } or nil. A method with no declaration has no shape.
+  def shape_for(mod, method)
+    RpmsRpc::Shape.for(mod, method)
+  end
+
+  # "declared" when a shape is registered. "undeclared" only when the method sends
+  # RPCs and has none. nil when it sends no RPCs: there is nothing to declare.
+  def shape_status(shape, rpcs)
+    return "declared" if shape
+    return "undeclared" if rpcs.any?
+
+    nil
   end
 
   def summary(entries)
@@ -388,6 +409,7 @@ module ApiCoverage
       public: entries.size,
       unresolved_methods: entries.count { |e| e[:unresolved].any? },
       unregistered_rpcs: entries.flat_map { |e| e[:rpcs] }.reject { |r| r[:registered] }.map { |r| r[:name] }.uniq.sort,
+      undeclared: entries.count { |e| e[:shape_status] == "undeclared" },
       by_module: by_module.sort.to_h
     }
   end
@@ -405,7 +427,21 @@ module ApiCoverage
     end
     lines << "unresolved: #{s[:unresolved_methods]} methods have an RPC name static analysis could not resolve"
     lines << "unregistered RPCs sent: #{s[:unregistered_rpcs].empty? ? 'none' : s[:unregistered_rpcs].join(', ')}"
+    lines << "undeclared: #{s[:undeclared]} methods send RPCs with no declared shape"
     lines
+  end
+
+  # Declared entries that share a verb and path. Resource is not part of the key.
+  # Placeholder names are normalized before grouping: each "{...}" becomes "{}",
+  # so "{dfn}" and "{id}" are the same route, while the verb stays in the key.
+  # Returns the groups that contain more than one entry; an empty array when every
+  # declared verb+path is unique. Entries with no shape are ignored.
+  def shape_conflicts(entries)
+    entries
+      .select { |e| e[:shape_status] == "declared" && e[:shape] }
+      .group_by { |e| [ e[:shape][:verb], e[:shape][:path].gsub(/\{[^}]*\}/, "{}") ] }
+      .values
+      .select { |group| group.size > 1 }
   end
 
   # The release's RPC list for RpmsRpc::Compatibility (#366): every RPC each public API module

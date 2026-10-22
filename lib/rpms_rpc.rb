@@ -20,5 +20,6 @@ require_relative "rpms_rpc/security_keys"
 require_relative "rpms_rpc/user_roles"
 require_relative "rpms_rpc/capabilities"
 require_relative "rpms_rpc/retry_safety"
+require_relative "rpms_rpc/shape"
 
 Dir[File.join(__dir__, "rpms_rpc", "api", "**", "*.rb")].sort.each { |api| require api }
