@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "json"
+require "thread"
 require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/retry_safety"
@@ -28,8 +29,11 @@ class OrderCheckTest < Minitest::Test
   FDB_INCOMPLETE_BANNER =
     "NEW^25^2^||66000,123,NEW&These checks could not be completed for this patient:"
   ORDINARY_LOW_CHECK = "NEW^502^3^Low only"
+  MALFORMED_CHK2LST_ROW = "NEW^17"
   REMOTE_CHECKING_UNAVAILABLE_ROW =
     "NEW^99^2^Remote Order Checking not available - checks done on local data only"
+
+  CONCURRENT_JOIN_LIMIT = 5
 
   def teardown
     RpmsRpc.reset!
@@ -233,6 +237,123 @@ class OrderCheckTest < Minitest::Test
     assert fresh.complete?
   end
 
+  def test_check_opos_session_memo_concurrent_same_dfn_blocks_until_first_finishes
+    replies = [
+      [ FDB_INCOMPLETE_BANNER, ORDINARY_LOW_CHECK ],
+      [ ORDINARY_LOW_CHECK ]
+    ]
+    sync = Mutex.new
+    cv = ConditionVariable.new
+    call_count = 0
+    a_inside_rpc = false
+    b_entered_rpc = false
+
+    client = RpmsRpc::MockClient.new
+    %i[call_rpc call_rpc_lines call_rpc_global_array].each do |meth|
+      client.define_singleton_method(meth) do |rpc_name, *params|
+        received_calls << { rpc: rpc_name, params: params, context: current_context }
+        raise "unexpected RPC #{rpc_name.inspect}" unless rpc_name == "ORWDXC ACCEPT"
+
+        n = sync.synchronize do
+          call_count += 1
+          call_count
+        end
+        wire = replies.fetch(n - 1)
+
+        if n == 1
+          sync.synchronize do
+            a_inside_rpc = true
+            cv.broadcast
+          end
+          sleep 0.15
+        else
+          sync.synchronize { b_entered_rpc = true }
+        end
+        wire
+      end
+    end
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    result_a = nil
+    result_b = nil
+    thread_a = Thread.new do
+      result_a = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    end
+
+    sync.synchronize do
+      cv.wait(sync, CONCURRENT_JOIN_LIMIT) until a_inside_rpc
+    end
+
+    thread_b = Thread.new do
+      result_b = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    end
+    sleep 0.05
+    refute b_entered_rpc, "second ACCEPT must not run while the first is still inside call_rpc"
+
+    assert thread_a.join(CONCURRENT_JOIN_LIMIT), "thread A did not finish"
+    assert thread_b.join(CONCURRENT_JOIN_LIMIT), "thread B did not finish"
+
+    refute result_a.complete?
+    refute result_b.complete?
+    assert result_b.override_required?
+    session_reason = result_b.incomplete_reason.to_s
+    assert_match(/incomplete/i, session_reason)
+    assert_match(/session/i, session_reason)
+  end
+
+  def test_check_fail_closed_malformed_reply_with_incomplete_banner_still_memoizes_dfn
+    with_orwdxc_accept_sequence([
+      [ FDB_INCOMPLETE_BANNER, MALFORMED_CHK2LST_ROW ],
+      [ ORDINARY_LOW_CHECK ]
+    ])
+
+    first = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    refute first.available?
+    assert first.override_required?
+    assert_empty first.checks
+
+    second = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    assert second.available?
+    refute second.complete?
+    assert second.override_required?
+    session_reason = second.incomplete_reason.to_s
+    assert_match(/incomplete/i, session_reason)
+    assert_match(/session/i, session_reason)
+  end
+
+  def test_check_fail_closed_remote_checking_row_malformed_reply_still_memoizes_dfn
+    with_orwdxc_accept_sequence([
+      [ REMOTE_CHECKING_UNAVAILABLE_ROW, MALFORMED_CHK2LST_ROW ],
+      [ ORDINARY_LOW_CHECK ]
+    ])
+
+    first = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    refute first.available?
+    assert_empty first.checks
+
+    second = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    assert second.available?
+    refute second.complete?
+    assert second.override_required?
+  end
+
+  def test_check_empty_reply_does_not_taint_opos_session_memo_for_dfn
+    with_orwdxc_accept_sequence([
+      [],
+      [ ORDINARY_LOW_CHECK ]
+    ])
+
+    first = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    refute first.available?
+    assert_empty first.checks
+
+    second = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    assert second.available?
+    assert second.complete?
+    refute second.override_required?
+  end
+
   def test_check_mixed_incomplete_and_ordinary_checks_stays_available_but_incomplete
     with_orwdxc_accept_wire([
       "NEW^401^1^High severity synthetic alert",
@@ -404,7 +525,8 @@ class OrderCheckTest < Minitest::Test
       [ "1001^PSH^not-a-number" ],
       [ "2002^PSIV^IV bag" ],
       [ "2002^PSIV^B;" ],
-      [ "2002^PSIV^B;0" ],
+      [ "2002^PSIV^C" ],
+      [ "2002^PSIV^B;1|2" ],
       [ { orderable_item: "2001", package: "PS", package_info: "Tablet sig" } ],
       [ { orderable_item: "2002", package: "PSIV", package_info: "IV bag" } ]
     ]
@@ -432,7 +554,7 @@ class OrderCheckTest < Minitest::Test
   def test_check_psiv_valid_pkginfo_shapes_call_rpc
     with_orwdxc_accept_wire([ ORDINARY_LOW_CHECK ])
 
-    %w[A B B;100].each do |pkginfo|
+    (%w[A B B;100 B;12.5 B;0] + [ "B;1000 ML" ]).each do |pkginfo|
       RpmsRpc.reset!
       with_orwdxc_accept_wire([ ORDINARY_LOW_CHECK ])
       items = [ { orderable_item: "2002", package: "PSIV", package_info: pkginfo } ]
