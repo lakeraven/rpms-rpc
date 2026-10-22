@@ -116,6 +116,12 @@ class CaseRunnerTest < Minitest::Test
     assert(problems.any? { |p| p.include?("unknown keys extra") })
   end
 
+  def test_a_case_from_a_client_trace_names_its_scenario_and_trace
+    traced = row("ref-edit-orwu-dt", "ORWU DT", params: [ "" ], scenario: "S-REF-02.1",
+                                                trace: "yotta-1016-edit-referral-20261021T234618Z#178")
+    assert_empty Cases.problems([ traced ])
+  end
+
   def test_load_refuses_a_line_that_is_not_json
     Tempfile.create([ "cases", ".jsonl" ]) do |f|
       f.write(JSON.generate(row("a", "X")) + "\n{nope\n")
