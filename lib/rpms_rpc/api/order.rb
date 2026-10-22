@@ -89,17 +89,28 @@ module RpmsRpc
     CANONICAL_PACKAGE = /\A[A-Z][A-Z0-9]*\z/
 
     # FOIA ORWDXC.m:39 builds "A" (additive) or "B;<volume>". "B" alone is
-    # the TYPE piece USID reads before the semicolon (WorldVistA
-    # ORWDXC.m:117).
-    PSIV_PKGINFO = /\A(?:A|B|B;[1-9]\d*)\z/
+    # the TYPE piece USID reads before the semicolon. Volume is free dialog
+    # text; stock passes it unchanged to ENDDIV^PSJORUTL (WorldVistA
+    # ORWDXC.m:117-119). A volume is non-empty and contains neither "|"
+    # nor "^".
+    PSIV_PKGINFO = /\A(?:A|B|B;[^|^]+)\z/
 
     # OPOS^ORWDXC (WorldVistA ORWDXC.m:53,214-229) shows the incomplete
     # banner once per broker job and then deletes it, so a later ACCEPT
     # for that patient can look complete. This memo copies that for one
-    # client object: the first result with any incomplete check sticks
-    # for that DFN. Keyed by object identity so a discarded client can be
+    # client object: a DFN sticks when a raw reply line carries the
+    # incomplete-checks banner or the remote-checking row (check ien 99,
+    # or that sentence), even if the reply fails closed. An empty reply
+    # does not. Keyed by object identity so a discarded client can be
     # collected; the value is a Hash of DFN strings and must not reference
     # the client. A different DFN, or a new client, starts clean.
+    #
+    # CLIENT_CHECK_LOCKS is one Mutex per client object. check holds it
+    # across call_rpc and the memo read/write, so two checks on that
+    # client run in the order the broker ran them. Another client's check
+    # is not blocked. CLIENT_CHECK_LOCKS_MUTEX only installs that Mutex.
+    # SESSION_INCOMPLETE guards the memo map and is never held across
+    # call_rpc.
     #
     # A reconnect on the same client object over-reports. The new broker
     # job has an empty OPOS global, and this memo still says the DFN was
@@ -107,9 +118,12 @@ module RpmsRpc
     # requires an override.
     SESSION_INCOMPLETE = Mutex.new
     SESSION_INCOMPLETE_DFNS = ObjectSpace::WeakKeyMap.new
+    CLIENT_CHECK_LOCKS = ObjectSpace::WeakKeyMap.new
+    CLIENT_CHECK_LOCKS_MUTEX = Mutex.new
     SESSION_INCOMPLETE_REASON =
       "order checks were reported incomplete earlier in this broker session"
-    private_constant :SESSION_INCOMPLETE, :SESSION_INCOMPLETE_DFNS, :SESSION_INCOMPLETE_REASON
+    private_constant :SESSION_INCOMPLETE, :SESSION_INCOMPLETE_DFNS, :SESSION_INCOMPLETE_REASON,
+                     :CLIENT_CHECK_LOCKS, :CLIENT_CHECK_LOCKS_MUTEX
 
     # One CHK2LST row: ORID^checkIEN^CDL^text (FOIA ORWDXC.m:138-147,
     # stock WorldVistA ORWDXC.m:128-154). check_ien is the ORDER CHECKS
@@ -277,10 +291,13 @@ module RpmsRpc
     # (WorldVistA ORWDXC.m:53,214-229) and drops the incomplete-checks
     # banner on a later ACCEPT in that broker job. check is a
     # non-idempotent write because of that session write. The same client
-    # object remembers a DFN once any check is incomplete, and later
-    # results for that DFN stay incomplete. A reconnect on that object
-    # over-reports, which errs safe: the new job has forgotten the banner,
-    # and this side still refuses to call the checks complete.
+    # object remembers a DFN when the raw lines carry the incomplete-checks
+    # banner or the remote-checking row, including a reply that fails
+    # closed. An empty reply does not. Later results for that DFN stay
+    # incomplete. Two checks on one client object run one at a time, so
+    # the memo follows the order the broker ran them. A reconnect on that
+    # object over-reports, which errs safe: the new job has forgotten the
+    # banner, and this side still refuses to call the checks complete.
     #
     # CHK2LST answers ORID^checkIEN^CDL^text (FOIA ORWDXC.m:138-147, stock
     # WorldVistA ORWDXC.m:128-154). check_ien is the ORDER CHECKS (#100.8)
@@ -300,9 +317,11 @@ module RpmsRpc
       return check_unavailable(oil) if oil.is_a?(String)
 
       client = RpmsRpc.client
-      reply = client.call_rpc("ORWDXC ACCEPT", dfn.to_s, filler_id.to_s, start.to_s,
-                              location.to_s, oil, order_id.to_s)
-      parse_accept_reply(reply, client, dfn.to_s)
+      with_client_check_lock(client) do
+        reply = client.call_rpc("ORWDXC ACCEPT", dfn.to_s, filler_id.to_s, start.to_s,
+                                location.to_s, oil, order_id.to_s)
+        parse_accept_reply(reply, client, dfn.to_s)
+      end
     end
 
     private
@@ -397,7 +416,8 @@ module RpmsRpc
 
     # USID^ORWDXC (WorldVistA ORWDXC.m:110-125). A PS-family package other
     # than PSIV uses ORDRUG=+$P(OIL,U,3); a non-numeric PkgInfo becomes 0
-    # and the drug identity is blank. PSIV is A, B, or B;<positive number>.
+    # and the drug identity is blank. PSIV is "A", "B", or "B;" plus a
+    # non-empty volume with neither "|" nor "^" (PSIV_PKGINFO).
     def acceptable_oil_pieces?(pieces)
       return false if pieces.any? { |piece| piece.to_s.include?("|") }
       return false unless pieces[0].to_s.match?(CANONICAL_ID)
@@ -405,7 +425,10 @@ module RpmsRpc
       package = pieces[1].to_s
       return false unless package.match?(CANONICAL_PACKAGE)
 
-      acceptable_pkginfo?(package, pieces[2].to_s)
+      # "^" splits the row. A PSIV volume is everything after the package,
+      # so a caret inside it is still visible to PSIV_PKGINFO.
+      pkginfo = package == "PSIV" ? pieces.drop(2).join("^") : pieces[2].to_s
+      acceptable_pkginfo?(package, pkginfo)
     end
 
     def acceptable_pkginfo?(package, pkginfo)
@@ -423,16 +446,40 @@ module RpmsRpc
       value.to_s
     end
 
+    # Per-client Mutex from CLIENT_CHECK_LOCKS. The map mutex is released
+    # before this Mutex is taken, and SESSION_INCOMPLETE is taken only
+    # inside the block, after call_rpc has returned.
+    def with_client_check_lock(client)
+      lock = CLIENT_CHECK_LOCKS_MUTEX.synchronize { CLIENT_CHECK_LOCKS[client] ||= Mutex.new }
+      lock.synchronize { yield }
+    end
+
     def parse_accept_reply(reply, client, dfn)
       lines = accept_lines(reply)
       return check_unavailable("empty reply") if blank_reply?(lines)
 
       rows = lines.map { |line| parse_chk2lst_row(line) }
       reason = rows.find { |row| row.is_a?(String) }
-      return check_unavailable(reason) if reason
-      return check_unavailable("malformed reply") if rows.any?(&:nil?)
+      if reason || rows.any?(&:nil?)
+        remember_incomplete_dfn(client, dfn) if lines.any? { |line| incomplete_raw_line?(line) }
+        return check_unavailable(reason || "malformed reply")
+      end
 
       CheckResult.ready(rows, incomplete_reason: apply_session_incomplete(client, dfn, rows))
+    end
+
+    # Banner text, or the remote-checking row: check ien 99, or the
+    # CHKRMT sentence. An empty line is neither.
+    def incomplete_raw_line?(line)
+      text = line.to_s
+      return true if text.include?(INCOMPLETE_CHECK_TEXT)
+      return true if text.include?(REMOTE_ORDER_CHECKING_UNAVAILABLE)
+
+      text.split("^", 3)[1] == "99"
+    end
+
+    def remember_incomplete_dfn(client, dfn)
+      SESSION_INCOMPLETE.synchronize { write_incomplete_dfn(client, dfn) }
     end
 
     # Nil when this reply is complete. A reply that itself has an
@@ -441,16 +488,21 @@ module RpmsRpc
     # The memo is read and written under SESSION_INCOMPLETE.
     def apply_session_incomplete(client, dfn, checks)
       SESSION_INCOMPLETE.synchronize do
-        noted = SESSION_INCOMPLETE_DFNS[client]
         if checks.any?(&:incomplete?)
-          noted ||= {}
-          noted[dfn] = true
-          SESSION_INCOMPLETE_DFNS[client] = noted
+          write_incomplete_dfn(client, dfn)
           incomplete_check_reason(checks)
-        elsif noted&.key?(dfn)
+        elsif SESSION_INCOMPLETE_DFNS[client]&.key?(dfn)
           SESSION_INCOMPLETE_REASON
         end
       end
+    end
+
+    # Caller holds SESSION_INCOMPLETE.
+    def write_incomplete_dfn(client, dfn)
+      noted = SESSION_INCOMPLETE_DFNS[client]
+      noted ||= {}
+      noted[dfn] = true
+      SESSION_INCOMPLETE_DFNS[client] = noted
     end
 
     def incomplete_check_reason(checks)
