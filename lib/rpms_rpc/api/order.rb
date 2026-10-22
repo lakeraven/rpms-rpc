@@ -103,9 +103,17 @@ module RpmsRpc
     # client object: a DFN sticks when a raw reply line carries the
     # incomplete-checks banner or the remote-checking row (check ien 99,
     # or that sentence), even if the reply fails closed. An empty reply
-    # does not. Keyed by object identity so a discarded client can be
-    # collected; the value is a Hash of DFN strings and must not reference
-    # the client. A different DFN, or a new client, starts clean.
+    # does not. The memo is keyed in an ObjectSpace::WeakKeyMap, which
+    # compares keys with eql? and hash, not strict object identity, and
+    # holds the key weakly so a discarded client can be collected. The
+    # value is a Hash of DFN strings and must not reference the client.
+    # A different DFN starts clean, as does a client that is not eql? to
+    # the one that recorded the banner.
+    #
+    # The incomplete-checks memory follows the client object, so a host
+    # must reuse one client object per broker connection. A fresh wrapper
+    # per request around a shared connection loses it, and OPOS then hides
+    # the banner (ORWDXC.m:53,214-229).
     #
     # check holds RpmsRpc.synchronize_wire across the ACCEPT call_rpc and
     # the memo update. That is the client's reentrant Monitor when the
@@ -295,8 +303,12 @@ module RpmsRpc
     # non-idempotent write because of that session write. The same client
     # object remembers a DFN when the raw lines carry the incomplete-checks
     # banner or the remote-checking row, including a reply that fails
-    # closed. An empty reply does not. Later results for that DFN stay
-    # incomplete. The ACCEPT call and the memo update share
+    # closed. An empty reply does not. The incomplete-checks memory follows
+    # the client object, so a host must reuse one client object per broker
+    # connection. A fresh wrapper per request around a shared connection
+    # loses it, and OPOS then hides the banner (ORWDXC.m:53,214-229).
+    # Later results for that DFN stay incomplete. The ACCEPT call and the
+    # memo update share
     # RpmsRpc.synchronize_wire (one lock order with the client's wire
     # lock; reentrant from inside a host's synchronize_wire sequence),
     # so the memo follows the order the broker ran them. A reconnect on
@@ -304,8 +316,11 @@ module RpmsRpc
     # the banner, and this side still refuses to call the checks complete.
     #
     # CHK2LST answers ORID^checkIEN^CDL^text (FOIA ORWDXC.m:138-147, stock
-    # WorldVistA ORWDXC.m:128-154). check_ien is the ORDER CHECKS (#100.8)
-    # pointer, the check type. CHK2LST drops a row whose raw CDL piece is
+    # WorldVistA ORWDXC.m:128-154). Rows are split on CRLF, a bare CR, or
+    # LF, and only those separators are dropped. A row that still contains
+    # a control character fails the whole result closed ("malformed reply").
+    # check_ien is the ORDER CHECKS (#100.8) pointer, the check type.
+    # CHK2LST drops a row whose raw CDL piece is
     # blank (FOIA ORWDXC.m:145, stock :151), so the in-band Order Checking
     # Unavailable rows (ORKCHK.m:20-21) normally never reach the wire; one
     # that does still fails the whole result closed, with reason
@@ -456,10 +471,15 @@ module RpmsRpc
 
     def parse_accept_reply(reply, client, dfn)
       lines = accept_lines(reply)
-      return check_unavailable("empty reply") if blank_reply?(lines)
+      # A control character left after the line breaks are removed makes
+      # the reply unreadable ("malformed reply"), ahead of the empty-reply
+      # and Order Checking Unavailable paths. A banner on those lines is
+      # still remembered.
+      controlled = lines.any? { |line| line.match?(/[[:cntrl:]]/) }
+      return check_unavailable("empty reply") if !controlled && blank_reply?(lines)
 
       rows = lines.map { |line| parse_chk2lst_row(line) }
-      reason = rows.find { |row| row.is_a?(String) }
+      reason = controlled ? "malformed reply" : rows.find { |row| row.is_a?(String) }
       if reason || rows.any?(&:nil?)
         remember_incomplete_dfn(client, dfn) if lines.any? { |line| incomplete_raw_line?(line) }
         return check_unavailable(reason || "malformed reply")
@@ -516,17 +536,26 @@ module RpmsRpc
       lines.empty? || lines.all? { |line| line.strip.empty? }
     end
 
+    # YDB writes CHK2LST rows separated by a bare CR. XWB split_response
+    # (client.rb) returns that as one String when the reply has no LF, and
+    # an Array element can carry the same breaks. Split a String reply, and
+    # each Array element, on CRLF, bare CR, or LF. Only those separators
+    # are dropped. An empty element is kept: it is a blank row, not a break.
     def accept_lines(reply)
       case reply
       when nil
         []
       when String
-        return [] if reply.strip.empty?
-
-        reply.split(/\r?\n/)
+        split_reply_rows(reply)
       else
-        Array(reply).map { |line| line.to_s.delete_suffix("\r") }
+        Array(reply).flat_map { |line| split_reply_rows(line.to_s) }
       end
+    end
+
+    def split_reply_rows(text)
+      return [ text ] if text.empty?
+
+      text.split(/\r\n|\r|\n/)
     end
 
     # nil is a malformed row (the whole reply then fails closed). A String
@@ -535,9 +564,13 @@ module RpmsRpc
     # blank raw CDL piece before such a row would be sent (FOIA
     # ORWDXC.m:145, stock WorldVistA ORWDXC.m:151); failing closed here
     # is defensive. Check ien 99 is the CHKRMT remote-checking row, a
-    # real check, not this sentinel.
+    # real check, not this sentinel. A control character still in the row
+    # after the line breaks are removed is malformed ("malformed reply").
     def parse_chk2lst_row(line)
-      pieces = line.to_s.split("^", 4)
+      row = line.to_s
+      return nil if row.match?(/[[:cntrl:]]/)
+
+      pieces = row.split("^", 4)
       return nil if pieces.length < 4
 
       order_id, check_ien, cdl, raw_text = pieces
