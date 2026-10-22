@@ -33,6 +33,10 @@ class OrderCheckTest < Minitest::Test
   REMOTE_CHECKING_UNAVAILABLE_ROW =
     "NEW^99^2^Remote Order Checking not available - checks done on local data only"
 
+  BARE_CR_LOW_CHECK = "NEW^5^3^Synthetic low check"
+  BARE_CR_HIGH_CHECK = "NEW^9^1^Synthetic HIGH interaction"
+  BARE_CR_TWO_ROW_REPLY = "#{BARE_CR_LOW_CHECK}\r#{BARE_CR_HIGH_CHECK}"
+
   CONCURRENT_JOIN_LIMIT = 5
   WIRE_LOCK_DEADLOCK_JOIN_LIMIT = 3
 
@@ -485,6 +489,70 @@ class OrderCheckTest < Minitest::Test
     assert result.checks.all? { |c| c.severity == :unknown }
   end
 
+  # YDB-served broker CHK2LST replies use bare CR between rows; call_rpc returns
+  # one String (XwbClient#split_response keeps it as a single element when no LF).
+  def test_check_bare_cr_string_reply_splits_rows_and_requires_override
+    with_orwdxc_accept_reply(BARE_CR_TWO_ROW_REPLY)
+
+    result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+
+    assert result.available?
+    assert result.complete?
+    assert result.override_required?
+
+    by_severity = result.checks.group_by(&:severity)
+    assert_equal 1, by_severity[:low].length
+    assert_equal 1, by_severity[:high].length
+    assert_equal "Synthetic low check", by_severity[:low].first.text
+    assert_equal "Synthetic HIGH interaction", by_severity[:high].first.text
+    assert by_severity[:high].first.override_required?
+    refute by_severity[:low].first.override_required?
+  end
+
+  def test_check_bare_cr_one_element_array_reply_splits_rows_and_requires_override
+    with_orwdxc_accept_reply([ BARE_CR_TWO_ROW_REPLY ])
+
+    result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+
+    assert result.available?
+    assert result.complete?
+    assert result.override_required?
+    assert_equal %i[high low], result.checks.map(&:severity).sort
+  end
+
+  def test_check_mixed_crlf_cr_lf_row_separators_split_every_row
+    reply = "NEW^11^3^Synthetic low after CRLF\r\n" \
+            "NEW^12^2^Synthetic moderate after bare CR\r" \
+            "NEW^13^1^Synthetic high after bare LF\n"
+
+    with_orwdxc_accept_reply(reply)
+
+    result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+
+    assert result.available?
+    assert result.complete?
+    assert result.override_required?
+    assert_equal 3, result.checks.length
+    assert_equal %i[high low moderate], result.checks.map(&:severity).sort
+  end
+
+  def test_check_row_text_with_embedded_control_character_fails_closed
+    cases = [
+      "NEW^5^3^Synthetic\x00 low check",
+      "NEW^9^1^Synthetic\x1E HIGH interaction"
+    ]
+
+    cases.each do |row|
+      with_orwdxc_accept_reply(row)
+      result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+
+      refute result.available?
+      assert result.override_required?
+      assert_empty result.checks
+      assert_match(/unavailable/i, result.unavailable_reason.to_s)
+    end
+  end
+
   # --- fail closed: empty / bad wire -------------------------------------------
 
   def test_check_empty_reply_is_unavailable_not_zero_checks
@@ -726,9 +794,14 @@ class OrderCheckTest < Minitest::Test
     with_orwdxc_accept_sequence([ wire ])
   end
 
+  # Returns the ORWDXC ACCEPT reply exactly as call_rpc would (String or Array).
+  def with_orwdxc_accept_reply(reply)
+    with_orwdxc_accept_sequence([ reply ])
+  end
+
   def with_orwdxc_accept_sequence(wires)
     client = RpmsRpc::MockClient.new
-    queue = wires.map { |lines| lines.nil? ? nil : Array(lines) }
+    queue = wires.map { |wire| wire.nil? ? nil : wire }
     %i[call_rpc call_rpc_lines call_rpc_global_array].each do |meth|
       client.define_singleton_method(meth) do |rpc_name, *params|
         received_calls << { rpc: rpc_name, params: params, context: current_context }
