@@ -667,7 +667,7 @@ module RpmsRpc
       saved = ENV.to_h.slice(*keys)
       Dir.mktmpdir do |dir|
         build = LiveSummary.pinned_build(File.join(REPO_ROOT, "data/fingerprints/rpms-ops.lock.yml"))
-        write_summary(dir, "PERSONA_A.json", summary_fields("build" => build, "source" => repo_source))
+        write_summary(dir, "PERSONA_A.json", summary_fields("build" => build, "source" => repo_source, "suite" => repo_suite))
         assert LiveSummary.check(dir: dir, build: build, source: repo_source, suite: repo_suite).first, "fixture must start green"
 
         ENV.delete("LIVE_RUN")
