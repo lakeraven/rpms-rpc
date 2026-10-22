@@ -17,6 +17,9 @@
 #   expect   answered (the \x00 data flag) | no_data (no flag) | broker_error (the \x01 flag)
 #   min_rows optional: the least number of reply rows an answered case must return
 #   capture  optional: {name: piece}, the first reply row whose ^-piece is a positive number
+#   scenario, trace  optional, together: a case taken from a real client trace names the rpms-ux
+#            scenario the journey serves and the trace call it came from (provenance only; the runner
+#            does not read them)
 #
 # The verdict is read from the CIA reply flag byte, as WireTrace does. A case also fails when it
 # leaves bytes unread on the socket (stream_desync), drops the session (session_dropped), names a
@@ -28,7 +31,7 @@ require_relative "rpc_coverage"
 module RpcCoverage
   module Cases
     EXPECTS = %w[answered no_data broker_error].freeze
-    KEYS = %w[id rpc context persona params expect min_rows capture].freeze
+    KEYS = %w[id rpc context persona params expect min_rows capture scenario trace].freeze
     REQUIRED = %w[id rpc context persona params expect].freeze
     ID = /\A[a-z0-9]+(-[a-z0-9]+)*\z/
     REF = /\$\{([a-z0-9-]+)\.([a-z_]+)\}/
