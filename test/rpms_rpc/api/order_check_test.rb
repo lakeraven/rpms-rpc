@@ -112,6 +112,97 @@ class OrderCheckTest < Minitest::Test
     assert_equal %i[low moderate], result.checks.map(&:severity).sort
   end
 
+  def test_check_only_ordinary_checks_is_complete
+    with_orwdxc_accept_wire([
+      "NEW^501^2^Moderate only",
+      "NEW^502^3^Low only"
+    ])
+
+    result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+
+    assert result.available?
+    assert result.complete?
+    refute result.override_required?
+  end
+
+  def test_check_fdb_down_incomplete_banner_is_incomplete_and_requires_override
+    with_orwdxc_accept_wire([
+      "NEW^25^2^||66000,123,NEW&These checks could not be completed for this patient:"
+    ])
+
+    result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+
+    assert result.available?
+    refute result.complete?
+    assert result.override_required?
+
+    check = result.checks.first
+    assert check.incomplete?
+    assert check.override_required?
+    assert_equal "These checks could not be completed for this patient:", check.text
+    assert_equal "66000,123,NEW", check.extended_text_key
+  end
+
+  def test_check_incomplete_banner_matched_by_text_not_check_ien_or_cdl
+    with_orwdxc_accept_wire([
+      "NEW^777^1^||99001,42,NEW&These checks could not be completed for this patient:"
+    ])
+
+    result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+
+    check = result.checks.first
+    assert check.incomplete?
+    assert check.override_required?
+    refute result.complete?
+  end
+
+  def test_check_mixed_incomplete_and_ordinary_checks_stays_available_but_incomplete
+    with_orwdxc_accept_wire([
+      "NEW^401^1^High severity synthetic alert",
+      "NEW^25^2^||66000,123,NEW&These checks could not be completed for this patient:"
+    ])
+
+    result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+
+    assert result.available?
+    refute result.complete?
+    assert result.override_required?
+    assert_equal 2, result.checks.length
+    refute result.checks.first.incomplete?
+    assert result.checks.last.incomplete?
+  end
+
+  def test_check_unavailable_result_is_not_complete
+    with_orwdxc_accept_wire([])
+    result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+
+    refute result.available?
+    refute result.complete?
+  end
+
+  def test_check_parses_extended_text_prefix_into_text_and_key
+    key = "66000,1001,NEW"
+    headline = "Synthetic extended-text headline"
+    with_orwdxc_accept_wire([ "NEW^410^2^||#{key}&#{headline}" ])
+
+    result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+
+    check = result.checks.first
+    assert_equal headline, check.text
+    assert_equal key, check.extended_text_key
+    refute check.incomplete?
+  end
+
+  def test_check_plain_text_has_no_extended_text_key
+    with_orwdxc_accept_wire([ "NEW^401^1^High severity synthetic alert" ])
+
+    result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+
+    check = result.checks.first
+    assert_equal "High severity synthetic alert", check.text
+    assert_nil check.extended_text_key
+  end
+
   def test_check_cdl_99_is_unknown_severity_and_requires_override
     with_orwdxc_accept_wire([ "NEW^601^99^Danger level unknown on wire" ])
 
@@ -172,6 +263,9 @@ class OrderCheckTest < Minitest::Test
     end
   end
 
+  # CHK2LST skips rows with a blank CDL piece (FOIA ORWDXC.m:145, stock :151), so
+  # ORKCHK RETURN's NEW^^99^Order Checking Unavailable rows normally never reach
+  # the client; this still fails closed if one does (ORKCHK.m:20-21).
   def test_check_order_checking_unavailable_row_fails_closed
     msg = "Order Checking Unavailable - invalid patient id"
     with_orwdxc_accept_wire([ "NEW^^99^#{msg}" ])
@@ -202,6 +296,63 @@ class OrderCheckTest < Minitest::Test
     assert_empty client.calls
   end
 
+  def test_check_invalid_orderable_item_first_piece_never_calls_rpc
+    client = no_wire_client
+    RpmsRpc.configure { |c| c.client = client }
+
+    [
+      [ "bogus^PS^2" ],
+      [ ITEM_ONE, "bogus^PS^2" ],
+      [ { orderable_item: "abc", package: "PS", package_info: "" } ]
+    ].each do |items|
+      client.calls.clear
+      result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: items)
+      refute result.available?
+      assert result.override_required?
+      assert_empty client.calls
+    end
+  end
+
+  def test_check_invalid_filler_id_never_calls_rpc
+    client = no_wire_client
+    RpmsRpc.configure { |c| c.client = client }
+
+    %w[PS|X ps OR^1].each do |bad_filler_id|
+      client.calls.clear
+      result = RpmsRpc::Order.check(DFN, filler_id: bad_filler_id, location: LOCATION, items: [ ITEM_ONE ])
+      refute result.available?
+      assert_empty client.calls
+    end
+  end
+
+  def test_check_non_canonical_dfn_or_location_never_calls_rpc
+    client = no_wire_client
+    RpmsRpc.configure { |c| c.client = client }
+
+    [ "8791abc", " 5", "1.5" ].each do |bad_id|
+      client.calls.clear
+      result = RpmsRpc::Order.check(bad_id, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+      refute result.available?
+      assert_empty client.calls
+
+      client.calls.clear
+      result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: bad_id, items: [ ITEM_ONE ])
+      refute result.available?
+      assert_empty client.calls
+    end
+  end
+
+  def test_check_positive_integer_dfn_and_location_still_call_rpc
+    with_orwdxc_accept_wire([ "NEW^502^3^Low only" ])
+
+    RpmsRpc::Order.check(8791, filler_id: FILLER_ID, location: 349, items: [ ITEM_ONE ])
+
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWDXC ACCEPT" }
+    refute_nil call
+    assert_equal "8791", call[:params][0]
+    assert_equal "349", call[:params][3]
+  end
+
   # --- broker errors propagate (same as other Order DataMapper reads) ---------
 
   def test_check_rpc_not_available_error_propagates
@@ -225,8 +376,11 @@ class OrderCheckTest < Minitest::Test
 
   # --- retry safety / compatibility registry ------------------------------------
 
-  def test_check_is_retry_safe_read
-    assert_equal :read, RpmsRpc::RetrySafety.for(RpmsRpc::Order, :check)
+  def test_check_is_non_idempotent_write
+    # Stock ACCEPT calls OPOS (ORWDXC.m:53, 214-229), which writes session state
+    # ^TMP($J,"OC-OPOS",DFN); a repeat ACCEPT in the same session omits the
+    # incomplete-checks notice, so automatic read retries are unsafe.
+    assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::Order, :check)
   end
 
   def test_required_rpcs_includes_orwdxc_accept_on_order
