@@ -322,7 +322,10 @@ module RpmsRpc
 
     # Authenticate with VistA using Access/Verify codes.
     # Returns { success: true, duz: } hash or raises AuthenticationError.
-    def authenticate(access_code = nil, verify_code = nil, **)
+    # The division (DUZ(2)) is then bound the way a stock XWB client does
+    # (#450): see #bind_division. Pass division: (an INSTITUTION #4 IEN the
+    # user may sign on to) to choose one of the user's divisions.
+    def authenticate(access_code = nil, verify_code = nil, division: nil, **)
       raise ConnectionError, "Not connected" unless connected?
 
       ac, vc = resolve_credentials(access_code, verify_code)
@@ -356,9 +359,115 @@ module RpmsRpc
 
         @authenticated = true
         @duz = duz_str
-        { success: true, duz: duz_str.to_i }
+        bind_division(division)
+        { success: true, duz: duz_str.to_i, division: @division[:ien] }
       end
     end
+
+    # Bind the session's division, DUZ(2), the way the stock XWB client (the
+    # Delphi RPC Broker, and BMX's .NET one) does (rpms-rpc#450, the XWB/BMX
+    # twin of CiaClient#bind_division).
+    #
+    # XUS DIVISION GET is DIVGET^XUSRB2 on the pinned build (bcer-9.0; the
+    # XUSRB5 twin is not the registered one). It answers RET(0) = the number
+    # of divisions the user must choose from, then "ien^name^station^default"
+    # per division. For a user with one division it sets DUZ(2) to it itself
+    # and answers 0 with no rows (an IRIS stack, 2026-10-21: MANAGER,SYSTEM,
+    # one division, answered "0" and DUZ(2)=7819), so the bound division is
+    # read back with XUS GET USER INFO; for more it lists them and leaves
+    # DUZ(2) as sign-on left it, which is when the stock client shows its
+    # picker and calls XUS DIVISION SET. DIVSET^XUSRB2 looks the value up in
+    # the user's own DIVISION multiple (#200 field 16, FIND1^DIC) and answers
+    # 1 only when it set DUZ(2): the membership check is the server's, unlike
+    # CIA's DIVSET. Both RPCs are in XUS SIGNON, so they need no context.
+    #
+    # No division named: one division binds as DIVGET set it; more than one
+    # binds the one flagged default, and with none flagged the sign-on fails
+    # closed rather than guess (the stock client would ask the user). A named
+    # division must be one of the user's, and DIVSET must answer 1.
+    DIVISION_LIST_RPC = "XUS DIVISION GET"
+    DIVISION_SET_RPC = "XUS DIVISION SET"
+    USER_INFO_RPC = "XUS GET USER INFO"
+    USER_INFO_DIVISION_LINE = 3
+
+    # The division this connection acts in, { ien:, name:, station:, default: },
+    # and every division the signed-on user may act in.
+    attr_reader :division, :divisions
+
+    def bind_division(requested)
+      count, *rows = call_rpc_lines(DIVISION_LIST_RPC)
+      @divisions = rows.first(count.to_i).map { |row| parse_division(row) }.select { |d| d[:ien].positive? }.freeze
+
+      if @divisions.empty?
+        # DIVGET answered 0: the server bound the user's one division (or the
+        # site's) itself. A named division still goes through DIVSET, which
+        # refuses one the user lacks; then the bound one is read back.
+        set_division(requested) if requested
+        @division = bound_division
+        @divisions = [ @division ].freeze
+      else
+        target = requested.nil? ? default_division : requested_division(requested)
+        set_division(target[:ien]) if requested || @divisions.size > 1
+        @division = target
+      end
+    rescue RpcError => e
+      division_refused("#{e.class.name.split('::').last}: #{e.message}")
+    end
+    private :bind_division
+
+    def parse_division(row)
+      ien, name, station, default = row.to_s.split("^", -1)
+      { ien: ien.to_i, name: name.to_s, station: station.to_s, default: default.to_i == 1 }
+    end
+    private :parse_division
+
+    # DIVSET^XUSRB2 resolves its argument with FIND1^DIC on the user's DIVISION
+    # multiple ("MX": the pointed-to INSTITUTION by name or station number), so
+    # a bare IEN answers 0 (an IRIS stack, 2026-10-21: "7819" -> 0, "8904" -> 1,
+    # "`7819" -> 1). The backtick form names the IEN exactly, as FileMan reads it.
+    def set_division(ien)
+      reply = call_rpc_lines(DIVISION_SET_RPC, "`#{ien}")
+      division_refused("#{DIVISION_SET_RPC} #{ien} answered #{reply.inspect}") unless reply.first.to_s.strip == "1"
+    end
+    private :set_division
+
+    # The division the server holds for this session: XUS GET USER INFO's
+    # fourth line, DUZ(2)^station name^station number (USERINFO^XUSRB2).
+    def bound_division
+      line = call_rpc_lines(USER_INFO_RPC)[USER_INFO_DIVISION_LINE].to_s
+      d = parse_division(line)
+      division_refused("DUZ #{@duz} has no division bound (#{USER_INFO_RPC} line #{USER_INFO_DIVISION_LINE + 1}: #{line.inspect})") unless d[:ien].positive?
+      d.merge(default: true)
+    end
+    private :bound_division
+
+    def default_division
+      return @divisions.first if @divisions.size == 1
+
+      @divisions.find { |d| d[:default] } ||
+        division_refused("DUZ #{@duz} has #{@divisions.size} divisions and none is the default: name one with division:")
+    end
+    private :default_division
+
+    def requested_division(requested)
+      ien = requested.to_s[/\A\s*(\d+)\s*\z/, 1].to_i
+      @divisions.find { |d| d[:ien] == ien } ||
+        division_refused("division #{requested.inspect} is not one of DUZ #{@duz}'s divisions " \
+                         "(#{@divisions.map { |d| d[:ien] }.join(', ')})")
+    end
+    private :requested_division
+
+    # A refused division leaves the client signed off: a session with the
+    # wrong DUZ(2) is worse than none.
+    def division_refused(why)
+      @authenticated = false
+      @duz = nil
+      @division = nil
+      @divisions = nil
+      @current_context = nil
+      raise AuthenticationError, RpmsRpc.sanitize_error("#{self.class.name.split('::').last} sign-on bound no division: #{why}")
+    end
+    private :division_refused
 
     # Set application context (required before calling most RPCs).
     #

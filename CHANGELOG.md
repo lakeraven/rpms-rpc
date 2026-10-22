@@ -7,12 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed — `Referral.patient_health_summary` sends the health summary type (#448)
+### Added — XWB and BMX sign-on bind the division (DUZ(2)) as the stock XWB client does (#450)
 
-- `EN^BQIRHS(DATA,DFN,SUMMTYP)` reads `SUMMTYP` with no `$G`, so a DFN-only call died `LVUNDEF SUMMTYP` at `EN+32^BQIRHS`
-  (YottaDB) or `<UNDEFINED>` (IRIS) before building anything, and left one error-trap entry per run (rpms-ops#986).
-  The HEALTH SUMMARY TYPE (#9001015) IEN is now a required second argument; `health_summary_types` lists them, and the
-  live sweep sends the first one.
+- `Client#authenticate` (XwbClient, BmxClient) calls `XUS DIVISION GET` after `XUS AV CODE`, as the Delphi RPC Broker does, and
+  `XUS DIVISION SET` when `division:` names one of the user's divisions or the user has several (the one flagged default; with none
+  flagged the sign-on fails closed rather than guess). `DIVSET^XUSRB2` checks membership itself and answers 1 only when it set
+  `DUZ(2)`; a refusal leaves the client signed off. The result carries `division:`; `#division` / `#divisions` read what was bound.
+  Two stock details, read on an IRIS stack (2026-10-21): the registered routine is `DIVGET^XUSRB2`, which answers 0 and no rows
+  for a one-division user after setting `DUZ(2)` itself, so the client reads the bound division back from `XUS GET USER INFO`
+  (line 4, `ien^name^station`); and `DIVSET` resolves its argument with `FIND1^DIC`, so a bare IEN answers 0 and the client
+  sends the backtick form (`` `7819 ``). The twin of #449 (CIA). Live: `test/live/xwb/signon_division_live_test.rb`,
+  3/3 as SYS123 and PROV123 on an IRIS stack over XWB.
 
 ### Fixed — CIA sign-on binds the division (DUZ(2)) explicitly, as VueCentric does (#293)
 
