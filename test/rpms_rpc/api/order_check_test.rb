@@ -21,8 +21,15 @@ class OrderCheckTest < Minitest::Test
   DFN = "8791"
   FILLER_ID = "OR"
   LOCATION = "349"
-  ITEM_ONE = "1001^PS^Synthetic outpatient sig"
+  ITEM_ONE = "1001^PS^2001"
   ITEM_TWO = "1002^LR^Synthetic lab orderable"
+
+  DFN_B = "8792"
+  FDB_INCOMPLETE_BANNER =
+    "NEW^25^2^||66000,123,NEW&These checks could not be completed for this patient:"
+  ORDINARY_LOW_CHECK = "NEW^502^3^Low only"
+  REMOTE_CHECKING_UNAVAILABLE_ROW =
+    "NEW^99^2^Remote Order Checking not available - checks done on local data only"
 
   def teardown
     RpmsRpc.reset!
@@ -50,14 +57,14 @@ class OrderCheckTest < Minitest::Test
   def test_check_joins_hash_items_into_oil_caret_rows
     RpmsRpc.mock!
     items = [
-      { orderable_item: "2001", package: "PS", package_info: "Tablet sig" },
-      { orderable_item: "2002", package: "PSIV", package_info: "IV bag" }
+      { orderable_item: "2001", package: "PS", package_info: "2001" },
+      { orderable_item: "2002", package: "PSIV", package_info: "B;100" }
     ]
 
     RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: items)
 
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWDXC ACCEPT" }
-    assert_oil_list_param(call[:params][4], [ "2001^PS^Tablet sig", "2002^PSIV^IV bag" ])
+    assert_oil_list_param(call[:params][4], [ "2001^PS^2001", "2002^PSIV^B;100" ])
   end
 
   def test_check_sends_empty_string_for_new_order_orifn
@@ -154,6 +161,76 @@ class OrderCheckTest < Minitest::Test
     assert check.incomplete?
     assert check.override_required?
     refute result.complete?
+  end
+
+  def test_check_remote_order_checking_unavailable_row_is_incomplete_and_not_complete
+    with_orwdxc_accept_wire([ REMOTE_CHECKING_UNAVAILABLE_ROW ])
+
+    result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+
+    assert result.available?
+    refute result.complete?
+    assert result.override_required?
+
+    check = result.checks.find { |c| c.check_ien == "99" } ||
+            result.checks.find { |c| c.text.start_with?("Remote Order Checking not available") }
+    refute_nil check
+    assert check.incomplete?
+    assert check.override_required?
+  end
+
+  def test_check_opos_session_memo_fdb_incomplete_banner_omitted_later_still_incomplete
+    with_orwdxc_accept_sequence([
+      [ FDB_INCOMPLETE_BANNER, ORDINARY_LOW_CHECK ],
+      [ ORDINARY_LOW_CHECK ],
+      [ ORDINARY_LOW_CHECK ]
+    ])
+
+    first = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    assert first.available?
+    refute first.complete?
+
+    second = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    assert second.available?
+    refute second.complete?
+    assert second.override_required?
+    session_reason = (second.incomplete_reason || second.session_incomplete_reason).to_s
+    assert_match(/incomplete/i, session_reason)
+    assert_match(/session/i, session_reason)
+
+    third = RpmsRpc::Order.check(DFN_B, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    assert third.available?
+    assert third.complete?
+
+    with_orwdxc_accept_wire([ ORDINARY_LOW_CHECK ])
+    fresh = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    assert fresh.available?
+    assert fresh.complete?
+  end
+
+  def test_check_opos_session_memo_remote_checking_row_omitted_later_still_incomplete
+    with_orwdxc_accept_sequence([
+      [ REMOTE_CHECKING_UNAVAILABLE_ROW, ORDINARY_LOW_CHECK ],
+      [ ORDINARY_LOW_CHECK ],
+      [ ORDINARY_LOW_CHECK ]
+    ])
+
+    first = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    refute first.complete?
+
+    second = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    refute second.complete?
+    assert second.override_required?
+    session_reason = (second.incomplete_reason || second.session_incomplete_reason).to_s
+    assert_match(/incomplete/i, session_reason)
+    assert_match(/session/i, session_reason)
+
+    third = RpmsRpc::Order.check(DFN_B, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    assert third.complete?
+
+    with_orwdxc_accept_wire([ ORDINARY_LOW_CHECK ])
+    fresh = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    assert fresh.complete?
   end
 
   def test_check_mixed_incomplete_and_ordinary_checks_stays_available_but_incomplete
@@ -275,7 +352,9 @@ class OrderCheckTest < Minitest::Test
     refute result.available?
     assert result.override_required?
     assert_empty result.checks
-    assert_includes result.unavailable_reason, msg
+    reason = result.unavailable_reason.to_s
+    assert_match(/checks unavailable/i, reason)
+    assert_includes reason, msg
   end
 
   # --- argument guards (invalid_id? in order.rb) --------------------------------
@@ -310,6 +389,57 @@ class OrderCheckTest < Minitest::Test
       refute result.available?
       assert result.override_required?
       assert_empty client.calls
+    end
+  end
+
+  def test_check_invalid_oil_package_or_pkginfo_never_calls_rpc
+    client = no_wire_client
+    RpmsRpc.configure { |c| c.client = client }
+
+    invalid_items = [
+      [ "1002" ],
+      [ "1001^ps^2001" ],
+      [ "1001^PS^Synthetic outpatient sig" ],
+      [ "1001^PSO^" ],
+      [ "1001^PSH^not-a-number" ],
+      [ "2002^PSIV^IV bag" ],
+      [ "2002^PSIV^B;" ],
+      [ "2002^PSIV^B;0" ],
+      [ { orderable_item: "2001", package: "PS", package_info: "Tablet sig" } ],
+      [ { orderable_item: "2002", package: "PSIV", package_info: "IV bag" } ]
+    ]
+
+    invalid_items.each do |items|
+      client.calls.clear
+      result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: items)
+      refute result.available?
+      assert result.override_required?
+      assert_empty client.calls
+    end
+  end
+
+  def test_check_non_ps_package_accepts_arbitrary_pkginfo_without_pipe
+    with_orwdxc_accept_wire([ ORDINARY_LOW_CHECK ])
+
+    result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_TWO ])
+
+    assert result.available?
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWDXC ACCEPT" }
+    refute_nil call
+    assert_oil_list_param(call[:params][4], [ ITEM_TWO ])
+  end
+
+  def test_check_psiv_valid_pkginfo_shapes_call_rpc
+    with_orwdxc_accept_wire([ ORDINARY_LOW_CHECK ])
+
+    %w[A B B;100].each do |pkginfo|
+      RpmsRpc.reset!
+      with_orwdxc_accept_wire([ ORDINARY_LOW_CHECK ])
+      items = [ { orderable_item: "2002", package: "PSIV", package_info: pkginfo } ]
+      result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: items)
+      assert result.available?
+      call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWDXC ACCEPT" }
+      assert_oil_list_param(call[:params][4], [ "2002^PSIV^#{pkginfo}" ])
     end
   end
 
@@ -411,14 +541,23 @@ class OrderCheckTest < Minitest::Test
   end
 
   def with_orwdxc_accept_wire(lines)
-    client = RpmsRpc::MockClient.new
     wire = lines.nil? ? nil : Array(lines)
+    with_orwdxc_accept_sequence([ wire ])
+  end
+
+  def with_orwdxc_accept_sequence(wires)
+    client = RpmsRpc::MockClient.new
+    queue = wires.map { |lines| lines.nil? ? nil : Array(lines) }
     %i[call_rpc call_rpc_lines call_rpc_global_array].each do |meth|
       client.define_singleton_method(meth) do |rpc_name, *params|
         received_calls << { rpc: rpc_name, params: params, context: current_context }
         raise "unexpected RPC #{rpc_name.inspect}" unless rpc_name == "ORWDXC ACCEPT"
 
-        wire
+        if queue.empty?
+          raise "unexpected extra ORWDXC ACCEPT call"
+        end
+
+        queue.shift
       end
     end
     RpmsRpc.reset!
