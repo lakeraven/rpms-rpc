@@ -60,12 +60,19 @@ module RpmsRpc
     # is the reason). CHK2LST drops a row whose raw CDL piece is blank
     # (FOIA ORWDXC.m:145, stock WorldVistA ORWDXC.m:151), so that row
     # normally never reaches the wire. The fail-closed branch in
-    # parse_chk2lst_row is defensive for a row that does.
+    # parse_chk2lst_row is defensive for a row that does. The reported
+    # reason is "order checks unavailable: " plus that server text.
     ORDER_CHECKING_UNAVAILABLE = "Order Checking Unavailable"
 
     # FDBDOWN^ORCHECK (WorldVistA ORCHECK.m:192-199) writes this sentence
     # when drug checks did not run. Matched at any check ien or CDL.
     INCOMPLETE_CHECK_TEXT = "These checks could not be completed for this patient:"
+
+    # CHKRMT^ORKCHK (WorldVistA ORKCHK.m:133-144) emits this on ACCEPT for
+    # PS/RA when remote data is missing. RETURN^ORCHECK keeps pieces 2-4,
+    # and CHK2LST parks check ien 99 in the RDI slot (WorldVistA
+    # ORWDXC.m:149,152).
+    REMOTE_ORDER_CHECKING_UNAVAILABLE = "Remote Order Checking not available"
 
     # ||<key>&<line> (WorldVistA ORCHECK.m:199). Key is up to the first &.
     EXTENDED_TEXT = /\A\|\|([^&]*)&(.*)\z/
@@ -78,12 +85,44 @@ module RpmsRpc
     # (WorldVistA ORWDXC.m:38,47).
     CANONICAL_FILLER_ID = /\A[A-Z][A-Z0-9]*\z/
 
+    # OIL package piece (USID^ORWDXC, WorldVistA ORWDXC.m:110-125).
+    CANONICAL_PACKAGE = /\A[A-Z][A-Z0-9]*\z/
+
+    # FOIA ORWDXC.m:39 builds "A" (additive) or "B;<volume>". "B" alone is
+    # the TYPE piece USID reads before the semicolon (WorldVistA
+    # ORWDXC.m:117).
+    PSIV_PKGINFO = /\A(?:A|B|B;[1-9]\d*)\z/
+
+    # OPOS^ORWDXC (WorldVistA ORWDXC.m:53,214-229) shows the incomplete
+    # banner once per broker job and then deletes it, so a later ACCEPT
+    # for that patient can look complete. This memo copies that for one
+    # client object: the first result with any incomplete check sticks
+    # for that DFN. Keyed by object identity so a discarded client can be
+    # collected; the value is a Hash of DFN strings and must not reference
+    # the client. A different DFN, or a new client, starts clean.
+    #
+    # A reconnect on the same client object over-reports. The new broker
+    # job has an empty OPOS global, and this memo still says the DFN was
+    # incomplete. That errs safe: the result stays incomplete and still
+    # requires an override.
+    SESSION_INCOMPLETE = Mutex.new
+    SESSION_INCOMPLETE_DFNS = ObjectSpace::WeakKeyMap.new
+    SESSION_INCOMPLETE_REASON =
+      "order checks were reported incomplete earlier in this broker session"
+    private_constant :SESSION_INCOMPLETE, :SESSION_INCOMPLETE_DFNS, :SESSION_INCOMPLETE_REASON
+
     # One CHK2LST row: ORID^checkIEN^CDL^text (FOIA ORWDXC.m:138-147,
     # stock WorldVistA ORWDXC.m:128-154). check_ien is the ORDER CHECKS
     # (#100.8) pointer, the check type. ||<key>&<line> stores <line> as
     # text and <key> as extended_text_key; plain text has a nil key.
+    # Incomplete when the text is the FDBDOWN banner, the check ien is
+    # "99", or the text starts with the CHKRMT remote-checking sentence.
     Check = Data.define(:order_id, :check_ien, :severity, :text, :extended_text_key) do
-      def incomplete? = text.include?(INCOMPLETE_CHECK_TEXT)
+      def incomplete?
+        check_ien == "99" ||
+          text.start_with?(REMOTE_ORDER_CHECKING_UNAVAILABLE) ||
+          text.include?(INCOMPLETE_CHECK_TEXT)
+      end
 
       def override_required?
         severity == :high || severity == :unknown || incomplete?
@@ -92,23 +131,33 @@ module RpmsRpc
 
     # Whole ACCEPT reply. Unavailable results have no checks; an empty or
     # unreadable reply cannot be told from a failure, so it fails closed.
-    # complete? is false when the reply is unavailable or any check is the
-    # incomplete-checks banner. override_required? stays true for both.
-    CheckResult = Data.define(:available, :unavailable_reason, :checks) do
-      def self.ready(checks)
-        new(available: true, unavailable_reason: nil, checks: checks.freeze)
+    # complete? is false when the reply is unavailable, any check is
+    # incomplete, or this client already saw an incomplete check for the
+    # same DFN (the OPOS memo above). incomplete_reason names those checks,
+    # or names that order checks were reported incomplete earlier in this
+    # broker session. It is nil when the result is complete, and nil when
+    # the reply is unavailable (that case uses unavailable_reason).
+    # override_required? is true whenever the result is not complete, and
+    # also for a high or unknown check.
+    CheckResult = Data.define(:available, :unavailable_reason, :checks, :incomplete_reason) do
+      def self.ready(checks, incomplete_reason: nil)
+        new(available: true, unavailable_reason: nil, checks: checks.freeze,
+            incomplete_reason: incomplete_reason&.freeze)
       end
 
       def self.unavailable(reason)
-        new(available: false, unavailable_reason: reason.to_s.freeze, checks: [].freeze)
+        new(available: false, unavailable_reason: reason.to_s.freeze, checks: [].freeze,
+            incomplete_reason: nil)
       end
 
       def available? = available
 
-      def complete? = available && checks.none?(&:incomplete?)
+      def complete?
+        available && incomplete_reason.nil? && checks.none?(&:incomplete?)
+      end
 
       def override_required?
-        !available || checks.any?(&:override_required?)
+        !complete? || checks.any?(&:override_required?)
       end
     end
 
@@ -217,24 +266,31 @@ module RpmsRpc
     # seven shared parameters are what is sent. FID is the filler namespace
     # from FILLID^ORWDXC (ORWDXC.m:7-16), spliced into a |-delimited record
     # (WorldVistA ORWDXC.m:38,47). OIL(n) is OIptr^PKG^PkgInfo (ORWDXC.m:46),
-    # indexed from 1. ORIFN is the existing order, or "" for a new one.
-    # STRT may be empty. DFN, FID, location, and each orderable are checked
-    # before any RPC; a bad argument comes back unavailable.
+    # indexed from 1; the package and PkgInfo are checked as USID^ORWDXC
+    # reads them (WorldVistA ORWDXC.m:110-125). ORIFN is the existing order,
+    # or "" for a new one. STRT may be empty. DFN, FID, location, and each
+    # orderable are checked before any RPC; a bad argument comes back
+    # unavailable.
     #
     # Stock ACCEPT adds REMDUPS, FDBDOWN, OPOS, and CHECKIT (WorldVistA
     # ORWDXC.m:52-55,128-154). OPOS writes ^TMP($J,"OC-OPOS",DFN)
-    # (WorldVistA ORWDXC.m:53,214-229), so a repeat call in the same session
-    # omits the incomplete-checks notice. check is a non-idempotent write
-    # because of that session write.
+    # (WorldVistA ORWDXC.m:53,214-229) and drops the incomplete-checks
+    # banner on a later ACCEPT in that broker job. check is a
+    # non-idempotent write because of that session write. The same client
+    # object remembers a DFN once any check is incomplete, and later
+    # results for that DFN stay incomplete. A reconnect on that object
+    # over-reports, which errs safe: the new job has forgotten the banner,
+    # and this side still refuses to call the checks complete.
     #
     # CHK2LST answers ORID^checkIEN^CDL^text (FOIA ORWDXC.m:138-147, stock
     # WorldVistA ORWDXC.m:128-154). check_ien is the ORDER CHECKS (#100.8)
     # pointer, the check type. CHK2LST drops a row whose raw CDL piece is
     # blank (FOIA ORWDXC.m:145, stock :151), so the in-band Order Checking
     # Unavailable rows (ORKCHK.m:20-21) normally never reach the wire; one
-    # that does still fails the whole result closed. An empty reply cannot
-    # be told from a failure, so it is unavailable — never "no checks
-    # found". Any malformed row fails closed. Broker errors propagate.
+    # that does still fails the whole result closed, with reason
+    # "order checks unavailable: " plus the server text. An empty reply
+    # cannot be told from a failure, so it is unavailable — never "no
+    # checks found". Any malformed row fails closed. Broker errors propagate.
     def check(dfn, filler_id:, location:, items:, start: "", order_id: nil)
       return check_unavailable("invalid patient id") unless strict_positive_id?(dfn)
       return check_unavailable("invalid filler id") unless canonical_filler_id?(filler_id)
@@ -243,9 +299,10 @@ module RpmsRpc
       oil = oil_list(items)
       return check_unavailable(oil) if oil.is_a?(String)
 
-      reply = RpmsRpc.client.call_rpc("ORWDXC ACCEPT", dfn.to_s, filler_id.to_s, start.to_s,
-                                      location.to_s, oil, order_id.to_s)
-      parse_accept_reply(reply)
+      client = RpmsRpc.client
+      reply = client.call_rpc("ORWDXC ACCEPT", dfn.to_s, filler_id.to_s, start.to_s,
+                              location.to_s, oil, order_id.to_s)
+      parse_accept_reply(reply, client, dfn.to_s)
     end
 
     private
@@ -293,9 +350,13 @@ module RpmsRpc
     # (ORWDXC.m:46). The orderable pointer (first ^ piece, or
     # :orderable_item) must be a canonical id: stock ACCEPT skips a
     # non-numeric OIL (WorldVistA ORWDXC.m:35,45) and would still report
-    # the other items. No piece may contain "|", because those pieces are
-    # spliced into a |-delimited record (WorldVistA ORWDXC.m:38,47).
-    # Returns the rows, or a reason string when the list cannot be sent.
+    # the other items. The package piece must be present and match
+    # CANONICAL_PACKAGE. A package starting with "PS" other than "PSIV"
+    # needs a positive-integer PkgInfo; "PSIV" needs PSIV_PKGINFO; any
+    # other package takes any PkgInfo. No piece may contain "|", because
+    # those pieces are spliced into a |-delimited record (WorldVistA
+    # ORWDXC.m:38,47). Returns the rows, or a reason string when the list
+    # cannot be sent. String and hash items use the same rules.
     def oil_list(items)
       return "no orderable items" unless items.is_a?(Array) && !items.empty?
 
@@ -334,9 +395,27 @@ module RpmsRpc
       pieces.join("^")
     end
 
-    # Pointer is the first piece. Every piece is rejected if it contains "|".
+    # USID^ORWDXC (WorldVistA ORWDXC.m:110-125). A PS-family package other
+    # than PSIV uses ORDRUG=+$P(OIL,U,3); a non-numeric PkgInfo becomes 0
+    # and the drug identity is blank. PSIV is A, B, or B;<positive number>.
     def acceptable_oil_pieces?(pieces)
-      pieces.first.to_s.match?(CANONICAL_ID) && pieces.none? { |piece| piece.to_s.include?("|") }
+      return false if pieces.any? { |piece| piece.to_s.include?("|") }
+      return false unless pieces[0].to_s.match?(CANONICAL_ID)
+
+      package = pieces[1].to_s
+      return false unless package.match?(CANONICAL_PACKAGE)
+
+      acceptable_pkginfo?(package, pieces[2].to_s)
+    end
+
+    def acceptable_pkginfo?(package, pkginfo)
+      if package == "PSIV"
+        pkginfo.match?(PSIV_PKGINFO)
+      elsif package.start_with?("PS")
+        pkginfo.match?(CANONICAL_ID)
+      else
+        true
+      end
     end
 
     def hash_field(item, key)
@@ -344,16 +423,39 @@ module RpmsRpc
       value.to_s
     end
 
-    def parse_accept_reply(reply)
+    def parse_accept_reply(reply, client, dfn)
       lines = accept_lines(reply)
       return check_unavailable("empty reply") if blank_reply?(lines)
 
       rows = lines.map { |line| parse_chk2lst_row(line) }
       reason = rows.find { |row| row.is_a?(String) }
-      return CheckResult.unavailable(reason) if reason
+      return check_unavailable(reason) if reason
       return check_unavailable("malformed reply") if rows.any?(&:nil?)
 
-      CheckResult.ready(rows)
+      CheckResult.ready(rows, incomplete_reason: apply_session_incomplete(client, dfn, rows))
+    end
+
+    # Nil when this reply is complete. A reply that itself has an
+    # incomplete check is remembered for (client, dfn) and names those
+    # checks. A later reply for that pair names the earlier report.
+    # The memo is read and written under SESSION_INCOMPLETE.
+    def apply_session_incomplete(client, dfn, checks)
+      SESSION_INCOMPLETE.synchronize do
+        noted = SESSION_INCOMPLETE_DFNS[client]
+        if checks.any?(&:incomplete?)
+          noted ||= {}
+          noted[dfn] = true
+          SESSION_INCOMPLETE_DFNS[client] = noted
+          incomplete_check_reason(checks)
+        elsif noted&.key?(dfn)
+          SESSION_INCOMPLETE_REASON
+        end
+      end
+    end
+
+    def incomplete_check_reason(checks)
+      named = checks.select(&:incomplete?).map { |check| "#{check.check_ien} #{check.text}" }
+      "incomplete order checks: #{named.join("; ")}"
     end
 
     def blank_reply?(lines)
@@ -374,10 +476,12 @@ module RpmsRpc
     end
 
     # nil is a malformed row (the whole reply then fails closed). A String
-    # is the Order Checking Unavailable reason (ORKCHK.m:20-21). CHK2LST
-    # drops a blank raw CDL piece before such a row would be sent (FOIA
+    # is the Order Checking Unavailable server text (ORKCHK.m:20-21);
+    # the caller prefixes "order checks unavailable: ". CHK2LST drops a
+    # blank raw CDL piece before such a row would be sent (FOIA
     # ORWDXC.m:145, stock WorldVistA ORWDXC.m:151); failing closed here
-    # is defensive.
+    # is defensive. Check ien 99 is the CHKRMT remote-checking row, a
+    # real check, not this sentinel.
     def parse_chk2lst_row(line)
       pieces = line.to_s.split("^", 4)
       return nil if pieces.length < 4
