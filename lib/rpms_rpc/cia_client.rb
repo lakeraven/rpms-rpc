@@ -345,7 +345,7 @@ module RpmsRpc
     # header as its only row.
     def call_rpc(rpc_name, *params)
       body = parse_cia_reply(call_rpc_raw(rpc_name, *params))
-      body.split(REPLY_ROW_BREAK).reject { |line| line == RECORDSET_END }.map { |line| printable(line) }
+      Reply.from_wire(body.split(REPLY_ROW_BREAK).reject { |line| line == RECORDSET_END }, controls: true)
     end
 
     REPLY_ROW_BREAK = /\r\n|\r|\n|\x1e/

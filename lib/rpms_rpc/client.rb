@@ -12,6 +12,7 @@ require "rpms_rpc/parameter_encoder"
 require "rpms_rpc/xml_response_parser"
 require "rpms_rpc/xwb_cipher"
 require "rpms_rpc/context_scope"
+require "rpms_rpc/reply"
 
 module RpmsRpc
   # Abstract base class for RPMS RPC broker clients.
@@ -249,7 +250,7 @@ module RpmsRpc
     # the String branch is for stand-ins that return one.
     def call_rpc_lines(rpc_name, *params)
       reply = call_rpc(rpc_name, *params)
-      reply.is_a?(Array) ? reply : split_response(reply.to_s.dup)
+      reply.is_a?(Array) ? reply : Reply.from_wire(split_response(reply.to_s.dup))
     end
 
     # -- connection state -----------------------------------------------------

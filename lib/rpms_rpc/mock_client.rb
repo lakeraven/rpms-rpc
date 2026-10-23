@@ -293,7 +293,7 @@ end
     # AMHG reads shipped with exactly this defect while 1,354 tests stayed
     # green, because this method used to hand back the seeded reply whole.
     def call_rpc(rpc_name, *params)
-      truncate_at_eod(seeded_reply(rpc_name, *params))
+      utf8_reply(truncate_at_eod(seeded_reply(rpc_name, *params)))
     end
 
     # Client#call_rpc_lines stand-in. Seeded line replies are already arrays
@@ -302,7 +302,19 @@ end
       reply = call_rpc(rpc_name, *params)
       return reply if reply.nil? || reply.is_a?(Array)
 
-      reply.to_s.split(/\r\n|\r|\n/)
+      Reply.from_wire(reply.to_s.split(/\r\n|\r|\n/))
+    end
+
+    # A live client hands hosts valid UTF-8 and reports any line it had to
+    # alter (rpms-rpc#463), so a seeded reply gets the same treatment: host
+    # tests see production encoding. A reply seeded as a bare String has no
+    # place to carry the flag, so it is only made valid UTF-8.
+    def utf8_reply(reply)
+      case reply
+      when Array then Reply.from_wire(reply)
+      when String then Reply.from_wire([ reply ]).first
+      else reply
+      end
     end
 
     # A live CiaClient offers this and reads to the US sentinel instead, so the
