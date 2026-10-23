@@ -616,6 +616,62 @@ class ProblemStockWriteTest < Minitest::Test
     assert_equal 999, orig_line.bytesize
   end
 
+  # Literal ID params (dfn / ien, provider_duz, vamc) are XWB literals via
+  # XwbClient#lpack; above 999 bytes the 5-digit length mis-frames [XWB]1130.
+  STOCK_WRITE_ID_SLOTS = [
+    [ :add_stock, :dfn, 0, :problem_add_save ],
+    [ :add_stock, :provider_duz, 1, :problem_add_save ],
+    [ :add_stock, :vamc, 2, :problem_add_save ],
+    [ :update_stock, :ien, 0, :problem_edit_save ],
+    [ :update_stock, :provider_duz, 1, :problem_edit_save ],
+    [ :update_stock, :vamc, 2, :problem_edit_save ]
+  ].freeze
+
+  def test_stock_write_refuses_id_literals_over_999_bytes_before_any_rpc
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    over_values = [
+      [ canonical_digit_id(1000), "1000-digit String" ],
+      [ 10**999, "1000-digit Integer" ]
+    ]
+
+    STOCK_WRITE_ID_SLOTS.each do |method, slot, _index, _mapping|
+      over_values.each do |over, label|
+        assert_stock_refused_before_rpc(
+          -> { invoke_stock_write_with_id(method, slot, over) },
+          "refuse #{method} #{slot} with #{label}"
+        )
+      end
+    end
+  end
+
+  def test_stock_write_sends_id_literals_of_exactly_999_bytes
+    at_limit = canonical_digit_id(999)
+    assert_equal 999, at_limit.bytesize
+    at_limit_values = [ [ at_limit, at_limit ], [ 10**998, at_limit ] ]
+
+    STOCK_WRITE_ID_SLOTS.each do |method, slot, index, mapping|
+      rpc = method == :add_stock ? "ORQQPL ADD SAVE" : "ORQQPL EDIT SAVE"
+      at_limit_values.each do |id_value, wire_text|
+        RpmsRpc.reset!
+        RpmsRpc.mock! do |m|
+          seed_key = stock_write_seed_key(method, slot, wire_text)
+          m.seed_scalar(mapping, seed_key, "1")
+        end
+
+        result = invoke_stock_write_with_id(method, slot, id_value)
+        assert result[:success], "#{method} #{slot} #{id_value.class} at 999 bytes must dispatch"
+
+        call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == rpc }
+        refute_nil call
+        assert_equal wire_text, call[:params][index]
+      end
+    end
+  end
+
   def test_add_stock_and_update_stock_are_non_idempotent_writes_in_retry_safety
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::Problem, :add_stock)
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::Problem, :update_stock)
@@ -637,12 +693,50 @@ class ProblemStockWriteTest < Minitest::Test
     assert_equal STOCK_RESULT_KEYS.sort, result.keys.sort
   end
 
-  def assert_stock_refused_before_rpc(invoke)
+  def assert_stock_refused_before_rpc(invoke, message = nil)
     RpmsRpc.client.received_calls.clear
     result = invoke.call
-    assert_equal STOCK_REFUSAL, result
+    assert_equal STOCK_REFUSAL, result, message
     assert_empty RpmsRpc.client.received_calls,
-      "unsafe input must fail closed before ORQQPL (ORQQPL1.m:160,:120)"
+      message || "unsafe input must fail closed before ORQQPL (ORQQPL1.m:160,:120)"
+  end
+
+  def canonical_digit_id(digits)
+    raise ArgumentError, "digits must be positive" unless digits.positive?
+
+    "1#{'0' * (digits - 1)}"
+  end
+
+  def invoke_stock_write_with_id(method, slot, id_value)
+    case method
+    when :add_stock
+      RpmsRpc::Problem.add_stock(
+        slot == :dfn ? id_value : DFN,
+        provider_duz: slot == :provider_duz ? id_value : PROVIDER,
+        vamc: slot == :vamc ? id_value : VAMC,
+        fields: { ".01" => "x" }
+      )
+    when :update_stock
+      RpmsRpc::Problem.update_stock(
+        slot == :ien ? id_value : IEN,
+        provider_duz: slot == :provider_duz ? id_value : PROVIDER,
+        vamc: slot == :vamc ? id_value : VAMC,
+        changes: { ".01" => "n" }, originals: { ".01" => "o" }
+      )
+    else
+      flunk "unknown stock write #{method}"
+    end
+  end
+
+  def stock_write_seed_key(method, slot, wire_text)
+    case method
+    when :add_stock
+      slot == :dfn ? wire_text : DFN
+    when :update_stock
+      slot == :ien ? wire_text : IEN
+    else
+      flunk "unknown stock write #{method}"
+    end
   end
 
   def refute_bgoprob_or_ddr_calls
