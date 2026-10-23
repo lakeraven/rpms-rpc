@@ -1,13 +1,15 @@
 # frozen_string_literal: true
 
 require_relative "document"
+require_relative "../../lib/rpms_rpc/retry_safety"
 
 module OpenApi
   # The gem's public methods as a resource-oriented HTTP API, OpenAPI 3.1 (rpms-rpc#395): what a web
   # client, or a host's HTTP facade over the gem, would call. Generated from `rake rpc:api_coverage`'s
   # document (#358); ported from rpms-ux bin/api-catalog.mjs. Each operation is one public method that a
   # registered RPC backs; the RPC names are evidence (x-rpms.rpcs), not the address. The mapping rules
-  # are applied the same way to every method, nothing is curated per method; they are in docs/openapi.md.
+  # are applied the same way to every method; they are in docs/openapi.md. A retry class other than :read
+  # is never published GET (rpms-rpc#471), except the unchecked methods frozen in write_class_get_baseline.txt.
   #
   # One document, with one tag per collection (/patients, /users, ...): modules that share a collection
   # share its tag, so a viewer groups them as rpms-ux's per-collection documents did.
@@ -61,15 +63,15 @@ module OpenApi
       "Vital" => { path: "vitals" }
     }.freeze
 
-    # The verb, from the method name's first word.
+    # The verb, from the method name's first word. A noun infers GET; publish_post? may publish POST instead.
     VERBS = {
       "read" => %w[find get gets fetch list lister show detail details], # GET, word dropped
       "query" => %w[search lookup], # GET the collection, arguments as query parameters (and find_by_<x>)
       "inquiry" => %w[check which can is has authorize bootstrap], # GET, word kept: a read named like an action
-      "create" => %w[add create new record register], # POST to the collection
+      "create" => %w[add create new record register save], # POST to the collection
       "write" => %w[update set file filer change], # PUT
       "delete" => %w[delete remove], # DELETE
-      "action" => %w[authenticate cancel checkin complete generate inactivate init lock mark open print sign uncancel
+      "action" => %w[authenticate cancel checkin complete generate inactivate init lock mark open print send sign uncancel
                      unlock validate verify] # POST .../<action>
     }.freeze
     VERB_OF = { "read" => "get", "query" => "get", "inquiry" => "get", "noun" => "get", "create" => "post", "write" => "put",
@@ -84,6 +86,11 @@ module OpenApi
     # Which query keeps the collection when two would: search, then lookup, then find_by_<x>.
     QUERY_RANK = { "search" => 0, "lookup" => 1, "find_by" => 2 }.freeze
     PROVEN = "proven"
+    # Unchecked write-class methods that stay on their inferred GET. The list may only shrink, and only
+    # when a method's retry class is verified :read. One key per line: "RpmsRpc::Mod.method".
+    WRITE_CLASS_GET_BASELINE = File.readlines(
+      File.expand_path("../../data/openapi/write_class_get_baseline.txt", __dir__), chomp: true
+    ).reject(&:empty?).freeze
 
     module_function
 
@@ -140,10 +147,36 @@ module OpenApi
     # collection: catalog decides.
     def address(method)
       c = classify(method["method"])
-      a = place(method, c, c[:rest])
+      key = "#{method['module']}.#{method['method']}"
+      fallback = publish_post?(key, c)
+      # No retry row and no verb word: POST to the member the identifiers name, not a GET sub-resource.
+      words = fallback && plain_noun?(c) && !RpmsRpc::RetrySafety.table.key?(key) ? [] : c[:rest]
+      a = publish(place(method, c, words), fallback)
       return a unless c[:kind] == "query"
 
-      a.merge(rank: QUERY_RANK[c[:verb_word]], sub: place(method, c, c[:sub_rest]).merge(rule: "query-sub-path"))
+      sub = publish(place(method, c, c[:sub_rest]).merge(rule: "query-sub-path"), fallback)
+      a.merge(rank: QUERY_RANK[c[:verb_word]], sub: sub)
+    end
+
+    # True when inference's GET must be published POST. :read keeps the inferred verb. A key in the frozen
+    # baseline keeps it too. Any other retry class does not. A name with no verb word and no retry row is
+    # the same fallback, so it cannot default to GET. A named verb with no row keeps its inference, so a
+    # hand-built example of find or search stays GET until retry_safety.yml classifies it.
+    def publish_post?(key, classified)
+      return false if WRITE_CLASS_GET_BASELINE.include?(key)
+
+      retry_class = RpmsRpc::RetrySafety.table[key]
+      return retry_class != :read if retry_class
+
+      plain_noun?(classified)
+    end
+
+    def plain_noun?(classified)
+      classified[:kind] == "noun" && !classified[:predicate] && !classified[:for_word]
+    end
+
+    def publish(addr, fallback)
+      fallback && addr[:verb] == "get" ? addr.merge(verb: "post") : addr
     end
 
     def place(method, c, words)
