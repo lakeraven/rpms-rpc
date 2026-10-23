@@ -140,4 +140,51 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
     assert_empty mismatches,
                  "every existing GET read must keep its verb and path in the catalog:\n#{mismatches.join("\n")}"
   end
+
+  # Copilot review of #473: a query-kind method published as POST still has a :sub address, so a second
+  # POST alias sharing the module and RPC set was folded into the first. `fold` copies query parameters
+  # only, and POST arguments live in the request body, so the alias's required body arguments vanished.
+  def retry_post_pair
+    search = method("SyntheticFinder", "search", req("pattern"), rpc: "SYNTH FIND")
+    lookup = method("SyntheticFinder", "lookup", req("payload"), rpc: "SYNTH FIND")
+    retry_table = RpmsRpc::RetrySafety.table.merge(
+      method_key(search) => :non_idempotent_write, method_key(lookup) => :non_idempotent_write
+    )
+    [ [ search, lookup ], retry_table ]
+  end
+
+  def body_properties(op) = op.dig("requestBody", "content", "application/json", "schema", "properties").to_h.keys
+
+  def test_retry_class_post_aliases_sharing_an_rpc_are_not_folded
+    methods, retry_table = retry_post_pair
+    entries = Api.catalog({ "schema" => 1, "methods" => methods }, retry_table: retry_table)[:entries]
+
+    assert_equal %w[SyntheticFinder.lookup SyntheticFinder.search], entries.map { |e| e[:op]["operationId"] }.sort,
+                 "each POST alias keeps its own operation"
+    assert_equal [ "POST" ], entries.map { |e| e[:addr][:verb].upcase }.uniq
+    assert_equal entries.size, entries.map { |e| e[:addr][:path] }.uniq.size, "each POST alias keeps its own path"
+    entries.each { |e| assert_nil e[:op]["x-rpms"]["folded"], "#{e[:op]['operationId']} must not absorb or be absorbed" }
+  end
+
+  def test_retry_class_post_aliases_keep_their_required_body_arguments
+    methods, retry_table = retry_post_pair
+    entries = Api.catalog({ "schema" => 1, "methods" => methods }, retry_table: retry_table)[:entries]
+    by_id = entries.to_h { |e| [ e[:op]["operationId"], e[:op] ] }
+
+    assert_equal [ "pattern" ], body_properties(by_id.fetch("SyntheticFinder.search"))
+    assert_equal [ "payload" ], body_properties(by_id.fetch("SyntheticFinder.lookup")),
+                 "lookup's required body argument must survive in the published schema"
+    assert_equal [ "payload" ], by_id.fetch("SyntheticFinder.lookup").dig("requestBody", "content", "application/json", "schema", "required")
+  end
+
+  def test_get_query_aliases_sharing_an_rpc_still_fold
+    search = method("SyntheticFinder", "search", req("pattern"), rpc: "SYNTH FIND")
+    lookup = method("SyntheticFinder", "lookup", req("term"), rpc: "SYNTH FIND")
+    retry_table = RpmsRpc::RetrySafety.table.merge(method_key(search) => :read, method_key(lookup) => :read)
+    entries = Api.catalog({ "schema" => 1, "methods" => [ search, lookup ] }, retry_table: retry_table)[:entries]
+
+    assert_equal [ "GET" ], entries.map { |e| e[:addr][:verb].upcase }.uniq
+    assert_equal 1, entries.size, "GET query aliases of one query remain one operation"
+    assert_equal [ "SyntheticFinder.lookup" ], entries.first[:op]["x-rpms"]["folded"]
+  end
 end
