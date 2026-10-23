@@ -43,6 +43,26 @@ class ShapeTest < Minitest::Test
                  "#{violations.join("\n")}"
   end
 
+  def test_write_class_methods_published_as_get_honors_injected_retry_table_for_catalog_verbs
+    report = ApiCoverage.build(ROOT)
+    key = "RpmsRpc::Patient.find"
+    retry_table = RpmsRpc::RetrySafety.table.merge(key => :non_idempotent_write)
+
+    doc = JSON.parse(JSON.generate(ApiCoverage.document(report[:entries], registry_tag: report[:registry_tag])))
+    catalog_entry = OpenApi::ClientApi.catalog(doc, retry_table: retry_table)[:entries].find do |e|
+      m = e[:method]
+      "#{m["module"]}.#{m["method"]}" == key
+    end
+    refute_nil catalog_entry, "expected #{key} in catalog"
+    assert_equal "POST", catalog_entry[:addr][:verb].upcase
+
+    violations = write_class_methods_published_as_get(report, retry_table: retry_table, allowed: [])
+    patient_violations = violations.grep(/\A#{Regexp.escape(key)}:/)
+    assert_empty patient_violations,
+                 "injected retry table publishes #{key} as POST; helper must not report GET:\n" \
+                 "#{patient_violations.join("\n")}"
+  end
+
   def test_retry_safety_table_governs_publish_post_for_synthetic_methods
     m = {
       module: "RpmsRpc::ShapeTest::RetryPublishPost",
@@ -517,9 +537,9 @@ class ShapeTest < Minitest::Test
   end
 
   # OpenApi::ClientApi.catalog keyed by [module, method], same source as declared_shape_catalog_mismatches.
-  def openapi_catalog_by_method(entries, registry_tag:)
+  def openapi_catalog_by_method(entries, registry_tag:, retry_table: RpmsRpc::RetrySafety.table)
     doc = JSON.parse(JSON.generate(ApiCoverage.document(entries, registry_tag: registry_tag)))
-    catalog = OpenApi::ClientApi.catalog(doc)
+    catalog = OpenApi::ClientApi.catalog(doc, retry_table: retry_table)
     catalog[:entries].to_h do |e|
       m = e[:method]
       [ [ m["module"], m["method"] ], e ]
@@ -547,7 +567,11 @@ class ShapeTest < Minitest::Test
   # Returns violation lines; entries in `allowed` are exempt (frozen baseline).
   def write_class_methods_published_as_get(report, retry_table: RpmsRpc::RetrySafety.table, allowed: nil)
     allowed_set = (allowed || load_write_class_get_baseline).to_set
-    catalog_by_method = openapi_catalog_by_method(report[:entries], registry_tag: report[:registry_tag])
+    catalog_by_method = openapi_catalog_by_method(
+      report[:entries],
+      registry_tag: report[:registry_tag],
+      retry_table: retry_table
+    )
 
     report[:entries].filter_map do |entry|
       next if entry[:rpcs].empty?
