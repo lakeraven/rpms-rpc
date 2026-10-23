@@ -9,10 +9,12 @@ require "rpms_rpc/api/order"
 
 # rpms-rpc#455: Order.save over ORWDX SAVE (SAVE^ORWDX -> EN^ORCSAVE, ORWDX.m:128-130).
 #
-# Broker formals (stock VistA ORWDX.m:52): SAVE(REC,ORVP,ORNP,ORL,DLG,ORDG,ORIT,ORIFN,
-# ORDIALOG,ORDEA,ORAPPT,ORSRC,OREVTDF) — twelve client actuals after REC. Reply REC
-# is filled by GETBYIFN^ORWORR / GETFLDS (ORWORR.m:139-150); empty when ORIFN stays
-# empty after save (ORWDX.m:130-131, ORWORR.m:133).
+# Broker formals (FOIA-RPMS ORWDX.m:80, CivicActions): SAVE(REC,ORVP,ORNP,ORL,DLG,ORDG,
+# ORIT,ORIFN,ORDIALOG,ORDEA,ORAPPT,ORSRC) — eleven client actuals after REC. Stock
+# VistA (ORWDX.m:52) adds OREVTDF as a 13th formal; FOIA-RPMS lacks it, so sending
+# OREVTDF raises "too many actual parameters" on RPMS. Reply REC is filled by
+# GETBYIFN^ORWORR / GETFLDS (ORWORR.m:139-150); empty when ORIFN stays empty after
+# save (ORWDX.m:130-131, ORWORR.m:133).
 class OrderSaveTest < Minitest::Test
   ROOT = File.expand_path("../../..", __dir__)
   REQUIRED_RPCS_PATH = File.join(ROOT, "lib/rpms_rpc/required_rpcs.json")
@@ -86,9 +88,9 @@ class OrderSaveTest < Minitest::Test
     RpmsRpc.reset!
   end
 
-  # --- ORWDX SAVE frame (ORWDX.m:52) ------------------------------------------
+  # --- ORWDX SAVE frame (FOIA-RPMS ORWDX.m:80) ----------------------------------
 
-  def test_save_dispatches_orwdx_save_with_twelve_formals_and_empty_orifn
+  def test_save_dispatches_orwdx_save_with_eleven_formals_and_empty_orifn
     with_orwdx_save_wire([ SAVE_HEADER ] + SAVE_TEXT_LINES)
     responses = { [ P_ORDERABLE, 1 ] => "92001" }
 
@@ -96,7 +98,7 @@ class OrderSaveTest < Minitest::Test
 
     call = save_call
     refute_nil call, "#{RPC} was not called"
-    assert_equal 12, call[:params].length, "twelve client actuals after REC (ORWDX.m:52)"
+    assert_equal 11, call[:params].length, "eleven client actuals after REC (FOIA-RPMS ORWDX.m:80)"
     assert_equal DFN, call[:params][0]
     assert_equal PROVIDER_DUZ, call[:params][1]
     assert_equal LOCATION, call[:params][2]
@@ -108,7 +110,7 @@ class OrderSaveTest < Minitest::Test
     assert_equal "", call[:params][8], "ORDEA"
     assert_equal "", call[:params][9], "ORAPPT"
     assert_equal "", call[:params][10], "ORSRC"
-    assert_equal "", call[:params][11], "OREVTDF (stock 13th formal)"
+    refute call[:params][11], "must not send OREVTDF (stock-only 13th formal)"
   end
 
   def test_save_passes_display_group_and_quick_order_when_given
