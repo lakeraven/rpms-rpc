@@ -163,6 +163,7 @@
 "RpmsRpc::Practitioner.roles": non_idempotent_write
 "RpmsRpc::Practitioner.search": read
 "RpmsRpc::Problem.add": non_idempotent_write
+"RpmsRpc::Problem.add_stock": non_idempotent_write
 "RpmsRpc::Problem.audit_history": read
 "RpmsRpc::Problem.clinic_search": read
 "RpmsRpc::Problem.comments": read
@@ -175,6 +176,7 @@
 "RpmsRpc::Problem.lex_search": read
 "RpmsRpc::Problem.provider_list": read
 "RpmsRpc::Problem.update": non_idempotent_write
+"RpmsRpc::Problem.update_stock": non_idempotent_write
 "RpmsRpc::Problem.verify": non_idempotent_write
 "RpmsRpc::Procedure.add": non_idempotent_write
 "RpmsRpc::Procedure.for_patient": read
