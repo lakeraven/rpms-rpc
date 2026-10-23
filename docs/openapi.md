@@ -190,7 +190,7 @@ A method name with no verb word infers GET, unlike an RPC name (POST). With no r
 
 **Two queries on one collection.**
 A plain read of the collection keeps it, then `search`, then `lookup`, then `find_by_<x>`.
-A later query with the same module and RPCs is folded into the first; any other keeps its sub-path (`Patient.lookup` is `GET /patients/lookup`).
+A later query with the same module, RPCs and verb is folded into the first when it is a GET or DELETE, whose arguments are query parameters; any other keeps its sub-path (`Patient.lookup` is `GET /patients/lookup`). A POST alias is never folded, because its arguments are a request body that folding would drop; two POST aliases that land on one sub-path are refused.
 Any other clash is refused.
 
 **What the path already says is dropped** from the remaining words: the collection's own name, the scope's member, the words that named an identifier's collection, and `detail`.
