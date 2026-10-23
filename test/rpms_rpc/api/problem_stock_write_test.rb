@@ -313,6 +313,154 @@ class ProblemStockWriteTest < Minitest::Test
     refute_bgoprob_or_ddr_calls
   end
 
+  def test_noncanonical_field_number_spellings_are_refused_before_any_rpc
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    %w[01 0.01 1.0 00].each do |key|
+      assert_stock_refused_before_rpc(
+        -> {
+          RpmsRpc::Problem.add_stock(
+            DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { key => "x" }
+          )
+        }
+      )
+    end
+
+    [
+      { "1" => "a", "01" => "b" },
+      { ".01" => "a", "0.01" => "b" },
+      { "1" => "a", "1.0" => "b" }
+    ].each do |fields|
+      assert_stock_refused_before_rpc(
+        -> {
+          RpmsRpc::Problem.add_stock(
+            DFN, provider_duz: PROVIDER, vamc: VAMC, fields: fields
+          )
+        }
+      )
+    end
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { 0.01 => "x" }
+        )
+      }
+    )
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { 1.0 => "x" }
+        )
+      }
+    )
+  end
+
+  def test_canonical_field_number_spellings_are_accepted_on_the_wire
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+    end
+
+    RpmsRpc::Problem.add_stock(
+      DFN, provider_duz: PROVIDER, vamc: VAMC,
+      fields: { ".01" => "a", "1" => "b", "1.01" => "c", 10 => "d" }
+    )
+    values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
+    assert_equal(
+      [
+        'GMPFLD(.01)="a"',
+        'GMPFLD(1)="b"',
+        'GMPFLD(1.01)="c"',
+        'GMPFLD(10)="d"'
+      ],
+      values
+    )
+  end
+
+  def test_values_and_comments_must_be_valid_utf8_bytes_before_any_rpc
+    invalid = "a\xFFb".b
+
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => invalid }
+        )
+      }
+    )
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: { ".01" => "ok" }, comments: [ invalid ]
+        )
+      }
+    )
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".01" => invalid }, originals: { ".01" => "was" }
+        )
+      }
+    )
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".01" => "now" }, originals: { ".01" => invalid }
+        )
+      }
+    )
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".01" => "now" }, originals: { ".01" => "was" },
+          comments: [ invalid ]
+        )
+      }
+    )
+  end
+
+  def test_update_stock_requires_gmporig_for_every_changed_field_before_any_rpc
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".01" => "new" }, originals: {}
+        )
+      }
+    )
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".01" => "new", ".05" => "also" }, originals: { ".01" => "old" }
+        )
+      }
+    )
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".01" => "new" }, originals: { ".01" => "old", ".05" => "extra" }
+        )
+      }
+    )
+  end
+
   def test_add_stock_and_update_stock_are_non_idempotent_writes_in_retry_safety
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::Problem, :add_stock)
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::Problem, :update_stock)
@@ -332,6 +480,15 @@ class ProblemStockWriteTest < Minitest::Test
 
   def assert_stock_result_shape(result)
     assert_equal STOCK_RESULT_KEYS.sort, result.keys.sort
+  end
+
+  def assert_stock_refused_before_rpc(invoke)
+    RpmsRpc.client.received_calls.clear
+    result = invoke.call
+    refute result[:success]
+    assert_stock_result_shape(result)
+    assert_empty RpmsRpc.client.received_calls,
+      "unsafe input must fail closed before ORQQPL (ORQQPL1.m:160,:120)"
   end
 
   def refute_bgoprob_or_ddr_calls
