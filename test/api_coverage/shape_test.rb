@@ -663,5 +663,4 @@ class ShapeTest < Minitest::Test
   def undeclare_shape(mod, method)
     RpmsRpc::Shape.send(:declarations).delete([ mod, method.to_sym ])
   end
-
 end
