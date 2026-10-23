@@ -138,12 +138,15 @@ module RpmsRpc
       bytes.bytesize.chr.b + bytes
     end
 
-    # L-PACK: zero-padded length + value (3-digit for <=999 bytes,
-    # 5-digit for >999 bytes). Length is always counted in BYTES.
+    # L-PACK: zero-padded length + value, always 3 digits. The [XWB]1130
+    # header declares width 3 (XWBPRS reads +$E(P,3)). Length is always
+    # counted in BYTES; a value over 999 bytes cannot be framed.
     def lpack(value)
       bytes = value.to_s.b
-      width = bytes.bytesize > 999 ? 5 : 3
-      (format("%0#{width}d", bytes.bytesize) + bytes).b
+      if bytes.bytesize > 999
+        raise ArgumentError, "L-PACK value exceeds 999 bytes (#{bytes.bytesize})"
+      end
+      (format("%03d", bytes.bytesize) + bytes).b
     end
 
     # Build TCPConnect command message — uses command token "4"

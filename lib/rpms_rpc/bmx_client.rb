@@ -146,10 +146,10 @@ module RpmsRpc
     # slot and glued "1" onto the RPC name).
     def build_bmx_message(rpc_name, params = [])
       proto_fields = "RPMS_RPC;0;0;0;".b
-      proto_header = format("%03d", proto_fields.bytesize).b + proto_fields
+      proto_header = fixed_width(proto_fields.bytesize, 3) + proto_fields
 
       text = bmx_text(rpc_name, params)
-      message = format("%05d", text.bytesize + 6).b + "0".b + text
+      message = fixed_width(text.bytesize + 6, 5) + "0".b + text
 
       proto_header + message
     end
@@ -163,9 +163,9 @@ module RpmsRpc
 
       inner = params.map do |p|
         v = p.to_s.b
-        format("%03d", v.bytesize + 1).b + "0".b + v # LLL=(len+1), TYPE "0"=literal
+        fixed_width(v.bytesize + 1, 3) + "0".b + v # LLL=(len+1), TYPE "0"=literal
       end.join.b
-      block = format("%05d", inner.bytesize).b + inner
+      block = fixed_width(inner.bytesize, 5) + inner
       name + "^".b + block
     end
 
@@ -230,10 +230,21 @@ module RpmsRpc
       9101
     end
 
+    # Zero-padded decimal of exactly `width` digits. A number that does not
+    # fit is refused: the field is fixed width, and widening it would shift
+    # every byte the broker reads after it.
+    def fixed_width(number, width)
+      text = format("%0#{width}d", number)
+      if text.bytesize > width
+        raise ArgumentError, "#{number} does not fit in #{width} digits (max #{10**width - 1})"
+      end
+      text.b
+    end
+
     # Send a packet for the initial monitor connection (pre-session)
     def send_bmx_packet(body)
       bytes = body.to_s.b
-      length_str = format("%05d", bytes.bytesize).b
+      length_str = fixed_width(bytes.bytesize, 5)
       packet = BMX_PREFIX.b + length_str + bytes
       send_packet(packet)
     end
@@ -246,8 +257,8 @@ module RpmsRpc
     # Wire = {BMX} + LLLLL + PPPPP + body
     def send_bmx_session_packet(body)
       bytes = body.to_s.b
-      plen = format("%05d", bytes.bytesize).b
-      total_len = format("%05d", bytes.bytesize + 5).b
+      plen = fixed_width(bytes.bytesize, 5)
+      total_len = fixed_width(bytes.bytesize + 5, 5)
       packet = BMX_PREFIX.b + total_len + plen + bytes
       send_packet(packet)
     end
