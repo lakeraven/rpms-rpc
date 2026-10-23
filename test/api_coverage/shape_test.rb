@@ -60,18 +60,16 @@ class ShapeTest < Minitest::Test
     write_rows = { key => :non_idempotent_write }
     read_rows = { key => :read }
 
-    with_retry_rows(write_rows) do
-      addr = OpenApi::ClientApi.address(catalog_method)
-      assert_equal "post", addr[:verb]
-      assert_equal "retry-class", addr[:rule]
-      assert_equal "/retry-publish-posts/{ien}/payload-snapshot", addr[:path]
-    end
+    write_table = RpmsRpc::RetrySafety.table.merge(write_rows)
+    addr = OpenApi::ClientApi.address(catalog_method, retry_table: write_table)
+    assert_equal "post", addr[:verb]
+    assert_equal "retry-class", addr[:rule]
+    assert_equal "/retry-publish-posts/{ien}/payload-snapshot", addr[:path]
 
-    with_retry_rows(read_rows) do
-      addr = OpenApi::ClientApi.address(catalog_method)
-      assert_equal "get", addr[:verb]
-      assert_equal "noun", addr[:rule]
-    end
+    read_table = RpmsRpc::RetrySafety.table.merge(read_rows)
+    addr = OpenApi::ClientApi.address(catalog_method, retry_table: read_table)
+    assert_equal "get", addr[:verb]
+    assert_equal "noun", addr[:rule]
   end
 
   def test_every_write_class_method_is_published_with_a_non_get_verb
@@ -642,8 +640,4 @@ class ShapeTest < Minitest::Test
     RpmsRpc::Shape.send(:declarations).delete([ mod, method.to_sym ])
   end
 
-  def with_retry_rows(rows)
-    table = RpmsRpc::RetrySafety.table.merge(rows)
-    RpmsRpc::RetrySafety.stub(:table, table) { yield }
-  end
 end

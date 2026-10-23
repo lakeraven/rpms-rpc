@@ -19,23 +19,22 @@ class OpenApiClientApiTest < Minitest::Test
       "status" => proven ? "proven" : "not_in_contract" }
   end
 
-  def at(m)
-    a = Api.address(m)
+  def at(m, retry_table: nil)
+    a = retry_table ? Api.address(m, retry_table: retry_table) : Api.address(m)
     "#{a[:verb].upcase} #{a[:path]}"
   end
 
   def method_key(m) = "#{m['module']}.#{m['method']}"
 
-  def with_retry_rows(rows)
-    table = RpmsRpc::RetrySafety.table.merge(rows)
-    RpmsRpc::RetrySafety.stub(:table, table) { yield }
+  def catalog_rule(m, retry_table: nil)
+    ops([ m ], retry_table: retry_table).fetch(0)[:op]["x-rpms"]["rule"]
   end
 
-  def catalog_rule(m)
-    ops([ m ]).fetch(0)[:op]["x-rpms"]["rule"]
+  def ops(methods, retry_table: nil)
+    doc = { "schema" => 1, "methods" => methods }
+    cat = retry_table ? Api.catalog(doc, retry_table: retry_table) : Api.catalog(doc)
+    cat[:entries]
   end
-
-  def ops(methods) = Api.catalog({ "schema" => 1, "methods" => methods })[:entries]
 
   def test_reads
     assert_equal "GET /patients/{dfn}", at(method("Patient", "find", req("dfn")))
@@ -118,10 +117,9 @@ class OpenApiClientApiTest < Minitest::Test
 
   def test_inquiry_read_flipped_by_retry_class_publishes_post_with_retry_class_rule
     m = method("SyntheticInquiry", "authorize", req("note_ien"), rpc: "SYNTH AUTHORIZE")
-    with_retry_rows({ method_key(m) => :non_idempotent_write }) do
-      assert_equal "POST /progress-notes/{note_ien}/synthetic-inquiries/authorize", at(m)
-      assert_equal "retry-class", catalog_rule(m)
-    end
+    retry_table = RpmsRpc::RetrySafety.table.merge({ method_key(m) => :non_idempotent_write })
+    assert_equal "POST /progress-notes/{note_ien}/synthetic-inquiries/authorize", at(m, retry_table: retry_table)
+    assert_equal "retry-class", catalog_rule(m, retry_table: retry_table)
   end
 
   def test_only_rpc_backed_methods_become_operations_and_a_clash_is_refused

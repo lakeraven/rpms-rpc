@@ -19,21 +19,17 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
       "unresolved" => [], "live_specs" => [], "personas" => [], "status" => "not_in_contract" }
   end
 
-  def at(m)
-    a = Api.address(m)
+  def at(m, retry_table: nil)
+    a = retry_table ? Api.address(m, retry_table: retry_table) : Api.address(m)
     "#{a[:verb].upcase} #{a[:path]}"
   end
 
   def method_key(m) = "#{m['module']}.#{m['method']}"
 
-  # Hermetic retry rows for synthetic modules (not in retry_safety.yml).
-  def with_retry_rows(rows)
-    table = RpmsRpc::RetrySafety.table.merge(rows)
-    RpmsRpc::RetrySafety.stub(:table, table) { yield }
-  end
-
-  def catalog_rule(m)
-    Api.catalog({ "schema" => 1, "methods" => [ m ] })[:entries].fetch(0)[:op]["x-rpms"]["rule"]
+  def catalog_rule(m, retry_table: nil)
+    doc = { "schema" => 1, "methods" => [ m ] }
+    cat = retry_table ? Api.catalog(doc, retry_table: retry_table) : Api.catalog(doc)
+    cat[:entries].fetch(0)[:op]["x-rpms"]["rule"]
   end
 
   def catalog_by_method(entries, registry_tag:)
@@ -72,30 +68,28 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
 
   def test_retry_safety_non_idempotent_write_noun_publishes_post_at_inferred_path
     m = method("SyntheticWrite", "payload_snapshot", req("ien"), rpc: "SYNTH WRITE SNAPSHOT")
-    with_retry_rows({ method_key(m) => :non_idempotent_write }) do
-      assert_equal "POST /synthetic-writes/{ien}/payload-snapshot", at(m)
-      assert_equal "retry-class", catalog_rule(m)
-    end
+    retry_table = RpmsRpc::RetrySafety.table.merge({ method_key(m) => :non_idempotent_write })
+    assert_equal "POST /synthetic-writes/{ien}/payload-snapshot", at(m, retry_table: retry_table)
+    assert_equal "retry-class", catalog_rule(m, retry_table: retry_table)
   end
 
   def test_retry_safety_idempotent_write_read_verb_name_publishes_post
     m = method("SyntheticRetry", "find_counterpart", req("ien"), rpc: "SYNTH FIND COUNTERPART")
-    with_retry_rows({ method_key(m) => :idempotent_write }) do
-      assert_equal "POST /synthetic-retries/{ien}/counterpart", at(m)
-      assert_equal "retry-class", catalog_rule(m)
-    end
+    retry_table = RpmsRpc::RetrySafety.table.merge({ method_key(m) => :idempotent_write })
+    assert_equal "POST /synthetic-retries/{ien}/counterpart", at(m, retry_table: retry_table)
+    assert_equal "retry-class", catalog_rule(m, retry_table: retry_table)
   end
 
   def test_retry_safety_read_class_keeps_get_for_same_synthetic_names
     snapshot = method("SyntheticWrite", "payload_snapshot", req("ien"), rpc: "SYNTH WRITE SNAPSHOT")
     find_m = method("SyntheticRetry", "find_counterpart", req("ien"), rpc: "SYNTH FIND COUNTERPART")
-    rows = { method_key(snapshot) => :read, method_key(find_m) => :read }
-    with_retry_rows(rows) do
-      assert_equal "GET /synthetic-writes/{ien}/payload-snapshot", at(snapshot)
-      assert_equal "noun", catalog_rule(snapshot)
-      assert_equal "GET /synthetic-retries/{ien}/counterpart", at(find_m)
-      assert_equal "read", catalog_rule(find_m)
-    end
+    retry_table = RpmsRpc::RetrySafety.table.merge(
+      { method_key(snapshot) => :read, method_key(find_m) => :read }
+    )
+    assert_equal "GET /synthetic-writes/{ien}/payload-snapshot", at(snapshot, retry_table: retry_table)
+    assert_equal "noun", catalog_rule(snapshot, retry_table: retry_table)
+    assert_equal "GET /synthetic-retries/{ien}/counterpart", at(find_m, retry_table: retry_table)
+    assert_equal "read", catalog_rule(find_m, retry_table: retry_table)
   end
 
   WRITE_CLASS_GET_BASELINE = File.join(__dir__, "../../data/openapi/write_class_get_baseline.txt").freeze
