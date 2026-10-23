@@ -145,10 +145,10 @@ module OpenApi
     # Where a method lives: its verb, its path, and which params the path carries. A query (search,
     # lookup, find_by_<x>) also carries :sub, the sub-path it falls back to when another query has the
     # collection: catalog decides.
-    def address(method)
+    def address(method, retry_table: RpmsRpc::RetrySafety.table)
       c = classify(method["method"])
       key = "#{method['module']}.#{method['method']}"
-      fallback = publish_post?(key, c)
+      fallback = publish_post?(key, c, retry_table: retry_table)
       # Keep the inferred words, including a plain noun with no retry row, so two nouns cannot collide.
       a = publish(place(method, c, c[:rest]), fallback)
       return a unless c[:kind] == "query"
@@ -161,10 +161,10 @@ module OpenApi
     # baseline keeps it too. Any other retry class does not. A name with no verb word and no retry row is
     # the same fallback, so it cannot default to GET. A named verb with no row keeps its inference, so a
     # hand-built example of find or search stays GET until retry_safety.yml classifies it.
-    def publish_post?(key, classified)
+    def publish_post?(key, classified, retry_table: RpmsRpc::RetrySafety.table)
       return false if WRITE_CLASS_GET_BASELINE.include?(key)
 
-      retry_class = RpmsRpc::RetrySafety.table[key]
+      retry_class = retry_table[key]
       return retry_class != :read if retry_class
 
       plain_noun?(classified)
@@ -306,7 +306,7 @@ module OpenApi
     # collection: }. Raises Refused on any clash. Queries are placed last, best rank first, so a plain read
     # of the collection keeps it and the first query takes it next; a later query on the same verb + path
     # is folded in when it is the same query (same module, same RPCs), and otherwise keeps its sub-path.
-    def catalog(input)
+    def catalog(input, retry_table: RpmsRpc::RetrySafety.table)
       raise Refused, "api_coverage schema #{input['schema'].inspect}, expected 1" unless input["schema"] == 1
 
       excluded = { "no_rpc" => [], "unresolved" => [], "unregistered" => [] }
@@ -319,7 +319,7 @@ module OpenApi
         next excluded["unregistered"] << id if m["rpcs"].any? { |r| !r["registered"] }
         next excluded["no_rpc"] << id if m["rpcs"].empty?
 
-        placed << { method: m, id: id, addr: address(m) }
+        placed << { method: m, id: id, addr: address(m, retry_table: retry_table) }
       end
       seen = {}
       entries = []
