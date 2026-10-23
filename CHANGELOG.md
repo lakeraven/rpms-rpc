@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — replies reach hosts as valid UTF-8; altered bytes are reported (#463)
+
+- `call_rpc` on XWB, BMX, CIA and `MockClient` now returns an `RpmsRpc::Reply`, an `Array` of UTF-8 Strings (it was ASCII-8BIT
+  on XWB and BMX, which raised `Encoding::CompatibilityError` as soon as a host joined a non-ASCII reply with a UTF-8 literal).
+  Bytes that are not valid UTF-8 become U+FFFD and `Reply#altered?` / `#altered_lines` say so. The flag is dropped by
+  `Array#map`, `#select` and `#+`. Charset: assumed UTF-8, unproven; Latin-1 observed in stored data will read as altered.
+- CIA: valid non-ASCII text is no longer replaced with spaces. Control characters still become a space, and are now reported
+  as altered.
+
 ### Added — XWB and BMX sign-on bind the division (DUZ(2)) as the stock XWB client does (#450)
 
 - `Client#authenticate` (XwbClient, BmxClient) calls `XUS DIVISION GET` after `XUS AV CODE`, as the Delphi RPC Broker does, and
