@@ -43,6 +43,37 @@ class ShapeTest < Minitest::Test
                  "#{violations.join("\n")}"
   end
 
+  def test_retry_safety_table_governs_publish_post_for_synthetic_methods
+    m = {
+      module: "RpmsRpc::ShapeTest::RetryPublishPost",
+      method: "payload_snapshot",
+      shape_status: "undeclared",
+      rpcs: [ { name: "SYNTH", registered: true, entry_point: "X^SYNTH", reach: "client-callable", via: "literal" } ]
+    }
+    catalog_method = {
+      "module" => m[:module], "method" => m[:method], "arity" => 1,
+      "params" => [ { "name" => "ien", "kind" => "req" } ],
+      "rpcs" => m[:rpcs].map { |r| r.transform_keys(&:to_s) },
+      "unresolved" => [], "live_specs" => [], "personas" => [], "status" => "not_in_contract"
+    }
+    key = "#{m[:module]}.#{m[:method]}"
+    write_rows = { key => :non_idempotent_write }
+    read_rows = { key => :read }
+
+    with_retry_rows(write_rows) do
+      addr = OpenApi::ClientApi.address(catalog_method)
+      assert_equal "post", addr[:verb]
+      assert_equal "retry-class", addr[:rule]
+      assert_equal "/retry-publish-posts/{ien}/payload-snapshot", addr[:path]
+    end
+
+    with_retry_rows(read_rows) do
+      addr = OpenApi::ClientApi.address(catalog_method)
+      assert_equal "get", addr[:verb]
+      assert_equal "noun", addr[:rule]
+    end
+  end
+
   def test_every_write_class_method_is_published_with_a_non_get_verb
     report = ApiCoverage.build(ROOT)
     baseline = load_write_class_get_baseline
@@ -609,5 +640,10 @@ class ShapeTest < Minitest::Test
 
   def undeclare_shape(mod, method)
     RpmsRpc::Shape.send(:declarations).delete([ mod, method.to_sym ])
+  end
+
+  def with_retry_rows(rows)
+    table = RpmsRpc::RetrySafety.table.merge(rows)
+    RpmsRpc::RetrySafety.stub(:table, table) { yield }
   end
 end

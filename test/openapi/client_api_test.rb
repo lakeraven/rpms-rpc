@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "rpms_rpc"
 require_relative "../../tools/openapi/client_api"
 
 # OpenApi::ClientApi (rpms-rpc#395): rake rpc:api_coverage's methods as a resource-oriented OpenAPI
@@ -21,6 +22,17 @@ class OpenApiClientApiTest < Minitest::Test
   def at(m)
     a = Api.address(m)
     "#{a[:verb].upcase} #{a[:path]}"
+  end
+
+  def method_key(m) = "#{m['module']}.#{m['method']}"
+
+  def with_retry_rows(rows)
+    table = RpmsRpc::RetrySafety.table.merge(rows)
+    RpmsRpc::RetrySafety.stub(:table, table) { yield }
+  end
+
+  def catalog_rule(m)
+    ops([ m ]).fetch(0)[:op]["x-rpms"]["rule"]
   end
 
   def ops(methods) = Api.catalog({ "schema" => 1, "methods" => methods })[:entries]
@@ -102,6 +114,14 @@ class OpenApiClientApiTest < Minitest::Test
     assert_equal [ GEM, { "tag" => "bcer-0.0" } ], [ d["x-rpms-gem"], d["x-rpms-build"] ]
     assert_empty OpenApi.problems(d)
     assert_empty OpenApi.schema_problems(d)
+  end
+
+  def test_inquiry_read_flipped_by_retry_class_publishes_post_with_retry_class_rule
+    m = method("SyntheticInquiry", "authorize", req("note_ien"), rpc: "SYNTH AUTHORIZE")
+    with_retry_rows({ method_key(m) => :non_idempotent_write }) do
+      assert_equal "POST /progress-notes/{note_ien}/synthetic-inquiries/authorize", at(m)
+      assert_equal "retry-class", catalog_rule(m)
+    end
   end
 
   def test_only_rpc_backed_methods_become_operations_and_a_clash_is_refused
