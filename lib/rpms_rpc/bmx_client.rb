@@ -36,6 +36,8 @@ module RpmsRpc
   # See FOIA-RPMS/Packages/M Transfer/Routines/BMXMON.m, BMXMBRK.m, BMXMBRK2.m
   class BmxClient < Client
     BMX_PREFIX = "{BMX}"
+    # BMXMBRK M=512: PRSP/PRSM/PRSA/PRSB each cut the protocol string with $E(P,...,M).
+    MAX_PROTOCOL_BYTES = 512
 
     # Connect to RPMS BMX Broker — a TWO-STEP handshake.
     #
@@ -151,7 +153,11 @@ module RpmsRpc
       text = bmx_text(rpc_name, params)
       message = fixed_width(text.bytesize + 6, 5) + "0".b + text
 
-      proto_header + message
+      body = proto_header + message
+      if body.bytesize > MAX_PROTOCOL_BYTES
+        raise ArgumentError, "BMX protocol string is #{body.bytesize} bytes (max #{MAX_PROTOCOL_BYTES})"
+      end
+      body
     end
 
     # The PRSM "text": the RPC name, plus — when there are params — a "^" and the
