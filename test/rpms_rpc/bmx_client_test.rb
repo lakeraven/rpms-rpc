@@ -117,6 +117,41 @@ class RpmsRpc::BmxClientTest < Minitest::Test
     assert_empty sock.writes
   end
 
+  # -- #472: BMXMBRK truncates the protocol string at 512 bytes --------------
+  #
+  # PRSP/PRSM/PRSA/PRSB each cap P at M=512 via $E(P,...,M). The broker parses
+  # the protocol string as one P (after any {BMX} prefix is stripped), so
+  # build_bmx_message output — proto header plus message — must not exceed 512.
+
+  def test_build_bmx_message_raises_when_wire_frame_exceeds_512_bytes
+    # ECHO^ + one length-framed param: 474-byte value → 512-byte frame; one more → 513.
+    long = "x" * 475
+    error = assert_raises(ArgumentError) { Client.new.build_bmx_message("ECHO", [ long ]) }
+    assert_match(/512/, error.message)
+  end
+
+  def test_build_bmx_message_allows_wire_frame_of_exactly_512_bytes
+    msg = Client.new.build_bmx_message("ECHO", [ "x" * 474 ])
+    assert_equal 512, msg.bytesize
+  end
+
+  def test_build_bmx_message_refuses_wire_frame_over_512_using_byte_count_not_char_count
+    # Same character count as the 512-byte frame above, but one ASCII byte becomes é (2 bytes).
+    param = ("x" * 476) + "é"
+    assert_equal 477, param.length
+    assert_equal 478, param.bytesize
+    error = assert_raises(ArgumentError) { Client.new.build_bmx_message("E", [ param ]) }
+    assert_match(/512/, error.message)
+    msg = Client.new.build_bmx_message("E", [ "x" * 477 ])
+    assert_equal 512, msg.bytesize
+  end
+
+  def test_call_rpc_raises_when_wire_frame_exceeds_512_bytes_and_writes_nothing
+    client = connected_client([ "\x00\x00OK\x04" ])
+    assert_raises(ArgumentError) { client.call_rpc("ECHO", "x" * 475) }
+    assert_empty client.instance_variable_get(:@socket).writes
+  end
+
   # -- subclass contract ------------------------------------------------------
 
   def test_call_rpc_raises_when_not_connected
