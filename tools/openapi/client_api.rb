@@ -149,9 +149,8 @@ module OpenApi
       c = classify(method["method"])
       key = "#{method['module']}.#{method['method']}"
       fallback = publish_post?(key, c)
-      # No retry row and no verb word: POST to the member the identifiers name, not a GET sub-resource.
-      words = fallback && plain_noun?(c) && !RpmsRpc::RetrySafety.table.key?(key) ? [] : c[:rest]
-      a = publish(place(method, c, words), fallback)
+      # Keep the inferred words, including a plain noun with no retry row, so two nouns cannot collide.
+      a = publish(place(method, c, c[:rest]), fallback)
       return a unless c[:kind] == "query"
 
       sub = publish(place(method, c, c[:sub_rest]).merge(rule: "query-sub-path"), fallback)
@@ -175,8 +174,9 @@ module OpenApi
       classified[:kind] == "noun" && !classified[:predicate] && !classified[:for_word]
     end
 
+    # A flipped GET is POST, and the rule records that the retry class (or the no-row noun) chose the verb.
     def publish(addr, fallback)
-      fallback && addr[:verb] == "get" ? addr.merge(verb: "post") : addr
+      fallback && addr[:verb] == "get" ? addr.merge(verb: "post", rule: "retry-class") : addr
     end
 
     def place(method, c, words)

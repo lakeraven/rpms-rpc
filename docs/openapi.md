@@ -154,7 +154,7 @@ Unproven operations are not `deprecated`: they are waiting for a live spec, not 
 | `x-rpms.rpcs[]` | each RPC the method sends: `name`, `registered` on the build, `entry_point`, `reach` (its class on the build), `via` (`mapping :name` or `literal`) |
 | `x-rpms.status` | `proven` (a live spec calls the method) or `not_in_contract` (none does yet; ADR 0010) |
 | `x-rpms.live_specs`, `.personas` | the `file:line` of each live call, and the personas those specs run as |
-| `x-rpms.rule` | which mapping rule placed it: `read`, `query`, `query-sub-path`, `inquiry`, `create`, `write`, `delete`, `action`, `predicate`, `for` or `noun` |
+| `x-rpms.rule` | which mapping rule placed it: `read`, `query`, `query-sub-path`, `inquiry`, `create`, `write`, `delete`, `action`, `predicate`, `for`, `noun` or `retry-class` |
 | `x-rpms.folded` | other methods that are the same query (same module, same RPCs, same verb and path), folded in as optional query parameters |
 
 `x-rpms-api` totals the document: `methods` (public methods), `operations`, `proven`, `verbs`, `excluded` (methods that send no RPC, `no_rpc`; whose RPC name static analysis could not resolve, `unresolved`; or that send an unregistered RPC, `unregistered`), `folded`, and `collections` (`name`, `base`, `modules`, `operations`, `proven`).
@@ -178,14 +178,15 @@ When the first identifier is a patient, a user or a progress note, or names the 
 | read | GET | find, get, gets, fetch, list, lister, show, detail, details | the word is dropped: `find(dfn)` is `GET /patients/{dfn}` |
 | query | GET | search, lookup, find_by_&lt;x&gt; | the collection, arguments as query parameters |
 | inquiry | GET | check, which, can, is, has, authorize, bootstrap | the word stays: `GET /progress-notes/{note_ien}/authorize` |
-| create | POST | add, create, new, record, register | the collection; identifiers other than the scope go in the body |
+| create | POST | add, create, new, record, register, save | the collection; identifiers other than the scope go in the body |
 | write | PUT | update, set, file, filer, change | the item, or the rest of the name |
 | delete | DELETE | delete, remove | the item |
-| action | POST | authenticate, cancel, checkin, complete, generate, inactivate, init, lock, mark, open, print, sign, uncancel, unlock, validate, verify | `POST /referrals/{ien}/cancel` |
+| action | POST | authenticate, cancel, checkin, complete, generate, inactivate, init, lock, mark, open, print, send, sign, uncancel, unlock, validate, verify | `POST /referrals/{ien}/cancel` |
 | predicate | GET | a name ending in `?` | `expired?` is `GET /orders/{order_ien}/expired` |
 | noun | GET | any other first word | a sub-resource: `GET /patients/{dfn}/brief-header` |
+| retry-class | POST | an inferred GET published as POST | the same path, when the retry class is not `:read`, and when a name has no verb word and no retry row. The unchecked names frozen in `data/openapi/write_class_get_baseline.txt` keep the inferred GET; the list may only shrink, and only when a method's retry class is verified `:read` |
 
-A method name with no verb word reads (GET), unlike an RPC name (POST): a gem method's name says more about its behaviour.
+A method name with no verb word infers GET, unlike an RPC name (POST). With no retry row it is published POST at that inferred path, so the remaining words stay and two nouns in one module do not collide. A named verb with no retry row keeps its inferred verb. A `:read` method keeps the inferred verb, path and rule.
 
 **Two queries on one collection.**
 A plain read of the collection keeps it, then `search`, then `lookup`, then `find_by_<x>`.
