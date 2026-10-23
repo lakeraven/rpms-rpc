@@ -179,7 +179,7 @@ module RpmsRpc
       lines = gmp_lines([ [ "GMPFLD", fields ] ], comments)
       ready = patient && provider && facility && fields.is_a?(Hash) && !fields.empty? &&
         lines.is_a?(Array) && !lines.empty?
-      return stock_refused unless ready
+      return failure unless ready
 
       raw = DataMapper.problem_add_save.fetch_scalar(patient, provider, facility, lines)
       stock_save_result(raw)
@@ -205,10 +205,10 @@ module RpmsRpc
       lines = gmp_lines([ [ "GMPFLD", changes ], [ "GMPORIG", originals ] ], comments)
       ready = problem && provider && facility && flag && same_canonical_fields?(changes, originals) &&
         lines.is_a?(Array) && !lines.empty?
-      return stock_refused unless ready
+      return failure unless ready
 
       raw = DataMapper.problem_edit_save.fetch_scalar(problem, provider, facility, flag, lines)
-      stock_save_result(raw)
+      stock_save_result(raw, ien: problem.to_i)
     end
     shape :update_stock, resource: "problems", verb: "PUT", path: "/problems/{ien}/stock"
 
@@ -254,20 +254,17 @@ module RpmsRpc
       { success: success, message: message.empty? ? nil : message, raw: raw }
     end
 
-    # Same keys as a non-empty success_result. Exactly "1" is success
+    # Same keys as write and failure. Exactly "1" is success
     # (ORQQPL1.m:167, :128); "0" and every other reply are not
-    # (ORQQPL1.m:156, :123). "0^text" keeps text as the message.
-    def stock_save_result(raw)
-      line = raw.to_s.strip
-      return { success: false, message: nil, raw: raw } if line.empty?
-
-      message = line.sub(/\A[01]\^/, "").strip
-      message = nil if message.empty? || line == "1"
-      { success: line == "1", message: message, raw: raw }
-    end
-
-    def stock_refused
-      { success: false, message: nil, raw: nil }
+    # (ORQQPL1.m:156, :123). ien is nil unless the caller passes the
+    # edited problem IEN and the reply is "1".
+    def stock_save_result(raw, ien: nil)
+      success = raw.to_s.strip == "1"
+      {
+        success: success,
+        ien: success ? ien : nil,
+        raw: raw
+      }
     end
 
     # Groups are [name, hash] pairs in wire order ("GMPFLD" then "GMPORIG").
