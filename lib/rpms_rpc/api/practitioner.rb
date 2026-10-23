@@ -141,7 +141,7 @@ module RpmsRpc
         dea_expires: FilemanDateParser.parse_date(fields.dig("747.44", :internal))
       }
     end
-    shape :detail, resource: "practitioners", verb: "GET", path: "/users/{duz}/practitioners"
+    shape :detail, resource: "practitioners", verb: "POST", path: "/users/{duz}/practitioners"
 
     private
 

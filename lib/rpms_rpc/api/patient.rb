@@ -228,7 +228,7 @@ module RpmsRpc
         email:       external(ihs, "1802")
       }
     end
-    shape :contact, resource: "patients", verb: "GET", path: "/patients/{dfn}/contact"
+    shape :contact, resource: "patients", verb: "POST", path: "/patients/{dfn}/contact"
 
     # Mailing address on PATIENT (#2), read via the registered generic
     # FileMan read (DDR GETS ENTRY DATA — GETSC^DDR2), the same path as
@@ -273,7 +273,7 @@ module RpmsRpc
         zip4:      external(fields, ".1112")
       }
     end
-    shape :address, resource: "patients", verb: "GET", path: "/patients/{dfn}/address"
+    shape :address, resource: "patients", verb: "POST", path: "/patients/{dfn}/address"
 
     # PATIENT (#2) field .06 RACE is P10'X. Its input transform is
     # historical-only ("ENTRY OF DATA NOT ALLOWED") but the value is
@@ -296,7 +296,7 @@ module RpmsRpc
 
       { dfn: dfn.to_i, race: external(fields, ".06") }
     end
-    shape :race, resource: "patients", verb: "GET", path: "/patients/{dfn}/race"
+    shape :race, resource: "patients", verb: "POST", path: "/patients/{dfn}/race"
 
     # The parsed fields of one DDR GETS ENTRY DATA read, or nil when it
     # failed. A reply that parsed NO field rows is a failed read, not
