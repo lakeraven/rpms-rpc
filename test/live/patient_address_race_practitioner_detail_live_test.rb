@@ -14,7 +14,7 @@ class PatientAddressRacePractitionerDetailLiveTest < LiveSpec::Test
   ADDRESS_KEYS = %i[dfn line1 line2 line3 city state state_ien zip zip4].freeze
   RACE_KEYS = %i[dfn race].freeze
   DETAIL_KEYS = %i[
-    duz title service_section provider_class person_class
+    duz title service_section provider_class
     npi npi_entry_status dea_number dea_state dea_expires
   ].freeze
 
@@ -138,73 +138,6 @@ class PatientAddressRacePractitionerDetailLiveTest < LiveSpec::Test
     puts "listed NEW PERSON entries with a released DEA number: #{dea_present}"
   end
 
-  def test_person_class_is_read_for_users_who_hold_one
-    listed = client.with_context(CONTEXT) do
-      RpmsRpc::DdrFileman.lister(file: 200, fields: "@;.01", max: 25)
-    end
-    refute_nil listed, "DDR LISTER on #200 gave no reply"
-    refute listed[:error], "DDR LISTER on #200 answered with errors"
-    refute_empty listed[:entries], "the build has no NEW PERSON (#200) entry"
-
-    people = listed[:entries].select { |entry| entry[:ien].to_s.match?(/\A\d+\z/) }
-    refute_empty people
-
-    lister_errors = 0
-    users_with_person_class_rows = 0
-
-    people.each do |entry|
-      ien = entry[:ien]
-      raw = client.with_context(CONTEXT) do
-        RpmsRpc::DdrFileman.lister(file: "200.05", iens: ",#{ien},", fields: "@;.01")
-      end
-      if raw.nil? || raw[:error]
-        lister_errors += 1
-        next
-      end
-      next if raw[:entries].empty?
-
-      users_with_person_class_rows += 1
-      detail = RpmsRpc::Practitioner.detail(ien)
-      refute_nil detail, "Practitioner.detail(#{ien}) found nothing, but #200 lists it"
-      refute_nil detail[:person_class],
-                 "8932.1 is a multiple (subfile 200.05) on this build and detail's person_class " \
-                 "does not read it (DUZ #{ien.to_i} only, no values)"
-
-      row_externals = person_class_row_externals(raw)
-      assert row_externals.include?(detail[:person_class].to_s),
-             "person_class does not match the user's 200.05 rows for DUZ #{ien}"
-    end
-
-    if lister_errors == people.size
-      puts "200.05 DDR LISTER errors: #{lister_errors} of #{people.size} NEW PERSON users probed"
-      direct_person_class_count = 0
-      people.each do |entry|
-        detail = RpmsRpc::Practitioner.detail(entry[:ien])
-        refute_nil detail, "Practitioner.detail(#{entry[:ien]}) found nothing, but #200 lists it"
-        pc = detail[:person_class]
-        direct_person_class_count += 1 if pc.is_a?(String) && !pc.empty?
-      end
-      if direct_person_class_count.zero?
-        flunk "200.05 is not a subfile on this build and no sampled NEW PERSON user had a direct PERSON CLASS " \
-              "value (probed #{people.size}); give a test user a (synthetic) PERSON CLASS so the spec can prove person_class"
-      end
-      people.each do |entry|
-        detail = RpmsRpc::Practitioner.detail(entry[:ien])
-        refute_nil detail, "Practitioner.detail(#{entry[:ien]}) found nothing, but #200 lists it"
-        pc = detail[:person_class]
-        assert(pc.nil? || pc.is_a?(String), "person_class must be nil or String for DUZ #{entry[:ien]}")
-      end
-      puts "NEW PERSON users with a direct PERSON CLASS value: #{direct_person_class_count} of #{people.size} probed"
-    else
-      puts "NEW PERSON users probed for 200.05: #{people.size}; lister errors: #{lister_errors}; " \
-           "users with 200.05 rows: #{users_with_person_class_rows}"
-      if users_with_person_class_rows.zero?
-        flunk "no sampled NEW PERSON user holds a 200.05 PERSON CLASS row (probed #{people.size}); " \
-              "give a test user one (synthetic) so the spec can prove person_class"
-      end
-    end
-  end
-
   private
 
   def external_or_nil(field)
@@ -212,10 +145,6 @@ class PatientAddressRacePractitionerDetailLiveTest < LiveSpec::Test
 
     value = field[:external]
     value.nil? || value.to_s.empty? ? nil : value.to_s
-  end
-
-  def person_class_row_externals(raw)
-    raw[:entries].map { |entry| entry[:pieces]&.first.to_s }.reject(&:empty?)
   end
 
   def sample_listed_patient_dfns(max_entries)

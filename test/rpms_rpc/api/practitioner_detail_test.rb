@@ -12,9 +12,9 @@ class PractitionerDetailTest < Minitest::Test
   Practitioner = RpmsRpc::Practitioner
   FILEMAN_CONTEXT = Practitioner::FILEMAN_CONTEXT
 
-  DETAIL_FIELDS = "8;29;41.97;41.98;41.99;53.2;53.5;54.2;747.44;8932.1"
+  DETAIL_FIELDS = "8;29;41.97;41.98;41.99;53.2;53.5;54.2;747.44"
   DETAIL_KEYS = %i[
-    duz title service_section provider_class person_class
+    duz title service_section provider_class
     npi npi_entry_status dea_number dea_state dea_expires
   ].freeze
 
@@ -44,7 +44,6 @@ class PractitionerDetailTest < Minitest::Test
     title_internal = overrides.fetch(:title_internal, "7")
     service_section = overrides.fetch(:service_section, "EXAMPLE SERVICE")
     provider_class = overrides.fetch(:provider_class, "EXAMPLE PROVIDER CLASS")
-    person_class = overrides.fetch(:person_class, "EXAMPLE PERSON CLASS")
     npi_entry_status = overrides.fetch(:npi_entry_status, "ACTIVE")
     dea_number = overrides.fetch(:dea_number, "XX0000000")
     dea_state = overrides.fetch(:dea_state, "EXAMPLE STATE")
@@ -65,14 +64,12 @@ class PractitionerDetailTest < Minitest::Test
       200^#{duz},^53.5^1^#{provider_class}
       200^#{duz},^54.2^99^#{dea_state}
       200^#{duz},^747.44^#{dea_expires_internal}^#{dea_expires_external}
-      200^#{duz},^8932.1^1^#{person_class}
     REPLY
 
     {
       title: title,
       service_section: service_section,
       provider_class: provider_class,
-      person_class: person_class,
       npi: authorize_npi == "1" ? npi : nil,
       npi_entry_status: npi_entry_status,
       dea_number: dea_number,
@@ -101,7 +98,6 @@ class PractitionerDetailTest < Minitest::Test
       title: fixture[:title],
       service_section: fixture[:service_section],
       provider_class: fixture[:provider_class],
-      person_class: fixture[:person_class],
       npi: fixture[:npi],
       npi_entry_status: fixture[:npi_entry_status],
       dea_number: fixture[:dea_number],
@@ -148,7 +144,6 @@ class PractitionerDetailTest < Minitest::Test
       200^#{duz},^53.5^^
       200^#{duz},^54.2^^
       200^#{duz},^747.44^^
-      200^#{duz},^8932.1^^
     REPLY
 
     result = Practitioner.detail(duz)
@@ -159,7 +154,6 @@ class PractitionerDetailTest < Minitest::Test
       title: nil,
       service_section: nil,
       provider_class: nil,
-      person_class: nil,
       npi: nil,
       npi_entry_status: nil,
       dea_number: nil,
@@ -221,7 +215,6 @@ class PractitionerDetailTest < Minitest::Test
       200^#{duz},^53.5^1^EXAMPLE PROVIDER CLASS
       200^#{duz},^54.2^99^EXAMPLE STATE
       200^#{duz},^747.44^3291231^DEC 31, 2029
-      200^#{duz},^8932.1^1^EXAMPLE PERSON CLASS
     REPLY
 
     result = Practitioner.detail(duz)
@@ -254,7 +247,6 @@ class PractitionerDetailTest < Minitest::Test
       fixture[:title],
       fixture[:service_section],
       fixture[:provider_class],
-      fixture[:person_class],
       fixture[:npi_raw],
       fixture[:npi_entry_status],
       fixture[:dea_number],

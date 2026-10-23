@@ -21,7 +21,8 @@ module RpmsRpc
     USER_FIELDS = %w[.01 53.5 29].freeze
 
     # NEW PERSON (#200) fields read by #detail. #200 has no SPECIALTY
-    # field; PERSON CLASS is the NUCC taxonomy analogue.
+    # field. PERSON CLASS (8932.1) is NOT read: it may be a multiple
+    # (subfile 200.05), which needs a live read or a recorded row first.
     #   8 TITLE
     #   29 SERVICE/SECTION
     #   41.97 AUTHORIZE RELEASE OF NPI
@@ -31,8 +32,7 @@ module RpmsRpc
     #   53.5 PROVIDER CLASS
     #   54.2 STATE ISSUING DEA NUMBER
     #   747.44 DEA EXPIRATION DATE
-    #   8932.1 PERSON CLASS
-    DETAIL_FIELDS = %w[8 29 41.97 41.98 41.99 53.2 53.5 54.2 747.44 8932.1].freeze
+    DETAIL_FIELDS = %w[8 29 41.97 41.98 41.99 53.2 53.5 54.2 747.44].freeze
 
     # ORWU USERINFO takes no params and returns the authenticated
     # session user's info, not an arbitrary IEN's. find(ien) succeeds
@@ -105,7 +105,7 @@ module RpmsRpc
     # One NEW PERSON (#200) entry, by DUZ, from DDR GETS ENTRY DATA in
     # CIAV VUECENTRIC (DETAIL_FIELDS):
     #
-    #   { duz:, title:, service_section:, provider_class:, person_class:,
+    #   { duz:, title:, service_section:, provider_class:,
     #     npi:, npi_entry_status:, dea_number:, dea_state:, dea_expires: }
     #
     # Values are the external form. npi is non-nil only when 41.97
@@ -134,7 +134,6 @@ module RpmsRpc
         title: field.("8"),
         service_section: field.("29"),
         provider_class: field.("53.5"),
-        person_class: field.("8932.1"),
         npi: npi,
         npi_entry_status: field.("41.98"),
         dea_number: field.("53.2"),

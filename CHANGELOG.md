@@ -21,10 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   historical-only ("ENTRY OF DATA NOT ALLOWED"); the value is still readable. The USCDI race and
   ethnicity multiples are out of scope.
 - `Practitioner.detail(duz)` reads NEW PERSON (#200) in `CIAV VUECENTRIC`: `{ duz:, title:,
-  service_section:, provider_class:, person_class:, npi:, npi_entry_status:, dea_number:, dea_state:,
-  dea_expires: }`. `npi` is returned only when `41.97` AUTHORIZE RELEASE OF NPI is internal `"1"`.
-  `dea_expires` is a `Date` from the `747.44` internal FileMan date. #200 has no SPECIALTY field;
-  PERSON CLASS is the NUCC taxonomy analogue.
+  service_section:, provider_class:, npi:, npi_entry_status:, dea_number:, dea_state:, dea_expires: }`.
+  `npi` is returned only when `41.97` AUTHORIZE RELEASE OF NPI is internal `"1"`. `dea_expires` is a
+  `Date` from the `747.44` internal FileMan date. #200 has no SPECIALTY field. PERSON CLASS (`8932.1`)
+  is deliberately not read: it may be a multiple (subfile 200.05), so it waits on a live read or a
+  recorded row.
 
 ### Added — XWB and BMX sign-on bind the division (DUZ(2)) as the stock XWB client does (#450)
 
