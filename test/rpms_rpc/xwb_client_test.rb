@@ -38,10 +38,18 @@ class RpmsRpc::XwbClientTest < Minitest::Test
     assert_equal "005hello", Client.new.lpack("hello")
   end
 
-  def test_lpack_uses_five_digit_length_for_long
+  def test_lpack_raises_when_value_exceeds_999_bytes
     long = "x" * 1000
-    result = Client.new.lpack(long)
-    assert_equal "01000#{long}", result
+    error = assert_raises(ArgumentError) { Client.new.lpack(long) }
+    assert_match(/1000/, error.message)
+    assert_match(/999/, error.message)
+  end
+
+  def test_lpack_accepts_exactly_999_bytes_with_three_digit_width
+    on_the_line = "x" * 999
+    result = Client.new.lpack(on_the_line)
+    assert_equal "999#{on_the_line}", result
+    assert_equal 1002, result.bytesize
   end
 
   # -- build_connect_message --------------------------------------------------
@@ -111,12 +119,34 @@ class RpmsRpc::XwbClientTest < Minitest::Test
     assert_equal 9, result.bytesize # "006" + 6 bytes
   end
 
-  def test_lpack_uses_five_digit_width_at_byte_threshold
-    # 500 multibyte chars × 2 bytes = 1000 bytes → triggers 5-digit width
+  def test_lpack_raises_for_multibyte_value_over_999_bytes
+    # 500 multibyte chars × 2 bytes = 1000 bytes (byte count, not character count)
     long = "é" * 500
-    result = Client.new.lpack(long)
-    assert result.start_with?("01000")
-    assert_equal 1005, result.bytesize
+    error = assert_raises(ArgumentError) { Client.new.lpack(long) }
+    assert_match(/1000/, error.message)
+    assert_match(/999/, error.message)
+  end
+
+  def test_build_rpc_message_raises_for_literal_over_999_bytes
+    client = Client.new
+    long = "x" * 1000
+    assert_raises(ArgumentError) { client.build_rpc_message("ECHO", [ client.literal_param(long) ]) }
+  end
+
+  def test_build_rpc_message_raises_for_list_key_over_999_bytes
+    client = Client.new
+    long_key = "k" * 1000
+    assert_raises(ArgumentError) do
+      client.build_rpc_message("ECHO", [ client.list_param([ [ long_key, "v" ] ]) ])
+    end
+  end
+
+  def test_build_rpc_message_raises_for_list_value_over_999_bytes
+    client = Client.new
+    long_val = "v" * 1000
+    assert_raises(ArgumentError) do
+      client.build_rpc_message("ECHO", [ client.list_param([ [ "k", long_val ] ]) ])
+    end
   end
 
   def test_build_rpc_message_is_binary_encoded
@@ -228,6 +258,34 @@ class RpmsRpc::XwbClientTest < Minitest::Test
     assert_includes msg, "HDR^^^v1"
     assert_includes msg, "VST^DT^now"
     refute_includes msg, "[\"HDR", "Array params must be encoded as XWB list, not Ruby array literal"
+  end
+end
+
+# -- #472: L-PACK refuses values the [XWB]1130 header cannot frame ---------
+
+class XwbClientLpackRefusalTest < Minitest::Test
+  class RecordingSocket
+    attr_reader :writes
+
+    def initialize
+      @writes = []
+    end
+
+    def write(str) = (@writes << str.b) && str.bytesize
+    def recv(_n) = ""
+    def flush; end
+    def close; end
+    def closed? = false
+    def setsockopt(*); end
+  end
+
+  def test_call_rpc_sends_nothing_when_literal_param_exceeds_lpack_limit
+    sock = RecordingSocket.new
+    c = RpmsRpc::XwbClient.new
+    c.instance_variable_set(:@socket, sock)
+    c.instance_variable_set(:@connected, true)
+    assert_raises(ArgumentError) { c.call_rpc("ECHO", "x" * 1000) }
+    assert_empty sock.writes
   end
 end
 

@@ -78,6 +78,45 @@ class RpmsRpc::BmxClientTest < Minitest::Test
     assert_includes msg, "ECHO^00010" + "0070héllo".b
   end
 
+  # -- #472: fixed-width length prefixes must refuse overflow ----------------
+
+  def test_build_bmx_message_raises_when_param_overflows_three_digit_prefix
+    # PRSB per-param LLL = value_len+1; 999 bytes → 1000, wider than %03d
+    long = "x" * 999
+    error = assert_raises(ArgumentError) { Client.new.build_bmx_message("ECHO", [ long ]) }
+    assert_match(/999/, error.message)
+  end
+
+  def test_build_bmx_message_raises_when_message_length_overflows_five_digits
+    # PRSM message = %05d(text.bytesize + 6) + flag + text; cap is 99999
+    name = "N" * 99_994
+    assert_raises(ArgumentError) { Client.new.build_bmx_message(name) }
+  end
+
+  def test_build_bmx_message_raises_when_param_block_overflows_five_digits
+    # PRSB block total MMMMM is %05d(inner.bytesize); many max-sized params overflow it
+    params = Array.new(100) { "x" * 998 }
+    assert_raises(ArgumentError) { Client.new.build_bmx_message("ECHO", params) }
+  end
+
+  def test_send_bmx_packet_raises_when_body_overflows_five_digit_length
+    sock = RecordingSocket.new
+    client = Client.new
+    client.instance_variable_set(:@socket, sock)
+    body = "x" * 100_000
+    assert_raises(ArgumentError) { client.send(:send_bmx_packet, body) }
+    assert_empty sock.writes
+  end
+
+  def test_send_bmx_session_packet_raises_when_body_overflows_five_digit_plen
+    sock = RecordingSocket.new
+    client = Client.new
+    client.instance_variable_set(:@socket, sock)
+    body = "x" * 100_000
+    assert_raises(ArgumentError) { client.send(:send_bmx_session_packet, body) }
+    assert_empty sock.writes
+  end
+
   # -- subclass contract ------------------------------------------------------
 
   def test_call_rpc_raises_when_not_connected
