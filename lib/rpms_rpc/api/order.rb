@@ -6,11 +6,12 @@ require_relative "../mappings"
 module RpmsRpc
   # Symbolic API for clinical orders — list-side, a patient's orders and
   # the patient's unsigned actions, plus per-order result reads
-  # and order-sheet catalog reads for the order-review surface.
-  # Underlying RPCs (layouts per FOIA ORWOR.m / ORWORR.m, #220):
+  # and order-sheet catalog reads for the order-review surface, and
+  # filing a new unsigned order. Underlying RPCs (layouts per FOIA
+  # ORWOR.m / ORWORR.m, #220, and stock ORWDX.m):
   # ORWOR UNSIGN, ORWORR AGET, ORWOR RESULT,
   # ORWOR RESULT HISTORY, ORWOR ACTION TEXT, ORWOR EXPIRED, ORWOR SHEETS,
-  # ORWOR TSALL.
+  # ORWOR TSALL, ORWDX SAVE.
   module Order
     extend self
     extend Shape::Declarable
@@ -48,6 +49,22 @@ module RpmsRpc
 
     # AGET's own default display group (ORWORR.m:33).
     DEFAULT_DISPLAY_GROUP = 1
+
+    # CSTS on the GETFLDS header (ORWORR.m:146,150). A save may leave only
+    # unreleased (11) or delayed (10); EN^ORCSAVE does not release
+    # (ORWDX.m:128-130). 5 and 6 are the pending and active codes the
+    # header's status piece carries when the order has already moved on.
+    SAVE_STATUS_UNRELEASED = 11
+    SAVE_STATUS_DELAYED = 10
+    SAVE_STATUS_NAMES = {
+      5 => "PENDING",
+      6 => "ACTIVE",
+      SAVE_STATUS_DELAYED => "DELAYED",
+      SAVE_STATUS_UNRELEASED => "UNRELEASED"
+    }.freeze
+    # "~IFN;ACT" is piece 1 of GETFLDS (ORWORR.m:150). IFN is a positive
+    # integer; ACT is the action subscript the same line appends.
+    SAVE_HEADER_ID = /\A~([1-9]\d*);(\d+)\z/
 
     # The patient's unsigned order actions the signed-on user may sign.
     # Each row: { order_id: "IFN;ACT", ien:, action_ien: }.
@@ -154,6 +171,45 @@ module RpmsRpc
     end
     shape :all_sheets, resource: "orders", verb: "GET", path: "/orders/all-sheets"
 
+    # File a new order and leave it unsigned. ORWDX SAVE (SAVE^ORWDX) takes
+    # the eleven actuals after REC. Formals (FOIA ORWDX.m:80):
+    # SAVE(REC,ORVP,ORNP,ORL,DLG,ORDG,ORIT,ORIFN,ORDIALOG,ORDEA,ORAPPT,ORSRC).
+    # Stock adds OREVTDF (ORWDX.m:52), which is not sent. ORIFN "" is a new
+    # order, so EN^ORCSAVE runs and nothing is released (ORWDX.m:128-130).
+    # `responses` is the ORDIALOG list as given: [prompt, instance] => value,
+    # and word-processing ["WP", prompt, instance, line, 0] => line text.
+    #
+    # The reply is GETBYIFN^ORWORR (ORWORR.m:139-150): line 1 is
+    # "~IFN;ACT^Grp^OrdTm^Strt^Stop^Sts^...", then the order text. No order
+    # leaves REC empty (ORWDX.m:130, ORWORR.m:133 `I 'IFN Q`). Status other
+    # than 11 or 10, and any empty or malformed reply, fails closed.
+    #
+    #   => { success: true, order_id: "IFN;ACT", ien:, status:, text: }
+    #   => { success: false, error:, message: }
+    def save(dfn, provider_duz, location, order_dialog, responses, display_group: "", quick_order: "")
+      error = save_argument_error(dfn, provider_duz, location, order_dialog, responses)
+      return error if error
+
+      # ORVP, ORNP, ORL, DLG, ORDG, ORIT, ORIFN, ORDIALOG, ORDEA, ORAPPT,
+      # ORSRC (FOIA ORWDX.m:80). Stock adds OREVTDF, which is not sent.
+      # ORIFN stays "" (ORWDX.m:128).
+      raw = RpmsRpc.client.call_rpc(
+        "ORWDX SAVE",
+        positive_id(dfn),
+        positive_id(provider_duz),
+        positive_id(location),
+        order_dialog,
+        display_group.to_s,
+        quick_order.to_s,
+        "",
+        responses,
+        "",
+        "",
+        ""
+      )
+      parse_save_reply(raw)
+    end
+
     private
 
     # GET1^ORWORR1 sets the .1 node to TOT^TXTVW^ORYD (ORWORR1.m:13), and
@@ -171,6 +227,117 @@ module RpmsRpc
 
     def blank?(value)
       value.nil? || value.to_s.strip.empty?
+    end
+
+    def save_argument_error(dfn, provider_duz, location, order_dialog, responses)
+      return save_failure(:invalid_argument, "dfn must be a positive canonical integer") unless positive_id(dfn)
+      return save_failure(:invalid_argument, "provider_duz must be a positive canonical integer") unless positive_id(provider_duz)
+      return save_failure(:invalid_argument, "location must be a positive canonical integer") unless positive_id(location)
+      return save_failure(:invalid_argument, "order_dialog must be a non-blank dialog name") unless dialog_name?(order_dialog)
+      return save_failure(:invalid_argument, "responses must be a non-empty ORDIALOG list") unless ordialog_responses?(responses)
+
+      nil
+    end
+
+    # A canonical positive integer: no sign, no whitespace, no leading zero.
+    # Returned as the decimal string the broker literal carries.
+    def positive_id(value)
+      case value
+      when Integer
+        value.positive? ? value.to_s : nil
+      when String
+        value.match?(/\A[1-9]\d*\z/) ? value : nil
+      end
+    end
+
+    def dialog_name?(value)
+      value.is_a?(String) && !value.strip.empty?
+    end
+
+    # ORDIALOG subscripts are two-level [prompt, instance] or the
+    # word-processing node ["WP", prompt, instance, line, 0] (the value at
+    # the prompt is the pointer ORDIALOG("WP",prompt,instance)).
+    def ordialog_responses?(responses)
+      responses.is_a?(Hash) && !responses.empty? && responses.each_key.all? { |key| ordialog_key?(key) }
+    end
+
+    def ordialog_key?(key)
+      return false unless key.is_a?(Array)
+
+      case key.length
+      when 2
+        integerish?(key[0]) && integerish?(key[1])
+      when 5
+        key[0] == "WP" && integerish?(key[1]) && integerish?(key[2]) && integerish?(key[3]) && zero_subscript?(key[4])
+      else
+        false
+      end
+    end
+
+    # Integer, or a canonical decimal string ("0" or a non-zero digit run).
+    def integerish?(value)
+      case value
+      when Integer then !value.negative?
+      when String then value.match?(/\A(?:0|[1-9]\d*)\z/)
+      else false
+      end
+    end
+
+    def zero_subscript?(value)
+      value == 0 || value == "0"
+    end
+
+    def parse_save_reply(raw)
+      lines = save_reply_lines(raw)
+      return save_failure(:empty_reply, "ORWDX SAVE returned no order (ORWDX.m:130, ORWORR.m:133)") if lines == :empty
+      return save_failure(:malformed_reply, "ORWDX SAVE reply is not a GETFLDS list (ORWORR.m:139)") if lines.nil?
+
+      header = lines.first.to_s
+      pieces = header.split("^", -1)
+      id = SAVE_HEADER_ID.match(pieces[0].to_s)
+      status_text = pieces[5]
+      unless id && status_text.to_s.match?(/\A\d+\z/)
+        return save_failure(:malformed_reply, "ORWDX SAVE reply is not a GETFLDS order line (ORWORR.m:150)")
+      end
+
+      status = status_text.to_i
+      unless status == SAVE_STATUS_UNRELEASED || status == SAVE_STATUS_DELAYED
+        name = SAVE_STATUS_NAMES.fetch(status, status.to_s)
+        return save_failure(:released, "order status #{status} (#{name}) is not unreleased or delayed (ORWORR.m:150)")
+      end
+
+      {
+        success: true,
+        order_id: "#{id[1]};#{id[2]}",
+        ien: id[1].to_i,
+        status: status,
+        text: lines.drop(1).map { |line| line.is_a?(String) ? line : line.to_s }
+      }
+    end
+
+    # nil, "" and [] are the empty REC (ORWDX.m:130). A one-element list of
+    # a blank line is that same empty string once a transport has boxed it.
+    # Anything else that is not a line list is malformed, never a success.
+    def save_reply_lines(raw)
+      lines = case raw
+      when nil
+        return :empty
+      when String
+        return :empty if raw.empty?
+
+        raw.split(/\r?\n/, -1)
+      when Array
+        raw
+      else
+        return nil
+      end
+      return :empty if lines.empty? || lines.all? { |line| line.nil? || line.to_s.strip.empty? }
+
+      lines
+    end
+
+    def save_failure(error, message)
+      { success: false, error: error, message: message }
     end
   end
 end
