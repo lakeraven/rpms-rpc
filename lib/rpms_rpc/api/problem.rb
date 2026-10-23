@@ -26,11 +26,15 @@ module RpmsRpc
     # FileMan field number allowed inside a GMPFLD/GMPORIG subscript. FOIA
     # executes each list value as M (`S @ADDARRAY(S)` ORQQPL1.m:160,
     # `S @EDARRAY(S)` ORQQPL1.m:120) with no check, so a subscript that is
-    # not this token is refused before any RPC.
-    FIELD_NUMBER = /\A(\d+(\.\d+)?|\.\d+)\z/
+    # not this token is refused before any RPC. Only the M-canonical form
+    # is accepted (".01", "1", "1.01", "10"). Leading zeros, a trailing
+    # zero, and a trailing dot ("01", "0.01", "1.0", "1.", "00", "0") are
+    # refused. Integer and Float keys are read with to_s and the same rule.
+    FIELD_NUMBER = /\A(?:[1-9]\d*(?:\.\d*[1-9])?|\.\d*[1-9])\z/
     CANONICAL_ID = /\A[1-9][0-9]*\z/
-    # The only list values the routine is allowed to execute.
-    SAFE_ASSIGNMENT = /\A(?:GMPFLD|GMPORIG)\((?:\d+(?:\.\d+)?|\.\d+)\)="(?:[^"[:cntrl:]]|"")*"\z/
+    # The only list values the routine is allowed to execute. The subscript
+    # is the same M-canonical token as FIELD_NUMBER.
+    SAFE_ASSIGNMENT = /\A(?:GMPFLD|GMPORIG)\((?:[1-9]\d*(?:\.\d*[1-9])?|\.\d*[1-9])\)="(?:[^"[:cntrl:]]|"")*"\z/
     SAFE_COMMENT = /\AGMPFLD\(10,"NEW",[1-9][0-9]*\)="(?:[^"[:cntrl:]]|"")*"\z/
 
     # List a patient's problems. Underlying RPC: ORQQPL LIST — verified row
@@ -188,7 +192,8 @@ module RpmsRpc
     # UT is "1" or "0" (`I UT S GMPLUSER=1`, ORQQPL1.m:115). FOIA runs every
     # list value as M (`S @EDARRAY(S)`, ORQQPL1.m:120). Lock failure sets
     # RETURN 0 (ORQQPL1.m:122-123); the success path sets RETURN 1
-    # (ORQQPL1.m:114, :129).
+    # (ORQQPL1.m:114, :129). The canonical field numbers in originals must
+    # equal those in changes; a mismatch is refused before any RPC.
     def update_stock(ien, provider_duz:, vamc:, changes:, originals:, user_type: false, comments: [])
       problem = canonical_id(ien)
       provider = canonical_id(provider_duz)
@@ -198,7 +203,8 @@ module RpmsRpc
       when false then "0"
       end
       lines = gmp_lines([ [ "GMPFLD", changes ], [ "GMPORIG", originals ] ], comments)
-      ready = problem && provider && facility && flag && lines.is_a?(Array) && !lines.empty?
+      ready = problem && provider && facility && flag && same_canonical_fields?(changes, originals) &&
+        lines.is_a?(Array) && !lines.empty?
       return stock_refused unless ready
 
       raw = DataMapper.problem_edit_save.fetch_scalar(problem, provider, facility, flag, lines)
@@ -296,6 +302,8 @@ module RpmsRpc
       pairs.each do |field, value|
         number = fileman_field_number(field)
         quoted = m_quoted(value)
+        # Two keys that become the same canonical subscript would silently
+        # overwrite; refuse the group instead of sending either.
         return nil unless number && quoted && !seen[number]
 
         seen[number] = true
@@ -316,24 +324,52 @@ module RpmsRpc
     def fileman_field_number(field)
       text = case field
       when String then field
-      when Numeric then field.to_s
+      when Integer, Float then field.to_s
       end
       return nil if text.nil? || !text.match?(FIELD_NUMBER)
 
       text
     end
 
+    # M-canonical subscripts for one group, in key order. Nil unless every
+    # key passes FIELD_NUMBER and no two keys repeat after Integer/Float
+    # to_s ("1" and 1 are the same subscript).
+    def canonical_field_numbers(pairs)
+      return nil unless pairs.is_a?(Hash)
+
+      numbers = []
+      pairs.each_key do |field|
+        number = fileman_field_number(field)
+        return nil if number.nil? || numbers.include?(number)
+
+        numbers << number
+      end
+      numbers
+    end
+
+    def same_canonical_fields?(changes, originals)
+      change_numbers = canonical_field_numbers(changes)
+      origin_numbers = canonical_field_numbers(originals)
+      return false unless change_numbers && origin_numbers
+
+      change_numbers.sort == origin_numbers.sort
+    end
+
     # String, or Integer via to_s. Embedded quotes are doubled so they stay
     # inside the M literal; a control character would split the line the
-    # routine executes, so it is refused.
+    # routine executes, so it is refused. Bytes are read as UTF-8 whatever
+    # encoding tag they carry, and the literal is sent as UTF-8.
     def m_quoted(value)
       text = case value
-      when String then value
-      when Integer then value.to_s
+      when String, Integer then value.to_s
       end
-      return nil if text.nil? || !text.valid_encoding? || text.match?(/[[:cntrl:]]/)
+      return nil if text.nil?
 
-      text.gsub('"', '""')
+      utf8 = text.dup.force_encoding(Encoding::UTF_8)
+      return nil unless utf8.valid_encoding?
+      return nil if utf8.match?(/[[:cntrl:]]/)
+
+      utf8.gsub('"', '""')
     end
 
     def canonical_id(value)
