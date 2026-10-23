@@ -83,6 +83,8 @@ module OpenApi
     # Collections a path may start with, ahead of the module's own (a patient's problems, a user's sites).
     SCOPES = %w[patients users progress-notes].freeze
     VERB_ORDER = %w[get put post delete].freeze
+    # Verbs whose arguments travel as query parameters; every other verb sends them as a request body.
+    QUERY_VERBS = %w[get delete].freeze
     # Which query keeps the collection when two would: search, then lookup, then find_by_<x>.
     QUERY_RANK = { "search" => 0, "lookup" => 1, "find_by" => 2 }.freeze
     PROVEN = "proven"
@@ -255,7 +257,7 @@ module OpenApi
       parameters = in_path.map { |n| { "name" => n, "in" => "path", "required" => true, "schema" => { "type" => "string" } } }
       arg_desc = ->(p) { "Ruby #{p['kind']} argument of #{method['method']}" }
       request_body = nil
-      if %w[get delete].include?(addr[:verb])
+      if QUERY_VERBS.include?(addr[:verb])
         others.each do |p|
           multi = %w[rest keyrest].include?(p["kind"])
           param = { "name" => p["name"], "in" => "query", "required" => %w[req keyreq].include?(p["kind"]), "description" => arg_desc.(p),
@@ -305,7 +307,9 @@ module OpenApi
     # { excluded:, entries: } from a parsed api_coverage document; entries are { method:, addr:, op:,
     # collection: }. Raises Refused on any clash. Queries are placed last, best rank first, so a plain read
     # of the collection keeps it and the first query takes it next; a later query on the same verb + path
-    # is folded in when it is the same query (same module, same RPCs), and otherwise keeps its sub-path.
+    # is folded in when it is the same query (same module, same RPCs, same verb), and otherwise keeps its sub-path.
+    # Only a verb whose arguments are query parameters folds: a POST alias's arguments are its request body,
+    # which `fold` does not copy.
     def catalog(input, retry_table: RpmsRpc::RetrySafety.table)
       raise Refused, "api_coverage schema #{input['schema'].inspect}, expected 1" unless input["schema"] == 1
 
@@ -329,7 +333,7 @@ module OpenApi
         collection = collection_of_module(short(m["module"]))
         held = seen[key_of.(a)]
         if held && a[:sub]
-          if held[:method]["module"] == m["module"] && held[:addr][:sub] && rpc_set.(held[:method]) == rpc_set.(m)
+          if QUERY_VERBS.include?(a[:verb]) && held[:addr][:verb] == a[:verb] && held[:method]["module"] == m["module"] && held[:addr][:sub] && rpc_set.(held[:method]) == rpc_set.(m)
             fold(held[:op], m, a, collection)
             next
           end
