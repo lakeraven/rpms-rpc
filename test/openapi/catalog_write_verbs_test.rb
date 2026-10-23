@@ -186,5 +186,38 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
     assert_equal [ "GET" ], entries.map { |e| e[:addr][:verb].upcase }.uniq
     assert_equal 1, entries.size, "GET query aliases of one query remain one operation"
     assert_equal [ "SyntheticFinder.lookup" ], entries.first[:op]["x-rpms"]["folded"]
+    assert_equal [ [ "pattern", true ], [ "term", false ] ], entries.first[:op]["parameters"].map { |p| [ p["name"], p["required"] ] },
+                 "the folded alias's query parameter joins the held operation as optional"
+  end
+
+  # Gate of #473 (F4): a GET holder and a POST alias of the same query are different verbs, so the alias
+  # keeps its own operation on its sub-path and its body arguments.
+  def test_a_post_alias_of_a_get_query_keeps_its_own_operation_and_body
+    search = method("SyntheticFinder", "search", req("pattern"), rpc: "SYNTH FIND")
+    lookup = method("SyntheticFinder", "lookup", req("payload"), rpc: "SYNTH FIND")
+    retry_table = RpmsRpc::RetrySafety.table.merge(method_key(search) => :read, method_key(lookup) => :non_idempotent_write)
+    entries = Api.catalog({ "schema" => 1, "methods" => [ search, lookup ] }, retry_table: retry_table)[:entries]
+    by_id = entries.to_h { |e| [ e[:op]["operationId"], e ] }
+
+    assert_equal 2, entries.size
+    assert_equal "get", by_id.fetch("SyntheticFinder.search")[:addr][:verb]
+    assert_equal "post", by_id.fetch("SyntheticFinder.lookup")[:addr][:verb]
+    refute_equal by_id.fetch("SyntheticFinder.search")[:addr][:verb], by_id.fetch("SyntheticFinder.lookup")[:addr][:verb]
+    assert_equal [ "payload" ], body_properties(by_id.fetch("SyntheticFinder.lookup")[:op])
+    assert_nil by_id.fetch("SyntheticFinder.search")[:op]["x-rpms"]["folded"]
+  end
+
+  # Gate of #473 (F5): two POST query aliases of one query that land on the same sub-path are a clash to
+  # refuse, not a pair to fold: folding dropped the second alias's body arguments.
+  def test_post_aliases_that_resolve_to_one_sub_path_are_refused_not_folded
+    methods = [
+      method("SyntheticFinder", "search", req("pattern"), rpc: "SYNTH FIND"),
+      method("SyntheticFinder", "find_by_name", req("pattern"), rpc: "SYNTH FIND"),
+      method("SyntheticFinder", "search_by_name", req("payload"), rpc: "SYNTH FIND")
+    ]
+    retry_table = RpmsRpc::RetrySafety.table.merge(methods.to_h { |m| [ method_key(m), :non_idempotent_write ] })
+    error = assert_raises(OpenApi::Refused) { Api.catalog({ "schema" => 1, "methods" => methods }, retry_table: retry_table) }
+
+    assert_match(/are both POST \/synthetic-finders\/by-name/, error.message)
   end
 end
