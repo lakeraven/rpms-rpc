@@ -495,6 +495,127 @@ class ProblemStockWriteTest < Minitest::Test
     )
   end
 
+  # XWB L-PACK uses a 3-digit length (XWBENVL); lines over 999 bytes are
+  # mis-framed on the server and can inject extra list entries into S @ADDARRAY(S).
+  def test_stock_write_refuses_list_lines_over_999_bytes_before_any_rpc
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    over = padded_field_value(".01", 1000)
+    assert_equal 1000, built_gmpfld_line(".01", over).bytesize
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => over }
+        )
+      }
+    )
+
+    quote_padded = '"' * 493
+    assert_operator built_gmpfld_line(".01", quote_padded).bytesize, :>, 999
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => quote_padded }
+        )
+      }
+    )
+
+    utf8_over = "\u00e9" * 493
+    assert_equal 1000, built_gmpfld_line(".01", utf8_over).bytesize
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => utf8_over }
+        )
+      }
+    )
+
+    long_comment = "c" * (1000 - built_gmpfld_comment_line(1, "").bytesize)
+    assert_equal 1000, built_gmpfld_comment_line(1, long_comment).bytesize
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: { ".01" => "x" }, comments: [ long_comment ]
+        )
+      }
+    )
+
+    gmporig_over = padded_field_value(".05", 1000, group: "GMPORIG")
+    assert_equal 1000, built_gmporig_line(".05", gmporig_over).bytesize
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".05" => "n" }, originals: { ".05" => gmporig_over }
+        )
+      }
+    )
+  end
+
+  def test_stock_write_sends_list_lines_of_exactly_999_bytes
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    at_limit = padded_field_value(".01", 999)
+    assert_equal 999, built_gmpfld_line(".01", at_limit).bytesize
+
+    result = RpmsRpc::Problem.add_stock(
+      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => at_limit }
+    )
+    assert result[:success]
+    add_line = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3]).first
+    assert_equal 999, add_line.bytesize
+    assert_equal built_gmpfld_line(".01", at_limit), add_line
+
+    RpmsRpc.client.received_calls.clear
+    utf8_at_limit = ("\u00e9" * 492) + "a"
+    assert_equal 999, built_gmpfld_line(".01", utf8_at_limit).bytesize
+
+    result = RpmsRpc::Problem.add_stock(
+      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => utf8_at_limit }
+    )
+    assert result[:success]
+    utf8_line = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3]).first
+    assert_equal 999, utf8_line.bytesize
+
+    RpmsRpc.client.received_calls.clear
+    comment_text = "n" * (999 - built_gmpfld_comment_line(1, "").bytesize)
+    assert_equal 999, built_gmpfld_comment_line(1, comment_text).bytesize
+
+    result = RpmsRpc::Problem.add_stock(
+      DFN, provider_duz: PROVIDER, vamc: VAMC,
+      fields: { ".01" => "x" }, comments: [ comment_text ]
+    )
+    assert result[:success]
+    values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
+    comment_line = values.find { |v| v.start_with?('GMPFLD(10,"NEW",') }
+    assert_equal 999, comment_line.bytesize
+
+    RpmsRpc.client.received_calls.clear
+    orig_at_limit = padded_field_value(".05", 999, group: "GMPORIG")
+    assert_equal 999, built_gmporig_line(".05", orig_at_limit).bytesize
+
+    result = RpmsRpc::Problem.update_stock(
+      IEN, provider_duz: PROVIDER, vamc: VAMC,
+      changes: { ".05" => "new" }, originals: { ".05" => orig_at_limit }
+    )
+    assert result[:success]
+    edit_values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][4])
+    orig_line = edit_values.find { |v| v.start_with?("GMPORIG") }
+    assert_equal 999, orig_line.bytesize
+  end
+
   def test_add_stock_and_update_stock_are_non_idempotent_writes_in_retry_safety
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::Problem, :add_stock)
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::Problem, :update_stock)
@@ -567,5 +688,36 @@ class ProblemStockWriteTest < Minitest::Test
         i += 1
       end
     end
+  end
+
+  def m_quoted_for_test(value)
+    value.to_s.gsub('"', '""')
+  end
+
+  def built_gmpfld_line(field, value)
+    %(GMPFLD(#{field})="#{m_quoted_for_test(value)}")
+  end
+
+  def built_gmporig_line(field, value)
+    %(GMPORIG(#{field})="#{m_quoted_for_test(value)}")
+  end
+
+  def built_gmpfld_comment_line(index, value)
+    %(GMPFLD(10,"NEW",#{index})="#{m_quoted_for_test(value)}")
+  end
+
+  def padded_field_value(field, target_line_bytes, group: "GMPFLD")
+    line = case group
+    when "GMPFLD" then built_gmpfld_line(field, "")
+    when "GMPORIG" then built_gmporig_line(field, "")
+    else
+      flunk "unknown group #{group}"
+    end
+    overhead = line.bytesize
+    filler = "a"
+    n = target_line_bytes - overhead
+    raise ArgumentError, "target #{target_line_bytes} too small for overhead #{overhead}" if n.negative?
+
+    filler * n
   end
 end
