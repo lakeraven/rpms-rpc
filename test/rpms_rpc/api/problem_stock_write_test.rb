@@ -18,7 +18,8 @@ class ProblemStockWriteTest < Minitest::Test
   PROVIDER = "301"
   VAMC = "7"
 
-  STOCK_RESULT_KEYS = %i[success message raw].freeze
+  STOCK_RESULT_KEYS = %i[success ien raw].freeze
+  STOCK_REFUSAL = { success: false, ien: nil, raw: nil }.freeze
 
   def teardown
     RpmsRpc.reset!
@@ -178,8 +179,7 @@ class ProblemStockWriteTest < Minitest::Test
     refusal_cases.each do |invoke|
       RpmsRpc.client.received_calls.clear
       result = invoke.call
-      refute result[:success]
-      assert_stock_result_shape(result)
+      assert_equal STOCK_REFUSAL, result
       assert_empty RpmsRpc.client.received_calls, "unsafe input must fail closed before ORQQPL (ORQQPL1.m:160,:120)"
     end
   end
@@ -220,7 +220,11 @@ class ProblemStockWriteTest < Minitest::Test
       result = invoke.call
       assert result[:success], "bare reply \"1\" is success (ORQQPL1.m:167,:128)"
       assert_stock_result_shape(result)
-      assert_nil result[:message]
+      if mapping == :problem_add_save
+        assert_nil result[:ien], "ADDSAVE overwrites RETURN with 1; new IFN is not returned (ORQQPL1.m:164,:167)"
+      else
+        assert_equal IEN.to_i, result[:ien]
+      end
       RpmsRpc.reset!
     end
 
@@ -243,6 +247,7 @@ class ProblemStockWriteTest < Minitest::Test
       result = invoke.call
       refute result[:success]
       assert_stock_result_shape(result)
+      assert_nil result[:ien]
       RpmsRpc.reset!
     end
 
@@ -255,6 +260,7 @@ class ProblemStockWriteTest < Minitest::Test
       )
       refute result[:success], "reply #{reply.inspect} must never read as success"
       assert_stock_result_shape(result)
+      assert_nil result[:ien]
       RpmsRpc.reset!
     end
 
@@ -265,35 +271,63 @@ class ProblemStockWriteTest < Minitest::Test
     )
     refute empty_result[:success], "empty broker reply must fail closed"
     assert_stock_result_shape(empty_result)
+    assert_nil empty_result[:ien]
   end
 
-  def test_stock_write_results_match_success_result_shape_not_bgoprob_ien_shape
+  def test_stock_write_results_match_problem_write_and_failure_shape
     RpmsRpc.mock! do |m|
-      m.seed_scalar(:problem_inactivate, IEN, "1^INACTIVATED")
+      m.seed_scalar(:problem_set, DFN, "5001")
     end
-    reference = RpmsRpc::Problem.inactivate(IEN)
-    assert_equal STOCK_RESULT_KEYS.sort, reference.keys.sort
+    add_reference = RpmsRpc::Problem.add(
+      DFN, { icd_code: "I10", description: "x", location_ien: "3049" }
+    )
+    assert_equal STOCK_RESULT_KEYS.sort, add_reference.keys.sort
+
+    RpmsRpc.reset!
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_set, DFN, "5001")
+    end
+    update_reference = RpmsRpc::Problem.update(DFN, IEN, { description: "Updated" })
+    assert_equal STOCK_RESULT_KEYS.sort, update_reference.keys.sort
+
+    failure_reference = RpmsRpc::Problem.add(nil, { icd_code: "I10" })
+    assert_equal STOCK_RESULT_KEYS.sort, failure_reference.keys.sort
+    assert_equal STOCK_REFUSAL, failure_reference
 
     RpmsRpc.reset!
     RpmsRpc.mock! do |m|
       m.seed_scalar(:problem_add_save, DFN, "1")
     end
-    success = RpmsRpc::Problem.add_stock(
+    add_success = RpmsRpc::Problem.add_stock(
       DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => "x" }
     )
-    assert_equal STOCK_RESULT_KEYS.sort, success.keys.sort
-    refute_includes success.keys, :ien
+    assert_equal STOCK_RESULT_KEYS.sort, add_success.keys.sort
+    assert add_success[:success]
+    assert_nil add_success[:ien]
 
     RpmsRpc.reset!
     RpmsRpc.mock! do |m|
       m.seed_scalar(:problem_add_save, DFN, "0^rejected")
     end
-    failure = RpmsRpc::Problem.add_stock(
+    add_failure = RpmsRpc::Problem.add_stock(
       DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => "x" }
     )
-    assert_equal STOCK_RESULT_KEYS.sort, failure.keys.sort
-    refute failure[:success]
-    assert_equal "rejected", failure[:message]
+    assert_equal STOCK_RESULT_KEYS.sort, add_failure.keys.sort
+    refute add_failure[:success]
+    assert_nil add_failure[:ien]
+    assert_equal "0^rejected", add_failure[:raw]
+
+    RpmsRpc.reset!
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+    update_success = RpmsRpc::Problem.update_stock(
+      IEN, provider_duz: PROVIDER, vamc: VAMC,
+      changes: { ".01" => "n" }, originals: { ".01" => "o" }
+    )
+    assert_equal STOCK_RESULT_KEYS.sort, update_success.keys.sort
+    assert update_success[:success]
+    assert_equal IEN.to_i, update_success[:ien]
   end
 
   def test_stock_writes_never_dispatch_bgoprob_or_ddr_filer
@@ -485,8 +519,7 @@ class ProblemStockWriteTest < Minitest::Test
   def assert_stock_refused_before_rpc(invoke)
     RpmsRpc.client.received_calls.clear
     result = invoke.call
-    refute result[:success]
-    assert_stock_result_shape(result)
+    assert_equal STOCK_REFUSAL, result
     assert_empty RpmsRpc.client.received_calls,
       "unsafe input must fail closed before ORQQPL (ORQQPL1.m:160,:120)"
   end
