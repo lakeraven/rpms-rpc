@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 require_relative "ddr_fileman"
 
@@ -21,6 +22,7 @@ module RpmsRpc
   #   BEHOVM2 VUNITS              — display units for the raw stored value
   module Measurement
     extend self
+    extend Shape::Declarable
 
     # V MEASUREMENT file (#9000010.01, ^AUPNVMSR).
     V_MEASUREMENT_FILE = "9000010.01"
@@ -108,6 +110,7 @@ module RpmsRpc
         entered_in_error: internal(fields, "2") == "1"
       }
     end
+    shape :find, resource: "measurements", verb: "GET", path: "/measurements/{measurement_ien}"
 
     # The patient's NEWEST measurement per vital type (optionally within a
     # date range), decorated for Provenance. This deliberately replaces an
@@ -175,6 +178,7 @@ module RpmsRpc
         }
       end
     end
+    shape :newest_by_type, resource: "measurements", verb: "GET", path: "/patients/{dfn}/measurements/newest-by-type"
 
     # All measurements recorded on one visit, decorated for Provenance.
     # Underlying RPC: BGOVMSR GET with INP "VISIT_IEN^0"
@@ -195,6 +199,7 @@ module RpmsRpc
 
       decorate(rows)
     end
+    shape :for_visit, resource: "measurements", verb: "GET", path: "/visits/{visit_ien}/measurements"
 
     # Most recent measurement per type for a patient, decorated the same
     # way. Underlying RPC: BGOVMSR LAST with INP "DFN^TYPES^VISIT_IEN"
@@ -210,6 +215,7 @@ module RpmsRpc
 
       decorate(rows)
     end
+    shape :latest, resource: "measurements", verb: "GET", path: "/patients/{dfn}/measurements/latest"
 
     # Add a measurement to an open visit.
     #

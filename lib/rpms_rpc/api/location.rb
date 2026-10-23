@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "ddr_fileman"
 
 module RpmsRpc
@@ -9,6 +10,7 @@ module RpmsRpc
   # nowhere (#207).
   module Location
     extend self
+    extend Shape::Declarable
 
     FILE = 44
     # .01 NAME, 1 ABBREVIATION, 2 TYPE (set: C CLINIC, W WARD, M MODULE, Z
@@ -31,6 +33,7 @@ module RpmsRpc
 
       { ien: ien.to_i, **values }
     end
+    shape :find, resource: "locations", verb: "GET", path: "/locations/{ien}"
 
     private
 

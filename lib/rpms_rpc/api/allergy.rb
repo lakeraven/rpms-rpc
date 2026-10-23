@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
+
 module RpmsRpc
   # Symbolic API for patient allergies (ORQQAL LIST). The RPC is
   # three-state (LIST^ORQQAL — ORQQAL.m:7): not-assessed
@@ -10,6 +12,7 @@ module RpmsRpc
   # record-array shape.
   module Allergy
     extend self
+    extend Shape::Declarable
 
     NOT_ASSESSED_SENTINEL = "^No Allergy Assessment" # ORQQAL.m:12
     NKA_SENTINEL          = "^No Known Allergies"    # ORQQAL.m:13
@@ -19,6 +22,7 @@ module RpmsRpc
     def for_patient(dfn)
       assessment(dfn)[:allergies]
     end
+    shape :for_patient, resource: "allergies", verb: "GET", path: "/patients/{dfn}/allergies"
 
     # Three-state assessment result:
     #   { assessed: true,  nka: false, allergies: [...] } records on file
@@ -39,6 +43,7 @@ module RpmsRpc
       allergies = mapping.parse_many(lines)
       { assessed: !allergies.empty?, nka: false, allergies: allergies }
     end
+    shape :assessment, resource: "allergies", verb: "GET", path: "/patients/{dfn}/allergies/assessment"
 
     private
 
