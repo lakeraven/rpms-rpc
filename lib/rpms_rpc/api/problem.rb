@@ -36,6 +36,8 @@ module RpmsRpc
     # is the same M-canonical token as FIELD_NUMBER.
     SAFE_ASSIGNMENT = /\A(?:GMPFLD|GMPORIG)\((?:[1-9]\d*(?:\.\d*[1-9])?|\.\d*[1-9])\)="(?:[^"[:cntrl:]]|"")*"\z/
     SAFE_COMMENT = /\AGMPFLD\(10,"NEW",[1-9][0-9]*\)="(?:[^"[:cntrl:]]|"")*"\z/
+    # [XWB]1130 declares a 3-digit L-PACK width (XWBPRS LREAD reads exactly 3 digits); XwbClient#lpack writes 5 above this, so a longer line is mis-framed.
+    MAX_LIST_LINE_BYTES = 999
 
     # List a patient's problems. Underlying RPC: ORQQPL LIST — verified row
     # shape IEN^NARRATIVE^STATUS^ICD^ONSET^LAST MODIFIED^SC^SPEXP^... (see
@@ -286,6 +288,7 @@ module RpmsRpc
 
         lines << line
       end
+      return nil unless lines.all? { |line| line.bytesize <= MAX_LIST_LINE_BYTES }
       return nil unless lines.all? { |line| line.match?(SAFE_ASSIGNMENT) || line.match?(SAFE_COMMENT) }
 
       lines
