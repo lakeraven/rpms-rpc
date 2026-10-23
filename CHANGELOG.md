@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is deliberately not read: it may be a multiple (subfile 200.05), so it waits on a live read or a
   recorded row.
 
+### Changed — `Patient.contact` retry class (#294)
+
+- `Patient.contact(dfn)` now binds `CIAV VUECENTRIC` to read `DDR GETS ENTRY DATA`, so its entry in
+  `retry_safety.yml` moves from `read` to `non_idempotent_write`. Binding a broker context option is a
+  session context change and the restore is best-effort, so the method is no longer auto-retry-safe even
+  though the RPC only returns data. `Patient.address`, `Patient.race` and `Practitioner.detail` are
+  classed the same way.
+
 ### Added — XWB and BMX sign-on bind the division (DUZ(2)) as the stock XWB client does (#450)
 
 - `Client#authenticate` (XwbClient, BmxClient) calls `XUS DIVISION GET` after `XUS AV CODE`, as the Delphi RPC Broker does, and
