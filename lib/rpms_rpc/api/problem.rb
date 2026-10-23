@@ -2,10 +2,12 @@
 
 require_relative "../shape"
 require_relative "../mappings"
+require_relative "../shape"
 
 module RpmsRpc
   # Symbolic API for the problem list. Read via ORQQPL LIST; write via
-  # BGOPROB SET / BGOPROB DEL; scope via BGOPROB GET CLASS.
+  # BGOPROB SET / BGOPROB DEL; stock VistA write via ORQQPL ADD SAVE /
+  # ORQQPL EDIT SAVE; scope via BGOPROB GET CLASS.
   module Problem
     extend self
     extend Shape::Declarable
@@ -21,6 +23,22 @@ module RpmsRpc
     # order can't reshuffle the payload mid-flight.
     PROB_FIELDS = %i[snomed_ct descriptive_ct description icd_code location_ien
                      onset_date status problem_class problem_number priority].freeze
+
+    # FileMan field number allowed inside a GMPFLD/GMPORIG subscript. FOIA
+    # executes each list value as M (`S @ADDARRAY(S)` ORQQPL1.m:160,
+    # `S @EDARRAY(S)` ORQQPL1.m:120) with no check, so a subscript that is
+    # not this token is refused before any RPC. Only the M-canonical form
+    # is accepted (".01", "1", "1.01", "10"). Leading zeros, a trailing
+    # zero, and a trailing dot ("01", "0.01", "1.0", "1.", "00", "0") are
+    # refused. Integer and Float keys are read with to_s and the same rule.
+    FIELD_NUMBER = /\A(?:[1-9]\d*(?:\.\d*[1-9])?|\.\d*[1-9])\z/
+    CANONICAL_ID = /\A[1-9][0-9]*\z/
+    # The only list values the routine is allowed to execute. The subscript
+    # is the same M-canonical token as FIELD_NUMBER.
+    SAFE_ASSIGNMENT = /\A(?:GMPFLD|GMPORIG)\((?:[1-9]\d*(?:\.\d*[1-9])?|\.\d*[1-9])\)="(?:[^"[:cntrl:]]|"")*"\z/
+    SAFE_COMMENT = /\AGMPFLD\(10,"NEW",[1-9][0-9]*\)="(?:[^"[:cntrl:]]|"")*"\z/
+    # [XWB]1130 declares a 3-digit L-PACK width (XWBPRS LREAD reads exactly 3 digits); XwbClient#lpack writes 5 above this, so a longer L-PACK value is mis-framed.
+    MAX_LIST_LINE_BYTES = 999
 
     # List a patient's problems. Underlying RPC: ORQQPL LIST — verified row
     # shape IEN^NARRATIVE^STATUS^ICD^ONSET^LAST MODIFIED^SC^SPEXP^... (see
@@ -142,11 +160,10 @@ module RpmsRpc
       DataMapper.problem_edit_load.fetch_one(ien.to_s, provider_duz.to_s, institution_ien.to_s)
     end
 
-    # ORQQPL stock-VistA state-change writes that don't overlap with the
-    # IHS BGOPROB API above. Inactivate and verify are clean adds; ADD
-    # SAVE / EDIT SAVE / DELETE / UPDATE / REPLACE are wired in mappings.rb
-    # for direct DataMapper use but not given Ruby-side wrappers here
-    # because they shadow the existing add/update/delete methods.
+    # ORQQPL stock-VistA state changes beside the IHS BGOPROB API above.
+    # inactivate / verify are single-IEN writes. add_stock / update_stock
+    # are ORQQPL ADD SAVE / EDIT SAVE and do not replace Problem.add /
+    # Problem.update. DELETE, UPDATE, and REPLACE stay on the mappings.
 
     def inactivate(ien)
       raw = DataMapper.problem_inactivate.fetch_scalar(ien.to_s)
@@ -157,6 +174,53 @@ module RpmsRpc
       raw = DataMapper.problem_verify.fetch_scalar(ien.to_s)
       success_result(raw)
     end
+
+    # Stock-VistA add. ORQQPL ADD SAVE -> ADDSAVE^ORQQPL1
+    # (ORQQPL1.m:149): four actuals, GMPDFN, GMPROV, GMPVAMC, ADDARRAY.
+    # Stock VistA adds a sixth formal GMPSRCH (WorldVistA ORQQPL1.m:191);
+    # it is not sent. FOIA runs every list value as M
+    # (`S @ADDARRAY(S)`, ORQQPL1.m:160). Lock failure leaves RETURN 0
+    # (ORQQPL1.m:154-156). Success stores the new IFN then overwrites
+    # RETURN with 1 (ORQQPL1.m:164, :167), so the IFN is not returned.
+    def add_stock(dfn, provider_duz:, vamc:, fields:, comments: [])
+      patient = canonical_id(dfn)
+      provider = canonical_id(provider_duz)
+      facility = canonical_id(vamc)
+      lines = gmp_lines([ [ "GMPFLD", fields ] ], comments)
+      ready = patient && provider && facility && fields.is_a?(Hash) && !fields.empty? &&
+        lines.is_a?(Array) && !lines.empty?
+      return failure unless ready
+
+      raw = DataMapper.problem_add_save.fetch_scalar(patient, provider, facility, lines)
+      stock_save_result(raw)
+    end
+    shape :add_stock, resource: "problems", verb: "POST", path: "/patients/{dfn}/problems/stock"
+
+    # Stock-VistA edit. ORQQPL EDIT SAVE -> EDSAVE^ORQQPL1
+    # (ORQQPL1.m:109): five actuals, GMPIFN, GMPROV, GMPVAMC, UT, EDARRAY.
+    # Stock VistA adds GMPSRCH (WorldVistA ORQQPL1.m:118); it is not sent.
+    # UT is "1" or "0" (`I UT S GMPLUSER=1`, ORQQPL1.m:115). FOIA runs every
+    # list value as M (`S @EDARRAY(S)`, ORQQPL1.m:120). Lock failure sets
+    # RETURN 0 (ORQQPL1.m:122-123); the success path sets RETURN 1
+    # (ORQQPL1.m:114, :129). The canonical field numbers in originals must
+    # equal those in changes; a mismatch is refused before any RPC.
+    def update_stock(ien, provider_duz:, vamc:, changes:, originals:, user_type: false, comments: [])
+      problem = canonical_id(ien)
+      provider = canonical_id(provider_duz)
+      facility = canonical_id(vamc)
+      flag = case user_type
+      when true then "1"
+      when false then "0"
+      end
+      lines = gmp_lines([ [ "GMPFLD", changes ], [ "GMPORIG", originals ] ], comments)
+      ready = problem && provider && facility && flag && same_canonical_fields?(changes, originals) &&
+        lines.is_a?(Array) && !lines.empty?
+      return failure unless ready
+
+      raw = DataMapper.problem_edit_save.fetch_scalar(problem, provider, facility, flag, lines)
+      stock_save_result(raw, ien: problem.to_i)
+    end
+    shape :update_stock, resource: "problems", verb: "PUT", path: "/problems/{ien}/stock"
 
     private
 
@@ -198,6 +262,133 @@ module RpmsRpc
       success = line.match?(/\A[1-9]\d*\z/) || line.start_with?("1^")
       message = line.sub(/\A[01]\^/, "").strip
       { success: success, message: message.empty? ? nil : message, raw: raw }
+    end
+
+    # Same keys as write and failure. Exactly "1" is success
+    # (ORQQPL1.m:167, :128); "0" and every other reply are not
+    # (ORQQPL1.m:156, :123). ien is nil unless the caller passes the
+    # edited problem IEN and the reply is "1".
+    def stock_save_result(raw, ien: nil)
+      success = raw.to_s.strip == "1"
+      {
+        success: success,
+        ien: success ? ien : nil,
+        raw: raw
+      }
+    end
+
+    # Groups are [name, hash] pairs in wire order ("GMPFLD" then "GMPORIG").
+    # Returns nil when any input is not a safe literal, so the caller can
+    # fail closed before ORQQPL ADD SAVE / EDIT SAVE.
+    def gmp_lines(groups, comments)
+      return nil unless comments.is_a?(Array)
+
+      lines = []
+      groups.each do |name, pairs|
+        built = gmp_group(name, pairs)
+        return nil unless built
+
+        lines.concat(built)
+      end
+      comments.each_with_index do |text, index|
+        line = gmp_comment(index + 1, text)
+        return nil unless line
+
+        lines << line
+      end
+      return nil unless lines.all? { |line| line.bytesize <= MAX_LIST_LINE_BYTES }
+      return nil unless lines.all? { |line| line.match?(SAFE_ASSIGNMENT) || line.match?(SAFE_COMMENT) }
+
+      lines
+    end
+
+    def gmp_group(name, pairs)
+      return nil unless pairs.is_a?(Hash) && (name == "GMPFLD" || name == "GMPORIG")
+
+      seen = {}
+      lines = []
+      pairs.each do |field, value|
+        number = fileman_field_number(field)
+        quoted = m_quoted(value)
+        # Two keys that become the same canonical subscript would silently
+        # overwrite; refuse the group instead of sending either.
+        return nil unless number && quoted && !seen[number]
+
+        seen[number] = true
+        lines << "#{name}(#{number})=\"#{quoted}\""
+      end
+      lines
+    end
+
+    # Comment multiple: GMPFLD(10,"NEW",n). n is the 1-based index we
+    # assign, never caller text.
+    def gmp_comment(index, value)
+      quoted = m_quoted(value)
+      return nil unless quoted && index.is_a?(Integer) && index.positive?
+
+      "GMPFLD(10,\"NEW\",#{index})=\"#{quoted}\""
+    end
+
+    def fileman_field_number(field)
+      text = case field
+      when String then field
+      when Integer, Float then field.to_s
+      end
+      return nil if text.nil? || !text.match?(FIELD_NUMBER)
+
+      text
+    end
+
+    # M-canonical subscripts for one group, in key order. Nil unless every
+    # key passes FIELD_NUMBER and no two keys repeat after Integer/Float
+    # to_s ("1" and 1 are the same subscript).
+    def canonical_field_numbers(pairs)
+      return nil unless pairs.is_a?(Hash)
+
+      numbers = []
+      pairs.each_key do |field|
+        number = fileman_field_number(field)
+        return nil if number.nil? || numbers.include?(number)
+
+        numbers << number
+      end
+      numbers
+    end
+
+    def same_canonical_fields?(changes, originals)
+      change_numbers = canonical_field_numbers(changes)
+      origin_numbers = canonical_field_numbers(originals)
+      return false unless change_numbers && origin_numbers
+
+      change_numbers.sort == origin_numbers.sort
+    end
+
+    # String, or Integer via to_s. Embedded quotes are doubled so they stay
+    # inside the M literal; a control character would split the line the
+    # routine executes, so it is refused. Bytes are read as UTF-8 whatever
+    # encoding tag they carry, and the literal is sent as UTF-8.
+    def m_quoted(value)
+      text = case value
+      when String, Integer then value.to_s
+      end
+      return nil if text.nil?
+
+      utf8 = text.dup.force_encoding(Encoding::UTF_8)
+      return nil unless utf8.valid_encoding?
+      return nil if utf8.match?(/[[:cntrl:]]/)
+
+      utf8.gsub('"', '""')
+    end
+
+    def canonical_id(value)
+      text = case value
+      when Integer then value.to_s
+      when String then value
+      end
+      return nil if text.nil? || !text.match?(CANONICAL_ID)
+      return nil if text.bytesize > MAX_LIST_LINE_BYTES
+
+      text
     end
   end
 end
