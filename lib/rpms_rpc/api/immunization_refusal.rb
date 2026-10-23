@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../fileman_date_parser"
 require_relative "../mappings"
 
@@ -12,6 +13,7 @@ module RpmsRpc
   # in-package immunization component does (BGOVIMM2.m:100).
   module ImmunizationRefusal
     extend self
+    extend Shape::Declarable
 
     REFUSAL_TYPE = "IMMUNIZATION"
 
@@ -60,6 +62,7 @@ module RpmsRpc
     def reasons(type = REFUSAL_TYPE)
       Array(DataMapper.refusal_reasons.fetch_many(type.to_s))
     end
+    shape :reasons, resource: "immunization-refusals", verb: "GET", path: "/immunization-refusals/reasons"
 
     private
 

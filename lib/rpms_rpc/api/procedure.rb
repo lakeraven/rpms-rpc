@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require "date"
 require_relative "../mappings"
 
@@ -12,6 +13,7 @@ module RpmsRpc
   # V CPT read VueCentric's procedure component uses.
   module Procedure
     extend self
+    extend Shape::Declarable
 
     # The patient's V CPT entries, one hash per entry:
     #   :ien (V CPT IEN), :visit_ien, :date (the visit date, a Date),
@@ -27,6 +29,7 @@ module RpmsRpc
         row.merge(date: visit_date(row[:date]))
       end
     end
+    shape :for_patient, resource: "procedures", verb: "GET", path: "/patients/{dfn}/procedures"
 
     def add(dfn, visit_ien, cpt_code, modifiers: [], narrative: nil, quantity: 1)
       return failure if invalid_id?(dfn) || invalid_id?(visit_ien) || blank?(cpt_code)

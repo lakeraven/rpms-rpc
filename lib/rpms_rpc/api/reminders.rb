@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -17,6 +18,7 @@ module RpmsRpc
   # (ADR 0008 section 3).
   module Reminders
     extend self
+    extend Shape::Declarable
 
     # The DUE FLAG piece, as AVAL sets it (PXRMRPCA.m:56-67). 2 is the
     # routine's default ("Not applicable is default", :56). Any other value
@@ -43,6 +45,7 @@ module RpmsRpc
       rows = DataMapper.reminders_applicable.fetch_many(dfn.to_s, location_ien.to_s)
       Array(rows).map { |row| decorate(row) }
     end
+    shape :applicable, resource: "reminders", verb: "GET", path: "/patients/{dfn}/reminders/applicable"
 
     private
 

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "registration"
 require_relative "ddr_fileman"
 require_relative "../context_scope"
@@ -28,6 +29,7 @@ module RpmsRpc
 
       attrs
     end
+    shape :find, resource: "patients", verb: "GET", path: "/patients/{dfn}"
 
     # ORWPT LIST ALL (LISTALL^ORWPT): ONE PAGE of the PATIENT "B" (name)
     # index, in index order, starting AT the text. It is not a filter (#352):
@@ -43,6 +45,7 @@ module RpmsRpc
     def search(name_pattern)
       DataMapper.patient_list.fetch_many(page_start(name_pattern.to_s), "1")
     end
+    shape :search, resource: "patients", verb: "GET", path: "/patients"
 
     # AGG LOOKUP PATIENTS — the IHS division-aware lookup (FND^AGGPTLKP).
     #
@@ -83,6 +86,7 @@ module RpmsRpc
 
       rows.map { |row| normalize_lookup_row(row) }
     end
+    shape :lookup, resource: "patients", verb: "GET", path: "/patients/lookup"
 
     # ORWPT FULLSSN (FULLSSN^ORWPT) reads the "SSN" index by exact value, and
     # the index holds the SSN without punctuation ("000009999", or
@@ -94,6 +98,7 @@ module RpmsRpc
 
       DataMapper.patient_ssn.fetch_one(bare)
     end
+    shape :find_by_ssn, resource: "patients", verb: "GET", path: "/patients/by-ssn"
 
     # Register a new patient via RpmsRpc::Registration, which delegates to
     # the IHS AG package (AGG ADD NEW PATIENT / AGG UPDATE PATIENT under
@@ -158,6 +163,7 @@ module RpmsRpc
         primary_provider: provider
       }
     end
+    shape :brief_header, resource: "patients", verb: "GET", path: "/patients/{dfn}/brief-header"
 
     # Patient telecom (FHIR Patient.telecom source) — home / work / cell /
     # other phone + email, read via the registered generic FileMan read
@@ -222,6 +228,7 @@ module RpmsRpc
         email:       external(ihs, "1802")
       }
     end
+    shape :contact, resource: "patients", verb: "GET", path: "/patients/{dfn}/contact"
 
     # Mailing address on PATIENT (#2), read via the registered generic
     # FileMan read (DDR GETS ENTRY DATA — GETSC^DDR2), the same path as

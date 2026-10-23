@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require "date"
 
 module RpmsRpc
@@ -10,6 +11,7 @@ module RpmsRpc
   # 9.0 image registers; they were removed (#207).
   module Phr
     extend self
+    extend Shape::Declarable
 
     DEFAULT_CCD_TITLE = "Clinical Document"
     DEFAULT_CCD_TYPE = "CCD"
@@ -37,10 +39,12 @@ module RpmsRpc
         message: message.empty? ? default_status_message(has_access) : message
       }
     end
+    shape :enrollment_status, resource: "phr", verb: "GET", path: "/patients/{dfn}/phr/enrollment-status"
 
     def has_access?(dfn)
       enrollment_status(dfn)[:has_access]
     end
+    shape :has_access?, resource: "phr", verb: "GET", path: "/patients/{dfn}/phr/has-access"
 
     def for_patient(dfn, start_date: Date.today - 365, end_date: Date.today)
       return [] if invalid_id?(dfn)
@@ -48,6 +52,7 @@ module RpmsRpc
       key = "#{dfn}^#{format_date(start_date)}^#{format_date(end_date)}"
       Array(DataMapper.ccd_document.fetch_many(key)).map { |row| decorate_ccd(row) }
     end
+    shape :for_patient, resource: "phr", verb: "GET", path: "/patients/{dfn}/phr"
 
     def find(ien)
       return nil if invalid_id?(ien)
@@ -57,6 +62,7 @@ module RpmsRpc
 
       { content: content, format: detect_format(content) }
     end
+    shape :find, resource: "phr", verb: "GET", path: "/phr/{ien}"
 
     def counts(dfn)
       return zero_counts if invalid_id?(dfn)
@@ -68,6 +74,7 @@ module RpmsRpc
       reconciled = row[:reconciled].to_i
       { total: total, reconciled: reconciled, pending: total - reconciled }
     end
+    shape :counts, resource: "phr", verb: "GET", path: "/patients/{dfn}/phr/counts"
 
     def referrals_for_visits(visit_iens)
       ids = Array(visit_iens).reject { |ien| invalid_id?(ien) }
@@ -75,6 +82,7 @@ module RpmsRpc
 
       DataMapper.ccd_referral.fetch_many(ids.join("^"))
     end
+    shape :referrals_for_visits, resource: "phr", verb: "GET", path: "/phr/referrals"
 
     private
 

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "ddr_fileman"
 require_relative "../context_scope"
 require_relative "../fileman_date_parser"
@@ -45,10 +46,12 @@ module RpmsRpc
 
       result.merge(ien: result[:duz])
     end
+    shape :find, resource: "practitioners", verb: "GET", path: "/practitioners/{ien}"
 
     def search(name_pattern)
       DataMapper.practitioner_list.fetch_many(name_pattern.to_s, "1")
     end
+    shape :search, resource: "practitioners", verb: "GET", path: "/practitioners"
 
     # The roles RPMS records for one user, by NEW PERSON IEN (#167):
     #
