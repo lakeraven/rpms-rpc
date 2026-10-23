@@ -10,8 +10,11 @@ require_relative "../../tools/openapi/client_api"
 class ShapeTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
   BASELINE = File.join(__dir__, "undeclared_baseline.txt")
+  WRITE_CLASS_GET_BASELINE = File.join(ROOT, "data/openapi/write_class_get_baseline.txt")
   # Baseline line count when the ratchet was introduced; may only be lowered.
   UNDECLARED_BASELINE_MAX_LINES = 116
+  # Frozen exception (#471): write-class methods that stay GET until reclassified read; may only shrink.
+  WRITE_CLASS_GET_BASELINE_LINE_COUNT = 67
 
   def test_every_public_method_that_sends_rpcs_is_declared_or_baselined
     report = ApiCoverage.build(ROOT)
@@ -42,11 +45,43 @@ class ShapeTest < Minitest::Test
 
   def test_every_write_class_method_is_published_with_a_non_get_verb
     report = ApiCoverage.build(ROOT)
-    violations = write_class_methods_published_as_get(report)
+    baseline = load_write_class_get_baseline
+    violations = write_class_methods_published_as_get(report, allowed: baseline)
+    stale = stale_write_class_get_baseline_entries(report, baseline: baseline)
 
     assert_empty violations,
-                 "retry class other than :read must not be published as GET in the OpenAPI catalog:\n" \
+                 "retry class other than :read must not be published as GET unless in write_class_get baseline:\n" \
                  "#{violations.join("\n")}"
+    assert_empty stale,
+                 "stale write_class_get baseline entries (no longer write-class GET in catalog):\n" \
+                 "#{stale.join("\n")}"
+  end
+
+  def test_write_class_get_baseline_lists_only_write_class_methods_published_as_get
+    baseline = load_write_class_get_baseline
+    report = ApiCoverage.build(ROOT)
+    published_keys = write_class_methods_published_as_get(report, allowed: []).map do |line|
+      line.split(": ", 2).first
+    end.to_set
+    problems = baseline.filter_map do |line|
+      if published_keys.include?(line)
+        nil
+      else
+        "#{line}: not a write-class method published as GET in the catalog"
+      end
+    end
+
+    assert_empty problems, problems.join("\n")
+  end
+
+  def test_write_class_get_baseline_has_no_duplicates_and_bounded_size
+    lines = load_write_class_get_baseline
+    duplicates = lines.tally.select { |_line, count| count > 1 }.keys
+
+    assert_empty duplicates,
+                 "duplicate write_class_get baseline entries:\n#{duplicates.join("\n")}"
+    assert_equal WRITE_CLASS_GET_BASELINE_LINE_COUNT, lines.size,
+                 "write_class_get baseline has #{lines.size} lines; update WRITE_CLASS_GET_BASELINE_LINE_COUNT when shrinking"
   end
 
   def test_every_get_declaration_is_classified_read
@@ -475,8 +510,14 @@ class ShapeTest < Minitest::Test
     end.sort
   end
 
-  # RPC-sending methods whose retry class is not :read must not appear as GET in the catalog.
-  def write_class_methods_published_as_get(report, retry_table: RpmsRpc::RetrySafety.table)
+  def load_write_class_get_baseline
+    File.readlines(WRITE_CLASS_GET_BASELINE, chomp: true).reject(&:empty?)
+  end
+
+  # RPC-sending methods whose retry class is not :read and are published GET in the catalog.
+  # Returns violation lines; entries in `allowed` are exempt (frozen baseline).
+  def write_class_methods_published_as_get(report, retry_table: RpmsRpc::RetrySafety.table, allowed: nil)
+    allowed_set = (allowed || load_write_class_get_baseline).to_set
     catalog_by_method = openapi_catalog_by_method(report[:entries], registry_tag: report[:registry_tag])
 
     report[:entries].filter_map do |entry|
@@ -489,9 +530,19 @@ class ShapeTest < Minitest::Test
       catalog_entry = catalog_by_method[[ entry[:module], entry[:method] ]]
       next unless catalog_entry
       next unless catalog_entry[:addr][:verb].upcase == "GET"
+      next if allowed_set.include?(key)
 
       "#{key}: GET #{catalog_entry[:addr][:path]} (#{retry_class})"
     end.sort
+  end
+
+  # Baseline keys that are not write-class methods published as GET (stale; baseline may only shrink).
+  def stale_write_class_get_baseline_entries(report, baseline: nil, retry_table: RpmsRpc::RetrySafety.table)
+    baseline_lines = baseline || load_write_class_get_baseline
+    published_keys = write_class_methods_published_as_get(report, retry_table: retry_table, allowed: []).map do |line|
+      line.split(": ", 2).first
+    end.to_set
+    baseline_lines.reject { |key| published_keys.include?(key) }.sort
   end
 
   # RPC-sending methods classified read in retry_safety.yml and published GET in the catalog, still undeclared.

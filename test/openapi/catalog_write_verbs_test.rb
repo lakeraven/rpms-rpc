@@ -43,11 +43,25 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
   end
 
   def test_a_write_class_name_with_no_verb_falls_back_to_post_not_get
-    assert_equal "POST /behavioral-health/treatment-plans/{plan_ien}",
-                 at(method("BehavioralHealth", "treatment_plan", req("plan_ien"), rpc: "AMHG TREATMENT PLAN"))
+    # Not in write_class_get_baseline: a synthetic noun-shaped write-class method must not default to GET.
+    assert_equal "POST /synthetic-writes/{ien}",
+                 at(method("SyntheticWrite", "payload_snapshot", req("ien"), rpc: "SYNTH WRITE SNAPSHOT"))
   end
 
+  WRITE_CLASS_GET_BASELINE = File.join(__dir__, "../../data/openapi/write_class_get_baseline.txt").freeze
   READ_GET_ROUTES = File.join(__dir__, "../fixtures/openapi/read_get_catalog_routes.tsv").freeze
+
+  def test_baseline_write_class_method_stays_get_in_the_catalog
+    report = ApiCoverage.build(ROOT)
+    catalog = catalog_by_method(report[:entries], registry_tag: report[:registry_tag])
+    entry = catalog[[ "RpmsRpc::Referral", "find" ]]
+    refute_nil entry, "expected Referral.find in OpenAPI catalog"
+    assert_equal "GET", entry[:addr][:verb].upcase
+    assert_equal "/referrals/{ien}", entry[:addr][:path]
+
+    baseline = File.readlines(WRITE_CLASS_GET_BASELINE, chomp: true).reject(&:empty?)
+    assert_includes baseline, "RpmsRpc::Referral.find"
+  end
 
   def test_every_read_class_method_keeps_get_verb_and_path_in_the_catalog
     expected = File.readlines(READ_GET_ROUTES, chomp: true).reject(&:empty?).to_h do |line|
