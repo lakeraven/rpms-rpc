@@ -58,6 +58,8 @@ class OpenApiClientApiTest < Minitest::Test
   end
 
   def test_writes_and_actions
+    assert_equal "POST /patients/{dfn}/allergies", at(method("Allergy", "save", req("dfn", "allergy_fields")))
+    assert_equal "POST /users/{duz}/notifications/send", at(method("Notifications", "send", req("duz", "payload")))
     assert_equal "POST /patients/{dfn}/procedures", at(method("Procedure", "add", req("dfn", "visit_ien", "cpt_code")))
     assert_equal "POST /patients", at(method("Patient", "register", req("attrs")))
     assert_equal "PUT /patients/{dfn}", at(method("Patient", "update", [ { "name" => "dfn", "kind" => "req" }, { "name" => "patient_fields", "kind" => "key" } ]))

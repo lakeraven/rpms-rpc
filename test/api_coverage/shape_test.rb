@@ -40,6 +40,15 @@ class ShapeTest < Minitest::Test
                  "#{violations.join("\n")}"
   end
 
+  def test_every_write_class_method_is_published_with_a_non_get_verb
+    report = ApiCoverage.build(ROOT)
+    violations = write_class_methods_published_as_get(report)
+
+    assert_empty violations,
+                 "retry class other than :read must not be published as GET in the OpenAPI catalog:\n" \
+                 "#{violations.join("\n")}"
+  end
+
   def test_every_get_declaration_is_classified_read
     mod = Module.new do
       def self.get_on_non_read; end
@@ -463,6 +472,25 @@ class ShapeTest < Minitest::Test
       next if retry_table[key] == :read
 
       "#{key}: a GET declaration requires retry class read; reclassify or declare another verb"
+    end.sort
+  end
+
+  # RPC-sending methods whose retry class is not :read must not appear as GET in the catalog.
+  def write_class_methods_published_as_get(report, retry_table: RpmsRpc::RetrySafety.table)
+    catalog_by_method = openapi_catalog_by_method(report[:entries], registry_tag: report[:registry_tag])
+
+    report[:entries].filter_map do |entry|
+      next if entry[:rpcs].empty?
+
+      key = "#{entry[:module]}.#{entry[:method]}"
+      retry_class = retry_table[key]
+      next if retry_class == :read
+
+      catalog_entry = catalog_by_method[[ entry[:module], entry[:method] ]]
+      next unless catalog_entry
+      next unless catalog_entry[:addr][:verb].upcase == "GET"
+
+      "#{key}: GET #{catalog_entry[:addr][:path]} (#{retry_class})"
     end.sort
   end
 
