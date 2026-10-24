@@ -74,7 +74,7 @@ class OversizedTextWritersTest < Minitest::Test
 
   def long_for(limit) = limit == "999" ? XWB_TEXT : BMX_TEXT
 
-  # No minitest/mock in this suite (Minitest 6): swap a singleton method and put it back.
+  # The suite avoids Object#stub (Minitest 6 dropped it): swap a singleton method and put it back.
   def replace_singleton(target, name, &body)
     original = target.method(name)
     target.define_singleton_method(name, &body)
