@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -12,18 +13,21 @@ module RpmsRpc
   # GETTEXT, ACCESS LEVEL.
   module NoteTemplate
     extend self
+    extend Shape::Declarable
 
     def roots(user_duz)
       return [] if invalid_id?(user_duz)
 
       Array(DataMapper.template_roots.fetch_many(user_duz.to_s))
     end
+    shape :roots, resource: "note-templates", verb: "GET", path: "/users/{user_duz}/note-templates/roots"
 
     def items(template_ien)
       return [] if invalid_id?(template_ien)
 
       Array(DataMapper.template_items.fetch_many(template_ien.to_s))
     end
+    shape :items, resource: "note-templates", verb: "GET", path: "/note-templates/{template_ien}/items"
 
     # A template's UNEXPANDED boilerplate: GETBOIL(TIUY,TIUDA)
     # (TIUSRVT.m:55) takes the template alone and copies its text nodes
@@ -34,6 +38,7 @@ module RpmsRpc
 
       DataMapper.template_boilerplate.fetch_text(template_ien.to_s)
     end
+    shape :boilerplate, resource: "note-templates", verb: "GET", path: "/note-templates/{template_ien}/boilerplate"
 
     # Expand boilerplate TEXT for a patient and visit — the |FIELD| objects
     # resolved server-side. Underlying RPC: TIU TEMPLATE GETTEXT.
@@ -56,12 +61,14 @@ module RpmsRpc
       tiux = lines.each_with_index.to_h { |line, i| [ [ i + 1, 0 ], line ] }
       DataMapper.template_text.fetch_text(dfn.to_s, visit_string.to_s, tiux)
     end
+    shape :text, resource: "note-templates", verb: "GET", path: "/patients/{dfn}/note-templates/text"
 
     def access_level(template_ien, user_duz)
       return nil if invalid_id?(template_ien) || invalid_id?(user_duz)
 
       DataMapper.template_access_level.fetch_scalar(template_ien.to_s, user_duz.to_s)
     end
+    shape :access_level, resource: "note-templates", verb: "GET", path: "/note-templates/{template_ien}/access-level"
 
     private
 

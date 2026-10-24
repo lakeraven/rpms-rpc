@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
+
 module RpmsRpc
   # Symbolic API for New Person / user-management operations.
   # Underlying RPCs: ORWU NEWPERS, XUS GET USER INFO, ORWU USERINFO.
@@ -11,6 +13,7 @@ module RpmsRpc
   # remain on the registered ORWU HASKEY (Authentication.has_security_key?).
   module UserManagement
     extend self
+    extend Shape::Declarable
 
     def search(name_pattern)
       pattern = name_pattern.to_s.strip
@@ -18,6 +21,7 @@ module RpmsRpc
 
       DataMapper.user_management_user_list.fetch_many(pattern, "1")
     end
+    shape :search, resource: "users", verb: "GET", path: "/users"
 
     def find(duz)
       duz = normalize_duz(duz)
@@ -40,6 +44,7 @@ module RpmsRpc
         practitioner: practitioner
       }
     end
+    shape :find, resource: "users", verb: "GET", path: "/users/{duz}"
 
     private
 
