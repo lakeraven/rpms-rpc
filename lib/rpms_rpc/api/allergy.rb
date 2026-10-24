@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../shape"
+require_relative "../reply"
 
 module RpmsRpc
   # Symbolic API for patient allergies (ORQQAL LIST). The RPC is
@@ -35,24 +36,28 @@ module RpmsRpc
     def assessment(dfn)
       mapping = DataMapper[:allergy_list]
       response = RpmsRpc.client.call_rpc(mapping.rpc_name, dfn.to_s)
-      lines = response_lines(response)
+      lines, altered = response_lines(response)
 
       return { assessed: false, nka: false, allergies: [] } if lines.include?(NOT_ASSESSED_SENTINEL)
       return { assessed: true, nka: true, allergies: [] } if lines.include?(NKA_SENTINEL)
 
-      allergies = mapping.parse_many(lines)
+      # Every row says whether any of its text was altered to become valid
+      # UTF-8 (`altered:`): two allergens that differ only in a byte the gem
+      # replaced read identically, and a host must be able to refuse them
+      # (rpms-rpc#463).
+      allergies = mapping.parse_many_flagged(lines, altered)
       { assessed: !allergies.empty?, nka: false, allergies: allergies }
     end
     shape :assessment, resource: "allergies", verb: "GET", path: "/patients/{dfn}/allergies/assessment"
 
     private
 
+    # [lines, altered_indexes]: the reply's lines with recordset separators
+    # stripped, and which of them had a byte replaced (one line per line, so
+    # the indexes still name the same rows).
     def response_lines(response)
-      case response
-      when nil then []
-      when String then response.split(/\r?\n/)
-      else Array(response)
-      end.map { |line| DataMapper.strip_recordset_separators(line.to_s) }
+      lines, altered = Reply.lines_with_altered(response)
+      [ lines.map { |line| DataMapper.strip_recordset_separators(line.to_s) }, altered ]
     end
   end
 end

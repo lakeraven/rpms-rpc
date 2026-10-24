@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Array#map`, `#select` and `#+`. Charset: assumed UTF-8, unproven; Latin-1 observed in stored data will read as altered.
 - CIA: valid non-ASCII text is no longer replaced with spaces. Control characters still become a space, and are now reported
   as altered.
+- The flag reaches hosts. `Allergy.assessment` / `.for_patient` and `Patient.lookup` rows carry an additive `altered: true|false`
+  (true when any text of the row had a byte replaced). Before this, two allergens that differed only in a byte the gem replaced
+  came back as equal strings with no signal.
+- GLOBAL ARRAY replies (`CiaClient#call_rpc_global_array`, `MockClient#call_rpc_global_array`) are valid UTF-8 and return an
+  `RpmsRpc::Reply::Text`, a String that answers `altered?`; they were raw ASCII-8BIT (CIA `Patient.lookup` still raised
+  `Encoding::CompatibilityError` on a non-ASCII name). `MockClient#call_rpc` returns the same `Text` for a bare String seed.
+- `Reply` and its lines are frozen and built only through `Reply.from_wire`; `from_wire(reply)` keeps the flag it carries.
+- `Client#call_rpc_lines` no longer raises on a UTF-8-tagged String holding an invalid byte, and converts a plain Array.
+- Not yet carried: other API modules that return identity-bearing text (see the follow-up issue).
 
 ### Added — XWB and BMX sign-on bind the division (DUZ(2)) as the stock XWB client does (#450)
 

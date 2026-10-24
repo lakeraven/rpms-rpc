@@ -316,13 +316,15 @@ end
 
     # A live client hands hosts valid UTF-8 and reports any line it had to
     # alter (rpms-rpc#463), so a seeded reply gets the same treatment: host
-    # tests see production encoding. #call_rpc hands a bare String back as a
-    # String, which has no place to carry the flag, so it is only made valid
-    # UTF-8 there; #call_rpc_lines is the path that reports the alteration.
+    # tests see production encoding. A line reply is a Reply; a bare String
+    # reply is a Reply::Text, a String that carries the same flag, so a host
+    # that reads it through #call_rpc (DataMapper#fetch_text, #fetch_scalar)
+    # can still refuse altered text. #call_rpc_lines is the path that names
+    # the altered lines.
     def utf8_reply(reply)
       case reply
       when Array then Reply.from_wire(reply)
-      when String then Reply.from_wire([ reply ]).first
+      when String then Reply.text(reply)
       else reply
       end
     end
@@ -332,7 +334,12 @@ end
     # that correctly prefers it is never exercised, and the preference itself
     # goes untested.
     def call_rpc_global_array(rpc_name, *params)
-      seeded_reply(rpc_name, *params)
+      reply = seeded_reply(rpc_name, *params)
+      case reply
+      when Array then Reply.from_wire(reply)
+      when String then Reply.text(reply)
+      else reply
+      end
     end
 
     # A live client reads BYTES, not lines: read_until_raw(EOD) stops at the

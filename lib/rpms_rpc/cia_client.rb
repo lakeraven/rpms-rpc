@@ -389,7 +389,10 @@ module RpmsRpc
     def call_rpc_global_array(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
-      exchange("R", terminator: AGG_ARRAY_END) { rpc_frame_fields(rpc_name, params) }
+      # Valid UTF-8 like every other reply (rpms-rpc#463). The framing bytes
+      # ($C(0), $C(30), $C(31)) are valid UTF-8 and are kept; only an invalid
+      # byte is replaced, and the returned Text says so (Reply.altered?).
+      Reply.text(exchange("R", terminator: AGG_ARRAY_END) { rpc_frame_fields(rpc_name, params) })
     rescue TimeoutError
       raise_rpc_timeout(rpc_name)
     end
