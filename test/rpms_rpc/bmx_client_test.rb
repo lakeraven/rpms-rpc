@@ -94,7 +94,8 @@ class RpmsRpc::BmxClientTest < Minitest::Test
   def test_fixed_width_refuses_a_number_wider_than_its_five_digit_field
     assert_equal "99999", Client.new.send(:fixed_width, 99_999, 5)
     error = assert_raises(RpmsRpc::BmxClient::RequestTooLongError) { Client.new.send(:fixed_width, 100_000, 5) }
-    assert_match(/512/, error.message)
+    assert_match(/5-digit/, error.message)
+    refute_match(/512/, error.message, "an arbitrary field is not limited by the request cut (panel round 2)")
   end
 
   def test_fixed_width_refuses_a_number_wider_than_its_three_digit_field
