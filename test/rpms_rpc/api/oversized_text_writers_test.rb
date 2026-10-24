@@ -13,6 +13,9 @@ require "rpms_rpc/api/registration"
 require "rpms_rpc/api/referral"
 require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/exam_component"
+require "rpms_rpc/api/health_factor"
+require "rpms_rpc/api/immunization_refusal"
+require "rpms_rpc/api/progress_note"
 
 # #472 / #474, panel round 2. A value the wire would mis-frame is refused
 # before anything is sent (Client::FrameTooLongError). The write APIs whose own
@@ -207,6 +210,53 @@ class OversizedTextWritersTest < Minitest::Test
     refute_includes result[:message].to_s, "a" * 50
   end
 
+  # The same refusal over BMX: the window filed first is reported, the second is refused.
+  def test_registration_update_reports_the_windows_filed_before_a_refused_one_over_bmx
+    limit = use_bmx
+    calls = []
+    replace_singleton(RpmsRpc::Agg, :editing) { |**_kw, &block| block.call }
+    replace_singleton(RpmsRpc::Agg, :update_patient) do |window:, dfn:, params:, **_kw|
+      calls << window
+      if calls.size == 1
+        { success: true }
+      else
+        RpmsRpc.client.call_rpc("AGG UPDATE PATIENT", params.values.first)
+      end
+    end
+
+    result = RpmsRpc::Registration.update("8791", birth_city: "Springfield", address_line1: "a" * 600)
+
+    assert_equal false, result[:success]
+    assert_equal :frame_too_long, result[:error]
+    assert_equal 1, result[:filed_windows].size
+    assert_equal calls[1], result[:window]
+    assert_match(/#{limit}/, result[:message].to_s)
+    refute_includes result[:message].to_s, "a" * 50
+  end
+
+  # Only the AG edit lock and the context bind are skipped here: Agg.update_patient
+  # and Agg.encode_parms run for real, so the PARMS string is built by the
+  # production code and then refused by the real XWB/BMX frame builder. Nothing
+  # was filed before the refused window, so filed_windows is empty.
+  [ [ "xwb", :use_xwb, 1000 ], [ "bmx", :use_bmx, 600 ] ].each do |name, user, size|
+    define_method("test_registration_update_refuses_the_real_agg_window_over_#{name}") do
+      limit = send(user)
+      @socket.writes.clear
+      RpmsRpc.client.define_singleton_method(:with_context) { |_option, &block| block.call }
+      replace_singleton(RpmsRpc::Agg, :editing) { |**_kw, &block| block.call }
+
+      result = RpmsRpc::Registration.update("8791", address_line1: "a" * size)
+
+      assert_equal false, result[:success]
+      assert_equal :frame_too_long, result[:error]
+      assert_equal "Address", result[:window]
+      assert_equal [], result[:filed_windows]
+      assert_match(/#{limit}/, result[:message].to_s)
+      refute_includes result[:message].to_s, "a" * 50
+      assert_empty @socket.writes, "the real encode_parms -> frame builder path sends nothing"
+    end
+  end
+
   def test_registration_update_still_raises_for_an_unknown_attribute
     use_xwb
     assert_raises(ArgumentError) { RpmsRpc::Registration.update("8791", nonsense: "x") }
@@ -219,9 +269,24 @@ class OversizedTextWritersTest < Minitest::Test
     limit = use_xwb
     result = RpmsRpc::Referral.add("8791", "1", XWB_TEXT)
     assert_refused(result, limit, XWB_TEXT)
-    assert result.key?(:raw)
+    assert_equal({ success: false, raw: nil }, result.slice(:success, :raw))
+    assert_kind_of String, result[:error]
   end
 
+  # Over BMX the literal params reach the 512-byte request cap. The XWB-only
+  # rescue mutant survived without this (panel round 3).
+  def test_referral_add_answers_with_a_failure_hash_over_bmx
+    skip_context_binding
+    limit = use_bmx
+    result = RpmsRpc::Referral.add("8791", "1", BMX_TEXT)
+    assert_refused(result, limit, BMX_TEXT)
+    assert_equal({ success: false, raw: nil }, result.slice(:success, :raw))
+    assert_kind_of String, result[:error]
+  end
+
+  # XWB only, on purpose: DdrFileman.filer sends a list parameter, which the BMX
+  # client refuses with NotImplementedError before any size check, so BMX cannot
+  # reach the size refusal (the same reason Problem add/update are XWB only above).
   def test_ddr_filer_answers_with_its_errors_array_over_xwb
     limit = use_xwb
     rows = [ { file: "2", field: ".01", iens: "+1,", value: XWB_TEXT } ]
@@ -231,5 +296,53 @@ class OversizedTextWritersTest < Minitest::Test
     assert_match(/#{limit}/, result[:errors].join(" "))
     refute_includes result[:errors].join(" "), XWB_TEXT
     assert_empty @socket.writes
+  end
+
+  # -- The rescue is narrow: only a refused frame becomes a failure hash ------
+  # A rescue widened to StandardError (or to the gem's Error / RpcError /
+  # ConnectionError) would keep every test above green while swallowing a broker
+  # or network failure into { success: false }. Each rescued API family must
+  # still let those propagate.
+  NON_FRAME_ERRORS = [
+    [ "RpcError", -> { RpmsRpc::Client::RpcError.new("broker refused") } ],
+    [ "ConnectionError", -> { RpmsRpc::Client::ConnectionError.new("socket lost") } ]
+  ].freeze
+
+  RESCUED_FAMILIES = {
+    "exam_component" => -> { RpmsRpc::ExamComponent.add("8791", "2090060", "77", finding: "NORMAL", narrative: "ok") },
+    "health_factor" => -> { RpmsRpc::HealthFactor.add("8791", "2090060", "55", level: "A", narrative: "ok") },
+    "immunization_refusal" => -> { RpmsRpc::ImmunizationRefusal.record("8791", "9", reason_ien: "3", narrative: "ok") },
+    "progress_note" => -> { RpmsRpc::ProgressNote.update_text("5001", "ok") },
+    "pov" => -> { RpmsRpc::Pov.add("8791", "2090060", "250.00", narrative: "ok") },
+    "procedure" => -> { RpmsRpc::Procedure.add("8791", "2090060", "99213", narrative: "ok") },
+    "problem_delete" => -> { RpmsRpc::Problem.delete("8791", "77", reason: "ok") },
+    "problem_add" => -> { RpmsRpc::Problem.add("8791", { icd_code: "250.00", location_ien: "1", description: "ok" }) },
+    "e_signature" => -> { RpmsRpc::ESignature.remove("5001", "12", reason: "ok") },
+    "scheduling_add" => lambda {
+      RpmsRpc::Scheduling.add_appointment(patient_dfn: "8791", resource: "CLINIC A", start_time: "3261023.0900",
+                                          end_time: "3261023.0930", length_minutes: 30, note: "ok")
+    },
+    "scheduling_cancel" => -> { RpmsRpc::Scheduling.cancel_appointment("55", reason: "3", note: "ok") },
+    "referral" => -> { RpmsRpc::Referral.add("8791", "1", "ok") },
+    "ddr_filer" => -> { RpmsRpc::DdrFileman.filer(mode: :add, rows: [ { file: "2", field: ".01", iens: "+1,", value: "ok" } ]) },
+    "registration_update" => -> { RpmsRpc::Registration.update("8791", address_line1: "ok") }
+  }.freeze
+
+  RESCUED_FAMILIES.each do |family, call|
+    NON_FRAME_ERRORS.each do |error_name, build|
+      define_method("test_#{family}_lets_a_#{error_name.downcase}_propagate") do
+        use_xwb
+        skip_context_binding
+        replace_singleton(RpmsRpc::Agg, :editing) { |**_kw, &block| block.call }
+        client = RpmsRpc.client
+        client.define_singleton_method(:with_context) { |_option, &block| block.call }
+        error = build.call
+        %i[call_rpc call_rpc_lines call_rpc_raw].each do |name|
+          client.define_singleton_method(name) { |*_args, **_kw| raise error } if client.respond_to?(name)
+        end
+        raised = assert_raises(error.class) { instance_exec(&call) }
+        assert_same error, raised
+      end
+    end
   end
 end
