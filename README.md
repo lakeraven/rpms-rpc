@@ -467,6 +467,20 @@ headline from the committed live evidence. Any failure exits non-zero.
 PROV123 is a debug account, so its run also needs `VISTA_RPC_ENV=development`. `rake rpc:coverage`
 reads the live evidence from an `rpms-diffs` checkout beside this repo, or `RPMS_DIFFS_DIR=`.
 
+### Releasing
+
+`rake release` refuses to tag or push unless the live summaries in `coverage/live/` prove a green run of exactly what it is about to ship (#361, #441).
+Each summary is schema 3. It names the pinned build it ran against, the source it tested, and the suite it ran, and records `passed`.
+The source is a SHA-256 over every file the gemspec ships, plus the gemspec, read from the working tree.
+The suite is a SHA-256 over every file under `test/live/` plus `data/rpc_coverage/config.yml`, so a change to the specs or the pin is a different suite.
+`passed` is true only when every non-skipped result passed.
+`CHANGELOG.md` is not shipped, so the release section can quote the live summary without invalidating the source fingerprint.
+Anything that is shipped does invalidate the source, including the version bump and a README edit. A change under `test/live/` or to the coverage pin invalidates the suite.
+
+So the order is: bump the version and finish every shipped file and the live specs, then `rake test:live` once per persona, then `rake release`.
+A run during which a shipped file or the live suite changes is not recorded.
+A summary from before schema 3, or for another build, source, or suite, or with `passed` other than true, is refused until `rake test:live` is re-run for that persona. Delete the file if that persona is not part of the release.
+
 - **Wire-format tests** construct packet bytes and assert their layout
 - **DataMapper tests** verify field/text_blob/scalar round-trip through parse + format
 - **MockClient tests** verify seeded data flows through the full fetch chain
