@@ -318,6 +318,10 @@ module RpmsRpc
     #   { success: false, error: :agg_rejected, window:, message:,
     #     filed_windows: [...] }  a window AG refused; each window is its
     #     own AGG UPDATE PATIENT call, so the windows before it are filed
+    #   { success: false, error: :frame_too_long, window:, message:,
+    #     filed_windows: [...] }  a value is over the wire's framing limit and
+    #     was refused before its window was sent (nothing of that window is
+    #     filed; message names the limit, never the value)
     #   nil  no broker reply to an AGG UPDATE PATIENT call
     def update(dfn, **attrs)
       params_by_window = update_params(attrs)
@@ -411,6 +415,12 @@ module RpmsRpc
         end
 
         filed << window
+      rescue RpmsRpc::Client::FrameTooLongError => e
+        # A value the wire would mis-frame is refused before that window is
+        # sent (#472). The windows before it are already filed, so keep the
+        # report the :agg_rejected path gives instead of letting it raise.
+        return { success: false, error: :frame_too_long, window: window,
+                 message: e.message, filed_windows: filed }
       end
       { success: true, dfn: dfn }
     end

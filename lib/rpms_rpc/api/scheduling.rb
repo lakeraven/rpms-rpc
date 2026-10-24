@@ -88,6 +88,10 @@ module RpmsRpc
       else
         { success: false, error: result[:error].to_s }
       end
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # The note is refused before anything is sent (#472): the module contract
+      # is { success: false, error: String }.
+      { success: false, error: e.message }
     end
 
     # Cancel an appointment — BSDX CANCEL APPOINTMENT (APPDEL^BSDX08 → $$CANCEL^BSDAPI).
@@ -218,6 +222,10 @@ module RpmsRpc
       error_id = row.split("^", -1).first.to_s
       ok = error_id.empty? || (zero_ok && error_id == "0")
       ok ? { success: true } : { success: false, error: row }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A note or reason the wire would mis-frame is refused before anything is
+      # sent (#472); the module contract is { success: false, error: String }.
+      { success: false, error: e.message }
     end
 
     # First non-header data row of a recordset response, as a String with the

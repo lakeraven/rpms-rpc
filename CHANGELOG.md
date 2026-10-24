@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — XWB and BMX refuse a request they would mis-frame, and the failure-hash writers say so (#472, #474)
+
+- **XWB:** the header `[XWB]1130` fixes the L-PACK length at 3 digits (`XWBPRS.m`, `XWBENVL=+$E(P,3)`; `LREAD` reads exactly that
+  many). `lpack` used to write 5 digits for a value over 999 bytes, so the server read the first 3 as the length and parsed the
+  rest as protocol: long literals, list keys and list values were mis-framed without any error. It now writes 3 digits and
+  raises `XwbClient::LpackTooLongError` for a value over 999 **bytes**, before anything is written. Refusing at 999 is this
+  client's policy under the 3-digit header, not a protocol limit (a `[XWB]1150` header would carry 5-digit lengths).
+- **BMX:** `BMXMBRK` (`PRSP`, `PRSM`, `PRSA`, `PRSB`) cuts a request at 512 bytes, so a 600-byte param arrived as 457 bytes with
+  no error. `build_bmx_message` now raises `BmxClient::RequestTooLongError` for a request over 512 bytes, and the fixed-width
+  prefixes refuse a number that does not fit instead of widening the field.
+- **Behaviour change:** both are `RpmsRpc::Error`s under `Client::FrameTooLongError` (not `ArgumentError`). Nothing could have
+  relied on an `ArgumentError`: on `main` the XWB prefix silently widened and BMX had no check. A caller that sent an oversized
+  value used to get silent corruption and now gets the error; nothing is sent and the connection stays usable. CIA is unaffected.
+- **APIs that answer with their failure hash** (plus an `:error` that names the limit and the line or field, never the value):
+  `ProgressNote.update_text`, `ExamComponent.add`, `HealthFactor.add`, `ImmunizationRefusal.record`, `Pov.add`, `Procedure.add`,
+  `Problem.add` / `update` / `delete`, `ESignature.remove`, `Scheduling` writes (`{ success: false, error: }`), `Referral`'s BMC
+  writers (`{ success: false, raw: nil, error: }`), `DdrFileman.filer` (`errors:`), and `Registration.update`
+  (`error: :frame_too_long`, with `window:` and the `filed_windows:` report).
+- **APIs that raise `FrameTooLongError`** (not yet audited, #480): `Registration.register`, `Agg`, the behavioral-health writers,
+  `Vital` and `Measurement` writes, and any caller of `call_rpc` directly. Wrapping long note text instead of refusing it is #479;
+  a pre-check that lets a host validate before it files its first record is #480.
+- BMX refusal messages name their cause: a field inside a request cites the 512-byte cut, the connect and session packet length
+  fields do not.
+
 ### Added — XWB and BMX sign-on bind the division (DUZ(2)) as the stock XWB client does (#450)
 
 - `Client#authenticate` (XwbClient, BmxClient) calls `XUS DIVISION GET` after `XUS AV CODE`, as the Delphi RPC Broker does, and

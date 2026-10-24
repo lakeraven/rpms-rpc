@@ -106,8 +106,9 @@ module RpmsRpc
       { success: first_piece(raw) == note_ien.to_i.to_s, raw: raw }
     rescue RpmsRpc::Client::FrameTooLongError => e
       # The wire refused a value it would have mis-framed (#472); nothing was
-      # sent. The record already exists, so say which line and why instead of
-      # raising past a caller that has filed it.
+      # sent. update_text is the second call of create-then-update, so a host
+      # that already created the note holds an empty one (#480): say which line
+      # and why instead of raising past it.
       { success: false, raw: nil, error: too_long_reason(text, e) }
     end
 

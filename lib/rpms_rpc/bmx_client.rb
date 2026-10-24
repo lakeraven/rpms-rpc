@@ -154,10 +154,10 @@ module RpmsRpc
     # slot and glued "1" onto the RPC name).
     def build_bmx_message(rpc_name, params = [])
       proto_fields = "RPMS_RPC;0;0;0;".b
-      proto_header = fixed_width(proto_fields.bytesize, 3) + proto_fields
+      proto_header = fixed_width(proto_fields.bytesize, 3, "protocol header length", request: true) + proto_fields
 
       text = bmx_text(rpc_name, params)
-      message = fixed_width(text.bytesize + 6, 5) + "0".b + text
+      message = fixed_width(text.bytesize + 6, 5, "request length", request: true) + "0".b + text
 
       body = proto_header + message
       if body.bytesize > MAX_PROTOCOL_BYTES
@@ -175,9 +175,9 @@ module RpmsRpc
 
       inner = params.map do |p|
         v = p.to_s.b
-        fixed_width(v.bytesize + 1, 3) + "0".b + v # LLL=(len+1), TYPE "0"=literal
+        fixed_width(v.bytesize + 1, 3, "param length", request: true) + "0".b + v # LLL=(len+1), TYPE "0"=literal
       end.join.b
-      block = fixed_width(inner.bytesize, 5) + inner
+      block = fixed_width(inner.bytesize, 5, "param block length", request: true) + inner
       name + "^".b + block
     end
 
@@ -244,11 +244,16 @@ module RpmsRpc
 
     # Zero-padded decimal of exactly `width` digits. A number that does not
     # fit is refused: the field is fixed width, and widening it would shift
-    # every byte the broker reads after it.
-    def fixed_width(number, width)
+    # every byte the broker reads after it. `what` names the field in the
+    # message. `request: true` marks the fields inside a request (build_bmx_message),
+    # which BMXMBRK cuts at 512 bytes, so the message can name that cap; the
+    # connect and session packet length fields are not limited by it, and a
+    # message that blamed it for them would name the wrong cause.
+    def fixed_width(number, width, what = "length", request: false)
       text = format("%0#{width}d", number)
       if text.bytesize > width
-        raise RequestTooLongError, "BMX length #{number} does not fit its #{width}-digit field (max #{10**width - 1}); the broker cuts a whole request at #{MAX_PROTOCOL_BYTES} bytes"
+        cause = request ? "; the broker cuts a request at #{MAX_PROTOCOL_BYTES} bytes" : ""
+        raise RequestTooLongError, "BMX #{what} #{number} does not fit its #{width}-digit field (max #{10**width - 1})#{cause}"
       end
       text.b
     end
@@ -256,7 +261,7 @@ module RpmsRpc
     # Send a packet for the initial monitor connection (pre-session)
     def send_bmx_packet(body)
       bytes = body.to_s.b
-      length_str = fixed_width(bytes.bytesize, 5)
+      length_str = fixed_width(bytes.bytesize, 5, "packet length")
       packet = BMX_PREFIX.b + length_str + bytes
       send_packet(packet)
     end
@@ -269,8 +274,8 @@ module RpmsRpc
     # Wire = {BMX} + LLLLL + PPPPP + body
     def send_bmx_session_packet(body)
       bytes = body.to_s.b
-      plen = fixed_width(bytes.bytesize, 5)
-      total_len = fixed_width(bytes.bytesize + 5, 5)
+      plen = fixed_width(bytes.bytesize, 5, "session packet body length")
+      total_len = fixed_width(bytes.bytesize + 5, 5, "session packet length")
       packet = BMX_PREFIX.b + total_len + plen + bytes
       send_packet(packet)
     end

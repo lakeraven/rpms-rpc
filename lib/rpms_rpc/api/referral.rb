@@ -250,6 +250,10 @@ module RpmsRpc
         raw = DataMapper[mapping_name].fetch_scalar(*params.map(&:to_s))
         result_from_raw(raw)
       end
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A parameter the wire would mis-frame is refused before anything is sent
+      # (#472); the writers answer { success:, raw: }, so say why in :error.
+      { success: false, raw: nil, error: e.message }
     end
 
     def result_from_raw(raw)
