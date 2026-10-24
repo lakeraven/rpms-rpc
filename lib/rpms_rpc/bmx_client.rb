@@ -37,7 +37,13 @@ module RpmsRpc
   class BmxClient < Client
     BMX_PREFIX = "{BMX}"
     # BMXMBRK M=512: PRSP/PRSM/PRSA/PRSB each cut the protocol string with $E(P,...,M).
+    # $E counts characters and this counts bytes: they agree on a byte-mode TCP
+    # device, and on a translating one this check is stricter than the server,
+    # never looser, so a request is refused rather than silently truncated.
     MAX_PROTOCOL_BYTES = 512
+
+    # RequestTooLongError: the request cannot be framed for the BMX broker.
+    class RequestTooLongError < FrameTooLongError; end
 
     # Connect to RPMS BMX Broker — a TWO-STEP handshake.
     #
@@ -155,7 +161,7 @@ module RpmsRpc
 
       body = proto_header + message
       if body.bytesize > MAX_PROTOCOL_BYTES
-        raise ArgumentError, "BMX protocol string is #{body.bytesize} bytes (max #{MAX_PROTOCOL_BYTES})"
+        raise RequestTooLongError, "BMX protocol string is #{body.bytesize} bytes (max #{MAX_PROTOCOL_BYTES}; the broker cuts a request at 512 bytes)"
       end
       body
     end
@@ -242,7 +248,7 @@ module RpmsRpc
     def fixed_width(number, width)
       text = format("%0#{width}d", number)
       if text.bytesize > width
-        raise ArgumentError, "#{number} does not fit in #{width} digits (max #{10**width - 1})"
+        raise RequestTooLongError, "BMX length #{number} does not fit its #{width}-digit field (max #{10**width - 1}); the broker cuts a whole request at #{MAX_PROTOCOL_BYTES} bytes"
       end
       text.b
     end
