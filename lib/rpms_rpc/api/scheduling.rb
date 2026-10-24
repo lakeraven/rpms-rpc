@@ -89,8 +89,9 @@ module RpmsRpc
         { success: false, error: result[:error].to_s }
       end
     rescue RpmsRpc::Client::FrameTooLongError => e
-      # The note is refused before anything is sent (#472): the module contract
-      # is { success: false, error: String }.
+      # The note is refused before the write is sent (#472; on a real session the
+      # context bind still goes out around it): the module contract is
+      # { success: false, error: String }.
       { success: false, error: e.message }
     end
 
@@ -223,8 +224,9 @@ module RpmsRpc
       ok = error_id.empty? || (zero_ok && error_id == "0")
       ok ? { success: true } : { success: false, error: row }
     rescue RpmsRpc::Client::FrameTooLongError => e
-      # A note or reason the wire would mis-frame is refused before anything is
-      # sent (#472); the module contract is { success: false, error: String }.
+      # A note or reason the wire would mis-frame is refused before the write is
+      # sent (#472; on a real session the context bind still goes out around
+      # it): the module contract is { success: false, error: String }.
       { success: false, error: e.message }
     end
 

@@ -48,7 +48,9 @@ module RpmsRpc
     # caller that rescues the gem's errors sees it.
     #
     # API methods whose own contract is a failure hash rescue it and answer with
-    # that hash plus an :error saying which limit (never the value): the visit
+    # that hash plus an :error naming the limit (never the value; only
+    # ProgressNote.update_text also names the line, and Registration.update's
+    # byte count is the whole joined window): the visit
     # writes (ProgressNote.update_text, ExamComponent, HealthFactor, Pov,
     # Procedure, ImmunizationRefusal), Problem add/update/delete,
     # ESignature.remove, the Scheduling writes, Registration.update (error

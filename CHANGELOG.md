@@ -20,10 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Behaviour change:** both are `RpmsRpc::Error`s under `Client::FrameTooLongError` (not `ArgumentError`). Nothing could have
   relied on an `ArgumentError`: on `main` the XWB prefix silently widened and BMX had no check. A caller that sent an oversized
   value used to get silent corruption and now gets the error; nothing is sent and the connection stays usable. CIA is unaffected.
-- **APIs that answer with their failure hash** (plus an `:error` that names the limit and the line or field, never the value):
+- **APIs that answer with their failure hash** (plus an `:error` that names the limit, never the value; only `ProgressNote.update_text` also names the line, and
+  `Registration.update`'s byte count is the whole joined window):
   `ProgressNote.update_text`, `ExamComponent.add`, `HealthFactor.add`, `ImmunizationRefusal.record`, `Pov.add`, `Procedure.add`,
   `Problem.add` / `update` / `delete`, `ESignature.remove`, `Scheduling` writes (`{ success: false, error: }`), `Referral`'s BMC
-  writers (`{ success: false, raw: nil, error: }`), `DdrFileman.filer` (`errors:`), and `Registration.update`
+  writers (`{ success: false, raw: nil, error: }`, where a broker-side failure carries `:message` and `:raw` only), `DdrFileman.filer` (`errors:`), and `Registration.update`
   (`error: :frame_too_long`, with `window:` and the `filed_windows:` report).
 - **APIs that raise `FrameTooLongError`** (not yet audited, #480): `Registration.register`, `Agg`, the behavioral-health writers,
   `Vital` and `Measurement` writes, and any caller of `call_rpc` directly. Wrapping long note text instead of refusing it is #479;

@@ -139,6 +139,10 @@ module RpmsRpc
     #     :agg_rejected / :hrn_file_failed
     #   nil                                             — no add response
     #
+    # Raises Client::FrameTooLongError if a value cannot be framed on the wire
+    # (XWB over 999 bytes, BMX over 512); this multi-RPC method is not yet
+    # audited for that rule (#480), so a lookup or add may already have run.
+    #
     # It sends what AG's window takes and files nothing around it. A value
     # AG's window has no parameter for is not sent, and the result names it,
     # so a caller cannot mistake it for filed (rpms-rpc#297):
