@@ -225,6 +225,17 @@ class RpmsRpc::ReplyEndToEndTest < Minitest::Test
     assert_raises(NoMethodError) { RpmsRpc::Reply.new([ "caf\xE9".b ]) }
   end
 
+  def test_a_copy_of_a_reply_is_a_plain_array_never_a_mutable_reply_with_stale_indexes
+    reply = RpmsRpc::Reply.from_wire([ "hdr", "caf\xE9".b, "ok" ])
+
+    [ reply.dup, reply.clone ].each do |copy|
+      assert_instance_of Array, copy, "a copy of a Reply must not be a mutable Reply"
+      copy.shift
+      assert_equal false, RpmsRpc::Reply.altered?(copy)
+    end
+    assert_equal [ 1 ], reply.altered_lines, "the original is untouched"
+  end
+
   def test_altered_is_false_for_things_that_are_not_replies
     assert_equal false, RpmsRpc::Reply.altered?([ "caf\xE9".b ])
     assert_equal false, RpmsRpc::Reply.altered?("plain")
