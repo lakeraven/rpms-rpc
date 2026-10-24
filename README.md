@@ -219,6 +219,63 @@ RpmsRpc.configure { |c| c.unsafe_raw_errors = true }
 
 Leave this off in production.
 
+### Reply encoding
+
+Every reply `call_rpc` returns, on XWB, BMX, CIA and `MockClient`, is an
+`RpmsRpc::Reply`: an `Array` of **UTF-8, `valid_encoding?`** Strings, so
+`first`, `map`, `join` and indexing work as before and joining a line with a
+UTF-8 literal no longer raises `Encoding::CompatibilityError`.
+
+Bytes that are not valid UTF-8 are replaced with U+FFFD, and the reply says
+so:
+
+```ruby
+reply = client.call_rpc("ORQQAL LIST", dfn)
+reply.altered?        # => true when any line had to be altered
+reply.altered_lines   # => zero-based indexes of those lines
+RpmsRpc::Reply.altered?(x)  # false for anything that is not an altered Reply
+```
+
+**Charset: assumed UTF-8, UNPROVEN.** Latin-1 is observed in stored data
+(`conformance/build_surface.rb`, the `\xB7` bullet in the `bcer-9.0-20260930`
+RPC descriptions; `api/patient.rb` notes non-UTF-8 name bytes), so real
+Latin-1 text is replaced and reported as altered. No site or broker character
+set is documented in this repository; a live read with a known high byte is the
+follow-up that settles it.
+
+Altered text must never read as verified identity: a host that matches on reply
+text (an allergen name, a patient name) must check `altered?` and refuse an
+altered line.
+
+**What reaches a host, and where the flag lives**
+
+- `RpmsRpc::Allergy.assessment` / `.for_patient` and `RpmsRpc::Patient.lookup`
+  put `altered: true|false` on **every row** they return. It is true when any
+  text of that row had a byte replaced. Two allergens that differ only in a
+  byte the gem replaced read identically, and each says `altered: true`: refuse
+  them. The key is additive; no existing key changed.
+- A reply that arrives as one blob (a CIA `call_rpc_global_array` read, a bare
+  String seed in `MockClient`) is an `RpmsRpc::Reply::Text`: a valid-UTF-8
+  **String** that answers `altered?`. `RpmsRpc::Reply.altered?(x)` is the safe
+  check for either kind.
+- A `Reply` and its lines are **frozen** and a `Reply` is built only through
+  `Reply.from_wire`. `shift`, `<<` and `clear` raise, because they would leave
+  `altered_lines` pointing at the wrong line. `Reply.from_wire(reply)` keeps the
+  alterations the reply already carries.
+- Every non-mutating transform returns a plain `Array`/`String` and drops the
+  flag: `map`, `select`, `reject`, `+`, `-`, `&`, `|`, `*`, `[]`, `slice`,
+  `first`, `last`, `take`, `drop`, `reverse`, `rotate`, `sort`, `sort_by`, `uniq`,
+  `compact`, `flatten`, `zip`, `each_slice`, and `String#split`. Ask the reply
+  first, or carry `RpmsRpc::Reply.altered?(reply)` forward yourself.
+- Other API modules that return identity-bearing text (names, identifiers) go
+  through `DataMapper` and do **not** yet carry the flag; the follow-up issue
+  lists them. Until then, call `client.call_rpc_lines` and check the reply
+  yourself before trusting their text.
+
+On CIA, control characters (and DEL) in a line have always become a space; they
+still do, and that is now reported as altered too. Valid non-ASCII text is no
+longer turned into spaces.
+
 ## RPC coverage against a backend (the headline number)
 
 The coverage number is measured against **one backend's registry**, not against allowlists

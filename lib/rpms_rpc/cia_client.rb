@@ -345,7 +345,7 @@ module RpmsRpc
     # header as its only row.
     def call_rpc(rpc_name, *params)
       body = parse_cia_reply(call_rpc_raw(rpc_name, *params))
-      body.split(REPLY_ROW_BREAK).reject { |line| line == RECORDSET_END }.map { |line| printable(line) }
+      Reply.from_wire(body.split(REPLY_ROW_BREAK).reject { |line| line == RECORDSET_END }, controls: true)
     end
 
     REPLY_ROW_BREAK = /\r\n|\r|\n|\x1e/
@@ -389,7 +389,10 @@ module RpmsRpc
     def call_rpc_global_array(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
-      exchange("R", terminator: AGG_ARRAY_END) { rpc_frame_fields(rpc_name, params) }
+      # Valid UTF-8 like every other reply (rpms-rpc#463). The framing bytes
+      # ($C(0), $C(30), $C(31)) are valid UTF-8 and are kept; only an invalid
+      # byte is replaced, and the returned Text says so (Reply.altered?).
+      Reply.text(exchange("R", terminator: AGG_ARRAY_END) { rpc_frame_fields(rpc_name, params) })
     rescue TimeoutError
       raise_rpc_timeout(rpc_name)
     end
