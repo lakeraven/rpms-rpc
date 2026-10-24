@@ -42,6 +42,10 @@ module RpmsRpc
         ien: saved_ien,
         raw: raw
       }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A value the wire would mis-frame is refused before anything is sent
+      # (#472); the failure shape says why instead of raising.
+      failure.merge(error: e.message)
     end
 
     private

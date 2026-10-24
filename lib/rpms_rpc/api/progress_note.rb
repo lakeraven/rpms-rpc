@@ -104,6 +104,12 @@ module RpmsRpc
 
       raw = DataMapper.tiu_set_document_text.fetch_scalar(note_ien.to_s, text_list(text))
       { success: first_piece(raw) == note_ien.to_i.to_s, raw: raw }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # The wire refused a value it would have mis-framed (#472); nothing was
+      # sent. update_text is the second call of create-then-update, so a host
+      # that already created the note holds an empty one (#480): say which line
+      # and why instead of raising past it.
+      { success: false, raw: nil, error: too_long_reason(text, e) }
     end
 
     # UNLOCK(ERR,TIUDA) (TIUSRVP.m:214-215): always ERR=0.
@@ -115,9 +121,22 @@ module RpmsRpc
 
     private
 
-    def text_list(text)
+    def text_lines(text)
       lines = text.to_s.split(/\r?\n/, -1)
       lines.pop if lines.length > 1 && lines.last.empty?
+      lines
+    end
+
+    # "line 2 is 1006 bytes ..." for the first line the wire refused.
+    def too_long_reason(text, error)
+      index = text_lines(text).index { |line| line.bytesize > 999 }
+      return error.message if index.nil?
+
+      "line #{index + 1} is #{text_lines(text)[index].bytesize} bytes; a note line over 999 bytes cannot be sent (#{error.message})"
+    end
+
+    def text_list(text)
+      lines = text_lines(text)
       lines.each_with_index.with_object({ "HDR" => "1^1" }) do |(line, i), tiux|
         tiux[[ "TEXT", i + 1, 0 ]] = line
       end
