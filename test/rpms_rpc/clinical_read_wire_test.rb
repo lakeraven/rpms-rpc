@@ -172,4 +172,95 @@ class ClinicalReadWireTest < Minitest::Test
     assert_equal 1, rows.length
     assert_equal "PENICILLIN", rows.first[:allergen]
   end
+
+  # -- Allergy.assessment: a sentinel is only meaningful as the SOLE data line --
+  # LIST^ORQQAL (ORQQAL.m:7-16, pinned build bcer-9.0-ydb and the FOIA copy)
+  # sets GMRARXN to "", 0 or 1 — three mutually exclusive branches. The
+  # "^No Allergy Assessment" and "^No Known Allergies" markers are written to
+  # ORAY(1) only in the first two branches, and allergy rows only in the third,
+  # so a real reply is EITHER one sentinel line OR rows. A reply that mixes a
+  # sentinel with other data cannot come from ORQQAL itself: it is a corrupted
+  # or concatenated reply, and must never read as verified absence (absence of
+  # data is never verification). The allergies in it are real data and stay.
+
+  PENICILLIN_ROW = "667^PENICILLIN^SEVERE^HIVES"
+
+  def test_nka_sentinel_plus_a_real_row_is_not_verified_absence
+    stub_broker_response([ "^No Known Allergies", PENICILLIN_ROW ])
+
+    result = RpmsRpc::Allergy.assessment("42")
+    refute result[:nka], "a reply that also carries an allergy row must not read as no-known-allergies"
+    assert result[:assessed], "rows on file are an assessed state"
+    assert_equal [ "PENICILLIN" ], result[:allergies].map { |a| a[:allergen] }
+    assert_equal true, result[:conflict], "the contradictory reply is flagged"
+  end
+
+  def test_nka_sentinel_after_a_real_row_is_not_verified_absence
+    stub_broker_response([ PENICILLIN_ROW, "^No Known Allergies" ])
+
+    result = RpmsRpc::Allergy.assessment("42")
+    refute result[:nka]
+    assert_equal [ "PENICILLIN" ], result[:allergies].map { |a| a[:allergen] }
+    assert_equal true, result[:conflict]
+  end
+
+  def test_not_assessed_sentinel_plus_a_real_row_keeps_the_row
+    stub_broker_response([ "^No Allergy Assessment", PENICILLIN_ROW ])
+
+    result = RpmsRpc::Allergy.assessment("42")
+    refute result[:nka]
+    assert result[:assessed]
+    assert_equal [ "PENICILLIN" ], result[:allergies].map { |a| a[:allergen] },
+      "a real allergy must not be dropped because a not-assessed marker rode along"
+    assert_equal true, result[:conflict]
+  end
+
+  def test_two_nka_sentinels_are_not_verified_absence
+    stub_broker_response([ "^No Known Allergies", "^No Known Allergies" ])
+
+    result = RpmsRpc::Allergy.assessment("42")
+    refute result[:nka], "ORQQAL writes the marker once; a repeated marker is a corrupted reply"
+    refute result[:assessed]
+    assert_equal [], result[:allergies]
+    assert_equal true, result[:conflict]
+  end
+
+  def test_nka_and_not_assessed_together_are_not_verified_absence
+    stub_broker_response([ "^No Known Allergies", "^No Allergy Assessment" ])
+
+    result = RpmsRpc::Allergy.assessment("42")
+    refute result[:nka]
+    refute result[:assessed]
+    assert_equal [], result[:allergies]
+    assert_equal true, result[:conflict]
+  end
+
+  def test_for_patient_returns_the_rows_of_a_mixed_reply
+    stub_broker_response([ "^No Known Allergies", PENICILLIN_ROW ])
+
+    assert_equal [ "PENICILLIN" ], RpmsRpc::Allergy.for_patient("42").map { |a| a[:allergen] }
+  end
+
+  # Guards: these already hold and must keep holding.
+
+  def test_nka_sentinel_with_blank_lines_around_it_is_still_verified_absence
+    stub_broker_response([ "^No Known Allergies", "", "  " ])
+
+    assert_equal({ assessed: true, nka: true, allergies: [] }, RpmsRpc::Allergy.assessment("42"),
+      "blank trailer lines are not data; a clean NKA reply carries no conflict key")
+  end
+
+  def test_clean_replies_carry_no_conflict_key
+    [ [ "^No Known Allergies" ], [ "^No Allergy Assessment" ], [ PENICILLIN_ROW ] ].each do |lines|
+      stub_broker_response(lines)
+      refute_includes RpmsRpc::Allergy.assessment("42").keys, :conflict, "#{lines.inspect} is not contradictory"
+    end
+  end
+
+  def test_garbled_sentinels_are_never_verified_absence
+    [ [ "^No Known Allergies " ], [ "^no known allergies" ], [ "-1^error" ], [ "^No allergies found." ], [] ].each do |lines|
+      stub_broker_response(lines)
+      refute RpmsRpc::Allergy.assessment("42")[:nka], "#{lines.inspect} must not read as verified absence"
+    end
+  end
 end
