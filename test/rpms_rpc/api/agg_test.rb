@@ -149,6 +149,35 @@ class AggTest < Minitest::Test
     assert_equal "MANDATORY", result[:checks].last[:type]
   end
 
+  # CHK^AGGEDCHK (AGGEDCHK.m) takes AGPATDFN — the patient DFN — as its only param.
+  def test_edit_check_sends_dfn_as_the_only_parameter
+    @mock.seed(:agg_patient_edit_check, "42",
+      "I00010HIDE_ERROR_NUM^T00030MSG^T00001TYPE#{RS}#{US}")
+
+    Agg.edit_check(dfn: 42)
+
+    call = @mock.received_calls.find { |c| c[:rpc] == "AGG PATIENT EDIT CHECK" }
+    assert_equal "AGG PATIENT EDIT CHECK", call[:rpc]
+    assert_equal [ "42" ], call[:params]
+  end
+
+  def test_edit_check_nil_on_empty_reply
+    result = Agg.edit_check(dfn: 9)
+
+    assert_nil result
+    refute_equal({ checks: [] }, result, "empty broker reply is not 'no problems found'")
+  end
+
+  # A broker error reply (\x01 flag) raises through the client's reply grammar; it is never
+  # read as an empty validation battery.
+  def test_edit_check_raises_when_the_broker_answers_with_an_error
+    erroring = Class.new do
+      def call_rpc_global_array(*) = raise(RpmsRpc::Client::RpcError, "AGG PATIENT EDIT CHECK: error 4")
+    end.new
+
+    assert_raises(RpmsRpc::Client::RpcError) { Agg.edit_check(dfn: 9, client: erroring) }
+  end
+
   # -- available? (CANRUN registry evidence, no side effects) ----------------
 
   def test_available_true_when_canrun_reports_one

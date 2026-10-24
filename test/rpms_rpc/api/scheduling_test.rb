@@ -316,6 +316,54 @@ class SchedulingTest < Minitest::Test
                  RpmsRpc.client.received_calls.last[:params].first
   end
 
+  # SEARCH^BSDX24 params (BSDX24.m): RESOURCE_NAMES^START^END^ACCESS_TYPES^AMPM^WEEKDAYS.
+  # Optional filters are sent as empty strings when omitted.
+  def test_availability_sends_the_full_parameter_list
+    RpmsRpc.client.seed_collection(:scheduling_availability, [])
+
+    start_d = Date.new(2026, 8, 12)
+    end_d = Date.new(2026, 8, 19)
+    RpmsRpc::Scheduling.availability(
+      resources: [ "PEDIATRICIAN,DEMO", "FUNAKOSHI,GICHIN" ],
+      start_date: start_d, end_date: end_d,
+      access_types: "ROUTINE|URGENT", ampm: "AM", weekdays: "1|2|3"
+    )
+
+    assert_equal [
+      "PEDIATRICIAN,DEMO|FUNAKOSHI,GICHIN",
+      RpmsRpc::FilemanDateParser.to_fileman(start_d),
+      RpmsRpc::FilemanDateParser.to_fileman(end_d),
+      "ROUTINE|URGENT", "AM", "1|2|3"
+    ], RpmsRpc.client.received_calls.last[:params]
+
+    RpmsRpc.client.received_calls.clear
+    RpmsRpc::Scheduling.availability(
+      resources: "PEDIATRICIAN,DEMO",
+      start_date: start_d, end_date: end_d
+    )
+
+    assert_equal [
+      "PEDIATRICIAN,DEMO",
+      RpmsRpc::FilemanDateParser.to_fileman(start_d),
+      RpmsRpc::FilemanDateParser.to_fileman(end_d),
+      "", "", ""
+    ], RpmsRpc.client.received_calls.last[:params]
+  end
+
+  def test_availability_empty_reply_returns_no_blocks
+    stub_broker_response([
+      "T00030RESOURCENAME^D00030DATE^T00030ACCESSTYPE^T00030COMMENT\u001E",
+      ""
+    ])
+
+    blocks = RpmsRpc::Scheduling.availability(
+      resources: "PEDIATRICIAN,DEMO",
+      start_date: Date.new(2026, 9, 1), end_date: Date.new(2026, 9, 30)
+    )
+
+    assert_equal [], blocks
+  end
+
   def test_availability_rejects_pipe_in_resource_name
     err = assert_raises(ArgumentError) do
       RpmsRpc::Scheduling.availability(
@@ -415,6 +463,42 @@ class SchedulingTest < Minitest::Test
 
     assert_equal 44, setup.first[:location_ien]
     assert_equal 2, setup.first[:max_overbooks]
+  end
+
+  # CLNSET^BSDX32 header (BSDX32.m / mapping comment): I HOSPITAL_LOCATION_ID ^
+  # T HOSPITAL_LOCATION ^ T CREATE_VISIT ^ T VISIT_SERVICE_CATEGORY ^
+  # T MULTIPLE_CLINIC_CODES_USED? ^ T VISIT_PROVIDER_REQUIRED ^
+  # T GENERATE_PCCPLUS_FORMS? ^ T MAX_OVERBOOKS. Params: (none).
+  CLINIC_SETUP_HEADER =
+    "I00010HOSPITAL_LOCATION_ID^T00030HOSPITAL_LOCATION^T00030CREATE_VISIT^" \
+    "T00030VISIT_SERVICE_CATEGORY^T00030MULTIPLE_CLINIC_CODES_USED?^" \
+    "T00030VISIT_PROVIDER_REQUIRED^T00030GENERATE_PCCPLUS_FORMS?^T00010MAX_OVERBOOKS\u001E"
+
+  def test_clinic_setup_parses_wire_recordset_regression
+    stub_broker_response([
+      CLINIC_SETUP_HEADER,
+      "44^PEDIATRIC CLINIC^YES^A^NO^YES^NO^2\u001E",
+      ""
+    ])
+
+    setup = RpmsRpc::Scheduling.clinic_setup
+
+    assert_equal 1, setup.size
+    row = setup.first
+    assert_equal 44, row[:location_ien]
+    assert_equal "PEDIATRIC CLINIC", row[:location]
+    assert_equal "YES", row[:create_visit]
+    assert_equal "A", row[:visit_service_category]
+    assert_equal "NO", row[:multiple_clinic_codes]
+    assert_equal "YES", row[:visit_provider_required]
+    assert_equal "NO", row[:generate_pccplus_forms]
+    assert_equal 2, row[:max_overbooks]
+  end
+
+  def test_clinic_setup_empty_reply_returns_no_rows
+    stub_broker_response([ CLINIC_SETUP_HEADER, "" ])
+
+    assert_equal [], RpmsRpc::Scheduling.clinic_setup
   end
 
   # -- BSDXRPC context binding (rpms-rpc#258) --------------------------------
