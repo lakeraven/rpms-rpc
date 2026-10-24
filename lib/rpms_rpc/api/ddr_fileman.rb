@@ -48,6 +48,10 @@ module RpmsRpc
                       .to_h { |md| [ md[1].to_i, md[2] ] }
       errors = error_block(reply)
       { success: errors.empty?, iens: resolved, errors: errors }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A value the wire would mis-frame is refused before anything is sent
+      # (#472): nothing was filed, and the errors array says why.
+      { success: false, iens: {}, errors: [ e.message ] }
     end
 
     def filer_params(mode:, rows:, iens: {}, flags: "")
