@@ -67,6 +67,10 @@ module RpmsRpc
       raw = RpmsRpc.client.call_rpc(DataMapper.problem_remove.rpc_name, "#{ien}^^#{reason}")
       success = raw.is_a?(String) && !raw.match?(/\A-\d+(?:\.\d+)?\^/)
       { success: success, ien: success ? ien.to_i : nil, raw: raw }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A value the wire would mis-frame is refused before anything is sent
+      # (#472); this API's contract is a failure hash, so it says why.
+      failure.merge(error: e.message)
     end
 
     # ORQQPL stock-VistA reads. Use these when the engine wants the
@@ -176,6 +180,10 @@ module RpmsRpc
         ien: saved_ien,
         raw: raw
       }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A value the wire would mis-frame is refused before anything is sent
+      # (#472); this API's contract is a failure hash, so it says why.
+      failure.merge(error: e.message)
     end
 
     def build_p_line(fields)

@@ -55,6 +55,10 @@ module RpmsRpc
       raw = RpmsRpc.client.call_rpc(DataMapper.refusal_set.rpc_name, inp)
       success = raw.is_a?(String) && !raw.match?(/\A-\d+(?:\.\d+)?\^/)
       { success: success, ien: nil, raw: raw }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A value the wire would mis-frame is refused before anything is sent
+      # (#472); the failure shape says why instead of raising.
+      failure.merge(error: e.message)
     end
 
     # Valid refusal reasons for a refusal type (default "IMMUNIZATION" —

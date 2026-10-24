@@ -108,6 +108,9 @@ module RpmsRpc
     #   nil when the add gives no response. A missing lookup response is
     #   :identity_unverifiable and never authorizes an add. Only literal
     #   allow_duplicate: true overrides reviewed lookup candidates.
+    #
+    # Raises Client::FrameTooLongError for a value the wire cannot frame
+    # (see Registration.register, #480).
     def register(attrs)
       Registration.register(attrs)
     end
