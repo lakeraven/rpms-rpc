@@ -200,6 +200,22 @@ RpmsRpc::Authentication.held_keys(%w[PROVIDER XUPROGMODE])
 | `RpmsRpc::UserRoles`           | Role-based authorization (provider, nurse, etc.) (deprecated, #359) |
 | `RpmsRpc::Capabilities`        | Feature-gated permission checks (deprecated, #359)                  |
 
+### Request size limits (#472)
+
+A request the wire cannot frame is refused before that request is sent, with a `Client::FrameTooLongError` (an `RpmsRpc::Error`):
+`XwbClient::LpackTooLongError` for an XWB value over 999 **bytes** (the `[XWB]1130` header fixes the length at 3 digits), and
+`BmxClient::RequestTooLongError` for a BMX request over 512 bytes (`BMXMBRK` cuts a request there). The connection stays usable.
+CIA has no such limit.
+
+API methods whose contract is a failure hash catch it and answer with that hash plus an `:error` naming the limit (never the value;
+only `ProgressNote.update_text` also names the line, and `Registration.update`'s byte count is the whole joined window): the visit writes (`ProgressNote.update_text`, `ExamComponent`, `HealthFactor`, `Pov`, `Procedure`,
+`ImmunizationRefusal`), `Problem` add/update/delete, `ESignature.remove`, the `Scheduling` writes, `Registration.update`
+(`error: :frame_too_long` with `filed_windows:`), `Referral`'s BMC writers and `DdrFileman.filer`. `Referral`'s refusal hash carries
+`:error`, where a broker-side failure carries `:message` and `:raw` only, so a caller that branches on `:message` must also check
+`:error`. The rest let the error propagate and are not yet audited (#480); `Registration.register` and `Patient.register` raise it.
+On a real session an API may already have bound its context before the refused write, which changes no record. A host that creates a record and then updates it (create, then `update_text`) still
+holds the first record after a refusal; a pre-check is tracked in #480 and wrapping long note text in #479.
+
 ### Exception-message sanitization
 
 The gem doesn't emit internal logs of its own; the PHI risk vector is

@@ -138,12 +138,24 @@ module RpmsRpc
       bytes.bytesize.chr.b + bytes
     end
 
-    # L-PACK: zero-padded length + value (3-digit for <=999 bytes,
-    # 5-digit for >999 bytes). Length is always counted in BYTES.
+    # LpackTooLongError: a value does not fit the 3-digit L-PACK width below.
+    class LpackTooLongError < FrameTooLongError; end
+
+    # L-PACK: zero-padded length + value, always 3 digits. The [XWB]1130
+    # header declares width 3 (XWBPRS.m `XWBENVL=+$E(P,3)`, and LREAD reads
+    # exactly that many digits), so a longer length written in 5 digits would be
+    # read as 3 and the rest taken as protocol. Length is counted in BYTES.
+    # Refusing a value over 999 bytes is this client's policy under the 3-digit
+    # header, not a limit of the protocol: the width is one header digit the
+    # client chooses, and a `[XWB]1150` header would carry 5-digit lengths on
+    # this broker. We keep the header and refuse, because silent mis-framing was
+    # the defect (#472).
     def lpack(value)
       bytes = value.to_s.b
-      width = bytes.bytesize > 999 ? 5 : 3
-      (format("%0#{width}d", bytes.bytesize) + bytes).b
+      if bytes.bytesize > 999
+        raise LpackTooLongError, "L-PACK value exceeds 999 bytes (#{bytes.bytesize}); the XWB header [XWB]1130 frames each value with 3 length digits"
+      end
+      (format("%03d", bytes.bytesize) + bytes).b
     end
 
     # Build TCPConnect command message — uses command token "4"
