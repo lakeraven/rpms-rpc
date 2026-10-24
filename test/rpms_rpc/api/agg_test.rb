@@ -165,11 +165,27 @@ class AggTest < Minitest::Test
     result = Agg.edit_check(dfn: 9)
 
     assert_nil result
-    refute_equal({ checks: [] }, result, "empty broker reply is not 'no problems found'")
   end
 
-  # A broker error reply (\x01 flag) raises through the client's reply grammar; it is never
-  # read as an empty validation battery.
+  def test_edit_check_maps_all_seven_wire_columns
+    @mock.seed(:agg_patient_edit_check, "9",
+      "I00010HIDE_ERROR_NUM^T00030MSG^T00001TYPE^T00030HIDE_WINDOW^" \
+      "T00008HIDE_FIELD^T00050HIDE_TAB^T00001HIDE_KEY#{RS}" \
+      "37^INTERNET ACCESS^WARNING^REG^AGGPTCI^PATIENT TAB^1#{RS}#{US}")
+
+    result = Agg.edit_check(dfn: 9)
+
+    check = result[:checks].first
+    assert_equal "37", check[:hide_error_num]
+    assert_equal "INTERNET ACCESS", check[:msg]
+    assert_equal "WARNING", check[:type]
+    assert_equal "REG", check[:hide_window]
+    assert_equal "AGGPTCI", check[:hide_field]
+    assert_equal "PATIENT TAB", check[:hide_tab]
+    assert_equal "1", check[:hide_key]
+  end
+
+  # When the client raises RpcError (broker refusal), edit_check does not swallow it.
   def test_edit_check_raises_when_the_broker_answers_with_an_error
     erroring = Class.new do
       def call_rpc_global_array(*) = raise(RpmsRpc::Client::RpcError, "AGG PATIENT EDIT CHECK: error 4")

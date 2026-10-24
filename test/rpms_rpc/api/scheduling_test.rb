@@ -364,6 +364,20 @@ class SchedulingTest < Minitest::Test
     assert_equal [], blocks
   end
 
+  def test_availability_raises_when_the_broker_answers_with_an_error
+    erroring = Class.new do
+      def call_rpc(*) = raise(RpmsRpc::Client::RpcError, "BSDX SEARCH AVAILABILITY: error 4")
+    end.new
+    RpmsRpc.configure { |cfg| cfg.client = erroring }
+
+    assert_raises(RpmsRpc::Client::RpcError) do
+      RpmsRpc::Scheduling.availability(
+        resources: "PEDIATRICIAN,DEMO",
+        start_date: Date.new(2026, 8, 12), end_date: Date.new(2026, 8, 19)
+      )
+    end
+  end
+
   def test_availability_rejects_pipe_in_resource_name
     err = assert_raises(ArgumentError) do
       RpmsRpc::Scheduling.availability(
@@ -499,6 +513,15 @@ class SchedulingTest < Minitest::Test
     stub_broker_response([ CLINIC_SETUP_HEADER, "" ])
 
     assert_equal [], RpmsRpc::Scheduling.clinic_setup
+  end
+
+  def test_clinic_setup_raises_when_the_broker_answers_with_an_error
+    erroring = Class.new do
+      def call_rpc(*) = raise(RpmsRpc::Client::RpcError, "BSDX CLINIC SETUP: error 4")
+    end.new
+    RpmsRpc.configure { |cfg| cfg.client = erroring }
+
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Scheduling.clinic_setup }
   end
 
   # -- BSDXRPC context binding (rpms-rpc#258) --------------------------------
