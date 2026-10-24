@@ -40,9 +40,16 @@ class RpmsRpc::XwbClientTest < Minitest::Test
 
   def test_lpack_raises_when_value_exceeds_999_bytes
     long = "x" * 1000
-    error = assert_raises(ArgumentError) { Client.new.lpack(long) }
+    error = assert_raises(RpmsRpc::XwbClient::LpackTooLongError) { Client.new.lpack(long) }
     assert_match(/1000/, error.message)
     assert_match(/999/, error.message)
+  end
+
+  def test_lpack_refusal_is_a_typed_rpms_rpc_error_not_an_argument_error
+    error = assert_raises(RpmsRpc::XwbClient::LpackTooLongError) { Client.new.lpack("x" * 1000) }
+    assert_kind_of RpmsRpc::Error, error
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, error
+    refute_kind_of ArgumentError, error
   end
 
   def test_lpack_accepts_exactly_999_bytes_with_three_digit_width
@@ -122,7 +129,7 @@ class RpmsRpc::XwbClientTest < Minitest::Test
   def test_lpack_raises_for_multibyte_value_over_999_bytes
     # 500 multibyte chars × 2 bytes = 1000 bytes (byte count, not character count)
     long = "é" * 500
-    error = assert_raises(ArgumentError) { Client.new.lpack(long) }
+    error = assert_raises(RpmsRpc::XwbClient::LpackTooLongError) { Client.new.lpack(long) }
     assert_match(/1000/, error.message)
     assert_match(/999/, error.message)
   end
@@ -130,13 +137,13 @@ class RpmsRpc::XwbClientTest < Minitest::Test
   def test_build_rpc_message_raises_for_literal_over_999_bytes
     client = Client.new
     long = "x" * 1000
-    assert_raises(ArgumentError) { client.build_rpc_message("ECHO", [ client.literal_param(long) ]) }
+    assert_raises(RpmsRpc::XwbClient::LpackTooLongError) { client.build_rpc_message("ECHO", [ client.literal_param(long) ]) }
   end
 
   def test_build_rpc_message_raises_for_list_key_over_999_bytes
     client = Client.new
     long_key = "k" * 1000
-    assert_raises(ArgumentError) do
+    assert_raises(RpmsRpc::XwbClient::LpackTooLongError) do
       client.build_rpc_message("ECHO", [ client.list_param([ [ long_key, "v" ] ]) ])
     end
   end
@@ -144,7 +151,7 @@ class RpmsRpc::XwbClientTest < Minitest::Test
   def test_build_rpc_message_raises_for_list_value_over_999_bytes
     client = Client.new
     long_val = "v" * 1000
-    assert_raises(ArgumentError) do
+    assert_raises(RpmsRpc::XwbClient::LpackTooLongError) do
       client.build_rpc_message("ECHO", [ client.list_param([ [ "k", long_val ] ]) ])
     end
   end
@@ -284,7 +291,7 @@ class XwbClientLpackRefusalTest < Minitest::Test
     c = RpmsRpc::XwbClient.new
     c.instance_variable_set(:@socket, sock)
     c.instance_variable_set(:@connected, true)
-    assert_raises(ArgumentError) { c.call_rpc("ECHO", "x" * 1000) }
+    assert_raises(RpmsRpc::XwbClient::LpackTooLongError) { c.call_rpc("ECHO", "x" * 1000) }
     assert_empty sock.writes
   end
 end
