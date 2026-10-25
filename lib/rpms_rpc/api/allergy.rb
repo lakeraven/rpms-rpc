@@ -19,7 +19,11 @@ module RpmsRpc
     MARKERS               = [ NOT_ASSESSED_SENTINEL, NKA_SENTINEL ].freeze
 
     # Allergy records only. An NKA or unassessed patient yields [] —
-    # callers that need to tell those apart must use {assessment}.
+    # callers that need to tell those apart must use {assessment}. The rows
+    # of a conflicting reply (a marker beside other data) are returned too,
+    # because hiding a possible allergy is unsafe; this method cannot tell a
+    # verified list from a conflicting one, so a host that must make that
+    # distinction MUST use {assessment} and read :assessed and :conflict.
     def for_patient(dfn)
       assessment(dfn)[:allergies]
     end
@@ -39,11 +43,19 @@ module RpmsRpc
     # exclusive branches — and writes the not-assessed / NKA marker to
     # ORAY(1) only in the two branches that write no allergy rows. A real
     # reply is therefore ONE marker line OR rows, never both. A reply that
-    # mixes a marker with other data (or repeats a marker) is corrupted or
-    # concatenated: it is never verified absence. The result then carries
-    # `conflict: true`; any real allergy rows in it are returned (they are
-    # data, and must not be dropped because a marker rode along), and with
-    # no rows it reads as not-assessed. Clean replies carry no :conflict key.
+    # mixes a marker with other data (or repeats a marker) is the signature
+    # of a broker desync or a concatenated reply: its rows may belong to
+    # another call (or patient), or the list may be truncated. It is never
+    # vouched for:
+    #   { assessed: false, nka: false, allergies: [...], conflict: true }
+    # ALWAYS assessed: false, never nka. The parsed rows are still returned
+    # — hiding a possible allergy is the other unsafe direction — but they
+    # are never presented as an assessed, complete record. With no rows it is
+    # the same shape with allergies: [], which keeps the method's fail-safe
+    # (no evidence => not assessed). Clean replies carry no :conflict key.
+    # Hosts that must tell a verified list from a conflicting one MUST use
+    # {assessment} and read :assessed and :conflict; {for_patient} returns the
+    # rows either way.
     def assessment(dfn)
       mapping = DataMapper[:allergy_list]
       response = RpmsRpc.client.call_rpc(mapping.rpc_name, dfn.to_s)
@@ -62,11 +74,11 @@ module RpmsRpc
 
     private
 
-    # A marker next to other data (or twice): see {assessment}. Rows win over
-    # the marker; with no rows the reply is not verified absence.
+    # A marker next to other data (or twice): see {assessment}. The rows stay
+    # available, but the reply is never vouched for: assessed is always false
+    # and nka is always false, whatever the rows are.
     def contradictory(mapping, lines)
-      allergies = mapping.parse_many(lines)
-      { assessed: !allergies.empty?, nka: false, allergies: allergies, conflict: true }
+      { assessed: false, nka: false, allergies: mapping.parse_many(lines), conflict: true }
     end
 
     def response_lines(response)
