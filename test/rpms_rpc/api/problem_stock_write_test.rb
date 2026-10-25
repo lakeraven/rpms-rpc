@@ -128,7 +128,7 @@ class ProblemStockWriteTest < Minitest::Test
     add_values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
     quote_line = add_values.find { |line| line.start_with?('GMPFLD(.05)="') }
     assert_equal 'GMPFLD(.05)="say ""hi"""', quote_line
-    assert_balanced_gmpfld_literal(add_values.first)
+    assert_balanced_gmpfld_literal(quote_line)
 
     RpmsRpc.reset!
     RpmsRpc.mock! do |m|
@@ -743,7 +743,8 @@ class ProblemStockWriteTest < Minitest::Test
       fields: routine_valid_add_fields(".01" => at_limit)
     )
     assert result[:success]
-    add_line = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3]).first
+    add_values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
+    add_line = add_values.find { |v| v.start_with?('GMPFLD(.01)="') }
     assert_equal 999, add_line.bytesize
     assert_equal built_gmpfld_line(".01", at_limit), add_line
 
@@ -756,7 +757,8 @@ class ProblemStockWriteTest < Minitest::Test
       fields: routine_valid_add_fields(".01" => utf8_at_limit)
     )
     assert result[:success]
-    utf8_line = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3]).first
+    utf8_values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
+    utf8_line = utf8_values.find { |v| v.start_with?('GMPFLD(.01)="') }
     assert_equal 999, utf8_line.bytesize
 
     RpmsRpc.client.received_calls.clear
@@ -783,7 +785,7 @@ class ProblemStockWriteTest < Minitest::Test
     )
     assert result[:success]
     edit_values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][4])
-    orig_line = edit_values.find { |v| v.start_with?("GMPORIG") }
+    orig_line = edit_values.find { |v| v.start_with?('GMPORIG(.05)="') }
     assert_equal 999, orig_line.bytesize
   end
 
