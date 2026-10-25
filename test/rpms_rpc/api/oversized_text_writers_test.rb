@@ -158,6 +158,53 @@ class OversizedTextWritersTest < Minitest::Test
     assert_equal({ success: false, ien: nil, raw: nil }, result.slice(:success, :ien, :raw))
   end
 
+  def test_problem_add_stock_returns_its_failure_shape_over_xwb
+    use_xwb
+    fields = {
+      ".01" => "5042",
+      "1.01" => "1^Unresolved",
+      ".05" => XWB_TEXT,
+      ".12" => "A",
+      ".13" => "1"
+    }
+    result = RpmsRpc::Problem.add_stock("8791", provider_duz: "301", vamc: "7", fields: fields)
+    assert_equal false, result[:success]
+    assert_equal :frame_too_long, result[:error]
+    assert_match(/999/, result[:message].to_s)
+    refute_includes result[:message].to_s, XWB_TEXT
+    assert_equal({ success: false, ien: nil, raw: nil }, result.slice(:success, :ien, :raw))
+    assert_empty @socket.writes
+  end
+
+  def test_problem_update_stock_returns_its_failure_shape_over_xwb
+    use_xwb
+    originals = {
+      ".01" => "5042",
+      "1.01" => "1^Unresolved",
+      ".05" => "1^Synthetic problem narrative",
+      ".12" => "A",
+      "1.02" => "T",
+      "80001" => "",
+      "80002" => "",
+      "80003" => "",
+      "80004" => "",
+      "80005" => "",
+      "80201" => "3251025^10/25/2025",
+      "80202" => "10D^10D"
+    }
+    result = RpmsRpc::Problem.update_stock(
+      "77", provider_duz: "301", vamc: "7",
+      changes: { ".05" => XWB_TEXT },
+      originals: originals
+    )
+    assert_equal false, result[:success]
+    assert_equal :frame_too_long, result[:error]
+    assert_match(/999/, result[:message].to_s)
+    refute_includes result[:message].to_s, XWB_TEXT
+    assert_equal({ success: false, ien: nil, raw: nil }, result.slice(:success, :ien, :raw))
+    assert_empty @socket.writes
+  end
+
   # ORWDX SAVE sends an ORDIALOG list parameter; BMX cannot frame list params.
   def test_order_save_returns_frame_too_long_failure_shape_over_xwb
     limit = use_xwb

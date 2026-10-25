@@ -200,10 +200,12 @@
     "RpmsRpc::Problem": [
       "BGOPROB DEL",
       "BGOPROB SET",
+      "ORQQPL ADD SAVE",
       "ORQQPL AUDIT HIST",
       "ORQQPL CLIN SRCH",
       "ORQQPL DETAIL",
       "ORQQPL EDIT LOAD",
+      "ORQQPL EDIT SAVE",
       "ORQQPL INACTIVATE",
       "ORQQPL INIT PT",
       "ORQQPL LIST",

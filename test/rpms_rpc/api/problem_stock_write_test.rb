@@ -1,0 +1,1079 @@
+# frozen_string_literal: true
+
+require "minitest/autorun"
+require "json"
+require "rpms_rpc"
+require "rpms_rpc/mock_client"
+require "rpms_rpc/api/problem"
+require "rpms_rpc/retry_safety"
+
+# Stock-VistA problem writes via ORQQPL ADD SAVE / ORQQPL EDIT SAVE (ORQQPL1.m).
+# BGOPROB add/update/delete stay on the IHS path (rpms-rpc#457).
+class ProblemStockWriteTest < Minitest::Test
+  ROOT = File.expand_path("../../..", __dir__)
+  REQUIRED_RPCS_PATH = File.join(ROOT, "lib/rpms_rpc/required_rpcs.json")
+
+  DFN = "8791"
+  IEN = "5001"
+  PROVIDER = "301"
+  VAMC = "7"
+
+  STOCK_RESULT_KEYS = %i[success ien raw].freeze
+  STOCK_REFUSAL = { success: false, ien: nil, raw: nil }.freeze
+
+  # GMPLSAVE NEW / EN read these without $G (GMPLSAVE.m:105-113, :141, :15-16, :47-53).
+  ADD_REQUIRED_FIELD_KEYS = %w[.01 1.01 .05 .12 .13].freeze
+  # EN may populate GMPFLD from SNOMED/VHAT/coding metadata, then the edit loop
+  # reads GMPORIG(FLD) with no $G (GMPLSAVE.m:57-60).
+  EDIT_EN_DERIVED_ORIGINAL_KEYS = %w[80001 80002 80003 80004 80005 80201 80202].freeze
+  EDIT_REQUIRED_ORIGINAL_KEYS = (
+    %w[.01 .05 .12 1.01 1.02] + EDIT_EN_DERIVED_ORIGINAL_KEYS
+  ).freeze
+  EDIT_SYNTHETIC_DATE_80201 = "3251025^10/25/2025"
+  EDIT_SYNTHETIC_CODING_80202 = "10D^10D"
+  VALID_TYPE_1_02 = %w[P T H].freeze
+
+  def teardown
+    RpmsRpc.reset!
+  end
+
+  # ADDSAVE(RETURN,GMPDFN,GMPROV,GMPVAMC,ADDARRAY) — stock adds GMPSRCH as a
+  # sixth formal callers must not send; wire exactly four actuals (WorldVistA
+  # ORQQPL1.m:191). Success RETURN=1 (ORQQPL1.m:228); lock failure RETURN=0
+  # (ORQQPL1.m:201).
+  def test_add_stock_dispatches_orqqpl_add_save_with_four_formals_and_gmpfld_list
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+    end
+
+    fields = routine_valid_add_fields(
+      ".01" => "5042",
+      ".05" => "1^Hypertension narrative"
+    )
+    result = RpmsRpc::Problem.add_stock(
+      DFN,
+      provider_duz: PROVIDER,
+      vamc: VAMC,
+      fields: fields,
+      comments: [ "follow-up" ]
+    )
+
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORQQPL ADD SAVE" }
+    refute_nil call
+    assert_equal 4, call[:params].length, "ADDSAVE sends dfn, provider, vamc, list only (ORQQPL1.m:191)"
+    assert_equal [ DFN, PROVIDER, VAMC ], call[:params].first(3)
+
+    values = ordered_list_values(call[:params][3])
+    assert_equal expected_add_list_values(fields, comments: [ "follow-up" ]), values
+    assert_equal (1..values.length).to_a, list_keys(call[:params][3])
+
+    assert result[:success]
+    refute_bgoprob_or_ddr_calls
+  end
+
+  # EDSAVE(RETURN,GMPIFN,GMPROV,GMPVAMC,UT,EDARRAY) — stock adds GMPSRCH;
+  # wire five actuals: problem IEN, provider, vamc, UT, list (ORQQPL1.m:118).
+  def test_update_stock_dispatches_orqqpl_edit_save_with_five_formals_gmpfld_and_gmporig
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    originals = routine_valid_edit_originals(".05" => "1^Old narrative")
+    changes = { ".05" => "1^Updated narrative" }
+    result = RpmsRpc::Problem.update_stock(
+      IEN,
+      provider_duz: PROVIDER,
+      vamc: VAMC,
+      changes: changes,
+      originals: originals,
+      user_type: true,
+      comments: [ "edited in CPRS" ]
+    )
+
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORQQPL EDIT SAVE" }
+    refute_nil call
+    assert_equal 5, call[:params].length, "EDSAVE sends ien, provider, vamc, UT, list (ORQQPL1.m:118)"
+    assert_equal [ IEN, PROVIDER, VAMC, "1" ], call[:params].first(4)
+
+    values = ordered_list_values(call[:params][4])
+    assert_equal expected_edit_list_values(originals, changes, comments: [ "edited in CPRS" ]), values
+    EDIT_REQUIRED_ORIGINAL_KEYS.each do |key|
+      assert_includes values, built_gmporig_line(key, originals.fetch(key)),
+        "GMPORIG(#{key}) must be sent before EN edit loop (GMPLSAVE.m:57-60)"
+    end
+
+    RpmsRpc.reset!
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+    originals_with_10 = routine_valid_edit_originals("10" => "Acute")
+    RpmsRpc::Problem.update_stock(
+      IEN,
+      provider_duz: PROVIDER,
+      vamc: VAMC,
+      changes: { 10 => "Chronic" },
+      originals: originals_with_10,
+      user_type: false
+    )
+    ut_call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORQQPL EDIT SAVE" }
+    assert_equal "0", ut_call[:params][3], 'UT is "0" or "1" (ORQQPL1.m:118)'
+
+    assert result[:success]
+    refute_bgoprob_or_ddr_calls
+  end
+
+  def test_stock_write_doubles_embedded_quotes_and_never_emits_unbalanced_gmpfld_literals
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+    end
+
+    quoted = 'say "hi"'
+    injection = 'x" K ^AUPNPROB S Y="'
+
+    RpmsRpc::Problem.add_stock(
+      DFN,
+      provider_duz: PROVIDER,
+      vamc: VAMC,
+      fields: routine_valid_add_fields(".05" => quoted)
+    )
+    add_values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
+    quote_line = add_values.find { |line| line.start_with?('GMPFLD(.05)="') }
+    assert_equal 'GMPFLD(.05)="say ""hi"""', quote_line
+    assert_balanced_gmpfld_literal(quote_line)
+
+    RpmsRpc.reset!
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+    end
+
+    RpmsRpc::Problem.add_stock(
+      DFN,
+      provider_duz: PROVIDER,
+      vamc: VAMC,
+      fields: routine_valid_add_fields(".05" => injection)
+    )
+    inj_line = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
+      .find { |line| line.start_with?('GMPFLD(.05)="') }
+    assert_equal 'GMPFLD(.05)="x"" K ^AUPNPROB S Y="""', inj_line
+    assert_balanced_gmpfld_literal(inj_line)
+  end
+
+  def test_invalid_field_numbers_values_and_ids_are_refused_before_any_rpc
+    refusal_cases = [
+      -> { RpmsRpc::Problem.add_stock(nil, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => "x" }) },
+      -> { RpmsRpc::Problem.add_stock("0", provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => "x" }) },
+      -> { RpmsRpc::Problem.add_stock(DFN, provider_duz: "0", vamc: VAMC, fields: { ".01" => "x" }) },
+      -> { RpmsRpc::Problem.add_stock(DFN, provider_duz: PROVIDER, vamc: nil, fields: { ".01" => "x" }) },
+      -> { RpmsRpc::Problem.add_stock(DFN, provider_duz: PROVIDER, vamc: VAMC, fields: {}) },
+      -> { RpmsRpc::Problem.add_stock(DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => "ok", "" => "x" }) },
+      -> { RpmsRpc::Problem.add_stock(DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { nil => "x" }) },
+      -> { RpmsRpc::Problem.add_stock(DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { "abc" => "x" }) },
+      -> { RpmsRpc::Problem.add_stock(DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { "1..2" => "x" }) },
+      -> { RpmsRpc::Problem.add_stock(DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01) K ^X S Y(1" => "x" }) },
+      -> { RpmsRpc::Problem.add_stock(DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => "line\nbreak" }) },
+      -> { RpmsRpc::Problem.add_stock(DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => "bad\x00byte" }) },
+      -> { RpmsRpc::Problem.add_stock(DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => :symbol }) },
+      -> {
+        RpmsRpc::Problem.update_stock(
+          nil, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".01" => "x" }, originals: { ".01" => "y" }
+        )
+      },
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { "abc" => "x" }, originals: { ".01" => "y" }
+        )
+      }
+    ]
+
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    refusal_cases.each do |invoke|
+      RpmsRpc.client.received_calls.clear
+      result = invoke.call
+      assert_equal STOCK_REFUSAL, result
+      assert_empty RpmsRpc.client.received_calls, "unsafe input must fail closed before ORQQPL (ORQQPL1.m:160,:120)"
+    end
+  end
+
+  def test_add_stock_integer_field_values_are_coerced_to_strings_on_the_wire
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+    end
+
+    fields = routine_valid_add_fields(".01" => 12_345)
+    RpmsRpc::Problem.add_stock(
+      DFN,
+      provider_duz: PROVIDER,
+      vamc: VAMC,
+      fields: fields
+    )
+
+    values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
+    assert_includes values, 'GMPFLD(.01)="12345"'
+  end
+
+  def test_stock_save_replies_fail_closed_except_bare_one_success
+    [
+      [ :problem_add_save, DFN, :add_stock,
+        -> {
+          RpmsRpc::Problem.add_stock(
+            DFN, provider_duz: PROVIDER, vamc: VAMC, fields: routine_valid_add_fields
+          )
+        } ],
+      [ :problem_edit_save, IEN, :update_stock,
+        -> {
+          RpmsRpc::Problem.update_stock(
+            IEN, provider_duz: PROVIDER, vamc: VAMC,
+            changes: { ".05" => "1^n" },
+            originals: routine_valid_edit_originals
+          )
+        } ]
+    ].each do |mapping, key, _method_name, invoke|
+      RpmsRpc.mock! do |m|
+        m.seed_scalar(mapping, key, "1")
+      end
+      result = invoke.call
+      assert result[:success], "bare reply \"1\" is success (ORQQPL1.m:167,:128)"
+      assert_stock_result_shape(result)
+      if mapping == :problem_add_save
+        assert_nil result[:ien], "ADDSAVE overwrites RETURN with 1; new IFN is not returned (ORQQPL1.m:164,:167)"
+      else
+        assert_equal IEN.to_i, result[:ien]
+      end
+      RpmsRpc.reset!
+    end
+
+    [
+      [ :problem_add_save, DFN,
+        -> {
+          RpmsRpc::Problem.add_stock(
+            DFN, provider_duz: PROVIDER, vamc: VAMC, fields: routine_valid_add_fields
+          )
+        } ],
+      [ :problem_edit_save, IEN,
+        -> {
+          RpmsRpc::Problem.update_stock(
+            IEN, provider_duz: PROVIDER, vamc: VAMC,
+            changes: { ".05" => "1^n" },
+            originals: routine_valid_edit_originals
+          )
+        } ]
+    ].each do |mapping, key, invoke|
+      RpmsRpc.mock! do |m|
+        m.seed_scalar(mapping, key, "0")
+      end
+      result = invoke.call
+      refute result[:success]
+      assert_stock_result_shape(result)
+      assert_nil result[:ien]
+      RpmsRpc.reset!
+    end
+
+    [ "", "2", "1^x" ].each do |reply|
+      RpmsRpc.mock! do |m|
+        m.seed_scalar(:problem_add_save, DFN, reply)
+      end
+      result = RpmsRpc::Problem.add_stock(
+        DFN, provider_duz: PROVIDER, vamc: VAMC, fields: routine_valid_add_fields
+      )
+      refute result[:success], "reply #{reply.inspect} must never read as success"
+      assert_stock_result_shape(result)
+      assert_nil result[:ien]
+      RpmsRpc.reset!
+    end
+
+    RpmsRpc.mock! do |m|
+    end
+    empty_result = RpmsRpc::Problem.add_stock(
+      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: routine_valid_add_fields
+    )
+    refute empty_result[:success], "empty broker reply must fail closed"
+    assert_stock_result_shape(empty_result)
+    assert_nil empty_result[:ien]
+  end
+
+  def test_stock_write_results_match_problem_write_and_failure_shape
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_set, DFN, "5001")
+    end
+    add_reference = RpmsRpc::Problem.add(
+      DFN, { icd_code: "I10", description: "x", location_ien: "3049" }
+    )
+    assert_equal STOCK_RESULT_KEYS.sort, add_reference.keys.sort
+
+    RpmsRpc.reset!
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_set, DFN, "5001")
+    end
+    update_reference = RpmsRpc::Problem.update(DFN, IEN, { description: "Updated" })
+    assert_equal STOCK_RESULT_KEYS.sort, update_reference.keys.sort
+
+    failure_reference = RpmsRpc::Problem.add(nil, { icd_code: "I10" })
+    assert_equal STOCK_RESULT_KEYS.sort, failure_reference.keys.sort
+    assert_equal STOCK_REFUSAL, failure_reference
+
+    RpmsRpc.reset!
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+    end
+    add_success = RpmsRpc::Problem.add_stock(
+      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: routine_valid_add_fields
+    )
+    assert_equal STOCK_RESULT_KEYS.sort, add_success.keys.sort
+    assert add_success[:success]
+    assert_nil add_success[:ien]
+
+    RpmsRpc.reset!
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "0^rejected")
+    end
+    add_failure = RpmsRpc::Problem.add_stock(
+      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: routine_valid_add_fields
+    )
+    assert_equal STOCK_RESULT_KEYS.sort, add_failure.keys.sort
+    refute add_failure[:success]
+    assert_nil add_failure[:ien]
+    assert_equal "0^rejected", add_failure[:raw]
+
+    RpmsRpc.reset!
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+    update_success = RpmsRpc::Problem.update_stock(
+      IEN, provider_duz: PROVIDER, vamc: VAMC,
+      changes: { ".05" => "1^n" },
+      originals: routine_valid_edit_originals
+    )
+    assert_equal STOCK_RESULT_KEYS.sort, update_success.keys.sort
+    assert update_success[:success]
+    assert_equal IEN.to_i, update_success[:ien]
+  end
+
+  def test_stock_writes_never_dispatch_bgoprob_or_ddr_filer
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    RpmsRpc::Problem.add_stock(
+      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: routine_valid_add_fields
+    )
+    RpmsRpc::Problem.update_stock(
+      IEN, provider_duz: PROVIDER, vamc: VAMC,
+      changes: { ".05" => "1^n" },
+      originals: routine_valid_edit_originals
+    )
+
+    refute_bgoprob_or_ddr_calls
+  end
+
+  def test_noncanonical_field_number_spellings_are_refused_before_any_rpc
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    %w[01 0.01 1.0 00].each do |key|
+      assert_stock_refused_before_rpc(
+        -> {
+          RpmsRpc::Problem.add_stock(
+            DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { key => "x" }
+          )
+        }
+      )
+    end
+
+    [
+      { "1" => "a", "01" => "b" },
+      { ".01" => "a", "0.01" => "b" },
+      { "1" => "a", "1.0" => "b" }
+    ].each do |fields|
+      assert_stock_refused_before_rpc(
+        -> {
+          RpmsRpc::Problem.add_stock(
+            DFN, provider_duz: PROVIDER, vamc: VAMC, fields: fields
+          )
+        }
+      )
+    end
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { 0.01 => "x" }
+        )
+      }
+    )
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { 1.0 => "x" }
+        )
+      }
+    )
+  end
+
+  def test_canonical_field_number_spellings_are_accepted_on_the_wire
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+    end
+
+    fields = routine_valid_add_fields(
+      ".01" => "a", "1" => "b", "1.01" => "c", "10" => "d"
+    )
+    RpmsRpc::Problem.add_stock(
+      DFN, provider_duz: PROVIDER, vamc: VAMC,
+      fields: fields
+    )
+    values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
+    assert_equal expected_add_list_values(fields), values
+  end
+
+  def test_values_and_comments_must_be_valid_utf8_bytes_before_any_rpc
+    invalid = "a\xFFb".b
+
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => invalid }
+        )
+      }
+    )
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: { ".01" => "ok" }, comments: [ invalid ]
+        )
+      }
+    )
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".05" => invalid },
+          originals: routine_valid_edit_originals
+        )
+      }
+    )
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".05" => "1^now" },
+          originals: routine_valid_edit_originals(".05" => invalid)
+        )
+      }
+    )
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".05" => "1^now" },
+          originals: routine_valid_edit_originals,
+          comments: [ invalid ]
+        )
+      }
+    )
+  end
+
+  def test_add_stock_refuses_missing_required_fields_before_any_rpc
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+    end
+
+    complete = routine_valid_add_fields
+    ADD_REQUIRED_FIELD_KEYS.each do |key|
+      incomplete = complete.except(key)
+      assert_stock_refused_before_rpc(
+        -> {
+          RpmsRpc::Problem.add_stock(
+            DFN, provider_duz: PROVIDER, vamc: VAMC, fields: incomplete
+          )
+        },
+        "missing required field #{key}"
+      )
+    end
+  end
+
+  def test_field_values_with_semicolon_and_invalid_1_02_are_refused_before_any_rpc
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    dr_injection = "301;.12////I"
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: routine_valid_add_fields("1.05" => dr_injection)
+        )
+      },
+      "semicolon in field value injects DR segments (GMPLSAVE.m:57-59)"
+    )
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".05" => "1^bad;segment" },
+          originals: routine_valid_edit_originals
+        )
+      }
+    )
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: routine_valid_add_fields("1.02" => "X")
+        )
+      }
+    )
+
+    VALID_TYPE_1_02.each do |code|
+      RpmsRpc.client.received_calls.clear
+      result = RpmsRpc::Problem.add_stock(
+        DFN, provider_duz: PROVIDER, vamc: VAMC,
+        fields: routine_valid_add_fields("1.02" => code)
+      )
+      assert result[:success], "1.02=#{code} is allowed (GMPLSAVE.m:49)"
+    end
+  end
+
+  def test_stock_write_refuses_comments_containing_caret_before_any_rpc
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: routine_valid_add_fields,
+          comments: [ "note^breaks NEWNOTE delimiter (GMPLSAVE.m:202)" ]
+        )
+      }
+    )
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".05" => "1^new" },
+          originals: routine_valid_edit_originals,
+          comments: [ "caret^here" ]
+        )
+      }
+    )
+  end
+
+  def test_update_stock_refuses_incomplete_originals_or_changes_outside_originals
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".05" => "1^new" }, originals: {}
+        )
+      }
+    )
+
+    complete = routine_valid_edit_originals
+    (EDIT_REQUIRED_ORIGINAL_KEYS - EDIT_EN_DERIVED_ORIGINAL_KEYS).each do |key|
+      changes = key == ".12" ? { ".05" => "1^new" } : { ".12" => "I" }
+      assert_stock_refused_before_rpc(
+        -> {
+          RpmsRpc::Problem.update_stock(
+            IEN, provider_duz: PROVIDER, vamc: VAMC,
+            changes: changes,
+            originals: complete.except(key)
+          )
+        },
+        "originals missing required #{key}"
+      )
+    end
+
+    EDIT_EN_DERIVED_ORIGINAL_KEYS.each do |key|
+      assert_stock_refused_before_rpc(
+        -> {
+          RpmsRpc::Problem.update_stock(
+            IEN, provider_duz: PROVIDER, vamc: VAMC,
+            changes: { ".12" => "I" },
+            originals: complete.except(key)
+          )
+        },
+        "originals missing EN-derived #{key} (GMPLSAVE.m:60)"
+      )
+    end
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".13" => "9" },
+          originals: routine_valid_edit_originals
+        )
+      },
+      "changes must not include fields absent from originals"
+    )
+  end
+
+  def test_invalid_encoding_on_field_keys_and_id_literals_returns_failure_not_exception
+    invalid_key = ".01\xFF".dup.force_encoding(Encoding::UTF_8)
+    invalid_id = "1\xFF".dup.force_encoding(Encoding::UTF_8)
+
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          invalid_id,
+          provider_duz: PROVIDER,
+          vamc: VAMC,
+          fields: routine_valid_add_fields
+        )
+      }
+    )
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN,
+          provider_duz: invalid_id,
+          vamc: VAMC,
+          fields: routine_valid_add_fields
+        )
+      }
+    )
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: routine_valid_add_fields.merge(invalid_key => "ok")
+        )
+      }
+    )
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          invalid_id,
+          provider_duz: PROVIDER,
+          vamc: VAMC,
+          changes: { ".05" => "1^n" },
+          originals: routine_valid_edit_originals
+        )
+      }
+    )
+  end
+
+  # XWB L-PACK uses a 3-digit length (XWBENVL); lines over 999 bytes are
+  # mis-framed on the server and can inject extra list entries into S @ADDARRAY(S).
+  def test_stock_write_refuses_list_lines_over_999_bytes_before_any_rpc
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    over = padded_field_value(".01", 1000)
+    assert_equal 1000, built_gmpfld_line(".01", over).bytesize
+
+    assert_stock_frame_too_long_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: routine_valid_add_fields.merge(".01" => over)
+        )
+      },
+      secret: over
+    )
+
+    quote_padded = '"' * 493
+    assert_operator built_gmpfld_line(".01", quote_padded).bytesize, :>, 999
+
+    assert_stock_frame_too_long_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: routine_valid_add_fields.merge(".01" => quote_padded)
+        )
+      },
+      secret: quote_padded
+    )
+
+    utf8_over = "\u00e9" * 493
+    assert_equal 1000, built_gmpfld_line(".01", utf8_over).bytesize
+
+    assert_stock_frame_too_long_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: routine_valid_add_fields.merge(".01" => utf8_over)
+        )
+      },
+      secret: utf8_over
+    )
+
+    long_comment = "c" * (1000 - built_gmpfld_comment_line(1, "").bytesize)
+    assert_equal 1000, built_gmpfld_comment_line(1, long_comment).bytesize
+
+    assert_stock_frame_too_long_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: routine_valid_add_fields, comments: [ long_comment ]
+        )
+      },
+      secret: long_comment
+    )
+
+    gmporig_over = padded_field_value(".05", 1000, group: "GMPORIG")
+    assert_equal 1000, built_gmporig_line(".05", gmporig_over).bytesize
+
+    assert_stock_frame_too_long_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".05" => "n" },
+          originals: routine_valid_edit_originals(".05" => gmporig_over)
+        )
+      },
+      secret: gmporig_over
+    )
+  end
+
+  def test_stock_write_sends_list_lines_of_exactly_999_bytes
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    at_limit = padded_field_value(".01", 999)
+    assert_equal 999, built_gmpfld_line(".01", at_limit).bytesize
+
+    result = RpmsRpc::Problem.add_stock(
+      DFN, provider_duz: PROVIDER, vamc: VAMC,
+      fields: routine_valid_add_fields(".01" => at_limit)
+    )
+    assert result[:success]
+    add_values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
+    add_line = add_values.find { |v| v.start_with?('GMPFLD(.01)="') }
+    assert_equal 999, add_line.bytesize
+    assert_equal built_gmpfld_line(".01", at_limit), add_line
+
+    RpmsRpc.client.received_calls.clear
+    utf8_at_limit = ("\u00e9" * 492) + "a"
+    assert_equal 999, built_gmpfld_line(".01", utf8_at_limit).bytesize
+
+    result = RpmsRpc::Problem.add_stock(
+      DFN, provider_duz: PROVIDER, vamc: VAMC,
+      fields: routine_valid_add_fields(".01" => utf8_at_limit)
+    )
+    assert result[:success]
+    utf8_values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
+    utf8_line = utf8_values.find { |v| v.start_with?('GMPFLD(.01)="') }
+    assert_equal 999, utf8_line.bytesize
+
+    RpmsRpc.client.received_calls.clear
+    comment_text = "n" * (999 - built_gmpfld_comment_line(1, "").bytesize)
+    assert_equal 999, built_gmpfld_comment_line(1, comment_text).bytesize
+
+    result = RpmsRpc::Problem.add_stock(
+      DFN, provider_duz: PROVIDER, vamc: VAMC,
+      fields: routine_valid_add_fields, comments: [ comment_text ]
+    )
+    assert result[:success]
+    values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
+    comment_line = values.find { |v| v.start_with?('GMPFLD(10,"NEW",') }
+    assert_equal 999, comment_line.bytesize
+
+    RpmsRpc.client.received_calls.clear
+    orig_at_limit = padded_field_value(".05", 999, group: "GMPORIG")
+    assert_equal 999, built_gmporig_line(".05", orig_at_limit).bytesize
+
+    result = RpmsRpc::Problem.update_stock(
+      IEN, provider_duz: PROVIDER, vamc: VAMC,
+      changes: { ".05" => "new" },
+      originals: routine_valid_edit_originals(".05" => orig_at_limit)
+    )
+    assert result[:success]
+    edit_values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][4])
+    orig_line = edit_values.find { |v| v.start_with?('GMPORIG(.05)="') }
+    assert_equal 999, orig_line.bytesize
+  end
+
+  # Literal ID params (dfn / ien, provider_duz, vamc) are XWB literals via
+  # XwbClient#lpack; above 999 bytes the 5-digit length mis-frames [XWB]1130.
+  STOCK_WRITE_ID_SLOTS = [
+    [ :add_stock, :dfn, 0, :problem_add_save ],
+    [ :add_stock, :provider_duz, 1, :problem_add_save ],
+    [ :add_stock, :vamc, 2, :problem_add_save ],
+    [ :update_stock, :ien, 0, :problem_edit_save ],
+    [ :update_stock, :provider_duz, 1, :problem_edit_save ],
+    [ :update_stock, :vamc, 2, :problem_edit_save ]
+  ].freeze
+
+  def test_stock_write_refuses_id_literals_over_999_bytes_before_any_rpc
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    over_values = [
+      [ canonical_digit_id(1000), "1000-digit String" ],
+      [ 10**999, "1000-digit Integer" ]
+    ]
+
+    STOCK_WRITE_ID_SLOTS.each do |method, slot, _index, _mapping|
+      over_values.each do |over, label|
+        wire = over.is_a?(Integer) ? over.to_s : over
+        assert_stock_frame_too_long_refused_before_rpc(
+          -> { invoke_stock_write_with_id(method, slot, over) },
+          secret: wire,
+          message: "refuse #{method} #{slot} with #{label}"
+        )
+      end
+    end
+  end
+
+  def test_stock_write_sends_id_literals_of_exactly_999_bytes
+    at_limit = canonical_digit_id(999)
+    assert_equal 999, at_limit.bytesize
+    at_limit_values = [ [ at_limit, at_limit ], [ 10**998, at_limit ] ]
+
+    STOCK_WRITE_ID_SLOTS.each do |method, slot, index, mapping|
+      rpc = method == :add_stock ? "ORQQPL ADD SAVE" : "ORQQPL EDIT SAVE"
+      at_limit_values.each do |id_value, wire_text|
+        RpmsRpc.reset!
+        RpmsRpc.mock! do |m|
+          seed_key = stock_write_seed_key(method, slot, wire_text)
+          m.seed_scalar(mapping, seed_key, "1")
+        end
+
+        result = invoke_stock_write_with_id(method, slot, id_value)
+        assert result[:success], "#{method} #{slot} #{id_value.class} at 999 bytes must dispatch"
+
+        call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == rpc }
+        refute_nil call
+        assert_equal wire_text, call[:params][index]
+      end
+    end
+  end
+
+  def test_add_stock_and_update_stock_are_non_idempotent_writes_in_retry_safety
+    assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::Problem, :add_stock)
+    assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::Problem, :update_stock)
+    refute RpmsRpc::RetrySafety.auto_retry_safe?(RpmsRpc::Problem, :add_stock)
+    refute RpmsRpc::RetrySafety.auto_retry_safe?(RpmsRpc::Problem, :update_stock)
+  end
+
+  def test_required_rpcs_lists_orqqpl_add_and_edit_save_under_problem
+    required = JSON.parse(File.read(REQUIRED_RPCS_PATH))
+    problem_rpcs = required.fetch("modules").fetch("RpmsRpc::Problem")
+
+    assert_includes problem_rpcs, "ORQQPL ADD SAVE"
+    assert_includes problem_rpcs, "ORQQPL EDIT SAVE"
+  end
+
+  private
+
+  def routine_valid_add_fields(overrides = {})
+    {
+      ".01" => "5042",
+      "1.01" => "1^Unresolved",
+      ".05" => "1^Synthetic problem narrative",
+      ".12" => "A",
+      ".13" => "1"
+    }.merge(overrides)
+  end
+
+  def routine_valid_edit_originals(overrides = {})
+    {
+      ".01" => "5042",
+      "1.01" => "1^Unresolved",
+      ".05" => "1^Synthetic problem narrative",
+      ".12" => "A",
+      "1.02" => "T",
+      "80001" => "",
+      "80002" => "",
+      "80003" => "",
+      "80004" => "",
+      "80005" => "",
+      "80201" => EDIT_SYNTHETIC_DATE_80201,
+      "80202" => EDIT_SYNTHETIC_CODING_80202
+    }.merge(overrides)
+  end
+
+  def expected_add_list_values(fields, comments: [])
+    field_lines = fields.map { |field, value| built_gmpfld_line(field, value) }
+    comment_lines = comments.each_with_index.map { |text, index| built_gmpfld_comment_line(index + 1, text) }
+    field_lines + comment_lines
+  end
+
+  def expected_edit_list_values(originals, changes, comments: [])
+    merged = originals.merge(changes)
+    gmpfld_lines = merged.map { |field, value| built_gmpfld_line(field, value) }
+    gmporig_lines = originals.map { |field, value| built_gmporig_line(field, value) }
+    comment_lines = comments.each_with_index.map { |text, index| built_gmpfld_comment_line(index + 1, text) }
+    gmpfld_lines + gmporig_lines + comment_lines
+  end
+
+  def assert_stock_result_shape(result)
+    assert_equal STOCK_RESULT_KEYS.sort, result.keys.sort
+  end
+
+  def assert_stock_refused_before_rpc(invoke, message = nil)
+    RpmsRpc.client.received_calls.clear
+    result = invoke.call
+    assert_equal STOCK_REFUSAL, result, message
+    assert_empty RpmsRpc.client.received_calls,
+      message || "unsafe input must fail closed before ORQQPL (ORQQPL1.m:160,:120)"
+  end
+
+  def assert_stock_frame_too_long_refused_before_rpc(invoke, secret: nil, message: nil)
+    RpmsRpc.client.received_calls.clear
+    result = invoke.call
+    assert_equal STOCK_REFUSAL, result.slice(:success, :ien, :raw), message
+    assert_equal :frame_too_long, result[:error], message
+    assert_kind_of String, result[:message]
+    assert_match(/999/, result[:message], message)
+    refute_includes result[:message], secret, message if secret
+    assert_empty RpmsRpc.client.received_calls,
+      message || "oversized wire value must fail closed before ORQQPL (ORQQPL1.m:160,:120)"
+  end
+
+  def canonical_digit_id(digits)
+    raise ArgumentError, "digits must be positive" unless digits.positive?
+
+    "1#{'0' * (digits - 1)}"
+  end
+
+  def invoke_stock_write_with_id(method, slot, id_value)
+    case method
+    when :add_stock
+      RpmsRpc::Problem.add_stock(
+        slot == :dfn ? id_value : DFN,
+        provider_duz: slot == :provider_duz ? id_value : PROVIDER,
+        vamc: slot == :vamc ? id_value : VAMC,
+        fields: routine_valid_add_fields
+      )
+    when :update_stock
+      RpmsRpc::Problem.update_stock(
+        slot == :ien ? id_value : IEN,
+        provider_duz: slot == :provider_duz ? id_value : PROVIDER,
+        vamc: slot == :vamc ? id_value : VAMC,
+        changes: { ".05" => "1^n" },
+        originals: routine_valid_edit_originals
+      )
+    else
+      flunk "unknown stock write #{method}"
+    end
+  end
+
+  def stock_write_seed_key(method, slot, wire_text)
+    case method
+    when :add_stock
+      slot == :dfn ? wire_text : DFN
+    when :update_stock
+      slot == :ien ? wire_text : IEN
+    else
+      flunk "unknown stock write #{method}"
+    end
+  end
+
+  def refute_bgoprob_or_ddr_calls
+    forbidden = RpmsRpc.client.received_calls.map { |c| c[:rpc] }.grep(/\ABGO|DDR FILER/)
+    assert_empty forbidden, "stock writes must not use BGOPROB or DDR FILER: #{forbidden.inspect}"
+  end
+
+  def list_keys(list_param)
+    entries = list_entries(list_param)
+    entries.keys.map { |k| Integer(k.to_s) }
+  end
+
+  def ordered_list_values(list_param)
+    entries = list_entries(list_param)
+    entries.keys.map(&:to_s).sort_by { |k| Integer(k) }.map { |k| entries[k] || entries[Integer(k)] }
+  end
+
+  def list_entries(list_param)
+    case list_param
+    when Hash
+      if list_param[:type] == :list
+        list_param[:entries]
+      else
+        list_param
+      end
+    when Array
+      list_param.each_with_index.to_h { |v, i| [ (i + 1).to_s, v ] }
+    else
+      flunk "expected list param, got #{list_param.inspect}"
+    end
+  end
+
+  def assert_balanced_gmpfld_literal(line)
+    assert_match(/\A(GMPFLD|GMPORIG)\(.+\)=".*"\z/, line)
+    inner = line[line.index('="') + 2..-2]
+    i = 0
+    while i < inner.length
+      if inner[i] == '"' && inner[i + 1] == '"'
+        i += 2
+      elsif inner[i] == '"'
+        flunk "unescaped quote inside literal: #{line.inspect}"
+      else
+        i += 1
+      end
+    end
+  end
+
+  def m_quoted_for_test(value)
+    value.to_s.gsub('"', '""')
+  end
+
+  def built_gmpfld_line(field, value)
+    %(GMPFLD(#{field})="#{m_quoted_for_test(value)}")
+  end
+
+  def built_gmporig_line(field, value)
+    %(GMPORIG(#{field})="#{m_quoted_for_test(value)}")
+  end
+
+  def built_gmpfld_comment_line(index, value)
+    %(GMPFLD(10,"NEW",#{index})="#{m_quoted_for_test(value)}")
+  end
+
+  def padded_field_value(field, target_line_bytes, group: "GMPFLD")
+    line = case group
+    when "GMPFLD" then built_gmpfld_line(field, "")
+    when "GMPORIG" then built_gmporig_line(field, "")
+    else
+      flunk "unknown group #{group}"
+    end
+    overhead = line.bytesize
+    filler = "a"
+    n = target_line_bytes - overhead
+    raise ArgumentError, "target #{target_line_bytes} too small for overhead #{overhead}" if n.negative?
+
+    filler * n
+  end
+end
