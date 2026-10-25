@@ -261,10 +261,11 @@ module RpmsRpc
     # other than "o"/"h" (GMRAGUI1.m:135); a GMRAORIG that is not a
     # positive DUZ (GMRAGUI1.m:104); symptoms that are not an Array of
     # Hashes (GMRAGUI1.m:122) whose :ien is a positive canonical integer
-    # or exactly "FT" (GMRAGUI1.m:126), whose :text is a non-blank String
-    # (piece 2 is a GMRAROT subscript at GMRAGUI1.m:132, and a blank
-    # piece is a null subscript after the entry is filed) and whose
-    # :date, when present and non-blank, is a FileMan date
+    # or exactly "FT" (GMRAGUI1.m:126), whose :text is visible text
+    # ({visible?}; piece 2 is a GMRAROT subscript at GMRAGUI1.m:132, and
+    # a blank, whitespace-only or invisible-only piece is a null
+    # subscript after the entry is filed) and whose :date, when present
+    # and non-blank, is a FileMan date
     # (GMRAGUI1.m:130); or comments that are not an Array of Strings
     # (GMRAGUI1.m:118). GMRAGNT's pointer is "IEN;GLOBAL(FILE,"
     # (GMRAGUI1.m:106) or a global root with no file number,
@@ -517,10 +518,12 @@ module RpmsRpc
 
     # See {save}. A blank GMRASYMP first piece is not stored (GMRAGUI1.m:122).
     # :ien is a positive canonical integer or exactly "FT" (GMRAGUI1.m:126);
-    # :text is a non-blank String (GMRAGUI1.m:132); :date, when present and
-    # non-blank, is a FileMan date (GMRAGUI1.m:130).
+    # :text is visible text ({visible?}; GMRAGUI1.m:132); :date, when
+    # present and non-blank, is a FileMan date (GMRAGUI1.m:130).
     # Shape and caret checks stay ahead of the format checks, so a value
-    # that fails both is named by the earlier one.
+    # that fails both is named by the earlier one. Present reaction_date
+    # and severity (not nil or "") are in that caret check, so a caret
+    # there is named before a type, nature or other format fault.
     def refused_allergy(allergy)
       return invalid_value(:symptoms) unless symptoms_shape?(allergy[:symptoms])
       return invalid_value(:comments) unless comments_ok?(allergy[:comments])
@@ -558,14 +561,15 @@ module RpmsRpc
     end
 
     # :ien is a positive canonical integer or exactly "FT" (GMRAGUI1.m:126).
-    # :text is a non-blank String. Piece 2 is the GMRAROT subscript
-    # (GMRAGUI1.m:132) after the entry is filed, so a blank piece is a
-    # null subscript. :date, when present and non-blank, is a FileMan
-    # date (GMRAGUI1.m:130).
+    # :text is visible text ({visible?}). Piece 2 is the GMRAROT subscript
+    # (GMRAGUI1.m:132) after the entry is filed, so a blank,
+    # whitespace-only or invisible-only piece is a null subscript.
+    # :date, when present and non-blank, is a FileMan date
+    # (GMRAGUI1.m:130).
     def symptom_ok?(symptom)
       return false unless symptom.is_a?(Hash)
       return false unless symptom[:ien] == "FT" || canonical_dfn(symptom[:ien])
-      return false unless symptom[:text].is_a?(String) && !omitted?(symptom[:text])
+      return false unless symptom[:text].is_a?(String) && visible?(symptom[:text])
 
       omitted?(symptom[:date]) || fileman_date?(symptom[:date])
     end
@@ -584,7 +588,10 @@ module RpmsRpc
       bad = unsafe_symptom(allergy[:symptoms])
       return bad if bad
 
-      :comment if allergy[:comments]&.any? { |line| unsafe_text?(line) }
+      return :comment if allergy[:comments]&.any? { |line| unsafe_text?(line) }
+
+      # nil and "" are absent, not a caret (GMRAGUI1.m:137 $G).
+      %i[reaction_date severity].find { |field| !omitted?(allergy[field]) && unsafe_text?(allergy[field]) }
     end
 
     def unsafe_symptom(symptoms)
@@ -611,18 +618,19 @@ module RpmsRpc
       text.match?(TYPE) && text.chars.uniq.size == text.size
     end
 
-    # GMRARDT, when present, is filed in the same "^" piece as GMRASEVR
-    # (GMRAGUI1.m:137), so a caret is the same refusal as a bad date.
-    # nil and "" are absent (GMRAGUI1.m:137 $G): not validated.
+    # GMRARDT, when present, is a FileMan date (GMRAGUI1.m:137). A caret
+    # or control is named earlier, in {unsafe_field}, before type and
+    # nature. nil and "" are absent (GMRAGUI1.m:137 $G): not validated.
     def reaction_date_ok?(value)
       return true if omitted?(value)
 
-      !unsafe_text?(value) && fileman_date?(value)
+      fileman_date?(value)
     end
 
     # A present GMRASEVR is "1", "2" or "3" (ORWDAL32.m:88-89). Integer
-    # 1, 2 or 3 is that code. nil and "" are absent (GMRAGUI1.m:137 $G):
-    # not validated. Any other value is refused.
+    # 1, 2 or 3 is that code. A caret or control is named earlier, in
+    # {unsafe_field}, before type and nature. nil and "" are absent
+    # (GMRAGUI1.m:137 $G): not validated. Any other value is refused.
     def severity_ok?(value)
       return true if omitted?(value)
 
