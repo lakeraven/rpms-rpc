@@ -250,6 +250,13 @@ module RpmsRpc
         raw = DataMapper[mapping_name].fetch_scalar(*params.map(&:to_s))
         result_from_raw(raw)
       end
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A parameter the wire would mis-frame is refused before the write is sent
+      # (#472; on a real session the context bind still goes out around it);
+      # the writers answer { success:, raw: }, so say why in :error. This hash
+      # carries :error, where a broker-side failure from result_from_raw
+      # carries :message and :raw only (#480).
+      { success: false, raw: nil, error: e.message }
     end
 
     def result_from_raw(raw)

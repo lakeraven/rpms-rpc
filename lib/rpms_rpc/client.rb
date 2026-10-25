@@ -42,6 +42,24 @@ module RpmsRpc
     # from "credential rejected by broker".
     class CredentialError < AuthenticationError; end
     class RpcError < Error; end
+    # A request cannot be put on the wire within the protocol's framing limits,
+    # so nothing was sent and the connection is untouched (#472). XWB and BMX
+    # each have a subclass that names its limit. It is an RpmsRpc::Error so a
+    # caller that rescues the gem's errors sees it.
+    #
+    # API methods whose own contract is a failure hash rescue it and answer with
+    # that hash plus an :error naming the limit (never the value; only
+    # ProgressNote.update_text also names the line, and Registration.update's
+    # byte count is the whole joined window): the visit
+    # writes (ProgressNote.update_text, ExamComponent, HealthFactor, Pov,
+    # Procedure, ImmunizationRefusal), Problem add/update/delete,
+    # ESignature.remove, the Scheduling writes, Registration.update (error
+    # :frame_too_long, with filed_windows), Referral's BMC writers, and
+    # DdrFileman.filer. Everything else lets it propagate today: Registration.register,
+    # Agg, the behavioral-health writers, Vital and Measurement writes, and code
+    # that calls call_rpc directly. Those are not yet audited for this rule
+    # (#480).
+    class FrameTooLongError < Error; end
     # Broker errors, kept distinct so a host can tell them apart (#363), in the
     # spirit of HTTP status classes:
     #   RpcNotAvailableError  the server does not serve this RPC: no #8994 entry

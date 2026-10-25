@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -8,6 +9,7 @@ module RpmsRpc
   # Underlying RPCs: ORWDAL32 SYMPTOMS, ORWDAL32 DEF.
   module Symptom
     extend self
+    extend Shape::Declarable
 
     # Formals: SYMPTOMS(Y,FROM,DIR) (ORWDAL32.m:61-64) — a subset of file
     # 120.83 walked with $O(^GMRD(120.83,"B",FROM),DIR), so FROM is the
@@ -19,6 +21,7 @@ module RpmsRpc
 
       Array(DataMapper.symptom_search.fetch_many(query.to_s, "1"))
     end
+    shape :search, resource: "symptoms", verb: "GET", path: "/symptoms"
 
     # Parse the ORWDAL32 DEF typed tree into
     #   [ { category: <name>, items: [ { code:, label: }, ... ] }, ... ]
@@ -43,6 +46,7 @@ module RpmsRpc
       categories << current if current
       categories
     end
+    shape :defaults, resource: "symptoms", verb: "GET", path: "/symptoms/defaults"
 
     private
 

@@ -78,6 +78,103 @@ class RpmsRpc::BmxClientTest < Minitest::Test
     assert_includes msg, "ECHO^00010" + "0070héllo".b
   end
 
+  # -- #472: fixed-width length prefixes must refuse overflow ----------------
+
+  def test_build_bmx_message_raises_when_param_overflows_three_digit_prefix
+    # PRSB per-param LLL = value_len+1; 999 bytes → 1000, wider than %03d
+    long = "x" * 999
+    error = assert_raises(RpmsRpc::BmxClient::RequestTooLongError) { Client.new.build_bmx_message("ECHO", [ long ]) }
+    assert_match(/512/, error.message, "the message must name the real cap, 512 bytes for the whole request")
+  end
+
+  # The two tests that used to live here claimed to pin the five-digit fields
+  # inside build_bmx_message but passed with those guards removed: the 512-byte
+  # request cap fires first, so the guards are unreachable from there. They now
+  # test the helper that holds the guard, and the cap through build_bmx_message.
+  def test_fixed_width_refuses_a_number_wider_than_its_five_digit_field
+    assert_equal "99999", Client.new.send(:fixed_width, 99_999, 5)
+    error = assert_raises(RpmsRpc::BmxClient::RequestTooLongError) { Client.new.send(:fixed_width, 100_000, 5) }
+    assert_match(/5-digit/, error.message)
+    refute_match(/512/, error.message, "an arbitrary field is not limited by the request cut (panel round 2)")
+  end
+
+  def test_fixed_width_refuses_a_number_wider_than_its_three_digit_field
+    assert_equal "999", Client.new.send(:fixed_width, 999, 3)
+    assert_raises(RpmsRpc::BmxClient::RequestTooLongError) { Client.new.send(:fixed_width, 1000, 3) }
+  end
+
+  def test_build_bmx_message_refuses_an_oversized_name_with_the_request_cap
+    error = assert_raises(RpmsRpc::BmxClient::RequestTooLongError) { Client.new.build_bmx_message("N" * 99_994) }
+    assert_match(/512/, error.message)
+  end
+
+  def test_build_bmx_message_refuses_a_huge_param_block_with_the_request_cap
+    error = assert_raises(RpmsRpc::BmxClient::RequestTooLongError) do
+      Client.new.build_bmx_message("ECHO", Array.new(100) { "x" * 998 })
+    end
+    assert_match(/512/, error.message)
+  end
+
+  def test_bmx_refusals_are_typed_rpms_rpc_errors_not_argument_errors
+    error = assert_raises(RpmsRpc::BmxClient::RequestTooLongError) { Client.new.build_bmx_message("ECHO", [ "x" * 475 ]) }
+    assert_kind_of RpmsRpc::Error, error
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, error
+    refute_kind_of ArgumentError, error
+  end
+
+  def test_send_bmx_packet_raises_when_body_overflows_five_digit_length
+    sock = RecordingSocket.new
+    client = Client.new
+    client.instance_variable_set(:@socket, sock)
+    body = "x" * 100_000
+    assert_raises(RpmsRpc::BmxClient::RequestTooLongError) { client.send(:send_bmx_packet, body) }
+    assert_empty sock.writes
+  end
+
+  def test_send_bmx_session_packet_raises_when_body_overflows_five_digit_plen
+    sock = RecordingSocket.new
+    client = Client.new
+    client.instance_variable_set(:@socket, sock)
+    body = "x" * 100_000
+    assert_raises(RpmsRpc::BmxClient::RequestTooLongError) { client.send(:send_bmx_session_packet, body) }
+    assert_empty sock.writes
+  end
+
+  # -- #472: BMXMBRK truncates the protocol string at 512 bytes --------------
+  #
+  # PRSP/PRSM/PRSA/PRSB each cap P at M=512 via $E(P,...,M). The broker parses
+  # the protocol string as one P (after any {BMX} prefix is stripped), so
+  # build_bmx_message output — proto header plus message — must not exceed 512.
+
+  def test_build_bmx_message_raises_when_wire_frame_exceeds_512_bytes
+    # ECHO^ + one length-framed param: 474-byte value → 512-byte frame; one more → 513.
+    long = "x" * 475
+    error = assert_raises(RpmsRpc::BmxClient::RequestTooLongError) { Client.new.build_bmx_message("ECHO", [ long ]) }
+    assert_match(/512/, error.message)
+  end
+
+  def test_build_bmx_message_allows_wire_frame_of_exactly_512_bytes
+    msg = Client.new.build_bmx_message("ECHO", [ "x" * 474 ])
+    assert_equal 512, msg.bytesize
+  end
+
+  def test_build_bmx_message_refuses_wire_frame_over_512_using_byte_count_not_char_count
+    # Same character count as the 512-byte frame above, but one ASCII byte becomes é (2 bytes).
+    param = ("x" * 476) + "é"
+    assert_equal 477, param.length
+    assert_equal 478, param.bytesize
+    error = assert_raises(RpmsRpc::BmxClient::RequestTooLongError) { Client.new.build_bmx_message("E", [ param ]) }
+    assert_match(/512/, error.message)
+    msg = Client.new.build_bmx_message("E", [ "x" * 477 ])
+    assert_equal 512, msg.bytesize
+  end
+
+  def test_call_rpc_raises_when_wire_frame_exceeds_512_bytes_and_writes_nothing
+    client = connected_client([ "\x00\x00OK\x04" ])
+    assert_raises(RpmsRpc::BmxClient::RequestTooLongError) { client.call_rpc("ECHO", "x" * 475) }
+    assert_empty client.instance_variable_get(:@socket).writes
+  end
+
   # -- subclass contract ------------------------------------------------------
 
   def test_call_rpc_raises_when_not_connected
