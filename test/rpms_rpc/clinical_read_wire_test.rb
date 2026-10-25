@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "minitest/mock"
 require "date"
 require "rpms_rpc"
 require "rpms_rpc/mock_client"
@@ -292,10 +293,10 @@ class ClinicalReadWireTest < Minitest::Test
   # Guards: these already hold and must keep holding.
 
   def test_nka_sentinel_with_blank_lines_around_it_is_still_verified_absence
-    stub_broker_response([ "^No Known Allergies", "", "  " ])
+    stub_broker_response([ "^No Known Allergies", "", "" ])
 
     assert_equal({ assessed: true, nka: true, allergies: [] }, RpmsRpc::Allergy.assessment("42"),
-      "blank trailer lines are not data; a clean NKA reply carries no conflict key")
+      "empty trailer lines are not data; a clean NKA reply carries no conflict key")
   end
 
   def test_clean_replies_carry_no_conflict_key
@@ -431,8 +432,8 @@ class ClinicalReadWireTest < Minitest::Test
   end
 
   def test_the_exact_nka_marker_stays_verified_absence_when_it_arrives_as_a_string_with_line_endings
-    [ "^No Known Allergies\r\n", "^No Known Allergies\n", "^No Known Allergies", "\r^No Known Allergies", "^No Known Allergies\n  ",
-      "\r\n^No Known Allergies\r\n" ].each do |response|
+    [ "^No Known Allergies\r\n", "^No Known Allergies\n", "^No Known Allergies", "\r^No Known Allergies",
+      "\r\n^No Known Allergies\r\n", "^No Known Allergies\n\n" ].each do |response|
       stub_broker_response(response)
 
       assert_equal({ assessed: true, nka: true, allergies: [] }, RpmsRpc::Allergy.assessment("42"),
@@ -441,21 +442,22 @@ class ClinicalReadWireTest < Minitest::Test
   end
 
   def test_a_reply_with_no_non_blank_line_is_not_assessed_and_has_no_rows
-    [ [ "" ], [ "", "  " ], [ "  ", "\t" ], [ "\u00A0" ], [ "\u200B" ], [ "\r" ], [ "", "  ", "\t" ] ].each do |lines|
+    [ [ "" ], [ "", "" ], [ "\r" ], [ "\r\n" ], [] ].each do |lines|
       stub_broker_response(lines)
 
       assert_equal({ assessed: false, nka: false, allergies: [] }, RpmsRpc::Allergy.assessment("42"),
-        "#{lines.inspect}: whitespace is not data and must not become a row")
+        "#{lines.inspect}: only genuinely empty segments are ignorable")
     end
   end
 
-  def test_a_whitespace_line_beside_a_real_row_is_not_a_row
+  def test_a_whitespace_line_beside_a_real_row_is_unrecognised_not_a_row
     stub_broker_response([ "  ", PENICILLIN_ROW, "\t" ])
     result = RpmsRpc::Allergy.assessment("42")
 
-    assert result[:assessed]
-    assert_equal [ "PENICILLIN" ], result[:allergies].map { |a| a[:allergen] }
-    refute_includes result.keys, :conflict, "blank lines are not data and do not make a conflict"
+    refute result[:assessed], "whitespace-only content is a shape ORQQAL cannot emit"
+    assert_equal true, result[:conflict]
+    assert_equal [ "  ", "PENICILLIN", "\t" ], result[:allergies].map { |a| a[:raw] || a[:allergen] }
+    assert_equal [ true, nil, true ], result[:allergies].map { |a| a[:unrecognised] }
   end
 
   def test_a_response_that_is_neither_text_nor_lines_is_unrecognised_not_assessed_and_has_no_rows
@@ -656,12 +658,16 @@ class ClinicalReadWireTest < Minitest::Test
     end
   end
 
-  def test_invisible_only_lines_are_blank_not_data
-    [ "⁠", "­", "᠎", "͏", "​", "﻿", "‍", " ", "\t" ].each do |blank|
-      stub_broker_response([ blank ])
+  def test_whitespace_or_invisible_only_lines_are_unrecognised_not_a_row_and_not_blank
+    [ "⁠", "­", "᠎", "͏", "​", "﻿", "‍", " ", "\t" ].each do |line|
+      stub_broker_response([ line ])
+      result = RpmsRpc::Allergy.assessment("42")
 
-      assert_equal({ assessed: false, nka: false, allergies: [] }, RpmsRpc::Allergy.assessment("42"),
-        "#{blank.inspect} has nothing visible in it: no phantom row")
+      refute result[:assessed], line.inspect
+      refute result[:nka]
+      assert_equal true, result[:conflict], line.inspect
+      assert_equal [ line ], result[:allergies].map { |a| a[:raw] }, "#{line.inspect}: surfaced with its raw bytes, no phantom row"
+      assert_equal [ true ], result[:allergies].map { |a| a[:unrecognised] }
     end
   end
 
@@ -693,7 +699,8 @@ class ClinicalReadWireTest < Minitest::Test
     result = RpmsRpc::Allergy.assessment("42")
     refute result[:assessed]
     assert_equal true, result[:conflict]
-    assert_equal [ "PENICILLIN" ], result[:allergies].map { |a| a[:allergen] }
+    assert_equal [ "PENICILLIN", "\xFF".b ], result[:allergies].map { |a| (a[:raw] || a[:allergen]).b }
+    assert_equal [ nil, true ], result[:allergies].map { |a| a[:unrecognised] }
   end
 
   def test_an_invalid_byte_line_alone_is_not_assessed_and_flagged
@@ -702,7 +709,7 @@ class ClinicalReadWireTest < Minitest::Test
     result = RpmsRpc::Allergy.assessment("42")
     refute result[:nka]
     refute result[:assessed]
-    assert_equal [], result[:allergies]
+    assert_equal [ "\xFF\xFE".b ], result[:allergies].map { |a| a[:raw].b }, "surfaced with its raw bytes"
     assert_equal true, result[:conflict]
   end
 
@@ -841,7 +848,8 @@ class ClinicalReadWireTest < Minitest::Test
       refute result[:nka], lines.inspect
       refute result[:assessed], lines.inspect
       assert_equal true, result[:conflict], lines.inspect
-      assert_equal [], result[:allergies], "#{lines.inspect}: control bytes are not visible text, so nothing is surfaced"
+      assert_equal lines.reject { |l| l == "^No Known Allergies" }, result[:allergies].map { |a| a[:raw] },
+        "#{lines.inspect}: framing-only content is surfaced with its raw bytes, never dropped"
     end
   end
 
@@ -984,11 +992,16 @@ class ClinicalReadWireTest < Minitest::Test
   GENUINELY_INVISIBLE = [ "​", "‌", "‍", "⁠", "⁡", "⁢", "⁣", "⁤", "﻿", "­",
                           "͏", "᠎", "\u{E0020}", "\u{E007F}", "️", "︀", "\u{E0100}" ].freeze
 
+  # An invisible-only ELEMENT is content ORQQAL cannot emit: loud, never NKA.
   GENUINELY_INVISIBLE.each_with_index do |char, i|
-    define_method("test_a_genuinely_invisible_character_is_blank_and_never_a_conflict_#{i}") do
+    define_method("test_an_invisible_only_element_beside_the_marker_is_a_conflict_not_nka_#{i}") do
       stub_broker_response([ "^No Known Allergies", char ])
+      result = RpmsRpc::Allergy.assessment("42")
 
-      assert_equal({ assessed: true, nka: true, allergies: [] }, RpmsRpc::Allergy.assessment("42"), char.inspect)
+      refute result[:nka], char.inspect
+      refute result[:assessed], char.inspect
+      assert_equal true, result[:conflict], char.inspect
+      assert_equal [ char ], result[:allergies].map { |a| a[:raw] }, "#{char.inspect}: raw preserved"
     end
   end
 
@@ -1056,6 +1069,137 @@ class ClinicalReadWireTest < Minitest::Test
         assert_equal true, result[:conflict]
         assert_nil result[:allergies].first[:signs]
       end
+    end
+  end
+
+  # -- NKA tightening (security review of #483): blank means EMPTY ------------
+  # Only a truly empty segment (an empty-string element, or what splitting a
+  # String leaves between terminators) is ignorable. Whitespace-only or
+  # invisible-only content is a shape ORQQAL cannot emit: unrecognised.
+
+  NKA_TABLE_MARKER = "^No Known Allergies"
+
+  NKA_SHAPES = {
+    nka: {
+      "exact array" => [ NKA_TABLE_MARKER ],
+      "exact + empty string" => [ NKA_TABLE_MARKER, "" ],
+      "empty strings around" => [ "", NKA_TABLE_MARKER, "" ],
+      "string crlf" => "#{NKA_TABLE_MARKER}\r\n",
+      "string lead cr" => "\r#{NKA_TABLE_MARKER}",
+      "string lf" => "#{NKA_TABLE_MARKER}\n",
+      "string empty segment" => "#{NKA_TABLE_MARKER}\n\n"
+    },
+    conflict: {
+      "space element" => [ NKA_TABLE_MARKER, " " ],
+      "tab element" => [ NKA_TABLE_MARKER, "\t" ],
+      "nbsp element" => [ NKA_TABLE_MARKER, " " ],
+      "zwsp element" => [ NKA_TABLE_MARKER, "​" ],
+      "word joiner element" => [ NKA_TABLE_MARKER, "⁠" ],
+      "soft hyphen element" => [ NKA_TABLE_MARKER, "­" ],
+      "variation selector element" => [ NKA_TABLE_MARKER, "️" ],
+      "tag char element" => [ NKA_TABLE_MARKER, "\u{E0041}" ],
+      "whitespace element before" => [ " ", NKA_TABLE_MARKER ],
+      "string marker + zwsp line" => "#{NKA_TABLE_MARKER}\n​\n",
+      "string marker + space line" => "#{NKA_TABLE_MARKER}\n  ",
+      "string zwsp line + marker" => "​\n#{NKA_TABLE_MARKER}",
+      "fullwidth caret" => [ "＾No Known Allergies" ],
+      "extra piece nonblank" => [ "#{NKA_TABLE_MARKER}^LATEX" ],
+      "nested exact" => [ [ NKA_TABLE_MARKER ] ],
+      "whitespace only reply" => [ " " ]
+    },
+    lone_marker: {
+      "zwsp before marker" => [ "​#{NKA_TABLE_MARKER}" ],
+      "zwsp after marker" => [ "#{NKA_TABLE_MARKER}​" ],
+      "zwsp inside marker" => [ "^No Known​Allergies" ],
+      "case variant" => [ "^no known allergies" ],
+      "extra piece blank" => [ "#{NKA_TABLE_MARKER}^" ],
+      "nul after" => [ "#{NKA_TABLE_MARKER}\u0000" ],
+      "element with terminator" => [ "#{NKA_TABLE_MARKER}\n" ],
+      "element with leading terminator" => [ "\n#{NKA_TABLE_MARKER}" ]
+    }
+  }.freeze
+
+  NKA_SHAPES.each do |kind, shapes|
+    shapes.each do |name, response|
+      define_method("test_nka_table_#{kind}_#{name.gsub(/\W+/, '_')}") do
+        stub_broker_response(response)
+        result = RpmsRpc::Allergy.assessment("42")
+
+        case kind
+        when :nka
+          assert_equal({ assessed: true, nka: true, allergies: [] }, result, name)
+        when :lone_marker
+          assert_equal({ assessed: false, nka: false, allergies: [] }, result, name)
+        else
+          refute result[:nka], name
+          refute result[:assessed], name
+          assert_equal true, result[:conflict], name
+        end
+      end
+    end
+  end
+
+  # -- C1 controls in a clean row (security review of #483) -------------------
+  # A byte 0x80-0x9F in a BINARY / Latin-1 / Windows-1252 string is a byte (a
+  # printable character in Windows-1252), so the row stays clean and its bytes
+  # are untouched. A real U+0080-U+009F CODEPOINT in valid UTF-8 (NEL, CSI...)
+  # is a control sequence, not text: unrecognised. Unproven: which charset a
+  # live site uses (rpms-rpc#476).
+
+  def test_c1_bytes_in_a_binary_row_stay_clean_and_byte_identical
+    [ "\x80", "\x85", "\x96", "\x9B", "\x9F" ].each do |byte|
+      row = "1^A#{byte}B^SEVERE".b
+      stub_broker_response([ row ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      assert result[:assessed], byte.inspect
+      refute_includes result.keys, :conflict, byte.inspect
+      assert_equal "A#{byte}B".b, result[:allergies].first[:allergen].b
+      assert_equal Encoding::BINARY, result[:allergies].first[:allergen].encoding
+    end
+  end
+
+  def test_c1_bytes_in_latin_1_and_windows_1252_tagged_rows_stay_clean
+    [ "ISO-8859-1", "Windows-1252" ].each do |encoding|
+      row = "1^A\x96B^SEVERE".dup.force_encoding(encoding)
+      stub_broker_response([ row ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      assert result[:assessed], encoding
+      refute_includes result.keys, :conflict, encoding
+    end
+  end
+
+  def test_a_real_c1_codepoint_in_valid_utf_8_is_unrecognised
+    [ "\u0080", "\u0090", "\u009B", "\u009F" ].each do |char|
+      [ "1^A#{char}B^SEVERE", "1^A#{char}B^SEVERE".b ].each do |row|
+        stub_broker_response([ row ])
+        result = RpmsRpc::Allergy.assessment("42")
+
+        refute result[:assessed], "#{char.inspect} #{row.encoding}: a control sequence is not text"
+        assert_equal true, result[:conflict], char.inspect
+        assert_equal [ row.b ], result[:allergies].map { |a| a[:raw].b }, "surfaced, not dropped"
+      end
+    end
+  end
+
+  def test_a_c1_codepoint_in_a_different_piece_of_a_utf_8_row_is_unrecognised_too
+    stub_broker_response([ "1^LATEX^SEV\u009BERE" ])
+
+    assert_equal true, RpmsRpc::Allergy.assessment("42")[:conflict]
+  end
+
+  # -- Fail-closed when the parser drops a row -------------------------------
+
+  def test_a_clean_row_the_parser_drops_is_never_a_silent_clean_reply
+    mapping = RpmsRpc::DataMapper[:allergy_list]
+    mapping.stub(:parse_many, ->(_rows) { [] }) do
+      stub_broker_response([ PENICILLIN_ROW ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:assessed], "a row that is not parsed must not read as assessed"
+      assert_equal true, result[:conflict]
+      assert_includes result[:allergies].map { |a| a[:raw] }, PENICILLIN_ROW, "and it is surfaced, not lost"
     end
   end
 end
