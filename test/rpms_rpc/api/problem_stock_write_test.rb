@@ -596,11 +596,12 @@ class ProblemStockWriteTest < Minitest::Test
 
     complete = routine_valid_edit_originals
     (EDIT_REQUIRED_ORIGINAL_KEYS - EDIT_EN_DERIVED_ORIGINAL_KEYS).each do |key|
+      changes = key == ".12" ? { ".05" => "1^new" } : { ".12" => "I" }
       assert_stock_refused_before_rpc(
         -> {
           RpmsRpc::Problem.update_stock(
             IEN, provider_duz: PROVIDER, vamc: VAMC,
-            changes: { ".05" => "1^new" },
+            changes: changes,
             originals: complete.except(key)
           )
         },
@@ -613,7 +614,7 @@ class ProblemStockWriteTest < Minitest::Test
         -> {
           RpmsRpc::Problem.update_stock(
             IEN, provider_duz: PROVIDER, vamc: VAMC,
-            changes: { ".05" => "1^new" },
+            changes: { ".12" => "I" },
             originals: complete.except(key)
           )
         },
