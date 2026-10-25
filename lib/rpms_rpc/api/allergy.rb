@@ -85,7 +85,10 @@ module RpmsRpc
     #   a clean ROW           its first piece is EXACTLY a positive integer (no
     #                         whitespace or invisible character tolerated) and
     #                         piece 2 has allergen text;
-    #   BLANK                 nothing visible in it: not data;
+    #   BLANK                 a truly EMPTY segment (an empty-string element, or
+    #                         what splitting a String leaves between two line
+    #                         terminators): not data. Whitespace-only and
+    #                         invisible-only content is NOT blank;
     #   UNRECOGNISED          anything else, including an element that is not
     #                         text, a line from a list inside the list, and a
     #                         line whose bytes are not valid text.
@@ -139,14 +142,15 @@ module RpmsRpc
     # the list may be truncated. It is never vouched for:
     #   { assessed: false, nka: false, allergies: [...], conflict: true }
     # ALWAYS assessed: false, never nka. +allergies+ holds the clean rows and,
-    # for every unrecognised line with visible text, a flagged entry
+    # for every unrecognised line with content, a flagged entry
     # { ien: nil, allergen: <line, scrubbed and trimmed, for display>,
     # raw: <the line's original bytes>, unrecognised: true } — never routed
     # through DataMapper's error / no-data filters (which would drop
     # "-3^PENICILLIN" or "^LATEX") and with no guess at which piece is the
     # allergen. A host that renders rows therefore shows the text of such a line;
-    # that is intended. Marker lines never become entries; a line with no visible
-    # text (blank, only control bytes or invalid bytes) makes none. A FALSE
+    # that is intended. Marker lines never become entries; every other line with
+    # content does, including whitespace-only, invisible-only, control-only and
+    # invalid-byte-only lines (their +raw+ keeps the bytes; +allergen+ may be empty). A FALSE
     # conflict (a real reply that trips this) is loud and safe: assessed: false,
     # never a false "no known allergies". Clean replies carry no :conflict key and
     # no :unrecognised key. This method reports a conflicting reply as NOT
@@ -165,6 +169,8 @@ module RpmsRpc
       return conflicting(mapping, lines, kinds) if kinds.any? { |kind| kind != :row }
 
       allergies = mapping.parse_many(lines.map { |line| parse_ready(line.text) })
+      return unparsed(lines) unless allergies.size == lines.size
+
       { assessed: !allergies.empty?, nka: false, allergies: allergies }
     end
     shape :assessment, resource: "allergies", verb: "GET", path: "/patients/{dfn}/allergies/assessment"
@@ -174,7 +180,7 @@ module RpmsRpc
     # The reply is not a clean ORQQAL reply: a marker beside other data, or a
     # line ORQQAL cannot emit (see {assessment}). Not assessed and never nka,
     # whatever the rows are. Clean rows are parsed; every unrecognised line with
-    # visible text is surfaced, flagged, in the order it arrived.
+    # content is surfaced, flagged, in the order it arrived.
     def conflicting(mapping, lines, kinds)
       allergies = lines.zip(kinds).flat_map do |line, kind|
         case kind
@@ -184,6 +190,12 @@ module RpmsRpc
         end
       end
       { assessed: false, nka: false, allergies: allergies, conflict: true }
+    end
+
+    # The parser returned fewer rows than it was given: assessed is never
+    # claimed on rows that were silently dropped. Surfaced raw, flagged.
+    def unparsed(lines)
+      { assessed: false, nka: false, allergies: lines.flat_map { |line| surfaced(line) }, conflict: true }
     end
 
     def kind_of(line)
@@ -197,11 +209,12 @@ module RpmsRpc
       line.exact && line.text == NKA_SENTINEL
     end
 
-    # An unrecognised line, as a flagged entry; nothing when it has no visible
-    # text. +raw+ keeps the original bytes; +allergen+ is a scrubbed copy, so it
-    # can be displayed and serialised.
+    # An unrecognised line, as a flagged entry; nothing when it has no
+    # content. +raw+ keeps the original bytes; +allergen+ is a scrubbed copy, so
+    # it can be displayed and serialised (it may be empty for an invisible-only
+    # line: rely on +raw+ and +unrecognised+).
     def surfaced(line)
-      return [] if line.text.nil? || !visible?(line.text)
+      return [] if line.text.nil? || line.text.empty?
 
       [ { ien: nil, allergen: displayable(line.text).strip, raw: line.text, unrecognised: true } ]
     end
@@ -228,16 +241,27 @@ module RpmsRpc
     # byte can never be dropped to make an IEN look right.
     def row?(text)
       scrubbed = scrubbed_text(text)
-      return false if scrubbed.match?(CONTROL)
+      return false if scrubbed.match?(CONTROL) || c1_codepoint?(text, scrubbed)
 
       pieces = scrubbed.split("^", -1)
       pieces.size >= 2 && pieces[0].match?(ROW_IEN) && visible?(pieces[1])
     end
 
-    # A line with nothing in it (whitespace and invisible characters only) is
-    # not data and never becomes a row. A line with invalid bytes is not "nothing".
+    # A real U+0080-U+009F CODEPOINT read from UTF-8 (NEL, CSI ...) is a control
+    # sequence, not text. A BYTE 0x80-0x9F in a BINARY string that is not valid
+    # UTF-8, or in a Latin-1 / Windows-1252 tagged string, is a byte (printable
+    # in Windows-1252), so it is not one. Which charset a live site uses is
+    # unproven (rpms-rpc#476).
+    def c1_codepoint?(text, scrubbed)
+      [ Encoding::UTF_8, Encoding::BINARY, Encoding::US_ASCII ].include?(text.encoding) && scrubbed.match?(/[\u0080-\u009F]/)
+    end
+
+    # Only a truly EMPTY segment (what splitting on line terminators leaves
+    # between two terminators, or an empty-string element) is ignorable. Anything
+    # with content, including whitespace-only or invisible-only content, is a
+    # shape ORQQAL cannot emit: unrecognised, never vouched for.
     def blank?(line)
-      line.text.is_a?(String) && !line.unrecognised && squeeze(line.text).empty?
+      line.text == "" && !line.unrecognised
     end
 
     # Anything a person could see: not whitespace, not an invisible character,
