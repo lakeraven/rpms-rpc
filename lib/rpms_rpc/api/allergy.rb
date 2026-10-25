@@ -77,6 +77,9 @@ module RpmsRpc
       agent agent_pointer type nature originator originated_at observed_or_historical
     ].freeze
 
+    # GMRAOBHX is exactly "o" (observed) or "h" (historical) (GMRAGUI1.m:135).
+    OBHX = %w[o h].freeze
+
     # "-1^Patient already has a <agent> reaction entered.  No duplicates allowed."
     # (GMRAGUI1.m:89). Two spaces before "No".
     DUPLICATE_REPLY = %r{\A-1\^Patient already has a .+ reaction entered\.  No duplicates allowed\.\z}
@@ -224,12 +227,22 @@ module RpmsRpc
     #
     #   save(dfn, allergy) => { success: true, note_ien: Integer or nil }
     #                     or { success: false, error:, message: }
+    #
+    # Refused before the RPC: a "^" or a control in any filed value ($P on
+    # U drops the rest — GMRAGUI1.m:105), GMRAOBHX other than "o"/"h"
+    # (GMRAGUI1.m:135), a GMRAORIG that is not a positive DUZ
+    # (GMRAGUI1.m:104), symptoms that are not an Array of Hashes with a
+    # code (GMRAGUI1.m:122), or comments that are not an Array of Strings
+    # (GMRAGUI1.m:118).
     def save(dfn, allergy)
       patient = canonical_dfn(dfn)
       return invalid_dfn unless patient
 
       missing = absent_required(allergy)
       return missing_allergy(missing) unless missing.empty?
+
+      refusal = refused_allergy(allergy)
+      return refusal if refusal
 
       dispatch(patient, edited_list(allergy))
     end
@@ -449,6 +462,55 @@ module RpmsRpc
       { success: false, error: :missing_fields, message: "missing #{fields.join(", ")}" }
     end
 
+    def invalid_value(field)
+      { success: false, error: :invalid_value, message: "invalid #{field}" }
+    end
+
+    # See {save}. A blank GMRASYMP first piece is not stored (GMRAGUI1.m:122).
+    def refused_allergy(allergy)
+      return invalid_value(:symptoms) unless symptoms_ok?(allergy[:symptoms])
+      return invalid_value(:comments) unless comments_ok?(allergy[:comments])
+      return invalid_value(:observed_or_historical) unless OBHX.include?(allergy[:observed_or_historical])
+      return invalid_value(:originator) unless canonical_dfn(allergy[:originator])
+
+      field = unsafe_field(allergy)
+      invalid_value(field) if field
+    end
+
+    def symptoms_ok?(symptoms)
+      return true if symptoms.nil?
+      return false unless symptoms.is_a?(Array)
+
+      symptoms.all? { |symptom| symptom.is_a?(Hash) && !blank_field?(symptom[:ien]) }
+    end
+
+    def comments_ok?(comments)
+      return true if comments.nil?
+      return false unless comments.is_a?(Array)
+
+      comments.all? { |line| line.is_a?(String) }
+    end
+
+    def unsafe_field(allergy)
+      bad = REQUIRED_FIELDS.find { |field| unsafe_text?(allergy[field]) }
+      return bad if bad
+
+      bad = unsafe_symptom(allergy[:symptoms])
+      return bad if bad
+
+      :comment if allergy[:comments]&.any? { |line| unsafe_text?(line) }
+    end
+
+    def unsafe_symptom(symptoms)
+      Array(symptoms).filter_map { |symptom| symptom.keys.find { |name| unsafe_text?(symptom[name]) } }.first
+    end
+
+    # "^" splits a piece (GMRAGUI1.m:105); ASCII controls are frame bytes.
+    def unsafe_text?(value)
+      text = value.to_s
+      text.include?("^") || text.match?(CONTROL)
+    end
+
     # GMRASYMP(n)="ien^text^FileMan date" and GMRACMTS(n)=comment
     # (GMRAGUI1.m:120, :118 stock). Array keys are the two-level
     # subscripts CiaClient#m_subscript / XwbClient#m_subscript encode.
@@ -475,11 +537,20 @@ module RpmsRpc
     def dispatch(dfn, edited)
       raw = RpmsRpc.client.call_rpc(SAVE_ALLERGY_RPC, "", dfn, edited)
       classify_reply(raw)
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A value the wire would mis-frame is refused before anything is sent
+      # (#472); this API's contract is a failure hash, so it says why.
+      failure.merge(error: e.message)
+    end
+
+    def failure
+      { success: false }
     end
 
     def classify_reply(raw)
       text = reply_text(raw)
       return { success: false, error: :empty_reply, message: "" } if text.nil?
+      return { success: false, error: :malformed_reply, message: raw.to_s } unless text.is_a?(String)
 
       if (match = text.match(SUCCESS_REPLY))
         note = match[1]
@@ -493,13 +564,27 @@ module RpmsRpc
       { success: false, error: :malformed_reply, message: text }
     end
 
-    # [], "", and nil are empty. Any other non-string is not a single-value
-    # ORY (return type 1) and fails closed as malformed.
+    # [], "", and nil are empty. A one-element Array is the single ORY line
+    # live XWB/CIA clients return; trailing $C(30)/$C(31) are framing, not
+    # data (DataMapper.strip_recordset_separators). Any other non-String —
+    # a longer Array, an Integer, a Symbol — is not that line.
     def reply_text(raw)
       return nil if raw.nil? || raw == "" || raw == []
-      return raw if raw.is_a?(String)
 
-      raw.to_s
+      line = single_reply_line(raw)
+      return :malformed unless line.is_a?(String)
+      return nil if line.empty?
+
+      stripped = DataMapper.strip_recordset_separators(line)
+      stripped.empty? ? nil : stripped
+    end
+
+    # One ORY line, or :malformed when the reply is not that line.
+    def single_reply_line(raw)
+      return raw unless raw.is_a?(Array)
+      return raw.first if raw.size == 1 && raw.first.is_a?(String)
+
+      :malformed
     end
 
     def error_for(text)
