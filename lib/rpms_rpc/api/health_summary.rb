@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -16,6 +17,7 @@ module RpmsRpc
   # before adding those reads back (ADR 0003).
   module HealthSummary
     extend self
+    extend Shape::Declarable
 
     COMPONENT_TYPES = {
       demographics: "DEM",
@@ -59,6 +61,7 @@ module RpmsRpc
       # when the input was unknown and we fell back to the first available type).
       parse_health_summary(text, resolved[:name])
     end
+    shape :for_patient, resource: "health-summaries", verb: "GET", path: "/patients/{dfn}/health-summaries"
 
     def generate_selective(dfn, components:)
       return error_summary("Invalid patient DFN") if invalid_id?(dfn)
@@ -95,12 +98,14 @@ module RpmsRpc
         generated_at: Time.now
       }
     end
+    shape :component_data, resource: "health-summaries", verb: "GET", path: "/patients/{dfn}/health-summaries/component-data"
 
     def clinical_reminders(dfn)
       return [] if invalid_id?(dfn)
 
       DataMapper.reminders_list.fetch_many(dfn.to_s)
     end
+    shape :clinical_reminders, resource: "health-summaries", verb: "GET", path: "/patients/{dfn}/health-summaries/clinical-reminders"
 
     def reminder_detail(dfn, reminder_ien)
       return nil if invalid_id?(dfn) || invalid_id?(reminder_ien)
@@ -108,6 +113,7 @@ module RpmsRpc
       text = DataMapper.reminder_detail.fetch_text("#{dfn}^#{reminder_ien}")
       blank?(text) ? nil : { content: text, parsed_at: Time.now }
     end
+    shape :reminder_detail, resource: "health-summaries", verb: "GET", path: "/patients/{dfn}/health-summaries/reminders/{reminder_ien}"
 
     private
 

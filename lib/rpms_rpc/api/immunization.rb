@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 require_relative "ddr_fileman"
 
@@ -17,6 +18,7 @@ module RpmsRpc
   # built image registers (#207). They are kept, rebuilt on BGOVIMM GET.
   module Immunization
     extend self
+    extend Shape::Declarable
 
     # V IMMUNIZATION, the file BGOVIMM GET reads.
     V_IMMUNIZATION_FILE = "9000010.11"
@@ -37,6 +39,7 @@ module RpmsRpc
                 .select { |row| row[:record_type] == "I" }
                 .map { |row| dose(row) }
     end
+    shape :for_patient, resource: "immunizations", verb: "GET", path: "/patients/{dfn}/immunizations"
 
     # One immunization by V IMMUNIZATION IEN, as for_patient returns it, or
     # nil when no such entry is on file. BGOVIMM GET reads by patient, so
@@ -49,6 +52,7 @@ module RpmsRpc
 
       for_patient(dfn).find { |row| row[:ien] == ien.to_s }
     end
+    shape :find, resource: "immunizations", verb: "GET", path: "/immunizations/{ien}"
 
     # The CCD patient-summary text blob (BEHOCIR GETTXT).
     def text_summary(dfn)
@@ -56,6 +60,7 @@ module RpmsRpc
 
       DataMapper.immunization_text.fetch_text(dfn.to_s)
     end
+    shape :text_summary, resource: "immunizations", verb: "GET", path: "/patients/{dfn}/immunizations/text-summary"
 
     private
 

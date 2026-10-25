@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -19,6 +20,7 @@ module RpmsRpc
   # callers can distinguish "rejected" from "unreachable".
   module DdrFileman
     extend self
+    extend Shape::Declarable
 
     # -- DDR FILER -----------------------------------------------------------
 
@@ -46,6 +48,10 @@ module RpmsRpc
                       .to_h { |md| [ md[1].to_i, md[2] ] }
       errors = error_block(reply)
       { success: errors.empty?, iens: resolved, errors: errors }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A value the wire would mis-frame is refused before anything is sent
+      # (#472): nothing was filed, and the errors array says why.
+      { success: false, iens: {}, errors: [ e.message ] }
     end
 
     def filer_params(mode:, rows:, iens: {}, flags: "")
@@ -170,6 +176,7 @@ module RpmsRpc
               (result.empty? && !reply.include?("[Data]"))
       { fields: result, error: error }
     end
+    shape :gets_entry, resource: "files", verb: "GET", path: "/files/{file}/entries/{iens}"
 
     def gets_entry_param(file:, iens:, fields:, flags: "")
       param = { "FILE" => file.to_s, "IENS" => iens.to_s, "FIELDS" => fields.to_s }

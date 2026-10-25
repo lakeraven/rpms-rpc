@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../fileman_date_parser"
 
 module RpmsRpc
   module Medication
     extend self
+    extend Shape::Declarable
 
     # Condensed medication list. Underlying RPC: ORQQPS LIST — verified
     # row shape ID^NAME^STOP_DATE^ROUTE^SCHEDULE^REFILLS (LIST^ORQQPS:
@@ -24,6 +26,7 @@ module RpmsRpc
 
       DataMapper.medication_list.fetch_many(dfn.to_s, "", "").reject { |r| r[:id].to_s.empty? }
     end
+    shape :for_patient, resource: "medications", verb: "GET", path: "/patients/{dfn}/medications"
 
     # Active inpatient and outpatient medications, one record per "~" header.
     # Underlying RPC: ORWPS ACTIVE (ACTIVE^ORWPS, ORWPS.m:17-51; see the
@@ -53,12 +56,14 @@ module RpmsRpc
 
       parse_active(text)
     end
+    shape :active_for_patient, resource: "medications", verb: "GET", path: "/patients/{dfn}/medications/active"
 
     def find(ien)
       return nil if ien.nil? || ien.to_i <= 0
 
       DataMapper.medication_detail.fetch_text(ien.to_s)
     end
+    shape :find, resource: "medications", verb: "GET", path: "/medications/{ien}"
 
     private
 

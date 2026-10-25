@@ -10,8 +10,11 @@ require_relative "../../tools/openapi/client_api"
 class ShapeTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
   BASELINE = File.join(__dir__, "undeclared_baseline.txt")
+  WRITE_CLASS_GET_BASELINE = File.join(ROOT, "data/openapi/write_class_get_baseline.txt")
   # Baseline line count when the ratchet was introduced; may only be lowered.
-  UNDECLARED_BASELINE_MAX_LINES = 199
+  UNDECLARED_BASELINE_MAX_LINES = 116
+  # Frozen exception (#471): write-class methods that stay GET until reclassified read; may only shrink.
+  WRITE_CLASS_GET_BASELINE_LINE_COUNT = 67
 
   def test_every_public_method_that_sends_rpcs_is_declared_or_baselined
     report = ApiCoverage.build(ROOT)
@@ -29,6 +32,138 @@ class ShapeTest < Minitest::Test
     assert_empty violations,
                  "undeclared RPC-sending methods not in baseline:\n" \
                  "#{violations.map { |e| "#{e[:module]}.#{e[:method]}" }.join("\n")}"
+  end
+
+  def test_every_read_method_published_as_get_is_declared
+    report = ApiCoverage.build(ROOT)
+    violations = undeclared_read_methods_published_as_get(report)
+
+    assert_empty violations,
+                 "undeclared read methods published as GET in OpenAPI catalog:\n" \
+                 "#{violations.join("\n")}"
+  end
+
+  def test_write_class_methods_published_as_get_honors_injected_retry_table_for_catalog_verbs
+    report = ApiCoverage.build(ROOT)
+    key = "RpmsRpc::Patient.find"
+    retry_table = RpmsRpc::RetrySafety.table.merge(key => :non_idempotent_write)
+
+    doc = JSON.parse(JSON.generate(ApiCoverage.document(report[:entries], registry_tag: report[:registry_tag])))
+    catalog_entry = OpenApi::ClientApi.catalog(doc, retry_table: retry_table)[:entries].find do |e|
+      m = e[:method]
+      "#{m["module"]}.#{m["method"]}" == key
+    end
+    refute_nil catalog_entry, "expected #{key} in catalog"
+    assert_equal "POST", catalog_entry[:addr][:verb].upcase
+
+    violations = write_class_methods_published_as_get(report, retry_table: retry_table, allowed: [])
+    patient_violations = violations.grep(/\A#{Regexp.escape(key)}:/)
+    assert_empty patient_violations,
+                 "injected retry table publishes #{key} as POST; helper must not report GET:\n" \
+                 "#{patient_violations.join("\n")}"
+  end
+
+  def test_retry_safety_table_governs_publish_post_for_synthetic_methods
+    m = {
+      module: "RpmsRpc::ShapeTest::RetryPublishPost",
+      method: "payload_snapshot",
+      shape_status: "undeclared",
+      rpcs: [ { name: "SYNTH", registered: true, entry_point: "X^SYNTH", reach: "client-callable", via: "literal" } ]
+    }
+    catalog_method = {
+      "module" => m[:module], "method" => m[:method], "arity" => 1,
+      "params" => [ { "name" => "ien", "kind" => "req" } ],
+      "rpcs" => m[:rpcs].map { |r| r.transform_keys(&:to_s) },
+      "unresolved" => [], "live_specs" => [], "personas" => [], "status" => "not_in_contract"
+    }
+    key = "#{m[:module]}.#{m[:method]}"
+    write_rows = { key => :non_idempotent_write }
+    read_rows = { key => :read }
+
+    write_table = RpmsRpc::RetrySafety.table.merge(write_rows)
+    addr = OpenApi::ClientApi.address(catalog_method, retry_table: write_table)
+    assert_equal "post", addr[:verb]
+    assert_equal "retry-class", addr[:rule]
+    assert_equal "/retry-publish-posts/{ien}/payload-snapshot", addr[:path]
+
+    read_table = RpmsRpc::RetrySafety.table.merge(read_rows)
+    addr = OpenApi::ClientApi.address(catalog_method, retry_table: read_table)
+    assert_equal "get", addr[:verb]
+    assert_equal "noun", addr[:rule]
+  end
+
+  def test_every_write_class_method_is_published_with_a_non_get_verb
+    report = ApiCoverage.build(ROOT)
+    baseline = load_write_class_get_baseline
+    violations = write_class_methods_published_as_get(report, allowed: baseline)
+    stale = stale_write_class_get_baseline_entries(report, baseline: baseline)
+
+    assert_empty violations,
+                 "retry class other than :read must not be published as GET unless in write_class_get baseline:\n" \
+                 "#{violations.join("\n")}"
+    assert_empty stale,
+                 "stale write_class_get baseline entries (no longer write-class GET in catalog):\n" \
+                 "#{stale.join("\n")}"
+  end
+
+  def test_write_class_get_baseline_lists_only_write_class_methods_published_as_get
+    baseline = load_write_class_get_baseline
+    report = ApiCoverage.build(ROOT)
+    published_keys = write_class_methods_published_as_get(report, allowed: []).map do |line|
+      line.split(": ", 2).first
+    end.to_set
+    problems = baseline.filter_map do |line|
+      if published_keys.include?(line)
+        nil
+      else
+        "#{line}: not a write-class method published as GET in the catalog"
+      end
+    end
+
+    assert_empty problems, problems.join("\n")
+  end
+
+  def test_write_class_get_baseline_has_no_duplicates_and_bounded_size
+    lines = load_write_class_get_baseline
+    duplicates = lines.tally.select { |_line, count| count > 1 }.keys
+
+    assert_empty duplicates,
+                 "duplicate write_class_get baseline entries:\n#{duplicates.join("\n")}"
+    assert_equal WRITE_CLASS_GET_BASELINE_LINE_COUNT, lines.size,
+                 "write_class_get baseline has #{lines.size} lines; update WRITE_CLASS_GET_BASELINE_LINE_COUNT when shrinking"
+  end
+
+  def test_every_get_declaration_is_classified_read
+    mod = Module.new do
+      def self.get_on_non_read; end
+    end
+    mod_name = "RpmsRpc::ShapeTest::GetOnNonRead"
+    mod.define_singleton_method(:name) { mod_name }
+    shape = { resource: "shape_test", verb: "GET", path: "/shape_test/get_on_non_read" }
+    RpmsRpc::Shape.declare(mod, :get_on_non_read, **shape)
+
+    synthetic_entry = {
+      module: mod_name,
+      method: "get_on_non_read",
+      shape_status: "declared",
+      shape: shape
+    }
+    retry_table = RpmsRpc::RetrySafety.table.merge("#{mod_name}.get_on_non_read" => :non_idempotent_write)
+    synthetic_violations = declared_get_declarations_not_classified_read(
+      [ synthetic_entry ],
+      retry_table: retry_table
+    )
+    refute_empty synthetic_violations,
+                 "helper must flag GET declared on a non-read retry class"
+    assert_match(/requires retry class read/, synthetic_violations.join("\n"))
+
+    report = ApiCoverage.build(ROOT)
+    violations = declared_get_declarations_not_classified_read(report[:entries])
+    assert_empty violations,
+                 "GET-declared methods must be classified read in retry_safety.yml:\n" \
+                 "#{violations.join("\n")}"
+  ensure
+    undeclare_shape(mod, :get_on_non_read) if mod
   end
 
   def test_baseline_lists_no_declared_or_missing_method
@@ -112,7 +247,7 @@ class ShapeTest < Minitest::Test
     vital_entries = declared_entries.select { |e| e[:module] == "RpmsRpc::Vital" }
     refute_empty vital_entries, "expected declared Vital shapes"
 
-    # Only Vital declares today; this loop guards any future declared module too.
+    # Vital was slice 1; later slices declare more modules. This loop guards every declared module.
     refute_empty declared_entries, "expected at least one declared shape"
     mismatches = declared_shape_catalog_mismatches(report[:entries], registry_tag: report[:registry_tag])
     assert_empty mismatches, mismatches.join("\n")
@@ -401,15 +536,92 @@ class ShapeTest < Minitest::Test
                     "baseline has #{lines.size} lines; lower UNDECLARED_BASELINE_MAX_LINES when shrinking"
   end
 
-  # Declared shapes must match where OpenApi::ClientApi.catalog publishes each method (not address()'s
-  # first-choice route). Returns human-readable mismatch lines; empty when every declared shape matches.
-  def declared_shape_catalog_mismatches(entries, registry_tag:)
+  # OpenApi::ClientApi.catalog keyed by [module, method], same source as declared_shape_catalog_mismatches.
+  def openapi_catalog_by_method(entries, registry_tag:, retry_table: RpmsRpc::RetrySafety.table)
     doc = JSON.parse(JSON.generate(ApiCoverage.document(entries, registry_tag: registry_tag)))
-    catalog = OpenApi::ClientApi.catalog(doc)
-    by_method = catalog[:entries].to_h do |e|
+    catalog = OpenApi::ClientApi.catalog(doc, retry_table: retry_table)
+    catalog[:entries].to_h do |e|
       m = e[:method]
       [ [ m["module"], m["method"] ], e ]
     end
+  end
+
+  # Declared GET shapes must name methods classified :read in retry_safety.yml.
+  def declared_get_declarations_not_classified_read(entries, retry_table: RpmsRpc::RetrySafety.table)
+    entries.filter_map do |entry|
+      next unless entry[:shape_status] == "declared"
+      next unless entry[:shape] && entry[:shape][:verb].to_s.upcase == "GET"
+
+      key = "#{entry[:module]}.#{entry[:method]}"
+      next if retry_table[key] == :read
+
+      "#{key}: a GET declaration requires retry class read; reclassify or declare another verb"
+    end.sort
+  end
+
+  def load_write_class_get_baseline
+    File.readlines(WRITE_CLASS_GET_BASELINE, chomp: true).reject(&:empty?)
+  end
+
+  # RPC-sending methods whose retry class is not :read and are published GET in the catalog.
+  # Returns violation lines; entries in `allowed` are exempt (frozen baseline).
+  def write_class_methods_published_as_get(report, retry_table: RpmsRpc::RetrySafety.table, allowed: nil)
+    allowed_set = (allowed || load_write_class_get_baseline).to_set
+    catalog_by_method = openapi_catalog_by_method(
+      report[:entries],
+      registry_tag: report[:registry_tag],
+      retry_table: retry_table
+    )
+
+    report[:entries].filter_map do |entry|
+      next if entry[:rpcs].empty?
+
+      key = "#{entry[:module]}.#{entry[:method]}"
+      retry_class = retry_table[key]
+      next if retry_class == :read
+
+      catalog_entry = catalog_by_method[[ entry[:module], entry[:method] ]]
+      next unless catalog_entry
+      next unless catalog_entry[:addr][:verb].upcase == "GET"
+      next if allowed_set.include?(key)
+
+      "#{key}: GET #{catalog_entry[:addr][:path]} (#{retry_class})"
+    end.sort
+  end
+
+  # Baseline keys that are not write-class methods published as GET (stale; baseline may only shrink).
+  def stale_write_class_get_baseline_entries(report, baseline: nil, retry_table: RpmsRpc::RetrySafety.table)
+    baseline_lines = baseline || load_write_class_get_baseline
+    published_keys = write_class_methods_published_as_get(report, retry_table: retry_table, allowed: []).map do |line|
+      line.split(": ", 2).first
+    end.to_set
+    baseline_lines.reject { |key| published_keys.include?(key) }.sort
+  end
+
+  # RPC-sending methods classified read in retry_safety.yml and published GET in the catalog, still undeclared.
+  def undeclared_read_methods_published_as_get(report)
+    retry_table = RpmsRpc::RetrySafety.table
+    catalog_by_method = openapi_catalog_by_method(report[:entries], registry_tag: report[:registry_tag])
+
+    report[:entries].filter_map do |entry|
+      next if entry[:rpcs].empty?
+      next unless entry[:shape_status] != "declared"
+
+      key = "#{entry[:module]}.#{entry[:method]}"
+      next unless retry_table[key] == :read
+
+      catalog_entry = catalog_by_method[[ entry[:module], entry[:method] ]]
+      next unless catalog_entry
+      next unless catalog_entry[:addr][:verb].upcase == "GET"
+
+      key
+    end.sort
+  end
+
+  # Declared shapes must match where OpenApi::ClientApi.catalog publishes each method (not address()'s
+  # first-choice route). Returns human-readable mismatch lines; empty when every declared shape matches.
+  def declared_shape_catalog_mismatches(entries, registry_tag:)
+    by_method = openapi_catalog_by_method(entries, registry_tag: registry_tag)
 
     entries.select { |e| e[:shape_status] == "declared" }.filter_map do |entry|
       catalog_entry = by_method[[ entry[:module], entry[:method] ]]

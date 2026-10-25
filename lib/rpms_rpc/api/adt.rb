@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -16,6 +17,7 @@ module RpmsRpc
   # that ORWPT already provides.
   module Adt
     extend self
+    extend Shape::Declarable
 
     # A patient's admission movements — ORWPT ADMITLST (ADMITLST^ORWPT).
     # Returns an Array of
@@ -27,6 +29,7 @@ module RpmsRpc
 
       DataMapper.patient_admissions.fetch_many(dfn.to_s)
     end
+    shape :admissions, resource: "admissions", verb: "GET", path: "/patients/{dfn}/admissions"
 
     # A patient's current inpatient location — ORWPT INPLOC (INPLOC^ORWPT).
     # Returns { location_ien:, ward:, ward_synonym: } when the patient is
@@ -49,6 +52,7 @@ module RpmsRpc
       rec[:location_ien] = nil unless linked
       rec
     end
+    shape :current_location, resource: "admissions", verb: "GET", path: "/patients/{dfn}/admissions/current-location"
 
     # Discharge date/time for a given admission — ORWPT DISCHARGE (DISCHRG^ORWPT).
     #   admit_datetime: the EXACT admission movement datetime — pass the
@@ -72,6 +76,7 @@ module RpmsRpc
 
       FilemanDateParser.parse_datetime(raw)
     end
+    shape :discharge_datetime, resource: "admissions", verb: "GET", path: "/patients/{dfn}/admissions/discharge-datetime"
 
     private
 

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -14,6 +15,7 @@ module RpmsRpc
   # design (CIAVCXUS.m:20-31) and names no site; the key read the DUZ (#221).
   module Session
     extend self
+    extend Shape::Declarable
 
     def bootstrap(user_duz)
       return nil if invalid_duz?(user_duz)
@@ -26,6 +28,7 @@ module RpmsRpc
         vim_info: vim_info
       }
     end
+    shape :bootstrap, resource: "sessions", verb: "GET", path: "/users/{user_duz}/sessions/bootstrap"
 
     private
 

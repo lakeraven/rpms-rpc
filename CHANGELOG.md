@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `Allergy.assessment` never hides an allergy and never vouches for a contradictory or unrecognised reply (#483)
+
+- **Bug:** `Allergy.assessment` returned `nka: true` for any reply containing the `^No Known Allergies` marker and dropped every
+  other row, so `["^No Known Allergies", "5^Penicillin^SEVERE^HIVES"]` read as verified absence with the real allergy gone.
+  A `^No Allergy Assessment` marker next to rows dropped the rows the same way, a repeated NKA marker also read as NKA, and a reply
+  that was blank, not text, or full of lookalikes read `assessed: true` with phantom rows. Lines carrying an allergen in a shape the
+  parser filters (`-3^PENICILLIN`, `^LATEX`, a marker with extra fields) were dropped.
+- **Design:** every line is a recognised **marker** (`^` + the marker text, nothing else), a clean **row** (first piece exactly a
+  positive integer, visible allergen text in piece 2, no control character), **blank** (a truly empty segment only), or **unrecognised**, from what `LIST^ORQQAL`
+  (`ORQQAL.m:7-16`, with `GMRAOR1.m` `EN1`) can emit: exactly three markers (`^No Allergy Assessment`, `^No Known Allergies`, and
+  `^No allergies found.` at line 15, written only when no row was written), mutually exclusive with the rows, and every row starting
+  with the allergy IEN (`Q:GMRAIEN<1`).
+- **Verified absence stays strictly byte-exact:** only the exact NKA marker as the sole data line. A String reply's own line
+  terminators are not part of the marker; an Array element that still carries a terminator is not the exact marker. RS/US framing is
+  not stripped (no client delivers it inside a line of this reply), so a framing byte glued to the marker, or a framing-only element
+  beside it, is unrecognised, never NKA. A lone marker, including a mangled one, is `{ assessed: false, nka: false, allergies: [] }`.
+- **Every String is split into lines first**, on CR, LF and (for UTF-8, BINARY and US-ASCII) the UTF-8 byte sequences for U+2028,
+  U+2029 and U+0085, whether or not the line is valid UTF-8 (a lone 0x85 in a single-byte encoding is a character). A row has at
+  most four pieces: a fifth non-blank piece is unrecognised, not silently dropped. A list inside the list is unrecognised even when
+  empty, and so is an element that is not text; both surface their inspect text. Nesting deeper than 64 (or cyclic) raises
+  `RpmsRpc::Allergy::ReplyTooDeepError`. Only a truly **empty** segment is blank: a whitespace-only or invisible-only element or String segment beside the marker is
+  unrecognised (conflict, never NKA) and surfaced with its raw bytes. The invisible set is genuinely invisible characters (not all
+  of `\p{Cf}`). A real U+0080-U+009F codepoint read from UTF-8 in a row is a control sequence (unrecognised); a byte 0x80-0x9F in
+  a BINARY / Latin-1 / Windows-1252 string is a byte and stays clean (charset unproven live, rpms-rpc#476). A parser that returns
+  fewer rows than it was given makes the reply a conflict, never `assessed`.
+- **Bytes:** classification reads a copy with invalid bytes made U+FFFD (a mangled marker never matches); **a clean row's output is
+  the original bytes and encoding, identical to `main`** (a Latin-1 byte in a BINARY allergen is a clean row; the bytes are the
+  boundary's concern, rpms-rpc#477). A UTF-8-tagged string that is not valid UTF-8 no longer raises `ArgumentError`; it is read with
+  U+FFFD. An element tagged with any other encoding than UTF-8, BINARY, US-ASCII or a single-byte ISO-8859-x / Windows-125x tag (UTF-16/32,
+  UTF-7, Shift_JIS, EUC-JP ...) is unrecognised and surfaced verbatim; nothing is transcoded and no byte is deleted. A US-ASCII reply
+  with a high byte is read as BINARY (it used to raise). A line terminator inside an Array element is split off (it used to be kept).
+- **A conflicting reply** (a marker beside other data, a repeated marker, or any unrecognised line):
+  `{ assessed: false, nka: false, allergies: [...], conflict: true }` — **always `assessed: false`, never `nka`**. `allergies` holds
+  the clean rows and, for every unrecognised line with content, a flagged entry
+  `{ ien: nil, allergen: <scrubbed, trimmed>, raw: <original bytes>, unrecognised: true }` (never filtered through DataMapper). A
+  false conflict is loud and safe. A clean reply is unchanged and carries no `:conflict` or `:unrecognised` key.
+- **Host-visible changes:** `Allergy.for_patient` returns the surfaced entries too, so a host rendering rows from it shows the text of
+  an unrecognised line, with a `nil` `:ien`. A host that must show such a list as incomplete **must read `:conflict`** from
+  `Allergy.assessment`; identifier collisions on `nil`-IEN entries and an "unconfirmed" status are the host's to handle
+  (lakeraven-ehr#672).
+- **Evidence:** the reply shape is read from the M routine source, not from a live broker. **Unproven live (ADR 0009):** no live
+  spec exercises a conflicting reply (the routine cannot produce one).
+
+### Fixed — XWB and BMX refuse a request they would mis-frame, and the failure-hash writers say so (#472, #474)
+
+- **XWB:** the header `[XWB]1130` fixes the L-PACK length at 3 digits (`XWBPRS.m`, `XWBENVL=+$E(P,3)`; `LREAD` reads exactly that
+  many). `lpack` used to write 5 digits for a value over 999 bytes, so the server read the first 3 as the length and parsed the
+  rest as protocol: long literals, list keys and list values were mis-framed without any error. It now writes 3 digits and
+  raises `XwbClient::LpackTooLongError` for a value over 999 **bytes**, before anything is written. Refusing at 999 is this
+  client's policy under the 3-digit header, not a protocol limit (a `[XWB]1150` header would carry 5-digit lengths).
+- **BMX:** `BMXMBRK` (`PRSP`, `PRSM`, `PRSA`, `PRSB`) cuts a request at 512 bytes, so a 600-byte param arrived as 457 bytes with
+  no error. `build_bmx_message` now raises `BmxClient::RequestTooLongError` for a request over 512 bytes, and the fixed-width
+  prefixes refuse a number that does not fit instead of widening the field.
+- **Behaviour change:** both are `RpmsRpc::Error`s under `Client::FrameTooLongError` (not `ArgumentError`). Nothing could have
+  relied on an `ArgumentError`: on `main` the XWB prefix silently widened and BMX had no check. A caller that sent an oversized
+  value used to get silent corruption and now gets the error; nothing is sent and the connection stays usable. CIA is unaffected.
+- **APIs that answer with their failure hash** (plus an `:error` that names the limit, never the value; only `ProgressNote.update_text` also names the line, and
+  `Registration.update`'s byte count is the whole joined window):
+  `ProgressNote.update_text`, `ExamComponent.add`, `HealthFactor.add`, `ImmunizationRefusal.record`, `Pov.add`, `Procedure.add`,
+  `Problem.add` / `update` / `delete`, `ESignature.remove`, `Scheduling` writes (`{ success: false, error: }`), `Referral`'s BMC
+  writers (`{ success: false, raw: nil, error: }`, where a broker-side failure carries `:message` and `:raw` only), `DdrFileman.filer` (`errors:`), and `Registration.update`
+  (`error: :frame_too_long`, with `window:` and the `filed_windows:` report).
+- **APIs that raise `FrameTooLongError`** (not yet audited, #480): `Registration.register`, `Agg`, the behavioral-health writers,
+  `Vital` and `Measurement` writes, and any caller of `call_rpc` directly. Wrapping long note text instead of refusing it is #479;
+  a pre-check that lets a host validate before it files its first record is #480.
+- BMX refusal messages name their cause: a field inside a request cites the 512-byte cut, the connect and session packet length
+  fields do not.
+
 ### Added — XWB and BMX sign-on bind the division (DUZ(2)) as the stock XWB client does (#450)
 
 - `Client#authenticate` (XwbClient, BmxClient) calls `XUS DIVISION GET` after `XUS AV CODE`, as the Delphi RPC Broker does, and

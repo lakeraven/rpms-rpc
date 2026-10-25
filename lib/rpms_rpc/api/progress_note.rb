@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -16,6 +17,7 @@ module RpmsRpc
   # booleans: LOCK answers 0 when it HOLDS the lock.
   module ProgressNote
     extend self
+    extend Shape::Declarable
 
     # CLASS for CONTEXT^TIUSRVLO: the TIU DOCUMENT DEFINITION (#8925.1)
     # NOTES^TIUSRVLO lists progress notes under (TIUSRVLO.m:8).
@@ -59,12 +61,14 @@ module RpmsRpc
       params.pop while params.last.empty?
       Array(DataMapper.tiu_documents_by_context.fetch_many(*params)).map { |row| with_author(row) }
     end
+    shape :list, resource: "progress-notes", verb: "GET", path: "/patients/{dfn}/progress-notes"
 
     def fetch_text(note_ien)
       return nil if invalid_id?(note_ien)
 
       DataMapper.tiu_get_record_text.fetch_text(note_ien.to_s)
     end
+    shape :fetch_text, resource: "progress-notes", verb: "GET", path: "/progress-notes/{note_ien}/text"
 
     # CANDO(TIUY,TIUDA,TIUACT) (TIUSRVA.m:20): may the signed-on user take
     # +action+ on the note? 1 is yes (TIUSRVA.m:30); "0^reason" is no
@@ -75,6 +79,7 @@ module RpmsRpc
       raw = DataMapper.tiu_authorization.fetch_scalar(note_ien.to_s, action.to_s)
       first_piece(raw) == "1"
     end
+    shape :authorize, resource: "progress-notes", verb: "GET", path: "/progress-notes/{note_ien}/authorize"
 
     # LOCK(ERR,TIUDA) (TIUSRVP.m:210): true when the lock is held (ERR=0,
     # TIUSRVP.m:211), false on "1^ Another session has this record
@@ -99,6 +104,12 @@ module RpmsRpc
 
       raw = DataMapper.tiu_set_document_text.fetch_scalar(note_ien.to_s, text_list(text))
       { success: first_piece(raw) == note_ien.to_i.to_s, raw: raw }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # The wire refused a value it would have mis-framed (#472); nothing was
+      # sent. update_text is the second call of create-then-update, so a host
+      # that already created the note holds an empty one (#480): say which line
+      # and why instead of raising past it.
+      { success: false, raw: nil, error: too_long_reason(text, e) }
     end
 
     # UNLOCK(ERR,TIUDA) (TIUSRVP.m:214-215): always ERR=0.
@@ -110,9 +121,22 @@ module RpmsRpc
 
     private
 
-    def text_list(text)
+    def text_lines(text)
       lines = text.to_s.split(/\r?\n/, -1)
       lines.pop if lines.length > 1 && lines.last.empty?
+      lines
+    end
+
+    # "line 2 is 1006 bytes ..." for the first line the wire refused.
+    def too_long_reason(text, error)
+      index = text_lines(text).index { |line| line.bytesize > 999 }
+      return error.message if index.nil?
+
+      "line #{index + 1} is #{text_lines(text)[index].bytesize} bytes; a note line over 999 bytes cannot be sent (#{error.message})"
+    end
+
+    def text_list(text)
+      lines = text_lines(text)
       lines.each_with_index.with_object({ "HDR" => "1^1" }) do |(line, i), tiux|
         tiux[[ "TEXT", i + 1, 0 ]] = line
       end

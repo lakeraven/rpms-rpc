@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 require_relative "../xwb_cipher"
 
@@ -38,6 +39,7 @@ module RpmsRpc
   # automatically; nothing in this module needs to publish them.
   module ESignature
     extend self
+    extend Shape::Declarable
 
     # WHATACT^TIUSRVA return strings → public API symbols.
     ACTIONS = {
@@ -68,6 +70,7 @@ module RpmsRpc
 
       ACTIONS[raw.to_s.strip.upcase]
     end
+    shape :which_action, resource: "signatures", verb: "GET", path: "/progress-notes/{note_ien}/signatures/which-action"
 
     # Sign (or cosign) a note. Sends exactly two wire params — the note IEN
     # and the XWB-encrypted signature code. `user_duz` is accepted for API
@@ -97,6 +100,10 @@ module RpmsRpc
         note_ien.to_s, reason.to_s, override ? "1" : "0"
       )
       result_shape(raw)
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A value the wire would mis-frame is refused before anything is sent
+      # (#472); this API's contract is a failure hash, so it says why.
+      failure.merge(error: e.message)
     end
 
     private
