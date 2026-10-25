@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "minitest/mock"
 require "date"
 require "rpms_rpc"
 require "rpms_rpc/mock_client"
@@ -1193,13 +1192,16 @@ class ClinicalReadWireTest < Minitest::Test
 
   def test_a_clean_row_the_parser_drops_is_never_a_silent_clean_reply
     mapping = RpmsRpc::DataMapper[:allergy_list]
-    mapping.stub(:parse_many, ->(_rows) { [] }) do
+    mapping.define_singleton_method(:parse_many) { |_rows| [] } # a parser that drops every row
+    begin
       stub_broker_response([ PENICILLIN_ROW ])
       result = RpmsRpc::Allergy.assessment("42")
 
       refute result[:assessed], "a row that is not parsed must not read as assessed"
       assert_equal true, result[:conflict]
       assert_includes result[:allergies].map { |a| a[:raw] }, PENICILLIN_ROW, "and it is surfaced, not lost"
+    ensure
+      mapping.singleton_class.send(:remove_method, :parse_many)
     end
   end
 
