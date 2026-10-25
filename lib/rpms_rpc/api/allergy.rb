@@ -77,8 +77,25 @@ module RpmsRpc
       agent agent_pointer type nature originator originated_at observed_or_historical
     ].freeze
 
+    # An empty string on these is an invalid value, not a missing field.
+    # nil is still absence ({absent_required}).
+    FORMAT_FIELDS = %i[agent_pointer originated_at type nature].freeze
+
     # GMRAOBHX is exactly "o" (observed) or "h" (historical) (GMRAGUI1.m:135).
     OBHX = %w[o h].freeze
+
+    # GMRAGNT piece 2 is a variable pointer "IEN;GLOBAL(FILE," (GMRAGUI1.m:106).
+    AGENT_POINTER = /\A[1-9]\d*;[A-Z][A-Z0-9]*\(\d+(\.\d+)?,\z/
+
+    # GMRAORDT (GMRAGUI1.m:104) and GMRARDT (GMRAGUI1.m:137 stock / :135 FOIA).
+    FILEMAN_DATE = /\A\d{7}(\.\d{1,6})?\z/
+
+    # GMRATYPE (field 3.1) is one or more distinct letters from D, F, O
+    # (ORWDAL32.m:81). "DD" repeats one; "ZZ" is outside the set.
+    TYPE = /\A[DFO]+\z/
+
+    # GMRANATR (field 17) is A, P or U (ORWDAL32.m:77).
+    NATURE = %w[A P U].freeze
 
     # "-1^Patient already has a <agent> reaction entered.  No duplicates allowed."
     # (GMRAGUI1.m:89). Two spaces before "No".
@@ -227,13 +244,19 @@ module RpmsRpc
     #
     #   save(dfn, allergy) => { success: true, note_ien: Integer or nil }
     #                     or { success: false, error:, message: }
+    # A value the wire cannot frame is
+    # { success: false, error: :frame_too_long, message: } (#472).
     #
     # Refused before the RPC: a "^" or a control in any filed value ($P on
-    # U drops the rest — GMRAGUI1.m:105), GMRAOBHX other than "o"/"h"
-    # (GMRAGUI1.m:135), a GMRAORIG that is not a positive DUZ
-    # (GMRAGUI1.m:104), symptoms that are not an Array of Hashes with a
-    # code (GMRAGUI1.m:122), or comments that are not an Array of Strings
-    # (GMRAGUI1.m:118).
+    # U drops the rest — GMRAGUI1.m:105), including optional GMRARDT and
+    # GMRASEVR when present (GMRAGUI1.m:137 stock / :135 FOIA); GMRAOBHX
+    # other than "o"/"h" (GMRAGUI1.m:135); a GMRAORIG that is not a
+    # positive DUZ (GMRAGUI1.m:104); symptoms that are not an Array of
+    # Hashes with a code (GMRAGUI1.m:122); or comments that are not an
+    # Array of Strings (GMRAGUI1.m:118). GMRAGNT's pointer is
+    # "IEN;GLOBAL(FILE," (GMRAGUI1.m:106), GMRAORDT and a present GMRARDT
+    # are FileMan dates, GMRATYPE is one or more distinct letters from
+    # D, F and O (ORWDAL32.m:81), and GMRANATR is A, P or U (ORWDAL32.m:77).
     def save(dfn, allergy)
       patient = canonical_dfn(dfn)
       return invalid_dfn unless patient
@@ -447,7 +470,16 @@ module RpmsRpc
     def absent_required(allergy)
       return REQUIRED_FIELDS unless allergy.is_a?(Hash)
 
-      REQUIRED_FIELDS.select { |field| blank_field?(allergy[field]) }
+      REQUIRED_FIELDS.select { |field| absent_value?(field, allergy[field]) }
+    end
+
+    # nil is absence. A blank string on a {FORMAT_FIELDS} field is refused
+    # by the format checks in {refused_allergy} (an empty GMRATYPE is not
+    # "one or more" letters), so it is not reported as missing.
+    def absent_value?(field, value)
+      return false if value.is_a?(String) && blank_field?(value) && FORMAT_FIELDS.include?(field)
+
+      blank_field?(value)
     end
 
     def blank_field?(value)
@@ -467,6 +499,8 @@ module RpmsRpc
     end
 
     # See {save}. A blank GMRASYMP first piece is not stored (GMRAGUI1.m:122).
+    # Shape and caret checks stay ahead of the format checks, so a value
+    # that fails both is named by the earlier one.
     def refused_allergy(allergy)
       return invalid_value(:symptoms) unless symptoms_ok?(allergy[:symptoms])
       return invalid_value(:comments) unless comments_ok?(allergy[:comments])
@@ -474,7 +508,16 @@ module RpmsRpc
       return invalid_value(:originator) unless canonical_dfn(allergy[:originator])
 
       field = unsafe_field(allergy)
-      invalid_value(field) if field
+      return invalid_value(field) if field
+
+      return invalid_value(:agent_pointer) unless agent_pointer_ok?(allergy[:agent_pointer])
+      return invalid_value(:originated_at) unless fileman_date?(allergy[:originated_at])
+      return invalid_value(:type) unless type_ok?(allergy[:type])
+      return invalid_value(:nature) unless NATURE.include?(allergy[:nature])
+      return invalid_value(:reaction_date) if allergy[:reaction_date] && !reaction_date_ok?(allergy[:reaction_date])
+      return invalid_value(:severity) if allergy[:severity] && unsafe_text?(allergy[:severity])
+
+      nil
     end
 
     def symptoms_ok?(symptoms)
@@ -511,6 +554,26 @@ module RpmsRpc
       text.include?("^") || text.match?(CONTROL)
     end
 
+    def agent_pointer_ok?(value)
+      value.to_s.match?(AGENT_POINTER)
+    end
+
+    def fileman_date?(value)
+      value.to_s.match?(FILEMAN_DATE)
+    end
+
+    # Distinct letters from D, F, O (ORWDAL32.m:81). "DD" repeats one.
+    def type_ok?(value)
+      text = value.to_s
+      text.match?(TYPE) && text.chars.uniq.size == text.size
+    end
+
+    # GMRARDT, when present, is filed in the same "^" piece as GMRASEVR
+    # (GMRAGUI1.m:137), so a caret is the same refusal as a bad date.
+    def reaction_date_ok?(value)
+      !unsafe_text?(value) && fileman_date?(value)
+    end
+
     # GMRASYMP(n)="ien^text^FileMan date" and GMRACMTS(n)=comment
     # (GMRAGUI1.m:120, :118 stock). Array keys are the two-level
     # subscripts CiaClient#m_subscript / XwbClient#m_subscript encode.
@@ -540,7 +603,7 @@ module RpmsRpc
     rescue RpmsRpc::Client::FrameTooLongError => e
       # A value the wire would mis-frame is refused before anything is sent
       # (#472); this API's contract is a failure hash, so it says why.
-      failure.merge(error: e.message)
+      failure.merge(error: :frame_too_long, message: e.message)
     end
 
     def failure
