@@ -62,9 +62,16 @@ module RpmsRpc
       SAVE_STATUS_DELAYED => "DELAYED",
       SAVE_STATUS_UNRELEASED => "UNRELEASED"
     }.freeze
-    # "~IFN;ACT" is piece 1 of GETFLDS (ORWORR.m:150). IFN is a positive
-    # integer; ACT is the action subscript the same line appends.
-    SAVE_HEADER_ID = /\A~([1-9]\d*);(\d+)\z/
+    # "~IFN;ACT" is piece 1 of GETFLDS (ORWORR.m:150). IFN and ACT are
+    # positive canonical integers: no sign, no whitespace, no leading zero.
+    SAVE_HEADER_ID = /\A~([1-9]\d*);([1-9]\d*)\z/
+    # CSTS, piece 6 (ORWORR.m:146,150). Canonical, so a leading zero is
+    # not the integer it looks like ("011" is not status 11).
+    SAVE_STATUS = /\A(?:0|[1-9]\d*)\z/
+    # "^" is an M piece separator. $C(0) through $C(31) and $C(127) are
+    # the controls a dialog name or a response must not carry; $C(30) and
+    # $C(31) sit in that range.
+    WIRE_CONTROL = /[\x00-\x1f\x7f]/
 
     # The patient's unsigned order actions the signed-on user may sign.
     # Each row: { order_id: "IFN;ACT", ien:, action_ien: }.
@@ -174,33 +181,47 @@ module RpmsRpc
     # File a new order and leave it unsigned. ORWDX SAVE (SAVE^ORWDX) takes
     # the eleven actuals after REC. Formals (FOIA ORWDX.m:80):
     # SAVE(REC,ORVP,ORNP,ORL,DLG,ORDG,ORIT,ORIFN,ORDIALOG,ORDEA,ORAPPT,ORSRC).
-    # Stock adds OREVTDF (ORWDX.m:52), which is not sent. ORIFN "" is a new
-    # order, so EN^ORCSAVE runs and nothing is released (ORWDX.m:128-130).
-    # `responses` is the ORDIALOG list as given: [prompt, instance] => value,
-    # and word-processing ["WP", prompt, instance, line, 0] => line text.
+    # The repo's BCER inventory (data/inventories/.../rpc_signatures.txt,
+    # bcer-9.0-20261012-e7923a4-ydb) lists OREVTDF as a 13th formal on RPMS
+    # too, as WorldVistA ORWDX.m:52 does. Sending eleven actuals leaves that
+    # formal undefined. SAVE does not handle it with $G: WorldVistA declares
+    # OREVTDF and never reads it, and CivicActions ORWDX.m:80 does not
+    # declare it. The $G in the body is S ORSRC=$G(ORSRC) (WorldVistA
+    # ORWDX.m:126, CivicActions ORWDX.m:117), which defaults the empty ORSRC
+    # this call sends. ORIFN "" is a new order, so EN^ORCSAVE runs and
+    # nothing is released (ORWDX.m:128-130). `responses` is the ORDIALOG
+    # list as given: [prompt, instance] => value, and word-processing
+    # ["WP", prompt, instance, line, 0] => line text.
     #
     # The reply is GETBYIFN^ORWORR (ORWORR.m:139-150): line 1 is
-    # "~IFN;ACT^Grp^OrdTm^Strt^Stop^Sts^...", then the order text. No order
-    # leaves REC empty (ORWDX.m:130, ORWORR.m:133 `I 'IFN Q`). Status other
-    # than 11 or 10, and any empty or malformed reply, fails closed.
+    # "~IFN;ACT^Grp^OrdTm^Strt^Stop^Sts^...". IFN and ACT are positive
+    # canonical integers; Sts is canonical (no leading zero). Text lines are
+    # "t"-prefixed (ORWORR.m:169); the "t" is removed and a "+" or "*"
+    # marker stays (ORWORR.m:167-168). A "|" line ends the text and the "x"
+    # lines after it are dropped (ORWORR.m:170-171). A line before "|" that
+    # is not "t"-prefixed is malformed. No order leaves REC empty
+    # (ORWDX.m:130, ORWORR.m:133 `I 'IFN Q`). Status other than 11 or 10,
+    # and any empty or malformed reply, fails closed.
     #
     #   => { success: true, order_id: "IFN;ACT", ien:, status:, text: }
     #   => { success: false, error:, message: }
     def save(dfn, provider_duz, location, order_dialog, responses, display_group: "", quick_order: "")
-      error = save_argument_error(dfn, provider_duz, location, order_dialog, responses)
+      error = save_argument_error(dfn, provider_duz, location, order_dialog, responses,
+                                  display_group, quick_order)
       return error if error
 
       # ORVP, ORNP, ORL, DLG, ORDG, ORIT, ORIFN, ORDIALOG, ORDEA, ORAPPT,
-      # ORSRC (FOIA ORWDX.m:80). Stock adds OREVTDF, which is not sent.
-      # ORIFN stays "" (ORWDX.m:128).
+      # ORSRC (FOIA ORWDX.m:80). OREVTDF, the 13th formal, is not sent.
+      # ORDG and ORIT go as canonical decimal strings. ORIFN stays ""
+      # (ORWDX.m:128).
       raw = RpmsRpc.client.call_rpc(
         "ORWDX SAVE",
         positive_id(dfn),
         positive_id(provider_duz),
         positive_id(location),
         order_dialog,
-        display_group.to_s,
-        quick_order.to_s,
+        optional_ien(display_group),
+        optional_ien(quick_order),
         "",
         responses,
         "",
@@ -208,6 +229,10 @@ module RpmsRpc
         ""
       )
       parse_save_reply(raw)
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # Refused before the frame is written. e.message names the byte limit
+      # and does not include the value.
+      save_failure(:frame_too_long, e.message)
     end
     shape :save, resource: "orders", verb: "POST", path: "/patients/{dfn}/orders"
 
@@ -230,12 +255,18 @@ module RpmsRpc
       value.nil? || value.to_s.strip.empty?
     end
 
-    def save_argument_error(dfn, provider_duz, location, order_dialog, responses)
+    def save_argument_error(dfn, provider_duz, location, order_dialog, responses, display_group, quick_order)
       return save_failure(:invalid_argument, "dfn must be a positive canonical integer") unless positive_id(dfn)
       return save_failure(:invalid_argument, "provider_duz must be a positive canonical integer") unless positive_id(provider_duz)
       return save_failure(:invalid_argument, "location must be a positive canonical integer") unless positive_id(location)
-      return save_failure(:invalid_argument, "order_dialog must be a non-blank dialog name") unless dialog_name?(order_dialog)
+      return save_failure(:invalid_argument, "order_dialog must be a non-blank dialog name with no caret, control character, or surrounding whitespace") unless dialog_name?(order_dialog)
+      return save_failure(:invalid_argument, "display_group must be empty or a positive canonical integer") if optional_ien(display_group).nil?
+      return save_failure(:invalid_argument, "quick_order must be empty or a positive canonical integer") if optional_ien(quick_order).nil?
       return save_failure(:invalid_argument, "responses must be a non-empty ORDIALOG list") unless ordialog_responses?(responses)
+
+      value_error = ordialog_value_error(responses)
+      return value_error if value_error
+      return save_failure(:invalid_argument, "responses has two keys for one ORDIALOG subscript") if duplicate_ordialog_subscript?(responses)
 
       nil
     end
@@ -251,8 +282,21 @@ module RpmsRpc
       end
     end
 
+    # "" or a positive canonical integer, returned as the decimal string
+    # the broker literal carries. ORDG and ORIT are compared as IENs
+    # (ORWDX.m:103 `K:'ORDG ORDG K:'ORIT ORIT`).
+    def optional_ien(value)
+      return "" if value == ""
+
+      positive_id(value)
+    end
+
     def dialog_name?(value)
-      value.is_a?(String) && !value.strip.empty?
+      value.is_a?(String) && !value.empty? && value == value.strip && !wire_unsafe?(value)
+    end
+
+    def wire_unsafe?(value)
+      value.include?("^") || value.match?(WIRE_CONTROL)
     end
 
     # ORDIALOG subscripts are two-level [prompt, instance] or the
@@ -288,6 +332,45 @@ module RpmsRpc
       value == 0 || value == "0"
     end
 
+    def ordialog_value_error(responses)
+      responses.each_value do |value|
+        case value
+        when Integer
+          next
+        when String
+          if wire_unsafe?(value)
+            return save_failure(:invalid_argument, "response value must not contain a caret or a control character")
+          end
+        else
+          return save_failure(:invalid_argument, "response value must be a string or an integer")
+        end
+      end
+      nil
+    end
+
+    # LINST^XWBPRS splices the subscript raw into A_"("_X_")" (XWBPRS.m:152-156):
+    # a canonic number stays bare, any other level is quoted, and an Array
+    # key's levels are joined with commas. Two Ruby keys can land on one node.
+    def duplicate_ordialog_subscript?(responses)
+      seen = {}
+      responses.each_key do |key|
+        subscript = ordialog_subscript(key)
+        return true if seen[subscript]
+
+        seen[subscript] = true
+      end
+      false
+    end
+
+    def ordialog_subscript(key)
+      key.map { |level| ordialog_subscript_level(level) }.join(",")
+    end
+
+    def ordialog_subscript_level(level)
+      text = level.to_s
+      text.match?(/\A-?(0|[1-9]\d*)(\.\d+)?\z/) ? text : %("#{text.gsub('"', '""')}")
+    end
+
     def parse_save_reply(raw)
       lines = save_reply_lines(raw)
       return save_failure(:empty_reply, "ORWDX SAVE returned no order (ORWDX.m:130, ORWORR.m:133)") if lines == :empty
@@ -297,7 +380,7 @@ module RpmsRpc
       pieces = header.split("^", -1)
       id = SAVE_HEADER_ID.match(pieces[0].to_s)
       status_text = pieces[5]
-      unless id && status_text.to_s.match?(/\A\d+\z/)
+      unless id && status_text.to_s.match?(SAVE_STATUS)
         return save_failure(:malformed_reply, "ORWDX SAVE reply is not a GETFLDS order line (ORWORR.m:150)")
       end
 
@@ -307,13 +390,32 @@ module RpmsRpc
         return save_failure(:released, "order status #{status} (#{name}) is not unreleased or delayed (ORWORR.m:150)")
       end
 
+      text = save_order_text(lines.drop(1))
+      return save_failure(:malformed_reply, "ORWDX SAVE order text is not t-prefixed (ORWORR.m:169)") if text.nil?
+
       {
         success: true,
         order_id: "#{id[1]};#{id[2]}",
         ien: id[1].to_i,
         status: status,
-        text: lines.drop(1).map { |line| line.is_a?(String) ? line : line.to_s }
+        text: text
       }
+    end
+
+    # GETFLDS prefixes each order-text line with "t" (ORWORR.m:169) after
+    # it may have marked the first line "+" or "*" (ORWORR.m:167-168).
+    # "|" ends the text; lines after it ("x" PKI XML, ORWORR.m:170-171)
+    # are dropped. A line before "|" without the "t" is not order text.
+    def save_order_text(lines)
+      text = []
+      lines.each do |line|
+        row = line.to_s
+        break if row == "|"
+        return nil unless row.start_with?("t")
+
+        text << row[1..]
+      end
+      text
     end
 
     # nil, "" and [] are the empty REC (ORWDX.m:130). A one-element list of
