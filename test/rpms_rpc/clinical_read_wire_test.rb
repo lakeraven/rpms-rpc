@@ -1235,7 +1235,8 @@ class ClinicalReadWireTest < Minitest::Test
   SPLIT_SEQUENCES = { "U+2028" => "\xE2\x80\xA8", "U+2029" => "\xE2\x80\xA9", "U+0085" => "\xC2\x85" }.freeze
 
   SPLIT_SEQUENCES.each do |name, sequence|
-    [ [ "binary", ->(t) { t.b } ], [ "utf-8 tagged but invalid", ->(t) { t.dup.force_encoding("UTF-8") } ] ].each do |tag, tagger|
+    # (a UTF-8-tagged string that is not valid UTF-8 is scrubbed to U+FFFD before parsing; BINARY keeps its bytes)
+    [ [ "binary", ->(t) { t.b }, "CAF\xC9".b ], [ "utf-8 tagged but invalid", ->(t) { t.dup.force_encoding("UTF-8") }, "CAF\xEF\xBF\xBD".b ] ].each do |tag, tagger, cafe|
       slug = "#{name}_#{tag}".gsub(/\W+/, "_")
 
       define_method("test_an_invalid_utf8_line_still_splits_on_#{slug}") do
@@ -1244,7 +1245,7 @@ class ClinicalReadWireTest < Minitest::Test
 
         assert result[:assessed], "both rows are real rows"
         refute_includes result.keys, :conflict
-        assert_equal [ "CAF\xC9".b, "PENICILLIN".b ], result[:allergies].map { |a| a[:allergen].b }, "PENICILLIN is not hidden inside the first row"
+        assert_equal [ cafe, "PENICILLIN".b ], result[:allergies].map { |a| a[:allergen].b }, "PENICILLIN is not hidden inside the first row"
       end
 
       define_method("test_an_invalid_utf8_line_cannot_swallow_a_marker_after_#{slug}") do
@@ -1254,7 +1255,7 @@ class ClinicalReadWireTest < Minitest::Test
         refute result[:nka]
         refute result[:assessed]
         assert_equal true, result[:conflict], "the marker is its own line"
-        assert_equal [ "CAF\xC9".b ], result[:allergies].map { |a| a[:allergen].b }
+        assert_equal [ cafe ], result[:allergies].map { |a| a[:allergen].b }
       end
     end
   end
