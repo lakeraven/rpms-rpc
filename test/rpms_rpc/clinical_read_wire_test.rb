@@ -380,11 +380,6 @@ class ClinicalReadWireTest < Minitest::Test
       end
     end
 
-    # A trailing carriage return is a line terminator, not part of the marker:
-    # the element is split into lines first, so it is the exact marker (tested
-    # on its own below), exactly like the string "...\r\n" already was.
-    next if name == "carriage return"
-
     define_method("test_near_miss_marker_alone_is_never_nka_and_never_a_row_#{slug}") do
       stub_broker_response([ marker ])
 
@@ -393,12 +388,18 @@ class ClinicalReadWireTest < Minitest::Test
     end
   end
 
-  def test_an_array_element_ending_in_a_line_terminator_is_the_exact_marker_not_a_near_miss
+  # Round 4: a line terminator that splitting a String reply produces is fine
+  # ("marker\r\n" is the real shape), but a separate Array element is one line
+  # already: if it still carries a terminator it is not byte-exact, so it is a
+  # lone marker (not assessed, never NKA).
+  def test_an_array_element_carrying_a_line_terminator_is_not_byte_exact_so_never_nka
     [ "\r", "\n", "\r\n", "\u2028", "\u2029", "\u0085" ].each do |terminator|
-      stub_broker_response([ "^No Known Allergies#{terminator}" ])
+      [ "^No Known Allergies#{terminator}", "#{terminator}^No Known Allergies", "#{terminator}^No Known Allergies#{terminator}" ].each do |element|
+        stub_broker_response([ element ])
 
-      assert_equal({ assessed: true, nka: true, allergies: [] }, RpmsRpc::Allergy.assessment("42"),
-        "#{terminator.inspect} ends the line; the line is the byte-exact marker")
+        assert_equal({ assessed: false, nka: false, allergies: [] }, RpmsRpc::Allergy.assessment("42"),
+          "#{element.inspect}: an Array element must be the byte-exact marker")
+      end
     end
   end
 
@@ -430,7 +431,8 @@ class ClinicalReadWireTest < Minitest::Test
   end
 
   def test_the_exact_nka_marker_stays_verified_absence_when_it_arrives_as_a_string_with_line_endings
-    [ "^No Known Allergies\r\n", "^No Known Allergies\n", "^No Known Allergies" ].each do |response|
+    [ "^No Known Allergies\r\n", "^No Known Allergies\n", "^No Known Allergies", "\r^No Known Allergies", "^No Known Allergies\n  ",
+      "\r\n^No Known Allergies\r\n" ].each do |response|
       stub_broker_response(response)
 
       assert_equal({ assessed: true, nka: true, allergies: [] }, RpmsRpc::Allergy.assessment("42"),
@@ -460,8 +462,10 @@ class ClinicalReadWireTest < Minitest::Test
     [ { a: 1 }, 0, 42, :symbol, true ].each do |response|
       stub_broker_response(response)
 
-      assert_equal({ assessed: false, nka: false, allergies: [], conflict: true }, RpmsRpc::Allergy.assessment("42"),
-        "#{response.inspect}: no evidence, flagged as not a clean reply, and no row with a stringified ien")
+      assert_equal({ assessed: false, nka: false, conflict: true,
+                     allergies: [ { ien: nil, allergen: response.inspect, raw: response.inspect, unrecognised: true } ] },
+        RpmsRpc::Allergy.assessment("42"),
+        "#{response.inspect}: flagged as not a clean reply, its inspect text surfaced, and no row with a stringified ien")
     end
   end
 
@@ -532,8 +536,9 @@ class ClinicalReadWireTest < Minitest::Test
       refute result[:nka], "#{lines.inspect}"
       refute result[:assessed], "#{lines.inspect}: an element that is not text is not a clean reply"
       assert_equal true, result[:conflict], "#{lines.inspect}"
-      assert_equal lines.include?(PENICILLIN_ROW) ? [ "PENICILLIN" ] : [], result[:allergies].map { |a| a[:allergen] },
-        "#{lines.inspect}: no row is built from the stringified element"
+      expected = lines.map { |l| l == PENICILLIN_ROW ? "PENICILLIN" : (l.nil? ? nil : l.inspect) }.compact
+      assert_equal expected, result[:allergies].map { |a| a[:allergen] },
+        "#{lines.inspect}: the element's inspect text is surfaced, never a row built from it"
     end
   end
 
@@ -865,5 +870,187 @@ class ClinicalReadWireTest < Minitest::Test
     assert_equal true, result[:conflict]
     assert_equal 1, result[:allergies].length
     assert_equal true, result[:allergies].first[:unrecognised]
+  end
+
+  # -- Panel round 4 on #483 ------------------------------------------------
+
+  # (1) A clean row's OUTPUT is the original bytes (identical to main); only
+  # classification may use a scrubbed copy. XWB delivers BINARY strings.
+
+  def test_a_clean_binary_row_keeps_its_original_bytes_and_encoding
+    [ "1^CAF\xC9^SEVERE".b, "1^CAF\xC3\x89^SEVERE".b ].each do |row|
+      stub_broker_response([ row ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      assert result[:assessed], row.inspect
+      refute_includes result.keys, :conflict, "#{row.inspect}: a Latin-1 byte in the allergen is the boundary's concern, not a conflict"
+      allergen = result[:allergies].first[:allergen]
+      assert_equal row.split("^")[1].b, allergen.b, "#{row.inspect}: the allergen bytes are the original bytes"
+      assert_equal Encoding::BINARY, allergen.encoding, "#{row.inspect}: the encoding is not changed"
+    end
+  end
+
+  def test_a_clean_latin_1_tagged_row_keeps_its_original_bytes_and_encoding
+    row = "1^CAF\xC9^SEVERE".dup.force_encoding("ISO-8859-1")
+    stub_broker_response([ row ])
+    result = RpmsRpc::Allergy.assessment("42")
+
+    assert result[:assessed]
+    refute_includes result.keys, :conflict
+    assert_equal "CAF\xC9".b, result[:allergies].first[:allergen].b
+    assert_equal Encoding::ISO_8859_1, result[:allergies].first[:allergen].encoding
+  end
+
+  def test_a_mangled_marker_with_an_invalid_byte_is_not_a_marker
+    [ [ "^No Known\xFF Allergies".b ], [ "^No Known\xFF Allergies".b, "1^X^S" ], [ "^No Known Allergies\xFF".dup.force_encoding("UTF-8") ] ].each do |lines|
+      stub_broker_response(lines)
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:nka], lines.inspect
+      refute result[:assessed], lines.inspect
+      assert_equal true, result[:conflict], "#{lines.inspect}: scrubbed to U+FFFD for matching, so it is unrecognised, not a marker"
+      assert_equal lines.first.b, result[:allergies].first[:raw].b, "raw keeps the original bytes"
+      assert result[:allergies].first[:allergen].valid_encoding?, "allergen is the displayable copy"
+    end
+  end
+
+  # (2) A nested list, even an empty one, is unrecognised; nothing vanishes.
+
+  def test_an_empty_or_blank_nested_list_is_unrecognised_and_surfaced
+    [ [ "^No Known Allergies", [] ], [ "^No Known Allergies", [ "" ] ], [ "^No Known Allergies", [ [ [] ] ] ],
+      [ "^No Known Allergies", [ "\r" ] ], [ [], PENICILLIN_ROW ] ].each do |lines|
+      stub_broker_response(lines)
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:nka], lines.inspect
+      refute result[:assessed], lines.inspect
+      assert_equal true, result[:conflict], lines.inspect
+      assert_equal 1, result[:allergies].count { |a| a[:unrecognised] && a[:raw].start_with?("[") }, "#{lines.inspect}: the nested list is surfaced as a flagged entry"
+    end
+  end
+
+  def test_an_empty_nested_list_surfaces_its_inspect_text
+    stub_broker_response([ "^No Known Allergies", [] ])
+
+    assert_equal [ { ien: nil, allergen: "[]", raw: "[]", unrecognised: true } ], RpmsRpc::Allergy.assessment("42")[:allergies]
+  end
+
+  # (3) A row needs VISIBLE allergen text; nothing is stripped to make it clean.
+
+  NO_VISIBLE_ALLERGEN = [ "7^\u001F", "7^\u001E", "7^\u0000", "7^\xFF".b, "7^\xFF".dup.force_encoding("UTF-8"), "7^ ", "7^​", "7^\u001E\u001F" ].freeze
+
+  NO_VISIBLE_ALLERGEN.each_with_index do |row, i|
+    define_method("test_a_row_whose_allergen_piece_has_no_visible_text_is_not_clean_#{i}") do
+      stub_broker_response([ row ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:assessed], row.inspect
+      refute result[:nka]
+      assert_equal true, result[:conflict], row.inspect
+    end
+  end
+
+  def test_a_row_carrying_framing_or_control_bytes_is_not_clean_even_with_visible_text
+    [ "1^PEANUT\u001F", "1^PEANUT\u001E", "1^PEA\u0000NUT^SEVERE", "1^PEANUT^SEVERE^HIVES\u001E\u001F" ].each do |row|
+      stub_broker_response([ row ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:assessed], row.inspect
+      assert_equal true, result[:conflict], row.inspect
+      assert_includes result[:allergies].map { |a| a[:raw] }, row, "#{row.inspect}: surfaced, not stripped into a clean row"
+    end
+  end
+
+  # (4) The invisible set is genuinely invisible characters only, not all of \p{Cf}.
+
+  VISIBLE_FORMAT_CHARACTERS = [ "؀", "؁", "؅", "۝", "܏", "\u{110BD}", "‎", "‏" ].freeze
+
+  VISIBLE_FORMAT_CHARACTERS.each_with_index do |char, i|
+    define_method("test_a_visible_format_character_is_data_not_blank_#{i}") do
+      stub_broker_response([ "^No Known Allergies", char ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:nka], char.inspect
+      refute result[:assessed]
+      assert_equal true, result[:conflict], "#{char.inspect} is visible (or not provably invisible), so it is a line, not blank"
+    end
+  end
+
+  GENUINELY_INVISIBLE = [ "​", "‌", "‍", "⁠", "⁡", "⁢", "⁣", "⁤", "﻿", "­",
+                          "͏", "᠎", "\u{E0020}", "\u{E007F}", "️", "︀", "\u{E0100}" ].freeze
+
+  GENUINELY_INVISIBLE.each_with_index do |char, i|
+    define_method("test_a_genuinely_invisible_character_is_blank_and_never_a_conflict_#{i}") do
+      stub_broker_response([ "^No Known Allergies", char ])
+
+      assert_equal({ assessed: true, nka: true, allergies: [] }, RpmsRpc::Allergy.assessment("42"), char.inspect)
+    end
+  end
+
+  # (5) Depth cap and encodings that cannot be transcoded.
+
+  def test_a_cyclic_reply_raises_a_typed_error
+    cycle = []
+    cycle << cycle
+    stub_broker_response(cycle)
+
+    error = assert_raises(RpmsRpc::Allergy::ReplyTooDeepError) { RpmsRpc::Allergy.assessment("42") }
+    assert_kind_of RpmsRpc::Error, error
+  end
+
+  def test_nesting_beyond_the_cap_raises_a_typed_error_and_within_it_is_a_conflict
+    deep = ->(levels) { levels.times.inject(PENICILLIN_ROW) { |inner, _| [ inner ] } }
+
+    stub_broker_response(deep.call(200))
+    assert_raises(RpmsRpc::Allergy::ReplyTooDeepError) { RpmsRpc::Allergy.assessment("42") }
+
+    stub_broker_response(deep.call(RpmsRpc::Allergy::MAX_DEPTH))
+    result = RpmsRpc::Allergy.assessment("42")
+    assert_equal true, result[:conflict]
+
+    stub_broker_response(deep.call(RpmsRpc::Allergy::MAX_DEPTH + 1))
+    assert_raises(RpmsRpc::Allergy::ReplyTooDeepError) { RpmsRpc::Allergy.assessment("42") }
+  end
+
+  def test_a_string_in_an_encoding_with_no_converter_does_not_raise
+    [ "1^LATEX^SEVERE".dup.force_encoding("UTF-7"), "^No Known Allergies".dup.force_encoding("UTF-7") ].each do |line|
+      stub_broker_response([ line ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:nka], line.inspect
+      refute result[:assessed], line.inspect
+      assert_equal true, result[:conflict], line.inspect
+    end
+  end
+
+  # (6) The invalid-UTF-8 line-split branch must split: a marker is never buried
+  # in the severity or signs of the row before it.
+
+  SPLIT_TERMINATORS = { "CRLF" => "\r\n", "LF" => "\n", "CR" => "\r" }.freeze
+
+  SPLIT_TERMINATORS.each do |name, br|
+    [ [ "binary", ->(t) { t.b } ], [ "latin-1 tagged", ->(t) { t.dup.force_encoding("ISO-8859-1") } ] ].each do |tag, tagger|
+      slug = "#{tag}_#{name}".gsub(/\W+/, "_")
+
+      define_method("test_an_invalid_utf8_string_is_still_split_into_lines_#{slug}") do
+        stub_broker_response(tagger.call("1^CAF\xC9^SEVERE#{br}^No Known Allergies"))
+        result = RpmsRpc::Allergy.assessment("42")
+
+        refute result[:nka]
+        refute result[:assessed]
+        assert_equal true, result[:conflict], "the marker is its own line"
+        assert_equal 1, result[:allergies].length
+        assert_equal "SEVERE", result[:allergies].first[:severity]
+        assert_nil result[:allergies].first[:signs], "the marker is not buried in the signs"
+      end
+
+      define_method("test_an_invalid_utf8_array_element_is_still_split_into_lines_#{slug}") do
+        stub_broker_response([ tagger.call("1^CAF\xC9^SEVERE#{br}^No Known Allergies") ])
+        result = RpmsRpc::Allergy.assessment("42")
+
+        assert_equal true, result[:conflict]
+        assert_nil result[:allergies].first[:signs]
+      end
+    end
   end
 end
