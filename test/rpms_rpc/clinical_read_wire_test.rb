@@ -1385,4 +1385,15 @@ class ClinicalReadWireTest < Minitest::Test
 
     assert_equal "MODERATE", RpmsRpc::Allergy.assessment("42")[:allergies].first[:severity]
   end
+
+  def test_the_bytes_c2_85_in_a_single_byte_encoding_are_two_characters_not_a_line_break
+    [ "ISO-8859-1", "Windows-1252" ].each do |encoding|
+      stub_broker_response([ "1^A\xC2\x85B^SEVERE".dup.force_encoding(encoding) ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      assert result[:assessed], encoding
+      refute_includes result.keys, :conflict, encoding
+      assert_equal "A\xC2\x85B".b, result[:allergies].first[:allergen].b, encoding
+    end
+  end
 end
