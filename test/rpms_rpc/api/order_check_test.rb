@@ -203,7 +203,7 @@ class OrderCheckTest < Minitest::Test
     assert second.available?
     refute second.complete?
     assert second.override_required?
-    session_reason = (second.incomplete_reason || second.session_incomplete_reason).to_s
+    session_reason = second.incomplete_reason.to_s
     assert_match(/incomplete/i, session_reason)
     assert_match(/session/i, session_reason)
 
@@ -230,7 +230,7 @@ class OrderCheckTest < Minitest::Test
     second = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
     refute second.complete?
     assert second.override_required?
-    session_reason = (second.incomplete_reason || second.session_incomplete_reason).to_s
+    session_reason = second.incomplete_reason.to_s
     assert_match(/incomplete/i, session_reason)
     assert_match(/session/i, session_reason)
 
@@ -342,6 +342,44 @@ class OrderCheckTest < Minitest::Test
     third = RpmsRpc::Order.check(DFN_B, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
     assert third.available?
     assert third.complete?
+  end
+
+  # RpcNotAvailableError / RpcRefusedError: the routine never ran, so OPOS did not run
+  # either; the client must not record the DFN in the session memo.
+  def test_check_rpc_not_available_error_during_accept_does_not_memoize_dfn
+    message = "3 Unknown remote procedure: ORWDXC ACCEPT"
+    with_orwdxc_accept_raise_then_sequence(RpmsRpc::Client::RpcNotAvailableError, message, [
+      [ ORDINARY_LOW_CHECK ],
+      [ ORDINARY_LOW_CHECK ]
+    ])
+
+    error = assert_raises(RpmsRpc::Client::RpcNotAvailableError) do
+      RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    end
+    assert_equal message, error.message
+
+    second = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    assert second.available?
+    assert second.complete?
+    refute second.override_required?
+  end
+
+  def test_check_rpc_refused_error_during_accept_does_not_memoize_dfn
+    message = "4 Remote procedure not allowed for this user: ORWDXC ACCEPT"
+    with_orwdxc_accept_raise_then_sequence(RpmsRpc::Client::RpcRefusedError, message, [
+      [ ORDINARY_LOW_CHECK ],
+      [ ORDINARY_LOW_CHECK ]
+    ])
+
+    error = assert_raises(RpmsRpc::Client::RpcRefusedError) do
+      RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    end
+    assert_equal message, error.message
+
+    second = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    assert second.available?
+    assert second.complete?
+    refute second.override_required?
   end
 
   # Production Client#call_rpc runs inside wire_operation → synchronize_wire.
@@ -836,7 +874,7 @@ class OrderCheckTest < Minitest::Test
     assert second.available?
     refute second.complete?
     assert second.override_required?
-    session_reason = (second.incomplete_reason || second.session_incomplete_reason).to_s
+    session_reason = second.incomplete_reason.to_s
     assert_match(/incomplete/i, session_reason)
     assert_match(/session/i, session_reason)
 
