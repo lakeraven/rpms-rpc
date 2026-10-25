@@ -15,6 +15,7 @@ require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/exam_component"
 require "rpms_rpc/api/health_factor"
 require "rpms_rpc/api/immunization_refusal"
+require "rpms_rpc/api/allergy"
 require "rpms_rpc/api/progress_note"
 
 # #472 / #474, panel round 2. A value the wire would mis-frame is refused
@@ -155,6 +156,32 @@ class OversizedTextWritersTest < Minitest::Test
     result = RpmsRpc::Problem.update("8791", "77", { description: XWB_TEXT })
     assert_refused(result, limit, XWB_TEXT)
     assert_equal({ success: false, ien: nil, raw: nil }, result.slice(:success, :ien, :raw))
+  end
+
+  # List parameter on OREDITED — BMX cannot frame it (#472); only XWB reaches refusal.
+  def test_allergy_save_returns_its_failure_shape_over_xwb
+    limit = use_xwb
+    allergy = {
+      agent: "PENICILLIN",
+      agent_pointer: "125;PSNDF(50.6,",
+      type: "D",
+      nature: "A",
+      originator: "42",
+      originated_at: "3261015.1045",
+      observed_or_historical: "o",
+      comments: [ XWB_TEXT ]
+    }
+    result = RpmsRpc::Allergy.save("8791", allergy)
+    assert_refused(result, limit, XWB_TEXT)
+    refute result.key?(:note_ien), "refusal is not a broker success"
+  end
+
+  def test_no_known_allergies_returns_its_failure_shape_over_xwb
+    limit = use_xwb
+    long_dfn = "1" + ("0" * 999)
+    result = RpmsRpc::Allergy.no_known_allergies(long_dfn)
+    assert_refused(result, limit, long_dfn)
+    refute result.key?(:note_ien), "refusal is not a broker success"
   end
 
   def test_problem_still_raises_for_a_caller_bug
@@ -312,6 +339,13 @@ class OversizedTextWritersTest < Minitest::Test
     "exam_component" => -> { RpmsRpc::ExamComponent.add("8791", "2090060", "77", finding: "NORMAL", narrative: "ok") },
     "health_factor" => -> { RpmsRpc::HealthFactor.add("8791", "2090060", "55", level: "A", narrative: "ok") },
     "immunization_refusal" => -> { RpmsRpc::ImmunizationRefusal.record("8791", "9", reason_ien: "3", narrative: "ok") },
+    "allergy_save" => lambda {
+      RpmsRpc::Allergy.save("8791", {
+        agent: "PENICILLIN", agent_pointer: "125;PSNDF(50.6,", type: "D", nature: "A",
+        originator: "42", originated_at: "3261015.1045", observed_or_historical: "o"
+      })
+    },
+    "allergy_no_known" => -> { RpmsRpc::Allergy.no_known_allergies("8791") },
     "progress_note" => -> { RpmsRpc::ProgressNote.update_text("5001", "ok") },
     "pov" => -> { RpmsRpc::Pov.add("8791", "2090060", "250.00", narrative: "ok") },
     "procedure" => -> { RpmsRpc::Procedure.add("8791", "2090060", "99213", narrative: "ok") },

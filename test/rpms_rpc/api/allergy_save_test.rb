@@ -101,12 +101,111 @@ class AllergySaveTest < Minitest::Test
   end
 
   def test_save_malformed_replies_fail_closed
-    %w[1 0^abc OK].each do |reply|
+    malformed = %w[1 0^abc OK] + [ [ "0", "extra" ], 0, :zero ]
+    malformed.each do |reply|
       RpmsRpc.reset!
-      seed_save_reply(reply)
-      result = RpmsRpc::Allergy.save(DFN, SYNTH_ALLERGY)
-      refute result[:success], "reply #{reply.inspect} must not succeed"
-      assert_equal :malformed_reply, result[:error]
+      with_broker_reply(reply) do
+        result = RpmsRpc::Allergy.save(DFN, SYNTH_ALLERGY)
+        refute result[:success], "reply #{reply.inspect} must not succeed"
+        assert_equal :malformed_reply, result[:error]
+      end
+    end
+  end
+
+  def test_save_reads_one_element_array_reply_as_single_line
+    agent = SYNTH_ALLERGY[:agent]
+    cases = [
+      [ [ "0" ], true, nil, nil ],
+      [ [ "0^4242" ], true, 4242, nil ],
+      [ [ "-1^Patient already has a #{agent} reaction entered.  No duplicates allowed." ],
+        false, nil, :duplicate ],
+      [ [ LOCK_REPLY ], false, nil, :locked ],
+      [ [ "-1^Patient has active allergies - can't mark as NKA" ], false, nil, :active_allergies ],
+      [ [ "-1^Unable to update assessment - try again." ], false, nil, :assessment_update_failed ],
+      [ [ "-1^synthetic broker rejection" ], false, nil, :rejected ]
+    ]
+    cases.each do |reply, success, note_ien, error|
+      RpmsRpc.reset!
+      with_broker_reply(reply) do
+        result = RpmsRpc::Allergy.save(DFN, SYNTH_ALLERGY)
+        assert_equal success, result[:success], "reply #{reply.inspect}"
+        if success
+          assert_equal note_ien, result[:note_ien]
+        else
+          assert_equal error, result[:error]
+          assert_equal reply.first, result[:message]
+        end
+      end
+    end
+  end
+
+  def test_save_rejects_caret_or_control_in_list_values_without_rpc
+    caret = "PEN^999;PS(50.416,"
+    control = "PEN\x01ICILLIN"
+    scalar_fields = {
+      agent: caret,
+      agent_pointer: caret,
+      type: "D^X",
+      nature: "A\x7f",
+      originator: "42^1",
+      originated_at: "3261015\x01",
+      observed_or_historical: "o\x00"
+    }
+    scalar_fields.each do |field, value|
+      RpmsRpc.mock!
+      attrs = SYNTH_ALLERGY.merge(field => value)
+      refute RpmsRpc::Allergy.save(DFN, attrs)[:success]
+      assert_empty RpmsRpc.client.received_calls, "caret/control in #{field}"
+    end
+
+    RpmsRpc.mock!
+    attrs = SYNTH_ALLERGY.merge(comments: [ "line\x01two" ])
+    refute RpmsRpc::Allergy.save(DFN, attrs)[:success]
+    assert_empty RpmsRpc.client.received_calls
+
+    %i[ien text date].each do |sym_field|
+      RpmsRpc.mock!
+      symptom = { ien: "10", text: "RASH", date: "3261015" }
+      symptom[sym_field] = case sym_field
+      when :ien then "1^0"
+      when :text then "RA^SH"
+      when :date then "3261015\x01"
+      end
+      attrs = SYNTH_ALLERGY.merge(symptoms: [ symptom ])
+      refute RpmsRpc::Allergy.save(DFN, attrs)[:success]
+      assert_empty RpmsRpc.client.received_calls, "caret/control in symptom #{sym_field}"
+    end
+  end
+
+  def test_save_rejects_invalid_symptoms_or_comments_shape_without_rpc
+    [
+      { symptoms: [ nil ] },
+      { symptoms: "RASH" },
+      { comments: "one" },
+      { symptoms: [ { ien: "", text: "RASH", date: "3261015" } ] }
+    ].each do |override|
+      RpmsRpc.mock!
+      attrs = SYNTH_ALLERGY.merge(override)
+      refute RpmsRpc::Allergy.save(DFN, attrs)[:success]
+      assert_empty RpmsRpc.client.received_calls, override.inspect
+    end
+  end
+
+  def test_save_rejects_invalid_observed_or_historical_without_rpc
+    %w[O H x].each do |value|
+      RpmsRpc.mock!
+      attrs = SYNTH_ALLERGY.merge(observed_or_historical: value)
+      refute RpmsRpc::Allergy.save(DFN, attrs)[:success]
+      assert_empty RpmsRpc.client.received_calls, "observed_or_historical=#{value.inspect}"
+    end
+  end
+
+  def test_save_rejects_invalid_originator_without_rpc
+    %w[0 -1 abc 12.5].each do |value|
+      RpmsRpc.mock!
+      attrs = SYNTH_ALLERGY.merge(originator: value)
+      refute RpmsRpc::Allergy.save(DFN, attrs)[:success]
+      assert_empty RpmsRpc.client.received_calls, "originator=#{value.inspect}"
     end
   end
 
@@ -168,6 +267,34 @@ class AllergySaveTest < Minitest::Test
     assert_equal :locked, result[:error]
   end
 
+  def test_no_known_allergies_reads_one_element_array_reply_as_single_line
+    cases = [
+      [ [ "0" ], true, nil, nil ],
+      [ [ "-1^Patient has active allergies - can't mark as NKA" ], false, nil, :active_allergies ],
+      [ [ "-1^Unable to update assessment - try again." ], false, nil, :assessment_update_failed ],
+      [ [ LOCK_REPLY ], false, nil, :locked ]
+    ]
+    cases.each do |reply, success, _note_ien, error|
+      RpmsRpc.reset!
+      with_broker_reply(reply) do
+        result = RpmsRpc::Allergy.no_known_allergies(DFN)
+        assert_equal success, result[:success], "reply #{reply.inspect}"
+        assert_equal error, result[:error] unless success
+      end
+    end
+  end
+
+  def test_no_known_allergies_malformed_replies_fail_closed
+    [ [ "0", "1" ], 0, :zero ].each do |reply|
+      RpmsRpc.reset!
+      with_broker_reply(reply) do
+        result = RpmsRpc::Allergy.no_known_allergies(DFN)
+        refute result[:success]
+        assert_equal :malformed_reply, result[:error]
+      end
+    end
+  end
+
   def test_no_known_allergies_rejects_invalid_dfn_without_rpc
     RpmsRpc.mock!
     refute RpmsRpc::Allergy.no_known_allergies(nil)[:success]
@@ -224,14 +351,24 @@ class AllergySaveTest < Minitest::Test
   def seed_save_reply(value)
     RpmsRpc.mock!
     scalars = RpmsRpc.client.instance_variable_get(:@scalars)
-    scalars[RPC] = { "" => value }
+    scalars[RPC] = { "" => broker_reply(value) }
+  end
+
+  # Live XWB and CIA clients return ORY as an Array of lines (["0"], ["0^4242"], …).
+  def broker_reply(value)
+    case value
+    when Array then value
+    when nil then nil
+    else [ value ]
+    end
   end
 
   def with_broker_reply(reply)
+    shaped = broker_reply(reply)
     client = RpmsRpc::MockClient.new
     client.define_singleton_method(:call_rpc) do |rpc_name, *params|
       received_calls << { rpc: rpc_name, params: params, context: current_context }
-      return reply if rpc_name == RPC
+      return shaped if rpc_name == RPC
 
       ""
     end
