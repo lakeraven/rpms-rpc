@@ -84,8 +84,11 @@ module RpmsRpc
     # GMRAOBHX is exactly "o" (observed) or "h" (historical) (GMRAGUI1.m:135).
     OBHX = %w[o h].freeze
 
-    # GMRAGNT piece 2 is a variable pointer "IEN;GLOBAL(FILE," (GMRAGUI1.m:106).
-    AGENT_POINTER = /\A[1-9]\d*;[A-Z][A-Z0-9]*\(\d+(\.\d+)?,\z/
+    # GMRAGNT piece 2 is "IEN;GLOBAL(FILE," (GMRAGUI1.m:106) or a global root
+    # with no file number, "IEN;GLOBAL(" (ORWDAL32.m:30, ^PSDRUG( is file 50).
+    # A file number still needs its trailing comma: "45;PSDRUG(1", a lowercase
+    # root, and "0;..." are not pointers.
+    AGENT_POINTER = /\A[1-9]\d*;[A-Z][A-Z0-9]*\((\d+(\.\d+)?,)?\z/
 
     # GMRAORDT (GMRAGUI1.m:104) and GMRARDT (GMRAGUI1.m:137 stock / :135 FOIA).
     FILEMAN_DATE = /\A\d{7}(\.\d{1,6})?\z/
@@ -96,6 +99,9 @@ module RpmsRpc
 
     # GMRANATR (field 17) is A, P or U (ORWDAL32.m:77).
     NATURE = %w[A P U].freeze
+
+    # GMRASEVR is "1" mild, "2" moderate or "3" severe (ORWDAL32.m:88-89).
+    SEVERITY = %w[1 2 3].freeze
 
     # "-1^Patient already has a <agent> reaction entered.  No duplicates allowed."
     # (GMRAGUI1.m:89). Two spaces before "No".
@@ -241,6 +247,8 @@ module RpmsRpc
     # GMRASYMP(n) (GMRAGUI1.m:120 stock / :118 FOIA) and GMRACMTS(n)
     # (GMRAGUI1.m:118 stock / :116 FOIA) as two-level subscripts, and
     # optional GMRARDT / GMRASEVR (GMRAGUI1.m:137 stock / :135 FOIA).
+    # nil or "" reaction_date and severity are absent: not validated and
+    # not put in OREDITED (GMRAGUI1.m:137 $G of a missing subscript).
     #
     #   save(dfn, allergy) => { success: true, note_ien: Integer or nil }
     #                     or { success: false, error:, message: }
@@ -252,11 +260,16 @@ module RpmsRpc
     # GMRASEVR when present (GMRAGUI1.m:137 stock / :135 FOIA); GMRAOBHX
     # other than "o"/"h" (GMRAGUI1.m:135); a GMRAORIG that is not a
     # positive DUZ (GMRAGUI1.m:104); symptoms that are not an Array of
-    # Hashes with a code (GMRAGUI1.m:122); or comments that are not an
-    # Array of Strings (GMRAGUI1.m:118). GMRAGNT's pointer is
-    # "IEN;GLOBAL(FILE," (GMRAGUI1.m:106), GMRAORDT and a present GMRARDT
-    # are FileMan dates, GMRATYPE is one or more distinct letters from
-    # D, F and O (ORWDAL32.m:81), and GMRANATR is A, P or U (ORWDAL32.m:77).
+    # Hashes (GMRAGUI1.m:122) whose :ien is a positive canonical integer
+    # or exactly "FT" (GMRAGUI1.m:126) and whose :date, when present and
+    # non-blank, is a FileMan date (GMRAGUI1.m:130); or comments that are
+    # not an Array of Strings (GMRAGUI1.m:118). GMRAGNT's pointer is
+    # "IEN;GLOBAL(FILE," (GMRAGUI1.m:106) or a global root with no file
+    # number, "IEN;GLOBAL(" (ORWDAL32.m:30, ^PSDRUG( is file 50). GMRAORDT
+    # and a present GMRARDT are FileMan dates, a present GMRASEVR is "1",
+    # "2" or "3" (ORWDAL32.m:88-89), GMRATYPE is one or more distinct
+    # letters from D, F and O (ORWDAL32.m:81), and GMRANATR is A, P or U
+    # (ORWDAL32.m:77).
     def save(dfn, allergy)
       patient = canonical_dfn(dfn)
       return invalid_dfn unless patient
@@ -499,6 +512,8 @@ module RpmsRpc
     end
 
     # See {save}. A blank GMRASYMP first piece is not stored (GMRAGUI1.m:122).
+    # :ien is a positive canonical integer or exactly "FT" (GMRAGUI1.m:126);
+    # :date, when present and non-blank, is a FileMan date (GMRAGUI1.m:130).
     # Shape and caret checks stay ahead of the format checks, so a value
     # that fails both is named by the earlier one.
     def refused_allergy(allergy)
@@ -514,8 +529,8 @@ module RpmsRpc
       return invalid_value(:originated_at) unless fileman_date?(allergy[:originated_at])
       return invalid_value(:type) unless type_ok?(allergy[:type])
       return invalid_value(:nature) unless NATURE.include?(allergy[:nature])
-      return invalid_value(:reaction_date) if allergy[:reaction_date] && !reaction_date_ok?(allergy[:reaction_date])
-      return invalid_value(:severity) if allergy[:severity] && unsafe_text?(allergy[:severity])
+      return invalid_value(:reaction_date) unless reaction_date_ok?(allergy[:reaction_date])
+      return invalid_value(:severity) unless severity_ok?(allergy[:severity])
 
       nil
     end
@@ -524,7 +539,16 @@ module RpmsRpc
       return true if symptoms.nil?
       return false unless symptoms.is_a?(Array)
 
-      symptoms.all? { |symptom| symptom.is_a?(Hash) && !blank_field?(symptom[:ien]) }
+      symptoms.all? { |symptom| symptom_ok?(symptom) }
+    end
+
+    # :ien is a positive canonical integer or exactly "FT" (GMRAGUI1.m:126).
+    # :date, when present and non-blank, is a FileMan date (GMRAGUI1.m:130).
+    def symptom_ok?(symptom)
+      return false unless symptom.is_a?(Hash)
+      return false unless symptom[:ien] == "FT" || canonical_dfn(symptom[:ien])
+
+      omitted?(symptom[:date]) || fileman_date?(symptom[:date])
     end
 
     def comments_ok?(comments)
@@ -570,13 +594,31 @@ module RpmsRpc
 
     # GMRARDT, when present, is filed in the same "^" piece as GMRASEVR
     # (GMRAGUI1.m:137), so a caret is the same refusal as a bad date.
+    # nil and "" are absent (GMRAGUI1.m:137 $G): not validated.
     def reaction_date_ok?(value)
+      return true if omitted?(value)
+
       !unsafe_text?(value) && fileman_date?(value)
+    end
+
+    # A present GMRASEVR is "1", "2" or "3" (ORWDAL32.m:88-89). nil and ""
+    # are absent (GMRAGUI1.m:137 $G): not validated.
+    def severity_ok?(value)
+      return true if omitted?(value)
+
+      SEVERITY.include?(value)
+    end
+
+    # nil or "" is not a filed value. $G of a missing subscript is ""
+    # (GMRAGUI1.m:137), so the subscript is left out of OREDITED.
+    def omitted?(value)
+      value.nil? || value == ""
     end
 
     # GMRASYMP(n)="ien^text^FileMan date" and GMRACMTS(n)=comment
     # (GMRAGUI1.m:120, :118 stock). Array keys are the two-level
     # subscripts CiaClient#m_subscript / XwbClient#m_subscript encode.
+    # nil or "" GMRARDT / GMRASEVR are left out (GMRAGUI1.m:137 $G).
     def edited_list(allergy)
       edited = {
         "GMRAGNT" => "#{allergy[:agent]}^#{allergy[:agent_pointer]}",
@@ -592,8 +634,8 @@ module RpmsRpc
       allergy[:comments]&.each_with_index do |line, idx|
         edited[[ "GMRACMTS", idx + 1 ]] = line
       end
-      edited["GMRARDT"] = allergy[:reaction_date] if allergy[:reaction_date]
-      edited["GMRASEVR"] = allergy[:severity] if allergy[:severity]
+      edited["GMRARDT"] = allergy[:reaction_date] unless omitted?(allergy[:reaction_date])
+      edited["GMRASEVR"] = allergy[:severity] unless omitted?(allergy[:severity])
       edited
     end
 
