@@ -345,6 +345,178 @@ module RpmsRpc
       end
     end
 
+    # Release policy: CIA is the protocol every persona is released on, so a
+    # release needs a CIA summary. BMX and XWB are optional, but a summary of
+    # either that is on disk must be green.
+    def test_a_release_with_no_cia_summary_refuses
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.xwb.json", summary_fields("protocol" => "xwb"))
+        write_summary(dir, "PERSONA_A.bmx.json", summary_fields("protocol" => "bmx"))
+        _ok, reasons = refuse_check(dir)
+        assert_match(/CIA/, reasons.join(" "))
+      end
+    end
+
+    def test_a_cia_summary_alone_passes
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields)
+        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
+        assert ok, reasons.inspect
+      end
+    end
+
+    def test_green_cia_with_green_xwb_and_bmx_passes
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields)
+        write_summary(dir, "PERSONA_A.xwb.json", summary_fields("protocol" => "xwb"))
+        write_summary(dir, "PERSONA_A.bmx.json", summary_fields("protocol" => "bmx"))
+        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
+        assert ok, reasons.inspect
+      end
+    end
+
+    def test_green_cia_with_a_red_xwb_refuses
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields)
+        write_summary(dir, "PERSONA_A.xwb.json", summary_fields("protocol" => "xwb", "failures" => 1))
+        _ok, reasons = refuse_check(dir)
+        assert_match(/PERSONA_A\.xwb\.json: 1 failures/, reasons.join(" "))
+      end
+    end
+
+    def test_green_cia_with_a_red_bmx_refuses
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields)
+        write_summary(dir, "PERSONA_A.bmx.json", summary_fields("protocol" => "bmx", "errors" => 1))
+        _ok, reasons = refuse_check(dir)
+        assert_match(/PERSONA_A\.bmx\.json: 0 failures, 1 errors/, reasons.join(" "))
+      end
+    end
+
+    # The CIA requirement is met by a CIA summary, not by any file: a file whose
+    # name says cia but whose content says another protocol does not count.
+    def test_a_cia_file_that_holds_another_protocol_does_not_meet_the_cia_requirement
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields("protocol" => "xwb"))
+        _ok, reasons = refuse_check(dir)
+        assert_match(/persona|protocol/i, reasons.join(" "))
+      end
+    end
+
+    def test_a_pending_cia_marker_does_not_meet_the_cia_requirement_beside_a_green_xwb
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields("pending" => true))
+        write_summary(dir, "PERSONA_A.xwb.json", summary_fields("protocol" => "xwb"))
+        _ok, reasons = refuse_check(dir)
+        assert_match(/PERSONA_A\.json: pending live run was not recorded/, reasons.join(" "))
+      end
+    end
+
+    # A release is for the pinned build. LIVE_BUILD is the runner's word, so a
+    # summary that only declares its build is refused.
+    def test_a_declared_build_source_refuses
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields("build_source" => "declared"))
+        _ok, reasons = refuse_check(dir)
+        assert_match(/PERSONA_A\.json: build_source "declared" is not "pinned"/, reasons.join(" "))
+      end
+    end
+
+    def test_a_declared_xwb_beside_a_pinned_cia_refuses
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields)
+        write_summary(dir, "PERSONA_A.xwb.json", summary_fields("protocol" => "xwb", "build_source" => "declared"))
+        _ok, reasons = refuse_check(dir)
+        assert_match(/PERSONA_A\.xwb\.json: build_source "declared"/, reasons.join(" "))
+      end
+    end
+
+    def test_a_blank_or_missing_build_source_refuses
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields("build_source" => ""))
+        _ok, reasons = refuse_check(dir)
+        assert_match(/build_source/, reasons.join(" "))
+      end
+      Dir.mktmpdir do |dir|
+        fields = summary_fields
+        fields.delete("build_source")
+        write_summary(dir, "PERSONA_A.json", fields)
+        _ok, reasons = refuse_check(dir)
+        assert_match(/missing field build_source/, reasons.join(" "))
+      end
+    end
+
+    # Skip ceiling: tracked skips are allowed, up to a tenth of the runs. A run
+    # that skips more than that has not shown what it is releasing.
+    def test_skips_at_the_ceiling_pass
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields("runs" => 100, "skips" => 10))
+        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
+        assert ok, reasons.inspect
+      end
+    end
+
+    def test_skips_one_over_the_ceiling_refuse
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields("runs" => 100, "skips" => 11))
+        _ok, reasons = refuse_check(dir)
+        assert_match(/PERSONA_A\.json: 11 of 100 skipped, over the 10% ceiling/, reasons.join(" "))
+      end
+    end
+
+    def test_the_ceiling_is_per_file
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields("runs" => 100, "skips" => 10))
+        write_summary(dir, "PERSONA_A.xwb.json", summary_fields("protocol" => "xwb", "runs" => 20, "skips" => 5))
+        _ok, reasons = refuse_check(dir)
+        assert_match(/PERSONA_A\.xwb\.json: 5 of 20 skipped/, reasons.join(" "))
+        refute_match(/PERSONA_A\.json: \d+ of/, reasons.join(" "))
+      end
+    end
+
+    def test_one_skip_in_a_small_run_over_the_ceiling_refuses
+      Dir.mktmpdir do |dir|
+        write_summary(dir, "PERSONA_A.json", summary_fields("runs" => 9, "skips" => 1))
+        _ok, reasons = refuse_check(dir)
+        assert_match(/1 of 9 skipped/, reasons.join(" "))
+      end
+    end
+
+    # The OK line says where the summaries were read from, so a release read
+    # off the wrong directory is visible.
+    def test_release_guard_ok_names_the_summary_directory
+      original_app = Rake.application
+      build = LiveSummary.pinned_build(File.join(REPO_ROOT, "data/fingerprints/rpms-ops.lock.yml"))
+      Dir.mktmpdir do |tmpdir|
+        saved_summary_dir = ENV["LIVE_SUMMARY_DIR"]
+        ENV["LIVE_SUMMARY_DIR"] = tmpdir
+        begin
+          write_summary(tmpdir, "PERSONA_A.json", summary_fields("build" => build, "source" => repo_source, "suite" => repo_suite))
+          Rake.application = Rake::Application.new
+          Rake.application.init("rake")
+          load File.join(REPO_ROOT, "lib/tasks/release_guard.rake")
+
+          out, err = capture_io { Rake::Task["release:live_guard"].invoke }
+          assert_match(/OK #{Regexp.escape(build)} .*summaries in #{Regexp.escape(File.expand_path(tmpdir))}/, out + err)
+        ensure
+          saved_summary_dir.nil? ? ENV.delete("LIVE_SUMMARY_DIR") : ENV["LIVE_SUMMARY_DIR"] = saved_summary_dir
+          Rake.application = original_app
+        end
+      end
+    end
+
+    def test_the_readme_releasing_section_follows_the_testing_list
+      readme = File.read(File.join(REPO_ROOT, "README.md"))
+      list = readme.index("- **Gateway tests**")
+      releasing = readme.index("### Releasing")
+      mock = readme.index("### MockClient usage")
+      refute_nil list
+      refute_nil releasing
+      assert_operator list, :<, releasing, "### Releasing must not split the test list"
+      assert_operator releasing, :<, mock
+      assert_operator readme.index("reads the live evidence from"), :<, readme.index("- **Wire-format tests**")
+    end
+
     def test_path_for_refuses_an_unsafe_persona
       assert_raises(ArgumentError) do
         LiveSummary.path_for("/tmp", persona: "../x", protocol: "cia")

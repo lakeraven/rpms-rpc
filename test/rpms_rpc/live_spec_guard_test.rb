@@ -349,6 +349,16 @@ class LiveSpecGuardTest < Minitest::Test
     end
   end
 
+  # Minitest 6 stores --name as options[:include] (5 used :filter), and --exclude
+  # as options[:exclude]; either is a filtered run.
+  def test_a_run_filtered_by_minitest_6_name_is_not_recorded
+    assert_options_filtered_not_recorded(include: "/only/")
+  end
+
+  def test_a_run_filtered_by_exclude_is_not_recorded
+    assert_options_filtered_not_recorded(exclude: "/skipme/")
+  end
+
   def test_a_run_filtered_by_TESTOPT_is_not_recorded
     assert_filtered_env_not_recorded("TESTOPT" => "--name=x")
   end
@@ -409,6 +419,22 @@ class LiveSpecGuardTest < Minitest::Test
   def repo_root = @repo_root ||= File.expand_path("../..", __dir__)
 
   def repo_suite = @repo_suite ||= RpmsRpc::LiveSummary.suite_fingerprint(repo_root)
+
+  def assert_options_filtered_not_recorded(options)
+    Dir.mktmpdir do |tmpdir|
+      env = FULL.merge("LIVE_RUN" => "1", "LIVE_SUMMARY_DIR" => tmpdir)
+      path = mark_pending_in(tmpdir, env: env)
+
+      io = StringIO.new
+      reporter = LiveSpec::Summary.new(io, env: env, expected_runs: 1, options: options)
+      reporter.start
+      reporter.record(PassingProbe.new(:test_passes).run)
+      reporter.report
+
+      assert_match(/NOT RECORDED/, io.string)
+      assert_equal true, JSON.parse(File.read(path))["pending"]
+    end
+  end
 
   def assert_filtered_env_not_recorded(filter_env)
     Dir.mktmpdir do |tmpdir|
