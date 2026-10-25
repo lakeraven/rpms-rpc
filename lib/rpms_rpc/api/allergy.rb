@@ -37,6 +37,9 @@ module RpmsRpc
     # What separates lines: a bare CR or LF, CRLF, and the Unicode separators.
     LINE_BREAK = /\r\n|\r|\n|\u2028|\u2029|\u0085/
 
+    # ASCII control characters (NUL, RS/US framing, tab ...). A clean row has none.
+    CONTROL = /[\u0000-\u001F\u007F]/
+
     # Lists nested deeper than this (or cyclic) are refused with a typed error
     # rather than recursing without bound.
     MAX_DEPTH = 64
@@ -191,7 +194,7 @@ module RpmsRpc
     end
 
     def exact_nka?(line)
-      line.exact && !line.unrecognised && line.text == NKA_SENTINEL
+      line.exact && line.text == NKA_SENTINEL
     end
 
     # An unrecognised line, as a flagged entry; nothing when it has no visible
@@ -225,7 +228,7 @@ module RpmsRpc
     # byte can never be dropped to make an IEN look right.
     def row?(text)
       scrubbed = scrubbed_text(text)
-      return false if scrubbed.match?(/\p{Cc}/)
+      return false if scrubbed.match?(CONTROL)
 
       pieces = scrubbed.split("^", -1)
       pieces.size >= 2 && pieces[0].match?(ROW_IEN) && visible?(pieces[1])
