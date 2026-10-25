@@ -227,10 +227,36 @@ class AllergySaveTest < Minitest::Test
     end
   end
 
+  def test_save_accepts_integer_severity_one_two_three
+    [ 1, 2, 3 ].each do |value|
+      RpmsRpc.reset!
+      seed_save_reply("0")
+      attrs = SYNTH_ALLERGY.merge(severity: value)
+      assert RpmsRpc::Allergy.save(DFN, attrs)[:success], "severity #{value.inspect}"
+      assert_equal value.to_s, save_call[:params][2]["GMRASEVR"]
+    end
+  end
+
+  def test_save_rejects_integer_severity_zero_and_four_without_rpc
+    [ 0, 4 ].each do |value|
+      assert_invalid_value_refusal(:severity, SYNTH_ALLERGY.merge(severity: value))
+    end
+  end
+
   def test_save_rejects_invalid_symptom_ien_without_rpc
-    %w[abc 010].each do |ien|
+    %w[abc 010 ft].each do |ien|
       attrs = SYNTH_ALLERGY.merge(symptoms: [ { ien: ien, text: "RASH", date: "3261015" } ])
       assert_invalid_value_refusal(:symptoms, attrs)
+    end
+  end
+
+  def test_save_rejects_symptom_without_non_blank_text_without_rpc
+    [
+      [ { ien: "10" } ],
+      [ { ien: "FT" } ],
+      [ { ien: "FT", text: "" } ]
+    ].each do |symptoms|
+      assert_invalid_value_refusal(:symptoms, SYNTH_ALLERGY.merge(symptoms: symptoms))
     end
   end
 
@@ -254,6 +280,34 @@ class AllergySaveTest < Minitest::Test
       assert RpmsRpc::Allergy.save(DFN, attrs)[:success], symptoms.inspect
       assert_equal wire, save_call[:params][2][[ "GMRASYMP", 1 ]]
     end
+  end
+
+  def test_save_dispatches_symptom_with_blank_date
+    seed_save_reply("0")
+    attrs = SYNTH_ALLERGY.merge(symptoms: [ { ien: "10", text: "RASH", date: "" } ])
+    result = RpmsRpc::Allergy.save(DFN, attrs)
+    assert result[:success]
+    assert_equal "10^RASH^", save_call[:params][2][[ "GMRASYMP", 1 ]]
+  end
+
+  def test_save_dispatches_integer_symptom_ien
+    seed_save_reply("0")
+    attrs = SYNTH_ALLERGY.merge(symptoms: [ { ien: 10, text: "RASH", date: "3261015" } ])
+    result = RpmsRpc::Allergy.save(DFN, attrs)
+    assert result[:success]
+    assert_equal "10^RASH^3261015", save_call[:params][2][[ "GMRASYMP", 1 ]]
+  end
+
+  def test_save_caret_in_agent_is_reported_before_invalid_symptom_date
+    RpmsRpc.mock!
+    attrs = SYNTH_ALLERGY.merge(
+      agent: "PEN^X",
+      symptoms: [ { ien: "10", text: "RASH", date: "yesterday" } ]
+    )
+    result = RpmsRpc::Allergy.save(DFN, attrs)
+    expected = { success: false, error: :invalid_value, message: "invalid agent" }
+    assert_equal expected, result
+    assert_empty RpmsRpc.client.received_calls
   end
 
   def test_save_rejects_invalid_originated_at_format_without_rpc
