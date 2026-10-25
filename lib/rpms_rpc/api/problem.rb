@@ -197,11 +197,15 @@ module RpmsRpc
       patient = canonical_id(dfn)
       provider = canonical_id(provider_duz)
       facility = canonical_id(vamc)
+      refused = frame_too_long_id(patient, provider, facility)
+      return refused if refused
+
       mapped = canonical_fields(fields)
       return failure unless patient && provider && facility && mapped
       return failure unless ADD_REQUIRED_FIELDS.all? { |field| mapped.key?(field) }
 
       lines = gmp_lines([ [ "GMPFLD", mapped ] ], comments)
+      return lines if lines.is_a?(Hash)
       return failure unless lines.is_a?(Array) && !lines.empty?
 
       raw = DataMapper.problem_add_save.fetch_scalar(patient, provider, facility, lines)
@@ -223,6 +227,9 @@ module RpmsRpc
       problem = canonical_id(ien)
       provider = canonical_id(provider_duz)
       facility = canonical_id(vamc)
+      refused = frame_too_long_id(problem, provider, facility)
+      return refused if refused
+
       flag = case user_type
       when true then "1"
       when false then "0"
@@ -232,6 +239,7 @@ module RpmsRpc
       return failure unless problem && provider && facility && flag && merged
 
       lines = gmp_lines([ [ "GMPFLD", merged ], [ "GMPORIG", origin ] ], comments)
+      return lines if lines.is_a?(Hash)
       return failure unless lines.is_a?(Array) && !lines.empty?
 
       raw = DataMapper.problem_edit_save.fetch_scalar(problem, provider, facility, flag, lines)
@@ -271,6 +279,12 @@ module RpmsRpc
       { success: false, ien: nil, raw: nil }
     end
 
+    # A literal the 3-digit L-PACK width would mis-frame. The message names
+    # the limit and the byte count and never the literal itself.
+    def frame_too_long(bytesize)
+      failure.merge(error: :frame_too_long, message: "L-PACK value is #{bytesize} bytes, over the #{MAX_LIST_LINE_BYTES}-byte limit")
+    end
+
     def invalid_id?(value)
       value.nil? || value.to_s.strip.empty? || value.to_i <= 0
     end
@@ -300,7 +314,9 @@ module RpmsRpc
 
     # Groups are [name, hash] pairs in wire order ("GMPFLD" then "GMPORIG").
     # Returns nil when any input is not a safe literal, so the caller can
-    # fail closed before ORQQPL ADD SAVE / EDIT SAVE.
+    # fail closed before ORQQPL ADD SAVE / EDIT SAVE. A built line over
+    # MAX_LIST_LINE_BYTES returns the frame_too_long failure instead: the
+    # literal is safe, but the 3-digit L-PACK width would mis-frame it.
     def gmp_lines(groups, comments)
       return nil unless comments.is_a?(Array)
 
@@ -317,7 +333,8 @@ module RpmsRpc
 
         lines << line
       end
-      return nil unless lines.all? { |line| line.bytesize <= MAX_LIST_LINE_BYTES }
+      over = lines.find { |line| line.bytesize > MAX_LIST_LINE_BYTES }
+      return frame_too_long(over.bytesize) if over
       return nil unless lines.all? { |line| line.match?(SAFE_ASSIGNMENT) || line.match?(SAFE_COMMENT) }
 
       lines
@@ -415,6 +432,10 @@ module RpmsRpc
       text.gsub('"', '""')
     end
 
+    # M-canonical digit string, or nil. Length is not part of canonical:
+    # a canonical ID over the L-PACK width is still canonical, and
+    # frame_too_long_id refuses it. A non-canonical value stays nil so
+    # the caller returns a plain failure.
     def canonical_id(value)
       text = case value
       when Integer then value.to_s
@@ -423,9 +444,17 @@ module RpmsRpc
       # match? raises ArgumentError on an invalid encoding. An ID literal is ASCII.
       return nil unless ascii_token?(text)
       return nil unless text.match?(CANONICAL_ID)
-      return nil if text.bytesize > MAX_LIST_LINE_BYTES
 
       text
+    end
+
+    # Among IDs canonical_id accepted. Nil (not canonical, or short enough
+    # to send) is not this refusal.
+    def frame_too_long_id(*texts)
+      over = texts.find { |text| text.is_a?(String) && text.bytesize > MAX_LIST_LINE_BYTES }
+      return nil unless over
+
+      frame_too_long(over.bytesize)
     end
 
     # Field keys and ID strings are ASCII tokens. Checked before any match?
