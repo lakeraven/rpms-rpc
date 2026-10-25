@@ -36,9 +36,11 @@ module RpmsRpc
     # What separates lines: a bare CR or LF, CRLF, and the Unicode separators.
     LINE_BREAK = /\r\n|\r|\n|\u2028|\u2029|\u0085/
 
-    # An element of a reply that is not text (a Hash, a number, nil, a nested
-    # list). It is unrecognised and carries no allergen text.
-    UNREADABLE = Object.new.freeze
+    # One line of a reply. +text+ is nil for an element that is not text (a
+    # Hash, a number, nil); +nested+ is true for a line that came from a list
+    # inside the list, which ORQQAL cannot emit.
+    Line = Struct.new(:text, :nested)
+    private_constant :Line
 
     # Allergy records only. An NKA or unassessed patient yields [] —
     # callers that need to tell those apart must use {assessment}. The rows
@@ -61,13 +63,17 @@ module RpmsRpc
     # "assessed" without evidence would suppress a real assessment prompt.
     #
     # Every line of a reply is one of four things:
-    #   a recognised MARKER   the exact marker, or one that arrived slightly
-    #                         mangled (whitespace, CR, no-break or invisible
-    #                         characters, other case, an extra ^ field);
-    #   a valid ROW           its first piece is a positive integer;
+    #   a recognised MARKER   '^' + the marker text and nothing else: the exact
+    #                         marker, or one that arrived slightly mangled
+    #                         (whitespace, CR, no-break or invisible characters,
+    #                         other case, blank extra fields). A marker with any
+    #                         non-blank extra field is NOT a marker;
+    #   a clean ROW           its first piece is EXACTLY a positive integer (no
+    #                         whitespace or invisible character tolerated) and
+    #                         piece 2 has allergen text;
     #   BLANK                 nothing visible in it: not data;
     #   UNRECOGNISED          anything else, including an element that is not
-    #                         text (nil, a Hash, a number, a nested list) and a
+    #                         text, a line from a list inside the list, and a
     #                         line whose bytes are not valid text.
     # Why this is evidence-based and not another list of characters:
     # LIST^ORQQAL (ORQQAL.m:7-16) sets GMRARXN to "", 0 or 1 — mutually
@@ -81,40 +87,51 @@ module RpmsRpc
     # piece is numeric. Anything ORQQAL cannot emit is, by definition, not a
     # clean reply, and an unknown lookalike can only make the answer LOUDER.
     #
+    # The principle is: NEVER hide an allergy, NEVER vouch for a reply.
+    #
     # Verified absence is strictly byte-exact: only the exact NKA marker as the
-    # sole data line is NKA. A lone marker (any of the three, or a mangled one)
-    # is { assessed: false, nka: false, allergies: [] }. Every String (a whole
-    # response, or an element of a list) is split into lines first (LF, CR, CRLF,
-    # U+2028, U+2029, U+0085), so a marker glued to a row is two lines.
+    # sole data line is NKA. Nothing strips the RS/US record framing first: no
+    # client delivers it inside a line of this reply (XwbClient splits an array
+    # reply at CR/LF only; CiaClient splits at RS and drops the lone US node;
+    # BmxClient does not carry a stock RPC), so a framing byte beside or glued to
+    # the marker is an unrecognised line, never NKA. A lone marker (any of the
+    # three, or a mangled one) is { assessed: false, nka: false, allergies: [] }.
+    # Every String (a whole response, or an element of a list) is split into lines
+    # first (LF, CR, CRLF, U+2028, U+2029, U+0085), so a marker glued to a row is
+    # two lines; a list inside the list is flattened, its lines unrecognised.
     #
     # A reply with any UNRECOGNISED line, or a marker beside any other data
     # (or a marker twice), is the signature of a broker desync, a concatenated
     # or a corrupted reply: its rows may belong to another call (or patient), or
     # the list may be truncated. It is never vouched for:
     #   { assessed: false, nka: false, allergies: [...], conflict: true }
-    # ALWAYS assessed: false, never nka. Valid rows, and any unrecognised line
-    # that carries allergen text, are still returned — hiding a possible
-    # allergy is the other unsafe direction — flagged, not dropped; an
-    # unrecognised line with no allergen text makes no row, and marker lines
-    # never become rows. With no rows it is the same shape with allergies: [].
-    # A FALSE conflict (a real reply that trips this) is loud and safe:
+    # ALWAYS assessed: false, never nka. +allergies+ holds the clean rows and,
+    # for every unrecognised line with visible text, that text VERBATIM as a
+    # flagged entry { ien: nil, allergen: <line, trimmed>, raw: <line>,
+    # unrecognised: true } — never routed through DataMapper's error / no-data
+    # filters (which would drop "-3^PENICILLIN" or "^LATEX") and with no guess
+    # at which piece is the allergen. A host that renders rows therefore shows
+    # the raw text of such a line; that is intended. Marker lines never become
+    # entries; a line with no visible text (blank, or only control bytes) makes
+    # none. A FALSE conflict (a real reply that trips this) is loud and safe:
     # assessed: false, never a false "no known allergies". Clean replies carry no
-    # :conflict key. This method reports a conflicting reply as NOT assessed;
-    # whether a host shows its rows as an incomplete list is the host's job, and
-    # a host that must do so MUST read :conflict (one that reads only :nka and
-    # :assessed is safe in the absence direction, but may still render the rows
-    # as an ordinary list). {for_patient} returns the rows either way.
+    # :conflict key and no :unrecognised key. This method reports a conflicting
+    # reply as NOT assessed; whether a host shows its rows as an incomplete list
+    # is the host's job, and a host that must do so MUST read :conflict (one that
+    # reads only :nka and :assessed is safe in the absence direction, but may
+    # still render the rows as an ordinary list). {for_patient} returns the
+    # entries either way.
     def assessment(dfn)
       mapping = DataMapper[:allergy_list]
       response = RpmsRpc.client.call_rpc(mapping.rpc_name, dfn.to_s)
-      data = reply_lines(response).reject { |line| blank?(line) }
-      return { assessed: true, nka: true, allergies: [] } if data == [ NKA_SENTINEL ]
+      lines = reply_lines(response).reject { |line| blank?(line) }
+      return { assessed: true, nka: true, allergies: [] } if lines.size == 1 && exact_nka?(lines.first)
 
-      markers, others = data.partition { |line| marker?(line) }
-      return { assessed: false, nka: false, allergies: [] } if data.size == 1 && !markers.empty?
-      return conflicting(mapping, others) if !markers.empty? || others.any? { |line| !row?(line) }
+      kinds = lines.map { |line| kind_of(line) }
+      return { assessed: false, nka: false, allergies: [] } if lines.size == 1 && kinds == [ :marker ]
+      return conflicting(mapping, lines, kinds) if kinds.any? { |kind| kind != :row }
 
-      allergies = mapping.parse_many(others.map { |line| parse_ready(line) })
+      allergies = mapping.parse_many(lines.map { |line| parse_ready(line.text) })
       { assessed: !allergies.empty?, nka: false, allergies: allergies }
     end
     shape :assessment, resource: "allergies", verb: "GET", path: "/patients/{dfn}/allergies/assessment"
@@ -123,41 +140,66 @@ module RpmsRpc
 
     # The reply is not a clean ORQQAL reply: a marker beside other data, or a
     # line ORQQAL cannot emit (see {assessment}). Not assessed and never nka,
-    # whatever the rows are. Valid rows, and any unrecognised line that carries
-    # allergen text, are returned so that a possible allergy is flagged and
-    # never hidden; an unrecognised line with no allergen text makes no row.
-    def conflicting(mapping, others)
-      kept = others.select { |line| row?(line) || allergen_text?(line) }
-      { assessed: false, nka: false, allergies: mapping.parse_many(kept.map { |line| parse_ready(line) }), conflict: true }
+    # whatever the rows are. Clean rows are parsed; every unrecognised line with
+    # visible text is surfaced verbatim, flagged, in the order it arrived.
+    def conflicting(mapping, lines, kinds)
+      allergies = lines.zip(kinds).flat_map do |line, kind|
+        case kind
+        when :row then mapping.parse_many([ parse_ready(line.text) ])
+        when :other then surfaced(line)
+        else []
+        end
+      end
+      { assessed: false, nka: false, allergies: allergies, conflict: true }
     end
 
-    # Verified absence is strictly byte-exact (only the exact NKA marker as the
-    # sole data line); this is the wider test used for conflict detection. A
+    def kind_of(line)
+      return :other if line.nested || line.text.nil?
+      return :marker if marker?(line.text)
+
+      row?(line.text) ? :row : :other
+    end
+
+    def exact_nka?(line)
+      !line.nested && line.text == NKA_SENTINEL
+    end
+
+    # An unrecognised line's text, as a flagged entry; nothing when it has no
+    # visible text. Invalid bytes become U+FFFD so the entry can be serialised.
+    def surfaced(line)
+      return [] if line.text.nil? || squeeze(line.text).gsub(/[[:cntrl:]]/, "").strip.empty?
+
+      raw = parse_ready(line.text)
+      [ { ien: nil, allergen: raw.strip, raw: raw, unrecognised: true } ]
+    end
+
+    # '^' + a marker text and nothing else (blank extra fields allowed). A
     # marker that arrived with whitespace, a carriage return, a no-break space,
-    # a zero-width character, a different case or an extra field is still a
-    # marker, so it counts beside data and never becomes an allergy row.
-    def marker?(line)
-      return false unless line.is_a?(String)
-      return true if MARKERS.include?(line)
+    # a zero-width character or a different case is still a marker, so it counts
+    # beside data and never becomes an allergy row. Extra NON-blank fields make
+    # it something else (an allergen may follow it): unrecognised, surfaced.
+    def marker?(text)
+      return true if MARKERS.include?(text)
 
-      pieces = squeeze(line).split("^", -1)
-      pieces.size >= 2 && pieces[0].empty? && MARKER_TEXTS.include?(pieces[1].gsub(/[[:space:]]+/, " ").strip.downcase)
+      pieces = squeeze(text).split("^", -1)
+      pieces.size >= 2 && pieces[0].empty? &&
+        MARKER_TEXTS.include?(pieces[1].gsub(/[[:space:]]+/, " ").strip.downcase) &&
+        pieces.drop(2).all? { |piece| squeeze(piece).empty? }
     end
 
-    # A valid row: its first piece is a positive integer (the allergy IEN).
-    def row?(line)
-      line.is_a?(String) && squeeze(line).split("^", -1).first.to_s.strip.match?(ROW_IEN)
-    end
-
-    # The second piece, where the allergen text sits, is not blank.
-    def allergen_text?(line)
-      line.is_a?(String) && !squeeze(line).split("^", -1)[1].to_s.strip.empty?
+    # A clean row: the first piece is EXACTLY a positive integer (no strip, no
+    # squeeze, no invisible tolerance: ORQQAL writes the bare IEN) and piece 2
+    # has allergen text. Matched on the text with invalid bytes made visible, so
+    # a stray byte can never be dropped to make an IEN look right.
+    def row?(text)
+      pieces = text_of(text).scrub("\uFFFD").split("^", -1)
+      pieces.size >= 2 && pieces[0].match?(ROW_IEN) && !squeeze(pieces[1]).empty?
     end
 
     # A line with nothing visible in it is not data and never becomes a row. A
     # line whose bytes are not valid text is not "nothing": it is unrecognised.
     def blank?(line)
-      line.is_a?(String) && squeeze(line).empty? && text_of(line).valid_encoding?
+      line.text.is_a?(String) && !line.nested && squeeze(line.text).empty? && text_of(line.text).valid_encoding?
     end
 
     # The line as text for matching only (the original is never altered): read
@@ -177,8 +219,9 @@ module RpmsRpc
       end
     end
 
-    # A line DataMapper can parse: text that is not valid UTF-8 would raise in
-    # its regexes, so it is read as text first (invalid bytes become U+FFFD).
+    # A line DataMapper can parse and a host can serialise: text that is not
+    # valid UTF-8 would raise in its regexes, so it is read as text first
+    # (invalid bytes become U+FFFD).
     def parse_ready(line)
       return line if line.ascii_only? || (line.encoding == Encoding::UTF_8 && line.valid_encoding?)
 
@@ -187,17 +230,20 @@ module RpmsRpc
 
     # Text and lists of lines are replies. Every String (a whole response or an
     # element of a list) is split into lines first, so a marker glued to a row
-    # by a bare LF, CR or a Unicode separator is two lines. Anything that is not
-    # text (nil, a Hash, a number, a nested list) is one unreadable element:
-    # unrecognised, never a row built from its string form.
-    def reply_lines(response)
-      items = case response
+    # by a bare LF, CR or a Unicode separator is two lines. A list inside the
+    # list is flattened with its lines marked nested (ORQQAL cannot emit one).
+    # Anything else (nil, a Hash, a number) is one element with no text.
+    def reply_lines(response, nested: false)
+      case response
       when nil then []
-      when String then [ response ]
-      when Array then response
-      else [ UNREADABLE ]
+      when String then split_lines(response).map { |text| Line.new(text, nested) }
+      when Array then response.flat_map { |item| item.is_a?(Array) ? reply_lines(item, nested: true) : element_lines(item, nested) }
+      else [ Line.new(nil, nested) ]
       end
-      items.flat_map { |item| item.is_a?(String) ? split_lines(item).map { |line| strip_separators(line) } : [ UNREADABLE ] }
+    end
+
+    def element_lines(item, nested)
+      item.is_a?(String) ? split_lines(item).map { |text| Line.new(text, nested) } : [ Line.new(nil, nested) ]
     end
 
     def split_lines(text)
@@ -208,14 +254,6 @@ module RpmsRpc
         text.dup.force_encoding(Encoding::BINARY).split(/\r\n|\r|\n/n)
       end
       lines.map { |line| line.force_encoding(text.encoding) }
-    end
-
-    # Trailing recordset framing (RS/US), as DataMapper.strip_recordset_separators
-    # does, but on the bytes: a regex on text that is not valid UTF-8 raises.
-    def strip_separators(line)
-      bytes = line.b
-      stripped = bytes.sub(/[\x1E\x1F]+\z/n, "")
-      stripped.bytesize == bytes.bytesize ? line : stripped.force_encoding(line.encoding)
     end
   end
 end
