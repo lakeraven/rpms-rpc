@@ -218,8 +218,8 @@ holds the first record after a refusal; a pre-check is tracked in #480 and wrapp
 
 ### Allergy assessment: never hide an allergy, never vouch for a reply
 
-`RpmsRpc::Allergy.assessment(dfn)` classifies **every line** of the reply as a recognised **marker**, a clean **row**, **blank**, or
-**unrecognised**. This rests on what `LIST^ORQQAL` can emit (`ORQQAL.m:7-16`, with `GMRAOR1.m` `EN1`): exactly three markers
+`RpmsRpc::Allergy.assessment(dfn)` classifies **every line** of the reply as a recognised **marker**, a clean **row**, **blank** (a truly
+*empty* segment), or **unrecognised**. This rests on what `LIST^ORQQAL` can emit (`ORQQAL.m:7-16`, with `GMRAOR1.m` `EN1`): exactly three markers
 (`^No Allergy Assessment`, `^No Known Allergies`, and `^No allergies found.`, written at line 15 only when no row was written) in
 branches that are mutually exclusive with the rows, and every row begins with the allergy IEN, a **positive integer** (`GMRAIEN`,
 `Q:GMRAIEN<1`). So a real reply is one marker line **or** rows, never both, and every row's first piece is numeric. Anything else is,
@@ -235,11 +235,17 @@ by definition, not a clean reply, and an unknown lookalike can only make the ans
   different case or blank extra fields are tolerated. A marker with any **non-blank** extra field (`^No Known Allergies^LATEX^SEVERE`)
   is **not** a marker: it is unrecognised, and its text is surfaced. A lone marker is `{ assessed: false, nka: false, allergies: [] }`.
 - **A clean row** has a first piece that is *exactly* a positive integer (no whitespace or invisible character tolerated), **visible**
-  allergen text in piece 2, and no ASCII control character anywhere (so RS/US framing and NUL are never stripped into a clean row).
+  allergen text in piece 2, and no control character anywhere (so RS/US framing and NUL are never stripped into a clean row). ASCII
+  controls always count. A real U+0080-U+009F **codepoint** read from UTF-8 (NEL, CSI: a control sequence, not text) makes the row
+  unrecognised, but a **byte** 0x80-0x9F in a BINARY string that is not valid UTF-8, or in a Latin-1 / Windows-1252 tagged string, is
+  a byte (printable in Windows-1252) and stays a clean row, byte-identical to `main`. Which charset a live site uses is unproven
+  (rpms-rpc#476).
   An allergen whose *text* mentions a marker, on such a row, is a normal row.
 - **Invisible** means genuinely invisible: zero-width space/joiners (U+200B-U+200D), U+2060-U+2064, U+FEFF, the soft hyphen, U+034F,
   U+180E, tag characters and variation selectors. Other format characters (U+0600-U+0605, U+06DD, U+070F, U+110BD, the bidi marks) are
-  visible text, so a line made of one is data, not blank.
+  visible text, so a line made of one is data. **Only a truly empty segment is blank** (an empty-string element, or what splitting a
+  String leaves between two line terminators, e.g. `"marker\r\n"`): a whitespace-only or invisible-only Array element or String
+  segment beside the marker is content ORQQAL cannot emit, so it is unrecognised (conflict, never NKA).
 - **Every String** (a whole response, or an element of a list) is split into lines first (LF, CR, CRLF, U+2028, U+2029, U+0085), so a
   marker glued to a row is two lines. A list inside the list is unrecognised **even when empty** (it surfaces as its inspect text,
   e.g. `[]`), and so is an element that is not text (its inspect text is surfaced). Lists nested deeper than 64, or cyclic, raise
@@ -252,10 +258,12 @@ by definition, not a clean reply, and an unknown lookalike can only make the ans
 - **Anything unrecognised**, **a marker beside other data**, or **a repeated marker** is the signature of a broker desync, a
   concatenated or a corrupted reply: its rows may belong to another call (or patient), or the list may be truncated. The result is
   `{ assessed: false, nka: false, allergies: [...], conflict: true }`: always `assessed: false`, never `nka`. `allergies` holds the
-  clean rows plus, for **every unrecognised line with visible text**, a flagged entry
+  clean rows plus, for **every unrecognised line with content**, a flagged entry
   `{ ien: nil, allergen: <line, scrubbed and trimmed, for display>, raw: <the line's original bytes>, unrecognised: true }`. It is
   never routed through DataMapper's error or no-data filters (which would drop `-3^PENICILLIN` or `^LATEX`) and no piece position is
-  guessed. Marker lines, blank lines, and lines with no visible text (only control or invalid bytes) never become entries. A **false**
+  guessed. Marker lines and empty segments never become entries; a whitespace-only, invisible-only, control-only or invalid-byte-only line does,
+  with `raw` preserving its bytes and `allergen` the scrubbed display copy (possibly empty: rely on `raw` and `unrecognised`).
+  If the parser ever returned fewer rows than it was given, the reply is a conflict, never `assessed`. A **false**
   conflict is loud and safe, never a false "no known allergies".
 - **Clean replies are unchanged** (byte-identical to `main`, including encodings) and carry no `:conflict` key and no `:unrecognised`
   key. A clean row keeps `DataMapper`'s four pieces, as on `main`.

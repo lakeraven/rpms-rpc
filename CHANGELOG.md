@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that was blank, not text, or full of lookalikes read `assessed: true` with phantom rows. Lines carrying an allergen in a shape the
   parser filters (`-3^PENICILLIN`, `^LATEX`, a marker with extra fields) were dropped.
 - **Design:** every line is a recognised **marker** (`^` + the marker text, nothing else), a clean **row** (first piece exactly a
-  positive integer, visible allergen text in piece 2, no control character), **blank**, or **unrecognised**, from what `LIST^ORQQAL`
+  positive integer, visible allergen text in piece 2, no control character), **blank** (a truly empty segment only), or **unrecognised**, from what `LIST^ORQQAL`
   (`ORQQAL.m:7-16`, with `GMRAOR1.m` `EN1`) can emit: exactly three markers (`^No Allergy Assessment`, `^No Known Allergies`, and
   `^No allergies found.` at line 15, written only when no row was written), mutually exclusive with the rows, and every row starting
   with the allergy IEN (`Q:GMRAIEN<1`).
@@ -25,14 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   beside it, is unrecognised, never NKA. A lone marker, including a mangled one, is `{ assessed: false, nka: false, allergies: [] }`.
 - **Every String is split into lines first** (LF, CR, CRLF, U+2028, U+2029, U+0085). A list inside the list is unrecognised even when
   empty, and so is an element that is not text; both surface their inspect text. Nesting deeper than 64 (or cyclic) raises
-  `RpmsRpc::Allergy::ReplyTooDeepError`. Only genuinely invisible characters count as blank (not all of `\p{Cf}`).
+  `RpmsRpc::Allergy::ReplyTooDeepError`. Only a truly **empty** segment is blank: a whitespace-only or invisible-only element or String segment beside the marker is
+  unrecognised (conflict, never NKA) and surfaced with its raw bytes. The invisible set is genuinely invisible characters (not all
+  of `\p{Cf}`). A real U+0080-U+009F codepoint read from UTF-8 in a row is a control sequence (unrecognised); a byte 0x80-0x9F in
+  a BINARY / Latin-1 / Windows-1252 string is a byte and stays clean (charset unproven live, rpms-rpc#476). A parser that returns
+  fewer rows than it was given makes the reply a conflict, never `assessed`.
 - **Bytes:** classification reads a copy with invalid bytes made U+FFFD (a mangled marker never matches); **a clean row's output is
   the original bytes and encoding, identical to `main`** (a Latin-1 byte in a BINARY allergen is a clean row; the bytes are the
   boundary's concern, rpms-rpc#477). A UTF-8-tagged string that is not valid UTF-8 no longer raises `ArgumentError`; it is read with
   U+FFFD. A string in an encoding with no converter is unrecognised, not an exception.
 - **A conflicting reply** (a marker beside other data, a repeated marker, or any unrecognised line):
   `{ assessed: false, nka: false, allergies: [...], conflict: true }` — **always `assessed: false`, never `nka`**. `allergies` holds
-  the clean rows and, for every unrecognised line with visible text, a flagged entry
+  the clean rows and, for every unrecognised line with content, a flagged entry
   `{ ien: nil, allergen: <scrubbed, trimmed>, raw: <original bytes>, unrecognised: true }` (never filtered through DataMapper). A
   false conflict is loud and safe. A clean reply is unchanged and carries no `:conflict` or `:unrecognised` key.
 - **Host-visible changes:** `Allergy.for_patient` returns the surfaced entries too, so a host rendering rows from it shows the text of
