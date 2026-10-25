@@ -17,6 +17,7 @@ require "rpms_rpc/api/health_factor"
 require "rpms_rpc/api/immunization_refusal"
 require "rpms_rpc/api/allergy"
 require "rpms_rpc/api/progress_note"
+require "rpms_rpc/api/order"
 
 # #472 / #474, panel round 2. A value the wire would mis-frame is refused
 # before anything is sent (Client::FrameTooLongError). The write APIs whose own
@@ -190,6 +191,66 @@ class OversizedTextWritersTest < Minitest::Test
     refute_includes result[:message].to_s, long_dfn
     assert_empty @socket.writes, "nothing is sent when the value cannot be framed"
     refute result.key?(:note_ien), "refusal is not a broker success"
+  end
+
+  def test_problem_add_stock_returns_its_failure_shape_over_xwb
+    use_xwb
+    fields = {
+      ".01" => "5042",
+      "1.01" => "1^Unresolved",
+      ".05" => XWB_TEXT,
+      ".12" => "A",
+      ".13" => "1"
+    }
+    result = RpmsRpc::Problem.add_stock("8791", provider_duz: "301", vamc: "7", fields: fields)
+    assert_equal false, result[:success]
+    assert_equal :frame_too_long, result[:error]
+    assert_match(/999/, result[:message].to_s)
+    refute_includes result[:message].to_s, XWB_TEXT
+    assert_equal({ success: false, ien: nil, raw: nil }, result.slice(:success, :ien, :raw))
+    assert_empty @socket.writes
+  end
+
+  def test_problem_update_stock_returns_its_failure_shape_over_xwb
+    use_xwb
+    originals = {
+      ".01" => "5042",
+      "1.01" => "1^Unresolved",
+      ".05" => "1^Synthetic problem narrative",
+      ".12" => "A",
+      "1.02" => "T",
+      "80001" => "",
+      "80002" => "",
+      "80003" => "",
+      "80004" => "",
+      "80005" => "",
+      "80201" => "3251025^10/25/2025",
+      "80202" => "10D^10D"
+    }
+    result = RpmsRpc::Problem.update_stock(
+      "77", provider_duz: "301", vamc: "7",
+      changes: { ".05" => XWB_TEXT },
+      originals: originals
+    )
+    assert_equal false, result[:success]
+    assert_equal :frame_too_long, result[:error]
+    assert_match(/999/, result[:message].to_s)
+    refute_includes result[:message].to_s, XWB_TEXT
+    assert_equal({ success: false, ien: nil, raw: nil }, result.slice(:success, :ien, :raw))
+    assert_empty @socket.writes
+  end
+
+  # ORWDX SAVE sends an ORDIALOG list parameter; BMX cannot frame list params.
+  def test_order_save_returns_frame_too_long_failure_shape_over_xwb
+    limit = use_xwb
+    responses = { [ 4, 1 ] => XWB_TEXT }
+    result = RpmsRpc::Order.save("8791", "301", "349", "PSO OERR", responses)
+
+    assert_equal false, result[:success]
+    assert_equal :frame_too_long, result[:error]
+    assert_match(/#{limit}/, result[:message].to_s)
+    refute_includes result[:message].to_s, XWB_TEXT
+    assert_empty @socket.writes
   end
 
   def test_problem_still_raises_for_a_caller_bug
@@ -367,7 +428,10 @@ class OversizedTextWritersTest < Minitest::Test
     "scheduling_cancel" => -> { RpmsRpc::Scheduling.cancel_appointment("55", reason: "3", note: "ok") },
     "referral" => -> { RpmsRpc::Referral.add("8791", "1", "ok") },
     "ddr_filer" => -> { RpmsRpc::DdrFileman.filer(mode: :add, rows: [ { file: "2", field: ".01", iens: "+1,", value: "ok" } ]) },
-    "registration_update" => -> { RpmsRpc::Registration.update("8791", address_line1: "ok") }
+    "registration_update" => -> { RpmsRpc::Registration.update("8791", address_line1: "ok") },
+    "order_save" => lambda {
+      RpmsRpc::Order.save("8791", "301", "349", "PSO OERR", { [ 4, 1 ] => "92001" })
+    }
   }.freeze
 
   RESCUED_FAMILIES.each do |family, call|

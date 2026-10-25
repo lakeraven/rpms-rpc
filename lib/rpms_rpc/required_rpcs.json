@@ -154,6 +154,7 @@
       "BQI GET COMM ALERTS SPLASH"
     ],
     "RpmsRpc::Order": [
+      "ORWDX SAVE",
       "ORWOR ACTION TEXT",
       "ORWOR EXPIRED",
       "ORWOR RESULT",
@@ -200,10 +201,12 @@
     "RpmsRpc::Problem": [
       "BGOPROB DEL",
       "BGOPROB SET",
+      "ORQQPL ADD SAVE",
       "ORQQPL AUDIT HIST",
       "ORQQPL CLIN SRCH",
       "ORQQPL DETAIL",
       "ORQQPL EDIT LOAD",
+      "ORQQPL EDIT SAVE",
       "ORQQPL INACTIVATE",
       "ORQQPL INIT PT",
       "ORQQPL LIST",
