@@ -678,6 +678,18 @@ class ClinicalReadWireTest < Minitest::Test
     assert_equal true, result[:conflict]
   end
 
+  def test_a_conflicting_reply_with_an_invalid_byte_row_does_not_raise_and_keeps_the_row
+    [ [ "^No Known Allergies", "667^PENICILLIN\xFF^SEVERE^HIVES" ], [ "x1^LATEX\xFF^MILD^RASH" ] ].each do |lines|
+      stub_broker_response(lines.map { |line| line.dup.force_encoding("UTF-8") })
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:nka], lines.inspect
+      refute result[:assessed], lines.inspect
+      assert_equal true, result[:conflict], lines.inspect
+      assert_equal 1, result[:allergies].length, "#{lines.inspect}: the row is kept, not dropped, and nothing raises"
+    end
+  end
+
   def test_a_row_with_an_invalid_byte_does_not_raise_and_stays_a_row
     stub_broker_response([ "667^PENICILLIN\xFF^SEVERE^HIVES".dup.force_encoding("UTF-8") ])
 
