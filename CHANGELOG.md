@@ -14,15 +14,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A `^No Allergy Assessment` marker next to rows dropped the rows the same way, and a repeated NKA marker also read as NKA.
 - **Rule:** a marker counts only as the **sole data line** of the reply (blank lines are not data). `LIST^ORQQAL`
   (`ORQQAL.m:7-16`, pinned build `bcer-9.0-ydb` and the FOIA copy) sets `GMRARXN` to `""`, `0` or `1`, three mutually
-  exclusive branches, and writes a marker to `ORAY(1)` only in the two branches that write no allergy rows. A real reply is one
-  marker line **or** rows, never both, so a marker beside other data is the signature of a broker desync or a concatenated reply.
-- **Conflicting reply:** `{ assessed: false, nka: false, allergies: [...], conflict: true }` — **always `assessed: false`, never
-  `nka`**. The rows may belong to another call (or patient), or the list may be truncated, so they are never presented as an
-  assessed, complete record; they stay in `allergies` because hiding a possible allergy is the other unsafe direction. With no
-  rows (a marker twice, or two different markers) `allergies` is `[]`. A clean reply is unchanged and carries no `:conflict` key.
-- **`Allergy.for_patient`** returns the rows of a conflicting reply too and cannot tell a verified list from a conflicting one:
-  a host that must make that distinction **must use `Allergy.assessment`** and read `:assessed` and `:conflict`. A host that reads
-  only `nka` and `assessed` needs no change: "None recorded" can no longer appear beside a real allergy.
+  exclusive branches. It writes `^No Allergy Assessment` or `^No Known Allergies` to `ORAY(1)` only in the two branches that write
+  no allergy rows, and the third marker, `^No allergies found.` (`ORQQAL.m:15`), only when no row was written at all. A real reply
+  is one marker line **or** rows, never both. Verified absence stays **strictly byte-exact**: only the exact NKA marker as the sole
+  data line is NKA.
+- **Three markers, and near-misses:** all three markers are recognised. A marker that arrives slightly mangled (whitespace, a
+  carriage return, a no-break or zero-width character, a different case, an extra `^` field) still counts as a marker for
+  conflict detection and never becomes an allergy row of its own (a leading-space marker used to become a row named "No Known
+  Allergies"); alone it is simply not assessed.
+- **Conflicting reply** (a marker beside other data, a marker twice, or two different markers):
+  `{ assessed: false, nka: false, allergies: [...], conflict: true }` — **always `assessed: false`, never `nka`**. The rows may
+  belong to another call (or patient), or the list may be truncated, so this method reports them as not assessed; they stay in
+  `allergies` because hiding a possible allergy is the other unsafe direction. With no rows `allergies` is `[]`. A clean reply is
+  unchanged and carries no `:conflict` key.
+- **Phantom rows removed:** a line with nothing visible in it is not data, so a reply of only blank lines is
+  `{ assessed: false, nka: false, allergies: [] }` (it used to be `assessed: true` with a row whose ien was whitespace), and a
+  response that is neither text nor a list of lines (a Hash, a number) is no evidence rather than a row with a stringified ien.
+- **What a host must do:** a host that reads only `nka` and `assessed` is safe in the absence direction — "None recorded" can no
+  longer appear beside a real allergy — but may still render the rows of a conflicting reply as an ordinary list. A host that must
+  show such a list as incomplete **must read `:conflict`**. `Allergy.for_patient` returns the rows of a conflicting reply too and
+  cannot tell a verified list from a conflicting one: a host that must make that distinction **must use `Allergy.assessment`**.
+  lakeraven-ehr's patient banner does not read `:conflict` yet (lakeraven-ehr#672).
 - **Evidence:** the reply shape is read from the M routine source, not from a live broker. **Unproven live (ADR 0009):** no live
   spec exercises a conflicting reply (the routine cannot produce one).
 

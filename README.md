@@ -218,18 +218,26 @@ holds the first record after a refusal; a pre-check is tracked in #480 and wrapp
 
 ### Allergy assessment: a conflicting reply is never vouched for
 
-`RpmsRpc::Allergy.assessment(dfn)` reports one of three states. `LIST^ORQQAL` (`ORQQAL.m:7-16`) writes a
-`^No Allergy Assessment` or `^No Known Allergies` marker only in the branches that write no allergy rows, so a real reply is **one
-marker line or rows, never both**. A marker counts only as the sole data line of the reply (blank lines are not data).
+`RpmsRpc::Allergy.assessment(dfn)` reports one of three states. `LIST^ORQQAL` (`ORQQAL.m:7-16`) writes one of three markers
+(`^No Allergy Assessment`, `^No Known Allergies`, and `^No allergies found.` at `ORQQAL.m:15`, written only when no row was
+written) and allergy rows in mutually exclusive branches, so a real reply is **one marker line or rows, never both**. A marker counts
+only as the sole data line of the reply, and verified absence is strictly byte-exact: only the exact NKA marker as the sole data
+line is NKA. Lines with nothing visible in them are not data, and a response that is neither text nor a list of lines is no evidence
+(`assessed: false`, no rows).
 
 A reply that mixes a marker with other data, or repeats a marker, is the signature of a broker desync or a concatenated reply: its
-rows may belong to another call (or patient), or the list may be truncated. It is returned as
-`{ assessed: false, nka: false, allergies: [...], conflict: true }`: always `assessed: false`, never `nka`. The parsed rows stay in
-`allergies` (hiding a possible allergy is unsafe), but they are never presented as an assessed, complete record. A clean reply carries
-no `:conflict` key.
+rows may belong to another call (or patient), or the list may be truncated. A marker that arrives slightly mangled (whitespace, a
+carriage return, a no-break or zero-width character, a different case, an extra field) still counts as a marker for this test, and
+never becomes an allergy row. The result is `{ assessed: false, nka: false, allergies: [...], conflict: true }`: always
+`assessed: false`, never `nka`. The parsed rows stay in `allergies` because hiding a possible allergy is unsafe; this method reports
+them as **not assessed**. A clean reply carries no `:conflict` key.
 
-`Allergy.for_patient` returns the allergy rows only, so it returns the rows of a conflicting reply too and cannot tell a verified list
-from a conflicting one. **A host that must make that distinction must use `Allergy.assessment` and read `:assessed` and `:conflict`.**
+**What a host must do.** A host that reads only `:nka` and `:assessed` is safe in the absence direction ("None recorded" cannot appear
+beside a real allergy, and a conflicting reply never reads as assessed), but it may still render the rows as an ordinary list. **A
+host that must show a conflicting list as incomplete must read `:conflict`.** `Allergy.for_patient` returns the allergy rows only, so
+it returns the rows of a conflicting reply too and cannot tell a verified list from a conflicting one: a host that must make that
+distinction **must use `Allergy.assessment`** and read `:assessed` and `:conflict`. (lakeraven-ehr's patient banner does not read
+`:conflict` yet: `AllergyListStatus.from_counts` shows any rows as a loaded list; tracked in lakeraven-ehr#672.)
 Unproven live (ADR 0009): this is decided from the M routine source; the routine cannot produce a conflicting reply.
 
 ### Exception-message sanitization
