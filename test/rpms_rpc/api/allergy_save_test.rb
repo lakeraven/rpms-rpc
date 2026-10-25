@@ -260,6 +260,71 @@ class AllergySaveTest < Minitest::Test
     end
   end
 
+  # :text must contain visible characters per Allergy.visible? (not only whitespace or invisible).
+  def test_save_rejects_symptom_text_without_visible_content_without_rpc
+    whitespace = [
+      [ { text: "   " } ],
+      [ { ien: "10", text: "  " } ]
+    ]
+    invisible = [
+      [ { text: "\u200B" } ],
+      [ { text: "\u00A0" } ],
+      [ { text: "\u00AD" } ]
+    ]
+    (whitespace + invisible).each do |symptoms|
+      assert_invalid_value_refusal(:symptoms, SYNTH_ALLERGY.merge(symptoms: symptoms))
+    end
+  end
+
+  def test_save_dispatches_symptoms_whose_text_is_visible
+    cases = [
+      [ [ { ien: "10", text: "RASH" } ], "10^RASH^" ],
+      [ [ { ien: "FT", text: "ITCHY EYES" } ], "FT^ITCHY EYES^" ]
+    ]
+    cases.each do |symptoms, wire|
+      RpmsRpc.reset!
+      seed_save_reply("0")
+      attrs = SYNTH_ALLERGY.merge(symptoms: symptoms)
+      result = RpmsRpc::Allergy.save(DFN, attrs)
+      assert result[:success], symptoms.inspect
+      assert_equal wire, save_call[:params][2][[ "GMRASYMP", 1 ]]
+    end
+  end
+
+  def test_save_names_reaction_date_caret_before_invalid_type
+    RpmsRpc.mock!
+    attrs = SYNTH_ALLERGY.merge(reaction_date: "3261015^1", type: "ZZ")
+    result = RpmsRpc::Allergy.save(DFN, attrs)
+    expected = { success: false, error: :invalid_value, message: "invalid reaction_date" }
+    assert_equal expected, result
+    assert_empty RpmsRpc.client.received_calls
+  end
+
+  def test_save_names_severity_caret_before_invalid_type
+    RpmsRpc.mock!
+    attrs = SYNTH_ALLERGY.merge(severity: "1^2", type: "ZZ")
+    result = RpmsRpc::Allergy.save(DFN, attrs)
+    expected = { success: false, error: :invalid_value, message: "invalid severity" }
+    assert_equal expected, result
+    assert_empty RpmsRpc.client.received_calls
+  end
+
+  def test_save_names_agent_caret_before_later_format_faults
+    cases = [
+      { observed_or_historical: "x" },
+      { originator: "abc" },
+      { severity: "4" }
+    ]
+    cases.each do |override|
+      RpmsRpc.mock!
+      attrs = SYNTH_ALLERGY.merge(agent: "PEN^ICILLIN", **override)
+      result = RpmsRpc::Allergy.save(DFN, attrs)
+      expected = { success: false, error: :invalid_value, message: "invalid agent" }
+      assert_equal expected, result, override.inspect
+      assert_empty RpmsRpc.client.received_calls, override.inspect
+    end
+  end
+
   def test_save_rejects_invalid_symptom_date_without_rpc
     %w[yesterday 2026-10-15].each do |date|
       attrs = SYNTH_ALLERGY.merge(symptoms: [ { ien: "10", text: "RASH", date: date } ])
