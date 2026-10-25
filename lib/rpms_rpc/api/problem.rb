@@ -2,7 +2,6 @@
 
 require_relative "../shape"
 require_relative "../mappings"
-require_relative "../shape"
 
 module RpmsRpc
   # Symbolic API for the problem list. Read via ORQQPL LIST; write via
@@ -42,7 +41,8 @@ module RpmsRpc
     # NEW reads these with no $G (GMPLSAVE.m:105, :112, :113, :141).
     ADD_REQUIRED_FIELDS = %w[.01 1.01 .05 .12 .13].freeze
     # EN reads these with no $G (GMPLSAVE.m:15, :22, :47, :50, :53).
-    EDIT_REQUIRED_ORIGINALS = %w[.01 .05 .12 1.01 1.02].freeze
+    # EN sets 80201/80202 (GMPLSAVE.m:20-21) and the SNOMED/VHAT fields 80001-80005 (:29-46) on GMPFLD, then reads GMPORIG for each with no $G at :60.
+    EDIT_REQUIRED_ORIGINALS = %w[.01 .05 .12 1.01 1.02 80001 80002 80003 80004 80005 80201 80202].freeze
     # DR="1.02////"_GMPFLD(1.02) (GMPLSAVE.m:49).
     FIELD_1_02 = %w[P T H].freeze
 
