@@ -139,6 +139,82 @@ class AllergySaveTest < Minitest::Test
     end
   end
 
+  def test_save_accepts_valid_fixture_formats
+    seed_save_reply("0")
+    result = RpmsRpc::Allergy.save(DFN, SYNTH_ALLERGY)
+    assert result[:success]
+    assert_equal expected_edited(SYNTH_ALLERGY), save_call[:params][2]
+  end
+
+  def test_save_rejects_caret_or_control_in_reaction_date_and_severity_without_rpc
+    [
+      [ :reaction_date, "3261015^1" ],
+      [ :reaction_date, "3261015\x01" ],
+      [ :severity, "MOD^ERATE" ],
+      [ :severity, "MOD\x7f" ]
+    ].each do |field, value|
+      assert_invalid_value_refusal(field, SYNTH_ALLERGY.merge(field => value))
+    end
+  end
+
+  def test_save_rejects_invalid_reaction_date_format_without_rpc
+    %w[yesterday 2026-10-15 326101].each do |value|
+      assert_invalid_value_refusal(:reaction_date, SYNTH_ALLERGY.merge(reaction_date: value))
+    end
+  end
+
+  def test_save_rejects_invalid_agent_pointer_format_without_rpc
+    %w[garbage 125 125;PSNDF(50.6 0;GMRD(120.82,].each do |value|
+      assert_invalid_value_refusal(:agent_pointer, SYNTH_ALLERGY.merge(agent_pointer: value))
+    end
+  end
+
+  def test_save_accepts_valid_gmrd_agent_pointer
+    seed_save_reply("0")
+    attrs = SYNTH_ALLERGY.merge(agent_pointer: "125;GMRD(120.82,")
+    assert RpmsRpc::Allergy.save(DFN, attrs)[:success]
+    assert_equal "125;GMRD(120.82,", save_call[:params][2]["GMRAGNT"].split("^", 2).last
+  end
+
+  def test_save_rejects_invalid_originated_at_format_without_rpc
+    %w[yesterday 2026-10-15 326101].each do |value|
+      assert_invalid_value_refusal(:originated_at, SYNTH_ALLERGY.merge(originated_at: value))
+    end
+  end
+
+  def test_save_rejects_invalid_type_without_rpc
+    [ "ZZ", "DD", 5, "" ].each do |value|
+      assert_invalid_value_refusal(:type, SYNTH_ALLERGY.merge(type: value))
+    end
+  end
+
+  def test_save_accepts_valid_type_letters
+    %w[D F O DF DFO].each do |value|
+      seed_save_reply("0")
+      attrs = SYNTH_ALLERGY.merge(type: value)
+      assert RpmsRpc::Allergy.save(DFN, attrs)[:success], "type #{value.inspect}"
+      assert_equal value, save_call[:params][2]["GMRATYPE"]
+    end
+  end
+
+  def test_save_rejects_invalid_nature_without_rpc
+    assert_invalid_value_refusal(:nature, SYNTH_ALLERGY.merge(nature: "Q"))
+  end
+
+  def test_save_parses_one_element_reply_with_recordset_framing_bytes
+    [
+      [ [ "0\x1E" ], nil ],
+      [ [ "0^4242\x1E\x1F" ], 4242 ]
+    ].each do |reply, note_ien|
+      RpmsRpc.reset!
+      with_broker_reply(reply) do
+        result = RpmsRpc::Allergy.save(DFN, SYNTH_ALLERGY)
+        assert result[:success], "reply #{reply.inspect}"
+        assert_equal note_ien, result[:note_ien]
+      end
+    end
+  end
+
   def test_save_rejects_caret_or_control_in_list_values_without_rpc
     caret = "PEN^999;PS(50.416,"
     control = "PEN\x01ICILLIN"
@@ -321,6 +397,13 @@ class AllergySaveTest < Minitest::Test
   end
 
   private
+
+  def assert_invalid_value_refusal(field, attrs)
+    RpmsRpc.mock!
+    result = RpmsRpc::Allergy.save(DFN, attrs)
+    assert_equal({ success: false, error: :invalid_value, message: "invalid #{field}" }, result)
+    assert_empty RpmsRpc.client.received_calls, "invalid #{field}"
+  end
 
   def save_call
     RpmsRpc.client.received_calls.find { |c| c[:rpc] == RPC }

@@ -172,7 +172,11 @@ class OversizedTextWritersTest < Minitest::Test
       comments: [ XWB_TEXT ]
     }
     result = RpmsRpc::Allergy.save("8791", allergy)
-    assert_refused(result, limit, XWB_TEXT)
+    assert_equal false, result[:success]
+    assert_equal :frame_too_long, result[:error]
+    assert_match(/#{limit}/, result[:message].to_s)
+    refute_includes result[:message].to_s, XWB_TEXT
+    assert_empty @socket.writes, "nothing is sent when the value cannot be framed"
     refute result.key?(:note_ien), "refusal is not a broker success"
   end
 
@@ -180,7 +184,11 @@ class OversizedTextWritersTest < Minitest::Test
     limit = use_xwb
     long_dfn = "1" + ("0" * 999)
     result = RpmsRpc::Allergy.no_known_allergies(long_dfn)
-    assert_refused(result, limit, long_dfn)
+    assert_equal false, result[:success]
+    assert_equal :frame_too_long, result[:error]
+    assert_match(/#{limit}/, result[:message].to_s)
+    refute_includes result[:message].to_s, long_dfn
+    assert_empty @socket.writes, "nothing is sent when the value cannot be framed"
     refute result.key?(:note_ien), "refusal is not a broker success"
   end
 
