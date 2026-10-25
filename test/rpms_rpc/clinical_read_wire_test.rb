@@ -1202,4 +1202,23 @@ class ClinicalReadWireTest < Minitest::Test
       assert_includes result[:allergies].map { |a| a[:raw] }, PENICILLIN_ROW, "and it is surfaced, not lost"
     end
   end
+
+  # The invisible set is narrow: a visible format character is text.
+  def test_a_row_whose_allergen_is_a_visible_format_character_is_clean
+    [ "\u0600", "\u06DD", "\u070F", "\u{110BD}" ].each do |char|
+      stub_broker_response([ "7^#{char}^SEVERE" ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      assert result[:assessed], char.inspect
+      refute_includes result.keys, :conflict, char.inspect
+    end
+  end
+
+  def test_a_marker_followed_by_a_visible_format_character_is_not_a_marker
+    stub_broker_response([ "^No Known Allergies\u0600" ])
+    result = RpmsRpc::Allergy.assessment("42")
+
+    refute result[:nka]
+    assert_equal true, result[:conflict], "U+0600 is visible text, so this is an unrecognised line"
+  end
 end
