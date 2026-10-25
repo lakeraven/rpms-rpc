@@ -7,21 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed — `Allergy.assessment` no longer reads a contradictory reply as "no known allergies"
+### Fixed — `Allergy.assessment` no longer reads a contradictory reply as "no known allergies" (#483)
 
 - **Bug:** `Allergy.assessment` returned `nka: true` for any reply containing the `^No Known Allergies` marker and dropped every
   other row, so `["^No Known Allergies", "5^Penicillin^SEVERE^HIVES"]` read as verified absence with the real allergy gone.
-  A `^No Allergy Assessment` marker next to rows dropped the rows the same way. A repeated NKA marker also read as NKA.
+  A `^No Allergy Assessment` marker next to rows dropped the rows the same way, and a repeated NKA marker also read as NKA.
 - **Rule:** a marker counts only as the **sole data line** of the reply (blank lines are not data). `LIST^ORQQAL`
   (`ORQQAL.m:7-16`, pinned build `bcer-9.0-ydb` and the FOIA copy) sets `GMRARXN` to `""`, `0` or `1`, three mutually
   exclusive branches, and writes a marker to `ORAY(1)` only in the two branches that write no allergy rows. A real reply is one
-  marker line **or** rows, never both, so a marker beside other data is a corrupted or concatenated reply.
-- **Contradictory reply:** `nka` stays `false`, any real allergy rows are returned (`assessed: true`), and the result carries
-  `conflict: true`. With no rows (a marker twice, or two different markers) it reads not-assessed, also with `conflict: true`.
-  `Allergy.for_patient` therefore returns the rows of a mixed reply. A clean reply is unchanged and carries no `:conflict` key.
+  marker line **or** rows, never both, so a marker beside other data is the signature of a broker desync or a concatenated reply.
+- **Conflicting reply:** `{ assessed: false, nka: false, allergies: [...], conflict: true }` — **always `assessed: false`, never
+  `nka`**. The rows may belong to another call (or patient), or the list may be truncated, so they are never presented as an
+  assessed, complete record; they stay in `allergies` because hiding a possible allergy is the other unsafe direction. With no
+  rows (a marker twice, or two different markers) `allergies` is `[]`. A clean reply is unchanged and carries no `:conflict` key.
+- **`Allergy.for_patient`** returns the rows of a conflicting reply too and cannot tell a verified list from a conflicting one:
+  a host that must make that distinction **must use `Allergy.assessment`** and read `:assessed` and `:conflict`. A host that reads
+  only `nka` and `assessed` needs no change: "None recorded" can no longer appear beside a real allergy.
 - **Evidence:** the reply shape is read from the M routine source, not from a live broker. **Unproven live (ADR 0009):** no live
-  spec exercises a contradictory reply (the routine cannot produce one); hosts that read `nka` need no change, and may read
-  `conflict` to surface the anomaly.
+  spec exercises a conflicting reply (the routine cannot produce one).
 
 ### Fixed — XWB and BMX refuse a request they would mis-frame, and the failure-hash writers say so (#472, #474)
 

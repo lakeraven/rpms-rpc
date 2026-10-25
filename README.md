@@ -216,6 +216,22 @@ only `ProgressNote.update_text` also names the line, and `Registration.update`'s
 On a real session an API may already have bound its context before the refused write, which changes no record. A host that creates a record and then updates it (create, then `update_text`) still
 holds the first record after a refusal; a pre-check is tracked in #480 and wrapping long note text in #479.
 
+### Allergy assessment: a conflicting reply is never vouched for
+
+`RpmsRpc::Allergy.assessment(dfn)` reports one of three states. `LIST^ORQQAL` (`ORQQAL.m:7-16`) writes a
+`^No Allergy Assessment` or `^No Known Allergies` marker only in the branches that write no allergy rows, so a real reply is **one
+marker line or rows, never both**. A marker counts only as the sole data line of the reply (blank lines are not data).
+
+A reply that mixes a marker with other data, or repeats a marker, is the signature of a broker desync or a concatenated reply: its
+rows may belong to another call (or patient), or the list may be truncated. It is returned as
+`{ assessed: false, nka: false, allergies: [...], conflict: true }`: always `assessed: false`, never `nka`. The parsed rows stay in
+`allergies` (hiding a possible allergy is unsafe), but they are never presented as an assessed, complete record. A clean reply carries
+no `:conflict` key.
+
+`Allergy.for_patient` returns the allergy rows only, so it returns the rows of a conflicting reply too and cannot tell a verified list
+from a conflicting one. **A host that must make that distinction must use `Allergy.assessment` and read `:assessed` and `:conflict`.**
+Unproven live (ADR 0009): this is decided from the M routine source; the routine cannot produce a conflicting reply.
+
 ### Exception-message sanitization
 
 The gem doesn't emit internal logs of its own; the PHI risk vector is
