@@ -216,6 +216,75 @@ only `ProgressNote.update_text` also names the line, and `Registration.update`'s
 On a real session an API may already have bound its context before the refused write, which changes no record. A host that creates a record and then updates it (create, then `update_text`) still
 holds the first record after a refusal; a pre-check is tracked in #480 and wrapping long note text in #479.
 
+### Allergy assessment: never hide an allergy, never vouch for a reply
+
+`RpmsRpc::Allergy.assessment(dfn)` classifies **every line** of the reply as a recognised **marker**, a clean **row**, **blank** (a truly
+*empty* segment), or **unrecognised**. This rests on what `LIST^ORQQAL` can emit (`ORQQAL.m:7-16`, with `GMRAOR1.m` `EN1`): exactly three markers
+(`^No Allergy Assessment`, `^No Known Allergies`, and `^No allergies found.`, written at line 15 only when no row was written) in
+branches that are mutually exclusive with the rows, and every row begins with the allergy IEN, a **positive integer** (`GMRAIEN`,
+`Q:GMRAIEN<1`). So a real reply is one marker line **or** rows, never both, and every row's first piece is numeric. Anything else is,
+by definition, not a clean reply, and an unknown lookalike can only make the answer louder.
+
+- **Verified absence is strictly byte-exact:** only the exact `^No Known Allergies` line, as the sole data line, is NKA. When the
+  reply is a String, the line terminators that splitting it produces (`"...\r\n"`, the real shape) are not part of the marker. When
+  it is an Array, an element that still carries a line terminator is not the byte-exact marker: it is a lone marker (not assessed,
+  never NKA). Nothing strips record framing (RS/US) first: no client delivers it inside a line of this reply (`XwbClient` splits an
+  array reply at CR/LF only; `CiaClient` splits at RS and drops the lone US node; `BmxClient` does not carry a stock RPC), so a
+  framing byte glued to the marker, or an element that is only framing beside it, is an unrecognised line, never NKA.
+- **A marker** is `^` plus the marker text and nothing else: whitespace, a carriage return, a no-break or invisible character, a
+  different case or blank extra fields are tolerated. A marker with any **non-blank** extra field (`^No Known Allergies^LATEX^SEVERE`)
+  is **not** a marker: it is unrecognised, and its text is surfaced. A lone marker is `{ assessed: false, nka: false, allergies: [] }`.
+- **A clean row** has a first piece that is *exactly* a positive integer (no whitespace or invisible character tolerated), **visible**
+  allergen text in piece 2, and no control character anywhere (so RS/US framing and NUL are never stripped into a clean row). ASCII
+  controls always count. A real U+0080-U+009F **codepoint** read from UTF-8 (NEL, CSI: a control sequence, not text) makes the row
+  unrecognised, but a **byte** 0x80-0x9F in a BINARY string that is not valid UTF-8, or in a Latin-1 / Windows-1252 tagged string, is
+  a byte (printable in Windows-1252) and stays a clean row, byte-identical to `main`. Which charset a live site uses is unproven
+  (rpms-rpc#476).
+  A real row has **at most four pieces** (`IEN^agent[^severity[^signs]]`): a fifth or later non-blank piece makes the line unrecognised
+  (surfaced, conflict), so the four-field mapping can never drop text. An allergen whose *text* mentions a marker, on such a row, is
+  a normal row.
+- **Invisible** means genuinely invisible: zero-width space/joiners (U+200B-U+200D), U+2060-U+2064, U+FEFF, the soft hyphen, U+034F,
+  U+180E, tag characters and variation selectors. Other format characters (U+0600-U+0605, U+06DD, U+070F, U+110BD, the bidi marks) are
+  visible text, so a line made of one is data. **Only a truly empty segment is blank** (an empty-string element, or what splitting a
+  String leaves between two line terminators, e.g. `"marker\r\n"`): a whitespace-only or invisible-only Array element or String
+  segment beside the marker is content ORQQAL cannot emit, so it is unrecognised (conflict, never NKA).
+- **Every String** (a whole response, or an element of a list) is split into lines first, on CR, LF and (for UTF-8, BINARY and
+  US-ASCII text) the UTF-8 *byte sequences* for U+2028, U+2029 and U+0085, **whether or not the rest of the line is valid UTF-8**; a
+  lone 0x85 in a single-byte encoding is a character, not a line break. So a marker glued to a row is two lines. A list inside the list is unrecognised **even when empty** (it surfaces as its inspect text,
+  e.g. `[]`), and so is an element that is not text (its inspect text is surfaced). Lists nested deeper than 64, or cyclic, raise
+  `RpmsRpc::Allergy::ReplyTooDeepError` (an `RpmsRpc::Error`). An element tagged with any encoding other than UTF-8, BINARY,
+  US-ASCII or a single-byte ISO-8859-x / Windows-125x tag (UTF-16/32, UTF-7, Shift_JIS, EUC-JP ...) is unrecognised and surfaced
+  verbatim: it is never transcoded, and no byte is ever deleted from it. A US-ASCII-tagged string with a high byte is read as BINARY
+  (no exception).
+- **Bytes.** Classification reads the line's bytes (never transcoded) with invalid bytes made U+FFFD (not deleted, so `^No Known\xFF Allergies` is
+  not a marker). **A clean row's output is the original bytes and encoding, as on `main`:** XWB delivers BINARY strings, and a Latin-1
+  byte in an allergen name is a clean row (`assessed: true`, no `:conflict`) whose bytes are the boundary's concern (rpms-rpc#477,
+  `Reply#altered?`). Only a UTF-8-tagged string that is not valid UTF-8, which `main` raised on, is scrubbed (U+FFFD) before parsing.
+- **Anything unrecognised**, **a marker beside other data**, or **a repeated marker** is the signature of a broker desync, a
+  concatenated or a corrupted reply: its rows may belong to another call (or patient), or the list may be truncated. The result is
+  `{ assessed: false, nka: false, allergies: [...], conflict: true }`: always `assessed: false`, never `nka`. `allergies` holds the
+  clean rows plus, for **every unrecognised line with content**, a flagged entry
+  `{ ien: nil, allergen: <line, scrubbed and trimmed, for display>, raw: <the line's original bytes>, unrecognised: true }`. It is
+  never routed through DataMapper's error or no-data filters (which would drop `-3^PENICILLIN` or `^LATEX`) and no piece position is
+  guessed. Marker lines and empty segments never become entries; a whitespace-only, invisible-only, control-only or invalid-byte-only line does,
+  with `raw` preserving its bytes and `allergen` the scrubbed display copy (possibly empty: rely on `raw` and `unrecognised`).
+  If the parser ever returned fewer rows than it was given, the reply is a conflict, never `assessed`. A **false**
+  conflict is loud and safe, never a false "no known allergies".
+- **Clean replies are unchanged** (byte-identical to `main`, including encodings, except that a line terminator inside an Array
+  element is split off instead of kept, e.g. `["7^LATEX^MODERATE\n"]` gives severity `MODERATE`) and carry no `:conflict` key and no `:unrecognised`
+  key.
+
+**What a host must do.** A host that reads only `:nka` and `:assessed` is safe in the absence direction ("None recorded" cannot appear
+beside a real allergy, and a conflicting reply never reads as assessed). **A host that must show a conflicting list as incomplete must
+read `:conflict`.** `Allergy.for_patient` returns the allergy entries only, so it returns the surfaced entries of a conflicting reply
+too and cannot tell a verified list from a conflicting one: a host that must make that distinction **must use `Allergy.assessment`**
+and read `:assessed` and `:conflict`. **Host-visible changes:** a host that renders rows from `for_patient` will now show the text of
+an unrecognised line (for example `-3^PENICILLIN^SEVERE^HIVES`) as an entry with a `nil` `:ien`; that is intended. Because those
+entries have no IEN, a host that builds identifiers from the allergen text can collide on them, and nothing in the entry marks the
+resulting FHIR resource unconfirmed: the host must read `:unrecognised` / `:conflict` (lakeraven-ehr#672). The patient banner does not
+read `:conflict` yet (`AllergyListStatus.from_counts` shows any rows as a loaded list; also #672).
+Unproven live (ADR 0009): this is decided from the M routine source; the routine cannot produce a conflicting reply.
+
 ### Exception-message sanitization
 
 The gem doesn't emit internal logs of its own; the PHI risk vector is
