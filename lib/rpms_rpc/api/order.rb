@@ -394,10 +394,12 @@ module RpmsRpc
     # non-idempotent write because of that session write. The same client
     # object remembers a DFN when the raw lines carry the incomplete-checks
     # banner or the remote-checking row, including a reply that fails
-    # closed. An empty reply does not. call_rpc raising RpcError (including
-    # RpcMError) or ParseError for ORWDXC ACCEPT also remembers the DFN,
-    # then re-raises that error. OPOS runs before CHK2LST (ORWDXC.m:53-55),
-    # so the banner may already be suppressed. TimeoutError and
+    # closed. An empty reply does not. The rescue that records the DFN
+    # before re-raising skips RpcRefusedError and RpcNotAvailableError.
+    # Those mean the routine never ran, so OPOS did not run. RpcMError,
+    # other RpcError, and ParseError still record the DFN. Every error is
+    # re-raised. OPOS runs before CHK2LST (ORWDXC.m:53-55), so the banner
+    # may already be suppressed when the routine did run. TimeoutError and
     # ConnectionError do not remember the DFN. The incomplete-checks memory
     # follows the client object, so a host must reuse one client object per
     # broker connection. A fresh wrapper per request around a shared connection
@@ -424,9 +426,12 @@ module RpmsRpc
     # that does still fails the whole result closed, with reason
     # "order checks unavailable: " plus the server text. An empty reply
     # cannot be told from a failure, so it is unavailable — never "no
-    # checks found". Any malformed row fails closed. RpcError and ParseError
-    # from ACCEPT propagate after the DFN is remembered. Timeout and
-    # connection errors propagate without that memo.
+    # checks found". Any malformed row fails closed. RpcMError, other
+    # RpcError, and ParseError from ACCEPT propagate after the DFN is
+    # remembered. RpcRefusedError and RpcNotAvailableError propagate
+    # without that memo: the routine never ran, so OPOS did not run.
+    # Every error is re-raised. Timeout and connection errors propagate
+    # without that memo.
     def check(dfn, filler_id:, location:, items:, start: "", order_id: nil)
       return check_unavailable("invalid patient id") unless strict_positive_id?(dfn)
       return check_unavailable("invalid filler id") unless canonical_filler_id?(filler_id)
@@ -443,8 +448,12 @@ module RpmsRpc
         reply = client.call_rpc("ORWDXC ACCEPT", dfn.to_s, filler_id.to_s, start.to_s,
                                 location.to_s, oil, order_id.to_s)
         parse_accept_reply(reply, client, dfn.to_s)
+      rescue RpmsRpc::Client::RpcRefusedError, RpmsRpc::Client::RpcNotAvailableError
+        # Subclasses of RpcError, so this clause must come first. The routine
+        # never ran, so OPOS did not run. Re-raise without recording the DFN.
+        raise
       rescue RpmsRpc::Client::RpcError, RpmsRpc::Client::ParseError
-        # ACCEPT already ran OPOS (ORWDXC.m:53-55). Remember the DFN, then re-raise.
+        # RpcMError, other RpcError, and ParseError still record the DFN, then re-raise.
         remember_incomplete_dfn(client, dfn.to_s)
         raise
       end
