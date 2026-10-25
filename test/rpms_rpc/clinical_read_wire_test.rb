@@ -369,11 +369,25 @@ class ClinicalReadWireTest < Minitest::Test
       end
     end
 
+    # A trailing carriage return is a line terminator, not part of the marker:
+    # the element is split into lines first, so it is the exact marker (tested
+    # on its own below), exactly like the string "...\r\n" already was.
+    next if name == "carriage return"
+
     define_method("test_near_miss_marker_alone_is_never_nka_and_never_a_row_#{slug}") do
       stub_broker_response([ marker ])
 
       assert_equal({ assessed: false, nka: false, allergies: [] }, RpmsRpc::Allergy.assessment("42"),
         "#{name}: only the byte-exact NKA marker as the sole data line is verified absence")
+    end
+  end
+
+  def test_an_array_element_ending_in_a_line_terminator_is_the_exact_marker_not_a_near_miss
+    [ "\r", "\n", "\r\n", "\u2028", "\u2029", "\u0085" ].each do |terminator|
+      stub_broker_response([ "^No Known Allergies#{terminator}" ])
+
+      assert_equal({ assessed: true, nka: true, allergies: [] }, RpmsRpc::Allergy.assessment("42"),
+        "#{terminator.inspect} ends the line; the line is the byte-exact marker")
     end
   end
 
@@ -548,14 +562,27 @@ class ClinicalReadWireTest < Minitest::Test
     end
   end
 
-  def test_a_lookalike_with_allergen_text_is_returned_flagged_not_dropped
+  def test_a_no_data_message_lookalike_is_flagged_and_is_not_an_allergy
+    # DataMapper drops any "^message" row (empty first piece, text in piece 2,
+    # nothing after it) as a no-data sentinel, so the lookalike makes no row; it
+    # still makes the reply conflicting and not assessed.
     stub_broker_response([ "^No Known Allergies." ])
 
     result = RpmsRpc::Allergy.assessment("42")
+    refute result[:nka]
     refute result[:assessed]
     assert_equal true, result[:conflict]
-    assert_equal [ "No Known Allergies." ], result[:allergies].map { |a| a[:allergen] },
-      "a possible allergy is flagged, not hidden"
+    assert_equal [], result[:allergies]
+  end
+
+  def test_an_unrecognised_row_that_carries_allergen_text_is_returned_flagged_not_dropped
+    stub_broker_response([ "x1^LATEX^MILD^RASH" ])
+
+    result = RpmsRpc::Allergy.assessment("42")
+    refute result[:nka]
+    refute result[:assessed]
+    assert_equal true, result[:conflict]
+    assert_equal [ "LATEX" ], result[:allergies].map { |a| a[:allergen] }, "a possible allergy is flagged, not hidden"
   end
 
   def test_a_row_with_no_ien_but_an_allergen_is_returned_flagged_not_dropped
