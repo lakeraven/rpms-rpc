@@ -845,4 +845,25 @@ class ClinicalReadWireTest < Minitest::Test
       assert_equal true, result[:conflict], line.inspect
     end
   end
+
+  def test_a_nested_exact_marker_is_never_nka
+    [ [ [ "^No Known Allergies" ] ], [ [ [ "^No Known Allergies" ] ] ] ].each do |lines|
+      stub_broker_response(lines)
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:nka], lines.inspect
+      refute result[:assessed], lines.inspect
+      assert_equal true, result[:conflict], lines.inspect
+    end
+  end
+
+  def test_an_invalid_byte_inside_the_ien_is_not_dropped_to_make_a_row
+    stub_broker_response([ "66\xFF7^LATEX^SEVERE".dup.force_encoding("UTF-8") ])
+    result = RpmsRpc::Allergy.assessment("42")
+
+    refute result[:assessed], "66<invalid>7 is not the IEN 667"
+    assert_equal true, result[:conflict]
+    assert_equal 1, result[:allergies].length
+    assert_equal true, result[:allergies].first[:unrecognised]
+  end
 end
