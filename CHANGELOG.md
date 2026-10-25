@@ -23,7 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   terminators are not part of the marker; an Array element that still carries a terminator is not the exact marker. RS/US framing is
   not stripped (no client delivers it inside a line of this reply), so a framing byte glued to the marker, or a framing-only element
   beside it, is unrecognised, never NKA. A lone marker, including a mangled one, is `{ assessed: false, nka: false, allergies: [] }`.
-- **Every String is split into lines first** (LF, CR, CRLF, U+2028, U+2029, U+0085). A list inside the list is unrecognised even when
+- **Every String is split into lines first**, on CR, LF and (for UTF-8, BINARY and US-ASCII) the UTF-8 byte sequences for U+2028,
+  U+2029 and U+0085, whether or not the line is valid UTF-8 (a lone 0x85 in a single-byte encoding is a character). A row has at
+  most four pieces: a fifth non-blank piece is unrecognised, not silently dropped. A list inside the list is unrecognised even when
   empty, and so is an element that is not text; both surface their inspect text. Nesting deeper than 64 (or cyclic) raises
   `RpmsRpc::Allergy::ReplyTooDeepError`. Only a truly **empty** segment is blank: a whitespace-only or invisible-only element or String segment beside the marker is
   unrecognised (conflict, never NKA) and surfaced with its raw bytes. The invisible set is genuinely invisible characters (not all
@@ -33,7 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bytes:** classification reads a copy with invalid bytes made U+FFFD (a mangled marker never matches); **a clean row's output is
   the original bytes and encoding, identical to `main`** (a Latin-1 byte in a BINARY allergen is a clean row; the bytes are the
   boundary's concern, rpms-rpc#477). A UTF-8-tagged string that is not valid UTF-8 no longer raises `ArgumentError`; it is read with
-  U+FFFD. A string in an encoding with no converter is unrecognised, not an exception.
+  U+FFFD. An element tagged with any other encoding than UTF-8, BINARY, US-ASCII or a single-byte ISO-8859-x / Windows-125x tag (UTF-16/32,
+  UTF-7, Shift_JIS, EUC-JP ...) is unrecognised and surfaced verbatim; nothing is transcoded and no byte is deleted. A US-ASCII reply
+  with a high byte is read as BINARY (it used to raise). A line terminator inside an Array element is split off (it used to be kept).
 - **A conflicting reply** (a marker beside other data, a repeated marker, or any unrecognised line):
   `{ assessed: false, nka: false, allergies: [...], conflict: true }` — **always `assessed: false`, never `nka`**. `allergies` holds
   the clean rows and, for every unrecognised line with content, a flagged entry

@@ -240,18 +240,23 @@ by definition, not a clean reply, and an unknown lookalike can only make the ans
   unrecognised, but a **byte** 0x80-0x9F in a BINARY string that is not valid UTF-8, or in a Latin-1 / Windows-1252 tagged string, is
   a byte (printable in Windows-1252) and stays a clean row, byte-identical to `main`. Which charset a live site uses is unproven
   (rpms-rpc#476).
-  An allergen whose *text* mentions a marker, on such a row, is a normal row.
+  A real row has **at most four pieces** (`IEN^agent[^severity[^signs]]`): a fifth or later non-blank piece makes the line unrecognised
+  (surfaced, conflict), so the four-field mapping can never drop text. An allergen whose *text* mentions a marker, on such a row, is
+  a normal row.
 - **Invisible** means genuinely invisible: zero-width space/joiners (U+200B-U+200D), U+2060-U+2064, U+FEFF, the soft hyphen, U+034F,
   U+180E, tag characters and variation selectors. Other format characters (U+0600-U+0605, U+06DD, U+070F, U+110BD, the bidi marks) are
   visible text, so a line made of one is data. **Only a truly empty segment is blank** (an empty-string element, or what splitting a
   String leaves between two line terminators, e.g. `"marker\r\n"`): a whitespace-only or invisible-only Array element or String
   segment beside the marker is content ORQQAL cannot emit, so it is unrecognised (conflict, never NKA).
-- **Every String** (a whole response, or an element of a list) is split into lines first (LF, CR, CRLF, U+2028, U+2029, U+0085), so a
-  marker glued to a row is two lines. A list inside the list is unrecognised **even when empty** (it surfaces as its inspect text,
+- **Every String** (a whole response, or an element of a list) is split into lines first, on CR, LF and (for UTF-8, BINARY and
+  US-ASCII text) the UTF-8 *byte sequences* for U+2028, U+2029 and U+0085, **whether or not the rest of the line is valid UTF-8**; a
+  lone 0x85 in a single-byte encoding is a character, not a line break. So a marker glued to a row is two lines. A list inside the list is unrecognised **even when empty** (it surfaces as its inspect text,
   e.g. `[]`), and so is an element that is not text (its inspect text is surfaced). Lists nested deeper than 64, or cyclic, raise
-  `RpmsRpc::Allergy::ReplyTooDeepError` (an `RpmsRpc::Error`). A string in an encoding that cannot be transcoded (UTF-7) is
-  unrecognised, not an exception.
-- **Bytes.** Classification reads a scrubbed copy in which invalid bytes become U+FFFD (not deleted, so `^No Known\xFF Allergies` is
+  `RpmsRpc::Allergy::ReplyTooDeepError` (an `RpmsRpc::Error`). An element tagged with any encoding other than UTF-8, BINARY,
+  US-ASCII or a single-byte ISO-8859-x / Windows-125x tag (UTF-16/32, UTF-7, Shift_JIS, EUC-JP ...) is unrecognised and surfaced
+  verbatim: it is never transcoded, and no byte is ever deleted from it. A US-ASCII-tagged string with a high byte is read as BINARY
+  (no exception).
+- **Bytes.** Classification reads the line's bytes (never transcoded) with invalid bytes made U+FFFD (not deleted, so `^No Known\xFF Allergies` is
   not a marker). **A clean row's output is the original bytes and encoding, as on `main`:** XWB delivers BINARY strings, and a Latin-1
   byte in an allergen name is a clean row (`assessed: true`, no `:conflict`) whose bytes are the boundary's concern (rpms-rpc#477,
   `Reply#altered?`). Only a UTF-8-tagged string that is not valid UTF-8, which `main` raised on, is scrubbed (U+FFFD) before parsing.
@@ -265,8 +270,9 @@ by definition, not a clean reply, and an unknown lookalike can only make the ans
   with `raw` preserving its bytes and `allergen` the scrubbed display copy (possibly empty: rely on `raw` and `unrecognised`).
   If the parser ever returned fewer rows than it was given, the reply is a conflict, never `assessed`. A **false**
   conflict is loud and safe, never a false "no known allergies".
-- **Clean replies are unchanged** (byte-identical to `main`, including encodings) and carry no `:conflict` key and no `:unrecognised`
-  key. A clean row keeps `DataMapper`'s four pieces, as on `main`.
+- **Clean replies are unchanged** (byte-identical to `main`, including encodings, except that a line terminator inside an Array
+  element is split off instead of kept, e.g. `["7^LATEX^MODERATE\n"]` gives severity `MODERATE`) and carry no `:conflict` key and no `:unrecognised`
+  key.
 
 **What a host must do.** A host that reads only `:nka` and `:assessed` is safe in the absence direction ("None recorded" cannot appear
 beside a real allergy, and a conflicting reply never reads as assessed). **A host that must show a conflicting list as incomplete must
