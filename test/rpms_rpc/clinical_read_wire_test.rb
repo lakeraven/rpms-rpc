@@ -673,14 +673,15 @@ class ClinicalReadWireTest < Minitest::Test
   # The encoding handling for matching: a marker tagged as another encoding, or
   # carrying a stray byte, must neither raise nor hide the conflict.
 
-  def test_a_latin_1_tagged_no_break_space_after_a_marker_still_counts_as_a_marker
+  def test_a_latin_1_tagged_nbsp_byte_after_a_marker_is_not_a_marker_and_is_surfaced
     marker = "^No Known Allergies\xA0".dup.force_encoding("ISO-8859-1")
     stub_broker_response([ marker, PENICILLIN_ROW ])
 
     result = RpmsRpc::Allergy.assessment("42")
     refute result[:assessed]
     assert_equal true, result[:conflict]
-    assert_equal [ "PENICILLIN" ], result[:allergies].map { |a| a[:allergen] }
+    assert_includes result[:allergies].map { |a| a[:allergen] }, "PENICILLIN"
+    assert_equal 1, result[:allergies].count { |a| a[:unrecognised] }, "a Latin-1 NBSP is a byte, not U+00A0: the line is not a marker, so it is surfaced"
   end
 
   def test_a_binary_tagged_utf_8_no_break_space_after_a_marker_still_counts_as_a_marker
@@ -1222,5 +1223,165 @@ class ClinicalReadWireTest < Minitest::Test
 
     refute result[:nka]
     assert_equal true, result[:conflict], "U+0600 is visible text, so this is an unrecognised line"
+  end
+
+  # -- Round 5 on #483: one canonical BYTE VIEW -------------------------------
+  # Every element is read as its bytes (UTF-8, BINARY and US-ASCII as they are;
+  # ISO-8859-x and Windows-125x single-byte tags too: never transcoded, never
+  # with a byte deleted). Any other tag (UTF-16/32, UTF-7, Shift_JIS, EUC-JP ...)
+  # is unrecognised. Lines split on CR, LF and the UTF-8 BYTE sequences for
+  # U+2028, U+2029 and U+0085 whether or not the rest of the line is valid UTF-8.
+
+  SPLIT_SEQUENCES = { "U+2028" => "\xE2\x80\xA8", "U+2029" => "\xE2\x80\xA9", "U+0085" => "\xC2\x85" }.freeze
+
+  SPLIT_SEQUENCES.each do |name, sequence|
+    [ [ "binary", ->(t) { t.b } ], [ "utf-8 tagged but invalid", ->(t) { t.dup.force_encoding("UTF-8") } ] ].each do |tag, tagger|
+      slug = "#{name}_#{tag}".gsub(/\W+/, "_")
+
+      define_method("test_an_invalid_utf8_line_still_splits_on_#{slug}") do
+        stub_broker_response([ tagger.call("1^CAF\xC9^^#{sequence}2^PENICILLIN^SEVERE^HIVES".b) ])
+        result = RpmsRpc::Allergy.assessment("42")
+
+        assert result[:assessed], "both rows are real rows"
+        refute_includes result.keys, :conflict
+        assert_equal [ "CAF\xC9".b, "PENICILLIN".b ], result[:allergies].map { |a| a[:allergen].b }, "PENICILLIN is not hidden inside the first row"
+      end
+
+      define_method("test_an_invalid_utf8_line_cannot_swallow_a_marker_after_#{slug}") do
+        stub_broker_response([ tagger.call("1^CAF\xC9^SEVERE^HIVES#{sequence}^No Known Allergies".b) ])
+        result = RpmsRpc::Allergy.assessment("42")
+
+        refute result[:nka]
+        refute result[:assessed]
+        assert_equal true, result[:conflict], "the marker is its own line"
+        assert_equal [ "CAF\xC9".b ], result[:allergies].map { |a| a[:allergen].b }
+      end
+    end
+  end
+
+  def test_a_lone_0x85_byte_in_a_single_byte_encoding_is_not_a_line_break
+    [ "ISO-8859-1", "Windows-1252" ].each do |encoding|
+      stub_broker_response([ "1^CAF\xC9^SEVERE^HIVES\x852^PENICILLIN".dup.force_encoding(encoding) ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:assessed], encoding
+      assert_equal true, result[:conflict], encoding
+      assert_includes result[:allergies].map { |a| a[:raw].b }.join, "PENICILLIN", "#{encoding}: the text is surfaced, never hidden"
+    end
+  end
+
+  UNSUPPORTED_TAGS = %w[UTF-16LE UTF-16BE UTF-32LE UTF-7 Shift_JIS EUC-JP].freeze
+
+  UNSUPPORTED_TAGS.each do |encoding|
+    slug = encoding.gsub(/\W+/, "_")
+
+    define_method("test_an_element_tagged_#{slug}_is_unrecognised_never_deleted_into_nka") do
+      [ "\x09".dup.force_encoding(encoding), "\x81".dup.force_encoding(encoding), "1^LATEX^SEVERE".dup.force_encoding(encoding) ].each do |element|
+        stub_broker_response([ "^No Known Allergies", element ])
+        result = RpmsRpc::Allergy.assessment("42")
+
+        refute result[:nka], "#{encoding} #{element.inspect}"
+        refute result[:assessed]
+        assert_equal true, result[:conflict]
+        assert_equal [ element.b ], result[:allergies].map { |a| a[:raw].b }, "raw bytes kept"
+      end
+    end
+
+    define_method("test_a_reply_tagged_#{slug}_does_not_raise_and_is_a_conflict") do
+      stub_broker_response("1^LATEX^SEVERE".dup.force_encoding(encoding))
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:assessed]
+      assert_equal true, result[:conflict]
+    end
+  end
+
+  def test_an_undefined_byte_in_a_single_byte_encoding_is_not_deleted
+    stub_broker_response([ "^No Known Allergies", "\x81".dup.force_encoding("Windows-1252") ])
+    result = RpmsRpc::Allergy.assessment("42")
+
+    refute result[:nka]
+    assert_equal true, result[:conflict]
+
+    stub_broker_response([ "1\x81^PENICILLIN^SEVERE".dup.force_encoding("Windows-1252") ])
+    result = RpmsRpc::Allergy.assessment("42")
+
+    refute result[:assessed], "1<0x81> is not the IEN 1"
+    assert_equal true, result[:conflict]
+    assert_equal [ "1\x81^PENICILLIN^SEVERE".b ], result[:allergies].map { |a| a[:raw].b }
+  end
+
+  def test_a_us_ascii_tagged_reply_with_a_high_byte_does_not_raise
+    stub_broker_response([ "1^CAF\xC9^SEVERE".dup.force_encoding("US-ASCII") ])
+    result = RpmsRpc::Allergy.assessment("42")
+
+    assert result[:assessed]
+    refute_includes result.keys, :conflict
+    assert_equal "CAF\xC9".b, result[:allergies].first[:allergen].b
+  end
+
+  # A real row has at most four pieces (IEN^agent^severity^signs).
+
+  def test_a_fifth_non_blank_piece_makes_the_row_unrecognised_and_is_surfaced
+    [ "1^PENICILLIN^SEVERE^HIVES^LATEX", "1^PENICILLIN^SEVERE^HIVES^^LATEX", "1^PENICILLIN^SEVERE^HIVES^LATEX\r\n" ].each do |reply|
+      stub_broker_response(reply.end_with?("\n") ? reply : [ reply ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:assessed], reply.inspect
+      assert_equal true, result[:conflict], reply.inspect
+      assert_includes result[:allergies].map { |a| a[:raw] }.join, "LATEX", "#{reply.inspect}: LATEX is not dropped"
+    end
+  end
+
+  def test_blank_fifth_and_later_pieces_stay_a_clean_row
+    [ "1^PENICILLIN^SEVERE^HIVES^", "1^PENICILLIN^SEVERE^HIVES^^", "1^PENICILLIN^SEVERE^^" ].each do |row|
+      stub_broker_response([ row ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      assert result[:assessed], row.inspect
+      refute_includes result.keys, :conflict, row.inspect
+    end
+  end
+
+  # Mutation survivors of round 5: pinned.
+
+  def test_a_utf_8_tagged_clean_row_with_an_invalid_byte_is_scrubbed_to_u_fffd_not_question_mark
+    stub_broker_response([ "667^PENICILLIN\xFF^SEVERE^HIVES".dup.force_encoding("UTF-8") ])
+
+    assert_equal "PENICILLIN�", RpmsRpc::Allergy.assessment("42")[:allergies].first[:allergen]
+  end
+
+  def test_the_surfaced_allergen_is_trimmed_for_display_and_raw_is_not
+    stub_broker_response([ " \t-3^LATEX \t" ])
+    entry = RpmsRpc::Allergy.assessment("42")[:allergies].first
+
+    assert_equal "-3^LATEX", entry[:allergen]
+    assert_equal " \t-3^LATEX \t", entry[:raw]
+  end
+
+  def test_a_literal_replacement_character_line_is_surfaced
+    stub_broker_response([ "�" ])
+    result = RpmsRpc::Allergy.assessment("42")
+
+    assert_equal true, result[:conflict]
+    assert_equal [ "�" ], result[:allergies].map { |a| a[:raw] }
+  end
+
+  def test_form_feed_and_vertical_tab_elements_beside_the_marker_are_a_conflict
+    [ "\f", "\v" ].each do |element|
+      stub_broker_response([ "^No Known Allergies", element ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:nka], element.inspect
+      assert_equal true, result[:conflict], element.inspect
+    end
+  end
+
+  # What "identical to main" means for a clean reply: the same bytes, except that
+  # a line terminator inside an Array element is split off, not kept.
+  def test_an_array_element_with_its_own_terminator_has_it_split_off
+    stub_broker_response([ "7^LATEX^MODERATE\n" ])
+
+    assert_equal "MODERATE", RpmsRpc::Allergy.assessment("42")[:allergies].first[:severity]
   end
 end
