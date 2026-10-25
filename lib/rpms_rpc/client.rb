@@ -277,10 +277,10 @@ module RpmsRpc
       return Reply.from_wire(reply) if reply.is_a?(Array)
 
       lines = split_response(reply.to_s.b)
-      # A Text that altered something: the lines holding the replacement
-      # character are the altered ones, so the flag survives the split.
-      marked = Reply.altered?(reply) ? lines.each_index.select { |i| lines[i].include?(Reply::REPLACEMENT.b) } : []
-      Reply.from_wire(lines, altered: marked)
+      # A Text that altered something: the flag survives the split, on the
+      # lines holding the replacement character or, when the alteration left
+      # no trace (control characters), on every line.
+      Reply.from_wire(lines, altered: Reply.altered_indexes(reply, lines))
     end
 
     # -- connection state -----------------------------------------------------

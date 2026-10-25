@@ -364,7 +364,8 @@ module RpmsRpc
         when String
           pieces = split_lines(item)
           exact = !nested && pieces == [ item ]
-          pieces.map { |text| Line.new(text, nested, exact, altered) }
+          marked = Reply.altered_indexes(item, pieces)
+          pieces.each_with_index.map { |text, i| Line.new(text, nested, exact, altered || marked.include?(i)) }
         when nil then [ Line.new(nil, true, false, altered) ]
         else [ Line.new(item.inspect, true, false, altered) ]
         end
@@ -372,13 +373,12 @@ module RpmsRpc
     end
 
     # A reply that arrives as one String. When it is a Reply::Text that altered
-    # something, the lines holding the replacement character are the altered
-    # ones (the same evidence Reply.lines_with_altered uses).
+    # something, the altered lines are the ones Reply.altered_indexes names
+    # (the same evidence Reply.lines_with_altered uses).
     def string_lines(response)
-      blob_altered = Reply.altered?(response)
-      split_lines(response).map do |text|
-        Line.new(text, false, true, blob_altered && text.include?(Reply::REPLACEMENT))
-      end
+      pieces = split_lines(response)
+      marked = Reply.altered_indexes(response, pieces)
+      pieces.each_with_index.map { |text, index| Line.new(text, false, true, marked.include?(index)) }
     end
 
     # Split on bytes, so a line that is not valid UTF-8 still splits.

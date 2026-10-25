@@ -45,6 +45,11 @@ module RpmsRpc
     # ask it first (RpmsRpc::Reply.altered?(text)).
     class Text < String
       def altered? = @altered == true
+
+      # True when the alteration left no trace to find: control characters
+      # become a space, so no line of the blob can be singled out. Every line
+      # of such a blob is altered.
+      def unlocated? = @unlocated == true
     end
 
     # lines: the reply's lines, any encoding. controls: true also replaces
@@ -75,15 +80,29 @@ module RpmsRpc
     def self.text(raw, controls: false)
       return raw if raw.is_a?(Text)
 
-      decoded, changed = decode(raw.to_s, controls)
+      decoded, changed, unlocated = decode(raw.to_s, controls)
       text = Text.new(decoded)
       text.instance_variable_set(:@altered, changed)
+      text.instance_variable_set(:@unlocated, unlocated)
       text.freeze
     end
 
     # True only for a Reply or Text that altered something; false for
     # anything else, including a plain Array or String.
     def self.altered?(reply) = (reply.is_a?(Reply) || reply.is_a?(Text)) && reply.altered?
+
+    # The indexes of +lines+ (the split of +blob+) that are altered: none for
+    # anything that is not an altered Text; every line when the alteration left
+    # no trace (control characters); otherwise the lines holding the
+    # replacement character, which also flags a literal U+FFFD in stored data
+    # beside a real alteration. That errs toward "altered", the safe way.
+    # Bytes are compared, so lines in any encoding work.
+    def self.altered_indexes(blob, lines)
+      return [] unless altered?(blob)
+      return lines.each_index.to_a if blob.is_a?(Text) && blob.unlocated?
+
+      lines.each_index.select { |i| lines[i].b.include?(REPLACEMENT.b) }
+    end
 
     # [lines, altered_indexes] for any reply a client can hand back: a Reply,
     # a plain Array, a Text, a plain String or nil. The lines are a plain
@@ -102,14 +121,14 @@ module RpmsRpc
       else
         blob = text(response)
         lines = blob.split(/\r?\n/)
-        altered = blob.altered? ? lines.each_index.select { |i| lines[i].include?(REPLACEMENT) } : []
-        [ lines, altered ]
+        [ lines, altered_indexes(blob, lines) ]
       end
     end
 
     def self.decode(line, controls)
       text = line.dup.force_encoding(Encoding::UTF_8)
       changed = false
+      unlocated = false
       unless text.valid_encoding?
         text = text.scrub(REPLACEMENT)
         changed = true
@@ -117,8 +136,9 @@ module RpmsRpc
       if controls && text.match?(CONTROL)
         text = text.gsub(CONTROL, " ")
         changed = true
+        unlocated = true
       end
-      [ text, changed ]
+      [ text, changed, unlocated ]
     end
     private_class_method :decode
 
