@@ -28,8 +28,16 @@ class AllergySaveTest < Minitest::Test
     symptoms: [ { ien: "10", text: "RASH", date: "3261015" } ],
     comments: [ "synthetic comment" ],
     reaction_date: "3261015",
-    severity: "MODERATE"
+    severity: "2"
   }.freeze
+
+  VALID_AGENT_POINTERS = [
+    "125;PSNDF(50.6,",
+    "125;GMRD(120.82,",
+    "5;PS(50.416,",
+    "7;PS(50.605,",
+    "45;PSDRUG("
+  ].freeze
 
   REQUIRED_RPCS_PATH = File.expand_path("../../../lib/rpms_rpc/required_rpcs.json", __dir__)
 
@@ -164,16 +172,88 @@ class AllergySaveTest < Minitest::Test
   end
 
   def test_save_rejects_invalid_agent_pointer_format_without_rpc
-    %w[garbage 125 125;PSNDF(50.6 0;GMRD(120.82,].each do |value|
+    %w[
+      garbage
+      125
+      125;PSNDF(50.6
+      0;GMRD(120.82,
+      45;PSDRUG(1
+      45;psdrug(
+    ].each do |value|
       assert_invalid_value_refusal(:agent_pointer, SYNTH_ALLERGY.merge(agent_pointer: value))
     end
   end
 
-  def test_save_accepts_valid_gmrd_agent_pointer
+  def test_save_accepts_stock_agent_pointer_roots_including_local_psdrug
+    VALID_AGENT_POINTERS.each do |pointer|
+      RpmsRpc.reset!
+      seed_save_reply("0")
+      attrs = SYNTH_ALLERGY.merge(agent_pointer: pointer)
+      assert RpmsRpc::Allergy.save(DFN, attrs)[:success], "agent_pointer #{pointer.inspect}"
+      assert_equal pointer, save_call[:params][2]["GMRAGNT"].split("^", 2).last
+    end
+  end
+
+  def test_save_dispatches_blank_reaction_date_without_gmrardt_in_oredited
     seed_save_reply("0")
-    attrs = SYNTH_ALLERGY.merge(agent_pointer: "125;GMRD(120.82,")
-    assert RpmsRpc::Allergy.save(DFN, attrs)[:success]
-    assert_equal "125;GMRD(120.82,", save_call[:params][2]["GMRAGNT"].split("^", 2).last
+    attrs = SYNTH_ALLERGY.merge(reaction_date: "")
+    result = RpmsRpc::Allergy.save(DFN, attrs)
+    assert result[:success]
+    edited = save_call[:params][2]
+    refute edited.key?("GMRARDT"), "blank reaction_date is absent on the wire (GMRAGUI1.m:137 $G)"
+  end
+
+  def test_save_dispatches_blank_severity_without_gmrasevr_in_oredited
+    seed_save_reply("0")
+    attrs = SYNTH_ALLERGY.merge(severity: "")
+    result = RpmsRpc::Allergy.save(DFN, attrs)
+    assert result[:success]
+    edited = save_call[:params][2]
+    refute edited.key?("GMRASEVR"), "blank severity is absent on the wire (GMRAGUI1.m:137 $G)"
+  end
+
+  def test_save_rejects_invalid_severity_without_rpc
+    %w[MODERATE X 4 02].each do |value|
+      assert_invalid_value_refusal(:severity, SYNTH_ALLERGY.merge(severity: value))
+    end
+  end
+
+  def test_save_accepts_orwdal32_severity_codes
+    %w[1 2 3].each do |value|
+      seed_save_reply("0")
+      attrs = SYNTH_ALLERGY.merge(severity: value)
+      assert RpmsRpc::Allergy.save(DFN, attrs)[:success], "severity #{value.inspect}"
+      assert_equal value, save_call[:params][2]["GMRASEVR"]
+    end
+  end
+
+  def test_save_rejects_invalid_symptom_ien_without_rpc
+    %w[abc 010].each do |ien|
+      attrs = SYNTH_ALLERGY.merge(symptoms: [ { ien: ien, text: "RASH", date: "3261015" } ])
+      assert_invalid_value_refusal(:symptoms, attrs)
+    end
+  end
+
+  def test_save_rejects_invalid_symptom_date_without_rpc
+    %w[yesterday 2026-10-15].each do |date|
+      attrs = SYNTH_ALLERGY.merge(symptoms: [ { ien: "10", text: "RASH", date: date } ])
+      assert_invalid_value_refusal(:symptoms, attrs)
+    end
+  end
+
+  def test_save_accepts_valid_symptom_shapes
+    cases = [
+      [ [ { ien: "10", text: "RASH", date: "3261015" } ], "10^RASH^3261015" ],
+      [ [ { ien: "FT", text: "ITCHY EYES" } ], "FT^ITCHY EYES^" ],
+      [ [ { ien: "10", text: "RASH" } ], "10^RASH^" ]
+    ]
+    cases.each do |symptoms, wire|
+      RpmsRpc.reset!
+      seed_save_reply("0")
+      attrs = SYNTH_ALLERGY.merge(symptoms: symptoms)
+      assert RpmsRpc::Allergy.save(DFN, attrs)[:success], symptoms.inspect
+      assert_equal wire, save_call[:params][2][[ "GMRASYMP", 1 ]]
+    end
   end
 
   def test_save_rejects_invalid_originated_at_format_without_rpc
@@ -401,7 +481,11 @@ class AllergySaveTest < Minitest::Test
   def assert_invalid_value_refusal(field, attrs)
     RpmsRpc.mock!
     result = RpmsRpc::Allergy.save(DFN, attrs)
-    assert_equal({ success: false, error: :invalid_value, message: "invalid #{field}" }, result)
+    expected = { success: false, error: :invalid_value, message: "invalid #{field}" }
+    unless result == expected
+      rpc_sent = !RpmsRpc.client.received_calls.empty?
+      flunk "expected #{expected.inspect}, got #{result.inspect} (RPC sent: #{rpc_sent})"
+    end
     assert_empty RpmsRpc.client.received_calls, "invalid #{field}"
   end
 
