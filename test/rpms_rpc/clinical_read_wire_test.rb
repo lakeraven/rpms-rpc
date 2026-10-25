@@ -190,8 +190,9 @@ class ClinicalReadWireTest < Minitest::Test
 
     result = RpmsRpc::Allergy.assessment("42")
     refute result[:nka], "a reply that also carries an allergy row must not read as no-known-allergies"
-    assert result[:assessed], "rows on file are an assessed state"
-    assert_equal [ "PENICILLIN" ], result[:allergies].map { |a| a[:allergen] }
+    refute result[:assessed], "a contradictory reply is never presented as an assessed, complete record"
+    assert_equal [ "PENICILLIN" ], result[:allergies].map { |a| a[:allergen] },
+      "the rows stay available: hiding a possible allergy is the other unsafe direction"
     assert_equal true, result[:conflict], "the contradictory reply is flagged"
   end
 
@@ -200,6 +201,7 @@ class ClinicalReadWireTest < Minitest::Test
 
     result = RpmsRpc::Allergy.assessment("42")
     refute result[:nka]
+    refute result[:assessed]
     assert_equal [ "PENICILLIN" ], result[:allergies].map { |a| a[:allergen] }
     assert_equal true, result[:conflict]
   end
@@ -209,7 +211,7 @@ class ClinicalReadWireTest < Minitest::Test
 
     result = RpmsRpc::Allergy.assessment("42")
     refute result[:nka]
-    assert result[:assessed]
+    refute result[:assessed], "the rows are returned, but never as an assessed record"
     assert_equal [ "PENICILLIN" ], result[:allergies].map { |a| a[:allergen] },
       "a real allergy must not be dropped because a not-assessed marker rode along"
     assert_equal true, result[:conflict]
@@ -233,6 +235,52 @@ class ClinicalReadWireTest < Minitest::Test
     refute result[:assessed]
     assert_equal [], result[:allergies]
     assert_equal true, result[:conflict]
+  end
+
+  # A mixed reply is the signature of a broker desync or a concatenated reply,
+  # so its rows may belong to another call (or patient) or the list may be
+  # truncated. They are still returned — hiding a possible allergy is the other
+  # unsafe direction — but a conflicting reply is NEVER nka and NEVER assessed.
+  CONFLICTING_REPLIES = {
+    "NKA then a row" => [ "^No Known Allergies", PENICILLIN_ROW ],
+    "a row then NKA" => [ PENICILLIN_ROW, "^No Known Allergies" ],
+    "not-assessed then a row" => [ "^No Allergy Assessment", PENICILLIN_ROW ],
+    "a row then not-assessed" => [ PENICILLIN_ROW, "^No Allergy Assessment" ],
+    "NKA, a row, NKA" => [ "^No Known Allergies", PENICILLIN_ROW, "^No Known Allergies" ],
+    "NKA twice" => [ "^No Known Allergies", "^No Known Allergies" ],
+    "not-assessed twice" => [ "^No Allergy Assessment", "^No Allergy Assessment" ],
+    "NKA and not-assessed" => [ "^No Known Allergies", "^No Allergy Assessment" ],
+    "NKA, blank line, a row" => [ "^No Known Allergies", "", PENICILLIN_ROW ]
+  }.freeze
+
+  def test_a_conflicting_reply_is_never_nka_and_never_assessed
+    CONFLICTING_REPLIES.each do |name, lines|
+      stub_broker_response(lines)
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:nka], "#{name}: a conflicting reply must never read as no-known-allergies"
+      refute result[:assessed], "#{name}: a conflicting reply must never be presented as assessed, even with rows"
+      assert_equal true, result[:conflict], "#{name}: the conflict is flagged"
+    end
+  end
+
+  def test_a_conflicting_reply_keeps_every_real_row_available
+    CONFLICTING_REPLIES.each do |name, lines|
+      stub_broker_response(lines)
+      expected = lines.count(PENICILLIN_ROW)
+
+      assert_equal expected, RpmsRpc::Allergy.assessment("42")[:allergies].length,
+        "#{name}: rows are returned (not hidden) even though the reply is not vouched for"
+    end
+  end
+
+  def test_a_repeated_marker_with_no_rows_is_not_assessed
+    [ [ "^No Known Allergies", "^No Known Allergies" ], [ "^No Allergy Assessment", "^No Allergy Assessment" ] ].each do |lines|
+      stub_broker_response(lines)
+
+      assert_equal({ assessed: false, nka: false, allergies: [], conflict: true },
+        RpmsRpc::Allergy.assessment("42"), "#{lines.inspect}: no evidence means not assessed")
+    end
   end
 
   def test_for_patient_returns_the_rows_of_a_mixed_reply
