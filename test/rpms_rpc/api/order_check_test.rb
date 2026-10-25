@@ -307,6 +307,43 @@ class OrderCheckTest < Minitest::Test
     assert_match(/session/i, session_reason)
   end
 
+  # ACCEPT runs OPOS before CHK2LST (ORWDXC.m:53-55). An M-side fault after OPOS
+  # still leaves the banner suppressed on the next ACCEPT for that DFN; the client
+  # must remember the DFN when call_rpc raises, not only when parse_accept_reply runs.
+  def test_check_rpc_m_error_after_accept_opos_still_memoizes_dfn
+    assert_accept_fault_after_opos_still_memoizes_dfn(RpmsRpc::Client::RpcMError, "synthetic M error after OPOS")
+  end
+
+  def test_check_rpc_error_after_accept_opos_still_memoizes_dfn
+    assert_accept_fault_after_opos_still_memoizes_dfn(RpmsRpc::Client::RpcError, "synthetic broker error after OPOS")
+  end
+
+  def test_check_parse_error_after_accept_opos_still_memoizes_dfn
+    assert_accept_fault_after_opos_still_memoizes_dfn(RpmsRpc::Client::ParseError, "synthetic parse error on ACCEPT reply")
+  end
+
+  def test_check_timeout_error_during_accept_does_not_memoize_dfn
+    message = "synthetic RPC timeout after OPOS"
+    with_orwdxc_accept_raise_then_sequence(RpmsRpc::Client::TimeoutError, message, [
+      [ ORDINARY_LOW_CHECK ],
+      [ ORDINARY_LOW_CHECK ]
+    ])
+
+    error = assert_raises(RpmsRpc::Client::TimeoutError) do
+      RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    end
+    assert_equal message, error.message
+
+    second = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    assert second.available?
+    assert second.complete?
+    refute second.override_required?
+
+    third = RpmsRpc::Order.check(DFN_B, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    assert third.available?
+    assert third.complete?
+  end
+
   # Production Client#call_rpc runs inside wire_operation → synchronize_wire.
   # Order.check must serialize on that same reentrant lock (via RpmsRpc.synchronize_wire),
   # not a separate per-client Mutex held across call_rpc — opposite lock order deadlocks.
@@ -553,6 +590,20 @@ class OrderCheckTest < Minitest::Test
     end
   end
 
+  def test_check_invalid_utf8_reply_line_fails_closed_without_argument_error
+    row = "NEW^5^3^bad\xFF".dup.force_encoding("UTF-8")
+    with_orwdxc_accept_reply(row)
+
+    result = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+
+    refute result.available?
+    assert result.override_required?
+    assert_empty result.checks
+    reason = result.unavailable_reason.to_s
+    assert_match(/unavailable/i, reason)
+    assert_match(/malformed/i, reason)
+  end
+
   # --- fail closed: empty / bad wire -------------------------------------------
 
   def test_check_empty_reply_is_unavailable_not_zero_checks
@@ -770,6 +821,30 @@ class OrderCheckTest < Minitest::Test
 
   private
 
+  def assert_accept_fault_after_opos_still_memoizes_dfn(error_class, message)
+    with_orwdxc_accept_raise_then_sequence(error_class, message, [
+      [ ORDINARY_LOW_CHECK ],
+      [ ORDINARY_LOW_CHECK ]
+    ])
+
+    error = assert_raises(error_class) do
+      RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    end
+    assert_equal message, error.message
+
+    second = RpmsRpc::Order.check(DFN, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    assert second.available?
+    refute second.complete?
+    assert second.override_required?
+    session_reason = (second.incomplete_reason || second.session_incomplete_reason).to_s
+    assert_match(/incomplete/i, session_reason)
+    assert_match(/session/i, session_reason)
+
+    third = RpmsRpc::Order.check(DFN_B, filler_id: FILLER_ID, location: LOCATION, items: [ ITEM_ONE ])
+    assert third.available?
+    assert third.complete?
+  end
+
   def assert_oil_list_param(param, expected_rows)
     entries = list_param_entries(param)
     expected = expected_rows.each_with_index.to_h { |row, i| [ (i + 1).to_s, row ] }
@@ -806,6 +881,32 @@ class OrderCheckTest < Minitest::Test
       client.define_singleton_method(meth) do |rpc_name, *params|
         received_calls << { rpc: rpc_name, params: params, context: current_context }
         raise "unexpected RPC #{rpc_name.inspect}" unless rpc_name == "ORWDXC ACCEPT"
+
+        if queue.empty?
+          raise "unexpected extra ORWDXC ACCEPT call"
+        end
+
+        queue.shift
+      end
+    end
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
+  end
+
+  def with_orwdxc_accept_raise_then_sequence(error_class, message, subsequent_wires)
+    client = RpmsRpc::MockClient.new
+    queue = subsequent_wires.map { |wire| wire.nil? ? nil : wire }
+    first_accept = true
+    %i[call_rpc call_rpc_lines call_rpc_global_array].each do |meth|
+      client.define_singleton_method(meth) do |rpc_name, *params|
+        received_calls << { rpc: rpc_name, params: params, context: current_context }
+        raise "unexpected RPC #{rpc_name.inspect}" unless rpc_name == "ORWDXC ACCEPT"
+
+        if first_accept
+          first_accept = false
+          raise error_class, message
+        end
 
         if queue.empty?
           raise "unexpected extra ORWDXC ACCEPT call"
