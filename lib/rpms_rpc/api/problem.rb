@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -7,6 +8,7 @@ module RpmsRpc
   # BGOPROB SET / BGOPROB DEL; scope via BGOPROB GET CLASS.
   module Problem
     extend self
+    extend Shape::Declarable
 
     # IPL scope codes match the live RPMS IPL UI tabs. The wire codes are
     # best-effort placeholders pending trace capture of BGOPROB GET CLASS
@@ -35,6 +37,7 @@ module RpmsRpc
 
       DataMapper.problem_list.fetch_many(dfn.to_s, "").reject { |r| r[:ien].to_s.empty? }
     end
+    shape :for_patient, resource: "problems", verb: "GET", path: "/patients/{dfn}/problems"
 
     # Add a problem. The routine requires a resolvable ICD (or a SNOMED CT
     # the site can map — BGOPROB.m:251-252,272-273) and a location IEN
@@ -64,6 +67,10 @@ module RpmsRpc
       raw = RpmsRpc.client.call_rpc(DataMapper.problem_remove.rpc_name, "#{ien}^^#{reason}")
       success = raw.is_a?(String) && !raw.match?(/\A-\d+(?:\.\d+)?\^/)
       { success: success, ien: success ? ien.to_i : nil, raw: raw }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A value the wire would mis-frame is refused before anything is sent
+      # (#472); this API's contract is a failure hash, so it says why.
+      failure.merge(error: e.message)
     end
 
     # ORQQPL stock-VistA reads. Use these when the engine wants the
@@ -77,12 +84,14 @@ module RpmsRpc
 
       Array(DataMapper.problem_lex_search.fetch_many(text.to_s))
     end
+    shape :lex_search, resource: "problems", verb: "GET", path: "/problems/lex-search"
 
     def clinic_search(clinic_ien)
       return [] if invalid_id?(clinic_ien)
 
       Array(DataMapper.problem_clinic_search.fetch_many(clinic_ien.to_s))
     end
+    shape :clinic_search, resource: "problems", verb: "GET", path: "/problems/clinics/{clinic_ien}/search"
 
     # Formals: DETAIL(Y,DFN,PROBIEN,ID) (ORQQPL.m:21) — the problem IEN is
     # the third formal, after the patient; ID is declared but never read
@@ -93,18 +102,21 @@ module RpmsRpc
 
       DataMapper.problem_detail.fetch_one(dfn.to_s, ien.to_s)
     end
+    shape :details, resource: "problems", verb: "GET", path: "/patients/{dfn}/problems/{ien}"
 
     def audit_history(ien)
       return [] if invalid_id?(ien)
 
       Array(DataMapper.problem_audit_history.fetch_many(ien.to_s))
     end
+    shape :audit_history, resource: "problems", verb: "GET", path: "/problems/{ien}/audit-history"
 
     def comments(ien)
       return [] if invalid_id?(ien)
 
       Array(DataMapper.problem_comments.fetch_many(ien.to_s))
     end
+    shape :comments, resource: "problems", verb: "GET", path: "/problems/{ien}/comments"
 
     def init_patient(dfn)
       return nil if invalid_id?(dfn)
@@ -117,6 +129,7 @@ module RpmsRpc
 
       Array(DataMapper.problem_provider_list.fetch_many(dfn.to_s))
     end
+    shape :provider_list, resource: "problems", verb: "GET", path: "/patients/{dfn}/problems/provider-list"
 
     # Formals: EDLOAD(RETURN,DA,GMPROV,GMPVAMC) (ORQQPL1.m:83) — the problem
     # IEN, then the provider DUZ, then the facility: an INSTITUTION (#4) IEN,
@@ -167,6 +180,10 @@ module RpmsRpc
         ien: saved_ien,
         raw: raw
       }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A value the wire would mis-frame is refused before anything is sent
+      # (#472); this API's contract is a failure hash, so it says why.
+      failure.merge(error: e.message)
     end
 
     def build_p_line(fields)

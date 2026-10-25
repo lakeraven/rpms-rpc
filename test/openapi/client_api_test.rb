@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "rpms_rpc"
 require_relative "../../tools/openapi/client_api"
 
 # OpenApi::ClientApi (rpms-rpc#395): rake rpc:api_coverage's methods as a resource-oriented OpenAPI
@@ -18,12 +19,22 @@ class OpenApiClientApiTest < Minitest::Test
       "status" => proven ? "proven" : "not_in_contract" }
   end
 
-  def at(m)
-    a = Api.address(m)
+  def at(m, retry_table: nil)
+    a = retry_table ? Api.address(m, retry_table: retry_table) : Api.address(m)
     "#{a[:verb].upcase} #{a[:path]}"
   end
 
-  def ops(methods) = Api.catalog({ "schema" => 1, "methods" => methods })[:entries]
+  def method_key(m) = "#{m['module']}.#{m['method']}"
+
+  def catalog_rule(m, retry_table: nil)
+    ops([ m ], retry_table: retry_table).fetch(0)[:op]["x-rpms"]["rule"]
+  end
+
+  def ops(methods, retry_table: nil)
+    doc = { "schema" => 1, "methods" => methods }
+    cat = retry_table ? Api.catalog(doc, retry_table: retry_table) : Api.catalog(doc)
+    cat[:entries]
+  end
 
   def test_reads
     assert_equal "GET /patients/{dfn}", at(method("Patient", "find", req("dfn")))
@@ -58,6 +69,8 @@ class OpenApiClientApiTest < Minitest::Test
   end
 
   def test_writes_and_actions
+    assert_equal "POST /patients/{dfn}/allergies", at(method("Allergy", "save", req("dfn", "allergy_fields")))
+    assert_equal "POST /users/{duz}/notifications/send", at(method("Notifications", "send", req("duz", "payload")))
     assert_equal "POST /patients/{dfn}/procedures", at(method("Procedure", "add", req("dfn", "visit_ien", "cpt_code")))
     assert_equal "POST /patients", at(method("Patient", "register", req("attrs")))
     assert_equal "PUT /patients/{dfn}", at(method("Patient", "update", [ { "name" => "dfn", "kind" => "req" }, { "name" => "patient_fields", "kind" => "key" } ]))
@@ -100,6 +113,13 @@ class OpenApiClientApiTest < Minitest::Test
     assert_equal [ GEM, { "tag" => "bcer-0.0" } ], [ d["x-rpms-gem"], d["x-rpms-build"] ]
     assert_empty OpenApi.problems(d)
     assert_empty OpenApi.schema_problems(d)
+  end
+
+  def test_inquiry_read_flipped_by_retry_class_publishes_post_with_retry_class_rule
+    m = method("SyntheticInquiry", "authorize", req("note_ien"), rpc: "SYNTH AUTHORIZE")
+    retry_table = RpmsRpc::RetrySafety.table.merge({ method_key(m) => :non_idempotent_write })
+    assert_equal "POST /progress-notes/{note_ien}/synthetic-inquiries/authorize", at(m, retry_table: retry_table)
+    assert_equal "retry-class", catalog_rule(m, retry_table: retry_table)
   end
 
   def test_only_rpc_backed_methods_become_operations_and_a_clash_is_refused
