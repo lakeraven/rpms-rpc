@@ -26,6 +26,10 @@ module RpmsRpc
     SCHEMA = 3
     REQUIRED_FIELDS = %w[schema build build_source source suite protocol persona passed runs assertions failures errors skips written_at].freeze
     COUNT_FIELDS = %w[runs skips failures errors].freeze
+    # A release is for the build the repo pins; LIVE_BUILD is the runner's word.
+    RELEASE_BUILD_SOURCE = "pinned"
+    # Tracked skips are allowed, up to this share of a file's runs.
+    MAX_SKIP_PERCENT = 10
     DEFAULT_DIR = "coverage/live"
     # The file name is the persona and the protocol, so anything else is refused.
     PERSONA_TOKEN = /\A[A-Za-z0-9_-]+\z/
@@ -248,7 +252,15 @@ module RpmsRpc
       paths = Dir.glob(File.join(dir, "*.json")).sort
       return [ missing_summary(dir) ] if paths.empty?
 
-      paths.flat_map { |path| reasons_for(path, build, source, suite) }
+      reasons = paths.flat_map { |path| reasons_for(path, build, source, suite) }
+      # CIA keeps <persona>.json; no persona token holds a dot. BMX and XWB are
+      # optional, but every file on disk is held to the same checks above.
+      reasons.unshift("no CIA summary in #{dir}: a release needs a green CIA run (BMX and XWB are checked if present)") unless paths.any? { |path| cia_file?(path) }
+      reasons
+    end
+
+    def cia_file?(path)
+      File.basename(path).match?(/\A[A-Za-z0-9_-]+\.json\z/)
     end
 
     def missing_summary(dir)
@@ -276,6 +288,9 @@ module RpmsRpc
       if data.key?("build") && !data["build"].nil? && data["build"] != build
         reasons << "#{name}: build #{data['build'].inspect} is not #{build}; re-run `rake test:live` for it, or delete the file"
       end
+      if data.key?("build_source") && !data["build_source"].nil? && data["build_source"] != RELEASE_BUILD_SOURCE
+        reasons << "#{name}: build_source #{data['build_source'].inspect} is not #{RELEASE_BUILD_SOURCE.inspect}; re-run `rake test:live` without LIVE_BUILD against the pinned build"
+      end
       if data.key?("passed") && !data["passed"].nil? && data["passed"] != true
         reasons << "#{name}: passed is not true"
       end
@@ -287,6 +302,9 @@ module RpmsRpc
       # Written before specs load. It stays when the run dies before the
       # summary, and it is never a green result even if the counts were.
       reasons << "#{name}: pending live run was not recorded" if data["pending"] == true
+      if counts.key?("runs") && counts.key?("skips") && counts["skips"] * 100 > counts["runs"] * MAX_SKIP_PERCENT
+        reasons << "#{name}: #{counts['skips']} of #{counts['runs']} skipped, over the #{MAX_SKIP_PERCENT}% ceiling"
+      end
       reasons << "#{name}: no live spec ran" if counts.key?("runs") && counts.key?("skips") && counts["runs"] - counts["skips"] <= 0
       reasons
     rescue JSON::ParserError => e
@@ -417,7 +435,7 @@ module RpmsRpc
 
     private_class_method :stringify_keys, :refusal_reasons, :missing_summary, :reasons_for,
                          :count_reasons, :release_keys, :summary_token, :broker_protocol,
-                         :coverage_release, :outcome_of, :write_pending, :digest_named_files,
+                         :coverage_release, :outcome_of, :cia_file?, :write_pending, :digest_named_files,
                          :relative_name, :marker_value, :marker_suite_matches?, :filename_identity,
                          :identity_reasons
   end

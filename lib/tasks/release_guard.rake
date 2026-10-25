@@ -29,7 +29,7 @@ namespace :release do
     dir = File.expand_path(RpmsRpc::LiveSummary.dir, root)
     ok, reasons = RpmsRpc::LiveSummary.check(dir: dir, build: build, source: source, suite: suite)
     if ok
-      puts "release:live_guard: OK #{build} on source #{source} (build not verified against the server)"
+      puts "release:live_guard: OK #{build} on source #{source} from summaries in #{dir} (build not verified against the server)"
       RpmsRpc::LiveSummary.outcomes(dir).each { |line| puts "  #{line}" }
     else
       abort [ "release:live_guard: refusing to release:", *reasons ].join("\n")

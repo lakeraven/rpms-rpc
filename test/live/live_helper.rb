@@ -249,10 +249,12 @@ module LiveSpec
 
     # TEST= and TESTOPTS= are how rake filters. TESTOPT, TEST_OPTS and TEST_OPT
     # are that same filter under another name. --name/--exclude arrive on the
-    # minitest options the plugin passes in.
+    # minitest options the plugin passes in: --name is options[:filter] on
+    # Minitest 5 and options[:include] on Minitest 6.
     def filtered?
       %w[TEST TESTOPTS TESTOPT TEST_OPTS TEST_OPT].any? { |key| !@env[key].to_s.strip.empty? } ||
         !options[:filter].nil? ||
+        !options[:include].nil? ||
         !options[:exclude].nil?
     end
 

@@ -552,6 +552,13 @@ headline from the committed live evidence. Any failure exits non-zero.
 PROV123 is a debug account, so its run also needs `VISTA_RPC_ENV=development`. `rake rpc:coverage`
 reads the live evidence from an `rpms-diffs` checkout beside this repo, or `RPMS_DIFFS_DIR=`.
 
+- **Wire-format tests** construct packet bytes and assert their layout
+- **DataMapper tests** verify field/text_blob/scalar round-trip through parse + format
+- **MockClient tests** verify seeded data flows through the full fetch chain
+- **Gateway tests** (`test/rpms_rpc/gateways/`) exercise domain-specific RPC
+  patterns (patient sections, health summary, referral lifecycle) against
+  realistic mock data
+
 ### Releasing
 
 `rake release` refuses to tag or push unless the live summaries in `coverage/live/` prove a green run of exactly what it is about to ship (#361, #441).
@@ -566,12 +573,7 @@ So the order is: bump the version and finish every shipped file and the live spe
 A run during which a shipped file or the live suite changes is not recorded.
 A summary from before schema 3, or for another build, source, or suite, or with `passed` other than true, is refused until `rake test:live` is re-run for that persona. Delete the file if that persona is not part of the release.
 
-- **Wire-format tests** construct packet bytes and assert their layout
-- **DataMapper tests** verify field/text_blob/scalar round-trip through parse + format
-- **MockClient tests** verify seeded data flows through the full fetch chain
-- **Gateway tests** (`test/rpms_rpc/gateways/`) exercise domain-specific RPC
-  patterns (patient sections, health summary, referral lifecycle) against
-  realistic mock data
+The policy on top of that: a CIA summary is required (`<persona>.json`); BMX and XWB summaries are optional, but any that is on disk must be green. A summary must have run against the pinned build (`build_source` is `pinned`), so a run that set `LIVE_BUILD` is refused. A file that skipped more than 10% of its runs is refused. The guard's OK line names the directory it read.
 
 ### MockClient usage
 
