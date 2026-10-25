@@ -536,7 +536,12 @@ class ClinicalReadWireTest < Minitest::Test
       refute result[:nka], "#{lines.inspect}"
       refute result[:assessed], "#{lines.inspect}: an element that is not text is not a clean reply"
       assert_equal true, result[:conflict], "#{lines.inspect}"
-      expected = lines.map { |l| l == PENICILLIN_ROW ? "PENICILLIN" : (l.nil? ? nil : l.inspect) }.compact
+      expected = lines.filter_map do |l|
+        if l == PENICILLIN_ROW then "PENICILLIN"
+        elsif l.is_a?(String) || l.nil? then nil # a marker makes no entry
+        else l.inspect
+        end
+      end
       assert_equal expected, result[:allergies].map { |a| a[:allergen] },
         "#{lines.inspect}: the element's inspect text is surfaced, never a row built from it"
     end
