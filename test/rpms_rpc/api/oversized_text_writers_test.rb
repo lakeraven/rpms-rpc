@@ -16,6 +16,7 @@ require "rpms_rpc/api/exam_component"
 require "rpms_rpc/api/health_factor"
 require "rpms_rpc/api/immunization_refusal"
 require "rpms_rpc/api/progress_note"
+require "rpms_rpc/api/order"
 
 # #472 / #474, panel round 2. A value the wire would mis-frame is refused
 # before anything is sent (Client::FrameTooLongError). The write APIs whose own
@@ -204,6 +205,19 @@ class OversizedTextWritersTest < Minitest::Test
     assert_empty @socket.writes
   end
 
+  # ORWDX SAVE sends an ORDIALOG list parameter; BMX cannot frame list params.
+  def test_order_save_returns_frame_too_long_failure_shape_over_xwb
+    limit = use_xwb
+    responses = { [ 4, 1 ] => XWB_TEXT }
+    result = RpmsRpc::Order.save("8791", "301", "349", "PSO OERR", responses)
+
+    assert_equal false, result[:success]
+    assert_equal :frame_too_long, result[:error]
+    assert_match(/#{limit}/, result[:message].to_s)
+    refute_includes result[:message].to_s, XWB_TEXT
+    assert_empty @socket.writes
+  end
+
   def test_problem_still_raises_for_a_caller_bug
     use_xwb
     assert_raises(ArgumentError) { RpmsRpc::Problem.add("8791", "not a hash") }
@@ -372,7 +386,10 @@ class OversizedTextWritersTest < Minitest::Test
     "scheduling_cancel" => -> { RpmsRpc::Scheduling.cancel_appointment("55", reason: "3", note: "ok") },
     "referral" => -> { RpmsRpc::Referral.add("8791", "1", "ok") },
     "ddr_filer" => -> { RpmsRpc::DdrFileman.filer(mode: :add, rows: [ { file: "2", field: ".01", iens: "+1,", value: "ok" } ]) },
-    "registration_update" => -> { RpmsRpc::Registration.update("8791", address_line1: "ok") }
+    "registration_update" => -> { RpmsRpc::Registration.update("8791", address_line1: "ok") },
+    "order_save" => lambda {
+      RpmsRpc::Order.save("8791", "301", "349", "PSO OERR", { [ 4, 1 ] => "92001" })
+    }
   }.freeze
 
   RESCUED_FAMILIES.each do |family, call|

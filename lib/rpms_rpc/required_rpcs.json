@@ -153,6 +153,7 @@
       "BQI GET COMM ALERTS SPLASH"
     ],
     "RpmsRpc::Order": [
+      "ORWDX SAVE",
       "ORWOR ACTION TEXT",
       "ORWOR EXPIRED",
       "ORWOR RESULT",
