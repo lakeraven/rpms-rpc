@@ -7,34 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed — `Allergy.assessment` no longer reads a contradictory or unrecognised reply as "no known allergies" (#483)
+### Fixed — `Allergy.assessment` never hides an allergy and never vouches for a contradictory or unrecognised reply (#483)
 
 - **Bug:** `Allergy.assessment` returned `nka: true` for any reply containing the `^No Known Allergies` marker and dropped every
   other row, so `["^No Known Allergies", "5^Penicillin^SEVERE^HIVES"]` read as verified absence with the real allergy gone.
   A `^No Allergy Assessment` marker next to rows dropped the rows the same way, a repeated NKA marker also read as NKA, and a reply
-  that was blank, not text, or full of lookalikes read `assessed: true` with phantom rows.
-- **Design:** every line is a recognised **marker**, a valid **row**, **blank**, or **unrecognised**, from what `LIST^ORQQAL`
-  (`ORQQAL.m:7-16`, pinned build `bcer-9.0-ydb` and the FOIA copy, with `GMRAOR1.m` `EN1`) can emit: exactly three markers
-  (`^No Allergy Assessment`, `^No Known Allergies`, and `^No allergies found.` at line 15, written only when no row was written), in
-  branches mutually exclusive with the rows, and every row starting with the allergy IEN, a positive integer (`Q:GMRAIEN<1`). A
-  real reply is one marker line **or** rows, never both, with a numeric first piece on every row.
-- **Verified absence stays strictly byte-exact:** only the exact NKA marker as the sole data line. A lone marker, including a
-  mangled one (whitespace, a carriage return, no-break or other format characters, another case, an extra `^` field), is
-  `{ assessed: false, nka: false, allergies: [] }`.
-- **Every String is split into lines first** (LF, CR, CRLF, U+2028, U+2029, U+0085), whether it is the whole response or an element
-  of a list, so a marker glued to a row is two lines. Lines with nothing visible in them are blank, not phantom rows. An element
-  that is not text (nil, a Hash, a number, a nested list) is unrecognised, never a row built from its string form. A line whose bytes
-  are not valid text is unrecognised and no longer raises `ArgumentError`.
-- **A conflicting reply** (a marker beside other data, a marker twice, or any unrecognised line):
-  `{ assessed: false, nka: false, allergies: [...], conflict: true }` — **always `assessed: false`, never `nka`**. The rows may
-  belong to another call (or patient), or the list may be truncated, so this method reports them as not assessed; valid rows and any
-  unrecognised line that carries allergen text stay in `allergies`, flagged, because hiding a possible allergy is the other unsafe
-  direction. A false conflict is loud and safe. A clean reply is unchanged and carries no `:conflict` key.
-- **What a host must do:** a host that reads only `nka` and `assessed` is safe in the absence direction — "None recorded" can no
-  longer appear beside a real allergy — but may still render the rows of a conflicting reply as an ordinary list. A host that must
-  show such a list as incomplete **must read `:conflict`**. `Allergy.for_patient` returns the rows of a conflicting reply too and
-  cannot tell a verified list from a conflicting one: a host that must make that distinction **must use `Allergy.assessment`**.
-  lakeraven-ehr's patient banner does not read `:conflict` yet (lakeraven-ehr#672).
+  that was blank, not text, or full of lookalikes read `assessed: true` with phantom rows. Lines carrying an allergen in a shape the
+  parser filters (`-3^PENICILLIN`, `^LATEX`, a marker with extra fields) were dropped.
+- **Design:** every line is a recognised **marker** (`^` + the marker text, nothing else), a clean **row** (first piece exactly a
+  positive integer, allergen text in piece 2), **blank**, or **unrecognised**, from what `LIST^ORQQAL` (`ORQQAL.m:7-16`, with
+  `GMRAOR1.m` `EN1`) can emit: exactly three markers (`^No Allergy Assessment`, `^No Known Allergies`, and `^No allergies found.`
+  at line 15, written only when no row was written), mutually exclusive with the rows, and every row starting with the allergy IEN
+  (`Q:GMRAIEN<1`).
+- **Verified absence stays strictly byte-exact:** only the exact NKA marker as the sole data line. RS/US framing is not stripped
+  (no client delivers it inside a line of this reply), so a framing byte glued to the marker, or a framing-only element beside it,
+  is unrecognised, never NKA. A lone marker, including a mangled one (whitespace, a carriage return, no-break or other format
+  characters, another case, blank extra fields), is `{ assessed: false, nka: false, allergies: [] }`.
+- **Every String is split into lines first** (LF, CR, CRLF, U+2028, U+2029, U+0085); a list inside the list is flattened, its lines
+  unrecognised; an element that is not text is unrecognised, never a row built from its string form; a line whose bytes are not valid
+  text no longer raises `ArgumentError`.
+- **A conflicting reply** (a marker beside other data, a repeated marker, or any unrecognised line):
+  `{ assessed: false, nka: false, allergies: [...], conflict: true }` — **always `assessed: false`, never `nka`**. `allergies` holds
+  the clean rows and, for every unrecognised line with visible text, that text verbatim as a flagged entry
+  `{ ien: nil, allergen:, raw:, unrecognised: true }` (never filtered through DataMapper). A false conflict is loud and safe. A clean
+  reply is unchanged and carries no `:conflict` or `:unrecognised` key.
+- **Host-visible change:** `Allergy.for_patient` returns the surfaced entries too, so a host rendering rows from it shows the raw text
+  of an unrecognised line. A host that must show such a list as incomplete **must read `:conflict`** from `Allergy.assessment`;
+  lakeraven-ehr's patient banner does not yet (lakeraven-ehr#672).
 - **Evidence:** the reply shape is read from the M routine source, not from a live broker. **Unproven live (ADR 0009):** no live
   spec exercises a conflicting reply (the routine cannot produce one).
 

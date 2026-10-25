@@ -216,35 +216,44 @@ only `ProgressNote.update_text` also names the line, and `Registration.update`'s
 On a real session an API may already have bound its context before the refused write, which changes no record. A host that creates a record and then updates it (create, then `update_text`) still
 holds the first record after a refusal; a pre-check is tracked in #480 and wrapping long note text in #479.
 
-### Allergy assessment: a reply ORQQAL cannot emit is never vouched for
+### Allergy assessment: never hide an allergy, never vouch for a reply
 
-`RpmsRpc::Allergy.assessment(dfn)` classifies **every line** of the reply as a recognised **marker**, a valid **row**, **blank**, or
+`RpmsRpc::Allergy.assessment(dfn)` classifies **every line** of the reply as a recognised **marker**, a clean **row**, **blank**, or
 **unrecognised**. This rests on what `LIST^ORQQAL` can emit (`ORQQAL.m:7-16`, with `GMRAOR1.m` `EN1`): exactly three markers
 (`^No Allergy Assessment`, `^No Known Allergies`, and `^No allergies found.`, written at line 15 only when no row was written) in
 branches that are mutually exclusive with the rows, and every row begins with the allergy IEN, a **positive integer** (`GMRAIEN`,
 `Q:GMRAIEN<1`). So a real reply is one marker line **or** rows, never both, and every row's first piece is numeric. Anything else is,
 by definition, not a clean reply, and an unknown lookalike can only make the answer louder.
 
-- **Verified absence is strictly byte-exact:** only the exact `^No Known Allergies` line, as the sole data line, is NKA.
-- **A lone marker** (any of the three, or one that arrived slightly mangled: whitespace, a carriage return, a no-break or zero-width
-  or other format character, a different case, an extra `^` field) is `{ assessed: false, nka: false, allergies: [] }`.
+- **Verified absence is strictly byte-exact:** only the exact `^No Known Allergies` line, as the sole data line, is NKA. Nothing
+  strips record framing (RS/US) first: no client delivers it inside a line of this reply (`XwbClient` splits an array reply at CR/LF
+  only; `CiaClient` splits at RS and drops the lone US node; `BmxClient` does not carry a stock RPC), so a framing byte glued to the
+  marker, or an element that is only framing beside it, is an unrecognised line, never NKA.
+- **A marker** is `^` plus the marker text and nothing else: whitespace, a carriage return, a no-break or zero-width or other format
+  character, a different case or blank extra fields are tolerated. A marker with any **non-blank** extra field
+  (`^No Known Allergies^LATEX^SEVERE`) is **not** a marker: it is unrecognised, and its text is surfaced. A lone marker is
+  `{ assessed: false, nka: false, allergies: [] }`.
+- **A clean row** has a first piece that is *exactly* a positive integer (no whitespace or invisible character tolerated) and allergen
+  text in piece 2. An allergen whose *text* mentions a marker, on such a row, is a normal row.
 - **Every String** (a whole response, or an element of a list) is split into lines first (LF, CR, CRLF, U+2028, U+2029, U+0085), so a
-  marker glued to a row is two lines. Blank lines (nothing visible in them) are not data and never become a row.
-- **Anything unrecognised** (a lookalike marker, a row with no numeric IEN, an element that is not text, a line whose bytes are not
-  valid text) **or a marker beside other data** (or a marker twice) is the signature of a broker desync, a concatenated or a corrupted
-  reply: its rows may belong to another call (or patient), or the list may be truncated. The result is
-  `{ assessed: false, nka: false, allergies: [...], conflict: true }`: always `assessed: false`, never `nka`. Valid rows and any
-  unrecognised line that carries allergen text stay in `allergies`, flagged, because hiding a possible allergy is unsafe; marker lines
-  never become rows. A **false** conflict is loud and safe (`assessed: false`), never a false "no known allergies".
-- **Clean replies are unchanged** and carry no `:conflict` key. An allergen whose *text* mentions a marker, on a row with a numeric
-  IEN, is a normal row.
+  marker glued to a row is two lines. A list inside the list is flattened and its lines are unrecognised. Blank lines (nothing
+  visible in them) are not data.
+- **Anything unrecognised**, **a marker beside other data**, or **a repeated marker** is the signature of a broker desync, a
+  concatenated or a corrupted reply: its rows may belong to another call (or patient), or the list may be truncated. The result is
+  `{ assessed: false, nka: false, allergies: [...], conflict: true }`: always `assessed: false`, never `nka`. `allergies` holds the
+  clean rows plus, for **every unrecognised line with visible text, that text verbatim** as a flagged entry
+  `{ ien: nil, allergen: <line, trimmed>, raw: <line>, unrecognised: true }`: it is never routed through DataMapper's error or
+  no-data filters (which would drop `-3^PENICILLIN` or `^LATEX`) and no piece position is guessed. Marker lines, blank lines and
+  control-byte-only lines never become entries. A **false** conflict is loud and safe, never a false "no known allergies".
+- **Clean replies are unchanged** and carry no `:conflict` key and no `:unrecognised` key.
 
 **What a host must do.** A host that reads only `:nka` and `:assessed` is safe in the absence direction ("None recorded" cannot appear
-beside a real allergy, and a conflicting reply never reads as assessed), but it may still render the rows as an ordinary list. **A
-host that must show a conflicting list as incomplete must read `:conflict`.** `Allergy.for_patient` returns the allergy rows only, so
-it returns the rows of a conflicting reply too and cannot tell a verified list from a conflicting one: a host that must make that
-distinction **must use `Allergy.assessment`** and read `:assessed` and `:conflict`. (lakeraven-ehr's patient banner does not read
-`:conflict` yet: `AllergyListStatus.from_counts` shows any rows as a loaded list; tracked in lakeraven-ehr#672.)
+beside a real allergy, and a conflicting reply never reads as assessed). **A host that must show a conflicting list as incomplete must
+read `:conflict`.** `Allergy.for_patient` returns the allergy entries only, so it returns the surfaced entries of a conflicting reply
+too and cannot tell a verified list from a conflicting one: a host that must make that distinction **must use `Allergy.assessment`**
+and read `:assessed` and `:conflict`. **Host-visible change:** a host that renders rows from `for_patient` will now show the raw text
+of an unrecognised line (for example `-3^PENICILLIN^SEVERE^HIVES`) as an entry; that is intended. (lakeraven-ehr's patient banner does
+not read `:conflict` yet: `AllergyListStatus.from_counts` shows any rows as a loaded list; tracked in lakeraven-ehr#672.)
 Unproven live (ADR 0009): this is decided from the M routine source; the routine cannot produce a conflicting reply.
 
 ### Exception-message sanitization
