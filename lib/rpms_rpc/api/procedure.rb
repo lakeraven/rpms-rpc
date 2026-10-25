@@ -45,6 +45,10 @@ module RpmsRpc
         ien: saved_ien,
         raw: raw
       }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A value the wire would mis-frame is refused before anything is sent
+      # (#472); this API's contract is a failure hash, so it says why.
+      failure.merge(error: e.message)
     end
 
     private
