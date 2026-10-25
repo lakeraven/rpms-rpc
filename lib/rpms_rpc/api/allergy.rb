@@ -233,6 +233,7 @@ module RpmsRpc
 
       dispatch(patient, edited_list(allergy))
     end
+    shape :save, resource: "allergies", verb: "POST", path: "/patients/{dfn}/allergies"
 
     # Record no known allergies. OREDITED("GMRANKA")="YES" selects
     # NKA^GMRAGUI1 (ORWDAL32.m:127, GMRAGUI1.m:68); ORALIEN is "".
@@ -244,6 +245,7 @@ module RpmsRpc
 
       dispatch(patient, { "GMRANKA" => "YES" })
     end
+    shape :no_known_allergies, resource: "allergies", verb: "POST", path: "/patients/{dfn}/allergies/no-known"
 
     private
 
