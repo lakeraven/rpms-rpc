@@ -216,21 +216,28 @@ only `ProgressNote.update_text` also names the line, and `Registration.update`'s
 On a real session an API may already have bound its context before the refused write, which changes no record. A host that creates a record and then updates it (create, then `update_text`) still
 holds the first record after a refusal; a pre-check is tracked in #480 and wrapping long note text in #479.
 
-### Allergy assessment: a conflicting reply is never vouched for
+### Allergy assessment: a reply ORQQAL cannot emit is never vouched for
 
-`RpmsRpc::Allergy.assessment(dfn)` reports one of three states. `LIST^ORQQAL` (`ORQQAL.m:7-16`) writes one of three markers
-(`^No Allergy Assessment`, `^No Known Allergies`, and `^No allergies found.` at `ORQQAL.m:15`, written only when no row was
-written) and allergy rows in mutually exclusive branches, so a real reply is **one marker line or rows, never both**. A marker counts
-only as the sole data line of the reply, and verified absence is strictly byte-exact: only the exact NKA marker as the sole data
-line is NKA. Lines with nothing visible in them are not data, and a response that is neither text nor a list of lines is no evidence
-(`assessed: false`, no rows).
+`RpmsRpc::Allergy.assessment(dfn)` classifies **every line** of the reply as a recognised **marker**, a valid **row**, **blank**, or
+**unrecognised**. This rests on what `LIST^ORQQAL` can emit (`ORQQAL.m:7-16`, with `GMRAOR1.m` `EN1`): exactly three markers
+(`^No Allergy Assessment`, `^No Known Allergies`, and `^No allergies found.`, written at line 15 only when no row was written) in
+branches that are mutually exclusive with the rows, and every row begins with the allergy IEN, a **positive integer** (`GMRAIEN`,
+`Q:GMRAIEN<1`). So a real reply is one marker line **or** rows, never both, and every row's first piece is numeric. Anything else is,
+by definition, not a clean reply, and an unknown lookalike can only make the answer louder.
 
-A reply that mixes a marker with other data, or repeats a marker, is the signature of a broker desync or a concatenated reply: its
-rows may belong to another call (or patient), or the list may be truncated. A marker that arrives slightly mangled (whitespace, a
-carriage return, a no-break or zero-width character, a different case, an extra field) still counts as a marker for this test, and
-never becomes an allergy row. The result is `{ assessed: false, nka: false, allergies: [...], conflict: true }`: always
-`assessed: false`, never `nka`. The parsed rows stay in `allergies` because hiding a possible allergy is unsafe; this method reports
-them as **not assessed**. A clean reply carries no `:conflict` key.
+- **Verified absence is strictly byte-exact:** only the exact `^No Known Allergies` line, as the sole data line, is NKA.
+- **A lone marker** (any of the three, or one that arrived slightly mangled: whitespace, a carriage return, a no-break or zero-width
+  or other format character, a different case, an extra `^` field) is `{ assessed: false, nka: false, allergies: [] }`.
+- **Every String** (a whole response, or an element of a list) is split into lines first (LF, CR, CRLF, U+2028, U+2029, U+0085), so a
+  marker glued to a row is two lines. Blank lines (nothing visible in them) are not data and never become a row.
+- **Anything unrecognised** (a lookalike marker, a row with no numeric IEN, an element that is not text, a line whose bytes are not
+  valid text) **or a marker beside other data** (or a marker twice) is the signature of a broker desync, a concatenated or a corrupted
+  reply: its rows may belong to another call (or patient), or the list may be truncated. The result is
+  `{ assessed: false, nka: false, allergies: [...], conflict: true }`: always `assessed: false`, never `nka`. Valid rows and any
+  unrecognised line that carries allergen text stay in `allergies`, flagged, because hiding a possible allergy is unsafe; marker lines
+  never become rows. A **false** conflict is loud and safe (`assessed: false`), never a false "no known allergies".
+- **Clean replies are unchanged** and carry no `:conflict` key. An allergen whose *text* mentions a marker, on a row with a numeric
+  IEN, is a normal row.
 
 **What a host must do.** A host that reads only `:nka` and `:assessed` is safe in the absence direction ("None recorded" cannot appear
 beside a real allergy, and a conflicting reply never reads as assessed), but it may still render the rows as an ordinary list. **A
