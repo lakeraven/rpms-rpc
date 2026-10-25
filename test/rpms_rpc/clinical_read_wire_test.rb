@@ -331,7 +331,6 @@ class ClinicalReadWireTest < Minitest::Test
     "tab" => "^No Known Allergies\t",
     "upper case" => "^NO KNOWN ALLERGIES",
     "lower case" => "^no known allergies",
-    "extra field" => "^No Known Allergies^extra",
     "extra empty field" => "^No Known Allergies^",
     "trailing zero-width space" => "^No Known Allergies\u200B",
     "trailing zero-width joiner" => "^No Known Allergies\u200D",
@@ -513,7 +512,7 @@ class ClinicalReadWireTest < Minitest::Test
   end
 
   def test_a_non_string_element_in_a_list_is_unrecognised_and_makes_no_row_of_its_own
-    [ [ { a: 1 }, PENICILLIN_ROW ], [ 5, "^No Known Allergies" ], [ [ "^No Known Allergies" ] ],
+    [ [ { a: 1 }, PENICILLIN_ROW ], [ 5, "^No Known Allergies" ],
       [ nil, PENICILLIN_ROW ], [ PENICILLIN_ROW, :sym ] ].each do |lines|
       stub_broker_response(lines)
       result = RpmsRpc::Allergy.assessment("42")
@@ -549,6 +548,7 @@ class ClinicalReadWireTest < Minitest::Test
       refute result[:nka]
       refute result[:assessed], "#{name}: an unrecognised line is no evidence"
       assert_equal true, result[:conflict], "#{name}: flagged as not a clean reply"
+      assert_equal [ line ], result[:allergies].map { |a| a[:raw] }, "#{name}: its text is surfaced verbatim, never filtered"
     end
 
     define_method("test_lookalike_marker_beside_a_row_is_a_conflict_#{slug}") do
@@ -563,16 +563,17 @@ class ClinicalReadWireTest < Minitest::Test
   end
 
   def test_a_no_data_message_lookalike_is_flagged_and_is_not_an_allergy
-    # DataMapper drops any "^message" row (empty first piece, text in piece 2,
-    # nothing after it) as a no-data sentinel, so the lookalike makes no row; it
-    # still makes the reply conflicting and not assessed.
+    # DataMapper would drop any "^message" row (empty first piece, text in
+    # piece 2, nothing after it) as a no-data sentinel, but an unrecognised line
+    # never goes through that filter: its text is surfaced verbatim, flagged.
     stub_broker_response([ "^No Known Allergies." ])
 
     result = RpmsRpc::Allergy.assessment("42")
     refute result[:nka]
     refute result[:assessed]
     assert_equal true, result[:conflict]
-    assert_equal [], result[:allergies]
+    assert_equal [ { ien: nil, allergen: "^No Known Allergies.", raw: "^No Known Allergies.", unrecognised: true } ],
+      result[:allergies]
   end
 
   def test_an_unrecognised_row_that_carries_allergen_text_is_returned_flagged_not_dropped
@@ -582,7 +583,8 @@ class ClinicalReadWireTest < Minitest::Test
     refute result[:nka]
     refute result[:assessed]
     assert_equal true, result[:conflict]
-    assert_equal [ "LATEX" ], result[:allergies].map { |a| a[:allergen] }, "a possible allergy is flagged, not hidden"
+    assert_equal [ "x1^LATEX^MILD^RASH" ], result[:allergies].map { |a| a[:raw] }, "a possible allergy is flagged, not hidden"
+    assert_equal [ true ], result[:allergies].map { |a| a[:unrecognised] }
   end
 
   def test_a_row_with_no_ien_but_an_allergen_is_returned_flagged_not_dropped
@@ -592,27 +594,31 @@ class ClinicalReadWireTest < Minitest::Test
     refute result[:nka]
     refute result[:assessed], "a row ORQQAL cannot emit (every real row starts with a positive allergy IEN) is not vouched for"
     assert_equal true, result[:conflict]
-    assert_equal [ "PENICILLIN" ], result[:allergies].map { |a| a[:allergen] }
+    assert_equal [ "^PENICILLIN^SEVERE^HIVES" ], result[:allergies].map { |a| a[:raw] }
   end
 
-  def test_a_row_with_a_non_numeric_or_zero_ien_is_unrecognised
-    [ "0^PENICILLIN^SEVERE^HIVES", "-3^PENICILLIN^SEVERE^HIVES", "x1^PENICILLIN^SEVERE^HIVES", "1.5^PENICILLIN^SEVERE^HIVES" ].each do |row|
+  def test_a_row_with_a_non_numeric_or_zero_ien_is_unrecognised_and_its_text_is_surfaced
+    [ "0^PENICILLIN^SEVERE^HIVES", "-3^PENICILLIN^SEVERE^HIVES", "x1^PENICILLIN^SEVERE^HIVES", "1.5^PENICILLIN^SEVERE^HIVES",
+      "-5^LATEX^SEVERE", "^LATEX", "^LATEX^" ].each do |row|
       stub_broker_response([ row ])
       result = RpmsRpc::Allergy.assessment("42")
 
       refute result[:assessed], "#{row.inspect}"
+      refute result[:nka], "#{row.inspect}"
       assert_equal true, result[:conflict], "#{row.inspect}"
+      assert_equal [ row ], result[:allergies].map { |a| a[:raw] }, "#{row.inspect}: the line is surfaced verbatim, never filtered as an error or no-data row"
+      assert_equal [ row ], result[:allergies].map { |a| a[:allergen] }
     end
   end
 
-  def test_a_line_with_text_but_no_allergen_piece_is_flagged_and_makes_no_row
+  def test_a_line_with_text_but_no_allergen_piece_is_flagged_and_surfaced
     [ "garbage", "just text", "T00030NAME^", "[" ].each do |line|
       stub_broker_response([ PENICILLIN_ROW, line ])
       result = RpmsRpc::Allergy.assessment("42")
 
       refute result[:assessed], "#{line.inspect}"
       assert_equal true, result[:conflict], "#{line.inspect}"
-      assert_equal [ "PENICILLIN" ], result[:allergies].map { |a| a[:allergen] }, "#{line.inspect}"
+      assert_equal [ "PENICILLIN", line ], result[:allergies].map { |a| a[:allergen] }, "#{line.inspect}: the text is surfaced, flagged"
     end
   end
 
@@ -696,5 +702,135 @@ class ClinicalReadWireTest < Minitest::Test
     result = RpmsRpc::Allergy.assessment("42")
     assert result[:assessed]
     assert_equal 1, result[:allergies].length
+  end
+
+  # -- Panel round 3 on #483: never hide, never vouch ------------------------
+  # Every UNRECOGNISED line that has any visible text is surfaced verbatim as a
+  # flagged entry ({ ien: nil, allergen:, raw:, unrecognised: true }); it is
+  # never routed through DataMapper's error/sentinel filters, which would drop it.
+
+  def entry_for(line, **extra)
+    { ien: nil, allergen: line.strip, raw: line, unrecognised: true }.merge(extra)
+  end
+
+  MARKER_WITH_EXTRA_PIECES = [
+    "^No Known Allergies^LATEX^SEVERE", "^No Allergy Assessment^LATEX^SEVERE", "^No allergies found.^LATEX",
+    "^No Known Allergies^extra", "^No Known Allergies^^LATEX", "^No Known Allergies ^ LATEX"
+  ].freeze
+
+  MARKER_WITH_EXTRA_PIECES.each_with_index do |line, i|
+    define_method("test_marker_with_extra_non_blank_pieces_alone_is_unrecognised_and_its_text_is_surfaced_#{i}") do
+      stub_broker_response([ line ])
+
+      assert_equal({ assessed: false, nka: false, allergies: [ entry_for(line) ], conflict: true },
+        RpmsRpc::Allergy.assessment("42"), "#{line.inspect}: an allergen after a marker is never hidden")
+    end
+
+    define_method("test_marker_with_extra_non_blank_pieces_beside_a_row_keeps_both_#{i}") do
+      stub_broker_response([ line, PENICILLIN_ROW ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:nka]
+      refute result[:assessed]
+      assert_equal true, result[:conflict]
+      assert_equal [ line, "PENICILLIN" ].sort, result[:allergies].map { |a| a[:raw] || a[:allergen] }.sort
+    end
+  end
+
+  def test_the_exact_marker_with_only_blank_extra_pieces_is_still_a_marker
+    stub_broker_response([ "^No Known Allergies^^", "^No Known Allergies^ ^​" ])
+    result = RpmsRpc::Allergy.assessment("42")
+
+    assert_equal true, result[:conflict], "two markers"
+    assert_equal [], result[:allergies], "blank extra pieces carry no text"
+    refute result[:nka]
+  end
+
+  ALLERGEN_TEXT_OUTSIDE_PIECE_TWO = [
+    [ PENICILLIN_ROW, "LATEX" ],
+    [ PENICILLIN_ROW, "x^^LATEX" ],
+    [ "^^LATEX^SEVERE" ],
+    [ [ "5^LATEX" ] ],
+    [ PENICILLIN_ROW, [ "5^LATEX" ] ]
+  ].freeze
+
+  ALLERGEN_TEXT_OUTSIDE_PIECE_TWO.each_with_index do |lines, i|
+    define_method("test_allergen_text_outside_piece_two_is_surfaced_flagged_#{i}") do
+      stub_broker_response(lines)
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:nka]
+      refute result[:assessed]
+      assert_equal true, result[:conflict]
+      assert_includes result[:allergies].map { |a| a[:raw] }.compact.join("|"), "LATEX", "#{lines.inspect}: LATEX must not be hidden"
+    end
+  end
+
+  def test_a_nested_array_element_is_flattened_and_surfaced
+    stub_broker_response([ [ "5^LATEX" ] ])
+
+    assert_equal({ assessed: false, nka: false, allergies: [ entry_for("5^LATEX") ], conflict: true },
+      RpmsRpc::Allergy.assessment("42"))
+  end
+
+  NON_CANONICAL_IEN_ROWS = [
+    "667 ^LATEX", " 667^LATEX", "\t667^LATEX", "667​^LATEX", "​667^LATEX", "667 ^LATEX", "667^", "667"
+  ].freeze
+
+  NON_CANONICAL_IEN_ROWS.each_with_index do |line, i|
+    define_method("test_an_ien_shape_orqqal_cannot_emit_is_never_vouched_for_#{i}") do
+      stub_broker_response([ line ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:assessed], "#{line.inspect}: no whitespace or invisible tolerance in the IEN, and a row needs allergen text"
+      refute result[:nka]
+      assert_equal true, result[:conflict]
+      assert_equal [ line ], result[:allergies].map { |a| a[:raw] }, "#{line.inspect}: surfaced, not dropped"
+    end
+  end
+
+  def test_clean_rows_carry_no_unrecognised_key_even_in_a_conflicting_reply
+    stub_broker_response([ PENICILLIN_ROW, "-3^LATEX^SEVERE" ])
+    clean, flagged = RpmsRpc::Allergy.assessment("42")[:allergies]
+
+    refute_includes clean.keys, :unrecognised
+    assert_equal "PENICILLIN", clean[:allergen]
+    assert_equal true, flagged[:unrecognised]
+  end
+
+  def test_for_patient_returns_the_surfaced_entries_too
+    stub_broker_response([ PENICILLIN_ROW, "-3^LATEX^SEVERE" ])
+
+    assert_equal [ "PENICILLIN", "-3^LATEX^SEVERE" ], RpmsRpc::Allergy.for_patient("42").map { |a| a[:allergen] }
+  end
+
+  # Framing (RS/US). The evidence: ORQQAL LIST is an ARRAY return, which XwbClient
+  # splits at CR/LF only; CiaClient splits at RS and drops the lone US node; BmxClient
+  # is not the transport of a stock RPC. No client delivers RS/US inside a line of
+  # this reply, so nothing strips them: a framing byte is not data the reply may
+  # carry, and the exact NKA marker is byte-exact.
+
+  def test_a_framing_only_element_beside_the_marker_is_never_nka
+    [ [ "^No Known Allergies", "\u001E\u001F" ], [ "\u001E", "^No Known Allergies" ],
+      [ "^No Known Allergies", "\u001F" ], [ "\u001E\u001F", "^No Known Allergies", "\u001E" ] ].each do |lines|
+      stub_broker_response(lines)
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:nka], lines.inspect
+      refute result[:assessed], lines.inspect
+      assert_equal true, result[:conflict], lines.inspect
+      assert_equal [], result[:allergies], "#{lines.inspect}: control bytes are not visible text, so nothing is surfaced"
+    end
+  end
+
+  def test_framing_glued_to_the_marker_is_not_the_exact_marker
+    [ "^No Known Allergies\u001F", "^No Known Allergies\u001E\u001F", "\u001E^No Known Allergies" ].each do |line|
+      stub_broker_response([ line ])
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:nka], line.inspect
+      refute result[:assessed], line.inspect
+      assert_equal true, result[:conflict], line.inspect
+    end
   end
 end
