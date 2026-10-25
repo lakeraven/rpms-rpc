@@ -23,7 +23,14 @@ class ProblemStockWriteTest < Minitest::Test
 
   # GMPLSAVE NEW / EN read these without $G (GMPLSAVE.m:105-113, :141, :15-16, :47-53).
   ADD_REQUIRED_FIELD_KEYS = %w[.01 1.01 .05 .12 .13].freeze
-  EDIT_REQUIRED_ORIGINAL_KEYS = %w[.01 .05 .12 1.01 1.02].freeze
+  # EN may populate GMPFLD from SNOMED/VHAT/coding metadata, then the edit loop
+  # reads GMPORIG(FLD) with no $G (GMPLSAVE.m:57-60).
+  EDIT_EN_DERIVED_ORIGINAL_KEYS = %w[80001 80002 80003 80004 80005 80201 80202].freeze
+  EDIT_REQUIRED_ORIGINAL_KEYS = (
+    %w[.01 .05 .12 1.01 1.02] + EDIT_EN_DERIVED_ORIGINAL_KEYS
+  ).freeze
+  EDIT_SYNTHETIC_DATE_80201 = "3251025^10/25/2025"
+  EDIT_SYNTHETIC_CODING_80202 = "10D^10D"
   VALID_TYPE_1_02 = %w[P T H].freeze
 
   def teardown
@@ -90,6 +97,10 @@ class ProblemStockWriteTest < Minitest::Test
 
     values = ordered_list_values(call[:params][4])
     assert_equal expected_edit_list_values(originals, changes, comments: [ "edited in CPRS" ]), values
+    EDIT_REQUIRED_ORIGINAL_KEYS.each do |key|
+      assert_includes values, built_gmporig_line(key, originals.fetch(key)),
+        "GMPORIG(#{key}) must be sent before EN edit loop (GMPLSAVE.m:57-60)"
+    end
 
     RpmsRpc.reset!
     RpmsRpc.mock! do |m|
@@ -584,7 +595,7 @@ class ProblemStockWriteTest < Minitest::Test
     )
 
     complete = routine_valid_edit_originals
-    EDIT_REQUIRED_ORIGINAL_KEYS.each do |key|
+    (EDIT_REQUIRED_ORIGINAL_KEYS - EDIT_EN_DERIVED_ORIGINAL_KEYS).each do |key|
       assert_stock_refused_before_rpc(
         -> {
           RpmsRpc::Problem.update_stock(
@@ -594,6 +605,19 @@ class ProblemStockWriteTest < Minitest::Test
           )
         },
         "originals missing required #{key}"
+      )
+    end
+
+    EDIT_EN_DERIVED_ORIGINAL_KEYS.each do |key|
+      assert_stock_refused_before_rpc(
+        -> {
+          RpmsRpc::Problem.update_stock(
+            IEN, provider_duz: PROVIDER, vamc: VAMC,
+            changes: { ".05" => "1^new" },
+            originals: complete.except(key)
+          )
+        },
+        "originals missing EN-derived #{key} (GMPLSAVE.m:60)"
       )
     end
 
@@ -878,7 +902,14 @@ class ProblemStockWriteTest < Minitest::Test
       "1.01" => "1^Unresolved",
       ".05" => "1^Synthetic problem narrative",
       ".12" => "A",
-      "1.02" => "T"
+      "1.02" => "T",
+      "80001" => "",
+      "80002" => "",
+      "80003" => "",
+      "80004" => "",
+      "80005" => "",
+      "80201" => EDIT_SYNTHETIC_DATE_80201,
+      "80202" => EDIT_SYNTHETIC_CODING_80202
     }.merge(overrides)
   end
 
