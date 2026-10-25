@@ -104,10 +104,12 @@ module RpmsRpc
     # client object: a DFN sticks when a raw reply line carries the
     # incomplete-checks banner or the remote-checking row (check ien 99,
     # or that sentence), even if the reply fails closed. An empty reply
-    # does not. The memo is keyed in an ObjectSpace::WeakKeyMap, which
-    # compares keys with eql? and hash, not strict object identity, and
-    # holds the key weakly so a discarded client can be collected. The
-    # value is a Hash of DFN strings and must not reference the client.
+    # does not. RpcError and ParseError from ORWDXC ACCEPT stick the DFN
+    # too; a timeout or connection error does not. The memo is keyed in
+    # an ObjectSpace::WeakKeyMap, which compares keys with eql? and hash,
+    # not strict object identity, and holds the key weakly so a discarded
+    # client can be collected. The value is a Hash of DFN strings and must
+    # not reference the client.
     # A different DFN starts clean, as does a client that is not eql? to
     # the one that recorded the banner.
     #
@@ -392,9 +394,13 @@ module RpmsRpc
     # non-idempotent write because of that session write. The same client
     # object remembers a DFN when the raw lines carry the incomplete-checks
     # banner or the remote-checking row, including a reply that fails
-    # closed. An empty reply does not. The incomplete-checks memory follows
-    # the client object, so a host must reuse one client object per broker
-    # connection. A fresh wrapper per request around a shared connection
+    # closed. An empty reply does not. call_rpc raising RpcError (including
+    # RpcMError) or ParseError for ORWDXC ACCEPT also remembers the DFN,
+    # then re-raises that error. OPOS runs before CHK2LST (ORWDXC.m:53-55),
+    # so the banner may already be suppressed. TimeoutError and
+    # ConnectionError do not remember the DFN. The incomplete-checks memory
+    # follows the client object, so a host must reuse one client object per
+    # broker connection. A fresh wrapper per request around a shared connection
     # loses it, and OPOS then hides the banner (ORWDXC.m:53,214-229).
     # Later results for that DFN stay incomplete. The ACCEPT call and the
     # memo update share
@@ -407,7 +413,10 @@ module RpmsRpc
     # CHK2LST answers ORID^checkIEN^CDL^text (FOIA ORWDXC.m:138-147, stock
     # WorldVistA ORWDXC.m:128-154). Rows are split on CRLF, a bare CR, or
     # LF, and only those separators are dropped. A row that still contains
-    # a control character fails the whole result closed ("malformed reply").
+    # a control character, or bytes that are not valid UTF-8, fails the
+    # whole result closed ("malformed reply"). valid_encoding? is checked
+    # before every regex on reply text: match? and split raise
+    # ArgumentError on those bytes.
     # check_ien is the ORDER CHECKS (#100.8) pointer, the check type.
     # CHK2LST drops a row whose raw CDL piece is
     # blank (FOIA ORWDXC.m:145, stock :151), so the in-band Order Checking
@@ -415,7 +424,9 @@ module RpmsRpc
     # that does still fails the whole result closed, with reason
     # "order checks unavailable: " plus the server text. An empty reply
     # cannot be told from a failure, so it is unavailable — never "no
-    # checks found". Any malformed row fails closed. Broker errors propagate.
+    # checks found". Any malformed row fails closed. RpcError and ParseError
+    # from ACCEPT propagate after the DFN is remembered. Timeout and
+    # connection errors propagate without that memo.
     def check(dfn, filler_id:, location:, items:, start: "", order_id: nil)
       return check_unavailable("invalid patient id") unless strict_positive_id?(dfn)
       return check_unavailable("invalid filler id") unless canonical_filler_id?(filler_id)
@@ -432,9 +443,13 @@ module RpmsRpc
         reply = client.call_rpc("ORWDXC ACCEPT", dfn.to_s, filler_id.to_s, start.to_s,
                                 location.to_s, oil, order_id.to_s)
         parse_accept_reply(reply, client, dfn.to_s)
+      rescue RpmsRpc::Client::RpcError, RpmsRpc::Client::ParseError
+        # ACCEPT already ran OPOS (ORWDXC.m:53-55). Remember the DFN, then re-raise.
+        remember_incomplete_dfn(client, dfn.to_s)
+        raise
       end
     end
-    shape :check, resource: "orders", verb: "GET", path: "/patients/{dfn}/orders/check"
+    shape :check, resource: "orders", verb: "POST", path: "/patients/{dfn}/orders/check"
 
     private
 
@@ -558,13 +573,24 @@ module RpmsRpc
       value.to_s
     end
 
+    # A control character, or bytes that are not valid UTF-8. match? raises
+    # ArgumentError on the latter, so valid_encoding? comes first. The
+    # caller fails the reply closed ("malformed reply").
+    def unreadable_reply_line?(line)
+      text = line.to_s
+      return true unless text.valid_encoding?
+
+      text.match?(/[[:cntrl:]]/)
+    end
+
     def parse_accept_reply(reply, client, dfn)
       lines = accept_lines(reply)
-      # A control character left after the line breaks are removed makes
-      # the reply unreadable ("malformed reply"), ahead of the empty-reply
-      # and Order Checking Unavailable paths. A banner on those lines is
-      # still remembered.
-      controlled = lines.any? { |line| line.match?(/[[:cntrl:]]/) }
+      # A control character, or bytes that are not valid UTF-8, left after
+      # the line breaks are removed makes the reply unreadable
+      # ("malformed reply"), ahead of the empty-reply and Order Checking
+      # Unavailable paths. valid_encoding? runs before the control regexp.
+      # A banner on those lines is still remembered.
+      controlled = lines.any? { |line| unreadable_reply_line?(line) }
       return check_unavailable("empty reply") if !controlled && blank_reply?(lines)
 
       rows = lines.map { |line| parse_chk2lst_row(line) }
@@ -583,6 +609,9 @@ module RpmsRpc
       text = line.to_s
       return true if text.include?(INCOMPLETE_CHECK_TEXT)
       return true if text.include?(REMOTE_ORDER_CHECKING_UNAVAILABLE)
+      # The caret split is a regexp scan and raises ArgumentError on
+      # bytes that are not valid UTF-8. include? above is not.
+      return false unless text.valid_encoding?
 
       text.split("^", 3)[1] == "99"
     end
@@ -622,7 +651,7 @@ module RpmsRpc
     end
 
     def blank_reply?(lines)
-      lines.empty? || lines.all? { |line| line.strip.empty? }
+      lines.empty? || lines.all? { |line| line.valid_encoding? && line.strip.empty? }
     end
 
     # YDB writes CHK2LST rows separated by a bare CR. XWB split_response
@@ -630,6 +659,8 @@ module RpmsRpc
     # an Array element can carry the same breaks. Split a String reply, and
     # each Array element, on CRLF, bare CR, or LF. Only those separators
     # are dropped. An empty element is kept: it is a blank row, not a break.
+    # A line that is not valid UTF-8 is not split: the regexp raises
+    # ArgumentError. It stays one row for the malformed-reply path.
     def accept_lines(reply)
       case reply
       when nil
@@ -642,7 +673,7 @@ module RpmsRpc
     end
 
     def split_reply_rows(text)
-      return [ text ] if text.empty?
+      return [ text ] if text.empty? || !text.valid_encoding?
 
       text.split(/\r\n|\r|\n/)
     end
@@ -655,9 +686,11 @@ module RpmsRpc
     # is defensive. Check ien 99 is the CHKRMT remote-checking row, a
     # real check, not this sentinel. A control character still in the row
     # after the line breaks are removed is malformed ("malformed reply").
+    # Bytes that are not valid UTF-8 are malformed the same way.
     def parse_chk2lst_row(line)
       row = line.to_s
-      return nil if row.match?(/[[:cntrl:]]/)
+      # valid_encoding? before the control regexp and the caret split.
+      return nil if unreadable_reply_line?(row)
 
       pieces = row.split("^", 4)
       return nil if pieces.length < 4
@@ -666,7 +699,7 @@ module RpmsRpc
       return raw_text if raw_text.to_s.lstrip.start_with?(ORDER_CHECKING_UNAVAILABLE)
 
       ien = check_ien.to_s
-      return nil unless ien.match?(/\A\d+\z/)
+      return nil unless ien.valid_encoding? && ien.match?(/\A\d+\z/)
 
       text, extended_key = split_extended_text(raw_text)
       Check.new(
@@ -679,8 +712,11 @@ module RpmsRpc
     end
 
     def split_extended_text(raw)
-      match = EXTENDED_TEXT.match(raw.to_s)
-      return [ raw.to_s, nil ] unless match
+      text = raw.to_s
+      return [ text, nil ] unless text.valid_encoding?
+
+      match = EXTENDED_TEXT.match(text)
+      return [ text, nil ] unless match
 
       [ match[2], match[1] ]
     end
