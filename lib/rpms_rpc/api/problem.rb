@@ -39,6 +39,12 @@ module RpmsRpc
     SAFE_COMMENT = /\AGMPFLD\(10,"NEW",[1-9][0-9]*\)="(?:[^"[:cntrl:]]|"")*"\z/
     # [XWB]1130 declares a 3-digit L-PACK width (XWBPRS LREAD reads exactly 3 digits); XwbClient#lpack writes 5 above this, so a longer L-PACK value is mis-framed.
     MAX_LIST_LINE_BYTES = 999
+    # NEW reads these with no $G (GMPLSAVE.m:105, :112, :113, :141).
+    ADD_REQUIRED_FIELDS = %w[.01 1.01 .05 .12 .13].freeze
+    # EN reads these with no $G (GMPLSAVE.m:15, :22, :47, :50, :53).
+    EDIT_REQUIRED_ORIGINALS = %w[.01 .05 .12 1.01 1.02].freeze
+    # DR="1.02////"_GMPFLD(1.02) (GMPLSAVE.m:49).
+    FIELD_1_02 = %w[P T H].freeze
 
     # List a patient's problems. Underlying RPC: ORQQPL LIST — verified row
     # shape IEN^NARRATIVE^STATUS^ICD^ONSET^LAST MODIFIED^SC^SPEXP^... (see
@@ -186,14 +192,17 @@ module RpmsRpc
     # (`S @ADDARRAY(S)`, ORQQPL1.m:160). Lock failure leaves RETURN 0
     # (ORQQPL1.m:154-156). Success stores the new IFN then overwrites
     # RETURN with 1 (ORQQPL1.m:164, :167), so the IFN is not returned.
+    # NEW reads .01, 1.01, .05, .12, and .13 with no $G (GMPLSAVE.m:105, :112, :113, :141).
     def add_stock(dfn, provider_duz:, vamc:, fields:, comments: [])
       patient = canonical_id(dfn)
       provider = canonical_id(provider_duz)
       facility = canonical_id(vamc)
-      lines = gmp_lines([ [ "GMPFLD", fields ] ], comments)
-      ready = patient && provider && facility && fields.is_a?(Hash) && !fields.empty? &&
-        lines.is_a?(Array) && !lines.empty?
-      return failure unless ready
+      mapped = canonical_fields(fields)
+      return failure unless patient && provider && facility && mapped
+      return failure unless ADD_REQUIRED_FIELDS.all? { |field| mapped.key?(field) }
+
+      lines = gmp_lines([ [ "GMPFLD", mapped ] ], comments)
+      return failure unless lines.is_a?(Array) && !lines.empty?
 
       raw = DataMapper.problem_add_save.fetch_scalar(patient, provider, facility, lines)
       stock_save_result(raw)
@@ -206,8 +215,10 @@ module RpmsRpc
     # UT is "1" or "0" (`I UT S GMPLUSER=1`, ORQQPL1.m:115). FOIA runs every
     # list value as M (`S @EDARRAY(S)`, ORQQPL1.m:120). Lock failure sets
     # RETURN 0 (ORQQPL1.m:122-123); the success path sets RETURN 1
-    # (ORQQPL1.m:114, :129). The canonical field numbers in originals must
-    # equal those in changes; a mismatch is refused before any RPC.
+    # (ORQQPL1.m:114, :129). originals is the snapshot EN reads with no $G
+    # (GMPLSAVE.m:15, :22, :47, :50, :53). GMPORIG sends that snapshot;
+    # GMPFLD sends it with changes overlaid. A change for a field absent
+    # from the snapshot is refused.
     def update_stock(ien, provider_duz:, vamc:, changes:, originals:, user_type: false, comments: [])
       problem = canonical_id(ien)
       provider = canonical_id(provider_duz)
@@ -216,10 +227,12 @@ module RpmsRpc
       when true then "1"
       when false then "0"
       end
-      lines = gmp_lines([ [ "GMPFLD", changes ], [ "GMPORIG", originals ] ], comments)
-      ready = problem && provider && facility && flag && same_canonical_fields?(changes, originals) &&
-        lines.is_a?(Array) && !lines.empty?
-      return failure unless ready
+      origin = canonical_fields(originals)
+      merged = merge_snapshot(origin, canonical_fields(changes))
+      return failure unless problem && provider && facility && flag && merged
+
+      lines = gmp_lines([ [ "GMPFLD", merged ], [ "GMPORIG", origin ] ], comments)
+      return failure unless lines.is_a?(Array) && !lines.empty?
 
       raw = DataMapper.problem_edit_save.fetch_scalar(problem, provider, facility, flag, lines)
       stock_save_result(raw, ien: problem.to_i)
@@ -317,24 +330,30 @@ module RpmsRpc
       lines = []
       pairs.each do |field, value|
         number = fileman_field_number(field)
-        quoted = m_quoted(value)
+        text = m_text(value)
         # Two keys that become the same canonical subscript would silently
         # overwrite; refuse the group instead of sending either.
-        return nil unless number && quoted && !seen[number]
+        return nil unless number && text && !seen[number]
+        # EN appends each value onto the FileMan DR string (GMPLSAVE.m:59).
+        return nil if text.include?(";")
+        # DR="1.02////"_value (GMPLSAVE.m:49).
+        return nil if number == "1.02" && !FIELD_1_02.include?(text)
 
         seen[number] = true
-        lines << "#{name}(#{number})=\"#{quoted}\""
+        lines << "#{name}(#{number})=\"#{m_quoted(text)}\""
       end
       lines
     end
 
     # Comment multiple: GMPFLD(10,"NEW",n). n is the 1-based index we
-    # assign, never caller text.
+    # assign, never caller text. NEWNOTE writes a caret-delimited node
+    # (GMPLSAVE.m:202).
     def gmp_comment(index, value)
-      quoted = m_quoted(value)
-      return nil unless quoted && index.is_a?(Integer) && index.positive?
+      text = m_text(value)
+      return nil if text.nil? || text.include?("^")
+      return nil unless index.is_a?(Integer) && index.positive?
 
-      "GMPFLD(10,\"NEW\",#{index})=\"#{quoted}\""
+      "GMPFLD(10,\"NEW\",#{index})=\"#{m_quoted(text)}\""
     end
 
     def fileman_field_number(field)
@@ -342,40 +361,43 @@ module RpmsRpc
       when String then field
       when Integer, Float then field.to_s
       end
-      return nil if text.nil? || !text.match?(FIELD_NUMBER)
+      # match? raises ArgumentError on an invalid encoding. A field number is ASCII.
+      return nil unless ascii_token?(text)
+      return nil unless text.match?(FIELD_NUMBER)
 
       text
     end
 
-    # M-canonical subscripts for one group, in key order. Nil unless every
-    # key passes FIELD_NUMBER and no two keys repeat after Integer/Float
-    # to_s ("1" and 1 are the same subscript).
-    def canonical_field_numbers(pairs)
+    # M-canonical subscript => value, in key order. Nil unless every key
+    # passes FIELD_NUMBER and no two keys repeat after Integer/Float to_s
+    # ("1" and 1 are the same subscript).
+    def canonical_fields(pairs)
       return nil unless pairs.is_a?(Hash)
 
-      numbers = []
-      pairs.each_key do |field|
+      mapped = {}
+      pairs.each do |field, value|
         number = fileman_field_number(field)
-        return nil if number.nil? || numbers.include?(number)
+        return nil unless number && !mapped.key?(number)
 
-        numbers << number
+        mapped[number] = value
       end
-      numbers
+      mapped
     end
 
-    def same_canonical_fields?(changes, originals)
-      change_numbers = canonical_field_numbers(changes)
-      origin_numbers = canonical_field_numbers(originals)
-      return false unless change_numbers && origin_numbers
+    # GMPFLD is the snapshot with changes overlaid. Every changed field
+    # must already be in the snapshot; GMPORIG is the snapshot unchanged.
+    def merge_snapshot(origin, change)
+      return nil unless origin && change
+      return nil unless EDIT_REQUIRED_ORIGINALS.all? { |field| origin.key?(field) }
+      return nil unless change.each_key.all? { |field| origin.key?(field) }
 
-      change_numbers.sort == origin_numbers.sort
+      origin.merge(change)
     end
 
-    # String, or Integer via to_s. Embedded quotes are doubled so they stay
-    # inside the M literal; a control character would split the line the
-    # routine executes, so it is refused. Bytes are read as UTF-8 whatever
+    # String, or Integer via to_s. A control character would split the line
+    # the routine executes, so it is refused. Bytes are read as UTF-8 whatever
     # encoding tag they carry, and the literal is sent as UTF-8.
-    def m_quoted(value)
+    def m_text(value)
       text = case value
       when String, Integer then value.to_s
       end
@@ -385,7 +407,12 @@ module RpmsRpc
       return nil unless utf8.valid_encoding?
       return nil if utf8.match?(/[[:cntrl:]]/)
 
-      utf8.gsub('"', '""')
+      utf8
+    end
+
+    # Embedded quotes are doubled so they stay inside the M literal.
+    def m_quoted(text)
+      text.gsub('"', '""')
     end
 
     def canonical_id(value)
@@ -393,10 +420,18 @@ module RpmsRpc
       when Integer then value.to_s
       when String then value
       end
-      return nil if text.nil? || !text.match?(CANONICAL_ID)
+      # match? raises ArgumentError on an invalid encoding. An ID literal is ASCII.
+      return nil unless ascii_token?(text)
+      return nil unless text.match?(CANONICAL_ID)
       return nil if text.bytesize > MAX_LIST_LINE_BYTES
 
       text
+    end
+
+    # Field keys and ID strings are ASCII tokens. Checked before any match?
+    # so an invalid encoding comes back as failure, not ArgumentError.
+    def ascii_token?(text)
+      !text.nil? && text.valid_encoding? && text.ascii_only?
     end
   end
 end
