@@ -308,7 +308,124 @@ class ClinicalReadWireTest < Minitest::Test
   def test_garbled_sentinels_are_never_verified_absence
     [ [ "^No Known Allergies " ], [ "^no known allergies" ], [ "-1^error" ], [ "^No allergies found." ], [] ].each do |lines|
       stub_broker_response(lines)
-      refute RpmsRpc::Allergy.assessment("42")[:nka], "#{lines.inspect} must not read as verified absence"
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:nka], "#{lines.inspect} must not read as verified absence"
+      refute result[:assessed], "#{lines.inspect} is no evidence, so it is not assessed"
+      assert_equal [], result[:allergies], "#{lines.inspect} must not surface a row"
+    end
+  end
+
+  # -- The third marker, near-miss markers and phantom rows (panel round on #483) --
+  # ORQQAL.m:15 writes a THIRD marker, "^No allergies found.", only when no
+  # row was written — exactly as exclusive with rows as the other two. And a
+  # marker that arrives slightly mangled (whitespace, a carriage return, a
+  # no-break space, a zero-width character, a different case, an extra field)
+  # is still a marker: beside data it makes the reply conflicting; alone it is
+  # never verified absence. Verified absence stays strictly byte-exact.
+
+  NEAR_MISS_MARKERS = {
+    "trailing space" => "^No Known Allergies ",
+    "carriage return" => "^No Known Allergies\r",
+    "no-break space" => "^No Known Allergies\u00A0",
+    "tab" => "^No Known Allergies\t",
+    "upper case" => "^NO KNOWN ALLERGIES",
+    "lower case" => "^no known allergies",
+    "extra field" => "^No Known Allergies^extra",
+    "extra empty field" => "^No Known Allergies^",
+    "trailing zero-width space" => "^No Known Allergies\u200B",
+    "trailing zero-width joiner" => "^No Known Allergies\u200D",
+    "trailing byte-order mark" => "^No Known Allergies\uFEFF",
+    "leading space" => " ^No Known Allergies",
+    "leading no-break space" => "\u00A0^No Known Allergies",
+    "not-assessed with trailing space" => "^No Allergy Assessment ",
+    "third marker with trailing space" => "^No allergies found. "
+  }.freeze
+
+  def test_a_near_miss_marker_beside_a_row_is_a_conflict_and_makes_no_row_of_its_own
+    NEAR_MISS_MARKERS.each do |name, marker|
+      [ [ marker, PENICILLIN_ROW ], [ PENICILLIN_ROW, marker ] ].each do |lines|
+        stub_broker_response(lines)
+        result = RpmsRpc::Allergy.assessment("42")
+
+        refute result[:nka], "#{name}: never NKA beside data"
+        refute result[:assessed], "#{name}: a conflicting reply is never assessed"
+        assert_equal true, result[:conflict], "#{name}: the near-miss marker counts for conflict detection"
+        assert_equal [ "PENICILLIN" ], result[:allergies].map { |a| a[:allergen] },
+          "#{name}: the real row is kept and the marker makes no row of its own"
+      end
+    end
+  end
+
+  def test_a_near_miss_marker_alone_is_never_nka_and_never_a_row
+    NEAR_MISS_MARKERS.each do |name, marker|
+      stub_broker_response([ marker ])
+
+      assert_equal({ assessed: false, nka: false, allergies: [] }, RpmsRpc::Allergy.assessment("42"),
+        "#{name}: only the byte-exact NKA marker as the sole data line is verified absence")
+    end
+  end
+
+  def test_the_third_marker_alone_is_not_assessed_and_never_nka
+    stub_broker_response([ "^No allergies found." ])
+
+    assert_equal({ assessed: false, nka: false, allergies: [] }, RpmsRpc::Allergy.assessment("42"))
+  end
+
+  def test_the_third_marker_beside_a_row_is_a_conflict
+    [ [ "^No allergies found.", PENICILLIN_ROW ], [ PENICILLIN_ROW, "^No allergies found." ] ].each do |lines|
+      stub_broker_response(lines)
+      result = RpmsRpc::Allergy.assessment("42")
+
+      refute result[:nka]
+      refute result[:assessed], "#{lines.inspect}: ORQQAL.m:15 writes this marker only when no row was written"
+      assert_equal true, result[:conflict]
+      assert_equal [ "PENICILLIN" ], result[:allergies].map { |a| a[:allergen] }
+    end
+  end
+
+  def test_the_third_marker_beside_another_marker_is_a_conflict_without_rows
+    [ "^No Known Allergies", "^No Allergy Assessment", "^No allergies found." ].each do |other|
+      stub_broker_response([ "^No allergies found.", other ])
+
+      assert_equal({ assessed: false, nka: false, allergies: [], conflict: true }, RpmsRpc::Allergy.assessment("42"),
+        "the third marker with #{other.inspect}")
+    end
+  end
+
+  def test_the_exact_nka_marker_stays_verified_absence_when_it_arrives_as_a_string_with_line_endings
+    [ "^No Known Allergies\r\n", "^No Known Allergies\n", "^No Known Allergies" ].each do |response|
+      stub_broker_response(response)
+
+      assert_equal({ assessed: true, nka: true, allergies: [] }, RpmsRpc::Allergy.assessment("42"),
+        "#{response.inspect}: line endings are not part of the marker")
+    end
+  end
+
+  def test_a_reply_with_no_non_blank_line_is_not_assessed_and_has_no_rows
+    [ [ "" ], [ "", "  " ], [ "  ", "\t" ], [ "\u00A0" ], [ "\u200B" ], [ "\r" ], [ "", "  ", "\t" ] ].each do |lines|
+      stub_broker_response(lines)
+
+      assert_equal({ assessed: false, nka: false, allergies: [] }, RpmsRpc::Allergy.assessment("42"),
+        "#{lines.inspect}: whitespace is not data and must not become a row")
+    end
+  end
+
+  def test_a_whitespace_line_beside_a_real_row_is_not_a_row
+    stub_broker_response([ "  ", PENICILLIN_ROW, "\t" ])
+    result = RpmsRpc::Allergy.assessment("42")
+
+    assert result[:assessed]
+    assert_equal [ "PENICILLIN" ], result[:allergies].map { |a| a[:allergen] }
+    refute_includes result.keys, :conflict, "blank lines are not data and do not make a conflict"
+  end
+
+  def test_a_response_that_is_neither_text_nor_lines_is_not_assessed_and_has_no_rows
+    [ { a: 1 }, 0, 42, :symbol, true ].each do |response|
+      stub_broker_response(response)
+
+      assert_equal({ assessed: false, nka: false, allergies: [] }, RpmsRpc::Allergy.assessment("42"),
+        "#{response.inspect}: must not become a row with a stringified ien")
     end
   end
 end
