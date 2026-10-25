@@ -274,7 +274,13 @@ module RpmsRpc
       # cannot be split at all. Every line then leaves through Reply, so a
       # plain Array from a stand-in client is valid UTF-8 too and says so if
       # it had to be altered (rpms-rpc#463).
-      Reply.from_wire(reply.is_a?(Array) ? reply : split_response(reply.to_s.b))
+      return Reply.from_wire(reply) if reply.is_a?(Array)
+
+      lines = split_response(reply.to_s.b)
+      # A Text that altered something: the lines holding the replacement
+      # character are the altered ones, so the flag survives the split.
+      marked = Reply.altered?(reply) ? lines.each_index.select { |i| lines[i].include?(Reply::REPLACEMENT.b) } : []
+      Reply.from_wire(lines, altered: marked)
     end
 
     # -- connection state -----------------------------------------------------

@@ -51,20 +51,24 @@ module RpmsRpc
     # control characters with a space (the CIA reply grammar). Passing a Reply
     # keeps the alterations it already carries: wrapping an altered reply a
     # second time must never launder the flag.
-    def self.from_wire(lines, controls: false)
-      altered = lines.is_a?(Reply) ? lines.altered_lines.dup : []
+    #
+    # altered: indexes the caller already knows were altered (a blob that was
+    # split into lines keeps the evidence of the blob). A Text element that
+    # altered something marks its own index, so wrapping it never launders it.
+    def self.from_wire(lines, controls: false, altered: [])
+      altered = (lines.is_a?(Reply) ? lines.altered_lines : []) + Array(altered)
       decoded = Array(lines).each_with_index.map do |line, index|
         next line unless line.is_a?(String)
 
         text, changed = decode(line, controls)
-        altered << index if changed
+        altered << index if changed || (line.is_a?(Text) && line.altered?)
         text.freeze
       end
       reply = new(decoded)
       reply.instance_variable_set(:@altered_lines, altered.uniq.sort.freeze)
       reply.freeze
     end
-    private_class_method :new
+    private_class_method :new, :[]
 
     # A blob as valid UTF-8 text with the same flag. A Text passes through
     # unchanged, so it is never decoded (and so never laundered) twice.

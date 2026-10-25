@@ -222,13 +222,13 @@ module RpmsRpc
 
     def kind_of(line)
       return :other if line.unrecognised || line.text.nil? || !byte_view?(line.text.encoding)
-      return :marker if marker?(line.text)
+      return :marker if marker?(line.text) && !line.altered
 
       row?(line.text) ? :row : :other
     end
 
     def exact_nka?(line)
-      line.exact && line.text == NKA_SENTINEL
+      line.exact && !line.altered && line.text == NKA_SENTINEL
     end
 
     # An unrecognised line, as a flagged entry; nothing when it has no
