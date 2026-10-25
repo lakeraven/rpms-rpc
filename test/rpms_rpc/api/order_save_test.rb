@@ -275,6 +275,69 @@ class OrderSaveTest < Minitest::Test
     assert_equal :malformed_reply, result[:error]
   end
 
+  # --- SAVE reply line splitting (mirror Client#split_response) -----------------
+
+  def test_save_string_reply_with_trailing_crlf_after_order_text_is_success
+    reply = "~12345;1^5^3251022.1200^^^11^SIG\r\ntA\r\n"
+    with_orwdx_save_sequence([ reply ])
+
+    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
+
+    assert result[:success], "order was filed; trailing CRLF must not make reply malformed"
+    assert_equal [ "A" ], result[:text]
+  end
+
+  def test_save_string_reply_header_only_with_trailing_crlf_is_success_empty_text
+    reply = "~12345;1^5^^^^11\r\n"
+    with_orwdx_save_sequence([ reply ])
+
+    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
+
+    assert result[:success]
+    assert_equal [], result[:text]
+  end
+
+  def test_save_string_reply_with_trailing_lf_only_is_success
+    reply = "~12345;1^5^3251022.1200^^^11^SIG\ntA\n"
+    with_orwdx_save_sequence([ reply ])
+
+    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
+
+    assert result[:success], "trailing LF without CR must be dropped like Client#split_response"
+    assert_equal [ "A" ], result[:text]
+  end
+
+  def test_save_string_reply_header_only_with_trailing_lf_only_is_success_empty_text
+    reply = "~12345;1^5^^^^11\n"
+    with_orwdx_save_sequence([ reply ])
+
+    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
+
+    assert result[:success]
+    assert_equal [], result[:text]
+  end
+
+  def test_save_string_reply_empty_line_in_middle_of_text_before_pipe_is_malformed_reply
+    header = "~12345;1^5^3251022.1200^^^11^SIG"
+    reply = "#{header}\r\ntA\r\n\r\ntB"
+    with_orwdx_save_sequence([ reply ])
+
+    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
+
+    refute result[:success]
+    assert_equal :malformed_reply, result[:error]
+  end
+
+  def test_save_array_reply_drops_trailing_empty_elements_like_split_response
+    header = "~12345;1^5^^^^11"
+    with_orwdx_save_wire([ header, "tA", "" ])
+
+    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
+
+    assert result[:success], "trailing empty array element must be dropped (Client#split_response)"
+    assert_equal [ "A" ], result[:text]
+  end
+
   # --- argument validation (no RPC) -------------------------------------------
 
   def test_save_invalid_arguments_never_call_rpc
@@ -364,6 +427,21 @@ class OrderSaveTest < Minitest::Test
         { [ P_ORDERABLE, 1 ] => "92001^EXTRA" },
         { [ P_ORDERABLE, 1 ] => "92001\x1e" },
         { [ P_ORDERABLE, 1 ] => "a\nb" }
+      ]
+    ) { |responses| [ DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, responses ] }
+  end
+
+  def test_save_rejects_response_string_value_with_delete_character
+    assert_save_invalid_never_calls_rpc(
+      responses: [ { [ P_ORDERABLE, 1 ] => "92001\x7f" } ]
+    ) { |responses| [ DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, responses ] }
+  end
+
+  def test_save_rejects_negative_ordialog_subscript_keys
+    assert_save_invalid_never_calls_rpc(
+      responses: [
+        { [ -4, 1 ] => "92001" },
+        { [ "-4", "1" ] => "92001" }
       ]
     ) { |responses| [ DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, responses ] }
   end
