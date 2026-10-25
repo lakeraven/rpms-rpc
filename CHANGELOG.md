@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `Allergy.assessment` no longer reads a contradictory reply as "no known allergies"
+
+- **Bug:** `Allergy.assessment` returned `nka: true` for any reply containing the `^No Known Allergies` marker and dropped every
+  other row, so `["^No Known Allergies", "5^Penicillin^SEVERE^HIVES"]` read as verified absence with the real allergy gone.
+  A `^No Allergy Assessment` marker next to rows dropped the rows the same way. A repeated NKA marker also read as NKA.
+- **Rule:** a marker counts only as the **sole data line** of the reply (blank lines are not data). `LIST^ORQQAL`
+  (`ORQQAL.m:7-16`, pinned build `bcer-9.0-ydb` and the FOIA copy) sets `GMRARXN` to `""`, `0` or `1`, three mutually
+  exclusive branches, and writes a marker to `ORAY(1)` only in the two branches that write no allergy rows. A real reply is one
+  marker line **or** rows, never both, so a marker beside other data is a corrupted or concatenated reply.
+- **Contradictory reply:** `nka` stays `false`, any real allergy rows are returned (`assessed: true`), and the result carries
+  `conflict: true`. With no rows (a marker twice, or two different markers) it reads not-assessed, also with `conflict: true`.
+  `Allergy.for_patient` therefore returns the rows of a mixed reply. A clean reply is unchanged and carries no `:conflict` key.
+- **Evidence:** the reply shape is read from the M routine source, not from a live broker. **Unproven live (ADR 0009):** no live
+  spec exercises a contradictory reply (the routine cannot produce one); hosts that read `nka` need no change, and may read
+  `conflict` to surface the anomaly.
+
 ### Fixed — XWB and BMX refuse a request they would mis-frame, and the failure-hash writers say so (#472, #474)
 
 - **XWB:** the header `[XWB]1130` fixes the L-PACK length at 3 digits (`XWBPRS.m`, `XWBENVL=+$E(P,3)`; `LREAD` reads exactly that
