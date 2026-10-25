@@ -421,6 +421,8 @@ module RpmsRpc
     # nil, "" and [] are the empty REC (ORWDX.m:130). A one-element list of
     # a blank line is that same empty string once a transport has boxed it.
     # Anything else that is not a line list is malformed, never a success.
+    # Client#split_response chomps the trailing newline, so a trailing
+    # empty element is not a line. An empty element between lines stays.
     def save_reply_lines(raw)
       lines = case raw
       when nil
@@ -430,10 +432,11 @@ module RpmsRpc
 
         raw.split(/\r?\n/, -1)
       when Array
-        raw
+        raw.dup
       else
         return nil
       end
+      lines.pop while lines.last == ""
       return :empty if lines.empty? || lines.all? { |line| line.nil? || line.to_s.strip.empty? }
 
       lines
