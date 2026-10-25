@@ -698,59 +698,67 @@ class ProblemStockWriteTest < Minitest::Test
     over = padded_field_value(".01", 1000)
     assert_equal 1000, built_gmpfld_line(".01", over).bytesize
 
-    assert_stock_refused_before_rpc(
+    assert_stock_frame_too_long_refused_before_rpc(
       -> {
         RpmsRpc::Problem.add_stock(
-          DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => over }
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: routine_valid_add_fields.merge(".01" => over)
         )
-      }
+      },
+      secret: over
     )
 
     quote_padded = '"' * 493
     assert_operator built_gmpfld_line(".01", quote_padded).bytesize, :>, 999
 
-    assert_stock_refused_before_rpc(
+    assert_stock_frame_too_long_refused_before_rpc(
       -> {
         RpmsRpc::Problem.add_stock(
-          DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => quote_padded }
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: routine_valid_add_fields.merge(".01" => quote_padded)
         )
-      }
+      },
+      secret: quote_padded
     )
 
     utf8_over = "\u00e9" * 493
     assert_equal 1000, built_gmpfld_line(".01", utf8_over).bytesize
 
-    assert_stock_refused_before_rpc(
+    assert_stock_frame_too_long_refused_before_rpc(
       -> {
         RpmsRpc::Problem.add_stock(
-          DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => utf8_over }
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: routine_valid_add_fields.merge(".01" => utf8_over)
         )
-      }
+      },
+      secret: utf8_over
     )
 
     long_comment = "c" * (1000 - built_gmpfld_comment_line(1, "").bytesize)
     assert_equal 1000, built_gmpfld_comment_line(1, long_comment).bytesize
 
-    assert_stock_refused_before_rpc(
+    assert_stock_frame_too_long_refused_before_rpc(
       -> {
         RpmsRpc::Problem.add_stock(
           DFN, provider_duz: PROVIDER, vamc: VAMC,
           fields: routine_valid_add_fields, comments: [ long_comment ]
         )
-      }
+      },
+      secret: long_comment
     )
 
     gmporig_over = padded_field_value(".05", 1000, group: "GMPORIG")
     assert_equal 1000, built_gmporig_line(".05", gmporig_over).bytesize
 
-    assert_stock_refused_before_rpc(
+    assert_stock_frame_too_long_refused_before_rpc(
       -> {
         RpmsRpc::Problem.update_stock(
           IEN, provider_duz: PROVIDER, vamc: VAMC,
           changes: { ".05" => "n" },
           originals: routine_valid_edit_originals(".05" => gmporig_over)
         )
-      }
+      },
+      secret: gmporig_over
     )
   end
 
@@ -838,9 +846,11 @@ class ProblemStockWriteTest < Minitest::Test
 
     STOCK_WRITE_ID_SLOTS.each do |method, slot, _index, _mapping|
       over_values.each do |over, label|
-        assert_stock_refused_before_rpc(
+        wire = over.is_a?(Integer) ? over.to_s : over
+        assert_stock_frame_too_long_refused_before_rpc(
           -> { invoke_stock_write_with_id(method, slot, over) },
-          "refuse #{method} #{slot} with #{label}"
+          secret: wire,
+          message: "refuse #{method} #{slot} with #{label}"
         )
       end
     end
@@ -938,6 +948,18 @@ class ProblemStockWriteTest < Minitest::Test
     assert_equal STOCK_REFUSAL, result, message
     assert_empty RpmsRpc.client.received_calls,
       message || "unsafe input must fail closed before ORQQPL (ORQQPL1.m:160,:120)"
+  end
+
+  def assert_stock_frame_too_long_refused_before_rpc(invoke, secret: nil, message: nil)
+    RpmsRpc.client.received_calls.clear
+    result = invoke.call
+    assert_equal STOCK_REFUSAL, result.slice(:success, :ien, :raw), message
+    assert_equal :frame_too_long, result[:error], message
+    assert_kind_of String, result[:message]
+    assert_match(/999/, result[:message], message)
+    refute_includes result[:message], secret, message if secret
+    assert_empty RpmsRpc.client.received_calls,
+      message || "oversized wire value must fail closed before ORQQPL (ORQQPL1.m:160,:120)"
   end
 
   def canonical_digit_id(digits)
