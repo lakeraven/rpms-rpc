@@ -306,7 +306,7 @@ class ClinicalReadWireTest < Minitest::Test
   end
 
   def test_garbled_sentinels_are_never_verified_absence
-    [ [ "^No Known Allergies " ], [ "^no known allergies" ], [ "-1^error" ], [ "^No allergies found." ], [] ].each do |lines|
+    [ [ "^No Known Allergies " ], [ "^no known allergies" ], [ "^No allergies found." ], [] ].each do |lines|
       stub_broker_response(lines)
       result = RpmsRpc::Allergy.assessment("42")
 
@@ -314,6 +314,18 @@ class ClinicalReadWireTest < Minitest::Test
       refute result[:assessed], "#{lines.inspect} is no evidence, so it is not assessed"
       assert_equal [], result[:allergies], "#{lines.inspect} must not surface a row"
     end
+  end
+
+  # "-1^error" is not a marker. An error row could be "-3^PENICILLIN": its text
+  # is surfaced, flagged, rather than filtered as a broker error.
+  def test_an_error_shaped_row_is_never_verified_absence_and_is_surfaced_flagged
+    stub_broker_response([ "-1^error" ])
+    result = RpmsRpc::Allergy.assessment("42")
+
+    refute result[:nka]
+    refute result[:assessed]
+    assert_equal true, result[:conflict]
+    assert_equal [ "-1^error" ], result[:allergies].map { |a| a[:raw] }
   end
 
   # -- The third marker, near-miss markers and phantom rows (panel round on #483) --
