@@ -35,7 +35,12 @@ module RpmsRpc
     INVISIBLE = /[\u200B-\u200D\u2060-\u2064\uFEFF\u00AD\u034F\u180E\u{E0000}-\u{E007F}\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/
 
     # What separates lines: a bare CR or LF, CRLF, and the Unicode separators.
-    LINE_BREAK = /\r\n|\r|\n|\u2028|\u2029|\u0085/
+    # For UTF-8, BINARY and US-ASCII text the UTF-8 BYTE sequences for U+2028,
+    # U+2029 and U+0085 split too, matched on bytes whether or not the rest of
+    # the line is valid UTF-8; in a single-byte encoding a lone 0x85 is a
+    # character, not a line break.
+    UTF8_LINE_BREAK = /\r\n|\r|\n|\xE2\x80\xA8|\xE2\x80\xA9|\xC2\x85/n
+    ASCII_LINE_BREAK = /\r\n|\r|\n/n
 
     # ASCII control characters (NUL, RS/US framing, tab ...). A clean row has none.
     CONTROL = /[\u0000-\u001F\u007F]/
@@ -199,7 +204,7 @@ module RpmsRpc
     end
 
     def kind_of(line)
-      return :other if line.unrecognised || line.text.nil? || line.text.encoding.dummy?
+      return :other if line.unrecognised || line.text.nil? || !byte_view?(line.text.encoding)
       return :marker if marker?(line.text)
 
       row?(line.text) ? :row : :other
@@ -244,7 +249,16 @@ module RpmsRpc
       return false if scrubbed.match?(CONTROL) || c1_codepoint?(text, scrubbed)
 
       pieces = scrubbed.split("^", -1)
-      pieces.size >= 2 && pieces[0].match?(ROW_IEN) && visible?(pieces[1])
+      pieces.size >= 2 && pieces[0].match?(ROW_IEN) && visible?(pieces[1]) &&
+        pieces.drop(4).all? { |piece| squeeze(piece).empty? }
+    end
+
+    # UTF-8, BINARY and US-ASCII are read as their bytes, and so are the
+    # single-byte ISO-8859-x / Windows-125x tags (never transcoded, so no byte
+    # is deleted or invented). Any other tag (UTF-16/32, UTF-7, Shift_JIS,
+    # EUC-JP ...) is not a view this method can read as ORQQAL text: unrecognised.
+    def byte_view?(encoding)
+      [ Encoding::UTF_8, Encoding::BINARY, Encoding::US_ASCII ].include?(encoding) || encoding.name.match?(/\A(?:ISO-8859-\d+|Windows-125\d)\z/)
     end
 
     # A real U+0080-U+009F CODEPOINT read from UTF-8 (NEL, CSI ...) is a control
@@ -261,7 +275,7 @@ module RpmsRpc
     # with content, including whitespace-only or invisible-only content, is a
     # shape ORQQAL cannot emit: unrecognised, never vouched for.
     def blank?(line)
-      line.text == "" && !line.unrecognised
+      line.text == ""
     end
 
     # Anything a person could see: not whitespace, not an invisible character,
@@ -279,20 +293,10 @@ module RpmsRpc
 
     def scrubbed_text(line) = text_of(line).scrub("\uFFFD")
 
-    # Read as UTF-8 whatever the client tagged it as (another encoding is
-    # transcoded; one with no converter is read as bytes).
+    # The bytes of the line, read as UTF-8 (whatever the client tagged them
+    # as): nothing is transcoded and no byte is deleted.
     def text_of(line)
-      text = line.dup
-      case text.encoding
-      when Encoding::UTF_8 then text
-      when Encoding::BINARY, Encoding::US_ASCII then text.force_encoding(Encoding::UTF_8)
-      else
-        begin
-          text.encode(Encoding::UTF_8, invalid: :replace, undef: :replace, replace: "")
-        rescue Encoding::ConverterNotFoundError
-          text.force_encoding(Encoding::BINARY).force_encoding(Encoding::UTF_8)
-        end
-      end
+      line.dup.force_encoding(Encoding::UTF_8)
     end
 
     # Text a host can display and serialise.
@@ -301,12 +305,15 @@ module RpmsRpc
     end
 
     # What DataMapper is given for a clean row: the ORIGINAL line, so the output
-    # bytes and encoding are exactly what main returned. Only a UTF-8-tagged
-    # string that is not valid UTF-8 (its regexes raise on it) is scrubbed.
+    # bytes and encoding are what main returned. Only a UTF-8-tagged string that
+    # is not valid UTF-8, or a US-ASCII-tagged one with a high byte (their
+    # regexes raise on it), is changed: scrubbed to U+FFFD, or read as BINARY.
     def parse_ready(line)
-      return line unless line.encoding == Encoding::UTF_8 && !line.valid_encoding?
-
-      line.scrub("\uFFFD")
+      case line.encoding
+      when Encoding::UTF_8 then line.valid_encoding? ? line : line.scrub("\uFFFD")
+      when Encoding::US_ASCII then line.valid_encoding? ? line : line.b
+      else line
+      end
     end
 
     # Text and lists of lines are replies. Every String (a whole response or an
@@ -341,14 +348,10 @@ module RpmsRpc
       end
     end
 
+    # Split on bytes, so a line that is not valid UTF-8 still splits.
     def split_lines(text)
-      utf8 = [ Encoding::UTF_8, Encoding::BINARY, Encoding::US_ASCII ].include?(text.encoding) ? text.dup.force_encoding(Encoding::UTF_8) : nil
-      lines = if utf8&.valid_encoding?
-        utf8.split(LINE_BREAK)
-      else
-        text.dup.force_encoding(Encoding::BINARY).split(/\r\n|\r|\n/n)
-      end
-      lines.map { |line| line.force_encoding(text.encoding) }
+      breaks = [ Encoding::UTF_8, Encoding::BINARY, Encoding::US_ASCII ].include?(text.encoding) ? UTF8_LINE_BREAK : ASCII_LINE_BREAK
+      text.b.split(breaks).map { |line| line.force_encoding(text.encoding) }
     end
   end
 end
