@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -13,6 +14,7 @@ module RpmsRpc
   # ORWOR TSALL, ORWDX SAVE.
   module Order
     extend self
+    extend Shape::Declarable
 
     # Order view ids from ORDSTS^ORCHANG2 (ORCHANG2.m:37-63), which AGET
     # takes as FILTER (ORWORR.m:25,34) -- the list REVSTS^ORWORDG serves.
@@ -95,6 +97,7 @@ module RpmsRpc
                                       dfn.to_s, filter_id, display_group.to_s)
       DataMapper.orders_list.parse_many(drop_aget_header(reply))
     end
+    shape :list, resource: "orders", verb: "GET", path: "/patients/{dfn}/orders"
 
     # Result text for a single order. Returns the raw text blob or nil
     # if the order is unknown / has no result.
@@ -111,6 +114,7 @@ module RpmsRpc
 
       text
     end
+    shape :result, resource: "orders", verb: "GET", path: "/patients/{dfn}/orders/{order_ien}/result"
 
     # Result history report for an order: the formatted text ORDHIST^ORWOR2
     # writes, or nil when the order is unknown or nothing came back.
@@ -124,6 +128,7 @@ module RpmsRpc
 
       text
     end
+    shape :result_history, resource: "orders", verb: "GET", path: "/patients/{dfn}/orders/{order_ien}/result-history"
 
     # Free-text describing the user-facing action available on an order.
     # Returns nil if either argument is blank.
@@ -135,6 +140,7 @@ module RpmsRpc
 
       text
     end
+    shape :action_text, resource: "orders", verb: "GET", path: "/orders/{order_ien}/action-text"
 
     # The date/time (Time) from which to search for expired orders: NOW
     # less the ORWOR EXPIRED ORDERS hours. EXPIRED(ORY) takes no parameter
@@ -143,6 +149,7 @@ module RpmsRpc
     def expired_search_start
       DataMapper.order_expired.fetch_scalar
     end
+    shape :expired_search_start, resource: "orders", verb: "GET", path: "/orders/expired-search-start"
 
     # Order sheets for a patient (current view, admit/transfer/discharge
     # delayed-order events). Each row:
@@ -156,11 +163,13 @@ module RpmsRpc
         { sheet_id: row[:sheet_id], event_type: type, event_ref: ref, label: row[:label] }
       end
     end
+    shape :sheets_for_patient, resource: "orders", verb: "GET", path: "/patients/{dfn}/orders/sheets"
 
     # Site-level catalog of order sheets, independent of patient.
     def all_sheets
       Array(DataMapper.order_sheets_all.fetch_many)
     end
+    shape :all_sheets, resource: "orders", verb: "GET", path: "/orders/all-sheets"
 
     # File a new order and leave it unsigned. ORWDX SAVE (SAVE^ORWDX) takes
     # the eleven actuals after REC. Formals (FOIA ORWDX.m:80):

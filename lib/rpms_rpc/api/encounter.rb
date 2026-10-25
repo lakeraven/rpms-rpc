@@ -1,14 +1,18 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
+
 module RpmsRpc
   module Encounter
     extend self
+    extend Shape::Declarable
 
     # List recent appointments for a patient.
     # Underlying RPC: ORWPT APPTLST
     def for_patient(dfn)
       DataMapper.patient_appointments.fetch_many(dfn.to_s)
     end
+    shape :for_patient, resource: "encounters", verb: "GET", path: "/patients/{dfn}/encounters"
 
     # Open an active encounter — hydrates the visit context the chart needs:
     # location, provider, datetime, service category, lock state, and a

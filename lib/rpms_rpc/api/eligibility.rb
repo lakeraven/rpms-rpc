@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -13,6 +14,7 @@ module RpmsRpc
   # DFN, or when the server's default names no eligibility code.
   module Eligibility
     extend self
+    extend Shape::Declarable
 
     NIL_ELIGIBILITY = { code: nil, label: nil }.freeze
 
@@ -30,6 +32,7 @@ module RpmsRpc
 
       codes.find { |row| row[:label] == label } || NIL_ELIGIBILITY
     end
+    shape :for_patient, resource: "eligibility", verb: "GET", path: "/patients/{dfn}/eligibility"
 
     # The server's active eligibility codes, [{ code:, label: }], from BI
     # TABLE ELIGIBILITY CODES (#9002084.83 .01 and .02) via BGOVIMM2 GETELIG.
@@ -39,5 +42,6 @@ module RpmsRpc
         { code: code, label: row[:label].to_s } unless code.empty?
       end
     end
+    shape :codes, resource: "eligibility", verb: "GET", path: "/eligibility/codes"
   end
 end

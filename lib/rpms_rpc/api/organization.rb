@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "ddr_fileman"
 
 module RpmsRpc
@@ -8,6 +9,7 @@ module RpmsRpc
   # VUECENTRIC. The earlier BHDO INST DATA name was registered nowhere (#207).
   module Organization
     extend self
+    extend Shape::Declarable
 
     FILE = 4
     # .01 NAME, 99 STATION NUMBER, 1.01 / 1.02 STREET ADDR. 1 / 2, 1.03 CITY,
@@ -39,6 +41,7 @@ module RpmsRpc
         phone: nil
       }
     end
+    shape :find, resource: "organizations", verb: "GET", path: "/organizations/{ien}"
 
     private
 
