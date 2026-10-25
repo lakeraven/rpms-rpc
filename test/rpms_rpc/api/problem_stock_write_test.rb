@@ -21,6 +21,11 @@ class ProblemStockWriteTest < Minitest::Test
   STOCK_RESULT_KEYS = %i[success ien raw].freeze
   STOCK_REFUSAL = { success: false, ien: nil, raw: nil }.freeze
 
+  # GMPLSAVE NEW / EN read these without $G (GMPLSAVE.m:105-113, :141, :15-16, :47-53).
+  ADD_REQUIRED_FIELD_KEYS = %w[.01 1.01 .05 .12 .13].freeze
+  EDIT_REQUIRED_ORIGINAL_KEYS = %w[.01 .05 .12 1.01 1.02].freeze
+  VALID_TYPE_1_02 = %w[P T H].freeze
+
   def teardown
     RpmsRpc.reset!
   end
@@ -34,11 +39,15 @@ class ProblemStockWriteTest < Minitest::Test
       m.seed_scalar(:problem_add_save, DFN, "1")
     end
 
+    fields = routine_valid_add_fields(
+      ".01" => "5042",
+      ".05" => "1^Hypertension narrative"
+    )
     result = RpmsRpc::Problem.add_stock(
       DFN,
       provider_duz: PROVIDER,
       vamc: VAMC,
-      fields: { ".01" => "Hypertension", "1.01" => "I10" },
+      fields: fields,
       comments: [ "follow-up" ]
     )
 
@@ -48,14 +57,7 @@ class ProblemStockWriteTest < Minitest::Test
     assert_equal [ DFN, PROVIDER, VAMC ], call[:params].first(3)
 
     values = ordered_list_values(call[:params][3])
-    assert_equal(
-      [
-        'GMPFLD(.01)="Hypertension"',
-        'GMPFLD(1.01)="I10"',
-        'GMPFLD(10,"NEW",1)="follow-up"'
-      ],
-      values
-    )
+    assert_equal expected_add_list_values(fields, comments: [ "follow-up" ]), values
     assert_equal (1..values.length).to_a, list_keys(call[:params][3])
 
     assert result[:success]
@@ -69,12 +71,14 @@ class ProblemStockWriteTest < Minitest::Test
       m.seed_scalar(:problem_edit_save, IEN, "1")
     end
 
+    originals = routine_valid_edit_originals(".05" => "1^Old narrative")
+    changes = { ".05" => "1^Updated narrative" }
     result = RpmsRpc::Problem.update_stock(
       IEN,
       provider_duz: PROVIDER,
       vamc: VAMC,
-      changes: { ".05" => "Updated narrative" },
-      originals: { ".05" => "Old narrative" },
+      changes: changes,
+      originals: originals,
       user_type: true,
       comments: [ "edited in CPRS" ]
     )
@@ -85,20 +89,19 @@ class ProblemStockWriteTest < Minitest::Test
     assert_equal [ IEN, PROVIDER, VAMC, "1" ], call[:params].first(4)
 
     values = ordered_list_values(call[:params][4])
-    assert_includes values, 'GMPFLD(.05)="Updated narrative"'
-    assert_includes values, 'GMPORIG(.05)="Old narrative"'
-    assert_includes values, 'GMPFLD(10,"NEW",1)="edited in CPRS"'
+    assert_equal expected_edit_list_values(originals, changes, comments: [ "edited in CPRS" ]), values
 
     RpmsRpc.reset!
     RpmsRpc.mock! do |m|
       m.seed_scalar(:problem_edit_save, IEN, "1")
     end
+    originals_with_10 = routine_valid_edit_originals("10" => "Acute")
     RpmsRpc::Problem.update_stock(
       IEN,
       provider_duz: PROVIDER,
       vamc: VAMC,
       changes: { 10 => "Chronic" },
-      originals: { 10 => "Acute" },
+      originals: originals_with_10,
       user_type: false
     )
     ut_call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORQQPL EDIT SAVE" }
@@ -120,10 +123,11 @@ class ProblemStockWriteTest < Minitest::Test
       DFN,
       provider_duz: PROVIDER,
       vamc: VAMC,
-      fields: { ".05" => quoted }
+      fields: routine_valid_add_fields(".05" => quoted)
     )
     add_values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
-    assert_equal [ 'GMPFLD(.05)="say ""hi"""' ], add_values
+    quote_line = add_values.find { |line| line.start_with?('GMPFLD(.05)="') }
+    assert_equal 'GMPFLD(.05)="say ""hi"""', quote_line
     assert_balanced_gmpfld_literal(add_values.first)
 
     RpmsRpc.reset!
@@ -135,9 +139,10 @@ class ProblemStockWriteTest < Minitest::Test
       DFN,
       provider_duz: PROVIDER,
       vamc: VAMC,
-      fields: { ".05" => injection }
+      fields: routine_valid_add_fields(".05" => injection)
     )
-    inj_line = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3]).first
+    inj_line = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
+      .find { |line| line.start_with?('GMPFLD(.05)="') }
     assert_equal 'GMPFLD(.05)="x"" K ^AUPNPROB S Y="""', inj_line
     assert_balanced_gmpfld_literal(inj_line)
   end
@@ -189,28 +194,32 @@ class ProblemStockWriteTest < Minitest::Test
       m.seed_scalar(:problem_add_save, DFN, "1")
     end
 
+    fields = routine_valid_add_fields(".01" => 12_345)
     RpmsRpc::Problem.add_stock(
       DFN,
       provider_duz: PROVIDER,
       vamc: VAMC,
-      fields: { ".01" => 12345 }
+      fields: fields
     )
 
     values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
-    assert_equal [ 'GMPFLD(.01)="12345"' ], values
+    assert_includes values, 'GMPFLD(.01)="12345"'
   end
 
   def test_stock_save_replies_fail_closed_except_bare_one_success
     [
       [ :problem_add_save, DFN, :add_stock,
         -> {
-          RpmsRpc::Problem.add_stock(DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => "x" })
+          RpmsRpc::Problem.add_stock(
+            DFN, provider_duz: PROVIDER, vamc: VAMC, fields: routine_valid_add_fields
+          )
         } ],
       [ :problem_edit_save, IEN, :update_stock,
         -> {
           RpmsRpc::Problem.update_stock(
             IEN, provider_duz: PROVIDER, vamc: VAMC,
-            changes: { ".01" => "n" }, originals: { ".01" => "o" }
+            changes: { ".05" => "1^n" },
+            originals: routine_valid_edit_originals
           )
         } ]
     ].each do |mapping, key, _method_name, invoke|
@@ -231,13 +240,16 @@ class ProblemStockWriteTest < Minitest::Test
     [
       [ :problem_add_save, DFN,
         -> {
-          RpmsRpc::Problem.add_stock(DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => "x" })
+          RpmsRpc::Problem.add_stock(
+            DFN, provider_duz: PROVIDER, vamc: VAMC, fields: routine_valid_add_fields
+          )
         } ],
       [ :problem_edit_save, IEN,
         -> {
           RpmsRpc::Problem.update_stock(
             IEN, provider_duz: PROVIDER, vamc: VAMC,
-            changes: { ".01" => "n" }, originals: { ".01" => "o" }
+            changes: { ".05" => "1^n" },
+            originals: routine_valid_edit_originals
           )
         } ]
     ].each do |mapping, key, invoke|
@@ -256,7 +268,7 @@ class ProblemStockWriteTest < Minitest::Test
         m.seed_scalar(:problem_add_save, DFN, reply)
       end
       result = RpmsRpc::Problem.add_stock(
-        DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => "x" }
+        DFN, provider_duz: PROVIDER, vamc: VAMC, fields: routine_valid_add_fields
       )
       refute result[:success], "reply #{reply.inspect} must never read as success"
       assert_stock_result_shape(result)
@@ -267,7 +279,7 @@ class ProblemStockWriteTest < Minitest::Test
     RpmsRpc.mock! do |m|
     end
     empty_result = RpmsRpc::Problem.add_stock(
-      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => "x" }
+      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: routine_valid_add_fields
     )
     refute empty_result[:success], "empty broker reply must fail closed"
     assert_stock_result_shape(empty_result)
@@ -299,7 +311,7 @@ class ProblemStockWriteTest < Minitest::Test
       m.seed_scalar(:problem_add_save, DFN, "1")
     end
     add_success = RpmsRpc::Problem.add_stock(
-      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => "x" }
+      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: routine_valid_add_fields
     )
     assert_equal STOCK_RESULT_KEYS.sort, add_success.keys.sort
     assert add_success[:success]
@@ -310,7 +322,7 @@ class ProblemStockWriteTest < Minitest::Test
       m.seed_scalar(:problem_add_save, DFN, "0^rejected")
     end
     add_failure = RpmsRpc::Problem.add_stock(
-      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => "x" }
+      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: routine_valid_add_fields
     )
     assert_equal STOCK_RESULT_KEYS.sort, add_failure.keys.sort
     refute add_failure[:success]
@@ -323,7 +335,8 @@ class ProblemStockWriteTest < Minitest::Test
     end
     update_success = RpmsRpc::Problem.update_stock(
       IEN, provider_duz: PROVIDER, vamc: VAMC,
-      changes: { ".01" => "n" }, originals: { ".01" => "o" }
+      changes: { ".05" => "1^n" },
+      originals: routine_valid_edit_originals
     )
     assert_equal STOCK_RESULT_KEYS.sort, update_success.keys.sort
     assert update_success[:success]
@@ -337,11 +350,12 @@ class ProblemStockWriteTest < Minitest::Test
     end
 
     RpmsRpc::Problem.add_stock(
-      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => "x" }
+      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: routine_valid_add_fields
     )
     RpmsRpc::Problem.update_stock(
       IEN, provider_duz: PROVIDER, vamc: VAMC,
-      changes: { ".01" => "n" }, originals: { ".01" => "o" }
+      changes: { ".05" => "1^n" },
+      originals: routine_valid_edit_originals
     )
 
     refute_bgoprob_or_ddr_calls
@@ -398,20 +412,15 @@ class ProblemStockWriteTest < Minitest::Test
       m.seed_scalar(:problem_add_save, DFN, "1")
     end
 
+    fields = routine_valid_add_fields(
+      ".01" => "a", "1" => "b", "1.01" => "c", "10" => "d"
+    )
     RpmsRpc::Problem.add_stock(
       DFN, provider_duz: PROVIDER, vamc: VAMC,
-      fields: { ".01" => "a", "1" => "b", "1.01" => "c", 10 => "d" }
+      fields: fields
     )
     values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
-    assert_equal(
-      [
-        'GMPFLD(.01)="a"',
-        'GMPFLD(1)="b"',
-        'GMPFLD(1.01)="c"',
-        'GMPFLD(10)="d"'
-      ],
-      values
-    )
+    assert_equal expected_add_list_values(fields), values
   end
 
   def test_values_and_comments_must_be_valid_utf8_bytes_before_any_rpc
@@ -441,7 +450,8 @@ class ProblemStockWriteTest < Minitest::Test
       -> {
         RpmsRpc::Problem.update_stock(
           IEN, provider_duz: PROVIDER, vamc: VAMC,
-          changes: { ".01" => invalid }, originals: { ".01" => "was" }
+          changes: { ".05" => invalid },
+          originals: routine_valid_edit_originals
         )
       }
     )
@@ -449,7 +459,8 @@ class ProblemStockWriteTest < Minitest::Test
       -> {
         RpmsRpc::Problem.update_stock(
           IEN, provider_duz: PROVIDER, vamc: VAMC,
-          changes: { ".01" => "now" }, originals: { ".01" => invalid }
+          changes: { ".05" => "1^now" },
+          originals: routine_valid_edit_originals(".05" => invalid)
         )
       }
     )
@@ -457,14 +468,108 @@ class ProblemStockWriteTest < Minitest::Test
       -> {
         RpmsRpc::Problem.update_stock(
           IEN, provider_duz: PROVIDER, vamc: VAMC,
-          changes: { ".01" => "now" }, originals: { ".01" => "was" },
+          changes: { ".05" => "1^now" },
+          originals: routine_valid_edit_originals,
           comments: [ invalid ]
         )
       }
     )
   end
 
-  def test_update_stock_requires_gmporig_for_every_changed_field_before_any_rpc
+  def test_add_stock_refuses_missing_required_fields_before_any_rpc
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+    end
+
+    complete = routine_valid_add_fields
+    ADD_REQUIRED_FIELD_KEYS.each do |key|
+      incomplete = complete.except(key)
+      assert_stock_refused_before_rpc(
+        -> {
+          RpmsRpc::Problem.add_stock(
+            DFN, provider_duz: PROVIDER, vamc: VAMC, fields: incomplete
+          )
+        },
+        "missing required field #{key}"
+      )
+    end
+  end
+
+  def test_field_values_with_semicolon_and_invalid_1_02_are_refused_before_any_rpc
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    dr_injection = "301;.12////I"
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: routine_valid_add_fields("1.05" => dr_injection)
+        )
+      },
+      "semicolon in field value injects DR segments (GMPLSAVE.m:57-59)"
+    )
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".05" => "1^bad;segment" },
+          originals: routine_valid_edit_originals
+        )
+      }
+    )
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: routine_valid_add_fields("1.02" => "X")
+        )
+      }
+    )
+
+    VALID_TYPE_1_02.each do |code|
+      RpmsRpc.client.received_calls.clear
+      result = RpmsRpc::Problem.add_stock(
+        DFN, provider_duz: PROVIDER, vamc: VAMC,
+        fields: routine_valid_add_fields("1.02" => code)
+      )
+      assert result[:success], "1.02=#{code} is allowed (GMPLSAVE.m:49)"
+    end
+  end
+
+  def test_stock_write_refuses_comments_containing_caret_before_any_rpc
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: routine_valid_add_fields,
+          comments: [ "note^breaks NEWNOTE delimiter (GMPLSAVE.m:202)" ]
+        )
+      }
+    )
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.update_stock(
+          IEN, provider_duz: PROVIDER, vamc: VAMC,
+          changes: { ".05" => "1^new" },
+          originals: routine_valid_edit_originals,
+          comments: [ "caret^here" ]
+        )
+      }
+    )
+  end
+
+  def test_update_stock_refuses_incomplete_originals_or_changes_outside_originals
     RpmsRpc.mock! do |m|
       m.seed_scalar(:problem_edit_save, IEN, "1")
     end
@@ -473,23 +578,85 @@ class ProblemStockWriteTest < Minitest::Test
       -> {
         RpmsRpc::Problem.update_stock(
           IEN, provider_duz: PROVIDER, vamc: VAMC,
-          changes: { ".01" => "new" }, originals: {}
+          changes: { ".05" => "1^new" }, originals: {}
         )
       }
     )
+
+    complete = routine_valid_edit_originals
+    EDIT_REQUIRED_ORIGINAL_KEYS.each do |key|
+      assert_stock_refused_before_rpc(
+        -> {
+          RpmsRpc::Problem.update_stock(
+            IEN, provider_duz: PROVIDER, vamc: VAMC,
+            changes: { ".05" => "1^new" },
+            originals: complete.except(key)
+          )
+        },
+        "originals missing required #{key}"
+      )
+    end
+
     assert_stock_refused_before_rpc(
       -> {
         RpmsRpc::Problem.update_stock(
           IEN, provider_duz: PROVIDER, vamc: VAMC,
-          changes: { ".01" => "new", ".05" => "also" }, originals: { ".01" => "old" }
+          changes: { ".13" => "9" },
+          originals: routine_valid_edit_originals
+        )
+      },
+      "changes must not include fields absent from originals"
+    )
+  end
+
+  def test_invalid_encoding_on_field_keys_and_id_literals_returns_failure_not_exception
+    invalid_key = ".01\xFF".dup.force_encoding(Encoding::UTF_8)
+    invalid_id = "1\xFF".dup.force_encoding(Encoding::UTF_8)
+
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:problem_add_save, DFN, "1")
+      m.seed_scalar(:problem_edit_save, IEN, "1")
+    end
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          invalid_id,
+          provider_duz: PROVIDER,
+          vamc: VAMC,
+          fields: routine_valid_add_fields
         )
       }
     )
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN,
+          provider_duz: invalid_id,
+          vamc: VAMC,
+          fields: routine_valid_add_fields
+        )
+      }
+    )
+
+    assert_stock_refused_before_rpc(
+      -> {
+        RpmsRpc::Problem.add_stock(
+          DFN, provider_duz: PROVIDER, vamc: VAMC,
+          fields: routine_valid_add_fields.merge(invalid_key => "ok")
+        )
+      }
+    )
+
     assert_stock_refused_before_rpc(
       -> {
         RpmsRpc::Problem.update_stock(
-          IEN, provider_duz: PROVIDER, vamc: VAMC,
-          changes: { ".01" => "new" }, originals: { ".01" => "old", ".05" => "extra" }
+          invalid_id,
+          provider_duz: PROVIDER,
+          vamc: VAMC,
+          changes: { ".05" => "1^n" },
+          originals: routine_valid_edit_originals
         )
       }
     )
@@ -543,7 +710,7 @@ class ProblemStockWriteTest < Minitest::Test
       -> {
         RpmsRpc::Problem.add_stock(
           DFN, provider_duz: PROVIDER, vamc: VAMC,
-          fields: { ".01" => "x" }, comments: [ long_comment ]
+          fields: routine_valid_add_fields, comments: [ long_comment ]
         )
       }
     )
@@ -555,7 +722,8 @@ class ProblemStockWriteTest < Minitest::Test
       -> {
         RpmsRpc::Problem.update_stock(
           IEN, provider_duz: PROVIDER, vamc: VAMC,
-          changes: { ".05" => "n" }, originals: { ".05" => gmporig_over }
+          changes: { ".05" => "n" },
+          originals: routine_valid_edit_originals(".05" => gmporig_over)
         )
       }
     )
@@ -571,7 +739,8 @@ class ProblemStockWriteTest < Minitest::Test
     assert_equal 999, built_gmpfld_line(".01", at_limit).bytesize
 
     result = RpmsRpc::Problem.add_stock(
-      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => at_limit }
+      DFN, provider_duz: PROVIDER, vamc: VAMC,
+      fields: routine_valid_add_fields(".01" => at_limit)
     )
     assert result[:success]
     add_line = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3]).first
@@ -583,7 +752,8 @@ class ProblemStockWriteTest < Minitest::Test
     assert_equal 999, built_gmpfld_line(".01", utf8_at_limit).bytesize
 
     result = RpmsRpc::Problem.add_stock(
-      DFN, provider_duz: PROVIDER, vamc: VAMC, fields: { ".01" => utf8_at_limit }
+      DFN, provider_duz: PROVIDER, vamc: VAMC,
+      fields: routine_valid_add_fields(".01" => utf8_at_limit)
     )
     assert result[:success]
     utf8_line = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3]).first
@@ -595,7 +765,7 @@ class ProblemStockWriteTest < Minitest::Test
 
     result = RpmsRpc::Problem.add_stock(
       DFN, provider_duz: PROVIDER, vamc: VAMC,
-      fields: { ".01" => "x" }, comments: [ comment_text ]
+      fields: routine_valid_add_fields, comments: [ comment_text ]
     )
     assert result[:success]
     values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][3])
@@ -608,7 +778,8 @@ class ProblemStockWriteTest < Minitest::Test
 
     result = RpmsRpc::Problem.update_stock(
       IEN, provider_duz: PROVIDER, vamc: VAMC,
-      changes: { ".05" => "new" }, originals: { ".05" => orig_at_limit }
+      changes: { ".05" => "new" },
+      originals: routine_valid_edit_originals(".05" => orig_at_limit)
     )
     assert result[:success]
     edit_values = ordered_list_values(RpmsRpc.client.received_calls.last[:params][4])
@@ -689,6 +860,40 @@ class ProblemStockWriteTest < Minitest::Test
 
   private
 
+  def routine_valid_add_fields(overrides = {})
+    {
+      ".01" => "5042",
+      "1.01" => "1^Unresolved",
+      ".05" => "1^Synthetic problem narrative",
+      ".12" => "A",
+      ".13" => "1"
+    }.merge(overrides)
+  end
+
+  def routine_valid_edit_originals(overrides = {})
+    {
+      ".01" => "5042",
+      "1.01" => "1^Unresolved",
+      ".05" => "1^Synthetic problem narrative",
+      ".12" => "A",
+      "1.02" => "T"
+    }.merge(overrides)
+  end
+
+  def expected_add_list_values(fields, comments: [])
+    field_lines = fields.map { |field, value| built_gmpfld_line(field, value) }
+    comment_lines = comments.each_with_index.map { |text, index| built_gmpfld_comment_line(index + 1, text) }
+    field_lines + comment_lines
+  end
+
+  def expected_edit_list_values(originals, changes, comments: [])
+    merged = originals.merge(changes)
+    gmpfld_lines = merged.map { |field, value| built_gmpfld_line(field, value) }
+    gmporig_lines = originals.map { |field, value| built_gmporig_line(field, value) }
+    comment_lines = comments.each_with_index.map { |text, index| built_gmpfld_comment_line(index + 1, text) }
+    gmpfld_lines + gmporig_lines + comment_lines
+  end
+
   def assert_stock_result_shape(result)
     assert_equal STOCK_RESULT_KEYS.sort, result.keys.sort
   end
@@ -714,14 +919,15 @@ class ProblemStockWriteTest < Minitest::Test
         slot == :dfn ? id_value : DFN,
         provider_duz: slot == :provider_duz ? id_value : PROVIDER,
         vamc: slot == :vamc ? id_value : VAMC,
-        fields: { ".01" => "x" }
+        fields: routine_valid_add_fields
       )
     when :update_stock
       RpmsRpc::Problem.update_stock(
         slot == :ien ? id_value : IEN,
         provider_duz: slot == :provider_duz ? id_value : PROVIDER,
         vamc: slot == :vamc ? id_value : VAMC,
-        changes: { ".01" => "n" }, originals: { ".01" => "o" }
+        changes: { ".05" => "1^n" },
+        originals: routine_valid_edit_originals
       )
     else
       flunk "unknown stock write #{method}"
