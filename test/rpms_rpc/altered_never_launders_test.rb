@@ -44,7 +44,7 @@ class RpmsRpc::AlteredNeverLaundersTest < Minitest::Test
   end
 
   def test_a_reply_cannot_be_built_with_the_array_constructor
-    assert_raises(NoMethodError) { RpmsRpc::Reply[ "1^LATEX" ] }
+    assert_raises(NoMethodError) { RpmsRpc::Reply.public_send(:[], "1^LATEX") }
   end
 
   def test_every_reply_answers_altered_without_raising
