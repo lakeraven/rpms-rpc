@@ -209,6 +209,7 @@ module RpmsRpc
       )
       parse_save_reply(raw)
     end
+    shape :save, resource: "orders", verb: "POST", path: "/patients/{dfn}/orders"
 
     private
 
