@@ -46,6 +46,14 @@ class RpmsRpc::AllergyAlteredConflictTest < Minitest::Test
     refute result[:allergies].first.key?(:altered)
   end
 
+  def test_a_utf8_tagged_invalid_line_in_a_plain_array_is_flagged_altered
+    result = assess([ "1^PEN\xFFICILLIN" ])
+
+    assert_equal true, result[:assessed]
+    refute result.key?(:conflict)
+    assert_equal [ true ], result[:allergies].map { |row| row[:altered] }
+  end
+
   def test_an_altered_marker_is_never_nka
     result = assess(RpmsRpc::Reply.from_wire([ "^No Known Allergies\xFF".b ]))
 
