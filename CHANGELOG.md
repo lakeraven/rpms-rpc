@@ -104,6 +104,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session context change and the restore is best-effort, so the method is no longer auto-retry-safe even
   though the RPC only returns data. `Patient.address`, `Patient.race` and `Practitioner.detail` are
   classed the same way.
+- The published HTTP route for `Patient.contact` changes from `GET /patients/{dfn}/contact` to
+  `POST /patients/{dfn}/contact`, and its row leaves the read-GET route fixture.
+- `Patient.contact` now refuses a DFN that is not a positive whole number before the wire. Previously a value
+  such as `"42abc"` was coerced with `to_i` and read as 42.
 
 ### Added — XWB and BMX sign-on bind the division (DUZ(2)) as the stock XWB client does (#450)
 

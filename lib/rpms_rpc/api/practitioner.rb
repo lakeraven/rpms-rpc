@@ -110,10 +110,13 @@ module RpmsRpc
     #     npi:, npi_entry_status:, dea_number:, dea_expires: }
     #
     # Values are the external form. npi is non-nil only when 41.97
-    # AUTHORIZE RELEASE OF NPI has internal "1" exactly. The code set is
-    # unverified live, so anything else, including "Y", "YES", and empty,
-    # withholds it. dea_expires is a Date from the 747.44 internal FileMan
-    # date, nil when that value is empty or unparseable.
+    # AUTHORIZE RELEASE OF NPI has internal "1" exactly. ^DD(200,41.97,0) is
+    # the set "1:Yes", so "1" is the only non-empty internal the field can
+    # hold; anything else, including "Y", "YES", and empty, withholds it
+    # (fail closed). npi_entry_status is the label of the 41.98 set
+    # (N:NEEDS ENTRY;E:EXEMPT;D:DONE), not its code. dea_expires is a Date
+    # from the 747.44 internal FileMan date, nil when that value is empty or
+    # unparseable.
     #
     # nil for a blank or non-positive DUZ (the same guard as #roles), no
     # broker reply, a FileMan error, or a reply with no field rows.
