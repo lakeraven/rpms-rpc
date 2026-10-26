@@ -4,13 +4,20 @@ require_relative "../shape"
 require_relative "../reply"
 
 module RpmsRpc
-  # Symbolic API for patient allergies (ORQQAL LIST). The RPC is
+  # Symbolic API for patient allergies. The read is ORQQAL LIST,
   # three-state (LIST^ORQQAL — ORQQAL.m:7): not-assessed
   # ("^No Allergy Assessment"), assessed with no known allergies
   # ("^No Known Allergies"), or assessed with allergy records. Use
   # {assessment} when the caller must distinguish NKA from unassessed
   # (FHIR AllergyIntolerance must); {for_patient} keeps the plain
   # record-array shape.
+  #
+  # The write is ORWDAL32 SAVE ALLERGY, EDITSAVE^ORWDAL32
+  # (ORWDAL32.m:119): ORALIEN "" adds, ORDFN is the patient, and
+  # OREDITED is merged into ^TMP("GMRA",$J) (ORWDAL32.m:124).
+  # GMRANKA="YES" is NKA^GMRAGUI1 (ORWDAL32.m:127); otherwise
+  # UPDATE^GMRAGUI1 (ORWDAL32.m:128). The new #120.8 IEN stays inside
+  # UPDATE and is not returned — re-read the list to find the entry.
   module Allergy
     extend self
     extend Shape::Declarable
@@ -63,6 +70,59 @@ module RpmsRpc
     # UTF-8 (RpmsRpc::Reply#altered_lines, rpms-rpc#463).
     Line = Struct.new(:text, :unrecognised, :exact, :altered)
     private_constant :Line
+
+    # EDITSAVE^ORWDAL32 (ORWDAL32.m:119). Return type is a single value.
+    SAVE_ALLERGY_RPC = "ORWDAL32 SAVE ALLERGY"
+
+    # UPDATE^GMRAGUI1 reads these named subscripts (GMRAGUI1.m:104).
+    # GMRAGNT is "agent^variable pointer" (GMRAGUI1.m:89, :106).
+    REQUIRED_FIELDS = %i[
+      agent agent_pointer type nature originator originated_at observed_or_historical
+    ].freeze
+
+    # An empty string on these is an invalid value, not a missing field.
+    # nil is still absence ({absent_required}).
+    FORMAT_FIELDS = %i[agent_pointer originated_at type nature].freeze
+
+    # GMRAOBHX is exactly "o" (observed) or "h" (historical) (GMRAGUI1.m:135).
+    OBHX = %w[o h].freeze
+
+    # GMRAGNT piece 2 is "IEN;GLOBAL(FILE," (GMRAGUI1.m:106) or a global root
+    # with no file number, "IEN;GLOBAL(" (ORWDAL32.m:30, ^PSDRUG( is file 50).
+    # A file number still needs its trailing comma: "45;PSDRUG(1", a lowercase
+    # root, and "0;..." are not pointers.
+    AGENT_POINTER = /\A[1-9]\d*;[A-Z][A-Z0-9]*\((\d+(\.\d+)?,)?\z/
+
+    # GMRAORDT (GMRAGUI1.m:104) and GMRARDT (GMRAGUI1.m:137 stock / :135 FOIA).
+    FILEMAN_DATE = /\A\d{7}(\.\d{1,6})?\z/
+
+    # GMRATYPE (field 3.1) is one or more distinct letters from D, F, O
+    # (ORWDAL32.m:81). "DD" repeats one; "ZZ" is outside the set.
+    TYPE = /\A[DFO]+\z/
+
+    # GMRANATR (field 17) is A, P or U (ORWDAL32.m:77).
+    NATURE = %w[A P U].freeze
+
+    # GMRASEVR is "1" mild, "2" moderate or "3" severe (ORWDAL32.m:88-89).
+    SEVERITY = %w[1 2 3].freeze
+
+    # "-1^Patient already has a <agent> reaction entered.  No duplicates allowed."
+    # (GMRAGUI1.m:89). Two spaces before "No".
+    DUPLICATE_REPLY = %r{\A-1\^Patient already has a .+ reaction entered\.  No duplicates allowed\.\z}
+
+    # MESS^GMRAGUI1 joins the two sentences with two spaces
+    # (GMRAGUI1.m:160 stock / :157 FOIA).
+    LOCK_REPLY = "-1^Another user is editing this patient's allergy information.  " \
+                 "Please refresh/review the patient's information before proceeding."
+
+    # NKA^GMRAGUI1 (GMRAGUI1.m:75).
+    ACTIVE_ALLERGIES_REPLY = "-1^Patient has active allergies - can't mark as NKA"
+
+    # NKA^GMRAGUI1 file-header and record locks (GMRAGUI1.m:76, :80).
+    ASSESSMENT_UPDATE_REPLY = "-1^Unable to update assessment - try again."
+
+    # "0" or "0^<note IEN>" (GMRAGUI1.m:149 stock / :147 FOIA).
+    SUCCESS_REPLY = /\A0(?:\^(\d+))?\z/
 
     # Allergy records only. An NKA or unassessed patient yields [] —
     # callers that need to tell those apart must use {assessment}. The rows
@@ -186,6 +246,67 @@ module RpmsRpc
       { assessed: !allergies.empty?, nka: false, allergies: allergies }
     end
     shape :assessment, resource: "allergies", verb: "GET", path: "/patients/{dfn}/allergies/assessment"
+
+    # Add an allergy. ORALIEN "" is new: UPDATE sets NEW='$G(GMRAIEN)
+    # (GMRAGUI1.m:88) and EDITSAVE passes that ORALIEN through
+    # (ORWDAL32.m:128). OREDITED carries GMRAGNT, GMRATYPE, GMRANATR,
+    # GMRAORIG, GMRAORDT, GMRAOBHX (GMRAGUI1.m:104), optional
+    # GMRASYMP(n) (GMRAGUI1.m:120 stock / :118 FOIA) and GMRACMTS(n)
+    # (GMRAGUI1.m:118 stock / :116 FOIA) as two-level subscripts, and
+    # optional GMRARDT / GMRASEVR (GMRAGUI1.m:137 stock / :135 FOIA).
+    # nil or "" reaction_date and severity are absent: not validated and
+    # not put in OREDITED (GMRAGUI1.m:137 $G of a missing subscript).
+    #
+    #   save(dfn, allergy) => { success: true, note_ien: Integer or nil }
+    #                     or { success: false, error:, message: }
+    # A value the wire cannot frame is
+    # { success: false, error: :frame_too_long, message: } (#472).
+    #
+    # Refused before the RPC: a "^" or a control in any filed value ($P on
+    # U drops the rest — GMRAGUI1.m:105), including optional GMRARDT and
+    # GMRASEVR when present (GMRAGUI1.m:137 stock / :135 FOIA); GMRAOBHX
+    # other than "o"/"h" (GMRAGUI1.m:135); a GMRAORIG that is not a
+    # positive DUZ (GMRAGUI1.m:104); symptoms that are not an Array of
+    # Hashes (GMRAGUI1.m:122) whose :ien is a positive canonical integer
+    # or exactly "FT" (GMRAGUI1.m:126), whose :text is visible text
+    # ({visible?}; piece 2 is a GMRAROT subscript at GMRAGUI1.m:132, and
+    # a blank, whitespace-only or invisible-only piece is a null
+    # subscript after the entry is filed) and whose :date, when present
+    # and non-blank, is a FileMan date
+    # (GMRAGUI1.m:130); or comments that are not an Array of Strings
+    # (GMRAGUI1.m:118). GMRAGNT's pointer is "IEN;GLOBAL(FILE,"
+    # (GMRAGUI1.m:106) or a global root with no file number,
+    # "IEN;GLOBAL(" (ORWDAL32.m:30, ^PSDRUG( is file 50). GMRAORDT and a
+    # present GMRARDT are FileMan dates, a present GMRASEVR is "1", "2"
+    # or "3", or the Integer 1, 2 or 3 sent as that String
+    # (ORWDAL32.m:88-89), GMRATYPE is one or more distinct letters from
+    # D, F and O (ORWDAL32.m:81), and GMRANATR is A, P or U
+    # (ORWDAL32.m:77).
+    def save(dfn, allergy)
+      patient = canonical_dfn(dfn)
+      return invalid_dfn unless patient
+
+      missing = absent_required(allergy)
+      return missing_allergy(missing) unless missing.empty?
+
+      refusal = refused_allergy(allergy)
+      return refusal if refusal
+
+      dispatch(patient, edited_list(allergy))
+    end
+    shape :save, resource: "allergies", verb: "POST", path: "/patients/{dfn}/allergies"
+
+    # Record no known allergies. OREDITED("GMRANKA")="YES" selects
+    # NKA^GMRAGUI1 (ORWDAL32.m:127, GMRAGUI1.m:68); ORALIEN is "".
+    # Already-NKA leaves ORY at the 0 EDITSAVE set (ORWDAL32.m:125,
+    # GMRAGUI1.m:74).
+    def no_known_allergies(dfn)
+      patient = canonical_dfn(dfn)
+      return invalid_dfn unless patient
+
+      dispatch(patient, { "GMRANKA" => "YES" })
+    end
+    shape :no_known_allergies, resource: "allergies", verb: "POST", path: "/patients/{dfn}/allergies/no-known"
 
     private
 
@@ -395,6 +516,270 @@ module RpmsRpc
     def split_lines(text)
       breaks = [ Encoding::UTF_8, Encoding::BINARY, Encoding::US_ASCII ].include?(text.encoding) ? UTF8_LINE_BREAK : ASCII_LINE_BREAK
       text.b.split(breaks).map { |line| line.force_encoding(text.encoding) }
+    end
+
+    # A DFN is a positive canonical integer: a positive Integer, or a
+    # string of digits with no leading zero and no trailing junk
+    # ("12abc" is not 12).
+    def canonical_dfn(value)
+      case value
+      when Integer then value.positive? ? value.to_s : nil
+      when String then value.match?(/\A[1-9]\d*\z/) ? value : nil
+      end
+    end
+
+    def absent_required(allergy)
+      return REQUIRED_FIELDS unless allergy.is_a?(Hash)
+
+      REQUIRED_FIELDS.select { |field| absent_value?(field, allergy[field]) }
+    end
+
+    # nil is absence. A blank string on a {FORMAT_FIELDS} field is refused
+    # by the format checks in {refused_allergy} (an empty GMRATYPE is not
+    # "one or more" letters), so it is not reported as missing.
+    def absent_value?(field, value)
+      return false if value.is_a?(String) && blank_field?(value) && FORMAT_FIELDS.include?(field)
+
+      blank_field?(value)
+    end
+
+    def blank_field?(value)
+      value.nil? || value.to_s.strip.empty?
+    end
+
+    def invalid_dfn
+      { success: false, error: :invalid_dfn, message: "a positive DFN is required" }
+    end
+
+    def missing_allergy(fields)
+      { success: false, error: :missing_fields, message: "missing #{fields.join(", ")}" }
+    end
+
+    def invalid_value(field)
+      { success: false, error: :invalid_value, message: "invalid #{field}" }
+    end
+
+    # See {save}. A blank GMRASYMP first piece is not stored (GMRAGUI1.m:122).
+    # :ien is a positive canonical integer or exactly "FT" (GMRAGUI1.m:126);
+    # :text is visible text ({visible?}; GMRAGUI1.m:132); :date, when
+    # present and non-blank, is a FileMan date (GMRAGUI1.m:130).
+    # Shape and caret checks stay ahead of the format checks, so a value
+    # that fails both is named by the earlier one. Present reaction_date
+    # and severity (not nil or "") are in that caret check, so a caret
+    # there is named before a type, nature or other format fault.
+    def refused_allergy(allergy)
+      return invalid_value(:symptoms) unless symptoms_shape?(allergy[:symptoms])
+      return invalid_value(:comments) unless comments_ok?(allergy[:comments])
+
+      field = unsafe_field(allergy)
+      return invalid_value(field) if field
+
+      return invalid_value(:symptoms) unless symptoms_ok?(allergy[:symptoms])
+      return invalid_value(:observed_or_historical) unless OBHX.include?(allergy[:observed_or_historical])
+      return invalid_value(:originator) unless canonical_dfn(allergy[:originator])
+      return invalid_value(:agent_pointer) unless agent_pointer_ok?(allergy[:agent_pointer])
+      return invalid_value(:originated_at) unless fileman_date?(allergy[:originated_at])
+      return invalid_value(:type) unless type_ok?(allergy[:type])
+      return invalid_value(:nature) unless NATURE.include?(allergy[:nature])
+      return invalid_value(:reaction_date) unless reaction_date_ok?(allergy[:reaction_date])
+      return invalid_value(:severity) unless severity_ok?(allergy[:severity])
+
+      nil
+    end
+
+    # Array of Hashes, or absent. :ien / :text / :date format is
+    # {symptom_ok?}, and it runs after the caret check.
+    def symptoms_shape?(symptoms)
+      return true if symptoms.nil?
+      return false unless symptoms.is_a?(Array)
+
+      symptoms.all? { |symptom| symptom.is_a?(Hash) }
+    end
+
+    def symptoms_ok?(symptoms)
+      return true if symptoms.nil?
+      return false unless symptoms.is_a?(Array)
+
+      symptoms.all? { |symptom| symptom_ok?(symptom) }
+    end
+
+    # :ien is a positive canonical integer or exactly "FT" (GMRAGUI1.m:126).
+    # :text is visible text ({visible?}). Piece 2 is the GMRAROT subscript
+    # (GMRAGUI1.m:132) after the entry is filed, so a blank,
+    # whitespace-only or invisible-only piece is a null subscript.
+    # :date, when present and non-blank, is a FileMan date
+    # (GMRAGUI1.m:130).
+    def symptom_ok?(symptom)
+      return false unless symptom.is_a?(Hash)
+      return false unless symptom[:ien] == "FT" || canonical_dfn(symptom[:ien])
+      return false unless symptom[:text].is_a?(String) && visible?(symptom[:text])
+
+      omitted?(symptom[:date]) || fileman_date?(symptom[:date])
+    end
+
+    def comments_ok?(comments)
+      return true if comments.nil?
+      return false unless comments.is_a?(Array)
+
+      comments.all? { |line| line.is_a?(String) }
+    end
+
+    def unsafe_field(allergy)
+      bad = REQUIRED_FIELDS.find { |field| unsafe_text?(allergy[field]) }
+      return bad if bad
+
+      bad = unsafe_symptom(allergy[:symptoms])
+      return bad if bad
+
+      return :comment if allergy[:comments]&.any? { |line| unsafe_text?(line) }
+
+      # nil and "" are absent, not a caret (GMRAGUI1.m:137 $G).
+      %i[reaction_date severity].find { |field| !omitted?(allergy[field]) && unsafe_text?(allergy[field]) }
+    end
+
+    def unsafe_symptom(symptoms)
+      Array(symptoms).filter_map { |symptom| symptom.keys.find { |name| unsafe_text?(symptom[name]) } }.first
+    end
+
+    # "^" splits a piece (GMRAGUI1.m:105); ASCII controls are frame bytes.
+    def unsafe_text?(value)
+      text = value.to_s
+      text.include?("^") || text.match?(CONTROL)
+    end
+
+    def agent_pointer_ok?(value)
+      value.to_s.match?(AGENT_POINTER)
+    end
+
+    def fileman_date?(value)
+      value.to_s.match?(FILEMAN_DATE)
+    end
+
+    # Distinct letters from D, F, O (ORWDAL32.m:81). "DD" repeats one.
+    def type_ok?(value)
+      text = value.to_s
+      text.match?(TYPE) && text.chars.uniq.size == text.size
+    end
+
+    # GMRARDT, when present, is a FileMan date (GMRAGUI1.m:137). A caret
+    # or control is named earlier, in {unsafe_field}, before type and
+    # nature. nil and "" are absent (GMRAGUI1.m:137 $G): not validated.
+    def reaction_date_ok?(value)
+      return true if omitted?(value)
+
+      fileman_date?(value)
+    end
+
+    # A present GMRASEVR is "1", "2" or "3" (ORWDAL32.m:88-89). Integer
+    # 1, 2 or 3 is that code. A caret or control is named earlier, in
+    # {unsafe_field}, before type and nature. nil and "" are absent
+    # (GMRAGUI1.m:137 $G): not validated. Any other value is refused.
+    def severity_ok?(value)
+      return true if omitted?(value)
+
+      SEVERITY.include?(severity_code(value))
+    end
+
+    # The String filed in GMRASEVR, or nil when +value+ is not a String
+    # or Integer. SEVERITY#include? then keeps only "1", "2" and "3".
+    def severity_code(value)
+      case value
+      when String, Integer then value.to_s
+      end
+    end
+
+    # nil or "" is not a filed value. $G of a missing subscript is ""
+    # (GMRAGUI1.m:137), so the subscript is left out of OREDITED.
+    def omitted?(value)
+      value.nil? || value == ""
+    end
+
+    # GMRASYMP(n)="ien^text^FileMan date" and GMRACMTS(n)=comment
+    # (GMRAGUI1.m:120, :118 stock). Array keys are the two-level
+    # subscripts CiaClient#m_subscript / XwbClient#m_subscript encode.
+    # nil or "" GMRARDT / GMRASEVR are left out (GMRAGUI1.m:137 $G).
+    # Integer severity is filed as the String code.
+    def edited_list(allergy)
+      edited = {
+        "GMRAGNT" => "#{allergy[:agent]}^#{allergy[:agent_pointer]}",
+        "GMRATYPE" => allergy[:type],
+        "GMRANATR" => allergy[:nature],
+        "GMRAORIG" => allergy[:originator].to_s,
+        "GMRAORDT" => allergy[:originated_at],
+        "GMRAOBHX" => allergy[:observed_or_historical]
+      }
+      allergy[:symptoms]&.each_with_index do |symptom, idx|
+        edited[[ "GMRASYMP", idx + 1 ]] = "#{symptom[:ien]}^#{symptom[:text]}^#{symptom[:date]}"
+      end
+      allergy[:comments]&.each_with_index do |line, idx|
+        edited[[ "GMRACMTS", idx + 1 ]] = line
+      end
+      edited["GMRARDT"] = allergy[:reaction_date] unless omitted?(allergy[:reaction_date])
+      edited["GMRASEVR"] = severity_code(allergy[:severity]) unless omitted?(allergy[:severity])
+      edited
+    end
+
+    def dispatch(dfn, edited)
+      raw = RpmsRpc.client.call_rpc(SAVE_ALLERGY_RPC, "", dfn, edited)
+      classify_reply(raw)
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A value the wire would mis-frame is refused before anything is sent
+      # (#472); this API's contract is a failure hash, so it says why.
+      failure.merge(error: :frame_too_long, message: e.message)
+    end
+
+    def failure
+      { success: false }
+    end
+
+    def classify_reply(raw)
+      text = reply_text(raw)
+      return { success: false, error: :empty_reply, message: "" } if text.nil?
+      return { success: false, error: :malformed_reply, message: raw.to_s } unless text.is_a?(String)
+
+      if (match = text.match(SUCCESS_REPLY))
+        note = match[1]
+        return { success: true, note_ien: note ? note.to_i : nil }
+      end
+
+      if text.start_with?("-1^")
+        return { success: false, error: error_for(text), message: text }
+      end
+
+      { success: false, error: :malformed_reply, message: text }
+    end
+
+    # [], "", and nil are empty. A one-element Array is the single ORY line
+    # live XWB/CIA clients return; trailing $C(30)/$C(31) are framing, not
+    # data (DataMapper.strip_recordset_separators). Any other non-String —
+    # a longer Array, an Integer, a Symbol — is not that line.
+    def reply_text(raw)
+      return nil if raw.nil? || raw == "" || raw == []
+
+      line = single_reply_line(raw)
+      return :malformed unless line.is_a?(String)
+      return nil if line.empty?
+
+      stripped = DataMapper.strip_recordset_separators(line)
+      stripped.empty? ? nil : stripped
+    end
+
+    # One ORY line, or :malformed when the reply is not that line.
+    def single_reply_line(raw)
+      return raw unless raw.is_a?(Array)
+      return raw.first if raw.size == 1 && raw.first.is_a?(String)
+
+      :malformed
+    end
+
+    def error_for(text)
+      case text
+      when DUPLICATE_REPLY then :duplicate
+      when LOCK_REPLY then :locked
+      when ACTIVE_ALLERGIES_REPLY then :active_allergies
+      when ASSESSMENT_UPDATE_REPLY then :assessment_update_failed
+      else :rejected
+      end
     end
   end
 end
