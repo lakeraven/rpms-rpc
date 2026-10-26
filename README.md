@@ -271,9 +271,13 @@ by definition, not a clean reply, and an unknown lookalike can only make the ans
   `raw` is the line **as the reply holds it**: the original bytes for a plain reply, but the text *after* alteration for a `Reply` or
   `Reply::Text` that altered it (an invalid byte becomes U+FFFD, a control character becomes a space), so an altered marker's `raw`
   can equal the marker text. A host must read `unrecognised`, `altered` and `conflict`, never compare `raw` to a sentinel.
-  **Known limit, shared with `main`:** on the CIA line path a control character that joins a row to a marker
-  (`1^PENICILLIN\x1f^No Known Allergies`) is replaced by a space *before* the classifier runs, so it reads as one `altered: true` row
-  (never `nka`), where the same line in a plain Array is a conflict. ORQQAL does not emit a row and a marker on one line.
+  **Known limit, shared with `main`:** on the CIA line path a control character inside a line (US, NUL, VT, FF, TAB, ESC, DEL; RS is
+  safe only because `CiaClient` splits on it) is replaced by a space *before* the classifier runs, so the line it sits in reads as one
+  `altered: true` row. That joins a row to a marker (`1^PENICILLIN\x1f^No Known Allergies` is one row with severity `No Known Allergies`,
+  never `nka`) and equally folds a second allergy into the first row's fields (`1^PENICILLIN\x1f2^LATEX` is one row with allergen
+  `PENICILLIN 2` and severity `LATEX`), where the same lines in a plain Array are conflicts. `main` returns the identical row without the
+  `altered` flag. ORQQAL writes one row or one marker per node (`CIANBACT.m` `OUT`, `ORQQAL.m` `LIST`), so a mid-line control byte can
+  only come from a control byte stored inside a GMRA field.
   If the parser ever returned fewer rows than it was given, the reply is a conflict, never `assessed`. A **false**
   conflict is loud and safe, never a false "no known allergies".
 - **Clean replies are unchanged** (byte-identical to `main`, including encodings, except that a line terminator inside an Array
@@ -358,6 +362,8 @@ altered line.
   `first`, `last`, `take`, `drop`, `reverse`, `rotate`, `sort`, `sort_by`, `uniq`,
   `compact`, `flatten`, `zip`, `each_slice`, and `String#split`. Ask the reply
   first, or carry `RpmsRpc::Reply.altered?(reply)` forward yourself.
+  Coercing a `Reply::Text` (`to_s`, `slice`, `+`) likewise yields a plain `String`, which cannot carry a flag, so a control-altered
+  Text coerced to a String reads clean; ask the Text first.
 - Other API modules that return identity-bearing text (names, identifiers) go
   through `DataMapper` and do **not** yet carry the flag; the follow-up issue
   lists them. Until then, call `client.call_rpc_lines` and check the reply

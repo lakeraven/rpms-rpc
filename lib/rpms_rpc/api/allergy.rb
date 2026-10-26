@@ -142,7 +142,11 @@ module RpmsRpc
     # scrubbed (U+FFFD) before DataMapper sees it. A row needs visible allergen
     # text in piece 2 (not only framing, controls, NUL, invalid bytes or invisible
     # characters) and contains no control character; nothing is stripped to make
-    # a row look clean.
+    # a row look clean. Known limit, shared with main: on the CIA line path a
+    # control character inside a line is replaced by a space before this runs,
+    # so it joins a row to a marker or folds a second allergy into the first
+    # row's fields as one altered row (see the README); ORQQAL writes one row or
+    # marker per node, so only a control byte stored in a GMRA field can do it.
     #
     # A reply with any UNRECOGNISED line, or a marker beside any other data
     # (or a marker twice), is the signature of a broker desync, a concatenated

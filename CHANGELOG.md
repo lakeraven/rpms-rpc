@@ -9,13 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed — `controls: true` never joins two lines or flags a clean blob (#477)
 
-- **Bug:** `Reply.text(blob, controls: true)` (and `Reply.from_wire(..., controls: true)`) counted CR and LF as control characters and
-  replaced them with a space, so `1^PENICILLIN\n^No Known Allergies` or `1^PENICILLIN\r\n2^LATEX` became one assessed row with the
-  second line folded into a field, and a clean blob that merely ended in a newline was flagged `altered`.
+- **Bug (direct callers and stand-ins only):** `Reply.text(blob, controls: true)` (and `Reply.from_wire(..., controls: true)`) counted CR
+  and LF as control characters and replaced them with a space, so `1^PENICILLIN\n^No Known Allergies` or `1^PENICILLIN\r\n2^LATEX`
+  became one assessed row with the second line folded into a field, and a clean blob that merely ended in a newline was flagged
+  `altered`. No shipped client was affected: nothing in `lib/` calls `Reply.text(..., controls: true)` (`CiaClient#call_rpc_global_array`
+  uses the default `controls: false`), and the only `controls: true` caller (`CiaClient#call_rpc`) splits on CR, LF and RS first.
 - **Now:** CR and LF are line terminators and are never substituted. Other control characters still become a space and still mark the
   whole blob altered. Clean replies classify exactly as before.
 - **Docs:** the surfaced `raw` is the line as the reply holds it (after alteration for an altered Reply or Text), never to be compared to
-  a sentinel. The CIA line-path limit shared with `main` (a control character joining a row to a marker) is documented in the README.
+  a sentinel. The CIA line-path limit shared with `main` (a mid-line control character joins a row to a marker, or folds a second
+  allergy into the first row's fields, as one `altered: true` row) is documented in the README, as is that coercing a control-altered
+  `Reply::Text` to a plain `String` drops its flag.
 
 ### Fixed — `Allergy.assessment` never hides an allergy and never vouches for a contradictory or unrecognised reply (#483)
 
