@@ -209,6 +209,8 @@ module RpmsRpc
     # differ only in a byte the gem replaced read identically, and a host must
     # be able to refuse them. A row's flag is its own line's, never its
     # neighbour's. Altering is NOT a conflict: the line is still a clean row.
+    # (A clean row always carries the key; a surfaced unrecognised entry
+    # carries `altered: true` only when altered, see {surfaced}.)
     def rows_of(mapping, lines)
       lines.flat_map do |line|
         ready = parse_ready(line.text)

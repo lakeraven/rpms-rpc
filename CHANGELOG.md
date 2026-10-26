@@ -72,8 +72,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Array#map`, `#select` and `#+`. Charset: assumed UTF-8, unproven; Latin-1 observed in stored data will read as altered.
 - CIA: valid non-ASCII text is no longer replaced with spaces. Control characters still become a space, and are now reported
   as altered.
-- The flag reaches hosts. `Allergy.assessment` / `.for_patient` and `Patient.lookup` rows carry an additive `altered: true|false`
-  (true when any text of the row had a byte replaced). Before this, two allergens that differed only in a byte the gem replaced
+- The flag reaches hosts. `Allergy.assessment` / `.for_patient` and `Patient.lookup` clean rows carry an additive `altered: true|false`
+  (true when any text of the row had a byte replaced); a surfaced unrecognised entry carries `altered: true` only when altered
+  and no key otherwise (a missing key is "not altered", never "clean"). Before this, two allergens that differed only in a byte the gem replaced
   came back as equal strings with no signal.
 - GLOBAL ARRAY replies (`CiaClient#call_rpc_global_array`, `MockClient#call_rpc_global_array`) are valid UTF-8 and return an
   `RpmsRpc::Reply::Text`, a String that answers `altered?`; they were raw ASCII-8BIT (CIA `Patient.lookup` still raised

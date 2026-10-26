@@ -345,10 +345,14 @@ altered line.
 **What reaches a host, and where the flag lives**
 
 - `RpmsRpc::Allergy.assessment` / `.for_patient` and `RpmsRpc::Patient.lookup`
-  put `altered: true|false` on **every row** they return. It is true when any
-  text of that row had a byte replaced. Two allergens that differ only in a
+  put `altered: true|false` on **every clean row** they return. It is true when
+  any text of that row had a byte replaced. Two allergens that differ only in a
   byte the gem replaced read identically, and each says `altered: true`: refuse
   them. The key is additive; no existing key changed.
+- A surfaced **unrecognised** entry (`unrecognised: true`, in a `conflict: true`
+  reply) carries `altered: true` only when it was altered, and has no `altered`
+  key otherwise. A missing key there means "not altered", never "clean": the
+  entry is unrecognised, and the reply is a conflict, whatever the key says.
 - A reply that arrives as one blob (a CIA `call_rpc_global_array` read, a bare
   String seed in `MockClient`) is an `RpmsRpc::Reply::Text`: a valid-UTF-8
   **String** that answers `altered?`. `RpmsRpc::Reply.altered?(x)` is the safe
