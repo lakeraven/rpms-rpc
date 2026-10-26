@@ -11,11 +11,11 @@ require "rpms_rpc/api/ddr_fileman"
 class PatientAddressRacePractitionerDetailLiveTest < LiveSpec::Test
   CONTEXT = "CIAV VUECENTRIC"
   PATIENT_FILE = "2"
-  ADDRESS_KEYS = %i[dfn line1 line2 line3 city state state_ien zip zip4].freeze
+  ADDRESS_KEYS = %i[dfn line1 line2 line3 city state state_ien zip zip_plus4].freeze
   RACE_KEYS = %i[dfn race].freeze
   DETAIL_KEYS = %i[
     duz title service_section provider_class
-    npi npi_entry_status dea_number dea_state dea_expires
+    npi npi_entry_status dea_number dea_expires
   ].freeze
 
   def test_address_returns_the_contract_key_set_for_a_listed_patient

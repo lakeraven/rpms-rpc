@@ -207,7 +207,7 @@ def test_brief_header_raises_any_other_m_error
   # -- address (DDR GETS ENTRY DATA, PATIENT #2) ----------------------------
 
   ADDRESS_FIELDS = ".111;.112;.113;.114;.115;.116;.1112"
-  ADDRESS_KEYS = %i[dfn line1 line2 line3 city state state_ien zip zip4].freeze
+  ADDRESS_KEYS = %i[dfn line1 line2 line3 city state state_ien zip zip_plus4].freeze
   ADDRESS_FIXTURE = {
     line1: "100 Example Street",
     line2: "SUITE 200",
@@ -216,7 +216,7 @@ def test_brief_header_raises_any_other_m_error
     state: "EXAMPLE STATE",
     state_ien: 99,
     zip: "00000",
-    zip4: "0000"
+    zip_plus4: "00000-0000"
   }.freeze
 
   def gets_key_for(dfn, file, fields)
@@ -233,7 +233,7 @@ def test_brief_header_raises_any_other_m_error
       2^#{dfn},^.114^#{values[:city]}^#{values[:city]}
       2^#{dfn},^.115^#{values[:state_ien]}^#{values[:state]}
       2^#{dfn},^.116^#{values[:zip]}^#{values[:zip]}
-      2^#{dfn},^.1112^#{values[:zip4]}^#{values[:zip4]}
+      2^#{dfn},^.1112^#{values[:zip_plus4]}^#{values[:zip_plus4]}
     REPLY
     values
   end
@@ -252,6 +252,17 @@ def test_brief_header_raises_any_other_m_error
     expected = { dfn: 42, **ADDRESS_FIXTURE }
     assert_equal ADDRESS_KEYS, result.keys
     assert_equal expected, result
+  end
+
+  # .1112 accepts 5 to 20 characters and ZIPOUT^VAFADDR prints 12345 or
+  # 12345-6789: the field holds the whole ZIP+4, never a 4-digit suffix.
+  def test_address_publishes_the_whole_zip_plus_four_under_an_honest_key
+    seed_address(RpmsRpc.mock!, zip_plus4: "59101-1234")
+
+    result = RpmsRpc::Patient.address(42)
+
+    assert_equal "59101-1234", result[:zip_plus4]
+    refute result.key?(:zip4)
   end
 
   def test_address_blank_or_nonpositive_id_sends_nothing
@@ -326,7 +337,7 @@ def test_brief_header_raises_any_other_m_error
 
     assert_equal ADDRESS_KEYS, result.keys
     assert_equal({ dfn: 42, line1: nil, line2: nil, line3: nil, city: nil, state: nil, state_ien: nil, zip: nil,
-                   zip4: nil }, result)
+                   zip_plus4: nil }, result)
 
     mock.seed(:ddr_gets_entry_data, gets_key_for(43, "2", ADDRESS_FIELDS), "[Data]")
     assert_nil RpmsRpc::Patient.address(43)
@@ -341,7 +352,7 @@ def test_brief_header_raises_any_other_m_error
 
   def test_address_logs_no_field_values
     values = seed_address(RpmsRpc.mock!)
-    secrets = values.values_at(:line1, :line2, :line3, :city, :state, :zip, :zip4).map(&:to_s)
+    secrets = values.values_at(:line1, :line2, :line3, :city, :state, :zip, :zip_plus4).map(&:to_s)
 
     assert_logs_no_secrets(secrets) { RpmsRpc::Patient.address(42) }
   end
