@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the release guard reads live summaries bound to the pinned build, the released source, and the suite that ran (#361, #441)
+
+- Live summaries are schema 3. They name the source they tested (a SHA-256 over every file the gemspec ships, #441) and the suite they ran (a SHA-256 over every file under `test/live/` plus `data/rpc_coverage/config.yml`), and they record `passed`, true only when every non-skipped result passed. The guard refuses `passed` other than true, a suite that is not the current tree, a persona or protocol that does not match the file name, and a summary whose source is not the tree being released. A run during which a shipped file or the suite changes is not recorded. Older summaries are refused until `rake test:live` is re-run. The live run block names the pinned release, as the summary file does, rather than the registry file.
+- Release policy: a CIA summary is required, and BMX and XWB summaries, if present, must be green. A summary must have `build_source` `pinned` (a `LIVE_BUILD` run is refused), and a file that skipped more than 10% of its runs is refused. The guard's OK names the summary directory. A Minitest 6 `--name` run (`options[:include]`) is a filtered run and is not recorded.
+- A release refuses to tag unless live summaries on disk show a green `rake test:live` against the pinned build (#361). CIA and XWB keep separate summary files, a run that dies before the summary is written leaves a pending file the guard refuses, and the same guard leads `release:source_control_push` and `release:rubygem_push`. `rake test:live` aborts before loading a spec when its pending file is not on disk, and the guard's OK names, per file, how many live specs passed and how many were skipped.
+
 ### Fixed — `controls: true` never joins two lines or flags a clean blob (#477)
 
 - **Bug (direct callers and stand-ins only):** `Reply.text(blob, controls: true)` (and `Reply.from_wire(..., controls: true)`) counted CR

@@ -41,7 +41,16 @@
 #
 # The run ends in one summary block (LiveSpec::Summary): backend, build,
 # persona, counts, skips by issue. Under `rake test:live` (LIVE_RUN=1) a run in
-# which no live spec ran is a failure.
+# which no live spec ran is a failure, and those counts are written for the
+# release guard: coverage/live/<persona>.json for CIA, and
+# coverage/live/<persona>.<protocol>.json otherwise (LIVE_SUMMARY_DIR overrides).
+# An unsafe persona is reported and not written. So is a filtered run (TEST,
+# TESTOPTS, TESTOPT, TEST_OPTS, TEST_OPT, or --name/--exclude), a run that
+# reported fewer live specs than were loaded, and a run whose file is not the
+# pending marker for this LIVE_RUN_ID: Ctrl-C still reaches report, and writing
+# any of those would replace the pending marker, or another run's file, with a
+# green-looking one. So is a run during which the files the gem ships changed
+# (rpms-rpc#441), or the live suite (test/live and the coverage pin) changed.
 require "minitest/autorun"
 require "rpms_rpc/mappings"
 require "rpms_rpc/cia_client"
@@ -140,11 +149,17 @@ module LiveSpec
   end
 
   # The end-of-run block. Counts live specs only, so a plain `rake test` that
-  # loads this helper (the guard test) prints nothing.
+  # loads this helper (the guard test) prints nothing. A live run also writes
+  # the file LiveSummary.path_for names, unless the run was filtered, stopped
+  # short of the loaded specs, or the file is not this run's pending marker:
+  # then it says NOT RECORDED and leaves the file that is already there. The
+  # writer itself stays quiet without LIVE_RUN=1 and a broker host, and the
+  # file never holds the host or credentials.
   class Summary < Minitest::StatisticsReporter
-    def initialize(io = $stdout, env: ENV)
-      super(io)
+    def initialize(io = $stdout, env: ENV, expected_runs: nil, options: {})
+      super(io, options)
       @env = env
+      @expected_runs = expected_runs
     end
 
     def record(result)
@@ -153,6 +168,17 @@ module LiveSpec
 
     def live_run? = @env["LIVE_RUN"] == "1"
     def none_ran? = (count - skips).zero?
+
+    # The count a caller passed, or else the live spec methods loaded for
+    # this process. LiveSpec::Test itself is the harness, not a spec.
+    def expected_runs
+      return @expected_runs unless @expected_runs.nil?
+
+      Minitest::Runnable.runnables
+                        .grep(Class)
+                        .select { |klass| klass < LiveSpec::Test && klass != LiveSpec::Test }
+                        .sum { |klass| klass.runnable_methods.size }
+    end
 
     def passed?
       super && !(live_run? && none_ran?)
@@ -174,9 +200,80 @@ module LiveSpec
       end
       io.puts "NOT GREEN: no live spec ran" if none_ran?
       io.puts "=" * 68
+      write_summary if live_run?
     end
 
     private
+
+    # Machine-readable copy of the block above, for release:live_guard.
+    # The path and the build identity come from LiveSummary, the same helper
+    # the pending marker uses, so the two cannot name different files. An
+    # unsafe persona or protocol is reported and not written; any other
+    # failure of the writer is reported and not raised, so a pending marker
+    # left by test:live_summary_pending stays on disk and the guard refuses.
+    # A filtered run, a count short of the loaded specs, and a file that is
+    # not this run's pending marker refuse the same way: print the reason,
+    # write nothing. The marker matches when it is pending and its run_id
+    # equals the non-blank LIVE_RUN_ID; a blank LIVE_RUN_ID never matches.
+    # The file never holds the host or the sign-on pair.
+    def write_summary
+      if filtered?
+        io.puts "NOT RECORDED: filtered by TEST/TESTOPTS/--name"
+        return
+      end
+      if count < expected_runs
+        io.puts "NOT RECORDED: partial run: #{count} of #{expected_runs} live specs reported (interrupted?)"
+        return
+      end
+
+      require "rpms_rpc/live_summary"
+      root = File.expand_path("../..", __dir__)
+      identity = RpmsRpc::LiveSummary.run_identity(@env, root: root)
+      dir = File.expand_path(RpmsRpc::LiveSummary.dir(@env), root)
+      path = RpmsRpc::LiveSummary.path_for(dir, persona: identity[:persona], protocol: identity[:protocol])
+      # The check and the write are one step under the summary lock that mark_pending also takes.
+      case RpmsRpc::LiveSummary.replace_pending(path, @env["LIVE_RUN_ID"], identity[:source],
+                                                summary_document(identity), env: @env)
+      when :not_pending
+        io.puts "NOT RECORDED: no pending marker for this run (run the live specs with rake test:live)"
+      when :source_changed
+        io.puts "NOT RECORDED: the shipped source changed during the run (rpms-rpc#441); re-run rake test:live"
+      when :suite_changed
+        io.puts "NOT RECORDED: the live suite changed during the run; re-run rake test:live"
+      end
+    rescue ArgumentError => e
+      io.puts "NOT RECORDED: #{e.message}"
+    rescue StandardError => e
+      io.puts "NOT RECORDED: #{e.class}: #{e.message}"
+    end
+
+    # TEST= and TESTOPTS= are how rake filters. TESTOPT, TEST_OPTS and TEST_OPT
+    # are that same filter under another name. --name/--exclude arrive on the
+    # minitest options the plugin passes in: --name is options[:filter] on
+    # Minitest 5 and options[:include] on Minitest 6.
+    def filtered?
+      %w[TEST TESTOPTS TESTOPT TEST_OPTS TEST_OPT].any? { |key| !@env[key].to_s.strip.empty? } ||
+        !options[:filter].nil? ||
+        !options[:include].nil? ||
+        !options[:exclude].nil?
+    end
+
+    def summary_document(identity)
+      {
+        "build" => identity[:build],
+        "build_source" => identity[:build_source],
+        "source" => identity[:source],
+        "suite" => identity[:suite],
+        "protocol" => identity[:protocol],
+        "persona" => identity[:persona],
+        "passed" => results.reject(&:skipped?).all?(&:passed?),
+        "runs" => count,
+        "assertions" => assertions,
+        "failures" => failures,
+        "errors" => errors,
+        "skips" => skips
+      }
+    end
 
     def skipped_by_issue
       results.select(&:skipped?).group_by { |r| r.failure.message[/\A#\d+/] || "(none)" }
@@ -194,7 +291,7 @@ end
 
 module Minitest
   def self.plugin_live_summary_init(options)
-    reporter << LiveSpec::Summary.new(options[:io])
+    reporter << LiveSpec::Summary.new(options[:io], options: options)
   end
 end
 Minitest.extensions << "live_summary" unless Minitest.extensions.include?("live_summary")
