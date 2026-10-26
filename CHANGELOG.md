@@ -82,18 +82,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Patient.contact` refuses a non-integer DFN before the wire; address and race use that same
   positive-whole-number guard.
 - `Patient.address(dfn)` reads the mailing address from PATIENT (#2):
-  `{ dfn:, line1:, line2:, line3:, city:, state:, state_ien:, zip:, zip4: }`. `state` is the
+  `{ dfn:, line1:, line2:, line3:, city:, state:, state_ien:, zip:, zip_plus4: }`. `zip_plus4` is the whole external
+  `.1112` value (`12345` or `12345-6789`; the field accepts 5 to 20 characters), not a four-digit suffix. `state` is the
   external of `.115` (the STATE #5 NAME); `state_ien` is the internal IEN. It is nil for a DFN that
   is not a positive whole number, no reply, a FileMan error, or a reply with no field rows.
 - `Patient.race(dfn)` reads `.06` RACE the same way: `{ dfn:, race: }`. The input transform is
   historical-only ("ENTRY OF DATA NOT ALLOWED"); the value is still readable. The USCDI race and
   ethnicity multiples are out of scope.
 - `Practitioner.detail(duz)` reads NEW PERSON (#200) in `CIAV VUECENTRIC`: `{ duz:, title:,
-  service_section:, provider_class:, npi:, npi_entry_status:, dea_number:, dea_state:, dea_expires: }`.
+  service_section:, provider_class:, npi:, npi_entry_status:, dea_number:, dea_expires: }`.
   `npi` is returned only when `41.97` AUTHORIZE RELEASE OF NPI is internal `"1"`. `dea_expires` is a
   `Date` from the `747.44` internal FileMan date. #200 has no SPECIALTY field. PERSON CLASS (`8932.1`)
-  is deliberately not read: it may be a multiple (subfile 200.05), so it waits on a live read or a
-  recorded row.
+  is not read: `^DD(200,8932.1,0)` is `200.05P`, a multiple (subfile 200.05). STATE ISSUING DEA NUMBER
+  (`54.2`) is not read either: `^DD(200,54.2,0)` is `200.55P`, a multiple (subfile 200.55), so DDR GETS
+  on file 200 never returns a row for it. Both would need a read of the subfile.
 
 ### Changed — `Patient.contact` retry class (#294)
 

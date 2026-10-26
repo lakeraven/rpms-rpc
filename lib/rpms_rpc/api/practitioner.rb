@@ -4,7 +4,6 @@ require_relative "../shape"
 require_relative "ddr_fileman"
 require_relative "../context_scope"
 require_relative "../fileman_date_parser"
-require_relative "../shape"
 
 module RpmsRpc
   module Practitioner
@@ -21,8 +20,11 @@ module RpmsRpc
     USER_FIELDS = %w[.01 53.5 29].freeze
 
     # NEW PERSON (#200) fields read by #detail. #200 has no SPECIALTY
-    # field. PERSON CLASS (8932.1) is NOT read: it may be a multiple
-    # (subfile 200.05), which needs a live read or a recorded row first.
+    # field. Two fields are multiples and are NOT read, because DDR GETS
+    # ENTRY DATA on file 200 files a multiple's values under its subfile,
+    # never as a row of file 200:
+    #   8932.1 PERSON CLASS         ^DD(200,8932.1,0) = "...^200.05P^^USC1;0"
+    #   54.2 STATE ISSUING DEA NUMBER  ^DD(200,54.2,0) = "...^200.55P^^PS2;0"
     #   8 TITLE
     #   29 SERVICE/SECTION
     #   41.97 AUTHORIZE RELEASE OF NPI
@@ -30,9 +32,8 @@ module RpmsRpc
     #   41.99 NPI
     #   53.2 DEA#
     #   53.5 PROVIDER CLASS
-    #   54.2 STATE ISSUING DEA NUMBER
     #   747.44 DEA EXPIRATION DATE
-    DETAIL_FIELDS = %w[8 29 41.97 41.98 41.99 53.2 53.5 54.2 747.44].freeze
+    DETAIL_FIELDS = %w[8 29 41.97 41.98 41.99 53.2 53.5 747.44].freeze
 
     # ORWU USERINFO takes no params and returns the authenticated
     # session user's info, not an arbitrary IEN's. find(ien) succeeds
@@ -106,7 +107,7 @@ module RpmsRpc
     # CIAV VUECENTRIC (DETAIL_FIELDS):
     #
     #   { duz:, title:, service_section:, provider_class:,
-    #     npi:, npi_entry_status:, dea_number:, dea_state:, dea_expires: }
+    #     npi:, npi_entry_status:, dea_number:, dea_expires: }
     #
     # Values are the external form. npi is non-nil only when 41.97
     # AUTHORIZE RELEASE OF NPI has internal "1" exactly. The code set is
@@ -137,7 +138,6 @@ module RpmsRpc
         npi: npi,
         npi_entry_status: field.("41.98"),
         dea_number: field.("53.2"),
-        dea_state: field.("54.2"),
         dea_expires: FilemanDateParser.parse_date(fields.dig("747.44", :internal))
       }
     end

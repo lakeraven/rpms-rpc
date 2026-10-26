@@ -5,7 +5,6 @@ require_relative "registration"
 require_relative "ddr_fileman"
 require_relative "../context_scope"
 require_relative "../phi_sanitizer"
-require_relative "../shape"
 
 module RpmsRpc
   # Symbolic API for patient data. Engine code calls these methods
@@ -245,14 +244,15 @@ module RpmsRpc
     #   .114 CITY
     #   .115 STATE (P5, pointer to STATE #5; external is the NAME)
     #   .116 ZIP CODE
-    #   .1112 ZIP+4
+    #   .1112 ZIP+4 (accepts 5 to 20 characters; ZIPOUT^VAFADDR prints
+    #         12345 or 12345-6789, so the value is the WHOLE ZIP+4)
     #
     # state is the .115 external. state_ien is the .115 internal as an
     # Integer, nil when empty or not a positive whole number. The
     # abbreviation is not resolved from STATE #5.
     #
     # Returns { dfn:, line1:, line2:, line3:, city:, state:, state_ien:,
-    # zip:, zip4: } (missing values nil), or nil when the DFN is not a
+    # zip:, zip_plus4: } (missing values nil), or nil when the DFN is not a
     # positive whole number (the same guard as Practitioner#roles), the
     # broker gives no reply, FileMan errors, or the reply has no field
     # rows. The read binds FILEMAN_CONTEXT and restores the caller's option.
@@ -273,7 +273,7 @@ module RpmsRpc
         state:     external(fields, ".115"),
         state_ien: internal_ien(fields, ".115"),
         zip:       external(fields, ".116"),
-        zip4:      external(fields, ".1112")
+        zip_plus4: external(fields, ".1112")
       }
     end
     shape :address, resource: "patients", verb: "POST", path: "/patients/{dfn}/address"
