@@ -152,7 +152,7 @@ module RpmsRpc
     # ALWAYS assessed: false, never nka. +allergies+ holds the clean rows and,
     # for every unrecognised line with content, a flagged entry
     # { ien: nil, allergen: <line, scrubbed and trimmed, for display>,
-    # raw: <the line's original bytes>, unrecognised: true } — never routed
+    # raw: <the line as the reply holds it>, unrecognised: true } — never routed
     # through DataMapper's error / no-data filters (which would drop
     # "-3^PENICILLIN" or "^LATEX") and with no guess at which piece is the
     # allergen. A host that renders rows therefore shows the text of such a line;
@@ -232,9 +232,13 @@ module RpmsRpc
     end
 
     # An unrecognised line, as a flagged entry; nothing when it has no
-    # content. +raw+ keeps the original bytes; +allergen+ is a scrubbed copy, so
-    # it can be displayed and serialised (it may be empty for an invisible-only
-    # line: rely on +raw+ and +unrecognised+).
+    # content. +raw+ is the line as the reply holds it: the original bytes for a
+    # plain reply, but the text AFTER alteration for a Reply or Text that altered
+    # it (invalid bytes become U+FFFD, a control character becomes a space), so
+    # for an altered marker +raw+ can equal the marker text. Never compare +raw+
+    # to a sentinel: read +unrecognised+, +altered+ and the reply's +conflict+.
+    # +allergen+ is a scrubbed copy, so it can be displayed and serialised (it
+    # may be empty for an invisible-only line: rely on +raw+ and +unrecognised+).
     def surfaced(line)
       return [] if line.text.nil? || line.text.empty?
 

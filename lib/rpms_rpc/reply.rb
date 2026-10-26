@@ -32,8 +32,11 @@ module RpmsRpc
   class Reply < Array
     REPLACEMENT = "�"
     # Control characters (and DEL) the CIA reply path has always turned into a
-    # space. It is an alteration, so it is reported.
-    CONTROL = /[\x00-\x1f\x7f]/
+    # space. It is an alteration, so it is reported. CR and LF are NOT in the
+    # set: they are line terminators, and turning one into a space would join
+    # two lines into one (a marker or a second allergy folded into a field of
+    # the first row) and flag a clean blob as altered.
+    CONTROL = /[\x00-\x09\x0b\x0c\x0e-\x1f\x7f]/
 
     # Zero-based indexes of the lines that were altered.
     attr_reader :altered_lines

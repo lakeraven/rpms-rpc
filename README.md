@@ -264,10 +264,16 @@ by definition, not a clean reply, and an unknown lookalike can only make the ans
   concatenated or a corrupted reply: its rows may belong to another call (or patient), or the list may be truncated. The result is
   `{ assessed: false, nka: false, allergies: [...], conflict: true }`: always `assessed: false`, never `nka`. `allergies` holds the
   clean rows plus, for **every unrecognised line with content**, a flagged entry
-  `{ ien: nil, allergen: <line, scrubbed and trimmed, for display>, raw: <the line's original bytes>, unrecognised: true }`. It is
+  `{ ien: nil, allergen: <line, scrubbed and trimmed, for display>, raw: <the line as the reply holds it>, unrecognised: true }`. It is
   never routed through DataMapper's error or no-data filters (which would drop `-3^PENICILLIN` or `^LATEX`) and no piece position is
   guessed. Marker lines and empty segments never become entries; a whitespace-only, invisible-only, control-only or invalid-byte-only line does,
   with `raw` preserving its bytes and `allergen` the scrubbed display copy (possibly empty: rely on `raw` and `unrecognised`).
+  `raw` is the line **as the reply holds it**: the original bytes for a plain reply, but the text *after* alteration for a `Reply` or
+  `Reply::Text` that altered it (an invalid byte becomes U+FFFD, a control character becomes a space), so an altered marker's `raw`
+  can equal the marker text. A host must read `unrecognised`, `altered` and `conflict`, never compare `raw` to a sentinel.
+  **Known limit, shared with `main`:** on the CIA line path a control character that joins a row to a marker
+  (`1^PENICILLIN\x1f^No Known Allergies`) is replaced by a space *before* the classifier runs, so it reads as one `altered: true` row
+  (never `nka`), where the same line in a plain Array is a conflict. ORQQAL does not emit a row and a marker on one line.
   If the parser ever returned fewer rows than it was given, the reply is a conflict, never `assessed`. A **false**
   conflict is loud and safe, never a false "no known allergies".
 - **Clean replies are unchanged** (byte-identical to `main`, including encodings, except that a line terminator inside an Array
