@@ -21,22 +21,27 @@ class PatientAddressRacePractitionerDetailLiveTest < LiveSpec::Test
   def test_address_returns_the_contract_key_set_for_a_listed_patient
     dfns = sample_listed_patient_dfns(25)
     populated = 0
+    chosen_dfn = nil
+    chosen_address = nil
     dfns.each do |dfn|
       address = RpmsRpc::Patient.address(dfn)
       next if address.nil?
 
       line1 = address[:line1].to_s.strip
       city = address[:city].to_s.strip
-      populated += 1 unless line1.empty? && city.empty?
+      next if line1.empty? && city.empty?
+
+      populated += 1
+      next unless chosen_dfn.nil?
+
+      chosen_dfn = dfn
+      chosen_address = address
     end
     flunk "probed #{dfns.size} listed PATIENT (#2) entries; none had a non-empty address line1 or city" if populated.zero?
 
-    dfn = dfns.first
-    address = RpmsRpc::Patient.address(dfn)
-
-    refute_nil address, "Patient.address(#{dfn}) gave no reply"
-    assert_equal ADDRESS_KEYS, address.keys
-    assert_equal dfn, address[:dfn]
+    refute_nil chosen_address, "Patient.address(#{chosen_dfn}) gave no reply"
+    assert_equal ADDRESS_KEYS, chosen_address.keys
+    assert_equal chosen_dfn, chosen_address[:dfn]
   end
 
   def test_address_returns_nil_for_a_dfn_with_no_patient_entry
@@ -48,22 +53,27 @@ class PatientAddressRacePractitionerDetailLiveTest < LiveSpec::Test
   def test_race_returns_the_contract_key_set_for_a_listed_patient
     dfns = sample_listed_patient_dfns(25)
     populated = 0
+    chosen_dfn = nil
+    chosen_race = nil
     dfns.each do |dfn|
       race = RpmsRpc::Patient.race(dfn)
       next if race.nil?
 
       value = race[:race]
-      populated += 1 if value.is_a?(String) && !value.strip.empty?
+      next unless value.is_a?(String) && !value.strip.empty?
+
+      populated += 1
+      next unless chosen_dfn.nil?
+
+      chosen_dfn = dfn
+      chosen_race = race
     end
     flunk "probed #{dfns.size} listed PATIENT (#2) entries; issue #294 asks for a populated race value" if populated.zero?
 
-    dfn = dfns.first
-    race = RpmsRpc::Patient.race(dfn)
-
-    refute_nil race, "Patient.race(#{dfn}) gave no reply"
-    assert_equal RACE_KEYS, race.keys
-    assert_equal dfn, race[:dfn]
-    assert(race[:race].nil? || race[:race].is_a?(String))
+    refute_nil chosen_race, "Patient.race(#{chosen_dfn}) gave no reply"
+    assert_equal RACE_KEYS, chosen_race.keys
+    assert_equal chosen_dfn, chosen_race[:dfn]
+    assert(chosen_race[:race].nil? || chosen_race[:race].is_a?(String))
   end
 
   def test_race_returns_nil_for_a_dfn_with_no_patient_entry
