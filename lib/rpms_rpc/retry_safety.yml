@@ -31,6 +31,8 @@
 "RpmsRpc::Agg.update_patient": non_idempotent_write
 "RpmsRpc::Allergy.assessment": read
 "RpmsRpc::Allergy.for_patient": read
+"RpmsRpc::Allergy.no_known_allergies": non_idempotent_write
+"RpmsRpc::Allergy.save": non_idempotent_write
 "RpmsRpc::Authentication.authenticate": non_idempotent_write
 "RpmsRpc::Authentication.change_verify_code": non_idempotent_write
 "RpmsRpc::Authentication.clear_cache!": non_idempotent_write
@@ -135,6 +137,7 @@
 "RpmsRpc::Notifications.inbox": non_idempotent_write
 "RpmsRpc::Order.action_text": read
 "RpmsRpc::Order.all_sheets": read
+"RpmsRpc::Order.check": non_idempotent_write
 "RpmsRpc::Order.expired_search_start": read
 "RpmsRpc::Order.list": read
 "RpmsRpc::Order.result": read

@@ -457,6 +457,12 @@ The JSON (default `coverage/api/methods.json`, `OUT=` to override) is the input 
 
 The task is offline and reaches no broker. The implementation lives in `tools/api_coverage/`, which is not part of the gem.
 
+## Order checks
+
+`RpmsRpc::Order.check` runs order checks through `ORWDXC ACCEPT` before an order is saved (#454). Each row is `ORID^checkIEN^CDL^text`. A high or unknown severity requires an override. An empty or unparseable reply is reported as order checks unavailable.
+
+The incomplete-checks memory follows the client object, so a host must reuse one client object per broker connection. A fresh wrapper per request around a shared connection loses it, and OPOS then hides the banner (ORWDXC.m:53,214-229). The memo is an `ObjectSpace::WeakKeyMap`: keys are compared with `eql?` and `hash`, not strict object identity.
+
 ## Retry safety
 
 The gem never retries. `RpmsRpc::RetrySafety` and `lib/rpms_rpc/retry_safety.yml` classify each public method as `read`, `idempotent_write`, or `non_idempotent_write`, as advice to hosts. Only `:read` is `auto_retry_safe?`. An unclassified method is never retry-safe. `bundle exec rake rpc:retry_safety` fails when a public method is unclassified or an entry is stale.
