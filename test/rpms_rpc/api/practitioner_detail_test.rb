@@ -44,12 +44,13 @@ class PractitionerDetailTest < Minitest::Test
     title_internal = overrides.fetch(:title_internal, "7")
     service_section = overrides.fetch(:service_section, "EXAMPLE SERVICE")
     provider_class = overrides.fetch(:provider_class, "EXAMPLE PROVIDER CLASS")
-    npi_entry_status = overrides.fetch(:npi_entry_status, "ACTIVE")
+    npi_entry_status = overrides.fetch(:npi_entry_status, "DONE")
+    npi_entry_status_internal = overrides.fetch(:npi_entry_status_internal, "D")
     dea_number = overrides.fetch(:dea_number, "XX0000000")
     dea_expires_internal = overrides.fetch(:dea_expires_internal, "3291231")
     dea_expires_external = overrides.fetch(:dea_expires_external, "DEC 31, 2029")
     authorize_external = overrides.fetch(:authorize_external) do
-      authorize_npi == "1" ? "YES" : authorize_npi
+      authorize_npi == "1" ? "Yes" : authorize_npi
     end
 
     mock.seed(:ddr_gets_entry_data, gets_key(duz), <<~REPLY.chomp)
@@ -57,7 +58,7 @@ class PractitionerDetailTest < Minitest::Test
       200^#{duz},^8^#{title_internal}^#{title}
       200^#{duz},^29^1^#{service_section}
       200^#{duz},^41.97^#{authorize_npi}^#{authorize_external}
-      200^#{duz},^41.98^1^#{npi_entry_status}
+      200^#{duz},^41.98^#{npi_entry_status_internal}^#{npi_entry_status}
       200^#{duz},^41.99^#{npi}^#{npi}
       200^#{duz},^53.2^#{dea_number}^#{dea_number}
       200^#{duz},^53.5^1^#{provider_class}
@@ -168,8 +169,8 @@ class PractitionerDetailTest < Minitest::Test
 
   def test_detail_withholds_npi_when_internal_is_not_one_even_if_external_is_yes
     [
-      [ "Y", "YES" ],
-      [ "0", "YES" ]
+      [ "Y", "Yes" ],
+      [ "0", "Yes" ]
     ].each do |authorize_npi, authorize_external|
       RpmsRpc.reset!
       seed_detail(RpmsRpc.mock!, authorize_npi: authorize_npi, authorize_external: authorize_external)
@@ -178,6 +179,16 @@ class PractitionerDetailTest < Minitest::Test
 
       assert_nil result[:npi], "41.97 internal #{authorize_npi.inspect} external #{authorize_external.inspect}"
     end
+  end
+
+  # 41.98 is a set (N:NEEDS ENTRY;E:EXEMPT;D:DONE): the reply carries the code
+  # as the internal and the label as the external, and detail returns the label.
+  def test_detail_returns_the_set_label_not_the_code_for_npi_entry_status
+    seed_detail(RpmsRpc.mock!)
+
+    result = Practitioner.detail(101)
+
+    assert_equal "DONE", result[:npi_entry_status]
   end
 
   def test_detail_parses_dea_expires_from_internal_not_external
@@ -203,7 +214,7 @@ class PractitionerDetailTest < Minitest::Test
       [Data]
       200^#{duz},^8^7^EXAMPLE,PROVIDER
       200^#{duz},^29^1^EXAMPLE SERVICE
-      200^#{duz},^41.98^1^ACTIVE
+      200^#{duz},^41.98^D^DONE
       200^#{duz},^41.99^0000000000^0000000000
       200^#{duz},^53.2^XX0000000^XX0000000
       200^#{duz},^53.5^1^EXAMPLE PROVIDER CLASS

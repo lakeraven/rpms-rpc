@@ -233,7 +233,7 @@ def test_brief_header_raises_any_other_m_error
       2^#{dfn},^.114^#{values[:city]}^#{values[:city]}
       2^#{dfn},^.115^#{values[:state_ien]}^#{values[:state]}
       2^#{dfn},^.116^#{values[:zip]}^#{values[:zip]}
-      2^#{dfn},^.1112^#{values[:zip_plus4]}^#{values[:zip_plus4]}
+      2^#{dfn},^.1112^#{values[:zip_plus4].delete("-")}^#{values[:zip_plus4]}
     REPLY
     values
   end
@@ -309,7 +309,7 @@ def test_brief_header_raises_any_other_m_error
         2^#{dfn},^.114^Exampleville^Exampleville
         2^#{dfn},^.115^#{bad_internal}^#{state_name}
         2^#{dfn},^.116^00000^00000
-        2^#{dfn},^.1112^0000^0000
+        2^#{dfn},^.1112^000000000^00000-0000
       REPLY
 
       result = RpmsRpc::Patient.address(dfn)
