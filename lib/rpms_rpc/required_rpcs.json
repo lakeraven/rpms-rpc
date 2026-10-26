@@ -16,7 +16,8 @@
       "CIANBRPC CANRUN"
     ],
     "RpmsRpc::Allergy": [
-      "ORQQAL LIST"
+      "ORQQAL LIST",
+      "ORWDAL32 SAVE ALLERGY"
     ],
     "RpmsRpc::Authentication": [
       "CIAVCXUS HASKEYS",
