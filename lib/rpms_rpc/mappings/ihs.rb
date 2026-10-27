@@ -558,6 +558,15 @@ module RpmsRpc
       m.field 4, :design_mode, :boolean
     end
 
+    # ORWU HAS OPTION ACCESS — whether the signed-on user may run one option,
+    # by Kernel's own rule. HASOPTN(VAL,OPTION), ORWU.m: VAL=+$$ACCESS^XQCHK(
+    # DUZ,OPTION), then 1 when that is positive, else 0. An option that does
+    # not exist also answers 0. Consumer: Authentication.option_access.
+    DataMapper.define(:user_option_access) do |m|
+      m.rpc "ORWU HAS OPTION ACCESS"
+      m.scalar :access
+    end
+
     # CIAVCXUS HASKEYS — which of the named security keys the signed-on user
     # holds (rpms-rpc#318). HASKEYS(DATA,KEYS), CIAVCXUS.m:14-18: one actual,
     # the names joined with "^"; one reply line with a 0/1 per name, in order
