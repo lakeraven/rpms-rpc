@@ -31,7 +31,7 @@ This gem owns the RPMS integration boundary:
 - HIPAA-aligned PHI sanitizer for log lines
 - **DataMapper** — declarative RPC-to-Ruby field mappings
 - **MockClient** — hermetic test double with seeded data (field, text_blob, scalar, collection)
-- **SecurityKeys / UserRoles / Capabilities** — symbolic RPMS authorization API
+- **SecurityKeys** — symbolic names for the SECURITY KEYs a built image has; which keys a user holds is `Authentication.held_keys`, and what they allow is the host's decision (ADR 0010)
 
 What it does **not** include: ActiveRecord models, FHIR clients,
 or Rails dependencies. Engine code (lakeraven-ehr, corvid) should
@@ -197,8 +197,6 @@ RpmsRpc::Authentication.held_keys(%w[PROVIDER XUPROGMODE])
 | `RpmsRpc::MockClient`          | Hermetic test double with seeded data            |
 | `RpmsRpc::MockFhirClient`      | FHIR R4 mock for IRIS for Health reads           |
 | `RpmsRpc::SecurityKeys`        | Symbolic ↔ RPMS security key translation         |
-| `RpmsRpc::UserRoles`           | Role-based authorization (provider, nurse, etc.) (deprecated, #359) |
-| `RpmsRpc::Capabilities`        | Feature-gated permission checks (deprecated, #359)                  |
 
 ### Request size limits (#472)
 

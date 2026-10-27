@@ -1,14 +1,12 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require_relative "../../lib/rpms_rpc/version"
+require_relative "../../lib/rpms_rpc"
 
 class RpmsRpc::NoRoleVocabularyTest < Minitest::Test
-  # Delete both files and this allowlist together at removal (#359 follow-up).
-  ALLOWLISTED = [
-    "lib/rpms_rpc/capabilities.rb",
-    "lib/rpms_rpc/user_roles.rb"
-  ].freeze
+  # The gem reports which keys a user holds; roles and capabilities are the
+  # host's (ADR 0010, #359). Capabilities and UserRoles are removed (#445), so
+  # no file under lib/ may carry role or capability vocabulary.
 
   ROLE_BARE_WORDS = %w[
     prc_supervisor prc_manager prc_tech case_manager consult_manager
@@ -49,17 +47,9 @@ class RpmsRpc::NoRoleVocabularyTest < Minitest::Test
     File.binread(path).encode("UTF-8", invalid: :replace, undef: :replace)
   end
 
-  def allowlisted_sources
-    root = File.expand_path("../..", __dir__)
-    ALLOWLISTED.map { |rel| read_source_utf8(File.join(root, rel)) }
-  end
-
-  def test_each_vocabulary_pattern_matches_an_allowlisted_file
-    sources = allowlisted_sources
-    VOCABULARY_PATTERNS.each_with_index do |pat, idx|
-      assert sources.any? { |src| src.match?(pat) },
-             "pattern #{idx} must match capabilities.rb or user_roles.rb"
-    end
+  def test_the_role_layer_is_removed
+    refute RpmsRpc.const_defined?(:Capabilities, false), "Capabilities is removed (#445)"
+    refute RpmsRpc.const_defined?(:UserRoles, false), "UserRoles is removed (#445)"
   end
 
   def test_vocabulary_detects_copied_deprecated_checks_shape
@@ -81,38 +71,12 @@ class RpmsRpc::NoRoleVocabularyTest < Minitest::Test
     assert vocabulary?(snippet), "permission-table copy must be flagged as role vocabulary"
   end
 
-  def test_lib_defines_role_vocabulary_only_in_allowlisted_files
+  def test_lib_carries_no_role_or_capability_vocabulary
     root = File.expand_path("../..", __dir__)
-    violations = []
+    violations = Dir.glob(File.join(root, "lib", "**", "*")).sort.select { |abs| File.file?(abs) }
+                    .select { |abs| vocabulary?(read_source_utf8(abs)) }
+                    .map { |abs| abs.delete_prefix("#{root}/") }
 
-    ALLOWLISTED.each do |rel|
-      path = File.join(root, rel)
-      assert_path_exists path, "allowlisted file must exist: #{rel}"
-    end
-
-    lib_root = File.join(root, "lib")
-    paths = []
-    Dir.glob(File.join(lib_root, "**", "*"), File::FNM_DOTMATCH).sort.each do |abs|
-      next unless File.file?(abs)
-
-      base = File.basename(abs)
-      next if base == "." || base == ".."
-
-      paths << abs
-    end
-
-    paths.each do |abs|
-      rel = abs.delete_prefix("#{root}/")
-      next if ALLOWLISTED.include?(rel)
-
-      source = read_source_utf8(abs)
-      next unless vocabulary?(source)
-
-      violations << rel
-    end
-
-    assert_empty violations,
-                 "role/capability vocabulary must only live in #{ALLOWLISTED.join(', ')}; " \
-                 "also found in: #{violations.join(', ')}"
+    assert_empty violations, "role/capability vocabulary found under lib/: #{violations.join(', ')}"
   end
 end
