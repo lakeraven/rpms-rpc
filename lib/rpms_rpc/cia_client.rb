@@ -389,7 +389,12 @@ module RpmsRpc
     def call_rpc_global_array(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
-      exchange("R", terminator: AGG_ARRAY_END) { rpc_frame_fields(rpc_name, params) }
+      raw = exchange("R", terminator: :global_array) { rpc_frame_fields(rpc_name, params) }
+      # A refusal (no such RPC, not in the bound context: CIANBACT error 3, 4, 5) is an error
+      # reply ending at EOD, never a $C(31): raise it, as #call_rpc does through parse_cia_reply.
+      raise_cia_error(raw.byteslice(2..)) if raw.getbyte(1) == 0x01
+
+      raw
     rescue TimeoutError
       raise_rpc_timeout(rpc_name)
     end
@@ -605,12 +610,28 @@ module RpmsRpc
       # A small bound: read past stale pieces, but fail closed on a desynced
       # stream rather than loop.
       8.times do
-        raw = read_until_raw(terminator) # base: shared read loop; CIA EOD, or AGG US sentinel
+        raw = terminator == :global_array ? read_global_array_raw : read_until_raw(terminator)
         return raw if raw.byteslice(0, 1) == echo
       end
       raise ConnectionError, RpmsRpc.sanitize_error(
         "CIA reply stream out of step: no piece carried sequence echo #{@seq}"
       )
+    end
+
+    # One global-array reply. Data ends at its $C(31) sentinel; an error reply (the \x01 flag after
+    # the sequence echo) carries no sentinel and ends at EOD. Reading only to the sentinel left a
+    # refused call waiting out the whole timeout and dropping the session, so read to the first
+    # EOD: an error reply is then complete; a data reply is complete if the sentinel came before
+    # that EOD, and otherwise its body embedded an EOD (#254) and the read goes on to the sentinel.
+    def read_global_array_raw
+      first = read_until_raw(EOD)
+      return first if first.getbyte(1) == 0x01
+
+      if (sentinel = first.index(AGG_ARRAY_END.b))
+        return first.byteslice(0, sentinel)
+      end
+
+      first + EOD.b + read_until_raw(AGG_ARRAY_END)
     end
 
     # Build the L()-packed UID/RPC/param fields shared by call_rpc_raw and

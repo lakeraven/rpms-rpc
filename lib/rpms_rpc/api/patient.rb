@@ -2,6 +2,7 @@
 
 require_relative "../shape"
 require_relative "registration"
+require_relative "agg"
 require_relative "ddr_fileman"
 require_relative "../context_scope"
 require_relative "../phi_sanitizer"
@@ -74,14 +75,14 @@ module RpmsRpc
       end
       raise ArgumentError, "search text is required" if text.to_s.strip.empty?
 
-      rows = fetch_lookup_rows(
+      rows = in_aggrpc { fetch_lookup_rows(
         DataMapper.patient_lookup_agg,
         text.to_s,
         type.to_s,
         all_divisions ? "1" : "",
         include_inactive ? "1" : "",
         require_response: require_response
-      )
+      ) }
 
       rows.map { |row| normalize_lookup_row(row) }
     end
@@ -333,6 +334,18 @@ module RpmsRpc
     LOOKUP_RECORD_SEP = "\x1e" # $C(30) — record separator
     LOOKUP_ARRAY_END  = "\x1f" # $C(31) — end-of-array sentinel
     LOOKUP_ACK        = "\x00" # broker ack byte after the sequence echo
+
+    # AGG LOOKUP PATIENTS is registered under the AGGRPC option only, so under
+    # any other context (CIAV VUECENTRIC, what a CIA sign-on binds) the broker
+    # refuses it. Bind AGGRPC for the call and restore the caller's context, as
+    # RpmsRpc::Agg does for every AGG RPC; nesting inside Agg is free.
+    def in_aggrpc(&block)
+      client = RpmsRpc.client
+      return block.call unless client.respond_to?(:with_context)
+
+      client.with_context(Agg::CONTEXT, &block)
+    end
+    private :in_aggrpc
 
     def fetch_lookup_rows(mapping, *params, require_response: false)
       client = RpmsRpc.client
