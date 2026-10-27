@@ -21,6 +21,8 @@ RpmsRpc::Image.exams_for_patient	GET /patients/{dfn}/images/exams
 RpmsRpc::Immunization.find	GET /immunizations/{ien}
 RpmsRpc::Immunization.for_patient	GET /patients/{dfn}/immunizations
 RpmsRpc::Immunization.text_summary	GET /patients/{dfn}/immunizations/text-summary
+RpmsRpc::ImmunizationLot.find	GET /immunization-lots/{ien}
+RpmsRpc::ImmunizationLot.list	GET /immunization-lots
 RpmsRpc::ImmunizationRefusal.reasons	GET /immunization-refusals/reasons
 RpmsRpc::Location.find	GET /locations/{ien}
 RpmsRpc::Measurement.find	GET /measurements/{measurement_ien}

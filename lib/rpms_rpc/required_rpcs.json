@@ -122,6 +122,10 @@
       "BGOVIMM GET",
       "DDR GETS ENTRY DATA"
     ],
+    "RpmsRpc::ImmunizationLot": [
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
+    ],
     "RpmsRpc::ImmunizationRefusal": [
       "BGOREF GETREA",
       "BGOREF SET"
