@@ -141,4 +141,15 @@ class TribalTest < Minitest::Test
     assert_equal [ { ien: 123, name: "EXAMPLE TRIBE" },
                    { ien: 124, name: "EXAMPLE TRIBE TWO" } ], result
   end
+
+  # A community name repeats across states, so the county and state ride along.
+  def test_communities_list_via_b_index_with_county_and_state
+    key = Ddr.lister_param(file: "9999999.05", fields: "@;.01;.02;.03", part: "UNK", xref: "B").to_s
+    @mock.seed(:ddr_lister, key, "[Data]\n6218^UNKNOWN^UNKNOWN^WASHINGTON\n6219^UNKNOWN^YAKIMA^WASHINGTON")
+
+    result = Tribal.communities(part: "UNK")
+
+    assert_equal [ { ien: 6218, name: "UNKNOWN", county: "UNKNOWN", state: "WASHINGTON" },
+                   { ien: 6219, name: "UNKNOWN", county: "YAKIMA", state: "WASHINGTON" } ], result
+  end
 end

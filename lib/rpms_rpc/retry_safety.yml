@@ -236,6 +236,7 @@
 "RpmsRpc::Site.list": read
 "RpmsRpc::Symptom.defaults": read
 "RpmsRpc::Symptom.search": read
+"RpmsRpc::Tribal.communities": read
 "RpmsRpc::Tribal.eligibility": read
 "RpmsRpc::Tribal.enrollment": read
 "RpmsRpc::Tribal.service_unit": read

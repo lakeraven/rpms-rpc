@@ -41,6 +41,10 @@ module RpmsRpc
     # LIST^DIC FIELDS for an IEN^name row: "@" drops the default, ".01" adds the name.
     NAME_ONLY = "@;.01"
     SERVICE_UNIT_FILE = "9999999.22"
+    COMMUNITY_FILE = "9999999.05"
+    # .01 NAME, .02 COUNTY (#9999999.23), .03 STATE (#5): a community's name repeats across
+    # states ("UNKNOWN" is filed many times), so its county and state say which one it is.
+    COMMUNITY_FIELDS = "@;.01;.02;.03"
 
     FIELD_ENROLLMENT_NUMBER = ".07"
     FIELD_TRIBE_QUANTUM = "1109"
@@ -154,6 +158,27 @@ module RpmsRpc
       end
     end
     shape :tribes, resource: "tribes", verb: "GET", path: "/tribes"
+
+    # List communities (COMMUNITY #9999999.05, ^AUTTCOM) via LIST^DIC over the
+    # "B" index, as #tribes does: registration files the patient's community of
+    # residence by this IEN (Registration community_ien:, field 1117). A build
+    # holds thousands, so callers narrow with part:. External values, so the
+    # county and state come back as names.
+    #   part: narrows to names starting with the given text
+    #   from: resume point for paging (see DdrFileman.lister's :more)
+    # Returns [{ ien:, name:, county:, state: }] ([] for an empty page), or nil
+    # (no broker response).
+    def communities(part: nil, from: nil)
+      listing = DdrFileman.lister(file: COMMUNITY_FILE, fields: COMMUNITY_FIELDS, part: part, from: from, xref: "B")
+      return nil if listing.nil?
+      return [] if listing[:error]
+
+      listing[:entries].map do |entry|
+        name, county, state = entry[:pieces]
+        { ien: entry[:ien].to_i, name: name, county: county, state: state }
+      end
+    end
+    shape :communities, resource: "tribes", verb: "GET", path: "/tribes/communities"
 
     private
 
