@@ -230,6 +230,8 @@
 "RpmsRpc::Scheduling.clinic_setup": non_idempotent_write
 "RpmsRpc::Scheduling.hospital_locations": non_idempotent_write
 "RpmsRpc::Scheduling.mark_no_show": non_idempotent_write
+"RpmsRpc::Scheduling.resources": read
+"RpmsRpc::Scheduling.slot_schedule": non_idempotent_write
 "RpmsRpc::Scheduling.uncancel_appointment": non_idempotent_write
 "RpmsRpc::Session.bootstrap": read
 "RpmsRpc::Site.current": read

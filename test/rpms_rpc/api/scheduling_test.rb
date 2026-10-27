@@ -546,7 +546,9 @@ class SchedulingTest < Minitest::Test
     availability: [ { resources: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],
     all_appointments: [ { start_date: START_T, end_date: END_T } ],
     hospital_locations: [],
-    clinic_setup: []
+    clinic_setup: [],
+    resources: [],
+    slot_schedule: [ { resource: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ]
   }.freeze
 
   def test_the_bind_table_names_every_public_method
