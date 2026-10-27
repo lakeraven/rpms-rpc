@@ -46,7 +46,8 @@ class RpmsRpc::EntryPointTest < Minitest::Test
   def test_require_rpms_rpc_alone_loads_the_public_api
     out = run_fresh(<<~RUBY)
       require "rpms_rpc"
-      %w[DataMapper SecurityKeys UserRoles Capabilities].each { |c| RpmsRpc.const_get(c) }
+      %w[DataMapper SecurityKeys].each { |c| RpmsRpc.const_get(c) }
+      abort "role layer loaded" if %i[UserRoles Capabilities].any? { |c| RpmsRpc.const_defined?(c, false) }
       RpmsRpc::DataMapper[:patient_select]
       print $LOADED_FEATURES.grep(%r{rpms_rpc/api/}).map { |f| f.split("lib/").last }.sort.join("\\n")
     RUBY
