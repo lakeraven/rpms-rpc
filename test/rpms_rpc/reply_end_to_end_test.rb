@@ -127,7 +127,7 @@ class RpmsRpc::ReplyEndToEndTest < Minitest::Test
 
   def test_cia_global_array_reply_is_valid_utf8_and_says_altered
     body = lookup_blob(lookup_row("DO\xC9,JANE".b))
-    cia = wired(RpmsRpc::CiaClient.new, [ "1\x00".b + body + "\x1f".b ])
+    cia = wired(RpmsRpc::CiaClient.new, [ "1\x00".b + body + "\x1f".b + RpmsRpc::Client::EOD.b ])
     cia.instance_variable_set(:@seq, 0)
 
     raw = cia.call_rpc_global_array("AGG LOOKUP PATIENTS", "DO")
@@ -140,7 +140,7 @@ class RpmsRpc::ReplyEndToEndTest < Minitest::Test
 
   def test_cia_global_array_reply_of_clean_text_is_unaltered_and_equals_the_wire_text
     body = RpmsRpc::ReplyEndToEndTest::LOOKUP_HEADER + "\x1e" + "3^DOE,JANE^1^2^3\x1e\x1f"
-    cia = wired(RpmsRpc::CiaClient.new, [ "1\x00".b + body.b ])
+    cia = wired(RpmsRpc::CiaClient.new, [ "1\x00".b + body.b + RpmsRpc::Client::EOD.b ])
     cia.instance_variable_set(:@seq, 0)
 
     raw = cia.call_rpc_global_array("AGG LOOKUP PATIENTS", "DO")
