@@ -548,6 +548,7 @@ class SchedulingTest < Minitest::Test
     hospital_locations: [],
     clinic_setup: [],
     resources: [],
+    appointments: [ { resource: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],
     slot_schedule: [ { resource: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ]
   }.freeze
 
