@@ -15,6 +15,9 @@ module RpmsRpc
     extend self
     extend Shape::Declarable
 
+    # The FileMan word-processing 0-node, "^^lines^lines^date^^", and its line break.
+    WP_HEADER = /\A\^\^\d+\^\d+\^\d*\^\^\n?/
+
     def roots(user_duz)
       return [] if invalid_id?(user_duz)
 
@@ -52,6 +55,9 @@ module RpmsRpc
     # template-IEN frame died in M on VSTR (#259).
     #
     # Returns the expanded lines joined, or nil when nothing came back.
+    # BLRPLT^TIUSRVD answers ^TMP("TIUBOIL",$J), whose 0-node is the FileMan
+    # word-processing header "^^lines^lines^date^^" (TIUSRVD.m:81, :88); the
+    # reply carries it as its first line, and it is not text, so it is dropped.
     def text(lines, dfn:, visit_string: "")
       return nil if invalid_id?(dfn)
 
@@ -59,7 +65,8 @@ module RpmsRpc
       return nil if lines.empty?
 
       tiux = lines.each_with_index.to_h { |line, i| [ [ i + 1, 0 ], line ] }
-      DataMapper.template_text.fetch_text(dfn.to_s, visit_string.to_s, tiux)
+      expanded = DataMapper.template_text.fetch_text(dfn.to_s, visit_string.to_s, tiux)
+      expanded&.sub(WP_HEADER, "")
     end
     shape :text, resource: "note-templates", verb: "GET", path: "/patients/{dfn}/note-templates/text"
 
