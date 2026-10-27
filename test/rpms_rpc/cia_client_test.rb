@@ -212,6 +212,31 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # The EOD after a global array's $C(31) can arrive after the next request goes
   # out. An empty piece is never a reply (every reply starts with its sequence
   # echo), so it is skipped rather than returned as request 2's answer.
+  # A refused global-array RPC is an error reply that ends at EOD and never carries the $C(31)
+  # sentinel. Reading only to the sentinel waited out the whole timeout and dropped the session
+  # (AGG LOOKUP PATIENTS outside AGGRPC, live on a YDB build, 2026-10-27). It raises at once, the
+  # way #call_rpc does, and the session stays up.
+  def test_a_refused_global_array_raises_at_once_and_keeps_the_session
+    socket = StaleSocket.new([ "1\x014\rAccess denied for remote procedure: AGG LOOKUP PATIENTS\r#{EOD}", "2\x00OK#{EOD}" ])
+    c = client_on(socket)
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+    error = assert_raises(RpmsRpc::Client::RpcError) { c.call_rpc_global_array("AGG LOOKUP PATIENTS", "MOUSE", "", "", "") }
+
+    assert_match(/Access denied for remote procedure: AGG LOOKUP PATIENTS/, error.message)
+    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1
+    assert c.connected?, "a refusal is not a broken connection"
+    assert_equal "2\x00OK", c.call_rpc_raw("XUS INTRO MSG")
+  end
+
+  # A data reply's sentinel and its EOD arrive together on the wire: the sentinel ends the reply.
+  def test_a_global_array_ending_in_sentinel_then_eod_is_read_whole
+    socket = StaleSocket.new([ "1\x00HDR\x1eROW\x1e\x1f#{EOD}", "2\x00OK#{EOD}" ])
+    c = client_on(socket)
+    assert_equal "1\x00HDR\x1eROW\x1e", c.call_rpc_global_array("BSDX HOSPITAL LOCATION")
+    assert_equal "2\x00OK", c.call_rpc_raw("XUS INTRO MSG")
+  end
+
   def test_a_late_eod_after_a_global_array_is_skipped
     socket = StaleSocket.new([ "1\x00HDR#{EOD}ROW#{EOD}\x1f", "#{EOD}2\x00OK#{EOD}" ])
     c = client_on(socket)
