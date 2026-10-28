@@ -536,7 +536,9 @@ The incomplete-checks memory follows the client object, so a host must reuse one
 
 ## Scheduling list reads
 
-`Scheduling.availability`, `all_appointments`, `hospital_locations`, `clinic_setup`, `resources`, `slot_schedule` and `appointments` raise `RpmsRpc::Client::RpcError` when a BSDX list read fails (#481). Hosts must rescue it. A header-only recordset, including a truncated header flattened to leading spaces, U+FFFD or C0 control characters, is still a genuine empty result (`[]`).
+`Scheduling.availability`, `all_appointments`, `hospital_locations`, `clinic_setup`, `resources`, `slot_schedule` and `appointments` raise `RpmsRpc::Client::RpcError` when a BSDX list read fails (#481). Hosts must rescue it. A header-only recordset, including a header behind leading spaces, U+FFFD or C0 control characters, is still a genuine empty result (`[]`). That flattened or junk-prefixed shape is handled defensively; no current client is known to produce it. `CiaClient#parse_cia_reply` strips the sequence echo and the `\x00` ack before `Reply.from_wire`, so `call_rpc` does not flatten them into that prefix.
+
+An error row or a blank line behind that prefix is classified like a plain one: the error raises with its numeric code, and a reply of only blank-after-strip lines raises. `resources`, `slot_schedule` and `appointments` parse the classified lines, so a flattened header maps columns the same way as an unflattened one, and a reply with no header row raises (`no recordset header`) whether or not it is framed. The other four list reads still accept an unframed headerless line list.
 
 The message names the RPC and, for a `-N^` row, the numeric code (`broker error -1`), or a fixed phrase (`ERRORID recordset`, `empty reply`, `no recordset header`, `unexpected reply type`). Broker text stays out of the message: it can hold a patient name, and `sanitize_error` does not catch mixed-case names. `DataMapper#fetch_many` and `#fetch_many_or_nil` on these mappings keep the old contract for direct mapper callers. Only the Scheduling methods changed.
 
