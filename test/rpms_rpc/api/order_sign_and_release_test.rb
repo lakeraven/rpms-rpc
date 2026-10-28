@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "json"
+require "set"
 require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/retry_safety"
@@ -15,9 +16,10 @@ require "rpms_rpc/api/order"
 # Release Sts^Nature (comment ORWDX.m:154). CHKACT^ORWDXR validates
 # ORWSIG/ORWREL/ORWNATR before EN^ORCSEND (ORWDXR.m:87-98). Reply piece 2
 # is built at ORWDX.m:172-176 ("R" when released, "S" when ORWSIG'=2).
-# Per-order status: :released (piece 2 contains "R"), :signed (exactly "S"),
-# :rejected (pre-send validation or ^E^ error row only), :unknown (SEND sent
-# but reply does not prove that order's outcome).
+# Per-order status: :released (piece 2 exactly "RS"), :signed (exactly "S"),
+# :rejected (nothing sent: bad args, blank signature, VALIDSIG not "1"),
+# :unknown (SEND sent but reply does not prove outcome, including ^E^ rows
+# because EN^ORCSEND may have signed before ORERR).
 class OrderSignAndReleaseTest < Minitest::Test
   ROOT = File.expand_path("../../..", __dir__)
   REQUIRED_RPCS_PATH = File.join(ROOT, "lib/rpms_rpc/required_rpcs.json")
@@ -83,7 +85,7 @@ class OrderSignAndReleaseTest < Minitest::Test
 
   # --- reply parsing (ORWLST / ORWDX.m:172-176) --------------------------------
 
-  def test_sign_and_release_released_when_reply_piece_two_contains_r
+  def test_sign_and_release_released_only_when_piece_two_exactly_rs
     with_sign_release_wire(validsig: "1", send: [ "#{ORDER_ONE}^RS", "#{ORDER_TWO}^RS" ])
 
     results = RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE, ORDER_TWO ], SIG_CODE)
@@ -117,8 +119,30 @@ class OrderSignAndReleaseTest < Minitest::Test
     results = RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
 
     row = results.fetch(0)
-    assert_equal :rejected, row[:status]
-    assert_equal msg, row[:reason]
+    assert_equal :unknown, row[:status]
+    assert_includes row[:reason], msg
+    assert_match(/signed/i, row[:reason])
+    assert_match(/check.*order|order.*before.*retr/i, row[:reason])
+    refute_equal :rejected, row[:status]
+  end
+
+  def test_sign_and_release_piece_two_r_er_xr_rejected_are_unknown_not_released
+    [
+      "#{ORDER_ONE}^R",
+      "#{ORDER_ONE}^ER",
+      "#{ORDER_ONE}^XR",
+      "#{ORDER_ONE}^Rejected^x",
+    ].each do |reply_row|
+      RpmsRpc.reset!
+      with_sign_release_wire(validsig: "1", send: [ reply_row ])
+
+      results = RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+
+      assert_equal 1, results.length, reply_row
+      assert_equal :unknown, results[0][:status], reply_row
+      assert_unknown_outcome_reason(results[0][:reason])
+      refute_equal :released, results[0][:status], reply_row
+    end
   end
 
   def test_sign_and_release_mixed_crlf_cr_lf_row_separators
@@ -304,6 +328,20 @@ class OrderSignAndReleaseTest < Minitest::Test
     assert_empty client.calls
   end
 
+  def test_sign_and_release_non_array_order_ids_raises_argument_error_without_rpc
+    client = no_wire_client
+    RpmsRpc.configure { |c| c.client = client }
+
+    [ ORDER_ONE, nil, 42, Set[ORDER_ONE] ].each do |bad_ids|
+      client.calls.clear
+      error = assert_raises(ArgumentError) do
+        RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, bad_ids, SIG_CODE)
+      end
+      assert_match(/order_ids must be an Array/i, error.message, bad_ids.inspect)
+      assert_empty client.calls, bad_ids.inspect
+    end
+  end
+
   # --- broker errors propagate --------------------------------------------------
 
   def test_sign_and_release_rpc_not_available_on_send_propagates
@@ -317,7 +355,7 @@ class OrderSignAndReleaseTest < Minitest::Test
       RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
     end
     assert_equal message, error.message
-    refute_signature_in_exception(error, SIG_CODE)
+    refute_signature_in_exception(error, SIG_CODE, wire_encrypted: wire_encrypted_es_from_calls)
   end
 
   def test_sign_and_release_rpc_refused_on_send_propagates
@@ -331,7 +369,7 @@ class OrderSignAndReleaseTest < Minitest::Test
       RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
     end
     assert_equal message, error.message
-    refute_signature_in_exception(error, SIG_CODE)
+    refute_signature_in_exception(error, SIG_CODE, wire_encrypted: wire_encrypted_es_from_calls)
   end
 
   def test_sign_and_release_rpc_error_on_send_propagates
@@ -345,7 +383,7 @@ class OrderSignAndReleaseTest < Minitest::Test
       RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
     end
     assert_equal message, error.message
-    refute_signature_in_exception(error, SIG_CODE)
+    refute_signature_in_exception(error, SIG_CODE, wire_encrypted: wire_encrypted_es_from_calls)
   end
 
   def test_sign_and_release_send_error_after_validsig_does_not_leak_signature
@@ -361,7 +399,117 @@ class OrderSignAndReleaseTest < Minitest::Test
       RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
     end
     assert_equal 1, RpmsRpc.client.received_calls.count { |c| c[:rpc] == VALIDSIG_RPC }
-    refute_signature_in_exception(error, SIG_CODE)
+    refute_signature_in_exception(error, SIG_CODE, wire_encrypted: wire_encrypted_es_from_calls)
+  end
+
+  def test_sign_and_release_send_broker_error_redacts_plaintext_and_wire_ciphertext
+    [
+      RpmsRpc::Client::RpcError,
+      RpmsRpc::Client::RpcNotAvailableError,
+      RpmsRpc::Client::RpcRefusedError,
+    ].each do |error_class|
+      RpmsRpc.reset!
+      client = sign_release_send_raises_client do |params|
+        encrypted = params[3].to_s
+        plaintext = RpmsRpc::XwbCipher.decrypt(encrypted)
+        error_class.new("boom ES=#{encrypted} sig=#{plaintext}")
+      end
+      RpmsRpc.configure { |c| c.client = client }
+
+      error = assert_raises(error_class) do
+        RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+      end
+
+      wire = wire_encrypted_es_from_calls
+      refute_nil wire
+      refute_includes error.message, SIG_CODE
+      refute_includes error.message, wire
+      refute_signature_in_exception(error, SIG_CODE, wire_encrypted: wire)
+    end
+  end
+
+  def test_sign_and_release_send_rpc_error_clean_message_dirty_cause_redacts_secrets
+    RpmsRpc.reset!
+    client = sign_release_send_raises_client do |params|
+      encrypted = params[3].to_s
+      plaintext = RpmsRpc::XwbCipher.decrypt(encrypted)
+      begin
+        raise IOError, "write failed for param #{encrypted} / #{plaintext}"
+      rescue IOError => cause
+        raise RpmsRpc::Client::RpcError, "broker failed", cause: cause
+      end
+    end
+    RpmsRpc.configure { |c| c.client = client }
+
+    error = assert_raises(RpmsRpc::Client::RpcError) do
+      RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+    end
+
+    assert_equal "broker failed", error.message
+    refute_signature_in_exception(error, SIG_CODE, wire_encrypted: wire_encrypted_es_from_calls)
+  end
+
+  def test_sign_and_release_send_frozen_rpms_error_redacts_without_frozen_error
+    shared = RpmsRpc::Error.new("bad sig=#{SIG_CODE}")
+    shared.freeze
+    RpmsRpc.reset!
+    RpmsRpc.configure do |c|
+      c.client = sign_release_send_raises_client { shared }
+    end
+
+    error = assert_raises(RpmsRpc::Error) do
+      RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+    end
+
+    refute_instance_of FrozenError, error
+    refute_signature_in_exception(error, SIG_CODE, wire_encrypted: wire_encrypted_es_from_calls)
+    assert_includes shared.message, SIG_CODE, "original client exception must not be mutated"
+  end
+
+  def test_sign_and_release_send_non_rpms_error_with_secret_wraps_redacted_rpms_error
+    RpmsRpc.reset!
+    client = sign_release_send_raises_client do |_params|
+      ArgumentError.new("bad param #{SIG_CODE}")
+    end
+    RpmsRpc.configure { |c| c.client = client }
+
+    error = assert_raises(RpmsRpc::Error) do
+      RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+    end
+
+    refute_instance_of ArgumentError, error
+    refute_includes error.message, SIG_CODE
+    refute_signature_in_exception(error, SIG_CODE, wire_encrypted: wire_encrypted_es_from_calls)
+  end
+
+  def test_sign_and_release_send_rpc_error_redacts_inspect_escaped_wire_ciphertext
+    RpmsRpc.reset!
+    client = sign_release_send_raises_client do |params|
+      RpmsRpc::Client::RpcError.new("params=#{params.inspect}")
+    end
+    RpmsRpc.configure { |c| c.client = client }
+
+    error = assert_raises(RpmsRpc::Client::RpcError) do
+      RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+    end
+
+    wire = wire_encrypted_es_from_calls
+    refute_nil wire
+    refute_signature_in_exception(error, SIG_CODE, wire_encrypted: wire)
+  end
+
+  def test_sign_and_release_send_error_does_not_mutate_original_client_exception
+    shared = RpmsRpc::Error.new("cached failure for #{SIG_CODE}")
+    original_message = shared.message.dup
+    RpmsRpc.reset!
+    RpmsRpc.configure { |c| c.client = sign_release_send_raises_client { shared } }
+
+    assert_raises(RpmsRpc::Error) do
+      RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+    end
+
+    assert_equal original_message, shared.message
+    assert_includes shared.message, SIG_CODE
   end
 
   def test_sign_and_release_rpc_not_available_on_validsig_propagates
@@ -442,14 +590,41 @@ class OrderSignAndReleaseTest < Minitest::Test
     assert_match(/check.*order|order.*before.*retr/i, reason)
   end
 
-  def refute_signature_in_exception(error, plaintext)
-    encrypted = RpmsRpc::XwbCipher.encrypt(plaintext.to_s)
-    refute_includes error.message, plaintext.to_s
-    refute_includes error.message, encrypted
+  def wire_encrypted_es_from_calls
+    send = send_call
+    wire = send&.dig(:params, 3)
+    return wire.to_s if wire && !wire.to_s.empty?
+
+    valid = rpc_calls.find { |c| c[:rpc] == VALIDSIG_RPC }
+    valid&.dig(:params, 0).to_s
   end
 
-  def refute_signature_leaked(value, plaintext, encrypted: nil)
-    encrypted ||= RpmsRpc::XwbCipher.encrypt(plaintext.to_s)
+  def refute_signature_in_exception(error, plaintext, wire_encrypted:)
+    wire_encrypted = wire_encrypted.to_s
+    inspect_escaped_wire = wire_encrypted.inspect[1..-2]
+
+    ex = error
+    while ex
+      refute_includes ex.message, plaintext.to_s
+      refute_includes ex.message, wire_encrypted unless wire_encrypted.empty?
+      unless inspect_escaped_wire.nil? || inspect_escaped_wire.empty?
+        refute_includes ex.message, inspect_escaped_wire
+      end
+      if ex.respond_to?(:full_message)
+        full = ex.full_message
+        refute_includes full, plaintext.to_s
+        refute_includes full, wire_encrypted unless wire_encrypted.empty?
+        unless inspect_escaped_wire.nil? || inspect_escaped_wire.empty?
+          refute_includes full, inspect_escaped_wire
+        end
+      end
+      ex = ex.cause
+    end
+  end
+
+  def refute_signature_leaked(value, plaintext, wire_encrypted: nil)
+    wire_encrypted = (wire_encrypted || wire_encrypted_es_from_calls).to_s
+    inspect_escaped_wire = wire_encrypted.inspect[1..-2]
     walk = []
     case value
     when Array
@@ -459,7 +634,12 @@ class OrderSignAndReleaseTest < Minitest::Test
     end
     blob = walk.join("\0")
     refute_includes blob, plaintext.to_s, "plaintext signature must not appear in results"
-    refute_includes blob, encrypted, "encrypted signature must not appear in results"
+    unless wire_encrypted.empty?
+      refute_includes blob, wire_encrypted, "encrypted signature must not appear in results"
+    end
+    unless inspect_escaped_wire.nil? || inspect_escaped_wire.empty?
+      refute_includes blob, inspect_escaped_wire, "inspect-escaped ciphertext must not appear in results"
+    end
   end
 
   def collect_strings(obj)
@@ -526,6 +706,27 @@ class OrderSignAndReleaseTest < Minitest::Test
     RpmsRpc.reset!
     RpmsRpc.configure { |cfg| cfg.client = client }
     client
+  end
+
+  def sign_release_send_raises_client(&on_send)
+    Class.new do
+      define_method(:received_calls) { @calls ||= [] }
+      define_method(:current_context) { nil }
+
+      %i[call_rpc call_rpc_lines call_rpc_global_array].each do |meth|
+        define_method(meth) do |rpc_name, *params|
+          received_calls << { rpc: rpc_name, params: params, context: current_context }
+          return "1" if rpc_name == VALIDSIG_RPC
+
+          if rpc_name == SEND_RPC
+            exc = on_send.call(params)
+            raise exc
+          end
+
+          raise "unexpected RPC #{rpc_name.inspect}"
+        end
+      end
+    end.new
   end
 
   def sign_release_error_client(validsig:, send_error:, message:)
