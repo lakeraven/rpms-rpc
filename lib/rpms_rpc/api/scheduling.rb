@@ -34,11 +34,14 @@ module RpmsRpc
   # header — while the seeded tests passed. Same defect as AGG LOOKUP PATIENTS,
   # fixed in #237. Tracked as #254.
   #
-  # The truncated read does NOT simply yield "no rows". call_rpc pipes the reply
-  # through printable(), which flattens the 1-byte sequence echo and the \x00
-  # ack to SPACES rather than dropping them, so the surviving line reaches
-  # DataMapper as "  I00020APPOINTMENTID^T00020ERRORID". Its first caret piece
-  # no longer matches /\A[ITDF]\d{5}/, so recordset_header_row? returns false
+  # The truncated read does NOT simply yield "no rows". call_rpc goes through
+  # Reply.from_wire(controls: true) (it used to pipe the reply through
+  # printable()), which flattens the 1-byte sequence echo and the \x00 ack to
+  # SPACES rather than dropping them. (A high byte that is not valid UTF-8
+  # becomes U+FFFD, not a space, and valid non-ASCII text is kept.) So the
+  # surviving line reaches DataMapper as "  I00020APPOINTMENTID^T00020ERRORID".
+  # Its first caret piece no longer matches /\A[ITDF]\d{5}/, so
+  # recordset_header_row? returns false
   # and the header is consumed AS A DATA ROW. Reads therefore return one bogus
   # record instead of an empty set, and writes report failure after the M side
   # has already filed. Diagnose accordingly: an implausible row is the symptom,

@@ -71,7 +71,7 @@ module RpmsRpc
       end
 
       check_for_rpc_error(response)
-      split_response(response)
+      Reply.from_wire(split_response(response))
     rescue IOError, Errno::ECONNRESET, Errno::EPIPE, Errno::ENOTCONN => e
       @connected = false
       raise ConnectionError, "Connection lost during RPC call: #{e.message}"
