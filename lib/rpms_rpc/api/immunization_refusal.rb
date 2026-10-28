@@ -53,8 +53,7 @@ module RpmsRpc
       # fetch_scalar would collapse into nil — indistinguishable from
       # broker silence, and silence must never read as a filed refusal.
       raw = RpmsRpc.client.call_rpc(DataMapper.refusal_set.rpc_name, inp)
-      success = raw.is_a?(String) && !raw.match?(/\A-\d+(?:\.\d+)?\^/)
-      { success: success, ien: nil, raw: raw }
+      { success: DataMapper.write_accepted?(raw), ien: nil, raw: raw }
     rescue RpmsRpc::Client::FrameTooLongError => e
       # A value the wire would mis-frame is refused before anything is sent
       # (#472); the failure shape says why instead of raising.

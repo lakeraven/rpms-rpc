@@ -21,6 +21,8 @@ RpmsRpc::Image.exams_for_patient	GET /patients/{dfn}/images/exams
 RpmsRpc::Immunization.find	GET /immunizations/{ien}
 RpmsRpc::Immunization.for_patient	GET /patients/{dfn}/immunizations
 RpmsRpc::Immunization.text_summary	GET /patients/{dfn}/immunizations/text-summary
+RpmsRpc::ImmunizationLot.find	GET /immunization-lots/{ien}
+RpmsRpc::ImmunizationLot.list	GET /immunization-lots
 RpmsRpc::ImmunizationRefusal.reasons	GET /immunization-refusals/reasons
 RpmsRpc::Location.find	GET /locations/{ien}
 RpmsRpc::Measurement.find	GET /measurements/{measurement_ien}
@@ -68,11 +70,13 @@ RpmsRpc::ProgressNote.authorize	GET /progress-notes/{note_ien}/authorize
 RpmsRpc::ProgressNote.fetch_text	GET /progress-notes/{note_ien}/text
 RpmsRpc::ProgressNote.list	GET /patients/{dfn}/progress-notes
 RpmsRpc::Reminders.applicable	GET /patients/{dfn}/reminders/applicable
+RpmsRpc::Scheduling.resources	GET /appointments/resources
 RpmsRpc::Session.bootstrap	GET /users/{user_duz}/sessions/bootstrap
 RpmsRpc::Site.current	GET /users/{user_duz}/sites/current
 RpmsRpc::Site.list	GET /users/{user_duz}/sites
 RpmsRpc::Symptom.defaults	GET /symptoms/defaults
 RpmsRpc::Symptom.search	GET /symptoms
+RpmsRpc::Tribal.communities	GET /tribes/communities
 RpmsRpc::Tribal.eligibility	GET /patients/{dfn}/tribes/eligibility
 RpmsRpc::Tribal.enrollment	GET /patients/{dfn}/tribes/enrollment
 RpmsRpc::Tribal.service_unit	GET /tribes/{ien}/service-unit

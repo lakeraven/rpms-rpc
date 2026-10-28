@@ -89,7 +89,7 @@ module RpmsRpc
       # fetch_scalar would collapse into nil (indistinguishable from
       # broker silence — and silence must never read as a delete).
       raw = RpmsRpc.client.call_rpc(DataMapper.problem_remove.rpc_name, "#{ien}^^#{reason}")
-      success = raw.is_a?(String) && !raw.match?(/\A-\d+(?:\.\d+)?\^/)
+      success = DataMapper.write_accepted?(raw)
       { success: success, ien: success ? ien.to_i : nil, raw: raw }
     rescue RpmsRpc::Client::FrameTooLongError => e
       # A value the wire would mis-frame is refused before anything is sent

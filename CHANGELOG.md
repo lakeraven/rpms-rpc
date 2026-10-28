@@ -56,6 +56,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Evidence:** the reply shape is read from the M routine source, not from a live broker. **Unproven live (ADR 0009):** no live
   spec exercises a conflicting reply (the routine cannot produce one).
 
+### Changed — replies reach hosts as valid UTF-8; altered bytes are reported (#463)
+
+- `call_rpc` on XWB, BMX, CIA and `MockClient` now returns an `RpmsRpc::Reply`, an `Array` of UTF-8 Strings (it was ASCII-8BIT
+  on XWB and BMX, which raised `Encoding::CompatibilityError` as soon as a host joined a non-ASCII reply with a UTF-8 literal).
+  Bytes that are not valid UTF-8 become U+FFFD and `Reply#altered?` / `#altered_lines` say so. The flag is dropped by
+  `Array#map`, `#select` and `#+`. Charset: assumed UTF-8, unproven; Latin-1 observed in stored data will read as altered.
+- CIA: valid non-ASCII text is no longer replaced with spaces. Control characters still become a space, and are now reported
+  as altered. CR and LF are line terminators and are never substituted, so `controls: true` cannot join two lines of a reply.
+- The flag reaches hosts. `Allergy.assessment` / `.for_patient` and `Patient.lookup` clean rows carry an additive `altered: true|false`
+  (true when any text of the row had a byte replaced); a surfaced unrecognised entry carries `altered: true` only when altered
+  and no key otherwise (a missing key is "not altered", never "clean"). Before this, two allergens that differed only in a byte the gem replaced
+  came back as equal strings with no signal.
+- GLOBAL ARRAY replies (`CiaClient#call_rpc_global_array`, `MockClient#call_rpc_global_array`) are valid UTF-8 and return an
+  `RpmsRpc::Reply::Text`, a String that answers `altered?`; they were raw ASCII-8BIT (CIA `Patient.lookup` still raised
+  `Encoding::CompatibilityError` on a non-ASCII name). `MockClient#call_rpc` returns the same `Text` for a bare String seed.
+- `Reply` and its lines are frozen and built only through `Reply.from_wire`; `from_wire(reply)` keeps the flag it carries.
+- `Client#call_rpc_lines` no longer raises on a UTF-8-tagged String holding an invalid byte, and converts a plain Array.
+- Not yet carried: other API modules that return identity-bearing text (see the follow-up issue).
+
 ### Fixed — XWB and BMX refuse a request they would mis-frame, and the failure-hash writers say so (#472, #474)
 
 - **XWB:** the header `[XWB]1130` fixes the L-PACK length at 3 digits (`XWBPRS.m`, `XWBENVL=+$E(P,3)`; `LREAD` reads exactly that
