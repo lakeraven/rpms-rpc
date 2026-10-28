@@ -195,6 +195,31 @@ module RpmsRpc
       in_context { DataMapper.scheduling_hospital_location.fetch_many }
     end
 
+    # A resource's appointments between two dates — BSDX CREATE APPT SCHEDULE
+    # (CRSCH^BSDX02), the appointment list the scheduling client draws. Unlike
+    # all_appointments it carries each appointment's id (what cancel, check-in
+    # and no-show take) and its state. Cancelled appointments are included and
+    # marked; walk-ins are included. The note may hold CR/LF, so the reply is
+    # read as a recordset. It only reads, but the RPC is named CREATE, so it is
+    # classed and shaped as a write (never retried), like slot_schedule.
+    # Returns [{ id:, start_time:, end_time:, checkin_time:, patient_dfn:,
+    #   patient_name:, resource:, no_show:, hrn:, access_type_id:, walk_in:,
+    #   checkout_time:, cancelled:, note: }], or nil (no response).
+    def appointments(resource:, start_date:, end_date:)
+      name = resource.to_s
+      raise ArgumentError, "resource name must not contain '|': #{name.inspect}" if name.include?("|")
+
+      rows = in_context { recordset("BSDX CREATE APPT SCHEDULE", name, "#{fm(start_date)}.0001", "#{fm(end_date)}.2359", "") }
+      rows&.map do |r|
+        { id: r[:appointmentid].to_i, start_time: external_time(r[:start_time]), end_time: external_time(r[:end_time]),
+          checkin_time: external_time(r[:checkin]), patient_dfn: r[:patientid].to_i, patient_name: r[:patientname],
+          resource: r[:resourcename], no_show: r[:noshow].to_s == "1", hrn: blank_to_nil(r[:hrn]),
+          access_type_id: r[:accesstypeid].to_i, walk_in: r[:walkin].to_s == "1",
+          checkout_time: external_time(r[:checkout]), cancelled: r[:cancelled].to_s == "1", note: blank_to_nil(r[:note]) }
+      end
+    end
+    shape :appointments, resource: "appointments", verb: "POST", path: "/appointments"
+
     # The scheduling resources and this user's rights on each — BSDX RESOURCES
     # (RESUSR^BSDX01, for DUZ). A resource is what an appointment is booked on
     # (add_appointment's resource:), linked to its clinic by
@@ -294,6 +319,14 @@ module RpmsRpc
       raw = raw.join("\x1e") if raw.is_a?(Array)
       parsed = Agg.parse_reply(raw)
       parsed ? parsed[:records] : []
+    end
+
+    def external_time(text)
+      FilemanDateParser.parse_external_datetime(text) unless text.to_s.strip.empty?
+    end
+
+    def blank_to_nil(value)
+      value.to_s.empty? ? nil : value
     end
 
     def data_row(resp)

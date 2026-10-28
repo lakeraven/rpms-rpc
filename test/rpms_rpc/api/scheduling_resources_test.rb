@@ -77,14 +77,35 @@ class SchedulingResourcesTest < Minitest::Test
     assert_equal [ "DEMO IHS CLINIC", "3261028.0001", "3261028.2359", "", "" ], client.calls.last[:params]
   end
 
+  APPTS_HEADER = "I00020APPOINTMENTID^D00030START_TIME^D00030END_TIME^D00030CHECKIN^D00030AUXTIME^I00020PATIENTID^" \
+                 "T00030PATIENTNAME^T00030RESOURCENAME^I00005NOSHOW^T00020HRN^I00005ACCESSTYPEID^I00005WALKIN^" \
+                 "D00030CHECKOUT^I00020VPROVIDER^T00020CANCELLED^T00250NOTE"
+
+  # The rows a live build answered for one clinic's day, plus one cancelled and
+  # checked in, to show those columns read.
+  def test_appointments_carry_their_id_and_state
+    client = use("BSDX CREATE APPT SCHEDULE" =>
+                   "8\x00#{APPTS_HEADER}\x1e1^OCT 28,2026 09:00^OCT 28,2026 09:20^^^3^MOUSE,MICKEY M^DEMO IHS CLINIC^0^1001^0^0^^^0^probe booking \x1e" \
+                   "7^OCT 28,2026 11:00^OCT 28,2026 11:20^OCT 28,2026 10:55^^4^DEMO,PATIENT ONE^DEMO IHS CLINIC^0^99901^1^0^^^1^\x1e")
+
+    first, second = RpmsRpc::Scheduling.appointments(resource: "DEMO IHS CLINIC", start_date: Date.new(2026, 10, 28), end_date: Date.new(2026, 10, 28))
+
+    assert_equal [ 1, 9, 3, "MOUSE,MICKEY M", "1001", false, nil, "probe booking " ],
+                 first.values_at(:id, :start_time, :patient_dfn, :patient_name, :hrn, :cancelled, :checkin_time, :note).tap { |v| v[1] = v[1].hour }
+    assert_equal [ 7, true, 10, nil ], [ second[:id], second[:cancelled], second[:checkin_time].hour, second[:note] ]
+    assert_equal [ "DEMO IHS CLINIC", "3261028.0001", "3261028.2359", "" ], client.calls.last[:params]
+  end
+
   def test_both_reads_bind_the_bsdxrpc_context
     client = use("BSDX RESOURCES" => "1\x00#{RESOURCES_HEADER}\x1e\x1f",
-                 "BSDX CREATE ASGND SLOT SCHED" => "1\x00#{SLOTS_HEADER}\x1e\x1f")
+                 "BSDX CREATE ASGND SLOT SCHED" => "1\x00#{SLOTS_HEADER}\x1e\x1f",
+                 "BSDX CREATE APPT SCHEDULE" => "1\x00#{APPTS_HEADER}\x1e\x1f")
 
     RpmsRpc::Scheduling.resources
     RpmsRpc::Scheduling.slot_schedule(resource: "X", start_date: Date.new(2026, 1, 1), end_date: Date.new(2026, 1, 1))
+    RpmsRpc::Scheduling.appointments(resource: "X", start_date: Date.new(2026, 1, 1), end_date: Date.new(2026, 1, 1))
 
-    assert_equal [ "BSDXRPC", "BSDXRPC" ], client.calls.map { |c| c[:context] }
+    assert_equal [ "BSDXRPC" ] * 3, client.calls.map { |c| c[:context] }
   end
 
   def test_no_rows_is_empty_and_no_response_is_nil
