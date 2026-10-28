@@ -93,8 +93,12 @@ module RpmsRpc
     # ORWSIG^ORWREL^ORWNATR after the order id (ORWDXR.m:87-98).
     # 1 is ES (ORWDXR.m:91), 1 releases, E is electronic.
     SIGN_RELEASE_ORWREC = "1^1^E"
-    # VALIDSIG answered something other than the success token "1".
+    # VALIDSIG's exact reply "0". Not the success token "1", so ORWDX
+    # SEND is not called (ORWDX.m:152).
     SIGN_RELEASE_REFUSED = "electronic signature was not accepted"
+    # VALIDSIG replied nil, empty, or any text other than exactly "1"
+    # or "0". The signature was not confirmed, so SEND is not called.
+    SIGN_RELEASE_UNCONFIRMED = "electronic signature could not be confirmed"
     # Piece 2 exactly "S": signed, and not released (ORWDX.m:172-176).
     # Exactly "RS" is released: "R" when released and "S" when ORWSIG'=2.
     SIGN_RELEASE_SIGNED = "signed but not released"
@@ -491,8 +495,10 @@ module RpmsRpc
     # that one parameter; the user is the session DUZ. ESignature.validate
     # sends it through ValidSignature (DataMapper.tiu_valid_signature).
     # The same ciphertext is sent again as ES. The vuecentric trace
-    # reuses the token. Only an exact reply line "1" is accepted here.
-    # The mapper boolean also treats "yes" as true; this call does not.
+    # reuses the token. Only an exact reply line "1" proceeds to SEND.
+    # Exactly "0" is not accepted. Anything else (nil, empty, or other
+    # text) does not confirm the signature. The mapper boolean also
+    # treats "yes" as true; this call does not.
     #
     # ORWREC is a 1-based list. ORWREC(n)=ORIFN;Action^Signature Sts^
     # Release Sts^Nature (ORWDX.m:154): the order id is IFN;ACT, then
@@ -504,8 +510,11 @@ module RpmsRpc
     #
     # order_ids must be an Array; anything else raises ArgumentError and
     # calls no RPC. An empty order list returns [] and calls nothing.
-    # A bad argument rejects every order and calls no RPC. A VALIDSIG
-    # reply other than "1" rejects every order and does not call SEND.
+    # A bad argument rejects every order and calls no RPC. VALIDSIG must
+    # answer exactly "1" or SEND is not called (ORWDX.m:152). Exactly "0"
+    # rejects every order: the electronic signature was not accepted. Any
+    # other reply (nil, empty, or other text) rejects every order because
+    # the signature could not be confirmed.
     #
     # SEND's reply is one row per order (ORWDX.m:172-176), split on
     # CRLF, a bare CR, or LF. Piece 2 is "R" when released and "S" when
@@ -518,8 +527,18 @@ module RpmsRpc
     # two rows for one order is :unknown: SEND ran, and the reply does
     # not prove that order.
     #
-    # Broker errors propagate. StandardError from the RPC calls is
-    # rescued. Secrets are the plaintext signature, the encrypted ES,
+    # ORWU VALIDSIG raising anything propagates. ORWDX SEND raising
+    # RpcNotAvailableError or RpcRefusedError propagates: the release
+    # routine did not run. Any other StandardError from SEND does not
+    # raise. The request was sent, and EN^ORCSEND may have signed before
+    # the fault (FOIA ORCSEND.m:11-13, :72-73) so the ORWLST rows
+    # (ORWDX.m:172-176) never arrived. Each requested order is :unknown.
+    # The reason is "the release request was sent but failed (<class>);
+    # check the order before retrying", with the error class name only.
+    # The message is never copied.
+    #
+    # Where an error propagates, StandardError is rescued so secrets can
+    # be stripped. Secrets are the plaintext signature, the encrypted ES,
     # and each value's String#inspect body without the surrounding
     # quotes. An RpmsRpc::Error whose message and #cause chain contain
     # none of them is re-raised unchanged. Otherwise a new error is
@@ -540,26 +559,10 @@ module RpmsRpc
       return sign_release_rejected(order_ids, reason) if reason
 
       encrypted = ValidSignature.encrypt(signature)
-      begin
-        if ValidSignature.line_for(encrypted) == "1"
-          raw = RpmsRpc.client.call_rpc(
-            "ORWDX SEND",
-            dfn_s,
-            provider_s,
-            location_s,
-            encrypted,
-            ids.map { |id| "#{id}^#{SIGN_RELEASE_ORWREC}" }
-          )
-          sign_release_scrub(parse_sign_release_reply(ids, raw), signature, encrypted)
-        else
-          sign_release_rejected(order_ids, SIGN_RELEASE_REFUSED)
-        end
-      rescue StandardError => error
-        secrets = sign_release_secrets(signature, encrypted)
-        raise if error.is_a?(RpmsRpc::Error) && !sign_release_mentions?(error, secrets)
+      line = sign_release_validsig_line(signature, encrypted)
+      return sign_release_rejected(order_ids, sign_release_validsig_reason(line)) unless line == "1"
 
-        sign_release_raise_redacted(error, sign_release_redact(sign_release_message(error), secrets))
-      end
+      sign_release_send(dfn_s, provider_s, location_s, ids, signature, encrypted)
     end
     shape :sign_and_release, resource: "orders", verb: "POST", path: "/patients/{dfn}/orders/sign-and-release"
 
@@ -1056,6 +1059,67 @@ module RpmsRpc
       order_ids.map do |id|
         { order_id: id.is_a?(String) ? id : id.to_s, status: :rejected, reason: reason }
       end
+    end
+
+    # ORWU VALIDSIG. Any StandardError propagates, redacted when the
+    # message or a #cause carries the signature. SEND is not reached.
+    def sign_release_validsig_line(signature, encrypted)
+      ValidSignature.line_for(encrypted)
+    rescue StandardError => error
+      sign_release_reraise(error, signature, encrypted)
+    end
+
+    # Exactly "0" was checked and refused. Anything else was not the
+    # success token and was not that refusal, so it is unconfirmed.
+    def sign_release_validsig_reason(line)
+      return SIGN_RELEASE_REFUSED if line == "0"
+
+      SIGN_RELEASE_UNCONFIRMED
+    end
+
+    # ORWDX SEND (ORWDX.m:152). RpcNotAvailableError and RpcRefusedError
+    # mean the routine never ran, so they propagate like VALIDSIG. Any
+    # other StandardError is one :unknown row per order: the request was
+    # sent and the reply rows (ORWDX.m:172-176) are not in hand.
+    def sign_release_send(dfn, provider, location, ids, signature, encrypted)
+      raw = begin
+        RpmsRpc.client.call_rpc(
+          "ORWDX SEND",
+          dfn,
+          provider,
+          location,
+          encrypted,
+          ids.map { |id| "#{id}^#{SIGN_RELEASE_ORWREC}" }
+        )
+      rescue RpmsRpc::Client::RpcNotAvailableError, RpmsRpc::Client::RpcRefusedError => error
+        # Subclasses of RpcError, so this clause is first. The routine
+        # never ran. Redact and re-raise; do not turn it into :unknown.
+        sign_release_reraise(error, signature, encrypted)
+      rescue StandardError => error
+        return sign_release_sent_failed(ids, error)
+      end
+      sign_release_scrub(parse_sign_release_reply(ids, raw), signature, encrypted)
+    end
+
+    # The class name only (RpcError, not the message). The message can
+    # carry the plaintext signature or the encrypted ES.
+    def sign_release_sent_failed(order_ids, error)
+      name = error.class.name.to_s.split("::").last.to_s
+      reason = "the release request was sent but failed (#{name}); check the order before retrying"
+      order_ids.map { |id| { order_id: id, status: :unknown, reason: reason } }
+    end
+
+    # An RpmsRpc::Error whose message and #cause chain do not contain
+    # the signature is the same object. Called from a rescue, so a bare
+    # raise re-raises that exception ($!). Naming the variable would be
+    # a raise RaiseHierarchyTest cannot resolve. Otherwise a new error
+    # is raised (cause: nil) with the redacted message. The caller's
+    # exception is left as it was.
+    def sign_release_reraise(error, signature, encrypted)
+      secrets = sign_release_secrets(signature, encrypted)
+      raise if error.is_a?(RpmsRpc::Error) && !sign_release_mentions?(error, secrets)
+
+      sign_release_raise_redacted(error, sign_release_redact(sign_release_message(error), secrets))
     end
 
     # Plaintext, the wire ciphertext, and each value's String#inspect
