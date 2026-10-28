@@ -98,6 +98,7 @@ class OversizedTextTest < Minitest::Test
 
   def test_update_text_returns_a_failure_hash_for_a_line_over_999_bytes
     result = RpmsRpc::ProgressNote.update_text("5001", LONG)
+    assert_equal true, result[:success], "wrapped update must succeed on the page acknowledgement"
     refute_empty @socket.writes, "wrapped update must reach the wire"
     assert_wire_writes_lpack_values_at_most_999
     refute_pre479_update_text_refusal(result)
@@ -120,6 +121,7 @@ class OversizedTextTest < Minitest::Test
   def test_update_text_counts_bytes_not_characters
     text = "é" * 500 # 500 characters, 1000 bytes
     result = RpmsRpc::ProgressNote.update_text("5001", text)
+    assert_equal true, result[:success], "wrapped update must succeed on the page acknowledgement"
     refute_empty @socket.writes, "wrapped update must reach the wire"
     assert_wire_writes_lpack_values_at_most_999
     refute_pre479_update_text_refusal(result)

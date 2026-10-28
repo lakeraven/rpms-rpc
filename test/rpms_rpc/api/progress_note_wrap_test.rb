@@ -40,6 +40,15 @@ class ProgressNoteWrapTest < Minitest::Test
     end
   end
 
+  def assert_update_text_utf8_rejection(input)
+    RpmsRpc.mock!
+    result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, input)
+    assert_equal false, result[:success], result.inspect
+    assert_nil result[:raw]
+    assert_match(/UTF-8/i, result[:error].to_s)
+    assert_empty RpmsRpc.client.received_calls
+  end
+
   def assert_pieces_at_most(values, wrap_width)
     values.each { |v| assert_operator v.bytesize, :<=, wrap_width, v.inspect }
   end
@@ -77,8 +86,9 @@ class ProgressNoteWrapTest < Minitest::Test
       pos += piece.bytesize
       next if idx == sent_pieces.length - 1
 
-      if pos < original_line.bytesize && original_line[pos] =~ /[ \t]/
-        pos += 1
+      if pos < original_line.bytesize
+        byte = original_line.getbyte(pos)
+        pos += 1 if byte == 0x20 || byte == 0x09
       end
     end
     assert_equal original_line.bytesize, pos,
@@ -380,6 +390,74 @@ class ProgressNoteWrapTest < Minitest::Test
       wrap_width: 4,
       expected_pieces: [ "abcd", "efgh" ]
     )
+  end
+
+  # -- encodings and coercions (#479) -----------------------------------------
+
+  def test_utf16_and_utf32_encoded_strings_return_utf8_failure_without_rpc
+    plain = "abc\ndef"
+    %w[UTF-16LE UTF-16BE UTF-32LE UTF-32BE].each do |encoding|
+      RpmsRpc.mock!
+      encoded = plain.encode(encoding)
+      result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, encoded)
+      assert_equal false, result[:success], encoding
+      assert_nil result[:raw], encoding
+      assert_match(/UTF-8/i, result[:error].to_s, encoding)
+      assert_empty RpmsRpc.client.received_calls, encoding
+    end
+  end
+
+  def test_non_string_with_invalid_to_s_returns_utf8_failure_without_rpc
+    bad = Object.new
+    bad.define_singleton_method(:to_s) { "\xFF".b }
+    assert_update_text_utf8_rejection(bad)
+  end
+
+  def test_non_string_with_valid_to_s_is_coerced_and_sent
+    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1") }
+    result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, 123)
+    assert_equal({ success: true, raw: "#{NOTE_IEN}^1^1" }, result)
+    tiux = tiux_from_params(params_sent_to("TIU SET DOCUMENT TEXT"))
+    assert_equal [ "123" ], text_values_in_order(tiux)
+  end
+
+  def test_iso8859_1_string_is_refused_without_rpc
+    latin1 = "SYNTHETIC caf\xE9".dup.force_encoding(Encoding::ISO_8859_1)
+    assert_update_text_utf8_rejection(latin1)
+  end
+
+  def test_us_ascii_and_valid_utf8_and_ascii8bit_utf8_bytes_still_update
+    samples = [
+      "US-ASCII line",
+      "UTF-8 café SYNTHETIC",
+      String.new("UTF-8 café".b, encoding: Encoding::ASCII_8BIT)
+    ]
+    samples.each do |text|
+      assert_update_succeeds(NOTE_IEN, text)
+    end
+  end
+
+  # -- wrap performance (long whitespace runs) --------------------------------
+
+  def test_million_space_run_wraps_within_five_seconds_with_eighty_byte_pieces
+    assert_long_whitespace_run_wraps_quickly(" ", 1_000_000)
+  end
+
+  def test_million_tab_run_wraps_within_five_seconds_with_eighty_byte_pieces
+    assert_long_whitespace_run_wraps_quickly("\t", 1_000_000)
+  end
+
+  def assert_long_whitespace_run_wraps_quickly(run_char, run_length)
+    line = (run_char * run_length) + "x"
+    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1") }
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, line)
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+    assert_equal true, result[:success], result.inspect
+    assert_operator elapsed, :<, 5.0, "wrap took #{elapsed}s"
+    sent = text_values_in_order(tiux_from_params(params_sent_to("TIU SET DOCUMENT TEXT")))
+    assert_pieces_at_most(sent, RpmsRpc::ProgressNote::WRAP_WIDTH)
+    assert_equal "x", sent.last
   end
 
   # -- invalid UTF-8 ----------------------------------------------------------
