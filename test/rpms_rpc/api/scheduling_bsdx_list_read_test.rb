@@ -543,4 +543,188 @@ class SchedulingBsdxListReadTest < Minitest::Test
     stub_call_rpc([ "  #{HOSPITAL_LOC_HEADER}" ])
     assert_equal [], RpmsRpc::Scheduling.hospital_locations
   end
+
+  # -- Round 3: headerless fetch reply with a caret-free line (#481) ------------
+
+  CLINIC_A_HOSPITAL_ROW = "5^CLINIC A^DEMO,PROVIDER^000^^"
+
+  {
+    plain_invalid_resource: ->(_cfg) { [ "Invalid resource" ] },
+    reply_text_resource_not_found: ->(_cfg) { RpmsRpc::Reply.text("Resource not found") },
+    caret_row_plus_plain_line: ->(cfg) { [ SAMPLE_DATA_ROW.fetch(cfg[:rpc]), "Invalid resource" ] },
+    clinic_a_row_plus_plain_line: ->(_cfg) { [ CLINIC_A_HOSPITAL_ROW, "Invalid resource" ] }
+  }.each do |label, reply_builder|
+    FETCH_MANY_READS.each do |method, cfg|
+      define_method("test_#{method}_raises_on_headerless_fetch_#{label}") do
+        stub_call_rpc(reply_builder.call(cfg))
+        err = assert_rpc_error_includes_rpc(method, cfg[:rpc]) { cfg[:call].call }
+        assert_includes err.message, "no recordset header",
+                        "#{method}: caret-free line in headerless fetch reply must fail closed"
+      end
+    end
+  end
+
+  FETCH_MANY_READS.each do |method, cfg|
+    define_method("test_#{method}_headerless_unframed_caret_rows_still_parse") do
+      stub_call_rpc([ SAMPLE_DATA_ROW.fetch(cfg[:rpc]) ])
+      rows = cfg[:call].call
+      assert_equal 1, rows.size, "#{method}: MockClient-style headerless caret rows must still parse"
+    end
+  end
+
+  # -- Round 3: multiple headers and ERRORID header anywhere (#481) ------------
+
+  def assert_bsdx_list_read_failure(method, cfg, expect_phrase:, &block)
+    err = nil
+    begin
+      block.call
+    rescue Encoding::CompatibilityError => e
+      flunk "#{method}: must raise RpcError, not Encoding::CompatibilityError (#{e.message})"
+    rescue RpmsRpc::Client::RpcError => e
+      err = e
+    end
+    assert err, "#{method}: expected RpcError with #{expect_phrase.inspect}"
+    assert_includes err.message, cfg[:rpc], "#{method}: RpcError must name the RPC"
+    assert_includes err.message, expect_phrase,
+                    "#{method}: expected phrase #{expect_phrase.inspect}, got #{err.message.inspect}"
+    err
+  end
+
+  def assert_rpc_error_names_rpc_not_encoding(method, cfg, &block)
+    err = nil
+    begin
+      block.call
+    rescue Encoding::CompatibilityError => e
+      flunk "#{method}: must raise RpcError, not Encoding::CompatibilityError (#{e.message})"
+    rescue RpmsRpc::Client::RpcError => e
+      err = e
+    end
+    assert err, "#{method}: expected RpcError for invalid UTF-8 row bytes"
+    assert_includes err.message, cfg[:rpc], "#{method}: RpcError must name the RPC, got #{err.message.inspect}"
+    refute_broker_text_in_rpc_error(method, err)
+    err
+  end
+
+  MULTI_HEADER_FETCH_REPLY = {
+    errorid_after_row_with_text: ->(cfg) {
+      row = SAMPLE_DATA_ROW.fetch(cfg[:rpc])
+      hdr = "#{cfg[:header]}#{RS}"
+      [ hdr, "#{row}#{RS}", "#{ERRORID_HEADER}#{RS}", "Error text", "" ]
+    },
+    errorid_after_row_only: ->(cfg) {
+      row = SAMPLE_DATA_ROW.fetch(cfg[:rpc])
+      [ "#{cfg[:header]}#{RS}", "#{row}#{RS}", "#{ERRORID_HEADER}#{RS}", "" ]
+    },
+    errorid_before_header: ->(cfg) {
+      row = SAMPLE_DATA_ROW.fetch(cfg[:rpc])
+      [ "#{ERRORID_HEADER}#{RS}", "#{cfg[:header]}#{RS}", "#{row}#{RS}", "" ]
+    },
+    duplicate_header: ->(cfg) {
+      row = SAMPLE_DATA_ROW.fetch(cfg[:rpc])
+      hdr = "#{cfg[:header]}#{RS}"
+      [ hdr, "#{row}#{RS}", hdr, "#{row}#{RS}", "" ]
+    }
+  }.freeze
+
+  MULTI_HEADER_FETCH_REPLY.each do |label, reply_builder|
+    FETCH_MANY_READS.each do |method, cfg|
+      define_method("test_#{method}_raises_on_multi_header_fetch_#{label}") do
+        expect_phrase = label.to_s.start_with?("errorid") ? "ERRORID recordset" : "unexpected second header"
+        stub_call_rpc(reply_builder.call(cfg))
+        assert_bsdx_list_read_failure(method, cfg, expect_phrase:) { cfg[:call].call }
+      end
+    end
+  end
+
+  def recordset_wire_after_header(*segments)
+    body = +"1\x00"
+    segments.each { |seg| body << seg << RS }
+    body << US
+  end
+
+  MULTI_HEADER_RECORDSET_BODY = {
+    errorid_after_row_with_text: ->(cfg) {
+      [ cfg[:header], SAMPLE_DATA_ROW.fetch(cfg[:rpc]), ERRORID_HEADER, "Error text" ]
+    },
+    errorid_after_row_only: ->(cfg) { [ cfg[:header], SAMPLE_DATA_ROW.fetch(cfg[:rpc]), ERRORID_HEADER ] },
+    errorid_before_header: ->(cfg) { [ ERRORID_HEADER, cfg[:header], SAMPLE_DATA_ROW.fetch(cfg[:rpc]) ] },
+    duplicate_header: ->(cfg) {
+      row = SAMPLE_DATA_ROW.fetch(cfg[:rpc])
+      [ cfg[:header], row, cfg[:header], row ]
+    }
+  }.freeze
+
+  MULTI_HEADER_RECORDSET_BODY.each do |label, segments_builder|
+    RECORDSET_READS.each do |method, cfg|
+      define_method("test_#{method}_raises_on_multi_header_recordset_#{label}") do
+        expect_phrase = label.to_s.start_with?("errorid") ? "ERRORID recordset" : "unexpected second header"
+        wire = recordset_wire_after_header(*segments_builder.call(cfg))
+        stub_recordset(cfg[:rpc] => wire)
+        assert_bsdx_list_read_failure(method, cfg, expect_phrase:) { cfg[:call].call }
+      end
+    end
+  end
+
+  RESOURCES_ERRORID_ROW = "5^CLINIC A^0^15^6^^^^1^1^1^1"
+
+  def test_resources_raises_on_one_line_global_array_with_errorid_after_row
+    wire = recordset_wire_after_header(RESOURCES_HEADER, RESOURCES_ERRORID_ROW, ERRORID_HEADER, "Error text")
+    stub_recordset("BSDX RESOURCES" => wire)
+    assert_bsdx_list_read_failure(
+      :resources,
+      RECORDSET_READS.fetch(:resources),
+      expect_phrase: "ERRORID recordset"
+    ) { RpmsRpc::Scheduling.resources }
+  end
+
+  # -- Round 3: ASCII-8BIT wire that is valid UTF-8 (#481) ---------------------
+
+  RESOURCES_PENA_ROW = "5^Pe\xC3\xB1a^0^15^6^^^^1^1^1^1"
+  HOSPITAL_PENA_ROW = "5^Pe\xC3\xB1a^DEMO,PROVIDER^000^^"
+
+  def test_resources_ascii8bit_valid_utf8_wire_parses_resource_name
+    wire = recordset_wire_after_header(RESOURCES_HEADER, RESOURCES_PENA_ROW).b
+    stub_recordset("BSDX RESOURCES" => wire)
+    rows = RpmsRpc::Scheduling.resources
+    assert_equal 1, rows.size
+    assert_equal "Peña", rows.first[:resource_name]
+  end
+
+  def test_hospital_locations_ascii8bit_valid_utf8_lines_parse_location
+    stub_call_rpc(
+      [
+        "#{HOSPITAL_LOC_HEADER}#{RS}".b,
+        "#{HOSPITAL_PENA_ROW}#{RS}".b,
+        "".b
+      ]
+    )
+    rows = RpmsRpc::Scheduling.hospital_locations
+    assert_equal 1, rows.size
+    assert_equal "Peña", rows.first[:location]
+  end
+
+  INVALID_UTF8_ROW_RESOURCES = "5^Pe\xFFa^0^15^6^^^^1^1^1^1"
+  INVALID_UTF8_ROW_HOSPITAL = "5^Pe\xFFa^DEMO,PROVIDER^000^^"
+
+  def test_resources_raises_rpc_error_on_invalid_utf8_row_bytes
+    wire = recordset_wire_after_header(RESOURCES_HEADER, INVALID_UTF8_ROW_RESOURCES).b
+    stub_recordset("BSDX RESOURCES" => wire)
+    assert_rpc_error_names_rpc_not_encoding(:resources, RECORDSET_READS.fetch(:resources)) do
+      RpmsRpc::Scheduling.resources
+    end
+  end
+
+  def test_hospital_locations_raises_rpc_error_on_invalid_utf8_row_bytes
+    stub_call_rpc(
+      [
+        "#{HOSPITAL_LOC_HEADER}#{RS}".b,
+        "#{INVALID_UTF8_ROW_HOSPITAL}#{RS}".b,
+        "".b
+      ]
+    )
+    assert_rpc_error_names_rpc_not_encoding(
+      :hospital_locations,
+      FETCH_MANY_READS.fetch(:hospital_locations)
+    ) { RpmsRpc::Scheduling.hospital_locations }
+  end
 end
