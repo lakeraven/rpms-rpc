@@ -212,7 +212,10 @@ only `ProgressNote.update_text` also names the line, and `Registration.update`'s
 `:error`, where a broker-side failure carries `:message` and `:raw` only, so a caller that branches on `:message` must also check
 `:error`. The rest let the error propagate and are not yet audited (#480); `Registration.register` and `Patient.register` raise it.
 On a real session an API may already have bound its context before the refused write, which changes no record. A host that creates a record and then updates it (create, then `update_text`) still
-holds the first record after a refusal; a pre-check is tracked in #480 and wrapping long note text in #479.
+holds the first record after a refusal; a pre-check is tracked in #480. `ProgressNote.update_text` wraps a line longer than 80 bytes
+(or `wrap_width:`, an Integer from 4 to 999) into `TIUX("TEXT",n,0)` pieces before it is sent (#479), so a line over 999 bytes is sent
+on XWB rather than refused, and the chart shows those pieces as separate lines. Indentation stays on the first piece. A wire that still
+cannot frame the request (BMX at 512 bytes) is still the failure hash.
 
 ### Allergy assessment: never hide an allergy, never vouch for a reply
 

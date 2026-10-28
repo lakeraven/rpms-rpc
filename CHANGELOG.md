@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — `ProgressNote.update_text` wraps long lines before TIU SET DOCUMENT TEXT (#479)
+
+- A line longer than `wrap_width` bytes (default `ProgressNote::WRAP_WIDTH`, 80; an Integer from 4 to 999) is cut into consecutive `TIUX("TEXT",n,0)` pieces. The break is the last space or tab past the leading indentation and at a byte offset within the width; that one character is dropped. Otherwise the cut is the last UTF-8 character boundary within the width. Indentation stays on the first piece only. Lines that fit, including blank lines, are unchanged. **This changes how the note is laid out in the chart.**
+- `wrap_width` outside that range raises `ArgumentError` before any RPC. Text that is not valid UTF-8 returns `{ success: false, raw: nil, error: }` and is not sent; the error does not include the text.
+- A line over 999 bytes is wrapped and sent on XWB, rather than refused with the #474 failure hash. `FrameTooLongError` is still rescued for a wire that cannot frame the request (BMX's 512-byte cut), and that failure hash still names the line.
+
 ### Added — the release guard reads live summaries bound to the pinned build, the released source, and the suite that ran (#361, #441)
 
 - Live summaries are schema 3. They name the source they tested (a SHA-256 over every file the gemspec ships, #441) and the suite they ran (a SHA-256 over every file under `test/live/` plus `data/rpc_coverage/config.yml`), and they record `passed`, true only when every non-skipped result passed. The guard refuses `passed` other than true, a suite that is not the current tree, a persona or protocol that does not match the file name, and a summary whose source is not the tree being released. A run during which a shipped file or the suite changes is not recorded. Older summaries are refused until `rake test:live` is re-run. The live run block names the pinned release, as the summary file does, rather than the registry file.
@@ -95,8 +101,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   writers (`{ success: false, raw: nil, error: }`, where a broker-side failure carries `:message` and `:raw` only), `DdrFileman.filer` (`errors:`), and `Registration.update`
   (`error: :frame_too_long`, with `window:` and the `filed_windows:` report).
 - **APIs that raise `FrameTooLongError`** (not yet audited, #480): `Registration.register`, `Agg`, the behavioral-health writers,
-  `Vital` and `Measurement` writes, and any caller of `call_rpc` directly. Wrapping long note text instead of refusing it is #479;
-  a pre-check that lets a host validate before it files its first record is #480.
+  `Vital` and `Measurement` writes, and any caller of `call_rpc` directly. Long note text is wrapped by `ProgressNote.update_text`
+  (#479, above); a pre-check that lets a host validate before it files its first record is #480.
 - BMX refusal messages name their cause: a field inside a request cites the 512-byte cut, the connect and session packet length
   fields do not.
 

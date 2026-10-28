@@ -35,6 +35,10 @@ module RpmsRpc
     # The TIUACT CANDO^TIUSRVA compares against (TIUSRVA.m:23-24).
     EDIT_RECORD = "EDIT RECORD"
 
+    # Bytes. update_text wraps a longer line at this width unless the
+    # caller passes wrap_width: (an Integer from 4 to 999). #479.
+    WRAP_WIDTH = 80
+
     # MAKE(SUCCESS,DFN,TITLE,VDT,VLOC,VSIT,TIUX,VSTR,SUPPRESS,NOASF)
     # (TIUSRVP.m:7). The visit goes in VSIT; MAKE builds the visit string
     # and date from it (TIUSRVP.m:24-31), so VDT and VLOC go empty.
@@ -96,19 +100,31 @@ module RpmsRpc
     # is the TIUDA^PAGE^PAGES acknowledgement (TIUSRVPT.m:38); failure is
     # "0^0^0^message" (TIUSRVPT.m:10, 14).
     #
+    # A line longer than wrap_width bytes (default WRAP_WIDTH, 80) is cut
+    # into consecutive pieces. The cut is the last space or tab whose byte
+    # offset is within the width and past the leading indentation; that one
+    # whitespace character is dropped. With no such break, the cut is the
+    # last UTF-8 character boundary within the width and nothing is dropped.
+    # Indentation stays on the first piece only. Lines that fit, including
+    # blank lines, are unchanged. This changes how the note is laid out in
+    # the chart. Text that is not valid UTF-8 is not sent.
+    #
     # Update returns a 2-key {success:, raw:} shape rather than the
     # create/sign-style 3-key {success:, ien:, raw:} — there's no new IEN
     # to surface, and an :ien key on an update would mislead callers.
-    def update_text(note_ien, text)
+    def update_text(note_ien, text, wrap_width: WRAP_WIDTH)
+      validate_wrap_width!(wrap_width)
       return update_failure if invalid_id?(note_ien) || text.nil?
+      return utf8_failure if utf8_invalid?(text)
 
-      raw = DataMapper.tiu_set_document_text.fetch_scalar(note_ien.to_s, text_list(text))
+      raw = DataMapper.tiu_set_document_text.fetch_scalar(note_ien.to_s, text_list(text, wrap_width))
       { success: first_piece(raw) == note_ien.to_i.to_s, raw: raw }
     rescue RpmsRpc::Client::FrameTooLongError => e
       # The wire refused a value it would have mis-framed (#472); nothing was
-      # sent. update_text is the second call of create-then-update, so a host
-      # that already created the note holds an empty one (#480): say which line
-      # and why instead of raising past it.
+      # sent. Wrapping runs first; this still covers a wire with a lower limit
+      # (BMX cuts a request at 512 bytes). update_text is the second call of
+      # create-then-update, so a host that already created the note holds an
+      # empty one (#480): say which line and why instead of raising past it.
       { success: false, raw: nil, error: too_long_reason(text, e) }
     end
 
@@ -120,6 +136,23 @@ module RpmsRpc
     end
 
     private
+
+    def validate_wrap_width!(wrap_width)
+      return if wrap_width.is_a?(Integer) && wrap_width.between?(4, 999)
+
+      raise ArgumentError, "wrap_width must be an Integer from 4 to 999"
+    end
+
+    # The note is clinical content: the error names the problem and not the bytes.
+    def utf8_invalid?(text)
+      return false unless text.is_a?(String)
+
+      !text.dup.force_encoding(Encoding::UTF_8).valid_encoding?
+    end
+
+    def utf8_failure
+      { success: false, raw: nil, error: "note text is not valid UTF-8" }
+    end
 
     def text_lines(text)
       lines = text.to_s.split(/\r?\n/, -1)
@@ -135,11 +168,81 @@ module RpmsRpc
       "line #{index + 1} is #{text_lines(text)[index].bytesize} bytes; a note line over 999 bytes cannot be sent (#{error.message})"
     end
 
-    def text_list(text)
-      lines = text_lines(text)
+    def text_list(text, wrap_width)
+      lines = text_lines(text).flat_map { |line| wrap_line(line, wrap_width) }
       lines.each_with_index.with_object({ "HDR" => "1^1" }) do |(line, i), tiux|
         tiux[[ "TEXT", i + 1, 0 ]] = line
       end
+    end
+
+    # The first piece keeps any leading spaces or tabs. A later piece is the
+    # remainder, so indentation is not copied onto it.
+    def wrap_line(line, wrap_width)
+      return [ line ] if line.bytesize <= wrap_width
+
+      pieces = []
+      rest = line
+      while rest.bytesize > wrap_width
+        break_at = soft_break_offset(rest, wrap_width)
+        if break_at
+          pieces << byte_slice(rest, 0, break_at)
+          rest = byte_slice(rest, break_at + 1, rest.bytesize - break_at - 1)
+        else
+          break_at = utf8_boundary_offset(rest, wrap_width)
+          pieces << byte_slice(rest, 0, break_at)
+          rest = byte_slice(rest, break_at, rest.bytesize - break_at)
+        end
+      end
+      pieces << rest unless rest.empty?
+      pieces
+    end
+
+    # Last space or tab at a byte offset within the width and past the
+    # leading run of spaces and tabs. Nil when the line must be hard-cut.
+    def soft_break_offset(line, wrap_width)
+      indent = leading_indent_bytes(line)
+      last = nil
+      index = indent + 1
+      last_index = [ wrap_width, line.bytesize - 1 ].min
+      while index <= last_index
+        last = index if space_or_tab?(line.getbyte(index))
+        index += 1
+      end
+      last
+    end
+
+    def leading_indent_bytes(line)
+      index = 0
+      index += 1 while index < line.bytesize && space_or_tab?(line.getbyte(index))
+      index
+    end
+
+    def space_or_tab?(byte)
+      byte == " ".ord || byte == "\t".ord
+    end
+
+    # Largest UTF-8 character boundary at or before wrap_width.
+    def utf8_boundary_offset(line, wrap_width)
+      used = 0
+      while used < wrap_width
+        size = utf8_char_size(line.getbyte(used))
+        break if used + size > wrap_width
+
+        used += size
+      end
+      used
+    end
+
+    def utf8_char_size(lead)
+      return 1 if lead < 0x80
+      return 2 if lead < 0xE0
+      return 3 if lead < 0xF0
+
+      4
+    end
+
+    def byte_slice(line, start, length)
+      line.byteslice(start, length) || ""
     end
 
     def with_author(row)
