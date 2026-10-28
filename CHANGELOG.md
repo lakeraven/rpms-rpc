@@ -13,20 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release policy: a CIA summary is required, and BMX and XWB summaries, if present, must be green. A summary must have `build_source` `pinned` (a `LIVE_BUILD` run is refused), and a file that skipped more than 10% of its runs is refused. The guard's OK names the summary directory. A Minitest 6 `--name` run (`options[:include]`) is a filtered run and is not recorded.
 - A release refuses to tag unless live summaries on disk show a green `rake test:live` against the pinned build (#361). CIA and XWB keep separate summary files, a run that dies before the summary is written leaves a pending file the guard refuses, and the same guard leads `release:source_control_push` and `release:rubygem_push`. `rake test:live` aborts before loading a spec when its pending file is not on disk, and the guard's OK names, per file, how many live specs passed and how many were skipped.
 
-### Fixed — `controls: true` never joins two lines or flags a clean blob (#477)
-
-- **Bug (direct callers and stand-ins only):** `Reply.text(blob, controls: true)` (and `Reply.from_wire(..., controls: true)`) counted CR
-  and LF as control characters and replaced them with a space, so `1^PENICILLIN\n^No Known Allergies` or `1^PENICILLIN\r\n2^LATEX`
-  became one assessed row with the second line folded into a field, and a clean blob that merely ended in a newline was flagged
-  `altered`. No shipped client was affected: nothing in `lib/` calls `Reply.text(..., controls: true)` (`CiaClient#call_rpc_global_array`
-  uses the default `controls: false`), and the only `controls: true` caller (`CiaClient#call_rpc`) splits on CR, LF and RS first.
-- **Now:** CR and LF are line terminators and are never substituted. Other control characters still become a space and still mark the
-  whole blob altered. Clean replies classify exactly as before.
-- **Docs:** the surfaced `raw` is the line as the reply holds it (after alteration for an altered Reply or Text), never to be compared to
-  a sentinel. The CIA line-path limit shared with `main` (a mid-line control character joins a row to a marker, or folds a second
-  allergy into the first row's fields, as one `altered: true` row) is documented in the README, as is that coercing a control-altered
-  `Reply::Text` to a plain `String` drops its flag.
-
 ### Fixed — `Allergy.assessment` never hides an allergy and never vouches for a contradictory or unrecognised reply (#483)
 
 - **Bug:** `Allergy.assessment` returned `nka: true` for any reply containing the `^No Known Allergies` marker and dropped every
@@ -77,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Bytes that are not valid UTF-8 become U+FFFD and `Reply#altered?` / `#altered_lines` say so. The flag is dropped by
   `Array#map`, `#select` and `#+`. Charset: assumed UTF-8, unproven; Latin-1 observed in stored data will read as altered.
 - CIA: valid non-ASCII text is no longer replaced with spaces. Control characters still become a space, and are now reported
-  as altered.
+  as altered. CR and LF are line terminators and are never substituted, so `controls: true` cannot join two lines of a reply.
 - The flag reaches hosts. `Allergy.assessment` / `.for_patient` and `Patient.lookup` clean rows carry an additive `altered: true|false`
   (true when any text of the row had a byte replaced); a surfaced unrecognised entry carries `altered: true` only when altered
   and no key otherwise (a missing key is "not altered", never "clean"). Before this, two allergens that differed only in a byte the gem replaced
