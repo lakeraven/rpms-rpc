@@ -34,18 +34,19 @@ module RpmsRpc
   # header — while the seeded tests passed. Same defect as AGG LOOKUP PATIENTS,
   # fixed in #237. Tracked as #254.
   #
-  # The truncated read does NOT simply yield "no rows". call_rpc goes through
-  # Reply.from_wire(controls: true) (it used to pipe the reply through
-  # printable()), which flattens the 1-byte sequence echo and the \x00 ack to
-  # SPACES rather than dropping them. (A high byte that is not valid UTF-8
-  # becomes U+FFFD, not a space, and valid non-ASCII text is kept.) So the
-  # surviving line reaches DataMapper as "  I00020APPOINTMENTID^T00020ERRORID".
-  # Its first caret piece no longer matches /\A[ITDF]\d{5}/, so
-  # recordset_header_row? returns false
-  # and the header is consumed AS A DATA ROW. Reads therefore return one bogus
-  # record instead of an empty set, and writes report failure after the M side
-  # has already filed. Diagnose accordingly: an implausible row is the symptom,
-  # not an empty one.
+  # call_rpc goes through Reply.from_wire(controls: true), which flattens the
+  # 1-byte sequence echo and the \x00 ack to SPACES rather than dropping them.
+  # (A high byte that is not valid UTF-8 becomes U+FFFD, not a space, and valid
+  # non-ASCII text is kept.) A truncated read can therefore arrive as
+  # "  I00020APPOINTMENTID^T00020ERRORID". recordset_header_row? still returns
+  # false for that line — fetch_many and fetch_many_or_nil are unchanged — but
+  # the list reads below treat a leading-space header as a header (#481). A
+  # header-only reply, including that flattened one, is []. A failed read (nil,
+  # "", [], an error row "-N^message" before or after the header, or a
+  # single-column ERRORID recordset with a data row) raises Client::RpcError
+  # naming the RPC and the broker's text. Hosts must rescue it. Writes are
+  # unchanged: an implausible row there is still the symptom of a truncated
+  # read, not an empty one.
   #
   # ## Context — this module binds it, callers do not (rpms-rpc#258)
   #
@@ -161,6 +162,11 @@ module RpmsRpc
     end
 
     # -- reads -----------------------------------------------------------------
+    #
+    # A failed list read raises Client::RpcError (#481). These used to return
+    # [] on failure (resources, appointments and slot_schedule returned nil
+    # when the broker gave no response). A header-only recordset is still [].
+    # Hosts must rescue the error.
 
     # Search availability blocks — BSDX SEARCH AVAILABILITY (SEARCH^BSDX24).
     #   resources: a resource name or Array of names (joined with "|")
@@ -177,7 +183,7 @@ module RpmsRpc
       end
       list = names.join("|")
       in_context do
-        DataMapper.scheduling_availability.fetch_many(
+        DataMapper.scheduling_availability.fetch_many_or_raise(
           list, fm(start_date), fm(end_date), access_types.to_s, ampm.to_s, weekdays.to_s
         )
       end
@@ -190,12 +196,12 @@ module RpmsRpc
     # output (X ^DD("DD") with "@" translated to a space — BSDX05.m:100-101);
     # :resource_name is the 4th column GATHER^BSDX05 appends (BSDX05.m:65,76).
     def all_appointments(start_date:, end_date:)
-      in_context { DataMapper.scheduling_all_appointments.fetch_many(fm(start_date), fm(end_date)) }
+      in_context { DataMapper.scheduling_all_appointments.fetch_many_or_raise(fm(start_date), fm(end_date)) }
     end
 
     # Active clinics from ^SC — BSDX HOSPITAL LOCATION (HOSPLOC^BSDX32).
     def hospital_locations
-      in_context { DataMapper.scheduling_hospital_location.fetch_many }
+      in_context { DataMapper.scheduling_hospital_location.fetch_many_or_raise }
     end
 
     # A resource's appointments between two dates — BSDX CREATE APPT SCHEDULE
@@ -207,7 +213,8 @@ module RpmsRpc
     # classed and shaped as a write (never retried), like slot_schedule.
     # Returns [{ id:, start_time:, end_time:, checkin_time:, patient_dfn:,
     #   patient_name:, resource:, no_show:, hrn:, access_type_id:, walk_in:,
-    #   checkout_time:, cancelled:, note: }], or nil (no response).
+    #   checkout_time:, cancelled:, note: }]. A failed read raises
+    # Client::RpcError; a header-only reply is [].
     def appointments(resource:, start_date:, end_date:)
       name = resource.to_s
       raise ArgumentError, "resource name must not contain '|': #{name.inspect}" if name.include?("|")
@@ -232,7 +239,8 @@ module RpmsRpc
     # text carries CR/LF, so the reply is read as a recordset split on $C(30)
     # only, never by line.
     # Returns [{ id:, name:, inactive:, time_scale:, hospital_location_id:, view:,
-    #   overbook:, modify_schedule:, modify_appointments: }], or nil (no response).
+    #   overbook:, modify_schedule:, modify_appointments: }]. A failed read raises
+    # Client::RpcError; a header-only reply is [].
     def resources
       rows = in_context { recordset("BSDX RESOURCES", "") }
       rows&.map do |r|
@@ -251,7 +259,8 @@ module RpmsRpc
     # four-slot block files), so a caller that books must. Blocks with 0 slots
     # pad the day before and after the access blocks.
     # Returns [{ start_time:, end_time:, slots:, resource:, access_type_id:,
-    #   note:, availability_id: }], or nil (no response).
+    #   note:, availability_id: }]. A failed read raises Client::RpcError; a
+    # header-only reply is [].
     def slot_schedule(resource:, start_date:, end_date:)
       name = resource.to_s
       raise ArgumentError, "resource name must not contain '|': #{name.inspect}" if name.include?("|")
@@ -270,7 +279,7 @@ module RpmsRpc
 
     # Per-clinic scheduling parameters — BSDX CLINIC SETUP (CLNSET^BSDX32).
     def clinic_setup
-      in_context { DataMapper.scheduling_clinic_setup.fetch_many }
+      in_context { DataMapper.scheduling_clinic_setup.fetch_many_or_raise }
     end
 
     private
@@ -312,12 +321,13 @@ module RpmsRpc
     # is kept: for ERRORID-only writes it means success.
     # A BMX recordset reply's rows as header-named hashes: the typed header,
     # then $C(30)-separated records, to the $C(31) end (RpmsRpc::Agg.parse_reply).
-    # Read whole, so a field holding CR/LF stays inside its row. nil when the
-    # broker gives no response.
+    # Read whole, so a field holding CR/LF stays inside its row. A failed read
+    # raises Client::RpcError (DataMapper.read_bsdx_list!); a header-only
+    # reply is [].
     def recordset(rpc_name, *params)
       client = RpmsRpc.client
       raw = client.respond_to?(:call_rpc_global_array) ? client.call_rpc_global_array(rpc_name, *params) : client.call_rpc(rpc_name, *params)
-      return nil if raw.nil?
+      DataMapper.read_bsdx_list!(raw, rpc_name)
 
       raw = raw.join("\x1e") if raw.is_a?(Array)
       parsed = Agg.parse_reply(raw)

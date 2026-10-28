@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — BSDX list reads raise `RpcError` on failure (#481)
+
+- `Scheduling.availability`, `all_appointments`, `hospital_locations`, `clinic_setup`, `resources`, `slot_schedule` and `appointments` used to return `[]` on a failed read (the recordset reads returned `nil` when the broker gave no response) and now raise `RpmsRpc::Client::RpcError`. Hosts must rescue it. A header-only recordset, including a truncated header flattened to leading spaces, is still a genuine empty result (`[]`).
+
 ### Added — the release guard reads live summaries bound to the pinned build, the released source, and the suite that ran (#361, #441)
 
 - Live summaries are schema 3. They name the source they tested (a SHA-256 over every file the gemspec ships, #441) and the suite they ran (a SHA-256 over every file under `test/live/` plus `data/rpc_coverage/config.yml`), and they record `passed`, true only when every non-skipped result passed. The guard refuses `passed` other than true, a suite that is not the current tree, a persona or protocol that does not match the file name, and a summary whose source is not the tree being released. A run during which a shipped file or the suite changes is not recorded. Older summaries are refused until `rake test:live` is re-run. The live run block names the pinned release, as the summary file does, rather than the registry file.
