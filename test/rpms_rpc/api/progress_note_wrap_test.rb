@@ -426,6 +426,34 @@ class ProgressNoteWrapTest < Minitest::Test
     assert_update_text_utf8_rejection(latin1)
   end
 
+  def test_iso8859_1_valid_utf8_bytes_are_refused_without_rpc
+    # Bytes are valid UTF-8 (café) but the tag is ISO-8859-1; must not force-tag and file.
+    latin1 = "caf\xC3\xA9".b.force_encoding(Encoding::ISO_8859_1)
+    assert_update_text_utf8_rejection(latin1)
+  end
+
+  def test_windows_1252_valid_utf8_bytes_are_refused_without_rpc
+    cp1252 = "it\xE2\x80\x99s".b.force_encoding(Encoding::WINDOWS_1252)
+    assert_update_text_utf8_rejection(cp1252)
+  end
+
+  def test_shift_jis_ascii_only_content_is_refused_without_rpc
+    sjis = "abc".b.force_encoding(Encoding::Shift_JIS)
+    assert_update_text_utf8_rejection(sjis)
+  end
+
+  def test_non_string_with_nil_to_s_returns_utf8_failure_without_rpc
+    bad = Object.new
+    bad.define_singleton_method(:to_s) { nil }
+    assert_update_text_utf8_rejection(bad)
+  end
+
+  def test_non_string_with_non_string_to_s_returns_utf8_failure_without_rpc
+    bad = Object.new
+    bad.define_singleton_method(:to_s) { :not_a_string }
+    assert_update_text_utf8_rejection(bad)
+  end
+
   def test_us_ascii_and_valid_utf8_and_ascii8bit_utf8_bytes_still_update
     samples = [
       "US-ASCII line",

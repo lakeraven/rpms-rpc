@@ -104,7 +104,7 @@ class OversizedTextTest < Minitest::Test
     refute_pre479_update_text_refusal(result)
   end
 
-  def test_update_text_names_the_offending_line
+  def test_update_text_wire_refusal_returns_failure_hash_without_note_text
     text = "short line\n#{LONG}"
     refusing = Object.new
     refusing.define_singleton_method(:call_rpc) { |_rpc, *_params| raise RpmsRpc::Client::FrameTooLongError, "stub wire refusal" }
