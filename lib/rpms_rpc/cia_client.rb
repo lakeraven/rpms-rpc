@@ -345,7 +345,7 @@ module RpmsRpc
     # header as its only row.
     def call_rpc(rpc_name, *params)
       body = parse_cia_reply(call_rpc_raw(rpc_name, *params))
-      body.split(REPLY_ROW_BREAK).reject { |line| line == RECORDSET_END }.map { |line| printable(line) }
+      Reply.from_wire(body.split(REPLY_ROW_BREAK).reject { |line| line == RECORDSET_END }, controls: true)
     end
 
     REPLY_ROW_BREAK = /\r\n|\r|\n|\x1e/
@@ -392,9 +392,13 @@ module RpmsRpc
       raw = exchange("R", terminator: :global_array) { rpc_frame_fields(rpc_name, params) }
       # A refusal (no such RPC, not in the bound context: CIANBACT error 3, 4, 5) is an error
       # reply ending at EOD, never a $C(31): raise it, as #call_rpc does through parse_cia_reply.
+      # This reads the RAW bytes, before any decoding.
       raise_cia_error(raw.byteslice(2..)) if raw.getbyte(1) == 0x01
 
-      raw
+      # Valid UTF-8 like every other reply (rpms-rpc#463). The framing bytes
+      # ($C(0), $C(30), $C(31)) are valid UTF-8 and are kept; only an invalid
+      # byte is replaced, and the returned Text says so (Reply.altered?).
+      Reply.text(raw)
     rescue TimeoutError
       raise_rpc_timeout(rpc_name)
     end

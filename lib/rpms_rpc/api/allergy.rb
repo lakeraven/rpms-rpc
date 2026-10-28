@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../shape"
+require_relative "../reply"
 
 module RpmsRpc
   # Symbolic API for patient allergies. The read is ORQQAL LIST,
@@ -64,8 +65,10 @@ module RpmsRpc
     # (nil); +unrecognised+ is true for a line that came from a list inside the
     # list or from a non-text element (ORQQAL cannot emit either); +exact+ is
     # true when the line is the whole of its element (or came from splitting a
-    # String reply), i.e. nothing was split off it.
-    Line = Struct.new(:text, :unrecognised, :exact)
+    # String reply), i.e. nothing was split off it; +altered+ is true when the
+    # client replaced a byte of the element the line came from to make it valid
+    # UTF-8 (RpmsRpc::Reply#altered_lines, rpms-rpc#463).
+    Line = Struct.new(:text, :unrecognised, :exact, :altered)
     private_constant :Line
 
     # EDITSAVE^ORWDAL32 (ORWDAL32.m:119). Return type is a single value.
@@ -199,7 +202,11 @@ module RpmsRpc
     # scrubbed (U+FFFD) before DataMapper sees it. A row needs visible allergen
     # text in piece 2 (not only framing, controls, NUL, invalid bytes or invisible
     # characters) and contains no control character; nothing is stripped to make
-    # a row look clean.
+    # a row look clean. Known limit, shared with main: on the CIA line path a
+    # control character inside a line is replaced by a space before this runs,
+    # so it joins a row to a marker or folds a second allergy into the first
+    # row's fields as one altered row (see the README); ORQQAL writes one row or
+    # marker per node, so only a control byte stored in a GMRA field can do it.
     #
     # A reply with any UNRECOGNISED line, or a marker beside any other data
     # (or a marker twice), is the signature of a broker desync, a concatenated
@@ -209,7 +216,7 @@ module RpmsRpc
     # ALWAYS assessed: false, never nka. +allergies+ holds the clean rows and,
     # for every unrecognised line with content, a flagged entry
     # { ien: nil, allergen: <line, scrubbed and trimmed, for display>,
-    # raw: <the line's original bytes>, unrecognised: true } — never routed
+    # raw: <the line as the reply holds it>, unrecognised: true } — never routed
     # through DataMapper's error / no-data filters (which would drop
     # "-3^PENICILLIN" or "^LATEX") and with no guess at which piece is the
     # allergen. A host that renders rows therefore shows the text of such a line;
@@ -233,7 +240,7 @@ module RpmsRpc
       return { assessed: false, nka: false, allergies: [] } if lines.size == 1 && kinds == [ :marker ]
       return conflicting(mapping, lines, kinds) if kinds.any? { |kind| kind != :row }
 
-      allergies = mapping.parse_many(lines.map { |line| parse_ready(line.text) })
+      allergies = rows_of(mapping, lines)
       return unparsed(lines) unless allergies.size == lines.size
 
       { assessed: !allergies.empty?, nka: false, allergies: allergies }
@@ -310,12 +317,28 @@ module RpmsRpc
     def conflicting(mapping, lines, kinds)
       allergies = lines.zip(kinds).flat_map do |line, kind|
         case kind
-        when :row then mapping.parse_many([ parse_ready(line.text) ])
+        when :row then rows_of(mapping, [ line ])
         when :other then surfaced(line)
         else []
         end
       end
       { assessed: false, nka: false, allergies: allergies, conflict: true }
+    end
+
+    # The rows of clean lines, each saying whether any of its text was altered
+    # to become valid UTF-8 (`altered:`, rpms-rpc#463): two allergens that
+    # differ only in a byte the gem replaced read identically, and a host must
+    # be able to refuse them. A row's flag is its own line's, never its
+    # neighbour's. Altering is NOT a conflict: the line is still a clean row.
+    # (A clean row always carries the key; a surfaced unrecognised entry
+    # carries `altered: true` only when altered, see {surfaced}.)
+    def rows_of(mapping, lines)
+      lines.flat_map do |line|
+        ready = parse_ready(line.text)
+        scrubbed_here = ready.encoding == Encoding::UTF_8 && ready != line.text
+        flagged = line.altered || scrubbed_here
+        mapping.parse_many_flagged([ ready ], flagged ? [ 0 ] : [])
+      end
     end
 
     # The parser returned fewer rows than it was given: assessed is never
@@ -326,23 +349,29 @@ module RpmsRpc
 
     def kind_of(line)
       return :other if line.unrecognised || line.text.nil? || !byte_view?(line.text.encoding)
-      return :marker if marker?(line.text)
+      return :marker if marker?(line.text) && !line.altered
 
       row?(line.text) ? :row : :other
     end
 
     def exact_nka?(line)
-      line.exact && line.text == NKA_SENTINEL
+      line.exact && !line.altered && line.text == NKA_SENTINEL
     end
 
     # An unrecognised line, as a flagged entry; nothing when it has no
-    # content. +raw+ keeps the original bytes; +allergen+ is a scrubbed copy, so
-    # it can be displayed and serialised (it may be empty for an invisible-only
-    # line: rely on +raw+ and +unrecognised+).
+    # content. +raw+ is the line as the reply holds it: the original bytes for a
+    # plain reply, but the text AFTER alteration for a Reply or Text that altered
+    # it (invalid bytes become U+FFFD, a control character becomes a space), so
+    # for an altered marker +raw+ can equal the marker text. Never compare +raw+
+    # to a sentinel: read +unrecognised+, +altered+ and the reply's +conflict+.
+    # +allergen+ is a scrubbed copy, so it can be displayed and serialised (it
+    # may be empty for an invisible-only line: rely on +raw+ and +unrecognised+).
     def surfaced(line)
       return [] if line.text.nil? || line.text.empty?
 
-      [ { ien: nil, allergen: displayable(line.text).strip, raw: line.text, unrecognised: true } ]
+      entry = { ien: nil, allergen: displayable(line.text).strip, raw: line.text, unrecognised: true }
+      entry[:altered] = true if line.altered
+      [ entry ]
     end
 
     # '^' + a marker text and nothing else (blank extra fields allowed). A
@@ -445,28 +474,42 @@ module RpmsRpc
     def reply_lines(response)
       case response
       when nil then []
-      when String then split_lines(response).map { |text| Line.new(text, false, true) }
-      when Array then array_lines(response, 1, false)
-      else [ Line.new(response.inspect, true, false) ]
+      when String then string_lines(response)
+      when Array then array_lines(response, 1, false, response.is_a?(Reply) ? response.altered_lines : [])
+      else [ Line.new(response.inspect, true, false, false) ]
       end
     end
 
-    def array_lines(array, level, nested)
+    # +flags+: at the top level, the indexes of the elements the client altered
+    # (a Reply's altered_lines); every line split off, or nested inside, an
+    # altered element is altered. Below the top level, +flags+ is true or false.
+    def array_lines(array, level, nested, flags)
       raise ReplyTooDeepError, "allergy reply nests lists deeper than #{MAX_DEPTH} (or is cyclic)" if level > MAX_DEPTH
 
-      array.flat_map do |item|
+      array.each_with_index.flat_map do |item, index|
+        altered = level == 1 ? flags.include?(index) : flags
         case item
         when Array
-          inner = array_lines(item, level + 1, true)
-          inner.empty? ? [ Line.new(item.inspect, true, false) ] : inner
+          inner = array_lines(item, level + 1, true, altered)
+          inner.empty? ? [ Line.new(item.inspect, true, false, altered) ] : inner
         when String
           pieces = split_lines(item)
           exact = !nested && pieces == [ item ]
-          pieces.map { |text| Line.new(text, nested, exact) }
-        when nil then [ Line.new(nil, true, false) ]
-        else [ Line.new(item.inspect, true, false) ]
+          marked = Reply.altered_indexes(item, pieces)
+          pieces.each_with_index.map { |text, i| Line.new(text, nested, exact, altered || marked.include?(i)) }
+        when nil then [ Line.new(nil, true, false, altered) ]
+        else [ Line.new(item.inspect, true, false, altered) ]
         end
       end
+    end
+
+    # A reply that arrives as one String. When it is a Reply::Text that altered
+    # something, the altered lines are the ones Reply.altered_indexes names
+    # (the same evidence Reply.lines_with_altered uses).
+    def string_lines(response)
+      pieces = split_lines(response)
+      marked = Reply.altered_indexes(response, pieces)
+      pieces.each_with_index.map { |text, index| Line.new(text, false, true, marked.include?(index)) }
     end
 
     # Split on bytes, so a line that is not valid UTF-8 still splits.

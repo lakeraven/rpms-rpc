@@ -60,6 +60,18 @@ module RpmsRpc
       strip_recordset_separators(line).match?(/\A-\d+(?:\.\d+)?\^/)
     end
 
+    # Whether a write whose routine answers nothing on success went through:
+    # SET^BGOREF and DEL^BGOPROB leave RET "" (or 0) and an error -CODE^text.
+    # A real client hands such a reply back as lines, so an empty RET arrives
+    # as [] (CiaClient#call_rpc splits on rows; Client#split_response("") is
+    # []), and MockClient as "". A reply that came back with no error row is
+    # accepted; nil, a client that answered nothing at all, is not.
+    def self.write_accepted?(reply)
+      return false if reply.nil?
+
+      Array(reply).none? { |line| error_row?(line.to_s) }
+    end
+
     # A no-data sentinel row: the stock-VistA "^message" convention — an
     # empty first piece carrying a human-readable message in piece 2 with
     # nothing after it. Examples: "^No problems found." (ORQQPL.m:17),
@@ -224,6 +236,18 @@ module RpmsRpc
           next if DataMapper.recordset_header_row?(line)
           next if !status_reply? && DataMapper.non_data_row?(line)
           parse_one(line)
+        end
+      end
+
+      # parse_many, with an `altered:` flag on every row (rpms-rpc#463).
+      # `lines` are the response's lines; `altered_indexes` are the zero-based
+      # ones whose text had a byte replaced (Reply.lines_with_altered builds
+      # both from any reply). Each line is parsed on its own, which is what
+      # parse_many does anyway, so a row's flag is its own line's and never
+      # its neighbour's. The key is additive: a clean row says altered: false.
+      def parse_many_flagged(lines, altered_indexes = [])
+        lines.each_with_index.flat_map do |line, index|
+          parse_many([ line ]).map { |row| row.merge(altered: altered_indexes.include?(index)) }
         end
       end
 
