@@ -159,6 +159,7 @@
 "RpmsRpc::Order.result_history": read
 "RpmsRpc::Order.save": non_idempotent_write
 "RpmsRpc::Order.sheets_for_patient": read
+"RpmsRpc::Order.sign_and_release": non_idempotent_write
 "RpmsRpc::Order.unsigned_for_patient": non_idempotent_write
 "RpmsRpc::Organization.find": read
 "RpmsRpc::Patient.address": non_idempotent_write

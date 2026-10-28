@@ -2,17 +2,19 @@
 
 require_relative "../shape"
 require_relative "../mappings"
+require_relative "../valid_signature"
 
 module RpmsRpc
   # Symbolic API for clinical orders — list-side, a patient's orders and
   # the patient's unsigned actions, plus per-order result reads,
   # order-sheet catalog reads for the order-review surface, order checks
-  # when an order is accepted, and filing a new unsigned order.
+  # when an order is accepted, filing a new unsigned order, and signing
+  # and releasing orders.
   # Underlying RPCs (layouts per FOIA ORWOR.m / ORWORR.m / ORWDXC.m, #220,
-  # #454, and stock ORWDX.m):
+  # #454, #455, and stock ORWDX.m / ORWU.m, #456):
   # ORWOR UNSIGN, ORWORR AGET, ORWOR RESULT,
   # ORWOR RESULT HISTORY, ORWOR ACTION TEXT, ORWOR EXPIRED, ORWOR SHEETS,
-  # ORWOR TSALL, ORWDXC ACCEPT, ORWDX SAVE.
+  # ORWOR TSALL, ORWDXC ACCEPT, ORWDX SAVE, ORWU VALIDSIG, ORWDX SEND.
   module Order
     extend self
     extend Shape::Declarable
@@ -83,6 +85,20 @@ module RpmsRpc
     # DFN, location, and the orderable-item pointer. No sign, suffix, or
     # leading zero. invalid_id? is looser and stays shared by other methods.
     CANONICAL_ID = /\A[1-9]\d*\z/
+
+    # IFN;ACT, piece 1 of ORWREC (ORWDX.m:154). Both halves are positive
+    # canonical integers: no sign, no whitespace, no leading zero.
+    ORDER_ACTION_ID = /\A[1-9]\d*;[1-9]\d*\z/
+
+    # ORWSIG^ORWREL^ORWNATR after the order id (ORWDXR.m:87-98).
+    # 1 is ES (ORWDXR.m:91), 1 releases, E is electronic.
+    SIGN_RELEASE_ORWREC = "1^1^E"
+    # VALIDSIG answered something other than the success token "1".
+    SIGN_RELEASE_REFUSED = "electronic signature was not accepted"
+    # Piece 2 exactly "S": signed, and not released (ORWDX.m:172-176).
+    SIGN_RELEASE_SIGNED = "signed but not released"
+    # SEND ran. The reply does not prove this order's outcome.
+    SIGN_RELEASE_UNKNOWN = "unknown outcome; check the order before retrying"
 
     # Filler namespace spliced into a |-delimited ORX record
     # (WorldVistA ORWDXC.m:38,47).
@@ -459,6 +475,74 @@ module RpmsRpc
       end
     end
     shape :check, resource: "orders", verb: "POST", path: "/patients/{dfn}/orders/check"
+
+    # Sign and release orders already on file. ORWU VALIDSIG, then ORWDX
+    # SEND (SEND^ORWDX -> SEND1^ORWDX -> EN^ORCSEND; FOIA-RPMS
+    # ORWDX.m:152-178). Stock VistA only: those two RPCs, no IHS helper
+    # and no BEHO or BGO call.
+    #
+    # Formals SEND(ORWLST,DFN,ORNP,ORL,ES,ORWREC) (ORWDX.m:152-154). ES
+    # is the XWB-encrypted signature code. VALIDSIG(ESOK,X)^ORWU takes
+    # that one parameter; the user is the session DUZ. ESignature.validate
+    # sends it through ValidSignature (DataMapper.tiu_valid_signature).
+    # The same ciphertext is sent again as ES. The vuecentric trace
+    # reuses the token. Only an exact reply line "1" is accepted here.
+    # The mapper boolean also treats "yes" as true; this call does not.
+    #
+    # ORWREC is a 1-based list. ORWREC(n)=ORIFN;Action^Signature Sts^
+    # Release Sts^Nature (ORWDX.m:154): the order id is IFN;ACT, then
+    # ORWSIG^ORWREL^ORWNATR. ORWSIG 1 is electronic signature
+    # (ORWDXR.m:91), ORWREL 1 releases, ORWNATR E is electronic
+    # (ORWDXR.m:87-98). CHKACT^ORWDXR checks those three before
+    # EN^ORCSEND. An Array is the 1-based list the broker clients frame
+    # (XwbClient#encode_param, CiaClient#rpc_frame_fields).
+    #
+    # A bad argument rejects every order and calls no RPC. An empty
+    # order list returns [] and calls nothing. A VALIDSIG reply other
+    # than "1" rejects every order and does not call SEND.
+    #
+    # SEND's reply is one row per order (ORWDX.m:172-176), split on
+    # CRLF, a bare CR, or LF. Piece 2 containing "R" is :released.
+    # Piece 2 exactly "S" is :signed (signed, not released). An ^E^
+    # row is :rejected; ORWERR is code^text and the text is the reason.
+    # A missing row, two rows for one order, or any other piece 2 is
+    # :unknown: SEND ran, and the reply does not prove that order.
+    # :released is never returned without an "R".
+    #
+    # Broker errors propagate. When a message contains the plaintext
+    # signature or the encrypted ES, the same error class is raised
+    # again with those values removed.
+    #
+    #   => [{ order_id:, status:, reason: }, ...]
+    def sign_and_release(dfn, provider_duz, location, order_ids, signature)
+      return [] unless order_ids.is_a?(Array)
+      return [] if order_ids.empty?
+
+      dfn_s = sign_release_canonical_id(dfn)
+      provider_s = sign_release_canonical_id(provider_duz)
+      location_s = sign_release_canonical_id(location)
+      ids = order_ids.map { |id| sign_release_order_id(id) }
+      reason = sign_release_argument_error(dfn_s, provider_s, location_s, ids, signature)
+      return sign_release_rejected(order_ids, reason) if reason
+
+      encrypted = ValidSignature.encrypt(signature)
+      sign_release_guard(signature, encrypted) do
+        if ValidSignature.line_for(encrypted) == "1"
+          raw = RpmsRpc.client.call_rpc(
+            "ORWDX SEND",
+            dfn_s,
+            provider_s,
+            location_s,
+            encrypted,
+            ids.map { |id| "#{id}^#{SIGN_RELEASE_ORWREC}" }
+          )
+          sign_release_scrub(parse_sign_release_reply(ids, raw), signature, encrypted)
+        else
+          sign_release_rejected(order_ids, SIGN_RELEASE_REFUSED)
+        end
+      end
+    end
+    shape :sign_and_release, resource: "orders", verb: "POST", path: "/patients/{dfn}/orders/sign-and-release"
 
     private
 
@@ -919,6 +1003,173 @@ module RpmsRpc
 
     def save_failure(error, message)
       { success: false, error: error, message: message }
+    end
+
+    # match? raises ArgumentError when the string is not valid UTF-8.
+    # That is a bad id, not a broker call.
+    def sign_release_canonical_id(value)
+      positive_id(value)
+    rescue ArgumentError
+      nil
+    end
+
+    def sign_release_order_id(value)
+      return nil unless value.is_a?(String) && value.valid_encoding?
+      return nil unless value.match?(ORDER_ACTION_ID)
+
+      value
+    end
+
+    def sign_release_argument_error(dfn_s, provider_s, location_s, ids, signature)
+      unless signature.is_a?(String) && signature.valid_encoding? && !signature.strip.empty?
+        return "invalid signature"
+      end
+      return "invalid patient id" unless dfn_s
+      return "invalid provider duz" unless provider_s
+      return "invalid location" unless location_s
+      return "invalid order id" if ids.any?(&:nil?)
+      return "duplicate order id" if ids.uniq.length != ids.length
+
+      nil
+    end
+
+    def sign_release_rejected(order_ids, reason)
+      order_ids.map do |id|
+        { order_id: id.is_a?(String) ? id : id.to_s, status: :rejected, reason: reason }
+      end
+    end
+
+    # Yield the broker calls. An RpmsRpc::Error is re-raised. When its
+    # message contains the plaintext signature or the encrypted ES, the
+    # same class is raised again with those values removed and with
+    # #cause left unset, so the original message is not kept there.
+    def sign_release_guard(plaintext, encrypted)
+      yield
+    rescue RpmsRpc::Error => e
+      cleaned = sign_release_redact(e.message, plaintext, encrypted)
+      raise if cleaned == e.message
+
+      sign_release_reraise(e, cleaned, plaintext, encrypted)
+    end
+
+    # cause: nil so this rescue does not attach the original message.
+    # Each raise names its class: RaiseHierarchyTest resolves a constant,
+    # not error.class. A class this method does not name is rewritten on
+    # the same object, and along #cause, then re-raised bare.
+    def sign_release_reraise(error, cleaned, plaintext, encrypted)
+      backtrace = error.backtrace
+      error_class = error.class
+
+      raise Client::AuthenticationError, cleaned, backtrace, cause: nil if defined?(Client::AuthenticationError) && error_class == Client::AuthenticationError
+      raise Client::ConnectionError, cleaned, backtrace, cause: nil if defined?(Client::ConnectionError) && error_class == Client::ConnectionError
+      raise Client::CredentialError, cleaned, backtrace, cause: nil if defined?(Client::CredentialError) && error_class == Client::CredentialError
+      raise Client::FrameTooLongError, cleaned, backtrace, cause: nil if defined?(Client::FrameTooLongError) && error_class == Client::FrameTooLongError
+      raise Client::ParseError, cleaned, backtrace, cause: nil if defined?(Client::ParseError) && error_class == Client::ParseError
+      raise Client::RpcError, cleaned, backtrace, cause: nil if defined?(Client::RpcError) && error_class == Client::RpcError
+      raise Client::RpcMError, cleaned, backtrace, cause: nil if defined?(Client::RpcMError) && error_class == Client::RpcMError
+      raise Client::RpcNotAvailableError, cleaned, backtrace, cause: nil if defined?(Client::RpcNotAvailableError) && error_class == Client::RpcNotAvailableError
+      raise Client::RpcRefusedError, cleaned, backtrace, cause: nil if defined?(Client::RpcRefusedError) && error_class == Client::RpcRefusedError
+      raise Client::RpcTimeoutError, cleaned, backtrace, cause: nil if defined?(Client::RpcTimeoutError) && error_class == Client::RpcTimeoutError
+      raise Client::TimeoutError, cleaned, backtrace, cause: nil if defined?(Client::TimeoutError) && error_class == Client::TimeoutError
+      raise NotConfiguredError, cleaned, backtrace, cause: nil if defined?(NotConfiguredError) && error_class == NotConfiguredError
+      raise ParameterEncoder::ParameterTooLongError, cleaned, backtrace, cause: nil if defined?(ParameterEncoder::ParameterTooLongError) && error_class == ParameterEncoder::ParameterTooLongError
+      raise BmxClient::RequestTooLongError, cleaned, backtrace, cause: nil if defined?(BmxClient::RequestTooLongError) && error_class == BmxClient::RequestTooLongError
+      raise XwbClient::LpackTooLongError, cleaned, backtrace, cause: nil if defined?(XwbClient::LpackTooLongError) && error_class == XwbClient::LpackTooLongError
+      raise XwbClient::SpackTooLongError, cleaned, backtrace, cause: nil if defined?(XwbClient::SpackTooLongError) && error_class == XwbClient::SpackTooLongError
+
+      sign_release_rewrite_message(error, cleaned)
+      sign_release_rewrite_causes(error, plaintext, encrypted)
+      raise
+    end
+
+    # Exception#initialize writes the message and clears the backtrace.
+    # Called unbound so a subclass initializer does not drop other state.
+    def sign_release_rewrite_message(error, message)
+      backtrace = error.backtrace
+      Exception.instance_method(:initialize).bind_call(error, message)
+      error.set_backtrace(backtrace) if backtrace
+    end
+
+    def sign_release_rewrite_causes(error, plaintext, encrypted)
+      seen = { error.object_id => true }
+      cause = error.cause
+      while cause.is_a?(Exception) && !seen[cause.object_id]
+        seen[cause.object_id] = true
+        nxt = cause.cause
+        redacted = sign_release_redact(cause.message, plaintext, encrypted)
+        sign_release_rewrite_message(cause, redacted) if redacted != cause.message
+        cause = nxt
+      end
+    end
+
+    def sign_release_redact(message, plaintext, encrypted)
+      return message unless message.is_a?(String)
+
+      secrets = [ encrypted, plaintext ].grep(String).reject(&:empty?).uniq
+      secrets.sort_by! { |secret| -secret.bytesize }
+      return message if secrets.empty?
+
+      secrets.reduce(message) do |text, secret|
+        needle = secret.dup
+        needle.force_encoding(text.encoding)
+        next text unless needle.valid_encoding?
+
+        text.gsub(needle, "[redacted]")
+      end
+    end
+
+    def sign_release_scrub(rows, plaintext, encrypted)
+      rows.each do |row|
+        next unless row[:reason].is_a?(String)
+
+        row[:reason] = sign_release_redact(row[:reason], plaintext, encrypted)
+      end
+      rows
+    end
+
+    # CRLF, a bare CR, or LF, the same breaks accept_lines drops. A blank
+    # row is not an order. Anything that is not a String or an Array did
+    # not come back as ORWLST lines, so it proves nothing.
+    def sign_release_lines(raw)
+      rows = case raw
+      when nil then []
+      when String then split_reply_rows(raw)
+      when Array then raw.flat_map { |line| split_reply_rows(line.to_s) }
+      else []
+      end
+      rows.reject { |line| line.nil? || line.empty? }
+    end
+
+    def parse_sign_release_reply(order_ids, raw)
+      grouped = {}
+      sign_release_lines(raw).each do |line|
+        pieces = line.split("^", 4)
+        (grouped[pieces[0]] ||= []) << pieces
+      end
+      order_ids.map { |id| sign_release_one(id, grouped[id]) }
+    end
+
+    # Piece 2 (ORWDX.m:172-176): "R" somewhere in it was released, exactly
+    # "S" was signed and not released. ^E^ is ORWERR (code^text); the text
+    # is the reason. Two rows, or none, do not prove the outcome.
+    def sign_release_one(id, rows)
+      return sign_release_unknown(id) unless rows&.length == 1
+
+      pieces = rows[0]
+      token = pieces[1].to_s
+      if token == "E" && pieces.length >= 3
+        text = pieces.length >= 4 ? pieces[3] : pieces[2]
+        text = "order rejected" if text.to_s.empty?
+        return { order_id: id, status: :rejected, reason: text.to_s }
+      end
+      return { order_id: id, status: :released, reason: nil } if token.include?("R")
+      return { order_id: id, status: :signed, reason: SIGN_RELEASE_SIGNED } if token == "S"
+
+      sign_release_unknown(id)
+    end
+
+    def sign_release_unknown(id)
+      { order_id: id, status: :unknown, reason: SIGN_RELEASE_UNKNOWN }
     end
   end
 end
