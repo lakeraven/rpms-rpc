@@ -178,6 +178,25 @@ module RpmsRpc
     end
     shape :held_keys, resource: "users", verb: "GET", path: "/users/held-keys"
 
+    # The subset of option +names+ the signed-on user may run, in the order
+    # asked, by Kernel's rule ($$ACCESS^XQCHK: on the user's primary or
+    # secondary menu tree, not out of order, not locked by a key they lack).
+    # One ORWU HAS OPTION ACCESS call per name.
+    #
+    # Returns nil when any call is refused or gives no 0/1 answer, so a
+    # consumer can tell "may run none" ([]) from "could not ask" (nil). An
+    # option that does not exist answers 0, like one the user may not run.
+    def option_access(names)
+      asked = Array(names).map { |name| name.to_s.strip }.reject(&:empty?)
+      return [] if asked.empty?
+
+      flags = asked.map { |name| option_access_flag(name) }
+      return nil if flags.any?(&:nil?)
+
+      asked.each_index.select { |i| flags[i] == "1" }.map { |i| asked[i] }
+    end
+    shape :option_access, resource: "users", verb: "GET", path: "/users/option-access"
+
     def change_verify_code(old_verify_code:, new_verify_code:, confirm_verify_code:, **_unused_keywords)
       return validation_error("Old verify code is required") if blank?(old_verify_code&.to_s&.strip)
       return validation_error("New verify code is required") if blank?(new_verify_code&.to_s&.strip)
@@ -246,6 +265,13 @@ module RpmsRpc
 
     # The HASKEYS reply as one "0"/"1" per name asked, or nil for a refusal,
     # an empty reply, or one whose pieces do not answer every name.
+    def option_access_flag(name)
+      flag = DataMapper.user_option_access.fetch_scalar(name).to_s.strip
+      %w[0 1].include?(flag) ? flag : nil
+    rescue Client::RpcError
+      nil
+    end
+
     def held_key_flags(asked)
       reply = DataMapper.user_held_keys.fetch_lines(asked.join("^"))
       flags = reply && reply[:flags].to_s.strip.split("^", -1)
