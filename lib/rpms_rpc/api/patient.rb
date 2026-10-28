@@ -364,7 +364,7 @@ module RpmsRpc
       # replaced a byte, every row holding the replacement character is
       # altered (rpms-rpc#463).
       if Reply.altered?(raw)
-        altered |= lines.each_index.select { |i| lines[i].include?(Reply::REPLACEMENT) }
+        altered |= lines.each_index.select { |i| lines[i].to_s.include?(Reply::REPLACEMENT) }
       end
       mapping.parse_many_flagged(lines, altered)
     end
