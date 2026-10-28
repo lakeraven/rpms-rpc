@@ -105,9 +105,22 @@ module RpmsRpc
     # offset is within the width and past the leading indentation; that one
     # whitespace character is dropped. With no such break, the cut is the
     # last UTF-8 character boundary within the width and nothing is dropped.
-    # Indentation stays on the first piece only. Lines that fit, including
-    # blank lines, are unchanged. This changes how the note is laid out in
-    # the chart. Text that is not valid UTF-8 is not sent.
+    # Lines that fit, including blank lines, are unchanged. This changes how
+    # the note is laid out in the chart.
+    #
+    # Rejoining the pieces with the dropped character restores the line.
+    # Joined with a single space, a tab at a cut reads back as a space, and
+    # a space or tab cut at the very end of a line is dropped. Non-whitespace
+    # is never dropped or changed. Indentation is not repeated on continuation
+    # pieces; an indent wider than the width is itself hard-cut.
+    #
+    # Text is coerced with to_s, then refused (nothing is sent) unless that
+    # string is valid UTF-8 text. US-ASCII, UTF-8, and ASCII-8BIT holding
+    # valid UTF-8 are accepted. A string whose encoding is not ASCII-compatible
+    # (UTF-16/32), or whose bytes are not valid UTF-8 (ISO-8859-1 with high
+    # bytes, invalid ASCII-8BIT), returns the failure hash. Split and wrap run
+    # on the validated UTF-8 string, so Encoding::CompatibilityError cannot
+    # escape from a mismatched tag.
     #
     # Update returns a 2-key {success:, raw:} shape rather than the
     # create/sign-style 3-key {success:, ien:, raw:} — there's no new IEN
@@ -115,17 +128,24 @@ module RpmsRpc
     def update_text(note_ien, text, wrap_width: WRAP_WIDTH)
       validate_wrap_width!(wrap_width)
       return update_failure if invalid_id?(note_ien) || text.nil?
-      return utf8_failure if utf8_invalid?(text)
 
-      raw = DataMapper.tiu_set_document_text.fetch_scalar(note_ien.to_s, text_list(text, wrap_width))
+      utf8 = utf8_text(text)
+      return utf8_failure if utf8.nil?
+
+      raw = DataMapper.tiu_set_document_text.fetch_scalar(note_ien.to_s, text_list(utf8, wrap_width))
       { success: first_piece(raw) == note_ien.to_i.to_s, raw: raw }
     rescue RpmsRpc::Client::FrameTooLongError => e
       # The wire refused a value it would have mis-framed (#472); nothing was
-      # sent. Wrapping runs first; this still covers a wire with a lower limit
-      # (BMX cuts a request at 512 bytes). update_text is the second call of
-      # create-then-update, so a host that already created the note holds an
-      # empty one (#480): say which line and why instead of raising past it.
-      { success: false, raw: nil, error: too_long_reason(text, e) }
+      # sent. Wrapping runs first, so no note line over 999 bytes reaches XWB.
+      # Kept for any wire that still refuses a framed value. The hash says the
+      # request could not be framed and keeps the wire's message; it never
+      # includes the note text. BMX does not reach this rescue: BmxClient#call_rpc
+      # raises NotImplementedError for every list or Hash parameter before
+      # framing, so update_text on BMX raises for every note and never returns
+      # the failure hash. That BMX behaviour predates #479 and is unchanged.
+      # update_text is the second call of create-then-update, so a host that
+      # already created the note holds an empty one (#480).
+      { success: false, raw: nil, error: too_long_reason(e) }
     end
 
     # UNLOCK(ERR,TIUDA) (TIUSRVP.m:214-215): always ERR=0.
@@ -143,11 +163,17 @@ module RpmsRpc
       raise ArgumentError, "wrap_width must be an Integer from 4 to 999"
     end
 
-    # The note is clinical content: the error names the problem and not the bytes.
-    def utf8_invalid?(text)
-      return false unless text.is_a?(String)
+    # to_s first. Nil unless the result is valid UTF-8 text, tagged UTF-8,
+    # bytes unchanged. A non-ASCII-compatible encoding is refused before the
+    # bytes are re-read: UTF-16 of ASCII force-tagged UTF-8 is valid UTF-8
+    # (embedded NULs) and must still be refused. The note text stays out of
+    # the error.
+    def utf8_text(value)
+      text = value.to_s
+      return nil unless text.encoding.ascii_compatible?
 
-      !text.dup.force_encoding(Encoding::UTF_8).valid_encoding?
+      utf8 = text.encoding == Encoding::UTF_8 ? text : text.dup.force_encoding(Encoding::UTF_8)
+      utf8.valid_encoding? ? utf8 : nil
     end
 
     def utf8_failure
@@ -160,12 +186,11 @@ module RpmsRpc
       lines
     end
 
-    # "line 2 is 1006 bytes ..." for the first line the wire refused.
-    def too_long_reason(text, error)
-      index = text_lines(text).index { |line| line.bytesize > 999 }
-      return error.message if index.nil?
-
-      "line #{index + 1} is #{text_lines(text)[index].bytesize} bytes; a note line over 999 bytes cannot be sent (#{error.message})"
+    # Wrapping already kept each note line within the width, so this is a
+    # framed request the wire still refused. The wire's own message is kept.
+    # The note text is not.
+    def too_long_reason(error)
+      "the request could not be framed on this wire (#{error.message})"
     end
 
     def text_list(text, wrap_width)
@@ -176,7 +201,8 @@ module RpmsRpc
     end
 
     # The first piece keeps any leading spaces or tabs. A later piece is the
-    # remainder, so indentation is not copied onto it.
+    # remainder, so indentation is not copied onto it. An indent wider than
+    # the width is hard-cut with the line.
     def wrap_line(line, wrap_width)
       return [ line ] if line.bytesize <= wrap_width
 
@@ -199,8 +225,14 @@ module RpmsRpc
 
     # Last space or tab at a byte offset within the width and past the
     # leading run of spaces and tabs. Nil when the line must be hard-cut.
+    # Indentation is scanned only through wrap_width + 1 bytes. A longer run
+    # cannot hold a soft break inside the width (the search starts at
+    # indent + 1), and scanning the whole run again on every piece is
+    # quadratic. The cut is the same as a full scan.
     def soft_break_offset(line, wrap_width)
-      indent = leading_indent_bytes(line)
+      indent = leading_indent_bytes(line, wrap_width + 1)
+      return nil if indent > wrap_width
+
       last = nil
       index = indent + 1
       last_index = [ wrap_width, line.bytesize - 1 ].min
@@ -211,9 +243,10 @@ module RpmsRpc
       last
     end
 
-    def leading_indent_bytes(line)
+    def leading_indent_bytes(line, limit)
       index = 0
-      index += 1 while index < line.bytesize && space_or_tab?(line.getbyte(index))
+      max = [ limit, line.bytesize ].min
+      index += 1 while index < max && space_or_tab?(line.getbyte(index))
       index
     end
 

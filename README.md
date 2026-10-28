@@ -206,7 +206,7 @@ A request the wire cannot frame is refused before that request is sent, with a `
 CIA has no such limit.
 
 API methods whose contract is a failure hash catch it and answer with that hash plus an `:error` naming the limit (never the value;
-only `ProgressNote.update_text` also names the line, and `Registration.update`'s byte count is the whole joined window): the visit writes (`ProgressNote.update_text`, `ExamComponent`, `HealthFactor`, `Pov`, `Procedure`,
+`Registration.update`'s byte count is the whole joined window): the visit writes (`ProgressNote.update_text`, `ExamComponent`, `HealthFactor`, `Pov`, `Procedure`,
 `ImmunizationRefusal`), `Problem` add/update/delete, `ESignature.remove`, the `Scheduling` writes, `Registration.update`
 (`error: :frame_too_long` with `filed_windows:`), `Referral`'s BMC writers and `DdrFileman.filer`. `Referral`'s refusal hash carries
 `:error`, where a broker-side failure carries `:message` and `:raw` only, so a caller that branches on `:message` must also check
@@ -214,8 +214,12 @@ only `ProgressNote.update_text` also names the line, and `Registration.update`'s
 On a real session an API may already have bound its context before the refused write, which changes no record. A host that creates a record and then updates it (create, then `update_text`) still
 holds the first record after a refusal; a pre-check is tracked in #480. `ProgressNote.update_text` wraps a line longer than 80 bytes
 (or `wrap_width:`, an Integer from 4 to 999) into `TIUX("TEXT",n,0)` pieces before it is sent (#479), so a line over 999 bytes is sent
-on XWB rather than refused, and the chart shows those pieces as separate lines. Indentation stays on the first piece. A wire that still
-cannot frame the request (BMX at 512 bytes) is still the failure hash.
+on XWB rather than refused, and the chart shows those pieces as separate lines. Rejoining the pieces with the dropped character restores
+the line. Joined with a single space, a tab at a cut reads back as a space, and a space or tab cut at the very end of a line is dropped.
+Non-whitespace is never dropped or changed. Indentation is not repeated on continuation pieces; an indent wider than the width is itself
+hard-cut. `FrameTooLongError` is still rescued when a wire refuses a framed value: the failure hash says the request could not be framed
+on this wire, keeps the wire's message, and never includes the note text. On BMX, `update_text` raises `NotImplementedError` for every
+note, because `BmxClient#call_rpc` rejects any list or Hash parameter before framing. That BMX behaviour predates #479 and is unchanged.
 
 ### Allergy assessment: never hide an allergy, never vouch for a reply
 

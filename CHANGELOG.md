@@ -9,9 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed — `ProgressNote.update_text` wraps long lines before TIU SET DOCUMENT TEXT (#479)
 
-- A line longer than `wrap_width` bytes (default `ProgressNote::WRAP_WIDTH`, 80; an Integer from 4 to 999) is cut into consecutive `TIUX("TEXT",n,0)` pieces. The break is the last space or tab past the leading indentation and at a byte offset within the width; that one character is dropped. Otherwise the cut is the last UTF-8 character boundary within the width. Indentation stays on the first piece only. Lines that fit, including blank lines, are unchanged. **This changes how the note is laid out in the chart.**
-- `wrap_width` outside that range raises `ArgumentError` before any RPC. Text that is not valid UTF-8 returns `{ success: false, raw: nil, error: }` and is not sent; the error does not include the text.
-- A line over 999 bytes is wrapped and sent on XWB, rather than refused with the #474 failure hash. `FrameTooLongError` is still rescued for a wire that cannot frame the request (BMX's 512-byte cut), and that failure hash still names the line.
+- A line longer than `wrap_width` bytes (default `ProgressNote::WRAP_WIDTH`, 80; an Integer from 4 to 999) is cut into consecutive `TIUX("TEXT",n,0)` pieces. The break is the last space or tab past the leading indentation and at a byte offset within the width; that one character is dropped. Otherwise the cut is the last UTF-8 character boundary within the width and nothing is dropped. Lines that fit, including blank lines, are unchanged. **This changes how the note is laid out in the chart.** Rejoining the pieces with the dropped character restores the line. Joined with a single space, a tab at a cut reads back as a space, and a space or tab cut at the very end of a line is dropped. Non-whitespace is never dropped or changed. Indentation is not repeated on continuation pieces; an indent wider than the width is itself hard-cut.
+- `wrap_width` outside that range raises `ArgumentError` before any RPC. Text is coerced with `to_s`, then refused with `{ success: false, raw: nil, error: }` and not sent when it is not valid UTF-8 text: the encoding is not ASCII-compatible (UTF-16/32), or the bytes are not valid UTF-8 (ISO-8859-1 with high bytes, invalid ASCII-8BIT). US-ASCII, UTF-8, and ASCII-8BIT holding valid UTF-8 are accepted. The error does not include the text.
+- A line over 999 bytes is wrapped and sent on XWB, rather than refused with the #474 failure hash. `FrameTooLongError` is still rescued when a wire refuses a framed value: the failure hash says the request could not be framed on this wire and keeps the wire's message, and it never includes the note text. On BMX, `update_text` raises `NotImplementedError` for every note, because `BmxClient#call_rpc` rejects any list or Hash parameter before framing. That BMX behaviour predates #479 and is unchanged.
 
 ### Added — the release guard reads live summaries bound to the pinned build, the released source, and the suite that ran (#361, #441)
 
@@ -94,7 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Behaviour change:** both are `RpmsRpc::Error`s under `Client::FrameTooLongError` (not `ArgumentError`). Nothing could have
   relied on an `ArgumentError`: on `main` the XWB prefix silently widened and BMX had no check. A caller that sent an oversized
   value used to get silent corruption and now gets the error; nothing is sent and the connection stays usable. CIA is unaffected.
-- **APIs that answer with their failure hash** (plus an `:error` that names the limit, never the value; only `ProgressNote.update_text` also names the line, and
+- **APIs that answer with their failure hash** (plus an `:error` that names the limit, never the value;
   `Registration.update`'s byte count is the whole joined window):
   `ProgressNote.update_text`, `ExamComponent.add`, `HealthFactor.add`, `ImmunizationRefusal.record`, `Pov.add`, `Procedure.add`,
   `Problem.add` / `update` / `delete`, `ESignature.remove`, `Scheduling` writes (`{ success: false, error: }`), `Referral`'s BMC
