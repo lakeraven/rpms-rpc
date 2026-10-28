@@ -293,16 +293,40 @@ end
     # AMHG reads shipped with exactly this defect while 1,354 tests stayed
     # green, because this method used to hand back the seeded reply whole.
     def call_rpc(rpc_name, *params)
-      truncate_at_eod(seeded_reply(rpc_name, *params))
+      utf8_reply(wire_reply(rpc_name, *params))
     end
 
     # Client#call_rpc_lines stand-in. Seeded line replies are already arrays
     # of lines; a String reply is split the way the base client splits.
+    #
+    # The lines are built from the RAW seeded reply, not from #call_rpc's
+    # result: #call_rpc has already replaced any invalid byte in a bare String
+    # and cannot say so, so wrapping that result a second time would read as
+    # unaltered. The alteration is decided once, here, where the bytes are
+    # replaced (rpms-rpc#463). The split is on a binary copy so a String that
+    # is not valid UTF-8 can be split at all.
     def call_rpc_lines(rpc_name, *params)
-      reply = call_rpc(rpc_name, *params)
-      return reply if reply.nil? || reply.is_a?(Array)
+      reply = wire_reply(rpc_name, *params)
+      case reply
+      when nil then nil
+      when Array then Reply.from_wire(reply)
+      else Reply.from_wire(reply.to_s.b.split(/\r\n|\r|\n/))
+      end
+    end
 
-      reply.to_s.split(/\r\n|\r|\n/)
+    # A live client hands hosts valid UTF-8 and reports any line it had to
+    # alter (rpms-rpc#463), so a seeded reply gets the same treatment: host
+    # tests see production encoding. A line reply is a Reply; a bare String
+    # reply is a Reply::Text, a String that carries the same flag, so a host
+    # that reads it through #call_rpc (DataMapper#fetch_text, #fetch_scalar)
+    # can still refuse altered text. #call_rpc_lines is the path that names
+    # the altered lines.
+    def utf8_reply(reply)
+      case reply
+      when Array then Reply.from_wire(reply)
+      when String then Reply.text(reply)
+      else reply
+      end
     end
 
     # A live CiaClient offers this and reads to the US sentinel instead, so the
@@ -310,7 +334,12 @@ end
     # that correctly prefers it is never exercised, and the preference itself
     # goes untested.
     def call_rpc_global_array(rpc_name, *params)
-      seeded_reply(rpc_name, *params)
+      reply = seeded_reply(rpc_name, *params)
+      case reply
+      when Array then Reply.from_wire(reply)
+      when String then Reply.text(reply)
+      else reply
+      end
     end
 
     # A live client reads BYTES, not lines: read_until_raw(EOD) stops at the
@@ -358,7 +387,9 @@ end
       # Text blob responses (keyed by first param)
       if @text_blobs&.dig(rpc_name, key)
         text = @text_blobs[rpc_name][key]
-        return text.include?("\n") ? text.split("\n") : text
+        # Split on a binary copy: a text seed that is not valid UTF-8 must
+        # reach the reply layer to be flagged, not raise here.
+        return text.include?("\n") ? text.b.split("\n").map { |line| line.force_encoding(text.encoding) } : text
       end
 
       # Single records (keyed by first param)
@@ -385,6 +416,12 @@ end
     end
 
     private
+
+    # The seeded reply as the wire would deliver it: raw bytes, cut at the
+    # frame terminator, not yet made valid UTF-8.
+    def wire_reply(rpc_name, *params)
+      truncate_at_eod(seeded_reply(rpc_name, *params))
+    end
 
     # Whether anything at all is seeded for this RPC under `key`. Used by the
     # decrypting RPCs, which must answer with their routine's own rejection

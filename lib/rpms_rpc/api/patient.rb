@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
 require_relative "../shape"
+require_relative "../reply"
 require_relative "registration"
+require_relative "agg"
 require_relative "ddr_fileman"
 require_relative "../context_scope"
 require_relative "../phi_sanitizer"
@@ -74,14 +76,14 @@ module RpmsRpc
       end
       raise ArgumentError, "search text is required" if text.to_s.strip.empty?
 
-      rows = fetch_lookup_rows(
+      rows = in_aggrpc { fetch_lookup_rows(
         DataMapper.patient_lookup_agg,
         text.to_s,
         type.to_s,
         all_divisions ? "1" : "",
         include_inactive ? "1" : "",
         require_response: require_response
-      )
+      ) }
 
       rows.map { |row| normalize_lookup_row(row) }
     end
@@ -334,6 +336,18 @@ module RpmsRpc
     LOOKUP_ARRAY_END  = "\x1f" # $C(31) — end-of-array sentinel
     LOOKUP_ACK        = "\x00" # broker ack byte after the sequence echo
 
+    # AGG LOOKUP PATIENTS is registered under the AGGRPC option only, so under
+    # any other context (CIAV VUECENTRIC, what a CIA sign-on binds) the broker
+    # refuses it. Bind AGGRPC for the call and restore the caller's context, as
+    # RpmsRpc::Agg does for every AGG RPC; nesting inside Agg is free.
+    def in_aggrpc(&block)
+      client = RpmsRpc.client
+      return block.call unless client.respond_to?(:with_context)
+
+      client.with_context(Agg::CONTEXT, &block)
+    end
+    private :in_aggrpc
+
     def fetch_lookup_rows(mapping, *params, require_response: false)
       client = RpmsRpc.client
       raw = if client.respond_to?(:call_rpc_global_array)
@@ -344,9 +358,27 @@ module RpmsRpc
 
       decoded = decode_global_array(raw)
       validate_lookup_reply!(decoded) if require_response
-      mapping.parse_many(decoded)
+      lines, altered = lookup_lines(decoded)
+      # The framed blob is split into rows BEFORE the flag is read, so a row's
+      # flag has to come from the reply as a whole: when the reply says it
+      # replaced a byte, every row holding the replacement character is
+      # altered (rpms-rpc#463).
+      if Reply.altered?(raw)
+        altered |= lines.each_index.select { |i| lines[i].to_s.include?(Reply::REPLACEMENT) }
+      end
+      mapping.parse_many_flagged(lines, altered)
     end
     private :fetch_lookup_rows
+
+    # [rows, altered_indexes] for what decode_global_array returned: record
+    # rows, an ordinary newline-delimited body, or nothing. A "-1^message"
+    # error body yields no rows, as DataMapper#parse_many treats it.
+    def lookup_lines(decoded)
+      return [ [], [] ] if decoded.is_a?(String) && decoded.start_with?("-1^")
+
+      Reply.lines_with_altered(decoded)
+    end
+    private :lookup_lines
 
     # HDR^AGGPTLKP has nine columns, with two optional community columns.
     # Validate before DataMapper skips headers or coerces malformed values.
@@ -429,7 +461,10 @@ module RpmsRpc
         alias: row[:alias],
         inactive: row[:inactive_raw].to_s.strip.upcase == "Y",
         community: row[:community],
-        mothers_maiden_name: row[:mothers_maiden_name]
+        mothers_maiden_name: row[:mothers_maiden_name],
+        # True when any text of this row had a byte replaced to become valid
+        # UTF-8; a caller matching on the name must refuse an altered row.
+        altered: row[:altered] == true
       }
     end
 
