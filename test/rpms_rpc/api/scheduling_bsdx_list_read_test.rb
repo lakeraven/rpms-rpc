@@ -35,13 +35,40 @@ class SchedulingBsdxListReadTest < Minitest::Test
     "T00030PATIENTNAME^T00030RESOURCENAME^I00005NOSHOW^T00020HRN^I00005ACCESSTYPEID^I00005WALKIN^" \
     "D00030CHECKOUT^I00020VPROVIDER^T00020CANCELLED^T00250NOTE"
 
-  # BSDX list routines trap failures through BMX recordset output: many paths
-  # emit a single ERRORID column header (T00030ERRORID) and put the message in
-  # the next row — see CHECKIN^BSDX25 (ERR^BSDX25 failure text in the data row,
-  # scheduling.rb module comment) and the #-1^Invalid resource repro in #481.
-  # Plain-text error rows (no leading -N^) appear on the same ERRORID recordset
-  # shape in live BSDX reads; both must raise, not parse as data or as [].
   ERRORID_HEADER = "T00030ERRORID"
+
+  # One caret-delimited data row per RPC (synthetic names only).
+  SAMPLE_DATA_ROW = {
+    "BSDX SEARCH AVAILABILITY" => "PEDIATRICIAN,DEMO^SEP 04, 2026^ROUTINE^",
+    "BSDX ALL APPOINTMENTS" => "SEP 04, 2026 09:00^SEP 04, 2026 09:30^100^PEDIATRICIAN,DEMO",
+    "BSDX HOSPITAL LOCATION" => "99^DEMO CLINIC^DEMO,PROVIDER^000^^",
+    "BSDX CLINIC SETUP" => "44^DEMO CLINIC^YES^A^NO^YES^NO^2",
+    "BSDX RESOURCES" => "1^DEMO PRIMARY CARE^0^15^6^^^^1^1^1^1",
+    "BSDX CREATE ASGND SLOT SCHED" =>
+      "OCT 28,2026 08:00^OCT 28,2026 17:00^4^DEMO IHS CLINIC^1^^44",
+    "BSDX CREATE APPT SCHEDULE" =>
+      "1^OCT 28,2026 09:00^OCT 28,2026 09:20^^^3^MOUSE,MICKEY M^DEMO IHS CLINIC^0^1001^0^0^^^0^"
+  }.freeze
+
+  BROKER_TEXT_IN_ERROR_ASSERTIONS = [
+    /Invalid resource/,
+    /Some failure/,
+    /Resource not found/
+  ].freeze
+
+  SANITIZED_ERROR_BROKER_ROWS = {
+    caret_conflict: "-1^Patient Demo Patient has a conflict",
+    plain_not_found: "Demo Patient not found",
+    caps_name: "DOE,DEMO"
+  }.freeze
+
+  FORBIDDEN_BROKER_LEAKS = [
+    /Demo/i,
+    /Patient/i,
+    /conflict/i,
+    /DOE/i,
+    /not found/i
+  ].freeze
 
   class RawResponseClient
     def initialize(response) = @response = response
@@ -114,6 +141,8 @@ class SchedulingBsdxListReadTest < Minitest::Test
     }
   }.freeze
 
+  ALL_LIST_READS = FETCH_MANY_READS.merge(RECORDSET_READS).freeze
+
   def setup = RpmsRpc.mock!
 
   def teardown = RpmsRpc.reset!
@@ -139,11 +168,35 @@ class SchedulingBsdxListReadTest < Minitest::Test
     with_rs ? "#{header}#{RS}" : header
   end
 
+  def sample_row(cfg) = SAMPLE_DATA_ROW.fetch(cfg[:rpc])
+
+  def fetch_many_multiline_reply(cfg, *extra_data_rows)
+    row = sample_row(cfg)
+    rows = extra_data_rows.empty? ? [ row ] : extra_data_rows
+    [ header_line(cfg[:header], with_rs: true), *rows.map { |r| "#{r}#{RS}" }, "" ]
+  end
+
   def assert_rpc_error_includes_rpc(method, rpc, &block)
     err = assert_raises(RpmsRpc::Client::RpcError, "#{method}: failed read must raise RpcError") { block.call }
     assert_includes err.message, rpc,
                     "#{method}: RpcError message must name the RPC (#{rpc.inspect}), got #{err.message.inspect}"
     err
+  end
+
+  def refute_broker_text_in_rpc_error(method, err)
+    BROKER_TEXT_IN_ERROR_ASSERTIONS.each do |pat|
+      refute_match pat, err.message,
+                   "#{method}: RpcError must not echo broker text (#{pat.source}), got #{err.message.inspect}"
+    end
+  end
+
+  def assert_sanitized_error_message(method, rpc, err, expect_code: false)
+    assert_includes err.message, rpc, "#{method}: message must name RPC"
+    assert_includes err.message, "-1", "#{method}: message must include numeric code -1" if expect_code
+    FORBIDDEN_BROKER_LEAKS.each do |pat|
+      refute_match pat, err.message,
+                   "#{method}: RpcError must not leak broker text (#{pat.source}), got #{err.message.inspect}"
+    end
   end
 
   # -- Failed reads: fetch_many / call_rpc path --------------------------------
@@ -167,8 +220,7 @@ class SchedulingBsdxListReadTest < Minitest::Test
         stub_call_rpc(reply)
         err = assert_rpc_error_includes_rpc(method, cfg[:rpc]) { cfg[:call].call }
         if %i[error_after_header error_row_first bsdx_error_recordset_caret bsdx_error_recordset_plain].include?(failure_label)
-          assert_match(/Invalid resource|Some failure|Resource not found/, err.message,
-                       "#{method}: RpcError should carry broker error text when present")
+          refute_broker_text_in_rpc_error(method, err)
         end
       end
     end
@@ -201,8 +253,183 @@ class SchedulingBsdxListReadTest < Minitest::Test
         err = assert_rpc_error_includes_rpc(method, cfg[:rpc]) { cfg[:call].call }
         next unless %i[error_after_header error_row_first bsdx_error_recordset_caret bsdx_error_recordset_plain].include?(failure_label)
 
-        assert_match(/Invalid resource|Some failure|Resource not found/, err.message,
-                     "#{method}: RpcError should carry broker error text when present")
+        refute_broker_text_in_rpc_error(method, err)
+      end
+    end
+  end
+
+  # -- Pin 1: one Array line with embedded recordset bytes (split_response) ----
+
+  {
+    plain: "Demo Patient not found",
+    caret: "-1^Invalid resource"
+  }.each do |variant, broker_row|
+    ALL_LIST_READS.each do |method, cfg|
+      define_method("test_#{method}_raises_when_global_array_is_one_split_line_errorid_#{variant}") do
+        embedded = "#{ERRORID_HEADER}#{RS}#{broker_row}#{RS}#{US}"
+        if RECORDSET_READS.key?(method)
+          stub_recordset(cfg[:rpc] => "1\x00#{embedded}")
+        else
+          stub_call_rpc([ embedded ])
+        end
+        assert_rpc_error_includes_rpc(method, cfg[:rpc]) { cfg[:call].call }
+      end
+    end
+  end
+
+  FETCH_MANY_READS.each do |method, cfg|
+    define_method("test_#{method}_one_split_line_wire_parses_like_multiline") do
+      row = sample_row(cfg)
+      stub_call_rpc(fetch_many_multiline_reply(cfg))
+      expected = cfg[:call].call
+      RpmsRpc.reset!
+      RpmsRpc.mock!
+      one_line = "1\x00#{cfg[:header]}#{RS}#{row}#{RS}#{US}"
+      stub_call_rpc([ one_line ])
+      assert_equal expected, cfg[:call].call,
+                   "#{method}: one split_response line must parse like multiline rows"
+    end
+
+    define_method("test_#{method}_one_split_line_header_only_is_empty") do
+      one_line = "1\x00#{cfg[:header]}#{RS}#{US}"
+      stub_call_rpc([ one_line ])
+      assert_equal [], cfg[:call].call,
+                   "#{method}: header-only one-line global array must be []"
+    end
+  end
+
+  RECORDSET_READS.each do |method, cfg|
+    define_method("test_#{method}_one_line_global_array_parses_like_multiline") do
+      row = sample_row(cfg)
+      wire = wire_recordset(cfg[:header], row)
+      stub_recordset(cfg[:rpc] => wire)
+      expected = cfg[:call].call
+      RpmsRpc.reset!
+      RpmsRpc.mock!
+      stub_recordset(cfg[:rpc] => [ wire ])
+      assert_equal expected, cfg[:call].call,
+                   "#{method}: one-element array global array must parse like the string wire"
+    end
+
+    define_method("test_#{method}_one_line_global_array_header_only_is_empty") do
+      stub_recordset(cfg[:rpc] => wire_recordset(cfg[:header]))
+      assert_equal [], cfg[:call].call,
+                   "#{method}: header-only one-line global array must be []"
+    end
+  end
+
+  # -- Pin 2: String reply with CR/LF (MockClient Reply.text shape) ------------
+
+  {
+    lf_caret: "#{ERRORID_HEADER}\n-1^Invalid resource",
+    crlf_plain: "#{ERRORID_HEADER}\r\nResource not found"
+  }.each do |variant, body|
+    FETCH_MANY_READS.each do |method, cfg|
+      define_method("test_#{method}_raises_on_reply_text_#{variant}") do
+        stub_call_rpc(RpmsRpc::Reply.text(body))
+        assert_rpc_error_includes_rpc(method, cfg[:rpc]) { cfg[:call].call }
+      end
+    end
+  end
+
+  FETCH_MANY_READS.each do |method, cfg|
+    define_method("test_#{method}_reply_text_with_lf_row_parses_like_multiline") do
+      row = sample_row(cfg)
+      stub_call_rpc(fetch_many_multiline_reply(cfg))
+      expected = cfg[:call].call
+      RpmsRpc.reset!
+      RpmsRpc.mock!
+      stub_call_rpc(RpmsRpc::Reply.text("#{cfg[:header]}\n#{row}"))
+      assert_equal expected, cfg[:call].call,
+                   "#{method}: header + LF + row must parse like multiline"
+    end
+
+    define_method("test_#{method}_reply_text_header_only_is_empty") do
+      stub_call_rpc(RpmsRpc::Reply.text(cfg[:header]))
+      assert_equal [], cfg[:call].call,
+                   "#{method}: header-only Reply.text must be []"
+    end
+  end
+
+  # -- Pin 3: malformed / non-replies must raise, not [] -----------------------
+
+  {
+    errorid_header_only_rs: [ "#{ERRORID_HEADER}#{RS}" ],
+    errorid_then_empty_row: [ "#{ERRORID_HEADER}#{RS}", "" ],
+    no_header_blank_line: [ "" ]
+  }.each do |label, fetch_reply|
+    FETCH_MANY_READS.each do |method, cfg|
+      define_method("test_#{method}_raises_on_malformed_fetch_reply_#{label}") do
+        stub_call_rpc(fetch_reply)
+        assert_rpc_error_includes_rpc(method, cfg[:rpc]) { cfg[:call].call }
+      end
+    end
+  end
+
+  {
+    errorid_empty_data: ->(_cfg) { "1\x00#{ERRORID_HEADER}#{RS}#{RS}#{US}" },
+    errorid_lone_rs: ->(_cfg) { "1\x00#{ERRORID_HEADER}#{RS}#{US}" },
+    missing_header_body: ->(_cfg) { "1\x00" },
+    missing_header_us_only: ->(_cfg) { "1\x00#{US}" }
+  }.each do |label, wire_builder|
+    RECORDSET_READS.each do |method, cfg|
+      define_method("test_#{method}_raises_on_malformed_recordset_#{label}") do
+        stub_recordset(cfg[:rpc] => wire_builder.call(cfg))
+        assert_rpc_error_includes_rpc(method, cfg[:rpc]) { cfg[:call].call }
+      end
+    end
+  end
+
+  [ false, 0, { rows: [] } ].each do |bad_reply|
+    label = bad_reply.class.name.downcase
+    ALL_LIST_READS.each do |method, cfg|
+      define_method("test_#{method}_raises_when_reply_is_#{label}") do
+        if RECORDSET_READS.key?(method)
+          stub_recordset(cfg[:rpc] => bad_reply)
+        else
+          stub_call_rpc(bad_reply)
+        end
+        assert_rpc_error_includes_rpc(method, cfg[:rpc]) { cfg[:call].call }
+      end
+    end
+  end
+
+  # -- Pin 4: truncated header (leading spaces / U+FFFD) ---------------------
+
+  FETCH_MANY_READS.each do |method, cfg|
+    row = SAMPLE_DATA_ROW.fetch(cfg[:rpc])
+    [ "  ", "#{RpmsRpc::Reply::REPLACEMENT * 2}" ].each do |prefix|
+      tag = prefix.include?(" ") ? "spaces" : "replacement_chars"
+      define_method("test_#{method}_truncated_#{tag}_header_with_row_parses_row_only") do
+        stub_call_rpc([ "#{prefix}#{cfg[:header]}", row ])
+        rows = cfg[:call].call
+        assert_equal 1, rows.size, "#{method}: must yield exactly one row"
+        refute rows.first.values.all?(&:nil?), "#{method}: row must be parsed data, not a bogus header"
+      end
+
+      define_method("test_#{method}_truncated_#{tag}_header_alone_is_empty") do
+        stub_call_rpc([ "#{prefix}#{cfg[:header]}" ])
+        assert_equal [], cfg[:call].call,
+                     "#{method}: truncated header alone must be []"
+      end
+    end
+  end
+
+  # -- Pin 5: RpcError message sanitization ------------------------------------
+
+  SANITIZED_ERROR_BROKER_ROWS.each do |variant, broker_row|
+    ALL_LIST_READS.each do |method, cfg|
+      define_method("test_#{method}_error_message_sanitized_#{variant}") do
+        if RECORDSET_READS.key?(method)
+          stub_recordset(cfg[:rpc] => wire_recordset(ERRORID_HEADER, broker_row))
+        else
+          stub_call_rpc([ "#{ERRORID_HEADER}#{RS}", "#{broker_row}#{RS}" ])
+        end
+        err = assert_rpc_error_includes_rpc(method, cfg[:rpc]) { cfg[:call].call }
+        assert_sanitized_error_message(
+          method, cfg[:rpc], err,
+          expect_code: variant == :caret_conflict || broker_row.start_with?("-1^")
+        )
       end
     end
   end
@@ -236,8 +463,6 @@ class SchedulingBsdxListReadTest < Minitest::Test
     end
   end
 
-  # Reply.from_wire flattens control bytes to spaces (scheduling.rb module comment);
-  # a truncated read can surface as "  I00020…" — header-only must stay [], not a row.
   def test_hospital_locations_flattened_header_only_reply_is_empty_not_bogus_record
     stub_call_rpc([ "  #{HOSPITAL_LOC_HEADER}" ])
     assert_equal [], RpmsRpc::Scheduling.hospital_locations
