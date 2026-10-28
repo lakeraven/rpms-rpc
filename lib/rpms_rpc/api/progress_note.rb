@@ -114,13 +114,14 @@ module RpmsRpc
     # is never dropped or changed. Indentation is not repeated on continuation
     # pieces; an indent wider than the width is itself hard-cut.
     #
-    # Text is coerced with to_s, then refused (nothing is sent) unless that
-    # string is valid UTF-8 text. US-ASCII, UTF-8, and ASCII-8BIT holding
-    # valid UTF-8 are accepted. A string whose encoding is not ASCII-compatible
-    # (UTF-16/32), or whose bytes are not valid UTF-8 (ISO-8859-1 with high
-    # bytes, invalid ASCII-8BIT), returns the failure hash. Split and wrap run
-    # on the validated UTF-8 string, so Encoding::CompatibilityError cannot
-    # escape from a mismatched tag.
+    # Text is coerced with to_s, then refused (nothing is sent) unless the
+    # result is a String whose encoding is exactly UTF-8, US-ASCII or
+    # ASCII-8BIT and whose bytes are valid UTF-8. Any other encoding is
+    # refused regardless of content (a Latin-1 or Windows-1252 tag whose
+    # bytes happen to be valid UTF-8 would otherwise be filed as different
+    # characters), as is a to_s that returns nil or a non-String. Split and
+    # wrap run on the validated UTF-8 string, so Encoding::CompatibilityError
+    # cannot escape from a mismatched tag.
     #
     # Update returns a 2-key {success:, raw:} shape rather than the
     # create/sign-style 3-key {success:, ien:, raw:} — there's no new IEN
@@ -163,14 +164,17 @@ module RpmsRpc
       raise ArgumentError, "wrap_width must be an Integer from 4 to 999"
     end
 
-    # to_s first. Nil unless the result is valid UTF-8 text, tagged UTF-8,
-    # bytes unchanged. A non-ASCII-compatible encoding is refused before the
-    # bytes are re-read: UTF-16 of ASCII force-tagged UTF-8 is valid UTF-8
-    # (embedded NULs) and must still be refused. The note text stays out of
-    # the error.
+    # to_s first. Nil unless the result is a String whose encoding is exactly
+    # UTF-8, US-ASCII or ASCII-8BIT and whose bytes are valid UTF-8. Any other
+    # encoding is refused before the bytes are re-read: a Latin-1 or
+    # Windows-1252 tag whose bytes happen to be valid UTF-8 would otherwise be
+    # filed as different characters, and UTF-16 of ASCII force-tagged UTF-8 is
+    # valid UTF-8 (embedded NULs). Accepted text is returned tagged UTF-8,
+    # bytes unchanged. The note text stays out of the error.
     def utf8_text(value)
       text = value.to_s
-      return nil unless text.encoding.ascii_compatible?
+      return nil unless text.is_a?(String)
+      return nil unless [ Encoding::UTF_8, Encoding::US_ASCII, Encoding::ASCII_8BIT ].include?(text.encoding)
 
       utf8 = text.encoding == Encoding::UTF_8 ? text : text.dup.force_encoding(Encoding::UTF_8)
       utf8.valid_encoding? ? utf8 : nil
