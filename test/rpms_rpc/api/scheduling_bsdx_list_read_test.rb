@@ -161,9 +161,9 @@ class SchedulingBsdxListReadTest < Minitest::Test
       define_method("test_#{method}_raises_on_failed_read_#{failure_label}") do
         reply = if reply_or_marker == :error_after_header
                   [ header_line(cfg[:header], with_rs: true), "-1^Invalid resource#{RS}" ]
-                else
+        else
                   reply_or_marker
-                end
+        end
         stub_call_rpc(reply)
         err = assert_rpc_error_includes_rpc(method, cfg[:rpc]) { cfg[:call].call }
         if %i[error_after_header error_row_first bsdx_error_recordset_caret bsdx_error_recordset_plain].include?(failure_label)
@@ -188,15 +188,15 @@ class SchedulingBsdxListReadTest < Minitest::Test
     RECORDSET_READS.each do |method, cfg|
       define_method("test_#{method}_raises_on_failed_read_#{failure_label}") do
         reply = case reply_or_marker
-                when :error_after_header
+        when :error_after_header
                   wire_recordset(cfg[:header], "-1^Invalid resource")
-                when :bsdx_error_caret
+        when :bsdx_error_caret
                   wire_recordset(ERRORID_HEADER, "-1^Invalid resource")
-                when :bsdx_error_plain
+        when :bsdx_error_plain
                   wire_recordset(ERRORID_HEADER, "Resource not found")
-                else
+        else
                   reply_or_marker
-                end
+        end
         stub_recordset(cfg[:rpc] => reply)
         err = assert_rpc_error_includes_rpc(method, cfg[:rpc]) { cfg[:call].call }
         next unless %i[error_after_header error_row_first bsdx_error_recordset_caret bsdx_error_recordset_plain].include?(failure_label)
@@ -226,9 +226,9 @@ class SchedulingBsdxListReadTest < Minitest::Test
       define_method("test_#{method}_header_only_empty_#{suffix}") do
         wire = if with_rs
                  wire_recordset(cfg[:header])
-               else
+        else
                  "1\x00#{cfg[:header]}#{US}"
-               end
+        end
         stub_recordset(cfg[:rpc] => wire)
         rows = cfg[:call].call
         assert_equal [], rows, "#{method}: header-only reply must be a genuine empty list, not a failure"
