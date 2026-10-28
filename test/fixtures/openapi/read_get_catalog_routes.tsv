@@ -68,11 +68,13 @@ RpmsRpc::ProgressNote.authorize	GET /progress-notes/{note_ien}/authorize
 RpmsRpc::ProgressNote.fetch_text	GET /progress-notes/{note_ien}/text
 RpmsRpc::ProgressNote.list	GET /patients/{dfn}/progress-notes
 RpmsRpc::Reminders.applicable	GET /patients/{dfn}/reminders/applicable
+RpmsRpc::Scheduling.resources	GET /appointments/resources
 RpmsRpc::Session.bootstrap	GET /users/{user_duz}/sessions/bootstrap
 RpmsRpc::Site.current	GET /users/{user_duz}/sites/current
 RpmsRpc::Site.list	GET /users/{user_duz}/sites
 RpmsRpc::Symptom.defaults	GET /symptoms/defaults
 RpmsRpc::Symptom.search	GET /symptoms
+RpmsRpc::Tribal.communities	GET /tribes/communities
 RpmsRpc::Tribal.eligibility	GET /patients/{dfn}/tribes/eligibility
 RpmsRpc::Tribal.enrollment	GET /patients/{dfn}/tribes/enrollment
 RpmsRpc::Tribal.service_unit	GET /tribes/{ien}/service-unit

@@ -239,6 +239,18 @@ module RpmsRpc
         end
       end
 
+      # parse_many, with an `altered:` flag on every row (rpms-rpc#463).
+      # `lines` are the response's lines; `altered_indexes` are the zero-based
+      # ones whose text had a byte replaced (Reply.lines_with_altered builds
+      # both from any reply). Each line is parsed on its own, which is what
+      # parse_many does anyway, so a row's flag is its own line's and never
+      # its neighbour's. The key is additive: a clean row says altered: false.
+      def parse_many_flagged(lines, altered_indexes = [])
+        lines.each_with_index.flat_map do |line, index|
+          parse_many([ line ]).map { |row| row.merge(altered: altered_indexes.include?(index)) }
+        end
+      end
+
       # Parse a line-based response where each LINE is a different field.
       def parse_lines(response, extras: {})
         return nil if response.nil? || response.empty?

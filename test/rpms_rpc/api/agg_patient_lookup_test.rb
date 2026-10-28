@@ -336,6 +336,15 @@ class AggPatientLookupTest < Minitest::Test
     assert_equal "ANDERSON,ALICE", rows.first[:name]
   end
 
+  # AGG LOOKUP PATIENTS is in AGGRPC's RPC multiple only; a CIA session binds
+  # CIAV VUECENTRIC, which refuses it. The lookup binds AGGRPC for its call.
+  def test_lookup_runs_in_the_aggrpc_context
+    RpmsRpc::Patient.lookup("MOUSE")
+
+    assert_equal "AGG LOOKUP PATIENTS", last_call[:rpc]
+    assert_equal "AGGRPC", last_call[:context]
+  end
+
   private
 
   def seed(lines)
