@@ -460,10 +460,14 @@ class OrderSignAndReleaseTest < Minitest::Test
     end.new
 
     cli = Class.new(RpmsRpc::XwbClient) do
+      define_method(:received_calls) { @calls ||= [] }
+      define_method(:calls) { received_calls }
+
       define_method(:call_rpc) do |name, *params|
+        received_calls << { rpc: name, params: params }
         return RpmsRpc::Reply.from_wire([ "1" ]) if name == VALIDSIG_RPC
 
-        super
+        super(name, *params)
       end
     end.new
     cli.instance_variable_set(:@socket, sock)
