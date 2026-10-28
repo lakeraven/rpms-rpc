@@ -682,12 +682,13 @@ class SchedulingBsdxListReadTest < Minitest::Test
   RESOURCES_PENA_ROW = "5^Pe\xC3\xB1a^0^15^6^^^^1^1^1^1"
   HOSPITAL_PENA_ROW = "5^Pe\xC3\xB1a^DEMO,PROVIDER^000^^"
 
-  def test_resources_ascii8bit_valid_utf8_wire_parses_resource_name
+  def test_resources_ascii8bit_valid_utf8_wire_parses_name
     wire = recordset_wire_after_header(RESOURCES_HEADER, RESOURCES_PENA_ROW).b
     stub_recordset("BSDX RESOURCES" => wire)
     rows = RpmsRpc::Scheduling.resources
     assert_equal 1, rows.size
-    assert_equal "Peña", rows.first[:resource_name]
+    assert_equal "Peña", rows.first[:name]
+    assert_equal Encoding::UTF_8, rows.first[:name].encoding
   end
 
   def test_hospital_locations_ascii8bit_valid_utf8_lines_parse_location
