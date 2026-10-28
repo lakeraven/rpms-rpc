@@ -38,15 +38,22 @@ module RpmsRpc
   # 1-byte sequence echo and the \x00 ack to SPACES rather than dropping them.
   # (A high byte that is not valid UTF-8 becomes U+FFFD, not a space, and valid
   # non-ASCII text is kept.) A truncated read can therefore arrive as
-  # "  I00020APPOINTMENTID^T00020ERRORID". recordset_header_row? still returns
-  # false for that line — fetch_many and fetch_many_or_nil are unchanged — but
-  # the list reads below treat a leading-space header as a header (#481). A
-  # header-only reply, including that flattened one, is []. A failed read (nil,
-  # "", [], an error row "-N^message" before or after the header, or a
-  # single-column ERRORID recordset with a data row) raises Client::RpcError
-  # naming the RPC and the broker's text. Hosts must rescue it. Writes are
-  # unchanged: an implausible row there is still the symptom of a truncated
-  # read, not an empty one.
+  # "  I00020APPOINTMENTID^T00020ERRORID", or with U+FFFD or a C0 control in
+  # front of the header. recordset_header_row? still returns false for that
+  # line. DataMapper#fetch_many and #fetch_many_or_nil on these mappings keep
+  # the old contract for direct mapper callers. Only the Scheduling methods
+  # changed (#481): they treat a header behind leading spaces, U+FFFD or C0
+  # controls as a header. A header-only recordset, including a truncated header
+  # flattened to leading spaces, U+FFFD or C0 control characters, is still a
+  # genuine empty result (`[]`). A failed read (nil, "", [], a reply with no
+  # header row, an error row "-N^…" anywhere, an ERRORID-only recordset, or a
+  # reply that is neither Array nor String) raises Client::RpcError. The message
+  # names the RPC and, for a "-N^" row, the numeric code ("broker error -1"), or
+  # a fixed phrase ("ERRORID recordset", "empty reply", "no recordset header",
+  # "unexpected reply type"). Broker text stays out of the message: it can hold
+  # a patient name, and sanitize_error does not catch mixed-case names. Hosts
+  # must rescue it. Writes are unchanged: an implausible row there is still the
+  # symptom of a truncated read, not an empty one.
   #
   # ## Context — this module binds it, callers do not (rpms-rpc#258)
   #
@@ -165,8 +172,13 @@ module RpmsRpc
     #
     # A failed list read raises Client::RpcError (#481). These used to return
     # [] on failure (resources, appointments and slot_schedule returned nil
-    # when the broker gave no response). A header-only recordset is still [].
-    # Hosts must rescue the error.
+    # when the broker gave no response). A header-only recordset, including a
+    # truncated header flattened to leading spaces, U+FFFD or C0 control
+    # characters, is still []. The message names the RPC and, for a "-N^" row,
+    # the numeric code ("broker error -1"), or a fixed phrase ("ERRORID
+    # recordset", "empty reply", "no recordset header", "unexpected reply
+    # type"). Broker text stays out of the message: it can hold a patient name,
+    # and sanitize_error does not catch mixed-case names. Hosts must rescue it.
 
     # Search availability blocks — BSDX SEARCH AVAILABILITY (SEARCH^BSDX24).
     #   resources: a resource name or Array of names (joined with "|")
@@ -315,19 +327,16 @@ module RpmsRpc
       { success: false, error: e.message }
     end
 
-    # First non-header data row of a recordset response, as a String with the
-    # $C(30)/$C(31) record separators stripped (shared recordset framing
-    # rules live in DataMapper — see RECORDSET_SEPARATORS there). An empty row
-    # is kept: for ERRORID-only writes it means success.
     # A BMX recordset reply's rows as header-named hashes: the typed header,
     # then $C(30)-separated records, to the $C(31) end (RpmsRpc::Agg.parse_reply).
-    # Read whole, so a field holding CR/LF stays inside its row. A failed read
-    # raises Client::RpcError (DataMapper.read_bsdx_list!); a header-only
-    # reply is [].
+    # Read whole, so a field holding CR/LF stays inside its row. The shared
+    # normaliser therefore does not split on CR/LF here (split_newlines: false).
+    # A failed read raises Client::RpcError (DataMapper.read_bsdx_list!); a
+    # header-only reply is [].
     def recordset(rpc_name, *params)
       client = RpmsRpc.client
       raw = client.respond_to?(:call_rpc_global_array) ? client.call_rpc_global_array(rpc_name, *params) : client.call_rpc(rpc_name, *params)
-      DataMapper.read_bsdx_list!(raw, rpc_name)
+      return [] if DataMapper.read_bsdx_list!(raw, rpc_name, split_newlines: false) == :empty
 
       raw = raw.join("\x1e") if raw.is_a?(Array)
       parsed = Agg.parse_reply(raw)
@@ -342,6 +351,10 @@ module RpmsRpc
       value.to_s.empty? ? nil : value
     end
 
+    # First non-header data row of a recordset response, as a String with the
+    # $C(30)/$C(31) record separators stripped (shared recordset framing
+    # rules live in DataMapper — see RECORDSET_SEPARATORS there). An empty row
+    # is kept: for ERRORID-only writes it means success.
     def data_row(resp)
       Array(resp).map { |l| DataMapper.strip_recordset_separators(l) }
                  .reject { |l| DataMapper.recordset_header_row?(l) }

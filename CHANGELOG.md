@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed — BSDX list reads raise `RpcError` on failure (#481)
 
-- `Scheduling.availability`, `all_appointments`, `hospital_locations`, `clinic_setup`, `resources`, `slot_schedule` and `appointments` used to return `[]` on a failed read (the recordset reads returned `nil` when the broker gave no response) and now raise `RpmsRpc::Client::RpcError`. Hosts must rescue it. A header-only recordset, including a truncated header flattened to leading spaces, is still a genuine empty result (`[]`).
+- `Scheduling.availability`, `all_appointments`, `hospital_locations`, `clinic_setup`, `resources`, `slot_schedule` and `appointments` used to return `[]` on a failed read (the recordset reads returned `nil` when the broker gave no response) and now raise `RpmsRpc::Client::RpcError`. Hosts must rescue it. A header-only recordset, including a truncated header flattened to leading spaces, U+FFFD or C0 control characters, is still a genuine empty result (`[]`). The message names the RPC and, for a `-N^` row, the numeric code (`broker error -1`), or a fixed phrase (`ERRORID recordset`, `empty reply`, `no recordset header`, `unexpected reply type`). Broker text stays out of the message: it can hold a patient name, and `sanitize_error` does not catch mixed-case names. `DataMapper#fetch_many` and `#fetch_many_or_nil` on these mappings keep the old contract for direct mapper callers. Only the Scheduling methods changed.
 
 ### Added — the release guard reads live summaries bound to the pinned build, the released source, and the suite that ran (#361, #441)
 

@@ -534,6 +534,12 @@ The task is offline and reaches no broker. The implementation lives in `tools/ap
 
 The incomplete-checks memory follows the client object, so a host must reuse one client object per broker connection. A fresh wrapper per request around a shared connection loses it, and OPOS then hides the banner (ORWDXC.m:53,214-229). The memo is an `ObjectSpace::WeakKeyMap`: keys are compared with `eql?` and `hash`, not strict object identity.
 
+## Scheduling list reads
+
+`Scheduling.availability`, `all_appointments`, `hospital_locations`, `clinic_setup`, `resources`, `slot_schedule` and `appointments` raise `RpmsRpc::Client::RpcError` when a BSDX list read fails (#481). Hosts must rescue it. A header-only recordset, including a truncated header flattened to leading spaces, U+FFFD or C0 control characters, is still a genuine empty result (`[]`).
+
+The message names the RPC and, for a `-N^` row, the numeric code (`broker error -1`), or a fixed phrase (`ERRORID recordset`, `empty reply`, `no recordset header`, `unexpected reply type`). Broker text stays out of the message: it can hold a patient name, and `sanitize_error` does not catch mixed-case names. `DataMapper#fetch_many` and `#fetch_many_or_nil` on these mappings keep the old contract for direct mapper callers. Only the Scheduling methods changed.
+
 ## Retry safety
 
 The gem never retries. `RpmsRpc::RetrySafety` and `lib/rpms_rpc/retry_safety.yml` classify each public method as `read`, `idempotent_write`, or `non_idempotent_write`, as advice to hosts. Only `:read` is `auto_retry_safe?`. An unclassified method is never retry-safe. `bundle exec rake rpc:retry_safety` fails when a public method is unclassified or an entry is stale.
