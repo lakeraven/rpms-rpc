@@ -21,6 +21,8 @@ require "rpms_rpc/api/order"
 # :unknown (SEND ran but outcome is not provable: bad/missing reply rows,
 # ^E^ rows because EN^ORCSEND may have signed before ORERR, or SEND raised
 # after the release loop — RpcError/RpcTimeoutError/post-loop M error).
+# FrameTooLongError (nothing sent on the wire, client.rb #472) propagates
+# like RpcNotAvailableError/RpcRefusedError — no :unknown rows.
 class OrderSignAndReleaseTest < Minitest::Test
   ROOT = File.expand_path("../../..", __dir__)
   REQUIRED_RPCS_PATH = File.join(ROOT, "lib/rpms_rpc/required_rpcs.json")
@@ -109,8 +111,25 @@ class OrderSignAndReleaseTest < Minitest::Test
     assert_equal ORDER_ONE, row[:order_id]
     assert_equal :signed, row[:status]
     assert_match(/signed/i, row[:reason])
-    assert_match(/not released/i, row[:reason])
+    assert_match(/did not release/i, row[:reason])
+    refute_match(/\bnot released\b/i, row[:reason])
     refute_equal :released, row[:status]
+  end
+
+  def test_sign_and_release_error_row_bare_orwerr_code_uses_generic_reason_without_code
+    [ "#{ORDER_ONE}^E^1", "#{ORDER_ONE}^E^1^" ].each do |reply_row|
+      RpmsRpc.reset!
+      with_sign_release_wire(validsig: "1", send: [ reply_row ])
+
+      results = RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+
+      row = results.fetch(0)
+      assert_equal :unknown, row[:status], reply_row
+      assert_match(/may already be signed/i, row[:reason], reply_row)
+      assert_match(/check.*order|order.*before.*retr/i, row[:reason], reply_row)
+      refute_match(/\A\d+; /, row[:reason], reply_row)
+      refute_includes row[:reason], "1; the order may already be signed", reply_row
+    end
   end
 
   def test_sign_and_release_error_row_parses_orwerr_text
@@ -375,6 +394,93 @@ class OrderSignAndReleaseTest < Minitest::Test
     refute_signature_in_exception(error, SIG_CODE, wire_encrypted: wire_encrypted_es_from_calls)
   end
 
+  def test_sign_and_release_send_frame_too_long_error_propagates
+    assert_respond_to RpmsRpc::Order, :sign_and_release
+
+    message = "parameter exceeds 999 byte lpack limit"
+    RpmsRpc.reset!
+    RpmsRpc.configure do |c|
+      c.client = sign_release_error_client(
+        validsig: "1",
+        send_error: RpmsRpc::Client::FrameTooLongError,
+        message: message
+      )
+    end
+
+    error = assert_raises(RpmsRpc::Client::FrameTooLongError) do
+      RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+    end
+    assert_equal message, error.message
+    refute_signature_in_exception(error, SIG_CODE, wire_encrypted: wire_encrypted_es_from_calls)
+  end
+
+  def test_sign_and_release_send_lpack_too_long_subclass_propagates
+    require "rpms_rpc/xwb_client"
+
+    message = "999 byte lpack limit exceeded"
+    RpmsRpc.reset!
+    RpmsRpc.configure do |c|
+      c.client = sign_release_error_client(
+        validsig: "1",
+        send_error: RpmsRpc::XwbClient::LpackTooLongError,
+        message: message
+      )
+    end
+
+    error = assert_raises(RpmsRpc::XwbClient::LpackTooLongError) do
+      RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+    end
+    assert_equal message, error.message
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, error
+    refute_signature_in_exception(error, SIG_CODE, wire_encrypted: wire_encrypted_es_from_calls)
+  end
+
+  def test_sign_and_release_oversized_dfn_lpack_too_long_before_send_propagates
+    require "rpms_rpc/xwb_client"
+
+    sock = Class.new do
+      attr_reader :writes
+
+      def initialize = @writes = []
+
+      def write(s)
+        @writes << s.b
+        s.bytesize
+      end
+
+      def recv(_n) = ""
+
+      def flush; end
+
+      def close; end
+
+      def closed? = false
+
+      def setsockopt(*); end
+    end.new
+
+    cli = Class.new(RpmsRpc::XwbClient) do
+      define_method(:call_rpc) do |name, *params|
+        return RpmsRpc::Reply.from_wire([ "1" ]) if name == VALIDSIG_RPC
+
+        super
+      end
+    end.new
+    cli.instance_variable_set(:@socket, sock)
+    cli.instance_variable_set(:@connected, true)
+    RpmsRpc.reset!
+    RpmsRpc.configure { |c| c.client = cli }
+
+    bytes_before = sock.writes.sum(&:bytesize)
+    error = assert_raises(RpmsRpc::XwbClient::LpackTooLongError) do
+      RpmsRpc::Order.sign_and_release("1" * 1000, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+    end
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, error
+    refute_signature_in_exception(error, SIG_CODE, wire_encrypted: wire_encrypted_es_from_calls)
+    assert_equal bytes_before, sock.writes.sum(&:bytesize),
+                 "SEND must not write after lpack refusal (nothing sent for that RPC)"
+  end
+
   def test_sign_and_release_rpc_refused_on_send_propagates
     assert_respond_to RpmsRpc::Order, :sign_and_release
 
@@ -448,6 +554,27 @@ class OrderSignAndReleaseTest < Minitest::Test
 
   def test_sign_and_release_send_connection_error_returns_unknown_rows
     message = "Connection lost - stream closed"
+    RpmsRpc.reset!
+    RpmsRpc.configure do |c|
+      c.client = sign_release_error_client(
+        validsig: "1",
+        send_error: RpmsRpc::Client::ConnectionError,
+        message: message
+      )
+    end
+
+    results = RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+
+    assert_send_error_unknown_results(
+      results,
+      [ ORDER_ONE ],
+      RpmsRpc::Client::ConnectionError,
+      forbidden_message: message
+    )
+  end
+
+  def test_sign_and_release_send_connection_not_connected_returns_unknown_rows
+    message = "Not connected"
     RpmsRpc.reset!
     RpmsRpc.configure do |c|
       c.client = sign_release_error_client(
@@ -790,7 +917,9 @@ class OrderSignAndReleaseTest < Minitest::Test
 
   def assert_send_broker_failure_unknown_reason(reason, error_class, forbidden_message: nil)
     assert reason, "expected reason for SEND broker failure :unknown"
-    assert_match(/release request was sent but failed/i, reason)
+    assert_match(/release request may have been sent but failed/i, reason)
+    refute_match(/release request was sent but failed/i, reason)
+    refute_match(/\bwas sent\b/i, reason)
     assert_match(/check.*order|order.*before.*retr/i, reason)
     short = error_class.name.split("::").last
     assert_match(/\b#{Regexp.escape(short)}\b/, reason)
