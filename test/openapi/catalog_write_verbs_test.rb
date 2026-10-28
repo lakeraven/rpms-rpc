@@ -45,6 +45,14 @@ class OpenApiCatalogWriteVerbsTest < Minitest::Test
     assert_equal "POST /patients/{dfn}/orders", at(method("Order", "save", req("dfn", "order_fields"), rpc: "ORWDX SAVE"))
   end
 
+  def test_sign_and_release_is_post_action_on_orders
+    m = method("Order", "sign_and_release",
+               req("dfn", "provider_duz", "location", "order_ids", "signature"),
+               rpc: "ORWDX SEND")
+    retry_table = RpmsRpc::RetrySafety.table.merge(method_key(m) => :non_idempotent_write)
+    assert_equal "POST /patients/{dfn}/orders/sign-and-release", at(m, retry_table: retry_table)
+  end
+
   def test_send_is_action_post_to_send
     assert_equal "POST /users/{duz}/notifications/send", at(method("Notifications", "send", req("duz", "payload"), rpc: "ORQQCN SEND"))
     assert_equal "POST /synthetic-messagings/{ien}/send", at(method("SyntheticMessaging", "send", req("ien"), rpc: "SYNTH SEND"))
