@@ -124,6 +124,15 @@ class ProgressNoteWrapTest < Minitest::Test
     msg
   end
 
+  def assert_wire_framed_without_lpack_refusal(wire_chunks)
+    wire = wire_chunks.reduce(+"".b) { |acc, chunk| acc << chunk }
+    values = lpack_payload_values(wire)
+    refute_empty values, "expected L-PACK values on the wire"
+    values.each do |v|
+      assert_operator v.bytesize, :<=, 999, "L-PACK value length #{v.bytesize} exceeds 999"
+    end
+  end
+
   # -- acceptance -------------------------------------------------------------
 
   def test_two_thousand_byte_single_line_wraps_to_eighty_byte_tiux_lines_and_readback
@@ -348,7 +357,7 @@ class ProgressNoteWrapTest < Minitest::Test
     result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, line)
     assert_equal true, result[:success], result.inspect
     refute_empty socket_writes, "wrapped update must reach the wire"
-    assert_xwb_message_framed_without_lpack_refusal(params_sent_to("TIU SET DOCUMENT TEXT"))
+    assert_wire_framed_without_lpack_refusal(socket_writes)
   end
 
   # -- wrap_width validation ----------------------------------------------------

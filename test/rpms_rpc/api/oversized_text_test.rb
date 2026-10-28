@@ -16,10 +16,14 @@ require "rpms_rpc/api/immunization_refusal"
 # are wrapped before TIU SET DOCUMENT TEXT; the tests below still refuse for
 # ExamComponent, HealthFactor, and ImmunizationRefusal.
 class OversizedTextTest < Minitest::Test
+  EOT = RpmsRpc::Client::EOT
+  TIU_SET_TEXT_ACK = "5001^1^1#{EOT}".b
+
   class RecordingSocket
     attr_reader :writes
 
-    def initialize
+    def initialize(reads = [])
+      @reads = reads.dup
       @writes = []
     end
 
@@ -28,7 +32,7 @@ class OversizedTextTest < Minitest::Test
       str.bytesize
     end
 
-    def recv(_n) = ""
+    def recv(_n) = @reads.empty? ? "".b : @reads.shift.b
     def flush; end
     def close; end
     def closed? = false
@@ -36,10 +40,11 @@ class OversizedTextTest < Minitest::Test
   end
 
   def setup
-    @socket = RecordingSocket.new
+    @socket = RecordingSocket.new([ TIU_SET_TEXT_ACK ])
     client = RpmsRpc::XwbClient.new
     client.instance_variable_set(:@socket, @socket)
     client.instance_variable_set(:@connected, true)
+    client.instance_variable_set(:@timeout, 1)
     RpmsRpc.reset!
     RpmsRpc.configure { |cfg| cfg.client = client }
   end
