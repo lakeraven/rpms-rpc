@@ -38,6 +38,7 @@
 "RpmsRpc::Authentication.clear_cache!": non_idempotent_write
 "RpmsRpc::Authentication.has_security_key?": read
 "RpmsRpc::Authentication.held_keys": read
+"RpmsRpc::Authentication.option_access": read
 "RpmsRpc::Authentication.user_info": read
 "RpmsRpc::Authentication.user_security_keys": read
 "RpmsRpc::Authentication.user_type": read
