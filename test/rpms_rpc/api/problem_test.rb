@@ -62,6 +62,20 @@ class ProblemTest < Minitest::Test
     assert result[:success], "DEL returns empty on success"
   end
 
+  # What a real client returns: lines, so RET "" arrives as [] (CiaClient#call_rpc,
+  # Client#split_response) and an error as one "-CODE^text" line.
+  def test_delete_reads_the_line_list_a_real_client_returns
+    client = Object.new
+    def client.call_rpc(_rpc, param) = param.start_with?("1^") ? [ "-1060^Entry in use" ] : []
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    assert RpmsRpc::Problem.delete(DFN, IEN, reason: "Entered in error")[:success]
+    refute RpmsRpc::Problem.delete(DFN, 1, reason: "oops")[:success]
+  ensure
+    RpmsRpc.reset!
+  end
+
   def test_delete_error_reply_is_failure
     RpmsRpc.mock! do |m|
       m.seed_scalar(:problem_remove, "#{IEN}^^oops", "-1060^Entry in use")
