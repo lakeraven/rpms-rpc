@@ -483,7 +483,7 @@ class OrderSignAndReleaseTest < Minitest::Test
     def initialize(code:, valid_reply:, send_replies:)
       @code = code
       @valid_reply = valid_reply
-      @send_queue = [ send_replies ].flatten
+      @send_queue = [ send_replies ]
       @calls = []
     end
 
