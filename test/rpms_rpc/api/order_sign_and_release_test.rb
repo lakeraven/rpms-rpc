@@ -131,7 +131,7 @@ class OrderSignAndReleaseTest < Minitest::Test
       "#{ORDER_ONE}^R",
       "#{ORDER_ONE}^ER",
       "#{ORDER_ONE}^XR",
-      "#{ORDER_ONE}^Rejected^x",
+      "#{ORDER_ONE}^Rejected^x"
     ].each do |reply_row|
       RpmsRpc.reset!
       with_sign_release_wire(validsig: "1", send: [ reply_row ])
@@ -406,7 +406,7 @@ class OrderSignAndReleaseTest < Minitest::Test
     [
       RpmsRpc::Client::RpcError,
       RpmsRpc::Client::RpcNotAvailableError,
-      RpmsRpc::Client::RpcRefusedError,
+      RpmsRpc::Client::RpcRefusedError
     ].each do |error_class|
       RpmsRpc.reset!
       client = sign_release_send_raises_client do |params|
