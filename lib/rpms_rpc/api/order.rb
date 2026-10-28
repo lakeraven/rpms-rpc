@@ -99,14 +99,17 @@ module RpmsRpc
     # VALIDSIG replied nil, empty, or any text other than exactly "1"
     # or "0". The signature was not confirmed, so SEND is not called.
     SIGN_RELEASE_UNCONFIRMED = "electronic signature could not be confirmed"
-    # Piece 2 exactly "S": signed, and not released (ORWDX.m:172-176).
-    # Exactly "RS" is released: "R" when released and "S" when ORWSIG'=2.
-    SIGN_RELEASE_SIGNED = "signed but not released"
+    # Piece 2 exactly "S": signed; this call did not release it
+    # (ORWDX.m:172-176). Exactly "RS" is released: "R" when released and
+    # "S" when ORWSIG'=2.
+    SIGN_RELEASE_SIGNED = "signed; this call did not release it"
     # SEND ran. The reply does not prove this order's outcome.
     SIGN_RELEASE_UNKNOWN = "unknown outcome; check the order before retrying"
-    # ^E^ keeps ORWERR's text. EN^ORCSEND signs before the release action
-    # can fail (FOIA ORCSEND.m:11-13, :72-73), so the order may already
-    # be signed. The reason also says to check the order before retrying.
+    # ^E^ keeps the text after ORWERR's code. A code with no text does
+    # not use the code as the text. EN^ORCSEND signs before the release
+    # action can fail (FOIA ORCSEND.m:11-13, :72-73), so the order may
+    # already be signed. The reason also says to check the order before
+    # retrying.
     SIGN_RELEASE_MAYBE_SIGNED = "the order may already be signed; check the order before retrying"
 
     # Filler namespace spliced into a |-delimited ORX record
@@ -519,23 +522,26 @@ module RpmsRpc
     # SEND's reply is one row per order (ORWDX.m:172-176), split on
     # CRLF, a bare CR, or LF. Piece 2 is "R" when released and "S" when
     # ORWSIG'=2. Exactly "RS" is :released. Exactly "S" is :signed
-    # (signed, not released). Any other piece 2 is :unknown. An ^E^
-    # row is :unknown: EN^ORCSEND signs before the release action can
-    # fail (FOIA ORCSEND.m:11-13, :72-73), so the order may already be
-    # signed. ORWERR is code^text; the text stays in the reason, which
-    # also says to check the order before retrying. A missing row or
-    # two rows for one order is :unknown: SEND ran, and the reply does
-    # not prove that order.
+    # (signed; this call did not release it). Any other piece 2 is
+    # :unknown. An ^E^ row is :unknown: EN^ORCSEND signs before the
+    # release action can fail (FOIA ORCSEND.m:11-13, :72-73), so the
+    # order may already be signed. ORWERR is code^text; the text after
+    # the code stays in the reason, which also says to check the order
+    # before retrying. A code with no text does not use the code as the
+    # text. A missing row or two rows for one order is :unknown: SEND
+    # ran, and the reply does not prove that order.
     #
     # ORWU VALIDSIG raising anything propagates. ORWDX SEND raising
     # RpcNotAvailableError or RpcRefusedError propagates: the release
-    # routine did not run. Any other StandardError from SEND does not
-    # raise. The request was sent, and EN^ORCSEND may have signed before
-    # the fault (FOIA ORCSEND.m:11-13, :72-73) so the ORWLST rows
+    # routine did not run. FrameTooLongError and its subclasses
+    # propagate the same way: nothing was sent (client.rb #472). Any
+    # other StandardError from SEND does not raise. The release request
+    # may have been sent, and EN^ORCSEND may have signed before the
+    # fault (FOIA ORCSEND.m:11-13, :72-73) so the ORWLST rows
     # (ORWDX.m:172-176) never arrived. Each requested order is :unknown.
-    # The reason is "the release request was sent but failed (<class>);
-    # check the order before retrying", with the error class name only.
-    # The message is never copied.
+    # The reason is "the release request may have been sent but failed
+    # (<class>); check the order before retrying", with the error class
+    # name only. The message is never copied.
     #
     # Where an error propagates, StandardError is rescued so secrets can
     # be stripped. Secrets are the plaintext signature, the encrypted ES,
@@ -1078,9 +1084,11 @@ module RpmsRpc
     end
 
     # ORWDX SEND (ORWDX.m:152). RpcNotAvailableError and RpcRefusedError
-    # mean the routine never ran, so they propagate like VALIDSIG. Any
-    # other StandardError is one :unknown row per order: the request was
-    # sent and the reply rows (ORWDX.m:172-176) are not in hand.
+    # mean the routine never ran, so they propagate like VALIDSIG.
+    # FrameTooLongError and its subclasses propagate too: nothing was
+    # sent (client.rb #472). Any other StandardError is one :unknown
+    # row per order: the release request may have been sent and the
+    # reply rows (ORWDX.m:172-176) are not in hand.
     def sign_release_send(dfn, provider, location, ids, signature, encrypted)
       raw = begin
         RpmsRpc.client.call_rpc(
@@ -1091,9 +1099,13 @@ module RpmsRpc
           encrypted,
           ids.map { |id| "#{id}^#{SIGN_RELEASE_ORWREC}" }
         )
-      rescue RpmsRpc::Client::RpcNotAvailableError, RpmsRpc::Client::RpcRefusedError => error
-        # Subclasses of RpcError, so this clause is first. The routine
-        # never ran. Redact and re-raise; do not turn it into :unknown.
+      rescue RpmsRpc::Client::RpcNotAvailableError, RpmsRpc::Client::RpcRefusedError,
+             RpmsRpc::Client::FrameTooLongError => error
+        # RpcNotAvailableError and RpcRefusedError are subclasses of
+        # RpcError, so this clause is first: the routine never ran.
+        # FrameTooLongError and its subclasses are here too: nothing was
+        # sent (client.rb #472). Redact and re-raise; do not turn them
+        # into :unknown.
         sign_release_reraise(error, signature, encrypted)
       rescue StandardError => error
         return sign_release_sent_failed(ids, error)
@@ -1102,10 +1114,11 @@ module RpmsRpc
     end
 
     # The class name only (RpcError, not the message). The message can
-    # carry the plaintext signature or the encrypted ES.
+    # carry the plaintext signature or the encrypted ES. The release
+    # request may have been sent; the reply rows are not in hand.
     def sign_release_sent_failed(order_ids, error)
       name = error.class.name.to_s.split("::").last.to_s
-      reason = "the release request was sent but failed (#{name}); check the order before retrying"
+      reason = "the release request may have been sent but failed (#{name}); check the order before retrying"
       order_ids.map { |id| { order_id: id, status: :unknown, reason: reason } }
     end
 
@@ -1254,11 +1267,12 @@ module RpmsRpc
     end
 
     # Piece 2 (ORWDX.m:172-176) is "R" when released and "S" when
-    # ORWSIG'=2. Exactly "RS" was released. Exactly "S" was signed and
-    # not released. ^E^ is ORWERR (code^text). EN^ORCSEND signs before
-    # the release action can fail (FOIA ORCSEND.m:11-13, :72-73), so
-    # that row is :unknown and the reason keeps the text. Two rows, or
-    # none, do not prove the outcome.
+    # ORWSIG'=2. Exactly "RS" was released. Exactly "S" was signed; this
+    # call did not release it. ^E^ is ORWERR (code^text). The reason
+    # keeps the text after the code. A code with no text does not use
+    # the code as the text. EN^ORCSEND signs before the release action
+    # can fail (FOIA ORCSEND.m:11-13, :72-73), so that row is :unknown.
+    # Two rows, or none, do not prove the outcome.
     def sign_release_one(id, rows)
       return sign_release_unknown(id) unless rows&.length == 1
 
@@ -1271,8 +1285,10 @@ module RpmsRpc
       sign_release_unknown(id)
     end
 
+    # Piece 3 is ORWERR's code. Piece 4 is its text. A missing or empty
+    # text is not the code: the reason is the generic sentence.
     def sign_release_e_row(id, pieces)
-      text = (pieces.length >= 4 ? pieces[3] : pieces[2]).to_s
+      text = pieces[3].to_s
       reason = text.empty? ? SIGN_RELEASE_MAYBE_SIGNED : "#{text}; #{SIGN_RELEASE_MAYBE_SIGNED}"
       { order_id: id, status: :unknown, reason: reason }
     end
