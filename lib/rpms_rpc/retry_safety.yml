@@ -117,6 +117,8 @@
 "RpmsRpc::Immunization.find": read
 "RpmsRpc::Immunization.for_patient": read
 "RpmsRpc::Immunization.text_summary": read
+"RpmsRpc::ImmunizationLot.find": read
+"RpmsRpc::ImmunizationLot.list": read
 "RpmsRpc::ImmunizationRefusal.reasons": read
 "RpmsRpc::ImmunizationRefusal.record": non_idempotent_write
 "RpmsRpc::Location.find": read
