@@ -157,9 +157,14 @@ class SchedulingBsdxListReadTest < Minitest::Test
     RpmsRpc.configure { |cfg| cfg.client = RecordsetClient.new(replies) }
   end
 
-  def wire_recordset(header, *data_rows)
+  LEADING_JUNK = {
+    spaces: "  ",
+    replacement: "\u{FFFD}"
+  }.freeze
+
+  def wire_recordset(header, *data_rows, header_prefix: "")
     body = +"1\x00"
-    body << header << RS
+    body << header_prefix.to_s << header << RS
     data_rows.each { |row| body << row << RS }
     body << US
   end
@@ -411,6 +416,77 @@ class SchedulingBsdxListReadTest < Minitest::Test
         stub_call_rpc([ "#{prefix}#{cfg[:header]}" ])
         assert_equal [], cfg[:call].call,
                      "#{method}: truncated header alone must be []"
+      end
+    end
+  end
+
+  # -- Round 2: leading junk applies to header detection only (#481) -----------
+
+  LEADING_JUNK.each do |junk_label, prefix|
+    FETCH_MANY_READS.each do |method, cfg|
+      define_method("test_#{method}_raises_on_prefixed_error_row_#{junk_label}") do
+        stub_call_rpc([ "#{prefix}-1^Invalid resource" ])
+        err = assert_rpc_error_includes_rpc(method, cfg[:rpc]) { cfg[:call].call }
+        assert_includes err.message, "-1",
+                        "#{method}: prefixed error row must fail closed with code -1"
+        refute_broker_text_in_rpc_error(method, err)
+      end
+    end
+
+    ALL_LIST_READS.each do |method, cfg|
+      define_method("test_#{method}_raises_on_flattened_empty_reply_#{junk_label}") do
+        reply = [ prefix ]
+        if RECORDSET_READS.key?(method)
+          stub_recordset(cfg[:rpc] => reply)
+        else
+          stub_call_rpc(reply)
+        end
+        assert_rpc_error_includes_rpc(method, cfg[:rpc]) { cfg[:call].call }
+      end
+    end
+  end
+
+  {
+    reply_text: -> { RpmsRpc::Reply.text("  -1^Invalid resource") },
+    one_element_array: -> { [ "  -1^Invalid resource" ] }
+  }.each do |shape, reply_builder|
+    RECORDSET_READS.each do |method, cfg|
+      define_method("test_#{method}_raises_on_prefixed_error_row_#{shape}") do
+        stub_recordset(cfg[:rpc] => reply_builder.call)
+        err = assert_rpc_error_includes_rpc(method, cfg[:rpc]) { cfg[:call].call }
+        assert_includes err.message, "-1",
+                        "#{method}: prefixed error row must fail closed with code -1"
+        refute_broker_text_in_rpc_error(method, err)
+      end
+    end
+  end
+
+  RECORDSET_READS.each do |method, cfg|
+    define_method("test_#{method}_prefixed_header_recordset_parses_like_unprefixed") do
+      row = sample_row(cfg)
+      stub_recordset(cfg[:rpc] => wire_recordset(cfg[:header], row))
+      expected = cfg[:call].call
+      RpmsRpc.reset!
+      RpmsRpc.mock!
+      stub_recordset(cfg[:rpc] => wire_recordset(cfg[:header], row, header_prefix: "  "))
+      actual = cfg[:call].call
+      assert_equal expected, actual,
+                   "#{method}: flattened header recordset must parse like unprefixed wire"
+      refute_equal 0, actual.first.values_at(:id, :availability_id, :appointment_id).compact.first,
+                   "#{method}: first row must use real ids from data, not header column widths"
+    end
+  end
+
+  {
+    unframed_data_row: ->(cfg) { [ SAMPLE_DATA_ROW.fetch(cfg[:rpc]) ] },
+    unframed_plain_message: ->(_cfg) { [ "Invalid resource" ] }
+  }.each do |label, reply_builder|
+    RECORDSET_READS.each do |method, cfg|
+      define_method("test_#{method}_raises_on_headerless_unframed_#{label}") do
+        stub_recordset(cfg[:rpc] => reply_builder.call(cfg))
+        err = assert_rpc_error_includes_rpc(method, cfg[:rpc]) { cfg[:call].call }
+        assert_includes err.message, "no recordset header",
+                        "#{method}: headerless recordset read must not return []"
       end
     end
   end
