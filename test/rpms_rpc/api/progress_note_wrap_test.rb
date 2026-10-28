@@ -165,9 +165,9 @@ class ProgressNoteWrapTest < Minitest::Test
 
   def test_wrap_width_ten_breaks_on_tab_before_width
     assert_tiux_sent_pieces(
-      "left\tright side",
+      "left\trights side",
       wrap_width: 10,
-      expected_pieces: [ "left", "right side" ]
+      expected_pieces: [ "left", "rights", "side" ]
     )
   end
 
