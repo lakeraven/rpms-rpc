@@ -47,15 +47,25 @@ module RpmsRpc
   # carries the prefix, is still a genuine empty result (`[]`). An error row
   # behind the prefix raises with its numeric code, and a line that is blank
   # after the strip counts as empty. A failed read (nil, "", [], a reply with
-  # no header row, an error row "-N^…" anywhere, an ERRORID-only recordset, or
+  # no header row, an error row "-N^…" anywhere, an ERRORID header line
+  # anywhere, more than one header line, bytes that are not valid UTF-8, or
   # a reply that is neither Array nor String) raises Client::RpcError. A
   # recordset read with no header row raises ("no recordset header") whether
-  # or not the reply is framed; fetch_many_or_raise still accepts an unframed
-  # headerless line list. The message names the RPC and, for a "-N^" row, the
-  # numeric code ("broker error -1"), or a fixed phrase ("ERRORID recordset",
-  # "empty reply", "no recordset header", "unexpected reply type"). Broker
-  # text stays out of the message: it can hold a patient name, and
-  # sanitize_error does not catch mixed-case names. Hosts must rescue it.
+  # or not the reply is framed. fetch_many_or_raise still accepts an unframed
+  # headerless line list whose every non-blank line contains a caret; a
+  # non-blank line with no caret raises ("no recordset header"). An ERRORID
+  # header line anywhere raises ("ERRORID recordset"); more than one header
+  # line otherwise raises ("unexpected second header"). Both paths do. Before
+  # any regex, each String chunk is brought to UTF-8: a chunk that is not
+  # UTF-8-tagged is duplicated and force-encoded UTF-8, and bytes that are not
+  # valid UTF-8 raise ("reply is not valid UTF-8"). A valid binary-tagged
+  # reply parses with UTF-8 values. The message names the RPC and, for a
+  # "-N^" row, the numeric code ("broker error -1"), or a fixed phrase
+  # ("ERRORID recordset", "empty reply", "no recordset header",
+  # "unexpected second header", "reply is not valid UTF-8",
+  # "unexpected reply type"). Broker text stays out of the message: it can
+  # hold a patient name, and sanitize_error does not catch mixed-case names.
+  # The failure is never Encoding::CompatibilityError. Hosts must rescue it.
   # Writes are unchanged: an implausible row there is still the symptom of a
   # truncated read, not an empty one.
   #
@@ -179,11 +189,21 @@ module RpmsRpc
     # when the broker gave no response). A header-only recordset, including a
     # header behind leading spaces, U+FFFD or C0 controls, is still []. That
     # flattened shape is handled defensively; no current client is known to
-    # produce it. The message names the RPC and, for a "-N^" row, the numeric
-    # code ("broker error -1"), or a fixed phrase ("ERRORID recordset",
-    # "empty reply", "no recordset header", "unexpected reply type"). Broker
-    # text stays out of the message: it can hold a patient name, and
-    # sanitize_error does not catch mixed-case names. Hosts must rescue it.
+    # produce it. fetch_many_or_raise still accepts an unframed headerless
+    # line list whose every non-blank line contains a caret; a non-blank line
+    # with no caret raises ("no recordset header"). An ERRORID header line
+    # anywhere raises ("ERRORID recordset"); more than one header line
+    # otherwise raises ("unexpected second header"). Both paths do. Before any
+    # regex, each String chunk is brought to UTF-8: a chunk that is not
+    # UTF-8-tagged is duplicated and force-encoded UTF-8, and bytes that are
+    # not valid UTF-8 raise ("reply is not valid UTF-8"). A valid binary-tagged
+    # reply parses with UTF-8 values. The message names the RPC and, for a
+    # "-N^" row, the numeric code ("broker error -1"), or a fixed phrase
+    # ("ERRORID recordset", "empty reply", "no recordset header",
+    # "unexpected second header", "reply is not valid UTF-8",
+    # "unexpected reply type"). Broker text stays out of the message: it can
+    # hold a patient name, and sanitize_error does not catch mixed-case names.
+    # The failure is never Encoding::CompatibilityError. Hosts must rescue it.
 
     # Search availability blocks — BSDX SEARCH AVAILABILITY (SEARCH^BSDX24).
     #   resources: a resource name or Array of names (joined with "|")
@@ -335,11 +355,15 @@ module RpmsRpc
     # A BMX recordset reply's rows as header-named hashes. Read whole, so a
     # field holding CR/LF stays inside its row (split_newlines: false).
     # DataMapper.read_bsdx_list! returns the classified lines: the header with
-    # leading junk stripped, then the data rows in their original bytes. Those
-    # lines are parsed here, not the raw reply, so a flattened header maps the
-    # same columns as an unflattened one. A failed read raises Client::RpcError;
-    # a header-only reply is []. A reply with no header row raises ("no
-    # recordset header") whether or not it is framed.
+    # leading junk stripped, then the data rows in their original bytes, as
+    # UTF-8 (a chunk that was not UTF-8-tagged is duplicated and force-encoded
+    # before it is read). Those lines are parsed here, not the raw reply, so a
+    # flattened header maps the same columns as an unflattened one. A failed
+    # read raises Client::RpcError; a header-only reply is []. A reply with no
+    # header row raises ("no recordset header") whether or not it is framed.
+    # An ERRORID header line anywhere raises ("ERRORID recordset"); more than
+    # one header line otherwise raises ("unexpected second header"). Invalid
+    # UTF-8 raises ("reply is not valid UTF-8"), never Encoding::CompatibilityError.
     def recordset(rpc_name, *params)
       client = RpmsRpc.client
       raw = if client.respond_to?(:call_rpc_global_array)
