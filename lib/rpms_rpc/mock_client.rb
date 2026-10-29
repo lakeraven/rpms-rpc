@@ -253,6 +253,10 @@ end
         post_signon_message_count: 0
       })
 
+      # Once a sign-on has bound a user, seeding some other user must not
+      # replace the bound replies; reseeding the bound user itself refreshes them.
+      return if @bound_session_duz && @bound_session_duz != duz.to_i
+
       seed_session_user_replies(duz.to_i, name, usrcls)
     end
 
@@ -444,6 +448,7 @@ end
       user = @session_users&.dig(duz.to_i)
       return unless user
 
+      @bound_session_duz = duz.to_i
       seed_session_user_replies(duz.to_i, user[:name], user[:usrcls])
     end
 
