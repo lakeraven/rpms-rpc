@@ -34,18 +34,40 @@ module RpmsRpc
   # header — while the seeded tests passed. Same defect as AGG LOOKUP PATIENTS,
   # fixed in #237. Tracked as #254.
   #
-  # The truncated read does NOT simply yield "no rows". call_rpc goes through
-  # Reply.from_wire(controls: true) (it used to pipe the reply through
-  # printable()), which flattens the 1-byte sequence echo and the \x00 ack to
-  # SPACES rather than dropping them. (A high byte that is not valid UTF-8
-  # becomes U+FFFD, not a space, and valid non-ASCII text is kept.) So the
-  # surviving line reaches DataMapper as "  I00020APPOINTMENTID^T00020ERRORID".
-  # Its first caret piece no longer matches /\A[ITDF]\d{5}/, so
-  # recordset_header_row? returns false
-  # and the header is consumed AS A DATA ROW. Reads therefore return one bogus
-  # record instead of an empty set, and writes report failure after the M side
-  # has already filed. Diagnose accordingly: an implausible row is the symptom,
-  # not an empty one.
+  # CiaClient#parse_cia_reply strips the sequence echo and the \x00 ack before
+  # Reply.from_wire (cia_client.rb), so call_rpc does not flatten them to
+  # spaces. A line that still arrives behind leading spaces, U+FFFD or C0
+  # controls is handled defensively. No current client is known to produce
+  # that flattened or junk-prefixed shape. recordset_header_row? still returns
+  # false for a header behind the prefix. DataMapper#fetch_many and
+  # #fetch_many_or_nil on these mappings keep the old contract for direct
+  # mapper callers. Only the Scheduling methods changed (#481): the list
+  # normaliser strips that prefix before classifying every line, and a header
+  # behind it is a header. A header-only recordset, including one whose header
+  # carries the prefix, is still a genuine empty result (`[]`). An error row
+  # behind the prefix raises with its numeric code, and a line that is blank
+  # after the strip counts as empty. A failed read (nil, "", [], a reply with
+  # no header row, an error row "-N^…" anywhere, an ERRORID header line
+  # anywhere, more than one header line, bytes that are not valid UTF-8, or
+  # a reply that is neither Array nor String) raises Client::RpcError. A
+  # recordset read with no header row raises ("no recordset header") whether
+  # or not the reply is framed. fetch_many_or_raise still accepts an unframed
+  # headerless line list whose every non-blank line contains a caret; a
+  # non-blank line with no caret raises ("no recordset header"). An ERRORID
+  # header line anywhere raises ("ERRORID recordset"); more than one header
+  # line otherwise raises ("unexpected second header"). Both paths do. Before
+  # any regex, each String chunk is brought to UTF-8: a chunk that is not
+  # UTF-8-tagged is duplicated and force-encoded UTF-8, and bytes that are not
+  # valid UTF-8 raise ("reply is not valid UTF-8"). A valid binary-tagged
+  # reply parses with UTF-8 values. The message names the RPC and, for a
+  # "-N^" row, the numeric code ("broker error -1"), or a fixed phrase
+  # ("ERRORID recordset", "empty reply", "no recordset header",
+  # "unexpected second header", "reply is not valid UTF-8",
+  # "unexpected reply type"). Broker text stays out of the message: it can
+  # hold a patient name, and sanitize_error does not catch mixed-case names.
+  # The failure is never Encoding::CompatibilityError. Hosts must rescue it.
+  # Writes are unchanged: an implausible row there is still the symptom of a
+  # truncated read, not an empty one.
   #
   # ## Context — this module binds it, callers do not (rpms-rpc#258)
   #
@@ -161,6 +183,27 @@ module RpmsRpc
     end
 
     # -- reads -----------------------------------------------------------------
+    #
+    # A failed list read raises Client::RpcError (#481). These used to return
+    # [] on failure (resources, appointments and slot_schedule returned nil
+    # when the broker gave no response). A header-only recordset, including a
+    # header behind leading spaces, U+FFFD or C0 controls, is still []. That
+    # flattened shape is handled defensively; no current client is known to
+    # produce it. fetch_many_or_raise still accepts an unframed headerless
+    # line list whose every non-blank line contains a caret; a non-blank line
+    # with no caret raises ("no recordset header"). An ERRORID header line
+    # anywhere raises ("ERRORID recordset"); more than one header line
+    # otherwise raises ("unexpected second header"). Both paths do. Before any
+    # regex, each String chunk is brought to UTF-8: a chunk that is not
+    # UTF-8-tagged is duplicated and force-encoded UTF-8, and bytes that are
+    # not valid UTF-8 raise ("reply is not valid UTF-8"). A valid binary-tagged
+    # reply parses with UTF-8 values. The message names the RPC and, for a
+    # "-N^" row, the numeric code ("broker error -1"), or a fixed phrase
+    # ("ERRORID recordset", "empty reply", "no recordset header",
+    # "unexpected second header", "reply is not valid UTF-8",
+    # "unexpected reply type"). Broker text stays out of the message: it can
+    # hold a patient name, and sanitize_error does not catch mixed-case names.
+    # The failure is never Encoding::CompatibilityError. Hosts must rescue it.
 
     # Search availability blocks — BSDX SEARCH AVAILABILITY (SEARCH^BSDX24).
     #   resources: a resource name or Array of names (joined with "|")
@@ -177,7 +220,7 @@ module RpmsRpc
       end
       list = names.join("|")
       in_context do
-        DataMapper.scheduling_availability.fetch_many(
+        DataMapper.scheduling_availability.fetch_many_or_raise(
           list, fm(start_date), fm(end_date), access_types.to_s, ampm.to_s, weekdays.to_s
         )
       end
@@ -190,12 +233,12 @@ module RpmsRpc
     # output (X ^DD("DD") with "@" translated to a space — BSDX05.m:100-101);
     # :resource_name is the 4th column GATHER^BSDX05 appends (BSDX05.m:65,76).
     def all_appointments(start_date:, end_date:)
-      in_context { DataMapper.scheduling_all_appointments.fetch_many(fm(start_date), fm(end_date)) }
+      in_context { DataMapper.scheduling_all_appointments.fetch_many_or_raise(fm(start_date), fm(end_date)) }
     end
 
     # Active clinics from ^SC — BSDX HOSPITAL LOCATION (HOSPLOC^BSDX32).
     def hospital_locations
-      in_context { DataMapper.scheduling_hospital_location.fetch_many }
+      in_context { DataMapper.scheduling_hospital_location.fetch_many_or_raise }
     end
 
     # A resource's appointments between two dates — BSDX CREATE APPT SCHEDULE
@@ -207,7 +250,8 @@ module RpmsRpc
     # classed and shaped as a write (never retried), like slot_schedule.
     # Returns [{ id:, start_time:, end_time:, checkin_time:, patient_dfn:,
     #   patient_name:, resource:, no_show:, hrn:, access_type_id:, walk_in:,
-    #   checkout_time:, cancelled:, note: }], or nil (no response).
+    #   checkout_time:, cancelled:, note: }]. A failed read raises
+    # Client::RpcError; a header-only reply is [].
     def appointments(resource:, start_date:, end_date:)
       name = resource.to_s
       raise ArgumentError, "resource name must not contain '|': #{name.inspect}" if name.include?("|")
@@ -232,7 +276,8 @@ module RpmsRpc
     # text carries CR/LF, so the reply is read as a recordset split on $C(30)
     # only, never by line.
     # Returns [{ id:, name:, inactive:, time_scale:, hospital_location_id:, view:,
-    #   overbook:, modify_schedule:, modify_appointments: }], or nil (no response).
+    #   overbook:, modify_schedule:, modify_appointments: }]. A failed read raises
+    # Client::RpcError; a header-only reply is [].
     def resources
       rows = in_context { recordset("BSDX RESOURCES", "") }
       rows&.map do |r|
@@ -251,7 +296,8 @@ module RpmsRpc
     # four-slot block files), so a caller that books must. Blocks with 0 slots
     # pad the day before and after the access blocks.
     # Returns [{ start_time:, end_time:, slots:, resource:, access_type_id:,
-    #   note:, availability_id: }], or nil (no response).
+    #   note:, availability_id: }]. A failed read raises Client::RpcError; a
+    # header-only reply is [].
     def slot_schedule(resource:, start_date:, end_date:)
       name = resource.to_s
       raise ArgumentError, "resource name must not contain '|': #{name.inspect}" if name.include?("|")
@@ -270,7 +316,7 @@ module RpmsRpc
 
     # Per-clinic scheduling parameters — BSDX CLINIC SETUP (CLNSET^BSDX32).
     def clinic_setup
-      in_context { DataMapper.scheduling_clinic_setup.fetch_many }
+      in_context { DataMapper.scheduling_clinic_setup.fetch_many_or_raise }
     end
 
     private
@@ -306,22 +352,44 @@ module RpmsRpc
       { success: false, error: e.message }
     end
 
-    # First non-header data row of a recordset response, as a String with the
-    # $C(30)/$C(31) record separators stripped (shared recordset framing
-    # rules live in DataMapper — see RECORDSET_SEPARATORS there). An empty row
-    # is kept: for ERRORID-only writes it means success.
-    # A BMX recordset reply's rows as header-named hashes: the typed header,
-    # then $C(30)-separated records, to the $C(31) end (RpmsRpc::Agg.parse_reply).
-    # Read whole, so a field holding CR/LF stays inside its row. nil when the
-    # broker gives no response.
+    # A BMX recordset reply's rows as header-named hashes. Read whole, so a
+    # field holding CR/LF stays inside its row (split_newlines: false).
+    # DataMapper.read_bsdx_list! returns the classified lines: the header with
+    # leading junk stripped, then the data rows in their original bytes, as
+    # UTF-8 (a chunk that was not UTF-8-tagged is duplicated and force-encoded
+    # before it is read). Those lines are parsed here, not the raw reply, so a
+    # flattened header maps the same columns as an unflattened one. A failed
+    # read raises Client::RpcError; a header-only reply is []. A reply with no
+    # header row raises ("no recordset header") whether or not it is framed.
+    # An ERRORID header line anywhere raises ("ERRORID recordset"); more than
+    # one header line otherwise raises ("unexpected second header"). Invalid
+    # UTF-8 raises ("reply is not valid UTF-8"), never Encoding::CompatibilityError.
     def recordset(rpc_name, *params)
       client = RpmsRpc.client
-      raw = client.respond_to?(:call_rpc_global_array) ? client.call_rpc_global_array(rpc_name, *params) : client.call_rpc(rpc_name, *params)
-      return nil if raw.nil?
+      raw = if client.respond_to?(:call_rpc_global_array)
+        client.call_rpc_global_array(rpc_name, *params)
+      else
+        client.call_rpc(rpc_name, *params)
+      end
+      lines = DataMapper.read_bsdx_list!(raw, rpc_name, split_newlines: false)
+      return [] if lines == :empty
 
-      raw = raw.join("\x1e") if raw.is_a?(Array)
-      parsed = Agg.parse_reply(raw)
-      parsed ? parsed[:records] : []
+      names = recordset_column_names(lines.first)
+      lines.drop(1).map { |row| recordset_record(names, row) }
+    end
+
+    # Agg.parse_reply's column rule, on the classifier's header line:
+    # "<type><5-digit width><NAME>" becomes the downcased name.
+    def recordset_column_names(header)
+      header.to_s.split("^", -1).map do |piece|
+        matched = piece.match(/\A[A-Z]\d{5}(.*)\z/m)
+        (matched ? matched[1] : piece).downcase.to_sym
+      end
+    end
+
+    def recordset_record(names, row)
+      pieces = row.to_s.split("^", -1)
+      names.each_with_index.to_h { |name, index| [ name, pieces[index] ] }
     end
 
     def external_time(text)
@@ -332,6 +400,10 @@ module RpmsRpc
       value.to_s.empty? ? nil : value
     end
 
+    # First non-header data row of a recordset response, as a String with the
+    # $C(30)/$C(31) record separators stripped (shared recordset framing
+    # rules live in DataMapper — see RECORDSET_SEPARATORS there). An empty row
+    # is kept: for ERRORID-only writes it means success.
     def data_row(resp)
       Array(resp).map { |l| DataMapper.strip_recordset_separators(l) }
                  .reject { |l| DataMapper.recordset_header_row?(l) }
