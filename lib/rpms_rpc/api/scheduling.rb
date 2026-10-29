@@ -267,6 +267,32 @@ module RpmsRpc
     end
     shape :appointments, resource: "appointments", verb: "POST", path: "/appointments"
 
+    # One patient's appointments across clinics — BSDX PATIENT APPT DISPLAY
+    # (PADISP^BSDX27), the scheduling client's patient appointment list. Returns
+    # [{ start_time:, clinic:, resource_id:, type:, status:, made_by:, made_at:, note: }].
+    # :type is SCHED or WALK-IN ($$APPTYP^BSDU2); :status is scheduled, checked
+    # in, checked out, no-show or cancelled (STATUS^BSDX27). The routine leaves
+    # out a cancelled BSDX appointment. Each row also carries the patient's
+    # name, date of birth, HRN, address and phone; they are not returned.
+    # ERR^BSDX27's row of empty pieces raises Client::RpcError.
+    def patient_appointments(dfn)
+      rows = in_context { recordset("BSDX PATIENT APPT DISPLAY", dfn.to_s) }
+      rows.map do |r|
+        raise Client::RpcError, "BSDX PATIENT APPT DISPLAY: the routine answered its error row" if r.values.all? { |v| v.to_s.empty? }
+
+        type, state = r[:typestatus].to_s.split(" - ", 2)
+        { start_time: external_time(r[:apptdate]), clinic: r[:clinic], resource_id: r[:resourceid].to_i,
+          type: type, status: PATIENT_APPOINTMENT_STATUS.fetch(state.to_s, state.to_s.downcase),
+          made_by: blank_to_nil(r[:appt_made_by]), made_at: external_time(r[:date_appt_made]), note: blank_to_nil(r[:note]) }
+      end
+    end
+    shape :patient_appointments, resource: "appointments", verb: "GET", path: "/patients/{dfn}/appointments"
+
+    PATIENT_APPOINTMENT_STATUS = {
+      "" => "scheduled", "CHECKED IN" => "checked in", "CHECKED OUT" => "checked out",
+      "NO SHOW" => "no-show", "CANCELLED" => "cancelled"
+    }.freeze
+
     # The scheduling resources and this user's rights on each — BSDX RESOURCES
     # (RESUSR^BSDX01, for DUZ). A resource is what an appointment is booked on
     # (add_appointment's resource:), linked to its clinic by
