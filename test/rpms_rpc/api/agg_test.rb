@@ -106,6 +106,46 @@ class AggTest < Minitest::Test
     assert_equal "AGGPTLNM=PROBE#{FS}AGGPTSEX=MALE", call[:params][2]
   end
 
+  # -- AGG WINDOW DATA VALIDATION (VAL^AGGWVAL) ------------------------------
+  # Replies captured live on bcer-9.0-20261029-7c3119b-ydb as PROFILE,REG.
+  VALIDATION_HEADER = "5\x00I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1e"
+
+  def seed_validation(row)
+    @mock.seed(:agg_window_validation, Agg::NEW_PATIENT_WINDOW, VALIDATION_HEADER + row.to_s)
+  end
+
+  def test_validate_field_reports_rpms_refusal_with_its_message
+    seed_validation("-1^SSN already used by another patient.^^^^\x1e")
+
+    result = Agg.validate_field(window: Agg::NEW_PATIENT_WINDOW, params: { "AGGPTSSN" => "666010101", "AGGNOSSN" => "", "DFN" => "" })
+
+    assert_equal({ valid: false, message: "SSN already used by another patient." }, result)
+  end
+
+  def test_validate_field_one_and_zero_are_not_refusals
+    seed_validation("1^^^^^\x1e")
+    assert_equal({ valid: true }, Agg.validate_field(window: Agg::NEW_PATIENT_WINDOW, params: { "AGGPTSSN" => "123456789" }))
+
+    seed_validation("0^^^^^\x1e")
+    assert_equal({ valid: true }, Agg.validate_field(window: Agg::NEW_PATIENT_WINDOW, params: { "AGGNOSSN" => "R" }))
+  end
+
+  # The validator errored (rpms-ops#1040): the reply carries the header and no row.
+  def test_validate_field_is_nil_when_rpms_gives_no_result_row
+    seed_validation("")
+
+    assert_nil Agg.validate_field(window: Agg::NEW_PATIENT_WINDOW, params: { "AGGNOSSN" => "", "AGGPTSSN" => "" })
+  end
+
+  def test_validate_field_sends_the_window_and_the_field_first
+    seed_validation("1^^^^^\x1e")
+
+    Agg.validate_field(window: Agg::NEW_PATIENT_WINDOW, params: { "AGGPTSSN" => "123456789", "AGGNOSSN" => "", "DFN" => "" })
+
+    call = @mock.received_calls.find { |c| c[:rpc] == "AGG WINDOW DATA VALIDATION" }
+    assert_equal [ Agg::NEW_PATIENT_WINDOW, "AGGPTSSN=123456789#{FS}AGGNOSSN=#{FS}DFN=" ], call[:params]
+  end
+
   def test_add_patient_nil_when_no_broker_response
     assert_nil Agg.add_patient(params: { "AGGPTLNM" => "PROBE" })
   end

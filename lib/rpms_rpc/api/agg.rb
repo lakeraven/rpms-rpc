@@ -2,6 +2,7 @@
 
 require_relative "../mappings"
 require_relative "../client"
+require_relative "../shape"
 
 module RpmsRpc
   # Symbolic API for the IHS **AG** package's GUI registration RPCs (the AGG*
@@ -72,6 +73,7 @@ module RpmsRpc
   #   CIANBRPC CANRUN            CANRUN^CIANBRPC   8994 registry (#225)
   module Agg
     extend self
+    extend Shape::Declarable
 
     # AGG* RPC names (registered in #8994 under the AGGRPC option).
     ADD_RPC = "AGG ADD NEW PATIENT"           # ADD^AGGPTADD, return type GLOBAL ARRAY
@@ -80,6 +82,7 @@ module RpmsRpc
     CANRUN_RPC = "CIANBRPC CANRUN"            # CANRUN^CIANBRPC (broker gate)
     LOCK_RPC = "AGG LOCK PATIENT"             # LOCK^AGGLOCK, return type GLOBAL ARRAY
     UNLOCK_RPC = "AGG UNLOCK PATIENT"         # UNLOCK^AGGLOCK, return type GLOBAL ARRAY
+    VALIDATE_RPC = "AGG WINDOW DATA VALIDATION" # VAL^AGGWVAL, return type GLOBAL ARRAY
 
     # The context option the AGG* RPCs are registered under — file 19 IEN
     # 13112, TYPE "B", no LOCK. Every method here binds it; see the module doc.
@@ -222,6 +225,24 @@ module RpmsRpc
 
     # UPD^AGGPTUPD — edit an existing patient (DFN required). Same PARMS
     # convention and reply shape as ADD (header RESULT^ERROR^OTHER_PARMS).
+    # AG's own check of one window field, VAL^AGGWVAL: the call AG's client makes
+    # before it saves. The field checked is the FIRST parameter (VAL takes the
+    # validation tag from the first one the window defines one for); send that
+    # field's companions with it, and DFN ("" for a new patient), which the tag is
+    # called with: left undefined it is an M error and the broker job hangs.
+    #
+    # Returns { valid: true }, { valid: false, message: } for RESULT -1 (1 and 0
+    # are not refusals), or nil when RPMS gave no result row: the tag errored
+    # (rpms-ops#1040) or the broker did not answer.
+    def validate_field(params:, window: DEFAULT_WINDOW, client: RpmsRpc.client)
+      reply = in_context(client) { parse_reply(call_array(client, VALIDATE_RPC, window, encode_parms(params))) }
+      result = reply&.dig(:records, 0, :result).to_s
+      return nil unless result.match?(/\A-?\d+\z/)
+
+      result.to_i.negative? ? { valid: false, message: reply[:records][0][:msg].to_s } : { valid: true }
+    end
+    shape :validate_field, resource: "agg", verb: "POST", path: "/agg/validate-field"
+
     def update_patient(dfn:, params:, window: DEFAULT_WINDOW, client: RpmsRpc.client)
       in_context(client) do
         interpret_write(call_array(client, UPDATE_RPC, window, dfn.to_s, encode_parms(params)))

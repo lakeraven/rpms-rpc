@@ -29,6 +29,7 @@
 "RpmsRpc::Agg.parse_reply": read
 "RpmsRpc::Agg.registration_candidates": non_idempotent_write
 "RpmsRpc::Agg.update_patient": non_idempotent_write
+"RpmsRpc::Agg.validate_field": non_idempotent_write
 "RpmsRpc::Allergy.assessment": read
 "RpmsRpc::Allergy.for_patient": read
 "RpmsRpc::Allergy.no_known_allergies": non_idempotent_write
@@ -234,6 +235,7 @@
 "RpmsRpc::Scheduling.clinic_setup": non_idempotent_write
 "RpmsRpc::Scheduling.hospital_locations": non_idempotent_write
 "RpmsRpc::Scheduling.mark_no_show": non_idempotent_write
+"RpmsRpc::Scheduling.patient_appointments": read
 "RpmsRpc::Scheduling.resources": read
 "RpmsRpc::Scheduling.slot_schedule": non_idempotent_write
 "RpmsRpc::Scheduling.uncancel_appointment": non_idempotent_write
