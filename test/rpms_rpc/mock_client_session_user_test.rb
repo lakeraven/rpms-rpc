@@ -56,6 +56,33 @@ class MockClientSessionUserTest < Minitest::Test
     assert_equal 302, RpmsRpc::Authentication.user_info(302)[:duz]
   end
 
+  def test_seeding_another_user_after_a_sign_on_leaves_the_bound_replies_alone
+    mock = nil
+    RpmsRpc.mock! do |m|
+      mock = m
+      seed_provider_then_clerk(m)
+    end
+
+    sign_on("PROVIDER1", "PROVVERIFY1")
+    mock.seed_user("303", credentials: "NURSE1;NURSEVERIFY1", name: "NURSE,TEST", role: :nurse)
+
+    assert_equal 301, RpmsRpc::Authentication.user_info(301)[:duz]
+    assert_equal "provider", RpmsRpc::Authentication.user_type(301)
+  end
+
+  def test_reseeding_the_bound_user_refreshes_its_replies
+    mock = nil
+    RpmsRpc.mock! do |m|
+      mock = m
+      seed_provider_then_clerk(m)
+    end
+
+    sign_on("PROVIDER1", "PROVVERIFY1")
+    mock.seed_user("301", credentials: "PROVIDER1;PROVVERIFY1", name: "PROVIDER,RENAMED", role: :provider)
+
+    assert_equal "PROVIDER,RENAMED", RpmsRpc::Authentication.user_info(301)[:name]
+  end
+
   def test_a_failed_sign_on_leaves_the_bound_replies_alone
     RpmsRpc.mock! do |m|
       seed_provider_then_clerk(m)
