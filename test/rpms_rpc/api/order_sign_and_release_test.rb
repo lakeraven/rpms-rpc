@@ -304,6 +304,32 @@ class OrderSignAndReleaseTest < Minitest::Test
     end
   end
 
+  # ValidSignature.accepted? treats "yes" as true for the mapper; this call
+  # does not. Only exactly "1" confirms the signature, so a look-alike never
+  # reaches SEND.
+  def test_sign_and_release_validsig_lookalikes_of_one_are_rejected_without_send
+    [ "yes", "YES", "true", "1^", "01", "1.0" ].each do |bad|
+      RpmsRpc.reset!
+      with_sign_release_wire(validsig: bad, send: [ "#{ORDER_ONE}^RS" ])
+
+      results = RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+
+      assert_empty rpc_calls.select { |c| c[:rpc] == SEND_RPC }, bad.inspect
+      assert_equal [ :rejected ], results.map { |r| r[:status] }, bad.inspect
+    end
+  end
+
+  # An ^E row means SEND ran and EN^ORCSEND may already have signed. A row with
+  # no code or text after the E still carries that warning.
+  def test_sign_and_release_bare_e_row_still_warns_the_order_may_be_signed
+    with_sign_release_wire(validsig: "1", send: [ "#{ORDER_ONE}^E" ])
+
+    results = RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+
+    assert_equal [ :unknown ], results.map { |r| r[:status] }
+    assert_match(/may already be signed/i, results.first[:reason])
+  end
+
   # --- argument validation (no RPC at all, not even VALIDSIG) -----------------
 
   def test_sign_and_release_invalid_arguments_never_call_rpc
