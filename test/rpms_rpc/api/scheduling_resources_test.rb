@@ -108,12 +108,12 @@ class SchedulingResourcesTest < Minitest::Test
     assert_equal [ "BSDXRPC" ] * 3, client.calls.map { |c| c[:context] }
   end
 
-  def test_no_rows_is_empty_and_no_response_is_nil
+  def test_no_rows_is_empty_and_nil_reply_raises_rpc_error
     use("BSDX RESOURCES" => "1\x00#{RESOURCES_HEADER}\x1e\x1f")
     assert_equal [], RpmsRpc::Scheduling.resources
 
     use("BSDX RESOURCES" => nil)
-    assert_nil RpmsRpc::Scheduling.resources
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Scheduling.resources }
   end
 
   def test_a_resource_name_with_the_list_delimiter_is_refused
