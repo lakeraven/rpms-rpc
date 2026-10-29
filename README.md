@@ -181,6 +181,19 @@ RpmsRpc::Patient.find(4)                  # the public API answers too, through 
 RpmsRpc::Authentication.held_keys(%w[PROVIDER XUPROGMODE])
 ```
 
+### A local broker on a cloud agent VM (`bin/cloud_rpms`)
+
+A VM with Docker and no route to a staging stack can run the pinned release image
+itself. `bin/cloud_rpms up` starts `dockerd` if none is running, pulls the newest
+`image:` in `data/fingerprints/rpms-ops.lock.yml` by digest, and publishes its CIA
+broker on `127.0.0.1:19200` (`BROKER_PORT=` to change). `down` removes it; `status`
+checks the port. The pull needs a token with `read:packages` for `ghcr.io/lakeraven`.
+
+```sh
+bin/cloud_rpms up
+BROKER_HOST=127.0.0.1 BROKER_PORT=19200 bundle exec rake wire:capture RELEASE=bcer-9.0-ydb
+```
+
 ## Components
 
 | File                          | Purpose                                          |

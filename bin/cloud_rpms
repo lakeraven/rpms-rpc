@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# bin/cloud_rpms — run the pinned RPMS release container inside a cloud agent VM, so
+# wire:capture, bin/console and live tests reach a broker without a laptop.
+#
+#   bin/cloud_rpms up       start dockerd if needed, pull the pinned image, run it, wait for the broker
+#   bin/cloud_rpms down     stop and remove the container
+#   bin/cloud_rpms status   show the container and whether the broker port answers
+#
+# The image is the `image:` of the newest release in data/fingerprints/rpms-ops.lock.yml,
+# pulled by digest. Override with RPMS_IMAGE=. The broker (CIA on container port 9100)
+# is published on 127.0.0.1:${BROKER_PORT:-19200}.
+#
+# Needs: docker CLI + dockerd on the VM, and pull access to ghcr.io/lakeraven (a token with
+# read:packages). On a cloud environment the token is a network secret on ghcr.io, so the
+# daemon is started with the VM's HTTPS_PROXY and needs no `docker login`.
+#
+# Then, for example:
+#   BROKER_HOST=127.0.0.1 BROKER_PORT=19200 bundle exec rake wire:capture RELEASE=bcer-9.0-ydb
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+NAME="${RPMS_CONTAINER:-rpms-ydb-cloud}"
+PORT="${BROKER_PORT:-19200}"
+LOCK="$ROOT/data/fingerprints/rpms-ops.lock.yml"
+LOG_DIR="${TMPDIR:-/tmp}"
+
+log() { printf '[cloud_rpms] %s\n' "$*" >&2; }
+
+pinned_image() {
+  if [ -n "${RPMS_IMAGE:-}" ]; then echo "$RPMS_IMAGE"; return; fi
+  local img
+  img=$(grep -E '^[[:space:]]+image: ' "$LOCK" | tail -1 | awk '{print $2}')
+  [ -n "$img" ] || { log "no image: in $LOCK; set RPMS_IMAGE="; exit 1; }
+  echo "$img"
+}
+
+ensure_dockerd() {
+  command -v docker >/dev/null || { log "docker CLI not installed"; exit 1; }
+  if docker info >/dev/null 2>&1; then return; fi
+  command -v dockerd >/dev/null || { log "dockerd not installed and no daemon is running"; exit 1; }
+  log "starting dockerd (log: $LOG_DIR/dockerd.log)"
+  # dockerd inherits HTTPS_PROXY/NO_PROXY, so registry pulls go through the VM's egress proxy.
+  nohup dockerd >"$LOG_DIR/dockerd.log" 2>&1 &
+  for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && return; sleep 1; done
+  log "dockerd did not come up; tail of its log:"; tail -20 "$LOG_DIR/dockerd.log" >&2; exit 1
+}
+
+broker_answers() {
+  (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null
+}
+
+up() {
+  ensure_dockerd
+  local img; img=$(pinned_image)
+  if docker ps --format '{{.Names}}' | grep -qx "$NAME"; then
+    log "$NAME already running"
+  else
+    docker rm -f "$NAME" >/dev/null 2>&1 || true
+    log "pulling $img"
+    if ! docker pull "$img" >&2; then
+      log "pull failed. If the error is 'unauthorized', this VM has no working ghcr.io credential:"
+      log "add a classic GitHub token with read:packages as the environment's ghcr.io network secret."
+      exit 1
+    fi
+    log "running $NAME (broker on 127.0.0.1:$PORT)"
+    docker run -d --name "$NAME" -p "127.0.0.1:$PORT:9100" "$img" >/dev/null
+  fi
+  for _ in $(seq 1 120); do
+    if broker_answers; then
+      log "broker is listening on 127.0.0.1:$PORT"
+      echo "BROKER=cia BROKER_HOST=127.0.0.1 BROKER_PORT=$PORT"
+      return
+    fi
+    sleep 2
+  done
+  log "broker did not answer on $PORT within 4 minutes; container log tail:"
+  docker logs --tail 40 "$NAME" >&2 || true
+  exit 1
+}
+
+down() {
+  docker rm -f "$NAME" >/dev/null 2>&1 && log "removed $NAME" || log "$NAME not running"
+}
+
+status() {
+  docker ps --filter "name=^${NAME}$" --format '{{.Names}}  {{.Image}}  {{.Status}}' 2>/dev/null || true
+  if broker_answers; then log "broker answers on 127.0.0.1:$PORT"; else log "nothing on 127.0.0.1:$PORT"; fi
+}
+
+case "${1:-}" in
+  up) up ;;
+  down) down ;;
+  status) status ;;
+  *) echo "usage: bin/cloud_rpms up|down|status" >&2; exit 2 ;;
+esac
