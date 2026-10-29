@@ -17,7 +17,8 @@ class RegistrationDuplicateLiveTest < LiveSpec::Test
     # Alphabetic suffix keeps the synthetic FileMan name valid and unique.
     suffix = SecureRandom.hex(6).tr("0-9", "G-P").upcase
     attrs = { name_last: "ZZREGSAFETY#{suffix}", name_first: "DEMO",
-              dob: Date.new(1901, 2, 3), sex: "F" }
+              dob: Date.new(1901, 2, 3), sex: "F", no_ssn_reason: "N" }
+    # No SSN, so a reason: AG cannot check a registration with neither (rpms-ops#1040).
     # DOB searches are intentionally broad. Find an unused synthetic DOB
     # before the first registration so this spec never overrides candidates.
     params = { "AGGPTLNM" => attrs[:name_last], "AGGPTFNM" => attrs[:name_first] }

@@ -981,6 +981,14 @@ module RpmsRpc
       m.text_blob :reply
     end
 
+    # AGG WINDOW DATA VALIDATION — VAL^AGGWVAL (return type GLOBAL ARRAY). Params:
+    # window name, $C(28)-delimited NAME=VALUE PARMS (the field checked first).
+    # Reply header "I00010RESULT^T00100MSG^..."; RESULT -1 is a refusal. Parsed by Agg.
+    DataMapper.define(:agg_window_validation) do |m|
+      m.rpc "AGG WINDOW DATA VALIDATION"
+      m.text_blob :reply
+    end
+
     # AGG UPDATE PATIENT — UPD^AGGPTUPD. Same PARMS convention; DFN required.
     # Reply header "I00010RESULT^T01024ERROR^T01024OTHER_PARMS"; "1^^" ok.
     # Parsed by Agg.

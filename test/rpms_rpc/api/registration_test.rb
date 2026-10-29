@@ -40,6 +40,8 @@ class RegistrationTest < Minitest::Test
       query = "AGGPTLNM=DEMOPATIENT\x1cAGGPTFNM=#{first}\x1cAGGPTMNM=#{middle}\x1cAGGPTSFX=#{suffix}\x1cAGGPTDOB=01/02/1990"
       @mock.seed_raw_lines(:patient_lookup_agg, query, [ header ])
     end
+    # AG's field checks answer "valid" unless a test says otherwise.
+    seed_validation("1^^^^^\x1e")
   end
 
   def teardown
@@ -67,6 +69,12 @@ class RegistrationTest < Minitest::Test
   def seed_agg_update(result: "1", error: "")
     reply = "I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1e#{result}^#{error}^\x1e\x1f"
     @mock.seed(:agg_update_patient, Agg::DEFAULT_WINDOW, reply)
+  end
+
+  # AGG WINDOW DATA VALIDATION's reply, as captured live (header, then a row).
+  def seed_validation(row)
+    header = "5\x00I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1e"
+    @mock.seed(:agg_window_validation, Agg::NEW_PATIENT_WINDOW, header + row.to_s)
   end
 
   def agg_calls(rpc)
@@ -544,5 +552,54 @@ class RegistrationTest < Minitest::Test
     assert_equal :no_fields, Reg.update(42)[:error]
     assert_equal :no_fields, Reg.update(42, email: nil)[:error]
     assert_empty @mock.received_calls
+  end
+  # ==========================================================================
+  # AG's own field checks run before anything is filed (#723)
+  # ==========================================================================
+
+  def test_register_refuses_with_ags_message_before_it_looks_up_or_adds
+    seed_validation("-1^SSN already used by another patient.^^^^\x1e")
+    seed_agg_add
+
+    result = Reg.register(name: "DEMOPATIENT,UNA", dob: Date.new(1990, 1, 2), sex: "F", ssn: "666010101")
+
+    assert_equal({ success: false, error: :agg_invalid, field: "AGGPTSSN", message: "SSN already used by another patient." }, result)
+    assert_empty agg_calls("AGG ADD NEW PATIENT")
+    assert_empty agg_calls("AGG LOOKUP PATIENTS")
+  end
+
+  def test_register_fails_closed_when_ag_gives_no_answer_on_a_field
+    seed_validation("")
+    seed_agg_add
+
+    result = Reg.register(name: "DEMOPATIENT,UNA", dob: Date.new(1990, 1, 2), sex: "F")
+
+    assert_equal :validation_unavailable, result[:error]
+    assert_equal "AGGPTSSN", result[:field]
+    assert_empty agg_calls("AGG ADD NEW PATIENT")
+  end
+
+  def test_register_checks_each_field_ag_validates_with_its_companions_and_dfn
+    seed_agg_add
+    seed_agg_update
+
+    Reg.register(name: "DEMOPATIENT,UNA", dob: Date.new(1990, 1, 2), sex: "F", no_ssn_reason: "R")
+
+    sent = agg_calls("AGG WINDOW DATA VALIDATION").map { |c| c[:params] }
+    assert_equal [
+      [ Agg::NEW_PATIENT_WINDOW, "AGGPTSSN=\x1cAGGNOSSN=R\x1cDFN=" ],
+      [ Agg::NEW_PATIENT_WINDOW, "AGGNOSSN=R\x1cAGGPTSSN=\x1cDFN=" ],
+      [ Agg::NEW_PATIENT_WINDOW, "AGGPTDOB=01/02/1990\x1cDFN=" ]
+    ], sent
+  end
+
+  def test_register_sends_the_reason_for_no_ssn_to_ag
+    seed_agg_add
+    seed_agg_update
+
+    Reg.register(name: "DEMOPATIENT,UNA", dob: Date.new(1990, 1, 2), sex: "F", no_ssn_reason: "R")
+
+    add = agg_calls("AGG ADD NEW PATIENT").first
+    assert_includes add[:params][2].split("\x1c"), "AGGNOSSN=R"
   end
 end

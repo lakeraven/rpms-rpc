@@ -128,6 +128,9 @@ module RpmsRpc
     #                       (1117) plus a dated history entry (#9000001.51)
     #                       and derives the text (1118) from them, so the two
     #                       go together
+    #   no_ssn_reason:      PATIENT .0906 PSEUDO SSN REASON when there is no
+    #                       SSN (R refused to provide, S unknown/follow-up
+    #                       required, N no SSN assigned), sent as AGGNOSSN
     #   allow_duplicate:    only literal true permits adding after the caller
     #                       reviews AG's name/DOB candidates. Lookup failures
     #                       and invalid identity cannot be overridden.
@@ -136,7 +139,9 @@ module RpmsRpc
     #   { success: true, dfn:, created: true }          — registered
     #   { success: false, error: Symbol, message: }     — rejected; error is
     #     :duplicate_identity (includes candidate_dfns), :identity_unverifiable,
-    #     :agg_rejected / :hrn_file_failed
+    #     :agg_rejected / :hrn_file_failed, or (with field:) :agg_invalid,
+    #     AG's own field check refused it, or :validation_unavailable, AG gave
+    #     that check no answer; neither files anything
     #   nil                                             — no add response
     #
     # Raises Client::FrameTooLongError if a value cannot be framed on the wire
@@ -177,6 +182,9 @@ module RpmsRpc
       # Validate all values before lookup: a parameter delimiter in even an
       # IHS field must not replace the identity after it has been checked.
       Agg.encode_parms(params)
+      refused = validate_fields(params)
+      return refused if refused
+
       duplicate = duplicate_identity(params, allow_duplicate: attrs[:allow_duplicate])
       return duplicate if duplicate
 
@@ -517,6 +525,40 @@ module RpmsRpc
       raise ArgumentError, "#{attribute.parameter} takes the pointed-to IEN (digits only)"
     end
 
+    # The New Patient window fields AG's client checks before it saves, each with
+    # the companions its validation names (#9009068.3 entry 28, field node 2:
+    # SSN and Reason for No SSN check each other; DOB stands alone). AG's ADD
+    # files without these checks: a duplicate SSN files (live, 2026-10-29).
+    FIELD_VALIDATIONS = {
+      "AGGPTSSN" => %w[AGGNOSSN],
+      "AGGNOSSN" => %w[AGGPTSSN],
+      "AGGPTDOB" => []
+    }.freeze
+
+    # Runs AG's own check of each field, as its client does, and stops at the
+    # first refusal. A check RPMS gives no answer to fails closed: nothing is
+    # filed on a field nobody checked (rpms-ops#1040).
+    def validate_fields(params)
+      FIELD_VALIDATIONS.each do |field, companions|
+        values = ([ field ] + companions).to_h { |name| [ name, params[name].to_s ] }.merge("DFN" => "")
+        checked = check_field(values)
+        unless checked
+          return { success: false, error: :validation_unavailable, field: field,
+                   message: "RPMS could not check #{field} (AGG WINDOW DATA VALIDATION gave no answer)" }
+        end
+        return { success: false, error: :agg_invalid, field: field, message: checked[:message] } unless checked[:valid]
+      end
+      nil
+    end
+
+    # A broker error on a check is "could not check" (nil), never a pass, and its
+    # message is not passed on: it can carry the patient's details.
+    def check_field(values)
+      Agg.validate_field(window: AGG_ADD_WINDOW, params: values)
+    rescue Client::RpcError, Client::ConnectionError
+      nil
+    end
+
     # PARMS for AGG ADD NEW PATIENT (the "New Patient" window).
     # Values are FileMan-external — AGGPTSEX is the coded set value
     # ("MALE"/"FEMALE"), dates MM/DD/YYYY. Absent attributes are omitted
@@ -530,7 +572,8 @@ module RpmsRpc
         "AGGPTSFX" => blank_to_nil(suffix),
         "AGGPTDOB" => blank_to_nil(external_date(attrs[:dob])),
         "AGGPTSEX" => agg_sex(attrs[:sex]),
-        "AGGPTSSN" => blank_to_nil(attrs[:ssn].to_s.delete("-"))
+        "AGGPTSSN" => blank_to_nil(attrs[:ssn].to_s.delete("-")),
+        "AGGNOSSN" => blank_to_nil(attrs[:no_ssn_reason])
       }.merge(agg_ihs_params(attrs))
     end
 
