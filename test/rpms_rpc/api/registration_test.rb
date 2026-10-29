@@ -602,4 +602,18 @@ class RegistrationTest < Minitest::Test
     add = agg_calls("AGG ADD NEW PATIENT").first
     assert_includes add[:params][2].split("\x1c"), "AGGNOSSN=R"
   end
+  # With neither an SSN nor a reason, AG's check errors in ISREQ^AGGUL2 and the
+  # broker job then hangs on its next AG call (rpms-ops#1040), so that one check
+  # is not sent: the registration is refused with AG's own wording for it.
+  def test_register_with_neither_ssn_nor_reason_is_refused_without_sending_that_check
+    seed_agg_add
+
+    result = Reg.register(name: "DEMOPATIENT,UNA", dob: Date.new(1990, 1, 2), sex: "F")
+
+    assert_equal({ success: false, error: :ssn_or_reason_required, field: "AGGNOSSN",
+                   message: "Enter a SSN or a Reason for No SSN" }, result)
+    checked = agg_calls("AGG WINDOW DATA VALIDATION").map { |c| c[:params][1].split("=").first }
+    refute_includes checked, "AGGNOSSN"
+    assert_empty agg_calls("AGG ADD NEW PATIENT")
+  end
 end

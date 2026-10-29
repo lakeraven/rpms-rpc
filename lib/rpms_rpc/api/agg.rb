@@ -2,6 +2,7 @@
 
 require_relative "../mappings"
 require_relative "../client"
+require_relative "../shape"
 
 module RpmsRpc
   # Symbolic API for the IHS **AG** package's GUI registration RPCs (the AGG*

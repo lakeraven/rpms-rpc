@@ -48,13 +48,17 @@ class RegistrationWindowValidationLiveTest < LiveSpec::Test
   end
 
   # S-REG-02.6. On this build AG's check of a missing reason errors in
-  # ISREQ^AGGUL2 (rpms-ops#1040) and gives no answer, so the registration fails
-  # closed. When the build is fixed, RPMS answers and this spec must change.
+  # ISREQ^AGGUL2 and leaves the broker job hanging on its next AG call
+  # (rpms-ops#1040), so the gem does not send it and refuses. A registration
+  # after it must still go through on the same session.
   def test_s_reg_02_6_no_ssn_and_no_reason_is_not_filed_unchecked
     attrs = synthetic
     result = RpmsRpc::Patient.register(attrs)
-    refute result[:success], "a registration AG could not check must not file"
-    assert_includes %i[validation_unavailable agg_invalid], result[:error]
+    assert_equal({ success: false, error: :ssn_or_reason_required, field: "AGGNOSSN",
+                   message: "Enter a SSN or a Reason for No SSN" }, result)
     assert_empty candidates(attrs)
+
+    after = RpmsRpc::Patient.register(synthetic(no_ssn_reason: "N"))
+    assert after && after[:success], "the session must still register afterwards: #{after.inspect}"
   end
 end
