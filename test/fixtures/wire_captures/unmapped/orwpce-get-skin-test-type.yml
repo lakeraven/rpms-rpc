@@ -1,0 +1,15 @@
+# Unmapped wire capture: ORWPCE GET SKIN TEST TYPE, from a fresh bcer-9.0-20261012-e7923a4-ydb broker (synthetic data only).
+# raw_return bytes are verbatim and sealed by sha256; do not hand-edit. See README.md beside this file.
+---
+rpc: ORWPCE GET SKIN TEST TYPE
+entry_point: SKTYPE^ORWPCE2
+release_tag: bcer-9.0-20261012-e7923a4-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7
+client: RpmsRpc::CiaClient#call_rpc_raw (rpms-rpc 45125a7)
+captured_at: '2026-10-22T07:46:26Z'
+captures:
+- inputs: []
+  context: no date
+  ack: data
+  raw_return: "9\02^PPD\r6^TETANUS\r"
+  sha256: 2695d035b726aad53d31245f3d2c33acf4ce4838dd3b317ae4d3c7f6b60396ab
