@@ -45,6 +45,22 @@ class ImmunizationRefusalTest < Minitest::Test
     assert_nil result[:ien]
   end
 
+  def test_record_success_on_the_empty_line_list_a_real_client_returns
+    # Over the wire RET="" comes back as no lines: CiaClient#call_rpc splits
+    # the reply on rows and Client#split_response("") is []. Seen live on a
+    # fresh rpms-ydb e9b78c8 (the refusal was filed in ^AUPNPREF).
+    script("BGOREF SET" => [])
+
+    result = RpmsRpc::ImmunizationRefusal.record(DFN, "17", reason_ien: "3")
+    assert result[:success], "an empty reply from a real client is a filed refusal"
+  end
+
+  def test_record_error_line_from_a_real_client_is_failure
+    script("BGOREF SET" => [ "-1001^Patient not found" ])
+
+    refute RpmsRpc::ImmunizationRefusal.record(DFN, "17", reason_ien: "3")[:success]
+  end
+
   def test_record_dispatches_bgoref_set_with_immunization_type
     client = script("BGOREF SET" => "")
 

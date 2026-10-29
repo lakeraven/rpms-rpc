@@ -60,6 +60,18 @@ module RpmsRpc
       strip_recordset_separators(line).match?(/\A-\d+(?:\.\d+)?\^/)
     end
 
+    # Whether a write whose routine answers nothing on success went through:
+    # SET^BGOREF and DEL^BGOPROB leave RET "" (or 0) and an error -CODE^text.
+    # A real client hands such a reply back as lines, so an empty RET arrives
+    # as [] (CiaClient#call_rpc splits on rows; Client#split_response("") is
+    # []), and MockClient as "". A reply that came back with no error row is
+    # accepted; nil, a client that answered nothing at all, is not.
+    def self.write_accepted?(reply)
+      return false if reply.nil?
+
+      Array(reply).none? { |line| error_row?(line.to_s) }
+    end
+
     # A no-data sentinel row: the stock-VistA "^message" convention — an
     # empty first piece carrying a human-readable message in piece 2 with
     # nothing after it. Examples: "^No problems found." (ORQQPL.m:17),
