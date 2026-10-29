@@ -567,6 +567,11 @@ class SchedulingTest < Minitest::Test
     [ "#{bare}\x1e", "" ]
   end
 
+  # PADISP^BSDX27's header, as a live 7c3119b build answered it.
+  PATIENT_APPTS_RECORDSET_HEADER = "T00030Name^D00020DOB^T00030Sex^T00030HRN^D00030ApptDate^T00030Clinic^T00030TypeStatus^" \
+                                   "I00010RESOURCEID^T00030APPT_MADE_BY^D00020DATE_APPT_MADE^T00250NOTE^T00030STREET^T00030CITY^" \
+                                   "T00030STATE^T00030ZIP^T00030HOMEPHONE"
+
   def bsdx_recordset_header_only_wire(header)
     "1\x00#{header.delete_suffix("\x1e")}\x1e\x1f"
   end
@@ -591,6 +596,7 @@ class SchedulingTest < Minitest::Test
     seed_mock_global_array!(mock, "BSDX RESOURCES", "", RESOURCES_RECORDSET_HEADER)
     seed_mock_global_array!(mock, "BSDX CREATE ASGND SLOT SCHED", resource, SLOTS_RECORDSET_HEADER)
     seed_mock_global_array!(mock, "BSDX CREATE APPT SCHEDULE", resource, APPTS_RECORDSET_HEADER)
+    seed_mock_global_array!(mock, "BSDX PATIENT APPT DISPLAY", "100", PATIENT_APPTS_RECORDSET_HEADER)
   end
 
   BSDX_CALLS = {
@@ -600,6 +606,7 @@ class SchedulingTest < Minitest::Test
     uncancel_appointment: [ 501 ],
     checkin_appointment: [ 501, { checkin_time: START_T } ],
     mark_no_show: [ 501 ],
+    patient_appointments: [ 100 ],
     availability: [ { resources: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],
     all_appointments: [ { start_date: START_T, end_date: END_T } ],
     hospital_locations: [],
