@@ -7,7 +7,7 @@ require "rpms_rpc"
 # Scheduling.patient_appointments (BSDX PATIENT APPT DISPLAY, PADISP^BSDX27):
 # one patient's appointments across clinics (rpms-ux S-SCH-05.6). The reply rows
 # are the ones a live rpms-ydb 7c3119b build answered for MOUSE,MICKEY M as
-# PROFILE,SCHED (2026-10-29); each row also carries the patient's address and
+# PROFILE,SCHED (2026-10-29), its address pieces replaced; each row also carries the patient's address and
 # phone, which this method does not return.
 class SchedulingPatientAppointmentsTest < Minitest::Test
   class RecordsetClient
@@ -36,8 +36,8 @@ class SchedulingPatientAppointmentsTest < Minitest::Test
   HEADER = "T00030Name^D00020DOB^T00030Sex^T00030HRN^D00030ApptDate^T00030Clinic^T00030TypeStatus^I00010RESOURCEID^" \
            "T00030APPT_MADE_BY^D00020DATE_APPT_MADE^T00250NOTE^T00030STREET^T00030CITY^T00030STATE^T00030ZIP^T00030HOMEPHONE"
   ROWS = [
-    "MOUSE,MICKEY M^FEB 14,1910^MALE^1001^NOV 5,2026 11:00^DEMO IHS CLINIC^SCHED^2^PROFILE,SCHED^OCT 29,2026 17:01:03^^101 NOWHERE STREET^TOPPENISH^WA^98948^555-555-5555",
-    "MOUSE,MICKEY M^FEB 14,1910^MALE^1001^OCT 29,2026 12:15^DEMO IHS CLINIC^SCHED - CHECKED IN^2^PROFILE,SCHED^OCT 29,2026 18:22:50^^101 NOWHERE STREET^TOPPENISH^WA^98948^555-555-5555"
+    "MOUSE,MICKEY M^FEB 14,1910^MALE^1001^NOV 5,2026 11:00^DEMO IHS CLINIC^SCHED^2^PROFILE,SCHED^OCT 29,2026 17:01:03^^1 DEMO STREET^DEMOTOWN^ST^00000^555-0100",
+    "MOUSE,MICKEY M^FEB 14,1910^MALE^1001^OCT 29,2026 12:15^DEMO IHS CLINIC^SCHED - CHECKED IN^2^PROFILE,SCHED^OCT 29,2026 18:22:50^^1 DEMO STREET^DEMOTOWN^ST^00000^555-0100"
   ].freeze
 
   def use(reply)
