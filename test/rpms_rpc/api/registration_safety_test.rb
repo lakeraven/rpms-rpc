@@ -18,6 +18,9 @@ class RegistrationSafetyTest < Minitest::Test
     Reg.hrn_mode = Reg::HRN_MODE_DERIVE
     @mock.seed(:agg_add_patient, Agg::NEW_PATIENT_WINDOW, "I00010RESULT^T00080MESSAGE^I00010DFN\x1e1^^42\x1e\x1f")
     @mock.seed(:agg_update_patient, Agg::DEFAULT_WINDOW, "I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1e1^^\x1e\x1f")
+    # AG's field checks, AGG WINDOW DATA VALIDATION, answer "valid", as captured live.
+    @mock.seed(:agg_window_validation, Agg::NEW_PATIENT_WINDOW,
+               "5\x00I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1e1^^^^^\x1e")
   end
 
   def teardown
@@ -29,8 +32,13 @@ class RegistrationSafetyTest < Minitest::Test
     @mock.seed_raw_lines(:patient_lookup_agg, query, [ HEADER, *rows ])
   end
 
+  # The lookup and AG's field checks read; nothing else may be sent.
+  CHECKS = [ "AGG LOOKUP PATIENTS", "AGG WINDOW DATA VALIDATION" ].freeze
+
+  def lookups = @mock.received_calls.select { |c| c[:rpc] == "AGG LOOKUP PATIENTS" }
+
   def assert_no_write
-    assert_empty @mock.received_calls.reject { |c| c[:rpc] == "AGG LOOKUP PATIENTS" }
+    assert_empty @mock.received_calls.reject { |c| CHECKS.include?(c[:rpc]) }
   end
 
   def test_second_registration_refuses_and_only_one_patient_is_added
@@ -46,8 +54,8 @@ class RegistrationSafetyTest < Minitest::Test
     assert_equal({ success: false, error: :duplicate_identity, candidate_dfns: [ 42 ],
                    message: "matching patient candidates require explicit override" }, RpmsRpc::Patient.register(ATTRS))
     assert_equal [ "AGG LOOKUP PATIENTS", "AGG ADD NEW PATIENT", "AGG UPDATE PATIENT", "AGG LOOKUP PATIENTS" ],
-                 @mock.received_calls.map { |c| c[:rpc] }
-    lookup = @mock.received_calls.first
+                 @mock.received_calls.map { |c| c[:rpc] } - [ "AGG WINDOW DATA VALIDATION" ]
+    lookup = lookups.first
     assert_equal [ QUERY, "", "1", "1" ], lookup[:params]
     assert_equal "AGGRPC", lookup[:context]
     assert_equal "OR CPRS GUI CHART", @mock.current_context
@@ -63,7 +71,7 @@ class RegistrationSafetyTest < Minitest::Test
   def test_explicit_boolean_override_allows_add_but_still_looks_up
     seed_lookup([ ROW ])
     assert Reg.register(ATTRS.merge(allow_duplicate: true))[:success]
-    assert_equal "AGG LOOKUP PATIENTS", @mock.received_calls.first[:rpc]
+    refute_empty lookups
   end
 
   [ "true", "false", 1, nil, false ].each_with_index do |override, i|
@@ -108,7 +116,7 @@ class RegistrationSafetyTest < Minitest::Test
     define_method("test_equivalent_dob_#{i}_uses_the_same_lookup_and_add_date") do
       seed_lookup
       assert Reg.register(ATTRS.merge(dob: dob))[:success]
-      assert_equal QUERY, @mock.received_calls.first[:params].first
+      assert_equal QUERY, lookups.first[:params].first
       add = @mock.received_calls.find { |c| c[:rpc] == "AGG ADD NEW PATIENT" }
       assert_includes add[:params][2].split("\x1c"), "AGGPTDOB=01/02/1990"
     end
@@ -119,7 +127,7 @@ class RegistrationSafetyTest < Minitest::Test
     seed_lookup(query: query)
     attrs = ATTRS.merge(name: nil, name_last: " demopatient ", name_first: " una ", name_middle: "MAE", name_suffix: "JR")
     assert Reg.register(attrs)[:success]
-    assert_equal query, @mock.received_calls.first[:params].first
+    assert_equal query, lookups.first[:params].first
   end
 
   [ nil, "", "M ERROR DEMOPATIENT,UNA", HEADER.split("^").first,
@@ -135,7 +143,12 @@ class RegistrationSafetyTest < Minitest::Test
 
   [ RpmsRpc::Client::RpcError, RpmsRpc::Client::ConnectionError ].each_with_index do |error, i|
     define_method("test_failed_lookup_#{i}_refuses_without_echoing_error") do
-      @mock.define_singleton_method(:call_rpc_global_array) { |*| raise error, "DEMOPATIENT,UNA 900010001" }
+      original = @mock.method(:call_rpc_global_array)
+      @mock.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
+        raise error, "DEMOPATIENT,UNA 900010001" if rpc == "AGG LOOKUP PATIENTS"
+
+        original.call(rpc, *params)
+      end
       assert_equal({ success: false, error: :identity_unverifiable,
                      message: "patient duplicate lookup could not be verified" }, Reg.register(ATTRS))
       assert_no_write
@@ -144,7 +157,8 @@ class RegistrationSafetyTest < Minitest::Test
 
   def test_context_failure_never_falls_back_to_another_write_path
     @mock.unbindable_context!("AGGRPC")
-    assert_equal :identity_unverifiable, Reg.register(ATTRS)[:error]
+    # AG's field checks are the first AGGRPC call, so they meet the failure first.
+    assert_equal :validation_unavailable, Reg.register(ATTRS)[:error]
     assert_empty @mock.received_calls
   end
 
@@ -159,5 +173,21 @@ class RegistrationSafetyTest < Minitest::Test
   def test_parameter_delimiter_cannot_change_identity_after_lookup
     assert_raises(ArgumentError) { Reg.register(ATTRS.merge(tribe: "123\x1cAGGPTLNM=OTHERDEMO")) }
     assert_empty @mock.received_calls
+  end
+  # A field check the broker fails on is not a pass: nothing is filed, and the
+  # error (which can carry the patient's details) is not echoed.
+  [ RpmsRpc::Client::RpcError, RpmsRpc::Client::ConnectionError ].each_with_index do |error, i|
+    define_method("test_failed_field_check_#{i}_refuses_without_echoing_error") do
+      original = @mock.method(:call_rpc_global_array)
+      @mock.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
+        raise error, "DEMOPATIENT,UNA 900010001" if rpc == "AGG WINDOW DATA VALIDATION"
+
+        original.call(rpc, *params)
+      end
+      result = Reg.register(ATTRS)
+      assert_equal :validation_unavailable, result[:error]
+      refute_includes result[:message], "900010001"
+      assert_no_write
+    end
   end
 end
