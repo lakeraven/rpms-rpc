@@ -1,0 +1,40 @@
+# Unmapped wire capture: ORWPCE PCE4NOTE, from a fresh bcer-9.0-20261012-e7923a4-ydb broker (synthetic data only).
+# raw_return bytes are verbatim and sealed by sha256; do not hand-edit. See README.md beside this file.
+---
+rpc: ORWPCE PCE4NOTE
+entry_point: PCE4NOTE^ORWPCE3
+release_tag: bcer-9.0-20261012-e7923a4-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7
+client: RpmsRpc::CiaClient#call_rpc_raw (rpms-rpc 45125a7)
+captured_at: '2026-10-22T07:46:26Z'
+captures:
+- inputs:
+  - '3'
+  - '4'
+  - ''
+  context: 'note 3: visit 4 carries POV, CPT, IMM, PED, XAM entries'
+  ack: data
+  raw_return: "4\0HDR^0^^3;3260902.0255;A^4^1\rVST^DT^3260902.12\rVST^PT^4\rVST^HL^0^^\rVST^PS^0\rVST^SC^\rVST^AO^\rVST^IR^\rVST^EC^\rVST^MST^\rVST^HNC^\rPRV^4^^^MANAGER,SYSTEM^1\rPOV^J20.9^^Acute
+    bronchitis | ^1^4\rCPT^^^Parenteral Supp Not Othrws C^1^4^^^\rIMM^272^^Influenza,
+    adjuvanted, trivalent, injectable, preservative free^^4^^\rIMM^345^^SARS-COV-2
+    (COVID-19) vaccine, mRNA, spike protein, LNP, PF, tris-sucrose, 30 mcg/0.3 mL
+    dose^^4^^\rPED^1611^^AN-COMPLICATIONS^3^4\rPED^4126^^IM-LITERATURE^3^4\rXAM^28^^FOOT
+    INSPECTION^N^4^\rXAM^35^^DEPRESSION SCREENING^N^4^\r"
+  sha256: d35ddc83c20b9c3605a3e194e73bdccada8fdff570643563a32f715ac34d72c4
+- inputs:
+  - '5'
+  - '4'
+  - ''
+  context: 'note 5: visit 5 carries only the provider'
+  ack: data
+  raw_return: "5\0HDR^0^^7;3260904.2344;T^4^0\rVST^DT^3260904.2344\rVST^PT^4\rVST^HL^7^^CHART
+    REVIEW\rVST^PS^0\rVST^SC^\rVST^AO^\rVST^IR^\rVST^EC^\rVST^MST^\rVST^HNC^\rPRV^4^^^MANAGER,SYSTEM^1\r"
+  sha256: f750928c9d5a8895f6a6e01d543147fba304ca5a20a95c8a64c19e25451f1578
+- inputs:
+  - '0'
+  - '990003'
+  - 6;3260312.09;A
+  context: 'no note, no visit found: header row only'
+  ack: data
+  raw_return: "6\0HDR^0^^6;3260312.09;A^^0\r"
+  sha256: b6626855064f5cdb1a8d559362d3e39ca9da5c380bcad240339bcc64ce515501

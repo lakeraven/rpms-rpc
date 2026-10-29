@@ -319,7 +319,10 @@ class SchedulingTest < Minitest::Test
   # SEARCH^BSDX24 params (BSDX24.m): RESOURCE_NAMES^START^END^ACCESS_TYPES^AMPM^WEEKDAYS.
   # Optional filters are sent as empty strings when omitted.
   def test_availability_sends_the_full_parameter_list
-    RpmsRpc.client.seed_collection(:scheduling_availability, [])
+    avail_empty = availability_header_only_reply
+    client = RpmsRpc.client
+    client.seed_raw_lines(:scheduling_availability, "PEDIATRICIAN,DEMO|FUNAKOSHI,GICHIN", avail_empty)
+    client.seed_raw_lines(:scheduling_availability, "PEDIATRICIAN,DEMO", avail_empty)
 
     start_d = Date.new(2026, 8, 12)
     end_d = Date.new(2026, 8, 19)
@@ -534,8 +537,62 @@ class SchedulingTest < Minitest::Test
   # around its call and hands the caller's option back, as RpmsRpc::Agg does
   # for AGGRPC.
 
-  # Arguments that let every public method reach the wire. Nothing is seeded:
-  # the mock answers "" and still records the call with its context.
+  # Arguments that let every public method reach the wire. Writes stay unseeded
+  # ("" is fine for fetch_one); list reads are seeded header-only so #481 does
+  # not raise before the context assertions run.
+  AVAILABILITY_LIST_HEADER =
+    "T00030RESOURCENAME^D00030DATE^T00030ACCESSTYPE^T00030COMMENT"
+  ALL_APPOINTMENTS_LIST_HEADER =
+    "D00030START_TIME^D00030END_TIME^I00010PAT_ID^T00030RES_NAME"
+  HOSPITAL_LOCATION_LIST_HEADER =
+    "I00010HOSPITAL_LOCATION_ID^T00030HOSPITAL_LOCATION^T00030DEFAULT_PROVIDER^" \
+    "T00030STOP_CODE_NUMBER^D00030INACTIVATE_DATE^D00030REACTIVATE_DATE"
+  RESOURCES_RECORDSET_HEADER =
+    "I00010RESOURCEID^T00030RESOURCE_NAME^T00010INACTIVE^I00010TIMESCALE^I00010HOSPITAL_LOCATION_ID^" \
+    "T00030LETTER_TEXT^T00030NO_SHOW_LETTER^T00030CLINIC_CANCELLATION_LETTER^I00010VIEW^I00010OVERBOOK^" \
+    "I00010MODIFY_SCHEDULE^I00010MODIFY_APPOINTMENTS"
+  SLOTS_RECORDSET_HEADER =
+    "D00030START_TIME^D00030END_TIME^I00010SLOTS^T00030RESOURCE^T00010ACCESS_TYPE^T00250NOTE^I00030AVAILABILITYID"
+  APPTS_RECORDSET_HEADER =
+    "I00020APPOINTMENTID^D00030START_TIME^D00030END_TIME^D00030CHECKIN^D00030AUXTIME^I00020PATIENTID^" \
+    "T00030PATIENTNAME^T00030RESOURCENAME^I00005NOSHOW^T00020HRN^I00005ACCESSTYPEID^I00005WALKIN^" \
+    "D00030CHECKOUT^I00020VPROVIDER^T00020CANCELLED^T00250NOTE"
+
+  def availability_header_only_reply
+    [ "#{AVAILABILITY_LIST_HEADER}\x1e", "" ]
+  end
+
+  def bsdx_fetch_many_header_only_lines(header)
+    bare = header.delete_suffix("\x1e")
+    [ "#{bare}\x1e", "" ]
+  end
+
+  def bsdx_recordset_header_only_wire(header)
+    "1\x00#{header.delete_suffix("\x1e")}\x1e\x1f"
+  end
+
+  def seed_mock_global_array!(mock, rpc, key, header)
+    wire = bsdx_recordset_header_only_wire(header)
+    tables = mock.instance_variable_get(:@lines) || {}
+    tables[rpc] ||= {}
+    tables[rpc][key.to_s] = wire
+    mock.instance_variable_set(:@lines, tables)
+  end
+
+  def seed_empty_bsdx_list_reads!(mock, resource: "PEDIATRICIAN,DEMO")
+    mock.seed_raw_lines(:scheduling_availability, resource,
+                        bsdx_fetch_many_header_only_lines(AVAILABILITY_LIST_HEADER))
+    mock.seed_raw_lines(:scheduling_all_appointments, START_FM,
+                        bsdx_fetch_many_header_only_lines(ALL_APPOINTMENTS_LIST_HEADER))
+    mock.seed_raw_lines(:scheduling_hospital_location, "",
+                        bsdx_fetch_many_header_only_lines(HOSPITAL_LOCATION_LIST_HEADER))
+    mock.seed_raw_lines(:scheduling_clinic_setup, "",
+                        bsdx_fetch_many_header_only_lines(CLINIC_SETUP_HEADER))
+    seed_mock_global_array!(mock, "BSDX RESOURCES", "", RESOURCES_RECORDSET_HEADER)
+    seed_mock_global_array!(mock, "BSDX CREATE ASGND SLOT SCHED", resource, SLOTS_RECORDSET_HEADER)
+    seed_mock_global_array!(mock, "BSDX CREATE APPT SCHEDULE", resource, APPTS_RECORDSET_HEADER)
+  end
+
   BSDX_CALLS = {
     add_appointment: [ { patient_dfn: 100, resource: "PEDIATRICIAN,DEMO", start_time: START_T,
                          end_time: END_T, length_minutes: 30 } ],
@@ -562,6 +619,7 @@ class SchedulingTest < Minitest::Test
   def test_every_bsdx_call_runs_under_bsdxrpc_and_restores_the_callers_context
     BSDX_CALLS.each do |method, args|
       mock = RpmsRpc.mock!
+      seed_empty_bsdx_list_reads!(mock)
       caller_context = mock.current_context
       positional = args.reject { |a| a.is_a?(Hash) }
       keywords = args.find { |a| a.is_a?(Hash) } || {}

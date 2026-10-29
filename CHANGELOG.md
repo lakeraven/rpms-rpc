@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — `ProgressNote.update_text` wraps long lines before TIU SET DOCUMENT TEXT (#479)
+
+- A line longer than `wrap_width` bytes (default `ProgressNote::WRAP_WIDTH`, 80; an Integer from 4 to 999) is cut into consecutive `TIUX("TEXT",n,0)` pieces. The break is the last space or tab past the leading indentation and at a byte offset within the width; that one character is dropped. Otherwise the cut is the last UTF-8 character boundary within the width and nothing is dropped. Lines that fit, including blank lines, are unchanged. **This changes how the note is laid out in the chart.** Rejoining the pieces with the dropped character restores the line. Joined with a single space, a tab at a cut reads back as a space, and a space or tab cut at the very end of a line is dropped. Non-whitespace is never dropped or changed. Indentation is not repeated on continuation pieces; an indent wider than the width is itself hard-cut.
+- `wrap_width` outside that range raises `ArgumentError` before any RPC. Text is coerced with `to_s`, then refused with `{ success: false, raw: nil, error: }` and not sent unless the result is a String whose encoding is exactly UTF-8, US-ASCII or ASCII-8BIT and whose bytes are valid UTF-8. Any other encoding is refused regardless of content (a Latin-1 or Windows-1252 tag whose bytes happen to be valid UTF-8 would otherwise be filed as different characters), as is a `to_s` that returns nil or a non-String. The error does not include the text.
+- A line over 999 bytes is wrapped and sent on XWB, rather than refused with the #474 failure hash. `FrameTooLongError` is still rescued when a wire refuses a framed value: the failure hash says the request could not be framed on this wire and keeps the wire's message, and it never includes the note text. On BMX, `update_text` raises `NotImplementedError` for every note, because `BmxClient#call_rpc` rejects any list or Hash parameter before framing. That BMX behaviour predates #479 and is unchanged.
+
+### Changed — BSDX list reads raise `RpcError` on failure (#481)
+
+- `Scheduling.availability`, `all_appointments`, `hospital_locations`, `clinic_setup`, `resources`, `slot_schedule` and `appointments` used to return `[]` on a failed read (the recordset reads returned `nil` when the broker gave no response) and now raise `RpmsRpc::Client::RpcError`. Hosts must rescue it. A header-only recordset, including a header behind leading spaces, U+FFFD or C0 control characters, is still a genuine empty result (`[]`). That flattened or junk-prefixed shape is handled defensively; no current client is known to produce it (`CiaClient#parse_cia_reply` strips the sequence echo and the `\x00` ack before `Reply.from_wire`, so `call_rpc` does not flatten them into that prefix). An error row or a blank line behind that prefix is classified like a plain one (the error raises with its numeric code; a reply of only blank-after-strip lines raises). `resources`, `slot_schedule` and `appointments` parse the classified lines, so a flattened header maps columns the same way as an unflattened one, and a recordset reply with no header row raises (`no recordset header`) whether or not it is framed. The other four list reads still accept an unframed headerless line list whose every non-blank line contains a caret; a non-blank line with no caret raises (`no recordset header`). An ERRORID header line anywhere raises (`ERRORID recordset`); more than one header line otherwise raises (`unexpected second header`). Both paths do. Before any regex, each String chunk is brought to UTF-8: a chunk that is not UTF-8-tagged is duplicated and force-encoded UTF-8, and bytes that are not valid UTF-8 raise (`reply is not valid UTF-8`). A valid binary-tagged reply parses with UTF-8 values. The message names the RPC and, for a `-N^` row, the numeric code (`broker error -1`), or a fixed phrase (`ERRORID recordset`, `empty reply`, `no recordset header`, `unexpected second header`, `reply is not valid UTF-8`, `unexpected reply type`). Broker text stays out of the message: it can hold a patient name, and `sanitize_error` does not catch mixed-case names. The failure is never `Encoding::CompatibilityError`. `DataMapper#fetch_many` and `#fetch_many_or_nil` on these mappings keep the old contract for direct mapper callers. Only the Scheduling methods changed.
+
 ### Added — the release guard reads live summaries bound to the pinned build, the released source, and the suite that ran (#361, #441)
 
 - Live summaries are schema 3. They name the source they tested (a SHA-256 over every file the gemspec ships, #441) and the suite they ran (a SHA-256 over every file under `test/live/` plus `data/rpc_coverage/config.yml`), and they record `passed`, true only when every non-skipped result passed. The guard refuses `passed` other than true, a suite that is not the current tree, a persona or protocol that does not match the file name, and a summary whose source is not the tree being released. A run during which a shipped file or the suite changes is not recorded. Older summaries are refused until `rake test:live` is re-run. The live run block names the pinned release, as the summary file does, rather than the registry file.
@@ -56,6 +66,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Evidence:** the reply shape is read from the M routine source, not from a live broker. **Unproven live (ADR 0009):** no live
   spec exercises a conflicting reply (the routine cannot produce one).
 
+### Changed — replies reach hosts as valid UTF-8; altered bytes are reported (#463)
+
+- `call_rpc` on XWB, BMX, CIA and `MockClient` now returns an `RpmsRpc::Reply`, an `Array` of UTF-8 Strings (it was ASCII-8BIT
+  on XWB and BMX, which raised `Encoding::CompatibilityError` as soon as a host joined a non-ASCII reply with a UTF-8 literal).
+  Bytes that are not valid UTF-8 become U+FFFD and `Reply#altered?` / `#altered_lines` say so. The flag is dropped by
+  `Array#map`, `#select` and `#+`. Charset: assumed UTF-8, unproven; Latin-1 observed in stored data will read as altered.
+- CIA: valid non-ASCII text is no longer replaced with spaces. Control characters still become a space, and are now reported
+  as altered. CR and LF are line terminators and are never substituted, so `controls: true` cannot join two lines of a reply.
+- The flag reaches hosts. `Allergy.assessment` / `.for_patient` and `Patient.lookup` clean rows carry an additive `altered: true|false`
+  (true when any text of the row had a byte replaced); a surfaced unrecognised entry carries `altered: true` only when altered
+  and no key otherwise (a missing key is "not altered", never "clean"). Before this, two allergens that differed only in a byte the gem replaced
+  came back as equal strings with no signal.
+- GLOBAL ARRAY replies (`CiaClient#call_rpc_global_array`, `MockClient#call_rpc_global_array`) are valid UTF-8 and return an
+  `RpmsRpc::Reply::Text`, a String that answers `altered?`; they were raw ASCII-8BIT (CIA `Patient.lookup` still raised
+  `Encoding::CompatibilityError` on a non-ASCII name). `MockClient#call_rpc` returns the same `Text` for a bare String seed.
+- `Reply` and its lines are frozen and built only through `Reply.from_wire`; `from_wire(reply)` keeps the flag it carries.
+- `Client#call_rpc_lines` no longer raises on a UTF-8-tagged String holding an invalid byte, and converts a plain Array.
+- Not yet carried: other API modules that return identity-bearing text (see the follow-up issue).
+
 ### Fixed — XWB and BMX refuse a request they would mis-frame, and the failure-hash writers say so (#472, #474)
 
 - **XWB:** the header `[XWB]1130` fixes the L-PACK length at 3 digits (`XWBPRS.m`, `XWBENVL=+$E(P,3)`; `LREAD` reads exactly that
@@ -69,15 +98,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Behaviour change:** both are `RpmsRpc::Error`s under `Client::FrameTooLongError` (not `ArgumentError`). Nothing could have
   relied on an `ArgumentError`: on `main` the XWB prefix silently widened and BMX had no check. A caller that sent an oversized
   value used to get silent corruption and now gets the error; nothing is sent and the connection stays usable. CIA is unaffected.
-- **APIs that answer with their failure hash** (plus an `:error` that names the limit, never the value; only `ProgressNote.update_text` also names the line, and
+- **APIs that answer with their failure hash** (plus an `:error` that names the limit, never the value;
   `Registration.update`'s byte count is the whole joined window):
   `ProgressNote.update_text`, `ExamComponent.add`, `HealthFactor.add`, `ImmunizationRefusal.record`, `Pov.add`, `Procedure.add`,
   `Problem.add` / `update` / `delete`, `ESignature.remove`, `Scheduling` writes (`{ success: false, error: }`), `Referral`'s BMC
   writers (`{ success: false, raw: nil, error: }`, where a broker-side failure carries `:message` and `:raw` only), `DdrFileman.filer` (`errors:`), and `Registration.update`
   (`error: :frame_too_long`, with `window:` and the `filed_windows:` report).
 - **APIs that raise `FrameTooLongError`** (not yet audited, #480): `Registration.register`, `Agg`, the behavioral-health writers,
-  `Vital` and `Measurement` writes, and any caller of `call_rpc` directly. Wrapping long note text instead of refusing it is #479;
-  a pre-check that lets a host validate before it files its first record is #480.
+  `Vital` and `Measurement` writes, and any caller of `call_rpc` directly. Long note text is wrapped by `ProgressNote.update_text`
+  (#479, above); a pre-check that lets a host validate before it files its first record is #480.
 - BMX refusal messages name their cause: a field inside a request cites the 512-byte cut, the connect and session packet length
   fields do not.
 

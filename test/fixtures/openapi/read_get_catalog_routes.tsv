@@ -5,6 +5,7 @@ RpmsRpc::Allergy.assessment	GET /patients/{dfn}/allergies/assessment
 RpmsRpc::Allergy.for_patient	GET /patients/{dfn}/allergies
 RpmsRpc::Authentication.has_security_key?	GET /users/{duz}/has-security-key
 RpmsRpc::Authentication.held_keys	GET /users/held-keys
+RpmsRpc::Authentication.option_access	GET /users/option-access
 RpmsRpc::Authentication.user_info	GET /users/{duz}/info
 RpmsRpc::Authentication.user_security_keys	GET /users/{duz}/security-keys
 RpmsRpc::Authentication.user_type	GET /users/{duz}/type
@@ -21,6 +22,8 @@ RpmsRpc::Image.exams_for_patient	GET /patients/{dfn}/images/exams
 RpmsRpc::Immunization.find	GET /immunizations/{ien}
 RpmsRpc::Immunization.for_patient	GET /patients/{dfn}/immunizations
 RpmsRpc::Immunization.text_summary	GET /patients/{dfn}/immunizations/text-summary
+RpmsRpc::ImmunizationLot.find	GET /immunization-lots/{ien}
+RpmsRpc::ImmunizationLot.list	GET /immunization-lots
 RpmsRpc::ImmunizationRefusal.reasons	GET /immunization-refusals/reasons
 RpmsRpc::Location.find	GET /locations/{ien}
 RpmsRpc::Measurement.find	GET /measurements/{measurement_ien}

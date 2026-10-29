@@ -1,0 +1,16 @@
+# Unmapped wire capture: ORWPCE IMM, from a fresh bcer-9.0-20261012-e7923a4-ydb broker (synthetic data only).
+# raw_return bytes are verbatim and sealed by sha256; do not hand-edit. See README.md beside this file.
+---
+rpc: ORWPCE IMM
+entry_point: IMM^ORWPCE
+release_tag: bcer-9.0-20261012-e7923a4-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7
+client: RpmsRpc::CiaClient#call_rpc_raw (rpms-rpc 45125a7)
+captured_at: '2026-10-22T07:46:26Z'
+captures:
+- inputs:
+  - '6'
+  context: clinic 6, no encounter form
+  ack: data
+  raw_return: "9\00\r"
+  sha256: 5849dcedaa486aecb59bef3d6fb541f1184dd8a9a54bb7c589228d4504d402f8

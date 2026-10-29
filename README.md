@@ -206,13 +206,24 @@ A request the wire cannot frame is refused before that request is sent, with a `
 CIA has no such limit.
 
 API methods whose contract is a failure hash catch it and answer with that hash plus an `:error` naming the limit (never the value;
-only `ProgressNote.update_text` also names the line, and `Registration.update`'s byte count is the whole joined window): the visit writes (`ProgressNote.update_text`, `ExamComponent`, `HealthFactor`, `Pov`, `Procedure`,
+`Registration.update`'s byte count is the whole joined window): the visit writes (`ProgressNote.update_text`, `ExamComponent`, `HealthFactor`, `Pov`, `Procedure`,
 `ImmunizationRefusal`), `Problem` add/update/delete, `ESignature.remove`, the `Scheduling` writes, `Registration.update`
 (`error: :frame_too_long` with `filed_windows:`), `Referral`'s BMC writers and `DdrFileman.filer`. `Referral`'s refusal hash carries
 `:error`, where a broker-side failure carries `:message` and `:raw` only, so a caller that branches on `:message` must also check
 `:error`. The rest let the error propagate and are not yet audited (#480); `Registration.register` and `Patient.register` raise it.
 On a real session an API may already have bound its context before the refused write, which changes no record. A host that creates a record and then updates it (create, then `update_text`) still
-holds the first record after a refusal; a pre-check is tracked in #480 and wrapping long note text in #479.
+holds the first record after a refusal; a pre-check is tracked in #480. `ProgressNote.update_text` wraps a line longer than 80 bytes
+(or `wrap_width:`, an Integer from 4 to 999) into `TIUX("TEXT",n,0)` pieces before it is sent (#479), so a line over 999 bytes is sent
+on XWB rather than refused, and the chart shows those pieces as separate lines. Rejoining the pieces with the dropped character restores
+the line. Joined with a single space, a tab at a cut reads back as a space, and a space or tab cut at the very end of a line is dropped.
+Non-whitespace is never dropped or changed. Indentation is not repeated on continuation pieces; an indent wider than the width is itself
+hard-cut. Text is coerced with `to_s`, then refused with `{ success: false, raw: nil, error: }` and not sent unless the result is a
+String whose encoding is exactly UTF-8, US-ASCII or ASCII-8BIT and whose bytes are valid UTF-8. Any other encoding is refused
+regardless of content (a Latin-1 or Windows-1252 tag whose bytes happen to be valid UTF-8 would otherwise be filed as different
+characters), as is a `to_s` that returns nil or a non-String. The error does not include the text. `FrameTooLongError` is still rescued
+when a wire refuses a framed value: the failure hash says the request could not be framed on this wire, keeps the wire's message, and
+never includes the note text. On BMX, `update_text` raises `NotImplementedError` for every note, because `BmxClient#call_rpc` rejects
+any list or Hash parameter before framing. That BMX behaviour predates #479 and is unchanged.
 
 ### Allergy assessment: never hide an allergy, never vouch for a reply
 
@@ -262,10 +273,20 @@ by definition, not a clean reply, and an unknown lookalike can only make the ans
   concatenated or a corrupted reply: its rows may belong to another call (or patient), or the list may be truncated. The result is
   `{ assessed: false, nka: false, allergies: [...], conflict: true }`: always `assessed: false`, never `nka`. `allergies` holds the
   clean rows plus, for **every unrecognised line with content**, a flagged entry
-  `{ ien: nil, allergen: <line, scrubbed and trimmed, for display>, raw: <the line's original bytes>, unrecognised: true }`. It is
+  `{ ien: nil, allergen: <line, scrubbed and trimmed, for display>, raw: <the line as the reply holds it>, unrecognised: true }`. It is
   never routed through DataMapper's error or no-data filters (which would drop `-3^PENICILLIN` or `^LATEX`) and no piece position is
   guessed. Marker lines and empty segments never become entries; a whitespace-only, invisible-only, control-only or invalid-byte-only line does,
   with `raw` preserving its bytes and `allergen` the scrubbed display copy (possibly empty: rely on `raw` and `unrecognised`).
+  `raw` is the line **as the reply holds it**: the original bytes for a plain reply, but the text *after* alteration for a `Reply` or
+  `Reply::Text` that altered it (an invalid byte becomes U+FFFD, a control character becomes a space), so an altered marker's `raw`
+  can equal the marker text. A host must read `unrecognised`, `altered` and `conflict`, never compare `raw` to a sentinel.
+  **Known limit, shared with `main`:** on the CIA line path a control character inside a line (US, NUL, VT, FF, TAB, ESC, DEL; RS is
+  safe only because `CiaClient` splits on it) is replaced by a space *before* the classifier runs, so the line it sits in reads as one
+  `altered: true` row. That joins a row to a marker (`1^PENICILLIN\x1f^No Known Allergies` is one row with severity `No Known Allergies`,
+  never `nka`) and equally folds a second allergy into the first row's fields (`1^PENICILLIN\x1f2^LATEX` is one row with allergen
+  `PENICILLIN 2` and severity `LATEX`), where the same lines in a plain Array are conflicts. `main` returns the identical row without the
+  `altered` flag. ORQQAL writes one row or one marker per node (`CIANBACT.m` `OUT`, `ORQQAL.m` `LIST`), so a mid-line control byte can
+  only come from a control byte stored inside a GMRA field.
   If the parser ever returned fewer rows than it was given, the reply is a conflict, never `assessed`. A **false**
   conflict is loud and safe, never a false "no known allergies".
 - **Clean replies are unchanged** (byte-identical to `main`, including encodings, except that a line terminator inside an Array
@@ -301,6 +322,69 @@ RpmsRpc.configure { |c| c.unsafe_raw_errors = true }
 ```
 
 Leave this off in production.
+
+### Reply encoding
+
+Every reply `call_rpc` returns, on XWB, BMX, CIA and `MockClient`, is an
+`RpmsRpc::Reply`: an `Array` of **UTF-8, `valid_encoding?`** Strings, so
+`first`, `map`, `join` and indexing work as before and joining a line with a
+UTF-8 literal no longer raises `Encoding::CompatibilityError`.
+
+Bytes that are not valid UTF-8 are replaced with U+FFFD, and the reply says
+so:
+
+```ruby
+reply = client.call_rpc("ORQQAL LIST", dfn)
+reply.altered?        # => true when any line had to be altered
+reply.altered_lines   # => zero-based indexes of those lines
+RpmsRpc::Reply.altered?(x)  # false for anything that is not an altered Reply
+```
+
+**Charset: assumed UTF-8, UNPROVEN.** Latin-1 is observed in stored data
+(`conformance/build_surface.rb`, the `\xB7` bullet in the `bcer-9.0-20260930`
+RPC descriptions; `api/patient.rb` notes non-UTF-8 name bytes), so real
+Latin-1 text is replaced and reported as altered. No site or broker character
+set is documented in this repository; a live read with a known high byte is the
+follow-up that settles it.
+
+Altered text must never read as verified identity: a host that matches on reply
+text (an allergen name, a patient name) must check `altered?` and refuse an
+altered line.
+
+**What reaches a host, and where the flag lives**
+
+- `RpmsRpc::Allergy.assessment` / `.for_patient` and `RpmsRpc::Patient.lookup`
+  put `altered: true|false` on **every clean row** they return. It is true when
+  any text of that row had a byte replaced. Two allergens that differ only in a
+  byte the gem replaced read identically, and each says `altered: true`: refuse
+  them. The key is additive; no existing key changed.
+- A surfaced **unrecognised** entry (`unrecognised: true`, in a `conflict: true`
+  reply) carries `altered: true` only when it was altered, and has no `altered`
+  key otherwise. A missing key there means "not altered", never "clean": the
+  entry is unrecognised, and the reply is a conflict, whatever the key says.
+- A reply that arrives as one blob (a CIA `call_rpc_global_array` read, a bare
+  String seed in `MockClient`) is an `RpmsRpc::Reply::Text`: a valid-UTF-8
+  **String** that answers `altered?`. `RpmsRpc::Reply.altered?(x)` is the safe
+  check for either kind.
+- A `Reply` and its lines are **frozen** and a `Reply` is built only through
+  `Reply.from_wire`. `shift`, `<<` and `clear` raise, because they would leave
+  `altered_lines` pointing at the wrong line. `Reply.from_wire(reply)` keeps the
+  alterations the reply already carries.
+- Every non-mutating transform returns a plain `Array`/`String` and drops the
+  flag: `map`, `select`, `reject`, `+`, `-`, `&`, `|`, `*`, `[]`, `slice`,
+  `first`, `last`, `take`, `drop`, `reverse`, `rotate`, `sort`, `sort_by`, `uniq`,
+  `compact`, `flatten`, `zip`, `each_slice`, and `String#split`. Ask the reply
+  first, or carry `RpmsRpc::Reply.altered?(reply)` forward yourself.
+  Coercing a `Reply::Text` (`to_s`, `slice`, `+`) likewise yields a plain `String`, which cannot carry a flag, so a control-altered
+  Text coerced to a String reads clean; ask the Text first.
+- Other API modules that return identity-bearing text (names, identifiers) go
+  through `DataMapper` and do **not** yet carry the flag; the follow-up issue
+  lists them. Until then, call `client.call_rpc_lines` and check the reply
+  yourself before trusting their text.
+
+On CIA, control characters (and DEL) in a line have always become a space; they
+still do, and that is now reported as altered too. Valid non-ASCII text is no
+longer turned into spaces.
 
 ## RPC coverage against a backend (the headline number)
 
@@ -460,6 +544,14 @@ The task is offline and reaches no broker. The implementation lives in `tools/ap
 `RpmsRpc::Order.check` runs order checks through `ORWDXC ACCEPT` before an order is saved (#454). Each row is `ORID^checkIEN^CDL^text`. A high or unknown severity requires an override. An empty or unparseable reply is reported as order checks unavailable.
 
 The incomplete-checks memory follows the client object, so a host must reuse one client object per broker connection. A fresh wrapper per request around a shared connection loses it, and OPOS then hides the banner (ORWDXC.m:53,214-229). The memo is an `ObjectSpace::WeakKeyMap`: keys are compared with `eql?` and `hash`, not strict object identity.
+
+## Scheduling list reads
+
+`Scheduling.availability`, `all_appointments`, `hospital_locations`, `clinic_setup`, `resources`, `slot_schedule` and `appointments` raise `RpmsRpc::Client::RpcError` when a BSDX list read fails (#481). Hosts must rescue it. A header-only recordset, including a header behind leading spaces, U+FFFD or C0 control characters, is still a genuine empty result (`[]`). That flattened or junk-prefixed shape is handled defensively; no current client is known to produce it. `CiaClient#parse_cia_reply` strips the sequence echo and the `\x00` ack before `Reply.from_wire`, so `call_rpc` does not flatten them into that prefix.
+
+An error row or a blank line behind that prefix is classified like a plain one: the error raises with its numeric code, and a reply of only blank-after-strip lines raises. `resources`, `slot_schedule` and `appointments` parse the classified lines, so a flattened header maps columns the same way as an unflattened one, and a reply with no header row raises (`no recordset header`) whether or not it is framed. The other four list reads still accept an unframed headerless line list whose every non-blank line contains a caret; a non-blank line with no caret raises (`no recordset header`). An ERRORID header line anywhere raises (`ERRORID recordset`); more than one header line otherwise raises (`unexpected second header`). Both paths do. Before any regex, each String chunk is brought to UTF-8: a chunk that is not UTF-8-tagged is duplicated and force-encoded UTF-8, and bytes that are not valid UTF-8 raise (`reply is not valid UTF-8`). A valid binary-tagged reply parses with UTF-8 values.
+
+The message names the RPC and, for a `-N^` row, the numeric code (`broker error -1`), or a fixed phrase (`ERRORID recordset`, `empty reply`, `no recordset header`, `unexpected second header`, `reply is not valid UTF-8`, `unexpected reply type`). Broker text stays out of the message: it can hold a patient name, and `sanitize_error` does not catch mixed-case names. The failure is never `Encoding::CompatibilityError`. `DataMapper#fetch_many` and `#fetch_many_or_nil` on these mappings keep the old contract for direct mapper callers. Only the Scheduling methods changed.
 
 ## Retry safety
 

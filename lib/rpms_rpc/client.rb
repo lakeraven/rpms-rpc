@@ -12,6 +12,7 @@ require "rpms_rpc/parameter_encoder"
 require "rpms_rpc/xml_response_parser"
 require "rpms_rpc/xwb_cipher"
 require "rpms_rpc/context_scope"
+require "rpms_rpc/reply"
 
 module RpmsRpc
   # Abstract base class for RPMS RPC broker clients.
@@ -48,17 +49,21 @@ module RpmsRpc
     # caller that rescues the gem's errors sees it.
     #
     # API methods whose own contract is a failure hash rescue it and answer with
-    # that hash plus an :error naming the limit (never the value; only
-    # ProgressNote.update_text also names the line, and Registration.update's
-    # byte count is the whole joined window): the visit
+    # that hash plus an :error naming the limit (never the value;
+    # Registration.update's byte count is the whole joined window): the visit
     # writes (ProgressNote.update_text, ExamComponent, HealthFactor, Pov,
     # Procedure, ImmunizationRefusal), Problem add/update/delete,
     # ESignature.remove, the Scheduling writes, Registration.update (error
     # :frame_too_long, with filed_windows), Referral's BMC writers, and
-    # DdrFileman.filer. Everything else lets it propagate today: Registration.register,
-    # Agg, the behavioral-health writers, Vital and Measurement writes, and code
-    # that calls call_rpc directly. Those are not yet audited for this rule
-    # (#480).
+    # DdrFileman.filer. ProgressNote.update_text wraps first (#479); if a wire
+    # still refuses the framed request, the hash says so and keeps the wire's
+    # message, never the note text. BMX does not reach that rescue for a note:
+    # call_rpc raises NotImplementedError for a list or Hash parameter before
+    # framing, so update_text raises for every note. That BMX behaviour predates
+    # #479 and is unchanged. Everything else lets the error propagate today:
+    # Registration.register, Agg, the behavioral-health writers, Vital and
+    # Measurement writes, and code that calls call_rpc directly. Those are not
+    # yet audited for this rule (#480).
     class FrameTooLongError < Error; end
     # Broker errors, kept distinct so a host can tell them apart (#363), in the
     # spirit of HTTP status classes:
@@ -267,7 +272,19 @@ module RpmsRpc
     # the String branch is for stand-ins that return one.
     def call_rpc_lines(rpc_name, *params)
       reply = call_rpc(rpc_name, *params)
-      reply.is_a?(Array) ? reply : split_response(reply.to_s.dup)
+      return reply if reply.is_a?(Reply)
+
+      # Split a BINARY copy: a String tagged UTF-8 that holds an invalid byte
+      # cannot be split at all. Every line then leaves through Reply, so a
+      # plain Array from a stand-in client is valid UTF-8 too and says so if
+      # it had to be altered (rpms-rpc#463).
+      return Reply.from_wire(reply) if reply.is_a?(Array)
+
+      lines = split_response(reply.to_s.b)
+      # A Text that altered something: the flag survives the split, on the
+      # lines holding the replacement character or, when the alteration left
+      # no trace (control characters), on every line.
+      Reply.from_wire(lines, altered: Reply.altered_indexes(reply, lines))
     end
 
     # -- connection state -----------------------------------------------------

@@ -60,6 +60,18 @@ module RpmsRpc
       strip_recordset_separators(line).match?(/\A-\d+(?:\.\d+)?\^/)
     end
 
+    # Whether a write whose routine answers nothing on success went through:
+    # SET^BGOREF and DEL^BGOPROB leave RET "" (or 0) and an error -CODE^text.
+    # A real client hands such a reply back as lines, so an empty RET arrives
+    # as [] (CiaClient#call_rpc splits on rows; Client#split_response("") is
+    # []), and MockClient as "". A reply that came back with no error row is
+    # accepted; nil, a client that answered nothing at all, is not.
+    def self.write_accepted?(reply)
+      return false if reply.nil?
+
+      Array(reply).none? { |line| error_row?(line.to_s) }
+    end
+
     # A no-data sentinel row: the stock-VistA "^message" convention — an
     # empty first piece carrying a human-readable message in piece 2 with
     # nothing after it. Examples: "^No problems found." (ORQQPL.m:17),
@@ -80,6 +92,224 @@ module RpmsRpc
     def self.non_data_row?(line)
       error_row?(line) || sentinel_row?(line)
     end
+
+    # BSDX reports a trapped list-read failure as a one-column recordset whose
+    # header is the ERRORID column (e.g. "T00030ERRORID") and whose data row is
+    # the message (#481). A wider header that merely includes ERRORID is data.
+    # Any ERRORID header line, wherever it sits, is that failure.
+    ERRORID_COLUMN_HEADER = /\A[ITDF]\d{5}ERRORID\z/
+    # Leading "<digits>\x00", or a bare "\x00", the GLOBAL ARRAY ack prefix.
+    BSDX_ACK_PREFIX = /\A[0-9]*\x00/
+    # Leading spaces, U+FFFD and C0 controls. Stripped from every BSDX list
+    # line before it is classified, and from a header handed to parsing. A
+    # normal data row keeps its bytes: a field may legitimately start with
+    # spaces. That flattened or junk-prefixed shape is handled defensively.
+    # No current client is known to produce it. CiaClient#parse_cia_reply
+    # strips the sequence echo and the \x00 ack before Reply.from_wire, so
+    # call_rpc does not flatten those bytes into this prefix.
+    BSDX_LIST_HEADER_LEAD = /\A[ \u{FFFD}\x00-\x1F]+/
+    BSDX_ERROR_CODE = /\A(-\d+(?:\.\d+)?)\^/
+
+    # A BSDX list read (#481). One normaliser serves both paths. Before any
+    # regex, each String chunk is brought to UTF-8: a chunk that is not
+    # UTF-8-tagged is duplicated and force-encoded UTF-8, and bytes that are
+    # not valid UTF-8 raise ("reply is not valid UTF-8"). A valid binary-tagged
+    # reply parses with UTF-8 values. The normaliser then strips a leading
+    # "<digits>\x00" (or "\x00") ack and cuts at $C(31), then splits every Array
+    # element and every String on $C(30). +split_newlines+ (the call_rpc path,
+    # fetch_many_or_raise) also splits on /\r?\n/ — a String with CR/LF and no
+    # $C(30)/NUL/$C(31) is a line reply. The recordset path passes false, because
+    # fields there hold CR/LF.
+    #
+    # Every line is classified from the text left after BSDX_LIST_HEADER_LEAD.
+    # An error row behind that prefix raises with its numeric code, the same as
+    # a plain "-N^…" row. A line that is blank after the strip counts as empty,
+    # so a reply of only such lines raises the way a blank line does ("no
+    # recordset header"; nil, "" and [] are "empty reply").
+    #
+    # Returns :empty when the reply is a header-only recordset (a genuine empty
+    # result), including a header behind that prefix. A second header line
+    # raises ("unexpected second header") instead. Otherwise returns the
+    # classified lines: the header with the prefix removed, then each data row
+    # in the bytes the normaliser produced. The prefix is stripped for
+    # classification and for the header line only. fetch_many_or_raise parses
+    # those lines (parse_many skips the header), never the raw response, so a
+    # normal row parses exactly as fetch_many / parse_many parse it.
+    # Scheduling#recordset parses the same lines, so a flattened header maps
+    # columns the same way as an unflattened one.
+    #
+    # Raises Client::RpcError for nil or an empty reply, an error row "-N^…"
+    # anywhere, an ERRORID header line anywhere, more than one header line,
+    # bytes that are not valid UTF-8, or a reply that is neither Array nor
+    # String. With +split_newlines+ false (the recordset path) a reply with no
+    # header row raises ("no recordset header") whether or not it is framed.
+    # With +split_newlines+ true, an unframed line list whose every non-blank
+    # line contains a caret is still the rows parse_many already returns (a
+    # seeded collection has this shape); a non-blank line with no caret raises
+    # ("no recordset header"), and a framed reply with no header raises. An
+    # ERRORID header line anywhere raises ("ERRORID recordset"); more than one
+    # header line otherwise raises ("unexpected second header"). Both paths do.
+    # The message names +rpc_name+ and, for a "-N^" row, the numeric code
+    # ("broker error -1"), or a fixed phrase ("ERRORID recordset", "empty
+    # reply", "no recordset header", "unexpected second header", "reply is not
+    # valid UTF-8", "unexpected reply type"). Broker text stays out of the
+    # message: it can hold a patient name, and sanitize_error does not catch
+    # mixed-case names. The failure is never Encoding::CompatibilityError.
+    # DataMapper#fetch_many and #fetch_many_or_nil on these mappings keep the
+    # old contract for direct mapper callers. Only the Scheduling methods changed.
+    def self.read_bsdx_list!(response, rpc_name, split_newlines: false)
+      outcome, detail = classify_bsdx_list_read(response, split_newlines: split_newlines)
+      return detail if outcome == :rows
+      return :empty if outcome == :empty
+
+      raise Client::RpcError, RpmsRpc.sanitize_error("#{rpc_name}: #{detail}")
+    end
+
+    def self.classify_bsdx_list_read(response, split_newlines:)
+      return [ :failure, "empty reply" ] if bsdx_list_blank?(response)
+      return [ :failure, "unexpected reply type" ] unless response.is_a?(Array) || response.is_a?(String)
+
+      chunks = bsdx_chunks_as_utf8(response)
+      return [ :failure, "reply is not valid UTF-8" ] if chunks.nil?
+
+      classified = bsdx_list_lines(chunks, split_newlines: split_newlines).map { |line| bsdx_classify_line(line) }
+      if (error = classified.find { |line| line[:kind] == :error })
+        return [ :failure, "broker error #{bsdx_error_code(error[:text])}" ]
+      end
+
+      present = classified.reject { |line| line[:kind] == :blank }
+      headers, data = present.partition { |line| line[:kind] == :header }
+      if headers.empty?
+        return classify_headerless_bsdx_list(chunks, data, split_newlines: split_newlines)
+      end
+      return [ :failure, "ERRORID recordset" ] if bsdx_errorid_recordset?(headers)
+      return [ :failure, "unexpected second header" ] if headers.size > 1
+
+      data.empty? ? [ :empty, nil ] : [ :rows, bsdx_lines_for_parse(headers, data) ]
+    end
+    private_class_method :classify_bsdx_list_read
+
+    # No [ITDF]NNNNN row. The recordset path (split_newlines: false) raises
+    # whether or not the reply is framed. fetch_many_or_raise keeps an unframed
+    # line list when every non-blank line contains a caret — the rows parse_many
+    # already returns (a seeded collection has this shape). A non-blank line
+    # with no caret raises ("no recordset header"), and so does a framed reply.
+    def self.classify_headerless_bsdx_list(chunks, data, split_newlines:)
+      return [ :failure, "no recordset header" ] unless split_newlines
+      return [ :failure, "no recordset header" ] if data.empty? || bsdx_recordset_framed?(chunks)
+      return [ :failure, "no recordset header" ] if data.any? { |line| !line[:text].include?("^") }
+
+      [ :rows, data.map { |line| line[:original] } ]
+    end
+    private_class_method :classify_headerless_bsdx_list
+
+    def self.bsdx_list_blank?(response)
+      response.nil? || response == "" || (response.is_a?(Array) && response.empty?)
+    end
+    private_class_method :bsdx_list_blank?
+
+    # Chunks retagged UTF-8, or nil when any String's bytes are not valid
+    # UTF-8. Runs before every regex in this classifier. A chunk that is not
+    # UTF-8-tagged is duplicated and force-encoded, so the caller's string is
+    # left alone and a binary chunk cannot raise Encoding::CompatibilityError.
+    # The failure phrase is fixed ("reply is not valid UTF-8") and carries no
+    # broker text.
+    def self.bsdx_chunks_as_utf8(response)
+      raw = response.is_a?(Array) ? response : [ response ]
+      converted = []
+      raw.each do |chunk|
+        text, valid = bsdx_chunk_as_utf8(chunk)
+        unless valid
+          converted = nil
+          break
+        end
+
+        converted << text
+      end
+      converted
+    end
+    private_class_method :bsdx_chunks_as_utf8
+
+    def self.bsdx_chunk_as_utf8(chunk)
+      return [ chunk, true ] unless chunk.is_a?(String)
+
+      text = chunk.encoding == Encoding::UTF_8 ? chunk : chunk.dup.force_encoding(Encoding::UTF_8)
+      [ text, text.valid_encoding? ]
+    end
+    private_class_method :bsdx_chunk_as_utf8
+
+    def self.bsdx_list_lines(chunks, split_newlines:)
+      chunks.flat_map { |chunk| bsdx_normalize_chunk(chunk.to_s, split_newlines: split_newlines) }
+    end
+    private_class_method :bsdx_list_lines
+
+    def self.bsdx_normalize_chunk(text, split_newlines:)
+      text = text.sub(BSDX_ACK_PREFIX, "")
+      text = text.split("\x1f", 2).first.to_s
+      parts = text.split("\x1e")
+      return parts unless split_newlines
+
+      parts.flat_map { |part| part.split(/\r?\n/) }
+    end
+    private_class_method :bsdx_normalize_chunk
+
+    def self.bsdx_recordset_framed?(chunks)
+      chunks.any? { |chunk| chunk.to_s.match?(/[\x00\x1e\x1f]/) }
+    end
+    private_class_method :bsdx_recordset_framed?
+
+    # One normalised line, classified from the text left after the lead strip.
+    # :original is the normaliser's line. A normal data row is handed to
+    # parsing as that string; a header is handed as :text.
+    def self.bsdx_classify_line(line)
+      text = bsdx_classify_text(line)
+      kind = if text.empty?
+        :blank
+      elsif error_row?(text)
+        :error
+      elsif bsdx_list_header?(text)
+        :header
+      else
+        :data
+      end
+      { original: line, text: text, kind: kind }
+    end
+    private_class_method :bsdx_classify_line
+
+    # The stripped header, then each data row's original bytes. Leading spaces
+    # on a normal row are field content, so only the header line is stripped
+    # on the way to the parser.
+    def self.bsdx_lines_for_parse(headers, data)
+      [ headers.first[:text], *data.map { |line| line[:original] } ]
+    end
+    private_class_method :bsdx_lines_for_parse
+
+    # +text+ is bsdx_classify_text's result, not the raw line. recordset_header_row?
+    # is unchanged, so fetch_many still parses a junk-prefixed header as a
+    # record for a direct mapper caller.
+    def self.bsdx_list_header?(text)
+      return false if text.empty?
+
+      text.split("^", -1).all? { |piece| piece.match?(/\A[ITDF]\d{5}/) }
+    end
+    private_class_method :bsdx_list_header?
+
+    def self.bsdx_classify_text(line)
+      strip_recordset_separators(line).sub(BSDX_LIST_HEADER_LEAD, "")
+    end
+    private_class_method :bsdx_classify_text
+
+    def self.bsdx_error_code(text)
+      strip_recordset_separators(text)[BSDX_ERROR_CODE, 1]
+    end
+    private_class_method :bsdx_error_code
+
+    # Any one-column ERRORID header, not only a recordset whose every header
+    # is that column. A wider header that merely includes ERRORID does not match.
+    def self.bsdx_errorid_recordset?(headers)
+      headers.any? { |line| line[:text].match?(ERRORID_COLUMN_HEADER) }
+    end
+    private_class_method :bsdx_errorid_recordset?
 
     class Mapping
       attr_reader :name, :rpc_name, :fields
@@ -227,6 +457,18 @@ module RpmsRpc
         end
       end
 
+      # parse_many, with an `altered:` flag on every row (rpms-rpc#463).
+      # `lines` are the response's lines; `altered_indexes` are the zero-based
+      # ones whose text had a byte replaced (Reply.lines_with_altered builds
+      # both from any reply). Each line is parsed on its own, which is what
+      # parse_many does anyway, so a row's flag is its own line's and never
+      # its neighbour's. The key is additive: a clean row says altered: false.
+      def parse_many_flagged(lines, altered_indexes = [])
+        lines.each_with_index.flat_map do |line, index|
+          parse_many([ line ]).map { |row| row.merge(altered: altered_indexes.include?(index)) }
+        end
+      end
+
       # Parse a line-based response where each LINE is a different field.
       def parse_lines(response, extras: {})
         return nil if response.nil? || response.empty?
@@ -332,6 +574,24 @@ module RpmsRpc
         return nil if !first.nil? && DataMapper.error_row?(first.to_s)
 
         parse_many(response)
+      end
+
+      # fetch_many for a BSDX recordset list (#481). See DataMapper.read_bsdx_list!.
+      # Parses the classified lines, never the raw response. The header is the
+      # prefix-stripped header, which parse_many skips, so a junk-prefixed
+      # header is never a record. A normal data row keeps its bytes and parses
+      # exactly as fetch_many / parse_many parse it. A header-only reply is [].
+      # An unframed headerless line list whose every non-blank line contains a
+      # caret is still those rows; a non-blank line with no caret raises. A
+      # valid binary-tagged reply parses with UTF-8 values. This does not
+      # change fetch_many or fetch_many_or_nil: on these mappings they keep the
+      # old contract for direct mapper callers. Only the Scheduling methods changed.
+      def fetch_many_or_raise(*params)
+        response = RpmsRpc.client.call_rpc(rpc_name, *params)
+        lines = DataMapper.read_bsdx_list!(response, rpc_name, split_newlines: true)
+        return [] if lines == :empty
+
+        parse_many(lines)
       end
 
       def fetch_scalar(*params)
