@@ -540,6 +540,8 @@ module RpmsRpc
     # filed on a field nobody checked (rpms-ops#1040).
     def validate_fields(params)
       FIELD_VALIDATIONS.each do |field, companions|
+        return ssn_or_reason_required if field == "AGGNOSSN" && neither_ssn_nor_reason?(params)
+
         values = ([ field ] + companions).to_h { |name| [ name, params[name].to_s ] }.merge("DFN" => "")
         checked = check_field(values)
         unless checked
@@ -549,6 +551,19 @@ module RpmsRpc
         return { success: false, error: :agg_invalid, field: field, message: checked[:message] } unless checked[:valid]
       end
       nil
+    end
+
+    # With neither an SSN nor a reason, NOSSN^AGGWVAL calls $$ISREQ^AGGUL2, which
+    # quits without a value on a site that does not list SSN as required: an M
+    # error, after which the broker job hangs on its next AG call (rpms-ops#1040).
+    # That one check is not sent; the registration is refused in AG's own words.
+    # Drop this when the build carries the ISREQ fix and AG can answer.
+    def neither_ssn_nor_reason?(params)
+      params["AGGPTSSN"].to_s.empty? && params["AGGNOSSN"].to_s.empty?
+    end
+
+    def ssn_or_reason_required
+      { success: false, error: :ssn_or_reason_required, field: "AGGNOSSN", message: "Enter a SSN or a Reason for No SSN" }
     end
 
     # A broker error on a check is "could not check" (nil), never a pass, and its

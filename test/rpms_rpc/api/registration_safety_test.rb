@@ -7,7 +7,8 @@ require "rpms_rpc/api/patient"
 class RegistrationSafetyTest < Minitest::Test
   Reg = RpmsRpc::Registration
   Agg = RpmsRpc::Agg
-  ATTRS = { name: "DEMOPATIENT,UNA", dob: Date.new(1990, 1, 2), sex: "F" }.freeze
+  # A reason for no SSN: AG cannot check a registration with neither (rpms-ops#1040).
+  ATTRS = { name: "DEMOPATIENT,UNA", dob: Date.new(1990, 1, 2), sex: "F", no_ssn_reason: "N" }.freeze
   # HDR/LST2^AGGPTLKP: name OR DOB candidates, no sex column.
   HEADER = "I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE"
   ROW = "42^DEMOPATIENT,UNA^42^900010001^01/02/1990^^^^N"
