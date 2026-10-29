@@ -1278,7 +1278,7 @@ module RpmsRpc
 
       pieces = rows[0]
       token = pieces[1].to_s
-      return sign_release_e_row(id, pieces) if token == "E" && pieces.length >= 3
+      return sign_release_e_row(id, pieces) if token == "E"
       return { order_id: id, status: :released, reason: nil } if token == "RS"
       return { order_id: id, status: :signed, reason: SIGN_RELEASE_SIGNED } if token == "S"
 
