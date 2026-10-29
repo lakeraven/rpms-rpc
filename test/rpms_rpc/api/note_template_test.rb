@@ -78,8 +78,19 @@ class NoteTemplateTest < Minitest::Test
       m.seed_text(:template_text, DFN, "^^1^1^3260527^^\nPatient: DOE,JOHN")
     end
 
-    assert_equal "^^1^1^3260527^^\nPatient: DOE,JOHN",
+    assert_equal "Patient: DOE,JOHN",
                  RpmsRpc::NoteTemplate.text([ "Patient: |PATIENT NAME|" ], dfn: DFN, visit_string: VISIT_IEN)
+  end
+
+  # The reply as a fresh rpms-ydb e9b78c8 sent it for DFN 4: the 0-node
+  # header first, then one line per expanded line.
+  def test_text_drops_the_word_processing_header_rpms_sends_first
+    RpmsRpc.mock! do |m|
+      m.seed_raw_lines(:template_text, "4", [ "^^2^2^3261027^^", "Name: DEMO,PATIENT ONE", "Sex: FEMALE" ])
+    end
+
+    assert_equal "Name: DEMO,PATIENT ONE\nSex: FEMALE",
+                 RpmsRpc::NoteTemplate.text([ "Name: |PATIENT NAME|", "Sex: |PATIENT SEX|" ], dfn: "4")
   end
 
   def test_text_sends_each_line_as_a_tiux_n_0_node

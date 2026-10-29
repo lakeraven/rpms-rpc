@@ -36,6 +36,14 @@ module RpmsRpc
   # See FOIA-RPMS/Packages/M Transfer/Routines/BMXMON.m, BMXMBRK.m, BMXMBRK2.m
   class BmxClient < Client
     BMX_PREFIX = "{BMX}"
+    # BMXMBRK M=512: PRSP/PRSM/PRSA/PRSB each cut the protocol string with $E(P,...,M).
+    # $E counts characters and this counts bytes: they agree on a byte-mode TCP
+    # device, and on a translating one this check is stricter than the server,
+    # never looser, so a request is refused rather than silently truncated.
+    MAX_PROTOCOL_BYTES = 512
+
+    # RequestTooLongError: the request cannot be framed for the BMX broker.
+    class RequestTooLongError < FrameTooLongError; end
 
     # Connect to RPMS BMX Broker — a TWO-STEP handshake.
     #
@@ -98,7 +106,7 @@ module RpmsRpc
         read_response
       end
       check_for_rpc_error(response)
-      split_bmx_reply(response)
+      Reply.from_wire(split_bmx_reply(response))
     rescue IOError, Errno::ECONNRESET, Errno::EPIPE, Errno::ENOTCONN => e
       @connected = false
       raise ConnectionError, "Connection lost during RPC call: #{e.message}"
@@ -146,12 +154,16 @@ module RpmsRpc
     # slot and glued "1" onto the RPC name).
     def build_bmx_message(rpc_name, params = [])
       proto_fields = "RPMS_RPC;0;0;0;".b
-      proto_header = format("%03d", proto_fields.bytesize).b + proto_fields
+      proto_header = fixed_width(proto_fields.bytesize, 3, "protocol header length", request: true) + proto_fields
 
       text = bmx_text(rpc_name, params)
-      message = format("%05d", text.bytesize + 6).b + "0".b + text
+      message = fixed_width(text.bytesize + 6, 5, "request length", request: true) + "0".b + text
 
-      proto_header + message
+      body = proto_header + message
+      if body.bytesize > MAX_PROTOCOL_BYTES
+        raise RequestTooLongError, "BMX protocol string is #{body.bytesize} bytes (max #{MAX_PROTOCOL_BYTES}; the broker cuts a request at 512 bytes)"
+      end
+      body
     end
 
     # The PRSM "text": the RPC name, plus — when there are params — a "^" and the
@@ -163,9 +175,9 @@ module RpmsRpc
 
       inner = params.map do |p|
         v = p.to_s.b
-        format("%03d", v.bytesize + 1).b + "0".b + v # LLL=(len+1), TYPE "0"=literal
+        fixed_width(v.bytesize + 1, 3, "param length", request: true) + "0".b + v # LLL=(len+1), TYPE "0"=literal
       end.join.b
-      block = format("%05d", inner.bytesize).b + inner
+      block = fixed_width(inner.bytesize, 5, "param block length", request: true) + inner
       name + "^".b + block
     end
 
@@ -230,10 +242,26 @@ module RpmsRpc
       9101
     end
 
+    # Zero-padded decimal of exactly `width` digits. A number that does not
+    # fit is refused: the field is fixed width, and widening it would shift
+    # every byte the broker reads after it. `what` names the field in the
+    # message. `request: true` marks the fields inside a request (build_bmx_message),
+    # which BMXMBRK cuts at 512 bytes, so the message can name that cap; the
+    # connect and session packet length fields are not limited by it, and a
+    # message that blamed it for them would name the wrong cause.
+    def fixed_width(number, width, what = "length", request: false)
+      text = format("%0#{width}d", number)
+      if text.bytesize > width
+        cause = request ? "; the broker cuts a request at #{MAX_PROTOCOL_BYTES} bytes" : ""
+        raise RequestTooLongError, "BMX #{what} #{number} does not fit its #{width}-digit field (max #{10**width - 1})#{cause}"
+      end
+      text.b
+    end
+
     # Send a packet for the initial monitor connection (pre-session)
     def send_bmx_packet(body)
       bytes = body.to_s.b
-      length_str = format("%05d", bytes.bytesize).b
+      length_str = fixed_width(bytes.bytesize, 5, "packet length")
       packet = BMX_PREFIX.b + length_str + bytes
       send_packet(packet)
     end
@@ -246,8 +274,8 @@ module RpmsRpc
     # Wire = {BMX} + LLLLL + PPPPP + body
     def send_bmx_session_packet(body)
       bytes = body.to_s.b
-      plen = format("%05d", bytes.bytesize).b
-      total_len = format("%05d", bytes.bytesize + 5).b
+      plen = fixed_width(bytes.bytesize, 5, "session packet body length")
+      total_len = fixed_width(bytes.bytesize + 5, 5, "session packet length")
       packet = BMX_PREFIX.b + total_len + plen + bytes
       send_packet(packet)
     end

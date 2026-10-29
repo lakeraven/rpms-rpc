@@ -7,6 +7,133 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the release guard reads live summaries bound to the pinned build, the released source, and the suite that ran (#361, #441)
+
+- Live summaries are schema 3. They name the source they tested (a SHA-256 over every file the gemspec ships, #441) and the suite they ran (a SHA-256 over every file under `test/live/` plus `data/rpc_coverage/config.yml`), and they record `passed`, true only when every non-skipped result passed. The guard refuses `passed` other than true, a suite that is not the current tree, a persona or protocol that does not match the file name, and a summary whose source is not the tree being released. A run during which a shipped file or the suite changes is not recorded. Older summaries are refused until `rake test:live` is re-run. The live run block names the pinned release, as the summary file does, rather than the registry file.
+- Release policy: a CIA summary is required, and BMX and XWB summaries, if present, must be green. A summary must have `build_source` `pinned` (a `LIVE_BUILD` run is refused), and a file that skipped more than 10% of its runs is refused. The guard's OK names the summary directory. A Minitest 6 `--name` run (`options[:include]`) is a filtered run and is not recorded.
+- A release refuses to tag unless live summaries on disk show a green `rake test:live` against the pinned build (#361). CIA and XWB keep separate summary files, a run that dies before the summary is written leaves a pending file the guard refuses, and the same guard leads `release:source_control_push` and `release:rubygem_push`. `rake test:live` aborts before loading a spec when its pending file is not on disk, and the guard's OK names, per file, how many live specs passed and how many were skipped.
+
+### Fixed — `Allergy.assessment` never hides an allergy and never vouches for a contradictory or unrecognised reply (#483)
+
+- **Bug:** `Allergy.assessment` returned `nka: true` for any reply containing the `^No Known Allergies` marker and dropped every
+  other row, so `["^No Known Allergies", "5^Penicillin^SEVERE^HIVES"]` read as verified absence with the real allergy gone.
+  A `^No Allergy Assessment` marker next to rows dropped the rows the same way, a repeated NKA marker also read as NKA, and a reply
+  that was blank, not text, or full of lookalikes read `assessed: true` with phantom rows. Lines carrying an allergen in a shape the
+  parser filters (`-3^PENICILLIN`, `^LATEX`, a marker with extra fields) were dropped.
+- **Design:** every line is a recognised **marker** (`^` + the marker text, nothing else), a clean **row** (first piece exactly a
+  positive integer, visible allergen text in piece 2, no control character), **blank** (a truly empty segment only), or **unrecognised**, from what `LIST^ORQQAL`
+  (`ORQQAL.m:7-16`, with `GMRAOR1.m` `EN1`) can emit: exactly three markers (`^No Allergy Assessment`, `^No Known Allergies`, and
+  `^No allergies found.` at line 15, written only when no row was written), mutually exclusive with the rows, and every row starting
+  with the allergy IEN (`Q:GMRAIEN<1`).
+- **Verified absence stays strictly byte-exact:** only the exact NKA marker as the sole data line. A String reply's own line
+  terminators are not part of the marker; an Array element that still carries a terminator is not the exact marker. RS/US framing is
+  not stripped (no client delivers it inside a line of this reply), so a framing byte glued to the marker, or a framing-only element
+  beside it, is unrecognised, never NKA. A lone marker, including a mangled one, is `{ assessed: false, nka: false, allergies: [] }`.
+- **Every String is split into lines first**, on CR, LF and (for UTF-8, BINARY and US-ASCII) the UTF-8 byte sequences for U+2028,
+  U+2029 and U+0085, whether or not the line is valid UTF-8 (a lone 0x85 in a single-byte encoding is a character). A row has at
+  most four pieces: a fifth non-blank piece is unrecognised, not silently dropped. A list inside the list is unrecognised even when
+  empty, and so is an element that is not text; both surface their inspect text. Nesting deeper than 64 (or cyclic) raises
+  `RpmsRpc::Allergy::ReplyTooDeepError`. Only a truly **empty** segment is blank: a whitespace-only or invisible-only element or String segment beside the marker is
+  unrecognised (conflict, never NKA) and surfaced with its raw bytes. The invisible set is genuinely invisible characters (not all
+  of `\p{Cf}`). A real U+0080-U+009F codepoint read from UTF-8 in a row is a control sequence (unrecognised); a byte 0x80-0x9F in
+  a BINARY / Latin-1 / Windows-1252 string is a byte and stays clean (charset unproven live, rpms-rpc#476). A parser that returns
+  fewer rows than it was given makes the reply a conflict, never `assessed`.
+- **Bytes:** classification reads a copy with invalid bytes made U+FFFD (a mangled marker never matches); **a clean row's output is
+  the original bytes and encoding, identical to `main`** (a Latin-1 byte in a BINARY allergen is a clean row; the bytes are the
+  boundary's concern, rpms-rpc#477). A UTF-8-tagged string that is not valid UTF-8 no longer raises `ArgumentError`; it is read with
+  U+FFFD. An element tagged with any other encoding than UTF-8, BINARY, US-ASCII or a single-byte ISO-8859-x / Windows-125x tag (UTF-16/32,
+  UTF-7, Shift_JIS, EUC-JP ...) is unrecognised and surfaced verbatim; nothing is transcoded and no byte is deleted. A US-ASCII reply
+  with a high byte is read as BINARY (it used to raise). A line terminator inside an Array element is split off (it used to be kept).
+- **A conflicting reply** (a marker beside other data, a repeated marker, or any unrecognised line):
+  `{ assessed: false, nka: false, allergies: [...], conflict: true }` — **always `assessed: false`, never `nka`**. `allergies` holds
+  the clean rows and, for every unrecognised line with content, a flagged entry
+  `{ ien: nil, allergen: <scrubbed, trimmed>, raw: <original bytes>, unrecognised: true }` (never filtered through DataMapper). A
+  false conflict is loud and safe. A clean reply is unchanged and carries no `:conflict` or `:unrecognised` key.
+- **Host-visible changes:** `Allergy.for_patient` returns the surfaced entries too, so a host rendering rows from it shows the text of
+  an unrecognised line, with a `nil` `:ien`. A host that must show such a list as incomplete **must read `:conflict`** from
+  `Allergy.assessment`; identifier collisions on `nil`-IEN entries and an "unconfirmed" status are the host's to handle
+  (lakeraven-ehr#672).
+- **Evidence:** the reply shape is read from the M routine source, not from a live broker. **Unproven live (ADR 0009):** no live
+  spec exercises a conflicting reply (the routine cannot produce one).
+
+### Changed — replies reach hosts as valid UTF-8; altered bytes are reported (#463)
+
+- `call_rpc` on XWB, BMX, CIA and `MockClient` now returns an `RpmsRpc::Reply`, an `Array` of UTF-8 Strings (it was ASCII-8BIT
+  on XWB and BMX, which raised `Encoding::CompatibilityError` as soon as a host joined a non-ASCII reply with a UTF-8 literal).
+  Bytes that are not valid UTF-8 become U+FFFD and `Reply#altered?` / `#altered_lines` say so. The flag is dropped by
+  `Array#map`, `#select` and `#+`. Charset: assumed UTF-8, unproven; Latin-1 observed in stored data will read as altered.
+- CIA: valid non-ASCII text is no longer replaced with spaces. Control characters still become a space, and are now reported
+  as altered. CR and LF are line terminators and are never substituted, so `controls: true` cannot join two lines of a reply.
+- The flag reaches hosts. `Allergy.assessment` / `.for_patient` and `Patient.lookup` clean rows carry an additive `altered: true|false`
+  (true when any text of the row had a byte replaced); a surfaced unrecognised entry carries `altered: true` only when altered
+  and no key otherwise (a missing key is "not altered", never "clean"). Before this, two allergens that differed only in a byte the gem replaced
+  came back as equal strings with no signal.
+- GLOBAL ARRAY replies (`CiaClient#call_rpc_global_array`, `MockClient#call_rpc_global_array`) are valid UTF-8 and return an
+  `RpmsRpc::Reply::Text`, a String that answers `altered?`; they were raw ASCII-8BIT (CIA `Patient.lookup` still raised
+  `Encoding::CompatibilityError` on a non-ASCII name). `MockClient#call_rpc` returns the same `Text` for a bare String seed.
+- `Reply` and its lines are frozen and built only through `Reply.from_wire`; `from_wire(reply)` keeps the flag it carries.
+- `Client#call_rpc_lines` no longer raises on a UTF-8-tagged String holding an invalid byte, and converts a plain Array.
+- Not yet carried: other API modules that return identity-bearing text (see the follow-up issue).
+
+### Fixed — XWB and BMX refuse a request they would mis-frame, and the failure-hash writers say so (#472, #474)
+
+- **XWB:** the header `[XWB]1130` fixes the L-PACK length at 3 digits (`XWBPRS.m`, `XWBENVL=+$E(P,3)`; `LREAD` reads exactly that
+  many). `lpack` used to write 5 digits for a value over 999 bytes, so the server read the first 3 as the length and parsed the
+  rest as protocol: long literals, list keys and list values were mis-framed without any error. It now writes 3 digits and
+  raises `XwbClient::LpackTooLongError` for a value over 999 **bytes**, before anything is written. Refusing at 999 is this
+  client's policy under the 3-digit header, not a protocol limit (a `[XWB]1150` header would carry 5-digit lengths).
+- **BMX:** `BMXMBRK` (`PRSP`, `PRSM`, `PRSA`, `PRSB`) cuts a request at 512 bytes, so a 600-byte param arrived as 457 bytes with
+  no error. `build_bmx_message` now raises `BmxClient::RequestTooLongError` for a request over 512 bytes, and the fixed-width
+  prefixes refuse a number that does not fit instead of widening the field.
+- **Behaviour change:** both are `RpmsRpc::Error`s under `Client::FrameTooLongError` (not `ArgumentError`). Nothing could have
+  relied on an `ArgumentError`: on `main` the XWB prefix silently widened and BMX had no check. A caller that sent an oversized
+  value used to get silent corruption and now gets the error; nothing is sent and the connection stays usable. CIA is unaffected.
+- **APIs that answer with their failure hash** (plus an `:error` that names the limit, never the value; only `ProgressNote.update_text` also names the line, and
+  `Registration.update`'s byte count is the whole joined window):
+  `ProgressNote.update_text`, `ExamComponent.add`, `HealthFactor.add`, `ImmunizationRefusal.record`, `Pov.add`, `Procedure.add`,
+  `Problem.add` / `update` / `delete`, `ESignature.remove`, `Scheduling` writes (`{ success: false, error: }`), `Referral`'s BMC
+  writers (`{ success: false, raw: nil, error: }`, where a broker-side failure carries `:message` and `:raw` only), `DdrFileman.filer` (`errors:`), and `Registration.update`
+  (`error: :frame_too_long`, with `window:` and the `filed_windows:` report).
+- **APIs that raise `FrameTooLongError`** (not yet audited, #480): `Registration.register`, `Agg`, the behavioral-health writers,
+  `Vital` and `Measurement` writes, and any caller of `call_rpc` directly. Wrapping long note text instead of refusing it is #479;
+  a pre-check that lets a host validate before it files its first record is #480.
+- BMX refusal messages name their cause: a field inside a request cites the 512-byte cut, the connect and session packet length
+  fields do not.
+
+### Added — `Patient.address`, `Patient.race`, and `Practitioner.detail` (#294)
+
+- `Patient.address(dfn)`, `Patient.race(dfn)`, and `Patient.contact(dfn)` read with
+  `DDR GETS ENTRY DATA` bound to `CIAV VUECENTRIC`, then restore the caller's option.
+  `Patient.contact` refuses a non-integer DFN before the wire; address and race use that same
+  positive-whole-number guard.
+- `Patient.address(dfn)` reads the mailing address from PATIENT (#2):
+  `{ dfn:, line1:, line2:, line3:, city:, state:, state_ien:, zip:, zip_plus4: }`. `zip_plus4` is the whole external
+  `.1112` value (`12345` or `12345-6789`; the field accepts 5 to 20 characters), not a four-digit suffix. `state` is the
+  external of `.115` (the STATE #5 NAME); `state_ien` is the internal IEN. It is nil for a DFN that
+  is not a positive whole number, no reply, a FileMan error, or a reply with no field rows.
+- `Patient.race(dfn)` reads `.06` RACE the same way: `{ dfn:, race: }`. The input transform is
+  historical-only ("ENTRY OF DATA NOT ALLOWED"); the value is still readable. The USCDI race and
+  ethnicity multiples are out of scope.
+- `Practitioner.detail(duz)` reads NEW PERSON (#200) in `CIAV VUECENTRIC`: `{ duz:, title:,
+  service_section:, provider_class:, npi:, npi_entry_status:, dea_number:, dea_expires: }`.
+  `npi` is returned only when `41.97` AUTHORIZE RELEASE OF NPI is internal `"1"`. `dea_expires` is a
+  `Date` from the `747.44` internal FileMan date. #200 has no SPECIALTY field. PERSON CLASS (`8932.1`)
+  is not read: `^DD(200,8932.1,0)` is `200.05P`, a multiple (subfile 200.05). STATE ISSUING DEA NUMBER
+  (`54.2`) is not read either: `^DD(200,54.2,0)` is `200.55P`, a multiple (subfile 200.55), so DDR GETS
+  on file 200 never returns a row for it. Both would need a read of the subfile.
+
+### Changed — `Patient.contact` retry class (#294)
+
+- `Patient.contact(dfn)` now binds `CIAV VUECENTRIC` to read `DDR GETS ENTRY DATA`, so its entry in
+  `retry_safety.yml` moves from `read` to `non_idempotent_write`. Binding a broker context option is a
+  session context change and the restore is best-effort, so the method is no longer auto-retry-safe even
+  though the RPC only returns data. `Patient.address`, `Patient.race` and `Practitioner.detail` are
+  classed the same way.
+- The published HTTP route for `Patient.contact` changes from `GET /patients/{dfn}/contact` to
+  `POST /patients/{dfn}/contact`, and its row leaves the read-GET route fixture.
+- `Patient.contact` now refuses a DFN that is not a positive whole number before the wire. Previously a value
+  such as `"42abc"` was coerced with `to_i` and read as 42.
+
 ### Added — XWB and BMX sign-on bind the division (DUZ(2)) as the stock XWB client does (#450)
 
 - `Client#authenticate` (XwbClient, BmxClient) calls `XUS DIVISION GET` after `XUS AV CODE`, as the Delphi RPC Broker does, and

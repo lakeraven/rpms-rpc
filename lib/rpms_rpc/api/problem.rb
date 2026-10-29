@@ -1,12 +1,15 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
   # Symbolic API for the problem list. Read via ORQQPL LIST; write via
-  # BGOPROB SET / BGOPROB DEL; scope via BGOPROB GET CLASS.
+  # BGOPROB SET / BGOPROB DEL; stock VistA write via ORQQPL ADD SAVE /
+  # ORQQPL EDIT SAVE; scope via BGOPROB GET CLASS.
   module Problem
     extend self
+    extend Shape::Declarable
 
     # IPL scope codes match the live RPMS IPL UI tabs. The wire codes are
     # best-effort placeholders pending trace capture of BGOPROB GET CLASS
@@ -19,6 +22,29 @@ module RpmsRpc
     # order can't reshuffle the payload mid-flight.
     PROB_FIELDS = %i[snomed_ct descriptive_ct description icd_code location_ien
                      onset_date status problem_class problem_number priority].freeze
+
+    # FileMan field number allowed inside a GMPFLD/GMPORIG subscript. FOIA
+    # executes each list value as M (`S @ADDARRAY(S)` ORQQPL1.m:160,
+    # `S @EDARRAY(S)` ORQQPL1.m:120) with no check, so a subscript that is
+    # not this token is refused before any RPC. Only the M-canonical form
+    # is accepted (".01", "1", "1.01", "10"). Leading zeros, a trailing
+    # zero, and a trailing dot ("01", "0.01", "1.0", "1.", "00", "0") are
+    # refused. Integer and Float keys are read with to_s and the same rule.
+    FIELD_NUMBER = /\A(?:[1-9]\d*(?:\.\d*[1-9])?|\.\d*[1-9])\z/
+    CANONICAL_ID = /\A[1-9][0-9]*\z/
+    # The only list values the routine is allowed to execute. The subscript
+    # is the same M-canonical token as FIELD_NUMBER.
+    SAFE_ASSIGNMENT = /\A(?:GMPFLD|GMPORIG)\((?:[1-9]\d*(?:\.\d*[1-9])?|\.\d*[1-9])\)="(?:[^"[:cntrl:]]|"")*"\z/
+    SAFE_COMMENT = /\AGMPFLD\(10,"NEW",[1-9][0-9]*\)="(?:[^"[:cntrl:]]|"")*"\z/
+    # [XWB]1130 declares a 3-digit L-PACK width (XWBPRS LREAD reads exactly 3 digits); XwbClient#lpack writes 5 above this, so a longer L-PACK value is mis-framed.
+    MAX_LIST_LINE_BYTES = 999
+    # NEW reads these with no $G (GMPLSAVE.m:105, :112, :113, :141).
+    ADD_REQUIRED_FIELDS = %w[.01 1.01 .05 .12 .13].freeze
+    # EN reads these with no $G (GMPLSAVE.m:15, :22, :47, :50, :53).
+    # EN sets 80201/80202 (GMPLSAVE.m:20-21) and the SNOMED/VHAT fields 80001-80005 (:29-46) on GMPFLD, then reads GMPORIG for each with no $G at :60.
+    EDIT_REQUIRED_ORIGINALS = %w[.01 .05 .12 1.01 1.02 80001 80002 80003 80004 80005 80201 80202].freeze
+    # DR="1.02////"_GMPFLD(1.02) (GMPLSAVE.m:49).
+    FIELD_1_02 = %w[P T H].freeze
 
     # List a patient's problems. Underlying RPC: ORQQPL LIST — verified row
     # shape IEN^NARRATIVE^STATUS^ICD^ONSET^LAST MODIFIED^SC^SPEXP^... (see
@@ -35,6 +61,7 @@ module RpmsRpc
 
       DataMapper.problem_list.fetch_many(dfn.to_s, "").reject { |r| r[:ien].to_s.empty? }
     end
+    shape :for_patient, resource: "problems", verb: "GET", path: "/patients/{dfn}/problems"
 
     # Add a problem. The routine requires a resolvable ICD (or a SNOMED CT
     # the site can map — BGOPROB.m:251-252,272-273) and a location IEN
@@ -62,8 +89,12 @@ module RpmsRpc
       # fetch_scalar would collapse into nil (indistinguishable from
       # broker silence — and silence must never read as a delete).
       raw = RpmsRpc.client.call_rpc(DataMapper.problem_remove.rpc_name, "#{ien}^^#{reason}")
-      success = raw.is_a?(String) && !raw.match?(/\A-\d+(?:\.\d+)?\^/)
+      success = DataMapper.write_accepted?(raw)
       { success: success, ien: success ? ien.to_i : nil, raw: raw }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A value the wire would mis-frame is refused before anything is sent
+      # (#472); this API's contract is a failure hash, so it says why.
+      failure.merge(error: e.message)
     end
 
     # ORQQPL stock-VistA reads. Use these when the engine wants the
@@ -77,12 +108,14 @@ module RpmsRpc
 
       Array(DataMapper.problem_lex_search.fetch_many(text.to_s))
     end
+    shape :lex_search, resource: "problems", verb: "GET", path: "/problems/lex-search"
 
     def clinic_search(clinic_ien)
       return [] if invalid_id?(clinic_ien)
 
       Array(DataMapper.problem_clinic_search.fetch_many(clinic_ien.to_s))
     end
+    shape :clinic_search, resource: "problems", verb: "GET", path: "/problems/clinics/{clinic_ien}/search"
 
     # Formals: DETAIL(Y,DFN,PROBIEN,ID) (ORQQPL.m:21) — the problem IEN is
     # the third formal, after the patient; ID is declared but never read
@@ -93,18 +126,21 @@ module RpmsRpc
 
       DataMapper.problem_detail.fetch_one(dfn.to_s, ien.to_s)
     end
+    shape :details, resource: "problems", verb: "GET", path: "/patients/{dfn}/problems/{ien}"
 
     def audit_history(ien)
       return [] if invalid_id?(ien)
 
       Array(DataMapper.problem_audit_history.fetch_many(ien.to_s))
     end
+    shape :audit_history, resource: "problems", verb: "GET", path: "/problems/{ien}/audit-history"
 
     def comments(ien)
       return [] if invalid_id?(ien)
 
       Array(DataMapper.problem_comments.fetch_many(ien.to_s))
     end
+    shape :comments, resource: "problems", verb: "GET", path: "/problems/{ien}/comments"
 
     def init_patient(dfn)
       return nil if invalid_id?(dfn)
@@ -117,6 +153,7 @@ module RpmsRpc
 
       Array(DataMapper.problem_provider_list.fetch_many(dfn.to_s))
     end
+    shape :provider_list, resource: "problems", verb: "GET", path: "/patients/{dfn}/problems/provider-list"
 
     # Formals: EDLOAD(RETURN,DA,GMPROV,GMPVAMC) (ORQQPL1.m:83) — the problem
     # IEN, then the provider DUZ, then the facility: an INSTITUTION (#4) IEN,
@@ -133,11 +170,10 @@ module RpmsRpc
       DataMapper.problem_edit_load.fetch_one(ien.to_s, provider_duz.to_s, institution_ien.to_s)
     end
 
-    # ORQQPL stock-VistA state-change writes that don't overlap with the
-    # IHS BGOPROB API above. Inactivate and verify are clean adds; ADD
-    # SAVE / EDIT SAVE / DELETE / UPDATE / REPLACE are wired in mappings.rb
-    # for direct DataMapper use but not given Ruby-side wrappers here
-    # because they shadow the existing add/update/delete methods.
+    # ORQQPL stock-VistA state changes beside the IHS BGOPROB API above.
+    # inactivate / verify are single-IEN writes. add_stock / update_stock
+    # are ORQQPL ADD SAVE / EDIT SAVE and do not replace Problem.add /
+    # Problem.update. DELETE, UPDATE, and REPLACE stay on the mappings.
 
     def inactivate(ien)
       raw = DataMapper.problem_inactivate.fetch_scalar(ien.to_s)
@@ -148,6 +184,68 @@ module RpmsRpc
       raw = DataMapper.problem_verify.fetch_scalar(ien.to_s)
       success_result(raw)
     end
+
+    # Stock-VistA add. ORQQPL ADD SAVE -> ADDSAVE^ORQQPL1
+    # (ORQQPL1.m:149): four actuals, GMPDFN, GMPROV, GMPVAMC, ADDARRAY.
+    # Stock VistA adds a sixth formal GMPSRCH (WorldVistA ORQQPL1.m:191);
+    # it is not sent. FOIA runs every list value as M
+    # (`S @ADDARRAY(S)`, ORQQPL1.m:160). Lock failure leaves RETURN 0
+    # (ORQQPL1.m:154-156). Success stores the new IFN then overwrites
+    # RETURN with 1 (ORQQPL1.m:164, :167), so the IFN is not returned.
+    # NEW reads .01, 1.01, .05, .12, and .13 with no $G (GMPLSAVE.m:105, :112, :113, :141).
+    def add_stock(dfn, provider_duz:, vamc:, fields:, comments: [])
+      patient = canonical_id(dfn)
+      provider = canonical_id(provider_duz)
+      facility = canonical_id(vamc)
+      refused = frame_too_long_id(patient, provider, facility)
+      return refused if refused
+
+      mapped = canonical_fields(fields)
+      return failure unless patient && provider && facility && mapped
+      return failure unless ADD_REQUIRED_FIELDS.all? { |field| mapped.key?(field) }
+
+      lines = gmp_lines([ [ "GMPFLD", mapped ] ], comments)
+      return lines if lines.is_a?(Hash)
+      return failure unless lines.is_a?(Array) && !lines.empty?
+
+      raw = DataMapper.problem_add_save.fetch_scalar(patient, provider, facility, lines)
+      stock_save_result(raw)
+    end
+    shape :add_stock, resource: "problems", verb: "POST", path: "/patients/{dfn}/problems/stock"
+
+    # Stock-VistA edit. ORQQPL EDIT SAVE -> EDSAVE^ORQQPL1
+    # (ORQQPL1.m:109): five actuals, GMPIFN, GMPROV, GMPVAMC, UT, EDARRAY.
+    # Stock VistA adds GMPSRCH (WorldVistA ORQQPL1.m:118); it is not sent.
+    # UT is "1" or "0" (`I UT S GMPLUSER=1`, ORQQPL1.m:115). FOIA runs every
+    # list value as M (`S @EDARRAY(S)`, ORQQPL1.m:120). Lock failure sets
+    # RETURN 0 (ORQQPL1.m:122-123); the success path sets RETURN 1
+    # (ORQQPL1.m:114, :129). originals is the snapshot EN reads with no $G
+    # (GMPLSAVE.m:15, :22, :47, :50, :53). GMPORIG sends that snapshot;
+    # GMPFLD sends it with changes overlaid. A change for a field absent
+    # from the snapshot is refused.
+    def update_stock(ien, provider_duz:, vamc:, changes:, originals:, user_type: false, comments: [])
+      problem = canonical_id(ien)
+      provider = canonical_id(provider_duz)
+      facility = canonical_id(vamc)
+      refused = frame_too_long_id(problem, provider, facility)
+      return refused if refused
+
+      flag = case user_type
+      when true then "1"
+      when false then "0"
+      end
+      origin = canonical_fields(originals)
+      merged = merge_snapshot(origin, canonical_fields(changes))
+      return failure unless problem && provider && facility && flag && merged
+
+      lines = gmp_lines([ [ "GMPFLD", merged ], [ "GMPORIG", origin ] ], comments)
+      return lines if lines.is_a?(Hash)
+      return failure unless lines.is_a?(Array) && !lines.empty?
+
+      raw = DataMapper.problem_edit_save.fetch_scalar(problem, provider, facility, flag, lines)
+      stock_save_result(raw, ien: problem.to_i)
+    end
+    shape :update_stock, resource: "problems", verb: "PUT", path: "/problems/{ien}/stock"
 
     private
 
@@ -167,6 +265,10 @@ module RpmsRpc
         ien: saved_ien,
         raw: raw
       }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A value the wire would mis-frame is refused before anything is sent
+      # (#472); this API's contract is a failure hash, so it says why.
+      failure.merge(error: e.message)
     end
 
     def build_p_line(fields)
@@ -175,6 +277,12 @@ module RpmsRpc
 
     def failure
       { success: false, ien: nil, raw: nil }
+    end
+
+    # A literal the 3-digit L-PACK width would mis-frame. The message names
+    # the limit and the byte count and never the literal itself.
+    def frame_too_long(bytesize)
+      failure.merge(error: :frame_too_long, message: "L-PACK value is #{bytesize} bytes, over the #{MAX_LIST_LINE_BYTES}-byte limit")
     end
 
     def invalid_id?(value)
@@ -189,6 +297,170 @@ module RpmsRpc
       success = line.match?(/\A[1-9]\d*\z/) || line.start_with?("1^")
       message = line.sub(/\A[01]\^/, "").strip
       { success: success, message: message.empty? ? nil : message, raw: raw }
+    end
+
+    # Same keys as write and failure. Exactly "1" is success
+    # (ORQQPL1.m:167, :128); "0" and every other reply are not
+    # (ORQQPL1.m:156, :123). ien is nil unless the caller passes the
+    # edited problem IEN and the reply is "1".
+    def stock_save_result(raw, ien: nil)
+      success = raw.to_s.strip == "1"
+      {
+        success: success,
+        ien: success ? ien : nil,
+        raw: raw
+      }
+    end
+
+    # Groups are [name, hash] pairs in wire order ("GMPFLD" then "GMPORIG").
+    # Returns nil when any input is not a safe literal, so the caller can
+    # fail closed before ORQQPL ADD SAVE / EDIT SAVE. A built line over
+    # MAX_LIST_LINE_BYTES returns the frame_too_long failure instead: the
+    # literal is safe, but the 3-digit L-PACK width would mis-frame it.
+    def gmp_lines(groups, comments)
+      return nil unless comments.is_a?(Array)
+
+      lines = []
+      groups.each do |name, pairs|
+        built = gmp_group(name, pairs)
+        return nil unless built
+
+        lines.concat(built)
+      end
+      comments.each_with_index do |text, index|
+        line = gmp_comment(index + 1, text)
+        return nil unless line
+
+        lines << line
+      end
+      over = lines.find { |line| line.bytesize > MAX_LIST_LINE_BYTES }
+      return frame_too_long(over.bytesize) if over
+      return nil unless lines.all? { |line| line.match?(SAFE_ASSIGNMENT) || line.match?(SAFE_COMMENT) }
+
+      lines
+    end
+
+    def gmp_group(name, pairs)
+      return nil unless pairs.is_a?(Hash) && (name == "GMPFLD" || name == "GMPORIG")
+
+      seen = {}
+      lines = []
+      pairs.each do |field, value|
+        number = fileman_field_number(field)
+        text = m_text(value)
+        # Two keys that become the same canonical subscript would silently
+        # overwrite; refuse the group instead of sending either.
+        return nil unless number && text && !seen[number]
+        # EN appends each value onto the FileMan DR string (GMPLSAVE.m:59).
+        return nil if text.include?(";")
+        # DR="1.02////"_value (GMPLSAVE.m:49).
+        return nil if number == "1.02" && !FIELD_1_02.include?(text)
+
+        seen[number] = true
+        lines << "#{name}(#{number})=\"#{m_quoted(text)}\""
+      end
+      lines
+    end
+
+    # Comment multiple: GMPFLD(10,"NEW",n). n is the 1-based index we
+    # assign, never caller text. NEWNOTE writes a caret-delimited node
+    # (GMPLSAVE.m:202).
+    def gmp_comment(index, value)
+      text = m_text(value)
+      return nil if text.nil? || text.include?("^")
+      return nil unless index.is_a?(Integer) && index.positive?
+
+      "GMPFLD(10,\"NEW\",#{index})=\"#{m_quoted(text)}\""
+    end
+
+    def fileman_field_number(field)
+      text = case field
+      when String then field
+      when Integer, Float then field.to_s
+      end
+      # match? raises ArgumentError on an invalid encoding. A field number is ASCII.
+      return nil unless ascii_token?(text)
+      return nil unless text.match?(FIELD_NUMBER)
+
+      text
+    end
+
+    # M-canonical subscript => value, in key order. Nil unless every key
+    # passes FIELD_NUMBER and no two keys repeat after Integer/Float to_s
+    # ("1" and 1 are the same subscript).
+    def canonical_fields(pairs)
+      return nil unless pairs.is_a?(Hash)
+
+      mapped = {}
+      pairs.each do |field, value|
+        number = fileman_field_number(field)
+        return nil unless number && !mapped.key?(number)
+
+        mapped[number] = value
+      end
+      mapped
+    end
+
+    # GMPFLD is the snapshot with changes overlaid. Every changed field
+    # must already be in the snapshot; GMPORIG is the snapshot unchanged.
+    def merge_snapshot(origin, change)
+      return nil unless origin && change
+      return nil unless EDIT_REQUIRED_ORIGINALS.all? { |field| origin.key?(field) }
+      return nil unless change.each_key.all? { |field| origin.key?(field) }
+
+      origin.merge(change)
+    end
+
+    # String, or Integer via to_s. A control character would split the line
+    # the routine executes, so it is refused. Bytes are read as UTF-8 whatever
+    # encoding tag they carry, and the literal is sent as UTF-8.
+    def m_text(value)
+      text = case value
+      when String, Integer then value.to_s
+      end
+      return nil if text.nil?
+
+      utf8 = text.dup.force_encoding(Encoding::UTF_8)
+      return nil unless utf8.valid_encoding?
+      return nil if utf8.match?(/[[:cntrl:]]/)
+
+      utf8
+    end
+
+    # Embedded quotes are doubled so they stay inside the M literal.
+    def m_quoted(text)
+      text.gsub('"', '""')
+    end
+
+    # M-canonical digit string, or nil. Length is not part of canonical:
+    # a canonical ID over the L-PACK width is still canonical, and
+    # frame_too_long_id refuses it. A non-canonical value stays nil so
+    # the caller returns a plain failure.
+    def canonical_id(value)
+      text = case value
+      when Integer then value.to_s
+      when String then value
+      end
+      # match? raises ArgumentError on an invalid encoding. An ID literal is ASCII.
+      return nil unless ascii_token?(text)
+      return nil unless text.match?(CANONICAL_ID)
+
+      text
+    end
+
+    # Among IDs canonical_id accepted. Nil (not canonical, or short enough
+    # to send) is not this refusal.
+    def frame_too_long_id(*texts)
+      over = texts.find { |text| text.is_a?(String) && text.bytesize > MAX_LIST_LINE_BYTES }
+      return nil unless over
+
+      frame_too_long(over.bytesize)
+    end
+
+    # Field keys and ID strings are ASCII tokens. Checked before any match?
+    # so an invalid encoding comes back as failure, not ArgumentError.
+    def ascii_token?(text)
+      !text.nil? && text.valid_encoding? && text.ascii_only?
     end
   end
 end

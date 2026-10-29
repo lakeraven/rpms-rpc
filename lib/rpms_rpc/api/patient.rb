@@ -1,7 +1,11 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
+require_relative "../reply"
 require_relative "registration"
+require_relative "agg"
 require_relative "ddr_fileman"
+require_relative "../context_scope"
 require_relative "../phi_sanitizer"
 
 module RpmsRpc
@@ -9,6 +13,11 @@ module RpmsRpc
   # instead of referencing DataMapper mappings directly.
   module Patient
     extend self
+    extend Shape::Declarable
+
+    # The option that lists DDR GETS ENTRY DATA on the pinned build, as in
+    # Practitioner.
+    FILEMAN_CONTEXT = "CIAV VUECENTRIC"
 
     def find(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
@@ -21,6 +30,7 @@ module RpmsRpc
 
       attrs
     end
+    shape :find, resource: "patients", verb: "GET", path: "/patients/{dfn}"
 
     # ORWPT LIST ALL (LISTALL^ORWPT): ONE PAGE of the PATIENT "B" (name)
     # index, in index order, starting AT the text. It is not a filter (#352):
@@ -36,6 +46,7 @@ module RpmsRpc
     def search(name_pattern)
       DataMapper.patient_list.fetch_many(page_start(name_pattern.to_s), "1")
     end
+    shape :search, resource: "patients", verb: "GET", path: "/patients"
 
     # AGG LOOKUP PATIENTS — the IHS division-aware lookup (FND^AGGPTLKP).
     #
@@ -65,17 +76,18 @@ module RpmsRpc
       end
       raise ArgumentError, "search text is required" if text.to_s.strip.empty?
 
-      rows = fetch_lookup_rows(
+      rows = in_aggrpc { fetch_lookup_rows(
         DataMapper.patient_lookup_agg,
         text.to_s,
         type.to_s,
         all_divisions ? "1" : "",
         include_inactive ? "1" : "",
         require_response: require_response
-      )
+      ) }
 
       rows.map { |row| normalize_lookup_row(row) }
     end
+    shape :lookup, resource: "patients", verb: "GET", path: "/patients/lookup"
 
     # ORWPT FULLSSN (FULLSSN^ORWPT) reads the "SSN" index by exact value, and
     # the index holds the SSN without punctuation ("000009999", or
@@ -87,6 +99,7 @@ module RpmsRpc
 
       DataMapper.patient_ssn.fetch_one(bare)
     end
+    shape :find_by_ssn, resource: "patients", verb: "GET", path: "/patients/by-ssn"
 
     # Register a new patient via RpmsRpc::Registration, which delegates to
     # the IHS AG package (AGG ADD NEW PATIENT / AGG UPDATE PATIENT under
@@ -102,6 +115,9 @@ module RpmsRpc
     #   nil when the add gives no response. A missing lookup response is
     #   :identity_unverifiable and never authorizes an add. Only literal
     #   allow_duplicate: true overrides reviewed lookup candidates.
+    #
+    # Raises Client::FrameTooLongError for a value the wire cannot frame
+    # (see Registration.register, #480).
     def register(attrs)
       Registration.register(attrs)
     end
@@ -151,6 +167,7 @@ module RpmsRpc
         primary_provider: provider
       }
     end
+    shape :brief_header, resource: "patients", verb: "GET", path: "/patients/{dfn}/brief-header"
 
     # Patient telecom (FHIR Patient.telecom source) — home / work / cell /
     # other phone + email, read via the registered generic FileMan read
@@ -188,19 +205,23 @@ module RpmsRpc
     # this gem (RpmsRpc::Registration), and returns all four structured.
     #
     # Returns { dfn:, phone_home:, phone_work:, phone_cell:, phone_other:,
-    # email: } (missing values nil), or nil when the broker gives no
-    # response / FileMan errors on either read, so callers can distinguish
-    # "no phone on file" from "unreachable". AG pairs every PATIENT with an
-    # IHS PATIENT entry (AG71A1.m:138), so a missing #9000001 entry is a
-    # failed read too.
+    # email: } (missing values nil), or nil when the DFN is not a positive
+    # whole number (the same guard as Practitioner#roles — a non-integer
+    # never reaches the wire), the broker gives no response, or FileMan
+    # errors on either read, so callers can distinguish "no phone on file"
+    # from "unreachable". AG pairs every PATIENT with an IHS PATIENT entry
+    # (AG71A1.m:138), so a missing #9000001 entry is a failed read too.
+    # Both reads bind FILEMAN_CONTEXT and restore the caller's option.
     def contact(dfn)
-      return nil if dfn.nil? || dfn.to_i <= 0
+      return nil unless dfn.to_s.match?(/\A\d+\z/) && dfn.to_i.positive?
 
-      patient = telecom_fields("2", dfn, ".131;.132;.134")
-      return nil if patient.nil?
-
-      ihs = telecom_fields(Registration::PATIENT_FILE, dfn, "1801;1802")
-      return nil if ihs.nil?
+      patient = nil
+      ihs = nil
+      ContextScope.scoped(RpmsRpc.client, FILEMAN_CONTEXT) do
+        patient = telecom_fields("2", dfn, ".131;.132;.134")
+        ihs = telecom_fields(Registration::PATIENT_FILE, dfn, "1801;1802") unless patient.nil?
+      end
+      return nil if patient.nil? || ihs.nil?
 
       {
         dfn:         dfn.to_i,
@@ -211,6 +232,76 @@ module RpmsRpc
         email:       external(ihs, "1802")
       }
     end
+    shape :contact, resource: "patients", verb: "POST", path: "/patients/{dfn}/contact"
+
+    # Mailing address on PATIENT (#2), read via the registered generic
+    # FileMan read (DDR GETS ENTRY DATA — GETSC^DDR2), the same path as
+    # #contact. The DD fields were read from the live data dictionary on
+    # the bcer-9.0 container per issue #294, and a live spec has not yet
+    # proven them (ADR 0009):
+    #
+    #   .111 STREET ADDRESS [LINE 1]
+    #   .112 STREET ADDRESS [LINE 2]
+    #   .113 STREET ADDRESS [LINE 3]
+    #   .114 CITY
+    #   .115 STATE (P5, pointer to STATE #5; external is the NAME)
+    #   .116 ZIP CODE
+    #   .1112 ZIP+4 (accepts 5 to 20 characters; ZIPOUT^VAFADDR prints
+    #         12345 or 12345-6789, so the value is the WHOLE ZIP+4)
+    #
+    # state is the .115 external. state_ien is the .115 internal as an
+    # Integer, nil when empty or not a positive whole number. The
+    # abbreviation is not resolved from STATE #5.
+    #
+    # Returns { dfn:, line1:, line2:, line3:, city:, state:, state_ien:,
+    # zip:, zip_plus4: } (missing values nil), or nil when the DFN is not a
+    # positive whole number (the same guard as Practitioner#roles), the
+    # broker gives no reply, FileMan errors, or the reply has no field
+    # rows. The read binds FILEMAN_CONTEXT and restores the caller's option.
+    def address(dfn)
+      return nil unless dfn.to_s.match?(/\A\d+\z/) && dfn.to_i.positive?
+
+      fields = ContextScope.scoped(RpmsRpc.client, FILEMAN_CONTEXT) do
+        telecom_fields("2", dfn, ".111;.112;.113;.114;.115;.116;.1112")
+      end
+      return nil if fields.nil?
+
+      {
+        dfn:       dfn.to_i,
+        line1:     external(fields, ".111"),
+        line2:     external(fields, ".112"),
+        line3:     external(fields, ".113"),
+        city:      external(fields, ".114"),
+        state:     external(fields, ".115"),
+        state_ien: internal_ien(fields, ".115"),
+        zip:       external(fields, ".116"),
+        zip_plus4: external(fields, ".1112")
+      }
+    end
+    shape :address, resource: "patients", verb: "POST", path: "/patients/{dfn}/address"
+
+    # PATIENT (#2) field .06 RACE is P10'X. Its input transform is
+    # historical-only ("ENTRY OF DATA NOT ALLOWED") but the value is
+    # readable, via DDR GETS ENTRY DATA the same way as #address. The
+    # USCDI multiples (2 RACE INFORMATION, 6 ETHNICITY INFORMATION) are
+    # out of scope for #294.
+    #
+    # Returns { dfn:, race: } (the external value, or nil when empty), or
+    # nil when the DFN is not a positive whole number (the same guard as
+    # Practitioner#roles), the broker gives no reply, FileMan errors, or
+    # the reply has no field rows. The read binds FILEMAN_CONTEXT and
+    # restores the caller's option.
+    def race(dfn)
+      return nil unless dfn.to_s.match?(/\A\d+\z/) && dfn.to_i.positive?
+
+      fields = ContextScope.scoped(RpmsRpc.client, FILEMAN_CONTEXT) do
+        telecom_fields("2", dfn, ".06")
+      end
+      return nil if fields.nil?
+
+      { dfn: dfn.to_i, race: external(fields, ".06") }
+    end
+    shape :race, resource: "patients", verb: "POST", path: "/patients/{dfn}/race"
 
     # The parsed fields of one DDR GETS ENTRY DATA read, or nil when it
     # failed. A reply that parsed NO field rows is a failed read, not
@@ -245,6 +336,18 @@ module RpmsRpc
     LOOKUP_ARRAY_END  = "\x1f" # $C(31) — end-of-array sentinel
     LOOKUP_ACK        = "\x00" # broker ack byte after the sequence echo
 
+    # AGG LOOKUP PATIENTS is registered under the AGGRPC option only, so under
+    # any other context (CIAV VUECENTRIC, what a CIA sign-on binds) the broker
+    # refuses it. Bind AGGRPC for the call and restore the caller's context, as
+    # RpmsRpc::Agg does for every AGG RPC; nesting inside Agg is free.
+    def in_aggrpc(&block)
+      client = RpmsRpc.client
+      return block.call unless client.respond_to?(:with_context)
+
+      client.with_context(Agg::CONTEXT, &block)
+    end
+    private :in_aggrpc
+
     def fetch_lookup_rows(mapping, *params, require_response: false)
       client = RpmsRpc.client
       raw = if client.respond_to?(:call_rpc_global_array)
@@ -255,9 +358,27 @@ module RpmsRpc
 
       decoded = decode_global_array(raw)
       validate_lookup_reply!(decoded) if require_response
-      mapping.parse_many(decoded)
+      lines, altered = lookup_lines(decoded)
+      # The framed blob is split into rows BEFORE the flag is read, so a row's
+      # flag has to come from the reply as a whole: when the reply says it
+      # replaced a byte, every row holding the replacement character is
+      # altered (rpms-rpc#463).
+      if Reply.altered?(raw)
+        altered |= lines.each_index.select { |i| lines[i].to_s.include?(Reply::REPLACEMENT) }
+      end
+      mapping.parse_many_flagged(lines, altered)
     end
     private :fetch_lookup_rows
+
+    # [rows, altered_indexes] for what decode_global_array returned: record
+    # rows, an ordinary newline-delimited body, or nothing. A "-1^message"
+    # error body yields no rows, as DataMapper#parse_many treats it.
+    def lookup_lines(decoded)
+      return [ [], [] ] if decoded.is_a?(String) && decoded.start_with?("-1^")
+
+      Reply.lines_with_altered(decoded)
+    end
+    private :lookup_lines
 
     # HDR^AGGPTLKP has nine columns, with two optional community columns.
     # Validate before DataMapper skips headers or coerces malformed values.
@@ -340,7 +461,10 @@ module RpmsRpc
         alias: row[:alias],
         inactive: row[:inactive_raw].to_s.strip.upcase == "Y",
         community: row[:community],
-        mothers_maiden_name: row[:mothers_maiden_name]
+        mothers_maiden_name: row[:mothers_maiden_name],
+        # True when any text of this row had a byte replaced to become valid
+        # UTF-8; a caller matching on the name must refuse an altered row.
+        altered: row[:altered] == true
       }
     end
 
@@ -371,6 +495,13 @@ module RpmsRpc
     def external(fields, field_number)
       value = fields[field_number] && fields[field_number][:external]
       value.nil? || value.empty? ? nil : value
+    end
+
+    # Internal value of a pointer field as a positive IEN, or nil when it
+    # is empty or not a positive whole number.
+    def internal_ien(fields, field_number)
+      value = fields[field_number] && fields[field_number][:internal]
+      value.to_s.match?(/\A[1-9]\d*\z/) ? value.to_i : nil
     end
   end
 end

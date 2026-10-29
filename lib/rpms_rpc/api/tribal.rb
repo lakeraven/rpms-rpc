@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "ddr_fileman"
 require_relative "registration"
 
@@ -34,11 +35,16 @@ module RpmsRpc
   # invents response layouts — unknown semantics stay unprojected.
   module Tribal
     extend self
+    extend Shape::Declarable
 
     TRIBE_FILE = "9999999.03"
     # LIST^DIC FIELDS for an IEN^name row: "@" drops the default, ".01" adds the name.
     NAME_ONLY = "@;.01"
     SERVICE_UNIT_FILE = "9999999.22"
+    COMMUNITY_FILE = "9999999.05"
+    # .01 NAME, .02 COUNTY (#9999999.23), .03 STATE (#5): a community's name repeats across
+    # states ("UNKNOWN" is filed many times), so its county and state say which one it is.
+    COMMUNITY_FIELDS = "@;.01;.02;.03"
 
     FIELD_ENROLLMENT_NUMBER = ".07"
     FIELD_TRIBE_QUANTUM = "1109"
@@ -78,6 +84,7 @@ module RpmsRpc
         community:            external(fields, Registration::FIELD_COMMUNITY)
       }
     end
+    shape :enrollment, resource: "tribes", verb: "GET", path: "/patients/{dfn}/tribes/enrollment"
 
     # Eligibility projection — the 1111/1112 subset of the same read.
     # eligibility_status is the internal set code (I/D/C/P per the live
@@ -95,6 +102,7 @@ module RpmsRpc
         classification:          external(fields, Registration::FIELD_CLASSIFICATION)
       }
     end
+    shape :eligibility, resource: "tribes", verb: "GET", path: "/patients/{dfn}/tribes/eligibility"
 
     # Syntactic validation of a tribal enrollment number against the live
     # input transform of #9000001 field .07 (VAL^DIE via DDR VALIDATOR).
@@ -121,6 +129,7 @@ module RpmsRpc
 
       { ien: ien.to_i, name: external(fields, ".01") }
     end
+    shape :service_unit, resource: "tribes", verb: "GET", path: "/tribes/{ien}/service-unit"
 
     # TRIBE (#9999999.03) table entry by IEN — .01 NAME, .02 code.
     def tribe_info(ien)
@@ -129,6 +138,7 @@ module RpmsRpc
 
       { ien: ien.to_i, name: external(fields, ".01"), code: external(fields, ".02") }
     end
+    shape :tribe_info, resource: "tribes", verb: "GET", path: "/tribes/{ien}/info"
 
     # List tribes via LIST^DIC over the "B" (name) index — packed rows come
     # back IEN-first with the .01 value (V0 reply shape, LISTC^DDR). The .01
@@ -147,6 +157,28 @@ module RpmsRpc
         { ien: entry[:ien].to_i, name: entry[:pieces]&.first }
       end
     end
+    shape :tribes, resource: "tribes", verb: "GET", path: "/tribes"
+
+    # List communities (COMMUNITY #9999999.05, ^AUTTCOM) via LIST^DIC over the
+    # "B" index, as #tribes does: registration files the patient's community of
+    # residence by this IEN (Registration community_ien:, field 1117). A build
+    # holds thousands, so callers narrow with part:. External values, so the
+    # county and state come back as names.
+    #   part: narrows to names starting with the given text
+    #   from: resume point for paging (see DdrFileman.lister's :more)
+    # Returns [{ ien:, name:, county:, state: }] ([] for an empty page), or nil
+    # (no broker response).
+    def communities(part: nil, from: nil)
+      listing = DdrFileman.lister(file: COMMUNITY_FILE, fields: COMMUNITY_FIELDS, part: part, from: from, xref: "B")
+      return nil if listing.nil?
+      return [] if listing[:error]
+
+      listing[:entries].map do |entry|
+        name, county, state = entry[:pieces]
+        { ien: entry[:ien].to_i, name: name, county: county, state: state }
+      end
+    end
+    shape :communities, resource: "tribes", verb: "GET", path: "/tribes/communities"
 
     private
 

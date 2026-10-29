@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -12,18 +13,24 @@ module RpmsRpc
   # GETTEXT, ACCESS LEVEL.
   module NoteTemplate
     extend self
+    extend Shape::Declarable
+
+    # The FileMan word-processing 0-node, "^^lines^lines^date^^", and its line break.
+    WP_HEADER = /\A\^\^\d+\^\d+\^\d*\^\^\n?/
 
     def roots(user_duz)
       return [] if invalid_id?(user_duz)
 
       Array(DataMapper.template_roots.fetch_many(user_duz.to_s))
     end
+    shape :roots, resource: "note-templates", verb: "GET", path: "/users/{user_duz}/note-templates/roots"
 
     def items(template_ien)
       return [] if invalid_id?(template_ien)
 
       Array(DataMapper.template_items.fetch_many(template_ien.to_s))
     end
+    shape :items, resource: "note-templates", verb: "GET", path: "/note-templates/{template_ien}/items"
 
     # A template's UNEXPANDED boilerplate: GETBOIL(TIUY,TIUDA)
     # (TIUSRVT.m:55) takes the template alone and copies its text nodes
@@ -34,6 +41,7 @@ module RpmsRpc
 
       DataMapper.template_boilerplate.fetch_text(template_ien.to_s)
     end
+    shape :boilerplate, resource: "note-templates", verb: "GET", path: "/note-templates/{template_ien}/boilerplate"
 
     # Expand boilerplate TEXT for a patient and visit — the |FIELD| objects
     # resolved server-side. Underlying RPC: TIU TEMPLATE GETTEXT.
@@ -47,6 +55,9 @@ module RpmsRpc
     # template-IEN frame died in M on VSTR (#259).
     #
     # Returns the expanded lines joined, or nil when nothing came back.
+    # BLRPLT^TIUSRVD answers ^TMP("TIUBOIL",$J), whose 0-node is the FileMan
+    # word-processing header "^^lines^lines^date^^" (TIUSRVD.m:81, :88); the
+    # reply carries it as its first line, and it is not text, so it is dropped.
     def text(lines, dfn:, visit_string: "")
       return nil if invalid_id?(dfn)
 
@@ -54,14 +65,17 @@ module RpmsRpc
       return nil if lines.empty?
 
       tiux = lines.each_with_index.to_h { |line, i| [ [ i + 1, 0 ], line ] }
-      DataMapper.template_text.fetch_text(dfn.to_s, visit_string.to_s, tiux)
+      expanded = DataMapper.template_text.fetch_text(dfn.to_s, visit_string.to_s, tiux)
+      expanded&.sub(WP_HEADER, "")
     end
+    shape :text, resource: "note-templates", verb: "GET", path: "/patients/{dfn}/note-templates/text"
 
     def access_level(template_ien, user_duz)
       return nil if invalid_id?(template_ien) || invalid_id?(user_duz)
 
       DataMapper.template_access_level.fetch_scalar(template_ien.to_s, user_duz.to_s)
     end
+    shape :access_level, resource: "note-templates", verb: "GET", path: "/note-templates/{template_ien}/access-level"
 
     private
 

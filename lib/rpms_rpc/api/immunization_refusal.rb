@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../fileman_date_parser"
 require_relative "../mappings"
 
@@ -12,6 +13,7 @@ module RpmsRpc
   # in-package immunization component does (BGOVIMM2.m:100).
   module ImmunizationRefusal
     extend self
+    extend Shape::Declarable
 
     REFUSAL_TYPE = "IMMUNIZATION"
 
@@ -51,8 +53,11 @@ module RpmsRpc
       # fetch_scalar would collapse into nil — indistinguishable from
       # broker silence, and silence must never read as a filed refusal.
       raw = RpmsRpc.client.call_rpc(DataMapper.refusal_set.rpc_name, inp)
-      success = raw.is_a?(String) && !raw.match?(/\A-\d+(?:\.\d+)?\^/)
-      { success: success, ien: nil, raw: raw }
+      { success: DataMapper.write_accepted?(raw), ien: nil, raw: raw }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A value the wire would mis-frame is refused before anything is sent
+      # (#472); the failure shape says why instead of raising.
+      failure.merge(error: e.message)
     end
 
     # Valid refusal reasons for a refusal type (default "IMMUNIZATION" —
@@ -60,6 +65,7 @@ module RpmsRpc
     def reasons(type = REFUSAL_TYPE)
       Array(DataMapper.refusal_reasons.fetch_many(type.to_s))
     end
+    shape :reasons, resource: "immunization-refusals", verb: "GET", path: "/immunization-refusals/reasons"
 
     private
 

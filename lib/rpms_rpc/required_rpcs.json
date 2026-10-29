@@ -16,11 +16,13 @@
       "CIANBRPC CANRUN"
     ],
     "RpmsRpc::Allergy": [
-      "ORQQAL LIST"
+      "ORQQAL LIST",
+      "ORWDAL32 SAVE ALLERGY"
     ],
     "RpmsRpc::Authentication": [
       "CIAVCXUS HASKEYS",
       "DDR LISTER",
+      "ORWU HAS OPTION ACCESS",
       "ORWU NPHASKEY",
       "ORWU USERINFO",
       "XUS AV CODE",
@@ -121,6 +123,10 @@
       "BGOVIMM GET",
       "DDR GETS ENTRY DATA"
     ],
+    "RpmsRpc::ImmunizationLot": [
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
+    ],
     "RpmsRpc::ImmunizationRefusal": [
       "BGOREF GETREA",
       "BGOREF SET"
@@ -153,6 +159,8 @@
       "BQI GET COMM ALERTS SPLASH"
     ],
     "RpmsRpc::Order": [
+      "ORWDX SAVE",
+      "ORWDXC ACCEPT",
       "ORWOR ACTION TEXT",
       "ORWOR EXPIRED",
       "ORWOR RESULT",
@@ -199,10 +207,12 @@
     "RpmsRpc::Problem": [
       "BGOPROB DEL",
       "BGOPROB SET",
+      "ORQQPL ADD SAVE",
       "ORQQPL AUDIT HIST",
       "ORQQPL CLIN SRCH",
       "ORQQPL DETAIL",
       "ORQQPL EDIT LOAD",
+      "ORQQPL EDIT SAVE",
       "ORQQPL INACTIVATE",
       "ORQQPL INIT PT",
       "ORQQPL LIST",
@@ -262,8 +272,11 @@
       "BSDX CANCEL APPOINTMENT",
       "BSDX CHECKIN APPOINTMENT",
       "BSDX CLINIC SETUP",
+      "BSDX CREATE APPT SCHEDULE",
+      "BSDX CREATE ASGND SLOT SCHED",
       "BSDX HOSPITAL LOCATION",
       "BSDX NOSHOW",
+      "BSDX RESOURCES",
       "BSDX SEARCH AVAILABILITY",
       "BSDX UNCANCEL APPT"
     ],

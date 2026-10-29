@@ -2,6 +2,8 @@
 
 require_relative "../mappings"
 require_relative "../context_scope"
+require_relative "agg"
+require_relative "../shape"
 
 module RpmsRpc
   # Symbolic API for RPMS appointment scheduling — the BSDX package (Clinical
@@ -32,11 +34,14 @@ module RpmsRpc
   # header — while the seeded tests passed. Same defect as AGG LOOKUP PATIENTS,
   # fixed in #237. Tracked as #254.
   #
-  # The truncated read does NOT simply yield "no rows". call_rpc pipes the reply
-  # through printable(), which flattens the 1-byte sequence echo and the \x00
-  # ack to SPACES rather than dropping them, so the surviving line reaches
-  # DataMapper as "  I00020APPOINTMENTID^T00020ERRORID". Its first caret piece
-  # no longer matches /\A[ITDF]\d{5}/, so recordset_header_row? returns false
+  # The truncated read does NOT simply yield "no rows". call_rpc goes through
+  # Reply.from_wire(controls: true) (it used to pipe the reply through
+  # printable()), which flattens the 1-byte sequence echo and the \x00 ack to
+  # SPACES rather than dropping them. (A high byte that is not valid UTF-8
+  # becomes U+FFFD, not a space, and valid non-ASCII text is kept.) So the
+  # surviving line reaches DataMapper as "  I00020APPOINTMENTID^T00020ERRORID".
+  # Its first caret piece no longer matches /\A[ITDF]\d{5}/, so
+  # recordset_header_row? returns false
   # and the header is consumed AS A DATA ROW. Reads therefore return one bogus
   # record instead of an empty set, and writes report failure after the M side
   # has already filed. Diagnose accordingly: an implausible row is the symptom,
@@ -57,6 +62,7 @@ module RpmsRpc
   # of this bind.
   module Scheduling
     extend self
+    extend Shape::Declarable
 
     # The context option the BSDX RPCs are registered under — see the module
     # doc. Every method here binds it.
@@ -88,6 +94,11 @@ module RpmsRpc
       else
         { success: false, error: result[:error].to_s }
       end
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # The note is refused before the write is sent (#472; on a real session the
+      # context bind still goes out around it): the module contract is
+      # { success: false, error: String }.
+      { success: false, error: e.message }
     end
 
     # Cancel an appointment — BSDX CANCEL APPOINTMENT (APPDEL^BSDX08 → $$CANCEL^BSDAPI).
@@ -187,6 +198,76 @@ module RpmsRpc
       in_context { DataMapper.scheduling_hospital_location.fetch_many }
     end
 
+    # A resource's appointments between two dates — BSDX CREATE APPT SCHEDULE
+    # (CRSCH^BSDX02), the appointment list the scheduling client draws. Unlike
+    # all_appointments it carries each appointment's id (what cancel, check-in
+    # and no-show take) and its state. Cancelled appointments are included and
+    # marked; walk-ins are included. The note may hold CR/LF, so the reply is
+    # read as a recordset. It only reads, but the RPC is named CREATE, so it is
+    # classed and shaped as a write (never retried), like slot_schedule.
+    # Returns [{ id:, start_time:, end_time:, checkin_time:, patient_dfn:,
+    #   patient_name:, resource:, no_show:, hrn:, access_type_id:, walk_in:,
+    #   checkout_time:, cancelled:, note: }], or nil (no response).
+    def appointments(resource:, start_date:, end_date:)
+      name = resource.to_s
+      raise ArgumentError, "resource name must not contain '|': #{name.inspect}" if name.include?("|")
+
+      rows = in_context { recordset("BSDX CREATE APPT SCHEDULE", name, "#{fm(start_date)}.0001", "#{fm(end_date)}.2359", "") }
+      rows&.map do |r|
+        { id: r[:appointmentid].to_i, start_time: external_time(r[:start_time]), end_time: external_time(r[:end_time]),
+          checkin_time: external_time(r[:checkin]), patient_dfn: r[:patientid].to_i, patient_name: r[:patientname],
+          resource: r[:resourcename], no_show: r[:noshow].to_s == "1", hrn: blank_to_nil(r[:hrn]),
+          access_type_id: r[:accesstypeid].to_i, walk_in: r[:walkin].to_s == "1",
+          checkout_time: external_time(r[:checkout]), cancelled: r[:cancelled].to_s == "1", note: blank_to_nil(r[:note]) }
+      end
+    end
+    shape :appointments, resource: "appointments", verb: "POST", path: "/appointments"
+
+    # The scheduling resources and this user's rights on each — BSDX RESOURCES
+    # (RESUSR^BSDX01, for DUZ). A resource is what an appointment is booked on
+    # (add_appointment's resource:), linked to its clinic by
+    # hospital_location_id. time_scale is its slot length in minutes. The rights
+    # come from BSDX RESOURCE USER (#9002018.15); BSDXZMGR or XUPROGMODE grants
+    # all four (BSDX01.m). The letter columns are left out: their word-processing
+    # text carries CR/LF, so the reply is read as a recordset split on $C(30)
+    # only, never by line.
+    # Returns [{ id:, name:, inactive:, time_scale:, hospital_location_id:, view:,
+    #   overbook:, modify_schedule:, modify_appointments: }], or nil (no response).
+    def resources
+      rows = in_context { recordset("BSDX RESOURCES", "") }
+      rows&.map do |r|
+        { id: r[:resourceid].to_i, name: r[:resource_name], inactive: r[:inactive].to_s == "1",
+          time_scale: r[:timescale].to_i, hospital_location_id: r[:hospital_location_id].to_i,
+          view: r[:view].to_s == "1", overbook: r[:overbook].to_s == "1",
+          modify_schedule: r[:modify_schedule].to_s == "1", modify_appointments: r[:modify_appointments].to_s == "1" }
+      end
+    end
+    shape :resources, resource: "appointments", verb: "GET", path: "/appointments/resources"
+
+    # A resource's access blocks between two dates, with their slots — BSDX
+    # CREATE ASGND SLOT SCHED (CASSCH^BSDX04), what the scheduling client draws
+    # its calendar from. slots is how many appointments the block holds at a
+    # time; BSDX ADD NEW APPOINTMENT does not enforce it (a fifth booking into a
+    # four-slot block files), so a caller that books must. Blocks with 0 slots
+    # pad the day before and after the access blocks.
+    # Returns [{ start_time:, end_time:, slots:, resource:, access_type_id:,
+    #   note:, availability_id: }], or nil (no response).
+    def slot_schedule(resource:, start_date:, end_date:)
+      name = resource.to_s
+      raise ArgumentError, "resource name must not contain '|': #{name.inspect}" if name.include?("|")
+
+      rows = in_context { recordset("BSDX CREATE ASGND SLOT SCHED", name, "#{fm(start_date)}.0001", "#{fm(end_date)}.2359", "", "") }
+      rows&.map do |r|
+        { start_time: FilemanDateParser.parse_external_datetime(r[:start_time]),
+          end_time: FilemanDateParser.parse_external_datetime(r[:end_time]),
+          slots: r[:slots].to_i, resource: r[:resource], access_type_id: r[:access_type].to_i,
+          note: (r[:note].to_s.empty? ? nil : r[:note]), availability_id: r[:availabilityid].to_i }
+      end
+    end
+    # It only reads (CASSCH fills ^BSDXTMP), but the RPC is named CREATE, so it is
+    # classed and shaped as a write: never retried, and never offered as a GET.
+    shape :slot_schedule, resource: "appointments", verb: "POST", path: "/appointments/slot-schedule"
+
     # Per-clinic scheduling parameters — BSDX CLINIC SETUP (CLNSET^BSDX32).
     def clinic_setup
       in_context { DataMapper.scheduling_clinic_setup.fetch_many }
@@ -218,12 +299,39 @@ module RpmsRpc
       error_id = row.split("^", -1).first.to_s
       ok = error_id.empty? || (zero_ok && error_id == "0")
       ok ? { success: true } : { success: false, error: row }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      # A note or reason the wire would mis-frame is refused before the write is
+      # sent (#472; on a real session the context bind still goes out around
+      # it): the module contract is { success: false, error: String }.
+      { success: false, error: e.message }
     end
 
     # First non-header data row of a recordset response, as a String with the
     # $C(30)/$C(31) record separators stripped (shared recordset framing
     # rules live in DataMapper — see RECORDSET_SEPARATORS there). An empty row
     # is kept: for ERRORID-only writes it means success.
+    # A BMX recordset reply's rows as header-named hashes: the typed header,
+    # then $C(30)-separated records, to the $C(31) end (RpmsRpc::Agg.parse_reply).
+    # Read whole, so a field holding CR/LF stays inside its row. nil when the
+    # broker gives no response.
+    def recordset(rpc_name, *params)
+      client = RpmsRpc.client
+      raw = client.respond_to?(:call_rpc_global_array) ? client.call_rpc_global_array(rpc_name, *params) : client.call_rpc(rpc_name, *params)
+      return nil if raw.nil?
+
+      raw = raw.join("\x1e") if raw.is_a?(Array)
+      parsed = Agg.parse_reply(raw)
+      parsed ? parsed[:records] : []
+    end
+
+    def external_time(text)
+      FilemanDateParser.parse_external_datetime(text) unless text.to_s.strip.empty?
+    end
+
+    def blank_to_nil(value)
+      value.to_s.empty? ? nil : value
+    end
+
     def data_row(resp)
       Array(resp).map { |l| DataMapper.strip_recordset_separators(l) }
                  .reject { |l| DataMapper.recordset_header_row?(l) }
