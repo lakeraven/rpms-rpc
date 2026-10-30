@@ -74,6 +74,9 @@ RpmsRpc::ProgressNote.list	GET /patients/{dfn}/progress-notes
 RpmsRpc::Reminders.applicable	GET /patients/{dfn}/reminders/applicable
 RpmsRpc::Scheduling.patient_appointments	GET /patients/{dfn}/appointments
 RpmsRpc::Scheduling.resources	GET /appointments/resources
+RpmsRpc::SchedulingSetup.access_types	GET /appointments/access-types
+RpmsRpc::SchedulingSetup.clinic_rules	GET /appointments/clinic-rules
+RpmsRpc::SchedulingSetup.holidays	GET /appointments/holidays
 RpmsRpc::Session.bootstrap	GET /users/{user_duz}/sessions/bootstrap
 RpmsRpc::Site.current	GET /users/{user_duz}/sites/current
 RpmsRpc::Site.list	GET /users/{user_duz}/sites

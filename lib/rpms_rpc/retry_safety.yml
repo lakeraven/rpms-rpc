@@ -240,6 +240,9 @@
 "RpmsRpc::Scheduling.resources": read
 "RpmsRpc::Scheduling.slot_schedule": non_idempotent_write
 "RpmsRpc::Scheduling.uncancel_appointment": non_idempotent_write
+"RpmsRpc::SchedulingSetup.access_types": read
+"RpmsRpc::SchedulingSetup.clinic_rules": read
+"RpmsRpc::SchedulingSetup.holidays": read
 "RpmsRpc::Session.bootstrap": read
 "RpmsRpc::Site.current": read
 "RpmsRpc::Site.list": read
