@@ -196,6 +196,7 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
       orch = RpmsRpc::DailyReport::Orchestrator.from_env(
         root: ROOT,
         env: env,
+        releases: FakeReleases.new,
         runner: runner,
         coverage: coverage,
         rpms_rpc_commit: commit
