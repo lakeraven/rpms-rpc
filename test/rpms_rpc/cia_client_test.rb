@@ -539,6 +539,24 @@ class RpmsRpc::CiaClientTest < Minitest::Test
   # once (CIANBACT.m:24-27). RESET quits unless CIA("UID") is set
   # (CIANBRPC.m:102), so the quit frame must carry the session UID field.
 
+  # ACTP's reply, as a live rpms-ydb 7c3119b build answered it: <seq echo>\x00
+  # then "<CIANB POLLING INTERVAL>^<server time, FileMan>".
+  def test_poll_sends_the_cia_poll_action_and_returns_the_interval_and_server_time
+    c = connected_client([ "1\x005^3261030.001036" + EOD ])
+    c.instance_variable_set(:@session_uid, "7")
+    socket = c.instance_variable_get(:@socket)
+
+    assert_equal({ interval: 5, server_time: Time.new(2026, 10, 30, 0, 10, 36) }, c.poll)
+
+    pk = ->(v) { c.send(:pk, v) }
+    assert_equal ("{CIA}#{EOD}1P".b + pk["UID"] + pk[""] + pk["7"] + EOD).b, socket.writes.last
+    assert c.connected?, "a poll keeps the session; it does not end it"
+  end
+
+  def test_poll_on_an_unconnected_client_raises_rather_than_reporting_a_live_session
+    assert_raises(RpmsRpc::Client::ConnectionError) { Client.new(host: "127.0.0.1", port: 9100).poll }
+  end
+
   def test_disconnect_sends_the_cia_quit_action_then_closes_the_socket
     # ACTD's reply is <seq echo>\x00<CIADATA=1>; the broker then closes.
     c = connected_client([ "1\x001" + EOD ])

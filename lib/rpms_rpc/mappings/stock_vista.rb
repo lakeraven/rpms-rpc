@@ -363,6 +363,7 @@ module RpmsRpc
       m.field 1,  :name
       m.field 2,  :user_class,    :integer
       m.field 2,  :usrcls                 # the same piece as sent: Authentication.user_type validates it raw
+      m.field 7,  :timed_read             # DTIME, seconds: Authentication.timed_read
       m.field 12, :kernel_domain
       m.field 23, :site_ien,      :integer
     end

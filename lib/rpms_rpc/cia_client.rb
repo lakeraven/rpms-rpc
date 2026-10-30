@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "rpms_rpc/client"
+require "rpms_rpc/fileman_date_parser"
 
 module RpmsRpc
   # IHS **CIA** broker client — the `{CIA}` protocol served by CIANBLIS, which VueCentric /
@@ -434,6 +435,22 @@ module RpmsRpc
     # client misread. Either raises rather than report RPCs missing.
     def served_rpcs(names)
       names.to_set & with_context(SIGNON_CONTEXT) { registry_names }
+    end
+
+    # Keep the broker session open: the {CIA} poll ACTION ("P", ACTP^CIANBACT,
+    # CIANBACT.m:32), the frame VueCentric sends between RPCs. The listener reads
+    # each frame with a 10 s timeout and ends a session that sends nothing for
+    # about 45 s (CIARETRY, CIANBLIS.m:152 and :223; measured on a 7c3119b build:
+    # idle 45 s still answers, idle 60 s is closed). A host that keeps a signed-in
+    # user's session polls at the interval RPMS returns; when the user's own idle
+    # limit passes, it stops polling and the broker ends the session.
+    #
+    # Returns { interval: seconds (the CIANB POLLING INTERVAL parameter, default
+    # 60), server_time: Time }. Raises ConnectionError when not connected.
+    def poll
+      body = parse_cia_reply(exchange("P") { [ pk("UID"), pk(""), pk(@session_uid || "1") ] })
+      interval, at = body.to_s.strip.split("^", 2)
+      { interval: Integer(interval, exception: false) || 60, server_time: FilemanDateParser.parse_datetime(at) }
     end
 
     # Synchronized: an unsynchronized teardown can close the socket, or inject
