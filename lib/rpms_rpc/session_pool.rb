@@ -44,7 +44,10 @@ module RpmsRpc
     # entry; an entry is idle (evictable) only at 0.
     # `released` marks an entry release took out of the pool while it was in
     # use: whoever drops its last reference disconnects the client.
-    Entry = Struct.new(:client, :session_key, :refcount, :last_used_at, :released, keyword_init: true)
+    # `deadline` is when the session's user may no longer sit idle (touch); nil
+    # until the host sets one, and then the keeper neither polls nor expires it.
+    Entry = Struct.new(:client, :session_key, :refcount, :last_used_at, :released, :deadline,
+                       keyword_init: true)
 
     DEFAULT_MAX_SESSIONS = 64
 
@@ -151,6 +154,83 @@ module RpmsRpc
       held
     end
 
+    # The longest the keeper sleeps between passes. The CIA listener ends a
+    # session that sends nothing for about 45 s (CIANBLIS, measured on a
+    # 7c3119b build), so a pass must come sooner than that whatever polling
+    # interval the server names.
+    KEEPER_MAX_INTERVAL = 20
+
+    # The user of `session_key` did something: keep the session open for
+    # `idle_for` seconds more, then let the keeper end it. The host decides
+    # how long a user may sit idle (lakeraven-ehr: the shorter of the user's
+    # RPMS DTIME and the site's limit); the pool keeps the connection open that
+    # long and no longer. Returns false for a key the pool does not hold.
+    def touch(session_key, idle_for:)
+      seconds = Float(idle_for)
+      raise ArgumentError, "idle_for must be positive" unless seconds.positive?
+
+      @monitor.synchronize do
+        entry = @entries[session_key]
+        next false unless entry
+
+        entry.deadline = @clock.call + seconds
+        true
+      end
+    end
+
+    # One keeper pass. A session past its deadline is released, so the broker
+    # logs that user off. An idle session inside its deadline is polled
+    # (#poll, CIA's "P" action), pinned for the poll so a concurrent release
+    # waits for it; a poll that fails releases the session (its user signs in
+    # again). A session in use is active and left alone. A session with no
+    # deadline, or a client that cannot poll, is left alone. Returns how long to
+    # wait before the next pass: the shortest polling interval the server
+    # named, never more than KEEPER_MAX_INTERVAL.
+    def keep_alive_tick
+      expired, to_poll = @monitor.synchronize do
+        now = @clock.call
+        due = @entries.values.select { |e| e.deadline && e.client }
+        gone, alive = due.partition { |e| now >= e.deadline }
+        idle = alive.select { |e| e.refcount.zero? && pollable?(e.client) }
+        idle.each { |e| e.refcount += 1 } # pinned for the poll
+        [ gone.map(&:session_key), idle ]
+      end
+      expired.each { |key| release(key) }
+
+      interval = KEEPER_MAX_INTERVAL
+      to_poll.each do |entry|
+        begin
+          named = entry.client.poll[:interval].to_i
+          interval = [ interval, named ].min if named.positive?
+        rescue StandardError
+          @monitor.synchronize { entry.released = true if @entries.delete(entry.session_key) }
+        ensure
+          unpin(entry)
+        end
+      end
+      interval
+    end
+
+    # Run keep_alive_tick on a background thread until stop_keeper!. Opt-in: a
+    # host that keeps connections open across requests starts it once. Starting
+    # it again while it runs does nothing.
+    def start_keeper!
+      @monitor.synchronize do
+        return if @keeper&.alive?
+
+        @keeper = Thread.new do
+          Thread.current.name = "rpms-rpc-session-keeper"
+          loop { sleep keep_alive_tick }
+        end
+      end
+    end
+
+    def stop_keeper!
+      thread = @monitor.synchronize { @keeper.tap { @keeper = nil } }
+      thread&.kill
+      thread&.join(1)
+    end
+
     # Number of sessions currently held (idle + in use).
     def size
       @monitor.synchronize { @entries.size }
@@ -179,6 +259,10 @@ module RpmsRpc
     end
 
     private
+
+    def pollable?(client)
+      client.respond_to?(:poll) && (!client.respond_to?(:connected?) || client.connected?)
+    end
 
     # A caller-owned mutable String key, mutated after checkout, would corrupt
     # @entries. Freeze a copy so the pool owns an immutable key. Non-String
@@ -296,6 +380,16 @@ module RpmsRpc
       doomed = @monitor.synchronize do
         entry.refcount -= 1 if entry.refcount.positive?
         entry.last_used_at = @clock.call
+        released_client(entry)
+      end
+      safe_disconnect(doomed)
+    end
+
+    # Drop the keeper's pin without stamping the entry used: a keep-alive poll
+    # is not use, and must not reorder which idle session is evicted first.
+    def unpin(entry)
+      doomed = @monitor.synchronize do
+        entry.refcount -= 1 if entry.refcount.positive?
         released_client(entry)
       end
       safe_disconnect(doomed)
