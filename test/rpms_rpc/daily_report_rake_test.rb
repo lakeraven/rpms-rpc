@@ -5,7 +5,7 @@ require "rake"
 
 # rpms-rpc#365: rake report:daily is wired in lib/tasks/.
 class RpmsRpc::DailyReportRakeTest < Minitest::Test
-  ROOT = File.expand_path("..", __dir__)
+  ROOT = File.expand_path("../..", __dir__)
 
   def test_report_daily_task_is_defined
     original_app = Rake.application
