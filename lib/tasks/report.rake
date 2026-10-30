@@ -10,9 +10,13 @@
 # LIVE_DISPOSABLE is passed to live children only when set to 1.
 # BROKER_PROTOCOL, when set, is passed to those live children only.
 # Fresh container: FRESH=1, optional DRY_RUN=1. The image is the newest
-# published bcer-*-ydb release of lakeraven/rpms-ops. Live children get
-# LIVE_DISPOSABLE=1. The report's build is that image's tag; a different
-# BUILD= is an error. An unknown build exits non-zero.
+# published bcer-*-ydb release of lakeraven/rpms-ops. Each
+# run names its container with the time and a random hex token and removes
+# only that name, including after an interrupt. Live children get
+# LIVE_DISPOSABLE=1. The report's build is that release's tag, including a
+# digest-pinned image; a different BUILD= is an error on a real run and on
+# a dry run. A dry run that still cannot resolve a release writes the error
+# and exits non-zero. An unknown build exits non-zero.
 # Sign-on: PROV123_ACCESS, PROV123_VERIFY, SYS123_ACCESS, SYS123_VERIFY.
 # Those values are handed only to that persona's rake test:live child.
 # Output: <rpms-diffs>/rpc-coverage/daily/<date>-<build>.md
