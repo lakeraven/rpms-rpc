@@ -21,6 +21,10 @@ class AllergyWriteLiveTest < LiveSpec::Test
   ADVERSE_REACTION_FILE = "120.85"
   SEVERITY_CODE = "2"
 
+  # ADVERSE REACTION REPORTING (#120.85) on the pinned build (DD 0;14 / 14.5).
+  ADVERSE_RELATED_REACTION_FIELD = ".03"
+  ADVERSE_SEVERITY_FIELD = "14.5"
+
   def test_save_files_a_lookup_agent_and_list_reads_it_back
     agent = lookup_unused_agent_for!(ADD_DFN)
     refute RpmsRpc::Allergy.for_patient(ADD_DFN).any? { |row| row[:allergen].to_s.casecmp?(agent[:name]) },
@@ -54,12 +58,16 @@ class AllergyWriteLiveTest < LiveSpec::Test
   end
 
   def test_no_known_allergies_marks_an_unassessed_patient_nka
+    # On a reused disposable volume, assessment for NKA_DFN may already read NKA
+    # from an earlier run; no_known_allergies must still succeed and readback
+    # must show assessed NKA afterward.
     assess_before = RpmsRpc::Allergy.assessment(NKA_DFN)
     refute assess_before[:conflict], assess_before.inspect
     if assess_before[:assessed] && !assess_before[:nka] && assess_before[:allergies].any?
       flunk "DFN #{NKA_DFN} already has active allergies on this build (#{assess_before[:allergies].inspect}); " \
             "use a disposable container seed patient with no allergies for NKA"
     end
+    was_unassessed = !assess_before[:assessed]
 
     result = RpmsRpc::Allergy.no_known_allergies(NKA_DFN)
     assert result[:success], "no_known_allergies answered #{result.inspect}"
@@ -69,6 +77,10 @@ class AllergyWriteLiveTest < LiveSpec::Test
     assert assess[:assessed], assess.inspect
     assert assess[:nka], "assessment must read NKA after no_known_allergies"
     assert_empty assess[:allergies]
+    if was_unassessed
+      refute assess_before[:nka], "precondition: unassessed patient must not read NKA before the call"
+      assert assess[:nka], "unassessed patient must transition to NKA after no_known_allergies"
+    end
 
     rerun = RpmsRpc::Allergy.no_known_allergies(NKA_DFN)
     assert rerun[:success], "already-NKA should stay success (GMRAGUI1 NKA^): #{rerun.inspect}"
@@ -100,14 +112,22 @@ class AllergyWriteLiveTest < LiveSpec::Test
 
   # GMRASEVR for GMRAOBHX "o" is filed on #120.85 (field SEVERITY, DD 0;14 /
   # 14.5 on this build) by ADVERSE^GMRAOR7 (GMRAGUI1.m UPDATE). Entries are
-  # indexed on the related #120.8 IEN (^GMR(120.85,"C",GMRAIEN,)).
+  # indexed on the related #120.8 IEN (^GMR(120.85,"C",GMRAIEN,)). PART on xref
+  # "C" is a prefix match (IEN 12 can hit 120–129); keep only rows whose
+  # RELATED REACTION (.03) equals the allergy IEN.
   def assert_filed_adverse_severity!(dfn, allergy_ien, expected_code)
+    confirm_adverse_reaction_field_map!
+
     listed = RpmsRpc::DdrFileman.lister(
       file: ADVERSE_REACTION_FILE, fields: "@", flags: "IP", xref: "C", part: allergy_ien.to_s
     )
     flunk "DDR LISTER on ADVERSE REACTION REPORTING (#120.85) gave no reply" if listed.nil?
     flunk "DDR LISTER on ADVERSE REACTION REPORTING (#120.85) answered an error" if listed[:error]
-    entries = listed[:entries]
+
+    entries = listed[:entries].select do |row|
+      related = adverse_reaction_related_internal(row[:ien])
+      related == allergy_ien.to_s
+    end
     if entries.empty?
       flunk "no #120.85 ADVERSE REACTION REPORTING entry for allergy IEN #{allergy_ien} on DFN #{dfn} " \
             "(observed save should call ADVERSE^GMRAOR7; severity is not on #120.8)"
@@ -117,9 +137,7 @@ class AllergyWriteLiveTest < LiveSpec::Test
     end
 
     report_ien = entries.first[:ien]
-    related_field = adverse_reaction_related_field!
-    severity_field = adverse_reaction_severity_field!
-    fields = [ related_field, severity_field, ".02" ].uniq.join(";")
+    fields = [ ADVERSE_RELATED_REACTION_FIELD, ADVERSE_SEVERITY_FIELD, ".02" ].join(";")
     entry = RpmsRpc::DdrFileman.gets_entry(
       file: ADVERSE_REACTION_FILE, iens: "#{report_ien},", fields: fields, flags: "IE"
     )
@@ -129,53 +147,40 @@ class AllergyWriteLiveTest < LiveSpec::Test
     patient = entry[:fields].dig(".02", :internal).to_s
     assert_equal dfn.to_s, patient, "PATIENT on #120.85 entry #{report_ien}"
 
-    related = entry[:fields].dig(related_field, :internal).to_s
+    related = entry[:fields].dig(ADVERSE_RELATED_REACTION_FIELD, :internal).to_s
     assert_equal allergy_ien.to_s, related,
-                 "RELATED REACTION on #120.85 entry #{report_ien} (#{adverse_reaction_field_name(related_field)})"
+                 "RELATED REACTION on #120.85 entry #{report_ien}"
 
-    internal = entry[:fields].dig(severity_field, :internal).to_s
+    internal = entry[:fields].dig(ADVERSE_SEVERITY_FIELD, :internal).to_s
     assert_equal expected_code, internal,
-                 "SEVERITY on #120.85 entry #{report_ien} (#{adverse_reaction_field_name(severity_field)})"
+                 "SEVERITY on #120.85 entry #{report_ien}"
   end
 
-  def adverse_reaction_related_field!
-    by_name = adverse_reaction_field_numbers.select do |num|
-      adverse_reaction_field_name(num)&.match?(/RELATED REACTION|RELATED.*120\.8/i)
-    end
-    unless by_name.empty?
-      flunk "ambiguous RELATED REACTION fields on #120.85: #{by_name.join(', ')}" if by_name.size > 1
-      return by_name.first
-    end
+  def adverse_reaction_related_internal(report_ien)
+    row = RpmsRpc::DdrFileman.gets_entry(
+      file: ADVERSE_REACTION_FILE, iens: "#{report_ien},", fields: ADVERSE_RELATED_REACTION_FIELD, flags: "IE"
+    )
+    return nil if row.nil? || row[:error]
 
-    name = adverse_reaction_field_name(".03")
-    return ".03" if name&.match?(/RELATED REACTION/i)
-
-    flunk "no RELATED REACTION field name in DDR VALIDATE on #120.85 on this build"
+    row[:fields].dig(ADVERSE_RELATED_REACTION_FIELD, :internal).to_s
   end
 
-  def adverse_reaction_severity_field!
-    by_name = adverse_reaction_field_numbers.select do |num|
-      adverse_reaction_field_name(num)&.match?(/SEVERITY|\bSEVER\b/i)
-    end
-    unless by_name.empty?
-      flunk "ambiguous SEVERITY fields on #120.85: #{by_name.join(', ')}" if by_name.size > 1
-      return by_name.first
-    end
+  def confirm_adverse_reaction_field_map!
+    return if @adverse_reaction_field_map_confirmed
 
-    flunk "no SEVERITY field name in DDR VALIDATE on #120.85 on this build"
+    expected = {
+      ADVERSE_RELATED_REACTION_FIELD => /RELATED REACTION/i,
+      ADVERSE_SEVERITY_FIELD => /SEVERITY|\bSEVER\b/i
+    }
+    expected.each do |field, pattern|
+      name = adverse_reaction_field_title(field)
+      flunk "DDR VALIDATE on #120.85 field #{field} gave no field title on this build" if name.nil?
+      assert_match pattern, name, "ADVERSE REACTION REPORTING (#120.85) field #{field} title"
+    end
+    @adverse_reaction_field_map_confirmed = true
   end
 
-  ADVERSE_REACTION_FIELD_CANDIDATES = (
-    %w[.01 .02 .03 .5 1.1 1.2 14.5] + (1..65).map(&:to_s)
-  ).freeze
-
-  def adverse_reaction_field_numbers
-    ADVERSE_REACTION_FIELD_CANDIDATES.filter_map do |field|
-      field if adverse_reaction_field_name(field)
-    end
-  end
-
-  def adverse_reaction_field_name(field)
+  def adverse_reaction_field_title(field)
     reply = RpmsRpc::DdrFileman.validate_field(
       file: ADVERSE_REACTION_FILE, iens: "0,", field: field.to_s, value: "INVALIDTEST"
     )
