@@ -11,10 +11,12 @@ module RpmsRpc
   # the note IEN is a positive integer, ORWPCE GET VISIT, ORWPCE HASVISIT,
   # and ORWPCE PCE4NOTE take the visit from ^TIU(8925,note,0) and ignore
   # DFN (GETVISIT^ORWPCE2, ORWPCE2.m:64-67; HASVISIT^ORWPCE,
-  # ORWPCE.m:118-123; PCE4NOTE^ORWPCE3, ORWPCE3.m:9-17). A note IEN of 0
-  # looks the visit up by DFN instead: GET VISIT and PCE4NOTE use the visit
-  # string (location;FileMan datetime;service category); HASVISIT uses the
-  # location IEN and the FileMan datetime.
+  # ORWPCE.m:118-123; PCE4NOTE^ORWPCE3, ORWPCE3.m:9-17). Optional
+  # visit_string, location IEN, and datetime on that path are sent only
+  # when blank or well-formed; a malformed value makes no call. A note IEN
+  # of 0 looks the visit up by DFN instead: GET VISIT and PCE4NOTE use the
+  # visit string (location;FileMan datetime;service category); HASVISIT
+  # uses the location IEN and the FileMan datetime.
   #
   # HASVISIT^ORWPCE answers -1 when there is no visit, 0 for a stand-alone
   # visit, and 1 when that visit is tied to an appointment
@@ -71,8 +73,8 @@ module RpmsRpc
           path: "/progress-notes/{note_ien}/clinical-events/note-visit-string"
 
     # The PCE4NOTE bundle (header, visit, providers, diagnoses, procedures,
-    # immunizations, patient_education, exams, opaque_records), or nil when
-    # the reply is -1 or empty.
+    # immunizations, patient_education, exams, comments, opaque_records),
+    # or nil when the reply is -1 or empty.
     def pce_for_note(note_ien, dfn, visit_string = "")
       return nil unless note_lookup?(note_ien, dfn, visit_string)
       return nil unless rpc_served?(DataMapper.pce_for_note)
@@ -85,14 +87,18 @@ module RpmsRpc
           path: "/progress-notes/{note_ien}/clinical-events/patients/{dfn}/pce"
 
     # Active immunizations (IEN and name). +date+ is a FileMan date the
-    # routine receives as ORDT; omitted, the call sends no parameter.
+    # routine receives as ORDT. Omitted, the call sends no parameter; a
+    # blank string is sent empty. A value that is not a FileMan date makes
+    # no call and returns [].
     def immunization_types(date = nil)
       listed(DataMapper.pce_immunization_types, date)
     end
     shape :immunization_types, resource: "clinical-events", verb: "GET",
           path: "/clinical-events/immunization-types"
 
-    # Active skin tests (IEN and name). +date+ is the same optional ORDT.
+    # Active skin tests (IEN and name). +date+ is the same optional ORDT:
+    # omitted sends no parameter, blank sends "", and a non-FileMan date
+    # makes no call and returns [].
     def skin_test_types(date = nil)
       listed(DataMapper.pce_skin_test_types, date)
     end
@@ -128,6 +134,7 @@ module RpmsRpc
     private
 
     def listed(mapping, date = nil)
+      return [] unless optional_fileman_date?(date)
       return [] unless rpc_served?(mapping)
 
       date.nil? ? mapping.fetch_many : mapping.fetch_many(date)
@@ -136,21 +143,47 @@ module RpmsRpc
     # A positive note reads the visit off the TIU document. Note 0 is the
     # location lookup, and only when the visit string names a location and
     # a FileMan datetime. Either way the patient id has to be a positive
-    # integer; the note path does not compare it to the note.
+    # integer; the note path does not compare it to the note. On the
+    # positive-note path an optional visit string is sent only when blank
+    # or well-formed.
     def note_lookup?(note_ien, dfn, visit_string)
       return false unless positive_id?(dfn)
-      return true if positive_id?(note_ien)
+      if positive_id?(note_ien)
+        return blank_param?(visit_string) || visit_string_lookup?(visit_string)
+      end
       return false unless zero_id?(note_ien)
 
       visit_string_lookup?(visit_string)
     end
 
+    # On the positive-note path each of location and datetime is sent only
+    # when blank or well-formed. Note 0 still requires both.
     def hasvisit_args?(note_ien, dfn, location_ien, datetime)
       return false unless positive_id?(dfn)
-      return true if positive_id?(note_ien)
+      if positive_id?(note_ien)
+        return optional_location?(location_ien) && optional_fileman_datetime?(datetime)
+      end
       return false unless zero_id?(note_ien)
 
       positive_id?(location_ien) && fileman_datetime?(datetime)
+    end
+
+    def optional_location?(location_ien)
+      blank_param?(location_ien) || positive_id?(location_ien)
+    end
+
+    def optional_fileman_datetime?(datetime)
+      blank_param?(datetime) || fileman_datetime?(datetime)
+    end
+
+    # nil omits the parameter, "" is sent, and any other value must be a
+    # FileMan date (or datetime).
+    def optional_fileman_date?(date)
+      blank_param?(date) || fileman_datetime?(date)
+    end
+
+    def blank_param?(value)
+      value.nil? || (value.is_a?(String) && value.empty?)
     end
 
     def visit_string_lookup?(visit_string)

@@ -1090,6 +1090,8 @@ module RpmsRpc
     # note's visit pointer (node 12, piece 7) is set; otherwise node 12
     # piece 11, node 0 piece 7, and node 0 piece 13. The header comment on
     # the tag says VSTR^AUTHOR; the tag itself writes the visit string.
+    # Nil unless piece 1 is a positive integer and piece 2 is a FileMan
+    # datetime. A blank service category is nil.
     DataMapper.define(:pce_note_visit_string) do |m|
       m.rpc "ORWPCE NOTEVSTR"
       m.scalar :visit_string, :string
@@ -1099,10 +1101,13 @@ module RpmsRpc
       return nil if text.empty? || text == "-1"
 
       location, datetime, category = text.split(";", 3)
+      return nil unless location.to_s.match?(/\A\d+\z/) && location.to_i.positive?
+      return nil if FilemanDateParser.parse_datetime_or_date(datetime).nil?
+
       {
         location_ien: location.to_i,
         datetime_raw: datetime,
-        service_category: category
+        service_category: category.to_s.empty? ? nil : category
       }
     end
     DataMapper[:pce_note_visit_string].define_singleton_method(:parse_scalar) do |response|
@@ -1112,9 +1117,11 @@ module RpmsRpc
     # ORWPCE PCE4NOTE — one encounter, several record types.
     # PCE4NOTE^ORWPCE3 (ORWPCE3.m:4-194). The header is
     # HDR^AllowEdit^CPTRequired^VStr^Author^hasCPT (:5, :20-22). Each later
-    # line is a record type (VST, PRV, POV, CPT, IMM, PED, XAM, and the
-    # types this bundle does not model). A type with no modeled key is kept
-    # on :opaque_records. -1 and an empty reply are not a bundle.
+    # line is a record type (VST, PRV, POV, CPT, IMM, PED, XAM, COM, and the
+    # types this bundle does not model). POV, CPT, and IMM carry a comment
+    # index at caret index 10; COM^index^text lines are :comments under that
+    # integer. A type with no modeled key is kept on :opaque_records. -1 and
+    # an empty reply are not a bundle.
     # text_blob: the lines do not share one caret layout, so the gate does
     # not read them as fields. Row parsing is parse_note_bundle.
     DataMapper.define(:pce_for_note) do |m|
@@ -1134,6 +1141,7 @@ module RpmsRpc
         immunizations: [],
         patient_education: [],
         exams: [],
+        comments: {},
         opaque_records: []
       }
       rows.each { |line| pce_append(bundle, line) }
@@ -1150,6 +1158,7 @@ module RpmsRpc
       when "IMM" then bundle[:immunizations] << pce_immunization(pieces)
       when "PED" then bundle[:patient_education] << pce_education(pieces)
       when "XAM" then bundle[:exams] << pce_exam(pieces)
+      when "COM" then pce_comment(bundle, pieces, line)
       else bundle[:opaque_records] << { record_type: pieces[0], raw: line }
       end
     end
@@ -1157,16 +1166,18 @@ module RpmsRpc
       text = value.to_s
       text.empty? ? nil : text
     end
+    DataMapper[:pce_for_note].define_singleton_method(:pce_positive_integer) do |value|
+      text = value.to_s
+      text.match?(/\A[1-9]\d*\z/) ? text.to_i : nil
+    end
     # Piece 5 (1-indexed) is the note author, $P(^TIU(8925,IEN,12),U,2)
-    # (ORWPCE3.m:5,20). The read contract exposes that integer as :visit_ien.
+    # (ORWPCE3.m:22). Exposed as :author_ien, an Integer.
     DataMapper[:pce_for_note].define_singleton_method(:pce_header) do |pieces|
-      author = pce_text(pieces[4])
       {
         allow_edit: pce_text(pieces[1]),
         cpt_required: pce_text(pieces[2]),
         visit_string: pce_text(pieces[3]),
-        visit_ien: author&.match?(/\A[1-9]\d*\z/) ? author.to_i : nil,
-        author_ien: author,
+        author_ien: pce_positive_integer(pieces[4]),
         has_cpt: pce_text(pieces[5])
       }
     end
@@ -1206,7 +1217,8 @@ module RpmsRpc
         category: pce_text(pieces[2]),
         narrative: pce_text(pieces[3]),
         primary: pce_text(pieces[4]),
-        provider_ien: pce_text(pieces[5])
+        provider_ien: pce_text(pieces[5]),
+        comment_index: pce_positive_integer(pieces[10])
       }
     end
     DataMapper[:pce_for_note].define_singleton_method(:pce_procedure) do |pieces|
@@ -1216,7 +1228,8 @@ module RpmsRpc
         narrative: pce_text(pieces[3]),
         quantity: pce_text(pieces[4]),
         provider_ien: pce_text(pieces[5]),
-        modifiers: pce_text(pieces[8])
+        modifiers: pce_text(pieces[8]),
+        comment_index: pce_positive_integer(pieces[10])
       }
     end
     DataMapper[:pce_for_note].define_singleton_method(:pce_immunization) do |pieces|
@@ -1224,8 +1237,19 @@ module RpmsRpc
         ien: pce_text(pieces[1]),
         name: pce_text(pieces[3]),
         series: pce_text(pieces[4]),
-        provider_ien: pce_text(pieces[5])
+        provider_ien: pce_text(pieces[5]),
+        comment_index: pce_positive_integer(pieces[10])
       }
+    end
+    # COM^index^text (ORWPCE3 $P of the POV/CPT/IMM line at caret index 10).
+    # The index is the same integer those rows expose as :comment_index.
+    DataMapper[:pce_for_note].define_singleton_method(:pce_comment) do |bundle, pieces, line|
+      index = pce_positive_integer(pieces[1])
+      if index
+        bundle[:comments][index] = pce_text(pieces[2..].join("^"))
+      else
+        bundle[:opaque_records] << { record_type: "COM", raw: line }
+      end
     end
     DataMapper[:pce_for_note].define_singleton_method(:pce_education) do |pieces|
       {
