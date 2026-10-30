@@ -6,6 +6,7 @@ RpmsRpc::Allergy.for_patient	GET /patients/{dfn}/allergies
 RpmsRpc::Authentication.has_security_key?	GET /users/{duz}/has-security-key
 RpmsRpc::Authentication.held_keys	GET /users/held-keys
 RpmsRpc::Authentication.option_access	GET /users/option-access
+RpmsRpc::Authentication.timed_read	GET /users/{duz}/timed-read
 RpmsRpc::Authentication.user_info	GET /users/{duz}/info
 RpmsRpc::Authentication.user_security_keys	GET /users/{duz}/security-keys
 RpmsRpc::Authentication.user_type	GET /users/{duz}/type

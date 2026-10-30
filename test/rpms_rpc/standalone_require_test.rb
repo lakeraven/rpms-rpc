@@ -32,7 +32,7 @@ class RpmsRpc::StandaloneRequireTest < Minitest::Test
   # A legitimate new require means updating the number here, deliberately.
   STANDALONE_FILES = {
     "rpms_rpc/client" => 8,
-    "rpms_rpc/cia_client" => 9,
+    "rpms_rpc/cia_client" => 10, # + fileman_date_parser, for CiaClient#poll's server time
     "rpms_rpc/xwb_client" => 9,
     "rpms_rpc/bmx_client" => 9
   }.freeze
