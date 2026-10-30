@@ -48,7 +48,10 @@ module RpmsRpc
 
     # List a patient's problems. Underlying RPC: ORQQPL LIST — verified row
     # shape IEN^NARRATIVE^STATUS^ICD^ONSET^LAST MODIFIED^SC^SPEXP^... (see
-    # the :problem_list mapping). "No problems" comes back as the sentinel
+    # the :problem_list mapping). An inactive-ICD row (ORQQPL.m:15-16:
+    # piece 13 "#", piece 9 "#", piece 4 the $$ICDDX error text) yields
+    # icd_code nil, transcribed nil, and inactive_icd true; every other
+    # row has inactive_icd false. "No problems" comes back as the sentinel
     # row "^No problems found." (LIST^ORQQPL: ORQQPL.m:17) — no IEN, so it
     # is dropped rather than surfaced as a phantom problem. Invalid DFNs
     # short-circuit to [] without dispatching an RPC.

@@ -471,7 +471,8 @@ module RpmsRpc
         cite: "LIST^ORQQPL (ORQQPL.m:3-18) reorders LIST^GMPLUTL3 rows " \
               "(GMPLUTL3.m:76-99: IEN^STATUS^NARRATIVE^ICD^ONSET^MODIFIED^SC^SP^" \
               "PRIORITY^TRANSCRIBED^SCT-C^SCT-D) as in1^in3^in2^in4^in5^in6^in7^" \
-              "in8^in10^in9^''^DETAIL; '^No problems found.' sentinel line 16",
+              "in8^in10^in9^''^DETAIL; piece 13 '#' with piece 9 '#' and piece 4 " \
+              "= $$ICDDX error text (ORQQPL.m:15-16); '^No problems found.' sentinel line 16",
         pieces: [
           Piece.new(position: 0, attributes: [ "ien" ], fileman_type: "integer"),
           Piece.new(position: 1, attributes: [ "description", "narrative" ]),
@@ -484,7 +485,9 @@ module RpmsRpc
           Piece.new(position: 8, attributes: [ "transcribed" ]),
           Piece.new(position: 9, attributes: [ "priority" ]),
           Piece.new(position: 10, attributes: [ "reserved" ]),
-          Piece.new(position: 11, attributes: [ "detail_flag" ])
+          Piece.new(position: 11, attributes: [ "detail_flag" ]),
+          # Piece 13. "#" on the inactive-ICD branch (ORQQPL.m:15-16).
+          Piece.new(position: 12, attributes: [ "inactive_icd" ])
         ]
       ),
       # Allergy.assessment / for_patient send the DFN only (LIST^ORQQAL).

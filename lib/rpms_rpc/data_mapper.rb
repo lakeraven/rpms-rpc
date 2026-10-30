@@ -393,6 +393,12 @@ module RpmsRpc
         @text_attribute = attribute
       end
 
+      # Row hook (result hash, caret pieces). Must return the row. Used when
+      # a piece is a marker whose parsed value is not the raw token.
+      def after_row(&block)
+        @after_row = block
+      end
+
       def text_blob?
         !@text_attribute.nil?
       end
@@ -431,6 +437,7 @@ module RpmsRpc
           result[f.attribute] = coerce(raw, f.type)
         end
         result[@rcis_sections] = RcisWire.sections(rest) if @rcis_sections
+        result = instance_exec(result, parts, &@after_row) if @after_row # rubocop:disable Security/Eval
 
         extras.each { |k, v| result[k] = v }
         result
