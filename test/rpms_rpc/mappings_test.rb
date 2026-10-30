@@ -102,6 +102,32 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "S93.401A", result[:icd_code]
   end
 
+  # ORQQPL.m:15-16 inactive-ICD branch (#224 round-2 SPEC): inactive_icd follows
+  # piece 13/9 "#" markers, not "Invalid Code" text in piece 4. Replaces the
+  # round-1 after_row that keyed off error text.
+  def test_problem_list_inactive_icd_follows_markers_not_error_text
+    mapper = RpmsRpc::DataMapper[:problem_list]
+
+    with_real_inactive_code =
+      mapper.parse_many([ "3^Diabetes^A^250.00^3230410^3261012^^^#^^^ORQQPL DETAIL^#" ]).first
+    assert_equal true, with_real_inactive_code[:inactive_icd]
+    assert_nil with_real_inactive_code[:icd_code]
+    assert_nil with_real_inactive_code[:transcribed]
+
+    error_no_markers =
+      mapper.parse_many(
+        [ "1^Essential hypertension^A^Invalid Code (not found in the ICD-9-CM system)^3240905^3261012^^^^^" ]
+      ).first
+    refute error_no_markers[:inactive_icd]
+    assert_nil error_no_markers[:icd_code]
+
+    active =
+      mapper.parse_many([ "10^Hypertension^A^401.9^3240905^3261012^NSC^^N^^^ORQQPL DETAIL^" ]).first
+    assert_equal "401.9", active[:icd_code]
+    assert_equal "N", active[:transcribed]
+    refute active[:inactive_icd]
+  end
+
   # -- ORQQVI VITALS ---------------------------------------------------------
 
   # The registered "ORQQVI VITALS" RPC dispatches to FASTVIT^ORQQVI

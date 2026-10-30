@@ -26,6 +26,18 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
   # BEHOPTCX.m FMTSSN always masks SSN as this literal — populated on the wire but not evidence.
   BEHOPTCX_FORCED_UNPROVEN = { patient_ptinfo: [ :ssn ] }.freeze
 
+  # BEHOCACV CWAD letters → brief_header flags (patient.rb). Readiness treats each
+  # letter as its own evidence slot (#224 round-2), not the scalar :cwad string alone.
+  CWAD_LETTER_FLAGS = {
+    "C" => :crisis_flag,
+    "W" => :warning_flag,
+    "A" => :allergy_flag,
+    "D" => :ad_flag
+  }.freeze
+
+  # Mapped booleans are proven only when both true and false appear in mapped rows.
+  BOOLEAN_MAPPED_ATTRIBUTES = { problem_list: [ :inactive_icd ] }.freeze
+
   # Slice RPCs for patient chart reads (#218). :inputs are what the gem's public
   # API sends today (lib/rpms_rpc/api/* + DataMapper fetch params).
   CHART_READ_SLICE = [
@@ -91,34 +103,75 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       BEHOPTCX_FORCED_UNPROVEN.fetch(mapping_name, []).include?(attribute)
     end
 
-    def attribute_populated_in_capture?(mapping, fixture, attribute)
+    def mapped_rows_for_fixture(mapping, fixture)
       if mapping.scalar?
         scalar = mapping.instance_variable_get(:@scalar_attribute)
-        return false unless attribute == scalar
+        fixture.captured_data_rows.filter_map do |row|
+          value = mapping.parse_scalar(row)
+          next if value.nil? || value.to_s.empty?
 
-        fixture.captured_data_rows.any? { |row| !row.to_s.strip.empty? }
+          { scalar => value }
+        end
       elsif mapping.text_blob?
         blob = mapping.instance_variable_get(:@text_attribute)
-        attribute == blob && fixture.captured_data_rows.any?
+        text = mapping.parse_text(fixture.captured_data_rows)
+        text.nil? || text.empty? ? [] : [ { blob => text } ]
       else
-        field = mapping.fields.find { |f| f.attribute == attribute }
-        return false unless field
+        mapping.parse_many(fixture.captured_data_rows)
+      end
+    end
 
-        fixture.captured_data_rows.any? do |row|
-          piece = row.split("^", -1)[field.position]
-          !piece.to_s.empty?
-        end
+    def mapped_value_present?(value)
+      !value.nil? && !value.to_s.empty?
+    end
+
+    def attribute_populated_in_mapped_capture?(mapping, fixture, attribute)
+      mapped_rows_for_fixture(mapping, fixture).any? do |row|
+        mapped_value_present?(row[attribute])
+      end
+    end
+
+    def boolean_values_observed_in_mapped_capture?(mapping, fixture, attribute)
+      rows = mapped_rows_for_fixture(mapping, fixture)
+      rows.any? { |row| row[attribute] == true } &&
+        rows.any? { |row| row[attribute] == false }
+    end
+
+    def cwad_readiness_attributes
+      CWAD_LETTER_FLAGS.values
+    end
+
+    def cwad_letter_observed_in_capture?(fixture, attribute)
+      letter = CWAD_LETTER_FLAGS.key(attribute)
+      return false unless letter
+
+      fixture.captured_data_rows.any? { |row| row.to_s.include?(letter) }
+    end
+
+    def readiness_attribute_names(mapping, fixture)
+      if fixture.mapping_name == :patient_cwad
+        cwad_readiness_attributes
+      else
+        mapped_attribute_names(mapping)
       end
     end
 
     def unproven_attributes(fixture)
       mapping = RpmsRpc::DataMapper[fixture.mapping_name]
-      names = mapped_attribute_names(mapping)
+      names = readiness_attribute_names(mapping, fixture)
       return names if fixture.source == "no-data" || fixture.captured_data_rows.empty?
 
+      boolean_attrs = BOOLEAN_MAPPED_ATTRIBUTES.fetch(fixture.mapping_name, [])
+
       names.select do |attribute|
-        forced_unproven?(fixture.mapping_name, attribute) ||
-          !attribute_populated_in_capture?(mapping, fixture, attribute)
+        if fixture.mapping_name == :patient_cwad
+          !cwad_letter_observed_in_capture?(fixture, attribute)
+        elsif boolean_attrs.include?(attribute)
+          !boolean_values_observed_in_mapped_capture?(mapping, fixture, attribute)
+        else
+          forced_unproven?(fixture.mapping_name, attribute) ||
+            !attribute_populated_in_mapped_capture?(mapping, fixture, attribute)
+        end
       end
     end
 
@@ -139,20 +192,26 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       end
     end
 
-    # Inactive ICD rows (ORQQPL.m:15-16) must not surface error text or "#" as icd_code / transcribed.
+    # Round-2 SPEC: inactive_icd follows piece 13/9 "#" markers (ORQQPL.m:15-16),
+    # not $$ICDDX error text in piece 4.
     def orqqpl_inactive_icd_mapping_leaks?
       path = fixture_path_for("ORQQPL LIST")
       return false unless File.file?(path)
 
+      mapper = RpmsRpc::DataMapper[:problem_list]
       fixture = RpmsRpc::WireCapture::Fixture.load_file(path)
       fixture.captured_data_rows.any? do |row|
         pieces = row.split("^", -1)
-        next false unless pieces[12] == "#"
-
-        parsed = RpmsRpc::DataMapper[:problem_list].parse_many([ row ]).first
+        parsed = mapper.parse_many([ row ]).first
         next false if parsed.nil?
 
-        parsed[:icd_code].to_s.include?("Invalid Code") || parsed[:transcribed] == "#"
+        markers = pieces[12] == "#" && pieces[8] == "#"
+        inactive = parsed[:inactive_icd] == true
+        next true if markers != inactive
+        next true if inactive && (mapped_value_present?(parsed[:icd_code]) || mapped_value_present?(parsed[:transcribed]))
+        next true if pieces[3].to_s.match?(/\AInvalid Code\b/) && !markers && mapped_value_present?(parsed[:icd_code])
+
+        false
       end
     end
   end
@@ -268,17 +327,21 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
                  "missing fixture(s) under test/fixtures/wire_captures/ — run rake wire:capture: #{missing.join(", ")}"
   end
 
-  # Intent: chart-read captures record the default rake wire:capture sign-on persona (provenance #224).
-  def test_chart_read_slice_fixtures_record_wire_capture_default_signed_on_as
+  # Intent: signed_on_as is live-call provenance only (#224 round-2) — never on routine-cite.
+  def test_chart_read_live_and_no_data_fixtures_record_wire_capture_default_signed_on_as
     failures = []
     CHART_READ_SLICE.each do |slice|
       path = self.class.fixture_path_for(slice[:rpc])
       next failures << "#{slice[:rpc]}: no fixture" unless File.file?(path)
 
       data = YAML.safe_load_file(path)
+      source = data["source"]
+      next unless %w[live-capture no-data].include?(source)
+
       actual = data["signed_on_as"]
       if actual != WIRE_CAPTURE_DEFAULT_SIGNED_ON_AS
-        failures << "#{slice[:rpc]}: signed_on_as #{actual.inspect}, expected #{WIRE_CAPTURE_DEFAULT_SIGNED_ON_AS.inspect}"
+        failures << "#{slice[:rpc]} (#{source}): signed_on_as #{actual.inspect}, " \
+                     "expected #{WIRE_CAPTURE_DEFAULT_SIGNED_ON_AS.inspect}"
       end
     end
     assert_empty failures, failures.join("\n  ")
@@ -337,29 +400,70 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     assert_empty failures, failures.join("\n  ")
   end
 
-  # ORQQPL LIST inactive-ICD branch (ORQQPL.m:15-16): piece 13 "#" rows must not map error text / "#".
+  # ORQQPL LIST inactive-ICD (#224 round-2): markers on pieces 13 and 9, not error text.
+  # Replaces round-1 pin that keyed inactive_icd off "Invalid Code" in piece 4.
   def test_orqqpl_list_inactive_icd_rows_map_nil_codes_and_flag_inactive_icd
-    path = self.class.fixture_path_for("ORQQPL LIST")
-    skip "fixture missing" unless File.file?(path)
+    mapper = RpmsRpc::DataMapper[:problem_list]
 
-    fixture = RpmsRpc::WireCapture::Fixture.load_file(path)
-    inactive_row = fixture.captured_data_rows.find { |row| row.split("^", -1)[12] == "#" }
-    refute_nil inactive_row, "committed orqqpl-list.yml must include an inactive-ICD row (piece 13 '#')"
-
-    parsed = RpmsRpc::DataMapper[:problem_list].parse_many([ inactive_row ]).first
+    inactive_real_code =
+      "3^Diabetes^A^250.00^3230410^3261012^^^#^^^ORQQPL DETAIL^#"
+    parsed = mapper.parse_many([ inactive_real_code ]).first
     refute_nil parsed
-    assert_nil parsed[:icd_code],
-               "inactive ICD branch must not expose $$ICDDX error text as icd_code (mapping leak)"
-    assert_nil parsed[:transcribed],
-               "inactive ICD branch must not expose '#' as transcribed"
     assert_equal true, parsed[:inactive_icd],
-                  "inactive ICD rows must expose inactive_icd: true"
+                 "piece 13/9 '#' markers must set inactive_icd even when piece 4 is a real inactive code"
+    assert_nil parsed[:icd_code],
+               "inactive ICD rows must not report piece 4 as icd_code (real code or error text)"
+    assert_nil parsed[:transcribed],
+               "inactive ICD rows must not expose '#' as transcribed"
 
-    normal = RpmsRpc::DataMapper[:problem_list].parse_many(
-      [ "123^Hypertension^A^I10^3200101^3250301^^^^^" ]
+    path = self.class.fixture_path_for("ORQQPL LIST")
+    if File.file?(path)
+      fixture = RpmsRpc::WireCapture::Fixture.load_file(path)
+      inactive_row = fixture.captured_data_rows.find { |row| row.split("^", -1)[12] == "#" }
+      refute_nil inactive_row, "committed orqqpl-list.yml must include an inactive-ICD row (piece 13 '#')"
+      captured = mapper.parse_many([ inactive_row ]).first
+      assert_equal true, captured[:inactive_icd]
+      assert_nil captured[:icd_code]
+      assert_nil captured[:transcribed]
+    end
+
+    error_without_markers =
+      "99^Hypertension^A^Invalid Code (not found in the ICD-9-CM system)^3200101^3250301^^^^^"
+    err_row = mapper.parse_many([ error_without_markers ]).first
+    refute err_row[:inactive_icd], "error text without piece 13 '#' must not set inactive_icd"
+    assert_nil err_row[:icd_code],
+               "error text in piece 4 must never become icd_code when markers are absent"
+
+    active = mapper.parse_many(
+      [ "123^Hypertension^A^I10^3200101^3250301^NSC^SPEXP^Y^HIGH^^^^" ]
     ).first
-    assert_equal "I10", normal[:icd_code]
-    refute normal[:inactive_icd], "active ICD rows must not set inactive_icd"
+    assert_equal "I10", active[:icd_code]
+    assert_equal "Y", active[:transcribed]
+    refute active[:inactive_icd], "active ICD rows must not set inactive_icd"
+  end
+
+  def test_orqqpl_list_committed_capture_icd_code_and_transcribed_unproven_after_mapping
+    slice = CHART_READ_SLICE.find { |s| s[:rpc] == "ORQQPL LIST" }
+    fixture = load_slice_fixture(slice)
+    unproven = self.class.unproven_attributes(fixture)
+    assert_includes unproven, :icd_code,
+                    "both capture rows map to nil icd_code — raw piece 4 must not count as proven"
+    assert_includes unproven, :transcribed,
+                    "inactive-ICD after_row clears transcribed — mapped nil is unproven"
+    assert_includes unproven, :inactive_icd,
+                    "capture shows inactive_icd true only — false must be observed for proof"
+  end
+
+  def test_behocacv_cwad_committed_capture_readiness_is_partial_on_letter_flags
+    slice = CHART_READ_SLICE.find { |s| s[:mapping] == :patient_cwad }
+    fixture = load_slice_fixture(slice)
+    unproven = self.class.unproven_attributes(fixture)
+    assert_includes unproven, :crisis_flag, 'CWAD "A" does not prove C'
+    assert_includes unproven, :warning_flag, 'CWAD "A" does not prove W'
+    assert_includes unproven, :ad_flag, 'CWAD "A" does not prove D'
+    refute_includes unproven, :allergy_flag, 'CWAD "A" proves allergy_flag'
+    assert_equal "partial", self.class.expected_checklist_status(slice, fixture),
+                 "letter-flag gaps must not read as pilot-ready"
   end
 
   # Intent: capture-backed slice fixtures pass the same mapping↔wire checks as wire_contract_test.
