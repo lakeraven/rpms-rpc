@@ -6,7 +6,8 @@ rpc: ORQQVI VITALS
 mapping: vitals
 kind: fields
 release_tag: bcer-9.0-20261012-e7923a4-ydb
-captured_at: '2026-10-30T07:18:44Z'
+captured_at: '2026-10-30T07:50:14Z'
+signed_on_as: SYS123
 cite: 'FASTVIT^ORQQVI (ORQQVI.m:61-84): header ''vital measurement ien^vital type^rate^date/time
   taken''; registry mapping at .broker_dumps_8994_20260607.txt:565 "ORQQVI VITALS^FASTVIT^ORQQVI";
   DISPLAY^METRIC_DISPLAY^QUALIFIERS (ORQQVI.m:180-223, :224)'

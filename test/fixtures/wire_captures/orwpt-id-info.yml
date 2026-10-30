@@ -6,7 +6,8 @@ rpc: ORWPT ID INFO
 mapping: patient_id_info
 kind: fields
 release_tag: bcer-9.0-20261012-e7923a4-ydb
-captured_at: '2026-10-30T07:18:39Z'
+captured_at: '2026-10-30T07:50:08Z'
+signed_on_as: SYS123
 cite: 'IDINFO^ORWPT (ORWPT.m:6-11): header line 7 PID^DOB^SEX^VET^SC%^WARD^RM-BED^NAME;
   REC construction line 10'
 pieces:

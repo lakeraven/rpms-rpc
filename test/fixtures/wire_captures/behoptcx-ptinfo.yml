@@ -6,7 +6,8 @@ rpc: BEHOPTCX PTINFO
 mapping: patient_ptinfo
 kind: fields
 release_tag: bcer-9.0-20261012-e7923a4-ydb
-captured_at: '2026-10-30T07:18:39Z'
+captured_at: '2026-10-30T07:50:09Z'
+signed_on_as: SYS123
 cite: 'PTINFO^BEHOPTCX (BEHOPTCX.m:7-31): NAME^SEX^DOB^SSN^...^MRN^...^DESIGNATED_TEAM^PRIMARY_PROVIDER
   — 20-piece identity bundle, no .13 data'
 pieces:
@@ -34,5 +35,5 @@ pieces:
 source: live-capture
 inputs:
 - '2'
-raw_return: "5\0USER,TEST^M^2850505^XXX-XX-XXXX^^^^0^0^^^0^^^0^0^^^^"
-sha256: 94ad57c9bf5f788711da6c47971ecbfbc8aba7b81c7e204605ea33ae596b6295
+raw_return: "5\0USER,TEST^M^2850505^XXX-XX-XXXX^^^^0^0^^123456^0^^^0^0^^^^"
+sha256: 5bd303d7969a139c58ad20451bb3adc8b93add2b9ca4ec2ba9d3a39b336fb2bb
