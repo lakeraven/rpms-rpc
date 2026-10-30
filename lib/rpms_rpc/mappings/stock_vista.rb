@@ -1040,5 +1040,253 @@ module RpmsRpc
       m.rpc "DDR KEY VALIDATOR"
       m.text_blob :lines
     end
+
+    # ========================================================================
+    # PCE ENCOUNTER READS (ORWPCE*)
+    # ========================================================================
+
+    # ORWPCE GET VISIT — the visit IEN for a note, or for a location lookup.
+    # GETVISIT^ORWPCE2 (ORWPCE2.m:64-67): a note IEN below 1 asks
+    # $$GETENC^PXAPI(DFN, $P(VSITSTR,";",2), $P(VSITSTR,";")). Any other
+    # note reads $P(^TIU(8925,IEN,0),U,3) and ignores DFN. -1 and an empty
+    # reply are "no visit", never an IEN.
+    DataMapper.define(:pce_get_visit) do |m|
+      m.rpc "ORWPCE GET VISIT"
+      m.scalar :visit_ien, :string
+    end
+    DataMapper[:pce_get_visit].define_singleton_method(:parse_scalar) do |response|
+      text = normalize_line(response).to_s.strip
+      return nil unless text.match?(/\A[1-9]\d*\z/)
+
+      text.to_i
+    end
+
+    # ORWPCE HASVISIT — -1 no visit, 0 stand-alone, 1 appointment-linked.
+    # HASVISIT^ORWPCE (ORWPCE.m:118-123) starts at -1. A positive note IEN
+    # reads the visit from ^TIU(8925,IEN,0) piece 3; otherwise
+    # $$GETENC^PXAPI(DFN,ORDTE,ORLOC). A positive visit becomes
+    # $$VST2APPT^PXAPI (VST2APPT^PXUTL1, PXUTL1.m:65-78): 1 when an
+    # appointment points at the visit, 0 when it does not.
+    DataMapper.define(:pce_has_visit) do |m|
+      m.rpc "ORWPCE HASVISIT"
+      m.scalar :has_visit, :string
+    end
+    DataMapper[:pce_has_visit].define_singleton_method(:parse_hasvisit_status) do |response|
+      case normalize_line(response).to_s.strip
+      when "0" then :stand_alone
+      when "1" then :appointment
+      when "-1", "" then :none
+      end
+    end
+    DataMapper[:pce_has_visit].define_singleton_method(:parse_scalar) do |response|
+      case parse_hasvisit_status(response)
+      when :stand_alone, :appointment then true
+      when :none then false
+      end
+    end
+
+    # ORWPCE NOTEVSTR — LOC;FileMan datetime;service category.
+    # NOTEVSTR^ORWPCE (ORWPCE.m:112-116): $$VSTRBLD^TIUSRVP(VISIT) when the
+    # note's visit pointer (node 12, piece 7) is set; otherwise node 12
+    # piece 11, node 0 piece 7, and node 0 piece 13. The header comment on
+    # the tag says VSTR^AUTHOR; the tag itself writes the visit string.
+    DataMapper.define(:pce_note_visit_string) do |m|
+      m.rpc "ORWPCE NOTEVSTR"
+      m.scalar :visit_string, :string
+    end
+    DataMapper[:pce_note_visit_string].define_singleton_method(:parse_visit_string) do |response|
+      text = normalize_line(response).to_s.strip
+      return nil if text.empty? || text == "-1"
+
+      location, datetime, category = text.split(";", 3)
+      {
+        location_ien: location.to_i,
+        datetime_raw: datetime,
+        service_category: category
+      }
+    end
+    DataMapper[:pce_note_visit_string].define_singleton_method(:parse_scalar) do |response|
+      parse_visit_string(response)
+    end
+
+    # ORWPCE PCE4NOTE — one encounter, several record types.
+    # PCE4NOTE^ORWPCE3 (ORWPCE3.m:4-194). The header is
+    # HDR^AllowEdit^CPTRequired^VStr^Author^hasCPT (:5, :20-22). Each later
+    # line is a record type (VST, PRV, POV, CPT, IMM, PED, XAM, and the
+    # types this bundle does not model). A type with no modeled key is kept
+    # on :opaque_records. -1 and an empty reply are not a bundle.
+    # text_blob: the lines do not share one caret layout, so the gate does
+    # not read them as fields. Row parsing is parse_note_bundle.
+    DataMapper.define(:pce_for_note) do |m|
+      m.rpc "ORWPCE PCE4NOTE"
+      m.text_blob :lines
+    end
+    DataMapper[:pce_for_note].define_singleton_method(:parse_note_bundle) do |lines|
+      rows = Array(lines).map(&:to_s).reject { |line| line.strip.empty? || line.strip == "-1" }
+      return nil if rows.empty?
+
+      bundle = {
+        header: nil,
+        visit: {},
+        providers: [],
+        diagnoses: [],
+        procedures: [],
+        immunizations: [],
+        patient_education: [],
+        exams: [],
+        opaque_records: []
+      }
+      rows.each { |line| pce_append(bundle, line) }
+      bundle
+    end
+    DataMapper[:pce_for_note].define_singleton_method(:pce_append) do |bundle, line|
+      pieces = line.split("^", -1)
+      case pieces[0]
+      when "HDR" then bundle[:header] = pce_header(pieces)
+      when "VST" then pce_visit(bundle, pieces, line)
+      when "PRV" then bundle[:providers] << pce_provider(pieces)
+      when "POV" then bundle[:diagnoses] << pce_diagnosis(pieces)
+      when "CPT" then bundle[:procedures] << pce_procedure(pieces)
+      when "IMM" then bundle[:immunizations] << pce_immunization(pieces)
+      when "PED" then bundle[:patient_education] << pce_education(pieces)
+      when "XAM" then bundle[:exams] << pce_exam(pieces)
+      else bundle[:opaque_records] << { record_type: pieces[0], raw: line }
+      end
+    end
+    DataMapper[:pce_for_note].define_singleton_method(:pce_text) do |value|
+      text = value.to_s
+      text.empty? ? nil : text
+    end
+    # Piece 5 (1-indexed) is the note author, $P(^TIU(8925,IEN,12),U,2)
+    # (ORWPCE3.m:5,20). The read contract exposes that integer as :visit_ien.
+    DataMapper[:pce_for_note].define_singleton_method(:pce_header) do |pieces|
+      author = pce_text(pieces[4])
+      {
+        allow_edit: pce_text(pieces[1]),
+        cpt_required: pce_text(pieces[2]),
+        visit_string: pce_text(pieces[3]),
+        visit_ien: author&.match?(/\A[1-9]\d*\z/) ? author.to_i : nil,
+        author_ien: author,
+        has_cpt: pce_text(pieces[5])
+      }
+    end
+    DataMapper[:pce_for_note].define_singleton_method(:pce_visit) do |bundle, pieces, line|
+      visit = bundle[:visit]
+      code = pieces[1]
+      if code == "HL"
+        visit[:hospital_location_ien] = pce_text(pieces[2])
+        visit[:hospital_location_name] = pce_text(pieces[4])
+        return
+      end
+
+      key = {
+        "DT" => :datetime_raw,
+        "PT" => :patient_dfn,
+        "PS" => :patient_status,
+        "SC" => :service_connected,
+        "AO" => :agent_orange,
+        "IR" => :ionizing_radiation,
+        "EC" => :environmental_contaminants,
+        "MST" => :military_sexual_trauma,
+        "HNC" => :head_and_neck_cancer,
+        "CV" => :combat_veteran
+      }[code]
+      if key
+        visit[key] = pce_text(pieces[2])
+      else
+        bundle[:opaque_records] << { record_type: "VST", raw: line }
+      end
+    end
+    DataMapper[:pce_for_note].define_singleton_method(:pce_provider) do |pieces|
+      { ien: pce_text(pieces[1]), name: pce_text(pieces[4]), primary: pce_text(pieces[5]) }
+    end
+    DataMapper[:pce_for_note].define_singleton_method(:pce_diagnosis) do |pieces|
+      {
+        icd_code: pce_text(pieces[1]),
+        category: pce_text(pieces[2]),
+        narrative: pce_text(pieces[3]),
+        primary: pce_text(pieces[4]),
+        provider_ien: pce_text(pieces[5])
+      }
+    end
+    DataMapper[:pce_for_note].define_singleton_method(:pce_procedure) do |pieces|
+      {
+        code: pce_text(pieces[1]),
+        category: pce_text(pieces[2]),
+        narrative: pce_text(pieces[3]),
+        quantity: pce_text(pieces[4]),
+        provider_ien: pce_text(pieces[5]),
+        modifiers: pce_text(pieces[8])
+      }
+    end
+    DataMapper[:pce_for_note].define_singleton_method(:pce_immunization) do |pieces|
+      {
+        ien: pce_text(pieces[1]),
+        name: pce_text(pieces[3]),
+        series: pce_text(pieces[4]),
+        provider_ien: pce_text(pieces[5])
+      }
+    end
+    DataMapper[:pce_for_note].define_singleton_method(:pce_education) do |pieces|
+      {
+        topic_ien: pce_text(pieces[1]),
+        name: pce_text(pieces[3]),
+        understanding: pce_text(pieces[4]),
+        provider_ien: pce_text(pieces[5])
+      }
+    end
+    DataMapper[:pce_for_note].define_singleton_method(:pce_exam) do |pieces|
+      {
+        exam_ien: pce_text(pieces[1]),
+        name: pce_text(pieces[3]),
+        result: pce_text(pieces[4]),
+        provider_ien: pce_text(pieces[5])
+      }
+    end
+
+    # ORWPCE GET IMMUNIZATION TYPE — IEN^NAME of active immunizations.
+    # IMMTYPE^ORWPCE2 (ORWPCE2.m:17-22), ^AUTTIMM. Optional ORDT; the
+    # active test on the pinned image is piece 7 of the 0-node = 0.
+    DataMapper.define(:pce_immunization_types) do |m|
+      m.rpc "ORWPCE GET IMMUNIZATION TYPE"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+    end
+
+    # ORWPCE GET SKIN TEST TYPE — IEN^NAME.
+    # SKTYPE^ORWPCE2 (ORWPCE2.m:25-30), ^AUTTSK, inactive when piece 3 is set.
+    DataMapper.define(:pce_skin_test_types) do |m|
+      m.rpc "ORWPCE GET SKIN TEST TYPE"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+    end
+
+    # ORWPCE GET EXAM TYPE — IEN^NAME.
+    # EXAMTYPE^ORWPCE2 (ORWPCE2.m:51-53), ^AUTTEXAM, inactive when piece 4 is set.
+    DataMapper.define(:pce_exam_types) do |m|
+      m.rpc "ORWPCE GET EXAM TYPE"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+    end
+
+    # ORWPCE GET EDUCATION TOPICS — IEN^NAME.
+    # EDTTYPE^ORWPCE2 (ORWPCE2.m:33-35), ^AUTTEDT, inactive when piece 3 is set.
+    DataMapper.define(:pce_education_topics) do |m|
+      m.rpc "ORWPCE GET EDUCATION TOPICS"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+    end
+
+    # ORWPCE GET HEALTH FACTORS TY — IEN^NAME, plus category pieces.
+    # HFTYPE^ORWPCE2 (ORWPCE2.m:38-48): IEN^name, and when ADDCATS is true
+    # also $P(0-node,U,10)^$P(0-node,U,3) (category, category IEN). Blank
+    # lines are not rows. Without ADDCATS the category pieces are absent.
+    DataMapper.define(:pce_health_factor_types) do |m|
+      m.rpc "ORWPCE GET HEALTH FACTORS TY"
+      m.field 0, :ien, :integer
+      m.field 1, :name
+      m.field 2, :category
+      m.field 3, :category_ien, :integer
+    end
   end
 end

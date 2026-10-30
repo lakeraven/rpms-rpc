@@ -10,6 +10,16 @@ RpmsRpc::Authentication.timed_read	GET /users/{duz}/timed-read
 RpmsRpc::Authentication.user_info	GET /users/{duz}/info
 RpmsRpc::Authentication.user_security_keys	GET /users/{duz}/security-keys
 RpmsRpc::Authentication.user_type	GET /users/{duz}/type
+RpmsRpc::ClinicalEvent.education_topics	GET /clinical-events/education-topics
+RpmsRpc::ClinicalEvent.exam_types	GET /clinical-events/exam-types
+RpmsRpc::ClinicalEvent.has_visit?	GET /progress-notes/{note_ien}/clinical-events/patients/{dfn}/has-visit
+RpmsRpc::ClinicalEvent.health_factor_types	GET /clinical-events/health-factor-types
+RpmsRpc::ClinicalEvent.immunization_types	GET /clinical-events/immunization-types
+RpmsRpc::ClinicalEvent.note_visit_string	GET /progress-notes/{note_ien}/clinical-events/note-visit-string
+RpmsRpc::ClinicalEvent.pce_for_note	GET /progress-notes/{note_ien}/clinical-events/patients/{dfn}/pce
+RpmsRpc::ClinicalEvent.skin_test_types	GET /clinical-events/skin-test-types
+RpmsRpc::ClinicalEvent.visit_for_note	GET /progress-notes/{note_ien}/clinical-events/patients/{dfn}/visit
+RpmsRpc::ClinicalEvent.visit_status	GET /progress-notes/{note_ien}/clinical-events/patients/{dfn}/visit-status
 RpmsRpc::DdrFileman.gets_entry	GET /files/{file}/entries/{iens}
 RpmsRpc::ESignature.which_action	GET /progress-notes/{note_ien}/signatures/which-action
 RpmsRpc::Eligibility.codes	GET /eligibility/codes

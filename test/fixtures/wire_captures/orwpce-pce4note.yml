@@ -1,0 +1,26 @@
+# Wire capture: ORWPCE PCE4NOTE — promoted from test/fixtures/wire_captures/unmapped/orwpce-pce4note.yml (issue #286).
+# raw_return is the first call's verbatim broker reply; sha256 is that call's seal. Do not hand-edit.
+# Gated by test/rpms_rpc/wire_contract_test.rb against mapping :pce_for_note.
+---
+rpc: ORWPCE PCE4NOTE
+mapping: pce_for_note
+kind: text_blob
+release_tag: bcer-9.0-20261012-e7923a4-ydb
+captured_at: '2026-10-22T07:46:26Z'
+cite: 'PCE4NOTE^ORWPCE3 (ORWPCE3.m:4-22): HDR^AllowEdit^CPTRequired^VStr^Author^hasCPT,
+  then VST/PRV/POV/CPT/IMM/SK/PED/HF/XAM/TRT/COM lines (:32-194). Note IEN < 1 uses
+  the visit string; otherwise the visit comes from the TIU note'
+pieces: []
+source: live-capture
+inputs:
+- '3'
+- '4'
+- ''
+raw_return: "4\0HDR^0^^3;3260902.0255;A^4^1\rVST^DT^3260902.12\rVST^PT^4\rVST^HL^0^^\rVST^PS^0\rVST^SC^\rVST^AO^\rVST^IR^\rVST^EC^\rVST^MST^\rVST^HNC^\rPRV^4^^^MANAGER,SYSTEM^1\rPOV^J20.9^^Acute
+  bronchitis | ^1^4\rCPT^^^Parenteral Supp Not Othrws C^1^4^^^\rIMM^272^^Influenza,
+  adjuvanted, trivalent, injectable, preservative free^^4^^\rIMM^345^^SARS-COV-2 (COVID-19)
+  vaccine, mRNA, spike protein, LNP, PF, tris-sucrose, 30 mcg/0.3 mL dose^^4^^\rPED^1611^^AN-COMPLICATIONS^3^4\rPED^4126^^IM-LITERATURE^3^4\rXAM^28^^FOOT
+  INSPECTION^N^4^\rXAM^35^^DEPRESSION SCREENING^N^4^\r"
+sha256: d35ddc83c20b9c3605a3e194e73bdccada8fdff570643563a32f715ac34d72c4
+note: 'text_blob: record types do not share one caret layout. parse_note_bundle models
+  the lines; an unknown type is an opaque record.'

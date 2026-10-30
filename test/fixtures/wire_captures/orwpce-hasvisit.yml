@@ -1,0 +1,22 @@
+# Wire capture: ORWPCE HASVISIT — promoted from test/fixtures/wire_captures/unmapped/orwpce-hasvisit.yml (issue #286).
+# raw_return is the first call's verbatim broker reply; sha256 is that call's seal. Do not hand-edit.
+# Gated by test/rpms_rpc/wire_contract_test.rb against mapping :pce_has_visit.
+---
+rpc: ORWPCE HASVISIT
+mapping: pce_has_visit
+kind: scalar
+release_tag: bcer-9.0-20261012-e7923a4-ydb
+captured_at: '2026-10-22T07:46:26Z'
+cite: 'HASVISIT^ORWPCE (ORWPCE.m:118-123): ORY starts -1; a positive note reads ^TIU(8925,IEN,0)
+  piece 3, else $$GETENC^PXAPI(DFN,ORDTE,ORLOC). A positive visit is $$VST2APPT^PXAPI
+  (VST2APPT^PXUTL1, PXUTL1.m:65-78): 0 stand-alone, 1 appointment-linked, -1 no visit'
+pieces: []
+source: live-capture
+inputs:
+- '3'
+- '4'
+- ''
+- ''
+raw_return: "1\00"
+sha256: ee3d96c33ea92b08916ea5544f876b971831bf03f0a280f8e781e5c0fd444382
+note: 'Scalar -1/0/1. Not a boolean: 0 is a visit.'

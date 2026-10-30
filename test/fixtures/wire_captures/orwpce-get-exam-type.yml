@@ -1,0 +1,31 @@
+# Wire capture: ORWPCE GET EXAM TYPE — promoted from test/fixtures/wire_captures/unmapped/orwpce-get-exam-type.yml (issue #286).
+# raw_return is the first call's verbatim broker reply; sha256 is that call's seal. Do not hand-edit.
+# Gated by test/rpms_rpc/wire_contract_test.rb against mapping :pce_exam_types.
+---
+rpc: ORWPCE GET EXAM TYPE
+mapping: pce_exam_types
+kind: fields
+release_tag: bcer-9.0-20261012-e7923a4-ydb
+captured_at: '2026-10-22T07:46:26Z'
+cite: 'EXAMTYPE^ORWPCE2 (ORWPCE2.m:51-53): IEN^NAME of active ^AUTTEXAM entries (0-node
+  piece 4 = 0)'
+pieces:
+- position: 0
+  attributes:
+  - ien
+  fileman_type: integer
+- position: 1
+  attributes:
+  - name
+source: live-capture
+inputs: []
+raw_return: "4\034^ALCOHOL SCREENING\r30^AUDITORY EVOKED POTENTIAL\r44^BIMS\r41^COLOR
+  BLINDNESS\r29^DENTAL EXAM\r35^DEPRESSION SCREENING\r3^DIABETIC EYE EXAM\r27^DIABETIC
+  FOOT EXAM, COMPLETE\r32^EYE EXAM - GENERAL\r36^FALL RISK\r31^FOOT EXAM - GENERAL\r28^FOOT
+  INSPECTION\r33^INTIMATE PARTNER VIOLENCE\r38^NEWBORN HEARING SCREEN (LEFT)\r121^NEWBORN
+  HEARING SCREEN (RIGHT)\r39^NUTRITIONAL RISK SCREENING\r47^SDOH FOOD\r48^SDOH HOUSING\r51^SDOH
+  INTERPERSONAL SAFETY\r49^SDOH TRANSPORTATION\r50^SDOH UTILITIES\r43^SUICIDE RISK
+  ASSESSMENT\r45^SUICIDE SCREENING EXAM\r46^UNHEALTHY DRUG SCREENING EXAM\r42^VTE
+  RISK ASSESSMENT\r"
+sha256: 46b5c6d6d976971f3f3dfaa1e5b0dc2cf0d4bd65fc8b007ef3f3fd8dba38d0ca
+note:

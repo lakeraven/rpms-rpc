@@ -1,0 +1,24 @@
+# Wire capture: ORWPCE GET SKIN TEST TYPE — promoted from test/fixtures/wire_captures/unmapped/orwpce-get-skin-test-type.yml (issue #286).
+# raw_return is the first call's verbatim broker reply; sha256 is that call's seal. Do not hand-edit.
+# Gated by test/rpms_rpc/wire_contract_test.rb against mapping :pce_skin_test_types.
+---
+rpc: ORWPCE GET SKIN TEST TYPE
+mapping: pce_skin_test_types
+kind: fields
+release_tag: bcer-9.0-20261012-e7923a4-ydb
+captured_at: '2026-10-22T07:46:26Z'
+cite: 'SKTYPE^ORWPCE2 (ORWPCE2.m:25-30): IEN^NAME of active ^AUTTSK entries (0-node
+  piece 3 = 0)'
+pieces:
+- position: 0
+  attributes:
+  - ien
+  fileman_type: integer
+- position: 1
+  attributes:
+  - name
+source: live-capture
+inputs: []
+raw_return: "9\02^PPD\r6^TETANUS\r"
+sha256: 2695d035b726aad53d31245f3d2c33acf4ce4838dd3b317ae4d3c7f6b60396ab
+note:
