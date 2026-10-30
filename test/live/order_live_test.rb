@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "live_helper"
+require "rpms_rpc/api/authentication"
 require "rpms_rpc/api/order"
 require "rpms_rpc/api/ddr_fileman"
 
@@ -9,11 +10,12 @@ require "rpms_rpc/api/ddr_fileman"
 # EXPIRED), sheets_for_patient (ORWOR SHEETS) and result_history (ORWOR
 # RESULT HISTORY). They replace the fabricated-reply cases of order_test.rb.
 #
-# What the build holds decides what a reply can show: the ORDER file (#100)
-# is empty on the 0930 build, so the specs prove what holds for any patient
-# (AGET's header, the sheets every patient has, the EXPIRED arithmetic) and
-# check every row against file 100. The row-layout specs that need an order
-# on file wait on #391 (rpms-ops#723).
+# What the build holds decides what a reply can show: SEEDORD (rpms-ops#723)
+# puts one unsigned order on file 100 in every image since 2026-10-12, so
+# list and result_history row-layout specs fail closed if file 100 is empty.
+# unsigned_for_patient (ORWOR UNSIGN) may still answer no rows when the persona
+# lacks ORES/ORELSE or the build has no ^OR(100,"AS") / OR UNSIGNED ORDERS ON
+# EXIT unset (#391).
 #
 # Every RPC here is in CIAV VUECENTRIC, the option sign-on binds, for PROV123
 # and the programmer alike. These specs read only; they file nothing.
@@ -52,7 +54,7 @@ class OrderLiveTest < LiveSpec::Test
 
   def test_list_row_layout
     dfn, = first_order
-    skip_tracked("#391", "no order in file 100 on the pinned build (rpms-ops#723)") if dfn.nil?
+    flunk_if_order_file_empty!(dfn)
 
     row = RpmsRpc::Order.list(dfn, filter: :all).first
     refute_nil row, "file 100 holds an order for DFN #{dfn}, and AGET listed none"
@@ -77,10 +79,20 @@ class OrderLiveTest < LiveSpec::Test
 
   def test_unsigned_row_layout
     dfn, = first_order
-    skip_tracked("#391", "no order in file 100 on the pinned build (rpms-ops#723)") if dfn.nil?
+    flunk_if_order_file_empty!(dfn)
 
     rows = RpmsRpc::Order.unsigned_for_patient(dfn)
-    skip_tracked("#391", "no unsigned order on the pinned build for #{persona} (rpms-ops#723)") if rows.empty?
+    if rows.empty?
+      held = RpmsRpc::Authentication.held_keys(%w[ORES ORELSE])
+      flunk "CIAVCXUS HASKEYS gave no answer for ORES/ORELSE" if held.nil?
+
+      why = if held.empty?
+        "#{persona} holds neither ORES nor ORELSE (ORWOR UNSIGN requires one; ORWOR.m:122)"
+      else
+        "build lists no order in ^OR(100,\"AS\") or OR UNSIGNED ORDERS ON EXIT is unset (ORWOR.m:122-130)"
+      end
+      skip_tracked("#391", why)
+    end
     assert(rows.all? { |r| r[:ien].positive? && r[:action_ien].positive? }, rows.inspect)
   end
 
@@ -127,7 +139,7 @@ class OrderLiveTest < LiveSpec::Test
 
   def test_result_history_for_an_order_on_file
     dfn, order_ien = first_order
-    skip_tracked("#391", "no order in file 100 on the pinned build (rpms-ops#723)") if dfn.nil?
+    flunk_if_order_file_empty!(dfn)
 
     text = RpmsRpc::Order.result_history(dfn, order_ien)
     assert_kind_of String, text
@@ -135,6 +147,12 @@ class OrderLiveTest < LiveSpec::Test
   end
 
   private
+
+  def flunk_if_order_file_empty!(dfn)
+    return unless dfn.nil?
+
+    flunk "ORDER file (100) holds no orders; SEEDORD (rpms-ops#723) seeds one unsigned order on every image since 2026-10-12"
+  end
 
   # [TOT, TXTVW, ORYD] from AGET's .1 header line.
   def aget_header(dfn, filter_id)
