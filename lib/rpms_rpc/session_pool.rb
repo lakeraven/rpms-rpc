@@ -42,7 +42,9 @@ module RpmsRpc
 
     # `refcount` is the number of callers currently inside with_client for this
     # entry; an entry is idle (evictable) only at 0.
-    Entry = Struct.new(:client, :session_key, :refcount, :last_used_at, keyword_init: true)
+    # `released` marks an entry release took out of the pool while it was in
+    # use: whoever drops its last reference disconnects the client.
+    Entry = Struct.new(:client, :session_key, :refcount, :last_used_at, :released, keyword_init: true)
 
     DEFAULT_MAX_SESSIONS = 64
 
@@ -115,12 +117,38 @@ module RpmsRpc
         # session carrying the oldest idle timestamp, making it the next LRU
         # victim. No guard on the decrement — the pin is held on every path to
         # here, so an imbalance must surface, not be clamped to zero.
-        @monitor.synchronize do
+        doomed = @monitor.synchronize do
           entry.refcount -= 1
           entry.last_used_at = @clock.call
+          released_client(entry)
         end
+        safe_disconnect(doomed)
       end
       client
+    end
+
+    # End `session_key`: take it out of the pool and disconnect its client, so
+    # the broker logs that user off. For sign-out, an idle limit, the end of a
+    # session's life. The key is gone at once, so no later with_client can
+    # check the client out (a later with_client for the key builds afresh). A
+    # client still in use, or still pinned by a build or an adopt, is
+    # disconnected by whoever drops the last reference. Returns true if the key
+    # was held.
+    def release(session_key)
+      raise ArgumentError, "session_key required" if session_key.nil?
+
+      held, idle_client = @monitor.synchronize do
+        entry = @entries.delete(session_key)
+        next [ false, nil ] unless entry
+
+        entry.released = true
+        next [ true, nil ] if entry.refcount.positive? || entry.client.nil?
+
+        condemn(entry.client)
+        [ true, entry.client ]
+      end
+      safe_disconnect(idle_client)
+      held
     end
 
     # Number of sessions currently held (idle + in use).
@@ -265,10 +293,23 @@ module RpmsRpc
     end
 
     def checkin(entry)
-      @monitor.synchronize do
+      doomed = @monitor.synchronize do
         entry.refcount -= 1 if entry.refcount.positive?
         entry.last_used_at = @clock.call
+        released_client(entry)
       end
+      safe_disconnect(doomed)
+    end
+
+    # Caller holds the monitor. The client of an entry release took out while
+    # it was in use, once its last reference is gone: condemned, for the caller
+    # to disconnect off the lock. Otherwise nil.
+    def released_client(entry)
+      return nil unless entry.released && entry.refcount.zero? && entry.client
+
+      entry.released = false # disconnect once
+      condemn(entry.client)
+      entry.client
     end
 
     # Caller holds the monitor. Evict the least-recently-used IDLE entry to fit
