@@ -53,24 +53,40 @@ class OrwpceReadWireTest < Minitest::Test
   end
 
   # -- ORWPCE HASVISIT -------------------------------------------------------
+  # Wire bodies: -1 none; 0 stand-alone visit; 1 visit linked to an appointment.
 
-  def test_hasvisit_capture_minus_one_is_not_found
+  def test_hasvisit_capture_minus_one_is_no_visit
     mapping = mapping_for("ORWPCE HASVISIT")
     cap = load_unmapped_capture("ORWPCE HASVISIT").fetch("captures").find do |c|
       c.fetch("context").include?("none found")
     end
     refute_nil cap
-    assert_nil mapping.parse_scalar(cia_data_body(cap.fetch("raw_return")))
+    body = cia_data_body(cap.fetch("raw_return"))
+    refute mapping.parse_scalar(body), cap.fetch("context")
+    assert_equal :none, mapping.parse_hasvisit_status(body), cap.fetch("context")
   end
 
-  def test_hasvisit_capture_zero_means_visit_exists
+  def test_hasvisit_capture_zero_is_stand_alone_visit
     mapping = mapping_for("ORWPCE HASVISIT")
     load_unmapped_capture("ORWPCE HASVISIT").fetch("captures").each do |cap|
-      next if cia_data_body(cap.fetch("raw_return")).strip == "-1"
+      body = cia_data_body(cap.fetch("raw_return"))
+      next unless body.strip == "0"
 
-      assert_equal true, mapping.parse_scalar(cia_data_body(cap.fetch("raw_return"))),
-                   cap.fetch("context")
+      assert_equal true, mapping.parse_scalar(body), cap.fetch("context")
+      assert_equal :stand_alone, mapping.parse_hasvisit_status(body), cap.fetch("context")
     end
+  end
+
+  def test_hasvisit_synthetic_one_is_visit_with_appointment
+    mapping = mapping_for("ORWPCE HASVISIT")
+    assert_equal true, mapping.parse_scalar("1")
+    assert_equal :appointment, mapping.parse_hasvisit_status("1")
+  end
+
+  def test_hasvisit_synthetic_minus_one_is_no_visit
+    mapping = mapping_for("ORWPCE HASVISIT")
+    refute mapping.parse_scalar("-1")
+    assert_equal :none, mapping.parse_hasvisit_status("-1")
   end
 
   # -- ORWPCE NOTEVSTR -------------------------------------------------------

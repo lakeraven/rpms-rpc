@@ -15,6 +15,11 @@ rescue LoadError
 end
 
 # Issue #286: ORWPCE read + wiring RPCs on RpmsRpc::ClinicalEvent (no writes).
+#
+# When note IEN is a positive integer, ORWPCE GET VISIT, HASVISIT, and PCE4NOTE take
+# the visit from ^TIU(8925,note,0) piece 3 and ignore DFN on the broker. ClinicalEvent
+# must not enforce a cross-patient DFN guard for visit_for_note, has_visit?, visit_status,
+# or pce_for_note on that path (document in the module comment for builders).
 class ClinicalEventTest < Minitest::Test
   include OrwpceReadHelpers
 
@@ -66,6 +71,34 @@ class ClinicalEventTest < Minitest::Test
     client = RecordingClient.new
     use(client)
     clinical_event.has_visit?("0", "990003", LOCATION, VISIT_DATETIME)
+
+    assert_equal [ [ "ORWPCE HASVISIT", "0", "990003", LOCATION, VISIT_DATETIME ] ], client.calls
+  end
+
+  def test_visit_for_note_note_zero_with_visit_string_sends_capture_params
+    cap = load_unmapped_capture("ORWPCE GET VISIT").fetch("captures").find do |c|
+      c.fetch("inputs").first == "0"
+    end
+    refute_nil cap
+    client = RecordingClient.new
+    use(client)
+    clinical_event.visit_for_note(*cap.fetch("inputs"))
+
+    assert_equal [ [ "ORWPCE GET VISIT", *cap.fetch("inputs") ] ], client.calls
+  end
+
+  def test_visit_status_sends_orwpce_hasvisit_params_from_capture
+    client = RecordingClient.new
+    use(client)
+    clinical_event.visit_status(NOTE_IEN, DFN, "", "")
+
+    assert_equal [ [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "", "" ] ], client.calls
+  end
+
+  def test_visit_status_lookup_by_location_sends_orwpce_hasvisit_params_from_capture
+    client = RecordingClient.new
+    use(client)
+    clinical_event.visit_status("0", "990003", LOCATION, VISIT_DATETIME)
 
     assert_equal [ [ "ORWPCE HASVISIT", "0", "990003", LOCATION, VISIT_DATETIME ] ], client.calls
   end
@@ -142,37 +175,87 @@ class ClinicalEventTest < Minitest::Test
     assert_equal [ [ "ORWPCE GET HEALTH FACTORS TY", "1" ] ], client.calls
   end
 
-  # -- invalid ids refuse before the wire ------------------------------------
-
-  def test_visit_for_note_sends_nothing_for_invalid_note_or_dfn
+  def test_visit_for_note_sends_nothing_for_invalid_note_ien
     use NoWireClient.new
-    INVALID_IDS.each do |bad|
+    INVALID_NOTE_IDS.each do |bad|
       assert_nil clinical_event.visit_for_note(bad, DFN, VISIT_STRING), bad.inspect
+    end
+  end
+
+  def test_visit_for_note_sends_nothing_for_invalid_dfn
+    use NoWireClient.new
+    INVALID_DFN_IDS.each do |bad|
       assert_nil clinical_event.visit_for_note(NOTE_IEN, bad, VISIT_STRING), bad.inspect
     end
   end
 
-  def test_has_visit_sends_nothing_for_invalid_note_or_dfn
+  def test_visit_for_note_note_zero_without_visit_string_makes_no_call
     use NoWireClient.new
-    INVALID_IDS.each do |bad|
+    assert_nil clinical_event.visit_for_note(0, DFN, VISIT_STRING)
+    assert_nil clinical_event.visit_for_note("0", DFN, "")
+  end
+
+  def test_has_visit_sends_nothing_for_invalid_note_ien
+    use NoWireClient.new
+    INVALID_NOTE_IDS.each do |bad|
       refute clinical_event.has_visit?(bad, DFN, "", ""), bad.inspect
-      refute clinical_event.has_visit?(NOTE_IEN, bad, "", ""), bad.inspect
+      assert_nil clinical_event.visit_status(bad, DFN, "", ""), bad.inspect
     end
+  end
+
+  def test_has_visit_sends_nothing_for_invalid_dfn
+    use NoWireClient.new
+    INVALID_DFN_IDS.each do |bad|
+      refute clinical_event.has_visit?(NOTE_IEN, bad, "", ""), bad.inspect
+      assert_nil clinical_event.visit_status(NOTE_IEN, bad, "", ""), bad.inspect
+    end
+  end
+
+  def test_has_visit_note_zero_without_location_makes_no_call
+    use NoWireClient.new
+    refute clinical_event.has_visit?("0", DFN, "", "")
+    assert_nil clinical_event.visit_status("0", DFN, "", "")
+    refute clinical_event.has_visit?("0", DFN, LOCATION, "")
+    assert_nil clinical_event.visit_status("0", DFN, LOCATION, "")
   end
 
   def test_note_visit_string_sends_nothing_for_invalid_note_ien
     use NoWireClient.new
-    INVALID_IDS.each do |bad|
+    (INVALID_NOTE_IDS + [ 0, "0" ]).each do |bad|
       assert_nil clinical_event.note_visit_string(bad), bad.inspect
     end
   end
 
-  def test_pce_for_note_sends_nothing_for_invalid_note_or_dfn
+  def test_pce_for_note_sends_nothing_for_invalid_note_ien
     use NoWireClient.new
-    INVALID_IDS.each do |bad|
+    INVALID_NOTE_IDS.each do |bad|
       assert_nil clinical_event.pce_for_note(bad, DFN, VISIT_STRING), bad.inspect
+    end
+  end
+
+  def test_pce_for_note_sends_nothing_for_invalid_dfn
+    use NoWireClient.new
+    INVALID_DFN_IDS.each do |bad|
       assert_nil clinical_event.pce_for_note(NOTE_IEN, bad, VISIT_STRING), bad.inspect
     end
+  end
+
+  def test_pce_for_note_note_zero_without_visit_string_makes_no_call
+    use NoWireClient.new
+    assert_nil clinical_event.pce_for_note(0, DFN, VISIT_STRING)
+    assert_nil clinical_event.pce_for_note("0", DFN, "")
+  end
+
+  def test_pce_for_note_note_zero_with_visit_string_sends_capture_params
+    cap = load_unmapped_capture("ORWPCE PCE4NOTE").fetch("captures").find do |c|
+      c.fetch("inputs").first == "0"
+    end
+    refute_nil cap
+    client = RecordingClient.new
+    use(client)
+    clinical_event.pce_for_note(*cap.fetch("inputs"))
+
+    assert_equal [ [ "ORWPCE PCE4NOTE", *cap.fetch("inputs") ] ], client.calls
   end
 
   # -- lock polarity (reads only) -------------------------------------------
@@ -180,6 +263,7 @@ class ClinicalEventTest < Minitest::Test
   READ_METHODS = [
     [ :visit_for_note, [ NOTE_IEN, DFN, VISIT_STRING ] ],
     [ :has_visit?, [ NOTE_IEN, DFN, "", "" ] ],
+    [ :visit_status, [ NOTE_IEN, DFN, "", "" ] ],
     [ :note_visit_string, [ NOTE_IEN ] ],
     [ :pce_for_note, [ NOTE_IEN, DFN, VISIT_STRING ] ],
     [ :immunization_types, [] ],
@@ -251,7 +335,7 @@ class ClinicalEventTest < Minitest::Test
 
   def test_read_helpers_are_classified_read
     %i[
-      visit_for_note has_visit? note_visit_string pce_for_note
+      visit_for_note has_visit? visit_status note_visit_string pce_for_note
       immunization_types skin_test_types exam_types education_topics health_factor_types
     ].each do |method|
       assert_equal :read, RpmsRpc::RetrySafety.for(clinical_event, method),
@@ -279,5 +363,53 @@ class ClinicalEventTest < Minitest::Test
     assert_equal 3, row[:location_ien]
     assert_equal "3260902.0255", row[:datetime_raw]
     assert_equal "A", row[:service_category]
+  end
+
+  def test_has_visit_returns_true_for_hasvisit_capture_notes
+    load_unmapped_capture("ORWPCE HASVISIT").fetch("captures").each do |cap|
+      next if cap.fetch("context").include?("none found")
+
+      RpmsRpc.mock! do |m|
+        m.seed_scalar(:pce_has_visit, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
+      end
+      assert clinical_event.has_visit?(*cap.fetch("inputs")), cap.fetch("context")
+    end
+  end
+
+  def test_visit_status_returns_stand_alone_from_hasvisit_capture
+    cap = load_unmapped_capture("ORWPCE HASVISIT").fetch("captures").first
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:pce_has_visit, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
+    end
+    assert_equal :stand_alone, clinical_event.visit_status(*cap.fetch("inputs"))
+  end
+
+  def test_visit_status_returns_none_from_hasvisit_none_found_capture
+    cap = load_unmapped_capture("ORWPCE HASVISIT").fetch("captures").find do |c|
+      c.fetch("context").include?("none found")
+    end
+    refute_nil cap
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:pce_has_visit, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
+    end
+    assert_equal :none, clinical_event.visit_status(*cap.fetch("inputs"))
+    refute clinical_event.has_visit?(*cap.fetch("inputs"))
+  end
+
+  def test_has_visit_and_visit_status_treat_synthetic_one_as_visit_with_appointment
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:pce_has_visit, [ NOTE_IEN, DFN, "", "" ], "1")
+    end
+    assert clinical_event.has_visit?(NOTE_IEN, DFN, "", "")
+    assert_equal :appointment, clinical_event.visit_status(NOTE_IEN, DFN, "", "")
+  end
+
+  def test_has_visit_and_visit_status_treat_synthetic_minus_one_as_no_visit
+    lookup = [ "0", "990003", LOCATION, VISIT_DATETIME ]
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:pce_has_visit, lookup, "-1")
+    end
+    refute clinical_event.has_visit?(*lookup)
+    assert_equal :none, clinical_event.visit_status(*lookup)
   end
 end

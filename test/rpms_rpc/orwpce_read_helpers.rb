@@ -5,6 +5,17 @@ require "set"
 
 # Shared helpers for ORWPCE read specs (issue #286). Evidence lives in
 # test/fixtures/wire_captures/unmapped/orwpce-*.yml until promotion.
+#
+# Builder contract:
+# - ORWPCE HASVISIT (HASVISIT^ORWPCE): -1 = no visit; 0 = visit exists, stand-alone;
+#   1 = visit exists, tied to an appointment. has_visit? is true for 0 and 1.
+#   visit_status returns :none, :stand_alone, or :appointment (nil when no RPC).
+# - note_ien is a non-negative integer (Integer or digit-only String). 0 selects
+#   location lookup when args are complete (GET VISIT/PCE4NOTE: visit_string with
+#   positive location piece 1 and FileMan datetime piece 2; HASVISIT/visit_status:
+#   positive-integer location_ien and FileMan datetime). Note 0 without them: no RPC.
+#   Positive note IENs need no location args; the server reads the visit from the TIU
+#   note and ignores DFN (GETVISIT^ORWPCE2).
 module OrwpceReadHelpers
   ROOT = File.expand_path("../..", __dir__).freeze
   UNMAPPED_DIR = File.join(ROOT, "test/fixtures/wire_captures/unmapped").freeze
@@ -39,7 +50,8 @@ module OrwpceReadHelpers
 
   CAPTURE_BASENAME = ->(rpc) { "#{rpc.downcase.tr(" /", "--")}.yml" }
 
-  INVALID_IDS = [ nil, "", " ", 0, -1, "abc", "3.5" ].freeze
+  INVALID_NOTE_IDS = [ nil, "", " ", -1, "abc", "3.5" ].freeze
+  INVALID_DFN_IDS = [ nil, "", " ", 0, -1, "abc", "3.5" ].freeze
 
   WRITE_RPC_PATTERN = /
     \bFILER\b |
