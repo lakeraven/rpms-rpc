@@ -38,6 +38,13 @@ module FeaturesTestHelper
 
   ORIGINAL_FEATURE_NAMES = FEATURE_MODULES.keys.freeze
 
+  # Prefix filter per feature (round-2 #384): nil keeps every RPC the source module sends.
+  FEATURE_RPC_PREFIX = {
+    patient_chart_banner: "BEHO",
+    bmc_referral_workflow: nil,
+    orqqpl_problem_workflow: "ORQQPL"
+  }.freeze
+
   REACH_OK_TAG = "features-reach-all-ok-ydb"
   REACH_PTINFO_NO_CONTEXT_TAG = "features-reach-ptinfo-no-context-ydb"
   REACH_WRONG_CONTEXT_TAG = "features-reach-wrong-context-ydb"
@@ -52,19 +59,56 @@ module FeaturesTestHelper
     @required_rpcs_modules ||= JSON.parse(File.read(REQUIRED_RPCS_PATH))["modules"]
   end
 
-  # Prefix rules from round-1 review (read modules at test time; do not mirror lib/rpms_rpc/features.rb).
+  # Derive RPC membership from required_rpcs.json using FEATURE_RPC_PREFIX (not lib constants).
   def expected_feature_rpcs(name)
     module_name = FEATURE_MODULES.fetch(name)
     rpcs = required_rpcs_modules.fetch(module_name)
-    case name
-    when :patient_chart_banner
-      rpcs.select { |rpc| rpc.start_with?("BEHO") }
-    when :bmc_referral_workflow
-      rpcs.select { |rpc| rpc.start_with?("BMC") || !rpc.start_with?("BMC") }
-    when :orqqpl_problem_workflow
-      rpcs.select { |rpc| rpc.start_with?("ORQQPL") }
-    else
-      flunk "no RPC rule for feature #{name.inspect}"
+    prefix = FEATURE_RPC_PREFIX.fetch(name)
+    return rpcs if prefix.nil?
+
+    rpcs.select { |rpc| rpc.start_with?(prefix) }
+  end
+
+  def assert_feature_rpcs_derived_from_required_rpcs_json
+    ORIGINAL_FEATURE_NAMES.each do |name|
+      module_name = FEATURE_MODULES.fetch(name)
+      raw = required_rpcs_modules.fetch(module_name)
+      prefix = FEATURE_RPC_PREFIX.fetch(name)
+      derived = prefix.nil? ? raw : raw.select { |rpc| rpc.start_with?(prefix) }
+      assert_equal derived.sort, expected_feature_rpcs(name).sort, name
+    end
+  end
+
+  # Pinned test seam (round-2 #384): swap REQUIRED_RPCS_PATH, then Features.reset! reloads the registry.
+  def with_required_rpcs_path(path)
+    feat = features!
+    original_path = RpmsRpc::Features::REQUIRED_RPCS_PATH
+    RpmsRpc::Features.send(:remove_const, :REQUIRED_RPCS_PATH)
+    RpmsRpc::Features.const_set(:REQUIRED_RPCS_PATH, path)
+    feat.reset!
+    yield
+  ensure
+    RpmsRpc::Features.send(:remove_const, :REQUIRED_RPCS_PATH)
+    RpmsRpc::Features.const_set(:REQUIRED_RPCS_PATH, original_path)
+    feat.reset!
+  end
+
+  def expected_for_feature_names(build, inventories_dir: PINNED_INVENTORIES, context: :__omitted__)
+    surface =
+      if build == PINNED_TAG && inventories_dir == PINNED_INVENTORIES
+        pinned_reach_surface
+      else
+        reach_surface(build, inventories_dir: inventories_dir)
+      end
+    ORIGINAL_FEATURE_NAMES.select do |name|
+      bound = expected_feature_context(name)
+      if bound
+        every_rpc_client_callable_under?(surface, expected_feature_rpcs(name), bound)
+      elsif context == :__omitted__
+        false
+      else
+        every_rpc_client_callable_under?(surface, expected_feature_rpcs(name), context)
+      end
     end
   end
 

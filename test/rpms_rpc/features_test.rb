@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "json"
 require "rpms_rpc"
 require_relative "features_test_helper"
 
@@ -26,6 +27,7 @@ class FeaturesTest < Minitest::Test
   def test_each_feature_rpcs_match_required_rpcs_json_for_its_module
     # Round-1 #384: feature RPCs are what the source module sends (from required_rpcs.json),
     # not a probe subset and not a hand copy of lib/rpms_rpc/features.rb constants.
+    assert_feature_rpcs_derived_from_required_rpcs_json
     ORIGINAL_FEATURE_NAMES.each do |name|
       expected = expected_feature_rpcs(name)
       refute_empty expected, "#{name} must name at least one RPC"
@@ -54,9 +56,13 @@ class FeaturesTest < Minitest::Test
     assert_raises(ArgumentError) { available?(:patient_chart_banner, build: PINNED_TAG) }
   end
 
-  def test_fixed_context_feature_ignores_wrong_context_keyword_with_false
-    # Round-1 #384: Referral binds BMCRPC; a different context: → false, not an error.
-    refute available?(:bmc_referral_workflow, build: PINNED_TAG, context: "CIAV VUECENTRIC")
+  def test_fixed_context_feature_available_ignores_caller_context
+    # Round-2 #384: fixed-context features are judged under their declared context only;
+    # a caller context: is ignored (replaces "mismatch → false").
+    without = available?(:bmc_referral_workflow, build: PINNED_TAG)
+    with_wrong = available?(:bmc_referral_workflow, build: PINNED_TAG, context: "CIAV VUECENTRIC")
+    assert_equal without, with_wrong
+    assert without
   end
 
   def test_orqqpl_available_on_pinned_build_matches_reach_for_cprs_context
@@ -168,14 +174,75 @@ class FeaturesTest < Minitest::Test
     end
   end
 
-  def test_for_lists_features_the_build_serves_under_each_context
-    assert_includes for_build(PINNED_TAG, context: "CIAV VUECENTRIC"), :patient_chart_banner
-    assert_includes for_build(PINNED_TAG), :bmc_referral_workflow
-    assert_includes for_build(PINNED_TAG, context: "OR CPRS GUI CHART"), :orqqpl_problem_workflow
+  def test_for_without_context_returns_fixed_context_features_served_on_build
+    # Round-2 #384: no context: → fixed-context features only; session-context features omitted, never raise.
+    expected = expected_for_feature_names(PINNED_TAG)
+    assert_equal expected, for_build(PINNED_TAG)
+    refute_includes for_build(PINNED_TAG), :patient_chart_banner
+    refute_includes for_build(PINNED_TAG), :orqqpl_problem_workflow
   end
 
-  def test_for_requires_context_for_session_bound_features
-    assert_raises(ArgumentError) { for_build(PINNED_TAG) }
+  def test_for_with_context_returns_fixed_and_session_features_served_under_that_context
+    ciav = for_build(PINNED_TAG, context: "CIAV VUECENTRIC")
+    assert_equal expected_for_feature_names(PINNED_TAG, context: "CIAV VUECENTRIC"), ciav
+    assert_includes ciav, :patient_chart_banner if available?(:patient_chart_banner, build: PINNED_TAG, context: "CIAV VUECENTRIC")
+
+    cprs = for_build(PINNED_TAG, context: "OR CPRS GUI CHART")
+    assert_equal expected_for_feature_names(PINNED_TAG, context: "OR CPRS GUI CHART"), cprs
+    assert_includes cprs, :orqqpl_problem_workflow if available?(:orqqpl_problem_workflow, build: PINNED_TAG, context: "OR CPRS GUI CHART")
+  end
+
+  def test_features_rb_does_not_use_caller_or_caller_locations
+    source = File.read(File.join(ROOT, "lib/rpms_rpc/features.rb"))
+    refute_match(/\bcaller_locations\s*\(/, source, "Features must not inspect the call stack (#384)")
+    refute_match(/\bcaller\s*\(/, source, "Features must not inspect the call stack (#384)")
+  end
+
+  def test_required_rpcs_missing_file_raises_argument_error_naming_path
+    missing = File.join(Dir.mktmpdir("features-rpcs-"), "no-required-rpcs.json")
+    refute File.file?(missing)
+    err = assert_raises(ArgumentError) { with_required_rpcs_path(missing) { features!.all } }
+    assert_match(/required_rpcs/i, err.message)
+    assert_match(File.basename(missing), err.message)
+  end
+
+  def test_required_rpcs_invalid_json_raises_argument_error_naming_path
+    path = File.join(Dir.mktmpdir("features-rpcs-"), "bad.json")
+    File.write(path, "{not json")
+    err = assert_raises(ArgumentError) { with_required_rpcs_path(path) { features!.all } }
+    assert_match(/required_rpcs/i, err.message)
+    assert_match(File.basename(path), err.message)
+    refute_instance_of JSON::ParserError, err
+  end
+
+  def test_required_rpcs_missing_module_raises_argument_error_naming_module
+    path = File.join(Dir.mktmpdir("features-rpcs-"), "missing-module.json")
+    doc = JSON.parse(File.read(REQUIRED_RPCS_PATH))
+    doc["modules"].delete("RpmsRpc::Referral")
+    File.write(path, JSON.generate(doc))
+    err = assert_raises(ArgumentError) { with_required_rpcs_path(path) { features!.all } }
+    assert_match(/required_rpcs/i, err.message)
+    assert_match(/RpmsRpc::Referral/, err.message)
+  end
+
+  def test_required_rpcs_module_not_nonempty_string_array_raises_argument_error
+    path = File.join(Dir.mktmpdir("features-rpcs-"), "bad-module.json")
+    doc = JSON.parse(File.read(REQUIRED_RPCS_PATH))
+    doc["modules"]["RpmsRpc::Problem"] = "ORQQPL LIST"
+    File.write(path, JSON.generate(doc))
+    err = assert_raises(ArgumentError) { with_required_rpcs_path(path) { features!.all } }
+    assert_match(/required_rpcs/i, err.message)
+    assert_match(/RpmsRpc::Problem/, err.message)
+
+    doc["modules"]["RpmsRpc::Problem"] = []
+    File.write(path, JSON.generate(doc))
+    err = assert_raises(ArgumentError) { with_required_rpcs_path(path) { features!.all } }
+    assert_match(/RpmsRpc::Problem/, err.message)
+
+    doc["modules"]["RpmsRpc::Problem"] = [ "ORQQPL LIST", "" ]
+    File.write(path, JSON.generate(doc))
+    err = assert_raises(ArgumentError) { with_required_rpcs_path(path) { features!.all } }
+    assert_match(/RpmsRpc::Problem/, err.message)
   end
 
   def test_reach_fixture_all_client_callable_under_feature_context_is_true
