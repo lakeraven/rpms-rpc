@@ -110,6 +110,26 @@ class AuthenticationTest < Minitest::Test
     end
   end
 
+  # ORWU USERINFO piece 8 is the user's DTIME: their own TIMED READ, else the
+  # site default (live on 7c3119b: PROFILE,SCHED 600, PROFILE,MD 9999).
+  def test_timed_read_is_the_users_idle_limit_in_seconds
+    RpmsRpc.client.seed(:practitioner_info, "", { duz: 208, name: "PROFILE,SCHED", user_class: "0", timed_read: 600 })
+
+    assert_equal 600, RpmsRpc::Authentication.timed_read(208)
+  end
+
+  def test_timed_read_is_nil_when_rpms_names_none
+    RpmsRpc.client.seed(:practitioner_info, "", { duz: 208, name: "PROFILE,SCHED", user_class: "0", timed_read: "" })
+
+    assert_nil RpmsRpc::Authentication.timed_read(208)
+  end
+
+  def test_timed_read_raises_when_the_answer_is_for_another_user
+    RpmsRpc.client.seed(:practitioner_info, "", { duz: 999, name: "OTHER,USER", user_class: "3", timed_read: 600 })
+
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Authentication.timed_read(208) }
+  end
+
   def test_user_type_raises_when_the_answer_is_for_another_user
     RpmsRpc.client.seed(:practitioner_info, "", { duz: 999, name: "OTHER,USER", user_class: "3" })
     e = assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Authentication.user_type(301) }
