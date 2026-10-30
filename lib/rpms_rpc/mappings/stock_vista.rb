@@ -1118,10 +1118,11 @@ module RpmsRpc
     # PCE4NOTE^ORWPCE3 (ORWPCE3.m:4-194). The header is
     # HDR^AllowEdit^CPTRequired^VStr^Author^hasCPT (:5, :20-22). Each later
     # line is a record type (VST, PRV, POV, CPT, IMM, PED, XAM, COM, and the
-    # types this bundle does not model). POV, CPT, and IMM carry a comment
-    # index at caret index 10; COM^index^text lines are :comments under that
-    # integer. A type with no modeled key is kept on :opaque_records. -1 and
-    # an empty reply are not a bundle.
+    # types this bundle does not model). POV, CPT, IMM, PED, and XAM carry a
+    # comment index at piece 10, 1-indexed ($P(LST(ILST),U,10)=ICOM);
+    # COM^index^text lines are :comments under that integer. CPT modifiers
+    # stay at piece 9, 1-indexed. A type with no modeled key is kept on
+    # :opaque_records. -1 and an empty reply are not a bundle.
     # text_blob: the lines do not share one caret layout, so the gate does
     # not read them as fields. Row parsing is parse_note_bundle.
     DataMapper.define(:pce_for_note) do |m|
@@ -1218,7 +1219,7 @@ module RpmsRpc
         narrative: pce_text(pieces[3]),
         primary: pce_text(pieces[4]),
         provider_ien: pce_text(pieces[5]),
-        comment_index: pce_positive_integer(pieces[10])
+        comment_index: pce_positive_integer(pieces[9])
       }
     end
     DataMapper[:pce_for_note].define_singleton_method(:pce_procedure) do |pieces|
@@ -1229,7 +1230,7 @@ module RpmsRpc
         quantity: pce_text(pieces[4]),
         provider_ien: pce_text(pieces[5]),
         modifiers: pce_text(pieces[8]),
-        comment_index: pce_positive_integer(pieces[10])
+        comment_index: pce_positive_integer(pieces[9])
       }
     end
     DataMapper[:pce_for_note].define_singleton_method(:pce_immunization) do |pieces|
@@ -1238,11 +1239,12 @@ module RpmsRpc
         name: pce_text(pieces[3]),
         series: pce_text(pieces[4]),
         provider_ien: pce_text(pieces[5]),
-        comment_index: pce_positive_integer(pieces[10])
+        comment_index: pce_positive_integer(pieces[9])
       }
     end
-    # COM^index^text (ORWPCE3 $P of the POV/CPT/IMM line at caret index 10).
-    # The index is the same integer those rows expose as :comment_index.
+    # COM^index^text. The index is piece 10, 1-indexed, on the POV, CPT,
+    # IMM, PED, and XAM rows ($P(LST(ILST),U,10)=ICOM), the same integer
+    # those rows expose as :comment_index.
     DataMapper[:pce_for_note].define_singleton_method(:pce_comment) do |bundle, pieces, line|
       index = pce_positive_integer(pieces[1])
       if index
@@ -1256,7 +1258,8 @@ module RpmsRpc
         topic_ien: pce_text(pieces[1]),
         name: pce_text(pieces[3]),
         understanding: pce_text(pieces[4]),
-        provider_ien: pce_text(pieces[5])
+        provider_ien: pce_text(pieces[5]),
+        comment_index: pce_positive_integer(pieces[9])
       }
     end
     DataMapper[:pce_for_note].define_singleton_method(:pce_exam) do |pieces|
@@ -1264,7 +1267,8 @@ module RpmsRpc
         exam_ien: pce_text(pieces[1]),
         name: pce_text(pieces[3]),
         result: pce_text(pieces[4]),
-        provider_ien: pce_text(pieces[5])
+        provider_ien: pce_text(pieces[5]),
+        comment_index: pce_positive_integer(pieces[9])
       }
     end
 

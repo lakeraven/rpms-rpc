@@ -13,10 +13,10 @@ module RpmsRpc
   # DFN (GETVISIT^ORWPCE2, ORWPCE2.m:64-67; HASVISIT^ORWPCE,
   # ORWPCE.m:118-123; PCE4NOTE^ORWPCE3, ORWPCE3.m:9-17). Optional
   # visit_string, location IEN, and datetime on that path are sent only
-  # when blank or well-formed; a malformed value makes no call. A note IEN
-  # of 0 looks the visit up by DFN instead: GET VISIT and PCE4NOTE use the
-  # visit string (location;FileMan datetime;service category); HASVISIT
-  # uses the location IEN and the FileMan datetime.
+  # when blank or well-formed; nil is sent as "". A malformed value makes
+  # no call. A note IEN of 0 looks the visit up by DFN instead: GET VISIT
+  # and PCE4NOTE use the visit string (location;FileMan datetime;service
+  # category); HASVISIT uses the location IEN and the FileMan datetime.
   #
   # HASVISIT^ORWPCE answers -1 when there is no visit, 0 for a stand-alone
   # visit, and 1 when that visit is tied to an appointment
@@ -32,7 +32,7 @@ module RpmsRpc
       return nil unless note_lookup?(note_ien, dfn, visit_string)
       return nil unless rpc_served?(DataMapper.pce_get_visit)
 
-      DataMapper.pce_get_visit.fetch_scalar(note_ien, dfn, visit_string)
+      DataMapper.pce_get_visit.fetch_scalar(note_ien, dfn, empty_optional(visit_string))
     end
     shape :visit_for_note, resource: "clinical-events", verb: "GET",
           path: "/progress-notes/{note_ien}/clinical-events/patients/{dfn}/visit"
@@ -43,7 +43,9 @@ module RpmsRpc
       return false unless hasvisit_args?(note_ien, dfn, location_ien, datetime)
       return false unless rpc_served?(DataMapper.pce_has_visit)
 
-      DataMapper.pce_has_visit.fetch_scalar(note_ien, dfn, location_ien, datetime) == true
+      DataMapper.pce_has_visit.fetch_scalar(
+        note_ien, dfn, empty_optional(location_ien), empty_optional(datetime)
+      ) == true
     end
     shape :has_visit?, resource: "clinical-events", verb: "GET",
           path: "/progress-notes/{note_ien}/clinical-events/patients/{dfn}/has-visit"
@@ -54,7 +56,8 @@ module RpmsRpc
       return nil unless rpc_served?(DataMapper.pce_has_visit)
 
       raw = RpmsRpc.client.call_rpc(
-        DataMapper.pce_has_visit.rpc_name, note_ien, dfn, location_ien, datetime
+        DataMapper.pce_has_visit.rpc_name, note_ien, dfn,
+        empty_optional(location_ien), empty_optional(datetime)
       )
       DataMapper.pce_has_visit.parse_hasvisit_status(raw)
     end
@@ -79,7 +82,9 @@ module RpmsRpc
       return nil unless note_lookup?(note_ien, dfn, visit_string)
       return nil unless rpc_served?(DataMapper.pce_for_note)
 
-      raw = RpmsRpc.client.call_rpc(DataMapper.pce_for_note.rpc_name, note_ien, dfn, visit_string)
+      raw = RpmsRpc.client.call_rpc(
+        DataMapper.pce_for_note.rpc_name, note_ien, dfn, empty_optional(visit_string)
+      )
       lines = raw.is_a?(Array) ? raw : raw.to_s.split(/\r\n|\r|\n/, -1)
       DataMapper.pce_for_note.parse_note_bundle(lines)
     end
@@ -87,9 +92,10 @@ module RpmsRpc
           path: "/progress-notes/{note_ien}/clinical-events/patients/{dfn}/pce"
 
     # Active immunizations (IEN and name). +date+ is a FileMan date the
-    # routine receives as ORDT. Omitted, the call sends no parameter; a
-    # blank string is sent empty. A value that is not a FileMan date makes
-    # no call and returns [].
+    # routine receives as ORDT, a String or an Integer. Omitted, the call
+    # sends no parameter; a blank string is sent empty. An Integer is sent
+    # as its decimal String. A value that is not a FileMan date makes no
+    # call and returns [].
     def immunization_types(date = nil)
       listed(DataMapper.pce_immunization_types, date)
     end
@@ -97,8 +103,8 @@ module RpmsRpc
           path: "/clinical-events/immunization-types"
 
     # Active skin tests (IEN and name). +date+ is the same optional ORDT:
-    # omitted sends no parameter, blank sends "", and a non-FileMan date
-    # makes no call and returns [].
+    # omitted sends no parameter, blank sends "", an Integer is sent as its
+    # decimal String, and a non-FileMan date makes no call and returns [].
     def skin_test_types(date = nil)
       listed(DataMapper.pce_skin_test_types, date)
     end
@@ -137,7 +143,13 @@ module RpmsRpc
       return [] unless optional_fileman_date?(date)
       return [] unless rpc_served?(mapping)
 
-      date.nil? ? mapping.fetch_many : mapping.fetch_many(date)
+      date.nil? ? mapping.fetch_many : mapping.fetch_many(fileman_date_param(date))
+    end
+
+    # nil is not a broker value. An optional argument the caller left unset
+    # goes out as "".
+    def empty_optional(value)
+      value.nil? ? "" : value
     end
 
     # A positive note reads the visit off the TIU document. Note 0 is the
@@ -177,9 +189,14 @@ module RpmsRpc
     end
 
     # nil omits the parameter, "" is sent, and any other value must be a
-    # FileMan date (or datetime).
+    # FileMan date (or datetime). An Integer is a date when its decimal
+    # form is, and that form is what the call sends.
     def optional_fileman_date?(date)
-      blank_param?(date) || fileman_datetime?(date)
+      blank_param?(date) || fileman_datetime?(fileman_date_param(date))
+    end
+
+    def fileman_date_param(value)
+      value.is_a?(Integer) ? value.to_s : value
     end
 
     def blank_param?(value)
