@@ -1,30 +1,32 @@
 #!/usr/bin/env bash
-# bin/cloud_rpms — run the pinned RPMS release container inside a cloud agent VM, so
-# wire:capture, bin/console and live tests reach a broker without a laptop.
+# bin/cloud_rpms — run this gem's pinned RPMS release on a machine with Docker but no route to a
+# staging stack (a cloud agent VM), so wire:capture, bin/console and live tests reach a broker.
 #
-#   bin/cloud_rpms up       start dockerd if needed, pull the pinned image, run it, wait for the broker
-#   bin/cloud_rpms down     stop and remove the container
-#   bin/cloud_rpms status   show the container and whether the broker port answers
+#   bin/cloud_rpms up       start dockerd if needed, then run the pinned image; wait until healthy
+#   bin/cloud_rpms down     stop and remove the container (the volume stays)
+#   bin/cloud_rpms status   show the container and its health
 #
-# The image is the `image:` of the newest release in data/fingerprints/rpms-ops.lock.yml,
-# pulled by digest. Override with RPMS_IMAGE=. The broker (CIA on container port 9100)
-# is published on 127.0.0.1:${BROKER_PORT:-19200}.
+# The run recipe is not kept here: this calls lakeraven-ehr's compose.yml (its `rpms` service) with
+# RPMS_IMAGE set to the newest `image:` in data/fingerprints/rpms-ops.lock.yml. Point
+# LAKERAVEN_EHR_PATH at a lakeraven-ehr checkout (default: ../lakeraven-ehr). The compose project is
+# named rpms-rpc, so its /data volume never meets another build's (rpms-ops#514).
+# The CIA broker is on 127.0.0.1:9100.
 #
-# Needs: docker CLI + dockerd on the VM, and pull access to ghcr.io/lakeraven (a token with
-# read:packages). On a cloud environment the token is a network secret on ghcr.io, so the
-# daemon is started with the VM's HTTPS_PROXY and needs no `docker login`.
-#
-# Then, for example:
-#   BROKER_HOST=127.0.0.1 BROKER_PORT=19200 bundle exec rake wire:capture RELEASE=bcer-9.0-ydb
+# Pull access to ghcr.io/lakeraven is needed: `docker login ghcr.io` on a laptop, or the cloud
+# environment's ghcr.io network secret, which reaches dockerd through the inherited HTTPS_PROXY.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-NAME="${RPMS_CONTAINER:-rpms-ydb-cloud}"
-PORT="${BROKER_PORT:-19200}"
+EHR="${LAKERAVEN_EHR_PATH:-$ROOT/../lakeraven-ehr}"
 LOCK="$ROOT/data/fingerprints/rpms-ops.lock.yml"
 LOG_DIR="${TMPDIR:-/tmp}"
 
 log() { printf '[cloud_rpms] %s\n' "$*" >&2; }
+
+compose() {
+  [ -f "$EHR/compose.yml" ] || { log "no compose.yml under $EHR; set LAKERAVEN_EHR_PATH"; exit 1; }
+  docker compose -f "$EHR/compose.yml" -p rpms-rpc "$@"
+}
 
 pinned_image() {
   if [ -n "${RPMS_IMAGE:-}" ]; then echo "$RPMS_IMAGE"; return; fi
@@ -45,51 +47,38 @@ ensure_dockerd() {
   log "dockerd did not come up; tail of its log:"; tail -20 "$LOG_DIR/dockerd.log" >&2; exit 1
 }
 
-broker_answers() {
-  (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null
+health() {
+  local id; id=$(compose ps -q rpms 2>/dev/null)
+  if [ -z "$id" ]; then echo none; return; fi
+  docker inspect -f '{{.State.Health.Status}}' "$id"
 }
 
 up() {
   ensure_dockerd
-  local img; img=$(pinned_image)
-  if docker ps --format '{{.Names}}' | grep -qx "$NAME"; then
-    log "$NAME already running"
-  else
-    docker rm -f "$NAME" >/dev/null 2>&1 || true
-    log "pulling $img"
-    if ! docker pull "$img" >&2; then
-      log "pull failed. If the error is 'unauthorized', this VM has no working ghcr.io credential:"
-      log "add a classic GitHub token with read:packages as the environment's ghcr.io network secret."
-      exit 1
-    fi
-    log "running $NAME (broker on 127.0.0.1:$PORT)"
-    docker run -d --name "$NAME" -p "127.0.0.1:$PORT:9100" "$img" >/dev/null
+  RPMS_IMAGE=$(pinned_image)
+  export RPMS_IMAGE
+  log "running $RPMS_IMAGE through $EHR/compose.yml"
+  if ! compose up -d rpms; then
+    log "start failed. On 'unauthorized' or 'denied', this machine has no working ghcr.io credential."
+    exit 1
   fi
-  for _ in $(seq 1 120); do
-    if broker_answers; then
-      log "broker is listening on 127.0.0.1:$PORT"
-      echo "BROKER=cia BROKER_HOST=127.0.0.1 BROKER_PORT=$PORT"
+  # The compose healthcheck checks LISTEN, not a connect: a connect is a broker session (rpms-ops#444).
+  for _ in $(seq 1 60); do
+    if [ "$(health)" = healthy ]; then
+      log "broker is listening on 127.0.0.1:9100"
+      echo "BROKER=cia BROKER_HOST=127.0.0.1 BROKER_PORT=9100"
       return
     fi
-    sleep 2
+    sleep 5
   done
-  log "broker did not answer on $PORT within 4 minutes; container log tail:"
-  docker logs --tail 40 "$NAME" >&2 || true
+  log "not healthy within 5 minutes; container log tail:"
+  compose logs --tail 40 rpms >&2 || true
   exit 1
-}
-
-down() {
-  docker rm -f "$NAME" >/dev/null 2>&1 && log "removed $NAME" || log "$NAME not running"
-}
-
-status() {
-  docker ps --filter "name=^${NAME}$" --format '{{.Names}}  {{.Image}}  {{.Status}}' 2>/dev/null || true
-  if broker_answers; then log "broker answers on 127.0.0.1:$PORT"; else log "nothing on 127.0.0.1:$PORT"; fi
 }
 
 case "${1:-}" in
   up) up ;;
-  down) down ;;
-  status) status ;;
+  down) compose rm --stop --force rpms ;;
+  status) compose ps rpms; log "health: $(health)" ;;
   *) echo "usage: bin/cloud_rpms up|down|status" >&2; exit 2 ;;
 esac
