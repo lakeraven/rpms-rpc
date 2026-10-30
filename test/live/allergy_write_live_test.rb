@@ -7,8 +7,10 @@ require "rpms_rpc/fileman_date_parser"
 
 # RpmsRpc::Allergy.save and .no_known_allergies over ORWDAL32 SAVE ALLERGY
 # (rpms-rpc#453), read back through .assessment / .for_patient (ORQQAL LIST)
-# and GMRA (#120.8) where LIST omits type and nature. It WRITES against a
-# disposable local container only.
+# and GMRA (#120.8) where LIST omits type and nature. Observed severity is
+# filed on ADVERSE REACTION REPORTING (#120.85) via ADVERSE^GMRAOR7
+# (GMRAGUI1.m UPDATE), not on #120.8. It WRITES against a disposable local
+# container only.
 class AllergyWriteLiveTest < LiveSpec::Test
   writes!
 
@@ -16,6 +18,7 @@ class AllergyWriteLiveTest < LiveSpec::Test
   NKA_DFN = 990_040
   ADD_DFN = 990_032
   PATIENT_ALLERGY_FILE = "120.8"
+  ADVERSE_REACTION_FILE = "120.85"
   SEVERITY_CODE = "2"
 
   def test_save_files_a_lookup_agent_and_list_reads_it_back
@@ -45,7 +48,7 @@ class AllergyWriteLiveTest < LiveSpec::Test
     assert_equal "D", entry[:fields].dig("3.1", :internal), "GMRATYPE"
     assert_equal "A", entry[:fields].dig("17", :internal), "GMRANATR"
 
-    assert_filed_gmrasevr!(row[:ien], SEVERITY_CODE)
+    assert_filed_adverse_severity!(ADD_DFN, row[:ien], SEVERITY_CODE)
 
     puts "\n#{persona}: allergy #{row[:ien]} (#{agent[:name]}) on DFN #{ADD_DFN} reads back through LIST and #120.8"
   end
@@ -95,70 +98,92 @@ class AllergyWriteLiveTest < LiveSpec::Test
     flunk "no GMR ALLERGIES (#120.82) agent absent from DFN #{dfn} on this build"
   end
 
-  # GMRASEVR (ORWDAL32.m:88-89) is read from PATIENT ALLERGIES (#120.8). The
-  # field number is resolved at run time from DDR VALIDATE field names, then
-  # by scanning the filed entry for the internal severity code.
-  # GMRASEVR (ORWDAL32.m:88-89) is read from PATIENT ALLERGIES (#120.8). Resolve
-  # the field from DDR VALIDATE names (SEVERITY/GMRASEVR) or from the filed entry.
-  def assert_filed_gmrasevr!(allergy_ien, expected_code)
-    field = gmrasevr_field_number!(allergy_ien, expected_code)
-    name = patient_allergy_field_name(field) || "field #{field}"
-    entry = RpmsRpc::DdrFileman.gets_entry(
-      file: PATIENT_ALLERGY_FILE, iens: "#{allergy_ien},", fields: field, flags: "IE"
+  # GMRASEVR for GMRAOBHX "o" is filed on #120.85 (field SEVERITY, DD 0;14 /
+  # 14.5 on this build) by ADVERSE^GMRAOR7 (GMRAGUI1.m UPDATE). Entries are
+  # indexed on the related #120.8 IEN (^GMR(120.85,"C",GMRAIEN,)).
+  def assert_filed_adverse_severity!(dfn, allergy_ien, expected_code)
+    listed = RpmsRpc::DdrFileman.lister(
+      file: ADVERSE_REACTION_FILE, fields: "@", flags: "IP", xref: "C", part: allergy_ien.to_s
     )
-    refute_nil entry, "DDR GETS on allergy #{allergy_ien} field #{field}"
-    flunk "DDR GETS on allergy #{allergy_ien} field #{field} returned no value: #{entry.inspect}" if entry[:fields].empty?
-    internal = entry[:fields].dig(field, :internal).to_s
-    assert_equal expected_code, internal, "GMRASEVR on #120.8 #{name}"
-  rescue Minitest::Assertion => e
-    skip_tracked("#383", e.message)
+    flunk "DDR LISTER on ADVERSE REACTION REPORTING (#120.85) gave no reply" if listed.nil?
+    flunk "DDR LISTER on ADVERSE REACTION REPORTING (#120.85) answered an error" if listed[:error]
+    entries = listed[:entries]
+    if entries.empty?
+      flunk "no #120.85 ADVERSE REACTION REPORTING entry for allergy IEN #{allergy_ien} on DFN #{dfn} " \
+            "(observed save should call ADVERSE^GMRAOR7; severity is not on #120.8)"
+    end
+    if entries.size > 1
+      flunk "ambiguous #120.85 entries for allergy IEN #{allergy_ien}: #{entries.map { |e| e[:ien] }.join(', ')}"
+    end
+
+    report_ien = entries.first[:ien]
+    related_field = adverse_reaction_related_field!
+    severity_field = adverse_reaction_severity_field!
+    fields = [ related_field, severity_field, ".02" ].uniq.join(";")
+    entry = RpmsRpc::DdrFileman.gets_entry(
+      file: ADVERSE_REACTION_FILE, iens: "#{report_ien},", fields: fields, flags: "IE"
+    )
+    refute_nil entry, "DDR GETS on #120.85 entry #{report_ien}"
+    flunk "DDR GETS on #120.85 entry #{report_ien} returned no fields: #{entry.inspect}" if entry[:fields].empty?
+
+    patient = entry[:fields].dig(".02", :internal).to_s
+    assert_equal dfn.to_s, patient, "PATIENT on #120.85 entry #{report_ien}"
+
+    related = entry[:fields].dig(related_field, :internal).to_s
+    assert_equal allergy_ien.to_s, related,
+                 "RELATED REACTION on #120.85 entry #{report_ien} (#{adverse_reaction_field_name(related_field)})"
+
+    internal = entry[:fields].dig(severity_field, :internal).to_s
+    assert_equal expected_code, internal,
+                 "SEVERITY on #120.85 entry #{report_ien} (#{adverse_reaction_field_name(severity_field)})"
   end
 
-  GMRASEVR_NON_FIELD = %w[1 3.1 4 5 6 15 17 19 22 .01 .02].freeze
-
-  def gmrasevr_field_number!(allergy_ien, expected_code)
-    by_name = (1..30).filter_map do |n|
-      name = patient_allergy_field_name(n.to_s)
-      next if name.nil?
-
-      n.to_s if name.match?(/SEVERITY|GMRASEVR|\bSEVER\b/i)
+  def adverse_reaction_related_field!
+    by_name = adverse_reaction_field_numbers.select do |num|
+      adverse_reaction_field_name(num)&.match?(/RELATED REACTION|RELATED.*120\.8/i)
     end
     unless by_name.empty?
-      flunk "ambiguous SEVERITY fields on #120.8: #{by_name.join(', ')}" if by_name.size > 1
+      flunk "ambiguous RELATED REACTION fields on #120.85: #{by_name.join(', ')}" if by_name.size > 1
       return by_name.first
     end
 
-    fields = (1..30).map(&:to_s).join(";")
-    entry = RpmsRpc::DdrFileman.gets_entry(
-      file: PATIENT_ALLERGY_FILE, iens: "#{allergy_ien},", fields: fields, flags: "IE"
-    )
-    refute_nil entry, "DDR GETS on allergy #{allergy_ien} for GMRASEVR scan"
-    flunk "DDR GETS on allergy #{allergy_ien} for GMRASEVR scan returned no fields: #{entry.inspect}" if entry[:fields].empty?
-    matches = entry[:fields].select do |num, value|
-      !GMRASEVR_NON_FIELD.include?(num) && value[:internal].to_s == expected_code
-    end
-    if matches.empty?
-      reportable = patient_allergy_field_name("7")
-      if reportable&.match?(/REPORTABLE/i)
-        internal = entry[:fields].dig("7", :internal).to_s
-        flunk "GMRASEVR code #{expected_code} not filed on #120.8 IEN #{allergy_ien} " \
-              "(#{reportable} field 7 internal #{internal.inspect}; ORWDAL32 SAVE ALLERGY did not persist severity on this build)"
-      end
-      flunk "GMRASEVR code #{expected_code} not present on #120.8 IEN #{allergy_ien} " \
-            "(scanned fields 1–30; no SEVERITY/GMRASEVR field name in DDR VALIDATE on this build)"
-    end
-    flunk "ambiguous GMRASEVR fields on #120.8 IEN #{allergy_ien}: #{matches.keys.join(', ')}" if matches.size > 1
-    matches.keys.first
+    name = adverse_reaction_field_name(".03")
+    return ".03" if name&.match?(/RELATED REACTION/i)
+
+    flunk "no RELATED REACTION field name in DDR VALIDATE on #120.85 on this build"
   end
 
-  def patient_allergy_field_name(field)
+  def adverse_reaction_severity_field!
+    by_name = adverse_reaction_field_numbers.select do |num|
+      adverse_reaction_field_name(num)&.match?(/SEVERITY|\bSEVER\b/i)
+    end
+    unless by_name.empty?
+      flunk "ambiguous SEVERITY fields on #120.85: #{by_name.join(', ')}" if by_name.size > 1
+      return by_name.first
+    end
+
+    flunk "no SEVERITY field name in DDR VALIDATE on #120.85 on this build"
+  end
+
+  ADVERSE_REACTION_FIELD_CANDIDATES = (
+    %w[.01 .02 .03 .5 1.1 1.2 14.5] + (1..65).map(&:to_s)
+  ).freeze
+
+  def adverse_reaction_field_numbers
+    ADVERSE_REACTION_FIELD_CANDIDATES.filter_map do |field|
+      field if adverse_reaction_field_name(field)
+    end
+  end
+
+  def adverse_reaction_field_name(field)
     reply = RpmsRpc::DdrFileman.validate_field(
-      file: PATIENT_ALLERGY_FILE, iens: "0,", field: field.to_s, value: "INVALIDTEST"
+      file: ADVERSE_REACTION_FILE, iens: "0,", field: field.to_s, value: "INVALIDTEST"
     )
     return nil if reply.nil?
 
     msg = reply[:errors].first.to_s
-    return nil if msg.include?("multi-valued") || msg.include?("does not contain a field")
+    return nil if msg.include?("multi-valued") || msg.include?("word-processing")
+    return nil if msg.include?("does not contain a field")
 
     match = msg.match(/for field (.+?) in file/)
     match&.captures&.first
@@ -174,6 +199,7 @@ class AllergyWriteLiveTest < LiveSpec::Test
       originator: client.duz,
       originated_at: now,
       observed_or_historical: "o",
+      reaction_date: now,
       severity: SEVERITY_CODE
     }
   end
