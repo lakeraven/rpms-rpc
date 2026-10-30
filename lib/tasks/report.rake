@@ -7,8 +7,12 @@
 #   FRESH=1 rake report:daily
 #
 # Existing broker: BROKER_HOST, BROKER_PORT, and optional BUILD.
+# LIVE_DISPOSABLE is passed to live children only when set to 1.
+# BROKER_PROTOCOL, when set, is passed to those live children only.
 # Fresh container: FRESH=1, optional DRY_RUN=1. The image is the newest
-# published bcer-*-ydb release of lakeraven/rpms-ops.
+# published bcer-*-ydb release of lakeraven/rpms-ops. Live children get
+# LIVE_DISPOSABLE=1. The report's build is that image's tag; a different
+# BUILD= is an error. An unknown build exits non-zero.
 # Sign-on: PROV123_ACCESS, PROV123_VERIFY, SYS123_ACCESS, SYS123_VERIFY.
 # Those values are handed only to that persona's rake test:live child.
 # Output: <rpms-diffs>/rpc-coverage/daily/<date>-<build>.md
@@ -20,28 +24,12 @@ namespace :report do
 
     report = RpmsRpc::DailyReport
     root = File.expand_path("../..", __dir__)
-    env = ENV.to_h
-    diffs = report.rpms_diffs_dir(env, root: root)
-    orchestrator = report::Orchestrator.new(
-      root: root,
-      env: env,
-      releases: report::GhReleases.new(root: root),
-      runner: report::ProcessRunner.new,
-      docker: report::DockerCli.new,
-      broker_probe: report::CiaBrokerProbe.new,
-      clock: report::Clock.new,
-      port_picker: report::LoopbackPortPicker.new,
-      writer: report::FileWriter.new,
-      summary_writer: report::StdoutWriter.new,
-      rpms_diffs_dir: diffs,
-      pinned_release: report.pinned_release(root: root),
-      rpms_rpc_commit: report.rpms_rpc_commit(root: root),
-      coverage: report.coverage_headline(root: root, env: env)
-    )
+    orchestrator = report::Orchestrator.from_env(root: root, env: ENV.to_h)
     begin
       status = orchestrator.run
     rescue report::Orchestrator::OutputDirectoryMissing,
            report::Orchestrator::BrokerTimeout,
+           report::Orchestrator::BuildMismatch,
            report::ReleaseChoice::NoRelease,
            report::DockerCli::Error => e
       warn e.message

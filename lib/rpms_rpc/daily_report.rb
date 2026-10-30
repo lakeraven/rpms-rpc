@@ -11,8 +11,11 @@ require_relative "core"
 # Pure pieces (release choice, minitest parsing, the markdown) take no I/O.
 # Orchestrator runs the suites through injected collaborators. The real
 # defaults — GitHub releases, a child process, the docker CLI, a CIA connect,
-# a loopback port, a file — are what the rake task wires in. Sign-on codes
-# are copied into one persona's `rake test:live` child and nowhere else.
+# a loopback port, a file — are what Orchestrator.from_env wires in. Sign-on
+# codes are copied into one persona's `rake test:live` child and nowhere else.
+# That child gets LIVE_DISPOSABLE=1 under FRESH=1, and otherwise only when the
+# operator set LIVE_DISPOSABLE=1. BROKER_PROTOCOL is copied there when set.
+# `rake test` receives none of those.
 module RpmsRpc
   module DailyReport
     # Names whose values are sign-on codes. They are omitted from every string
@@ -23,6 +26,10 @@ module RpmsRpc
     IMAGE_REPOSITORY = "ghcr.io/lakeraven/rpms-ydb"
     OPS_RELEASES = "repos/lakeraven/rpms-ops/releases"
     CONTAINER_PORT = 9100
+    # Hosts that mean this machine. An all-interface publish is this broker
+    # only for one of these; a remote BROKER_HOST must match the publish IP.
+    LOOPBACK_BROKER_HOSTS = %w[127.0.0.1 localhost ::1].freeze
+    ALL_INTERFACE_BINDINGS = [ "", "0.0.0.0", "::" ].freeze
     # Process environment the child needs in order to find Ruby, Bundler, and
     # a CA bundle. Sign-on keys are not in this list, so they are not copied.
     BASELINE_EXACT = %w[PATH HOME LANG LC_ALL LC_CTYPE USER LOGNAME SHELL TMPDIR TMP TEMP TERM RUBYOPT RUBYLIB SSL_CERT_FILE SSL_CERT_DIR].freeze
@@ -39,13 +46,31 @@ module RpmsRpc
       ""
     end
 
-    # BUILD= wins. Otherwise the tag of the image publishing the broker port.
-    # A missing or untagged image is "unknown", never the latest release.
+    # BUILD= wins. Otherwise the tag of the image publishing the broker port
+    # on this machine. Bindings on 0.0.0.0 or :: match only a loopback broker
+    # host. A remote host, or a missing or untagged image, is "unknown" —
+    # never the latest release.
     def build_under_test(env:, docker:, broker_host:, broker_port:)
       explicit = env["BUILD"].to_s.strip
       return explicit unless explicit.empty?
+      return "unknown" unless loopback_broker_host?(broker_host)
 
       image_tag(docker.image_publishing_port(broker_host, broker_port)) || "unknown"
+    end
+
+    def loopback_broker_host?(host)
+      LOOPBACK_BROKER_HOSTS.include?(host.to_s.strip.downcase)
+    end
+
+    # True when a container port binding is the broker we were asked about.
+    # 0.0.0.0 and :: listen on every interface, so they count only for a
+    # loopback broker host. Any other publish IP must equal that host.
+    def publish_binding_matches_broker?(broker_host:, publish_host_ip:)
+      ip = publish_host_ip.to_s.strip
+      host = broker_host.to_s.strip
+      return loopback_broker_host?(host) if ALL_INTERFACE_BINDINGS.include?(ip)
+
+      ip == host
     end
 
     # Tag of a docker image ref, or nil when the ref has no tag (a digest, an
@@ -112,12 +137,12 @@ module RpmsRpc
 
     def render(input)
       lines = []
-      lines << "# Daily RPMS-RPC report — #{input.date}"
+      lines << "# Daily RPMS-RPC report — #{escape_markdown(input.date)}"
       lines << ""
-      lines << "build tested: #{input.build_tested}"
-      lines << "latest release: #{input.latest_release}"
-      lines << "pinned release: #{input.pinned_release}"
-      lines << "rpms-rpc commit: #{input.rpms_rpc_commit}"
+      lines << "build tested: #{escape_markdown(input.build_tested)}"
+      lines << "latest release: #{escape_markdown(input.latest_release)}"
+      lines << "pinned release: #{escape_markdown(input.pinned_release)}"
+      lines << "rpms-rpc commit: #{escape_markdown(input.rpms_rpc_commit)}"
       if input.build_tested != input.latest_release
         lines << ""
         lines << "Build tested differs from latest release."
@@ -133,16 +158,27 @@ module RpmsRpc
       unless failures.empty?
         lines << ""
         lines << "First failures:"
-        failures.each { |name| lines << "- #{name}" }
+        failures.each { |name| lines << "- #{escape_markdown(name)}" }
       end
       reasons = input.suites.filter_map { |suite| suite[:reason] }
       unless reasons.empty?
         lines << ""
-        reasons.each { |reason| lines << reason.to_s }
+        reasons.each { |reason| lines << escape_markdown(reason) }
       end
       lines << ""
       lines << coverage_line(input.coverage)
       "#{lines.join("\n")}\n"
+    end
+
+    # Values that arrive from releases, suites, and coverage are not markdown
+    # we wrote. Neutralise the characters that would break a table, start a
+    # code span, inject a tag, or split a row.
+    def escape_markdown(value)
+      value.to_s
+           .gsub(/\r\n?|\n/, " ")
+           .gsub("|", "&#124;")
+           .gsub("`", "&#96;")
+           .gsub("<", "&lt;")
     end
 
     # Replace sign-on values with a placeholder. String#gsub treats a String
@@ -167,10 +203,10 @@ module RpmsRpc
     end
 
     def suite_row(suite)
-      issues = Array(suite[:skip_issues]).join(", ")
+      issues = Array(suite[:skip_issues]).map { |issue| escape_markdown(issue) }.join(", ")
       issues_cell = issues.empty? ? "" : "#{issues} "
       wall = format("%.1fs", suite[:wall_seconds].to_f)
-      "| #{suite[:name]} | #{count_cell(suite[:runs])} | #{count_cell(suite[:passed])} | " \
+      "| #{escape_markdown(suite[:name])} | #{count_cell(suite[:runs])} | #{count_cell(suite[:passed])} | " \
         "#{count_cell(suite[:failures])} | #{count_cell(suite[:errors])} | #{count_cell(suite[:skips])} | " \
         "#{issues_cell}| #{wall} |"
     end
@@ -181,9 +217,9 @@ module RpmsRpc
 
     def coverage_line(coverage)
       if coverage[:ran]
-        coverage[:headline].to_s
+        escape_markdown(coverage[:headline])
       else
-        "rpc:coverage did not run: #{coverage[:reason]}"
+        "rpc:coverage did not run: #{escape_markdown(coverage[:reason])}"
       end
     end
 
@@ -255,7 +291,7 @@ module RpmsRpc
         runs, assertions, fail_count, error_count, skips = match.map(&:to_i)
         names, issues = extract_events(text)
         Summary.new(
-          errored: false, runs: runs, assertions: assertions, failures: fail_count, errors: error_count,
+          errored: runs.zero?, runs: runs, assertions: assertions, failures: fail_count, errors: error_count,
           skips: skips, passed: runs - fail_count - error_count - skips,
           first_failures: names.take(5), skip_issues: issues.uniq
         )
@@ -298,11 +334,52 @@ module RpmsRpc
     )
 
     # Runs the suites and writes the markdown. Exit 0 only when every suite
-    # parsed and passed. FRESH=1 starts a container and always removes it.
-    # FRESH=1 DRY_RUN=1 writes the plan and stops.
+    # parsed, ran at least one test, and passed, and the build is known.
+    # FRESH=1 starts a named container and removes that name afterwards,
+    # including when `docker run` fails after create. A failed removal is
+    # reported and exits non-zero. FRESH=1 DRY_RUN=1 writes the plan and
+    # stops, without coverage or suites. Coverage is invoked only once the
+    # output directory is known to exist.
     class Orchestrator
       class OutputDirectoryMissing < RpmsRpc::Error; end
       class BrokerTimeout < RpmsRpc::Error; end
+      class BuildMismatch < RpmsRpc::Error; end
+
+      # Real collaborators, with coverage left as a callable so it does not
+      # run during wiring. Tests pass the same builder and replace pieces.
+      def self.from_env(root:, env:, **overrides)
+        report = RpmsRpc::DailyReport
+        env = persona_slots(env)
+        new(
+          root: root,
+          env: env,
+          releases: overrides.fetch(:releases) { report::GhReleases.new(root: root) },
+          runner: overrides.fetch(:runner) { report::ProcessRunner.new },
+          docker: overrides.fetch(:docker) { report::DockerCli.new },
+          broker_probe: overrides.fetch(:broker_probe) { report::CiaBrokerProbe.new },
+          clock: overrides.fetch(:clock) { report::Clock.new },
+          port_picker: overrides.fetch(:port_picker) { report::LoopbackPortPicker.new },
+          writer: overrides.fetch(:writer) { report::FileWriter.new },
+          summary_writer: overrides.fetch(:summary_writer) { report::StdoutWriter.new },
+          rpms_diffs_dir: overrides.fetch(:rpms_diffs_dir) { report.rpms_diffs_dir(env, root: root) },
+          pinned_release: overrides.fetch(:pinned_release) { report.pinned_release(root: root) },
+          rpms_rpc_commit: overrides.fetch(:rpms_rpc_commit) { report.rpms_rpc_commit(root: root) },
+          coverage: overrides.fetch(:coverage) { -> { report.coverage_headline(root: root, env: env) } },
+          plan_io: overrides.fetch(:plan_io, $stdout)
+        )
+      end
+
+      # The rake task always names both personas. An unset variable is nil in
+      # the hash, which is "missing", not "this persona was not requested".
+      def self.persona_slots(env)
+        filled = {}
+        env.each { |key, value| filled[key.to_s] = value }
+        %w[PROV123_ACCESS PROV123_VERIFY SYS123_ACCESS SYS123_VERIFY].each do |key|
+          filled[key] = filled.fetch(key, nil)
+        end
+        filled
+      end
+      private_class_method :persona_slots
 
       def initialize(root:, env:, releases:, runner:, docker:, broker_probe:, clock:, port_picker:, writer:,
                      rpms_diffs_dir:, pinned_release:, rpms_rpc_commit:, coverage:,
@@ -321,12 +398,14 @@ module RpmsRpc
         @rpms_diffs_dir = rpms_diffs_dir
         @pinned_release = pinned_release
         @rpms_rpc_commit = rpms_rpc_commit
-        @coverage = coverage
+        @coverage = coverage.respond_to?(:call) ? coverage : -> { coverage }
       end
 
       def run
         ensure_output_directory!
         @reported_on = @clock.now.utc.strftime("%Y-%m-%d")
+        return fresh_dry_run if enabled?("FRESH") && enabled?("DRY_RUN")
+
         latest = @releases.fetch_latest_ydb
         enabled?("FRESH") ? run_fresh(latest) : finish(latest, host: @env["BROKER_HOST"], port: @env["BROKER_PORT"], image: nil)
       end
@@ -344,28 +423,86 @@ module RpmsRpc
         @env[key].to_s.strip == "1"
       end
 
-      def run_fresh(latest)
+      # A dry run never starts a container. When the release list cannot be
+      # read, the error is the plan and the exit is still 0.
+      def fresh_dry_run
+        latest = @releases.fetch_latest_ydb
         port = @port_picker.free_loopback_port
-        if enabled?("DRY_RUN")
-          @plan_io.write(DailyReport.redact(fresh_plan(latest, port), @env))
-          return 0
-        end
-
-        container_id = nil
-        begin
-          container_id = @docker.run!(image: latest.fetch(:image), publish: "127.0.0.1:#{port}:#{CONTAINER_PORT}")
-          unless @broker_probe.cia_connects?("127.0.0.1", port)
-            raise BrokerTimeout, "CIA broker connect timed out on 127.0.0.1:#{port}"
-          end
-
-          finish(latest, host: "127.0.0.1", port: port, image: latest.fetch(:image))
-        ensure
-          @docker.remove!(container_id, force: true) if present_id?(container_id)
-        end
+        @plan_io.write(DailyReport.redact(fresh_plan(latest, port), @env))
+        0
+      rescue ReleaseChoice::NoRelease => e
+        @plan_io.write("#{DailyReport.redact(e.message, @env)}\n")
+        0
       end
 
-      def present_id?(container_id)
-        !container_id.nil? && !container_id.to_s.strip.empty?
+      def run_fresh(latest)
+        port = @port_picker.free_loopback_port
+        ensure_fresh_build_matches!(latest)
+        run_fresh_container(latest, port)
+      end
+
+      # FRESH reports the started image's tag. BUILD= may repeat that tag;
+      # any other value aborts before the container or the suites.
+      def ensure_fresh_build_matches!(latest)
+        explicit = @env["BUILD"].to_s.strip
+        return if explicit.empty?
+
+        started = started_image_tag(latest)
+        return if explicit == started
+
+        raise BuildMismatch, "BUILD=#{explicit} does not match the started image tag #{started}"
+      end
+
+      def started_image_tag(latest)
+        tag = DailyReport.image_tag(latest[:image]).to_s
+        tag.empty? ? latest[:tag].to_s : tag
+      end
+
+      def run_fresh_container(latest, port)
+        name = @docker.predetermined_name
+        status = nil
+        begin
+          status = boot_and_finish(latest, port, name)
+        rescue StandardError
+          removal_failure = remove_named_container(name)
+          note_removal_failure(removal_failure)
+          raise
+        end
+        removal_failure = remove_named_container(name)
+        note_removal_failure(removal_failure)
+        return 1 if removal_failure
+
+        status
+      end
+
+      def boot_and_finish(latest, port, name)
+        @docker.run!(
+          image: latest.fetch(:image),
+          publish: "127.0.0.1:#{port}:#{CONTAINER_PORT}",
+          container_name: name
+        )
+        unless @broker_probe.cia_connects?("127.0.0.1", port)
+          raise BrokerTimeout, "CIA broker connect timed out on 127.0.0.1:#{port}"
+        end
+
+        finish(latest, host: "127.0.0.1", port: port, image: latest.fetch(:image))
+      end
+
+      def remove_named_container(name)
+        @docker.remove!(name, force: true)
+        nil
+      rescue StandardError => e
+        e
+      end
+
+      def note_removal_failure(error)
+        return unless error
+
+        line = "#{DailyReport.redact("container removal failed: #{error.message}", @env)}\n"
+        @summary_writer&.write(@last_report_path, line)
+        return unless @last_report_path
+
+        @writer.write(@last_report_path, "#{@last_report_body}#{line}")
       end
 
       def fresh_plan(latest, port)
@@ -383,24 +520,39 @@ module RpmsRpc
         build = resolve_build(host, port, image)
         suites = collect_suites(host, port)
         write_report(build, latest, suites)
-        suites.all? { |suite| suite_ok?(suite) } ? 0 : 1
+        # An unnamed broker image fails the run when a live persona was
+        # requested. A unit-only invocation still records "unknown".
+        return 1 if build == "unknown" && persona_requested?
+        return 1 unless suites.all? { |suite| suite_ok?(suite) }
+
+        0
       end
 
       def resolve_build(host, port, image)
-        if image
-          explicit = @env["BUILD"].to_s.strip
-          return explicit unless explicit.empty?
-
-          return DailyReport.image_tag(image) || "unknown"
-        end
+        return DailyReport.image_tag(image) || "unknown" if image
 
         DailyReport.build_under_test(env: @env, docker: @docker, broker_host: host, broker_port: port)
       end
 
       def collect_suites(host, port)
         suites = [ run_command("rake test", %w[rake test], unit_env(host, port)) ]
-        LIVE_PERSONAS.each { |persona| suites << live_suite(host, port, persona) }
+        LIVE_PERSONAS.each do |persona|
+          next unless persona_in_env?(persona)
+
+          suites << live_suite(host, port, persona)
+        end
         suites
+      end
+
+      # A persona is part of the run when its sign-on variables are in the
+      # environment, including a nil or blank value (that is a missing pair).
+      # Omitting both variables means that persona was not requested.
+      def persona_in_env?(persona)
+        @env.key?("#{persona}_ACCESS") || @env.key?("#{persona}_VERIFY")
+      end
+
+      def persona_requested?
+        LIVE_PERSONAS.any? { |persona| persona_in_env?(persona) }
       end
 
       def live_suite(host, port, persona)
@@ -453,6 +605,8 @@ module RpmsRpc
       end
 
       def command_reason(summary, result)
+        return "0 tests ran" if summary.runs&.zero?
+
         if summary.errored?
           line = DailyReport.redact(scrub(result[:stderr]), @env).strip.lines.first.to_s.strip
           return line.empty? ? "minitest summary missing" : "minitest summary missing: #{line[0, 200]}"
@@ -468,9 +622,15 @@ module RpmsRpc
 
       def suite_ok?(suite)
         return false if suite[:errored]
-        return false if suite[:runs].nil?
+        return false if suite[:runs].nil? || suite[:runs].to_i.zero?
 
         suite[:failures].to_i.zero? && suite[:errors].to_i.zero?
+      end
+
+      def report_coverage
+        return @report_coverage if defined?(@report_coverage)
+
+        @report_coverage = @coverage.call
       end
 
       def write_report(build, latest, suites)
@@ -481,12 +641,14 @@ module RpmsRpc
           pinned_release: @pinned_release,
           rpms_rpc_commit: @rpms_rpc_commit,
           suites: suites,
-          coverage: @coverage
+          coverage: report_coverage
         )
         path = DailyReport.default_report_path(rpms_diffs_dir: @rpms_diffs_dir, date: @reported_on, build: build)
         body = DailyReport.redact(DailyReport.render(input), @env)
         body = "#{body.chomp}\n\nwrote #{path}\n"
         body = DailyReport.redact(body, @env)
+        @last_report_path = path
+        @last_report_body = body
         @writer.write(path, body)
         @summary_writer&.write(path, body)
       end
@@ -501,6 +663,9 @@ module RpmsRpc
         pairs["RPMS_ACCESS"] = access
         pairs["RPMS_VERIFY"] = verify
         pairs["VISTA_RPC_ENV"] = "development" if DEVELOPMENT_PERSONAS.include?(persona)
+        pairs["LIVE_DISPOSABLE"] = "1" if enabled?("FRESH") || @env["LIVE_DISPOSABLE"].to_s.strip == "1"
+        protocol = @env["BROKER_PROTOCOL"].to_s.strip
+        pairs["BROKER_PROTOCOL"] = protocol unless protocol.empty?
         ChildEnv.new(pairs)
       end
 
@@ -582,17 +747,30 @@ module RpmsRpc
         }
       end
 
+      # `gh api --paginate --slurp` yields one JSON array of page arrays.
+      # A single page is the same shape with one inner array. A flat list of
+      # release objects (no slurp) is left as it is.
+      def self.parse_api_body(body)
+        parsed = JSON.parse(body)
+        return [] unless parsed.is_a?(Array)
+
+        parsed.flatten(1)
+      end
+
+      def self.gh_api_argv
+        [ "gh", "api", "--paginate", "--slurp", OPS_RELEASES ]
+      end
+
       private
 
       def fetch_releases
-        stdout, stderr, status = Open3.capture3("gh", "api", "--paginate", OPS_RELEASES)
+        stdout, stderr, status = Open3.capture3(*GhReleases.gh_api_argv)
         unless status.success?
           detail = DailyReport.redact(stderr.to_s.strip.lines.first.to_s.strip, ENV)
           detail = "gh api #{OPS_RELEASES} failed" if detail.empty?
           raise ReleaseChoice::NoRelease, "no published release matches /\\Abcer-.*-ydb\\z/ (#{detail})"
         end
-        parsed = JSON.parse(stdout)
-        parsed.is_a?(Array) ? parsed : []
+        GhReleases.parse_api_body(stdout)
       rescue JSON::ParserError
         raise ReleaseChoice::NoRelease, "no published release matches /\\Abcer-.*-ydb\\z/ (gh api returned no JSON list)"
       end
@@ -638,10 +816,17 @@ module RpmsRpc
       end
     end
 
-    # Docker CLI. `run!` accepts only a 127.0.0.1 publish spec. `remove!` uses
-    # `--force` when asked and does not raise: an ensure must still run.
+    # Docker CLI. `run!` accepts only a 127.0.0.1 publish spec and the name
+    # from `predetermined_name`, chosen before the process starts so a failed
+    # start can still be removed. `remove!` raises Error when `docker rm` fails.
     class DockerCli
       class Error < RpmsRpc::Error; end
+
+      CONTAINER_NAME = "rpms-rpc-daily-report"
+
+      def predetermined_name
+        CONTAINER_NAME
+      end
 
       def image_publishing_port(host, port)
         stdout, status = Open3.capture2("docker", "ps", "--format", "{{.ID}}")
@@ -659,11 +844,14 @@ module RpmsRpc
         nil
       end
 
-      def run!(image:, publish:)
+      def run!(image:, publish:, container_name: predetermined_name)
         spec = publish.to_s
         raise Error, "docker publish must bind 127.0.0.1 only" unless spec.start_with?("127.0.0.1:")
 
-        stdout, stderr, status = Open3.capture3("docker", "run", "--detach", "--publish", spec, image.to_s)
+        name = container_name.to_s
+        stdout, stderr, status = Open3.capture3(
+          "docker", "run", "--detach", "--name", name, "--publish", spec, image.to_s
+        )
         id = stdout.to_s.strip
         return id if status.success? && !id.empty?
 
@@ -678,10 +866,15 @@ module RpmsRpc
         args = [ "docker", "rm" ]
         args << "--force" if force
         args << id
-        Open3.capture3(*args)
-        nil
-      rescue StandardError
-        nil
+        _stdout, stderr, status = Open3.capture3(*args)
+        return if status.success?
+
+        detail = stderr.to_s.strip.lines.first.to_s.strip
+        raise Error, detail.empty? ? "docker rm failed" : "docker rm failed: #{detail}"
+      rescue Error
+        raise
+      rescue StandardError => e
+        raise Error, "docker rm failed: #{e.message}"
       end
 
       private
@@ -704,7 +897,9 @@ module RpmsRpc
             next unless binding["HostPort"].to_s == wanted
 
             ip = binding["HostIp"].to_s
-            return image_out.strip if ip.empty? || ip == "0.0.0.0" || ip == "::" || ip == host_s
+            if DailyReport.publish_binding_matches_broker?(broker_host: host_s, publish_host_ip: ip)
+              return image_out.strip
+            end
           end
         end
         nil
