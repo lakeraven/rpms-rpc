@@ -341,18 +341,22 @@ class FeaturesTest < Minitest::Test
 
   def test_repeated_available_and_for_share_one_build_surface_read
     feat = features!
-    calls = 0
-    original = RpmsRpc::Conformance::BuildSurface.method(:from_files)
-    tracker = proc do |**kwargs|
-      calls += 1
-      original.call(**kwargs)
-    end
-    feat.reset!
-    RpmsRpc::Conformance::BuildSurface.stub(:from_files, tracker) do
-      available?(:bmc_referral_workflow, build: PINNED_TAG)
-      available?(:patient_chart_banner, build: PINNED_TAG, context: "CIAV VUECENTRIC")
-      for_build(PINNED_TAG)
-      assert_equal 1, calls, "BuildSurface.from_files should be cached for the same build and inventories path"
+    Dir.mktmpdir("features-cache-") do |tmpdir|
+      copy_inventory_tag_to_tmpdir(tmpdir, PINNED_TAG)
+      feat.reset!
+      kw = { build: PINNED_TAG, inventories_dir: tmpdir }
+      bmc = available?(:bmc_referral_workflow, **kw)
+      chart = available?(:patient_chart_banner, **kw, context: "CIAV VUECENTRIC")
+      listed = for_build(PINNED_TAG, inventories_dir: tmpdir)
+
+      break_reach_face_on_disk(tmpdir, PINNED_TAG)
+
+      assert_equal bmc, available?(:bmc_referral_workflow, **kw),
+                   "cached build surface must answer after reach face changes on disk"
+      assert_equal chart, available?(:patient_chart_banner, **kw, context: "CIAV VUECENTRIC"),
+                   "cached build surface must answer after reach face changes on disk"
+      assert_equal listed, for_build(PINNED_TAG, inventories_dir: tmpdir),
+                   "cached build surface must answer after reach face changes on disk"
     end
   ensure
     feat.reset!
@@ -360,20 +364,21 @@ class FeaturesTest < Minitest::Test
 
   def test_reset_clears_cached_build_surface
     feat = features!
-    calls = 0
-    original = RpmsRpc::Conformance::BuildSurface.method(:from_files)
-    tracker = proc do |**kwargs|
-      calls += 1
-      original.call(**kwargs)
-    end
-    feat.reset!
-    RpmsRpc::Conformance::BuildSurface.stub(:from_files, tracker) do
-      available?(:bmc_referral_workflow, build: PINNED_TAG)
-      available?(:bmc_referral_workflow, build: PINNED_TAG)
-      assert_equal 1, calls, "second available? must reuse the cached build surface"
+    Dir.mktmpdir("features-cache-") do |tmpdir|
+      copy_inventory_tag_to_tmpdir(tmpdir, PINNED_TAG)
       feat.reset!
-      available?(:bmc_referral_workflow, build: PINNED_TAG)
-      assert_equal 2, calls, "Features.reset! must drop the cached build surface"
+      kw = { build: PINNED_TAG, inventories_dir: tmpdir }
+      assert available?(:bmc_referral_workflow, **kw)
+
+      break_reach_face_on_disk(tmpdir, PINNED_TAG)
+
+      assert available?(:bmc_referral_workflow, **kw),
+             "second available? must reuse the cached build surface"
+
+      feat.reset!
+
+      err = assert_raises(ArgumentError) { available?(:bmc_referral_workflow, **kw) }
+      assert_match(/reach/i, err.message)
     end
   ensure
     feat.reset!
