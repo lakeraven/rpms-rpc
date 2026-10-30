@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "fileutils"
 require "json"
 require "rpms_rpc"
 require "rpms_rpc/conformance/build_surface"
@@ -50,8 +51,21 @@ module FeaturesTestHelper
   REACH_WRONG_CONTEXT_TAG = "features-reach-wrong-context-ydb"
   REACH_NO_ROUTINE_TAG = "features-reach-no-routine-ydb"
   REACH_OUT_OF_ORDER_TAG = "features-reach-out-of-order-ydb"
+  REACH_NO_ENTRY_POINT_TAG = "features-reach-no-entry-point-ydb"
   REACH_MISSING_TAG = "features-reach-missing-ydb"
   REGISTRY_DUPLICATE_TAG = "features-registry-duplicate-rpc-ydb"
+
+  CHART_BANNER_REGISTRY_LINES = [
+    "BEHOPTCX PTINFO^PTINFO^BEHOPTCX^1",
+    "BEHOPTPC GETBDP^GETBDP^BEHOPTPC^1",
+    "BEHOCACV CWAD^CWAD^BEHOCACV^1"
+  ].freeze
+
+  CHART_BANNER_REACH_OK_LINES = [
+    "BEHOPTCX PTINFO^client-callable^1^1^CIAV VUECENTRIC^",
+    "BEHOPTPC GETBDP^client-callable^1^1^CIAV VUECENTRIC^",
+    "BEHOCACV CWAD^client-callable^1^1^CIAV VUECENTRIC^"
+  ].freeze
 
   module_function
 
@@ -69,14 +83,20 @@ module FeaturesTestHelper
     rpcs.select { |rpc| rpc.start_with?(prefix) }
   end
 
-  def assert_feature_rpcs_derived_from_required_rpcs_json
-    ORIGINAL_FEATURE_NAMES.each do |name|
-      module_name = FEATURE_MODULES.fetch(name)
-      raw = required_rpcs_modules.fetch(module_name)
-      prefix = FEATURE_RPC_PREFIX.fetch(name)
-      derived = prefix.nil? ? raw : raw.select { |rpc| rpc.start_with?(prefix) }
-      assert_equal derived.sort, expected_feature_rpcs(name).sort, name
-    end
+  # Write `<tmpdir>/<tag>/` with registry and reach faces for Features under test (round-3 #384).
+  def write_synthetic_inventory(tmpdir, tag, reach_lines:, registry_lines: CHART_BANNER_REGISTRY_LINES)
+    dir = File.join(tmpdir, tag)
+    FileUtils.mkdir_p(dir)
+    File.write(File.join(dir, "#{tag}-broker_8994.txt"), registry_lines.join("\n") + "\n")
+    File.write(File.join(dir, "#{tag}-rpc_reach.txt"), reach_lines.join("\n") + "\n")
+    tag
+  end
+
+  def write_reach_only_inventory(tmpdir, tag, reach_lines:)
+    dir = File.join(tmpdir, tag)
+    FileUtils.mkdir_p(dir)
+    File.write(File.join(dir, "#{tag}-rpc_reach.txt"), reach_lines.join("\n") + "\n")
+    tag
   end
 
   # Pinned test seam (round-2 #384): swap REQUIRED_RPCS_PATH, then Features.reset! reloads the registry.

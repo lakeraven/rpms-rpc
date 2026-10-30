@@ -20,14 +20,18 @@ class FeaturesTest < Minitest::Test
 
     ORIGINAL_FEATURE_NAMES.each do |name|
       meta = meta_for(name)
-      assert_equal expected_feature_context(name), feature_context(meta), name
+      expected_ctx = expected_feature_context(name)
+      if expected_ctx.nil?
+        assert_nil feature_context(meta), name
+      else
+        assert_equal expected_ctx, feature_context(meta), name
+      end
     end
   end
 
   def test_each_feature_rpcs_match_required_rpcs_json_for_its_module
     # Round-1 #384: feature RPCs are what the source module sends (from required_rpcs.json),
     # not a probe subset and not a hand copy of lib/rpms_rpc/features.rb constants.
-    assert_feature_rpcs_derived_from_required_rpcs_json
     ORIGINAL_FEATURE_NAMES.each do |name|
       expected = expected_feature_rpcs(name)
       refute_empty expected, "#{name} must name at least one RPC"
@@ -278,5 +282,100 @@ class FeaturesTest < Minitest::Test
                       build: REACH_OUT_OF_ORDER_TAG,
                       inventories_dir: FIXTURE_INVENTORIES,
                       context: "CIAV VUECENTRIC")
+  end
+
+  def test_reach_fixture_no_entry_point_is_false
+    refute available?(:patient_chart_banner,
+                      build: REACH_NO_ENTRY_POINT_TAG,
+                      inventories_dir: FIXTURE_INVENTORIES,
+                      context: "CIAV VUECENTRIC")
+  end
+
+  def test_malformed_reach_rows_out_of_registry_order_raises_argument_error
+    Dir.mktmpdir("features-reach-") do |tmpdir|
+      tag = write_synthetic_inventory(
+        tmpdir, "features-reach-order-ydb",
+        reach_lines: CHART_BANNER_REACH_OK_LINES.rotate(1)
+      )
+      err = assert_raises(ArgumentError) do
+        available?(:patient_chart_banner, build: tag, inventories_dir: tmpdir, context: "CIAV VUECENTRIC")
+      end
+      assert_match(/order/i, err.message)
+      refute_match(/unknown build/i, err.message)
+    end
+  end
+
+  def test_malformed_reach_empty_file_raises_argument_error
+    Dir.mktmpdir("features-reach-") do |tmpdir|
+      tag = write_synthetic_inventory(tmpdir, "features-reach-empty-ydb", reach_lines: [])
+      err = assert_raises(ArgumentError) do
+        available?(:patient_chart_banner, build: tag, inventories_dir: tmpdir, context: "CIAV VUECENTRIC")
+      end
+      assert_match(/reach/i, err.message)
+    end
+  end
+
+  def test_malformed_reach_unknown_class_raises_argument_error
+    reach = CHART_BANNER_REACH_OK_LINES.dup
+    reach[0] = "BEHOPTCX PTINFO^maybe-callable^1^1^CIAV VUECENTRIC^"
+    Dir.mktmpdir("features-reach-") do |tmpdir|
+      tag = write_synthetic_inventory(tmpdir, "features-reach-bad-class-ydb", reach_lines: reach)
+      err = assert_raises(ArgumentError) do
+        available?(:patient_chart_banner, build: tag, inventories_dir: tmpdir, context: "CIAV VUECENTRIC")
+      end
+      assert_match(/reach/i, err.message)
+      assert_match(/maybe-callable|not one of/i, err.message)
+    end
+  end
+
+  def test_build_with_reach_but_no_registry_raises_argument_error
+    Dir.mktmpdir("features-registry-") do |tmpdir|
+      tag = write_reach_only_inventory(tmpdir, "features-no-registry-ydb", reach_lines: CHART_BANNER_REACH_OK_LINES)
+      err = assert_raises(ArgumentError) do
+        available?(:bmc_referral_workflow, build: tag, inventories_dir: tmpdir)
+      end
+      assert_match(/registry.*missing/i, err.message)
+      refute_match(/unknown build/i, err.message)
+    end
+  end
+
+  def test_repeated_available_and_for_share_one_build_surface_read
+    feat = features!
+    calls = 0
+    original = RpmsRpc::Conformance::BuildSurface.method(:from_files)
+    tracker = proc do |**kwargs|
+      calls += 1
+      original.call(**kwargs)
+    end
+    feat.reset!
+    RpmsRpc::Conformance::BuildSurface.stub(:from_files, tracker) do
+      available?(:bmc_referral_workflow, build: PINNED_TAG)
+      available?(:patient_chart_banner, build: PINNED_TAG, context: "CIAV VUECENTRIC")
+      for_build(PINNED_TAG)
+      assert_equal 1, calls, "BuildSurface.from_files should be cached for the same build and inventories path"
+    end
+  ensure
+    feat.reset!
+  end
+
+  def test_reset_clears_cached_build_surface
+    feat = features!
+    calls = 0
+    original = RpmsRpc::Conformance::BuildSurface.method(:from_files)
+    tracker = proc do |**kwargs|
+      calls += 1
+      original.call(**kwargs)
+    end
+    feat.reset!
+    RpmsRpc::Conformance::BuildSurface.stub(:from_files, tracker) do
+      available?(:bmc_referral_workflow, build: PINNED_TAG)
+      available?(:bmc_referral_workflow, build: PINNED_TAG)
+      assert_equal 1, calls, "second available? must reuse the cached build surface"
+      feat.reset!
+      available?(:bmc_referral_workflow, build: PINNED_TAG)
+      assert_equal 2, calls, "Features.reset! must drop the cached build surface"
+    end
+  ensure
+    feat.reset!
   end
 end
