@@ -1343,4 +1343,49 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     err = assert_raises(RpmsRpc::Client::AuthenticationError) { c.authenticate("BADAC1", "BADVC1!!") }
     assert_operator err.message.length, :<, 400
   end
+# -- AUTH caller parameters: application (AID), workstation (WID), address (WIP) --
+#
+# AUTH^CIANBRPC takes AUTH(DATA,AID,WID,SID,AVC,WIP). WID is saved in the CIA
+# session; WIP becomes IO("IP"), which Kernel writes to the sign-on log
+# (#3.081 field 11). Verified live on rpms-ydb 7c3119b, 2026-10-30.
+
+def auth_frame(**caller)
+  c = connected_client([ AUTH_REPLY + EOD, VIMINFO_REPLY + EOD, DIVGET_REPLY + EOD ])
+  c.authenticate("SYN123", "SYN123!!", **caller)
+  [ c, c.instance_variable_get(:@socket).writes.first ]
+end
+
+def param(client, number, value) = (client.send(:pk, number) + client.send(:pk, "") + client.send(:pk, value)).b
+
+def test_authenticate_sends_the_workstation_and_its_address
+  c, frame = auth_frame(workstation: "lakeraven-ehr 3f9a", workstation_ip: "203.0.113.9")
+  assert_includes frame, param(c, "2", "lakeraven-ehr 3f9a")
+  assert_includes frame, param(c, "5", "203.0.113.9")
+  order = %w[1 2 4 5].map { |n| frame.index(c.send(:pk, n) + c.send(:pk, "")) }
+  assert_equal order.sort, order, "AID, WID, AVC and WIP go in position order"
+end
+
+def test_authenticate_without_a_caller_sends_only_the_application_and_codes
+  c, frame = auth_frame
+  assert_includes frame, param(c, "1", RpmsRpc::CiaClient::SIGNON_CONTEXT)
+  refute_includes frame, (c.send(:pk, "2") + c.send(:pk, "")).b
+  refute_includes frame, (c.send(:pk, "5") + c.send(:pk, "")).b
+end
+
+def test_authenticate_names_the_application_it_runs_as
+  c, frame = auth_frame(application: "LKR EHR")
+  assert_includes frame, param(c, "1", "LKR EHR")
+  assert_equal "LKR EHR", c.current_context
+end
+
+def test_a_workstation_is_kept_to_40_printable_characters
+  c, frame = auth_frame(workstation: "lakeraven-ehr\r\n" + ("x" * 60))
+  assert_includes frame, param(c, "2", "lakeraven-ehr" + ("x" * 27))
+end
+
+def test_an_address_that_is_not_an_ip_is_refused_before_anything_is_sent
+  c = connected_client([])
+  assert_raises(ArgumentError) { c.authenticate("SYN123", "SYN123!!", workstation_ip: "not-an-ip") }
+  assert_empty c.instance_variable_get(:@socket).writes
+end
 end

@@ -85,6 +85,16 @@
 "RpmsRpc::BehavioralHealth::Reference.clinics": non_idempotent_write
 "RpmsRpc::BehavioralHealth::Reference.patients": non_idempotent_write
 "RpmsRpc::BehavioralHealth::Reference.site_parameters": non_idempotent_write
+"RpmsRpc::ClinicalEvent.education_topics": read
+"RpmsRpc::ClinicalEvent.exam_types": read
+"RpmsRpc::ClinicalEvent.has_visit?": read
+"RpmsRpc::ClinicalEvent.health_factor_types": read
+"RpmsRpc::ClinicalEvent.immunization_types": read
+"RpmsRpc::ClinicalEvent.note_visit_string": read
+"RpmsRpc::ClinicalEvent.pce_for_note": read
+"RpmsRpc::ClinicalEvent.skin_test_types": read
+"RpmsRpc::ClinicalEvent.visit_for_note": read
+"RpmsRpc::ClinicalEvent.visit_status": read
 "RpmsRpc::DdrFileman.filer": non_idempotent_write
 "RpmsRpc::DdrFileman.filer_params": read
 "RpmsRpc::DdrFileman.gets_entry": read
