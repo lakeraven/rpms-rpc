@@ -99,10 +99,12 @@ module RpmsRpc
     # VALIDSIG replied nil, empty, or any text other than exactly "1"
     # or "0". The signature was not confirmed, so SEND is not called.
     SIGN_RELEASE_UNCONFIRMED = "electronic signature could not be confirmed"
-    # Piece 2 exactly "S": signed; this call did not release it
+    # Piece 2 exactly "S": signed as requested; this call did not release it.
+    # The "S" is the request's own ORWSIG echoed back (ORWDX.m:175), so it is
+    # not proof that a signature was affixed (a no-signature order returns it too).
     # (ORWDX.m:172-176). Exactly "RS" is released: "R" when released and
     # "S" when ORWSIG'=2.
-    SIGN_RELEASE_SIGNED = "signed; this call did not release it"
+    SIGN_RELEASE_SIGNED = "signed as requested, which the reply echoes and does not prove; this call did not release it"
     # SEND ran. The reply does not prove this order's outcome.
     SIGN_RELEASE_UNKNOWN = "unknown outcome; check the order before retrying"
     # ^E^ keeps the text after ORWERR's code. A code with no text does
@@ -110,7 +112,8 @@ module RpmsRpc
     # action can fail (FOIA ORCSEND.m:11-13, :72-73), so the order may
     # already be signed. The reason also says to check the order before
     # retrying.
-    SIGN_RELEASE_MAYBE_SIGNED = "the order may already be signed; check the order before retrying"
+    SIGN_RELEASE_NOT_SESSION_USER = "provider duz is not the signed-on session user"
+        SIGN_RELEASE_MAYBE_SIGNED = "the order may already be signed; check the order before retrying"
 
     # Filler namespace spliced into a |-delimited ORX record
     # (WorldVistA ORWDXC.m:38,47).
@@ -563,6 +566,14 @@ module RpmsRpc
       ids = order_ids.map { |id| sign_release_order_id(id) }
       reason = sign_release_argument_error(dfn_s, provider_s, location_s, ids, signature)
       return sign_release_rejected(order_ids, reason) if reason
+
+      # SEND^ORWDX ignores ES and ORNP and signs as the session user
+      # (ORWDX.m:152-178, ORCSEND.m:8); VALIDSIG checks that user's code
+      # (ORWU.m:103-106). A provider other than the signed-on DUZ would have
+      # the order signed by someone else and reported under the provider's name.
+      unless sign_release_session_user?(provider_s)
+        return sign_release_rejected(order_ids, SIGN_RELEASE_NOT_SESSION_USER)
+      end
 
       encrypted = ValidSignature.encrypt(signature)
       line = sign_release_validsig_line(signature, encrypted)
@@ -1059,6 +1070,13 @@ module RpmsRpc
       return "duplicate order id" if ids.uniq.length != ids.length
 
       nil
+    end
+
+    # The client must name its signed-on DUZ and it must be the provider. A
+    # client that cannot say who is signed on is rejected, never assumed.
+    def sign_release_session_user?(provider_s)
+      client = RpmsRpc.client
+      client.respond_to?(:duz) && client.duz.to_s.strip == provider_s
     end
 
     def sign_release_rejected(order_ids, reason)

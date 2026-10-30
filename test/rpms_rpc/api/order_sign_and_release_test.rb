@@ -524,6 +524,7 @@ class OrderSignAndReleaseTest < Minitest::Test
         super(name, *params)
       end
     end.new
+    cli.set_authenticated(PROVIDER_DUZ)
     cli.instance_variable_set(:@socket, sock)
     cli.instance_variable_set(:@connected, true)
     RpmsRpc.reset!
@@ -901,6 +902,7 @@ class OrderSignAndReleaseTest < Minitest::Test
     message = "3 Unknown remote procedure: ORWU VALIDSIG"
     RpmsRpc.reset!
     client = Class.new do
+      define_method(:duz) { PROVIDER_DUZ }
       define_method(:call_rpc) { |*, **| raise RpmsRpc::Client::RpcNotAvailableError, message }
       define_method(:call_rpc_lines) { |*, **| raise RpmsRpc::Client::RpcNotAvailableError, message }
       define_method(:call_rpc_global_array) { |*, **| raise RpmsRpc::Client::RpcNotAvailableError, message }
@@ -1076,6 +1078,7 @@ class OrderSignAndReleaseTest < Minitest::Test
 
     def received_calls = @calls
     def current_context = nil
+    def duz = PROVIDER_DUZ
 
     %i[call_rpc call_rpc_lines call_rpc_global_array].each do |meth|
       define_method(meth) do |rpc_name, *params|
@@ -1117,6 +1120,7 @@ class OrderSignAndReleaseTest < Minitest::Test
     Class.new do
       define_method(:received_calls) { @calls ||= [] }
       define_method(:current_context) { nil }
+      define_method(:duz) { PROVIDER_DUZ }
 
       %i[call_rpc call_rpc_lines call_rpc_global_array].each do |meth|
         define_method(meth) do |rpc_name, *params|
@@ -1138,6 +1142,7 @@ class OrderSignAndReleaseTest < Minitest::Test
     Class.new do
       define_method(:received_calls) { @calls ||= [] }
       define_method(:current_context) { nil }
+      define_method(:duz) { PROVIDER_DUZ }
 
       %i[call_rpc call_rpc_lines call_rpc_global_array].each do |meth|
         define_method(meth) do |rpc_name, *params|
@@ -1159,6 +1164,7 @@ class OrderSignAndReleaseTest < Minitest::Test
     Class.new do
       define_method(:received_calls) { @calls ||= [] }
       define_method(:current_context) { nil }
+      define_method(:duz) { PROVIDER_DUZ }
 
       %i[call_rpc call_rpc_lines call_rpc_global_array].each do |meth|
         define_method(meth) do |rpc_name, *params|
