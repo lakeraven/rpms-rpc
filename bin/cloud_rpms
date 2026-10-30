@@ -51,9 +51,13 @@ wanted_image() {
   if [ -n "${RPMS_IMAGE:-}" ]; then echo "$RPMS_IMAGE"; return; fi
   if [ -n "${RPMS_TAG:-}" ]; then echo "$REPO_IMAGE:$RPMS_TAG"; return; fi
   if [ -n "${PINNED:-}" ]; then lock_image; return; fi
+  # On failure gh still prints the error body to stdout, so take the tag only on success and only
+  # when it is a well-formed Docker tag.
   local tag
-  tag=$(gh api repos/lakeraven/rpms-ops/releases/latest --jq .tag_name 2>/dev/null || true)
-  if [ -n "$tag" ]; then echo "$REPO_IMAGE:$tag"; return; fi
+  if tag=$(gh api repos/lakeraven/rpms-ops/releases/latest --jq .tag_name 2>/dev/null) &&
+     [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+    echo "$REPO_IMAGE:$tag"; return
+  fi
   log "can't read the Latest rpms-ops release; using the lock pin"
   lock_image
 }
