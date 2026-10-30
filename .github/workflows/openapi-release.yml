@@ -28,7 +28,6 @@ jobs:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.4"
           bundler-cache: true
       - name: Generate and check both documents
         # Each task fails unless its document is valid OpenAPI 3.1 with every verb + path unique.

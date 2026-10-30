@@ -8,12 +8,10 @@ on:
 
 jobs:
   test:
-    name: Test (Ruby ${{ matrix.ruby }})
+    # One Ruby: the one .ruby-version names. The job name carries no version,
+    # so a Ruby bump changes .ruby-version and nothing branch protection names.
+    name: Test
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        ruby: ["3.4", "4.0"]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -22,7 +20,6 @@ jobs:
           fetch-depth: 0
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
       # stunnel_sample_test.rb runs the docs/tls/ sample configs end to end;
       # it skips without stunnel, so install it here to keep it running.
@@ -42,7 +39,6 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.4"
           bundler-cache: true
       - name: Run RuboCop
         run: bundle exec rubocop --no-server

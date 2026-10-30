@@ -21,7 +21,7 @@ Gem::Specification.new do |spec|
     "documentation_uri" => "https://github.com/lakeraven/rpms-rpc/tree/main/docs"
   }
 
-  spec.required_ruby_version = ">= 3.4.0"
+  spec.required_ruby_version = ">= 4.0.0"
 
   spec.files = Dir.chdir(File.expand_path(__dir__)) do
     Dir["bin/*", "{lib,docs}/**/*", "MIT-LICENSE", "Rakefile", "README.md"]
