@@ -399,6 +399,14 @@ module RpmsRpc
         @after_row = block
       end
 
+      # Format hook (caret pieces, source attrs). Must return the pieces.
+      # A mapping uses it when the wire token for a marker is not what
+      # format_value emits from the parsed attribute. Mappings that do not
+      # declare one keep format_value's output.
+      def format_row(&block)
+        @format_row = block
+      end
+
       def text_blob?
         !@text_attribute.nil?
       end
@@ -533,6 +541,8 @@ module RpmsRpc
           parts[f.position] = format_value(attrs[f.attribute], f.type)
           claimed[f.position] = true if attrs.key?(f.attribute)
         end
+
+        parts = instance_exec(parts, attrs, &@format_row) if @format_row # rubocop:disable Security/Eval
 
         line = parts.join("^")
         rcis_record? ? RcisWire::SIGIL + line : line

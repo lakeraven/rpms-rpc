@@ -135,6 +135,9 @@ module RpmsRpc
       m.field 9, :priority
       # Piece 13 (ORQQPL.m:15-16). The wire token is "#", not a boolean;
       # after_row turns that marker into inactive_icd true/false.
+      # format_row writes the same branch back out for MockClient: piece 13
+      # "#" (what after_row keys on) and piece 9 "#" (the transcribed marker
+      # on that branch). An active row leaves piece 13 empty.
       m.field 12, :inactive_icd
       m.after_row do |row, parts|
         # Keyed on piece 13 "#" alone. Piece 4 may be a real code or the
@@ -146,6 +149,16 @@ module RpmsRpc
         row[:transcribed] = nil if inactive
         row[:inactive_icd] = inactive
         row
+      end
+      m.format_row do |parts, attrs|
+        case attrs[:inactive_icd]
+        when true
+          parts[8] = "#"
+          parts[12] = "#"
+        when false
+          parts[12] = ""
+        end
+        parts
       end
     end
 

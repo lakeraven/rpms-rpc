@@ -153,9 +153,10 @@ module RpmsRpc
       return nil if ptinfo.nil? && bdp.nil?
 
       cwad = DataMapper.patient_cwad.fetch_scalar(dfn.to_s) || ""
-      # BEHOCACV returns the letter set (C/W/A/D), sometimes still carrying
-      # the broker sequence prefix "N\x00". Each flag is that letter alone.
-      letters = cwad.to_s.sub(/\A\d+\x00/, "").chars
+      # BEHOCACV returns the letter set (C/W/A/D). CiaClient#parse_cia_reply
+      # drops the sequence echo and ack before this scalar arrives, so each
+      # flag is that letter alone.
+      letters = cwad.to_s.chars
       dob  = FilemanDateParser.parse_date(ptinfo && ptinfo[:dob_raw])
       provider = (bdp && bdp[:provider_name]) || (ptinfo && ptinfo[:primary_provider])
 
