@@ -5,8 +5,11 @@ require "rpms_rpc/daily_report"
 
 # rpms-rpc#365: markdown summary for the daily report file.
 class RpmsRpc::DailyReport::RenderTest < Minitest::Test
-  ACCESS_SENTINEL = "SENTINEL-ACCESS-MUST-NOT-APPEAR"
-  VERIFY_SENTINEL = "SENTINEL-VERIFY-MUST-NOT-APPEAR"
+  PROV123_ACCESS = "SENTINEL-PROV123-ACCESS-MUST-NOT-APPEAR"
+  PROV123_VERIFY = "SENTINEL-PROV123-VERIFY-MUST-NOT-APPEAR"
+  SYS123_ACCESS = "SENTINEL-SYS123-ACCESS-MUST-NOT-APPEAR"
+  SYS123_VERIFY = "SENTINEL-SYS123-VERIFY-MUST-NOT-APPEAR"
+  SECRET_PATTERN = /#{PROV123_ACCESS}|#{PROV123_VERIFY}|#{SYS123_ACCESS}|#{SYS123_VERIFY}/
 
   def base_input(overrides = {})
     defaults = {
@@ -38,7 +41,7 @@ class RpmsRpc::DailyReport::RenderTest < Minitest::Test
     assert_match(/\| rake test:live \(PROV123\) \| 5 \| 4 \| 1 \| 0 \| 0 \| \| 45\.0s \|/, md)
     assert_match(/LiveProbe#test_one/, md)
     assert_match(/rpc:coverage did not run: rpms-diffs checkout missing/, md)
-    refute_match(/#{ACCESS_SENTINEL}|#{VERIFY_SENTINEL}/, md)
+    refute_match(SECRET_PATTERN, md)
   end
 
   def test_flags_when_build_tested_differs_from_latest_and_pinned

@@ -9,8 +9,11 @@ require "rpms_rpc/daily_report"
 # rpms-rpc#365: orchestration with injected collaborators (release lookup, runner, docker, clock, writer).
 class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   ROOT = File.expand_path("../../..", __dir__)
-  ACCESS = "SENTINEL-ACCESS-SECRET"
-  VERIFY = "SENTINEL-VERIFY-SECRET"
+  PROV123_ACCESS = "SENTINEL-PROV123-ACCESS-SECRET"
+  PROV123_VERIFY = "SENTINEL-PROV123-VERIFY-SECRET"
+  SYS123_ACCESS = "SENTINEL-SYS123-ACCESS-SECRET"
+  SYS123_VERIFY = "SENTINEL-SYS123-VERIFY-SECRET"
+  SECRET_PATTERN = /#{PROV123_ACCESS}|#{PROV123_VERIFY}|#{SYS123_ACCESS}|#{SYS123_VERIFY}/
   LATEST = { tag: "bcer-9.0-20261101-latest-ydb", published_at: "2026-11-01T00:00:00Z", image: "ghcr.io/lakeraven/rpms-ydb:bcer-9.0-20261101-latest-ydb" }
 
   def passing_minitest
@@ -116,13 +119,24 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
     def write(_path, body) = @io.write(body)
   end
 
-  def orchestrator(**overrides)
-    env = {
+  def persona_sign_on_env(overrides = {})
+    {
       "BROKER_HOST" => "127.0.0.1",
       "BROKER_PORT" => "19300",
-      "RPMS_ACCESS" => ACCESS,
-      "RPMS_VERIFY" => VERIFY
-    }.merge(overrides.fetch(:env, {}))
+      "PROV123_ACCESS" => PROV123_ACCESS,
+      "PROV123_VERIFY" => PROV123_VERIFY,
+      "SYS123_ACCESS" => SYS123_ACCESS,
+      "SYS123_VERIFY" => SYS123_VERIFY
+    }.merge(overrides)
+  end
+
+  def refute_secrets_in(*texts)
+    combined = texts.flatten.join("\n")
+    refute_match(SECRET_PATTERN, combined)
+  end
+
+  def orchestrator(**overrides)
+    env = persona_sign_on_env.merge(overrides.fetch(:env, {}))
     defaults = {
       root: ROOT,
       env: env,
@@ -211,6 +225,8 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       unit = runner.calls[0]
       assert_equal %w[rake test], unit[:argv]
       refute unit[:env].key?("PERSONA")
+      refute unit[:env].key?("RPMS_ACCESS")
+      refute unit[:env].key?("RPMS_VERIFY")
 
       prov = runner.calls[1]
       assert_equal %w[rake test:live], prov[:argv]
@@ -218,12 +234,64 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       assert_equal "development", prov[:env]["VISTA_RPC_ENV"]
       assert_equal "127.0.0.1", prov[:env]["BROKER_HOST"]
       assert_equal "19300", prov[:env]["BROKER_PORT"]
-      assert_equal ACCESS, prov[:env]["RPMS_ACCESS"]
-      assert_equal VERIFY, prov[:env]["RPMS_VERIFY"]
+      assert_equal PROV123_ACCESS, prov[:env]["RPMS_ACCESS"]
+      assert_equal PROV123_VERIFY, prov[:env]["RPMS_VERIFY"]
+      refute_equal SYS123_ACCESS, prov[:env]["RPMS_ACCESS"]
 
       sys = runner.calls[2]
+      assert_equal %w[rake test:live], sys[:argv]
       assert_equal "SYS123", sys[:env]["PERSONA"]
       refute sys[:env].key?("VISTA_RPC_ENV")
+      assert_equal SYS123_ACCESS, sys[:env]["RPMS_ACCESS"]
+      assert_equal SYS123_VERIFY, sys[:env]["RPMS_VERIFY"]
+      refute_equal PROV123_ACCESS, sys[:env]["RPMS_ACCESS"]
+    end
+  end
+
+  def test_missing_prov123_sign_on_env_does_not_run_live_reports_error_and_exit_nonzero
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      writer = FakeWriter.new
+      runner = FakeRunner.new([
+        { stdout: passing_minitest },
+        { stdout: passing_minitest }
+      ])
+      env = persona_sign_on_env("PROV123_ACCESS" => nil, "PROV123_VERIFY" => nil)
+      orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer, env: env)
+
+      assert_equal 1, orch.run
+
+      assert_equal 2, runner.calls.size
+      assert_equal %w[rake test], runner.calls[0][:argv]
+      assert_equal "SYS123", runner.calls[1][:env]["PERSONA"]
+      assert_equal SYS123_ACCESS, runner.calls[1][:env]["RPMS_ACCESS"]
+
+      report = writer.writes.map(&:last).join("\n")
+      assert_match(/missing PROV123_ACCESS\/PROV123_VERIFY/i, report)
+      refute_match(/#{PROV123_ACCESS}|#{PROV123_VERIFY}/, report)
+      refute_secrets_in(report, runner.calls)
+    end
+  end
+
+  def test_blank_sys123_sign_on_env_does_not_run_live_reports_error_and_exit_nonzero
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      writer = FakeWriter.new
+      runner = FakeRunner.new([
+        { stdout: passing_minitest },
+        { stdout: passing_minitest }
+      ])
+      env = persona_sign_on_env("SYS123_ACCESS" => "  ", "SYS123_VERIFY" => "")
+      orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer, env: env)
+
+      assert_equal 1, orch.run
+
+      assert_equal 2, runner.calls.size
+      assert_equal "PROV123", runner.calls[1][:env]["PERSONA"]
+
+      report = writer.writes.map(&:last).join("\n")
+      assert_match(/missing SYS123_ACCESS\/SYS123_VERIFY/i, report)
+      refute_secrets_in(report, runner.calls)
     end
   end
 
@@ -255,8 +323,12 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
 
       orch.run
 
-      combined = writer.writes.map(&:last).join("\n") + io_writer.io.string + runner.calls.map { |c| c[:argv].join(" ") }.join("\n")
-      refute_match(/#{ACCESS}|#{VERIFY}/, combined)
+      refute_secrets_in(
+        writer.writes.map(&:last),
+        io_writer.io.string,
+        runner.calls.map { |c| c[:argv].join(" ") },
+        runner.calls.map { |c| c[:env].values }
+      )
     end
   end
 
@@ -270,14 +342,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
         rpms_diffs_dir: diffs,
         runner: runner,
         docker: docker,
-        env: {
-          "BROKER_HOST" => "127.0.0.1",
-          "BROKER_PORT" => "19300",
-          "RPMS_ACCESS" => ACCESS,
-          "RPMS_VERIFY" => VERIFY,
-          "FRESH" => "1",
-          "DRY_RUN" => "1"
-        },
+        env: persona_sign_on_env("FRESH" => "1", "DRY_RUN" => "1"),
         plan_io: io
       )
 
@@ -289,7 +354,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       assert_empty runner.calls
       assert_empty docker.runs
       assert_empty docker.removes
-      refute_match(/#{ACCESS}|#{VERIFY}/, plan)
+      refute_secrets_in(plan)
     end
   end
 
@@ -297,13 +362,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
       docker = FakeDocker.new
-      env = {
-        "BROKER_HOST" => "127.0.0.1",
-        "BROKER_PORT" => "19300",
-        "RPMS_ACCESS" => ACCESS,
-        "RPMS_VERIFY" => VERIFY,
-        "FRESH" => "1"
-      }
+      env = persona_sign_on_env("FRESH" => "1")
 
       runner_ok = FakeRunner.new([
         { stdout: passing_minitest },
@@ -329,13 +388,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
       docker = FakeDocker.new
-      env = {
-        "BROKER_HOST" => "127.0.0.1",
-        "BROKER_PORT" => "19300",
-        "RPMS_ACCESS" => ACCESS,
-        "RPMS_VERIFY" => VERIFY,
-        "FRESH" => "1"
-      }
+      env = persona_sign_on_env("FRESH" => "1")
       orch = orchestrator(
         rpms_diffs_dir: diffs,
         runner: FakeRunner.new([]),
