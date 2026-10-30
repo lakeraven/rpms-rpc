@@ -9,6 +9,9 @@ require "rpms_rpc"
 # configures no client gets NotConfiguredError outside a scope: a forgotten
 # scope fails loudly instead of borrowing another user's connection.
 class RpmsRpc::ScopedClientTest < Minitest::Test
+  # Clean on both sides: an earlier test in a random order may leave a client
+  # configured, and these tests assert what happens with none.
+  def setup = RpmsRpc.reset!
   def teardown = RpmsRpc.reset!
 
   def a = @a ||= Object.new
