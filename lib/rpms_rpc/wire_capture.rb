@@ -650,6 +650,105 @@ module RpmsRpc
         pieces: [],
         note: "text_blob mapping — the gate checks reply-kind consistency and " \
               "records the real reply grammar; row parsing lives in DdrFileman.gets_entry."
+      ),
+      # ORWPCE reads (#286). Inputs are the first call in each unmapped
+      # capture (synthetic notes on the pinned image). A gated fixture holds
+      # one reply; the other calls stay in test/fixtures/wire_captures/unmapped
+      # because the spec still reads them there.
+      CatalogEntry.new(
+        rpc: "ORWPCE GET VISIT", mapping: :pce_get_visit, kind: "scalar", mode: :live,
+        inputs: [ "3", "4", "" ],
+        cite: "GETVISIT^ORWPCE2 (ORWPCE2.m:64-67): note IEN < 1 looks the visit up " \
+              "with $$GETENC^PXAPI(DFN,$P(VSITSTR,\";\",2),$P(VSITSTR,\";\")); otherwise " \
+              "VISIT=$P(^TIU(8925,IEN,0),U,3) and DFN is ignored. -1 is no visit",
+        pieces: [],
+        note: "Scalar visit IEN. -1 and an empty reply are not an IEN."
+      ),
+      CatalogEntry.new(
+        rpc: "ORWPCE HASVISIT", mapping: :pce_has_visit, kind: "scalar", mode: :live,
+        inputs: [ "3", "4", "", "" ],
+        cite: "HASVISIT^ORWPCE (ORWPCE.m:118-123): ORY starts -1; a positive note " \
+              "reads ^TIU(8925,IEN,0) piece 3, else $$GETENC^PXAPI(DFN,ORDTE,ORLOC). " \
+              "A positive visit is $$VST2APPT^PXAPI (VST2APPT^PXUTL1, PXUTL1.m:65-78): " \
+              "0 stand-alone, 1 appointment-linked, -1 no visit",
+        pieces: [],
+        note: "Scalar -1/0/1. Not a boolean: 0 is a visit."
+      ),
+      CatalogEntry.new(
+        rpc: "ORWPCE NOTEVSTR", mapping: :pce_note_visit_string, kind: "scalar", mode: :live,
+        inputs: [ "3" ],
+        cite: "NOTEVSTR^ORWPCE (ORWPCE.m:112-116): LOC;FileMan datetime;service category " \
+              "from $$VSTRBLD^TIUSRVP(VISIT) when node 12 piece 7 is set, else " \
+              "$P(X12,U,11)_\";\"_$P(X0,U,7)_\";\"_$P(X0,U,13)",
+        pieces: [],
+        note: "One visit string, not caret fields. parse_visit_string splits on ';'."
+      ),
+      CatalogEntry.new(
+        rpc: "ORWPCE GET IMMUNIZATION TYPE", mapping: :pce_immunization_types, kind: "fields",
+        mode: :live,
+        inputs: [],
+        cite: "IMMTYPE^ORWPCE2 (ORWPCE2.m:17-22): IEN^NAME of active ^AUTTIMM entries " \
+              "(0-node piece 7 = 0). Optional ORDT; this call sends none",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "ien" ], fileman_type: "integer"),
+          Piece.new(position: 1, attributes: [ "name" ])
+        ]
+      ),
+      CatalogEntry.new(
+        rpc: "ORWPCE GET SKIN TEST TYPE", mapping: :pce_skin_test_types, kind: "fields",
+        mode: :live,
+        inputs: [],
+        cite: "SKTYPE^ORWPCE2 (ORWPCE2.m:25-30): IEN^NAME of active ^AUTTSK entries " \
+              "(0-node piece 3 = 0)",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "ien" ], fileman_type: "integer"),
+          Piece.new(position: 1, attributes: [ "name" ])
+        ]
+      ),
+      CatalogEntry.new(
+        rpc: "ORWPCE GET EXAM TYPE", mapping: :pce_exam_types, kind: "fields", mode: :live,
+        inputs: [],
+        cite: "EXAMTYPE^ORWPCE2 (ORWPCE2.m:51-53): IEN^NAME of active ^AUTTEXAM entries " \
+              "(0-node piece 4 = 0)",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "ien" ], fileman_type: "integer"),
+          Piece.new(position: 1, attributes: [ "name" ])
+        ]
+      ),
+      CatalogEntry.new(
+        rpc: "ORWPCE GET EDUCATION TOPICS", mapping: :pce_education_topics, kind: "fields",
+        mode: :live,
+        inputs: [],
+        cite: "EDTTYPE^ORWPCE2 (ORWPCE2.m:33-35): IEN^NAME of active ^AUTTEDT entries " \
+              "(0-node piece 3 = 0)",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "ien" ], fileman_type: "integer"),
+          Piece.new(position: 1, attributes: [ "name" ])
+        ]
+      ),
+      CatalogEntry.new(
+        rpc: "ORWPCE GET HEALTH FACTORS TY", mapping: :pce_health_factor_types, kind: "fields",
+        mode: :live,
+        inputs: [],
+        cite: "HFTYPE^ORWPCE2 (ORWPCE2.m:38-48): IEN^NAME, and when ADDCATS " \
+              "IEN^NAME^$P(0-node,U,10)^$P(0-node,U,3). This call sends no ADDCATS, " \
+              "so the category pieces are empty",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "ien" ], fileman_type: "integer"),
+          Piece.new(position: 1, attributes: [ "name" ]),
+          Piece.new(position: 2, attributes: [ "category" ]),
+          Piece.new(position: 3, attributes: [ "category_ien" ], fileman_type: "integer")
+        ]
+      ),
+      CatalogEntry.new(
+        rpc: "ORWPCE PCE4NOTE", mapping: :pce_for_note, kind: "text_blob", mode: :live,
+        inputs: [ "3", "4", "" ],
+        cite: "PCE4NOTE^ORWPCE3 (ORWPCE3.m:4-22): HDR^AllowEdit^CPTRequired^VStr^Author^hasCPT, " \
+              "then VST/PRV/POV/CPT/IMM/SK/PED/HF/XAM/TRT/COM lines (:32-194). Note IEN < 1 " \
+              "uses the visit string; otherwise the visit comes from the TIU note",
+        pieces: [],
+        note: "text_blob: record types do not share one caret layout. parse_note_bundle " \
+              "models the lines; an unknown type is an opaque record."
       )
     ].freeze
   end

@@ -648,23 +648,31 @@ The test suite is hermetic — no sockets, no live RPMS.
 
 ### Test results, quickly
 
-Run these whenever you want the current picture; there is no report to keep. The hermetic
-suite, then the live specs once per persona against a local container of the build you
-care about (the broker port published on loopback; `rake test:live` refuses any other host):
+`bundle exec rake report:daily` runs the hermetic suite, then the live specs once per persona, prints a summary, and writes one markdown file. It exits non-zero when a suite fails, errors, runs zero tests, its summary cannot be parsed, or the build under test is unknown.
+
+Point it at a broker in either of two ways.
+
+- **An already-running broker.** Set `BROKER_HOST` and `BROKER_PORT` (a loopback address; `rake test:live` refuses any other host). `BUILD`, when set, is the build under test; otherwise the build is the tag of the Docker image that publishes that port. A publish bound to `0.0.0.0` or `::` counts only when that host is loopback (`127.0.0.1`, `localhost`, or `::1`). When the tag cannot be determined, the report records `unknown` and the command exits non-zero.
+- **A fresh container of the newest `bcer-*-ydb` release.** `FRESH=1` starts that release's image with the broker published on a free `127.0.0.1` port, waits until the CIA connect answers, runs the suites, and removes the container when it finishes, including after a suite failure, a connect timeout, or an interrupt. The build in the report is that release's tag, including when the image is pinned by digest. A `BUILD` value that names a different tag is an error and the suites do not run; a dry run applies the same check. Each run chooses a unique container name, the time plus a random hex token, before `docker run`, and removes only that name. A failed removal is reported and exits non-zero. `FRESH=1 DRY_RUN=1` prints the plan and leaves Docker, coverage, and the suites untouched. The release is the newest published GitHub release. When `gh api` cannot read that list, or `BUILD` does not match that tag, the error is written to the error stream, no plan is printed, and the command exits non-zero.
+
+The report process reads sign-on codes from `PROV123_ACCESS`, `PROV123_VERIFY`, `SYS123_ACCESS`, and `SYS123_VERIFY`. Each persona's pair is placed in `RPMS_ACCESS` and `RPMS_VERIFY` only inside that persona's `rake test:live` child, with `PERSONA` and the broker host and port. That child receives `LIVE_DISPOSABLE=1` when `FRESH=1`, and otherwise only when `LIVE_DISPOSABLE=1` is already set. `BROKER_PROTOCOL`, when set, is passed to that child and not to `rake test`. PROV123 is a debug account, so that child also gets `VISTA_RPC_ENV=development`. A missing or blank pair skips that live run, records `missing PROV123_ACCESS/PROV123_VERIFY` (or the SYS123 names), and exits non-zero. The codes stay in that child environment. The printed summary, the report, the plan, and the command line carry the variable names only.
+
+The file is `<rpms-diffs>/rpc-coverage/daily/<date>-<build>.md`. `rpms-diffs` is the checkout beside this repo, or `RPMS_DIFFS_DIR`. The command stops before the suites, and before coverage, when `rpc-coverage/daily` is missing. Coverage does not run for `FRESH=1 DRY_RUN=1`. When `rake rpc:coverage` can run, its headline is included. When it cannot, the report says why. `rake rpc:coverage` reads the live evidence from an `rpms-diffs` checkout beside this repo, or `RPMS_DIFFS_DIR`.
+
+The same checks can still be run one at a time:
 
 ```sh
+bundle exec rake report:daily
+FRESH=1 DRY_RUN=1 bundle exec rake report:daily
+FRESH=1 PROV123_ACCESS=... PROV123_VERIFY=... SYS123_ACCESS=... SYS123_VERIFY=... bundle exec rake report:daily
+
 bundle exec rake test
 VISTA_RPC_ENV=development BROKER_HOST=127.0.0.1 BROKER_PORT=<port> PERSONA=PROV123 RPMS_ACCESS=... RPMS_VERIFY=... bundle exec rake test:live
 BROKER_HOST=127.0.0.1 BROKER_PORT=<port> PERSONA=SYS123 RPMS_ACCESS=... RPMS_VERIFY=... bundle exec rake test:live
 bundle exec rake rpc:coverage
 ```
 
-Each prints its own summary: minitest's `runs, assertions, failures, errors, skips` line, the
-live run's skips listed by issue (a live run in which no spec ran fails), and the coverage
-headline from the committed live evidence. Any failure exits non-zero.
-
-PROV123 is a debug account, so its run also needs `VISTA_RPC_ENV=development`. `rake rpc:coverage`
-reads the live evidence from an `rpms-diffs` checkout beside this repo, or `RPMS_DIFFS_DIR=`.
+Each of those prints its own summary: minitest's `runs, assertions, failures, errors, skips` line, the live run's skips listed by issue (a live run in which no spec ran fails), and the coverage headline. Any failure exits non-zero.
 
 - **Wire-format tests** construct packet bytes and assert their layout
 - **DataMapper tests** verify field/text_blob/scalar round-trip through parse + format

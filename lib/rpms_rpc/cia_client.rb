@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "ipaddr"
 require "rpms_rpc/client"
 require "rpms_rpc/fileman_date_parser"
 
@@ -90,11 +91,26 @@ module RpmsRpc
     # The division (DUZ(2)) is then bound explicitly, as VueCentric does: see
     # #bind_division. Pass division: (an INSTITUTION #4 IEN the user may sign
     # on to) to choose another of the user's divisions than DIVGET's default.
-    def authenticate(access_code = nil, verify_code = nil, division: nil, **)
+    #
+    # Who is calling, as AUTH^CIANBRPC takes it (AUTH(DATA,AID,WID,SID,AVC,WIP)):
+    #   application:    AID, the OPTION (#19) the session runs as. RPMS refuses
+    #                   the sign-on when it does not exist or is out of order or
+    #                   locked (OPTCHK^CIANBUTL), and binds it as the session's
+    #                   default context. Default SIGNON_CONTEXT.
+    #   workstation:    WID, free text saved in the CIA session (RPMS keeps 40
+    #                   characters). Name the application and the session it
+    #                   serves, e.g. "lakeraven-ehr 3f9a".
+    #   workstation_ip: WIP, the address of the person signing on. RPMS writes
+    #                   it to the sign-on log's IPV4 ADDRESS (#3.081 field 11).
+    #                   A web host passes the browser's address, not its own.
+    # SID (Windows single sign-on) is never sent.
+    def authenticate(access_code = nil, verify_code = nil, division: nil, application: SIGNON_CONTEXT,
+                     workstation: nil, workstation_ip: nil, **)
       raise ConnectionError, "Not connected" unless connected?
 
       ac, vc = resolve_credentials(access_code, verify_code) # base
       avc = xwb_encrypt("#{ac};#{vc}") # base cipher — matches ENCRYP^XUSRB1
+      caller = signon_caller(application, workstation, workstation_ip)
 
       # AUTH and the CIAVCXUS VIMINFO that reads back the DUZ are one
       # indivisible sequence. VIMINFO answers for whoever this broker
@@ -110,8 +126,7 @@ module RpmsRpc
       synchronize_wire do
         reply = exchange("R", pk("UID"), pk(""), pk("0"),
           pk("RPC"), pk(""), pk("CIANBRPC AUTH"),
-          pk("1"), pk(""), pk(SIGNON_CONTEXT),
-          pk("4"), pk(""), pk(avc))
+          *(caller + [ [ "4", avc ] ]).sort_by(&:first).flat_map { |param, value| [ pk(param), pk(""), pk(value) ] })
         greeting = printable(reply)
 
         # Every failure below fails CLOSED (#245): a rejected or unresolved
@@ -128,7 +143,7 @@ module RpmsRpc
         @signon_user = greeting[/\b([A-Z][A-Z.'-]*,[A-Z][A-Z.'-]*)/, 1]&.strip
         uid = session_params(reply)[0]
         @session_uid = uid if uid&.match?(/\A\d+\z/) # failure params are "server^volume^UCI^port"
-        @current_context = SIGNON_CONTEXT # ContextScope — AUTH bound it as the AID
+        @current_context = application # ContextScope — AUTH bound it as the AID
         # A broker error on the identity read (parse_cia_reply raises RpcError on
         # the \x01 flag) is a failure to resolve identity. It has to land in the
         # same fail-closed refusal as a missing DUZ - left to propagate it would
@@ -194,6 +209,23 @@ module RpmsRpc
     # would attest an identity the broker never resolved. parse_cia_reply
     # consumes the echo unconditionally and returns "" for a reply with no DATA
     # flag, so absence stays absence and #authenticate fails closed on it.
+
+    # AUTH's caller parameters by position, 1 AID, 2 WID and 5 WIP; the
+    # credential is 4, and the frame sends them in position order. A blank
+    # workstation or address is left out. An address that is not an IP address
+    # raises, rather than writing a wrong one into the sign-on log.
+    def signon_caller(application, workstation, workstation_ip)
+      raise ArgumentError, "application must name an OPTION" if application.to_s.strip.empty?
+
+      params = [ [ "1", application.to_s ] ]
+      wid = workstation.to_s.gsub(/[^[:print:]]/, "").strip[0, 40]
+      params << [ "2", wid ] unless wid.empty?
+      unless workstation_ip.to_s.strip.empty?
+        ip = IPAddr.new(workstation_ip.to_s.strip).to_s rescue raise(ArgumentError, "workstation_ip is not an IP address")
+        params << [ "5", ip ]
+      end
+      params
+    end
 
     def signon_duz
       body = parse_cia_reply(call_rpc_raw("CIAVCXUS VIMINFO"))
