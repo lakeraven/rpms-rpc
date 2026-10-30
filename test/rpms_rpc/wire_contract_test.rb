@@ -105,6 +105,22 @@ class RpmsRpc::WireContractTest < Minitest::Test
     end
   end
 
+  # no-data captures are live calls that returned no layout rows — the fixture header must say so.
+  # Replaces the old "no live call" header text still written by lib/tasks/wire.rake until fixed.
+  def test_no_data_fixture_headers_honest_about_empty_live_reply
+    failures = []
+    FIXTURES.select { |f| f.source == "no-data" }.each do |fixture|
+      comments = File.readlines(fixture.path, chomp: true).take(5).select { |l| l.start_with?("#") }.join("\n")
+      if comments.match?(/no live call/i)
+        failures << "#{File.basename(fixture.path)}: header must not deny the live call"
+      end
+      unless comments.match?(/live call returned no data rows/i)
+        failures << "#{File.basename(fixture.path)}: header must say the live call returned no data rows"
+      end
+    end
+    assert_empty failures, failures.join("\n  ")
+  end
+
   # -- The demonstration this gate exists for (issue #189 acceptance) --------
   #
   # The ORQQVI VITALS mapping shipped on main declaring TYPE^VALUE^UNITS^DATE
