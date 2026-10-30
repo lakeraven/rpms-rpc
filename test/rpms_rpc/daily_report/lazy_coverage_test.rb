@@ -59,7 +59,7 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
       @removes = []
     end
 
-    def image_publishing_port(_host, _port) = nil
+    def image_publishing_port(_host, _port) = "ghcr.io/lakeraven/rpms-ydb:bcer-9.0-20261101-latest-ydb"
     def run!(**kwargs) = (@runs << kwargs) && "cid"
     def remove!(_container_id, force: true) = @removes << force
   end
@@ -80,6 +80,25 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
     def write(_path, _body) = nil
   end
 
+  class CountingCommit
+    attr_reader :calls
+
+    def initialize(value = "deadbeef")
+      @value = value
+      @calls = 0
+    end
+
+    def call
+      @calls += 1
+      @value
+    end
+  end
+
+  PROV123_ACCESS = "LAZY-COV-PROV123-ACCESS"
+  PROV123_VERIFY = "LAZY-COV-PROV123-VERIFY"
+  SYS123_ACCESS = "LAZY-COV-SYS123-ACCESS"
+  SYS123_VERIFY = "LAZY-COV-SYS123-VERIFY"
+
   def passing_minitest
     <<~OUT
       Finished in 0.01s, 100 runs/s, 100 assertions/s.
@@ -87,10 +106,21 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
     OUT
   end
 
+  def persona_sign_on_env(overrides = {})
+    {
+      "BROKER_HOST" => "127.0.0.1",
+      "BROKER_PORT" => "19300",
+      "PROV123_ACCESS" => PROV123_ACCESS,
+      "PROV123_VERIFY" => PROV123_VERIFY,
+      "SYS123_ACCESS" => SYS123_ACCESS,
+      "SYS123_VERIFY" => SYS123_VERIFY
+    }.merge(overrides)
+  end
+
   def orchestrator(**overrides)
     defaults = {
       root: ROOT,
-      env: { "BROKER_HOST" => "127.0.0.1", "BROKER_PORT" => "19300" },
+      env: persona_sign_on_env(overrides.dig(:env) || {}),
       releases: FakeReleases.new,
       runner: FakeRunner.new([ { stdout: passing_minitest } ] * 3),
       docker: FakeDocker.new,
@@ -124,12 +154,7 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
       runner = FakeRunner.new([])
       docker = FakeDocker.new
       io = StringIO.new
-      env = {
-        "BROKER_HOST" => "127.0.0.1",
-        "BROKER_PORT" => "19300",
-        "FRESH" => "1",
-        "DRY_RUN" => "1"
-      }
+      env = persona_sign_on_env("FRESH" => "1", "DRY_RUN" => "1")
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, docker: docker, coverage: coverage, env: env,
                           plan_io: io)
 
@@ -161,23 +186,24 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
     coverage = CountingCoverage.new
     Dir.mktmpdir do |diffs|
       FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
-      env = {
+      env = persona_sign_on_env(
         "FRESH" => "1",
         "DRY_RUN" => "1",
-        "RPMS_DIFFS_DIR" => diffs,
-        "BROKER_HOST" => "127.0.0.1",
-        "BROKER_PORT" => "19300"
-      }
+        "RPMS_DIFFS_DIR" => diffs
+      )
+      commit = CountingCommit.new
       runner = FakeRunner.new([])
       orch = RpmsRpc::DailyReport::Orchestrator.from_env(
         root: ROOT,
         env: env,
         runner: runner,
-        coverage: coverage
+        coverage: coverage,
+        rpms_rpc_commit: commit
       )
 
       assert_equal 0, orch.run
       assert_equal 0, coverage.calls
+      assert_equal 0, commit.calls, "DRY_RUN must not invoke the git commit lookup"
       assert_empty runner.calls
     end
   end

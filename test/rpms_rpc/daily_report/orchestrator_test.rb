@@ -15,6 +15,11 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   SYS123_VERIFY = "SENTINEL-SYS123-VERIFY-SECRET"
   SECRET_PATTERN = /#{PROV123_ACCESS}|#{PROV123_VERIFY}|#{SYS123_ACCESS}|#{SYS123_VERIFY}/
   LATEST = { tag: "bcer-9.0-20261101-latest-ydb", published_at: "2026-11-01T00:00:00Z", image: "ghcr.io/lakeraven/rpms-ydb:bcer-9.0-20261101-latest-ydb" }
+  DIGEST_PINNED_LATEST = {
+    tag: "bcer-9.0-20990101-abc1234-ydb",
+    published_at: "2099-01-01T00:00:00Z",
+    image: "ghcr.io/lakeraven/rpms-ydb@sha256:#{'a' * 64}"
+  }
 
   def passing_minitest
     <<~OUT
@@ -39,6 +44,39 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
     def fetch_latest_ydb = @latest
   end
 
+  class UnresolvedReleases
+    def fetch_latest_ydb
+      raise RpmsRpc::DailyReport::ReleaseChoice::NoRelease, "no published release matches /\\Abcer-.*-ydb\\z/"
+    end
+  end
+
+  class CountingCommit
+    attr_reader :calls
+
+    def initialize(value = "deadbeef")
+      @value = value
+      @calls = 0
+    end
+
+    def call
+      @calls += 1
+      @value
+    end
+  end
+
+  class InterruptRunner
+    attr_reader :calls
+
+    def initialize
+      @calls = []
+    end
+
+    def run(argv, env:, chdir:)
+      @calls << { argv: argv.dup, env: env.transform_keys(&:to_s), chdir: chdir }
+      raise Interrupt, "simulated operator interrupt during suite"
+    end
+  end
+
   class FakeRunner
     attr_reader :calls
 
@@ -58,7 +96,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   end
 
   class FakeDocker
-    attr_reader :runs, :removes, :image_calls, :predetermined_name
+    attr_reader :runs, :removes, :image_calls, :predetermined_name, :name_read_before_run
 
     def initialize(image: nil, container_id: "cid-synthetic", predetermined_name: "rpms-rpc-daily-report-test",
                    run_error: nil, remove_error: nil)
@@ -70,6 +108,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       @runs = []
       @removes = []
       @image_calls = []
+      @name_read_before_run = nil
     end
 
     def image_publishing_port(host, port)
@@ -78,6 +117,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
     end
 
     def run!(**kwargs)
+      @name_read_before_run = @predetermined_name if @name_read_before_run.nil?
       @runs << kwargs.merge(container_name: @predetermined_name)
       raise RpmsRpc::DailyReport::DockerCli::Error, "docker run failed after container was created" if @run_error
 
@@ -165,7 +205,9 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       rpms_rpc_commit: "deadbeef",
       coverage: { ran: false, headline: nil, reason: "skipped in test" }
     }
-    defaults.merge(overrides).then { |h| RpmsRpc::DailyReport::Orchestrator.new(**h) }
+    merged = defaults.merge(overrides)
+    merged.delete(:error_io)
+    RpmsRpc::DailyReport::Orchestrator.new(**merged)
   end
 
   def test_build_env_overrides_docker_image
@@ -564,7 +606,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, env: env,
                           broker_probe: FakeBrokerProbe.new([ true ]))
 
-      assert_raises(StandardError) { orch.run }
+      assert_raises(RpmsRpc::DailyReport::Orchestrator::BuildMismatch) { orch.run }
 
       assert_empty runner.calls, "BUILD mismatch must abort before suite children run"
     end
@@ -628,6 +670,260 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       assert_equal 1, status
       combined = summary.io.string
       assert_match(/docker rm failed|container removal/i, combined)
+    end
+  end
+
+  def orchestrator_accepts_error_io?
+    @orchestrator_accepts_error_io ||= RpmsRpc::DailyReport::Orchestrator.instance_method(:initialize).parameters
+                                                                      .map(&:last).include?(:error_io)
+  end
+
+  def new_orchestrator(**kwargs)
+    error_io = kwargs.delete(:error_io) || StringIO.new
+    kwargs[:error_io] = error_io if orchestrator_accepts_error_io?
+    [ RpmsRpc::DailyReport::Orchestrator.new(**kwargs), error_io ]
+  end
+
+  def test_fresh_digest_pinned_image_reports_release_tag_as_build_tested
+    Dir.mktmpdir do |diffs|
+      daily = File.join(diffs, "rpc-coverage/daily")
+      FileUtils.mkdir_p(daily)
+      writer = FakeWriter.new
+      releases = FakeReleases.new(latest: DIGEST_PINNED_LATEST)
+      runner = FakeRunner.new([
+        { stdout: passing_minitest },
+        { stdout: passing_minitest },
+        { stdout: passing_minitest }
+      ])
+      env = persona_sign_on_env("FRESH" => "1")
+      orch = orchestrator(
+        rpms_diffs_dir: diffs,
+        releases: releases,
+        runner: runner,
+        writer: writer,
+        env: env,
+        broker_probe: FakeBrokerProbe.new([ true ])
+      )
+
+      assert_equal 0, orch.run
+
+      report_path, report_body = writer.writes.last
+      assert_match(/build tested: bcer-9\.0-20990101-abc1234-ydb/, report_body)
+      assert_includes report_path, "2026-10-30-bcer-9.0-20990101-abc1234-ydb.md"
+    end
+  end
+
+  def test_fresh_build_env_matching_release_tag_is_accepted_when_image_is_digest
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      runner = FakeRunner.new([
+        { stdout: passing_minitest },
+        { stdout: passing_minitest },
+        { stdout: passing_minitest }
+      ])
+      tag = DIGEST_PINNED_LATEST.fetch(:tag)
+      env = persona_sign_on_env("FRESH" => "1", "BUILD" => tag)
+      orch = orchestrator(
+        rpms_diffs_dir: diffs,
+        releases: FakeReleases.new(latest: DIGEST_PINNED_LATEST),
+        runner: runner,
+        env: env,
+        broker_probe: FakeBrokerProbe.new([ true ])
+      )
+
+      assert_equal 0, orch.run
+      assert_equal 3, runner.calls.size
+    end
+  end
+
+  def test_fresh_interrupt_still_removes_container_and_reraises
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      name = "rpms-rpc-daily-report-interrupt-token"
+      docker = FakeDocker.new(predetermined_name: name)
+      env = persona_sign_on_env("FRESH" => "1")
+      orch = orchestrator(
+        rpms_diffs_dir: diffs,
+        runner: InterruptRunner.new,
+        docker: docker,
+        env: env,
+        broker_probe: FakeBrokerProbe.new([ true ])
+      )
+
+      assert_raises(Interrupt) { orch.run }
+
+      assert_equal [ [ name, true ] ], docker.removes
+    end
+  end
+
+  def test_fresh_signal_exception_still_removes_container_and_reraises
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      name = "rpms-rpc-daily-report-signal-token"
+      docker = FakeDocker.new(predetermined_name: name)
+      runner = Class.new do
+        def run(_argv, env:, chdir:)
+          raise SignalException, "SIGTERM"
+        end
+      end.new
+      env = persona_sign_on_env("FRESH" => "1")
+      orch = orchestrator(
+        rpms_diffs_dir: diffs,
+        runner: runner,
+        docker: docker,
+        env: env,
+        broker_probe: FakeBrokerProbe.new([ true ])
+      )
+
+      assert_raises(SignalException) { orch.run }
+
+      assert_equal [ [ name, true ] ], docker.removes
+    end
+  end
+
+  def test_fresh_container_name_is_unique_per_run_via_injected_docker_name
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      docker_a = FakeDocker.new(predetermined_name: "rpms-rpc-daily-report-run-a")
+      docker_b = FakeDocker.new(predetermined_name: "rpms-rpc-daily-report-run-b")
+      env = persona_sign_on_env("FRESH" => "1")
+      orchestrator(rpms_diffs_dir: diffs, docker: docker_a, env: env,
+                   broker_probe: FakeBrokerProbe.new([ true ])).run
+      orchestrator(rpms_diffs_dir: diffs, docker: docker_b, env: env,
+                   broker_probe: FakeBrokerProbe.new([ true ])).run
+
+      assert_equal [ [ "rpms-rpc-daily-report-run-a", true ] ], docker_a.removes
+      assert_equal [ [ "rpms-rpc-daily-report-run-b", true ] ], docker_b.removes
+      refute_includes docker_a.removes.map(&:first), "rpms-rpc-daily-report-run-b"
+      refute_includes docker_b.removes.map(&:first), "rpms-rpc-daily-report-run-a"
+    end
+  end
+
+  def test_fresh_container_name_is_chosen_before_docker_run
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      docker = FakeDocker.new(predetermined_name: "rpms-rpc-daily-report-before-run")
+      env = persona_sign_on_env("FRESH" => "1")
+      orchestrator(rpms_diffs_dir: diffs, docker: docker, env: env,
+                   broker_probe: FakeBrokerProbe.new([ true ])).run
+
+      refute_empty docker.runs
+      assert_equal "rpms-rpc-daily-report-before-run", docker.name_read_before_run
+      assert_equal docker.predetermined_name, docker.runs.first.fetch(:container_name)
+    end
+  end
+
+  def test_fresh_dry_run_unresolved_release_fail_closed_on_error_stream
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      runner = FakeRunner.new([])
+      docker = FakeDocker.new
+      plan_io = StringIO.new
+      error_io = StringIO.new
+      env = persona_sign_on_env("FRESH" => "1", "DRY_RUN" => "1")
+      kwargs = {
+        root: ROOT,
+        env: env,
+        releases: UnresolvedReleases.new,
+        runner: runner,
+        docker: docker,
+        broker_probe: FakeBrokerProbe.new([ true ]),
+        clock: FakeClock.new([ Time.utc(2026, 10, 30, 12, 0, 0) ]),
+        port_picker: FakePortPicker.new(19_301),
+        writer: FakeWriter.new,
+        rpms_diffs_dir: diffs,
+        pinned_release: "bcer-9.0-20261012-pinned-ydb",
+        rpms_rpc_commit: "deadbeef",
+        coverage: { ran: false, headline: nil, reason: "skipped" },
+        plan_io: plan_io,
+        error_io: error_io
+      }
+      orch, error_io = new_orchestrator(**kwargs)
+
+      assert_equal 1, orch.run
+
+      assert_empty runner.calls
+      assert_empty docker.runs
+      assert_empty docker.removes
+      refute_match(/no published release/i, plan_io.string)
+      assert_match(/no published release/i, error_io.string)
+    end
+  end
+
+  def test_fresh_dry_run_build_mismatch_fail_closed_on_error_stream
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      runner = FakeRunner.new([])
+      docker = FakeDocker.new
+      plan_io = StringIO.new
+      error_io = StringIO.new
+      env = persona_sign_on_env("FRESH" => "1", "DRY_RUN" => "1", "BUILD" => "bcer-9.0-20260999-wrong-ydb")
+      kwargs = {
+        root: ROOT,
+        env: env,
+        releases: FakeReleases.new(latest: LATEST),
+        runner: runner,
+        docker: docker,
+        broker_probe: FakeBrokerProbe.new([ true ]),
+        clock: FakeClock.new([ Time.utc(2026, 10, 30, 12, 0, 0) ]),
+        port_picker: FakePortPicker.new(19_301),
+        writer: FakeWriter.new,
+        rpms_diffs_dir: diffs,
+        pinned_release: "bcer-9.0-20261012-pinned-ydb",
+        rpms_rpc_commit: "deadbeef",
+        coverage: { ran: false, headline: nil, reason: "skipped" },
+        plan_io: plan_io,
+        error_io: error_io
+      }
+      orch, error_io = new_orchestrator(**kwargs)
+
+      assert_equal 1, orch.run
+
+      assert_empty runner.calls
+      assert_empty docker.runs
+      refute_match(/BUILD=.*wrong-ydb/i, plan_io.string)
+      assert_match(/BUILD=.*wrong-ydb|does not match/i, error_io.string)
+    end
+  end
+
+  def test_missing_persona_keys_still_yield_errored_live_suites_not_skipped
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      writer = FakeWriter.new
+      runner = FakeRunner.new([ { stdout: passing_minitest } ])
+      env = { "BROKER_HOST" => "127.0.0.1", "BROKER_PORT" => "19300" }
+      orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer, env: env)
+
+      assert_equal 1, orch.run
+
+      assert_equal 1, runner.calls.size, "only rake test runs; live suites error without runner children"
+      report = writer.writes.map(&:last).join("\n")
+      assert_match(/missing PROV123_ACCESS\/PROV123_VERIFY/i, report)
+      assert_match(/missing SYS123_ACCESS\/SYS123_VERIFY/i, report)
+    end
+  end
+
+  def test_fresh_container_remove_failure_reaches_summary_when_no_report_was_written
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      docker = FakeDocker.new(predetermined_name: "rpms-rpc-daily-report-no-report", remove_error: true)
+      summary = StringIOWriter.new
+      writer = FakeWriter.new
+      env = persona_sign_on_env("FRESH" => "1")
+      orch = orchestrator(
+        rpms_diffs_dir: diffs,
+        runner: FakeRunner.new([]),
+        docker: docker,
+        writer: writer,
+        env: env,
+        broker_probe: FakeBrokerProbe.new([ false, false, false ]),
+        summary_writer: summary
+      )
+
+      assert_raises(RpmsRpc::DailyReport::Orchestrator::BrokerTimeout) { orch.run }
+
+      assert_empty writer.writes, "broker timeout must abort before a report file is written"
+      assert_match(/docker rm failed|container removal/i, summary.io.string)
     end
   end
 end

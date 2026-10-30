@@ -83,4 +83,19 @@ class RpmsRpc::DailyReport::RenderTest < Minitest::Test
     refute_match(/ops#1\|2/, md)
     refute_match(/build tested: evil\|tag$/, md)
   end
+
+  def test_escapes_square_brackets_in_markdown
+    md = RpmsRpc::DailyReport.render(base_input(
+                                       build_tested: "tag[issue]",
+                                       suites: [
+                                         { name: "rake test[live]", runs: 1, passed: 1, failures: 0, errors: 0, skips: 0,
+                                           skip_issues: [ "ops#365[panel]" ], wall_seconds: 0.0, first_failures: [] }
+                                       ]
+                                     ))
+
+    refute_match(/tag\[issue\]/, md)
+    refute_match(/rake test\[live\]/, md)
+    refute_match(/ops#365\[panel\]/, md)
+    assert_match(/tag&#91;issue&#93;/, md)
+  end
 end
