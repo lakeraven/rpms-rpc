@@ -35,10 +35,17 @@ module RpmsRpc
   # pinned signature; this module does not parse reach classes itself. With
   # no `build:`, the one tag in data/fingerprints/rpms-ops.lock.yml is used.
   # Zero or several pins is an ArgumentError: the caller passes `build:`.
-  # An unknown feature, a missing lock file, a missing reach face, an empty
-  # or non-directory `inventories_dir:`, a duplicate RPC row, or a build that
-  # is not pinned and not a readable inventory directory, is an ArgumentError
-  # too.
+  # An unknown feature, a missing lock file, a missing reach face, a missing
+  # `<tag>-broker_8994.txt` registry, an empty or non-directory
+  # `inventories_dir:`, a duplicate RPC row, a malformed reach face, or a
+  # build that is not pinned and not a readable inventory directory, is an
+  # ArgumentError too. `Conformance::BuildSurface::Error` from that reader is
+  # re-raised as ArgumentError with the reader's reason kept.
+  #
+  # The parsed build surface is cached per resolved inventory directory, and
+  # the parsed rpms-ops lock is cached with it, so a repeated `available?` or
+  # `for` does not read those files again. `reset!` drops both. One mutex
+  # guards the caches for concurrent readers.
   #
   # `inventories_dir:` reads `<dir>/<tag>/` instead of data/inventories.
   # A directory passed that way is the build under test, pin or not.
@@ -76,13 +83,24 @@ module RpmsRpc
     OMITTED = Object.new
     private_constant :OMITTED
 
+    # One lock for the feature registry, the per-directory build surfaces, and
+    # the parsed rpms-ops lock. Enough for concurrent readers; writers are reset!.
+    CACHE_MUTEX = Mutex.new
+    private_constant :CACHE_MUTEX
+
     def all
       registry
     end
 
-    # Drop the cached registry so the next read loads REQUIRED_RPCS_PATH again.
+    # Drop the cached feature registry, parsed build surfaces, and rpms-ops lock
+    # so the next read loads REQUIRED_RPCS_PATH and the inventory files again.
     def reset!
-      @registry = nil
+      CACHE_MUTEX.synchronize do
+        @registry = nil
+        @surfaces = nil
+        @pinned_lock = nil
+        @pinned_lock_path = nil
+      end
     end
 
     def available?(feature, build: nil, inventories_dir: nil, context: OMITTED)
@@ -105,9 +123,7 @@ module RpmsRpc
     # Release tags recorded in the rpms-ops lock, in file order.
     # `available?` with no build calls this and will not choose among them.
     def pinned_build_tags
-      raise ArgumentError, "lock file is missing: #{LOCK_PATH}" unless File.file?(LOCK_PATH)
-
-      Conformance::InventoryLock.load(LOCK_PATH).entries.keys
+      pinned_lock.entries.keys
     end
 
     # Reject a feature that names no RPCs. The registry is built through this,
@@ -122,7 +138,7 @@ module RpmsRpc
     private
 
     def registry
-      @registry ||= build_registry.freeze
+      CACHE_MUTEX.synchronize { @registry ||= build_registry.freeze }
     end
 
     def build_registry
@@ -212,17 +228,52 @@ module RpmsRpc
     def surface!(build:, inventories_dir:)
       root = inventories_root(inventories_dir)
       tag = resolve_tag(build, inventories_dir)
-      dir = File.join(root, tag)
+      cached_surface(resolved_inventory_dir(root, tag), tag)
+    end
+
+    # Absolute directory for this build. A directory that exists is canonical
+    # (symlinks and ".." collapsed) so two spellings share one cache entry.
+    def resolved_inventory_dir(root, tag)
+      path = File.expand_path(File.join(root, tag))
+      File.directory?(path) ? File.realpath(path) : path
+    end
+
+    def cached_surface(dir, tag)
+      CACHE_MUTEX.synchronize do
+        surfaces = (@surfaces ||= {})
+        surfaces[dir] ||= read_surface(dir, tag)
+      end
+    end
+
+    # The parsed rpms-ops lock, read once per path until reset!.
+    def pinned_lock
+      path = LOCK_PATH
+      CACHE_MUTEX.synchronize do
+        if @pinned_lock && @pinned_lock_path == path
+          @pinned_lock
+        else
+          raise ArgumentError, "lock file is missing: #{path}" unless File.file?(path)
+
+          @pinned_lock_path = path
+          @pinned_lock = Conformance::InventoryLock.load(path)
+        end
+      end
+    end
+
+    def read_surface(dir, tag)
       registry_path = File.join(dir, "#{tag}-broker_8994.txt")
       reach = File.join(dir, "#{tag}-rpc_reach.txt")
-      unless File.file?(reach)
-        raise ArgumentError, "reach face is missing for build #{tag}"
-      end
-      raise ArgumentError, "unknown build #{tag.inspect}" unless File.file?(registry_path)
+      raise ArgumentError, "reach face is missing for build #{tag}" unless File.file?(reach)
+      raise ArgumentError, "registry is missing for build #{tag}" unless File.file?(registry_path)
 
       reject_duplicate_rows!(registry_path)
       reject_duplicate_rows!(reach)
       Conformance::BuildSurface.from_files(tag: tag, registry: registry_path, reach: reach)
+    rescue Conformance::BuildSurface::Error => e
+      # The reader's reason (order, empty face, unknown reach class) is the
+      # ArgumentError message. Same treatment for any BuildSurface::Error this
+      # read raises.
+      raise ArgumentError, e.message
     end
 
     def inventories_root(dir)
