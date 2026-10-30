@@ -57,4 +57,3 @@ Not verified: any live behaviour (no broker was reachable); that `AMHGEVF` links
 
 - Leaving CIA loses the CIA session id that lakeraven-ehr now stores on audit rows (lakeraven-ehr#759). The generic path needs another way to tie the two audit trails.
 - A written exceptions list is needed for what stays VueCentric: today the psych CPT and problem list, and any non-BH writes.
-- engage-health (public reference) routes each RPC to a package option, signs on over the BMX line, and ships its own M. We do not copy the M.
