@@ -330,6 +330,34 @@ class OrderSignAndReleaseTest < Minitest::Test
     assert_match(/may already be signed/i, results.first[:reason])
   end
 
+  # SEND^ORWDX ignores its ES and ORNP arguments and signs as the SESSION user
+  # (FOIA ORWDX.m:152-178, ORCSEND.m:8); VALIDSIG checks the session user's own
+  # code (ORWU.m:103-106). A provider_duz other than the signed-on DUZ would
+  # have the order signed by someone else and reported as the provider's.
+  def test_sign_and_release_rejects_a_provider_duz_that_is_not_the_signed_on_session_user
+    client = with_sign_release_wire(validsig: "1", send: [ "#{ORDER_ONE}^RS" ])
+    client.define_singleton_method(:duz) { "302" }
+
+    results = RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+
+    assert_empty client.calls, "no RPC may run when the provider is not the session user"
+    assert_equal [ :rejected ], results.map { |r| r[:status] }
+    assert_match(/session user/i, results.first[:reason])
+    refute_signature_leaked(results, SIG_CODE)
+  end
+
+  def test_sign_and_release_rejects_when_the_client_cannot_name_its_signed_on_user
+    client = no_wire_client
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    results = RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+
+    assert_empty client.calls
+    assert_equal [ :rejected ], results.map { |r| r[:status] }
+    assert_match(/session user/i, results.first[:reason])
+  end
+
   # --- argument validation (no RPC at all, not even VALIDSIG) -----------------
 
   def test_sign_and_release_invalid_arguments_never_call_rpc
