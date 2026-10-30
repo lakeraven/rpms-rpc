@@ -20,9 +20,14 @@ module RpmsRpc
   # `context` is the file-#19 option the module binds itself (Referral →
   # BMCRPC). It is nil when the module runs under whatever context the
   # session has already bound (Problem, the chart-banner Patient calls).
-  # Those features require a `context:` keyword on `available?` and `for`;
-  # a missing keyword is an ArgumentError. A `context:` that differs from a
-  # fixed context is false, not an error.
+  # A fixed-context feature is judged under that declared context in both
+  # `available?` and `for`; any `context:` passed with the call is ignored.
+  # A session-context feature requires `context:` on `available?`. Omitting
+  # the keyword, or passing nil, is an ArgumentError.
+  #
+  # `for(build:)` returns the fixed-context features the build serves.
+  # `for(build:, context:)` returns those plus the session-context features
+  # served under that context.
   #
   # `available?` is true when every RPC the feature names is client-callable
   # under that context on the build's reach face (`<tag>-rpc_reach.txt`).
@@ -75,32 +80,24 @@ module RpmsRpc
       registry
     end
 
+    # Drop the cached registry so the next read loads REQUIRED_RPCS_PATH again.
+    def reset!
+      @registry = nil
+    end
+
     def available?(feature, build: nil, inventories_dir: nil, context: OMITTED)
       entry = lookup(feature)
       bound = bind_context(entry, context)
       surface = surface!(build: build, inventories_dir: inventories_dir)
-      return false if bound == false
-
       served?(surface, entry, bound)
     end
 
     # Feature names this build serves, in registry order.
     #
-    # Session-context features cannot be answered without the caller's bound
-    # context, so a missing `context:` is an ArgumentError — except the
-    # per-context listing, which also asks (with the keyword omitted) which
-    # fixed-context features the build serves.
+    # No `context:` lists the fixed-context features served under their own
+    # context. `context:` adds the session-context features served under that
+    # option. A fixed-context feature never consults the passed context.
     def for(build:, inventories_dir: nil, context: OMITTED)
-      if keyword_omitted?(context)
-        if unscoped_for_requires_context?
-          raise ArgumentError, "pass context: to resolve session-context features"
-        end
-
-        surface = surface!(build: build, inventories_dir: inventories_dir)
-        return registry.select { |entry| entry.context && served?(surface, entry, entry.context) }.map(&:name)
-      end
-      raise ArgumentError, "pass context: to resolve session-context features" if context.nil?
-
       surface = surface!(build: build, inventories_dir: inventories_dir)
       registry.select { |entry| served_for?(surface, entry, context) }.map(&:name)
     end
@@ -129,12 +126,47 @@ module RpmsRpc
     end
 
     def build_registry
-      modules = JSON.parse(File.read(REQUIRED_RPCS_PATH)).fetch("modules")
+      modules = required_modules
       FEATURE_RULES.map do |rule|
-        rpcs = modules.fetch(rule[:source])
+        rpcs = module_rpcs(modules, rule[:source])
         rpcs = rpcs.select { |rpc| rpc.start_with?(rule[:prefix]) } if rule[:prefix]
         validate!(name: rule[:name], context: rule[:context], rpcs: rpcs)
       end
+    end
+
+    def required_modules
+      path = REQUIRED_RPCS_PATH
+      doc = parse_required_rpcs(path)
+      modules = doc["modules"] if doc.is_a?(Hash)
+      return modules if modules.is_a?(Hash)
+
+      raise ArgumentError, "required_rpcs file #{path} is missing module key \"modules\""
+    end
+
+    def parse_required_rpcs(path)
+      raise ArgumentError, "required_rpcs file is missing: #{path}" unless File.file?(path)
+
+      JSON.parse(File.read(path))
+    rescue JSON::ParserError
+      raise ArgumentError, "required_rpcs file is not valid JSON: #{path}"
+    end
+
+    # The module value itself, before the feature prefix rule. A missing key,
+    # or a value that is not a non-empty array of non-empty strings, names
+    # this file and that module.
+    def module_rpcs(modules, module_name)
+      unless modules.key?(module_name)
+        raise ArgumentError, "required_rpcs file #{REQUIRED_RPCS_PATH} is missing module #{module_name}"
+      end
+
+      rpcs = modules[module_name]
+      return rpcs if non_empty_string_array?(rpcs)
+
+      raise ArgumentError, "required_rpcs file #{REQUIRED_RPCS_PATH} module #{module_name} must be a non-empty array of non-empty strings"
+    end
+
+    def non_empty_string_array?(value)
+      value.is_a?(Array) && !value.empty? && value.all? { |item| item.is_a?(String) && !item.empty? }
     end
 
     def lookup(feature)
@@ -145,37 +177,25 @@ module RpmsRpc
       entry
     end
 
-    # The context the reach check uses, or false when a fixed-context feature
-    # was asked about under a different option.
+    # Fixed-context features always use their declared context. Session-context
+    # features use the passed context, and refuse a missing or nil one.
     def bind_context(entry, context)
-      if entry.context.nil?
-        if keyword_omitted?(context) || context.nil?
-          raise ArgumentError, "feature #{entry.name} runs under the session's bound context; pass context:"
-        end
+      return entry.context unless entry.context.nil?
+      return context unless keyword_omitted?(context) || context.nil?
 
-        return context
-      end
-      return entry.context if keyword_omitted?(context)
-      return false unless context == entry.context
-
-      entry.context
+      raise ArgumentError, "feature #{entry.name} runs under the session's bound context; pass context:"
     end
 
     def keyword_omitted?(context) = context.equal?(OMITTED)
 
-    # True unless the caller is the listing that collects fixed-context
-    # features with the keyword omitted. Every other caller must pass context:.
-    def unscoped_for_requires_context?
-      locs = caller_locations(1, 30)
-      return true unless locs
-
-      locs.none? { |loc| loc.base_label == "test_for_lists_features_the_build_serves_under_each_context" }
-    end
-
+    # Fixed-context features are served under their own context. Session-context
+    # features are omitted when context: was not passed, and otherwise judged
+    # under the context that was.
     def served_for?(surface, entry, context)
-      return false if entry.context && context != entry.context
+      return served?(surface, entry, entry.context) unless entry.context.nil?
+      return false if keyword_omitted?(context)
 
-      served?(surface, entry, entry.context || context)
+      served?(surface, entry, context)
     end
 
     def served?(surface, entry, context)
