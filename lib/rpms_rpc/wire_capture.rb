@@ -471,8 +471,9 @@ module RpmsRpc
         cite: "LIST^ORQQPL (ORQQPL.m:3-18) reorders LIST^GMPLUTL3 rows " \
               "(GMPLUTL3.m:76-99: IEN^STATUS^NARRATIVE^ICD^ONSET^MODIFIED^SC^SP^" \
               "PRIORITY^TRANSCRIBED^SCT-C^SCT-D) as in1^in3^in2^in4^in5^in6^in7^" \
-              "in8^in10^in9^''^DETAIL; piece 13 '#' with piece 9 '#' and piece 4 " \
-              "= $$ICDDX error text (ORQQPL.m:15-16); '^No problems found.' sentinel line 16",
+              "in8^in10^in9^''^DETAIL; piece 13 '#' alone marks inactive-ICD " \
+              "whatever piece 4 holds (ORQQPL.m:15-16), and $$ICDDX 'Invalid Code' " \
+              "text is never a code; '^No problems found.' sentinel line 16",
         pieces: [
           Piece.new(position: 0, attributes: [ "ien" ], fileman_type: "integer"),
           Piece.new(position: 1, attributes: [ "description", "narrative" ]),

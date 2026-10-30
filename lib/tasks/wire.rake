@@ -124,7 +124,7 @@ namespace :wire do
           "sha256" => Digest::SHA256.hexdigest(raw)
         )
       else
-        data = fixture_data(entry, release, captured_at, acc).merge("source" => "routine-cite")
+        data = fixture_data(entry, release, captured_at, acc).merge("source" => "routine-cite").tap { |d| d.delete("signed_on_as") }
       end
 
       # Round-trip through the validator so an invalid fixture can never be

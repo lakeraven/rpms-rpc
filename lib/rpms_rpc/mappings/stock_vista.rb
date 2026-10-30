@@ -107,10 +107,13 @@ module RpmsRpc
     # $P(X,U,9)_U_""_U_DETAIL):
     #   IEN[1]^NARRATIVE[2]^STATUS[3]^ICD[4]^ONSET[5]^LAST MODIFIED[6]^
     #   SC[7]^SPEXP[8]^TRANSCRIBED($)[9]^PRIORITY(*)[10]^^DETAIL[12]^#(13)
-    # Piece 13 "#" with piece 9 "#" and piece 4 equal to the $$ICDDX error
-    # text (ORQQPL.m:15-16, "Invalid Code ...") is an inactive-ICD row:
-    # :icd_code and :transcribed parse nil and :inactive_icd is true. Any
-    # other row has :inactive_icd false. Every other piece is unchanged.
+    # Piece 13 "#" alone is the inactive-ICD branch (ORQQPL.m:15-16),
+    # whatever piece 4 holds — a real inactive code or $$ICDDX error text.
+    # That row parses :icd_code nil, :transcribed nil (piece 9's "#" is the
+    # branch marker, not a transcribed flag), and :inactive_icd true. Text
+    # in piece 4 that begins "Invalid Code" is never an :icd_code, with or
+    # without the marker. Any other row has :inactive_icd false. Every
+    # other piece is unchanged.
     # STATUS is #9000011 field .12 internal ("A"/"I" — GMPLUTL3.m NODE0
     # "$P(GMPLZ0,U,12)"). The prior declaration swapped STATUS and
     # DESCRIPTION and invented RECORDED_DATE / PROVIDER_DUZ at pieces 6-7
@@ -131,15 +134,16 @@ module RpmsRpc
       m.field 8, :transcribed
       m.field 9, :priority
       # Piece 13 (ORQQPL.m:15-16). The wire token is "#", not a boolean;
-      # after_row turns the inactive-ICD branch into inactive_icd true/false.
+      # after_row turns that marker into inactive_icd true/false.
       m.field 12, :inactive_icd
       m.after_row do |row, parts|
-        # $$ICDDX^ICDCODE failure text, piece 2 of "-1^Invalid Code (...)".
-        inactive = parts[12] == "#" && parts[8] == "#" && parts[3].to_s.match?(/\AInvalid Code\b/)
-        if inactive
+        # Keyed on piece 13 "#" alone. Piece 4 may be a real code or the
+        # $$ICDDX^ICDCODE failure text (piece 2 of "-1^Invalid Code (...)").
+        inactive = parts[12] == "#"
+        if inactive || parts[3].to_s.match?(/\AInvalid Code\b/)
           row[:icd_code] = nil
-          row[:transcribed] = nil
         end
+        row[:transcribed] = nil if inactive
         row[:inactive_icd] = inactive
         row
       end
