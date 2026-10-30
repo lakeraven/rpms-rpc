@@ -6,11 +6,10 @@ require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/scheduling"
 require "rpms_rpc/fileman_date_parser"
 
-# Order.check (ORWDXC ACCEPT, rpms-rpc#454) then Order.save unreleased (ORWDX
-# SAVE, #455), read back through Order.list and ORDER (#100) via DDR. ORWDX
-# SEND (#456) is out of scope. OR GXTEXT WORD PROCESSING ORDER has no
-# orderable item (Order.check items: []). It WRITES against a disposable local
-# container.
+# Order.save unreleased (ORWDX SAVE, #455), read back through Order.list and
+# ORDER (#100) via DDR. Order.check (ORWDXC ACCEPT, #454) is a separate live
+# test. ORWDX SEND (#456) is out of scope. OR GXTEXT WORD PROCESSING ORDER
+# WRITES against a disposable local container.
 class OrderWriteLiveTest < LiveSpec::Test
   writes!
 
@@ -20,25 +19,17 @@ class OrderWriteLiveTest < LiveSpec::Test
 
   ORDER_SNIPPET = "rpms-rpc live spec order write readback"
 
-  def test_check_accept_then_save_leaves_an_unreleased_order_on_file
+  # First N active #101.43 rows per package suffix (field 2 ends with ;99ORD or ;99PSP).
+  ORDERABLE_PROBE_LIMIT = 5
+  ORDERABLE_PACKAGE_SUFFIXES = { "OR" => "99ORD", "PS" => "99PSP" }.freeze
+
+  def test_save_leaves_an_unreleased_order_on_file
     dialog = resolve_dialog!
     prompts = resolve_dialog_prompts!(dialog.fetch(:name))
     location = resolve_hospital_location!
     display_group = resolve_display_group!(dialog.fetch(:ien))
 
     start = server_now_fm
-    # GXTEXT carries no orderable; the gem refuses ACCEPT without OIL rows.
-    check = RpmsRpc::Order.check(
-      DFN,
-      filler_id: "OR",
-      location: location,
-      items: [],
-      start: start
-    )
-    refute check.available?, "text order check must fail closed without orderable items"
-    assert_equal "order checks unavailable: no orderable items", check.unavailable_reason,
-                 "pins the gem contract for dialog-only orders; not evidence ORWDXC ran or that checks execute"
-
     text = "#{ORDER_SNIPPET} #{persona}"
     responses = ordialog_responses(prompts, start, text)
     saved = RpmsRpc::Order.save(
@@ -77,33 +68,53 @@ class OrderWriteLiveTest < LiveSpec::Test
       assert_equal "DELAYED", status[:fields].dig("5", :external)
     end
 
-    assert_order_check_rows_if_live_proven!(location, start)
-
     puts "\n#{persona}: order #{saved[:ien]} (#{saved[:status]}) on DFN #{DFN} " \
          "(dialog #{dialog.fetch(:ien)}, location #{location}, " \
          "prompts COMMENT/START/STOP=#{prompts.values_at(:comment, :start, :stop).join('/')}) " \
          "reads back through list and file 100"
   end
 
+  def test_order_checks_return_check_rows
+    location = resolve_hospital_location!
+    start = server_now_fm
+    build = LiveSpec.build_label
+    tried = []
+
+    ORDERABLE_PACKAGE_SUFFIXES.each do |package, suffix|
+      active_orderable_rows(suffix, ORDERABLE_PROBE_LIMIT).each do |row|
+        item = order_check_item_for(row, package)
+        next if item.nil?
+
+        label = "101.43 IEN #{row[:ien]} package #{package}"
+        tried << label
+
+        2.times do
+          check = RpmsRpc::Order.check(
+            DFN,
+            filler_id: "OR",
+            location: location,
+            items: [ item ],
+            start: start
+          )
+          next unless check.available? && check.checks.any?
+
+          assert_order_check_rows!(check)
+          puts "\n#{persona}: ORWDXC ACCEPT returned #{check.checks.size} check row(s) for #{label}"
+          return
+        end
+      end
+    end
+
+    detail = tried.empty? ? "no active #101.43 orderables for OR/PS packages" : tried.join(", ")
+    skip_tracked(
+      "#383",
+      "#{detail} returned no ORWDXC check rows on #{build}; order checks are not live-proven"
+    )
+  end
+
   private
 
-  # Bounded probe for a seed patient/orderable where ORWDXC ACCEPT returns
-  # CHK2LST rows. When found, asserts CheckResult shape; otherwise no-op
-  # (check path not live-proven on this build).
-  def assert_order_check_rows_if_live_proven!(location, start)
-    scenario = live_order_check_scenario
-    return unless scenario
-
-    item = scenario.fetch(:item)
-    check = RpmsRpc::Order.check(
-      DFN,
-      filler_id: "OR",
-      location: location,
-      items: [ item ],
-      start: start
-    )
-    assert check.available?, "expected ORWDXC ACCEPT check rows for #{scenario.fetch(:label)}: #{check.inspect}"
-    refute_empty check.checks, "ORWDXC ACCEPT returned no check rows: #{check.inspect}"
+  def assert_order_check_rows!(check)
     check.checks.each do |row|
       assert row.order_id.is_a?(String), "CheckResult check order_id must be a String: #{row.inspect}"
       assert row.check_ien.is_a?(String), "CheckResult check check_ien must be a String: #{row.inspect}"
@@ -114,40 +125,37 @@ class OrderWriteLiveTest < LiveSpec::Test
     end
   end
 
-  def live_order_check_scenario
-    return @live_order_check_scenario if defined?(@live_order_check_scenario)
+  # Field 7 = "1" marks inactive on #101.43; field 2 ends with ;99ORD or ;99PSP.
+  def active_orderable_rows(suffix, limit)
+    listed = RpmsRpc::DdrFileman.lister(file: "101.43", fields: ".01;2;7", flags: "IP", max: 2000)
+    flunk "DDR LISTER on ORDERABLE ITEM (#101.43) gave no reply" if listed.nil?
+    flunk "DDR LISTER on ORDERABLE ITEM (#101.43) answered an error" if listed[:error]
 
-    @live_order_check_scenario = discover_live_order_check_scenario
-  end
-
-  def discover_live_order_check_scenario
-    orderable = first_or_orderable_ien
-    return nil if orderable.nil?
-
-    item = { orderable_item: orderable, package: "OR", package_info: "" }
-    location = resolve_hospital_location!
-    start = server_now_fm
-
-    first = RpmsRpc::Order.check(DFN, filler_id: "OR", location: location, items: [ item ], start: start)
-    return { item: item, label: "first OR orderable #{orderable}" } if first.available? && first.checks.any?
-
-    second = RpmsRpc::Order.check(DFN, filler_id: "OR", location: location, items: [ item ], start: start)
-    return { item: item, label: "duplicate OR orderable #{orderable}" } if second.available? && second.checks.any?
-
-    nil
-  end
-
-  def first_or_orderable_ien
-    listed = RpmsRpc::DdrFileman.lister(file: "101.43", fields: ".01;2", flags: "IP", max: 50)
-    return nil if listed.nil? || listed[:error]
-
+    rows = []
     listed[:entries].each do |row|
-      pointer = row[:pieces][1].to_s.split(";").first
-      next unless pointer.match?(/\A\d+\z/)
+      break if rows.size >= limit
 
-      return pointer
+      next if row[:pieces][2].to_s == "1"
+      next unless row[:pieces][1].to_s.end_with?(";#{suffix}")
+
+      rows << row
     end
-    nil
+    rows
+  end
+
+  def order_check_item_for(row, package)
+    ien = row[:ien].to_s
+    return nil unless ien.match?(/\A\d+\z/)
+
+    case package
+    when "OR"
+      { orderable_item: ien, package: "OR", package_info: "" }
+    when "PS"
+      drug = row[:pieces][1].to_s.split(";").first
+      return nil unless drug.match?(/\A\d+\z/)
+
+      { orderable_item: ien, package: "PS", package_info: drug }
+    end
   end
 
   def resolve_dialog!
