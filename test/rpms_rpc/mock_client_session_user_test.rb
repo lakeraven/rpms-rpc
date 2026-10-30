@@ -102,6 +102,47 @@ class MockClientSessionUserTest < Minitest::Test
     assert_nil RpmsRpc::Authentication.user_info(302)
   end
 
+  # VALIDAV^XUSRB kills DUZ on entry (XUSRB.m:13, :17) and clears it again on
+  # any refusal (:36, :38), so after a refused sign-on the broker session has no
+  # user: XUS GET USER INFO answers "User not fully sign-on" (XUSRB2.m:25-27) and
+  # ORWU USERINFO has no DUZ to read. The previous user does not survive.
+  def test_a_refused_sign_on_leaves_the_session_with_no_user_as_the_broker_does
+    RpmsRpc.mock! do |m|
+      seed_provider_then_clerk(m)
+      m.seed_lines(:av_code, "NOBODY1;BADVERIFY", {
+        duz: 0, error_code: 0, verify_needs_change: 0,
+        message: "Not a valid ACCESS/VERIFY code pair", post_signon_message_count: 0
+      })
+    end
+
+    sign_on("PROVIDER1", "PROVVERIFY1")
+    refused = sign_on("NOBODY1", "BADVERIFY")
+
+    refute refused[:success]
+    assert_nil RpmsRpc::Authentication.user_info(301),
+      "a refused sign-on clears DUZ, so the previous user must not still answer"
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Authentication.user_type(301) }
+  end
+
+  # A successful sign-on as a DUZ nobody seeded through seed_user must not leave
+  # the previous user answering for the new session.
+  def test_a_successful_sign_on_as_an_unseeded_duz_does_not_leave_the_previous_user_answering
+    RpmsRpc.mock! do |m|
+      seed_provider_then_clerk(m)
+      m.seed_lines(:av_code, "GHOST1;GHOSTVERIFY1", {
+        duz: 777, error_code: 0, verify_needs_change: 0,
+        message: "Welcome GHOST,USER", post_signon_message_count: 0
+      })
+    end
+
+    sign_on("PROVIDER1", "PROVVERIFY1")
+    sign_on("GHOST1", "GHOSTVERIFY1")
+
+    assert_nil RpmsRpc::Authentication.user_info(301),
+      "the session is now DUZ 777, so DUZ 301 must not still be answering"
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Authentication.user_type(301) }
+  end
+
   def test_a_user_seeded_without_seed_user_keeps_their_replies_after_sign_on
     RpmsRpc.mock! do |m|
       seed_provider_then_clerk(m)
