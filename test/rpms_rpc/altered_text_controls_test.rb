@@ -9,6 +9,10 @@ require "rpms_rpc/mock_client"
 # keep its flag anyway: the whole blob is treated as altered, never as clean.
 # Every byte string is SYNTHETIC.
 class RpmsRpc::AlteredTextControlsTest < Minitest::Test
+  # assess configures a process-global client; without this reset it outlives the
+  # test and a later test that expects an unconfigured gem fails by order alone.
+  def teardown = RpmsRpc.reset!
+
   def assess(reply)
     client = Object.new
     client.define_singleton_method(:call_rpc) { |*| reply }
