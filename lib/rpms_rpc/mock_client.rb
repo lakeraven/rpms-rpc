@@ -436,20 +436,37 @@ end
 
     # A successful XUS AV CODE binds the broker session to the DUZ it names
     # (RET(0), with RET(1) = 0: VALIDAV^XUSRB, XUSRB.m:38), and the
-    # session-user RPCs answer for that user from then on. Fail closed: a
-    # refused sign-on (RET(1) not 0), a DUZ of 0, or a DUZ nobody seeded
-    # through seed_user changes nothing, so no sign-on borrows another user's
-    # reply. The reply for a DUZ no seed_user recorded stays as it was.
+    # session-user RPCs answer for that user from then on.
+    #
+    # The broker's own behaviour is the model. VALIDAV kills DUZ on entry
+    # and clears it again on any refusal (XUSRB.m:13, :17, :36, :38), so a
+    # refused sign-on leaves the session with no user, and XUS GET USER INFO
+    # then answers "User not fully sign-on" (XUSRB2.m:25-27). The previous
+    # user does not survive. A successful sign-on as a DUZ nobody seeded
+    # through seed_user cannot be answered for here, so the replies this
+    # mock seeded for a DUZ it had bound are cleared rather than left naming
+    # someone else. Replies a host seeded by hand (seed_lines / seed) while
+    # nothing was bound are left alone.
     def bind_session_user(reply)
       lines = Array(reply)
       duz = lines[0].to_s.strip
-      return unless duz.match?(/\A[1-9]\d*\z/) && lines[1].to_s.strip == "0"
+      signed_on = duz.match?(/\A[1-9]\d*\z/) && lines[1].to_s.strip == "0"
+      user = signed_on ? @session_users&.dig(duz.to_i) : nil
 
-      user = @session_users&.dig(duz.to_i)
-      return unless user
+      if user
+        @bound_session_duz = duz.to_i
+        seed_session_user_replies(duz.to_i, user[:name], user[:usrcls])
+      elsif @bound_session_duz
+        clear_session_user_replies
+      end
+    end
 
-      @bound_session_duz = duz.to_i
-      seed_session_user_replies(duz.to_i, user[:name], user[:usrcls])
+    # No user answers for the session: the replies seed_session_user_replies
+    # wrote are removed, and the next seed_user is last-seed-wins again.
+    def clear_session_user_replies
+      @lines&.dig(DataMapper[:user_info].rpc_name)&.delete("")
+      @records&.dig(DataMapper[:practitioner_info].rpc_name)&.delete("")
+      @bound_session_duz = nil
     end
 
     # The seeded reply as the wire would deliver it: raw bytes, cut at the

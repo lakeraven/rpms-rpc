@@ -83,7 +83,7 @@ class MockClientSessionUserTest < Minitest::Test
     assert_equal "PROVIDER,RENAMED", RpmsRpc::Authentication.user_info(301)[:name]
   end
 
-  def test_a_failed_sign_on_leaves_the_bound_replies_alone
+  def test_a_failed_sign_on_leaves_the_session_with_no_user
     RpmsRpc.mock! do |m|
       seed_provider_then_clerk(m)
       # Credentials that resolve but fail, naming the clerk's DUZ.
@@ -97,8 +97,10 @@ class MockClientSessionUserTest < Minitest::Test
     failed = sign_on("CLERK1", "WRONGVERIFY")
 
     refute failed[:success]
-    assert_equal "provider", RpmsRpc::Authentication.user_type(301),
-      "a refused sign-on must not rebind the session user"
+    # The broker clears DUZ on a refused sign-on (VALIDAV^XUSRB, XUSRB.m:36-38),
+    # so neither the previous user nor the refused one answers.
+    assert_nil RpmsRpc::Authentication.user_info(301)
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Authentication.user_type(301) }
     assert_nil RpmsRpc::Authentication.user_info(302)
   end
 
