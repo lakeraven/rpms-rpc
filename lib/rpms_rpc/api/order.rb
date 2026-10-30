@@ -107,13 +107,16 @@ module RpmsRpc
     SIGN_RELEASE_SIGNED = "signed as requested, which the reply echoes and does not prove; this call did not release it"
     # SEND ran. The reply does not prove this order's outcome.
     SIGN_RELEASE_UNKNOWN = "unknown outcome; check the order before retrying"
+    # provider_duz is not the DUZ the client is signed on as, or the client
+    # cannot name its signed-on user. SEND signs as the session user, so
+    # SEND is not called.
+    SIGN_RELEASE_NOT_SESSION_USER = "provider duz is not the signed-on session user"
     # ^E^ keeps the text after ORWERR's code. A code with no text does
     # not use the code as the text. EN^ORCSEND signs before the release
     # action can fail (FOIA ORCSEND.m:11-13, :72-73), so the order may
     # already be signed. The reason also says to check the order before
     # retrying.
-    SIGN_RELEASE_NOT_SESSION_USER = "provider duz is not the signed-on session user"
-        SIGN_RELEASE_MAYBE_SIGNED = "the order may already be signed; check the order before retrying"
+    SIGN_RELEASE_MAYBE_SIGNED = "the order may already be signed; check the order before retrying"
 
     # Filler namespace spliced into a |-delimited ORX record
     # (WorldVistA ORWDXC.m:38,47).
@@ -524,7 +527,7 @@ module RpmsRpc
     #
     # SEND's reply is one row per order (ORWDX.m:172-176), split on
     # CRLF, a bare CR, or LF. Piece 2 is "R" when released and "S" when
-    # ORWSIG'=2. Exactly "RS" is :released. Exactly "S" is :signed
+    # ORWSIG'=2. Exactly "RS" is :released. Exactly "S" is :signed (requested as signed, not proven)
     # (signed; this call did not release it). Any other piece 2 is
     # :unknown. An ^E^ row is :unknown: EN^ORCSEND signs before the
     # release action can fail (FOIA ORCSEND.m:11-13, :72-73), so the
@@ -567,7 +570,10 @@ module RpmsRpc
       reason = sign_release_argument_error(dfn_s, provider_s, location_s, ids, signature)
       return sign_release_rejected(order_ids, reason) if reason
 
-      # SEND^ORWDX ignores ES and ORNP and signs as the session user
+      # SEND^ORWDX signs as the session user and never reads ES
+      # (ORNP matters only to DC children). This check is not atomic with the
+      # later RPCs: RpmsRpc.client is process-global, and a sign-on on it
+      # between here and SEND would sign as the new user.
       # (ORWDX.m:152-178, ORCSEND.m:8); VALIDSIG checks that user's code
       # (ORWU.m:103-106). A provider other than the signed-on DUZ would have
       # the order signed by someone else and reported under the provider's name.
@@ -1285,7 +1291,7 @@ module RpmsRpc
     end
 
     # Piece 2 (ORWDX.m:172-176) is "R" when released and "S" when
-    # ORWSIG'=2. Exactly "RS" was released. Exactly "S" was signed; this
+    # ORWSIG'=2. Exactly "RS" was released. Exactly "S" was signed as requested, not proven; this
     # call did not release it. ^E^ is ORWERR (code^text). The reason
     # keeps the text after the code. A code with no text does not use
     # the code as the text. EN^ORCSEND signs before the release action

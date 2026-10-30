@@ -346,6 +346,20 @@ class OrderSignAndReleaseTest < Minitest::Test
     refute_signature_leaked(results, SIG_CODE)
   end
 
+  # Only the exact DUZ counts: a session DUZ that merely starts with the
+  # provider's digits is a different user.
+  def test_sign_and_release_rejects_a_session_duz_that_only_resembles_the_provider
+    [ "301x", "3010", "0301", " 302" ].each do |session|
+      client = with_sign_release_wire(validsig: "1", send: [ "#{ORDER_ONE}^RS" ])
+      client.define_singleton_method(:duz) { session }
+
+      results = RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+
+      assert_empty client.calls, session.inspect
+      assert_equal [ :rejected ], results.map { |r| r[:status] }, session.inspect
+    end
+  end
+
   def test_sign_and_release_rejects_when_the_client_cannot_name_its_signed_on_user
     client = no_wire_client
     RpmsRpc.reset!
