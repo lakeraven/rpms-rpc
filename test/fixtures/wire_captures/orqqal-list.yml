@@ -6,8 +6,8 @@ rpc: ORQQAL LIST
 mapping: allergy_list
 kind: fields
 release_tag: bcer-9.0-20261012-e7923a4-ydb
-captured_at: '2026-10-30T07:50:12Z'
-signed_on_as: SYS123
+captured_at: '2026-10-30T08:41:12Z'
+signed_on_as: PROV123
 cite: 'LIST^ORQQAL (ORQQAL.m:8,14 over EN1^GMRAOR1): ALLERGY_IEN^AGENT^SEVERITY^SIGNS
   (";"-joined — ORQQAL.m:18-21); assessment sentinels ORQQAL.m:12-15'
 pieces:
