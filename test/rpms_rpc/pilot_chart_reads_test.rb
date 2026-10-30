@@ -2,9 +2,12 @@
 
 require "minitest/autorun"
 require "yaml"
+require "rpms_rpc"
 require "rpms_rpc/live_summary"
 require "rpms_rpc/wire_capture"
 require "rpms_rpc/mappings"
+require "rpms_rpc/api/medication"
+require "rpms_rpc/api/patient"
 require_relative "wire_contract_test"
 
 # Issue #224 (chart reads slice): pilot-ready wire evidence on the pinned build.
@@ -20,23 +23,50 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
 
   PINNED_RELEASE = RpmsRpc::LiveSummary.pinned_build(LOCK_PATH).freeze
 
-  # Default `rake wire:capture` sign-on (lib/tasks/wire.rake RPMS_ACCESS).
-  WIRE_CAPTURE_DEFAULT_SIGNED_ON_AS = "SYS123"
+  # Clinician pilot persona (README least-privilege). Replaces round-2 rule that
+  # chart-read slice fixtures were stamped signed_on_as SYS123.
+  CHART_READ_PERSONA = "PROV123"
 
   # BEHOPTCX.m FMTSSN always masks SSN as this literal — populated on the wire but not evidence.
   BEHOPTCX_FORCED_UNPROVEN = { patient_ptinfo: [ :ssn ] }.freeze
 
-  # BEHOCACV CWAD letters → brief_header flags (patient.rb). Readiness treats each
-  # letter as its own evidence slot (#224 round-2), not the scalar :cwad string alone.
-  CWAD_LETTER_FLAGS = {
-    "C" => :crisis_flag,
-    "W" => :warning_flag,
-    "A" => :allergy_flag,
-    "D" => :ad_flag
-  }.freeze
+  # Patient.brief_header flags only — not C/W crisis/warning slots (#224 round-3).
+  BRIEF_HEADER_READINESS_FLAGS = %i[allergy_flag ad_flag].freeze
+
+  # Medication.active_for_patient keys (api/medication.rb) — not :active_text alone.
+  MEDICATION_ACTIVE_READINESS_KEYS = %i[
+    order_id type name status stop_date instructions comments
+  ].freeze
 
   # Mapped booleans are proven only when both true and false appear in mapped rows.
   BOOLEAN_MAPPED_ATTRIBUTES = { problem_list: [ :inactive_icd ] }.freeze
+
+  # Fake client: ORWPS ACTIVE lines exactly as CiaClient#call_rpc delivers them (no seq prefix).
+  class MedicationActiveProbeClient
+    def initialize(lines) = @lines = lines
+
+    def call_rpc(rpc, *)
+      raise "unexpected RPC #{rpc}" unless rpc == "ORWPS ACTIVE"
+
+      @lines
+    end
+  end
+
+  # Fake client for Patient.brief_header CWAD probe — post-CiaClient scalar shape.
+  class BriefHeaderCwadProbeClient
+    PTINFO = "USER,TEST^M^2850115^XXX-XX-1234^^^^^^^^^^^MRN123^^^^^^^^^PROV,ONE^TEAM^PROV,ONE"
+
+    def initialize(cwad) = @cwad = cwad.to_s
+
+    def call_rpc(rpc, *)
+      case rpc
+      when "BEHOPTCX PTINFO" then PTINFO
+      when "BEHOPTPC GETBDP" then ""
+      when "BEHOCACV CWAD" then @cwad
+      else raise "unexpected RPC #{rpc}"
+      end
+    end
+  end
 
   # Slice RPCs for patient chart reads (#218). :inputs are what the gem's public
   # API sends today (lib/rpms_rpc/api/* + DataMapper fetch params).
@@ -99,8 +129,26 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       end
     end
 
-    def forced_unproven?(mapping_name, attribute)
-      BEHOPTCX_FORCED_UNPROVEN.fetch(mapping_name, []).include?(attribute)
+    def normalize_cite(text)
+      text.to_s.gsub(/\s+/, " ").strip
+    end
+
+    def fixture_signed_on_as(fixture)
+      return nil unless fixture.path
+
+      YAML.safe_load_file(fixture.path)["signed_on_as"]
+    end
+
+    def forced_unproven?(mapping_name, attribute, fixture)
+      return true if BEHOPTCX_FORCED_UNPROVEN.fetch(mapping_name, []).include?(attribute)
+
+      # $$HRN / MRN depends on sign-on division — pilot captures as PROV123 (blank MRN).
+      if mapping_name == :patient_ptinfo && attribute == :mrn
+        persona = fixture_signed_on_as(fixture)
+        return true if persona && persona != CHART_READ_PERSONA
+      end
+
+      false
     end
 
     def mapped_rows_for_fixture(mapping, fixture)
@@ -137,22 +185,52 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
         rows.any? { |row| row[attribute] == false }
     end
 
-    def cwad_readiness_attributes
-      CWAD_LETTER_FLAGS.values
+    def medication_active_value_present?(value)
+      case value
+      when Array then value.any? { |entry| mapped_value_present?(entry) }
+      else mapped_value_present?(value)
+      end
     end
 
-    def cwad_letter_observed_in_capture?(fixture, attribute)
-      letter = CWAD_LETTER_FLAGS.key(attribute)
-      return false unless letter
+    def medication_active_rows_via_api(fixture)
+      return [] if fixture.captured_data_rows.empty?
 
-      fixture.captured_data_rows.any? { |row| row.to_s.include?(letter) }
+      client = MedicationActiveProbeClient.new(fixture.captured_data_rows)
+      RpmsRpc.reset!
+      RpmsRpc.configure { |cfg| cfg.client = client }
+      RpmsRpc::Medication.active_for_patient("2")
+    ensure
+      RpmsRpc.reset!
+    end
+
+    def medication_active_attribute_proven?(fixture, attribute)
+      medication_active_rows_via_api(fixture).any? do |row|
+        medication_active_value_present?(row[attribute])
+      end
+    end
+
+    def brief_header_from_cwad_scalar(cwad_scalar)
+      client = BriefHeaderCwadProbeClient.new(cwad_scalar)
+      RpmsRpc.reset!
+      RpmsRpc.configure { |cfg| cfg.client = client }
+      RpmsRpc::Patient.brief_header(2)
+    ensure
+      RpmsRpc.reset!
+    end
+
+    def brief_header_flag_both_values_observed?(fixture, flag)
+      values = fixture.captured_data_rows.filter_map do |row|
+        header = brief_header_from_cwad_scalar(row)
+        header && header[flag]
+      end
+      values.any?(true) && values.any?(false)
     end
 
     def readiness_attribute_names(mapping, fixture)
-      if fixture.mapping_name == :patient_cwad
-        cwad_readiness_attributes
-      else
-        mapped_attribute_names(mapping)
+      case fixture.mapping_name
+      when :patient_cwad then BRIEF_HEADER_READINESS_FLAGS
+      when :medication_active then MEDICATION_ACTIVE_READINESS_KEYS
+      else mapped_attribute_names(mapping)
       end
     end
 
@@ -165,11 +243,13 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
 
       names.select do |attribute|
         if fixture.mapping_name == :patient_cwad
-          !cwad_letter_observed_in_capture?(fixture, attribute)
+          !brief_header_flag_both_values_observed?(fixture, attribute)
+        elsif fixture.mapping_name == :medication_active
+          !medication_active_attribute_proven?(fixture, attribute)
         elsif boolean_attrs.include?(attribute)
           !boolean_values_observed_in_mapped_capture?(mapping, fixture, attribute)
         else
-          forced_unproven?(fixture.mapping_name, attribute) ||
+          forced_unproven?(fixture.mapping_name, attribute, fixture) ||
             !attribute_populated_in_mapped_capture?(mapping, fixture, attribute)
         end
       end
@@ -192,8 +272,8 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       end
     end
 
-    # Round-2 SPEC: inactive_icd follows piece 13/9 "#" markers (ORQQPL.m:15-16),
-    # not $$ICDDX error text in piece 4.
+    # Round-3 SPEC: inactive_icd follows piece 13 "#" alone (ORQQPL.m:15-16).
+    # Replaces round-2 pin that also required piece 9 "#".
     def orqqpl_inactive_icd_mapping_leaks?
       path = fixture_path_for("ORQQPL LIST")
       return false unless File.file?(path)
@@ -205,11 +285,11 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
         parsed = mapper.parse_many([ row ]).first
         next false if parsed.nil?
 
-        markers = pieces[12] == "#" && pieces[8] == "#"
+        marker = pieces[12] == "#"
         inactive = parsed[:inactive_icd] == true
-        next true if markers != inactive
-        next true if inactive && (mapped_value_present?(parsed[:icd_code]) || mapped_value_present?(parsed[:transcribed]))
-        next true if pieces[3].to_s.match?(/\AInvalid Code\b/) && !markers && mapped_value_present?(parsed[:icd_code])
+        next true if marker != inactive
+        next true if inactive && mapped_value_present?(parsed[:icd_code])
+        next true if pieces[3].to_s.match?(/\AInvalid Code\b/) && !marker && mapped_value_present?(parsed[:icd_code])
 
         false
       end
@@ -284,6 +364,21 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     assert_empty failures, failures.join("\n  ")
   end
 
+  # Intent: checklist reason lines name the chart-read persona (PROV123).
+  def test_pilot_checklist_reasons_name_chart_read_persona
+    rows = parse_checklist
+    failures = []
+    CHART_READ_SLICE.each do |slice|
+      row = rows[slice[:rpc]]
+      next failures << "#{slice[:rpc]}: missing checklist row" unless row
+
+      unless row[:reason].match?(/PROV123/)
+        failures << "#{slice[:rpc]} line #{row[:line]}: reason must name persona PROV123"
+      end
+    end
+    assert_empty failures, failures.join("\n  ")
+  end
+
   # Intent: BEHOPTCX PTINFO :ssn is masked by FMTSSN — always listed unproven even when populated.
   def test_behoptcx_ptinfo_ssn_counts_as_unproven_despite_masked_wire_value
     slice = CHART_READ_SLICE.find { |s| s[:mapping] == :patient_ptinfo }
@@ -327,8 +422,42 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
                  "missing fixture(s) under test/fixtures/wire_captures/ — run rake wire:capture: #{missing.join(", ")}"
   end
 
-  # Intent: signed_on_as is live-call provenance only (#224 round-2) — never on routine-cite.
-  def test_chart_read_live_and_no_data_fixtures_record_wire_capture_default_signed_on_as
+  # Intent: MRN ($$HRN) depends on sign-on division — blank under PROV123, populated under SYS123.
+  def test_behoptcx_ptinfo_mrn_unproven_until_captured_under_chart_read_persona
+    slice = CHART_READ_SLICE.find { |s| s[:mapping] == :patient_ptinfo }
+    fixture = load_slice_fixture(slice)
+    persona = self.class.fixture_signed_on_as(fixture)
+    mapped = RpmsRpc::DataMapper[:patient_ptinfo].parse_one(fixture.captured_data_rows.first)
+    if persona == "SYS123"
+      assert self.class.mapped_value_present?(mapped[:mrn]),
+             "SYS123 capture should populate MRN on the wire (division-specific)"
+    end
+    unproven = self.class.unproven_attributes(fixture)
+    assert_includes unproven, :mrn,
+                    "MRN must stay unproven until the slice is re-captured signed_on_as #{CHART_READ_PERSONA}"
+  end
+
+  # Intent: each slice fixture cite matches its CatalogEntry (stale fixtures fail after catalog edits).
+  def test_chart_read_fixture_cite_matches_catalog_entry
+    failures = []
+    CHART_READ_SLICE.each do |slice|
+      entry = self.class.catalog_entry_for(slice[:rpc])
+      path = self.class.fixture_path_for(slice[:rpc])
+      next failures << "#{slice[:rpc]}: no fixture" unless File.file?(path)
+
+      data = YAML.safe_load_file(path)
+      fixture_cite = self.class.normalize_cite(data["cite"])
+      catalog_cite = self.class.normalize_cite(entry.cite)
+      next if fixture_cite == catalog_cite
+
+      failures << "#{slice[:rpc]}: fixture cite differs from lib/rpms_rpc/wire_capture.rb catalog"
+    end
+    assert_empty failures, failures.join("\n  ")
+  end
+
+  # Intent: signed_on_as PROV123 on every chart-read live/no-data fixture (#224 round-3).
+  # Replaces round-2 rule that expected SYS123 from default wire:capture sign-on.
+  def test_chart_read_live_and_no_data_fixtures_record_chart_read_persona
     failures = []
     CHART_READ_SLICE.each do |slice|
       path = self.class.fixture_path_for(slice[:rpc])
@@ -339,9 +468,9 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       next unless %w[live-capture no-data].include?(source)
 
       actual = data["signed_on_as"]
-      if actual != WIRE_CAPTURE_DEFAULT_SIGNED_ON_AS
+      if actual != CHART_READ_PERSONA
         failures << "#{slice[:rpc]} (#{source}): signed_on_as #{actual.inspect}, " \
-                     "expected #{WIRE_CAPTURE_DEFAULT_SIGNED_ON_AS.inspect}"
+                     "expected #{CHART_READ_PERSONA.inspect} (clinician pilot persona)"
       end
     end
     assert_empty failures, failures.join("\n  ")
@@ -400,8 +529,7 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     assert_empty failures, failures.join("\n  ")
   end
 
-  # ORQQPL LIST inactive-ICD (#224 round-2): markers on pieces 13 and 9, not error text.
-  # Replaces round-1 pin that keyed inactive_icd off "Invalid Code" in piece 4.
+  # ORQQPL LIST inactive-ICD (#224 round-3): piece 13 "#" alone. Replaces round-2 pin on pieces 13 and 9.
   def test_orqqpl_list_inactive_icd_rows_map_nil_codes_and_flag_inactive_icd
     mapper = RpmsRpc::DataMapper[:problem_list]
 
@@ -410,7 +538,7 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     parsed = mapper.parse_many([ inactive_real_code ]).first
     refute_nil parsed
     assert_equal true, parsed[:inactive_icd],
-                 "piece 13/9 '#' markers must set inactive_icd even when piece 4 is a real inactive code"
+                 "piece 13 '#' marker must set inactive_icd even when piece 4 is a real inactive code"
     assert_nil parsed[:icd_code],
                "inactive ICD rows must not report piece 4 as icd_code (real code or error text)"
     assert_nil parsed[:transcribed],
@@ -454,16 +582,28 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
                     "capture shows inactive_icd true only — false must be observed for proof"
   end
 
-  def test_behocacv_cwad_committed_capture_readiness_is_partial_on_letter_flags
+  def test_behocacv_cwad_committed_capture_readiness_is_partial_on_brief_header_flags
     slice = CHART_READ_SLICE.find { |s| s[:mapping] == :patient_cwad }
     fixture = load_slice_fixture(slice)
     unproven = self.class.unproven_attributes(fixture)
-    assert_includes unproven, :crisis_flag, 'CWAD "A" does not prove C'
-    assert_includes unproven, :warning_flag, 'CWAD "A" does not prove W'
-    assert_includes unproven, :ad_flag, 'CWAD "A" does not prove D'
-    refute_includes unproven, :allergy_flag, 'CWAD "A" proves allergy_flag'
+    assert_includes unproven, :allergy_flag,
+                    'CWAD "A" yields allergy_flag true only — false must be observed for proof'
+    assert_includes unproven, :ad_flag,
+                    'CWAD "A" yields ad_flag false only — true must be observed for proof'
+    refute_includes unproven, :crisis_flag, "brief_header does not expose crisis_flag"
+    refute_includes unproven, :warning_flag, "brief_header does not expose warning_flag"
     assert_equal "partial", self.class.expected_checklist_status(slice, fixture),
-                 "letter-flag gaps must not read as pilot-ready"
+                 "brief_header flag gaps must not read as pilot-ready"
+  end
+
+  # ORWPS ACTIVE readiness uses Medication.active_for_patient, not :active_text mapping alone.
+  def test_orwps_active_readiness_non_empty_unparseable_blob_proves_nothing
+    stub = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
+      :medication_active, "live-capture", [ "garbage without tilde headers" ], nil
+    )
+    unproven = self.class.unproven_attributes(stub)
+    assert_equal self.class::MEDICATION_ACTIVE_READINESS_KEYS.sort, unproven.sort,
+                 "unparseable text must not prove medication fields"
   end
 
   # Intent: capture-backed slice fixtures pass the same mapping↔wire checks as wire_contract_test.

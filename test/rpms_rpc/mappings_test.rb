@@ -102,9 +102,9 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "S93.401A", result[:icd_code]
   end
 
-  # ORQQPL.m:15-16 inactive-ICD branch (#224 round-2 SPEC): inactive_icd follows
-  # piece 13/9 "#" markers, not "Invalid Code" text in piece 4. Replaces the
-  # round-1 after_row that keyed off error text.
+  # ORQQPL.m:15-16 inactive-ICD branch (#224 round-3 SPEC): inactive_icd follows
+  # piece 13 "#" alone, not "Invalid Code" text in piece 4. Replaces round-2 pin
+  # that also required piece 9 "#".
   def test_problem_list_inactive_icd_follows_markers_not_error_text
     mapper = RpmsRpc::DataMapper[:problem_list]
 

@@ -109,9 +109,10 @@ class PatientTest < Minitest::Test
     [ nil, 0, -5 ].each { |dfn| assert_nil RpmsRpc::Patient.brief_header(dfn), dfn.inspect }
   end
 
-  # BEHOCACV CWAD scalar letters map to brief_header flags one letter each (#224 round-2).
+  # BEHOCACV CWAD letters map to brief_header allergy_flag / ad_flag (#224 round-3).
+  # Replaces round-2 tests that prefixed CWAD with "5\x00" (pre-CiaClient bytes).
   class BriefHeaderCwadClient
-    PTINFO = "6\x00USER,TEST^M^2850115^XXX-XX-1234^^^^^^^^^^^MRN123^^^^^^^^^PROV,ONE^TEAM^PROV,ONE"
+    PTINFO = "USER,TEST^M^2850115^XXX-XX-1234^^^^^^^^^^^MRN123^^^^^^^^^PROV,ONE^TEAM^PROV,ONE"
 
     def initialize(cwad) = @cwad = cwad
 
@@ -119,7 +120,7 @@ class PatientTest < Minitest::Test
       case rpc
       when "BEHOPTCX PTINFO" then PTINFO
       when "BEHOPTPC GETBDP" then ""
-      when "BEHOCACV CWAD" then "5\x00#{@cwad}"
+      when "BEHOCACV CWAD" then @cwad
       else raise "unexpected RPC #{rpc}"
       end
     end
@@ -129,9 +130,8 @@ class PatientTest < Minitest::Test
     {
       "A" => { allergy_flag: true, ad_flag: false },
       "D" => { allergy_flag: false, ad_flag: true },
+      "AD" => { allergy_flag: true, ad_flag: true },
       "W" => { allergy_flag: false, ad_flag: false },
-      "C" => { allergy_flag: false, ad_flag: false },
-      "CWAD" => { allergy_flag: true, ad_flag: true },
       "" => { allergy_flag: false, ad_flag: false }
     }.each do |cwad, expected|
       use BriefHeaderCwadClient.new(cwad)
