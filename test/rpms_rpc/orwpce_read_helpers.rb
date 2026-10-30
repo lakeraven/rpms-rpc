@@ -15,7 +15,11 @@ require "set"
 #   positive location piece 1 and FileMan datetime piece 2; HASVISIT/visit_status:
 #   positive-integer location_ien and FileMan datetime). Note 0 without them: no RPC.
 #   Positive note IENs need no location args; the server reads the visit from the TIU
-#   note and ignores DFN (GETVISIT^ORWPCE2).
+#   note and ignores DFN (GETVISIT^ORWPCE2). Optional visit_string / location_ien /
+#   datetime on that path are sent only when blank or well-formed; malformed values
+#   must not reach the broker.
+# - PCE4NOTE HDR piece 5 (1-indexed) is the note author ($P(^TIU(8925,IEN,12),U,2)),
+#   exposed as :author_ien (Integer), not :visit_ien.
 module OrwpceReadHelpers
   ROOT = File.expand_path("../..", __dir__).freeze
   UNMAPPED_DIR = File.join(ROOT, "test/fixtures/wire_captures/unmapped").freeze

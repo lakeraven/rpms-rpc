@@ -30,6 +30,8 @@ class ClinicalEventTest < Minitest::Test
   VISIT_STRING = ""
   LOCATION = "6"
   VISIT_DATETIME = "3260312.09"
+  WELL_FORMED_VISIT_STRING = "3;3260902.0255;A"
+  MALFORMED_VISIT_STRINGS = [ ";;", ";3260902.0255;A", "abc;3260902.0255;A", "3;;A" ].freeze
 
   def teardown
     RpmsRpc.reset!
@@ -258,6 +260,107 @@ class ClinicalEventTest < Minitest::Test
     assert_equal [ [ "ORWPCE PCE4NOTE", *cap.fetch("inputs") ] ], client.calls
   end
 
+  def test_visit_for_note_positive_note_rejects_malformed_visit_string
+    MALFORMED_VISIT_STRINGS.each do |bad|
+      client = RecordingClient.new
+      use(client)
+      assert_nil clinical_event.visit_for_note(NOTE_IEN, DFN, bad), bad.inspect
+      assert_empty client.calls, bad.inspect
+    end
+  end
+
+  def test_visit_for_note_positive_note_sends_blank_visit_string
+    client = RecordingClient.new
+    use(client)
+    clinical_event.visit_for_note(NOTE_IEN, DFN, "")
+
+    assert_equal [ [ "ORWPCE GET VISIT", NOTE_IEN, DFN, "" ] ], client.calls
+  end
+
+  def test_visit_for_note_positive_note_sends_well_formed_visit_string
+    client = RecordingClient.new
+    use(client)
+    clinical_event.visit_for_note(NOTE_IEN, DFN, WELL_FORMED_VISIT_STRING)
+
+    assert_equal [ [ "ORWPCE GET VISIT", NOTE_IEN, DFN, WELL_FORMED_VISIT_STRING ] ], client.calls
+  end
+
+  def test_has_visit_positive_note_rejects_malformed_location_or_datetime
+    client = RecordingClient.new
+    use(client)
+    refute clinical_event.has_visit?(NOTE_IEN, DFN, "abc", "")
+    assert_empty client.calls
+    refute clinical_event.has_visit?(NOTE_IEN, DFN, "", "not-fileman")
+    assert_empty client.calls
+    refute clinical_event.has_visit?(NOTE_IEN, DFN, "0", VISIT_DATETIME)
+    assert_empty client.calls
+    assert_nil clinical_event.visit_status(NOTE_IEN, DFN, "abc", "")
+    assert_empty client.calls
+  end
+
+  def test_has_visit_positive_note_sends_blank_location_and_datetime
+    client = RecordingClient.new
+    use(client)
+    clinical_event.has_visit?(NOTE_IEN, DFN, "", "")
+
+    assert_equal [ [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "", "" ] ], client.calls
+  end
+
+  def test_has_visit_positive_note_sends_well_formed_location_and_datetime
+    client = RecordingClient.new
+    use(client)
+    clinical_event.has_visit?(NOTE_IEN, DFN, "3", "3260902.0255")
+
+    assert_equal [ [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "3", "3260902.0255" ] ], client.calls
+  end
+
+  def test_pce_for_note_positive_note_rejects_malformed_visit_string
+    MALFORMED_VISIT_STRINGS.each do |bad|
+      client = RecordingClient.new
+      use(client)
+      assert_nil clinical_event.pce_for_note(NOTE_IEN, DFN, bad), bad.inspect
+      assert_empty client.calls, bad.inspect
+    end
+  end
+
+  def test_pce_for_note_positive_note_sends_well_formed_visit_string
+    client = RecordingClient.new
+    use(client)
+    clinical_event.pce_for_note(NOTE_IEN, DFN, WELL_FORMED_VISIT_STRING)
+
+    assert_equal [ [ "ORWPCE PCE4NOTE", NOTE_IEN, DFN, WELL_FORMED_VISIT_STRING ] ], client.calls
+  end
+
+  def test_immunization_types_with_blank_date_sends_empty_string
+    client = RecordingClient.new
+    use(client)
+    clinical_event.immunization_types("")
+
+    assert_equal [ [ "ORWPCE GET IMMUNIZATION TYPE", "" ] ], client.calls
+  end
+
+  def test_immunization_types_with_invalid_date_makes_no_call_and_returns_empty
+    client = RecordingClient.new(served: IN_SCOPE_RPCS)
+    use(client)
+    assert_equal [], clinical_event.immunization_types("not-a-date")
+    assert_empty client.calls
+  end
+
+  def test_skin_test_types_with_blank_date_sends_empty_string
+    client = RecordingClient.new
+    use(client)
+    clinical_event.skin_test_types("")
+
+    assert_equal [ [ "ORWPCE GET SKIN TEST TYPE", "" ] ], client.calls
+  end
+
+  def test_skin_test_types_with_invalid_date_makes_no_call_and_returns_empty
+    client = RecordingClient.new(served: IN_SCOPE_RPCS)
+    use(client)
+    assert_equal [], clinical_event.skin_test_types("not-a-date")
+    assert_empty client.calls
+  end
+
   # -- lock polarity (reads only) -------------------------------------------
 
   READ_METHODS = [
@@ -397,6 +500,8 @@ class ClinicalEventTest < Minitest::Test
   end
 
   def test_has_visit_and_visit_status_treat_synthetic_one_as_visit_with_appointment
+    # ORWPCE.m:123 ($$VST2APPT^PXAPI): no seeded visit on the pinned image is
+    # appointment-linked, so "1" is exercised synthetically.
     RpmsRpc.mock! do |m|
       m.seed_scalar(:pce_has_visit, [ NOTE_IEN, DFN, "", "" ], "1")
     end
@@ -411,5 +516,48 @@ class ClinicalEventTest < Minitest::Test
     end
     refute clinical_event.has_visit?(*lookup)
     assert_equal :none, clinical_event.visit_status(*lookup)
+  end
+
+  def test_pce_for_note_rich_capture_header_author_and_modeled_fields
+    cap = load_unmapped_capture("ORWPCE PCE4NOTE").fetch("captures").first
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:pce_for_note, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
+    end
+    bundle = clinical_event.pce_for_note(*cap.fetch("inputs"))
+    header = bundle.fetch(:header)
+
+    refute header.key?(:visit_ien)
+    assert_equal 4, header[:author_ien]
+
+    pov = bundle.fetch(:diagnoses).find { |r| r[:icd_code] == "J20.9" }
+    assert_equal "Acute bronchitis | ", pov[:narrative]
+    assert_equal "4", pov[:provider_ien]
+
+    cpt = bundle.fetch(:procedures).first
+    assert_equal "Parenteral Supp Not Othrws C", cpt[:narrative]
+
+    imm = bundle.fetch(:immunizations).find { |r| r[:ien] == "272" }
+    assert_equal "Influenza, adjuvanted, trivalent, injectable, preservative free", imm[:name]
+  end
+
+  def test_pce_for_note_note5_author_ien_is_not_visit_ien_from_get_visit
+    pce_cap = load_unmapped_capture("ORWPCE PCE4NOTE").fetch("captures").find do |c|
+      c.fetch("inputs").first == "5"
+    end
+    visit_cap = load_unmapped_capture("ORWPCE GET VISIT").fetch("captures").find do |c|
+      c.fetch("inputs").first == "5"
+    end
+    refute_nil pce_cap
+    refute_nil visit_cap
+
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:pce_for_note, pce_cap.fetch("inputs"), cia_data_body(pce_cap.fetch("raw_return")))
+      m.seed_scalar(:pce_get_visit, visit_cap.fetch("inputs"), cia_data_body(visit_cap.fetch("raw_return")))
+    end
+
+    header = clinical_event.pce_for_note(*pce_cap.fetch("inputs")).fetch(:header)
+    refute header.key?(:visit_ien)
+    assert_equal 4, header[:author_ien]
+    assert_equal 5, clinical_event.visit_for_note(*visit_cap.fetch("inputs"))
   end
 end

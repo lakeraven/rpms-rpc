@@ -77,6 +77,8 @@ class OrwpceReadWireTest < Minitest::Test
     end
   end
 
+  # ORWPCE.m:123 ($$VST2APPT^PXAPI): no seeded visit on the pinned image is
+  # appointment-linked, so "1" is exercised synthetically.
   def test_hasvisit_synthetic_one_is_visit_with_appointment
     mapping = mapping_for("ORWPCE HASVISIT")
     assert_equal true, mapping.parse_scalar("1")
@@ -106,6 +108,21 @@ class OrwpceReadWireTest < Minitest::Test
   def test_notevstr_empty_body_parses_as_none
     mapping = mapping_for("ORWPCE NOTEVSTR")
     assert_nil mapping.parse_visit_string("")
+  end
+
+  def test_notevstr_malformed_visit_strings_parse_as_none
+    mapping = mapping_for("ORWPCE NOTEVSTR")
+    [ ";;", ";3260902.0255;A", "abc;3260902.0255;A", "3;;A" ].each do |bad|
+      assert_nil mapping.parse_visit_string(bad), bad.inspect
+    end
+  end
+
+  def test_notevstr_visit_string_with_empty_service_category
+    mapping = mapping_for("ORWPCE NOTEVSTR")
+    row = mapping.parse_visit_string("3;3260902.0255;")
+    assert_equal 3, row[:location_ien]
+    assert_equal "3260902.0255", row[:datetime_raw]
+    assert_nil row[:service_category]
   end
 
   def test_skin_test_type_capture_rows_are_ien_and_name
@@ -178,17 +195,80 @@ class OrwpceReadWireTest < Minitest::Test
   def test_pce4note_rich_capture_exposes_modeled_record_types_and_fields
     cap = load_unmapped_capture("ORWPCE PCE4NOTE").fetch("captures").first
     bundle = mapping_for("ORWPCE PCE4NOTE").parse_note_bundle(cia_data_lines(cap.fetch("raw_return")))
+    header = bundle.fetch(:header)
 
-    assert_equal "3;3260902.0255;A", bundle.dig(:header, :visit_string)
-    assert_equal 4, bundle.dig(:header, :visit_ien)
+    assert_equal "3;3260902.0255;A", header[:visit_string]
+    refute header.key?(:visit_ien), "HDR piece 5 is the note author, not a visit IEN"
+    assert_equal 4, header[:author_ien]
+    assert_equal "1", header[:has_cpt]
 
     pov = bundle.fetch(:diagnoses).find { |r| r[:icd_code] == "J20.9" }
     refute_nil pov
-    assert_includes pov[:narrative], "Acute bronchitis"
+    assert_equal "Acute bronchitis | ", pov[:narrative]
+    assert_equal "1", pov[:primary]
+    assert_equal "4", pov[:provider_ien]
+    assert_nil pov[:comment_index]
+
+    cpt = bundle.fetch(:procedures).first
+    assert_equal "Parenteral Supp Not Othrws C", cpt[:narrative]
+    assert_equal "1", cpt[:quantity]
+    assert_equal "4", cpt[:provider_ien]
+    assert_nil cpt[:comment_index]
+
+    imm = bundle.fetch(:immunizations).find { |r| r[:ien] == "272" }
+    refute_nil imm
+    assert_equal "Influenza, adjuvanted, trivalent, injectable, preservative free", imm[:name]
+    assert_equal "4", imm[:provider_ien]
+    assert_nil imm[:comment_index]
+
+    xam = bundle.fetch(:exams).find { |r| r[:exam_ien] == "28" }
+    refute_nil xam
+    assert_equal "FOOT INSPECTION", xam[:name]
+    assert_equal "N", xam[:result]
+    assert_equal "4", xam[:provider_ien]
 
     assert_equal 2, bundle.fetch(:immunizations).size
     assert bundle.fetch(:patient_education).any? { |r| r[:topic_ien].to_s == "1611" }
-    assert bundle.fetch(:exams).any? { |r| r[:exam_ien].to_s == "28" && r[:name] == "FOOT INSPECTION" }
+  end
+
+  def test_pce4note_note5_header_author_must_not_be_confused_with_visit_ien
+    pce_cap = load_unmapped_capture("ORWPCE PCE4NOTE").fetch("captures").find do |c|
+      c.fetch("inputs").first == "5"
+    end
+    refute_nil pce_cap
+    header = mapping_for("ORWPCE PCE4NOTE")
+      .parse_note_bundle(cia_data_lines(pce_cap.fetch("raw_return")))
+      .fetch(:header)
+
+    refute header.key?(:visit_ien)
+    assert_equal 4, header[:author_ien]
+
+    visit_cap = load_unmapped_capture("ORWPCE GET VISIT").fetch("captures").find do |c|
+      c.fetch("inputs").first == "5"
+    end
+    refute_nil visit_cap
+    visit_ien = mapping_for("ORWPCE GET VISIT")
+      .parse_scalar(cia_data_body(visit_cap.fetch("raw_return")))
+    assert_equal 5, visit_ien
+    refute_equal header[:author_ien], visit_ien
+  end
+
+  def test_pce4note_models_comment_index_and_comment_lines
+    mapping = mapping_for("ORWPCE PCE4NOTE")
+    lines = [
+      "HDR^0^^3;3260902.0255;A^4^1",
+      "POV^J20.9^^narr^1^4^^^^^2",
+      "COM^2^POV comment text",
+      "CPT^^^Proc^1^4^^^^^1",
+      "COM^1^CPT comment",
+      "IMM^272^^name^^4^^^^^3"
+    ]
+    bundle = mapping.parse_note_bundle(lines)
+
+    assert_equal 2, bundle.fetch(:diagnoses).first[:comment_index]
+    assert_equal 1, bundle.fetch(:procedures).first[:comment_index]
+    assert_equal 3, bundle.fetch(:immunizations).first[:comment_index]
+    assert_equal({ 2 => "POV comment text", 1 => "CPT comment" }, bundle.fetch(:comments))
   end
 
   def test_pce4note_provider_only_capture_carries_chart_review_location
