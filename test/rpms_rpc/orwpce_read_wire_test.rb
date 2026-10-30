@@ -257,18 +257,50 @@ class OrwpceReadWireTest < Minitest::Test
     mapping = mapping_for("ORWPCE PCE4NOTE")
     lines = [
       "HDR^0^^3;3260902.0255;A^4^1",
-      "POV^J20.9^^narr^1^4^^^^^2",
+      "POV^J20.9^^narr^1^4^^^^2",
       "COM^2^POV comment text",
-      "CPT^^^Proc^1^4^^^^^1",
+      "CPT^99213^^Proc^1^4^^^25^1",
       "COM^1^CPT comment",
-      "IMM^272^^name^^4^^^^^3"
+      "IMM^272^^name^^4^x^y^^3"
     ]
     bundle = mapping.parse_note_bundle(lines)
 
-    assert_equal 2, bundle.fetch(:diagnoses).first[:comment_index]
-    assert_equal 1, bundle.fetch(:procedures).first[:comment_index]
+    pov = bundle.fetch(:diagnoses).first
+    assert_equal 2, pov[:comment_index]
+
+    cpt = bundle.fetch(:procedures).first
+    assert_equal "99213", cpt[:code]
+    assert_equal "25", cpt[:modifiers]
+    assert_equal 1, cpt[:comment_index]
+
     assert_equal 3, bundle.fetch(:immunizations).first[:comment_index]
     assert_equal({ 2 => "POV comment text", 1 => "CPT comment" }, bundle.fetch(:comments))
+  end
+
+  def test_pce4note_comment_index_is_piece_ten_not_eleven
+    mapping = mapping_for("ORWPCE PCE4NOTE")
+    lines = [
+      "HDR^0^^3;3260902.0255;A^4^1",
+      "POV^J20.9^^narr^1^4^^^^^999"
+    ]
+    bundle = mapping.parse_note_bundle(lines)
+
+    assert_nil bundle.fetch(:diagnoses).first[:comment_index]
+  end
+
+  def test_pce4note_ped_and_xam_rows_expose_comment_index_on_piece_ten
+    mapping = mapping_for("ORWPCE PCE4NOTE")
+    lines = [
+      "HDR^0^^3;3260902.0255;A^4^1",
+      "PED^1611^^topic^U^4^^^^3",
+      "XAM^28^^FOOT^N^4^^^^2"
+    ]
+    bundle = mapping.parse_note_bundle(lines)
+
+    assert_equal 3, bundle.fetch(:patient_education).first[:comment_index]
+    xam = bundle.fetch(:exams).first
+    assert_equal "28", xam[:exam_ien]
+    assert_equal 2, xam[:comment_index]
   end
 
   def test_pce4note_provider_only_capture_carries_chart_review_location

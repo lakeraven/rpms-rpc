@@ -107,6 +107,24 @@ class RpmsRpc::MockClientTest < Minitest::Test
     assert_equal true, RpmsRpc::DataMapper.patient_sensitive.fetch_scalar("1")
   end
 
+  def test_seed_scalar_array_key_wins_over_first_param_key_for_same_rpc
+    rpc = RpmsRpc::DataMapper.pce_get_visit.rpc_name
+    params = [ "3", "4", "" ]
+    mock = RpmsRpc::MockClient.new
+    mock.seed_scalar(:pce_get_visit, "3", "first-param-only")
+    mock.seed_scalar(:pce_get_visit, params, "array-key-wins")
+
+    assert_equal "array-key-wins", mock.call_rpc(rpc, *params)
+  end
+
+  def test_seed_scalar_first_param_key_answers_when_no_array_key_seed
+    rpc = RpmsRpc::DataMapper.pce_get_visit.rpc_name
+    mock = RpmsRpc::MockClient.new
+    mock.seed_scalar(:pce_get_visit, "3", "7")
+
+    assert_equal "7", mock.call_rpc(rpc, "3", "4", "")
+  end
+
   def test_multiple_seeds_same_mapping_different_keys
     RpmsRpc.mock! do |m|
       m.seed(:patient_select, "1", { name: "DOE,JOHN", sex: "M" })

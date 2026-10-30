@@ -137,12 +137,28 @@ class ClinicalEventTest < Minitest::Test
     assert_equal [ [ "ORWPCE GET IMMUNIZATION TYPE", "3261022" ] ], client.calls
   end
 
+  def test_immunization_types_with_integer_fileman_date_sends_string_param
+    client = RecordingClient.new
+    use(client)
+    clinical_event.immunization_types(3_261_022)
+
+    assert_equal [ [ "ORWPCE GET IMMUNIZATION TYPE", "3261022" ] ], client.calls
+  end
+
   def test_skin_test_types_without_date_sends_no_params
     client = RecordingClient.new
     use(client)
     clinical_event.skin_test_types
 
     assert_equal [ [ "ORWPCE GET SKIN TEST TYPE" ] ], client.calls
+  end
+
+  def test_skin_test_types_with_integer_fileman_date_sends_string_param
+    client = RecordingClient.new
+    use(client)
+    clinical_event.skin_test_types(3_261_022)
+
+    assert_equal [ [ "ORWPCE GET SKIN TEST TYPE", "3261022" ] ], client.calls
   end
 
   def test_exam_types_sends_no_params
@@ -275,6 +291,44 @@ class ClinicalEventTest < Minitest::Test
     clinical_event.visit_for_note(NOTE_IEN, DFN, "")
 
     assert_equal [ [ "ORWPCE GET VISIT", NOTE_IEN, DFN, "" ] ], client.calls
+  end
+
+  def test_visit_for_note_positive_note_sends_empty_string_not_nil_for_nil_visit_string
+    client = RecordingClient.new
+    use(client)
+    clinical_event.visit_for_note(NOTE_IEN, DFN, nil)
+
+    assert_equal [ [ "ORWPCE GET VISIT", NOTE_IEN, DFN, "" ] ], client.calls
+    refute client.calls.first[3].nil?, "visit_string param must be empty string, not nil"
+  end
+
+  def test_pce_for_note_positive_note_sends_empty_string_not_nil_for_nil_visit_string
+    client = RecordingClient.new
+    use(client)
+    clinical_event.pce_for_note(NOTE_IEN, DFN, nil)
+
+    assert_equal [ [ "ORWPCE PCE4NOTE", NOTE_IEN, DFN, "" ] ], client.calls
+    refute client.calls.first[3].nil?
+  end
+
+  def test_has_visit_positive_note_sends_empty_strings_not_nil_for_nil_location_and_datetime
+    client = RecordingClient.new
+    use(client)
+    clinical_event.has_visit?(NOTE_IEN, DFN, nil, nil)
+
+    assert_equal [ [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "", "" ] ], client.calls
+    refute client.calls.first[3].nil?
+    refute client.calls.first[4].nil?
+  end
+
+  def test_visit_status_positive_note_sends_empty_strings_not_nil_for_nil_location_and_datetime
+    client = RecordingClient.new
+    use(client)
+    clinical_event.visit_status(NOTE_IEN, DFN, nil, nil)
+
+    assert_equal [ [ "ORWPCE HASVISIT", NOTE_IEN, DFN, "", "" ] ], client.calls
+    refute client.calls.first[3].nil?
+    refute client.calls.first[4].nil?
   end
 
   def test_visit_for_note_positive_note_sends_well_formed_visit_string
@@ -454,6 +508,17 @@ class ClinicalEventTest < Minitest::Test
       m.seed_scalar(:pce_get_visit, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
     end
     assert_equal 4, clinical_event.visit_for_note(*cap.fetch("inputs"))
+  end
+
+  def test_visit_for_note_lookup_by_location_minus_one_reply_returns_nil
+    cap = load_unmapped_capture("ORWPCE GET VISIT").fetch("captures").find do |c|
+      c.fetch("inputs").first == "0"
+    end
+    refute_nil cap
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:pce_get_visit, cap.fetch("inputs"), cia_data_body(cap.fetch("raw_return")))
+    end
+    assert_nil clinical_event.visit_for_note(*cap.fetch("inputs"))
   end
 
   def test_note_visit_string_returns_parsed_visit_string_from_capture
