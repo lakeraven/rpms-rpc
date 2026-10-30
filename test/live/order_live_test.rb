@@ -100,8 +100,7 @@ class OrderLiveTest < LiveSpec::Test
         gate1,
         gate2,
         "Cause 3 (ORWOR.m:130): no ^OR(100,\"AS\") entry for the patient: not checkable over RPC.",
-        "Build under test: #{LiveSpec.build_label}. By direct inspection on bcer-9.0-20261029-7c3119b-ydb " \
-        "the parameter was empty and ^OR(100,\"AS\") undefined."
+        "Build under test: #{LiveSpec.build_label}. By direct inspection (2026-10-30): on bcer-9.0-20261012-e7923a4-ydb (the pin) OR UNSIGNED ORDERS ON EXIT is empty for ALL^SRV while ^OR(100,\"AS\") has entries, so gate 2 blocks; on bcer-9.0-20261029-7c3119b-ydb the parameter is empty and ^OR(100,\"AS\") is undefined."
       ].join(" ")
       skip_tracked("#391", why)
     end
