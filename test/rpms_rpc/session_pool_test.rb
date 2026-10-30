@@ -776,4 +776,65 @@ class RpmsRpc::SessionPoolTest < Minitest::Test
     end
     [ started, release ]
   end
+# -- release: a session ends, and its client is disconnected (ADR 0011 §4) --
+
+def test_release_removes_the_session_and_disconnects_its_idle_client
+  pool = Pool.new(max_sessions: 4, build: counting_builder)
+  client = FakeClient.new("sess-A")
+  pool.adopt("sess-A", client)
+
+  assert pool.release("sess-A")
+  refute pool.include?("sess-A")
+  assert client.disconnected
+end
+
+def test_release_of_an_unknown_session_is_false
+  pool = Pool.new(max_sessions: 4, build: counting_builder)
+  refute pool.release("sess-X")
+end
+
+def test_a_released_session_is_never_handed_its_old_client
+  pool = Pool.new(max_sessions: 4, build: counting_builder)
+  old = FakeClient.new("sess-A")
+  pool.adopt("sess-A", old)
+  pool.release("sess-A")
+
+  pool.with_client("sess-A") { |c| refute_same old, c }
+  assert_equal 1, @builds["sess-A"], "a later checkout builds afresh"
+end
+
+def test_a_client_in_use_is_disconnected_when_its_last_caller_checks_in
+  pool = Pool.new(max_sessions: 4, build: counting_builder)
+  client = FakeClient.new("sess-A")
+  pool.adopt("sess-A", client)
+
+  pool.with_client("sess-A") do |c|
+    assert pool.release("sess-A")
+    refute pool.include?("sess-A"), "the key is gone at once"
+    refute c.disconnected, "an in-flight call keeps its client until it checks in"
+  end
+  assert client.disconnected
+end
+
+def test_a_released_client_is_disconnected_once
+  pool = Pool.new(max_sessions: 4, build: counting_builder)
+  client = FakeClient.new("sess-A")
+  def client.disconnect = (@disconnects = disconnects + 1)
+  def client.disconnects = @disconnects || 0
+  pool.adopt("sess-A", client)
+
+  pool.with_client("sess-A") { pool.release("sess-A") }
+  pool.release("sess-A")
+
+  assert_equal 1, client.disconnects
+end
+
+def test_release_frees_a_slot_for_another_session
+  pool = Pool.new(max_sessions: 1, build: counting_builder)
+  pool.adopt("sess-A", FakeClient.new("sess-A"))
+  pool.release("sess-A")
+
+  pool.adopt("sess-B", FakeClient.new("sess-B"))
+  assert pool.include?("sess-B")
+end
 end
