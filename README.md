@@ -181,6 +181,24 @@ RpmsRpc::Patient.find(4)                  # the public API answers too, through 
 RpmsRpc::Authentication.held_keys(%w[PROVIDER XUPROGMODE])
 ```
 
+### A local broker from the pinned release (`bin/cloud_rpms`)
+
+On a machine with Docker and no route to a staging stack (a cloud agent VM, say),
+`bin/cloud_rpms up` starts `dockerd` if none is running, then runs lakeraven-ehr's
+`compose.yml`, so the run recipe lives in one place. By default it runs the rpms-ops
+release marked Latest (the newest that passed the gate); `RPMS_TAG=<release tag>` runs a
+specific one, and `PINNED=1` runs the build `data/fingerprints/rpms-ops.lock.yml` records.
+When `gh` can't read the Latest release (no access to rpms-ops), it falls back to that
+lock pin. Changing release resets the container's synthetic data. It needs a
+lakeraven-ehr checkout (`LAKERAVEN_EHR_PATH=`, default `../lakeraven-ehr`) and pull
+access to `ghcr.io/lakeraven`. The CIA broker is on `127.0.0.1:9100`; `down` removes the
+container and `status` shows its health.
+
+```sh
+bin/cloud_rpms up
+BROKER_HOST=127.0.0.1 BROKER_PORT=9100 bundle exec rake wire:capture RELEASE=bcer-9.0-ydb
+```
+
 ## Components
 
 | File                          | Purpose                                          |
