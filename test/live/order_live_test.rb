@@ -13,9 +13,10 @@ require "rpms_rpc/api/ddr_fileman"
 # What the build holds decides what a reply can show: SEEDORD (rpms-ops#723)
 # puts one unsigned order on file 100 on the pinned build (and the 1029 build),
 # so list and result_history row-layout specs fail closed if file 100 is empty.
-# unsigned_for_patient (ORWOR UNSIGN) may still answer no rows when the persona
-# lacks ORES/ORELSE, ^ORAM(103,DFN) has no entry, or OR UNSIGNED ORDERS ON
-# EXIT is 0 or unset with no ^OR(100,"AS") for the patient (#391).
+# unsigned_for_patient (ORWOR UNSIGN) may still answer no rows when any of
+# three separate gates apply: ORWOR.m:122 quits without ORES, ORELSE, or
+# ^ORAM(103,DFN); ORWOR.m:124-129 quits when OR UNSIGNED ORDERS ON EXIT is 0
+# or unset (ORELSE forces 1); ORWOR.m:130 finds no ^OR(100,"AS") for the patient (#391).
 #
 # Every RPC here is in CIAV VUECENTRIC, the option sign-on binds, for PROV123
 # and the programmer alike. These specs read only; they file nothing.
@@ -86,19 +87,21 @@ class OrderLiveTest < LiveSpec::Test
       held = RpmsRpc::Authentication.held_keys(%w[ORES ORELSE])
       flunk "CIAVCXUS HASKEYS gave no answer for ORES/ORELSE" if held.nil?
 
-      key_cause = if held.empty?
-        "checked via held_keys — yes"
+      gate1 = if held.empty?
+        "Gate 1 (ORWOR.m:122): blocks unless a ^ORAM(103,#{dfn}) entry exists (not checkable over RPC)."
       else
-        "checked via held_keys — no (#{persona} holds ORES and/or ORELSE)"
+        "Gate 1 (ORWOR.m:122): passes (#{persona} holds #{held.join(", ")})."
       end
+      gate2 = "Gate 2 (ORWOR.m:124-129): OR UNSIGNED ORDERS ON EXIT 0 or unset for ALL^SRV: not checkable over RPC"
+      gate2 += " (ORELSE forces it to 1)" if held.include?("ORELSE")
+      gate2 += "."
       why = [
-        "ORWOR UNSIGN returned no rows for DFN #{dfn}",
-        "(fetch_many returns [] for nil/empty broker replies too, so no single cause is asserted).",
-        "#{persona} holds neither ORES nor ORELSE (ORWOR.m:122): #{key_cause}.",
-        "UNSIGN also admits a ^ORAM(103,DFN) entry (ORWOR.m:122): not checked (not checkable over RPC).",
-        "OR UNSIGNED ORDERS ON EXIT 0 or unset for ALL^SRV and no ^OR(100,\"AS\") entry for the patient",
-        "(ORWOR.m:124-129, AS walk ORWOR.m:130): not checked (build data, not checkable over RPC;",
-        "observed on bcer-9.0-20261029-7c3119b-ydb)."
+        "ORWOR UNSIGN returned no rows for DFN #{dfn}; an empty and a faulted reply read the same here.",
+        gate1,
+        gate2,
+        "Cause 3 (ORWOR.m:130): no ^OR(100,\"AS\") entry for the patient: not checkable over RPC.",
+        "Build under test: #{LiveSpec.build_label}. By direct inspection on bcer-9.0-20261029-7c3119b-ydb " \
+        "the parameter was empty and ^OR(100,\"AS\") undefined."
       ].join(" ")
       skip_tracked("#391", why)
     end
