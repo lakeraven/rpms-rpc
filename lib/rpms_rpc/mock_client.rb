@@ -407,9 +407,15 @@ end
         return filter_collection(col, key)
       end
 
-      # Scalars (keyed by first param)
-      if @scalars.dig(rpc_name, key)
-        return @scalars[rpc_name][key]
+      # Scalars. A seed stored under the whole argument list (an Array key,
+      # whose to_s is the list's inspect) answers a call with those
+      # arguments, so two calls that share a first parameter and differ
+      # later do not collide. A seed under the first parameter alone still
+      # matches, which is how every other scalar is stored.
+      if (table = @scalars[rpc_name])
+        found = table[params.to_s]
+        found = table[key] if found.nil?
+        return found unless found.nil?
       end
 
       ""

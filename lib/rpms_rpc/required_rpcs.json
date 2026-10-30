@@ -81,6 +81,17 @@
       "AMHG GET PATIENT",
       "AMHG GET SITE PARAMETERS"
     ],
+    "RpmsRpc::ClinicalEvent": [
+      "ORWPCE GET EDUCATION TOPICS",
+      "ORWPCE GET EXAM TYPE",
+      "ORWPCE GET HEALTH FACTORS TY",
+      "ORWPCE GET IMMUNIZATION TYPE",
+      "ORWPCE GET SKIN TEST TYPE",
+      "ORWPCE GET VISIT",
+      "ORWPCE HASVISIT",
+      "ORWPCE NOTEVSTR",
+      "ORWPCE PCE4NOTE"
+    ],
     "RpmsRpc::DdrFileman": [
       "DDR FILER",
       "DDR GETS ENTRY DATA",
