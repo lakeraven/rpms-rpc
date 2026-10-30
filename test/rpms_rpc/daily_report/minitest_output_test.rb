@@ -77,4 +77,17 @@ class RpmsRpc::DailyReport::MinitestOutputTest < Minitest::Test
     assert_nil summary.runs
     assert_empty summary.first_failures
   end
+
+  ZERO_RUNS = <<~OUT
+    Finished in 0.01s, 0 runs/s, 0 assertions/s.
+    0 runs, 0 assertions, 0 failures, 0 errors, 0 skips
+  OUT
+
+  def test_zero_run_summary_is_errored_not_a_pass
+    summary = RpmsRpc::DailyReport::MinitestOutput.parse(ZERO_RUNS)
+
+    assert summary.errored?, "0 runs must not count as a successful parse"
+    refute summary.ok?
+    assert_equal 0, summary.runs
+  end
 end

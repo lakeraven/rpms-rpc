@@ -61,4 +61,26 @@ class RpmsRpc::DailyReport::RenderTest < Minitest::Test
     assert_match(/RPC coverage: 90\.0%/, md)
     refute_match(/rpc:coverage did not run/, md)
   end
+
+  def test_escapes_hostile_external_values_in_markdown
+    md = RpmsRpc::DailyReport.render(base_input(
+                                       build_tested: "evil|tag",
+                                       latest_release: "latest<script>",
+                                       pinned_release: "pin`quote",
+                                       suites: [
+                                         { name: "rake test|live", runs: 1, passed: 1, failures: 0, errors: 0, skips: 0,
+                                           skip_issues: [ "ops#1|2" ], wall_seconds: 0.1,
+                                           first_failures: [ "T#t|`tick" ] }
+                                       ]
+                                     ))
+
+    refute_match(/<script>/, md)
+    md.lines.grep(/^\|/).each do |row|
+      assert_operator row.count("|"), :<=, 9, "unescaped pipe broke the table: #{row.inspect}"
+    end
+    refute_match(/^\| rake test \| live \|/, md)
+    refute_match(/`tick/, md)
+    refute_match(/ops#1\|2/, md)
+    refute_match(/build tested: evil\|tag$/, md)
+  end
 end

@@ -58,11 +58,15 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
   end
 
   class FakeDocker
-    attr_reader :runs, :removes, :image_calls
+    attr_reader :runs, :removes, :image_calls, :predetermined_name
 
-    def initialize(image: nil, container_id: "cid-synthetic")
+    def initialize(image: nil, container_id: "cid-synthetic", predetermined_name: "rpms-rpc-daily-report-test",
+                   run_error: nil, remove_error: nil)
       @image = image
       @container_id = container_id
+      @predetermined_name = predetermined_name
+      @run_error = run_error
+      @remove_error = remove_error
       @runs = []
       @removes = []
       @image_calls = []
@@ -74,12 +78,15 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
     end
 
     def run!(**kwargs)
-      @runs << kwargs
-      @container_id
+      @runs << kwargs.merge(container_name: @predetermined_name)
+      raise RpmsRpc::DailyReport::DockerCli::Error, "docker run failed after container was created" if @run_error
+
+      @predetermined_name
     end
 
     def remove!(container_id, force: true)
       @removes << [ container_id, force ]
+      raise RpmsRpc::DailyReport::DockerCli::Error, "docker rm failed" if @remove_error
     end
   end
 
@@ -227,6 +234,9 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       refute unit[:env].key?("PERSONA")
       refute unit[:env].key?("RPMS_ACCESS")
       refute unit[:env].key?("RPMS_VERIFY")
+      refute unit[:env].key?("LIVE_DISPOSABLE")
+      refute unit[:env].key?("PROV123_ACCESS")
+      refute unit[:env].key?("SYS123_ACCESS")
 
       prov = runner.calls[1]
       assert_equal %w[rake test:live], prov[:argv]
@@ -370,7 +380,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
         { stdout: passing_minitest }
       ])
       orchestrator(rpms_diffs_dir: diffs, runner: runner_ok, docker: docker, env: env, broker_probe: FakeBrokerProbe.new([ true ])).run
-      assert_equal [ [ "cid-synthetic", true ] ], docker.removes
+      assert_equal [ [ "rpms-rpc-daily-report-test", true ] ], docker.removes
 
       docker2 = FakeDocker.new
       runner_fail = FakeRunner.new([
@@ -380,7 +390,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       ])
       orchestrator(rpms_diffs_dir: diffs, runner: runner_fail, docker: docker2, env: env,
                    broker_probe: FakeBrokerProbe.new([ true ])).run
-      assert_equal [ [ "cid-synthetic", true ] ], docker2.removes
+      assert_equal [ [ "rpms-rpc-daily-report-test", true ] ], docker2.removes
     end
   end
 
@@ -400,7 +410,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       error = assert_raises(RpmsRpc::DailyReport::Orchestrator::BrokerTimeout) { orch.run }
 
       assert_match(/CIA|broker|timeout/i, error.message)
-      assert_equal [ [ "cid-synthetic", true ] ], docker.removes
+      assert_equal [ [ "rpms-rpc-daily-report-test", true ] ], docker.removes
     end
   end
 
@@ -415,6 +425,209 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       orch = orchestrator(rpms_diffs_dir: diffs, runner: runner)
 
       assert_equal 1, orch.run
+    end
+  end
+
+  def test_rake_test_child_never_receives_live_disposable_or_persona_sign_on_keys
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      runner = FakeRunner.new([
+        { stdout: passing_minitest },
+        { stdout: passing_minitest },
+        { stdout: passing_minitest }
+      ])
+      env = persona_sign_on_env("LIVE_DISPOSABLE" => "1", "BROKER_PROTOCOL" => "xwb")
+      orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, env: env)
+
+      orch.run
+
+      unit = runner.calls.fetch(0)
+      RpmsRpc::DailyReport::SIGN_ON_KEYS.each do |key|
+        refute unit[:env].key?(key), "rake test child must not receive #{key}"
+      end
+      refute unit[:env].key?("LIVE_DISPOSABLE")
+      refute unit[:env].key?("BROKER_PROTOCOL")
+    end
+  end
+
+  def test_fresh_live_children_receive_live_disposable_on_loopback_broker
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      runner = FakeRunner.new([
+        { stdout: passing_minitest },
+        { stdout: passing_minitest },
+        { stdout: passing_minitest }
+      ])
+      env = persona_sign_on_env("FRESH" => "1")
+      orchestrator(rpms_diffs_dir: diffs, runner: runner, env: env,
+                   broker_probe: FakeBrokerProbe.new([ true ])).run
+
+      runner.calls.drop(1).each do |call|
+        assert_equal "1", call[:env]["LIVE_DISPOSABLE"]
+        assert_equal "127.0.0.1", call[:env]["BROKER_HOST"]
+      end
+    end
+  end
+
+  def test_existing_broker_passes_live_disposable_only_when_operator_set
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      runner = FakeRunner.new([
+        { stdout: passing_minitest },
+        { stdout: passing_minitest },
+        { stdout: passing_minitest }
+      ])
+      orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, env: persona_sign_on_env)
+      orch.run
+      runner.calls.drop(1).each do |call|
+        refute call[:env].key?("LIVE_DISPOSABLE")
+      end
+
+      runner2 = FakeRunner.new([
+        { stdout: passing_minitest },
+        { stdout: passing_minitest },
+        { stdout: passing_minitest }
+      ])
+      orch2 = orchestrator(rpms_diffs_dir: diffs, runner: runner2,
+                           env: persona_sign_on_env("LIVE_DISPOSABLE" => "1"))
+      orch2.run
+      runner2.calls.drop(1).each do |call|
+        assert_equal "1", call[:env]["LIVE_DISPOSABLE"]
+      end
+    end
+  end
+
+  def test_broker_protocol_passes_through_to_live_children_when_set
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      runner = FakeRunner.new([
+        { stdout: passing_minitest },
+        { stdout: passing_minitest },
+        { stdout: passing_minitest }
+      ])
+      env = persona_sign_on_env("BROKER_PROTOCOL" => "bmx")
+      orchestrator(rpms_diffs_dir: diffs, runner: runner, env: env).run
+
+      refute runner.calls[0][:env].key?("BROKER_PROTOCOL")
+      assert_equal "bmx", runner.calls[1][:env]["BROKER_PROTOCOL"]
+      assert_equal "bmx", runner.calls[2][:env]["BROKER_PROTOCOL"]
+    end
+  end
+
+  ZERO_RUNS = <<~OUT
+    Finished in 0.01s, 0 runs/s, 0 assertions/s.
+    0 runs, 0 assertions, 0 failures, 0 errors, 0 skips
+  OUT
+
+  def test_zero_run_minitest_summary_is_errored_and_exit_nonzero
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      writer = FakeWriter.new
+      runner = FakeRunner.new([
+        { stdout: ZERO_RUNS },
+        { stdout: passing_minitest },
+        { stdout: passing_minitest }
+      ])
+      orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer)
+
+      assert_equal 1, orch.run
+
+      report = writer.writes.map(&:last).join("\n")
+      assert_match(/0 tests ran|zero tests/i, report)
+    end
+  end
+
+  def test_unknown_build_exits_nonzero_and_report_is_still_written
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      writer = FakeWriter.new
+      runner = FakeRunner.new([
+        { stdout: passing_minitest },
+        { stdout: passing_minitest },
+        { stdout: passing_minitest }
+      ])
+      docker = FakeDocker.new(image: nil)
+      orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer, docker: docker)
+
+      assert_equal 1, orch.run
+
+      report = writer.writes.map(&:last).join("\n")
+      assert_match(/build tested: unknown/, report)
+    end
+  end
+
+  def test_fresh_build_env_mismatch_fails_before_any_runner_call
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      runner = FakeRunner.new([])
+      env = persona_sign_on_env("FRESH" => "1", "BUILD" => "bcer-9.0-20260999-wrong-ydb")
+      orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, env: env,
+                          broker_probe: FakeBrokerProbe.new([ true ]))
+
+      assert_raises(StandardError) { orch.run }
+
+      assert_empty runner.calls, "BUILD mismatch must abort before suite children run"
+    end
+  end
+
+  def test_fresh_docker_run_uses_predetermined_container_name
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      docker = FakeDocker.new(predetermined_name: "rpms-rpc-daily-fixed-name")
+      env = persona_sign_on_env("FRESH" => "1")
+      orchestrator(rpms_diffs_dir: diffs, docker: docker, env: env,
+                   broker_probe: FakeBrokerProbe.new([ true ])).run
+
+      refute_empty docker.runs
+      assert_equal "rpms-rpc-daily-fixed-name", docker.runs.first.fetch(:container_name)
+      assert_equal [ [ "rpms-rpc-daily-fixed-name", true ] ], docker.removes
+    end
+  end
+
+  def test_fresh_run_failure_after_container_created_still_removes_by_name
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      docker = FakeDocker.new(predetermined_name: "rpms-rpc-daily-leak-guard", run_error: true)
+      env = persona_sign_on_env("FRESH" => "1")
+      orch = orchestrator(
+        rpms_diffs_dir: diffs,
+        runner: FakeRunner.new([]),
+        docker: docker,
+        env: env,
+        broker_probe: FakeBrokerProbe.new([ true ]),
+        summary_writer: StringIOWriter.new
+      )
+
+      assert_raises(RpmsRpc::DailyReport::DockerCli::Error) { orch.run }
+
+      assert_equal [ [ "rpms-rpc-daily-leak-guard", true ] ], docker.removes
+    end
+  end
+
+  def test_fresh_container_remove_failure_is_reported_and_exit_nonzero
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      docker = FakeDocker.new(predetermined_name: "rpms-rpc-daily-stuck", remove_error: true)
+      summary = StringIOWriter.new
+      env = persona_sign_on_env("FRESH" => "1")
+      orch = orchestrator(
+        rpms_diffs_dir: diffs,
+        docker: docker,
+        env: env,
+        broker_probe: FakeBrokerProbe.new([ true ]),
+        summary_writer: summary
+      )
+
+      status = nil
+      begin
+        status = orch.run
+      rescue RpmsRpc::DailyReport::DockerCli::Error
+        status = 1
+      end
+
+      assert_equal 1, status
+      combined = summary.io.string
+      assert_match(/docker rm failed|container removal/i, combined)
     end
   end
 end
