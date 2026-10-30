@@ -4,7 +4,7 @@ require "minitest/autorun"
 require "yaml"
 
 # Ruby 4 readiness (#47): the breakages Ruby 4.0 and Minitest 6 are known to bring, each pinned so
-# it cannot come back unnoticed. The suite itself runs on 3.4 and 4.0 in CI.
+# it cannot come back unnoticed. The suite runs on the one Ruby .ruby-version names (4.0).
 class Ruby4ReadinessTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
 
@@ -55,11 +55,8 @@ class Ruby4ReadinessTest < Minitest::Test
     assert_empty missing, "bin/ requires these bundled (non-default) gems without a Gemfile or gemspec entry"
   end
 
-  def test_ci_runs_the_suite_on_ruby_3_4_and_4_0_with_frozen_string_literals
+  def test_ci_runs_the_suite_with_frozen_string_literals
     ci = YAML.safe_load_file(File.join(ROOT, ".github/workflows/ci.yml"))
-    rubies = ci.dig("jobs", "test", "strategy", "matrix", "ruby")
-    assert_includes rubies, "3.4"
-    assert_includes rubies, "4.0"
     run = ci.dig("jobs", "test", "steps").find { |s| s["run"].to_s.include?("rake test") }
     assert_includes run.dig("env", "RUBYOPT").to_s, "--enable-frozen-string-literal"
   end
