@@ -99,6 +99,21 @@ module FeaturesTestHelper
     tag
   end
 
+  # Copy a committed inventory tree into a temp root for cache tests (no minitest stubs).
+  def copy_inventory_tag_to_tmpdir(tmpdir, tag, from_dir: PINNED_INVENTORIES)
+    FileUtils.cp_r(File.join(from_dir, tag), File.join(tmpdir, tag))
+    tag
+  end
+
+  def reach_face_path(tmpdir, tag)
+    File.join(tmpdir, tag, "#{tag}-rpc_reach.txt")
+  end
+
+  # After the build surface is cached, an uncached read would raise (reach face missing).
+  def break_reach_face_on_disk(tmpdir, tag)
+    File.delete(reach_face_path(tmpdir, tag))
+  end
+
   # Pinned test seam (round-2 #384): swap REQUIRED_RPCS_PATH, then Features.reset! reloads the registry.
   def with_required_rpcs_path(path)
     feat = features!
