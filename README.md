@@ -185,8 +185,10 @@ RpmsRpc::Authentication.held_keys(%w[PROVIDER XUPROGMODE])
 
 On a machine with Docker and no route to a staging stack (a cloud agent VM, say),
 `bin/cloud_rpms up` starts `dockerd` if none is running, then runs lakeraven-ehr's
-`compose.yml` with `RPMS_IMAGE` set to the newest `image:` in
-`data/fingerprints/rpms-ops.lock.yml`, so the run recipe lives in one place. It needs a
+`compose.yml`, so the run recipe lives in one place. By default it runs the rpms-ops
+release marked Latest (the newest that passed the gate); `RPMS_TAG=<release tag>` runs a
+specific one, and `PINNED=1` runs the build `data/fingerprints/rpms-ops.lock.yml` records.
+Changing release resets the container's synthetic data. It needs a
 lakeraven-ehr checkout (`LAKERAVEN_EHR_PATH=`, default `../lakeraven-ehr`) and pull
 access to `ghcr.io/lakeraven`. The CIA broker is on `127.0.0.1:9100`; `down` removes the
 container and `status` shows its health.

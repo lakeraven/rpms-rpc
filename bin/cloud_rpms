@@ -7,10 +7,20 @@
 #   bin/cloud_rpms status   show the container and its health
 #
 # The run recipe is not kept here: this calls lakeraven-ehr's compose.yml (its `rpms` service) with
-# RPMS_IMAGE set to the newest `image:` in data/fingerprints/rpms-ops.lock.yml. Point
-# LAKERAVEN_EHR_PATH at a lakeraven-ehr checkout (default: ../lakeraven-ehr). The compose project is
-# named rpms-rpc, so its /data volume never meets another build's (rpms-ops#514).
-# The CIA broker is on 127.0.0.1:9100.
+# RPMS_IMAGE set to the release to run. Point LAKERAVEN_EHR_PATH at a lakeraven-ehr checkout
+# (default: ../lakeraven-ehr). The CIA broker is on 127.0.0.1:9100.
+#
+# Which release, first match wins:
+#   RPMS_IMAGE=<ref>   any image ref, e.g. a digest
+#   RPMS_TAG=<tag>     a gated rpms-ops release tag, to reproduce a specific build
+#   PINNED=1           the newest `image:` in data/fingerprints/rpms-ops.lock.yml (what the
+#                      conformance fixtures were captured from)
+#   (default)          the rpms-ops release marked Latest, the newest one that passed the gate;
+#                      the lock pin when the releases API can't be reached
+#
+# The compose project is named rpms-rpc. A release refuses another build's /data (rpms-ops#514),
+# so when the release changes, `up` removes this project's container and volume first: it holds
+# only synthetic data.
 #
 # Pull access to ghcr.io/lakeraven is needed: `docker login ghcr.io` on a laptop, or the cloud
 # environment's ghcr.io network secret, which reaches dockerd through the inherited HTTPS_PROXY.
@@ -28,12 +38,24 @@ compose() {
   docker compose -f "$EHR/compose.yml" -p rpms-rpc "$@"
 }
 
-pinned_image() {
-  if [ -n "${RPMS_IMAGE:-}" ]; then echo "$RPMS_IMAGE"; return; fi
+REPO_IMAGE=ghcr.io/lakeraven/rpms-ydb
+
+lock_image() {
   local img
   img=$(grep -E '^[[:space:]]+image: ' "$LOCK" | tail -1 | awk '{print $2}')
-  [ -n "$img" ] || { log "no image: in $LOCK; set RPMS_IMAGE="; exit 1; }
+  [ -n "$img" ] || { log "no image: in $LOCK; set RPMS_IMAGE= or RPMS_TAG="; exit 1; }
   echo "$img"
+}
+
+wanted_image() {
+  if [ -n "${RPMS_IMAGE:-}" ]; then echo "$RPMS_IMAGE"; return; fi
+  if [ -n "${RPMS_TAG:-}" ]; then echo "$REPO_IMAGE:$RPMS_TAG"; return; fi
+  if [ -n "${PINNED:-}" ]; then lock_image; return; fi
+  local tag
+  tag=$(gh api repos/lakeraven/rpms-ops/releases/latest --jq .tag_name 2>/dev/null || true)
+  if [ -n "$tag" ]; then echo "$REPO_IMAGE:$tag"; return; fi
+  log "can't read the Latest rpms-ops release; using the lock pin"
+  lock_image
 }
 
 ensure_dockerd() {
@@ -55,8 +77,14 @@ health() {
 
 up() {
   ensure_dockerd
-  RPMS_IMAGE=$(pinned_image)
+  RPMS_IMAGE=$(wanted_image)
   export RPMS_IMAGE
+  local id; id=$(compose ps -aq rpms 2>/dev/null)
+  if [ -n "$id" ] && [ "$(docker inspect -f '{{.Config.Image}}' "$id")" != "$RPMS_IMAGE" ]; then
+    log "release changed; removing this project's container and its /data volume"
+    compose rm --stop --force rpms
+    docker volume rm rpms-rpc_rpms-data >/dev/null
+  fi
   log "running $RPMS_IMAGE through $EHR/compose.yml"
   if ! compose up -d rpms; then
     log "start failed. On 'unauthorized' or 'denied', this machine has no working ghcr.io credential."
