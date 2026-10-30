@@ -989,4 +989,69 @@ def test_the_keeper_thread_starts_once_and_stops
   pool.stop_keeper!
   refute first.alive?
 end
+# -- evict_idle: false, for idle sessions that are signed-in people --------
+
+def test_without_eviction_a_full_pool_refuses_a_new_session_and_keeps_the_idle_ones
+  pool = Pool.new(max_sessions: 1, build: counting_builder, evict_idle: false)
+  reading = FakeClient.new("sess-A")
+  pool.adopt("sess-A", reading)
+
+  assert_raises(Pool::PoolExhaustedError) { pool.adopt("sess-B", FakeClient.new("sess-B")) }
+  assert pool.include?("sess-A")
+  refute reading.disconnected, "a clinician reading a screen is not signed out to make room"
+end
+
+def test_without_eviction_a_checkout_that_would_build_never_evicts_another_session
+  pool = Pool.new(max_sessions: 1, build: counting_builder, evict_idle: false)
+  pool.adopt("sess-A", FakeClient.new("sess-A"))
+
+  assert_raises(Pool::PoolExhaustedError) { pool.with_client("sess-gone") { flunk "ran" } }
+  assert pool.include?("sess-A")
+  assert_equal 0, @builds["sess-gone"]
+end
+
+def test_by_default_a_full_pool_still_evicts_the_least_recently_used_idle_session
+  pool = Pool.new(max_sessions: 1, build: counting_builder)
+  old = FakeClient.new("sess-A")
+  pool.adopt("sess-A", old)
+  pool.adopt("sess-B", FakeClient.new("sess-B"))
+  assert old.disconnected
+end
+
+# -- the keeper releases a client that says it is no longer connected -------
+
+def test_the_keeper_releases_a_dropped_connection_even_inside_its_limit
+  pool = clocked_pool
+  dropped = PollingClient.new("sess-A")
+  pool.adopt("sess-A", dropped)
+  pool.touch("sess-A", idle_for: 600)
+  dropped.disconnect # the broker closed it
+
+  pool.keep_alive_tick
+  refute pool.include?("sess-A"), "a dropped connection is not kept in the pool"
+  refute pool.touch("sess-A", idle_for: 600), "activity cannot extend a dropped connection"
+end
+
+def test_the_keeper_releases_a_dropped_connection_with_no_limit
+  pool = clocked_pool
+  dropped = PollingClient.new("sess-A")
+  pool.adopt("sess-A", dropped)
+  dropped.disconnect
+
+  pool.keep_alive_tick
+  refute pool.include?("sess-A")
+end
+
+def test_the_keeper_leaves_a_dropped_connection_in_use_until_it_checks_in
+  pool = clocked_pool
+  dropped = PollingClient.new("sess-A")
+  pool.adopt("sess-A", dropped)
+  pool.with_client("sess-A") do
+    dropped.disconnect
+    pool.keep_alive_tick
+    assert pool.include?("sess-A")
+  end
+  pool.keep_alive_tick
+  refute pool.include?("sess-A")
+end
 end

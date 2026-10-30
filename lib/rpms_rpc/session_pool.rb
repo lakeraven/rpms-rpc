@@ -51,9 +51,15 @@ module RpmsRpc
 
     DEFAULT_MAX_SESSIONS = 64
 
-    def initialize(max_sessions: DEFAULT_MAX_SESSIONS, build:,
+    # evict_idle: at capacity, whether a new session may take the slot of the
+    # least recently used idle one (the default). A host whose idle sessions
+    # are signed-in people (a clinician reading a screen holds no request)
+    # passes false: at capacity, adopt and a checkout that would build raise
+    # PoolExhaustedError, and no one already in the pool is disconnected.
+    def initialize(max_sessions: DEFAULT_MAX_SESSIONS, build:, evict_idle: true,
                    clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) })
       @max = Integer(max_sessions)
+      @evict_idle = evict_idle
       raise ArgumentError, "max_sessions must be positive" unless @max.positive?
       raise ArgumentError, "build must be callable" unless build.respond_to?(:call)
 
@@ -182,15 +188,19 @@ module RpmsRpc
     # logs that user off. An idle session inside its deadline is polled
     # (#poll, CIA's "P" action), pinned for the poll so a concurrent release
     # waits for it; a poll that fails releases the session (its user signs in
-    # again). A session in use is active and left alone. A session with no
-    # deadline, or a client that cannot poll, is left alone. Returns how long to
+    # again). A session whose client says it is no longer connected is released
+    # too, whether or not it has a deadline. A session in use is active and
+    # left alone. A session with no deadline, or a client that cannot poll, is
+    # otherwise left alone. Returns how long to
     # wait before the next pass: the shortest polling interval the server
     # named, never more than KEEPER_MAX_INTERVAL.
     def keep_alive_tick
       expired, to_poll = @monitor.synchronize do
         now = @clock.call
-        due = @entries.values.select { |e| e.deadline && e.client }
+        dead = @entries.values.select { |e| e.client && e.refcount.zero? && disconnected?(e.client) }
+        due = @entries.values.select { |e| e.deadline && e.client } - dead
         gone, alive = due.partition { |e| now >= e.deadline }
+        gone += dead
         idle = alive.select { |e| e.refcount.zero? && pollable?(e.client) }
         idle.each { |e| e.refcount += 1 } # pinned for the poll
         [ gone.map(&:session_key), idle ]
@@ -259,6 +269,11 @@ module RpmsRpc
     end
 
     private
+
+    # A client that says it is not connected: its broker session is gone.
+    def disconnected?(client)
+      client.respond_to?(:connected?) && !client.connected?
+    end
 
     def pollable?(client)
       client.respond_to?(:poll) && (!client.respond_to?(:connected?) || client.connected?)
@@ -413,6 +428,7 @@ module RpmsRpc
     # adopt must not re-bind the client under a new key in that gap.
     def make_room_or_raise
       return nil if @entries.size < @max
+      raise PoolExhaustedError, "session pool full (#{@max} sessions)" unless @evict_idle
 
       victim = @entries.values.select { |e| e.refcount.zero? }.min_by(&:last_used_at)
       raise PoolExhaustedError, "session pool full (#{@max} in use)" unless victim
