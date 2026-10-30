@@ -284,6 +284,10 @@
       "BSDX SEARCH AVAILABILITY",
       "BSDX UNCANCEL APPT"
     ],
+    "RpmsRpc::SchedulingSetup": [
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
+    ],
     "RpmsRpc::Session": [
       "CIAVCXUS VIMINFO",
       "CIAVMCFG GETREG"

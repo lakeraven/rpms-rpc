@@ -55,6 +55,7 @@ module OpenApi
       "Registration" => { path: "registrations" },
       "Reminders" => { path: "reminders" },
       "Scheduling" => { path: "appointments" },
+      "SchedulingSetup" => { path: "appointments" },
       "Session" => { path: "sessions" },
       "Site" => { path: "sites" },
       "Symptom" => { path: "symptoms" },
