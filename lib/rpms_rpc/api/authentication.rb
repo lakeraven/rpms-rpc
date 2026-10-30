@@ -111,6 +111,19 @@ module RpmsRpc
     # that ORWU.m:19 never returns (the raw piece is checked, not a number
     # coerced from it). Never a default class: a host that asks provider?
     # must hear "unknown", not "no".
+    # The user's idle limit in seconds: ORWU USERINFO's DTIME (piece 8), their own
+    # TIMED READ (#200 200.1) or else the site default (#8989.3). How long RPMS
+    # lets this user sit idle; a host that keeps the broker session open with
+    # CiaClient#poll stops polling once it passes. nil when RPMS names none.
+    def timed_read(duz)
+      record = DataMapper.practitioner_info.fetch_one
+      raise Client::RpcError, "ORWU USERINFO answered nothing" if record.nil?
+      raise Client::RpcError, "ORWU USERINFO answered for another user, not DUZ #{duz}" unless record[:duz].to_i == duz.to_i
+
+      Integer(record[:timed_read].to_s, exception: false)&.then { |s| s.positive? ? s : nil }
+    end
+    shape :timed_read, resource: "users", verb: "GET", path: "/users/{duz}/timed-read"
+
     def user_type(duz)
       record = DataMapper.practitioner_info.fetch_one
       raise Client::RpcError, "ORWU USERINFO answered nothing" if record.nil?
