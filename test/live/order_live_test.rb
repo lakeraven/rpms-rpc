@@ -11,11 +11,11 @@ require "rpms_rpc/api/ddr_fileman"
 # RESULT HISTORY). They replace the fabricated-reply cases of order_test.rb.
 #
 # What the build holds decides what a reply can show: SEEDORD (rpms-ops#723)
-# puts one unsigned order on file 100 in every image since 2026-10-12, so
-# list and result_history row-layout specs fail closed if file 100 is empty.
+# puts one unsigned order on file 100 on the pinned build (and the 1029 build),
+# so list and result_history row-layout specs fail closed if file 100 is empty.
 # unsigned_for_patient (ORWOR UNSIGN) may still answer no rows when the persona
-# lacks ORES/ORELSE or the build has no ^OR(100,"AS") / OR UNSIGNED ORDERS ON
-# EXIT unset (#391).
+# lacks ORES/ORELSE, ^ORAM(103,DFN) has no entry, or OR UNSIGNED ORDERS ON
+# EXIT is 0 or unset with no ^OR(100,"AS") for the patient (#391).
 #
 # Every RPC here is in CIAV VUECENTRIC, the option sign-on binds, for PROV123
 # and the programmer alike. These specs read only; they file nothing.
@@ -86,11 +86,20 @@ class OrderLiveTest < LiveSpec::Test
       held = RpmsRpc::Authentication.held_keys(%w[ORES ORELSE])
       flunk "CIAVCXUS HASKEYS gave no answer for ORES/ORELSE" if held.nil?
 
-      why = if held.empty?
-        "#{persona} holds neither ORES nor ORELSE (ORWOR UNSIGN requires one; ORWOR.m:122)"
+      key_cause = if held.empty?
+        "checked via held_keys — yes"
       else
-        "build lists no order in ^OR(100,\"AS\") or OR UNSIGNED ORDERS ON EXIT is unset (ORWOR.m:122-130)"
+        "checked via held_keys — no (#{persona} holds ORES and/or ORELSE)"
       end
+      why = [
+        "ORWOR UNSIGN returned no rows for DFN #{dfn}",
+        "(fetch_many returns [] for nil/empty broker replies too, so no single cause is asserted).",
+        "#{persona} holds neither ORES nor ORELSE (ORWOR.m:122): #{key_cause}.",
+        "UNSIGN also admits a ^ORAM(103,DFN) entry (ORWOR.m:122): not checked (not checkable over RPC).",
+        "OR UNSIGNED ORDERS ON EXIT 0 or unset for ALL^SRV and no ^OR(100,\"AS\") entry for the patient",
+        "(ORWOR.m:124-129, AS walk ORWOR.m:130): not checked (build data, not checkable over RPC;",
+        "observed on bcer-9.0-20261029-7c3119b-ydb)."
+      ].join(" ")
       skip_tracked("#391", why)
     end
     assert(rows.all? { |r| r[:ien].positive? && r[:action_ien].positive? }, rows.inspect)
@@ -151,7 +160,7 @@ class OrderLiveTest < LiveSpec::Test
   def flunk_if_order_file_empty!(dfn)
     return unless dfn.nil?
 
-    flunk "ORDER file (100) holds no orders; SEEDORD (rpms-ops#723) seeds one unsigned order on every image since 2026-10-12"
+    flunk "ORDER file (100) holds no patient order; SEEDORD (rpms-ops#723) seeds one unsigned order on the pinned build (and the 1029 build)"
   end
 
   # [TOT, TXTVW, ORYD] from AGET's .1 header line.
