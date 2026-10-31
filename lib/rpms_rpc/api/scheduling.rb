@@ -84,8 +84,9 @@ module RpmsRpc
   # bypasses the check either way, so only a non-programmer run is evidence
   # of this bind. undo_checkin reads #9002018.4 and #9002018.1 under CIAV
   # VUECENTRIC before BSDX CHECKIN APPOINTMENT, and reads #9002018.4 .03
-  # again after a "0^" reply. DDR GETS ENTRY DATA is not registered on
-  # BSDXRPC. A refusal from those reads does not send the BSDX RPC.
+  # again after a "0^" reply and after an error reply. DDR GETS ENTRY DATA
+  # is not registered on BSDXRPC. A refusal from the preflight reads does
+  # not send the BSDX RPC.
   module Scheduling
     extend self
     extend Shape::Declarable
@@ -200,9 +201,19 @@ module RpmsRpc
     # .03 is read again. The .03 row must be present: a nil reply, an error,
     # or a missing row is :lookup_failed. An empty .03 is { success: true }.
     # A value still stored is { success: false, error: :not_undone, message: }.
-    # A check-in reply other than success is returned as checkin_appointment
-    # returns it, and .03 is not read again. nil when the broker gives no
-    # reply to the check-in RPC.
+    # "0^" proves .03 is clear. It does not prove #44.003 field 309 is clear:
+    # CANCHKIN discards its own FILE^DIE error (BSDX25.m:164-167).
+    #
+    # CHECKIN^BSDX25 clears .03 in BSDXCHK (BSDX25.m:59) before CANCHKIN.
+    # CANCHKIN can then ERR("Could not locate appointment...") (BSDX25.m:161)
+    # and leave the clinic check-in (#44.003 field 309) set. After any other
+    # check-in reply, .03 is read again the same way. A nil reply, an error,
+    # or a missing row is :lookup_failed. An empty .03 is
+    # { success: false, error: :partial, message: }: the BSDX check-in was
+    # cleared and the clinic appointment check-in was not. A value still
+    # stored returns the check-in error as checkin_appointment returns it.
+    # nil when the broker gives no reply to the check-in RPC; .03 is not
+    # read again in that case.
     #
     # A blank, zero, or non-numeric appointment IEN is
     # { success: false, error: :invalid } and sends no RPC.
@@ -219,9 +230,10 @@ module RpmsRpc
                             ien, "@", clinic_code.to_s, provider.to_s,
                             "", "", "", "",
                             zero_ok: true)
-      return written unless written.is_a?(Hash) && written[:success]
+      return written if written.nil?
+      return confirm_checkin_cleared(ien) if written[:success]
 
-      confirm_checkin_cleared(ien)
+      undo_checkin_after_error(ien, written)
     end
     shape :undo_checkin, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/undo-checkin"
 
@@ -466,16 +478,36 @@ module RpmsRpc
     # the evidence. DDR GETS ENTRY DATA is on CIAV VUECENTRIC, not BSDXRPC.
     # An empty field is still a row; a reply that omits the row is malformed.
     def confirm_checkin_cleared(ien)
+      time = checkin_time_after_rpc(ien)
+      return time if time.is_a?(Hash)
+      return { success: true } if time.empty?
+
+      { success: false, error: :not_undone, message: "check-in time is still set on #9002018.4 field .03" }
+    end
+
+    # BSDXCHK clears .03 before CANCHKIN (BSDX25.m:59). An error reply can
+    # mean CANCHKIN failed after that clear (BSDX25.m:161) and left #44.003
+    # field 309 set. Empty .03 is that partial undo. A value still stored
+    # means the BSDX copy was not cleared, so the check-in error stands.
+    def undo_checkin_after_error(ien, written)
+      time = checkin_time_after_rpc(ien)
+      return time if time.is_a?(Hash)
+      return written unless time.empty?
+
+      { success: false, error: :partial,
+        message: "BSDX check-in on #9002018.4 field .03 was cleared but the " \
+                 "clinic appointment check-in (#44.003 field 309) was not: #{written[:error]}" }
+    end
+
+    # The .03 row after BSDX CHECKIN APPOINTMENT, or a :lookup_failed hash.
+    def checkin_time_after_rpc(ien)
       read = ddr_gets(APPOINTMENT_FILE, "#{ien},", CHECKIN_FIELD)
       if gets_malformed?(read, CHECKIN_FIELD)
         return { success: false, error: :lookup_failed,
                  message: "DDR GETS ENTRY DATA could not read #9002018.4 field .03" }
       end
 
-      time = read[:fields][CHECKIN_FIELD][:internal].to_s
-      return { success: true } if time.empty?
-
-      { success: false, error: :not_undone, message: "check-in time is still set on #9002018.4 field .03" }
+      read[:fields][CHECKIN_FIELD][:internal].to_s
     end
 
     def ddr_gets(file, iens, fields)

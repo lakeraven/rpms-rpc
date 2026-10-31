@@ -402,7 +402,10 @@ module RpmsRpc
     # "<ien>,", fields "1", flags "I") whether or not other is given. An
     # error reply means the code does not exist: { success: false, error:
     # :invalid } and nothing is filed, including no date-row lookup. A nil
-    # reply is :lookup_failed. The same reads decide OTHER.
+    # reply is :lookup_failed. DDR GETS returns a row even for an empty
+    # field, so a "[Data]" reply with no row for field 1 is malformed and
+    # is :lookup_failed too, and nothing is filed (no DDR LISTER, no DDR
+    # FILER), whether or not other is given. The same reads decide OTHER.
     #
     # S9394^AUPNSOG3 always sets FDA(SF,IENS,2)=OTH. OTH is "" unless a
     # chosen value's CODE is OTH and the text is non-blank. This method
@@ -468,10 +471,11 @@ module RpmsRpc
     # refused add cannot follow a delete. Each distinct value is read on
     # #9999999.103 field 1 before the date rows are listed.
     # $$SO^AUTSOGI(val,"I") returns "" for an unknown record: an error
-    # reply is :invalid and files nothing. Field 2 is always filed: the
-    # text when a chosen value's CODE is OTH and the text is non-blank
-    # ($$SO^AUTSOGI(val,"C")), otherwise "". FileMan xrefs ASO1/ASO2 still
-    # fire; SETSO's code translation and defaults do not.
+    # reply is :invalid and files nothing. A "[Data]" reply with no field 1
+    # row is malformed and is :lookup_failed, and nothing is filed. Field 2
+    # is always filed: the text when a chosen value's CODE is OTH and the
+    # text is non-blank ($$SO^AUTSOGI(val,"C")), otherwise "". FileMan xrefs
+    # ASO1/ASO2 still fire; SETSO's code translation and defaults do not.
     def set_sexual_orientation(dfn, values:, other: nil, date: Date.today)
       ready = prepare_sogi(dfn, values: values, other: other, date: date)
       return ready if ready[:error]
@@ -987,18 +991,21 @@ module RpmsRpc
 
     # $$GI^AUTSOGI / $$SO^AUTSOGI(val,"I") returns "" for an unknown record.
     # An error reply from DDR GETS of field 1 is that answer (:invalid, and
-    # the date rows are not listed). A nil reply is :lookup_failed. The
-    # internal CODE also decides field 2: the text when it is OTH and the
-    # text is non-blank, otherwise "". DDR GETS of field .02 errors:
-    # ^DD(9999999.104,.02) does not exist.
+    # the date rows are not listed). A nil reply is :lookup_failed. DDR GETS
+    # returns a row for an empty field, so a "[Data]" reply with no field 1
+    # row is malformed and is :lookup_failed too: no DDR LISTER and no DDR
+    # FILER, whether or not other was given. The internal CODE also decides
+    # field 2: the text when it is OTH and the text is non-blank, otherwise
+    # "". DDR GETS of field .02 errors: ^DD(9999999.104,.02) does not exist.
     def sogi_other_value(code_file, codes, other)
       oth = false
       codes.each do |ien|
         read = DdrFileman.gets_entry(file: code_file, iens: "#{ien},", fields: "1", flags: "I")
         return lookup_failed("DDR GETS ENTRY DATA gave no reply for ##{code_file}") if read.nil?
         return invalid("#{ien} is not a code in ##{code_file}") if read[:error]
+        return lookup_failed("DDR GETS ENTRY DATA gave no field 1 row for ##{code_file}") unless read[:fields].key?("1")
 
-        oth = true if read[:fields].dig("1", :internal).to_s == OTHER_CODE
+        oth = true if read[:fields]["1"][:internal].to_s == OTHER_CODE
       end
       return invalid("other text requires a value whose code is OTH") if other && !oth
 
