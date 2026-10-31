@@ -543,6 +543,15 @@ module RpmsRpc
     # SCALAR / BOOLEAN RPCs
     # ========================================================================
 
+    # ORWPT CWAD — patient CWAD flags (scalar). CWAD^ORWPT, formals Y,DFN,
+    # option OR CPRS GUI CHART. Each letter present in the response
+    # indicates: C=Crises, W=Warnings, A=Allergies, D=Advance Directives.
+    # Empty string means none.
+    DataMapper.define(:patient_cwad) do |m|
+      m.rpc "ORWPT CWAD"
+      m.scalar :cwad
+    end
+
     # ORWPT DIEDON — deceased check (FileMan date or "0")
     DataMapper.define(:patient_deceased) do |m|
       m.rpc "ORWPT DIEDON"
