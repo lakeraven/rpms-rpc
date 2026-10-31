@@ -517,8 +517,10 @@ module RpmsRpc
     # the error propagates, still under this lock. CRCONTXT^XWBSEC kills
     # XQY0 and XQY before it answers, so the session has no context; keeping
     # the old name would make a later with_context for that name skip the
-    # rebind. XwbClient and BmxClient use this method. CiaClient binds on
-    # the client and does not share this path.
+    # rebind. ContextScope#with_context then re-binds the caller's previous
+    # context (scope entry or nested). If that restore is refused too,
+    # current_context stays nil. XwbClient and BmxClient use this method.
+    # CiaClient binds on the client and does not share this path.
     def create_context(option_name = "OR CPRS GUI CHART")
       synchronize_wire do
         raise ConnectionError, "Not connected" unless connected?

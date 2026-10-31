@@ -121,7 +121,11 @@ module RpmsRpc
     end
 
     # Bind a context (no broker). Raises Client::RpcError for a context marked
-    # unbindable, so the fail-safe path can be tested.
+    # unbindable, or one the pinned context surface refuses, so the fail-safe
+    # path can be tested. A refused bind clears @current_context before the
+    # error propagates, same as Client#create_context. ContextScope#with_context
+    # then re-binds the caller's previous context; if that is refused too,
+    # current_context stays nil.
     def create_context(option_name = "OR CPRS GUI CHART")
       if @unbindable_contexts.include?(option_name)
         raise RpmsRpc::Client::RpcError, "context '#{option_name}' is not available"
@@ -133,6 +137,9 @@ module RpmsRpc
       @context_binds << option_name
       @current_context = option_name
       true
+    rescue StandardError
+      @current_context = nil
+      raise
     end
 
     # Make `option_name` refuse to bind — the broker-side "you may not hold

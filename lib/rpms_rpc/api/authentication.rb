@@ -189,10 +189,12 @@ module RpmsRpc
     # more than one, or a line that is not exactly "0" or "1". The DUZ is
     # read inside the context scope, under the wire lock, and that one value
     # is NP for every call in the batch. An invalid DUZ returns nil from
-    # there; the scope's ensure still restores the caller's context. Never a
-    # partial list. Blank names are dropped; no names left sends nothing and
-    # returns []. A name containing "^" or a leading "@" raises ArgumentError
-    # before anything is sent.
+    # there; the scope's ensure still restores the caller's context. A refused
+    # bind (scope entry or nested) re-binds the caller's previous context; if
+    # that is refused too, current_context is nil. Never a partial list.
+    # Blank names are dropped; no names left sends nothing and returns [].
+    # A name containing "^" or a leading "@" raises ArgumentError before
+    # anything is sent.
     def held_keys(names)
       asked = Array(names).map { |name| name.to_s.strip }.reject(&:empty?)
       return [] if asked.empty?
