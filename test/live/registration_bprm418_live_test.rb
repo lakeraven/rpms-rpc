@@ -33,7 +33,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
 
     header = subfile_row(GI_FILE, DFN, ".01;2", row_date)
     assert header, "no 9000001.9401 row for #{row_date}"
-    assert_equal "live spec", header[:fields].dig("2", :external).to_s.strip
+    assert_equal "live spec", header[:fields].dig("2", :internal).to_s.strip
 
     mult = list_subfile_entries(GI_MULT, "#{header[:ien]},#{DFN},", ".01")
     assert_includes mult.map { |e| e[:fields].dig(".01", :internal).to_i }, code
@@ -93,7 +93,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     refute_nil elig_ien
     refute_empty elig_ien.to_s.strip
 
-    mcr_row = RpmsRpc::DdrFileman.gets_entry(file: MCR_FILE, iens: "#{mcr_ien},", fields: ".01;03", flags: "I")
+    mcr_row = RpmsRpc::DdrFileman.gets_entry(file: MCR_FILE, iens: "#{mcr_ien},", fields: ".01;.03", flags: "I")
     refute_nil mcr_row, "DDR GETS ENTRY DATA gave no reply for #{MCR_FILE} #{mcr_ien}"
     refute mcr_row[:error], "read failed for #{MCR_FILE} #{mcr_ien}: #{mcr_row.inspect}"
     assert_equal DFN.to_s, mcr_row[:fields].dig(".01", :internal).to_s
@@ -157,11 +157,13 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
   end
 
   def list_subfile_entries(file, iens, fields)
-    listed = RpmsRpc::DdrFileman.lister(file: file, iens: ",#{iens},", fields: fields, flags: "IP")
+    listed = RpmsRpc::DdrFileman.lister(file: file, iens: ",#{iens}", fields: fields, flags: "IP")
     refute_nil listed
     refute listed[:error]
     listed[:entries].map do |entry|
-      got = RpmsRpc::DdrFileman.gets_entry(file: file, iens: "#{entry[:ien]},#{iens},", fields: fields, flags: "I")
+      got = RpmsRpc::DdrFileman.gets_entry(file: file, iens: "#{entry[:ien]},#{iens}", fields: fields, flags: "I")
+      refute_nil got
+      refute got[:error]
       { ien: entry[:ien], fields: got[:fields] }
     end
   end
