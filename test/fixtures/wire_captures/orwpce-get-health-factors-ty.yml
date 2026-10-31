@@ -7,6 +7,7 @@ mapping: pce_health_factor_types
 kind: fields
 release_tag: bcer-9.0-20261012-e7923a4-ydb
 captured_at: '2026-10-30T10:31:26Z'
+signed_on_as: PROV123
 cite: 'HFTYPE^ORWPCE2 (ORWPCE2.m:38-48): IEN^NAME, and when ADDCATS IEN^NAME^$P(0-node,U,10)^$P(0-node,U,3).
   This call sends no ADDCATS, so the category pieces are empty'
 pieces:
