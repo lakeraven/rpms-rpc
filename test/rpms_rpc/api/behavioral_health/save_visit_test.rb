@@ -33,15 +33,29 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
   # Pinned: before an add, patient must exist via DDR in the caller's context.
   PRE_ADD_PATIENT_FIELDS = ".01"
   PRE_ADD_PATIENT_FLAGS = "I"
-  # Pinned: save_visit must read stored patient (.08) before an edit RPC.
-  PRE_EDIT_PATIENT_FIELDS = ".08"
-  PRE_EDIT_PATIENT_FLAGS = "I"
-  # Pinned: #9002011.02 rows for a visit — DDR LISTER on xref AD (.03 MHSS RECORD).
+  # Pinned: before an edit, #9002011 .08 and 1112 (DATE/TIME NOTE SIGNED); non-blank 1112 refuses.
+  PRE_EDIT_VISIT_FIELDS = ".08;1112"
+  PRE_EDIT_VISIT_FLAGS = "I"
+  # Pinned: #9002011.02 primaries for a visit — DDR LISTER on xref AD with SCREEN on .03 (MHSS RECORD).
+  # Live-verified: PART=1 prefix-matches visits 1,10,11..19; SCREEN I $P(^(0),U,3)=<visit> returns only that visit.
   PROVIDER_FILE = "9002011.02"
   PROVIDER_LOOKUP_XREF = "AD"
+  PROVIDER_LOOKUP_FROM = "0"
   PROVIDER_LOOKUP_FIELDS = ".01;.02;.03;.04"
   PROVIDER_LOOKUP_FLAGS = "IP"
   PROVIDER_LOOKUP_MAX = "25"
+  # Pinned: before AMHG, each non-blank pointer gets DDR GETS .01 (iens "<ien>,", flags "I").
+  CLINIC_FILE = "40.7"
+  TYPE_OF_CONTACT_FILE = "9002012.1"
+  ENCOUNTER_LOCATION_FILE = "9999999.06"
+  COMMUNITY_FILE = "9999999.05"
+  PROVIDER_DUZ_FILE = "200"
+  PRE_POINTER_FIELDS = ".01"
+  PRE_POINTER_FLAGS = "I"
+  DANGLING_CLINIC = "999999"
+  DATE_BEFORE_DD_MIN = "1891231"
+  DATE_AFTER_TODAY = "3991231"
+  # DD marks .06 ACTIVITY TYPE "R" on ^DD(9002011,.06,0); AMHG SAVE VISIT has no wire piece for it.
 
   PATIENT = "990536"
   OTHER_PATIENT = "990537"
@@ -70,7 +84,8 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     "#{APPOINTMENT_WITH}|#{COMMUNITY_OF_SERVICE}|#{PATIENT}|#{GROUP_NAME}|#{GROUP_TIME}||#{ACTIVITY_TIME}".freeze
 
   WIRE_ADD_REQUIRED_ONLY =
-    "A||#{PROVIDER}|||||#{ENCOUNTER.split('.').first}||||#{PATIENT}||||".freeze
+    "A||#{PROVIDER}|#{PROGRAM}|#{CLINIC}|#{TYPE_OF_CONTACT}||#{ENCOUNTER.split('.').first}|" \
+    "#{ENCOUNTER_LOCATION}||#{COMMUNITY_OF_SERVICE}|#{PATIENT}||||".freeze
 
   WIRE_EDIT_FULL =
     "E|#{RECORD_IEN}|#{PROVIDER}|#{PROGRAM}|#{CLINIC}|#{TYPE_OF_CONTACT}||#{ENCOUNTER}|#{ENCOUNTER_LOCATION}|" \
@@ -98,7 +113,12 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
   REQUIRED_KWARGS = {
     provider: PROVIDER,
     encounter_date: ENCOUNTER.split(".").first,
-    patient: PATIENT
+    patient: PATIENT,
+    program: PROGRAM,
+    clinic: CLINIC,
+    type_of_contact: TYPE_OF_CONTACT,
+    encounter_location: ENCOUNTER_LOCATION,
+    community_of_service: COMMUNITY_OF_SERVICE
   }.freeze
 
   def setup
@@ -219,16 +239,34 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_empty amhg_calls
   end
 
+  def test_add_refuses_when_pre_add_patient_read_returns_nil_without_amhg_rpc
+    # Unseeded DDR GETS → broker silence → gets_entry nil (not success).
+    assert_pre_call_refusal(**REQUIRED_KWARGS, label: "pre-add patient nil")
+    assert_empty amhg_calls
+  end
+
+  def test_add_refuses_when_pre_add_patient_dot01_is_blank_without_amhg_rpc
+    seed_patient_exists(PATIENT, blank_dot01: true)
+    assert_pre_call_refusal(**REQUIRED_KWARGS, label: "pre-add patient blank .01")
+    assert_empty amhg_calls
+  end
+
   def test_edit_pins_pre_and_post_provider_ddr_lister_on_ad_index
     seed_edit_success(WIRE_EDIT_NO_GROUP_CHANGE, RECORD_IEN,
                       **FULL_KWARGS.merge(record_ien: RECORD_IEN, group_name: "", group_time: nil, activity_time: nil))
     BH.save_visit(**FULL_KWARGS.merge(record_ien: RECORD_IEN, group_name: "", group_time: nil, activity_time: nil))
 
-    want = provider_lister_key(RECORD_IEN)
+    param = Ddr.lister_param(
+      file: PROVIDER_FILE, xref: PROVIDER_LOOKUP_XREF, part: RECORD_IEN.to_s,
+      from: PROVIDER_LOOKUP_FROM, screen: provider_lookup_screen(RECORD_IEN),
+      fields: PROVIDER_LOOKUP_FIELDS, flags: PROVIDER_LOOKUP_FLAGS, max: PROVIDER_LOOKUP_MAX
+    )
+    want = param.to_s
     lister_positions = positions_of do |c|
       c[:rpc] == "DDR LISTER" && c[:params].first.to_s == want
     end
     assert_equal 2, lister_positions.size, "expected pre- and post-call provider DDR LISTER on AD"
+    assert_equal provider_lookup_screen(RECORD_IEN), param["SCREEN"]
     amhg_positions = positions_of { |c| c[:rpc] == RPC }
     refute_nil amhg_positions.first, "expected AMHG SAVE VISIT"
     pre_index = lister_positions.first
@@ -250,7 +288,9 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
   end
 
   def test_edit_refuses_when_pre_edit_primary_provider_lookup_is_ambiguous_without_amhg_rpc
+    # FNDPRV^AMHGU calls CHNGPP (AMHGU.m:336-349): rewrites the existing primary .01; it does not add a second primary.
     seed_patient_exists(PATIENT)
+    seed_pointer_reads(**FULL_KWARGS)
     seed_pre_edit_patient(RECORD_IEN, PATIENT)
     seed_provider_lister(RECORD_IEN, provider: PROVIDER, patient: PATIENT, extra_primary: true)
     err = assert_raises(BH::SaveError) do
@@ -260,14 +300,83 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_empty amhg_calls
   end
 
-  def test_edit_pins_pre_edit_patient_ddr_gets_fields_and_flags
+  def test_edit_ignores_foreign_visit_rows_in_pre_edit_provider_lister_and_reaches_amhg
+    kwargs = FULL_KWARGS.merge(record_ien: RECORD_IEN, group_name: "", group_time: nil, activity_time: nil)
+    seed_edit_success(WIRE_EDIT_NO_GROUP_CHANGE, RECORD_IEN, **kwargs, foreign_visit_row: true)
+    BH.save_visit(**kwargs)
+    refute_empty amhg_calls, "rows with .03 not equal to the visit must not block edit"
+  end
+
+  def test_edit_refuses_when_pre_edit_provider_lister_is_truncated_without_amhg_rpc
+    seed_patient_exists(PATIENT)
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    seed_provider_lister(RECORD_IEN, provider: PROVIDER, patient: PATIENT, more: true)
+    err = assert_raises(BH::SaveError) do
+      BH.save_visit(**FULL_KWARGS.merge(record_ien: RECORD_IEN, group_name: "", group_time: nil, activity_time: nil))
+    end
+    assert_match(/primary provider/i, err.message)
+    assert_empty amhg_calls
+  end
+
+  def test_edit_refuses_when_pre_edit_provider_lister_errors_without_amhg_rpc
+    seed_patient_exists(PATIENT)
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    seed_provider_lister(RECORD_IEN, provider: PROVIDER, patient: PATIENT, error: true)
+    err = assert_raises(BH::SaveError) do
+      BH.save_visit(**FULL_KWARGS.merge(record_ien: RECORD_IEN, group_name: "", group_time: nil, activity_time: nil))
+    end
+    assert_match(/primary provider/i, err.message)
+    assert_empty amhg_calls
+  end
+
+  def test_add_pins_pre_amhg_pointer_existence_ddr_gets_for_each_filed_pointer
+    seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
+    BH.save_visit(**FULL_KWARGS)
+
+    expected = pointer_ddr_expectations(**FULL_KWARGS)
+    amhg_index = positions_of { |c| c[:rpc] == RPC }.first
+    expected.each do |exp|
+      idx = positions_of do |c|
+        next false unless c[:rpc] == "DDR GETS ENTRY DATA"
+
+        p = c[:params].first
+        p["FILE"] == exp[:file] && p["IENS"] == exp[:iens] &&
+          p["FIELDS"] == PRE_POINTER_FIELDS && p["FLAGS"] == PRE_POINTER_FLAGS
+      end.first
+      refute_nil idx, "expected pointer GETS on #{exp[:file]} #{exp[:iens]}"
+      assert_operator idx, :<, amhg_index, "#{exp[:label]} existence read must precede AMHG SAVE VISIT"
+    end
+  end
+
+  def test_add_refuses_dangling_clinic_without_amhg_rpc
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    err = assert_pre_call_refusal(**FULL_KWARGS.merge(clinic: DANGLING_CLINIC), label: "dangling clinic")
+    assert_match(/clinic/i, err.message)
+    refute_match(/999999/, err.message)
+  end
+
+  def test_edit_pins_pre_edit_visit_ddr_gets_fields_and_flags
     seed_edit_success(WIRE_EDIT_FULL, RECORD_IEN, **FULL_KWARGS)
     BH.save_visit(**FULL_KWARGS, record_ien: RECORD_IEN)
 
-    param = ddr_gets_calls.first[:params].first
-    assert_equal PRE_EDIT_PATIENT_FIELDS, param["FIELDS"]
-    assert_equal PRE_EDIT_PATIENT_FLAGS, param["FLAGS"]
+    param = ddr_gets_calls.find do |c|
+      next false unless c[:rpc] == "DDR GETS ENTRY DATA"
+
+      p = c[:params].first
+      p["FILE"] == BH_VISIT_FILE && p["IENS"] == "#{RECORD_IEN},"
+    end[:params].first
+    assert_equal PRE_EDIT_VISIT_FIELDS, param["FIELDS"]
+    assert_equal PRE_EDIT_VISIT_FLAGS, param["FLAGS"]
     assert_equal "#{RECORD_IEN},", param["IENS"]
+  end
+
+  def test_edit_refuses_when_visit_is_signed_without_amhg_rpc
+    seed_edit_preconditions(RECORD_IEN, signed: true)
+    err = assert_raises(BH::SaveError) do
+      BH.save_visit(**FULL_KWARGS.merge(record_ien: RECORD_IEN, group_name: "", group_time: nil, activity_time: nil))
+    end
+    assert_match(/signed/i, err.message)
+    assert_empty amhg_calls
   end
 
   def test_rejects_esign_as_an_unknown_keyword
@@ -306,6 +415,24 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_pre_call_refusal(**FULL_KWARGS.merge(patient: "   "))
   end
 
+  def test_refuses_missing_dd_required_fields_on_add_without_rpc
+    %i[program clinic type_of_contact encounter_location community_of_service].each do |key|
+      assert_pre_call_refusal(**REQUIRED_KWARGS.merge(key => nil), label: "add #{key} nil")
+      assert_pre_call_refusal(**REQUIRED_KWARGS.merge(key => ""), label: "add #{key} blank")
+    end
+  end
+
+  def test_refuses_missing_dd_required_fields_on_edit_without_rpc
+    seed_edit_preconditions(RECORD_IEN)
+    %i[program clinic type_of_contact encounter_location community_of_service].each do |key|
+      assert_pre_call_refusal(**FULL_KWARGS.merge(record_ien: RECORD_IEN, key => nil), label: "edit #{key} nil")
+      assert_pre_call_refusal(
+        **FULL_KWARGS.merge(record_ien: RECORD_IEN, key => "", group_name: "", group_time: nil, activity_time: nil),
+        label: "edit #{key} blank"
+      )
+    end
+  end
+
   def test_refuses_non_positive_integer_patient_provider_or_record_ien_without_rpc
     assert_pre_call_refusal(**FULL_KWARGS.merge(patient: "0"))
     assert_pre_call_refusal(**FULL_KWARGS.merge(patient: "-1"))
@@ -326,6 +453,11 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     end
   end
 
+  def test_refuses_encounter_date_before_dd_minimum_or_after_today_without_rpc
+    assert_pre_call_refusal(**FULL_KWARGS.merge(encounter_date: DATE_BEFORE_DD_MIN))
+    assert_pre_call_refusal(**FULL_KWARGS.merge(encounter_date: DATE_AFTER_TODAY))
+  end
+
   def test_refuses_program_or_appointment_with_outside_the_filed_sets_without_rpc
     assert_pre_call_refusal(**FULL_KWARGS.merge(program: "ADULT OUTPATIENT"))
     assert_pre_call_refusal(**FULL_KWARGS.merge(appointment_with: "SCHEDULED"))
@@ -339,11 +471,12 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     end
   end
 
-  def test_on_add_nil_optional_fields_still_mean_blank_on_the_wire
-    seed_add_success(WIRE_ADD_REQUIRED_ONLY, "8803", **REQUIRED_KWARGS)
-    BH.save_visit(**REQUIRED_KWARGS.merge(program: nil, clinic: nil))
+  def test_on_add_only_appointment_with_may_be_omitted_or_blank_on_the_wire
+    wire = WIRE_ADD_REQUIRED_ONLY
+    seed_add_success(wire, "8803", **REQUIRED_KWARGS)
+    BH.save_visit(**REQUIRED_KWARGS.merge(appointment_with: nil))
 
-    assert_equal WIRE_ADD_REQUIRED_ONLY, save_call[:params].first
+    assert_equal wire, save_call[:params].first
   end
 
   def test_edit_refuses_each_explicit_field_when_nil_without_rpc
@@ -352,11 +485,9 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     end
   end
 
-  def test_edit_allows_blank_string_to_clear_filed_pieces_on_the_wire
-    wire = WIRE_EDIT_FULL.sub("|#{PROGRAM}|", "||").sub("|#{CLINIC}|", "||")
-    kwargs = FULL_KWARGS.merge(record_ien: RECORD_IEN, program: "", clinic: "", group_name: "",
-                               group_time: nil, activity_time: nil)
-    wire = wire.sub("|#{GROUP_NAME}|#{GROUP_TIME}||#{ACTIVITY_TIME}", "||||")
+  def test_edit_allows_blank_appointment_with_to_clear_dot11_on_the_wire
+    wire = WIRE_EDIT_NO_GROUP_CHANGE.sub("|#{APPOINTMENT_WITH}|", "||")
+    kwargs = FULL_KWARGS.merge(record_ien: RECORD_IEN, appointment_with: "", group_name: "", group_time: nil, activity_time: nil)
     seed_edit_success(wire, RECORD_IEN, **kwargs)
     BH.save_visit(**kwargs)
 
@@ -389,8 +520,21 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     )
   end
 
-  def test_refuses_group_name_longer_than_thirty_characters_without_rpc
+  def test_refuses_group_name_longer_than_thirty_bytes_without_rpc
     assert_pre_call_refusal(**FULL_KWARGS.merge(group_name: "X" * 31))
+    # 30 characters but 31 bytes under UTF-8 (ydb_chset=M $L semantics).
+    assert_pre_call_refusal(**FULL_KWARGS.merge(group_name: "#{'a' * 29}é"))
+  end
+
+  def test_accepts_group_name_of_exactly_thirty_bytes_including_multibyte_characters
+    name = "€" * 10 # 10 chars, 30 bytes in UTF-8
+    assert_equal 30, name.bytesize
+    pieces = WIRE_ADD_FULL.split("|", -1)
+    pieces[12] = name
+    wire = pieces.join("|")
+    seed_add_success(wire, "8802", **FULL_KWARGS.merge(group_name: name))
+    BH.save_visit(**FULL_KWARGS.merge(group_name: name))
+    assert_equal wire, save_call[:params].first
   end
 
   def test_edit_refuses_when_pre_edit_patient_read_errors_without_amhg_rpc
@@ -466,44 +610,59 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
   # --- post-call failures (AMHG returned; outcome unknown / read-back) -------
 
   def test_raises_when_reply_has_no_ien_row
-    seed_reply(WIRE_ADD_FULL, "#{RS}#{US}")
+    seed_post_amhg_trap(WIRE_ADD_FULL, **FULL_KWARGS) { seed_reply(WIRE_ADD_FULL, "#{RS}#{US}") }
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_post_call_ambiguity(err)
   end
 
   def test_raises_when_reply_has_header_row_but_no_data_row
-    seed_reply(WIRE_ADD_FULL, "T00010BMXIEN#{RS}#{US}")
+    seed_post_amhg_trap(WIRE_ADD_FULL, **FULL_KWARGS) { seed_reply(WIRE_ADD_FULL, "T00010BMXIEN#{RS}#{US}") }
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_post_call_ambiguity(err)
   end
 
   def test_raises_when_reply_ien_is_zero
-    seed_success(WIRE_ADD_FULL, "0")
+    seed_post_amhg_trap(WIRE_ADD_FULL, **FULL_KWARGS) { seed_success(WIRE_ADD_FULL, "0") }
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_post_call_ambiguity(err)
   end
 
   def test_raises_when_reply_ien_is_blank_or_non_numeric
-    seed_success(WIRE_ADD_FULL, "")
+    seed_post_amhg_trap(WIRE_ADD_FULL, **FULL_KWARGS) { seed_success(WIRE_ADD_FULL, "") }
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_post_call_ambiguity(err)
-    seed_success(WIRE_ADD_FULL, "abc")
+    seed_post_amhg_trap(WIRE_ADD_FULL, **FULL_KWARGS) { seed_success(WIRE_ADD_FULL, "abc") }
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_post_call_ambiguity(err)
   end
 
   def test_raises_on_m_error_row
-    seed_reply(WIRE_ADD_FULL, "M ERROR|synthetic trap#{RS}#{US}")
+    seed_post_amhg_trap(WIRE_ADD_FULL, **FULL_KWARGS) { seed_reply(WIRE_ADD_FULL, "M ERROR|synthetic trap#{RS}#{US}") }
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_post_call_ambiguity(err)
   end
 
+  def test_parses_cia_sequence_echo_prefix_before_t00010bmxien_row
+    body = "1\x00T00010BMXIEN#{RS}8802#{RS}#{US}"
+    seed_post_amhg_trap(WIRE_ADD_FULL, **FULL_KWARGS) { seed_reply(WIRE_ADD_FULL, body) }
+    seed_readback("8802,", **FULL_KWARGS)
+    seed_provider_lister("8802", provider: PROVIDER, patient: PATIENT)
+    assert_equal "8802", BH.save_visit(**FULL_KWARGS)
+  end
+
   def test_edit_raises_when_returned_ien_differs_from_requested
-    seed_patient_exists(PATIENT)
+    seed_pre_amhg_reads(**FULL_KWARGS)
     seed_provider_lister(RECORD_IEN, provider: PROVIDER, patient: PATIENT)
     seed_pre_edit_patient(RECORD_IEN, PATIENT)
     seed_success(WIRE_EDIT_FULL, "9999")
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS, record_ien: RECORD_IEN) }
+    assert_amhg_reached
     assert_post_call_ambiguity(err, record_ien: RECORD_IEN)
   end
 
@@ -511,91 +670,161 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     seed_add_post_amhg(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
     seed_readback_error("8802,", **FULL_KWARGS)
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
-    assert_not_confirmed(err, record_ien: "8802")
+    assert_amhg_reached
+    assert_post_call_ambiguity(err, record_ien: "8802")
   end
 
   def test_raises_when_readback_ddr_returns_no_fields_after_successful_looking_reply
     seed_add_post_amhg(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
     seed_readback_empty("8802,", **FULL_KWARGS)
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_not_confirmed(err, record_ien: "8802")
+  end
+
+  def test_raises_when_post_call_readback_ddr_raises_rpms_error
+    seed_add_post_amhg(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
+    wrapper = RaiseOnBhVisitReadback.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err, record_ien: "8802")
+    assert_kind_of RpmsRpc::Client::RpcMError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
   end
 
   def test_raises_when_readback_dot01_mismatches
     seed_add_post_amhg(WIRE_ADD_FULL, "8802", **FULL_KWARGS, overrides: { ".01" => "3251031.9999" })
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_not_confirmed(err, record_ien: "8802")
   end
 
   def test_raises_when_readback_dot02_mismatches
     seed_add_post_amhg(WIRE_ADD_FULL, "8802", **FULL_KWARGS, overrides: { ".02" => "S" })
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_not_confirmed(err, record_ien: "8802")
   end
 
   def test_raises_when_readback_dot07_mismatches
     seed_add_post_amhg(WIRE_ADD_FULL, "8802", **FULL_KWARGS, overrides: { ".07" => "999" })
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_not_confirmed(err, record_ien: "8802")
   end
 
   def test_raises_when_readback_dot08_mismatches
     seed_add_post_amhg(WIRE_ADD_FULL, "8802", **FULL_KWARGS, overrides: { ".08" => OTHER_PATIENT })
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_not_confirmed(err, record_ien: "8802")
   end
 
   def test_raises_when_readback_dot04_mismatches
     seed_add_post_amhg(WIRE_ADD_FULL, "8802", **FULL_KWARGS, overrides: { ".04" => "999" })
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_not_confirmed(err, record_ien: "8802")
   end
 
   def test_raises_when_readback_dot05_mismatches
     seed_add_post_amhg(WIRE_ADD_FULL, "8802", **FULL_KWARGS, overrides: { ".05" => "999" })
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_not_confirmed(err, record_ien: "8802")
   end
 
   def test_raises_when_readback_dot11_mismatches
     seed_add_post_amhg(WIRE_ADD_FULL, "8802", **FULL_KWARGS, overrides: { ".11" => "U" })
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_not_confirmed(err, record_ien: "8802")
   end
 
   def test_raises_when_readback_dot25_mismatches
     seed_add_post_amhg(WIRE_ADD_FULL, "8802", **FULL_KWARGS, overrides: { ".25" => "999" })
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_not_confirmed(err, record_ien: "8802")
   end
 
   def test_raises_when_readback_group_field_mismatches
     seed_add_post_amhg(WIRE_ADD_FULL, "8802", **FULL_KWARGS, overrides: { "1109" => "OTHER GROUP" })
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_not_confirmed(err, record_ien: "8802")
   end
 
   def test_raises_when_post_call_provider_lookup_is_not_exactly_one_primary
     seed_add_success(WIRE_ADD_FULL, "8802", extra_primary: true, **FULL_KWARGS)
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_match(/may have been filed|outcome unknown/i, err.message)
   end
 
   def test_amhg_rpc_timeout_becomes_save_error_with_ambiguous_outcome
-    seed_patient_exists(PATIENT)
+    seed_pre_amhg_reads(**FULL_KWARGS)
     wrapper = TimeoutOnAmhg.new(@mock)
     RpmsRpc.configure { |c| c.client = wrapper }
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
     assert_post_call_ambiguity(err)
     assert_kind_of RpmsRpc::Client::RpcTimeoutError, err.cause
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
   end
 
+  def test_amhg_connection_error_becomes_save_error_with_ambiguous_outcome
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    wrapper = ConnectionErrorOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err)
+    assert_kind_of RpmsRpc::Client::ConnectionError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_amhg_rpc_m_error_becomes_save_error_with_ambiguous_outcome
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    wrapper = RpcMErrorOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err)
+    assert_kind_of RpmsRpc::Client::RpcMError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_amhg_rpc_not_available_error_is_not_wrapped
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    wrapper = RpcNotAvailableOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    assert_raises(RpmsRpc::Client::RpcNotAvailableError) { BH.save_visit(**FULL_KWARGS) }
+    assert_empty amhg_calls
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_amhg_rpc_refused_error_is_not_wrapped
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    wrapper = RpcRefusedOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    assert_raises(RpmsRpc::Client::RpcRefusedError) { BH.save_visit(**FULL_KWARGS) }
+    assert_empty amhg_calls
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
   def test_error_message_does_not_echo_group_name_or_other_passed_values
     secret = "UNIQUE_PHI_MARKER_ISSUE536"
-    seed_success(WIRE_ADD_FULL.sub(GROUP_NAME, secret), "0")
+    seed_post_amhg_trap(WIRE_ADD_FULL, **FULL_KWARGS) { seed_success(WIRE_ADD_FULL.sub(GROUP_NAME, secret), "0") }
     err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS.merge(group_name: secret)) }
+    assert_amhg_reached
     refute_includes err.message, secret
     refute_includes err.message, GROUP_NAME
     refute_includes err.message, PATIENT
@@ -710,26 +939,83 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
   def provider_lister_key(visit_ien)
     Ddr.lister_param(
       file: PROVIDER_FILE, xref: PROVIDER_LOOKUP_XREF, part: visit_ien.to_s,
+      from: PROVIDER_LOOKUP_FROM, screen: provider_lookup_screen(visit_ien),
       fields: PROVIDER_LOOKUP_FIELDS, flags: PROVIDER_LOOKUP_FLAGS, max: PROVIDER_LOOKUP_MAX
     ).to_s
   end
 
-  def provider_lister_body(provider:, patient:, visit_ien:, extra_primary: false)
+  # Until save_visit pins the SCREEN lister call, the broker still issues PART-only LISTER.
+  def provider_lister_key_legacy(visit_ien)
+    Ddr.lister_param(
+      file: PROVIDER_FILE, xref: PROVIDER_LOOKUP_XREF, part: visit_ien.to_s,
+      fields: PROVIDER_LOOKUP_FIELDS, flags: PROVIDER_LOOKUP_FLAGS, max: PROVIDER_LOOKUP_MAX
+    ).to_s
+  end
+
+  def provider_lookup_screen(visit_ien)
+    "I $P(^(0),U,3)=#{visit_ien}"
+  end
+
+  def pointer_ddr_expectations(**kwargs)
+    [
+      { file: CLINIC_FILE, iens: "#{kwargs.fetch(:clinic)},", label: "clinic" },
+      { file: TYPE_OF_CONTACT_FILE, iens: "#{kwargs.fetch(:type_of_contact)},", label: "type of contact" },
+      { file: ENCOUNTER_LOCATION_FILE, iens: "#{kwargs.fetch(:encounter_location)},", label: "encounter location" },
+      { file: COMMUNITY_FILE, iens: "#{kwargs.fetch(:community_of_service)},", label: "community of service" },
+      { file: PROVIDER_DUZ_FILE, iens: "#{kwargs.fetch(:provider)},", label: "provider" }
+    ]
+  end
+
+  def seed_pointer_exists(file, ien, blank_dot01: false)
+    key = ddr_gets_key(
+      file: file, iens: "#{ien},", fields: PRE_POINTER_FIELDS, flags: PRE_POINTER_FLAGS
+    )
+    dot01 = blank_dot01 ? "" : "SYNTH,POINTER"
+    body = "[Data]\n#{file}^#{ien}^.01^#{dot01}^POINTER"
+    @mock.seed(:ddr_gets_entry_data, key, body)
+  end
+
+  def seed_pointer_reads(**kwargs)
+    seed_pointer_exists(CLINIC_FILE, kwargs.fetch(:clinic, CLINIC))
+    seed_pointer_exists(TYPE_OF_CONTACT_FILE, kwargs.fetch(:type_of_contact, TYPE_OF_CONTACT))
+    seed_pointer_exists(ENCOUNTER_LOCATION_FILE, kwargs.fetch(:encounter_location, ENCOUNTER_LOCATION))
+    seed_pointer_exists(COMMUNITY_FILE, kwargs.fetch(:community_of_service, COMMUNITY_OF_SERVICE))
+    seed_pointer_exists(PROVIDER_DUZ_FILE, kwargs.fetch(:provider, PROVIDER))
+  end
+
+  def seed_pre_amhg_reads(**kwargs)
+    seed_patient_exists(kwargs.fetch(:patient, PATIENT))
+    seed_pointer_reads(**kwargs)
+  end
+
+  def seed_post_amhg_trap(_wire, **kwargs)
+    seed_pre_amhg_reads(**kwargs)
+    yield
+  end
+
+  def provider_lister_body(provider:, patient:, visit_ien:, extra_primary: false, foreign_visit_row: false,
+                           more: false, error: false)
+    return "[Errors]" if error
+
     rows = [ [ provider.to_s, patient.to_s, visit_ien.to_s, "P" ] ]
     rows << [ "888", patient.to_s, visit_ien.to_s, "P" ] if extra_primary
+    rows << [ "777", patient.to_s, "88888", "P" ] if foreign_visit_row
     lines = rows.each_with_index.map { |pieces, i| "#{i + 1}^#{pieces.join('^')}" }
-    "[Data]\n#{lines.join("\n")}"
+    body = "[Data]\n#{lines.join("\n")}"
+    more ? "[Misc]\nMORE^1^1\n#{body}" : body
   end
 
-  def seed_provider_lister(visit_ien, provider:, patient:, extra_primary: false)
-    key = provider_lister_key(visit_ien)
-    @mock.seed(
-      :ddr_lister, key,
-      provider_lister_body(provider: provider, patient: patient, visit_ien: visit_ien, extra_primary: extra_primary)
+  def seed_provider_lister(visit_ien, provider:, patient:, extra_primary: false, foreign_visit_row: false,
+                           more: false, error: false)
+    body = provider_lister_body(
+      provider: provider, patient: patient, visit_ien: visit_ien, extra_primary: extra_primary,
+      foreign_visit_row: foreign_visit_row, more: more, error: error
     )
+    @mock.seed(:ddr_lister, provider_lister_key(visit_ien), body)
+    @mock.seed(:ddr_lister, provider_lister_key_legacy(visit_ien), body)
   end
 
-  def seed_patient_exists(dfn, error: false, empty: false)
+  def seed_patient_exists(dfn, error: false, empty: false, blank_dot01: false)
     key = ddr_gets_key(
       file: PATIENT_FILE, iens: "#{dfn},",
       fields: PRE_ADD_PATIENT_FIELDS, flags: PRE_ADD_PATIENT_FLAGS
@@ -739,16 +1025,18 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
         "[ERROR]"
       elsif empty
         "[Data]"
+      elsif blank_dot01
+        "[Data]\n#{PATIENT_FILE}^#{dfn}^.01^^"
       else
         "[Data]\n#{PATIENT_FILE}^#{dfn}^.01^SYNTH,PATIENT^PATIENT,SYNTH"
       end
     @mock.seed(:ddr_gets_entry_data, key, body)
   end
 
-  def seed_edit_preconditions(ien, patient: PATIENT, provider: PROVIDER)
-    seed_patient_exists(patient)
+  def seed_edit_preconditions(ien, patient: PATIENT, provider: PROVIDER, signed: false, **kwargs)
+    seed_pre_amhg_reads(**FULL_KWARGS.merge(kwargs).merge(patient: patient, provider: provider))
     seed_provider_lister(ien, provider: provider, patient: patient)
-    seed_pre_edit_patient(ien, patient)
+    seed_pre_edit_patient(ien, patient, signed: signed)
   end
 
   def seed_readback(iens, **kwargs)
@@ -791,12 +1079,15 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     end
   end
 
-  def seed_pre_edit_patient(ien, patient, error: false, empty: false)
+  def seed_pre_edit_patient(ien, patient, error: false, empty: false, signed: false)
     key = ddr_gets_key(
       file: BH_VISIT_FILE,
       iens: "#{ien},",
-      fields: PRE_EDIT_PATIENT_FIELDS,
-      flags: PRE_EDIT_PATIENT_FLAGS
+      fields: PRE_EDIT_VISIT_FIELDS,
+      flags: PRE_EDIT_VISIT_FLAGS
+    )
+    legacy_key = ddr_gets_key(
+      file: BH_VISIT_FILE, iens: "#{ien},", fields: ".08", flags: PRE_EDIT_VISIT_FLAGS
     )
     body =
       if error
@@ -804,38 +1095,55 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
       elsif empty
         "[Data]"
       else
-        "[Data]\n#{BH_VISIT_FILE}^#{ien}^.08^#{patient}^PATIENT,SYNTH"
+        signed_at = signed ? "3251031.12" : ""
+        "[Data]\n" \
+          "#{BH_VISIT_FILE}^#{ien}^.08^#{patient}^PATIENT,SYNTH\n" \
+          "#{BH_VISIT_FILE}^#{ien}^1112^#{signed_at}^SIGNED"
       end
     @mock.seed(:ddr_gets_entry_data, key, body)
+    return if error || empty
+
+    legacy_body = "[Data]\n#{BH_VISIT_FILE}^#{ien}^.08^#{patient}^PATIENT,SYNTH"
+    @mock.seed(:ddr_gets_entry_data, legacy_key, legacy_body)
   end
 
   def seed_add_post_amhg(wire, ien, **readback_kwargs)
     overrides = readback_kwargs.delete(:overrides)
-    seed_patient_exists(readback_kwargs.fetch(:patient, PATIENT))
+    seed_pre_amhg_reads(**readback_kwargs)
     seed_success(wire, ien)
     seed_readback("#{ien},", **readback_kwargs, overrides: overrides)
   end
 
   def seed_add_success(wire, ien, extra_primary: false, **readback_kwargs)
-    seed_patient_exists(readback_kwargs.fetch(:patient, PATIENT))
+    opts = readback_kwargs.dup
+    foreign = opts.delete(:foreign_visit_row)
+    seed_pre_amhg_reads(**opts)
     seed_success(wire, ien)
     seed_readback("#{ien},", **readback_kwargs)
     seed_provider_lister(
       ien,
       provider: readback_kwargs.fetch(:provider, PROVIDER),
       patient: readback_kwargs.fetch(:patient, PATIENT),
-      extra_primary: extra_primary
+      extra_primary: extra_primary,
+      foreign_visit_row: foreign == true
     )
   end
 
   def seed_edit_success(wire, ien, **readback_kwargs)
+    opts = readback_kwargs.dup
+    foreign = opts.delete(:foreign_visit_row)
     patient = readback_kwargs.fetch(:patient, PATIENT)
-    seed_patient_exists(patient)
-    seed_provider_lister(ien, provider: readback_kwargs.fetch(:provider, PROVIDER), patient: patient)
+    provider = readback_kwargs.fetch(:provider, PROVIDER)
+    seed_pre_amhg_reads(**readback_kwargs)
+    seed_provider_lister(
+      ien, provider: provider, patient: patient, foreign_visit_row: foreign == true
+    )
     seed_pre_edit_patient(ien, patient)
     seed_success(wire, ien)
     seed_readback("#{ien},", **readback_kwargs)
-    seed_provider_lister(ien, provider: readback_kwargs.fetch(:provider, PROVIDER), patient: patient)
+    seed_provider_lister(
+      ien, provider: provider, patient: patient, foreign_visit_row: foreign == true
+    )
   end
 
   def assert_readback_ddr_call(iens, **kwargs)
@@ -850,9 +1158,13 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
   def assert_pre_edit_ddr_call(iens)
     call = ddr_gets_calls.find do |c|
       p = c[:params].first
-      p["FILE"] == BH_VISIT_FILE && p["IENS"] == iens && p["FIELDS"] == PRE_EDIT_PATIENT_FIELDS
+      p["FILE"] == BH_VISIT_FILE && p["IENS"] == iens && p["FIELDS"] == PRE_EDIT_VISIT_FIELDS
     end
-    refute_nil call, "expected pre-edit patient DDR GETS for #{iens}"
+    refute_nil call, "expected pre-edit visit DDR GETS for #{iens}"
+  end
+
+  def assert_amhg_reached
+    refute_empty amhg_calls, "expected AMHG SAVE VISIT before post-call SaveError"
   end
 
   def assert_pre_call_refusal(label: nil, **kwargs)
@@ -882,7 +1194,59 @@ end
 # Raises RpcTimeoutError on AMHG SAVE VISIT so save_visit must map it to SaveError.
 class TimeoutOnAmhg < SimpleDelegator
   def call_rpc_global_array(rpc_name, *params)
-    raise RpmsRpc::Client::RpcTimeoutError, "AMHG SAVE VISIT timed out (synthetic)" if rpc_name == "AMHG SAVE VISIT"
+    if rpc_name == "AMHG SAVE VISIT"
+      super
+      raise RpmsRpc::Client::RpcTimeoutError, "AMHG SAVE VISIT timed out (synthetic)"
+    end
+
+    super
+  end
+end
+
+class ConnectionErrorOnAmhg < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *params)
+    if rpc_name == "AMHG SAVE VISIT"
+      super
+      raise RpmsRpc::Client::ConnectionError, "AMHG SAVE VISIT connection lost (synthetic)"
+    end
+
+    super
+  end
+end
+
+class RpcMErrorOnAmhg < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *params)
+    if rpc_name == "AMHG SAVE VISIT"
+      super
+      raise RpmsRpc::Client::RpcMError, "AMHG SAVE VISIT M error (synthetic)"
+    end
+
+    super
+  end
+end
+
+class RpcNotAvailableOnAmhg < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *_params)
+    raise RpmsRpc::Client::RpcNotAvailableError, "AMHG SAVE VISIT not registered (synthetic)" if rpc_name == "AMHG SAVE VISIT"
+
+    super
+  end
+end
+
+class RpcRefusedOnAmhg < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *_params)
+    raise RpmsRpc::Client::RpcRefusedError, "AMHG SAVE VISIT refused (synthetic)" if rpc_name == "AMHG SAVE VISIT"
+
+    super
+  end
+end
+
+class RaiseOnBhVisitReadback < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *params)
+    if rpc_name == "DDR GETS ENTRY DATA"
+      file = params.first.is_a?(Hash) ? params.first["FILE"] : nil
+      raise RpmsRpc::Client::RpcMError, "read-back failed (synthetic)" if file == "9002011"
+    end
 
     super
   end

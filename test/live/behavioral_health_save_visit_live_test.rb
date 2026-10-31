@@ -30,9 +30,11 @@ class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
   BH_VISIT_DDR_FIELDS = ".01;.02;.04;.05;.07;.08;.11;.25"
   BH_GROUP_DDR_FIELDS = ".12;.34;1104;1109"
   PROVIDER_LOOKUP_XREF = "AD"
+  PROVIDER_LOOKUP_FROM = "0"
   PROVIDER_LOOKUP_FIELDS = ".01;.02;.03;.04"
   PROVIDER_LOOKUP_FLAGS = "IP"
   PROVIDER_LOOKUP_MAX = "25"
+  DANGLING_CLINIC_IEN = "999999"
 
   GROUP_NAME = "SYNTH LIVE GROUP"
   GROUP_TIME = "45"
@@ -169,6 +171,35 @@ class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
     assert_primary_provider_via_ddr!(ien, provider_duz: provider, patient_dfn: DFN)
   end
 
+  def test_add_refuses_dangling_clinic_without_creating_a_visit
+    assert_synthetic_patient!(DFN)
+    refute_clinic_ien_absent!(DANGLING_CLINIC_IEN)
+    _clinic, type_ien, _type_other, location_ien, community_ien, _community_other = discover_reference_iens!
+    provider = client.duz.to_s
+    encounter = server_now_fm
+    before = bh_visit_iens_for_patient(DFN)
+
+    err = assert_raises(RpmsRpc::BehavioralHealth::SaveError) do
+      RpmsRpc::BehavioralHealth.save_visit(
+        provider: provider,
+        program: PROGRAM,
+        clinic: DANGLING_CLINIC_IEN,
+        type_of_contact: type_ien,
+        encounter_date: encounter,
+        encounter_location: location_ien,
+        community_of_service: community_ien,
+        appointment_with: APPOINTMENT_WITH,
+        patient: DFN
+      )
+    end
+    refute_empty err.message
+    assert_match(/clinic/i, err.message)
+    refute_match(/999999/, err.message)
+
+    after = bh_visit_iens_for_patient(DFN)
+    assert_equal before, after, "dangling clinic must refuse before filing a new #9002011 row"
+  end
+
   def test_edit_with_wrong_patient_dfn_refuses_and_leaves_visit_unchanged
     assert_synthetic_patient!(DFN)
     assert_synthetic_patient!(OTHER_DFN)
@@ -297,8 +328,10 @@ class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
   end
 
   def assert_primary_provider_via_ddr!(visit_ien, provider_duz:, patient_dfn:)
+    screen = "I $P(^(0),U,3)=#{visit_ien}"
     listed = RpmsRpc::DdrFileman.lister(
       file: BH_PROVIDER_FILE, xref: PROVIDER_LOOKUP_XREF, part: visit_ien.to_s,
+      from: PROVIDER_LOOKUP_FROM, screen: screen,
       fields: PROVIDER_LOOKUP_FIELDS, flags: PROVIDER_LOOKUP_FLAGS, max: PROVIDER_LOOKUP_MAX
     )
     if listed.nil? || listed[:error]
@@ -363,6 +396,18 @@ class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
   def assert_synthetic_patient!(dfn)
     row = RpmsRpc::Patient.find(dfn)
     refute_nil row, "DFN #{dfn} must exist on this disposable container seed data"
+  end
+
+  def refute_clinic_ien_absent!(ien)
+    row = RpmsRpc::DdrFileman.gets_entry(
+      file: CLINIC_FILE, iens: "#{ien},", fields: ".01", flags: "I"
+    )
+    blank = row.nil? || row[:error] || row.dig(:fields, ".01", :internal).to_s.strip.empty?
+    flunk "clinic IEN #{ien} unexpectedly exists on file #{CLINIC_FILE}; pick another dangling IEN" unless blank
+  end
+
+  def bh_visit_iens_for_patient(dfn)
+    RpmsRpc::BehavioralHealth.visits(dfn, from: "2000101", to: "5001231").map { |v| v[:ien].to_s }
   end
 
   def server_now_fm
