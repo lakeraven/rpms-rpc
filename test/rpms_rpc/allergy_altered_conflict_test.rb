@@ -8,6 +8,10 @@ require "rpms_rpc/mock_client"
 # Altered text is never a conflict by itself, never NKA, and the flag follows
 # its own line in a conflicting reply. Every byte string is SYNTHETIC.
 class RpmsRpc::AllergyAlteredConflictTest < Minitest::Test
+  def teardown
+    RpmsRpc.reset!
+  end
+
   def assess(reply)
     client = Object.new
     client.define_singleton_method(:call_rpc) { |*| reply }

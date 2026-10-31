@@ -9,6 +9,10 @@ require "rpms_rpc/mock_client"
 # characters), a Reply is only built through its constructors, and a Reply::Text
 # keeps its flag through every wrapper. Every byte string is SYNTHETIC.
 class RpmsRpc::AlteredNeverLaundersTest < Minitest::Test
+  def teardown
+    RpmsRpc.reset!
+  end
+
   def assess(reply)
     client = Object.new
     client.define_singleton_method(:call_rpc) { |*| reply }
