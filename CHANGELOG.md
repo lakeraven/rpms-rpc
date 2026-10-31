@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — `Patient.brief_header` reads CWAD from `ORWPT CWAD` under `OR CPRS GUI CHART` (#520)
+
+- `DataMapper.patient_cwad` calls `ORWPT CWAD` (`CWAD^ORWPT`, formals Y,DFN), a stock VistA RPC mapped in `mappings/stock_vista.rb`. `BEHOCACV CWAD` is reachable only under `CIAV VUECENTRIC` and is no longer sent. The letters are the same: C crises, W warnings, A allergies, D advance directives. `allergy_flag` and `ad_flag` still follow A and D.
+- The CWAD fetch binds `OR CPRS GUI CHART` and restores the caller's option. `BEHOPTCX PTINFO` and `BEHOPTPC GETBDP` stay on the caller's context. `RpcNotAvailableError`, `RpcRefusedError`, and `RpcError` propagate; a failed CWAD read is never reported as both flags false. `Patient.brief_header` is no longer auto-retry-safe. It is now published `POST /patients/{dfn}/brief-header` in the OpenAPI catalog (the Ruby method is unchanged).
+
 ### Changed — `ProgressNote.update_text` wraps long lines before TIU SET DOCUMENT TEXT (#479)
 
 - A line longer than `wrap_width` bytes (default `ProgressNote::WRAP_WIDTH`, 80; an Integer from 4 to 999) is cut into consecutive `TIUX("TEXT",n,0)` pieces. The break is the last space or tab past the leading indentation and at a byte offset within the width; that one character is dropped. Otherwise the cut is the last UTF-8 character boundary within the width and nothing is dropped. Lines that fit, including blank lines, are unchanged. **This changes how the note is laid out in the chart.** Rejoining the pieces with the dropped character restores the line. Joined with a single space, a tab at a cut reads back as a space, and a space or tab cut at the very end of a line is dropped. Non-whitespace is never dropped or changed. Indentation is not repeated on continuation pieces; an indent wider than the width is itself hard-cut.

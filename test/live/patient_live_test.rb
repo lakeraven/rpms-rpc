@@ -7,7 +7,7 @@ require "rpms_rpc/api/ddr_fileman"
 
 # RpmsRpc::Patient reads against the pinned build (#350): search (ORWPT LIST
 # ALL), find (ORWPT SELECT + ORWPT ID INFO), find_by_ssn (ORWPT FULLSSN),
-# brief_header (BEHOPTCX PTINFO + BEHOPTPC GETBDP + BEHOCACV CWAD) and contact
+# brief_header (BEHOPTCX PTINFO + BEHOPTPC GETBDP + ORWPT CWAD) and contact
 # (DDR GETS ENTRY DATA on PATIENT #2). They replace the mock-backed
 # patient_test, patient_brief_header_test and patient_contact_test.
 #
@@ -166,7 +166,7 @@ class PatientLiveTest < LiveSpec::Test
     end
   end
 
-  # -- brief_header (BEHOPTCX PTINFO + BEHOPTPC GETBDP + BEHOCACV CWAD) ------
+  # -- brief_header (BEHOPTCX PTINFO + BEHOPTPC GETBDP + ORWPT CWAD) ---------
 
   def test_brief_header_projects_the_chart_banner
     header = RpmsRpc::Patient.brief_header(DEMO_ONE[:dfn])
@@ -201,6 +201,25 @@ class PatientLiveTest < LiveSpec::Test
 
   def test_brief_header_is_nil_for_a_dfn_on_no_patient
     assert_nil RpmsRpc::Patient.brief_header(absent_dfn)
+  end
+
+  # Proves ORWPT CWAD (same path brief_header uses) returns allergies without a directive for DEMO ONE.
+  def test_patient_cwad_for_demo_one_has_allergy_without_directive
+    cwad = RpmsRpc::ContextScope.scoped(client, RpmsRpc::Patient::CWAD_CONTEXT) do
+      RpmsRpc::DataMapper.patient_cwad.fetch_scalar(DEMO_ONE[:dfn].to_s).to_s
+    end
+    assert_includes cwad, "A"
+    refute_includes cwad, "D"
+  end
+
+  # Proves brief_header binds OR CPRS GUI CHART only for CWAD and restores the caller (sign-on option).
+  def test_brief_header_leaves_the_callers_context_as_it_found_it
+    before = client.current_context
+    refute_equal RpmsRpc::Patient::CWAD_CONTEXT, before,
+                 "precondition: session must start off #{RpmsRpc::Patient::CWAD_CONTEXT.inspect}"
+    assert_equal RpmsRpc::CiaClient::SIGNON_CONTEXT, before
+    RpmsRpc::Patient.brief_header(DEMO_ONE[:dfn])
+    assert_equal before, client.current_context
   end
 
   # -- contact (DDR GETS ENTRY DATA, #2 .131/.132/.134, #9000001 1801/1802) ---

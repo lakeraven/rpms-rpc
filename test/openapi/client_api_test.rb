@@ -39,7 +39,7 @@ class OpenApiClientApiTest < Minitest::Test
   def test_reads
     assert_equal "GET /patients/{dfn}", at(method("Patient", "find", req("dfn")))
     assert_equal "GET /patients/{dfn}/procedures", at(method("Procedure", "for_patient", req("dfn")))
-    assert_equal "GET /patients/{dfn}/brief-header", at(method("Patient", "brief_header", req("dfn")))
+    assert_equal "GET /patients/{dfn}/allergies/assessment", at(method("Allergy", "assessment", req("dfn")))
     assert_equal "GET /patients/{dfn}/problems/{ien}", at(method("Problem", "details", req("dfn", "ien")))
     assert_equal "GET /problems/{ien}/audit-history", at(method("Problem", "audit_history", req("ien")))
     assert_equal "GET /visits/{visit_ien}/measurements", at(method("Measurement", "for_visit", req("visit_ien")))
@@ -120,6 +120,10 @@ class OpenApiClientApiTest < Minitest::Test
     retry_table = RpmsRpc::RetrySafety.table.merge({ method_key(m) => :non_idempotent_write })
     assert_equal "POST /progress-notes/{note_ien}/synthetic-inquiries/authorize", at(m, retry_table: retry_table)
     assert_equal "retry-class", catalog_rule(m, retry_table: retry_table)
+    # brief_header binds ContextScope; retry_safety.yml classifies it non_idempotent_write (#520).
+    m_bh = method("Patient", "brief_header", req("dfn"))
+    assert_equal "POST /patients/{dfn}/brief-header", at(m_bh)
+    assert_equal "retry-class", catalog_rule(m_bh)
   end
 
   def test_only_rpc_backed_methods_become_operations_and_a_clash_is_refused

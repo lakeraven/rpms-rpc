@@ -183,7 +183,7 @@ When the first identifier is a patient, a user or a progress note, or names the 
 | delete | DELETE | delete, remove | the item |
 | action | POST | authenticate, cancel, checkin, complete, generate, inactivate, init, lock, mark, open, print, send, sign, uncancel, unlock, validate, verify | `POST /referrals/{ien}/cancel` |
 | predicate | GET | a name ending in `?` | `expired?` is `GET /orders/{order_ien}/expired` |
-| noun | GET | any other first word | a sub-resource: `GET /patients/{dfn}/brief-header` |
+| noun | GET | any other first word | a sub-resource: `GET /patients/{dfn}/allergies/assessment` |
 | retry-class | POST | an inferred GET published as POST | the same path, when the retry class is not `:read`, and when a name has no verb word and no retry row. The unchecked names frozen in `data/openapi/write_class_get_baseline.txt` keep the inferred GET; the list may only shrink, and only when a method's retry class is verified `:read` |
 
 A method name with no verb word infers GET, unlike an RPC name (POST). With no retry row it is published POST at that inferred path, so the remaining words stay and two nouns in one module do not collide. A named verb with no retry row keeps its inferred verb. A `:read` method keeps the inferred verb, path and rule.

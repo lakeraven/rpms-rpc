@@ -138,10 +138,9 @@ class ReadCallFormalsTest < Minitest::Test
   end
 
   # PTINFO(DATA,DFN,SLCT)^BEHOPTCX (BEHOPTCX.m:7), GETBDP(RET,DFN)^BEHOPTPC
-  # (BEHOPTPC.m:73), CWAD(DATA,DFN)^BEHOCACV (BEHOCACV.m:22). The fetch
-  # frames already carried the DFN; the frames that died were the
-  # capability probe's, which sent NO parameters. Every frame for these
-  # three RPCs now carries a DFN.
+  # (BEHOPTPC.m:73), CWAD(Y,DFN)^ORWPT (ORWPT.m). The fetch frames already
+  # carried the DFN; the frames that died were the capability probe's, which
+  # sent NO parameters. Every frame for these three RPCs now carries a DFN.
   def test_brief_header_never_sends_a_beho_frame_without_a_dfn
     RpmsRpc.client.seed(:patient_ptinfo, DFN, { name: "TESTPATIENT,FIRST", sex: "F", dob_raw: "2860701" })
     RpmsRpc::Patient.brief_header(DFN)
@@ -152,6 +151,8 @@ class ReadCallFormalsTest < Minitest::Test
       assert_match(/\A\d+\z/, call[:params].first.to_s,
                    "#{call[:rpc]} frame has no DFN in P1: #{call[:params].inspect}")
     end
+    assert_equal [ DFN ], params_sent_to("ORWPT CWAD")
+    refute RpmsRpc.client.received_calls.any? { |c| c[:rpc] == "BEHOCACV CWAD" }
   end
 
   # SRCHREF^BMCRPC1(RSLT,PATIENT,REFPRVDR,STRTDATE,ENDDATE,RECNMBR,STATUS)
