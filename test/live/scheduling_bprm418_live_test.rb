@@ -65,7 +65,8 @@ class SchedulingBprm418LiveTest < LiveSpec::Test
 
   def check_in_time(appointment_ien)
     got = RpmsRpc::DdrFileman.gets_entry(file: "9002018.4", iens: "#{appointment_ien},", fields: ".03", flags: "I")
-    return nil if got.nil? || got[:error]
+    refute_nil got, "DDR GETS ENTRY DATA gave no reply for 9002018.4 #{appointment_ien}"
+    refute got[:error], "read failed for 9002018.4 #{appointment_ien}: #{got.inspect}"
 
     internal = got[:fields].dig(".03", :internal).to_s
     internal.empty? ? nil : internal

@@ -19,6 +19,11 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
   SO_MULT = "9000001.93011"
   LEGAL_FILE = "9000001.9201"
 
+  MCR_FILE = "9000003"
+  MCR_ELIG_FILE = "9000003.11"
+  SYNTH_MEDICARE_NUMBER = "LIVESPEC418MCR01"
+  ELIG_FIXED_DATE = Date.new(2019, 6, 1)
+
   def test_set_gender_identity_is_stored_on_the_ihs_patient_sogi_subfiles
     code = first_gender_identity_code_ien
     row_date = Date.today
@@ -26,11 +31,11 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
 
     assert Reg.set_gender_identity(DFN, values: [ code ], other: "live spec", date: row_date)[:success]
 
-    header = subfile_row(GI_FILE, DFN, ".01I;2", row_date)
+    header = subfile_row(GI_FILE, DFN, ".01;2", row_date)
     assert header, "no 9000001.9401 row for #{row_date}"
     assert_equal "live spec", header[:fields].dig("2", :external).to_s.strip
 
-    mult = list_subfile_entries(GI_MULT, "#{header[:ien]},#{DFN},", ".01I")
+    mult = list_subfile_entries(GI_MULT, "#{header[:ien]},#{DFN},", ".01")
     assert_includes mult.map { |e| e[:fields].dig(".01", :internal).to_i }, code
   end
 
@@ -41,9 +46,9 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
 
     assert Reg.set_sexual_orientation(DFN, values: [ code ], date: row_date)[:success]
 
-    header = subfile_row(SO_FILE, DFN, ".01I;2", row_date)
+    header = subfile_row(SO_FILE, DFN, ".01;2", row_date)
     assert header, "no 9000001.9301 row for #{row_date}"
-    mult = list_subfile_entries(SO_MULT, "#{header[:ien]},#{DFN},", ".01I")
+    mult = list_subfile_entries(SO_MULT, "#{header[:ien]},#{DFN},", ".01")
     assert_includes mult.map { |e| e[:fields].dig(".01", :internal).to_i }, code
   end
 
@@ -54,7 +59,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
 
     assert Reg.set_legal_sex(DFN, sex: "X", source: source, date: row_date)[:success]
 
-    got = subfile_row(LEGAL_FILE, DFN, ".01I;1;2I", row_date)
+    got = subfile_row(LEGAL_FILE, DFN, ".01;1;2", row_date)
     assert got, "no 9000001.9201 row for #{row_date}"
     assert_equal "X", got[:fields].dig("1", :internal)
     assert_equal source.to_s, got[:fields].dig("2", :internal)
@@ -74,15 +79,47 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
 
   def test_set_sex_is_not_supported_and_leaves_sex_and_eligibility_unchanged
     patient_sex = read_field("2", "#{DFN},", ".02", "I")
-    elig_sex = read_field("9000003.11", ",#{DFN},", ".08", "I")
+    refute_nil patient_sex
+    refute_empty patient_sex.to_s.strip
 
-    result = Reg.set_sex(DFN, "M")
+    insurer_ien = medicare_insurer_ien
+    suffix_ien = first_medicare_suffix_ien
+    mcr_ien, elig_ien = file_medicare_eligible!(insurer_ien: insurer_ien, suffix_ien: suffix_ien,
+                                                gender: patient_sex)
+    @restore = -> { purge_medicare_eligible(mcr_ien) }
+
+    refute_nil mcr_ien
+    refute_empty mcr_ien.to_s.strip
+    refute_nil elig_ien
+    refute_empty elig_ien.to_s.strip
+
+    mcr_row = RpmsRpc::DdrFileman.gets_entry(file: MCR_FILE, iens: "#{mcr_ien},", fields: ".01;03", flags: "I")
+    refute_nil mcr_row, "DDR GETS ENTRY DATA gave no reply for #{MCR_FILE} #{mcr_ien}"
+    refute mcr_row[:error], "read failed for #{MCR_FILE} #{mcr_ien}: #{mcr_row.inspect}"
+    assert_equal DFN.to_s, mcr_row[:fields].dig(".01", :internal).to_s
+    assert_equal SYNTH_MEDICARE_NUMBER, mcr_row[:fields].dig(".03", :internal).to_s.strip
+
+    elig_sex = read_field(MCR_ELIG_FILE, "#{elig_ien},#{mcr_ien},", ".08", "I")
+    refute_nil elig_sex
+    refute_empty elig_sex.to_s.strip
+    assert_equal patient_sex.to_s, elig_sex.to_s
+
+    attempt = patient_sex.to_s.strip.upcase == "M" ? "F" : "M"
+    result = Reg.set_sex(DFN, attempt)
 
     refute result[:success]
     assert_equal :not_supported, result[:error]
     assert_match(/SEXELIG\^AGUTL/i, result[:message])
-    assert_equal patient_sex, read_field("2", "#{DFN},", ".02", "I")
-    assert_equal elig_sex, read_field("9000003.11", ",#{DFN},", ".08", "I")
+
+    after_patient_sex = read_field("2", "#{DFN},", ".02", "I")
+    refute_nil after_patient_sex
+    refute_empty after_patient_sex.to_s.strip
+    assert_equal patient_sex, after_patient_sex
+
+    after_elig_sex = read_field(MCR_ELIG_FILE, "#{elig_ien},#{mcr_ien},", ".08", "I")
+    refute_nil after_elig_sex
+    refute_empty after_elig_sex.to_s.strip
+    assert_equal elig_sex, after_elig_sex
   end
 
   def teardown
@@ -183,5 +220,56 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     listed[:entries].each do |e|
       RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: [ { file: file, field: ".01", iens: "#{e[:ien]},#{dfn},", value: "@" } ])
     end
+  end
+
+  def medicare_insurer_ien
+    listed = RpmsRpc::DdrFileman.lister(file: "9999999.18", fields: ".01", flags: "IP")
+    refute_nil listed, "DDR LISTER gave no reply for #9999999.18"
+    refute listed[:error], "DDR LISTER failed for #9999999.18"
+    refute_empty listed[:entries], "no #9999999.18 insurer entries"
+
+    entry = listed[:entries].find { |e| e[:pieces].first.to_s.upcase.start_with?("MEDICARE") }
+    refute_nil entry, "no MEDICARE insurer in #9999999.18: #{listed[:entries].map { |e| e[:pieces].first }.inspect}"
+    entry[:ien]
+  end
+
+  def first_medicare_suffix_ien
+    listed = RpmsRpc::DdrFileman.lister(file: "9999999.32", fields: ".01", flags: "IP", max: 5)
+    refute_nil listed, "DDR LISTER gave no reply for #9999999.32"
+    refute listed[:error], "DDR LISTER failed for #9999999.32"
+    refute_empty listed[:entries], "no #9999999.32 suffix entries"
+    listed[:entries].first[:ien]
+  end
+
+  def file_medicare_eligible!(insurer_ien:, suffix_ien:, gender:)
+    parent_rows = {
+      ".01" => DFN.to_s,
+      ".02" => insurer_ien.to_s,
+      ".03" => SYNTH_MEDICARE_NUMBER,
+      ".04" => suffix_ien.to_s
+    }.map do |field, value|
+      { file: MCR_FILE, field: field, iens: "+1,", value: value }
+    end
+    parent = RpmsRpc::DdrFileman.filer(mode: "ADD", rows: parent_rows)
+    flunk "DDR FILER could not file #{MCR_FILE}: #{parent.inspect}" unless parent&.dig(:success)
+
+    mcr_ien = parent[:iens].fetch(1)
+    elig_iens = "+2,#{mcr_ien},"
+    elig_rows = {
+      ".01" => fm(ELIG_FIXED_DATE),
+      ".03" => "A",
+      ".08" => gender.to_s
+    }.map do |field, value|
+      { file: MCR_ELIG_FILE, field: field, iens: elig_iens, value: value }
+    end
+    elig = RpmsRpc::DdrFileman.filer(mode: "ADD", rows: elig_rows)
+    flunk "DDR FILER could not file #{MCR_ELIG_FILE}: #{elig.inspect}" unless elig&.dig(:success)
+
+    [ mcr_ien, elig[:iens].fetch(2) ]
+  end
+
+  def purge_medicare_eligible(mcr_ien)
+    RpmsRpc::DdrFileman.filer(mode: "EDIT",
+                              rows: [ { file: MCR_FILE, field: ".01", iens: "#{mcr_ien},", value: "@" } ])
   end
 end
