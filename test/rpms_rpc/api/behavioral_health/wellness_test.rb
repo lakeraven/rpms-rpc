@@ -351,8 +351,8 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
   def test_save_screening_refuses_when_visit_lock_fails_without_write_rpc
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
-    seed_visit_lock(RECORD_IEN, acquired: false)
     seed_pre_edit_visit_gets(RECORD_IEN, PATIENT, BASELINE_INTERNAL)
+    seed_visit_lock(RECORD_IEN, acquired: false)
     seed_provider_exists(PROVIDER)
 
     err = assert_raises(save_error_class) do
@@ -363,8 +363,8 @@ class BehavioralHealthWellnessTest < Minitest::Test
   end
 
   def test_save_measurements_refuses_when_visit_lock_fails_without_write_rpc
-    seed_visit_lock(RECORD_IEN, acquired: false)
     seed_pre_edit_visit_gets(RECORD_IEN, PATIENT, BASELINE_INTERNAL)
+    seed_visit_lock(RECORD_IEN, acquired: false)
     seed_provider_exists(PROVIDER)
 
     assert_raises(save_error_class) do
