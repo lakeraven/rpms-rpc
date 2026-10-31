@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — SOGI and MBI through DDR, holiday maintenance, and undo check-in (#418)
+
+- `Registration.set_gender_identity`, `set_sexual_orientation`, `set_legal_sex`, and `add_mbi` file through DDR FILER under `CIAV VUECENTRIC`. `Registration.mbis` reads `#9000001.44` through DDR LISTER and raises `Client::RpcError` when that read fails. `set_sex`, `set_insurance_billing_order`, and `insurance_in_use` return `{ success: false, error: :not_supported }` and send no RPC.
+- `Scheduling.undo_checkin` calls `BSDX CHECKIN APPOINTMENT` with check-in time `@`, which is how `CANCHKIN^BSDX25` clears a check-in. `SchedulingSetup.add_holiday` and `remove_holiday` maintain HOLIDAY (`#40.5`) through DDR FILER. A missing holiday is `:not_found` and does not file.
+- DDR FILER writes the internal fields and does not run the M tag's code translation, defaults, or cross-file updates. FileMan xrefs on those fields still fire. `Registration.update(dfn, sex:)` still goes through AGG UPDATE PATIENT and files `#2` `.02` without `SEXELIG^AGUTL`. See `docs/REGISTRATION_SCHEDULING_WRITES.md`.
+
 ### Changed — `ProgressNote.update_text` wraps long lines before TIU SET DOCUMENT TEXT (#479)
 
 - A line longer than `wrap_width` bytes (default `ProgressNote::WRAP_WIDTH`, 80; an Integer from 4 to 999) is cut into consecutive `TIUX("TEXT",n,0)` pieces. The break is the last space or tab past the leading indentation and at a byte offset within the width; that one character is dropped. Otherwise the cut is the last UTF-8 character boundary within the width and nothing is dropped. Lines that fit, including blank lines, are unchanged. **This changes how the note is laid out in the chart.** Rejoining the pieces with the dropped character restores the line. Joined with a single space, a tab at a cut reads back as a space, and a space or tab cut at the very end of a line is dropped. Non-whitespace is never dropped or changed. Indentation is not repeated on continuation pieces; an indent wider than the width is itself hard-cut.
