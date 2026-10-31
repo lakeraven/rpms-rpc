@@ -5,28 +5,17 @@ require "rpms_rpc/cia_client"
 require "rpms_rpc/version"
 require "rpms_rpc/api/authentication"
 
-# Authentication.held_keys asks CIAVCXUS HASKEYS which of the named security
-# keys the signed-on user holds (rpms-rpc#318).
-#
-# The routine (VueCentric Framework/Routines/CIAVCXUS.m:14-18):
-#
-#   HASKEYS(DATA,KEYS) ;EP
-#    N PC
-#    S DATA=""
-#    F PC=1:1:$L(KEYS,U) S $P(DATA,U,PC)=$$HASKEY($P(KEYS,U,PC))
-#    Q
-#
-# One actual, KEYS, the names joined with "^" (registry formals: DATA,KEYS;
-# SINGLE VALUE). The reply is one line holding one 0/1 per name, in order;
-# HASKEY (CIAVCXUS.m:8-12) answers ''$D(^XUSEC(KEY,+USR)) for USR=DUZ, the
-# signed-on user.
+# Authentication.held_keys asks ORWU NPHASKEY once per named security key for
+# the signed-on DUZ, with OR CPRS GUI CHART bound for the batch (rpms-rpc#521).
 class RpmsRpc::AuthenticationHeldKeysTest < Minitest::Test
   EOD = RpmsRpc::Client::EOD
 
-  # The live question and reply on bcer-9.0 YottaDB over CIA, 2026-10-02,
-  # signed on as a user holding the first four keys (#318).
-  ASKED = %w[AGZMENU SDZSUP SDZMENU AGZVIEWSSN NOSUCHKEY].freeze
-  LIVE_REPLY = "1^1^1^1^0"
+  SYNTHETIC_DUZ = "900001"
+  START_CONTEXT = "CIAV VUECENTRIC"
+  HELD_CONTEXT = "OR CPRS GUI CHART"
+
+  ASKED = %w[SYNKEYA SYNKEYB SYNKEYC SYNKEYD SYNKEYNOSUCH].freeze
+  HELD_FLAGS = %w[1 1 1 1 0].freeze
 
   class FakeSocket
     attr_reader :writes
@@ -52,6 +41,8 @@ class RpmsRpc::AuthenticationHeldKeysTest < Minitest::Test
     c.instance_variable_set(:@timeout, 1)
     c.instance_variable_set(:@seq, 0)
     c.instance_variable_set(:@session_uid, "1")
+    c.set_authenticated(SYNTHETIC_DUZ)
+    c.create_context(START_CONTEXT)
     c
   end
 
@@ -59,63 +50,104 @@ class RpmsRpc::AuthenticationHeldKeysTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = cia_client(reads) }
   end
 
+  def nphaskey_reads(flags)
+    flags.map { |flag| "1\x00#{flag}#{EOD}" }
+  end
+
   def teardown
     RpmsRpc.reset!
   end
 
-  # AC1: the live reply names the four keys held, in the order asked.
-  def test_the_live_reply_returns_the_keys_held
-    configure([ "1\x00#{LIVE_REPLY}#{EOD}" ])
+  def test_replies_map_to_the_held_subset_in_order
+    configure(nphaskey_reads(HELD_FLAGS))
 
-    assert_equal %w[AGZMENU SDZSUP SDZMENU AGZVIEWSSN], RpmsRpc::Authentication.held_keys(ASKED)
+    assert_equal %w[SYNKEYA SYNKEYB SYNKEYC SYNKEYD], RpmsRpc::Authentication.held_keys(ASKED)
   end
 
-  # AC2: one CIAVCXUS HASKEYS call, the names as ONE "^"-joined actual
-  # (HASKEYS(DATA,KEYS), CIAVCXUS.m:14 pieces KEYS by U).
-  def test_one_call_carries_the_names_joined_with_caret
-    configure([ "1\x00#{LIVE_REPLY}#{EOD}" ])
+  def test_one_orwu_nphaskey_per_non_blank_name_carrying_duz_and_key
+    asked = ASKED.first(2)
+    configure(nphaskey_reads(%w[1 0]))
 
-    RpmsRpc::Authentication.held_keys(ASKED)
+    RpmsRpc::Authentication.held_keys(asked)
 
-    assert_equal 1, @socket.writes.size, "held_keys must ask once, not once per key"
-    frame = @socket.writes.first
-    assert_includes frame, "CIAVCXUS HASKEYS"
-    assert_includes frame, ASKED.join("^")
+    assert_equal 2, @socket.writes.size
+    asked.each_with_index do |name, i|
+      frame = @socket.writes[i]
+      assert_includes frame, "ORWU NPHASKEY", "frame #{i}"
+      refute_includes frame, "CIAVCXUS HASKEYS", "frame #{i}"
+      assert_includes frame, SYNTHETIC_DUZ, "frame #{i}"
+      assert_includes frame, name, "frame #{i}"
+    end
+    refute_includes @socket.writes.first, asked.join("^")
   end
 
-  # AC3: a refusal (SNDERR, CIANBLIS.m:265) is nil, not [], so a consumer can
-  # tell "holds none" from "could not ask".
-  def test_a_refused_call_returns_nil
-    configure([ "1\x01Access denied for remote procedure.#{EOD}" ])
+  # N keys: N ORWU NPHASKEY round trips while OR CPRS GUI CHART is bound, then restore.
+  # Over CIA bind and restore are client-side (CTX on frames), so @socket.writes holds N frames.
+  def test_frame_count_for_n_keys_is_n_nphaskey_plus_bind_and_restore
+    asked = ASKED.first(3)
+    n = asked.size
+    configure(nphaskey_reads(%w[1 1 0]))
 
-    assert_nil RpmsRpc::Authentication.held_keys(ASKED)
+    client = RpmsRpc.client
+    assert_equal START_CONTEXT, client.current_context
+
+    RpmsRpc::Authentication.held_keys(asked)
+
+    nphaskey = @socket.writes.count { |w| w.include?("ORWU NPHASKEY") }
+    assert_equal n, nphaskey
+    refute @socket.writes.any? { |w| w.include?("CIAVCXUS HASKEYS") }
+    assert_equal n, @socket.writes.size,
+                 "for #{n} keys: #{n} ORWU NPHASKEY + 1 bind + 1 restore " \
+                 "(#{n} CIA frame(s); bind and restore do not add separate frames)"
+    assert_equal START_CONTEXT, client.current_context, "caller context is restored afterward"
+    @socket.writes.each do |frame|
+      assert_includes frame, HELD_CONTEXT, "each NPHASKEY runs under OR CPRS GUI CHART"
+    end
   end
 
-  # AC3: no answer at all is nil as well.
-  def test_an_empty_reply_returns_nil
-    configure([ "1\x00#{EOD}" ])
+  def test_a_refused_nphaskey_returns_nil
+    configure([
+      "1\x001#{EOD}",
+      "1\x01Access denied for remote procedure.#{EOD}"
+    ])
 
-    assert_nil RpmsRpc::Authentication.held_keys(ASKED)
+    assert_nil RpmsRpc::Authentication.held_keys(ASKED.first(2))
   end
 
-  # A reply with fewer pieces than names asked cannot be read piecewise
-  # (CIAVCXUS.m:17 sets one piece per name); nil rather than a guess.
-  def test_a_reply_short_of_pieces_returns_nil
-    configure([ "1\x001^1#{EOD}" ])
+  def test_an_empty_nphaskey_reply_returns_nil
+    configure([ "1\x00#{EOD}", "1\x001#{EOD}" ])
 
-    assert_nil RpmsRpc::Authentication.held_keys(ASKED)
+    assert_nil RpmsRpc::Authentication.held_keys(ASKED.first(2))
   end
 
-  # A user who holds none of the keys gets [] (an answer), not nil.
+  def test_an_answer_other_than_0_or_1_returns_nil
+    configure([ "1\x001#{EOD}", "1\x002#{EOD}" ])
+
+    assert_nil RpmsRpc::Authentication.held_keys(ASKED.first(2))
+  end
+
   def test_holding_none_is_an_empty_list
-    configure([ "1\x000^0#{EOD}" ])
+    configure(nphaskey_reads(%w[0 0]))
 
-    assert_equal [], RpmsRpc::Authentication.held_keys(%w[AGZMENU SDZMENU])
+    assert_equal [], RpmsRpc::Authentication.held_keys(%w[SYNKEYA SYNKEYB])
   end
 
-  # AC4: an empty list asks nothing and holds nothing. Blank names are
-  # dropped first: HASKEY answers 1 for an empty KEY (CIAVCXUS.m:9,
-  # Q:'$L(KEY) 1), so sending one would report a key "held".
+  def test_no_signed_on_duz_returns_nil_and_sends_no_nphaskey
+    c = RpmsRpc::CiaClient.new
+    @socket = FakeSocket.new([ "1\x000#{EOD}" ])
+    c.instance_variable_set(:@socket, @socket)
+    c.instance_variable_set(:@connected, true)
+    c.instance_variable_set(:@timeout, 1)
+    c.instance_variable_set(:@seq, 0)
+    c.instance_variable_set(:@session_uid, "1")
+    c.instance_variable_set(:@current_context, START_CONTEXT)
+    RpmsRpc.configure { |cfg| cfg.client = c }
+
+    result = RpmsRpc::Authentication.held_keys([ "SYNKEYA" ])
+    assert_empty @socket.writes, "must not send ORWU NPHASKEY without a signed-on DUZ"
+    assert_nil result
+  end
+
   def test_empty_names_send_nothing
     configure([])
 
@@ -124,14 +156,11 @@ class RpmsRpc::AuthenticationHeldKeysTest < Minitest::Test
     assert_empty @socket.writes
   end
 
-  # A name containing "^" would shift every later piece (CIAVCXUS.m:17), and
-  # one beginning with "@" asks a PARAMETER, not a key (CIAVCXUS.m:11).
-  # Neither is a security key name; refuse before sending.
   def test_names_the_routine_would_misread_are_refused
     configure([])
 
-    assert_raises(ArgumentError) { RpmsRpc::Authentication.held_keys([ "A^B" ]) }
-    assert_raises(ArgumentError) { RpmsRpc::Authentication.held_keys([ "@CIAV DESIGN" ]) }
+    assert_raises(ArgumentError) { RpmsRpc::Authentication.held_keys([ "SYN^KEY" ]) }
+    assert_raises(ArgumentError) { RpmsRpc::Authentication.held_keys([ "@SYN BADKEY" ]) }
     assert_empty @socket.writes
   end
 end
