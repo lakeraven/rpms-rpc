@@ -31,7 +31,12 @@ class BehavioralHealthWellnessTest < Minitest::Test
   PATIENT = "990540"
   OTHER_PATIENT = "990541"
   PROVIDER = "412"
+  RESENT_PROVIDER = "411"
   RECORD_IEN = "8840"
+  PROVIDER_FILE = "200"
+  FILEMAN_CONTEXT = RpmsRpc::Patient::FILEMAN_CONTEXT
+  DDR_GETS = "DDR GETS ENTRY DATA"
+  DDR_LOCK = "DDR LOCK/UNLOCK NODE"
 
   SYNTH_DEPRESSION_COMMENT = "Synthetic depression screening note for spec"
   PHI_COMMENT = "Unique PHI marker xyzzy screening comment"
@@ -95,6 +100,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
   end
 
   def teardown
+    @visit_gets_client = nil
     RpmsRpc.reset!
   end
 
@@ -157,7 +163,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
     assert_equal PROVIDER, pieces[11]
   end
 
-  def test_save_screening_runs_under_amhgrpc_and_restores_the_callers_context
+  def test_save_screening_amhg_write_runs_under_amhgrpc_and_restores_the_callers_context
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
     wire = screening_wire(screenings)
     seed_screening_success(wire, screenings)
@@ -166,6 +172,41 @@ class BehavioralHealthWellnessTest < Minitest::Test
     wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
 
     assert_equal "AMHGRPC", screening_call[:context]
+    assert_equal caller_context, @mock.current_context
+  end
+
+  def test_save_screening_ddr_reads_and_lock_run_under_ciav_vuecentric
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    seed_screening_success(wire, screenings)
+    caller_context = @mock.current_context
+
+    wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+
+    ddr_calls = @mock.received_calls.select { |c| c[:rpc] == DDR_GETS || c[:rpc] == DDR_LOCK }
+    refute_empty ddr_calls
+    ddr_calls.each do |call|
+      assert_equal FILEMAN_CONTEXT, call[:context],
+                   "#{call[:rpc]} must run under #{FILEMAN_CONTEXT.inspect}"
+    end
+    amh_binds = @mock.context_binds.grep("AMHGRPC")
+    refute_empty amh_binds
+    assert_equal caller_context, @mock.current_context
+  end
+
+  def test_save_measurements_ddr_reads_and_lock_run_under_ciav_vuecentric
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    seed_measurements_success(wire, measurements)
+    caller_context = @mock.current_context
+
+    wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+
+    ddr_calls = @mock.received_calls.select { |c| c[:rpc] == DDR_GETS || c[:rpc] == DDR_LOCK }
+    refute_empty ddr_calls
+    ddr_calls.each do |call|
+      assert_equal FILEMAN_CONTEXT, call[:context]
+    end
     assert_equal caller_context, @mock.current_context
   end
 
@@ -308,13 +349,130 @@ class BehavioralHealthWellnessTest < Minitest::Test
     assert_empty screening_calls
   end
 
+  def test_save_screening_refuses_when_visit_lock_fails_without_write_rpc
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    seed_visit_lock(RECORD_IEN, acquired: false)
+    seed_pre_edit_visit_gets(RECORD_IEN, PATIENT, BASELINE_INTERNAL)
+    seed_provider_exists(PROVIDER)
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_match(/lock/i, err.message)
+    assert_empty screening_calls
+  end
+
+  def test_save_measurements_refuses_when_visit_lock_fails_without_write_rpc
+    seed_visit_lock(RECORD_IEN, acquired: false)
+    seed_pre_edit_visit_gets(RECORD_IEN, PATIENT, BASELINE_INTERNAL)
+    seed_provider_exists(PROVIDER)
+
+    assert_raises(save_error_class) do
+      wellness.save_measurements(
+        RECORD_IEN, patient: PATIENT,
+        measurements: [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+      )
+    end
+    assert_empty measurements_calls
+  end
+
+  def test_save_screening_refuses_unknown_provider_without_write_rpc
+    seed_pre_edit_screening(RECORD_IEN, PATIENT)
+    seed_provider_missing(PROVIDER)
+
+    assert_raises(save_error_class) do
+      wellness.save_screening(
+        RECORD_IEN, patient: PATIENT,
+        screenings: { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+      )
+    end
+    assert_empty screening_calls
+  end
+
+  def test_save_measurements_refuses_unknown_provider_without_write_rpc
+    seed_pre_edit_screening(RECORD_IEN, PATIENT)
+    seed_provider_missing(PROVIDER)
+
+    assert_raises(save_error_class) do
+      wellness.save_measurements(
+        RECORD_IEN, patient: PATIENT,
+        measurements: [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+      )
+    end
+    assert_empty measurements_calls
+  end
+
+  def test_save_screening_does_not_revalidate_resent_provider_on_file_200
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    seed_screening_success(wire, screenings)
+
+    wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+
+    refute provider_ddr_calls(RESENT_PROVIDER).any?, "stored alcohol provider must not be read on file 200"
+    assert provider_ddr_calls(PROVIDER).any?, "caller-supplied provider must be verified on file 200"
+    refute_nil screening_call
+  end
+
+  def test_save_screening_refuses_stored_comment_with_replacement_character_without_write
+    bad = BASELINE_INTERNAL.merge("1601" => "Alcohol note \uFFFD unreadable")
+    seed_pre_edit_screening(RECORD_IEN, PATIENT, internal: bad)
+    seed_provider_exists(PROVIDER)
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(
+        RECORD_IEN, patient: PATIENT,
+        screenings: { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+      )
+    end
+    assert_match(/stored screening cannot be resent/i, err.message)
+    assert_empty screening_calls
+  end
+
+  def test_save_screening_unlocks_visit_after_success
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    seed_screening_success(wire, screenings)
+
+    wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+
+    assert_equal 1, lock_calls_for(RECORD_IEN).length
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  end
+
+  def test_save_screening_unlocks_visit_when_readback_raises_save_error
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    post = BASELINE_INTERNAL.merge("1405" => "N")
+    seed_screening_flow(wire, screenings, post_internal: post)
+
+    assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+    refute_nil screening_call
+  end
+
+  def test_save_screening_unlock_failure_does_not_change_success
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    seed_screening_success(wire, screenings)
+    seed_visit_unlock(RECORD_IEN, success: false)
+
+    result = wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+
+    assert_equal RECORD_IEN, result.fetch(:record_ien)
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  end
+
   # --- save_screening post-call failures -------------------------------------
 
   def test_save_screening_raises_on_edit_screening_error_reply
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
     wire = screening_wire(screenings)
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
-    seed_screening_reply(wire, "0~Edit Screening#{RS}#{US}")
+    post = BASELINE_INTERNAL.dup
+    apply_screening_updates_to_internal!(post, screenings)
+    seed_screening_flow(wire, screenings, post_internal: post, reply: "0~Edit Screening#{RS}#{US}")
 
     err = assert_raises(save_error_class) do
       wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
@@ -326,8 +484,9 @@ class BehavioralHealthWellnessTest < Minitest::Test
   def test_save_screening_raises_when_reply_record_ien_differs
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
     wire = screening_wire(screenings)
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
-    seed_screening_reply(wire, screening_success_body("9999"))
+    post = BASELINE_INTERNAL.dup
+    apply_screening_updates_to_internal!(post, screenings)
+    seed_screening_flow(wire, screenings, post_internal: post, reply: screening_success_body("9999"))
 
     err = assert_raises(save_error_class) do
       wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
@@ -338,9 +497,10 @@ class BehavioralHealthWellnessTest < Minitest::Test
   def test_save_screening_raises_on_rpc_m_error_after_call
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
     wire = screening_wire(screenings)
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
-    seed_screening_reply(wire, screening_success_body(RECORD_IEN))
-    wrapper = RpcMErrorOnWellness.new(@mock, RPC_SCREENING)
+    post = BASELINE_INTERNAL.dup
+    apply_screening_updates_to_internal!(post, screenings)
+    seed_screening_flow(wire, screenings, post_internal: post)
+    wrapper = RpcMErrorOnWellness.new(visit_gets_client, RPC_SCREENING)
     RpmsRpc.configure { |c| c.client = wrapper }
 
     err = assert_raises(save_error_class) do
@@ -354,9 +514,10 @@ class BehavioralHealthWellnessTest < Minitest::Test
   def test_save_screening_raises_on_timeout_after_call
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
     wire = screening_wire(screenings)
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
-    seed_screening_reply(wire, screening_success_body(RECORD_IEN))
-    wrapper = TimeoutOnWellness.new(@mock, RPC_SCREENING)
+    post = BASELINE_INTERNAL.dup
+    apply_screening_updates_to_internal!(post, screenings)
+    seed_screening_flow(wire, screenings, post_internal: post)
+    wrapper = TimeoutOnWellness.new(visit_gets_client, RPC_SCREENING)
     RpmsRpc.configure { |c| c.client = wrapper }
 
     err = assert_raises(save_error_class) do
@@ -370,9 +531,8 @@ class BehavioralHealthWellnessTest < Minitest::Test
   def test_save_screening_raises_when_post_readback_does_not_match_sent_values
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
     wire = screening_wire(screenings)
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
-    seed_screening_reply(wire, screening_success_body(RECORD_IEN))
-    seed_post_edit_screening(RECORD_IEN, PATIENT, BASELINE_INTERNAL.merge("1405" => "N"))
+    post = BASELINE_INTERNAL.merge("1405" => "N")
+    seed_screening_flow(wire, screenings, post_internal: post)
 
     err = assert_raises(save_error_class) do
       wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
@@ -469,15 +629,15 @@ class BehavioralHealthWellnessTest < Minitest::Test
   def test_save_measurements_raises_on_add_or_edit_measurement_error_reply
     measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
     wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
-    seed_measurements_reply(wire, "0~Add Measurement#{RS}#{US}")
+    row = [ msr_row(type_code: "PHQ9", value: 14, provider: PROVIDER) ]
+    seed_measurements_flow(wire, measurements, msr_rows: row, reply: "0~Add Measurement#{RS}#{US}")
 
     err = assert_raises(save_error_class) do
       wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
     end
     assert_match(/may have been filed/i, err.message)
 
-    seed_measurements_reply(wire, "0~Edit Measurement#{RS}#{US}")
+    seed_measurements_flow(wire, measurements, msr_rows: row, reply: "0~Edit Measurement#{RS}#{US}")
     err = assert_raises(save_error_class) do
       wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
     end
@@ -487,14 +647,103 @@ class BehavioralHealthWellnessTest < Minitest::Test
   def test_save_measurements_raises_when_readback_missing_sent_type
     measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
     wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
-    seed_measurements_reply(wire, measurements_success_body(RECORD_IEN))
-    seed_msr_read(RECORD_IEN, [])
+    seed_measurements_flow(wire, measurements, msr_rows: [])
 
     err = assert_raises(save_error_class) do
       wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
     end
     assert_match(/may have been filed/i, err.message)
+  end
+
+  def test_save_measurements_raises_when_post_visit_read_shows_patient_mismatch
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    seed_measurements_flow(
+      wire, measurements,
+      post_patient: OTHER_PATIENT,
+      msr_rows: [ msr_row(type_code: "PHQ9", value: 14, provider: PROVIDER) ]
+    )
+
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+    assert_match(/may have been filed/i, err.message)
+    refute_nil measurements_call
+  end
+
+  def test_save_measurements_keeps_unsent_non_integer_measurement_as_string_value
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    seed_measurements_success(
+      wire, measurements,
+      extra_msr_rows: [ msr_row(type_code: "WT", value: "180.5", provider: PROVIDER, type_ien: "502") ]
+    )
+
+    rows = wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+
+    wt = rows.find { |r| r[:type] == "WT" }
+    refute_nil wt
+    assert_equal "180.5", wt[:value]
+    assert_equal 14, rows.find { |r| r[:type] == "PHQ9" }[:value]
+  end
+
+  def test_save_measurements_raises_when_readback_value_differs
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    seed_measurements_flow(
+      wire, measurements,
+      msr_rows: [ msr_row(type_code: "PHQ9", value: 15, provider: PROVIDER) ]
+    )
+
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+    assert_match(/may have been filed/i, err.message)
+  end
+
+  def test_save_measurements_raises_when_readback_provider_differs
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    seed_measurements_flow(
+      wire, measurements,
+      msr_rows: [ msr_row(type_code: "PHQ9", value: 14, provider: "999") ]
+    )
+
+    assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+  end
+
+  def test_save_measurements_raises_when_sent_type_appears_twice_in_readback
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    row = msr_row(type_code: "PHQ9", value: 14, provider: PROVIDER)
+    seed_measurements_flow(wire, measurements, msr_rows: [ row, row ])
+
+    assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+  end
+
+  def test_save_measurements_raises_on_unparseable_msr_readback
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    seed_measurements_flow(wire, measurements, msr_body: "not-a-recordset")
+
+    assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+  end
+
+  def test_save_measurements_unlocks_visit_after_success
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    seed_measurements_success(wire, measurements)
+
+    wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+
+    assert_equal 1, lock_calls_for(RECORD_IEN).length
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
   end
 
   private
@@ -585,28 +834,126 @@ class BehavioralHealthWellnessTest < Minitest::Test
   end
 
   def pre_edit_body(ien, patient, internal:, signed: false)
-    lines = [ "#{BH_VISIT_FILE}^#{ien}^.08^#{patient}^PATIENT,SYNTH" ]
+    patient_ien = internal.fetch(".08", patient)
+    lines = [ "#{BH_VISIT_FILE}^#{ien}^.08^#{patient_ien}^PATIENT,SYNTH" ]
     signed_at = signed ? "3251031.12" : ""
     lines << "#{BH_VISIT_FILE}^#{ien}^1112^#{signed_at}^SIGNED"
     internal.each do |field, value|
-      external = if %w[1401 1403 1405 1407 1409].include?(field)
-                   external_for(field, value)
-                 else
-                   value.to_s
-                 end
+      next if field == ".08"
+
+      external = screening_result_external(field, value)
       lines << "#{BH_VISIT_FILE}^#{ien}^#{field}^#{value}^#{external}"
     end
     "[Data]\n#{lines.join("\n")}"
   end
 
+  def screening_result_external(field, value)
+    return value.to_s unless %w[1401 1403 1405 1407 1409].include?(field)
+
+    external_for(field, value)
+  end
+
+  def visit_ddr_key(ien)
+    ddr_key(file: BH_VISIT_FILE, iens: "#{ien},", fields: PRE_EDIT_FIELDS, flags: PRE_EDIT_FLAGS)
+  end
+
+  def visit_lock_node(rec)
+    "^AMHREC(#{rec})"
+  end
+
+  def seed_visit_lock(rec, acquired: true)
+    param = Ddr.lock_param(node: visit_lock_node(rec), timeout: 5).to_s
+    @mock.seed_scalar(:ddr_lock_unlock_node, param, acquired)
+  end
+
+  def seed_visit_unlock(rec, success: true)
+    param = Ddr.unlock_param(node: visit_lock_node(rec)).to_s
+    @mock.seed_scalar(:ddr_lock_unlock_node, param, success)
+  end
+
+  def provider_ddr_key(ien)
+    ddr_key(file: PROVIDER_FILE, iens: "#{ien},", fields: ".01", flags: "I")
+  end
+
+  def seed_provider_exists(ien, name: "PROVIDER,SYNTH")
+    body = "[Data]\n#{PROVIDER_FILE}^#{ien}^.01^#{name}^#{name}"
+    @mock.seed(:ddr_gets_entry_data, provider_ddr_key(ien), body)
+  end
+
+  def seed_provider_missing(ien)
+    @mock.seed(:ddr_gets_entry_data, provider_ddr_key(ien), "[ERROR]")
+  end
+
+  def provider_ddr_calls(ien)
+    @mock.received_calls.select do |call|
+      next false unless call[:rpc] == DDR_GETS
+
+      param = call[:params].first
+      param.is_a?(Hash) &&
+        param["FILE"] == PROVIDER_FILE &&
+        param["IENS"] == "#{ien}," &&
+        param["FIELDS"] == ".01"
+    end
+  end
+
+  def lock_calls_for(rec)
+    node = visit_lock_node(rec)
+    @mock.received_calls.select do |call|
+      next false unless call[:rpc] == DDR_LOCK
+
+      param = call[:params].first
+      param.is_a?(Hash) && param["NODE"] == node && param["LOCKMODE"] == "1"
+    end
+  end
+
+  def unlock_calls_for(rec)
+    node = visit_lock_node(rec)
+    @mock.received_calls.select do |call|
+      next false unless call[:rpc] == DDR_LOCK
+
+      param = call[:params].first
+      param.is_a?(Hash) && param["NODE"] == node && !param.key?("LOCKMODE")
+    end
+  end
+
+  def visit_gets_client
+    @visit_gets_client || @mock
+  end
+
+  def install_visit_gets_sequence(ien, patient, pre_internal, post_internal, post_patient: patient)
+    key = visit_ddr_key(ien)
+    pre_body = pre_edit_body(ien, patient, internal: pre_internal)
+    post_body = pre_edit_body(ien, post_patient, internal: post_internal)
+    @mock.seed(:ddr_gets_entry_data, key, pre_body)
+    @visit_gets_client = VisitGetsReseedClient.new(@mock, key, [ post_body ])
+    RpmsRpc.configure { |c| c.client = @visit_gets_client }
+  end
+
+  def seed_pre_edit_visit_gets(ien, patient, internal)
+    seed_visit_lock(ien)
+    key = visit_ddr_key(ien)
+    @mock.seed(:ddr_gets_entry_data, key, pre_edit_body(ien, patient, internal: internal))
+  end
+
+  def seed_providers_for_screening_updates(updates)
+    updates.each_value do |attrs|
+      seed_provider_exists(attrs[:provider]) if attrs.key?(:provider)
+    end
+  end
+
+  def seed_providers_for_measurements(measurements)
+    measurements.each { |row| seed_provider_exists(row.fetch(:provider)) }
+  end
+
   def seed_pre_edit_screening(ien, patient, error: false, signed: false, internal: BASELINE_INTERNAL)
-    key = ddr_key(file: BH_VISIT_FILE, iens: "#{ien},", fields: PRE_EDIT_FIELDS, flags: PRE_EDIT_FLAGS)
+    seed_visit_lock(ien)
+    key = visit_ddr_key(ien)
     body = error ? "[ERROR]" : pre_edit_body(ien, patient, internal: internal, signed: signed)
     @mock.seed(:ddr_gets_entry_data, key, body)
   end
 
   def seed_post_edit_screening(ien, patient, internal)
-    key = ddr_key(file: BH_VISIT_FILE, iens: "#{ien},", fields: PRE_EDIT_FIELDS, flags: PRE_EDIT_FLAGS)
+    key = visit_ddr_key(ien)
     @mock.seed(:ddr_gets_entry_data, key, pre_edit_body(ien, patient, internal: internal))
   end
 
@@ -617,9 +964,15 @@ class BehavioralHealthWellnessTest < Minitest::Test
   def seed_screening_success(wire, updates, post_overrides: nil)
     post = BASELINE_INTERNAL.merge(post_overrides || {})
     apply_screening_updates_to_internal!(post, updates)
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
-    seed_screening_reply(wire, screening_success_body(RECORD_IEN))
-    seed_post_edit_screening(RECORD_IEN, PATIENT, post)
+    seed_screening_flow(wire, updates, post_internal: post)
+  end
+
+  def seed_screening_flow(wire, updates, post_internal:, reply: nil)
+    seed_visit_lock(RECORD_IEN)
+    seed_visit_unlock(RECORD_IEN)
+    seed_providers_for_screening_updates(updates)
+    install_visit_gets_sequence(RECORD_IEN, PATIENT, BASELINE_INTERNAL, post_internal)
+    seed_screening_reply(wire, reply || screening_success_body(RECORD_IEN))
   end
 
   def apply_screening_updates_to_internal!(internal, updates)
@@ -651,15 +1004,44 @@ class BehavioralHealthWellnessTest < Minitest::Test
     [ type_ien, type_code, description, value.to_s, provider.to_s, name ].join("^")
   end
 
-  def seed_measurements_success(wire, measurements)
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
-    seed_measurements_reply(wire, measurements_success_body(RECORD_IEN))
-    seed_msr_read(
-      RECORD_IEN,
-      measurements.map do |m|
-        msr_row(type_code: m.fetch(:type), value: m.fetch(:value), provider: m.fetch(:provider))
-      end
+  def seed_measurements_success(wire, measurements, extra_msr_rows: [])
+    rows = measurements.map do |m|
+      msr_row(type_code: m.fetch(:type), value: m.fetch(:value), provider: m.fetch(:provider))
+    end
+    seed_measurements_flow(wire, measurements, msr_rows: rows + extra_msr_rows)
+  end
+
+  def seed_measurements_flow(wire, measurements, msr_rows: nil, msr_body: nil, reply: nil,
+                             post_visit_internal: BASELINE_INTERNAL, post_patient: PATIENT)
+    seed_visit_lock(RECORD_IEN)
+    seed_visit_unlock(RECORD_IEN)
+    seed_providers_for_measurements(measurements)
+    install_visit_gets_sequence(
+      RECORD_IEN, PATIENT, BASELINE_INTERNAL, post_visit_internal, post_patient: post_patient
     )
+    seed_measurements_reply(wire, reply || measurements_success_body(RECORD_IEN))
+    if msr_body
+      @mock.seed_text(:wellness_spec_visit_msr_entry, RECORD_IEN.to_s, msr_body)
+    else
+      seed_msr_read(RECORD_IEN, msr_rows || [])
+    end
+  end
+end
+
+class VisitGetsReseedClient < SimpleDelegator
+  def initialize(delegate, visit_key, post_bodies)
+    super(delegate)
+    @visit_key = visit_key
+    @post_bodies = post_bodies.dup
+  end
+
+  def call_rpc(rpc_name, *params)
+    result = super
+    if rpc_name == "DDR GETS ENTRY DATA" &&
+       params.first.to_s == @visit_key && !@post_bodies.empty?
+      __getobj__.seed(:ddr_gets_entry_data, @visit_key, @post_bodies.shift)
+    end
+    result
   end
 end
 
