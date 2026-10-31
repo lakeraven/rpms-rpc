@@ -27,7 +27,8 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
   def test_set_gender_identity_is_stored_on_the_ihs_patient_sogi_subfiles
     code = pick_code_ien("9999999.104")
     row_date = Date.today
-    @restore = -> { purge_gender_identity_rows }
+    existing = snapshot_subfile_iens(GI_FILE, DFN)
+    @restore = -> { purge_subfile_rows_created_after(GI_FILE, DFN, existing) }
 
     assert Reg.set_gender_identity(DFN, values: [ code ], date: row_date)[:success]
 
@@ -43,7 +44,8 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
   def test_set_gender_identity_stores_other_text_only_for_the_other_code
     other_code = gender_identity_other_code_ien
     row_date = Date.today
-    @restore = -> { purge_gender_identity_rows }
+    existing = snapshot_subfile_iens(GI_FILE, DFN)
+    @restore = -> { purge_subfile_rows_created_after(GI_FILE, DFN, existing) }
 
     assert Reg.set_gender_identity(DFN, values: [ other_code ], other: "live spec", date: row_date)[:success]
 
@@ -56,7 +58,8 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     other_code = gender_identity_other_code_ien
     code = pick_distinct_gi_code_iens(1).first
     row_date = Date.today
-    @restore = -> { purge_gender_identity_rows }
+    existing = snapshot_subfile_iens(GI_FILE, DFN)
+    @restore = -> { purge_subfile_rows_created_after(GI_FILE, DFN, existing) }
 
     assert Reg.set_gender_identity(DFN, values: [ other_code ], other: "live spec", date: row_date)[:success]
     result = Reg.set_gender_identity(DFN, values: [ code ], date: row_date)
@@ -70,7 +73,8 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
 
   def test_set_gender_identity_refuses_an_unknown_code_ien_and_does_not_create_a_date_row
     row_date = Date.today
-    @restore = -> { purge_gender_identity_rows }
+    existing = snapshot_subfile_iens(GI_FILE, DFN)
+    @restore = -> { purge_subfile_rows_created_after(GI_FILE, DFN, existing) }
 
     result = Reg.set_gender_identity(DFN, values: [ 424_242 ], date: row_date)
     refute result[:success]
@@ -87,7 +91,8 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
   def test_set_gender_identity_on_an_existing_date_replaces_prior_values_without_losing_the_row
     a, b, c = pick_distinct_gi_code_iens(3)
     row_date = Date.today
-    @restore = -> { purge_gender_identity_rows }
+    existing = snapshot_subfile_iens(GI_FILE, DFN)
+    @restore = -> { purge_subfile_rows_created_after(GI_FILE, DFN, existing) }
 
     assert Reg.set_gender_identity(DFN, values: [ a, b ], date: row_date)[:success]
 
@@ -111,7 +116,8 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     refute_equal "OTH", code_internal.to_s.strip, "pick a non-OTHER code for this assertion"
 
     row_date = Date.today
-    @restore = -> { purge_gender_identity_rows }
+    existing = snapshot_subfile_iens(GI_FILE, DFN)
+    @restore = -> { purge_subfile_rows_created_after(GI_FILE, DFN, existing) }
 
     result = Reg.set_gender_identity(DFN, values: [ code ], other: "live spec", date: row_date)
     refute result[:success]
@@ -128,7 +134,8 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
   def test_set_sexual_orientation_is_stored_on_the_ihs_patient_sogi_subfiles
     code = pick_code_ien("9999999.103")
     row_date = Date.today
-    @restore = -> { purge_sexual_orientation_rows }
+    existing = snapshot_subfile_iens(SO_FILE, DFN)
+    @restore = -> { purge_subfile_rows_created_after(SO_FILE, DFN, existing) }
 
     assert Reg.set_sexual_orientation(DFN, values: [ code ], date: row_date)[:success]
 
@@ -143,7 +150,8 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
   def test_set_legal_sex_is_stored_on_the_legal_sex_history_subfile
     source = first_legal_sex_source_ien
     row_date = Date.today
-    @restore = -> { purge_legal_sex_rows }
+    existing = snapshot_subfile_iens(LEGAL_FILE, DFN)
+    @restore = -> { purge_subfile_rows_created_after(LEGAL_FILE, DFN, existing) }
 
     assert Reg.set_legal_sex(DFN, sex: "X", source: source, date: row_date)[:success]
 
@@ -154,7 +162,8 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
   end
 
   def test_add_mbi_is_listed_by_mbis
-    @restore = -> { purge_mbi_rows }
+    existing = snapshot_mbi_row_iens
+    @restore = -> { purge_mbi_rows_created_after(existing) }
 
     assert Reg.add_mbi(DFN, mbi: MBI, effective_date: MBI_EFFECTIVE, source: 1)[:success]
 
@@ -166,7 +175,8 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
   end
 
   def test_add_mbi_clears_source_after_a_sourceless_rewrite_on_the_same_effective_date
-    @restore = -> { purge_mbi_rows }
+    existing = snapshot_mbi_row_iens
+    @restore = -> { purge_mbi_rows_created_after(existing) }
 
     assert Reg.add_mbi(DFN, mbi: MBI, effective_date: MBI_EFFECTIVE, source: 1)[:success]
     result = Reg.add_mbi(DFN, mbi: MBI, effective_date: MBI_EFFECTIVE)
@@ -318,35 +328,43 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     flunk "no #9999999.104 entry with CODE OTH"
   end
 
-  def purge_gender_identity_rows
-    purge_dated_subfile(GI_FILE, DFN)
+  def snapshot_subfile_iens(file, dfn)
+    listed = RpmsRpc::DdrFileman.lister(file: file, iens: ",#{dfn},", fields: ".01", flags: "IP")
+    return [] if listed.nil? || listed[:error]
+
+    listed[:entries].map { |e| e[:ien].to_s }
   end
 
-  def purge_sexual_orientation_rows
-    purge_dated_subfile(SO_FILE, DFN)
+  def purge_subfile_rows_created_after(file, dfn, existing_iens)
+    listed = RpmsRpc::DdrFileman.lister(file: file, iens: ",#{dfn},", fields: ".01", flags: "IP")
+    return if listed.nil? || listed[:error]
+
+    listed[:entries].each do |e|
+      ien = e[:ien].to_s
+      next if existing_iens.include?(ien)
+
+      RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: [ { file: file, field: ".01", iens: "#{ien},#{dfn},", value: "@" } ])
+    end
   end
 
-  def purge_legal_sex_rows
-    purge_dated_subfile(LEGAL_FILE, DFN)
+  def snapshot_mbi_row_iens
+    listed = RpmsRpc::DdrFileman.lister(file: "9000001.44", iens: ",#{DFN},", fields: ".01;1", flags: "IP")
+    return [] if listed.nil? || listed[:error]
+
+    listed[:entries].select { |e| e[:pieces]&.last.to_s == MBI }.map { |e| e[:ien].to_s }
   end
 
-  def purge_mbi_rows
+  def purge_mbi_rows_created_after(existing_iens)
     listed = RpmsRpc::DdrFileman.lister(file: "9000001.44", iens: ",#{DFN},", fields: ".01;1", flags: "IP")
     return if listed.nil? || listed[:error]
 
     listed[:entries].each do |e|
       next unless e[:pieces]&.last.to_s == MBI
 
-      RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: [ { file: "9000001.44", field: ".01", iens: "#{e[:ien]},#{DFN},", value: "@" } ])
-    end
-  end
+      ien = e[:ien].to_s
+      next if existing_iens.include?(ien)
 
-  def purge_dated_subfile(file, dfn)
-    listed = RpmsRpc::DdrFileman.lister(file: file, iens: ",#{dfn},", fields: ".01", flags: "IP")
-    return if listed.nil? || listed[:error]
-
-    listed[:entries].each do |e|
-      RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: [ { file: file, field: ".01", iens: "#{e[:ien]},#{dfn},", value: "@" } ])
+      RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: [ { file: "9000001.44", field: ".01", iens: "#{ien},#{DFN},", value: "@" } ])
     end
   end
 

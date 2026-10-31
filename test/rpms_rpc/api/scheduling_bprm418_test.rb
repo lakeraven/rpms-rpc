@@ -77,12 +77,14 @@ class SchedulingBprm418Test < Minitest::Test
   end
 
   def seed_undo_checkin_graph(appt_ien: APPT_IEN, checkin: START_FM, resource: RESOURCE_IEN,
-                              hospital: HOSPITAL_LOC, post_checkin: "")
+                              hospital: HOSPITAL_LOC, post_checkin: "", checkin_rpc: { error: "0" })
     seed_appointment_preflight(appt_ien, checkin: checkin, resource: resource)
     seed_resource_hospital_loc(resource, hospital)
-    RpmsRpc.client.seed(:scheduling_checkin_appointment, appt_ien.to_s, { error: "0" })
+    RpmsRpc.client.seed(:scheduling_checkin_appointment, appt_ien.to_s, checkin_rpc)
     seed_appointment_post_checkin(appt_ien, checkin: post_checkin)
   end
+
+  CANCHKIN_ERR = "Could not locate appointment..."
 
   def ddr_gets_calls
     RpmsRpc.client.received_calls.select { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
@@ -134,6 +136,43 @@ class SchedulingBprm418Test < Minitest::Test
 
     assert_scheduling_failure(result, error: :not_undone)
     refute_nil result[:message]
+  end
+
+  def test_undo_checkin_returns_partial_when_bsdx_fails_but_bsdx_check_in_was_cleared
+    seed_undo_checkin_graph(checkin_rpc: { error: CANCHKIN_ERR }, post_checkin: "")
+
+    result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+
+    assert_scheduling_failure(result, error: :partial)
+    refute_nil result[:message]
+    assert_match(/9002018\.4|BSDX|check.?in/i, result[:message])
+    assert_match(/clinic|#44|appointment check.?in/i, result[:message], result[:message])
+    assert_equal 1, bsdx_checkin_calls.length
+    gets_params = ddr_gets_calls.map { |c| c[:params].first }
+    assert_equal 2, gets_params.count(appointment_post_checkin_gets_param(APPT_IEN)),
+                 "expected a post-failure re-read of #9002018.4 field .03"
+  end
+
+  def test_undo_checkin_returns_the_bsdx_error_when_check_in_time_is_still_set_after_failure
+    seed_undo_checkin_graph(checkin_rpc: { error: CANCHKIN_ERR }, post_checkin: START_FM)
+
+    result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+
+    refute result[:success]
+    assert_equal CANCHKIN_ERR, result[:error]
+    assert_equal 1, bsdx_checkin_calls.length
+  end
+
+  def test_undo_checkin_returns_lookup_failed_when_post_failure_re_read_of_check_in_fails
+    seed_appointment_preflight(APPT_IEN, checkin: START_FM, resource: RESOURCE_IEN)
+    seed_resource_hospital_loc(RESOURCE_IEN, HOSPITAL_LOC)
+    RpmsRpc.client.seed(:scheduling_checkin_appointment, APPT_IEN.to_s, { error: CANCHKIN_ERR })
+    seed_gets(file: "9002018.4", iens: "#{APPT_IEN},", fields: ".03", text: "[ERROR]")
+
+    result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+
+    assert_scheduling_failure(result, error: :lookup_failed)
+    assert_equal 1, bsdx_checkin_calls.length
   end
 
   def test_undo_checkin_returns_not_checked_in_when_check_in_time_is_blank_before_the_rpc

@@ -620,8 +620,18 @@ class SchedulingTest < Minitest::Test
     mock.seed(:scheduling_checkin_appointment, appt_ien.to_s, { error: "0" })
     seed_ddr_gets!(mock, file: "9002018.4", iens: "#{appt_ien},", fields: ".03", text: <<~REPLY.strip)
       [Data]
-      9002018.4^#{appt_ien}^.03^#
+      9002018.4^#{appt_ien}^.03^^
     REPLY
+  end
+
+  def test_undo_checkin_returns_success_when_post_check_in_read_shows_an_empty_field
+    mock = RpmsRpc.mock!
+    seed_empty_bsdx_list_reads!(mock)
+    seed_undo_checkin_bsdx_path!(mock)
+
+    result = RpmsRpc::Scheduling.undo_checkin(501)
+
+    assert result[:success], result.inspect
   end
 
   BSDX_CALLS = {

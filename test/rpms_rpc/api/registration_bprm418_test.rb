@@ -94,6 +94,11 @@ class RegistrationBprm418Test < Minitest::Test
     seed_gets(file: file, iens: "#{ien},", fields: "1", text: "[ERROR]")
   end
 
+  # Live DDR GETS still returns a row for an empty field; "[Data]" alone is malformed.
+  def seed_code_field1_malformed_empty(file, ien)
+    seed_gets(file: file, iens: "#{ien},", fields: "1", text: "[Data]")
+  end
+
   def seed_sogi_codes(code_file, mapping)
     mapping.each { |ien, internal| seed_code_field1(code_file, ien, internal) }
   end
@@ -271,6 +276,24 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_registration_failure(result, error: :lookup_failed)
     assert_no_filer_or_lister
+  end
+
+  def test_set_gender_identity_returns_lookup_failed_when_a_value_code_read_omits_the_field_row
+    seed_code_field1_malformed_empty(GI_CODE_FILE, GI_VALUE_IEN)
+
+    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], date: ROW_DATE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_no_ddr_calls
+  end
+
+  def test_set_gender_identity_returns_lookup_failed_when_other_gate_code_read_omits_the_field_row
+    seed_code_field1_malformed_empty(GI_CODE_FILE, GI_OTHER_IEN)
+
+    result = Reg.set_gender_identity(DFN, values: [ GI_OTHER_IEN ], other: "self-described", date: ROW_DATE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_no_ddr_calls
   end
 
   def test_set_gender_identity_refuses_when_a_value_code_read_returns_error
@@ -451,6 +474,24 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_registration_failure(result, error: :invalid)
     assert_no_filer_or_lister
+  end
+
+  def test_set_sexual_orientation_returns_lookup_failed_when_a_value_code_read_omits_the_field_row
+    seed_code_field1_malformed_empty(SO_CODE_FILE, SO_VALUE_IEN)
+
+    result = Reg.set_sexual_orientation(DFN, values: [ SO_VALUE_IEN ], date: ROW_DATE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_no_ddr_calls
+  end
+
+  def test_set_sexual_orientation_returns_lookup_failed_when_other_gate_code_read_omits_the_field_row
+    seed_code_field1_malformed_empty(SO_CODE_FILE, SO_OTHER_IEN)
+
+    result = Reg.set_sexual_orientation(DFN, values: [ SO_OTHER_IEN ], other: "note", date: ROW_DATE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_no_ddr_calls
   end
 
   def test_set_sexual_orientation_refuses_blank_values_without_rpc
