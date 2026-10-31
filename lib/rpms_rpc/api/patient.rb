@@ -179,7 +179,7 @@ module RpmsRpc
         primary_provider: provider
       }
     end
-    shape :brief_header, resource: "patients", verb: "GET", path: "/patients/{dfn}/brief-header"
+    shape :brief_header, resource: "patients", verb: "POST", path: "/patients/{dfn}/brief-header"
 
     # Patient telecom (FHIR Patient.telecom source) — home / work / cell /
     # other phone + email, read via the registered generic FileMan read
