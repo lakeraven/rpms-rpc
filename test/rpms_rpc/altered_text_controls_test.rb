@@ -9,6 +9,10 @@ require "rpms_rpc/mock_client"
 # keep its flag anyway: the whole blob is treated as altered, never as clean.
 # Every byte string is SYNTHETIC.
 class RpmsRpc::AlteredTextControlsTest < Minitest::Test
+  def teardown
+    RpmsRpc.reset!
+  end
+
   def assess(reply)
     client = Object.new
     client.define_singleton_method(:call_rpc) { |*| reply }
