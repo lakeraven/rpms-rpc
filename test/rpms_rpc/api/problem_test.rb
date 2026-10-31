@@ -285,4 +285,30 @@ class ProblemTest < Minitest::Test
     result = RpmsRpc::Problem.add(DFN, { icd_code: "X" })
     refute result[:success]
   end
+
+  # MockClient round trip (#224 round-3): inactive_icd must serialize piece 13 "#"
+  # so Problem.for_patient reads inactive_icd true and icd_code nil.
+  def test_problem_list_mock_round_trip_inactive_icd_clears_icd_code
+    RpmsRpc.mock! do |m|
+      m.seed(:problem_list, DFN,
+             { ien: "3", description: "Diabetes", status: "A", icd_code: "250.00", inactive_icd: true })
+    end
+
+    row = RpmsRpc::Problem.for_patient(DFN).first
+    refute_nil row
+    assert_equal true, row[:inactive_icd]
+    assert_nil row[:icd_code]
+  end
+
+  def test_problem_list_mock_round_trip_active_icd_keeps_icd_code
+    RpmsRpc.mock! do |m|
+      m.seed(:problem_list, DFN,
+             { ien: "10", description: "Hypertension", status: "A", icd_code: "I10", inactive_icd: false })
+    end
+
+    row = RpmsRpc::Problem.for_patient(DFN).first
+    refute_nil row
+    refute row[:inactive_icd]
+    assert_equal "I10", row[:icd_code]
+  end
 end

@@ -109,6 +109,39 @@ class PatientTest < Minitest::Test
     [ nil, 0, -5 ].each { |dfn| assert_nil RpmsRpc::Patient.brief_header(dfn), dfn.inspect }
   end
 
+  # BEHOCACV CWAD letters map to brief_header allergy_flag / ad_flag (#224 round-3).
+  # Replaces round-2 tests that prefixed CWAD with "5\x00" (pre-CiaClient bytes).
+  class BriefHeaderCwadClient
+    PTINFO = "USER,TEST^M^2850115^XXX-XX-1234^^^^^^^^^^^MRN123^^^^^^^^^PROV,ONE^TEAM^PROV,ONE"
+
+    def initialize(cwad) = @cwad = cwad
+
+    def call_rpc(rpc, *)
+      case rpc
+      when "BEHOPTCX PTINFO" then PTINFO
+      when "BEHOPTPC GETBDP" then ""
+      when "BEHOCACV CWAD" then @cwad
+      else raise "unexpected RPC #{rpc}"
+      end
+    end
+  end
+
+  def test_brief_header_cwad_letters_drive_only_their_own_flags
+    {
+      "A" => { allergy_flag: true, ad_flag: false },
+      "D" => { allergy_flag: false, ad_flag: true },
+      "AD" => { allergy_flag: true, ad_flag: true },
+      "W" => { allergy_flag: false, ad_flag: false },
+      "" => { allergy_flag: false, ad_flag: false }
+    }.each do |cwad, expected|
+      use BriefHeaderCwadClient.new(cwad)
+      header = RpmsRpc::Patient.brief_header(2)
+      refute_nil header, cwad.inspect
+      assert_equal expected[:allergy_flag], header[:allergy_flag], "CWAD #{cwad.inspect} → allergy_flag"
+      assert_equal expected[:ad_flag], header[:ad_flag], "CWAD #{cwad.inspect} → ad_flag"
+    end
+  end
+
   def test_contact_sends_nothing_for_a_blank_or_non_positive_dfn
     use NoWireClient.new
     [ nil, 0, "-5" ].each { |dfn| assert_nil RpmsRpc::Patient.contact(dfn), dfn.inspect }

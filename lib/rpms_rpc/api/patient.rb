@@ -153,6 +153,10 @@ module RpmsRpc
       return nil if ptinfo.nil? && bdp.nil?
 
       cwad = DataMapper.patient_cwad.fetch_scalar(dfn.to_s) || ""
+      # BEHOCACV returns the letter set (C/W/A/D). CiaClient#parse_cia_reply
+      # drops the sequence echo and ack before this scalar arrives, so each
+      # flag is that letter alone.
+      letters = cwad.to_s.chars
       dob  = FilemanDateParser.parse_date(ptinfo && ptinfo[:dob_raw])
       provider = (bdp && bdp[:provider_name]) || (ptinfo && ptinfo[:primary_provider])
 
@@ -162,8 +166,8 @@ module RpmsRpc
         sex:              ptinfo && ptinfo[:sex],
         mrn:              ptinfo && ptinfo[:mrn],
         age:              age_from(dob),
-        allergy_flag:     cwad.to_s.include?("A"),
-        ad_flag:          cwad.to_s.include?("D"),
+        allergy_flag:     letters.include?("A"),
+        ad_flag:          letters.include?("D"),
         primary_provider: provider
       }
     end

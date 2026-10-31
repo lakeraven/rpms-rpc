@@ -4,6 +4,7 @@ require "digest"
 require "yaml"
 require_relative "core"
 require_relative "fileman_date_parser"
+require_relative "wire_capture/evidence"
 
 module RpmsRpc
   # Wire-shape capture + contract checking (issue #189).
@@ -422,13 +423,17 @@ module RpmsRpc
     # capture task stamps them into the fixtures; the contract test then
     # gates mappings against the committed fixtures.
     #
-    # Inputs use only synthetic build-time data (DFN 8 DEMOPATIENT,REG2244 —
-    # registered on the rung by prior evidence work). Public repo: never a
-    # real patient, partner, or tribe.
+    # Inputs use only synthetic build-time data. Chart reads (ORWPT ID INFO,
+    # BEHOPTCX PTINFO, BEHOPTPC GETBDP, BEHOCACV CWAD, ORQQPL LIST, ORQQAL
+    # LIST, ORWPS ACTIVE, ORQQVI VITALS) call seed patient DFN 2, which has
+    # chart data on the pinned build. Other entries stay on DFN 8
+    # DEMOPATIENT,REG2244. Public repo: never a real patient, partner, or tribe.
     CATALOG = [
       CatalogEntry.new(
         rpc: "ORQQVI VITALS", mapping: :vitals, kind: "fields", mode: :live,
-        inputs: [ "8", "2900101", "3991231" ],
+        # Vital.for_patient sends the DFN alone: start and end are optional
+        # and omitted, which FASTVIT reads as all time (ORQQVI.m:74-78).
+        inputs: [ "2" ],
         # FASTVIT, not VITALS. The #8994 registry sends "ORQQVI VITALS" to
         # FASTVIT (.broker_dumps_8994_20260607.txt:565), and FASTVIT's header
         # is "ien^type^RATE^date/time taken" -- value at 2, datetime at 3.
@@ -437,26 +442,39 @@ module RpmsRpc
         # mapping. Citing VITALS here would make `rake wire:capture` overwrite
         # the committed FASTVIT fixture with the other RPC's layout and
         # reintroduce the defect this gate exists to catch.
+        # Pieces 5-7 are the mapping's display, metric conversion, and
+        # qualifiers (ORQQVI.m:180-223, :224) — same positions the :vitals
+        # mapping declares.
         cite: "FASTVIT^ORQQVI (ORQQVI.m:61-84): header 'vital measurement " \
               "ien^vital type^rate^date/time taken'; registry mapping at " \
-              ".broker_dumps_8994_20260607.txt:565 \"ORQQVI VITALS^FASTVIT^ORQQVI\"",
+              ".broker_dumps_8994_20260607.txt:565 \"ORQQVI VITALS^FASTVIT^ORQQVI\"; " \
+              "DISPLAY^METRIC_DISPLAY^QUALIFIERS (ORQQVI.m:180-223, :224)",
         pieces: [
           Piece.new(position: 0, attributes: [ "measurement_ien" ], fileman_type: "integer"),
           Piece.new(position: 1, attributes: [ "type" ]),
           Piece.new(position: 2, attributes: [ "value", "rate" ]),
           Piece.new(position: 3, attributes: [ "recorded_date", "recorded_datetime" ],
-                    fileman_type: "fileman_datetime")
+                    fileman_type: "fileman_datetime"),
+          Piece.new(position: 4, attributes: [ "display" ]),
+          Piece.new(position: 5, attributes: [ "metric_display" ]),
+          Piece.new(position: 6, attributes: [ "qualifiers" ])
         ],
         note: "The mapping this gate exists for: shipped as TYPE^VALUE^UNITS^DATE " \
-              "with green mock tests; the real wire is IEN^TYPE^DATETIME^value."
+              "with green mock tests; FASTVIT's wire is IEN^TYPE^VALUE^DATETIME^" \
+              "DISPLAY^METRIC_DISPLAY^QUALIFIERS."
       ),
       CatalogEntry.new(
         rpc: "ORQQPL LIST", mapping: :problem_list, kind: "fields", mode: :live,
-        inputs: [ "8", "" ],
+        # Problem.for_patient sends STATUS "" (all). LIST^ORQQPL reads STATUS
+        # unconditionally (ORQQPL.m:3-5): "A" active, "I" inactive, "" all.
+        # DFN 2's two problems are active ("A"), so the all-status read has rows.
+        inputs: [ "2", "" ],
         cite: "LIST^ORQQPL (ORQQPL.m:3-18) reorders LIST^GMPLUTL3 rows " \
               "(GMPLUTL3.m:76-99: IEN^STATUS^NARRATIVE^ICD^ONSET^MODIFIED^SC^SP^" \
               "PRIORITY^TRANSCRIBED^SCT-C^SCT-D) as in1^in3^in2^in4^in5^in6^in7^" \
-              "in8^in10^in9^''^DETAIL; '^No problems found.' sentinel line 16",
+              "in8^in10^in9^''^DETAIL; piece 13 '#' alone marks inactive-ICD " \
+              "whatever piece 4 holds (ORQQPL.m:15-16), and $$ICDDX 'Invalid Code' " \
+              "text is never a code; '^No problems found.' sentinel line 16",
         pieces: [
           Piece.new(position: 0, attributes: [ "ien" ], fileman_type: "integer"),
           Piece.new(position: 1, attributes: [ "description", "narrative" ]),
@@ -469,8 +487,37 @@ module RpmsRpc
           Piece.new(position: 8, attributes: [ "transcribed" ]),
           Piece.new(position: 9, attributes: [ "priority" ]),
           Piece.new(position: 10, attributes: [ "reserved" ]),
-          Piece.new(position: 11, attributes: [ "detail_flag" ])
+          Piece.new(position: 11, attributes: [ "detail_flag" ]),
+          # Piece 13. "#" on the inactive-ICD branch (ORQQPL.m:15-16).
+          Piece.new(position: 12, attributes: [ "inactive_icd" ])
         ]
+      ),
+      # Allergy.assessment / for_patient send the DFN only (LIST^ORQQAL).
+      CatalogEntry.new(
+        rpc: "ORQQAL LIST", mapping: :allergy_list, kind: "fields", mode: :live,
+        inputs: [ "2" ],
+        cite: "LIST^ORQQAL (ORQQAL.m:8,14 over EN1^GMRAOR1): ALLERGY_IEN^AGENT^" \
+              "SEVERITY^SIGNS (\";\"-joined — ORQQAL.m:18-21); assessment sentinels " \
+              "ORQQAL.m:12-15",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "ien" ]),
+          Piece.new(position: 1, attributes: [ "allergen", "agent" ]),
+          Piece.new(position: 2, attributes: [ "severity" ]),
+          Piece.new(position: 3, attributes: [ "signs" ])
+        ]
+      ),
+      # Medication.active_for_patient sends the DFN only. ACTIVE(LST,DFN):
+      # LST is the broker return array (ORWPS.m:17). The seed has no active
+      # medications, so a capture of this entry is no-data.
+      CatalogEntry.new(
+        rpc: "ORWPS ACTIVE", mapping: :medication_active, kind: "text_blob", mode: :live,
+        inputs: [ "2" ],
+        cite: "ACTIVE^ORWPS (ORWPS.m:17-51): one '~' header per medication " \
+              "(~TYPE^FIELDS, ORWPS.m:45) then instruction lines and 't' comment " \
+              "lines until the next '~' (ORWPS.m:45-48). Text blob — :medication_active " \
+              "does not split caret pieces.",
+        pieces: [],
+        note: "No active medications in the seed. An empty reply is no-data, not a layout."
       ),
       CatalogEntry.new(
         rpc: "ORWPT SELECT", mapping: :patient_select, kind: "fields", mode: :live,
@@ -496,9 +543,10 @@ module RpmsRpc
           Piece.new(position: 15, attributes: [ "treating_specialty" ])
         ]
       ),
+      # Patient.find sends the DFN only (IDINFO^ORWPT).
       CatalogEntry.new(
         rpc: "ORWPT ID INFO", mapping: :patient_id_info, kind: "fields", mode: :live,
-        inputs: [ "8" ],
+        inputs: [ "2" ],
         cite: "IDINFO^ORWPT (ORWPT.m:6-11): header line 7 PID^DOB^SEX^VET^SC%^" \
               "WARD^RM-BED^NAME; REC construction line 10",
         pieces: [
@@ -511,6 +559,43 @@ module RpmsRpc
           Piece.new(position: 6, attributes: [ "room_bed" ]),
           Piece.new(position: 7, attributes: [ "name" ])
         ]
+      ),
+      # Patient.brief_header sends the DFN to each of these three
+      # (PTINFO^BEHOPTCX, GETBDP^BEHOPTPC, CWAD^BEHOCACV).
+      CatalogEntry.new(
+        rpc: "BEHOPTCX PTINFO", mapping: :patient_ptinfo, kind: "fields", mode: :live,
+        inputs: [ "2" ],
+        cite: "PTINFO^BEHOPTCX (BEHOPTCX.m:7-31): NAME^SEX^DOB^SSN^...^MRN^...^" \
+              "DESIGNATED_TEAM^PRIMARY_PROVIDER — 20-piece identity bundle, no .13 data",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "name" ]),
+          Piece.new(position: 1, attributes: [ "sex" ]),
+          Piece.new(position: 2, attributes: [ "dob_raw" ]),
+          Piece.new(position: 3, attributes: [ "ssn" ]),
+          Piece.new(position: 10, attributes: [ "mrn" ]),
+          Piece.new(position: 16, attributes: [ "designated_team" ]),
+          Piece.new(position: 17, attributes: [ "primary_provider" ])
+        ]
+      ),
+      CatalogEntry.new(
+        rpc: "BEHOPTPC GETBDP", mapping: :patient_designated_provider, kind: "fields", mode: :live,
+        inputs: [ "2" ],
+        cite: "GETBDP^BEHOPTPC (BEHOPTPC.m:73): LABEL^PROVIDER_NAME^PROVIDER_IEN^TITLE^DATE",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "label" ]),
+          Piece.new(position: 1, attributes: [ "provider_name" ]),
+          Piece.new(position: 2, attributes: [ "provider_ien" ], fileman_type: "integer"),
+          Piece.new(position: 3, attributes: [ "title" ]),
+          Piece.new(position: 4, attributes: [ "date_raw" ])
+        ],
+        note: "Empty designated provider in the seed. An empty reply is no-data, not a layout."
+      ),
+      CatalogEntry.new(
+        rpc: "BEHOCACV CWAD", mapping: :patient_cwad, kind: "scalar", mode: :live,
+        inputs: [ "2" ],
+        cite: "CWAD^BEHOCACV (BEHOCACV.m:22): one scalar. Letters present mean " \
+              "C=Crises, W=Warnings, A=Allergies, D=Advance Directives; empty means none",
+        pieces: []
       ),
       CatalogEntry.new(
         rpc: "BGOVMSR LAST", mapping: :latest_measurements, kind: "fields", mode: :live,
