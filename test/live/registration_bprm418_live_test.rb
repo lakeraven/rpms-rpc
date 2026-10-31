@@ -192,6 +192,8 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
   end
 
   def test_set_sex_updates_patient_sex_eligibility_gender_and_clears_ssn_verification
+    assert_no_unmanaged_eligibility_rows_for_dfn!
+
     patient_sex = read_field("2", "#{DFN},", ".02", "I")
     refute_nil patient_sex
     refute_empty patient_sex.to_s.strip
@@ -203,7 +205,9 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     insurer_ien = medicare_insurer_ien
     suffix_ien = first_medicare_suffix_ien
     mcr_ien, elig_ien = file_medicare_eligible!(insurer_ien: insurer_ien, suffix_ien: suffix_ien,
-                                                gender: patient_sex)
+                                                gender: patient_sex) do |parent_ien|
+      register_cleanup(-> { purge_medicare_eligible_checked(parent_ien) })
+    end
     refute_nil mcr_ien
     refute_empty mcr_ien.to_s.strip
     refute_nil elig_ien
@@ -212,13 +216,12 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     orig_sex = patient_sex.to_s
     orig_ssn_verification = ssn_verification.to_s
     @restore = lambda do
-      restore_rows = [
+      msg = filer_edit_checked([
         { file: "2", field: ".02", iens: "#{DFN},", value: orig_sex },
         { file: "9000001", field: ".23", iens: "#{DFN},",
           value: ssn_was_blank ? "@" : orig_ssn_verification }
-      ]
-      RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: restore_rows)
-      purge_medicare_eligible(mcr_ien)
+      ])
+      (@restore_failures ||= []) << msg if msg
     end
 
     other_sex = orig_sex.strip.upcase == "M" ? "F" : "M"
@@ -255,12 +258,42 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
   end
 
   def teardown
-    @restore&.call if client
+    failures = []
+    if client
+      @cleanups&.each do |cleanup|
+        result = cleanup.call
+        failures << "cleanup failed: #{result.inspect}" if result.is_a?(Hash) && result[:success] != true
+      rescue StandardError => e
+        failures << e.full_message(highlight: false).strip
+      end
+      if @restore
+        begin
+          @restore.call
+        rescue StandardError => e
+          failures << e.full_message(highlight: false).strip
+        end
+        failures.concat(@restore_failures) if @restore_failures&.any?
+      end
+    end
   ensure
     super
+    flunk("teardown cleanup failures:\n#{failures.join("\n\n")}") unless failures.empty?
   end
 
   private
+
+  def register_cleanup(cleanup)
+    @cleanups ||= []
+    @cleanups << cleanup
+  end
+
+  def filer_edit_checked(rows)
+    result = RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: rows)
+    return "DDR FILER restore gave no reply: #{rows.inspect}" if result.nil?
+    return "DDR FILER restore failed: #{result.inspect}" unless result[:success]
+
+    nil
+  end
 
   Reg = RpmsRpc::Registration
 
@@ -406,6 +439,19 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     listed[:entries].first[:ien]
   end
 
+  def assert_no_unmanaged_eligibility_rows_for_dfn!
+    from = (DFN - 1).to_s
+    %w[9000003 9000004 9000005].each do |file|
+      listed = RpmsRpc::DdrFileman.lister(file: file, fields: "@;.01I", flags: "IP", xref: "B", from: from,
+                                            max: "100")
+      refute_nil listed, "DDR LISTER gave no reply for ##{file} B xref"
+      refute listed[:error], "DDR LISTER failed for ##{file} B xref: #{listed.inspect}"
+      rows = listed[:entries].select { |e| e[:pieces].first.to_s == DFN.to_s }
+      flunk "##{file} already has #{rows.length} B-xref row(s) for DFN #{DFN}; " \
+            "this test only restores rows it creates" if rows.any?
+    end
+  end
+
   def file_medicare_eligible!(insurer_ien:, suffix_ien:, gender:)
     parent_rows = {
       ".01" => DFN.to_s,
@@ -419,6 +465,8 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     flunk "DDR FILER could not file #{MCR_FILE}: #{parent.inspect}" unless parent&.dig(:success)
 
     mcr_ien = parent[:iens].fetch(1)
+    yield mcr_ien if block_given?
+
     elig_iens = "+2,#{mcr_ien},"
     elig_rows = {
       ".01" => fm(ELIG_FIXED_DATE),
@@ -431,6 +479,14 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     flunk "DDR FILER could not file #{MCR_ELIG_FILE}: #{elig.inspect}" unless elig&.dig(:success)
 
     [ mcr_ien, elig[:iens].fetch(2) ]
+  end
+
+  def purge_medicare_eligible_checked(mcr_ien)
+    result = RpmsRpc::DdrFileman.filer(mode: "EDIT",
+                                       rows: [ { file: MCR_FILE, field: ".01", iens: "#{mcr_ien},", value: "@" } ])
+    return result if result.is_a?(Hash)
+
+    flunk "DDR FILER purge of #{MCR_FILE} #{mcr_ien} gave no reply"
   end
 
   def purge_medicare_eligible(mcr_ien)

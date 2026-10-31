@@ -13,6 +13,8 @@ class SchedulingSetupHolidayWritesTest < Minitest::Test
   Ddr = RpmsRpc::DdrFileman
   CONTEXT = "CIAV VUECENTRIC"
 
+  LISTER_REPLY_WITHOUT_DATA_MARKER = "M  ERROR=ZZ+3^AUPN, <UNDEFINED>"
+
   HOLIDAY_DATE = Date.new(2031, 7, 4)
   NAME = "LIVESPEC INDEPENDENCE"
 
@@ -117,5 +119,13 @@ class SchedulingSetupHolidayWritesTest < Minitest::Test
     assert_empty filer_calls
     assert_equal (fm(HOLIDAY_DATE).to_i - 1).to_s, lister_calls.first[:params]["FROM"]
     assert_equal "B", lister_calls.first[:params]["XREF"]
+  end
+
+  def test_remove_holiday_raises_when_lister_omits_the_data_marker
+    @mock.seed(:ddr_lister, remove_holiday_lister_key, LISTER_REPLY_WITHOUT_DATA_MARKER)
+
+    assert_raises(RpmsRpc::Client::RpcError) { Setup.remove_holiday(HOLIDAY_DATE) }
+    assert_equal 1, lister_calls.length
+    assert_empty filer_calls
   end
 end

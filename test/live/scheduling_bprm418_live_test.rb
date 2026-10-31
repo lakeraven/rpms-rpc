@@ -37,6 +37,7 @@ class SchedulingBprm418LiveTest < LiveSpec::Test
     assert_equal HOLIDAY_NAME, row[:name]
 
     assert RpmsRpc::SchedulingSetup.remove_holiday(chosen_date)[:success]
+    @restore = nil
     assert_nil RpmsRpc::SchedulingSetup.holidays(start_date: range.begin, end_date: range.end)
       .find { |h| h[:date] == chosen_date }
   end
@@ -64,7 +65,14 @@ class SchedulingBprm418LiveTest < LiveSpec::Test
     rescue StandardError => e
       failures << e.full_message(highlight: false).strip
     end
-    @restore&.call if client
+    if client && @restore
+      begin
+        result = @restore.call
+        failures << "restore failed: #{result.inspect}" if result.is_a?(Hash) && result[:success] != true
+      rescue StandardError => e
+        failures << e.full_message(highlight: false).strip
+      end
+    end
   ensure
     super
     flunk("teardown cleanup failures:\n#{failures.join("\n\n")}") unless failures.empty?

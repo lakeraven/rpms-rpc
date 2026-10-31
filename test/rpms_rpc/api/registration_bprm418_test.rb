@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "date"
 require "yaml"
 require "rpms_rpc/mock_client"
+require "rpms_rpc/api/agg"
 require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/registration"
 
@@ -12,8 +13,11 @@ require "rpms_rpc/api/registration"
 # RPMS handles only through unreached M routines.
 class RegistrationBprm418Test < Minitest::Test
   Reg = RpmsRpc::Registration
+  Agg = RpmsRpc::Agg
   Ddr = RpmsRpc::DdrFileman
   FM = RpmsRpc::FilemanDateParser
+  LOCK_OK = "I00010RESULT^T00080MESSAGE\x1e1^\x1e\x1f"
+  LISTER_REPLY_WITHOUT_DATA_MARKER = "M  ERROR=ZZ+3^AUPN, <UNDEFINED>"
 
   DFN = 990_042
   CONTEXT = "CIAV VUECENTRIC"
@@ -70,6 +74,32 @@ class RegistrationBprm418Test < Minitest::Test
 
   def rpcs_sent
     @mock.received_calls.map { |c| c[:rpc] }
+  end
+
+  def agg_calls(rpc)
+    @mock.received_calls.select { |c| c[:rpc] == rpc }
+  end
+
+  def seed_agg_lock(dfn: DFN, lock_reply: LOCK_OK, unlock_reply: LOCK_OK)
+    @mock.seed(:agg_lock_patient, dfn.to_s, lock_reply)
+    @mock.seed(:agg_unlock_patient, dfn.to_s, unlock_reply)
+  end
+
+  def assert_agg_unlock_sent(dfn: DFN)
+    unlocks = agg_calls("AGG UNLOCK PATIENT")
+    assert_equal 1, unlocks.length, @mock.received_calls.map { |c| c[:rpc] }.inspect
+    assert_equal dfn.to_s, unlocks.first[:params].first
+  end
+
+  def assert_set_sex_runs_under_agg_lock(dfn: DFN)
+    rpcs = rpcs_sent
+    first_ddr = rpcs.index { |name| name.start_with?("DDR") }
+    assert_equal "AGG LOCK PATIENT", rpcs.first, rpcs.inspect
+    assert_equal "AGG UNLOCK PATIENT", rpcs.last, rpcs.inspect
+    refute_nil first_ddr, "expected at least one DDR RPC under AGG LOCK"
+    assert_operator first_ddr, :>, 0
+    assert_equal dfn.to_s, agg_calls("AGG LOCK PATIENT").first[:params].first
+    assert_agg_unlock_sent(dfn: dfn)
   end
 
   def fm(date) = FM.to_fileman(date)
@@ -151,6 +181,19 @@ class RegistrationBprm418Test < Minitest::Test
 
   def seed_dated_row_lister_failed(file:)
     seed_dated_row_lister(file: file, text: "[Data]\n[Errors]")
+  end
+
+  def seed_dated_row_lister_without_data_marker(file:, text: LISTER_REPLY_WITHOUT_DATA_MARKER)
+    seed_dated_row_lister(file: file, text: text)
+  end
+
+  def seed_eligibility_b_lister_without_data_marker(file:, text: LISTER_REPLY_WITHOUT_DATA_MARKER)
+    @mock.seed(:ddr_lister, eligibility_b_lister_param(file).to_s, text)
+  end
+
+  def seed_eligibility_sub_lister_without_data_marker(file:, parent_ien:, text: LISTER_REPLY_WITHOUT_DATA_MARKER)
+    key = Ddr.lister_param(file: "#{file}.11", iens: ",#{parent_ien},", fields: "@;.01I", flags: "IP").to_s
+    @mock.seed(:ddr_lister, key, text)
   end
 
   def assert_sogi_code_reads_then_dated_row_lister(file:, code_file:, code_iens:)
@@ -255,7 +298,8 @@ class RegistrationBprm418Test < Minitest::Test
     seed_gets(file: "9000001", iens: "#{dfn},", fields: ".01", text: "[Data]")
   end
 
-  def seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1", eligibility: true)
+  def seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1", eligibility: true, lock_reply: LOCK_OK)
+    seed_agg_lock(lock_reply: lock_reply)
     seed_patient_sex_gets(stored_sex)
     seed_ssn_verification_gets(ssn_verification)
     eligibility ? seed_default_eligibility_rows : seed_no_eligibility_rows
@@ -501,12 +545,35 @@ class RegistrationBprm418Test < Minitest::Test
     assert_empty filer_calls
   end
 
+  def test_set_gender_identity_returns_lookup_failed_when_the_date_row_lister_omits_the_data_marker
+    seed_code_field1(GI_CODE_FILE, GI_VALUE_IEN, "ASKU")
+    seed_dated_row_lister_without_data_marker(file: "9000001.9401")
+
+    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], date: ROW_DATE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_empty filer_calls
+  end
+
   def test_set_gender_identity_returns_lookup_failed_when_the_existing_value_list_read_fails
     row_fm = fm(ROW_DATE)
     seed_code_field1(GI_CODE_FILE, GI_VALUE_IEN, "ASKU")
     seed_dated_row_exists(file: "9000001.9401", row_fm: row_fm)
     key = Ddr.lister_param(file: "9000001.94011", iens: ",#{row_fm},#{DFN},", fields: ".01I", flags: "IP").to_s
     @mock.seed(:ddr_lister, key, "[Data]\n[Errors]")
+
+    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], date: ROW_DATE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_empty filer_calls
+  end
+
+  def test_set_gender_identity_returns_lookup_failed_when_the_existing_value_list_omits_the_data_marker
+    row_fm = fm(ROW_DATE)
+    seed_code_field1(GI_CODE_FILE, GI_VALUE_IEN, "ASKU")
+    seed_dated_row_exists(file: "9000001.9401", row_fm: row_fm)
+    key = Ddr.lister_param(file: "9000001.94011", iens: ",#{row_fm},#{DFN},", fields: ".01I", flags: "IP").to_s
+    @mock.seed(:ddr_lister, key, LISTER_REPLY_WITHOUT_DATA_MARKER)
 
     result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], date: ROW_DATE)
 
@@ -657,6 +724,16 @@ class RegistrationBprm418Test < Minitest::Test
     refute_includes root.values.join("^"), "+1,#{DFN},"
   end
 
+  def test_set_sexual_orientation_returns_lookup_failed_when_the_date_row_lister_omits_the_data_marker
+    seed_code_field1(SO_CODE_FILE, SO_VALUE_IEN, "STR")
+    seed_dated_row_lister_without_data_marker(file: "9000001.9301")
+
+    result = Reg.set_sexual_orientation(DFN, values: [ SO_VALUE_IEN ], date: ROW_DATE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_empty filer_calls
+  end
+
   # -- set_legal_sex ----------------------------------------------------------
 
   def test_set_legal_sex_files_9201_with_dinum_date_sex_source_and_today_entered
@@ -696,6 +773,15 @@ class RegistrationBprm418Test < Minitest::Test
 
   def test_set_legal_sex_returns_lookup_failed_when_the_date_row_read_fails
     seed_dated_row_lister_failed(file: "9000001.9201")
+
+    result = Reg.set_legal_sex(DFN, sex: "X", source: LEGAL_SEX_SOURCE, date: ROW_DATE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_empty filer_calls
+  end
+
+  def test_set_legal_sex_returns_lookup_failed_when_the_date_row_lister_omits_the_data_marker
+    seed_dated_row_lister_without_data_marker(file: "9000001.9201")
 
     result = Reg.set_legal_sex(DFN, sex: "X", source: LEGAL_SEX_SOURCE, date: ROW_DATE)
 
@@ -774,6 +860,15 @@ class RegistrationBprm418Test < Minitest::Test
     assert_empty filer_calls
   end
 
+  def test_add_mbi_returns_lookup_failed_when_the_effective_date_row_lister_omits_the_data_marker
+    seed_dated_row_lister_without_data_marker(file: "9000001.44")
+
+    result = Reg.add_mbi(DFN, mbi: MBI, effective_date: EFFECTIVE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_empty filer_calls
+  end
+
   def test_add_mbi_refuses_an_mbi_that_is_not_eleven_alphanumeric_characters
     result = Reg.add_mbi(DFN, mbi: "TOOSHORT", effective_date: EFFECTIVE)
 
@@ -825,6 +920,14 @@ class RegistrationBprm418Test < Minitest::Test
     assert_raises(RpmsRpc::Client::RpcError) { Reg.mbis(DFN) }
   end
 
+  def test_mbis_raises_when_the_44_list_omits_the_data_marker
+    seed_mbis_patient_gets
+    key = Ddr.lister_param(file: "9000001.44", iens: ",#{DFN},", fields: ".01I;1;2I", flags: "IP").to_s
+    @mock.seed(:ddr_lister, key, LISTER_REPLY_WITHOUT_DATA_MARKER)
+
+    assert_raises(RpmsRpc::Client::RpcError) { Reg.mbis(DFN) }
+  end
+
   def test_mbis_raises_when_9000001_entry_is_missing_and_does_not_list
     seed_mbis_patient_gets_error
 
@@ -857,6 +960,7 @@ class RegistrationBprm418Test < Minitest::Test
     assert_filer_edit_rows(filer_calls[0], "9000001^.23^#{DFN},^@")
     assert_filer_edit_rows(filer_calls[1], "2^.02^#{DFN},^F")
     assert_filer_edit_rows(filer_calls[2], *eligibility_cascade_rows("F"))
+    assert_set_sex_runs_under_agg_lock
   end
 
   def test_set_sex_skips_ssn_clear_when_sex_is_unchanged_but_still_files_patient_and_eligibility
@@ -908,6 +1012,7 @@ class RegistrationBprm418Test < Minitest::Test
   end
 
   def test_set_sex_ignores_b_xref_rows_whose_pointing_field_is_another_dfn
+    seed_agg_lock
     seed_patient_sex_gets("M")
     seed_ssn_verification_gets("")
     seed_eligibility_b_lister(file: "9000003", body: "#{MCR_IEN}^#{OTHER_DFN}\n#{MCR_IEN + 1}^#{DFN}")
@@ -924,40 +1029,50 @@ class RegistrationBprm418Test < Minitest::Test
   end
 
   def test_set_sex_returns_lookup_failed_when_patient_sex_read_gives_no_response
+    seed_agg_lock
+
     result = Reg.set_sex(DFN, "M")
 
     assert_registration_failure(result, error: :lookup_failed)
     assert_empty filer_calls
+    assert_agg_unlock_sent
   end
 
   def test_set_sex_returns_not_found_when_patient_sex_read_returns_error
+    seed_agg_lock
     seed_patient_sex_gets_error
 
     result = Reg.set_sex(DFN, "M")
 
     assert_registration_failure(result, error: :not_found)
     assert_empty filer_calls
+    assert_agg_unlock_sent
   end
 
   def test_set_sex_returns_lookup_failed_when_patient_sex_read_omits_the_field_row
+    seed_agg_lock
     seed_patient_sex_gets_malformed
 
     result = Reg.set_sex(DFN, "M")
 
     assert_registration_failure(result, error: :lookup_failed)
     assert_empty filer_calls
+    assert_agg_unlock_sent
   end
 
   def test_set_sex_returns_lookup_failed_when_ssn_verification_read_gives_no_response
+    seed_agg_lock
     seed_patient_sex_gets("M")
 
     result = Reg.set_sex(DFN, "F")
 
     assert_registration_failure(result, error: :lookup_failed)
     assert_empty filer_calls
+    assert_agg_unlock_sent
   end
 
   def test_set_sex_returns_not_found_when_ssn_verification_read_returns_error
+    seed_agg_lock
     seed_patient_sex_gets("M")
     seed_ssn_verification_gets_error
 
@@ -965,9 +1080,11 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_registration_failure(result, error: :not_found)
     assert_empty filer_calls
+    assert_agg_unlock_sent
   end
 
   def test_set_sex_returns_lookup_failed_when_ssn_verification_read_omits_the_field_row
+    seed_agg_lock
     seed_patient_sex_gets("M")
     seed_ssn_verification_gets_malformed
 
@@ -975,9 +1092,11 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_registration_failure(result, error: :lookup_failed)
     assert_empty filer_calls
+    assert_agg_unlock_sent
   end
 
   def test_set_sex_returns_lookup_failed_when_an_eligibility_b_list_read_fails
+    seed_agg_lock
     seed_patient_sex_gets("M")
     seed_ssn_verification_gets("")
     @mock.seed(:ddr_lister, eligibility_b_lister_param("9000003").to_s, "[Data]\n[Errors]")
@@ -988,9 +1107,42 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_registration_failure(result, error: :lookup_failed)
     assert_empty filer_calls
+    assert_agg_unlock_sent
+  end
+
+  def test_set_sex_returns_lookup_failed_when_an_eligibility_b_list_omits_the_data_marker
+    seed_agg_lock
+    seed_patient_sex_gets("M")
+    seed_ssn_verification_gets("")
+    seed_eligibility_b_lister_without_data_marker(file: "9000003")
+    seed_eligibility_b_lister(file: "9000004", body: "")
+    seed_eligibility_b_lister(file: "9000005", body: "")
+
+    result = Reg.set_sex(DFN, "F")
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_empty filer_calls
+    assert_agg_unlock_sent
+  end
+
+  def test_set_sex_returns_lookup_failed_when_an_eligibility_sub_list_omits_the_data_marker
+    seed_agg_lock
+    seed_patient_sex_gets("M")
+    seed_ssn_verification_gets("")
+    seed_eligibility_b_lister(file: "9000003", body: "#{MCR_IEN}^#{DFN}")
+    seed_eligibility_b_lister(file: "9000004", body: "")
+    seed_eligibility_b_lister(file: "9000005", body: "")
+    seed_eligibility_sub_lister_without_data_marker(file: "9000003", parent_ien: MCR_IEN)
+
+    result = Reg.set_sex(DFN, "F")
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_empty filer_calls
+    assert_agg_unlock_sent
   end
 
   def test_set_sex_returns_lookup_failed_when_an_eligibility_sub_list_has_a_more_line
+    seed_agg_lock
     seed_patient_sex_gets("M")
     seed_ssn_verification_gets("")
     seed_eligibility_b_lister(file: "9000003", body: "#{MCR_IEN}^#{DFN}")
@@ -1003,9 +1155,11 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_registration_failure(result, error: :lookup_failed)
     assert_empty filer_calls
+    assert_agg_unlock_sent
   end
 
   def test_set_sex_returns_lookup_failed_when_eligibility_b_list_is_incomplete
+    seed_agg_lock
     seed_patient_sex_gets("M")
     seed_ssn_verification_gets("")
     last = "99^#{DFN}"
@@ -1019,6 +1173,7 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_registration_failure(result, error: :lookup_failed)
     assert_empty filer_calls
+    assert_agg_unlock_sent
   end
 
   def test_set_sex_returns_filer_failed_when_ssn_clear_is_refused
@@ -1029,6 +1184,7 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_registration_failure(result, error: :filer_failed)
     assert_equal 1, filer_calls.length, filer_calls.inspect
+    assert_agg_unlock_sent
   end
 
   def test_set_sex_returns_filer_failed_when_patient_sex_is_refused_without_a_prior_ssn_clear
@@ -1039,6 +1195,7 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_registration_failure(result, error: :filer_failed)
     assert_equal 1, filer_calls.length, filer_calls.inspect
+    assert_agg_unlock_sent
   end
 
   def test_set_sex_returns_partial_when_patient_sex_is_refused_after_ssn_clear
@@ -1050,6 +1207,7 @@ class RegistrationBprm418Test < Minitest::Test
     assert_registration_failure(result, error: :partial)
     assert_equal 2, filer_calls.length, filer_calls.inspect
     assert_filer_edit_rows(filer_calls[0], "9000001^.23^#{DFN},^@")
+    assert_agg_unlock_sent
   end
 
   def test_set_sex_returns_partial_when_eligibility_cascade_is_refused
@@ -1061,13 +1219,75 @@ class RegistrationBprm418Test < Minitest::Test
     assert_registration_failure(result, error: :partial)
     assert_equal 2, filer_calls.length, filer_calls.inspect
     assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
+    assert_agg_unlock_sent
   end
 
-  def test_set_sex_returns_nil_when_ddr_filer_gives_no_response
+  def test_set_sex_returns_nil_when_the_first_ddr_filer_call_gives_no_response
     seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "", eligibility: false)
     with_ddr_filer_edit_replies([ nil ])
 
     assert_nil Reg.set_sex(DFN, "F")
+    assert_equal 1, filer_calls.length, filer_calls.inspect
+    assert_agg_unlock_sent
+  end
+
+  def test_set_sex_returns_partial_when_patient_sex_filer_gives_no_reply_after_ssn_clear
+    seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1", eligibility: false)
+    with_ddr_filer_edit_replies([ "[Data]", nil ])
+
+    result = Reg.set_sex(DFN, "F")
+
+    assert_registration_failure(result, error: :partial)
+    assert_match(/unknown/i, result[:message].to_s)
+    assert_equal 2, filer_calls.length, filer_calls.inspect
+    assert_filer_edit_rows(filer_calls[0], "9000001^.23^#{DFN},^@")
+    assert_agg_unlock_sent
+  end
+
+  def test_set_sex_returns_partial_when_eligibility_cascade_filer_gives_no_reply
+    seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "", eligibility: true)
+    with_ddr_filer_edit_replies([ "[Data]", nil ])
+
+    result = Reg.set_sex(DFN, "F")
+
+    assert_registration_failure(result, error: :partial)
+    assert_match(/unknown/i, result[:message].to_s)
+    assert_equal 2, filer_calls.length, filer_calls.inspect
+    assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
+    assert_agg_unlock_sent
+  end
+
+  def test_set_sex_returns_lock_failed_without_ddr_when_agg_lock_is_refused
+    seed_set_sex_lookup_baseline(lock_reply: "I00010RESULT^T00080MESSAGE\x1e0^Held by DEMO,USER.\x1e\x1f")
+
+    result = Reg.set_sex(DFN, "F")
+
+    assert_registration_failure(result, error: :lock_failed)
+    assert_match(/DEMO,USER/i, result[:message].to_s)
+    assert_empty filer_calls
+    assert_empty lister_calls
+    assert_empty gets_calls
+    refute_includes rpcs_sent, "AGG UNLOCK PATIENT"
+  end
+
+  def test_set_sex_returns_invalid_dfn_without_ddr_when_agg_lock_rejects_the_patient
+    seed_set_sex_lookup_baseline(lock_reply: "I00010RESULT^T00080MESSAGE\x1e-1^Invalid Patient selected\x1e\x1f")
+
+    result = Reg.set_sex(DFN, "F")
+
+    assert_registration_failure(result, error: :invalid_dfn)
+    assert_empty filer_calls
+    refute_includes rpcs_sent, "AGG UNLOCK PATIENT"
+  end
+
+  def test_set_sex_returns_lock_failed_without_ddr_when_agg_lock_gives_no_reply
+    seed_set_sex_lookup_baseline(lock_reply: "")
+
+    result = Reg.set_sex(DFN, "F")
+
+    assert_registration_failure(result, error: :lock_failed)
+    assert_empty filer_calls
+    refute_includes rpcs_sent, "AGG UNLOCK PATIENT"
   end
 
   def test_set_sex_refuses_invalid_dfn_without_rpc
