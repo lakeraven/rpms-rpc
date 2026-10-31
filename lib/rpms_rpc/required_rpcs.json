@@ -81,6 +81,12 @@
       "AMHG GET PATIENT",
       "AMHG GET SITE PARAMETERS"
     ],
+    "RpmsRpc::BehavioralHealth::Wellness": [
+      "AMHG GET VISIT MSR DATA ENTRY",
+      "AMHG SAVE MEASUREMENTS",
+      "AMHG SAVE SCREENING",
+      "DDR GETS ENTRY DATA"
+    ],
     "RpmsRpc::ClinicalEvent": [
       "ORWPCE GET EDUCATION TOPICS",
       "ORWPCE GET EXAM TYPE",

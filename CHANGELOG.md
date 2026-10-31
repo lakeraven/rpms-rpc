@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `BehavioralHealth::Wellness` files a visit's screenings and measurements (#540)
+
+- `save_screening` reads #9002011 (patient `.08`, signature `1112`, and the fifteen screening fields) and sends `AMHG SAVE SCREENING`: mode `E`, nineteen pipe pieces, external set names for results, and every screening the caller did not name resent from that read. `SCREEN^AMHGEVF` files all fifteen fields with `FILE^DIE("K")`, so an omitted comment or provider is sent blank and clears the field. A supplied comment must be 2 to 245 characters and must not contain a pipe, a caret, or a control character.
+- `save_measurements` sends `AMHG SAVE MEASUREMENTS` in mode `A` (`TYPE~~VALUE~PROV` joined by `*`). Mode `E` would delete measurements the call did not list. Values are integers in the instrument range (PHQ9 and PHQT 0-27, PHQ2 and GAD2 0-6, GAD7 0-21). The read-back is `AMHG GET VISIT MSR DATA ENTRY`, whose BMXIEN column is the measurement-type IEN.
+- Both methods refuse a missing visit, a patient that is not field `.08`, or a non-empty `1112` (the note is signed) before the write. After the write RPC is sent, anything that is not a proven record IEN plus a matching read-back raises `Wellness::SaveError` and says the record may have been filed. `RpcMError`, `TimeoutError`, `ConnectionError`, and other `RpmsRpc::Error`s from the write or the read-back are that same error and keep their cause. Messages do not include comment text.
+
 ### Changed — `ProgressNote.update_text` wraps long lines before TIU SET DOCUMENT TEXT (#479)
 
 - A line longer than `wrap_width` bytes (default `ProgressNote::WRAP_WIDTH`, 80; an Integer from 4 to 999) is cut into consecutive `TIUX("TEXT",n,0)` pieces. The break is the last space or tab past the leading indentation and at a byte offset within the width; that one character is dropped. Otherwise the cut is the last UTF-8 character boundary within the width and nothing is dropped. Lines that fit, including blank lines, are unchanged. **This changes how the note is laid out in the chart.** Rejoining the pieces with the dropped character restores the line. Joined with a single space, a tab at a cut reads back as a space, and a space or tab cut at the very end of a line is dropped. Non-whitespace is never dropped or changed. Indentation is not repeated on continuation pieces; an indent wider than the width is itself hard-cut.
