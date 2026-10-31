@@ -160,6 +160,30 @@ module RpmsRpc
                   zero_ok: true)
     end
 
+    # Undo a check-in — BSDX CHECKIN APPOINTMENT (CHECKIN^BSDX25) with
+    # check-in time "@". CHECKIN treats "@" as clear (BSDX25.m:15,41,59-61)
+    # and calls CANCHKIN^BSDX25 (BSDX25.m:154), which empties 9002018.4 .03
+    # and #44.003 field 309 between BEFORE/AFTER^SDAMEVT. The same 8 formals
+    # as checkin_appointment are sent (BSDX25.m:12). This is the stock RPC
+    # (rpms-rpc#418, resolution 1): CANCHKIN runs, it is not reimplemented.
+    #
+    # A blank, zero, or non-numeric appointment IEN is
+    # { success: false, error: :invalid } and sends no RPC. Otherwise the
+    # result is checkin_appointment's: { success: true }, { success: false,
+    # error: String }, or nil when the broker gives no reply.
+    def undo_checkin(appointment_ien, clinic_code: nil, provider: nil)
+      ien = appointment_ien.to_s
+      unless ien.match?(/\A[1-9]\d*\z/)
+        return { success: false, error: :invalid, message: "a positive appointment IEN is required" }
+      end
+
+      error_write(:scheduling_checkin_appointment,
+                  ien, "@", clinic_code.to_s, provider.to_s,
+                  "", "", "", "",
+                  zero_ok: true)
+    end
+    shape :undo_checkin, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/undo-checkin"
+
     # Mark / clear a no-show — BSDX NOSHOW (NOSHOW^BSDX31 → $$CANCEL^BSDAPI).
     #
     #   no_show: true  => set no-show (default)

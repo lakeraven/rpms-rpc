@@ -9,10 +9,12 @@ module RpmsRpc
   # The site's scheduling setup that decides where an appointment may go: the
   # access types a block can carry, the holidays, and each clinic's booking
   # rules. The BSDX RPCs answer none of these (the scheduling client read them
-  # with BMX SQL), so they are read here with the generic FileMan reads DDR
-  # LISTER (LISTC^DDR) and DDR GETS ENTRY DATA (GETSC^DDR2). Those are in CIAV
-  # VUECENTRIC, not BSDXRPC, and each method binds it for the call and restores
-  # the caller's option afterward. Every method only reads.
+  # with BMX SQL). Reads use DDR LISTER (LISTC^DDR) and DDR GETS ENTRY DATA
+  # (GETSC^DDR2). Holiday add and remove use DDR FILER (FILEC^DDR3): the only
+  # writer of HOLIDAY (#40.5) is the interactive GO^SDHOL, and no #8994 entry
+  # reaches it (rpms-rpc#418). Those RPCs are in CIAV VUECENTRIC, not BSDXRPC,
+  # and each method binds it for the call and restores the caller's option
+  # afterward.
   #
   # The reply shapes are what a live rpms-ydb 7c3119b build answered the
   # scheduler persona (2026-10-30).
@@ -40,6 +42,10 @@ module RpmsRpc
     # from the MORE marker.
     PAGE = 100
 
+    # HOLIDAY (#40.5) field 2 NAME. The unit contract refuses a longer name
+    # before any RPC; FileMan would refuse it on the write.
+    HOLIDAY_NAME_MAX = 30
+
     # Every BSDX ACCESS TYPE (#9002018.35) with its .01 ACCESS TYPE NAME, .02
     # INACTIVE and .08 PREVENT ACCESS. A block whose access type prevents access
     # takes no appointment (rpms-ux S-SCH-04.2). An unset flag reads as false.
@@ -64,6 +70,59 @@ module RpmsRpc
       entries.map { |e| { date: FilemanDateParser.parse_date(e[:pieces][0]), name: e[:pieces][1] } }
     end
     shape :holidays, resource: "appointments", verb: "GET", path: "/appointments/holidays"
+
+    # Add a HOLIDAY (#40.5) row. The only writer is the interactive GO^SDHOL
+    # (DIC/DIE); no #8994 entry reaches it (rpms-rpc#418, resolution 2), so
+    # this is DDR FILER ADD (FILEC^DDR3). .01 DATE is DINUM and field 2 is
+    # NAME. The B xref is FileMan's and is maintained on the write. GO^SDHOL's
+    # prompts and any defaults it would stuff are not run. A blank name or a
+    # name over 30 characters is { success: false, error: :invalid } and sends
+    # no RPC. DDR FILER's error text is :filer_failed. nil when FILER gives
+    # no reply.
+    def add_holiday(date:, name:)
+      day = fileman_day(date)
+      return invalid("date must be a Date") unless day
+
+      text = holiday_name(name)
+      return invalid("holiday name must be 1 to 30 characters") unless text
+
+      filed = in_context do
+        DdrFileman.filer(mode: "ADD", rows: [
+          { file: HOLIDAY_FILE, field: ".01", iens: "+1,", value: day },
+          { file: HOLIDAY_FILE, field: "2", iens: "+1,", value: text }
+        ], iens: { 1 => day })
+      end
+      filer_outcome(filed)
+    end
+    shape :add_holiday, resource: "appointments", verb: "POST", path: "/appointments/holiday"
+
+    # Remove the HOLIDAY (#40.5) row for a date. DDR LISTER walks the B xref
+    # (the file's only xref) for that internal date, then DDR FILER EDIT sets
+    # .01 to "@", which is FileMan's delete. GO^SDHOL is not called. A date
+    # with no row is { success: false, error: :not_found } and files nothing.
+    # A failed lookup raises Client::RpcError rather than reporting not-found.
+    def remove_holiday(date)
+      day = fileman_day(date)
+      return invalid("date must be a Date") unless day
+
+      in_context do
+        listed = DdrFileman.lister(file: HOLIDAY_FILE, fields: ".01", flags: "IP", xref: "B", part: day)
+        raise Client::RpcError, "DDR LISTER gave no reply for HOLIDAY #40.5" if listed.nil?
+        raise Client::RpcError, "DDR LISTER refused HOLIDAY #40.5" if listed[:error]
+
+        entry = listed[:entries].first
+        return { success: false, error: :not_found, message: "no holiday on that date" } unless entry
+
+        ien = entry[:ien].to_s
+        raise Client::RpcError, "DDR LISTER returned a holiday row with no IEN" unless ien.match?(/\A[1-9]\d*\z/)
+
+        filed = DdrFileman.filer(mode: "EDIT", rows: [
+          { file: HOLIDAY_FILE, field: ".01", iens: "#{ien},", value: "@" }
+        ])
+        filer_outcome(filed)
+      end
+    end
+    shape :remove_holiday, resource: "appointments", verb: "DELETE", path: "/appointments/holiday"
 
     # One clinic's booking rules from HOSPITAL LOCATION (#44), by its IEN (the
     # hospital_location_id of a Scheduling.resources row). Returns
@@ -146,6 +205,32 @@ module RpmsRpc
 
     def date_or_nil(text)
       text.empty? ? nil : FilemanDateParser.parse_date(text)
+    end
+
+    def fileman_day(value)
+      return unless value.instance_of?(Date)
+
+      FilemanDateParser.to_fileman(value)
+    end
+
+    def holiday_name(value)
+      return unless value.is_a?(String)
+
+      text = value.strip
+      return if text.empty? || text.length > HOLIDAY_NAME_MAX
+
+      text
+    end
+
+    def filer_outcome(filed)
+      return nil if filed.nil?
+      return { success: true } if filed[:success]
+
+      { success: false, error: :filer_failed, message: Array(filed[:errors]).join("\n") }
+    end
+
+    def invalid(message)
+      { success: false, error: :invalid, message: message }
     end
   end
 end

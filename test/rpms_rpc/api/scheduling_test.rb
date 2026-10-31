@@ -605,6 +605,7 @@ class SchedulingTest < Minitest::Test
     cancel_appointment: [ 501, { reason: 3 } ],
     uncancel_appointment: [ 501 ],
     checkin_appointment: [ 501, { checkin_time: START_T } ],
+    undo_checkin: [ 501 ],
     mark_no_show: [ 501 ],
     patient_appointments: [ 100 ],
     availability: [ { resources: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],

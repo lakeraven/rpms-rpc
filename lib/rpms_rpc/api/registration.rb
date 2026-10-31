@@ -2,6 +2,10 @@
 
 require_relative "../mappings"
 require_relative "agg"
+require_relative "../shape"
+require_relative "../context_scope"
+require_relative "../fileman_date_parser"
+require_relative "ddr_fileman"
 
 module RpmsRpc
   # Patient registration on RPMS: delegation to the IHS AG package's own
@@ -60,8 +64,20 @@ module RpmsRpc
   # There is deliberately NO client-side HRN uniqueness/validation in either
   # mode (the PR #212 lineage's D-xref pre-check has been removed as
   # deprecated-by-design per #214).
+  #
+  # ## SOGI, MBI, sex, and insurance (rpms-rpc#418)
+  #
+  # Gender identity, sexual orientation, legal sex, and Medicare Beneficiary
+  # Identifier have no stock RPC. They are filed or read with DDR FILER / DDR
+  # LISTER under CIAV VUECENTRIC. Sex (SEXELIG^AGUTL), insurance billing
+  # order (^AUPNICP via ^AGCAT), and insurance-in-use (USED^AGUTILS) are not
+  # supported: no RPC reaches those routines, and a raw FileMan write is not
+  # what they do. `update(dfn, sex:)` still goes through AGG UPDATE PATIENT,
+  # which files #2 .02 and does not call SEXELIG^AGUTL. See
+  # docs/REGISTRATION_SCHEDULING_WRITES.md.
   module Registration
     extend self
+    extend Shape::Declarable
 
     # HRN assignment mode — see the module doc / rpms-rpc#214.
     HRN_MODE_DERIVE = :derive_from_dfn # greenfield default: HRN := DFN
@@ -103,6 +119,24 @@ module RpmsRpc
     # HRN update stays on "Mini Registration", where it was captured (#214).
     AGG_ADD_WINDOW = Agg::NEW_PATIENT_WINDOW
     AGG_WINDOW = Agg::DEFAULT_WINDOW
+
+    # DDR FILER / DDR LISTER are registered on CIAV VUECENTRIC, the option a
+    # CIA sign-on binds. Same option RpmsRpc::SchedulingSetup uses.
+    CONTEXT = "CIAV VUECENTRIC"
+
+    # IHS PATIENT subfiles the SOGI and MBI tags write with UPDATE^DIE.
+    # .01 on each dated subfile is DINUM (the date). Value multiples point at
+    # the code files (#9999999.104 gender identity, #9999999.103 sexual
+    # orientation). Legal-sex source points at #9000030.
+    GENDER_IDENTITY_FILE = "9000001.9401"
+    GENDER_IDENTITY_VALUE_FILE = "9000001.94011"
+    SEXUAL_ORIENTATION_FILE = "9000001.9301"
+    SEXUAL_ORIENTATION_VALUE_FILE = "9000001.93011"
+    LEGAL_SEX_FILE = "9000001.9201"
+    MBI_FILE = "9000001.44"
+    # #9000001.9201 field 1, the internal set. Names such as MALE are not
+    # translated here: DDR FILER files internal values (DDR3.m:15,18).
+    LEGAL_SEX_CODES = %w[M F X].freeze
 
     # attrs (FileMan-external values unless noted):
     #
@@ -342,6 +376,149 @@ module RpmsRpc
       return { success: false, error: :no_fields, message: "no attributes to update" } if params_by_window.empty?
 
       Agg.editing(dfn: dfn) { update_windows(dfn, params_by_window) }
+    end
+
+    # File a gender-identity row. SETGI^AUPNSOGI reaches SETGI/S9394^AUPNSOG3,
+    # which UPDATE^DIE's #9000001.9401 (.01 DATE, DINUM; 2 OTHER) and
+    # #9000001.94011 (.01 pointer to #9999999.104). No #8994 entry reaches
+    # SETGI (rpms-rpc#418, resolution 2), so this is DDR FILER (FILEC^DDR3,
+    # DDR3.m:14-18) under CIAV VUECENTRIC. FileMan xrefs AGI1/AGI2 still fire.
+    # SETGI's code translation and defaults do not: values are internal IENs,
+    # and an omitted date is today only because this method sends it.
+    #
+    # Returns { success: true }, { success: false, error: :invalid or
+    # :filer_failed, message: }, or nil when DDR FILER gives no reply.
+    # A bad DFN, an empty value list, or a non-integer value sends no RPC.
+    def set_gender_identity(dfn, values:, other: nil, date: Date.today)
+      ready = prepare_sogi(dfn, values: values, other: other, date: date)
+      return ready if ready[:error]
+
+      file_sogi(ready[:dfn], file: GENDER_IDENTITY_FILE, multiple: GENDER_IDENTITY_VALUE_FILE,
+                values: values, other: ready[:other], day: ready[:day])
+    end
+    shape :set_gender_identity, resource: "registrations", verb: "PUT",
+          path: "/patients/{dfn}/registrations/gender-identity"
+
+    # File a sexual-orientation row. SETSO^AUPNSOGI reaches AUPNSOG3, which
+    # UPDATE^DIE's #9000001.9301 and #9000001.93011 (.01 pointer to
+    # #9999999.103). No #8994 entry reaches SETSO (rpms-rpc#418, resolution
+    # 2). Same DDR FILER contract as set_gender_identity. FileMan xrefs
+    # ASO1/ASO2 still fire; SETSO's code translation and defaults do not.
+    def set_sexual_orientation(dfn, values:, other: nil, date: Date.today)
+      ready = prepare_sogi(dfn, values: values, other: other, date: date)
+      return ready if ready[:error]
+
+      file_sogi(ready[:dfn], file: SEXUAL_ORIENTATION_FILE, multiple: SEXUAL_ORIENTATION_VALUE_FILE,
+                values: values, other: ready[:other], day: ready[:day])
+    end
+    shape :set_sexual_orientation, resource: "registrations", verb: "PUT",
+          path: "/patients/{dfn}/registrations/sexual-orientation"
+
+    # File a legal-sex history row. SETLSEX^AUPNSOGI reaches AUPNSOG3:53,
+    # which UPDATE^DIE's #9000001.9201 (.01 EFFECTIVE DATE dinum, 1 LEGAL SEX,
+    # 2 SOURCE pointer to #9000030, 3 DATE ENTERED). No #8994 entry reaches
+    # SETLSEX (rpms-rpc#418, resolution 2), so this is DDR FILER. sex must
+    # already be M, F, or X; source must already be the #9000030 IEN. DATE
+    # ENTERED is the client's today: FILEC^DDR3 does not default it to DT.
+    def set_legal_sex(dfn, sex:, source:, date: Date.today)
+      id = patient_dfn(dfn)
+      return invalid("a positive DFN is required") unless id
+      return invalid("legal sex must be M, F, or X") unless sex.is_a?(String) && LEGAL_SEX_CODES.include?(sex.strip.upcase)
+      return invalid("source must be a positive integer") unless positive_integer?(source)
+
+      day = fileman_day(date)
+      return invalid("date must be a Date") unless day
+
+      root = "+1,#{id},"
+      file_add([
+        { file: LEGAL_SEX_FILE, field: ".01", iens: root, value: day },
+        { file: LEGAL_SEX_FILE, field: "1", iens: root, value: sex.strip.upcase },
+        { file: LEGAL_SEX_FILE, field: "2", iens: root, value: source.to_s },
+        { file: LEGAL_SEX_FILE, field: "3", iens: root, value: FilemanDateParser.to_fileman(Date.today) }
+      ], iens: { 1 => day })
+    end
+    shape :set_legal_sex, resource: "registrations", verb: "PUT",
+          path: "/patients/{dfn}/registrations/legal-sex"
+
+    # File one MBI history row. ADDMBI^AUPNMBI (AUPNMBI.m:6) UPDATE^DIE's
+    # #9000001.44 (.01 EFFECTIVE DATE dinum, 1 MBI uppercased, 2 SOURCE,
+    # 3 DATE ENTERED, 4 ENTERED BY = DUZ). No #8994 entry reaches ADDMBI
+    # (rpms-rpc#418, resolution 2), so this is DDR FILER. Field 1's triggers
+    # and xrefs still fire. Anything else ADDMBI does is not run. The MBI is
+    # uppercased here; DATE ENTERED is the client's today; ENTERED BY is the
+    # signed-on DUZ. source is filed only when given and is not defaulted.
+    # A missing DUZ, or an MBI that is not 11 letters or digits, sends no RPC.
+    def add_mbi(dfn, mbi:, effective_date:, source: nil)
+      id = patient_dfn(dfn)
+      return invalid("a positive DFN is required") unless id
+
+      canonical = canonical_mbi(mbi)
+      return invalid("MBI must be 11 letters or digits") unless canonical
+
+      day = fileman_day(effective_date)
+      return invalid("effective date must be a Date") unless day
+      return invalid("source must be a positive integer") unless source.nil? || positive_integer?(source)
+
+      duz = signed_on_duz
+      return invalid("a signed-on DUZ is required") unless duz
+
+      root = "+1,#{id},"
+      today = FilemanDateParser.to_fileman(Date.today)
+      rows = [
+        { file: MBI_FILE, field: ".01", iens: root, value: day },
+        { file: MBI_FILE, field: "1", iens: root, value: canonical }
+      ]
+      rows << { file: MBI_FILE, field: "2", iens: root, value: source.to_s } unless source.nil?
+      rows << { file: MBI_FILE, field: "3", iens: root, value: today }
+      rows << { file: MBI_FILE, field: "4", iens: root, value: duz }
+      file_add(rows, iens: { 1 => day })
+    end
+    shape :add_mbi, resource: "registrations", verb: "POST", path: "/patients/{dfn}/registrations/mbi"
+
+    # MBI history for one patient. GETMBI/HISTMBI^AUPNMBI have no RPC that
+    # returns the MBI (GETMBI is reached only inside lab-manifest RPCs), so
+    # this reads #9000001.44 with DDR LISTER (LISTC^DDR). A failed read raises
+    # Client::RpcError. An empty subfile is [].
+    #
+    # Returns [{ effective_date: Date, mbi:, source: Integer or nil }].
+    def mbis(dfn)
+      id = patient_dfn(dfn)
+      raise ArgumentError, "a positive DFN is required" unless id
+
+      listed = in_context do
+        DdrFileman.lister(file: MBI_FILE, iens: ",#{id},", fields: ".01I;1;2I", flags: "IP")
+      end
+      raise Client::RpcError, "DDR LISTER gave no reply for #9000001.44" if listed.nil?
+      raise Client::RpcError, "DDR LISTER refused #9000001.44" if listed[:error]
+
+      listed[:entries].map { |entry| mbi_row(entry) }
+    end
+    shape :mbis, resource: "registrations", verb: "GET", path: "/patients/{dfn}/registrations/mbis"
+
+    # Not supported. SEXELIG^AGUTL (AGUTL.m:51) copies #2 .02 into the
+    # MCR/MCD/RRE eligibility sub-files (for example #9000003.11 .08), and
+    # AG2A.m:58-64 clears #9000001 .23. Callers are the roll-and-scroll edit
+    # and a KIDS post-install only. AGG UPDATE PATIENT files #2 .02 and never
+    # reaches SEXELIG, so a DDR write of .02 is not what is done in RPMS.
+    # Sends no RPC.
+    def set_sex(_dfn, _sex)
+      not_supported("Sex is not supported. SEXELIG^AGUTL copies #2 .02 into eligibility " \
+                    "sub-files, and that cascade is not done in RPMS by writing #2 .02.")
+    end
+
+    # Not supported. ^AUPNICP (#9000035) is written by LOADICP/DELICP^AGCAT
+    # and REVERSE^AGED4A2 with DIC/DIK sequencing. No #8994 entry reaches
+    # that writer. Sends no RPC.
+    def set_insurance_billing_order(_dfn, _order)
+      not_supported("Insurance billing order is not supported. ^AUPNICP is written by " \
+                    "LOADICP/DELICP^AGCAT with sequencing no RPC performs.")
+    end
+
+    # Not supported. USED^AGUTILS scans 3PB bills and claims. It is only an
+    # internal guard inside AGG UPDATE MEDICAID; no RPC returns it. Sends no RPC.
+    def insurance_in_use(_dfn)
+      not_supported("Insurance in use is not supported. USED^AGUTILS scans 3PB bills and " \
+                    "claims, and no RPC returns it.")
     end
 
     private
@@ -670,6 +847,101 @@ module RpmsRpc
 
     def present?(value)
       !value.nil? && !value.to_s.strip.empty?
+    end
+
+    def prepare_sogi(dfn, values:, other:, date:)
+      id = patient_dfn(dfn)
+      return invalid("a positive DFN is required") unless id
+      return invalid("values must be a non-empty list of positive integers") unless positive_integers?(values)
+      return invalid("other must be text") unless other.nil? || other.is_a?(String)
+
+      text = other&.strip
+      text = nil if text.nil? || text.empty?
+      day = fileman_day(date)
+      return invalid("date must be a Date") unless day
+
+      { dfn: id, other: text, day: day }
+    end
+
+    def file_sogi(dfn, file:, multiple:, values:, other:, day:)
+      root = "+1,#{dfn},"
+      rows = [ { file: file, field: ".01", iens: root, value: day } ]
+      rows << { file: file, field: "2", iens: root, value: other } if other
+      values.each_with_index do |ien, index|
+        rows << { file: multiple, field: ".01", iens: "+#{index + 2},+1,#{dfn},", value: ien.to_s }
+      end
+      file_add(rows, iens: { 1 => day })
+    end
+
+    def file_add(rows, iens:)
+      filed = in_context { DdrFileman.filer(mode: "ADD", rows: rows, iens: iens) }
+      filer_outcome(filed)
+    end
+
+    def filer_outcome(filed)
+      return nil if filed.nil?
+      return { success: true } if filed[:success]
+
+      { success: false, error: :filer_failed, message: Array(filed[:errors]).join("\n") }
+    end
+
+    def mbi_row(entry)
+      pieces = entry[:pieces] || []
+      date = FilemanDateParser.parse_date(pieces[0])
+      raise Client::RpcError, "DDR LISTER returned an MBI row with an unreadable effective date" unless date
+
+      source = pieces[2]
+      unless source.nil? || source.empty? || source.match?(/\A\d+\z/)
+        raise Client::RpcError, "DDR LISTER returned an MBI row with an unreadable source"
+      end
+
+      { effective_date: date, mbi: pieces[1].to_s, source: (source.nil? || source.empty? ? nil : source.to_i) }
+    end
+
+    def canonical_mbi(value)
+      text = value.to_s
+      return nil unless text.match?(/\A[A-Za-z0-9]{11}\z/)
+
+      text.upcase
+    end
+
+    def signed_on_duz
+      client = RpmsRpc.client
+      return nil unless client.respond_to?(:duz)
+
+      text = client.duz.to_s
+      text.match?(/\A[1-9]\d*\z/) ? text : nil
+    end
+
+    def patient_dfn(dfn)
+      text = dfn.to_s
+      text.match?(/\A[1-9]\d*\z/) ? text : nil
+    end
+
+    def positive_integers?(values)
+      values.is_a?(Array) && !values.empty? && values.all? { |value| positive_integer?(value) }
+    end
+
+    def positive_integer?(value)
+      value.is_a?(Integer) && value.positive?
+    end
+
+    def fileman_day(value)
+      return unless value.instance_of?(Date)
+
+      FilemanDateParser.to_fileman(value)
+    end
+
+    def in_context(&block)
+      ContextScope.scoped(RpmsRpc.client, CONTEXT, &block)
+    end
+
+    def invalid(message)
+      { success: false, error: :invalid, message: message }
+    end
+
+    def not_supported(message)
+      { success: false, error: :not_supported, message: message }
     end
   end
 end

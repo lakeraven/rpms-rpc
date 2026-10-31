@@ -281,7 +281,9 @@
       "AGG LOOKUP PATIENTS",
       "AGG UNLOCK PATIENT",
       "AGG UPDATE PATIENT",
-      "AGG WINDOW DATA VALIDATION"
+      "AGG WINDOW DATA VALIDATION",
+      "DDR FILER",
+      "DDR LISTER"
     ],
     "RpmsRpc::Reminders": [
       "ORQQPXRM REMINDERS APPLICABLE"
@@ -302,6 +304,7 @@
       "BSDX UNCANCEL APPT"
     ],
     "RpmsRpc::SchedulingSetup": [
+      "DDR FILER",
       "DDR GETS ENTRY DATA",
       "DDR LISTER"
     ],

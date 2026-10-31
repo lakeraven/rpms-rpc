@@ -82,6 +82,7 @@ RpmsRpc::Procedure.for_patient	GET /patients/{dfn}/procedures
 RpmsRpc::ProgressNote.authorize	GET /progress-notes/{note_ien}/authorize
 RpmsRpc::ProgressNote.fetch_text	GET /progress-notes/{note_ien}/text
 RpmsRpc::ProgressNote.list	GET /patients/{dfn}/progress-notes
+RpmsRpc::Registration.mbis	GET /patients/{dfn}/registrations/mbis
 RpmsRpc::Reminders.applicable	GET /patients/{dfn}/reminders/applicable
 RpmsRpc::Scheduling.patient_appointments	GET /patients/{dfn}/appointments
 RpmsRpc::Scheduling.resources	GET /appointments/resources
