@@ -283,6 +283,7 @@
       "AGG UPDATE PATIENT",
       "AGG WINDOW DATA VALIDATION",
       "DDR FILER",
+      "DDR GETS ENTRY DATA",
       "DDR LISTER"
     ],
     "RpmsRpc::Reminders": [
@@ -301,7 +302,8 @@
       "BSDX PATIENT APPT DISPLAY",
       "BSDX RESOURCES",
       "BSDX SEARCH AVAILABILITY",
-      "BSDX UNCANCEL APPT"
+      "BSDX UNCANCEL APPT",
+      "DDR GETS ENTRY DATA"
     ],
     "RpmsRpc::SchedulingSetup": [
       "DDR FILER",

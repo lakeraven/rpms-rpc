@@ -4,6 +4,7 @@ require_relative "../mappings"
 require_relative "../context_scope"
 require_relative "agg"
 require_relative "../shape"
+require_relative "ddr_fileman"
 
 module RpmsRpc
   # Symbolic API for RPMS appointment scheduling — the BSDX package (Clinical
@@ -81,14 +82,21 @@ module RpmsRpc
   # restore the caller's option), the way RpmsRpc::Agg does for AGGRPC. A
   # client that cannot scope contexts runs as-is. A programmer-key session
   # bypasses the check either way, so only a non-programmer run is evidence
-  # of this bind.
+  # of this bind. undo_checkin then reads #9002018.4 .03 under CIAV
+  # VUECENTRIC, because DDR GETS ENTRY DATA is not registered on BSDXRPC.
+  # That read runs only after CHECKIN replies "0^".
   module Scheduling
     extend self
     extend Shape::Declarable
 
     # The context option the BSDX RPCs are registered under — see the module
-    # doc. Every method here binds it.
+    # doc. Every method here binds it for its BSDX RPC. undo_checkin's
+    # read-back of #9002018.4 .03 binds DDR_CONTEXT instead: DDR GETS ENTRY
+    # DATA is registered on CIAV VUECENTRIC, not on BSDXRPC.
     CONTEXT = "BSDXRPC"
+    DDR_CONTEXT = "CIAV VUECENTRIC"
+    APPOINTMENT_FILE = "9002018.4"
+    CHECKIN_FIELD = ".03"
 
     # Book an appointment — BSDX ADD NEW APPOINTMENT (APPADD^BSDX07 → $$MAKE^BSDAPI).
     #
@@ -167,20 +175,32 @@ module RpmsRpc
     # as checkin_appointment are sent (BSDX25.m:12). This is the stock RPC
     # (rpms-rpc#418, resolution 1): CANCHKIN runs, it is not reimplemented.
     #
+    # CHECKIN^BSDX25 (BSDX25.m:54) clears the check-in only when the
+    # appointment's RESOURCEID points at a ^BSDXRES entry, and still replies
+    # "0^" when it cleared nothing. After a "0^" reply this method reads
+    # #9002018.4 field .03 (DDR GETS ENTRY DATA, flags "I", under
+    # CIAV VUECENTRIC). An empty .03 is { success: true }. A value still
+    # stored is { success: false, error: :not_undone, message: }. A nil
+    # reply or an error on that read is { success: false, error:
+    # :lookup_failed }.
+    #
     # A blank, zero, or non-numeric appointment IEN is
-    # { success: false, error: :invalid } and sends no RPC. Otherwise the
-    # result is checkin_appointment's: { success: true }, { success: false,
-    # error: String }, or nil when the broker gives no reply.
+    # { success: false, error: :invalid } and sends no RPC. A broker reply
+    # other than success is checkin_appointment's result and does not read
+    # .03. nil when the broker gives no reply to the check-in RPC.
     def undo_checkin(appointment_ien, clinic_code: nil, provider: nil)
       ien = appointment_ien.to_s
       unless ien.match?(/\A[1-9]\d*\z/)
         return { success: false, error: :invalid, message: "a positive appointment IEN is required" }
       end
 
-      error_write(:scheduling_checkin_appointment,
-                  ien, "@", clinic_code.to_s, provider.to_s,
-                  "", "", "", "",
-                  zero_ok: true)
+      written = error_write(:scheduling_checkin_appointment,
+                            ien, "@", clinic_code.to_s, provider.to_s,
+                            "", "", "", "",
+                            zero_ok: true)
+      return written unless written.is_a?(Hash) && written[:success]
+
+      confirm_checkin_cleared(ien)
     end
     shape :undo_checkin, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/undo-checkin"
 
@@ -376,6 +396,23 @@ module RpmsRpc
     # bound). Every wire-reaching path above goes through here.
     def in_context(&block)
       ContextScope.scoped(RpmsRpc.client, CONTEXT, &block)
+    end
+
+    # BSDX25.m:54 replies "0^" whether or not .03 was cleared. The field is
+    # the evidence. DDR GETS ENTRY DATA is on CIAV VUECENTRIC, not BSDXRPC.
+    def confirm_checkin_cleared(ien)
+      read = ContextScope.scoped(RpmsRpc.client, DDR_CONTEXT) do
+        DdrFileman.gets_entry(file: APPOINTMENT_FILE, iens: "#{ien},", fields: CHECKIN_FIELD, flags: "I")
+      end
+      if read.nil? || read[:error]
+        return { success: false, error: :lookup_failed,
+                 message: "DDR GETS ENTRY DATA could not read #9002018.4 field .03" }
+      end
+
+      time = read[:fields].dig(CHECKIN_FIELD, :internal).to_s
+      return { success: true } if time.empty?
+
+      { success: false, error: :not_undone, message: "check-in time is still set on #9002018.4 field .03" }
     end
 
     # For ERRORID-led writes (cancel/uncancel/checkin) where an EMPTY ERRORID
