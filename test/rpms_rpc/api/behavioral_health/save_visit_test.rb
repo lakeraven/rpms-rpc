@@ -40,7 +40,7 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     "#{APPOINTMENT_WITH}|#{COMMUNITY_OF_SERVICE}|#{PATIENT}|#{GROUP_NAME}|#{GROUP_TIME}|1|#{ACTIVITY_TIME}".freeze
 
   WIRE_ADD_REQUIRED_ONLY =
-    "A||#{PROVIDER}||||#{ENCOUNTER.split('.').first}||||#{PATIENT}||||".freeze
+    "A||#{PROVIDER}|||||#{ENCOUNTER.split('.').first}||||#{PATIENT}||||".freeze
 
   WIRE_EDIT_FULL =
     "E|#{RECORD_IEN}|#{PROVIDER}|#{PROGRAM}|#{CLINIC}|#{TYPE_OF_CONTACT}||#{ENCOUNTER}|#{ENCOUNTER_LOCATION}|" \
@@ -87,6 +87,7 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_equal 1, call[:params].length,
                  "AMH rejects multi-actual calls with YDB-E-ACTLSTTOOLONG (#198)"
     assert_equal WIRE_ADD_FULL, call[:params].first
+    assert_equal 16, call[:params].first.split("|", -1).length
     assert_equal RPC, call[:rpc]
   end
 
@@ -94,14 +95,18 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     seed_success(WIRE_ADD_REQUIRED_ONLY, "8803")
     BH.save_visit(**REQUIRED_KWARGS)
 
-    assert_equal WIRE_ADD_REQUIRED_ONLY, save_call[:params].first
+    param = save_call[:params].first
+    assert_equal WIRE_ADD_REQUIRED_ONLY, param
+    assert_equal 16, param.split("|", -1).length
   end
 
   def test_edit_pins_the_exact_sixteen_piece_wire_string
     seed_success(WIRE_EDIT_FULL, RECORD_IEN)
     BH.save_visit(**FULL_KWARGS, record_ien: RECORD_IEN)
 
-    assert_equal WIRE_EDIT_FULL, save_call[:params].first
+    param = save_call[:params].first
+    assert_equal WIRE_EDIT_FULL, param
+    assert_equal 16, param.split("|", -1).length
   end
 
   def test_save_visit_runs_under_amhgrpc_and_restores_the_callers_context

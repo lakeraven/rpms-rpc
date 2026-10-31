@@ -15,13 +15,18 @@ class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
   # Synthetic seed patient; not used by other live write specs (see test/live/*write*).
   DFN = 990_033
   BH_VISIT_FILE = "9002011"
+  BH_PROVIDER_FILE = "9002011.02"
   PROGRAM = "MENTAL HEALTH"
+  PROGRAM_INTERNAL = "M"
   APPOINTMENT_WITH = "WALK-IN"
+  APPOINTMENT_WITH_INTERNAL = "W"
 
   CLINIC_FILE = "40.7"
   TYPE_OF_CONTACT_FILE = "9002012.1"
   ENCOUNTER_LOCATION_FILE = "9999999.06"
   COMMUNITY_FILE = "9999999.05"
+
+  BH_VISIT_DDR_FIELDS = ".01;.02;.04;.05;.07;.08;.11;.25"
 
   def test_save_visit_adds_then_edits_with_readback_through_visit_information
     assert_synthetic_patient!(DFN)
@@ -44,26 +49,19 @@ class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
     refute_empty ien.to_s, "save_visit must return a record IEN"
     assert_match(/\A[1-9]\d*\z/, ien.to_s, "IEN must be a positive integer string")
 
-    info = RpmsRpc::BehavioralHealth.visit_information(ien)
-    refute_nil info, "visit_information must return a row for IEN #{ien}"
-    assert_equal PROGRAM, info[:program]
-    assert_equal clinic_ien.to_s, info.dig(:clinic, :ien).to_s
-    assert_equal type_add.to_s, info.dig(:type_of_contact, :ien).to_s
-    assert_equal location_ien.to_s, info.dig(:encounter_location, :ien).to_s
-    assert_equal community_add.to_s, info.dig(:community_of_service, :ien).to_s
-    assert_equal APPOINTMENT_WITH, info[:appointment_with]
-    assert_equal provider, info.dig(:primary_provider, :ien).to_s,
-                 "primary provider should round-trip (#9002011.02 multiple)"
-
-    filed = RpmsRpc::DdrFileman.gets_entry(
-      file: BH_VISIT_FILE, iens: "#{ien},", fields: ".01;.08", flags: "IE"
+    # visit_information is not used here: on the live CIA wire its GLOBAL ARRAY
+    # reply is one string with a sequence-echo prefix and $C(30) row breaks, so
+    # parse_many never yields a real visit row (pre-existing #536-adjacent bug).
+    assert_bh_visit_filed_via_ddr!(
+      ien,
+      encounter: encounter,
+      clinic_ien: clinic_ien,
+      type_ien: type_add,
+      location_ien: location_ien,
+      community_ien: community_add,
+      patient: DFN
     )
-    refute_nil filed, "DDR GETS on BH visit #{ien}"
-    refute filed[:error], filed.inspect
-    assert_equal encounter.to_s, filed[:fields].dig(".01", :internal).to_s,
-                 "DATE OF SERVICE (.01) must match the FileMan value sent"
-    assert_equal DFN.to_s, filed[:fields].dig(".08", :internal).to_s.split(";").first,
-                 "PATIENT (.08) on #9002011"
+    assert_primary_provider_via_ddr!(ien, provider_duz: provider, patient_dfn: DFN)
 
     edited = RpmsRpc::BehavioralHealth.save_visit(
       record_ien: ien,
@@ -80,18 +78,80 @@ class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
     )
     assert_equal ien.to_s, edited.to_s, "edit reply must carry the requested IEN (AMHGEVF edit trap)"
 
-    info_after = RpmsRpc::BehavioralHealth.visit_information(ien)
-    refute_nil info_after
-    assert_equal type_edit.to_s, info_after.dig(:type_of_contact, :ien).to_s,
-                 "type of contact should read back as the edited IEN"
-    assert_equal community_edit.to_s, info_after.dig(:community_of_service, :ien).to_s,
-                 "community of service should read back as the edited IEN"
+    assert_bh_visit_filed_via_ddr!(
+      ien,
+      encounter: encounter,
+      clinic_ien: clinic_ien,
+      type_ien: type_edit,
+      location_ien: location_ien,
+      community_ien: community_edit,
+      patient: DFN
+    )
 
     puts "\n#{persona}: BH visit #{ien} on DFN #{DFN} added and edited via AMHG SAVE VISIT " \
          "(clinic #{clinic_ien}, types #{type_add}->#{type_edit}, communities #{community_add}->#{community_edit})"
   end
 
   private
+
+  def assert_bh_visit_filed_via_ddr!(ien, encounter:, clinic_ien:, type_ien:, location_ien:, community_ien:, patient:)
+    filed = RpmsRpc::DdrFileman.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{ien},", fields: BH_VISIT_DDR_FIELDS, flags: "IE"
+    )
+    refute_nil filed, "DDR GETS on BH visit #{ien}"
+    refute filed[:error], filed.inspect
+    fields = filed[:fields]
+
+    assert_equal encounter.to_s, fields.dig(".01", :internal).to_s,
+                 "DATE OF SERVICE (.01) must match the FileMan value sent"
+    assert_equal PROGRAM_INTERNAL, fields.dig(".02", :internal).to_s,
+                 "PROGRAM (.02) internal for #{PROGRAM}"
+    assert_equal location_ien.to_s, fields.dig(".04", :internal).to_s,
+                 "LOCATION OF ENCOUNTER (.04)"
+    assert_equal community_ien.to_s, fields.dig(".05", :internal).to_s,
+                 "COMMUNITY OF SERVICE (.05)"
+    assert_equal type_ien.to_s, fields.dig(".07", :internal).to_s,
+                 "TYPE OF CONTACT (.07)"
+    assert_equal patient.to_s, fields.dig(".08", :internal).to_s.split(";").first,
+                 "PATIENT (.08) on #9002011"
+    assert_equal APPOINTMENT_WITH_INTERNAL, fields.dig(".11", :internal).to_s,
+                 "APPOINTMENT/WALK-IN (.11) internal for #{APPOINTMENT_WITH}"
+    assert_equal clinic_ien.to_s, fields.dig(".25", :internal).to_s,
+                 "CLINIC (.25)"
+  end
+
+  def assert_primary_provider_via_ddr!(visit_ien, provider_duz:, patient_dfn:)
+    # #9002011.02 is top-level (MODPRV^AMHGEVF uses IENS "+1,"). DDR LISTER on this file
+    # errors on the pinned CIA build; scan top-level IENS with GETS (gaps from deletes OK).
+    primaries = []
+    (1..500).each do |n|
+      row = RpmsRpc::DdrFileman.gets_entry(
+        file: BH_PROVIDER_FILE, iens: "#{n},",
+        fields: ".01;.02;.03;.04", flags: "IE"
+      )
+      next if row.nil? || row[:error] || row[:fields].empty?
+
+      fields = row[:fields]
+      next unless fields.dig(".03", :internal).to_s == visit_ien.to_s
+      next unless fields.dig(".04", :internal).to_s == "P"
+
+      primaries << fields
+    end
+
+    if primaries.empty?
+      flunk "no MHSS RECORD PROVIDERS (#{BH_PROVIDER_FILE}) row with RECORD (.03) #{visit_ien} " \
+            "and type P (.04) for visit #{visit_ien}"
+    end
+    if primaries.size > 1
+      flunk "ambiguous primary provider rows on visit #{visit_ien} (#{primaries.size} matches)"
+    end
+
+    fields = primaries.first
+    assert_equal provider_duz.to_s, fields.dig(".01", :internal).to_s,
+                 "PROVIDER (.01) on #{BH_PROVIDER_FILE} for visit #{visit_ien}"
+    assert_equal patient_dfn.to_s, fields.dig(".02", :internal).to_s.split(";").first,
+                 "PATIENT (.02) on #{BH_PROVIDER_FILE} for visit #{visit_ien}"
+  end
 
   def discover_reference_iens!
     clinic = first_listed_ien!(CLINIC_FILE, label: "BH clinic")
