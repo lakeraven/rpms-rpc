@@ -97,20 +97,27 @@ module RpmsRpc
     shape :add_holiday, resource: "appointments", verb: "POST", path: "/appointments/holiday"
 
     # Remove the HOLIDAY (#40.5) row for a date. DDR LISTER walks the B xref
-    # (the file's only xref) for that internal date, then DDR FILER EDIT sets
-    # .01 to "@", which is FileMan's delete. GO^SDHOL is not called. A date
-    # with no row is { success: false, error: :not_found } and files nothing.
-    # A failed lookup raises Client::RpcError rather than reporting not-found.
+    # (the file's only xref) FROM one below that internal date, the way
+    # holidays does. LIST^DIC's PART match does not find a numeric FileMan
+    # date on that index, and FROM is exclusive, so the next row is the first
+    # holiday after the day before. The row is deleted only when its .01 is
+    # exactly that date. Anything else is { success: false, error: :not_found }
+    # and files nothing. DDR FILER EDIT sets .01 to "@", which is FileMan's
+    # delete. GO^SDHOL is not called. A failed lookup raises Client::RpcError
+    # rather than reporting not-found.
     def remove_holiday(date)
       day = fileman_day(date)
       return invalid("date must be a Date") unless day
 
       in_context do
-        listed = DdrFileman.lister(file: HOLIDAY_FILE, fields: ".01", flags: "IP", xref: "B", part: day)
+        # One row is enough: B is ordered by the date, and FROM excludes the
+        # day before, so the next row is this date or a later holiday.
+        listed = DdrFileman.lister(file: HOLIDAY_FILE, fields: "@;.01I", flags: "IP", max: 1, xref: "B",
+                                   from: (day.to_i - 1).to_s)
         raise Client::RpcError, "DDR LISTER gave no reply for HOLIDAY #40.5" if listed.nil?
         raise Client::RpcError, "DDR LISTER refused HOLIDAY #40.5" if listed[:error]
 
-        entry = listed[:entries].first
+        entry = listed[:entries].find { |e| e[:pieces].first.to_s == day }
         return { success: false, error: :not_found, message: "no holiday on that date" } unless entry
 
         ien = entry[:ien].to_s
