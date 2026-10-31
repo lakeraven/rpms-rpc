@@ -60,7 +60,9 @@ module RpmsRpc
     shape :access_types, resource: "appointments", verb: "GET", path: "/appointments/access-types"
 
     # The HOLIDAY (#40.5) entries from start_date through end_date, by date.
-    # Returns [{ date: Date, name: }]. A failed read raises Client::RpcError.
+    # Returns [{ date: Date, name: }]. A failed read raises Client::RpcError:
+    # no reply, "[Errors]", or a reply with no "[Data]" line. "[Data]" with
+    # no rows is an empty list.
     def holidays(start_date:, end_date:)
       first = fm_date(start_date)
       last = fm_date(end_date)
@@ -101,10 +103,12 @@ module RpmsRpc
     # holidays does. LIST^DIC's PART match does not find a numeric FileMan
     # date on that index, and FROM is exclusive, so the next row is the first
     # holiday after the day before. The row is deleted only when its .01 is
-    # exactly that date. Anything else is { success: false, error: :not_found }
-    # and files nothing. DDR FILER EDIT sets .01 to "@", which is FileMan's
-    # delete. GO^SDHOL is not called. A failed lookup raises Client::RpcError
-    # rather than reporting not-found.
+    # exactly that date. Anything else, including "[Data]" with no rows, is
+    # { success: false, error: :not_found } and files nothing. A failed
+    # lookup (no reply, "[Errors]", or a reply with no "[Data]" line)
+    # raises Client::RpcError rather than reporting not-found. DDR FILER
+    # EDIT sets .01 to "@", which is FileMan's delete. GO^SDHOL is not
+    # called.
     def remove_holiday(date)
       day = fileman_day(date)
       return invalid("date must be a Date") unless day
@@ -170,11 +174,6 @@ module RpmsRpc
       ContextScope.scoped(RpmsRpc.client, CONTEXT, &block)
     end
 
-    # Every entry DDR LISTER lists for file, read on from each MORE marker
-    # until the list ends or stop says an entry is past the end. A page resumes
-    # from the MORE value alone: LIST^DIC takes the IEN half as FROM("IEN"), a
-    # subscript a flat DDR list parameter cannot carry, so this is only for
-    # indexes whose values are unique (a holiday's date, an access type's name).
     # The PRIVILEGED USERs of the clinic and of its principal clinic, as DUZs.
     def privileged_users(ien, principal)
       [ ien, principal ].select { |c| c.to_s.match?(/\A[1-9]\d*\z/) }.uniq.flat_map do |clinic|
@@ -182,6 +181,13 @@ module RpmsRpc
       end.uniq.sort
     end
 
+    # Every entry DDR LISTER lists for file, read on from each MORE marker
+    # until the list ends or stop says an entry is past the end. A page whose
+    # reply has no "[Data]" line is a failed read (lister error: true), the
+    # same as "[Errors]". "[Data]" with no rows is an empty page. A page resumes
+    # from the MORE value alone: LIST^DIC takes the IEN half as FROM("IEN"), a
+    # subscript a flat DDR list parameter cannot carry, so this is only for
+    # indexes whose values are unique (a holiday's date, an access type's name).
     def list(file, fields, xref: nil, from: nil, stop: nil, iens: nil)
       out = []
       loop do

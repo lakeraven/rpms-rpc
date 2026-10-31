@@ -72,8 +72,12 @@ module RpmsRpc
     # over the CIA broker XWBAPVER is unset (ACTR^CIANBACT reads it from
     # the frame's VER field, CIANBACT.m:67, which RPC frames don't carry):
     # optional "[Misc]" + "MORE^from^ien", "[Data]" + packed IEN-first rows,
-    # "[Errors]" marker (V0^DDR: DDR.m:21-30,45). NB: the exact packed-row
-    # column set rides LIST^DIC's "P" output; parse row pieces defensively.
+    # "[Errors]" marker (V0^DDR: DDR.m:21-30,45). A reply with no "[Data]"
+    # line is a failed read (error: true), the same as "[Errors]" or
+    # "[BEGIN_diERRORS]": an M error string is not an empty file. The
+    # broker's empty answer is "[Data]" and no rows, which stays
+    # entries: [] and error: false. NB: the exact packed-row column set
+    # rides LIST^DIC's "P" output; parse row pieces defensively.
     def lister(file:, iens: nil, fields: nil, flags: nil, max: nil, from: nil,
                part: nil, xref: nil, screen: nil, id: nil, options: nil)
       param = lister_param(file: file, iens: iens, fields: fields, flags: flags, max: max,
@@ -94,7 +98,8 @@ module RpmsRpc
           entries << { ien: pieces[0], pieces: pieces[1..] }
         end
       end
-      error = reply.any? { |l| l == "[Errors]" || l == "[BEGIN_diERRORS]" }
+      error = reply.any? { |l| l == "[Errors]" || l == "[BEGIN_diERRORS]" } ||
+              !reply.include?("[Data]")
       { entries: entries, more: more, error: error }
     end
 

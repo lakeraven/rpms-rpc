@@ -455,8 +455,10 @@ module RpmsRpc
     # "+1,<dfn>," with placeholder 1 DINUM'd to the date (DDR3.m:12-13).
     # A row whose first piece equals the requested FileMan date is header
     # IENS "<fmdate>,<dfn>," (the stored subscript, no placeholder). A nil
-    # reply or [Errors] on the date list or the value list is
-    # :lookup_failed and files nothing. DDR GETS ENTRY DATA cannot make
+    # reply, [Errors], or a reply with no [Data] line on the date list or
+    # the value list is :lookup_failed and files nothing. "[Data]" with no
+    # rows stays an empty list (a missing date, or no value sub-entries).
+    # DDR GETS ENTRY DATA cannot make
     # the date check: GETS on a missing entry replies error: true, the
     # same reply as a failed read.
     #
@@ -518,8 +520,9 @@ module RpmsRpc
     # DDR LISTER (iens ",<dfn>,", fields "@;.01I", flags "IP"). A row whose
     # first piece equals the requested FileMan date is mode EDIT at
     # "<fmdate>,<dfn>,". No such row, including an empty [Data], is mode ADD
-    # with placeholder 1 DINUM'd to the date. A nil reply or [Errors] is
-    # :lookup_failed and files nothing. No #8994 entry reaches SETLSEX
+    # with placeholder 1 DINUM'd to the date. A nil reply, [Errors], or a
+    # reply with no [Data] line is :lookup_failed and files nothing.
+    # "[Data]" with no rows is a missing date. No #8994 entry reaches SETLSEX
     # (rpms-rpc#418, resolution 2). sex must already be M, F, or X; source
     # must already be the #9000030 IEN. DATE ENTERED is the client's today:
     # FILEC^DDR3 does not default it to DT.
@@ -556,7 +559,8 @@ module RpmsRpc
     # flags "IP"). A row whose first piece equals the effective FileMan date
     # is mode EDIT at "<fmdate>,<dfn>,". No such row, including an empty
     # [Data], is mode ADD with placeholder 1 DINUM'd to the date. A nil
-    # reply or [Errors] is :lookup_failed and files nothing.
+    # reply, [Errors], or a reply with no [Data] line is :lookup_failed
+    # and files nothing. "[Data]" with no rows is a missing date.
     # No #8994 entry reaches ADDMBI (rpms-rpc#418, resolution 2), so this is
     # DDR FILER. Field 1's triggers and xrefs still fire. Anything else
     # ADDMBI does is not run. The MBI is uppercased here; DATE ENTERED is the
@@ -603,9 +607,10 @@ module RpmsRpc
     # to the DFN. DDR GETS ENTRY DATA of #9000001 .01 (flags I) runs first:
     # a nil reply, an error reply, or a [Data] reply that omits the .01 row
     # raises Client::RpcError and the subfile is not listed. A failed list
-    # raises Client::RpcError. Field 1 MBI is required in the DD; a row whose
-    # MBI is blank raises Client::RpcError rather than returning mbi: "". An
-    # empty subfile is [].
+    # (no reply, [Errors], or a reply with no [Data] line) raises
+    # Client::RpcError. "[Data]" with no rows is []. Field 1 MBI is required
+    # in the DD; a row whose MBI is blank raises Client::RpcError rather than
+    # returning mbi: "". An empty subfile is [].
     #
     # Returns [{ effective_date: Date, mbi:, source: Integer or nil }].
     def mbis(dfn)
@@ -643,14 +648,24 @@ module RpmsRpc
     # #2 .02 was verified live. sex is stripped and upcased. MALE/FEMALE
     # are not translated. A bad DFN or sex sends no RPC.
     #
+    # Every DDR read and write runs inside Agg.editing(dfn: id), the lock
+    # Registration.update takes (AGG LOCK PATIENT, then AGG UNLOCK PATIENT,
+    # under AGGRPC). A lock that is not taken returns Agg's failure hash
+    # and sends no DDR call: :lock_failed when the lock is held elsewhere
+    # (the message names who) or gives no reply, and :invalid_dfn when the
+    # result is -1. Unlock is not sent unless the lock was taken. When it
+    # was, unlock always follows, including when a later read or write
+    # fails. The DDR calls inside the lock bind CIAV VUECENTRIC.
+    #
     # Reads, before any write: #2 .02 and #9000001 .23 (DDR GETS ENTRY
     # DATA, flags I). A nil reply, or a [Data] reply that omits the field
     # row, is :lookup_failed. An error reply is :not_found. An empty field
     # still comes back as a row. Then the B xref of #9000003, #9000004, and
     # #9000005 (fields @;.01I, flags IP, from one below the DFN, max 100).
     # A row whose .01 is not this DFN is ignored. #9000003 and #9000005
-    # list subfile .11 (iens ",<ien>,"). A nil reply or [Errors] is
-    # :lookup_failed. A MORE line on a subfile is :lookup_failed: the flat
+    # list subfile .11 (iens ",<ien>,"). A nil reply, [Errors], or a reply
+    # with no [Data] line is :lookup_failed. "[Data]" with no rows is an
+    # empty list. A MORE line on a subfile is :lookup_failed: the flat
     # DDR parameter cannot carry FROM("IEN"). A MORE line on the B list is
     # :lookup_failed unless the last row's .01 is already past this DFN.
     # A failed lookup files nothing.
@@ -661,7 +676,10 @@ module RpmsRpc
     # The cascade always runs, so a retry repeats it. It is not atomic with
     # the .02 write. A refusal before anything was filed is :filer_failed
     # and later calls are not sent. A refusal after an earlier EDIT
-    # succeeded is :partial. nil when a FILER call gives no reply.
+    # succeeded is :partial. nil only when the first FILER call gives no
+    # reply. A no-reply on a later FILER call (after the .23 delete, or
+    # after the .02 write) is :partial, and the message says the outcome
+    # of the last write is unknown.
     #
     # What this path skips: anything AG2A does interactively beyond the
     # .23 delete and SEXELIG (prompts, confirmation). SEXELIG^AGUTL is not
@@ -674,7 +692,7 @@ module RpmsRpc
       code = canonical_patient_sex(sex)
       return invalid("sex must be M, F, or U") unless code
 
-      in_context { write_patient_sex(id, code) }
+      Agg.editing(dfn: id) { in_context { write_patient_sex(id, code) } }
     end
     shape :set_sex, resource: "registrations", verb: "PUT", path: "/patients/{dfn}/registrations/sex"
 
@@ -1092,8 +1110,9 @@ module RpmsRpc
     # is :present. No such row, including an empty [Data], is :absent.
     # Legal sex and MBI file :present as EDIT and :absent as ADD. SOGI
     # files both as ADD; :present only selects the stored header IENS.
-    # A nil reply or [Errors] is a lookup failure. GETS is not used: a
-    # missing entry replies error: true, same as a failed read.
+    # A nil reply, [Errors], or a reply with no [Data] line is a lookup
+    # failure. GETS is not used: a missing entry replies error: true, the
+    # same as a failed read.
     def probe_dated_row(file, dfn, day)
       listed = DdrFileman.lister(file: file, iens: ",#{dfn},", fields: "@;.01I", flags: "IP")
       return lookup_failed("DDR LISTER gave no reply for ##{file}") if listed.nil?
@@ -1428,11 +1447,14 @@ module RpmsRpc
       stored.strip.upcase != code && !verification.strip.empty?
     end
 
-    # nil when FILER gives no reply. A refusal before any EDIT in this
-    # call succeeded is :filer_failed. A refusal after one is :partial:
-    # the .23 delete, the .02 write, and the cascade are not one update.
+    # nil only when this is the first FILER call and it gives no reply.
+    # A no-reply after an earlier EDIT in this call succeeded is :partial:
+    # the outcome of the last write is unknown. A refusal before any EDIT
+    # succeeded is :filer_failed. A refusal after one is :partial. The
+    # .23 delete, the .02 write, and the cascade are not one update.
     def sex_edit(rows, prior:)
       filed = DdrFileman.filer(mode: "EDIT", rows: rows)
+      return unknown_later_sex_write if filed.nil? && prior
       return nil if filed.nil?
       return :written if filed[:success]
 
@@ -1441,6 +1463,11 @@ module RpmsRpc
 
       { success: false, error: :partial,
         message: "an earlier sex write was filed and a later one was refused: #{message}" }
+    end
+
+    def unknown_later_sex_write
+      { success: false, error: :partial,
+        message: "an earlier sex write was filed and the outcome of the last write is unknown" }
     end
 
     def edit_row(file, field, iens, value)
