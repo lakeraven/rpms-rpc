@@ -14,6 +14,7 @@ class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
 
   # Synthetic seed patient; not used by other live write specs (see test/live/*write*).
   DFN = 990_033
+  OTHER_DFN = 990_034
   BH_VISIT_FILE = "9002011"
   BH_PROVIDER_FILE = "9002011.02"
   PROGRAM = "MENTAL HEALTH"
@@ -28,7 +29,7 @@ class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
 
   BH_VISIT_DDR_FIELDS = ".01;.02;.04;.05;.07;.08;.11;.25"
 
-  def test_save_visit_adds_then_edits_with_readback_through_visit_information
+  def test_save_visit_adds_then_edits_with_readback_through_ddr
     assert_synthetic_patient!(DFN)
     clinic_ien, type_add, type_edit, location_ien, community_add, community_edit = discover_reference_iens!
     provider = client.duz.to_s
@@ -43,15 +44,11 @@ class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
       encounter_location: location_ien,
       community_of_service: community_add,
       appointment_with: APPOINTMENT_WITH,
-      patient: DFN,
-      esign: false
+      patient: DFN
     )
     refute_empty ien.to_s, "save_visit must return a record IEN"
     assert_match(/\A[1-9]\d*\z/, ien.to_s, "IEN must be a positive integer string")
 
-    # visit_information is not used here: on the live CIA wire its GLOBAL ARRAY
-    # reply is one string with a sequence-echo prefix and $C(30) row breaks, so
-    # parse_many never yields a real visit row (pre-existing #536-adjacent bug).
     assert_bh_visit_filed_via_ddr!(
       ien,
       encounter: encounter,
@@ -73,8 +70,7 @@ class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
       encounter_location: location_ien,
       community_of_service: community_edit,
       appointment_with: APPOINTMENT_WITH,
-      patient: DFN,
-      esign: false
+      patient: DFN
     )
     assert_equal ien.to_s, edited.to_s, "edit reply must carry the requested IEN (AMHGEVF edit trap)"
 
@@ -88,11 +84,95 @@ class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
       patient: DFN
     )
 
+    date_only_encounter = alternate_encounter_date(encounter)
+    date_edited = RpmsRpc::BehavioralHealth.save_visit(
+      record_ien: ien,
+      provider: provider,
+      program: PROGRAM,
+      clinic: clinic_ien,
+      type_of_contact: type_edit,
+      encounter_date: date_only_encounter,
+      encounter_location: location_ien,
+      community_of_service: community_edit,
+      appointment_with: APPOINTMENT_WITH,
+      patient: DFN
+    )
+    assert_equal ien.to_s, date_edited.to_s
+
+    assert_bh_visit_filed_via_ddr!(
+      ien,
+      encounter: date_only_encounter,
+      clinic_ien: clinic_ien,
+      type_ien: type_edit,
+      location_ien: location_ien,
+      community_ien: community_edit,
+      patient: DFN
+    )
+
     puts "\n#{persona}: BH visit #{ien} on DFN #{DFN} added and edited via AMHG SAVE VISIT " \
          "(clinic #{clinic_ien}, types #{type_add}->#{type_edit}, communities #{community_add}->#{community_edit})"
   end
 
+  def test_edit_with_wrong_patient_dfn_refuses_and_leaves_visit_unchanged
+    assert_synthetic_patient!(DFN)
+    assert_synthetic_patient!(OTHER_DFN)
+    clinic_ien, type_ien, _type_other, location_ien, community_ien, _community_other = discover_reference_iens!
+    provider = client.duz.to_s
+    encounter = server_now_fm
+
+    ien = RpmsRpc::BehavioralHealth.save_visit(
+      provider: provider,
+      program: PROGRAM,
+      clinic: clinic_ien,
+      type_of_contact: type_ien,
+      encounter_date: encounter,
+      encounter_location: location_ien,
+      community_of_service: community_ien,
+      appointment_with: APPOINTMENT_WITH,
+      patient: DFN
+    )
+
+    snapshot = bh_visit_ddr_fields(ien)
+
+    err = assert_raises(RpmsRpc::BehavioralHealth::SaveError) do
+      RpmsRpc::BehavioralHealth.save_visit(
+        record_ien: ien,
+        provider: provider,
+        program: PROGRAM,
+        clinic: clinic_ien,
+        type_of_contact: type_ien,
+        encounter_date: encounter,
+        encounter_location: location_ien,
+        community_of_service: community_ien,
+        appointment_with: APPOINTMENT_WITH,
+        patient: OTHER_DFN
+      )
+    end
+    refute_empty err.message
+
+    after = bh_visit_ddr_fields(ien)
+    assert_equal snapshot, after, "wrong-patient edit must not change the BH visit row"
+  end
+
   private
+
+  def bh_visit_ddr_fields(ien)
+    filed = RpmsRpc::DdrFileman.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{ien},", fields: BH_VISIT_DDR_FIELDS, flags: "IE"
+    )
+    flunk "DDR GETS on BH visit #{ien}: #{filed.inspect}" if filed.nil? || filed[:error]
+
+    filed[:fields].transform_values { |v| v[:internal].to_s }
+  end
+
+  def alternate_encounter_date(current_fm)
+    parsed = RpmsRpc::FilemanDateParser.parse_datetime_or_date(current_fm.to_s)
+    flunk("encounter #{current_fm.inspect} is not a FileMan datetime") unless parsed
+
+    shifted = parsed - (24 * 60 * 60)
+    RpmsRpc::FilemanDateParser.format_datetime(shifted) ||
+      RpmsRpc::FilemanDateParser.format_date(shifted)
+  end
 
   def assert_bh_visit_filed_via_ddr!(ien, encounter:, clinic_ien:, type_ien:, location_ien:, community_ien:, patient:)
     filed = RpmsRpc::DdrFileman.gets_entry(
@@ -102,8 +182,11 @@ class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
     refute filed[:error], filed.inspect
     fields = filed[:fields]
 
-    assert_equal encounter.to_s, fields.dig(".01", :internal).to_s,
-                 "DATE OF SERVICE (.01) must match the FileMan value sent"
+    filed_dot01 = fields.dig(".01", :internal).to_s
+    sent_dot01 = normalize_filed_encounter(encounter)
+    assert_equal sent_dot01, filed_dot01,
+                 "DATE OF SERVICE (.01) must match the FileMan value sent (normalized)"
+
     assert_equal PROGRAM_INTERNAL, fields.dig(".02", :internal).to_s,
                  "PROGRAM (.02) internal for #{PROGRAM}"
     assert_equal location_ien.to_s, fields.dig(".04", :internal).to_s,
@@ -118,6 +201,15 @@ class BehavioralHealthSaveVisitLiveTest < LiveSpec::Test
                  "APPOINTMENT/WALK-IN (.11) internal for #{APPOINTMENT_WITH}"
     assert_equal clinic_ien.to_s, fields.dig(".25", :internal).to_s,
                  "CLINIC (.25)"
+  end
+
+  def normalize_filed_encounter(encounter_date)
+    text = encounter_date.to_s
+    return text unless text.include?(".")
+
+    date, fraction = text.split(".", 2)
+    fraction = fraction.sub(/0+\z/, "")
+    fraction.empty? ? date : "#{date}.#{fraction}"
   end
 
   def assert_primary_provider_via_ddr!(visit_ien, provider_duz:, patient_dfn:)
