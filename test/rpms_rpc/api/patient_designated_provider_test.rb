@@ -225,7 +225,7 @@ class PatientDesignatedProviderTest < Minitest::Test
 
   # Invalid UTF-8 on a sibling row must not raise; fail closed to PTINFO primary.
   def test_brief_header_survives_invalid_utf8_among_getbdp_rows
-    bad_line = "CASE MANAGER^M\xC9NDEZ,X^5^^".b.force_encoding(Encoding::UTF_8)
+    bad_line = "CASE MANAGER^PROVID\xC9R,Y^5^^".b.force_encoding(Encoding::UTF_8)
     getbdp = [
       bdp_row("DESIGNATED PRIMARY PROVIDER", "PROVIDER,DESIGNATED"),
       bad_line
@@ -337,7 +337,7 @@ class PatientDesignatedProviderTest < Minitest::Test
     assert_equal "PROVIDER,PTINFO", header[:primary_provider]
   end
 
-  # A CR inside a String GETBDP splits rows; the designated-primary label alone is not a usable row.
+  # A lone CR inside a String GETBDP does not split rows; the read fails because a C0 control is left inside the line.
   def test_brief_header_falls_back_to_ptinfo_when_getbdp_string_embeds_carriage_return
     getbdp = "DESIGNATED PRIMARY PROVIDER^\rCASE MANAGER^MANAGER,CASE^1"
     client = BriefHeaderClient.new(
