@@ -2,20 +2,7 @@
 
 require_relative "live_helper"
 require "rpms_rpc/api/ddr_fileman"
-
-begin
-  require "rpms_rpc/api/coverage"
-rescue LoadError
-  module RpmsRpc
-    module Coverage
-      def self.for_patient(*) = nil
-      def self.add_medicare(*) = nil
-      def self.delete_medicare(*) = nil
-      def self.add_medicaid(*) = nil
-      def self.delete_medicaid(*) = nil
-    end
-  end
-end
+require "rpms_rpc/api/coverage"
 
 # Live write/read/delete for Medicare and Medicaid coverage on a synthetic patient
 # reserved for this spec (rpms-rpc#382). Private insurance is out of scope.
@@ -27,8 +14,6 @@ class CoverageWriteLiveTest < LiveSpec::Test
   MEDICAID_FILE = "9000004"
 
   def test_medicare_and_medicaid_coverage_round_trip
-    flunk "RpmsRpc::Coverage is not implemented (#382)" unless coverage_implemented?
-
     today = Date.today.strftime("%m/%d/%Y")
     mcr_num = "1EG4TE5MK48"
     mcd_cov = "FULL"
@@ -76,10 +61,6 @@ class CoverageWriteLiveTest < LiveSpec::Test
   end
 
   private
-
-  def coverage_implemented?
-    RpmsRpc::Coverage.method(:for_patient).source_location&.first.to_s.include?("/lib/")
-  end
 
   def coverage_entries!
     got = RpmsRpc::Coverage.for_patient(DFN, client: client)

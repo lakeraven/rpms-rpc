@@ -302,7 +302,7 @@ class CoverageTest < Minitest::Test
     recorder = client
     client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
       recorder.received_calls << { rpc: rpc, params: params.map(&:to_s), context: recorder.current_context }
-      case [ rpc, params[3].to_s ]
+      case [ rpc, params[2].to_s ]
       when [ MEDICARE_RPC, Cov::MEDICARE_WINDOW ]
         MCR_HEADER + "1^^#{DFN}^#{RS}#{US}"
       when [ MEDICARE_RPC, Cov::MEDICARE_ELIGIBILITY_WINDOW ]
@@ -324,7 +324,7 @@ class CoverageTest < Minitest::Test
     order = []
     client = RecordingClient.new
     client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      order << [ params[3].to_s, params[4].to_s, params[2].to_s ] if rpc == MEDICARE_RPC
+      order << [ params[2].to_s, params[3].to_s, params[1].to_s ] if rpc == MEDICARE_RPC
       MCR_HEADER + "1^^#{DFN}^#{RS}#{US}"
     end
     RpmsRpc.configure { |c| c.client = client }
@@ -339,7 +339,7 @@ class CoverageTest < Minitest::Test
     recorder = client
     client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
       recorder.received_calls << { rpc: rpc, params: params.map(&:to_s), context: recorder.current_context }
-      if rpc == MEDICAID_RPC && params[3].to_s == Cov::MEDICAID_WINDOW
+      if rpc == MEDICAID_RPC && params[2].to_s == Cov::MEDICAID_WINDOW
         MCD_HEADER + "1^^6^#{RS}#{US}"
       elsif rpc == MEDICAID_RPC
         MCD_HEADER + "1^^6^3261031#{RS}#{US}"
@@ -353,7 +353,7 @@ class CoverageTest < Minitest::Test
 
     assert result[:success]
     assert_equal "6", result[:record_ien]
-    elig_call = client.received_calls.find { |c| c[:params][3] == Cov::MEDICAID_ELIGIBILITY_WINDOW }
-    assert_equal "6", elig_call[:params][4]
+    elig_call = client.received_calls.find { |c| c[:params][2] == Cov::MEDICAID_ELIGIBILITY_WINDOW }
+    assert_equal "6", elig_call[:params][3]
   end
 end
