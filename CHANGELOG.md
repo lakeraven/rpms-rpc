@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed — `Session.bootstrap` no longer calls `CIAVMCFG GETREG` (#522) — **breaking**
+
+`:session_registry` wrapped `CIAVMCFG GETREG` to dump VueCentric's widget registry (`^CIAVOBJ`) as ID=VALUE lines at cold launch. The web app does not use that client state, so the mapping is deleted rather than kept.
+
+- **Breaking:** `Session.bootstrap` no longer calls `CIAVMCFG GETREG`. The result loses the `:registry` key and now returns only `{ vim_info: }`.
+- `DataMapper[:session_registry]` is gone, and so is its `MockClient` seed.
+- `"CIAVMCFG GETREG"` leaves `lib/rpms_rpc/required_rpcs.json`.
+
+A consumer must stop seeding `:session_registry` and stop reading `bootstrap(...)[:registry]`. There is no replacement, because the dump belongs to the VueCentric client.
+
 ### Changed — `ProgressNote.update_text` wraps long lines before TIU SET DOCUMENT TEXT (#479)
 
 - A line longer than `wrap_width` bytes (default `ProgressNote::WRAP_WIDTH`, 80; an Integer from 4 to 999) is cut into consecutive `TIUX("TEXT",n,0)` pieces. The break is the last space or tab past the leading indentation and at a byte offset within the width; that one character is dropped. Otherwise the cut is the last UTF-8 character boundary within the width and nothing is dropped. Lines that fit, including blank lines, are unchanged. **This changes how the note is laid out in the chart.** Rejoining the pieces with the dropped character restores the line. Joined with a single space, a tab at a cut reads back as a space, and a space or tab cut at the very end of a line is dropped. Non-whitespace is never dropped or changed. Indentation is not repeated on continuation pieces; an indent wider than the width is itself hard-cut.
