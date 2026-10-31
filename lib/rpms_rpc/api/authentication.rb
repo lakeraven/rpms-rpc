@@ -4,6 +4,7 @@ require_relative "../shape"
 require_relative "../mappings"
 require_relative "../xwb_cipher"
 require_relative "../context_scope"
+require_relative "../reply"
 require_relative "ddr_fileman"
 
 module RpmsRpc
@@ -182,13 +183,16 @@ module RpmsRpc
     # already bound, and N + 2 (a bind and a restore) otherwise.
     #
     # Returns nil when the question could not be asked, so a consumer can tell
-    # "holds none" ([]) from "could not ask" (nil): no signed-on DUZ (nil,
-    # blank, or non-positive), or any one call refused (Client::RpcError),
-    # answered with no data line, with more than one, or with a line that is
-    # not exactly "0" or "1" after surrounding whitespace is stripped.
-    # Never a partial list. Blank names are dropped; no names left sends
-    # nothing and returns []. A name containing "^" or a leading "@" raises
-    # ArgumentError before anything is sent.
+    # "holds none" ([]) from "could not ask" (nil): no signed-on DUZ (the
+    # client has no #duz, or the DUZ is nil, blank, or non-positive), or any
+    # one call refused (Client::RpcError), an altered reply, no data line,
+    # more than one, or a line that is not exactly "0" or "1". The DUZ is
+    # read inside the context scope, under the wire lock, and that one value
+    # is NP for every call in the batch. An invalid DUZ returns nil from
+    # there; the scope's ensure still restores the caller's context. Never a
+    # partial list. Blank names are dropped; no names left sends nothing and
+    # returns []. A name containing "^" or a leading "@" raises ArgumentError
+    # before anything is sent.
     def held_keys(names)
       asked = Array(names).map { |name| name.to_s.strip }.reject(&:empty?)
       return [] if asked.empty?
@@ -197,16 +201,21 @@ module RpmsRpc
       raise ArgumentError, "not security key names: #{misread.join(', ')}" unless misread.empty?
 
       client = RpmsRpc.client
-      duz = signed_on_duz(client)
-      return nil if duz.nil?
-
       flags = ContextScope.scoped(client, HELD_KEYS_CONTEXT) do
+        duz = signed_on_duz(client)
+        # Returns from held_keys. with_context's ensure still runs, so the
+        # caller's context is restored.
+        return nil if duz.nil?
+
         asked.map { |name| held_key_flag(client, duz, name) }
       end
       return nil if flags.any?(&:nil?)
 
       asked.each_index.select { |i| flags[i] == "1" }.map { |i| asked[i] }
-    rescue Client::RpcError
+    rescue Client::RpcError, Client::AuthenticationError
+      # No signed-on session, or the bind/call was refused: the question
+      # could not be asked. A not-authenticated bind raises before the block
+      # reads the DUZ; that is the same nil as an invalid DUZ.
       nil
     end
     shape :held_keys, resource: "users", verb: "GET", path: "/users/held-keys"
@@ -308,28 +317,35 @@ module RpmsRpc
     end
 
     # The signed-on DUZ to pass as NP, or nil when there is nothing to ask
-    # with: nil, blank, or not a positive integer. Nothing is sent in that case.
+    # with: the client has no #duz, or the DUZ is nil, blank, or not a
+    # positive integer. Nothing is sent in that case.
     def signed_on_duz(client)
+      return nil unless client.respond_to?(:duz)
+
       duz = client.duz
       return nil if invalid_id?(duz)
 
       duz.to_s.strip
     end
 
-    # ORWU NPHASKEY's one data line, or nil. The reply is read through
-    # :person_has_key's line normalisation (the same path has_security_key?
-    # uses): trailing $C(30)/$C(31) dropped, and on an Array empty lines and
-    # recordset header rows dropped. Exactly one data line must remain, and
-    # after surrounding whitespace is stripped it must be "0" or "1". None,
-    # more than one, "2", "yes", "", or a refused call is nil. The boolean
-    # coercion is not used. The client numbers the frame; this does not
-    # touch its sequence counter.
+    # ORWU NPHASKEY's one data line, or nil. Ask Reply.altered? on the reply
+    # object before normalising it, the same check Allergy and Patient.lookup
+    # use for identity-bearing text. An altered reply is nil: CIA replaces a
+    # control byte with a space and marks the reply, and ''$D() answers
+    # exactly "0" or "1". Normalisation is :person_has_key's (trailing
+    # $C(30)/$C(31) dropped; an Array also drops empty lines and recordset
+    # header rows). Exactly one data line must remain, and that line must
+    # equal "0" or "1". None, more than one, "2", "yes", " 1", "", or a
+    # refused call is nil. The boolean coercion is not used. The client
+    # numbers the frame; this does not touch its sequence counter.
     def held_key_flag(client, duz, name)
       reply = client.call_rpc(DataMapper.person_has_key.rpc_name, duz, name)
+      return nil if Reply.altered?(reply)
+
       lines = DataMapper.person_has_key.normalized_lines(reply)
       return nil unless lines.size == 1
 
-      flag = lines.first.strip
+      flag = lines.first
       flag == "0" || flag == "1" ? flag : nil
     rescue Client::RpcError
       nil

@@ -53,9 +53,9 @@ module RpmsRpc
     # but it warns, because the next API to run on this session will run under
     # `option_name` rather than wherever the caller thought it was.
     #
-    # Either way `current_context` keeps naming the option actually bound, so
-    # the next scope re-binds from a truthful starting point rather than
-    # assuming.
+    # Either way `current_context` names the option actually bound, or nil
+    # when a bind was refused and the broker no longer has one, so the next
+    # scope re-binds from a truthful starting point rather than assuming.
     # Held under the client's wire lock for its WHOLE duration, bind through
     # restore. The bound option is per-session state that the broker consults
     # on every frame, so a scope that only locked its individual calls let
@@ -76,6 +76,10 @@ module RpmsRpc
           warn "[rpms_rpc] binding context #{option_name.inspect} on a session " \
                "with no declared context — it cannot be restored afterward"
         end
+        # Outside the ensure on purpose. A refused or failed XWB/BMX bind
+        # clears current_context and raises (CRCONTXT has already killed the
+        # broker context). Restoring `previous` from here would re-bind a
+        # context the client no longer claims.
         create_context(option_name)
         begin
           block.call
@@ -95,6 +99,10 @@ module RpmsRpc
 
     def restore_context(previous, scoped)
       return if previous.nil? || previous == scoped
+      # A refused bind inside the block clears current_context. The client
+      # no longer claims `previous`; re-binding it would assert a context
+      # this session does not hold.
+      return if current_context.nil?
 
       create_context(previous)
     rescue StandardError => e
