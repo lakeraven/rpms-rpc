@@ -171,4 +171,38 @@ class RpmsRpc::AuthenticationHeldKeysMockClientTest < Minitest::Test
     assert_nil RpmsRpc::Authentication.held_keys([ "SYNKEYA" ])
     assert_empty double.calls
   end
+
+  SYN_APP_CTX = "SYN APP CTX"
+  SYN_REFUSED_CTX = "SYN REFUSED"
+
+  # MockClient must mirror Client#create_context: a refused bind clears belief (rpms-rpc#521 r3).
+  def test_mock_raw_refused_create_context_clears_current_context
+    mock = RpmsRpc::MockClient.new
+    mock.set_authenticated(SYNTHETIC_DUZ)
+    mock.create_context(SYN_APP_CTX)
+    mock.unbindable_context!(SYN_REFUSED_CTX)
+
+    assert_raises(RpmsRpc::Client::RpcError) { mock.create_context(SYN_REFUSED_CTX) }
+
+    assert_nil mock.current_context,
+               "MockClient must clear current_context on refused create_context, same as Client"
+  end
+
+  def test_mock_with_context_refused_restores_previous_and_records_bind
+    mock = RpmsRpc::MockClient.new
+    mock.set_authenticated(SYNTHETIC_DUZ)
+    mock.create_context(SYN_APP_CTX)
+    mock.unbindable_context!(SYN_REFUSED_CTX)
+    binds_before = mock.context_binds.dup
+    block_ran = false
+
+    assert_raises(RpmsRpc::Client::RpcError) do
+      mock.with_context(SYN_REFUSED_CTX) { block_ran = true }
+    end
+
+    refute block_ran
+    assert_equal SYN_APP_CTX, mock.current_context
+    assert_equal binds_before + [ SYN_APP_CTX ], mock.context_binds,
+                 "with_context ensure must re-bind the previous context after scope entry refusal"
+  end
 end
