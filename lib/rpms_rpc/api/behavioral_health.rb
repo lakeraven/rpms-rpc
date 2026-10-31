@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "behavioral_health/wire"
+require_relative "ddr_fileman"
 require_relative "../shape"
 
 module RpmsRpc
@@ -29,35 +30,58 @@ module RpmsRpc
     extend Wire
     extend Shape::Declarable
 
-    # Raised when a visit is refused before the RPC, or the reply is not a
-    # filed record IEN. The message names the check, never a value the
-    # caller passed and never the broker's text.
+    # Raised when a visit is refused before any AMHG call, or when the
+    # reply does not prove the record was filed. A post-call message says
+    # the outcome is unknown and that the visit may have been filed. It
+    # names a record IEN when one is known, and never a value the caller
+    # passed or the broker's text.
     class SaveError < RpmsRpc::Error; end
 
     # External values of BH VISIT (#9002011) field .02, piece 3 of
-    # ^DD(9002011,.02,0) on the pinned image. $$SCI^AMHGT returns "" for
+    # ^DD(9002011,.02,0) on the pinned image (M:MENTAL HEALTH;S:SOCIAL
+    # SERVICES;O:OTHER;C:CHEMICAL DEPENDENCY). $$SCI^AMHGT returns "" for
     # any other external value (AMHGT.m:183-196) and VISIT files that
-    # blank (AMHGSVF.m:22).
-    PROGRAM_CODES = [
-      "MENTAL HEALTH",
-      "SOCIAL SERVICES",
-      "OTHER",
-      "CHEMICAL DEPENDENCY"
-    ].freeze
+    # blank (AMHGSVF.m:22). Read-back compares the internal letter.
+    PROGRAM_INTERNAL = {
+      "MENTAL HEALTH" => "M",
+      "SOCIAL SERVICES" => "S",
+      "OTHER" => "O",
+      "CHEMICAL DEPENDENCY" => "C"
+    }.freeze
+    PROGRAM_CODES = PROGRAM_INTERNAL.keys.freeze
 
     # #9002011 field .11: A:APPOINTMENT;W:WALK-IN;U:UNSPECIFIED. Same SCI
-    # collapse (AMHGSVF.m:31).
-    APPOINTMENT_WITH_CODES = [
-      "APPOINTMENT",
-      "WALK-IN",
-      "UNSPECIFIED"
-    ].freeze
+    # collapse (AMHGSVF.m:31). Read-back compares the internal letter.
+    APPOINTMENT_INTERNAL = {
+      "APPOINTMENT" => "A",
+      "WALK-IN" => "W",
+      "UNSPECIFIED" => "U"
+    }.freeze
+    APPOINTMENT_WITH_CODES = APPOINTMENT_INTERNAL.keys.freeze
+
+    # BH VISIT. DDR GETS ENTRY DATA field lists are the ones save_visit
+    # sends: .08 before an edit, and the filed visit fields after the reply.
+    BH_VISIT_FILE = "9002011"
+    PRE_EDIT_PATIENT_FIELDS = ".08"
+    PRE_EDIT_PATIENT_FLAGS = "I"
+    READBACK_FIELDS = ".01;.02;.04;.05;.07;.08;.11;.25"
+    READBACK_FLAGS = "IE"
 
     POSITIVE_IEN = /\A[1-9]\d*\z/
-    # Pipe splits AMHSTR. $C(30)/$C(31) frame the reply. The other C0
-    # controls and DEL are not field text.
-    UNSAFE_WIRE = /[|\x00-\x1f\x7f]/
-    private_constant :POSITIVE_IEN, :UNSAFE_WIRE
+    # Pipe splits AMHSTR. A caret is FileMan's piece delimiter inside the
+    # routines that re-parse a value. $C(30)/$C(31) frame the reply. The
+    # other C0 controls and DEL are not field text.
+    UNSAFE_WIRE = /[|\x00-\x1f\x7f^]/
+    # #9002011 .12 and 1104 are NJ4,0. The wire accepts 0 through 9999;
+    # .12's input transform on the pinned image rejects 0, and 1104 accepts it.
+    MINUTES = /\A(?:0|[1-9]\d{0,3})\z/
+    # Omitted keyword, distinct from an explicit nil. On an edit both are
+    # refused. Only "" is sent, and FILE^DIE clears that field.
+    OMITTED = Object.new.freeze
+    private_constant :PROGRAM_INTERNAL, :APPOINTMENT_INTERNAL, :BH_VISIT_FILE,
+                     :PRE_EDIT_PATIENT_FIELDS, :PRE_EDIT_PATIENT_FLAGS,
+                     :READBACK_FIELDS, :READBACK_FLAGS, :POSITIVE_IEN, :UNSAFE_WIRE,
+                     :MINUTES, :OMITTED
 
     # Visit list for a patient over a FileMan date range, newest first.
     #
@@ -98,8 +122,10 @@ module RpmsRpc
     end
 
     # Add or edit one BH VISIT (#9002011) through AMHG SAVE VISIT
-    # (VISIT^AMHGSVF, AMHGSVF.m:11-45). One pipe-delimited AMHSTR. Runs
-    # under AMHGRPC via {Wire#call_amhg}.
+    # (VISIT^AMHGSVF, AMHGSVF.m:11-45). One pipe-delimited AMHSTR. The
+    # AMHG call runs under AMHGRPC via {Wire#call_amhg}. The FileMan reads
+    # do not: DDR GETS ENTRY DATA is registered under CIAV VUECENTRIC, so
+    # they run in the caller's context, outside that scope.
     #
     # Pieces, in order: mode A/E, record IEN, primary provider (files
     # #9002011.02), program external (.02, $$SCI^AMHGT at AMHGSVF.m:22;
@@ -118,35 +144,56 @@ module RpmsRpc
     # Every call sends exactly these 16 pieces, blanks included.
     # Omitting the arrival piece would put the date in piece 7.
     #
+    # Piece 15 is always blank. A truthy piece calls UPDREC^AMHGESIG
+    # (AMHGSVF.m:38-40), which stamps the signature for the session DUZ
+    # and does not check an electronic signature code. There is no
+    # +esign+ argument.
+    #
     # MODV^AMHGEVF (AMHGEVF.m:77-121): mode "E" with a blank record IEN
     # becomes "A" (line 79), so a blank record_ien is refused here and
-    # never sent. Group fields (.12 activity time, .34, 1109 group name,
-    # 1104 group time) are filed only when the group name is non-empty
-    # (lines 91-95). An add that fails leaves AMHIEN 0 (lines 106-108).
-    # An edit that fails still returns REC (lines 116-118): a reply IEN
-    # equal to the requested record does not prove the edit was filed.
+    # never sent. On an edit the FDA always sets .02, .25, .07, .04, .11
+    # and .05 (lines 81-88), and FILE^DIE clears a blank (line 116), so
+    # each of those six arguments is required: nil, and an omitted
+    # keyword, are refused before any RPC; "" is the clear. Field .08 is
+    # filed only on add (line 99). Before an edit, DDR GETS ENTRY DATA
+    # reads the stored .08 and the call is refused, with no AMHG RPC,
+    # when that read errors, is empty, or names another patient.
+    #
+    # Group fields (.12 activity time, .34, 1109 group name, 1104 group
+    # time) are filed only when the group name is non-empty (lines
+    # 91-95). Group time and activity time are integers from 0 through
+    # 9999, and either one requires a group name. An add that fails
+    # leaves AMHIEN 0 (lines 106-108). An edit that fails still returns
+    # REC (lines 116-118).
     #
     # The reply is "T00010BMXIEN" $C(30) <+AMHIEN> $C(30) $C(31)
     # (AMHGSVF.m:41-44). MERR^AMHGU writes one row "M ERROR|<text>"
-    # $C(30) (AMHGU.m:108-120). Piece 15 is sent as "1" only when esign
-    # is true; VISIT calls UPDREC^AMHGESIG when that piece is set
-    # (AMHGSVF.m:40).
+    # $C(30) (AMHGU.m:108-120). A reply that names the record is not
+    # success until DDR GETS ENTRY DATA reads back .01, .02, .04, .05,
+    # .07, .08, .11 and .25 and each internal value equals what was
+    # sent: the normalised FileMan date (trailing zeros dropped from the
+    # time fraction, the same shape unary + stores), the program and
+    # appointment letters, the pointer IENs, and the patient. A post-call
+    # failure says the outcome is unknown and that the visit may have
+    # been filed.
     #
     # Returns the record IEN as a string.
-    def save_visit(provider:, patient:, encounter_date:, record_ien: nil, program: nil,
-                   clinic: nil, type_of_contact: nil, encounter_location: nil,
-                   community_of_service: nil, appointment_with: nil, group_name: nil,
-                   group_time: nil, activity_time: nil, esign: false)
-      wire, requested = save_visit_wire(
+    def save_visit(provider:, patient:, encounter_date:, record_ien: nil, program: OMITTED,
+                   clinic: OMITTED, type_of_contact: OMITTED, encounter_location: OMITTED,
+                   community_of_service: OMITTED, appointment_with: OMITTED, group_name: nil,
+                   group_time: nil, activity_time: nil)
+      wire, requested, expected = save_visit_wire(
         provider: provider, patient: patient, encounter_date: encounter_date,
         record_ien: record_ien, program: program, clinic: clinic,
         type_of_contact: type_of_contact, encounter_location: encounter_location,
         community_of_service: community_of_service, appointment_with: appointment_with,
-        group_name: group_name, group_time: group_time, activity_time: activity_time,
-        esign: esign
+        group_name: group_name, group_time: group_time, activity_time: activity_time
       )
+      save_visit_confirm_patient!(requested, expected.fetch(".08")) unless requested.empty?
       mapping = DataMapper[:amhg_save_visit]
-      save_visit_ien(call_amhg(mapping, wire), requested)
+      ien = save_visit_ien(call_amhg(mapping, wire), requested)
+      save_visit_confirm_filed!(ien, expected)
+      ien
     end
     shape :save_visit, resource: "behavioral-health", verb: "POST", path: "/behavioral-health/visit"
 
@@ -450,43 +497,64 @@ module RpmsRpc
 
     def save_visit_wire(provider:, patient:, encounter_date:, record_ien:, program:, clinic:,
                         type_of_contact:, encounter_location:, community_of_service:,
-                        appointment_with:, group_name:, group_time:, activity_time:, esign:)
+                        appointment_with:, group_name:, group_time:, activity_time:)
       requested = save_visit_record_ien(record_ien)
+      editing = !requested.empty?
+      program_value = save_visit_explicit(program, "program", editing)
+      clinic_value = save_visit_explicit(clinic, "clinic", editing)
+      contact_value = save_visit_explicit(type_of_contact, "type of contact", editing)
+      location_value = save_visit_explicit(encounter_location, "encounter location", editing)
+      community_value = save_visit_explicit(community_of_service, "community of service", editing)
+      appointment_value = save_visit_explicit(appointment_with, "appointment/walk-in", editing)
+
       name = save_visit_text(group_name)
-      gtime = save_visit_text(group_time)
-      atime = save_visit_text(activity_time)
+      gtime = save_visit_minutes(group_time, "group time")
+      atime = save_visit_minutes(activity_time, "activity time")
       save_visit_refuse!("group time requires a group name") if name.empty? && (!gtime.empty? || !atime.empty?)
 
-      program_piece = save_visit_code(program, PROGRAM_CODES, "program")
-      clinic_piece = save_visit_optional_ien(clinic, "clinic")
-      contact_piece = save_visit_optional_ien(type_of_contact, "type of contact")
-      location_piece = save_visit_optional_ien(encounter_location, "encounter location")
-      appointment_piece = save_visit_code(appointment_with, APPOINTMENT_WITH_CODES, "appointment/walk-in")
-      community_piece = save_visit_optional_ien(community_of_service, "community of service")
-      esign_piece = esign == true ? "1" : ""
+      program_piece = save_visit_code(program_value, PROGRAM_CODES, "program")
+      clinic_piece = save_visit_optional_ien(clinic_value, "clinic")
+      contact_piece = save_visit_optional_ien(contact_value, "type of contact")
+      location_piece = save_visit_optional_ien(location_value, "encounter location")
+      appointment_piece = save_visit_code(appointment_value, APPOINTMENT_WITH_CODES, "appointment/walk-in")
+      community_piece = save_visit_optional_ien(community_value, "community of service")
+      encounter_piece = save_visit_encounter(encounter_date)
+      patient_piece = save_visit_required_ien(patient, "patient")
       pieces = [
-        requested.empty? ? "A" : "E",
+        editing ? "E" : "A",
         requested,
         save_visit_required_ien(provider, "provider"),
         program_piece,
         clinic_piece,
         contact_piece,
         "",
-        save_visit_encounter(encounter_date),
+        encounter_piece,
         location_piece,
         appointment_piece,
         community_piece,
-        save_visit_required_ien(patient, "patient"),
+        patient_piece,
         name,
         gtime,
-        esign_piece,
+        "",
         atime
       ]
       wire = pieces.join("|")
-      # Internal invariant: VISIT^AMHGSVF is 16 pieces, date in piece 8.
+      # Internal invariant: VISIT^AMHGSVF is 16 pieces, date in piece 8,
+      # e-sign piece 15 blank.
       count = wire.split("|", -1).length
       raise Error, "AMHG SAVE VISIT wire has #{count} pieces, not 16" unless count == 16
-      [ wire, requested ]
+
+      expected = {
+        ".01" => save_visit_filed_date(encounter_piece),
+        ".02" => save_visit_set_internal(program_piece, PROGRAM_INTERNAL),
+        ".04" => location_piece,
+        ".05" => community_piece,
+        ".07" => contact_piece,
+        ".08" => patient_piece,
+        ".11" => save_visit_set_internal(appointment_piece, APPOINTMENT_INTERNAL),
+        ".25" => clinic_piece
+      }
+      [ wire, requested, expected ]
     end
 
     # nil is an add. A blank string is mode E with no IEN, which MODV turns
@@ -498,6 +566,15 @@ module RpmsRpc
       save_visit_refuse!("record IEN is blank") if text.empty?
       save_visit_refuse!("record IEN must be a positive integer") unless text.match?(POSITIVE_IEN)
       text
+    end
+
+    # On an edit, FILE^DIE stores a blank piece as an empty field. An
+    # omitted keyword and an explicit nil are the same refusal; "" clears.
+    def save_visit_explicit(value, label, editing)
+      if editing && (value.equal?(OMITTED) || value.nil?)
+        save_visit_refuse!("#{label} is required when editing a visit")
+      end
+      value.equal?(OMITTED) ? nil : value
     end
 
     def save_visit_required_ien(value, label)
@@ -530,6 +607,16 @@ module RpmsRpc
       text
     end
 
+    # Integers 0 through 9999. Blank stays blank. The wire piece is the
+    # caller's digits, so "0" is sent as "0" and not dropped.
+    def save_visit_minutes(value, label)
+      text = save_visit_text(value)
+      return "" if text.empty?
+      save_visit_refuse!("#{label} must be an integer from 0 through 9999") unless text.match?(MINUTES)
+
+      text
+    end
+
     def save_visit_text(value)
       return "" if value.nil?
 
@@ -538,18 +625,93 @@ module RpmsRpc
       text.strip
     end
 
+    def save_visit_set_internal(external, table)
+      return "" if external.empty?
+
+      table.fetch(external)
+    end
+
+    # Unary + drops trailing zeros in the time fraction (AMHGSVF.m:26).
+    # "3251031.0930" is stored as "3251031.093"; a fraction of only zeros
+    # is stored as the date.
+    def save_visit_filed_date(text)
+      return text unless text.include?(".")
+
+      date, fraction = text.split(".", 2)
+      fraction = fraction.sub(/0+\z/, "")
+      fraction.empty? ? date : "#{date}.#{fraction}"
+    end
+
+    # .08 is filed only on add. An edit that names another patient still
+    # files the other pieces (AMHGEVF.m:99,116).
+    def save_visit_confirm_patient!(record_ien, patient)
+      got = save_visit_ddr(
+        file: BH_VISIT_FILE, iens: "#{record_ien},",
+        fields: PRE_EDIT_PATIENT_FIELDS, flags: PRE_EDIT_PATIENT_FLAGS
+      )
+      stored = save_visit_stored_patient(got)
+      save_visit_refuse!("the stored patient could not be read") if stored.nil?
+      save_visit_refuse!("the stored patient does not match this visit") unless stored == patient
+    end
+
+    def save_visit_stored_patient(got)
+      return nil if got.nil? || got[:error] || got[:fields].empty?
+
+      raw = got[:fields].dig(".08", :internal)
+      return nil if raw.nil?
+
+      ien = raw.to_s.split(";", 2).first.to_s.strip
+      ien.empty? ? nil : ien
+    end
+
+    # The reply IEN is success only when the stored fields equal what was
+    # sent. A miss says the visit may have been filed.
+    def save_visit_confirm_filed!(ien, expected)
+      got = save_visit_ddr(
+        file: BH_VISIT_FILE, iens: "#{ien},",
+        fields: READBACK_FIELDS, flags: READBACK_FLAGS
+      )
+      save_visit_unconfirmed!(ien) unless save_visit_filed?(got, expected)
+    end
+
+    def save_visit_filed?(got, expected)
+      return false if got.nil? || got[:error] || got[:fields].empty?
+
+      expected.all? { |field, want| save_visit_readback(field, got[:fields]) == want }
+    end
+
+    def save_visit_readback(field, fields)
+      raw = fields.dig(field, :internal)
+      return nil if raw.nil?
+
+      text = raw.to_s.strip
+      return text.split(";", 2).first.to_s.strip if field == ".08"
+
+      text
+    end
+
+    # Outside call_amhg. A direct DdrFileman.gets_entry call is what the
+    # required-RPC list attributes to this module.
+    def save_visit_ddr(file:, iens:, fields:, flags:)
+      DdrFileman.gets_entry(file: file, iens: iens, fields: fields, flags: flags)
+    rescue Error
+      nil
+    end
+
     # GLOBAL ARRAY reply: optional "<seq>\x00" ack, rows split on $C(30),
     # cut at $C(31). A newline-only body (a client that already split, or
     # a line seed) is used as rows. The IEN field is a string so an
-    # "M ERROR|..." row is not coerced to 0.
+    # "M ERROR|..." row is not coerced to 0. The broker text stays out of
+    # the message: the outcome is unknown either way.
     def save_visit_ien(response, requested)
       rows = save_visit_rows(response)
-      save_visit_refuse!("AMHG SAVE VISIT returned an M error") if rows.any? { |row| row.start_with?("M ERROR|") }
+      known = requested.empty? ? nil : requested
+      save_visit_ambiguous!(known) if rows.any? { |row| row.start_with?("M ERROR|") }
 
       data = rows.reject { |row| DataMapper.recordset_header_row?(row) }
       ien = data.empty? ? "" : DataMapper[:amhg_save_visit].parse_one(data.first)&.dig(:ien).to_s
-      save_visit_refuse!("AMHG SAVE VISIT returned no record") unless ien.match?(POSITIVE_IEN)
-      save_visit_refuse!("AMHG SAVE VISIT edit did not return the requested record") if !requested.empty? && ien != requested
+      save_visit_ambiguous!(known) unless ien.match?(POSITIVE_IEN)
+      save_visit_ambiguous!(known) if known && ien != known
       ien
     end
 
@@ -567,6 +729,15 @@ module RpmsRpc
 
     def save_visit_refuse!(message)
       raise SaveError, message
+    end
+
+    def save_visit_ambiguous!(record_ien)
+      where = record_ien.nil? ? "the visit" : "record #{record_ien}"
+      raise SaveError, "AMHG SAVE VISIT outcome unknown; #{where} may have been filed"
+    end
+
+    def save_visit_unconfirmed!(record_ien)
+      raise SaveError, "AMHG SAVE VISIT outcome unknown; record #{record_ien} may have been filed but was not confirmed"
     end
 
     # The wire's Signed column is a NEGATIVE marker, and the EHR path clears

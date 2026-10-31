@@ -600,7 +600,8 @@ class BehavioralHealthTest < Minitest::Test
 
   # Arguments that let every public method reach the wire. Reads are
   # unseeded: the mock answers "" and still records the call. save_visit
-  # is seeded, because an empty reply raises SaveError after the RPC.
+  # is seeded, because an empty reply raises SaveError after the RPC, and
+  # the post-call DDR read-back must confirm the fields that were sent.
   AMHG_CALLS = {
     BH => {
       visits: [ 100, { from: "3250101", to: "3251231" } ],
@@ -665,10 +666,21 @@ class BehavioralHealthTest < Minitest::Test
   end
 
   # The save_visit row of AMHG_CALLS: required-only add, 16 pieces, blank
-  # arrival in piece 7, date in piece 8.
+  # arrival in piece 7, date in piece 8. The read-back seed is the stored
+  # internals for that wire (blank optionals, patient 100, date 3251031).
   def seed_context_save_visit(mock)
     wire = "A||412|||||3251031||||100||||"
     mock.seed_text(:amhg_save_visit, wire, "T00010BMXIEN#{RS}8801#{RS}#{US}")
+    fields = {
+      ".01" => "3251031", ".02" => "", ".04" => "", ".05" => "",
+      ".07" => "", ".08" => "100", ".11" => "", ".25" => ""
+    }
+    lines = fields.map { |field, internal| "9002011^8801^#{field}^#{internal}^EXT" }
+    key = RpmsRpc::DdrFileman.gets_entry_param(
+      file: "9002011", iens: "8801,",
+      fields: ".01;.02;.04;.05;.07;.08;.11;.25", flags: "IE"
+    ).to_s
+    mock.seed(:ddr_gets_entry_data, key, "[Data]\n#{lines.join("\n")}")
   end
 
   def test_every_amhg_call_runs_under_amhgrpc_and_restores_the_callers_context
@@ -685,9 +697,15 @@ class BehavioralHealthTest < Minitest::Test
         calls = mock.received_calls
         refute_empty calls, "#{mod}.#{method} made no RPC call"
         calls.each do |call|
-          assert_equal "AMHGRPC", call[:context],
-            "#{mod}.#{method} sent #{call[:rpc]} under #{call[:context].inspect}; the AMHG " \
-            "RPCs are registered under AMHGRPC only, so it is denied there"
+          if call[:rpc] == "DDR GETS ENTRY DATA"
+            assert_equal caller_context, call[:context],
+              "#{mod}.#{method} sent DDR GETS ENTRY DATA under #{call[:context].inspect}; " \
+              "that RPC is registered under the caller's option, not AMHGRPC"
+          else
+            assert_equal "AMHGRPC", call[:context],
+              "#{mod}.#{method} sent #{call[:rpc]} under #{call[:context].inspect}; the AMHG " \
+              "RPCs are registered under AMHGRPC only, so it is denied there"
+          end
         end
         assert_equal caller_context, mock.current_context,
           "#{mod}.#{method} left the session on #{mock.current_context.inspect}"
