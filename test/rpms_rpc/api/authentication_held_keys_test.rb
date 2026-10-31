@@ -210,4 +210,29 @@ class RpmsRpc::AuthenticationHeldKeysTest < Minitest::Test
     assert_raises(ArgumentError) { RpmsRpc::Authentication.held_keys([ "@SYN BADKEY" ]) }
     assert_empty @socket.writes
   end
+
+  # CIA replaces control bytes with a space and marks the reply altered; stripping
+  # whitespace must not turn that into a valid 0/1 answer (rpms-rpc#521 r2).
+  ALTERED_NPHASKEY_BODIES = [
+    "\x051",
+    "1\x05",
+    "\t1",
+    "1\x00",
+    "\e1"
+  ].freeze
+
+  ALTERED_NPHASKEY_BODIES.each do |body|
+    define_method(:"test_altered_nphaskey_body_#{body.bytes.map { |b| format('%02x', b) }.join('_')}_returns_nil") do
+      configure([ "1\x00#{body}#{EOD}" ])
+
+      assert_nil RpmsRpc::Authentication.held_keys([ "SYNKEYA" ]),
+                 "altered body #{body.inspect} must not read as holding SYNKEYA"
+    end
+  end
+
+  def test_two_data_lines_in_one_cia_nphaskey_reply_returns_nil
+    configure([ "1\x001\r\n0#{EOD}" ])
+
+    assert_nil RpmsRpc::Authentication.held_keys([ "SYNKEYA" ])
+  end
 end

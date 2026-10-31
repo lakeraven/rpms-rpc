@@ -99,4 +99,76 @@ class RpmsRpc::AuthenticationHeldKeysMockClientTest < Minitest::Test
     end
     assert_equal keys.select { |_, v| v }.keys, held
   end
+
+  def test_held_keys_returns_nil_when_held_keys_context_refuses_bind
+    RpmsRpc.mock! do |m|
+      m.set_authenticated(SYNTHETIC_DUZ)
+      m.create_context("CIAV VUECENTRIC")
+      m.unbindable_context!(HELD_CONTEXT)
+      m.seed(:person_has_key, [ SYNTHETIC_DUZ, "SYNKEYA" ], true)
+    end
+
+    assert_nil RpmsRpc::Authentication.held_keys([ "SYNKEYA" ])
+    assert_empty nphaskey_calls(RpmsRpc.client)
+    refute_equal "OR CPRS GUI CHART", RpmsRpc.client.current_context
+  end
+
+  def test_two_data_lines_in_nphaskey_reply_returns_nil
+    RpmsRpc.mock! do |m|
+      m.set_authenticated(SYNTHETIC_DUZ)
+      m.seed_raw_lines(:person_has_key, SYNTHETIC_DUZ, %w[1 0])
+    end
+
+    assert_nil RpmsRpc::Authentication.held_keys([ "SYNKEYA" ])
+  end
+
+  # held_keys must read DUZ under the wire lock / inside the bound context (rpms-rpc#521 r2).
+  class RebindBeforeLockMockClient < RpmsRpc::MockClient
+    REPLACEMENT_DUZ = "900002"
+
+    def with_context(option_name, &block)
+      set_authenticated(REPLACEMENT_DUZ)
+      super(option_name, &block)
+    end
+  end
+
+  def test_held_keys_uses_duz_read_under_context_lock_not_before
+    client = RebindBeforeLockMockClient.new
+    client.set_authenticated(SYNTHETIC_DUZ)
+    client.seed(:person_has_key, [ SYNTHETIC_DUZ, "SYNKEYA" ], true)
+    client.seed(:person_has_key, [ RebindBeforeLockMockClient::REPLACEMENT_DUZ, "SYNKEYA" ], false)
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    assert_equal [], RpmsRpc::Authentication.held_keys([ "SYNKEYA" ])
+
+    calls = nphaskey_calls(client)
+    refute_empty calls
+    assert calls.all? { |c| c[:params].first == RebindBeforeLockMockClient::REPLACEMENT_DUZ },
+           "every ORWU NPHASKEY must use the DUZ visible inside with_context"
+  end
+
+  class CallRpcOnlyDouble
+    def initialize
+      @calls = []
+    end
+
+    attr_reader :calls
+
+    def call_rpc(*args)
+      @calls << args
+      RpmsRpc::Reply.from_wire([ "1" ])
+    end
+
+    def with_context(_option_name, &block)
+      block.call
+    end
+  end
+
+  def test_held_keys_returns_nil_when_client_has_no_duz_method
+    double = CallRpcOnlyDouble.new
+    RpmsRpc.configure { |cfg| cfg.client = double }
+
+    assert_nil RpmsRpc::Authentication.held_keys([ "SYNKEYA" ])
+    assert_empty double.calls
+  end
 end
