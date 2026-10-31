@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "json"
 require "rpms_rpc/mock_client"
+require "rpms_rpc/retry_safety"
 require "rpms_rpc/api/patient"
 
 # Chart-banner CWAD must come from ORWPT CWAD under OR CPRS GUI CHART, not
@@ -109,6 +110,14 @@ class PatientCwadTest < Minitest::Test
 
     assert_equal caller_context, mock.current_context
     assert_equal [ CHART_CONTEXT, caller_context ], mock.context_binds.drop(binds_after_setup)
+  end
+
+  # brief_header wraps ORWPT CWAD in ContextScope.scoped("OR CPRS GUI CHART"), which
+  # binds a broker context option; per retry_safety.yml that is session context, not
+  # a pure read, so a host must not auto-retry after a failed restore (Patient.contact).
+  def test_brief_header_is_non_idempotent_write_in_retry_safety
+    assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::Patient, :brief_header)
+    refute RpmsRpc::RetrySafety.auto_retry_safe?(RpmsRpc::Patient, :brief_header)
   end
 
   # Proves required_rpcs.json lists ORWPT CWAD for Patient and drops BEHOCACV CWAD everywhere.
