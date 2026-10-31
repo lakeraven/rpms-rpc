@@ -33,13 +33,16 @@ require "rpms_rpc/api/scheduling"
 #   - may, a write: CANRUN's answer is the proof. The spec does not call it,
 #     so nothing is filed.
 #
-# The option is the method's, not the sign-on's. CIANBRPC CANRUN answers
+# The option is the method's, not always the sign-on's. CIANBRPC CANRUN answers
 # for the CTX on its own frame (CANRUN^CIANBRPC passes CIA("CTX") to
 # $$CANRUN^CIANBACT), and a module that declares a CONTEXT binds it around
 # every RPC it sends (ContextScope.scoped): Referral binds BMCRPC, Scheduling
-# BSDXRPC. A module that declares none (Patient, Problem) runs under the
-# sign-on option, CIAV VUECENTRIC. So the oracle binds the same option the
-# method will before it asks.
+# BSDXRPC. A module that declares none (Problem) runs under the sign-on
+# option, CIAV VUECENTRIC; Patient has no module CONTEXT but brief_header
+# binds OR CPRS GUI CHART only for ORWPT CWAD. When a method uses more than
+# one option, each FORMERLY_GUARDED RPC entry may name its context; otherwise
+# bound_context(name) applies. So the oracle binds the same option the method
+# will before it asks.
 #
 # These specs read only; they file nothing.
 class MissingRpcLiveTest < LiveSpec::Test
@@ -70,7 +73,11 @@ class MissingRpcLiveTest < LiveSpec::Test
   # method => [kind, RPCs it sends, the call]. The call runs on the test
   # instance (instance_exec), so it may use `client` and the helpers below.
   FORMERLY_GUARDED = {
-    "Patient.brief_header" => [ :read, [ "BEHOPTCX PTINFO", "BEHOPTPC GETBDP", "ORWPT CWAD" ], -> { RpmsRpc::Patient.brief_header(DFN) } ],
+    "Patient.brief_header" => [ :read, [
+      "BEHOPTCX PTINFO",
+      "BEHOPTPC GETBDP",
+      [ "ORWPT CWAD", RpmsRpc::Patient::CWAD_CONTEXT ]
+    ], -> { RpmsRpc::Patient.brief_header(DFN) } ],
     "Problem.lex_search" => [ :read, [ "ORQQPL PROBLEM LEX SEARCH" ], -> { RpmsRpc::Problem.lex_search("diabetes") } ],
     "Problem.clinic_search" => [ :read, [ "ORQQPL CLIN SRCH" ], -> { RpmsRpc::Problem.clinic_search(CLINIC_IEN) } ],
     "Problem.details" => [ :read, [ "ORQQPL DETAIL" ], -> { RpmsRpc::Problem.details(DFN, PROBLEM_IEN) } ],
@@ -176,11 +183,12 @@ class MissingRpcLiveTest < LiveSpec::Test
 
   FORMERLY_GUARDED.each do |name, (kind, rpcs, call)|
     define_method("test_#{name.downcase.tr('.', '_')}_answers_or_raises_never_empty") do
-      context = bound_context(name)
-      denied = rpcs.reject { |rpc| canrun?(rpc, context) }
+      pairs = rpcs.map { |entry| rpc_and_context(name, entry) }
+      denied = pairs.reject { |rpc, context| canrun?(rpc, context) }
 
       if denied.any?
-        err = assert_raises(Refused, "#{name} as #{persona}: #{denied.join(', ')} refused in #{context}, so it must raise") { instance_exec(&call) }
+        denied_msg = denied.map { |rpc, context| "#{rpc} in #{context}" }.join(", ")
+        err = assert_raises(Refused, "#{name} as #{persona}: #{denied_msg} refused, so it must raise") { instance_exec(&call) }
         assert_match(/Access denied for remote procedure/, err.message)
       elsif kind == :write
         pass # CANRUN says this persona may run every RPC it sends; not called, so nothing is filed.
@@ -209,6 +217,18 @@ class MissingRpcLiveTest < LiveSpec::Test
   def bound_context(name)
     mod = RpmsRpc.const_get(name.split(".").first, false)
     mod.const_defined?(:CONTEXT, false) ? mod::CONTEXT : SIGNON_CONTEXT
+  end
+
+  # String => RPC under bound_context(name); [rpc, context] or { rpc:, context: } per RPC.
+  def rpc_and_context(name, entry)
+    default = bound_context(name)
+    case entry
+    when String then [ entry, default ]
+    when Array then [ entry.fetch(0), entry.fetch(1) ]
+    when Hash then [ entry.fetch(:rpc), entry.fetch(:context) ]
+    else
+      raise ArgumentError, "unexpected FORMERLY_GUARDED RPC entry: #{entry.inspect}"
+    end
   end
 
   # The facility EDLOAD^ORQQPL1 wants as GMPVAMC: the INSTITUTION (#4) the
