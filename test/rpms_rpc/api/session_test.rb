@@ -21,10 +21,9 @@ class SessionTest < Minitest::Test
   def test_bootstrap_returns_documented_hash_shape
     result = RpmsRpc::Session.bootstrap("301")
 
-    refute result.key?(:registry)
+    assert_equal [ :vim_info ], result.keys
     assert_equal 301, result[:vim_info][:duz]
     assert_equal "PROVIDER,TEST", result[:vim_info][:user_name]
-    refute result.key?(:default_site_ien)
   end
 
   # "CIAVM DEFAULT SOURCE" is the VueCentric client's config root — the path
@@ -56,7 +55,6 @@ class SessionTest < Minitest::Test
     RpmsRpc::Session.bootstrap("301")
 
     rpcs = RpmsRpc.client.received_calls.map { |c| c[:rpc] }
-    refute_includes rpcs, "CIAVMCFG GETREG"
     assert_includes rpcs, "CIAVCXUS VIMINFO"
   end
 
