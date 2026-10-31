@@ -134,8 +134,8 @@ module RpmsRpc
     SEXUAL_ORIENTATION_VALUE_FILE = "9000001.93011"
     LEGAL_SEX_FILE = "9000001.9201"
     MBI_FILE = "9000001.44"
-    # Code files the value multiples point at. Field .02 is piece 2 of the
-    # code file's 0 node. S9394^AUPNSOG3 takes OTHER text only when that
+    # Code files the value multiples point at. Field 1 CODE is piece 2 of
+    # the code file's 0 node. S9394^AUPNSOG3 takes OTHER text only when that
     # piece is OTH ($$GI^AUTSOGI / $$SO^AUTSOGI(val,"C")).
     GENDER_IDENTITY_CODE_FILE = "9999999.104"
     SEXUAL_ORIENTATION_CODE_FILE = "9999999.103"
@@ -393,10 +393,15 @@ module RpmsRpc
     # DDR3.m:14-18) under CIAV VUECENTRIC. FileMan xrefs AGI1/AGI2 still fire.
     #
     # The date IENS is $S($D(^AUPNPAT(PAT,94,EDT)):EDT,1:"+1") (S9394, the
-    # same choice SETLSEX makes for node 92). This method reads that node
-    # with DDR GETS ENTRY DATA (.01, flags "I") and files mode EDIT at
-    # "<fmdate>,<dfn>," when .01 is stored, or mode ADD at "+1,<dfn>," when
-    # it is not. Placeholder 1 is DINUM'd to the date (DDR3.m:12-13).
+    # same choice SETLSEX makes for node 92). This method lists the date
+    # rows with DDR LISTER (iens ",<dfn>,", fields "@;.01I", flags "IP").
+    # A row whose first piece equals the requested FileMan date is mode
+    # EDIT at "<fmdate>,<dfn>,". No such row, including an empty [Data]
+    # (entries [], error false), is mode ADD at "+1,<dfn>,". Placeholder 1
+    # is DINUM'd to the date (DDR3.m:12-13). A nil reply or [Errors] is
+    # :lookup_failed and files nothing. DDR GETS ENTRY DATA cannot make
+    # this check: GETS on a missing entry replies error: true, the same
+    # reply as a failed read.
     #
     # Value sub-entries are DINUM'd to the code IEN. S9394 files
     # FDA(SF,"?+"_CNT_IENS,.01) with RES(CNT) equal to the code, and
@@ -408,11 +413,13 @@ module RpmsRpc
     # added DINUM'd.
     #
     # OTHER (field 2) is filed only when the text is non-blank and a chosen
-    # value's .02 is OTH. S9394 receives that text only when
-    # $$GI^AUTSOGI(val,"C")="OTH". .02 is read here (flags "I"); a blank
-    # other does not read the code file. No OTH value is :invalid and files
-    # nothing. A nil reply or an error on the date row, the code read, or
-    # the value list is :lookup_failed and files nothing.
+    # value's field 1 CODE is OTH. Field 1 is piece 2 of the #9999999.104
+    # 0 node. S9394 receives that text only when
+    # $$GI^AUTSOGI(val,"C")="OTH". The code is read with DDR GETS ENTRY DATA
+    # (fields "1", flags "I"); a blank other does not read the code file.
+    # No OTH value is :invalid and files nothing. A nil reply or an error
+    # on the date-row list, the code read, or the value list is
+    # :lookup_failed and files nothing.
     #
     # SETGI's code translation and defaults do not run: values are internal
     # IENs, and an omitted date is today only because this method sends it.
@@ -434,9 +441,10 @@ module RpmsRpc
     # UPDATE^DIE's #9000001.9301 and #9000001.93011 (.01 pointer to
     # #9999999.103). No #8994 entry reaches SETSO (rpms-rpc#418, resolution
     # 2). Same DDR FILER contract as set_gender_identity, on
-    # ^AUPNPAT(PAT,93,EDT) and with $$SO^AUTSOGI(val,"C")="OTH" as the
-    # OTHER gate. FileMan xrefs ASO1/ASO2 still fire; SETSO's code
-    # translation and defaults do not.
+    # ^AUPNPAT(PAT,93,EDT). The OTHER gate is $$SO^AUTSOGI(val,"C")="OTH":
+    # field 1 CODE of #9999999.103, piece 2 of that file's 0 node. FileMan
+    # xrefs ASO1/ASO2 still fire; SETSO's code translation and defaults do
+    # not.
     def set_sexual_orientation(dfn, values:, other: nil, date: Date.today)
       ready = prepare_sogi(dfn, values: values, other: other, date: date)
       return ready if ready[:error]
@@ -450,13 +458,15 @@ module RpmsRpc
     # File a legal-sex history row. SETLSEX^AUPNSOGI reaches AUPNSOG3:53,
     # which UPDATE^DIE's #9000001.9201 (.01 EFFECTIVE DATE dinum, 1 LEGAL SEX,
     # 2 SOURCE pointer to #9000030, 3 DATE ENTERED). The IENS is
-    # $S($D(^AUPNPAT(PAT,92,EDT)):EDT,1:"+1"): a stored date is mode EDIT at
-    # "<fmdate>,<dfn>,", a missing date is mode ADD with placeholder 1 DINUM'd
-    # to the date. The existence read is DDR GETS ENTRY DATA on .01 (flags
-    # "I"); nil or an error is :lookup_failed and files nothing. No #8994
-    # entry reaches SETLSEX (rpms-rpc#418, resolution 2). sex must already be
-    # M, F, or X; source must already be the #9000030 IEN. DATE ENTERED is
-    # the client's today: FILEC^DDR3 does not default it to DT.
+    # $S($D(^AUPNPAT(PAT,92,EDT)):EDT,1:"+1"). The date rows are listed with
+    # DDR LISTER (iens ",<dfn>,", fields "@;.01I", flags "IP"). A row whose
+    # first piece equals the requested FileMan date is mode EDIT at
+    # "<fmdate>,<dfn>,". No such row, including an empty [Data], is mode ADD
+    # with placeholder 1 DINUM'd to the date. A nil reply or [Errors] is
+    # :lookup_failed and files nothing. No #8994 entry reaches SETLSEX
+    # (rpms-rpc#418, resolution 2). sex must already be M, F, or X; source
+    # must already be the #9000030 IEN. DATE ENTERED is the client's today:
+    # FILEC^DDR3 does not default it to DT.
     def set_legal_sex(dfn, sex:, source:, date: Date.today)
       id = patient_dfn(dfn)
       return invalid("a positive DFN is required") unless id
@@ -486,9 +496,11 @@ module RpmsRpc
     # #9000001.44 (.01 EFFECTIVE DATE dinum, 1 MBI uppercased, 2 SOURCE,
     # 3 DATE ENTERED, 4 ENTERED BY = DUZ). ADDMBI uses "?+1" when
     # ^AUPNPAT(PAT,44,EFFDATE) exists and "+1" when it does not. This method
-    # reads that node (DDR GETS ENTRY DATA, .01, flags "I") and files mode
-    # EDIT at "<fmdate>,<dfn>," or mode ADD with placeholder 1 DINUM'd to the
-    # date. Nil or an error on that read is :lookup_failed and files nothing.
+    # lists #9000001.44 with DDR LISTER (iens ",<dfn>,", fields "@;.01I",
+    # flags "IP"). A row whose first piece equals the effective FileMan date
+    # is mode EDIT at "<fmdate>,<dfn>,". No such row, including an empty
+    # [Data], is mode ADD with placeholder 1 DINUM'd to the date. A nil
+    # reply or [Errors] is :lookup_failed and files nothing.
     # No #8994 entry reaches ADDMBI (rpms-rpc#418, resolution 2), so this is
     # DDR FILER. Field 1's triggers and xrefs still fire. Anything else
     # ADDMBI does is not run. The MBI is uppercased here; DATE ENTERED is the
@@ -934,16 +946,17 @@ module RpmsRpc
       end
     end
 
-    # $$GI^AUTSOGI / $$SO^AUTSOGI returns the code from field .02. S9394
-    # takes OTHER text only when that code is OTH.
+    # $$GI^AUTSOGI / $$SO^AUTSOGI returns CODE from field 1, piece 2 of the
+    # code file's 0 node. S9394 takes OTHER text only when that code is OTH.
+    # DDR GETS of field .02 errors: ^DD(9999999.104,.02) does not exist.
     def other_code_chosen?(code_file, codes)
       matched = false
       codes.each do |ien|
-        read = DdrFileman.gets_entry(file: code_file, iens: "#{ien},", fields: ".02", flags: "I")
+        read = DdrFileman.gets_entry(file: code_file, iens: "#{ien},", fields: "1", flags: "I")
         return lookup_failed("DDR GETS ENTRY DATA gave no reply for ##{code_file}") if read.nil?
         return lookup_failed("DDR GETS ENTRY DATA refused ##{code_file}") if read[:error]
 
-        matched = true if read[:fields].dig(".02", :internal).to_s == OTHER_CODE
+        matched = true if read[:fields].dig("1", :internal).to_s == OTHER_CODE
       end
       return true if matched
 
@@ -951,13 +964,18 @@ module RpmsRpc
     end
 
     # $S($D(^AUPNPAT(PAT,node,EDT)):EDT,1:"+1") and ADDMBI's "?+1" when the
-    # effective-date node exists. :present, :absent, or a lookup failure.
+    # effective-date node exists. DDR LISTER on the subfile (iens ",<dfn>,",
+    # fields "@;.01I", flags "IP"). A packed row is IEN-first, so its first
+    # piece is the subfile subscript; that piece equaling the FileMan date
+    # is :present (EDIT). No such row, including an empty [Data], is
+    # :absent (ADD). A nil reply or [Errors] is a lookup failure. GETS is
+    # not used: a missing entry replies error: true, same as a failed read.
     def probe_dated_row(file, dfn, day)
-      read = DdrFileman.gets_entry(file: file, iens: "#{day},#{dfn},", fields: ".01", flags: "I")
-      return lookup_failed("DDR GETS ENTRY DATA gave no reply for ##{file}") if read.nil?
-      return lookup_failed("DDR GETS ENTRY DATA refused ##{file}") if read[:error]
+      listed = DdrFileman.lister(file: file, iens: ",#{dfn},", fields: "@;.01I", flags: "IP")
+      return lookup_failed("DDR LISTER gave no reply for ##{file}") if listed.nil?
+      return lookup_failed("DDR LISTER refused ##{file}") if listed[:error]
 
-      read[:fields].dig(".01", :internal).to_s.empty? ? :absent : :present
+      listed[:entries].any? { |entry| entry[:ien].to_s == day.to_s } ? :present : :absent
     end
 
     # Caller is inside in_context. A stored date is FILE^DIE (mode EDIT) at
