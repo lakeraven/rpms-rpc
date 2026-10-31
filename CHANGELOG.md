@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — `held_keys` through ORWU NPHASKEY (#521)
+
+- `Authentication.held_keys` asks `ORWU NPHASKEY` once per named key for the signed-on DUZ (`NPHASKEY^ORWU(VAL,NP,KEY)` = `''$D(^XUSEC(KEY,NP))`), with the batch bound to `OR CPRS GUI CHART`, instead of one VueCentric-only `CIAVCXUS HASKEYS` call. Over CIA the context rides on each frame, so N keys cost N frames; over XWB/BMX a bind and a restore add 2. On CIA each call is a normal client RPC, so the client numbers the frame and the session sequence advances with the batch.
+- The return contract is unchanged: the subset held, in the order asked; `[]` when none are held; `nil` when the question could not be asked. No signed-on DUZ (nil, blank, or non-positive) returns `nil` and sends nothing. A refused call, an empty reply, or any answer other than exactly `"0"` or `"1"` returns `nil` for the whole batch. Blank names are dropped; an all-blank list sends nothing and returns `[]`. A name containing `^` or a leading `@` raises `ArgumentError` before anything is sent.
+
 ### Changed — `ProgressNote.update_text` wraps long lines before TIU SET DOCUMENT TEXT (#479)
 
 - A line longer than `wrap_width` bytes (default `ProgressNote::WRAP_WIDTH`, 80; an Integer from 4 to 999) is cut into consecutive `TIUX("TEXT",n,0)` pieces. The break is the last space or tab past the leading indentation and at a byte offset within the width; that one character is dropped. Otherwise the cut is the last UTF-8 character boundary within the width and nothing is dropped. Lines that fit, including blank lines, are unchanged. **This changes how the note is laid out in the chart.** Rejoining the pieces with the dropped character restores the line. Joined with a single space, a tab at a cut reads back as a space, and a space or tab cut at the very end of a line is dropped. Non-whitespace is never dropped or changed. Indentation is not repeated on continuation pieces; an indent wider than the width is itself hard-cut.

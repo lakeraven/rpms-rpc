@@ -3,16 +3,19 @@
 require_relative "../shape"
 require_relative "../mappings"
 require_relative "../xwb_cipher"
+require_relative "../context_scope"
 require_relative "ddr_fileman"
 
 module RpmsRpc
   # Symbolic API for VistA/RPMS authentication RPCs.
   # Underlying RPCs: XUS SIGNON SETUP, XUS AV CODE, XUS CVC,
-  # XUS GET USER INFO, ORWU NPHASKEY, DDR LISTER, CIAVCXUS HASKEYS. (The key
+  # XUS GET USER INFO, ORWU NPHASKEY, DDR LISTER. (The key
   # list once sent ORWU USERKEYS, a name no built 9.0 image registers, #207.
-  # `user_security_keys` now reads the user's KEYS multiple with DDR LISTER;
-  # `held_keys` asks about several named keys in one round trip with CIAVCXUS
-  # HASKEYS; `has_security_key?` asks about one, through ORWU NPHASKEY.)
+  # `user_security_keys` reads the user's KEYS multiple with DDR LISTER.
+  # `held_keys` asks ORWU NPHASKEY once per named key, the batch bound to
+  # OR CPRS GUI CHART: over CIA the context rides on each frame, so N keys
+  # cost N frames; over XWB/BMX a bind and a restore add 2.
+  # `has_security_key?` asks about one key, through the same ORWU NPHASKEY.)
   module Authentication
     extend self
     extend Shape::Declarable
@@ -40,6 +43,9 @@ module RpmsRpc
       1 => "clerk",
       0 => "user"
     }.freeze
+
+    # The option that registers ORWU NPHASKEY for a chart session (rpms-rpc#521).
+    HELD_KEYS_CONTEXT = "OR CPRS GUI CHART"
 
     # Sign on with an access/verify pair.
     #
@@ -168,15 +174,18 @@ module RpmsRpc
     shape :user_security_keys, resource: "users", verb: "GET", path: "/users/{duz}/security-keys"
 
     # The subset of +names+ the signed-on user holds, in the order asked
-    # (rpms-rpc#318). One CIAVCXUS HASKEYS call, the names joined with "^"
-    # (HASKEYS^CIAVCXUS, CIAVCXUS.m:14-18), the reply read piecewise.
+    # (rpms-rpc#521). One ORWU NPHASKEY per name (NPHASKEY^ORWU(VAL,NP,KEY) =
+    # ''$D(^XUSEC(KEY,NP))), NP the signed-on DUZ, the whole batch bound to
+    # OR CPRS GUI CHART. Over CIA the context rides on each frame, so N keys
+    # cost N frames; over XWB/BMX a bind and a restore add 2.
     #
-    # Returns nil when the broker refuses or gives no usable answer, so a
-    # consumer can tell "holds none" ([]) from "could not ask" (nil). Blank
-    # names are dropped (HASKEY answers 1 for an empty key, CIAVCXUS.m:9); no
-    # names left sends nothing and returns []. A name with "^" (it would shift
-    # every later piece) or a leading "@" (HASKEY reads that as a PARAMETER,
-    # CIAVCXUS.m:11) is not a key name: ArgumentError, before anything is sent.
+    # Returns nil when the question could not be asked, so a consumer can tell
+    # "holds none" ([]) from "could not ask" (nil): no signed-on DUZ (nil,
+    # blank, or non-positive), or any one call refused (Client::RpcError),
+    # answered empty, or answered anything other than exactly "0" or "1".
+    # Never a partial list. Blank names are dropped; no names left sends
+    # nothing and returns []. A name containing "^" or a leading "@" raises
+    # ArgumentError before anything is sent.
     def held_keys(names)
       asked = Array(names).map { |name| name.to_s.strip }.reject(&:empty?)
       return [] if asked.empty?
@@ -184,10 +193,17 @@ module RpmsRpc
       misread = asked.select { |name| name.include?("^") || name.start_with?("@") }
       raise ArgumentError, "not security key names: #{misread.join(', ')}" unless misread.empty?
 
-      flags = held_key_flags(asked)
-      return nil if flags.nil?
+      duz = signed_on_duz
+      return nil if duz.nil?
+
+      flags = ContextScope.scoped(RpmsRpc.client, HELD_KEYS_CONTEXT) do
+        asked.map { |name| held_key_flag(duz, name) }
+      end
+      return nil if flags.any?(&:nil?)
 
       asked.each_index.select { |i| flags[i] == "1" }.map { |i| asked[i] }
+    rescue Client::RpcError
+      nil
     end
     shape :held_keys, resource: "users", verb: "GET", path: "/users/held-keys"
 
@@ -276,8 +292,10 @@ module RpmsRpc
       DataMapper.signon_setup.fetch_scalar
     end
 
-    # The HASKEYS reply as one "0"/"1" per name asked, or nil for a refusal,
-    # an empty reply, or one whose pieces do not answer every name.
+    # ORWU HAS OPTION ACCESS's one line, or nil. :user_option_access leaves
+    # the line a string. Surrounding whitespace is dropped; only "0" or "1"
+    # counts. A refused call (Client::RpcError), an empty reply, or any
+    # other text is nil.
     def option_access_flag(name)
       flag = DataMapper.user_option_access.fetch_scalar(name).to_s.strip
       %w[0 1].include?(flag) ? flag : nil
@@ -285,13 +303,26 @@ module RpmsRpc
       nil
     end
 
-    def held_key_flags(asked)
-      reply = DataMapper.user_held_keys.fetch_lines(asked.join("^"))
-      flags = reply && reply[:flags].to_s.strip.split("^", -1)
-      return nil if flags.nil? || flags.size != asked.size
-      return nil unless flags.all? { |flag| %w[0 1].include?(flag) }
+    # The signed-on DUZ to pass as NP, or nil when there is nothing to ask
+    # with: nil, blank, or not a positive integer. Nothing is sent in that case.
+    def signed_on_duz
+      duz = RpmsRpc.client.duz
+      return nil if invalid_id?(duz)
 
-      flags
+      duz.to_s.strip
+    end
+
+    # ORWU NPHASKEY's one line, or nil. :person_has_key types that line as a
+    # boolean, and the coercion turns every other non-empty reply ("2", "10",
+    # "yes") into true or false, so this reads the client's lines and accepts
+    # only an exact "0" or "1". The client numbers the frame; this does not
+    # touch its sequence counter.
+    def held_key_flag(duz, name)
+      reply = RpmsRpc.client.call_rpc(DataMapper.person_has_key.rpc_name, duz, name)
+      return nil unless reply.is_a?(Array) && reply.size == 1
+
+      flag = reply.first
+      flag == "0" || flag == "1" ? flag : nil
     rescue Client::RpcError
       nil
     end
