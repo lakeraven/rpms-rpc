@@ -149,27 +149,29 @@ module RpmsRpc
     # :primary_provider is the GETBDP row whose label (field 0), compared
     # exactly after surrounding whitespace is stripped, is
     # DESIGNATED_PRIMARY_PROVIDER_LABEL. When there is no such row, or its
-    # provider name is blank, the PTINFO primary provider is used. A GETBDP
-    # reply that contains any error row is a failed read: no provider is
-    # taken from it and the PTINFO primary provider is used, without raising.
+    # provider name is blank (only [[:space:]], including U+00A0), the PTINFO
+    # primary provider is used. A GETBDP reply with a piece that is not valid
+    # UTF-8, or an error row after the reply is split on CR, LF, $C(30) and
+    # $C(31), is a failed read: no provider is taken from it and the PTINFO
+    # primary provider is used, without raising.
     #
-    # Returns nil for invalid (nil / zero / negative) DFNs and for unknown DFNs
-    # (PTINFO gives nothing and GETBDP gives no usable rows). A broker that does not
-    # serve one of the three RPCs raises RpcNotAvailableError, one that serves
-    # it but not to this user raises RpcRefusedError, and an M error raises
-    # RpcError (#363).
+    # Returns nil for an invalid (nil / zero / negative) DFN, and when PTINFO
+    # gives nothing unless a usable designated primary provider name was
+    # found. A broker that does not serve one of the three RPCs raises
+    # RpcNotAvailableError, one that serves it but not to this user raises
+    # RpcRefusedError, and an M error raises RpcError (#363).
     def brief_header(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
 
       ptinfo   = DataMapper.patient_ptinfo.fetch_one(dfn.to_s)
       bdp_rows = designated_provider_rows(dfn)
-      return nil if ptinfo.nil? && bdp_rows.empty?
+      designated = bdp_rows.find { |row| row[:label].to_s.strip == DESIGNATED_PRIMARY_PROVIDER_LABEL }
+      name = designated && designated[:provider_name]
+      name = nil if name.nil? || name.match?(/\A[[:space:]]*\z/)
+      return nil if ptinfo.nil? && name.nil?
 
       cwad = DataMapper.patient_cwad.fetch_scalar(dfn.to_s) || ""
       dob  = FilemanDateParser.parse_date(ptinfo && ptinfo[:dob_raw])
-      designated = bdp_rows.find { |row| row[:label].to_s.strip == DESIGNATED_PRIMARY_PROVIDER_LABEL }
-      name = designated && designated[:provider_name]
-      name = nil if name.nil? || name.strip.empty?
       provider = name || (ptinfo && ptinfo[:primary_provider])
 
       {
@@ -495,24 +497,34 @@ module RpmsRpc
 
     private
 
-    # BEHOPTPC GETBDP rows for the chart banner, from one call. Any broker
-    # error row fails the read, so no provider is taken from the reply.
-    # Lines may be an Array or a newline-joined String; DataMapper's recordset
-    # normaliser removes $C(30) and leading-whitespace framing before
-    # error_row? sees each line. A reply with no error row is parsed by the
-    # mapping.
+    # BEHOPTPC GETBDP rows for the chart banner, from one call. nil or an
+    # empty reply is no rows. A piece that is not valid UTF-8, or an error
+    # row, fails the read so nothing is parsed from the reply. Otherwise the
+    # mapping parses it.
     def designated_provider_rows(dfn)
       mapping = DataMapper.patient_designated_provider
       response = RpmsRpc.client.call_rpc(mapping.rpc_name, dfn.to_s)
+      return [] if response.nil? || response == "" || (response.is_a?(Array) && response.empty?)
       return [] if designated_provider_error_reply?(response)
 
       mapping.parse_many(response)
     end
 
+    # True when any piece of an Array or String reply is not valid UTF-8, or
+    # is an error row once leading spaces and C0 controls are stripped.
+    # Pieces are split on CR, LF, $C(30) and $C(31), on a binary copy so an
+    # invalid sequence does not raise. Validity is checked on a duplicate
+    # force-encoded to UTF-8, so the reply is not mutated.
     def designated_provider_error_reply?(response)
       chunks = response.is_a?(Array) ? response : [ response ]
-      lines = DataMapper.send(:bsdx_list_lines, chunks, split_newlines: true)
-      lines.any? { |line| DataMapper.error_row?(DataMapper.send(:bsdx_classify_text, line)) }
+      chunks.grep(String).any? do |chunk|
+        chunk.b.split(/[\r\n\x1e\x1f]/n).any? do |piece|
+          utf8 = piece.dup.force_encoding(Encoding::UTF_8)
+          next true unless utf8.valid_encoding?
+
+          DataMapper.error_row?(utf8.sub(/\A[ \x00-\x1F]+/, ""))
+        end
+      end
     end
 
     # LISTALL^ORWPT pages with $ORDER, which answers the name AFTER the text it
