@@ -128,4 +128,65 @@ class PatientDesignatedProviderTest < Minitest::Test
 
     assert_equal "PROVIDER,DESIGNATED", header[:primary_provider]
   end
+
+  # fetch_many drops "-N^message" lines but keeps others; any error row means a failed GETBDP read.
+  def test_brief_header_falls_back_to_ptinfo_when_getbdp_leads_with_error_row
+    getbdp = [
+      "-1^boom",
+      bdp_row("DESIGNATED PRIMARY PROVIDER", "PROVIDER,DESIGNATED")
+    ]
+    client = BriefHeaderClient.new(
+      ptinfo_line: ptinfo_line(primary_provider: "PROVIDER,PTINFO"),
+      getbdp_lines: getbdp
+    )
+
+    header = brief_header(client)
+
+    assert_equal "PROVIDER,PTINFO", header[:primary_provider]
+  end
+
+  # Same fail-closed rule when a valid row precedes the error and a designated row follows.
+  def test_brief_header_falls_back_to_ptinfo_when_getbdp_contains_an_error_row_among_data_rows
+    getbdp = [
+      bdp_row("CASE MANAGER", "MANAGER,CASE"),
+      "-1^boom",
+      bdp_row("DESIGNATED PRIMARY PROVIDER", "PROVIDER,DESIGNATED")
+    ]
+    client = BriefHeaderClient.new(
+      ptinfo_line: ptinfo_line(primary_provider: "PROVIDER,PTINFO"),
+      getbdp_lines: getbdp
+    )
+
+    header = brief_header(client)
+
+    assert_equal "PROVIDER,PTINFO", header[:primary_provider]
+  end
+
+  # Sole "-1^no data" String is an empty GETBDP read, not a provider row.
+  def test_brief_header_falls_back_to_ptinfo_when_getbdp_is_only_error_string
+    client = BriefHeaderClient.new(
+      ptinfo_line: ptinfo_line(primary_provider: "PROVIDER,PTINFO"),
+      getbdp_lines: "-1^no data"
+    )
+
+    header = brief_header(client)
+
+    assert_equal "PROVIDER,PTINFO", header[:primary_provider]
+  end
+
+  # MockClient / Reply::Text shape: newline body with no error rows still selects designated primary.
+  def test_brief_header_uses_designated_primary_from_newline_joined_getbdp_string
+    getbdp = [
+      bdp_row("CASE MANAGER", "MANAGER,CASE"),
+      bdp_row("DESIGNATED PRIMARY PROVIDER", "PROVIDER,DESIGNATED")
+    ].join("\n")
+    client = BriefHeaderClient.new(
+      ptinfo_line: ptinfo_line(primary_provider: "PROVIDER,PTINFO"),
+      getbdp_lines: getbdp
+    )
+
+    header = brief_header(client)
+
+    assert_equal "PROVIDER,DESIGNATED", header[:primary_provider]
+  end
 end
