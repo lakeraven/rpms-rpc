@@ -73,9 +73,9 @@ class SchedulingSetupTest < Minitest::Test
     client = use([ "[Data]", "44^6^1914^8", "44^6^1918.5^Y", "44^6^2002^365", "44^6^2500^", "44^6^2505^3270517", "44^6^2506^" ])
 
     assert_equal({ id: 6, display_begins: 8, schedule_on_holidays: true, max_future_days: 365, prohibit_access: false,
-                   inactivate_date: Date.new(2027, 5, 17), reactivate_date: nil },
+                   privileged_users: [], inactivate_date: Date.new(2027, 5, 17), reactivate_date: nil },
                  RpmsRpc::SchedulingSetup.clinic_rules(6))
-    assert_equal({ "FILE" => "44", "IENS" => "6,", "FIELDS" => "1914;1918.5;2002;2500;2505;2506", "FLAGS" => "I" }, client.calls.first[:param])
+    assert_equal({ "FILE" => "44", "IENS" => "6,", "FIELDS" => "1914;1918.5;2002;2500;2505;2506;1916", "FLAGS" => "I" }, client.calls.first[:param])
     assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
   end
 
@@ -93,4 +93,18 @@ class SchedulingSetupTest < Minitest::Test
     use(nil)
     assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::SchedulingSetup.access_types }
   end
+# A clinic that prohibits access lets in its own PRIVILEGED USERs and its
+# principal clinic's (SDM1.m:33). The subfile reply is what DDR LISTER on
+# 44.04 answered on a live 7c3119b build after one user was filed.
+def test_a_clinic_that_prohibits_access_names_its_and_its_principal_clinics_privileged_users
+  client = use([ "[Data]", "44^3^1914^8", "44^3^2500^Y", "44^3^1916^6" ],
+               [ "[Data]", "1^208" ],
+               [ "[Data]", "1^208", "2^211" ])
+
+  rules = RpmsRpc::SchedulingSetup.clinic_rules(3)
+  assert rules[:prohibit_access]
+  assert_equal [ 208, 211 ], rules[:privileged_users]
+  assert_equal [ ",3,", ",6," ], client.calls.drop(1).map { |c| c[:param]["IENS"] }
+  assert(client.calls.drop(1).all? { |c| c[:param]["FILE"] == "44.04" })
+end
 end
