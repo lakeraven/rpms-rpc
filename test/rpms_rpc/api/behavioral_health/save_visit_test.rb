@@ -193,14 +193,18 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     seed_add_success(WIRE_ADD_REQUIRED_ONLY, "8803", **REQUIRED_KWARGS)
     BH.save_visit(**REQUIRED_KWARGS)
 
-    call = ddr_gets_calls.find do |c|
+    pre_positions = positions_of do |c|
+      next false unless c[:rpc] == "DDR GETS ENTRY DATA"
+
       p = c[:params].first
       p["FILE"] == PATIENT_FILE && p["IENS"] == "#{PATIENT}," &&
         p["FIELDS"] == PRE_ADD_PATIENT_FIELDS && p["FLAGS"] == PRE_ADD_PATIENT_FLAGS
     end
-    refute_nil call, "expected pre-add patient DDR GETS"
-    assert ddr_lister_calls.empty? || ddr_gets_calls.index(call) < amhg_calls.first,
-           "pre-add patient read must precede AMHG SAVE VISIT"
+    amhg_positions = positions_of { |c| c[:rpc] == RPC }
+    refute_nil pre_positions.first, "expected pre-add patient DDR GETS"
+    refute_nil amhg_positions.first, "expected AMHG SAVE VISIT"
+    assert_operator pre_positions.first, :<, amhg_positions.first,
+                    "pre-add patient read must precede AMHG SAVE VISIT"
   end
 
   def test_add_refuses_when_pre_add_patient_read_errors_without_amhg_rpc
@@ -221,11 +225,15 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     BH.save_visit(**FULL_KWARGS.merge(record_ien: RECORD_IEN, group_name: "", group_time: nil, activity_time: nil))
 
     want = provider_lister_key(RECORD_IEN)
-    lister_calls = ddr_lister_calls.select { |c| c[:params].first.to_s == want }
-    assert_equal 2, lister_calls.size, "expected pre- and post-call provider DDR LISTER on AD"
-    amhg_index = @mock.received_calls.index { |c| c[:rpc] == RPC }
-    pre_index = @mock.received_calls.index(lister_calls.first)
-    post_index = @mock.received_calls.index(lister_calls.last)
+    lister_positions = positions_of do |c|
+      c[:rpc] == "DDR LISTER" && c[:params].first.to_s == want
+    end
+    assert_equal 2, lister_positions.size, "expected pre- and post-call provider DDR LISTER on AD"
+    amhg_positions = positions_of { |c| c[:rpc] == RPC }
+    refute_nil amhg_positions.first, "expected AMHG SAVE VISIT"
+    pre_index = lister_positions.first
+    post_index = lister_positions.last
+    amhg_index = amhg_positions.first
     assert_operator pre_index, :<, amhg_index
     assert_operator amhg_index, :<, post_index
   end
@@ -606,6 +614,10 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
   end
 
   private
+
+  def positions_of
+    @mock.received_calls.each_with_index.select { |call, _| yield call }.map(&:last)
+  end
 
   def save_call
     @mock.received_calls.find { |c| c[:rpc] == RPC }
