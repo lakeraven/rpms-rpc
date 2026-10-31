@@ -70,7 +70,7 @@ class MissingRpcLiveTest < LiveSpec::Test
   # method => [kind, RPCs it sends, the call]. The call runs on the test
   # instance (instance_exec), so it may use `client` and the helpers below.
   FORMERLY_GUARDED = {
-    "Patient.brief_header" => [ :read, [ "BEHOPTCX PTINFO", "BEHOPTPC GETBDP", "BEHOCACV CWAD" ], -> { RpmsRpc::Patient.brief_header(DFN) } ],
+    "Patient.brief_header" => [ :read, [ "BEHOPTCX PTINFO", "BEHOPTPC GETBDP", "ORWPT CWAD" ], -> { RpmsRpc::Patient.brief_header(DFN) } ],
     "Problem.lex_search" => [ :read, [ "ORQQPL PROBLEM LEX SEARCH" ], -> { RpmsRpc::Problem.lex_search("diabetes") } ],
     "Problem.clinic_search" => [ :read, [ "ORQQPL CLIN SRCH" ], -> { RpmsRpc::Problem.clinic_search(CLINIC_IEN) } ],
     "Problem.details" => [ :read, [ "ORQQPL DETAIL" ], -> { RpmsRpc::Problem.details(DFN, PROBLEM_IEN) } ],
