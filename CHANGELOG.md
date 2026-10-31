@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed — `Patient.brief_header` reads CWAD from `ORWPT CWAD` under `OR CPRS GUI CHART` (#520)
 
 - `DataMapper.patient_cwad` calls `ORWPT CWAD` (`CWAD^ORWPT`, formals Y,DFN), a stock VistA RPC mapped in `mappings/stock_vista.rb`. `BEHOCACV CWAD` is reachable only under `CIAV VUECENTRIC` and is no longer sent. The letters are the same: C crises, W warnings, A allergies, D advance directives. `allergy_flag` and `ad_flag` still follow A and D.
-- The CWAD fetch binds `OR CPRS GUI CHART` and restores the caller's option. `BEHOPTCX PTINFO` and `BEHOPTPC GETBDP` stay on the caller's context. `RpcNotAvailableError`, `RpcRefusedError`, and `RpcError` propagate; a failed CWAD read is never reported as both flags false.
+- The CWAD fetch binds `OR CPRS GUI CHART` and restores the caller's option. `BEHOPTCX PTINFO` and `BEHOPTPC GETBDP` stay on the caller's context. `RpcNotAvailableError`, `RpcRefusedError`, and `RpcError` propagate; a failed CWAD read is never reported as both flags false. `Patient.brief_header` is no longer auto-retry-safe. It is now published `POST /patients/{dfn}/brief-header` in the OpenAPI catalog (the Ruby method is unchanged).
 
 ### Changed — `ProgressNote.update_text` wraps long lines before TIU SET DOCUMENT TEXT (#479)
 
