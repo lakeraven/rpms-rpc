@@ -1,0 +1,3 @@
+BEHOPTCX PTINFO^broker-exempt^1^1^XUS SIGNON^xwb
+BEHOPTPC GETBDP^broker-exempt^1^1^XUS SIGNON^xwb
+BEHOCACV CWAD^broker-exempt^1^1^XUS SIGNON^xwb
