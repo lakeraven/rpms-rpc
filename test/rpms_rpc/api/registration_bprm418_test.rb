@@ -22,6 +22,7 @@ class RegistrationBprm418Test < Minitest::Test
   GI_VALUE_IEN = 7
   GI_EXTRA_VALUE_IEN = 3
   SO_VALUE_IEN = 3
+  SO_EXTRA_VALUE_IEN = 5
   SO_OTHER_IEN = 4
   LEGAL_SEX_SOURCE = 1
   MBI = "1EG4TE5MK73"
@@ -235,19 +236,21 @@ class RegistrationBprm418Test < Minitest::Test
     row_fm = fm(ROW_DATE)
     seed_dated_row_exists(file: "9000001.9401", row_fm: row_fm)
     seed_sogi_value_lister(multiple: "9000001.94011", row_fm: row_fm, entries: [ [ 5, 5 ], [ 7, 7 ] ])
+    seed_filer_add_ok
     seed_filer_edit_ok
 
     result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN, GI_EXTRA_VALUE_IEN ], date: ROW_DATE)
 
     assert_registration_success(result)
-    refute_empty filer_calls, "expected a DDR FILER call"
-    edit = filer_calls.first
-    assert_equal "EDIT", edit[:params][0]
-    root = edit[:params][1]
+    assert_equal 1, filer_calls.length, filer_calls.inspect
+    add = filer_calls.first
+    assert_equal "ADD", add[:params][0]
+    root = add[:params][1]
     assert_equal "9000001.9401^.01^#{row_fm},#{DFN},^#{row_fm}", root[1]
     assert_includes root.values, "9000001.94011^.01^5,#{row_fm},#{DFN},^@"
     assert_includes root.values, "9000001.94011^.01^+2,#{row_fm},#{DFN},^#{GI_EXTRA_VALUE_IEN}"
-    assert_equal({ 2 => GI_EXTRA_VALUE_IEN.to_s }, edit[:params][3])
+    refute_includes root.values, "9000001.94011^.01^+2,#{row_fm},#{DFN},^#{GI_VALUE_IEN}"
+    assert_equal({ 2 => GI_EXTRA_VALUE_IEN.to_s }, add[:params][3])
     refute_includes root.values.join("^"), "+1,#{DFN},"
   end
 
@@ -359,6 +362,28 @@ class RegistrationBprm418Test < Minitest::Test
     refute result[:success]
     assert_equal :invalid, result[:error]
     assert_empty rpcs_sent
+  end
+
+  def test_set_sexual_orientation_updates_an_existing_date_row_and_reconciles_value_sub_entries
+    row_fm = fm(ROW_DATE)
+    seed_dated_row_exists(file: "9000001.9301", row_fm: row_fm)
+    seed_sogi_value_lister(multiple: "9000001.93011", row_fm: row_fm, entries: [ [ 2, 2 ], [ 3, 3 ] ])
+    seed_filer_add_ok
+    seed_filer_edit_ok
+
+    result = Reg.set_sexual_orientation(DFN, values: [ SO_VALUE_IEN, SO_EXTRA_VALUE_IEN ], date: ROW_DATE)
+
+    assert_registration_success(result)
+    assert_equal 1, filer_calls.length, filer_calls.inspect
+    add = filer_calls.first
+    assert_equal "ADD", add[:params][0]
+    root = add[:params][1]
+    assert_equal "9000001.9301^.01^#{row_fm},#{DFN},^#{row_fm}", root[1]
+    assert_includes root.values, "9000001.93011^.01^2,#{row_fm},#{DFN},^@"
+    assert_includes root.values, "9000001.93011^.01^+2,#{row_fm},#{DFN},^#{SO_EXTRA_VALUE_IEN}"
+    refute_includes root.values, "9000001.93011^.01^+2,#{row_fm},#{DFN},^#{SO_VALUE_IEN}"
+    assert_equal({ 2 => SO_EXTRA_VALUE_IEN.to_s }, add[:params][3])
+    refute_includes root.values.join("^"), "+1,#{DFN},"
   end
 
   # -- set_legal_sex ----------------------------------------------------------

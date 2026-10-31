@@ -52,6 +52,26 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     assert_equal "live spec", header[:fields].dig("2", :internal).to_s.strip
   end
 
+  def test_set_gender_identity_on_an_existing_date_replaces_prior_values_without_losing_the_row
+    a, b, c = pick_distinct_gi_code_iens(3)
+    row_date = Date.today
+    @restore = -> { purge_gender_identity_rows }
+
+    assert Reg.set_gender_identity(DFN, values: [ a, b ], date: row_date)[:success]
+
+    result = Reg.set_gender_identity(DFN, values: [ c ], date: row_date)
+    assert result[:success], result.inspect
+
+    header = subfile_row(GI_FILE, DFN, ".01;2", row_date)
+    assert header, "no 9000001.9401 row for #{row_date}"
+
+    mult = list_subfile_entries(GI_MULT, "#{header[:ien]},#{DFN},", ".01")
+    assert_equal 1, mult.length, "expected exactly one 9000001.94011 row: #{mult.inspect}"
+    value_row = mult.first
+    assert_equal c, value_row[:ien].to_i, "94011 sub-entry IEN should DINUM to the code IEN"
+    assert_equal c, value_row[:fields].dig(".01", :internal).to_i
+  end
+
   def test_set_gender_identity_refuses_other_text_beside_a_non_other_code
     code = pick_code_ien("9999999.104")
     code_internal = read_field("9999999.104", "#{code},", "1", "I")
@@ -219,6 +239,24 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     refute_empty listed[:entries], "no rows in #{file}"
     entry = listed[:entries].find { |e| e[:ien].to_i != 1 } || listed[:entries].first
     entry[:ien].to_i
+  end
+
+  def pick_distinct_gi_code_iens(count)
+    listed = RpmsRpc::DdrFileman.lister(file: "9999999.104", fields: ".01", flags: "IP", max: 50)
+    refute_nil listed
+    refute listed[:error]
+    iens = []
+    listed[:entries].each do |entry|
+      ien = entry[:ien].to_i
+      code = read_field("9999999.104", "#{ien},", "1", "I")
+      refute_nil code, "no CODE (field 1) for #9999999.104 IEN #{ien}"
+      next if code.to_s.strip == "OTH"
+
+      iens << ien
+      break if iens.length >= count
+    end
+    flunk "need #{count} distinct non-OTHER #9999999.104 IENs, got #{iens.length}" if iens.length < count
+    iens
   end
 
   def gender_identity_other_code_ien
