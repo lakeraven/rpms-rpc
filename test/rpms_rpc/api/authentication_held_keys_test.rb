@@ -51,7 +51,7 @@ class RpmsRpc::AuthenticationHeldKeysTest < Minitest::Test
   end
 
   def nphaskey_reads(flags)
-    flags.map { |flag| "1\x00#{flag}#{EOD}" }
+    flags.each_with_index.map { |flag, i| "#{i + 1}\x00#{flag}#{EOD}" }
   end
 
   def teardown
@@ -62,6 +62,21 @@ class RpmsRpc::AuthenticationHeldKeysTest < Minitest::Test
     configure(nphaskey_reads(HELD_FLAGS))
 
     assert_equal %w[SYNKEYA SYNKEYB SYNKEYC SYNKEYD], RpmsRpc::Authentication.held_keys(ASKED)
+  end
+
+  def test_held_keys_advances_client_sequence_without_resetting
+    asked = ASKED.first(2)
+    configure(nphaskey_reads(%w[1 0]))
+    client = RpmsRpc.client
+    before = client.instance_variable_get(:@seq)
+    RpmsRpc::Authentication.held_keys(asked)
+    after = client.instance_variable_get(:@seq)
+    assert_equal before + 2, after
+  end
+
+  def test_stale_reply_piece_with_wrong_sequence_echo_is_skipped
+    configure([ "9\x00stale#{EOD}" ] + nphaskey_reads(%w[1 0]))
+    assert_equal [ ASKED.first ], RpmsRpc::Authentication.held_keys(ASKED.first(2))
   end
 
   def test_one_orwu_nphaskey_per_non_blank_name_carrying_duz_and_key
@@ -108,20 +123,20 @@ class RpmsRpc::AuthenticationHeldKeysTest < Minitest::Test
   def test_a_refused_nphaskey_returns_nil
     configure([
       "1\x001#{EOD}",
-      "1\x01Access denied for remote procedure.#{EOD}"
+      "2\x01Access denied for remote procedure.#{EOD}"
     ])
 
     assert_nil RpmsRpc::Authentication.held_keys(ASKED.first(2))
   end
 
   def test_an_empty_nphaskey_reply_returns_nil
-    configure([ "1\x00#{EOD}", "1\x001#{EOD}" ])
+    configure([ "1\x00#{EOD}", "2\x001#{EOD}" ])
 
     assert_nil RpmsRpc::Authentication.held_keys(ASKED.first(2))
   end
 
   def test_an_answer_other_than_0_or_1_returns_nil
-    configure([ "1\x001#{EOD}", "1\x002#{EOD}" ])
+    configure([ "1\x001#{EOD}", "2\x002#{EOD}" ])
 
     assert_nil RpmsRpc::Authentication.held_keys(ASKED.first(2))
   end
