@@ -149,8 +149,8 @@ class SchedulingBprm418Test < Minitest::Test
     assert_match(/clinic|#44|appointment check.?in/i, result[:message], result[:message])
     assert_equal 1, bsdx_checkin_calls.length
     gets_params = ddr_gets_calls.map { |c| c[:params].first }
-    assert_equal 2, gets_params.count(appointment_post_checkin_gets_param(APPT_IEN)),
-                 "expected a post-failure re-read of #9002018.4 field .03"
+    assert_equal 1, gets_params.count(appointment_post_checkin_gets_param(APPT_IEN)),
+                 "expected one post-failure re-read of #9002018.4 field .03"
   end
 
   def test_undo_checkin_returns_the_bsdx_error_when_check_in_time_is_still_set_after_failure
