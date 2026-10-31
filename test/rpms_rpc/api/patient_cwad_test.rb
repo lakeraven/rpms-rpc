@@ -85,6 +85,7 @@ class PatientCwadTest < Minitest::Test
     }.each do |cwad, (allergy, ad)|
       RpmsRpc.reset!
       RpmsRpc.mock!
+      RpmsRpc.client.create_context(CALLER_CONTEXT)
       seed_banner(cwad: cwad)
 
       header = RpmsRpc::Patient.brief_header(DFN)
@@ -99,9 +100,15 @@ class PatientCwadTest < Minitest::Test
   def test_brief_header_raises_when_orwpt_cwad_is_not_served
     mock = CwadUnavailableMockClient.new
     use(mock)
+    mock.create_context(CALLER_CONTEXT)
+    caller_context = mock.current_context
+    binds_after_setup = mock.context_binds.length
     seed_banner(cwad: "WA")
 
     assert_raises(RpmsRpc::Client::RpcNotAvailableError) { RpmsRpc::Patient.brief_header(DFN) }
+
+    assert_equal caller_context, mock.current_context
+    assert_equal [ CHART_CONTEXT, caller_context ], mock.context_binds.drop(binds_after_setup)
   end
 
   # Proves required_rpcs.json lists ORWPT CWAD for Patient and drops BEHOCACV CWAD everywhere.

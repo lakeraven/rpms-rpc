@@ -205,14 +205,19 @@ class PatientLiveTest < LiveSpec::Test
 
   # Proves ORWPT CWAD (same path brief_header uses) returns allergies without a directive for DEMO ONE.
   def test_patient_cwad_for_demo_one_has_allergy_without_directive
-    cwad = RpmsRpc::DataMapper.patient_cwad.fetch_scalar(DEMO_ONE[:dfn].to_s).to_s
+    cwad = RpmsRpc::ContextScope.scoped(client, RpmsRpc::Patient::CWAD_CONTEXT) do
+      RpmsRpc::DataMapper.patient_cwad.fetch_scalar(DEMO_ONE[:dfn].to_s).to_s
+    end
     assert_includes cwad, "A"
     refute_includes cwad, "D"
   end
 
-  # Proves brief_header scopes ORWPT CWAD under OR CPRS GUI CHART and restores sign-on's option.
+  # Proves brief_header binds OR CPRS GUI CHART only for CWAD and restores the caller (sign-on option).
   def test_brief_header_leaves_the_callers_context_as_it_found_it
     before = client.current_context
+    refute_equal RpmsRpc::Patient::CWAD_CONTEXT, before,
+                 "precondition: session must start off #{RpmsRpc::Patient::CWAD_CONTEXT.inspect}"
+    assert_equal RpmsRpc::CiaClient::SIGNON_CONTEXT, before
     RpmsRpc::Patient.brief_header(DEMO_ONE[:dfn])
     assert_equal before, client.current_context
   end
