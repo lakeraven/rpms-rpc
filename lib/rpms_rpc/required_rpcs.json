@@ -55,7 +55,8 @@
       "AMHG GET VISIT SOAP",
       "AMHG GET VISITS",
       "AMHG SAVE VISIT",
-      "DDR GETS ENTRY DATA"
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
     ],
     "RpmsRpc::BehavioralHealth::CaseManagement": [
       "AMHG GET CASE DATES",

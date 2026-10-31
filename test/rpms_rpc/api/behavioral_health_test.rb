@@ -601,7 +601,8 @@ class BehavioralHealthTest < Minitest::Test
   # Arguments that let every public method reach the wire. Reads are
   # unseeded: the mock answers "" and still records the call. save_visit
   # is seeded, because an empty reply raises SaveError after the RPC, and
-  # the post-call DDR read-back must confirm the fields that were sent.
+  # the patient read, the post-call DDR read-back, and the provider lister
+  # must confirm the fields that were sent.
   AMHG_CALLS = {
     BH => {
       visits: [ 100, { from: "3250101", to: "3251231" } ],
@@ -681,6 +682,15 @@ class BehavioralHealthTest < Minitest::Test
       fields: ".01;.02;.04;.05;.07;.08;.11;.25", flags: "IE"
     ).to_s
     mock.seed(:ddr_gets_entry_data, key, "[Data]\n#{lines.join("\n")}")
+    patient_key = RpmsRpc::DdrFileman.gets_entry_param(
+      file: "9000001", iens: "100,", fields: ".01", flags: "I"
+    ).to_s
+    mock.seed(:ddr_gets_entry_data, patient_key, "[Data]\n9000001^100^.01^SYNTH,PATIENT^PATIENT,SYNTH")
+    lister_key = RpmsRpc::DdrFileman.lister_param(
+      file: "9002011.02", xref: "AD", part: "8801",
+      fields: ".01;.02;.03;.04", flags: "IP", max: "25"
+    ).to_s
+    mock.seed(:ddr_lister, lister_key, "[Data]\n1^412^100^8801^P")
   end
 
   def test_every_amhg_call_runs_under_amhgrpc_and_restores_the_callers_context
@@ -697,9 +707,9 @@ class BehavioralHealthTest < Minitest::Test
         calls = mock.received_calls
         refute_empty calls, "#{mod}.#{method} made no RPC call"
         calls.each do |call|
-          if call[:rpc] == "DDR GETS ENTRY DATA"
+          if [ "DDR GETS ENTRY DATA", "DDR LISTER" ].include?(call[:rpc])
             assert_equal caller_context, call[:context],
-              "#{mod}.#{method} sent DDR GETS ENTRY DATA under #{call[:context].inspect}; " \
+              "#{mod}.#{method} sent #{call[:rpc]} under #{call[:context].inspect}; " \
               "that RPC is registered under the caller's option, not AMHGRPC"
           else
             assert_equal "AMHGRPC", call[:context],
