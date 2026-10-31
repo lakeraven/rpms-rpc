@@ -34,6 +34,11 @@ class SchedulingSetupHolidayWritesTest < Minitest::Test
     @mock.received_calls.select { |c| c[:rpc] == "DDR LISTER" }
   end
 
+  def remove_holiday_lister_key(date = HOLIDAY_DATE)
+    Ddr.lister_param(file: "40.5", fields: "@;.01I", flags: "IP", max: 1, xref: "B",
+                     from: (fm(date).to_i - 1).to_s).to_s
+  end
+
   def test_add_holiday_files_40_5_date_and_name_through_ddr_filer_add
     @mock.seed(:ddr_filer, "ADD", "[Data]\n+1,^99")
 
@@ -78,8 +83,7 @@ class SchedulingSetupHolidayWritesTest < Minitest::Test
   end
 
   def test_remove_holiday_edits_the_b_xref_entry_to_delete
-    list_key = Ddr.lister_param(file: "40.5", fields: ".01", flags: "IP", xref: "B", part: fm(HOLIDAY_DATE)).to_s
-    @mock.seed(:ddr_lister, list_key, "[Data]\n12^#{fm(HOLIDAY_DATE)}^#{NAME}")
+    @mock.seed(:ddr_lister, remove_holiday_lister_key, "[Data]\n12^#{fm(HOLIDAY_DATE)}^#{NAME}")
     @mock.seed(:ddr_filer, "EDIT", "[Data]")
 
     result = Setup.remove_holiday(HOLIDAY_DATE)
@@ -93,13 +97,25 @@ class SchedulingSetupHolidayWritesTest < Minitest::Test
   end
 
   def test_remove_holiday_returns_not_found_when_no_entry_exists_for_the_date
-    list_key = Ddr.lister_param(file: "40.5", fields: ".01", flags: "IP", xref: "B", part: fm(HOLIDAY_DATE)).to_s
-    @mock.seed(:ddr_lister, list_key, "[Data]")
+    @mock.seed(:ddr_lister, remove_holiday_lister_key, "[Data]")
 
     result = Setup.remove_holiday(HOLIDAY_DATE)
 
     refute result[:success]
     assert_equal :not_found, result[:error]
     assert_empty filer_calls
+  end
+
+  def test_remove_holiday_returns_not_found_when_lister_returns_only_a_later_holiday
+    later = Date.new(2031, 12, 25)
+    @mock.seed(:ddr_lister, remove_holiday_lister_key, "[Data]\n99^#{fm(later)}^CHRISTMAS")
+
+    result = Setup.remove_holiday(HOLIDAY_DATE)
+
+    refute result[:success]
+    assert_equal :not_found, result[:error]
+    assert_empty filer_calls
+    assert_equal (fm(HOLIDAY_DATE).to_i - 1).to_s, lister_calls.first[:params]["FROM"]
+    assert_equal "B", lister_calls.first[:params]["XREF"]
   end
 end
