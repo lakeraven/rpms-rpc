@@ -132,29 +132,43 @@ module RpmsRpc
       Registration.update(dfn, **attrs)
     end
 
+    # Field 0 of the BEHOPTPC GETBDP row that names the designated primary
+    # provider. Compared exactly after surrounding whitespace is stripped.
+    DESIGNATED_PRIMARY_PROVIDER_LABEL = "DESIGNATED PRIMARY PROVIDER"
+
     # Chart-banner projection per issue #60 contract:
     #
     #   { name:, dob:, sex:, mrn:, age:, allergy_flag:, ad_flag:, primary_provider: }
     #
     # Composed from three RPCs:
     #   - BEHOPTCX PTINFO         (name, sex, DOB raw, MRN, primary provider name)
-    #   - BEHOPTPC GETBDP         (designated primary provider — overrides if present)
+    #   - BEHOPTPC GETBDP         (one row per designated-provider category,
+    #                              alphabetical)
     #   - BEHOCACV CWAD           (Crises/Warnings/Allergies/Directives flags)
     #
+    # :primary_provider is the GETBDP row whose label (field 0), compared
+    # exactly after surrounding whitespace is stripped, is
+    # DESIGNATED_PRIMARY_PROVIDER_LABEL. When there is no such row, or its
+    # provider name is blank, the PTINFO primary provider is used.
+    #
     # Returns nil for invalid (nil / zero / negative) DFNs and for unknown DFNs
-    # (no PTINFO and no GETBDP response). A broker that does not serve one of
-    # the three RPCs raises RpcNotAvailableError, one that serves it but not to
-    # this user raises RpcRefusedError, and an M error raises RpcError (#363).
+    # (PTINFO gives nothing and GETBDP has no rows). A broker that does not
+    # serve one of the three RPCs raises RpcNotAvailableError, one that serves
+    # it but not to this user raises RpcRefusedError, and an M error raises
+    # RpcError (#363).
     def brief_header(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
 
-      ptinfo = DataMapper.patient_ptinfo.fetch_one(dfn.to_s)
-      bdp    = DataMapper.patient_designated_provider.fetch_one(dfn.to_s)
-      return nil if ptinfo.nil? && bdp.nil?
+      ptinfo   = DataMapper.patient_ptinfo.fetch_one(dfn.to_s)
+      bdp_rows = DataMapper.patient_designated_provider.fetch_many(dfn.to_s)
+      return nil if ptinfo.nil? && bdp_rows.empty?
 
       cwad = DataMapper.patient_cwad.fetch_scalar(dfn.to_s) || ""
       dob  = FilemanDateParser.parse_date(ptinfo && ptinfo[:dob_raw])
-      provider = (bdp && bdp[:provider_name]) || (ptinfo && ptinfo[:primary_provider])
+      designated = bdp_rows.find { |row| row[:label].to_s.strip == DESIGNATED_PRIMARY_PROVIDER_LABEL }
+      name = designated && designated[:provider_name]
+      name = nil if name.nil? || name.strip.empty?
+      provider = name || (ptinfo && ptinfo[:primary_provider])
 
       {
         name:             ptinfo && ptinfo[:name],

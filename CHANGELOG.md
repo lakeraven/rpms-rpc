@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `Patient.brief_header` uses the designated-primary GETBDP row (#523)
+
+- `BEHOPTPC GETBDP` returns one row per designated-provider category, in alphabetical order (`LABEL^PROVIDER_NAME^PROVIDER_IEN^TITLE^DATE`). `Patient.brief_header` took the first row, so a category that sorts before `DESIGNATED PRIMARY PROVIDER` was reported as `:primary_provider`.
+- The banner now uses the row whose label (field 0), after surrounding whitespace is stripped, is exactly `DESIGNATED PRIMARY PROVIDER`. When that row is absent or its provider name is blank, `:primary_provider` is the PTINFO primary provider. The header is still nil only for an invalid DFN, or when PTINFO gives nothing and GETBDP has no rows. A broker that does not serve one of the three RPCs still raises `RpcNotAvailableError`, one that serves it but not to this user still raises `RpcRefusedError`, and an M error still raises `RpcError`.
+
 ### Changed — `ProgressNote.update_text` wraps long lines before TIU SET DOCUMENT TEXT (#479)
 
 - A line longer than `wrap_width` bytes (default `ProgressNote::WRAP_WIDTH`, 80; an Integer from 4 to 999) is cut into consecutive `TIUX("TEXT",n,0)` pieces. The break is the last space or tab past the leading indentation and at a byte offset within the width; that one character is dropped. Otherwise the cut is the last UTF-8 character boundary within the width and nothing is dropped. Lines that fit, including blank lines, are unchanged. **This changes how the note is laid out in the chart.** Rejoining the pieces with the dropped character restores the line. Joined with a single space, a tab at a cut reads back as a space, and a space or tab cut at the very end of a line is dropped. Non-whitespace is never dropped or changed. Indentation is not repeated on continuation pieces; an indent wider than the width is itself hard-cut.
