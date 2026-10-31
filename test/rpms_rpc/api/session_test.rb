@@ -7,7 +7,6 @@ require "rpms_rpc/api/session"
 class SessionTest < Minitest::Test
   def setup
     RpmsRpc.mock! do |m|
-      m.seed(:session_registry, "", { root: "HKLM\\Software\\IHS\\CIAVM" })
       m.seed(:session_vim_info, "301", {
         duz: 301,
         user_name: "PROVIDER,TEST"
@@ -22,7 +21,8 @@ class SessionTest < Minitest::Test
   def test_bootstrap_returns_documented_hash_shape
     result = RpmsRpc::Session.bootstrap("301")
 
-    assert_equal({ root: "HKLM\\Software\\IHS\\CIAVM" }, result[:registry])
+    refute result.key?(:registry)
+    assert_equal 301, result[:vim_info][:duz]
     assert_equal "PROVIDER,TEST", result[:vim_info][:user_name]
     refute result.key?(:default_site_ien)
   end
@@ -39,15 +39,24 @@ class SessionTest < Minitest::Test
     refute RpmsRpc::Session.const_defined?(:DEFAULT_SOURCE_PARAM)
   end
 
+  # CIAVMCFG GETREG dumps VueCentric's widget registry (^CIAVOBJ) as ID=VALUE
+  # lines. A web app has no use for it (#522).
+  def test_bootstrap_does_not_fetch_the_vuecentric_widget_registry
+    result = RpmsRpc::Session.bootstrap("301")
+
+    refute result.key?(:registry)
+    refute_includes RpmsRpc.client.received_calls.map { |c| c[:rpc] }, "CIAVMCFG GETREG"
+  end
+
   def test_the_getpar_mapping_is_gone
     assert_raises(NoMethodError, KeyError, ArgumentError) { RpmsRpc::DataMapper[:session_default_source] }
   end
 
-  def test_bootstrap_issues_the_registry_and_vim_info_rpcs
+  def test_bootstrap_issues_viminfo_rpc_only
     RpmsRpc::Session.bootstrap("301")
 
     rpcs = RpmsRpc.client.received_calls.map { |c| c[:rpc] }
-    assert_includes rpcs, "CIAVMCFG GETREG"
+    refute_includes rpcs, "CIAVMCFG GETREG"
     assert_includes rpcs, "CIAVCXUS VIMINFO"
   end
 
@@ -65,13 +74,9 @@ class SessionTest < Minitest::Test
   end
 
   def test_bootstrap_handles_missing_vim_info_gracefully
-    RpmsRpc.mock! do |m|
-      m.seed(:session_registry, "", { root: "HKLM" })
-    end
-
     result = RpmsRpc::Session.bootstrap("9999")
 
-    assert_equal({ root: "HKLM" }, result[:registry])
+    refute result.key?(:registry)
     refute result.key?(:default_site_ien)
     assert_equal({}, result[:vim_info])
   end
