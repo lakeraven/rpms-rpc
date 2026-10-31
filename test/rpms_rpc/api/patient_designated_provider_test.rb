@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
+require "rpms_rpc/reply"
 require "rpms_rpc/api/patient"
 
 # Issue #523: brief_header must use the GETBDP row labelled DESIGNATED PRIMARY
@@ -250,5 +251,121 @@ class PatientDesignatedProviderTest < Minitest::Test
     header = brief_header(client)
 
     assert_equal "PROVIDER,PTINFO", header[:primary_provider]
+  end
+
+  # CIA clients decode invalid bytes to U+FFFD; altered? is set but the UTF-8 guard never runs.
+  def test_brief_header_falls_back_to_ptinfo_when_cia_reply_alters_designated_primary_row
+    getbdp = RpmsRpc::Reply.from_wire(
+      [
+        "CASE MANAGER^MANAGER,CASE^1^^",
+        "DESIGNATED PRIMARY PROVIDER^PROVID\xC9R,X^5^^".b
+      ],
+      controls: true
+    )
+    client = BriefHeaderClient.new(
+      ptinfo_line: ptinfo_line(primary_provider: "PROVIDER,PTINFO"),
+      getbdp_lines: getbdp
+    )
+
+    header = brief_header(client)
+
+    assert_equal "PROVIDER,PTINFO", header[:primary_provider]
+  end
+
+  # XWB order with an altered sibling row: Reply is valid UTF-8 so the raw-byte guard does not fail the read.
+  def test_brief_header_falls_back_to_ptinfo_when_xwb_reply_alters_a_sibling_row
+    getbdp = RpmsRpc::Reply.from_wire(
+      [
+        "DESIGNATED PRIMARY PROVIDER^PROVIDER,DESIGNATED^5^^",
+        "CASE MANAGER^PROVID\xC9R,X^5^^".b
+      ]
+    )
+    client = BriefHeaderClient.new(
+      ptinfo_line: ptinfo_line(primary_provider: "PROVIDER,PTINFO"),
+      getbdp_lines: getbdp
+    )
+
+    header = brief_header(client)
+
+    assert_equal "PROVIDER,PTINFO", header[:primary_provider]
+  end
+
+  # Altered CIA GETBDP with empty PTINFO must not fabricate a header from scrubbed provider text.
+  def test_brief_header_nil_when_ptinfo_empty_and_cia_getbdp_reply_is_altered
+    getbdp = RpmsRpc::Reply.from_wire(
+      [
+        "CASE MANAGER^MANAGER,CASE^1^^",
+        "DESIGNATED PRIMARY PROVIDER^PROVID\xC9R,X^5^^".b
+      ],
+      controls: true
+    )
+    client = BriefHeaderClient.new(
+      ptinfo_line: "",
+      getbdp_lines: getbdp
+    )
+
+    assert_nil brief_header(client)
+  end
+
+  # MockClient String bodies use Reply.text; scrubbed bytes mark altered? without tripping invalid-UTF-8 checks.
+  def test_brief_header_falls_back_to_ptinfo_when_reply_text_body_is_altered
+    body = [
+      bdp_row("DESIGNATED PRIMARY PROVIDER", "PROVIDER,DESIGNATED"),
+      "CASE MANAGER^PROVID\xC9R,X^5^^"
+    ].join("\n").b
+    getbdp = RpmsRpc::Reply.text(body)
+    client = BriefHeaderClient.new(
+      ptinfo_line: ptinfo_line(primary_provider: "PROVIDER,PTINFO"),
+      getbdp_lines: getbdp
+    )
+
+    header = brief_header(client)
+
+    assert_equal "PROVIDER,PTINFO", header[:primary_provider]
+  end
+
+  # Without controls: true, an in-row C0 control is still valid UTF-8 and is not stripped before parsing.
+  def test_brief_header_falls_back_to_ptinfo_when_reply_row_contains_control_character
+    getbdp = RpmsRpc::Reply.from_wire([ "DESIGNATED PRIMARY PROVIDER^\x1eOTHER^REAL^1" ])
+    client = BriefHeaderClient.new(
+      ptinfo_line: ptinfo_line(primary_provider: "PROVIDER,PTINFO"),
+      getbdp_lines: getbdp
+    )
+
+    header = brief_header(client)
+
+    assert_equal "PROVIDER,PTINFO", header[:primary_provider]
+  end
+
+  # A CR inside a String GETBDP splits rows; the designated-primary label alone is not a usable row.
+  def test_brief_header_falls_back_to_ptinfo_when_getbdp_string_embeds_carriage_return
+    getbdp = "DESIGNATED PRIMARY PROVIDER^\rCASE MANAGER^MANAGER,CASE^1"
+    client = BriefHeaderClient.new(
+      ptinfo_line: ptinfo_line(primary_provider: "PROVIDER,PTINFO"),
+      getbdp_lines: getbdp
+    )
+
+    header = brief_header(client)
+
+    assert_equal "PROVIDER,PTINFO", header[:primary_provider]
+  end
+
+  # Clean CIA-shaped Reply must still select the designated-primary row (regression once altered? is honored).
+  def test_brief_header_uses_designated_primary_from_clean_cia_shaped_reply
+    getbdp = RpmsRpc::Reply.from_wire(
+      [
+        "CASE MANAGER^MANAGER,CASE^1^^",
+        "DESIGNATED PRIMARY PROVIDER^PROVIDER,DESIGNATED^5^^"
+      ],
+      controls: true
+    )
+    client = BriefHeaderClient.new(
+      ptinfo_line: ptinfo_line(primary_provider: "PROVIDER,PTINFO"),
+      getbdp_lines: getbdp
+    )
+
+    header = brief_header(client)
+
+    assert_equal "PROVIDER,DESIGNATED", header[:primary_provider]
   end
 end
