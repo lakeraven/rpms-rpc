@@ -1,0 +1,16 @@
+# Unmapped wire capture: BQI PATIENT INSURANCE, synthetic patient 990048 on bcer-9.0-20261012-e7923a4-ydb.
+---
+rpc: BQI PATIENT INSURANCE
+entry_point: GET^BQIPTINS
+release_tag: bcer-9.0-20261012-e7923a4-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7
+client: RpmsRpc::CiaClient#call_rpc_raw (rpms-rpc 6723a7f)
+captured_at: '2026-10-31T00:56:28Z'
+note: Synthetic patient 990048; active rows only (BQIPTINS.m:ISACTIVE).
+captures:
+- inputs:
+  - '990048'
+  context: patient 990048 with Medicare eligibility active today
+  ack: data
+  raw_return: "7\0T00100INSURANCE_COVERAGE^D00015EFFECTIVE_DATE\x1EMEDICARE ^OCT 31, 2026\x1EMEDICARE ^OCT 31, 2026\x1EMEDICARE ^OCT 31, 2026\x1EMEDICARE ^OCT 31, 2026\x1EMEDICAID FULL^OCT 31, 2026\x1E\x1F"
+  sha256: 0aa23c375fb3655e2594f163abf0a115338cd5e3770170d6d88b17ecad0115da

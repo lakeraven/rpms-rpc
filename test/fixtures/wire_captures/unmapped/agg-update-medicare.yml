@@ -1,0 +1,29 @@
+# Unmapped wire capture: AGG UPDATE MEDICARE, synthetic patient 990048 on bcer-9.0-20261012-e7923a4-ydb.
+---
+rpc: AGG UPDATE MEDICARE
+entry_point: UPD^AGGUPMCR
+release_tag: bcer-9.0-20261012-e7923a4-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7
+client: RpmsRpc::CiaClient#call_rpc_raw (rpms-rpc 6723a7f)
+captured_at: '2026-10-31T00:56:28Z'
+captures:
+- inputs:
+  - '990048'
+  - A
+  - Medicare Eligibility
+  - ''
+  - AGGMCESD=10/31/2026
+  context: add eligibility row (AGGUPMCR.m:25)
+  ack: data
+  raw_return: "8\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^990048^5\x1E\x1F"
+  sha256: '093b245a11107335a82cbb7ba2a0d9585590193a61d78b3401cfcf00ee269024'
+- inputs:
+  - '990048'
+  - D
+  - Medicare Eligibility
+  - '99'
+  - ''
+  context: delete missing MIEN (AGGUPMCR.m:37-41)
+  ack: data
+  raw_return: "9\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E-1^The entry does not exist.^^\x1E\x1F"
+  sha256: e4a493ccf17aac62679338bef120717ceb8f9515dc8d8599366a5e4e33668e41

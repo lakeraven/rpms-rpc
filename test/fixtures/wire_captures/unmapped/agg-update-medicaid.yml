@@ -1,0 +1,31 @@
+# Unmapped wire capture: AGG UPDATE MEDICAID, synthetic patient 990048 on bcer-9.0-20261012-e7923a4-ydb.
+---
+rpc: AGG UPDATE MEDICAID
+entry_point: UPD^AGGUPMCD
+release_tag: bcer-9.0-20261012-e7923a4-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7
+client: RpmsRpc::CiaClient#call_rpc_raw (rpms-rpc 6723a7f)
+captured_at: '2026-10-31T00:56:28Z'
+captures:
+- inputs:
+  - '990048'
+  - A
+  - Medicaid
+  - ''
+  - ''
+  - ''
+  context: add header (AGGUPMCD.m:49-52)
+  ack: data
+  raw_return: "3\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^14^\x1E\x1F"
+  sha256: a5ffdc4374978e6580767a96cfea02acedc886efefb592e9b88618b6f10b7221
+- inputs:
+  - '990048'
+  - A
+  - Medicaid Eligibility
+  - '13'
+  - ''
+  - "AGGMDESD=10/31/2026\x1CAGGMDECV=FULL"
+  context: add eligibility (AGGUPMCD.m:54-58)
+  ack: data
+  raw_return: "4\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^13^3261031\x1E\x1F"
+  sha256: df27df42d27cdd3e3957c8671fc2f6dca537a73db0a879cc86c651e6bdb11398

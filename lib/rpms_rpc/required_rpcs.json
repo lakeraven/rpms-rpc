@@ -92,6 +92,13 @@
       "ORWPCE NOTEVSTR",
       "ORWPCE PCE4NOTE"
     ],
+    "RpmsRpc::Coverage": [
+      "AGG UPDATE MEDICAID",
+      "AGG UPDATE MEDICARE",
+      "BQI PATIENT INSURANCE",
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
+    ],
     "RpmsRpc::DdrFileman": [
       "DDR FILER",
       "DDR GETS ENTRY DATA",
