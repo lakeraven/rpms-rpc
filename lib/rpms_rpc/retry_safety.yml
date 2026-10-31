@@ -45,6 +45,7 @@
 "RpmsRpc::Authentication.user_security_keys": read
 "RpmsRpc::Authentication.user_type": read
 "RpmsRpc::Authentication.user_type_for": read
+"RpmsRpc::BehavioralHealth.save_visit": non_idempotent_write
 "RpmsRpc::BehavioralHealth.suicide_form": non_idempotent_write
 "RpmsRpc::BehavioralHealth.suicide_form_contributing_factors": non_idempotent_write
 "RpmsRpc::BehavioralHealth.suicide_form_methods": non_idempotent_write

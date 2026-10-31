@@ -138,6 +138,40 @@ class BehavioralHealthTest < Minitest::Test
     assert_empty BH.visits(100, from: "3250101", to: "3251231")
   end
 
+  # CiaClient#call_rpc_global_array returns one blob: "<seq>\x00" + header +
+  # $C(30) rows + $C(31), with no newlines. Left unsplit, the sequence echo
+  # hides the header and the only "IEN" is "<seq>\x00T00010BMXIEN", which
+  # changes on every call.
+  def test_visits_strips_the_sequence_echo_and_splits_record_separators
+    row = visit_row(ien: "27", signed_marker: "")
+    @mock.seed_text(:amhg_visit_list, "3250101|3251231|100", "4\x00#{VISITS_HEADER}#{row}#{US}")
+
+    before = BH.visits(100, from: "3250101", to: "3251231").map { _1[:ien] }
+
+    @mock.seed_text(:amhg_visit_list, "3250101|3251231|100", "6\x00#{VISITS_HEADER}#{row}#{US}")
+    after = BH.visits(100, from: "3250101", to: "3251231").map { _1[:ien] }
+
+    assert_equal [ "27" ], before
+    assert_equal before, after
+  end
+
+  # Word wrap writes EOL ($C(13)) after each global node. The record
+  # separator is still $C(30); the CR must not become part of the IEN.
+  def test_visits_splits_a_word_wrapped_global_array
+    header = VISITS_HEADER.delete_suffix(RS)
+    row = visit_row(ien: "27", signed_marker: "").delete_suffix(RS)
+    @mock.seed_text(:amhg_visit_list, "3250101|3251231|100",
+                    "4\x00#{header}#{RS}\r#{row}#{RS}\r#{US}")
+
+    assert_equal [ "27" ], BH.visits(100, from: "3250101", to: "3251231").map { _1[:ien] }
+  end
+
+  def test_visits_header_alone_is_not_a_visit_even_with_a_sequence_echo
+    @mock.seed_text(:amhg_visit_list, "3250101|3251231|100", "4\x00#{VISITS_HEADER}#{US}")
+
+    assert_empty BH.visits(100, from: "3250101", to: "3251231")
+  end
+
   # -- AMHG GET VISIT INFORMATION -------------------------------------------
 
   # Twelve fields, matching AMHGDVF.m:52. Five carry an IEN~external pair
@@ -598,12 +632,20 @@ class BehavioralHealthTest < Minitest::Test
   # Wire#call_amhg, so that is where AMHGRPC is bound and the caller's option
   # restored, as RpmsRpc::Agg does for AGGRPC.
 
-  # Arguments that let every public method reach the wire. Nothing is seeded:
-  # the mock answers "" and still records the call with its context.
+  # Arguments that let every public method reach the wire. Reads are
+  # unseeded: the mock answers "" and still records the call. save_visit
+  # is seeded, because an empty reply raises SaveError after the RPC, and
+  # the pointer reads, the patient read, the post-call DDR read-back, and
+  # the provider lister must confirm the fields that were sent.
   AMHG_CALLS = {
     BH => {
       visits: [ 100, { from: "3250101", to: "3251231" } ],
       visit_information: [ 8801 ],
+      save_visit: [ {
+        provider: "412", encounter_date: "3251031", patient: "100",
+        program: "MENTAL HEALTH", clinic: "17", type_of_contact: "3",
+        encounter_location: "55", community_of_service: "42"
+      } ],
       visit_activity: [ 8801 ],
       visit_axis_ii: [ 8801 ],
       visit_axis_iv: [ 8801 ],
@@ -662,6 +704,43 @@ class BehavioralHealthTest < Minitest::Test
     end
   end
 
+  # The save_visit row of AMHG_CALLS: add with the DD-required pieces,
+  # 16 pieces, blank arrival in piece 7, date in piece 8. The read-back
+  # seed is the stored internals for that wire (patient 100, date 3251031).
+  def seed_context_save_visit(mock)
+    wire = "A||412|MENTAL HEALTH|17|3||3251031|55||42|100||||"
+    mock.seed_text(:amhg_save_visit, wire, "T00010BMXIEN#{RS}8801#{RS}#{US}")
+    fields = {
+      ".01" => "3251031", ".02" => "M", ".04" => "55", ".05" => "42",
+      ".07" => "3", ".08" => "100", ".11" => "", ".25" => "17"
+    }
+    lines = fields.map { |field, internal| "9002011^8801^#{field}^#{internal}^EXT" }
+    key = RpmsRpc::DdrFileman.gets_entry_param(
+      file: "9002011", iens: "8801,",
+      fields: ".01;.02;.04;.05;.07;.08;.11;.25", flags: "IE"
+    ).to_s
+    mock.seed(:ddr_gets_entry_data, key, "[Data]\n#{lines.join("\n")}")
+    {
+      "9000001" => "100",
+      "40.7" => "17",
+      "9002012.1" => "3",
+      "9999999.06" => "55",
+      "9999999.05" => "42",
+      "200" => "412"
+    }.each do |file, ien|
+      pointer_key = RpmsRpc::DdrFileman.gets_entry_param(
+        file: file, iens: "#{ien},", fields: ".01", flags: "I"
+      ).to_s
+      mock.seed(:ddr_gets_entry_data, pointer_key, "[Data]\n#{file}^#{ien}^.01^SYNTH^EXT")
+    end
+    lister_key = RpmsRpc::DdrFileman.lister_param(
+      file: "9002011.02", xref: "AD", part: "8801", from: "0",
+      screen: "I $P(^(0),U,3)=8801",
+      fields: ".01;.02;.03;.04", flags: "IP", max: "25"
+    ).to_s
+    mock.seed(:ddr_lister, lister_key, "[Data]\n1^412^100^8801^P")
+  end
+
   def test_every_amhg_call_runs_under_amhgrpc_and_restores_the_callers_context
     AMHG_CALLS.each do |mod, table|
       table.each do |method, args|
@@ -669,15 +748,22 @@ class BehavioralHealthTest < Minitest::Test
         caller_context = mock.current_context
         positional = args.reject { |a| a.is_a?(Hash) }
         keywords = args.find { |a| a.is_a?(Hash) } || {}
+        seed_context_save_visit(mock) if mod == BH && method == :save_visit
 
         mod.public_send(method, *positional, **keywords)
 
         calls = mock.received_calls
         refute_empty calls, "#{mod}.#{method} made no RPC call"
         calls.each do |call|
-          assert_equal "AMHGRPC", call[:context],
-            "#{mod}.#{method} sent #{call[:rpc]} under #{call[:context].inspect}; the AMHG " \
-            "RPCs are registered under AMHGRPC only, so it is denied there"
+          if [ "DDR GETS ENTRY DATA", "DDR LISTER" ].include?(call[:rpc])
+            assert_equal caller_context, call[:context],
+              "#{mod}.#{method} sent #{call[:rpc]} under #{call[:context].inspect}; " \
+              "that RPC is registered under the caller's option, not AMHGRPC"
+          else
+            assert_equal "AMHGRPC", call[:context],
+              "#{mod}.#{method} sent #{call[:rpc]} under #{call[:context].inspect}; the AMHG " \
+              "RPCs are registered under AMHGRPC only, so it is denied there"
+          end
         end
         assert_equal caller_context, mock.current_context,
           "#{mod}.#{method} left the session on #{mock.current_context.inspect}"
