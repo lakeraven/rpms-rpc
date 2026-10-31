@@ -262,19 +262,27 @@ module RpmsRpc
     # A value the wire cannot frame is
     # { success: false, error: :frame_too_long, message: } (#472).
     #
-    # Refused before the RPC: a "^" or a control in any filed value ($P on
-    # U drops the rest — GMRAGUI1.m:105), including optional GMRARDT and
-    # GMRASEVR when present (GMRAGUI1.m:137 stock / :135 FOIA); GMRAOBHX
-    # other than "o"/"h" (GMRAGUI1.m:135); a GMRAORIG that is not a
-    # positive DUZ (GMRAGUI1.m:104); symptoms that are not an Array of
+    # Refused before the RPC: a String that fails {text_encoding_ok?}
+    # (only Encoding::UTF_8 with valid_encoding?, Encoding::US_ASCII
+    # with valid_encoding?, or ASCII-8BIT / BINARY whose bytes are all
+    # < 0x80), before any regexp, strip, {visible?}, include?, or
+    # interpolation; a "^" or a control in any
+    # $P-split filed value ($P on U drops the rest — GMRAGUI1.m:105),
+    # including optional GMRARDT and GMRASEVR when present (GMRAGUI1.m:137
+    # stock / :135 FOIA); an agent that is not visible text ({visible?});
+    # GMRAOBHX other than "o"/"h" (GMRAGUI1.m:135); a GMRAORIG that is not
+    # a positive DUZ (GMRAGUI1.m:104); symptoms that are not an Array of
     # Hashes (GMRAGUI1.m:122) whose :ien is a positive canonical integer
     # or exactly "FT" (GMRAGUI1.m:126), whose :text is visible text
     # ({visible?}; piece 2 is a GMRAROT subscript at GMRAGUI1.m:132, and
     # a blank, whitespace-only or invisible-only piece is a null
     # subscript after the entry is filed) and whose :date, when present
     # and non-blank, is a FileMan date
-    # (GMRAGUI1.m:130); or comments that are not an Array of Strings
-    # (GMRAGUI1.m:118). GMRAGNT's pointer is "IEN;GLOBAL(FILE,"
+    # (GMRAGUI1.m:130); or comments that are not an Array of visible
+    # Strings (GMRAGUI1.m:118). A caret in a comment line is allowed: the
+    # line is filed whole through ^DIWP (ORWDAL32.m:137-138 ->
+    # GMRAGUI1.m:118 -> GMRAGUI1.m:59-60). Control characters in a comment
+    # stay refused. GMRAGNT's pointer is "IEN;GLOBAL(FILE,"
     # (GMRAGUI1.m:106) or a global root with no file number,
     # "IEN;GLOBAL(" (ORWDAL32.m:30, ^PSDRUG( is file 50). GMRAORDT and a
     # present GMRARDT are FileMan dates, a present GMRASEVR is "1", "2"
@@ -299,7 +307,8 @@ module RpmsRpc
     # Record no known allergies. OREDITED("GMRANKA")="YES" selects
     # NKA^GMRAGUI1 (ORWDAL32.m:127, GMRAGUI1.m:68); ORALIEN is "".
     # Already-NKA leaves ORY at the 0 EDITSAVE set (ORWDAL32.m:125,
-    # GMRAGUI1.m:74).
+    # GMRAGUI1.m:74). A DFN String that fails {text_encoding_ok?} is
+    # {invalid_dfn}; nothing is sent.
     def no_known_allergies(dfn)
       patient = canonical_dfn(dfn)
       return invalid_dfn unless patient
@@ -520,11 +529,18 @@ module RpmsRpc
 
     # A DFN is a positive canonical integer: a positive Integer, or a
     # string of digits with no leading zero and no trailing junk
-    # ("12abc" is not 12).
+    # ("12abc" is not 12). A String must pass {text_encoding_ok?}
+    # before the digit regexp. Any other tag is nil, so {save} and
+    # {no_known_allergies} answer {invalid_dfn} and send nothing.
+    # GMRAORIG and a symptom :ien use the same check and are named
+    # {invalid_value}.
     def canonical_dfn(value)
       case value
       when Integer then value.positive? ? value.to_s : nil
-      when String then value.match?(/\A[1-9]\d*\z/) ? value : nil
+      when String
+        return nil unless text_encoding_ok?(value)
+
+        value.match?(/\A[1-9]\d*\z/) ? value : nil
       end
     end
 
@@ -536,15 +552,26 @@ module RpmsRpc
 
     # nil is absence. A blank string on a {FORMAT_FIELDS} field is refused
     # by the format checks in {refused_allergy} (an empty GMRATYPE is not
-    # "one or more" letters), so it is not reported as missing.
+    # "one or more" letters), so it is not reported as missing. A String
+    # agent is present even when blank or invisible: that is an invalid
+    # value ({agent_visible?}), not a missing field. nil agent is still
+    # absence.
     def absent_value?(field, value)
+      return false if field == :agent && value.is_a?(String)
       return false if value.is_a?(String) && blank_field?(value) && FORMAT_FIELDS.include?(field)
 
       blank_field?(value)
     end
 
     def blank_field?(value)
-      value.nil? || value.to_s.strip.empty?
+      return true if value.nil?
+
+      text = value.to_s
+      # strip walks characters and raises on bytes that are not valid
+      # text, so {text_encoding_ok?} runs first.
+      return false unless text_encoding_ok?(text)
+
+      text.strip.empty?
     end
 
     def invalid_dfn
@@ -563,10 +590,14 @@ module RpmsRpc
     # :ien is a positive canonical integer or exactly "FT" (GMRAGUI1.m:126);
     # :text is visible text ({visible?}; GMRAGUI1.m:132); :date, when
     # present and non-blank, is a FileMan date (GMRAGUI1.m:130).
-    # Shape and caret checks stay ahead of the format checks, so a value
-    # that fails both is named by the earlier one. Present reaction_date
-    # and severity (not nil or "") are in that caret check, so a caret
-    # there is named before a type, nature or other format fault.
+    # Shape checks stay ahead of {unsafe_field}, and that pass stays
+    # ahead of the format checks, so a value that fails more than one
+    # is named by the earlier one. A caret or bad encoding on the agent
+    # is named before an invisible agent. {text_encoding_ok?} runs
+    # before any regexp, strip, {visible?}, include?, or interpolation.
+    # Present reaction_date and severity (not nil or
+    # "") are in that caret check, so a caret there is named before a
+    # type, nature or other format fault.
     def refused_allergy(allergy)
       return invalid_value(:symptoms) unless symptoms_shape?(allergy[:symptoms])
       return invalid_value(:comments) unless comments_ok?(allergy[:comments])
@@ -612,7 +643,7 @@ module RpmsRpc
     def symptom_ok?(symptom)
       return false unless symptom.is_a?(Hash)
       return false unless symptom[:ien] == "FT" || canonical_dfn(symptom[:ien])
-      return false unless symptom[:text].is_a?(String) && visible?(symptom[:text])
+      return false unless symptom[:text].is_a?(String) && text_encoding_ok?(symptom[:text]) && visible?(symptom[:text])
 
       omitted?(symptom[:date]) || fileman_date?(symptom[:date])
     end
@@ -627,11 +658,13 @@ module RpmsRpc
     def unsafe_field(allergy)
       bad = REQUIRED_FIELDS.find { |field| unsafe_text?(allergy[field]) }
       return bad if bad
+      return :agent unless agent_visible?(allergy[:agent])
 
       bad = unsafe_symptom(allergy[:symptoms])
       return bad if bad
 
-      return :comment if allergy[:comments]&.any? { |line| unsafe_text?(line) }
+      bad = comment_fault(allergy[:comments])
+      return bad if bad
 
       # nil and "" are absent, not a caret (GMRAGUI1.m:137 $G).
       %i[reaction_date severity].find { |field| !omitted?(allergy[field]) && unsafe_text?(allergy[field]) }
@@ -641,24 +674,85 @@ module RpmsRpc
       Array(symptoms).filter_map { |symptom| symptom.keys.find { |name| unsafe_text?(symptom[name]) } }.first
     end
 
-    # "^" splits a piece (GMRAGUI1.m:105); ASCII controls are frame bytes.
+    # GMRAGNT piece 1 is the allergen name. Blank, whitespace-only and
+    # invisible-only text is not a name a clinician can read ({visible?}).
+    # {text_encoding_ok?} runs before {visible?}. nil is absence
+    # ({absent_value?}), not this failure.
+    def agent_visible?(agent)
+      return false if agent.nil?
+
+      text = agent.is_a?(String) ? agent : agent.to_s
+      text_encoding_ok?(text) && visible?(text)
+    end
+
+    # Carets are allowed in comment lines: they are filed whole through
+    # ^DIWP (ORWDAL32.m:137-138 -> GMRAGUI1.m:118 -> GMRAGUI1.m:59-60).
+    # Control characters stay refused. Carets stay refused in the agent
+    # and every other $P-split field (GMRAGNT uses $P(...,U) at
+    # GMRAGUI1.m:105-106). Each line must also be visible text
+    # ({visible?}). {text_encoding_ok?} runs before the control regexp
+    # and {visible?}.
+    def comment_fault(comments)
+      return nil unless comments.is_a?(Array)
+
+      comments.each do |line|
+        return :comments unless line.is_a?(String)
+        return :comment unless text_encoding_ok?(line)
+        return :comment if line.match?(CONTROL)
+        return :comments unless visible?(line)
+      end
+      nil
+    end
+
+    # "^" splits a $P piece (GMRAGUI1.m:105); ASCII controls are frame
+    # bytes. {text_encoding_ok?} runs first. match? raises ArgumentError
+    # on invalid UTF-8 and Encoding::CompatibilityError on UTF-16/32;
+    # include? does the same. A Shift_JIS or ISO-8859-1 high byte is not
+    # a caret to include? and would still be filed. Comment lines are
+    # not $P-split; {comment_fault} does not use this caret check.
     def unsafe_text?(value)
       text = value.to_s
+      return true unless text_encoding_ok?(text)
+
       text.include?("^") || text.match?(CONTROL)
     end
 
+    # The one gate for text on {save} and {no_known_allergies}, including
+    # {canonical_dfn}. A String is read by a regexp, strip, {visible?},
+    # include?, or interpolation only after this returns true. Accepted
+    # tags are Encoding::UTF_8 with valid_encoding?, Encoding::US_ASCII
+    # with valid_encoding?, and ASCII-8BIT (alias BINARY) whose bytes are
+    # all < 0x80 ({ascii_only?}). Every other tag fails closed — UTF-16/32,
+    # Shift_JIS, EUC-JP, ISO-8859-1, Windows-1252, invalid UTF-8, and
+    # ASCII-8BIT with a high byte. valid_encoding? alone is not enough: it
+    # is true for UTF-16/32, and a regexp then raises
+    # Encoding::CompatibilityError; a Shift_JIS byte 0x5E is "^" on the
+    # wire and is not a caret to include?. Callers turn false into
+    # {invalid_value}, or {invalid_dfn} when the string is the patient DFN.
+    def text_encoding_ok?(text)
+      return false unless text.is_a?(String)
+
+      case text.encoding
+      when Encoding::UTF_8, Encoding::US_ASCII then text.valid_encoding?
+      when Encoding::ASCII_8BIT then text.ascii_only?
+      else false
+      end
+    end
+
     def agent_pointer_ok?(value)
-      value.to_s.match?(AGENT_POINTER)
+      text = value.to_s
+      text_encoding_ok?(text) && text.match?(AGENT_POINTER)
     end
 
     def fileman_date?(value)
-      value.to_s.match?(FILEMAN_DATE)
+      text = value.to_s
+      text_encoding_ok?(text) && text.match?(FILEMAN_DATE)
     end
 
     # Distinct letters from D, F, O (ORWDAL32.m:81). "DD" repeats one.
     def type_ok?(value)
       text = value.to_s
-      text.match?(TYPE) && text.chars.uniq.size == text.size
+      text_encoding_ok?(text) && text.match?(TYPE) && text.chars.uniq.size == text.size
     end
 
     # GMRARDT, when present, is a FileMan date (GMRAGUI1.m:137). A caret
@@ -698,7 +792,9 @@ module RpmsRpc
     # (GMRAGUI1.m:120, :118 stock). Array keys are the two-level
     # subscripts CiaClient#m_subscript / XwbClient#m_subscript encode.
     # nil or "" GMRARDT / GMRASEVR are left out (GMRAGUI1.m:137 $G).
-    # Integer severity is filed as the String code.
+    # Integer severity is filed as the String code. Each filed String
+    # has passed {text_encoding_ok?} in {refused_allergy} or
+    # {canonical_dfn}; interpolation runs only then.
     def edited_list(allergy)
       edited = {
         "GMRAGNT" => "#{allergy[:agent]}^#{allergy[:agent_pointer]}",
