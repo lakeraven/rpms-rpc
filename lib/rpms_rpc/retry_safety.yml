@@ -99,6 +99,7 @@
 "RpmsRpc::Coverage.add_medicare": non_idempotent_write
 "RpmsRpc::Coverage.delete_medicaid": non_idempotent_write
 "RpmsRpc::Coverage.delete_medicare": non_idempotent_write
+"RpmsRpc::Coverage.delete_medicare_record": non_idempotent_write
 "RpmsRpc::Coverage.encode_params": read
 "RpmsRpc::Coverage.for_patient": read
 "RpmsRpc::Coverage.medicaid_update": non_idempotent_write
