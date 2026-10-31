@@ -14,6 +14,8 @@ require "rpms_rpc/retry_safety"
 # Mock seeds use mapping :amhg_save_visit → RPC "AMHG SAVE VISIT".
 # Revised contract (rpms-rpc#536): edit fields explicit, pre-edit .08 check,
 # post-call DDR read-back confirmation, no e-sign piece, caret/time guards.
+# Visit-file DDR GETS always uses DdrFileman.gets_entry (#call_rpc), not client-class dispatch to
+# #call_rpc_global_array. "@" alone after strip, missing 1112 on pre-edit, and bad encodings refuse before RPC.
 class BehavioralHealthSaveVisitTest < Minitest::Test
   BH = RpmsRpc::BehavioralHealth
   Ddr = RpmsRpc::DdrFileman
@@ -34,6 +36,7 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
   PRE_ADD_PATIENT_FIELDS = ".01"
   PRE_ADD_PATIENT_FLAGS = "I"
   # Pinned: before an edit, #9002011 .08 and 1112 (DATE/TIME NOTE SIGNED); non-blank 1112 refuses.
+  # A reply with .08 but no 1112 row is unverifiable and refused before AMHG (fail closed).
   PRE_EDIT_VISIT_FIELDS = ".08;1112"
   PRE_EDIT_VISIT_FLAGS = "I"
   # Pinned: #9002011.02 primaries for a visit — DDR LISTER on xref AD with SCREEN on .03 (MHSS RECORD).
@@ -187,6 +190,32 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_equal RECORD_IEN, BH.save_visit(**FULL_KWARGS, record_ien: RECORD_IEN)
     assert_pre_edit_ddr_call("#{RECORD_IEN},")
     assert_readback_ddr_call("#{RECORD_IEN},", **FULL_KWARGS)
+  end
+
+  def test_visit_ddr_reads_use_call_rpc_not_call_rpc_global_array
+    seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
+    wrapper = VisitDdrMustUseCallRpc.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    assert_equal "8802", BH.save_visit(**FULL_KWARGS)
+    assert_readback_ddr_call("8802,", **FULL_KWARGS)
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_add_and_edit_confirm_with_simple_delegator_wrapped_recording_client
+    delegator = SimpleDelegator.new(@mock)
+    RpmsRpc.configure { |c| c.client = delegator }
+    seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
+    assert_equal "8802", BH.save_visit(**FULL_KWARGS)
+
+    edit_kwargs = FULL_KWARGS.merge(record_ien: RECORD_IEN, group_name: "", group_time: nil, activity_time: nil)
+    seed_edit_success(WIRE_EDIT_NO_GROUP_CHANGE, RECORD_IEN, **edit_kwargs)
+    assert_equal RECORD_IEN, BH.save_visit(**edit_kwargs)
+    assert_pre_edit_ddr_call("#{RECORD_IEN},")
+    assert_readback_ddr_call("#{RECORD_IEN},", **edit_kwargs)
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
   end
 
   def test_success_pins_ddr_gets_readback_fields_and_flags_without_group
@@ -379,6 +408,17 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_empty amhg_calls
   end
 
+  def test_edit_refuses_when_pre_edit_ddr_omits_1112_row_without_amhg_rpc
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    seed_provider_lister(RECORD_IEN, provider: PROVIDER, patient: PATIENT)
+    seed_pre_edit_patient(RECORD_IEN, PATIENT, missing_1112: true)
+    err = assert_raises(BH::SaveError) do
+      BH.save_visit(**FULL_KWARGS.merge(record_ien: RECORD_IEN, group_name: "", group_time: nil, activity_time: nil))
+    end
+    refute_match(/signed/i, err.message, "missing 1112 must not be treated as unsigned")
+    assert_empty amhg_calls
+  end
+
   def test_rejects_esign_as_an_unknown_keyword
     err = assert_raises(ArgumentError) { BH.save_visit(**FULL_KWARGS, esign: true) }
     refute_empty err.message
@@ -537,6 +577,37 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_equal wire, save_call[:params].first
   end
 
+  def test_refuses_at_sign_only_group_name_after_strip_without_rpc
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS.merge(group_name: "@")) }
+    assert_empty @mock.received_calls, "FileMan delete-field @ must refuse before any RPC"
+    assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS.merge(group_name: " @ ")) }
+    assert_empty @mock.received_calls
+  end
+
+  def test_edit_refuses_at_sign_only_group_name_without_rpc
+    seed_edit_preconditions(RECORD_IEN)
+    assert_raises(BH::SaveError) do
+      BH.save_visit(**FULL_KWARGS.merge(record_ien: RECORD_IEN, group_name: "@"))
+    end
+    assert_empty @mock.received_calls
+  end
+
+  def test_accepts_group_name_containing_at_sign_when_not_the_whole_value_after_strip
+    name = "Group @ clinic"
+    pieces = WIRE_ADD_FULL.split("|", -1)
+    pieces[12] = name
+    wire = pieces.join("|")
+    seed_add_success(wire, "8802", **FULL_KWARGS.merge(group_name: name))
+    BH.save_visit(**FULL_KWARGS.merge(group_name: name))
+    assert_equal wire, save_call[:params].first
+  end
+
+  def test_refuses_at_sign_only_free_text_after_strip_without_rpc
+    assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS.merge(program: "@")) }
+    assert_empty @mock.received_calls
+  end
+
   def test_edit_refuses_when_pre_edit_patient_read_errors_without_amhg_rpc
     seed_pre_edit_patient(RECORD_IEN, PATIENT, error: true)
     assert_pre_call_refusal(**FULL_KWARGS.merge(record_ien: RECORD_IEN), label: "pre-edit error")
@@ -605,6 +676,39 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     toxic.each do |bad|
       assert_pre_call_refusal(**FULL_KWARGS.merge(group_name: bad))
     end
+  end
+
+  def test_invalid_utf8_bytes_raise_save_error_not_argument_error_without_rpc
+    invalid = String.new("\xC0\x80", encoding: Encoding::ASCII_8BIT)
+    assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS.merge(group_name: invalid)) }
+    assert_empty @mock.received_calls
+  end
+
+  def test_utf16_and_utf32_encoded_strings_in_any_keyword_raise_save_error_without_rpc
+    plain = "SYNTH"
+    %w[UTF-16LE UTF-16BE UTF-32LE UTF-32BE].each do |encoding|
+      encoded = plain.encode(encoding)
+      FULL_KWARGS.each_key do |key|
+        assert_pre_call_refusal(**FULL_KWARGS.merge(key => encoded), label: "#{key} #{encoding}")
+      end
+    end
+  end
+
+  def test_iso8859_1_and_windows_1252_strings_in_any_keyword_raise_save_error_without_rpc
+    latin1 = "SYNTH caf\xE9".dup.force_encoding(Encoding::ISO_8859_1)
+    cp1252 = "it\xE2\x80\x99s".b.force_encoding(Encoding::WINDOWS_1252)
+    [ latin1, cp1252 ].each do |bad|
+      FULL_KWARGS.each_key do |key|
+        assert_pre_call_refusal(**FULL_KWARGS.merge(key => bad), label: "#{key} #{bad.encoding}")
+      end
+    end
+  end
+
+  def test_non_string_with_invalid_to_s_raises_save_error_without_rpc
+    bad = Object.new
+    bad.define_singleton_method(:to_s) { "\xFF".b }
+    assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS.merge(group_name: bad)) }
+    assert_empty @mock.received_calls
   end
 
   # --- post-call failures (AMHG returned; outcome unknown / read-back) -------
@@ -1079,7 +1183,7 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     end
   end
 
-  def seed_pre_edit_patient(ien, patient, error: false, empty: false, signed: false)
+  def seed_pre_edit_patient(ien, patient, error: false, empty: false, signed: false, missing_1112: false)
     key = ddr_gets_key(
       file: BH_VISIT_FILE,
       iens: "#{ien},",
@@ -1095,10 +1199,12 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
       elsif empty
         "[Data]"
       else
-        signed_at = signed ? "3251031.12" : ""
-        "[Data]\n" \
-          "#{BH_VISIT_FILE}^#{ien}^.08^#{patient}^PATIENT,SYNTH\n" \
-          "#{BH_VISIT_FILE}^#{ien}^1112^#{signed_at}^SIGNED"
+        lines = [ "#{BH_VISIT_FILE}^#{ien}^.08^#{patient}^PATIENT,SYNTH" ]
+        unless missing_1112
+          signed_at = signed ? "3251031.12" : ""
+          lines << "#{BH_VISIT_FILE}^#{ien}^1112^#{signed_at}^SIGNED"
+        end
+        "[Data]\n#{lines.join("\n")}"
       end
     @mock.seed(:ddr_gets_entry_data, key, body)
     return if error || empty
@@ -1241,11 +1347,28 @@ class RpcRefusedOnAmhg < SimpleDelegator
   end
 end
 
-class RaiseOnBhVisitReadback < SimpleDelegator
+# Visit-file DDR GETS must go through #call_rpc (DdrFileman.gets_entry), not
+# #call_rpc_global_array — the latter waits for $C(31) on that RPC.
+class VisitDdrMustUseCallRpc < SimpleDelegator
+  BH_VISIT = "9002011"
+
   def call_rpc_global_array(rpc_name, *params)
     if rpc_name == "DDR GETS ENTRY DATA"
       file = params.first.is_a?(Hash) ? params.first["FILE"] : nil
-      raise RpmsRpc::Client::RpcMError, "read-back failed (synthetic)" if file == "9002011"
+      raise RpmsRpc::Client::RpcTimeoutError, "visit DDR global array read timed out (synthetic)" if file == BH_VISIT
+    end
+
+    super
+  end
+end
+
+class RaiseOnBhVisitReadback < SimpleDelegator
+  BH_VISIT = "9002011"
+
+  def call_rpc(rpc_name, *params)
+    if rpc_name == "DDR GETS ENTRY DATA"
+      file = params.first.is_a?(Hash) ? params.first["FILE"] : nil
+      raise RpmsRpc::Client::RpcMError, "read-back failed (synthetic)" if file == BH_VISIT
     end
 
     super
