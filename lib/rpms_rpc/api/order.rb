@@ -86,7 +86,7 @@ module RpmsRpc
     # leading zero. invalid_id? is looser and stays shared by other methods.
     CANONICAL_ID = /\A[1-9]\d*\z/
 
-    # IFN;ACT, piece 1 of ORWREC (ORWDX.m:154). Both halves are positive
+    # IFN;ACT, piece 1 of ORWREC (ORWDX.m:170). Both halves are positive
     # canonical integers: no sign, no whitespace, no leading zero.
     ORDER_ACTION_ID = /\A[1-9]\d*;[1-9]\d*\z/
 
@@ -94,15 +94,15 @@ module RpmsRpc
     # 1 is ES (ORWDXR.m:91), 1 releases, E is electronic.
     SIGN_RELEASE_ORWREC = "1^1^E"
     # VALIDSIG's exact reply "0". Not the success token "1", so ORWDX
-    # SEND is not called (ORWDX.m:152).
+    # SEND is not called (ORWDX.m:168).
     SIGN_RELEASE_REFUSED = "electronic signature was not accepted"
     # VALIDSIG replied nil, empty, or any text other than exactly "1"
     # or "0". The signature was not confirmed, so SEND is not called.
     SIGN_RELEASE_UNCONFIRMED = "electronic signature could not be confirmed"
     # Piece 2 exactly "S": signed as requested; this call did not release it.
-    # The "S" is the request's own ORWSIG echoed back (ORWDX.m:175), so it is
+    # The "S" is the request's own ORWSIG echoed back (ORWDX.m:192), so it is
     # not proof that a signature was affixed (a no-signature order returns it too).
-    # (ORWDX.m:172-176). Exactly "RS" is released: "R" when released and
+    # (ORWDX.m:189-193). Exactly "RS" is released: "R" when released and
     # "S" when ORWSIG'=2.
     SIGN_RELEASE_SIGNED = "signed as requested, which the reply echoes and does not prove; this call did not release it"
     # SEND ran. The reply does not prove this order's outcome.
@@ -495,11 +495,11 @@ module RpmsRpc
     shape :check, resource: "orders", verb: "POST", path: "/patients/{dfn}/orders/check"
 
     # Sign and release orders already on file. ORWU VALIDSIG, then ORWDX
-    # SEND (SEND^ORWDX -> SEND1^ORWDX -> EN^ORCSEND; FOIA-RPMS
-    # ORWDX.m:152-178). Stock VistA only: those two RPCs, no IHS helper
+    # SEND (SEND^ORWDX -> SEND1^ORWDX -> EN^ORCSEND; pinned-build
+    # ORWDX.m:168-193). Stock VistA only: those two RPCs, no IHS helper
     # and no BEHO or BGO call.
     #
-    # Formals SEND(ORWLST,DFN,ORNP,ORL,ES,ORWREC) (ORWDX.m:152-154). ES
+    # Formals SEND(ORWLST,DFN,ORNP,ORL,ES,ORWREC) (ORWDX.m:168-170). ES
     # is the XWB-encrypted signature code. VALIDSIG(ESOK,X)^ORWU takes
     # that one parameter; the user is the session DUZ. ESignature.validate
     # sends it through ValidSignature (DataMapper.tiu_valid_signature).
@@ -510,7 +510,7 @@ module RpmsRpc
     # treats "yes" as true; this call does not.
     #
     # ORWREC is a 1-based list. ORWREC(n)=ORIFN;Action^Signature Sts^
-    # Release Sts^Nature (ORWDX.m:154): the order id is IFN;ACT, then
+    # Release Sts^Nature (ORWDX.m:170): the order id is IFN;ACT, then
     # ORWSIG^ORWREL^ORWNATR. ORWSIG 1 is electronic signature
     # (ORWDXR.m:91), ORWREL 1 releases, ORWNATR E is electronic
     # (ORWDXR.m:87-98). CHKACT^ORWDXR checks those three before
@@ -520,12 +520,12 @@ module RpmsRpc
     # order_ids must be an Array; anything else raises ArgumentError and
     # calls no RPC. An empty order list returns [] and calls nothing.
     # A bad argument rejects every order and calls no RPC. VALIDSIG must
-    # answer exactly "1" or SEND is not called (ORWDX.m:152). Exactly "0"
+    # answer exactly "1" or SEND is not called (ORWDX.m:168). Exactly "0"
     # rejects every order: the electronic signature was not accepted. Any
     # other reply (nil, empty, or other text) rejects every order because
     # the signature could not be confirmed.
     #
-    # SEND's reply is one row per order (ORWDX.m:172-176), split on
+    # SEND's reply is one row per order (ORWDX.m:189-193), split on
     # CRLF, a bare CR, or LF. Piece 2 is "R" when released and "S" when
     # ORWSIG'=2. Exactly "RS" is :released. Exactly "S" is :signed (requested as signed, not proven)
     # (signed; this call did not release it). Any other piece 2 is
@@ -544,7 +544,7 @@ module RpmsRpc
     # other StandardError from SEND does not raise. The release request
     # may have been sent, and EN^ORCSEND may have signed before the
     # fault (FOIA ORCSEND.m:11-13, :72-73) so the ORWLST rows
-    # (ORWDX.m:172-176) never arrived. Each requested order is :unknown.
+    # (ORWDX.m:189-193) never arrived. Each requested order is :unknown.
     # The reason is "the release request may have been sent but failed
     # (<class>); check the order before retrying", with the error class
     # name only. The message is never copied.
@@ -570,22 +570,33 @@ module RpmsRpc
       reason = sign_release_argument_error(dfn_s, provider_s, location_s, ids, signature)
       return sign_release_rejected(order_ids, reason) if reason
 
-      # SEND^ORWDX signs as the session user and never reads ES
-      # (ORNP matters only to DC children). This check is not atomic with the
-      # later RPCs: RpmsRpc.client is process-global, and a sign-on on it
-      # between here and SEND would sign as the new user.
-      # (ORWDX.m:152-178, ORCSEND.m:8); VALIDSIG checks that user's code
-      # (ORWU.m:103-106). A provider other than the signed-on DUZ would have
-      # the order signed by someone else and reported under the provider's name.
-      unless sign_release_session_user?(provider_s)
-        return sign_release_rejected(order_ids, SIGN_RELEASE_NOT_SESSION_USER)
+      # The session-user check, ORWU VALIDSIG, and ORWDX SEND run under one
+      # RpmsRpc.synchronize_wire on the client resolved once here. SEND1^ORWDX
+      # does not use ES and signs as the session DUZ (pinned ORWDX.m:168-193,
+      # ORCSEND.m:9). VALIDSIG hashes that session DUZ's code (ORWU.m:103-106).
+      # RpmsRpc.client is process-global, so a sign-on that rebinds DUZ between
+      # VALIDSIG and SEND would sign as a user whose code was never checked.
+      # ORNP matters only to DC children. A provider other than the signed-on
+      # DUZ is rejected: the order would be signed by someone else and reported
+      # under the provider's name.
+      client = RpmsRpc.client
+      outcome = nil
+      RpmsRpc.synchronize_wire do
+        unless sign_release_session_user?(provider_s, client)
+          outcome = sign_release_rejected(order_ids, SIGN_RELEASE_NOT_SESSION_USER)
+          next
+        end
+
+        encrypted = ValidSignature.encrypt(signature)
+        line = sign_release_validsig_line(signature, encrypted, client)
+        unless line == "1"
+          outcome = sign_release_rejected(order_ids, sign_release_validsig_reason(line))
+          next
+        end
+
+        outcome = sign_release_send(dfn_s, provider_s, location_s, ids, signature, encrypted, client)
       end
-
-      encrypted = ValidSignature.encrypt(signature)
-      line = sign_release_validsig_line(signature, encrypted)
-      return sign_release_rejected(order_ids, sign_release_validsig_reason(line)) unless line == "1"
-
-      sign_release_send(dfn_s, provider_s, location_s, ids, signature, encrypted)
+      outcome
     end
     shape :sign_and_release, resource: "orders", verb: "POST", path: "/patients/{dfn}/orders/sign-and-release"
 
@@ -1080,8 +1091,8 @@ module RpmsRpc
 
     # The client must name its signed-on DUZ and it must be the provider. A
     # client that cannot say who is signed on is rejected, never assumed.
-    def sign_release_session_user?(provider_s)
-      client = RpmsRpc.client
+    # `client` is the object sign_and_release resolved once for this call.
+    def sign_release_session_user?(provider_s, client)
       client.respond_to?(:duz) && client.duz.to_s.strip == provider_s
     end
 
@@ -1093,8 +1104,8 @@ module RpmsRpc
 
     # ORWU VALIDSIG. Any StandardError propagates, redacted when the
     # message or a #cause carries the signature. SEND is not reached.
-    def sign_release_validsig_line(signature, encrypted)
-      ValidSignature.line_for(encrypted)
+    def sign_release_validsig_line(signature, encrypted, client)
+      ValidSignature.line_for(encrypted, client: client)
     rescue StandardError => error
       sign_release_reraise(error, signature, encrypted)
     end
@@ -1107,15 +1118,15 @@ module RpmsRpc
       SIGN_RELEASE_UNCONFIRMED
     end
 
-    # ORWDX SEND (ORWDX.m:152). RpcNotAvailableError and RpcRefusedError
+    # ORWDX SEND (ORWDX.m:168-193). RpcNotAvailableError and RpcRefusedError
     # mean the routine never ran, so they propagate like VALIDSIG.
     # FrameTooLongError and its subclasses propagate too: nothing was
     # sent (client.rb #472). Any other StandardError is one :unknown
     # row per order: the release request may have been sent and the
-    # reply rows (ORWDX.m:172-176) are not in hand.
-    def sign_release_send(dfn, provider, location, ids, signature, encrypted)
+    # reply rows (ORWDX.m:189-193) are not in hand.
+    def sign_release_send(dfn, provider, location, ids, signature, encrypted, client)
       raw = begin
-        RpmsRpc.client.call_rpc(
+        client.call_rpc(
           "ORWDX SEND",
           dfn,
           provider,
@@ -1290,7 +1301,7 @@ module RpmsRpc
       order_ids.map { |id| sign_release_one(id, grouped[id]) }
     end
 
-    # Piece 2 (ORWDX.m:172-176) is "R" when released and "S" when
+    # Piece 2 (ORWDX.m:189-193) is "R" when released and "S" when
     # ORWSIG'=2. Exactly "RS" was released. Exactly "S" was signed as requested, not proven; this
     # call did not release it. ^E^ is ORWERR (code^text). The reason
     # keeps the text after the code. A code with no text does not use

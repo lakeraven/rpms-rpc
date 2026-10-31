@@ -275,6 +275,28 @@ end
       @wire_lock.synchronize(&block)
     end
 
+    # Session identity, the minimum of Client (client.rb). Order.sign_and_release
+    # reads #duz; Authentication#auth_success calls #set_authenticated.
+    def authenticated?
+      @authenticated
+    end
+
+    def set_authenticated(duz)
+      @authenticated = true
+      @duz = duz
+    end
+
+    # Forget the signed-on identity: a new sign-on is re-binding the broker
+    # session, so until it succeeds the client is nobody's.
+    def clear_authenticated
+      @authenticated = false
+      @duz = nil
+    end
+
+    def duz
+      @duz
+    end
+
     # Model truncation of a reply at the CIA frame terminator.
     #
     # HISTORY: RpmsRpc::Client::EOD was "\x1e", the SAME byte GLOBAL ARRAY

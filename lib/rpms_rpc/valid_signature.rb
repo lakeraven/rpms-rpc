@@ -20,8 +20,11 @@ module RpmsRpc
       # Trailing $C(30)/$C(31) are stripped the way a DataMapper scalar
       # strips them. The line is not coerced: "1" is VALIDSIG's success
       # token, and ESignature.accepted? also allows the mapper's "yes".
-      def line_for(encrypted)
-        response = RpmsRpc.client.call_rpc(DataMapper.tiu_valid_signature.rpc_name, encrypted)
+      # `client:` defaults to RpmsRpc.client, so ESignature.validate is
+      # unchanged. Order.sign_and_release passes the client it resolved
+      # once, and VALIDSIG runs on that same object as SEND.
+      def line_for(encrypted, client: RpmsRpc.client)
+        response = client.call_rpc(DataMapper.tiu_valid_signature.rpc_name, encrypted)
         scalar_line(response)
       end
 
