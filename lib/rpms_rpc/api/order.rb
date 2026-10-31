@@ -2,17 +2,19 @@
 
 require_relative "../shape"
 require_relative "../mappings"
+require_relative "../valid_signature"
 
 module RpmsRpc
   # Symbolic API for clinical orders — list-side, a patient's orders and
   # the patient's unsigned actions, plus per-order result reads,
   # order-sheet catalog reads for the order-review surface, order checks
-  # when an order is accepted, and filing a new unsigned order.
+  # when an order is accepted, filing a new unsigned order, and signing
+  # and releasing orders.
   # Underlying RPCs (layouts per FOIA ORWOR.m / ORWORR.m / ORWDXC.m, #220,
-  # #454, and stock ORWDX.m):
+  # #454, #455, and stock ORWDX.m / ORWU.m, #456):
   # ORWOR UNSIGN, ORWORR AGET, ORWOR RESULT,
   # ORWOR RESULT HISTORY, ORWOR ACTION TEXT, ORWOR EXPIRED, ORWOR SHEETS,
-  # ORWOR TSALL, ORWDXC ACCEPT, ORWDX SAVE.
+  # ORWOR TSALL, ORWDXC ACCEPT, ORWDX SAVE, ORWU VALIDSIG, ORWDX SEND.
   module Order
     extend self
     extend Shape::Declarable
@@ -83,6 +85,38 @@ module RpmsRpc
     # DFN, location, and the orderable-item pointer. No sign, suffix, or
     # leading zero. invalid_id? is looser and stays shared by other methods.
     CANONICAL_ID = /\A[1-9]\d*\z/
+
+    # IFN;ACT, piece 1 of ORWREC (ORWDX.m:170). Both halves are positive
+    # canonical integers: no sign, no whitespace, no leading zero.
+    ORDER_ACTION_ID = /\A[1-9]\d*;[1-9]\d*\z/
+
+    # ORWSIG^ORWREL^ORWNATR after the order id (ORWDXR.m:87-98).
+    # 1 is ES (ORWDXR.m:91), 1 releases, E is electronic.
+    SIGN_RELEASE_ORWREC = "1^1^E"
+    # VALIDSIG's exact reply "0". Not the success token "1", so ORWDX
+    # SEND is not called (ORWDX.m:168).
+    SIGN_RELEASE_REFUSED = "electronic signature was not accepted"
+    # VALIDSIG replied nil, empty, or any text other than exactly "1"
+    # or "0". The signature was not confirmed, so SEND is not called.
+    SIGN_RELEASE_UNCONFIRMED = "electronic signature could not be confirmed"
+    # Piece 2 exactly "S": signed as requested; this call did not release it.
+    # The "S" is the request's own ORWSIG echoed back (ORWDX.m:192), so it is
+    # not proof that a signature was affixed (a no-signature order returns it too).
+    # (ORWDX.m:189-193). Exactly "RS" is released: "R" when released and
+    # "S" when ORWSIG'=2.
+    SIGN_RELEASE_SIGNED = "signed as requested, which the reply echoes and does not prove; this call did not release it"
+    # SEND ran. The reply does not prove this order's outcome.
+    SIGN_RELEASE_UNKNOWN = "unknown outcome; check the order before retrying"
+    # provider_duz is not the DUZ the client is signed on as, or the client
+    # cannot name its signed-on user. SEND signs as the session user, so
+    # SEND is not called.
+    SIGN_RELEASE_NOT_SESSION_USER = "provider duz is not the signed-on session user"
+    # ^E^ keeps the text after ORWERR's code. A code with no text does
+    # not use the code as the text. EN^ORCSEND signs before the release
+    # action can fail (FOIA ORCSEND.m:11-13, :72-73), so the order may
+    # already be signed. The reason also says to check the order before
+    # retrying.
+    SIGN_RELEASE_MAYBE_SIGNED = "the order may already be signed; check the order before retrying"
 
     # Filler namespace spliced into a |-delimited ORX record
     # (WorldVistA ORWDXC.m:38,47).
@@ -459,6 +493,112 @@ module RpmsRpc
       end
     end
     shape :check, resource: "orders", verb: "POST", path: "/patients/{dfn}/orders/check"
+
+    # Sign and release orders already on file. ORWU VALIDSIG, then ORWDX
+    # SEND (SEND^ORWDX -> SEND1^ORWDX -> EN^ORCSEND; pinned-build
+    # ORWDX.m:168-193). Stock VistA only: those two RPCs, no IHS helper
+    # and no BEHO or BGO call.
+    #
+    # Formals SEND(ORWLST,DFN,ORNP,ORL,ES,ORWREC) (ORWDX.m:168-170). ES
+    # is the XWB-encrypted signature code. VALIDSIG(ESOK,X)^ORWU takes
+    # that one parameter; the user is the session DUZ. ESignature.validate
+    # sends it through ValidSignature (DataMapper.tiu_valid_signature).
+    # The same ciphertext is sent again as ES. The vuecentric trace
+    # reuses the token. Only an exact reply line "1" proceeds to SEND.
+    # Exactly "0" is not accepted. Anything else (nil, empty, or other
+    # text) does not confirm the signature. The mapper boolean also
+    # treats "yes" as true; this call does not.
+    #
+    # ORWREC is a 1-based list. ORWREC(n)=ORIFN;Action^Signature Sts^
+    # Release Sts^Nature (ORWDX.m:170): the order id is IFN;ACT, then
+    # ORWSIG^ORWREL^ORWNATR. ORWSIG 1 is electronic signature
+    # (ORWDXR.m:91), ORWREL 1 releases, ORWNATR E is electronic
+    # (ORWDXR.m:87-98). CHKACT^ORWDXR checks those three before
+    # EN^ORCSEND. An Array is the 1-based list the broker clients frame
+    # (XwbClient#encode_param, CiaClient#rpc_frame_fields).
+    #
+    # order_ids must be an Array; anything else raises ArgumentError and
+    # calls no RPC. An empty order list returns [] and calls nothing.
+    # A bad argument rejects every order and calls no RPC. VALIDSIG must
+    # answer exactly "1" or SEND is not called (ORWDX.m:168). Exactly "0"
+    # rejects every order: the electronic signature was not accepted. Any
+    # other reply (nil, empty, or other text) rejects every order because
+    # the signature could not be confirmed.
+    #
+    # SEND's reply is one row per order (ORWDX.m:189-193), split on
+    # CRLF, a bare CR, or LF. Piece 2 is "R" when released and "S" when
+    # ORWSIG'=2. Exactly "RS" is :released. Exactly "S" is :signed (requested as signed, not proven)
+    # (signed; this call did not release it). Any other piece 2 is
+    # :unknown. An ^E^ row is :unknown: EN^ORCSEND signs before the
+    # release action can fail (FOIA ORCSEND.m:11-13, :72-73), so the
+    # order may already be signed. ORWERR is code^text; the text after
+    # the code stays in the reason, which also says to check the order
+    # before retrying. A code with no text does not use the code as the
+    # text. A missing row or two rows for one order is :unknown: SEND
+    # ran, and the reply does not prove that order.
+    #
+    # ORWU VALIDSIG raising anything propagates. ORWDX SEND raising
+    # RpcNotAvailableError or RpcRefusedError propagates: the release
+    # routine did not run. FrameTooLongError and its subclasses
+    # propagate the same way: nothing was sent (client.rb #472). Any
+    # other StandardError from SEND does not raise. The release request
+    # may have been sent, and EN^ORCSEND may have signed before the
+    # fault (FOIA ORCSEND.m:11-13, :72-73) so the ORWLST rows
+    # (ORWDX.m:189-193) never arrived. Each requested order is :unknown.
+    # The reason is "the release request may have been sent but failed
+    # (<class>); check the order before retrying", with the error class
+    # name only. The message is never copied.
+    #
+    # Where an error propagates, StandardError is rescued so secrets can
+    # be stripped. Secrets are the plaintext signature, the encrypted ES,
+    # and each value's String#inspect body without the surrounding
+    # quotes. An RpmsRpc::Error whose message and #cause chain contain
+    # none of them is re-raised unchanged. Otherwise a new error is
+    # raised (cause: nil) with the redacted message: the same class
+    # when it is a client error that can be built from a message, and
+    # Client::RpcError otherwise. The caller's exception is not rewritten.
+    #
+    #   => [{ order_id:, status:, reason: }, ...]
+    def sign_and_release(dfn, provider_duz, location, order_ids, signature)
+      raise ArgumentError, "order_ids must be an Array" unless order_ids.is_a?(Array)
+      return [] if order_ids.empty?
+
+      dfn_s = sign_release_canonical_id(dfn)
+      provider_s = sign_release_canonical_id(provider_duz)
+      location_s = sign_release_canonical_id(location)
+      ids = order_ids.map { |id| sign_release_order_id(id) }
+      reason = sign_release_argument_error(dfn_s, provider_s, location_s, ids, signature)
+      return sign_release_rejected(order_ids, reason) if reason
+
+      # The session-user check, ORWU VALIDSIG, and ORWDX SEND run under one
+      # RpmsRpc.synchronize_wire on the client resolved once here. SEND1^ORWDX
+      # does not use ES and signs as the session DUZ (pinned ORWDX.m:168-193,
+      # ORCSEND.m:9). VALIDSIG hashes that session DUZ's code (ORWU.m:103-106).
+      # RpmsRpc.client is process-global, so a sign-on that rebinds DUZ between
+      # VALIDSIG and SEND would sign as a user whose code was never checked.
+      # ORNP matters only to DC children. A provider other than the signed-on
+      # DUZ is rejected: the order would be signed by someone else and reported
+      # under the provider's name.
+      client = RpmsRpc.client
+      outcome = nil
+      RpmsRpc.synchronize_wire do
+        unless sign_release_session_user?(provider_s, client)
+          outcome = sign_release_rejected(order_ids, SIGN_RELEASE_NOT_SESSION_USER)
+          next
+        end
+
+        encrypted = ValidSignature.encrypt(signature)
+        line = sign_release_validsig_line(signature, encrypted, client)
+        unless line == "1"
+          outcome = sign_release_rejected(order_ids, sign_release_validsig_reason(line))
+          next
+        end
+
+        outcome = sign_release_send(dfn_s, provider_s, location_s, ids, signature, encrypted, client)
+      end
+      outcome
+    end
+    shape :sign_and_release, resource: "orders", verb: "POST", path: "/patients/{dfn}/orders/sign-and-release"
 
     private
 
@@ -919,6 +1059,277 @@ module RpmsRpc
 
     def save_failure(error, message)
       { success: false, error: error, message: message }
+    end
+
+    # match? raises ArgumentError when the string is not valid UTF-8.
+    # That is a bad id, not a broker call.
+    def sign_release_canonical_id(value)
+      positive_id(value)
+    rescue ArgumentError
+      nil
+    end
+
+    def sign_release_order_id(value)
+      return nil unless value.is_a?(String) && value.valid_encoding?
+      return nil unless value.match?(ORDER_ACTION_ID)
+
+      value
+    end
+
+    def sign_release_argument_error(dfn_s, provider_s, location_s, ids, signature)
+      unless signature.is_a?(String) && signature.valid_encoding? && !signature.strip.empty?
+        return "invalid signature"
+      end
+      return "invalid patient id" unless dfn_s
+      return "invalid provider duz" unless provider_s
+      return "invalid location" unless location_s
+      return "invalid order id" if ids.any?(&:nil?)
+      return "duplicate order id" if ids.uniq.length != ids.length
+
+      nil
+    end
+
+    # The client must name its signed-on DUZ and it must be the provider. A
+    # client that cannot say who is signed on is rejected, never assumed.
+    # `client` is the object sign_and_release resolved once for this call.
+    def sign_release_session_user?(provider_s, client)
+      client.respond_to?(:duz) && client.duz.to_s.strip == provider_s
+    end
+
+    def sign_release_rejected(order_ids, reason)
+      order_ids.map do |id|
+        { order_id: id.is_a?(String) ? id : id.to_s, status: :rejected, reason: reason }
+      end
+    end
+
+    # ORWU VALIDSIG. Any StandardError propagates, redacted when the
+    # message or a #cause carries the signature. SEND is not reached.
+    def sign_release_validsig_line(signature, encrypted, client)
+      ValidSignature.line_for(encrypted, client: client)
+    rescue StandardError => error
+      sign_release_reraise(error, signature, encrypted)
+    end
+
+    # Exactly "0" was checked and refused. Anything else was not the
+    # success token and was not that refusal, so it is unconfirmed.
+    def sign_release_validsig_reason(line)
+      return SIGN_RELEASE_REFUSED if line == "0"
+
+      SIGN_RELEASE_UNCONFIRMED
+    end
+
+    # ORWDX SEND (ORWDX.m:168-193). RpcNotAvailableError and RpcRefusedError
+    # mean the routine never ran, so they propagate like VALIDSIG.
+    # FrameTooLongError and its subclasses propagate too: nothing was
+    # sent (client.rb #472). Any other StandardError is one :unknown
+    # row per order: the release request may have been sent and the
+    # reply rows (ORWDX.m:189-193) are not in hand.
+    def sign_release_send(dfn, provider, location, ids, signature, encrypted, client)
+      raw = begin
+        client.call_rpc(
+          "ORWDX SEND",
+          dfn,
+          provider,
+          location,
+          encrypted,
+          ids.map { |id| "#{id}^#{SIGN_RELEASE_ORWREC}" }
+        )
+      rescue RpmsRpc::Client::RpcNotAvailableError, RpmsRpc::Client::RpcRefusedError,
+             RpmsRpc::Client::FrameTooLongError => error
+        # RpcNotAvailableError and RpcRefusedError are subclasses of
+        # RpcError, so this clause is first: the routine never ran.
+        # FrameTooLongError and its subclasses are here too: nothing was
+        # sent (client.rb #472). Redact and re-raise; do not turn them
+        # into :unknown.
+        sign_release_reraise(error, signature, encrypted)
+      rescue StandardError => error
+        return sign_release_sent_failed(ids, error)
+      end
+      sign_release_scrub(parse_sign_release_reply(ids, raw), signature, encrypted)
+    end
+
+    # The class name only (RpcError, not the message). The message can
+    # carry the plaintext signature or the encrypted ES. The release
+    # request may have been sent; the reply rows are not in hand.
+    def sign_release_sent_failed(order_ids, error)
+      name = error.class.name.to_s.split("::").last.to_s
+      reason = "the release request may have been sent but failed (#{name}); check the order before retrying"
+      order_ids.map { |id| { order_id: id, status: :unknown, reason: reason } }
+    end
+
+    # An RpmsRpc::Error whose message and #cause chain do not contain
+    # the signature is the same object. Called from a rescue, so a bare
+    # raise re-raises that exception ($!). Naming the variable would be
+    # a raise RaiseHierarchyTest cannot resolve. Otherwise a new error
+    # is raised (cause: nil) with the redacted message. The caller's
+    # exception is left as it was.
+    def sign_release_reraise(error, signature, encrypted)
+      secrets = sign_release_secrets(signature, encrypted)
+      raise if error.is_a?(RpmsRpc::Error) && !sign_release_mentions?(error, secrets)
+
+      sign_release_raise_redacted(error, sign_release_redact(sign_release_message(error), secrets))
+    end
+
+    # Plaintext, the wire ciphertext, and each value's String#inspect
+    # body with the surrounding quotes removed. Longer values first, so
+    # a shorter secret inside a longer one is not cut apart.
+    def sign_release_secrets(plaintext, encrypted)
+      secrets = []
+      [ plaintext, encrypted ].each do |value|
+        next unless value.is_a?(String) && !value.empty?
+
+        secrets << value
+        body = value.inspect[1..-2]
+        secrets << body if body.is_a?(String) && !body.empty?
+      end
+      secrets.uniq.sort_by { |secret| -secret.bytesize }
+    end
+
+    # True when this message, or any message along #cause, contains a
+    # secret. Object ids stop a cause cycle from spinning.
+    def sign_release_mentions?(error, secrets)
+      return false if secrets.empty?
+
+      seen = {}
+      current = error
+      while current.is_a?(Exception) && !seen[current.object_id]
+        seen[current.object_id] = true
+        return true if sign_release_text_mentions?(sign_release_message(current), secrets)
+
+        current = current.cause
+      end
+      false
+    end
+
+    def sign_release_message(error)
+      message = error.message
+      message.is_a?(String) ? message : message.to_s
+    end
+
+    def sign_release_text_mentions?(text, secrets)
+      return false unless text.is_a?(String)
+
+      secrets.any? do |secret|
+        needle = sign_release_needle(secret, text)
+        needle && text.include?(needle)
+      end
+    end
+
+    # dup before force_encoding: the secret may be the caller's string,
+    # and a frozen exception's message must not be rewritten in place.
+    def sign_release_needle(secret, text)
+      needle = secret.dup
+      needle.force_encoding(text.encoding)
+      return nil unless needle.valid_encoding?
+
+      needle
+    end
+
+    def sign_release_redact(message, secrets)
+      return message unless message.is_a?(String)
+      return message if secrets.empty?
+
+      secrets.reduce(message) do |text, secret|
+        needle = sign_release_needle(secret, text)
+        next text unless needle
+
+        text.gsub(needle, "[redacted]")
+      end
+    end
+
+    def sign_release_scrub(rows, plaintext, encrypted)
+      secrets = sign_release_secrets(plaintext, encrypted)
+      rows.each do |row|
+        next unless row[:reason].is_a?(String)
+
+        row[:reason] = sign_release_redact(row[:reason], secrets)
+      end
+      rows
+    end
+
+    # cause: nil so this rescue does not attach the original message.
+    # Each raise names its class: RaiseHierarchyTest resolves a constant,
+    # not error.class. A client error this method names is built again
+    # from the redacted message. Anything else (a non-gem error, a frozen
+    # error whose class cannot be built from a message) is Client::RpcError.
+    # A new error is allocated, so raising cannot raise FrozenError, and
+    # the caller's exception is left as it was.
+    def sign_release_raise_redacted(error, cleaned)
+      cleaned = cleaned.dup
+      backtrace = error.backtrace&.dup
+      error_class = error.class
+
+      raise Client::AuthenticationError, cleaned, backtrace, cause: nil if defined?(Client::AuthenticationError) && error_class == Client::AuthenticationError
+      raise Client::ConnectionError, cleaned, backtrace, cause: nil if defined?(Client::ConnectionError) && error_class == Client::ConnectionError
+      raise Client::CredentialError, cleaned, backtrace, cause: nil if defined?(Client::CredentialError) && error_class == Client::CredentialError
+      raise Client::FrameTooLongError, cleaned, backtrace, cause: nil if defined?(Client::FrameTooLongError) && error_class == Client::FrameTooLongError
+      raise Client::ParseError, cleaned, backtrace, cause: nil if defined?(Client::ParseError) && error_class == Client::ParseError
+      raise Client::RpcError, cleaned, backtrace, cause: nil if defined?(Client::RpcError) && error_class == Client::RpcError
+      raise Client::RpcMError, cleaned, backtrace, cause: nil if defined?(Client::RpcMError) && error_class == Client::RpcMError
+      raise Client::RpcNotAvailableError, cleaned, backtrace, cause: nil if defined?(Client::RpcNotAvailableError) && error_class == Client::RpcNotAvailableError
+      raise Client::RpcRefusedError, cleaned, backtrace, cause: nil if defined?(Client::RpcRefusedError) && error_class == Client::RpcRefusedError
+      raise Client::RpcTimeoutError, cleaned, backtrace, cause: nil if defined?(Client::RpcTimeoutError) && error_class == Client::RpcTimeoutError
+      raise Client::TimeoutError, cleaned, backtrace, cause: nil if defined?(Client::TimeoutError) && error_class == Client::TimeoutError
+      raise NotConfiguredError, cleaned, backtrace, cause: nil if defined?(NotConfiguredError) && error_class == NotConfiguredError
+      raise ParameterEncoder::ParameterTooLongError, cleaned, backtrace, cause: nil if defined?(ParameterEncoder::ParameterTooLongError) && error_class == ParameterEncoder::ParameterTooLongError
+      raise BmxClient::RequestTooLongError, cleaned, backtrace, cause: nil if defined?(BmxClient::RequestTooLongError) && error_class == BmxClient::RequestTooLongError
+      raise XwbClient::LpackTooLongError, cleaned, backtrace, cause: nil if defined?(XwbClient::LpackTooLongError) && error_class == XwbClient::LpackTooLongError
+      raise XwbClient::SpackTooLongError, cleaned, backtrace, cause: nil if defined?(XwbClient::SpackTooLongError) && error_class == XwbClient::SpackTooLongError
+
+      raise Client::RpcError, cleaned, backtrace, cause: nil
+    end
+
+    # CRLF, a bare CR, or LF, the same breaks accept_lines drops. A blank
+    # row is not an order. Anything that is not a String or an Array did
+    # not come back as ORWLST lines, so it proves nothing.
+    def sign_release_lines(raw)
+      rows = case raw
+      when nil then []
+      when String then split_reply_rows(raw)
+      when Array then raw.flat_map { |line| split_reply_rows(line.to_s) }
+      else []
+      end
+      rows.reject { |line| line.nil? || line.empty? }
+    end
+
+    def parse_sign_release_reply(order_ids, raw)
+      grouped = {}
+      sign_release_lines(raw).each do |line|
+        pieces = line.split("^", 4)
+        (grouped[pieces[0]] ||= []) << pieces
+      end
+      order_ids.map { |id| sign_release_one(id, grouped[id]) }
+    end
+
+    # Piece 2 (ORWDX.m:189-193) is "R" when released and "S" when
+    # ORWSIG'=2. Exactly "RS" was released. Exactly "S" was signed as requested, not proven; this
+    # call did not release it. ^E^ is ORWERR (code^text). The reason
+    # keeps the text after the code. A code with no text does not use
+    # the code as the text. EN^ORCSEND signs before the release action
+    # can fail (FOIA ORCSEND.m:11-13, :72-73), so that row is :unknown.
+    # Two rows, or none, do not prove the outcome.
+    def sign_release_one(id, rows)
+      return sign_release_unknown(id) unless rows&.length == 1
+
+      pieces = rows[0]
+      token = pieces[1].to_s
+      return sign_release_e_row(id, pieces) if token == "E"
+      return { order_id: id, status: :released, reason: nil } if token == "RS"
+      return { order_id: id, status: :signed, reason: SIGN_RELEASE_SIGNED } if token == "S"
+
+      sign_release_unknown(id)
+    end
+
+    # Piece 3 is ORWERR's code. Piece 4 is its text. A missing or empty
+    # text is not the code: the reason is the generic sentence.
+    def sign_release_e_row(id, pieces)
+      text = pieces[3].to_s
+      reason = text.empty? ? SIGN_RELEASE_MAYBE_SIGNED : "#{text}; #{SIGN_RELEASE_MAYBE_SIGNED}"
+      { order_id: id, status: :unknown, reason: reason }
+    end
+
+    def sign_release_unknown(id)
+      { order_id: id, status: :unknown, reason: SIGN_RELEASE_UNKNOWN }
     end
   end
 end

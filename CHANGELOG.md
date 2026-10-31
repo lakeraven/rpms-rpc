@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `Order.sign_and_release` signs and releases saved orders through ORWDX SEND (#456)
+
+- `RpmsRpc::Order.sign_and_release(dfn, provider_duz, location, order_ids, signature)` checks the signature with `ORWU VALIDSIG` (exactly `"1"`), then releases the orders with `ORWDX SEND`, and returns one `{ order_id:, status:, reason: }` per order: `:released` (reply piece 2 exactly `"RS"`), `:signed` (`"S"`), `:unknown` (SEND went out and the reply does not prove the outcome) or `:rejected` (nothing was sent). It is named `sign_and_release`, not `send`, because `Order` is `extend self` and `send` would shadow `Kernel#send`.
+- **The signed-on user must be the provider.** SEND never reads its ES argument and signs as the session DUZ, so a `provider_duz` that is not the client's signed-on DUZ is `:rejected` before any RPC. The session-user check, `ORWU VALIDSIG` and `ORWDX SEND` run under one `RpmsRpc.synchronize_wire` on one client, so a concurrent sign-on cannot rebind the DUZ between the signature check and the release.
+- `RpmsRpc::ValidSignature` is the one `ORWU VALIDSIG` path, shared by `ESignature.validate` and this method. `ESignature.validate` behaves as before.
+- `RpmsRpc::MockClient` gains `#duz`, `#set_authenticated`, `#clear_authenticated` and `#authenticated?`, so `RpmsRpc.mock!` can hold a signed-on user (and a mock sign-on through `Authentication` records its DUZ).
+- The signature (plaintext and ciphertext) never appears in a result, reason, raised message or `#cause` chain. `retry_safety.yml` marks it `non_idempotent_write`; the shape is `POST /patients/{dfn}/orders/sign-and-release`.
+- A live spec (`test/live/order_write_live_test.rb`) saves an order, signs and releases it and reads it back from file 100. It needs `RPMS_ESIG` and has not been run against the pinned build (#456).
+
 ### Changed — `ProgressNote.update_text` wraps long lines before TIU SET DOCUMENT TEXT (#479)
 
 - A line longer than `wrap_width` bytes (default `ProgressNote::WRAP_WIDTH`, 80; an Integer from 4 to 999) is cut into consecutive `TIUX("TEXT",n,0)` pieces. The break is the last space or tab past the leading indentation and at a byte offset within the width; that one character is dropped. Otherwise the cut is the last UTF-8 character boundary within the width and nothing is dropped. Lines that fit, including blank lines, are unchanged. **This changes how the note is laid out in the chart.** Rejoining the pieces with the dropped character restores the line. Joined with a single space, a tab at a cut reads back as a space, and a space or tab cut at the very end of a line is dropped. Non-whitespace is never dropped or changed. Indentation is not repeated on continuation pieces; an indent wider than the width is itself hard-cut.
