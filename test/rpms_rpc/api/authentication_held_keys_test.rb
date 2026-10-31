@@ -112,8 +112,8 @@ class RpmsRpc::AuthenticationHeldKeysTest < Minitest::Test
     assert_equal n, nphaskey
     refute @socket.writes.any? { |w| w.include?("CIAVCXUS HASKEYS") }
     assert_equal n, @socket.writes.size,
-                 "for #{n} keys: #{n} ORWU NPHASKEY + 1 bind + 1 restore " \
-                 "(#{n} CIA frame(s); bind and restore do not add separate frames)"
+                 "for #{n} keys over CIA: #{n} frame(s) — context rides on each ORWU NPHASKEY frame, " \
+                 "not separate bind/restore frames"
     assert_equal START_CONTEXT, client.current_context, "caller context is restored afterward"
     @socket.writes.each do |frame|
       assert_includes frame, HELD_CONTEXT, "each NPHASKEY runs under OR CPRS GUI CHART"
@@ -145,6 +145,38 @@ class RpmsRpc::AuthenticationHeldKeysTest < Minitest::Test
     configure(nphaskey_reads(%w[0 0]))
 
     assert_equal [], RpmsRpc::Authentication.held_keys(%w[SYNKEYA SYNKEYB])
+  end
+
+  def test_duz_zero_returns_nil_and_sends_no_nphaskey
+    c = RpmsRpc::CiaClient.new
+    @socket = FakeSocket.new([ "1\x001#{EOD}" ])
+    c.instance_variable_set(:@socket, @socket)
+    c.instance_variable_set(:@connected, true)
+    c.instance_variable_set(:@timeout, 1)
+    c.instance_variable_set(:@seq, 0)
+    c.instance_variable_set(:@session_uid, "1")
+    c.set_authenticated("0")
+    c.create_context(START_CONTEXT)
+    RpmsRpc.configure { |cfg| cfg.client = c }
+
+    assert_nil RpmsRpc::Authentication.held_keys([ "SYNKEYA" ])
+    assert_empty @socket.writes, "DUZ 0 is not a signed-on user; must not send ORWU NPHASKEY"
+  end
+
+  def test_duz_blank_after_strip_returns_nil_and_sends_no_nphaskey
+    c = RpmsRpc::CiaClient.new
+    @socket = FakeSocket.new([ "1\x001#{EOD}" ])
+    c.instance_variable_set(:@socket, @socket)
+    c.instance_variable_set(:@connected, true)
+    c.instance_variable_set(:@timeout, 1)
+    c.instance_variable_set(:@seq, 0)
+    c.instance_variable_set(:@session_uid, "1")
+    c.set_authenticated("  ")
+    c.create_context(START_CONTEXT)
+    RpmsRpc.configure { |cfg| cfg.client = c }
+
+    assert_nil RpmsRpc::Authentication.held_keys([ "SYNKEYA" ])
+    assert_empty @socket.writes, "blank signed-on DUZ must not send ORWU NPHASKEY"
   end
 
   def test_no_signed_on_duz_returns_nil_and_sends_no_nphaskey
