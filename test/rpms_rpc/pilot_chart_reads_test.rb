@@ -170,12 +170,29 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     end
 
     def mapped_value_present?(value)
-      !value.nil? && !value.to_s.empty?
+      RpmsRpc::WireCapture::Evidence.real_value?(value)
     end
 
+    # String#to_i turns a non-numeric placeholder into 0, and Evidence treats
+    # 0 as real. An integer attribute counts only when a wire piece is itself
+    # a real integer token.
     def attribute_populated_in_mapped_capture?(mapping, fixture, attribute)
+      return false if coerced_integer_lacks_real_token?(mapping, fixture, attribute)
+
       mapped_rows_for_fixture(mapping, fixture).any? do |row|
         mapped_value_present?(row[attribute])
+      end
+    end
+
+    def coerced_integer_lacks_real_token?(mapping, fixture, attribute)
+      return false if mapping.scalar? || mapping.text_blob?
+
+      field = mapping.fields.find { |candidate| candidate.attribute == attribute && candidate.type == :integer }
+      return false unless field
+
+      fixture.captured_data_rows.none? do |row|
+        token = row.to_s.split("^", -1)[field.position].to_s.strip
+        token.match?(/\A-?\d+\z/) && RpmsRpc::WireCapture::Evidence.real_value?(token)
       end
     end
 
@@ -186,10 +203,7 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     end
 
     def medication_active_value_present?(value)
-      case value
-      when Array then value.any? { |entry| mapped_value_present?(entry) }
-      else mapped_value_present?(value)
-      end
+      RpmsRpc::WireCapture::Evidence.real_value?(value)
     end
 
     def medication_active_rows_via_api(fixture)

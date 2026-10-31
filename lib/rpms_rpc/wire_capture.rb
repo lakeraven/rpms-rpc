@@ -4,6 +4,7 @@ require "digest"
 require "yaml"
 require_relative "core"
 require_relative "fileman_date_parser"
+require_relative "wire_capture/evidence"
 
 module RpmsRpc
   # Wire-shape capture + contract checking (issue #189).

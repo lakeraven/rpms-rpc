@@ -106,8 +106,8 @@ class RpmsRpc::WireCaptureEvidenceTest < Minitest::Test
   def test_real_value_arrays_are_real_iff_any_element_is_real
     ev = RpmsRpc::WireCapture::Evidence
     refute ev.real_value?([])
-    refute ev.real_value?(["", "XXX-XX-XXXX"])
-    assert ev.real_value?(["", "MRN123"])
+    refute ev.real_value?([ "", "XXX-XX-XXXX" ])
+    assert ev.real_value?([ "", "MRN123" ])
   end
 
   # -- Grader: ORWPT ID INFO (gate repro) ---------------------------------------

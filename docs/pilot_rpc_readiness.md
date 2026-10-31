@@ -1,11 +1,15 @@
 # Chart-read pilot status on bcer-9.0-20261012-e7923a4-ydb (issue #224).
 # Seed patient DFN 2, captured live signed on as PROV123.
-# A field is proven only when a mapped or API-level value is present. A boolean
-# is proven only when both true and false were observed. BEHOCACV CWAD is judged
-# on Patient.brief_header allergy_flag and ad_flag. ORWPS ACTIVE is judged on
+# A field is proven only by a real value -- not empty, not a masked or pseudo
+# placeholder (see RpmsRpc::WireCapture::Evidence). A boolean is proven only
+# when both true and false were observed. BEHOCACV CWAD is judged on
+# Patient.brief_header allergy_flag and ad_flag. ORWPS ACTIVE is judged on
 # Medication.active_for_patient (order_id, type, name, status, stop_date,
 # instructions, comments). BEHOPTCX PTINFO ssn stays unproven: FMTSSN masks it
 # as XXX-XX-XXXX.
+# Known limits of this grading: a Y/N flag (veteran, sex) is proven from a single
+# observed value, not both (L6); BEHOCACV CWAD can never be proven because the
+# C and W slots are not graded and allergy_flag/ad_flag need both values (L3).
 # One line per RPC: RPC | status | reason | unproven: <fields or none>
 
 ORWPT ID INFO | partial | mapped ssn, sc_percent, ward_location, and room_bed are nil for outpatient DFN 2 (USER,TEST, sex M, veteran N, dob 1985-05-05) signed on as PROV123 | unproven: room_bed, sc_percent, ssn, ward_location
