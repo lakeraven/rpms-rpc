@@ -52,6 +52,38 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     assert_equal "live spec", header[:fields].dig("2", :internal).to_s.strip
   end
 
+  def test_set_gender_identity_clears_other_text_after_a_rewrite_without_an_oth_value
+    other_code = gender_identity_other_code_ien
+    code = pick_distinct_gi_code_iens(1).first
+    row_date = Date.today
+    @restore = -> { purge_gender_identity_rows }
+
+    assert Reg.set_gender_identity(DFN, values: [ other_code ], other: "live spec", date: row_date)[:success]
+    result = Reg.set_gender_identity(DFN, values: [ code ], date: row_date)
+    assert result[:success], result.inspect
+
+    header = subfile_row(GI_FILE, DFN, ".01;2", row_date)
+    assert header, "no 9000001.9401 row for #{row_date}"
+    assert_equal "", header[:fields].dig("2", :internal).to_s.strip,
+                 "field 2 OTHER should be cleared after a non-OTH rewrite"
+  end
+
+  def test_set_gender_identity_refuses_an_unknown_code_ien_and_does_not_create_a_date_row
+    row_date = Date.today
+    @restore = -> { purge_gender_identity_rows }
+
+    result = Reg.set_gender_identity(DFN, values: [ 424_242 ], date: row_date)
+    refute result[:success]
+    assert_equal :invalid, result[:error]
+
+    listed = RpmsRpc::DdrFileman.lister(file: GI_FILE, iens: ",#{DFN},", fields: ".01", flags: "IP")
+    refute_nil listed
+    refute listed[:error]
+    target = fm(row_date).to_s
+    refute listed[:entries].any? { |e| e[:pieces].first.to_s == target },
+           "expected no 9000001.9401 row after :invalid for an unknown code IEN"
+  end
+
   def test_set_gender_identity_on_an_existing_date_replaces_prior_values_without_losing_the_row
     a, b, c = pick_distinct_gi_code_iens(3)
     row_date = Date.today
@@ -131,6 +163,21 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     assert mine, "MBI not returned by mbis: #{rows.inspect}"
     assert_equal MBI_EFFECTIVE, mine[:effective_date]
     assert_equal 1, mine[:source]
+  end
+
+  def test_add_mbi_clears_source_after_a_sourceless_rewrite_on_the_same_effective_date
+    @restore = -> { purge_mbi_rows }
+
+    assert Reg.add_mbi(DFN, mbi: MBI, effective_date: MBI_EFFECTIVE, source: 1)[:success]
+    result = Reg.add_mbi(DFN, mbi: MBI, effective_date: MBI_EFFECTIVE)
+    assert result[:success], result.inspect
+
+    row = subfile_row("9000001.44", DFN, ".01;1;2", MBI_EFFECTIVE)
+    assert row, "no 9000001.44 row for #{MBI_EFFECTIVE}"
+    assert_equal MBI, row[:fields].dig("1", :internal).to_s.strip
+    source = row[:fields].dig("2", :internal)
+    assert source.nil? || source.to_s.strip.empty?,
+           "field 2 SOURCE should be empty after a sourceless rewrite, got #{source.inspect}"
   end
 
   def test_set_sex_is_not_supported_and_leaves_sex_and_eligibility_unchanged

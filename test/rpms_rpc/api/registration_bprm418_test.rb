@@ -24,6 +24,7 @@ class RegistrationBprm418Test < Minitest::Test
   SO_VALUE_IEN = 3
   SO_EXTRA_VALUE_IEN = 5
   SO_OTHER_IEN = 4
+  UNKNOWN_CODE_IEN = 424_242
   LEGAL_SEX_SOURCE = 1
   MBI = "1EG4TE5MK73"
   EFFECTIVE = Date.new(2026, 3, 15)
@@ -89,6 +90,28 @@ class RegistrationBprm418Test < Minitest::Test
     REPLY
   end
 
+  def seed_code_field1_error(file, ien)
+    seed_gets(file: file, iens: "#{ien},", fields: "1", text: "[ERROR]")
+  end
+
+  def seed_sogi_codes(code_file, mapping)
+    mapping.each { |ien, internal| seed_code_field1(code_file, ien, internal) }
+  end
+
+  def seed_default_gi_codes
+    seed_sogi_codes(GI_CODE_FILE,
+                    GI_VALUE_IEN => "ASKU",
+                    GI_EXTRA_VALUE_IEN => "MALE",
+                    GI_OTHER_IEN => "OTH")
+  end
+
+  def seed_default_so_codes
+    seed_sogi_codes(SO_CODE_FILE,
+                    SO_VALUE_IEN => "STR",
+                    SO_EXTRA_VALUE_IEN => "QUEER",
+                    SO_OTHER_IEN => "OTH")
+  end
+
   def dated_row_lister_param(file:)
     Ddr.lister_param(file: file, iens: ",#{DFN},", fields: "@;.01I", flags: "IP")
   end
@@ -110,18 +133,25 @@ class RegistrationBprm418Test < Minitest::Test
     seed_dated_row_lister(file: file, text: "[Data]\n[Errors]")
   end
 
-  def assert_only_dated_row_lister(file:)
+  def assert_sogi_code_reads_then_dated_row_lister(file:, code_file:, code_iens:)
+    code_iens = code_iens.uniq
+    params = gets_calls.map { |c| c[:params].first }
+    code_iens.each do |ien|
+      assert_includes params, Ddr.gets_entry_param(file: code_file, iens: "#{ien},", fields: "1", flags: "I")
+    end
+    assert_equal code_iens.length, params.length, params.inspect
     assert_equal 1, lister_calls.length, lister_calls.inspect
     assert_equal dated_row_lister_param(file: file), lister_calls.first[:params].first
-    assert_empty gets_calls, gets_calls.inspect
   end
 
-  def assert_dated_row_lister_and_code_field1_gets(file:, code_file:, code_ien:)
-    assert_equal 1, lister_calls.length, lister_calls.inspect
-    assert_equal dated_row_lister_param(file: file), lister_calls.first[:params].first
-    params = gets_calls.map { |c| c[:params].first }
-    assert_equal 1, params.length, params.inspect
-    assert_includes params, Ddr.gets_entry_param(file: code_file, iens: "#{code_ien},", fields: "1", flags: "I")
+  def assert_no_filer_or_lister
+    assert_empty filer_calls, filer_calls.inspect
+    assert_empty lister_calls, lister_calls.inspect
+  end
+
+  def assert_no_ddr_calls
+    assert_no_filer_or_lister
+    assert_empty gets_calls, gets_calls.inspect
   end
 
   def seed_sogi_value_lister(multiple:, row_fm:, entries:)
@@ -134,6 +164,7 @@ class RegistrationBprm418Test < Minitest::Test
 
   def test_set_gender_identity_files_9401_and_94011_through_ddr_filer_add_with_dinum_pins
     row_fm = fm(ROW_DATE)
+    seed_default_gi_codes
     seed_dated_row_missing(file: "9000001.9401", row_fm: row_fm)
     seed_filer_add_ok
 
@@ -146,13 +177,17 @@ class RegistrationBprm418Test < Minitest::Test
     assert_equal CONTEXT, call[:context]
     root = call[:params][1]
     assert_equal({ 1 => "9000001.9401^.01^+1,#{DFN},^#{row_fm}",
-                   2 => "9000001.94011^.01^+2,+1,#{DFN},^#{GI_VALUE_IEN}" }, root)
+                   2 => "9000001.9401^2^+1,#{DFN},^",
+                   3 => "9000001.94011^.01^+2,+1,#{DFN},^#{GI_VALUE_IEN}" }, root)
     assert_equal({ 1 => row_fm, 2 => GI_VALUE_IEN.to_s }, call[:params][3])
-    assert_only_dated_row_lister(file: "9000001.9401")
+    assert_sogi_code_reads_then_dated_row_lister(
+      file: "9000001.9401", code_file: GI_CODE_FILE, code_iens: [ GI_VALUE_IEN ]
+    )
   end
 
   def test_set_gender_identity_dinums_each_value_sub_entry_placeholder_to_its_code_ien
     row_fm = fm(ROW_DATE)
+    seed_default_gi_codes
     seed_dated_row_missing(file: "9000001.9401", row_fm: row_fm)
     seed_filer_add_ok
 
@@ -160,14 +195,16 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert result[:success]
     root = filer_calls.first[:params][1]
-    assert_equal "9000001.94011^.01^+2,+1,#{DFN},^#{GI_VALUE_IEN}", root[2]
-    assert_equal "9000001.94011^.01^+3,+1,#{DFN},^#{GI_EXTRA_VALUE_IEN}", root[3]
+    assert_equal "9000001.9401^2^+1,#{DFN},^", root[2]
+    assert_equal "9000001.94011^.01^+2,+1,#{DFN},^#{GI_VALUE_IEN}", root[3]
+    assert_equal "9000001.94011^.01^+3,+1,#{DFN},^#{GI_EXTRA_VALUE_IEN}", root[4]
     assert_equal({ 1 => row_fm, 2 => GI_VALUE_IEN.to_s, 3 => GI_EXTRA_VALUE_IEN.to_s },
                  filer_calls.first[:params][3])
   end
 
   def test_set_gender_identity_files_duplicate_values_once
     row_fm = fm(ROW_DATE)
+    seed_default_gi_codes
     seed_dated_row_missing(file: "9000001.9401", row_fm: row_fm)
     seed_filer_add_ok
 
@@ -175,13 +212,14 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert result[:success]
     root = filer_calls.first[:params][1]
-    assert_equal 2, root.length
+    assert_equal 3, root.length
     assert_equal({ 1 => row_fm, 2 => GI_VALUE_IEN.to_s }, filer_calls.first[:params][3])
   end
 
-  def test_set_gender_identity_files_other_text_only_when_a_chosen_value_is_the_other_code
+  def test_set_gender_identity_always_files_field_2_on_a_new_date
+    row_fm = fm(ROW_DATE)
     seed_code_field1(GI_CODE_FILE, GI_OTHER_IEN, "OTH")
-    seed_dated_row_missing(file: "9000001.9401", row_fm: fm(ROW_DATE))
+    seed_dated_row_missing(file: "9000001.9401", row_fm: row_fm)
     seed_filer_add_ok
 
     result = Reg.set_gender_identity(DFN, values: [ GI_OTHER_IEN ], other: "self-described", date: ROW_DATE)
@@ -189,19 +227,59 @@ class RegistrationBprm418Test < Minitest::Test
     assert result[:success]
     root = filer_calls.first[:params][1]
     assert_equal "9000001.9401^2^+1,#{DFN},^self-described", root[2]
-    assert_dated_row_lister_and_code_field1_gets(
-      file: "9000001.9401", code_file: GI_CODE_FILE, code_ien: GI_OTHER_IEN
+    assert_sogi_code_reads_then_dated_row_lister(
+      file: "9000001.9401", code_file: GI_CODE_FILE, code_iens: [ GI_OTHER_IEN ]
+    )
+  end
+
+  def test_set_gender_identity_files_empty_field_2_on_a_new_date_without_other_text
+    row_fm = fm(ROW_DATE)
+    seed_code_field1(GI_CODE_FILE, GI_VALUE_IEN, "ASKU")
+    seed_dated_row_missing(file: "9000001.9401", row_fm: row_fm)
+    seed_filer_add_ok
+
+    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], other: nil, date: ROW_DATE)
+
+    assert result[:success]
+    root = filer_calls.first[:params][1]
+    assert_equal "9000001.9401^2^+1,#{DFN},^", root[2]
+    assert_sogi_code_reads_then_dated_row_lister(
+      file: "9000001.9401", code_file: GI_CODE_FILE, code_iens: [ GI_VALUE_IEN ]
     )
   end
 
   def test_set_gender_identity_refuses_other_text_when_no_chosen_value_is_the_other_code
     seed_code_field1(GI_CODE_FILE, GI_VALUE_IEN, "ASKU")
-    seed_dated_row_missing(file: "9000001.9401", row_fm: fm(ROW_DATE))
 
     result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], other: "self-described", date: ROW_DATE)
 
     assert_registration_failure(result, error: :invalid)
-    assert_empty filer_calls
+    assert_no_filer_or_lister
+  end
+
+  def test_set_gender_identity_refuses_an_unknown_code_ien_without_a_date_row_lookup
+    seed_code_field1_error(GI_CODE_FILE, UNKNOWN_CODE_IEN)
+
+    result = Reg.set_gender_identity(DFN, values: [ UNKNOWN_CODE_IEN ], date: ROW_DATE)
+
+    assert_registration_failure(result, error: :invalid)
+    assert_no_filer_or_lister
+  end
+
+  def test_set_gender_identity_returns_lookup_failed_when_a_value_code_read_gives_no_response
+    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], date: ROW_DATE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_no_filer_or_lister
+  end
+
+  def test_set_gender_identity_returns_lookup_failed_when_a_value_code_read_fails
+    seed_gets(file: GI_CODE_FILE, iens: "#{GI_VALUE_IEN},", fields: "1", text: "[ERROR]")
+
+    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], date: ROW_DATE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_no_filer_or_lister
   end
 
   def test_set_gender_identity_returns_lookup_failed_when_other_code_read_fails
@@ -210,30 +288,34 @@ class RegistrationBprm418Test < Minitest::Test
     result = Reg.set_gender_identity(DFN, values: [ GI_OTHER_IEN ], other: "self-described", date: ROW_DATE)
 
     assert_registration_failure(result, error: :lookup_failed)
-    assert_empty filer_calls
+    assert_no_filer_or_lister
   end
 
   def test_set_gender_identity_returns_lookup_failed_when_other_code_read_gives_no_response
     result = Reg.set_gender_identity(DFN, values: [ GI_OTHER_IEN ], other: "self-described", date: ROW_DATE)
 
     assert_registration_failure(result, error: :lookup_failed)
-    assert_empty filer_calls
+    assert_no_filer_or_lister
   end
 
-  def test_set_gender_identity_skips_other_code_lookup_when_other_is_blank
+  def test_set_gender_identity_clears_other_text_on_an_existing_date_without_an_oth_value
     row_fm = fm(ROW_DATE)
-    seed_dated_row_missing(file: "9000001.9401", row_fm: row_fm)
+    seed_default_gi_codes
+    seed_dated_row_exists(file: "9000001.9401", row_fm: row_fm)
+    seed_sogi_value_lister(multiple: "9000001.94011", row_fm: row_fm, entries: [ [ GI_OTHER_IEN, GI_OTHER_IEN ] ])
     seed_filer_add_ok
 
-    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], other: nil, date: ROW_DATE)
+    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], date: ROW_DATE)
 
-    assert result[:success]
-    assert_only_dated_row_lister(file: "9000001.9401")
-    refute_includes filer_calls.first[:params][1].values.join("^"), "^self-described"
+    assert_registration_success(result)
+    root = filer_calls.first[:params][1]
+    assert_includes root.values, "9000001.9401^2^#{row_fm},#{DFN},^"
+    assert_includes root.values, "9000001.94011^.01^#{GI_OTHER_IEN},#{row_fm},#{DFN},^@"
   end
 
   def test_set_gender_identity_edits_an_existing_date_row_and_reconciles_value_sub_entries
     row_fm = fm(ROW_DATE)
+    seed_default_gi_codes
     seed_dated_row_exists(file: "9000001.9401", row_fm: row_fm)
     seed_sogi_value_lister(multiple: "9000001.94011", row_fm: row_fm, entries: [ [ 5, 5 ], [ 7, 7 ] ])
     seed_filer_add_ok
@@ -247,6 +329,7 @@ class RegistrationBprm418Test < Minitest::Test
     assert_equal "ADD", add[:params][0]
     root = add[:params][1]
     assert_equal "9000001.9401^.01^#{row_fm},#{DFN},^#{row_fm}", root[1]
+    assert_includes root.values, "9000001.9401^2^#{row_fm},#{DFN},^"
     assert_includes root.values, "9000001.94011^.01^5,#{row_fm},#{DFN},^@"
     assert_includes root.values, "9000001.94011^.01^+2,#{row_fm},#{DFN},^#{GI_EXTRA_VALUE_IEN}"
     refute_includes root.values, "9000001.94011^.01^+2,#{row_fm},#{DFN},^#{GI_VALUE_IEN}"
@@ -255,6 +338,7 @@ class RegistrationBprm418Test < Minitest::Test
   end
 
   def test_set_gender_identity_returns_lookup_failed_when_the_date_row_read_fails
+    seed_code_field1(GI_CODE_FILE, GI_VALUE_IEN, "ASKU")
     seed_dated_row_lister_failed(file: "9000001.9401")
 
     result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], date: ROW_DATE)
@@ -265,6 +349,7 @@ class RegistrationBprm418Test < Minitest::Test
 
   def test_set_gender_identity_returns_lookup_failed_when_the_existing_value_list_read_fails
     row_fm = fm(ROW_DATE)
+    seed_code_field1(GI_CODE_FILE, GI_VALUE_IEN, "ASKU")
     seed_dated_row_exists(file: "9000001.9401", row_fm: row_fm)
     key = Ddr.lister_param(file: "9000001.94011", iens: ",#{row_fm},#{DFN},", fields: ".01I", flags: "IP").to_s
     @mock.seed(:ddr_lister, key, "[Data]\n[Errors]")
@@ -300,6 +385,7 @@ class RegistrationBprm418Test < Minitest::Test
   end
 
   def test_set_gender_identity_surfaces_ddr_filer_errors
+    seed_code_field1(GI_CODE_FILE, GI_VALUE_IEN, "ASKU")
     seed_dated_row_missing(file: "9000001.9401", row_fm: fm(ROW_DATE))
     @mock.seed(:ddr_filer, "ADD",
                "[Data]\n[BEGIN_diERRORS]\n701^1^9000001.9401^+1,^.01^2\nThe value is not valid.\n[END_diERRORS]")
@@ -312,6 +398,7 @@ class RegistrationBprm418Test < Minitest::Test
   end
 
   def test_set_gender_identity_returns_nil_when_ddr_filer_gives_no_response
+    seed_code_field1(GI_CODE_FILE, GI_VALUE_IEN, "ASKU")
     seed_dated_row_missing(file: "9000001.9401", row_fm: fm(ROW_DATE))
     assert_nil Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], date: ROW_DATE)
   end
@@ -320,6 +407,7 @@ class RegistrationBprm418Test < Minitest::Test
 
   def test_set_sexual_orientation_files_9301_and_93011_through_ddr_filer_add_with_dinum_pins
     row_fm = fm(ROW_DATE)
+    seed_default_so_codes
     seed_dated_row_missing(file: "9000001.9301", row_fm: row_fm)
     seed_filer_add_ok
 
@@ -328,11 +416,12 @@ class RegistrationBprm418Test < Minitest::Test
     assert result[:success]
     root = filer_calls.first[:params][1]
     assert_equal "9000001.9301^.01^+1,#{DFN},^#{row_fm}", root[1]
-    assert_equal "9000001.93011^.01^+2,+1,#{DFN},^#{SO_VALUE_IEN}", root[2]
+    assert_equal "9000001.9301^2^+1,#{DFN},^", root[2]
+    assert_equal "9000001.93011^.01^+2,+1,#{DFN},^#{SO_VALUE_IEN}", root[3]
     assert_equal({ 1 => row_fm, 2 => SO_VALUE_IEN.to_s }, filer_calls.first[:params][3])
   end
 
-  def test_set_sexual_orientation_files_other_text_only_when_a_chosen_value_is_the_other_code
+  def test_set_sexual_orientation_always_files_field_2_on_a_new_date
     seed_code_field1(SO_CODE_FILE, SO_OTHER_IEN, "OTH")
     seed_dated_row_missing(file: "9000001.9301", row_fm: fm(ROW_DATE))
     seed_filer_add_ok
@@ -341,19 +430,27 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert result[:success]
     assert_equal "9000001.9301^2^+1,#{DFN},^note", filer_calls.first[:params][1][2]
-    assert_dated_row_lister_and_code_field1_gets(
-      file: "9000001.9301", code_file: SO_CODE_FILE, code_ien: SO_OTHER_IEN
+    assert_sogi_code_reads_then_dated_row_lister(
+      file: "9000001.9301", code_file: SO_CODE_FILE, code_iens: [ SO_OTHER_IEN ]
     )
   end
 
   def test_set_sexual_orientation_refuses_other_text_when_no_chosen_value_is_the_other_code
     seed_code_field1(SO_CODE_FILE, SO_VALUE_IEN, "STR")
-    seed_dated_row_missing(file: "9000001.9301", row_fm: fm(ROW_DATE))
 
     result = Reg.set_sexual_orientation(DFN, values: [ SO_VALUE_IEN ], other: "note", date: ROW_DATE)
 
     assert_registration_failure(result, error: :invalid)
-    assert_empty filer_calls
+    assert_no_filer_or_lister
+  end
+
+  def test_set_sexual_orientation_refuses_an_unknown_code_ien_without_a_date_row_lookup
+    seed_code_field1_error(SO_CODE_FILE, UNKNOWN_CODE_IEN)
+
+    result = Reg.set_sexual_orientation(DFN, values: [ UNKNOWN_CODE_IEN ], date: ROW_DATE)
+
+    assert_registration_failure(result, error: :invalid)
+    assert_no_filer_or_lister
   end
 
   def test_set_sexual_orientation_refuses_blank_values_without_rpc
@@ -366,6 +463,7 @@ class RegistrationBprm418Test < Minitest::Test
 
   def test_set_sexual_orientation_updates_an_existing_date_row_and_reconciles_value_sub_entries
     row_fm = fm(ROW_DATE)
+    seed_default_so_codes
     seed_dated_row_exists(file: "9000001.9301", row_fm: row_fm)
     seed_sogi_value_lister(multiple: "9000001.93011", row_fm: row_fm, entries: [ [ 2, 2 ], [ 3, 3 ] ])
     seed_filer_add_ok
@@ -379,6 +477,7 @@ class RegistrationBprm418Test < Minitest::Test
     assert_equal "ADD", add[:params][0]
     root = add[:params][1]
     assert_equal "9000001.9301^.01^#{row_fm},#{DFN},^#{row_fm}", root[1]
+    assert_includes root.values, "9000001.9301^2^#{row_fm},#{DFN},^"
     assert_includes root.values, "9000001.93011^.01^2,#{row_fm},#{DFN},^@"
     assert_includes root.values, "9000001.93011^.01^+2,#{row_fm},#{DFN},^#{SO_EXTRA_VALUE_IEN}"
     refute_includes root.values, "9000001.93011^.01^+2,#{row_fm},#{DFN},^#{SO_VALUE_IEN}"
@@ -473,7 +572,25 @@ class RegistrationBprm418Test < Minitest::Test
     root = edit[:params][1]
     assert_equal "9000001.44^.01^#{eff_fm},#{DFN},^#{eff_fm}", root[1]
     assert_equal "9000001.44^1^#{eff_fm},#{DFN},^#{MBI}", root[2]
+    assert_equal "9000001.44^2^#{eff_fm},#{DFN},^2", root[3]
     refute_includes root.values.join("^"), "+1,#{DFN},"
+  end
+
+  def test_add_mbi_clears_source_on_an_existing_row_when_source_is_omitted
+    eff_fm = fm(EFFECTIVE)
+    seed_dated_row_exists(file: "9000001.44", row_fm: eff_fm)
+    seed_filer_edit_ok
+    today_fm = fm(Date.today)
+
+    result = Reg.add_mbi(DFN, mbi: MBI, effective_date: EFFECTIVE)
+
+    assert_registration_success(result)
+    edit = filer_calls.first
+    assert_equal "EDIT", edit[:params][0]
+    root = edit[:params][1]
+    assert_equal "9000001.44^2^#{eff_fm},#{DFN},^@", root[3]
+    assert_equal "9000001.44^3^#{eff_fm},#{DFN},^#{today_fm}", root[4]
+    assert_equal "9000001.44^4^#{eff_fm},#{DFN},^501", root[5]
   end
 
   def test_add_mbi_returns_lookup_failed_when_the_effective_date_row_read_fails
