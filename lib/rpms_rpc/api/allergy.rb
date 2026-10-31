@@ -263,8 +263,10 @@ module RpmsRpc
     # { success: false, error: :frame_too_long, message: } (#472).
     #
     # Refused before the RPC: a String that fails {text_encoding_ok?}
-    # (valid_encoding? is false, or the string is ASCII-8BIT / BINARY
-    # with a high byte), before any regexp; a "^" or a control in any
+    # (only Encoding::UTF_8 with valid_encoding?, Encoding::US_ASCII
+    # with valid_encoding?, or ASCII-8BIT / BINARY whose bytes are all
+    # < 0x80), before any regexp, strip, {visible?}, include?, or
+    # interpolation; a "^" or a control in any
     # $P-split filed value ($P on U drops the rest — GMRAGUI1.m:105),
     # including optional GMRARDT and GMRASEVR when present (GMRAGUI1.m:137
     # stock / :135 FOIA); an agent that is not visible text ({visible?});
@@ -305,7 +307,8 @@ module RpmsRpc
     # Record no known allergies. OREDITED("GMRANKA")="YES" selects
     # NKA^GMRAGUI1 (ORWDAL32.m:127, GMRAGUI1.m:68); ORALIEN is "".
     # Already-NKA leaves ORY at the 0 EDITSAVE set (ORWDAL32.m:125,
-    # GMRAGUI1.m:74).
+    # GMRAGUI1.m:74). A DFN String that fails {text_encoding_ok?} is
+    # {invalid_dfn}; nothing is sent.
     def no_known_allergies(dfn)
       patient = canonical_dfn(dfn)
       return invalid_dfn unless patient
@@ -526,7 +529,11 @@ module RpmsRpc
 
     # A DFN is a positive canonical integer: a positive Integer, or a
     # string of digits with no leading zero and no trailing junk
-    # ("12abc" is not 12).
+    # ("12abc" is not 12). A String must pass {text_encoding_ok?}
+    # before the digit regexp. Any other tag is nil, so {save} and
+    # {no_known_allergies} answer {invalid_dfn} and send nothing.
+    # GMRAORIG and a symptom :ien use the same check and are named
+    # {invalid_value}.
     def canonical_dfn(value)
       case value
       when Integer then value.positive? ? value.to_s : nil
@@ -560,7 +567,8 @@ module RpmsRpc
       return true if value.nil?
 
       text = value.to_s
-      # strip walks characters and raises on bytes that are not valid text.
+      # strip walks characters and raises on bytes that are not valid
+      # text, so {text_encoding_ok?} runs first.
       return false unless text_encoding_ok?(text)
 
       text.strip.empty?
@@ -586,7 +594,8 @@ module RpmsRpc
     # ahead of the format checks, so a value that fails more than one
     # is named by the earlier one. A caret or bad encoding on the agent
     # is named before an invisible agent. {text_encoding_ok?} runs
-    # before any regexp. Present reaction_date and severity (not nil or
+    # before any regexp, strip, {visible?}, include?, or interpolation.
+    # Present reaction_date and severity (not nil or
     # "") are in that caret check, so a caret there is named before a
     # type, nature or other format fault.
     def refused_allergy(allergy)
@@ -667,7 +676,7 @@ module RpmsRpc
 
     # GMRAGNT piece 1 is the allergen name. Blank, whitespace-only and
     # invisible-only text is not a name a clinician can read ({visible?}).
-    # Encoding is checked before that regexp. nil is absence
+    # {text_encoding_ok?} runs before {visible?}. nil is absence
     # ({absent_value?}), not this failure.
     def agent_visible?(agent)
       return false if agent.nil?
@@ -681,7 +690,8 @@ module RpmsRpc
     # Control characters stay refused. Carets stay refused in the agent
     # and every other $P-split field (GMRAGNT uses $P(...,U) at
     # GMRAGUI1.m:105-106). Each line must also be visible text
-    # ({visible?}). Encoding is checked before either regexp.
+    # ({visible?}). {text_encoding_ok?} runs before the control regexp
+    # and {visible?}.
     def comment_fault(comments)
       return nil unless comments.is_a?(Array)
 
@@ -695,10 +705,11 @@ module RpmsRpc
     end
 
     # "^" splits a $P piece (GMRAGUI1.m:105); ASCII controls are frame
-    # bytes. Invalid text is refused first ({text_encoding_ok?}): match?
-    # raises ArgumentError on invalid UTF-8 and Encoding::CompatibilityError
-    # on ASCII-8BIT with a high byte against a UTF-8 regexp. Comment lines
-    # are not $P-split; {comment_fault} does not use this caret check.
+    # bytes. {text_encoding_ok?} runs first. match? raises ArgumentError
+    # on invalid UTF-8 and Encoding::CompatibilityError on UTF-16/32;
+    # include? does the same. A Shift_JIS or ISO-8859-1 high byte is not
+    # a caret to include? and would still be filed. Comment lines are
+    # not $P-split; {comment_fault} does not use this caret check.
     def unsafe_text?(value)
       text = value.to_s
       return true unless text_encoding_ok?(text)
@@ -706,17 +717,26 @@ module RpmsRpc
       text.include?("^") || text.match?(CONTROL)
     end
 
-    # A String a save-path regexp may read. valid_encoding? is checked
-    # first. ASCII-8BIT (alias BINARY) accepts every byte, so a high byte
-    # is refused on its own — otherwise a UTF-8 regexp raises
-    # Encoding::CompatibilityError, and a US-ASCII regexp can miss it.
-    # Every free-text check in {save} and {no_known_allergies} goes through
-    # this before match?, strip, or {visible?}.
+    # The one gate for text on {save} and {no_known_allergies}, including
+    # {canonical_dfn}. A String is read by a regexp, strip, {visible?},
+    # include?, or interpolation only after this returns true. Accepted
+    # tags are Encoding::UTF_8 with valid_encoding?, Encoding::US_ASCII
+    # with valid_encoding?, and ASCII-8BIT (alias BINARY) whose bytes are
+    # all < 0x80 ({ascii_only?}). Every other tag fails closed — UTF-16/32,
+    # Shift_JIS, EUC-JP, ISO-8859-1, Windows-1252, invalid UTF-8, and
+    # ASCII-8BIT with a high byte. valid_encoding? alone is not enough: it
+    # is true for UTF-16/32, and a regexp then raises
+    # Encoding::CompatibilityError; a Shift_JIS byte 0x5E is "^" on the
+    # wire and is not a caret to include?. Callers turn false into
+    # {invalid_value}, or {invalid_dfn} when the string is the patient DFN.
     def text_encoding_ok?(text)
       return false unless text.is_a?(String)
-      return false unless text.valid_encoding?
 
-      text.encoding != Encoding::ASCII_8BIT || text.ascii_only?
+      case text.encoding
+      when Encoding::UTF_8, Encoding::US_ASCII then text.valid_encoding?
+      when Encoding::ASCII_8BIT then text.ascii_only?
+      else false
+      end
     end
 
     def agent_pointer_ok?(value)
@@ -772,7 +792,9 @@ module RpmsRpc
     # (GMRAGUI1.m:120, :118 stock). Array keys are the two-level
     # subscripts CiaClient#m_subscript / XwbClient#m_subscript encode.
     # nil or "" GMRARDT / GMRASEVR are left out (GMRAGUI1.m:137 $G).
-    # Integer severity is filed as the String code.
+    # Integer severity is filed as the String code. Each filed String
+    # has passed {text_encoding_ok?} in {refused_allergy} or
+    # {canonical_dfn}; interpolation runs only then.
     def edited_list(allergy)
       edited = {
         "GMRAGNT" => "#{allergy[:agent]}^#{allergy[:agent_pointer]}",
