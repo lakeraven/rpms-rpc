@@ -145,7 +145,7 @@ class RpmsRpc::ClientCreateContextRefusedTest < Minitest::Test
     client.set_authenticated("900001")
 
     assert_raises(RpmsRpc::Client::RpcError) do
-      client.with_context(SYN_REFUSED_CTX) {}
+      client.with_context(SYN_REFUSED_CTX) { }
     end
 
     assert_nil client.current_context,
