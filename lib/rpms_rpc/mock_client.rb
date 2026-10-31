@@ -230,12 +230,17 @@ end
     # role: is the user_type sign-on should report. It is seeded where the
     # server reports it, ORWU USERINFO's USRCLS (ORWU.m:19), as the class
     # that names it: provider 3, nurse 2, clerk 1, anything else 0 ("user").
-    # One mock holds one session user, so the last seed_user wins the
-    # no-parameter reads (XUS GET USER INFO, ORWU USERINFO).
+    # The no-parameter session-user reads (XUS GET USER INFO, ORWU USERINFO)
+    # answer for the user who last signed on, as a real broker does: each
+    # seed_user records its own replies by DUZ, and a successful XUS AV CODE
+    # naming that DUZ binds them (#bind_session_user). Until a sign-on has
+    # bound one, the last seed_user answers. A user seeded some other way
+    # (seed_lines / seed) has no record here and is left alone.
     def seed_user(duz, credentials:, name:, role:)
       require_relative "api/authentication"
 
       usrcls = Authentication::USER_TYPES.key(role.to_s) || 0
+      (@session_users ||= {})[duz.to_i] = { name: name, usrcls: usrcls }
 
       # Credential response: VALIDAV^XUSRB's RET() array (XUSRB.m:40, :85-87).
       # RET(5) is the post-sign-on message count; a successful mock sign-on
@@ -248,18 +253,11 @@ end
         post_signon_message_count: 0
       })
 
-      # User info (XUS GET USER INFO — line-based, no params; mock matches
-      # the live shape: one value per response line, USERINFO^XUSRB2
-      # XUSRB2.m:25-35). Line 7 is the user's DTIME.
-      seed_lines(:user_info, "", {
-        duz: duz.to_i,
-        name: name,
-        display_name: name,
-        current_site: "",
-        dtime: 300
-      })
+      # Once a sign-on has bound a user, seeding some other user must not
+      # replace the bound replies; reseeding the bound user itself refreshes them.
+      return if @bound_session_duz && @bound_session_duz != duz.to_i
 
-      seed(:practitioner_info, "", { duz: duz.to_i, name: name, user_class: usrcls })
+      seed_session_user_replies(duz.to_i, name, usrcls)
     end
 
     # Records of every call_rpc invocation, for tests that need to assert on
@@ -381,7 +379,9 @@ end
 
       # Line-based responses (keyed by first param)
       if @lines&.dig(rpc_name, key)
-        return @lines[rpc_name][key]
+        reply = @lines[rpc_name][key]
+        bind_session_user(reply) if rpc_name == "XUS AV CODE"
+        return reply
       end
 
       # Text blob responses (keyed by first param)
@@ -422,6 +422,58 @@ end
     end
 
     private
+
+    # The session user's own replies, as seed_user shapes them.
+    #
+    # User info (XUS GET USER INFO — line-based, no params; mock matches
+    # the live shape: one value per response line, USERINFO^XUSRB2
+    # XUSRB2.m:25-35). Line 7 is the user's DTIME.
+    def seed_session_user_replies(duz, name, usrcls)
+      seed_lines(:user_info, "", {
+        duz: duz,
+        name: name,
+        display_name: name,
+        current_site: "",
+        dtime: 300
+      })
+
+      seed(:practitioner_info, "", { duz: duz, name: name, user_class: usrcls })
+    end
+
+    # A successful XUS AV CODE binds the broker session to the DUZ it names
+    # (RET(0), with RET(1) = 0: VALIDAV^XUSRB, XUSRB.m:38), and the
+    # session-user RPCs answer for that user from then on.
+    #
+    # The broker's own behaviour is the model. VALIDAV kills DUZ on entry
+    # and clears it again on any refusal (XUSRB.m:13, :17, :36, :38), so a
+    # refused sign-on leaves the session with no user, and XUS GET USER INFO
+    # then answers "User not fully sign-on" (XUSRB2.m:25-27). The previous
+    # user does not survive. A successful sign-on as a DUZ nobody seeded
+    # through seed_user cannot be answered for here, so the replies this
+    # mock seeded for a DUZ it had bound are cleared rather than left naming
+    # someone else. Replies a host seeded by hand (seed_lines / seed) while
+    # nothing was bound are left alone.
+    def bind_session_user(reply)
+      lines = Array(reply)
+      duz = lines[0].to_s.strip
+      signed_on = duz.match?(/\A[1-9]\d*\z/) && lines[1].to_s.strip == "0"
+      user = signed_on ? @session_users&.dig(duz.to_i) : nil
+
+      if user
+        @bound_session_duz = duz.to_i
+        seed_session_user_replies(duz.to_i, user[:name], user[:usrcls])
+      elsif @bound_session_duz
+        clear_session_user_replies
+      end
+    end
+
+    # No user answers for the session: the replies seed_session_user_replies
+    # wrote are removed, and the next seed_user is last-seed-wins again.
+    def clear_session_user_replies
+      @lines&.dig(DataMapper[:user_info].rpc_name)&.delete("")
+      @records&.dig(DataMapper[:practitioner_info].rpc_name)&.delete("")
+      @bound_session_duz = nil
+    end
 
     # The seeded reply as the wire would deliver it: raw bytes, cut at the
     # frame terminator, not yet made valid UTF-8.
