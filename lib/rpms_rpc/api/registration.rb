@@ -135,8 +135,11 @@ module RpmsRpc
     LEGAL_SEX_FILE = "9000001.9201"
     MBI_FILE = "9000001.44"
     # Code files the value multiples point at. Field 1 CODE is piece 2 of
-    # the code file's 0 node. S9394^AUPNSOG3 takes OTHER text only when that
-    # piece is OTH ($$GI^AUTSOGI / $$SO^AUTSOGI(val,"C")).
+    # the code file's 0 node. Each distinct value is read there before
+    # anything is filed. $$GI^AUTSOGI / $$SO^AUTSOGI(val,"I") returns ""
+    # for an unknown record. S9394^AUPNSOG3 always sets FDA field 2: the
+    # text only when that CODE is OTH and the text is non-blank
+    # ($$GI^AUTSOGI / $$SO^AUTSOGI(val,"C")), otherwise "".
     GENDER_IDENTITY_CODE_FILE = "9999999.104"
     SEXUAL_ORIENTATION_CODE_FILE = "9999999.103"
     OTHER_CODE = "OTH"
@@ -392,12 +395,31 @@ module RpmsRpc
     # SETGI (rpms-rpc#418, resolution 2), so this is DDR FILER (FILEC^DDR3,
     # DDR3.m:14-18) under CIAV VUECENTRIC. FileMan xrefs AGI1/AGI2 still fire.
     #
+    # Each distinct value is checked against #9999999.104 before the date
+    # rows are listed. SETGI passes the value through $$GI^AUTSOGI(val,"I"),
+    # which returns "" for an unknown record and then files nothing for it.
+    # This method reads field 1 CODE with DDR GETS ENTRY DATA (iens
+    # "<ien>,", fields "1", flags "I") whether or not other is given. An
+    # error reply means the code does not exist: { success: false, error:
+    # :invalid } and nothing is filed, including no date-row lookup. A nil
+    # reply is :lookup_failed. The same reads decide OTHER.
+    #
+    # S9394^AUPNSOG3 always sets FDA(SF,IENS,2)=OTH. OTH is "" unless a
+    # chosen value's CODE is OTH and the text is non-blank. This method
+    # always carries field 2 on the ADD call: that text, or "" (which
+    # clears text already stored on the date). other text when no chosen
+    # value's CODE is OTH is :invalid and files nothing. Field 1 is piece
+    # 2 of the code file's 0 node ($$GI^AUTSOGI(val,"C")). DDR GETS of
+    # field .02 errors: ^DD(9999999.104,.02) does not exist.
+    #
     # The date IENS is $S($D(^AUPNPAT(PAT,94,EDT)):EDT,1:"+1") (S9394).
     # This method lists the date rows with DDR LISTER (iens ",<dfn>,",
     # fields "@;.01I", flags "IP"). A missing date and an existing date
-    # are both one DDR FILER call in mode ADD (UPDATE^DIE). S9394 does
-    # the whole change in one UPDATE^DIE. FILE^DIE (mode EDIT) rejects
-    # "+n" placeholders ("The IENS '+2,3260115,990042,' is syntactically
+    # are both one DDR FILER call in mode ADD (UPDATE^DIE).
+    # S9394^AUPNSOG3 makes two UPDATE^DIE calls (the header, then the
+    # values and the deletes). This gem makes one, so a refused add
+    # cannot follow a delete. FILE^DIE (mode EDIT) rejects "+n"
+    # placeholders ("The IENS '+2,3260115,990042,' is syntactically
     # incorrect.") after that same call's "@" rows have already deleted
     # the old value sub-entries, so an existing date is never mode EDIT
     # and the deletes are never filed apart from the adds. No such row,
@@ -405,9 +427,10 @@ module RpmsRpc
     # "+1,<dfn>," with placeholder 1 DINUM'd to the date (DDR3.m:12-13).
     # A row whose first piece equals the requested FileMan date is header
     # IENS "<fmdate>,<dfn>," (the stored subscript, no placeholder). A nil
-    # reply or [Errors] is :lookup_failed and files nothing. DDR GETS
-    # ENTRY DATA cannot make this check: GETS on a missing entry replies
-    # error: true, the same reply as a failed read.
+    # reply or [Errors] on the date list or the value list is
+    # :lookup_failed and files nothing. DDR GETS ENTRY DATA cannot make
+    # the date check: GETS on a missing entry replies error: true, the
+    # same reply as a failed read.
     #
     # Value sub-entries are DINUM'd to the code IEN. S9394 files
     # FDA(SF,"?+"_CNT_IENS,.01) with RES(CNT) equal to the code, and
@@ -419,15 +442,6 @@ module RpmsRpc
     # .01 "@". A code that is not already stored is "+n,<fmdate>,<dfn>,"
     # DINUM'd to that code. A code already stored is not re-added. Those
     # rows ride in the same ADD call as the header.
-    #
-    # OTHER (field 2) is filed only when the text is non-blank and a chosen
-    # value's field 1 CODE is OTH. Field 1 is piece 2 of the #9999999.104
-    # 0 node. S9394 receives that text only when
-    # $$GI^AUTSOGI(val,"C")="OTH". The code is read with DDR GETS ENTRY DATA
-    # (fields "1", flags "I"); a blank other does not read the code file.
-    # No OTH value is :invalid and files nothing. A nil reply or an error
-    # on the date-row list, the code read, or the value list is
-    # :lookup_failed and files nothing.
     #
     # SETGI's code translation and defaults do not run: values are internal
     # IENs, and an omitted date is today only because this method sends it.
@@ -449,11 +463,15 @@ module RpmsRpc
     # UPDATE^DIE's #9000001.9301 and #9000001.93011 (.01 pointer to
     # #9999999.103). No #8994 entry reaches SETSO (rpms-rpc#418, resolution
     # 2). Same DDR FILER contract as set_gender_identity, including one
-    # mode ADD call when ^AUPNPAT(PAT,93,EDT) already exists. The OTHER
-    # gate is $$SO^AUTSOGI(val,"C")="OTH":
-    # field 1 CODE of #9999999.103, piece 2 of that file's 0 node. FileMan
-    # xrefs ASO1/ASO2 still fire; SETSO's code translation and defaults do
-    # not.
+    # mode ADD call when ^AUPNPAT(PAT,93,EDT) already exists.
+    # S9394^AUPNSOG3 makes two UPDATE^DIE calls; this gem makes one so a
+    # refused add cannot follow a delete. Each distinct value is read on
+    # #9999999.103 field 1 before the date rows are listed.
+    # $$SO^AUTSOGI(val,"I") returns "" for an unknown record: an error
+    # reply is :invalid and files nothing. Field 2 is always filed: the
+    # text when a chosen value's CODE is OTH and the text is non-blank
+    # ($$SO^AUTSOGI(val,"C")), otherwise "". FileMan xrefs ASO1/ASO2 still
+    # fire; SETSO's code translation and defaults do not.
     def set_sexual_orientation(dfn, values:, other: nil, date: Date.today)
       ready = prepare_sogi(dfn, values: values, other: other, date: date)
       return ready if ready[:error]
@@ -513,9 +531,12 @@ module RpmsRpc
     # No #8994 entry reaches ADDMBI (rpms-rpc#418, resolution 2), so this is
     # DDR FILER. Field 1's triggers and xrefs still fire. Anything else
     # ADDMBI does is not run. The MBI is uppercased here; DATE ENTERED is the
-    # client's today; ENTERED BY is the signed-on DUZ. source is filed only
-    # when given and is not defaulted. A missing DUZ, or an MBI that is not
-    # 11 letters or digits, sends no RPC.
+    # client's today; ENTERED BY is the signed-on DUZ. ADDMBI^AUPNMBI
+    # always sets FDA(SF,IENS,2)=$G(SOURCE) (AUPNMBI.m:19). On an existing
+    # row this EDIT call files field 2 as "@" when source is omitted, so a
+    # source already stored is cleared, and files the source when one is
+    # given. On a new row, source is filed only when given. A missing DUZ,
+    # or an MBI that is not 11 letters or digits, sends no RPC.
     def add_mbi(dfn, mbi:, effective_date:, source: nil)
       id = patient_dfn(dfn)
       return invalid("a positive DFN is required") unless id
@@ -532,12 +553,13 @@ module RpmsRpc
 
       today = FilemanDateParser.to_fileman(Date.today)
       in_context do
-        file_dated_row(MBI_FILE, id, day) do |node|
+        file_dated_row(MBI_FILE, id, day) do |node, adding|
           rows = [
             { file: MBI_FILE, field: ".01", iens: node, value: day },
             { file: MBI_FILE, field: "1", iens: node, value: canonical }
           ]
-          rows << { file: MBI_FILE, field: "2", iens: node, value: source.to_s } unless source.nil?
+          filed_source = mbi_source_value(source, adding: adding)
+          rows << { file: MBI_FILE, field: "2", iens: node, value: filed_source } unless filed_source.nil?
           rows << { file: MBI_FILE, field: "3", iens: node, value: today }
           rows << { file: MBI_FILE, field: "4", iens: node, value: duz }
           rows
@@ -939,23 +961,23 @@ module RpmsRpc
     def file_sogi(dfn, file:, multiple:, code_file:, values:, other:, day:)
       codes = values.uniq
       in_context do
-        if other
-          chosen = other_code_chosen?(code_file, codes)
-          return chosen unless chosen == true
-        end
+        screened = sogi_other_value(code_file, codes, other)
+        return screened if screened[:error]
 
         found = probe_dated_row(file, dfn, day)
         return found if found.is_a?(Hash)
 
-        # One UPDATE^DIE for the whole FDA. The rows are built first and
-        # this file_rows is the only SOGI write. Mode EDIT is FILE^DIE,
-        # which applies "@" and then rejects "+n". Filing the deletes in
-        # one call and the adds in another would drop the stored values
-        # when the add was refused.
+        # S9394^AUPNSOG3 makes two UPDATE^DIE calls: the header, then the
+        # values and the deletes. This file_rows is the only SOGI write,
+        # one UPDATE^DIE for the whole FDA, so a refused add cannot follow
+        # a delete. Mode EDIT is FILE^DIE, which applies "@" and then
+        # rejects "+n".
         built = if found == :present
-          existing_sogi_rows(dfn, file: file, multiple: multiple, codes: codes, other: other, day: day)
+          existing_sogi_rows(dfn, file: file, multiple: multiple, codes: codes,
+                             other: screened[:value], day: day)
         else
-          new_sogi_rows(dfn, file: file, multiple: multiple, codes: codes, other: other, day: day)
+          new_sogi_rows(dfn, file: file, multiple: multiple, codes: codes,
+                        other: screened[:value], day: day)
         end
         return built if built[:error]
 
@@ -963,21 +985,24 @@ module RpmsRpc
       end
     end
 
-    # $$GI^AUTSOGI / $$SO^AUTSOGI returns CODE from field 1, piece 2 of the
-    # code file's 0 node. S9394 takes OTHER text only when that code is OTH.
-    # DDR GETS of field .02 errors: ^DD(9999999.104,.02) does not exist.
-    def other_code_chosen?(code_file, codes)
-      matched = false
+    # $$GI^AUTSOGI / $$SO^AUTSOGI(val,"I") returns "" for an unknown record.
+    # An error reply from DDR GETS of field 1 is that answer (:invalid, and
+    # the date rows are not listed). A nil reply is :lookup_failed. The
+    # internal CODE also decides field 2: the text when it is OTH and the
+    # text is non-blank, otherwise "". DDR GETS of field .02 errors:
+    # ^DD(9999999.104,.02) does not exist.
+    def sogi_other_value(code_file, codes, other)
+      oth = false
       codes.each do |ien|
         read = DdrFileman.gets_entry(file: code_file, iens: "#{ien},", fields: "1", flags: "I")
         return lookup_failed("DDR GETS ENTRY DATA gave no reply for ##{code_file}") if read.nil?
-        return lookup_failed("DDR GETS ENTRY DATA refused ##{code_file}") if read[:error]
+        return invalid("#{ien} is not a code in ##{code_file}") if read[:error]
 
-        matched = true if read[:fields].dig("1", :internal).to_s == OTHER_CODE
+        oth = true if read[:fields].dig("1", :internal).to_s == OTHER_CODE
       end
-      return true if matched
+      return invalid("other text requires a value whose code is OTH") if other && !oth
 
-      invalid("other text requires a value whose code is OTH")
+      { value: (oth && other ? other : "") }
     end
 
     # $S($D(^AUPNPAT(PAT,node,EDT)):EDT,1:"+1") and ADDMBI's "?+1" when the
@@ -1001,9 +1026,10 @@ module RpmsRpc
     # no "+n" value placeholders, and EDIT of an existing date works live.
     # A stored date is FILE^DIE (mode EDIT) at the date IENS; a missing
     # date is UPDATE^DIE (mode ADD) with placeholder 1 DINUM'd to the date.
-    # SOGI does not use this. An existing SOGI date is also mode ADD,
-    # because FILE^DIE rejects the value-row "+n" placeholders after it
-    # has applied "@".
+    # The block receives the IENS and whether the row is new. SOGI does
+    # not use this. An existing SOGI date is also mode ADD, because
+    # FILE^DIE rejects the value-row "+n" placeholders after it has
+    # applied "@".
     def file_dated_row(file, dfn, day)
       found = probe_dated_row(file, dfn, day)
       return found if found.is_a?(Hash)
@@ -1011,31 +1037,38 @@ module RpmsRpc
       adding = found == :absent
       node = adding ? "+1,#{dfn}," : "#{day},#{dfn},"
       pins = adding ? { 1 => day } : {}
-      file_rows(mode: (adding ? "ADD" : "EDIT"), rows: yield(node), iens: pins)
+      file_rows(mode: (adding ? "ADD" : "EDIT"), rows: yield(node, adding), iens: pins)
     end
 
-    # FDA for a date that is not stored yet. Does not file.
+    # FDA for a date that is not stored yet. Does not file. Field 2 is
+    # always present: S9394 sets FDA(SF,IENS,2) on every call.
     def new_sogi_rows(dfn, file:, multiple:, codes:, other:, day:)
       root = "+1,#{dfn},"
-      rows = [ { file: file, field: ".01", iens: root, value: day } ]
-      rows << { file: file, field: "2", iens: root, value: other } if other
+      rows = [
+        { file: file, field: ".01", iens: root, value: day },
+        { file: file, field: "2", iens: root, value: other.to_s }
+      ]
       pins = { 1 => day }
       sogi_value_rows(rows, pins, multiple: multiple, codes: codes, parent: root)
       { rows: rows, pins: pins }
     end
 
-    # FDA for a stored date: header at the existing subscript, "@" for each
-    # dropped value, "+n" DINUM'd for each new value. Does not file. The
-    # caller sends this FDA in one mode ADD call. Filing the "@" rows
-    # first would delete the patient's values before the adds could land.
+    # FDA for a stored date: header at the existing subscript, field 2
+    # ("" clears OTHER text already stored), "@" for each dropped value,
+    # "+n" DINUM'd for each new value. Does not file. The caller sends
+    # this FDA in one mode ADD call. S9394 files the header in one
+    # UPDATE^DIE and the values and deletes in a second; splitting them
+    # here would delete the patient's values when the add was refused.
     def existing_sogi_rows(dfn, file:, multiple:, codes:, other:, day:)
       listed = DdrFileman.lister(file: multiple, iens: ",#{day},#{dfn},", fields: ".01I", flags: "IP")
       return lookup_failed("DDR LISTER gave no reply for ##{multiple}") if listed.nil?
       return lookup_failed("DDR LISTER refused ##{multiple}") if listed[:error]
 
       node = "#{day},#{dfn},"
-      rows = [ { file: file, field: ".01", iens: node, value: day } ]
-      rows << { file: file, field: "2", iens: node, value: other } if other
+      rows = [
+        { file: file, field: ".01", iens: node, value: day },
+        { file: file, field: "2", iens: node, value: other.to_s }
+      ]
       kept = reconcile_sogi_values(rows, listed[:entries], multiple: multiple, codes: codes, node: node)
       pins = {}
       fresh = codes.reject { |ien| kept.include?(ien.to_s) }
@@ -1103,6 +1136,16 @@ module RpmsRpc
 
     def lookup_failed(message)
       { success: false, error: :lookup_failed, message: message }
+    end
+
+    # ADDMBI sets FDA field 2 to $G(SOURCE). FILE^DIE leaves a value already
+    # stored unless the EDIT sends "@". A new row omits the field when
+    # source was not given.
+    def mbi_source_value(source, adding:)
+      return source.to_s unless source.nil?
+      return "@" unless adding
+
+      nil
     end
 
     def canonical_mbi(value)
