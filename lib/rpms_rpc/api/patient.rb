@@ -150,10 +150,13 @@ module RpmsRpc
     # exactly after surrounding whitespace is stripped, is
     # DESIGNATED_PRIMARY_PROVIDER_LABEL. When there is no such row, or its
     # provider name is blank (only [[:space:]], including U+00A0), the PTINFO
-    # primary provider is used. A GETBDP reply with a piece that is not valid
-    # UTF-8, or an error row after the reply is split on CR, LF, $C(30) and
-    # $C(31), is a failed read: no provider is taken from it and the PTINFO
-    # primary provider is used, without raising.
+    # primary provider is used. The GETBDP read fails closed — nothing is
+    # parsed, the PTINFO primary provider is used, and it does not raise —
+    # when Reply.altered? is true, or when a line parse_many would parse is
+    # not valid UTF-8, or still contains a C0 control or U+FFFD after leading
+    # spaces and C0 controls are stripped, or is an error row. Those lines are
+    # the Array elements, or a String split on /\r?\n/. $C(30) and $C(31)
+    # still cannot hide an error row.
     #
     # Returns nil for an invalid (nil / zero / negative) DFN, and when PTINFO
     # gives nothing unless a usable designated primary provider name was
@@ -498,9 +501,9 @@ module RpmsRpc
     private
 
     # BEHOPTPC GETBDP rows for the chart banner, from one call. nil or an
-    # empty reply is no rows. A piece that is not valid UTF-8, or an error
-    # row, fails the read so nothing is parsed from the reply. Otherwise the
-    # mapping parses it.
+    # empty reply is no rows. An altered reply, invalid UTF-8, a C0 control
+    # or U+FFFD left after leading framing is stripped, or an error row fails
+    # the read so nothing is parsed. Otherwise the mapping parses it.
     def designated_provider_rows(dfn)
       mapping = DataMapper.patient_designated_provider
       response = RpmsRpc.client.call_rpc(mapping.rpc_name, dfn.to_s)
@@ -510,20 +513,29 @@ module RpmsRpc
       mapping.parse_many(response)
     end
 
-    # True when any piece of an Array or String reply is not valid UTF-8, or
-    # is an error row once leading spaces and C0 controls are stripped.
-    # Pieces are split on CR, LF, $C(30) and $C(31), on a binary copy so an
-    # invalid sequence does not raise. Validity is checked on a duplicate
-    # force-encoded to UTF-8, so the reply is not mutated.
+    # True when this reply must not be parsed. Clients hand back a Reply or
+    # Reply::Text that has already replaced invalid bytes, so altered? fails
+    # the read even though the text is valid UTF-8. Otherwise each line
+    # parse_many would parse — an Array element as given, or a String split
+    # on /\r?\n/ — fails the read when a duplicate force-encoded to UTF-8 is
+    # not valid, or when, after leading spaces and C0 controls are stripped,
+    # a C0 control or U+FFFD remains, or DataMapper.error_row? matches. The
+    # split is binary so an invalid sequence does not raise, and the reply is
+    # not mutated. A lone CR is not a line break. $C(30) and $C(31) are C0
+    # controls: a leading run is framing, and one left in the line fails the
+    # read, so an error row they separate is still rejected.
     def designated_provider_error_reply?(response)
-      chunks = response.is_a?(Array) ? response : [ response ]
-      chunks.grep(String).any? do |chunk|
-        chunk.b.split(/[\r\n\x1e\x1f]/n).any? do |piece|
-          utf8 = piece.dup.force_encoding(Encoding::UTF_8)
-          next true unless utf8.valid_encoding?
+      return true if Reply.altered?(response)
 
-          DataMapper.error_row?(utf8.sub(/\A[ \x00-\x1F]+/, ""))
-        end
+      lines = response.is_a?(Array) ? response : response.b.split(/\r?\n/n)
+      lines.any? do |line|
+        next false unless line.is_a?(String)
+
+        utf8 = line.dup.force_encoding(Encoding::UTF_8)
+        next true unless utf8.valid_encoding?
+
+        stripped = utf8.sub(/\A[ \x00-\x1F]+/, "")
+        stripped.match?(/[\x00-\x1F\uFFFD]/) || DataMapper.error_row?(stripped)
       end
     end
 
