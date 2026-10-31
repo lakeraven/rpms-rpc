@@ -102,8 +102,6 @@
 "RpmsRpc::Coverage.delete_medicare_record": non_idempotent_write
 "RpmsRpc::Coverage.encode_params": read
 "RpmsRpc::Coverage.for_patient": read
-"RpmsRpc::Coverage.medicaid_update": non_idempotent_write
-"RpmsRpc::Coverage.medicare_update": non_idempotent_write
 "RpmsRpc::DdrFileman.filer": non_idempotent_write
 "RpmsRpc::DdrFileman.filer_params": read
 "RpmsRpc::DdrFileman.gets_entry": read

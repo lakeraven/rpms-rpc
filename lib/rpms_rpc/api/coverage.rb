@@ -38,16 +38,32 @@ module RpmsRpc
   # PARMS is $C(28)-delimited NAME=VALUE. PROC is A, E, or D. The data row is
   # RESULT^ERROR^RIEN^MIEN: RESULT 1 is success; -1 carries the error text.
   # An empty reply is not success. A MIEN-blank PROC D on Medicare deletes the
-  # header (AGGUPMCR.m:37-41); delete_medicare never sends that. It deletes one
-  # eligibility row. delete_medicare_record lists #9000003.11 and sends the
-  # header delete only when no eligibility rows remain.
+  # header (AGGUPMCR.m:37-41). delete_medicare never sends that: it deletes one
+  # eligibility row, and refuses :no_medicare when #9000003 has no header.
+  # delete_medicare_record lists #9000003.11 with IENS ",DFN," only (no PART)
+  # and sends the header delete only when that list is empty and the header
+  # is present. A list that cannot be read, or that still has rows, is
+  # :verification_failed and sends nothing. add_medicare never deletes a
+  # header: an eligibility failure is :eligibility_failed, rolled_back false,
+  # header_left true.
   #
-  # Names in PARMS must be on the window's ^AGG(9009068.3) "AC" index
-  # (UPD refuses any other, AGGUPMCR.m:70-71 and AGGUPMCD.m:68-69). A type D
-  # parameter is a calendar date; PARS passes it through $$DATE^AGGUL1
-  # (AGGUPMCR.m:286, AGGUPMCD PARS). Dates are refused unless they are a real
-  # MM/DD/YYYY. A caret or an ASCII control in a value is refused before any
-  # RPC. An invalid DFN makes no call.
+  # medicare_update and medicaid_update are module-internal. Each is pinned to
+  # its two windows (Medicare / Medicare Eligibility, Medicaid / Medicaid
+  # Eligibility). RIEN and MIEN are positional arguments, not PARMS names.
+  #
+  # Names in PARMS must be on the window's allowlist, which is the
+  # ^AGG(9009068.3) "AC" index without RIEN and MIEN (UPD refuses any other
+  # name, AGGUPMCR.m:70-71 and AGGUPMCD.m:68-69). A type D parameter is a
+  # calendar date; PARS passes it through $$DATE^AGGUL1 (AGGUPMCR.m:286,
+  # AGGUPMCD PARS). Dates are refused unless they are a real MM/DD/YYYY. A
+  # value containing "=", "OVERRIDE" (any case), a caret, $C(28), or another
+  # ASCII control is refused before any RPC. An invalid DFN makes no call.
+  #
+  # Guard FileMan reads (header, ownership, eligibility rows) run on the
+  # client: passed to the write. A read that does not answer, an ownership
+  # mismatch, and an eligibility list that is not a confirmed empty list are
+  # :verification_failed. A Medicare header FileMan error or blank .01 is
+  # :no_medicare (that is how a missing ^AUPNMCR(DFN) answers).
   module Coverage
     extend self
     extend Shape::Declarable
@@ -60,13 +76,17 @@ module RpmsRpc
     MEDICAID_WINDOW = "Medicaid" # IEN 10, file 9000004
     MEDICAID_ELIGIBILITY_WINDOW = "Medicaid Eligibility" # IEN 12, file 9000004.11
 
+    # Each AGG writer is pinned to these two windows and no others.
+    MEDICARE_WINDOWS = [ MEDICARE_WINDOW, MEDICARE_ELIGIBILITY_WINDOW ].freeze
+    MEDICAID_WINDOWS = [ MEDICAID_WINDOW, MEDICAID_ELIGIBILITY_WINDOW ].freeze
+
     MEDICARE_FILE = "9000003"
     MEDICARE_ELIGIBILITY_FILE = "9000003.11"
     MEDICAID_FILE = "9000004"
 
-    # "AC" index names for each window (UPD's parameter check). Type D names
-    # are calendar dates. Read from ^AGG(9009068.3,10/11/12/13,10) on the
-    # pinned build; PARS is what files them.
+    # PARMS names for each window. RIEN and MIEN are the positional IEN
+    # arguments and are not allowed here. Type D names are calendar dates.
+    # The rest are the ^AGG(9009068.3) "AC" index on the pinned build.
     WINDOW_FIELDS = {
       MEDICARE_WINDOW => %w[
         AGGLSTDT AGGMCABN AGGMCCCF AGGMCCRD AGGMCDOB AGGMCIMP AGGMCINS AGGMCNME
@@ -74,14 +94,14 @@ module RpmsRpc
       ].freeze,
       MEDICARE_ELIGIBILITY_WINDOW => %w[
         AGGMCCOV AGGMCEED AGGMCESD AGGMCG AGGMCGN AGGMCIDN AGGMCMN AGGMCPC
-        AGGMCPN AGGMRDOB MIEN
+        AGGMCPN AGGMRDOB
       ].freeze,
       MEDICAID_WINDOW => %w[
         AGGLSTDT AGGMDCCF AGGMDCRD AGGMDDOB AGGMDEED AGGMDESD AGGMDGRN AGGMDGRP
         AGGMDINM AGGMDINS AGGMDNME AGGMDNUM AGGMDPCP AGGMDPLN AGGMDRCD AGGMDREL
-        AGGMDSTE AGGMDSTS MDELIG RIEN SEQNBR
+        AGGMDSTE AGGMDSTS MDELIG SEQNBR
       ].freeze,
-      MEDICAID_ELIGIBILITY_WINDOW => %w[AGGMDECV AGGMDEED AGGMDESD MIEN].freeze
+      MEDICAID_ELIGIBILITY_WINDOW => %w[AGGMDECV AGGMDEED AGGMDESD].freeze
     }.freeze
     DATE_FIELDS = %w[
       AGGLSTDT AGGMCABN AGGMCCRD AGGMCDOB AGGMCIMP AGGMCROI AGGMCEED AGGMCESD
@@ -130,14 +150,15 @@ module RpmsRpc
     end
     shape :for_patient, resource: "coverages", verb: "GET", path: "/patients/{dfn}/coverages"
 
-    # UPD^AGGUPMCR. Returns { success:, error:, message:, rien:, mien: },
-    # or nil when the broker returns nothing that can be read as a reply.
-    # rien is the patient IEN (integer when the piece is digits). mien is
-    # the eligibility multiple IEN as text. A non-blank mien must be a
-    # positive integer. params are limited to the window's "AC" names.
+    # UPD^AGGUPMCR, module-internal. Pinned to Medicare and Medicare Eligibility.
+    # Returns { success:, error:, message:, rien:, mien: }, or nil when the
+    # broker returns nothing that can be read as a reply. rien is the patient
+    # IEN (integer when the piece is digits). mien is the eligibility multiple
+    # IEN as text. A non-blank mien must be a positive integer. params are
+    # limited to the window's allowlist (no RIEN, no MIEN).
     def medicare_update(dfn, proc:, definition:, mien: "", params: {}, client: RpmsRpc.client)
       procedure = require_proc!(proc)
-      window = wire!(definition)
+      window = pinned_window!(definition, MEDICARE_WINDOWS)
       multiple = optional_ien!(mien, "mien")
       validate_window_params!(window, params)
       encoded = encode_params(params || {})
@@ -148,17 +169,16 @@ module RpmsRpc
         finish_medicare(call_array(client, MEDICARE_RPC, id, procedure, window, multiple, encoded))
       end
     end
-    shape :medicare_update, resource: "coverages", verb: "POST",
-          path: "/patients/{dfn}/coverages/medicare-update"
 
-    # UPD^AGGUPMCD. record_ien is the #9000004 IEN (not the DFN); on PROC A
-    # with record_ien blank the routine lays a new record in with FILE^DICN.
-    # Returns { success:, error:, message:, record_ien:, multiple_ien: },
-    # or nil on an empty reply. A non-blank record or multiple IEN must be a
-    # positive integer. An outstanding-claims refusal is :billed_eligibility.
+    # UPD^AGGUPMCD, module-internal. Pinned to Medicaid and Medicaid Eligibility.
+    # record_ien is the #9000004 IEN (not the DFN); on PROC A with record_ien
+    # blank the routine lays a new record in with FILE^DICN. Returns
+    # { success:, error:, message:, record_ien:, multiple_ien: }, or nil on an
+    # empty reply. A non-blank record or multiple IEN must be a positive
+    # integer. An outstanding-claims refusal is :billed_eligibility.
     def medicaid_update(dfn, proc:, definition:, record_ien: "", multiple_ien: "", params: {}, client: RpmsRpc.client)
       procedure = require_proc!(proc)
-      window = wire!(definition)
+      window = pinned_window!(definition, MEDICAID_WINDOWS)
       record = optional_ien!(record_ien, "record_ien")
       multiple = optional_ien!(multiple_ien, "multiple_ien")
       validate_window_params!(window, params)
@@ -170,14 +190,13 @@ module RpmsRpc
         finish_medicaid(call_array(client, MEDICAID_RPC, id, procedure, window, record, multiple, encoded))
       end
     end
-    shape :medicaid_update, resource: "coverages", verb: "POST",
-          path: "/patients/{dfn}/coverages/medicaid-update"
+    private :medicare_update, :medicaid_update
 
     # File the Medicare header (name, number, suffix, release-of-information
     # date), then a Medicare Eligibility row dated effective_on. The returned
     # rien and mien come from the eligibility reply (pieces 3 and 4). A blank
-    # or non-positive mien is failure. When this call created the header and
-    # the eligibility row does not file, that header is removed.
+    # or non-positive mien is failure. The header is never deleted from here:
+    # an eligibility failure leaves it and reports header_left.
     def add_medicare(dfn, roi_on:, name:, number:, suffix: nil, effective_on:, client: RpmsRpc.client)
       header_params = {
         "AGGMCROI" => roi_on,
@@ -188,10 +207,8 @@ module RpmsRpc
       eligibility_params = { "AGGMCESD" => effective_on }
       validate_window_params!(MEDICARE_WINDOW, header_params)
       validate_window_params!(MEDICARE_ELIGIBILITY_WINDOW, eligibility_params)
-      id = canonical_dfn(dfn)
-      return nil unless id
+      return nil unless canonical_dfn(dfn)
 
-      created = medicare_header_absent?(id)
       filed = medicare_update(dfn, proc: "A", definition: MEDICARE_WINDOW, params: header_params, client: client)
       return filed unless filed && filed[:success]
 
@@ -199,35 +216,51 @@ module RpmsRpc
                                           params: eligibility_params, client: client)
       return filed_eligibility if positive_piece?(filed_eligibility, :mien)
 
-      rolled = created ? rollback_medicare_header(dfn, client) : false
-      medicare_eligibility_failure(filed_eligibility, rolled_back: rolled)
+      medicare_eligibility_failure(filed_eligibility)
     end
     shape :add_medicare, resource: "coverages", verb: "POST", path: "/patients/{dfn}/coverages/medicare"
 
     # One Medicare Eligibility PROC D, MIEN set. Never a MIEN-blank header
     # delete — that is delete_medicare_record, and only when no eligibility
-    # rows remain (AGGUPMCR.m:37-41).
+    # rows remain (AGGUPMCR.m:37-41). :no_medicare when #9000003 has no header;
+    # a header read that does not answer is :verification_failed. Neither
+    # sends the AGG call.
     def delete_medicare(dfn, eligibility_mien:, client: RpmsRpc.client)
       multiple = positive_ien!(eligibility_mien, "eligibility_mien")
-      return nil unless canonical_dfn(dfn)
+      id = canonical_dfn(dfn)
+      return nil unless id
 
-      medicare_update(dfn, proc: "D", definition: MEDICARE_ELIGIBILITY_WINDOW,
-                      mien: multiple, client: client)
+      case medicare_header_status(id, client)
+      when :present
+        medicare_update(dfn, proc: "D", definition: MEDICARE_ELIGIBILITY_WINDOW,
+                        mien: multiple, client: client)
+      when :absent
+        no_medicare(id)
+      else
+        verification_failed("medicare header for patient #{id} could not be read", rien: nil, mien: multiple)
+      end
     end
     shape :delete_medicare, resource: "coverages", verb: "DELETE", path: "/patients/{dfn}/coverages/medicare"
 
-    # Remove ^AUPNMCR(DFN) only when #9000003.11 has no eligibility rows.
-    # Otherwise { success: false, error: :eligibility_rows_remain } and the
-    # header delete is not sent. An unreadable list is the same refusal.
+    # Remove ^AUPNMCR(DFN) only when the header is present and #9000003.11,
+    # listed with IENS ",DFN,", has no eligibility rows. No header is
+    # :no_medicare. A list that errors, does not answer, or still has rows is
+    # :verification_failed. Neither refusal sends the header delete.
     def delete_medicare_record(dfn, client: RpmsRpc.client)
       id = canonical_dfn(dfn)
       return nil unless id
 
-      listed = medicare_eligibility_rows(id)
-      if listed.nil? || listed[:error] || listed[:entries].any?
-        return { success: false, error: :eligibility_rows_remain,
-                 message: "medicare eligibility rows remain for patient #{id}",
-                 rien: nil, mien: nil }
+      case medicare_header_status(id, client)
+      when :absent
+        return no_medicare(id)
+      when :unreadable
+        return verification_failed("medicare header for patient #{id} could not be read", rien: nil, mien: nil)
+      end
+
+      listed = medicare_eligibility_rows(id, client)
+      if !listed.is_a?(Hash) || listed[:error] || listed[:entries].any?
+        return verification_failed("medicare eligibility rows for patient #{id} could not be confirmed empty",
+                                   rien: nil, mien: nil)
       end
 
       medicare_update(dfn, proc: "D", definition: MEDICARE_WINDOW, client: client)
@@ -238,8 +271,11 @@ module RpmsRpc
     # Lay in a Medicaid record (PROC A, RIEN blank), then an eligibility row
     # on that record with the effective date and coverage type. record_ien
     # and multiple_ien are the eligibility reply's pieces 3 and 4. A blank
-    # or non-positive multiple IEN is failure. When the eligibility row does
-    # not file, the record this call just created is removed.
+    # or non-positive multiple IEN is failure. When the header step returns
+    # no record IEN, the result is :record_ien_missing and nothing else is
+    # sent. When the eligibility row does not file, the record this call just
+    # created is removed by that record IEN, after it is confirmed to be the
+    # one this call created.
     def add_medicaid(dfn, effective_on:, coverage: "FULL", client: RpmsRpc.client)
       eligibility_params = { "AGGMDESD" => effective_on, "AGGMDECV" => coverage }
       validate_window_params!(MEDICAID_ELIGIBILITY_WINDOW, eligibility_params)
@@ -249,9 +285,7 @@ module RpmsRpc
       return header unless header && header[:success]
 
       record = header[:record_ien].to_s
-      unless record.match?(CANONICAL_DFN)
-        return medicaid_eligibility_failure(header, rolled_back: false)
-      end
+      return record_ien_missing(header) unless record.match?(CANONICAL_DFN)
 
       filed = medicaid_update(dfn, proc: "A", definition: MEDICAID_ELIGIBILITY_WINDOW,
                               record_ien: record, params: eligibility_params, client: client)
@@ -263,8 +297,9 @@ module RpmsRpc
     shape :add_medicaid, resource: "coverages", verb: "POST", path: "/patients/{dfn}/coverages/medicaid"
 
     # One Medicaid Eligibility PROC D. #9000004 .01 must be this patient's
-    # DFN, checked before the wire (:record_not_patients otherwise). When the
-    # row was the last one, UPD^AGGUPMCD kills the #9000004 record
+    # DFN, checked on the same client before the wire. A mismatch or a read
+    # that does not answer is :verification_failed and sends nothing. When
+    # the row was the last one, UPD^AGGUPMCD kills the #9000004 record
     # (AGGUPMCD.m:41-45). An outstanding-claims refusal is :billed_eligibility
     # and is not retried.
     def delete_medicaid(dfn, record_ien:, eligibility_mien:, client: RpmsRpc.client)
@@ -272,7 +307,10 @@ module RpmsRpc
       multiple = positive_ien!(eligibility_mien, "eligibility_mien")
       id = canonical_dfn(dfn)
       return nil unless id
-      return record_not_patients(record, multiple, id) unless medicaid_owned?(record, id)
+      unless medicaid_owned?(record, id, client)
+        return verification_failed("medicaid record #{record} could not be verified for patient #{id}",
+                                   record_ien: record, multiple_ien: multiple)
+      end
 
       medicaid_update(dfn, proc: "D", definition: MEDICAID_ELIGIBILITY_WINDOW,
                       record_ien: record, multiple_ien: multiple, client: client)
@@ -281,8 +319,8 @@ module RpmsRpc
           path: "/patients/{dfn}/coverages/records/{record_ien}/medicaid"
 
     # $C(28)-delimited NAME=VALUE, the PARMS string both AGG updates take.
-    # nil values are dropped. A delimiter in a name or a value, a caret in
-    # either, or an ASCII control is refused — nothing is sent.
+    # nil values are dropped. "=", "OVERRIDE" (any case), a caret, $C(28),
+    # or another ASCII control in a name or a value is refused — nothing is sent.
     def encode_params(params)
       pairs = (params || {}).reject { |_, value| value.nil? }.map { |name, value| [ wire!(name), wire!(value) ] }
       pairs.map { |name, value| "#{name}=#{value}" }.join(PARM_DELIM)
@@ -323,12 +361,21 @@ module RpmsRpc
       positive_ien!(text, name)
     end
 
+    def pinned_window!(definition, allowed)
+      window = wire!(definition)
+      raise ArgumentError, "coverage window must be one of #{allowed.join(', ')}" unless allowed.include?(window)
+
+      window
+    end
+
     def wire!(value)
       text = value.to_s
       if text.include?(PARM_DELIM)
         raise ArgumentError, "coverage parameters must not contain the parameter delimiter"
       end
       raise ArgumentError, "coverage parameters must not contain a caret" if text.include?("^")
+      raise ArgumentError, "coverage parameters must not contain '='" if text.include?("=")
+      raise ArgumentError, "coverage parameters must not contain OVERRIDE" if text.match?(/override/i)
       raise ArgumentError, "coverage parameters must not contain a control character" if text.match?(CONTROL)
 
       text
@@ -363,9 +410,9 @@ module RpmsRpc
       result.is_a?(Hash) && result[:success] && result[key].to_s.match?(CANONICAL_DFN)
     end
 
-    def medicare_eligibility_failure(result, rolled_back:)
+    def medicare_eligibility_failure(result)
       body = result.is_a?(Hash) ? result : {}
-      { success: false, error: :eligibility_failed, rolled_back: rolled_back == true,
+      { success: false, error: :eligibility_failed, rolled_back: false, header_left: true,
         message: body[:message].to_s, rien: body[:rien], mien: body[:mien] }
     end
 
@@ -377,58 +424,71 @@ module RpmsRpc
         multiple_ien: body[:multiple_ien].to_s }
     end
 
-    def rollback_medicare_header(dfn, client)
-      gone = delete_medicare_record(dfn, client: client)
-      gone.is_a?(Hash) && gone[:success] == true
-    end
-
+    # PROC D on the Medicaid window for the record IEN the header step
+    # returned, and only that IEN. A blank RIEN is not a rollback. The
+    # caller-supplied IEN path is delete_medicaid, which reads #9000004 .01
+    # on the same client before it deletes.
     def rollback_medicaid_record(dfn, record, client)
-      gone = medicaid_update(dfn, proc: "D", definition: MEDICAID_WINDOW, record_ien: record, client: client)
+      owned = record.to_s
+      return false unless owned.match?(CANONICAL_DFN)
+
+      gone = medicaid_update(dfn, proc: "D", definition: MEDICAID_WINDOW, record_ien: owned, client: client)
       gone.is_a?(Hash) && gone[:success] == true
     end
 
-    def record_not_patients(record, multiple, dfn)
-      { success: false, error: :record_not_patients,
-        message: "medicaid record #{record} does not belong to patient #{dfn}",
-        record_ien: record, multiple_ien: multiple }
+    def record_ien_missing(header)
+      { success: false, error: :record_ien_missing,
+        message: "medicaid header did not return a record IEN",
+        record_ien: header[:record_ien], multiple_ien: header[:multiple_ien] }
     end
 
-    # #9000003.11 is a subfile. LIST^DIC with no parent IENS is refused
-    # ("File# 9000003.11 and IEN string , represent different subfile levels",
-    # DDR.m / LIST^DIC). ",DFN," is the list of that patient's rows. A PART
-    # list that FileMan actually answers is kept; a refusal or no reply is
-    # asked again with the parent IENS. Header delete waits on a confirmed
-    # empty list.
-    def medicare_eligibility_rows(dfn)
-      listed = list_medicare_eligibility(part: dfn)
-      return listed if listed.is_a?(Hash) && !listed[:error]
-
-      list_medicare_eligibility(iens: ",#{dfn},")
+    def no_medicare(dfn)
+      { success: false, error: :no_medicare,
+        message: "no medicare record for patient #{dfn}",
+        rien: nil, mien: nil }
     end
 
-    def list_medicare_eligibility(iens: nil, part: nil)
-      ContextScope.scoped(RpmsRpc.client, FILEMAN_CONTEXT) do
-        DdrFileman.lister(file: MEDICARE_ELIGIBILITY_FILE, iens: iens, fields: "@;.01", flags: "IP", part: part)
+    def verification_failed(message, **ids)
+      { success: false, error: :verification_failed, message: message, **ids }
+    end
+
+    # #9000003.11 is a subfile. LIST^DIC with IENS ",DFN," is that patient's
+    # rows (child entries under the parent). A PART list is not asked: header
+    # delete waits on this one confirmed empty list.
+    def medicare_eligibility_rows(dfn, client)
+      fileman_read(client) do
+        DdrFileman.lister(file: MEDICARE_ELIGIBILITY_FILE, iens: ",#{dfn},", fields: "@;.01", flags: "IP")
       end
     end
 
-    def medicare_header_absent?(dfn)
-      got = fileman_entry(MEDICARE_FILE, "#{dfn},")
-      return false if got.nil?
+    # :present when #9000003 .01 is filed, :absent when FileMan errors or .01
+    # is blank (no ^AUPNMCR(DFN)), :unreadable when the broker does not answer.
+    def medicare_header_status(dfn, client)
+      got = fileman_entry(MEDICARE_FILE, "#{dfn},", client)
+      return :unreadable if got.nil?
+      return :absent if got[:error] || got.dig(:fields, ".01", :internal).to_s.strip.empty?
 
-      got[:error] || got.dig(:fields, ".01", :internal).to_s.strip.empty?
+      :present
     end
 
-    def medicaid_owned?(record_ien, dfn)
-      got = fileman_entry(MEDICAID_FILE, "#{record_ien},")
+    def medicaid_owned?(record_ien, dfn, client)
+      got = fileman_entry(MEDICAID_FILE, "#{record_ien},", client)
       return false if got.nil? || got[:error]
 
       got.dig(:fields, ".01", :internal).to_s.strip == dfn.to_s
     end
 
-    def fileman_entry(file, iens)
-      ContextScope.scoped(RpmsRpc.client, FILEMAN_CONTEXT) do
+    def fileman_entry(file, iens, client)
+      fileman_read(client) do
         DdrFileman.gets_entry(file: file, iens: iens, fields: ".01", flags: "I")
+      end
+    end
+
+    # DdrFileman reads RpmsRpc.client. Scope the passed client for the read so
+    # a guard cannot run on a different session than the write.
+    def fileman_read(client, &block)
+      RpmsRpc.with_client(client) do
+        scoped(client, FILEMAN_CONTEXT, &block)
       end
     end
 
