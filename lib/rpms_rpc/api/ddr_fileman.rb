@@ -68,16 +68,22 @@ module RpmsRpc
     # MAX defaults to "*" — DDR.m:58).
     #
     # Returns { entries: [{ien:, pieces: [..]}], more: {value:, ien:}|nil,
-    # error: bool } or nil (no response). Reply grammar is the V0 shape —
-    # over the CIA broker XWBAPVER is unset (ACTR^CIANBACT reads it from
-    # the frame's VER field, CIANBACT.m:67, which RPC frames don't carry):
-    # optional "[Misc]" + "MORE^from^ien", "[Data]" + packed IEN-first rows,
-    # "[Errors]" marker (V0^DDR: DDR.m:21-30,45). A reply with no "[Data]"
-    # line is a failed read (error: true), the same as "[Errors]" or
-    # "[BEGIN_diERRORS]": an M error string is not an empty file. The
-    # broker's empty answer is "[Data]" and no rows, which stays
-    # entries: [] and error: false. NB: the exact packed-row column set
-    # rides LIST^DIC's "P" output; parse row pieces defensively.
+    # error: bool } or nil (no response). LISTC^DDR's reply depends on
+    # XWBAPVER (DDR.m:15). V0, the CIA broker (XWBAPVER unset:
+    # ACTR^CIANBACT reads it from the frame's VER field, CIANBACT.m:67,
+    # which RPC frames don't carry; V0^DDR: DDR.m:21-30,45): optional
+    # "[Misc]" + "MORE^from^ien", a "[Data]" section of packed IEN-first
+    # rows, and an "[Errors]" marker. V1, what XwbClient sends (RPC token
+    # "2\x011", so XWBAPVER=1; V1^DDR: DDR.m:31-43): optional "[Misc]" +
+    # "MORE^from^ien", then "[BEGIN_diDATA]", packed IEN-first rows,
+    # "[END_diDATA]", and on error "[BEGIN_diERRORS]". A data section is
+    # "[Data]" (V0) or "[BEGIN_diDATA]".."[END_diDATA]" (V1). Only lines
+    # inside a data section are entries; "MORE^" lines are still :more.
+    # A reply with no data-section marker, or with "[Errors]" /
+    # "[BEGIN_diERRORS]", is a failed read (error: true): an M error
+    # string is not an empty file. An empty data section (the marker, no
+    # rows) stays entries: [] and error: false. NB: the exact packed-row
+    # column set rides LIST^DIC's "P" output; parse row pieces defensively.
     def lister(file:, iens: nil, fields: nil, flags: nil, max: nil, from: nil,
                part: nil, xref: nil, screen: nil, id: nil, options: nil)
       param = lister_param(file: file, iens: iens, fields: fields, flags: flags, max: max,
@@ -88,19 +94,27 @@ module RpmsRpc
 
       entries = []
       more = nil
+      in_data = false
+      saw_data = false
+      saw_error = false
       reply.each do |line|
-        next if line.start_with?("[") # section markers
-        if line.start_with?("MORE^")
+        if line == "[Data]" || line == "[BEGIN_diDATA]"
+          in_data = true
+          saw_data = true
+        elsif line == "[Errors]" || line == "[BEGIN_diERRORS]"
+          in_data = false
+          saw_error = true
+        elsif line.start_with?("[")
+          in_data = false
+        elsif line.start_with?("MORE^")
           pieces = line.split("^", -1)
           more = { value: pieces[1], ien: pieces[2] }
-        else
+        elsif in_data
           pieces = line.split("^", -1)
           entries << { ien: pieces[0], pieces: pieces[1..] }
         end
       end
-      error = reply.any? { |l| l == "[Errors]" || l == "[BEGIN_diERRORS]" } ||
-              !reply.include?("[Data]")
-      { entries: entries, more: more, error: error }
+      { entries: entries, more: more, error: saw_error || !saw_data }
     end
 
     def lister_param(file:, iens: nil, fields: nil, flags: nil, max: nil, from: nil,
