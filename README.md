@@ -734,4 +734,4 @@ M source reference and update [docs/rpcs.md](docs/rpcs.md).
 
 ## License
 
-MIT. See [MIT-LICENSE](MIT-LICENSE).
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
