@@ -233,6 +233,18 @@ module RpmsRpc
     # integer from 0 through 9999. Field .08 is filed only on add
     # (line 99).
     #
+    # A value equal to "@" after strip is FileMan's delete-field marker.
+    # It is refused before the wire is built, and no RPC is sent. A
+    # longer value that contains "@" is not that marker.
+    #
+    # Every value is coerced with to_s. It must be a String whose
+    # encoding is UTF-8, US-ASCII, or ASCII-8BIT and whose bytes are
+    # valid UTF-8. Any other encoding, an invalid byte sequence, or a
+    # to_s that is not a String is SaveError, and nothing is sent. The
+    # tag is checked before the bytes are re-read: Latin-1,
+    # Windows-1252, UTF-16, and UTF-32 are refused even when those
+    # bytes would be valid UTF-8.
+    #
     # Before the AMHG call, each non-blank pointer is read with DDR GETS
     # ENTRY DATA, field .01, flags "I": clinic on 40.7, type of contact
     # on 9002012.1, encounter location on 9999999.06, community of
@@ -247,7 +259,9 @@ module RpmsRpc
     # the same refusal. Before an edit, the same RPC reads the stored
     # .08 and 1112 (DATE/TIME NOTE SIGNED), flags "I". The call is
     # refused, with no AMHG RPC, when that read errors, is empty, names
-    # another patient, or 1112 is non-blank (the visit is signed). DDR
+    # another patient, omits the 1112 row, or 1112 is non-blank (the
+    # visit is signed). A reply with .08 and no 1112 row is not treated
+    # as unsigned: the signature date could not be read. DDR
     # LISTER on #9002011.02 (xref AD, part the visit IEN, FROM 0, SCREEN
     # "I $P(^(0),U,3)=<visit>", fields .01;.02;.03;.04, flags IP, max 25)
     # must show exactly one primary (.04 "P" and .03 the visit) whose
@@ -798,9 +812,32 @@ module RpmsRpc
     def save_visit_text(value)
       return "" if value.nil?
 
-      text = value.to_s
+      text = save_visit_utf8(value)
       save_visit_refuse!("a value contains a separator or control character") if text.match?(UNSAFE_WIRE)
-      text.strip
+      text = text.strip
+      save_visit_refuse!("a value is the FileMan delete marker") if text == "@"
+      text
+    rescue EncodingError
+      save_visit_refuse!("a value is not valid UTF-8")
+    end
+
+    # to_s first. The tag must be UTF-8, US-ASCII, or ASCII-8BIT, and the
+    # bytes must be valid UTF-8. Any other tag is refused before the bytes
+    # are re-read: UTF-16 of an ASCII character force-tagged UTF-8 is valid
+    # UTF-8 with embedded NULs, and a Latin-1 or Windows-1252 tag whose
+    # bytes happen to be valid UTF-8 would file as different characters.
+    # Accepted text is returned tagged UTF-8. The value stays out of the
+    # message.
+    def save_visit_utf8(value)
+      text = value.to_s
+      utf8 = nil
+      if text.is_a?(String) && [ Encoding::UTF_8, Encoding::US_ASCII, Encoding::ASCII_8BIT ].include?(text.encoding)
+        utf8 = text.encoding == Encoding::UTF_8 ? text : text.dup.force_encoding(Encoding::UTF_8)
+      end
+      save_visit_refuse!("a value is not valid UTF-8") unless utf8&.valid_encoding?
+      utf8
+    rescue EncodingError
+      save_visit_refuse!("a value is not valid UTF-8")
     end
 
     def save_visit_set_internal(external, table)
@@ -881,6 +918,8 @@ module RpmsRpc
       )
       stored = save_visit_stored_patient(got)
       save_visit_refuse!("the stored patient could not be read") if stored.nil?
+      # A missing 1112 row is not a blank signature. Fail closed before AMHG.
+      save_visit_refuse!("the stored signature date could not be read") unless got[:fields].key?("1112")
       save_visit_refuse!("the visit is signed") if save_visit_signed?(got)
       save_visit_refuse!("the stored patient does not match this visit") unless stored == patient
     rescue Error => e
@@ -889,6 +928,8 @@ module RpmsRpc
       save_visit_refuse!("the stored patient could not be read")
     end
 
+    # Non-blank 1112 means the visit is signed. The caller has already
+    # refused a reply that has no 1112 row; a missing row is not blank.
     def save_visit_signed?(got)
       !got[:fields].dig("1112", :internal).to_s.strip.empty?
     end
@@ -1011,43 +1052,12 @@ module RpmsRpc
       text
     end
 
-    # Outside call_amhg. A direct DdrFileman.gets_entry call is what the
-    # required-RPC list attributes to this module. DDR GETS ENTRY DATA is
-    # an ARRAY (return type 2): a broker {Client} reads it with call_rpc,
-    # which stops at EOD. call_rpc_global_array waits for $C(31) and would
-    # time out on that RPC. A stand-in that is not a Client (the post-call
-    # double, and MockClient) raises or answers from call_rpc_global_array,
-    # so a visit-file read goes through that entry point there.
+    # Outside call_amhg. Always {DdrFileman.gets_entry}, which reads with
+    # #call_rpc. DDR GETS ENTRY DATA is an ARRAY (return type 2): that
+    # read stops at EOD. #call_rpc_global_array waits for $C(31) and would
+    # time out on this RPC, so the client class is not consulted.
     def save_visit_ddr(file:, iens:, fields:, flags:)
-      client = RpmsRpc.client
-      broker = defined?(Client) && client.is_a?(Client)
-      if file == BH_VISIT_FILE && !broker && client.respond_to?(:call_rpc_global_array)
-        param = DdrFileman.gets_entry_param(file: file, iens: iens, fields: fields, flags: flags)
-        return save_visit_parse_gets(client.call_rpc_global_array("DDR GETS ENTRY DATA", param))
-      end
-
       DdrFileman.gets_entry(file: file, iens: iens, fields: fields, flags: flags)
-    end
-
-    # Same field rows as {DdrFileman.gets_entry}. Word-processing bodies
-    # are not in the visit read, so a "[WORD PROCESSING]" row is skipped.
-    def save_visit_parse_gets(response)
-      return nil if response.nil?
-
-      lines = response.is_a?(Array) ? response.map(&:to_s) : response.to_s.split(/\r?\n/)
-      return nil if lines.empty?
-
-      fields = {}
-      lines.each do |line|
-        next if line.start_with?("[")
-
-        pieces = line.split("^", -1)
-        next if pieces.length < 4 || pieces[3] == "[WORD PROCESSING]"
-
-        fields[pieces[2]] = { internal: pieces[3], external: pieces[4..].join("^") }
-      end
-      error = lines.include?("[ERROR]") || (fields.empty? && !lines.include?("[Data]"))
-      { fields: fields, error: error }
     end
 
     # GLOBAL ARRAY reply: optional "<seq>\x00" ack, rows split on $C(30),
