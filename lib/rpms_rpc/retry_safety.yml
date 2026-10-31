@@ -240,9 +240,9 @@
 "RpmsRpc::Registration.register": non_idempotent_write
 "RpmsRpc::Registration.register_via_agg": non_idempotent_write
 "RpmsRpc::Registration.set_gender_identity": non_idempotent_write
-"RpmsRpc::Registration.set_insurance_billing_order": non_idempotent_write
+"RpmsRpc::Registration.set_insurance_billing_order": read
 "RpmsRpc::Registration.set_legal_sex": non_idempotent_write
-"RpmsRpc::Registration.set_sex": non_idempotent_write
+"RpmsRpc::Registration.set_sex": read
 "RpmsRpc::Registration.set_sexual_orientation": non_idempotent_write
 "RpmsRpc::Registration.update": non_idempotent_write
 "RpmsRpc::Reminders.applicable": read
