@@ -13,8 +13,9 @@ module RpmsRpc
   # list once sent ORWU USERKEYS, a name no built 9.0 image registers, #207.
   # `user_security_keys` reads the user's KEYS multiple with DDR LISTER.
   # `held_keys` asks ORWU NPHASKEY once per named key, the batch bound to
-  # OR CPRS GUI CHART: over CIA the context rides on each frame, so N keys
-  # cost N frames; over XWB/BMX a bind and a restore add 2.
+  # OR CPRS GUI CHART. Over CIA the context rides on each frame, so N keys
+  # cost N frames. Over XWB/BMX the cost is N when OR CPRS GUI CHART is
+  # already bound, and N + 2 (a bind and a restore) otherwise.
   # `has_security_key?` asks about one key, through the same ORWU NPHASKEY.)
   module Authentication
     extend self
@@ -177,12 +178,14 @@ module RpmsRpc
     # (rpms-rpc#521). One ORWU NPHASKEY per name (NPHASKEY^ORWU(VAL,NP,KEY) =
     # ''$D(^XUSEC(KEY,NP))), NP the signed-on DUZ, the whole batch bound to
     # OR CPRS GUI CHART. Over CIA the context rides on each frame, so N keys
-    # cost N frames; over XWB/BMX a bind and a restore add 2.
+    # cost N frames. Over XWB/BMX the cost is N when OR CPRS GUI CHART is
+    # already bound, and N + 2 (a bind and a restore) otherwise.
     #
     # Returns nil when the question could not be asked, so a consumer can tell
     # "holds none" ([]) from "could not ask" (nil): no signed-on DUZ (nil,
     # blank, or non-positive), or any one call refused (Client::RpcError),
-    # answered empty, or answered anything other than exactly "0" or "1".
+    # answered with no data line, with more than one, or with a line that is
+    # not exactly "0" or "1" after surrounding whitespace is stripped.
     # Never a partial list. Blank names are dropped; no names left sends
     # nothing and returns []. A name containing "^" or a leading "@" raises
     # ArgumentError before anything is sent.
@@ -193,11 +196,12 @@ module RpmsRpc
       misread = asked.select { |name| name.include?("^") || name.start_with?("@") }
       raise ArgumentError, "not security key names: #{misread.join(', ')}" unless misread.empty?
 
-      duz = signed_on_duz
+      client = RpmsRpc.client
+      duz = signed_on_duz(client)
       return nil if duz.nil?
 
-      flags = ContextScope.scoped(RpmsRpc.client, HELD_KEYS_CONTEXT) do
-        asked.map { |name| held_key_flag(duz, name) }
+      flags = ContextScope.scoped(client, HELD_KEYS_CONTEXT) do
+        asked.map { |name| held_key_flag(client, duz, name) }
       end
       return nil if flags.any?(&:nil?)
 
@@ -305,23 +309,27 @@ module RpmsRpc
 
     # The signed-on DUZ to pass as NP, or nil when there is nothing to ask
     # with: nil, blank, or not a positive integer. Nothing is sent in that case.
-    def signed_on_duz
-      duz = RpmsRpc.client.duz
+    def signed_on_duz(client)
+      duz = client.duz
       return nil if invalid_id?(duz)
 
       duz.to_s.strip
     end
 
-    # ORWU NPHASKEY's one line, or nil. :person_has_key types that line as a
-    # boolean, and the coercion turns every other non-empty reply ("2", "10",
-    # "yes") into true or false, so this reads the client's lines and accepts
-    # only an exact "0" or "1". The client numbers the frame; this does not
+    # ORWU NPHASKEY's one data line, or nil. The reply is read through
+    # :person_has_key's line normalisation (the same path has_security_key?
+    # uses): trailing $C(30)/$C(31) dropped, and on an Array empty lines and
+    # recordset header rows dropped. Exactly one data line must remain, and
+    # after surrounding whitespace is stripped it must be "0" or "1". None,
+    # more than one, "2", "yes", "", or a refused call is nil. The boolean
+    # coercion is not used. The client numbers the frame; this does not
     # touch its sequence counter.
-    def held_key_flag(duz, name)
-      reply = RpmsRpc.client.call_rpc(DataMapper.person_has_key.rpc_name, duz, name)
-      return nil unless reply.is_a?(Array) && reply.size == 1
+    def held_key_flag(client, duz, name)
+      reply = client.call_rpc(DataMapper.person_has_key.rpc_name, duz, name)
+      lines = DataMapper.person_has_key.normalized_lines(reply)
+      return nil unless lines.size == 1
 
-      flag = reply.first
+      flag = lines.first.strip
       flag == "0" || flag == "1" ? flag : nil
     rescue Client::RpcError
       nil
@@ -362,7 +370,8 @@ module RpmsRpc
     def auth_success(duz, message, verify_needs_change, post_signon_message_count)
       # The broker session is now this user's, so the client is signed on: a host
       # that signs on here binds its context next (create_context refuses a client
-      # that is not). The mock client has no such gate and no hook.
+      # that is not). MockClient records the same DUZ; it has no such gate.
+      # A stand-in that does not respond is left alone.
       client = RpmsRpc.client
       client.set_authenticated(duz.to_s) if client.respond_to?(:set_authenticated)
 
