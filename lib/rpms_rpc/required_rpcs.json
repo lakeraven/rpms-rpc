@@ -201,6 +201,12 @@
       "ORWPT LIST ALL",
       "ORWPT SELECT"
     ],
+    "RpmsRpc::PatientSelection": [
+      "BEHOPTPL DOBLKP",
+      "BEHOPTPL HRNLKP",
+      "BEHOPTPL LISTALL",
+      "BEHOPTPL LOOKUP"
+    ],
     "RpmsRpc::Phr": [
       "BEHOCCD GETREF",
       "BEHOCCD PHR",

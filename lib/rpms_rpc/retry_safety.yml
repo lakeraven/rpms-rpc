@@ -173,6 +173,7 @@
 "RpmsRpc::Patient.register": non_idempotent_write
 "RpmsRpc::Patient.search": read
 "RpmsRpc::Patient.update": non_idempotent_write
+"RpmsRpc::PatientSelection.find": read
 "RpmsRpc::Phr.counts": read
 "RpmsRpc::Phr.enrollment_status": read
 "RpmsRpc::Phr.find": read
