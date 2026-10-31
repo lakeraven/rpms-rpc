@@ -25,22 +25,56 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
   ELIG_FIXED_DATE = Date.new(2019, 6, 1)
 
   def test_set_gender_identity_is_stored_on_the_ihs_patient_sogi_subfiles
-    code = first_gender_identity_code_ien
+    code = pick_code_ien("9999999.104")
     row_date = Date.today
     @restore = -> { purge_gender_identity_rows }
 
-    assert Reg.set_gender_identity(DFN, values: [ code ], other: "live spec", date: row_date)[:success]
+    assert Reg.set_gender_identity(DFN, values: [ code ], date: row_date)[:success]
+
+    header = subfile_row(GI_FILE, DFN, ".01;2", row_date)
+    assert header, "no 9000001.9401 row for #{row_date}"
+
+    mult = list_subfile_entries(GI_MULT, "#{header[:ien]},#{DFN},", ".01")
+    value_row = mult.find { |e| e[:fields].dig(".01", :internal).to_i == code }
+    assert value_row, "no 9000001.94011 row for code #{code}: #{mult.inspect}"
+    assert_equal code, value_row[:ien].to_i, "94011 sub-entry IEN should DINUM to the code IEN"
+  end
+
+  def test_set_gender_identity_stores_other_text_only_for_the_other_code
+    other_code = gender_identity_other_code_ien
+    row_date = Date.today
+    @restore = -> { purge_gender_identity_rows }
+
+    assert Reg.set_gender_identity(DFN, values: [ other_code ], other: "live spec", date: row_date)[:success]
 
     header = subfile_row(GI_FILE, DFN, ".01;2", row_date)
     assert header, "no 9000001.9401 row for #{row_date}"
     assert_equal "live spec", header[:fields].dig("2", :internal).to_s.strip
+  end
 
-    mult = list_subfile_entries(GI_MULT, "#{header[:ien]},#{DFN},", ".01")
-    assert_includes mult.map { |e| e[:fields].dig(".01", :internal).to_i }, code
+  def test_set_gender_identity_refuses_other_text_beside_a_non_other_code
+    code = pick_code_ien("9999999.104")
+    code_internal = read_field("9999999.104", "#{code},", "1", "I")
+    refute_nil code_internal
+    refute_equal "OTH", code_internal.to_s.strip, "pick a non-OTHER code for this assertion"
+
+    row_date = Date.today
+    @restore = -> { purge_gender_identity_rows }
+
+    result = Reg.set_gender_identity(DFN, values: [ code ], other: "live spec", date: row_date)
+    refute result[:success]
+    assert_equal :invalid, result[:error]
+
+    listed = RpmsRpc::DdrFileman.lister(file: GI_FILE, iens: ",#{DFN},", fields: ".01", flags: "IP")
+    refute_nil listed
+    refute listed[:error]
+    target = fm(row_date).to_s
+    refute listed[:entries].any? { |e| e[:pieces].first.to_s == target },
+           "expected no 9000001.9401 row after :invalid"
   end
 
   def test_set_sexual_orientation_is_stored_on_the_ihs_patient_sogi_subfiles
-    code = first_sexual_orientation_code_ien
+    code = pick_code_ien("9999999.103")
     row_date = Date.today
     @restore = -> { purge_sexual_orientation_rows }
 
@@ -49,7 +83,9 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     header = subfile_row(SO_FILE, DFN, ".01;2", row_date)
     assert header, "no 9000001.9301 row for #{row_date}"
     mult = list_subfile_entries(SO_MULT, "#{header[:ien]},#{DFN},", ".01")
-    assert_includes mult.map { |e| e[:fields].dig(".01", :internal).to_i }, code
+    value_row = mult.find { |e| e[:fields].dig(".01", :internal).to_i == code }
+    assert value_row, "no 9000001.93011 row for code #{code}: #{mult.inspect}"
+    assert_equal code, value_row[:ien].to_i, "93011 sub-entry IEN should DINUM to the code IEN"
   end
 
   def test_set_legal_sex_is_stored_on_the_legal_sex_history_subfile
@@ -168,14 +204,6 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     end
   end
 
-  def first_gender_identity_code_ien
-    pick_code_ien("9999999.104")
-  end
-
-  def first_sexual_orientation_code_ien
-    pick_code_ien("9999999.103")
-  end
-
   def first_legal_sex_source_ien
     listed = RpmsRpc::DdrFileman.lister(file: "9000030", fields: ".01", flags: "IP", max: 5)
     refute_nil listed
@@ -185,11 +213,24 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
   end
 
   def pick_code_ien(file)
-    listed = RpmsRpc::DdrFileman.lister(file: file, fields: ".01", flags: "IP", max: 5)
+    listed = RpmsRpc::DdrFileman.lister(file: file, fields: ".01", flags: "IP", max: 20)
     refute_nil listed
     refute listed[:error]
     refute_empty listed[:entries], "no rows in #{file}"
-    listed[:entries].first[:ien].to_i
+    entry = listed[:entries].find { |e| e[:ien].to_i != 1 } || listed[:entries].first
+    entry[:ien].to_i
+  end
+
+  def gender_identity_other_code_ien
+    listed = RpmsRpc::DdrFileman.lister(file: "9999999.104", fields: ".01", flags: "IP", max: 50)
+    refute_nil listed
+    refute listed[:error]
+    listed[:entries].each do |entry|
+      code = read_field("9999999.104", "#{entry[:ien]},", "1", "I")
+      refute_nil code, "no CODE (field 1) for #9999999.104 IEN #{entry[:ien]}"
+      return entry[:ien].to_i if code.to_s.strip == "OTH"
+    end
+    flunk "no #9999999.104 entry with CODE OTH"
   end
 
   def purge_gender_identity_rows

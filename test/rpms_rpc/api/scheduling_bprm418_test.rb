@@ -52,7 +52,8 @@ class SchedulingBprm418Test < Minitest::Test
     assert_equal [ "501", "@", "", "", "", "", "", "" ], call[:params]
     gets = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
     refute_nil gets, "expected a post-check-in DDR GETS ENTRY DATA read of #9002018.4 field .03"
-    assert_equal appointment_checkin_gets_key(501), gets[:params].to_s
+    assert_equal Ddr.gets_entry_param(file: "9002018.4", iens: "501,", fields: ".03", flags: "I"),
+                 gets[:params].first
   end
 
   def test_undo_checkin_sends_the_same_trailing_formals_as_checkin_appointment
