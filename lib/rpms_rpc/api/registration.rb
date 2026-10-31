@@ -392,25 +392,33 @@ module RpmsRpc
     # SETGI (rpms-rpc#418, resolution 2), so this is DDR FILER (FILEC^DDR3,
     # DDR3.m:14-18) under CIAV VUECENTRIC. FileMan xrefs AGI1/AGI2 still fire.
     #
-    # The date IENS is $S($D(^AUPNPAT(PAT,94,EDT)):EDT,1:"+1") (S9394, the
-    # same choice SETLSEX makes for node 92). This method lists the date
-    # rows with DDR LISTER (iens ",<dfn>,", fields "@;.01I", flags "IP").
-    # A row whose first piece equals the requested FileMan date is mode
-    # EDIT at "<fmdate>,<dfn>,". No such row, including an empty [Data]
-    # (entries [], error false), is mode ADD at "+1,<dfn>,". Placeholder 1
-    # is DINUM'd to the date (DDR3.m:12-13). A nil reply or [Errors] is
-    # :lookup_failed and files nothing. DDR GETS ENTRY DATA cannot make
-    # this check: GETS on a missing entry replies error: true, the same
-    # reply as a failed read.
+    # The date IENS is $S($D(^AUPNPAT(PAT,94,EDT)):EDT,1:"+1") (S9394).
+    # This method lists the date rows with DDR LISTER (iens ",<dfn>,",
+    # fields "@;.01I", flags "IP"). A missing date and an existing date
+    # are both one DDR FILER call in mode ADD (UPDATE^DIE). S9394 does
+    # the whole change in one UPDATE^DIE. FILE^DIE (mode EDIT) rejects
+    # "+n" placeholders ("The IENS '+2,3260115,990042,' is syntactically
+    # incorrect.") after that same call's "@" rows have already deleted
+    # the old value sub-entries, so an existing date is never mode EDIT
+    # and the deletes are never filed apart from the adds. No such row,
+    # including an empty [Data] (entries [], error false), is header IENS
+    # "+1,<dfn>," with placeholder 1 DINUM'd to the date (DDR3.m:12-13).
+    # A row whose first piece equals the requested FileMan date is header
+    # IENS "<fmdate>,<dfn>," (the stored subscript, no placeholder). A nil
+    # reply or [Errors] is :lookup_failed and files nothing. DDR GETS
+    # ENTRY DATA cannot make this check: GETS on a missing entry replies
+    # error: true, the same reply as a failed read.
     #
     # Value sub-entries are DINUM'd to the code IEN. S9394 files
     # FDA(SF,"?+"_CNT_IENS,.01) with RES(CNT) equal to the code, and
     # G9394^AUPNSOG2 reads the value from the sub-entry subscript, so a
     # subscript of 1 is the wrong code. Placeholders 2, 3, ... are pinned
     # to each value's IEN. A repeated value is filed once. On an existing
-    # date the value multiple is listed (DDR LISTER, .01I) and a sub-entry
-    # whose .01 is not in the new list is deleted (.01 "@"); new codes are
-    # added DINUM'd.
+    # date the value multiple is listed (DDR LISTER, .01I). A sub-entry
+    # whose .01 is not in the new list is "<code>,<fmdate>,<dfn>," with
+    # .01 "@". A code that is not already stored is "+n,<fmdate>,<dfn>,"
+    # DINUM'd to that code. A code already stored is not re-added. Those
+    # rows ride in the same ADD call as the header.
     #
     # OTHER (field 2) is filed only when the text is non-blank and a chosen
     # value's field 1 CODE is OTH. Field 1 is piece 2 of the #9999999.104
@@ -440,8 +448,9 @@ module RpmsRpc
     # File a sexual-orientation row. SETSO^AUPNSOGI reaches AUPNSOG3, which
     # UPDATE^DIE's #9000001.9301 and #9000001.93011 (.01 pointer to
     # #9999999.103). No #8994 entry reaches SETSO (rpms-rpc#418, resolution
-    # 2). Same DDR FILER contract as set_gender_identity, on
-    # ^AUPNPAT(PAT,93,EDT). The OTHER gate is $$SO^AUTSOGI(val,"C")="OTH":
+    # 2). Same DDR FILER contract as set_gender_identity, including one
+    # mode ADD call when ^AUPNPAT(PAT,93,EDT) already exists. The OTHER
+    # gate is $$SO^AUTSOGI(val,"C")="OTH":
     # field 1 CODE of #9999999.103, piece 2 of that file's 0 node. FileMan
     # xrefs ASO1/ASO2 still fire; SETSO's code translation and defaults do
     # not.
@@ -938,11 +947,19 @@ module RpmsRpc
         found = probe_dated_row(file, dfn, day)
         return found if found.is_a?(Hash)
 
-        if found == :present
-          edit_sogi(dfn, file: file, multiple: multiple, codes: codes, other: other, day: day)
+        # One UPDATE^DIE for the whole FDA. The rows are built first and
+        # this file_rows is the only SOGI write. Mode EDIT is FILE^DIE,
+        # which applies "@" and then rejects "+n". Filing the deletes in
+        # one call and the adds in another would drop the stored values
+        # when the add was refused.
+        built = if found == :present
+          existing_sogi_rows(dfn, file: file, multiple: multiple, codes: codes, other: other, day: day)
         else
-          add_sogi(dfn, file: file, multiple: multiple, codes: codes, other: other, day: day)
+          new_sogi_rows(dfn, file: file, multiple: multiple, codes: codes, other: other, day: day)
         end
+        return built if built[:error]
+
+        file_rows(mode: "ADD", rows: built[:rows], iens: built[:pins])
       end
     end
 
@@ -967,9 +984,11 @@ module RpmsRpc
     # effective-date node exists. DDR LISTER on the subfile (iens ",<dfn>,",
     # fields "@;.01I", flags "IP"). A packed row is IEN-first, so its first
     # piece is the subfile subscript; that piece equaling the FileMan date
-    # is :present (EDIT). No such row, including an empty [Data], is
-    # :absent (ADD). A nil reply or [Errors] is a lookup failure. GETS is
-    # not used: a missing entry replies error: true, same as a failed read.
+    # is :present. No such row, including an empty [Data], is :absent.
+    # Legal sex and MBI file :present as EDIT and :absent as ADD. SOGI
+    # files both as ADD; :present only selects the stored header IENS.
+    # A nil reply or [Errors] is a lookup failure. GETS is not used: a
+    # missing entry replies error: true, same as a failed read.
     def probe_dated_row(file, dfn, day)
       listed = DdrFileman.lister(file: file, iens: ",#{dfn},", fields: "@;.01I", flags: "IP")
       return lookup_failed("DDR LISTER gave no reply for ##{file}") if listed.nil?
@@ -978,9 +997,13 @@ module RpmsRpc
       listed[:entries].any? { |entry| entry[:ien].to_s == day.to_s } ? :present : :absent
     end
 
-    # Caller is inside in_context. A stored date is FILE^DIE (mode EDIT) at
-    # the date IENS; a missing date is UPDATE^DIE (mode ADD) with placeholder
-    # 1 DINUM'd to the date.
+    # Caller is inside in_context. Legal sex and MBI only: those rows have
+    # no "+n" value placeholders, and EDIT of an existing date works live.
+    # A stored date is FILE^DIE (mode EDIT) at the date IENS; a missing
+    # date is UPDATE^DIE (mode ADD) with placeholder 1 DINUM'd to the date.
+    # SOGI does not use this. An existing SOGI date is also mode ADD,
+    # because FILE^DIE rejects the value-row "+n" placeholders after it
+    # has applied "@".
     def file_dated_row(file, dfn, day)
       found = probe_dated_row(file, dfn, day)
       return found if found.is_a?(Hash)
@@ -991,16 +1014,21 @@ module RpmsRpc
       file_rows(mode: (adding ? "ADD" : "EDIT"), rows: yield(node), iens: pins)
     end
 
-    def add_sogi(dfn, file:, multiple:, codes:, other:, day:)
+    # FDA for a date that is not stored yet. Does not file.
+    def new_sogi_rows(dfn, file:, multiple:, codes:, other:, day:)
       root = "+1,#{dfn},"
       rows = [ { file: file, field: ".01", iens: root, value: day } ]
       rows << { file: file, field: "2", iens: root, value: other } if other
       pins = { 1 => day }
-      sogi_value_rows(rows, pins, multiple: multiple, codes: codes, parent: "+1,#{dfn},")
-      file_rows(mode: "ADD", rows: rows, iens: pins)
+      sogi_value_rows(rows, pins, multiple: multiple, codes: codes, parent: root)
+      { rows: rows, pins: pins }
     end
 
-    def edit_sogi(dfn, file:, multiple:, codes:, other:, day:)
+    # FDA for a stored date: header at the existing subscript, "@" for each
+    # dropped value, "+n" DINUM'd for each new value. Does not file. The
+    # caller sends this FDA in one mode ADD call. Filing the "@" rows
+    # first would delete the patient's values before the adds could land.
+    def existing_sogi_rows(dfn, file:, multiple:, codes:, other:, day:)
       listed = DdrFileman.lister(file: multiple, iens: ",#{day},#{dfn},", fields: ".01I", flags: "IP")
       return lookup_failed("DDR LISTER gave no reply for ##{multiple}") if listed.nil?
       return lookup_failed("DDR LISTER refused ##{multiple}") if listed[:error]
@@ -1010,12 +1038,14 @@ module RpmsRpc
       rows << { file: file, field: "2", iens: node, value: other } if other
       kept = reconcile_sogi_values(rows, listed[:entries], multiple: multiple, codes: codes, node: node)
       pins = {}
-      sogi_value_rows(rows, pins, multiple: multiple, codes: codes.reject { |ien| kept.include?(ien.to_s) }, parent: node)
-      file_rows(mode: "EDIT", rows: rows, iens: pins)
+      fresh = codes.reject { |ien| kept.include?(ien.to_s) }
+      sogi_value_rows(rows, pins, multiple: multiple, codes: fresh, parent: node)
+      { rows: rows, pins: pins }
     end
 
-    # Delete value sub-entries whose .01 is not in the new list. Returns the
-    # codes that stay, so the caller adds only the rest, DINUM'd.
+    # Append "@" rows for value sub-entries whose .01 is not in the new
+    # list. Returns the codes that stay, so the caller adds only the rest,
+    # DINUM'd, onto the same FDA. Does not file.
     def reconcile_sogi_values(rows, entries, multiple:, codes:, node:)
       wanted = codes.map(&:to_s)
       kept = []
@@ -1034,8 +1064,8 @@ module RpmsRpc
     end
 
     # S9394: FDA(SF,"?+"_CNT_IENS,.01) with RES(CNT)=the code. CNT starts at
-    # 2 because placeholder 1 is the date row, including when that row is
-    # edited in place and has no "+" placeholder of its own.
+    # 2 because placeholder 1 is the new date row. An existing date has no
+    # "+" on the header, and new values still start at 2.
     def sogi_value_rows(rows, pins, multiple:, codes:, parent:)
       codes.each_with_index do |ien, index|
         number = index + SOGI_VALUE_PLACEHOLDER
