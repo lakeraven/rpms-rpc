@@ -76,11 +76,16 @@ module RpmsRpc
     # rows, and an "[Errors]" marker. V1, what XwbClient sends (RPC token
     # "2\x011", so XWBAPVER=1; V1^DDR: DDR.m:31-43): optional "[Misc]" +
     # "MORE^from^ien", then "[BEGIN_diDATA]", packed IEN-first rows,
-    # "[END_diDATA]", and on error "[BEGIN_diERRORS]". A data section is
+    # "[END_diDATA]", and on error "[BEGIN_diERRORS]". Without the "P"
+    # flag, V1^DDR takes the UNPACKED path (DDR.m:39) and the
+    # [BEGIN_diDATA] section holds unbracketed BEGIN_IENs / END_IENs /
+    # BEGIN_IDVALUES / END_IDVALUES markers and bare values. That unpacked
+    # V1 shape is not parsed and fails closed. A data section is
     # "[Data]" (V0) or "[BEGIN_diDATA]".."[END_diDATA]" (V1). Only lines
     # inside a data section are entries; "MORE^" lines are still :more.
-    # A reply with no data-section marker, or with "[Errors]" /
-    # "[BEGIN_diERRORS]", is a failed read (error: true): an M error
+    # A reply with no data-section marker, with "[Errors]" /
+    # "[BEGIN_diERRORS]", or with a data section containing those unpacked
+    # markers, is a failed read (error: true, entries: []): an M error
     # string is not an empty file. An empty data section (the marker, no
     # rows) stays entries: [] and error: false. NB: the exact packed-row
     # column set rides LIST^DIC's "P" output; parse row pieces defensively.
@@ -97,6 +102,8 @@ module RpmsRpc
       in_data = false
       saw_data = false
       saw_error = false
+      saw_unpacked = false
+      unpacked_markers = %w[BEGIN_IENs END_IENs BEGIN_IDVALUES END_IDVALUES]
       reply.each do |line|
         if line == "[Data]" || line == "[BEGIN_diDATA]"
           in_data = true
@@ -109,12 +116,18 @@ module RpmsRpc
         elsif line.start_with?("MORE^")
           pieces = line.split("^", -1)
           more = { value: pieces[1], ien: pieces[2] }
+        elsif in_data && unpacked_markers.include?(line)
+          saw_unpacked = true
         elsif in_data
           pieces = line.split("^", -1)
           entries << { ien: pieces[0], pieces: pieces[1..] }
         end
       end
-      { entries: entries, more: more, error: saw_error || !saw_data }
+      {
+        entries: saw_unpacked ? [] : entries,
+        more: more,
+        error: saw_error || !saw_data || saw_unpacked
+      }
     end
 
     def lister_param(file:, iens: nil, fields: nil, flags: nil, max: nil, from: nil,
