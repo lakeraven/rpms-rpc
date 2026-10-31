@@ -62,6 +62,7 @@ RpmsRpc::Patient.find	GET /patients/{dfn}
 RpmsRpc::Patient.find_by_ssn	GET /patients/by-ssn
 RpmsRpc::Patient.lookup	GET /patients/lookup
 RpmsRpc::Patient.search	GET /patients
+RpmsRpc::PatientSelection.find	GET /patient-selections
 RpmsRpc::Phr.counts	GET /patients/{dfn}/phr/counts
 RpmsRpc::Phr.enrollment_status	GET /patients/{dfn}/phr/enrollment-status
 RpmsRpc::Phr.find	GET /phr/{ien}
