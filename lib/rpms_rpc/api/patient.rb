@@ -149,10 +149,12 @@ module RpmsRpc
     # :primary_provider is the GETBDP row whose label (field 0), compared
     # exactly after surrounding whitespace is stripped, is
     # DESIGNATED_PRIMARY_PROVIDER_LABEL. When there is no such row, or its
-    # provider name is blank, the PTINFO primary provider is used.
+    # provider name is blank, the PTINFO primary provider is used. A GETBDP
+    # reply that contains any error row is a failed read: no provider is
+    # taken from it and the PTINFO primary provider is used, without raising.
     #
     # Returns nil for invalid (nil / zero / negative) DFNs and for unknown DFNs
-    # (PTINFO gives nothing and GETBDP has no rows). A broker that does not
+    # (PTINFO gives nothing and GETBDP gives no usable rows). A broker that does not
     # serve one of the three RPCs raises RpcNotAvailableError, one that serves
     # it but not to this user raises RpcRefusedError, and an M error raises
     # RpcError (#363).
@@ -160,7 +162,7 @@ module RpmsRpc
       return nil if dfn.nil? || dfn.to_i <= 0
 
       ptinfo   = DataMapper.patient_ptinfo.fetch_one(dfn.to_s)
-      bdp_rows = DataMapper.patient_designated_provider.fetch_many(dfn.to_s)
+      bdp_rows = designated_provider_rows(dfn)
       return nil if ptinfo.nil? && bdp_rows.empty?
 
       cwad = DataMapper.patient_cwad.fetch_scalar(dfn.to_s) || ""
@@ -492,6 +494,26 @@ module RpmsRpc
     private :age_from
 
     private
+
+    # BEHOPTPC GETBDP rows for the chart banner, from one call. Any broker
+    # error row fails the read, so no provider is taken from the reply.
+    # Lines may be an Array or a newline-joined String; DataMapper's recordset
+    # normaliser removes $C(30) and leading-whitespace framing before
+    # error_row? sees each line. A reply with no error row is parsed by the
+    # mapping.
+    def designated_provider_rows(dfn)
+      mapping = DataMapper.patient_designated_provider
+      response = RpmsRpc.client.call_rpc(mapping.rpc_name, dfn.to_s)
+      return [] if designated_provider_error_reply?(response)
+
+      mapping.parse_many(response)
+    end
+
+    def designated_provider_error_reply?(response)
+      chunks = response.is_a?(Array) ? response : [ response ]
+      lines = DataMapper.send(:bsdx_list_lines, chunks, split_newlines: true)
+      lines.any? { |line| DataMapper.error_row?(DataMapper.send(:bsdx_classify_text, line)) }
+    end
 
     # LISTALL^ORWPT pages with $ORDER, which answers the name AFTER the text it
     # is given, so the exact name sent as-is is the one name the page leaves

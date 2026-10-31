@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed — `Patient.brief_header` uses the designated-primary GETBDP row (#523)
 
 - `BEHOPTPC GETBDP` returns one row per designated-provider category, in alphabetical order (`LABEL^PROVIDER_NAME^PROVIDER_IEN^TITLE^DATE`). `Patient.brief_header` took the first row, so a category that sorts before `DESIGNATED PRIMARY PROVIDER` was reported as `:primary_provider`.
-- The banner now uses the row whose label (field 0), after surrounding whitespace is stripped, is exactly `DESIGNATED PRIMARY PROVIDER`. When that row is absent or its provider name is blank, `:primary_provider` is the PTINFO primary provider. The header is still nil only for an invalid DFN, or when PTINFO gives nothing and GETBDP has no rows. A broker that does not serve one of the three RPCs still raises `RpcNotAvailableError`, one that serves it but not to this user still raises `RpcRefusedError`, and an M error still raises `RpcError`.
+- The banner now uses the row whose label (field 0), after surrounding whitespace is stripped, is exactly `DESIGNATED PRIMARY PROVIDER`. When that row is absent or its provider name is blank, `:primary_provider` is the PTINFO primary provider. The header is still nil only for an invalid DFN, or when PTINFO gives nothing and GETBDP gives no usable rows. A broker that does not serve one of the three RPCs still raises `RpcNotAvailableError`, one that serves it but not to this user still raises `RpcRefusedError`, and an M error still raises `RpcError`.
+- A `BEHOPTPC GETBDP` reply that contains any error row is a failed read: no provider is taken from it and `:primary_provider` falls back to the PTINFO primary provider, without raising.
 
 ### Changed — `ProgressNote.update_text` wraps long lines before TIU SET DOCUMENT TEXT (#479)
 
