@@ -5,6 +5,7 @@ require "json"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/retry_safety"
 require "rpms_rpc/api/patient"
+require "rpms_rpc/shape"
 
 # Chart-banner CWAD must come from ORWPT CWAD under OR CPRS GUI CHART, not
 # BEHOCACV CWAD (VueCentric-only). Synthetic seeds only.
@@ -13,6 +14,7 @@ class PatientCwadTest < Minitest::Test
   CHART_CONTEXT = "OR CPRS GUI CHART"
   CALLER_CONTEXT = "CIAV VUECENTRIC"
   REQUIRED_RPCS_PATH = File.expand_path("../../../lib/rpms_rpc/required_rpcs.json", __dir__)
+  WRITE_CLASS_GET_BASELINE = File.expand_path("../../../data/openapi/write_class_get_baseline.txt", __dir__)
 
   # MockClient subclass: PTINFO/GETBDP still seed; ORWPT CWAD is not served.
   class CwadUnavailableMockClient < RpmsRpc::MockClient
@@ -118,6 +120,18 @@ class PatientCwadTest < Minitest::Test
   def test_brief_header_is_non_idempotent_write_in_retry_safety
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::Patient, :brief_header)
     refute RpmsRpc::RetrySafety.auto_retry_safe?(RpmsRpc::Patient, :brief_header)
+  end
+
+  # Context-binding write (like Patient.contact): POST at a stable sub-path, not a baseline GET exception (#520).
+  def test_brief_header_declared_shape_is_post_and_not_in_write_class_get_baseline
+    shape = RpmsRpc::Shape.for(RpmsRpc::Patient, :brief_header)
+
+    refute_nil shape
+    assert_equal "POST", shape[:verb]
+    assert_equal "/patients/{dfn}/brief-header", shape[:path]
+
+    baseline = File.readlines(WRITE_CLASS_GET_BASELINE, chomp: true).reject(&:empty?)
+    refute_includes baseline, "RpmsRpc::Patient.brief_header"
   end
 
   # Proves required_rpcs.json lists ORWPT CWAD for Patient and drops BEHOCACV CWAD everywhere.
