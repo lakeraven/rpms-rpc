@@ -59,18 +59,20 @@ class SchedulingBprm418LiveTest < LiveSpec::Test
 
   def teardown
     failures = []
-    @cleanups&.each do |cleanup|
-      result = cleanup.call
-      failures << "cleanup failed: #{result.inspect}" if result.is_a?(Hash) && result[:success] != true
-    rescue StandardError => e
-      failures << e.full_message(highlight: false).strip
-    end
-    if client && @restore
-      begin
-        result = @restore.call
-        failures << "restore failed: #{result.inspect}" if result.is_a?(Hash) && result[:success] != true
+    if client
+      @cleanups&.each do |cleanup|
+        result = cleanup.call
+        failures << "cleanup failed: #{result.inspect}" if result.is_a?(Hash) && result[:success] != true
       rescue StandardError => e
         failures << e.full_message(highlight: false).strip
+      end
+      if @restore
+        begin
+          result = @restore.call
+          failures << "restore failed: #{result.inspect}" if result.is_a?(Hash) && result[:success] != true
+        rescue StandardError => e
+          failures << e.full_message(highlight: false).strip
+        end
       end
     end
   ensure

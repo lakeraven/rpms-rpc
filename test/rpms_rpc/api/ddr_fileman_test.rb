@@ -157,6 +157,67 @@ class DdrFilemanTest < Minitest::Test
     assert_nil Ddr.lister(file: "9000001", xref: "D", part: "999999")
   end
 
+  # LISTC^DDR with XWBAPVER=1 (XwbClient RPC token "2\x011") uses V1^DDR
+  # (DDR.m:15,31-43): optional "[Misc]" + "MORE^...", "[BEGIN_diDATA]" +
+  # packed rows, "[END_diDATA]", errors as "[BEGIN_diERRORS]".. — never a
+  # "[Data]" line. V0 (CIA broker, no APVER) keeps the "[Data]" marker.
+  def test_lister_parses_v1_begin_didata_rows_without_error
+    key = Ddr.lister_param(file: "9000001").to_s
+    @mock.seed(:ddr_lister, key, "[BEGIN_diDATA]\n12^PROVIDER\n15^ORES\n[END_diDATA]")
+
+    result = Ddr.lister(file: "9000001")
+
+    refute result[:error]
+    assert_equal 2, result[:entries].length
+    assert_equal "12", result[:entries][0][:ien]
+    assert_equal [ "PROVIDER" ], result[:entries][0][:pieces]
+    assert_equal "15", result[:entries][1][:ien]
+    assert_equal [ "ORES" ], result[:entries][1][:pieces]
+  end
+
+  def test_lister_v1_empty_begin_didata_section_is_not_an_error
+    key = Ddr.lister_param(file: "9000001").to_s
+    @mock.seed(:ddr_lister, key, "[BEGIN_diDATA]\n[END_diDATA]")
+
+    result = Ddr.lister(file: "9000001")
+
+    refute result[:error]
+    assert_empty result[:entries]
+  end
+
+  def test_lister_parses_v1_misc_more_and_begin_didata_rows
+    key = Ddr.lister_param(file: "9000001", xref: "B").to_s
+    @mock.seed(:ddr_lister, key, "[Misc]\nMORE^x^5\n[BEGIN_diDATA]\n5^X\n[END_diDATA]")
+
+    result = Ddr.lister(file: "9000001", xref: "B")
+
+    refute result[:error]
+    assert_equal({ value: "x", ien: "5" }, result[:more])
+    assert_equal 1, result[:entries].length
+    assert_equal "5", result[:entries][0][:ien]
+    assert_equal [ "X" ], result[:entries][0][:pieces]
+  end
+
+  def test_lister_flags_reply_with_neither_data_nor_begin_didata_as_error
+    key = Ddr.lister_param(file: "9000001").to_s
+    @mock.seed(:ddr_lister, key, "M  ERROR=ZZ+3^AUPN, <UNDEFINED>")
+
+    result = Ddr.lister(file: "9000001")
+
+    assert result[:error]
+    assert_empty result[:entries]
+  end
+
+  def test_lister_v0_data_marker_reply_still_parses_with_error_false
+    key = Ddr.lister_param(file: "9000001", xref: "D", part: "100001", max: "*").to_s
+    @mock.seed(:ddr_lister, key, "[Data]\n43^100001\n44^100001A")
+
+    result = Ddr.lister(file: "9000001", xref: "D", part: "100001", max: "*")
+
+    refute result[:error]
+    assert_equal 2, result[:entries].length
+  end
+
   # ==========================================================================
   # DDR LOCK/UNLOCK NODE
   # ==========================================================================
