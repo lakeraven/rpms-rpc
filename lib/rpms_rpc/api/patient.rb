@@ -19,6 +19,10 @@ module RpmsRpc
     # Practitioner.
     FILEMAN_CONTEXT = "CIAV VUECENTRIC"
 
+    # The option that lists ORWPT CWAD (CWAD^ORWPT). Same option as
+    # Practitioner::ROLES_CONTEXT.
+    CWAD_CONTEXT = "OR CPRS GUI CHART"
+
     def find(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
 
@@ -139,12 +143,18 @@ module RpmsRpc
     # Composed from three RPCs:
     #   - BEHOPTCX PTINFO         (name, sex, DOB raw, MRN, primary provider name)
     #   - BEHOPTPC GETBDP         (designated primary provider — overrides if present)
-    #   - BEHOCACV CWAD           (Crises/Warnings/Allergies/Directives flags)
+    #   - ORWPT CWAD              (Crises/Warnings/Allergies/Directives flags)
+    #
+    # ORWPT CWAD is CWAD^ORWPT (formals Y,DFN). Only that fetch binds
+    # CWAD_CONTEXT and restores the caller's option; PTINFO and GETBDP stay
+    # on the caller's context. allergy_flag is A in the scalar and ad_flag
+    # is D. An empty scalar is both flags false.
     #
     # Returns nil for invalid (nil / zero / negative) DFNs and for unknown DFNs
     # (no PTINFO and no GETBDP response). A broker that does not serve one of
     # the three RPCs raises RpcNotAvailableError, one that serves it but not to
     # this user raises RpcRefusedError, and an M error raises RpcError (#363).
+    # A failed CWAD read raises the same way and is never turned into false flags.
     def brief_header(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
 
@@ -152,7 +162,9 @@ module RpmsRpc
       bdp    = DataMapper.patient_designated_provider.fetch_one(dfn.to_s)
       return nil if ptinfo.nil? && bdp.nil?
 
-      cwad = DataMapper.patient_cwad.fetch_scalar(dfn.to_s) || ""
+      cwad = ContextScope.scoped(RpmsRpc.client, CWAD_CONTEXT) do
+        DataMapper.patient_cwad.fetch_scalar(dfn.to_s)
+      end || ""
       dob  = FilemanDateParser.parse_date(ptinfo && ptinfo[:dob_raw])
       provider = (bdp && bdp[:provider_name]) || (ptinfo && ptinfo[:primary_provider])
 

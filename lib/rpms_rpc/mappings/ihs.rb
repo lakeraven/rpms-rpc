@@ -53,14 +53,6 @@ module RpmsRpc
       m.field 4, :date_raw
     end
 
-    # BEHOCACV CWAD — patient CWAD flags (scalar). Each letter present in
-    # the response indicates: C=Crises, W=Warnings, A=Allergies, D=Advance
-    # Directives. Empty string means none.
-    DataMapper.define(:patient_cwad) do |m|
-      m.rpc "BEHOCACV CWAD"
-      m.scalar :cwad
-    end
-
     # BEHOVM TEMPLATE — vital field definitions for a location (multi-line)
     # Format per line: IEN^DISPLAY_ORDER^NAME^ABBREV^UNITS^LOW^HIGH^PERCENTILE_RPC^REQUIRED^DISPLAY_ROW
     DataMapper.define(:vital_template) do |m|
