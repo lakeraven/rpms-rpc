@@ -159,8 +159,11 @@ class DdrFilemanTest < Minitest::Test
 
   # LISTC^DDR with XWBAPVER=1 (XwbClient RPC token "2\x011") uses V1^DDR
   # (DDR.m:15,31-43): optional "[Misc]" + "MORE^...", "[BEGIN_diDATA]" +
-  # packed rows, "[END_diDATA]", errors as "[BEGIN_diERRORS]".. — never a
-  # "[Data]" line. V0 (CIA broker, no APVER) keeps the "[Data]" marker.
+  # "[END_diDATA]", errors as "[BEGIN_diERRORS]".. — never a "[Data]" line.
+  # With FLAGS "P", diDATA rows are packed IEN^values; without "P", V1^DDR
+  # takes the UNPACKED path (DDR.m:39) and diDATA holds BEGIN_IENs /
+  # END_IENs / BEGIN_IDVALUES markers — not parseable as lister entries.
+  # V0 (CIA broker, no APVER) keeps the "[Data]" marker.
   def test_lister_parses_v1_begin_didata_rows_without_error
     key = Ddr.lister_param(file: "9000001").to_s
     @mock.seed(:ddr_lister, key, "[BEGIN_diDATA]\n12^PROVIDER\n15^ORES\n[END_diDATA]")
@@ -216,6 +219,32 @@ class DdrFilemanTest < Minitest::Test
 
     refute result[:error]
     assert_equal 2, result[:entries].length
+  end
+
+  # Reproduced LISTC^DDR with XWBAPVER=1, file 200.051, IENS ",2,", FIELDS
+  # "@;.01" (no "P" flag): UNPACKED diDATA must not be parsed as IEN^piece
+  # rows (would yield seven bogus entries and error: false, e.g. key "1").
+  def test_lister_flags_v1_unpacked_begin_iens_didata_as_error
+    key = Ddr.lister_param(file: "200.051", iens: ",2,", fields: "@;.01").to_s
+    @mock.seed(:ddr_lister, key,
+      "[BEGIN_diDATA]\nBEGIN_IENs\n885\nEND_IENs\nBEGIN_IDVALUES\n.01;^1\nBQIZMGR\nEND_IDVALUES\n[END_diDATA]")
+
+    result = Ddr.lister(file: "200.051", iens: ",2,", fields: "@;.01")
+
+    assert result[:error]
+    assert_empty result[:entries]
+  end
+
+  # UNPACKED empty lister answer with no data-section marker (still not a
+  # successful read under V1 APVER).
+  def test_lister_flags_v1_unpacked_empty_reply_without_data_marker_as_error
+    key = Ddr.lister_param(file: "9000001", fields: ".01").to_s
+    @mock.seed(:ddr_lister, key, "0^*^0^\n.01")
+
+    result = Ddr.lister(file: "9000001", fields: ".01")
+
+    assert result[:error]
+    assert_empty result[:entries]
   end
 
   # ==========================================================================
