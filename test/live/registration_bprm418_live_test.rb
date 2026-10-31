@@ -4,12 +4,13 @@ require_relative "live_helper"
 require "rpms_rpc/api/registration"
 require "rpms_rpc/api/ddr_fileman"
 
-# rpms-rpc#418 registration rows on a disposable build: SOGI and MBI writes
-# through Registration, read back through DDR; set_sex stays not supported.
+# rpms-rpc#418 registration rows on a disposable build: SOGI, MBI, and sex writes
+# through Registration, read back through DDR.
 class RegistrationBprm418LiveTest < LiveSpec::Test
   writes!
 
   DFN = 990_043
+  DFN_WITHOUT_9000001 = 98_765_432
   MBI = "1EG4TE5MK73"
   MBI_EFFECTIVE = Date.new(2030, 6, 1)
 
@@ -190,49 +191,67 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
            "field 2 SOURCE should be empty after a sourceless rewrite, got #{source.inspect}"
   end
 
-  def test_set_sex_is_not_supported_and_leaves_sex_and_eligibility_unchanged
+  def test_set_sex_updates_patient_sex_eligibility_gender_and_clears_ssn_verification
     patient_sex = read_field("2", "#{DFN},", ".02", "I")
     refute_nil patient_sex
     refute_empty patient_sex.to_s.strip
+
+    ssn_verification = read_field("9000001", "#{DFN},", ".23", "I")
+    refute_nil ssn_verification
+    ssn_was_blank = ssn_verification.to_s.strip.empty?
 
     insurer_ien = medicare_insurer_ien
     suffix_ien = first_medicare_suffix_ien
     mcr_ien, elig_ien = file_medicare_eligible!(insurer_ien: insurer_ien, suffix_ien: suffix_ien,
                                                 gender: patient_sex)
-    @restore = -> { purge_medicare_eligible(mcr_ien) }
-
     refute_nil mcr_ien
     refute_empty mcr_ien.to_s.strip
     refute_nil elig_ien
     refute_empty elig_ien.to_s.strip
 
-    mcr_row = RpmsRpc::DdrFileman.gets_entry(file: MCR_FILE, iens: "#{mcr_ien},", fields: ".01;.03", flags: "I")
-    refute_nil mcr_row, "DDR GETS ENTRY DATA gave no reply for #{MCR_FILE} #{mcr_ien}"
-    refute mcr_row[:error], "read failed for #{MCR_FILE} #{mcr_ien}: #{mcr_row.inspect}"
-    assert_equal DFN.to_s, mcr_row[:fields].dig(".01", :internal).to_s
-    assert_equal SYNTH_MEDICARE_NUMBER, mcr_row[:fields].dig(".03", :internal).to_s.strip
+    orig_sex = patient_sex.to_s
+    orig_ssn_verification = ssn_verification.to_s
+    @restore = lambda do
+      restore_rows = [
+        { file: "2", field: ".02", iens: "#{DFN},", value: orig_sex },
+        { file: "9000001", field: ".23", iens: "#{DFN},",
+          value: ssn_was_blank ? "@" : orig_ssn_verification }
+      ]
+      RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: restore_rows)
+      purge_medicare_eligible(mcr_ien)
+    end
 
-    elig_sex = read_field(MCR_ELIG_FILE, "#{elig_ien},#{mcr_ien},", ".08", "I")
-    refute_nil elig_sex
-    refute_empty elig_sex.to_s.strip
-    assert_equal patient_sex.to_s, elig_sex.to_s
-
-    attempt = patient_sex.to_s.strip.upcase == "M" ? "F" : "M"
-    result = Reg.set_sex(DFN, attempt)
-
-    refute result[:success]
-    assert_equal :not_supported, result[:error]
-    assert_match(/SEXELIG\^AGUTL/i, result[:message])
+    other_sex = orig_sex.strip.upcase == "M" ? "F" : "M"
+    result = Reg.set_sex(DFN, other_sex)
+    assert result[:success], result.inspect
 
     after_patient_sex = read_field("2", "#{DFN},", ".02", "I")
     refute_nil after_patient_sex
     refute_empty after_patient_sex.to_s.strip
-    assert_equal patient_sex, after_patient_sex
+    assert_equal other_sex, after_patient_sex.to_s.strip.upcase
 
     after_elig_sex = read_field(MCR_ELIG_FILE, "#{elig_ien},#{mcr_ien},", ".08", "I")
     refute_nil after_elig_sex
     refute_empty after_elig_sex.to_s.strip
-    assert_equal elig_sex, after_elig_sex
+    assert_equal other_sex, after_elig_sex.to_s.strip.upcase
+
+    return if ssn_was_blank
+
+    after_ssn_verification = read_field("9000001", "#{DFN},", ".23", "I")
+    refute_nil after_ssn_verification
+    assert_empty after_ssn_verification.to_s.strip,
+                 "expected #9000001 .23 cleared after sex change when it was non-blank"
+  end
+
+  def test_mbis_raises_for_a_dfn_with_no_9000001_entry
+    got = RpmsRpc::DdrFileman.gets_entry(file: "9000001", iens: "#{DFN_WITHOUT_9000001},",
+                                         fields: ".01", flags: "I")
+    refute_nil got, "DDR GETS ENTRY DATA gave no reply for #9000001 #{DFN_WITHOUT_9000001}"
+    if !got[:error] && !got[:fields].dig(".01", :internal).to_s.strip.empty?
+      flunk "live build has #9000001 for DFN #{DFN_WITHOUT_9000001}; pick another absent DFN"
+    end
+
+    assert_raises(RpmsRpc::Client::RpcError) { Reg.mbis(DFN_WITHOUT_9000001) }
   end
 
   def teardown

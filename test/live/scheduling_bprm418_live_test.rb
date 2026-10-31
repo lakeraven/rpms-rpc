@@ -15,24 +15,37 @@ class SchedulingBprm418LiveTest < LiveSpec::Test
   HOLIDAY_NAME = "LIVESPEC-418 HOLIDAY"
 
   def test_add_holiday_lists_in_holidays_and_remove_clears_it
-    range = (HOLIDAY_DATE - 1)..(HOLIDAY_DATE + 1)
-    @restore = -> { RpmsRpc::SchedulingSetup.remove_holiday(HOLIDAY_DATE) }
+    chosen_date = nil
+    60.times do |offset|
+      candidate = HOLIDAY_DATE + offset
+      range = (candidate - 1)..(candidate + 1)
+      listed = RpmsRpc::SchedulingSetup.holidays(start_date: range.begin, end_date: range.end) || []
+      next if listed.any? { |h| h[:date] == candidate }
 
-    assert RpmsRpc::SchedulingSetup.add_holiday(date: HOLIDAY_DATE, name: HOLIDAY_NAME)[:success]
+      chosen_date = candidate
+      break
+    end
+    flunk "no holiday-free date within 60 days of #{HOLIDAY_DATE}" unless chosen_date
 
+    assert RpmsRpc::SchedulingSetup.add_holiday(date: chosen_date, name: HOLIDAY_NAME)[:success]
+    @restore = -> { RpmsRpc::SchedulingSetup.remove_holiday(chosen_date) }
+
+    range = (chosen_date - 1)..(chosen_date + 1)
     listed = RpmsRpc::SchedulingSetup.holidays(start_date: range.begin, end_date: range.end)
-    row = listed.find { |h| h[:date] == HOLIDAY_DATE }
+    row = listed.find { |h| h[:date] == chosen_date }
     assert row, "holiday not listed: #{listed.inspect}"
     assert_equal HOLIDAY_NAME, row[:name]
 
-    assert RpmsRpc::SchedulingSetup.remove_holiday(HOLIDAY_DATE)[:success]
+    assert RpmsRpc::SchedulingSetup.remove_holiday(chosen_date)[:success]
     assert_nil RpmsRpc::SchedulingSetup.holidays(start_date: range.begin, end_date: range.end)
-      .find { |h| h[:date] == HOLIDAY_DATE }
+      .find { |h| h[:date] == chosen_date }
   end
 
   def test_undo_checkin_clears_the_check_in_time_on_the_appointment
+    cancel_reason = cancellation_reason_ien
     start, appt_ien = book_somewhere_open
     refute_nil appt_ien, "booking did not return an appointment id"
+    register_cleanup(-> { RpmsRpc::Scheduling.cancel_appointment(appt_ien, reason: cancel_reason) })
 
     checkin = RpmsRpc::Scheduling.checkin_appointment(appt_ien, checkin_time: start)
     assert checkin && checkin[:success], "check-in failed: #{checkin.inspect}"
@@ -44,12 +57,34 @@ class SchedulingBprm418LiveTest < LiveSpec::Test
   end
 
   def teardown
+    failures = []
+    @cleanups&.each do |cleanup|
+      result = cleanup.call
+      failures << "cleanup failed: #{result.inspect}" if result.is_a?(Hash) && result[:success] != true
+    rescue StandardError => e
+      failures << e.full_message(highlight: false).strip
+    end
     @restore&.call if client
   ensure
     super
+    flunk("teardown cleanup failures:\n#{failures.join("\n\n")}") unless failures.empty?
   end
 
   private
+
+  def register_cleanup(cleanup)
+    @cleanups ||= []
+    @cleanups << cleanup
+  end
+
+  def cancellation_reason_ien
+    listed = RpmsRpc::DdrFileman.lister(file: "409.2", fields: ".01", flags: "IP", max: 5)
+    flunk "DDR LISTER gave no reply for #409.2 cancellation reasons" if listed.nil?
+    flunk "DDR LISTER failed for #409.2: #{listed.inspect}" if listed[:error]
+    flunk "no #409.2 cancellation reason entries on this build" if listed[:entries].empty?
+
+    listed[:entries].first[:ien].to_i
+  end
 
   def book_somewhere_open
     40.times do
