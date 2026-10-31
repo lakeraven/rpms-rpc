@@ -9,13 +9,13 @@ require "rpms_rpc/retry_safety"
 require "rpms_rpc/api/order"
 
 # rpms-rpc#456: Order.sign_and_release over ORWU VALIDSIG then ORWDX SEND
-# (SEND^ORWDX → SEND1^ORWDX → EN^ORCSEND; FOIA-RPMS ORWDX.m:152-178).
+# (SEND^ORWDX → SEND1^ORWDX → EN^ORCSEND; pinned-build ORWDX.m:168-193).
 #
-# Broker formals SEND(ORWLST,DFN,ORNP,ORL,ES,ORWREC) (ORWDX.m:152-154):
+# Broker formals SEND(ORWLST,DFN,ORNP,ORL,ES,ORWREC) (ORWDX.m:168-170):
 # ES is the encrypted signature code; ORWREC(n)=ORIFN;Action^Signature Sts^
-# Release Sts^Nature (comment ORWDX.m:154). CHKACT^ORWDXR validates
+# Release Sts^Nature (comment ORWDX.m:170). CHKACT^ORWDXR validates
 # ORWSIG/ORWREL/ORWNATR before EN^ORCSEND (ORWDXR.m:87-98). Reply piece 2
-# is built at ORWDX.m:172-176 ("R" when released, "S" when ORWSIG'=2).
+# is built at ORWDX.m:189-193 ("R" when released, "S" when ORWSIG'=2).
 # Per-order status: :released (piece 2 exactly "RS"), :signed (exactly "S"),
 # :rejected (nothing sent: bad args, blank signature, VALIDSIG not "1"),
 # :unknown (SEND ran but outcome is not provable: bad/missing reply rows,
@@ -64,7 +64,7 @@ class OrderSignAndReleaseTest < Minitest::Test
     assert_equal SIG_CODE, RpmsRpc::XwbCipher.decrypt(valid[:params][0])
 
     send = calls[1]
-    assert_equal 5, send[:params].length, "SEND(ORWLST,DFN,ORNP,ORL,ES,ORWREC) (ORWDX.m:152)"
+    assert_equal 5, send[:params].length, "SEND(ORWLST,DFN,ORNP,ORL,ES,ORWREC) (ORWDX.m:168)"
     assert_equal DFN, send[:params][0]
     assert_equal PROVIDER_DUZ, send[:params][1]
     assert_equal LOCATION, send[:params][2]
@@ -86,7 +86,7 @@ class OrderSignAndReleaseTest < Minitest::Test
     assert_equal "349", send[:params][2]
   end
 
-  # --- reply parsing (ORWLST / ORWDX.m:172-176) --------------------------------
+  # --- reply parsing (ORWLST / ORWDX.m:189-193) --------------------------------
 
   def test_sign_and_release_released_only_when_piece_two_exactly_rs
     with_sign_release_wire(validsig: "1", send: [ "#{ORDER_ONE}^RS", "#{ORDER_TWO}^RS" ])
@@ -330,10 +330,11 @@ class OrderSignAndReleaseTest < Minitest::Test
     assert_match(/may already be signed/i, results.first[:reason])
   end
 
-  # SEND^ORWDX ignores its ES and ORNP arguments and signs as the SESSION user
-  # (FOIA ORWDX.m:152-178, ORCSEND.m:8); VALIDSIG checks the session user's own
-  # code (ORWU.m:103-106). A provider_duz other than the signed-on DUZ would
-  # have the order signed by someone else and reported as the provider's.
+  # SEND^ORWDX never reads ES (pinned build ORWDX.m:168-193) and signs as the
+  # SESSION user (ORCSEND.m:9); ORNP matters only to DC children. VALIDSIG
+  # checks the session user's own code (ORWU.m:103-106). A provider_duz other
+  # than the signed-on DUZ would have the order signed by someone else and
+  # reported as the provider's.
   def test_sign_and_release_rejects_a_provider_duz_that_is_not_the_signed_on_session_user
     client = with_sign_release_wire(validsig: "1", send: [ "#{ORDER_ONE}^RS" ])
     client.define_singleton_method(:duz) { "302" }
