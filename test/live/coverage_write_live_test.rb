@@ -7,9 +7,10 @@ require "rpms_rpc/api/coverage"
 # Live write/read/delete for Medicare and Medicaid coverage on a synthetic patient
 # reserved for this spec (rpms-rpc#382). Private insurance is out of scope.
 #
-# Contract (panel round 1): row-scoped deletes; delete_medicare_record after the
+# Contract (panel round 2): row-scoped deletes; delete_medicare_record after the
 # eligibility row is gone; Medicaid delete is one row (server drops empty records);
-# CMS example MBI 1EG4TE5MK73; every delete verified on FileMan, not only BQI.
+# CMS example MBI 1EG4TE5MK73; FileMan subfile IENS are child-first (mien,dfn,);
+# assert row present before each delete, then gone after.
 class CoverageWriteLiveTest < LiveSpec::Test
   writes!
 
@@ -56,11 +57,17 @@ class CoverageWriteLiveTest < LiveSpec::Test
       refute m4[:error], "no #9000004 IEN #{mcd[:record_ien]}"
       assert_equal DFN.to_s, m4.dig(:fields, ".01", :internal), "#9000004 .01 points at patient"
 
+      assert medicare_eligibility_row_exists?(mcr[:mien]),
+             "Medicare eligibility IEN #{mcr[:mien]} missing on FileMan before row delete"
+
       del_mcr = RpmsRpc::Coverage.delete_medicare(DFN, eligibility_mien: mcr[:mien], client: client)
       assert del_mcr[:success], "Medicare eligibility delete failed: #{del_mcr.inspect}"
       refute medicare_eligibility_row_exists?(mcr[:mien]),
              "Medicare eligibility IEN #{mcr[:mien]} still on FileMan after row delete"
       assert medicare_header_exists?, "Medicare header should remain until delete_medicare_record"
+
+      assert medicaid_eligibility_row_exists?(mcd[:record_ien], mcd[:multiple_ien]),
+             "Medicaid eligibility IEN #{mcd[:multiple_ien]} missing before row delete"
 
       del_mcd = RpmsRpc::Coverage.delete_medicaid(DFN, record_ien: mcd[:record_ien],
                                                   eligibility_mien: mcd[:multiple_ien], client: client)
@@ -93,7 +100,13 @@ class CoverageWriteLiveTest < LiveSpec::Test
   end
 
   def medicare_eligibility_row_exists?(mien)
-    got = RpmsRpc::DdrFileman.gets_entry(file: MEDICARE_ELIG_FILE, iens: "#{DFN},#{mien},",
+    got = RpmsRpc::DdrFileman.gets_entry(file: MEDICARE_ELIG_FILE, iens: "#{mien},#{DFN},",
+                                         fields: ".01", flags: "I")
+    !got[:error] && got.dig(:fields, ".01", :internal).to_s != ""
+  end
+
+  def medicaid_eligibility_row_exists?(record_ien, multiple_ien)
+    got = RpmsRpc::DdrFileman.gets_entry(file: "9000004.11", iens: "#{multiple_ien},#{record_ien},",
                                          fields: ".01", flags: "I")
     !got[:error] && got.dig(:fields, ".01", :internal).to_s != ""
   end
