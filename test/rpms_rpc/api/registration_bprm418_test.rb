@@ -268,7 +268,8 @@ class RegistrationBprm418Test < Minitest::Test
       define_method(:call_rpc) do |rpc_name, *params|
         if rpc_name == "DDR FILER" && params.first.to_s == "EDIT" && !queue.empty?
           next_reply = queue.shift
-          received_calls << { rpc: rpc_name, params: MockClient::RecordedParams.new(params), context: current_context }
+          recorded = RpmsRpc::MockClient.const_get(:RecordedParams)
+          received_calls << { rpc: rpc_name, params: recorded.new(params), context: current_context }
           return "" if next_reply.nil?
 
           return next_reply.is_a?(Array) ? next_reply.join("\n") : next_reply.to_s
