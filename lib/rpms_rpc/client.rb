@@ -512,22 +512,35 @@ module RpmsRpc
     # bound option then disagreed, and a later with_context for the stale
     # name saw a match and SKIPPED the rebind — RPCs ran under the other
     # thread's option. Same defect class as committing @duz after the lock.
+    #
+    # A refused or failed bind leaves @current_context nil (unknown) before
+    # the error propagates, still under this lock. CRCONTXT^XWBSEC kills
+    # XQY0 and XQY before it answers, so the session has no context; keeping
+    # the old name would make a later with_context for that name skip the
+    # rebind. ContextScope#with_context then re-binds the caller's previous
+    # context (scope entry or nested). If that restore is refused too,
+    # current_context stays nil. XwbClient and BmxClient use this method.
+    # CiaClient binds on the client and does not share this path.
     def create_context(option_name = "OR CPRS GUI CHART")
       synchronize_wire do
         raise ConnectionError, "Not connected" unless connected?
         raise AuthenticationError, "Not authenticated" unless authenticated?
 
         encrypted = xwb_encrypt(option_name)
-        reply = call_rpc_raw("XWB CREATE CONTEXT", encrypted)
+        begin
+          reply = call_rpc_raw("XWB CREATE CONTEXT", encrypted)
+          unless reply&.strip == "1"
+            raise RpcError, RpmsRpc.sanitize_error(
+              "Failed to create context '#{option_name}': #{reply}"
+            )
+          end
 
-        unless reply&.strip == "1"
-          raise RpcError, RpmsRpc.sanitize_error(
-            "Failed to create context '#{option_name}': #{reply}"
-          )
+          @current_context = option_name # ContextScope — lets APIs scope + restore
+          true
+        rescue StandardError
+          @current_context = nil
+          raise
         end
-
-        @current_context = option_name # ContextScope — lets APIs scope + restore
-        true
       end
     end
 

@@ -90,14 +90,42 @@ module RpmsRpc
       # a nil context is the one state from which nothing can be restored.
       @current_context = DEFAULT_CONTEXT
       @wire_lock = Monitor.new
+      # Nobody is signed on until #set_authenticated, same as Client.
+      @authenticated = false
+      @duz = nil
     end
 
     # Every context bound through this client, in order — including the
     # restore. Lets a test prove a bind happened AND was undone.
     attr_reader :context_binds
 
+    # Signed-on identity, mirroring Client (rpms-rpc#521). A fresh mock's
+    # #duz is nil. #set_authenticated records the DUZ; #clear_authenticated
+    # forgets it. There is still no create_context gate on this mock.
+    def authenticated?
+      @authenticated
+    end
+
+    def set_authenticated(duz)
+      @authenticated = true
+      @duz = duz
+    end
+
+    def clear_authenticated
+      @authenticated = false
+      @duz = nil
+    end
+
+    def duz
+      @duz
+    end
+
     # Bind a context (no broker). Raises Client::RpcError for a context marked
-    # unbindable, so the fail-safe path can be tested.
+    # unbindable, or one the pinned context surface refuses, so the fail-safe
+    # path can be tested. A refused bind clears @current_context before the
+    # error propagates, same as Client#create_context. ContextScope#with_context
+    # then re-binds the caller's previous context; if that is refused too,
+    # current_context stays nil.
     def create_context(option_name = "OR CPRS GUI CHART")
       if @unbindable_contexts.include?(option_name)
         raise RpmsRpc::Client::RpcError, "context '#{option_name}' is not available"
@@ -109,6 +137,9 @@ module RpmsRpc
       @context_binds << option_name
       @current_context = option_name
       true
+    rescue StandardError
+      @current_context = nil
+      raise
     end
 
     # Make `option_name` refuse to bind — the broker-side "you may not hold

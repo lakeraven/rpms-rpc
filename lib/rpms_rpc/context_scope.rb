@@ -53,9 +53,14 @@ module RpmsRpc
     # but it warns, because the next API to run on this session will run under
     # `option_name` rather than wherever the caller thought it was.
     #
-    # Either way `current_context` keeps naming the option actually bound, so
-    # the next scope re-binds from a truthful starting point rather than
-    # assuming.
+    # A refused bind (scope entry or nested) re-binds the caller's previous
+    # context. That re-bind is `create_context(previous)`: on XWB/BMX a real
+    # XWB CREATE CONTEXT, which is how the session recovers after
+    # CRCONTXT^XWBSEC has killed the broker context. If that restore is
+    # refused too, `current_context` is nil (`Client#create_context` clears
+    # it on failure) and the next scope re-binds from a truthful starting
+    # point rather than assuming the old name.
+    #
     # Held under the client's wire lock for its WHOLE duration, bind through
     # restore. The bound option is per-session state that the broker consults
     # on every frame, so a scope that only locked its individual calls let
@@ -76,8 +81,16 @@ module RpmsRpc
           warn "[rpms_rpc] binding context #{option_name.inspect} on a session " \
                "with no declared context — it cannot be restored afterward"
         end
-        create_context(option_name)
+        # The entry bind is inside the ensure so a refusal still restores.
+        # create_context raises without running the block. On XWB/BMX a
+        # refused CREATE CONTEXT has already killed the broker context and
+        # cleared current_context. The ensure re-binds `previous` when it
+        # is known and differs from option_name. A nested refusal is the
+        # same shape one level up: the outer ensure calls
+        # create_context(previous) even though the inner failure left
+        # current_context nil along the way.
         begin
+          create_context(option_name)
           block.call
         ensure
           restore_context(previous, option_name)
@@ -96,6 +109,11 @@ module RpmsRpc
     def restore_context(previous, scoped)
       return if previous.nil? || previous == scoped
 
+      # Always attempt the re-bind. A refused inner bind leaves
+      # current_context nil; skipping the restore there would leave the
+      # session with no context. create_context(previous) is the recovery.
+      # If this bind is refused too, the rescue warns and current_context
+      # stays nil.
       create_context(previous)
     rescue StandardError => e
       warn "[rpms_rpc] could not restore context #{previous.inspect} " \

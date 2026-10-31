@@ -624,6 +624,24 @@ module RpmsRpc
         parse_lines(response, extras: extras)
       end
 
+      # Data lines of a reply, the normalisation #normalize_line applies, all
+      # of them. Trailing $C(30)/$C(31) are removed. An Array also drops empty
+      # lines and recordset header rows; a String is one line, which is how a
+      # scalar reply arrives (MockClient#call_rpc returns one). [] when there
+      # is nothing. Public so a caller can require an exact raw line instead
+      # of the scalar coercion, which turns any other text into true or false.
+      def normalized_lines(response)
+        return [] if response.nil?
+        return [] if response.is_a?(String) && response.empty?
+
+        if response.is_a?(Array)
+          response.map { |line| DataMapper.strip_recordset_separators(line) }
+                  .reject { |line| line.empty? || DataMapper.recordset_header_row?(line) }
+        else
+          [ DataMapper.strip_recordset_separators(response) ]
+        end
+      end
+
       private
 
       def format_value(val, type)
@@ -663,19 +681,10 @@ module RpmsRpc
       end
 
       # First DATA line of a response: recordset header rows and $C(30)/$C(31)
-      # separators (see RECORDSET_SEPARATORS) are not data.
+      # separators (see RECORDSET_SEPARATORS) are not data. nil when there is
+      # none. See #normalized_lines for every such line.
       def normalize_line(response)
-        return nil if response.nil?
-        return nil if response.is_a?(String) && response.empty?
-
-        if response.is_a?(Array)
-          return response.lazy
-                         .map { |l| DataMapper.strip_recordset_separators(l) }
-                         .reject { |l| l.empty? || DataMapper.recordset_header_row?(l) }
-                         .first
-        end
-
-        DataMapper.strip_recordset_separators(response)
+        normalized_lines(response).first
       end
 
       def coerce(raw, type)
