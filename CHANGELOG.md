@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `BehavioralHealth.save_visit` files a BH visit through AMHG SAVE VISIT (#536)
+
+- `RpmsRpc::BehavioralHealth.save_visit` wraps stock `AMHG SAVE VISIT` (`VISIT^AMHGSVF`). It adds a BH VISIT (#9002011) or edits one when `record_ien` is given. The reply is the record IEN. An edit reply that echoes the requested IEN does not prove the edit was filed: `MODV^AMHGEVF` returns that IEN even when `FILE^DIE` fails.
+- A blank `record_ien` is refused before the call, because mode E with a blank IEN becomes an add. Program and appointment/walk-in values outside the filed sets are refused, because `$$SCI^AMHGT` stores them as blank. Arrival time is not a parameter. Group time and activity time require a group name. `SaveError` does not include values the caller passed.
+
 ### Changed — `ProgressNote.update_text` wraps long lines before TIU SET DOCUMENT TEXT (#479)
 
 - A line longer than `wrap_width` bytes (default `ProgressNote::WRAP_WIDTH`, 80; an Integer from 4 to 999) is cut into consecutive `TIUX("TEXT",n,0)` pieces. The break is the last space or tab past the leading indentation and at a byte offset within the width; that one character is dropped. Otherwise the cut is the last UTF-8 character boundary within the width and nothing is dropped. Lines that fit, including blank lines, are unchanged. **This changes how the note is laid out in the chart.** Rejoining the pieces with the dropped character restores the line. Joined with a single space, a tab at a cut reads back as a space, and a space or tab cut at the very end of a line is dropped. Non-whitespace is never dropped or changed. Indentation is not repeated on continuation pieces; an indent wider than the width is itself hard-cut.

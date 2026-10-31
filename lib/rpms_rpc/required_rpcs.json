@@ -53,7 +53,8 @@
       "AMHG GET VISIT INFORMATION",
       "AMHG GET VISIT SCREENING",
       "AMHG GET VISIT SOAP",
-      "AMHG GET VISITS"
+      "AMHG GET VISITS",
+      "AMHG SAVE VISIT"
     ],
     "RpmsRpc::BehavioralHealth::CaseManagement": [
       "AMHG GET CASE DATES",

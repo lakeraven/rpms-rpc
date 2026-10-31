@@ -598,12 +598,14 @@ class BehavioralHealthTest < Minitest::Test
   # Wire#call_amhg, so that is where AMHGRPC is bound and the caller's option
   # restored, as RpmsRpc::Agg does for AGGRPC.
 
-  # Arguments that let every public method reach the wire. Nothing is seeded:
-  # the mock answers "" and still records the call with its context.
+  # Arguments that let every public method reach the wire. Reads are
+  # unseeded: the mock answers "" and still records the call. save_visit
+  # is seeded, because an empty reply raises SaveError after the RPC.
   AMHG_CALLS = {
     BH => {
       visits: [ 100, { from: "3250101", to: "3251231" } ],
       visit_information: [ 8801 ],
+      save_visit: [ { provider: "412", encounter_date: "3251031", patient: "100" } ],
       visit_activity: [ 8801 ],
       visit_axis_ii: [ 8801 ],
       visit_axis_iv: [ 8801 ],
@@ -662,6 +664,13 @@ class BehavioralHealthTest < Minitest::Test
     end
   end
 
+  # The save_visit row of AMHG_CALLS: required-only add, 16 pieces, blank
+  # arrival in piece 7, date in piece 8.
+  def seed_context_save_visit(mock)
+    wire = "A||412|||||3251031||||100||||"
+    mock.seed_text(:amhg_save_visit, wire, "T00010BMXIEN#{RS}8801#{RS}#{US}")
+  end
+
   def test_every_amhg_call_runs_under_amhgrpc_and_restores_the_callers_context
     AMHG_CALLS.each do |mod, table|
       table.each do |method, args|
@@ -669,6 +678,7 @@ class BehavioralHealthTest < Minitest::Test
         caller_context = mock.current_context
         positional = args.reject { |a| a.is_a?(Hash) }
         keywords = args.find { |a| a.is_a?(Hash) } || {}
+        seed_context_save_visit(mock) if mod == BH && method == :save_visit
 
         mod.public_send(method, *positional, **keywords)
 

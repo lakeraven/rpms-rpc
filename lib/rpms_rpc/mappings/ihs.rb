@@ -1112,6 +1112,20 @@ module RpmsRpc
       m.field 10, :visit
       m.field 11, :ehr_flag
     end
+
+    # AMHG SAVE VISIT — VISIT^AMHGSVF (AMHGSVF.m:11-45). One param, the
+    # 16-piece AMHSTR. The reply is a GLOBAL ARRAY: header T00010BMXIEN,
+    # then +AMHIEN (AMHGSVF.m:41-44).
+    #
+    # :ien stays a string. MERR^AMHGU writes one data row
+    # "M ERROR|<text>" $C(30) (AMHGU.m:108-120). An integer field would
+    # coerce that row to 0, the same value an add failure files
+    # (AMHGEVF.m:106-108).
+    DataMapper.define(:amhg_save_visit) do |m|
+      m.rpc "AMHG SAVE VISIT"
+      m.field 0, :ien, :string
+    end
+
     # -- Visit detail tabs (AMHGDVF unless noted) -----------------------------
     # All take one param: the visit IEN. All emit a typed header + $C(30)-
     # separated rows + a bare $C(31). Single-column responses carry FREE TEXT
