@@ -273,21 +273,21 @@ class RegistrationBprm418Test < Minitest::Test
     assert_no_filer_or_lister
   end
 
-  def test_set_gender_identity_returns_lookup_failed_when_a_value_code_read_fails
-    seed_gets(file: GI_CODE_FILE, iens: "#{GI_VALUE_IEN},", fields: "1", text: "[ERROR]")
+  def test_set_gender_identity_refuses_when_a_value_code_read_returns_error
+    seed_code_field1_error(GI_CODE_FILE, GI_VALUE_IEN)
 
     result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], date: ROW_DATE)
 
-    assert_registration_failure(result, error: :lookup_failed)
+    assert_registration_failure(result, error: :invalid)
     assert_no_filer_or_lister
   end
 
-  def test_set_gender_identity_returns_lookup_failed_when_other_code_read_fails
-    seed_gets(file: GI_CODE_FILE, iens: "#{GI_OTHER_IEN},", fields: "1", text: "[ERROR]")
+  def test_set_gender_identity_refuses_when_other_gate_code_read_returns_error
+    seed_code_field1_error(GI_CODE_FILE, GI_OTHER_IEN)
 
     result = Reg.set_gender_identity(DFN, values: [ GI_OTHER_IEN ], other: "self-described", date: ROW_DATE)
 
-    assert_registration_failure(result, error: :lookup_failed)
+    assert_registration_failure(result, error: :invalid)
     assert_no_filer_or_lister
   end
 
