@@ -132,29 +132,50 @@ module RpmsRpc
       Registration.update(dfn, **attrs)
     end
 
+    # Field 0 of the BEHOPTPC GETBDP row that names the designated primary
+    # provider. Compared exactly after surrounding whitespace is stripped.
+    DESIGNATED_PRIMARY_PROVIDER_LABEL = "DESIGNATED PRIMARY PROVIDER"
+
     # Chart-banner projection per issue #60 contract:
     #
     #   { name:, dob:, sex:, mrn:, age:, allergy_flag:, ad_flag:, primary_provider: }
     #
     # Composed from three RPCs:
     #   - BEHOPTCX PTINFO         (name, sex, DOB raw, MRN, primary provider name)
-    #   - BEHOPTPC GETBDP         (designated primary provider — overrides if present)
+    #   - BEHOPTPC GETBDP         (one row per designated-provider category,
+    #                              alphabetical)
     #   - BEHOCACV CWAD           (Crises/Warnings/Allergies/Directives flags)
     #
-    # Returns nil for invalid (nil / zero / negative) DFNs and for unknown DFNs
-    # (no PTINFO and no GETBDP response). A broker that does not serve one of
-    # the three RPCs raises RpcNotAvailableError, one that serves it but not to
-    # this user raises RpcRefusedError, and an M error raises RpcError (#363).
+    # :primary_provider is the GETBDP row whose label (field 0), compared
+    # exactly after surrounding whitespace is stripped, is
+    # DESIGNATED_PRIMARY_PROVIDER_LABEL. When there is no such row, or its
+    # provider name is blank (only [[:space:]], including U+00A0), the PTINFO
+    # primary provider is used. The GETBDP read fails closed — nothing is
+    # parsed, the PTINFO primary provider is used, and it does not raise —
+    # when Reply.altered? is true, or when a line parse_many would parse is
+    # not valid UTF-8, or still contains a C0 control or U+FFFD after leading
+    # spaces and C0 controls are stripped, or is an error row. Those lines are
+    # the Array elements, or a String split on /\r?\n/. $C(30) and $C(31)
+    # still cannot hide an error row.
+    #
+    # Returns nil for an invalid (nil / zero / negative) DFN, and when PTINFO
+    # gives nothing unless a usable designated primary provider name was
+    # found. A broker that does not serve one of the three RPCs raises
+    # RpcNotAvailableError, one that serves it but not to this user raises
+    # RpcRefusedError, and an M error raises RpcError (#363).
     def brief_header(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
 
-      ptinfo = DataMapper.patient_ptinfo.fetch_one(dfn.to_s)
-      bdp    = DataMapper.patient_designated_provider.fetch_one(dfn.to_s)
-      return nil if ptinfo.nil? && bdp.nil?
+      ptinfo   = DataMapper.patient_ptinfo.fetch_one(dfn.to_s)
+      bdp_rows = designated_provider_rows(dfn)
+      designated = bdp_rows.find { |row| row[:label].to_s.strip == DESIGNATED_PRIMARY_PROVIDER_LABEL }
+      name = designated && designated[:provider_name]
+      name = nil if name.nil? || name.match?(/\A[[:space:]]*\z/)
+      return nil if ptinfo.nil? && name.nil?
 
       cwad = DataMapper.patient_cwad.fetch_scalar(dfn.to_s) || ""
       dob  = FilemanDateParser.parse_date(ptinfo && ptinfo[:dob_raw])
-      provider = (bdp && bdp[:provider_name]) || (ptinfo && ptinfo[:primary_provider])
+      provider = name || (ptinfo && ptinfo[:primary_provider])
 
       {
         name:             ptinfo && ptinfo[:name],
@@ -478,6 +499,45 @@ module RpmsRpc
     private :age_from
 
     private
+
+    # BEHOPTPC GETBDP rows for the chart banner, from one call. nil or an
+    # empty reply is no rows. An altered reply, invalid UTF-8, a C0 control
+    # or U+FFFD left after leading framing is stripped, or an error row fails
+    # the read so nothing is parsed. Otherwise the mapping parses it.
+    def designated_provider_rows(dfn)
+      mapping = DataMapper.patient_designated_provider
+      response = RpmsRpc.client.call_rpc(mapping.rpc_name, dfn.to_s)
+      return [] if response.nil? || response == "" || (response.is_a?(Array) && response.empty?)
+      return [] if designated_provider_error_reply?(response)
+
+      mapping.parse_many(response)
+    end
+
+    # True when this reply must not be parsed. Clients hand back a Reply or
+    # Reply::Text that has already replaced invalid bytes, so altered? fails
+    # the read even though the text is valid UTF-8. Otherwise each line
+    # parse_many would parse — an Array element as given, or a String split
+    # on /\r?\n/ — fails the read when a duplicate force-encoded to UTF-8 is
+    # not valid, or when, after leading spaces and C0 controls are stripped,
+    # a C0 control or U+FFFD remains, or DataMapper.error_row? matches. The
+    # split is binary so an invalid sequence does not raise, and the reply is
+    # not mutated. A lone CR is not a line break. $C(30) and $C(31) are C0
+    # controls: a leading run is framing, and one left in the line fails the
+    # read, so an error row they separate is still rejected.
+    def designated_provider_error_reply?(response)
+      return true if Reply.altered?(response)
+
+      lines = response.is_a?(Array) ? response : response.b.split(/\r?\n/n)
+      lines.any? do |line|
+        next false unless line.is_a?(String)
+
+        utf8 = line.dup.force_encoding(Encoding::UTF_8)
+        next true unless utf8.valid_encoding?
+
+        stripped = utf8.sub(/\A[ \x00-\x1F]+/, "")
+        stripped.match?(/[\x00-\x1F\uFFFD]/) || DataMapper.error_row?(stripped)
+      end
+    end
 
     # LISTALL^ORWPT pages with $ORDER, which answers the name AFTER the text it
     # is given, so the exact name sent as-is is the one name the page leaves
