@@ -189,4 +189,66 @@ class PatientDesignatedProviderTest < Minitest::Test
 
     assert_equal "PROVIDER,DESIGNATED", header[:primary_provider]
   end
+
+  # Empty PTINFO means unknown patient; GETBDP alone must not yield a nil-field header.
+  def test_brief_header_nil_when_ptinfo_empty_and_getbdp_cannot_establish_presence
+    client_case_only = BriefHeaderClient.new(
+      ptinfo_line: "",
+      getbdp_lines: [ bdp_row("CASE MANAGER", "MANAGER,CASE") ]
+    )
+    assert_nil brief_header(client_case_only)
+
+    client_dpp_blank_name = BriefHeaderClient.new(
+      ptinfo_line: "",
+      getbdp_lines: [ bdp_row("DESIGNATED PRIMARY PROVIDER", "") ]
+    )
+    assert_nil brief_header(client_dpp_blank_name)
+  end
+
+  # $C(31) unit separator must not hide a trailing error row; treat GETBDP as failed read.
+  def test_brief_header_falls_back_to_ptinfo_when_error_row_follows_unit_separator
+    dpp = bdp_row("DESIGNATED PRIMARY PROVIDER", "PROVIDER,DESIGNATED")
+
+    client_string = BriefHeaderClient.new(
+      ptinfo_line: ptinfo_line(primary_provider: "PROVIDER,PTINFO"),
+      getbdp_lines: "\x1f\n-1^boom\n#{dpp}"
+    )
+    assert_equal "PROVIDER,PTINFO", brief_header(client_string)[:primary_provider]
+
+    client_array = BriefHeaderClient.new(
+      ptinfo_line: ptinfo_line(primary_provider: "PROVIDER,PTINFO"),
+      getbdp_lines: [ "#{dpp}\x1f-1^boom" ]
+    )
+    assert_equal "PROVIDER,PTINFO", brief_header(client_array)[:primary_provider]
+  end
+
+  # Invalid UTF-8 on a sibling row must not raise; fail closed to PTINFO primary.
+  def test_brief_header_survives_invalid_utf8_among_getbdp_rows
+    bad_line = "CASE MANAGER^M\xC9NDEZ,X^5^^".b.force_encoding(Encoding::UTF_8)
+    getbdp = [
+      bdp_row("DESIGNATED PRIMARY PROVIDER", "PROVIDER,DESIGNATED"),
+      bad_line
+    ]
+    client = BriefHeaderClient.new(
+      ptinfo_line: ptinfo_line(primary_provider: "PROVIDER,PTINFO"),
+      getbdp_lines: getbdp
+    )
+
+    header = brief_header(client)
+
+    assert_equal "PROVIDER,PTINFO", header[:primary_provider]
+  end
+
+  # NBSP-only provider name is not a real designation; use PTINFO primary like ASCII blank.
+  def test_brief_header_falls_back_to_ptinfo_when_designated_primary_name_is_nbsp_only
+    getbdp = [ bdp_row("DESIGNATED PRIMARY PROVIDER", "\u00A0") ]
+    client = BriefHeaderClient.new(
+      ptinfo_line: ptinfo_line(primary_provider: "PROVIDER,PTINFO"),
+      getbdp_lines: getbdp
+    )
+
+    header = brief_header(client)
+
+    assert_equal "PROVIDER,PTINFO", header[:primary_provider]
+  end
 end
