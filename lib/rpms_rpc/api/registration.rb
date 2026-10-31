@@ -67,13 +67,17 @@ module RpmsRpc
   #
   # ## SOGI, MBI, sex, and insurance (rpms-rpc#418)
   #
-  # Gender identity, sexual orientation, legal sex, and Medicare Beneficiary
-  # Identifier have no stock RPC. They are filed or read with DDR FILER / DDR
-  # LISTER under CIAV VUECENTRIC. Sex (SEXELIG^AGUTL), insurance billing
-  # order (^AUPNICP via ^AGCAT), and insurance-in-use (USED^AGUTILS) are not
-  # supported: no RPC reaches those routines, and a raw FileMan write is not
-  # what they do. `update(dfn, sex:)` still goes through AGG UPDATE PATIENT,
-  # which files #2 .02 and does not call SEXELIG^AGUTL. See
+  # Gender identity, sexual orientation, legal sex, patient sex (#2 .02),
+  # and the Medicare Beneficiary Identifier have no stock RPC. They are
+  # filed or read with DDR FILER, DDR LISTER, or DDR GETS ENTRY DATA under
+  # CIAV VUECENTRIC. set_sex files #2 .02, deletes #9000001 .23 when that
+  # sex changes and the field is non-blank, and copies the sex onto the
+  # MCR/MCD/RRE rows SEXELIG^AGUTL updates. That cascade is not a
+  # cross-reference on .02. Insurance billing order (^AUPNICP via ^AGCAT)
+  # and insurance-in-use (USED^AGUTILS) are not supported: no RPC reaches
+  # those routines, and a raw FileMan write is not what they do.
+  # `update(dfn, sex:)` still goes through AGG UPDATE PATIENT, which files
+  # #2 .02 and does not call SEXELIG^AGUTL. See
   # docs/REGISTRATION_SCHEDULING_WRITES.md.
   module Registration
     extend self
@@ -148,6 +152,27 @@ module RpmsRpc
     # #9000001.9201 field 1, the internal set. Names such as MALE are not
     # translated here: DDR FILER files internal values (DDR3.m:15,18).
     LEGAL_SEX_CODES = %w[M F X].freeze
+    # PATIENT (#2) .02 SEX. Internal set M/F/U. Names such as MALE are not
+    # translated: DDR FILER files internal values (DDR3.m:15,18).
+    PATIENT_SEX_FILE = "2"
+    PATIENT_SEX_FIELD = ".02"
+    PATIENT_SEX_CODES = %w[M F U].freeze
+    # #9000001 .23 SSN VERIFICATION STATUS. AG2A deletes it when .02 changes
+    # and the field is non-blank (AG2A.m:58-64).
+    SSN_VERIFICATION_FIELD = ".23"
+    # SEXELIG^AGUTL writes these. index is the B xref (^AUPNMCR / ^AUPNMCD /
+    # ^AUPNRRE). file/field is the FDA target. subfile means every .11
+    # sub-entry of a B-index row whose .01 is the DFN; otherwise the field
+    # is on that row itself.
+    ELIGIBILITY_SEX = [
+      { index: "9000003", file: "9000003.11", field: ".08", subfile: true }.freeze,
+      { index: "9000004", file: "9000004", field: ".07", subfile: false }.freeze,
+      { index: "9000005", file: "9000005.11", field: ".08", subfile: true }.freeze
+    ].freeze
+    # One B-index page. FROM is exclusive, so the walk starts at DFN - 1.
+    # A truncated page that has not walked past this DFN cannot be resumed:
+    # LIST^DIC's IEN half does not fit in a flat DDR parameter.
+    ELIGIBILITY_B_MAX = 100
 
     # attrs (FileMan-external values unless noted):
     #
@@ -574,10 +599,13 @@ module RpmsRpc
 
     # MBI history for one patient. GETMBI/HISTMBI^AUPNMBI have no RPC that
     # returns the MBI (GETMBI is reached only inside lab-manifest RPCs), so
-    # this reads #9000001.44 with DDR LISTER (LISTC^DDR). A failed read raises
-    # Client::RpcError. Field 1 MBI is required in the DD; a row whose MBI is
-    # blank raises Client::RpcError rather than returning mbi: "". An empty
-    # subfile is [].
+    # this reads #9000001.44 with DDR LISTER (LISTC^DDR). #9000001 is DINUM'd
+    # to the DFN. DDR GETS ENTRY DATA of #9000001 .01 (flags I) runs first:
+    # a nil reply, an error reply, or a [Data] reply that omits the .01 row
+    # raises Client::RpcError and the subfile is not listed. A failed list
+    # raises Client::RpcError. Field 1 MBI is required in the DD; a row whose
+    # MBI is blank raises Client::RpcError rather than returning mbi: "". An
+    # empty subfile is [].
     #
     # Returns [{ effective_date: Date, mbi:, source: Integer or nil }].
     def mbis(dfn)
@@ -585,6 +613,7 @@ module RpmsRpc
       raise ArgumentError, "a positive DFN is required" unless id
 
       listed = in_context do
+        require_ihs_patient!(id)
         DdrFileman.lister(file: MBI_FILE, iens: ",#{id},", fields: ".01I;1;2I", flags: "IP")
       end
       raise Client::RpcError, "DDR LISTER gave no reply for #9000001.44" if listed.nil?
@@ -594,16 +623,60 @@ module RpmsRpc
     end
     shape :mbis, resource: "registrations", verb: "GET", path: "/patients/{dfn}/registrations/mbis"
 
-    # Not supported. SEXELIG^AGUTL (AGUTL.m:51) copies #2 .02 into the
-    # MCR/MCD/RRE eligibility sub-files (for example #9000003.11 .08), and
-    # AG2A.m:58-64 clears #9000001 .23. Callers are the roll-and-scroll edit
-    # and a KIDS post-install only. AGG UPDATE PATIENT files #2 .02 and never
-    # reaches SEXELIG, so a DDR write of .02 is not what is done in RPMS.
-    # Sends no RPC.
-    def set_sex(_dfn, _sex)
-      not_supported("Sex is not supported. SEXELIG^AGUTL copies #2 .02 into eligibility " \
-                    "sub-files, and that cascade is not done in RPMS by writing #2 .02.")
+    # File #2 .02 SEX and the eligibility cascade SEXELIG^AGUTL performs.
+    # SEXELIG^AGUTL (AGUTL.m:51) is the BPRM AG_SetPatientGenderQ target. It
+    # reads #2 .02 internal and UPDATE^DIE's #9000003.11 .08 GENDER (each
+    # sub-entry of every #9000003 entry on ^AUPNMCR("B",DFN) whose .01 is
+    # the DFN), #9000004 .07 SEX OF INSURED (^AUPNMCD("B",DFN)), and
+    # #9000005.11 .08 GENDER (^AUPNRRE("B",DFN)). That cascade is not a
+    # cross-reference, so a #2 .02 write alone does not run it. No #8994
+    # entry reaches SEXELIG (callers are AG2A, roll-and-scroll, and the
+    # AG71A11 KIDS post-install), so this is DDR FILER (rpms-rpc#418,
+    # resolution 2).
+    #
+    # AG2A.m:58-64, when #2 .02 changed, deletes #9000001 .23 SSN
+    # VERIFICATION STATUS and then calls SEXELIG^AGUTL. This method does
+    # those writes and the .02 write, each a DDR FILER mode EDIT (FILE^DIE).
+    # #2 .02 is the set M/F/U. Its traditional xrefs and trigger (ASX,
+    # AENR02, IVM02, AVAFC02, ADGRU02, the trigger to .083 CHECK FOR
+    # DUPLICATE, AAVABDW2) are FileMan and fire on that EDIT. Mode EDIT on
+    # #2 .02 was verified live. sex is stripped and upcased. MALE/FEMALE
+    # are not translated. A bad DFN or sex sends no RPC.
+    #
+    # Reads, before any write: #2 .02 and #9000001 .23 (DDR GETS ENTRY
+    # DATA, flags I). A nil reply, or a [Data] reply that omits the field
+    # row, is :lookup_failed. An error reply is :not_found. An empty field
+    # still comes back as a row. Then the B xref of #9000003, #9000004, and
+    # #9000005 (fields @;.01I, flags IP, from one below the DFN, max 100).
+    # A row whose .01 is not this DFN is ignored. #9000003 and #9000005
+    # list subfile .11 (iens ",<ien>,"). A nil reply or [Errors] is
+    # :lookup_failed. A MORE line on a subfile is :lookup_failed: the flat
+    # DDR parameter cannot carry FROM("IEN"). A MORE line on the B list is
+    # :lookup_failed unless the last row's .01 is already past this DFN.
+    # A failed lookup files nothing.
+    #
+    # Writes, in order, each its own EDIT: #9000001 .23 set to "@" only
+    # when .02 changes and .23 is non-blank; then #2 .02, whether or not it
+    # changed; then one EDIT of every eligibility row, when any were found.
+    # The cascade always runs, so a retry repeats it. It is not atomic with
+    # the .02 write. A refusal before anything was filed is :filer_failed
+    # and later calls are not sent. A refusal after an earlier EDIT
+    # succeeded is :partial. nil when a FILER call gives no reply.
+    #
+    # What this path skips: anything AG2A does interactively beyond the
+    # .23 delete and SEXELIG (prompts, confirmation). SEXELIG^AGUTL is not
+    # called by name. update(dfn, sex:) still goes through AGG UPDATE
+    # PATIENT, which files #2 .02 and does not call SEXELIG^AGUTL.
+    def set_sex(dfn, sex)
+      id = patient_dfn(dfn)
+      return invalid("a positive DFN is required") unless id
+
+      code = canonical_patient_sex(sex)
+      return invalid("sex must be M, F, or U") unless code
+
+      in_context { write_patient_sex(id, code) }
     end
+    shape :set_sex, resource: "registrations", verb: "PUT", path: "/patients/{dfn}/registrations/sex"
 
     # Not supported. ^AUPNICP (#9000035) is written by LOADICP/DELICP^AGCAT
     # and REVERSE^AGED4A2 with DIC/DIK sequencing. No #8994 entry reaches
@@ -1145,6 +1218,10 @@ module RpmsRpc
       { success: false, error: :lookup_failed, message: message }
     end
 
+    def not_found(message)
+      { success: false, error: :not_found, message: message }
+    end
+
     # ADDMBI sets FDA field 2 to $G(SOURCE). FILE^DIE leaves a value already
     # stored unless the EDIT sends "@". A new row omits the field when
     # source was not given.
@@ -1199,6 +1276,175 @@ module RpmsRpc
 
     def not_supported(message)
       { success: false, error: :not_supported, message: message }
+    end
+
+    def canonical_patient_sex(sex)
+      return unless sex.is_a?(String)
+
+      code = sex.strip.upcase
+      code if PATIENT_SEX_CODES.include?(code)
+    end
+
+    def write_patient_sex(id, code)
+      stored = read_internal_field(PATIENT_SEX_FILE, "#{id},", PATIENT_SEX_FIELD)
+      return stored if stored.is_a?(Hash)
+
+      verification = read_internal_field(PATIENT_FILE, "#{id},", SSN_VERIFICATION_FIELD)
+      return verification if verification.is_a?(Hash)
+
+      cascade = eligibility_sex_rows(id, code)
+      return cascade if cascade.is_a?(Hash)
+
+      file_sex_writes(id, code, stored: stored, verification: verification, cascade: cascade)
+    end
+
+    # DDR GETS of one internal field. nil reply and a [Data] reply that
+    # omits the field row are lookup failures: an empty field still comes
+    # back as a row. An error reply is the missing-entry answer.
+    def read_internal_field(file, iens, field)
+      read = DdrFileman.gets_entry(file: file, iens: iens, fields: field, flags: "I")
+      return lookup_failed("DDR GETS ENTRY DATA gave no reply for ##{file} #{field}") if read.nil?
+      return not_found("no ##{file} entry at #{iens}") if read[:error]
+      return lookup_failed("DDR GETS ENTRY DATA gave no #{field} row for ##{file}") unless read[:fields].key?(field)
+
+      read[:fields][field][:internal].to_s
+    end
+
+    # #9000001 is DINUM'd to the DFN. GETS on a missing entry replies
+    # error: true. A [Data] reply with no .01 row is malformed.
+    def require_ihs_patient!(dfn)
+      read = DdrFileman.gets_entry(file: PATIENT_FILE, iens: "#{dfn},", fields: ".01", flags: "I")
+      raise Client::RpcError, "DDR GETS ENTRY DATA gave no reply for #9000001" if read.nil?
+      raise Client::RpcError, "DDR GETS ENTRY DATA refused #9000001 #{dfn}" if read[:error]
+
+      pointer = read[:fields].dig(".01", :internal).to_s.strip
+      raise Client::RpcError, "no #9000001 entry for DFN #{dfn}" if pointer.empty?
+    end
+
+    def eligibility_sex_rows(dfn, sex)
+      rows = []
+      ELIGIBILITY_SEX.each do |target|
+        iens = patient_b_iens(target[:index], dfn)
+        return iens if iens.is_a?(Hash)
+
+        iens.each do |ien|
+          built = sex_rows_for(target, ien, sex)
+          return built if built.is_a?(Hash)
+
+          rows.concat(built)
+        end
+      end
+      rows
+    end
+
+    def patient_b_iens(file, dfn)
+      listed = DdrFileman.lister(file: file, fields: "@;.01I", flags: "IP", xref: "B",
+                                 from: (dfn.to_i - 1).to_s, max: ELIGIBILITY_B_MAX)
+      failed = lister_failure(listed, file)
+      return failed if failed
+      unless b_index_covers?(listed, dfn)
+        return lookup_failed("DDR LISTER did not finish the ##{file} B index through DFN #{dfn}")
+      end
+
+      rows = listed[:entries].select { |entry| b_pointer(entry) == dfn }
+      iens = rows.map { |entry| entry[:ien].to_s }
+      unless numeric_iens?(iens)
+        return lookup_failed("DDR LISTER returned a non-numeric IEN on the ##{file} B index")
+      end
+
+      iens
+    end
+
+    # The B xref is ordered by the pointed-to DFN. No MORE means the walk
+    # finished. A MORE whose last row is already past this DFN means every
+    # row for this patient is on the page. Anything else is incomplete:
+    # the resume IEN cannot be sent on a flat DDR parameter.
+    def b_index_covers?(listed, dfn)
+      return true unless listed[:more]
+
+      last = listed[:entries].reverse_each.find { |entry| !b_pointer(entry).empty? }
+      return false unless last
+
+      pointer = b_pointer(last)
+      pointer.match?(/\A\d+\z/) && pointer.to_i > dfn.to_i
+    end
+
+    def b_pointer(entry)
+      entry[:pieces].to_a.first.to_s.strip
+    end
+
+    def lister_failure(listed, file)
+      return lookup_failed("DDR LISTER gave no reply for ##{file}") if listed.nil?
+      return lookup_failed("DDR LISTER refused ##{file}") if listed[:error]
+
+      nil
+    end
+
+    def sex_rows_for(target, ien, sex)
+      return subfile_sex_rows(target, ien, sex) if target[:subfile]
+
+      [ entry_sex_row(target, ien, sex) ]
+    end
+
+    def subfile_sex_rows(target, parent_ien, sex)
+      file = target[:file]
+      listed = DdrFileman.lister(file: file, iens: ",#{parent_ien},", fields: "@;.01I", flags: "IP")
+      failed = lister_failure(listed, file)
+      return failed if failed
+      return lookup_failed("DDR LISTER did not finish ##{file} under #{parent_ien}") if listed[:more]
+
+      subs = listed[:entries].map { |entry| entry[:ien].to_s }
+      return lookup_failed("DDR LISTER returned a non-numeric IEN for ##{file}") unless numeric_iens?(subs)
+
+      subs.map { |sub| edit_row(file, target[:field], "#{sub},#{parent_ien},", sex) }
+    end
+
+    def entry_sex_row(target, ien, sex)
+      edit_row(target[:file], target[:field], "#{ien},", sex)
+    end
+
+    def numeric_iens?(iens)
+      iens.all? { |ien| ien.match?(/\A[1-9]\d*\z/) }
+    end
+
+    def file_sex_writes(id, code, stored:, verification:, cascade:)
+      prior = false
+      if clear_ssn_verification?(stored, code, verification)
+        step = sex_edit([ edit_row(PATIENT_FILE, SSN_VERIFICATION_FIELD, "#{id},", "@") ], prior: prior)
+        return step unless step == :written
+
+        prior = true
+      end
+
+      step = sex_edit([ edit_row(PATIENT_SEX_FILE, PATIENT_SEX_FIELD, "#{id},", code) ], prior: prior)
+      return step unless step == :written
+      return { success: true } if cascade.empty?
+
+      step = sex_edit(cascade, prior: true)
+      step == :written ? { success: true } : step
+    end
+
+    def clear_ssn_verification?(stored, code, verification)
+      stored.strip.upcase != code && !verification.strip.empty?
+    end
+
+    # nil when FILER gives no reply. A refusal before any EDIT in this
+    # call succeeded is :filer_failed. A refusal after one is :partial:
+    # the .23 delete, the .02 write, and the cascade are not one update.
+    def sex_edit(rows, prior:)
+      filed = DdrFileman.filer(mode: "EDIT", rows: rows)
+      return nil if filed.nil?
+      return :written if filed[:success]
+
+      message = Array(filed[:errors]).join("\n")
+      return { success: false, error: :filer_failed, message: message } unless prior
+
+      { success: false, error: :partial,
+        message: "an earlier sex write was filed and a later one was refused: #{message}" }
+    end
+
+    def edit_row(file, field, iens, value)
+      { file: file, field: field, iens: iens, value: value }
     end
   end
 end
