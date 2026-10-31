@@ -16,8 +16,13 @@ class RegistrationBprm418Test < Minitest::Test
 
   DFN = 990_042
   CONTEXT = "CIAV VUECENTRIC"
+  GI_CODE_FILE = "9999999.104"
+  SO_CODE_FILE = "9999999.103"
+  GI_OTHER_IEN = 6
   GI_VALUE_IEN = 7
+  GI_EXTRA_VALUE_IEN = 3
   SO_VALUE_IEN = 3
+  SO_OTHER_IEN = 4
   LEGAL_SEX_SOURCE = 1
   MBI = "1EG4TE5MK73"
   EFFECTIVE = Date.new(2026, 3, 15)
@@ -42,23 +47,81 @@ class RegistrationBprm418Test < Minitest::Test
     @mock.received_calls.select { |c| c[:rpc] == "DDR LISTER" }
   end
 
+  def gets_calls
+    @mock.received_calls.select { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
+  end
+
   def rpcs_sent
     @mock.received_calls.map { |c| c[:rpc] }
   end
+
+  def fm(date) = FM.to_fileman(date)
 
   def seed_filer_add_ok
     @mock.seed(:ddr_filer, "ADD", "[Data]\n+1,^#{DFN}\n+2,^1\n+3,^2")
   end
 
-  def fm(date) = FM.to_fileman(date)
+  def seed_filer_edit_ok
+    @mock.seed(:ddr_filer, "EDIT", "[Data]")
+  end
+
+  def seed_gets(file:, iens:, fields:, flags: "I", text:)
+    key = Ddr.gets_entry_param(file: file, iens: iens, fields: fields, flags: flags).to_s
+    @mock.seed(:ddr_gets_entry_data, key, text)
+  end
+
+  def assert_registration_failure(result, error:)
+    assert_kind_of Hash, result, "expected a result Hash, got #{result.inspect}"
+    refute result[:success]
+    assert_equal error, result[:error]
+  end
+
+  def assert_registration_success(result)
+    assert_kind_of Hash, result, "expected a result Hash, got #{result.inspect}"
+    assert result[:success], result.inspect
+  end
+
+  def seed_code_dot02(file, ien, internal)
+    seed_gets(file: file, iens: "#{ien},", fields: ".02", text: <<~REPLY.strip)
+      [Data]
+      #{file}^#{ien}^.02^#{internal}^
+    REPLY
+  end
+
+  def seed_dated_row_exists(file:, row_fm:)
+    seed_gets(
+      file: file,
+      iens: "#{row_fm},#{DFN},",
+      fields: ".01",
+      text: <<~REPLY.strip
+        [Data]
+        #{file}^#{row_fm},#{DFN}^.01^#{row_fm}^#{row_fm}
+      REPLY
+    )
+  end
+
+  def seed_dated_row_missing(file:, row_fm:)
+    seed_gets(
+      file: file,
+      iens: "#{row_fm},#{DFN},",
+      fields: ".01",
+      text: "[Data]"
+    )
+  end
+
+  def seed_sogi_value_lister(multiple:, row_fm:, entries:)
+    key = Ddr.lister_param(file: multiple, iens: ",#{row_fm},#{DFN},", fields: ".01I", flags: "IP").to_s
+    body = entries.map { |ien, code| "#{ien}^#{code}" }.join("\n")
+    @mock.seed(:ddr_lister, key, "[Data]\n#{body}")
+  end
 
   # -- set_gender_identity ----------------------------------------------------
 
-  def test_set_gender_identity_files_9401_and_94011_through_ddr_filer_add
+  def test_set_gender_identity_files_9401_and_94011_through_ddr_filer_add_with_dinum_pins
     seed_filer_add_ok
     row_fm = fm(ROW_DATE)
 
-    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], other: "self-described", date: ROW_DATE)
+    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], date: ROW_DATE)
 
     assert result[:success]
     assert_equal 1, filer_calls.length
@@ -67,9 +130,124 @@ class RegistrationBprm418Test < Minitest::Test
     assert_equal CONTEXT, call[:context]
     root = call[:params][1]
     assert_equal({ 1 => "9000001.9401^.01^+1,#{DFN},^#{row_fm}",
-                   2 => "9000001.9401^2^+1,#{DFN},^self-described",
-                   3 => "9000001.94011^.01^+2,+1,#{DFN},^#{GI_VALUE_IEN}" }, root)
-    assert_equal({ 1 => row_fm }, call[:params][3])
+                   2 => "9000001.94011^.01^+2,+1,#{DFN},^#{GI_VALUE_IEN}" }, root)
+    assert_equal({ 1 => row_fm, 2 => GI_VALUE_IEN.to_s }, call[:params][3])
+    assert_empty gets_calls
+  end
+
+  def test_set_gender_identity_dinums_each_value_sub_entry_placeholder_to_its_code_ien
+    seed_filer_add_ok
+    row_fm = fm(ROW_DATE)
+
+    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN, GI_EXTRA_VALUE_IEN ], date: ROW_DATE)
+
+    assert result[:success]
+    root = filer_calls.first[:params][1]
+    assert_equal "9000001.94011^.01^+2,+1,#{DFN},^#{GI_VALUE_IEN}", root[2]
+    assert_equal "9000001.94011^.01^+3,+1,#{DFN},^#{GI_EXTRA_VALUE_IEN}", root[3]
+    assert_equal({ 1 => row_fm, 2 => GI_VALUE_IEN.to_s, 3 => GI_EXTRA_VALUE_IEN.to_s },
+                 filer_calls.first[:params][3])
+  end
+
+  def test_set_gender_identity_files_duplicate_values_once
+    seed_filer_add_ok
+    row_fm = fm(ROW_DATE)
+
+    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN, GI_VALUE_IEN ], date: ROW_DATE)
+
+    assert result[:success]
+    root = filer_calls.first[:params][1]
+    assert_equal 2, root.length
+    assert_equal({ 1 => row_fm, 2 => GI_VALUE_IEN.to_s }, filer_calls.first[:params][3])
+  end
+
+  def test_set_gender_identity_files_other_text_only_when_a_chosen_value_is_the_other_code
+    seed_code_dot02(GI_CODE_FILE, GI_OTHER_IEN, "OTH")
+    seed_dated_row_missing(file: "9000001.9401", row_fm: fm(ROW_DATE))
+    seed_filer_add_ok
+
+    result = Reg.set_gender_identity(DFN, values: [ GI_OTHER_IEN ], other: "self-described", date: ROW_DATE)
+
+    assert result[:success]
+    root = filer_calls.first[:params][1]
+    assert_equal "9000001.9401^2^+1,#{DFN},^self-described", root[2]
+    assert_equal 1, gets_calls.length
+  end
+
+  def test_set_gender_identity_refuses_other_text_when_no_chosen_value_is_the_other_code
+    seed_code_dot02(GI_CODE_FILE, GI_VALUE_IEN, "ASKU")
+
+    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], other: "self-described", date: ROW_DATE)
+
+    assert_registration_failure(result, error: :invalid)
+    assert_empty filer_calls
+  end
+
+  def test_set_gender_identity_returns_lookup_failed_when_other_code_read_fails
+    seed_gets(file: GI_CODE_FILE, iens: "#{GI_OTHER_IEN},", fields: ".02", text: "[ERROR]")
+
+    result = Reg.set_gender_identity(DFN, values: [ GI_OTHER_IEN ], other: "self-described", date: ROW_DATE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_empty filer_calls
+  end
+
+  def test_set_gender_identity_returns_lookup_failed_when_other_code_read_gives_no_response
+    result = Reg.set_gender_identity(DFN, values: [ GI_OTHER_IEN ], other: "self-described", date: ROW_DATE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_empty filer_calls
+  end
+
+  def test_set_gender_identity_skips_other_code_lookup_when_other_is_blank
+    seed_filer_add_ok
+
+    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], other: nil, date: ROW_DATE)
+
+    assert result[:success]
+    assert_empty gets_calls
+    refute_includes filer_calls.first[:params][1].values.join("^"), "^self-described"
+  end
+
+  def test_set_gender_identity_edits_an_existing_date_row_and_reconciles_value_sub_entries
+    row_fm = fm(ROW_DATE)
+    seed_dated_row_exists(file: "9000001.9401", row_fm: row_fm)
+    seed_sogi_value_lister(multiple: "9000001.94011", row_fm: row_fm, entries: [ [ 5, 5 ], [ 7, 7 ] ])
+    seed_filer_edit_ok
+
+    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN, GI_EXTRA_VALUE_IEN ], date: ROW_DATE)
+
+    assert_registration_success(result)
+    refute_empty filer_calls, "expected a DDR FILER call"
+    edit = filer_calls.first
+    assert_equal "EDIT", edit[:params][0]
+    root = edit[:params][1]
+    assert_equal "9000001.9401^.01^#{row_fm},#{DFN},^#{row_fm}", root[1]
+    assert_includes root.values, "9000001.94011^.01^5,#{row_fm},#{DFN},^@"
+    assert_includes root.values, "9000001.94011^.01^+2,#{row_fm},#{DFN},^#{GI_EXTRA_VALUE_IEN}"
+    assert_equal({ 2 => GI_EXTRA_VALUE_IEN.to_s }, edit[:params][3])
+    refute_includes root.values.join("^"), "+1,#{DFN},"
+  end
+
+  def test_set_gender_identity_returns_lookup_failed_when_the_date_row_read_fails
+    seed_gets(file: "9000001.9401", iens: "#{fm(ROW_DATE)},#{DFN},", fields: ".01", text: "[ERROR]")
+
+    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], date: ROW_DATE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_empty filer_calls
+  end
+
+  def test_set_gender_identity_returns_lookup_failed_when_the_existing_value_list_read_fails
+    row_fm = fm(ROW_DATE)
+    seed_dated_row_exists(file: "9000001.9401", row_fm: row_fm)
+    key = Ddr.lister_param(file: "9000001.94011", iens: ",#{row_fm},#{DFN},", fields: ".01I", flags: "IP").to_s
+    @mock.seed(:ddr_lister, key, "[Data]\n[Errors]")
+
+    result = Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], date: ROW_DATE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_empty filer_calls
   end
 
   def test_set_gender_identity_refuses_blank_dfn_without_rpc
@@ -97,6 +275,7 @@ class RegistrationBprm418Test < Minitest::Test
   end
 
   def test_set_gender_identity_surfaces_ddr_filer_errors
+    seed_dated_row_missing(file: "9000001.9401", row_fm: fm(ROW_DATE))
     @mock.seed(:ddr_filer, "ADD",
                "[Data]\n[BEGIN_diERRORS]\n701^1^9000001.9401^+1,^.01^2\nThe value is not valid.\n[END_diERRORS]")
 
@@ -108,21 +287,44 @@ class RegistrationBprm418Test < Minitest::Test
   end
 
   def test_set_gender_identity_returns_nil_when_ddr_filer_gives_no_response
+    seed_dated_row_missing(file: "9000001.9401", row_fm: fm(ROW_DATE))
     assert_nil Reg.set_gender_identity(DFN, values: [ GI_VALUE_IEN ], date: ROW_DATE)
   end
 
   # -- set_sexual_orientation -------------------------------------------------
 
-  def test_set_sexual_orientation_files_9301_and_93011_through_ddr_filer_add
+  def test_set_sexual_orientation_files_9301_and_93011_through_ddr_filer_add_with_dinum_pins
     seed_filer_add_ok
     row_fm = fm(ROW_DATE)
 
-    result = Reg.set_sexual_orientation(DFN, values: [ SO_VALUE_IEN ], other: "note", date: ROW_DATE)
+    result = Reg.set_sexual_orientation(DFN, values: [ SO_VALUE_IEN ], date: ROW_DATE)
 
     assert result[:success]
     root = filer_calls.first[:params][1]
     assert_equal "9000001.9301^.01^+1,#{DFN},^#{row_fm}", root[1]
-    assert_equal "9000001.93011^.01^+2,+1,#{DFN},^#{SO_VALUE_IEN}", root[3]
+    assert_equal "9000001.93011^.01^+2,+1,#{DFN},^#{SO_VALUE_IEN}", root[2]
+    assert_equal({ 1 => row_fm, 2 => SO_VALUE_IEN.to_s }, filer_calls.first[:params][3])
+  end
+
+  def test_set_sexual_orientation_files_other_text_only_when_a_chosen_value_is_the_other_code
+    seed_code_dot02(SO_CODE_FILE, SO_OTHER_IEN, "OTH")
+    seed_dated_row_missing(file: "9000001.9301", row_fm: fm(ROW_DATE))
+    seed_filer_add_ok
+
+    result = Reg.set_sexual_orientation(DFN, values: [ SO_OTHER_IEN ], other: "note", date: ROW_DATE)
+
+    assert result[:success]
+    assert_equal "9000001.9301^2^+1,#{DFN},^note", filer_calls.first[:params][1][2]
+    assert_equal 1, gets_calls.length
+  end
+
+  def test_set_sexual_orientation_refuses_other_text_when_no_chosen_value_is_the_other_code
+    seed_code_dot02(SO_CODE_FILE, SO_VALUE_IEN, "STR")
+
+    result = Reg.set_sexual_orientation(DFN, values: [ SO_VALUE_IEN ], other: "note", date: ROW_DATE)
+
+    assert_registration_failure(result, error: :invalid)
+    assert_empty filer_calls
   end
 
   def test_set_sexual_orientation_refuses_blank_values_without_rpc
@@ -136,6 +338,7 @@ class RegistrationBprm418Test < Minitest::Test
   # -- set_legal_sex ----------------------------------------------------------
 
   def test_set_legal_sex_files_9201_with_dinum_date_sex_source_and_today_entered
+    seed_dated_row_missing(file: "9000001.9201", row_fm: fm(ROW_DATE))
     seed_filer_add_ok
     row_fm = fm(ROW_DATE)
     today_fm = fm(Date.today)
@@ -151,6 +354,33 @@ class RegistrationBprm418Test < Minitest::Test
     assert_equal({ 1 => row_fm }, filer_calls.first[:params][3])
   end
 
+  def test_set_legal_sex_edits_an_existing_date_row_in_edit_mode
+    row_fm = fm(ROW_DATE)
+    seed_dated_row_exists(file: "9000001.9201", row_fm: row_fm)
+    seed_filer_edit_ok
+
+    result = Reg.set_legal_sex(DFN, sex: "F", source: LEGAL_SEX_SOURCE, date: ROW_DATE)
+
+    assert_registration_success(result)
+    refute_empty filer_calls, "expected a DDR FILER call"
+    edit = filer_calls.first
+    assert_equal "EDIT", edit[:params][0]
+    root = edit[:params][1]
+    assert_equal "9000001.9201^.01^#{row_fm},#{DFN},^#{row_fm}", root[1]
+    assert_equal "9000001.9201^1^#{row_fm},#{DFN},^F", root[2]
+    assert_empty edit[:params][3]
+    refute_includes root.values.join("^"), "+1,#{DFN},"
+  end
+
+  def test_set_legal_sex_returns_lookup_failed_when_the_date_row_read_fails
+    seed_gets(file: "9000001.9201", iens: "#{fm(ROW_DATE)},#{DFN},", fields: ".01", text: "[ERROR]")
+
+    result = Reg.set_legal_sex(DFN, sex: "X", source: LEGAL_SEX_SOURCE, date: ROW_DATE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_empty filer_calls
+  end
+
   def test_set_legal_sex_refuses_an_invalid_sex_code_without_rpc
     result = Reg.set_legal_sex(DFN, sex: "U", source: LEGAL_SEX_SOURCE)
 
@@ -162,6 +392,7 @@ class RegistrationBprm418Test < Minitest::Test
   # -- add_mbi ----------------------------------------------------------------
 
   def test_add_mbi_files_9000001_44_with_upcased_mbi_and_signed_on_duz
+    seed_dated_row_missing(file: "9000001.44", row_fm: fm(EFFECTIVE))
     seed_filer_add_ok
     eff_fm = fm(EFFECTIVE)
     today_fm = fm(Date.today)
@@ -175,6 +406,32 @@ class RegistrationBprm418Test < Minitest::Test
     assert_equal "9000001.44^4^+1,#{DFN},^501", root[5]
     assert_equal "9000001.44^3^+1,#{DFN},^#{today_fm}", root[4]
     assert_equal({ 1 => eff_fm }, filer_calls.first[:params][3])
+  end
+
+  def test_add_mbi_edits_an_existing_effective_date_row_in_edit_mode
+    eff_fm = fm(EFFECTIVE)
+    seed_dated_row_exists(file: "9000001.44", row_fm: eff_fm)
+    seed_filer_edit_ok
+
+    result = Reg.add_mbi(DFN, mbi: MBI, effective_date: EFFECTIVE, source: 2)
+
+    assert_registration_success(result)
+    refute_empty filer_calls, "expected a DDR FILER call"
+    edit = filer_calls.first
+    assert_equal "EDIT", edit[:params][0]
+    root = edit[:params][1]
+    assert_equal "9000001.44^.01^#{eff_fm},#{DFN},^#{eff_fm}", root[1]
+    assert_equal "9000001.44^1^#{eff_fm},#{DFN},^#{MBI}", root[2]
+    refute_includes root.values.join("^"), "+1,#{DFN},"
+  end
+
+  def test_add_mbi_returns_lookup_failed_when_the_effective_date_row_read_fails
+    seed_gets(file: "9000001.44", iens: "#{fm(EFFECTIVE)},#{DFN},", fields: ".01", text: "[ERROR]")
+
+    result = Reg.add_mbi(DFN, mbi: MBI, effective_date: EFFECTIVE)
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_empty filer_calls
   end
 
   def test_add_mbi_refuses_an_mbi_that_is_not_eleven_alphanumeric_characters
@@ -206,6 +463,13 @@ class RegistrationBprm418Test < Minitest::Test
     assert_equal [ { effective_date: EFFECTIVE, mbi: MBI, source: 2 } ], rows
     assert_equal 1, lister_calls.length
     assert_equal CONTEXT, lister_calls.first[:context]
+  end
+
+  def test_mbis_raises_when_a_listed_row_has_a_blank_mbi_field
+    key = Ddr.lister_param(file: "9000001.44", iens: ",#{DFN},", fields: ".01I;1;2I", flags: "IP").to_s
+    @mock.seed(:ddr_lister, key, "[Data]\n3^3260315^^2")
+
+    assert_raises(RpmsRpc::Client::RpcError) { Reg.mbis(DFN) }
   end
 
   def test_mbis_raises_when_the_ddr_read_fails
