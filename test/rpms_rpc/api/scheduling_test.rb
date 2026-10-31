@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "date"
 require "rpms_rpc/mappings"
 require "rpms_rpc/mock_client"
+require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/scheduling"
 
 # Tests for RpmsRpc::Scheduling — the BSDX scheduling surface consumed by the
@@ -527,15 +528,12 @@ class SchedulingTest < Minitest::Test
     assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Scheduling.clinic_setup }
   end
 
-  # -- BSDXRPC context binding (rpms-rpc#258) --------------------------------
+  # -- BSDXRPC / CIAV VUECENTRIC context binding (rpms-rpc#258, #418) ---------
   #
   # RPC registration is OPTION-scoped (RpmsRpc::ContextScope). On a built 9.0
-  # image every BSDX RPC this module calls sits in the RPC multiple of ONE
-  # file-19 option, BSDXRPC (69 entries), and in none of the options a
-  # signed-on session is otherwise holding. A user without XUPROGMODE is
-  # denied BSDX* under the sign-on option, so each method binds BSDXRPC
-  # around its call and hands the caller's option back, as RpmsRpc::Agg does
-  # for AGGRPC.
+  # image BSDX RPCs sit in BSDXRPC; DDR GETS ENTRY DATA (used by undo_checkin)
+  # sits in CIAV VUECENTRIC. Each method binds the option that registers the
+  # RPC it is about to call and hands the caller's option back afterward.
 
   # Arguments that let every public method reach the wire. Writes stay unseeded
   # ("" is fine for fetch_one); list reads are seeded header-only so #481 does
@@ -599,6 +597,33 @@ class SchedulingTest < Minitest::Test
     seed_mock_global_array!(mock, "BSDX PATIENT APPT DISPLAY", "100", PATIENT_APPTS_RECORDSET_HEADER)
   end
 
+  UNDO_CHECKIN_RESOURCE_IEN = 88
+  UNDO_CHECKIN_HOSPITAL_LOC = 1608
+
+  def seed_ddr_gets!(mock, file:, iens:, fields:, text:)
+    key = RpmsRpc::DdrFileman.gets_entry_param(file: file, iens: iens, fields: fields, flags: "I").to_s
+    mock.seed(:ddr_gets_entry_data, key, text)
+  end
+
+  # undo_checkin preflight: #9002018.4 .03 set, .07 a resource; resource .04 set.
+  def seed_undo_checkin_bsdx_path!(mock, appt_ien: 501, resource: UNDO_CHECKIN_RESOURCE_IEN,
+                                   hospital: UNDO_CHECKIN_HOSPITAL_LOC)
+    seed_ddr_gets!(mock, file: "9002018.4", iens: "#{appt_ien},", fields: ".03;.07", text: <<~REPLY.strip)
+      [Data]
+      9002018.4^#{appt_ien}^.03^#{START_FM}^
+      9002018.4^#{appt_ien}^.07^#{resource}^
+    REPLY
+    seed_ddr_gets!(mock, file: "9002018.1", iens: "#{resource},", fields: ".04", text: <<~REPLY.strip)
+      [Data]
+      9002018.1^#{resource}^.04^#{hospital}^
+    REPLY
+    mock.seed(:scheduling_checkin_appointment, appt_ien.to_s, { error: "0" })
+    seed_ddr_gets!(mock, file: "9002018.4", iens: "#{appt_ien},", fields: ".03", text: <<~REPLY.strip)
+      [Data]
+      9002018.4^#{appt_ien}^.03^#
+    REPLY
+  end
+
   BSDX_CALLS = {
     add_appointment: [ { patient_dfn: 100, resource: "PEDIATRICIAN,DEMO", start_time: START_T,
                          end_time: END_T, length_minutes: 30 } ],
@@ -628,6 +653,7 @@ class SchedulingTest < Minitest::Test
     BSDX_CALLS.each do |method, args|
       mock = RpmsRpc.mock!
       seed_empty_bsdx_list_reads!(mock)
+      seed_undo_checkin_bsdx_path!(mock) if method == :undo_checkin
       caller_context = mock.current_context
       positional = args.reject { |a| a.is_a?(Hash) }
       keywords = args.find { |a| a.is_a?(Hash) } || {}
@@ -636,15 +662,24 @@ class SchedulingTest < Minitest::Test
 
       calls = mock.received_calls
       refute_empty calls, "#{method} made no RPC call"
+      bsdx_calls = calls.select { |c| c[:rpc].start_with?("BSDX") }
+      refute_empty bsdx_calls, "#{method} made no BSDX RPC call"
       calls.each do |call|
-        assert_equal "BSDXRPC", call[:context],
-          "#{method} sent #{call[:rpc]} under #{call[:context].inspect}; the BSDX RPCs " \
-          "are registered under BSDXRPC only, so it is denied there"
+        rpc = call[:rpc]
+        if rpc.start_with?("BSDX")
+          assert_equal "BSDXRPC", call[:context],
+            "#{method} sent #{rpc} under #{call[:context].inspect}; BSDX RPCs " \
+            "are registered under BSDXRPC"
+        elsif rpc.start_with?("DDR ")
+          assert_equal "CIAV VUECENTRIC", call[:context],
+            "#{method} sent #{rpc} under #{call[:context].inspect}; DDR RPCs " \
+            "are registered under CIAV VUECENTRIC, not BSDXRPC"
+        else
+          flunk "#{method} sent unexpected RPC #{rpc.inspect} under #{call[:context].inspect}"
+        end
       end
       assert_equal caller_context, mock.current_context,
         "#{method} left the session on #{mock.current_context.inspect}"
-      assert_equal [ "BSDXRPC", caller_context ], mock.context_binds,
-        "#{method}: expected one bind and one restore"
     end
   end
 
