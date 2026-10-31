@@ -49,8 +49,14 @@ module RpmsRpc
     end
     shape :find, resource: "practitioners", verb: "GET", path: "/practitioners/{ien}"
 
-    def search(name_pattern)
-      DataMapper.practitioner_list.fetch_many(name_pattern.to_s, "1")
+    # Users whose names start at name_pattern, from ORWU NEWPERS (NEWPERS^ORWU:
+    # FROM, DIR, KEY). key: a SECURITY KEY name; only users holding it are
+    # listed, as VueCentric's provider selection asks with PROVIDER. Without a
+    # key, every active user is listed.
+    def search(name_pattern, key: nil)
+      params = [ name_pattern.to_s, "1" ]
+      params << key.to_s unless key.to_s.empty?
+      DataMapper.practitioner_list.fetch_many(*params)
     end
     shape :search, resource: "practitioners", verb: "GET", path: "/practitioners"
 
