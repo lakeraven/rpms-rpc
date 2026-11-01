@@ -41,7 +41,10 @@ module RpmsRpc
     # as the cause. {Client::FrameTooLongError} from the AMHG call is
     # this class too, cause kept, but the message says nothing was sent:
     # the frame is rejected before the RPC goes out, so the outcome is
-    # not unknown. That is save_visit and save_pov.
+    # not unknown. A session with no declared context is re-bound to the
+    # DDR context before that error; a re-bind that raises
+    # {RpmsRpc::Error} does not replace it. That is save_visit, save_pov,
+    # and save_progress_note.
     class SaveError < RpmsRpc::Error; end
 
     # External values of BH VISIT (#9002011) field .02, piece 3 of
@@ -283,7 +286,9 @@ module RpmsRpc
     # DATA and DDR LISTER are registered under CIAV VUECENTRIC. A session
     # that declared no context cannot be restored by the scope and would
     # stay bound to AMHGRPC, so only in that case the post-call reads
-    # re-bind DDR_CONTEXT first (binds: AMHGRPC, then DDR_CONTEXT).
+    # re-bind DDR_CONTEXT first (binds: AMHGRPC, then DDR_CONTEXT). The
+    # same re-bind runs when the AMHG call raises
+    # {Client::FrameTooLongError}, before the nothing-was-sent error.
     #
     # Pieces, in order: mode A/E, record IEN, primary provider (files
     # #9002011.02), program external (.02, $$SCI^AMHGT at AMHGSVF.m:22;
@@ -385,7 +390,11 @@ module RpmsRpc
     # {Client::FrameTooLongError} from the AMHG call is SaveError with
     # that exception as the cause, and the message says nothing was
     # sent: the frame is rejected before the RPC goes out, so this is
-    # not an unknown outcome. {Client::RpcNotAvailableError} and
+    # not an unknown outcome. When the session had no declared context,
+    # the DDR context is re-bound first. If that re-bind raises
+    # {RpmsRpc::Error}, this SaveError is still what propagates, and
+    # its cause is still the {Client::FrameTooLongError}.
+    # {Client::RpcNotAvailableError} and
     # {Client::RpcRefusedError} are not those classes (they are
     # {Client::RpcError}); they propagate unchanged. An M error row or a
     # reply that does not name this record says the same. An add that
@@ -472,7 +481,9 @@ module RpmsRpc
     # ENTRY DATA and DDR LISTER are registered under CIAV VUECENTRIC. A
     # session that declared no context cannot be restored by the scope and
     # would stay bound to AMHGRPC, so only in that case the post-call reads
-    # re-bind DDR_CONTEXT first (binds: AMHGRPC, then DDR_CONTEXT).
+    # re-bind DDR_CONTEXT first (binds: AMHGRPC, then DDR_CONTEXT). The
+    # same re-bind runs when the AMHG call raises
+    # {Client::FrameTooLongError}, before the nothing-was-sent error.
     #
     # Pieces, in order, always eight, blanks included: mode, record IEN,
     # axis II list, axis III, axis IV list, axis V, patient DFN, GAF scale
@@ -593,7 +604,11 @@ module RpmsRpc
     # it names the record IEN. {Client::FrameTooLongError} from the AMHG
     # call is SaveError with that exception as the cause, and the
     # message says nothing was sent: the frame is rejected before the
-    # RPC goes out, so this is not an unknown outcome.
+    # RPC goes out, so this is not an unknown outcome. When the session
+    # had no declared context, the DDR context is re-bound first. If
+    # that re-bind raises {RpmsRpc::Error}, this SaveError is still what
+    # propagates, and its cause is still the
+    # {Client::FrameTooLongError}.
     # {Client::RpcNotAvailableError} and {Client::RpcRefusedError}
     # propagate. An M error row, or a reply that is not this record
     # IEN, says the same.
@@ -660,7 +675,9 @@ module RpmsRpc
     # that declared no context cannot be restored by the scope and would
     # stay bound to AMHGRPC, so only in that case the post-call DDR read
     # re-binds DDR_CONTEXT first (binds: AMHGRPC, then DDR_CONTEXT). The
-    # SOAP and comment reads are AMHG RPCs and each bind AMHGRPC again.
+    # same re-bind runs when the AMHG call raises
+    # {Client::FrameTooLongError}, before the nothing-was-sent error.
+    # The SOAP and comment reads are AMHG RPCs and each bind AMHGRPC again.
     #
     # Pieces, in order: mode, record IEN, chief complaint (2101), note
     # (3101, word processing), comment (8101, word processing), placement
@@ -717,6 +734,10 @@ module RpmsRpc
     # been filed. A {Client::ConnectionError} from the AMHG call,
     # including {Client::TimeoutError}, or a {Client::RpcMError}, is
     # SaveError, and that exception is its cause.
+    # {Client::FrameTooLongError} is the same class save_visit uses:
+    # nothing was sent, that exception kept as the cause, and the DDR
+    # context re-bound first when the session had declared none. A
+    # re-bind that raises {RpmsRpc::Error} does not replace that error.
     # {Client::RpcNotAvailableError} and {Client::RpcRefusedError}
     # propagate unchanged.
     #
@@ -1463,7 +1484,9 @@ module RpmsRpc
 
     # ContextScope restores only a context that existed. With none declared
     # the session is left on AMHGRPC, which the DDR reads must not rely on.
-    # +record_ien+ is the record the reply already named, or nil.
+    # +record_ien+ is the record the reply already named, or nil. A failed
+    # re-bind is an unknown-outcome SaveError. The nothing-was-sent path
+    # calls this and discards that error.
     def save_visit_rebind_ddr_context(declared, record_ien, rpc: "AMHG SAVE VISIT")
       return unless declared.nil?
 
@@ -1482,12 +1505,26 @@ module RpmsRpc
     # are RpcError, not these two, so they are not wrapped.
     # FrameTooLongError is raised before the frame is written: nothing
     # was sent, and the message does not say the outcome is unknown.
+    # With no declared context the session is left on AMHGRPC, so the
+    # DDR context is re-bound first, the same way as
+    # {save_visit_rebind_ddr_context}. That method raises an
+    # unknown-outcome SaveError when the re-bind fails; that error is
+    # discarded here so the nothing-was-sent error, cause the
+    # FrameTooLongError, is what propagates. save_progress_note uses
+    # this method, so it follows the same rule.
     def save_visit_amhg(mapping, wire, requested, rpc: "AMHG SAVE VISIT")
+      declared = save_visit_declared_context
+      known = requested.empty? ? nil : requested
       call_amhg(mapping, wire)
     rescue Client::FrameTooLongError => e
+      begin
+        save_visit_rebind_ddr_context(declared, known, rpc: rpc)
+      rescue Error
+        # The restore failure must not replace the nothing-was-sent error.
+        nil
+      end
       save_visit_not_sent!(e, rpc: rpc)
     rescue Client::ConnectionError, Client::RpcMError => e
-      known = requested.empty? ? nil : requested
       save_visit_ambiguous!(known, rpc: rpc, cause: e)
     end
 
@@ -1679,9 +1716,11 @@ module RpmsRpc
     end
 
     # Joined rows must equal the sent text exactly. save_visit_amhg wraps
-    # only ConnectionError and RpcMError, so any other RpmsRpc::Error from
-    # this read (a refusal, an inactive RPC) is caught here: the note has
-    # already been sent.
+    # ConnectionError and RpcMError as an unknown outcome, and
+    # FrameTooLongError as nothing-was-sent, re-binding the DDR context
+    # when this read's session had none. Those are SaveError and
+    # propagate. Any other RpmsRpc::Error from this read (a refusal, an
+    # inactive RPC) is caught here: the note has already been sent.
     def save_progress_note_confirm_wp!(ien, mapping_name, sent)
       response = save_visit_amhg(DataMapper[mapping_name], ien, ien, rpc: PROGRESS_NOTE_RPC)
       rows = save_progress_note_text_rows(response)
@@ -1917,9 +1956,20 @@ module RpmsRpc
       raise
     end
 
+    # Same FrameTooLong rule as {save_visit_amhg}: re-bind the DDR context
+    # when none was declared, then raise nothing-was-sent. A re-bind
+    # failure from {save_pov_rebind_ddr_context} is discarded so it cannot
+    # replace that error or its FrameTooLongError cause.
     def save_pov_amhg(mapping, wire, record_ien)
+      declared = save_visit_declared_context
       call_amhg(mapping, wire)
     rescue Client::FrameTooLongError => e
+      begin
+        save_pov_rebind_ddr_context(declared, record_ien)
+      rescue Error
+        # The restore failure must not replace the nothing-was-sent error.
+        nil
+      end
       save_pov_not_sent!(e)
     rescue Client::ConnectionError, Client::RpcMError => e
       save_pov_ambiguous!(record_ien, cause: e)
@@ -1929,7 +1979,9 @@ module RpmsRpc
       raise SaveError, "AMHG SAVE POV could not be framed; nothing was sent", cause: cause
     end
 
-    # Same restore as save_visit. The message names this RPC.
+    # Same restore as save_visit. The message names this RPC. A failed
+    # re-bind is an unknown-outcome SaveError. The nothing-was-sent path
+    # calls this and discards that error.
     def save_pov_rebind_ddr_context(declared, record_ien)
       return unless declared.nil?
 
