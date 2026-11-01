@@ -199,6 +199,61 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     end
   end
 
+  # Pins the whole bind sequence for a session with no declared context:
+  # AMHGRPC for the call, then exactly one re-bind of the DDR context.
+  def test_nil_context_add_binds_exactly_amhgrpc_then_the_ddr_context
+    seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    capture_io { BH.save_visit(**FULL_KWARGS) }
+
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+  end
+
+  def test_nil_context_edit_binds_exactly_amhgrpc_then_the_ddr_context
+    seed_edit_success(WIRE_EDIT_FULL, RECORD_IEN, **FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    capture_io { BH.save_visit(**FULL_KWARGS, record_ien: RECORD_IEN) }
+
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    after_save = @mock.received_calls.drop_while { |c| c[:rpc] != RPC }.drop(1)
+    ddr_after = after_save.select { |c| c[:rpc].start_with?("DDR ") }
+    refute_empty ddr_after
+    ddr_after.each { |call| assert_equal "CIAV VUECENTRIC", call[:context] }
+  end
+
+  def test_a_session_with_a_declared_context_binds_the_ddr_context_zero_times
+    seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
+    BH.save_visit(**FULL_KWARGS)
+
+    assert_equal 1, @mock.context_binds.count("AMHGRPC")
+    assert_equal 0, @mock.context_binds.count("CIAV VUECENTRIC")
+  end
+
+  def test_add_with_a_nil_context_and_an_unbindable_ddr_context_names_the_record_from_the_reply
+    seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_visit(**FULL_KWARGS) } }
+    assert_match(/AMHG SAVE VISIT outcome unknown/, err.message)
+    assert_match(/record 8802 may have been filed/, err.message)
+    assert_kind_of RpmsRpc::Client::RpcError, err.cause
+  end
+
+  def test_edit_with_a_nil_context_and_an_unbindable_ddr_context_names_the_record
+    seed_edit_success(WIRE_EDIT_FULL, RECORD_IEN, **FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+
+    err = assert_raises(BH::SaveError) do
+      capture_io { BH.save_visit(**FULL_KWARGS, record_ien: RECORD_IEN) }
+    end
+    assert_match(/AMHG SAVE VISIT outcome unknown/, err.message)
+    assert_match(/record #{RECORD_IEN} may have been filed/, err.message)
+    refute_match(/the visit/, err.message)
+  end
+
   def test_a_refused_pointer_read_is_reported_as_unreadable_not_as_missing
     seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
     RpmsRpc.configure { |c| c.client = PointerReadRefused.new(@mock) }
