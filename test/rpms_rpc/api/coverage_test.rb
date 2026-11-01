@@ -476,8 +476,53 @@ class CoverageTest < Minitest::Test
     assert_empty client.received_calls.select { |c| c[:rpc] == MEDICARE_RPC }
   end
 
+  def test_delete_medicare_record_refuses_when_v1_shaped_lister_lists_eligibility_rows
+    body = "[BEGIN_diDATA]\n1^3250101\n2^3260101\n[END_diDATA]\n"
+    client = medicare_client_with_lister(body)
+    seed_medicare_present!(client)
+    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
+      client.received_calls << { rpc: rpc, params: params.map(&:to_s), context: client.current_context }
+      MCR_HEADER + "1^^#{DFN}^#{RS}#{US}" if rpc == MEDICARE_RPC
+    end
+    RpmsRpc.configure { |c| c.client = client }
+
+    result = Cov.delete_medicare_record(DFN, client: client)
+
+    refute result[:success]
+    assert_equal :verification_failed, result[:error]
+    assert_empty client.received_calls.select { |c| c[:rpc] == MEDICARE_RPC }
+  end
+
+  def test_delete_medicare_record_fails_closed_when_eligibility_lister_is_bare_non_ddr_line
+    client = medicare_client_with_lister("-1^Remote procedure DDR LISTER doesn't exist")
+    seed_medicare_present!(client)
+    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
+      client.received_calls << { rpc: rpc, params: params.map(&:to_s), context: client.current_context }
+      MCR_HEADER + "1^^#{DFN}^#{RS}#{US}" if rpc == MEDICARE_RPC
+    end
+    RpmsRpc.configure { |c| c.client = client }
+
+    result = Cov.delete_medicare_record(DFN, client: client)
+
+    refute result[:success]
+    assert_equal :verification_failed, result[:error]
+    assert_empty client.received_calls.select { |c| c[:rpc] == MEDICARE_RPC }
+  end
+
   def test_delete_medicare_record_fails_closed_when_eligibility_lister_errors
     client = medicare_client_with_lister("[Errors]\n")
+    seed_medicare_present!(client)
+    RpmsRpc.configure { |c| c.client = client }
+
+    result = Cov.delete_medicare_record(DFN, client: client)
+
+    refute result[:success]
+    assert_equal :verification_failed, result[:error]
+    assert_empty client.received_calls.select { |c| c[:rpc] == MEDICARE_RPC }
+  end
+
+  def test_delete_medicare_record_fails_closed_when_v1_shaped_lister_reports_errors
+    client = medicare_client_with_lister("[BEGIN_diERRORS]\n")
     seed_medicare_present!(client)
     RpmsRpc.configure { |c| c.client = client }
 
