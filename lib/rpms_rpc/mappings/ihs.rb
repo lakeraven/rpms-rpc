@@ -26,6 +26,22 @@ module RpmsRpc
       m.field 17, :primary_provider
     end
 
+    # VueCentric's patient selection (BEHOPTPL, IHS EHR): each lists active
+    # patients (ISACTIVE^BEHOPTCX) as DFN^NAME^... . LISTALL pages the
+    # division's name index from FROM; LOOKUP reads the last four of the SSN
+    # (BS), the last-name initial plus last four (BS5) or the full SSN; HRNLKP
+    # the health record numbers at the user's division (^AUPNPAT("D")); DOBLKP
+    # the date of birth ("B" + a date ^%DT reads). Only the DFN and name are
+    # kept: LOOKUP's third piece is a masked SSN and the others' an HRN and DOB.
+    { patient_selection_names: "BEHOPTPL LISTALL", patient_selection_ssn: "BEHOPTPL LOOKUP",
+      patient_selection_hrn: "BEHOPTPL HRNLKP", patient_selection_dob: "BEHOPTPL DOBLKP" }.each do |key, rpc|
+      DataMapper.define(key) do |m|
+        m.rpc rpc
+        m.field 0, :dfn, :integer
+        m.field 1, :name
+      end
+    end
+
     # BEHOPTPC GETBDP — designated primary provider detail
     # Format: LABEL^PROVIDER_NAME^PROVIDER_IEN^TITLE^DATE
     DataMapper.define(:patient_designated_provider) do |m|
