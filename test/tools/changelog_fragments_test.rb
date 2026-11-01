@@ -111,6 +111,38 @@ class ChangelogFragmentsTest < Minitest::Test
     assert_match(/heading/i, error.message)
   end
 
+  def test_body_round_trips_byte_for_byte_through_load_and_render
+    body = "\nIntro.\n\n    indented code   \n  \n\ttabbed\t\n    last line   \n"
+    frag("8.fixed.md", "Head (#8)\n#{body}")
+    assert_equal "### Fixed — Head (#8)\n#{body}", Fragments.render(Fragments.load(@dir))
+  end
+
+  def test_trailing_spaces_on_the_last_line_survive_and_one_newline_is_added
+    frag("8.fixed.md", "Head\n\n    code   ")
+    assert_equal "### Fixed — Head\n\n    code   \n", Fragments.render(Fragments.load(@dir))
+  end
+
+  def test_extra_trailing_newlines_collapse_to_exactly_one
+    frag("8.fixed.md", "Head\n\nbody\n\n\n")
+    assert_equal "### Fixed — Head\n\nbody\n", Fragments.render(Fragments.load(@dir))
+  end
+
+  def test_body_directly_after_heading_gets_a_blank_line_separator
+    frag("8.fixed.md", "Head\nbody\n")
+    assert_equal "### Fixed — Head\n\nbody\n", Fragments.render(Fragments.load(@dir))
+  end
+
+  def test_assemble_keeps_trailing_spaces_of_a_code_example
+    frag("8.fixed.md", "Head\n\n    code   \n")
+    sub = File.join(@dir, "frags")
+    FileUtils.mkdir_p(sub)
+    FileUtils.mv(File.join(@dir, "8.fixed.md"), sub)
+    path = File.join(@dir, "CHANGELOG.md")
+    File.write(path, CHANGELOG)
+    out = Fragments.assemble(changelog_path: path, dir: sub).text
+    assert_includes out, "    code   \n\n### Changed"
+  end
+
   def test_render_orders_by_type_then_numeric_id
     frag("10.added.md", "Ten\n\nbody ten\n")
     frag("2.added.md", "Two\n\nbody two\n")
