@@ -162,7 +162,7 @@
 "RpmsRpc::Order.unsigned_for_patient": non_idempotent_write
 "RpmsRpc::Organization.find": read
 "RpmsRpc::Patient.address": non_idempotent_write
-"RpmsRpc::Patient.brief_header": read
+"RpmsRpc::Patient.brief_header": non_idempotent_write
 "RpmsRpc::Patient.contact": non_idempotent_write
 "RpmsRpc::Patient.decode_global_array": read
 "RpmsRpc::Patient.find": read
