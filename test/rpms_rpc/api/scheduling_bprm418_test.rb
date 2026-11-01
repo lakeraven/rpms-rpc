@@ -425,16 +425,57 @@ class SchedulingBprm418Test < Minitest::Test
     assert_equal 1, bsdx_checkin_calls.length
   end
 
-  def test_undo_checkin_returns_lookup_failed_when_post_failure_re_read_of_check_in_fails
+  # Gate round 2 (1): once BSDX CHECKIN APPOINTMENT has run, .03 and field
+  # 309 may both have been cleared (or not). A failed .03 re-read leaves both
+  # unknown, so it is :partial_unverified, never the retry-safe :lookup_failed
+  # (a retry would preflight an already-empty .03 and answer :not_checked_in).
+  def assert_rpc_ran_unverified(result)
+    assert_scheduling_failure(result, error: :partial_unverified)
+    message = result[:message].to_s
+    assert_match(/check-in RPC/i, message)
+    assert_match(/already (ran|run)/i, message)
+    assert_match(/\.03/, message)
+    assert_match(/309/, message)
+    assert_match(/verif/i, message)
+    assert_equal 1, bsdx_checkin_calls.length
+  end
+
+  def seed_through_the_checkin_rpc(checkin_rpc)
     seed_appointment_preflight(APPT_IEN, checkin: START_FM, resource: RESOURCE_IEN)
     seed_resource_hospital_loc(RESOURCE_IEN, HOSPITAL_LOC)
-    RpmsRpc.client.seed(:scheduling_checkin_appointment, APPT_IEN.to_s, { error: CANCHKIN_ERR })
+    RpmsRpc.client.seed(:scheduling_checkin_appointment, APPT_IEN.to_s, checkin_rpc)
+  end
+
+  # Changed in round 3 (was :lookup_failed): the error reply means the RPC
+  # ran, so an unreadable .03 leaves .03 and 309 unknown.
+  def test_undo_checkin_is_partial_unverified_when_post_failure_re_read_of_check_in_fails
+    seed_through_the_checkin_rpc({ error: CANCHKIN_ERR })
     seed_gets(file: "9002018.4", iens: "#{APPT_IEN},", fields: ".03", text: "[ERROR]")
 
-    result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+    assert_rpc_ran_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
+  end
 
-    assert_scheduling_failure(result, error: :lookup_failed)
-    assert_equal 1, bsdx_checkin_calls.length
+  def test_undo_checkin_is_partial_unverified_when_post_failure_re_read_of_check_in_gives_no_response
+    seed_through_the_checkin_rpc({ error: CANCHKIN_ERR })
+
+    assert_rpc_ran_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
+  end
+
+  def test_undo_checkin_is_partial_unverified_when_post_failure_re_read_of_check_in_is_missing_the_row
+    seed_through_the_checkin_rpc({ error: CANCHKIN_ERR })
+    seed_gets(file: "9002018.4", iens: "#{APPT_IEN},", fields: ".03", text: "[Data]")
+
+    assert_rpc_ran_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
+  end
+
+  def test_undo_checkin_is_partial_unverified_when_post_failure_re_read_of_check_in_returns_another_fields_row
+    seed_through_the_checkin_rpc({ error: CANCHKIN_ERR })
+    seed_gets(file: "9002018.4", iens: "#{APPT_IEN},", fields: ".03", text: <<~REPLY.strip)
+      [Data]
+      9002018.4^#{APPT_IEN}^.07^#{RESOURCE_IEN}^
+    REPLY
+
+    assert_rpc_ran_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
   end
 
   def test_undo_checkin_returns_not_checked_in_when_check_in_time_is_blank_before_the_rpc
@@ -500,28 +541,109 @@ class SchedulingBprm418Test < Minitest::Test
     assert_no_bsdx_checkin_rpc
   end
 
-  def test_undo_checkin_returns_lookup_failed_when_the_post_check_in_read_fails
-    seed_appointment_preflight(APPT_IEN, checkin: START_FM, resource: RESOURCE_IEN)
-    seed_resource_hospital_loc(RESOURCE_IEN, HOSPITAL_LOC)
-    RpmsRpc.client.seed(:scheduling_checkin_appointment, APPT_IEN.to_s, { error: "0" })
+  # Changed in round 3 (was :lookup_failed): a "0^" reply means the RPC ran;
+  # an unreadable .03 leaves .03 and 309 unknown.
+  def test_undo_checkin_is_partial_unverified_when_the_post_check_in_read_fails
+    seed_through_the_checkin_rpc({ error: "0" })
     seed_gets(file: "9002018.4", iens: "#{APPT_IEN},", fields: ".03", text: "[ERROR]")
 
-    result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
-
-    assert_scheduling_failure(result, error: :lookup_failed)
-    assert_equal 1, bsdx_checkin_calls.length
+    assert_rpc_ran_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
   end
 
-  def test_undo_checkin_returns_lookup_failed_when_the_post_check_in_read_is_missing_the_row
-    seed_appointment_preflight(APPT_IEN, checkin: START_FM, resource: RESOURCE_IEN)
-    seed_resource_hospital_loc(RESOURCE_IEN, HOSPITAL_LOC)
-    RpmsRpc.client.seed(:scheduling_checkin_appointment, APPT_IEN.to_s, { error: "0" })
+  def test_undo_checkin_is_partial_unverified_when_the_post_check_in_read_gives_no_response
+    seed_through_the_checkin_rpc({ error: "0" })
+
+    assert_rpc_ran_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
+  end
+
+  # Changed in round 3 (was :lookup_failed), same reason.
+  def test_undo_checkin_is_partial_unverified_when_the_post_check_in_read_is_missing_the_row
+    seed_through_the_checkin_rpc({ error: "0" })
     seed_gets(file: "9002018.4", iens: "#{APPT_IEN},", fields: ".03", text: "[Data]")
 
-    result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+    assert_rpc_ran_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
+  end
 
-    assert_scheduling_failure(result, error: :lookup_failed)
-    assert_equal 1, bsdx_checkin_calls.length
+  def test_undo_checkin_is_partial_unverified_when_the_post_check_in_read_returns_another_fields_row
+    seed_through_the_checkin_rpc({ error: "0" })
+    seed_gets(file: "9002018.4", iens: "#{APPT_IEN},", fields: ".03", text: <<~REPLY.strip)
+      [Data]
+      9002018.4^#{APPT_IEN}^.07^#{RESOURCE_IEN}^
+    REPLY
+
+    assert_rpc_ran_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
+  end
+
+  # Gate round 2 (2): a DDR read that RAISES after the check-in RPC has run
+  # must not escape undo_checkin: the caller would never learn the write may
+  # have happened. Every broker error class fails closed to :partial_unverified
+  # (ConnectionError/TimeoutError included: the write may have landed, and the
+  # caller must be told, not left with an exception that reads like "nothing
+  # happened"). A raise BEFORE the RPC sent nothing, so it still propagates.
+  RAISING_READS = [
+    RpmsRpc::Client::RpcError,
+    RpmsRpc::Client::RpcMError,
+    RpmsRpc::Client::RpcRefusedError,
+    RpmsRpc::Client::RpcNotAvailableError,
+    RpmsRpc::Client::ConnectionError,
+    RpmsRpc::Client::TimeoutError,
+    RpmsRpc::Client::RpcTimeoutError
+  ].freeze
+
+  # Raise error_class on the one call to rpc_name whose first parameter is
+  # param; every other call is served by the mock as usual.
+  def raise_on_call(rpc_name, param, error_class)
+    client = RpmsRpc.client
+    served = client.method(:call_rpc)
+    target = param.to_s
+    client.define_singleton_method(:call_rpc) do |name, *params|
+      raise error_class, "synthetic #{error_class.name.split('::').last}" if name == rpc_name && params.first.to_s == target
+
+      served.call(name, *params)
+    end
+  end
+
+  RAISING_READS.each do |error_class|
+    tag = error_class.name.split("::").last.downcase
+
+    { "clean_reply" => { error: "0" }, "error_reply" => { error: CANCHKIN_ERR } }.each do |slug, rpc_reply|
+      define_method("test_undo_checkin_is_partial_unverified_when_the_post_rpc_03_read_raises_#{tag}_after_#{slug}") do
+        seed_undo_checkin_graph(checkin_rpc: rpc_reply)
+        raise_on_call("DDR GETS ENTRY DATA", appointment_post_checkin_gets_param(APPT_IEN), error_class)
+
+        assert_rpc_ran_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
+      end
+
+      define_method("test_undo_checkin_is_partial_unverified_when_the_start_patient_read_raises_#{tag}_after_#{slug}") do
+        seed_undo_checkin_graph(checkin_rpc: rpc_reply)
+        raise_on_call("DDR GETS ENTRY DATA", appointment_start_patient_gets_param(APPT_IEN), error_class)
+
+        assert_partial_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
+      end
+
+      define_method("test_undo_checkin_is_partial_unverified_when_the_clinic_listing_raises_#{tag}_after_#{slug}") do
+        seed_undo_checkin_graph(checkin_rpc: rpc_reply)
+        raise_on_call("DDR LISTER", clinic_appointment_lister_param(START_FM, HOSPITAL_LOC), error_class)
+
+        assert_partial_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
+      end
+    end
+
+    define_method("test_undo_checkin_propagates_a_preflight_raise_of_#{tag}_and_sends_no_rpc") do
+      seed_undo_checkin_graph
+      raise_on_call("DDR GETS ENTRY DATA", appointment_preflight_gets_param(APPT_IEN), error_class)
+
+      assert_raises(error_class) { RpmsRpc::Scheduling.undo_checkin(APPT_IEN) }
+      assert_no_bsdx_checkin_rpc
+    end
+
+    define_method("test_undo_checkin_propagates_a_resource_read_raise_of_#{tag}_and_sends_no_rpc") do
+      seed_undo_checkin_graph
+      raise_on_call("DDR GETS ENTRY DATA", resource_hospital_gets_param(RESOURCE_IEN), error_class)
+
+      assert_raises(error_class) { RpmsRpc::Scheduling.undo_checkin(APPT_IEN) }
+      assert_no_bsdx_checkin_rpc
+    end
   end
 
   def test_undo_checkin_returns_lookup_failed_when_the_resource_read_gives_no_response
