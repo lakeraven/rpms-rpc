@@ -32,6 +32,7 @@
       "XUS SIGNON SETUP"
     ],
     "RpmsRpc::BehavioralHealth": [
+      "AMHG CREATE/EDIT VISIT",
       "AMHG GET SUICIDE FORM",
       "AMHG GET SUICIDE FORM CF",
       "AMHG GET SUICIDE FORM METHOD",

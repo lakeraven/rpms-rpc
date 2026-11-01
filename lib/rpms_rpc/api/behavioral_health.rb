@@ -32,12 +32,17 @@ module RpmsRpc
 
     # Raised when a visit is refused before any AMHG call, or when the
     # reply does not prove the record was filed. A post-call message says
-    # the outcome is unknown and that the visit may have been filed. It
-    # names a record IEN when one is known, and never a value the caller
-    # passed or the broker's text. A {Client::ConnectionError} (including
-    # a timeout) or a {Client::RpcMError} from the AMHG call, and an
-    # {RpmsRpc::Error} from a post-call DDR read, are this class with that
-    # exception kept as the cause.
+    # the outcome is unknown and that the visit may have been filed. For
+    # save_visit it names a record IEN when one is known, and never a
+    # value the caller passed or the broker's text. save_pcc_visit uses
+    # the same class and never names a caller value or broker text; a
+    # "0~" row names its text only when that text is a fixed PRECHECK or
+    # CHECKREC literal, and a blank success row says no PCC visit is
+    # linked and that an existing link may have been removed. A
+    # {Client::ConnectionError} (including a timeout) or a
+    # {Client::RpcMError} from the AMHG call, and an {RpmsRpc::Error}
+    # from a post-call DDR read, are this class with that exception kept
+    # as the cause.
     class SaveError < RpmsRpc::Error; end
 
     # External values of BH VISIT (#9002011) field .02, piece 3 of
@@ -135,6 +140,44 @@ module RpmsRpc
                      :UNSAFE_WIRE, :GROUP_NAME_MAX, :GROUP_TIME_MINUTES,
                      :ACTIVITY_TIME_MINUTES, :FILEMAN_CENTURY, :ENCOUNTER_DATE_MIN,
                      :OMITTED
+
+    # AMHG CREATE/EDIT VISIT reply header (AMHGPCC.m:25).
+    PCC_RESULT_HEADER = "T00030Result"
+    # V VISIT (#9000010). .05 is the patient. Read before the AMHG call
+    # when a visit IEN was given, and again after a reply that names an IEN.
+    PCC_V_VISIT_FILE = "9000010"
+    PCC_BH_FIELDS = ".08;.16"
+    PCC_V_PATIENT_FIELD = ".05"
+    PCC_PRE_FLAGS = "I"
+    # Read-back asks for internal and external. The comparison uses internal.
+    PCC_READBACK_FLAGS = "IE"
+    # Fixed AMHERR literals, copied from PRECHECK (AMHBHRU.m:102-105) and
+    # CHECKREC (AMHBHRU.m:23-41). A "0~" row is named in the SaveError only
+    # when the text is one of these, character for character (the activity
+    # time line has two spaces after the colon). Any other text is broker
+    # text and stays out of the message.
+    PCC_REFUSAL_LITERALS = [
+      "IEN OF MHSS RECORD NOT SET",
+      "IEN OF MHSS RECORD NOT VALID",
+      "FUTURE VISIT DATE NOT ALLOWED!!!",
+      "LOCATION OF ENCOUNTER MISSING!",
+      "Community of Service Missing!",
+      "Activity Type Missing!",
+      "Type of Contact Missing!",
+      "Activity Time Missing!",
+      "Who entered record Missing!",
+      "Date Last Modified Missing!",
+      "Extract Flag Missing!",
+      "User Last Update Missing!",
+      "No primary Provider!",
+      "ERROR: Multiple Primary Providers!",
+      "ERROR: No POV entered!!",
+      "No Provider Narrative on a POV!",
+      "ERROR:  Activity Time Missing!"
+    ].freeze
+    private_constant :PCC_RESULT_HEADER, :PCC_V_VISIT_FILE, :PCC_BH_FIELDS,
+                     :PCC_V_PATIENT_FIELD, :PCC_PRE_FLAGS, :PCC_READBACK_FLAGS,
+                     :PCC_REFUSAL_LITERALS
 
     # Visit list for a patient over a FileMan date range, newest first.
     #
@@ -362,6 +405,95 @@ module RpmsRpc
       ien
     end
     shape :save_visit, resource: "behavioral-health", verb: "POST", path: "/behavioral-health/visit"
+
+    # Create or edit the PCC visit linked from one BH VISIT (#9002011)
+    # through AMHG CREATE/EDIT VISIT (PCC^AMHGPCC, AMHGPCC.m:10-28). One
+    # pipe-delimited AMHSTR, always two pieces: the BH record IEN, then
+    # the PCC visit IEN. +visit_ien+ omitted sends a blank second piece.
+    # AMHGPCC then uses #9002011 .16 (AMHGPCC.m:17-19). The AMHG call runs
+    # under AMHGRPC via {Wire#call_amhg}. Every DDR call runs outside that
+    # scope, in the caller's context. DDR GETS ENTRY DATA and DDR LISTER
+    # are registered under CIAV VUECENTRIC. A session that declared no
+    # context cannot be restored by the scope and would stay bound to
+    # AMHGRPC, so only in that case the post-call reads re-bind
+    # DDR_CONTEXT first (binds: AMHGRPC, then DDR_CONTEXT).
+    #
+    # EN^AMHBHRU (AMHBHRU.m:7-21) checks the record, then PCCLINK. PRECHECK
+    # (lines 102-105) and CHECKREC (lines 23-41) refuse before writing
+    # anything, each with a fixed literal. The reply row is then
+    # "0~<that literal>" (AMHGPCC.m:21-22). Those literals are the frozen
+    # allow-list on this module. The SaveError names the text only when
+    # it is one of them, and says nothing was linked. Any other "0~" text
+    # is not named: the message says the visit was refused and that
+    # nothing was linked, and it does not carry the broker text.
+    #
+    # A success is EN returning 1 (AMHBHRU.m:18). The row is then the
+    # internal #9002011 .16 (AMHGPCC.m:23-24), which may be empty. An
+    # empty row is not a link. When the record no longer qualifies for
+    # PCC, PCCLINK deletes the existing V VISIT and clears .16
+    # (AMHBHRU.m:48-50) and EN still returns 1, so the row is blank. The
+    # SaveError says no PCC visit is linked and that an existing link may
+    # have been removed.
+    #
+    # A returned IEN equal to the old .16 does not prove an edit happened.
+    # When the site PCC link is off and the primary provider has no link,
+    # PCCLINK returns without touching PCC (AMHBHRU.m:43-45,
+    # AMHLE2.m:76-83) and EN still returns 1. The row is the .16 that was
+    # already stored.
+    #
+    # EN^AMHBHRU reads the BH site parameters, not any clinic setting.
+    # PCCCHECK takes the link flag from ^AMHSITE(DUZ(2),0) piece 12
+    # (AMHBHRU.m:54-64) and turns the link off unless ^APCCCTRL(DUZ(2))
+    # allows the AMH package. A provider with no row at
+    # ^AMHSITE(DUZ(2),11) is not linked (AMHLE2.m:76-83). Piece 2, when
+    # .16 is blank, is stored as .16 with no check that the V VISIT
+    # (#9000010) belongs to the same patient (AMHPCCL.m:21,33).
+    #
+    # Before any RPC, +record_ien+ and a given +visit_ien+ must match
+    # /\A[1-9]\d*\z/ after to_s. Anything else is SaveError and nothing
+    # is sent. When +visit_ien+ is given, DDR GETS ENTRY DATA reads
+    # #9002011 .08 and .16 (flags "I") and #9000010 .05 (flags "I")
+    # first. A missing visit, a patient that differs from the record's
+    # .08, or a .16 that is already a different visit is SaveError, and
+    # AMHG CREATE/EDIT VISIT is not called.
+    #
+    # The reply is a GLOBAL ARRAY: header "T00030Result", then exactly
+    # one data row (AMHGPCC.m:25-28). The CIA reader consumes the closing
+    # $C(31), so that sentinel may already be gone; a mock seed may still
+    # include it. "M ERROR|..." (AMHGU.m:108-120, and no $C(31)), a
+    # missing header, more than one data row, or any other malformed
+    # reply is SaveError and the outcome is unknown. A
+    # {Client::ConnectionError} from the AMHG call, including
+    # {Client::RpcTimeoutError}, or a {Client::RpcMError}, is that
+    # SaveError with the exception kept as the cause.
+    # {Client::RpcNotAvailableError} and {Client::RpcRefusedError} are
+    # not those classes; they propagate unchanged. The message carries
+    # no caller value and no broker text.
+    #
+    # A row that is a positive integer is not success until DDR GETS
+    # ENTRY DATA reads back #9002011 .08 and .16 and #9000010 .05 (flags
+    # "IE"). The IEN is returned only when .16 equals that row and the
+    # visit's .05 equals the record's .08. When +visit_ien+ was given,
+    # the row must also equal it. A miss says the outcome is unknown and
+    # that the PCC visit may have been changed. A post-call DDR read that
+    # raises {RpmsRpc::Error} is that SaveError, with the error kept as
+    # the cause.
+    #
+    # Returns the PCC visit IEN as a string.
+    def save_pcc_visit(record_ien:, visit_ien: nil)
+      record = pcc_ien!(record_ien)
+      visit = visit_ien.nil? ? nil : pcc_ien!(visit_ien)
+      pcc_confirm_explicit_visit!(record, visit) if visit
+      mapping = DataMapper[:amhg_create_edit_visit]
+      declared = save_visit_declared_context
+      response = pcc_amhg(mapping, visit.nil? ? "#{record}|" : "#{record}|#{visit}")
+      pcc_rebind!(declared)
+      row = pcc_classify!(pcc_data_row(response))
+      pcc_unknown! if visit && row != visit
+      pcc_confirm_linked!(record, row)
+      row
+    end
+    shape :save_pcc_visit, resource: "behavioral-health", verb: "POST", path: "/behavioral-health/pcc-visit"
 
     # -- visit detail tabs ---------------------------------------------------
 
@@ -1152,6 +1284,165 @@ module RpmsRpc
 
     def save_visit_unconfirmed!(record_ien)
       raise SaveError, "AMHG SAVE VISIT outcome unknown; record #{record_ien} may have been filed but was not confirmed"
+    end
+
+    # to_s, then /\A[1-9]\d*\z/. The value stays out of the message. No
+    # RPC has been sent yet.
+    def pcc_ien!(value)
+      text = value.to_s
+      pcc_refuse!("an IEN must be a positive integer") unless text.match?(POSITIVE_IEN)
+      text
+    end
+
+    # #9002011 .08 and .16, and #9000010 .05, before AMHG. A missing
+    # visit, a patient mismatch, or a different existing .16 is a refusal.
+    # AMHPCCL stores piece 2 as .16 with no patient check (AMHPCCL.m:21,33).
+    def pcc_confirm_explicit_visit!(record_ien, visit_ien)
+      bh = pcc_gets(file: BH_VISIT_FILE, ien: record_ien, fields: PCC_BH_FIELDS, flags: PCC_PRE_FLAGS)
+      visit = pcc_gets(file: PCC_V_VISIT_FILE, ien: visit_ien, fields: PCC_V_PATIENT_FIELD, flags: PCC_PRE_FLAGS)
+      pcc_refuse!("the behavioral health record could not be read") if pcc_unreadable?(bh)
+      pcc_refuse!("the PCC visit could not be read") if visit == :failed
+      pcc_refuse!("the PCC visit is not on file") if pcc_unreadable?(visit)
+      pcc_refuse!("the stored patient could not be read") unless pcc_field?(bh, ".08")
+      pcc_refuse!("the stored PCC link could not be read") unless pcc_field?(bh, ".16")
+      patient = pcc_pointer(bh, ".08")
+      visit_patient = pcc_pointer(visit, PCC_V_PATIENT_FIELD)
+      pcc_refuse!("the stored patient could not be read") unless patient&.match?(POSITIVE_IEN)
+      pcc_refuse!("the PCC visit is not on file") unless visit_patient&.match?(POSITIVE_IEN)
+      pcc_refuse!("the PCC visit patient does not match the behavioral health record") unless visit_patient == patient
+      linked = pcc_pointer(bh, ".16")
+      return if linked.nil? || linked == visit_ien
+
+      pcc_refuse!("the behavioral health record is already linked to a different PCC visit")
+    end
+
+    def pcc_gets(file:, ien:, fields:, flags:)
+      save_visit_ddr(file: file, iens: "#{ien},", fields: fields, flags: flags)
+    rescue Error
+      :failed
+    end
+
+    def pcc_unreadable?(got)
+      return true if got.nil? || got == :failed
+
+      got[:error] || got[:fields].empty?
+    end
+
+    def pcc_field?(got, field)
+      return false if pcc_unreadable?(got)
+
+      got[:fields].key?(field)
+    end
+
+    # Pointer internal. "IEN;global" keeps the IEN. Blank is nil.
+    def pcc_pointer(got, field)
+      raw = got[:fields].dig(field, :internal)
+      return nil if raw.nil?
+
+      ien = raw.to_s.split(";", 2).first.to_s.strip
+      ien.empty? ? nil : ien
+    end
+
+    # Outside the AMHG scope only when the call returned. A
+    # ConnectionError or RpcMError is raised from pcc_amhg after the
+    # scope has already restored a declared context; a nil context is
+    # left on AMHGRPC, the same as save_visit.
+    def pcc_amhg(mapping, wire)
+      call_amhg(mapping, wire)
+    rescue Client::ConnectionError, Client::RpcMError => e
+      pcc_unknown!(cause: e)
+    end
+
+    # ContextScope restores only a context that existed. With none
+    # declared the session is left on AMHGRPC, which the DDR reads must
+    # not rely on.
+    def pcc_rebind!(declared)
+      return unless declared.nil?
+
+      client = RpmsRpc.client
+      return unless client.respond_to?(:create_context)
+
+      client.create_context(DDR_CONTEXT) if client.current_context != DDR_CONTEXT
+    rescue Error => e
+      pcc_unknown!(cause: e)
+    end
+
+    # Header "T00030Result", then exactly one data row, each closed by
+    # $C(30). The CIA reader has already consumed $C(31) (cia_client
+    # returns the bytes before the sentinel); a seed may still include
+    # it. An optional "<seq>\x00" ack is dropped, the same way
+    # save_visit_rows does. Empty data is kept: a blank row is a result,
+    # not a missing row. "M ERROR|..." is never a result.
+    def pcc_data_row(response)
+      body = response.is_a?(Array) ? response.join("\n") : response.to_s
+      body = body.split("\x00", 2).last if body.include?("\x00")
+      body = body.split("\x1f", 2).first.to_s
+      pcc_unknown! if body.include?("M ERROR|")
+      pcc_unknown! unless body.end_with?("\x1e")
+
+      parts = body.split("\x1e", -1)
+      parts.pop
+      pcc_unknown! unless parts.length == 2 && parts[0] == PCC_RESULT_HEADER
+
+      parts[1].strip
+    end
+
+    # "" is the blank success row (AMHBHRU.m:48-50 may have cleared .16).
+    # "0~<text>" is a refusal from EN. Anything else must be the IEN.
+    def pcc_classify!(row)
+      pcc_blank! if row.empty?
+      if row.start_with?("0~")
+        text = row.delete_prefix("0~")
+        if PCC_REFUSAL_LITERALS.include?(text)
+          pcc_refuse!("#{text}; nothing was linked")
+        else
+          pcc_refuse!("the PCC visit was refused; nothing was linked")
+        end
+      end
+      pcc_unknown! unless row.match?(POSITIVE_IEN)
+
+      row
+    end
+
+    # .16 must be this IEN and the visit's .05 must be the record's .08.
+    # A miss may mean the link was written. The caller value stays out of
+    # the message.
+    def pcc_confirm_linked!(record_ien, pcc_ien)
+      bh = save_visit_ddr(
+        file: BH_VISIT_FILE, iens: "#{record_ien},",
+        fields: PCC_BH_FIELDS, flags: PCC_READBACK_FLAGS
+      )
+      visit = save_visit_ddr(
+        file: PCC_V_VISIT_FILE, iens: "#{pcc_ien},",
+        fields: PCC_V_PATIENT_FIELD, flags: PCC_READBACK_FLAGS
+      )
+      pcc_unknown! unless pcc_linked?(bh, visit, pcc_ien)
+    rescue Error => e
+      raise if e.is_a?(SaveError)
+
+      pcc_unknown!(cause: e)
+    end
+
+    def pcc_linked?(bh, visit, pcc_ien)
+      return false if pcc_unreadable?(bh) || pcc_unreadable?(visit)
+
+      patient = pcc_pointer(bh, ".08")
+      pcc_pointer(bh, ".16") == pcc_ien && patient&.match?(POSITIVE_IEN) && pcc_pointer(visit, PCC_V_PATIENT_FIELD) == patient
+    end
+
+    def pcc_refuse!(message)
+      raise SaveError, message
+    end
+
+    def pcc_blank!
+      raise SaveError, "no PCC visit is linked; an existing link may have been removed"
+    end
+
+    def pcc_unknown!(cause: nil)
+      message = "AMHG CREATE/EDIT VISIT outcome unknown; the PCC visit may have been changed but was not confirmed"
+      raise SaveError, message, cause: cause if cause
+
+      raise SaveError, message
     end
 
     # The wire's Signed column is a NEGATIVE marker, and the EHR path clears
