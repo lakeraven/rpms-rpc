@@ -22,7 +22,7 @@ class PatientDesignatedProviderTest < Minitest::Test
       case rpc
       when "BEHOPTCX PTINFO" then @ptinfo_line
       when "BEHOPTPC GETBDP" then @getbdp_lines
-      when "BEHOCACV CWAD" then @cwad
+      when "ORWPT CWAD" then @cwad
       else ""
       end
     end
