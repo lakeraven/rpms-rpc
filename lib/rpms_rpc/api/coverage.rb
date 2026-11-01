@@ -273,9 +273,9 @@ module RpmsRpc
     # and multiple_ien are the eligibility reply's pieces 3 and 4. A blank
     # or non-positive multiple IEN is failure. When the header step returns
     # no record IEN, the result is :record_ien_missing and nothing else is
-    # sent. When the eligibility row does not file, the record this call just
-    # created is removed by that record IEN, after it is confirmed to be the
-    # one this call created.
+    # sent. When the eligibility row does not file, the record IEN the header
+    # step returned is deleted (PROC D) without a read-back; it is the IEN
+    # this call was just handed, not one the caller supplied.
     def add_medicaid(dfn, effective_on:, coverage: "FULL", client: RpmsRpc.client)
       eligibility_params = { "AGGMDESD" => effective_on, "AGGMDECV" => coverage }
       validate_window_params!(MEDICAID_ELIGIBILITY_WINDOW, eligibility_params)
@@ -425,7 +425,8 @@ module RpmsRpc
     end
 
     # PROC D on the Medicaid window for the record IEN the header step
-    # returned, and only that IEN. A blank RIEN is not a rollback. The
+    # returned, and only that IEN. No read confirms the record first. A blank
+    # or non-canonical RIEN is not a rollback. The
     # caller-supplied IEN path is delete_medicaid, which reads #9000004 .01
     # on the same client before it deletes.
     def rollback_medicaid_record(dfn, record, client)

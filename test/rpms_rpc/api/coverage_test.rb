@@ -37,12 +37,6 @@ class CoverageTest < Minitest::Test
   MEDICARE_ELIG_FILE = "9000003.11"
   MEDICAID_FILE = "9000004"
 
-  # ^AGG(9009068.3) parameter names for each window (AGGUPMCR / AGGUPMCD).
-  MEDICARE_HEADER_FIELDS = %w[AGGMCROI AGGMCNME AGGMCNUM AGGMCSUF].freeze
-  MEDICARE_ELIGIBILITY_FIELDS = %w[AGGMCESD AGGMCCOV AGGMCEDD AGGMCETM].freeze
-  MEDICAID_HEADER_FIELDS = %w[].freeze
-  MEDICAID_ELIGIBILITY_FIELDS = %w[AGGMDESD AGGMDECV AGGMDEDD AGGMDETM].freeze
-
   DFN = 42
 
   class RecordingClient
@@ -179,15 +173,6 @@ class CoverageTest < Minitest::Test
     end
     assert_raises(NoMethodError) do
       Cov.medicaid_update(DFN, proc: "A", definition: Cov::MEDICAID_WINDOW)
-    end
-  end
-
-  def test_window_field_allowlists_exclude_rien_and_mien
-    [ MEDICARE_HEADER_FIELDS, MEDICARE_ELIGIBILITY_FIELDS,
-      MEDICAID_HEADER_FIELDS, MEDICAID_ELIGIBILITY_FIELDS ].each do |names|
-      names.each do |name|
-        refute_includes %w[RIEN MIEN], name.upcase, "IEN keys must not be PARMS allowlist entries"
-      end
     end
   end
 
