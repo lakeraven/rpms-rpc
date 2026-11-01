@@ -646,6 +646,11 @@ class BehavioralHealthTest < Minitest::Test
         program: "MENTAL HEALTH", clinic: "17", type_of_contact: "3",
         encounter_location: "55", community_of_service: "42"
       } ],
+      save_pov: [ {
+        record_ien: "8801", patient: "100",
+        diagnoses: [ { problem: "501", narrative: "SYNTH POV NARR A" } ],
+        axis_iv: [], axis_v: "55", gaf: "12"
+      } ],
       visit_activity: [ 8801 ],
       visit_axis_ii: [ 8801 ],
       visit_axis_iv: [ 8801 ],
@@ -741,6 +746,43 @@ class BehavioralHealthTest < Minitest::Test
     mock.seed(:ddr_lister, lister_key, "[Data]\n1^412^100^8801^P")
   end
 
+  def seed_context_save_pov(mock)
+    record = "8801"
+    patient = "100"
+    prob = "501"
+    narr = "SYNTH POV NARR A"
+    axis_v = "55"
+    gaf = "12"
+    wire = "E|#{record}|#{prob}~~#{narr}|||#{axis_v}|#{patient}|#{gaf}"
+    mock.seed_text(:amhg_save_pov, wire, "T00030Result#{RS}#{record}#{RS}#{US}")
+    pre_key = RpmsRpc::DdrFileman.gets_entry_param(
+      file: "9002011", iens: "#{record},", fields: ".08;1112", flags: "I"
+    ).to_s
+    mock.seed(:ddr_gets_entry_data, pre_key,
+              "[Data]\n9002011^#{record}^.08^#{patient}^PATIENT,SYNTH\n9002011^#{record}^1112^^SIGNED")
+    prob_key = RpmsRpc::DdrFileman.gets_entry_param(
+      file: "9002012.2", iens: "#{prob},", fields: ".01", flags: "I"
+    ).to_s
+    mock.seed(:ddr_gets_entry_data, prob_key, "[Data]\n9002012.2^#{prob}^.01^SYNTH^EXT")
+    pov_lister_key = RpmsRpc::DdrFileman.lister_param(
+      file: "9002011.01", xref: "AD", part: record, from: "0",
+      screen: "I $P(^(0),U,3)=#{record}",
+      fields: ".01;.02;.04", flags: "IE", max: "25"
+    ).to_s
+    mock.seed(:ddr_lister, pov_lister_key, "[Data]\n1^#{prob}^#{patient}^#{narr}")
+    ax4_lister_key = RpmsRpc::DdrFileman.lister_param(
+      file: "9002011.06101", xref: "B", part: record, from: "0",
+      screen: "I $P(^(0),U,3)=#{record}",
+      fields: ".01", flags: "I", max: "25"
+    ).to_s
+    mock.seed(:ddr_lister, ax4_lister_key, "[Data]")
+    axis_key = RpmsRpc::DdrFileman.gets_entry_param(
+      file: "9002011", iens: "#{record},", fields: ".14;1115", flags: "IE"
+    ).to_s
+    mock.seed(:ddr_gets_entry_data, axis_key,
+              "[Data]\n9002011^#{record}^.14^#{axis_v}^EXT\n9002011^#{record}^1115^#{gaf}^EXT")
+  end
+
   def test_every_amhg_call_runs_under_amhgrpc_and_restores_the_callers_context
     AMHG_CALLS.each do |mod, table|
       table.each do |method, args|
@@ -749,6 +791,7 @@ class BehavioralHealthTest < Minitest::Test
         positional = args.reject { |a| a.is_a?(Hash) }
         keywords = args.find { |a| a.is_a?(Hash) } || {}
         seed_context_save_visit(mock) if mod == BH && method == :save_visit
+        seed_context_save_pov(mock) if mod == BH && method == :save_pov
 
         mod.public_send(method, *positional, **keywords)
 
