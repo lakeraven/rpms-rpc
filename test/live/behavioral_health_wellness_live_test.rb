@@ -51,7 +51,19 @@ class BehavioralHealthWellnessLiveTest < LiveSpec::Test
       community_ien: community_ien
     )
 
-    before = screening_ddr_fields(record_ien)
+    alcohol_comment = "Synthetic live alcohol screening note"
+    wellness.save_screening(
+      record_ien,
+      patient: DFN,
+      screenings: {
+        alcohol: { result: "N", provider: provider, comment: alcohol_comment }
+      }
+    )
+
+    alcohol_after_first = screening_ddr_fields(record_ien)
+    assert_equal "N", alcohol_after_first.fetch("1403"), "alcohol filed on first save"
+    assert_equal provider, alcohol_after_first.fetch("1404"), "alcohol provider on first save"
+    assert_equal alcohol_comment, alcohol_after_first.fetch("1601"), "alcohol comment on first save"
 
     wellness.save_screening(
       record_ien,
@@ -65,10 +77,9 @@ class BehavioralHealthWellnessLiveTest < LiveSpec::Test
     assert_equal "P", after.fetch("1405"), "depression result internal POSITIVE"
     assert_equal provider, after.fetch("1406"), "depression provider"
     assert_equal SYNTH_DEPRESSION_COMMENT, after.fetch("1701"), "depression comment"
-    %w[1403 1401 1407 1409].each do |field|
-      assert_equal before.fetch(field), after.fetch(field),
-                   "screening field #{field} must stay unchanged when not named in save_screening"
-    end
+    assert_equal alcohol_after_first.fetch("1403"), after.fetch("1403"), "alcohol result unchanged"
+    assert_equal alcohol_after_first.fetch("1404"), after.fetch("1404"), "alcohol provider unchanged"
+    assert_equal alcohol_after_first.fetch("1601"), after.fetch("1601"), "alcohol comment unchanged"
 
     filed = wellness.save_measurements(
       record_ien,
