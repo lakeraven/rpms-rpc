@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — License is now Apache-2.0
+
+- New releases are licensed under the Apache License, Version 2.0 (`LICENSE`, `NOTICE`). Earlier releases stay available under the MIT License, whose notice is kept in `NOTICE`.
+
 ### Added — SOGI and MBI through DDR, holiday maintenance, and undo check-in (#418)
 
 - `Registration.set_gender_identity`, `set_sexual_orientation`, `set_legal_sex`, `add_mbi`, and `set_sex` file through DDR FILER under `CIAV VUECENTRIC`. `set_sex` is the `AG2A` `.23` delete plus `SEXELIG^AGUTL`: it clears `#9000001` `.23` when `#2` `.02` changes and that field is non-blank, files `#2` `.02` (mode EDIT), and copies the sex onto the MCR, MCD, and RRE eligibility rows. The cascade is not atomic with the `.02` write; a refusal after an earlier EDIT succeeded is `:partial`, and a retry repeats the cascade because it always runs. `Registration.mbis` reads `#9000001` `.01` before listing `#9000001.44` and raises `Client::RpcError` when that entry is missing or either read fails. `set_insurance_billing_order` and `insurance_in_use` return `{ success: false, error: :not_supported }` and send no RPC.
