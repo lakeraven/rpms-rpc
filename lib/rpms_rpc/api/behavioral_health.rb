@@ -454,6 +454,11 @@ module RpmsRpc
     # raw rows are joined and compared to the text that was sent, so
     # ARRAYT's wrap still confirms. A miss says the outcome is unknown
     # and that the record may have been filed but was not confirmed.
+    # Any {RpmsRpc::Error} from a read after the reply, including a
+    # refusal of AMHG GET VISIT SOAP or COMM APP, is SaveError saying the
+    # record may have been filed, with that error as its cause. A client
+    # that returns the rows already split (BMX #call_rpc) is read row by
+    # row, so each row keeps its LF.
     #
     # Limits this method does not close: the signature and the 1110
     # state are checked before the call only. Three separate FileMan
@@ -1315,8 +1320,9 @@ module RpmsRpc
       save_visit_refuse!("placement disposition must be a positive integer")
     end
 
-    # "" is a clear for a comment and is refused for a note. A value that
-    # is not empty but strips to nothing is refused for both. LF stays.
+    # "" leaves 8101 unchanged (WP^DIE error 305) and is refused for a
+    # note. A value that is not empty but strips to nothing is refused
+    # for both. LF stays.
     def save_progress_note_wp(value, blank_ok:)
       save_visit_refuse!("a value is missing") if value.nil?
 
@@ -1386,19 +1392,56 @@ module RpmsRpc
       save_visit_ambiguous!(ien, rpc: PROGRESS_NOTE_RPC, cause: e)
     end
 
+    # Joined rows must equal the sent text exactly. save_visit_amhg wraps
+    # only ConnectionError and RpcMError, so any other RpmsRpc::Error from
+    # this read (a refusal, an inactive RPC) is caught here: the note has
+    # already been sent.
     def save_progress_note_confirm_wp!(ien, mapping_name, sent)
       response = save_visit_amhg(DataMapper[mapping_name], ien, ien, rpc: PROGRESS_NOTE_RPC)
       rows = save_progress_note_text_rows(response)
       failed = rows.empty? || rows.any? { |row| row.start_with?("M ERROR|") } || rows.join != sent
       save_visit_unconfirmed!(ien, rpc: PROGRESS_NOTE_RPC) if failed
+    rescue Error => e
+      raise if e.is_a?(SaveError)
+
+      save_visit_ambiguous!(ien, rpc: PROGRESS_NOTE_RPC, cause: e)
     end
 
     # save_visit_rows drops a line that is only LF. ARRAYT keeps that LF,
     # and joining these rows is the stored note or comment.
+    #
+    # MockClient splits a text seed on LF, so a $C(30) frame is still
+    # inside the elements. Joining those on LF restores the frame, and
+    # that String goes through save_visit_frame_parts. BMX #call_rpc has
+    # already split on $C(30): each element is a row and keeps its
+    # trailing LF. Joining those on LF and splitting again would drop
+    # the LF. A row that is exactly "" is not a blank line ("\n" is).
+    # One trailing $C(31), as its own element or a suffix, is the end
+    # marker.
     def save_progress_note_text_rows(response)
-      parts = save_visit_frame_parts(response)
+      return save_progress_note_array_rows(response) if save_progress_note_presplit_rows?(response)
+
+      framed = response.is_a?(Array) ? response.join("\n") : response
+      parts = save_visit_frame_parts(framed)
       parts = parts.drop(1) if parts.first && DataMapper.recordset_header_row?(parts.first)
       parts.reject(&:empty?)
+    end
+
+    # True when the elements are already the recordset rows. A newline
+    # split of a frame still holds $C(30) or the sequence ack.
+    def save_progress_note_presplit_rows?(response)
+      response.is_a?(Array) && response.none? { |row| row.to_s.match?(/[\x00\x1e]/) }
+    end
+
+    def save_progress_note_array_rows(response)
+      rows = response.map(&:to_s)
+      rows = rows.drop(1) if rows.first && DataMapper.recordset_header_row?(rows.first)
+      rows = rows.reject(&:empty?)
+      return rows if rows.empty? || !rows.last.end_with?("\x1f")
+
+      stripped = rows.last.delete_suffix("\x1f")
+      tail = rows[0...-1]
+      stripped.empty? ? tail : tail + [ stripped ]
     end
 
     # The wire's Signed column is a NEGATIVE marker, and the EHR path clears
