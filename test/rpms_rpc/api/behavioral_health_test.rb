@@ -767,15 +767,15 @@ class BehavioralHealthTest < Minitest::Test
     pov_lister_key = RpmsRpc::DdrFileman.lister_param(
       file: "9002011.01", xref: "AD", part: record, from: "0",
       screen: "I $P(^(0),U,3)=#{record}",
-      fields: ".01;.02;.04", flags: "IE", max: "25"
+      fields: ".01;.02;.03;.04E", flags: "IP", max: "25"
     ).to_s
-    mock.seed(:ddr_lister, pov_lister_key, "[Data]\n1^#{prob}^#{patient}^#{narr}")
+    mock.seed(:ddr_lister, pov_lister_key,
+              "[Data]\n1^#{prob}^#{patient}^#{record}^#{narr}")
     ax4_lister_key = RpmsRpc::DdrFileman.lister_param(
-      file: "9002011.06101", xref: "B", part: record, from: "0",
-      screen: "I $P(^(0),U,3)=#{record}",
-      fields: ".01", flags: "I", max: "25"
+      file: "9002011.06101", iens: ",#{record},",
+      fields: ".01", flags: "IP", max: "25"
     ).to_s
-    mock.seed(:ddr_lister, ax4_lister_key, "[Data]")
+    mock.seed(:ddr_lister, ax4_lister_key, "[Data]\n")
     axis_key = RpmsRpc::DdrFileman.gets_entry_param(
       file: "9002011", iens: "#{record},", fields: ".14;1115", flags: "IE"
     ).to_s
