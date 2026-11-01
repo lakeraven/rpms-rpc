@@ -57,7 +57,6 @@ RpmsRpc::Order.result	GET /patients/{dfn}/orders/{order_ien}/result
 RpmsRpc::Order.result_history	GET /patients/{dfn}/orders/{order_ien}/result-history
 RpmsRpc::Order.sheets_for_patient	GET /patients/{dfn}/orders/sheets
 RpmsRpc::Organization.find	GET /organizations/{ien}
-RpmsRpc::Patient.brief_header	GET /patients/{dfn}/brief-header
 RpmsRpc::Patient.find	GET /patients/{dfn}
 RpmsRpc::Patient.find_by_ssn	GET /patients/by-ssn
 RpmsRpc::Patient.lookup	GET /patients/lookup
