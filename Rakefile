@@ -41,4 +41,33 @@ end
 
 Dir.glob(File.expand_path("lib/tasks/*.rake", __dir__)).each { |r| load r }
 
+# Changelog fragments (changelog.d/): one file per PR, assembled into CHANGELOG.md at release.
+namespace :changelog do
+  fragments_dir = File.expand_path("changelog.d", __dir__)
+  changelog = File.expand_path("CHANGELOG.md", __dir__)
+
+  desc "Validate every changelog fragment in changelog.d/"
+  task :check do
+    require_relative "tools/changelog_fragments"
+    puts "changelog:check: #{Fragments.load(fragments_dir).size} fragment(s) valid"
+  rescue Fragments::Error => e
+    abort "changelog:check: #{e.message}"
+  end
+
+  desc "Insert the fragments under [Unreleased] in CHANGELOG.md and delete them (the release step commits)"
+  task :assemble do
+    require_relative "tools/changelog_fragments"
+    result = Fragments.assemble(changelog_path: changelog, dir: fragments_dir)
+    if result.files.empty?
+      puts "changelog:assemble: no fragments, CHANGELOG.md unchanged"
+    else
+      File.write(changelog, result.text)
+      File.delete(*result.files)
+      puts "changelog:assemble: wrote #{result.files.size} fragment(s) into CHANGELOG.md and deleted #{result.files.map { |f| File.basename(f) }.join(', ')}"
+    end
+  rescue Fragments::Error => e
+    abort "changelog:assemble: #{e.message}"
+  end
+end
+
 task default: :test

@@ -118,7 +118,7 @@ class ChangelogFragmentsTest < Minitest::Test
     result = Fragments.assemble(changelog_path: path, dir: sub)
     expected = CHANGELOG.sub("## [Unreleased]\n\n", "## [Unreleased]\n\n### Added — New thing (#7)\n\n- It works.\n\n")
     assert_equal expected, result.text
-    assert_equal [File.join(sub, "7.added.md")], result.files
+    assert_equal [ File.join(sub, "7.added.md") ], result.files
     assert_operator result.text.index("New thing"), :<, result.text.index("Existing entry")
     assert_operator result.text.index("Existing entry"), :<, result.text.index("## [1.0.0]")
   end
