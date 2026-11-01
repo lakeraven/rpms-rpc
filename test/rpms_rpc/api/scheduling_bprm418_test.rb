@@ -212,49 +212,161 @@ class SchedulingBprm418Test < Minitest::Test
     assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :partial)
   end
 
-  def test_undo_checkin_is_lookup_failed_when_no_clinic_row_belongs_to_the_patient
+  def test_undo_checkin_is_partial_unverified_when_no_clinic_row_belongs_to_the_patient
     seed_undo_checkin_graph(clinic_rows: [ [ OTHER_SUB_IEN, OTHER_PATIENT_DFN, "" ] ])
 
     result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
 
-    assert_scheduling_failure(result, error: :lookup_failed)
+    assert_scheduling_failure(result, error: :partial_unverified)
   end
 
-  def test_undo_checkin_is_lookup_failed_when_the_clinic_listing_is_empty
+  def test_undo_checkin_is_partial_unverified_when_the_clinic_listing_is_empty
     seed_undo_checkin_graph(clinic_rows: [])
 
-    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :lookup_failed)
+    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :partial_unverified)
   end
 
-  def test_undo_checkin_is_lookup_failed_when_the_clinic_listing_gives_no_reply
+  def test_undo_checkin_is_partial_unverified_when_the_clinic_listing_gives_no_reply
     seed_undo_checkin_graph(clinic_rows: nil)
 
-    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :lookup_failed)
+    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :partial_unverified)
   end
 
-  def test_undo_checkin_is_lookup_failed_when_the_clinic_listing_errors
+  def test_undo_checkin_is_partial_unverified_when_the_clinic_listing_errors
     seed_undo_checkin_graph(clinic_rows: nil)
     RpmsRpc.client.seed(:ddr_lister, clinic_appointment_lister_param(START_FM, HOSPITAL_LOC).to_s,
                         "[Errors]\n[BEGIN_diERRORS]\n202^^^\nboom\n[END_diERRORS]")
 
-    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :lookup_failed)
+    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :partial_unverified)
   end
 
-  def test_undo_checkin_is_lookup_failed_when_the_start_and_patient_read_fails
+  def test_undo_checkin_is_partial_unverified_when_the_start_and_patient_read_fails
     seed_undo_checkin_graph
     seed_gets(file: "9002018.4", iens: "#{APPT_IEN},", fields: ".01;.05", text: "[ERROR]")
 
-    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :lookup_failed)
+    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :partial_unverified)
   end
 
-  def test_undo_checkin_is_lookup_failed_when_the_start_and_patient_read_omits_the_patient_row
+  def test_undo_checkin_is_partial_unverified_when_the_start_and_patient_read_omits_the_patient_row
     seed_undo_checkin_graph
     seed_gets(file: "9002018.4", iens: "#{APPT_IEN},", fields: ".01;.05", text: <<~REPLY.strip)
       [Data]
       9002018.4^#{APPT_IEN}^.01^#{START_FM}^
     REPLY
 
-    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :lookup_failed)
+    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :partial_unverified)
+  end
+
+  # Gate round 1 (A): once the check-in RPC has run and .03 is cleared, a
+  # failure to verify field 309 is NOT a retry-safe lookup failure (a retry
+  # preflights .03, finds it empty and answers :not_checked_in, hiding a
+  # possibly-set 309). It is :partial_unverified and says so.
+  def assert_partial_unverified(result)
+    assert_scheduling_failure(result, error: :partial_unverified)
+    message = result[:message].to_s
+    assert_match(/\.03/, message)
+    assert_match(/clear/i, message)
+    assert_match(/309/, message)
+    assert_match(/verif/i, message)
+    assert_equal 1, bsdx_checkin_calls.length
+  end
+
+  def test_undo_checkin_is_partial_unverified_when_the_clinic_listing_has_two_rows_for_the_patient
+    seed_undo_checkin_graph(clinic_rows: [ [ SUB_IEN, PATIENT_DFN, "" ],
+                                           [ OTHER_SUB_IEN, PATIENT_DFN, START_FM ] ])
+
+    assert_partial_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
+  end
+
+  def test_undo_checkin_two_patient_rows_are_never_judged_empty_even_when_both_309_are_empty
+    seed_undo_checkin_graph(clinic_rows: [ [ SUB_IEN, PATIENT_DFN, "" ],
+                                           [ OTHER_SUB_IEN, PATIENT_DFN, "" ] ])
+
+    result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+
+    refute result[:success], result.inspect
+    assert_scheduling_failure(result, error: :partial_unverified)
+  end
+
+  def test_undo_checkin_is_partial_unverified_when_the_clinic_listing_is_unfinished
+    seed_undo_checkin_graph(clinic_rows: nil)
+    RpmsRpc.client.seed(:ddr_lister, clinic_appointment_lister_param(START_FM, HOSPITAL_LOC).to_s,
+                        "[Misc]\nMORE^#{SUB_IEN}^#{SUB_IEN}\n[Data]\n#{SUB_IEN}^#{PATIENT_DFN}^")
+
+    assert_partial_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
+  end
+
+  def test_undo_checkin_is_partial_unverified_when_the_patients_row_carries_no_309_piece
+    seed_undo_checkin_graph(clinic_rows: nil)
+    RpmsRpc.client.seed(:ddr_lister, clinic_appointment_lister_param(START_FM, HOSPITAL_LOC).to_s,
+                        "[Data]\n#{SUB_IEN}^#{PATIENT_DFN}")
+
+    assert_partial_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
+  end
+
+  def test_undo_checkin_is_partial_unverified_when_the_start_or_patient_is_empty
+    seed_undo_checkin_graph
+    seed_appointment_start_patient(APPT_IEN, patient: "")
+
+    assert_partial_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
+  end
+
+  def test_undo_checkin_unverified_results_are_distinct_from_lookup_failed
+    seed_undo_checkin_graph(clinic_rows: [])
+
+    result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+
+    refute_equal :lookup_failed, result[:error]
+  end
+
+  # Gate round 1 (B): an error reply with .03 already empty must read 309
+  # through the same clinic listing before it answers.
+  def test_undo_checkin_after_error_with_cleared_03_reports_partial_naming_309_when_it_is_set
+    seed_undo_checkin_graph(checkin_rpc: { error: CANCHKIN_ERR }, post_checkin: "",
+                            clinic_rows: [ [ SUB_IEN, PATIENT_DFN, START_FM ] ])
+
+    result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+
+    assert_scheduling_failure(result, error: :partial)
+    assert_match(/309/, result[:message].to_s)
+    assert_equal [ clinic_appointment_lister_param(START_FM, HOSPITAL_LOC) ],
+                 clinic_lister_calls.map { |c| c[:params].first }
+    assert_equal 1, bsdx_checkin_calls.length
+  end
+
+  def test_undo_checkin_after_error_with_cleared_03_and_empty_309_keeps_the_cleared_clinic_outcome
+    seed_undo_checkin_graph(checkin_rpc: { error: CANCHKIN_ERR }, post_checkin: "",
+                            clinic_rows: [ [ SUB_IEN, PATIENT_DFN, "" ] ])
+
+    result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+
+    refute result[:success], "an error reply is never success: #{result.inspect}"
+    refute_includes %i[partial_unverified lookup_failed], result[:error],
+                    "309 was read and is empty; the outcome is not an unverified one"
+    assert_equal [ clinic_appointment_lister_param(START_FM, HOSPITAL_LOC) ],
+                 clinic_lister_calls.map { |c| c[:params].first },
+                 "309 must be read, not assumed"
+  end
+
+  def test_undo_checkin_after_error_with_cleared_03_is_partial_unverified_when_the_listing_is_unreadable
+    seed_undo_checkin_graph(checkin_rpc: { error: CANCHKIN_ERR }, post_checkin: "", clinic_rows: nil)
+
+    assert_partial_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
+  end
+
+  def test_undo_checkin_after_error_with_cleared_03_is_partial_unverified_when_two_rows_match
+    seed_undo_checkin_graph(checkin_rpc: { error: CANCHKIN_ERR }, post_checkin: "",
+                            clinic_rows: [ [ SUB_IEN, PATIENT_DFN, "" ], [ OTHER_SUB_IEN, PATIENT_DFN, "" ] ])
+
+    assert_partial_unverified(RpmsRpc::Scheduling.undo_checkin(APPT_IEN))
+  end
+
+  def test_undo_checkin_after_error_with_set_03_does_not_read_309
+    seed_undo_checkin_graph(checkin_rpc: { error: CANCHKIN_ERR }, post_checkin: START_FM)
+
+    RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+
+    assert_empty clinic_lister_calls
   end
 
   def test_undo_checkin_lists_the_clinic_day_at_the_appointments_own_start_and_hospital_location
