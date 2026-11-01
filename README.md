@@ -691,7 +691,7 @@ The suite is a SHA-256 over every file under `test/live/` plus `data/rpc_coverag
 `CHANGELOG.md` is not shipped, so the release section can quote the live summary without invalidating the source fingerprint.
 Anything that is shipped does invalidate the source, including the version bump and a README edit. A change under `test/live/` or to the coverage pin invalidates the suite.
 
-So the order is: bump the version and finish every shipped file and the live specs, then `rake test:live` once per persona, then `rake release`.
+So the order is: bump the version and finish every shipped file and the live specs, then `rake test:live` once per persona, then `rake changelog:assemble` and commit the result (`rake release` refuses while any fragment is left in `changelog.d/`), then `rake release`.
 A run during which a shipped file or the live suite changes is not recorded.
 A summary from before schema 3, or for another build, source, or suite, or with `passed` other than true, is refused until `rake test:live` is re-run for that persona. Delete the file if that persona is not part of the release.
 
@@ -734,4 +734,4 @@ M source reference and update [docs/rpcs.md](docs/rpcs.md).
 
 ## License
 
-MIT. See [MIT-LICENSE](MIT-LICENSE).
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

@@ -13,7 +13,7 @@ Gem::Specification.new do |spec|
                      "via the CIA/XWB and BMX protocols. Includes parameter encoding, " \
                      "response parsing, FileMan date helpers, and PHI sanitization. " \
                      "No Rails dependency."
-  spec.license     = "MIT"
+  spec.license     = "Apache-2.0"
   spec.metadata    = {
     "homepage_uri"      => "https://github.com/lakeraven/rpms-rpc",
     "source_code_uri"   => "https://github.com/lakeraven/rpms-rpc",
@@ -24,7 +24,7 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ">= 3.4.0"
 
   spec.files = Dir.chdir(File.expand_path(__dir__)) do
-    Dir["bin/*", "{lib,docs}/**/*", "MIT-LICENSE", "Rakefile", "README.md"]
+    Dir["bin/*", "{lib,docs}/**/*", "LICENSE", "NOTICE", "Rakefile", "README.md"]
   end
   # rexml and bigdecimal are bundled gems (not default gems) since Ruby 3.4,
   # so Bundler only puts them on the load path when declared. Otherwise

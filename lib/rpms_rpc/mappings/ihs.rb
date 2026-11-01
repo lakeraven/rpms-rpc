@@ -42,7 +42,7 @@ module RpmsRpc
       end
     end
 
-    # BEHOPTPC GETBDP — designated primary provider detail
+    # BEHOPTPC GETBDP — one row per designated-provider category, alphabetical.
     # Format: LABEL^PROVIDER_NAME^PROVIDER_IEN^TITLE^DATE
     DataMapper.define(:patient_designated_provider) do |m|
       m.rpc "BEHOPTPC GETBDP"
