@@ -4,7 +4,8 @@
 # CHANGELOG.md at release. Each PR adds a uniquely named file, so two PRs never edit the same lines.
 #
 # A fragment is `<id>.<type>.md`: <id> is the issue or PR number, <type> one of TYPES. The first
-# line is the heading (the text after `### <Type> — `); the rest of the file is the body, verbatim.
+# line is the heading (the text after `### <Type> — `); the rest of the file is the body, kept byte for
+# byte (only render normalises: one blank line after the heading, exactly one trailing newline).
 module Fragments
   class Error < StandardError; end
 
@@ -12,6 +13,17 @@ module Fragments
   NAME = /\A(\d+)\.([^.]+)\.md\z/
   UNRELEASED = /^## \[Unreleased\][ \t]*\r?$/
   IGNORED = %w[README.md .keep .gitkeep .DS_Store].freeze
+
+  DEFAULT_DIR = File.expand_path("../changelog.d", __dir__)
+
+  class << self
+    # The directory the release guard inspects; settable so a test can point it elsewhere.
+    attr_writer :release_dir
+
+    def release_dir
+      @release_dir || DEFAULT_DIR
+    end
+  end
 
   Fragment = Struct.new(:id, :type, :heading, :body, :path, keyword_init: true)
   Assembly = Struct.new(:text, :files, keyword_init: true)
@@ -45,14 +57,27 @@ module Fragments
     heading = heading.to_s.chomp("\r").strip
     raise Error, "#{name}: first line must be the heading text, not blank" if heading.empty?
 
-    Fragment.new(id: match[1].to_i, type: type, heading: heading, body: body.to_s.sub(/\A(?:[ \t]*\r?\n)+/, "").rstrip, path: path)
+    Fragment.new(id: match[1].to_i, type: type, heading: heading, body: body.to_s, path: path)
+  end
+
+  # Validates every fragment in dir (what `rake changelog:check` and the test suite run); returns the count.
+  def check(dir)
+    self.load(dir).size
+  end
+
+  # Names of everything in dir that the release must first fold into CHANGELOG.md.
+  def pending(dir)
+    Dir.children(dir).reject { |n| IGNORED.include?(n) }.sort
   end
 
   def render(fragments)
     ordered = fragments.sort_by { |f| [ TYPES.index(f.type), f.id ] }
     ordered.map do |f|
       head = "### #{f.type.capitalize} — #{f.heading}\n"
-      f.body.empty? ? head : "#{head}\n#{f.body}\n"
+      next head if f.body.strip.empty?
+
+      separator = f.body.match?(/\A[ \t]*\r?\n/) ? "" : "\n"
+      "#{head}#{separator}#{f.body.sub(/\n+\z/, '')}\n"
     end.join("\n")
   end
 

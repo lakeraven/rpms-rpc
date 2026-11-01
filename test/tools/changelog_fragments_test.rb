@@ -43,7 +43,7 @@ class ChangelogFragmentsTest < Minitest::Test
     assert_equal 12, f.id
     assert_equal "fixed", f.type
     assert_equal "`Foo.bar` returns the row (#12)", f.heading
-    assert_equal "- First.\n- Second.", f.body
+    assert_equal "\n- First.\n- Second.\n", f.body
   end
 
   def test_load_ignores_readme_and_keep

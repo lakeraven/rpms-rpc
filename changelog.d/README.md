@@ -6,6 +6,7 @@ Each PR adds one file here instead of editing `CHANGELOG.md`, so merges never co
   `added`, `changed`, `deprecated`, `removed`, `fixed`, `security`.
 - The first line is the heading, the text after `### <Type> — ` (e.g. `` `Foo.bar` returns the row (#12) ``).
 - The rest of the file is the body, copied verbatim: paragraphs and bullets.
+- The `<id>` is the issue the PR closes. Two PRs with the same id and type are a duplicate to resolve, not a collision to rename around.
 - One fragment per PR. Add a second file with another type if the PR needs one.
 - Order in the release: Added, Changed, Deprecated, Removed, Fixed, Security, then by numeric id.
 - Check: `bundle exec rake changelog:check` (validates every fragment, non-zero on a bad one).

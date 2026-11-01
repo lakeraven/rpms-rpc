@@ -49,7 +49,7 @@ namespace :changelog do
   desc "Validate every changelog fragment in changelog.d/"
   task :check do
     require_relative "tools/changelog_fragments"
-    puts "changelog:check: #{Fragments.load(fragments_dir).size} fragment(s) valid"
+    puts "changelog:check: #{Fragments.check(fragments_dir)} fragment(s) valid"
   rescue Fragments::Error => e
     abort "changelog:check: #{e.message}"
   end

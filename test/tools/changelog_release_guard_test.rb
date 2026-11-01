@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "minitest/mock"
 require "rake"
 require "tmpdir"
 require "fileutils"
@@ -32,6 +31,7 @@ class ChangelogReleaseGuardTest < Minitest::Test
 
   def restore_app
     Rake.application = @original_app
+    Fragments.release_dir = nil
   end
 
   def test_pending_lists_every_non_ignored_file_sorted
@@ -45,24 +45,28 @@ class ChangelogReleaseGuardTest < Minitest::Test
 
   def test_release_refuses_while_fragments_are_pending_and_names_them
     load_release_tasks
-    Fragments.stub(:pending, %w[12.fixed.md 7.added.md]) do
-      _out, err = capture_io do
-        assert_raises(SystemExit) { Rake::Task["release:changelog_guard"].invoke }
-      end
-      assert_includes err, "12.fixed.md"
-      assert_includes err, "7.added.md"
-      assert_includes err, "rake changelog:assemble"
-      assert_match(/commit/i, err)
+    File.write(File.join(@dir, "12.fixed.md"), "x\n")
+    File.write(File.join(@dir, "7.added.md"), "x\n")
+    File.write(File.join(@dir, "README.md"), "docs\n")
+    Fragments.release_dir = @dir
+    _out, err = capture_io do
+      assert_raises(SystemExit) { Rake::Task["release:changelog_guard"].invoke }
     end
+    assert_includes err, "12.fixed.md"
+    assert_includes err, "7.added.md"
+    refute_includes err, "README.md"
+    assert_includes err, "rake changelog:assemble"
+    assert_match(/commit/i, err)
   ensure
     restore_app
   end
 
   def test_release_guard_passes_when_nothing_is_pending
     load_release_tasks
-    Fragments.stub(:pending, []) do
-      capture_io { Rake::Task["release:changelog_guard"].invoke }
-    end
+    File.write(File.join(@dir, "README.md"), "docs\n")
+    File.write(File.join(@dir, ".keep"), "")
+    Fragments.release_dir = @dir
+    capture_io { Rake::Task["release:changelog_guard"].invoke }
   ensure
     restore_app
   end
