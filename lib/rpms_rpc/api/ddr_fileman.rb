@@ -68,12 +68,17 @@ module RpmsRpc
     # MAX defaults to "*" — DDR.m:58).
     #
     # Returns { entries: [{ien:, pieces: [..]}], more: {value:, ien:}|nil,
-    # error: bool } or nil (no response). Reply grammar is the V0 shape —
-    # over the CIA broker XWBAPVER is unset (ACTR^CIANBACT reads it from
-    # the frame's VER field, CIANBACT.m:67, which RPC frames don't carry):
-    # optional "[Misc]" + "MORE^from^ien", "[Data]" + packed IEN-first rows,
-    # "[Errors]" marker (V0^DDR: DDR.m:21-30,45). NB: the exact packed-row
-    # column set rides LIST^DIC's "P" output; parse row pieces defensively.
+    # error: bool, data: bool } or nil (no response). :data is true when
+    # the reply contained a "[Data]" section and false when it did not.
+    # With a "[Data]" section, :entries, :more and :error are the same
+    # rows and flags as before. With none, :entries is empty: a bare
+    # broker line is not a row.
+    # Reply grammar is the V0 shape — over the CIA broker XWBAPVER is
+    # unset (ACTR^CIANBACT reads it from the frame's VER field,
+    # CIANBACT.m:67, which RPC frames don't carry): optional "[Misc]" +
+    # "MORE^from^ien", "[Data]" + packed IEN-first rows, "[Errors]"
+    # marker (V0^DDR: DDR.m:21-30,45). NB: the exact packed-row column
+    # set rides LIST^DIC's "P" output; parse row pieces defensively.
     def lister(file:, iens: nil, fields: nil, flags: nil, max: nil, from: nil,
                part: nil, xref: nil, screen: nil, id: nil, options: nil)
       param = lister_param(file: file, iens: iens, fields: fields, flags: flags, max: max,
@@ -95,7 +100,11 @@ module RpmsRpc
         end
       end
       error = reply.any? { |l| l == "[Errors]" || l == "[BEGIN_diERRORS]" }
-      { entries: entries, more: more, error: error }
+      data = reply.include?("[Data]")
+      # A reply that never opened [Data] did not list rows. Keep the
+      # parsed entries when it did, so other callers see the same rows.
+      entries = [] unless data
+      { entries: entries, more: more, error: error, data: data }
     end
 
     def lister_param(file:, iens: nil, fields: nil, flags: nil, max: nil, from: nil,

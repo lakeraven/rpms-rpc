@@ -346,9 +346,9 @@ module RpmsRpc
     # must show exactly one primary (.04 "P" and .03 the visit) whose
     # .01 equals +provider+. The SCREEN is built only from that visit
     # IEN after it has matched a positive integer. A row whose .03 is a
-    # different visit is ignored. An error marker or a MORE line is
-    # SaveError, and so is any other result that is not that one
-    # primary. FNDPRV^AMHGU calls CHNGPP (AMHGU.m:336-349), which
+    # different visit is ignored. An error marker, a MORE line, or a
+    # reply with no [Data] section is SaveError, and so is any other
+    # result that is not that one primary. FNDPRV^AMHGU calls CHNGPP (AMHGU.m:336-349), which
     # rewrites the existing primary's .01 to the new provider. It does
     # not add a second primary. The pre-edit refusal stands for that
     # reason.
@@ -378,8 +378,9 @@ module RpmsRpc
     # the program and appointment letters, the pointer IENs, the
     # patient, and for a group the activity time, "1", the group time
     # and the name. The same DDR LISTER must then show exactly one
-    # primary equal to +provider+. A miss says the outcome is unknown
-    # and that the visit may have been filed. A post-call DDR read that
+    # primary equal to +provider+. A reply with no [Data] section is a
+    # miss. A miss says the outcome is unknown and that the visit may
+    # have been filed. A post-call DDR read that
     # raises {RpmsRpc::Error} is that same SaveError, naming the record
     # IEN, with the error kept as the cause.
     #
@@ -581,11 +582,18 @@ module RpmsRpc
     # flags IP, max 25) must show exactly the sent diagnoses: the same
     # multiset of problem IEN and .04 external narrative, each row's .02
     # equal to the patient, and .03 equal to this record. A row whose
-    # .03 is another record is ignored. The SCREEN is built only from
-    # the record IEN after it has matched a positive integer. An error
-    # marker or a MORE line is SaveError. DDR LISTER on #9002011.06101
+    # .03 is another record is ignored. A row that is not the row IEN
+    # plus exactly those four pieces, or whose problem is not a positive
+    # integer, is a miss, not a row to ignore. The SCREEN is built only
+    # from the record IEN after it has matched a positive integer. An
+    # error marker, a MORE line, or a reply with no [Data] section is a
+    # miss: absence is not an empty list. DDR LISTER on #9002011.06101
     # (IENS ",record,", field .01, flags IP, max 25, no xref, part, from
-    # or screen) must show exactly the sent axis IV set. DDR GETS ENTRY
+    # or screen) must show exactly the sent axis IV multiset. Each row
+    # is a row IEN plus a non-blank positive-integer .01. A row that is
+    # not that shape is a miss, not dropped. A reply with no [Data]
+    # section is a miss, including a clear: an empty multiple is a
+    # [Data] section with no rows. DDR GETS ENTRY
     # DATA then reads .14 and 1115 (flags "IE"). Each internal equals
     # what was sent. A cleared field must be a present row whose
     # internal is blank. A missing row, a nil internal, or a body with
@@ -1267,12 +1275,13 @@ module RpmsRpc
       rows&.size == 1 && rows.first[:pieces][0].to_s.strip == provider
     end
 
-    # nil when the list cannot be trusted: no body, an error marker, or a
-    # MORE line (the page is not the whole xref). Otherwise the P rows
-    # for this visit.
+    # nil when the list cannot be trusted: no body, an error marker, a
+    # MORE line (the page is not the whole xref), or no [Data] section.
+    # Otherwise the P rows for this visit. A missing [Data] section is
+    # a miss on its own, not merely an empty list of primaries.
     def save_visit_primaries(visit_ien)
       got = save_visit_lister(visit_ien)
-      return nil if got.nil? || got[:error] || got[:more]
+      return nil if got.nil? || got[:error] || got[:more] || !got[:data]
 
       visit = visit_ien.to_s
       got[:entries].select do |entry|
@@ -1643,10 +1652,19 @@ module RpmsRpc
       save_pov_ambiguous!(record_ien, cause: e)
     end
 
+    # No [Data] section is a miss, even when nothing parsed as a row.
+    # A row that does not fit the POV shape is a miss, not dropped.
+    # A row that fits and names another record is ignored.
     def save_pov_diagnoses_match?(got, patient, record_ien, diagnoses)
-      return false if got.nil? || got[:error] || got[:more]
+      return false if got.nil? || got[:error] || got[:more] || !got[:data]
 
-      rows = got[:entries].filter_map { |entry| save_pov_diagnosis_row(entry) }
+      rows = []
+      got[:entries].each do |entry|
+        row = save_pov_diagnosis_row(entry)
+        return false if row.nil?
+
+        rows << row
+      end
       rows.select! { |row| row[:record] == record_ien }
       return false unless rows.all? { |row| row[:patient] == patient }
 
@@ -1655,31 +1673,47 @@ module RpmsRpc
     end
 
     # Packed row, flags IP, fields .01;.02;.03;.04E: problem, patient,
-    # record, narrative external. A pointer's internal value may be
-    # "IEN;name". .04E is the narrative text and is not split.
+    # record, narrative external. Exactly those four pieces. The problem
+    # is a positive integer; a pointer's internal value may be
+    # "IEN;name", and the IEN is what is compared. .04E is the narrative
+    # text and is not split. Nil means the row does not fit, and the
+    # read-back is a miss rather than a row to drop.
     def save_pov_diagnosis_row(entry)
       pieces = entry[:pieces]
-      return nil unless pieces.is_a?(Array) && pieces.length >= 4
+      return nil unless pieces.is_a?(Array) && pieces.length == 4
+
+      problem = pieces[0].to_s.split(";", 2).first.to_s.strip
+      return nil unless problem.match?(POSITIVE_IEN)
 
       {
-        problem: pieces[0].to_s.split(";", 2).first.to_s.strip,
+        problem: problem,
         patient: pieces[1].to_s.split(";", 2).first.to_s.strip,
         record: pieces[2].to_s.split(";", 2).first.to_s.strip,
         narrative: pieces[3].to_s.strip
       }
     end
 
+    # No [Data] section is a miss, including a clear. A row whose .01
+    # is not a non-blank positive integer is a miss, not dropped.
     def save_pov_axis_iv_match?(got, axis_iv)
-      return false if got.nil? || got[:error] || got[:more]
+      return false if got.nil? || got[:error] || got[:more] || !got[:data]
 
-      found = got[:entries].filter_map do |entry|
-        pieces = entry[:pieces]
-        next unless pieces.is_a?(Array) && !pieces.empty?
+      found = []
+      got[:entries].each do |entry|
+        ien = save_pov_axis_iv_ien(entry)
+        return false if ien.nil?
 
-        ien = pieces[0].to_s.split(";", 2).first.to_s.strip
-        ien.empty? ? nil : ien
+        found << ien
       end
       found.tally == axis_iv.tally
+    end
+
+    def save_pov_axis_iv_ien(entry)
+      pieces = entry[:pieces]
+      return nil unless pieces.is_a?(Array) && !pieces.empty?
+
+      ien = pieces[0].to_s.split(";", 2).first.to_s.strip
+      ien.match?(POSITIVE_IEN) ? ien : nil
     end
 
     def save_pov_confirm_visit_fields!(record_ien, axis_v, gaf, axis_iii)
