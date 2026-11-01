@@ -247,89 +247,156 @@ class BehavioralHealthWellnessTest < Minitest::Test
   # --- save_screening pre-call refusals --------------------------------------
 
   def test_save_screening_refuses_empty_screenings_without_rpc
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT)
     err = assert_raises(save_error_class) do
       wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: {})
     end
-    refute_empty err.message
+    assert_match(/screenings are required/i, err.message)
     assert_empty screening_calls
   end
 
   def test_save_screening_refuses_unknown_screening_key_without_rpc
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
-    assert_raises(save_error_class) do
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT)
+    err = assert_raises(save_error_class) do
       wellness.save_screening(RECORD_IEN, patient: PATIENT,
                               screenings: { tobacco: { result: "N" } })
     end
+    assert_match(/screening is not a known type/i, err.message)
     assert_empty screening_calls
   end
 
   def test_save_screening_refuses_unknown_result_code_without_rpc
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
-    assert_raises(save_error_class) do
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT)
+    err = assert_raises(save_error_class) do
       wellness.save_screening(RECORD_IEN, patient: PATIENT,
                               screenings: { depression: { result: "ZZ" } })
     end
+    assert_match(/screening result is not a filed code/i, err.message)
     assert_empty screening_calls
   end
 
   def test_save_screening_refuses_non_positive_record_ien_or_patient_or_provider_without_rpc
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT)
+    seed_provider_exists(PROVIDER)
     ok = { depression: { result: "P", provider: PROVIDER, comment: "Ok note here" } }
-    [
-      { record_ien: "0", patient: PATIENT, screenings: ok },
-      { record_ien: "-1", patient: PATIENT, screenings: ok },
-      { record_ien: RECORD_IEN, patient: "0", screenings: ok },
-      { record_ien: RECORD_IEN, patient: PATIENT,
-        screenings: { depression: { result: "P", provider: "0", comment: "Ok note here" } } }
-    ].each do |kwargs|
-      assert_raises(save_error_class) { wellness.save_screening(**kwargs) }
+    cases = [
+      [ { record_ien: "0", patient: PATIENT, screenings: ok }, /record IEN must be a positive integer/i ],
+      [ { record_ien: "-1", patient: PATIENT, screenings: ok }, /record IEN must be a positive integer/i ],
+      [ { record_ien: RECORD_IEN, patient: "0", screenings: ok }, /patient must be a positive integer/i ],
+      [
+        { record_ien: RECORD_IEN, patient: PATIENT,
+          screenings: { depression: { result: "P", provider: "0", comment: "Ok note here" } } },
+        /provider must be a positive integer/i
+      ]
+    ]
+    cases.each do |kwargs, pattern|
+      err = assert_raises(save_error_class) { wellness.save_screening(**kwargs) }
+      assert_match pattern, err.message
     end
+    assert_empty screening_calls
+  end
+
+  def test_save_screening_refuses_record_ien_passed_both_positionally_and_as_keyword_without_rpc
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT)
+    seed_provider_exists(PROVIDER)
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, record_ien: RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_match(/record IEN must be a positive integer/i, err.message)
+    assert_empty screening_calls
+  end
+
+  def test_save_screening_refuses_unknown_keyword_without_rpc
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT)
+    seed_provider_exists(PROVIDER)
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings, extra: true)
+    end
+    assert_match(/field is not accepted/i, err.message)
     assert_empty screening_calls
   end
 
   def test_save_screening_refuses_comment_shorter_than_two_or_longer_than_245_without_rpc
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
-    assert_raises(save_error_class) do
-      wellness.save_screening(RECORD_IEN, patient: PATIENT,
-                              screenings: { depression: { result: "P", comment: "x" } })
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT)
+    seed_provider_exists(PROVIDER)
+    base = { result: "P", provider: PROVIDER }
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(
+        RECORD_IEN, patient: PATIENT,
+        screenings: { depression: base.merge(comment: "x") }
+      )
     end
+    assert_match(/screening comment must be 2 to 245 characters/i, err.message)
     long = "x" * 246
-    assert_raises(save_error_class) do
-      wellness.save_screening(RECORD_IEN, patient: PATIENT,
-                              screenings: { depression: { result: "P", comment: long } })
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(
+        RECORD_IEN, patient: PATIENT,
+        screenings: { depression: base.merge(comment: long) }
+      )
     end
+    assert_match(/screening comment must be 2 to 245 characters/i, err.message)
+    wide = "\u0100" * 123
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(
+        RECORD_IEN, patient: PATIENT,
+        screenings: { depression: base.merge(comment: wide) }
+      )
+    end
+    assert_match(/screening comment must be 2 to 245 characters/i, err.message)
     assert_empty screening_calls
   end
 
   def test_save_screening_refuses_pipe_caret_or_control_in_comment_without_rpc_and_without_phi_in_message
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT)
+    seed_provider_exists(PROVIDER)
     [ "|", "^", "\n", RS ].each do |bad|
       err = assert_raises(save_error_class) do
         wellness.save_screening(
           RECORD_IEN, patient: PATIENT,
-          screenings: { depression: { result: "P", comment: "ab#{bad}cd" } }
+          screenings: {
+            depression: { result: "P", provider: PROVIDER, comment: "ab#{bad}cd" }
+          }
         )
       end
+      assert_match(/screening comment contains a separator or control character/i, err.message)
       refute_includes err.message, PHI_COMMENT
       refute_includes err.message, "ab#{bad}cd"
     end
     assert_empty screening_calls
   end
 
-  def test_save_screening_refuses_when_pre_edit_record_missing_or_errors_without_rpc
+  def test_save_screening_refuses_when_pre_edit_visit_omits_signature_field_without_rpc
+    seed_visit_lock(RECORD_IEN)
+    key = visit_ddr_key(RECORD_IEN)
+    body = pre_edit_body(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL, include_1112: false)
+    @mock.seed(:ddr_gets_entry_data, key, body)
+    seed_baseline_stored_screening_providers
+    seed_provider_exists(PROVIDER)
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
     err = assert_raises(save_error_class) do
-      wellness.save_screening(RECORD_IEN, patient: PATIENT,
-                              screenings: { depression: { result: "P", comment: "Ok note here" } })
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
     end
-    refute_empty err.message
+    assert_match(/signature date could not be read/i, err.message)
+    assert_empty screening_calls
+  end
+
+  def test_save_screening_refuses_when_pre_edit_record_missing_or_errors_without_rpc
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: "Ok note here" } }
+    seed_visit_lock(RECORD_IEN)
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_match(/visit could not be read/i, err.message)
     assert_empty screening_calls
 
-    seed_pre_edit_screening(RECORD_IEN, PATIENT, error: true)
-    assert_raises(save_error_class) do
-      wellness.save_screening(RECORD_IEN, patient: PATIENT,
-                              screenings: { depression: { result: "P", comment: "Ok note here" } })
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, error: true)
+    seed_provider_exists(PROVIDER)
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
     end
+    assert_match(/visit could not be read/i, err.message)
     assert_empty screening_calls
   end
 
@@ -361,12 +428,17 @@ class BehavioralHealthWellnessTest < Minitest::Test
   end
 
   def test_save_screening_refuses_signed_record_without_rpc
-    seed_pre_edit_screening(RECORD_IEN, PATIENT, signed: true)
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, signed: true)
+    seed_provider_exists(PROVIDER)
     err = assert_raises(save_error_class) do
-      wellness.save_screening(RECORD_IEN, patient: PATIENT,
-                              screenings: { depression: { result: "P", comment: "Ok note here" } })
+      wellness.save_screening(
+        RECORD_IEN, patient: PATIENT,
+        screenings: {
+          depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT }
+        }
+      )
     end
-    assert_match(/signed/i, err.message)
+    assert_match(/visit is signed/i, err.message)
     assert_empty screening_calls
   end
 
@@ -388,17 +460,34 @@ class BehavioralHealthWellnessTest < Minitest::Test
     seed_visit_lock(RECORD_IEN, acquired: false)
     seed_provider_exists(PROVIDER)
 
-    assert_raises(save_error_class) do
+    err = assert_raises(save_error_class) do
       wellness.save_measurements(
         RECORD_IEN, patient: PATIENT,
         measurements: [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
       )
     end
+    assert_match(/lock/i, err.message)
+    assert_empty measurements_calls
+  end
+
+  def test_save_measurements_refuses_when_pre_edit_visit_omits_signature_field_without_rpc
+    seed_visit_lock(RECORD_IEN)
+    key = visit_ddr_key(RECORD_IEN)
+    body = pre_edit_body(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL, include_1112: false)
+    @mock.seed(:ddr_gets_entry_data, key, body)
+    seed_provider_exists(PROVIDER)
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(
+        RECORD_IEN, patient: PATIENT,
+        measurements: [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+      )
+    end
+    assert_match(/signature date could not be read/i, err.message)
     assert_empty measurements_calls
   end
 
   def test_save_screening_refuses_unknown_provider_without_write_rpc
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT)
     seed_provider_missing(PROVIDER)
 
     err = assert_raises(save_error_class) do
@@ -407,7 +496,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
         screenings: { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
       )
     end
-    assert_match(/provider/i, err.message)
+    assert_match(/provider is not on file/i, err.message)
     assert_empty screening_calls
   end
 
@@ -421,7 +510,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
         measurements: [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
       )
     end
-    assert_match(/provider/i, err.message)
+    assert_match(/provider is not on file/i, err.message)
     assert_empty measurements_calls
   end
 
@@ -439,7 +528,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
   def test_save_screening_refuses_when_stored_provider_not_on_file_200_without_write
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT)
     seed_provider_exists(PROVIDER)
     seed_provider_missing(RESENT_PROVIDER)
 
@@ -452,8 +541,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
   def test_save_screening_refuses_caller_provider_when_file_200_reply_has_error_marker_without_write
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
-    seed_baseline_stored_screening_providers
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT)
     seed_provider_error_with_row(PROVIDER)
 
     err = assert_raises(save_error_class) do
@@ -465,8 +553,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
   def test_save_screening_refuses_caller_provider_when_file_200_dot01_is_blank_without_write
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
-    seed_baseline_stored_screening_providers
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT)
     seed_provider_blank_dot01(PROVIDER)
 
     err = assert_raises(save_error_class) do
@@ -560,7 +647,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
   def test_save_screening_refuses_stored_comment_with_replacement_character_without_write
     bad = BASELINE_INTERNAL.merge("1601" => "Alcohol note \uFFFD unreadable")
-    seed_pre_edit_screening(RECORD_IEN, PATIENT, internal: bad)
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: bad)
     seed_provider_exists(PROVIDER)
 
     err = assert_raises(save_error_class) do
@@ -666,7 +753,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
   def test_save_screening_unlocks_after_lock_rpc_timeout_before_refusing
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
-    seed_pre_edit_screening(RECORD_IEN, PATIENT)
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT)
     seed_provider_exists(PROVIDER)
     wrapper = LockRpcTimeoutClient.new(@mock, RECORD_IEN)
     RpmsRpc.configure { |c| c.client = wrapper }
@@ -1407,43 +1494,75 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
   def test_save_measurements_refuses_empty_list_without_rpc
     seed_pre_edit_screening(RECORD_IEN, PATIENT)
-    assert_raises(save_error_class) do
+    err = assert_raises(save_error_class) do
       wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: [])
     end
+    assert_match(/measurements are required/i, err.message)
+    assert_empty measurements_calls
+  end
+
+  def test_save_measurements_refuses_record_ien_passed_both_positionally_and_as_keyword_without_rpc
+    seed_pre_edit_screening(RECORD_IEN, PATIENT)
+    seed_provider_exists(PROVIDER)
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(
+        RECORD_IEN, record_ien: RECORD_IEN, patient: PATIENT, measurements: measurements
+      )
+    end
+    assert_match(/record IEN must be a positive integer/i, err.message)
+    assert_empty measurements_calls
+  end
+
+  def test_save_measurements_refuses_unknown_keyword_without_rpc
+    seed_pre_edit_screening(RECORD_IEN, PATIENT)
+    seed_provider_exists(PROVIDER)
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements, note: "x")
+    end
+    assert_match(/field is not accepted/i, err.message)
     assert_empty measurements_calls
   end
 
   def test_save_measurements_refuses_unknown_type_duplicate_or_out_of_range_without_rpc
     seed_pre_edit_screening(RECORD_IEN, PATIENT)
+    seed_provider_exists(PROVIDER)
     base = { type: "PHQ9", value: 14, provider: PROVIDER }
-    assert_raises(save_error_class) do
+    err = assert_raises(save_error_class) do
       wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: [ base.merge(type: "BOGUS") ])
     end
-    assert_raises(save_error_class) do
+    assert_match(/measurement type is not a filed code/i, err.message)
+    err = assert_raises(save_error_class) do
       wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: [ base, base ])
     end
+    assert_match(/measurement type is duplicated/i, err.message)
     [ 28, -1, "14.5", "1e1", 22 ].each do |bad|
-      assert_raises(save_error_class) do
-        type = bad == 22 ? "GAD7" : "PHQ9"
+      type = bad == 22 ? "GAD7" : "PHQ9"
+      err = assert_raises(save_error_class) do
         wellness.save_measurements(RECORD_IEN, patient: PATIENT,
-                                     measurements: [ { type: type, value: bad, provider: PROVIDER } ])
+                                   measurements: [ { type: type, value: bad, provider: PROVIDER } ])
       end
+      assert_match(/measurement value is not an integer in range/i, err.message)
     end
-    assert_raises(save_error_class) do
+    err = assert_raises(save_error_class) do
       wellness.save_measurements(RECORD_IEN, patient: PATIENT,
-                                   measurements: [ { type: "PHQ9", value: 10, provider: nil } ])
+                                 measurements: [ { type: "PHQ9", value: 10, provider: nil } ])
     end
+    assert_match(/provider must be a positive integer/i, err.message)
     assert_empty measurements_calls
   end
 
   def test_save_measurements_refuses_signed_record_without_rpc
     seed_pre_edit_screening(RECORD_IEN, PATIENT, signed: true)
-    assert_raises(save_error_class) do
+    seed_provider_exists(PROVIDER)
+    err = assert_raises(save_error_class) do
       wellness.save_measurements(
         RECORD_IEN, patient: PATIENT,
         measurements: [ { type: "PHQ9", value: 10, provider: PROVIDER } ]
       )
     end
+    assert_match(/visit is signed/i, err.message)
     assert_empty measurements_calls
   end
 
@@ -1532,9 +1651,38 @@ class BehavioralHealthWellnessTest < Minitest::Test
       msr_rows: [ msr_row(type_code: "PHQ9", value: 14, provider: "999") ]
     )
 
-    assert_raises(save_error_class) do
+    err = assert_raises(save_error_class) do
       wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
     end
+    assert_match(/may have been filed/i, err.message)
+  end
+
+  def test_save_measurements_raises_when_sent_type_has_non_positive_type_ien_in_readback
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    seed_measurements_flow(
+      wire, measurements,
+      msr_rows: [ msr_row(type_code: "PHQ9", value: 14, provider: PROVIDER, type_ien: "0") ]
+    )
+
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+    assert_match(/may have been filed/i, err.message)
+    refute_nil measurements_call
+  end
+
+  def test_save_measurements_raises_when_readback_row_has_five_columns_not_six
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    five_col = [ "501", "PHQ9", "SYNTH DESC", "14", PROVIDER ].join("^")
+    seed_measurements_flow(wire, measurements, msr_rows: [ five_col ])
+
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+    assert_match(/may have been filed/i, err.message)
+    refute_nil measurements_call
   end
 
   def test_save_measurements_raises_when_sent_type_appears_twice_in_readback
@@ -1543,9 +1691,10 @@ class BehavioralHealthWellnessTest < Minitest::Test
     row = msr_row(type_code: "PHQ9", value: 14, provider: PROVIDER)
     seed_measurements_flow(wire, measurements, msr_rows: [ row, row ])
 
-    assert_raises(save_error_class) do
+    err = assert_raises(save_error_class) do
       wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
     end
+    assert_match(/may have been filed/i, err.message)
   end
 
   def test_save_measurements_raises_on_unparseable_msr_readback
@@ -1553,9 +1702,10 @@ class BehavioralHealthWellnessTest < Minitest::Test
     wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
     seed_measurements_flow(wire, measurements, msr_body: "not-a-recordset")
 
-    assert_raises(save_error_class) do
+    err = assert_raises(save_error_class) do
       wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
     end
+    assert_match(/may have been filed/i, err.message)
   end
 
   def test_save_measurements_unlocks_visit_after_success
@@ -1805,6 +1955,11 @@ class BehavioralHealthWellnessTest < Minitest::Test
     key = visit_ddr_key(ien)
     body = error ? "[ERROR]" : pre_edit_body(ien, patient, internal: internal, signed: signed)
     @mock.seed(:ddr_gets_entry_data, key, body)
+  end
+
+  def seed_pre_edit_screening_visit_and_stored_providers(ien, patient, **kwargs)
+    seed_pre_edit_screening(ien, patient, **kwargs)
+    seed_baseline_stored_screening_providers
   end
 
   def seed_post_edit_screening(ien, patient, internal)
