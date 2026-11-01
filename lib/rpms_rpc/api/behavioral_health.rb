@@ -499,7 +499,10 @@ module RpmsRpc
     # The reply is a GLOBAL ARRAY: header "T00030Result", then exactly
     # one data row (AMHGPCC.m:25-28). The CIA reader consumes the closing
     # $C(31), so that sentinel may already be gone; a mock seed may still
-    # include it. "M ERROR|..." (AMHGU.m:108-120, and no $C(31)), a
+    # include it. A client with no #call_rpc_global_array returns that
+    # recordset already split into rows (BmxClient#call_rpc). One trailing
+    # empty row is the closer some splits keep; any further row is not a
+    # result. "M ERROR|..." (AMHGU.m:108-120, and no $C(31)), a
     # missing header, more than one data row, or any other malformed
     # reply is SaveError and the outcome is unknown. A
     # {Client::ConnectionError} from the AMHG call, including
@@ -1328,10 +1331,19 @@ module RpmsRpc
       ien
     end
 
-    def save_visit_rows(response)
+    # Bytes of one GLOBAL ARRAY reply, before the rows are taken.
+    # An Array is joined with newlines. An optional "<seq>\x00" ack
+    # is dropped and the body is cut at $C(31). {save_visit_rows}
+    # splits this body. {pcc_framed_parts} uses it when the reply
+    # still contains $C(30).
+    def amhg_reply_body(response)
       body = response.is_a?(Array) ? response.join("\n") : response.to_s
       body = body.split("\x00", 2).last if body.include?("\x00")
-      body = body.split("\x1f", 2).first.to_s
+      body.split("\x1f", 2).first.to_s
+    end
+
+    def save_visit_rows(response)
+      body = amhg_reply_body(response)
       parts = body.include?("\x1e") ? body.split("\x1e") : body.split(/\r?\n/)
       parts.filter_map do |row|
         row = row.delete_prefix("\r\n").delete_prefix("\n").delete_prefix("\r")
@@ -1443,24 +1455,49 @@ module RpmsRpc
       pcc_unknown!(cause: e)
     end
 
-    # Header "T00030Result", then exactly one data row, each closed by
-    # $C(30). The CIA reader has already consumed $C(31) (cia_client
-    # returns the bytes before the sentinel); a seed may still include
-    # it. An optional "<seq>\x00" ack is dropped, the same way
-    # save_visit_rows does. Empty data is kept: a blank row is a result,
-    # not a missing row. "M ERROR|..." is never a result.
+    # Header "T00030Result", then exactly one data row. A framed body
+    # keeps the raw-text checks: each row closed by $C(30), optional
+    # "<seq>\x00" and a trailing $C(31) dropped by {amhg_reply_body},
+    # the same body {save_visit_rows} reads. A client that already
+    # split the recordset (no $C(30) left in any row) is those rows.
+    # One trailing empty is the closer a split may keep; any other
+    # extra row is junk. Empty data is kept: a blank row is a result,
+    # not a missing row. "M ERROR|..." is never a result. A row that
+    # still holds $C(0), $C(30) or $C(31) is framed text.
     def pcc_data_row(response)
-      body = response.is_a?(Array) ? response.join("\n") : response.to_s
-      body = body.split("\x00", 2).last if body.include?("\x00")
-      body = body.split("\x1f", 2).first.to_s
+      parts = pcc_reply_parts(response)
+      pcc_unknown! unless parts.length == 2 && parts[0] == PCC_RESULT_HEADER
+
+      parts[1].strip
+    end
+
+    def pcc_reply_parts(response)
+      return pcc_presplit_parts(response) if pcc_presplit_rows?(response)
+
+      pcc_framed_parts(amhg_reply_body(response))
+    end
+
+    # Already split, so joining and requiring a trailing $C(30) would
+    # hide the data row. $C(0), $C(30) or $C(31) still in a row means
+    # the text was not split; that reply stays on {pcc_framed_parts}.
+    def pcc_presplit_rows?(response)
+      response.is_a?(Array) && response.none? { |row| row.to_s.match?(/[\x00\x1e\x1f]/) }
+    end
+
+    def pcc_presplit_parts(response)
+      parts = response.map { |row| row.to_s }
+      pcc_unknown! if parts.any? { |row| row.include?("M ERROR|") }
+      parts.pop if parts.last == ""
+      parts
+    end
+
+    def pcc_framed_parts(body)
       pcc_unknown! if body.include?("M ERROR|")
       pcc_unknown! unless body.end_with?("\x1e")
 
       parts = body.split("\x1e", -1)
       parts.pop
-      pcc_unknown! unless parts.length == 2 && parts[0] == PCC_RESULT_HEADER
-
-      parts[1].strip
+      parts
     end
 
     # "" is the blank success row (AMHBHRU.m:48-50 may have cleared .16).
