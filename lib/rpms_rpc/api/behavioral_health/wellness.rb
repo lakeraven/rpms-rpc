@@ -69,11 +69,12 @@ module RpmsRpc
     # Two different wrapper objects around one session do not share the
     # exclusion. A host that wraps one session in several objects must
     # expose session_id on them to share the guard. When the captured
-    # client responds to session_id and that call returns a non-nil,
-    # non-empty value, the key is [:session, id]; otherwise it is
-    # [:object, object_id], with the record IEN, so a session id cannot
-    # collide with an object id. session_id is read once per save; if that
-    # call raises, the save is SaveError before any RPC.
+    # client responds to session_id and that call returns a non-empty
+    # String or a non-String value other than nil or false, the key is
+    # [:session, id]; otherwise it is [:object, object_id], with the
+    # record IEN, so a session id cannot collide with an object id.
+    # session_id is read once per save; if that call raises, the save is
+    # SaveError before any RPC.
     # Every provider IEN the screening write will send, including one
     # resent from a screening the caller did not name, is confirmed on
     # file 200 field .01 before the write. Each distinct IEN is read once.
@@ -218,11 +219,11 @@ module RpmsRpc
       # session do not share the exclusion. A host that wraps one session
       # in several objects must expose session_id on them to share the
       # guard. When the captured client responds to session_id and returns
-      # a non-nil, non-empty value, the key is [:session, id]; otherwise
-      # it is [:object, object_id], with the record IEN, so the two cannot
-      # collide. session_id is read once; if that call raises, the save is
-      # SaveError before any RPC. The visit unlock runs only on the
-      # captured client.
+      # a non-empty String or a non-String value other than nil or false,
+      # the key is [:session, id]; otherwise it is [:object, object_id],
+      # with the record IEN, so the two cannot collide. session_id is
+      # read once; if that call raises, the save is SaveError before any
+      # RPC. The visit unlock runs only on the captured client.
       # A failed unlock is swallowed, and a lock it leaves held expires
       # with the broker job.
       def save_screening(record_ien = nil, patient:, screenings:, **rest)
@@ -282,9 +283,10 @@ module RpmsRpc
       # wrapper objects around one session do not share the exclusion. A
       # host that wraps one session in several objects must expose
       # session_id on them to share the guard. When the captured client
-      # responds to session_id and returns a non-nil, non-empty value, the
-      # key is [:session, id]; otherwise it is [:object, object_id], with
-      # the record IEN, so the two cannot collide. session_id is read once;
+      # responds to session_id and returns a non-empty String or a
+      # non-String value other than nil or false, the key is
+      # [:session, id]; otherwise it is [:object, object_id], with the
+      # record IEN, so the two cannot collide. session_id is read once;
       # if that call raises, the save is SaveError before any RPC. The
       # visit unlock runs only on the captured client. A failed unlock is
       # swallowed, and a lock it leaves held expires with the broker job.
@@ -325,10 +327,11 @@ module RpmsRpc
       # object_id. Two different wrapper objects around one session do not
       # share the exclusion. A host that wraps one session in several
       # objects must expose session_id on them to share the guard. When
-      # the captured client responds to session_id with a non-nil,
-      # non-empty value, read once here, that value is the identity;
-      # otherwise the identity is the captured client's own object_id. A
-      # raise from session_id is SaveError before any RPC.
+      # the captured client responds to session_id with a non-empty
+      # String or a non-String value other than nil or false, read once
+      # here, that value is the identity; otherwise the identity is the
+      # captured client's own object_id. A raise from session_id is
+      # SaveError before any RPC.
       def with_save_exclusion(client, rec)
         key = [ client_identity(client), rec ]
         SAVE_GUARD.synchronize do
@@ -351,15 +354,17 @@ module RpmsRpc
         [ :object, client.object_id ]
       end
 
-      # nil when this client has no usable session id. session_id is called
-      # at most once. A raise fails closed, before the guard is entered and
-      # before any RPC.
+      # nil when this client has no usable session id: it does not respond
+      # to session_id, or that call returns nil, false, or an empty String.
+      # A non-empty String, or any other value, is the id. session_id is
+      # called at most once. A raise fails closed, before the guard is
+      # entered and before any RPC.
       def read_session_id(client)
         return nil unless client.respond_to?(:session_id)
 
         value = client.session_id
         case value
-        when nil
+        when nil, false
           nil
         when String
           value.empty? ? nil : value.dup.freeze
