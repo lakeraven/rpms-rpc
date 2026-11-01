@@ -412,9 +412,11 @@ module RpmsRpc
     # empty note is refused here. An empty comment is sent and is not
     # read back.
     #
-    # A value equal to "@" after strip is FileMan's delete-field marker.
-    # It is refused before the wire is built. A longer value that
-    # contains "@" is not that marker. A non-empty chief complaint is 2
+    # A chief complaint or referred to equal to "@" after strip is
+    # FileMan's delete-field marker and is refused before the wire is
+    # built. A longer value that contains "@" is not that marker. A note
+    # or comment of "@" is sent: WP^DIE deletes only for a root of "@",
+    # so it is stored as text. A non-empty chief complaint is 2
     # to 80 bytes and a non-empty referred to is 2 to 30 bytes
     # (String#bytesize, which is $L when ydb_chset=M). Note and comment
     # may contain LF. A pipe, a caret, CR, and the other C0 controls and
