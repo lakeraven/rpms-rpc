@@ -46,6 +46,8 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
   NOTE = "SYNTH progress note body for unit test."
   NOTE_MULTILINE = "Line one.\nSecond.\n\nFourth segment end."
   SOAP_ROWS_MULTILINE = [ "Line one.\n", "Second.\n", "\n", "Fourth segment end." ].freeze
+  COMMENT_TWO_LINE = "First line.\nSecond line."
+  COMM_ROWS_TWO_LINE = [ "First line.\n", "Second line.\n" ].freeze
 
   WIRE_FULL =
     "E|#{RECORD_IEN}|#{CHIEF_COMPLAINT}|#{NOTE}|#{COMMENT}|#{PLACEMENT}|#{REFERRED_TO}|#{PATIENT}".freeze
@@ -597,6 +599,116 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = @mock }
   end
 
+  def test_post_call_amhg_get_visit_soap_rpc_refused_error_becomes_ambiguous_save_error
+    seed_after_save_reply(**FULL_KWARGS)
+    wrapper = RaiseOnAmhgRpcAfterSaveProgressNotes.new(
+      @mock, rpc: RPC_SOAP, error: RpmsRpc::Client::RpcRefusedError.new("AMHG GET VISIT SOAP refused (synthetic)")
+    )
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**FULL_KWARGS) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err, record_ien: RECORD_IEN)
+    assert_kind_of RpmsRpc::Client::RpcRefusedError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_post_call_amhg_get_visit_soap_rpc_not_available_error_becomes_ambiguous_save_error
+    seed_after_save_reply(**FULL_KWARGS)
+    wrapper = RaiseOnAmhgRpcAfterSaveProgressNotes.new(
+      @mock,
+      rpc: RPC_SOAP,
+      error: RpmsRpc::Client::RpcNotAvailableError.new("AMHG GET VISIT SOAP not registered (synthetic)")
+    )
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**FULL_KWARGS) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err, record_ien: RECORD_IEN)
+    assert_kind_of RpmsRpc::Client::RpcNotAvailableError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_post_call_amhg_get_visit_soap_rpc_error_becomes_ambiguous_save_error
+    seed_after_save_reply(**FULL_KWARGS)
+    wrapper = RaiseOnAmhgRpcAfterSaveProgressNotes.new(
+      @mock, rpc: RPC_SOAP, error: RpmsRpc::Client::RpcError.new("AMHG GET VISIT SOAP failed (synthetic)")
+    )
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**FULL_KWARGS) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err, record_ien: RECORD_IEN)
+    assert_kind_of RpmsRpc::Client::RpcError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_post_call_amhg_get_visit_comm_app_rpc_refused_error_becomes_ambiguous_save_error
+    seed_after_save_reply(**FULL_KWARGS)
+    seed_soap(RECORD_IEN, NOTE)
+    wrapper = RaiseOnAmhgRpcAfterSaveProgressNotes.new(
+      @mock,
+      rpc: RPC_COMM,
+      error: RpmsRpc::Client::RpcRefusedError.new("AMHG GET VISIT COMM APP refused (synthetic)")
+    )
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**FULL_KWARGS) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err, record_ien: RECORD_IEN)
+    assert_kind_of RpmsRpc::Client::RpcRefusedError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_post_call_ddr_scalar_readback_error_becomes_ambiguous_save_error
+    seed_after_save_reply(**FULL_KWARGS)
+    wrapper = RaiseOnProgressNoteDdrScalarReadback.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**FULL_KWARGS) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err, record_ien: RECORD_IEN)
+    assert_kind_of RpmsRpc::Error, err.cause
+    refute_kind_of RpmsRpc::Client::RpcError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_bmx_call_rpc_only_client_confirms_multiline_note_and_two_line_comment_when_rows_keep_trailing_lf
+    kwargs = BLANK_SCALAR_KWARGS.merge(comment: COMMENT_TWO_LINE)
+    wire = wire_for(**kwargs)
+    soap_reply = RpmsRpc::Reply.from_wire([ "T00250Soap", *SOAP_ROWS_MULTILINE ])
+    comm_reply = RpmsRpc::Reply.from_wire([ "T00250CommentAppointment", *COMM_ROWS_TWO_LINE ])
+    seed_pre_edit_success(**kwargs)
+    seed_success(wire, RECORD_IEN)
+    seed_readback("#{RECORD_IEN},", **kwargs)
+    wrapper = CallRpcWithoutGlobalArray.new(@mock, soap_reply: soap_reply, comm_reply: comm_reply)
+    refute wrapper.respond_to?(:call_rpc_global_array)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    assert_equal RECORD_IEN, BH.save_progress_note(**kwargs)
+    assert_amhg_reached
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_bmx_call_rpc_only_client_not_confirmed_when_pre_split_rows_strip_trailing_lf
+    kwargs = BLANK_SCALAR_KWARGS.merge(comment: COMMENT_TWO_LINE)
+    wire = wire_for(**kwargs)
+    stripped_soap = SOAP_ROWS_MULTILINE.map { |row| row.delete("\n") }
+    stripped_comm = COMM_ROWS_TWO_LINE.map { |row| row.delete("\n") }
+    soap_reply = RpmsRpc::Reply.from_wire([ "T00250Soap", *stripped_soap ])
+    comm_reply = RpmsRpc::Reply.from_wire([ "T00250CommentAppointment", *stripped_comm ])
+    seed_pre_edit_success(**kwargs)
+    seed_success(wire, RECORD_IEN)
+    seed_readback("#{RECORD_IEN},", **kwargs)
+    wrapper = CallRpcWithoutGlobalArray.new(@mock, soap_reply: soap_reply, comm_reply: comm_reply)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**kwargs) }
+    assert_amhg_reached
+    assert_not_confirmed(err, record_ien: RECORD_IEN)
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
   def test_error_message_does_not_echo_passed_values
     secret = "UNIQUE_SYNTH_MARKER_539"
     seed_post_amhg_trap(WIRE_FULL, **FULL_KWARGS.merge(note: secret)) { seed_success(WIRE_FULL.sub(NOTE, secret), "0") }
@@ -741,6 +853,14 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
     seed_comm(ien, kwargs.fetch(:comment)) unless skip_comm || kwargs.fetch(:comment).to_s.empty?
   end
 
+  def seed_after_save_reply(**kwargs)
+    wire = wire_for(**kwargs)
+    ien = kwargs.fetch(:record_ien)
+    seed_pre_edit_success(**kwargs)
+    seed_success(wire, ien)
+    seed_readback("#{ien},", **kwargs)
+  end
+
   def seed_post_amhg_trap(_wire, **kwargs)
     seed_pre_edit_success(**kwargs)
     yield
@@ -826,6 +946,57 @@ class RpcMErrorOnAmhgSaveProgressNotes < SimpleDelegator
       super
       raise RpmsRpc::Client::RpcMError, "AMHG SAVE PROGRESS NOTES M error (synthetic)"
     end
+
+    super
+  end
+end
+
+class RaiseOnAmhgRpcAfterSaveProgressNotes < SimpleDelegator
+  def initialize(inner, rpc:, error:)
+    super(inner)
+    @rpc = rpc
+    @error = error
+  end
+
+  def call_rpc_global_array(rpc_name, *params)
+    raise @error if rpc_name == @rpc
+
+    super
+  end
+end
+
+class RaiseOnProgressNoteDdrScalarReadback < SimpleDelegator
+  READBACK_FIELDS = "2101;.17;.18"
+
+  def call_rpc(rpc_name, *params)
+    if rpc_name == "DDR GETS ENTRY DATA" && params.first.is_a?(Hash) &&
+       params.first["FIELDS"] == READBACK_FIELDS
+      raise RpmsRpc::Error, "progress note scalar read-back failed (synthetic)"
+    end
+
+    super
+  end
+end
+
+# BMX #call_rpc returns Reply.from_wire(split_bmx_reply(...)): rows are already
+# split on $C(30) with trailing LF preserved; Wire falls back to #call_rpc when
+# #call_rpc_global_array is absent.
+class CallRpcWithoutGlobalArray < SimpleDelegator
+  def initialize(inner, soap_reply:, comm_reply:)
+    super(inner)
+    @soap_reply = soap_reply
+    @comm_reply = comm_reply
+  end
+
+  def respond_to?(meth, include_all = false)
+    return false if meth == :call_rpc_global_array
+
+    super
+  end
+
+  def call_rpc(rpc_name, *params)
+    return @soap_reply if rpc_name == "AMHG GET VISIT SOAP"
+    return @comm_reply if rpc_name == "AMHG GET VISIT COMM APP"
 
     super
   end
