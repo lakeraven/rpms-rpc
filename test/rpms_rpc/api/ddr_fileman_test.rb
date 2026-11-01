@@ -165,7 +165,8 @@ class DdrFilemanTest < Minitest::Test
 
     refute result[:error]
     assert_equal true, result[:data]
-    assert_empty result[:entries]
+    assert_equal 1, result[:entries].length
+    assert_equal({ ien: "43", pieces: [ "100001" ] }, result[:entries][0])
   end
 
   def test_lister_reports_data_false_when_the_reply_has_no_data_marker

@@ -521,6 +521,7 @@ class BehavioralHealthSavePovTest < Minitest::Test
   def test_raises_outcome_unknown_when_reply_names_a_different_positive_record_ien
     seed_pre_edit_and_pointers(**ONE_KWARGS)
     seed_reply(WIRE_ONE_DIAGNOSIS, pov_success_body(OTHER_RECORD_IEN))
+    seed_post_readback(RECORD_IEN, **ONE_KWARGS)
     err = assert_raises(BH::SaveError) { BH.save_pov(**ONE_KWARGS) }
     assert_amhg_reached
     assert_post_call_ambiguity(err, record_ien: RECORD_IEN)
