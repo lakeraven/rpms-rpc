@@ -30,14 +30,18 @@ module RpmsRpc
     extend Wire
     extend Shape::Declarable
 
-    # Raised when a visit is refused before any AMHG call, or when the
-    # reply does not prove the record was filed. A post-call message says
-    # the outcome is unknown and that the visit may have been filed. It
-    # names a record IEN when one is known, and never a value the caller
-    # passed or the broker's text. A {Client::ConnectionError} (including
-    # a timeout) or a {Client::RpcMError} from the AMHG call, and an
-    # {RpmsRpc::Error} from a post-call DDR read, are this class with that
-    # exception kept as the cause.
+    # Raised when a visit or purpose of visit is refused before any AMHG
+    # call, or when the reply does not prove the record was filed. A
+    # post-call message says the outcome is unknown and that the record
+    # may have been filed. It names a record IEN when one is known, and
+    # never a value the caller passed or the broker's text. A
+    # {Client::ConnectionError} (including a timeout) or a
+    # {Client::RpcMError} from the AMHG call, and an {RpmsRpc::Error}
+    # from a post-call DDR read, are this class with that exception kept
+    # as the cause. {Client::FrameTooLongError} from the AMHG call is
+    # this class too, cause kept, but the message says nothing was sent:
+    # the frame is rejected before the RPC goes out, so the outcome is
+    # not unknown. That is save_visit and save_pov.
     class SaveError < RpmsRpc::Error; end
 
     # External values of BH VISIT (#9002011) field .02, piece 3 of
@@ -136,21 +140,43 @@ module RpmsRpc
     GAF_MAX_BYTES = 20
     AXIS_V_MAX = 100
     AXIS_V_INTEGER = /\A(?:0|[1-9]\d*)\z/
-    # "*" splits a list (ARRAY^AMHGU) and "~" splits an item. "|" , "^"
-    # and the C0 controls are already refused by UNSAFE_WIRE.
+    # #9999999.27 field .01, the narrative FNDNARR lays go. The pinned
+    # input transform is
+    # K:$L(X)>160!($L(X)<2)!'((X'?1P.E)!(X?1"|".E))!(X'?.ANP) X.
+    # $L is bytes when ydb_chset=M. Printable ASCII is 0x20 through
+    # 0x7E, the set this call accepts, including the space a narrative
+    # is filed with. Leading punctuation is MUMPS patcode P. A leading
+    # "|" is the transform's exemption and is refused earlier as a wire
+    # separator. More than POV_MAX diagnoses, or AXIS_IV_MAX stressors,
+    # is refused before any RPC: the lister cannot verify a longer page,
+    # and CLNPOV or CLNA4 has already deleted the stored rows.
+    NARRATIVE_MIN_BYTES = 2
+    NARRATIVE_MAX_BYTES = 160
+    PRINTABLE_ASCII = /\A[\x20-\x7E]*\z/
+    NARRATIVE_LEADING_PUNCT = /\A[!"#$%&'()*+,\-.\/:;<=>?@\[\\\]^_`{|}~]/
+    # "*" splits a list (ARRAY^AMHGU) and "~" splits an item. "|" , "^",
+    # the C0 controls and DEL are refused by WIRE_SEPARATOR. C1 controls
+    # are in UNSAFE_WIRE for every free-text value except a POV
+    # narrative, which refuses them as non-ASCII under the .01 transform.
     POV_LIST_MARK = /[~*]/
     private_constant :POV_FILE, :POV_XREF, :POV_FROM, :POV_FIELDS, :POV_FLAGS, :POV_MAX,
                      :AXIS_IV_SUBFILE, :AXIS_IV_FIELDS, :AXIS_IV_FLAGS, :AXIS_IV_MAX,
                      :MHSS_PROBLEM_FILE, :PSYCHOSOCIAL_FILE,
                      :POV_VISIT_FIELDS, :POV_VISIT_FLAGS, :AXIS_III_FIELD, :AXIS_III_FLAGS,
                      :AXIS_III_MAX_BYTES, :GAF_MAX_BYTES, :AXIS_V_MAX, :AXIS_V_INTEGER,
-                     :POV_LIST_MARK
+                     :NARRATIVE_MIN_BYTES, :NARRATIVE_MAX_BYTES, :PRINTABLE_ASCII,
+                     :NARRATIVE_LEADING_PUNCT, :POV_LIST_MARK
 
     POSITIVE_IEN = /\A[1-9]\d*\z/
     # Pipe splits AMHSTR. A caret is FileMan's piece delimiter inside the
     # routines that re-parse a value. $C(30)/$C(31) frame the reply. The
-    # other C0 controls and DEL are not field text.
-    UNSAFE_WIRE = /[|\x00-\x1f\x7f^]/
+    # other C0 controls and DEL are not field text (WIRE_SEPARATOR).
+    # UNSAFE_WIRE adds the C1 controls, U+0080 through U+009F. A POV
+    # narrative does not use that wider class: the #9999999.27 .01
+    # transform refuses every byte outside printable ASCII, and that
+    # refusal names the transform.
+    WIRE_SEPARATOR = /[|\x00-\x1f\x7f^]/
+    UNSAFE_WIRE = /[|\x00-\x1f\x7f\u0080-\u009f^]/
     # 1109 GROUP NAME is free text, at most 30 bytes (ydb_chset=M $L).
     # Empty means "do not file the group fields", not a zero-length name.
     GROUP_NAME_MAX = 30
@@ -180,7 +206,7 @@ module RpmsRpc
                      :COMMUNITY_FILE, :PROVIDER_DUZ_FILE, :PRE_POINTER_FIELDS,
                      :PRE_POINTER_FLAGS, :PROVIDER_FILE, :PROVIDER_XREF, :PROVIDER_FROM,
                      :PROVIDER_FIELDS, :PROVIDER_FLAGS, :PROVIDER_MAX, :POSITIVE_IEN,
-                     :UNSAFE_WIRE, :GROUP_NAME_MAX, :GROUP_TIME_MINUTES,
+                     :WIRE_SEPARATOR, :UNSAFE_WIRE, :GROUP_NAME_MAX, :GROUP_TIME_MINUTES,
                      :ACTIVITY_TIME_MINUTES, :FILEMAN_CENTURY, :ENCOUNTER_DATE_MIN,
                      :OMITTED
 
@@ -294,7 +320,9 @@ module RpmsRpc
     # to_s that is not a String is SaveError, and nothing is sent. The
     # tag is checked before the bytes are re-read: Latin-1,
     # Windows-1252, UTF-16, and UTF-32 are refused even when those
-    # bytes would be valid UTF-8.
+    # bytes would be valid UTF-8. "|", "^", the C0 controls, DEL, and
+    # the C1 controls (U+0080 through U+009F) are refused in every
+    # free-text value, including the group name, before any RPC.
     #
     # Before the AMHG call, each non-blank pointer is read with DDR GETS
     # ENTRY DATA, field .01, flags "I": clinic on 40.7, type of contact
@@ -332,12 +360,15 @@ module RpmsRpc
     # {Client::TimeoutError}, or a {Client::RpcMError}, is SaveError,
     # and that exception is its cause. The message says the outcome is
     # unknown and that the visit may have been filed.
-    # {Client::RpcNotAvailableError} and {Client::RpcRefusedError} are
-    # not those classes (they are {Client::RpcError}); they propagate
-    # unchanged. An M error row or a reply that does not name this
-    # record says the same. An add that fails leaves AMHIEN 0
-    # (AMHGEVF.m:106-108). An edit that fails still returns REC
-    # (lines 116-118).
+    # {Client::FrameTooLongError} from the AMHG call is SaveError with
+    # that exception as the cause, and the message says nothing was
+    # sent: the frame is rejected before the RPC goes out, so this is
+    # not an unknown outcome. {Client::RpcNotAvailableError} and
+    # {Client::RpcRefusedError} are not those classes (they are
+    # {Client::RpcError}); they propagate unchanged. An M error row or a
+    # reply that does not name this record says the same. An add that
+    # fails leaves AMHIEN 0 (AMHGEVF.m:106-108). An edit that fails
+    # still returns REC (lines 116-118).
     #
     # A reply that names the record is not success until DDR GETS ENTRY
     # DATA reads back .01, .02, .04, .05, .07, .08, .11 and .25, and,
@@ -431,11 +462,22 @@ module RpmsRpc
     # PCODE is unused; this call sends it blank. PNARR is the narrative.
     # AXIS2 (AMHGSVF.m:77-90) news AMHN once for the whole list, not once
     # per item (line 78). An item with a blank narrative therefore reuses
-    # the previous item's narrative IEN. A blank narrative is refused, and
-    # so is an empty list: CLNPOV has already deleted every POV, so an
-    # empty piece 3 would remove them and file nothing. Duplicate problem
-    # IENs would file twice; the loop does not collapse them. They are
-    # refused.
+    # the previous item's narrative IEN. A blank narrative is refused,
+    # and so is one that is non-empty but blank after strip. The text
+    # that is sent must pass the #9999999.27 .01 input transform, or
+    # FNDNARR's LAYGO fails and ADDPOV files a blank .04 after CLNPOV
+    # has already deleted every diagnosis. Refused before any RPC:
+    # shorter than 2 bytes, longer than 160 bytes, a leading punctuation
+    # character (MUMPS patcode P, so "-SYNTH" and ".SYNTH"), or any byte
+    # outside printable ASCII 0x20-0x7E. That last rule covers a C1
+    # control and a non-ASCII letter. Space is printable ASCII and is
+    # allowed. An empty list is refused too: CLNPOV has already deleted
+    # every POV, so an empty piece 3 would remove them and file nothing.
+    # Duplicate problem IENs would file twice; the loop does not
+    # collapse them. They are refused. More than 25 diagnoses are
+    # refused before any RPC. The POV lister reads at most 25 rows, so
+    # a longer list can never be verified, and CLNPOV has already wiped
+    # the record. 25 is accepted.
     #
     # CLNPOV (AMHGSVF.m:102-106) deletes every ^AMHRPRO("AD", record) row
     # before the adds, in both modes. The call is a full replacement, not
@@ -467,13 +509,22 @@ module RpmsRpc
     # call always sends "E", so the list is a full replacement. An empty
     # list clears the multiple. ADDAXIS4^AMHGEVF (AMHGEVF.m:46-53) files
     # subfile #9002011.06101 .01. Duplicate stressor IENs are refused.
+    # More than 25 are refused before any RPC, for the same reason as
+    # the diagnoses: the lister's max is 25, and CLNA4 has already
+    # cleared the multiple. 25 is accepted.
     #
     # Piece 6 is axis V (.14) and piece 8 is GAF SCALE TYPE (1115).
     # AXIS5 (AMHGSVF.m:130-137) files both through FILE^DIE("K") on every
     # call and swallows a filing error (line 135). A blank piece clears
-    # the field. Axis V is an integer from 0 through 100, or "" to
-    # clear; nil is refused. GAF is 1 through 20 bytes, or "" to clear;
-    # nil is refused. The read-back is what catches a swallowed error.
+    # the field. Only exactly "" clears. A value that is non-empty but
+    # blank after strip is refused, for axis V, GAF, axis III and the
+    # narrative; it is not a clear. Axis V is an integer from 0 through
+    # 100, or "" to clear; nil is refused. GAF is 1 through 20 bytes,
+    # or "" to clear; nil is refused. The read-back is what catches a
+    # swallowed error. A cleared .14 or 1115 must come back as a present
+    # row whose internal is blank. GETS^DIQ returns blank fields as
+    # rows. A missing row, a nil internal, or a body with no field rows
+    # is a miss: absence is not a verified clear.
     #
     # Piece 2 must already be a BH VISIT. Piece 7 is the patient. Both
     # are positive integers. Each problem IEN points at MHSS PROBLEM
@@ -487,10 +538,13 @@ module RpmsRpc
     # encoding is UTF-8, US-ASCII or ASCII-8BIT, and whose bytes are
     # valid UTF-8. Any other encoding, an invalid byte sequence, or a
     # to_s that is not a String is SaveError, and nothing is sent. The
-    # tag is checked before the bytes are re-read. "|", "~", "*", "^"
-    # and any control character are refused. "|" splits AMHSTR, "~"
-    # splits an item, "*" splits a list, and "^" is turned into a space
-    # by ARRAY and ARRAYT.
+    # tag is checked before the bytes are re-read. "|", "~", "*", "^",
+    # the C0 controls, DEL, and the C1 controls (U+0080 through U+009F)
+    # are refused in every free-text value. The same C1 refusal applies
+    # to save_visit. "|" splits AMHSTR, "~" splits an item, "*" splits
+    # a list, and "^" is turned into a space by ARRAY and ARRAYT. Every
+    # one of these input checks runs before any RPC, including the DDR
+    # pre-reads.
     #
     # Before the AMHG call, DDR GETS ENTRY DATA reads the visit's .08
     # and 1112, flags "I". Nil, an error, an empty body, a missing 1112
@@ -513,9 +567,13 @@ module RpmsRpc
     # {Client::TimeoutError}, or a {Client::RpcMError}, is SaveError,
     # and that exception is its cause. The message says the outcome is
     # unknown and that the record's diagnoses may have been changed, and
-    # it names the record IEN. {Client::RpcNotAvailableError} and
-    # {Client::RpcRefusedError} propagate. An M error row, or a reply
-    # that is not this record IEN, says the same.
+    # it names the record IEN. {Client::FrameTooLongError} from the AMHG
+    # call is SaveError with that exception as the cause, and the
+    # message says nothing was sent: the frame is rejected before the
+    # RPC goes out, so this is not an unknown outcome.
+    # {Client::RpcNotAvailableError} and {Client::RpcRefusedError}
+    # propagate. An M error row, or a reply that is not this record
+    # IEN, says the same.
     #
     # A reply that names the record is not success until the read-back
     # matches. DDR LISTER on #9002011.01 (xref AD, part the record IEN,
@@ -529,9 +587,11 @@ module RpmsRpc
     # (IENS ",record,", field .01, flags IP, max 25, no xref, part, from
     # or screen) must show exactly the sent axis IV set. DDR GETS ENTRY
     # DATA then reads .14 and 1115 (flags "IE"). Each internal equals
-    # what was sent, and a cleared field is blank. When an axis III line
-    # was sent, a second read asks for 5301 with flags "E". That field
-    # is word processing: its text lines joined with "" equal the line.
+    # what was sent. A cleared field must be a present row whose
+    # internal is blank. A missing row, a nil internal, or a body with
+    # no field rows is a miss. When an axis III line was sent, a second
+    # read asks for 5301 with flags "E". That field is word processing:
+    # its text lines joined with "" equal the line.
     # A miss says the outcome is unknown and names the record. A
     # post-call DDR read that raises {RpmsRpc::Error} is that same
     # SaveError, with the error kept as the cause.
@@ -1265,11 +1325,19 @@ module RpmsRpc
     # covers that timeout. RpcMError means the routine ran and the
     # outcome is still unknown. RpcNotAvailableError and RpcRefusedError
     # are RpcError, not these two, so they are not wrapped.
+    # FrameTooLongError is raised before the frame is written: nothing
+    # was sent, and the message does not say the outcome is unknown.
     def save_visit_amhg(mapping, wire, requested)
       call_amhg(mapping, wire)
+    rescue Client::FrameTooLongError => e
+      save_visit_not_sent!(e)
     rescue Client::ConnectionError, Client::RpcMError => e
       known = requested.empty? ? nil : requested
       save_visit_ambiguous!(known, cause: e)
+    end
+
+    def save_visit_not_sent!(cause)
+      raise SaveError, "AMHG SAVE VISIT could not be framed; nothing was sent", cause: cause
     end
 
     def save_visit_filed?(got, expected)
@@ -1383,22 +1451,39 @@ module RpmsRpc
     end
 
     # nil is refused. "" is the clear, and is sent as a blank piece.
+    # A value that is non-empty but blank after strip is refused: only
+    # exactly "" clears axis V and GAF.
     def save_pov_required_text(value, label)
       save_visit_refuse!("#{label} is required") if value.nil?
+      save_pov_refuse_padded_blank!(value, label)
 
       save_pov_text(value)
     end
 
+    # Spaces around a real value are stripped later. A value with no
+    # non-space character would be sent as a clear, which the caller
+    # did not ask for. A separator or control character is left for
+    # the text check so that refusal names it.
+    def save_pov_refuse_padded_blank!(value, label)
+      return if value.nil?
+
+      text = save_visit_utf8(value)
+      return if text.empty?
+      return if text.match?(UNSAFE_WIRE) || text.match?(POV_LIST_MARK)
+
+      save_visit_refuse!("#{label} is blank") if text.strip.empty?
+    end
+
     def save_pov_diagnoses(value)
       save_visit_refuse!("diagnoses are required") if value.nil? || !value.is_a?(Array) || value.empty?
+      save_visit_refuse!("diagnoses are limited to #{POV_MAX}") if value.length > POV_MAX.to_i
 
       seen = {}
       value.map do |row|
         save_visit_refuse!("a diagnosis is required") unless row.is_a?(Hash)
 
         problem = save_visit_required_ien(save_pov_entry(row, :problem), "problem")
-        narrative = save_pov_text(save_pov_entry(row, :narrative))
-        save_visit_refuse!("narrative is required") if narrative.empty?
+        narrative = save_pov_narrative(save_pov_entry(row, :narrative))
         save_visit_refuse!("a problem is listed more than once") if seen[problem]
 
         seen[problem] = true
@@ -1406,8 +1491,39 @@ module RpmsRpc
       end
     end
 
+    # Separators and C0 controls keep the separator message. C1 and any
+    # other byte outside printable ASCII fail the .01 transform, whose
+    # message names the narrative. Checked on the stripped text, which
+    # is what the wire sends and what FNDNARR lays go.
+    def save_pov_narrative(value)
+      save_visit_refuse!("narrative is required") if value.nil?
+
+      text = save_visit_utf8(value)
+      if text.match?(WIRE_SEPARATOR) || text.match?(POV_LIST_MARK)
+        save_visit_refuse!("a value contains a separator or control character")
+      end
+      save_visit_refuse!("narrative is blank") if !text.empty? && text.strip.empty?
+
+      text = text.strip
+      save_visit_refuse!("a value is the FileMan delete marker") if text == "@"
+      save_visit_refuse!("narrative is required") if text.empty?
+      save_pov_narrative_transform!(text)
+      text
+    end
+
+    def save_pov_narrative_transform!(text)
+      return if text.bytesize.between?(NARRATIVE_MIN_BYTES, NARRATIVE_MAX_BYTES) &&
+                text.match?(PRINTABLE_ASCII) &&
+                !text.match?(NARRATIVE_LEADING_PUNCT)
+
+      save_visit_refuse!(
+        "narrative must be 2 to 160 bytes of printable ASCII and must not start with punctuation"
+      )
+    end
+
     def save_pov_axis_iv(value)
       save_visit_refuse!("axis IV is required") if value.nil? || !value.is_a?(Array)
+      save_visit_refuse!("axis IV is limited to #{AXIS_IV_MAX}") if value.length > AXIS_IV_MAX.to_i
 
       seen = {}
       value.map do |item|
@@ -1437,7 +1553,9 @@ module RpmsRpc
     end
 
     # nil and "" both send a blank piece. AXIS3 then leaves 5301 alone.
+    # A non-empty blank is refused; it is not "leave the field alone".
     def save_pov_axis_iii(value)
+      save_pov_refuse_padded_blank!(value, "axis III")
       text = save_pov_text(value)
       save_visit_refuse!("axis III is longer than 245 bytes") if text.bytesize > AXIS_III_MAX_BYTES
 
@@ -1490,8 +1608,14 @@ module RpmsRpc
 
     def save_pov_amhg(mapping, wire, record_ien)
       call_amhg(mapping, wire)
+    rescue Client::FrameTooLongError => e
+      save_pov_not_sent!(e)
     rescue Client::ConnectionError, Client::RpcMError => e
       save_pov_ambiguous!(record_ien, cause: e)
+    end
+
+    def save_pov_not_sent!(cause)
+      raise SaveError, "AMHG SAVE POV could not be framed; nothing was sent", cause: cause
     end
 
     # Same restore as save_visit. The message names this RPC.
@@ -1574,12 +1698,15 @@ module RpmsRpc
       save_pov_ambiguous!(record_ien) unless save_pov_axis_iii_match?(wp[:fields][AXIS_III_FIELD], axis_iii)
     end
 
-    # A cleared field may be omitted. A present internal must be blank.
+    # A cleared field is a present row whose internal is blank.
+    # GETS^DIQ returns that row. A missing row, a nil internal, or a
+    # body with no field rows is a miss: absence is not a clear.
     def save_pov_scalar_match?(fields, field, want)
-      raw = fields.dig(field, :internal)
-      return raw.nil? || raw.to_s.strip.empty? if want.empty?
+      entry = fields.is_a?(Hash) ? fields[field] : nil
+      return false unless entry.is_a?(Hash) && entry.key?(:internal)
+      return false if entry[:internal].nil?
 
-      raw.to_s.strip == want
+      entry[:internal].to_s.strip == want
     end
 
     # 5301 is word processing (GETS^DIQ "[WORD PROCESSING]"). ARRAYT
