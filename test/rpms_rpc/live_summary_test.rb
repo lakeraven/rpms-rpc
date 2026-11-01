@@ -8,6 +8,7 @@ require "securerandom"
 require "tmpdir"
 require "rake"
 require "rpms_rpc/live_summary"
+require_relative "../../tools/changelog_fragments"
 
 # ADR 0010 assertion 10 (offline slice): a release may be tagged only when live
 # summaries on disk prove a green run against the pinned rpms-ops build.
@@ -837,7 +838,12 @@ module RpmsRpc
       original_app = Rake.application
       keys = %w[LIVE_RUN LIVE_RUN_ID BROKER_HOST BROKER_PROTOCOL PERSONA LIVE_SUMMARY_DIR LIVE_BUILD]
       saved = ENV.to_h.slice(*keys)
+      saved_release_dir = Fragments.instance_variable_get(:@release_dir)
       Dir.mktmpdir do |dir|
+        # The release changelog guard runs ahead of the live-summary check and would answer
+        # first whenever a fragment is pending, so this test pins the live-summary behaviour
+        # against an empty fragment directory regardless of what the repo holds.
+        Fragments.release_dir = File.join(dir, "no-fragments").tap { |empty| FileUtils.mkdir_p(empty) }
         build = LiveSummary.pinned_build(File.join(REPO_ROOT, "data/fingerprints/rpms-ops.lock.yml"))
         write_summary(dir, "PERSONA_A.json", summary_fields("build" => build, "source" => repo_source, "suite" => repo_suite))
         assert LiveSummary.check(dir: dir, build: build, source: repo_source, suite: repo_suite).first, "fixture must start green"
@@ -857,6 +863,7 @@ module RpmsRpc
       end
     ensure
       keys.each { |key| saved.key?(key) ? ENV[key] = saved[key] : ENV.delete(key) }
+      Fragments.release_dir = saved_release_dir
       Rake.application = original_app
     end
 
