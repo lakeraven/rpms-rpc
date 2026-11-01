@@ -123,6 +123,27 @@ module RpmsRpc
     # date after Date.today; that one uses the local clock.
     FILEMAN_CENTURY = /\A[1-3]/
     ENCOUNTER_DATE_MIN = 20_001_01
+
+    # save_progress_note. DDR GETS ENTRY DATA reads .08, 1110 and 1112
+    # before the call, #9002013.6 .01 and .02 when a placement is sent,
+    # and 2101, .17 and .18 after. A non-empty chief complaint is 2 to
+    # 80 bytes; referred to is 2 to 30. Note and comment may contain LF.
+    PROGRESS_NOTE_RPC = "AMHG SAVE PROGRESS NOTES"
+    PRE_EDIT_PROGRESS_FIELDS = ".08;1110;1112"
+    PRE_EDIT_PROGRESS_FLAGS = "I"
+    PROGRESS_READBACK_FIELDS = "2101;.17;.18"
+    PROGRESS_READBACK_FLAGS = "I"
+    PLACEMENT_FILE = "9002013.6"
+    PLACEMENT_FIELDS = ".01;.02"
+    PLACEMENT_FLAGS = "I"
+    CHIEF_COMPLAINT_BYTES = (2..80)
+    REFERRED_TO_BYTES = (2..30)
+    UNSAFE_PROGRESS_WP = /[|\x00-\x09\x0b-\x1f\x7f^]/
+    private_constant :PROGRESS_NOTE_RPC, :PRE_EDIT_PROGRESS_FIELDS, :PRE_EDIT_PROGRESS_FLAGS,
+                     :PROGRESS_READBACK_FIELDS, :PROGRESS_READBACK_FLAGS, :PLACEMENT_FILE,
+                     :PLACEMENT_FIELDS, :PLACEMENT_FLAGS, :CHIEF_COMPLAINT_BYTES,
+                     :REFERRED_TO_BYTES, :UNSAFE_PROGRESS_WP
+
     # Omitted keyword, distinct from an explicit nil. On an edit both are
     # refused for every field MODV files from a piece. "" clears
     # appointment/walk-in. It does not clear program, clinic, type of
@@ -414,7 +435,7 @@ module RpmsRpc
         save_visit_ambiguous!(known, cause: error)
       }) do
         response = save_visit_amhg(mapping, wire, requested)
-        ien = save_visit_ien(response, requested)
+        ien = save_visit_ien(response, requested, mapping: :amhg_save_visit)
       end
       save_visit_confirm_filed!(ien, expected)
       save_visit_confirm_primary!(ien, provider_ien)
@@ -551,6 +572,123 @@ module RpmsRpc
       { visit_ien: row, new_link: saw_link && pre_link.nil? }
     end
     shape :save_pcc_visit, resource: "behavioral-health", verb: "POST", path: "/behavioral-health/pcc-visit"
+
+    # Edit the progress note on one BH VISIT (#9002011) through AMHG SAVE
+    # PROGRESS NOTES (PN^AMHGSVF, AMHGSVF.m:196-219). One pipe-delimited
+    # AMHSTR. The AMHG calls run under AMHGRPC via {Wire#call_amhg}.
+    # Every DDR call runs outside that scope, in the caller's context:
+    # DDR GETS ENTRY DATA is registered under CIAV VUECENTRIC. A session
+    # that declared no context cannot be restored by the scope and would
+    # stay bound to AMHGRPC, so only in that case the post-call DDR read
+    # re-binds DDR_CONTEXT first (binds: AMHGRPC, then DDR_CONTEXT). The
+    # SOAP and comment reads are AMHG RPCs and each bind AMHGRPC again.
+    #
+    # Pieces, in order: mode, record IEN, chief complaint (2101), note
+    # (3101, word processing), comment (8101, word processing), placement
+    # disposition (.17 -> 9002013.6), referred to (.18), patient DFN.
+    # Piece 1 is unused by every callee and is always sent "E". Piece 8,
+    # the DFN, is unused by every callee and is bound here by the
+    # pre-edit .08 check. Every call sends exactly these 8 pieces.
+    # There is no add: a blank IEN makes IENS ",". A blank record IEN is
+    # refused and nothing is sent.
+    #
+    # CCPD^AMHGEVF files 2101, .17 and .18 through FILE^DIE with no
+    # validation, and "" clears them. PN^AMHGEVF and CMT^AMHGEVF file
+    # the note and the comment through ARRAYT^AMHGU and WP^DIE, and
+    # errors are swallowed. ARRAYT keeps each LF at the end of its line
+    # and wraps after a space past 65 characters. An empty note or
+    # comment leaves the stored text unchanged (WP^DIE error 305). An
+    # empty note is refused here. An empty comment is sent and is not
+    # read back.
+    #
+    # A chief complaint or referred to equal to "@" after strip is
+    # FileMan's delete-field marker and is refused before the wire is
+    # built. A longer value that contains "@" is not that marker. A note
+    # or comment of "@" is sent: WP^DIE deletes only for a root of "@",
+    # so it is stored as text. A non-empty chief complaint is 2
+    # to 80 bytes and a non-empty referred to is 2 to 30 bytes
+    # (String#bytesize, which is $L when ydb_chset=M). Note and comment
+    # may contain LF. A pipe, a caret, CR, and the other C0 controls and
+    # DEL are refused in every value. A chief complaint, note, comment or
+    # referred to that contains U+FFFD is refused before any RPC, because
+    # RpmsRpc::Reply and DdrFileman replace invalid read-back bytes with
+    # U+FFFD, so a sent U+FFFD could falsely confirm. Nil is refused for
+    # every keyword.
+    #
+    # Every value is coerced with to_s. It must be a String whose
+    # encoding is UTF-8, US-ASCII, or ASCII-8BIT and whose bytes are
+    # valid UTF-8. Any other encoding, an invalid byte sequence, or a
+    # to_s that is not a String is SaveError, and nothing is sent. The
+    # tag is checked before the bytes are re-read.
+    #
+    # Before the AMHG call, DDR GETS ENTRY DATA reads .08, 1110 and
+    # 1112 (flags "I"). The call is refused, with no AMHG RPC, when that
+    # read errors, is empty, names another patient, omits the 1110 row,
+    # omits the 1112 row, 1112 is non-blank (the visit is signed), or
+    # 1110 is non-blank. The 1110 refusal exists because SOAP^AMHGDVF
+    # reads TIU when 1110 is set (AMHGDVF.m:153-154), so the note
+    # read-back would not be the word-processing text this call filed.
+    # A non-empty placement disposition is read on #9002013.6, .01 and
+    # .02 (flags "I"), and refused when the entry is missing, .01 is
+    # blank, or .02 is "1" (inactive).
+    #
+    # The reply is a GLOBAL ARRAY whose data row is +AMHIEN. An M error
+    # row, a zero or missing IEN, or an IEN other than the requested
+    # record says the outcome is unknown and that the record may have
+    # been filed. A {Client::ConnectionError} from the AMHG call,
+    # including {Client::TimeoutError}, or a {Client::RpcMError}, is
+    # SaveError, and that exception is its cause.
+    # {Client::RpcNotAvailableError} and {Client::RpcRefusedError}
+    # propagate unchanged.
+    #
+    # A reply that names the record is not success until DDR GETS ENTRY
+    # DATA reads back 2101, .17 and .18 (flags "I") and each internal
+    # equals what was sent. The note is read back through AMHG GET VISIT
+    # SOAP, and a non-empty comment through AMHG GET VISIT COMM APP,
+    # because DDR GETS is lossy on LF-bearing word-processing lines. The
+    # raw rows are joined and compared to the text that was sent, so
+    # ARRAYT's wrap still confirms. A miss says the outcome is unknown
+    # and that the record may have been filed but was not confirmed.
+    # Any {RpmsRpc::Error} from a read after the reply, including a
+    # refusal of AMHG GET VISIT SOAP or COMM APP, is SaveError saying the
+    # record may have been filed, with that error as its cause. A client
+    # that returns the rows already split (BMX #call_rpc) is read row by
+    # row, so each row keeps its LF.
+    #
+    # Limits this method does not close: the signature and the 1110
+    # state are checked before the call only. Three separate FileMan
+    # edits mean a failure can leave a partial save. A comment of ""
+    # is not verified.
+    #
+    # Returns the record IEN as a string.
+    def save_progress_note(record_ien:, patient:, chief_complaint:, note:, comment:,
+                           placement_disposition:, referred_to:)
+      requested = save_progress_note_record_ien(record_ien)
+      patient_piece = save_visit_required_ien(patient, "patient")
+      chief = save_progress_note_bounded(chief_complaint, "chief complaint", CHIEF_COMPLAINT_BYTES)
+      referred = save_progress_note_bounded(referred_to, "referred to", REFERRED_TO_BYTES)
+      placement = save_progress_note_placement(placement_disposition)
+      note_text = save_progress_note_wp(note, blank_ok: false)
+      comment_text = save_progress_note_wp(comment, blank_ok: true)
+      save_progress_note_confirm_visit!(requested, patient_piece)
+      save_progress_note_confirm_placement!(placement)
+      wire = save_progress_note_wire(
+        requested, chief, note_text, comment_text, placement, referred, patient_piece
+      )
+      expected = { "2101" => chief, ".17" => placement, ".18" => referred }
+      mapping = DataMapper[:amhg_save_progress_notes]
+      declared = save_visit_declared_context
+      response = save_visit_amhg(mapping, wire, requested, rpc: PROGRESS_NOTE_RPC)
+      ien = save_visit_reply_ien(
+        response, requested, declared, rpc: PROGRESS_NOTE_RPC, mapping: :amhg_save_progress_notes
+      )
+      save_visit_rebind_ddr_context(declared, ien, rpc: PROGRESS_NOTE_RPC)
+      save_progress_note_confirm_scalars!(ien, expected)
+      save_progress_note_confirm_wp!(ien, :amhg_visit_soap, note_text)
+      save_progress_note_confirm_wp!(ien, :amhg_visit_comment_appointment, comment_text) unless comment_text.empty?
+      ien
+    end
+    shape :save_progress_note, resource: "behavioral-health", verb: "POST", path: "/behavioral-health/progress-note"
 
     # -- visit detail tabs ---------------------------------------------------
 
@@ -901,8 +1039,7 @@ module RpmsRpc
       wire = pieces.join("|")
       # Internal invariant: VISIT^AMHGSVF is 16 pieces, date in piece 8,
       # e-sign piece 15 blank.
-      count = wire.split("|", -1).length
-      raise Error, "AMHG SAVE VISIT wire has #{count} pieces, not 16" unless count == 16
+      save_visit_piece_count!(wire, "AMHG SAVE VISIT", 16)
 
       expected = {
         ".01" => save_visit_filed_date(encounter_piece),
@@ -921,6 +1058,11 @@ module RpmsRpc
         expected["1109"] = name
       end
       [ wire, requested, expected, provider_piece ]
+    end
+
+    def save_visit_piece_count!(wire, rpc, expected)
+      count = wire.split("|", -1).length
+      raise Error, "#{rpc} wire has #{count} pieces, not #{expected}" unless count == expected
     end
 
     # nil is an add. A blank string is mode E with no IEN, which MODV turns
@@ -1277,16 +1419,24 @@ module RpmsRpc
       client.create_context(DDR_CONTEXT) if client.current_context != DDR_CONTEXT
     end
 
+    # Re-binds after a returned call (save_progress_note). A bind error is
+    # SaveError naming +record_ien+, the record the reply already named, or nil.
+    def save_visit_rebind_ddr_context(declared, record_ien, rpc: "AMHG SAVE VISIT")
+      ddr_restore_context!(declared)
+    rescue Error => e
+      save_visit_ambiguous!(record_ien, rpc: rpc, cause: e)
+    end
+
     # MERR writes no $C(31) (AMHGU.m:116-119), so the CIA read of this
     # call can time out after the routine has filed. ConnectionError
     # covers that timeout. RpcMError means the routine ran and the
     # outcome is still unknown. RpcNotAvailableError and RpcRefusedError
     # are RpcError, not these two, so they are not wrapped.
-    def save_visit_amhg(mapping, wire, requested)
+    def save_visit_amhg(mapping, wire, requested, rpc: "AMHG SAVE VISIT")
       call_amhg(mapping, wire)
     rescue Client::ConnectionError, Client::RpcMError => e
       known = requested.empty? ? nil : requested
-      save_visit_ambiguous!(known, cause: e)
+      save_visit_ambiguous!(known, rpc: rpc, cause: e)
     end
 
     def save_visit_filed?(got, expected)
@@ -1319,15 +1469,15 @@ module RpmsRpc
     # glued to the sequence echo parses as a visit. The IEN field is a
     # string so an "M ERROR|..." row is not coerced to 0. The broker text
     # stays out of the message: the outcome is unknown either way.
-    def save_visit_ien(response, requested)
+    def save_visit_ien(response, requested, rpc: "AMHG SAVE VISIT", mapping: :amhg_save_visit)
       rows = save_visit_rows(response)
       known = requested.empty? ? nil : requested
-      save_visit_ambiguous!(known) if rows.any? { |row| row.start_with?("M ERROR|") }
+      save_visit_ambiguous!(known, rpc: rpc) if rows.any? { |row| row.start_with?("M ERROR|") }
 
       data = rows.reject { |row| DataMapper.recordset_header_row?(row) }
-      ien = data.empty? ? "" : DataMapper[:amhg_save_visit].parse_one(data.first)&.dig(:ien).to_s
-      save_visit_ambiguous!(known) unless ien.match?(POSITIVE_IEN)
-      save_visit_ambiguous!(known) if known && ien != known
+      ien = data.empty? ? "" : DataMapper[mapping].parse_one(data.first)&.dig(:ien).to_s
+      save_visit_ambiguous!(known, rpc: rpc) unless ien.match?(POSITIVE_IEN)
+      save_visit_ambiguous!(known, rpc: rpc) if known && ien != known
       ien
     end
 
@@ -1342,10 +1492,24 @@ module RpmsRpc
       body.split("\x1f", 2).first.to_s
     end
 
-    def save_visit_rows(response)
+    # Parses the reply. A bad reply must not skip the re-bind, so the DDR
+    # context is restored before the error propagates (save_progress_note).
+    def save_visit_reply_ien(response, requested, declared, rpc: "AMHG SAVE VISIT", mapping: :amhg_save_visit)
+      save_visit_ien(response, requested, rpc: rpc, mapping: mapping)
+    rescue SaveError
+      save_visit_rebind_ddr_context(declared, requested.empty? ? nil : requested, rpc: rpc)
+      raise
+    end
+
+    # GLOBAL ARRAY pieces: {amhg_reply_body} split on $C(30), or on
+    # newlines when the body has no $C(30).
+    def save_visit_frame_parts(response)
       body = amhg_reply_body(response)
-      parts = body.include?("\x1e") ? body.split("\x1e") : body.split(/\r?\n/)
-      parts.filter_map do |row|
+      body.include?("\x1e") ? body.split("\x1e") : body.split(/\r?\n/)
+    end
+
+    def save_visit_rows(response)
+      save_visit_frame_parts(response).filter_map do |row|
         row = row.delete_prefix("\r\n").delete_prefix("\n").delete_prefix("\r")
         stripped = DataMapper.strip_recordset_separators(row)
         stripped.empty? ? nil : stripped
@@ -1356,16 +1520,167 @@ module RpmsRpc
       raise SaveError, message
     end
 
-    def save_visit_ambiguous!(record_ien, cause: nil)
+    def save_visit_ambiguous!(record_ien, rpc: "AMHG SAVE VISIT", cause: nil)
       where = record_ien.nil? ? "the visit" : "record #{record_ien}"
-      message = "AMHG SAVE VISIT outcome unknown; #{where} may have been filed"
+      message = "#{rpc} outcome unknown; #{where} may have been filed"
       raise SaveError, message, cause: cause if cause
 
       raise SaveError, message
     end
 
-    def save_visit_unconfirmed!(record_ien)
-      raise SaveError, "AMHG SAVE VISIT outcome unknown; record #{record_ien} may have been filed but was not confirmed"
+    def save_visit_unconfirmed!(record_ien, rpc: "AMHG SAVE VISIT")
+      raise SaveError, "#{rpc} outcome unknown; record #{record_ien} may have been filed but was not confirmed"
+    end
+
+    def save_progress_note_record_ien(value)
+      save_visit_refuse!("record IEN is missing") if value.nil?
+
+      save_visit_record_ien(value)
+    end
+
+    def save_progress_note_bounded(value, label, range)
+      save_visit_refuse!("#{label} is missing") if value.nil?
+
+      text = save_visit_text(value)
+      save_visit_refuse!("a value contains the Unicode replacement character") if text.include?("\uFFFD")
+      return text if text.empty? || range.cover?(text.bytesize)
+
+      save_visit_refuse!("#{label} must be #{range.min} to #{range.max} bytes")
+    end
+
+    def save_progress_note_placement(value)
+      save_visit_refuse!("placement disposition is missing") if value.nil?
+
+      text = save_visit_text(value)
+      return "" if text.empty?
+      return text if text.match?(POSITIVE_IEN)
+
+      save_visit_refuse!("placement disposition must be a positive integer")
+    end
+
+    # "" leaves 8101 unchanged (WP^DIE error 305) and is refused for a
+    # note. A value that is not empty but strips to nothing is refused
+    # for both. LF stays.
+    def save_progress_note_wp(value, blank_ok:)
+      save_visit_refuse!("a value is missing") if value.nil?
+
+      text = save_visit_utf8(value)
+      save_visit_refuse!("a value contains the Unicode replacement character") if text.include?("\uFFFD")
+      if text.match?(UNSAFE_PROGRESS_WP)
+        save_visit_refuse!("a value contains a separator or control character")
+      end
+      blank = text.strip.empty?
+      save_visit_refuse!("a value is blank") if blank && (!blank_ok || !text.empty?)
+      text
+    end
+
+    def save_progress_note_wire(record_ien, chief, note, comment, placement, referred, patient)
+      wire = [ "E", record_ien, chief, note, comment, placement, referred, patient ].join("|")
+      save_visit_piece_count!(wire, PROGRESS_NOTE_RPC, 8)
+      wire
+    end
+
+    def save_progress_note_confirm_visit!(record_ien, patient)
+      got = save_visit_ddr(
+        file: BH_VISIT_FILE, iens: "#{record_ien},",
+        fields: PRE_EDIT_PROGRESS_FIELDS, flags: PRE_EDIT_PROGRESS_FLAGS
+      )
+      stored = save_visit_stored_patient(got)
+      save_visit_refuse!("the stored patient could not be read") if stored.nil?
+      save_visit_refuse!("the stored EHR flag could not be read") unless got[:fields].key?("1110")
+      save_visit_refuse!("the stored signature date could not be read") unless got[:fields].key?("1112")
+      save_visit_refuse!("the visit is an EHR note") if save_progress_note_flag_set?(got, "1110")
+      save_visit_refuse!("the visit is signed") if save_visit_signed?(got)
+      save_visit_refuse!("the stored patient does not match this visit") unless stored == patient
+    rescue Error => e
+      raise if e.is_a?(SaveError)
+
+      save_visit_refuse!("the stored patient could not be read")
+    end
+
+    def save_progress_note_flag_set?(got, field)
+      !got[:fields].dig(field, :internal).to_s.strip.empty?
+    end
+
+    def save_progress_note_confirm_placement!(ien)
+      return if ien.empty?
+
+      got = begin
+        save_visit_ddr(
+          file: PLACEMENT_FILE, iens: "#{ien},",
+          fields: PLACEMENT_FIELDS, flags: PLACEMENT_FLAGS
+        )
+      rescue Error
+        :failed
+      end
+      save_visit_refuse!("placement disposition could not be read") if got == :failed
+      save_visit_refuse!("placement disposition is not on file") if save_visit_dot01_missing?(got)
+      inactive = got[:fields].dig(".02", :internal).to_s.strip == "1"
+      save_visit_refuse!("placement disposition is inactive") if inactive
+    end
+
+    def save_progress_note_confirm_scalars!(ien, expected)
+      got = save_visit_ddr(
+        file: BH_VISIT_FILE, iens: "#{ien},",
+        fields: PROGRESS_READBACK_FIELDS, flags: PROGRESS_READBACK_FLAGS
+      )
+      save_visit_unconfirmed!(ien, rpc: PROGRESS_NOTE_RPC) unless save_visit_filed?(got, expected)
+    rescue Error => e
+      raise if e.is_a?(SaveError)
+
+      save_visit_ambiguous!(ien, rpc: PROGRESS_NOTE_RPC, cause: e)
+    end
+
+    # Joined rows must equal the sent text exactly. save_visit_amhg wraps
+    # only ConnectionError and RpcMError, so any other RpmsRpc::Error from
+    # this read (a refusal, an inactive RPC) is caught here: the note has
+    # already been sent.
+    def save_progress_note_confirm_wp!(ien, mapping_name, sent)
+      response = save_visit_amhg(DataMapper[mapping_name], ien, ien, rpc: PROGRESS_NOTE_RPC)
+      rows = save_progress_note_text_rows(response)
+      failed = rows.empty? || rows.any? { |row| row.start_with?("M ERROR|") } || rows.join != sent
+      save_visit_unconfirmed!(ien, rpc: PROGRESS_NOTE_RPC) if failed
+    rescue Error => e
+      raise if e.is_a?(SaveError)
+
+      save_visit_ambiguous!(ien, rpc: PROGRESS_NOTE_RPC, cause: e)
+    end
+
+    # save_visit_rows drops a line that is only LF. ARRAYT keeps that LF,
+    # and joining these rows is the stored note or comment.
+    #
+    # MockClient splits a text seed on LF, so a $C(30) frame is still
+    # inside the elements. Joining those on LF restores the frame, and
+    # that String goes through save_visit_frame_parts. BMX #call_rpc has
+    # already split on $C(30): each element is a row and keeps its
+    # trailing LF. Joining those on LF and splitting again would drop
+    # the LF. A row that is exactly "" is not a blank line ("\n" is).
+    # One trailing $C(31), as its own element or a suffix, is the end
+    # marker.
+    def save_progress_note_text_rows(response)
+      return save_progress_note_array_rows(response) if save_progress_note_presplit_rows?(response)
+
+      framed = response.is_a?(Array) ? response.join("\n") : response
+      parts = save_visit_frame_parts(framed)
+      parts = parts.drop(1) if parts.first && DataMapper.recordset_header_row?(parts.first)
+      parts.reject(&:empty?)
+    end
+
+    # True when the elements are already the recordset rows. A newline
+    # split of a frame still holds $C(30) or the sequence ack.
+    def save_progress_note_presplit_rows?(response)
+      response.is_a?(Array) && response.none? { |row| row.to_s.match?(/[\x00\x1e]/) }
+    end
+
+    def save_progress_note_array_rows(response)
+      rows = response.map(&:to_s)
+      rows = rows.drop(1) if rows.first && DataMapper.recordset_header_row?(rows.first)
+      rows = rows.reject(&:empty?)
+      return rows if rows.empty? || !rows.last.end_with?("\x1f")
+
+      stripped = rows.last.delete_suffix("\x1f")
+      tail = rows[0...-1]
+      stripped.empty? ? tail : tail + [ stripped ]
     end
 
     # to_s, then /\A[1-9]\d*\z/. The value stays out of the message. No
