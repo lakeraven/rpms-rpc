@@ -185,7 +185,10 @@ module RpmsRpc
     # (VISIT^AMHGSVF, AMHGSVF.m:11-45). One pipe-delimited AMHSTR. The
     # AMHG call runs under AMHGRPC via {Wire#call_amhg}. Every DDR call
     # runs in the caller's context, outside that scope: DDR GETS ENTRY
-    # DATA and DDR LISTER are registered under CIAV VUECENTRIC.
+    # DATA and DDR LISTER are registered under CIAV VUECENTRIC. A session
+    # that declared no context cannot be restored by the scope and would
+    # stay bound to AMHGRPC, so only in that case the post-call reads
+    # re-bind DDR_CONTEXT first.
     #
     # Pieces, in order: mode A/E, record IEN, primary provider (files
     # #9002011.02), program external (.02, $$SCI^AMHGT at AMHGSVF.m:22;
@@ -341,7 +344,9 @@ module RpmsRpc
         save_visit_confirm_pointers!(expected, provider_ien)
       end
       mapping = DataMapper[:amhg_save_visit]
+      declared = save_visit_declared_context
       response = save_visit_amhg(mapping, wire, requested)
+      save_visit_rebind_ddr_context(declared)
       ien = save_visit_ien(response, requested)
       save_visit_confirm_filed!(ien, expected)
       save_visit_confirm_primary!(ien, provider_ien)
@@ -906,8 +911,9 @@ module RpmsRpc
           fields: PRE_POINTER_FIELDS, flags: PRE_POINTER_FLAGS
         )
       rescue Error
-        nil
+        :failed
       end
+      save_visit_refuse!("#{label} could not be read") if got == :failed
       save_visit_refuse!("#{label} is not on file") if save_visit_dot01_missing?(got)
     end
 
@@ -1029,6 +1035,26 @@ module RpmsRpc
     # covers that timeout. RpcMError means the routine ran and the
     # outcome is still unknown. RpcNotAvailableError and RpcRefusedError
     # are RpcError, not these two, so they are not wrapped.
+    DDR_CONTEXT = "CIAV VUECENTRIC"
+
+    def save_visit_declared_context
+      client = RpmsRpc.client
+      client.respond_to?(:current_context) ? client.current_context : :unscoped
+    end
+
+    # ContextScope restores only a context that existed. With none declared
+    # the session is left on AMHGRPC, which the DDR reads must not rely on.
+    def save_visit_rebind_ddr_context(declared)
+      return unless declared.nil?
+
+      client = RpmsRpc.client
+      return unless client.respond_to?(:create_context)
+
+      client.create_context(DDR_CONTEXT) if client.current_context != DDR_CONTEXT
+    rescue Error => e
+      save_visit_ambiguous!(nil, cause: e)
+    end
+
     def save_visit_amhg(mapping, wire, requested)
       call_amhg(mapping, wire)
     rescue Client::ConnectionError, Client::RpcMError => e
