@@ -40,6 +40,21 @@ module RpmsRpc
     # here are the ones FILE^DIE("K") will not: PHQ2 0-6, PHQ9 0-27, and
     # PHQT 0-27 (AUPNVMSR.m:245-259), and GAD7 0-21 and GAD2 0-6, the value
     # transforms stored on #9999999.07 field 1201 (AUMUPD2.m:244).
+    #
+    # DDR GETS ENTRY DATA and DDR LOCK/UNLOCK NODE are not registered on
+    # AMHGRPC. Every one of those calls binds Patient::FILEMAN_CONTEXT
+    # ("CIAV VUECENTRIC") and restores the caller's option.
+    #
+    # SCREEN^AMHGEVF rewrites all fifteen fields from the snapshot just
+    # read. ^AMHREC(ien) is locked before that read and unlocked after the
+    # read-back, on every path that took the lock. An unlock that raises or
+    # returns false does not change the result or replace an exception
+    # already in flight. FILE^DIE("K") takes an incremental lock on the same
+    # node inside the broker job that files, so holding this lock does not
+    # block the write. A caller-supplied provider IEN is confirmed on file
+    # 200 field .01 before the write; a provider that is only resent from
+    # the visit is not. U+FFFD in a comment, stored or supplied, is refused
+    # before the write, and read-back text that contains it is not a match.
     module Wellness
       extend self
       extend Wire
@@ -66,7 +81,13 @@ module RpmsRpc
       # " 1" are not accepted. A score may be zero; an IEN may not.
       POSITIVE_IEN = /\A[1-9]\d*\z/
       SCORE_TEXT = /\A(?:0|[1-9]\d*)\z/
-      UNSAFE_WIRE = /[|\x00-\x1f\x7f^]/
+      # U+FFFD is a byte the broker replaced, or a literal replacement
+      # character already stored. Either one is not a value we can resend
+      # or treat as a confirmed read-back.
+      UNSAFE_WIRE = /[|\x00-\x1f\x7f^\uFFFD]/
+      REPLACEMENT = "\uFFFD"
+      PROVIDER_FILE = "200"
+      VISIT_LOCK_TIMEOUT = 5
 
       # External names $$SCI^AMHGT matches exactly (AMHGT.m:183-196). An
       # unknown name becomes blank and FILE^DIE clears the field.
@@ -125,27 +146,32 @@ module RpmsRpc
       # suicide_screening. Each value is `{ result:, provider:, comment: }`.
       # `result` is the internal set code. `provider` is a positive integer
       # IEN. `comment`, when the key is present, is 2 to 245 characters and
-      # must not contain a pipe, a caret, or a control character. A named
+      # must not contain a pipe, a caret, a control character, or U+FFFD. A named
       # screening that omits provider or comment sends that piece blank.
       #
       # Returns `{ record_ien:, screenings: }` with all five screenings read
       # back from #9002011. Raises SaveError without calling the write when
-      # the visit cannot be shown to be this patient's unsigned note, or
-      # when a stored screening cannot be resent. After AMHG SAVE SCREENING
-      # is sent, raises SaveError and says the record may have been filed
-      # unless the reply is that record IEN and the read-back matches.
+      # the visit lock is not acquired, the visit cannot be shown to be this
+      # patient's unsigned note, a caller-supplied provider is not on file
+      # 200, or a stored screening cannot be resent. After AMHG SAVE
+      # SCREENING is sent, raises SaveError and says the record may have
+      # been filed unless the reply is that record IEN and the read-back
+      # matches. Read-back text that contains U+FFFD is not a match.
       def save_screening(record_ien = nil, patient:, screenings:, **rest)
         rec = record_ien!(record_ien, rest)
         patient_ien = positive_ien!(patient, "patient")
         updates = screening_updates!(screenings)
-        before = editable_visit!(rec, patient_ien)
-        filed = merged_screenings!(before, updates)
-        parameter = screening_parameter(rec, filed)
-        response = send_screening(rec, parameter)
-        confirm_reply!(response, rec, SCREENING_RPC)
-        after = confirmed_visit!(rec, patient_ien, SCREENING_RPC)
-        confirm_screenings!(after, filed, rec)
-        { record_ien: rec, screenings: screenings_from(after) }
+        with_visit_lock(rec) do
+          before = editable_visit!(rec, patient_ien)
+          filed = merged_screenings!(before, updates)
+          confirm_providers!(screening_provider_iens(updates))
+          parameter = screening_parameter(rec, filed)
+          response = send_screening(rec, parameter)
+          confirm_reply!(response, rec, SCREENING_RPC)
+          after = confirmed_visit!(rec, patient_ien, SCREENING_RPC)
+          confirm_screenings!(after, filed, rec)
+          { record_ien: rec, screenings: screenings_from(after) }
+        end
       end
       shape :save_screening, resource: "behavioral-health", verb: "POST",
             path: "/behavioral-health/wellness/screening"
@@ -159,27 +185,108 @@ module RpmsRpc
       # integer IEN. The same type twice is refused. The wire mode is "A".
       #
       # Returns every measurement row from AMHG GET VISIT MSR DATA ENTRY.
-      # Each row has :type, :value (an Integer), and :provider => { :ien }.
-      # Raises SaveError the way save_screening does. A reply that is not
-      # the record IEN, or a read-back that does not contain each sent type
-      # once with the same value and provider IEN, says the record may have
-      # been filed: MODMSR may already have stored an earlier row.
+      # A row of a type that was sent has :value as an Integer. A row of any
+      # other type has :value as an Integer when that column is a canonical
+      # integer, and the raw string otherwise; that row does not fail the
+      # save. A row with the wrong number of columns does. Each row has
+      # :type and :provider => { :ien }.
+      # Raises SaveError the way save_screening does. After the write, the
+      # visit is read again; an unreadable visit or a different .08 says the
+      # record may have been filed. So does a reply that is not the record
+      # IEN, or a read-back that does not contain each sent type once with
+      # the same value and provider IEN: MODMSR may already have stored an
+      # earlier row.
       def save_measurements(record_ien = nil, patient:, measurements:, **rest)
         rec = record_ien!(record_ien, rest)
         patient_ien = positive_ien!(patient, "patient")
         sent = measurement_list!(measurements)
-        editable_visit!(rec, patient_ien)
-        parameter = measurements_parameter(rec, patient_ien, sent)
-        response = send_measurements(rec, parameter)
-        confirm_reply!(response, rec, MEASUREMENTS_RPC)
-        readback = read_measurements(rec)
-        ambiguous!(rec, MEASUREMENTS_RPC) unless measurements_match?(readback, sent)
-        readback
+        with_visit_lock(rec) do
+          editable_visit!(rec, patient_ien)
+          confirm_providers!(sent.map { |row| row.fetch(:provider) }.uniq)
+          parameter = measurements_parameter(rec, patient_ien, sent)
+          response = send_measurements(rec, parameter)
+          confirm_reply!(response, rec, MEASUREMENTS_RPC)
+          confirmed_visit!(rec, patient_ien, MEASUREMENTS_RPC)
+          readback = read_measurements(rec, sent)
+          ambiguous!(rec, MEASUREMENTS_RPC) unless measurements_match?(readback, sent)
+          readback
+        end
       end
       shape :save_measurements, resource: "behavioral-health", verb: "POST",
             path: "/behavioral-health/wellness/measurements"
 
       private
+
+      # Hold ^AMHREC(rec) from the pre-read through the read-back. The lock
+      # call itself is not a taken lock unless it returns true.
+      def with_visit_lock(rec)
+        holding = false
+        holding = visit_lock!(rec)
+        yield
+      ensure
+        visit_unlock(rec) if holding
+      end
+
+      def visit_lock!(rec)
+        node = visit_node(rec)
+        acquired = begin
+          under_fileman { DdrFileman.lock(node: node, timeout: VISIT_LOCK_TIMEOUT) }
+        rescue RpmsRpc::Error => e
+          refuse!("the lock #{node} was not acquired", e)
+        end
+        refuse!("the lock #{node} was not acquired") unless acquired == true
+        true
+      end
+
+      # Best-effort. A false reply or a broker error must not replace a
+      # result or an exception the write already produced.
+      def visit_unlock(rec)
+        under_fileman { DdrFileman.unlock(node: visit_node(rec)) }
+      rescue RpmsRpc::Error
+        nil
+      end
+
+      def visit_node(rec)
+        "^AMHREC(#{rec})"
+      end
+
+      # AMHGRPC does not list the DDR RPCs. Patient::FILEMAN_CONTEXT does.
+      def under_fileman(&block)
+        ContextScope.scoped(RpmsRpc.client, RpmsRpc::Patient::FILEMAN_CONTEXT, &block)
+      end
+
+      def screening_provider_iens(updates)
+        updates.values.map { |row| row.fetch(:provider) }.reject(&:empty?).uniq
+      end
+
+      # Caller-supplied IENs only, each distinct IEN once. nil, a broker
+      # error, or a blank .01 is a missing provider; nothing is filed.
+      def confirm_providers!(iens)
+        iens.each { |ien| confirm_provider!(ien) }
+      end
+
+      def confirm_provider!(ien)
+        got = read_provider(ien)
+        refuse!("provider is not on file") unless provider_on_file?(got)
+      end
+
+      def read_provider(ien)
+        under_fileman do
+          DdrFileman.gets_entry(file: PROVIDER_FILE, iens: "#{ien},", fields: ".01", flags: "I")
+        end
+      rescue RpmsRpc::Error => e
+        refuse!("provider is not on file", e)
+      end
+
+      def provider_on_file?(got)
+        return false if got.nil? || !got.is_a?(Hash) || got[:error]
+        return false unless got[:fields].is_a?(Hash)
+
+        field = got[:fields][".01"]
+        return false unless field.is_a?(Hash)
+
+        !field[:internal].to_s.strip.empty?
+      end
 
       def record_ien!(positional, rest)
         extra = rest.dup
@@ -267,7 +374,7 @@ module RpmsRpc
         unless text.length.between?(2, 245) && text.bytesize <= 245
           refuse!("screening comment must be 2 to 245 characters")
         end
-        refuse!("screening comment contains a separator or control character") if unsafe?(text)
+        refuse!("screening comment contains a separator or control character") if unsafe?(text) || replacement_text?(text)
         text
       end
 
@@ -305,7 +412,9 @@ module RpmsRpc
       end
 
       def visit_fields(rec)
-        DdrFileman.gets_entry(file: VISIT_FILE, iens: "#{rec},", fields: VISIT_FIELDS, flags: VISIT_FLAGS)
+        under_fileman do
+          DdrFileman.gets_entry(file: VISIT_FILE, iens: "#{rec},", fields: VISIT_FIELDS, flags: VISIT_FLAGS)
+        end
       end
 
       def unreadable?(got)
@@ -355,12 +464,14 @@ module RpmsRpc
       end
 
       # Stored text is resent as filed. The 2..245 limit applies only to a
-      # comment the caller supplied; a separator still cannot go on the wire.
+      # comment the caller supplied. A separator or U+FFFD still cannot go
+      # on the wire: the stored comment would be rewritten as whatever the
+      # broker substituted.
       def stored_text!(fields, field)
         refuse!("a stored screening cannot be resent") unless fields.key?(field)
 
         text = fields[field][:internal].to_s
-        refuse!("a stored screening cannot be resent") if unsafe?(text)
+        refuse!("a stored screening cannot be resent") if unsafe?(text) || replacement_text?(text)
         text
       end
 
@@ -407,9 +518,9 @@ module RpmsRpc
 
       def confirm_screenings!(got, filed, rec)
         SCREENINGS.each_value do |spec|
-          ambiguous!(rec, SCREENING_RPC) unless field_internal(got, spec[:result]) == filed.fetch(spec[:result])
-          ambiguous!(rec, SCREENING_RPC) unless field_internal(got, spec[:comment]) == filed.fetch(spec[:comment])
-          unless pointer_text(field_internal(got, spec[:provider])) == filed.fetch(spec[:provider])
+          ambiguous!(rec, SCREENING_RPC) unless same_filed_text?(field_internal(got, spec[:result]), filed.fetch(spec[:result]))
+          ambiguous!(rec, SCREENING_RPC) unless same_filed_text?(field_internal(got, spec[:comment]), filed.fetch(spec[:comment]))
+          unless same_filed_text?(pointer_text(field_internal(got, spec[:provider])), filed.fetch(spec[:provider]))
             ambiguous!(rec, SCREENING_RPC)
           end
         end
@@ -503,48 +614,63 @@ module RpmsRpc
         ambiguous!(rec, MEASUREMENTS_RPC, e)
       end
 
-      def read_measurements(rec)
-        measurement_readback(call_amhg(DataMapper[:amhg_visit_msr_data_entry], rec))
+      def read_measurements(rec, sent)
+        sent_types = sent.map { |row| row.fetch(:type) }
+        measurement_readback(call_amhg(DataMapper[:amhg_visit_msr_data_entry], rec), sent_types)
       rescue RpmsRpc::Error => e
         ambiguous!(rec, MEASUREMENTS_RPC, e)
       end
 
-      def measurement_readback(response)
+      def measurement_readback(response, sent_types)
         return nil if response.nil? || Reply.altered?(response)
 
         lines = recordset_rows(response)
         return nil if lines.nil?
 
-        parsed = lines.map { |line| measurement_row(line) }
+        parsed = lines.map { |line| measurement_row(line, sent_types) }
         return nil if parsed.any?(&:nil?)
 
         parsed
       end
 
-      def measurement_row(line)
+      # Rows of a type this call sent must be an integer value, a positive
+      # type IEN, and a provider IEN. Any other type is returned as stored:
+      # a value that is not a canonical integer stays the raw string and
+      # does not fail the save. The wrong number of columns fails closed
+      # for every row.
+      def measurement_row(line, sent_types)
         pieces = line.split("^", 6)
         return nil unless pieces.length == 6
 
         type_ien = pieces[0].to_s.strip
         type = pieces[1].to_s.strip
         description = pieces[2].to_s.strip
-        value = canonical_integer(pieces[3].to_s.strip)
+        raw_value = pieces[3].to_s.strip
         provider_ien = pieces[4].to_s.strip
         provider_name = pieces[5].to_s.strip
-        return nil unless safe_match?(type_ien, POSITIVE_IEN)
-        return nil if type.empty? || unsafe?(type) || value.nil?
-        return nil unless provider_ien.empty? || safe_match?(provider_ien, POSITIVE_IEN)
+        value = canonical_integer(raw_value)
+        if sent_types.include?(type) && !strict_sent_measurement?(type_ien, type, value, provider_ien)
+          return nil
+        end
 
         {
           type_ien: type_ien,
           type: type,
           description: description.empty? ? nil : description,
-          value: value,
+          value: value.nil? ? raw_value : value,
           provider: {
             ien: provider_ien.empty? ? nil : provider_ien,
             name: provider_name.empty? ? nil : provider_name
           }
         }
+      end
+
+      def strict_sent_measurement?(type_ien, type, value, provider_ien)
+        return false unless safe_match?(type_ien, POSITIVE_IEN)
+        return false if type.empty? || unsafe?(type) || value.nil?
+        return false unless safe_match?(provider_ien, POSITIVE_IEN)
+
+        true
       end
 
       def canonical_integer(text)
@@ -559,9 +685,12 @@ module RpmsRpc
         return false unless rows.is_a?(Array)
 
         sent.all? do |item|
-          hits = rows.select { |row| row[:type] == item[:type] }
-          hits.length == 1 && hits.first[:value] == item[:value] &&
-            hits.first.dig(:provider, :ien) == item[:provider]
+          hits = rows.select { |row| same_filed_text?(row[:type], item[:type]) }
+          next false unless hits.length == 1
+
+          hit = hits.first
+          same_filed_text?(hit[:value], item[:value]) &&
+            same_filed_text?(hit.dig(:provider, :ien), item[:provider])
         end
       end
 
@@ -571,7 +700,7 @@ module RpmsRpc
         ambiguous!(rec, label) if unreadable?(got)
         ambiguous!(rec, label) unless patient_present?(got)
         ambiguous!(rec, label) unless got[:fields].key?("1112")
-        ambiguous!(rec, label) unless stored_patient(got) == patient_ien
+        ambiguous!(rec, label) unless same_filed_text?(stored_patient(got), patient_ien)
         got
       end
 
@@ -623,6 +752,22 @@ module RpmsRpc
         text.split(";", 2).first.to_s.strip
       end
 
+      # Equal, and neither side is a replacement character. A missing field
+      # stays nil: nil is not the empty string that an omitted comment sends.
+      def same_filed_text?(readback, expected)
+        return false if replacement_text?(readback) || replacement_text?(expected)
+
+        readback == expected
+      end
+
+      def replacement_text?(value)
+        return false unless value.is_a?(String)
+
+        value.include?(REPLACEMENT)
+      rescue ArgumentError, EncodingError
+        true
+      end
+
       def safe_match?(text, pattern)
         text.match?(pattern)
       rescue ArgumentError, EncodingError
@@ -631,6 +776,7 @@ module RpmsRpc
 
       def unsafe?(text)
         return true unless text.is_a?(String)
+        return true if replacement_text?(text)
 
         text.match?(UNSAFE_WIRE)
       rescue ArgumentError, EncodingError
