@@ -425,7 +425,12 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
   def test_refuses_replacement_character_in_any_text_value_without_rpc
     toxic = "SYNTH \uFFFD text"
     %i[chief_complaint note comment referred_to].each do |key|
-      assert_pre_call_refusal(**FULL_KWARGS.merge(key => toxic), label: key)
+      @mock = RpmsRpc.mock!
+      kwargs = FULL_KWARGS.merge(key => toxic)
+      wire = wire_for(**kwargs)
+      seed_edit_success(wire, RECORD_IEN, **kwargs)
+      assert_raises(BH::SaveError) { BH.save_progress_note(**kwargs) }
+      assert_empty @mock.received_calls
     end
   end
 
