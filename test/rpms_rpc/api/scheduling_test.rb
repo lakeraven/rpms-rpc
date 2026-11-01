@@ -725,6 +725,12 @@ class SchedulingTest < Minitest::Test
       end
       assert_equal caller_context, mock.current_context,
         "#{method} left the session on #{mock.current_context.inspect}"
+      # undo_checkin binds more than once by design (BSDXRPC and CIAV VUECENTRIC);
+      # its exact sequence is pinned in the dedicated test above.
+      next if method == :undo_checkin
+
+      assert_equal [ "BSDXRPC", caller_context ], mock.context_binds,
+        "#{method}: expected one bind and one restore"
     end
   end
 
