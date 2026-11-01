@@ -62,16 +62,18 @@ class BehavioralHealthSavePccVisitLiveTest < LiveSpec::Test
   end
 
   def test_save_pcc_visit_refuses_missing_bh_record_without_writing
-    err = assert_raises(RpmsRpc::BehavioralHealth::SaveError) do
-      RpmsRpc::BehavioralHealth.save_pcc_visit(record_ien: MISSING_RECORD_IEN)
-    end
-    assert_match(/IEN OF MHSS RECORD NOT VALID/i, err.message)
     row = RpmsRpc::DdrFileman.gets_entry(
       file: BH_VISIT_FILE, iens: "#{MISSING_RECORD_IEN},", fields: PCC_LINK_FIELD, flags: "I"
     )
     refute_nil row, "DDR GETS on missing IEN #{MISSING_RECORD_IEN} must return a parsed hash, not nil"
     assert row[:error], "missing #9002011 IEN must read as error (gets_entry: empty fields without [Data] or [ERROR])"
     assert_empty row[:fields], "missing entry must not expose field values"
+
+    err = assert_raises(RpmsRpc::BehavioralHealth::SaveError) do
+      RpmsRpc::BehavioralHealth.save_pcc_visit(record_ien: MISSING_RECORD_IEN)
+    end
+    refute_match(/IEN OF MHSS RECORD NOT VALID/i, err.message)
+    assert_match(/behavioral health record could not be read/i, err.message)
   end
 
   private
