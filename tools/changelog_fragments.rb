@@ -11,7 +11,7 @@ module Fragments
   TYPES = %w[added changed deprecated removed fixed security].freeze
   NAME = /\A(\d+)\.([^.]+)\.md\z/
   UNRELEASED = /^## \[Unreleased\][ \t]*\r?$/
-  IGNORED = %w[README.md].freeze
+  IGNORED = %w[README.md .keep .gitkeep .DS_Store].freeze
 
   Fragment = Struct.new(:id, :type, :heading, :body, :path, keyword_init: true)
   Assembly = Struct.new(:text, :files, keyword_init: true)
@@ -20,12 +20,20 @@ module Fragments
 
   # Every fragment in dir, validated, in render order (type, then numeric id).
   def load(dir)
-    names = Dir.children(dir).reject { |n| n.start_with?(".") || IGNORED.include?(n) || File.directory?(File.join(dir, n)) }
-    names.map { |n| parse(File.join(dir, n)) }.sort_by { |f| [ TYPES.index(f.type), f.id ] }
+    names = Dir.children(dir).reject { |n| IGNORED.include?(n) }
+    list = names.map { |n| parse(File.join(dir, n)) }
+    list.group_by { |f| [ f.type, f.id ] }.each_value do |same|
+      next if same.size == 1
+
+      raise Error, "#{same.map { |f| File.basename(f.path) }.sort.join(' and ')}: both are #{same.first.type} fragments for id #{same.first.id}"
+    end
+    list.sort_by { |f| [ TYPES.index(f.type), f.id ] }
   end
 
   def parse(path)
     name = File.basename(path)
+    raise Error, "#{name}: not a fragment file (directories are not read)" if File.directory?(path)
+
     match = NAME.match(name) or raise Error, "#{name}: not named <id>.<type>.md with a numeric id"
     type = match[2]
     raise Error, "#{name}: unknown type #{type.inspect} (expected one of #{TYPES.join(', ')})" unless TYPES.include?(type)

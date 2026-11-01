@@ -11,4 +11,4 @@ Each PR adds one file here instead of editing `CHANGELOG.md`, so merges never co
 - Check: `bundle exec rake changelog:check` (validates every fragment, non-zero on a bad one).
 - Release: `bundle exec rake changelog:assemble` inserts the fragments under `## [Unreleased]`,
   ahead of the existing sections, and deletes them. Commit the result.
-- This README and `.keep` are ignored by the loader.
+- Ignored by the loader: this README, `.keep`, `.gitkeep`, `.DS_Store`. Any other file is validated.
