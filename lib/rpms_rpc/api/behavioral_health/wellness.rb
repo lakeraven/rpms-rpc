@@ -63,12 +63,17 @@ module RpmsRpc
     # and a second save on that same job would be granted the lock
     # immediately. A process-level exclusion keyed by the captured client's
     # identity and the record IEN refuses that second save before any RPC.
-    # The identity is session_id when the captured client responds to
-    # session_id and that call returns a non-nil, non-empty value;
-    # otherwise it is that client's own object_id. The key is
-    # [:session, id] or [:object, object_id] with the record IEN, so a
-    # session id cannot collide with an object id. session_id is read once
-    # per save; if that call raises, the save is SaveError before any RPC.
+    # No client this gem ships defines session_id. CiaClient has
+    # session_uid; XwbClient, BmxClient, MockClient have neither, so with
+    # stock clients the guard keys on the captured client's object_id.
+    # Two different wrapper objects around one session do not share the
+    # exclusion. A host that wraps one session in several objects must
+    # expose session_id on them to share the guard. When the captured
+    # client responds to session_id and that call returns a non-nil,
+    # non-empty value, the key is [:session, id]; otherwise it is
+    # [:object, object_id], with the record IEN, so a session id cannot
+    # collide with an object id. session_id is read once per save; if that
+    # call raises, the save is SaveError before any RPC.
     # Every provider IEN the screening write will send, including one
     # resent from a screening the caller did not name, is confirmed on
     # file 200 field .01 before the write. Each distinct IEN is read once.
@@ -76,7 +81,8 @@ module RpmsRpc
     # U+FFFD in a comment, stored or supplied, is refused before the write,
     # and read-back text that contains it is not a match. A screening
     # field absent from the read-back is a mismatch, not a blank.
-    # NotImplementedError from a DDR call before the write is SaveError.
+    # StandardError or NotImplementedError from a DDR call before the
+    # write is SaveError and keeps that exception as its cause.
     # After the write RPC has been sent, StandardError or
     # NotImplementedError from the write, the post-write visit read, or
     # the measurement read-back is SaveError, says the record may have
@@ -119,10 +125,12 @@ module RpmsRpc
       # same broker job is granted ^AMHREC(ien) immediately. This set is
       # the exclusion the broker will not give. The mutex guards the set
       # only and is never held across a save, so a re-entrant call can
-      # refuse without deadlocking. The key is [:session, session_id] or
-      # [:object, object_id], plus the record IEN. Two clients that share
-      # a session id share one exclusion, and a session id cannot collide
-      # with an object id.
+      # refuse without deadlocking. The key is [:session, id] or
+      # [:object, object_id], plus the record IEN, so a session id cannot
+      # collide with an object id. No client this gem ships defines
+      # session_id, so stock clients key on object_id and do not share
+      # the exclusion across two wrapper objects. A host shares that
+      # exclusion only by exposing session_id on each wrapper.
       SAVE_GUARD = Mutex.new
       SAVES_IN_PROGRESS = {}
       private_constant :SAVE_GUARD, :SAVES_IN_PROGRESS
@@ -203,12 +211,18 @@ module RpmsRpc
       # exception as its cause. The save captures the client at entry and
       # keeps using it if the configured client changes. A save already in
       # progress for this record on that client's identity raises SaveError
-      # before any RPC. The identity is session_id when the client responds
-      # to session_id and returns a non-nil, non-empty value; otherwise it
-      # is the client's own object_id. The key is [:session, id] or
-      # [:object, object_id] with the record IEN, so the two cannot collide.
-      # session_id is read once; if that call raises, the save is SaveError
-      # before any RPC. The visit unlock runs only on the captured client.
+      # before any RPC. No client this gem ships defines session_id
+      # (CiaClient has session_uid; XwbClient, BmxClient, MockClient have
+      # neither), so with stock clients the guard keys on the captured
+      # client's object_id. Two different wrapper objects around one
+      # session do not share the exclusion. A host that wraps one session
+      # in several objects must expose session_id on them to share the
+      # guard. When the captured client responds to session_id and returns
+      # a non-nil, non-empty value, the key is [:session, id]; otherwise
+      # it is [:object, object_id], with the record IEN, so the two cannot
+      # collide. session_id is read once; if that call raises, the save is
+      # SaveError before any RPC. The visit unlock runs only on the
+      # captured client.
       # A failed unlock is swallowed, and a lock it leaves held expires
       # with the broker job.
       def save_screening(record_ien = nil, patient:, screenings:, **rest)
@@ -261,10 +275,15 @@ module RpmsRpc
       # that same SaveError and keeps the exception as its cause. The save
       # captures the client at entry and keeps using it if the configured
       # client changes. A save already in progress for this record on that
-      # client's identity raises SaveError before any RPC. The identity is
-      # session_id when the client responds to session_id and returns a
-      # non-nil, non-empty value; otherwise it is the client's own
-      # object_id. The key is [:session, id] or [:object, object_id] with
+      # client's identity raises SaveError before any RPC. No client this
+      # gem ships defines session_id (CiaClient has session_uid; XwbClient,
+      # BmxClient, MockClient have neither), so with stock clients the
+      # guard keys on the captured client's object_id. Two different
+      # wrapper objects around one session do not share the exclusion. A
+      # host that wraps one session in several objects must expose
+      # session_id on them to share the guard. When the captured client
+      # responds to session_id and returns a non-nil, non-empty value, the
+      # key is [:session, id]; otherwise it is [:object, object_id], with
       # the record IEN, so the two cannot collide. session_id is read once;
       # if that call raises, the save is SaveError before any RPC. The
       # visit unlock runs only on the captured client. A failed unlock is
@@ -300,10 +319,16 @@ module RpmsRpc
       # One save at a time for this captured client and record IEN. The
       # check runs before any RPC. The mutex is not held across the save:
       # Mutex is not re-entrant, and the refused call arrives on the same
-      # thread. Identity is session_id when the captured client responds
-      # to it with a non-nil, non-empty value, read once here; otherwise
-      # the captured client's own object_id. A raise from session_id is
-      # SaveError before any RPC.
+      # thread. No client this gem ships defines session_id (CiaClient has
+      # session_uid; XwbClient, BmxClient, MockClient have neither), so
+      # with stock clients the guard keys on the captured client's
+      # object_id. Two different wrapper objects around one session do not
+      # share the exclusion. A host that wraps one session in several
+      # objects must expose session_id on them to share the guard. When
+      # the captured client responds to session_id with a non-nil,
+      # non-empty value, read once here, that value is the identity;
+      # otherwise the identity is the captured client's own object_id. A
+      # raise from session_id is SaveError before any RPC.
       def with_save_exclusion(client, rec)
         key = [ client_identity(client), rec ]
         SAVE_GUARD.synchronize do
@@ -430,8 +455,9 @@ module RpmsRpc
         SCREENINGS.each_value.map { |spec| filed.fetch(spec[:provider]) }.reject(&:empty?).uniq
       end
 
-      # Each distinct IEN once. nil, a broker error, or a blank .01 is a
-      # missing provider; nothing is filed.
+      # Each distinct IEN once. nil, StandardError or NotImplementedError
+      # from the read, or a blank .01 is a missing provider; nothing is
+      # filed. The read's exception is the SaveError cause.
       def confirm_providers!(iens)
         iens.each { |ien| confirm_provider!(ien) }
       end
@@ -445,7 +471,7 @@ module RpmsRpc
         under_fileman do
           DdrFileman.gets_entry(file: PROVIDER_FILE, iens: "#{ien},", fields: ".01", flags: "I")
         end
-      rescue RpmsRpc::Error, NotImplementedError => e
+      rescue StandardError, NotImplementedError => e
         refuse!("provider is not on file", e)
       end
 
@@ -575,10 +601,11 @@ module RpmsRpc
         got
       end
 
-      # A broker error or NotImplementedError on the pre-read filed nothing.
+      # StandardError or NotImplementedError on the pre-read filed nothing.
+      # The refusal is SaveError and that exception is its cause.
       def read_visit(rec)
         visit_fields(rec)
-      rescue RpmsRpc::Error, NotImplementedError => e
+      rescue StandardError, NotImplementedError => e
         refuse!("the visit could not be read", e)
       end
 
