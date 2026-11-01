@@ -117,21 +117,60 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
 
     assert_equal "AMHGRPC", save_call[:context]
     assert_equal caller_context, @mock.current_context
-    assert_equal [ "AMHGRPC", caller_context ], @mock.context_binds
+    assert_equal(
+      [ "AMHGRPC", caller_context, "AMHGRPC", caller_context, "AMHGRPC", caller_context ],
+      @mock.context_binds
+    )
   end
 
-  def test_post_call_ddr_and_amhg_reads_do_not_run_under_amhgrpc_when_the_session_had_no_context
+  def test_save_progress_note_with_empty_comment_binds_amhgrpc_for_save_and_soap_then_restores_caller
+    kwargs = FULL_KWARGS.merge(comment: "")
+    wire = wire_for(**kwargs)
+    seed_edit_success(wire, RECORD_IEN, **kwargs, skip_comm: true)
+    caller_context = @mock.current_context
+
+    BH.save_progress_note(**kwargs)
+
+    assert_equal caller_context, @mock.current_context
+    assert_equal [ "AMHGRPC", caller_context, "AMHGRPC", caller_context ], @mock.context_binds
+  end
+
+  def test_post_call_ddr_reads_do_not_run_under_amhgrpc_while_amhg_soap_and_comm_reads_do
     seed_edit_success(WIRE_FULL, RECORD_IEN, **FULL_KWARGS)
     @mock.instance_variable_set(:@current_context, nil)
     capture_io { BH.save_progress_note(**FULL_KWARGS) }
 
     save_index = @mock.received_calls.index { |c| c[:rpc] == RPC }
-    @mock.received_calls[(save_index + 1)..].each do |call|
-      next unless call[:rpc].start_with?("DDR ") || call[:rpc].start_with?("AMHG GET VISIT")
+    refute_nil save_index
+    after = @mock.received_calls[(save_index + 1)..]
 
-      refute_equal "AMHGRPC", call[:context]
-      refute_nil call[:context]
+    ddr_readback = after.find do |c|
+      c[:rpc] == "DDR GETS ENTRY DATA" && c[:params].first["FIELDS"] == READBACK_FIELDS
     end
+    soap = after.find { |c| c[:rpc] == RPC_SOAP }
+    comm = after.find { |c| c[:rpc] == RPC_COMM }
+    refute_nil ddr_readback
+    refute_nil soap
+    refute_nil comm
+
+    after.each do |call|
+      next unless call[:rpc].start_with?("DDR ")
+
+      assert_equal "CIAV VUECENTRIC", call[:context],
+                   "#{call[:rpc]} must run under the DDR context"
+    end
+
+    assert_equal "AMHGRPC", soap[:context]
+    assert_equal "AMHGRPC", comm[:context]
+
+    idx_ddr = positions_of do |c|
+      c[:rpc] == "DDR GETS ENTRY DATA" && c[:params].first["FIELDS"] == READBACK_FIELDS
+    end.first
+    idx_soap = positions_of { |c| c[:rpc] == RPC_SOAP }.first
+    idx_comm = positions_of { |c| c[:rpc] == RPC_COMM }.first
+    refute_nil idx_ddr
+    assert_operator idx_ddr, :<, idx_soap
+    assert_operator idx_soap, :<, idx_comm
   end
 
   def test_nil_context_binds_exactly_amhgrpc_then_the_ddr_context
@@ -139,7 +178,14 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
     @mock.instance_variable_set(:@current_context, nil)
     capture_io { BH.save_progress_note(**FULL_KWARGS) }
 
-    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal(
+      [
+        "AMHGRPC", "CIAV VUECENTRIC",
+        "AMHGRPC", "CIAV VUECENTRIC",
+        "AMHGRPC", "CIAV VUECENTRIC"
+      ],
+      @mock.context_binds
+    )
   end
 
   def test_edit_success_returns_the_requested_record_ien_after_readback
@@ -183,9 +229,39 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
     assert_operator idx, :<, positions_of { |c| c[:rpc] == RPC }.first
   end
 
+  def test_pre_edit_ddr_and_placement_reads_run_before_amhg_save_and_not_under_amhgrpc
+    seed_edit_success(WIRE_FULL, RECORD_IEN, **FULL_KWARGS)
+    BH.save_progress_note(**FULL_KWARGS)
+
+    amhg_idx = positions_of { |c| c[:rpc] == RPC }.first
+    pre_edit_idx = positions_of do |c|
+      next false unless c[:rpc] == "DDR GETS ENTRY DATA"
+
+      p = c[:params].first
+      p["FILE"] == BH_VISIT_FILE && p["FIELDS"] == PRE_EDIT_FIELDS
+    end.first
+    placement_idx = positions_of do |c|
+      next false unless c[:rpc] == "DDR GETS ENTRY DATA"
+
+      p = c[:params].first
+      p["FILE"] == PLACEMENT_FILE && p["IENS"] == "#{PLACEMENT},"
+    end.first
+
+    refute_nil pre_edit_idx
+    refute_nil placement_idx
+    assert_operator pre_edit_idx, :<, amhg_idx
+    assert_operator placement_idx, :<, amhg_idx
+
+    [ pre_edit_idx, placement_idx ].each do |idx|
+      refute_equal "AMHGRPC", @mock.received_calls[idx][:context]
+    end
+  end
+
   def test_empty_comment_does_not_call_amhg_get_visit_comm_app
-    seed_edit_success(WIRE_FULL, RECORD_IEN, **FULL_KWARGS.merge(comment: ""), skip_comm: true)
-    BH.save_progress_note(**FULL_KWARGS.merge(comment: ""))
+    kwargs = FULL_KWARGS.merge(comment: "")
+    wire = wire_for(**kwargs)
+    seed_edit_success(wire, RECORD_IEN, **kwargs, skip_comm: true)
+    BH.save_progress_note(**kwargs)
 
     refute @mock.received_calls.any? { |c| c[:rpc] == RPC_COMM }
   end
@@ -206,6 +282,23 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
     BH.save_progress_note(**kwargs)
 
     assert_equal wire, save_call[:params].first
+  end
+
+  def test_soap_readback_confirms_when_joined_raw_rows_match_note_with_lf_preserved
+    seed_edit_success(WIRE_BLANK_SCALARS, RECORD_IEN, **BLANK_SCALAR_KWARGS,
+                      soap_rows: SOAP_ROWS_MULTILINE)
+    assert_equal RECORD_IEN, BH.save_progress_note(**BLANK_SCALAR_KWARGS)
+  end
+
+  def test_soap_readback_not_confirmed_when_stored_rows_strip_lf
+    stripped = SOAP_ROWS_MULTILINE.map { |row| row.delete("\n") }
+    seed_pre_edit_success(**BLANK_SCALAR_KWARGS)
+    seed_success(WIRE_BLANK_SCALARS, RECORD_IEN)
+    seed_readback("#{RECORD_IEN},", **BLANK_SCALAR_KWARGS)
+    seed_soap(RECORD_IEN, NOTE_MULTILINE, rows: stripped)
+    seed_comm(RECORD_IEN, COMMENT)
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**BLANK_SCALAR_KWARGS) }
+    assert_not_confirmed(err, record_ien: RECORD_IEN)
   end
 
   # --- registration ---------------------------------------------------------
@@ -387,6 +480,12 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
     assert_pre_call_refusal(**FULL_KWARGS, label: "missing placement")
   end
 
+  def test_refuses_placement_with_blank_dot01_without_amhg_rpc
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    seed_placement(PLACEMENT, missing_dot01: true)
+    assert_pre_call_refusal(**FULL_KWARGS, label: "placement blank .01")
+  end
+
   # --- post-call failures ---------------------------------------------------
 
   def test_raises_when_reply_has_m_error_row
@@ -439,12 +538,38 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
     assert_not_confirmed(err, record_ien: RECORD_IEN)
   end
 
+  def test_raises_when_comm_app_readback_does_not_match_comment
+    seed_pre_edit_success(**FULL_KWARGS)
+    seed_success(WIRE_FULL, RECORD_IEN)
+    seed_readback("#{RECORD_IEN},", **FULL_KWARGS)
+    seed_soap(RECORD_IEN, NOTE)
+    seed_comm(RECORD_IEN, "wrong comment")
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**FULL_KWARGS) }
+    assert_not_confirmed(err, record_ien: RECORD_IEN)
+  end
+
+  def test_raises_when_soap_readback_is_m_error_or_has_no_data_rows
+    seed_pre_edit_success(**FULL_KWARGS)
+    seed_success(WIRE_FULL, RECORD_IEN)
+    seed_readback("#{RECORD_IEN},", **FULL_KWARGS)
+    seed_comm(RECORD_IEN, COMMENT)
+
+    seed_soap(RECORD_IEN, NOTE, rows: [ "M ERROR|synthetic trap" ])
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**FULL_KWARGS) }
+    assert_not_confirmed(err, record_ien: RECORD_IEN)
+
+    @mock.seed_text(:amhg_visit_soap, RECORD_IEN, "T00250Soap#{RS}#{US}")
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**FULL_KWARGS) }
+    assert_not_confirmed(err, record_ien: RECORD_IEN)
+  end
+
   def test_amhg_rpc_timeout_becomes_save_error_with_ambiguous_outcome
     seed_pre_edit_success(**FULL_KWARGS)
     wrapper = TimeoutOnAmhgSaveProgressNotes.new(@mock)
     RpmsRpc.configure { |c| c.client = wrapper }
     err = assert_raises(BH::SaveError) { BH.save_progress_note(**FULL_KWARGS) }
     assert_kind_of RpmsRpc::Client::RpcTimeoutError, err.cause
+    assert_match(/may have been filed/i, err.message)
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
   end
@@ -455,6 +580,19 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = wrapper }
     err = assert_raises(BH::SaveError) { BH.save_progress_note(**FULL_KWARGS) }
     assert_kind_of RpmsRpc::Client::ConnectionError, err.cause
+    assert_match(/may have been filed/i, err.message)
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_amhg_rpc_m_error_becomes_save_error_with_ambiguous_outcome
+    seed_pre_edit_success(**FULL_KWARGS)
+    wrapper = RpcMErrorOnAmhgSaveProgressNotes.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**FULL_KWARGS) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err, record_ien: RECORD_IEN)
+    assert_kind_of RpmsRpc::Client::RpcMError, err.cause
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
   end
@@ -509,15 +647,8 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
     "T00030Result#{RS}#{ien}#{RS}#{US}"
   end
 
-  def seed_amhg_text(wire, body)
-    blobs = @mock.instance_variable_get(:@text_blobs) || {}
-    @mock.instance_variable_set(:@text_blobs, blobs)
-    blobs[RPC] ||= {}
-    blobs[RPC][wire.to_s] = body
-  end
-
   def seed_reply(wire, body)
-    seed_amhg_text(wire, body)
+    @mock.seed_text(:amhg_save_progress_notes, wire, body)
   end
 
   def seed_success(wire, ien)
@@ -636,8 +767,9 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
   end
 
   def assert_pre_call_refusal(label: nil, **kwargs)
-    err = assert_raises(BH::SaveError, label) { BH.save_progress_note(**kwargs) }
-    assert_empty amhg_calls, "pre-call refusal must not RPC#{label ? " (#{label})" : ""}"
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**kwargs) }
+    label_text = label.nil? ? "" : " (#{label.to_s})"
+    assert_empty amhg_calls, "pre-call refusal must not RPC#{label_text}"
     err
   end
 
@@ -682,6 +814,17 @@ class ConnectionErrorOnAmhgSaveProgressNotes < SimpleDelegator
     if rpc_name == "AMHG SAVE PROGRESS NOTES"
       super
       raise RpmsRpc::Client::ConnectionError, "AMHG SAVE PROGRESS NOTES connection lost (synthetic)"
+    end
+
+    super
+  end
+end
+
+class RpcMErrorOnAmhgSaveProgressNotes < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *params)
+    if rpc_name == "AMHG SAVE PROGRESS NOTES"
+      super
+      raise RpmsRpc::Client::RpcMError, "AMHG SAVE PROGRESS NOTES M error (synthetic)"
     end
 
     super

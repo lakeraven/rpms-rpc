@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "live_helper"
+require "rpms_rpc/context_scope"
 require "rpms_rpc/api/behavioral_health"
 require "rpms_rpc/api/patient"
 require "rpms_rpc/api/ddr_fileman"
@@ -58,19 +59,17 @@ class BehavioralHealthSaveProgressNoteLiveTest < LiveSpec::Test
       referred_to: REFERRED_TO
     )
 
-    soap_rows = raw_soap_rows(visit_ien)
-    refute_empty soap_rows
-    soap_rows.each do |row|
-      next unless row.include?("\n")
+    expected_soap = [
+      "Line one.\n",
+      "Second.\n",
+      "\n",
+      arrayt_first_segment(long_line),
+      "end\n"
+    ]
+    assert_equal expected_soap, raw_soap_rows(visit_ien)
 
-      assert row.end_with?("\n"), "each LF-terminated SOAP row must keep the LF"
-    end
-    wrapped = soap_rows.find { |r| r.length > 65 && r.include?(" ") && !r.end_with?("\n") }
-    refute_nil wrapped, "expected ARRAYT wrap after a space past 65 characters"
-    assert_equal note, soap_rows.join("")
-
-    comm_rows = RpmsRpc::BehavioralHealth.visit_comment_appointment(visit_ien)
-    assert_equal comment, comm_rows.join("")
+    comm_rows = raw_amhg_rows("AMHG GET VISIT COMM APP", "CommentAppointment", visit_ien)
+    assert_equal [ "SYNTH comment line A\n", "SYNTH comment line B" ], comm_rows
 
     scalars = read_scalar_fields(visit_ien)
     assert_equal CHIEF_COMPLAINT, scalars.fetch("2101")
@@ -114,16 +113,36 @@ class BehavioralHealthSaveProgressNoteLiveTest < LiveSpec::Test
 
   private
 
-  def raw_soap_rows(visit_ien)
-    frame = client.call_rpc_global_array("AMHG GET VISIT SOAP", visit_ien.to_s)
-    body = frame.is_a?(Array) ? frame.join("\n") : frame.to_s
-    body = body.split("\x00", 2).last if body.include?("\x00")
-    body = body.split("\x1f", 2).first.to_s
-    parts = body.split("\x1e")
-    header = parts.first.to_s
-    flunk "unexpected SOAP header: #{header.inspect}" unless header.include?("Soap")
+  # ARRAYT (AMHGU.m): once more than 65 characters past the last break, break
+  # after the next space.
+  def arrayt_first_segment(text)
+    (0...text.length).each do |i|
+      next unless i + 1 > 65
 
-    parts.drop(1).reject(&:empty?)
+      space = text.index(" ", i)
+      flunk "ARRAYT could not break #{text.inspect} past 65 characters" unless space
+
+      return text[0..space]
+    end
+    text
+  end
+
+  def raw_soap_rows(visit_ien)
+    raw_amhg_rows("AMHG GET VISIT SOAP", "Soap", visit_ien)
+  end
+
+  def raw_amhg_rows(rpc, header_word, ien)
+    RpmsRpc::ContextScope.scoped(client, RpmsRpc::BehavioralHealth::CONTEXT) do
+      frame = client.call_rpc_global_array(rpc, ien.to_s)
+      body = frame.is_a?(Array) ? frame.join("\n") : frame.to_s
+      body = body.split("\x00", 2).last if body.include?("\x00")
+      body = body.split("\x1f", 2).first.to_s
+      parts = body.split("\x1e")
+      header = parts.first.to_s
+      flunk "unexpected #{rpc} header: #{header.inspect}" unless header.include?(header_word)
+
+      parts.drop(1).reject(&:empty?)
+    end
   end
 
   def read_scalar_fields(visit_ien)
