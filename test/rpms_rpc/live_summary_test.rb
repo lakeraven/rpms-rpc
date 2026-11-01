@@ -843,7 +843,7 @@ module RpmsRpc
         # The release changelog guard runs ahead of the live-summary check and would answer
         # first whenever a fragment is pending, so this test pins the live-summary behaviour
         # against an empty fragment directory regardless of what the repo holds.
-        Fragments.release_dir = Dir.mktmpdir("no-fragments")
+        Fragments.release_dir = File.join(dir, "no-fragments").tap { |empty| FileUtils.mkdir_p(empty) }
         build = LiveSummary.pinned_build(File.join(REPO_ROOT, "data/fingerprints/rpms-ops.lock.yml"))
         write_summary(dir, "PERSONA_A.json", summary_fields("build" => build, "source" => repo_source, "suite" => repo_suite))
         assert LiveSummary.check(dir: dir, build: build, source: repo_source, suite: repo_suite).first, "fixture must start green"
