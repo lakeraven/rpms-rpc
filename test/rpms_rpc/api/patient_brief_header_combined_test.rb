@@ -5,7 +5,7 @@ require "rpms_rpc/mock_client"
 require "rpms_rpc/api/patient"
 
 # brief_header carries both the #523 designated-primary GETBDP row and the
-# #520 ORWPT CWAD read under OR CPRS GUI CHART. Synthetic seeds only.
+# #553 ORWPT CWAD read under OR CPRS GUI CHART. Synthetic seeds only.
 class PatientBriefHeaderCombinedTest < Minitest::Test
   DFN = "42"
   CHART_CONTEXT = "OR CPRS GUI CHART"
