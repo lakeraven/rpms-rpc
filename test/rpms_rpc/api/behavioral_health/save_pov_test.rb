@@ -27,13 +27,12 @@ class BehavioralHealthSavePovTest < Minitest::Test
   POV_FILE = "9002011.01"
   POV_XREF = "AD"
   POV_FROM = "0"
-  POV_FIELDS = ".01;.02;.04"
-  POV_FLAGS = "IE"
+  POV_FIELDS = ".01;.02;.03;.04E"
+  POV_FLAGS = "IP"
   POV_MAX = "25"
   AXIS_IV_FILE = "9002011.06101"
-  AXIS_IV_XREF = "B"
   AXIS_IV_FIELDS = ".01"
-  AXIS_IV_FLAGS = "I"
+  AXIS_IV_FLAGS = "IP"
   AXIS_IV_MAX = "25"
   MHSS_PROBLEM_FILE = "9002012.2"
   PSYCHOSOCIAL_FILE = "9002012.9"
@@ -49,6 +48,7 @@ class BehavioralHealthSavePovTest < Minitest::Test
   PATIENT = "990538"
   OTHER_PATIENT = "990539"
   RECORD_IEN = "8801"
+  OTHER_RECORD_IEN = "8802"
   PROB_ONE = "501"
   PROB_TWO = "502"
   PROB_REPLACE = "503"
@@ -501,7 +501,7 @@ class BehavioralHealthSavePovTest < Minitest::Test
 
   def test_raises_when_extra_stale_pov_row_remains_after_replace
     rows = pov_rows_for(**ONE_KWARGS) + [ {
-      ien: "9", problem: PROB_TWO, patient: PATIENT, narrative_ext: NARR_TWO
+      ien: "9", problem: PROB_TWO, patient: PATIENT, record: RECORD_IEN, narrative_ext: NARR_TWO
     } ]
     assert_post_call_readback_miss(**ONE_KWARGS, pov_rows: rows)
   end
@@ -520,8 +520,8 @@ class BehavioralHealthSavePovTest < Minitest::Test
 
   def test_ignores_pov_lister_rows_for_another_record_and_succeeds
     rows = pov_rows_for(**ONE_KWARGS) + [ {
-      ien: "99", problem: "999", patient: PATIENT, narrative_ext: "FOREIGN RECORD ROW",
-      foreign_record: true
+      ien: "99", problem: "999", patient: PATIENT, record: OTHER_RECORD_IEN,
+      narrative_ext: "FOREIGN RECORD ROW"
     } ]
     seed_success(WIRE_ONE_DIAGNOSIS, RECORD_IEN, **ONE_KWARGS, pov_rows: rows)
     assert_equal RECORD_IEN, BH.save_pov(**ONE_KWARGS)
@@ -715,18 +715,19 @@ class BehavioralHealthSavePovTest < Minitest::Test
 
   def axis_iv_lister_key(record_ien)
     Ddr.lister_param(
-      file: AXIS_IV_FILE, xref: AXIS_IV_XREF, part: record_ien.to_s,
-      from: POV_FROM, screen: pov_lister_screen(record_ien),
+      file: AXIS_IV_FILE, iens: ",#{record_ien},",
       fields: AXIS_IV_FIELDS, flags: AXIS_IV_FLAGS, max: AXIS_IV_MAX
     ).to_s
   end
 
   def pov_rows_for(**kwargs)
+    record = kwargs.fetch(:record_ien, RECORD_IEN).to_s
     kwargs.fetch(:diagnoses, []).map.with_index(1) do |row, idx|
       {
         ien: idx.to_s,
         problem: row.fetch(:problem).to_s,
         patient: kwargs.fetch(:patient, PATIENT).to_s,
+        record: record,
         narrative_ext: row.fetch(:narrative).to_s
       }
     end
@@ -740,7 +741,7 @@ class BehavioralHealthSavePovTest < Minitest::Test
     return "[Errors]" if error
 
     lines = rows.map do |row|
-      "#{row[:ien]}^#{row[:problem]}^#{row[:patient]}^#{row[:narrative_ext]}"
+      "#{row[:ien]}^#{row[:problem]}^#{row[:patient]}^#{row[:record]}^#{row[:narrative_ext]}"
     end
     body = "[Data]\n#{lines.join("\n")}"
     more ? "[Misc]\nMORE^1^1\n#{body}" : body
@@ -753,15 +754,15 @@ class BehavioralHealthSavePovTest < Minitest::Test
     "[Data]\n#{lines.join("\n")}"
   end
 
-  def visit_axis_readback_body(record_ien, axis_v:, gaf:, axis_iii: nil)
-    lines = [
+  def visit_axis_readback_body(record_ien, axis_v:, gaf:)
+    [
       "#{BH_VISIT_FILE}^#{record_ien}^.14^#{axis_v}^EXT",
       "#{BH_VISIT_FILE}^#{record_ien}^1115^#{gaf}^EXT"
     ]
-    if axis_iii && !axis_iii.to_s.empty?
-      lines << "#{BH_VISIT_FILE}^#{record_ien}^#{AXIS_III_FIELD}^#{axis_iii}^EXT"
-    end
-    lines
+  end
+
+  def axis_iii_wp_seed_body(record_ien, text)
+    "[Data]\n#{BH_VISIT_FILE}^#{record_ien}^#{AXIS_III_FIELD}^[WORD PROCESSING]\n#{text}\n$$END$$"
   end
 
   def seed_post_readback(record_ien, pov_rows: nil, lister_more: false, lister_error: false,
@@ -777,19 +778,17 @@ class BehavioralHealthSavePovTest < Minitest::Test
     axis_v = (axis_v_readback.nil? ? kwargs.fetch(:axis_v, "") : axis_v_readback).to_s
     gaf = (gaf_readback.nil? ? kwargs.fetch(:gaf, "") : gaf_readback).to_s
     axis_iii = axis_iii_readback.nil? ? kwargs[:axis_iii] : axis_iii_readback
-    fields = VISIT_AXIS_FIELDS
-    fields = "#{fields};#{AXIS_III_FIELD}" if axis_iii && !axis_iii.to_s.empty?
     key = Ddr.gets_entry_param(
-      file: BH_VISIT_FILE, iens: "#{record_ien},", fields: fields, flags: VISIT_AXIS_FLAGS
+      file: BH_VISIT_FILE, iens: "#{record_ien},", fields: VISIT_AXIS_FIELDS, flags: VISIT_AXIS_FLAGS
     ).to_s
-    body_lines = visit_axis_readback_body(record_ien, axis_v: axis_v, gaf: gaf, axis_iii: axis_iii)
+    body_lines = visit_axis_readback_body(record_ien, axis_v: axis_v, gaf: gaf)
     @mock.seed(:ddr_gets_entry_data, key, "[Data]\n#{body_lines.join("\n")}")
 
     if axis_iii && !axis_iii.to_s.empty?
       wp_key = Ddr.gets_entry_param(
         file: BH_VISIT_FILE, iens: "#{record_ien},", fields: AXIS_III_FIELD, flags: AXIS_III_FLAGS
       ).to_s
-      @mock.seed(:ddr_gets_entry_data, wp_key, "[Data]\n#{BH_VISIT_FILE}^#{record_ien}^#{AXIS_III_FIELD}^#{axis_iii}^EXT")
+      @mock.seed(:ddr_gets_entry_data, wp_key, axis_iii_wp_seed_body(record_ien, axis_iii))
     end
   end
 
@@ -942,8 +941,18 @@ end
 class RaiseOnBhVisitReadbackForPov < SimpleDelegator
   BH_VISIT = "9002011"
 
+  def initialize(inner)
+    super
+    @amhg_save_pov_seen = false
+  end
+
+  def call_rpc_global_array(rpc_name, *params)
+    @amhg_save_pov_seen = true if rpc_name == "AMHG SAVE POV"
+    super
+  end
+
   def call_rpc(rpc_name, *params)
-    if rpc_name == "DDR GETS ENTRY DATA"
+    if @amhg_save_pov_seen && rpc_name == "DDR GETS ENTRY DATA"
       file = params.first.is_a?(Hash) ? params.first["FILE"] : nil
       raise RpmsRpc::Client::RpcMError, "read-back failed (synthetic)" if file == BH_VISIT
     end

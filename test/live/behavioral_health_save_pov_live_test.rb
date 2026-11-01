@@ -18,14 +18,13 @@ class BehavioralHealthSavePovLiveTest < LiveSpec::Test
   POV_FILE = "9002011.01"
   POV_XREF = "AD"
   POV_FROM = "0"
-  POV_FIELDS = ".01;.02;.04"
-  POV_FLAGS = "IE"
-  POV_MAX = "50"
+  POV_FIELDS = ".01;.02;.03;.04E"
+  POV_FLAGS = "IP"
+  POV_MAX = "25"
   AXIS_IV_FILE = "9002011.06101"
-  AXIS_IV_XREF = "B"
   AXIS_IV_FIELDS = ".01"
-  AXIS_IV_FLAGS = "I"
-  AXIS_IV_MAX = "50"
+  AXIS_IV_FLAGS = "IP"
+  AXIS_IV_MAX = "25"
   MHSS_PROBLEM_FILE = "9002012.2"
   PSYCHOSOCIAL_FILE = "9002012.9"
 
@@ -167,12 +166,13 @@ class BehavioralHealthSavePovLiveTest < LiveSpec::Test
 
     rows = listed[:entries].map do |entry|
       pieces = entry[:pieces]
-      next nil if pieces.length < 3
+      next nil if pieces.length < 4
 
       [
-        pieces[0].to_s,
-        pieces[1].to_s.split(";").first,
-        pieces[2].to_s
+        pieces[0].to_s.split(";").first,
+        pieces[1].to_s,
+        pieces[2].to_s,
+        pieces[3].to_s
       ]
     end.compact
 
@@ -180,22 +180,23 @@ class BehavioralHealthSavePovLiveTest < LiveSpec::Test
                  "expected #{want.length} POV row(s) on visit #{record_ien} after replace-all filing"
 
     want.each do |problem_ien, narrative_ext|
-      match = rows.find { |prob, _pat, narr| prob == problem_ien.to_s && narr == narrative_ext }
+      match = rows.find do |prob, pat, rec, narr|
+        prob == problem_ien.to_s && pat == patient.to_s && rec == record_ien.to_s && narr == narrative_ext
+      end
       refute_nil match, "expected problem #{problem_ien} with the sent narrative on visit #{record_ien}"
-      _prob, pat, = match
-      assert_equal patient.to_s, pat, "POV patient (.02) must match the visit patient"
     end
 
-    extra = rows.reject do |prob, _pat, narr|
-      want.any? { |wprob, wnarr| wprob.to_s == prob && wnarr == narr }
+    extra = rows.reject do |prob, pat, rec, narr|
+      want.any? do |wprob, wnarr|
+        wprob.to_s == prob && pat == patient.to_s && rec == record_ien.to_s && wnarr == narr
+      end
     end
     assert_empty extra, "unexpected POV rows remain after replace-all on visit #{record_ien}"
   end
 
   def assert_axis_iv_via_ddr!(record_ien, want:)
     listed = RpmsRpc::DdrFileman.lister(
-      file: AXIS_IV_FILE, xref: AXIS_IV_XREF, part: record_ien.to_s,
-      from: POV_FROM, screen: pov_lister_screen(record_ien),
+      file: AXIS_IV_FILE, iens: ",#{record_ien},",
       fields: AXIS_IV_FIELDS, flags: AXIS_IV_FLAGS, max: AXIS_IV_MAX
     )
     if listed.nil? || listed[:error]
@@ -208,10 +209,8 @@ class BehavioralHealthSavePovLiveTest < LiveSpec::Test
   end
 
   def assert_visit_axis_fields_via_ddr!(record_ien, axis_v:, gaf:, axis_iii: nil)
-    fields = ".14;1115"
-    fields = "#{fields};5301" if axis_iii && !axis_iii.to_s.empty?
     got = RpmsRpc::DdrFileman.gets_entry(
-      file: BH_VISIT_FILE, iens: "#{record_ien},", fields: fields, flags: "IE"
+      file: BH_VISIT_FILE, iens: "#{record_ien},", fields: ".14;1115", flags: "IE"
     )
     if got.nil? || got[:error]
       flunk "visit axis field read failed for #{record_ien}"
@@ -223,8 +222,16 @@ class BehavioralHealthSavePovLiveTest < LiveSpec::Test
                  "GAF SCALE TYPE (1115) must match the value sent"
     return if axis_iii.nil? || axis_iii.to_s.empty?
 
-    assert_equal axis_iii.to_s, got.dig(:fields, "5301", :external).to_s,
-                 "AXIS III (5301) external text must match the line sent"
+    wp = RpmsRpc::DdrFileman.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{record_ien},", fields: "5301", flags: "E"
+    )
+    if wp.nil? || wp[:error]
+      flunk "AXIS III (5301) read failed for visit #{record_ien}"
+    end
+
+    filed = wp.dig(:fields, "5301", :text)&.join("") || ""
+    assert_equal axis_iii.to_s, filed,
+                 "AXIS III (5301) word-processing text must match the line sent"
   end
 
   def assert_synthetic_patient!(dfn)
