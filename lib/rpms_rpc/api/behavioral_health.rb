@@ -420,7 +420,11 @@ module RpmsRpc
     # to 80 bytes and a non-empty referred to is 2 to 30 bytes
     # (String#bytesize, which is $L when ydb_chset=M). Note and comment
     # may contain LF. A pipe, a caret, CR, and the other C0 controls and
-    # DEL are refused in every value. Nil is refused for every keyword.
+    # DEL are refused in every value. A chief complaint, note, comment or
+    # referred to that contains U+FFFD is refused before any RPC, because
+    # RpmsRpc::Reply and DdrFileman replace invalid read-back bytes with
+    # U+FFFD, so a sent U+FFFD could falsely confirm. Nil is refused for
+    # every keyword.
     #
     # Every value is coerced with to_s. It must be a String whose
     # encoding is UTF-8, US-ASCII, or ASCII-8BIT and whose bytes are
@@ -1307,6 +1311,7 @@ module RpmsRpc
       save_visit_refuse!("#{label} is missing") if value.nil?
 
       text = save_visit_text(value)
+      save_visit_refuse!("a value contains the Unicode replacement character") if text.include?("\uFFFD")
       return text if text.empty? || range.cover?(text.bytesize)
 
       save_visit_refuse!("#{label} must be #{range.min} to #{range.max} bytes")
@@ -1329,6 +1334,7 @@ module RpmsRpc
       save_visit_refuse!("a value is missing") if value.nil?
 
       text = save_visit_utf8(value)
+      save_visit_refuse!("a value contains the Unicode replacement character") if text.include?("\uFFFD")
       if text.match?(UNSAFE_PROGRESS_WP)
         save_visit_refuse!("a value contains a separator or control character")
       end
