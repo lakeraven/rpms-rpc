@@ -347,7 +347,8 @@ module RpmsRpc
     # .01 equals +provider+. The SCREEN is built only from that visit
     # IEN after it has matched a positive integer. A row whose .03 is a
     # different visit is ignored. An error marker, a MORE line, or a
-    # reply with no [Data] section is SaveError, and so is any other
+    # reply with no data section (V0 "[Data]", or V1 "[BEGIN_diDATA]")
+    # is SaveError, and so is any other
     # result that is not that one primary. FNDPRV^AMHGU calls CHNGPP (AMHGU.m:336-349), which
     # rewrites the existing primary's .01 to the new provider. It does
     # not add a second primary. The pre-edit refusal stands for that
@@ -378,11 +379,11 @@ module RpmsRpc
     # the program and appointment letters, the pointer IENs, the
     # patient, and for a group the activity time, "1", the group time
     # and the name. The same DDR LISTER must then show exactly one
-    # primary equal to +provider+. A reply with no [Data] section is a
-    # miss. A miss says the outcome is unknown and that the visit may
-    # have been filed. A post-call DDR read that
-    # raises {RpmsRpc::Error} is that same SaveError, naming the record
-    # IEN, with the error kept as the cause.
+    # primary equal to +provider+. A reply with no data section (V0
+    # "[Data]", or V1 "[BEGIN_diDATA]") is a miss. A miss says the
+    # outcome is unknown and that the visit may have been filed. A
+    # post-call DDR read that raises {RpmsRpc::Error} is that same
+    # SaveError, naming the record IEN, with the error kept as the cause.
     #
     # MODV also stores values this call does not take and does not read
     # back, because the routine sets them itself: .19 is the session
@@ -586,14 +587,16 @@ module RpmsRpc
     # plus exactly those four pieces, or whose problem is not a positive
     # integer, is a miss, not a row to ignore. The SCREEN is built only
     # from the record IEN after it has matched a positive integer. An
-    # error marker, a MORE line, or a reply with no [Data] section is a
-    # miss: absence is not an empty list. DDR LISTER on #9002011.06101
+    # error marker, a MORE line, or a reply with no data section is a
+    # miss: absence is not an empty list. A data section is V0 "[Data]"
+    # or V1 "[BEGIN_diDATA]" through "[END_diDATA]", so an XwbClient
+    # read-back of the sent rows is success. DDR LISTER on #9002011.06101
     # (IENS ",record,", field .01, flags IP, max 25, no xref, part, from
     # or screen) must show exactly the sent axis IV multiset. Each row
     # is a row IEN plus a non-blank positive-integer .01. A row that is
-    # not that shape is a miss, not dropped. A reply with no [Data]
+    # not that shape is a miss, not dropped. A reply with no data
     # section is a miss, including a clear: an empty multiple is a
-    # [Data] section with no rows. DDR GETS ENTRY
+    # data section with no rows. DDR GETS ENTRY
     # DATA then reads .14 and 1115 (flags "IE"). Each internal equals
     # what was sent. A cleared field must be a present row whose
     # internal is blank. A missing row, a nil internal, or a body with
@@ -1276,8 +1279,9 @@ module RpmsRpc
     end
 
     # nil when the list cannot be trusted: no body, an error marker, a
-    # MORE line (the page is not the whole xref), or no [Data] section.
-    # Otherwise the P rows for this visit. A missing [Data] section is
+    # MORE line (the page is not the whole xref), or no data section
+    # (V0 "[Data]", or V1 "[BEGIN_diDATA]").
+    # Otherwise the P rows for this visit. A missing data section is
     # a miss on its own, not merely an empty list of primaries.
     def save_visit_primaries(visit_ien)
       got = save_visit_lister(visit_ien)
@@ -1652,7 +1656,8 @@ module RpmsRpc
       save_pov_ambiguous!(record_ien, cause: e)
     end
 
-    # No [Data] section is a miss, even when nothing parsed as a row.
+    # No data section (V0 "[Data]" or V1 "[BEGIN_diDATA]") is a miss,
+    # even when nothing parsed as a row.
     # A row that does not fit the POV shape is a miss, not dropped.
     # A row that fits and names another record is ignored.
     def save_pov_diagnoses_match?(got, patient, record_ien, diagnoses)
@@ -1693,7 +1698,8 @@ module RpmsRpc
       }
     end
 
-    # No [Data] section is a miss, including a clear. A row whose .01
+    # No data section (V0 "[Data]" or V1 "[BEGIN_diDATA]") is a miss,
+    # including a clear. A row whose .01
     # is not a non-blank positive integer is a miss, not dropped.
     def save_pov_axis_iv_match?(got, axis_iv)
       return false if got.nil? || got[:error] || got[:more] || !got[:data]

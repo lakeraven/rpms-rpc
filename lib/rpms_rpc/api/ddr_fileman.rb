@@ -69,16 +69,24 @@ module RpmsRpc
     #
     # Returns { entries: [{ien:, pieces: [..]}], more: {value:, ien:}|nil,
     # error: bool, data: bool } or nil (no response). :data is true when
-    # the reply contained a "[Data]" section and false when it did not.
-    # With a "[Data]" section, :entries, :more and :error are the same
-    # rows and flags as before. With none, :entries is empty: a bare
-    # broker line is not a row.
-    # Reply grammar is the V0 shape — over the CIA broker XWBAPVER is
-    # unset (ACTR^CIANBACT reads it from the frame's VER field,
-    # CIANBACT.m:67, which RPC frames don't carry): optional "[Misc]" +
-    # "MORE^from^ien", "[Data]" + packed IEN-first rows, "[Errors]"
-    # marker (V0^DDR: DDR.m:21-30,45). NB: the exact packed-row column
-    # set rides LIST^DIC's "P" output; parse row pieces defensively.
+    # the reply opened a data section and false when it did not. A data
+    # section is the V0 marker "[Data]" or the V1 marker "[BEGIN_diDATA]".
+    # With a data section, :entries are the packed IEN-first rows, and
+    # :more and :error are the continuation and error flags. V1 rows are
+    # the lines between "[BEGIN_diDATA]" and "[END_diDATA]";
+    # "[END_diDATA]" is not a row. With no data section, :entries is
+    # empty, and any line that is not a bracket marker and not a "MORE^"
+    # continuation is an error: a bare broker line is not a confirmed
+    # empty list.
+    # Reply grammar is optional "[Misc]" + "MORE^from^ien", then one of
+    # two shapes. V0, over the CIA broker (XWBAPVER is unset —
+    # ACTR^CIANBACT reads it from the frame's VER field, CIANBACT.m:67,
+    # which RPC frames don't carry): "[Data]" + packed rows, "[Errors]"
+    # (V0^DDR: DDR.m:21-30,45). V1, over XwbClient, which sends RPC
+    # version "1" so XWBAPVER>0: "[BEGIN_diDATA]", packed rows,
+    # "[END_diDATA]", and errors as "[BEGIN_diERRORS]" (V1^DDR:
+    # DDR.m:31-41). NB: the exact packed-row column set rides
+    # LIST^DIC's "P" output; parse row pieces defensively.
     def lister(file:, iens: nil, fields: nil, flags: nil, max: nil, from: nil,
                part: nil, xref: nil, screen: nil, id: nil, options: nil)
       param = lister_param(file: file, iens: iens, fields: fields, flags: flags, max: max,
@@ -87,24 +95,7 @@ module RpmsRpc
       reply = lines(call(:ddr_lister, param))
       return nil if reply.nil?
 
-      entries = []
-      more = nil
-      reply.each do |line|
-        next if line.start_with?("[") # section markers
-        if line.start_with?("MORE^")
-          pieces = line.split("^", -1)
-          more = { value: pieces[1], ien: pieces[2] }
-        else
-          pieces = line.split("^", -1)
-          entries << { ien: pieces[0], pieces: pieces[1..] }
-        end
-      end
-      error = reply.any? { |l| l == "[Errors]" || l == "[BEGIN_diERRORS]" }
-      data = reply.include?("[Data]")
-      # A reply that never opened [Data] did not list rows. Keep the
-      # parsed entries when it did, so other callers see the same rows.
-      entries = [] unless data
-      { entries: entries, more: more, error: error, data: data }
+      parse_lister_reply(reply)
     end
 
     def lister_param(file:, iens: nil, fields: nil, flags: nil, max: nil, from: nil,
@@ -252,6 +243,45 @@ module RpmsRpc
 
     def call(mapping_name, *params)
       RpmsRpc.client.call_rpc(DataMapper[mapping_name].rpc_name, *params)
+    end
+
+    # V0 rows are every non-marker, non-MORE line. V1 rows are only the
+    # lines inside "[BEGIN_diDATA]" ... "[END_diDATA]". An error marker
+    # closes a V1 data section so its text is not a row. No data section
+    # yields no entries, and a stray line there is an error.
+    def parse_lister_reply(reply)
+      v1 = reply.include?("[BEGIN_diDATA]")
+      data = v1 || reply.include?("[Data]")
+      entries = []
+      more = nil
+      in_rows = !v1
+      reply.each do |line|
+        in_rows = true if line == "[BEGIN_diDATA]"
+        in_rows = false if v1 && lister_v1_data_closed?(line)
+        next if line.start_with?("[") # section markers, including [END_diDATA]
+        if line.start_with?("MORE^")
+          pieces = line.split("^", -1)
+          more = { value: pieces[1], ien: pieces[2] }
+          next
+        end
+        next unless in_rows
+
+        pieces = line.split("^", -1)
+        entries << { ien: pieces[0], pieces: pieces[1..] }
+      end
+      error = reply.include?("[Errors]") || reply.include?("[BEGIN_diERRORS]")
+      unless data
+        entries = []
+        error = true if reply.any? { |line| !line.start_with?("[") && !line.start_with?("MORE^") }
+      end
+      { entries: entries, more: more, error: error, data: data }
+    end
+
+    # "[END_diDATA]" ends the V1 row list. An error marker does too, so
+    # the text under it is not parsed as another row.
+    def lister_v1_data_closed?(line)
+      line == "[END_diDATA]" || line == "[BEGIN_diERRORS]" ||
+        line == "[Errors]" || line == "[END_diERRORS]"
     end
 
     # Normalize a broker reply to an array of lines: MockClient returns an
