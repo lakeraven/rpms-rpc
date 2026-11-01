@@ -110,6 +110,12 @@ class BehavioralHealthSavePovLiveTest < LiveSpec::Test
       want: [ [ problem_iens[2], NARR_REPLACE ] ]
     )
     assert_axis_iv_via_ddr!(record_ien, want: [ axis_iv_iens[2] ])
+    assert_visit_axis_fields_via_ddr!(
+      record_ien,
+      axis_v: AXIS_V_REPLACE,
+      gaf: "",
+      axis_iii: AXIS_III
+    )
 
     puts "\n#{persona}: BH visit #{record_ien} POV replace-all verified on DFN #{DFN}"
   end

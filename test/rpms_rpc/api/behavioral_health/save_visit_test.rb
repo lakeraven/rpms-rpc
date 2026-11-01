@@ -977,6 +977,23 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = @mock }
   end
 
+  def test_amhg_frame_too_long_becomes_save_error_nothing_sent_not_outcome_unknown
+    seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
+    wrapper = FrameTooLongOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    refute_match(/outcome unknown|may have been filed/i, err.message)
+    assert_match(/nothing was sent|could not be framed|not sent/i, err.message)
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_refuses_c1_control_characters_in_group_name_without_rpc
+    c1 = "\u0085"
+    assert_input_validation_refusal(/group|control|separator/i, **FULL_KWARGS.merge(group_name: "SYN#{c1}TH"))
+  end
+
   def test_amhg_rpc_m_error_becomes_save_error_with_ambiguous_outcome
     seed_pre_amhg_reads(**FULL_KWARGS)
     wrapper = RpcMErrorOnAmhg.new(@mock)
@@ -1364,6 +1381,13 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     err
   end
 
+  def assert_input_validation_refusal(message_pattern = nil, **kwargs)
+    err = assert_raises(BH::SaveError) { BH.save_visit(**kwargs) }
+    assert_empty @mock.received_calls, "input validation must refuse before any RPC"
+    assert_match(message_pattern, err.message) if message_pattern
+    err
+  end
+
   def assert_post_call_ambiguity(err, record_ien: nil)
     assert_match(/may have been filed|outcome unknown/i, err.message)
     refute_includes err.message, PATIENT
@@ -1379,6 +1403,14 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_includes err.message, record_ien
     refute_includes err.message, PATIENT
     refute_includes err.message, PROGRAM
+  end
+end
+
+class FrameTooLongOnAmhg < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *_params)
+    raise RpmsRpc::Client::FrameTooLongError, "AMHG SAVE VISIT wire too long (synthetic)" if rpc_name == "AMHG SAVE VISIT"
+
+    super
   end
 end
 
