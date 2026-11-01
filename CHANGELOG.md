@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — License is now Apache-2.0
+
+- New releases are licensed under the Apache License, Version 2.0 (`LICENSE`, `NOTICE`). Earlier releases stay available under the MIT License, whose notice is kept in `NOTICE`.
+
 ### Fixed — `BehavioralHealth.visits` splits the GLOBAL ARRAY frame (#536)
 
 - `visits` strips the CIA sequence echo and splits `$C(30)` records before parsing. The unsplit frame was returned as a visit whose IEN was `<seq>\x00T00010BMXIEN`, a value that changed on every call.
