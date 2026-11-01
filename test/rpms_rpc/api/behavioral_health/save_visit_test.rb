@@ -230,6 +230,36 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_equal 0, @mock.context_binds.count("CIAV VUECENTRIC")
   end
 
+  # A timeout leaves the session on AMHGRPC when nothing was declared.
+  # The re-bind still runs, and the SaveError the caller sees stays the
+  # timeout, not a later bind failure.
+  def test_nil_context_with_amhg_timeout_still_rebinds_ddr_context_after_save_error
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = TimeoutOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_visit(**FULL_KWARGS) } }
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+    assert_kind_of RpmsRpc::Client::RpcTimeoutError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_timeout_keeps_the_timeout_when_the_ddr_rebind_fails
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+    wrapper = TimeoutOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_visit(**FULL_KWARGS) } }
+    assert_kind_of RpmsRpc::Client::RpcTimeoutError, err.cause
+    assert_equal "AMHGRPC", @mock.current_context
+    refute_includes @mock.context_binds, "CIAV VUECENTRIC"
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
   def test_add_with_a_nil_context_and_an_unbindable_ddr_context_names_the_record_from_the_reply
     seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
     @mock.instance_variable_set(:@current_context, nil)

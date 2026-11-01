@@ -742,18 +742,23 @@ class BehavioralHealthTest < Minitest::Test
     mock.seed(:ddr_lister, lister_key, "[Data]\n1^412^100^8801^P")
   end
 
-  # save_pcc_visit with no visit_ien: one AMHG actual "8801|", then the
-  # post-call read-back of #9002011 .08;.16 and #9000010 .05.
+  # save_pcc_visit with no visit_ien: pre-read #9002011 .08;.16 (flags I,
+  # .16 blank), one AMHG actual "8801|", then the post-call read-back of
+  # #9002011 .08;.16 and #9000010 .05;.11 (flags IE).
   def seed_context_save_pcc_visit(mock)
     mock.seed_text(:amhg_create_edit_visit, "8801|", "T00030Result#{RS}44101#{RS}#{US}")
+    pre_key = RpmsRpc::DdrFileman.gets_entry_param(
+      file: "9002011", iens: "8801,", fields: ".08;.16", flags: "I"
+    ).to_s
+    mock.seed(:ddr_gets_entry_data, pre_key, "[Data]\n9002011^8801^.08^100^PATIENT\n9002011^8801^.16^^VISIT")
     bh_key = RpmsRpc::DdrFileman.gets_entry_param(
       file: "9002011", iens: "8801,", fields: ".08;.16", flags: "IE"
     ).to_s
     mock.seed(:ddr_gets_entry_data, bh_key, "[Data]\n9002011^8801^.08^100^PATIENT\n9002011^8801^.16^44101^VISIT")
     v_key = RpmsRpc::DdrFileman.gets_entry_param(
-      file: "9000010", iens: "44101,", fields: ".05", flags: "IE"
+      file: "9000010", iens: "44101,", fields: ".05;.11", flags: "IE"
     ).to_s
-    mock.seed(:ddr_gets_entry_data, v_key, "[Data]\n9000010^44101^.05^100^PATIENT")
+    mock.seed(:ddr_gets_entry_data, v_key, "[Data]\n9000010^44101^.05^100^PATIENT\n9000010^44101^.11^^DELETE")
   end
 
   def test_every_amhg_call_runs_under_amhgrpc_and_restores_the_callers_context
