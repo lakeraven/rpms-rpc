@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - New releases are licensed under the Apache License, Version 2.0 (`LICENSE`, `NOTICE`). Earlier releases stay available under the MIT License, whose notice is kept in `NOTICE`.
 
+### Added — `BehavioralHealth.save_progress_note` files a BH progress note through AMHG SAVE PROGRESS NOTES (#539)
+
+- `RpmsRpc::BehavioralHealth.save_progress_note` wraps stock `AMHG SAVE PROGRESS NOTES` (`PN^AMHGSVF`) on an existing BH VISIT. It files chief complaint (2101), the SOAP/progress note (3101), comment/next appointment (8101), placement disposition (.17) and referred to (.18). Every keyword is required. Mode is always `E`, because `PN` has no add path. The DFN piece is unused by stock M, so a DDR read before the call refuses a visit that belongs to another patient, is signed (1112), or was created in the EHR (1110, whose note lives in TIU). A multi-line note is sent with LF line breaks. `ARRAYT^AMHGU` keeps each LF at the end of its stored line and wraps after a space past 65 characters. CR, pipes, carets and other controls are refused. `""` clears chief complaint, placement and referred to. An empty note is refused. An empty comment leaves the stored comment unchanged. After the reply, DDR reads the scalars back, and the note and comment are read back through `AMHG GET VISIT SOAP` / `COMM APP` raw rows; any miss or read error is `SaveError` saying the record may have been filed. Registered as a non-idempotent write.
+
 ### Fixed — `BehavioralHealth.visits` splits the GLOBAL ARRAY frame (#536)
 
 - `visits` strips the CIA sequence echo and splits `$C(30)` records before parsing. The unsplit frame was returned as a visit whose IEN was `<seq>\x00T00010BMXIEN`, a value that changed on every call.
