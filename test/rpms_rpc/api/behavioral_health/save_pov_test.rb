@@ -476,12 +476,17 @@ class BehavioralHealthSavePovTest < Minitest::Test
   def test_refuses_when_axis_iv_pointer_read_errors_or_is_empty_or_blank_dot01_without_amhg_rpc
     seed_pre_edit_patient(RECORD_IEN, PATIENT)
     seed_pointer_exists(MHSS_PROBLEM_FILE, PROB_ONE)
+    seed_pointer_exists(MHSS_PROBLEM_FILE, PROB_TWO)
+    kwargs = FULL_KWARGS.merge(axis_iv: [ AX4_ONE ])
     seed_pointer_exists(PSYCHOSOCIAL_FILE, AX4_ONE, error: true)
-    assert_pre_call_refusal(**FULL_KWARGS.merge(axis_iv: [ AX4_ONE ]))
+    err = assert_pre_call_refusal(**kwargs)
+    assert_match(/axis iv/i, err.message)
     seed_pointer_exists(PSYCHOSOCIAL_FILE, AX4_ONE, empty: true)
-    assert_pre_call_refusal(**FULL_KWARGS.merge(axis_iv: [ AX4_ONE ]))
+    err = assert_pre_call_refusal(**kwargs)
+    assert_match(/axis iv/i, err.message)
     seed_pointer_exists(PSYCHOSOCIAL_FILE, AX4_ONE, blank_dot01: true)
-    assert_pre_call_refusal(**FULL_KWARGS.merge(axis_iv: [ AX4_ONE ]))
+    err = assert_pre_call_refusal(**kwargs)
+    assert_match(/axis iv/i, err.message)
   end
 
   def test_refuses_when_record_pre_read_is_nil_empty_or_missing_1112_without_amhg_rpc
@@ -750,6 +755,35 @@ class BehavioralHealthSavePovTest < Minitest::Test
 
   def test_amhg_frame_too_long_becomes_save_error_nothing_sent_not_outcome_unknown
     seed_pre_edit_and_pointers(**ONE_KWARGS)
+    wrapper = FrameTooLongOnAmhgSavePov.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_pov(**ONE_KWARGS) }
+    refute_match(/outcome unknown/i, err.message)
+    assert_match(/nothing was sent|could not be framed|not sent/i, err.message)
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_amhg_frame_too_long_raises_nothing_sent_and_rebinds_ddr_context
+    seed_pre_edit_and_pointers(**ONE_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = FrameTooLongOnAmhgSavePov.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_pov(**ONE_KWARGS) }
+    refute_match(/outcome unknown/i, err.message)
+    assert_match(/nothing was sent|could not be framed|not sent/i, err.message)
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_amhg_frame_too_long_restore_failure_does_not_replace_nothing_sent_error
+    seed_pre_edit_and_pointers(**ONE_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
     wrapper = FrameTooLongOnAmhgSavePov.new(@mock)
     RpmsRpc.configure { |c| c.client = wrapper }
     err = assert_raises(BH::SaveError) { BH.save_pov(**ONE_KWARGS) }
