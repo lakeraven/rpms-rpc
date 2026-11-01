@@ -52,6 +52,33 @@ class ChangelogFragmentsTest < Minitest::Test
     assert_empty Fragments.load(@dir)
   end
 
+  def test_leading_zero_duplicate_of_same_id_and_type_is_refused
+    frag("12.fixed.md", "One\n")
+    frag("012.fixed.md", "Two\n")
+    error = assert_raises(Fragments::Error) { Fragments.load(@dir) }
+    assert_includes error.message, "012.fixed.md"
+    assert_includes error.message, "12.fixed.md"
+  end
+
+  def test_hidden_fragment_is_refused_not_silently_skipped
+    frag(".5.fixed.md", "Hidden\n")
+    error = assert_raises(Fragments::Error) { Fragments.load(@dir) }
+    assert_includes error.message, ".5.fixed.md"
+  end
+
+  def test_subdirectory_is_refused_not_silently_skipped
+    FileUtils.mkdir_p(File.join(@dir, "nested"))
+    File.write(File.join(@dir, "nested", "12.fixed.md"), "Nested\n")
+    error = assert_raises(Fragments::Error) { Fragments.load(@dir) }
+    assert_includes error.message, "nested"
+  end
+
+  def test_ds_store_and_gitkeep_are_ignored
+    frag(".DS_Store", "x")
+    frag(".gitkeep", "")
+    assert_empty Fragments.load(@dir)
+  end
+
   def test_bad_filename_names_the_file
     frag("notes.md", "Heading\n")
     error = assert_raises(Fragments::Error) { Fragments.load(@dir) }
