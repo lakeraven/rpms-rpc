@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "delegate"
 require "json"
+require "timeout"
 require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/ddr_fileman"
@@ -471,7 +472,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
     wire = screening_wire(screenings)
     seed_screening_success(wire, screenings)
-    wrapper = UnlockRaiseClient.new(@mock, NoMethodError, "unlock blew up (synthetic)")
+    wrapper = UnlockRaiseClient.new(visit_gets_client, NoMethodError, "unlock blew up (synthetic)")
     RpmsRpc.configure { |c| c.client = wrapper }
 
     result = wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
@@ -580,12 +581,92 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
     wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: outer_measurements)
 
-    if wrapper.inner_error
-      refute_match(/in progress/i, wrapper.inner_error.message,
-                   "a different record must not hit the in-progress guard")
-    end
+    assert_nil wrapper.inner_error, "inner save for a different record must succeed"
+    assert_equal 1, @mock.received_calls.count { |c| c[:rpc] == RPC_MEASUREMENTS && c[:params]&.first.to_s.include?(other) },
+                 "inner save must send its write RPC"
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_measurements_refuses_reentrant_save_for_same_record_via_second_wrapper_on_same_client
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    seed_measurements_success(wire, measurements)
+    base = visit_gets_client
+    wrapper_b = SimpleDelegator.new(base)
+    wrapper_a = DualWrapperReentrantMeasurementsClient.new(
+      base, wrapper_b, wellness, record_ien: RECORD_IEN, patient: PATIENT
+    ) do |w|
+      w.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+    RpmsRpc.configure { |c| c.client = wrapper_a }
+
+    wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+
+    refute_nil wrapper_a.inner_error
+    assert_instance_of save_error_class, wrapper_a.inner_error
+    assert_match(/in progress/i, wrapper_a.inner_error.message)
+    assert_equal wrapper_a.rpc_count_before_reentry, wrapper_a.rpc_count_after_reentry,
+                 "reentrant inner save must not send any RPC"
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_measurements_uses_client_captured_at_start_when_configuration_changes_mid_save
+    other = RpmsRpc::MockClient.new
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    seed_measurements_success(wire, measurements)
+    swapper = SwapClientOnLockAcquireClient.new(visit_gets_client, other, RECORD_IEN)
+    RpmsRpc.configure { |c| c.client = swapper }
+
+    wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+
+    assert swapper.swapped?, "mid-save client swap must have run"
+    assert_empty other.received_calls, "RPCs must not reach the client installed mid-save"
+    assert_equal 1, measurements_calls.length
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_measurements_raises_save_error_not_argument_error_when_lock_raises_after_rpc_sent
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    seed_pre_edit_visit_gets(RECORD_IEN, PATIENT, BASELINE_INTERNAL)
+    seed_visit_lock(RECORD_IEN)
+    seed_provider_exists(PROVIDER)
+    reseed = VisitGetsReseedClient.new(@mock, visit_ddr_key(RECORD_IEN), [])
+    wrapper = LockArgumentErrorAfterSendClient.new(reseed, RECORD_IEN)
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+    refute_instance_of ArgumentError, err.class
+    assert_match(/lock/i, err.message)
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_measurements_raises_save_error_on_timeout_error_during_amhg_write
+    assert_non_gem_standard_error_during_save_raises_save_error(
+      AfterWriteRpcErrorClient.new(visit_gets_client, RPC_MEASUREMENTS, ::Timeout::Error,
+                                   "AMHG write hung (synthetic)", require_write_first: false)
+    )
+  end
+
+  def test_save_measurements_raises_save_error_on_timeout_error_during_post_write_visit_read
+    assert_non_gem_standard_error_during_save_raises_save_error(
+      PostWriteVisitReadErrorClient.new(visit_gets_client, ::Timeout::Error, "post-write visit read (synthetic)")
+    )
+  end
+
+  def test_save_measurements_raises_save_error_on_timeout_error_during_msr_read_back
+    assert_non_gem_standard_error_during_save_raises_save_error(
+      AfterWriteRpcErrorClient.new(visit_gets_client, RPC_MSR_READ, ::Timeout::Error,
+                                   "MSR read-back hung (synthetic)", require_write_first: true)
+    )
   end
 
   def test_save_screening_second_call_for_same_record_after_first_succeeds
@@ -1215,6 +1296,25 @@ class BehavioralHealthWellnessTest < Minitest::Test
       seed_msr_read(record_ien, msr_rows || [])
     end
   end
+
+  def assert_non_gem_standard_error_during_save_raises_save_error(wrapper)
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    seed_measurements_success(wire, measurements)
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+    assert_match(/may have been filed/i, err.message)
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+    if wrapper.respond_to?(:synthetic_error)
+      refute_nil wrapper.synthetic_error,
+                 "the synthetic broker failure must run, not a vacuous read-back mismatch"
+    end
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
 end
 
 class VisitGetsReseedClient < SimpleDelegator
@@ -1336,5 +1436,150 @@ class ReentrantWellnessSaveClient < SimpleDelegator
 
   def measurements_rpc_count
     received_calls.count { |c| c[:rpc] == "AMHG SAVE MEASUREMENTS" }
+  end
+end
+
+class DualWrapperReentrantMeasurementsClient < SimpleDelegator
+  attr_reader :inner_error, :rpc_count_before_reentry, :rpc_count_after_reentry
+
+  def initialize(base, inner_wrapper, wellness_mod, record_ien:, patient:, &inner_call)
+    super(base)
+    @inner_wrapper = inner_wrapper
+    @wellness = wellness_mod
+    @record_ien = record_ien
+    @patient = patient
+    @inner_call = inner_call
+    @reentered = false
+    @inner_error = nil
+    @rpc_count_before_reentry = 0
+    @rpc_count_after_reentry = 0
+  end
+
+  def call_rpc_global_array(rpc_name, *params)
+    run_inner_once if !@reentered && rpc_name == "AMHG SAVE MEASUREMENTS"
+    super
+  end
+
+  def run_inner_once
+    @reentered = true
+    @rpc_count_before_reentry = received_calls.length
+    begin
+      RpmsRpc.with_client(@inner_wrapper) { @inner_call.call(@wellness) }
+    rescue StandardError => e
+      @inner_error = e
+    end
+    @rpc_count_after_reentry = received_calls.length
+  end
+end
+
+class SwapClientOnLockAcquireClient < SimpleDelegator
+  attr_reader :swapped
+
+  def initialize(delegate, replacement_client, record_ien)
+    super(delegate)
+    @replacement_client = replacement_client
+    @node = "^AMHREC(#{record_ien})"
+    @swapped = false
+  end
+
+  def call_rpc(rpc_name, *params)
+    param = params.first
+    result = super
+    if !@swapped && rpc_name == "DDR LOCK/UNLOCK NODE" && lock_acquire?(param)
+      @swapped = true
+      RpmsRpc.configure { |c| c.client = @replacement_client }
+    end
+    result
+  end
+
+  def lock_acquire?(param)
+    param.is_a?(Hash) && param["NODE"] == @node && param["LOCKMODE"] == "1"
+  end
+end
+
+class LockArgumentErrorAfterSendClient < SimpleDelegator
+  def initialize(delegate, record_ien)
+    super(delegate)
+    @node = "^AMHREC(#{record_ien})"
+  end
+
+  def call_rpc(rpc_name, *params)
+    param = params.first
+    if rpc_name == "DDR LOCK/UNLOCK NODE" && lock_acquire?(param)
+      super
+      raise ArgumentError, "lock reply could not be parsed (synthetic)"
+    end
+
+    super
+  end
+
+  def lock_acquire?(param)
+    param.is_a?(Hash) && param["NODE"] == @node && param["LOCKMODE"] == "1"
+  end
+end
+
+class AfterWriteRpcErrorClient < SimpleDelegator
+  MEASUREMENTS_RPC = "AMHG SAVE MEASUREMENTS"
+
+  attr_reader :synthetic_error
+
+  def initialize(delegate, rpc_name, error_class, message, require_write_first:)
+    super(delegate)
+    @rpc_name = rpc_name
+    @error_class = error_class
+    @message = message
+    @require_write_first = require_write_first
+    @write_sent = false
+    @synthetic_error = nil
+  end
+
+  def call_rpc_global_array(rpc_name, *params)
+    if rpc_name == MEASUREMENTS_RPC
+      result = super
+      @write_sent = true
+      if @rpc_name == MEASUREMENTS_RPC
+        @synthetic_error = @error_class.new(@message)
+        raise @synthetic_error
+      end
+      return result
+    end
+
+    if rpc_name == @rpc_name && (!@require_write_first || @write_sent)
+      result = super
+      @synthetic_error = @error_class.new(@message)
+      raise @synthetic_error
+    end
+
+    super
+  end
+end
+
+class PostWriteVisitReadErrorClient < SimpleDelegator
+  DDR_GETS = "DDR GETS ENTRY DATA"
+  MEASUREMENTS_RPC = "AMHG SAVE MEASUREMENTS"
+
+  attr_reader :synthetic_error
+
+  def initialize(delegate, error_class, message)
+    super(delegate)
+    @error_class = error_class
+    @message = message
+    @write_sent = false
+    @synthetic_error = nil
+  end
+
+  def call_rpc_global_array(rpc_name, *params)
+    result = super
+    @write_sent = true if rpc_name == MEASUREMENTS_RPC
+    result
+  end
+
+  def call_rpc(rpc_name, *params)
+    if @write_sent && rpc_name == DDR_GETS
+      @synthetic_error = @error_class.new(@message)
+      raise @synthetic_error
+    end
+
+    super
   end
 end
