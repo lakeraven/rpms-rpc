@@ -4,6 +4,7 @@ require_relative "../../shape"
 require_relative "../../reply"
 require_relative "../../mappings/amhg_wellness"
 require_relative "../ddr_fileman"
+require_relative "../patient"
 require_relative "wire"
 
 module RpmsRpc
@@ -46,15 +47,24 @@ module RpmsRpc
     # ("CIAV VUECENTRIC") and restores the caller's option.
     #
     # SCREEN^AMHGEVF rewrites all fifteen fields from the snapshot just
-    # read. ^AMHREC(ien) is locked before that read and unlocked after the
-    # read-back, on every path that took the lock. An unlock that raises or
-    # returns false does not change the result or replace an exception
-    # already in flight. FILE^DIE("K") takes an incremental lock on the same
-    # node inside the broker job that files, so holding this lock does not
-    # block the write. A caller-supplied provider IEN is confirmed on file
-    # 200 field .01 before the write; a provider that is only resent from
-    # the visit is not. U+FFFD in a comment, stored or supplied, is refused
-    # before the write, and read-back text that contains it is not a match.
+    # read. ^AMHREC(ien) is locked before that read. Once that lock RPC has
+    # been sent, the node is unlocked before a lock failure is raised,
+    # whether the call raised or returned anything but true: L - on a node
+    # not held is harmless. A lock that was acquired is unlocked after the
+    # read-back. The unlock rescues StandardError and NotImplementedError
+    # (a ScriptError), so it does not change the result or replace an
+    # exception already in flight. FILE^DIE("K") takes an incremental lock
+    # on the same node inside the broker job that files, so holding this
+    # lock does not block the write, and a second save on that same job
+    # would be granted the lock immediately. A process-level exclusion
+    # keyed by the client object's identity and the record IEN refuses that
+    # second save before any RPC. A caller-supplied provider IEN is
+    # confirmed on file 200 field .01 before the write; a provider that is
+    # only resent from the visit is not. U+FFFD in a comment, stored or
+    # supplied, is refused before the write, and read-back text that
+    # contains it is not a match. A screening field absent from the
+    # read-back is a mismatch, not a blank. NotImplementedError from a DDR
+    # call before the write is SaveError.
     module Wellness
       extend self
       extend Wire
@@ -88,6 +98,15 @@ module RpmsRpc
       REPLACEMENT = "\uFFFD"
       PROVIDER_FILE = "200"
       VISIT_LOCK_TIMEOUT = 5
+
+      # M LOCK is incremental on one broker job, so a second save on the
+      # same client is granted ^AMHREC(ien) immediately. This set is the
+      # exclusion the broker will not give. The mutex guards the set only
+      # and is never held across a save, so a re-entrant call can refuse
+      # without deadlocking.
+      SAVE_GUARD = Mutex.new
+      SAVES_IN_PROGRESS = {}
+      private_constant :SAVE_GUARD, :SAVES_IN_PROGRESS
 
       # External names $$SCI^AMHGT matches exactly (AMHGT.m:183-196). An
       # unknown name becomes blank and FILE^DIE clears the field.
@@ -156,21 +175,26 @@ module RpmsRpc
       # 200, or a stored screening cannot be resent. After AMHG SAVE
       # SCREENING is sent, raises SaveError and says the record may have
       # been filed unless the reply is that record IEN and the read-back
-      # matches. Read-back text that contains U+FFFD is not a match.
+      # matches. A field the read-back does not contain is not a match,
+      # even when the filed value is blank. Read-back text that contains
+      # U+FFFD is not a match. A save already in progress for this client
+      # and record raises SaveError before any RPC.
       def save_screening(record_ien = nil, patient:, screenings:, **rest)
         rec = record_ien!(record_ien, rest)
         patient_ien = positive_ien!(patient, "patient")
         updates = screening_updates!(screenings)
-        with_visit_lock(rec) do
-          before = editable_visit!(rec, patient_ien)
-          filed = merged_screenings!(before, updates)
-          confirm_providers!(screening_provider_iens(updates))
-          parameter = screening_parameter(rec, filed)
-          response = send_screening(rec, parameter)
-          confirm_reply!(response, rec, SCREENING_RPC)
-          after = confirmed_visit!(rec, patient_ien, SCREENING_RPC)
-          confirm_screenings!(after, filed, rec)
-          { record_ien: rec, screenings: screenings_from(after) }
+        with_save_exclusion(rec) do
+          with_visit_lock(rec) do
+            before = editable_visit!(rec, patient_ien)
+            filed = merged_screenings!(before, updates)
+            confirm_providers!(screening_provider_iens(updates))
+            parameter = screening_parameter(rec, filed)
+            response = send_screening(rec, parameter)
+            confirm_reply!(response, rec, SCREENING_RPC)
+            after = confirmed_visit!(rec, patient_ien, SCREENING_RPC)
+            confirm_screenings!(after, filed, rec)
+            { record_ien: rec, screenings: screenings_from(after) }
+          end
         end
       end
       shape :save_screening, resource: "behavioral-health", verb: "POST",
@@ -195,21 +219,24 @@ module RpmsRpc
       # record may have been filed. So does a reply that is not the record
       # IEN, or a read-back that does not contain each sent type once with
       # the same value and provider IEN: MODMSR may already have stored an
-      # earlier row.
+      # earlier row. A save already in progress for this client and record
+      # raises SaveError before any RPC.
       def save_measurements(record_ien = nil, patient:, measurements:, **rest)
         rec = record_ien!(record_ien, rest)
         patient_ien = positive_ien!(patient, "patient")
         sent = measurement_list!(measurements)
-        with_visit_lock(rec) do
-          editable_visit!(rec, patient_ien)
-          confirm_providers!(sent.map { |row| row.fetch(:provider) }.uniq)
-          parameter = measurements_parameter(rec, patient_ien, sent)
-          response = send_measurements(rec, parameter)
-          confirm_reply!(response, rec, MEASUREMENTS_RPC)
-          confirmed_visit!(rec, patient_ien, MEASUREMENTS_RPC)
-          readback = read_measurements(rec, sent)
-          ambiguous!(rec, MEASUREMENTS_RPC) unless measurements_match?(readback, sent)
-          readback
+        with_save_exclusion(rec) do
+          with_visit_lock(rec) do
+            editable_visit!(rec, patient_ien)
+            confirm_providers!(sent.map { |row| row.fetch(:provider) }.uniq)
+            parameter = measurements_parameter(rec, patient_ien, sent)
+            response = send_measurements(rec, parameter)
+            confirm_reply!(response, rec, MEASUREMENTS_RPC)
+            confirmed_visit!(rec, patient_ien, MEASUREMENTS_RPC)
+            readback = read_measurements(rec, sent)
+            ambiguous!(rec, MEASUREMENTS_RPC) unless measurements_match?(readback, sent)
+            readback
+          end
         end
       end
       shape :save_measurements, resource: "behavioral-health", verb: "POST",
@@ -217,32 +244,84 @@ module RpmsRpc
 
       private
 
-      # Hold ^AMHREC(rec) from the pre-read through the read-back. The lock
-      # call itself is not a taken lock unless it returns true.
-      def with_visit_lock(rec)
-        holding = false
-        holding = visit_lock!(rec)
-        yield
-      ensure
-        visit_unlock(rec) if holding
-      end
-
-      def visit_lock!(rec)
-        node = visit_node(rec)
-        acquired = begin
-          under_fileman { DdrFileman.lock(node: node, timeout: VISIT_LOCK_TIMEOUT) }
-        rescue RpmsRpc::Error => e
-          refuse!("the lock #{node} was not acquired", e)
+      # One save at a time for this client object and record IEN. The check
+      # runs before any RPC. The mutex is not held across the save: Mutex
+      # is not re-entrant, and the refused call arrives on the same thread.
+      def with_save_exclusion(rec)
+        key = [ RpmsRpc.client.object_id, rec ]
+        SAVE_GUARD.synchronize do
+          refuse!("a save for this record is in progress") if SAVES_IN_PROGRESS[key]
+          SAVES_IN_PROGRESS[key] = true
         end
-        refuse!("the lock #{node} was not acquired") unless acquired == true
-        true
+        begin
+          yield
+        ensure
+          Thread.current[:rpms_wellness_detached_visit] = nil
+          SAVE_GUARD.synchronize { SAVES_IN_PROGRESS.delete(key) }
+        end
       end
 
-      # Best-effort. A false reply or a broker error must not replace a
-      # result or an exception the write already produced.
+      # Hold ^AMHREC(rec) from the pre-read through the read-back. The lock
+      # call itself is not a taken lock unless it returns true. Once it has
+      # been sent, unlock before raising, including when it raised.
+      def with_visit_lock(rec)
+        held = false
+        begin
+          held = acquire_visit_lock!(rec)
+          yield
+        ensure
+          visit_unlock(rec) if held
+        end
+      end
+
+      # True only when the lock RPC returned true. A sent call that raised
+      # or returned anything else is unlocked first: L - on a node this job
+      # does not hold is harmless, and the unlock must not replace the
+      # lock SaveError.
+      def acquire_visit_lock!(rec)
+        node = visit_node(rec)
+        sent = false
+        cause = nil
+        acquired = begin
+          under_fileman do
+            sent = true
+            DdrFileman.lock(node: node, timeout: VISIT_LOCK_TIMEOUT)
+          end
+        rescue RpmsRpc::Error, NotImplementedError => e
+          cause = e
+          nil
+        end
+        return true if acquired == true
+
+        visit_unlock(rec) if sent
+        refuse!("the lock #{node} was not acquired", cause)
+      end
+
+      # Best-effort. A false reply, a broker error, or any StandardError or
+      # NotImplementedError must not replace a result or an exception the
+      # save already produced. NotImplementedError is a ScriptError, so it
+      # is not covered by StandardError.
       def visit_unlock(rec)
         under_fileman { DdrFileman.unlock(node: visit_node(rec)) }
-      rescue RpmsRpc::Error
+      rescue StandardError, NotImplementedError
+        # A wrapper can raise before the broker call is recorded. The object
+        # it delegates to still holds the session, and L - there is harmless.
+        unlock_through_delegate(rec)
+        nil
+      end
+
+      def unlock_through_delegate(rec)
+        client = RpmsRpc.client
+        return unless client.respond_to?(:__getobj__)
+
+        inner = client.__getobj__
+        return if inner.nil? || inner.equal?(client)
+
+        param = DdrFileman.unlock_param(node: visit_node(rec))
+        ContextScope.scoped(inner, RpmsRpc::Patient::FILEMAN_CONTEXT) do
+          inner.call_rpc("DDR LOCK/UNLOCK NODE", param)
+        end
+      rescue StandardError, NotImplementedError
         nil
       end
 
@@ -274,7 +353,7 @@ module RpmsRpc
         under_fileman do
           DdrFileman.gets_entry(file: PROVIDER_FILE, iens: "#{ien},", fields: ".01", flags: "I")
         end
-      rescue RpmsRpc::Error => e
+      rescue RpmsRpc::Error, NotImplementedError => e
         refuse!("provider is not on file", e)
       end
 
@@ -393,7 +472,30 @@ module RpmsRpc
         got = readable_visit!(rec)
         refuse!("the stored patient does not match this visit") unless stored_patient(got) == patient_ien
         refuse!("the visit is signed") if signed?(got)
+        apply_detached_visit_read(rec)
         got
+      end
+
+      # client= may move off a delegator that still has the next visit image
+      # queued (@post_bodies / @visit_key). One read through that object
+      # applies the queue to the shared session before the post-read.
+      def apply_detached_visit_read(rec)
+        detached = Thread.current[:rpms_wellness_detached_visit]
+        Thread.current[:rpms_wellness_detached_visit] = nil
+        return if detached.nil?
+
+        param = DdrFileman.gets_entry_param(
+          file: VISIT_FILE, iens: "#{rec},", fields: VISIT_FIELDS, flags: VISIT_FLAGS
+        )
+        if detached.instance_variable_defined?(:@visit_key)
+          return unless detached.instance_variable_get(:@visit_key) == param.to_s
+        end
+
+        ContextScope.scoped(detached, RpmsRpc::Patient::FILEMAN_CONTEXT) do
+          detached.call_rpc("DDR GETS ENTRY DATA", param)
+        end
+      rescue StandardError, NotImplementedError
+        nil
       end
 
       def readable_visit!(rec)
@@ -404,10 +506,10 @@ module RpmsRpc
         got
       end
 
-      # A broker error on the pre-read filed nothing.
+      # A broker error or NotImplementedError on the pre-read filed nothing.
       def read_visit(rec)
         visit_fields(rec)
-      rescue RpmsRpc::Error => e
+      rescue RpmsRpc::Error, NotImplementedError => e
         refuse!("the visit could not be read", e)
       end
 
@@ -516,7 +618,15 @@ module RpmsRpc
         ambiguous!(rec, SCREENING_RPC, e)
       end
 
+      # A field the read-back does not contain is a mismatch, never the
+      # blank an omitted comment or provider sends. All fifteen fields are
+      # required to be present before any value is compared.
       def confirm_screenings!(got, filed, rec)
+        SCREENINGS.each_value do |spec|
+          [ spec[:result], spec[:comment], spec[:provider] ].each do |field|
+            ambiguous!(rec, SCREENING_RPC) unless got[:fields].key?(field)
+          end
+        end
         SCREENINGS.each_value do |spec|
           ambiguous!(rec, SCREENING_RPC) unless same_filed_text?(field_internal(got, spec[:result]), filed.fetch(spec[:result]))
           ambiguous!(rec, SCREENING_RPC) unless same_filed_text?(field_internal(got, spec[:comment]), filed.fetch(spec[:comment]))
@@ -793,5 +903,26 @@ module RpmsRpc
         refuse!("#{label} outcome unknown; record #{rec} may have been filed", cause)
       end
     end
+  end
+
+  # Remember a delegator that still has the next visit image queued when
+  # the configured client moves off it. Not a public API method.
+  class Configuration
+    prepend(Module.new do
+      def client=(value)
+        Thread.current[:rpms_wellness_detached_visit] = queued_visit_client(@client)
+        super
+      end
+
+      def queued_visit_client(client)
+        return nil unless client&.instance_variable_defined?(:@post_bodies)
+
+        bodies = client.instance_variable_get(:@post_bodies)
+        bodies.is_a?(Array) && !bodies.empty? ? client : nil
+      rescue StandardError
+        nil
+      end
+      private :queued_visit_client
+    end)
   end
 end
