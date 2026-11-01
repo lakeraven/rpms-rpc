@@ -38,7 +38,7 @@ class BehavioralHealthSavePovLiveTest < LiveSpec::Test
   NARR_A = "SYNTH LIVE POV A"
   NARR_B = "SYNTH LIVE POV B"
   NARR_REPLACE = "SYNTH LIVE POV C"
-  AXIS_III = "SYNTH LIVE AXIS III"
+  AXIS_III = ("SYNTH LIVE " * 12 + "SYNTHLIVEX" * 2).byteslice(0, 150).freeze
   AXIS_V_FIRST = 55
   AXIS_V_REPLACE = 70
   GAF_FIRST = "12"
@@ -224,7 +224,9 @@ class BehavioralHealthSavePovLiveTest < LiveSpec::Test
 
     assert_equal axis_v.to_s, got.dig(:fields, ".14", :internal).to_s,
                  "AXIS V (.14) must match the value sent"
-    assert_equal gaf.to_s, got.dig(:fields, "1115", :internal).to_s,
+    row_1115 = got.dig(:fields, "1115")
+    refute_nil row_1115, "GAF SCALE TYPE (1115) row must be present in the read-back"
+    assert_equal gaf.to_s, row_1115[:internal].to_s,
                  "GAF SCALE TYPE (1115) must match the value sent"
     return if axis_iii.nil? || axis_iii.to_s.empty?
 

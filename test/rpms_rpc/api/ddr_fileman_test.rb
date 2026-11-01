@@ -157,6 +157,37 @@ class DdrFilemanTest < Minitest::Test
     assert_nil Ddr.lister(file: "9000001", xref: "D", part: "999999")
   end
 
+  def test_lister_reports_data_true_when_the_reply_includes_a_data_marker
+    key = Ddr.lister_param(file: "9000001", xref: "D", part: "100001", max: "*").to_s
+    @mock.seed(:ddr_lister, key, "[Data]\n43^100001")
+
+    result = Ddr.lister(file: "9000001", xref: "D", part: "100001", max: "*")
+
+    refute result[:error]
+    assert_equal true, result[:data]
+    assert_empty result[:entries]
+  end
+
+  def test_lister_reports_data_false_when_the_reply_has_no_data_marker
+    key = Ddr.lister_param(file: "9000001", xref: "B").to_s
+    @mock.seed(:ddr_lister, key, "[Misc]\nMORE^DEMOPATIENT,UNA^43")
+
+    result = Ddr.lister(file: "9000001", xref: "B")
+
+    assert_equal false, result[:data]
+    assert_empty result[:entries]
+  end
+
+  def test_lister_reports_data_false_for_a_bare_non_ddr_line
+    key = Ddr.lister_param(file: "9000001").to_s
+    @mock.seed(:ddr_lister, key, "-1^Remote procedure DDR LISTER doesn't exist")
+
+    result = Ddr.lister(file: "9000001")
+
+    assert_equal false, result[:data]
+    assert_empty result[:entries]
+  end
+
   # ==========================================================================
   # DDR LOCK/UNLOCK NODE
   # ==========================================================================

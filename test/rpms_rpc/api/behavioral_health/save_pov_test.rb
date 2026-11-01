@@ -59,6 +59,7 @@ class BehavioralHealthSavePovTest < Minitest::Test
   NARR_TWO = "SYNTH POV NARR B"
   NARR_REPLACE = "SYNTH POV NARR C"
   AXIS_III_TEXT = "SYNTH AXIS III LINE"
+  LONG_AXIS_III_SENT = ("SYNTH " * 24 + "SYNTHX" * 3).byteslice(0, 150).freeze
   AXIS_V = "55"
   GAF_TEXT = "12"
   AXIS_V_REPLACE = "70"
@@ -177,6 +178,26 @@ class BehavioralHealthSavePovTest < Minitest::Test
     end
   end
 
+  def test_nil_context_save_pov_binds_exactly_amhgrpc_then_the_ddr_context
+    seed_success(WIRE_ONE_DIAGNOSIS, RECORD_IEN, **ONE_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    capture_io { BH.save_pov(**ONE_KWARGS) }
+
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+  end
+
+  def test_nil_context_save_pov_rebinds_ddr_context_before_raising_on_bad_reply
+    seed_pre_edit_and_pointers(**ONE_KWARGS)
+    seed_reply(WIRE_ONE_DIAGNOSIS, pov_success_body("0"))
+    @mock.instance_variable_set(:@current_context, nil)
+
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_pov(**ONE_KWARGS) } }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err, record_ien: RECORD_IEN)
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+  end
+
   def test_success_returns_the_record_ien_after_pre_edit_check_and_readback
     seed_success(WIRE_ONE_DIAGNOSIS, RECORD_IEN, **ONE_KWARGS)
     assert_equal RECORD_IEN, BH.save_pov(**ONE_KWARGS)
@@ -256,11 +277,11 @@ class BehavioralHealthSavePovTest < Minitest::Test
   end
 
   def test_refuses_nil_axis_v_without_rpc
-    assert_pre_call_refusal(**ONE_KWARGS.merge(axis_v: nil))
+    assert_input_validation_refusal(/axis v is required/i, **ONE_KWARGS.merge(axis_v: nil))
   end
 
   def test_refuses_nil_gaf_without_rpc
-    assert_pre_call_refusal(**ONE_KWARGS.merge(gaf: nil))
+    assert_input_validation_refusal(/gaf is required/i, **ONE_KWARGS.merge(gaf: nil))
   end
 
   def test_allows_blank_axis_v_and_gaf_on_the_wire_to_clear
@@ -272,10 +293,12 @@ class BehavioralHealthSavePovTest < Minitest::Test
   end
 
   def test_refuses_invalid_record_ien_or_patient_without_rpc
-    assert_pre_call_refusal(**ONE_KWARGS.merge(record_ien: "0"))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(record_ien: "abc"))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(patient: "0"))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(patient: nil))
+    assert_input_validation_refusal(/record ien must be a positive integer/i,
+                                   **ONE_KWARGS.merge(record_ien: "0"))
+    assert_input_validation_refusal(/record ien must be a positive integer/i,
+                                   **ONE_KWARGS.merge(record_ien: "abc"))
+    assert_input_validation_refusal(/patient must be a positive integer/i, **ONE_KWARGS.merge(patient: "0"))
+    assert_input_validation_refusal(/patient is required/i, **ONE_KWARGS.merge(patient: nil))
   end
 
   def test_refuses_when_pre_edit_patient_differs_without_amhg_rpc
@@ -342,13 +365,14 @@ class BehavioralHealthSavePovTest < Minitest::Test
   end
 
   def test_refuses_at_sign_only_narrative_after_strip_without_rpc
-    assert_pre_call_refusal(**ONE_KWARGS.merge(diagnoses: [ { problem: PROB_ONE, narrative: "@" } ]))
+    assert_input_validation_refusal(/delete marker/i,
+                                   **ONE_KWARGS.merge(diagnoses: [ { problem: PROB_ONE, narrative: "@" } ]))
   end
 
   def test_refuses_at_sign_only_gaf_or_axis_iii_after_strip_without_rpc
-    assert_pre_call_refusal(**ONE_KWARGS.merge(gaf: "@"))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(axis_iii: "@"))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(axis_iii: " @ "))
+    assert_input_validation_refusal(/delete marker/i, **ONE_KWARGS.merge(gaf: "@"))
+    assert_input_validation_refusal(/delete marker/i, **ONE_KWARGS.merge(axis_iii: "@"))
+    assert_input_validation_refusal(/delete marker/i, **ONE_KWARGS.merge(axis_iii: " @ "))
   end
 
   def test_refuses_invalid_axis_v_without_rpc
@@ -373,7 +397,7 @@ class BehavioralHealthSavePovTest < Minitest::Test
     assert_raises(BH::SaveError) { BH.save_pov(**ONE_KWARGS.merge(gaf: invalid)) }
     assert_empty amhg_calls
     latin1 = "SYNTH caf\xE9".dup.force_encoding(Encoding::ISO_8859_1)
-    assert_pre_call_refusal(**ONE_KWARGS.merge(axis_iii: latin1))
+    assert_input_validation_refusal(/not valid UTF-8/i, **ONE_KWARGS.merge(axis_iii: latin1))
   end
 
   def test_non_string_with_invalid_to_s_raises_save_error_without_rpc
@@ -395,22 +419,25 @@ class BehavioralHealthSavePovTest < Minitest::Test
   end
 
   def test_refuses_bad_integer_tokens_for_record_patient_problem_and_axis_iv_without_rpc
-    assert_pre_call_refusal(**ONE_KWARGS.merge(record_ien: "0"))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(record_ien: "-1"))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(record_ien: "01"))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(record_ien: "1.5"))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(record_ien: ""))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(patient: "-1"))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(patient: "01"))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(patient: "1.5"))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(patient: ""))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(diagnoses: [ { problem: "-1", narrative: NARR_ONE } ]))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(diagnoses: [ { problem: "01", narrative: NARR_ONE } ]))
-    assert_pre_call_refusal(**ONE_KWARGS.merge(diagnoses: [ { problem: "1.5", narrative: NARR_ONE } ]))
-    assert_pre_call_refusal(**FULL_KWARGS.merge(axis_iv: [ "0" ]))
-    assert_pre_call_refusal(**FULL_KWARGS.merge(axis_iv: [ "-1" ]))
-    assert_pre_call_refusal(**FULL_KWARGS.merge(axis_iv: [ "01" ]))
-    assert_pre_call_refusal(**FULL_KWARGS.merge(axis_iv: [ "1.5" ]))
+    assert_input_validation_refusal(/record ien must be a positive integer/i, **ONE_KWARGS.merge(record_ien: "0"))
+    assert_input_validation_refusal(/record ien must be a positive integer/i, **ONE_KWARGS.merge(record_ien: "-1"))
+    assert_input_validation_refusal(/record ien must be a positive integer/i, **ONE_KWARGS.merge(record_ien: "01"))
+    assert_input_validation_refusal(/record ien must be a positive integer/i, **ONE_KWARGS.merge(record_ien: "1.5"))
+    assert_input_validation_refusal(/record ien is required/i, **ONE_KWARGS.merge(record_ien: ""))
+    assert_input_validation_refusal(/patient must be a positive integer/i, **ONE_KWARGS.merge(patient: "-1"))
+    assert_input_validation_refusal(/patient must be a positive integer/i, **ONE_KWARGS.merge(patient: "01"))
+    assert_input_validation_refusal(/patient must be a positive integer/i, **ONE_KWARGS.merge(patient: "1.5"))
+    assert_input_validation_refusal(/patient is required/i, **ONE_KWARGS.merge(patient: ""))
+    assert_input_validation_refusal(/problem must be a positive integer/i,
+                                   **ONE_KWARGS.merge(diagnoses: [ { problem: "-1", narrative: NARR_ONE } ]))
+    assert_input_validation_refusal(/problem must be a positive integer/i,
+                                   **ONE_KWARGS.merge(diagnoses: [ { problem: "01", narrative: NARR_ONE } ]))
+    assert_input_validation_refusal(/problem must be a positive integer/i,
+                                   **ONE_KWARGS.merge(diagnoses: [ { problem: "1.5", narrative: NARR_ONE } ]))
+    assert_input_validation_refusal(/axis iv must be a positive integer/i, **FULL_KWARGS.merge(axis_iv: [ "0" ]))
+    assert_input_validation_refusal(/axis iv must be a positive integer/i, **FULL_KWARGS.merge(axis_iv: [ "-1" ]))
+    assert_input_validation_refusal(/axis iv must be a positive integer/i, **FULL_KWARGS.merge(axis_iv: [ "01" ]))
+    assert_input_validation_refusal(/axis iv must be a positive integer/i, **FULL_KWARGS.merge(axis_iv: [ "1.5" ]))
   end
 
   def test_refuses_when_problem_pointer_read_errors_or_is_empty_or_blank_dot01_without_amhg_rpc
@@ -486,6 +513,14 @@ class BehavioralHealthSavePovTest < Minitest::Test
   def test_raises_when_reply_is_not_the_record_ien
     seed_pre_edit_and_pointers(**ONE_KWARGS)
     seed_reply(WIRE_ONE_DIAGNOSIS, pov_success_body("0~Add POV"))
+    err = assert_raises(BH::SaveError) { BH.save_pov(**ONE_KWARGS) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err, record_ien: RECORD_IEN)
+  end
+
+  def test_raises_outcome_unknown_when_reply_names_a_different_positive_record_ien
+    seed_pre_edit_and_pointers(**ONE_KWARGS)
+    seed_reply(WIRE_ONE_DIAGNOSIS, pov_success_body(OTHER_RECORD_IEN))
     err = assert_raises(BH::SaveError) { BH.save_pov(**ONE_KWARGS) }
     assert_amhg_reached
     assert_post_call_ambiguity(err, record_ien: RECORD_IEN)
@@ -581,6 +616,44 @@ class BehavioralHealthSavePovTest < Minitest::Test
     assert_post_call_readback_miss(**ONE_KWARGS, lister_error: true)
   end
 
+  def test_raises_when_axis_iv_clear_readback_has_no_data_marker
+    clear_iv = ONE_KWARGS.merge(axis_iv: [])
+    wire = WIRE_ONE_DIAGNOSIS
+    assert_post_call_readback_miss(**clear_iv, wire: wire, axis_iv_lister_reply: "[Misc]")
+  end
+
+  def test_raises_when_pov_lister_reply_has_no_data_marker
+    assert_post_call_readback_miss(**ONE_KWARGS, pov_lister_reply: "SYNTHETIC BROKER NOISE")
+  end
+
+  def test_raises_when_pov_lister_includes_malformed_extra_row
+    good = pov_rows_for(**ONE_KWARGS).first
+    body =
+      "[Data]\n#{good[:ien]}^#{good[:problem]}^#{good[:patient]}^#{good[:record]}^#{good[:narrative_ext]}\n" \
+      "2^#{PROB_TWO}^#{PATIENT}"
+    assert_post_call_readback_miss(**ONE_KWARGS, pov_lister_reply: body)
+  end
+
+  def test_raises_when_axis_iv_lister_includes_row_with_blank_dot01
+    kwargs = ONE_KWARGS.merge(axis_iv: [ AX4_ONE ])
+    wire = WIRE_ONE_DIAGNOSIS.sub("|||", "||#{AX4_ONE}~~|")
+    body = "[Data]\n1^#{AX4_ONE}\n2^"
+    assert_post_call_readback_miss(**kwargs, wire: wire, axis_iv_lister_reply: body)
+  end
+
+  def test_raises_when_pov_readback_lists_the_same_sent_row_twice
+    row = pov_rows_for(**ONE_KWARGS).first
+    body = pov_lister_body([ row, row.merge(ien: "2") ])
+    assert_post_call_readback_miss(**ONE_KWARGS, pov_lister_reply: body)
+  end
+
+  def test_raises_when_axis_iv_readback_lists_the_same_sent_ien_twice
+    kwargs = ONE_KWARGS.merge(axis_iv: [ AX4_ONE ])
+    wire = WIRE_ONE_DIAGNOSIS.sub("|||", "||#{AX4_ONE}~~|")
+    body = "[Data]\n1^#{AX4_ONE}\n2^#{AX4_ONE}"
+    assert_post_call_readback_miss(**kwargs, wire: wire, axis_iv_lister_reply: body)
+  end
+
   def test_raises_when_axis_iv_row_is_missing_from_readback
     seed_pre_edit_and_pointers(**FULL_KWARGS)
     seed_reply(WIRE_FULL, pov_success_body(RECORD_IEN))
@@ -638,6 +711,25 @@ class BehavioralHealthSavePovTest < Minitest::Test
     assert_post_call_readback_miss(**kwargs, wire: wire, axis_iii_readback: "DIFFERENT AXIS III")
   end
 
+  def test_succeeds_when_axis_iii_readback_is_arrayt_split_joined_to_sent_value
+    sent = LONG_AXIS_III_SENT
+    kwargs = ONE_KWARGS.merge(axis_iii: sent)
+    wire = save_pov_wire_for(**kwargs)
+    wp_lines = arrayt_wp_lines(sent)
+    refute_equal [ sent ], wp_lines, "fixture must exercise ARRAYT line breaks"
+    seed_success(wire, RECORD_IEN, **kwargs, axis_iii_wp_lines: wp_lines)
+    assert_equal RECORD_IEN, BH.save_pov(**kwargs)
+  end
+
+  def test_raises_when_multi_line_axis_iii_readback_does_not_join_to_sent_value
+    sent = LONG_AXIS_III_SENT
+    kwargs = ONE_KWARGS.merge(axis_iii: sent)
+    wire = save_pov_wire_for(**kwargs)
+    wp_lines = arrayt_wp_lines(sent)
+    wp_lines[-1] = "#{wp_lines.last}X"
+    assert_post_call_readback_miss(**kwargs, wire: wire, axis_iii_wp_lines: wp_lines)
+  end
+
   def test_amhg_frame_too_long_becomes_save_error_nothing_sent_not_outcome_unknown
     seed_pre_edit_and_pointers(**ONE_KWARGS)
     wrapper = FrameTooLongOnAmhgSavePov.new(@mock)
@@ -678,8 +770,10 @@ class BehavioralHealthSavePovTest < Minitest::Test
 
   def test_error_message_does_not_echo_passed_narrative_or_patient
     secret = "UNIQUE_SYNTH_POV_MARKER_538"
+    wire =
+      "E|#{RECORD_IEN}|#{PROB_ONE}~~#{secret}|||#{AXIS_V}|#{PATIENT}|#{GAF_TEXT}"
     seed_pre_edit_and_pointers(**ONE_KWARGS.merge(diagnoses: [ { problem: PROB_ONE, narrative: secret } ]))
-    seed_reply(WIRE_ONE_DIAGNOSIS, pov_success_body("0"))
+    seed_reply(wire, pov_success_body("0"))
     err = assert_raises(BH::SaveError) do
       BH.save_pov(**ONE_KWARGS.merge(diagnoses: [ { problem: PROB_ONE, narrative: secret } ]))
     end
@@ -844,21 +938,25 @@ class BehavioralHealthSavePovTest < Minitest::Test
     ]
   end
 
-  def axis_iii_wp_seed_body(record_ien, text)
-    "[Data]\n#{BH_VISIT_FILE}^#{record_ien}^#{AXIS_III_FIELD}^[WORD PROCESSING]\n#{text}\n$$END$$"
+  def axis_iii_wp_seed_body(record_ien, text, lines: nil)
+    wp_text = lines ? lines.join("\n") : text
+    "[Data]\n#{BH_VISIT_FILE}^#{record_ien}^#{AXIS_III_FIELD}^[WORD PROCESSING]\n#{wp_text}\n$$END$$"
   end
 
   def seed_post_readback(record_ien, pov_rows: nil, lister_more: false, lister_error: false,
                          axis_iv_lister: nil, axis_v_readback: nil, gaf_readback: nil,
-                         axis_iii_readback: nil, visit_axis_readback_empty: false,
+                         axis_iii_readback: nil, axis_iii_wp_lines: nil,
+                         pov_lister_reply: nil, axis_iv_lister_reply: nil,
+                         visit_axis_readback_empty: false,
                          visit_axis_readback_omit_dot14: false, visit_axis_readback_omit_1115: false,
                          **kwargs)
     rows = pov_rows || pov_rows_for(**kwargs)
-    @mock.seed(:ddr_lister, pov_lister_key(record_ien),
-               pov_lister_body(rows, more: lister_more, error: lister_error))
+    pov_body = pov_lister_reply || pov_lister_body(rows, more: lister_more, error: lister_error)
+    @mock.seed(:ddr_lister, pov_lister_key(record_ien), pov_body)
 
     ax4 = axis_iv_lister.nil? ? kwargs.fetch(:axis_iv, []) : axis_iv_lister
-    @mock.seed(:ddr_lister, axis_iv_lister_key(record_ien), axis_iv_lister_body(ax4))
+    ax4_body = axis_iv_lister_reply || axis_iv_lister_body(ax4)
+    @mock.seed(:ddr_lister, axis_iv_lister_key(record_ien), ax4_body)
 
     axis_v = (axis_v_readback.nil? ? kwargs.fetch(:axis_v, "") : axis_v_readback).to_s
     gaf = (gaf_readback.nil? ? kwargs.fetch(:gaf, "") : gaf_readback).to_s
@@ -885,7 +983,10 @@ class BehavioralHealthSavePovTest < Minitest::Test
       wp_key = Ddr.gets_entry_param(
         file: BH_VISIT_FILE, iens: "#{record_ien},", fields: AXIS_III_FIELD, flags: AXIS_III_FLAGS
       ).to_s
-      @mock.seed(:ddr_gets_entry_data, wp_key, axis_iii_wp_seed_body(record_ien, axis_iii))
+      wp_seed = axis_iii_readback.nil? ? axis_iii : axis_iii_readback
+      wp_lines = axis_iii_wp_lines
+      @mock.seed(:ddr_gets_entry_data, wp_key,
+                 axis_iii_wp_seed_body(record_ien, wp_seed, lines: wp_lines))
     end
   end
 
@@ -926,10 +1027,34 @@ class BehavioralHealthSavePovTest < Minitest::Test
     want = pov_lister_key(RECORD_IEN)
     lister_calls = @mock.received_calls.select { |c| c[:rpc] == "DDR LISTER" && c[:params].first.to_s == want }
     assert_operator lister_calls.size, :>=, 2, "expected post-call POV lister after each save"
-    rows = replace_pov_rows
-    assert_equal 1, rows.length, "replace-all read-back must expect a single POV row"
-    assert_equal PROB_REPLACE, rows.first[:problem]
-    assert_equal NARR_REPLACE, rows.first[:narrative_ext]
+    second_wire = amhg_calls.last[:params].first
+    assert_equal WIRE_REPLACE, second_wire
+    diag_piece = second_wire.split("|", -1)[2]
+    assert_includes diag_piece, "#{PROB_REPLACE}~~#{NARR_REPLACE}",
+                    "replace-all read-back must compare the second call's wire diagnoses"
+    save_index = @mock.received_calls.rindex { |c| c[:rpc] == RPC }
+    refute_nil save_index
+    post_replace_lister = @mock.received_calls[(save_index + 1)..].find do |c|
+      c[:rpc] == "DDR LISTER" && c[:params].first.to_s == want
+    end
+    refute_nil post_replace_lister, "expected POV DDR LISTER after the replace-all save"
+  end
+
+  # ARRAYT^AMHGU: after 65 bytes on a line, split on the next space and keep the space on the earlier line.
+  def arrayt_wp_lines(text)
+    lines = []
+    line = +""
+    text.each_char do |char|
+      if char == " " && line.bytesize > 65
+        line << char
+        lines << line
+        line = +""
+      else
+        line << char
+      end
+    end
+    lines << line unless line.empty?
+    lines
   end
 
   def assert_amhg_reached
@@ -964,6 +1089,9 @@ class BehavioralHealthSavePovTest < Minitest::Test
     axis_v_readback = seed_opts.delete(:axis_v_readback)
     gaf_readback = seed_opts.delete(:gaf_readback)
     axis_iii_readback = seed_opts.delete(:axis_iii_readback)
+    axis_iii_wp_lines = seed_opts.delete(:axis_iii_wp_lines)
+    pov_lister_reply = seed_opts.delete(:pov_lister_reply)
+    axis_iv_lister_reply = seed_opts.delete(:axis_iv_lister_reply)
     visit_axis_readback_empty = seed_opts.delete(:visit_axis_readback_empty) || false
     visit_axis_readback_omit_dot14 = seed_opts.delete(:visit_axis_readback_omit_dot14) || false
     visit_axis_readback_omit_1115 = seed_opts.delete(:visit_axis_readback_omit_1115) || false
@@ -975,6 +1103,8 @@ class BehavioralHealthSavePovTest < Minitest::Test
       record_ien, pov_rows: pov_rows, lister_more: lister_more, lister_error: lister_error,
       axis_iv_lister: axis_iv_lister, axis_v_readback: axis_v_readback,
       gaf_readback: gaf_readback, axis_iii_readback: axis_iii_readback,
+      axis_iii_wp_lines: axis_iii_wp_lines,
+      pov_lister_reply: pov_lister_reply, axis_iv_lister_reply: axis_iv_lister_reply,
       visit_axis_readback_empty: visit_axis_readback_empty,
       visit_axis_readback_omit_dot14: visit_axis_readback_omit_dot14,
       visit_axis_readback_omit_1115: visit_axis_readback_omit_1115, **seed_opts
@@ -991,10 +1121,14 @@ class BehavioralHealthSavePovTest < Minitest::Test
     elsif kwargs[:diagnoses] == FULL_KWARGS[:diagnoses]
       WIRE_FULL
     elsif kwargs[:axis_iii] && !kwargs[:axis_iii].to_s.empty?
-      WIRE_ONE_DIAGNOSIS.sub("|||", "|#{kwargs[:axis_iii]}|")
+      save_pov_wire_for(**kwargs)
     else
       WIRE_ONE_DIAGNOSIS
     end
+  end
+
+  def save_pov_wire_for(**kwargs)
+    BH.send(:save_pov_wire, **kwargs)[0]
   end
 
   def assert_post_call_ambiguity(err, record_ien: nil)

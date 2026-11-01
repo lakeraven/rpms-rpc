@@ -953,6 +953,16 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_match(/may have been filed|outcome unknown/i, err.message)
   end
 
+  def test_raises_when_post_call_provider_ddr_lister_has_no_data_marker
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    seed_success(WIRE_ADD_FULL, "8802")
+    seed_readback("8802,", **FULL_KWARGS)
+    seed_provider_lister("8802", provider: PROVIDER, patient: PATIENT, body: "[Misc]")
+    err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err, record_ien: "8802")
+  end
+
   def test_amhg_rpc_timeout_becomes_save_error_with_ambiguous_outcome
     seed_pre_amhg_reads(**FULL_KWARGS)
     wrapper = TimeoutOnAmhg.new(@mock)
@@ -1212,8 +1222,8 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
   end
 
   def seed_provider_lister(visit_ien, provider:, patient:, extra_primary: false, foreign_visit_row: false,
-                           more: false, error: false)
-    body = provider_lister_body(
+                           more: false, error: false, body: nil)
+    body ||= provider_lister_body(
       provider: provider, patient: patient, visit_ien: visit_ien, extra_primary: extra_primary,
       foreign_visit_row: foreign_visit_row, more: more, error: error
     )
