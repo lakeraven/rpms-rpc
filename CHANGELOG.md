@@ -7,15 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `Patient.brief_header` uses the designated-primary GETBDP row (#523)
+
+- `BEHOPTPC GETBDP` returns one row per designated-provider category, in alphabetical order (`LABEL^PROVIDER_NAME^PROVIDER_IEN^TITLE^DATE`). `Patient.brief_header` took the first row, so a category that sorts before `DESIGNATED PRIMARY PROVIDER` was reported as `:primary_provider`.
+- The banner now uses the row whose label (field 0), after surrounding whitespace is stripped, is exactly `DESIGNATED PRIMARY PROVIDER`. When that row is absent or its provider name is blank (only `[[:space:]]`, including U+00A0), `:primary_provider` is the PTINFO primary provider. When PTINFO gives nothing, the header is nil unless a usable designated primary provider name was found. A broker that does not serve one of the three RPCs still raises `RpcNotAvailableError`, one that serves it but not to this user still raises `RpcRefusedError`, and an M error still raises `RpcError`.
+- A `BEHOPTPC GETBDP` reply that `RpmsRpc::Reply.altered?` reports (a client has already replaced invalid bytes with U+FFFD), or whose lines include invalid UTF-8, a C0 control or U+FFFD after a leading run of spaces and C0 controls is stripped, or an error row, is a failed read: no provider is taken from it and `:primary_provider` falls back to the PTINFO primary provider, without raising. The lines are the ones `parse_many` parses (Array elements, or a String split on `/\r?\n/`; a lone CR is not a line break). nil or empty is no rows. `$C(30)` and `$C(31)` still cannot hide an error row.
+
 ### Changed — License is now Apache-2.0
 
 - New releases are licensed under the Apache License, Version 2.0 (`LICENSE`, `NOTICE`). Earlier releases stay available under the MIT License, whose notice is kept in `NOTICE`.
-
-### Added — SOGI and MBI through DDR, holiday maintenance, and undo check-in (#418)
-
-- `Registration.set_gender_identity`, `set_sexual_orientation`, `set_legal_sex`, `add_mbi`, and `set_sex` file through DDR FILER under `CIAV VUECENTRIC`. `set_sex` is the `AG2A` `.23` delete plus `SEXELIG^AGUTL`: it clears `#9000001` `.23` when `#2` `.02` changes and that field is non-blank, files `#2` `.02` (mode EDIT), and copies the sex onto the MCR, MCD, and RRE eligibility rows. The cascade is not atomic with the `.02` write; a refusal after an earlier EDIT succeeded is `:partial`, and a retry repeats the cascade because it always runs. `Registration.mbis` reads `#9000001` `.01` before listing `#9000001.44` and raises `Client::RpcError` when that entry is missing or either read fails. `set_insurance_billing_order` and `insurance_in_use` return `{ success: false, error: :not_supported }` and send no RPC.
-- `Scheduling.undo_checkin` calls `BSDX CHECKIN APPOINTMENT` with check-in time `@`, which is how `CANCHKIN^BSDX25` clears a check-in. `SchedulingSetup.add_holiday` and `remove_holiday` maintain HOLIDAY (`#40.5`) through DDR FILER. A missing holiday is `:not_found` and does not file.
-- DDR FILER writes the internal fields and does not run the M tag's code translation, defaults, or cross-file updates. FileMan xrefs on those fields still fire. `set_sex` issues the `SEXELIG^AGUTL` eligibility edits as their own DDR FILER calls; they are not a cross-reference on `#2` `.02`. `Registration.update(dfn, sex:)` still goes through AGG UPDATE PATIENT and files `#2` `.02` without `SEXELIG^AGUTL`. See `docs/REGISTRATION_SCHEDULING_WRITES.md`.
 
 ### Fixed — `BehavioralHealth.visits` splits the GLOBAL ARRAY frame (#536)
 
