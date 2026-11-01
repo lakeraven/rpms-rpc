@@ -179,6 +179,36 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_equal [ "AMHGRPC", caller_context ], @mock.context_binds
   end
 
+  # A session that never declared a context (current_context nil) cannot be
+  # restored by ContextScope. The post-call DDR reads must still not run
+  # under the leftover AMHGRPC binding.
+  def test_post_call_ddr_reads_do_not_run_under_amhgrpc_when_the_session_had_no_context
+    seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    capture_io { BH.save_visit(**FULL_KWARGS) }
+
+    calls = @mock.received_calls
+    save_index = calls.index { |c| c[:rpc] == RPC }
+    refute_nil save_index
+    after = calls[(save_index + 1)..].select { |c| c[:rpc].start_with?("DDR ") }
+    refute_empty after, "expected post-call DDR reads"
+    after.each do |call|
+      refute_equal "AMHGRPC", call[:context],
+        "#{call[:rpc]} ran under the leftover AMHGRPC binding"
+      refute_nil call[:context], "#{call[:rpc]} ran under no known context"
+    end
+  end
+
+  def test_a_refused_pointer_read_is_reported_as_unreadable_not_as_missing
+    seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
+    RpmsRpc.configure { |c| c.client = PointerReadRefused.new(@mock) }
+
+    err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_match(/clinic could not be read/, err.message)
+    refute_match(/not on file/, err.message)
+    assert_nil save_call, "AMHG SAVE VISIT must not be called"
+  end
+
   def test_add_success_returns_the_record_ien_from_the_t00010bmxien_row_after_readback
     seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
     assert_equal "8802", BH.save_visit(**FULL_KWARGS)
@@ -1369,6 +1399,17 @@ class RaiseOnBhVisitReadback < SimpleDelegator
     if rpc_name == "DDR GETS ENTRY DATA"
       file = params.first.is_a?(Hash) ? params.first["FILE"] : nil
       raise RpmsRpc::Client::RpcMError, "read-back failed (synthetic)" if file == BH_VISIT
+    end
+
+    super
+  end
+end
+
+# Refuses the clinic pointer read (file 40.7) the way a broker denial would.
+class PointerReadRefused < SimpleDelegator
+  def call_rpc(rpc_name, *params)
+    if rpc_name == "DDR GETS ENTRY DATA" && params.first.is_a?(Hash) && params.first["FILE"] == "40.7"
+      raise RpmsRpc::Client::RpcNotAvailableError, "DDR GETS ENTRY DATA refused (synthetic)"
     end
 
     super
