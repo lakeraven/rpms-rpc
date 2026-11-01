@@ -1475,6 +1475,10 @@ end
 class SwapClientOnLockAcquireClient < SimpleDelegator
   attr_reader :swapped
 
+  def swapped?
+    @swapped
+  end
+
   def initialize(delegate, replacement_client, record_ien)
     super(delegate)
     @replacement_client = replacement_client
