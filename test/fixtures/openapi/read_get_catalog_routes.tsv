@@ -20,6 +20,7 @@ RpmsRpc::ClinicalEvent.pce_for_note	GET /progress-notes/{note_ien}/clinical-even
 RpmsRpc::ClinicalEvent.skin_test_types	GET /clinical-events/skin-test-types
 RpmsRpc::ClinicalEvent.visit_for_note	GET /progress-notes/{note_ien}/clinical-events/patients/{dfn}/visit
 RpmsRpc::ClinicalEvent.visit_status	GET /progress-notes/{note_ien}/clinical-events/patients/{dfn}/visit-status
+RpmsRpc::Coverage.for_patient	GET /patients/{dfn}/coverages
 RpmsRpc::DdrFileman.gets_entry	GET /files/{file}/entries/{iens}
 RpmsRpc::ESignature.which_action	GET /progress-notes/{note_ien}/signatures/which-action
 RpmsRpc::Eligibility.codes	GET /eligibility/codes
