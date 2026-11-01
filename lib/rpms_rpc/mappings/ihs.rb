@@ -42,7 +42,7 @@ module RpmsRpc
       end
     end
 
-    # BEHOPTPC GETBDP — designated primary provider detail
+    # BEHOPTPC GETBDP — one row per designated-provider category, alphabetical.
     # Format: LABEL^PROVIDER_NAME^PROVIDER_IEN^TITLE^DATE
     DataMapper.define(:patient_designated_provider) do |m|
       m.rpc "BEHOPTPC GETBDP"
@@ -1112,6 +1112,15 @@ module RpmsRpc
     # (AMHGEVF.m:106-108).
     DataMapper.define(:amhg_save_visit) do |m|
       m.rpc "AMHG SAVE VISIT"
+      m.field 0, :ien, :string
+    end
+
+    # AMHG SAVE PROGRESS NOTES — PN^AMHGSVF (AMHGSVF.m:196-219). One
+    # param, the 8-piece AMHSTR. Edit only: piece 1 is always "E". The
+    # reply is a GLOBAL ARRAY: header then +AMHIEN. :ien stays a string
+    # so an "M ERROR|..." row is not coerced to 0.
+    DataMapper.define(:amhg_save_progress_notes) do |m|
+      m.rpc "AMHG SAVE PROGRESS NOTES"
       m.field 0, :ien, :string
     end
 

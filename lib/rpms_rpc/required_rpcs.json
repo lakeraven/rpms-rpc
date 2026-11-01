@@ -54,6 +54,7 @@
       "AMHG GET VISIT SCREENING",
       "AMHG GET VISIT SOAP",
       "AMHG GET VISITS",
+      "AMHG SAVE PROGRESS NOTES",
       "AMHG SAVE VISIT",
       "DDR GETS ENTRY DATA",
       "DDR LISTER"
@@ -101,6 +102,13 @@
       "ORWPCE HASVISIT",
       "ORWPCE NOTEVSTR",
       "ORWPCE PCE4NOTE"
+    ],
+    "RpmsRpc::Coverage": [
+      "AGG UPDATE MEDICAID",
+      "AGG UPDATE MEDICARE",
+      "BQI PATIENT INSURANCE",
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
     ],
     "RpmsRpc::DdrFileman": [
       "DDR FILER",

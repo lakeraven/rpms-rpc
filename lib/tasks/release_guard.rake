@@ -37,6 +37,20 @@ namespace :release do
   end
 end
 
+namespace :release do
+  desc "Refuse to tag while changelog fragments remain in changelog.d/"
+  task :changelog_guard do
+    require_relative "../../tools/changelog_fragments"
+
+    pending = Fragments.pending(Fragments.release_dir)
+    unless pending.empty?
+      abort [ "release:changelog_guard: refusing to release: fragments are still in changelog.d/:",
+              *pending.map { |n| "  #{n}" },
+              "Run `rake changelog:assemble` and commit CHANGELOG.md and the deleted fragments first." ].join("\n")
+    end
+  end
+end
+
 # Written before test:live loads a spec, stamped with a fresh LIVE_RUN_ID
 # the spec process inherits. A crash (SyntaxError, a raised exception) then
 # leaves pending on disk, and the guard refuses it instead of trusting the
@@ -91,7 +105,8 @@ Rake::Task["test:live"].enhance([ "test:live_summary_pending" ]) if Rake::Task.t
   next unless Rake::Task.task_defined?(name)
 
   task = Rake::Task[name]
-  task.enhance([ "release:live_guard" ])
+  task.enhance([ "release:live_guard", "release:changelog_guard" ])
   prereqs = task.prerequisites
+  prereqs.unshift(prereqs.delete("release:changelog_guard"))
   prereqs.unshift(prereqs.delete("release:live_guard"))
 end
