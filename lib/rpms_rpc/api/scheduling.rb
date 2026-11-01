@@ -86,8 +86,10 @@ module RpmsRpc
   # VUECENTRIC before BSDX CHECKIN APPOINTMENT, reads #9002018.4 .03 again
   # after a "0^" reply and after an error reply, and, when that read shows
   # .03 empty, reads #9002018.4 .01 and .05 and lists #44.003 under CIAV
-  # VUECENTRIC. DDR GETS ENTRY DATA and DDR LISTER are not registered on
-  # BSDXRPC. A refusal from the preflight reads does not send the BSDX RPC.
+  # VUECENTRIC. A Client error from one of those post-RPC reads is
+  # :partial_unverified and names the exception class. A Client error from
+  # a preflight read propagates, and that refusal sends no BSDX RPC.
+  # DDR GETS ENTRY DATA and DDR LISTER are not registered on BSDXRPC.
   module Scheduling
     extend self
     extend Shape::Declarable
@@ -207,12 +209,13 @@ module RpmsRpc
     # send BSDX CHECKIN APPOINTMENT.
     #
     # Only then is the RPC sent with check-in time "@". After a "0^" reply,
-    # .03 is read again. The .03 row must be present: a nil reply, an error,
-    # or a missing row is :lookup_failed. A value still stored is
+    # .03 is read again. The .03 row must be present. A nil reply, an error,
+    # or a missing row is { success: false, error: :partial_unverified,
+    # message: }: the check-in RPC already ran and the state of .03 and
+    # field 309 could not be verified. A value still stored is
     # { success: false, error: :not_undone, message: }. An empty .03 is not
-    # yet success. "0^" proves .03 is clear. It does not prove #44.003 field
-    # 309 is clear: CANCHKIN discards its own FILE^DIE error
-    # (BSDX25.m:164-167).
+    # yet success. A "0^" reply does not prove #44.003 field 309 is clear:
+    # CANCHKIN discards its own FILE^DIE error (BSDX25.m:164-167).
     #
     # When .03 is empty, still under CIAV VUECENTRIC, this method reads
     # #9002018.4 fields ".01;.05" (flags "I") and then DDR LISTER on #44.003,
@@ -227,28 +230,43 @@ module RpmsRpc
     # row, an empty .01 or .05, no row for this patient, more than one such
     # row, or a row that does not carry a 309 piece. The message states that
     # the check-in was already cleared (.03 cleared) and that field 309
-    # could not be verified. :lookup_failed stays only where nothing was
-    # written, or where the .03 re-read itself failed and the field's state
-    # is unknown. A missing or failed read is not an empty field: absence
-    # of data never verifies the clinic check-in. .03 still set does not
-    # list #44.003.
+    # could not be verified. :lookup_failed stays on the preflight reads,
+    # where nothing was written. A missing or failed read is not an empty
+    # field: absence of data never verifies the clinic check-in. .03 still
+    # set does not list #44.003.
+    #
+    # A Client error raised by a post-RPC DDR read (the .03 re-read, the
+    # ".01;.05" GETS, or the clinic LISTER) is rescued and returned as
+    # :partial_unverified. The rescue lists the Client error classes,
+    # including ConnectionError, TimeoutError, and RpcTimeoutError. The
+    # message is the same family as the failed read it replaces, and it
+    # names the exception class. The exception message stays out of the
+    # result: it can carry broker text or a secret. An exception from a
+    # preflight read (".03;.07" or resource ".04") propagates unchanged.
+    # An exception from the check-in RPC itself propagates unchanged,
+    # because that call returned no reply.
     #
     # After :partial with field 309 still set, and after :partial_unverified,
-    # a retry returns :not_checked_in. The preflight sees an empty .03 and
-    # does not send the RPC, so it never looks at field 309 again. Field 309
-    # must be cleared in RPMS. There is no API recovery path. An error reply
-    # whose 309 read is empty is also :partial, and a retry of that result
-    # returns :not_checked_in for the same reason: .03 is already empty.
+    # a retry returns :not_checked_in when .03 is empty. The preflight sees
+    # that empty .03 and does not send the RPC, so it never looks at field
+    # 309 again. Field 309 must be cleared in RPMS. There is no API recovery
+    # path. An error reply whose 309 read is empty is also :partial, and a
+    # retry of that result returns :not_checked_in for the same reason.
+    # When the .03 re-read itself failed, a retry that finds .03 empty
+    # returns :not_checked_in and leaves 309 unread, so 309 must be cleared
+    # in RPMS before another undo is trusted.
     #
     # CHECKIN^BSDX25 clears .03 in BSDXCHK (BSDX25.m:59) before CANCHKIN.
     # CANCHKIN can then ERR("Could not locate appointment...") (BSDX25.m:161)
     # and leave the clinic check-in (#44.003 field 309) set. After any other
     # check-in reply, .03 is read again the same way. A nil reply, an error,
-    # or a missing row is :lookup_failed. An empty .03 reuses the same
-    # field-309 verification. A non-empty 309 is :partial and the message
-    # names field 309. An unverifiable 309 (no row, more than one row, MORE,
-    # a missing 309 piece, an empty patient, a nil or error listing, or a
-    # failed start/patient read) is :partial_unverified. An empty 309 is
+    # or a missing row is :partial_unverified, with the message that the
+    # check-in RPC already ran and the state of .03 and field 309 could not
+    # be verified. An empty .03 reuses the same field-309 verification. A
+    # non-empty 309 is :partial and the message names field 309. An
+    # unverifiable 309 (no row, more than one row, MORE, a missing 309
+    # piece, an empty patient, a nil or error listing, or a failed
+    # start/patient read) is :partial_unverified. An empty 309 is
     # { success: false, error: :partial, message: }: .03 was cleared, the
     # clinic field is empty, and the message carries the check-in RPC's
     # error text. A value still stored in .03 returns that check-in error
@@ -553,21 +571,28 @@ module RpmsRpc
     # empty 309: success after "0^", or :partial carrying the RPC error
     # after an error reply.
     def apply_field_309(ien, hospital, when_empty:)
-      case judge_field_309(ien, hospital)
+      judged = judge_field_309(ien, hospital)
+      return judged if unverified_result?(judged)
+
+      case judged
       when :empty then when_empty
       when :set then field_309_still_set
       else partial_unverified_result
       end
     end
 
-    # :empty, :set, or :unverified. Called only after .03 is known empty.
-    # Absence of one readable 309 piece is :unverified. An empty piece is
-    # :empty. Anything else stored in the piece is :set.
+    # :empty, :set, :unverified, or a :partial_unverified hash when a
+    # post-RPC read raised. Called only after .03 is known empty. Absence
+    # of one readable 309 piece is :unverified. An empty piece is :empty.
+    # Anything else stored in the piece is :set. A raised Client error is
+    # the hash, so the exception class stays in the message.
     def judge_field_309(ien, hospital)
       located = appointment_start_and_patient(ien)
+      return located if unverified_result?(located)
       return :unverified unless located.is_a?(Array)
 
       value = clinic_field_309(located[0], hospital, located[1])
+      return value if unverified_result?(value)
       return :unverified unless value.is_a?(String)
 
       value.empty? ? :empty : :set
@@ -580,16 +605,45 @@ module RpmsRpc
 
     # .03 is already cleared. Saying :lookup_failed would let a retry
     # preflight that empty .03 and answer :not_checked_in, hiding 309.
-    def partial_unverified_result
+    # raised, when a post-RPC read raised, contributes its class only.
+    def partial_unverified_result(raised = nil)
       { success: false, error: :partial_unverified,
-        message: "the check-in was already cleared (#9002018.4 field .03 cleared) and " \
-                 "#44.003 field 309 could not be verified" }
+        message: read_failure_message(
+          "the check-in was already cleared (#9002018.4 field .03 cleared) and " \
+          "#44.003 field 309 could not be verified",
+          raised) }
+    end
+
+    # The check-in RPC has already returned ("0^" or an error reply) and
+    # the .03 re-read failed, so both .03 and field 309 are unknown.
+    # :lookup_failed would be retry-safe and would hide a clear that may
+    # have landed.
+    def rpc_ran_unverified_result(raised = nil)
+      { success: false, error: :partial_unverified,
+        message: read_failure_message(
+          "the check-in RPC already ran and the state of #9002018.4 field .03 and " \
+          "#44.003 field 309 could not be verified",
+          raised) }
+    end
+
+    def unverified_result?(value)
+      value.is_a?(Hash) && value[:error] == :partial_unverified
+    end
+
+    # The class only. The exception message can carry broker text, a
+    # patient name, or a secret, and it is not copied.
+    def read_failure_message(text, raised)
+      return text if raised.nil?
+
+      "#{text} (#{raised.class})"
     end
 
     # .01 is the appointment start, .05 the patient. DDR GETS returns a row
     # for an empty field, so a missing row is malformed. An empty value is
     # not a start or a patient the clinic list can be judged against. nil
     # when the read cannot be used; the caller has already seen .03 cleared.
+    # A Client error from this read is a :partial_unverified hash naming
+    # that class.
     def appointment_start_and_patient(ien)
       read = ddr_gets(APPOINTMENT_FILE, "#{ien},", APPOINTMENT_LOCATE_FIELDS)
       return nil if gets_malformed?(read, START_FIELD, PATIENT_FIELD)
@@ -599,13 +653,16 @@ module RpmsRpc
       return nil if start.empty? || patient.empty?
 
       [ start, patient ]
+    rescue *post_rpc_read_errors => e
+      partial_unverified_result(e)
     end
 
     # DDR LISTER under CIAV VUECENTRIC. pieces are .01 then 309 (the IEN is
     # entry[:ien]). nil when the list is missing, an error, unfinished
     # (MORE), has no row for this patient, has more than one, or the row
     # has no 309 piece. An empty 309 piece is a stored empty value. A
-    # missing piece is a failed read.
+    # missing piece is a failed read. A Client error from the list is a
+    # :partial_unverified hash naming that class.
     def clinic_field_309(start, hospital, patient)
       listed = ddr_lister(CLINIC_APPOINTMENT_FILE, ",#{start},#{hospital},",
                           CLINIC_APPOINTMENT_FIELDS, CLINIC_LIST_FLAGS)
@@ -618,6 +675,8 @@ module RpmsRpc
       return nil if pieces.length < 2
 
       pieces[1].to_s
+    rescue *post_rpc_read_errors => e
+      partial_unverified_result(e)
     end
 
     def clinic_row_patient(entry)
@@ -646,15 +705,35 @@ module RpmsRpc
                  "clinic appointment check-in (#44.003 field 309) is empty: #{written[:error]}" }
     end
 
-    # The .03 row after BSDX CHECKIN APPOINTMENT, or a :lookup_failed hash.
+    # The .03 value after BSDX CHECKIN APPOINTMENT, or a :partial_unverified
+    # hash when the row cannot be read. A Client error from this read is
+    # that same hash: the RPC has already run, so the state of .03 and
+    # field 309 is unknown.
     def checkin_time_after_rpc(ien)
       read = ddr_gets(APPOINTMENT_FILE, "#{ien},", CHECKIN_FIELD)
-      if gets_malformed?(read, CHECKIN_FIELD)
-        return { success: false, error: :lookup_failed,
-                 message: "DDR GETS ENTRY DATA could not read #9002018.4 field .03" }
-      end
+      return rpc_ran_unverified_result if gets_malformed?(read, CHECKIN_FIELD)
 
       read[:fields][CHECKIN_FIELD][:internal].to_s
+    rescue *post_rpc_read_errors => e
+      rpc_ran_unverified_result(e)
+    end
+
+    # Every RpmsRpc::Client error a post-RPC DDR read can raise. These are
+    # the roots, so the rescue is the Client classes and not StandardError:
+    # TimeoutError and RpcTimeoutError subclass ConnectionError,
+    # CredentialError subclasses AuthenticationError, and RpcMError,
+    # RpcRefusedError, and RpcNotAvailableError subclass RpcError.
+    # FrameTooLongError and ParseError complete the Client hierarchy.
+    # Looked up when a read raises, not at load: client.rb is not required
+    # by the API entry point. Preflight reads do not use this list.
+    def post_rpc_read_errors
+      [
+        Client::ConnectionError,
+        Client::AuthenticationError,
+        Client::RpcError,
+        Client::FrameTooLongError,
+        Client::ParseError
+      ]
     end
 
     def ddr_gets(file, iens, fields)
