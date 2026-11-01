@@ -661,9 +661,11 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
     wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
 
-    refute_match(/in progress/i, wrapper_a.inner_error&.message.to_s)
-    assert_equal 1, @mock.received_calls.count { |c| c[:rpc] == RPC_MEASUREMENTS },
-                 "inner save via a second wrapper must send its write RPC"
+    assert_nil wrapper_a.inner_error, "inner save must succeed when guards are not shared"
+    save_rpc_calls = @mock.received_calls.select { |c| c[:rpc] == RPC_MEASUREMENTS }
+    assert_equal 2, save_rpc_calls.length,
+                 "reentrant harness runs inner save during outer write then outer write; " \
+                 "distinct guards must produce two AMHG SAVE MEASUREMENTS calls"
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
   end
@@ -725,8 +727,10 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
     wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
 
-    refute_match(/in progress/i, wrapper.inner_error&.message.to_s)
-    assert_equal 1, @mock.received_calls.count { |c| c[:rpc] == RPC_MEASUREMENTS }
+    assert_nil wrapper.inner_error, "inner save must succeed when session guards differ"
+    assert_equal 2, @mock.received_calls.count { |c| c[:rpc] == RPC_MEASUREMENTS },
+                 "reentrant harness runs inner save during outer write then outer write; " \
+                 "distinct session guards must produce two AMHG SAVE MEASUREMENTS calls"
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
   end
@@ -747,8 +751,11 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
     wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
 
-    refute_match(/in progress/i, reentrant.inner_error&.message.to_s)
-    assert_equal 1, @mock.received_calls.count { |c| c[:rpc] == RPC_MEASUREMENTS }
+    assert_nil reentrant.inner_error,
+               "inner save must succeed when blank session_id falls back to distinct object_id guards"
+    assert_equal 2, @mock.received_calls.count { |c| c[:rpc] == RPC_MEASUREMENTS },
+                 "reentrant harness runs inner save during outer write then outer write; " \
+                 "object_id guards on distinct clients must produce two AMHG SAVE MEASUREMENTS calls"
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
   end
@@ -1014,6 +1021,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
     seed_visit_lock(RECORD_IEN)
     seed_visit_unlock(RECORD_IEN)
     seed_providers_for_screening_updates(screenings)
+    seed_baseline_stored_screening_providers
     install_visit_gets_sequence(RECORD_IEN, PATIENT, baseline, post)
     seed_screening_reply(wire, screening_success_body(RECORD_IEN))
 
