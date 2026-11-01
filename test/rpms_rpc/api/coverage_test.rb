@@ -191,6 +191,34 @@ class CoverageTest < Minitest::Test
     end
   end
 
+  # Asserts on the real Coverage::WINDOW_FIELDS, not test-local copies, so a
+  # RIEN/MIEN entry added to the lib allowlist turns this red. The names the
+  # write paths actually send must be members of the real lists.
+  def test_real_window_fields_exclude_rien_and_mien_and_cover_sent_names
+    windows = Cov::MEDICARE_WINDOWS + Cov::MEDICAID_WINDOWS
+    assert_equal windows.sort, Cov::WINDOW_FIELDS.keys.sort
+
+    Cov::WINDOW_FIELDS.each do |window, names|
+      refute_empty names, "#{window} allowlist must not be empty"
+      assert_equal names.uniq, names, "#{window} allowlist has duplicates"
+      names.each do |name|
+        refute_includes %w[RIEN MIEN], name.upcase, "#{window}: IEN keys must not be PARMS allowlist entries"
+        assert_match(/\A[A-Z]+\z/, name, "#{window}: #{name} is not a bare PARMS name")
+      end
+    end
+
+    # Names the add_* write paths send (add_medicaid sends AGGMDESD/AGGMDECV).
+    assert_empty %w[AGGMCROI AGGMCNME AGGMCNUM AGGMCSUF] - Cov::WINDOW_FIELDS[Cov::MEDICARE_WINDOW]
+    assert_empty %w[AGGMCESD AGGMCCOV] - Cov::WINDOW_FIELDS[Cov::MEDICARE_ELIGIBILITY_WINDOW]
+    assert_empty %w[AGGMDESD AGGMDECV] - Cov::WINDOW_FIELDS[Cov::MEDICAID_ELIGIBILITY_WINDOW]
+
+    # Names only the stale test-local lists carried; the lib does not list them.
+    all = Cov::WINDOW_FIELDS.values.flatten
+    %w[AGGMCEDD AGGMCETM AGGMDEDD AGGMDETM].each do |name|
+      refute_includes all, name, "#{name} is not in the lib allowlists"
+    end
+  end
+
   # -- add_medicare AGG wire (UPD^AGGUPMCR.m:7) ------------------------------
 
   def test_add_medicare_sends_dfn_proc_def_mien_parms_under_aggrpc
