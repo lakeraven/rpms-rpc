@@ -7,14 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added — `Order.sign_and_release` signs and releases saved orders through ORWDX SEND (#456)
+### Fixed — `Patient.brief_header` uses the designated-primary GETBDP row (#523)
 
-- `RpmsRpc::Order.sign_and_release(dfn, provider_duz, location, order_ids, signature)` checks the signature with `ORWU VALIDSIG` (exactly `"1"`), then releases the orders with `ORWDX SEND`, and returns one `{ order_id:, status:, reason: }` per order: `:released` (reply piece 2 exactly `"RS"`), `:signed` (`"S"`), `:unknown` (SEND went out and the reply does not prove the outcome) or `:rejected` (nothing was sent). It is named `sign_and_release`, not `send`, because `Order` is `extend self` and `send` would shadow `Kernel#send`.
-- **The signed-on user must be the provider.** SEND never reads its ES argument and signs as the session DUZ, so a `provider_duz` that is not the client's signed-on DUZ is `:rejected` before any RPC. The session-user check, `ORWU VALIDSIG` and `ORWDX SEND` run under one `RpmsRpc.synchronize_wire` on one client, so a concurrent sign-on cannot rebind the DUZ between the signature check and the release.
-- `RpmsRpc::ValidSignature` is the one `ORWU VALIDSIG` path, shared by `ESignature.validate` and this method. `ESignature.validate` behaves as before.
-- `RpmsRpc::MockClient` gains `#duz`, `#set_authenticated`, `#clear_authenticated` and `#authenticated?`, so `RpmsRpc.mock!` can hold a signed-on user (and a mock sign-on through `Authentication` records its DUZ).
-- The signature (plaintext and ciphertext) never appears in a result, reason, raised message or `#cause` chain. `retry_safety.yml` marks it `non_idempotent_write`; the shape is `POST /patients/{dfn}/orders/sign-and-release`.
-- A live spec (`test/live/order_write_live_test.rb`) saves an order, signs and releases it and reads it back from file 100. It needs `RPMS_ESIG` and has not been run against the pinned build (#456).
+- `BEHOPTPC GETBDP` returns one row per designated-provider category, in alphabetical order (`LABEL^PROVIDER_NAME^PROVIDER_IEN^TITLE^DATE`). `Patient.brief_header` took the first row, so a category that sorts before `DESIGNATED PRIMARY PROVIDER` was reported as `:primary_provider`.
+- The banner now uses the row whose label (field 0), after surrounding whitespace is stripped, is exactly `DESIGNATED PRIMARY PROVIDER`. When that row is absent or its provider name is blank (only `[[:space:]]`, including U+00A0), `:primary_provider` is the PTINFO primary provider. When PTINFO gives nothing, the header is nil unless a usable designated primary provider name was found. A broker that does not serve one of the three RPCs still raises `RpcNotAvailableError`, one that serves it but not to this user still raises `RpcRefusedError`, and an M error still raises `RpcError`.
+- A `BEHOPTPC GETBDP` reply that `RpmsRpc::Reply.altered?` reports (a client has already replaced invalid bytes with U+FFFD), or whose lines include invalid UTF-8, a C0 control or U+FFFD after a leading run of spaces and C0 controls is stripped, or an error row, is a failed read: no provider is taken from it and `:primary_provider` falls back to the PTINFO primary provider, without raising. The lines are the ones `parse_many` parses (Array elements, or a String split on `/\r?\n/`; a lone CR is not a line break). nil or empty is no rows. `$C(30)` and `$C(31)` still cannot hide an error row.
+
+### Changed — License is now Apache-2.0
+
+- New releases are licensed under the Apache License, Version 2.0 (`LICENSE`, `NOTICE`). Earlier releases stay available under the MIT License, whose notice is kept in `NOTICE`.
 
 ### Fixed — `BehavioralHealth.visits` splits the GLOBAL ARRAY frame (#536)
 
