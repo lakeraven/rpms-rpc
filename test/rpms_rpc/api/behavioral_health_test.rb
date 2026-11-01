@@ -651,6 +651,11 @@ class BehavioralHealthTest < Minitest::Test
         diagnoses: [ { problem: "501", narrative: "SYNTH POV NARR A" } ],
         axis_iv: [], axis_v: "55", gaf: "12"
       } ],
+      save_progress_note: [ {
+        record_ien: "8801", patient: "100", chief_complaint: "SYN CC",
+        note: "SYNTH progress note.", comment: "SYNTH comment.",
+        placement_disposition: "12", referred_to: "SYN REF"
+      } ],
       visit_activity: [ 8801 ],
       visit_axis_ii: [ 8801 ],
       visit_axis_iv: [ 8801 ],
@@ -783,6 +788,51 @@ class BehavioralHealthTest < Minitest::Test
               "[Data]\n9002011^#{record}^.14^#{axis_v}^EXT\n9002011^#{record}^1115^#{gaf}^EXT")
   end
 
+  # Non-empty comment: SAVE, SOAP and COMM APP are three AMHGRPC scopes.
+  def seed_context_save_progress_note(mock)
+    record = "8801"
+    patient = "100"
+    placement = "12"
+    chief = "SYN CC"
+    note = "SYNTH progress note."
+    comment = "SYNTH comment."
+    referred = "SYN REF"
+    wire = "E|#{record}|#{chief}|#{note}|#{comment}|#{placement}|#{referred}|#{patient}"
+    mock.seed_text(:amhg_save_progress_notes, wire, "T00030Result#{RS}#{record}#{RS}#{US}")
+    visit_key = RpmsRpc::DdrFileman.gets_entry_param(
+      file: "9002011", iens: "#{record},", fields: ".08;1110;1112", flags: "I"
+    ).to_s
+    mock.seed(
+      :ddr_gets_entry_data, visit_key,
+      [ "[Data]",
+        "9002011^#{record}^.08^#{patient}^PATIENT",
+        "9002011^#{record}^1110^^EHR",
+        "9002011^#{record}^1112^^SIGNED" ].join("\n")
+    )
+    placement_key = RpmsRpc::DdrFileman.gets_entry_param(
+      file: "9002013.6", iens: "#{placement},", fields: ".01;.02", flags: "I"
+    ).to_s
+    mock.seed(
+      :ddr_gets_entry_data, placement_key,
+      [ "[Data]",
+        "9002013.6^#{placement}^.01^SYNTH PLACEMENT^EXT",
+        "9002013.6^#{placement}^.02^^EXT" ].join("\n")
+    )
+    read_key = RpmsRpc::DdrFileman.gets_entry_param(
+      file: "9002011", iens: "#{record},", fields: "2101;.17;.18", flags: "I"
+    ).to_s
+    mock.seed(
+      :ddr_gets_entry_data, read_key,
+      [ "[Data]",
+        "9002011^#{record}^2101^#{chief}^EXT",
+        "9002011^#{record}^.17^#{placement}^EXT",
+        "9002011^#{record}^.18^#{referred}^EXT" ].join("\n")
+    )
+    mock.seed_text(:amhg_visit_soap, record, "T00250Soap#{RS}#{note}#{RS}#{US}")
+    mock.seed_text(:amhg_visit_comment_appointment, record,
+                   "T00250CommentAppointment#{RS}#{comment}#{RS}#{US}")
+  end
+
   def test_every_amhg_call_runs_under_amhgrpc_and_restores_the_callers_context
     AMHG_CALLS.each do |mod, table|
       table.each do |method, args|
@@ -792,6 +842,7 @@ class BehavioralHealthTest < Minitest::Test
         keywords = args.find { |a| a.is_a?(Hash) } || {}
         seed_context_save_visit(mock) if mod == BH && method == :save_visit
         seed_context_save_pov(mock) if mod == BH && method == :save_pov
+        seed_context_save_progress_note(mock) if mod == BH && method == :save_progress_note
 
         mod.public_send(method, *positional, **keywords)
 
@@ -810,8 +861,10 @@ class BehavioralHealthTest < Minitest::Test
         end
         assert_equal caller_context, mock.current_context,
           "#{mod}.#{method} left the session on #{mock.current_context.inspect}"
-        assert_equal [ "AMHGRPC", caller_context ], mock.context_binds,
-          "#{mod}.#{method}: expected one bind and one restore"
+        expected_binds = [ "AMHGRPC", caller_context ]
+        expected_binds *= 3 if mod == BH && method == :save_progress_note
+        assert_equal expected_binds, mock.context_binds,
+          "#{mod}.#{method} context binds were #{mock.context_binds.inspect}"
       end
     end
   end
