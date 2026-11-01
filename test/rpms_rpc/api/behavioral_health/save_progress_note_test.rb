@@ -47,7 +47,7 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
   NOTE_MULTILINE = "Line one.\nSecond.\n\nFourth segment end."
   SOAP_ROWS_MULTILINE = [ "Line one.\n", "Second.\n", "\n", "Fourth segment end." ].freeze
   COMMENT_TWO_LINE = "First line.\nSecond line."
-  COMM_ROWS_TWO_LINE = [ "First line.\n", "Second line.\n" ].freeze
+  COMM_ROWS_TWO_LINE = [ "First line.\n", "Second line." ].freeze
 
   WIRE_FULL =
     "E|#{RECORD_IEN}|#{CHIEF_COMPLAINT}|#{NOTE}|#{COMMENT}|#{PLACEMENT}|#{REFERRED_TO}|#{PATIENT}".freeze
