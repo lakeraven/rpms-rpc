@@ -84,7 +84,7 @@ module RpmsRpc
   # bypasses the check either way, so only a non-programmer run is evidence
   # of this bind. undo_checkin reads #9002018.4 and #9002018.1 under CIAV
   # VUECENTRIC before BSDX CHECKIN APPOINTMENT, reads #9002018.4 .03 again
-  # after a "0^" reply and after an error reply, and, when that "0^" left
+  # after a "0^" reply and after an error reply, and, when that read shows
   # .03 empty, reads #9002018.4 .01 and .05 and lists #44.003 under CIAV
   # VUECENTRIC. DDR GETS ENTRY DATA and DDR LISTER are not registered on
   # BSDXRPC. A refusal from the preflight reads does not send the BSDX RPC.
@@ -220,23 +220,41 @@ module RpmsRpc
     # Start is .01 and the patient is .05. It judges only the row whose .01
     # equals that patient (FIND^BSDX25). A non-empty 309 is
     # { success: false, error: :partial, message: } and the message names
-    # field 309 and #44.003. An empty 309 is { success: true }. A nil reply,
-    # an error, an empty or unfinished list, a missing row, an empty .01 or
-    # .05, no row for this patient, more than one such row, or a row that
-    # does not carry 309 is :lookup_failed. A missing or failed read is not
-    # an empty field: absence of data never verifies the clinic check-in.
-    # .03 still set does not list #44.003.
+    # field 309 and #44.003. An empty 309 is { success: true }. Once the
+    # check-in RPC has run and .03 is known cleared, a failure to verify
+    # field 309 is { success: false, error: :partial_unverified, message: }:
+    # a nil reply, an error, an empty or unfinished list (MORE), a missing
+    # row, an empty .01 or .05, no row for this patient, more than one such
+    # row, or a row that does not carry a 309 piece. The message states that
+    # the check-in was already cleared (.03 cleared) and that field 309
+    # could not be verified. :lookup_failed stays only where nothing was
+    # written, or where the .03 re-read itself failed and the field's state
+    # is unknown. A missing or failed read is not an empty field: absence
+    # of data never verifies the clinic check-in. .03 still set does not
+    # list #44.003.
+    #
+    # After :partial with field 309 still set, and after :partial_unverified,
+    # a retry returns :not_checked_in. The preflight sees an empty .03 and
+    # does not send the RPC, so it never looks at field 309 again. Field 309
+    # must be cleared in RPMS. There is no API recovery path. An error reply
+    # whose 309 read is empty is also :partial, and a retry of that result
+    # returns :not_checked_in for the same reason: .03 is already empty.
     #
     # CHECKIN^BSDX25 clears .03 in BSDXCHK (BSDX25.m:59) before CANCHKIN.
     # CANCHKIN can then ERR("Could not locate appointment...") (BSDX25.m:161)
     # and leave the clinic check-in (#44.003 field 309) set. After any other
     # check-in reply, .03 is read again the same way. A nil reply, an error,
-    # or a missing row is :lookup_failed. An empty .03 is
-    # { success: false, error: :partial, message: }: the BSDX check-in was
-    # cleared and the clinic appointment check-in was not. A value still
-    # stored returns the check-in error as checkin_appointment returns it.
-    # nil when the broker gives no reply to the check-in RPC; .03 is not
-    # read again in that case.
+    # or a missing row is :lookup_failed. An empty .03 reuses the same
+    # field-309 verification. A non-empty 309 is :partial and the message
+    # names field 309. An unverifiable 309 (no row, more than one row, MORE,
+    # a missing 309 piece, an empty patient, a nil or error listing, or a
+    # failed start/patient read) is :partial_unverified. An empty 309 is
+    # { success: false, error: :partial, message: }: .03 was cleared, the
+    # clinic field is empty, and the message carries the check-in RPC's
+    # error text. A value still stored in .03 returns that check-in error
+    # as checkin_appointment returns it ({ success: false, error: <text> })
+    # and does not list #44.003. nil when the broker gives no reply to the
+    # check-in RPC; .03 is not read again in that case.
     #
     # A blank, zero, or non-numeric appointment IEN is
     # { success: false, error: :invalid } and sends no RPC.
@@ -256,7 +274,7 @@ module RpmsRpc
       return written if written.nil?
       return confirm_checkin_cleared(ien, hospital) if written[:success]
 
-      undo_checkin_after_error(ien, written)
+      undo_checkin_after_error(ien, hospital, written)
     end
     shape :undo_checkin, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/undo-checkin"
 
@@ -523,52 +541,81 @@ module RpmsRpc
     # CANCHKIN's "0^" does not mean field 309 was cleared (BSDX25.m:164-167).
     # The clinic row is the one FIND^BSDX25 would take: same start, same
     # hospital location, .01 equal to this appointment's patient. Any read
-    # that does not produce that one row fails closed.
+    # that does not produce that one row fails closed. .03 is already empty,
+    # so that failure is :partial_unverified, not a retry-safe lookup failure.
     def confirm_clinic_checkin_cleared(ien, hospital)
+      apply_field_309(ien, hospital, when_empty: { success: true })
+    end
+
+    # The same 309 read after an error reply whose .03 is empty, and after
+    # a "0^" reply. A set 309 is :partial. An unreadable or duplicate row is
+    # :partial_unverified. when_empty is the caller's result for a verified
+    # empty 309: success after "0^", or :partial carrying the RPC error
+    # after an error reply.
+    def apply_field_309(ien, hospital, when_empty:)
+      case judge_field_309(ien, hospital)
+      when :empty then when_empty
+      when :set then field_309_still_set
+      else partial_unverified_result
+      end
+    end
+
+    # :empty, :set, or :unverified. Called only after .03 is known empty.
+    # Absence of one readable 309 piece is :unverified. An empty piece is
+    # :empty. Anything else stored in the piece is :set.
+    def judge_field_309(ien, hospital)
       located = appointment_start_and_patient(ien)
-      return located if located.is_a?(Hash)
+      return :unverified unless located.is_a?(Array)
 
-      start, patient = located
-      checkin = clinic_field_309(start, hospital, patient)
-      return checkin if checkin.is_a?(Hash)
-      return { success: true } if checkin.empty?
+      value = clinic_field_309(located[0], hospital, located[1])
+      return :unverified unless value.is_a?(String)
 
+      value.empty? ? :empty : :set
+    end
+
+    def field_309_still_set
       { success: false, error: :partial,
         message: "clinic appointment check-in (#44.003 field 309) is still set" }
     end
 
+    # .03 is already cleared. Saying :lookup_failed would let a retry
+    # preflight that empty .03 and answer :not_checked_in, hiding 309.
+    def partial_unverified_result
+      { success: false, error: :partial_unverified,
+        message: "the check-in was already cleared (#9002018.4 field .03 cleared) and " \
+                 "#44.003 field 309 could not be verified" }
+    end
+
     # .01 is the appointment start, .05 the patient. DDR GETS returns a row
     # for an empty field, so a missing row is malformed. An empty value is
-    # not a start or a patient the clinic list can be judged against.
+    # not a start or a patient the clinic list can be judged against. nil
+    # when the read cannot be used; the caller has already seen .03 cleared.
     def appointment_start_and_patient(ien)
       read = ddr_gets(APPOINTMENT_FILE, "#{ien},", APPOINTMENT_LOCATE_FIELDS)
-      failed = { success: false, error: :lookup_failed,
-                 message: "DDR GETS ENTRY DATA could not read #9002018.4 fields .01 and .05" }
-      return failed if gets_malformed?(read, START_FIELD, PATIENT_FIELD)
+      return nil if gets_malformed?(read, START_FIELD, PATIENT_FIELD)
 
       start = read[:fields][START_FIELD][:internal].to_s.strip
       patient = read[:fields][PATIENT_FIELD][:internal].to_s.strip
-      return failed if start.empty? || patient.empty?
+      return nil if start.empty? || patient.empty?
 
       [ start, patient ]
     end
 
     # DDR LISTER under CIAV VUECENTRIC. pieces are .01 then 309 (the IEN is
-    # entry[:ien]). Nil, an error, an unfinished page, no row for this
-    # patient, more than one, or a row without a 309 piece is :lookup_failed.
-    # An empty 309 piece is the value, and it is empty.
+    # entry[:ien]). nil when the list is missing, an error, unfinished
+    # (MORE), has no row for this patient, has more than one, or the row
+    # has no 309 piece. An empty 309 piece is a stored empty value. A
+    # missing piece is a failed read.
     def clinic_field_309(start, hospital, patient)
       listed = ddr_lister(CLINIC_APPOINTMENT_FILE, ",#{start},#{hospital},",
                           CLINIC_APPOINTMENT_FIELDS, CLINIC_LIST_FLAGS)
-      failed = { success: false, error: :lookup_failed,
-                 message: "DDR LISTER could not read #44.003 field 309" }
-      return failed if listed.nil? || listed[:error] || listed[:more]
+      return nil if listed.nil? || listed[:error] || listed[:more]
 
       rows = Array(listed[:entries]).select { |entry| clinic_row_patient(entry) == patient }
-      return failed unless rows.length == 1
+      return nil unless rows.length == 1
 
       pieces = rows.first[:pieces].to_a
-      return failed if pieces.length < 2
+      return nil if pieces.length < 2
 
       pieces[1].to_s
     end
@@ -579,16 +626,24 @@ module RpmsRpc
 
     # BSDXCHK clears .03 before CANCHKIN (BSDX25.m:59). An error reply can
     # mean CANCHKIN failed after that clear (BSDX25.m:161) and left #44.003
-    # field 309 set. Empty .03 is that partial undo. A value still stored
-    # means the BSDX copy was not cleared, so the check-in error stands.
-    def undo_checkin_after_error(ien, written)
+    # field 309 set. Empty .03 is judged by the same 309 read as a "0^"
+    # reply. A value still stored means the BSDX copy was not cleared, so
+    # the check-in error stands and #44.003 is not listed.
+    def undo_checkin_after_error(ien, hospital, written)
       time = checkin_time_after_rpc(ien)
       return time if time.is_a?(Hash)
       return written unless time.empty?
 
+      apply_field_309(ien, hospital, when_empty: cleared_with_rpc_error(written))
+    end
+
+    # .03 and field 309 are both empty, and the RPC still returned an error.
+    # The message names the BSDX check-in and the clinic field, and keeps
+    # the RPC text. This is not :partial_unverified: 309 was read.
+    def cleared_with_rpc_error(written)
       { success: false, error: :partial,
-        message: "BSDX check-in on #9002018.4 field .03 was cleared but the " \
-                 "clinic appointment check-in (#44.003 field 309) was not: #{written[:error]}" }
+        message: "BSDX check-in on #9002018.4 field .03 was cleared; " \
+                 "clinic appointment check-in (#44.003 field 309) is empty: #{written[:error]}" }
     end
 
     # The .03 row after BSDX CHECKIN APPOINTMENT, or a :lookup_failed hash.
