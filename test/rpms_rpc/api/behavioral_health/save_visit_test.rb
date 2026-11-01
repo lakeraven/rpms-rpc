@@ -260,6 +260,52 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = @mock }
   end
 
+  # A caller already inside rescue leaves $! set to the host exception.
+  # A failed DDR re-bind must still be SaveError, not a returned IEN.
+  def test_nil_context_inside_host_rescue_still_raises_save_error_when_ddr_rebind_fails_after_successful_amhg
+    seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+    err = nil
+    returned = :not_called
+    begin
+      raise "host"
+    rescue StandardError
+      err = assert_raises(BH::SaveError) do
+        returned = capture_io { BH.save_visit(**FULL_KWARGS) }
+      end
+    end
+    assert_equal :not_called, returned
+    assert_match(/AMHG SAVE VISIT outcome unknown/, err.message)
+    assert_match(/record 8802 may have been filed/, err.message)
+    assert_kind_of RpmsRpc::Client::RpcError, err.cause
+    refute_nil save_call
+    assert_equal "AMHGRPC", @mock.current_context
+  end
+
+  def test_nil_context_inside_host_rescue_still_raises_save_error_when_ddr_rebind_fails_after_amhg_timeout
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+    wrapper = TimeoutOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = nil
+    returned = :not_called
+    begin
+      raise "host"
+    rescue StandardError
+      err = assert_raises(BH::SaveError) do
+        returned = capture_io { BH.save_visit(**FULL_KWARGS) }
+      end
+    end
+    assert_equal :not_called, returned
+    assert_kind_of RpmsRpc::Client::RpcTimeoutError, err.cause
+    refute_nil save_call
+    assert_equal "AMHGRPC", @mock.current_context
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
   def test_add_with_a_nil_context_and_an_unbindable_ddr_context_names_the_record_from_the_reply
     seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
     @mock.instance_variable_set(:@current_context, nil)

@@ -234,11 +234,14 @@ module RpmsRpc
     # DATA and DDR LISTER are registered under CIAV VUECENTRIC. A session
     # that declared no context cannot be restored by the scope and would
     # stay bound to AMHGRPC, so only in that case DDR_CONTEXT is re-bound
-    # on every exit after the AMHG call, before the post-call reads
-    # (binds: AMHGRPC, then DDR_CONTEXT). A timeout or M error from the
-    # call still re-binds. A re-bind failure does not replace a SaveError
-    # the call already raised. When the call returned and the re-bind
-    # fails, the SaveError names the record from the reply.
+    # after the AMHG call, before the post-call reads (binds: AMHGRPC,
+    # then DDR_CONTEXT), including when the call raises. The exception
+    # in flight is the one the call raised, captured at the call. $! is
+    # not read: a caller already inside rescue leaves $! set to the
+    # host's exception, and a failed re-bind must not be swallowed. A
+    # re-bind failure does not replace a SaveError the call already
+    # raised. When the call returned and the re-bind fails, the
+    # SaveError names the record from the reply.
     #
     # Pieces, in order: mode A/E, record IEN, primary provider (files
     # #9002011.02), program external (.02, $$SCI^AMHGT at AMHGSVF.m:22;
@@ -404,15 +407,14 @@ module RpmsRpc
       end
       mapping = DataMapper[:amhg_save_visit]
       declared = save_visit_declared_context
+      # Assigned inside the call, before a failed re-bind reports it.
       ien = nil
-      begin
+      with_ddr_rebind_after_amhg(declared, on_bind_error: lambda { |error|
+        known = ien || (requested.empty? ? nil : requested)
+        save_visit_ambiguous!(known, cause: error)
+      }) do
         response = save_visit_amhg(mapping, wire, requested)
         ien = save_visit_ien(response, requested)
-      ensure
-        # After the call, including when it raised. A bind error yields
-        # only when this ensure has no exception already in flight.
-        known = ien || (requested.empty? ? nil : requested)
-        ddr_rebind_after_amhg!(declared) { |error| save_visit_ambiguous!(known, cause: error) }
       end
       save_visit_confirm_filed!(ien, expected)
       save_visit_confirm_primary!(ien, provider_ien)
@@ -431,9 +433,12 @@ module RpmsRpc
     # restored by the scope and would stay bound to AMHGRPC. After the
     # AMHG call returns or raises, that session is re-bound to
     # DDR_CONTEXT before anything else (binds: AMHGRPC, then DDR_CONTEXT).
-    # A re-bind that fails while a SaveError from the call is already in
-    # flight does not replace it. A re-bind that fails when the call
-    # returned raises SaveError and the outcome is unknown.
+    # The exception in flight is the one the AMHG call raised, captured
+    # at the call. $! is not read: a caller already inside rescue leaves
+    # $! set to the host's exception. A re-bind that fails while a
+    # SaveError from the call is already in flight does not replace it.
+    # A re-bind that fails when the call returned raises SaveError and
+    # the outcome is unknown, including from inside that rescue.
     #
     # EN^AMHBHRU (AMHBHRU.m:7-21) checks the record, then PCCLINK. PRECHECK
     # (lines 102-105) and CHECKREC (lines 23-41) refuse before writing
@@ -483,10 +488,13 @@ module RpmsRpc
     # and deletes its V files before any read-back could notice
     # (AMHPCCL.m:46-74). ADD1 stores the visit as .16 with no patient
     # check (AMHPCCL.m:21,33), and a set .11 clears .16 and then links
-    # that deleted visit (AMHPCCL.m:49). A read that shows the BH
-    # record is not on file, and no +visit_ien+, still calls AMHG:
-    # PRECHECK answers "IEN OF MHSS RECORD NOT VALID" and writes
-    # nothing. A read that fails is SaveError and AMHG is not called.
+    # that deleted visit (AMHPCCL.m:49). Any BH pre-read that is not a
+    # clean [Data] reply is SaveError before AMHG, with or without
+    # +visit_ien+. DdrFileman cannot tell a missing entry from another
+    # failure (error with no fields, a garbled body, or a raised
+    # {RpmsRpc::Error}), so absence is not a reason to call AMHG. The
+    # message says the behavioral health record could not be read and
+    # names no IEN.
     #
     # The reply is a GLOBAL ARRAY: header "T00030Result", then exactly
     # one data row (AMHGPCC.m:25-28). The CIA reader consumes the closing
@@ -515,21 +523,23 @@ module RpmsRpc
     # cause.
     #
     # Returns { visit_ien:, new_link: }. +visit_ien+ is the PCC visit
-    # IEN string. +new_link+ is true only when the pre-read .16 was
-    # blank and the read-back .16 equals the reply. It is false when
-    # that pre-read .16 already equalled the reply, so an unchanged
-    # link is never reported as a new one.
+    # IEN string. new_link describes the .16 transition observed across
+    # the call. It is true only when the pre-read .16 was blank and the
+    # read-back .16 equals the reply. new_link: false means the link
+    # existed before the call and does not confirm the PCC visit was
+    # edited (EN^AMHBHRU returns success without touching PCC when the
+    # site link is off, the record is locked, or ^AMHREC(R,11) piece 10
+    # is set; AMHBHRU.m:43-45, AMHPCCL.m:8,12). A primary provider with
+    # no link is the same non-edit (AMHLE2.m:76-83).
     def save_pcc_visit(record_ien:, visit_ien: nil)
       record = pcc_ien!(record_ien)
       visit = visit_ien.nil? ? nil : pcc_ien!(visit_ien)
       pre_link, saw_link = pcc_guard!(record, visit)
       mapping = DataMapper[:amhg_create_edit_visit]
       declared = save_visit_declared_context
-      response = nil
-      begin
-        response = pcc_amhg(mapping, visit.nil? ? "#{record}|" : "#{record}|#{visit}")
-      ensure
-        ddr_rebind_after_amhg!(declared) { |error| pcc_unknown!(cause: error) }
+      wire = visit.nil? ? "#{record}|" : "#{record}|#{visit}"
+      response = with_ddr_rebind_after_amhg(declared, on_bind_error: ->(error) { pcc_unknown!(cause: error) }) do
+        pcc_amhg(mapping, wire)
       end
       row = pcc_classify!(pcc_data_row(response))
       pcc_unknown! if visit && row != visit
@@ -1225,13 +1235,31 @@ module RpmsRpc
       client.respond_to?(:current_context) ? client.current_context : :unscoped
     end
 
+    # Runs the AMHG call, then re-binds a nil declared context. The
+    # exception the call raised is captured here and re-raised from this
+    # rescue, so $! is that exception and not a host rescue's. A bind
+    # error after a returned call is reported through +on_bind_error+.
+    # A bind error while the call's exception is in flight does not
+    # replace it.
+    def with_ddr_rebind_after_amhg(declared, on_bind_error:)
+      begin
+        result = yield
+      rescue Exception => e
+        ddr_rebind_after_amhg!(declared, e, &on_bind_error)
+        raise
+      end
+      ddr_rebind_after_amhg!(declared, nil, &on_bind_error)
+      result
+    end
+
     # ContextScope restores only a context that existed. With none declared
     # the session is left on AMHGRPC, which the DDR reads must not rely on.
-    # Called from ensure, so a timeout or M error still re-binds. The bind
-    # error is yielded only when nothing else is pending; an exception
-    # already in flight stays the error the caller sees.
-    def ddr_rebind_after_amhg!(declared)
-      pending = $!
+    # +pending+ is the exception the AMHG call raised, or nil when that
+    # call returned. It is passed in: $! is the host's exception when the
+    # caller is already inside rescue, even if this call returned. A bind
+    # error is yielded only when +pending+ is nil, so an exception already
+    # in flight stays the error the caller sees.
+    def ddr_rebind_after_amhg!(declared, pending)
       ddr_restore_context!(declared)
     rescue Error => e
       yield e unless pending
@@ -1336,16 +1364,14 @@ module RpmsRpc
       text
     end
 
-    # #9002011 .08 and .16 before every AMHG call. When a visit will be
-    # touched, #9000010 .05 and .11 too. Returns [link, seen]: link is
-    # the pre-read .16 (nil when blank) and seen is true when that field
-    # was read. A record that is not on file, with no visit IEN, returns
-    # [nil, false] so PRECHECK can answer; the call is not a new link.
+    # #9002011 .08 and .16 before every AMHG call. A pre-read that is
+    # not a clean record is SaveError before AMHG, with or without a
+    # visit IEN. When a visit will be touched, #9000010 .05 and .11
+    # too. Returns [link, seen]: link is the pre-read .16 (nil when
+    # blank) and seen is true when that field was read.
     # AMHPCCL stores the visit as .16 with no patient check (AMHPCCL.m:21,33).
     def pcc_guard!(record_ien, visit_ien)
       bh = pcc_gets(file: BH_VISIT_FILE, ien: record_ien, fields: PCC_BH_FIELDS, flags: PCC_PRE_FLAGS)
-      return [ nil, false ] if visit_ien.nil? && pcc_record_missing?(bh)
-
       pcc_refuse!("the behavioral health record could not be read") if pcc_unreadable?(bh)
       pcc_refuse!("the stored PCC link could not be read") unless pcc_field?(bh, ".16")
       linked = pcc_pointer(bh, ".16")
@@ -1355,12 +1381,6 @@ module RpmsRpc
         pcc_refuse!("the behavioral health record is already linked to a different PCC visit")
       end
       [ linked, true ]
-    end
-
-    # A parsed error with no fields is how a missing #9002011 IEN reads.
-    # Nil and :failed are a read that did not answer, not that result.
-    def pcc_record_missing?(got)
-      got.is_a?(Hash) && got[:error] && got[:fields].empty?
     end
 
     def pcc_confirm_target!(visit_ien, patient)
