@@ -1,17 +1,17 @@
 # Leaving VueCentric-only RPCs: what the December path needs
 
-**Status:** findings and a work list, 2026-10-30. Nothing here is built. Read-only analysis of the pinned build `bcer-9.0-20261012-e7923a4-ydb`.
-**Why:** rpms-rpc signs on as the VueCentric application (`CIAV VUECENTRIC`) and calls 33 RPCs that sit in no other broker option. The direction is stock RPMS RPCs first, then DDR FILER for FileMan-only changes, otherwise "not supported, done in RPMS". We write no M.
+**Status:** findings and a work list. Nothing here is built. Read-only analysis of the pinned build `bcer-9.0-20261012-e7923a4-ydb`.
+**Why:** rpms-rpc signs on as the VueCentric application (`CIAV VUECENTRIC`) and calls 37 RPCs that sit in no other broker option. The direction is stock RPMS RPCs first, then DDR FILER for FileMan-only changes, otherwise "not supported, done in RPMS". We write no M.
 
-## How the 33 were counted
+## How the 37 were counted
 
-`lib/rpms_rpc/required_rpcs.json` lists 191 distinct RPCs across 45 modules. Joined against the build's broker-option inventory (`data/inventories/<build>/…-contexts_19_05.txt`):
+`lib/rpms_rpc/required_rpcs.json` lists 204 distinct RPCs across 47 modules. Joined against the build's broker-option inventory (`data/inventories/<build>/…-contexts_19_05.txt`):
 
-- 33 RPCs are in `CIAV VUECENTRIC` and no other option.
-- 157 are also in another option.
+- 37 RPCs are in `CIAV VUECENTRIC` and no other option.
+- 166 are also in another option. 65 of those are also in `CIAV VUECENTRIC`; the other 101 are in package or CPRS options only.
 - 1 is in no option (`CIANBRPC CANRUN`, the CIA sign-on RPC).
 
-The build has 52 broker options. `CIAV VUECENTRIC` holds 1,639 RPCs and `OR CPRS GUI CHART` 1,013. The IHS package options each carry their own list (`BSDXRPC` 69, `AGGRPC` 101, `AMHGRPC` 223, `BMXRPC` 59).
+The build has 52 broker options. `CIAV VUECENTRIC` holds 1,639 RPCs and `OR CPRS GUI CHART` 1,012. The IHS package options each carry their own list (`BSDXRPC` 69, `AGGRPC` 101, `AMHGRPC` 223, `BMXRPC` 59). In all, 102 of the 204 RPCs are in `CIAV VUECENTRIC` (37 only there, 65 shared). The 37 are: `BEHOCACV CWAD`, `BEHOCCD GETREF`, `BEHOCCD PHR`, `BEHOCIR GETNUM`, `BEHOCIR GETTXT`, `BEHOCIR1 GETCCDS`, `BEHOENCX CHKVISIT/FETCH/GETVISIT`, `BEHOPTPC GETBDP`, `BEHOPTPL DOBLKP/HRNLKP/LISTALL/LOOKUP`, `BEHOSICX SITEINFO`, `BEHOVM SAVE/TEMPLATE/VALIDATE`, `BEHOVM2 VUNITS`, `BGOPROB DEL/SET`, `BGOREF GETREA/SET`, `BGOVCPT GET/SET`, `BGOVEXAM SET`, `BGOVHF SET`, `BGOVIMM GET/GETVFC`, `BGOVIMM2 GETELIG`, `BGOVMSR GET/LAST/SET`, `BGOVPOV SET`, `CIAVCXUS HASKEYS/VIMINFO`, `CIAVMCFG GETREG`.
 
 ## Class key
 
@@ -26,24 +26,25 @@ The build has 52 broker options. `CIAV VUECENTRIC` holds 1,639 RPCs and `OR CPRS
 Two routes the first pass missed:
 
 - **Scheduling check-in creates the PCC visit.** `CHECKIN^BSDX25` (RPC `BSDX CHECKIN APPOINTMENT`, option `BSDXRPC`) calls `GETVISIT^BSDAPI4`, and again with `FORCE ADD` when no visit exists, then adds the provider (BSDX25.m lines 132-150). It does so only when the clinic's hospital-location record has its create-visit flag set (file 9009017.2, field .09).
-- **The IHS Behavioral Health package saves visits itself.** `AMHG SAVE VISIT` (`VISIT^AMHGSVF`, option `AMHGRPC`) writes the BH record through `MODV^AMHGEVF`. The same routine has `POV`, `PN`, `SCREEN`, `HF`, `MSR` and `ASS` entry points. rpms-rpc wraps the BH reads only.
+- **The IHS Behavioral Health package saves visits itself.** `AMHG SAVE VISIT` (`VISIT^AMHGSVF`, option `AMHGRPC`) writes the BH record through `MODV^AMHGEVF`. The same routine has `POV`, `PN`, `SCREEN`, `HF`, `MSR` and `ASS` entry points. The RPC names differ from the entry-point tags: `AMHG SAVE POV`, `AMHG SAVE PROGRESS NOTES` (`PN`), `AMHG SAVE SCREENING` (`SCREEN`), `AMHG SAVE HEALTH FACTORS` (`HF`) and `AMHG SAVE MEASUREMENTS` (`MSR`). The inventory registers no RPC for `ASS`. rpms-rpc wraps the BH reads only.
 
 | Need | VueCentric-only RPC used today | Non-VueCentric route | Class | Notes |
 |---|---|---|---|---|
-| Signed-on user (DUZ) | `CIAVCXUS VIMINFO` | `XUS AV CODE` (DUZ in RET(0)), `XUS GET USER INFO` (option `XUS SIGNON`) | A | Needs the generic XWB or BMX sign-on instead of CIA. Loses the CIA session id (see open points). |
+| Signed-on user (DUZ) | `CIAVCXUS VIMINFO` | `XUS AV CODE` (DUZ in RET(0)), `XUS GET USER INFO` (option `XUS SIGNON`) | A | Needs the generic XWB or BMX sign-on instead of CIA. Leaving CIA loses the CIA session id; staying on CIA with `application:` set to another option is an alternative, not a verified route (see open points). |
 | Security keys | `CIAVCXUS HASKEYS` | `ORWU NPHASKEY` (one call per key), or DDR LISTER on 200.051 | A | Always pass the signed-on DUZ. `ORWU HAS KEY` is not registered in this build. |
 | Division and station | `BEHOSICX SITEINFO` | `XUS GET USER INFO` line 3, `XUS DIVISION GET/SET` | A | `XUS DIVISION SET` checks the user's division multiple; `CIANBRPC DIVSET` does not. Address and name by DDR read of file 4. |
 | Widget registry | `CIAVMCFG GETREG` | none needed | D | Dumps VueCentric's widget registry. The web app has no use for it. |
+| Patient selection | `BEHOPTPL LOOKUP`, `HRNLKP`, `DOBLKP`, `LISTALL` | not chosen; `AGG LOOKUP PATIENTS` (option `AGGRPC`) is a candidate | E | Four of the 37. Read from the inventory only; behaviour not compared. `PatientSelection.find` already mirrors VueCentric's lookup. |
 | Banner flags (C, W, A, D) | `BEHOCACV CWAD` | `ORWPT CWAD` (option `OR CPRS GUI CHART`) | A | Same scan; no Patient Record Flag letter "F". |
 | Patient Record Flags | `BEHOCACV CWAD` ("F") | none known | E | A behavioral-health safety flag is a real banner item. `ORPRF*` RPCs unchecked. |
-| Designated provider | `BEHOPTPC GETBDP` | DDR read of patient file field .14; `ORWPT1 PRCARE` reads PCMM, which IHS sites do not fill | B | Latent bug: the banner uses the first row of an alphabetical category list. |
+| Designated provider | `BEHOPTPC GETBDP` | DDR read of IHS PATIENT (#9000001) field .14 (the PCP field, as in `lib/rpms_rpc/mappings/ihs.rb`); `ORWPT1 PRCARE` reads PCMM, which IHS sites do not fill | B | Latent bug: the banner uses the first row of an alphabetical category list. |
 | Create the visit | `BEHOENCX FETCH` (create) | Scheduling check-in; `AMHG SAVE VISIT` for BH | A | Depends on the clinic's create-visit flag. Unverified on a running image. |
 | Visit diagnosis | `BGOVPOV SET` | `AMHG SAVE POV` for BH visits | A for BH, E otherwise | Stock `ORWPCE SAVE` is registered to `CIAVCXPC`, a routine absent from the source tree. |
-| Progress notes | (TIU, stock) | `AMHG SAVE PN` for BH notes | stock | |
-| Screening results | `BGOVHF SET` | `AMHG SAVE SCREEN` | A (probable) | Which store a PHQ-9 or GAD-7 belongs in is unconfirmed. |
+| Progress notes | (TIU, stock) | `AMHG SAVE PROGRESS NOTES` for BH notes | stock | |
+| Screening results | `BGOVHF SET` | `AMHG SAVE SCREENING` | A (probable) | Which store a PHQ-9 or GAD-7 belongs in is unconfirmed. |
 | Problem list | `BGOPROB SET/DEL` | `ORQQPL ADD SAVE`, `ORQQPL DELETE` | B | Loses SNOMED, laterality, IHS numbering. Needs a decision. |
 | Psych CPT | `BGOVCPT SET` | none found | E | `Procedure.add` is wire-incompatible with `BGOVCPT SET`. |
-| Vitals and measurements | `BEHOVM*`, `BGOVMSR*` | `AMHG SAVE MSR` (BH); GMV vitals unchecked | E | Not on the December path. |
+| Vitals and measurements | `BEHOVM*`, `BGOVMSR*` | `AMHG SAVE MEASUREMENTS` (BH); GMV vitals unchecked | E | Not on the December path. |
 | Immunization, refusal, eligibility, PHR | `BGOVIMM*`, `BGOREF*`, `BGOVIMM2 GETELIG`, `BEHOCCD*`, `BEHOCIR*` | none | D or E | Primary care, planned for later. The C-CDA is built in Rails, not from these RPCs. |
 
 ## Verified, and not
@@ -51,9 +52,9 @@ Two routes the first pass missed:
 Read in the pinned routines (`rpms-ops/data/standup/bcer-9.0-ydb/r/`), not run:
 `OPTCHK^CIANBUTL`; `CHECKIN^BSDX25` and `GETVISIT^BSDAPI4` call; `VISIT^AMHGSVF`; the `BGOVCPT` input layout (`Visit IEN ^ CPT IEN ^ DFN ^ Event date ^ Qty ^ Dx ^ Mod1 ^ Prov …`); `GETBDP^BEHOPTPC` and `ALLDP^BDPAPI`.
 
-Not verified: any live behaviour (no broker was reachable); that `AMHGEVF` links the BH record to a PCC visit; the clinic create-visit flag on the target tenant; what the `AMHG SAVE POV/SCREEN/MSR` RPCs accept; whether `CIAVCXPC` exists on the running image; the generic-path RPCs under a non-CIA context.
+Not verified: any live behaviour (no broker was reachable); that `AMHGEVF` links the BH record to a PCC visit; the clinic create-visit flag on the target tenant; what the `AMHG SAVE POV`, `AMHG SAVE SCREENING` and `AMHG SAVE MEASUREMENTS` RPCs accept; whether `CIAVCXPC` exists on the running image; the generic-path RPCs under a non-CIA context.
 
 ## Open points
 
-- Leaving CIA loses the CIA session id that lakeraven-ehr now stores on audit rows (lakeraven-ehr#759). The generic path needs another way to tie the two audit trails.
+- Leaving the VueCentric option does not require leaving CIA: `CiaClient#authenticate` takes `application:` and context switching keeps the session UID. What must change is the `signon_duz` read, which calls `CIAVCXUS VIMINFO`; `XUS GET USER INFO` is a candidate replacement, unverified. Switching to the generic XWB or BMX sign-on instead would lose the CIA session id that lakeraven-ehr stores on audit rows (lakeraven-ehr#759), and would need another way to tie the two audit trails. Choose between the two.
 - A written exceptions list is needed for what stays VueCentric: today the psych CPT and problem list, and any non-BH writes.
