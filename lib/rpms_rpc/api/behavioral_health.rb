@@ -184,11 +184,11 @@ module RpmsRpc
     # Add or edit one BH VISIT (#9002011) through AMHG SAVE VISIT
     # (VISIT^AMHGSVF, AMHGSVF.m:11-45). One pipe-delimited AMHSTR. The
     # AMHG call runs under AMHGRPC via {Wire#call_amhg}. Every DDR call
-    # runs in the caller's context, outside that scope: DDR GETS ENTRY
+    # runs outside that scope, in the caller's context: DDR GETS ENTRY
     # DATA and DDR LISTER are registered under CIAV VUECENTRIC. A session
     # that declared no context cannot be restored by the scope and would
     # stay bound to AMHGRPC, so only in that case the post-call reads
-    # re-bind DDR_CONTEXT first.
+    # re-bind DDR_CONTEXT first (binds: AMHGRPC, then DDR_CONTEXT).
     #
     # Pieces, in order: mode A/E, record IEN, primary provider (files
     # #9002011.02), program external (.02, $$SCI^AMHGT at AMHGSVF.m:22;
@@ -322,6 +322,15 @@ module RpmsRpc
     # so this call does not file it. The future-date check uses the
     # local clock.
     #
+    # Signature and primary provider are checked before the call only.
+    # MODV files an edit unconditionally (AMHGEVF.m:110-120) and the
+    # read-back fields omit 1112, so a visit signed by another session
+    # between the pre-check and VISIT^AMHGSVF is overwritten and still
+    # reported as success. On a failed add, MODV still calls MODPRV with
+    # visit 0 (AMHGEVF.m:108-109, 123-135); FNDPRV finds nothing for 0, so
+    # stock M files a #9002011.02 row with .03=0 (FNDPRV rewrites it
+    # later). That is stock behaviour and is not prevented here.
+    #
     # Returns the record IEN as a string.
     def save_visit(provider:, patient:, encounter_date:, record_ien: nil, program: OMITTED,
                    clinic: OMITTED, type_of_contact: OMITTED, encounter_location: OMITTED,
@@ -346,8 +355,8 @@ module RpmsRpc
       mapping = DataMapper[:amhg_save_visit]
       declared = save_visit_declared_context
       response = save_visit_amhg(mapping, wire, requested)
-      save_visit_rebind_ddr_context(declared)
-      ien = save_visit_ien(response, requested)
+      ien = save_visit_reply_ien(response, requested, declared)
+      save_visit_rebind_ddr_context(declared, ien)
       save_visit_confirm_filed!(ien, expected)
       save_visit_confirm_primary!(ien, provider_ien)
       ien
@@ -1030,12 +1039,10 @@ module RpmsRpc
       )
     end
 
-    # MERR writes no $C(31) (AMHGU.m:116-119), so the CIA read of this
-    # call can time out after the routine has filed. ConnectionError
-    # covers that timeout. RpcMError means the routine ran and the
-    # outcome is still unknown. RpcNotAvailableError and RpcRefusedError
-    # are RpcError, not these two, so they are not wrapped.
+    # The DDR context the post-call reads need. Equal to CiaClient::SIGNON_CONTEXT,
+    # which cannot be referenced here: api/ files load before cia_client.
     DDR_CONTEXT = "CIAV VUECENTRIC"
+    private_constant :DDR_CONTEXT
 
     def save_visit_declared_context
       client = RpmsRpc.client
@@ -1044,7 +1051,8 @@ module RpmsRpc
 
     # ContextScope restores only a context that existed. With none declared
     # the session is left on AMHGRPC, which the DDR reads must not rely on.
-    def save_visit_rebind_ddr_context(declared)
+    # +record_ien+ is the record the reply already named, or nil.
+    def save_visit_rebind_ddr_context(declared, record_ien)
       return unless declared.nil?
 
       client = RpmsRpc.client
@@ -1052,9 +1060,14 @@ module RpmsRpc
 
       client.create_context(DDR_CONTEXT) if client.current_context != DDR_CONTEXT
     rescue Error => e
-      save_visit_ambiguous!(nil, cause: e)
+      save_visit_ambiguous!(record_ien, cause: e)
     end
 
+    # MERR writes no $C(31) (AMHGU.m:116-119), so the CIA read of this
+    # call can time out after the routine has filed. ConnectionError
+    # covers that timeout. RpcMError means the routine ran and the
+    # outcome is still unknown. RpcNotAvailableError and RpcRefusedError
+    # are RpcError, not these two, so they are not wrapped.
     def save_visit_amhg(mapping, wire, requested)
       call_amhg(mapping, wire)
     rescue Client::ConnectionError, Client::RpcMError => e
@@ -1102,6 +1115,15 @@ module RpmsRpc
       save_visit_ambiguous!(known) unless ien.match?(POSITIVE_IEN)
       save_visit_ambiguous!(known) if known && ien != known
       ien
+    end
+
+    # Parses the reply. A bad reply must not skip the re-bind, so the DDR
+    # context is restored before the error propagates.
+    def save_visit_reply_ien(response, requested, declared)
+      save_visit_ien(response, requested)
+    rescue SaveError
+      save_visit_rebind_ddr_context(declared, requested.empty? ? nil : requested)
+      raise
     end
 
     def save_visit_rows(response)
