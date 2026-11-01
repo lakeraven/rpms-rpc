@@ -19,6 +19,10 @@ module RpmsRpc
     # Practitioner.
     FILEMAN_CONTEXT = "CIAV VUECENTRIC"
 
+    # The option that lists ORWPT CWAD (CWAD^ORWPT). Same option as
+    # Practitioner::ROLES_CONTEXT.
+    CWAD_CONTEXT = "OR CPRS GUI CHART"
+
     def find(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
 
@@ -144,7 +148,12 @@ module RpmsRpc
     #   - BEHOPTCX PTINFO         (name, sex, DOB raw, MRN, primary provider name)
     #   - BEHOPTPC GETBDP         (one row per designated-provider category,
     #                              alphabetical)
-    #   - BEHOCACV CWAD           (Crises/Warnings/Allergies/Directives flags)
+    #   - ORWPT CWAD              (Crises/Warnings/Allergies/Directives flags)
+    #
+    # ORWPT CWAD is CWAD^ORWPT (formals Y,DFN). Only that fetch binds
+    # CWAD_CONTEXT and restores the caller's option; PTINFO and GETBDP stay
+    # on the caller's context. allergy_flag is A in the scalar and ad_flag
+    # is D. An empty scalar is both flags false.
     #
     # :primary_provider is the GETBDP row whose label (field 0), compared
     # exactly after surrounding whitespace is stripped, is
@@ -162,7 +171,8 @@ module RpmsRpc
     # gives nothing unless a usable designated primary provider name was
     # found. A broker that does not serve one of the three RPCs raises
     # RpcNotAvailableError, one that serves it but not to this user raises
-    # RpcRefusedError, and an M error raises RpcError (#363).
+    # RpcRefusedError, and an M error raises RpcError (#363). A failed CWAD
+    # read raises the same way and is never turned into false flags.
     def brief_header(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
 
@@ -173,7 +183,9 @@ module RpmsRpc
       name = nil if name.nil? || name.match?(/\A[[:space:]]*\z/)
       return nil if ptinfo.nil? && name.nil?
 
-      cwad = DataMapper.patient_cwad.fetch_scalar(dfn.to_s) || ""
+      cwad = ContextScope.scoped(RpmsRpc.client, CWAD_CONTEXT) do
+        DataMapper.patient_cwad.fetch_scalar(dfn.to_s)
+      end || ""
       dob  = FilemanDateParser.parse_date(ptinfo && ptinfo[:dob_raw])
       provider = name || (ptinfo && ptinfo[:primary_provider])
 
@@ -188,7 +200,7 @@ module RpmsRpc
         primary_provider: provider
       }
     end
-    shape :brief_header, resource: "patients", verb: "GET", path: "/patients/{dfn}/brief-header"
+    shape :brief_header, resource: "patients", verb: "POST", path: "/patients/{dfn}/brief-header"
 
     # Patient telecom (FHIR Patient.telecom source) — home / work / cell /
     # other phone + email, read via the registered generic FileMan read
