@@ -98,6 +98,54 @@ module RpmsRpc
     PROVIDER_FLAGS = "IP"
     PROVIDER_MAX = "25"
 
+    # POV rows (#9002011.01, ^AMHRPRO). AD is the record xref. PART is a
+    # prefix, so FROM 0 and SCREEN "I $P(^(0),U,3)=<record>" keep the page
+    # to that record. FLAGS "IP" with .04E: FLAGS "IE" returns [Errors]
+    # on this file. .01, .02 and .03 are internal; .04E is the narrative's
+    # external text, because FNDNARR can partial-match (AMHGU.m:320-325).
+    # A row whose .03 is not this record is ignored.
+    POV_FILE = "9002011.01"
+    POV_XREF = "AD"
+    POV_FROM = "0"
+    POV_FIELDS = ".01;.02;.03;.04E"
+    POV_FLAGS = "IP"
+    POV_MAX = "25"
+    # Axis IV multiple (#9002011.06101). Mode "E" clears ^AMHREC(record,61)
+    # before the adds (CLNA4^AMHGEVF, AMHGEVF.m:71-75). Listed by IENS
+    # ",record,". No xref, part, from or screen: ADDAXIS4 stores only .01,
+    # and a piece-3 screen errors. FLAGS "IP": .01 is the stressor IEN.
+    AXIS_IV_SUBFILE = "9002011.06101"
+    AXIS_IV_FIELDS = ".01"
+    AXIS_IV_FLAGS = "IP"
+    AXIS_IV_MAX = "25"
+    # .01 of each problem, before AMHG SAVE POV. A missing row would
+    # otherwise be filed as a dangling pointer (ADDPOV, AMHGEVF.m:12).
+    MHSS_PROBLEM_FILE = "9002012.2"
+    # .01 of each Axis IV stressor (subfile 9002011.06101 points here).
+    PSYCHOSOCIAL_FILE = "9002012.9"
+    # .14 AXIS V and 1115 GAF SCALE TYPE after the reply, flags "IE".
+    # 5301 is a separate read, flags "E", only when a line was sent.
+    # A blank piece leaves the WP unchanged (AXIS3, AMHGSVF.m:109).
+    POV_VISIT_FIELDS = ".14;1115"
+    POV_VISIT_FLAGS = "IE"
+    AXIS_III_FIELD = "5301"
+    AXIS_III_FLAGS = "E"
+    # 5301 is a word-processing line. 245 bytes is the FileMan WP width.
+    # 1115 is free text, 1 through 20 bytes. .14 is an integer 0 through 100.
+    AXIS_III_MAX_BYTES = 245
+    GAF_MAX_BYTES = 20
+    AXIS_V_MAX = 100
+    AXIS_V_INTEGER = /\A(?:0|[1-9]\d*)\z/
+    # "*" splits a list (ARRAY^AMHGU) and "~" splits an item. "|" , "^"
+    # and the C0 controls are already refused by UNSAFE_WIRE.
+    POV_LIST_MARK = /[~*]/
+    private_constant :POV_FILE, :POV_XREF, :POV_FROM, :POV_FIELDS, :POV_FLAGS, :POV_MAX,
+                     :AXIS_IV_SUBFILE, :AXIS_IV_FIELDS, :AXIS_IV_FLAGS, :AXIS_IV_MAX,
+                     :MHSS_PROBLEM_FILE, :PSYCHOSOCIAL_FILE,
+                     :POV_VISIT_FIELDS, :POV_VISIT_FLAGS, :AXIS_III_FIELD, :AXIS_III_FLAGS,
+                     :AXIS_III_MAX_BYTES, :GAF_MAX_BYTES, :AXIS_V_MAX, :AXIS_V_INTEGER,
+                     :POV_LIST_MARK
+
     POSITIVE_IEN = /\A[1-9]\d*\z/
     # Pipe splits AMHSTR. A caret is FileMan's piece delimiter inside the
     # routines that re-parse a value. $C(30)/$C(31) frame the reply. The
@@ -362,6 +410,155 @@ module RpmsRpc
       ien
     end
     shape :save_visit, resource: "behavioral-health", verb: "POST", path: "/behavioral-health/visit"
+
+    # Replace the purpose-of-visit rows on one BH VISIT (#9002011) through
+    # AMHG SAVE POV (POV^AMHGSVF, AMHGSVF.m:47-75). One pipe-delimited
+    # AMHSTR. The AMHG call runs under AMHGRPC via {Wire#call_amhg}. Every
+    # DDR call runs outside that scope, in the caller's context: DDR GETS
+    # ENTRY DATA and DDR LISTER are registered under CIAV VUECENTRIC. A
+    # session that declared no context cannot be restored by the scope and
+    # would stay bound to AMHGRPC, so only in that case the post-call reads
+    # re-bind DDR_CONTEXT first (binds: AMHGRPC, then DDR_CONTEXT).
+    #
+    # Pieces, in order, always eight, blanks included: mode, record IEN,
+    # axis II list, axis III, axis IV list, axis V, patient DFN, GAF scale
+    # type. The mode piece is always "E". Omitting a blank piece would
+    # shift the ones after it.
+    #
+    # Piece 3 is the axis II list. ARRAY^AMHGU (AMHGU.m:22-32) splits it
+    # on "*" and stops at the first empty item, and turns "^" into a
+    # space. Each item is "PIEN~PCODE~PNARR" (R="~", AMHGSVF.m:84-86).
+    # PCODE is unused; this call sends it blank. PNARR is the narrative.
+    # AXIS2 (AMHGSVF.m:77-90) news AMHN once for the whole list, not once
+    # per item (line 78). An item with a blank narrative therefore reuses
+    # the previous item's narrative IEN. A blank narrative is refused, and
+    # so is an empty list: CLNPOV has already deleted every POV, so an
+    # empty piece 3 would remove them and file nothing. Duplicate problem
+    # IENs would file twice; the loop does not collapse them. They are
+    # refused.
+    #
+    # CLNPOV (AMHGSVF.m:102-106) deletes every ^AMHRPRO("AD", record) row
+    # before the adds, in both modes. The call is a full replacement, not
+    # a patch. The add-versus-edit branch below the Q at line 90 is
+    # unreachable. ADDPOV^AMHGEVF (AMHGEVF.m:8-19) files #9002011.01 .01
+    # the problem IEN, .02 the piece-7 patient, .03 the record and .04
+    # the narrative IEN, through UPDATE^DIE with no flags (internal
+    # values). That call does not run the .03 screen, so a POV whose
+    # patient differs from the visit's .08 can still be filed. The
+    # patient is checked here, before the RPC. FNDNARR^AMHGU
+    # (AMHGU.m:320-325) looks the narrative up in #9999999.27 with
+    # DIC(0)="L" and LAYGO. A partial match can select a different
+    # narrative than the text sent, so the read-back compares .04's
+    # external text to the sent narrative, not the IEN.
+    #
+    # Piece 4 is axis III, free text filed into WP field 5301 only when
+    # it is non-blank (AXIS3, AMHGSVF.m:108-115). A blank piece leaves
+    # the stored text unchanged and is not read back. ARRAYT^AMHGU
+    # (AMHGU.m:78-106) splits on $C(10) and, once a line is past 65
+    # characters, after a space. No character is dropped. This call
+    # sends one line of 1 through 245 bytes and no control character.
+    # 245 is the FileMan word-processing width, so a line with no space
+    # is filed as one line.
+    #
+    # Piece 5 is the axis IV list, items "PIEN~~" (PCODE and PNARR
+    # blank). AXIS4 (AMHGSVF.m:117-129) calls CLNA4^AMHGEVF only when
+    # the mode is "E" (AMHGEVF.m:71-75), which deletes ^AMHREC(record,61)
+    # before the adds. Mode "A" would append, duplicates included. This
+    # call always sends "E", so the list is a full replacement. An empty
+    # list clears the multiple. ADDAXIS4^AMHGEVF (AMHGEVF.m:46-53) files
+    # subfile #9002011.06101 .01. Duplicate stressor IENs are refused.
+    #
+    # Piece 6 is axis V (.14) and piece 8 is GAF SCALE TYPE (1115).
+    # AXIS5 (AMHGSVF.m:130-137) files both through FILE^DIE("K") on every
+    # call and swallows a filing error (line 135). A blank piece clears
+    # the field. Axis V is an integer from 0 through 100, or "" to
+    # clear; nil is refused. GAF is 1 through 20 bytes, or "" to clear;
+    # nil is refused. The read-back is what catches a swallowed error.
+    #
+    # Piece 2 must already be a BH VISIT. Piece 7 is the patient. Both
+    # are positive integers. Each problem IEN points at MHSS PROBLEM
+    # (#9002012.2). Each axis IV IEN points at #9002012.9.
+    #
+    # A value equal to "@" after strip is FileMan's delete-field marker.
+    # It is refused before the wire is built, and no RPC is sent. A
+    # longer value that contains "@" is not that marker.
+    #
+    # Every value is coerced with to_s. It must be a String whose
+    # encoding is UTF-8, US-ASCII or ASCII-8BIT, and whose bytes are
+    # valid UTF-8. Any other encoding, an invalid byte sequence, or a
+    # to_s that is not a String is SaveError, and nothing is sent. The
+    # tag is checked before the bytes are re-read. "|", "~", "*", "^"
+    # and any control character are refused. "|" splits AMHSTR, "~"
+    # splits an item, "*" splits a list, and "^" is turned into a space
+    # by ARRAY and ARRAYT.
+    #
+    # Before the AMHG call, DDR GETS ENTRY DATA reads the visit's .08
+    # and 1112, flags "I". Nil, an error, an empty body, a missing 1112
+    # row, a non-blank 1112 (the visit is signed), or a .08 that is not
+    # this patient is SaveError, and AMHG SAVE POV is not called. A read
+    # that raises is the same refusal. The same RPC then reads .01,
+    # flags "I", of each problem on #9002012.2 and each axis IV IEN on
+    # #9002012.9. Nil, an error, an empty body or a blank .01 is
+    # SaveError naming that field and not the IEN.
+    #
+    # The reply is "T00030Result" $C(30), then either the echoed piece 2
+    # or AMHER, $C(30) $C(31) (AMHGSVF.m:71-74). AMHER is "0~Add POV"
+    # (AMHGEVF.m:17) or "0~Add Axis IV" (AMHGEVF.m:51). The echo is the
+    # record IEN that was sent. It does not mean the rows were filed.
+    # Only the last failure is visible: CLNPOV has already deleted the
+    # previous rows, and a later ADDPOV or ADDAXIS4 can still fail.
+    # MERR^AMHGU writes one row "M ERROR|<text>" $C(30) and no $C(31)
+    # (AMHGU.m:108-120), so the CIA read can time out. A
+    # {Client::ConnectionError} from the AMHG call, including
+    # {Client::TimeoutError}, or a {Client::RpcMError}, is SaveError,
+    # and that exception is its cause. The message says the outcome is
+    # unknown and that the record's diagnoses may have been changed, and
+    # it names the record IEN. {Client::RpcNotAvailableError} and
+    # {Client::RpcRefusedError} propagate. An M error row, or a reply
+    # that is not this record IEN, says the same.
+    #
+    # A reply that names the record is not success until the read-back
+    # matches. DDR LISTER on #9002011.01 (xref AD, part the record IEN,
+    # FROM 0, SCREEN "I $P(^(0),U,3)=<record>", fields .01;.02;.03;.04E,
+    # flags IP, max 25) must show exactly the sent diagnoses: the same
+    # multiset of problem IEN and .04 external narrative, each row's .02
+    # equal to the patient, and .03 equal to this record. A row whose
+    # .03 is another record is ignored. The SCREEN is built only from
+    # the record IEN after it has matched a positive integer. An error
+    # marker or a MORE line is SaveError. DDR LISTER on #9002011.06101
+    # (IENS ",record,", field .01, flags IP, max 25, no xref, part, from
+    # or screen) must show exactly the sent axis IV set. DDR GETS ENTRY
+    # DATA then reads .14 and 1115 (flags "IE"). Each internal equals
+    # what was sent, and a cleared field is blank. When an axis III line
+    # was sent, a second read asks for 5301 with flags "E". That field
+    # is word processing: its text lines joined with "" equal the line.
+    # A miss says the outcome is unknown and names the record. A
+    # post-call DDR read that raises {RpmsRpc::Error} is that same
+    # SaveError, with the error kept as the cause.
+    #
+    # Signature is checked before the call only. POV^AMHGSVF does not
+    # look at field 1112, so a visit signed by another session between
+    # the pre-check and the RPC is overwritten and, if the read-back
+    # matches, still reported as success.
+    #
+    # Returns the record IEN as a string.
+    def save_pov(record_ien:, patient:, diagnoses:, axis_iv:, axis_v:, gaf:, axis_iii: nil)
+      wire, record, patient_ien, rows, stressors, axis_v_piece, gaf_piece, axis_iii_piece =
+        save_pov_wire(
+          record_ien: record_ien, patient: patient, diagnoses: diagnoses, axis_iv: axis_iv,
+          axis_v: axis_v, gaf: gaf, axis_iii: axis_iii
+        )
+      save_visit_confirm_patient!(record, patient_ien)
+      save_pov_confirm_pointers!(rows, stressors)
+      mapping = DataMapper[:amhg_save_pov]
+      declared = save_visit_declared_context
+      response = save_pov_amhg(mapping, wire, record)
+      ien = save_pov_reply_ien(response, record, declared)
+      save_pov_rebind_ddr_context(declared, ien)
+      save_pov_confirm_filed!(ien, patient_ien, rows, stressors, axis_v_piece, gaf_piece, axis_iii_piece)
+      ien
+    end
+    shape :save_pov, resource: "behavioral-health", verb: "POST", path: "/behavioral-health/pov"
 
     # -- visit detail tabs ---------------------------------------------------
 
@@ -1152,6 +1349,279 @@ module RpmsRpc
 
     def save_visit_unconfirmed!(record_ien)
       raise SaveError, "AMHG SAVE VISIT outcome unknown; record #{record_ien} may have been filed but was not confirmed"
+    end
+
+    def save_pov_wire(record_ien:, patient:, diagnoses:, axis_iv:, axis_v:, gaf:, axis_iii:)
+      record = save_pov_record_ien(record_ien)
+      patient_piece = save_visit_required_ien(patient, "patient")
+      rows = save_pov_diagnoses(diagnoses)
+      stressors = save_pov_axis_iv(axis_iv)
+      axis_v_piece = save_pov_axis_v(axis_v)
+      gaf_piece = save_pov_gaf(gaf)
+      axis_iii_piece = save_pov_axis_iii(axis_iii)
+      pieces = [
+        "E",
+        record,
+        rows.map { |row| "#{row[:problem]}~~#{row[:narrative]}" }.join("*"),
+        axis_iii_piece,
+        stressors.map { |ien| "#{ien}~~" }.join("*"),
+        axis_v_piece,
+        patient_piece,
+        gaf_piece
+      ]
+      wire = pieces.join("|")
+      count = wire.split("|", -1).length
+      raise Error, "AMHG SAVE POV wire has #{count} pieces, not 8" unless count == 8
+
+      [ wire, record, patient_piece, rows, stressors, axis_v_piece, gaf_piece, axis_iii_piece ]
+    end
+
+    def save_pov_record_ien(value)
+      save_visit_refuse!("record IEN is required") if value.nil?
+
+      save_visit_required_ien(value, "record IEN")
+    end
+
+    # nil is refused. "" is the clear, and is sent as a blank piece.
+    def save_pov_required_text(value, label)
+      save_visit_refuse!("#{label} is required") if value.nil?
+
+      save_pov_text(value)
+    end
+
+    def save_pov_diagnoses(value)
+      save_visit_refuse!("diagnoses are required") if value.nil? || !value.is_a?(Array) || value.empty?
+
+      seen = {}
+      value.map do |row|
+        save_visit_refuse!("a diagnosis is required") unless row.is_a?(Hash)
+
+        problem = save_visit_required_ien(save_pov_entry(row, :problem), "problem")
+        narrative = save_pov_text(save_pov_entry(row, :narrative))
+        save_visit_refuse!("narrative is required") if narrative.empty?
+        save_visit_refuse!("a problem is listed more than once") if seen[problem]
+
+        seen[problem] = true
+        { problem: problem, narrative: narrative }
+      end
+    end
+
+    def save_pov_axis_iv(value)
+      save_visit_refuse!("axis IV is required") if value.nil? || !value.is_a?(Array)
+
+      seen = {}
+      value.map do |item|
+        ien = save_visit_required_ien(item, "axis IV")
+        save_visit_refuse!("an axis IV entry is listed more than once") if seen[ien]
+
+        seen[ien] = true
+        ien
+      end
+    end
+
+    def save_pov_axis_v(value)
+      text = save_pov_required_text(value, "axis V")
+      return "" if text.empty?
+      unless text.match?(AXIS_V_INTEGER) && text.to_i.between?(0, AXIS_V_MAX)
+        save_visit_refuse!("axis V must be an integer from 0 through 100")
+      end
+
+      text
+    end
+
+    def save_pov_gaf(value)
+      text = save_pov_required_text(value, "GAF")
+      save_visit_refuse!("GAF is longer than 20 bytes") if text.bytesize > GAF_MAX_BYTES
+
+      text
+    end
+
+    # nil and "" both send a blank piece. AXIS3 then leaves 5301 alone.
+    def save_pov_axis_iii(value)
+      text = save_pov_text(value)
+      save_visit_refuse!("axis III is longer than 245 bytes") if text.bytesize > AXIS_III_MAX_BYTES
+
+      text
+    end
+
+    def save_pov_entry(row, key)
+      return row[key] if row.key?(key)
+
+      row[key.to_s]
+    end
+
+    # save_visit_text refuses "|" , "^" , controls and a stripped "@".
+    # "~" and "*" are the list marks ARRAY and the item split use.
+    def save_pov_text(value)
+      text = save_visit_text(value)
+      save_visit_refuse!("a value contains a separator or control character") if text.match?(POV_LIST_MARK)
+
+      text
+    end
+
+    def save_pov_confirm_pointers!(diagnoses, axis_iv)
+      diagnoses.each do |row|
+        save_visit_confirm_pointer!("problem", MHSS_PROBLEM_FILE, row[:problem])
+      end
+      axis_iv.each do |ien|
+        save_visit_confirm_pointer!("axis IV", PSYCHOSOCIAL_FILE, ien)
+      end
+    end
+
+    # The reply IEN is the record that was sent, or it is not success.
+    # CLNPOV has already run by the time AMHER is set, so a bad reply
+    # still may have changed the diagnoses.
+    def save_pov_ien(response, record_ien)
+      rows = save_visit_rows(response)
+      save_pov_ambiguous!(record_ien) if rows.any? { |row| row.start_with?("M ERROR|") }
+
+      data = rows.reject { |row| DataMapper.recordset_header_row?(row) }
+      ien = data.empty? ? "" : DataMapper[:amhg_save_pov].parse_one(data.first)&.dig(:ien).to_s
+      save_pov_ambiguous!(record_ien) unless ien == record_ien && ien.match?(POSITIVE_IEN)
+      ien
+    end
+
+    def save_pov_reply_ien(response, record_ien, declared)
+      save_pov_ien(response, record_ien)
+    rescue SaveError
+      save_pov_rebind_ddr_context(declared, record_ien)
+      raise
+    end
+
+    def save_pov_amhg(mapping, wire, record_ien)
+      call_amhg(mapping, wire)
+    rescue Client::ConnectionError, Client::RpcMError => e
+      save_pov_ambiguous!(record_ien, cause: e)
+    end
+
+    # Same restore as save_visit. The message names this RPC.
+    def save_pov_rebind_ddr_context(declared, record_ien)
+      return unless declared.nil?
+
+      client = RpmsRpc.client
+      return unless client.respond_to?(:create_context)
+
+      client.create_context(DDR_CONTEXT) if client.current_context != DDR_CONTEXT
+    rescue Error => e
+      save_pov_ambiguous!(record_ien, cause: e)
+    end
+
+    def save_pov_confirm_filed!(record_ien, patient, diagnoses, axis_iv, axis_v, gaf, axis_iii)
+      pov = save_pov_lister(record_ien)
+      save_pov_ambiguous!(record_ien) unless save_pov_diagnoses_match?(pov, patient, record_ien, diagnoses)
+
+      listed = save_pov_axis_iv_lister(record_ien)
+      save_pov_ambiguous!(record_ien) unless save_pov_axis_iv_match?(listed, axis_iv)
+      save_pov_confirm_visit_fields!(record_ien, axis_v, gaf, axis_iii)
+    rescue Error => e
+      raise if e.is_a?(SaveError)
+
+      save_pov_ambiguous!(record_ien, cause: e)
+    end
+
+    def save_pov_diagnoses_match?(got, patient, record_ien, diagnoses)
+      return false if got.nil? || got[:error] || got[:more]
+
+      rows = got[:entries].filter_map { |entry| save_pov_diagnosis_row(entry) }
+      rows.select! { |row| row[:record] == record_ien }
+      return false unless rows.all? { |row| row[:patient] == patient }
+
+      rows.map { |row| [ row[:problem], row[:narrative] ] }.tally ==
+        diagnoses.map { |row| [ row[:problem], row[:narrative] ] }.tally
+    end
+
+    # Packed row, flags IP, fields .01;.02;.03;.04E: problem, patient,
+    # record, narrative external. A pointer's internal value may be
+    # "IEN;name". .04E is the narrative text and is not split.
+    def save_pov_diagnosis_row(entry)
+      pieces = entry[:pieces]
+      return nil unless pieces.is_a?(Array) && pieces.length >= 4
+
+      {
+        problem: pieces[0].to_s.split(";", 2).first.to_s.strip,
+        patient: pieces[1].to_s.split(";", 2).first.to_s.strip,
+        record: pieces[2].to_s.split(";", 2).first.to_s.strip,
+        narrative: pieces[3].to_s.strip
+      }
+    end
+
+    def save_pov_axis_iv_match?(got, axis_iv)
+      return false if got.nil? || got[:error] || got[:more]
+
+      found = got[:entries].filter_map do |entry|
+        pieces = entry[:pieces]
+        next unless pieces.is_a?(Array) && !pieces.empty?
+
+        ien = pieces[0].to_s.split(";", 2).first.to_s.strip
+        ien.empty? ? nil : ien
+      end
+      found.tally == axis_iv.tally
+    end
+
+    def save_pov_confirm_visit_fields!(record_ien, axis_v, gaf, axis_iii)
+      got = save_visit_ddr(
+        file: BH_VISIT_FILE, iens: "#{record_ien},", fields: POV_VISIT_FIELDS, flags: POV_VISIT_FLAGS
+      )
+      save_pov_ambiguous!(record_ien) if got.nil? || got[:error]
+      save_pov_ambiguous!(record_ien) unless save_pov_scalar_match?(got[:fields], ".14", axis_v)
+      save_pov_ambiguous!(record_ien) unless save_pov_scalar_match?(got[:fields], "1115", gaf)
+      return if axis_iii.empty?
+
+      wp = save_visit_ddr(
+        file: BH_VISIT_FILE, iens: "#{record_ien},", fields: AXIS_III_FIELD, flags: AXIS_III_FLAGS
+      )
+      save_pov_ambiguous!(record_ien) if wp.nil? || wp[:error]
+      save_pov_ambiguous!(record_ien) unless save_pov_axis_iii_match?(wp[:fields][AXIS_III_FIELD], axis_iii)
+    end
+
+    # A cleared field may be omitted. A present internal must be blank.
+    def save_pov_scalar_match?(fields, field, want)
+      raw = fields.dig(field, :internal)
+      return raw.nil? || raw.to_s.strip.empty? if want.empty?
+
+      raw.to_s.strip == want
+    end
+
+    # 5301 is word processing (GETS^DIQ "[WORD PROCESSING]"). ARRAYT
+    # keeps a splitting space on the earlier line, so the lines joined
+    # with "" are the line that was sent.
+    def save_pov_axis_iii_match?(field, sent)
+      return false unless field.is_a?(Hash) && field[:text].is_a?(Array)
+
+      field[:text].join("") == sent
+    end
+
+    # Outside call_amhg. The SCREEN is only the validated record IEN, so a
+    # caller value cannot become M code. FROM 0 with that screen is the
+    # page that is this record, not the PART prefix (1 also matches 10).
+    def save_pov_lister(record_ien)
+      ien = record_ien.to_s
+      return nil unless ien.match?(POSITIVE_IEN)
+
+      DdrFileman.lister(
+        file: POV_FILE, xref: POV_XREF, part: ien, from: POV_FROM,
+        screen: "I $P(^(0),U,3)=#{ien}",
+        fields: POV_FIELDS, flags: POV_FLAGS, max: POV_MAX
+      )
+    end
+
+    # Subfile by IENS. No xref and no screen: a piece-3 screen errors,
+    # and ADDAXIS4 stores only .01.
+    def save_pov_axis_iv_lister(record_ien)
+      ien = record_ien.to_s
+      return nil unless ien.match?(POSITIVE_IEN)
+
+      DdrFileman.lister(
+        file: AXIS_IV_SUBFILE, iens: ",#{ien},",
+        fields: AXIS_IV_FIELDS, flags: AXIS_IV_FLAGS, max: AXIS_IV_MAX
+      )
+    end
+
+    def save_pov_ambiguous!(record_ien, cause: nil)
+      message = "AMHG SAVE POV outcome unknown; record #{record_ien}'s diagnoses may have been changed"
+      raise SaveError, message, cause: cause if cause
+
+      raise SaveError, message
     end
 
     # The wire's Signed column is a NEGATIVE marker, and the EHR path clears
