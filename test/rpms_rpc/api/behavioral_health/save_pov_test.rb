@@ -205,6 +205,23 @@ class BehavioralHealthSavePovTest < Minitest::Test
     assert_pov_lister_ddr_call(RECORD_IEN)
   end
 
+  def test_succeeds_with_v1_shaped_pov_and_axis_iv_lister_readback
+    kwargs = ONE_KWARGS.merge(axis_iv: [ AX4_ONE ])
+    wire = WIRE_ONE_DIAGNOSIS.sub("|||", "||#{AX4_ONE}~~|")
+    rows = pov_rows_for(**kwargs)
+    seed_success(
+      wire, RECORD_IEN, **kwargs,
+      pov_lister_reply: pov_lister_body_v1(rows),
+      axis_iv_lister_reply: axis_iv_lister_body_v1([ AX4_ONE ])
+    )
+    assert_equal RECORD_IEN, BH.save_pov(**kwargs)
+  end
+
+  def test_raises_when_v1_pov_lister_data_section_has_no_sent_row
+    body = "[BEGIN_diDATA]\n[END_diDATA]"
+    assert_post_call_readback_miss(**ONE_KWARGS, pov_lister_reply: body)
+  end
+
   def test_pins_pre_edit_visit_ddr_gets_fields_and_flags
     seed_success(WIRE_ONE_DIAGNOSIS, RECORD_IEN, **ONE_KWARGS)
     BH.save_pov(**ONE_KWARGS)
@@ -925,11 +942,28 @@ class BehavioralHealthSavePovTest < Minitest::Test
     more ? "[Misc]\nMORE^1^1\n#{body}" : body
   end
 
+  def pov_lister_body_v1(rows, more: false, error: false)
+    return "[BEGIN_diERRORS]" if error
+
+    lines = rows.map do |row|
+      "#{row[:ien]}^#{row[:problem]}^#{row[:patient]}^#{row[:record]}^#{row[:narrative_ext]}"
+    end
+    data = "[BEGIN_diDATA]\n#{lines.join("\n")}\n[END_diDATA]"
+    more ? "[Misc]\nMORE^1^1\n#{data}" : data
+  end
+
   def axis_iv_lister_body(axis_iv_iens)
     lines = axis_iv_iens.each_with_index.map do |ien, idx|
       "#{idx + 1}^#{ien}"
     end
     "[Data]\n#{lines.join("\n")}"
+  end
+
+  def axis_iv_lister_body_v1(axis_iv_iens)
+    lines = axis_iv_iens.each_with_index.map do |ien, idx|
+      "#{idx + 1}^#{ien}"
+    end
+    "[BEGIN_diDATA]\n#{lines.join("\n")}\n[END_diDATA]"
   end
 
   def visit_axis_readback_body(record_ien, axis_v:, gaf:)
