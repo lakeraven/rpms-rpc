@@ -39,7 +39,9 @@ class RegistrationBprm418Test < Minitest::Test
   MCD_IEN = 20
   RRE_IEN = 30
   RRE_SUB_IEN = 2
-  OTHER_DFN = DFN - 1
+  # B-xref FROM is exclusive and the walk starts at DFN - 1, so a row for
+  # another patient can only be returned when it sorts after DFN.
+  OTHER_DFN = DFN + 1
   FILER_REFUSAL = <<~ERR.strip
     [Data]
     [BEGIN_diERRORS]
@@ -1015,17 +1017,17 @@ class RegistrationBprm418Test < Minitest::Test
     seed_agg_lock
     seed_patient_sex_gets("M")
     seed_ssn_verification_gets("")
-    seed_eligibility_b_lister(file: "9000003", body: "#{MCR_IEN}^#{OTHER_DFN}\n#{MCR_IEN + 1}^#{DFN}")
+    seed_eligibility_b_lister(file: "9000003", body: "#{MCR_IEN}^#{DFN}\n#{MCR_IEN + 1}^#{OTHER_DFN}")
     seed_eligibility_b_lister(file: "9000004", body: "")
     seed_eligibility_b_lister(file: "9000005", body: "")
-    seed_eligibility_sub_lister(file: "9000003", parent_ien: MCR_IEN + 1, body: "#{MCR_SUB_IEN}^20190601")
+    seed_eligibility_sub_lister(file: "9000003", parent_ien: MCR_IEN, body: "#{MCR_SUB_IEN}^20190601")
     with_ddr_filer_edit_replies([ "[Data]", "[Data]" ])
 
     result = Reg.set_sex(DFN, "F")
 
     assert_registration_success(result)
     assert_equal 2, filer_calls.length, filer_calls.inspect
-    assert_filer_edit_rows(filer_calls[1], "9000003.11^.08^#{MCR_SUB_IEN},#{MCR_IEN + 1},^F")
+    assert_filer_edit_rows(filer_calls[1], "9000003.11^.08^#{MCR_SUB_IEN},#{MCR_IEN},^F")
   end
 
   def test_set_sex_returns_lookup_failed_when_patient_sex_read_gives_no_response
@@ -1164,8 +1166,8 @@ class RegistrationBprm418Test < Minitest::Test
     seed_ssn_verification_gets("")
     last = "99^#{DFN}"
     seed_eligibility_b_lister(file: "9000003",
-                              more: "[Misc]\nMORE^#{OTHER_DFN}^#{MCR_IEN}",
-                              body: "#{MCR_IEN}^#{OTHER_DFN}\n#{last}")
+                              more: "[Misc]\nMORE^#{DFN}^99",
+                              body: "#{MCR_IEN}^#{DFN}\n#{last}")
     seed_eligibility_b_lister(file: "9000004", body: "")
     seed_eligibility_b_lister(file: "9000005", body: "")
 

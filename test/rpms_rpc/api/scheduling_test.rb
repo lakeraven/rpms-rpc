@@ -622,6 +622,17 @@ class SchedulingTest < Minitest::Test
       [Data]
       9002018.4^#{appt_ien}^.03^^
     REPLY
+    # #44.003 field 309 read-back (rpms-rpc#418): appointment start and patient,
+    # then the clinic day's rows; field 309 empty means the clinic check-in is clear.
+    seed_ddr_gets!(mock, file: "9002018.4", iens: "#{appt_ien},", fields: ".01;.05", text: <<~REPLY.strip)
+      [Data]
+      9002018.4^#{appt_ien}^.01^#{START_FM}^
+      9002018.4^#{appt_ien}^.05^100^
+    REPLY
+    lister_key = RpmsRpc::DdrFileman.lister_param(
+      file: "44.003", iens: ",#{START_FM},#{hospital},", fields: "@;.01I;309I", flags: "IP"
+    ).to_s
+    mock.seed(:ddr_lister, lister_key, "[Data]\n7^100^")
   end
 
   def test_undo_checkin_returns_success_when_post_check_in_read_shows_an_empty_field
@@ -632,6 +643,30 @@ class SchedulingTest < Minitest::Test
     result = RpmsRpc::Scheduling.undo_checkin(501)
 
     assert result[:success], result.inspect
+  end
+
+  # The exact wire order of undo_checkin: preflight reads, the check-in RPC,
+  # then the read-backs of .03 and #44.003 field 309. DDR GETS ENTRY DATA and
+  # DDR LISTER sit under CIAV VUECENTRIC, the check-in under BSDXRPC.
+  def test_undo_checkin_sends_this_exact_rpc_and_context_sequence
+    mock = RpmsRpc.mock!
+    seed_undo_checkin_bsdx_path!(mock)
+    caller_context = mock.current_context
+
+    result = RpmsRpc::Scheduling.undo_checkin(501)
+
+    assert result[:success], result.inspect
+    assert_equal [
+      [ "DDR GETS ENTRY DATA", "CIAV VUECENTRIC" ],
+      [ "DDR GETS ENTRY DATA", "CIAV VUECENTRIC" ],
+      [ "BSDX CHECKIN APPOINTMENT", "BSDXRPC" ],
+      [ "DDR GETS ENTRY DATA", "CIAV VUECENTRIC" ],
+      [ "DDR GETS ENTRY DATA", "CIAV VUECENTRIC" ],
+      [ "DDR LISTER", "CIAV VUECENTRIC" ]
+    ], mock.received_calls.map { |c| [ c[:rpc], c[:context] ] }
+    assert_equal caller_context, mock.current_context
+    assert_equal caller_context, mock.context_binds.last
+    assert_equal [ "BSDXRPC" ], mock.context_binds.select { |b| b == "BSDXRPC" }
   end
 
   BSDX_CALLS = {

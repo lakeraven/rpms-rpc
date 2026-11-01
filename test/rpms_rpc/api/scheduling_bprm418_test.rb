@@ -14,6 +14,10 @@ class SchedulingBprm418Test < Minitest::Test
   APPT_IEN = 501
   RESOURCE_IEN = 88
   HOSPITAL_LOC = 1608
+  PATIENT_DFN = 100
+  OTHER_PATIENT_DFN = 101
+  SUB_IEN = 7
+  OTHER_SUB_IEN = 6
 
   START_T = Time.new(2026, 8, 12, 9, 0, 0)
   START_FM = RpmsRpc::FilemanDateParser.format_datetime(START_T)
@@ -76,12 +80,48 @@ class SchedulingBprm418Test < Minitest::Test
     seed_gets(file: "9002018.1", iens: "#{resource_ien},", fields: ".04", text: "[ERROR]")
   end
 
+  # rpms-rpc#418, owner decision 2026-10-31: CANCHKIN^BSDX25 discards its own
+  # FILE^DIE error and replies "0^", so #44.003 field 309 must be read back.
+  # The appointment's #44.003 entry is found by listing the clinic day
+  # (",<start>,<hospital location>,") and taking the row whose .01 is the
+  # appointment's patient (the FIND^BSDX25 rule), start and patient coming
+  # from #9002018.4 .01 and .05.
+  def appointment_start_patient_gets_param(ien)
+    Ddr.gets_entry_param(file: "9002018.4", iens: "#{ien},", fields: ".01;.05", flags: "I")
+  end
+
+  def clinic_appointment_lister_param(start, hospital)
+    Ddr.lister_param(file: "44.003", iens: ",#{start},#{hospital},", fields: "@;.01I;309I", flags: "IP")
+  end
+
+  def seed_appointment_start_patient(ien, start: START_FM, patient: PATIENT_DFN)
+    seed_gets(file: "9002018.4", iens: "#{ien},", fields: ".01;.05", text: <<~REPLY.strip)
+      [Data]
+      9002018.4^#{ien}^.01^#{start}^
+      9002018.4^#{ien}^.05^#{patient}^
+    REPLY
+  end
+
+  # rows: [[sub_ien, patient_dfn, field_309], ...]
+  def seed_clinic_appointments(rows, start: START_FM, hospital: HOSPITAL_LOC)
+    key = clinic_appointment_lister_param(start, hospital).to_s
+    body = rows.map { |sub, dfn, f309| "#{sub}^#{dfn}^#{f309}" }.join("\n")
+    RpmsRpc.client.seed(:ddr_lister, key, "[Data]\n#{body}")
+  end
+
+  def clinic_lister_calls
+    RpmsRpc.client.received_calls.select { |c| c[:rpc] == "DDR LISTER" }
+  end
+
   def seed_undo_checkin_graph(appt_ien: APPT_IEN, checkin: START_FM, resource: RESOURCE_IEN,
-                              hospital: HOSPITAL_LOC, post_checkin: "", checkin_rpc: { error: "0" })
+                              hospital: HOSPITAL_LOC, post_checkin: "", checkin_rpc: { error: "0" },
+                              clinic_rows: [ [ SUB_IEN, PATIENT_DFN, "" ] ])
     seed_appointment_preflight(appt_ien, checkin: checkin, resource: resource)
     seed_resource_hospital_loc(resource, hospital)
     RpmsRpc.client.seed(:scheduling_checkin_appointment, appt_ien.to_s, checkin_rpc)
     seed_appointment_post_checkin(appt_ien, checkin: post_checkin)
+    seed_appointment_start_patient(appt_ien)
+    seed_clinic_appointments(clinic_rows, hospital: hospital) if clinic_rows
   end
 
   CANCHKIN_ERR = "Could not locate appointment..."
@@ -127,6 +167,116 @@ class SchedulingBprm418Test < Minitest::Test
     RpmsRpc::Scheduling.undo_checkin(APPT_IEN, clinic_code: "301", provider: "PROVIDER,A")
 
     assert_equal [ APPT_IEN.to_s, "@", "301", "PROVIDER,A", "", "", "", "" ], bsdx_checkin_calls.first[:params]
+  end
+
+  # -- #44.003 field 309 read-back (rpms-rpc#418 owner decision) -------------
+
+  def test_undo_checkin_reads_field_309_of_the_patients_clinic_appointment_after_a_clean_reply
+    seed_undo_checkin_graph
+
+    result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+
+    assert result[:success], result.inspect
+    assert_equal 1, bsdx_checkin_calls.length
+    gets_params = ddr_gets_calls.map { |c| c[:params].first }
+    assert_includes gets_params, appointment_start_patient_gets_param(APPT_IEN)
+    assert_equal [ clinic_appointment_lister_param(START_FM, HOSPITAL_LOC) ],
+                 clinic_lister_calls.map { |c| c[:params].first }
+    assert_equal "CIAV VUECENTRIC", clinic_lister_calls.first[:context]
+  end
+
+  def test_undo_checkin_reports_partial_when_field_309_is_still_set_after_a_clean_reply
+    seed_undo_checkin_graph(clinic_rows: [ [ SUB_IEN, PATIENT_DFN, START_FM ] ])
+
+    result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+
+    assert_scheduling_failure(result, error: :partial)
+    assert_match(/309/, result[:message].to_s)
+    assert_match(/44\.003|clinic/i, result[:message].to_s)
+    assert_equal 1, bsdx_checkin_calls.length
+  end
+
+  def test_undo_checkin_judges_field_309_on_the_row_for_this_patient_only
+    seed_undo_checkin_graph(clinic_rows: [ [ OTHER_SUB_IEN, OTHER_PATIENT_DFN, START_FM ],
+                                           [ SUB_IEN, PATIENT_DFN, "" ] ])
+
+    result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+
+    assert result[:success], "another patient's check-in must not fail this undo: #{result.inspect}"
+  end
+
+  def test_undo_checkin_reports_partial_when_only_this_patients_row_has_309_set
+    seed_undo_checkin_graph(clinic_rows: [ [ OTHER_SUB_IEN, OTHER_PATIENT_DFN, "" ],
+                                           [ SUB_IEN, PATIENT_DFN, START_FM ] ])
+
+    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :partial)
+  end
+
+  def test_undo_checkin_is_lookup_failed_when_no_clinic_row_belongs_to_the_patient
+    seed_undo_checkin_graph(clinic_rows: [ [ OTHER_SUB_IEN, OTHER_PATIENT_DFN, "" ] ])
+
+    result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+
+    assert_scheduling_failure(result, error: :lookup_failed)
+  end
+
+  def test_undo_checkin_is_lookup_failed_when_the_clinic_listing_is_empty
+    seed_undo_checkin_graph(clinic_rows: [])
+
+    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :lookup_failed)
+  end
+
+  def test_undo_checkin_is_lookup_failed_when_the_clinic_listing_gives_no_reply
+    seed_undo_checkin_graph(clinic_rows: nil)
+
+    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :lookup_failed)
+  end
+
+  def test_undo_checkin_is_lookup_failed_when_the_clinic_listing_errors
+    seed_undo_checkin_graph(clinic_rows: nil)
+    RpmsRpc.client.seed(:ddr_lister, clinic_appointment_lister_param(START_FM, HOSPITAL_LOC).to_s,
+                        "[Errors]\n[BEGIN_diERRORS]\n202^^^\nboom\n[END_diERRORS]")
+
+    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :lookup_failed)
+  end
+
+  def test_undo_checkin_is_lookup_failed_when_the_start_and_patient_read_fails
+    seed_undo_checkin_graph
+    seed_gets(file: "9002018.4", iens: "#{APPT_IEN},", fields: ".01;.05", text: "[ERROR]")
+
+    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :lookup_failed)
+  end
+
+  def test_undo_checkin_is_lookup_failed_when_the_start_and_patient_read_omits_the_patient_row
+    seed_undo_checkin_graph
+    seed_gets(file: "9002018.4", iens: "#{APPT_IEN},", fields: ".01;.05", text: <<~REPLY.strip)
+      [Data]
+      9002018.4^#{APPT_IEN}^.01^#{START_FM}^
+    REPLY
+
+    assert_scheduling_failure(RpmsRpc::Scheduling.undo_checkin(APPT_IEN), error: :lookup_failed)
+  end
+
+  def test_undo_checkin_lists_the_clinic_day_at_the_appointments_own_start_and_hospital_location
+    other_start = "3260813.1030"
+    other_loc = 1700
+    seed_undo_checkin_graph(hospital: other_loc, clinic_rows: nil)
+    seed_appointment_start_patient(APPT_IEN, start: other_start)
+    seed_clinic_appointments([ [ SUB_IEN, PATIENT_DFN, "" ] ], start: other_start, hospital: other_loc)
+
+    result = RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+
+    assert result[:success], result.inspect
+    assert_equal [ clinic_appointment_lister_param(other_start, other_loc) ],
+                 clinic_lister_calls.map { |c| c[:params].first }
+  end
+
+  def test_undo_checkin_does_not_read_field_309_when_the_preflight_refuses
+    seed_appointment_preflight(APPT_IEN, checkin: "", resource: RESOURCE_IEN)
+
+    RpmsRpc::Scheduling.undo_checkin(APPT_IEN)
+
+    assert_empty clinic_lister_calls
   end
 
   def test_undo_checkin_returns_not_undone_when_check_in_time_is_still_set
