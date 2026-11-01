@@ -99,26 +99,50 @@ class CoverageWriteLiveTest < LiveSpec::Test
     got[:entries]
   end
 
+  # Existence helpers never turn a failed read into "absent". A FileMan error
+  # or a missing reply raises, unless a second, successful and complete
+  # lookup proves the entry is not there.
+
   def medicare_eligibility_row_exists?(mien)
-    got = RpmsRpc::DdrFileman.gets_entry(file: MEDICARE_ELIG_FILE, iens: "#{mien},#{DFN},",
-                                         fields: ".01", flags: "I")
-    !got[:error] && got.dig(:fields, ".01", :internal).to_s != ""
+    row_listed?(MEDICARE_ELIG_FILE, ",#{DFN},", mien)
   end
 
   def medicaid_eligibility_row_exists?(record_ien, multiple_ien)
-    got = RpmsRpc::DdrFileman.gets_entry(file: "9000004.11", iens: "#{multiple_ien},#{record_ien},",
-                                         fields: ".01", flags: "I")
-    !got[:error] && got.dig(:fields, ".01", :internal).to_s != ""
+    row_listed?("9000004.11", ",#{record_ien},", multiple_ien)
   end
 
   def medicare_header_exists?
-    got = RpmsRpc::DdrFileman.gets_entry(file: MEDICARE_FILE, iens: "#{DFN},", fields: ".01", flags: "I")
-    !got[:error] && got.dig(:fields, ".01", :internal).to_s != ""
+    top_level_entry_exists?(MEDICARE_FILE, DFN)
   end
 
   def medicaid_record_exists?(record_ien)
-    got = RpmsRpc::DdrFileman.gets_entry(file: MEDICAID_FILE, iens: "#{record_ien},", fields: ".01", flags: "I")
-    !got[:error] && got.dig(:fields, ".01", :internal).to_s != ""
+    top_level_entry_exists?(MEDICAID_FILE, record_ien)
+  end
+
+  # Complete LIST^DIC of a subfile: an error, nil, or a MORE continuation is
+  # a failed verification, not an answer.
+  def row_listed?(file, iens, ien)
+    listed = RpmsRpc::DdrFileman.lister(file: file, iens: iens, fields: "@;.01", flags: "IP")
+    flunk "lister for #{file} #{iens} returned no reply" if listed.nil?
+    flunk "lister for #{file} #{iens} errored: #{listed.inspect}" if listed[:error]
+    flunk "lister for #{file} #{iens} was not complete: #{listed.inspect}" if listed[:more]
+
+    listed[:entries].any? { |row| row[:ien].to_s == ien.to_s }
+  end
+
+  # GETS first. A clean read answers presence. A FileMan error is not taken
+  # as absence; it is confirmed by a successful LIST^DIC on the IEN index
+  # starting just before the IEN: absent only when the first entry is not it.
+  def top_level_entry_exists?(file, ien)
+    got = RpmsRpc::DdrFileman.gets_entry(file: file, iens: "#{ien},", fields: ".01", flags: "I")
+    flunk "gets_entry for #{file} #{ien} returned no reply" if got.nil?
+    return got.dig(:fields, ".01", :internal).to_s != "" unless got[:error]
+
+    listed = RpmsRpc::DdrFileman.lister(file: file, fields: "@;.01", flags: "IP", max: 1,
+                                        from: (ien.to_i - 1).to_s, xref: "#")
+    flunk "gets_entry for #{file} #{ien} errored and the confirming lookup failed: #{listed.inspect}" if listed.nil? || listed[:error]
+
+    listed[:entries].first.to_h[:ien].to_s == ien.to_s
   end
 
   def cleanup_coverage!(mcr, mcd)

@@ -287,12 +287,18 @@ module RpmsRpc
       record = header[:record_ien].to_s
       return record_ien_missing(header) unless record.match?(CANONICAL_DFN)
 
-      filed = medicaid_update(dfn, proc: "A", definition: MEDICAID_ELIGIBILITY_WINDOW,
-                              record_ien: record, params: eligibility_params, client: client)
+      begin
+        filed = medicaid_update(dfn, proc: "A", definition: MEDICAID_ELIGIBILITY_WINDOW,
+                                record_ien: record, params: eligibility_params, client: client)
+      rescue StandardError => e
+        # The row may or may not have been filed. The record is not deleted
+        # on a guess; the caller keeps the IEN for delete_medicaid.
+        return eligibility_outcome_unknown(e, record)
+      end
       return filed if positive_piece?(filed, :multiple_ien)
 
-      rolled = rollback_medicaid_record(dfn, record, client)
-      medicaid_eligibility_failure(filed, rolled_back: rolled, record_ien: record)
+      rolled, rollback_error = attempt_rollback(dfn, record, client)
+      medicaid_eligibility_failure(filed, rolled_back: rolled, record_ien: record, rollback_error: rollback_error)
     end
     shape :add_medicaid, resource: "coverages", verb: "POST", path: "/patients/{dfn}/coverages/medicaid"
 
@@ -377,6 +383,7 @@ module RpmsRpc
       raise ArgumentError, "coverage parameters must not contain '='" if text.include?("=")
       raise ArgumentError, "coverage parameters must not contain OVERRIDE" if text.match?(/override/i)
       raise ArgumentError, "coverage parameters must not contain a control character" if text.match?(CONTROL)
+      raise ArgumentError, "coverage parameters must not be the FileMan delete sentinel '@'" if text.strip == "@"
 
       text
     end
@@ -386,10 +393,14 @@ module RpmsRpc
       return unless allowed
 
       (params || {}).each do |name, value|
-        next if value.nil?
-
         key = wire!(name)
         raise ArgumentError, "unknown coverage parameter #{key}" unless allowed.include?(key)
+
+        if value.nil?
+          raise ArgumentError, "#{key} must be a real MM/DD/YYYY date, not nil" if DATE_FIELDS.include?(key)
+
+          next
+        end
 
         text = wire!(value)
         next unless DATE_FIELDS.include?(key)
@@ -416,12 +427,28 @@ module RpmsRpc
         message: body[:message].to_s, rien: body[:rien], mien: body[:mien] }
     end
 
-    def medicaid_eligibility_failure(result, rolled_back:, record_ien: nil)
+    def medicaid_eligibility_failure(result, rolled_back:, record_ien: nil, rollback_error: nil)
       body = result.is_a?(Hash) ? result : {}
-      { success: false, error: :eligibility_failed, rolled_back: rolled_back == true,
-        message: body[:message].to_s,
-        record_ien: body[:record_ien].to_s.empty? ? record_ien.to_s : body[:record_ien].to_s,
-        multiple_ien: body[:multiple_ien].to_s }
+      failure = { success: false, error: :eligibility_failed, rolled_back: rolled_back == true,
+                  message: body[:message].to_s,
+                  record_ien: body[:record_ien].to_s.empty? ? record_ien.to_s : body[:record_ien].to_s,
+                  multiple_ien: body[:multiple_ien].to_s }
+      failure[:rollback_error] = rollback_error if rollback_error
+      failure
+    end
+
+    # The eligibility call raised after the header returned a record IEN, so
+    # whether the row filed is unknown. Never success; nothing is deleted.
+    def eligibility_outcome_unknown(error, record)
+      { success: false, error: :eligibility_outcome_unknown, rolled_back: false,
+        message: "#{error.class}: #{error.message}", record_ien: record.to_s, multiple_ien: "" }
+    end
+
+    # [rolled_back, error_text]. A raise from the rollback is reported, not lost.
+    def attempt_rollback(dfn, record, client)
+      [ rollback_medicaid_record(dfn, record, client), nil ]
+    rescue StandardError => e
+      [ false, "#{e.class}: #{e.message}" ]
     end
 
     # PROC D on the Medicaid window for the record IEN the header step
@@ -505,7 +532,7 @@ module RpmsRpc
     def framed_rows(raw)
       return nil if raw.nil?
 
-      body = raw.to_s
+      body = raw.is_a?(Array) ? raw.map(&:to_s).join(RECORD_SEP) : raw.to_s
       body = body.split(ACK, 2).last.to_s if body.include?(ACK)
       body = body.split(ARRAY_END, 2).first.to_s
       return nil if body.strip.empty?
