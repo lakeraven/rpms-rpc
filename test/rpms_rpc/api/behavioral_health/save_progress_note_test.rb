@@ -422,6 +422,13 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
     assert_pre_call_refusal(**FULL_KWARGS.merge(chief_complaint: encoded))
   end
 
+  def test_refuses_replacement_character_in_any_text_value_without_rpc
+    toxic = "SYNTH \uFFFD text"
+    %i[chief_complaint note comment referred_to].each do |key|
+      assert_pre_call_refusal(**FULL_KWARGS.merge(key => toxic), label: key)
+    end
+  end
+
   def test_rejects_unknown_keyword_without_rpc
     err = assert_raises(ArgumentError) { BH.save_progress_note(**FULL_KWARGS, esign: true) }
     refute_empty err.message
