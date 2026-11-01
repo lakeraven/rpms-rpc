@@ -313,7 +313,8 @@
       "BSDX RESOURCES",
       "BSDX SEARCH AVAILABILITY",
       "BSDX UNCANCEL APPT",
-      "DDR GETS ENTRY DATA"
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
     ],
     "RpmsRpc::SchedulingSetup": [
       "DDR FILER",

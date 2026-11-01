@@ -83,26 +83,35 @@ module RpmsRpc
   # client that cannot scope contexts runs as-is. A programmer-key session
   # bypasses the check either way, so only a non-programmer run is evidence
   # of this bind. undo_checkin reads #9002018.4 and #9002018.1 under CIAV
-  # VUECENTRIC before BSDX CHECKIN APPOINTMENT, and reads #9002018.4 .03
-  # again after a "0^" reply and after an error reply. DDR GETS ENTRY DATA
-  # is not registered on BSDXRPC. A refusal from the preflight reads does
-  # not send the BSDX RPC.
+  # VUECENTRIC before BSDX CHECKIN APPOINTMENT, reads #9002018.4 .03 again
+  # after a "0^" reply and after an error reply, and, when that "0^" left
+  # .03 empty, reads #9002018.4 .01 and .05 and lists #44.003 under CIAV
+  # VUECENTRIC. DDR GETS ENTRY DATA and DDR LISTER are not registered on
+  # BSDXRPC. A refusal from the preflight reads does not send the BSDX RPC.
   module Scheduling
     extend self
     extend Shape::Declarable
 
     # The context option the BSDX RPCs are registered under — see the module
     # doc. Every method here binds it for its BSDX RPC. undo_checkin's
-    # DDR GETS ENTRY DATA reads bind DDR_CONTEXT instead: that RPC is
-    # registered on CIAV VUECENTRIC, not on BSDXRPC.
+    # DDR GETS ENTRY DATA and DDR LISTER reads bind DDR_CONTEXT instead:
+    # those RPCs are registered on CIAV VUECENTRIC, not on BSDXRPC.
     CONTEXT = "BSDXRPC"
     DDR_CONTEXT = "CIAV VUECENTRIC"
     APPOINTMENT_FILE = "9002018.4"
     CHECKIN_FIELD = ".03"
     RESOURCE_FIELD = ".07"
     APPOINTMENT_PREFLIGHT_FIELDS = "#{CHECKIN_FIELD};#{RESOURCE_FIELD}"
+    START_FIELD = ".01"
+    PATIENT_FIELD = ".05"
+    APPOINTMENT_LOCATE_FIELDS = "#{START_FIELD};#{PATIENT_FIELD}"
     RESOURCE_FILE = "9002018.1"
     HOSPITAL_LOCATION_FIELD = ".04"
+    CLINIC_APPOINTMENT_FILE = "44.003"
+    # Packed LIST^DIC row: IEN, patient (.01), check-in (309). FIND^BSDX25
+    # picks the row whose .01 is the appointment's patient.
+    CLINIC_APPOINTMENT_FIELDS = "@;.01I;309I"
+    CLINIC_LIST_FLAGS = "IP"
 
     # Book an appointment — BSDX ADD NEW APPOINTMENT (APPADD^BSDX07 → $$MAKE^BSDAPI).
     #
@@ -199,10 +208,24 @@ module RpmsRpc
     #
     # Only then is the RPC sent with check-in time "@". After a "0^" reply,
     # .03 is read again. The .03 row must be present: a nil reply, an error,
-    # or a missing row is :lookup_failed. An empty .03 is { success: true }.
-    # A value still stored is { success: false, error: :not_undone, message: }.
-    # "0^" proves .03 is clear. It does not prove #44.003 field 309 is clear:
-    # CANCHKIN discards its own FILE^DIE error (BSDX25.m:164-167).
+    # or a missing row is :lookup_failed. A value still stored is
+    # { success: false, error: :not_undone, message: }. An empty .03 is not
+    # yet success. "0^" proves .03 is clear. It does not prove #44.003 field
+    # 309 is clear: CANCHKIN discards its own FILE^DIE error
+    # (BSDX25.m:164-167).
+    #
+    # When .03 is empty, still under CIAV VUECENTRIC, this method reads
+    # #9002018.4 fields ".01;.05" (flags "I") and then DDR LISTER on #44.003,
+    # iens ",<start>,<hospital location>,", fields "@;.01I;309I", flags "IP".
+    # Start is .01 and the patient is .05. It judges only the row whose .01
+    # equals that patient (FIND^BSDX25). A non-empty 309 is
+    # { success: false, error: :partial, message: } and the message names
+    # field 309 and #44.003. An empty 309 is { success: true }. A nil reply,
+    # an error, an empty or unfinished list, a missing row, an empty .01 or
+    # .05, no row for this patient, more than one such row, or a row that
+    # does not carry 309 is :lookup_failed. A missing or failed read is not
+    # an empty field: absence of data never verifies the clinic check-in.
+    # .03 still set does not list #44.003.
     #
     # CHECKIN^BSDX25 clears .03 in BSDXCHK (BSDX25.m:59) before CANCHKIN.
     # CANCHKIN can then ERR("Could not locate appointment...") (BSDX25.m:161)
@@ -223,15 +246,15 @@ module RpmsRpc
         return { success: false, error: :invalid, message: "a positive appointment IEN is required" }
       end
 
-      refusal = undo_checkin_preflight(ien)
-      return refusal if refusal
+      hospital = undo_checkin_preflight(ien)
+      return hospital if hospital.is_a?(Hash)
 
       written = error_write(:scheduling_checkin_appointment,
                             ien, "@", clinic_code.to_s, provider.to_s,
                             "", "", "", "",
                             zero_ok: true)
       return written if written.nil?
-      return confirm_checkin_cleared(ien) if written[:success]
+      return confirm_checkin_cleared(ien, hospital) if written[:success]
 
       undo_checkin_after_error(ien, written)
     end
@@ -427,15 +450,17 @@ module RpmsRpc
     # Bind BSDXRPC for the duration of the block and restore the caller's
     # option afterward (a no-op round-trip-wise when BSDXRPC is already
     # bound). BSDX RPCs go through here. undo_checkin's DDR GETS ENTRY DATA
-    # reads bind CIAV VUECENTRIC in ddr_gets.
+    # reads bind CIAV VUECENTRIC in ddr_gets, and its DDR LISTER read binds
+    # the same option in ddr_lister.
     def in_context(&block)
       ContextScope.scoped(RpmsRpc.client, CONTEXT, &block)
     end
 
     # CHECKIN replies "0^" when it cleared nothing (BSDX25.m:54,74). These
     # reads are the evidence, and they run under CIAV VUECENTRIC: DDR GETS
-    # ENTRY DATA is not registered on BSDXRPC. A refusal here is returned
-    # instead of sending the check-in RPC.
+    # ENTRY DATA is not registered on BSDXRPC. A refusal hash is returned
+    # instead of sending the check-in RPC. Otherwise the hospital location
+    # is returned, so the #44.003 list does not read #9002018.1 again.
     def undo_checkin_preflight(ien)
       read = ddr_gets(APPOINTMENT_FILE, "#{ien},", APPOINTMENT_PREFLIGHT_FIELDS)
       if gets_malformed?(read, CHECKIN_FIELD, RESOURCE_FIELD)
@@ -452,37 +477,104 @@ module RpmsRpc
         return { success: false, error: :no_resource, message: "appointment has no resource" }
       end
 
-      case resource_hospital(resource)
+      hospital = resource_hospital(resource)
+      case hospital
       when :lookup_failed
         { success: false, error: :lookup_failed,
           message: "DDR GETS ENTRY DATA could not read #9002018.1 field .04" }
       when :no_resource
         { success: false, error: :no_resource, message: "resource has no hospital location" }
+      else
+        hospital
       end
     end
 
     # nil is a failed read. An error reply, or a present but empty .04, is
     # a resource CHECKIN will not use (BSDX25.m:54). A [Data] reply with no
-    # .04 row is malformed: an empty field still comes back as a row.
+    # .04 row is malformed: an empty field still comes back as a row. The
+    # hospital-location string is the parent #44.003 is listed under.
     def resource_hospital(resource_ien)
       read = ddr_gets(RESOURCE_FILE, "#{resource_ien},", HOSPITAL_LOCATION_FIELD)
       return :lookup_failed if read.nil?
       return :no_resource if read[:error]
       return :lookup_failed unless read[:fields].key?(HOSPITAL_LOCATION_FIELD)
-      return :no_resource if read[:fields][HOSPITAL_LOCATION_FIELD][:internal].to_s.empty?
 
-      :ok
+      location = read[:fields][HOSPITAL_LOCATION_FIELD][:internal].to_s.strip
+      return :no_resource if location.empty?
+
+      location
     end
 
     # BSDX25.m:54 replies "0^" whether or not .03 was cleared. The field is
     # the evidence. DDR GETS ENTRY DATA is on CIAV VUECENTRIC, not BSDXRPC.
     # An empty field is still a row; a reply that omits the row is malformed.
-    def confirm_checkin_cleared(ien)
+    # Empty .03 still has to show #44.003 field 309 empty for this patient.
+    def confirm_checkin_cleared(ien, hospital)
       time = checkin_time_after_rpc(ien)
       return time if time.is_a?(Hash)
-      return { success: true } if time.empty?
+      unless time.empty?
+        return { success: false, error: :not_undone,
+                 message: "check-in time is still set on #9002018.4 field .03" }
+      end
 
-      { success: false, error: :not_undone, message: "check-in time is still set on #9002018.4 field .03" }
+      confirm_clinic_checkin_cleared(ien, hospital)
+    end
+
+    # CANCHKIN's "0^" does not mean field 309 was cleared (BSDX25.m:164-167).
+    # The clinic row is the one FIND^BSDX25 would take: same start, same
+    # hospital location, .01 equal to this appointment's patient. Any read
+    # that does not produce that one row fails closed.
+    def confirm_clinic_checkin_cleared(ien, hospital)
+      located = appointment_start_and_patient(ien)
+      return located if located.is_a?(Hash)
+
+      start, patient = located
+      checkin = clinic_field_309(start, hospital, patient)
+      return checkin if checkin.is_a?(Hash)
+      return { success: true } if checkin.empty?
+
+      { success: false, error: :partial,
+        message: "clinic appointment check-in (#44.003 field 309) is still set" }
+    end
+
+    # .01 is the appointment start, .05 the patient. DDR GETS returns a row
+    # for an empty field, so a missing row is malformed. An empty value is
+    # not a start or a patient the clinic list can be judged against.
+    def appointment_start_and_patient(ien)
+      read = ddr_gets(APPOINTMENT_FILE, "#{ien},", APPOINTMENT_LOCATE_FIELDS)
+      failed = { success: false, error: :lookup_failed,
+                 message: "DDR GETS ENTRY DATA could not read #9002018.4 fields .01 and .05" }
+      return failed if gets_malformed?(read, START_FIELD, PATIENT_FIELD)
+
+      start = read[:fields][START_FIELD][:internal].to_s.strip
+      patient = read[:fields][PATIENT_FIELD][:internal].to_s.strip
+      return failed if start.empty? || patient.empty?
+
+      [ start, patient ]
+    end
+
+    # DDR LISTER under CIAV VUECENTRIC. pieces are .01 then 309 (the IEN is
+    # entry[:ien]). Nil, an error, an unfinished page, no row for this
+    # patient, more than one, or a row without a 309 piece is :lookup_failed.
+    # An empty 309 piece is the value, and it is empty.
+    def clinic_field_309(start, hospital, patient)
+      listed = ddr_lister(CLINIC_APPOINTMENT_FILE, ",#{start},#{hospital},",
+                          CLINIC_APPOINTMENT_FIELDS, CLINIC_LIST_FLAGS)
+      failed = { success: false, error: :lookup_failed,
+                 message: "DDR LISTER could not read #44.003 field 309" }
+      return failed if listed.nil? || listed[:error] || listed[:more]
+
+      rows = Array(listed[:entries]).select { |entry| clinic_row_patient(entry) == patient }
+      return failed unless rows.length == 1
+
+      pieces = rows.first[:pieces].to_a
+      return failed if pieces.length < 2
+
+      pieces[1].to_s
+    end
+
+    def clinic_row_patient(entry)
+      entry[:pieces].to_a.first.to_s.strip
     end
 
     # BSDXCHK clears .03 before CANCHKIN (BSDX25.m:59). An error reply can
@@ -513,6 +605,12 @@ module RpmsRpc
     def ddr_gets(file, iens, fields)
       ContextScope.scoped(RpmsRpc.client, DDR_CONTEXT) do
         DdrFileman.gets_entry(file: file, iens: iens, fields: fields, flags: "I")
+      end
+    end
+
+    def ddr_lister(file, iens, fields, flags)
+      ContextScope.scoped(RpmsRpc.client, DDR_CONTEXT) do
+        DdrFileman.lister(file: file, iens: iens, fields: fields, flags: flags)
       end
     end
 
