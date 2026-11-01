@@ -206,6 +206,13 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
     assert_empty pcc_calls
   end
 
+  def test_refuses_when_bh_pre_read_has_no_dot16_field_without_amhg_rpc
+    seed_bh_pre_read_dot08_only(record_ien: RECORD_IEN, patient: PATIENT)
+    err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    assert_match(/stored PCC link could not be read/i, err.message)
+    assert_empty pcc_calls
+  end
+
   def test_with_visit_ien_refuses_when_pre_read_delete_flag_is_set_without_amhg_rpc
     seed_bh_patient_link(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: "")
     seed_v_visit(visit_ien: PCC_VISIT_IEN, patient: PATIENT, delete_flag: "1")
@@ -253,11 +260,35 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
   end
 
   def test_success_refuses_when_post_readback_dot16_differs_from_reply
-    seed_fallback_success(record_ien: RECORD_IEN, reply_ien: PCC_VISIT_IEN, patient: PATIENT,
-                          readback_pcc_ien: OTHER_PCC_VISIT)
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: "")
+    seed_fallback_reply(record_ien: RECORD_IEN, body: success_body(PCC_VISIT_IEN))
+    seed_post_readback(
+      record_ien: RECORD_IEN, pcc_ien: OTHER_PCC_VISIT, patient: PATIENT,
+      visit_patient: PATIENT, v_visit_ien: PCC_VISIT_IEN
+    )
     err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
     assert_amhg_reached
     assert_match(/may have been changed|not confirmed/i, err.message)
+  end
+
+  def test_success_refuses_when_post_readback_v_visit_has_no_dot11_field
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: "")
+    seed_fallback_reply(record_ien: RECORD_IEN, body: success_body(PCC_VISIT_IEN))
+    seed_post_readback_bh(record_ien: RECORD_IEN, pcc_ien: PCC_VISIT_IEN, patient: PATIENT)
+    seed_post_readback_v_dot05_only(visit_ien: PCC_VISIT_IEN, patient: PATIENT)
+    err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err)
+  end
+
+  def test_success_refuses_when_post_readback_bh_dot08_and_v_visit_dot05_are_both_blank
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: "")
+    seed_fallback_reply(record_ien: RECORD_IEN, body: success_body(PCC_VISIT_IEN))
+    seed_post_readback_bh(record_ien: RECORD_IEN, pcc_ien: PCC_VISIT_IEN, patient: "")
+    seed_post_readback_v(visit_ien: PCC_VISIT_IEN, patient: "", delete_flag: "")
+    err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err)
   end
 
   def test_success_refuses_when_v_visit_dot05_differs_from_bh_dot08
@@ -364,6 +395,99 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
     err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
     assert_amhg_reached
     assert_post_call_ambiguity(err)
+  end
+
+  def test_raises_when_reply_has_trailing_text_after_the_last_record_separator
+    body = "T00030Result#{RS}#{PCC_VISIT_IEN}#{RS}JUNK#{US}"
+    seed_parser_trap(record_ien: RECORD_IEN, reply_body: body, readback_ien: PCC_VISIT_IEN)
+    err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err)
+    refute_includes err.message, "JUNK"
+  end
+
+  def test_cia_global_array_frame_with_sequence_echo_parses_to_success
+    frame = "1\x00T00030Result#{RS}#{PCC_VISIT_IEN}#{RS}#{US}"
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: "")
+    seed_reply(wire_param(RECORD_IEN), frame)
+    seed_post_readback(
+      record_ien: RECORD_IEN, pcc_ien: PCC_VISIT_IEN, patient: PATIENT, visit_patient: PATIENT
+    )
+    result = BH.save_pcc_visit(record_ien: RECORD_IEN)
+    assert_pcc_success(result, visit_ien: PCC_VISIT_IEN, new_link: true)
+  end
+
+  def test_post_call_ddr_read_raising_rpms_error_becomes_outcome_unknown_save_error
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: "")
+    seed_fallback_reply(record_ien: RECORD_IEN, body: success_body(PCC_VISIT_IEN))
+    wrapper = RaisesRpmsErrorOnPostReadback.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err)
+    assert_kind_of RpmsRpc::Error, err.cause
+    refute_includes err.message, PCC_VISIT_IEN
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_bmx_client_success_returns_hash_after_read_back_when_reply_is_split_rows
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: "")
+    seed_post_readback(
+      record_ien: RECORD_IEN, pcc_ien: PCC_VISIT_IEN, patient: PATIENT, visit_patient: PATIENT
+    )
+    wrapper = BmxSplitRowsAmhgClient.new(@mock)
+    wrapper.amhg_row = PCC_VISIT_IEN
+    RpmsRpc.configure { |c| c.client = wrapper }
+    result = BH.save_pcc_visit(record_ien: RECORD_IEN)
+    assert_pcc_success(result, visit_ien: PCC_VISIT_IEN, new_link: true)
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_bmx_client_maps_activity_type_missing_to_literal_refusal
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: "")
+    wrapper = BmxSplitRowsAmhgClient.new(@mock)
+    wrapper.amhg_row = "0~#{ACTIVITY_TYPE_MISSING}"
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    assert_match(/Activity Type Missing!/i, err.message)
+    assert_match(/nothing.*linked|not.*linked|no PCC visit.*linked/i, err.message)
+    refute_match(/outcome unknown/i, err.message)
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_bmx_client_raises_outcome_unknown_when_split_reply_has_two_data_rows
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: "")
+    seed_post_readback(
+      record_ien: RECORD_IEN, pcc_ien: PCC_VISIT_IEN, patient: PATIENT, visit_patient: PATIENT
+    )
+    wrapper = BmxSplitRowsAmhgClient.new(@mock)
+    wrapper.amhg_parts = [ "T00030Result", PCC_VISIT_IEN, OTHER_PCC_VISIT, "" ]
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    assert wrapper.amhg_invoked, "expected AMHG CREATE/EDIT VISIT via BMX #call_rpc"
+    assert_post_call_ambiguity(err)
+    refute_post_readback_ddr_calls
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_bmx_client_raises_outcome_unknown_when_split_reply_lacks_t00030result_header
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: "")
+    seed_post_readback(
+      record_ien: RECORD_IEN, pcc_ien: PCC_VISIT_IEN, patient: PATIENT, visit_patient: PATIENT
+    )
+    wrapper = BmxSplitRowsAmhgClient.new(@mock)
+    wrapper.amhg_parts = [ "XYZ", PCC_VISIT_IEN, "" ]
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    assert wrapper.amhg_invoked, "expected AMHG CREATE/EDIT VISIT via BMX #call_rpc"
+    assert_post_call_ambiguity(err)
+    refute_post_readback_ddr_calls
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
   end
 
   def test_pcc_rpc_m_error_becomes_save_error_with_ambiguous_outcome
@@ -652,7 +776,15 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
     @mock.seed(:ddr_gets_entry_data, key, body)
   end
 
-  def seed_post_readback(record_ien:, pcc_ien:, patient:, visit_patient:, delete_flag: "")
+  def seed_post_readback(record_ien:, pcc_ien:, patient:, visit_patient:, delete_flag: "",
+                         v_visit_ien: nil)
+    seed_post_readback_bh(record_ien: record_ien, pcc_ien: pcc_ien, patient: patient)
+    seed_post_readback_v(
+      visit_ien: v_visit_ien || pcc_ien, patient: visit_patient, delete_flag: delete_flag
+    )
+  end
+
+  def seed_post_readback_bh(record_ien:, pcc_ien:, patient:)
     bh_key = ddr_gets_key(
       file: BH_VISIT_FILE, iens: "#{record_ien},",
       fields: POST_READBACK_BH_FIELDS, flags: POST_READBACK_BH_FLAGS
@@ -661,16 +793,37 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
               "#{BH_VISIT_FILE}^#{record_ien}^.08^#{patient}^PATIENT,SYNTH\n" \
               "#{BH_VISIT_FILE}^#{record_ien}^.16^#{pcc_ien}^VISIT"
     @mock.seed(:ddr_gets_entry_data, bh_key, bh_body)
+  end
 
+  def seed_post_readback_v(visit_ien:, patient:, delete_flag: "")
     v_key = ddr_gets_key(
-      file: V_VISIT_FILE, iens: "#{pcc_ien},",
+      file: V_VISIT_FILE, iens: "#{visit_ien},",
       fields: POST_READBACK_V_FIELDS, flags: POST_READBACK_V_FLAGS
     )
     v_body = "[Data]\n" \
-             "#{V_VISIT_FILE}^#{pcc_ien}^.05^#{visit_patient}^PATIENT,SYNTH\n" \
-             "#{V_VISIT_FILE}^#{pcc_ien}^#{DELETE_FLAG_FIELD}^#{delete_flag}^DELETE"
+             "#{V_VISIT_FILE}^#{visit_ien}^.05^#{patient}^PATIENT,SYNTH\n" \
+             "#{V_VISIT_FILE}^#{visit_ien}^#{DELETE_FLAG_FIELD}^#{delete_flag}^DELETE"
     @mock.seed(:ddr_gets_entry_data, v_key, v_body)
-    seed_v_visit_patient_only(visit_ien: pcc_ien, patient: visit_patient)
+    seed_v_visit_patient_only(visit_ien: visit_ien, patient: patient)
+  end
+
+  def seed_post_readback_v_dot05_only(visit_ien:, patient:)
+    v_key = ddr_gets_key(
+      file: V_VISIT_FILE, iens: "#{visit_ien},",
+      fields: POST_READBACK_V_FIELDS, flags: POST_READBACK_V_FLAGS
+    )
+    v_body = "[Data]\n#{V_VISIT_FILE}^#{visit_ien}^.05^#{patient}^PATIENT,SYNTH"
+    @mock.seed(:ddr_gets_entry_data, v_key, v_body)
+    seed_v_visit_patient_only(visit_ien: visit_ien, patient: patient)
+  end
+
+  def seed_bh_pre_read_dot08_only(record_ien:, patient:)
+    key = ddr_gets_key(
+      file: BH_VISIT_FILE, iens: "#{record_ien},",
+      fields: PRE_VISIT_IEN_FIELDS, flags: PRE_VISIT_IEN_FLAGS
+    )
+    body = "[Data]\n#{BH_VISIT_FILE}^#{record_ien}^.08^#{patient}^PATIENT,SYNTH"
+    @mock.seed(:ddr_gets_entry_data, key, body)
   end
 
   def positions_of
@@ -743,7 +896,8 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
 
   def assert_pre_call_refusal(label: nil, **kwargs)
     err = assert_raises(BH::SaveError) { BH.save_pcc_visit(**kwargs) }
-    assert_empty pcc_calls, "pre-call refusal must not RPC#{label ? " (#{label})" : ""}"
+    assert_empty @mock.received_calls,
+                 "pre-call IEN refusal must not send any RPC#{label ? " (#{label})" : ""}"
     err
   end
 
@@ -791,6 +945,49 @@ class RpcMErrorOnPccVisit < SimpleDelegator
     end
 
     super
+  end
+end
+
+class BmxSplitRowsAmhgClient < SimpleDelegator
+  attr_accessor :amhg_row, :amhg_header, :amhg_parts
+  attr_reader :amhg_invoked
+
+  def initialize(delegate)
+    super
+    @amhg_header = "T00030Result"
+    @amhg_invoked = false
+  end
+
+  def respond_to?(method, include_private = false)
+    method.to_sym == :call_rpc_global_array ? false : super
+  end
+
+  def call_rpc(rpc_name, *args)
+    if rpc_name == BehavioralHealthSavePccVisitTest::RPC
+      @amhg_invoked = true
+      parts = amhg_parts || [ amhg_header, amhg_row, "" ]
+      return RpmsRpc::Reply.from_wire(parts)
+    end
+
+    super
+  end
+end
+
+class RaisesRpmsErrorOnPostReadback < SimpleDelegator
+  BH_FLAGS = BehavioralHealthSavePccVisitTest::POST_READBACK_BH_FLAGS
+  V_FLAGS = BehavioralHealthSavePccVisitTest::POST_READBACK_V_FLAGS
+
+  def call_rpc(rpc_name, *params)
+    if rpc_name == "DDR GETS ENTRY DATA" && post_readback?(params.first)
+      raise RpmsRpc::Error, "synthetic post-readback failure"
+    end
+
+    super
+  end
+
+  def post_readback?(param)
+    param.is_a?(Hash) &&
+      (param["FLAGS"] == BH_FLAGS || param["FLAGS"] == V_FLAGS)
   end
 end
 

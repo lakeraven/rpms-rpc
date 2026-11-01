@@ -80,10 +80,13 @@ class BehavioralHealthSavePccVisitLiveTest < LiveSpec::Test
 
   def assert_pcc_link_blank!(record_ien)
     filed = RpmsRpc::DdrFileman.gets_entry(
-      file: BH_VISIT_FILE, iens: "#{record_ien},", fields: PCC_LINK_FIELD, flags: "I"
+      file: BH_VISIT_FILE, iens: "#{record_ien},", fields: PCC_LINK_FIELD, flags: "IE"
     )
     refute_nil filed, "DDR GETS on BH visit #{record_ien}"
     flunk "DDR GETS on BH visit #{record_ien} returned an error marker" if filed[:error]
+    unless filed[:fields].key?(PCC_LINK_FIELD)
+      flunk "DDR GETS on BH visit #{record_ien} did not return the #{PCC_LINK_FIELD} field"
+    end
 
     dot16 = filed.dig(:fields, PCC_LINK_FIELD, :internal).to_s.strip
     assert_empty dot16, "PCC VISIT LINK (.16) must stay blank on this pinned build"
