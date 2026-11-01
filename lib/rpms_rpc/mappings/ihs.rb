@@ -1115,6 +1115,15 @@ module RpmsRpc
       m.field 0, :ien, :string
     end
 
+    # AMHG SAVE PROGRESS NOTES — PN^AMHGSVF (AMHGSVF.m:196-219). One
+    # param, the 8-piece AMHSTR. Edit only: piece 1 is always "E". The
+    # reply is a GLOBAL ARRAY: header then +AMHIEN. :ien stays a string
+    # so an "M ERROR|..." row is not coerced to 0.
+    DataMapper.define(:amhg_save_progress_notes) do |m|
+      m.rpc "AMHG SAVE PROGRESS NOTES"
+      m.field 0, :ien, :string
+    end
+
     # -- Visit detail tabs (AMHGDVF unless noted) -----------------------------
     # All take one param: the visit IEN. All emit a typed header + $C(30)-
     # separated rows + a bare $C(31). Single-column responses carry FREE TEXT
