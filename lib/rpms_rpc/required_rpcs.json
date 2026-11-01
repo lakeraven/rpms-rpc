@@ -306,8 +306,7 @@
       "DDR LISTER"
     ],
     "RpmsRpc::Session": [
-      "CIAVCXUS VIMINFO",
-      "CIAVMCFG GETREG"
+      "CIAVCXUS VIMINFO"
     ],
     "RpmsRpc::Site": [
       "BEHOSICX SITEINFO"

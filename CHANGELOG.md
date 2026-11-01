@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed — `Session.bootstrap` no longer calls `CIAVMCFG GETREG` (#522) — **breaking**
+
+`:session_registry` wrapped `CIAVMCFG GETREG` to dump VueCentric's widget registry (`^CIAVOBJ`) as ID=VALUE lines at cold launch. The web app does not use that client state, so the mapping is deleted rather than kept.
+
+- **Breaking:** `Session.bootstrap` no longer calls `CIAVMCFG GETREG`. The result loses the `:registry` key and now returns only `{ vim_info: }`.
+- `DataMapper[:session_registry]` is gone, and so is its `MockClient` seed.
+- `"CIAVMCFG GETREG"` leaves `lib/rpms_rpc/required_rpcs.json`.
+
+A consumer must stop seeding `:session_registry` and stop reading `bootstrap(...)[:registry]`. There is no replacement, because the dump belongs to the VueCentric client.
+
 ### Changed — `Patient.brief_header` reads CWAD from `ORWPT CWAD` under `OR CPRS GUI CHART` (#520)
 
 - `DataMapper.patient_cwad` calls `ORWPT CWAD` (`CWAD^ORWPT`, formals Y,DFN), a stock VistA RPC mapped in `mappings/stock_vista.rb`. `BEHOCACV CWAD` is reachable only under `CIAV VUECENTRIC` and is no longer sent. The letters are the same: C crises, W warnings, A allergies, D advance directives. `allergy_flag` and `ad_flag` still follow A and D.

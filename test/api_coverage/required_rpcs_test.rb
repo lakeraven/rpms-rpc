@@ -21,6 +21,14 @@ class RequiredRpcsTest < Minitest::Test
            "lib/rpms_rpc/required_rpcs.json is stale: run `bundle exec rake rpc:required_rpcs` and commit it"
   end
 
+  def test_session_required_rpcs_are_viminfo_only
+    committed = JSON.parse(File.read(RpmsRpc::Compatibility::REQUIRED_PATH))
+    session_rpcs = committed.fetch("modules").fetch("RpmsRpc::Session")
+
+    refute_includes session_rpcs, "CIAVMCFG GETREG"
+    assert_equal [ "CIAVCXUS VIMINFO" ], session_rpcs
+  end
+
   def test_groups_by_module_and_leaves_out_modules_that_send_nothing
     entries = [
       { module: "RpmsRpc::B", rpcs: [ { name: "Y" }, { name: "X" } ] },
