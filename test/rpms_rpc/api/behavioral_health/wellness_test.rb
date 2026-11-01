@@ -493,6 +493,8 @@ class BehavioralHealthWellnessTest < Minitest::Test
     result = wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
 
     assert_equal RECORD_IEN, result.fetch(:record_ien)
+    assert_equal 1, wrapper.unlock_refusal_count,
+                 "visit unlock must be attempted exactly once on the captured client"
     assert_empty unlock_calls_for(RECORD_IEN), "unlock must not be retried on the inner session client"
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
@@ -510,6 +512,8 @@ class BehavioralHealthWellnessTest < Minitest::Test
       wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
     end
     assert_match(/may have been filed/i, err.message)
+    assert_equal 1, wrapper.unlock_refusal_count,
+                 "visit unlock must be attempted exactly once on the captured client"
     assert_empty unlock_calls_for(RECORD_IEN), "unlock must not be retried on the inner session client"
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
@@ -828,28 +832,39 @@ class BehavioralHealthWellnessTest < Minitest::Test
     inner = [ { type: "GAD7", value: 9, provider: PROVIDER } ]
     outer_wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
     inner_wire = "A|#{other}|GAD7~~9~#{PROVIDER}|#{PATIENT}"
-    seed_measurements_success(outer_wire, outer)
-    seed_measurements_success(inner_wire, inner, record_ien: other)
-    errors = Queue.new
+    seed_concurrent_measurements_success(outer_wire, outer, RECORD_IEN)
+    seed_concurrent_measurements_success(inner_wire, inner, other)
+    release = Queue.new
+    entered = Queue.new
+    blocker = BlockOnMeasurementsWriteClient.new(
+      @mock, entered: entered, release: release, record_ien: RECORD_IEN
+    )
+    RpmsRpc.configure { |c| c.client = blocker }
+
     outer_rows = nil
-    inner_rows = nil
-    t_outer = Thread.new do
+    worker = Thread.new do
       outer_rows = wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: outer)
-    rescue StandardError => e
-      errors.push e
     end
-    t_inner = Thread.new do
-      inner_rows = wellness.save_measurements(other, patient: PATIENT, measurements: inner)
-    rescue StandardError => e
-      errors.push e
-    end
-    t_outer.join(5) || flunk("timed out waiting for outer save")
-    t_inner.join(5) || flunk("timed out waiting for inner save")
-    refute errors.pop(timeout: 0), "concurrent saves for different records must not raise"
-    refute_nil outer_rows
+
+    entered.pop(timeout: 5) || flunk("timed out waiting for outer write RPC to start")
+
+    inner_rows = wellness.save_measurements(other, patient: PATIENT, measurements: inner)
+
+    assert_equal 1,
+                 @mock.received_calls.count { |c|
+                   c[:rpc] == RPC_MEASUREMENTS && c[:params]&.first.to_s.include?("|#{other}|")
+                 },
+                 "inner save for a different record must send its write RPC while outer save is blocked"
     refute_nil inner_rows
-    assert_equal "PHQ9", outer_rows.find { |r| r[:type] == "PHQ9" }&.fetch(:type)
     assert_equal "GAD7", inner_rows.find { |r| r[:type] == "GAD7" }&.fetch(:type)
+
+    release.push(true)
+    worker.join(5) || flunk("timed out waiting for outer save")
+    refute worker.alive?, "outer concurrent save must complete"
+    refute_nil outer_rows
+    assert_equal "PHQ9", outer_rows.find { |r| r[:type] == "PHQ9" }&.fetch(:type)
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
   end
 
   def test_save_measurements_uses_client_captured_at_start_when_configuration_changes_mid_save
@@ -907,6 +922,70 @@ class BehavioralHealthWellnessTest < Minitest::Test
       AfterWriteRpcErrorClient.new(visit_gets_client, RPC_MSR_READ, ::Timeout::Error,
                                    "MSR read-back hung (synthetic)", require_write_first: true)
     )
+  end
+
+  def test_save_screening_raises_save_error_not_ioerror_when_provider_ddr_gets_raises_ioerror
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    seed_pre_edit_screening(RECORD_IEN, PATIENT)
+    seed_baseline_stored_screening_providers
+    seed_visit_unlock(RECORD_IEN)
+    message = "file 200 provider DDR GETS failed (synthetic)"
+    wrapper = DdrGetsIOErrorOnMatchClient.new(
+      @mock, ->(param) { provider_ddr_param?(param) }, message
+    )
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_instance_of IOError, err.cause
+    assert_equal message, err.cause.message
+    assert_empty screening_calls
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_measurements_raises_save_error_not_ioerror_when_provider_ddr_gets_raises_ioerror
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    seed_pre_edit_visit_gets(RECORD_IEN, PATIENT, BASELINE_INTERNAL)
+    seed_visit_unlock(RECORD_IEN)
+    message = "file 200 provider DDR GETS failed (synthetic)"
+    wrapper = DdrGetsIOErrorOnMatchClient.new(
+      @mock, ->(param) { provider_ddr_param?(param) }, message
+    )
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+    assert_instance_of IOError, err.cause
+    assert_equal message, err.cause.message
+    assert_empty measurements_calls
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_raises_save_error_not_ioerror_when_pre_write_visit_ddr_gets_raises_ioerror
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    seed_visit_lock(RECORD_IEN)
+    seed_visit_unlock(RECORD_IEN)
+    message = "pre-write visit DDR GETS failed (synthetic)"
+    wrapper = DdrGetsIOErrorOnMatchClient.new(
+      @mock, ->(param) { visit_ddr_param?(RECORD_IEN, param) }, message
+    )
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_instance_of IOError, err.cause
+    assert_equal message, err.cause.message
+    assert_empty screening_calls
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
   end
 
   def test_save_screening_second_call_for_same_record_after_first_succeeds
@@ -1546,6 +1625,35 @@ class BehavioralHealthWellnessTest < Minitest::Test
     end
   end
 
+  def seed_concurrent_measurements_success(wire, measurements, record_ien)
+    rows = measurements.map do |m|
+      msr_row(type_code: m.fetch(:type), value: m.fetch(:value), provider: m.fetch(:provider))
+    end
+    seed_visit_lock(record_ien)
+    seed_visit_unlock(record_ien)
+    key = visit_ddr_key(record_ien)
+    body = pre_edit_body(record_ien, PATIENT, internal: BASELINE_INTERNAL)
+    @mock.seed(:ddr_gets_entry_data, key, body)
+    seed_providers_for_measurements(measurements)
+    seed_measurements_reply(wire, measurements_success_body(record_ien))
+    seed_msr_read(record_ien, rows)
+  end
+
+  def provider_ddr_param?(param)
+    param.is_a?(Hash) &&
+      param["FILE"] == PROVIDER_FILE &&
+      param["FIELDS"] == ".01" &&
+      param["FLAGS"] == "I"
+  end
+
+  def visit_ddr_param?(ien, param)
+    param.is_a?(Hash) &&
+      param["FILE"] == BH_VISIT_FILE &&
+      param["IENS"] == "#{ien}," &&
+      param["FIELDS"] == PRE_EDIT_FIELDS &&
+      param["FLAGS"] == PRE_EDIT_FLAGS
+  end
+
   def assert_non_gem_standard_error_during_save_raises_save_error(wrapper)
     measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
     wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
@@ -1610,14 +1718,18 @@ class RpcMErrorOnWellness < SimpleDelegator
 end
 
 class UnlockRaiseClient < SimpleDelegator
+  attr_reader :unlock_refusal_count
+
   def initialize(delegate, error_class, message)
     super(delegate)
     @error_class = error_class
     @message = message
+    @unlock_refusal_count = 0
   end
 
   def call_rpc(rpc_name, *params)
     if rpc_name == "DDR LOCK/UNLOCK NODE" && unlock_param?(params.first)
+      @unlock_refusal_count += 1
       raise @error_class, @message
     end
 
@@ -1946,8 +2058,54 @@ class PostScreeningWriteUnlockRefuseClient < SimpleDelegator
   end
 end
 
+class DdrGetsIOErrorOnMatchClient < SimpleDelegator
+  DDR_GETS = "DDR GETS ENTRY DATA"
+
+  def initialize(delegate, match, message)
+    super(delegate)
+    @match = match
+    @message = message
+  end
+
+  def call_rpc(rpc_name, *params)
+    if rpc_name == DDR_GETS && @match.call(params.first)
+      raise IOError, @message
+    end
+
+    super
+  end
+end
+
 class BlockOnMeasurementsWriteClient < SimpleDelegator
   MEASUREMENTS_RPC = "AMHG SAVE MEASUREMENTS"
+
+  # ContextScope on the inner mock holds @wire_lock for the whole scope,
+  # including the release wait. Bind context here with a no-op wire lock so
+  # another thread can finish a different-record save on the same client.
+  def with_context(option_name, &block)
+    synchronize_wire do
+      inner = __getobj__
+      next block.call if inner.current_context == option_name
+
+      previous = inner.current_context
+      inner.create_context(option_name)
+      begin
+        block.call
+      ensure
+        unless previous.nil? || previous == option_name
+          begin
+            inner.create_context(previous)
+          rescue StandardError
+            nil
+          end
+        end
+      end
+    end
+  end
+
+  def synchronize_wire(&block)
+    block.call
+  end
 
   def initialize(delegate, entered:, release:, record_ien:)
     super(delegate)
