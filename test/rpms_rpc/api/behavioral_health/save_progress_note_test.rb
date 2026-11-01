@@ -768,7 +768,7 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
 
   def assert_pre_call_refusal(label: nil, **kwargs)
     err = assert_raises(BH::SaveError) { BH.save_progress_note(**kwargs) }
-    label_text = label.nil? ? "" : " (#{label.to_s})"
+    label_text = label.nil? ? "" : " (#{label})"
     assert_empty amhg_calls, "pre-call refusal must not RPC#{label_text}"
     err
   end

@@ -76,8 +76,6 @@ class BehavioralHealthSaveProgressNoteLiveTest < LiveSpec::Test
     assert_equal placement_ien.to_s, scalars.fetch(".17")
     assert_equal REFERRED_TO, scalars.fetch(".18")
 
-    prior_comment = comm_rows.join("")
-
     RpmsRpc::BehavioralHealth.save_progress_note(
       record_ien: visit_ien,
       patient: DFN,
@@ -88,8 +86,8 @@ class BehavioralHealthSaveProgressNoteLiveTest < LiveSpec::Test
       referred_to: REFERRED_TO
     )
 
-    after_comment = RpmsRpc::BehavioralHealth.visit_comment_appointment(visit_ien).join("")
-    assert_equal prior_comment, after_comment,
+    after_comm_rows = raw_amhg_rows("AMHG GET VISIT COMM APP", "CommentAppointment", visit_ien)
+    assert_equal comm_rows, after_comm_rows,
                  "empty comment must not change stored 8101 (stock AMHGEVF)"
 
     RpmsRpc::BehavioralHealth.save_progress_note(
