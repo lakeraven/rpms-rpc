@@ -1,10 +1,14 @@
 {
   "permissions": {
     "allow": [
+      "Bash(timeout 120 ~/.local/bin/agent -p -f --model glm-5.2-high:*)",
       "Bash(timeout 1200 ~/.local/bin/agent -p -f --trust:*)",
       "Bash(timeout 2400 ~/.local/bin/agent -p -f --trust:*)",
       "Bash(bin/cloud_rpms:*)",
-      "Bash(PINNED=1 bin/cloud_rpms:*)"
+      "Bash(PINNED=1 bin/cloud_rpms:*)",
+      "Bash(LAKERAVEN_EHR_PATH=/home/user/lakeraven-ehr bin/cloud_rpms:*)",
+      "Bash(LAKERAVEN_EHR_PATH=/home/user/lakeraven-ehr PINNED=1 bin/cloud_rpms:*)",
+      "Bash(PINNED=1 LAKERAVEN_EHR_PATH=/home/user/lakeraven-ehr bin/cloud_rpms:*)"
     ]
   }
 }
