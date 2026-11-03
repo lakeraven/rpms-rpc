@@ -2,6 +2,7 @@
 
 require_relative "../shape"
 require_relative "../mappings"
+require_relative "../reply"
 
 module RpmsRpc
   # Symbolic API for the FileMan Delphi Components RPC family (DDR*) — the
@@ -159,13 +160,25 @@ module RpmsRpc
     # error: broker/M error strings ("-1^...", raw error text) don't match
     # the FILE^IENS^FIELD^... grammar, and silently returning empty fields
     # would let callers fabricate "value absent" from "read failed".
+    # altered: true is added when RpmsRpc::Reply.altered? of the raw reply
+    # is true, read before the lines are split, so a client that replaced
+    # a control character stays visible after that split drops the flag.
+    # A plain String or Array is not altered. stray: true is added when a
+    # line outside a word-processing block is neither a "[" marker nor a
+    # FILE^IENS^FIELD^VALUE row (fewer than four caret pieces). That line
+    # is still skipped. Both keys are omitted when false, so a well-formed
+    # reply keeps the previous hash. fields, error, and malformed are
+    # unchanged either way.
     def gets_entry(file:, iens:, fields:, flags: "")
-      reply = lines(call(:ddr_gets_entry_data,
-        gets_entry_param(file: file, iens: iens, fields: fields, flags: flags)))
+      raw = call(:ddr_gets_entry_data,
+        gets_entry_param(file: file, iens: iens, fields: fields, flags: flags))
+      altered = Reply.altered?(raw)
+      reply = lines(raw)
       return nil if reply.nil?
 
       result = {}
       wp_field = nil
+      stray = false
       reply.each do |line|
         if wp_field
           if line == "$$END$$"
@@ -176,8 +189,12 @@ module RpmsRpc
           next
         end
         next if line.start_with?("[") # [Data] / [ERROR] markers
+
         pieces = line.split("^", -1)
-        next if pieces.length < 4
+        if pieces.length < 4
+          stray = true
+          next
+        end
         field = pieces[2]
         if pieces[3] == "[WORD PROCESSING]"
           result[field] = { text: [] }
@@ -189,7 +206,10 @@ module RpmsRpc
       error = reply.include?("[ERROR]") ||
               (result.empty? && !reply.include?("[Data]"))
       malformed = result.empty? && !reply.include?("[Data]") && !reply.include?("[ERROR]")
-      { fields: result, error: error, malformed: malformed }
+      parsed = { fields: result, error: error, malformed: malformed }
+      parsed[:altered] = true if altered
+      parsed[:stray] = true if stray
+      parsed
     end
     shape :gets_entry, resource: "files", verb: "GET", path: "/files/{file}/entries/{iens}"
 

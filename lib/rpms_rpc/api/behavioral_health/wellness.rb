@@ -4,6 +4,7 @@ require_relative "../../shape"
 require_relative "../../reply"
 require_relative "../../mappings/amhg_wellness"
 require_relative "../ddr_fileman"
+require_relative "save_error"
 require_relative "wire"
 
 module RpmsRpc
@@ -82,22 +83,38 @@ module RpmsRpc
     # U+FFFD in a comment, stored or supplied, is refused before the write,
     # and read-back text that contains it is not a match. A screening
     # field absent from the read-back is a mismatch, not a blank.
-    # StandardError or NotImplementedError from a DDR call before the
-    # write is SaveError and keeps that exception as its cause.
-    # After the write RPC has been sent, StandardError or
-    # NotImplementedError from the write, the post-write visit read, or
-    # the measurement read-back is SaveError, says the record may have
-    # been filed, and keeps that exception as its cause.
+    # SaveError subclasses BehavioralHealth::SaveError. StandardError or
+    # NotImplementedError from a DDR call before the write is SaveError
+    # and keeps that exception as its cause. A visit (#9002011) or
+    # provider (file 200) DDR reply the client marked altered, or one
+    # with a line outside a word-processing block that is not a "["
+    # marker and not a FILE^IENS^FIELD^VALUE row, is not usable. Before
+    # the write that is SaveError and the AMHG RPC is not sent. On
+    # AMHG SAVE SCREENING and AMHG SAVE MEASUREMENTS,
+    # Client::RpcNotAvailableError and Client::RpcRefusedError
+    # propagate, and the visit unlock still runs.
+    # Client::FrameTooLongError from those two calls is SaveError, the
+    # cause is kept, and the message says the call could not be framed
+    # and nothing was sent. Any other StandardError or NotImplementedError
+    # from those calls, from the post-write visit read, or from the
+    # measurement read-back — including RpcNotAvailableError on the
+    # measurement read-back — is SaveError, says the record may have
+    # been filed, and keeps that exception as its cause. An altered or
+    # stray post-write visit read is that same unknown outcome.
     module Wellness
       extend self
       extend Wire
       extend Shape::Declarable
 
-      # The write was refused, or it was sent and the chart could not be
-      # shown to match. After the RPC has been sent the message says the
-      # record may have been filed. `cause` is the broker error when there
-      # was one. The message never includes a comment or other caller text.
-      class SaveError < RpmsRpc::Error; end
+      # Subclass of BehavioralHealth::SaveError. The write was refused, or
+      # it was sent and the chart could not be shown to match. After the
+      # RPC has been sent the message says the record may have been filed.
+      # A frame rejected before send is this class too, and the message
+      # says nothing was sent. `cause` is the broker error when there was
+      # one. Client::RpcNotAvailableError and Client::RpcRefusedError from
+      # the AMHG write are not this class; they propagate. The message
+      # never includes a comment or other caller text.
+      class SaveError < BehavioralHealth::SaveError; end
 
       # #9002011. The field list is patient, the signature, and the fifteen
       # fields SCREEN^AMHGEVF files (AMHGEVF.m:335-352). Flags "I": the
@@ -201,15 +218,21 @@ module RpmsRpc
       # the visit lock is not acquired, the visit cannot be shown to be this
       # patient's unsigned note, a provider IEN the write will send is not
       # on file 200 (one the caller supplied, or one resent from a screening
-      # the caller did not name), or a stored screening cannot be resent.
+      # the caller did not name), a visit or provider DDR reply that is
+      # altered or has a stray line, or a stored screening cannot be resent.
       # Each distinct provider IEN is read once. After AMHG SAVE SCREENING
       # is sent, raises SaveError and says the record may have been filed
       # unless the reply is that record IEN and the read-back matches. A
       # field the read-back does not contain is not a match, even when the
       # filed value is blank. Read-back text that contains U+FFFD is not a
-      # match. A StandardError or NotImplementedError from the write or
-      # from the visit read after it is that same SaveError and keeps the
-      # exception as its cause. The save captures the client at entry and
+      # match. Client::RpcNotAvailableError and Client::RpcRefusedError
+      # from AMHG SAVE SCREENING propagate. Client::FrameTooLongError from
+      # that call is SaveError and says nothing was sent. Any other
+      # StandardError or NotImplementedError from the write, or from the
+      # visit read after it, is SaveError, says the record may have been
+      # filed, and keeps the exception as its cause. An altered or stray
+      # post-write visit read is that same unknown outcome. The save
+      # captures the client at entry and
       # keeps using it if the configured client changes. A save already in
       # progress for this record on that client's identity raises SaveError
       # before any RPC. No client this gem ships defines session_id
@@ -266,13 +289,19 @@ module RpmsRpc
       # integer, and the raw string otherwise; that row does not fail the
       # save. A row with the wrong number of columns does. Each row has
       # :type and :provider => { :ien }.
-      # Raises SaveError the way save_screening does. After the write, the
-      # visit is read again; an unreadable visit or a different .08 says the
-      # record may have been filed. So does a reply that is not the record
-      # IEN, or a read-back that does not contain each sent type once with
-      # the same value and provider IEN: MODMSR may already have stored an
-      # earlier row. A StandardError or NotImplementedError from the write,
-      # from the visit read after it, or from the measurement read-back is
+      # Raises SaveError the way save_screening does, including an altered
+      # or stray visit or provider DDR reply before the write.
+      # Client::RpcNotAvailableError and Client::RpcRefusedError from
+      # AMHG SAVE MEASUREMENTS propagate. Client::FrameTooLongError from
+      # that call is SaveError and says nothing was sent. After the write,
+      # the visit is read again; an unreadable visit (including an altered
+      # reply or a stray line) or a different .08 says the record may have
+      # been filed. So does a reply that is not the record IEN, or a
+      # read-back that does not contain each sent type once with the same
+      # value and provider IEN: MODMSR may already have stored an earlier
+      # row. Any other StandardError or NotImplementedError from the
+      # write, from the visit read after it, or from the measurement
+      # read-back — including RpcNotAvailableError on that read-back — is
       # that same SaveError and keeps the exception as its cause. The save
       # captures the client at entry and keeps using it if the configured
       # client changes. A save already in progress for this record on that
@@ -378,11 +407,15 @@ module RpmsRpc
       # The write RPC is sent inside the block. Anything short of the
       # read-back proving the file is SaveError. An exception from the
       # write, the visit read, or the measurement read-back keeps that
-      # exception as the cause. A SaveError the read-back already raised
-      # is left as it is.
+      # exception as the cause. A SaveError already raised, including one
+      # that says nothing was sent, is left as it is.
+      # Client::RpcNotAvailableError and Client::RpcRefusedError
+      # propagate and are not wrapped.
       def with_write_outcome(rec, label)
         yield
       rescue SaveError
+        raise
+      rescue Client::RpcNotAvailableError, Client::RpcRefusedError
         raise
       rescue StandardError, NotImplementedError => e
         ambiguous!(rec, label, e)
@@ -460,9 +493,10 @@ module RpmsRpc
         SCREENINGS.each_value.map { |spec| filed.fetch(spec[:provider]) }.reject(&:empty?).uniq
       end
 
-      # Each distinct IEN once. nil, StandardError or NotImplementedError
-      # from the read, or a blank .01 is a missing provider; nothing is
-      # filed. The read's exception is the SaveError cause.
+      # Each distinct IEN once. nil, an altered reply, a stray line,
+      # StandardError or NotImplementedError from the read, or a blank
+      # .01 is a missing provider; nothing is filed. The read's exception
+      # is the SaveError cause.
       def confirm_providers!(iens)
         iens.each { |ien| confirm_provider!(ien) }
       end
@@ -480,9 +514,10 @@ module RpmsRpc
         refuse!("provider is not on file", e)
       end
 
+      # An altered reply or a stray line is the same miss as an error or
+      # a blank .01. unreadable? is that check.
       def provider_on_file?(got)
-        return false if got.nil? || !got.is_a?(Hash) || got[:error]
-        return false unless got[:fields].is_a?(Hash)
+        return false if unreadable?(got)
 
         field = got[:fields][".01"]
         return false unless field.is_a?(Hash)
@@ -620,9 +655,13 @@ module RpmsRpc
         end
       end
 
+      # Missing, an error, empty, altered, or a stray line. altered and
+      # stray are the extra keys from DdrFileman.gets_entry: a byte the
+      # client replaced, or a line outside a word-processing block that
+      # is not a "[" marker and not a FILE^IENS^FIELD^VALUE row.
       def unreadable?(got)
         return true unless got.is_a?(Hash)
-        return true if got[:error]
+        return true if got[:error] || got[:altered] || got[:stray]
         return true unless got[:fields].is_a?(Hash)
 
         got[:fields].empty?
@@ -713,8 +752,15 @@ module RpmsRpc
         name
       end
 
+      # AMHG write only. RpcNotAvailableError and RpcRefusedError
+      # propagate. FrameTooLongError means nothing was sent. Any other
+      # StandardError or NotImplementedError is an unknown outcome.
       def send_screening(rec, parameter)
         call_amhg(DataMapper[:amhg_save_screening], parameter)
+      rescue Client::FrameTooLongError => e
+        not_sent!(SCREENING_RPC, e)
+      rescue Client::RpcNotAvailableError, Client::RpcRefusedError
+        raise
       rescue StandardError, NotImplementedError => e
         ambiguous!(rec, SCREENING_RPC, e)
       end
@@ -819,8 +865,15 @@ module RpmsRpc
         "A|#{rec}|#{body}|#{patient_ien}"
       end
 
+      # Same error contract as send_screening. The measurement read-back
+      # is not this method: every error there, including
+      # RpcNotAvailableError, stays an unknown outcome.
       def send_measurements(rec, parameter)
         call_amhg(DataMapper[:amhg_save_measurements], parameter)
+      rescue Client::FrameTooLongError => e
+        not_sent!(MEASUREMENTS_RPC, e)
+      rescue Client::RpcNotAvailableError, Client::RpcRefusedError
+        raise
       rescue StandardError, NotImplementedError => e
         ambiguous!(rec, MEASUREMENTS_RPC, e)
       end
@@ -992,6 +1045,10 @@ module RpmsRpc
         text.match?(UNSAFE_WIRE)
       rescue ArgumentError, EncodingError
         true
+      end
+
+      def not_sent!(rpc, cause)
+        raise SaveError, "#{rpc} could not be framed; nothing was sent", cause: cause
       end
 
       def refuse!(message, cause = nil)
