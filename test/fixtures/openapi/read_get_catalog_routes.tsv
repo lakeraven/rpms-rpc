@@ -104,6 +104,7 @@ RpmsRpc::SchedulingSetup.clinic_stop	GET /appointments/clinic-stop
 RpmsRpc::SchedulingSetup.clinic_stops	GET /appointments/clinic-stops
 RpmsRpc::SchedulingSetup.creates_visit_at_checkin	GET /appointments/creates-visit-at-checkin
 RpmsRpc::SchedulingSetup.holidays	GET /appointments/holidays
+RpmsRpc::SchedulingSetup.master_overbook?	GET /appointments/master-overbook
 RpmsRpc::Session.bootstrap	GET /users/{user_duz}/sessions/bootstrap
 RpmsRpc::Site.current	GET /users/{user_duz}/sites/current
 RpmsRpc::Site.list	GET /users/{user_duz}/sites
