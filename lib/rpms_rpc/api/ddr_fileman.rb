@@ -138,13 +138,17 @@ module RpmsRpc
     # fields become "...^[WORD PROCESSING]" + text + "$$END$$"), "[ERROR]"
     # marker when DDRERR is set (GETSC^DDR2 + tags 1/2: DDR2.m:22-43,61).
     #
-    # Returns { fields: { "FIELD#" => {internal:, external:} }, error: bool }
-    # or nil (no response). Word-processing fields yield {text: [lines]}.
-    # A reply that parses NO field rows and carries no "[Data]" marker is
-    # reported as an error: broker/M error strings ("-1^...", raw error
-    # text) don't match the FILE^IENS^FIELD^... grammar, and silently
-    # returning empty fields would let callers fabricate "value absent"
-    # from "read failed".
+    # Returns { fields: { "FIELD#" => {internal:, external:} }, error: bool,
+    # malformed: bool } or nil (no response). Word-processing fields yield
+    # {text: [lines]}. error is true when the reply includes "[ERROR]", or
+    # when no field row parsed and the reply has no "[Data]" marker.
+    # malformed is true exactly when the reply has neither "[Data]" nor
+    # "[ERROR]" and no fields parsed, and false otherwise. An "[ERROR]"
+    # reply and an empty "[Data]" section are not malformed. A reply that
+    # parses no field rows and carries no "[Data]" marker is still an
+    # error: broker/M error strings ("-1^...", raw error text) don't match
+    # the FILE^IENS^FIELD^... grammar, and silently returning empty fields
+    # would let callers fabricate "value absent" from "read failed".
     def gets_entry(file:, iens:, fields:, flags: "")
       reply = lines(call(:ddr_gets_entry_data,
         gets_entry_param(file: file, iens: iens, fields: fields, flags: flags)))
@@ -174,7 +178,8 @@ module RpmsRpc
       end
       error = reply.include?("[ERROR]") ||
               (result.empty? && !reply.include?("[Data]"))
-      { fields: result, error: error }
+      malformed = result.empty? && !reply.include?("[Data]") && !reply.include?("[ERROR]")
+      { fields: result, error: error, malformed: malformed }
     end
     shape :gets_entry, resource: "files", verb: "GET", path: "/files/{file}/entries/{iens}"
 

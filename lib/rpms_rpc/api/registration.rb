@@ -640,8 +640,10 @@ module RpmsRpc
     # resolution 2).
     #
     # AG2A.m:58-64, when #2 .02 changed, deletes #9000001 .23 SSN
-    # VERIFICATION STATUS and then calls SEXELIG^AGUTL. This method does
-    # those writes and the .02 write, each a DDR FILER mode EDIT (FILE^DIE).
+    # VERIFICATION STATUS and then calls SEXELIG^AGUTL. This method files
+    # #2 .02 first, then that .23 delete when the pre-read says to clear
+    # it, then the eligibility cascade, each a DDR FILER mode EDIT
+    # (FILE^DIE).
     # #2 .02 is the set M/F/U. Its traditional xrefs and trigger (ASX,
     # AENR02, IVM02, AVAFC02, ADGRU02, the trigger to .083 CHECK FOR
     # DUPLICATE, AAVABDW2) are FileMan and fire on that EDIT. Mode EDIT on
@@ -658,8 +660,10 @@ module RpmsRpc
     # fails. The DDR calls inside the lock bind CIAV VUECENTRIC.
     #
     # Reads, before any write: #2 .02 and #9000001 .23 (DDR GETS ENTRY
-    # DATA, flags I). A nil reply, or a [Data] reply that omits the field
-    # row, is :lookup_failed. An error reply is :not_found. An empty field
+    # DATA, flags I). A nil reply, a [Data] reply that omits the field
+    # row, or a reply with neither [Data] nor [ERROR] and no field rows
+    # is :lookup_failed. The nil and malformed messages name the file and
+    # the field. A genuine [ERROR] reply is :not_found. An empty field
     # still comes back as a row. Then the B xref of #9000003, #9000004, and
     # #9000005 (fields @;.01I, flags IP, from one below the DFN, max 100).
     # A row whose .01 is not this DFN is ignored. #9000003 and #9000005
@@ -670,16 +674,16 @@ module RpmsRpc
     # :lookup_failed unless the last row's .01 is already past this DFN.
     # A failed lookup files nothing.
     #
-    # Writes, in order, each its own EDIT: #9000001 .23 set to "@" only
-    # when .02 changes and .23 is non-blank; then #2 .02, whether or not it
-    # changed; then one EDIT of every eligibility row, when any were found.
-    # The cascade always runs, so a retry repeats it. It is not atomic with
-    # the .02 write. A refusal before anything was filed is :filer_failed
-    # and later calls are not sent. A refusal after an earlier EDIT
-    # succeeded is :partial. nil only when the first FILER call gives no
-    # reply. A no-reply on a later FILER call (after the .23 delete, or
-    # after the .02 write) is :partial, and the message says the outcome
-    # of the last write is unknown.
+    # Writes, in order, each its own EDIT: #2 .02 first, whether or not it
+    # changed; then #9000001 .23 set to "@" only when the pre-read says .02
+    # changes and .23 is non-blank; then one EDIT of every eligibility row,
+    # when any were found. The cascade always runs, so a retry repeats it.
+    # It is not atomic with the .02 write. A refusal of the first call is
+    # :filer_failed and later calls are not sent. nil only when the first
+    # FILER call gives no reply. A refusal or no-reply on the .23 delete
+    # or the cascade, after .02 succeeded, is :partial. The no-reply
+    # message says the outcome of the last write is unknown. Success is
+    # { success: true }.
     #
     # What this path skips: anything AG2A does interactively beyond the
     # .23 delete and SEXELIG (prompts, confirmation). SEXELIG^AGUTL is not
@@ -1317,12 +1321,16 @@ module RpmsRpc
       file_sex_writes(id, code, stored: stored, verification: verification, cascade: cascade)
     end
 
-    # DDR GETS of one internal field. nil reply and a [Data] reply that
-    # omits the field row are lookup failures: an empty field still comes
-    # back as a row. An error reply is the missing-entry answer.
+    # DDR GETS of one internal field. A nil reply is :lookup_failed, and
+    # the message names the file and field. A [Data] reply that omits the
+    # field row is :lookup_failed too: an empty field still comes back as
+    # a row. A reply with neither [Data] nor [ERROR] and no field rows
+    # (malformed:) is :lookup_failed, and that message names the file and
+    # field the same way. A genuine [ERROR] reply is :not_found.
     def read_internal_field(file, iens, field)
       read = DdrFileman.gets_entry(file: file, iens: iens, fields: field, flags: "I")
       return lookup_failed("DDR GETS ENTRY DATA gave no reply for ##{file} #{field}") if read.nil?
+      return lookup_failed("DDR GETS ENTRY DATA gave a malformed reply for ##{file} #{field}") if read[:malformed]
       return not_found("no ##{file} entry at #{iens}") if read[:error]
       return lookup_failed("DDR GETS ENTRY DATA gave no #{field} row for ##{file}") unless read[:fields].key?(field)
 
@@ -1427,16 +1435,14 @@ module RpmsRpc
     end
 
     def file_sex_writes(id, code, stored:, verification:, cascade:)
-      prior = false
-      if clear_ssn_verification?(stored, code, verification)
-        step = sex_edit([ edit_row(PATIENT_FILE, SSN_VERIFICATION_FIELD, "#{id},", "@") ], prior: prior)
-        return step unless step == :written
+      step = sex_edit([ edit_row(PATIENT_SEX_FILE, PATIENT_SEX_FIELD, "#{id},", code) ], prior: false)
+      return step unless step == :written
 
-        prior = true
+      if clear_ssn_verification?(stored, code, verification)
+        step = sex_edit([ edit_row(PATIENT_FILE, SSN_VERIFICATION_FIELD, "#{id},", "@") ], prior: true)
+        return step unless step == :written
       end
 
-      step = sex_edit([ edit_row(PATIENT_SEX_FILE, PATIENT_SEX_FIELD, "#{id},", code) ], prior: prior)
-      return step unless step == :written
       return { success: true } if cascade.empty?
 
       step = sex_edit(cascade, prior: true)
@@ -1447,11 +1453,14 @@ module RpmsRpc
       stored.strip.upcase != code && !verification.strip.empty?
     end
 
+    # file_sex_writes calls this for #2 .02 first, then for the #9000001
+    # .23 "@" delete only when clear_ssn_verification? is true, then for
+    # the eligibility cascade when rows exist. Each call is its own EDIT.
     # nil only when this is the first FILER call and it gives no reply.
-    # A no-reply after an earlier EDIT in this call succeeded is :partial:
-    # the outcome of the last write is unknown. A refusal before any EDIT
-    # succeeded is :filer_failed. A refusal after one is :partial. The
-    # .23 delete, the .02 write, and the cascade are not one update.
+    # A refusal of that first call is :filer_failed and later calls are
+    # not sent. A refusal or no-reply on the .23 delete or the cascade,
+    # after .02 succeeded, is :partial. The no-reply message says the
+    # outcome of the last write is unknown.
     def sex_edit(rows, prior:)
       filed = DdrFileman.filer(mode: "EDIT", rows: rows)
       return unknown_later_sex_write if filed.nil? && prior
