@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "fileutils"
+require "tmpdir"
 require "yaml"
 require "rpms_rpc"
 require "rpms_rpc/live_summary"
@@ -42,9 +44,6 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
 
   # Mapped booleans (e.g. :inactive_icd on :problem_list) need both true and false in mapped rows.
   BOOLEAN_MAPPED_ATTRIBUTES = { problem_list: [ :inactive_icd ] }.freeze
-
-  ICD10_CODE_SHAPE = /\A[A-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?\z/
-  ICD9_CODE_SHAPE = /\A(\d{3}|V\d{2}|E\d{3})(\.\d{1,2})?\z/
 
   # Fake client: ORWPS ACTIVE lines exactly as CiaClient#call_rpc delivers them (no seq prefix).
   class MedicationActiveProbeClient
@@ -241,6 +240,8 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       fixture.captured_data_rows.any? do |row|
         header = brief_header_from_cwad_scalar(row)
         header && header[flag] == true
+      rescue RpmsRpc::Client::RpcError
+        false
       end
     end
 
@@ -248,7 +249,7 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       token = piece4.to_s.strip
       return false if token.empty?
 
-      token.match?(ICD10_CODE_SHAPE) || token.match?(ICD9_CODE_SHAPE)
+      token.match?(RpmsRpc::Mappings::PROBLEM_LIST_ICD_CODE_SHAPE)
     end
 
     def readiness_attribute_names(mapping, fixture)
@@ -492,6 +493,27 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     )
     assert_includes self.class.unproven_attributes(blank_stub), :mrn,
                     "blank piece 11 must leave :mrn unproven"
+
+    dir = Dir.mktmpdir("pilot_ptinfo_persona")
+    begin
+      sys_path = File.join(dir, "sys123.yml")
+      File.write(sys_path, YAML.dump({ "signed_on_as" => "SYS123" }))
+      sys_stub = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
+        :patient_ptinfo, "live-capture", [ populated_row ], sys_path
+      )
+      assert_includes self.class.unproven_attributes(sys_stub), :mrn,
+                      "SYS123 persona must force :mrn unproven even when piece 11 is populated"
+
+      prov_path = File.join(dir, "prov123.yml")
+      File.write(prov_path, YAML.dump({ "signed_on_as" => CHART_READ_PERSONA }))
+      prov_stub = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
+        :patient_ptinfo, "live-capture", [ populated_row ], prov_path
+      )
+      refute_includes self.class.unproven_attributes(prov_stub), :mrn,
+                      "PROV123 persona must not force :mrn unproven when piece 11 is populated"
+    ensure
+      FileUtils.remove_entry(dir)
+    end
   end
 
   def ptinfo_row_with_mrn_piece(base_row, mrn_token)
@@ -649,13 +671,31 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
                  "non-code-shaped piece 4 #{piece4.inspect} must map to nil icd_code"
     end
 
-    code_shaped_piece4 = %w[I10 E11.65 Z79.4 250.00 V45.81 E849.0 401.9]
+    code_shaped_piece4 = %w[
+      I10 E11.65 Z79.4 250.00 V45.81 E849.0 401.9
+      S72.001A M54.50 T38.0X5A U07.1
+    ]
     code_shaped_piece4.each do |code|
       row = "99^Hypertension^A^#{code}^3200101^3250301^^^^^"
       parsed_row = mapper.parse_many([ row ]).first
-      assert_equal code, parsed_row[:icd_code], "code-shaped piece 4 must stay icd_code verbatim"
+      assert_equal code.strip, parsed_row[:icd_code],
+                   "code-shaped piece 4 must map to stripped icd_code"
       refute parsed_row[:inactive_icd]
     end
+
+    icd_code_near_misses = %w[000 E849.00 E11. i10]
+    icd_code_near_misses.each do |code|
+      row = "99^Hypertension^A^#{code}^3200101^3250301^^^^^"
+      parsed_row = mapper.parse_many([ row ]).first
+      refute parsed_row[:inactive_icd]
+      assert_nil parsed_row[:icd_code],
+                 "near-miss piece 4 #{code.inspect} must not become icd_code"
+    end
+
+    padded_row = "99^Hypertension^A^ I10 ^3200101^3250301^^^^^"
+    padded = mapper.parse_many([ padded_row ]).first
+    assert_equal "I10", padded[:icd_code],
+                 "surrounding whitespace on code-shaped piece 4 must strip to icd_code"
   end
 
   def test_orqqpl_list_committed_capture_icd_code_and_transcribed_unproven_after_mapping
@@ -699,7 +739,11 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       [ "A" ] => { unproven: [ :ad_flag ], status: "partial" },
       [ "D" ] => { unproven: [ :allergy_flag ], status: "partial" },
       [ "AD" ] => { unproven: [], status: "pilot-ready" },
-      [ "CW" ] => { unproven: [ :ad_flag, :allergy_flag ], status: "partial" }
+      [ "CW" ] => { unproven: [ :ad_flag, :allergy_flag ], status: "partial" },
+      [ "-1^Invalid DFN" ] => { unproven: [ :ad_flag, :allergy_flag ], status: "partial" },
+      [ "Application context denied" ] => { unproven: [ :ad_flag, :allergy_flag ], status: "partial" },
+      [ "%YDB-E-LVUNDEF, Undefined local variable: DFN" ] =>
+        { unproven: [ :ad_flag, :allergy_flag ], status: "partial" }
     }.each do |rows, expected|
       stub = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
         :patient_cwad, "live-capture", rows, nil

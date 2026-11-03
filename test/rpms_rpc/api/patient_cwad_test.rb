@@ -88,7 +88,8 @@ class PatientCwadTest < Minitest::Test
       "W" => [ false, false ],
       "WA" => [ true, false ],
       "CWAD" => [ true, true ],
-      "" => [ false, false ]
+      "" => [ false, false ],
+      " AD " => [ true, true ]
     }.each do |cwad, (allergy, ad)|
       RpmsRpc.reset!
       RpmsRpc.mock!
@@ -100,6 +101,29 @@ class PatientCwadTest < Minitest::Test
       refute_nil header, cwad.inspect
       assert_equal allergy, header[:allergy_flag], "allergy for #{cwad.inspect}"
       assert_equal ad, header[:ad_flag], "ad for #{cwad.inspect}"
+    end
+  end
+
+  # Proves non-CWAD scalars (errors, prose, lowercase) raise instead of substring flags.
+  def test_brief_header_raises_on_invalid_orwpt_cwad_scalars_without_echoing_reply
+    invalid_cwads = [
+      "-1^Invalid DFN",
+      "Application context denied",
+      "%YDB-E-LVUNDEF, Undefined local variable: DFN",
+      "N/A",
+      "DATA",
+      "ad"
+    ]
+    invalid_cwads.each do |cwad|
+      RpmsRpc.reset!
+      RpmsRpc.mock!
+      RpmsRpc.client.create_context(CALLER_CONTEXT)
+      seed_banner(cwad: cwad)
+
+      err = assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Patient.brief_header(DFN) }
+      assert_match(/ORWPT CWAD/i, err.message, "message must name the RPC for #{cwad.inspect}")
+      refute_includes err.message, cwad,
+                      "ORWPT CWAD error must not echo raw reply text for #{cwad.inspect}"
     end
   end
 
