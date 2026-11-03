@@ -40,6 +40,9 @@ module RpmsRpc
     CLINIC_FIELDS = { display_begins: "1914", schedule_on_holidays: "1918.5", max_future_days: "2002",
                       prohibit_access: "2500", inactivate_date: "2505", reactivate_date: "2506",
                       principal_clinic: "1916" }.freeze
+    # CLINIC STOP (#40.7), and the clinic's own stop, #44 field 8 STOP CODE NUMBER.
+    CLINIC_STOP_FILE = "40.7"
+    STOP_CODE_FIELD = "8"
     # PRIVILEGED USER (#44 field 2501), a multiple of NEW PERSON pointers.
     PRIVILEGED_USER_FILE = "44.04"
 
@@ -137,6 +140,38 @@ module RpmsRpc
       row[:internal].to_s == "1" && row[:external].to_s == "YES"
     end
     shape :creates_visit_at_checkin, resource: "appointments", verb: "GET", path: "/appointments/creates-visit-at-checkin"
+
+    # Every CLINIC STOP (#40.7): .01 NAME, 1 CODE and 2 INACTIVE DATE, by IEN.
+    # A check-in at a clinic set to use several clinic stop codes
+    # (#9009017.2 .13) names one: BSDX CHECKIN APPOINTMENT takes its IEN as
+    # the clinic code. Neither the clinic's setup nor BSDX names which stops a
+    # clinic allows, so this is the whole file; the caller leaves out the
+    # inactive ones. Returns [{ id:, name:, code:, inactive_date: }] with
+    # inactive_date a Date or nil. A failed read raises Client::RpcError.
+    def clinic_stops
+      list(CLINIC_STOP_FILE, "@;.01;1;2I", xref: "#").map do |entry|
+        name, code, inactive = entry[:pieces]
+        { id: entry[:ien].to_i, name: name, code: code, inactive_date: date_or_nil(inactive.to_s) }
+      end
+    end
+    shape :clinic_stops, resource: "appointments", verb: "GET", path: "/appointments/clinic-stops"
+
+    # The clinic's own stop: HOSPITAL LOCATION (#44) field 8 STOP CODE NUMBER,
+    # the CLINIC STOP IEN a check-in files the visit under when it names none
+    # (BSDAPI4.m: IN("CLINIC CODE") defaults to it). Integer, or nil when the
+    # clinic has none or the IEN is not a number. A failed read raises
+    # Client::RpcError.
+    def clinic_stop(hospital_location_id)
+      ien = hospital_location_id.to_s
+      return nil unless ien.match?(/\A[1-9]\d*\z/)
+
+      got = in_context { DdrFileman.gets_entry(file: HOSPITAL_LOCATION_FILE, iens: "#{ien},", fields: STOP_CODE_FIELD, flags: "I") }
+      raise Client::RpcError, "DDR GETS ENTRY DATA gave no reply for #44 #{ien}" if got.nil?
+      raise Client::RpcError, "DDR GETS ENTRY DATA refused #44 #{ien}" if got[:error]
+
+      integer_or_nil(got[:fields].dig(STOP_CODE_FIELD, :internal).to_s)
+    end
+    shape :clinic_stop, resource: "appointments", verb: "GET", path: "/appointments/clinic-stop"
 
     private
 

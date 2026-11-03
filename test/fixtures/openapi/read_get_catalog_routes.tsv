@@ -97,6 +97,8 @@ RpmsRpc::Scheduling.patient_appointments	GET /patients/{dfn}/appointments
 RpmsRpc::Scheduling.resources	GET /appointments/resources
 RpmsRpc::SchedulingSetup.access_types	GET /appointments/access-types
 RpmsRpc::SchedulingSetup.clinic_rules	GET /appointments/clinic-rules
+RpmsRpc::SchedulingSetup.clinic_stop	GET /appointments/clinic-stop
+RpmsRpc::SchedulingSetup.clinic_stops	GET /appointments/clinic-stops
 RpmsRpc::SchedulingSetup.creates_visit_at_checkin	GET /appointments/creates-visit-at-checkin
 RpmsRpc::SchedulingSetup.holidays	GET /appointments/holidays
 RpmsRpc::Session.bootstrap	GET /users/{user_duz}/sessions/bootstrap

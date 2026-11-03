@@ -883,6 +883,22 @@ module RpmsRpc
       m.field 0, :error
     end
 
+    # BSDX CHECKOUT APPOINTMENT — CHECKOUT^BSDX25 (check-out via CO^BSDX25A).
+    # Recordset header ERRORID; the success row is "0", a failure row is the
+    # reason. Params: DFN^APPT_DATETIME^CHECKOUT_DATETIME^BSDX_APPOINTMENT_IEN^VPRV.
+    DataMapper.define(:scheduling_checkout_appointment) do |m|
+      m.rpc "BSDX CHECKOUT APPOINTMENT"
+      m.field 0, :error
+    end
+
+    # BSDX CANCEL CHECKOUT APPT — CANCKOUT^BSDX25 (undo a check-out). Recordset
+    # header ERRORID; the success row is "0", a failure row is the reason.
+    # Params: BSDX_APPOINTMENT_IEN.
+    DataMapper.define(:scheduling_cancel_checkout) do |m|
+      m.rpc "BSDX CANCEL CHECKOUT APPT"
+      m.field 0, :error
+    end
+
     # BSDX NOSHOW — NOSHOW^BSDX31 → $$CANCEL^BSDAPI (sets no-show on ^DPT).
     # Recordset data row: ERRORID^ERRORTEXT. IMPORTANT: the ERRORID column here
     # is a SUCCESS flag with INVERTED polarity vs BSDX ADD — the routine writes
