@@ -34,7 +34,7 @@ class PatientProfileTest < Minitest::Test
   def calls(rpc) = @mock.received_calls.select { |c| c[:rpc] == rpc }
 
   def seed_display(window, header, row = nil)
-    @mock.seed(:agg_window_display, window, "#{header}#{RS}#{row ? "#{row}#{RS}" : ''}#{US}")
+    @mock.seed(:agg_build_window_display, window, "#{header}#{RS}#{row ? "#{row}#{RS}" : ''}#{US}")
   end
 
   def refusal(message)

@@ -1002,6 +1002,14 @@ module RpmsRpc
       m.text_blob :reply
     end
 
+    # AGG BUILD WINDOW DISPLAY — BLD^AGGWDISP (return type GLOBAL ARRAY). Params:
+    # window name, DFN. Reply: a header naming the window's displayed
+    # parameters, then one record of their values. Parsed by Agg.window_values.
+    DataMapper.define(:agg_build_window_display) do |m|
+      m.rpc "AGG BUILD WINDOW DISPLAY"
+      m.text_blob :reply
+    end
+
     # AGG UPDATE PATIENT — UPD^AGGPTUPD. Same PARMS convention; DFN required.
     # Reply header "I00010RESULT^T01024ERROR^T01024OTHER_PARMS"; "1^^" ok.
     # Parsed by Agg.
@@ -1011,15 +1019,13 @@ module RpmsRpc
     end
 
     # The window reads and writes RpmsRpc::PatientProfile uses (contacts,
-    # languages, other names). Same GLOBAL ARRAY replies, parsed by Agg.
-    #   AGG BUILD WINDOW DISPLAY      BLD^AGGWDISP    window, DFN
+    # languages, other names), beside AGG BUILD WINDOW DISPLAY above. Same GLOBAL ARRAY replies, parsed by Agg.
     #   AGG BUILD WINDOW MULTIPLE     MUL^AGGPTDMG    window, node, DFN, entry
     #   AGG WINDOW TABLE LOOKUP       LKP^AGGWTBLK    file, text, screen
     #   AGG UPDATE ALIASES            ALIAS^AGGPTNAM  DFN, A/D, entry, PARMS
     #   AGG UPDATE SPECIAL MULTIPLES  UPD^AGGPOTH     window, DFN, entry, A/D, PARMS
     #   AGG PATIENT LANGUAGES         LANG^AGGWOTH    DFN
     {
-      agg_window_display: "AGG BUILD WINDOW DISPLAY",
       agg_window_multiple: "AGG BUILD WINDOW MULTIPLE",
       agg_table_lookup: "AGG WINDOW TABLE LOOKUP",
       agg_update_aliases: "AGG UPDATE ALIASES",

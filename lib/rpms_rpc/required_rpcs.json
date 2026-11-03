@@ -207,6 +207,7 @@
     ],
     "RpmsRpc::Patient": [
       "AGG ADD NEW PATIENT",
+      "AGG BUILD WINDOW DISPLAY",
       "AGG GET TEMP PAT HRN",
       "AGG LOCK PATIENT",
       "AGG LOOKUP PATIENTS",
@@ -310,12 +311,14 @@
     ],
     "RpmsRpc::Registration": [
       "AGG ADD NEW PATIENT",
+      "AGG BUILD WINDOW DISPLAY",
       "AGG GET TEMP PAT HRN",
       "AGG LOCK PATIENT",
       "AGG LOOKUP PATIENTS",
       "AGG UNLOCK PATIENT",
       "AGG UPDATE PATIENT",
-      "AGG WINDOW DATA VALIDATION"
+      "AGG WINDOW DATA VALIDATION",
+      "DDR LISTER"
     ],
     "RpmsRpc::Reminders": [
       "ORQQPXRM REMINDERS APPLICABLE"

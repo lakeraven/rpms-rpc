@@ -94,7 +94,7 @@ module RpmsRpc
     # Each contact is {} when nothing is on file. nil when RPMS did not answer.
     def contacts(dfn)
       CONTACT_KINDS.to_h do |kind, spec|
-        record = Agg.window_display(window: spec[:window], dfn: dfn.to_i)
+        record = Agg.window_values(window: spec[:window], dfn: dfn.to_i)
         return nil if record.nil?
 
         [ kind, contact_from(record, spec[:prefix]) ]
@@ -155,15 +155,15 @@ module RpmsRpc
     #     proficiency: "VW"/"W"/"NW"/"NA", others: [{ ien:, name: }] }
     # {} when none is on file; nil when RPMS did not answer.
     def languages(dfn)
-      record = Agg.window_display(window: OTHER_PATIENT_WINDOW, dfn: dfn.to_i)
+      record = Agg.window_values(window: OTHER_PATIENT_WINDOW, dfn: dfn.to_i)
       return nil if record.nil?
-      return {} if record.empty? || record[:agglgdt].to_s.empty?
+      return {} if record["AGGLGDT"].to_s.empty?
 
       others = Agg.patient_languages(dfn: dfn.to_i)
       return nil if others.nil?
 
-      { date: record[:agglgdt].to_s, primary: pointer(record[:agglgpri]), preferred: pointer(record[:agglgprf]),
-        interpreter: code(record[:aggintrp]), proficiency: code(record[:agglgepf]), others: others }
+      { date: record["AGGLGDT"].to_s, primary: pointer(record["AGGLGPRI"]), preferred: pointer(record["AGGLGPRF"]),
+        interpreter: code(record["AGGINTRP"]), proficiency: code(record["AGGLGEPF"]), others: others }
     end
     shape :languages, resource: "patient-profiles", verb: "GET", path: "/patients/{dfn}/patient-profiles/languages"
 
@@ -248,23 +248,23 @@ module RpmsRpc
     private
 
     def contact_from(record, prefix)
-      return {} if record.empty?
+      return {} if record["#{prefix}NME"].to_s.empty?
 
       CONTACT_FIELDS.to_h do |field, spec|
-        value = record[:"#{prefix.downcase}#{spec.suffix.downcase}"].to_s
-        [ field, %i[relationship state].include?(field) ? pointer(value) : value ]
+        value = record["#{prefix}#{spec.suffix}"]
+        [ field, %i[relationship state].include?(field) ? pointer(value) : value.to_s ]
       end
     end
 
-    # "IEN" $C(28) "NAME" -> { ien:, name: }, or nil when empty.
+    # Agg.window_values' { internal:, external: } -> { ien:, name: }, or nil when empty.
     def pointer(value)
-      ien, name = value.to_s.split(Agg::PARM_DELIM, 2)
-      ien.to_s.empty? ? nil : { ien: ien.to_i, name: name.to_s }
+      return nil unless value.is_a?(Hash) && value[:internal]
+
+      { ien: value[:internal].to_i, name: value[:external].to_s }
     end
 
     def code(value)
-      found = value.to_s.split(Agg::PARM_DELIM, 2).first.to_s
-      found.empty? ? nil : found
+      value.is_a?(Hash) ? value[:internal] : nil
     end
 
     def check_contact(dfn, spec, given)
@@ -304,8 +304,8 @@ module RpmsRpc
     end
 
     def current_name(dfn, spec)
-      record = Agg.window_display(window: spec[:window], dfn: dfn)
-      record.to_h[:"#{spec[:prefix].downcase}nme"].to_s
+      record = Agg.window_values(window: spec[:window], dfn: dfn)
+      record.to_h["#{spec[:prefix]}NME"].to_s
     end
 
     # AG's own check of one field (AGG WINDOW DATA VALIDATION). nil when it

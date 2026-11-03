@@ -3,7 +3,6 @@ RpmsRpc::Adt.current_location	GET /patients/{dfn}/admissions/current-location
 RpmsRpc::Adt.discharge_datetime	GET /patients/{dfn}/admissions/discharge-datetime
 RpmsRpc::Agg.patient_languages	GET /patients/{dfn}/agg/languages
 RpmsRpc::Agg.table_lookup	GET /agg/files/{file}/table-lookup
-RpmsRpc::Agg.window_display	GET /patients/{dfn}/agg/window-display
 RpmsRpc::Agg.window_multiple	GET /patients/{dfn}/agg/window-multiple
 RpmsRpc::Allergy.assessment	GET /patients/{dfn}/allergies/assessment
 RpmsRpc::Allergy.for_patient	GET /patients/{dfn}/allergies
@@ -92,6 +91,7 @@ RpmsRpc::Procedure.for_patient	GET /patients/{dfn}/procedures
 RpmsRpc::ProgressNote.authorize	GET /progress-notes/{note_ien}/authorize
 RpmsRpc::ProgressNote.fetch_text	GET /progress-notes/{note_ien}/text
 RpmsRpc::ProgressNote.list	GET /patients/{dfn}/progress-notes
+RpmsRpc::Registration.pick_list	GET /registrations/pick-list
 RpmsRpc::Reminders.applicable	GET /patients/{dfn}/reminders/applicable
 RpmsRpc::Scheduling.patient_appointments	GET /patients/{dfn}/appointments
 RpmsRpc::Scheduling.resources	GET /appointments/resources

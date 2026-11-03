@@ -84,7 +84,8 @@ module RpmsRpc
     UNLOCK_RPC = "AGG UNLOCK PATIENT"         # UNLOCK^AGGLOCK, return type GLOBAL ARRAY
     VALIDATE_RPC = "AGG WINDOW DATA VALIDATION" # VAL^AGGWVAL, return type GLOBAL ARRAY
     TEMP_HRN_RPC = "AGG GET TEMP PAT HRN"     # GTMP^AGGPTHRN, return type GLOBAL ARRAY
-    WINDOW_DISPLAY_RPC = "AGG BUILD WINDOW DISPLAY"   # BLD^AGGWDISP, a window's values for one patient
+    DISPLAY_RPC = "AGG BUILD WINDOW DISPLAY"    # BLD^AGGWDISP, return type GLOBAL ARRAY
+    VALUE_PAIR = "\x1c" # $C(28): a T or C value is INTERNAL_$C(28)_EXTERNAL (AGGWDISP.m:35-50)
     WINDOW_MULTIPLE_RPC = "AGG BUILD WINDOW MULTIPLE" # MUL^AGGPTDMG, a multiple window's entries
     TABLE_LOOKUP_RPC = "AGG WINDOW TABLE LOOKUP"      # LKP^AGGWTBLK, a pointed-to file's entries by name
     UPDATE_ALIASES_RPC = "AGG UPDATE ALIASES"         # ALIAS^AGGPTNAM
@@ -250,24 +251,36 @@ module RpmsRpc
     end
     shape :validate_field, resource: "agg", verb: "POST", path: "/agg/validate-field"
 
+    # BLD^AGGWDISP — what AG's own window shows for a patient: the read AG's
+    # client makes before an edit. P1 = window name, P2 = DFN. The reply's
+    # header names each displayed parameter (a parameter whose node 0 piece 11
+    # is set is not displayed, AGGWDISP.m:23, so Address carries no email) and
+    # its one record holds the values: a T (pointer) or C (choice) value is
+    # INTERNAL_$C(28)_EXTERNAL, a D (date) value is AG's external date
+    # ($$FMTE^AGGUL1), the rest are text (AGGWDISP.m:27-79). No record means
+    # every value is empty (AGGWDISP.m:83).
+    #
+    # Returns { "PARAMETER" => value } with T and C values as
+    # { internal:, external: } (both nil when empty), or nil when the broker
+    # gives no reply or AG answers without its header (an unknown window).
+    def window_values(window:, dfn:, client: RpmsRpc.client)
+      reply = in_context(client) { parse_reply(call_array(client, DISPLAY_RPC, window, dfn.to_s)) }
+      return nil if reply.nil? || reply[:header].empty?
+
+      record = reply[:records].first || {}
+      reply[:header].to_h do |name|
+        value = record[name].to_s.dup.force_encoding(Encoding::UTF_8)
+        [ name.to_s.upcase, value.include?(VALUE_PAIR) ? pair(value) : value ]
+      end
+    end
+    shape :window_values, resource: "agg", verb: "POST", path: "/patients/{dfn}/agg/window-values"
+
     def update_patient(dfn:, params:, window: DEFAULT_WINDOW, client: RpmsRpc.client)
       in_context(client) do
         interpret_write(call_array(client, UPDATE_RPC, window, dfn.to_s, encode_parms(params)))
       end
     end
 
-    # BLD^AGGWDISP: one patient's values for a display window, the read AG's
-    # client makes before it shows the window. Each value is the window
-    # parameter's (a pointer comes as "IEN" $C(28) "NAME", AGGWDISP.m). Returns the
-    # record keyed by lower-cased parameter name, {} when the patient has nothing
-    # on the window (BLD writes the header only), or nil when RPMS did not answer.
-    def window_display(window:, dfn:, client: RpmsRpc.client)
-      reply = in_context(client) { parse_reply(call_array(client, WINDOW_DISPLAY_RPC, window, dfn.to_s)) }
-      return nil if reply.nil?
-
-      reply[:records].first || {}
-    end
-    shape :window_display, resource: "agg", verb: "GET", path: "/patients/{dfn}/agg/window-display"
 
     # MUL^AGGPTDMG: the entries of a multiple window (P1 window, P2 the node of the
     # multiple under the patient's record, P3 the DFN, P4 one entry or "" for all).
@@ -482,6 +495,11 @@ module RpmsRpc
         m = piece.match(/\A[A-Z]\d{5}(.*)\z/m)
         (m ? m[1] : piece).downcase.to_sym
       end
+    end
+
+    def pair(value)
+      internal, external = value.split(VALUE_PAIR, 2)
+      { internal: internal.to_s.empty? ? nil : internal, external: external.to_s.empty? ? nil : external }
     end
 
     # nil when the lock was taken; the failure hash otherwise.
