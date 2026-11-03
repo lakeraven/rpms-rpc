@@ -146,6 +146,38 @@ class AggTest < Minitest::Test
     assert_equal [ Agg::NEW_PATIENT_WINDOW, "AGGPTSSN=123456789#{FS}AGGNOSSN=#{FS}DFN=" ], call[:params]
   end
 
+# -- AGG BUILD WINDOW DISPLAY (BLD^AGGWDISP) --------------------------------
+# Replies captured live on bcer-9.0-20261029-7c3119b-ydb as PROFILE,REG, for a
+# synthetic seed patient and for a DFN with no patient (header, no record).
+DISPLAY_PERSONAL = "5\x00T00035AGGPTLNM^T00025AGGPTFNM^T00025AGGPTMNM^T00010AGGPTSFX^T00030PTNAME^T00009AGGPTSSN^" \
+                   "T00020AGGNOSSN^D00015AGGPTDOB^T00006AGGPTSEX^T00030AGGPTMAR^T00033AGGPTSSV^T00009AGGPTHRN^" \
+                   "T00020AGGPTPBC^T00035AGGPTPBS^T00020AGGPTMPI^T00010AGGAGE^T00060AGGPTEPL^T00030AGGEMSTS^" \
+                   "I00010DFN^T00040AGGPTRLG\x1eEMBER^AVERY^^^EMBER,AVERY^666321031^^MAR 15,1997^F\x1cFEMALE^\x1c^" \
+                   "Pending Verification^990031^^\x1c^^29 YRS^\x1c^^^\x1c\x1e"
+DISPLAY_NO_PATIENT = "7\x00T00035AGGPTLNM^T00025AGGPTFNM\x1e"
+
+def test_window_values_reads_each_parameter_with_pointer_and_choice_pairs
+  @mock.seed(:agg_build_window_display, "Personal Detail", DISPLAY_PERSONAL)
+
+  values = Agg.window_values(window: "Personal Detail", dfn: 990_031)
+
+  assert_equal "EMBER,AVERY", values["PTNAME"]
+  assert_equal "MAR 15,1997", values["AGGPTDOB"]
+  assert_equal({ internal: "F", external: "FEMALE" }, values["AGGPTSEX"])
+  assert_equal({ internal: nil, external: nil }, values["AGGPTMAR"])
+  assert_equal "", values["AGGEMSTS"]
+  call = @mock.received_calls.find { |c| c[:rpc] == "AGG BUILD WINDOW DISPLAY" }
+  assert_equal [ "Personal Detail", "990031" ], call[:params]
+  assert_equal Agg::CONTEXT, call[:context] if call.key?(:context)
+end
+
+def test_window_values_for_no_patient_are_empty_and_no_reply_is_nil
+  @mock.seed(:agg_build_window_display, "Personal Detail", DISPLAY_NO_PATIENT)
+  assert_equal({ "AGGPTLNM" => "", "AGGPTFNM" => "" }, Agg.window_values(window: "Personal Detail", dfn: 1))
+
+  assert_nil Agg.window_values(window: "Address", dfn: 1)
+end
+
   def test_add_patient_nil_when_no_broker_response
     assert_nil Agg.add_patient(params: { "AGGPTLNM" => "PROBE" })
   end

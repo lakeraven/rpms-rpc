@@ -1002,6 +1002,14 @@ module RpmsRpc
       m.text_blob :reply
     end
 
+    # AGG BUILD WINDOW DISPLAY — BLD^AGGWDISP (return type GLOBAL ARRAY). Params:
+    # window name, DFN. Reply: a header naming the window's displayed
+    # parameters, then one record of their values. Parsed by Agg.window_values.
+    DataMapper.define(:agg_build_window_display) do |m|
+      m.rpc "AGG BUILD WINDOW DISPLAY"
+      m.text_blob :reply
+    end
+
     # AGG UPDATE PATIENT — UPD^AGGPTUPD. Same PARMS convention; DFN required.
     # Reply header "I00010RESULT^T01024ERROR^T01024OTHER_PARMS"; "1^^" ok.
     # Parsed by Agg.

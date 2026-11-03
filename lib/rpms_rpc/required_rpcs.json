@@ -8,6 +8,7 @@
     ],
     "RpmsRpc::Agg": [
       "AGG ADD NEW PATIENT",
+      "AGG BUILD WINDOW DISPLAY",
       "AGG GET TEMP PAT HRN",
       "AGG LOCK PATIENT",
       "AGG LOOKUP PATIENTS",
@@ -201,6 +202,7 @@
     ],
     "RpmsRpc::Patient": [
       "AGG ADD NEW PATIENT",
+      "AGG BUILD WINDOW DISPLAY",
       "AGG GET TEMP PAT HRN",
       "AGG LOCK PATIENT",
       "AGG LOOKUP PATIENTS",
@@ -292,6 +294,7 @@
     ],
     "RpmsRpc::Registration": [
       "AGG ADD NEW PATIENT",
+      "AGG BUILD WINDOW DISPLAY",
       "AGG GET TEMP PAT HRN",
       "AGG LOCK PATIENT",
       "AGG LOOKUP PATIENTS",
