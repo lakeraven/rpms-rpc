@@ -2,6 +2,8 @@
 
 require_relative "../mappings"
 require_relative "agg"
+require_relative "../fileman_date_parser"
+require_relative "../shape"
 
 module RpmsRpc
   # Patient registration on RPMS: delegation to the IHS AG package's own
@@ -62,6 +64,7 @@ module RpmsRpc
   # deprecated-by-design per #214).
   module Registration
     extend self
+    extend Shape::Declarable
 
     # HRN assignment mode — see the module doc / rpms-rpc#214.
     HRN_MODE_DERIVE = :derive_from_dfn # greenfield default: HRN := DFN
@@ -231,12 +234,16 @@ module RpmsRpc
     # PATIENT call per window it touches.
     #
     #   attribute           window           parameter  type  files
+    #   name                Personal Detail  PTNAME     X     #2 .01 (LAST,FIRST MIDDLE)
     #   dob                 Personal Detail  AGGPTDOB   D     #2 .03
     #   sex                 Personal Detail  AGGPTSEX   C     #2 .02
     #   ssn                 Personal Detail  AGGPTSSN   X     #2 .09
     #   marital_status      Personal Detail  AGGPTMAR   T     #2 .05
     #   birth_city          Personal Detail  AGGPTPBC   X     #2 .092
     #   birth_state         Personal Detail  AGGPTPBS   T     #2 .093
+    #   religion            Personal Detail  AGGPTRLG   T     #2 .08
+    #   employer            Personal Detail  AGGPTEPL   T     #9000001 .19
+    #   employment_status   Personal Detail  AGGEMSTS   C     #9000001 .21
     #   address_line1..3    Address          AGGPTAD1-3 X     #2 .111-.113
     #   city                Address          AGGPTCTY   X     #2 .114
     #   state               Address          AGGPTSTE   T     #2 .115
@@ -289,10 +296,19 @@ module RpmsRpc
       email:              UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTEML", PATIENT_FILE, "1802", :text),
       community_ien:      UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTCOM", PATIENT_FILE, "1117", :pointer),
       community_since:    UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTCDT", PATIENT_FILE, nil, :date_moved),
+      name:               UpdateAttribute.new(WINDOW_PERSONAL_DETAIL, "PTNAME", "2", ".01", :name),
+      religion:           UpdateAttribute.new(WINDOW_PERSONAL_DETAIL, "AGGPTRLG", "2", ".08", :pointer),
+      employer:           UpdateAttribute.new(WINDOW_PERSONAL_DETAIL, "AGGPTEPL", PATIENT_FILE, ".19", :pointer),
+      employment_status:  UpdateAttribute.new(WINDOW_PERSONAL_DETAIL, "AGGEMSTS", PATIENT_FILE, ".21", :choice),
       tribe:              UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTTRI", PATIENT_FILE, FIELD_TRIBE, :pointer),
       classification:     UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTCLB", PATIENT_FILE, FIELD_CLASSIFICATION, :pointer),
       eligibility_status: UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTELG", PATIENT_FILE, FIELD_ELIGIBILITY, :choice)
     }.freeze
+
+    # UPD turns an empty value into "@" and files it internal (AGGPTUPD.m:63,
+    # 124), with no required-field check: an empty name, sex or date of birth
+    # would delete the field. They are refused before anything is sent.
+    UNCLEARABLE = UPDATE_ATTRIBUTES.values_at(:name, :sex, :dob).freeze
 
     # Raised before anything is sent when an update names something AG's
     # update windows do not file.
@@ -341,14 +357,109 @@ module RpmsRpc
     #     was refused before its window was sent (nothing of that window is
     #     filed; message names the limit, never the value)
     #   nil  no broker reply to an AGG UPDATE PATIENT call
+    #
+    # Before anything is locked or filed, each value a window checks is run
+    # through AG's own check, AGG WINDOW DATA VALIDATION, as AG's client does
+    # (UPDATE_VALIDATIONS). A refusal is
+    #   { success: false, error: :agg_invalid, field: <attribute>, message: AG's message }
+    # and a check RPMS gives no answer to is :validation_unavailable; in both
+    # cases nothing is filed.
     def update(dfn, **attrs)
       params_by_window = update_params(attrs)
       dfn = dfn.to_i
       return { success: false, error: :invalid_dfn, message: "a positive DFN is required" } if dfn <= 0
       return { success: false, error: :no_fields, message: "no attributes to update" } if params_by_window.empty?
 
+      refused = validate_update(dfn, params_by_window)
+      return refused if refused
+
       Agg.editing(dfn: dfn) { update_windows(dfn, params_by_window) }
     end
+
+    # What AG's Personal Detail and Address windows show for a patient, read
+    # the way AG's client reads them before an edit: AGG BUILD WINDOW DISPLAY
+    # (BLD^AGGWDISP), once per window. Values are AG's: pointers and choices
+    # as { internal:, external: } (internal is the IEN or the code), dob as a
+    # Date (dob_text keeps AG's text, which may be imprecise), the rest text.
+    # The SSN is returned as filed: a caller that shows it applies AGZVIEWSSN.
+    # Email is not in AG's display (Patient.contact reads it).
+    #
+    # Returns the record, or nil when either read gets no reply, or the
+    # patient has no name (no such patient).
+    def record(dfn)
+      dfn = dfn.to_i
+      return nil unless dfn.positive?
+
+      personal = Agg.window_values(window: WINDOW_PERSONAL_DETAIL, dfn: dfn)
+      address = personal && Agg.window_values(window: WINDOW_ADDRESS, dfn: dfn)
+      return nil if address.nil? || personal["PTNAME"].to_s.strip.empty?
+
+      record_from(dfn, personal, address)
+    end
+    shape :record, resource: "registrations", verb: "POST", path: "/patients/{dfn}/registrations"
+
+    # The files the pointer attributes of an update point at (#2 and #9000001
+    # DD; the windows' node 2 piece 3 names the same files: 11, 13, 5 and
+    # 9999999.75).
+    PICK_LIST_FILES = {
+      marital_status: "11", religion: "13", birth_state: "5", state: "5", employer: "9999999.75"
+    }.freeze
+
+    # The entries a pointer attribute can take, for a clerk to choose from:
+    # LIST^DIC over the file's "B" index (DDR LISTER), as RpmsRpc::Tribal
+    # lists tribes and communities. part: narrows to names starting with the
+    # text. Returns [{ ien:, name: }], [] when FileMan answers with an error,
+    # or nil when the broker gives no reply.
+    def pick_list(attribute, part: nil)
+      require_relative "ddr_fileman"
+      file = PICK_LIST_FILES.fetch(attribute) { raise ArgumentError, "no pick list for #{attribute}:" }
+      listing = DdrFileman.lister(file: file, fields: "@;.01", part: part, xref: "B", max: "200")
+      return nil if listing.nil?
+      return [] if listing[:error]
+
+      listing[:entries].map { |entry| { ien: entry[:ien].to_i, name: entry[:pieces]&.first } }
+    end
+    shape :pick_list, resource: "registrations", verb: "GET", path: "/registrations/pick-list"
+
+    # AG's display parameter for each attribute record returns.
+    RECORD_PARAMETERS = {
+      name: "PTNAME", name_last: "AGGPTLNM", name_first: "AGGPTFNM", name_middle: "AGGPTMNM",
+      name_suffix: "AGGPTSFX", ssn: "AGGPTSSN", ssn_verification: "AGGPTSSV", sex: "AGGPTSEX",
+      marital_status: "AGGPTMAR", hrn: "AGGPTHRN", birth_city: "AGGPTPBC", birth_state: "AGGPTPBS",
+      employer: "AGGPTEPL", employment_status: "AGGEMSTS", religion: "AGGPTRLG"
+    }.freeze
+
+    ADDRESS_PARAMETERS = {
+      address_line1: "AGGPTAD1", address_line2: "AGGPTAD2", address_line3: "AGGPTAD3", city: "AGGPTCTY",
+      state: "AGGPTSTE", zip: "AGGPTZIP", phone_home: "AGGPTHPH", phone_work: "AGGPTWPH",
+      phone_other: "AGGPTOPH", community: "AGGPTCOM"
+    }.freeze
+
+    # The values AG's update windows check before they save, by parameter: the
+    # check's window and the companions it names (#9009068.3 entries 1 and 2,
+    # field node 2). SSN^AGGWVAL takes the DFN: a number already on ANOTHER
+    # patient is refused, and one the SSA has verified cannot be edited.
+    # DOB^AGGWVAL refuses a date before 1871 or in the future, ZIP^AGGWVAL a
+    # zip that is not 5 or 9 digits. Reason for No SSN is not offered on update.
+    #
+    # The name is the exception. Personal Detail files PTNAME (#2 .01) with
+    # FILE^DIE and no "E" flag (AGGPTUPD.m:124), so FileMan does not run the
+    # field's input transform, and the window defines no server check for it:
+    # AG's client builds the name from its pieces (FORM^AGGWTRIG). A name not
+    # in LAST,FIRST form would be filed as typed (live, 2026-11-03). AG's
+    # check of a patient name is NAM^AGGWVAL ($$FORMAT^DPTNAME, 3 to 35
+    # characters, a comma and no space after it), which the Aliases window
+    # (#9009068.3 entry 33) runs on AGGPTALS, the patient's other names; the
+    # name is checked there.
+    WINDOW_ALIASES = "Aliases"
+
+    # parameter => [window whose check runs, the parameter it is asked about]
+    UPDATE_VALIDATIONS = {
+      "PTNAME" => [ WINDOW_ALIASES, "AGGPTALS" ],
+      "AGGPTSSN" => [ WINDOW_PERSONAL_DETAIL, "AGGPTSSN" ],
+      "AGGPTDOB" => [ WINDOW_PERSONAL_DETAIL, "AGGPTDOB" ],
+      "AGGPTZIP" => [ WINDOW_ADDRESS, "AGGPTZIP" ]
+    }.freeze
 
     private
 
@@ -547,6 +658,9 @@ module RpmsRpc
 
     # The value in the form AG's window type takes (see UPDATE_ATTRIBUTES).
     def update_value(attribute, value, given)
+      if value.to_s.strip.empty? && UNCLEARABLE.include?(attribute)
+        raise ArgumentError, "#{attribute.parameter} cannot be cleared"
+      end
       return "" if value.to_s.strip.empty? && attribute.form != :date_moved
 
       case attribute.form
@@ -554,10 +668,20 @@ module RpmsRpc
       when :date_moved then agg_date_moved(community_since: value, dob: given[:dob])
       when :sex then agg_sex(value)
       when :ssn then value.to_s.delete("-")
+      when :name then name_value(value)
       when :choice then value.to_s.strip.upcase
       when :pointer then pointer_value(attribute, value)
       else value.to_s
       end
+    end
+
+    # PTNAME files #2 .01 as given (type X, FILE^DIE external), so FileMan's
+    # own input transform judges the form. Only the wire's "^" is refused here.
+    def name_value(value)
+      name = value.to_s.strip.upcase
+      raise ArgumentError, "name must not contain '^'" if name.include?("^")
+
+      name
     end
 
     # T parameters file internal (AGGPTUPD.m:82-85,125), so the value must
@@ -602,6 +726,42 @@ module RpmsRpc
       nil
     end
 
+    # AG's check of each value an update sends that AG checks
+    # (UPDATE_VALIDATIONS), with the patient's DFN. Stops at the first
+    # refusal; fails closed when a check gets no answer.
+    def validate_update(dfn, params_by_window)
+      params_by_window.each_value do |params|
+        params.each do |parameter, value|
+          check_window, checked_as = UPDATE_VALIDATIONS[parameter]
+          next unless check_window
+
+          checked = check_field({ checked_as => value, "DFN" => dfn.to_s }, window: check_window)
+          attribute = UPDATE_ATTRIBUTES.find { |_, a| a.parameter == parameter }.first
+          unless checked
+            return { success: false, error: :validation_unavailable, field: attribute,
+                     message: "RPMS could not check #{parameter} (AGG WINDOW DATA VALIDATION gave no answer)" }
+          end
+          return { success: false, error: :agg_invalid, field: attribute, message: checked[:message] } unless checked[:valid]
+        end
+      end
+      nil
+    end
+
+    def record_from(dfn, personal, address)
+      values = RECORD_PARAMETERS.transform_values { |p| record_value(personal[p]) }
+                                .merge(ADDRESS_PARAMETERS.transform_values { |p| record_value(address[p]) })
+      dob_text = record_value(personal["AGGPTDOB"])
+      { dfn: dfn, dob: FilemanDateParser.parse_external_date(dob_text), dob_text: dob_text }.merge(values)
+    end
+
+    # Text is stripped, empty is nil; a pair with neither half is nil.
+    def record_value(value)
+      return (value.values.any? ? value : nil) if value.is_a?(Hash)
+
+      text = value.to_s.strip
+      text.empty? ? nil : text
+    end
+
     # With neither an SSN nor a reason, NOSSN^AGGWVAL calls $$ISREQ^AGGUL2, which
     # quits without a value on a site that does not list SSN as required: an M
     # error, after which the broker job hangs on its next AG call (rpms-ops#1040).
@@ -617,8 +777,8 @@ module RpmsRpc
 
     # A broker error on a check is "could not check" (nil), never a pass, and its
     # message is not passed on: it can carry the patient's details.
-    def check_field(values)
-      Agg.validate_field(window: AGG_ADD_WINDOW, params: values)
+    def check_field(values, window: AGG_ADD_WINDOW)
+      Agg.validate_field(window: window, params: values)
     rescue Client::RpcError, Client::ConnectionError
       nil
     end
