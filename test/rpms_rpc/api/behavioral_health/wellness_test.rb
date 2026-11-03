@@ -400,6 +400,23 @@ class BehavioralHealthWellnessTest < Minitest::Test
     assert_empty screening_calls
   end
 
+  def test_save_screening_refuses_when_pre_edit_visit_ddr_error_with_valid_fields_without_rpc
+    seed_visit_lock(RECORD_IEN)
+    key = visit_ddr_key(RECORD_IEN)
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      pre_edit_body_with_ddr_error(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL)
+    )
+    seed_baseline_stored_screening_providers
+    seed_provider_exists(PROVIDER)
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_match(/the visit could not be read/i, err.message)
+    assert_empty screening_calls
+  end
+
   def test_save_screening_refuses_patient_mismatch_without_rpc
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
     seed_pre_edit_screening(RECORD_IEN, OTHER_PATIENT)
@@ -483,6 +500,24 @@ class BehavioralHealthWellnessTest < Minitest::Test
       )
     end
     assert_match(/signature date could not be read/i, err.message)
+    assert_empty measurements_calls
+  end
+
+  def test_save_measurements_refuses_when_pre_edit_visit_ddr_error_with_valid_fields_without_rpc
+    seed_visit_lock(RECORD_IEN)
+    key = visit_ddr_key(RECORD_IEN)
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      pre_edit_body_with_ddr_error(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL)
+    )
+    seed_provider_exists(PROVIDER)
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(
+        RECORD_IEN, patient: PATIENT,
+        measurements: [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+      )
+    end
+    assert_match(/the visit could not be read/i, err.message)
     assert_empty measurements_calls
   end
 
@@ -990,10 +1025,11 @@ class BehavioralHealthWellnessTest < Minitest::Test
     seed_measurements_success(wire, measurements)
     base = visit_gets_client
     outer = SimpleDelegator.new(base)
-    inner = WellnessSessionClient.new(base, outer.object_id)
+    inner = WellnessSessionClient.new(base, nil)
     wrapper = CrossClientReentrantMeasurementsClient.new(
       outer, inner, wellness, record_ien: RECORD_IEN, patient: PATIENT, measurements: measurements
     )
+    inner.instance_variable_set(:@wellness_session_id, wrapper.object_id)
     RpmsRpc.configure { |c| c.client = wrapper }
 
     wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
@@ -1821,6 +1857,13 @@ class BehavioralHealthWellnessTest < Minitest::Test
         raise ArgumentError, "unknown screening #{name}"
       end
     end
+  end
+
+  def pre_edit_body_with_ddr_error(ien, patient, internal:, signed: false, include_1112: true)
+    field_lines = pre_edit_body(
+      ien, patient, internal: internal, signed: signed, include_1112: include_1112
+    ).sub(/\A\[Data\]\n/, "")
+    "[Data]\n[ERROR]\n#{field_lines}"
   end
 
   def pre_edit_body(ien, patient, internal:, signed: false, include_1112: true)
