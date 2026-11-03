@@ -57,20 +57,21 @@ module RpmsRpc
     # context. That re-bind is `create_context(previous)`: on XWB/BMX a real
     # XWB CREATE CONTEXT, which is how the session recovers after
     # CRCONTXT^XWBSEC has killed the broker context. If that restore is
-    # refused too, `current_context` is nil (`Client#create_context` clears
-    # it on failure) and the next scope re-binds from a truthful starting
-    # point rather than assuming the old name.
+    # refused too, `current_context` is nil (`Client#create_context` leaves
+    # it nil once the frame has been sent) and the next scope re-binds from
+    # a truthful starting point rather than assuming the old name.
     #
     # The re-bind is skipped when `current_context` already equals
-    # `previous`: nothing changed, so nothing is restored.
-    # `Client#create_context` raises ConnectionError ("Not connected") or
-    # AuthenticationError ("Not authenticated") before the wire and leaves
-    # `current_context` unchanged; re-binding there fails the same way and
-    # warns "could not restore context". A refused on-the-wire bind is not
-    # this case. It clears `current_context` to nil, and the ensure still
-    # re-binds `previous` (scope entry and nested). Do not skip a restore
-    # merely because `current_context` is nil — an earlier
-    # `return if current_context.nil?` broke those nested restores.
+    # `previous`. current_context equals previous after a failed bind only
+    # when nothing was sent: `Client#create_context` raises ConnectionError
+    # ("Not connected") or AuthenticationError ("Not authenticated") before
+    # the frame and leaves `current_context` unchanged. Re-binding there
+    # fails the same way and warns "could not restore context". A refusal, a
+    # timeout, or an interrupt after the frame went out is not this case.
+    # `current_context` is nil, and the ensure still re-binds `previous`
+    # (scope entry and nested). Do not skip a restore merely because
+    # `current_context` is nil — an earlier `return if current_context.nil?`
+    # broke those nested restores.
     #
     # Held under the client's wire lock for its WHOLE duration, bind through
     # restore. The bound option is per-session state that the broker consults
@@ -94,11 +95,12 @@ module RpmsRpc
         end
         # The entry bind is inside the ensure so a refusal still restores.
         # create_context raises without running the block. On XWB/BMX a
-        # refused CREATE CONTEXT has already killed the broker context and
-        # cleared current_context, so the ensure re-binds `previous` (scope
-        # entry and nested) even though current_context is nil along the
-        # way. A failure before the wire leaves current_context equal to
-        # previous, and restore_context does not re-bind. Do not
+        # refused CREATE CONTEXT has already killed the broker context, and
+        # any exception after the frame was sent leaves current_context nil,
+        # so the ensure re-binds `previous` (scope entry and nested) even
+        # though current_context is nil along the way. current_context
+        # equals previous after a failed bind only when nothing was sent,
+        # and restore_context does not re-bind then. Do not
         # `return if current_context.nil?` — that early return broke nested
         # refused-bind restores.
         begin
@@ -121,14 +123,16 @@ module RpmsRpc
     def restore_context(previous, scoped)
       return if previous.nil? || previous == scoped
 
-      # Already the context we would re-bind: the bind never took effect.
+      # Already the context we would re-bind. current_context equals
+      # previous after a failed bind only when nothing was sent:
       # create_context raises ConnectionError ("Not connected") or
-      # AuthenticationError ("Not authenticated") before the wire and does
+      # AuthenticationError ("Not authenticated") before the frame and does
       # not clear current_context. Re-binding would fail the same way and
-      # warn. A refused on-the-wire bind is different: it clears
-      # current_context to nil, which is not equal to previous, so the
-      # re-bind below still runs for scope entry and nested refusals. Do
-      # not `return if current_context.nil?` — that skips those restores.
+      # warn. Once the frame has gone out, a refusal, a timeout, or an
+      # interrupt leaves current_context nil, which is not equal to
+      # previous, so the re-bind below still runs for scope entry and nested
+      # failures. Do not `return if current_context.nil?` — that skips those
+      # restores.
       return if current_context == previous
 
       create_context(previous)

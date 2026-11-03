@@ -16,7 +16,10 @@ module RpmsRpc
   # `held_keys` asks ORWU NPHASKEY once per named key, the batch bound to
   # OR CPRS GUI CHART. Over CIA the context rides on each frame, so N keys
   # cost N frames. Over XWB/BMX the cost is N when OR CPRS GUI CHART is
-  # already bound, and N + 2 (a bind and a restore) otherwise.
+  # already bound, N + 2 (a bind and a restore) when another context is
+  # declared, N + 1 when the session has no declared context (ContextScope
+  # warns and cannot restore), and a refused bind sends the bind (and a
+  # restore) and no ORWU NPHASKEY.
   # `has_security_key?` asks about one key, through the same ORWU NPHASKEY.)
   module Authentication
     extend self
@@ -180,7 +183,10 @@ module RpmsRpc
     # ''$D(^XUSEC(KEY,NP))), NP the signed-on DUZ, the whole batch bound to
     # OR CPRS GUI CHART. Over CIA the context rides on each frame, so N keys
     # cost N frames. Over XWB/BMX the cost is N when OR CPRS GUI CHART is
-    # already bound, and N + 2 (a bind and a restore) otherwise.
+    # already bound, N + 2 (a bind and a restore) when another context is
+    # declared, N + 1 when the session has no declared context (ContextScope
+    # warns and cannot restore), and a refused bind sends the bind (and a
+    # restore) and no ORWU NPHASKEY.
     #
     # Returns nil when the question could not be asked, so a consumer can tell
     # "holds none" ([]) from "could not ask" (nil): no signed-on DUZ (the
