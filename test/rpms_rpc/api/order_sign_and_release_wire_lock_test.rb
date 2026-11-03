@@ -191,8 +191,11 @@ class OrderSignAndReleaseWireLockTest < Minitest::Test
       peer_on_a.kill
       assert peer_on_a.join(THREAD_JOIN_TIMEOUT)
 
-      assert_operator resolver_reads, :>=, 2,
-                      "expected a second RpmsRpc.client read from module synchronize_wire"
+      # Factory-Spec-Amendment: the contract is that the lock is client A's own, not
+      # that the module lock re-reads RpmsRpc.client. The fix takes the lock on the
+      # client resolved at entry, so it reads once; the old code read twice. The
+      # assertions below carry the contract and are unchanged (#456).
+      assert_operator resolver_reads, :>=, 1
       assert_nil client_a.lock_violation,
                  "VALIDSIG and SEND must run under client A's wire lock, not a re-resolved client's"
       assert_equal 2, client_a.rpc_log.length, "RPCs must still use the client resolved at entry"
@@ -203,6 +206,39 @@ class OrderSignAndReleaseWireLockTest < Minitest::Test
     ensure
       RpmsRpc.singleton_class.define_method(:client, original_client)
     end
+  end
+
+  # A client with no #synchronize_wire takes the module wire lock, the same
+  # fallback RpmsRpc.synchronize_wire uses, without re-reading RpmsRpc.client.
+  class BareWireClient
+    attr_reader :rpc_names, :module_lock_owned
+
+    def initialize
+      @rpc_names = []
+      @module_lock_owned = []
+    end
+
+    def duz = PROVIDER_DUZ
+
+    def call_rpc(rpc_name, *_params)
+      @rpc_names << rpc_name
+      @module_lock_owned << RpmsRpc::MODULE_WIRE_LOCK.mon_owned?
+      rpc_name == VALIDSIG_RPC ? "1" : [ "#{ORDER_ONE}^RS" ]
+    end
+  end
+
+  def test_sign_and_release_holds_the_module_wire_lock_for_a_client_without_synchronize_wire
+    client = BareWireClient.new
+    refute_respond_to client, :synchronize_wire
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    results = RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+
+    assert_equal [ VALIDSIG_RPC, SEND_RPC ], client.rpc_names
+    assert_equal [ true, true ], client.module_lock_owned,
+                 "VALIDSIG and SEND must both run under the module wire lock"
+    refute RpmsRpc::MODULE_WIRE_LOCK.mon_owned?, "the module wire lock must be released afterwards"
+    assert_equal :released, results.fetch(0)[:status]
   end
 
   def test_mock_client_exposes_session_duz_mutators
