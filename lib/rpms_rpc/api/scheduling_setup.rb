@@ -83,16 +83,18 @@ module RpmsRpc
     # (DIC/DIE); no #8994 entry reaches it (rpms-rpc#418, resolution 2), so
     # this is DDR FILER ADD (FILEC^DDR3). .01 DATE is DINUM and field 2 is
     # NAME. The B xref is FileMan's and is maintained on the write. GO^SDHOL's
-    # prompts and any defaults it would stuff are not run. A blank name or a
-    # name over 30 characters is { success: false, error: :invalid } and sends
-    # no RPC. DDR FILER's error text is :filer_failed. nil when FILER gives
-    # no reply.
+    # prompts and any defaults it would stuff are not run. A blank name, a
+    # name over 30 characters, or a name that after strip contains "^", a
+    # control character, or is exactly "@", is { success: false, error:
+    # :invalid } and sends no RPC. Ordinary text still files. DDR FILER's
+    # error text, including a reply with no [Data] marker, is :filer_failed
+    # because filer success is false. nil when FILER gives no reply.
     def add_holiday(date:, name:)
       day = fileman_day(date)
       return invalid("date must be a Date") unless day
 
       text = holiday_name(name)
-      return invalid("holiday name must be 1 to 30 characters") unless text
+      return text unless text.is_a?(String)
 
       filed = in_context do
         DdrFileman.filer(mode: "ADD", rows: [
@@ -113,8 +115,9 @@ module RpmsRpc
     # { success: false, error: :not_found } and files nothing. A failed
     # lookup (no reply, "[Errors]", or a reply with no "[Data]" line)
     # raises Client::RpcError rather than reporting not-found. DDR FILER
-    # EDIT sets .01 to "@", which is FileMan's delete. GO^SDHOL is not
-    # called.
+    # EDIT sets .01 to "@", which is FileMan's delete. A FILER reply with
+    # no [Data] is :filer_failed because filer success is false. GO^SDHOL
+    # is not called.
     def remove_holiday(date)
       day = fileman_day(date)
       return invalid("date must be a Date") unless day
@@ -265,13 +268,22 @@ module RpmsRpc
       FilemanDateParser.to_fileman(value)
     end
 
+    # The name to file, or the :invalid hash. After strip, blank and longer
+    # than 30 are the length refusal. "^", a control character, or exactly
+    # "@" is the same :invalid shape and sends no RPC. Ordinary text is
+    # returned for the FILER call.
     def holiday_name(value)
-      return unless value.is_a?(String)
+      return invalid("holiday name must be 1 to 30 characters") unless value.is_a?(String)
 
       text = value.strip
-      return if text.empty? || text.length > HOLIDAY_NAME_MAX
+      return invalid("holiday name must be 1 to 30 characters") if text.empty? || text.length > HOLIDAY_NAME_MAX
+      return invalid("holiday name cannot contain ^, a control character, or be @") if refused_free_text?(text)
 
       text
+    end
+
+    def refused_free_text?(text)
+      text.include?("^") || text.match?(/[[:cntrl:]]/) || text == "@"
     end
 
     def filer_outcome(filed)

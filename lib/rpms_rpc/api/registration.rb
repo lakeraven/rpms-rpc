@@ -424,12 +424,15 @@ module RpmsRpc
     # rows are listed. SETGI passes the value through $$GI^AUTSOGI(val,"I"),
     # which returns "" for an unknown record and then files nothing for it.
     # This method reads field 1 CODE with DDR GETS ENTRY DATA (iens
-    # "<ien>,", fields "1", flags "I") whether or not other is given. An
-    # error reply means the code does not exist: { success: false, error:
-    # :invalid } and nothing is filed, including no date-row lookup. A nil
-    # reply is :lookup_failed. DDR GETS returns a row even for an empty
-    # field, so a "[Data]" reply with no row for field 1 is malformed and
-    # is :lookup_failed too, and nothing is filed (no DDR LISTER, no DDR
+    # "<ien>,", fields "1", flags "I") whether or not other is given. A
+    # genuine [ERROR] reply means the code does not exist: { success:
+    # false, error: :invalid } and nothing is filed, including no date-row
+    # lookup. A reply with neither [Data] nor [ERROR] and no field rows
+    # (malformed: true) is checked before that and is :lookup_failed; the
+    # message names the file and field, the same way read_internal_field
+    # does. A nil reply is :lookup_failed. DDR GETS returns a row even for
+    # an empty field, so a "[Data]" reply with no row for field 1 is
+    # :lookup_failed too, and nothing is filed (no DDR LISTER, no DDR
     # FILER), whether or not other is given. The same reads decide OTHER.
     #
     # S9394^AUPNSOG3 always sets FDA(SF,IENS,2)=OTH. OTH is "" unless a
@@ -477,8 +480,11 @@ module RpmsRpc
     # IENs, and an omitted date is today only because this method sends it.
     # Returns { success: true }, { success: false, error: :invalid /
     # :lookup_failed / :filer_failed, message: }, or nil when DDR FILER
-    # gives no reply. A bad DFN, an empty value list, or a non-integer
-    # value sends no RPC.
+    # gives no reply. A FILER reply with no [Data] marker is :filer_failed
+    # because filer success is false. A bad DFN, an empty value list, a
+    # non-integer value, or other text that after strip contains "^", a
+    # control character, or is exactly "@" sends no RPC. Ordinary other
+    # text still files.
     def set_gender_identity(dfn, values:, other: nil, date: Date.today)
       ready = prepare_sogi(dfn, values: values, other: other, date: date)
       return ready if ready[:error]
@@ -497,12 +503,17 @@ module RpmsRpc
     # S9394^AUPNSOG3 makes two UPDATE^DIE calls; this gem makes one so a
     # refused add cannot follow a delete. Each distinct value is read on
     # #9999999.103 field 1 before the date rows are listed.
-    # $$SO^AUTSOGI(val,"I") returns "" for an unknown record: an error
-    # reply is :invalid and files nothing. A "[Data]" reply with no field 1
-    # row is malformed and is :lookup_failed, and nothing is filed. Field 2
-    # is always filed: the text when a chosen value's CODE is OTH and the
-    # text is non-blank ($$SO^AUTSOGI(val,"C")), otherwise "". FileMan xrefs
-    # ASO1/ASO2 still fire; SETSO's code translation and defaults do not.
+    # $$SO^AUTSOGI(val,"I") returns "" for an unknown record: a genuine
+    # [ERROR] reply is :invalid and files nothing. A reply with neither
+    # [Data] nor [ERROR] and no field rows (malformed: true) is
+    # :lookup_failed, and the message names the file and field. A "[Data]"
+    # reply with no field 1 row is :lookup_failed, and nothing is filed.
+    # other text that after strip contains "^", a control character, or is
+    # exactly "@" is :invalid and sends no RPC. Ordinary text still files.
+    # Field 2 is always filed: the text when a chosen value's CODE is OTH
+    # and the text is non-blank ($$SO^AUTSOGI(val,"C")), otherwise "".
+    # FileMan xrefs ASO1/ASO2 still fire; SETSO's code translation and
+    # defaults do not.
     def set_sexual_orientation(dfn, values:, other: nil, date: Date.today)
       ready = prepare_sogi(dfn, values: values, other: other, date: date)
       return ready if ready[:error]
@@ -677,12 +688,24 @@ module RpmsRpc
     # Writes, in order, each its own EDIT: #2 .02 first, whether or not it
     # changed; then #9000001 .23 set to "@" only when the pre-read says .02
     # changes and .23 is non-blank; then one EDIT of every eligibility row,
-    # when any were found. The cascade always runs, so a retry repeats it.
-    # It is not atomic with the .02 write. A refusal of the first call is
-    # :filer_failed and later calls are not sent. nil only when the first
-    # FILER call gives no reply. A refusal or no-reply on the .23 delete
-    # or the cascade, after .02 succeeded, is :partial. The no-reply
-    # message says the outcome of the last write is unknown. Success is
+    # when any were found. That order does not change. A retry files .02
+    # again when the pre-reads succeed. The .23 delete is sent only when
+    # that pre-read still says the sex changed and .23 is non-blank. Once
+    # .02 has landed, a retry does not re-evaluate that delete into
+    # another "@": clear_ssn_verification? is false and the delete is not
+    # sent. The cascade runs when rows exist and the earlier EDITs on
+    # that call succeeded. A failed .23 delete has to be cleared in RPMS.
+    # The writes are not atomic. A refusal of the first
+    # call is :filer_failed and later calls are not sent. nil only when
+    # the first FILER call gives no reply. A reply with no [Data] is not
+    # a no-reply: filer success is false, so the first call is
+    # :filer_failed and a later call is :partial with the refusal wording.
+    # A refusal or no-reply on the .23 delete or the cascade, after .02
+    # succeeded, is :partial. The .23 message names #9000001 .23 SSN
+    # VERIFICATION STATUS. A refusal says it was not cleared. A no-reply
+    # says the outcome of the last write is unknown and that it may not
+    # have been cleared. A cascade failure names eligibility. The no-reply
+    # wording "outcome of the last write is unknown" stays. Success is
     # { success: true }.
     #
     # What this path skips: anything AG2A does interactively beyond the
@@ -1043,6 +1066,12 @@ module RpmsRpc
       !value.nil? && !value.to_s.strip.empty?
     end
 
+    # "^", a control character, or a value that is exactly "@" after strip.
+    # Blank and nil are not this refusal.
+    def refused_free_text?(text)
+      text.include?("^") || text.match?(/[[:cntrl:]]/) || text == "@"
+    end
+
     def prepare_sogi(dfn, values:, other:, date:)
       id = patient_dfn(dfn)
       return invalid("a positive DFN is required") unless id
@@ -1051,6 +1080,10 @@ module RpmsRpc
 
       text = other&.strip
       text = nil if text.nil? || text.empty?
+      # "^" breaks a FileMan piece, "@" deletes the field, and a control
+      # character is not free text. Blank stays "no other text".
+      return invalid("other cannot contain ^, a control character, or be @") if text && refused_free_text?(text)
+
       day = fileman_day(date)
       return invalid("date must be a Date") unless day
 
@@ -1085,11 +1118,13 @@ module RpmsRpc
     end
 
     # $$GI^AUTSOGI / $$SO^AUTSOGI(val,"I") returns "" for an unknown record.
-    # An error reply from DDR GETS of field 1 is that answer (:invalid, and
-    # the date rows are not listed). A nil reply is :lookup_failed. DDR GETS
-    # returns a row for an empty field, so a "[Data]" reply with no field 1
-    # row is malformed and is :lookup_failed too: no DDR LISTER and no DDR
-    # FILER, whether or not other was given. The internal CODE also decides
+    # A genuine [ERROR] reply from DDR GETS of field 1 is that answer
+    # (:invalid, and the date rows are not listed). malformed: true is
+    # checked first and is :lookup_failed; the message names the file and
+    # field. A nil reply is :lookup_failed. DDR GETS returns a row for an
+    # empty field, so a "[Data]" reply with no field 1 row is
+    # :lookup_failed too: no DDR LISTER and no DDR FILER, whether or not
+    # other was given. The internal CODE also decides
     # field 2: the text when it is OTH and the text is non-blank, otherwise
     # "". DDR GETS of field .02 errors: ^DD(9999999.104,.02) does not exist.
     def sogi_other_value(code_file, codes, other)
@@ -1097,6 +1132,7 @@ module RpmsRpc
       codes.each do |ien|
         read = DdrFileman.gets_entry(file: code_file, iens: "#{ien},", fields: "1", flags: "I")
         return lookup_failed("DDR GETS ENTRY DATA gave no reply for ##{code_file}") if read.nil?
+        return lookup_failed("DDR GETS ENTRY DATA gave a malformed reply for ##{code_file} 1") if read[:malformed]
         return invalid("#{ien} is not a code in ##{code_file}") if read[:error]
         return lookup_failed("DDR GETS ENTRY DATA gave no field 1 row for ##{code_file}") unless read[:fields].key?("1")
 
@@ -1439,13 +1475,14 @@ module RpmsRpc
       return step unless step == :written
 
       if clear_ssn_verification?(stored, code, verification)
-        step = sex_edit([ edit_row(PATIENT_FILE, SSN_VERIFICATION_FIELD, "#{id},", "@") ], prior: true)
+        step = sex_edit([ edit_row(PATIENT_FILE, SSN_VERIFICATION_FIELD, "#{id},", "@") ],
+                        prior: true, step: ssn_verification_step)
         return step unless step == :written
       end
 
       return { success: true } if cascade.empty?
 
-      step = sex_edit(cascade, prior: true)
+      step = sex_edit(cascade, prior: true, step: "eligibility")
       step == :written ? { success: true } : step
     end
 
@@ -1453,30 +1490,56 @@ module RpmsRpc
       stored.strip.upcase != code && !verification.strip.empty?
     end
 
-    # file_sex_writes calls this for #2 .02 first, then for the #9000001
-    # .23 "@" delete only when clear_ssn_verification? is true, then for
-    # the eligibility cascade when rows exist. Each call is its own EDIT.
-    # nil only when this is the first FILER call and it gives no reply.
-    # A refusal of that first call is :filer_failed and later calls are
-    # not sent. A refusal or no-reply on the .23 delete or the cascade,
-    # after .02 succeeded, is :partial. The no-reply message says the
-    # outcome of the last write is unknown.
-    def sex_edit(rows, prior:)
+    # file_sex_writes calls this for #2 .02 first (no step), then for the
+    # #9000001 .23 "@" delete only when clear_ssn_verification? is true,
+    # then for the eligibility cascade when rows exist. step is a short
+    # label for those later calls; it is not a public argument. Each call
+    # is its own EDIT. nil only when this is the first FILER call and it
+    # gives no reply. A refusal of that first call, including a reply with
+    # no [Data], is :filer_failed and later calls are not sent. A refusal
+    # (success false, including no [Data]) or a no-reply on the .23 delete
+    # or the cascade, after .02 succeeded, is :partial. The .23 message
+    # names #9000001 .23 SSN VERIFICATION STATUS: a refusal says it was
+    # not cleared, and a no-reply says the outcome of the last write is
+    # unknown and that it may not have been cleared. A cascade failure
+    # names eligibility. The no-reply wording "outcome of the last write
+    # is unknown" stays.
+    def sex_edit(rows, prior:, step: nil)
       filed = DdrFileman.filer(mode: "EDIT", rows: rows)
-      return unknown_later_sex_write if filed.nil? && prior
+      return unknown_later_sex_write(step) if filed.nil? && prior
       return nil if filed.nil?
       return :written if filed[:success]
 
       message = Array(filed[:errors]).join("\n")
       return { success: false, error: :filer_failed, message: message } unless prior
 
-      { success: false, error: :partial,
-        message: "an earlier sex write was filed and a later one was refused: #{message}" }
+      { success: false, error: :partial, message: refused_sex_step(step, message) }
     end
 
-    def unknown_later_sex_write
-      { success: false, error: :partial,
-        message: "an earlier sex write was filed and the outcome of the last write is unknown" }
+    def ssn_verification_step
+      "#9000001 .23 SSN VERIFICATION STATUS"
+    end
+
+    def refused_sex_step(step, message)
+      lead = if step == ssn_verification_step
+        "#{step} was not cleared"
+      elsif step
+        "#{step} was refused"
+      else
+        "a later one was refused"
+      end
+      "an earlier sex write was filed and #{lead}: #{message}"
+    end
+
+    def unknown_later_sex_write(step = nil)
+      base = "an earlier sex write was filed and the outcome of the last write is unknown"
+      tail = if step == ssn_verification_step
+        "#{step} may not have been cleared"
+      else
+        step
+      end
+      text = tail ? "#{base}: #{tail}" : base
+      { success: false, error: :partial, message: text }
     end
 
     def edit_row(file, field, iens, value)
