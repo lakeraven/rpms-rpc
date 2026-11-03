@@ -1115,6 +1115,21 @@ module RpmsRpc
       m.field 0, :ien, :string
     end
 
+    # AMHG CREATE/EDIT VISIT — PCC^AMHGPCC (AMHGPCC.m:10-28). One param,
+    # the two-piece AMHSTR: BH record IEN, then the PCC visit IEN. A blank
+    # second piece falls back to #9002011 .16 (AMHGPCC.m:17-19). The reply
+    # is a GLOBAL ARRAY: header T00030Result, then one row (AMHGPCC.m:25-28).
+    # The row is "0~<message>" when EN^AMHBHRU failed, else the internal
+    # .16, which may be empty.
+    #
+    # :row stays a string. MERR^AMHGU writes one data row "M ERROR|<text>"
+    # $C(30) and no $C(31) (AMHGU.m:108-120). An integer field would coerce
+    # that row, and a blank success row, to 0.
+    DataMapper.define(:amhg_create_edit_visit) do |m|
+      m.rpc "AMHG CREATE/EDIT VISIT"
+      m.field 0, :row, :string
+    end
+
     # AMHG SAVE POV — POV^AMHGSVF (AMHGSVF.m:47-75). One param, the
     # 8-piece AMHSTR. The reply is a GLOBAL ARRAY: header T00030Result,
     # then the echoed record IEN, or AMHER when the last add failed

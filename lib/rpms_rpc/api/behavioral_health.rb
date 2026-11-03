@@ -35,16 +35,29 @@ module RpmsRpc
     # post-call message says the outcome is unknown and that the record
     # may have been filed. It names a record IEN when one is known, and
     # never a value the caller passed or the broker's text. A
-    # {Client::ConnectionError} (including a timeout) or a
-    # {Client::RpcMError} from the AMHG call, and an {RpmsRpc::Error}
-    # from a post-call DDR read, are this class with that exception kept
-    # as the cause. {Client::FrameTooLongError} from the AMHG call is
-    # this class too, cause kept, but the message says nothing was sent:
-    # the frame is rejected before the RPC goes out, so the outcome is
-    # not unknown. A session with no declared context is re-bound to the
-    # DDR context before that error; a re-bind that raises
-    # {RpmsRpc::Error} does not replace it. That is save_visit, save_pov,
-    # and save_progress_note.
+    # {Client::ConnectionError} (including a timeout), a
+    # {Client::RpcMError}, or a plain {Client::RpcError} from the AMHG
+    # call, and an {RpmsRpc::Error} from a post-call DDR read, are this
+    # class with that exception kept as the cause.
+    # {Client::RpcNotAvailableError} and {Client::RpcRefusedError} are
+    # {Client::RpcError} and still propagate. {Client::FrameTooLongError}
+    # from the AMHG call is this class too, cause kept, but the message
+    # says nothing was sent: the frame is rejected before the RPC goes
+    # out, so the outcome is not unknown. A session with no declared
+    # context is re-bound to the DDR context before that error and
+    # before the outcome-unknown error from those AMHG failures; a
+    # re-bind that raises {RpmsRpc::Error} does not replace it. That is
+    # save_visit, save_pov, and save_progress_note. save_pcc_visit uses
+    # the same class and never names a caller value or broker text; a
+    # "0~" row names its text only
+    # when that text is a fixed PRECHECK or CHECKREC literal, and a blank
+    # success row says no PCC visit is linked and that an existing link
+    # may have been removed. {Client::FrameTooLongError} from
+    # save_pcc_visit's AMHG call is this class too, cause kept, and the
+    # message says nothing was sent: the frame is rejected before the
+    # RPC goes out, so the outcome is not unknown. A session with no
+    # declared context is re-bound on that raise path; a re-bind that
+    # raises {RpmsRpc::Error} does not replace this error.
     class SaveError < RpmsRpc::Error; end
 
     # External values of BH VISIT (#9002011) field .02, piece 3 of
@@ -234,6 +247,48 @@ module RpmsRpc
                      :ACTIVITY_TIME_MINUTES, :FILEMAN_CENTURY, :ENCOUNTER_DATE_MIN,
                      :OMITTED
 
+    # AMHG CREATE/EDIT VISIT reply header (AMHGPCC.m:25).
+    PCC_RESULT_HEADER = "T00030Result"
+    # V VISIT (#9000010). .05 is the patient. .11 is the DELETE FLAG.
+    # Read before the AMHG call when a visit IEN was given or #9002011
+    # .16 is already set, and again after a reply that names an IEN.
+    PCC_V_VISIT_FILE = "9000010"
+    PCC_BH_FIELDS = ".08;.16"
+    PCC_V_PATIENT_FIELD = ".05"
+    PCC_V_DELETE_FIELD = ".11"
+    PCC_V_VISIT_FIELDS = ".05;.11"
+    PCC_PRE_FLAGS = "I"
+    # Read-back asks for internal and external. The comparison uses internal.
+    PCC_READBACK_FLAGS = "IE"
+    # Fixed AMHERR literals, copied from PRECHECK (AMHBHRU.m:102-105) and
+    # CHECKREC (AMHBHRU.m:23-41). A "0~" row is named in the SaveError only
+    # when the text is one of these, character for character (the activity
+    # time line has two spaces after the colon). Any other text is broker
+    # text and stays out of the message.
+    PCC_REFUSAL_LITERALS = [
+      "IEN OF MHSS RECORD NOT SET",
+      "IEN OF MHSS RECORD NOT VALID",
+      "FUTURE VISIT DATE NOT ALLOWED!!!",
+      "LOCATION OF ENCOUNTER MISSING!",
+      "Community of Service Missing!",
+      "Activity Type Missing!",
+      "Type of Contact Missing!",
+      "Activity Time Missing!",
+      "Who entered record Missing!",
+      "Date Last Modified Missing!",
+      "Extract Flag Missing!",
+      "User Last Update Missing!",
+      "No primary Provider!",
+      "ERROR: Multiple Primary Providers!",
+      "ERROR: No POV entered!!",
+      "No Provider Narrative on a POV!",
+      "ERROR:  Activity Time Missing!"
+    ].freeze
+    private_constant :PCC_RESULT_HEADER, :PCC_V_VISIT_FILE, :PCC_BH_FIELDS,
+                     :PCC_V_PATIENT_FIELD, :PCC_V_DELETE_FIELD, :PCC_V_VISIT_FIELDS,
+                     :PCC_PRE_FLAGS, :PCC_READBACK_FLAGS, :PCC_REFUSAL_LITERALS
+
+
     # Visit list for a patient over a FileMan date range, newest first.
     #
     # Rows are screened per-user by $$ALLOWVI^AMHUTIL(DUZ,AMHIEN)
@@ -289,6 +344,10 @@ module RpmsRpc
     # re-bind DDR_CONTEXT first (binds: AMHGRPC, then DDR_CONTEXT). The
     # same re-bind runs when the AMHG call raises
     # {Client::FrameTooLongError}, before the nothing-was-sent error.
+    # It also runs when that call raises {Client::ConnectionError}
+    # (including a timeout), {Client::RpcMError}, or a plain
+    # {Client::RpcError}, before the outcome-unknown error. A re-bind
+    # that fails does not replace either error.
     #
     # Pieces, in order: mode A/E, record IEN, primary provider (files
     # #9002011.02), program external (.02, $$SCI^AMHGT at AMHGSVF.m:22;
@@ -384,19 +443,23 @@ module RpmsRpc
     # (AMHGSVF.m:41-44). MERR^AMHGU writes one row "M ERROR|<text>"
     # $C(30) and no $C(31) (AMHGU.m:108-120), so the CIA read can time
     # out. A {Client::ConnectionError} from the AMHG call, including
-    # {Client::TimeoutError}, or a {Client::RpcMError}, is SaveError,
-    # and that exception is its cause. The message says the outcome is
-    # unknown and that the visit may have been filed.
-    # {Client::FrameTooLongError} from the AMHG call is SaveError with
-    # that exception as the cause, and the message says nothing was
-    # sent: the frame is rejected before the RPC goes out, so this is
-    # not an unknown outcome. When the session had no declared context,
-    # the DDR context is re-bound first. If that re-bind raises
-    # {RpmsRpc::Error}, this SaveError is still what propagates, and
-    # its cause is still the {Client::FrameTooLongError}.
-    # {Client::RpcNotAvailableError} and
-    # {Client::RpcRefusedError} are not those classes (they are
-    # {Client::RpcError}); they propagate unchanged. An M error row or a
+    # {Client::TimeoutError}, a {Client::RpcMError}, or a plain
+    # {Client::RpcError}, is SaveError, and that exception is its cause.
+    # The message says the outcome is unknown and that the visit may
+    # have been filed, and it carries no broker text. When the session
+    # had no declared context, the DDR context is re-bound first. If
+    # that re-bind raises {RpmsRpc::Error}, it is discarded, so this
+    # SaveError still propagates and its cause is still the AMHG
+    # exception. {Client::FrameTooLongError} from the AMHG call is
+    # SaveError with that exception as the cause, and the message says
+    # nothing was sent: the frame is rejected before the RPC goes out,
+    # so this is not an unknown outcome. When the session had no
+    # declared context, the DDR context is re-bound first. If that
+    # re-bind raises {RpmsRpc::Error}, this SaveError is still what
+    # propagates, and its cause is still the
+    # {Client::FrameTooLongError}. {Client::RpcNotAvailableError} and
+    # {Client::RpcRefusedError} are {Client::RpcError} and propagate
+    # unchanged. An M error row or a
     # reply that does not name this record says the same. An add that
     # fails leaves AMHIEN 0 (AMHGEVF.m:106-108). An edit that fails
     # still returns REC (lines 116-118).
@@ -465,14 +528,159 @@ module RpmsRpc
       end
       mapping = DataMapper[:amhg_save_visit]
       declared = save_visit_declared_context
-      response = save_visit_amhg(mapping, wire, requested)
-      ien = save_visit_reply_ien(response, requested, declared, mapping: :amhg_save_visit)
-      save_visit_rebind_ddr_context(declared, ien)
+      # Assigned inside the call, before a failed re-bind reports it.
+      ien = nil
+      with_ddr_rebind_after_amhg(declared, on_bind_error: lambda { |error|
+        known = ien || (requested.empty? ? nil : requested)
+        save_visit_ambiguous!(known, cause: error)
+      }) do
+        response = save_visit_amhg(mapping, wire, requested)
+        ien = save_visit_ien(response, requested, mapping: :amhg_save_visit)
+      end
       save_visit_confirm_filed!(ien, expected)
       save_visit_confirm_primary!(ien, provider_ien)
       ien
     end
     shape :save_visit, resource: "behavioral-health", verb: "POST", path: "/behavioral-health/visit"
+
+    # Create or edit the PCC visit linked from one BH VISIT (#9002011)
+    # through AMHG CREATE/EDIT VISIT (PCC^AMHGPCC, AMHGPCC.m:10-28). One
+    # pipe-delimited AMHSTR, always two pieces: the BH record IEN, then
+    # the PCC visit IEN. +visit_ien+ omitted sends a blank second piece.
+    # AMHGPCC then uses #9002011 .16 (AMHGPCC.m:17-19). The AMHG call runs
+    # under AMHGRPC via {Wire#call_amhg}. Every DDR call runs outside that
+    # scope, in the caller's context. DDR GETS ENTRY DATA is registered
+    # under CIAV VUECENTRIC. A session that declared no context cannot be
+    # restored by the scope and would stay bound to AMHGRPC. After the
+    # AMHG call returns or raises, that session is re-bound to
+    # DDR_CONTEXT before anything else (binds: AMHGRPC, then DDR_CONTEXT).
+    # The exception in flight is the one the AMHG call raised, captured
+    # at the call. $! is not read: a caller already inside rescue leaves
+    # $! set to the host's exception. A re-bind that fails while a
+    # SaveError from the call is already in flight does not replace it.
+    # A re-bind that fails when the call returned raises SaveError and
+    # the outcome is unknown, including from inside that rescue.
+    #
+    # EN^AMHBHRU (AMHBHRU.m:7-21) checks the record, then PCCLINK. PRECHECK
+    # (lines 102-105) and CHECKREC (lines 23-41) refuse before writing
+    # anything, each with a fixed literal. The reply row is then
+    # "0~<that literal>" (AMHGPCC.m:21-22). Those literals are the frozen
+    # allow-list on this module. The SaveError names the text only when
+    # it is one of them, and says nothing was linked. Any other "0~" text
+    # is not named: the message says the visit was refused and that
+    # nothing was linked, and it does not carry the broker text.
+    #
+    # A success is EN returning 1 (AMHBHRU.m:18). The row is then the
+    # internal #9002011 .16 (AMHGPCC.m:23-24), which may be empty. An
+    # empty row is not a link. When the record no longer qualifies for
+    # PCC, PCCLINK deletes the existing V VISIT and clears .16
+    # (AMHBHRU.m:48-50) and EN still returns 1, so the row is blank. The
+    # SaveError says no PCC visit is linked and that an existing link may
+    # have been removed.
+    #
+    # A returned IEN equal to the old .16 does not prove an edit happened.
+    # When the site PCC link is off and the primary provider has no link,
+    # PCCLINK returns without touching PCC (AMHBHRU.m:43-45,
+    # AMHLE2.m:76-83) and EN still returns 1. The row is the .16 that was
+    # already stored. START^AMHPCCL also returns without touching PCC
+    # when ^AMHREC(R,11) piece 10 is set or the record lock fails
+    # (AMHPCCL.m:8,12), and EN still returns 1.
+    #
+    # EN^AMHBHRU reads the BH site parameters, not any clinic setting.
+    # PCCCHECK takes the link flag from ^AMHSITE(DUZ(2),0) piece 12
+    # (AMHBHRU.m:54-64) and turns the link off unless ^APCCCTRL(DUZ(2))
+    # allows the AMH package. A provider with no row at
+    # ^AMHSITE(DUZ(2),11) is not linked (AMHLE2.m:76-83). Piece 2, when
+    # .16 is blank, is stored as .16 with no check that the V VISIT
+    # (#9000010) belongs to the same patient (AMHPCCL.m:21,33).
+    #
+    # Before any RPC, +record_ien+ and a given +visit_ien+ must match
+    # /\A[1-9]\d*\z/ after to_s. Anything else is SaveError and nothing
+    # is sent. Every call then reads #9002011 .08 and .16 (flags "I")
+    # before AMHG. When +visit_ien+ is given, or .16 is non-blank, the
+    # same RPC reads #9000010 .05 and .11 (DELETE FLAG, flags "I") for
+    # the visit the caller named, or for .16 when no visit was named.
+    # A missing visit, a .05 that differs from the record's .08, or a
+    # .11 that is truthy or was not returned is SaveError, and AMHG
+    # CREATE/EDIT VISIT is not called. Truthy is the M test at
+    # AMHPCCL.m:49: non-blank and not "0". A +visit_ien+ that differs
+    # from a non-blank .16 is the same refusal. With +visit_ien+
+    # omitted and .16 already set, the edit path rewrites that visit
+    # and deletes its V files before any read-back could notice
+    # (AMHPCCL.m:46-74). ADD1 stores the visit as .16 with no patient
+    # check (AMHPCCL.m:21,33), and a set .11 clears .16 and then links
+    # that deleted visit (AMHPCCL.m:49). Any BH pre-read that is not a
+    # clean [Data] reply is SaveError before AMHG, with or without
+    # +visit_ien+. DdrFileman cannot tell a missing entry from another
+    # failure (error with no fields, a garbled body, or a raised
+    # {RpmsRpc::Error}), so absence is not a reason to call AMHG. The
+    # message says the behavioral health record could not be read and
+    # names no IEN.
+    #
+    # The reply is a GLOBAL ARRAY: header "T00030Result", then exactly
+    # one data row (AMHGPCC.m:25-28). The CIA reader consumes the closing
+    # $C(31), so that sentinel may already be gone; a mock seed may still
+    # include it. A client with no #call_rpc_global_array returns that
+    # recordset already split into rows (BmxClient#call_rpc). One trailing
+    # empty row is the closer some splits keep; any further row is not a
+    # result. "M ERROR|..." (AMHGU.m:108-120, and no $C(31)), a
+    # missing header, more than one data row, or any other malformed
+    # reply is SaveError and the outcome is unknown. A
+    # {Client::ConnectionError} from the AMHG call, including
+    # {Client::RpcTimeoutError}, a {Client::RpcMError}, or a plain
+    # {Client::RpcError}, is that SaveError with the exception kept as
+    # the cause. {Client::RpcNotAvailableError} and
+    # {Client::RpcRefusedError} are {Client::RpcError} and propagate
+    # unchanged. The message carries no caller value and no broker text.
+    # {Client::FrameTooLongError} is not an RpcError. It is SaveError
+    # with that exception as the cause, and the message says the call
+    # could not be framed and nothing was sent: the frame is rejected
+    # before the RPC goes out, so this is not an unknown outcome.
+    # {with_ddr_rebind_after_amhg} re-binds a nil context on that raise
+    # path, as it does on the return path. A re-bind that raises
+    # {RpmsRpc::Error} does not replace this SaveError, and its cause
+    # stays the {Client::FrameTooLongError}.
+    #
+    # A row that is a positive integer is not success until DDR GETS
+    # ENTRY DATA reads back #9002011 .08 and .16 and #9000010 .05 and
+    # .11 (flags "IE"). The result is returned only when .16 equals
+    # that row, the visit's .05 equals the record's .08, and .11 is
+    # blank or "0". When +visit_ien+ was given, the row must also equal
+    # it. A reply that differs from a non-blank pre-read .16 is
+    # SaveError before that read-back: the outcome is unknown, and the
+    # message names neither IEN. A miss on the read-back, including a
+    # truthy or absent .11, says the outcome is unknown and that the
+    # PCC visit may have been changed. A post-call DDR read that raises
+    # {RpmsRpc::Error} is that SaveError, with the error kept as the
+    # cause.
+    #
+    # Returns { visit_ien:, new_link: }. +visit_ien+ is the PCC visit
+    # IEN string. new_link describes the .16 transition observed across
+    # the call. It is true only when the pre-read .16 was blank and the
+    # read-back .16 equals the reply. new_link: false means the link
+    # existed before the call and does not confirm the PCC visit was
+    # edited (EN^AMHBHRU returns success without touching PCC when the
+    # site link is off, the record is locked, or ^AMHREC(R,11) piece 10
+    # is set; AMHBHRU.m:43-45, AMHPCCL.m:8,12). A primary provider with
+    # no link is the same non-edit (AMHLE2.m:76-83).
+    def save_pcc_visit(record_ien:, visit_ien: nil)
+      record = pcc_ien!(record_ien)
+      visit = visit_ien.nil? ? nil : pcc_ien!(visit_ien)
+      pre_link, saw_link = pcc_guard!(record, visit)
+      mapping = DataMapper[:amhg_create_edit_visit]
+      declared = save_visit_declared_context
+      wire = visit.nil? ? "#{record}|" : "#{record}|#{visit}"
+      response = with_ddr_rebind_after_amhg(declared, on_bind_error: ->(error) { pcc_unknown!(cause: error) }) do
+        pcc_amhg(mapping, wire)
+      end
+      row = pcc_classify!(pcc_data_row(response))
+      pcc_unknown! if visit && row != visit
+      pcc_unknown! if saw_link && pre_link && pre_link != row
+      pcc_confirm_linked!(record, row)
+      { visit_ien: row, new_link: saw_link && pre_link.nil? }
+    end
+    shape :save_pcc_visit, resource: "behavioral-health", verb: "POST", path: "/behavioral-health/pcc-visit"
+
 
     # Replace the purpose-of-visit rows on one BH VISIT (#9002011) through
     # AMHG SAVE POV (POV^AMHGSVF, AMHGSVF.m:47-75). One pipe-delimited
@@ -484,6 +692,10 @@ module RpmsRpc
     # re-bind DDR_CONTEXT first (binds: AMHGRPC, then DDR_CONTEXT). The
     # same re-bind runs when the AMHG call raises
     # {Client::FrameTooLongError}, before the nothing-was-sent error.
+    # It also runs when that call raises {Client::ConnectionError}
+    # (including a timeout), {Client::RpcMError}, or a plain
+    # {Client::RpcError}, before the outcome-unknown error. A re-bind
+    # that fails does not replace either error.
     #
     # Pieces, in order, always eight, blanks included: mode, record IEN,
     # axis II list, axis III, axis IV list, axis V, patient DFN, GAF scale
@@ -598,20 +810,24 @@ module RpmsRpc
     # MERR^AMHGU writes one row "M ERROR|<text>" $C(30) and no $C(31)
     # (AMHGU.m:108-120), so the CIA read can time out. A
     # {Client::ConnectionError} from the AMHG call, including
-    # {Client::TimeoutError}, or a {Client::RpcMError}, is SaveError,
-    # and that exception is its cause. The message says the outcome is
-    # unknown and that the record's diagnoses may have been changed, and
-    # it names the record IEN. {Client::FrameTooLongError} from the AMHG
-    # call is SaveError with that exception as the cause, and the
-    # message says nothing was sent: the frame is rejected before the
-    # RPC goes out, so this is not an unknown outcome. When the session
-    # had no declared context, the DDR context is re-bound first. If
-    # that re-bind raises {RpmsRpc::Error}, this SaveError is still what
-    # propagates, and its cause is still the
-    # {Client::FrameTooLongError}.
-    # {Client::RpcNotAvailableError} and {Client::RpcRefusedError}
-    # propagate. An M error row, or a reply that is not this record
-    # IEN, says the same.
+    # {Client::TimeoutError}, a {Client::RpcMError}, or a plain
+    # {Client::RpcError}, is SaveError, and that exception is its cause.
+    # The message says the outcome is unknown and that the record's
+    # diagnoses may have been changed, and it names the record IEN. It
+    # carries no broker text. When the session had no declared context,
+    # the DDR context is re-bound first. If that re-bind raises
+    # {RpmsRpc::Error}, it is discarded, so this SaveError still
+    # propagates and its cause is still the AMHG exception.
+    # {Client::FrameTooLongError} from the AMHG call is SaveError with
+    # that exception as the cause, and the message says nothing was
+    # sent: the frame is rejected before the RPC goes out, so this is
+    # not an unknown outcome. When the session had no declared context,
+    # the DDR context is re-bound first. If that re-bind raises
+    # {RpmsRpc::Error}, this SaveError is still what propagates, and
+    # its cause is still the {Client::FrameTooLongError}.
+    # {Client::RpcNotAvailableError} and {Client::RpcRefusedError} are
+    # {Client::RpcError} and propagate unchanged. An M error row, or a
+    # reply that is not this record IEN, says the same.
     #
     # A reply that names the record is not success until the read-back
     # matches. DDR LISTER on #9002011.01 (xref AD, part the record IEN,
@@ -677,7 +893,11 @@ module RpmsRpc
     # re-binds DDR_CONTEXT first (binds: AMHGRPC, then DDR_CONTEXT). The
     # same re-bind runs when the AMHG call raises
     # {Client::FrameTooLongError}, before the nothing-was-sent error.
-    # The SOAP and comment reads are AMHG RPCs and each bind AMHGRPC again.
+    # It also runs when that call raises {Client::ConnectionError}
+    # (including a timeout), {Client::RpcMError}, or a plain
+    # {Client::RpcError}, before the outcome-unknown error. A re-bind
+    # that fails does not replace either error. The SOAP and comment
+    # reads are AMHG RPCs and each bind AMHGRPC again.
     #
     # Pieces, in order: mode, record IEN, chief complaint (2101), note
     # (3101, word processing), comment (8101, word processing), placement
@@ -732,14 +952,17 @@ module RpmsRpc
     # row, a zero or missing IEN, or an IEN other than the requested
     # record says the outcome is unknown and that the record may have
     # been filed. A {Client::ConnectionError} from the AMHG call,
-    # including {Client::TimeoutError}, or a {Client::RpcMError}, is
-    # SaveError, and that exception is its cause.
-    # {Client::FrameTooLongError} is the same class save_visit uses:
-    # nothing was sent, that exception kept as the cause, and the DDR
-    # context re-bound first when the session had declared none. A
-    # re-bind that raises {RpmsRpc::Error} does not replace that error.
-    # {Client::RpcNotAvailableError} and {Client::RpcRefusedError}
-    # propagate unchanged.
+    # including {Client::TimeoutError}, a {Client::RpcMError}, or a
+    # plain {Client::RpcError}, is SaveError, and that exception is its
+    # cause. The message carries no broker text. When the session had
+    # no declared context, the DDR context is re-bound first. A re-bind
+    # that raises {RpmsRpc::Error} does not replace that error, and its
+    # cause stays the AMHG exception. {Client::FrameTooLongError} is
+    # the same class save_visit uses: nothing was sent, that exception
+    # kept as the cause, and the DDR context re-bound first when the
+    # session had declared none. A re-bind that raises {RpmsRpc::Error}
+    # does not replace that error. {Client::RpcNotAvailableError} and
+    # {Client::RpcRefusedError} propagate unchanged.
     #
     # A reply that names the record is not success until DDR GETS ENTRY
     # DATA reads back 2101, .17 and .18 (flags "I") and each internal
@@ -1482,11 +1705,46 @@ module RpmsRpc
       client.respond_to?(:current_context) ? client.current_context : :unscoped
     end
 
+    # Runs the AMHG call, then re-binds a nil declared context. The
+    # exception the call raised is captured here and re-raised from this
+    # rescue, so $! is that exception and not a host rescue's. A bind
+    # error after a returned call is reported through +on_bind_error+.
+    # A bind error while the call's exception is in flight does not
+    # replace it.
+    def with_ddr_rebind_after_amhg(declared, on_bind_error:)
+      begin
+        result = yield
+      rescue Exception => e
+        ddr_rebind_after_amhg!(declared, e, &on_bind_error)
+        raise
+      end
+      ddr_rebind_after_amhg!(declared, nil, &on_bind_error)
+      result
+    end
+
+    # ContextScope restores only a context that existed. With none declared
+    # the session is left on AMHGRPC, which the DDR reads must not rely on.
+    # +pending+ is the exception the AMHG call raised, or nil when that
+    # call returned. It is passed in: $! is the host's exception when the
+    # caller is already inside rescue, even if this call returned. A bind
+    # error is yielded only when +pending+ is nil, so an exception already
+    # in flight stays the error the caller sees. save_pcc_visit uses this.
+    def ddr_rebind_after_amhg!(declared, pending)
+      return unless declared.nil?
+
+      client = RpmsRpc.client
+      return unless client.respond_to?(:create_context)
+
+      client.create_context(DDR_CONTEXT) if client.current_context != DDR_CONTEXT
+    rescue Error => e
+      yield e unless pending
+    end
+
     # ContextScope restores only a context that existed. With none declared
     # the session is left on AMHGRPC, which the DDR reads must not rely on.
     # +record_ien+ is the record the reply already named, or nil. A failed
     # re-bind is an unknown-outcome SaveError. The nothing-was-sent path
-    # calls this and discards that error.
+    # and the outcome-unknown path call this and discard that error.
     def save_visit_rebind_ddr_context(declared, record_ien, rpc: "AMHG SAVE VISIT")
       return unless declared.nil?
 
@@ -1501,17 +1759,20 @@ module RpmsRpc
     # MERR writes no $C(31) (AMHGU.m:116-119), so the CIA read of this
     # call can time out after the routine has filed. ConnectionError
     # covers that timeout. RpcMError means the routine ran and the
-    # outcome is still unknown. RpcNotAvailableError and RpcRefusedError
-    # are RpcError, not these two, so they are not wrapped.
-    # FrameTooLongError is raised before the frame is written: nothing
-    # was sent, and the message does not say the outcome is unknown.
-    # With no declared context the session is left on AMHGRPC, so the
-    # DDR context is re-bound first, the same way as
-    # {save_visit_rebind_ddr_context}. That method raises an
+    # outcome is still unknown. A plain RpcError, raised after the
+    # request went out, is that same unknown outcome: SaveError, the
+    # exception kept as the cause, and no broker text.
+    # RpcNotAvailableError and RpcRefusedError are RpcError and are
+    # re-raised unchanged. FrameTooLongError is raised before the frame
+    # is written: nothing was sent, and the message does not say the
+    # outcome is unknown. With no declared context the session is left
+    # on AMHGRPC, so the DDR context is re-bound first, the same way as
+    # {save_visit_rebind_ddr_context}, before the nothing-was-sent error
+    # and before the outcome-unknown error. That method raises an
     # unknown-outcome SaveError when the re-bind fails; that error is
-    # discarded here so the nothing-was-sent error, cause the
-    # FrameTooLongError, is what propagates. save_progress_note uses
-    # this method, so it follows the same rule.
+    # discarded here so the SaveError already chosen is what propagates,
+    # cause the FrameTooLongError or the AMHG exception.
+    # save_progress_note uses this method, so it follows the same rule.
     def save_visit_amhg(mapping, wire, requested, rpc: "AMHG SAVE VISIT")
       declared = save_visit_declared_context
       known = requested.empty? ? nil : requested
@@ -1524,7 +1785,15 @@ module RpmsRpc
         nil
       end
       save_visit_not_sent!(e, rpc: rpc)
-    rescue Client::ConnectionError, Client::RpcMError => e
+    rescue Client::RpcNotAvailableError, Client::RpcRefusedError
+      raise
+    rescue Client::ConnectionError, Client::RpcMError, Client::RpcError => e
+      begin
+        save_visit_rebind_ddr_context(declared, known, rpc: rpc)
+      rescue Error
+        # The restore failure must not replace the outcome-unknown error.
+        nil
+      end
       save_visit_ambiguous!(known, rpc: rpc, cause: e)
     end
 
@@ -1716,9 +1985,10 @@ module RpmsRpc
     end
 
     # Joined rows must equal the sent text exactly. save_visit_amhg wraps
-    # ConnectionError and RpcMError as an unknown outcome, and
-    # FrameTooLongError as nothing-was-sent, re-binding the DDR context
-    # when this read's session had none. Those are SaveError and
+    # ConnectionError, RpcMError, and a plain RpcError as an unknown
+    # outcome, and FrameTooLongError as nothing-was-sent. With no
+    # declared context it re-binds the DDR context first, and a re-bind
+    # failure does not replace that SaveError. Those are SaveError and
     # propagate. Any other RpmsRpc::Error from this read (a refusal, an
     # inactive RPC) is caught here: the note has already been sent.
     def save_progress_note_confirm_wp!(ien, mapping_name, sent)
@@ -1767,6 +2037,216 @@ module RpmsRpc
       stripped = rows.last.delete_suffix("\x1f")
       tail = rows[0...-1]
       stripped.empty? ? tail : tail + [ stripped ]
+    end
+
+    # to_s, then /\A[1-9]\d*\z/. The value stays out of the message. No
+    # RPC has been sent yet.
+    def pcc_ien!(value)
+      text = value.to_s
+      pcc_refuse!("an IEN must be a positive integer") unless text.match?(POSITIVE_IEN)
+      text
+    end
+
+    # #9002011 .08 and .16 before every AMHG call. A pre-read that is
+    # not a clean record is SaveError before AMHG, with or without a
+    # visit IEN. When a visit will be touched, #9000010 .05 and .11
+    # too. Returns [link, seen]: link is the pre-read .16 (nil when
+    # blank) and seen is true when that field was read.
+    # AMHPCCL stores the visit as .16 with no patient check (AMHPCCL.m:21,33).
+    def pcc_guard!(record_ien, visit_ien)
+      bh = pcc_gets(file: BH_VISIT_FILE, ien: record_ien, fields: PCC_BH_FIELDS, flags: PCC_PRE_FLAGS)
+      pcc_refuse!("the behavioral health record could not be read") if pcc_unreadable?(bh)
+      pcc_refuse!("the stored PCC link could not be read") unless pcc_field?(bh, ".16")
+      linked = pcc_pointer(bh, ".16")
+      target = visit_ien || linked
+      pcc_confirm_target!(target, pcc_pointer(bh, ".08")) if target
+      if visit_ien && linked && linked != visit_ien
+        pcc_refuse!("the behavioral health record is already linked to a different PCC visit")
+      end
+      [ linked, true ]
+    end
+
+    def pcc_confirm_target!(visit_ien, patient)
+      visit = pcc_gets(file: PCC_V_VISIT_FILE, ien: visit_ien, fields: PCC_V_VISIT_FIELDS, flags: PCC_PRE_FLAGS)
+      pcc_refuse!("the PCC visit could not be read") if visit == :failed
+      pcc_refuse!("the PCC visit is not on file") if pcc_unreadable?(visit)
+      pcc_refuse!("the stored patient could not be read") unless patient&.match?(POSITIVE_IEN)
+      visit_patient = pcc_pointer(visit, PCC_V_PATIENT_FIELD)
+      pcc_refuse!("the PCC visit is not on file") unless visit_patient&.match?(POSITIVE_IEN)
+      pcc_refuse!("the PCC visit patient does not match the behavioral health record") unless visit_patient == patient
+      pcc_refuse_deleted!(visit)
+    end
+
+    def pcc_refuse_deleted!(visit)
+      pcc_refuse!("the PCC visit delete flag could not be read") unless pcc_field?(visit, PCC_V_DELETE_FIELD)
+      pcc_refuse!("the PCC visit is deleted") if pcc_deleted?(visit)
+    end
+
+    # .11 DELETE FLAG. Absent is not a confirmed clear. "0" and blank are
+    # the M falsy values (AMHPCCL.m:49).
+    def pcc_deleted?(got)
+      return true unless pcc_field?(got, PCC_V_DELETE_FIELD)
+
+      flag?(got[:fields].dig(PCC_V_DELETE_FIELD, :internal))
+    end
+
+    def pcc_gets(file:, ien:, fields:, flags:)
+      save_visit_ddr(file: file, iens: "#{ien},", fields: fields, flags: flags)
+    rescue Error
+      :failed
+    end
+
+    def pcc_unreadable?(got)
+      return true if got.nil? || got == :failed
+
+      got[:error] || got[:fields].empty?
+    end
+
+    def pcc_field?(got, field)
+      return false if pcc_unreadable?(got)
+
+      got[:fields].key?(field)
+    end
+
+    # Pointer internal. "IEN;global" keeps the IEN. Blank is nil.
+    def pcc_pointer(got, field)
+      raw = got[:fields].dig(field, :internal)
+      return nil if raw.nil?
+
+      ien = raw.to_s.split(";", 2).first.to_s.strip
+      ien.empty? ? nil : ien
+    end
+
+    # ConnectionError, RpcMError, and a plain RpcError are raised after
+    # the scope has restored a declared context. Each is an unknown
+    # outcome: SaveError, that exception kept as the cause, and no
+    # broker text. RpcNotAvailableError and RpcRefusedError are
+    # RpcError and propagate unchanged. {Client::FrameTooLongError} is
+    # not an RpcError. It is SaveError with that exception as the cause,
+    # and the message says the call could not be framed and nothing was
+    # sent. A nil context is left on AMHGRPC by the scope. There is no
+    # ensure: {with_ddr_rebind_after_amhg} re-binds it on both the
+    # return and the raise path. A re-bind failure while an exception
+    # is in flight is discarded.
+    def pcc_amhg(mapping, wire)
+      call_amhg(mapping, wire)
+    rescue Client::FrameTooLongError => e
+      save_visit_not_sent!(e, rpc: "AMHG CREATE/EDIT VISIT")
+    rescue Client::RpcNotAvailableError, Client::RpcRefusedError
+      raise
+    rescue Client::ConnectionError, Client::RpcMError, Client::RpcError => e
+      pcc_unknown!(cause: e)
+    end
+
+    # Header "T00030Result", then exactly one data row. A framed body
+    # keeps the raw-text checks: each row closed by $C(30), optional
+    # "<seq>\x00" and a trailing $C(31) dropped by {pcc_reply_body}.
+    # A client that already
+    # split the recordset (no $C(30) left in any row) is those rows.
+    # One trailing empty is the closer a split may keep; any other
+    # extra row is junk. Empty data is kept: a blank row is a result,
+    # not a missing row. "M ERROR|..." is never a result. A row that
+    # still holds $C(0), $C(30) or $C(31) is framed text.
+    def pcc_data_row(response)
+      parts = pcc_reply_parts(response)
+      pcc_unknown! unless parts.length == 2 && parts[0] == PCC_RESULT_HEADER
+
+      parts[1].strip
+    end
+
+    def pcc_reply_parts(response)
+      return pcc_presplit_parts(response) if pcc_presplit_rows?(response)
+
+      pcc_framed_parts(pcc_reply_body(response))
+    end
+
+    # An Array is joined with newlines. An optional "<seq>\x00" ack is
+    # dropped and the body is cut at $C(31).
+    def pcc_reply_body(response)
+      body = response.is_a?(Array) ? response.join("\n") : response.to_s
+      body = body.split("\x00", 2).last if body.include?("\x00")
+      body.split("\x1f", 2).first.to_s
+    end
+
+    # Already split, so joining and requiring a trailing $C(30) would
+    # hide the data row. $C(0), $C(30) or $C(31) still in a row means
+    # the text was not split; that reply stays on {pcc_framed_parts}.
+    def pcc_presplit_rows?(response)
+      response.is_a?(Array) && response.none? { |row| row.to_s.match?(/[\x00\x1e\x1f]/) }
+    end
+
+    def pcc_presplit_parts(response)
+      parts = response.map { |row| row.to_s }
+      pcc_unknown! if parts.any? { |row| row.include?("M ERROR|") }
+      parts.pop if parts.last == ""
+      parts
+    end
+
+    def pcc_framed_parts(body)
+      pcc_unknown! if body.include?("M ERROR|")
+      pcc_unknown! unless body.end_with?("\x1e")
+
+      parts = body.split("\x1e", -1)
+      parts.pop
+      parts
+    end
+
+    # "" is the blank success row (AMHBHRU.m:48-50 may have cleared .16).
+    # "0~<text>" is a refusal from EN. Anything else must be the IEN.
+    def pcc_classify!(row)
+      pcc_blank! if row.empty?
+      if row.start_with?("0~")
+        text = row.delete_prefix("0~")
+        if PCC_REFUSAL_LITERALS.include?(text)
+          pcc_refuse!("#{text}; nothing was linked")
+        else
+          pcc_refuse!("the PCC visit was refused; nothing was linked")
+        end
+      end
+      pcc_unknown! unless row.match?(POSITIVE_IEN)
+
+      row
+    end
+
+    # .16 must be this IEN, the visit's .05 must be the record's .08,
+    # and .11 must be clear. A miss may mean the link was written. The
+    # caller value stays out of the message.
+    def pcc_confirm_linked!(record_ien, pcc_ien)
+      bh = save_visit_ddr(
+        file: BH_VISIT_FILE, iens: "#{record_ien},",
+        fields: PCC_BH_FIELDS, flags: PCC_READBACK_FLAGS
+      )
+      visit = save_visit_ddr(
+        file: PCC_V_VISIT_FILE, iens: "#{pcc_ien},",
+        fields: PCC_V_VISIT_FIELDS, flags: PCC_READBACK_FLAGS
+      )
+      pcc_unknown! unless pcc_linked?(bh, visit, pcc_ien)
+    rescue Error => e
+      raise if e.is_a?(SaveError)
+
+      pcc_unknown!(cause: e)
+    end
+
+    def pcc_linked?(bh, visit, pcc_ien)
+      return false if pcc_unreadable?(bh) || pcc_unreadable?(visit) || pcc_deleted?(visit)
+
+      patient = pcc_pointer(bh, ".08")
+      pcc_pointer(bh, ".16") == pcc_ien && patient&.match?(POSITIVE_IEN) && pcc_pointer(visit, PCC_V_PATIENT_FIELD) == patient
+    end
+
+    def pcc_refuse!(message)
+      raise SaveError, message
+    end
+
+    def pcc_blank!
+      raise SaveError, "no PCC visit is linked; an existing link may have been removed"
+    end
+
+    def pcc_unknown!(cause: nil)
+      message = "AMHG CREATE/EDIT VISIT outcome unknown; the PCC visit may have been changed but was not confirmed"
+      raise SaveError, message, cause: cause if cause
+
+      raise SaveError, message
     end
 
     def save_pov_wire(record_ien:, patient:, diagnoses:, axis_iv:, axis_v:, gaf:, axis_iii:)
@@ -1956,10 +2436,15 @@ module RpmsRpc
       raise
     end
 
-    # Same FrameTooLong rule as {save_visit_amhg}: re-bind the DDR context
-    # when none was declared, then raise nothing-was-sent. A re-bind
-    # failure from {save_pov_rebind_ddr_context} is discarded so it cannot
-    # replace that error or its FrameTooLongError cause.
+    # Same rules as {save_visit_amhg}. ConnectionError (including a
+    # timeout), RpcMError, and a plain RpcError are an unknown outcome:
+    # SaveError, that exception kept as the cause, and no broker text.
+    # RpcNotAvailableError and RpcRefusedError are re-raised unchanged.
+    # FrameTooLongError re-binds the DDR context when none was declared,
+    # then raises nothing-was-sent. The same re-bind runs before the
+    # outcome-unknown error. A re-bind failure from
+    # {save_pov_rebind_ddr_context} is discarded so it cannot replace
+    # either error or its cause.
     def save_pov_amhg(mapping, wire, record_ien)
       declared = save_visit_declared_context
       call_amhg(mapping, wire)
@@ -1971,7 +2456,15 @@ module RpmsRpc
         nil
       end
       save_pov_not_sent!(e)
-    rescue Client::ConnectionError, Client::RpcMError => e
+    rescue Client::RpcNotAvailableError, Client::RpcRefusedError
+      raise
+    rescue Client::ConnectionError, Client::RpcMError, Client::RpcError => e
+      begin
+        save_pov_rebind_ddr_context(declared, record_ien)
+      rescue Error
+        # The restore failure must not replace the outcome-unknown error.
+        nil
+      end
       save_pov_ambiguous!(record_ien, cause: e)
     end
 
@@ -1981,7 +2474,7 @@ module RpmsRpc
 
     # Same restore as save_visit. The message names this RPC. A failed
     # re-bind is an unknown-outcome SaveError. The nothing-was-sent path
-    # calls this and discards that error.
+    # and the outcome-unknown path call this and discard that error.
     def save_pov_rebind_ddr_context(declared, record_ien)
       return unless declared.nil?
 
