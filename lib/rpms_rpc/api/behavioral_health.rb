@@ -52,7 +52,12 @@ module RpmsRpc
     # "0~" row names its text only
     # when that text is a fixed PRECHECK or CHECKREC literal, and a blank
     # success row says no PCC visit is linked and that an existing link
-    # may have been removed.
+    # may have been removed. {Client::FrameTooLongError} from
+    # save_pcc_visit's AMHG call is this class too, cause kept, and the
+    # message says nothing was sent: the frame is rejected before the
+    # RPC goes out, so the outcome is not unknown. A session with no
+    # declared context is re-bound on that raise path; a re-bind that
+    # raises {RpmsRpc::Error} does not replace this error.
     class SaveError < RpmsRpc::Error; end
 
     # External values of BH VISIT (#9002011) field .02, piece 3 of
@@ -627,6 +632,14 @@ module RpmsRpc
     # the cause. {Client::RpcNotAvailableError} and
     # {Client::RpcRefusedError} are {Client::RpcError} and propagate
     # unchanged. The message carries no caller value and no broker text.
+    # {Client::FrameTooLongError} is not an RpcError. It is SaveError
+    # with that exception as the cause, and the message says the call
+    # could not be framed and nothing was sent: the frame is rejected
+    # before the RPC goes out, so this is not an unknown outcome.
+    # {with_ddr_rebind_after_amhg} re-binds a nil context on that raise
+    # path, as it does on the return path. A re-bind that raises
+    # {RpmsRpc::Error} does not replace this SaveError, and its cause
+    # stays the {Client::FrameTooLongError}.
     #
     # A row that is a positive integer is not success until DDR GETS
     # ENTRY DATA reads back #9002011 .08 and .16 and #9000010 .05 and
@@ -2108,10 +2121,17 @@ module RpmsRpc
     # the scope has restored a declared context. Each is an unknown
     # outcome: SaveError, that exception kept as the cause, and no
     # broker text. RpcNotAvailableError and RpcRefusedError are
-    # RpcError and propagate unchanged. A nil context is left on
-    # AMHGRPC; the caller's ensure re-binds it.
+    # RpcError and propagate unchanged. {Client::FrameTooLongError} is
+    # not an RpcError. It is SaveError with that exception as the cause,
+    # and the message says the call could not be framed and nothing was
+    # sent. A nil context is left on AMHGRPC by the scope. There is no
+    # ensure: {with_ddr_rebind_after_amhg} re-binds it on both the
+    # return and the raise path. A re-bind failure while an exception
+    # is in flight is discarded.
     def pcc_amhg(mapping, wire)
       call_amhg(mapping, wire)
+    rescue Client::FrameTooLongError => e
+      save_visit_not_sent!(e, rpc: "AMHG CREATE/EDIT VISIT")
     rescue Client::RpcNotAvailableError, Client::RpcRefusedError
       raise
     rescue Client::ConnectionError, Client::RpcMError, Client::RpcError => e
