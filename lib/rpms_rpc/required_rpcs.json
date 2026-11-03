@@ -8,6 +8,7 @@
     ],
     "RpmsRpc::Agg": [
       "AGG ADD NEW PATIENT",
+      "AGG GET TEMP PAT HRN",
       "AGG LOCK PATIENT",
       "AGG LOOKUP PATIENTS",
       "AGG PATIENT EDIT CHECK",
@@ -200,6 +201,7 @@
     ],
     "RpmsRpc::Patient": [
       "AGG ADD NEW PATIENT",
+      "AGG GET TEMP PAT HRN",
       "AGG LOCK PATIENT",
       "AGG LOOKUP PATIENTS",
       "AGG UNLOCK PATIENT",
@@ -290,6 +292,7 @@
     ],
     "RpmsRpc::Registration": [
       "AGG ADD NEW PATIENT",
+      "AGG GET TEMP PAT HRN",
       "AGG LOCK PATIENT",
       "AGG LOOKUP PATIENTS",
       "AGG UNLOCK PATIENT",

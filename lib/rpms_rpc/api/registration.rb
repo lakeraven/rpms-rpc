@@ -208,9 +208,19 @@ module RpmsRpc
     #   allow_duplicate:    only literal true permits adding after the caller
     #                       reviews AG's name/DOB candidates. Lookup failures
     #                       and invalid identity cannot be overridden.
+    #   hrn_source:         where the HRN comes from, for this registration:
+    #                       :derive (HRN := DFN), :temporary (AG's next
+    #                       T-number, as IHS scheduling's mini-registration
+    #                       assigns, Agg.temporary_hrn) or :given (hrn:, which
+    #                       AG's own HRN check refuses when another patient
+    #                       holds it at this facility, AGGWVAL.m:101-111).
+    #                       Absent, hrn_mode decides, as before.
     #
     # Returns:
-    #   { success: true, dfn:, created: true }          — registered
+    #   { success: true, dfn:, created: true, hrn: }    — registered; hrn: is
+    #                                                     the number filed (nil
+    #                                                     in clerk mode with
+    #                                                     no hrn:)
     #   { success: false, error: Symbol, message: }     — rejected; error is
     #     :duplicate_identity (includes candidate_dfns), :identity_unverifiable,
     #     :agg_rejected / :hrn_file_failed, or (with field:) :agg_invalid,
@@ -243,15 +253,15 @@ module RpmsRpc
     # short broker session per registration (AG routines leak locals into long
     # sessions — see Agg).
     def register_via_agg(attrs)
-      clerk = (hrn_mode == HRN_MODE_CLERK)
+      source = hrn_source(attrs)
       params = agg_add_params(attrs)
       invalid = validate_identity(params)
       return invalid if invalid
 
-      # Legacy clerk-supplied HRN rides the create call (the capsule files it
-      # into the 41-multiple). Greenfield sends no HRN — it is set to the DFN
-      # afterward, below.
-      params["AGGPTHRN"] = attrs[:hrn].to_s if clerk && present?(attrs[:hrn])
+      # A given HRN rides the create call (the capsule files it into the
+      # 41-multiple). Otherwise none is sent: HRN := DFN, or a temporary
+      # number, is filed afterward, below.
+      params["AGGPTHRN"] = attrs[:hrn].to_s.strip if source == :given
 
       # Validate all values before lookup: a parameter delimiter in even an
       # IHS field must not replace the identity after it has been checked.
@@ -266,18 +276,14 @@ module RpmsRpc
       return created unless created && created[:success]
 
       dfn = created[:dfn]
-      unless clerk
-        # Greenfield: HRN := DFN. FileMan's IEN allocation already assigned a
-        # unique DFN; echo it into the HRN field via the delegation update
-        # path. No client-side uniqueness — unique by construction (#214).
-        updated = Agg.update_patient(window: AGG_WINDOW, dfn: dfn, params: { "AGGPTHRN" => dfn.to_s })
-        unless updated && updated[:success]
-          return { success: false, error: :hrn_file_failed, dfn: dfn,
-                   message: updated&.dig(:message).to_s }
-        end
+      hrn = case source
+      when :given then params["AGGPTHRN"]
+      when :none then nil
+      else file_hrn(dfn, source)
       end
+      return hrn if hrn.is_a?(Hash)
 
-      with_unfiled({ success: true, dfn: dfn, created: true }, agg_unsent(attrs))
+      with_unfiled({ success: true, dfn: dfn, created: true, hrn: hrn }, agg_unsent(attrs))
     end
 
     # -- Patient update through AG (rpms-rpc#381) -----------------------------
@@ -749,6 +755,44 @@ module RpmsRpc
 
     private
 
+    # Files the HRN for a patient just created, and returns it, or the
+    # :hrn_file_failed result (with the DFN: the patient exists).
+    #
+    #   :derive     HRN := DFN. FileMan's IEN allocation already assigned a
+    #               unique DFN; echo it into the HRN field via the delegation
+    #               update path. No client-side uniqueness: unique by
+    #               construction (#214).
+    #   :temporary  AG's next temporary number (Agg.temporary_hrn, the
+    #               mini-registration's T-number), filed the same way.
+    def file_hrn(dfn, source)
+      hrn = source == :temporary ? Agg.temporary_hrn(dfn: dfn) : dfn.to_s
+      unless hrn
+        return { success: false, error: :hrn_file_failed, dfn: dfn,
+                 message: "AGG GET TEMP PAT HRN gave no number" }
+      end
+
+      updated = Agg.update_patient(window: AGG_WINDOW, dfn: dfn, params: { "AGGPTHRN" => hrn })
+      return hrn if updated && updated[:success]
+
+      { success: false, error: :hrn_file_failed, dfn: dfn, message: updated&.dig(:message).to_s }
+    end
+
+    # Where this registration's HRN comes from: attrs[:hrn_source] (:derive,
+    # :temporary, or :given with hrn:), else the module's hrn_mode: derive,
+    # or in clerk mode the hrn: given (:none when there is none, as before).
+    def hrn_source(attrs)
+      source = attrs[:hrn_source]
+      if source.nil?
+        return :derive unless hrn_mode == HRN_MODE_CLERK
+
+        return present?(attrs[:hrn]) ? :given : :none
+      end
+      raise ArgumentError, "hrn_source must be :derive, :temporary or :given" unless %i[derive temporary given].include?(source)
+      raise ArgumentError, "hrn_source: :given needs hrn:" if source == :given && !present?(attrs[:hrn])
+
+      source
+    end
+
     def validate_identity(params)
       date = identity_date(params["AGGPTDOB"])
       fields = []
@@ -935,7 +979,11 @@ module RpmsRpc
     FIELD_VALIDATIONS = {
       "AGGPTSSN" => %w[AGGNOSSN],
       "AGGNOSSN" => %w[AGGPTSSN],
-      "AGGPTDOB" => []
+      "AGGPTDOB" => [],
+      # HRN^AGGWVAL: refused when another patient holds the number at the
+      # signed-on facility. Checked only when an HRN is sent: an empty one
+      # would $ORDER from the start of the "D" index (AGGWVAL.m:103).
+      "AGGPTHRN" => []
     }.freeze
 
     # Runs AG's own check of each field, as its client does, and stops at the
@@ -944,6 +992,7 @@ module RpmsRpc
     def validate_fields(params)
       FIELD_VALIDATIONS.each do |field, companions|
         return ssn_or_reason_required if field == "AGGNOSSN" && neither_ssn_nor_reason?(params)
+        next if field == "AGGPTHRN" && params[field].to_s.empty?
 
         values = ([ field ] + companions).to_h { |name| [ name, params[name].to_s ] }.merge("DFN" => "")
         checked = check_field(values)
