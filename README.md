@@ -636,6 +636,11 @@ The wire formats differ too:
   session), and a broker-level error returned with every reply (BMXMON,
   BMXMBRK).
 
+The byte-level framing, sign-on order, context and division binding, and
+the engine differences for all three are in
+[`docs/BROKER-PROTOCOLS.md`](docs/BROKER-PROTOCOLS.md), written for anyone
+implementing a client in another language.
+
 The BMX applications' RPCs can report a failure through BMX's error channel
 rather than in the reply. Called over CIA, that failure is not delivered and
 the reply reads as a success. Where a backend serves no BMX listener, calling
