@@ -82,6 +82,10 @@ class PatientCwadTest < Minitest::Test
   # Proves allergy_flag and ad_flag follow A and D in the CWAD scalar.
   def test_brief_header_allergy_and_ad_flags_from_cwad_letters
     {
+      "A" => [ true, false ],
+      "D" => [ false, true ],
+      "AD" => [ true, true ],
+      "W" => [ false, false ],
       "WA" => [ true, false ],
       "CWAD" => [ true, true ],
       "" => [ false, false ]
