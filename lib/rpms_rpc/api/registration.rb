@@ -70,10 +70,13 @@ module RpmsRpc
   # Gender identity, sexual orientation, legal sex, patient sex (#2 .02),
   # and the Medicare Beneficiary Identifier have no stock RPC. They are
   # filed or read with DDR FILER, DDR LISTER, or DDR GETS ENTRY DATA under
-  # CIAV VUECENTRIC. set_sex files #2 .02, deletes #9000001 .23 when that
-  # sex changes and the field is non-blank, and copies the sex onto the
-  # MCR/MCD/RRE rows SEXELIG^AGUTL updates. That cascade is not a
-  # cross-reference on .02. Insurance billing order (^AUPNICP via ^AGCAT)
+  # CIAV VUECENTRIC. set_sex deletes #9000001 .23 when the sex changes and
+  # that field is non-blank, then files #2 .02, then copies the sex onto
+  # the MCR/MCD/RRE rows SEXELIG^AGUTL updates. That order deliberately
+  # differs from AG2A, which files .02 interactively first, so a retry can
+  # finish a half-done run. The end state on success matches AG2A. That
+  # cascade is not a cross-reference on .02. Insurance billing order
+  # (^AUPNICP via ^AGCAT)
   # and insurance-in-use (USED^AGUTILS) are not supported: no RPC reaches
   # those routines, and a raw FileMan write is not what they do.
   # `update(dfn, sex:)` still goes through AGG UPDATE PATIENT, which files
@@ -157,8 +160,9 @@ module RpmsRpc
     PATIENT_SEX_FILE = "2"
     PATIENT_SEX_FIELD = ".02"
     PATIENT_SEX_CODES = %w[M F U].freeze
-    # #9000001 .23 SSN VERIFICATION STATUS. AG2A deletes it when .02 changes
-    # and the field is non-blank (AG2A.m:58-64).
+    # #9000001 .23 SSN VERIFICATION STATUS. AG2A deletes it after filing
+    # .02, when .02 changes and the field is non-blank (AG2A.m:58-64).
+    # set_sex deletes it first, on that same predicate, then files .02.
     SSN_VERIFICATION_FIELD = ".23"
     # SEXELIG^AGUTL writes these. index is the B xref (^AUPNMCR / ^AUPNMCD /
     # ^AUPNRRE). file/field is the FDA target. subfile means every .11
@@ -650,11 +654,17 @@ module RpmsRpc
     # AG71A11 KIDS post-install), so this is DDR FILER (rpms-rpc#418,
     # resolution 2).
     #
-    # AG2A.m:58-64, when #2 .02 changed, deletes #9000001 .23 SSN
-    # VERIFICATION STATUS and then calls SEXELIG^AGUTL. This method files
-    # #2 .02 first, then that .23 delete when the pre-read says to clear
-    # it, then the eligibility cascade, each a DDR FILER mode EDIT
-    # (FILE^DIE).
+    # AG2A.m:58-64 files #2 .02 interactively first and, when that sex
+    # changed, deletes #9000001 .23 SSN VERIFICATION STATUS, then calls
+    # SEXELIG^AGUTL. This method deliberately uses a different order. It
+    # deletes .23 first, then files #2 .02, then the eligibility cascade,
+    # each a DDR FILER mode EDIT (FILE^DIE). The end state on success is
+    # the same as AG2A's. Filing .02 first left a failed .23 delete
+    # unrepairable: the retry pre-reads the new sex and skips the delete,
+    # so SSN VERIFICATION STATUS stays set for a sex that changed. With
+    # .23 first, a half-done run leaves .23 cleared and .02 unchanged. A
+    # retry sees the stored sex differ from the code and .23 blank, skips
+    # the delete, files .02, runs the cascade, and finishes.
     # #2 .02 is the set M/F/U. Its traditional xrefs and trigger (ASX,
     # AENR02, IVM02, AVAFC02, ADGRU02, the trigger to .083 CHECK FOR
     # DUPLICATE, AAVABDW2) are FileMan and fire on that EDIT. Mode EDIT on
@@ -685,28 +695,27 @@ module RpmsRpc
     # :lookup_failed unless the last row's .01 is already past this DFN.
     # A failed lookup files nothing.
     #
-    # Writes, in order, each its own EDIT: #2 .02 first, whether or not it
-    # changed; then #9000001 .23 set to "@" only when the pre-read says .02
-    # changes and .23 is non-blank; then one EDIT of every eligibility row,
-    # when any were found. That order does not change. A retry files .02
-    # again when the pre-reads succeed. The .23 delete is sent only when
-    # that pre-read still says the sex changed and .23 is non-blank. Once
-    # .02 has landed, a retry does not re-evaluate that delete into
-    # another "@": clear_ssn_verification? is false and the delete is not
-    # sent. The cascade runs when rows exist and the earlier EDITs on
-    # that call succeeded. A failed .23 delete has to be cleared in RPMS.
-    # The writes are not atomic. A refusal of the first
-    # call is :filer_failed and later calls are not sent. nil only when
-    # the first FILER call gives no reply. A reply with no [Data] is not
-    # a no-reply: filer success is false, so the first call is
-    # :filer_failed and a later call is :partial with the refusal wording.
-    # A refusal or no-reply on the .23 delete or the cascade, after .02
-    # succeeded, is :partial. The .23 message names #9000001 .23 SSN
-    # VERIFICATION STATUS. A refusal says it was not cleared. A no-reply
-    # says the outcome of the last write is unknown and that it may not
-    # have been cleared. A cascade failure names eligibility. The no-reply
-    # wording "outcome of the last write is unknown" stays. Success is
-    # { success: true }.
+    # Writes, in order, each its own EDIT. #9000001 .23 is set to "@" only
+    # when clear_ssn_verification? is true (the pre-read says .02 changes
+    # and .23 is non-blank). #2 .02 is always filed, whether or not it
+    # changed. Then one EDIT of every eligibility row, when any were
+    # found. A retry after :partial finishes the job. When .23 was cleared
+    # and .02 was not filed, the retry sees the stored sex differ and .23
+    # blank, skips the delete, files .02, and runs the cascade. A :partial
+    # on the cascade is retried by repeating the call: the cascade always
+    # runs when rows exist and the earlier EDITs on that call succeeded.
+    # The writes are not atomic. A refusal of the first call, or a reply
+    # with no [Data], is :filer_failed and later calls are not sent. nil
+    # only when the first FILER call gives no reply. A reply with no
+    # [Data] is not a no-reply: filer success is false, so the first call
+    # is :filer_failed and a later call is :partial with the refusal
+    # wording. A refusal, a reply with no [Data], or no reply on a later
+    # call is :partial. When .02 fails after the .23 delete, the message
+    # names #2 .02 and says it was not filed (refusal or no [Data]), or,
+    # on no reply, that the outcome of the last write is unknown and that
+    # #2 .02 may not have been filed. Both say #9000001 .23 was already
+    # cleared. A cascade failure names eligibility, on a refusal and on no
+    # reply. Success is { success: true }.
     #
     # What this path skips: anything AG2A does interactively beyond the
     # .23 delete and SEXELIG (prompts, confirmation). SEXELIG^AGUTL is not
@@ -1471,14 +1480,15 @@ module RpmsRpc
     end
 
     def file_sex_writes(id, code, stored:, verification:, cascade:)
-      step = sex_edit([ edit_row(PATIENT_SEX_FILE, PATIENT_SEX_FIELD, "#{id},", code) ], prior: false)
-      return step unless step == :written
-
-      if clear_ssn_verification?(stored, code, verification)
-        step = sex_edit([ edit_row(PATIENT_FILE, SSN_VERIFICATION_FIELD, "#{id},", "@") ],
-                        prior: true, step: ssn_verification_step)
+      clear_ssn = clear_ssn_verification?(stored, code, verification)
+      if clear_ssn
+        step = sex_edit([ edit_row(PATIENT_FILE, SSN_VERIFICATION_FIELD, "#{id},", "@") ], prior: false)
         return step unless step == :written
       end
+
+      step = sex_edit([ edit_row(PATIENT_SEX_FILE, PATIENT_SEX_FIELD, "#{id},", code) ],
+                      prior: clear_ssn, step: (clear_ssn ? patient_sex_step : nil))
+      return step unless step == :written
 
       return { success: true } if cascade.empty?
 
@@ -1490,20 +1500,22 @@ module RpmsRpc
       stored.strip.upcase != code && !verification.strip.empty?
     end
 
-    # file_sex_writes calls this for #2 .02 first (no step), then for the
-    # #9000001 .23 "@" delete only when clear_ssn_verification? is true,
-    # then for the eligibility cascade when rows exist. step is a short
-    # label for those later calls; it is not a public argument. Each call
-    # is its own EDIT. nil only when this is the first FILER call and it
-    # gives no reply. A refusal of that first call, including a reply with
-    # no [Data], is :filer_failed and later calls are not sent. A refusal
-    # (success false, including no [Data]) or a no-reply on the .23 delete
-    # or the cascade, after .02 succeeded, is :partial. The .23 message
-    # names #9000001 .23 SSN VERIFICATION STATUS: a refusal says it was
-    # not cleared, and a no-reply says the outcome of the last write is
-    # unknown and that it may not have been cleared. A cascade failure
-    # names eligibility. The no-reply wording "outcome of the last write
-    # is unknown" stays.
+    # file_sex_writes calls this for the #9000001 .23 "@" delete first, and
+    # only when clear_ssn_verification? is true. That call has no step: it
+    # is the first FILER call when it is sent. Then #2 .02, always. .02 has
+    # no step when the delete was skipped (it is the first call) and step
+    # "#2 .02" when the delete was filed. Then the eligibility cascade when
+    # rows exist, step "eligibility". step is a short label for later
+    # calls; it is not a public argument. Each call is its own EDIT. nil
+    # only when this is the first FILER call and it gives no reply. A
+    # refusal of that first call, including a reply with no [Data], is
+    # :filer_failed and later calls are not sent. A refusal (success false,
+    # including no [Data]) or a no-reply on .02 after the .23 delete, or on
+    # the cascade, is :partial. The .02 message names #2 .02. A refusal
+    # says it was not filed. A no-reply says the outcome of the last write
+    # is unknown and that it may not have been filed. Both say #9000001 .23
+    # was already cleared. A cascade failure names eligibility. The
+    # no-reply wording "outcome of the last write is unknown" stays.
     def sex_edit(rows, prior:, step: nil)
       filed = DdrFileman.filer(mode: "EDIT", rows: rows)
       return unknown_later_sex_write(step) if filed.nil? && prior
@@ -1516,13 +1528,13 @@ module RpmsRpc
       { success: false, error: :partial, message: refused_sex_step(step, message) }
     end
 
-    def ssn_verification_step
-      "#9000001 .23 SSN VERIFICATION STATUS"
+    def patient_sex_step
+      "#2 .02"
     end
 
     def refused_sex_step(step, message)
-      lead = if step == ssn_verification_step
-        "#{step} was not cleared"
+      lead = if step == patient_sex_step
+        "#{step} was not filed and #9000001 .23 was already cleared"
       elsif step
         "#{step} was refused"
       else
@@ -1533,8 +1545,8 @@ module RpmsRpc
 
     def unknown_later_sex_write(step = nil)
       base = "an earlier sex write was filed and the outcome of the last write is unknown"
-      tail = if step == ssn_verification_step
-        "#{step} may not have been cleared"
+      tail = if step == patient_sex_step
+        "#{step} may not have been filed and #9000001 .23 was already cleared"
       else
         step
       end
