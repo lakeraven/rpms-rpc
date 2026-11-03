@@ -523,9 +523,15 @@ module RpmsRpc
       end
       mapping = DataMapper[:amhg_save_visit]
       declared = save_visit_declared_context
-      response = save_visit_amhg(mapping, wire, requested)
-      ien = save_visit_reply_ien(response, requested, declared, mapping: :amhg_save_visit)
-      save_visit_rebind_ddr_context(declared, ien)
+      # Assigned inside the call, before a failed re-bind reports it.
+      ien = nil
+      with_ddr_rebind_after_amhg(declared, on_bind_error: lambda { |error|
+        known = ien || (requested.empty? ? nil : requested)
+        save_visit_ambiguous!(known, cause: error)
+      }) do
+        response = save_visit_amhg(mapping, wire, requested)
+        ien = save_visit_ien(response, requested, mapping: :amhg_save_visit)
+      end
       save_visit_confirm_filed!(ien, expected)
       save_visit_confirm_primary!(ien, provider_ien)
       ien
