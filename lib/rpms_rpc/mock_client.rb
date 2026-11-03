@@ -29,6 +29,22 @@ module RpmsRpc
     # What a freshly signed-on session is assumed to be bound to.
     DEFAULT_CONTEXT = "OR CPRS GUI CHART"
 
+    # call_rpc records every argument list as an Array. A single list
+    # parameter is a Hash, and specs read that call both as a one-element
+    # array (`params[0]`, `params == [hash]`) and by subscript
+    # (`params["XREF"]`). This is that array; a String index reads the
+    # single Hash.
+    class RecordedParams < Array
+      def [](index, *rest)
+        if rest.empty? && index.is_a?(String) && size == 1 && first.is_a?(Hash)
+          return first[index]
+        end
+
+        super(index, *rest)
+      end
+    end
+    private_constant :RecordedParams
+
     # RPCs whose first parameter the broker decrypts before it is used.
     #
     # MOCK FIDELITY IS DERIVED PER-RPC FROM THE M SOURCE, NEVER GENERALIZED
@@ -359,7 +375,7 @@ end
     def seeded_reply(rpc_name, *params)
       # `context` records the option bound when the call was issued — an RPC
       # is only servable from a context whose RPC multiple lists it.
-      received_calls << { rpc: rpc_name, params: params, context: current_context }
+      received_calls << { rpc: rpc_name, params: RecordedParams.new(params), context: current_context }
       if @context_surface && (why = @context_surface.context_refusal(current_context, rpc_name, keys: @context_keys))
         raise RpmsRpc::Client::RpcError, why
       end
