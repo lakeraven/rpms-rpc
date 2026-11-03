@@ -46,6 +46,7 @@
 "RpmsRpc::Authentication.user_type": read
 "RpmsRpc::Authentication.user_type_for": read
 "RpmsRpc::BehavioralHealth.save_pcc_visit": non_idempotent_write
+"RpmsRpc::BehavioralHealth.save_pov": non_idempotent_write
 "RpmsRpc::BehavioralHealth.save_progress_note": non_idempotent_write
 "RpmsRpc::BehavioralHealth.save_visit": non_idempotent_write
 "RpmsRpc::BehavioralHealth.suicide_form": non_idempotent_write
@@ -263,6 +264,7 @@
 "RpmsRpc::Scheduling.uncancel_appointment": non_idempotent_write
 "RpmsRpc::SchedulingSetup.access_types": read
 "RpmsRpc::SchedulingSetup.clinic_rules": read
+"RpmsRpc::SchedulingSetup.creates_visit_at_checkin": read
 "RpmsRpc::SchedulingSetup.holidays": read
 "RpmsRpc::Session.bootstrap": read
 "RpmsRpc::Site.current": read

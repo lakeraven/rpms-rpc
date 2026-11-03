@@ -1029,6 +1029,16 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_match(/may have been filed|outcome unknown/i, err.message)
   end
 
+  def test_raises_when_post_call_provider_ddr_lister_has_no_data_marker
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    seed_success(WIRE_ADD_FULL, "8802")
+    seed_readback("8802,", **FULL_KWARGS)
+    seed_provider_lister("8802", provider: PROVIDER, patient: PATIENT, body: "[Misc]")
+    err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err, record_ien: "8802")
+  end
+
   def test_amhg_rpc_timeout_becomes_save_error_with_ambiguous_outcome
     seed_pre_amhg_reads(**FULL_KWARGS)
     wrapper = TimeoutOnAmhg.new(@mock)
@@ -1051,6 +1061,38 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_kind_of RpmsRpc::Client::ConnectionError, err.cause
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_amhg_frame_too_long_becomes_save_error_nothing_sent_not_outcome_unknown
+    seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
+    wrapper = FrameTooLongOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    refute_match(/outcome unknown|may have been filed/i, err.message)
+    assert_match(/nothing was sent|could not be framed|not sent/i, err.message)
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_amhg_frame_too_long_raises_nothing_sent_and_rebinds_ddr_context
+    seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = FrameTooLongOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    refute_match(/outcome unknown|may have been filed/i, err.message)
+    assert_match(/nothing was sent|could not be framed|not sent/i, err.message)
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_refuses_c1_control_characters_in_group_name_without_rpc
+    c1 = "\u0085"
+    assert_input_validation_refusal(/group|control|separator/i, **FULL_KWARGS.merge(group_name: "SYN#{c1}TH"))
   end
 
   def test_amhg_rpc_m_error_becomes_save_error_with_ambiguous_outcome
@@ -1271,8 +1313,8 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
   end
 
   def seed_provider_lister(visit_ien, provider:, patient:, extra_primary: false, foreign_visit_row: false,
-                           more: false, error: false)
-    body = provider_lister_body(
+                           more: false, error: false, body: nil)
+    body ||= provider_lister_body(
       provider: provider, patient: patient, visit_ien: visit_ien, extra_primary: extra_primary,
       foreign_visit_row: foreign_visit_row, more: more, error: error
     )
@@ -1440,6 +1482,13 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     err
   end
 
+  def assert_input_validation_refusal(message_pattern = nil, **kwargs)
+    err = assert_raises(BH::SaveError) { BH.save_visit(**kwargs) }
+    assert_empty @mock.received_calls, "input validation must refuse before any RPC"
+    assert_match(message_pattern, err.message) if message_pattern
+    err
+  end
+
   def assert_post_call_ambiguity(err, record_ien: nil)
     assert_match(/may have been filed|outcome unknown/i, err.message)
     refute_includes err.message, PATIENT
@@ -1455,6 +1504,14 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_includes err.message, record_ien
     refute_includes err.message, PATIENT
     refute_includes err.message, PROGRAM
+  end
+end
+
+class FrameTooLongOnAmhg < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *_params)
+    raise RpmsRpc::Client::FrameTooLongError, "AMHG SAVE VISIT wire too long (synthetic)" if rpc_name == "AMHG SAVE VISIT"
+
+    super
   end
 end
 
