@@ -62,7 +62,7 @@ class SchedulingSetupLiveTest < LiveSpec::Test
       file(ien, "1918.5" => "@", "2002" => "45", "2505" => fm(inactive_on), "2506" => fm(reactive_on), "1914" => "9")
       rules = RpmsRpc::SchedulingSetup.clinic_rules(ien)
       assert_equal({ id: ien, display_begins: 9, schedule_on_holidays: false, max_future_days: 45, prohibit_access: false,
-                     inactivate_date: inactive_on, reactivate_date: reactive_on }, rules)
+                     privileged_users: [], inactivate_date: inactive_on, reactivate_date: reactive_on }, rules)
 
       file(ien, "1918.5" => "Y")
       assert RpmsRpc::SchedulingSetup.clinic_rules(ien)[:schedule_on_holidays]
@@ -75,6 +75,34 @@ class SchedulingSetupLiveTest < LiveSpec::Test
     end
     assert_equal original, RpmsRpc::SchedulingSetup.clinic_rules(ien), "the clinic's fields are put back"
   end
+
+def test_a_clinic_that_prohibits_access_names_its_privileged_users
+  resource = RpmsRpc::Scheduling.resources.find { |r| r[:name] == CLINIC }
+  ien = resource[:hospital_location_id]
+  original = RpmsRpc::SchedulingSetup.clinic_rules(ien)
+  duz = client.duz.to_i
+  added = nil
+  begin
+    file(ien, "2500" => "Y")
+    got = client.with_context(RpmsRpc::SchedulingSetup::CONTEXT) do
+      RpmsRpc::DdrFileman.filer(mode: "ADD", rows: [ { file: "44.04", field: ".01", iens: "+1,#{ien},", value: duz.to_s } ])
+    end
+    assert got && got[:success], "adding a privileged user: #{got.inspect}"
+    added = got[:iens].values.first
+
+    rules = RpmsRpc::SchedulingSetup.clinic_rules(ien)
+    assert rules[:prohibit_access]
+    assert_includes rules[:privileged_users], duz
+  ensure
+    if added
+      client.with_context(RpmsRpc::SchedulingSetup::CONTEXT) do
+        RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: [ { file: "44.04", field: ".01", iens: "#{added},#{ien},", value: "@" } ])
+      end
+    end
+    file(ien, "2500" => original[:prohibit_access] ? "Y" : "@")
+  end
+  assert_equal original, RpmsRpc::SchedulingSetup.clinic_rules(ien), "the clinic is put back"
+end
 
   def test_a_clinic_that_is_not_a_number_is_nil
     [ nil, "", "0", "abc", "-3" ].each { |bad| assert_nil RpmsRpc::SchedulingSetup.clinic_rules(bad), bad.inspect }

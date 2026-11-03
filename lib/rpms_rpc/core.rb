@@ -48,13 +48,42 @@ module RpmsRpc
       @configuration ||= Configuration.new
     end
 
+    # The client every API call in this fiber runs on: the one a surrounding
+    # with_client scoped, else the configured one. A host serving many users
+    # (one signed-on connection each, ADR 0005) configures NONE and scopes each
+    # request to its user's client, so a call outside a scope raises here
+    # instead of running on someone else's connection.
     def client
-      configuration.client || raise(
+      Fiber[SCOPED_CLIENT_KEY] || configuration.client || raise(
         NotConfiguredError,
-        "RpmsRpc.client is not configured. Call RpmsRpc.configure { |c| c.client = ... } " \
-        "or RpmsRpc.mock! for testing."
+        "RpmsRpc.client is not configured. Call RpmsRpc.configure { |c| c.client = ... }, " \
+        "scope one with RpmsRpc.with_client(client) { ... }, or RpmsRpc.mock! for testing."
       )
     end
+
+    SCOPED_CLIENT_KEY = :rpms_rpc_scoped_client
+    private_constant :SCOPED_CLIENT_KEY
+
+    # Run the block with `client` as RpmsRpc.client, for this fiber and the
+    # fibers and threads it starts (Ruby's fiber storage is inherited by both),
+    # and restore what was there before, including when the block raises.
+    # Scopes nest. A thread already running elsewhere never sees it. This is
+    # how a host gives each request its own user's connection: every API
+    # module resolves RpmsRpc.client underneath, so no signature changes.
+    def with_client(client)
+      raise ArgumentError, "client required" if client.nil?
+
+      previous = Fiber[SCOPED_CLIENT_KEY]
+      Fiber[SCOPED_CLIENT_KEY] = client
+      begin
+        yield client
+      ensure
+        Fiber[SCOPED_CLIENT_KEY] = previous
+      end
+    end
+
+    # The client a surrounding with_client scoped, or nil.
+    def scoped_client = Fiber[SCOPED_CLIENT_KEY]
 
     # DEPRECATED (#360): a FHIR client is host knowledge (ADR 0010, assertion 7).
     # Every call warns; the method and FhirClient go in a later release.

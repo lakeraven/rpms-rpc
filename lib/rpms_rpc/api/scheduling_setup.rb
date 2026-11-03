@@ -29,9 +29,12 @@ module RpmsRpc
     # HOSPITAL LOCATION (#44) fields a booking depends on: 1914 HOUR CLINIC
     # DISPLAY BEGINS, 1918.5 SCHEDULE ON HOLIDAYS? (Y or empty), 2002 MAX # DAYS
     # FOR FUTURE BOOKING, 2500 PROHIBIT ACCESS TO CLINIC? (Y or empty), 2505
-    # INACTIVATE DATE, 2506 REACTIVATE DATE.
+    # INACTIVATE DATE, 2506 REACTIVATE DATE, 1916 PRINCIPAL CLINIC.
     CLINIC_FIELDS = { display_begins: "1914", schedule_on_holidays: "1918.5", max_future_days: "2002",
-                      prohibit_access: "2500", inactivate_date: "2505", reactivate_date: "2506" }.freeze
+                      prohibit_access: "2500", inactivate_date: "2505", reactivate_date: "2506",
+                      principal_clinic: "1916" }.freeze
+    # PRIVILEGED USER (#44 field 2501), a multiple of NEW PERSON pointers.
+    PRIVILEGED_USER_FILE = "44.04"
 
     # How many entries one DDR LISTER call asks for; a longer list is read on
     # from the MORE marker.
@@ -65,9 +68,13 @@ module RpmsRpc
     # One clinic's booking rules from HOSPITAL LOCATION (#44), by its IEN (the
     # hospital_location_id of a Scheduling.resources row). Returns
     # { id:, display_begins:, schedule_on_holidays:, max_future_days:,
-    #   prohibit_access:, inactivate_date:, reactivate_date: }: display_begins
+    #   prohibit_access:, privileged_users:, inactivate_date:, reactivate_date: }: display_begins
     # is an hour (0-23) and max_future_days a count, each nil when unset; the
-    # dates are Date or nil. nil for an IEN that is not a number. A failed
+    # dates are Date or nil. privileged_users is the DUZs a clinic that
+    # prohibits access lets in: its own PRIVILEGED USERs and its principal
+    # clinic's, as RPMS's own scheduling checks them (SDM1.m:33); read only
+    # when the clinic prohibits access, [] otherwise.
+    # nil for an IEN that is not a number. A failed
     # read, or an IEN with no entry, raises Client::RpcError.
     def clinic_rules(hospital_location_id)
       ien = hospital_location_id.to_s
@@ -85,6 +92,7 @@ module RpmsRpc
         schedule_on_holidays: value.(:schedule_on_holidays) == "Y",
         max_future_days: integer_or_nil(value.(:max_future_days)),
         prohibit_access: value.(:prohibit_access) == "Y",
+        privileged_users: value.(:prohibit_access) == "Y" ? privileged_users(ien, value.(:principal_clinic)) : [],
         inactivate_date: date_or_nil(value.(:inactivate_date)),
         reactivate_date: date_or_nil(value.(:reactivate_date)) }
     end
@@ -101,11 +109,18 @@ module RpmsRpc
     # from the MORE value alone: LIST^DIC takes the IEN half as FROM("IEN"), a
     # subscript a flat DDR list parameter cannot carry, so this is only for
     # indexes whose values are unique (a holiday's date, an access type's name).
-    def list(file, fields, xref: nil, from: nil, stop: nil)
+    # The PRIVILEGED USERs of the clinic and of its principal clinic, as DUZs.
+    def privileged_users(ien, principal)
+      [ ien, principal ].select { |c| c.to_s.match?(/\A[1-9]\d*\z/) }.uniq.flat_map do |clinic|
+        list(PRIVILEGED_USER_FILE, "@;.01I", iens: ",#{clinic},").map { |e| e[:pieces].first.to_i }
+      end.uniq.sort
+    end
+
+    def list(file, fields, xref: nil, from: nil, stop: nil, iens: nil)
       out = []
       loop do
         page = in_context do
-          DdrFileman.lister(file: file, fields: fields, flags: "IP", max: PAGE, xref: xref, from: from)
+          DdrFileman.lister(file: file, iens: iens, fields: fields, flags: "IP", max: PAGE, xref: xref, from: from)
         end
         raise Client::RpcError, "DDR LISTER gave no reply for file #{file}" if page.nil?
         raise Client::RpcError, "DDR LISTER refused file #{file}" if page[:error]

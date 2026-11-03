@@ -8,6 +8,10 @@ require "rpms_rpc/mock_client"
 # terminators into spaces, or two lines become one assessed row and a marker or
 # a second allergy hides inside a field. Every byte string is SYNTHETIC.
 class RpmsRpc::AlteredTextTerminatorsTest < Minitest::Test
+  def teardown
+    RpmsRpc.reset!
+  end
+
   def assess(reply)
     client = Object.new
     client.define_singleton_method(:call_rpc) { |*| reply }
