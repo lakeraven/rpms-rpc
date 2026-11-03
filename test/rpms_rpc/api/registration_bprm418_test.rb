@@ -1077,7 +1077,7 @@ class RegistrationBprm418Test < Minitest::Test
   # -- set_sex ----------------------------------------------------------------
 
   def test_set_sex_files_ssn_clear_patient_sex_and_eligibility_in_order_when_sex_changes
-    # Factory-Spec-Amendment: AG2A files .02 before the .23 delete (#418)
+    # Factory-Spec-Amendment: owner chose .23 first so a retry can finish (#418, 2026-11-03)
     seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1")
     with_ddr_filer_edit_replies([ "[Data]", "[Data]", "[Data]" ])
 
@@ -1085,8 +1085,8 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_registration_success(result)
     assert_equal 3, filer_calls.length, filer_calls.inspect
-    assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
-    assert_filer_edit_rows(filer_calls[1], "9000001^.23^#{DFN},^@")
+    assert_filer_edit_rows(filer_calls[0], "9000001^.23^#{DFN},^@")
+    assert_filer_edit_rows(filer_calls[1], "2^.02^#{DFN},^F")
     assert_filer_edit_rows(filer_calls[2], *eligibility_cascade_rows("F"))
     assert_set_sex_runs_under_agg_lock
   end
@@ -1099,6 +1099,7 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_registration_success(result)
     assert_equal 2, filer_calls.length, filer_calls.inspect
+    refute filer_calls.any? { |c| c[:params][1].values.any? { |row| row.include?("9000001^.23") } }
     assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
     assert_filer_edit_rows(filer_calls[1], *eligibility_cascade_rows("F"))
   end
@@ -1127,8 +1128,8 @@ class RegistrationBprm418Test < Minitest::Test
     assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
   end
 
-  def test_set_sex_with_no_eligibility_and_non_blank_ssn_verification_files_sex_then_clears_ssn
-    # Factory-Spec-Amendment: AG2A files .02 before the .23 delete (#418)
+  def test_set_sex_with_no_eligibility_and_non_blank_ssn_verification_clears_ssn_then_sex
+    # Factory-Spec-Amendment: owner chose .23 first so a retry can finish (#418, 2026-11-03)
     seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1", eligibility: false)
     with_ddr_filer_edit_replies([ "[Data]", "[Data]" ])
 
@@ -1136,8 +1137,22 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_registration_success(result)
     assert_equal 2, filer_calls.length, filer_calls.inspect
+    assert_filer_edit_rows(filer_calls[0], "9000001^.23^#{DFN},^@")
+    assert_filer_edit_rows(filer_calls[1], "2^.02^#{DFN},^F")
+  end
+
+  def test_set_sex_retry_after_partial_state_files_sex_and_cascade_without_ssn_clear
+    # Factory-Spec-Amendment: owner chose .23 first so a retry can finish (#418, 2026-11-03)
+    seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "", eligibility: true)
+    with_ddr_filer_edit_replies([ "[Data]", "[Data]" ])
+
+    result = Reg.set_sex(DFN, "F")
+
+    assert_registration_success(result)
+    assert_equal 2, filer_calls.length, filer_calls.inspect
+    refute filer_calls.any? { |c| c[:params][1].values.any? { |row| row.include?("9000001^.23") } }
     assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
-    assert_filer_edit_rows(filer_calls[1], "9000001^.23^#{DFN},^@")
+    assert_filer_edit_rows(filer_calls[1], *eligibility_cascade_rows("F"))
   end
 
   def test_set_sex_ignores_b_xref_rows_whose_pointing_field_is_another_dfn
@@ -1328,26 +1343,21 @@ class RegistrationBprm418Test < Minitest::Test
     assert_agg_unlock_sent
   end
 
-  def test_set_sex_returns_partial_when_ssn_clear_is_refused_after_patient_sex_is_filed
-    # Factory-Spec-Amendment: AG2A files .02 before the .23 delete (#418)
+  def test_set_sex_returns_filer_failed_when_ssn_clear_is_refused
+    # Factory-Spec-Amendment: owner chose .23 first so a retry can finish (#418, 2026-11-03)
     seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1", eligibility: false)
-    with_ddr_filer_edit_replies([ "[Data]", FILER_REFUSAL ])
+    with_ddr_filer_edit_replies([ FILER_REFUSAL ])
 
     result = Reg.set_sex(DFN, "F")
 
-    assert_registration_failure(result, error: :partial)
-    msg = result[:message].to_s
-    assert_match(/SSN VERIFICATION STATUS/i, msg)
-    assert_match(/#9000001/, msg)
-    assert_match(/not cleared/i, msg)
-    assert_equal 2, filer_calls.length, filer_calls.inspect
-    assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
-    assert_filer_edit_rows(filer_calls[1], "9000001^.23^#{DFN},^@")
+    assert_registration_failure(result, error: :filer_failed)
+    assert_equal 1, filer_calls.length, filer_calls.inspect
+    assert_filer_edit_rows(filer_calls[0], "9000001^.23^#{DFN},^@")
     assert_agg_unlock_sent
   end
 
   def test_set_sex_returns_filer_failed_when_patient_sex_filer_reply_lacks_data_marker_on_first_call
-    seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1", eligibility: true)
+    seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "", eligibility: true)
     with_ddr_filer_edit_replies([ FILER_REPLY_WITHOUT_DATA_MARKER_M ])
 
     result = Reg.set_sex(DFN, "F")
@@ -1358,20 +1368,16 @@ class RegistrationBprm418Test < Minitest::Test
     assert_agg_unlock_sent
   end
 
-  def test_set_sex_returns_partial_when_ssn_clear_filer_reply_lacks_data_marker_after_patient_sex
+  def test_set_sex_returns_filer_failed_when_ssn_clear_filer_reply_lacks_data_marker_on_first_call
+    # Factory-Spec-Amendment: owner chose .23 first so a retry can finish (#418, 2026-11-03)
     seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1", eligibility: false)
-    with_ddr_filer_edit_replies([ "[Data]", FILER_REPLY_WITHOUT_DATA_MARKER_RPC ])
+    with_ddr_filer_edit_replies([ FILER_REPLY_WITHOUT_DATA_MARKER_RPC ])
 
     result = Reg.set_sex(DFN, "F")
 
-    assert_registration_failure(result, error: :partial)
-    msg = result[:message].to_s
-    assert_match(/SSN VERIFICATION STATUS/i, msg)
-    assert_match(/#9000001/, msg)
-    assert_match(/not cleared/i, msg)
-    assert_equal 2, filer_calls.length, filer_calls.inspect
-    assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
-    assert_filer_edit_rows(filer_calls[1], "9000001^.23^#{DFN},^@")
+    assert_registration_failure(result, error: :filer_failed)
+    assert_equal 1, filer_calls.length, filer_calls.inspect
+    assert_filer_edit_rows(filer_calls[0], "9000001^.23^#{DFN},^@")
     assert_agg_unlock_sent
   end
 
@@ -1399,16 +1405,41 @@ class RegistrationBprm418Test < Minitest::Test
     assert_agg_unlock_sent
   end
 
-  def test_set_sex_returns_filer_failed_when_patient_sex_is_refused_first
-    # Factory-Spec-Amendment: AG2A files .02 before the .23 delete (#418)
+  def test_set_sex_returns_partial_when_patient_sex_is_refused_after_ssn_clear
+    # Factory-Spec-Amendment: owner chose .23 first so a retry can finish (#418, 2026-11-03)
     seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1", eligibility: false)
-    with_ddr_filer_edit_replies([ FILER_REFUSAL ])
+    with_ddr_filer_edit_replies([ "[Data]", FILER_REFUSAL ])
 
     result = Reg.set_sex(DFN, "F")
 
-    assert_registration_failure(result, error: :filer_failed)
-    assert_equal 1, filer_calls.length, filer_calls.inspect
-    assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
+    assert_registration_failure(result, error: :partial)
+    msg = result[:message].to_s
+    assert_match(/#2\s*\.02/i, msg)
+    assert_match(/not filed/i, msg)
+    assert_match(/#9000001\s*\.23/i, msg)
+    assert_match(/already cleared/i, msg)
+    assert_equal 2, filer_calls.length, filer_calls.inspect
+    assert_filer_edit_rows(filer_calls[0], "9000001^.23^#{DFN},^@")
+    assert_filer_edit_rows(filer_calls[1], "2^.02^#{DFN},^F")
+    assert_agg_unlock_sent
+  end
+
+  def test_set_sex_returns_partial_when_patient_sex_filer_reply_lacks_data_marker_after_ssn_clear
+    # Factory-Spec-Amendment: owner chose .23 first so a retry can finish (#418, 2026-11-03)
+    seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1", eligibility: false)
+    with_ddr_filer_edit_replies([ "[Data]", FILER_REPLY_WITHOUT_DATA_MARKER_M ])
+
+    result = Reg.set_sex(DFN, "F")
+
+    assert_registration_failure(result, error: :partial)
+    msg = result[:message].to_s
+    assert_match(/#2\s*\.02/i, msg)
+    assert_match(/not filed/i, msg)
+    assert_match(/#9000001\s*\.23/i, msg)
+    assert_match(/already cleared/i, msg)
+    assert_equal 2, filer_calls.length, filer_calls.inspect
+    assert_filer_edit_rows(filer_calls[0], "9000001^.23^#{DFN},^@")
+    assert_filer_edit_rows(filer_calls[1], "2^.02^#{DFN},^F")
     assert_agg_unlock_sent
   end
 
@@ -1434,8 +1465,19 @@ class RegistrationBprm418Test < Minitest::Test
     assert_agg_unlock_sent
   end
 
-  def test_set_sex_returns_partial_when_ssn_clear_filer_gives_no_reply_after_patient_sex
-    # Factory-Spec-Amendment: AG2A files .02 before the .23 delete (#418)
+  def test_set_sex_returns_nil_when_ssn_clear_filer_gives_no_reply_as_first_call
+    # Factory-Spec-Amendment: owner chose .23 first so a retry can finish (#418, 2026-11-03)
+    seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1", eligibility: false)
+    with_ddr_filer_edit_replies([ nil ])
+
+    assert_nil Reg.set_sex(DFN, "F")
+    assert_equal 1, filer_calls.length, filer_calls.inspect
+    assert_filer_edit_rows(filer_calls[0], "9000001^.23^#{DFN},^@")
+    assert_agg_unlock_sent
+  end
+
+  def test_set_sex_returns_partial_when_patient_sex_filer_gives_no_reply_after_ssn_clear
+    # Factory-Spec-Amendment: owner chose .23 first so a retry can finish (#418, 2026-11-03)
     seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1", eligibility: false)
     with_ddr_filer_edit_replies([ "[Data]", nil ])
 
@@ -1444,11 +1486,13 @@ class RegistrationBprm418Test < Minitest::Test
     assert_registration_failure(result, error: :partial)
     msg = result[:message].to_s
     assert_match(/unknown/i, msg)
-    # Factory-Spec-Amendment: the no-reply message names the uncertain step too (#418)
-    assert_match(/SSN VERIFICATION STATUS/i, msg)
-    assert_match(/#9000001/, msg)
+    assert_match(/#2\s*\.02/i, msg)
+    assert_match(/may not have been filed/i, msg)
+    assert_match(/#9000001\s*\.23/i, msg)
+    assert_match(/already cleared/i, msg)
     assert_equal 2, filer_calls.length, filer_calls.inspect
-    assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
+    assert_filer_edit_rows(filer_calls[0], "9000001^.23^#{DFN},^@")
+    assert_filer_edit_rows(filer_calls[1], "2^.02^#{DFN},^F")
     assert_agg_unlock_sent
   end
 
