@@ -132,6 +132,13 @@ module RpmsRpc
       Registration.update(dfn, **attrs)
     end
 
+    # A patient's registration as AG's Personal Detail and Address windows show
+    # it (AGG BUILD WINDOW DISPLAY). See RpmsRpc::Registration.record.
+    def registration_record(dfn)
+      Registration.record(dfn)
+    end
+    shape :registration_record, resource: "patients", verb: "POST", path: "/patients/{dfn}/registration-record"
+
     # Field 0 of the BEHOPTPC GETBDP row that names the designated primary
     # provider. Compared exactly after surrounding whitespace is stripped.
     DESIGNATED_PRIMARY_PROVIDER_LABEL = "DESIGNATED PRIMARY PROVIDER"
