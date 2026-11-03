@@ -306,6 +306,8 @@
       "AGG UNLOCK PATIENT",
       "AGG UPDATE PATIENT",
       "AGG WINDOW DATA VALIDATION",
+      "DDR FILER",
+      "DDR GETS ENTRY DATA",
       "DDR LISTER"
     ],
     "RpmsRpc::Reminders": [
