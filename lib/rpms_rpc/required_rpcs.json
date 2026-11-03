@@ -314,12 +314,14 @@
       "BSDX CREATE ASGND SLOT SCHED",
       "BSDX HOSPITAL LOCATION",
       "BSDX NOSHOW",
+      "BSDX OVERBOOK",
       "BSDX PATIENT APPT DISPLAY",
       "BSDX RESOURCES",
       "BSDX SEARCH AVAILABILITY",
       "BSDX UNCANCEL APPT"
     ],
     "RpmsRpc::SchedulingSetup": [
+      "DDR FILER",
       "DDR GETS ENTRY DATA",
       "DDR LISTER"
     ],
