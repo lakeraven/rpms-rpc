@@ -5,10 +5,9 @@ require "rpms_rpc/mock_client"
 require "rpms_rpc/api/patient"
 
 # brief_header carries both the #523 designated-primary GETBDP row and the
-# #553 ORWPT CWAD read under OR CPRS GUI CHART. Synthetic seeds only.
+# ORWPT CWAD read on the caller's option. Synthetic seeds only.
 class PatientBriefHeaderCombinedTest < Minitest::Test
   DFN = "42"
-  CHART_CONTEXT = "OR CPRS GUI CHART"
   CALLER_CONTEXT = "CIAV VUECENTRIC"
 
   def setup
@@ -19,10 +18,9 @@ class PatientBriefHeaderCombinedTest < Minitest::Test
     RpmsRpc.reset!
   end
 
-  # Proves the designated-primary row wins over PTINFO while the CWAD read is
-  # still scoped to OR CPRS GUI CHART, GETBDP stays on the caller's context,
-  # and the caller's option is restored.
-  def test_designated_primary_row_and_scoped_cwad_both_apply
+  # Proves the designated-primary row wins over PTINFO, and CWAD and GETBDP
+  # both run on the caller's option with no option bound.
+  def test_designated_primary_row_and_cwad_both_apply
     mock = RpmsRpc.client
     mock.create_context(CALLER_CONTEXT)
     caller_context = mock.current_context
@@ -41,9 +39,9 @@ class PatientBriefHeaderCombinedTest < Minitest::Test
     refute header[:ad_flag]
     cwad = mock.received_calls.find { |c| c[:rpc] == "ORWPT CWAD" }
     getbdp = mock.received_calls.find { |c| c[:rpc] == "BEHOPTPC GETBDP" }
-    assert_equal CHART_CONTEXT, cwad[:context]
-    refute_equal CHART_CONTEXT, getbdp[:context]
+    assert_equal caller_context, cwad[:context]
+    assert_equal caller_context, getbdp[:context]
     assert_equal caller_context, mock.current_context
-    assert_equal [ CHART_CONTEXT, caller_context ], mock.context_binds.drop(binds_after_setup)
+    assert_empty mock.context_binds.drop(binds_after_setup)
   end
 end

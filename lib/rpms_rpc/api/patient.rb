@@ -19,10 +19,6 @@ module RpmsRpc
     # Practitioner.
     FILEMAN_CONTEXT = "CIAV VUECENTRIC"
 
-    # The option that lists ORWPT CWAD (CWAD^ORWPT). Same option as
-    # Practitioner::ROLES_CONTEXT.
-    CWAD_CONTEXT = "OR CPRS GUI CHART"
-
     def find(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
 
@@ -136,6 +132,13 @@ module RpmsRpc
       Registration.update(dfn, **attrs)
     end
 
+    # A patient's registration as AG's Personal Detail and Address windows show
+    # it (AGG BUILD WINDOW DISPLAY). See RpmsRpc::Registration.record.
+    def registration_record(dfn)
+      Registration.record(dfn)
+    end
+    shape :registration_record, resource: "patients", verb: "POST", path: "/patients/{dfn}/registration-record"
+
     # Field 0 of the BEHOPTPC GETBDP row that names the designated primary
     # provider. Compared exactly after surrounding whitespace is stripped.
     DESIGNATED_PRIMARY_PROVIDER_LABEL = "DESIGNATED PRIMARY PROVIDER"
@@ -150,10 +153,12 @@ module RpmsRpc
     #                              alphabetical)
     #   - ORWPT CWAD              (Crises/Warnings/Allergies/Directives flags)
     #
-    # ORWPT CWAD is CWAD^ORWPT (formals Y,DFN). Only that fetch binds
-    # CWAD_CONTEXT and restores the caller's option; PTINFO and GETBDP stay
-    # on the caller's context. allergy_flag is A in the scalar and ad_flag
-    # is D. An empty scalar is both flags false.
+    # ORWPT CWAD is CWAD^ORWPT (formals Y,DFN). All three run on the caller's
+    # option: CIAV VUECENTRIC lists ORWPT CWAD as well as OR CPRS GUI CHART,
+    # and a stock IRIS CIA broker refuses binding an option the user does not
+    # hold, so binding OR CPRS GUI CHART refused every user without it (the
+    # personas included). allergy_flag is A in the scalar and ad_flag is D. An
+    # empty scalar is both flags false.
     #
     # :primary_provider is the GETBDP row whose label (field 0), compared
     # exactly after surrounding whitespace is stripped, is
@@ -183,9 +188,7 @@ module RpmsRpc
       name = nil if name.nil? || name.match?(/\A[[:space:]]*\z/)
       return nil if ptinfo.nil? && name.nil?
 
-      cwad = ContextScope.scoped(RpmsRpc.client, CWAD_CONTEXT) do
-        DataMapper.patient_cwad.fetch_scalar(dfn.to_s)
-      end || ""
+      cwad = DataMapper.patient_cwad.fetch_scalar(dfn.to_s) || ""
       dob  = FilemanDateParser.parse_date(ptinfo && ptinfo[:dob_raw])
       provider = name || (ptinfo && ptinfo[:primary_provider])
 

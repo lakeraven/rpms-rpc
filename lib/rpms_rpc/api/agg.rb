@@ -83,6 +83,9 @@ module RpmsRpc
     LOCK_RPC = "AGG LOCK PATIENT"             # LOCK^AGGLOCK, return type GLOBAL ARRAY
     UNLOCK_RPC = "AGG UNLOCK PATIENT"         # UNLOCK^AGGLOCK, return type GLOBAL ARRAY
     VALIDATE_RPC = "AGG WINDOW DATA VALIDATION" # VAL^AGGWVAL, return type GLOBAL ARRAY
+    TEMP_HRN_RPC = "AGG GET TEMP PAT HRN"     # GTMP^AGGPTHRN, return type GLOBAL ARRAY
+    DISPLAY_RPC = "AGG BUILD WINDOW DISPLAY"    # BLD^AGGWDISP, return type GLOBAL ARRAY
+    VALUE_PAIR = "\x1c" # $C(28): a T or C value is INTERNAL_$C(28)_EXTERNAL (AGGWDISP.m:35-50)
 
     # The context option the AGG* RPCs are registered under — file 19 IEN
     # 13112, TYPE "B", no LOCK. Every method here binds it; see the module doc.
@@ -243,6 +246,30 @@ module RpmsRpc
     end
     shape :validate_field, resource: "agg", verb: "POST", path: "/agg/validate-field"
 
+    # BLD^AGGWDISP — what AG's own window shows for a patient: the read AG's
+    # client makes before an edit. P1 = window name, P2 = DFN. The reply's
+    # header names each displayed parameter (a parameter whose node 0 piece 11
+    # is set is not displayed, AGGWDISP.m:23, so Address carries no email) and
+    # its one record holds the values: a T (pointer) or C (choice) value is
+    # INTERNAL_$C(28)_EXTERNAL, a D (date) value is AG's external date
+    # ($$FMTE^AGGUL1), the rest are text (AGGWDISP.m:27-79). No record means
+    # every value is empty (AGGWDISP.m:83).
+    #
+    # Returns { "PARAMETER" => value } with T and C values as
+    # { internal:, external: } (both nil when empty), or nil when the broker
+    # gives no reply or AG answers without its header (an unknown window).
+    def window_values(window:, dfn:, client: RpmsRpc.client)
+      reply = in_context(client) { parse_reply(call_array(client, DISPLAY_RPC, window, dfn.to_s)) }
+      return nil if reply.nil? || reply[:header].empty?
+
+      record = reply[:records].first || {}
+      reply[:header].to_h do |name|
+        value = record[name].to_s.dup.force_encoding(Encoding::UTF_8)
+        [ name.to_s.upcase, value.include?(VALUE_PAIR) ? pair(value) : value ]
+      end
+    end
+    shape :window_values, resource: "agg", verb: "POST", path: "/patients/{dfn}/agg/window-values"
+
     def update_patient(dfn:, params:, window: DEFAULT_WINDOW, client: RpmsRpc.client)
       in_context(client) do
         interpret_write(call_array(client, UPDATE_RPC, window, dfn.to_s, encode_parms(params)))
@@ -294,6 +321,25 @@ module RpmsRpc
 
       { checks: reply[:records] }
     end
+
+    # GTMP^AGGPTHRN — the next temporary health record number for a patient,
+    # the T-number IHS scheduling's mini-registration gives a caller who has
+    # no chart yet (option BSDAM MINI REGISTRATION, key SDZREGMENU: "assigns
+    # a temporary chart number"). AG takes the highest "T" number in the
+    # IHS PATIENT "D" index and adds one, or returns the one this patient
+    # already holds (AGGPTHRN.m:20-31), and reserves it by setting
+    # ^AUPNPAT("D",THRN,DFN,DUZ(2)) (AGGPTHRN.m:15). It does not file the
+    # HEALTH RECORD NO. multiple: the caller files the number through AGG
+    # UPDATE PATIENT, as RpmsRpc::Registration does.
+    #
+    # Reply: header "T00010AGGPTHRN", then the number (AGGPTHRN.m:13-16).
+    # Returns the number ("T00001"), or nil when RPMS gave none.
+    def temporary_hrn(dfn:, client: RpmsRpc.client)
+      reply = in_context(client) { parse_reply(call_array(client, TEMP_HRN_RPC, dfn.to_s)) }
+      number = reply&.dig(:records, 0, :aggpthrn).to_s
+      number.match?(/\AT\d{5}\z/) ? number : nil
+    end
+    shape :temporary_hrn, resource: "agg", verb: "POST", path: "/patients/{dfn}/agg/temporary-hrn"
 
     # Encode a NAME=VALUE PARMS hash as the $C(28)-delimited string P3.
     # nil values are dropped; everything is sent as-is (FileMan-external —
@@ -380,6 +426,11 @@ module RpmsRpc
         m = piece.match(/\A[A-Z]\d{5}(.*)\z/m)
         (m ? m[1] : piece).downcase.to_sym
       end
+    end
+
+    def pair(value)
+      internal, external = value.split(VALUE_PAIR, 2)
+      { internal: internal.to_s.empty? ? nil : internal, external: external.to_s.empty? ? nil : external }
     end
 
     # nil when the lock was taken; the failure hash otherwise.
