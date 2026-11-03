@@ -7,11 +7,11 @@ require "rpms_rpc/retry_safety"
 require "rpms_rpc/api/patient"
 require "rpms_rpc/shape"
 
-# Chart-banner CWAD must come from ORWPT CWAD under OR CPRS GUI CHART, not
-# BEHOCACV CWAD (VueCentric-only). Synthetic seeds only.
+# Chart-banner CWAD must come from ORWPT CWAD, not BEHOCACV CWAD (VueCentric-only),
+# on the caller's option: CIAV VUECENTRIC lists it, and binding OR CPRS GUI CHART
+# is refused on IRIS to a user without it. Synthetic seeds only.
 class PatientCwadTest < Minitest::Test
   DFN = "42"
-  CHART_CONTEXT = "OR CPRS GUI CHART"
   CALLER_CONTEXT = "CIAV VUECENTRIC"
   REQUIRED_RPCS_PATH = File.expand_path("../../../lib/rpms_rpc/required_rpcs.json", __dir__)
   WRITE_CLASS_GET_BASELINE = File.expand_path("../../../data/openapi/write_class_get_baseline.txt", __dir__)
@@ -63,8 +63,8 @@ class PatientCwadTest < Minitest::Test
     refute RpmsRpc.client.received_calls.any? { |c| c[:rpc] == "BEHOCACV CWAD" }
   end
 
-  # Proves CWAD runs under OR CPRS GUI CHART and the caller's option is restored.
-  def test_brief_header_fetches_cwad_under_or_cprs_gui_chart_and_restores_caller_context
+  # Proves CWAD runs on the caller's option and no option is bound for it.
+  def test_brief_header_fetches_cwad_on_the_callers_option_and_binds_none
     mock = RpmsRpc.client
     mock.create_context(CALLER_CONTEXT)
     caller_context = mock.current_context
@@ -74,9 +74,9 @@ class PatientCwadTest < Minitest::Test
     RpmsRpc::Patient.brief_header(DFN)
 
     refute_nil cwad_call
-    assert_equal CHART_CONTEXT, cwad_call[:context]
+    assert_equal caller_context, cwad_call[:context]
     assert_equal caller_context, mock.current_context
-    assert_equal [ CHART_CONTEXT, caller_context ], mock.context_binds.drop(binds_after_setup)
+    assert_empty mock.context_binds.drop(binds_after_setup)
   end
 
   # Proves allergy_flag and ad_flag follow A and D in the CWAD scalar.
@@ -111,12 +111,12 @@ class PatientCwadTest < Minitest::Test
     assert_raises(RpmsRpc::Client::RpcNotAvailableError) { RpmsRpc::Patient.brief_header(DFN) }
 
     assert_equal caller_context, mock.current_context
-    assert_equal [ CHART_CONTEXT, caller_context ], mock.context_binds.drop(binds_after_setup)
+    assert_empty mock.context_binds.drop(binds_after_setup)
   end
 
-  # brief_header wraps ORWPT CWAD in ContextScope.scoped("OR CPRS GUI CHART"), which
-  # binds a broker context option; per retry_safety.yml that is session context, not
-  # a pure read, so a host must not auto-retry after a failed restore (Patient.contact).
+  # Classed non_idempotent_write since #520, when it bound OR CPRS GUI CHART for CWAD.
+  # It binds nothing now; the class and its POST shape stay until the catalog is
+  # changed on purpose, so a host is told no less than before.
   def test_brief_header_is_non_idempotent_write_in_retry_safety
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::Patient, :brief_header)
     refute RpmsRpc::RetrySafety.auto_retry_safe?(RpmsRpc::Patient, :brief_header)

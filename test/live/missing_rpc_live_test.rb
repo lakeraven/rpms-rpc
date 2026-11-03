@@ -38,8 +38,7 @@ require "rpms_rpc/api/scheduling"
 # $$CANRUN^CIANBACT), and a module that declares a CONTEXT binds it around
 # every RPC it sends (ContextScope.scoped): Referral binds BMCRPC, Scheduling
 # BSDXRPC. A module that declares none (Problem) runs under the sign-on
-# option, CIAV VUECENTRIC; Patient has no module CONTEXT but brief_header
-# binds OR CPRS GUI CHART only for ORWPT CWAD. When a method uses more than
+# option, CIAV VUECENTRIC, as Patient does. When a method uses more than
 # one option, each FORMERLY_GUARDED RPC entry may name its context; otherwise
 # bound_context(name) applies. So the oracle binds the same option the method
 # will before it asks.
@@ -76,7 +75,7 @@ class MissingRpcLiveTest < LiveSpec::Test
     "Patient.brief_header" => [ :read, [
       "BEHOPTCX PTINFO",
       "BEHOPTPC GETBDP",
-      [ "ORWPT CWAD", RpmsRpc::Patient::CWAD_CONTEXT ]
+      "ORWPT CWAD"
     ], -> { RpmsRpc::Patient.brief_header(DFN) } ],
     "Problem.lex_search" => [ :read, [ "ORQQPL PROBLEM LEX SEARCH" ], -> { RpmsRpc::Problem.lex_search("diabetes") } ],
     "Problem.clinic_search" => [ :read, [ "ORQQPL CLIN SRCH" ], -> { RpmsRpc::Problem.clinic_search(CLINIC_IEN) } ],
