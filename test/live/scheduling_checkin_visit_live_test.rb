@@ -13,6 +13,7 @@ class SchedulingCheckinVisitLiveTest < LiveSpec::Test
 
   PATIENT = 3
   CLINIC_NAME = "DEMO IHS CLINIC"
+  CHART_REVIEW_NAME = "CHART REVIEW"
   RESOURCE_NAME = "LIVE SPEC CHECKIN VISIT"
   VISIT_FILE = "9000010"
   CLINIC_FLAG_FILE = "9009017.2"
@@ -23,7 +24,8 @@ class SchedulingCheckinVisitLiveTest < LiveSpec::Test
 
   def setup
     super
-    @bsd_param_restores = ensure_file_room_printers!
+    @bsd_param_restores = []
+    ensure_file_room_printers!
   end
 
   def teardown
@@ -51,8 +53,17 @@ class SchedulingCheckinVisitLiveTest < LiveSpec::Test
       result = RpmsRpc::Scheduling.checkin_appointment(appt_id, checkin_time: start)
       assert result[:success], "check-in failed: #{result.inspect}"
 
-      new_iens = matching_new_visit_iens(high_water, PATIENT, hloc, start)
-      refute_empty new_iens, "check-in with CREATE VISIT YES should file at least one new V VISIT row"
+      expected_ien = high_water + 1
+      fields = read_visit_fields(expected_ien)
+      flunk "check-in with CREATE VISIT YES should file V VISIT at IEN #{expected_ien}" unless fields
+
+      expected_fm = RpmsRpc::FilemanDateParser.to_fileman(start)
+      assert_equal PATIENT.to_s, fields.dig(".05", :internal).to_s,
+                   "V VISIT #{expected_ien} .05 should be DFN #{PATIENT}"
+      assert_equal hloc.to_s, fields.dig(".22", :internal).to_s,
+                   "V VISIT #{expected_ien} .22 should be hospital location #{hloc}"
+      assert fileman_values_equal?(fields.dig(".26", :internal), expected_fm),
+             "V VISIT #{expected_ien} .26 should match the checked-in appointment start"
     ensure
       restore_create_visit_flag!(hloc, original)
     end
@@ -76,9 +87,52 @@ class SchedulingCheckinVisitLiveTest < LiveSpec::Test
 
       assert_empty matching_new_visit_iens(high_water, PATIENT, hloc, start),
                    "check-in with CREATE VISIT NO must not file a V VISIT for that patient, location and appointment"
+
+      file_create_visit_flag(hloc, "1")
+      assert RpmsRpc::SchedulingSetup.creates_visit_at_checkin(hloc)
+
+      control_start, control_appt_id = book_on_resource(135)
+      control_result = RpmsRpc::Scheduling.checkin_appointment(control_appt_id, checkin_time: control_start)
+      assert control_result[:success], "control check-in failed: #{control_result.inspect}"
+
+      expected_ien = high_water + 1
+      fields = read_visit_fields(expected_ien)
+      flunk "control check-in with CREATE VISIT YES should file V VISIT at IEN #{expected_ien}" unless fields
+
+      control_fm = RpmsRpc::FilemanDateParser.to_fileman(control_start)
+      no_fm = RpmsRpc::FilemanDateParser.to_fileman(start)
+      assert fileman_values_equal?(fields.dig(".26", :internal), control_fm),
+             "V VISIT #{expected_ien} .26 should match the control appointment, proving the NO check-in filed nothing at this IEN"
+      refute fileman_values_equal?(fields.dig(".26", :internal), no_fm),
+             "V VISIT #{expected_ien} must not match the NO check-in appointment start"
+      assert_equal PATIENT.to_s, fields.dig(".05", :internal).to_s
+      assert_equal hloc.to_s, fields.dig(".22", :internal).to_s
     ensure
       restore_create_visit_flag!(hloc, original)
     end
+  end
+
+  def test_creates_visit_at_checkin_raises_when_the_clinic_has_no_9009017_2_entry
+    loc = RpmsRpc::Scheduling.hospital_locations.find { |h| h[:location] == CHART_REVIEW_NAME }
+    flunk "no hospital location named #{CHART_REVIEW_NAME} in Scheduling.hospital_locations" unless loc
+
+    hloc = loc[:location_ien]
+    flunk "#{CHART_REVIEW_NAME} has a blank hospital location IEN" if hloc.to_s.empty?
+
+    flag_read = in_ciav do
+      RpmsRpc::DdrFileman.gets_entry(file: CLINIC_FLAG_FILE, iens: "#{hloc},", fields: ".09", flags: "IE")
+    end
+    flunk "DDR GETS on #{CLINIC_FLAG_FILE} #{hloc} gave no reply" if flag_read.nil?
+    assert flag_read[:error],
+           "expected no readable #{CLINIC_FLAG_FILE} entry at hospital location #{hloc} (#{CHART_REVIEW_NAME}) before calling creates_visit_at_checkin"
+
+    name_read = in_ciav do
+      RpmsRpc::DdrFileman.gets_entry(file: "44", iens: "#{hloc},", fields: ".01", flags: "I")
+    end
+    flunk "DDR GETS on #44 #{hloc} .01 gave no reply" if name_read.nil?
+    refute name_read[:error], "DDR GETS on #44 #{hloc} .01 refused: #{name_read.inspect}"
+
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::SchedulingSetup.creates_visit_at_checkin(hloc) }
   end
 
   private
@@ -95,7 +149,13 @@ class SchedulingCheckinVisitLiveTest < LiveSpec::Test
 
   def ensure_checkin_visit_resource!(hloc_ien)
     existing = RpmsRpc::Scheduling.resources.find { |r| r[:name] == RESOURCE_NAME }
-    return existing if existing
+    if existing
+      unless existing[:hospital_location_id].to_s == hloc_ien.to_s
+        flunk "reused #{RESOURCE_NAME} has hospital_location_id #{existing[:hospital_location_id].inspect}, " \
+              "expected demo clinic #{hloc_ien.inspect} (#{CLINIC_NAME})"
+      end
+      return existing
+    end
 
     reply = client.with_context(RpmsRpc::Scheduling::CONTEXT) do
       client.call_rpc("BSDX ADD/EDIT RESOURCE", "0|#{RESOURCE_NAME}|NO|#{hloc_ien}|15")
@@ -144,33 +204,51 @@ class SchedulingCheckinVisitLiveTest < LiveSpec::Test
     flunk "DDR LISTER on #{BSD_PARAM_FILE} gave no reply" if listed.nil?
     flunk "DDR LISTER on #{BSD_PARAM_FILE} errored: #{listed.inspect}" if listed[:error]
 
-    restores = []
     listed[:entries].each do |entry|
       printer = entry[:pieces][1].to_s.split(";").first
       next unless printer.to_s.strip.empty?
 
       param_ien = entry[:ien]
+      original = read_bsd_param_printer_internal(param_ien)
+      @bsd_param_restores << { ien: param_ien, original: original }
+
       rows = [ { file: BSD_PARAM_FILE, field: ".05", iens: "#{param_ien},", value: null_ien } ]
       got = in_ciav { RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: rows) }
       assert got && got[:success],
              "DDR FILER on #{BSD_PARAM_FILE} #{param_ien} .05=#{null_ien}: #{got.inspect}"
-      restores << { ien: param_ien, original: "" }
     end
-    restores
   end
 
   def restore_file_room_printers!(restores)
+    failures = []
     restores.each do |row|
       value = row[:original].to_s.empty? ? "@" : row[:original]
       filer_rows = [ { file: BSD_PARAM_FILE, field: ".05", iens: "#{row[:ien]},", value: value } ]
       got = in_ciav { RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: filer_rows) }
-      assert got && got[:success],
-             "DDR FILER restore on #{BSD_PARAM_FILE} #{row[:ien]} .05: #{got.inspect}"
+      unless got && got[:success]
+        failures << "DDR FILER restore on #{BSD_PARAM_FILE} #{row[:ien]} .05: #{got.inspect}"
+        next
+      end
 
-      current = read_bsd_param_printer_internal(row[:ien])
-      assert_equal row[:original].to_s, current,
-                   "BSD PARAMETERS #{BSD_PARAM_FILE} IEN #{row[:ien]} .05 was not restored"
+      current_read = in_ciav do
+        RpmsRpc::DdrFileman.gets_entry(file: BSD_PARAM_FILE, iens: "#{row[:ien]},", fields: ".05", flags: "I")
+      end
+      if current_read.nil?
+        failures << "DDR GETS on #{BSD_PARAM_FILE} #{row[:ien]} .05 gave no reply after restore"
+        next
+      end
+      if current_read[:error]
+        failures << "DDR GETS on #{BSD_PARAM_FILE} #{row[:ien]} .05 refused after restore: #{current_read.inspect}"
+        next
+      end
+
+      current = current_read.dig(:fields, ".05", :internal).to_s
+      unless row[:original].to_s == current
+        failures << "BSD PARAMETERS #{BSD_PARAM_FILE} IEN #{row[:ien]} .05 was not restored " \
+                    "(got #{current.inspect}, wanted #{row[:original].inspect})"
+      end
     end
+    assert failures.empty?, failures.join("\n")
   end
 
   def read_bsd_param_printer_internal(param_ien)

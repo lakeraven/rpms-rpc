@@ -98,21 +98,39 @@ class SchedulingSetupTest < Minitest::Test
     client = use([ "[Data]", "9009017.2^3^.09^1^YES" ])
 
     assert RpmsRpc::SchedulingSetup.creates_visit_at_checkin(3)
+    assert_equal "DDR GETS ENTRY DATA", client.calls.first[:rpc]
     assert_equal({ "FILE" => "9009017.2", "IENS" => "3,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
     assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
   end
 
   def test_create_visit_at_checkin_is_false_when_the_flag_is_not_yes
-    use([ "[Data]", "9009017.2^6^.09^0^NO" ])
+    client = use([ "[Data]", "9009017.2^6^.09^0^NO" ])
     refute RpmsRpc::SchedulingSetup.creates_visit_at_checkin(6)
+    assert_equal "DDR GETS ENTRY DATA", client.calls.first[:rpc]
+    assert_equal({ "FILE" => "9009017.2", "IENS" => "6,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
+    assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
 
-    use([ "[Data]", "9009017.2^8^.09^^" ])
+    client = use([ "[Data]", "9009017.2^8^.09^^" ])
     refute RpmsRpc::SchedulingSetup.creates_visit_at_checkin(8)
+    assert_equal "DDR GETS ENTRY DATA", client.calls.first[:rpc]
+    assert_equal({ "FILE" => "9009017.2", "IENS" => "8,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
+    assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
   end
 
-  def test_create_visit_at_checkin_is_false_when_the_clinic_has_no_9009017_2_entry
-    use([ "[Data]" ])
-    refute RpmsRpc::SchedulingSetup.creates_visit_at_checkin(999)
+  def test_create_visit_at_checkin_is_false_when_an_entry_whose_09_is_empty
+    client = use([ "[Data]", "9009017.2^7^.09^^" ])
+    refute RpmsRpc::SchedulingSetup.creates_visit_at_checkin(7)
+    assert_equal "DDR GETS ENTRY DATA", client.calls.first[:rpc]
+    assert_equal({ "FILE" => "9009017.2", "IENS" => "7,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
+    assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
+  end
+
+  def test_create_visit_at_checkin_raises_when_the_clinic_has_no_9009017_2_entry
+    client = use([ "[ERROR]" ])
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::SchedulingSetup.creates_visit_at_checkin(999) }
+    assert_equal "DDR GETS ENTRY DATA", client.calls.first[:rpc]
+    assert_equal({ "FILE" => "9009017.2", "IENS" => "999,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
+    assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
   end
 
   def test_a_hospital_location_that_is_not_a_number_is_nil_for_create_visit_at_checkin
@@ -122,8 +140,11 @@ class SchedulingSetupTest < Minitest::Test
   end
 
   def test_a_refused_or_unanswered_create_visit_read_raises
-    use([ "[ERROR]" ])
+    client = use([ "[ERROR]" ])
     assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::SchedulingSetup.creates_visit_at_checkin(3) }
+    assert_equal "DDR GETS ENTRY DATA", client.calls.first[:rpc]
+    assert_equal({ "FILE" => "9009017.2", "IENS" => "3,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
+    assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
     use(nil)
     assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::SchedulingSetup.creates_visit_at_checkin(3) }
   end
