@@ -70,6 +70,30 @@ class SchedulingSetupHolidayWritesTest < Minitest::Test
     assert_empty @mock.received_calls
   end
 
+  def test_add_holiday_refuses_name_with_caret_without_rpc
+    result = Setup.add_holiday(date: HOLIDAY_DATE, name: "FOUR^TH")
+
+    assert_equal :invalid, result&.dig(:error), result.inspect
+    refute result[:success]
+    assert_empty @mock.received_calls
+  end
+
+  def test_add_holiday_refuses_name_at_sign_without_rpc
+    result = Setup.add_holiday(date: HOLIDAY_DATE, name: "@")
+
+    assert_equal :invalid, result&.dig(:error), result.inspect
+    refute result[:success]
+    assert_empty @mock.received_calls
+  end
+
+  def test_add_holiday_refuses_name_with_control_byte_without_rpc
+    result = Setup.add_holiday(date: HOLIDAY_DATE, name: "LABOR\x01DAY")
+
+    assert_equal :invalid, result&.dig(:error), result.inspect
+    refute result[:success]
+    assert_empty @mock.received_calls
+  end
+
   def test_add_holiday_surfaces_ddr_filer_errors
     @mock.seed(:ddr_filer, "ADD",
                "[Data]\n[BEGIN_diERRORS]\n701^1^40.5^+1,^.01^2\nDuplicate.\n[END_diERRORS]")

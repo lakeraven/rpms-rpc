@@ -116,6 +116,43 @@ class DdrFilemanTest < Minitest::Test
     assert_nil Ddr.filer(mode: "ADD", rows: ROWS)
   end
 
+  FILER_REPLY_WITHOUT_DATA_MARKER_M = "M  ERROR=FDASET+5^DDR3, <UNDEFINED>"
+  FILER_REPLY_WITHOUT_DATA_MARKER_RPC = "-1^Remote procedure DDR FILER doesn't exist"
+
+  def test_filer_bare_m_error_reply_is_not_success_and_names_missing_data_marker
+    @mock.seed(:ddr_filer, "ADD", FILER_REPLY_WITHOUT_DATA_MARKER_M)
+
+    result = Ddr.filer(mode: "ADD", rows: ROWS)
+
+    refute result[:success]
+    assert_equal({}, result[:iens])
+    joined = result[:errors].join("\n")
+    assert_match(/\[Data\]/, joined)
+    assert_includes joined, FILER_REPLY_WITHOUT_DATA_MARKER_M
+  end
+
+  def test_filer_missing_rpc_reply_is_not_success_and_names_missing_data_marker
+    @mock.seed(:ddr_filer, "ADD", FILER_REPLY_WITHOUT_DATA_MARKER_RPC)
+
+    result = Ddr.filer(mode: "ADD", rows: ROWS)
+
+    refute result[:success]
+    assert_equal({}, result[:iens])
+    joined = result[:errors].join("\n")
+    assert_match(/\[Data\]/, joined)
+    assert_includes joined, FILER_REPLY_WITHOUT_DATA_MARKER_RPC
+  end
+
+  def test_filer_data_marker_with_placeholder_rows_still_returns_resolved_iens
+    @mock.seed(:ddr_filer, "ADD", "[Data]\n+1,^42\n+2,^7")
+
+    result = Ddr.filer(mode: "ADD", rows: ROWS, iens: { 1 => 42, 2 => 7 })
+
+    assert result[:success]
+    assert_equal({ 1 => "42", 2 => "7" }, result[:iens])
+    assert_empty result[:errors]
+  end
+
   # ==========================================================================
   # DDR LISTER — lister() call + V0 reply parsing
   # ==========================================================================
