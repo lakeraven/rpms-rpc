@@ -14,7 +14,7 @@ require "rpms_rpc/api/order"
 # Broker formals SEND(ORWLST,DFN,ORNP,ORL,ES,ORWREC) (ORWDX.m:168-170):
 # ES is the encrypted signature code; ORWREC(n)=ORIFN;Action^Signature Sts^
 # Release Sts^Nature (comment ORWDX.m:170). CHKACT^ORWDXR validates
-# ORWSIG/ORWREL/ORWNATR before EN^ORCSEND (ORWDXR.m:87-98). Reply piece 2
+# ORWSIG/ORWREL/ORWNATR before EN^ORCSEND (CHKACT^ORWDXR, ORWDXR.m:152-163). Reply piece 2
 # is built at ORWDX.m:189-193 ("R" when released, "S" when ORWSIG'=2).
 # Per-order status: :released (piece 2 exactly "RS"), :signed (exactly "S"),
 # :rejected (nothing sent: bad args, blank signature, VALIDSIG not "1"),
@@ -36,7 +36,7 @@ class OrderSignAndReleaseTest < Minitest::Test
   ORDER_ONE = "10;1"
   ORDER_TWO = "11;1"
 
-  ORWREC_ROW = "1^1^E" # ORWSIG=1 ES (ORWDXR.m:91), ORWREL=1, ORWNATR=E (electronic)
+  ORWREC_ROW = "1^1^E" # ORWSIG=1 ES (ORWDXR.m:156), ORWREL=1, ORWNATR=E (electronic)
 
   def teardown
     RpmsRpc.reset!
@@ -244,6 +244,46 @@ class OrderSignAndReleaseTest < Minitest::Test
     assert_equal 1, results.length
     assert_equal :unknown, results[0][:status]
     assert_unknown_outcome_reason(results[0][:reason])
+  end
+
+  # F2: parse_sign_release_reply runs after SEND succeeds; invalid UTF-8 in a
+  # reply line makes String#split raise ArgumentError outside the SEND rescue.
+  def test_sign_and_release_send_reply_string_with_invalid_utf8_returns_unknown_not_raise
+    invalid_line = sign_release_invalid_utf8_reply_line(ORDER_ONE)
+    refute invalid_line.valid_encoding?, "fixture must be invalid UTF-8"
+
+    RpmsRpc.reset!
+    RpmsRpc.configure do |c|
+      c.client = sign_release_send_reply_client(validsig: "1", send_reply: invalid_line)
+    end
+
+    results = RpmsRpc::Order.sign_and_release(DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE)
+
+    assert_send_error_unknown_results(results, [ ORDER_ONE ], ArgumentError)
+    refute results.any? { |r| r[:status] == :released }
+    assert_equal 1, rpc_calls.count { |c| c[:rpc] == SEND_RPC }
+  end
+
+  def test_sign_and_release_send_reply_array_with_invalid_utf8_returns_unknown_not_raise
+    invalid_line = sign_release_invalid_utf8_reply_line(ORDER_ONE)
+    refute invalid_line.valid_encoding?, "fixture must be invalid UTF-8"
+
+    RpmsRpc.reset!
+    RpmsRpc.configure do |c|
+      c.client = sign_release_send_reply_client(validsig: "1", send_reply: [ invalid_line ])
+    end
+
+    results = RpmsRpc::Order.sign_and_release(
+      DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE, ORDER_TWO ], SIG_CODE
+    )
+
+    assert_send_error_unknown_results(
+      results,
+      [ ORDER_ONE, ORDER_TWO ],
+      ArgumentError
+    )
+    refute results.any? { |r| r[:status] == :released }
+    assert_equal 1, rpc_calls.count { |c| c[:rpc] == SEND_RPC }
   end
 
   def test_sign_and_release_unrecognised_piece_two_never_released
@@ -1168,6 +1208,31 @@ class OrderSignAndReleaseTest < Minitest::Test
           end
 
           raise "unexpected RPC #{rpc_name.inspect}" if rpc_name == SEND_RPC
+
+          raise "unexpected RPC #{rpc_name.inspect}"
+        end
+      end
+    end.new
+  end
+
+  def sign_release_invalid_utf8_reply_line(order_id)
+    line = "#{order_id}\xff^RS".b
+    line.force_encoding(Encoding::UTF_8)
+    line
+  end
+
+  def sign_release_send_reply_client(validsig:, send_reply:)
+    code = SIG_CODE
+    Class.new do
+      define_method(:received_calls) { @calls ||= [] }
+      define_method(:current_context) { nil }
+      define_method(:duz) { PROVIDER_DUZ }
+
+      %i[call_rpc call_rpc_lines call_rpc_global_array].each do |meth|
+        define_method(meth) do |rpc_name, *params|
+          received_calls << { rpc: rpc_name, params: params, context: current_context }
+          return validsig if rpc_name == VALIDSIG_RPC
+          return send_reply if rpc_name == SEND_RPC
 
           raise "unexpected RPC #{rpc_name.inspect}"
         end

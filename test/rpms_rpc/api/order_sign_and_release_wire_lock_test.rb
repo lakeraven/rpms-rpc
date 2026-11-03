@@ -140,6 +140,71 @@ class OrderSignAndReleaseWireLockTest < Minitest::Test
     assert_equal client.object_id, ids.first
   end
 
+  # F1: sign_and_release resolves RpmsRpc.client once for RPCs but
+  # RpmsRpc.synchronize_wire resolves it again for the lock. After a
+  # reconfigure, RPCs run on client A while the monitor held is B's.
+  def test_sign_and_release_holds_resolved_client_wire_lock_when_global_client_is_reconfigured_before_synchronize_wire
+    original_client = RpmsRpc.method(:client)
+    client_a = wire_lock_sign_release_client(per_call_lock: false)
+    client_a.duz = PROVIDER_DUZ
+    client_b = wire_lock_sign_release_client(per_call_lock: false)
+    client_b.duz = PROVIDER_DUZ
+
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = client_a }
+
+    resolver_reads = 0
+    RpmsRpc.singleton_class.define_method(:client) do
+      resolver_reads += 1
+      if resolver_reads == 1
+        client_a
+      else
+        RpmsRpc.configuration.client = client_b
+        client_b
+      end
+    end
+
+    peer_entered_a_lock = [ false ]
+    peer_on_a = nil
+    client_a.after_validsig_hook = lambda do |_cli|
+      peer_on_a = Thread.new do
+        client_a.synchronize_wire { peer_entered_a_lock[0] = true }
+      end
+      INTERLEAVE_SPIN_CAP.times do
+        break if peer_on_a.status == "sleep" || peer_entered_a_lock[0]
+
+        Thread.pass
+      end
+      refute(
+        peer_entered_a_lock[0],
+        "a peer must not acquire client A's wire lock during VALIDSIG..SEND; " \
+        "doing so means the sequence is not held on the client that owns the RPCs"
+      )
+    end
+
+    begin
+      results = RpmsRpc::Order.sign_and_release(
+        DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE
+      )
+
+      refute_nil peer_on_a
+      peer_on_a.kill
+      assert peer_on_a.join(THREAD_JOIN_TIMEOUT)
+
+      assert_operator resolver_reads, :>=, 2,
+                      "expected a second RpmsRpc.client read from module synchronize_wire"
+      assert_nil client_a.lock_violation,
+                 "VALIDSIG and SEND must run under client A's wire lock, not a re-resolved client's"
+      assert_equal 2, client_a.rpc_log.length, "RPCs must still use the client resolved at entry"
+      assert_empty client_b.rpc_log, "re-resolved client B must not receive VALIDSIG or SEND"
+
+      row = results.fetch(0)
+      assert_equal :released, row[:status]
+    ensure
+      RpmsRpc.singleton_class.define_method(:client, original_client)
+    end
+  end
+
   def test_mock_client_exposes_session_duz_mutators
     mock = RpmsRpc::MockClient.new
 
