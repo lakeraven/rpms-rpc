@@ -111,16 +111,16 @@ module RpmsRpc
     # I $$GET1^DIQ(9009017.2,+BSDXC("HOS LOC"),.09)'="YES" Q). #9009017.2 is
     # the hospital location's IHS scheduling companion entry. .09 (CREATE
     # VISIT AT CHECK-IN) is a set of codes whose internal "1" is external
-    # "YES" (observed live); this method checks internal "1". true only when
-    # .09 is YES. false when the entry exists and .09 is NO or empty. A clinic
-    # with no #9009017.2 entry raises Client::RpcError, as do a nil or error
-    # reply. DDR GETS ENTRY DATA for a missing entry answers the bare reply
-    # ["[ERROR]"] (GETS^DIQ raises DIALOG 601, DDR2 writes only [ERROR]), so
-    # over the wire a missing entry cannot be told from another failure. That
-    # is deliberate (fail closed). M itself treats a missing entry as no
-    # visit, so a host that gets the raise must not assume check-in will
-    # create the visit. nil for an IEN that is not a positive integer, and no
-    # RPC is sent.
+    # "YES" (observed live). true only when the .09 row's internal is "1" and
+    # its external is "YES"; otherwise false. A reply with no .09 field row
+    # raises Client::RpcError (fail closed). A clinic with no #9009017.2
+    # entry raises Client::RpcError, as do a nil or error reply. DDR GETS ENTRY
+    # DATA for a missing entry answers the bare reply ["[ERROR]"] (GETS^DIQ
+    # raises DIALOG 601, DDR2 writes only [ERROR]), so over the wire a missing
+    # entry cannot be told from another failure. That is deliberate (fail
+    # closed). M itself treats a missing entry as no visit, so a host that
+    # gets the raise must not assume check-in will create the visit. nil for
+    # an IEN that is not a positive integer, and no RPC is sent.
     def creates_visit_at_checkin(hospital_location_id)
       ien = hospital_location_id.to_s
       return nil unless ien.match?(/\A[1-9]\d*\z/)
@@ -131,7 +131,10 @@ module RpmsRpc
       raise Client::RpcError, "DDR GETS ENTRY DATA gave no reply for ##{IHS_CLINIC_FILE} #{ien}" if got.nil?
       raise Client::RpcError, "DDR GETS ENTRY DATA refused ##{IHS_CLINIC_FILE} #{ien}" if got[:error]
 
-      got.dig(:fields, CREATE_VISIT_AT_CHECKIN_FIELD, :internal).to_s == "1"
+      row = got[:fields][CREATE_VISIT_AT_CHECKIN_FIELD]
+      raise Client::RpcError, "DDR GETS ENTRY DATA for ##{IHS_CLINIC_FILE} #{ien} is missing the #{CREATE_VISIT_AT_CHECKIN_FIELD} row" if row.nil?
+
+      row[:internal].to_s == "1" && row[:external].to_s == "YES"
     end
     shape :creates_visit_at_checkin, resource: "appointments", verb: "GET", path: "/appointments/creates-visit-at-checkin"
 
