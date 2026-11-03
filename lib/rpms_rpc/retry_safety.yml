@@ -292,6 +292,7 @@
 "RpmsRpc::Scheduling.checkin_appointment": non_idempotent_write
 "RpmsRpc::Scheduling.checkout_appointment": non_idempotent_write
 "RpmsRpc::Scheduling.clinic_setup": non_idempotent_write
+"RpmsRpc::Scheduling.edit_appointment": non_idempotent_write
 "RpmsRpc::Scheduling.hospital_locations": non_idempotent_write
 "RpmsRpc::Scheduling.mark_no_show": non_idempotent_write
 "RpmsRpc::Scheduling.overbook_allowed": non_idempotent_write
@@ -299,6 +300,7 @@
 "RpmsRpc::Scheduling.resources": read
 "RpmsRpc::Scheduling.slot_schedule": non_idempotent_write
 "RpmsRpc::Scheduling.uncancel_appointment": non_idempotent_write
+"RpmsRpc::Scheduling.variable_length?": non_idempotent_write
 "RpmsRpc::SchedulingSetup.access_types": read
 "RpmsRpc::SchedulingSetup.add_holiday": non_idempotent_write
 "RpmsRpc::SchedulingSetup.clinic_rules": read
@@ -309,6 +311,8 @@
 "RpmsRpc::SchedulingSetup.mark_overbook": non_idempotent_write
 "RpmsRpc::SchedulingSetup.master_overbook?": read
 "RpmsRpc::SchedulingSetup.remove_holiday": non_idempotent_write
+"RpmsRpc::SchedulingSetup.set_cancellation_remarks": non_idempotent_write
+"RpmsRpc::SchedulingSetup.set_clinic_note": non_idempotent_write
 "RpmsRpc::Session.bootstrap": read
 "RpmsRpc::Site.current": read
 "RpmsRpc::Site.list": read
