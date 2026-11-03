@@ -79,6 +79,28 @@ module RpmsRpc
       }.freeze
     }.freeze
 
+    # RPCs whose answer depends on every parameter, not the first alone.
+    #
+    # A seed key that is an Array is stored as key.to_s (Array#to_s is the
+    # list's inspect) and looked up as params.to_s. A seed under the first
+    # parameter alone must not answer, in any table: lines (including
+    # #seed_raw_lines), text blobs, records, keyed collections, collections,
+    # or the scalar first-parameter fallback. Every other RPC keeps
+    # first-parameter lookup. An unseeded lookup still returns "".
+    #
+    # ORWU NPHASKEY answers for the pair [DUZ, KEY]:
+    # NPHASKEY^ORWU(VAL,NP,KEY) = ''$D(^XUSEC(KEY,NP)). The name is
+    # DataMapper[:person_has_key].rpc_name when that mapping is already
+    # registered, and the literal it registers otherwise. This file does
+    # not load a mapping set.
+    FULL_KEY_RPCS = [
+      begin
+        DataMapper[:person_has_key].rpc_name
+      rescue KeyError
+        "ORWU NPHASKEY"
+      end
+    ].freeze
+
     def initialize
       @records = {}     # { rpc_name => { key => formatted_string } }
       @collections = {} # { rpc_name => { lines: [...], filter_field: Symbol?, filter_pos: Integer? } }
@@ -399,6 +421,7 @@ end
         # The broker decrypts before it looks anything up, each routine in its
         # own way. A parameter that does not survive THIS routine's decoding
         # never resolves to a user, so answer the way the routine answers.
+        full_key = false
         key = spec[:decode].call(params.first)
         return spec[:rejected].dup if key.nil?
 
@@ -406,16 +429,21 @@ end
         # these routines always build their RET() array, so "no seed matched"
         # must not come back as an empty reply.
         return spec[:rejected].dup unless seeded_key?(rpc_name, key)
+      elsif FULL_KEY_RPCS.include?(rpc_name)
+        # The whole parameter list, never the first parameter alone.
+        key = params.to_s
+        full_key = true
       else
         key = params.first.to_s
+        full_key = false
       end
 
-      # Line-based responses (keyed by first param)
+      # Line-based responses (keyed by `key`)
       if @lines&.dig(rpc_name, key)
         return @lines[rpc_name][key]
       end
 
-      # Text blob responses (keyed by first param)
+      # Text blob responses (keyed by `key`)
       if @text_blobs&.dig(rpc_name, key)
         text = @text_blobs[rpc_name][key]
         # Split on a binary copy: a text seed that is not valid UTF-8 must
@@ -423,18 +451,20 @@ end
         return text.include?("\n") ? text.b.split("\n").map { |line| line.force_encoding(text.encoding) } : text
       end
 
-      # Single records (keyed by first param)
+      # Single records (keyed by `key`)
       if @records.dig(rpc_name, key)
         return [ @records[rpc_name][key] ]
       end
 
-      # Keyed collections (keyed by first param)
+      # Keyed collections (keyed by `key`)
       if @keyed_collections&.dig(rpc_name, key)
         return @keyed_collections[rpc_name][key]
       end
 
-      # Collections (optionally filtered by first param)
-      if (col = @collections[rpc_name])
+      # Collections (optionally filtered by first param). A full-key RPC is
+      # not stored here: this table is one result set for the RPC, not a
+      # seed under the parameter list, so it must not answer one.
+      if (col = @collections[rpc_name]) && !full_key
         return filter_collection(col, key)
       end
 
@@ -442,10 +472,11 @@ end
       # whose to_s is the list's inspect) answers a call with those
       # arguments, so two calls that share a first parameter and differ
       # later do not collide. A seed under the first parameter alone still
-      # matches, which is how every other scalar is stored.
+      # matches, which is how every other scalar is stored. FULL_KEY_RPCS
+      # do not take that fallback: the full list is the only key.
       if (table = @scalars[rpc_name])
         found = table[params.to_s]
-        found = table[key] if found.nil?
+        found = table[key] if found.nil? && !full_key
         return found unless found.nil?
       end
 

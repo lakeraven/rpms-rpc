@@ -61,6 +61,17 @@ module RpmsRpc
     # it on failure) and the next scope re-binds from a truthful starting
     # point rather than assuming the old name.
     #
+    # The re-bind is skipped when `current_context` already equals
+    # `previous`: nothing changed, so nothing is restored.
+    # `Client#create_context` raises ConnectionError ("Not connected") or
+    # AuthenticationError ("Not authenticated") before the wire and leaves
+    # `current_context` unchanged; re-binding there fails the same way and
+    # warns "could not restore context". A refused on-the-wire bind is not
+    # this case. It clears `current_context` to nil, and the ensure still
+    # re-binds `previous` (scope entry and nested). Do not skip a restore
+    # merely because `current_context` is nil — an earlier
+    # `return if current_context.nil?` broke those nested restores.
+    #
     # Held under the client's wire lock for its WHOLE duration, bind through
     # restore. The bound option is per-session state that the broker consults
     # on every frame, so a scope that only locked its individual calls let
@@ -84,11 +95,12 @@ module RpmsRpc
         # The entry bind is inside the ensure so a refusal still restores.
         # create_context raises without running the block. On XWB/BMX a
         # refused CREATE CONTEXT has already killed the broker context and
-        # cleared current_context. The ensure re-binds `previous` when it
-        # is known and differs from option_name. A nested refusal is the
-        # same shape one level up: the outer ensure calls
-        # create_context(previous) even though the inner failure left
-        # current_context nil along the way.
+        # cleared current_context, so the ensure re-binds `previous` (scope
+        # entry and nested) even though current_context is nil along the
+        # way. A failure before the wire leaves current_context equal to
+        # previous, and restore_context does not re-bind. Do not
+        # `return if current_context.nil?` — that early return broke nested
+        # refused-bind restores.
         begin
           create_context(option_name)
           block.call
@@ -109,11 +121,16 @@ module RpmsRpc
     def restore_context(previous, scoped)
       return if previous.nil? || previous == scoped
 
-      # Always attempt the re-bind. A refused inner bind leaves
-      # current_context nil; skipping the restore there would leave the
-      # session with no context. create_context(previous) is the recovery.
-      # If this bind is refused too, the rescue warns and current_context
-      # stays nil.
+      # Already the context we would re-bind: the bind never took effect.
+      # create_context raises ConnectionError ("Not connected") or
+      # AuthenticationError ("Not authenticated") before the wire and does
+      # not clear current_context. Re-binding would fail the same way and
+      # warn. A refused on-the-wire bind is different: it clears
+      # current_context to nil, which is not equal to previous, so the
+      # re-bind below still runs for scope entry and nested refusals. Do
+      # not `return if current_context.nil?` — that skips those restores.
+      return if current_context == previous
+
       create_context(previous)
     rescue StandardError => e
       warn "[rpms_rpc] could not restore context #{previous.inspect} " \
