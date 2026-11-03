@@ -86,6 +86,11 @@ module RpmsRpc
     TEMP_HRN_RPC = "AGG GET TEMP PAT HRN"     # GTMP^AGGPTHRN, return type GLOBAL ARRAY
     DISPLAY_RPC = "AGG BUILD WINDOW DISPLAY"    # BLD^AGGWDISP, return type GLOBAL ARRAY
     VALUE_PAIR = "\x1c" # $C(28): a T or C value is INTERNAL_$C(28)_EXTERNAL (AGGWDISP.m:35-50)
+    WINDOW_MULTIPLE_RPC = "AGG BUILD WINDOW MULTIPLE" # MUL^AGGPTDMG, a multiple window's entries
+    TABLE_LOOKUP_RPC = "AGG WINDOW TABLE LOOKUP"      # LKP^AGGWTBLK, a pointed-to file's entries by name
+    UPDATE_ALIASES_RPC = "AGG UPDATE ALIASES"         # ALIAS^AGGPTNAM
+    UPDATE_SPECIAL_MULTIPLES_RPC = "AGG UPDATE SPECIAL MULTIPLES" # UPD^AGGPOTH
+    PATIENT_LANGUAGES_RPC = "AGG PATIENT LANGUAGES"   # LANG^AGGWOTH, the latest entry's other languages
 
     # The context option the AGG* RPCs are registered under — file 19 IEN
     # 13112, TYPE "B", no LOCK. Every method here binds it; see the module doc.
@@ -276,6 +281,72 @@ module RpmsRpc
       end
     end
 
+
+    # MUL^AGGPTDMG: the entries of a multiple window (P1 window, P2 the node of the
+    # multiple under the patient's record, P3 the DFN, P4 one entry or "" for all).
+    # Returns the records, or nil when RPMS did not answer.
+    def window_multiple(window:, node:, dfn:, client: RpmsRpc.client)
+      reply = in_context(client) { parse_reply(call_array(client, WINDOW_MULTIPLE_RPC, window, node.to_s, dfn.to_s, "")) }
+      reply && reply[:records]
+    end
+    shape :window_multiple, resource: "agg", verb: "GET", path: "/patients/{dfn}/agg/window-multiple"
+
+    # LKP^AGGWTBLK: the entries of a pointed-to file whose name starts with the
+    # text (FIND^DIC, AGGWTBLK.m), the look-up AG's client runs for a table
+    # field. Returns [{ ien:, name: }], [] when none match, or nil when RPMS did
+    # not answer. The text must not be empty: LKP refuses it.
+    def table_lookup(file:, text:, client: RpmsRpc.client)
+      text = text.to_s.strip
+      raise ArgumentError, "a look-up needs text" if text.empty?
+
+      reply = in_context(client) { parse_reply(call_array(client, TABLE_LOOKUP_RPC, file.to_s, text, "")) }
+      return nil if reply.nil?
+
+      # The name is the second column, read by position: a file's header can
+      # name two columns alike (STATE's is IEN^NAME^VA_STATE_CODE^NAME), and the
+      # record hash keeps only the last of them.
+      reply[:rows].map { |pieces| { ien: pieces[0].to_i, name: pieces[1].to_s } }
+    end
+    shape :table_lookup, resource: "agg", verb: "GET", path: "/agg/files/{file}/table-lookup"
+
+    # ALIAS^AGGPTNAM: add ("A") or delete ("D") one entry of the PATIENT ALIAS
+    # multiple (#2.01). An add files the name through FILE^DICN with no input
+    # transform, so a caller checks the name first. Reply header
+    # "I00010RESULT^T01024ERROR^I00010RIEN"; returns { success: true, ien: } or
+    # { success: false, error: :agg_rejected, message: }, nil for no reply.
+    def update_aliases(dfn:, action:, ien: "", params: {}, client: RpmsRpc.client)
+      in_context(client) do
+        interpret_entry_write(call_array(client, UPDATE_ALIASES_RPC, dfn.to_s, action.to_s, ien.to_s, encode_parms(params)))
+      end
+    end
+    shape :update_aliases, resource: "agg", verb: "PUT", path: "/patients/{dfn}/agg/aliases"
+
+    # UPD^AGGPOTH: add ("A") or delete ("D") one entry of a multiple below a
+    # dated entry, for the window "Other Languages" (#9000001.8605 under a
+    # LANGUAGES ENTRY DATE) or "Internet Access Method". P3 is the DFN, P4 the
+    # dated entry's IEN. Returns { success: true } or { success: false, ... }.
+    def update_special_multiple(window:, dfn:, entry:, action:, params:, client: RpmsRpc.client)
+      in_context(client) do
+        interpret_entry_write(call_array(client, UPDATE_SPECIAL_MULTIPLES_RPC, window, dfn.to_s, entry.to_s, action.to_s,
+                                         encode_parms(params)))
+      end
+    end
+    shape :update_special_multiple, resource: "agg", verb: "PUT", path: "/patients/{dfn}/agg/special-multiple"
+
+    # LANG^AGGWOTH: the other languages of the patient's latest LANGUAGES ENTRY
+    # DATE (#9000001.86) entry, as [{ ien:, name: }], or nil when RPMS did not
+    # answer.
+    def patient_languages(dfn:, client: RpmsRpc.client)
+      reply = in_context(client) { parse_reply(call_array(client, PATIENT_LANGUAGES_RPC, dfn.to_s)) }
+      return nil if reply.nil?
+
+      reply[:records].map do |row|
+        ien, name = row[:agglgoth].to_s.split(PARM_DELIM, 2)
+        { ien: ien.to_i, name: name.to_s }
+      end
+    end
+    shape :patient_languages, resource: "agg", verb: "GET", path: "/patients/{dfn}/agg/languages"
+
     # Run the block holding AG's own edit lock on the patient, under AGGRPC,
     # and release it afterward. This is the lock AG ships for editing a
     # registration ("This event is locked for editing by ...", AGGLOCK.m:50;
@@ -371,11 +442,9 @@ module RpmsRpc
       return nil if rows.empty?
 
       names = parse_header(rows.shift)
-      records = rows.reject(&:empty?).map do |row|
-        pieces = row.split("^", -1)
-        names.each_with_index.to_h { |name, i| [ name, pieces[i] ] }
-      end
-      { header: names, records: records }
+      split = rows.reject(&:empty?).map { |row| row.split("^", -1) }
+      records = split.map { |pieces| names.each_with_index.to_h { |name, i| [ name, pieces[i] ] } }
+      { header: names, records: records, rows: split }
     end
 
     private
@@ -443,6 +512,18 @@ module RpmsRpc
       { success: false, error: error, message: record[:message].to_s }
     end
 
+    # A write whose reply is RESULT^ERROR[^RIEN]: ALIAS^AGGPTNAM and UPD^AGGPOTH.
+    def interpret_entry_write(reply)
+      parsed = parse_reply(reply)
+      return nil if parsed.nil?
+
+      record = parsed[:records].first
+      return { success: false, error: :agg_empty_reply, message: "AGG reply carried no data record" } if record.nil?
+      return { success: false, error: :agg_rejected, message: record[:error].to_s } unless record[:result].to_s == "1"
+
+      record[:rien].to_s.empty? ? { success: true } : { success: true, ien: record[:rien].to_i }
+    end
+
     # require_dfn: ADD^AGGPTADD always fills the DFN piece on success, so a
     # "1" result with a blank DFN is a malformed/partial reply for the add
     # path; UPD^AGGPTUPD legitimately returns "1^" with no DFN.
@@ -460,7 +541,11 @@ module RpmsRpc
           return { success: false, error: :agg_malformed_reply,
                    message: "AGG success record carried no DFN" }
         end
-        { success: true, dfn: dfn.empty? ? nil : dfn.to_i, message: message.to_s }
+        result = { success: true, dfn: dfn.empty? ? nil : dfn.to_i, message: message.to_s }
+        # UPD^AGGPTUPD's OTHER_PARMS names what a filing code created, e.g.
+        # "AGGLNG=7" for a new LANGUAGES ENTRY DATE entry (ULNG^AGGPOTH).
+        other = record[:other_parms].to_s
+        other.empty? ? result : result.merge(other_parms: other)
       else
         text = message.to_s.empty? ? record.values.compact.join("^") : message.to_s
         { success: false, error: :agg_rejected, message: text }
