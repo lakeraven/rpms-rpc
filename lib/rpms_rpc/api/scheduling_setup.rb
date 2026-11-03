@@ -7,12 +7,13 @@ require_relative "ddr_fileman"
 
 module RpmsRpc
   # The site's scheduling setup that decides where an appointment may go: the
-  # access types a block can carry, the holidays, and each clinic's booking
-  # rules. The BSDX RPCs answer none of these (the scheduling client read them
-  # with BMX SQL), so they are read here with the generic FileMan reads DDR
-  # LISTER (LISTC^DDR) and DDR GETS ENTRY DATA (GETSC^DDR2). Those are in CIAV
-  # VUECENTRIC, not BSDXRPC, and each method binds it for the call and restores
-  # the caller's option afterward. Every method only reads.
+  # access types a block can carry, the holidays, each clinic's booking
+  # rules, and whether check-in creates the PCC visit. The BSDX RPCs answer
+  # none of these (the scheduling client read them with BMX SQL), so they are
+  # read here with the generic FileMan reads DDR LISTER (LISTC^DDR) and DDR
+  # GETS ENTRY DATA (GETSC^DDR2). Those are in CIAV VUECENTRIC, not BSDXRPC,
+  # and each method binds it for the call and restores the caller's option
+  # afterward. Every method only reads.
   #
   # The reply shapes are what a live rpms-ydb 7c3119b build answered the
   # scheduler persona (2026-10-30).
@@ -25,6 +26,11 @@ module RpmsRpc
     ACCESS_TYPE_FILE = "9002018.35"
     HOLIDAY_FILE = "40.5"
     HOSPITAL_LOCATION_FILE = 44
+    # BSDX IHS clinic setup, the hospital-location companion. Field .09 is
+    # CREATE VISIT AT CHECK-IN, which CHECKIN^BSDX25 reads before it creates
+    # the PCC visit.
+    IHS_CLINIC_FILE = "9009017.2"
+    CREATE_VISIT_AT_CHECKIN_FIELD = ".09"
 
     # HOSPITAL LOCATION (#44) fields a booking depends on: 1914 HOUR CLINIC
     # DISPLAY BEGINS, 1918.5 SCHEDULE ON HOLIDAYS? (Y or empty), 2002 MAX # DAYS
@@ -97,6 +103,26 @@ module RpmsRpc
         reactivate_date: date_or_nil(value.(:reactivate_date)) }
     end
     shape :clinic_rules, resource: "appointments", verb: "GET", path: "/appointments/clinic-rules"
+
+    # Whether CHECKIN^BSDX25 (BSDX CHECKIN APPOINTMENT) creates the PCC visit
+    # for this clinic. It does so through GETVISIT^BSDAPI4 only when BSDX IHS
+    # clinic setup (#9009017.2) field .09 CREATE VISIT AT CHECK-IN has internal
+    # value "1". true only then; false for any other value, including a clinic
+    # with no 9009017.2 entry. nil for an IEN that is not a positive integer,
+    # and no RPC is sent. A nil reply or an error reply raises Client::RpcError.
+    def creates_visit_at_checkin(hospital_location_id)
+      ien = hospital_location_id.to_s
+      return nil unless ien.match?(/\A[1-9]\d*\z/)
+
+      got = in_context do
+        DdrFileman.gets_entry(file: IHS_CLINIC_FILE, iens: "#{ien},", fields: CREATE_VISIT_AT_CHECKIN_FIELD, flags: "IE")
+      end
+      raise Client::RpcError, "DDR GETS ENTRY DATA gave no reply for ##{IHS_CLINIC_FILE} #{ien}" if got.nil?
+      raise Client::RpcError, "DDR GETS ENTRY DATA refused ##{IHS_CLINIC_FILE} #{ien}" if got[:error]
+
+      got.dig(:fields, CREATE_VISIT_AT_CHECKIN_FIELD, :internal).to_s == "1"
+    end
+    shape :creates_visit_at_checkin, resource: "appointments", verb: "GET", path: "/appointments/creates-visit-at-checkin"
 
     private
 

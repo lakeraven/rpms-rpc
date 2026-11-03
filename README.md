@@ -571,6 +571,10 @@ An error row or a blank line behind that prefix is classified like a plain one: 
 
 The message names the RPC and, for a `-N^` row, the numeric code (`broker error -1`), or a fixed phrase (`ERRORID recordset`, `empty reply`, `no recordset header`, `unexpected second header`, `reply is not valid UTF-8`, `unexpected reply type`). Broker text stays out of the message: it can hold a patient name, and `sanitize_error` does not catch mixed-case names. The failure is never `Encoding::CompatibilityError`. `DataMapper#fetch_many` and `#fetch_many_or_nil` on these mappings keep the old contract for direct mapper callers. Only the Scheduling methods changed.
 
+## Scheduling setup
+
+`SchedulingSetup` reads access types, holidays and a clinic's booking rules with DDR in `CIAV VUECENTRIC`. `SchedulingSetup.creates_visit_at_checkin` reads BSDX IHS clinic setup (#9009017.2) field .09 (CREATE VISIT AT CHECK-IN). `CHECKIN^BSDX25` creates the PCC visit through `GETVISIT^BSDAPI4` only when that internal value is `1` (#530). A nil reply or an error reply raises `Client::RpcError`. A clinic with no #9009017.2 entry is false.
+
 ## Retry safety
 
 The gem never retries. `RpmsRpc::RetrySafety` and `lib/rpms_rpc/retry_safety.yml` classify each public method as `read`, `idempotent_write`, or `non_idempotent_write`, as advice to hosts. Only `:read` is `auto_retry_safe?`. An unclassified method is never retry-safe. `bundle exec rake rpc:retry_safety` fails when a public method is unclassified or an entry is stale.
