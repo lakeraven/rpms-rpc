@@ -83,6 +83,7 @@ module RpmsRpc
     LOCK_RPC = "AGG LOCK PATIENT"             # LOCK^AGGLOCK, return type GLOBAL ARRAY
     UNLOCK_RPC = "AGG UNLOCK PATIENT"         # UNLOCK^AGGLOCK, return type GLOBAL ARRAY
     VALIDATE_RPC = "AGG WINDOW DATA VALIDATION" # VAL^AGGWVAL, return type GLOBAL ARRAY
+    TEMP_HRN_RPC = "AGG GET TEMP PAT HRN"     # GTMP^AGGPTHRN, return type GLOBAL ARRAY
     WINDOW_DISPLAY_RPC = "AGG BUILD WINDOW DISPLAY"   # BLD^AGGWDISP, a window's values for one patient
     WINDOW_MULTIPLE_RPC = "AGG BUILD WINDOW MULTIPLE" # MUL^AGGPTDMG, a multiple window's entries
     TABLE_LOOKUP_RPC = "AGG WINDOW TABLE LOOKUP"      # LKP^AGGWTBLK, a pointed-to file's entries by name
@@ -376,6 +377,25 @@ module RpmsRpc
 
       { checks: reply[:records] }
     end
+
+    # GTMP^AGGPTHRN — the next temporary health record number for a patient,
+    # the T-number IHS scheduling's mini-registration gives a caller who has
+    # no chart yet (option BSDAM MINI REGISTRATION, key SDZREGMENU: "assigns
+    # a temporary chart number"). AG takes the highest "T" number in the
+    # IHS PATIENT "D" index and adds one, or returns the one this patient
+    # already holds (AGGPTHRN.m:20-31), and reserves it by setting
+    # ^AUPNPAT("D",THRN,DFN,DUZ(2)) (AGGPTHRN.m:15). It does not file the
+    # HEALTH RECORD NO. multiple: the caller files the number through AGG
+    # UPDATE PATIENT, as RpmsRpc::Registration does.
+    #
+    # Reply: header "T00010AGGPTHRN", then the number (AGGPTHRN.m:13-16).
+    # Returns the number ("T00001"), or nil when RPMS gave none.
+    def temporary_hrn(dfn:, client: RpmsRpc.client)
+      reply = in_context(client) { parse_reply(call_array(client, TEMP_HRN_RPC, dfn.to_s)) }
+      number = reply&.dig(:records, 0, :aggpthrn).to_s
+      number.match?(/\AT\d{5}\z/) ? number : nil
+    end
+    shape :temporary_hrn, resource: "agg", verb: "POST", path: "/patients/{dfn}/agg/temporary-hrn"
 
     # Encode a NAME=VALUE PARMS hash as the $C(28)-delimited string P3.
     # nil values are dropped; everything is sent as-is (FileMan-external —

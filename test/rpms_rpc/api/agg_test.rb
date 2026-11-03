@@ -175,6 +175,26 @@ class AggTest < Minitest::Test
     assert_match(/BAD FIELD/, result[:message])
   end
 
+# -- temporary_hrn ---------------------------------------------------------
+
+# GTMP^AGGPTHRN (AGGPTHRN.m:5-17): P1 = DFN; header T00010AGGPTHRN, then
+# the number.
+def test_temporary_hrn_reads_the_number_for_the_patient_under_aggrpc
+  @mock.seed(:agg_get_temp_pat_hrn, "9", "T00010AGGPTHRN#{RS}T00012#{RS}#{US}")
+
+  assert_equal "T00012", Agg.temporary_hrn(dfn: 9)
+  call = @mock.received_calls.find { |c| c[:rpc] == "AGG GET TEMP PAT HRN" }
+  assert_equal [ "9" ], call[:params]
+  assert_equal "AGGRPC", call[:context]
+end
+
+def test_temporary_hrn_nil_when_rpms_gives_no_number
+  assert_nil Agg.temporary_hrn(dfn: 9)
+
+  @mock.seed(:agg_get_temp_pat_hrn, "9", "T00010AGGPTHRN#{RS}#{US}")
+  assert_nil Agg.temporary_hrn(dfn: 9)
+end
+
   # -- edit_check ------------------------------------------------------------
 
   def test_edit_check_returns_the_validation_battery
