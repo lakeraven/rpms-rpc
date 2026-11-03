@@ -5,6 +5,9 @@ require "rpms_rpc/xwb_client"
 require "rpms_rpc/xwb_cipher"
 require "rpms_rpc/api/authentication"
 
+# Stands in for Timeout::ExitException / Interrupt; must stay outside RpmsRpc and must not be a StandardError.
+class SynCreateContextInterrupt < Exception; end
+
 # CRCONTXT^XWBSEC (pinned /data/r/XWBSEC.m:30-41) begins with K XQY0,XQY, so a
 # refused XWB CREATE CONTEXT leaves the broker session with NO context. Client
 # must not keep believing the pre-refusal option name (rpms-rpc#521 r2).
@@ -62,8 +65,6 @@ class RpmsRpc::ClientCreateContextRefusedTest < Minitest::Test
 
   # After a successful on-wire bind, raises once (non-StandardError) before returning.
   class InterruptingFakeXwb < FakeXwb
-    class SynInterrupt < Exception; end
-
     def initialize(**kwargs)
       super
       @raise_syn_interrupt_on_next_create = true
@@ -81,7 +82,7 @@ class RpmsRpc::ClientCreateContextRefusedTest < Minitest::Test
         @broker_ctx = opt
         if @raise_syn_interrupt_on_next_create
           @raise_syn_interrupt_on_next_create = false
-          raise SynInterrupt
+          raise SynCreateContextInterrupt
         end
         return "1"
       end
@@ -206,7 +207,7 @@ class RpmsRpc::ClientCreateContextRefusedTest < Minitest::Test
     client = InterruptingFakeXwb.new(allowed: [ SYN_APP_CTX, SYN_OTHER_CTX ], start: SYN_APP_CTX)
     client.set_authenticated("900001")
 
-    assert_raises(InterruptingFakeXwb::SynInterrupt) do
+    assert_raises(SynCreateContextInterrupt) do
       client.with_context(SYN_OTHER_CTX) { flunk "scope must not run after interrupt" }
     end
 
@@ -222,7 +223,7 @@ class RpmsRpc::ClientCreateContextRefusedTest < Minitest::Test
     client = InterruptingFakeXwb.new(allowed: [ SYN_APP_CTX, SYN_OTHER_CTX ], start: SYN_APP_CTX)
     client.set_authenticated("900001")
 
-    assert_raises(InterruptingFakeXwb::SynInterrupt) { client.create_context(SYN_OTHER_CTX) }
+    assert_raises(SynCreateContextInterrupt) { client.create_context(SYN_OTHER_CTX) }
 
     assert_nil client.current_context,
                "post-wire interrupt must clear client belief; broker may already be on OTHER"
