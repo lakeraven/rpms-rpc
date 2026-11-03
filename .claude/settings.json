@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(~/.local/bin/agent:*)",
+      "Bash(timeout * ~/.local/bin/agent:*)",
+      "Bash(bin/cloud_rpms:*)",
+      "Bash(PINNED=1 bin/cloud_rpms:*)"
+    ]
+  }
+}
