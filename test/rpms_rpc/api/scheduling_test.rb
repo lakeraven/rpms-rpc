@@ -613,7 +613,10 @@ class SchedulingTest < Minitest::Test
     clinic_setup: [],
     resources: [],
     appointments: [ { resource: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],
-    slot_schedule: [ { resource: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ]
+    slot_schedule: [ { resource: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],
+    add_availability: [ { resource: "PEDIATRICIAN,DEMO", start_time: START_T, end_time: END_T, slots: 1,
+                          access_type_id: 1 } ],
+    cancel_availability_by_date: [ { resource_id: 7, start_date: START_T, end_date: END_T } ]
   }.freeze
 
   def test_the_bind_table_names_every_public_method
