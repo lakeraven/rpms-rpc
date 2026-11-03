@@ -20,6 +20,7 @@ RpmsRpc::ClinicalEvent.pce_for_note	GET /progress-notes/{note_ien}/clinical-even
 RpmsRpc::ClinicalEvent.skin_test_types	GET /clinical-events/skin-test-types
 RpmsRpc::ClinicalEvent.visit_for_note	GET /progress-notes/{note_ien}/clinical-events/patients/{dfn}/visit
 RpmsRpc::ClinicalEvent.visit_status	GET /progress-notes/{note_ien}/clinical-events/patients/{dfn}/visit-status
+RpmsRpc::Coverage.for_patient	GET /patients/{dfn}/coverages
 RpmsRpc::DdrFileman.gets_entry	GET /files/{file}/entries/{iens}
 RpmsRpc::ESignature.which_action	GET /progress-notes/{note_ien}/signatures/which-action
 RpmsRpc::Eligibility.codes	GET /eligibility/codes
@@ -57,7 +58,6 @@ RpmsRpc::Order.result	GET /patients/{dfn}/orders/{order_ien}/result
 RpmsRpc::Order.result_history	GET /patients/{dfn}/orders/{order_ien}/result-history
 RpmsRpc::Order.sheets_for_patient	GET /patients/{dfn}/orders/sheets
 RpmsRpc::Organization.find	GET /organizations/{ien}
-RpmsRpc::Patient.brief_header	GET /patients/{dfn}/brief-header
 RpmsRpc::Patient.find	GET /patients/{dfn}
 RpmsRpc::Patient.find_by_ssn	GET /patients/by-ssn
 RpmsRpc::Patient.lookup	GET /patients/lookup
@@ -87,6 +87,7 @@ RpmsRpc::Scheduling.patient_appointments	GET /patients/{dfn}/appointments
 RpmsRpc::Scheduling.resources	GET /appointments/resources
 RpmsRpc::SchedulingSetup.access_types	GET /appointments/access-types
 RpmsRpc::SchedulingSetup.clinic_rules	GET /appointments/clinic-rules
+RpmsRpc::SchedulingSetup.creates_visit_at_checkin	GET /appointments/creates-visit-at-checkin
 RpmsRpc::SchedulingSetup.holidays	GET /appointments/holidays
 RpmsRpc::Session.bootstrap	GET /users/{user_duz}/sessions/bootstrap
 RpmsRpc::Site.current	GET /users/{user_duz}/sites/current

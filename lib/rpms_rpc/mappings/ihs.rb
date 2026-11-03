@@ -42,7 +42,7 @@ module RpmsRpc
       end
     end
 
-    # BEHOPTPC GETBDP — designated primary provider detail
+    # BEHOPTPC GETBDP — one row per designated-provider category, alphabetical.
     # Format: LABEL^PROVIDER_NAME^PROVIDER_IEN^TITLE^DATE
     DataMapper.define(:patient_designated_provider) do |m|
       m.rpc "BEHOPTPC GETBDP"
@@ -51,14 +51,6 @@ module RpmsRpc
       m.field 2, :provider_ien, :integer
       m.field 3, :title
       m.field 4, :date_raw
-    end
-
-    # BEHOCACV CWAD — patient CWAD flags (scalar). Each letter present in
-    # the response indicates: C=Crises, W=Warnings, A=Allergies, D=Advance
-    # Directives. Empty string means none.
-    DataMapper.define(:patient_cwad) do |m|
-      m.rpc "BEHOCACV CWAD"
-      m.scalar :cwad
     end
 
     # BEHOVM TEMPLATE — vital field definitions for a location (multi-line)
@@ -540,7 +532,7 @@ module RpmsRpc
     end
 
     # ========================================================================
-    # SESSION BOOTSTRAP (CIAVMCFG*, CIAVCXUS*)
+    # SESSION BOOTSTRAP (CIAVCXUS*)
     # ========================================================================
     #
     # CIAVMRPC GETPAR is deliberately NOT mapped (#239). It fetched the
@@ -550,14 +542,11 @@ module RpmsRpc
     # consumer has no CIAVM config root. Its other use, reading site
     # parameters such as BGO CC PREFIX TEXT, is site configuration that
     # belongs in the captured L2/L3 overlay, not in an RPC round-trip.
-
-    # CIAVMCFG GETREG — fetch the launching client's registry settings.
-    # Field positions are best-effort pending wider trace capture; the RPC
-    # returns the registry/config root path used to locate cached config.
-    DataMapper.define(:session_registry) do |m|
-      m.rpc "CIAVMCFG GETREG"
-      m.field 0, :root
-    end
+    #
+    # CIAVMCFG GETREG is deliberately NOT mapped (#522). It dumps VueCentric's
+    # widget registry (^CIAVOBJ) as ID=VALUE lines. A web app has no use for
+    # that client state, so Session.bootstrap neither calls it nor returns
+    # :registry.
 
     # CIAVCXUS VIMINFO — VIMINFO^CIAVCXUS. One row, documented by the routine
     # (CIAVCXUS.m:20-21) and built at CIAVCXUS.m:25-31:
@@ -1112,6 +1101,43 @@ module RpmsRpc
       m.field 10, :visit
       m.field 11, :ehr_flag
     end
+
+    # AMHG SAVE VISIT — VISIT^AMHGSVF (AMHGSVF.m:11-45). One param, the
+    # 16-piece AMHSTR. The reply is a GLOBAL ARRAY: header T00010BMXIEN,
+    # then +AMHIEN (AMHGSVF.m:41-44).
+    #
+    # :ien stays a string. MERR^AMHGU writes one data row
+    # "M ERROR|<text>" $C(30) (AMHGU.m:108-120). An integer field would
+    # coerce that row to 0, the same value an add failure files
+    # (AMHGEVF.m:106-108).
+    DataMapper.define(:amhg_save_visit) do |m|
+      m.rpc "AMHG SAVE VISIT"
+      m.field 0, :ien, :string
+    end
+
+    # AMHG SAVE POV — POV^AMHGSVF (AMHGSVF.m:47-75). One param, the
+    # 8-piece AMHSTR. The reply is a GLOBAL ARRAY: header T00030Result,
+    # then the echoed record IEN, or AMHER when the last add failed
+    # (AMHGSVF.m:71-74). "0~Add POV" is ADDPOV (AMHGEVF.m:17).
+    # "0~Add Axis IV" is ADDAXIS4 (AMHGEVF.m:51).
+    #
+    # :ien stays a string. MERR^AMHGU writes one data row
+    # "M ERROR|<text>" $C(30) (AMHGU.m:108-120). An integer field would
+    # coerce that row, and "0~Add POV", to 0.
+    DataMapper.define(:amhg_save_pov) do |m|
+      m.rpc "AMHG SAVE POV"
+      m.field 0, :ien, :string
+    end
+
+    # AMHG SAVE PROGRESS NOTES — PN^AMHGSVF (AMHGSVF.m:196-219). One
+    # param, the 8-piece AMHSTR. Edit only: piece 1 is always "E". The
+    # reply is a GLOBAL ARRAY: header then +AMHIEN. :ien stays a string
+    # so an "M ERROR|..." row is not coerced to 0.
+    DataMapper.define(:amhg_save_progress_notes) do |m|
+      m.rpc "AMHG SAVE PROGRESS NOTES"
+      m.field 0, :ien, :string
+    end
+
     # -- Visit detail tabs (AMHGDVF unless noted) -----------------------------
     # All take one param: the visit IEN. All emit a typed header + $C(30)-
     # separated rows + a bare $C(31). Single-column responses carry FREE TEXT

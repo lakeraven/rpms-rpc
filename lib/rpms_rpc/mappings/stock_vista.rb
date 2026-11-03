@@ -577,6 +577,15 @@ module RpmsRpc
     # SCALAR / BOOLEAN RPCs
     # ========================================================================
 
+    # ORWPT CWAD — patient CWAD flags (scalar). CWAD^ORWPT, formals Y,DFN,
+    # option OR CPRS GUI CHART. Each letter present in the response
+    # indicates: C=Crises, W=Warnings, A=Allergies, D=Advance Directives.
+    # Empty string means none.
+    DataMapper.define(:patient_cwad) do |m|
+      m.rpc "ORWPT CWAD"
+      m.scalar :cwad
+    end
+
     # ORWPT DIEDON — deceased check (FileMan date or "0")
     DataMapper.define(:patient_deceased) do |m|
       m.rpc "ORWPT DIEDON"
@@ -1017,8 +1026,10 @@ module RpmsRpc
     # DDR LISTER — LIST^DIC projection. One list param with subscripts
     # FILE/IENS/FIELDS/FLAGS/MAX/FROM/PART/XREF/SCREEN/ID/OPTIONS
     # (PARSE^DDR: DDR.m:53-65). Multi-line reply parsed by
-    # DdrFileman.lister ("[Misc]"/"MORE^..", "[Data]", packed rows,
-    # "[Errors]" — V0^DDR: DDR.m:21-30).
+    # DdrFileman.lister ("[Misc]"/"MORE^..", then V0 "[Data]" + packed
+    # rows + "[Errors]" — DDR.m:21-30 — or V1 "[BEGIN_diDATA]" + packed
+    # rows + "[END_diDATA]" and "[BEGIN_diERRORS]" — DDR.m:31-41, the
+    # shape XwbClient gets because it sends RPC version "1").
     DataMapper.define(:ddr_lister) do |m|
       m.rpc "DDR LISTER"
       m.text_blob :lines

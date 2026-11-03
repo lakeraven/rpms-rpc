@@ -571,6 +571,12 @@ An error row or a blank line behind that prefix is classified like a plain one: 
 
 The message names the RPC and, for a `-N^` row, the numeric code (`broker error -1`), or a fixed phrase (`ERRORID recordset`, `empty reply`, `no recordset header`, `unexpected second header`, `reply is not valid UTF-8`, `unexpected reply type`). Broker text stays out of the message: it can hold a patient name, and `sanitize_error` does not catch mixed-case names. The failure is never `Encoding::CompatibilityError`. `DataMapper#fetch_many` and `#fetch_many_or_nil` on these mappings keep the old contract for direct mapper callers. Only the Scheduling methods changed.
 
+## Scheduling setup
+
+`SchedulingSetup` reads access types, holidays and a clinic's booking rules with DDR in `CIAV VUECENTRIC`. `SchedulingSetup.creates_visit_at_checkin` reads #9009017.2 (the hospital location's IHS scheduling companion entry), field .09 CREATE VISIT AT CHECK-IN. `CHECKIN^BSDX25` creates the PCC visit through `GETVISIT^BSDAPI4` only when that field's external value is `YES` (BSDX25.m:138: `I $$GET1^DIQ(9009017.2,+BSDXC("HOS LOC"),.09)'="YES" Q`). .09 is a set of codes whose internal `1` is external `YES` (observed live). True only when the .09 row's internal is `1` and its external is `YES` (#530).
+
+A reply with no .09 field row raises `Client::RpcError` (fail closed). Any other .09 row is false. A clinic with no #9009017.2 entry raises `Client::RpcError`, as do a nil or error reply. DDR GETS ENTRY DATA for a missing entry answers the bare reply `["[ERROR]"]` (GETS^DIQ raises DIALOG 601, DDR2 writes only `[ERROR]`), so over the wire a missing entry cannot be told from another failure. That raise is deliberate (fail closed). M itself treats a missing entry as no visit, so a host that gets the raise must not assume check-in will create the visit.
+
 ## Retry safety
 
 The gem never retries. `RpmsRpc::RetrySafety` and `lib/rpms_rpc/retry_safety.yml` classify each public method as `read`, `idempotent_write`, or `non_idempotent_write`, as advice to hosts. Only `:read` is `auto_retry_safe?`. An unclassified method is never retry-safe. `bundle exec rake rpc:retry_safety` fails when a public method is unclassified or an entry is stale.
@@ -691,7 +697,7 @@ The suite is a SHA-256 over every file under `test/live/` plus `data/rpc_coverag
 `CHANGELOG.md` is not shipped, so the release section can quote the live summary without invalidating the source fingerprint.
 Anything that is shipped does invalidate the source, including the version bump and a README edit. A change under `test/live/` or to the coverage pin invalidates the suite.
 
-So the order is: bump the version and finish every shipped file and the live specs, then `rake test:live` once per persona, then `rake release`.
+So the order is: bump the version and finish every shipped file and the live specs, then `rake test:live` once per persona, then `rake changelog:assemble` and commit the result (`rake release` refuses while any fragment is left in `changelog.d/`), then `rake release`.
 A run during which a shipped file or the live suite changes is not recorded.
 A summary from before schema 3, or for another build, source, or suite, or with `passed` other than true, is refused until `rake test:live` is re-run for that persona. Delete the file if that persona is not part of the release.
 
@@ -734,4 +740,4 @@ M source reference and update [docs/rpcs.md](docs/rpcs.md).
 
 ## License
 
-MIT. See [MIT-LICENSE](MIT-LICENSE).
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
