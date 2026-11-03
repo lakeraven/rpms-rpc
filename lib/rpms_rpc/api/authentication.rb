@@ -149,12 +149,17 @@ module RpmsRpc
     shape :user_type, resource: "users", verb: "GET", path: "/users/{duz}/type"
 
     # Whether user DUZ holds the security key KEY_NAME, per ORWU NPHASKEY
-    # (any user, by DUZ). It used to send ORWU HASKEY both arguments, which
-    # takes the key only, so a real server refused every call (#296).
+    # (any user, by DUZ). The reply is nphaskey_flag's strict read: not
+    # altered, exactly one normalised data line, equal to "0" or "1". True
+    # only for "1". An altered reply, no data line, more than one line, or
+    # any other text is false. A refused call (Client::RpcError) is not
+    # rescued and still raises. It used to send ORWU HASKEY both arguments,
+    # which takes the key only, so a real server refused every call (#296).
     def has_security_key?(duz, key_name)
       return false if invalid_id?(duz) || blank_after_strip?(key_name)
 
-      DataMapper.person_has_key.fetch_scalar(duz.to_s, key_name.to_s) == true
+      flag = nphaskey_flag(RpmsRpc.client, duz.to_s, key_name.to_s)
+      flag == "1"
     end
     shape :has_security_key?, resource: "users", verb: "GET", path: "/users/{duz}/has-security-key"
 
@@ -336,17 +341,28 @@ module RpmsRpc
       duz.to_s.strip
     end
 
-    # ORWU NPHASKEY's one data line, or nil. Ask Reply.altered? on the reply
-    # object before normalising it, the same check Allergy and Patient.lookup
-    # use for identity-bearing text. An altered reply is nil: CIA replaces a
-    # control byte with a space and marks the reply, and ''$D() answers
-    # exactly "0" or "1". Normalisation is :person_has_key's (trailing
-    # $C(30)/$C(31) dropped; an Array also drops empty lines and recordset
-    # header rows). Exactly one data line must remain, and that line must
-    # equal "0" or "1". None, more than one, "2", "yes", " 1", "", or a
-    # refused call is nil. The boolean coercion is not used. The client
-    # numbers the frame; this does not touch its sequence counter.
+    # ORWU NPHASKEY's one data line, or nil: nphaskey_flag's strict read
+    # (not altered, exactly one normalised data line, equal to "0" or "1";
+    # anything else is nil). A refused call (Client::RpcError) is rescued
+    # here and is nil. nphaskey_flag does not rescue.
     def held_key_flag(client, duz, name)
+      nphaskey_flag(client, duz, name)
+    rescue Client::RpcError
+      nil
+    end
+
+    # Strict ORWU NPHASKEY read shared by has_security_key? and held_key_flag:
+    # "0", "1", or nil. Does not rescue; Client::RpcError propagates.
+    # Ask Reply.altered? on the reply object before normalising it, the same
+    # check Allergy and Patient.lookup use for identity-bearing text. An
+    # altered reply is nil: CIA replaces a control byte with a space and
+    # marks the reply, and ''$D() answers exactly "0" or "1". Normalisation
+    # is :person_has_key's (trailing $C(30)/$C(31) dropped; an Array also
+    # drops empty lines and recordset header rows). Exactly one data line
+    # must remain, and that line must equal "0" or "1". None, more than one,
+    # "2", "yes", " 1", or "" is nil. The boolean coercion is not used. The
+    # client numbers the frame; this does not touch its sequence counter.
+    def nphaskey_flag(client, duz, name)
       reply = client.call_rpc(DataMapper.person_has_key.rpc_name, duz, name)
       return nil if Reply.altered?(reply)
 
@@ -355,8 +371,6 @@ module RpmsRpc
 
       flag = lines.first
       flag == "0" || flag == "1" ? flag : nil
-    rescue Client::RpcError
-      nil
     end
 
     def parse_auth_response(parsed)
