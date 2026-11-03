@@ -51,7 +51,7 @@ class RegistrationSafetyTest < Minitest::Test
       response
     end
 
-    assert_equal({ success: true, dfn: 42, created: true }, RpmsRpc::Patient.register(ATTRS))
+    assert_equal({ success: true, dfn: 42, created: true, hrn: "42" }, RpmsRpc::Patient.register(ATTRS))
     assert_equal({ success: false, error: :duplicate_identity, candidate_dfns: [ 42 ],
                    message: "matching patient candidates require explicit override" }, RpmsRpc::Patient.register(ATTRS))
     assert_equal [ "AGG LOOKUP PATIENTS", "AGG ADD NEW PATIENT", "AGG UPDATE PATIENT", "AGG LOOKUP PATIENTS" ],

@@ -317,6 +317,86 @@ class RegistrationTest < Minitest::Test
                  "clerk-supplied HRN rides the create call — no HRN:=DFN update"
   end
 
+# -- hrn_source: the mini-registration from scheduling (rpms-ux S-REG-05) ---
+
+def seed_temp_hrn(number)
+  @mock.seed(:agg_get_temp_pat_hrn, "9", "T00010AGGPTHRN\x1e#{number}\x1e\x1f")
+end
+
+# AG's HRN check refuses the number; its other checks pass.
+def refuse_hrn_check(message)
+  mock = @mock
+  original = mock.method(:call_rpc_global_array)
+  mock.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
+    if rpc == "AGG WINDOW DATA VALIDATION" && params[1].to_s.start_with?("AGGPTHRN=")
+      mock.received_calls << { rpc: rpc, params: params, context: mock.current_context }
+      RpmsRpc::Reply.text("5\x00I00010RESULT^T00100MSG\x1e-1^#{message}\x1e\x1f")
+    else
+      original.call(rpc, *params)
+    end
+  end
+end
+
+def test_s_reg_05_1_a_temporary_hrn_is_filed_after_the_create
+  seed_agg_add(dfn: "9")
+  seed_temp_hrn("T00007")
+  seed_agg_update
+
+  result = Reg.register(ATTRS.merge(hrn_source: :temporary))
+
+  assert_equal({ success: true, dfn: 9, created: true, hrn: "T00007", unfiled: [ :community ] }, result)
+  refute agg_calls("AGG ADD NEW PATIENT").first[:params][2].include?("AGGPTHRN="), "the create sends no HRN"
+  assert_equal [ "9" ], agg_calls("AGG GET TEMP PAT HRN").first[:params]
+  assert_equal "AGGPTHRN=T00007", agg_calls("AGG UPDATE PATIENT").first[:params][2]
+end
+
+def test_a_temporary_hrn_rpms_does_not_give_is_hrn_file_failed_with_the_dfn
+  seed_agg_add(dfn: "9")
+
+  result = Reg.register(ATTRS.merge(hrn_source: :temporary))
+
+  assert_equal :hrn_file_failed, result[:error]
+  assert_equal 9, result[:dfn]
+  assert_empty agg_calls("AGG UPDATE PATIENT")
+end
+
+def test_s_reg_05_2_a_given_hrn_is_checked_by_ag_and_rides_the_create
+  seed_agg_add(dfn: "9")
+
+  result = Reg.register(ATTRS.merge(hrn_source: :given, hrn: "12345"))
+
+  assert_equal "12345", result[:hrn]
+  assert_includes agg_calls("AGG ADD NEW PATIENT").first[:params][2].split("\x1c"), "AGGPTHRN=12345"
+  checked = agg_calls("AGG WINDOW DATA VALIDATION").map { |c| c[:params][1] }
+  assert_includes checked, "AGGPTHRN=12345\x1cDFN="
+  assert_empty agg_calls("AGG UPDATE PATIENT")
+end
+
+def test_s_reg_05_5_an_hrn_another_patient_holds_is_refused_in_ag_words_and_nothing_is_filed
+  refuse_hrn_check("HRN 12345 is already assigned to patient DEMOPATIENT,OTHER")
+
+  result = Reg.register(ATTRS.merge(hrn_source: :given, hrn: "12345"))
+
+  assert_equal({ success: false, error: :agg_invalid, field: "AGGPTHRN",
+                 message: "HRN 12345 is already assigned to patient DEMOPATIENT,OTHER" }, result)
+  assert_empty agg_calls("AGG ADD NEW PATIENT")
+end
+
+def test_no_hrn_check_is_sent_without_an_hrn
+  seed_agg_add(dfn: "9")
+  seed_agg_update
+
+  Reg.register(ATTRS)
+
+  refute agg_calls("AGG WINDOW DATA VALIDATION").any? { |c| c[:params][1].start_with?("AGGPTHRN") }
+end
+
+def test_hrn_source_given_needs_an_hrn_and_an_unknown_source_is_refused
+  assert_raises(ArgumentError) { Reg.register(ATTRS.merge(hrn_source: :given, hrn: "")) }
+  assert_raises(ArgumentError) { Reg.register(ATTRS.merge(hrn_source: :clerk)) }
+  assert_empty agg_calls("AGG ADD NEW PATIENT")
+end
+
   def test_delegation_surfaces_agg_rejection
     seed_agg_add(result: "-1", message: "MISSING MANDATORY FIELD", dfn: "")
 
