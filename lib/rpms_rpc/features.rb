@@ -6,7 +6,7 @@ require_relative "conformance/inventory_lock"
 
 module RpmsRpc
   # Declarative feature metadata: a name, the broker context it runs in, and
-  # the RPCs its source module sends (rpms-rpc#384). This is the successor to
+  # the RPCs it declares (rpms-rpc#384). This is the successor to
   # the removed ServerCapabilities probe. Nothing here opens a socket or calls
   # an RPC.
   #
@@ -14,9 +14,14 @@ module RpmsRpc
   #   RpmsRpc::Features.available?(:bmc_referral_workflow)
   #   RpmsRpc::Features.for(build: tag, context: "OR CPRS GUI CHART")
   #
-  # RPC names are read from lib/rpms_rpc/required_rpcs.json for the feature's
-  # source module, then kept or dropped by that feature's prefix rule. They
-  # are not a second copy of the list.
+  # Each feature declares its RPC names explicitly. They are not taken from
+  # the source module's list. lib/rpms_rpc/required_rpcs.json is a drift
+  # guard: when the registry is built, every declared RPC must appear in
+  # its source module's list, otherwise ArgumentError names the feature,
+  # the RPC, and the module (fail closed). A missing file, JSON that does
+  # not parse, a missing "modules" object, a missing module, or a module
+  # value that is not a non-empty array of non-empty strings is an
+  # ArgumentError as well.
   #
   # `context` is the file-#19 option the module binds itself (Referral →
   # BMCRPC). It is nil when the module runs under whatever context the
@@ -88,13 +93,68 @@ module RpmsRpc
     CachedSurface = Data.define(:surface, :out_of_order_options)
     private_constant :CachedSurface
 
-    # source: the API module in required_rpcs.json. prefix: keep RPCs that
-    # start with it; nil keeps every RPC that module sends (Referral's BMC*
-    # calls, plus any non-BMC RPC the module sends under BMCRPC).
+    # source: the API module whose required_rpcs.json list is the drift guard.
+    # rpcs: the REMOTE PROCEDURE names this feature sends, written out in full.
+    # context: the file-#19 option the module binds, or nil when the caller
+    # must name the session's bound context. No per-RPC context.
     FEATURE_RULES = [
-      { name: :patient_chart_banner, source: "RpmsRpc::Patient", context: nil, prefix: "BEHO" }.freeze,
-      { name: :bmc_referral_workflow, source: "RpmsRpc::Referral", context: "BMCRPC", prefix: nil }.freeze,
-      { name: :orqqpl_problem_workflow, source: "RpmsRpc::Problem", context: nil, prefix: "ORQQPL" }.freeze
+      {
+        name: :patient_chart_banner,
+        source: "RpmsRpc::Patient",
+        context: nil,
+        rpcs: [
+          "BEHOPTCX PTINFO",
+          "BEHOPTPC GETBDP",
+          "ORWPT CWAD"
+        ].freeze
+      }.freeze,
+      {
+        name: :bmc_referral_workflow,
+        source: "RpmsRpc::Referral",
+        context: "BMCRPC",
+        rpcs: [
+          "BMC ADD C32 PRINT LOG",
+          "BMC ADD REFERRAL",
+          "BMC CHK YEAR SITE PARAM",
+          "BMC CONSULTATION STATUS UPDATE",
+          "BMC GET PURPOSE OF REF API",
+          "BMC GET RCIS TEMPLATE DETAIL",
+          "BMC GET RCIS TEMPLATE LIST",
+          "BMC GET REFERENCE DATA",
+          "BMC GET REFERRAL",
+          "BMC GET USERS/PROVIDERS",
+          "BMC HEALTH SUMMARY TYPE",
+          "BMC PATIENT ELIGIBILITY STATUS",
+          "BMC PATIENT FACE SHEET",
+          "BMC PATIENT HEALTH SUMMARY",
+          "BMC PRINT REFERRAL",
+          "BMC PROVIDERS",
+          "BMC REFERRAL STATUS UPDATE",
+          "BMC SEARCH REFERRAL",
+          "BMC SEARCH REFERRED TO",
+          "BMC UPDATE REFERRAL"
+        ].freeze
+      }.freeze,
+      {
+        name: :orqqpl_problem_workflow,
+        source: "RpmsRpc::Problem",
+        context: nil,
+        rpcs: [
+          "ORQQPL ADD SAVE",
+          "ORQQPL AUDIT HIST",
+          "ORQQPL CLIN SRCH",
+          "ORQQPL DETAIL",
+          "ORQQPL EDIT LOAD",
+          "ORQQPL EDIT SAVE",
+          "ORQQPL INACTIVATE",
+          "ORQQPL INIT PT",
+          "ORQQPL LIST",
+          "ORQQPL PROB COMMENTS",
+          "ORQQPL PROBLEM LEX SEARCH",
+          "ORQQPL PROVIDER LIST",
+          "ORQQPL VERIFY"
+        ].freeze
+      }.freeze
     ].freeze
 
     LOCK_PATH = File.expand_path("../../data/fingerprints/#{Conformance::InventoryLock::DEFAULT_PATH}", __dir__).freeze
@@ -172,9 +232,9 @@ module RpmsRpc
     def build_registry
       modules = required_modules
       FEATURE_RULES.map do |rule|
-        rpcs = module_rpcs(modules, rule[:source])
-        rpcs = rpcs.select { |rpc| rpc.start_with?(rule[:prefix]) } if rule[:prefix]
-        validate!(name: rule[:name], context: rule[:context], rpcs: rpcs)
+        listed = module_rpcs(modules, rule[:source])
+        require_declared_rpcs!(rule[:name], rule[:source], rule[:rpcs], listed)
+        validate!(name: rule[:name], context: rule[:context], rpcs: rule[:rpcs])
       end
     end
 
@@ -195,9 +255,21 @@ module RpmsRpc
       raise ArgumentError, "required_rpcs file is not valid JSON: #{path}"
     end
 
-    # The module value itself, before the feature prefix rule. A missing key,
-    # or a value that is not a non-empty array of non-empty strings, names
-    # this file and that module.
+    # Fail closed: a declared RPC absent from its source module's list names
+    # the feature, the RPC, and the module. The module list is already known
+    # to be a non-empty array of non-empty strings.
+    def require_declared_rpcs!(name, module_name, declared, listed)
+      Array(declared).each do |rpc|
+        rpc_name = rpc.to_s
+        next if listed.include?(rpc_name)
+
+        raise ArgumentError, "feature #{name.inspect} names #{rpc_name.inspect}, missing from module #{module_name}"
+      end
+    end
+
+    # The source module's list in required_rpcs.json, the drift-guard
+    # inventory. A missing key, or a value that is not a non-empty array of
+    # non-empty strings, names this file and that module.
     def module_rpcs(modules, module_name)
       unless modules.key?(module_name)
         raise ArgumentError, "required_rpcs file #{REQUIRED_RPCS_PATH} is missing module #{module_name}"
