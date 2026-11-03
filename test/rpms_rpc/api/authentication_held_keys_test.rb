@@ -235,4 +235,25 @@ class RpmsRpc::AuthenticationHeldKeysTest < Minitest::Test
 
     assert_nil RpmsRpc::Authentication.held_keys([ "SYNKEYA" ])
   end
+
+  class AlteredExactOneNphaskeyClient
+    def duz = RpmsRpc::AuthenticationHeldKeysTest::SYNTHETIC_DUZ
+
+    def with_context(_option_name, &block)
+      block.call
+    end
+
+    def call_rpc(rpc_name, *_params)
+      raise "unexpected RPC #{rpc_name.inspect}" unless rpc_name == "ORWU NPHASKEY"
+
+      RpmsRpc::Reply.from_wire([ "1" ], altered: [ 0 ])
+    end
+  end
+
+  def test_altered_nphaskey_reply_marked_altered_with_text_exactly_one_returns_nil
+    RpmsRpc.configure { |cfg| cfg.client = AlteredExactOneNphaskeyClient.new }
+
+    assert_nil RpmsRpc::Authentication.held_keys([ "SYNKEYA" ]),
+               "Reply.altered? must reject even when the sole line normalises to 1"
+  end
 end

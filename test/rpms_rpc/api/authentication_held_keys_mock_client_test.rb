@@ -116,10 +116,61 @@ class RpmsRpc::AuthenticationHeldKeysMockClientTest < Minitest::Test
   def test_two_data_lines_in_nphaskey_reply_returns_nil
     RpmsRpc.mock! do |m|
       m.set_authenticated(SYNTHETIC_DUZ)
-      m.seed_raw_lines(:person_has_key, SYNTHETIC_DUZ, %w[1 0])
+      m.seed_raw_lines(:person_has_key, [ SYNTHETIC_DUZ, "SYNKEYA" ], %w[1 0])
     end
 
     assert_nil RpmsRpc::Authentication.held_keys([ "SYNKEYA" ])
+    assert_equal 1, nphaskey_calls(RpmsRpc.client).size,
+                 "must ask ORWU NPHASKEY and fail closed on two data lines, not on missing seed"
+  end
+
+  def test_full_key_raw_lines_single_one_line_held_keys_includes_key
+    RpmsRpc.mock! do |m|
+      m.set_authenticated(SYNTHETIC_DUZ)
+      m.seed_raw_lines(:person_has_key, [ SYNTHETIC_DUZ, "SYNKEYA" ], [ "1" ])
+    end
+
+    assert_equal [ "SYNKEYA" ], RpmsRpc::Authentication.held_keys([ "SYNKEYA" ])
+  end
+
+  def test_duz_only_scalar_seed_does_not_answer_nphaskey_for_any_key
+    RpmsRpc.mock! do |m|
+      m.set_authenticated(SYNTHETIC_DUZ)
+      m.seed_scalar(:person_has_key, SYNTHETIC_DUZ, true)
+    end
+
+    assert_nil RpmsRpc::Authentication.held_keys([ "SYNKEYA" ])
+    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, "SYNNEVERSEEDED")
+  end
+
+  def test_mixed_full_key_and_duz_only_scalar_seed_fails_closed_for_unseeded_key
+    RpmsRpc.mock! do |m|
+      m.set_authenticated(SYNTHETIC_DUZ)
+      m.seed(:person_has_key, [ SYNTHETIC_DUZ, "SYNKEYA" ], true)
+      m.seed_scalar(:person_has_key, SYNTHETIC_DUZ, true)
+    end
+
+    assert_nil RpmsRpc::Authentication.held_keys(%w[SYNKEYA SYNNEVERSEEDED])
+    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, "SYNNEVERSEEDED")
+    assert RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, "SYNKEYA")
+  end
+
+  def test_duz_only_seed_raw_lines_does_not_answer_nphaskey
+    RpmsRpc.mock! do |m|
+      m.set_authenticated(SYNTHETIC_DUZ)
+      m.seed_raw_lines(:person_has_key, SYNTHETIC_DUZ, [ "1" ])
+    end
+
+    assert_nil RpmsRpc::Authentication.held_keys([ "SYNKEYA" ])
+    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, "SYNNEVERSEEDED")
+  end
+
+  def test_other_scalar_mappings_still_answer_first_param_only_seed
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:patient_sensitive, "1", true)
+    end
+
+    assert_equal true, RpmsRpc::DataMapper.patient_sensitive.fetch_scalar("1")
   end
 
   # held_keys must read DUZ under the wire lock / inside the bound context (rpms-rpc#521 r2).

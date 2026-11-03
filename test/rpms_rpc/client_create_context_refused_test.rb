@@ -28,7 +28,7 @@ class RpmsRpc::ClientCreateContextRefusedTest < Minitest::Test
       @log = []
     end
 
-    def connected? = true
+    def connected? = @connected
 
     def call_rpc_raw(name, *params)
       @log << name
@@ -151,5 +151,24 @@ class RpmsRpc::ClientCreateContextRefusedTest < Minitest::Test
     assert_nil client.current_context,
                "must not keep believing SYN APP CTX when restore re-bind is also refused"
     assert_nil client.broker_ctx
+  end
+
+  def test_with_context_scope_entry_not_connected_does_not_attempt_restore_or_warn
+    client = FakeXwb.new
+    client.set_authenticated("900001")
+    client.instance_variable_set(:@connected, false)
+    client.instance_variable_set(:@current_context, SYN_APP_CTX)
+
+    _out, err = capture_io do
+      assert_raises(RpmsRpc::Client::ConnectionError) do
+        client.with_context(SYN_REFUSED_CTX) { flunk "scope must not run" }
+      end
+    end
+
+    refute_includes err, "could not restore",
+                    "nothing reached the wire; session context did not change"
+    refute_includes client.log, "XWB CREATE CONTEXT",
+                    "create_context must fail before any bind frame is sent"
+    assert_equal SYN_APP_CTX, client.current_context
   end
 end
