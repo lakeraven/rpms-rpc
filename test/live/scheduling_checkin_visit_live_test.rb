@@ -119,6 +119,19 @@ class SchedulingCheckinVisitLiveTest < LiveSpec::Test
     hloc = loc[:location_ien]
     flunk "#{CHART_REVIEW_NAME} has a blank hospital location IEN" if hloc.to_s.empty?
 
+    listed = in_ciav do
+      RpmsRpc::DdrFileman.lister(file: CLINIC_FLAG_FILE, fields: "@;.01I", flags: "IP", max: "500")
+    end
+    flunk "DDR LISTER on #{CLINIC_FLAG_FILE} gave no reply" if listed.nil?
+    flunk "DDR LISTER on #{CLINIC_FLAG_FILE} errored: #{listed.inspect}" if listed[:error]
+    flunk "DDR LISTER on #{CLINIC_FLAG_FILE} was not complete: #{listed.inspect}" if listed[:more]
+
+    file_iens = listed[:entries].map { |row| row[:ien].to_s }
+    refute_includes file_iens, hloc.to_s,
+                    "expected no #{CLINIC_FLAG_FILE} entry at hospital location #{hloc} (#{CHART_REVIEW_NAME})"
+    assert_includes file_iens, demo_clinic_ien.to_s,
+                    "positive control: demo clinic #{demo_clinic_ien} (#{CLINIC_NAME}) should appear in #{CLINIC_FLAG_FILE}"
+
     flag_read = in_ciav do
       RpmsRpc::DdrFileman.gets_entry(file: CLINIC_FLAG_FILE, iens: "#{hloc},", fields: ".09", flags: "IE")
     end
@@ -241,8 +254,12 @@ class SchedulingCheckinVisitLiveTest < LiveSpec::Test
         failures << "DDR GETS on #{BSD_PARAM_FILE} #{row[:ien]} .05 refused after restore: #{current_read.inspect}"
         next
       end
+      unless current_read[:fields].key?(".05")
+        failures << "DDR GETS on #{BSD_PARAM_FILE} #{row[:ien]} .05 has no .05 field row after restore"
+        next
+      end
 
-      current = current_read.dig(:fields, ".05", :internal).to_s
+      current = current_read[:fields][".05"][:internal].to_s
       unless row[:original].to_s == current
         failures << "BSD PARAMETERS #{BSD_PARAM_FILE} IEN #{row[:ien]} .05 was not restored " \
                     "(got #{current.inspect}, wanted #{row[:original].inspect})"
@@ -257,8 +274,9 @@ class SchedulingCheckinVisitLiveTest < LiveSpec::Test
     end
     flunk "DDR GETS on #{BSD_PARAM_FILE} #{param_ien} .05 gave no reply" if got.nil?
     flunk "DDR GETS on #{BSD_PARAM_FILE} #{param_ien} .05 refused: #{got.inspect}" if got[:error]
+    flunk "DDR GETS on #{BSD_PARAM_FILE} #{param_ien} .05 has no .05 field row" unless got[:fields].key?(".05")
 
-    got.dig(:fields, ".05", :internal).to_s
+    got[:fields][".05"][:internal].to_s
   end
 
   def in_ciav(&block)
@@ -271,8 +289,9 @@ class SchedulingCheckinVisitLiveTest < LiveSpec::Test
     end
     flunk "DDR GETS on #{CLINIC_FLAG_FILE} #{hloc_ien} gave no reply" if got.nil?
     flunk "DDR GETS on #{CLINIC_FLAG_FILE} #{hloc_ien} refused: #{got.inspect}" if got[:error]
+    flunk "DDR GETS on #{CLINIC_FLAG_FILE} #{hloc_ien} has no .09 field row" unless got[:fields].key?(".09")
 
-    got.dig(:fields, ".09", :internal).to_s
+    got[:fields][".09"][:internal].to_s
   end
 
   def file_create_visit_flag(hloc_ien, internal)

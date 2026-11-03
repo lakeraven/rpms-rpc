@@ -117,12 +117,23 @@ class SchedulingSetupTest < Minitest::Test
     assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
   end
 
-  def test_create_visit_at_checkin_is_false_when_an_entry_whose_09_is_empty
-    client = use([ "[Data]", "9009017.2^7^.09^^" ])
-    refute RpmsRpc::SchedulingSetup.creates_visit_at_checkin(7)
+  def test_create_visit_at_checkin_raises_when_the_reply_has_no_09_row
+    client = use([ "[Data]" ])
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::SchedulingSetup.creates_visit_at_checkin(3) }
     assert_equal "DDR GETS ENTRY DATA", client.calls.first[:rpc]
-    assert_equal({ "FILE" => "9009017.2", "IENS" => "7,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
+    assert_equal({ "FILE" => "9009017.2", "IENS" => "3,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
     assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
+
+    client = use([ "[Data]", "9009017.2^3^.01^3^X" ])
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::SchedulingSetup.creates_visit_at_checkin(3) }
+    assert_equal "DDR GETS ENTRY DATA", client.calls.first[:rpc]
+    assert_equal({ "FILE" => "9009017.2", "IENS" => "3,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
+    assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
+  end
+
+  def test_create_visit_at_checkin_is_false_when_internal_is_one_but_external_is_not_yes
+    use([ "[Data]", "9009017.2^3^.09^1^" ])
+    refute RpmsRpc::SchedulingSetup.creates_visit_at_checkin(3)
   end
 
   def test_create_visit_at_checkin_raises_when_the_clinic_has_no_9009017_2_entry
