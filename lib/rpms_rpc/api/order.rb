@@ -90,11 +90,15 @@ module RpmsRpc
     # canonical integers: no sign, no whitespace, no leading zero.
     ORDER_ACTION_ID = /\A[1-9]\d*;[1-9]\d*\z/
 
-    # ORWSIG^ORWREL^ORWNATR after the order id (ORWDXR.m:87-98).
-    # 1 is ES (ORWDXR.m:91), 1 releases, E is electronic.
+    # ORWSIG^ORWREL^ORWNATR after the order id. SEND splits those pieces
+    # at ORWDX.m:176 (format comment ORWDX.m:170). CHKACT^ORWDXR
+    # (ORWDXR.m:152-163) sets action ES when ORWSIG=1 and DUZ holds the
+    # ORES key (ORWDXR.m:156). ORWREL sets RS (ORWDXR.m:159), or OC when
+    # the nature is W (ORWDXR.m:158).
     SIGN_RELEASE_ORWREC = "1^1^E"
-    # VALIDSIG's exact reply "0". Not the success token "1", so ORWDX
-    # SEND is not called (ORWDX.m:168).
+    # VALIDSIG's exact reply "0". Not the success token "1", so this
+    # client does not call ORWDX SEND. The SEND tag (ORWDX.m:168) does
+    # not check VALIDSIG.
     SIGN_RELEASE_REFUSED = "electronic signature was not accepted"
     # VALIDSIG replied nil, empty, or any text other than exactly "1"
     # or "0". The signature was not confirmed, so SEND is not called.
@@ -511,16 +515,19 @@ module RpmsRpc
     #
     # ORWREC is a 1-based list. ORWREC(n)=ORIFN;Action^Signature Sts^
     # Release Sts^Nature (ORWDX.m:170): the order id is IFN;ACT, then
-    # ORWSIG^ORWREL^ORWNATR. ORWSIG 1 is electronic signature
-    # (ORWDXR.m:91), ORWREL 1 releases, ORWNATR E is electronic
-    # (ORWDXR.m:87-98). CHKACT^ORWDXR checks those three before
-    # EN^ORCSEND. An Array is the 1-based list the broker clients frame
-    # (XwbClient#encode_param, CiaClient#rpc_frame_fields).
+    # ORWSIG^ORWREL^ORWNATR (ORWDX.m:176). ORWSIG=1 selects action ES
+    # when DUZ holds the ORES key (CHKACT^ORWDXR, ORWDXR.m:156). ORWREL
+    # selects RS (ORWDXR.m:159), or OC when the nature is W
+    # (ORWDXR.m:158). CHKACT^ORWDXR (ORWDXR.m:152-163) runs before
+    # EN^ORCSEND (ORWDX.m:182, :188). An Array is the 1-based list the
+    # broker clients frame (XwbClient#encode_param,
+    # CiaClient#rpc_frame_fields).
     #
     # order_ids must be an Array; anything else raises ArgumentError and
     # calls no RPC. An empty order list returns [] and calls nothing.
-    # A bad argument rejects every order and calls no RPC. VALIDSIG must
-    # answer exactly "1" or SEND is not called (ORWDX.m:168). Exactly "0"
+    # A bad argument rejects every order and calls no RPC. This client
+    # calls SEND only when VALIDSIG answers exactly "1". The SEND tag
+    # (ORWDX.m:168) does not check that reply. Exactly "0"
     # rejects every order: the electronic signature was not accepted. Any
     # other reply (nil, empty, or other text) rejects every order because
     # the signature could not be confirmed.
@@ -541,10 +548,12 @@ module RpmsRpc
     # RpcNotAvailableError or RpcRefusedError propagates: the release
     # routine did not run. FrameTooLongError and its subclasses
     # propagate the same way: nothing was sent (client.rb #472). Any
-    # other StandardError from SEND does not raise. The release request
-    # may have been sent, and EN^ORCSEND may have signed before the
-    # fault (FOIA ORCSEND.m:11-13, :72-73) so the ORWLST rows
-    # (ORWDX.m:189-193) never arrived. Each requested order is :unknown.
+    # other StandardError from SEND does not raise, and neither does a
+    # StandardError raised while that reply is parsed: SEND has already
+    # run. The release request may have been sent, and EN^ORCSEND may
+    # have signed before the fault (FOIA ORCSEND.m:11-13, :72-73) so the
+    # ORWLST rows (ORWDX.m:189-193) are not in hand. Each requested
+    # order is :unknown. A parse error is never :released or :rejected.
     # The reason is "the release request may have been sent but failed
     # (<class>); check the order before retrying", with the error class
     # name only. The message is never copied.
@@ -570,18 +579,22 @@ module RpmsRpc
       reason = sign_release_argument_error(dfn_s, provider_s, location_s, ids, signature)
       return sign_release_rejected(order_ids, reason) if reason
 
-      # The session-user check, ORWU VALIDSIG, and ORWDX SEND run under one
-      # RpmsRpc.synchronize_wire on the client resolved once here. SEND1^ORWDX
-      # does not use ES and signs as the session DUZ (pinned ORWDX.m:168-193,
-      # ORCSEND.m:9). VALIDSIG hashes that session DUZ's code (ORWU.m:103-106).
-      # RpmsRpc.client is process-global, so a sign-on that rebinds DUZ between
-      # VALIDSIG and SEND would sign as a user whose code was never checked.
-      # ORNP matters only to DC children. A provider other than the signed-on
-      # DUZ is rejected: the order would be signed by someone else and reported
-      # under the provider's name.
+      # The session-user check, ORWU VALIDSIG, and ORWDX SEND run under
+      # the resolved client's own wire lock. SEND1^ORWDX does not use ES
+      # and signs as the session DUZ (pinned ORWDX.m:168-193, ORCSEND.m:9).
+      # VALIDSIG hashes that session DUZ's code (ORWU.m:103-106).
+      # RpmsRpc.client is process-global, so a sign-on that rebinds DUZ
+      # between VALIDSIG and SEND would sign as a user whose code was
+      # never checked. A client with no #synchronize_wire uses
+      # MODULE_WIRE_LOCK, the same fallback RpmsRpc.synchronize_wire uses
+      # in that case, without resolving RpmsRpc.client again. ORNP is a
+      # SEND formal the SEND1 body does not read; ORCSEND uses it when
+      # DC'ing children (ORCSEND.m:87). A provider other than the
+      # signed-on DUZ is rejected: the order would be signed by someone
+      # else and reported under the provider's name.
       client = RpmsRpc.client
       outcome = nil
-      RpmsRpc.synchronize_wire do
+      sign_release_hold_wire(client) do
         unless sign_release_session_user?(provider_s, client)
           outcome = sign_release_rejected(order_ids, SIGN_RELEASE_NOT_SESSION_USER)
           next
@@ -1089,6 +1102,16 @@ module RpmsRpc
       nil
     end
 
+    # The resolved client's own wire lock. A client that does not define
+    # #synchronize_wire takes MODULE_WIRE_LOCK, the same object
+    # RpmsRpc.synchronize_wire uses in that case (core.rb). The fallback
+    # does not read RpmsRpc.client.
+    def sign_release_hold_wire(client, &block)
+      return client.synchronize_wire(&block) if client.respond_to?(:synchronize_wire)
+
+      MODULE_WIRE_LOCK.synchronize(&block)
+    end
+
     # The client must name its signed-on DUZ and it must be the provider. A
     # client that cannot say who is signed on is rejected, never assumed.
     # `client` is the object sign_and_release resolved once for this call.
@@ -1118,34 +1141,35 @@ module RpmsRpc
       SIGN_RELEASE_UNCONFIRMED
     end
 
-    # ORWDX SEND (ORWDX.m:168-193). RpcNotAvailableError and RpcRefusedError
-    # mean the routine never ran, so they propagate like VALIDSIG.
-    # FrameTooLongError and its subclasses propagate too: nothing was
-    # sent (client.rb #472). Any other StandardError is one :unknown
-    # row per order: the release request may have been sent and the
-    # reply rows (ORWDX.m:189-193) are not in hand.
+    # ORWDX SEND (ORWDX.m:168-193). RpcNotAvailableError, RpcRefusedError,
+    # and FrameTooLongError (and its subclasses) propagate from the SEND
+    # call itself: the first two mean the routine never ran, and
+    # FrameTooLongError means nothing was sent (client.rb #472). They are
+    # rescued only to be redacted and re-raised, not turned into :unknown.
+    # Any other StandardError from that call, or from parsing the reply
+    # after it returns, is one :unknown row per order. The release request
+    # may have been sent and the reply rows (ORWDX.m:189-193) are not in
+    # hand. A parse error is never :released or :rejected.
     def sign_release_send(dfn, provider, location, ids, signature, encrypted, client)
-      raw = begin
-        client.call_rpc(
-          "ORWDX SEND",
-          dfn,
-          provider,
-          location,
-          encrypted,
-          ids.map { |id| "#{id}^#{SIGN_RELEASE_ORWREC}" }
-        )
-      rescue RpmsRpc::Client::RpcNotAvailableError, RpmsRpc::Client::RpcRefusedError,
-             RpmsRpc::Client::FrameTooLongError => error
-        # RpcNotAvailableError and RpcRefusedError are subclasses of
-        # RpcError, so this clause is first: the routine never ran.
-        # FrameTooLongError and its subclasses are here too: nothing was
-        # sent (client.rb #472). Redact and re-raise; do not turn them
-        # into :unknown.
-        sign_release_reraise(error, signature, encrypted)
-      rescue StandardError => error
-        return sign_release_sent_failed(ids, error)
-      end
+      raw = client.call_rpc(
+        "ORWDX SEND",
+        dfn,
+        provider,
+        location,
+        encrypted,
+        ids.map { |id| "#{id}^#{SIGN_RELEASE_ORWREC}" }
+      )
       sign_release_scrub(parse_sign_release_reply(ids, raw), signature, encrypted)
+    rescue RpmsRpc::Client::RpcNotAvailableError, RpmsRpc::Client::RpcRefusedError,
+           RpmsRpc::Client::FrameTooLongError => error
+      # These three propagate from the SEND call. The clause is first
+      # because RpcNotAvailableError and RpcRefusedError are RpcError
+      # subclasses, and FrameTooLongError's subclasses must not fall
+      # through to :unknown. The parse runs only after call_rpc returns,
+      # so it cannot swallow one of these raises from SEND.
+      sign_release_reraise(error, signature, encrypted)
+    rescue StandardError => error
+      sign_release_sent_failed(ids, error)
     end
 
     # The class name only (RpcError, not the message). The message can
