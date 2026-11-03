@@ -304,6 +304,7 @@ class DdrFilemanTest < Minitest::Test
 
     refute result[:error]
     assert_equal({ internal: "42", external: "DEMOPATIENT,UNA" }, result[:fields][".01"])
+    refute result[:malformed]
   end
 
   def test_gets_entry_flags_error_marker
@@ -315,6 +316,7 @@ class DdrFilemanTest < Minitest::Test
 
     assert result[:error]
     assert_empty result[:fields]
+    refute result[:malformed]
   end
 
   def test_gets_entry_returns_nil_when_broker_gives_no_response
@@ -333,6 +335,18 @@ class DdrFilemanTest < Minitest::Test
 
     assert result[:error]
     assert_empty result[:fields]
+    assert result[:malformed]
+  end
+
+  def test_gets_entry_malformed_true_for_ydb_error_string
+    key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01").to_s
+    @mock.seed(:ddr_gets_entry_data, key, "%YDB-E-INVSTRLEN, %YDB-I-CHARSUBSCRNG, 1^42")
+
+    result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01")
+
+    assert result[:error]
+    assert_empty result[:fields]
+    assert result[:malformed]
   end
 
   # An empty "[Data]" section (marker present, zero rows) stays a
@@ -345,6 +359,7 @@ class DdrFilemanTest < Minitest::Test
 
     refute result[:error]
     assert_empty result[:fields]
+    refute result[:malformed]
   end
 
   # ==========================================================================

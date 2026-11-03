@@ -270,6 +270,10 @@ class RegistrationBprm418Test < Minitest::Test
     seed_gets(file: "2", iens: "#{DFN},", fields: ".02", text: "[Data]")
   end
 
+  def seed_patient_sex_gets_broker_malformed
+    seed_gets(file: "2", iens: "#{DFN},", fields: ".02", text: "%YDB-E-INVSTRLEN, %YDB-I-CHARSUBSCRNG, 1^42")
+  end
+
   def seed_ssn_verification_gets(internal)
     seed_gets(file: "9000001", iens: "#{DFN},", fields: ".23", text: <<~REPLY.strip)
       [Data]
@@ -283,6 +287,10 @@ class RegistrationBprm418Test < Minitest::Test
 
   def seed_ssn_verification_gets_malformed
     seed_gets(file: "9000001", iens: "#{DFN},", fields: ".23", text: "[Data]")
+  end
+
+  def seed_ssn_verification_gets_broker_malformed
+    seed_gets(file: "9000001", iens: "#{DFN},", fields: ".23", text: "-1^Remote procedure DDR GETS ENTRY DATA doesn't exist")
   end
 
   def seed_mbis_patient_gets(dfn: DFN)
@@ -952,6 +960,7 @@ class RegistrationBprm418Test < Minitest::Test
   # -- set_sex ----------------------------------------------------------------
 
   def test_set_sex_files_ssn_clear_patient_sex_and_eligibility_in_order_when_sex_changes
+    # Factory-Spec-Amendment: AG2A files .02 before the .23 delete (#418)
     seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1")
     with_ddr_filer_edit_replies([ "[Data]", "[Data]", "[Data]" ])
 
@@ -959,8 +968,8 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_registration_success(result)
     assert_equal 3, filer_calls.length, filer_calls.inspect
-    assert_filer_edit_rows(filer_calls[0], "9000001^.23^#{DFN},^@")
-    assert_filer_edit_rows(filer_calls[1], "2^.02^#{DFN},^F")
+    assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
+    assert_filer_edit_rows(filer_calls[1], "9000001^.23^#{DFN},^@")
     assert_filer_edit_rows(filer_calls[2], *eligibility_cascade_rows("F"))
     assert_set_sex_runs_under_agg_lock
   end
@@ -1001,7 +1010,8 @@ class RegistrationBprm418Test < Minitest::Test
     assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
   end
 
-  def test_set_sex_with_no_eligibility_and_non_blank_ssn_verification_clears_ssn_then_sex
+  def test_set_sex_with_no_eligibility_and_non_blank_ssn_verification_files_sex_then_clears_ssn
+    # Factory-Spec-Amendment: AG2A files .02 before the .23 delete (#418)
     seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1", eligibility: false)
     with_ddr_filer_edit_replies([ "[Data]", "[Data]" ])
 
@@ -1009,8 +1019,8 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_registration_success(result)
     assert_equal 2, filer_calls.length, filer_calls.inspect
-    assert_filer_edit_rows(filer_calls[0], "9000001^.23^#{DFN},^@")
-    assert_filer_edit_rows(filer_calls[1], "2^.02^#{DFN},^F")
+    assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
+    assert_filer_edit_rows(filer_calls[1], "9000001^.23^#{DFN},^@")
   end
 
   def test_set_sex_ignores_b_xref_rows_whose_pointing_field_is_another_dfn
@@ -1089,6 +1099,29 @@ class RegistrationBprm418Test < Minitest::Test
     seed_agg_lock
     seed_patient_sex_gets("M")
     seed_ssn_verification_gets_malformed
+
+    result = Reg.set_sex(DFN, "F")
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_empty filer_calls
+    assert_agg_unlock_sent
+  end
+
+  def test_set_sex_returns_lookup_failed_when_patient_sex_read_is_broker_malformed
+    seed_agg_lock
+    seed_patient_sex_gets_broker_malformed
+
+    result = Reg.set_sex(DFN, "M")
+
+    assert_registration_failure(result, error: :lookup_failed)
+    assert_empty filer_calls
+    assert_agg_unlock_sent
+  end
+
+  def test_set_sex_returns_lookup_failed_when_ssn_verification_read_is_broker_malformed
+    seed_agg_lock
+    seed_patient_sex_gets("M")
+    seed_ssn_verification_gets_broker_malformed
 
     result = Reg.set_sex(DFN, "F")
 
@@ -1178,14 +1211,16 @@ class RegistrationBprm418Test < Minitest::Test
     assert_agg_unlock_sent
   end
 
-  def test_set_sex_returns_filer_failed_when_ssn_clear_is_refused
+  def test_set_sex_returns_partial_when_ssn_clear_is_refused_after_patient_sex_is_filed
+    # Factory-Spec-Amendment: AG2A files .02 before the .23 delete (#418)
     seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1", eligibility: false)
-    with_ddr_filer_edit_replies([ FILER_REFUSAL ])
+    with_ddr_filer_edit_replies([ "[Data]", FILER_REFUSAL ])
 
     result = Reg.set_sex(DFN, "F")
 
-    assert_registration_failure(result, error: :filer_failed)
-    assert_equal 1, filer_calls.length, filer_calls.inspect
+    assert_registration_failure(result, error: :partial)
+    assert_equal 2, filer_calls.length, filer_calls.inspect
+    assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
     assert_agg_unlock_sent
   end
 
@@ -1200,15 +1235,16 @@ class RegistrationBprm418Test < Minitest::Test
     assert_agg_unlock_sent
   end
 
-  def test_set_sex_returns_partial_when_patient_sex_is_refused_after_ssn_clear
+  def test_set_sex_returns_filer_failed_when_patient_sex_is_refused_first
+    # Factory-Spec-Amendment: AG2A files .02 before the .23 delete (#418)
     seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1", eligibility: false)
-    with_ddr_filer_edit_replies([ "[Data]", FILER_REFUSAL ])
+    with_ddr_filer_edit_replies([ FILER_REFUSAL ])
 
     result = Reg.set_sex(DFN, "F")
 
-    assert_registration_failure(result, error: :partial)
-    assert_equal 2, filer_calls.length, filer_calls.inspect
-    assert_filer_edit_rows(filer_calls[0], "9000001^.23^#{DFN},^@")
+    assert_registration_failure(result, error: :filer_failed)
+    assert_equal 1, filer_calls.length, filer_calls.inspect
+    assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
     assert_agg_unlock_sent
   end
 
@@ -1233,7 +1269,8 @@ class RegistrationBprm418Test < Minitest::Test
     assert_agg_unlock_sent
   end
 
-  def test_set_sex_returns_partial_when_patient_sex_filer_gives_no_reply_after_ssn_clear
+  def test_set_sex_returns_partial_when_ssn_clear_filer_gives_no_reply_after_patient_sex
+    # Factory-Spec-Amendment: AG2A files .02 before the .23 delete (#418)
     seed_set_sex_lookup_baseline(stored_sex: "M", ssn_verification: "1", eligibility: false)
     with_ddr_filer_edit_replies([ "[Data]", nil ])
 
@@ -1242,7 +1279,7 @@ class RegistrationBprm418Test < Minitest::Test
     assert_registration_failure(result, error: :partial)
     assert_match(/unknown/i, result[:message].to_s)
     assert_equal 2, filer_calls.length, filer_calls.inspect
-    assert_filer_edit_rows(filer_calls[0], "9000001^.23^#{DFN},^@")
+    assert_filer_edit_rows(filer_calls[0], "2^.02^#{DFN},^F")
     assert_agg_unlock_sent
   end
 
