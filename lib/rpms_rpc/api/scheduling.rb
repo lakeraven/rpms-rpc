@@ -451,6 +451,29 @@ module RpmsRpc
     end
     shape :cancel_availability_by_date, resource: "appointments", verb: "POST", path: "/appointments/cancel-availability-by-date"
 
+    # Whether one more overbook may be booked on the resource that day, under
+    # the clinic's OVERBOOKS/DAY MAXIMUM (#44 field 1918) — BSDX OVERBOOK
+    # (APPOVB^BSDX07A), what the Windows scheduler asks before it offers an
+    # overbook. The routine counts, for the resource, the appointments past
+    # each access block's slots that day (CNTOB^BSDX07A) and answers YES while
+    # that count is under the maximum, NO when it is not. A clinic with no
+    # maximum answers NO.
+    #
+    #   hospital_location_id: the resource's clinic (#44 IEN)
+    #   start_time:           the time asked for (only its date is counted)
+    #   resource_id:          BSDX RESOURCE IEN (9002018.1)
+    #
+    # Returns true or false. Its error rows (an invalid clinic, resource or
+    # date) raise Client::RpcError, as a failed read does.
+    def overbook_allowed(hospital_location_id:, start_time:, resource_id:)
+      rows = in_context { recordset("BSDX OVERBOOK", hospital_location_id.to_s, fm(start_time), resource_id.to_s) }
+      answer = rows.first&.dig(:overbook).to_s
+      raise Client::RpcError, "BSDX OVERBOOK: no YES or NO in the reply" unless %w[YES NO].include?(answer)
+
+      answer == "YES"
+    end
+    shape :overbook_allowed, resource: "appointments", verb: "POST", path: "/appointments/overbook-allowed"
+
     # Per-clinic scheduling parameters — BSDX CLINIC SETUP (CLNSET^BSDX32).
     def clinic_setup
       in_context { DataMapper.scheduling_clinic_setup.fetch_many_or_raise }
