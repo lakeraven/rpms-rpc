@@ -8,6 +8,8 @@
     ],
     "RpmsRpc::Agg": [
       "AGG ADD NEW PATIENT",
+      "AGG BUILD WINDOW DISPLAY",
+      "AGG GET TEMP PAT HRN",
       "AGG LOCK PATIENT",
       "AGG LOOKUP PATIENTS",
       "AGG PATIENT EDIT CHECK",
@@ -98,8 +100,13 @@
       "ORWPCE PCE4NOTE"
     ],
     "RpmsRpc::Coverage": [
+      "AGG BUILD WINDOW DISPLAY",
+      "AGG BUILD WINDOW MANY",
+      "AGG BUILD WINDOW MULTIPLE",
+      "AGG GET INSURANCE DATA",
       "AGG UPDATE MEDICAID",
       "AGG UPDATE MEDICARE",
+      "AGG UPDATE PRIVATE INSUR",
       "BQI PATIENT INSURANCE",
       "DDR GETS ENTRY DATA",
       "DDR LISTER"
@@ -199,6 +206,8 @@
     ],
     "RpmsRpc::Patient": [
       "AGG ADD NEW PATIENT",
+      "AGG BUILD WINDOW DISPLAY",
+      "AGG GET TEMP PAT HRN",
       "AGG LOCK PATIENT",
       "AGG LOOKUP PATIENTS",
       "AGG UNLOCK PATIENT",
@@ -289,11 +298,16 @@
     ],
     "RpmsRpc::Registration": [
       "AGG ADD NEW PATIENT",
+      "AGG BUILD WINDOW DISPLAY",
+      "AGG GET TEMP PAT HRN",
       "AGG LOCK PATIENT",
       "AGG LOOKUP PATIENTS",
       "AGG UNLOCK PATIENT",
       "AGG UPDATE PATIENT",
-      "AGG WINDOW DATA VALIDATION"
+      "AGG WINDOW DATA VALIDATION",
+      "DDR FILER",
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
     ],
     "RpmsRpc::Reminders": [
       "ORQQPXRM REMINDERS APPLICABLE"
@@ -304,7 +318,9 @@
       "BSDX ALL APPOINTMENTS",
       "BSDX CANCEL APPOINTMENT",
       "BSDX CANCEL AV BY DATE",
+      "BSDX CANCEL CHECKOUT APPT",
       "BSDX CHECKIN APPOINTMENT",
+      "BSDX CHECKOUT APPOINTMENT",
       "BSDX CLINIC SETUP",
       "BSDX CREATE APPT SCHEDULE",
       "BSDX CREATE ASGND SLOT SCHED",
@@ -316,6 +332,7 @@
       "BSDX UNCANCEL APPT"
     ],
     "RpmsRpc::SchedulingSetup": [
+      "DDR FILER",
       "DDR GETS ENTRY DATA",
       "DDR LISTER"
     ],

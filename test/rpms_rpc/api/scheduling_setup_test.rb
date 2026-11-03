@@ -60,6 +60,14 @@ class SchedulingSetupTest < Minitest::Test
     assert_equal "B", client.calls.first[:param]["XREF"]
   end
 
+  def test_holidays_raises_when_ddr_lister_omits_the_data_marker
+    use("M  ERROR=ZZ+3^AUPN, <UNDEFINED>")
+
+    assert_raises(RpmsRpc::Client::RpcError) do
+      RpmsRpc::SchedulingSetup.holidays(start_date: Date.new(2026, 11, 11), end_date: Date.new(2026, 11, 30))
+    end
+  end
+
   def test_holidays_read_on_from_the_more_marker
     client = use([ "[Misc]", "MORE^3261126^4", "[Data]", "3261111^3261111^VETERANS DAY" ],
                  [ "[Data]", "3261225^3261225^CHRISTMAS DAY" ])
@@ -93,6 +101,30 @@ class SchedulingSetupTest < Minitest::Test
     use(nil)
     assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::SchedulingSetup.access_types }
   end
+
+def test_clinic_stops_list_clinic_stop_by_ien_and_read_on_from_the_more_marker
+  client = use([ "[Misc]", "MORE^2^2", "[Data]", "1^GENERAL^01^", "2^CARDIOLOGY^02^3201001" ],
+               [ "[Data]", "28^FAMILY PRACTICE^28^" ])
+
+  assert_equal [ { id: 1, name: "GENERAL", code: "01", inactive_date: nil },
+                 { id: 2, name: "CARDIOLOGY", code: "02", inactive_date: Date.new(2020, 10, 1) },
+                 { id: 28, name: "FAMILY PRACTICE", code: "28", inactive_date: nil } ],
+               RpmsRpc::SchedulingSetup.clinic_stops
+  assert_equal [ [ "40.7", "#", nil ], [ "40.7", "#", "2" ] ], client.calls.map { |c| [ c[:param]["FILE"], c[:param]["XREF"], c[:param]["FROM"] ] }
+  assert_equal [ "CIAV VUECENTRIC" ], client.calls.map { |c| c[:context] }.uniq
+end
+
+def test_clinic_stop_is_the_hospital_locations_stop_code_number
+  client = use([ "[Data]", "44^3^8^28" ])
+
+  assert_equal 28, RpmsRpc::SchedulingSetup.clinic_stop(3)
+  assert_equal({ "FILE" => "44", "IENS" => "3,", "FIELDS" => "8", "FLAGS" => "I" }, client.calls.first[:param])
+  use([ "[Data]", "44^8^8^" ])
+  assert_nil RpmsRpc::SchedulingSetup.clinic_stop(8)
+  assert_nil RpmsRpc::SchedulingSetup.clinic_stop("x")
+  use([ "[ERROR]" ])
+  assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::SchedulingSetup.clinic_stop(999) }
+end
 
   def test_create_visit_at_checkin_reads_file_9009017_2_field_09_in_ciav_vuecentric
     client = use([ "[Data]", "9009017.2^3^.09^1^YES" ])
