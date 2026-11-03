@@ -160,6 +160,57 @@ module RpmsRpc
                   zero_ok: true)
     end
 
+    # Undo a check-in — BSDX CHECKIN APPOINTMENT with "@" as the check-in time,
+    # which CHECKIN^BSDX25 takes as "delete check-in": it clears BSDX
+    # APPOINTMENT .03 and, through CANCHKIN^BSDX25, the check-in on HOSPITAL
+    # LOCATION (#44.003): the time (309) and the user (302) are both cleared on
+    # a live 7c3119b build. It does not delete a visit the check-in created.
+    # It does not check the appointment was checked in: undoing a check-in
+    # that is not there answers success, so a host checks the state first.
+    # Returns { success: true } / { success: false, error: } / nil.
+    def cancel_checkin(appointment_ien)
+      error_write(:scheduling_checkin_appointment,
+                  appointment_ien.to_s, "@", "", "", "", "", "", "",
+                  zero_ok: true)
+    end
+    shape :cancel_checkin, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/cancel-checkin"
+
+    # Check a patient out — BSDX CHECKOUT APPOINTMENT (CHECKOUT^BSDX25 →
+    # CO^BSDX25A → CO^BSDX25B). It files the check-out time (303), user (304)
+    # and when it was entered (306) on HOSPITAL LOCATION (#44.003), BSDX
+    # APPOINTMENT .14, and the visit's CHECK OUT DATE&TIME (.18) when there is
+    # a visit.
+    #
+    #   appointment_ien:  BSDX APPOINTMENT IEN
+    #   patient_dfn:      the appointment's patient (the routine takes it apart
+    #                     from the appointment)
+    #   appointment_time: the appointment's start (Date/Time or FileMan)
+    #   checkout_time:    when the patient left (Date/Time or FileMan)
+    #
+    # The success row is "0"; RPMS refuses, with the reason as the row, a
+    # check-out in the future ("Check Out time cannot be in the future."), one
+    # not at least a minute after the check-in, and an appointment not checked
+    # in ("BSDX25B: Patient not checked in"). The fifth formal, VPRV, re-points
+    # a V PROVIDER entry and is sent empty.
+    # Returns { success: true } / { success: false, error: } / nil.
+    def checkout_appointment(appointment_ien, patient_dfn:, appointment_time:, checkout_time:)
+      error_write(:scheduling_checkout_appointment,
+                  patient_dfn.to_s, fm(appointment_time), fm(checkout_time), appointment_ien.to_s, "",
+                  zero_ok: true)
+    end
+    shape :checkout_appointment, resource: "appointments", verb: "POST", path: "/appointments/checkout-appointments/{appointment_ien}/patients/{patient_dfn}"
+
+    # Undo a check-out — BSDX CANCEL CHECKOUT APPT (CANCKOUT^BSDX25). It clears
+    # the check-out on HOSPITAL LOCATION (#44.003: 303, 304, 306), BSDX
+    # APPOINTMENT .14 and the visit's .18, and puts the outpatient encounter
+    # back to checked in. An appointment not checked out is refused
+    # ("Appointment is not Checked Out."). The success row is "0".
+    # Returns { success: true } / { success: false, error: } / nil.
+    def cancel_checkout(appointment_ien)
+      error_write(:scheduling_cancel_checkout, appointment_ien.to_s, zero_ok: true)
+    end
+    shape :cancel_checkout, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/cancel-checkout"
+
     # Mark / clear a no-show — BSDX NOSHOW (NOSHOW^BSDX31 → $$CANCEL^BSDAPI).
     #
     #   no_show: true  => set no-show (default)
