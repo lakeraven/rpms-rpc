@@ -49,6 +49,11 @@ class FeaturesTest < Minitest::Test
     end
   end
 
+  def test_bmc_and_orqqpl_module_rpcs_are_in_feature_or_documented_exclusions
+    assert_each_module_rpc_in_feature_or_exclusions!(:bmc_referral_workflow)
+    assert_each_module_rpc_in_feature_or_exclusions!(:orqqpl_problem_workflow)
+  end
+
   def test_features_rb_lists_feature_rpcs_explicitly_without_prefix_filter
     source = File.read(File.join(ROOT, "lib/rpms_rpc/features.rb"))
     refute_match(/\bprefix\s*:/, source, "FEATURE definitions must not use a prefix rule (#384)")
@@ -204,11 +209,11 @@ class FeaturesTest < Minitest::Test
   def test_for_with_context_returns_fixed_and_session_features_served_under_that_context
     ciav = for_build(PINNED_TAG, context: "CIAV VUECENTRIC")
     assert_equal expected_for_feature_names(PINNED_TAG, context: "CIAV VUECENTRIC"), ciav
-    assert_includes ciav, :patient_chart_banner if available?(:patient_chart_banner, build: PINNED_TAG, context: "CIAV VUECENTRIC")
+    assert_includes ciav, :patient_chart_banner
 
     cprs = for_build(PINNED_TAG, context: "OR CPRS GUI CHART")
     assert_equal expected_for_feature_names(PINNED_TAG, context: "OR CPRS GUI CHART"), cprs
-    assert_includes cprs, :orqqpl_problem_workflow if available?(:orqqpl_problem_workflow, build: PINNED_TAG, context: "OR CPRS GUI CHART")
+    assert_includes cprs, :orqqpl_problem_workflow
   end
 
   def test_features_rb_does_not_use_caller_or_caller_locations

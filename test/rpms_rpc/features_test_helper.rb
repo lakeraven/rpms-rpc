@@ -91,6 +91,22 @@ module FeaturesTestHelper
     orqqpl_problem_workflow: ORQQPL_PROBLEM_WORKFLOW_RPCS
   }.freeze
 
+  # Reverse drift guard (#384): module RPCs in required_rpcs.json must appear in the
+  # feature list or here with a one-line reason (Referral: every call runs under BMCRPC).
+  BMC_REFERRAL_WORKFLOW_MODULE_RPC_EXCLUSIONS = {}.freeze
+
+  ORQQPL_PROBLEM_WORKFLOW_MODULE_RPC_EXCLUSIONS = {
+    "BGOPROB SET" =>
+      "IHS problem writes used by Problem.add/update/delete; outside the stock-VistA ORQQPL workflow the removed ServerCapabilities feature covered",
+    "BGOPROB DEL" =>
+      "IHS problem writes used by Problem.add/update/delete; outside the stock-VistA ORQQPL workflow the removed ServerCapabilities feature covered"
+  }.freeze
+
+  FEATURE_MODULE_RPC_EXCLUSIONS = {
+    bmc_referral_workflow: BMC_REFERRAL_WORKFLOW_MODULE_RPC_EXCLUSIONS,
+    orqqpl_problem_workflow: ORQQPL_PROBLEM_WORKFLOW_MODULE_RPC_EXCLUSIONS
+  }.freeze
+
   REACH_OK_TAG = "features-reach-all-ok-ydb"
   REACH_PTINFO_NO_CONTEXT_TAG = "features-reach-ptinfo-no-context-ydb"
   REACH_WRONG_CONTEXT_TAG = "features-reach-wrong-context-ydb"
@@ -124,6 +140,32 @@ module FeaturesTestHelper
 
   def module_rpcs_for_feature(name)
     required_rpcs_modules.fetch(FEATURE_MODULES.fetch(name))
+  end
+
+  def module_rpc_exclusions_for_feature(name)
+    FEATURE_MODULE_RPC_EXCLUSIONS.fetch(name)
+  end
+
+  # Every RPC the source module lists must be in the feature rpcs or documented exclusions.
+  def assert_each_module_rpc_in_feature_or_exclusions!(name)
+    module_name = FEATURE_MODULES.fetch(name)
+    module_rpcs = module_rpcs_for_feature(name)
+    feature_rpcs = expected_feature_rpcs(name).map(&:to_s)
+    exclusions = module_rpc_exclusions_for_feature(name)
+
+    module_rpcs.each do |rpc|
+      next if feature_rpcs.include?(rpc)
+      next if exclusions.key?(rpc)
+
+      flunk "#{rpc.inspect} is listed for #{module_name} in required_rpcs.json but not in feature " \
+            "#{name} rpcs; add it to the feature or to the exclusions"
+    end
+
+    exclusions.each_key do |rpc|
+      assert_includes module_rpcs, rpc,
+                      "#{rpc.inspect} is in exclusions for #{name} but not listed by #{module_name} " \
+                      "in required_rpcs.json (stale exclusion)"
+    end
   end
 
   # Write `<tmpdir>/<tag>/` with registry and reach faces for Features under test (round-3 #384).
