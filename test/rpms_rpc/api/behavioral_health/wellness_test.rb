@@ -415,37 +415,22 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
   # --- reply / lock guards (pass on current code; rpms-rpc#540 spec F1–F4) ---
 
-  def test_save_screening_refuses_when_visit_lock_reply_is_string_one_without_write
-    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+  def test_save_measurements_refuses_when_visit_lock_ddr_reply_is_not_exact_one_without_write
     seed_pre_edit_visit_gets(RECORD_IEN, PATIENT, BASELINE_INTERNAL)
-    seed_baseline_stored_screening_providers
+    seed_visit_lock_ddr_reply(RECORD_IEN, "1^extra")
     seed_provider_exists(PROVIDER)
 
-    err = nil
-    RpmsRpc::DdrFileman.stub(:lock, "1") do
-      err = assert_raises(save_error_class) do
-        wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
-      end
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(
+        RECORD_IEN, patient: PATIENT,
+        measurements: [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+      )
     end
     assert_match(/was not acquired/i, err.message)
-    assert_empty screening_calls
-  end
-
-  def test_save_measurements_refuses_when_visit_lock_reply_is_integer_one_without_write
-    seed_pre_edit_visit_gets(RECORD_IEN, PATIENT, BASELINE_INTERNAL)
-    seed_provider_exists(PROVIDER)
-
-    err = nil
-    RpmsRpc::DdrFileman.stub(:lock, 1) do
-      err = assert_raises(save_error_class) do
-        wellness.save_measurements(
-          RECORD_IEN, patient: PATIENT,
-          measurements: [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
-        )
-      end
-    end
-    assert_match(/was not acquired/i, err.message)
-    assert_empty measurements_calls
+    assert_empty measurements_calls, "non-exact lock reply must refuse before AMHG SAVE MEASUREMENTS"
+    assert_equal 1, lock_calls_for(RECORD_IEN).length
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length,
+                 "unlock must run when the lock reply was not acquired even though nothing was written"
   end
 
   def test_save_screening_refuses_when_write_reply_includes_extra_row_after_record_ien
@@ -837,17 +822,21 @@ class BehavioralHealthWellnessTest < Minitest::Test
     assert_empty screening_calls
   end
 
-  def test_save_screening_refuses_when_visit_lock_fails_without_write_rpc
+  def test_save_screening_refuses_when_visit_lock_ddr_reply_is_zero_without_write
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
     seed_pre_edit_visit_gets(RECORD_IEN, PATIENT, BASELINE_INTERNAL)
-    seed_visit_lock(RECORD_IEN, acquired: false)
+    seed_baseline_stored_screening_providers
+    seed_visit_lock_ddr_reply(RECORD_IEN, "0")
     seed_provider_exists(PROVIDER)
 
     err = assert_raises(save_error_class) do
       wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
     end
-    assert_match(/lock/i, err.message)
-    assert_empty screening_calls
+    assert_match(/was not acquired/i, err.message)
+    assert_empty screening_calls, "lock timeout reply must refuse before AMHG SAVE SCREENING"
+    assert_equal 1, lock_calls_for(RECORD_IEN).length
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length,
+                 "unlock must run when the lock reply was not acquired even though nothing was written"
   end
 
   def test_save_measurements_refuses_when_visit_lock_fails_without_write_rpc
@@ -2277,6 +2266,14 @@ class BehavioralHealthWellnessTest < Minitest::Test
   def seed_visit_lock(rec, acquired: true)
     param = Ddr.lock_param(node: visit_lock_node(rec), timeout: 5).to_s
     @mock.seed_scalar(:ddr_lock_unlock_node, param, acquired)
+  end
+
+  def seed_visit_lock_ddr_reply(rec, reply)
+    param = Ddr.lock_param(node: visit_lock_node(rec), timeout: 5).to_s
+    rpc = RpmsRpc::DataMapper[:ddr_lock_unlock_node].rpc_name
+    table = @mock.instance_variable_get(:@scalars)
+    table[rpc] ||= {}
+    table[rpc][param] = reply
   end
 
   def seed_visit_unlock(rec, success: true)
