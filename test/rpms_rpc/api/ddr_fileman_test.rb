@@ -157,93 +157,109 @@ class DdrFilemanTest < Minitest::Test
     assert_nil Ddr.lister(file: "9000001", xref: "D", part: "999999")
   end
 
-  # LISTC^DDR with XWBAPVER=1 (XwbClient RPC token "2\x011") uses V1^DDR
-  # (DDR.m:15,31-43): optional "[Misc]" + "MORE^...", "[BEGIN_diDATA]" +
-  # "[END_diDATA]", errors as "[BEGIN_diERRORS]".. — never a "[Data]" line.
-  # With FLAGS "P", diDATA rows are packed IEN^values; without "P", V1^DDR
-  # takes the UNPACKED path (DDR.m:39) and diDATA holds BEGIN_IENs /
-  # END_IENs / BEGIN_IDVALUES markers — not parseable as lister entries.
-  # V0 (CIA broker, no APVER) keeps the "[Data]" marker.
-  def test_lister_parses_v1_begin_didata_rows_without_error
-    key = Ddr.lister_param(file: "9000001").to_s
-    @mock.seed(:ddr_lister, key, "[BEGIN_diDATA]\n12^PROVIDER\n15^ORES\n[END_diDATA]")
-
-    result = Ddr.lister(file: "9000001")
-
-    refute result[:error]
-    assert_equal 2, result[:entries].length
-    assert_equal "12", result[:entries][0][:ien]
-    assert_equal [ "PROVIDER" ], result[:entries][0][:pieces]
-    assert_equal "15", result[:entries][1][:ien]
-    assert_equal [ "ORES" ], result[:entries][1][:pieces]
-  end
-
-  def test_lister_v1_empty_begin_didata_section_is_not_an_error
-    key = Ddr.lister_param(file: "9000001").to_s
-    @mock.seed(:ddr_lister, key, "[BEGIN_diDATA]\n[END_diDATA]")
-
-    result = Ddr.lister(file: "9000001")
-
-    refute result[:error]
-    assert_empty result[:entries]
-  end
-
-  def test_lister_parses_v1_misc_more_and_begin_didata_rows
-    key = Ddr.lister_param(file: "9000001", xref: "B").to_s
-    @mock.seed(:ddr_lister, key, "[Misc]\nMORE^x^5\n[BEGIN_diDATA]\n5^X\n[END_diDATA]")
-
-    result = Ddr.lister(file: "9000001", xref: "B")
-
-    refute result[:error]
-    assert_equal({ value: "x", ien: "5" }, result[:more])
-    assert_equal 1, result[:entries].length
-    assert_equal "5", result[:entries][0][:ien]
-    assert_equal [ "X" ], result[:entries][0][:pieces]
-  end
-
-  def test_lister_flags_reply_with_neither_data_nor_begin_didata_as_error
-    key = Ddr.lister_param(file: "9000001").to_s
-    @mock.seed(:ddr_lister, key, "M  ERROR=ZZ+3^AUPN, <UNDEFINED>")
-
-    result = Ddr.lister(file: "9000001")
-
-    assert result[:error]
-    assert_empty result[:entries]
-  end
-
-  def test_lister_v0_data_marker_reply_still_parses_with_error_false
+  def test_lister_reports_data_true_when_the_reply_includes_a_data_marker
     key = Ddr.lister_param(file: "9000001", xref: "D", part: "100001", max: "*").to_s
-    @mock.seed(:ddr_lister, key, "[Data]\n43^100001\n44^100001A")
+    @mock.seed(:ddr_lister, key, "[Data]\n43^100001")
 
     result = Ddr.lister(file: "9000001", xref: "D", part: "100001", max: "*")
 
     refute result[:error]
-    assert_equal 2, result[:entries].length
+    assert_equal true, result[:data]
+    assert_equal 1, result[:entries].length
+    assert_equal({ ien: "43", pieces: [ "100001" ] }, result[:entries][0])
   end
 
-  # Reproduced LISTC^DDR with XWBAPVER=1, file 200.051, IENS ",2,", FIELDS
-  # "@;.01" (no "P" flag): UNPACKED diDATA must not be parsed as IEN^piece
-  # rows (would yield seven bogus entries and error: false, e.g. key "1").
-  def test_lister_flags_v1_unpacked_begin_iens_didata_as_error
-    key = Ddr.lister_param(file: "200.051", iens: ",2,", fields: "@;.01").to_s
-    @mock.seed(:ddr_lister, key,
-      "[BEGIN_diDATA]\nBEGIN_IENs\n885\nEND_IENs\nBEGIN_IDVALUES\n.01;^1\nBQIZMGR\nEND_IDVALUES\n[END_diDATA]")
+  def test_lister_reports_data_false_when_the_reply_has_no_data_marker
+    key = Ddr.lister_param(file: "9000001", xref: "B").to_s
+    @mock.seed(:ddr_lister, key, "[Misc]\nMORE^DEMOPATIENT,UNA^43")
 
-    result = Ddr.lister(file: "200.051", iens: ",2,", fields: "@;.01")
+    result = Ddr.lister(file: "9000001", xref: "B")
+
+    assert_equal false, result[:data]
+    assert_empty result[:entries]
+  end
+
+  def test_lister_reports_error_true_for_a_bare_non_ddr_line
+    key = Ddr.lister_param(file: "9000001").to_s
+    @mock.seed(:ddr_lister, key, "-1^Remote procedure DDR LISTER doesn't exist")
+
+    result = Ddr.lister(file: "9000001")
+
+    assert result[:error]
+    assert_equal false, result[:data]
+    assert_empty result[:entries]
+  end
+
+  def test_lister_v0_empty_data_marker_is_data_true_with_no_entries
+    key = Ddr.lister_param(file: "9000001", xref: "D", part: "100001", max: "*").to_s
+    @mock.seed(:ddr_lister, key, "[Data]")
+
+    result = Ddr.lister(file: "9000001", xref: "D", part: "100001", max: "*")
+
+    refute result[:error]
+    assert_equal true, result[:data]
+    assert_empty result[:entries]
+  end
+
+  # ==========================================================================
+  # DDR LISTER — V1 reply parsing (XWB RPC version "1"; DDR.m:31-41)
+  # ==========================================================================
+
+  def test_lister_v1_parses_data_rows_between_begin_and_end_markers
+    key = Ddr.lister_param(file: "9000001", xref: "D", part: "100001", max: "*").to_s
+    @mock.seed(:ddr_lister, key, "[BEGIN_diDATA]\n43^100001\n44^100001A\n[END_diDATA]")
+
+    result = Ddr.lister(file: "9000001", xref: "D", part: "100001", max: "*")
+
+    refute result[:error]
+    assert_equal true, result[:data]
+    assert_equal 2, result[:entries].length
+    assert_equal "43", result[:entries][0][:ien]
+    assert_equal [ "100001" ], result[:entries][0][:pieces]
+  end
+
+  def test_lister_v1_empty_data_section_is_data_true_with_no_entries
+    key = Ddr.lister_param(file: "9000001", xref: "D", part: "100001", max: "*").to_s
+    @mock.seed(:ddr_lister, key, "[BEGIN_diDATA]\n[END_diDATA]")
+
+    result = Ddr.lister(file: "9000001", xref: "D", part: "100001", max: "*")
+
+    refute result[:error]
+    assert_equal true, result[:data]
+    assert_empty result[:entries]
+  end
+
+  def test_lister_v1_parses_misc_more_marker
+    key = Ddr.lister_param(file: "9000001", xref: "B").to_s
+    body = "[Misc]\nMORE^DEMOPATIENT,UNA^43\n[BEGIN_diDATA]\n42^DEMOPATIENT,ALPHA\n[END_diDATA]"
+    @mock.seed(:ddr_lister, key, body)
+
+    result = Ddr.lister(file: "9000001", xref: "B")
+
+    refute result[:error]
+    assert_equal({ value: "DEMOPATIENT,UNA", ien: "43" }, result[:more])
+    assert_equal 1, result[:entries].length
+    assert_equal true, result[:data]
+  end
+
+  def test_lister_v1_flags_begin_dierrors_marker
+    key = Ddr.lister_param(file: "9000001").to_s
+    @mock.seed(:ddr_lister, key, "[BEGIN_diDATA]\n[END_diDATA]\n[BEGIN_diERRORS]")
+
+    result = Ddr.lister(file: "9000001")
 
     assert result[:error]
     assert_empty result[:entries]
   end
 
-  # UNPACKED empty lister answer with no data-section marker (still not a
-  # successful read under V1 APVER).
-  def test_lister_flags_v1_unpacked_empty_reply_without_data_marker_as_error
-    key = Ddr.lister_param(file: "9000001", fields: ".01").to_s
-    @mock.seed(:ddr_lister, key, "0^*^0^\n.01")
+  def test_lister_reports_error_true_when_reply_has_no_data_section_but_a_stray_line
+    key = Ddr.lister_param(file: "9000001").to_s
+    @mock.seed(:ddr_lister, key, "SYNTHETIC BROKER NOISE")
 
-    result = Ddr.lister(file: "9000001", fields: ".01")
+    result = Ddr.lister(file: "9000001")
 
     assert result[:error]
+    assert_equal false, result[:data]
     assert_empty result[:entries]
   end
 

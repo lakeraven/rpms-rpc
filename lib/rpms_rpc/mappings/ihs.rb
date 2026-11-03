@@ -1115,6 +1115,29 @@ module RpmsRpc
       m.field 0, :ien, :string
     end
 
+    # AMHG SAVE POV — POV^AMHGSVF (AMHGSVF.m:47-75). One param, the
+    # 8-piece AMHSTR. The reply is a GLOBAL ARRAY: header T00030Result,
+    # then the echoed record IEN, or AMHER when the last add failed
+    # (AMHGSVF.m:71-74). "0~Add POV" is ADDPOV (AMHGEVF.m:17).
+    # "0~Add Axis IV" is ADDAXIS4 (AMHGEVF.m:51).
+    #
+    # :ien stays a string. MERR^AMHGU writes one data row
+    # "M ERROR|<text>" $C(30) (AMHGU.m:108-120). An integer field would
+    # coerce that row, and "0~Add POV", to 0.
+    DataMapper.define(:amhg_save_pov) do |m|
+      m.rpc "AMHG SAVE POV"
+      m.field 0, :ien, :string
+    end
+
+    # AMHG SAVE PROGRESS NOTES — PN^AMHGSVF (AMHGSVF.m:196-219). One
+    # param, the 8-piece AMHSTR. Edit only: piece 1 is always "E". The
+    # reply is a GLOBAL ARRAY: header then +AMHIEN. :ien stays a string
+    # so an "M ERROR|..." row is not coerced to 0.
+    DataMapper.define(:amhg_save_progress_notes) do |m|
+      m.rpc "AMHG SAVE PROGRESS NOTES"
+      m.field 0, :ien, :string
+    end
+
     # -- Visit detail tabs (AMHGDVF unless noted) -----------------------------
     # All take one param: the visit IEN. All emit a typed header + $C(30)-
     # separated rows + a bare $C(31). Single-column responses carry FREE TEXT
