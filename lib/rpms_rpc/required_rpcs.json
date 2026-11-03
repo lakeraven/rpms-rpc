@@ -314,9 +314,7 @@
       "BSDX PATIENT APPT DISPLAY",
       "BSDX RESOURCES",
       "BSDX SEARCH AVAILABILITY",
-      "BSDX UNCANCEL APPT",
-      "DDR GETS ENTRY DATA",
-      "DDR LISTER"
+      "BSDX UNCANCEL APPT"
     ],
     "RpmsRpc::SchedulingSetup": [
       "DDR FILER",
