@@ -542,6 +542,18 @@ end
     assert_equal [ [ "Address", { "AGGPTWPH" => "406-555-0199" } ] ], sent_windows
   end
 
+  # rpms-ux S-REG-07.1: the tribal standing goes in one Eligibility window call.
+  def test_update_sends_quantums_and_enrollment_number_on_the_eligibility_window
+    seed_lock
+    seed_window(Reg::WINDOW_ELIGIBILITY)
+
+    Reg.update(42, tribe: "532", classification: "2", eligibility_status: "c", blood_quantum: "1/2",
+                   tribe_quantum: "1/4", enrollment_number: "ZZ4901")
+
+    assert_equal [ [ "Eligibility", { "AGGPTTRI" => "532", "AGGPTCLB" => "2", "AGGPTELG" => "C", "AGGPTBLQ" => "1/2",
+                                      "AGGPTTRQ" => "1/4", "AGGPTTEN" => "ZZ4901" } ] ], sent_windows
+  end
+
   # UPD re-converts AGGPTCDT before every later parameter (AGGPTUPD.m:61);
   # sent last it is converted once, by COMM^AGGPTADD.
   def test_update_sends_the_date_moved_last_in_its_window
