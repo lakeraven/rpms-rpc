@@ -474,6 +474,48 @@ module RpmsRpc
     end
     shape :overbook_allowed, resource: "appointments", verb: "POST", path: "/appointments/overbook-allowed"
 
+    # Change an appointment's note and length — BSDX EDIT APPOINTMENT
+    # (EDITAPT^BSDX26), what the Windows scheduler sends from its appointment
+    # dialog (rpms-ux S-SCH-09).
+    #
+    #   appointment_ien: BSDX APPOINTMENT IEN (9002018.4)
+    #   note:            the whole note. The routine replaces the BSDX
+    #                    APPOINTMENT note (field 1) with it, so an unchanged
+    #                    note must be sent again; blank clears it.
+    #   length_minutes:  the new length, or nil to keep it. The routine files
+    #                    LENGTH OF APP'T (#44.003 field 1) on the clinic entry
+    #                    whose length is the old one, and the BSDX end time.
+    #
+    # The routine does not touch the clinic's own copy of the note, OTHER
+    # (#44.003 field 3); SchedulingSetup.set_clinic_note does.
+    # Returns { success: true } ("-1" row), { success: false, error: } (the
+    # routine's error row), or nil when the broker gives no reply.
+    def edit_appointment(appointment_ien, note:, length_minutes: nil)
+      resp = in_context do
+        RpmsRpc.client.call_rpc("BSDX EDIT APPOINTMENT", appointment_ien.to_s, note.to_s, length_minutes.to_s)
+      end
+      return nil if resp.nil? || resp == "" || (resp.is_a?(Array) && resp.empty?)
+
+      row = data_row(resp)
+      row.strip == "-1" ? { success: true } : { success: false, error: row }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      { success: false, error: e.message }
+    end
+    shape :edit_appointment, resource: "appointments", verb: "POST", path: "/appointments/edit-appointments/{appointment_ien}"
+
+    # Whether the clinic allows variable appointment lengths — BSDX CLINIC VAR
+    # APPT (VAL^BSDX37): VARIABLE APPOINTMENT LENGTH (#44 field 1913) is YES.
+    # Only such a clinic's appointments may change length (rpms-ux S-SCH-09.4).
+    # An invalid clinic's error row raises Client::RpcError.
+    def variable_length?(hospital_location_id)
+      rows = in_context { recordset("BSDX CLINIC VAR APPT", hospital_location_id.to_s) }
+      flag = rows.first&.dig(:var_appt_flag).to_s.strip
+      raise Client::RpcError, "BSDX CLINIC VAR APPT: no flag in the reply" unless %w[0 1].include?(flag)
+
+      flag == "1"
+    end
+    shape :variable_length?, resource: "appointments", verb: "POST", path: "/appointments/variable-length"
+
     # Per-clinic scheduling parameters — BSDX CLINIC SETUP (CLNSET^BSDX32).
     def clinic_setup
       in_context { DataMapper.scheduling_clinic_setup.fetch_many_or_raise }
