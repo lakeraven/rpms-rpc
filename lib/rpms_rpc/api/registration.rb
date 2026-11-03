@@ -336,6 +336,9 @@ module RpmsRpc
     #   tribe               Eligibility      AGGPTTRI   T     #9000001 1108
     #   classification      Eligibility      AGGPTCLB   T     #9000001 1111
     #   eligibility_status  Eligibility      AGGPTELG   C     #9000001 1112
+    #   blood_quantum       Eligibility      AGGPTBLQ   X     #9000001 1110
+    #   tribe_quantum       Eligibility      AGGPTTRQ   X     #9000001 1109
+    #   enrollment_number   Eligibility      AGGPTTEN   X     #9000001 .07
     #
     # Value forms are AG's (AGGPTUPD.m:50-56): D is an external date that
     # AG converts ($$DATE^AGGUL1, %DT "TS"), so a Date goes as MM/DD/YYYY; C
@@ -373,7 +376,10 @@ module RpmsRpc
       employment_status:  UpdateAttribute.new(WINDOW_PERSONAL_DETAIL, "AGGEMSTS", PATIENT_FILE, ".21", :choice),
       tribe:              UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTTRI", PATIENT_FILE, FIELD_TRIBE, :pointer),
       classification:     UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTCLB", PATIENT_FILE, FIELD_CLASSIFICATION, :pointer),
-      eligibility_status: UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTELG", PATIENT_FILE, FIELD_ELIGIBILITY, :choice)
+      eligibility_status: UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTELG", PATIENT_FILE, FIELD_ELIGIBILITY, :choice),
+      blood_quantum:      UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTBLQ", PATIENT_FILE, "1110", :text),
+      tribe_quantum:      UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTTRQ", PATIENT_FILE, "1109", :text),
+      enrollment_number:  UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTTEN", PATIENT_FILE, ".07", :text)
     }.freeze
 
     # UPD turns an empty value into "@" and files it internal (AGGPTUPD.m:63,
