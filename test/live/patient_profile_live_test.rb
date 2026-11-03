@@ -83,6 +83,12 @@ class PatientProfileLiveTest < LiveSpec::Test
     refute_includes RpmsRpc::PatientProfile.aliases(DFN).map { |a| a[:ien] }, added[:ien]
   end
 
+  def test_relationship_language_and_state_look_ups_answer_by_name
+    assert_includes RpmsRpc::PatientProfile.relationships("SPO"), { ien: SPOUSE, name: "SPOUSE" }
+    assert_includes RpmsRpc::PatientProfile.language_lookup("ENGL"), { ien: ENGLISH, name: "ENGLISH" }
+    assert(RpmsRpc::PatientProfile.states("WASH").any? { |s| s[:name] == "WASHINGTON" })
+  end
+
   private
 
   def clear_contacts

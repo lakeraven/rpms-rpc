@@ -289,8 +289,10 @@ module RpmsRpc
       reply = in_context(client) { parse_reply(call_array(client, TABLE_LOOKUP_RPC, file.to_s, text, "")) }
       return nil if reply.nil?
 
-      name_key = reply[:header][1]
-      reply[:records].map { |row| { ien: row[:ien].to_i, name: row[name_key].to_s } }
+      # The name is the second column, read by position: a file's header can
+      # name two columns alike (STATE's is IEN^NAME^VA_STATE_CODE^NAME), and the
+      # record hash keeps only the last of them.
+      reply[:rows].map { |pieces| { ien: pieces[0].to_i, name: pieces[1].to_s } }
     end
     shape :table_lookup, resource: "agg", verb: "GET", path: "/agg/files/{file}/table-lookup"
 
@@ -427,11 +429,9 @@ module RpmsRpc
       return nil if rows.empty?
 
       names = parse_header(rows.shift)
-      records = rows.reject(&:empty?).map do |row|
-        pieces = row.split("^", -1)
-        names.each_with_index.to_h { |name, i| [ name, pieces[i] ] }
-      end
-      { header: names, records: records }
+      split = rows.reject(&:empty?).map { |row| row.split("^", -1) }
+      records = split.map { |pieces| names.each_with_index.to_h { |name, i| [ name, pieces[i] ] } }
+      { header: names, records: records, rows: split }
     end
 
     private

@@ -52,6 +52,7 @@ module RpmsRpc
 
     RELATIONSHIP_FILE = "9999999.36"
     LANGUAGE_FILE = "9999999.99"
+    STATE_FILE = "5"
 
     # A contact parameter: its suffix after AGGEC/AGGNK, its type, and the
     # window's length limits (min, max), from the FOIA export of #9009068.3.
@@ -139,6 +140,13 @@ module RpmsRpc
       Agg.table_lookup(file: RELATIONSHIP_FILE, text: text.to_s.upcase)
     end
     shape :relationships, resource: "patient-profiles", verb: "GET", path: "/patient-profiles/relationships"
+
+    # States (#5) whose name starts with the text: [{ ien:, name: }], for a
+    # contact's address.
+    def states(text)
+      Agg.table_lookup(file: STATE_FILE, text: text.to_s.upcase)
+    end
+    shape :states, resource: "patient-profiles", verb: "GET", path: "/patient-profiles/states"
 
     # -- Languages ------------------------------------------------------------
 

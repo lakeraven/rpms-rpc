@@ -71,6 +71,7 @@ RpmsRpc::PatientProfile.contacts	GET /patients/{dfn}/patient-profiles/contacts
 RpmsRpc::PatientProfile.language_lookup	GET /patient-profiles/language-lookup
 RpmsRpc::PatientProfile.languages	GET /patients/{dfn}/patient-profiles/languages
 RpmsRpc::PatientProfile.relationships	GET /patient-profiles/relationships
+RpmsRpc::PatientProfile.states	GET /patient-profiles/states
 RpmsRpc::PatientSelection.find	GET /patient-selections
 RpmsRpc::Phr.counts	GET /patients/{dfn}/phr/counts
 RpmsRpc::Phr.enrollment_status	GET /patients/{dfn}/phr/enrollment-status

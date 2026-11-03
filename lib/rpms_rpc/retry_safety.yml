@@ -199,6 +199,7 @@
 "RpmsRpc::PatientProfile.record_languages": non_idempotent_write
 "RpmsRpc::PatientProfile.relationships": read
 "RpmsRpc::PatientProfile.remove_alias": non_idempotent_write
+"RpmsRpc::PatientProfile.states": read
 "RpmsRpc::PatientProfile.update_contact": non_idempotent_write
 "RpmsRpc::PatientSelection.find": read
 "RpmsRpc::Phr.counts": read

@@ -257,4 +257,11 @@ class PatientProfileTest < Minitest::Test
     assert_equal [ { ien: 22, name: "SPOUSE" } ], PP.relationships("sp")
     assert_equal [ PP::RELATIONSHIP_FILE, "SP", "" ], calls("AGG WINDOW TABLE LOOKUP").first[:params]
   end
+  # STATE's look-up names two columns NAME; the state's name is the second column.
+  def test_states_read_the_name_by_position
+    @mock.seed(:agg_table_lookup, PP::STATE_FILE,
+               "T00015IEN^T00030NAME^T00002VA_STATE_CODE^T00030NAME#{RS}48^WASHINGTON^53^#{RS}#{US}")
+
+    assert_equal [ { ien: 48, name: "WASHINGTON" } ], PP.states("wash")
+  end
 end
