@@ -26,8 +26,9 @@ module RpmsRpc
     ACCESS_TYPE_FILE = "9002018.35"
     HOLIDAY_FILE = "40.5"
     HOSPITAL_LOCATION_FILE = 44
-    # BSDX IHS clinic setup, the hospital-location companion. Field .09 is
-    # CREATE VISIT AT CHECK-IN, which CHECKIN^BSDX25 reads before it creates
+    # #9009017.2, the hospital location's IHS scheduling companion entry.
+    # Field .09 is CREATE VISIT AT CHECK-IN, a set of codes. CHECKIN^BSDX25
+    # compares the external value to "YES" (BSDX25.m:138) before it creates
     # the PCC visit.
     IHS_CLINIC_FILE = "9009017.2"
     CREATE_VISIT_AT_CHECKIN_FIELD = ".09"
@@ -105,11 +106,21 @@ module RpmsRpc
     shape :clinic_rules, resource: "appointments", verb: "GET", path: "/appointments/clinic-rules"
 
     # Whether CHECKIN^BSDX25 (BSDX CHECKIN APPOINTMENT) creates the PCC visit
-    # for this clinic. It does so through GETVISIT^BSDAPI4 only when BSDX IHS
-    # clinic setup (#9009017.2) field .09 CREATE VISIT AT CHECK-IN has internal
-    # value "1". true only then; false for any other value, including a clinic
-    # with no 9009017.2 entry. nil for an IEN that is not a positive integer,
-    # and no RPC is sent. A nil reply or an error reply raises Client::RpcError.
+    # for this clinic. It does so through GETVISIT^BSDAPI4 only when the
+    # external value of #9009017.2 field .09 is "YES" (BSDX25.m:138:
+    # I $$GET1^DIQ(9009017.2,+BSDXC("HOS LOC"),.09)'="YES" Q). #9009017.2 is
+    # the hospital location's IHS scheduling companion entry. .09 (CREATE
+    # VISIT AT CHECK-IN) is a set of codes whose internal "1" is external
+    # "YES" (observed live); this method checks internal "1". true only when
+    # .09 is YES. false when the entry exists and .09 is NO or empty. A clinic
+    # with no #9009017.2 entry raises Client::RpcError, as do a nil or error
+    # reply. DDR GETS ENTRY DATA for a missing entry answers the bare reply
+    # ["[ERROR]"] (GETS^DIQ raises DIALOG 601, DDR2 writes only [ERROR]), so
+    # over the wire a missing entry cannot be told from another failure. That
+    # is deliberate (fail closed). M itself treats a missing entry as no
+    # visit, so a host that gets the raise must not assume check-in will
+    # create the visit. nil for an IEN that is not a positive integer, and no
+    # RPC is sent.
     def creates_visit_at_checkin(hospital_location_id)
       ien = hospital_location_id.to_s
       return nil unless ien.match?(/\A[1-9]\d*\z/)

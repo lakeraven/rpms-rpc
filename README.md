@@ -573,7 +573,9 @@ The message names the RPC and, for a `-N^` row, the numeric code (`broker error 
 
 ## Scheduling setup
 
-`SchedulingSetup` reads access types, holidays and a clinic's booking rules with DDR in `CIAV VUECENTRIC`. `SchedulingSetup.creates_visit_at_checkin` reads BSDX IHS clinic setup (#9009017.2) field .09 (CREATE VISIT AT CHECK-IN). `CHECKIN^BSDX25` creates the PCC visit through `GETVISIT^BSDAPI4` only when that internal value is `1` (#530). A nil reply or an error reply raises `Client::RpcError`. A clinic with no #9009017.2 entry is false.
+`SchedulingSetup` reads access types, holidays and a clinic's booking rules with DDR in `CIAV VUECENTRIC`. `SchedulingSetup.creates_visit_at_checkin` reads #9009017.2 (the hospital location's IHS scheduling companion entry), field .09 CREATE VISIT AT CHECK-IN. `CHECKIN^BSDX25` creates the PCC visit through `GETVISIT^BSDAPI4` only when that field's external value is `YES` (BSDX25.m:138: `I $$GET1^DIQ(9009017.2,+BSDXC("HOS LOC"),.09)'="YES" Q`). .09 is a set of codes whose internal `1` is external `YES` (observed live); the method checks internal `1` (#530).
+
+True only when .09 is YES. False when the entry exists and .09 is NO or empty. A clinic with no #9009017.2 entry raises `Client::RpcError`, as do a nil or error reply. DDR GETS ENTRY DATA for a missing entry answers the bare reply `["[ERROR]"]` (GETS^DIQ raises DIALOG 601, DDR2 writes only `[ERROR]`), so over the wire a missing entry cannot be told from another failure. That raise is deliberate (fail closed). M itself treats a missing entry as no visit, so a host that gets the raise must not assume check-in will create the visit.
 
 ## Retry safety
 
