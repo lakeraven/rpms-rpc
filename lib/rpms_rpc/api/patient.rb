@@ -155,9 +155,9 @@ module RpmsRpc
     #
     # ORWPT CWAD is CWAD^ORWPT (formals Y,DFN). All three run on the caller's
     # option: CIAV VUECENTRIC lists ORWPT CWAD as well as OR CPRS GUI CHART,
-    # and a stock IRIS CIA broker refuses binding an option the user does not
-    # hold, so binding OR CPRS GUI CHART refused every user without it (the
-    # personas included). allergy_flag is A in the scalar and ad_flag is D. An
+    # and the broker refuses binding an option the user does not hold, so
+    # binding OR CPRS GUI CHART refused every user without it (the personas
+    # included). allergy_flag is A in the scalar and ad_flag is D. An
     # empty scalar is both flags false.
     #
     # :primary_provider is the GETBDP row whose label (field 0), compared
