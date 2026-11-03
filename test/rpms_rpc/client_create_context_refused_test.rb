@@ -60,6 +60,36 @@ class RpmsRpc::ClientCreateContextRefusedTest < Minitest::Test
     end
   end
 
+  # After a successful on-wire bind, raises once (non-StandardError) before returning.
+  class InterruptingFakeXwb < FakeXwb
+    class SynInterrupt < Exception; end
+
+    def initialize(**kwargs)
+      super
+      @raise_syn_interrupt_on_next_create = true
+    end
+
+    def call_rpc_raw(name, *params)
+      @log << name
+      if name == "XWB CREATE CONTEXT"
+        opt = decrypt_context_param(params.first)
+        @broker_ctx = nil
+        unless @allowed.include?(opt)
+          return "The context '#{opt}' is not in your menu."
+        end
+
+        @broker_ctx = opt
+        if @raise_syn_interrupt_on_next_create
+          @raise_syn_interrupt_on_next_create = false
+          raise SynInterrupt
+        end
+        return "1"
+      end
+
+      raise "unexpected RPC #{name.inspect}"
+    end
+  end
+
   def teardown
     RpmsRpc.reset!
   end
@@ -170,5 +200,44 @@ class RpmsRpc::ClientCreateContextRefusedTest < Minitest::Test
     refute_includes client.log, "XWB CREATE CONTEXT",
                     "create_context must fail before any bind frame is sent"
     assert_equal SYN_APP_CTX, client.current_context
+  end
+
+  def test_with_context_interrupted_bind_restores_caller_context_on_broker
+    client = InterruptingFakeXwb.new(allowed: [ SYN_APP_CTX, SYN_OTHER_CTX ], start: SYN_APP_CTX)
+    client.set_authenticated("900001")
+
+    assert_raises(InterruptingFakeXwb::SynInterrupt) do
+      client.with_context(SYN_OTHER_CTX) { flunk "scope must not run after interrupt" }
+    end
+
+    create_binds = client.log.count("XWB CREATE CONTEXT")
+    assert_equal 2, create_binds,
+                 "ensure must re-bind SYN APP CTX after a post-wire interrupt on scope entry"
+    assert_equal SYN_APP_CTX, client.broker_ctx,
+                 "broker must match caller context after restore, not the interrupted option"
+    assert_equal SYN_APP_CTX, client.current_context
+  end
+
+  def test_direct_create_context_interrupted_leaves_current_context_unknown
+    client = InterruptingFakeXwb.new(allowed: [ SYN_APP_CTX, SYN_OTHER_CTX ], start: SYN_APP_CTX)
+    client.set_authenticated("900001")
+
+    assert_raises(InterruptingFakeXwb::SynInterrupt) { client.create_context(SYN_OTHER_CTX) }
+
+    assert_nil client.current_context,
+               "post-wire interrupt must clear client belief; broker may already be on OTHER"
+    assert_equal SYN_OTHER_CTX, client.broker_ctx
+  end
+
+  def test_create_context_not_authenticated_leaves_current_context_unchanged
+    client = FakeXwb.new
+    client.instance_variable_set(:@current_context, SYN_APP_CTX)
+
+    err = assert_raises(RpmsRpc::Client::AuthenticationError) { client.create_context(SYN_OTHER_CTX) }
+
+    assert_match(/Not authenticated/i, err.message)
+    assert_equal SYN_APP_CTX, client.current_context
+    refute_includes client.log, "XWB CREATE CONTEXT",
+                    "create_context must fail before any bind frame is sent"
   end
 end
