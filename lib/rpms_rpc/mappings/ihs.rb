@@ -994,6 +994,14 @@ module RpmsRpc
       m.text_blob :reply
     end
 
+    # AGG GET TEMP PAT HRN — GTMP^AGGPTHRN (return type GLOBAL ARRAY). Params:
+    # DFN. Reply header "T00010AGGPTHRN", then the temporary number
+    # ("T00001"). Parsed by Agg.temporary_hrn.
+    DataMapper.define(:agg_get_temp_pat_hrn) do |m|
+      m.rpc "AGG GET TEMP PAT HRN"
+      m.text_blob :reply
+    end
+
     # AGG UPDATE PATIENT — UPD^AGGPTUPD. Same PARMS convention; DFN required.
     # Reply header "I00010RESULT^T01024ERROR^T01024OTHER_PARMS"; "1^^" ok.
     # Parsed by Agg.
