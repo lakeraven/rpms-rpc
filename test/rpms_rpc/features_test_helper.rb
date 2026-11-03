@@ -21,8 +21,8 @@ module FeaturesTestHelper
 
   CLIENT_CALLABLE = RpmsRpc::Features::CLIENT_CALLABLE
 
-  # Source module per feature (round-1 #384): RPC membership is derived from
-  # required_rpcs.json for that module with the feature prefix rule.
+  # Source module per feature (round-1 #384): explicit RPC lists must stay a
+  # subset of required_rpcs.json for that module (drift guard).
   FEATURE_MODULES = {
     patient_chart_banner: "RpmsRpc::Patient",
     bmc_referral_workflow: "RpmsRpc::Referral",
@@ -39,11 +39,56 @@ module FeaturesTestHelper
 
   ORIGINAL_FEATURE_NAMES = FEATURE_MODULES.keys.freeze
 
-  # Prefix filter per feature (round-2 #384): nil keeps every RPC the source module sends.
-  FEATURE_RPC_PREFIX = {
-    patient_chart_banner: "BEHO",
-    bmc_referral_workflow: nil,
-    orqqpl_problem_workflow: "ORQQPL"
+  # Explicit feature RPC lists (#384): must match Patient.brief_header, Problem ORQQPL*, Referral BMC*.
+  PATIENT_CHART_BANNER_RPCS = [
+    "BEHOPTCX PTINFO",
+    "BEHOPTPC GETBDP",
+    "ORWPT CWAD"
+  ].freeze
+
+  ORQQPL_PROBLEM_WORKFLOW_RPCS = [
+    "ORQQPL ADD SAVE",
+    "ORQQPL AUDIT HIST",
+    "ORQQPL CLIN SRCH",
+    "ORQQPL DETAIL",
+    "ORQQPL EDIT LOAD",
+    "ORQQPL EDIT SAVE",
+    "ORQQPL INACTIVATE",
+    "ORQQPL INIT PT",
+    "ORQQPL LIST",
+    "ORQQPL PROB COMMENTS",
+    "ORQQPL PROBLEM LEX SEARCH",
+    "ORQQPL PROVIDER LIST",
+    "ORQQPL VERIFY"
+  ].freeze
+
+  BMC_REFERRAL_WORKFLOW_RPCS = [
+    "BMC ADD C32 PRINT LOG",
+    "BMC ADD REFERRAL",
+    "BMC CHK YEAR SITE PARAM",
+    "BMC CONSULTATION STATUS UPDATE",
+    "BMC GET PURPOSE OF REF API",
+    "BMC GET RCIS TEMPLATE DETAIL",
+    "BMC GET RCIS TEMPLATE LIST",
+    "BMC GET REFERENCE DATA",
+    "BMC GET REFERRAL",
+    "BMC GET USERS/PROVIDERS",
+    "BMC HEALTH SUMMARY TYPE",
+    "BMC PATIENT ELIGIBILITY STATUS",
+    "BMC PATIENT FACE SHEET",
+    "BMC PATIENT HEALTH SUMMARY",
+    "BMC PRINT REFERRAL",
+    "BMC PROVIDERS",
+    "BMC REFERRAL STATUS UPDATE",
+    "BMC SEARCH REFERRAL",
+    "BMC SEARCH REFERRED TO",
+    "BMC UPDATE REFERRAL"
+  ].freeze
+
+  FEATURE_RPCS = {
+    patient_chart_banner: PATIENT_CHART_BANNER_RPCS,
+    bmc_referral_workflow: BMC_REFERRAL_WORKFLOW_RPCS,
+    orqqpl_problem_workflow: ORQQPL_PROBLEM_WORKFLOW_RPCS
   }.freeze
 
   REACH_OK_TAG = "features-reach-all-ok-ydb"
@@ -58,13 +103,13 @@ module FeaturesTestHelper
   CHART_BANNER_REGISTRY_LINES = [
     "BEHOPTCX PTINFO^PTINFO^BEHOPTCX^1",
     "BEHOPTPC GETBDP^GETBDP^BEHOPTPC^1",
-    "BEHOCACV CWAD^CWAD^BEHOCACV^1"
+    "ORWPT CWAD^CWAD^ORWPT^1"
   ].freeze
 
   CHART_BANNER_REACH_OK_LINES = [
     "BEHOPTCX PTINFO^client-callable^1^1^CIAV VUECENTRIC^",
     "BEHOPTPC GETBDP^client-callable^1^1^CIAV VUECENTRIC^",
-    "BEHOCACV CWAD^client-callable^1^1^CIAV VUECENTRIC^"
+    "ORWPT CWAD^client-callable^1^1^CIAV VUECENTRIC^"
   ].freeze
 
   module_function
@@ -73,14 +118,12 @@ module FeaturesTestHelper
     @required_rpcs_modules ||= JSON.parse(File.read(REQUIRED_RPCS_PATH))["modules"]
   end
 
-  # Derive RPC membership from required_rpcs.json using FEATURE_RPC_PREFIX (not lib constants).
   def expected_feature_rpcs(name)
-    module_name = FEATURE_MODULES.fetch(name)
-    rpcs = required_rpcs_modules.fetch(module_name)
-    prefix = FEATURE_RPC_PREFIX.fetch(name)
-    return rpcs if prefix.nil?
+    FEATURE_RPCS.fetch(name)
+  end
 
-    rpcs.select { |rpc| rpc.start_with?(prefix) }
+  def module_rpcs_for_feature(name)
+    required_rpcs_modules.fetch(FEATURE_MODULES.fetch(name))
   end
 
   # Write `<tmpdir>/<tag>/` with registry and reach faces for Features under test (round-3 #384).

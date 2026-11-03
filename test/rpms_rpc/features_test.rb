@@ -29,15 +29,30 @@ class FeaturesTest < Minitest::Test
     end
   end
 
-  def test_each_feature_rpcs_match_required_rpcs_json_for_its_module
-    # Round-1 #384: feature RPCs are what the source module sends (from required_rpcs.json),
-    # not a probe subset and not a hand copy of lib/rpms_rpc/features.rb constants.
+  def test_each_feature_rpcs_match_explicit_literal_lists
+    # #384: RPC membership is explicit (brief_header path for banner), not a name-prefix rule.
     ORIGINAL_FEATURE_NAMES.each do |name|
       expected = expected_feature_rpcs(name)
       refute_empty expected, "#{name} must name at least one RPC"
       actual = feature_rpcs(meta_for(name)).map(&:to_s)
       assert_equal expected.sort, actual.sort, name
     end
+  end
+
+  def test_each_feature_rpcs_subset_of_required_rpcs_module
+    ORIGINAL_FEATURE_NAMES.each do |name|
+      module_rpcs = module_rpcs_for_feature(name)
+      feature_rpcs(meta_for(name)).each do |rpc|
+        assert_includes module_rpcs, rpc.to_s,
+                        "#{name} names #{rpc.inspect}, missing from #{FEATURE_MODULES.fetch(name)} in required_rpcs.json"
+      end
+    end
+  end
+
+  def test_features_rb_lists_feature_rpcs_explicitly_without_prefix_filter
+    source = File.read(File.join(ROOT, "lib/rpms_rpc/features.rb"))
+    refute_match(/\bprefix\s*:/, source, "FEATURE definitions must not use a prefix rule (#384)")
+    refute_match(/rpc\.start_with\?\(/, source, "Features must not derive RPCs by name prefix (#384)")
   end
 
   def test_features_all_never_includes_empty_rpcs
