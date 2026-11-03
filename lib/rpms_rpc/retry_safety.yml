@@ -45,6 +45,7 @@
 "RpmsRpc::Authentication.user_security_keys": read
 "RpmsRpc::Authentication.user_type": read
 "RpmsRpc::Authentication.user_type_for": read
+"RpmsRpc::BehavioralHealth.save_pcc_visit": non_idempotent_write
 "RpmsRpc::BehavioralHealth.save_pov": non_idempotent_write
 "RpmsRpc::BehavioralHealth.save_progress_note": non_idempotent_write
 "RpmsRpc::BehavioralHealth.save_visit": non_idempotent_write
@@ -257,10 +258,12 @@
 "RpmsRpc::Registration.update": non_idempotent_write
 "RpmsRpc::Reminders.applicable": read
 "RpmsRpc::Scheduling.add_appointment": non_idempotent_write
+"RpmsRpc::Scheduling.add_availability": non_idempotent_write
 "RpmsRpc::Scheduling.all_appointments": non_idempotent_write
 "RpmsRpc::Scheduling.appointments": non_idempotent_write
 "RpmsRpc::Scheduling.availability": non_idempotent_write
 "RpmsRpc::Scheduling.cancel_appointment": non_idempotent_write
+"RpmsRpc::Scheduling.cancel_availability_by_date": non_idempotent_write
 "RpmsRpc::Scheduling.checkin_appointment": non_idempotent_write
 "RpmsRpc::Scheduling.clinic_setup": non_idempotent_write
 "RpmsRpc::Scheduling.hospital_locations": non_idempotent_write

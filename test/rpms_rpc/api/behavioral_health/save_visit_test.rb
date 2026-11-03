@@ -22,6 +22,7 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
   RPC = "AMHG SAVE VISIT"
   RS = "\x1e" # $C(30)
   US = "\x1f" # $C(31)
+  PLAIN_RPC_ERROR_MARKER = "SYNTH_PLAIN_RPC_ERROR_VISIT537"
 
   ROOT = File.expand_path("../../../..", __dir__)
   REQUIRED_RPCS_PATH = File.join(ROOT, "lib/rpms_rpc/required_rpcs.json")
@@ -228,6 +229,123 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
 
     assert_equal 1, @mock.context_binds.count("AMHGRPC")
     assert_equal 0, @mock.context_binds.count("CIAV VUECENTRIC")
+  end
+
+  # A timeout leaves the session on AMHGRPC when nothing was declared.
+  # The re-bind still runs, and the SaveError the caller sees stays the
+  # timeout, not a later bind failure.
+  def test_nil_context_with_amhg_timeout_still_rebinds_ddr_context_after_save_error
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = TimeoutOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_visit(**FULL_KWARGS) } }
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+    assert_kind_of RpmsRpc::Client::RpcTimeoutError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_timeout_keeps_the_timeout_when_the_ddr_rebind_fails
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+    wrapper = TimeoutOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_visit(**FULL_KWARGS) } }
+    assert_kind_of RpmsRpc::Client::RpcTimeoutError, err.cause
+    assert_equal "AMHGRPC", @mock.current_context
+    refute_includes @mock.context_binds, "CIAV VUECENTRIC"
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_with_amhg_rpc_m_error_still_rebinds_ddr_context_after_save_error
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = RpcMErrorOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_visit(**FULL_KWARGS) } }
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+    assert_kind_of RpmsRpc::Client::RpcMError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_with_amhg_plain_rpc_error_still_rebinds_ddr_context_after_save_error
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = RpcErrorOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_visit(**FULL_KWARGS) } }
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+    assert_kind_of RpmsRpc::Client::RpcError, err.cause
+    refute_kind_of RpmsRpc::Client::RpcMError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_rpc_m_error_keeps_the_m_error_when_the_ddr_rebind_fails
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+    wrapper = RpcMErrorOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_visit(**FULL_KWARGS) } }
+    assert_kind_of RpmsRpc::Client::RpcMError, err.cause
+    assert_equal "AMHGRPC", @mock.current_context
+    refute_includes @mock.context_binds, "CIAV VUECENTRIC"
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  # A caller already inside rescue leaves $! set to the host exception.
+  # A failed DDR re-bind must still be SaveError, not a returned IEN.
+  def test_nil_context_inside_host_rescue_still_raises_save_error_when_ddr_rebind_fails_after_successful_amhg
+    seed_add_success(WIRE_ADD_FULL, "8802", **FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+    err = nil
+    returned = :not_called
+    begin
+      raise "host"
+    rescue StandardError
+      err = assert_raises(BH::SaveError) do
+        returned = capture_io { BH.save_visit(**FULL_KWARGS) }
+      end
+    end
+    assert_equal :not_called, returned
+    assert_match(/AMHG SAVE VISIT outcome unknown/, err.message)
+    assert_match(/record 8802 may have been filed/, err.message)
+    assert_kind_of RpmsRpc::Client::RpcError, err.cause
+    refute_nil save_call
+    assert_equal "AMHGRPC", @mock.current_context
+  end
+
+  def test_nil_context_inside_host_rescue_still_raises_save_error_when_ddr_rebind_fails_after_amhg_timeout
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+    wrapper = TimeoutOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = nil
+    returned = :not_called
+    begin
+      raise "host"
+    rescue StandardError
+      err = assert_raises(BH::SaveError) do
+        returned = capture_io { BH.save_visit(**FULL_KWARGS) }
+      end
+    end
+    assert_equal :not_called, returned
+    assert_kind_of RpmsRpc::Client::RpcTimeoutError, err.cause
+    refute_nil save_call
+    assert_equal "AMHGRPC", @mock.current_context
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
   end
 
   def test_add_with_a_nil_context_and_an_unbindable_ddr_context_names_the_record_from_the_reply
@@ -1014,6 +1132,20 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = @mock }
   end
 
+  def test_nil_context_amhg_frame_too_long_restore_failure_does_not_replace_nothing_sent_error
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+    wrapper = FrameTooLongOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    refute_match(/outcome unknown|may have been filed/i, err.message)
+    assert_match(/nothing was sent|could not be framed|not sent/i, err.message)
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
   def test_refuses_c1_control_characters_in_group_name_without_rpc
     c1 = "\u0085"
     assert_input_validation_refusal(/group|control|separator/i, **FULL_KWARGS.merge(group_name: "SYN#{c1}TH"))
@@ -1027,6 +1159,21 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_amhg_reached
     assert_post_call_ambiguity(err)
     assert_kind_of RpmsRpc::Client::RpcMError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_amhg_plain_rpc_error_becomes_save_error_with_ambiguous_outcome
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    wrapper = RpcErrorOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
+    assert_match(/AMHG SAVE VISIT outcome unknown/, err.message)
+    assert_match(/may have been filed/i, err.message)
+    assert_kind_of RpmsRpc::Client::RpcError, err.cause
+    refute_kind_of RpmsRpc::Client::RpcMError, err.cause
+    refute_includes err.message, PLAIN_RPC_ERROR_MARKER
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
   end
@@ -1467,6 +1614,17 @@ class RpcMErrorOnAmhg < SimpleDelegator
     if rpc_name == "AMHG SAVE VISIT"
       super
       raise RpmsRpc::Client::RpcMError, "AMHG SAVE VISIT M error (synthetic)"
+    end
+
+    super
+  end
+end
+
+class RpcErrorOnAmhg < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *params)
+    if rpc_name == BehavioralHealthSaveVisitTest::RPC
+      super
+      raise RpmsRpc::Client::RpcError, BehavioralHealthSaveVisitTest::PLAIN_RPC_ERROR_MARKER
     end
 
     super

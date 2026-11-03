@@ -32,6 +32,7 @@
       "XUS SIGNON SETUP"
     ],
     "RpmsRpc::BehavioralHealth": [
+      "AMHG CREATE/EDIT VISIT",
       "AMHG GET SUICIDE FORM",
       "AMHG GET SUICIDE FORM CF",
       "AMHG GET SUICIDE FORM METHOD",
@@ -303,8 +304,10 @@
     ],
     "RpmsRpc::Scheduling": [
       "BSDX ADD NEW APPOINTMENT",
+      "BSDX ADD NEW AVAILABILITY",
       "BSDX ALL APPOINTMENTS",
       "BSDX CANCEL APPOINTMENT",
+      "BSDX CANCEL AV BY DATE",
       "BSDX CHECKIN APPOINTMENT",
       "BSDX CLINIC SETUP",
       "BSDX CREATE APPT SCHEDULE",
