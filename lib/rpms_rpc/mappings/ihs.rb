@@ -1023,6 +1023,26 @@ module RpmsRpc
       m.text_blob :reply
     end
 
+    # The window reads and writes RpmsRpc::PatientProfile uses (contacts,
+    # languages, other names), beside AGG BUILD WINDOW DISPLAY above. Same GLOBAL ARRAY replies, parsed by Agg.
+    #   AGG BUILD WINDOW MULTIPLE     MUL^AGGPTDMG    window, node, DFN, entry
+    #   AGG WINDOW TABLE LOOKUP       LKP^AGGWTBLK    file, text, screen
+    #   AGG UPDATE ALIASES            ALIAS^AGGPTNAM  DFN, A/D, entry, PARMS
+    #   AGG UPDATE SPECIAL MULTIPLES  UPD^AGGPOTH     window, DFN, entry, A/D, PARMS
+    #   AGG PATIENT LANGUAGES         LANG^AGGWOTH    DFN
+    {
+      agg_window_multiple: "AGG BUILD WINDOW MULTIPLE",
+      agg_table_lookup: "AGG WINDOW TABLE LOOKUP",
+      agg_update_aliases: "AGG UPDATE ALIASES",
+      agg_update_special_multiples: "AGG UPDATE SPECIAL MULTIPLES",
+      agg_patient_languages: "AGG PATIENT LANGUAGES"
+    }.each do |name, rpc|
+      DataMapper.define(name) do |m|
+        m.rpc rpc
+        m.text_blob :reply
+      end
+    end
+
     # AGG LOCK PATIENT / AGG UNLOCK PATIENT — LOCK^AGGLOCK / UNLOCK^AGGLOCK
     # (return type GLOBAL ARRAY). Param: DFN. Reply header
     # "I00010RESULT^T00080MESSAGE"; RESULT 1 locked, 0 held elsewhere, -1 no

@@ -662,6 +662,9 @@ end
     seed_mock_global_array!(mock, "BSDX CREATE ASGND SLOT SCHED", resource, SLOTS_RECORDSET_HEADER)
     seed_mock_global_array!(mock, "BSDX CREATE APPT SCHEDULE", resource, APPTS_RECORDSET_HEADER)
     seed_mock_global_array!(mock, "BSDX PATIENT APPT DISPLAY", "100", PATIENT_APPTS_RECORDSET_HEADER)
+    # BSDX OVERBOOK always answers one row; a header alone is a failed read.
+    seed_mock_global_array!(mock, "BSDX OVERBOOK", "44", "T00020OVERBOOK\x1eYES")
+    seed_mock_global_array!(mock, "BSDX CLINIC VAR APPT", "44", "I00020VAR_APPT_FLAG\x1e1")
   end
 
   BSDX_CALLS = {
@@ -684,7 +687,10 @@ end
     slot_schedule: [ { resource: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],
     add_availability: [ { resource: "PEDIATRICIAN,DEMO", start_time: START_T, end_time: END_T, slots: 1,
                           access_type_id: 1 } ],
-    cancel_availability_by_date: [ { resource_id: 7, start_date: START_T, end_date: END_T } ]
+    cancel_availability_by_date: [ { resource_id: 7, start_date: START_T, end_date: END_T } ],
+    overbook_allowed: [ { hospital_location_id: 44, start_time: START_T, resource_id: 7 } ],
+    edit_appointment: [ 501, { note: "follow-up", length_minutes: 30 } ],
+    variable_length?: [ 44 ]
   }.freeze
 
   def test_the_bind_table_names_every_public_method

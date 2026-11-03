@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Run one Cursor-hosted factory seat on a brief file.
+#
+#   bin/seat <seat> <brief-file>
+#   bin/seat glm-probe
+#
+# Seats:
+#   composer     spec author / gate      composer-2.5     20 min
+#   grok         builder                 grok-4.7-high    40 min
+#   grok-xhigh   builder, hard surfaces  grok-4.7-xhigh   40 min
+#   glm          gate                    glm-5.2-high     20 min
+#   glm-probe    is the GLM seat live?   glm-5.2-high      2 min (no brief)
+#
+# Why this exists: cloud sessions allow `Bash(bin/seat:*)` in
+# .claude/settings.json. A seat call composed by hand (cd ... &&, a heredoc,
+# "$(cat brief)") does not match an allow rule, so auto mode judges it and
+# refuses it. Write the brief to a file, then run this as its own Bash call.
+#
+# The brief is passed as the agent's prompt. This script never prints
+# environment values; the agent reads CURSOR_API_KEY itself.
+set -euo pipefail
+
+agent="$HOME/.local/bin/agent"
+usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
+
+[ -x "$agent" ] || { echo "bin/seat: $agent is missing or not executable" >&2; exit 69; }
+
+seat="${1:-}"
+case "$seat" in
+  composer)   model=composer-2.5;   secs=1200 ;;
+  grok)       model=grok-4.7-high;  secs=2400 ;;
+  grok-xhigh) model=grok-4.7-xhigh; secs=2400 ;;
+  glm)        model=glm-5.2-high;   secs=1200 ;;
+  glm-probe)  exec timeout 120 "$agent" -p -f --model glm-5.2-high 'Reply with exactly: PROBE_OK' ;;
+  *)          usage ;;
+esac
+
+brief="${2:-}"
+[ -n "$brief" ] || usage
+[ -f "$brief" ] && [ -s "$brief" ] || { echo "bin/seat: brief file is missing or empty: $brief" >&2; exit 66; }
+
+exec timeout "$secs" "$agent" -p -f --trust --model "$model" "$(cat -- "$brief")"
