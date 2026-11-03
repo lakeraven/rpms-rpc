@@ -230,14 +230,16 @@ module RpmsRpc
     #
     # ends_on: (MM/DD/YYYY) files the eligibility end date (#9000003.11 .02)
     # and part: the coverage type (.03: A, B or D), both on the same row.
-    def add_medicare(dfn, roi_on:, name:, number:, suffix: nil, effective_on:, ends_on: nil, part: nil,
+    # roi_on: (the release-of-information date, #9000001 .04) is sent only
+    # when given: a clerk recording a Medicare card has not always taken one.
+    def add_medicare(dfn, name:, number:, effective_on:, roi_on: nil, suffix: nil, ends_on: nil, part: nil,
                      client: RpmsRpc.client)
       header_params = {
         "AGGMCROI" => roi_on,
         "AGGMCNME" => name,
         "AGGMCNUM" => number,
         "AGGMCSUF" => suffix
-      }
+      }.compact
       eligibility_params = { "AGGMCESD" => effective_on }.merge({ "AGGMCEED" => ends_on, "AGGMCCOV" => medicare_part(part) }.compact)
       validate_window_params!(MEDICARE_WINDOW, header_params)
       validate_window_params!(MEDICARE_ELIGIBILITY_WINDOW, eligibility_params)

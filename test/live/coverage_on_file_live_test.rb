@@ -33,7 +33,7 @@ class CoverageOnFileLiveTest < LiveSpec::Test
     row = "#{medicaid[:multiple_ien]},#{record},"
     assert_equal "#{year + 1}-12-31", fm_date(fileman("9000004.11", row, ".02", "I")), "Medicaid end date (.02)"
 
-    medicare = RpmsRpc::Coverage.add_medicare(DFN, roi_on: starts, name: "ZEPHYR,QUINN", number: CMS_EXAMPLE_MBI,
+    medicare = RpmsRpc::Coverage.add_medicare(DFN, name: "ZEPHYR,QUINN", number: CMS_EXAMPLE_MBI,
                                                    effective_on: starts, ends_on: ends, part: "B", client: client)
     assert medicare[:success], "Medicare add refused: #{medicare.inspect}"
     assert_equal "B", fileman("9000003.11", "#{medicare[:mien]},#{DFN},", ".03", "I"), "Medicare part (.03)"
