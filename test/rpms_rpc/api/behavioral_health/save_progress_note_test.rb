@@ -637,7 +637,8 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = wrapper }
     err = assert_raises(BH::SaveError) { capture_io { BH.save_progress_note(**FULL_KWARGS) } }
     assert_kind_of RpmsRpc::Client::RpcTimeoutError, err.cause
-    assert_equal "AMHGRPC", @mock.current_context
+    # Factory-Spec-Amendment: a refused bind leaves no context (CRCONTXT^XWBSEC kills it), #521
+    assert_nil @mock.current_context
     refute_includes @mock.context_binds, "CIAV VUECENTRIC"
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
@@ -651,7 +652,8 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = wrapper }
     err = assert_raises(BH::SaveError) { capture_io { BH.save_progress_note(**FULL_KWARGS) } }
     assert_kind_of RpmsRpc::Client::RpcMError, err.cause
-    assert_equal "AMHGRPC", @mock.current_context
+    # Factory-Spec-Amendment: a refused bind leaves no context (CRCONTXT^XWBSEC kills it), #521
+    assert_nil @mock.current_context
     refute_includes @mock.context_binds, "CIAV VUECENTRIC"
   ensure
     RpmsRpc.configure { |c| c.client = @mock }

@@ -255,7 +255,8 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = wrapper }
     err = assert_raises(BH::SaveError) { capture_io { BH.save_visit(**FULL_KWARGS) } }
     assert_kind_of RpmsRpc::Client::RpcTimeoutError, err.cause
-    assert_equal "AMHGRPC", @mock.current_context
+    # Factory-Spec-Amendment: a refused bind leaves no context (CRCONTXT^XWBSEC kills it), #521
+    assert_nil @mock.current_context
     refute_includes @mock.context_binds, "CIAV VUECENTRIC"
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
@@ -296,7 +297,8 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = wrapper }
     err = assert_raises(BH::SaveError) { capture_io { BH.save_visit(**FULL_KWARGS) } }
     assert_kind_of RpmsRpc::Client::RpcMError, err.cause
-    assert_equal "AMHGRPC", @mock.current_context
+    # Factory-Spec-Amendment: a refused bind leaves no context (CRCONTXT^XWBSEC kills it), #521
+    assert_nil @mock.current_context
     refute_includes @mock.context_binds, "CIAV VUECENTRIC"
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
@@ -322,7 +324,8 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_match(/record 8802 may have been filed/, err.message)
     assert_kind_of RpmsRpc::Client::RpcError, err.cause
     refute_nil save_call
-    assert_equal "AMHGRPC", @mock.current_context
+    # Factory-Spec-Amendment: a refused bind leaves no context (CRCONTXT^XWBSEC kills it), #521
+    assert_nil @mock.current_context
   end
 
   def test_nil_context_inside_host_rescue_still_raises_save_error_when_ddr_rebind_fails_after_amhg_timeout
@@ -343,7 +346,8 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_equal :not_called, returned
     assert_kind_of RpmsRpc::Client::RpcTimeoutError, err.cause
     refute_nil save_call
-    assert_equal "AMHGRPC", @mock.current_context
+    # Factory-Spec-Amendment: a refused bind leaves no context (CRCONTXT^XWBSEC kills it), #521
+    assert_nil @mock.current_context
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
   end
