@@ -1,8 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(~/.local/bin/agent:*)",
-      "Bash(timeout * ~/.local/bin/agent:*)",
+      "Bash(timeout 1200 ~/.local/bin/agent -p -f --trust:*)",
+      "Bash(timeout 2400 ~/.local/bin/agent -p -f --trust:*)",
       "Bash(bin/cloud_rpms:*)",
       "Bash(PINNED=1 bin/cloud_rpms:*)"
     ]
