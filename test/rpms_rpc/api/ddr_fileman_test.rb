@@ -157,6 +157,112 @@ class DdrFilemanTest < Minitest::Test
     assert_nil Ddr.lister(file: "9000001", xref: "D", part: "999999")
   end
 
+  def test_lister_reports_data_true_when_the_reply_includes_a_data_marker
+    key = Ddr.lister_param(file: "9000001", xref: "D", part: "100001", max: "*").to_s
+    @mock.seed(:ddr_lister, key, "[Data]\n43^100001")
+
+    result = Ddr.lister(file: "9000001", xref: "D", part: "100001", max: "*")
+
+    refute result[:error]
+    assert_equal true, result[:data]
+    assert_equal 1, result[:entries].length
+    assert_equal({ ien: "43", pieces: [ "100001" ] }, result[:entries][0])
+  end
+
+  def test_lister_reports_data_false_when_the_reply_has_no_data_marker
+    key = Ddr.lister_param(file: "9000001", xref: "B").to_s
+    @mock.seed(:ddr_lister, key, "[Misc]\nMORE^DEMOPATIENT,UNA^43")
+
+    result = Ddr.lister(file: "9000001", xref: "B")
+
+    assert_equal false, result[:data]
+    assert_empty result[:entries]
+  end
+
+  def test_lister_reports_error_true_for_a_bare_non_ddr_line
+    key = Ddr.lister_param(file: "9000001").to_s
+    @mock.seed(:ddr_lister, key, "-1^Remote procedure DDR LISTER doesn't exist")
+
+    result = Ddr.lister(file: "9000001")
+
+    assert result[:error]
+    assert_equal false, result[:data]
+    assert_empty result[:entries]
+  end
+
+  def test_lister_v0_empty_data_marker_is_data_true_with_no_entries
+    key = Ddr.lister_param(file: "9000001", xref: "D", part: "100001", max: "*").to_s
+    @mock.seed(:ddr_lister, key, "[Data]")
+
+    result = Ddr.lister(file: "9000001", xref: "D", part: "100001", max: "*")
+
+    refute result[:error]
+    assert_equal true, result[:data]
+    assert_empty result[:entries]
+  end
+
+  # ==========================================================================
+  # DDR LISTER — V1 reply parsing (XWB RPC version "1"; DDR.m:31-41)
+  # ==========================================================================
+
+  def test_lister_v1_parses_data_rows_between_begin_and_end_markers
+    key = Ddr.lister_param(file: "9000001", xref: "D", part: "100001", max: "*").to_s
+    @mock.seed(:ddr_lister, key, "[BEGIN_diDATA]\n43^100001\n44^100001A\n[END_diDATA]")
+
+    result = Ddr.lister(file: "9000001", xref: "D", part: "100001", max: "*")
+
+    refute result[:error]
+    assert_equal true, result[:data]
+    assert_equal 2, result[:entries].length
+    assert_equal "43", result[:entries][0][:ien]
+    assert_equal [ "100001" ], result[:entries][0][:pieces]
+  end
+
+  def test_lister_v1_empty_data_section_is_data_true_with_no_entries
+    key = Ddr.lister_param(file: "9000001", xref: "D", part: "100001", max: "*").to_s
+    @mock.seed(:ddr_lister, key, "[BEGIN_diDATA]\n[END_diDATA]")
+
+    result = Ddr.lister(file: "9000001", xref: "D", part: "100001", max: "*")
+
+    refute result[:error]
+    assert_equal true, result[:data]
+    assert_empty result[:entries]
+  end
+
+  def test_lister_v1_parses_misc_more_marker
+    key = Ddr.lister_param(file: "9000001", xref: "B").to_s
+    body = "[Misc]\nMORE^DEMOPATIENT,UNA^43\n[BEGIN_diDATA]\n42^DEMOPATIENT,ALPHA\n[END_diDATA]"
+    @mock.seed(:ddr_lister, key, body)
+
+    result = Ddr.lister(file: "9000001", xref: "B")
+
+    refute result[:error]
+    assert_equal({ value: "DEMOPATIENT,UNA", ien: "43" }, result[:more])
+    assert_equal 1, result[:entries].length
+    assert_equal true, result[:data]
+  end
+
+  def test_lister_v1_flags_begin_dierrors_marker
+    key = Ddr.lister_param(file: "9000001").to_s
+    @mock.seed(:ddr_lister, key, "[BEGIN_diDATA]\n[END_diDATA]\n[BEGIN_diERRORS]")
+
+    result = Ddr.lister(file: "9000001")
+
+    assert result[:error]
+    assert_empty result[:entries]
+  end
+
+  def test_lister_reports_error_true_when_reply_has_no_data_section_but_a_stray_line
+    key = Ddr.lister_param(file: "9000001").to_s
+    @mock.seed(:ddr_lister, key, "SYNTHETIC BROKER NOISE")
+
+    result = Ddr.lister(file: "9000001")
+
+    assert result[:error]
+    assert_equal false, result[:data]
+    assert_empty result[:entries]
+  end
+
   # ==========================================================================
   # DDR LOCK/UNLOCK NODE
   # ==========================================================================
