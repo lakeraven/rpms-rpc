@@ -45,4 +45,22 @@ class BehavioralHealthWellnessStandaloneLoadTest < Minitest::Test
     assert_equal "SaveError", out,
                  "requiring only wellness must not NameError on Patient::FILEMAN_CONTEXT during DDR work"
   end
+
+  def test_wellness_save_error_is_subclass_of_behavioral_health_save_error_in_fresh_interpreter
+    script = <<~RUBY
+      require "rpms_rpc/core"
+      require "rpms_rpc/mock_client"
+      require "rpms_rpc/mappings/amhg_wellness"
+      require "rpms_rpc/api/behavioral_health/wellness"
+
+      print(
+        RpmsRpc::BehavioralHealth::Wellness::SaveError < RpmsRpc::BehavioralHealth::SaveError
+      )
+    RUBY
+
+    out, err, status = run_fresh(script)
+    assert status.success?, "subprocess failed:\n#{err}"
+    assert_equal "true", out.strip,
+                 "Wellness::SaveError must inherit BehavioralHealth::SaveError (#568 parity)"
+  end
 end

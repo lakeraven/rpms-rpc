@@ -141,6 +141,384 @@ class BehavioralHealthWellnessTest < Minitest::Test
     assert_operator save_error_class, :<, RpmsRpc::Error
   end
 
+  def test_wellness_save_error_is_subclass_of_behavioral_health_save_error
+    assert_operator save_error_class, :<, RpmsRpc::BehavioralHealth::SaveError
+  end
+
+  # --- #568 / altered DDR contract (rpms-rpc#540 spec) -----------------------
+
+  def test_save_screening_amhg_write_rpc_not_available_error_propagates_and_unlocks
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    post = BASELINE_INTERNAL.dup
+    apply_screening_updates_to_internal!(post, screenings)
+    seed_screening_flow(wire, screenings, post_internal: post)
+    wrapper = WellnessWriteRpcNotAvailableClient.new(visit_gets_client, RPC_SCREENING)
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    assert_raises(RpmsRpc::Client::RpcNotAvailableError) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_measurements_amhg_write_rpc_not_available_error_propagates_and_unlocks
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    row = [ msr_row(type_code: "PHQ9", value: 14, provider: PROVIDER) ]
+    seed_measurements_flow(wire, measurements, msr_rows: row)
+    wrapper = WellnessWriteRpcNotAvailableClient.new(visit_gets_client, RPC_MEASUREMENTS)
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    assert_raises(RpmsRpc::Client::RpcNotAvailableError) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_amhg_write_rpc_refused_error_propagates_and_unlocks
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    post = BASELINE_INTERNAL.dup
+    apply_screening_updates_to_internal!(post, screenings)
+    seed_screening_flow(wire, screenings, post_internal: post)
+    wrapper = WellnessWriteRpcRefusedClient.new(visit_gets_client, RPC_SCREENING)
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    assert_raises(RpmsRpc::Client::RpcRefusedError) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_measurements_amhg_write_rpc_refused_error_propagates_and_unlocks
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    row = [ msr_row(type_code: "PHQ9", value: 14, provider: PROVIDER) ]
+    seed_measurements_flow(wire, measurements, msr_rows: row)
+    wrapper = WellnessWriteRpcRefusedClient.new(visit_gets_client, RPC_MEASUREMENTS)
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    assert_raises(RpmsRpc::Client::RpcRefusedError) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_amhg_write_frame_too_long_becomes_save_error_nothing_sent_and_unlocks
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    post = BASELINE_INTERNAL.dup
+    apply_screening_updates_to_internal!(post, screenings)
+    seed_screening_flow(wire, screenings, post_internal: post)
+    wrapper = WellnessWriteFrameTooLongClient.new(visit_gets_client, RPC_SCREENING)
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_match(/could not be framed; nothing was sent/, err.message)
+    refute_match(/may have been filed/i, err.message)
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_measurements_amhg_write_frame_too_long_becomes_save_error_nothing_sent_and_unlocks
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    row = [ msr_row(type_code: "PHQ9", value: 14, provider: PROVIDER) ]
+    seed_measurements_flow(wire, measurements, msr_rows: row)
+    wrapper = WellnessWriteFrameTooLongClient.new(visit_gets_client, RPC_MEASUREMENTS)
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+    assert_match(/could not be framed; nothing was sent/, err.message)
+    refute_match(/may have been filed/i, err.message)
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_amhg_write_plain_rpc_error_becomes_outcome_unknown_save_error
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    post = BASELINE_INTERNAL.dup
+    apply_screening_updates_to_internal!(post, screenings)
+    seed_screening_flow(wire, screenings, post_internal: post)
+    wrapper = WellnessWriteRpcErrorClient.new(visit_gets_client, RPC_SCREENING)
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_match(/may have been filed/i, err.message)
+    assert_kind_of RpmsRpc::Client::RpcError, err.cause
+    refute_kind_of RpmsRpc::Client::RpcMError, err.cause
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_measurements_amhg_write_plain_rpc_error_becomes_outcome_unknown_save_error
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    row = [ msr_row(type_code: "PHQ9", value: 14, provider: PROVIDER) ]
+    seed_measurements_flow(wire, measurements, msr_rows: row)
+    wrapper = WellnessWriteRpcErrorClient.new(visit_gets_client, RPC_MEASUREMENTS)
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+    assert_match(/may have been filed/i, err.message)
+    assert_kind_of RpmsRpc::Client::RpcError, err.cause
+    refute_kind_of RpmsRpc::Client::RpcMError, err.cause
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_measurements_msr_read_rpc_not_available_after_write_is_outcome_unknown_save_error
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    row = [ msr_row(type_code: "PHQ9", value: 14, provider: PROVIDER) ]
+    seed_measurements_flow(wire, measurements, msr_rows: row)
+    wrapper = WellnessMsrReadRpcNotAvailableClient.new(visit_gets_client)
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+    assert_match(/may have been filed/i, err.message)
+    assert_kind_of RpmsRpc::Client::RpcNotAvailableError, err.cause
+    refute_nil measurements_call
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_refuses_altered_pre_read_visit_ddr_without_write
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    internal = BASELINE_INTERNAL.merge("1601" => "Alcohol\tbaseline note")
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: internal)
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    visit_body = pre_edit_body(RECORD_IEN, PATIENT, internal: internal)
+    client = AlteredDdrGetsVisitClient.new(@mock, RECORD_IEN, visit_body)
+    RpmsRpc.configure { |c| c.client = client }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_match(/the visit could not be read/i, err.message)
+    assert_empty screening_calls
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_measurements_refuses_altered_pre_read_visit_ddr_without_write
+    internal = BASELINE_INTERNAL.merge("1601" => "Alcohol\tbaseline note")
+    seed_visit_lock(RECORD_IEN)
+    seed_visit_unlock(RECORD_IEN)
+    seed_provider_exists(PROVIDER)
+    seed_baseline_stored_screening_providers
+    visit_body = pre_edit_body(RECORD_IEN, PATIENT, internal: internal)
+    client = AlteredDdrGetsVisitClient.new(@mock, RECORD_IEN, visit_body)
+    RpmsRpc.configure { |c| c.client = client }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(
+        RECORD_IEN, patient: PATIENT,
+        measurements: [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+      )
+    end
+    assert_match(/the visit could not be read/i, err.message)
+    assert_empty measurements_calls
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_raises_outcome_unknown_when_post_visit_ddr_reply_is_altered
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    post = BASELINE_INTERNAL.dup
+    apply_screening_updates_to_internal!(post, screenings)
+    seed_screening_flow(wire, screenings, post_internal: post)
+    tab_post = post.merge("1601" => "Alcohol\tbaseline note")
+    post_body = pre_edit_body(RECORD_IEN, PATIENT, internal: tab_post)
+    wrapper = SecondVisitGetsAlteredClient.new(visit_gets_client, RECORD_IEN, post_body)
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_match(/may have been filed/i, err.message)
+    refute_nil screening_call
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_refuses_pre_read_visit_ddr_with_stray_line_outside_wp_block
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    internal = BASELINE_INTERNAL.merge("1601" => "Alcohol part one")
+    seed_visit_lock(RECORD_IEN)
+    seed_visit_unlock(RECORD_IEN)
+    key = visit_ddr_key(RECORD_IEN)
+    body = pre_edit_body(RECORD_IEN, PATIENT, internal: internal) + "\npart two kept"
+    @mock.seed(:ddr_gets_entry_data, key, body)
+    seed_baseline_stored_screening_providers
+    seed_provider_exists(PROVIDER)
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_match(/the visit could not be read/i, err.message)
+    assert_empty screening_calls, "stray visit DDR line must refuse before AMHG SAVE SCREENING"
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  end
+
+  def test_save_measurements_refuses_pre_read_visit_ddr_with_stray_line_outside_wp_block
+    internal = BASELINE_INTERNAL.merge("1601" => "Alcohol part one")
+    seed_visit_lock(RECORD_IEN)
+    seed_visit_unlock(RECORD_IEN)
+    key = visit_ddr_key(RECORD_IEN)
+    body = pre_edit_body(RECORD_IEN, PATIENT, internal: internal) + "\npart two kept"
+    @mock.seed(:ddr_gets_entry_data, key, body)
+    seed_provider_exists(PROVIDER)
+
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(
+        RECORD_IEN, patient: PATIENT,
+        measurements: [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+      )
+    end
+    assert_match(/the visit could not be read/i, err.message)
+    assert_empty measurements_calls, "stray visit DDR line must refuse before AMHG SAVE MEASUREMENTS"
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  end
+
+  # --- reply / lock guards (pass on current code; rpms-rpc#540 spec F1–F4) ---
+
+  def test_save_screening_refuses_when_visit_lock_reply_is_string_one_without_write
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    seed_pre_edit_visit_gets(RECORD_IEN, PATIENT, BASELINE_INTERNAL)
+    seed_baseline_stored_screening_providers
+    seed_provider_exists(PROVIDER)
+
+    err = nil
+    RpmsRpc::DdrFileman.stub(:lock, "1") do
+      err = assert_raises(save_error_class) do
+        wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+      end
+    end
+    assert_match(/was not acquired/i, err.message)
+    assert_empty screening_calls
+  end
+
+  def test_save_measurements_refuses_when_visit_lock_reply_is_integer_one_without_write
+    seed_pre_edit_visit_gets(RECORD_IEN, PATIENT, BASELINE_INTERNAL)
+    seed_provider_exists(PROVIDER)
+
+    err = nil
+    RpmsRpc::DdrFileman.stub(:lock, 1) do
+      err = assert_raises(save_error_class) do
+        wellness.save_measurements(
+          RECORD_IEN, patient: PATIENT,
+          measurements: [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+        )
+      end
+    end
+    assert_match(/was not acquired/i, err.message)
+    assert_empty measurements_calls
+  end
+
+  def test_save_screening_refuses_when_write_reply_includes_extra_row_after_record_ien
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    post = BASELINE_INTERNAL.dup
+    apply_screening_updates_to_internal!(post, screenings)
+    extra = "T00030Result#{RS}#{RECORD_IEN}#{RS}0~Edit Screening#{RS}#{US}"
+    seed_screening_flow(wire, screenings, post_internal: post, reply: extra)
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_match(/may have been filed/i, err.message)
+    refute_nil screening_call
+  end
+
+  def test_save_measurements_refuses_when_write_reply_includes_extra_row_after_record_ien
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    row = [ msr_row(type_code: "PHQ9", value: 14, provider: PROVIDER) ]
+    extra = "T00030Result#{RS}#{RECORD_IEN}#{RS}0~Add Measurement#{RS}#{US}"
+    seed_measurements_flow(wire, measurements, msr_rows: row, reply: extra)
+
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+    assert_match(/may have been filed/i, err.message)
+    refute_nil measurements_call
+  end
+
+  def test_save_screening_refuses_stored_provider_with_leading_zeros_without_write
+    internal = BASELINE_INTERNAL.merge("1404" => "007")
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: internal)
+    seed_provider_exists(PROVIDER)
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_match(/stored screening cannot be resent/i, err.message)
+    assert_empty screening_calls
+  end
+
+  def test_save_screening_refuses_when_write_reply_contains_c1_control_byte
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    post = BASELINE_INTERNAL.dup
+    apply_screening_updates_to_internal!(post, screenings)
+    bad = "T00030Result#{RS}#{RECORD_IEN}#{RS}#{US}\x01"
+    seed_screening_flow(wire, screenings, post_internal: post, reply: bad)
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_match(/may have been filed/i, err.message)
+    refute_nil screening_call
+  end
+
+  def test_save_measurements_refuses_when_write_reply_contains_c1_control_byte
+    measurements = [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
+    wire = "A|#{RECORD_IEN}|PHQ9~~14~#{PROVIDER}|#{PATIENT}"
+    row = [ msr_row(type_code: "PHQ9", value: 14, provider: PROVIDER) ]
+    bad = "T00030Result#{RS}#{RECORD_IEN}#{RS}#{US}\x01"
+    seed_measurements_flow(wire, measurements, msr_rows: row, reply: bad)
+
+    err = assert_raises(save_error_class) do
+      wellness.save_measurements(RECORD_IEN, patient: PATIENT, measurements: measurements)
+    end
+    assert_match(/may have been filed/i, err.message)
+    refute_nil measurements_call
+  end
+
   # --- save_screening wire + success -----------------------------------------
 
   def test_save_screening_pins_the_exact_nineteen_piece_wire_resending_unchanged_screenings
@@ -2572,6 +2950,138 @@ class DdrGetsIOErrorOnMatchClient < SimpleDelegator
     end
 
     super
+  end
+end
+
+class WellnessWriteRpcNotAvailableClient < SimpleDelegator
+  def initialize(delegate, rpc_name)
+    super(delegate)
+    @rpc_name = rpc_name
+  end
+
+  def call_rpc_global_array(rpc_name, *_params)
+    raise RpmsRpc::Client::RpcNotAvailableError, "#{rpc_name} not registered (synthetic)" if rpc_name == @rpc_name
+
+    super
+  end
+end
+
+class WellnessWriteRpcRefusedClient < SimpleDelegator
+  def initialize(delegate, rpc_name)
+    super(delegate)
+    @rpc_name = rpc_name
+  end
+
+  def call_rpc_global_array(rpc_name, *_params)
+    raise RpmsRpc::Client::RpcRefusedError, "#{rpc_name} refused (synthetic)" if rpc_name == @rpc_name
+
+    super
+  end
+end
+
+class WellnessWriteFrameTooLongClient < SimpleDelegator
+  def initialize(delegate, rpc_name)
+    super(delegate)
+    @rpc_name = rpc_name
+  end
+
+  def call_rpc_global_array(rpc_name, *_params)
+    raise RpmsRpc::Client::FrameTooLongError, "#{rpc_name} wire too long (synthetic)" if rpc_name == @rpc_name
+
+    super
+  end
+end
+
+class WellnessWriteRpcErrorClient < SimpleDelegator
+  MARKER = "SYNTH_WELLNESS_PLAIN_RPC_ERROR"
+
+  def initialize(delegate, rpc_name)
+    super(delegate)
+    @rpc_name = rpc_name
+  end
+
+  def call_rpc_global_array(rpc_name, *params)
+    if rpc_name == @rpc_name
+      super
+      raise RpmsRpc::Client::RpcError, MARKER
+    end
+
+    super
+  end
+end
+
+class WellnessMsrReadRpcNotAvailableClient < SimpleDelegator
+  MSR_RPC = "AMHG GET VISIT MSR DATA ENTRY"
+
+  def call_rpc_global_array(rpc_name, *params)
+    result = super
+    raise RpmsRpc::Client::RpcNotAvailableError, "#{MSR_RPC} not registered (synthetic)" if rpc_name == MSR_RPC
+
+    result
+  end
+end
+
+class AlteredDdrGetsVisitClient < SimpleDelegator
+  DDR_GETS = "DDR GETS ENTRY DATA"
+  BH_VISIT = "9002011"
+  PRE_EDIT_FIELDS =
+    ".08;1112;1401;1402;1403;1404;1405;1406;1407;1408;1409;1410;1501;1601;1701;1901;2001"
+
+  def initialize(delegate, record_ien, body)
+    super(delegate)
+    @record_ien = record_ien.to_s
+    @body = body
+  end
+
+  def call_rpc(rpc_name, *params)
+    if rpc_name == DDR_GETS && visit_param?(params.first)
+      lines = @body.split(/\r\n|\r|\n/)
+      return RpmsRpc::Reply.from_wire(lines, controls: true)
+    end
+
+    super
+  end
+
+  def visit_param?(param)
+    param.is_a?(Hash) &&
+      param["FILE"] == BH_VISIT &&
+      param["IENS"] == "#{@record_ien}," &&
+      param["FIELDS"] == PRE_EDIT_FIELDS &&
+      param["FLAGS"] == "I"
+  end
+end
+
+class SecondVisitGetsAlteredClient < SimpleDelegator
+  DDR_GETS = "DDR GETS ENTRY DATA"
+  BH_VISIT = "9002011"
+  PRE_EDIT_FIELDS =
+    ".08;1112;1401;1402;1403;1404;1405;1406;1407;1408;1409;1410;1501;1601;1701;1901;2001"
+
+  def initialize(delegate, record_ien, post_body)
+    super(delegate)
+    @record_ien = record_ien.to_s
+    @post_body = post_body
+    @visit_gets = 0
+  end
+
+  def call_rpc(rpc_name, *params)
+    if rpc_name == DDR_GETS && visit_param?(params.first)
+      @visit_gets += 1
+      return super if @visit_gets == 1
+
+      lines = @post_body.split(/\r\n|\r|\n/)
+      return RpmsRpc::Reply.from_wire(lines, controls: true)
+    end
+
+    super
+  end
+
+  def visit_param?(param)
+    param.is_a?(Hash) &&
+      param["FILE"] == BH_VISIT &&
+      param["IENS"] == "#{@record_ien}," &&
+      param["FIELDS"] == PRE_EDIT_FIELDS &&
+      param["FLAGS"] == "I"
   end
 end
 
