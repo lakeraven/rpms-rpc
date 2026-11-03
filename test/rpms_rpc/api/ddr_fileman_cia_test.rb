@@ -76,7 +76,8 @@ class RpmsRpc::DdrFilemanCiaTest < Minitest::Test
         ".02" => { internal: "F", external: "FEMALE" },
         ".03" => { internal: "3010101", external: "01/01/2001" }
       },
-      error: false
+      error: false,
+      malformed: false
     }, result)
   end
 
@@ -91,7 +92,8 @@ class RpmsRpc::DdrFilemanCiaTest < Minitest::Test
         "1" => { internal: "SM", external: "SM" },
         "4" => { internal: "M", external: "MALE" }
       },
-      error: false
+      error: false,
+      malformed: false
     }, result)
   end
 end

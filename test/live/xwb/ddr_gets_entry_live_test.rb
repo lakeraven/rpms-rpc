@@ -8,7 +8,7 @@ require "rpms_rpc/api/ddr_fileman"
 # Both brokers answer DDR GETS ENTRY DATA from GETSC^DDR2 (DDR2.m:29-40); only the framing differs. The
 # expected results are the ones test/rpms_rpc/api/ddr_fileman_cia_test.rb asserts on CIA replies recorded
 # on yotta-1016 (bcer-9.0-20261015-46dd047-ydb, SYS123, 2026-10-16), so this spec holds the XWB reply
-# of an IRIS build to the same {fields:, error:} result.
+# of an IRIS build to the same {fields:, error:, malformed:} result. A [Data] reply with field rows is malformed: false.
 #
 # The session binds CIAV VUECENTRIC, the option the CIA recordings ran under; it serves the DDR read
 # family. DEMO,PATIENT ONE (DFN 4) and MANAGER,SYSTEM (DUZ 4) are the same records on both lines.
@@ -39,14 +39,14 @@ class DdrGetsEntryXwbLiveTest < LiveSpec::Test
   def test_a_patient_reads_the_fields_the_cia_recording_gives
     result = RpmsRpc::DdrFileman.gets_entry(file: "2", iens: "4,", fields: ".01;.02;.03", flags: "IE")
 
-    assert_equal({ fields: PATIENT, error: false }, result)
+    assert_equal({ fields: PATIENT, error: false, malformed: false }, result)
     puts "\n#{persona}: file 2 entry 4 over XWB = the CIA recording (#{result[:fields].size} fields)"
   end
 
   def test_a_user_reads_the_fields_the_cia_recording_gives
     result = RpmsRpc::DdrFileman.gets_entry(file: "200", iens: "4,", fields: ".01;1;4", flags: "IE")
 
-    assert_equal({ fields: USER, error: false }, result)
+    assert_equal({ fields: USER, error: false, malformed: false }, result)
     puts "\n#{persona}: file 200 entry 4 over XWB = the CIA recording (#{result[:fields].size} fields)"
   end
 end

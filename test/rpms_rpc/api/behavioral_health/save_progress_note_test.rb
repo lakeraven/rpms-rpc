@@ -22,6 +22,7 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
   RPC_COMM = "AMHG GET VISIT COMM APP"
   RS = "\x1e" # $C(30)
   US = "\x1f" # $C(31)
+  PLAIN_RPC_ERROR_MARKER = "SYNTH_PLAIN_RPC_ERROR_PN537"
 
   ROOT = File.expand_path("../../../..", __dir__)
   REQUIRED_RPCS_PATH = File.join(ROOT, "lib/rpms_rpc/required_rpcs.json")
@@ -588,6 +589,115 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = @mock }
   end
 
+  def test_nil_context_with_amhg_timeout_still_rebinds_ddr_context_after_save_error
+    seed_pre_edit_success(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = TimeoutOnAmhgSaveProgressNotes.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_progress_note(**FULL_KWARGS) } }
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+    assert_kind_of RpmsRpc::Client::RpcTimeoutError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_with_amhg_rpc_m_error_still_rebinds_ddr_context_after_save_error
+    seed_pre_edit_success(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = RpcMErrorOnAmhgSaveProgressNotes.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_progress_note(**FULL_KWARGS) } }
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+    assert_kind_of RpmsRpc::Client::RpcMError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_with_amhg_plain_rpc_error_still_rebinds_ddr_context_after_save_error
+    seed_pre_edit_success(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = RpcErrorOnAmhgSaveProgressNotes.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_progress_note(**FULL_KWARGS) } }
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+    assert_kind_of RpmsRpc::Client::RpcError, err.cause
+    refute_kind_of RpmsRpc::Client::RpcMError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_timeout_keeps_the_timeout_when_the_ddr_rebind_fails
+    seed_pre_edit_success(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+    wrapper = TimeoutOnAmhgSaveProgressNotes.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_progress_note(**FULL_KWARGS) } }
+    assert_kind_of RpmsRpc::Client::RpcTimeoutError, err.cause
+    assert_equal "AMHGRPC", @mock.current_context
+    refute_includes @mock.context_binds, "CIAV VUECENTRIC"
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_rpc_m_error_keeps_the_m_error_when_the_ddr_rebind_fails
+    seed_pre_edit_success(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+    wrapper = RpcMErrorOnAmhgSaveProgressNotes.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_progress_note(**FULL_KWARGS) } }
+    assert_kind_of RpmsRpc::Client::RpcMError, err.cause
+    assert_equal "AMHGRPC", @mock.current_context
+    refute_includes @mock.context_binds, "CIAV VUECENTRIC"
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_amhg_frame_too_long_becomes_save_error_nothing_sent_not_outcome_unknown
+    seed_pre_edit_success(**FULL_KWARGS)
+    wrapper = FrameTooLongOnAmhgSaveProgressNotes.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**FULL_KWARGS) }
+    refute_match(/outcome unknown|may have been filed/i, err.message)
+    assert_match(/nothing was sent|could not be framed|not sent/i, err.message)
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_amhg_frame_too_long_raises_nothing_sent_and_rebinds_ddr_context
+    seed_pre_edit_success(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = FrameTooLongOnAmhgSaveProgressNotes.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**FULL_KWARGS) }
+    refute_match(/outcome unknown|may have been filed/i, err.message)
+    assert_match(/nothing was sent|could not be framed|not sent/i, err.message)
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_amhg_frame_too_long_restore_failure_does_not_replace_nothing_sent_error
+    seed_pre_edit_success(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+    wrapper = FrameTooLongOnAmhgSaveProgressNotes.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**FULL_KWARGS) }
+    refute_match(/outcome unknown|may have been filed/i, err.message)
+    assert_match(/nothing was sent|could not be framed|not sent/i, err.message)
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
   def test_amhg_connection_error_becomes_save_error_with_ambiguous_outcome
     seed_pre_edit_success(**FULL_KWARGS)
     wrapper = ConnectionErrorOnAmhgSaveProgressNotes.new(@mock)
@@ -607,6 +717,40 @@ class BehavioralHealthSaveProgressNoteTest < Minitest::Test
     assert_amhg_reached
     assert_post_call_ambiguity(err, record_ien: RECORD_IEN)
     assert_kind_of RpmsRpc::Client::RpcMError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_amhg_plain_rpc_error_becomes_save_error_with_ambiguous_outcome
+    seed_pre_edit_success(**FULL_KWARGS)
+    wrapper = RpcErrorOnAmhgSaveProgressNotes.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_progress_note(**FULL_KWARGS) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err, record_ien: RECORD_IEN)
+    assert_kind_of RpmsRpc::Client::RpcError, err.cause
+    refute_kind_of RpmsRpc::Client::RpcMError, err.cause
+    refute_includes err.message, PLAIN_RPC_ERROR_MARKER
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_amhg_rpc_not_available_error_is_not_wrapped
+    seed_pre_edit_success(**FULL_KWARGS)
+    wrapper = RpcNotAvailableOnAmhgSaveProgressNotes.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    assert_raises(RpmsRpc::Client::RpcNotAvailableError) { BH.save_progress_note(**FULL_KWARGS) }
+    assert_empty amhg_calls
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_amhg_rpc_refused_error_is_not_wrapped
+    seed_pre_edit_success(**FULL_KWARGS)
+    wrapper = RpcRefusedOnAmhgSaveProgressNotes.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    assert_raises(RpmsRpc::Client::RpcRefusedError) { BH.save_progress_note(**FULL_KWARGS) }
+    assert_empty amhg_calls
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
   end
@@ -957,6 +1101,47 @@ class RpcMErrorOnAmhgSaveProgressNotes < SimpleDelegator
     if rpc_name == "AMHG SAVE PROGRESS NOTES"
       super
       raise RpmsRpc::Client::RpcMError, "AMHG SAVE PROGRESS NOTES M error (synthetic)"
+    end
+
+    super
+  end
+end
+
+class RpcErrorOnAmhgSaveProgressNotes < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *params)
+    if rpc_name == BehavioralHealthSaveProgressNoteTest::RPC
+      super
+      raise RpmsRpc::Client::RpcError, BehavioralHealthSaveProgressNoteTest::PLAIN_RPC_ERROR_MARKER
+    end
+
+    super
+  end
+end
+
+class RpcNotAvailableOnAmhgSaveProgressNotes < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *_params)
+    if rpc_name == BehavioralHealthSaveProgressNoteTest::RPC
+      raise RpmsRpc::Client::RpcNotAvailableError, "AMHG SAVE PROGRESS NOTES not registered (synthetic)"
+    end
+
+    super
+  end
+end
+
+class RpcRefusedOnAmhgSaveProgressNotes < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *_params)
+    if rpc_name == BehavioralHealthSaveProgressNoteTest::RPC
+      raise RpmsRpc::Client::RpcRefusedError, "AMHG SAVE PROGRESS NOTES refused (synthetic)"
+    end
+
+    super
+  end
+end
+
+class FrameTooLongOnAmhgSaveProgressNotes < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *_params)
+    if rpc_name == "AMHG SAVE PROGRESS NOTES"
+      raise RpmsRpc::Client::FrameTooLongError, "AMHG SAVE PROGRESS NOTES wire too long (synthetic)"
     end
 
     super
