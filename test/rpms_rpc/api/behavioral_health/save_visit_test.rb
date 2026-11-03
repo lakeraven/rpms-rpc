@@ -22,6 +22,7 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
   RPC = "AMHG SAVE VISIT"
   RS = "\x1e" # $C(30)
   US = "\x1f" # $C(31)
+  PLAIN_RPC_ERROR_MARKER = "SYNTH_PLAIN_RPC_ERROR_VISIT537"
 
   ROOT = File.expand_path("../../../..", __dir__)
   REQUIRED_RPCS_PATH = File.join(ROOT, "lib/rpms_rpc/required_rpcs.json")
@@ -1107,6 +1108,21 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = @mock }
   end
 
+  def test_amhg_plain_rpc_error_becomes_save_error_with_ambiguous_outcome
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    wrapper = RpcErrorOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    assert_amhg_reached
+    assert_match(/AMHG SAVE VISIT outcome unknown/, err.message)
+    assert_match(/may have been filed/i, err.message)
+    assert_kind_of RpmsRpc::Client::RpcError, err.cause
+    refute_kind_of RpmsRpc::Client::RpcMError, err.cause
+    refute_includes err.message, PLAIN_RPC_ERROR_MARKER
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
   def test_amhg_rpc_not_available_error_is_not_wrapped
     seed_pre_amhg_reads(**FULL_KWARGS)
     wrapper = RpcNotAvailableOnAmhg.new(@mock)
@@ -1543,6 +1559,17 @@ class RpcMErrorOnAmhg < SimpleDelegator
     if rpc_name == "AMHG SAVE VISIT"
       super
       raise RpmsRpc::Client::RpcMError, "AMHG SAVE VISIT M error (synthetic)"
+    end
+
+    super
+  end
+end
+
+class RpcErrorOnAmhg < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *params)
+    if rpc_name == BehavioralHealthSaveVisitTest::RPC
+      super
+      raise RpmsRpc::Client::RpcError, BehavioralHealthSaveVisitTest::PLAIN_RPC_ERROR_MARKER
     end
 
     super

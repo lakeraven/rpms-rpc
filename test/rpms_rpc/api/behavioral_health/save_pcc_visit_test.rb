@@ -48,6 +48,7 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
   SYNTH_M_ERROR = "M ERROR|synthetic"
   BH_PRE_READ_DIERRORS = "[ERROR]\n[BEGIN_diERRORS]\n999^1^\ntransient\n[END_diERRORS]"
   BH_PRE_READ_GARBLED = "GARBLED_SYNTH_PCC537_NOT_A_DATA_MARKER"
+  PCC_PLAIN_RPC_ERROR_MARKER = "SYNTH_PLAIN_RPC_ERROR_PCC537"
 
   def setup
     @mock = RpmsRpc.mock!
@@ -230,6 +231,16 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
     assert_bh_pre_read_refusal { BH.save_pcc_visit(record_ien: RECORD_IEN) }
   end
 
+  def test_with_visit_ien_omitted_refuses_bh_pre_read_with_error_and_field_rows_without_amhg_rpc
+    body = ddr_gets_error_with_bh_field_rows(
+      record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: EXISTING_PCC_LINK
+    )
+    # DdrFileman.gets_entry sets error: true for [ERROR] and still parses field rows;
+    # without got[:error] in pcc_unreadable?, non-empty :fields would look readable.
+    seed_bh_pre_read_reply(record_ien: RECORD_IEN, body: body)
+    assert_bh_pre_read_refusal { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+  end
+
   def test_with_visit_ien_omitted_refuses_when_bh_pre_read_raises_rpms_error_without_amhg_rpc
     wrapper = RaisesRpmsErrorOnBhPreRead.new(@mock)
     RpmsRpc.configure { |c| c.client = wrapper }
@@ -257,6 +268,46 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
     assert_pcc_success(result, visit_ien: EXISTING_PCC_LINK, new_link: false)
     refute result[:new_link],
            "new_link: false means the PCC link was already present before the call, not that AMHG edited the visit"
+  end
+
+  def test_unchanged_stored_link_raises_outcome_unknown_when_post_readback_dot16_misses_reply
+    seed_bh_patient_link(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: EXISTING_PCC_LINK)
+    seed_v_visit(visit_ien: EXISTING_PCC_LINK, patient: PATIENT)
+    seed_fallback_reply(record_ien: RECORD_IEN, body: success_body(EXISTING_PCC_LINK))
+    seed_post_readback(
+      record_ien: RECORD_IEN, pcc_ien: OTHER_PCC_VISIT, patient: PATIENT, visit_patient: PATIENT,
+      v_visit_ien: EXISTING_PCC_LINK
+    )
+    err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err)
+    refute_includes err.message, EXISTING_PCC_LINK
+  end
+
+  def test_unchanged_stored_link_with_explicit_visit_ien_raises_outcome_unknown_when_readback_misses
+    seed_bh_patient_link(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: EXISTING_PCC_LINK)
+    seed_v_visit(visit_ien: EXISTING_PCC_LINK, patient: PATIENT)
+    seed_reply(wire_param(RECORD_IEN, EXISTING_PCC_LINK), success_body(EXISTING_PCC_LINK))
+    seed_post_readback_v(visit_ien: EXISTING_PCC_LINK, patient: PATIENT, delete_flag: "1")
+    seed_post_readback_bh(record_ien: RECORD_IEN, pcc_ien: EXISTING_PCC_LINK, patient: PATIENT)
+    err = assert_raises(BH::SaveError) do
+      BH.save_pcc_visit(record_ien: RECORD_IEN, visit_ien: EXISTING_PCC_LINK)
+    end
+    assert_amhg_reached
+    assert_post_call_ambiguity(err)
+  end
+
+  def test_post_call_readback_with_error_and_field_rows_raises_outcome_unknown_when_fields_look_linked
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: "")
+    seed_fallback_reply(record_ien: RECORD_IEN, body: success_body(PCC_VISIT_IEN))
+    seed_post_readback_error_with_linked_appearance(
+      record_ien: RECORD_IEN, pcc_ien: PCC_VISIT_IEN, patient: PATIENT
+    )
+    # Parsed read-back has error: true and non-empty :fields; pcc_unreadable? must use
+    # got[:error] — if that term is removed, pcc_linked? would trust the rows alone.
+    err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err)
   end
 
   def test_success_refuses_when_post_readback_dot16_differs_from_reply
@@ -530,6 +581,41 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = @mock }
   end
 
+  def test_pcc_plain_rpc_error_becomes_save_error_with_ambiguous_outcome
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN)
+    seed_fallback_reply(record_ien: RECORD_IEN, body: success_body(PCC_VISIT_IEN))
+    wrapper = RpcErrorOnPccVisit.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err)
+    assert_kind_of RpmsRpc::Client::RpcError, err.cause
+    refute_kind_of RpmsRpc::Client::RpcMError, err.cause
+    refute_includes err.message, PCC_PLAIN_RPC_ERROR_MARKER
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_pcc_rpc_not_available_error_is_not_wrapped
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN)
+    wrapper = RpcNotAvailableOnPccVisit.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    assert_raises(RpmsRpc::Client::RpcNotAvailableError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    assert_empty pcc_calls
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_pcc_rpc_refused_error_is_not_wrapped
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN)
+    wrapper = RpcRefusedOnPccVisit.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    assert_raises(RpmsRpc::Client::RpcRefusedError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    assert_empty pcc_calls
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
   def test_ambiguity_message_does_not_echo_record_ien_or_broker_trap_text
     seed_post_amhg_trap(record_ien: RECORD_IEN) do
       seed_fallback_reply(record_ien: RECORD_IEN, body: "T00030Result#{RS}M ERROR|#{SECRET_MARKER}#{RS}")
@@ -600,6 +686,19 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
     assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
     assert_equal DDR_CONTEXT, @mock.current_context
     assert_includes @mock.context_binds, DDR_CONTEXT
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_with_pcc_plain_rpc_error_still_rebinds_ddr_context_after_save_error
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN)
+    seed_fallback_reply(record_ien: RECORD_IEN, body: success_body(PCC_VISIT_IEN))
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = RpcErrorOnPccVisit.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    assert_equal [ "AMHGRPC", DDR_CONTEXT ], @mock.context_binds
+    assert_equal DDR_CONTEXT, @mock.current_context
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
   end
@@ -738,6 +837,31 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
       fields: PRE_VISIT_IEN_FIELDS, flags: PRE_VISIT_IEN_FLAGS
     )
     @mock.seed(:ddr_gets_entry_data, key, body)
+  end
+
+  def ddr_gets_error_with_bh_field_rows(record_ien:, patient:, pcc_ien:)
+    "[ERROR]\n[BEGIN_diERRORS]\n999^1^\nsynthetic partial read\n[END_diERRORS]\n[Data]\n" \
+      "#{BH_VISIT_FILE}^#{record_ien}^.08^#{patient}^PATIENT,SYNTH\n" \
+      "#{BH_VISIT_FILE}^#{record_ien}^.16^#{pcc_ien}^VISIT"
+  end
+
+  def seed_post_readback_error_with_linked_appearance(record_ien:, pcc_ien:, patient:)
+    bh_key = ddr_gets_key(
+      file: BH_VISIT_FILE, iens: "#{record_ien},",
+      fields: POST_READBACK_BH_FIELDS, flags: POST_READBACK_BH_FLAGS
+    )
+    @mock.seed(:ddr_gets_entry_data, bh_key, ddr_gets_error_with_bh_field_rows(
+      record_ien: record_ien, patient: patient, pcc_ien: pcc_ien
+    ))
+    v_key = ddr_gets_key(
+      file: V_VISIT_FILE, iens: "#{pcc_ien},",
+      fields: POST_READBACK_V_FIELDS, flags: POST_READBACK_V_FLAGS
+    )
+    v_body = "[ERROR]\n[BEGIN_diERRORS]\n999^1^\nsynthetic partial read\n[END_diERRORS]\n[Data]\n" \
+             "#{V_VISIT_FILE}^#{pcc_ien}^.05^#{patient}^PATIENT,SYNTH\n" \
+             "#{V_VISIT_FILE}^#{pcc_ien}^#{DELETE_FLAG_FIELD}^0^DELETE"
+    @mock.seed(:ddr_gets_entry_data, v_key, v_body)
+    seed_v_visit_patient_only(visit_ien: pcc_ien, patient: patient)
   end
 
   def ddr_gets_key(file:, iens:, fields:, flags:)
@@ -942,6 +1066,37 @@ class RpcMErrorOnPccVisit < SimpleDelegator
     if rpc_name == "AMHG CREATE/EDIT VISIT"
       super
       raise RpmsRpc::Client::RpcMError, "AMHG CREATE/EDIT VISIT M error (synthetic)"
+    end
+
+    super
+  end
+end
+
+class RpcErrorOnPccVisit < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *params)
+    if rpc_name == BehavioralHealthSavePccVisitTest::RPC
+      super
+      raise RpmsRpc::Client::RpcError, BehavioralHealthSavePccVisitTest::PCC_PLAIN_RPC_ERROR_MARKER
+    end
+
+    super
+  end
+end
+
+class RpcNotAvailableOnPccVisit < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *_params)
+    if rpc_name == BehavioralHealthSavePccVisitTest::RPC
+      raise RpmsRpc::Client::RpcNotAvailableError, "AMHG CREATE/EDIT VISIT not registered (synthetic)"
+    end
+
+    super
+  end
+end
+
+class RpcRefusedOnPccVisit < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *_params)
+    if rpc_name == BehavioralHealthSavePccVisitTest::RPC
+      raise RpmsRpc::Client::RpcRefusedError, "AMHG CREATE/EDIT VISIT refused (synthetic)"
     end
 
     super
