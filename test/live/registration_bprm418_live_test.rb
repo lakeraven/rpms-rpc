@@ -29,6 +29,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     code = pick_code_ien("9999999.104")
     row_date = Date.today
     existing = snapshot_subfile_iens(GI_FILE, DFN)
+    assert_no_subfile_row_for_date!(GI_FILE, DFN, row_date)
     @restore = -> { purge_subfile_rows_created_after(GI_FILE, DFN, existing) }
 
     assert Reg.set_gender_identity(DFN, values: [ code ], date: row_date)[:success]
@@ -46,6 +47,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     other_code = gender_identity_other_code_ien
     row_date = Date.today
     existing = snapshot_subfile_iens(GI_FILE, DFN)
+    assert_no_subfile_row_for_date!(GI_FILE, DFN, row_date)
     @restore = -> { purge_subfile_rows_created_after(GI_FILE, DFN, existing) }
 
     assert Reg.set_gender_identity(DFN, values: [ other_code ], other: "live spec", date: row_date)[:success]
@@ -60,6 +62,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     code = pick_distinct_gi_code_iens(1).first
     row_date = Date.today
     existing = snapshot_subfile_iens(GI_FILE, DFN)
+    assert_no_subfile_row_for_date!(GI_FILE, DFN, row_date)
     @restore = -> { purge_subfile_rows_created_after(GI_FILE, DFN, existing) }
 
     assert Reg.set_gender_identity(DFN, values: [ other_code ], other: "live spec", date: row_date)[:success]
@@ -75,6 +78,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
   def test_set_gender_identity_refuses_an_unknown_code_ien_and_does_not_create_a_date_row
     row_date = Date.today
     existing = snapshot_subfile_iens(GI_FILE, DFN)
+    assert_no_subfile_row_for_date!(GI_FILE, DFN, row_date)
     @restore = -> { purge_subfile_rows_created_after(GI_FILE, DFN, existing) }
 
     result = Reg.set_gender_identity(DFN, values: [ 424_242 ], date: row_date)
@@ -93,6 +97,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     a, b, c = pick_distinct_gi_code_iens(3)
     row_date = Date.today
     existing = snapshot_subfile_iens(GI_FILE, DFN)
+    assert_no_subfile_row_for_date!(GI_FILE, DFN, row_date)
     @restore = -> { purge_subfile_rows_created_after(GI_FILE, DFN, existing) }
 
     assert Reg.set_gender_identity(DFN, values: [ a, b ], date: row_date)[:success]
@@ -118,6 +123,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
 
     row_date = Date.today
     existing = snapshot_subfile_iens(GI_FILE, DFN)
+    assert_no_subfile_row_for_date!(GI_FILE, DFN, row_date)
     @restore = -> { purge_subfile_rows_created_after(GI_FILE, DFN, existing) }
 
     result = Reg.set_gender_identity(DFN, values: [ code ], other: "live spec", date: row_date)
@@ -136,6 +142,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     code = pick_code_ien("9999999.103")
     row_date = Date.today
     existing = snapshot_subfile_iens(SO_FILE, DFN)
+    assert_no_subfile_row_for_date!(SO_FILE, DFN, row_date)
     @restore = -> { purge_subfile_rows_created_after(SO_FILE, DFN, existing) }
 
     assert Reg.set_sexual_orientation(DFN, values: [ code ], date: row_date)[:success]
@@ -152,6 +159,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     source = first_legal_sex_source_ien
     row_date = Date.today
     existing = snapshot_subfile_iens(LEGAL_FILE, DFN)
+    assert_no_subfile_row_for_date!(LEGAL_FILE, DFN, row_date)
     @restore = -> { purge_subfile_rows_created_after(LEGAL_FILE, DFN, existing) }
 
     assert Reg.set_legal_sex(DFN, sex: "X", source: source, date: row_date)[:success]
@@ -164,6 +172,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
 
   def test_add_mbi_is_listed_by_mbis
     existing = snapshot_mbi_row_iens
+    assert_no_mbi_row_for_effective_date!(MBI_EFFECTIVE)
     @restore = -> { purge_mbi_rows_created_after(existing) }
 
     assert Reg.add_mbi(DFN, mbi: MBI, effective_date: MBI_EFFECTIVE, source: 1)[:success]
@@ -177,6 +186,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
 
   def test_add_mbi_clears_source_after_a_sourceless_rewrite_on_the_same_effective_date
     existing = snapshot_mbi_row_iens
+    assert_no_mbi_row_for_effective_date!(MBI_EFFECTIVE)
     @restore = -> { purge_mbi_rows_created_after(existing) }
 
     assert Reg.add_mbi(DFN, mbi: MBI, effective_date: MBI_EFFECTIVE, source: 1)[:success]
@@ -262,7 +272,7 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
     if client
       @cleanups&.each do |cleanup|
         result = cleanup.call
-        failures << "cleanup failed: #{result.inspect}" if result.is_a?(Hash) && result[:success] != true
+        failures << "cleanup failed: #{result.inspect}" unless result.is_a?(Hash) && result[:success] == true
       rescue StandardError => e
         failures << e.full_message(highlight: false).strip
       end
@@ -382,42 +392,91 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
 
   def snapshot_subfile_iens(file, dfn)
     listed = RpmsRpc::DdrFileman.lister(file: file, iens: ",#{dfn},", fields: ".01", flags: "IP")
-    return [] if listed.nil? || listed[:error]
+    flunk "DDR LISTER gave no reply for #{file} DFN #{dfn}" if listed.nil?
+    flunk "DDR LISTER failed for #{file} DFN #{dfn}: #{listed.inspect}" if listed[:error]
 
     listed[:entries].map { |e| e[:ien].to_s }
   end
 
-  def purge_subfile_rows_created_after(file, dfn, existing_iens)
+  def assert_no_subfile_row_for_date!(file, dfn, row_date)
     listed = RpmsRpc::DdrFileman.lister(file: file, iens: ",#{dfn},", fields: ".01", flags: "IP")
-    return if listed.nil? || listed[:error]
+    flunk "DDR LISTER gave no reply for #{file} DFN #{dfn}" if listed.nil?
+    flunk "DDR LISTER failed for #{file} DFN #{dfn}: #{listed.inspect}" if listed[:error]
 
-    listed[:entries].each do |e|
-      ien = e[:ien].to_s
-      next if existing_iens.include?(ien)
+    target = fm(row_date).to_s
+    return unless listed[:entries].any? { |e| e[:pieces].first.to_s == target }
 
-      RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: [ { file: file, field: ".01", iens: "#{ien},#{dfn},", value: "@" } ])
+    flunk "#{file} already has a row dated #{row_date} for DFN #{dfn}; pick a date with no row, or clean the persona"
+  end
+
+  def purge_subfile_rows_created_after(file, dfn, existing_iens)
+    failures = []
+    listed = RpmsRpc::DdrFileman.lister(file: file, iens: ",#{dfn},", fields: ".01", flags: "IP")
+    if listed.nil?
+      failures << "DDR LISTER gave no reply for #{file} DFN #{dfn} during purge"
+    elsif listed[:error]
+      failures << "DDR LISTER failed for #{file} DFN #{dfn} during purge: #{listed.inspect}"
+    else
+      listed[:entries].each do |e|
+        ien = e[:ien].to_s
+        next if existing_iens.include?(ien)
+
+        row = { file: file, field: ".01", iens: "#{ien},#{dfn},", value: "@" }
+        result = RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: [ row ])
+        if result.nil?
+          failures << "DDR FILER gave no reply deleting #{file} IEN #{ien} DFN #{dfn}: #{row.inspect}"
+        elsif result[:success] != true
+          failures << "DDR FILER failed deleting #{file} IEN #{ien} DFN #{dfn}: #{result.inspect}"
+        end
+      end
     end
+    raise "purge_subfile_rows_created_after failures:\n#{failures.join("\n\n")}" unless failures.empty?
   end
 
   def snapshot_mbi_row_iens
     listed = RpmsRpc::DdrFileman.lister(file: "9000001.44", iens: ",#{DFN},", fields: ".01;1", flags: "IP")
-    return [] if listed.nil? || listed[:error]
+    flunk "DDR LISTER gave no reply for 9000001.44 DFN #{DFN}" if listed.nil?
+    flunk "DDR LISTER failed for 9000001.44 DFN #{DFN}: #{listed.inspect}" if listed[:error]
 
     listed[:entries].select { |e| e[:pieces]&.last.to_s == MBI }.map { |e| e[:ien].to_s }
   end
 
-  def purge_mbi_rows_created_after(existing_iens)
+  def assert_no_mbi_row_for_effective_date!(effective_date)
     listed = RpmsRpc::DdrFileman.lister(file: "9000001.44", iens: ",#{DFN},", fields: ".01;1", flags: "IP")
-    return if listed.nil? || listed[:error]
+    flunk "DDR LISTER gave no reply for 9000001.44 DFN #{DFN}" if listed.nil?
+    flunk "DDR LISTER failed for 9000001.44 DFN #{DFN}: #{listed.inspect}" if listed[:error]
 
-    listed[:entries].each do |e|
-      next unless e[:pieces]&.last.to_s == MBI
+    target = fm(effective_date).to_s
+    return unless listed[:entries].any? { |e| e[:pieces].first.to_s == target }
 
-      ien = e[:ien].to_s
-      next if existing_iens.include?(ien)
+    flunk "9000001.44 already has a row dated #{effective_date} for DFN #{DFN}; " \
+          "pick a date with no row, or clean the persona"
+  end
 
-      RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: [ { file: "9000001.44", field: ".01", iens: "#{ien},#{DFN},", value: "@" } ])
+  def purge_mbi_rows_created_after(existing_iens)
+    failures = []
+    listed = RpmsRpc::DdrFileman.lister(file: "9000001.44", iens: ",#{DFN},", fields: ".01;1", flags: "IP")
+    if listed.nil?
+      failures << "DDR LISTER gave no reply for 9000001.44 DFN #{DFN} during purge"
+    elsif listed[:error]
+      failures << "DDR LISTER failed for 9000001.44 DFN #{DFN} during purge: #{listed.inspect}"
+    else
+      listed[:entries].each do |e|
+        next unless e[:pieces]&.last.to_s == MBI
+
+        ien = e[:ien].to_s
+        next if existing_iens.include?(ien)
+
+        row = { file: "9000001.44", field: ".01", iens: "#{ien},#{DFN},", value: "@" }
+        result = RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: [ row ])
+        if result.nil?
+          failures << "DDR FILER gave no reply deleting 9000001.44 IEN #{ien} DFN #{DFN}: #{row.inspect}"
+        elsif result[:success] != true
+          failures << "DDR FILER failed deleting 9000001.44 IEN #{ien} DFN #{DFN}: #{result.inspect}"
+        end
+      end
     end
+    raise "purge_mbi_rows_created_after failures:\n#{failures.join("\n\n")}" unless failures.empty?
   end
 
   def medicare_insurer_ien
@@ -484,9 +543,9 @@ class RegistrationBprm418LiveTest < LiveSpec::Test
   def purge_medicare_eligible_checked(mcr_ien)
     result = RpmsRpc::DdrFileman.filer(mode: "EDIT",
                                        rows: [ { file: MCR_FILE, field: ".01", iens: "#{mcr_ien},", value: "@" } ])
-    return result if result.is_a?(Hash)
+    raise "DDR FILER purge of #{MCR_FILE} #{mcr_ien} gave no reply" unless result.is_a?(Hash)
 
-    flunk "DDR FILER purge of #{MCR_FILE} #{mcr_ien} gave no reply"
+    result
   end
 
   def purge_medicare_eligible(mcr_ien)

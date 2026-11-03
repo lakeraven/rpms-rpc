@@ -44,7 +44,7 @@ class SchedulingBprm418LiveTest < LiveSpec::Test
     if client && @restore
       begin
         result = @restore.call
-        failures << "restore failed: #{result.inspect}" if result.is_a?(Hash) && result[:success] != true
+        failures << "restore failed: #{result.inspect}" unless result.is_a?(Hash) && result[:success] == true
       rescue StandardError => e
         failures << e.full_message(highlight: false).strip
       end
