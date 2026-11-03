@@ -260,6 +260,71 @@ class SchedulingTest < Minitest::Test
     assert_nil RpmsRpc::Scheduling.checkin_appointment(501, checkin_time: START_T)
   end
 
+# ===========================================================================
+# UNDO CHECK-IN, CHECK-OUT, UNDO CHECK-OUT (rows as a live 7c3119b build
+# answered, 2026-11-03)
+# ===========================================================================
+
+def test_cancel_checkin_sends_at_sign_as_the_checkin_time
+  RpmsRpc.client.seed(:scheduling_checkin_appointment, "501", { error: "0" })
+
+  assert RpmsRpc::Scheduling.cancel_checkin(501)[:success]
+  call = RpmsRpc.client.received_calls.last
+  assert_equal "BSDX CHECKIN APPOINTMENT", call[:rpc]
+  assert_equal [ "501", "@", "", "", "", "", "", "" ], call[:params]
+end
+
+def test_cancel_checkin_live_rows
+  stub_broker_response([ "T00020ERRORID^T00150MESSAGE", "0^", "" ])
+  assert RpmsRpc::Scheduling.cancel_checkin(501)[:success]
+
+  stub_broker_response([ "T00020ERRORID^T00150MESSAGE", "Could not locate appointment in database or appointment is cancelled.", "" ])
+  result = RpmsRpc::Scheduling.cancel_checkin(501)
+  refute result[:success]
+  assert_match(/Could not locate appointment/, result[:error])
+end
+
+def test_checkout_appointment_sends_dfn_times_and_id_in_checkout_order
+  RpmsRpc.client.seed(:scheduling_checkout_appointment, "100", { error: "0" })
+
+  result = RpmsRpc::Scheduling.checkout_appointment(501, patient_dfn: 100, appointment_time: START_T, checkout_time: END_T)
+
+  assert result[:success]
+  call = RpmsRpc.client.received_calls.last
+  assert_equal "BSDX CHECKOUT APPOINTMENT", call[:rpc]
+  assert_equal [ "100", START_FM, END_FM, "501", "" ], call[:params]
+end
+
+def test_checkout_appointment_live_rows
+  stub_broker_response([ "T00020ERRORID", "0", "" ])
+  assert RpmsRpc::Scheduling.checkout_appointment(501, patient_dfn: 3, appointment_time: START_T, checkout_time: END_T)[:success]
+
+  [ "BSDX25B: Patient not checked in", "Check Out time cannot be in the future.",
+    "Check Out time must be at least 1 minute after the Check In time of Nov 03, 2026 09:10." ].each do |reason|
+    stub_broker_response([ "T00020ERRORID", reason, "" ])
+    result = RpmsRpc::Scheduling.checkout_appointment(501, patient_dfn: 3, appointment_time: START_T, checkout_time: END_T)
+    refute result[:success], reason
+    assert_equal reason, result[:error]
+  end
+end
+
+def test_cancel_checkout_live_rows
+  RpmsRpc.client.seed(:scheduling_cancel_checkout, "501", { error: "0" })
+  assert RpmsRpc::Scheduling.cancel_checkout(501)[:success]
+  assert_equal [ "BSDX CANCEL CHECKOUT APPT", [ "501" ] ], RpmsRpc.client.received_calls.last.values_at(:rpc, :params)
+
+  stub_broker_response([ "T00020ERRORID", "Appointment is not Checked Out.", "" ])
+  result = RpmsRpc::Scheduling.cancel_checkout(501)
+  refute result[:success]
+  assert_equal "Appointment is not Checked Out.", result[:error]
+end
+
+def test_checkout_writes_return_nil_when_unreachable
+  assert_nil RpmsRpc::Scheduling.cancel_checkin(501)
+  assert_nil RpmsRpc::Scheduling.checkout_appointment(501, patient_dfn: 3, appointment_time: START_T, checkout_time: END_T)
+  assert_nil RpmsRpc::Scheduling.cancel_checkout(501)
+end
+
   # ===========================================================================
   # NO-SHOW (INVERTED polarity: result 1 == success)
   # ===========================================================================
@@ -607,6 +672,9 @@ class SchedulingTest < Minitest::Test
     cancel_appointment: [ 501, { reason: 3 } ],
     uncancel_appointment: [ 501 ],
     checkin_appointment: [ 501, { checkin_time: START_T } ],
+    cancel_checkin: [ 501 ],
+    checkout_appointment: [ 501, { patient_dfn: 100, appointment_time: START_T, checkout_time: END_T } ],
+    cancel_checkout: [ 501 ],
     mark_no_show: [ 501 ],
     patient_appointments: [ 100 ],
     availability: [ { resources: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],

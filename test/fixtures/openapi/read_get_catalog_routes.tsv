@@ -82,11 +82,14 @@ RpmsRpc::Procedure.for_patient	GET /patients/{dfn}/procedures
 RpmsRpc::ProgressNote.authorize	GET /progress-notes/{note_ien}/authorize
 RpmsRpc::ProgressNote.fetch_text	GET /progress-notes/{note_ien}/text
 RpmsRpc::ProgressNote.list	GET /patients/{dfn}/progress-notes
+RpmsRpc::Registration.pick_list	GET /registrations/pick-list
 RpmsRpc::Reminders.applicable	GET /patients/{dfn}/reminders/applicable
 RpmsRpc::Scheduling.patient_appointments	GET /patients/{dfn}/appointments
 RpmsRpc::Scheduling.resources	GET /appointments/resources
 RpmsRpc::SchedulingSetup.access_types	GET /appointments/access-types
 RpmsRpc::SchedulingSetup.clinic_rules	GET /appointments/clinic-rules
+RpmsRpc::SchedulingSetup.clinic_stop	GET /appointments/clinic-stop
+RpmsRpc::SchedulingSetup.clinic_stops	GET /appointments/clinic-stops
 RpmsRpc::SchedulingSetup.creates_visit_at_checkin	GET /appointments/creates-visit-at-checkin
 RpmsRpc::SchedulingSetup.holidays	GET /appointments/holidays
 RpmsRpc::SchedulingSetup.master_overbook?	GET /appointments/master-overbook
