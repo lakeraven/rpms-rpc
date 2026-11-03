@@ -1,0 +1,106 @@
+# frozen_string_literal: true
+
+require_relative "live_helper"
+require "rpms_rpc/api/ddr_fileman"
+require "rpms_rpc/api/coverage"
+
+# What the front desk records and reads back for billing (rpms-ux S-REG-03.1):
+# a Medicaid number with its state and eligibility dates, Medicare with its
+# part and end date, and a private policy, each filed through AG's own
+# windows and read back the way AG's registration client reads them
+# (Coverage.on_file). FileMan confirms every value landed where AG files it.
+#
+# Runs as the registration persona (PROFILE,REG): every call is in AGGRPC.
+class CoverageOnFileLiveTest < LiveSpec::Test
+  writes!
+
+  DFN = 990_049 # ZEPHYR,QUINN on the pinned build; unused by other live specs
+  CMS_EXAMPLE_MBI = "1EG4TE5MK73"
+
+  def test_medicaid_medicare_and_private_insurance_are_filed_and_read_back
+    year = Date.today.year
+    starts = "01/01/#{year}"
+    ends = "12/31/#{year + 1}"
+    state = state_ien!("WASHINGTON")
+    insurer = private_insurer!
+
+    medicaid = RpmsRpc::Coverage.add_medicaid(DFN, effective_on: starts, ends_on: ends, number: "ZZ4900001",
+                                                   state_ien: state, coverage: nil, client: client)
+    assert medicaid[:success], "Medicaid add refused: #{medicaid.inspect}"
+    record = medicaid[:record_ien]
+    assert_equal "ZZ4900001", fileman("9000004", "#{record},", ".03"), "Medicaid number (#9000004 .03)"
+    assert_equal state, fileman("9000004", "#{record},", ".04", "I"), "Medicaid state (#9000004 .04)"
+    row = "#{medicaid[:multiple_ien]},#{record},"
+    assert_equal "#{year + 1}-12-31", fm_date(fileman("9000004.11", row, ".02", "I")), "Medicaid end date (.02)"
+
+    medicare = RpmsRpc::Coverage.add_medicare(DFN, name: "ZEPHYR,QUINN", number: CMS_EXAMPLE_MBI,
+                                                   effective_on: starts, ends_on: ends, part: "B", client: client)
+    assert medicare[:success], "Medicare add refused: #{medicare.inspect}"
+    assert_equal "B", fileman("9000003.11", "#{medicare[:mien]},#{DFN},", ".03", "I"), "Medicare part (.03)"
+
+    policy = RpmsRpc::Coverage.add_private_insurance(DFN, insurer_ien: insurer, policy_holder: "ZEPHYR,QUINN",
+                                                          member_number: "ZZM49", effective_on: starts,
+                                                          ends_on: ends, client: client)
+    assert policy[:success], "private insurance add refused: #{policy.inspect}"
+    assert_equal "ZZM49", fileman("9000006.11", "#{policy[:record_ien]},#{DFN},", "21"), "member number (21)"
+
+    on_file = RpmsRpc::Coverage.on_file(DFN, client: client)
+    refute_nil on_file, "Coverage.on_file gave no answer"
+
+    mcd = on_file[:medicaid].find { |entry| entry[:record_ien] == record }
+    refute_nil mcd, "Medicaid record #{record} not read back: #{on_file[:medicaid].inspect}"
+    assert_equal [ "MEDICAID", "ZZ4900001", "WASHINGTON", true ], mcd.values_at(:payer, :number, :state, :active)
+    assert_equal [ Date.new(year, 1, 1), Date.new(year + 1, 12, 31) ], mcd[:eligibility].first.values_at(:starts_on, :ends_on)
+
+    mcr = on_file[:medicare].first
+    assert_equal [ CMS_EXAMPLE_MBI, true, "PART B" ], [ mcr[:number], mcr[:active], mcr[:eligibility].first[:coverage] ]
+
+    pvt = on_file[:private].find { |entry| entry[:record_ien] == policy[:record_ien] }
+    refute_nil pvt, "private policy not read back: #{on_file[:private].inspect}"
+    assert_equal [ "ZZM49", true, Date.new(year, 1, 1), Date.new(year + 1, 12, 31) ],
+                 pvt.values_at(:number, :active, :starts_on, :ends_on)
+
+    puts "\n#{persona}: coverage filed and read back on DFN #{DFN}"
+  end
+
+  def test_a_lapsed_medicaid_record_reads_back_inactive
+    medicaid = RpmsRpc::Coverage.add_medicaid(DFN, effective_on: "01/01/2024", ends_on: "06/30/2025",
+                                                   number: "ZZ49LAPSE", coverage: nil, client: client)
+    assert medicaid[:success], "Medicaid add refused: #{medicaid.inspect}"
+
+    mcd = RpmsRpc::Coverage.on_file(DFN, client: client)[:medicaid].find { |e| e[:record_ien] == medicaid[:record_ien] }
+    refute_nil mcd
+    assert_equal false, mcd[:active], "AG reads an eligibility that ended 06/30/2025 as not in force"
+  end
+
+  private
+
+  def fileman(file, iens, field, flags = "E")
+    got = RpmsRpc::DdrFileman.gets_entry(file: file, iens: iens, fields: field, flags: flags)
+    flunk "FileMan read #{file} #{iens} #{field} failed: #{got.inspect}" if got.nil? || got[:error]
+    got.dig(:fields, field, flags == "I" ? :internal : :external).to_s
+  end
+
+  # FileMan internal date (CYYMMDD) as ISO.
+  def fm_date(value)
+    text = value.to_s
+    "#{text[0, 3].to_i + 1700}-#{text[3, 2]}-#{text[5, 2]}"
+  end
+
+  def state_ien!(name)
+    got = RpmsRpc::DdrFileman.lister(file: "5", fields: "@;.01", flags: "IP", xref: "B", from: name[0..-2], part: name, max: "1")
+    ien = Array(got && got[:entries]).first&.dig(:ien).to_s
+    flunk "no STATE #{name} on this build: #{got.inspect}" if ien.empty?
+    ien
+  end
+
+  # An insurer AG lists as private: the demo build seeds no commercial
+  # insurer, so the first billable PRIVATE one on file stands in.
+  def private_insurer!
+    insurers = RpmsRpc::Coverage.insurers(client: client)
+    flunk "AGG GET INSURANCE DATA gave no answer" if insurers.nil?
+    found = insurers.find { |row| row[:type] == "PRIVATE" && row[:status] == "BILLABLE" }
+    flunk "no billable private insurer on this build: #{insurers.map { |r| r[:name] }.inspect}" unless found
+    found[:ien]
+  end
+end

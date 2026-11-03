@@ -963,8 +963,9 @@ class CoverageTest < Minitest::Test
     assert_empty client.received_calls
   end
 
-  def test_add_medicare_rejects_nil_dates_before_wire
-    [ { roi_on: nil }, { effective_on: nil } ].each do |override|
+  # roi_on: is optional (sent only when given); effective_on: is not.
+  def test_add_medicare_rejects_a_nil_effective_date_before_wire
+    [ { effective_on: nil } ].each do |override|
       client = RecordingClient.new
       RpmsRpc.configure { |c| c.client = client }
       args = { roi_on: "01/01/2026", name: "ZZCOV,TEST", number: CMS_EXAMPLE_MBI, effective_on: "01/01/2026",
