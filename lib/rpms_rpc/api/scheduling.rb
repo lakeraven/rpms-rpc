@@ -340,6 +340,66 @@ module RpmsRpc
     # classed and shaped as a write: never retried, and never offered as a GET.
     shape :slot_schedule, resource: "appointments", verb: "POST", path: "/appointments/slot-schedule"
 
+    # Add one access block to a clinic's resource — BSDX ADD NEW AVAILABILITY
+    # (AVADD^BSDX12), what Windows Scheduling sends for each block it files
+    # (rpms-ux S-SCH-14). It parses the times with ^%DT as BSDX ADD NEW
+    # APPOINTMENT does, files BSDX ACCESS BLOCK (#9002018.3) .01 resource, .02
+    # start, .03 end, .04 slots, .05 access type, and the note as its WP field.
+    #
+    #   resource:       BSDX RESOURCE name (9002018.1 .01)
+    #   start_time:/end_time: Time/DateTime (formatted to FileMan) or preformatted
+    #   slots:          appointments each slot of the block takes, 1 or more
+    #   access_type_id: BSDX ACCESS TYPE IEN (9002018.35)
+    #
+    # AVADD swaps a start after the end instead of refusing it, so an end not
+    # after the start is refused here before anything is sent (ArgumentError),
+    # as is a slot count under 1. The reply is "AVAILABILITYID^-1" on success
+    # and "0^<134234112+70>" when RPMS refuses (ERR^BSDX12: a bad date, access
+    # type or resource name).
+    # Returns { success: true, availability_id: Integer } / { success: false, error: } / nil.
+    def add_availability(resource:, start_time:, end_time:, slots:, access_type_id:, note: nil)
+      raise ArgumentError, "end_time must be after start_time" unless end_time > start_time
+      raise ArgumentError, "slots must be 1 or more: #{slots.inspect}" unless slots.to_i >= 1
+
+      resp = in_context do
+        RpmsRpc.client.call_rpc("BSDX ADD NEW AVAILABILITY", fm(start_time), fm(end_time),
+                                access_type_id.to_s, resource.to_s, slots.to_i.to_s, note.to_s)
+      end
+      return nil if unanswered?(resp)
+
+      row = data_row(resp)
+      id, code = row.split("^", -1)
+      return { success: true, availability_id: id.to_i } if id.to_i.positive? && code == "-1"
+
+      { success: false, error: row }
+    rescue RpmsRpc::Client::FrameTooLongError => e
+      { success: false, error: e.message }
+    end
+    shape :add_availability, resource: "appointments", verb: "POST", path: "/appointments/availability"
+
+    # Delete every access block of a resource that starts between two dates,
+    # inclusive — BSDX CANCEL AV BY DATE (AVDELDT^BSDX13).
+    #
+    #   resource_id: BSDX RESOURCE IEN (9002018.1)
+    #   start_date:/end_date: Date (formatted to FileMan) or preformatted
+    #
+    # It does NOT check for appointments: APTINBLK is commented out as not
+    # called in the current version (BSDX13.m), so a booked appointment stays
+    # on a day whose blocks are gone. A caller that must keep the bookings
+    # covered (rpms-ux S-SCH-14.5) checks them first. The reply is "-1^" on
+    # success and "0^<text>" for a bad date or resource.
+    # Returns { success: true } / { success: false, error: } / nil.
+    def cancel_availability_by_date(resource_id:, start_date:, end_date:)
+      resp = in_context do
+        RpmsRpc.client.call_rpc("BSDX CANCEL AV BY DATE", resource_id.to_s, fm(start_date), fm(end_date))
+      end
+      return nil if unanswered?(resp)
+
+      row = data_row(resp)
+      row.split("^", -1).first == "-1" ? { success: true } : { success: false, error: row }
+    end
+    shape :cancel_availability_by_date, resource: "appointments", verb: "POST", path: "/appointments/cancel-availability-by-date"
+
     # Per-clinic scheduling parameters — BSDX CLINIC SETUP (CLNSET^BSDX32).
     def clinic_setup
       in_context { DataMapper.scheduling_clinic_setup.fetch_many_or_raise }
@@ -438,6 +498,11 @@ module RpmsRpc
 
     def blank?(value)
       value.nil? || value.to_s.empty?
+    end
+
+    # No reply at all: the broker did not answer (the nil of the module contract).
+    def unanswered?(resp)
+      resp.nil? || resp == "" || (resp.is_a?(Array) && resp.empty?)
     end
 
     # Time/DateTime keep their time of day; Date formats date-only; strings
