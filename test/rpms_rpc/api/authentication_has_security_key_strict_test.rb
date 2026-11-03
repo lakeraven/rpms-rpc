@@ -21,16 +21,19 @@ class RpmsRpc::AuthenticationHasSecurityKeyStrictTest < Minitest::Test
     mock.received_calls.select { |c| c[:rpc] == NPHASKEY_RPC }
   end
 
+  # Factory-Spec-Amendment: MockClient answers ORWU NPHASKEY only for the full
+  # [DUZ, KEY] seed (#521). A DUZ-only seed leaves every reply unanswered, so the
+  # "false for ..." tests would pass without ever exercising the reply read.
   def with_nphaskey_raw_lines(lines)
     RpmsRpc.mock! do |m|
-      m.seed_raw_lines(:person_has_key, SYNTHETIC_DUZ, Array(lines))
+      m.seed_raw_lines(:person_has_key, [ SYNTHETIC_DUZ, SYN_KEY ], Array(lines))
     end
   end
 
   def with_signed_on_nphaskey_raw_lines(lines)
     RpmsRpc.mock! do |m|
       m.set_authenticated(SYNTHETIC_DUZ)
-      m.seed_raw_lines(:person_has_key, SYNTHETIC_DUZ, Array(lines))
+      m.seed_raw_lines(:person_has_key, [ SYNTHETIC_DUZ, SYN_KEY ], Array(lines))
     end
   end
 
