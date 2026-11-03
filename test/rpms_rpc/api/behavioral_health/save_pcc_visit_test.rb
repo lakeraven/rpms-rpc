@@ -221,6 +221,26 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
     assert_empty pcc_calls
   end
 
+  def test_with_visit_ien_refuses_when_pre_read_delete_flag_internal_is_two_without_amhg_rpc
+    seed_bh_patient_link(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: "")
+    seed_v_visit(visit_ien: PCC_VISIT_IEN, patient: PATIENT, delete_flag: "2")
+    err = assert_raises(BH::SaveError) do
+      BH.save_pcc_visit(record_ien: RECORD_IEN, visit_ien: PCC_VISIT_IEN)
+    end
+    assert_match(/deleted/i, err.message)
+    assert_empty pcc_calls
+  end
+
+  def test_with_visit_ien_refuses_when_v_visit_pre_read_has_error_and_field_rows_without_amhg_rpc
+    seed_bh_patient_link(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: "")
+    body = ddr_gets_error_with_v_field_rows(visit_ien: PCC_VISIT_IEN, patient: PATIENT)
+    seed_v_visit_pre_read_reply(visit_ien: PCC_VISIT_IEN, body: body)
+    assert_raises(BH::SaveError) do
+      BH.save_pcc_visit(record_ien: RECORD_IEN, visit_ien: PCC_VISIT_IEN)
+    end
+    assert_empty pcc_calls
+  end
+
   def test_with_visit_ien_omitted_refuses_bh_pre_read_error_reply_without_amhg_rpc
     seed_bh_pre_read_reply(record_ien: RECORD_IEN, body: BH_PRE_READ_DIERRORS)
     assert_bh_pre_read_refusal { BH.save_pcc_visit(record_ien: RECORD_IEN) }
@@ -356,6 +376,27 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
     err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
     assert_amhg_reached
     assert_match(/may have been changed|not confirmed/i, err.message)
+  end
+
+  def test_raises_outcome_unknown_when_post_readback_v_visit_delete_flag_internal_is_two
+    seed_fallback_success(record_ien: RECORD_IEN, reply_ien: PCC_VISIT_IEN, patient: PATIENT,
+                          readback_delete_flag: "2")
+    err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    assert_amhg_reached
+    assert_post_call_ambiguity(err)
+  end
+
+  def test_pre_read_delete_flag_internal_zero_allows_amhg_and_succeeds_with_readback_zero
+    seed_bh_patient_link(record_ien: RECORD_IEN, patient: PATIENT, pcc_ien: "")
+    seed_v_visit(visit_ien: PCC_VISIT_IEN, patient: PATIENT, delete_flag: "0")
+    seed_reply(wire_param(RECORD_IEN, PCC_VISIT_IEN), success_body(PCC_VISIT_IEN))
+    seed_post_readback(
+      record_ien: RECORD_IEN, pcc_ien: PCC_VISIT_IEN, patient: PATIENT, visit_patient: PATIENT,
+      delete_flag: "0"
+    )
+    result = BH.save_pcc_visit(record_ien: RECORD_IEN, visit_ien: PCC_VISIT_IEN)
+    assert_pcc_success(result, visit_ien: PCC_VISIT_IEN, new_link: true)
+    refute_empty pcc_calls
   end
 
   def test_reply_differing_from_non_blank_pre_read_dot16_raises_ambiguous_save_error
@@ -616,6 +657,47 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = @mock }
   end
 
+  def test_pcc_frame_too_long_becomes_save_error_nothing_sent_not_outcome_unknown
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN)
+    wrapper = FrameTooLongOnPccVisit.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    refute_match(/outcome unknown|may have been changed|may have been removed/i, err.message)
+    assert_match(/AMHG CREATE\/EDIT VISIT could not be framed; nothing was sent/i, err.message)
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_pcc_frame_too_long_raises_nothing_sent_and_rebinds_ddr_context
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = FrameTooLongOnPccVisit.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    refute_match(/outcome unknown/i, err.message)
+    assert_match(/AMHG CREATE\/EDIT VISIT could not be framed; nothing was sent/i, err.message)
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
+    assert_equal [ "AMHGRPC", DDR_CONTEXT ], @mock.context_binds
+    assert_equal DDR_CONTEXT, @mock.current_context
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_pcc_frame_too_long_restore_failure_does_not_replace_nothing_sent_error
+    seed_pre_amhg_for_fallback(record_ien: RECORD_IEN)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!(DDR_CONTEXT)
+    wrapper = FrameTooLongOnPccVisit.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_pcc_visit(record_ien: RECORD_IEN) }
+    refute_match(/outcome unknown/i, err.message)
+    assert_match(/AMHG CREATE\/EDIT VISIT could not be framed; nothing was sent/i, err.message)
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
   def test_ambiguity_message_does_not_echo_record_ien_or_broker_trap_text
     seed_post_amhg_trap(record_ien: RECORD_IEN) do
       seed_fallback_reply(record_ien: RECORD_IEN, body: "T00030Result#{RS}M ERROR|#{SECRET_MARKER}#{RS}")
@@ -843,6 +925,20 @@ class BehavioralHealthSavePccVisitTest < Minitest::Test
     "[ERROR]\n[BEGIN_diERRORS]\n999^1^\nsynthetic partial read\n[END_diERRORS]\n[Data]\n" \
       "#{BH_VISIT_FILE}^#{record_ien}^.08^#{patient}^PATIENT,SYNTH\n" \
       "#{BH_VISIT_FILE}^#{record_ien}^.16^#{pcc_ien}^VISIT"
+  end
+
+  def ddr_gets_error_with_v_field_rows(visit_ien:, patient:, delete_flag: "0")
+    "[ERROR]\n[BEGIN_diERRORS]\n999^1^\nsynthetic partial read\n[END_diERRORS]\n[Data]\n" \
+      "#{V_VISIT_FILE}^#{visit_ien}^.05^#{patient}^PATIENT,SYNTH\n" \
+      "#{V_VISIT_FILE}^#{visit_ien}^#{DELETE_FLAG_FIELD}^#{delete_flag}^DELETE"
+  end
+
+  def seed_v_visit_pre_read_reply(visit_ien:, body:)
+    key = ddr_gets_key(
+      file: V_VISIT_FILE, iens: "#{visit_ien},",
+      fields: V_VISIT_FIELDS, flags: V_VISIT_FLAGS
+    )
+    @mock.seed(:ddr_gets_entry_data, key, body)
   end
 
   def seed_post_readback_error_with_linked_appearance(record_ien:, pcc_ien:, patient:)
@@ -1097,6 +1193,16 @@ class RpcRefusedOnPccVisit < SimpleDelegator
   def call_rpc_global_array(rpc_name, *_params)
     if rpc_name == BehavioralHealthSavePccVisitTest::RPC
       raise RpmsRpc::Client::RpcRefusedError, "AMHG CREATE/EDIT VISIT refused (synthetic)"
+    end
+
+    super
+  end
+end
+
+class FrameTooLongOnPccVisit < SimpleDelegator
+  def call_rpc_global_array(rpc_name, *_params)
+    if rpc_name == "AMHG CREATE/EDIT VISIT"
+      raise RpmsRpc::Client::FrameTooLongError, "AMHG CREATE/EDIT VISIT wire too long (synthetic)"
     end
 
     super

@@ -845,6 +845,74 @@ class BehavioralHealthSavePovTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = @mock }
   end
 
+  def test_nil_context_with_amhg_timeout_still_rebinds_ddr_context_after_save_error
+    seed_pre_edit_and_pointers(**ONE_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = TimeoutOnAmhgSavePov.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_pov(**ONE_KWARGS) } }
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+    assert_kind_of RpmsRpc::Client::RpcTimeoutError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_with_amhg_rpc_m_error_still_rebinds_ddr_context_after_save_error
+    seed_pre_edit_and_pointers(**ONE_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = RpcMErrorOnAmhgSavePov.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_pov(**ONE_KWARGS) } }
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+    assert_kind_of RpmsRpc::Client::RpcMError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_with_amhg_plain_rpc_error_still_rebinds_ddr_context_after_save_error
+    seed_pre_edit_and_pointers(**ONE_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = RpcErrorOnAmhgSavePov.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_pov(**ONE_KWARGS) } }
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+    assert_kind_of RpmsRpc::Client::RpcError, err.cause
+    refute_kind_of RpmsRpc::Client::RpcMError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_timeout_keeps_the_timeout_when_the_ddr_rebind_fails
+    seed_pre_edit_and_pointers(**ONE_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+    wrapper = TimeoutOnAmhgSavePov.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_pov(**ONE_KWARGS) } }
+    assert_kind_of RpmsRpc::Client::RpcTimeoutError, err.cause
+    assert_equal "AMHGRPC", @mock.current_context
+    refute_includes @mock.context_binds, "CIAV VUECENTRIC"
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_rpc_m_error_keeps_the_m_error_when_the_ddr_rebind_fails
+    seed_pre_edit_and_pointers(**ONE_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+    wrapper = RpcMErrorOnAmhgSavePov.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_pov(**ONE_KWARGS) } }
+    assert_kind_of RpmsRpc::Client::RpcMError, err.cause
+    assert_equal "AMHGRPC", @mock.current_context
+    refute_includes @mock.context_binds, "CIAV VUECENTRIC"
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
   def test_error_message_does_not_echo_passed_narrative_or_patient
     secret = "UNIQUE_SYNTH_POV_MARKER_538"
     wire =

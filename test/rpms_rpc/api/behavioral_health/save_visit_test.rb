@@ -261,6 +261,47 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = @mock }
   end
 
+  def test_nil_context_with_amhg_rpc_m_error_still_rebinds_ddr_context_after_save_error
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = RpcMErrorOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_visit(**FULL_KWARGS) } }
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+    assert_kind_of RpmsRpc::Client::RpcMError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_with_amhg_plain_rpc_error_still_rebinds_ddr_context_after_save_error
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    wrapper = RpcErrorOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_visit(**FULL_KWARGS) } }
+    assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
+    assert_equal "CIAV VUECENTRIC", @mock.current_context
+    assert_kind_of RpmsRpc::Client::RpcError, err.cause
+    refute_kind_of RpmsRpc::Client::RpcMError, err.cause
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_rpc_m_error_keeps_the_m_error_when_the_ddr_rebind_fails
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+    wrapper = RpcMErrorOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { capture_io { BH.save_visit(**FULL_KWARGS) } }
+    assert_kind_of RpmsRpc::Client::RpcMError, err.cause
+    assert_equal "AMHGRPC", @mock.current_context
+    refute_includes @mock.context_binds, "CIAV VUECENTRIC"
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
   # A caller already inside rescue leaves $! set to the host exception.
   # A failed DDR re-bind must still be SaveError, not a returned IEN.
   def test_nil_context_inside_host_rescue_still_raises_save_error_when_ddr_rebind_fails_after_successful_amhg
@@ -1087,6 +1128,20 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
     assert_equal [ "AMHGRPC", "CIAV VUECENTRIC" ], @mock.context_binds
     assert_equal "CIAV VUECENTRIC", @mock.current_context
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_nil_context_amhg_frame_too_long_restore_failure_does_not_replace_nothing_sent_error
+    seed_pre_amhg_reads(**FULL_KWARGS)
+    @mock.instance_variable_set(:@current_context, nil)
+    @mock.unbindable_context!("CIAV VUECENTRIC")
+    wrapper = FrameTooLongOnAmhg.new(@mock)
+    RpmsRpc.configure { |c| c.client = wrapper }
+    err = assert_raises(BH::SaveError) { BH.save_visit(**FULL_KWARGS) }
+    refute_match(/outcome unknown|may have been filed/i, err.message)
+    assert_match(/nothing was sent|could not be framed|not sent/i, err.message)
+    assert_kind_of RpmsRpc::Client::FrameTooLongError, err.cause
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
   end
