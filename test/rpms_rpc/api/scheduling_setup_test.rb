@@ -93,6 +93,72 @@ class SchedulingSetupTest < Minitest::Test
     use(nil)
     assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::SchedulingSetup.access_types }
   end
+
+  def test_create_visit_at_checkin_reads_file_9009017_2_field_09_in_ciav_vuecentric
+    client = use([ "[Data]", "9009017.2^3^.09^1^YES" ])
+
+    assert RpmsRpc::SchedulingSetup.creates_visit_at_checkin(3)
+    assert_equal "DDR GETS ENTRY DATA", client.calls.first[:rpc]
+    assert_equal({ "FILE" => "9009017.2", "IENS" => "3,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
+    assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
+  end
+
+  def test_create_visit_at_checkin_is_false_when_the_flag_is_not_yes
+    client = use([ "[Data]", "9009017.2^6^.09^0^NO" ])
+    refute RpmsRpc::SchedulingSetup.creates_visit_at_checkin(6)
+    assert_equal "DDR GETS ENTRY DATA", client.calls.first[:rpc]
+    assert_equal({ "FILE" => "9009017.2", "IENS" => "6,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
+    assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
+
+    client = use([ "[Data]", "9009017.2^8^.09^^" ])
+    refute RpmsRpc::SchedulingSetup.creates_visit_at_checkin(8)
+    assert_equal "DDR GETS ENTRY DATA", client.calls.first[:rpc]
+    assert_equal({ "FILE" => "9009017.2", "IENS" => "8,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
+    assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
+  end
+
+  def test_create_visit_at_checkin_raises_when_the_reply_has_no_09_row
+    client = use([ "[Data]" ])
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::SchedulingSetup.creates_visit_at_checkin(3) }
+    assert_equal "DDR GETS ENTRY DATA", client.calls.first[:rpc]
+    assert_equal({ "FILE" => "9009017.2", "IENS" => "3,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
+    assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
+
+    client = use([ "[Data]", "9009017.2^3^.01^3^X" ])
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::SchedulingSetup.creates_visit_at_checkin(3) }
+    assert_equal "DDR GETS ENTRY DATA", client.calls.first[:rpc]
+    assert_equal({ "FILE" => "9009017.2", "IENS" => "3,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
+    assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
+  end
+
+  def test_create_visit_at_checkin_is_false_when_internal_is_one_but_external_is_not_yes
+    use([ "[Data]", "9009017.2^3^.09^1^" ])
+    refute RpmsRpc::SchedulingSetup.creates_visit_at_checkin(3)
+  end
+
+  def test_create_visit_at_checkin_raises_when_the_clinic_has_no_9009017_2_entry
+    client = use([ "[ERROR]" ])
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::SchedulingSetup.creates_visit_at_checkin(999) }
+    assert_equal "DDR GETS ENTRY DATA", client.calls.first[:rpc]
+    assert_equal({ "FILE" => "9009017.2", "IENS" => "999,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
+    assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
+  end
+
+  def test_a_hospital_location_that_is_not_a_number_is_nil_for_create_visit_at_checkin
+    client = use([ "[Data]", "9009017.2^3^.09^1^YES" ])
+    [ nil, "", "0", "abc", "-3" ].each { |bad| assert_nil RpmsRpc::SchedulingSetup.creates_visit_at_checkin(bad), bad.inspect }
+    assert_empty client.calls
+  end
+
+  def test_a_refused_or_unanswered_create_visit_read_raises
+    client = use([ "[ERROR]" ])
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::SchedulingSetup.creates_visit_at_checkin(3) }
+    assert_equal "DDR GETS ENTRY DATA", client.calls.first[:rpc]
+    assert_equal({ "FILE" => "9009017.2", "IENS" => "3,", "FIELDS" => ".09", "FLAGS" => "IE" }, client.calls.first[:param])
+    assert_equal "CIAV VUECENTRIC", client.calls.first[:context]
+    use(nil)
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::SchedulingSetup.creates_visit_at_checkin(3) }
+  end
 # A clinic that prohibits access lets in its own PRIVILEGED USERs and its
 # principal clinic's (SDM1.m:33). The subfile reply is what DDR LISTER on
 # 44.04 answered on a live 7c3119b build after one user was filed.
