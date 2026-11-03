@@ -1,6 +1,9 @@
 RpmsRpc::Adt.admissions	GET /patients/{dfn}/admissions
 RpmsRpc::Adt.current_location	GET /patients/{dfn}/admissions/current-location
 RpmsRpc::Adt.discharge_datetime	GET /patients/{dfn}/admissions/discharge-datetime
+RpmsRpc::Agg.patient_languages	GET /patients/{dfn}/agg/languages
+RpmsRpc::Agg.table_lookup	GET /agg/files/{file}/table-lookup
+RpmsRpc::Agg.window_multiple	GET /patients/{dfn}/agg/window-multiple
 RpmsRpc::Allergy.assessment	GET /patients/{dfn}/allergies/assessment
 RpmsRpc::Allergy.for_patient	GET /patients/{dfn}/allergies
 RpmsRpc::Authentication.has_security_key?	GET /users/{duz}/has-security-key
@@ -64,6 +67,12 @@ RpmsRpc::Patient.find	GET /patients/{dfn}
 RpmsRpc::Patient.find_by_ssn	GET /patients/by-ssn
 RpmsRpc::Patient.lookup	GET /patients/lookup
 RpmsRpc::Patient.search	GET /patients
+RpmsRpc::PatientProfile.aliases	GET /patients/{dfn}/patient-profiles/aliases
+RpmsRpc::PatientProfile.contacts	GET /patients/{dfn}/patient-profiles/contacts
+RpmsRpc::PatientProfile.language_lookup	GET /patient-profiles/language-lookup
+RpmsRpc::PatientProfile.languages	GET /patients/{dfn}/patient-profiles/languages
+RpmsRpc::PatientProfile.relationships	GET /patient-profiles/relationships
+RpmsRpc::PatientProfile.states	GET /patient-profiles/states
 RpmsRpc::PatientSelection.find	GET /patient-selections
 RpmsRpc::Phr.counts	GET /patients/{dfn}/phr/counts
 RpmsRpc::Phr.enrollment_status	GET /patients/{dfn}/phr/enrollment-status
