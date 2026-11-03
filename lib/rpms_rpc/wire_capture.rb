@@ -424,9 +424,10 @@ module RpmsRpc
     # gates mappings against the committed fixtures.
     #
     # Inputs use only synthetic build-time data. Chart reads (ORWPT ID INFO,
-    # BEHOPTCX PTINFO, BEHOPTPC GETBDP, BEHOCACV CWAD, ORQQPL LIST, ORQQAL
-    # LIST, ORWPS ACTIVE, ORQQVI VITALS) call seed patient DFN 2, which has
-    # chart data on the pinned build. Other entries stay on DFN 8
+    # BEHOPTCX PTINFO, BEHOPTPC GETBDP, ORQQPL LIST, ORQQAL LIST, ORWPS
+    # ACTIVE, ORQQVI VITALS) call seed patient DFN 2, which has chart data
+    # on the pinned build. ORWPT CWAD is routine-cited (inputs nil) until a
+    # live capture as PROV123 lands. Other entries stay on DFN 8
     # DEMOPATIENT,REG2244. Public repo: never a real patient, partner, or tribe.
     CATALOG = [
       CatalogEntry.new(
@@ -561,7 +562,8 @@ module RpmsRpc
         ]
       ),
       # Patient.brief_header sends the DFN to each of these three
-      # (PTINFO^BEHOPTCX, GETBDP^BEHOPTPC, CWAD^BEHOCACV).
+      # (PTINFO^BEHOPTCX, GETBDP^BEHOPTPC, CWAD^ORWPT). ORWPT CWAD is
+      # routine-cited below: no live capture as PROV123 on the pinned build.
       CatalogEntry.new(
         rpc: "BEHOPTCX PTINFO", mapping: :patient_ptinfo, kind: "fields", mode: :live,
         inputs: [ "2" ],
@@ -590,12 +592,19 @@ module RpmsRpc
         ],
         note: "Empty designated provider in the seed. An empty reply is no-data, not a layout."
       ),
+      # CWAD^ORWPT, the scalar Patient.brief_header already calls. The cite is
+      # that mapping's existing citation (registry formals Y,DFN) — no routine
+      # line numbers. Routine-cited until a live PROV123 capture lands.
       CatalogEntry.new(
-        rpc: "BEHOCACV CWAD", mapping: :patient_cwad, kind: "scalar", mode: :live,
-        inputs: [ "2" ],
-        cite: "CWAD^BEHOCACV (BEHOCACV.m:22): one scalar. Letters present mean " \
-              "C=Crises, W=Warnings, A=Allergies, D=Advance Directives; empty means none",
-        pieces: []
+        rpc: "ORWPT CWAD", mapping: :patient_cwad, kind: "scalar", mode: :routine_cite,
+        inputs: nil,
+        cite: "CWAD^ORWPT (registry formals Y,DFN; the :patient_cwad mapping's " \
+              "existing citation, no routine line numbers): one scalar. Letters " \
+              "present mean C=Crises, W=Warnings, A=Allergies, D=Advance Directives; " \
+              "empty means none",
+        pieces: [],
+        note: "Routine-cited only until a live capture as PROV123 on the pinned " \
+              "build lands, so its brief_header flags are not proven."
       ),
       CatalogEntry.new(
         rpc: "BGOVMSR LAST", mapping: :latest_measurements, kind: "fields", mode: :live,

@@ -110,10 +110,18 @@ module RpmsRpc
     # Piece 13 "#" alone is the inactive-ICD branch (ORQQPL.m:15-16),
     # whatever piece 4 holds — a real inactive code or $$ICDDX error text.
     # That row parses :icd_code nil, :transcribed nil (piece 9's "#" is the
-    # branch marker, not a transcribed flag), and :inactive_icd true. Text
-    # in piece 4 that begins "Invalid Code" is never an :icd_code, with or
-    # without the marker. Any other row has :inactive_icd false. Every
-    # other piece is unchanged.
+    # branch marker, not a transcribed flag), and :inactive_icd true.
+    # :icd_code keeps piece 4 only when it is code-shaped after surrounding
+    # whitespace is stripped (PROBLEM_LIST_ICD_CODE_SHAPE: ICD-10-CM or
+    # ICD-9-CM). Anything else — any $$ICDDX/^ICDCODE failure text, "-1",
+    # empty — is nil. A code-shaped value is kept verbatim. Any other row
+    # has :inactive_icd false. Every other piece is unchanged.
+    #
+    # Boxes without ICD*18.0*6 return $$ICDDX/^ICDCODE failure texts other
+    # than a leading "Invalid Code", so a prefix check accepts those misses
+    # as codes. The shape is the whole rule.
+    PROBLEM_LIST_ICD_CODE_SHAPE =
+      /\A(?:[A-Z][0-9][0-9A-Z](?:\.[0-9A-Z]{1,4})?|(?:\d{3}|V\d{2}|E\d{3})(?:\.\d{1,2})?)\z/
     # STATUS is #9000011 field .12 internal ("A"/"I" — GMPLUTL3.m NODE0
     # "$P(GMPLZ0,U,12)"). The prior declaration swapped STATUS and
     # DESCRIPTION and invented RECORDED_DATE / PROVIDER_DUZ at pieces 6-7
@@ -140,12 +148,14 @@ module RpmsRpc
       # on that branch). An active row leaves piece 13 empty.
       m.field 12, :inactive_icd
       m.after_row do |row, parts|
-        # Keyed on piece 13 "#" alone. Piece 4 may be a real code or the
-        # $$ICDDX^ICDCODE failure text (piece 2 of "-1^Invalid Code (...)").
+        # Piece 13 "#" is the inactive-ICD branch, whatever piece 4 holds.
+        # Otherwise :icd_code is piece 4 only when the stripped token matches
+        # PROBLEM_LIST_ICD_CODE_SHAPE. A match stays verbatim (no case fold,
+        # no extra strip). $$ICDDX/^ICDCODE failure text, "-1", and empty
+        # are nil.
         inactive = parts[12] == "#"
-        if inactive || parts[3].to_s.match?(/\AInvalid Code\b/)
-          row[:icd_code] = nil
-        end
+        code_shaped = parts[3].to_s.strip.match?(PROBLEM_LIST_ICD_CODE_SHAPE)
+        row[:icd_code] = nil if inactive || !code_shaped
         row[:transcribed] = nil if inactive
         row[:inactive_icd] = inactive
         row
