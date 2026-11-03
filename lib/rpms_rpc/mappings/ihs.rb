@@ -883,6 +883,22 @@ module RpmsRpc
       m.field 0, :error
     end
 
+    # BSDX CHECKOUT APPOINTMENT — CHECKOUT^BSDX25 (check-out via CO^BSDX25A).
+    # Recordset header ERRORID; the success row is "0", a failure row is the
+    # reason. Params: DFN^APPT_DATETIME^CHECKOUT_DATETIME^BSDX_APPOINTMENT_IEN^VPRV.
+    DataMapper.define(:scheduling_checkout_appointment) do |m|
+      m.rpc "BSDX CHECKOUT APPOINTMENT"
+      m.field 0, :error
+    end
+
+    # BSDX CANCEL CHECKOUT APPT — CANCKOUT^BSDX25 (undo a check-out). Recordset
+    # header ERRORID; the success row is "0", a failure row is the reason.
+    # Params: BSDX_APPOINTMENT_IEN.
+    DataMapper.define(:scheduling_cancel_checkout) do |m|
+      m.rpc "BSDX CANCEL CHECKOUT APPT"
+      m.field 0, :error
+    end
+
     # BSDX NOSHOW — NOSHOW^BSDX31 → $$CANCEL^BSDAPI (sets no-show on ^DPT).
     # Recordset data row: ERRORID^ERRORTEXT. IMPORTANT: the ERRORID column here
     # is a SUCCESS flag with INVERTED polarity vs BSDX ADD — the routine writes
@@ -991,6 +1007,22 @@ module RpmsRpc
     # Reply header "I00010RESULT^T00100MSG^..."; RESULT -1 is a refusal. Parsed by Agg.
     DataMapper.define(:agg_window_validation) do |m|
       m.rpc "AGG WINDOW DATA VALIDATION"
+      m.text_blob :reply
+    end
+
+    # AGG GET TEMP PAT HRN — GTMP^AGGPTHRN (return type GLOBAL ARRAY). Params:
+    # DFN. Reply header "T00010AGGPTHRN", then the temporary number
+    # ("T00001"). Parsed by Agg.temporary_hrn.
+    DataMapper.define(:agg_get_temp_pat_hrn) do |m|
+      m.rpc "AGG GET TEMP PAT HRN"
+      m.text_blob :reply
+    end
+
+    # AGG BUILD WINDOW DISPLAY — BLD^AGGWDISP (return type GLOBAL ARRAY). Params:
+    # window name, DFN. Reply: a header naming the window's displayed
+    # parameters, then one record of their values. Parsed by Agg.window_values.
+    DataMapper.define(:agg_build_window_display) do |m|
+      m.rpc "AGG BUILD WINDOW DISPLAY"
       m.text_blob :reply
     end
 
@@ -1113,6 +1145,21 @@ module RpmsRpc
     DataMapper.define(:amhg_save_visit) do |m|
       m.rpc "AMHG SAVE VISIT"
       m.field 0, :ien, :string
+    end
+
+    # AMHG CREATE/EDIT VISIT — PCC^AMHGPCC (AMHGPCC.m:10-28). One param,
+    # the two-piece AMHSTR: BH record IEN, then the PCC visit IEN. A blank
+    # second piece falls back to #9002011 .16 (AMHGPCC.m:17-19). The reply
+    # is a GLOBAL ARRAY: header T00030Result, then one row (AMHGPCC.m:25-28).
+    # The row is "0~<message>" when EN^AMHBHRU failed, else the internal
+    # .16, which may be empty.
+    #
+    # :row stays a string. MERR^AMHGU writes one data row "M ERROR|<text>"
+    # $C(30) and no $C(31) (AMHGU.m:108-120). An integer field would coerce
+    # that row, and a blank success row, to 0.
+    DataMapper.define(:amhg_create_edit_visit) do |m|
+      m.rpc "AMHG CREATE/EDIT VISIT"
+      m.field 0, :row, :string
     end
 
     # AMHG SAVE POV — POV^AMHGSVF (AMHGSVF.m:47-75). One param, the
