@@ -60,6 +60,14 @@ class SchedulingSetupTest < Minitest::Test
     assert_equal "B", client.calls.first[:param]["XREF"]
   end
 
+  def test_holidays_raises_when_ddr_lister_omits_the_data_marker
+    use("M  ERROR=ZZ+3^AUPN, <UNDEFINED>")
+
+    assert_raises(RpmsRpc::Client::RpcError) do
+      RpmsRpc::SchedulingSetup.holidays(start_date: Date.new(2026, 11, 11), end_date: Date.new(2026, 11, 30))
+    end
+  end
+
   def test_holidays_read_on_from_the_more_marker
     client = use([ "[Misc]", "MORE^3261126^4", "[Data]", "3261111^3261111^VETERANS DAY" ],
                  [ "[Data]", "3261225^3261225^CHRISTMAS DAY" ])
