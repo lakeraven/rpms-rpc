@@ -67,6 +67,8 @@ RpmsRpc::Patient.find	GET /patients/{dfn}
 RpmsRpc::Patient.find_by_ssn	GET /patients/by-ssn
 RpmsRpc::Patient.lookup	GET /patients/lookup
 RpmsRpc::Patient.search	GET /patients
+RpmsRpc::PatientApplication.for_patient	GET /patients/{dfn}/patient-applications
+RpmsRpc::PatientApplication.types	GET /patient-applications/types
 RpmsRpc::PatientProfile.aliases	GET /patients/{dfn}/patient-profiles/aliases
 RpmsRpc::PatientProfile.contacts	GET /patients/{dfn}/patient-profiles/contacts
 RpmsRpc::PatientProfile.language_lookup	GET /patient-profiles/language-lookup

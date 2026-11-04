@@ -227,6 +227,13 @@
       "ORWPT LIST ALL",
       "ORWPT SELECT"
     ],
+    "RpmsRpc::PatientApplication": [
+      "AGG LOCK PATIENT",
+      "AGG UNLOCK PATIENT",
+      "DDR FILER",
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
+    ],
     "RpmsRpc::PatientProfile": [
       "AGG BUILD WINDOW DISPLAY",
       "AGG BUILD WINDOW MULTIPLE",

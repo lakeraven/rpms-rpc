@@ -195,6 +195,10 @@
 "RpmsRpc::Patient.registration_record": non_idempotent_write
 "RpmsRpc::Patient.search": read
 "RpmsRpc::Patient.update": non_idempotent_write
+"RpmsRpc::PatientApplication.add": non_idempotent_write
+"RpmsRpc::PatientApplication.for_patient": read
+"RpmsRpc::PatientApplication.types": read
+"RpmsRpc::PatientApplication.update_status": non_idempotent_write
 "RpmsRpc::PatientProfile.add_alias": non_idempotent_write
 "RpmsRpc::PatientProfile.aliases": read
 "RpmsRpc::PatientProfile.contacts": read
