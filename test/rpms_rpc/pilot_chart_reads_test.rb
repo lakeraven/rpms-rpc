@@ -49,6 +49,13 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
   # false row whose raw wire carries the field piece empty (truncated rows must not prove false).
   BOOLEAN_MAPPED_ATTRIBUTES = { problem_list: [ :inactive_icd ] }.freeze
 
+  # Single-piece RPC error / sentinel replies — not record rows; must not prove any field.
+  NON_RECORD_LIVE_CAPTURE_ROWS = [
+    "Application context denied",
+    "%YDB-E-LVUNDEF, Undefined local variable: DFN",
+    "0"
+  ].freeze
+
   # Fake client: ORWPS ACTIVE lines exactly as CiaClient#call_rpc delivers them (no seq prefix).
   class MedicationActiveProbeClient
     def initialize(lines) = @lines = lines
@@ -96,6 +103,13 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     { rpc: "ORQQVI VITALS", mapping: :vitals, kind: "fields",
       inputs: [ "2" ], evidence: :live }
   ].freeze
+
+  CHART_FIELDS_READINESS_MAPPINGS = CHART_READ_SLICE.filter_map do |slice|
+    next if %i[patient_cwad medication_active].include?(slice[:mapping])
+    next unless slice[:kind] == "fields"
+
+    slice[:mapping]
+  end.freeze
 
   CHECKLIST_LINE = /
     \A
@@ -173,8 +187,30 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
         text = mapping.parse_text(fixture.captured_data_rows)
         text.nil? || text.empty? ? [] : [ { blob => text } ]
       else
-        mapping.parse_many(fixture.captured_data_rows)
+        mapping.parse_many(evidence_rows(mapping, fixture))
       end
+    end
+
+    def fields_kind_chart_read_evidence?(mapping, fixture)
+      return false if mapping.scalar? || mapping.text_blob?
+      return false if %i[patient_cwad medication_active].include?(fixture.mapping_name)
+
+      true
+    end
+
+    def record_row?(row)
+      pieces = row.to_s.split("^", -1)
+      real_count = pieces.count do |piece|
+        RpmsRpc::WireCapture::Evidence.real_value?(piece.to_s.strip)
+      end
+      real_count >= 2
+    end
+
+    def evidence_rows(mapping, fixture)
+      rows = fixture.captured_data_rows
+      return rows unless fields_kind_chart_read_evidence?(mapping, fixture)
+
+      rows.select { |row| record_row?(row) }
     end
 
     def mapped_value_present?(value)
@@ -198,7 +234,7 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       field = mapping.fields.find { |candidate| candidate.attribute == attribute && candidate.type == :integer }
       return false unless field
 
-      fixture.captured_data_rows.none? do |row|
+      evidence_rows(mapping, fixture).none? do |row|
         token = row.to_s.split("^", -1)[field.position].to_s.strip
         token.match?(/\A-?\d+\z/) && RpmsRpc::WireCapture::Evidence.real_value?(token)
       end
@@ -211,7 +247,7 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       true_observed = false
       false_observed = false
 
-      fixture.captured_data_rows.each do |raw_row|
+      evidence_rows(mapping, fixture).each do |raw_row|
         mapped = mapping.parse_many([ raw_row ]).first
         next if mapped.nil?
 
@@ -756,6 +792,20 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     )
     assert_includes self.class.unproven_attributes(stub_only_active), :inactive_icd,
                     "active-only rows must not prove inactive_icd without a true observation"
+
+    thirteen_piece_placeholders = [
+      "^" * 12,
+      "0#{"^" * 12}",
+      "**MASKED**#{"^" * 12}",
+      "Application context denied#{"^" * 12}"
+    ]
+    thirteen_piece_placeholders.each do |placeholder|
+      stub = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
+        :problem_list, "live-capture", [ inactive_row, placeholder ], nil
+      )
+      assert_includes self.class.unproven_attributes(stub), :inactive_icd,
+                      "13-piece placeholder #{placeholder.inspect} must not prove inactive_icd false"
+    end
   end
 
   def test_orqqpl_list_committed_capture_icd_code_and_transcribed_unproven_after_mapping
@@ -842,6 +892,30 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     assert_equal expected_names.sort, unproven.sort,
                  "error reply must leave every vitals readiness field unproven"
     assert_equal "not-proven", self.class.expected_checklist_status(slice, stub)
+  end
+
+  # Single-piece sentinel / error rows are not record rows — no fields-kind mapping may grade partial.
+  def test_fields_kind_live_capture_non_record_rows_grade_not_proven
+    failures = []
+    NON_RECORD_LIVE_CAPTURE_ROWS.each do |error_row|
+      CHART_FIELDS_READINESS_MAPPINGS.each do |mapping_name|
+        slice = CHART_READ_SLICE.find { |s| s[:mapping] == mapping_name }
+        stub = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
+          mapping_name, "live-capture", [ error_row ], nil
+        )
+        mapping = RpmsRpc::DataMapper[mapping_name]
+        all_readiness = self.class.readiness_attribute_names(mapping, stub).sort
+        unproven = self.class.unproven_attributes(stub).sort
+        if unproven != all_readiness
+          failures << ":#{mapping_name} row #{error_row.inspect}: unproven #{unproven.inspect}, expected all #{all_readiness.inspect}"
+        end
+        status = self.class.expected_checklist_status(slice, stub)
+        next if status == "not-proven"
+
+        failures << ":#{mapping_name} row #{error_row.inspect}: status #{status.inspect}, expected not-proven"
+      end
+    end
+    assert_empty failures, failures.join("\n  ")
   end
 
   # Intent: capture-backed slice fixtures pass the same mapping↔wire checks as wire_contract_test.
