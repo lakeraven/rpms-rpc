@@ -6,13 +6,13 @@ require "rpms_rpc/version"
 require "rpms_rpc/api/authentication"
 
 # Authentication.held_keys asks ORWU NPHASKEY once per named security key for
-# the signed-on DUZ, with OR CPRS GUI CHART bound for the batch (rpms-rpc#521).
+# the signed-on DUZ, with CIAV VUECENTRIC bound for the batch (rpms-rpc#521).
 class RpmsRpc::AuthenticationHeldKeysTest < Minitest::Test
   EOD = RpmsRpc::Client::EOD
 
   SYNTHETIC_DUZ = "900001"
-  START_CONTEXT = "CIAV VUECENTRIC"
-  HELD_CONTEXT = "OR CPRS GUI CHART"
+  START_CONTEXT = "AGGRPC"
+  HELD_CONTEXT = RpmsRpc::Authentication::HELD_KEYS_CONTEXT
 
   ASKED = %w[SYNKEYA SYNKEYB SYNKEYC SYNKEYD SYNKEYNOSUCH].freeze
   HELD_FLAGS = %w[1 1 1 1 0].freeze
@@ -96,7 +96,7 @@ class RpmsRpc::AuthenticationHeldKeysTest < Minitest::Test
     refute_includes @socket.writes.first, asked.join("^")
   end
 
-  # N keys: N ORWU NPHASKEY round trips while OR CPRS GUI CHART is bound, then restore.
+  # N keys: N ORWU NPHASKEY round trips while CIAV VUECENTRIC is bound, then restore.
   # Over CIA bind and restore are client-side (CTX on frames), so @socket.writes holds N frames.
   def test_frame_count_for_n_keys_is_n_nphaskey_plus_bind_and_restore
     asked = ASKED.first(3)
@@ -116,7 +116,7 @@ class RpmsRpc::AuthenticationHeldKeysTest < Minitest::Test
                  "not separate bind/restore frames"
     assert_equal START_CONTEXT, client.current_context, "caller context is restored afterward"
     @socket.writes.each do |frame|
-      assert_includes frame, HELD_CONTEXT, "each NPHASKEY runs under OR CPRS GUI CHART"
+      assert_includes frame, HELD_CONTEXT, "each NPHASKEY runs under #{HELD_CONTEXT}"
     end
   end
 
