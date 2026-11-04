@@ -3,6 +3,7 @@
 require_relative "../mappings"
 require_relative "../context_scope"
 require_relative "../rcis_wire"
+require_relative "../shape"
 
 module RpmsRpc
   # Symbolic API for referral records. Read via referral_search /
@@ -30,6 +31,7 @@ module RpmsRpc
   # to this user raises Client::RpcRefusedError (#363).
   module Referral
     extend self
+    extend Shape::Declarable
 
     # The context option the BMC* RPCs are registered under — see the module
     # doc. Every method here binds it.
@@ -56,6 +58,56 @@ module RpmsRpc
     def for_patient(dfn)
       in_context { DataMapper.referral_search.fetch_many(dfn.to_s, *SEARCH_NO_FILTERS) }
     end
+
+    # The status screen SRCHREF^BMCRPC1 builds for "Active/Approved": STATUS
+    # OF REFERRAL (.15) A (ACTIVE) or A1 (APPROVED), the two codes of a
+    # referral not yet closed either way (BMCRPC1.m:40-41).
+    PENDING_STATUS = "Active/Approved"
+
+    # The most entries one cross-patient BMC SEARCH REFERRAL returns: with no
+    # patient and no provider, the routine lists at most 100 (BMCRPC1.m:47).
+    SEARCH_PAGE = 100
+
+    # The referrals still open, ACTIVE or APPROVED, for every patient, whose
+    # DATE INITIATED (.01) is in from..to (Dates, both ends included).
+    #
+    # BMC SEARCH REFERRAL with no PATIENT and no REFPRVDR takes its third
+    # path: LIST^DIC on the B index of .01 from the start date, screened to
+    # .01 >= from, .01 <= to and the PENDING_STATUS codes, at most
+    # SEARCH_PAGE entries (BMCRPC1.m:42-47). A full page is followed by
+    # another from the last date it reached, and entries already read are
+    # kept once, so the answer is every match, oldest first. A single date
+    # with more than SEARCH_PAGE pending referrals cannot be paged past, and
+    # raises Client::RpcError rather than answer short.
+    #
+    # Rows are referral_search's: :ien (the #90001 IEN), :date, :patient_dfn,
+    # :patient_name, :status ("ACTIVE" or "APPROVED"), :referral_number, and
+    # the rest of that mapping.
+    def pending(from:, to:)
+      raise ArgumentError, "from and to must be Dates" unless from.is_a?(Date) && to.is_a?(Date)
+      raise ArgumentError, "from (#{from}) is after to (#{to})" if from > to
+
+      in_context do
+        rows = {}
+        start = from
+        loop do
+          page = DataMapper.referral_search.fetch_many("", "", external_date(start), external_date(to), "", PENDING_STATUS)
+          fresh = page.reject { |row| rows.key?(row[:ien]) }
+          fresh.each { |row| rows[row[:ien]] = row }
+          break if page.size < SEARCH_PAGE
+
+          last = page.filter_map { |row| row[:date] }.max
+          if fresh.empty? || last.nil?
+            raise Client::RpcError, "BMC SEARCH REFERRAL: more than #{SEARCH_PAGE} pending referrals initiated on " \
+                                    "#{external_date(start)}; one call returns at most #{SEARCH_PAGE}, so they cannot all be read"
+          end
+
+          start = last
+        end
+        rows.values
+      end
+    end
+    shape :pending, resource: "referrals", verb: "GET", path: "/referrals/pending"
 
     # One referral by RCIS REFERRAL (#90001) IEN, with its diagnoses and
     # notes named from the sections GTRFBYID^BMCRPC1 appends (#210).
@@ -224,6 +276,11 @@ module RpmsRpc
     def note(pieces)
       ien, date, reviewer, *text = pieces
       { ien: ien, date: date, reviewer: reviewer, text: text.join("^").tr("~", "\n") }
+    end
+
+    # "JAN 10, 2001": SRCHREF converts its dates with DT^DILF (BMCRPC1.m:42-43).
+    def external_date(date)
+      FilemanDateParser.format_external_date(date)
     end
 
     def invalid_id?(value)

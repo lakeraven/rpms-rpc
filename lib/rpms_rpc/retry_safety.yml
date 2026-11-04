@@ -257,6 +257,7 @@
 "RpmsRpc::Referral.patient_eligibility_status": non_idempotent_write
 "RpmsRpc::Referral.patient_face_sheet": non_idempotent_write
 "RpmsRpc::Referral.patient_health_summary": non_idempotent_write
+"RpmsRpc::Referral.pending": read
 "RpmsRpc::Referral.print": non_idempotent_write
 "RpmsRpc::Referral.providers": non_idempotent_write
 "RpmsRpc::Referral.purposes": non_idempotent_write
