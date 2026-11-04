@@ -379,12 +379,16 @@ module RpmsRpc
     #
     # The body is split with a limit of -1, so a trailing row break is an
     # empty fragment that can be counted and nothing is dropped unseen.
-    # Exactly one trailing empty fragment is the normal terminator and is
-    # dropped. A single final $C(31) fragment — the GLOBAL ARRAY end node —
-    # is dropped too, and so is the one terminator that may follow it. A
-    # $C(31) fragment anywhere else, or more than one trailing empty
-    # fragment, is still dropped, and the reply is marked altered. Interior
-    # empty lines are kept. A well-formed body returns the same lines as before.
+    # The one-terminator allowance is the body's final row break: that one
+    # trailing empty fragment is dropped. When the body has no kept
+    # content, a body of exactly one row break is a single empty line
+    # terminated once: it returns [] and is not altered. Two or more
+    # breaks with nothing else ("\r\r") stay altered. A single final $C(31)
+    # fragment — the GLOBAL ARRAY end node — is dropped too, and so is the
+    # one terminator that may follow it. A $C(31) fragment anywhere else,
+    # or more than one trailing empty fragment after kept content, is still
+    # dropped, and the reply is marked altered. Interior empty lines are
+    # kept. A well-formed body returns the same lines as before.
     def call_rpc(rpc_name, *params)
       body = parse_cia_reply(call_rpc_raw(rpc_name, *params))
       lines, altered = cia_reply_lines(body)
@@ -516,10 +520,9 @@ module RpmsRpc
 
     private
 
-    # See #call_rpc. Trailing empty fragments and a final $C(31) node are
-    # the only drops that leave the reply unaltered. The index passed back
-    # is the last kept line (or 0 when nothing was kept) so Reply.altered?
-    # is true when a drop was not one of those two.
+    # See #call_rpc. The index passed back is the last kept line (or 0
+    # when nothing was kept) so Reply.altered? is true when a drop was
+    # not the body's final row break or a final $C(31) node.
     def cia_reply_lines(body)
       fragments = body.to_s.split(REPLY_ROW_BREAK, -1)
       trailing = 0
@@ -535,7 +538,14 @@ module RpmsRpc
         end
       end
       final_end = !core.empty? && core.last.b == RECORDSET_END
-      bad_drop = trailing > 1 || dropped_end > 1 || (dropped_end == 1 && !final_end)
+      # Every fragment empty means the body kept nothing. The fragment
+      # count is the row breaks plus one: ["", ""] is one empty line
+      # closed by the final row break, and [] is unaltered. More than
+      # one break ("\r\r") stays altered. Kept content still allows only
+      # that one trailing empty fragment.
+      no_kept_content = trailing == fragments.length
+      extra_break = no_kept_content ? fragments.length > 2 : trailing > 1
+      bad_drop = extra_break || dropped_end > 1 || (dropped_end == 1 && !final_end)
       altered = bad_drop ? [ lines.empty? ? 0 : lines.length - 1 ] : []
       [ lines, altered ]
     end
