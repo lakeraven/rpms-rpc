@@ -786,19 +786,34 @@ module RpmsRpc
     end
 
     # ========================================================================
-    # NOTIFICATIONS / ALERTS (BQI*)
+    # NOTIFICATIONS (BEHOXQ, the VueCentric Notifications component)
     # ========================================================================
-    # Field positions are best-effort pending wider trace capture.
-
+    # BEHOXQ ALRLIST -> ALRLIST^BEHOXQ (BEHOXQ.m:9-43 on the 9.0 build, BEH
+    # 1.1 patch 002008): the signed-on user's alerts in the Kernel ALERT file
+    # (#8992), each matched to a handler in #90460.021 that names its patient
+    # (OR: XQAID piece 2, TIU: the note's patient, BEH: the DFN= of its
+    # XQADATA, :24-25). One row per alert, ordered by patient then delivery
+    # (@DATA@(DFN,TOT), :40):
+    #   PRIORITY ^ INFO ONLY ^ PATIENT NAME    (HRN) ^ LOCATION ^ TEXT ^
+    #   DATE DELIVERED ^ SENDER ^ DFN ^ TYPE ^ ALERT ID ^ CAN DELETE ^ EXTRA
+    # The routine's own header (:7-8) names the pieces. An alert with no
+    # matching handler is left out (:23). P1 (a DFN) limits the list to that
+    # patient and to alerts with none (:12, :28). An alert with no patient has
+    # DFN 0 and no name. EXTRA runs to the end of the row and may hold carets
+    # (a BEH alert's XQADATA, "PRI=1^INF=0"), so it is not mapped.
     DataMapper.define(:notifications_inbox) do |m|
-      m.rpc "BQI GET COMM ALERTS SPLASH"
-      m.field 0, :id, :integer
-      m.field 1, :type
-      m.field 2, :patient_dfn, :integer
-      m.field 3, :message
-      m.field 4, :severity
-      m.field 5, :created_at, :fileman_datetime
-      m.field 6, :read_at, :fileman_datetime
+      m.rpc "BEHOXQ ALRLIST"
+      m.field 0, :priority, :integer
+      m.field 1, :info_only, :boolean
+      m.field 2, :patient
+      m.field 3, :location
+      m.field 4, :message
+      m.field 5, :delivered_at, :fileman_datetime
+      m.field 6, :sender
+      m.field 7, :patient_dfn, :integer
+      m.field 8, :type
+      m.field 9, :alert_id
+      m.field 10, :removable, :boolean
     end
 
     # NOTE: immunization refusals file through BGOREF SET (:refusal_set)
