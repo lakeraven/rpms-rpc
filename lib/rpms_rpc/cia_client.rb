@@ -376,9 +376,19 @@ module RpmsRpc
     # BSDX HOSPITAL LOCATION (HOSPLOC^BSDX32): the header and every clinic
     # arrived as one line, and Scheduling.hospital_locations returned the
     # header as its only row.
+    #
+    # The body is split with a limit of -1, so a trailing row break is an
+    # empty fragment that can be counted and nothing is dropped unseen.
+    # Exactly one trailing empty fragment is the normal terminator and is
+    # dropped. A single final $C(31) fragment — the GLOBAL ARRAY end node —
+    # is dropped too, and so is the one terminator that may follow it. A
+    # $C(31) fragment anywhere else, or more than one trailing empty
+    # fragment, is still dropped, and the reply is marked altered. Interior
+    # empty lines are kept. A well-formed body returns the same lines as before.
     def call_rpc(rpc_name, *params)
       body = parse_cia_reply(call_rpc_raw(rpc_name, *params))
-      Reply.from_wire(body.split(REPLY_ROW_BREAK).reject { |line| line == RECORDSET_END }, controls: true)
+      lines, altered = cia_reply_lines(body)
+      Reply.from_wire(lines, controls: true, altered: altered)
     end
 
     REPLY_ROW_BREAK = /\r\n|\r|\n|\x1e/
@@ -505,6 +515,30 @@ module RpmsRpc
     def read_response = synchronize_wire { read_until_raw(EOD) }
 
     private
+
+    # See #call_rpc. Trailing empty fragments and a final $C(31) node are
+    # the only drops that leave the reply unaltered. The index passed back
+    # is the last kept line (or 0 when nothing was kept) so Reply.altered?
+    # is true when a drop was not one of those two.
+    def cia_reply_lines(body)
+      fragments = body.to_s.split(REPLY_ROW_BREAK, -1)
+      trailing = 0
+      trailing += 1 while trailing < fragments.length && fragments[-(trailing + 1)].empty?
+      core = trailing.zero? ? fragments : fragments[0...-trailing]
+      lines = []
+      dropped_end = 0
+      core.each do |fragment|
+        if fragment.b == RECORDSET_END
+          dropped_end += 1
+        else
+          lines << fragment
+        end
+      end
+      final_end = !core.empty? && core.last.b == RECORDSET_END
+      bad_drop = trailing > 1 || dropped_end > 1 || (dropped_end == 1 && !final_end)
+      altered = bad_drop ? [ lines.empty? ? 0 : lines.length - 1 ] : []
+      [ lines, altered ]
+    end
 
     # The served NAMEs in #8994, read with DDR LISTER (LISTC^DDR) by the B
     # index, REGISTRY_PAGE rows a call: "IEN^NAME^INACTIVE" rows, then a

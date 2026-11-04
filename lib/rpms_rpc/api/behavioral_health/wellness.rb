@@ -87,9 +87,13 @@ module RpmsRpc
     # NotImplementedError from a DDR call before the write is SaveError
     # and keeps that exception as its cause. A visit (#9002011) or
     # provider (file 200) DDR reply the client marked altered, or one
-    # with a line outside a word-processing block that is not a "["
-    # marker and not a FILE^IENS^FIELD^VALUE row, is not usable. Before
-    # the write that is SaveError and the AMHG RPC is not sent. On
+    # with a line outside a word-processing block that is not exactly
+    # [Data], [ERROR], [BEGIN_diERRORS] or [END_diERRORS] and not a
+    # FILE^IENS^FIELD^VALUE row, or a second row for a field already
+    # parsed, is not usable. Lines inside [BEGIN_diERRORS] are not stray.
+    # A visit read that carries a field outside VISIT_FIELDS is not
+    # usable either. Before the write that is SaveError and the AMHG
+    # RPC is not sent. On
     # AMHG SAVE SCREENING and AMHG SAVE MEASUREMENTS,
     # Client::RpcNotAvailableError and Client::RpcRefusedError
     # propagate, and the visit unlock still runs.
@@ -100,7 +104,8 @@ module RpmsRpc
     # measurement read-back — including RpcNotAvailableError on the
     # measurement read-back — is SaveError, says the record may have
     # been filed, and keeps that exception as its cause. An altered or
-    # stray post-write visit read is that same unknown outcome.
+    # stray post-write visit read, or one whose fields are not drawn
+    # from VISIT_FIELDS, is that same unknown outcome.
     module Wellness
       extend self
       extend Wire
@@ -122,6 +127,8 @@ module RpmsRpc
       VISIT_FILE = "9002011"
       VISIT_FIELDS =
         ".08;1112;1401;1402;1403;1404;1405;1406;1407;1408;1409;1410;1501;1601;1701;1901;2001"
+      VISIT_FIELD_KEYS = VISIT_FIELDS.split(";").freeze
+      private_constant :VISIT_FIELD_KEYS
       VISIT_FLAGS = "I"
 
       SCREENING_RPC = "AMHG SAVE SCREENING"
@@ -635,7 +642,7 @@ module RpmsRpc
 
       def readable_visit!(rec)
         got = read_visit(rec)
-        refuse!("the visit could not be read") if unreadable?(got)
+        refuse!("the visit could not be read") if unreadable_visit?(got)
         refuse!("the stored patient could not be read") unless patient_present?(got)
         refuse!("the stored signature date could not be read") unless got[:fields].key?("1112")
         got
@@ -657,14 +664,28 @@ module RpmsRpc
 
       # Missing, an error, empty, altered, or a stray line. altered and
       # stray are the extra keys from DdrFileman.gets_entry: a byte the
-      # client replaced, or a line outside a word-processing block that
-      # is not a "[" marker and not a FILE^IENS^FIELD^VALUE row.
+      # client replaced, a line outside a word-processing block that is
+      # not a known marker and not a FILE^IENS^FIELD^VALUE row, or a
+      # second row for a field already parsed. Provider reads use this.
+      # Visit reads use unreadable_visit?, which adds the field-key check.
       def unreadable?(got)
         return true unless got.is_a?(Hash)
         return true if got[:error] || got[:altered] || got[:stray]
         return true unless got[:fields].is_a?(Hash)
 
         got[:fields].empty?
+      end
+
+      # Pre-write and post-write visit reads. unreadable?, or a field
+      # number outside VISIT_FIELDS. A repeated row is already stray.
+      # A missing field stays readable here so the signature check and
+      # the stored-screening checks can name it. Each key is present at
+      # most once because the parse keeps one value per field.
+      def unreadable_visit?(got)
+        return true if unreadable?(got)
+        return true unless got[:fields].is_a?(Hash)
+
+        got[:fields].each_key.any? { |key| !VISIT_FIELD_KEYS.include?(key.to_s) }
       end
 
       def patient_present?(got)
@@ -961,7 +982,7 @@ module RpmsRpc
       # After the write RPC was sent. Anything but a proven success.
       def confirmed_visit!(rec, patient_ien, label)
         got = read_visit_after(rec, label)
-        ambiguous!(rec, label) if unreadable?(got)
+        ambiguous!(rec, label) if unreadable_visit?(got)
         ambiguous!(rec, label) unless patient_present?(got)
         ambiguous!(rec, label) unless got[:fields].key?("1112")
         ambiguous!(rec, label) unless same_filed_text?(stored_patient(got), patient_ien)
