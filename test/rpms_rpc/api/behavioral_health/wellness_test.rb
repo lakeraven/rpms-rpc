@@ -29,6 +29,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
   PRE_EDIT_FIELDS =
     ".08;1112;1401;1402;1403;1404;1405;1406;1407;1408;1409;1410;1501;1601;1701;1901;2001".freeze
   PRE_EDIT_FLAGS = "I"
+  VISIT_FIELD_KEYS = PRE_EDIT_FIELDS.split(";").freeze
 
   PATIENT = "990540"
   OTHER_PATIENT = "990541"
@@ -500,27 +501,108 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
   def test_save_screening_refuses_cia_split_stored_alcohol_comment_with_trailing_cr_without_write
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
-    internal = BASELINE_INTERNAL.merge("1601" => "Alcohol baseline note\r")
+    internal = BASELINE_INTERNAL.merge("2001" => "Screen baseline note\r")
     seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: internal)
     seed_providers_for_screening_updates(screenings)
     seed_visit_unlock(RECORD_IEN)
-    full_cia = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: internal)
-    field_order = internal.keys
-    next_after_1601 = field_order[field_order.index("1601") + 1]
-    after_1601 = full_cia.index("\r#{BH_VISIT_FILE}^#{RECORD_IEN}^#{next_after_1601}^")
-    visit_body = after_1601 ? "#{full_cia[0...after_1601]}\r" : "#{full_cia}\r"
+    visit_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: internal)
     client = CiaSplitVisitGetsClient.new(@mock, RECORD_IEN, visit_body)
     RpmsRpc.configure { |c| c.client = client }
     visit_read = Ddr.gets_entry(
       file: BH_VISIT_FILE, iens: "#{RECORD_IEN},", fields: PRE_EDIT_FIELDS, flags: PRE_EDIT_FLAGS
     )
-    assert visit_read[:altered], "extra trailing row break on the visit DDR reply must set altered on gets_entry"
+    assert visit_read[:altered], "extra trailing row break on the last visit field row must set altered on gets_entry"
 
     err = assert_raises(save_error_class) do
       wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
     end
-    assert_empty screening_calls, "AMHG SAVE SCREENING must not run when trailing row breaks truncate stored 1601"
+    assert_empty screening_calls,
+                 "AMHG SAVE SCREENING must not run when trailing row breaks truncate stored 2001"
     assert_match(/the visit could not be read/i, err.message)
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_refuses_cia_split_stored_1601_with_trailing_cr_yields_stray_line_without_write
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    internal = BASELINE_INTERNAL.merge("1601" => "Alcohol baseline note\r")
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: internal)
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    visit_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: internal)
+    client = CiaSplitVisitGetsClient.new(@mock, RECORD_IEN, visit_body)
+    RpmsRpc.configure { |c| c.client = client }
+    visit_read = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{RECORD_IEN},", fields: PRE_EDIT_FIELDS, flags: PRE_EDIT_FLAGS
+    )
+    assert visit_read[:stray], "stored trailing CR on middle field 1601 must yield a stray interior line on gets_entry"
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_empty screening_calls,
+                 "AMHG SAVE SCREENING must not run when stored 1601 trailing CR yields a stray line"
+    assert_match(/the visit could not be read/i, err.message)
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_refuses_cia_split_stored_1601_with_embedded_data_marker_without_write
+    assert_cia_split_depression_only_refuses_without_amhg_write(
+      internal: BASELINE_INTERNAL.merge("1601" => "Alcohol baseline note\r[Data]")
+    )
+  end
+
+  def test_save_screening_refuses_cia_split_stored_1601_with_embedded_end_dierrors_marker_without_write
+    assert_cia_split_depression_only_refuses_without_amhg_write(
+      internal: BASELINE_INTERNAL.merge("1601" => "Alcohol baseline note\r[END_diERRORS]")
+    )
+  end
+
+  def test_save_screening_refuses_cia_split_stored_1601_with_embedded_dierrors_block_without_write
+    assert_cia_split_depression_only_refuses_without_amhg_write(
+      internal: BASELINE_INTERNAL.merge(
+        "1601" => "Alcohol baseline note\r[BEGIN_diERRORS]\rany hidden text\r[END_diERRORS]"
+      )
+    )
+  end
+
+  def test_save_screening_refuses_cia_split_stored_2001_with_cr_then_recordset_end_without_write
+    assert_cia_split_depression_only_refuses_without_amhg_write(
+      internal: BASELINE_INTERNAL.merge("2001" => "Screen baseline note\r\x1f")
+    )
+  end
+
+  def test_save_screening_refuses_cia_split_stored_1601_with_record_separator_then_data_marker_without_write
+    assert_cia_split_depression_only_refuses_without_amhg_write(
+      internal: BASELINE_INTERNAL.merge("1601" => "Alcohol baseline note\x1e[Data]")
+    )
+  end
+
+  def test_save_screening_refuses_cia_split_stored_1601_with_crlf_then_data_marker_without_write
+    assert_cia_split_depression_only_refuses_without_amhg_write(
+      internal: BASELINE_INTERNAL.merge("1601" => "Alcohol baseline note\r\n[Data]")
+    )
+  end
+
+  def test_save_screening_refuses_cia_split_pre_read_when_visit_ddr_body_omits_a_visit_field_row
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL)
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    visit_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL, omit_fields: [ "1501" ])
+    client = CiaSplitVisitGetsClient.new(@mock, RECORD_IEN, visit_body)
+    RpmsRpc.configure { |c| c.client = client }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_empty screening_calls,
+                 "AMHG SAVE SCREENING must not run when the visit read is missing a VISIT_FIELDS row"
+    assert_match(/the visit could not be read/i, err.message)
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
   end
@@ -560,6 +642,57 @@ class BehavioralHealthWellnessTest < Minitest::Test
     @mock.seed_text(:wellness_spec_save_screening, wire, screening_success_body(RECORD_IEN))
     pre_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL)
     post_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: tab_post)
+    client = CiaSplitVisitGetsSequenceClient.new(@mock, RECORD_IEN, pre_body, [ post_body ])
+    RpmsRpc.configure { |c| c.client = client }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_match(/may have been filed/i, err.message)
+    refute_nil screening_call
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_raises_outcome_unknown_when_post_visit_cia_split_carries_field_outside_visit_fields
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    post = BASELINE_INTERNAL.dup
+    apply_screening_updates_to_internal!(post, screenings)
+    seed_visit_lock(RECORD_IEN)
+    seed_baseline_stored_screening_providers
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    @mock.seed_text(:wellness_spec_save_screening, wire, screening_success_body(RECORD_IEN))
+    pre_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL)
+    post_body = pre_edit_body_cia(
+      RECORD_IEN, PATIENT, internal: post,
+      extra_rows: [ "#{BH_VISIT_FILE}^#{RECORD_IEN}^9999^EXTRA^EXTRA" ]
+    )
+    client = CiaSplitVisitGetsSequenceClient.new(@mock, RECORD_IEN, pre_body, [ post_body ])
+    RpmsRpc.configure { |c| c.client = client }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_match(/may have been filed/i, err.message)
+    refute_nil screening_call
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_raises_outcome_unknown_when_post_visit_cia_split_omits_a_visit_field_row
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    post = BASELINE_INTERNAL.dup
+    apply_screening_updates_to_internal!(post, screenings)
+    seed_visit_lock(RECORD_IEN)
+    seed_baseline_stored_screening_providers
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    @mock.seed_text(:wellness_spec_save_screening, wire, screening_success_body(RECORD_IEN))
+    pre_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL)
+    post_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: post, omit_fields: [ "1501" ])
     client = CiaSplitVisitGetsSequenceClient.new(@mock, RECORD_IEN, pre_body, [ post_body ])
     RpmsRpc.configure { |c| c.client = client }
 
@@ -2408,8 +2541,40 @@ class BehavioralHealthWellnessTest < Minitest::Test
     "[Data]\n#{lines.join("\n")}"
   end
 
-  def pre_edit_body_cia(ien, patient, internal:, signed: false, include_1112: true)
-    pre_edit_body(ien, patient, internal: internal, signed: signed, include_1112: include_1112).tr("\n", "\r")
+  def pre_edit_body_cia(ien, patient, internal:, signed: false, include_1112: true, omit_fields: [], extra_rows: [])
+    fields = VISIT_FIELD_KEYS
+    fields = fields.reject { |f| f == "1112" } unless include_1112
+    fields = fields.reject { |f| omit_fields.include?(f) }
+    rows = fields.map do |field|
+      value = case field
+              when ".08" then internal.fetch(".08", patient)
+              when "1112" then signed ? "3251031.12" : ""
+              else internal.fetch(field, "")
+              end
+      "#{BH_VISIT_FILE}^#{ien}^#{field}^#{value}\r"
+    end
+    extra_rows.each { |row| rows << "#{row}\r" }
+    "[Data]\r#{rows.join}"
+  end
+
+  def assert_cia_split_depression_only_refuses_without_amhg_write(internal:)
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: internal)
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    visit_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: internal)
+    client = CiaSplitVisitGetsClient.new(@mock, RECORD_IEN, visit_body)
+    RpmsRpc.configure { |c| c.client = client }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_empty screening_calls,
+                 "AMHG SAVE SCREENING must not run when a stored visit comment splits the CIA visit read"
+    assert_match(/the visit could not be read/i, err.message)
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
   end
 
   def screening_result_external(field, value)

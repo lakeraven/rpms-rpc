@@ -422,15 +422,37 @@ class DdrFilemanTest < Minitest::Test
     assert_equal "Second comment", result[:fields]["1601"][:internal]
   end
 
-  def test_gets_entry_begin_dierrors_lines_do_not_set_stray
-    key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01").to_s
+  def test_gets_entry_second_data_marker_line_sets_stray
+    key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01;.02", flags: "IE").to_s
     @mock.seed(:ddr_gets_entry_data, key,
-      "[Data]\n9000001^42^.01^42^NAME\n[BEGIN_diERRORS]\n701^1^9000001^42,^.01^2\n[END_diERRORS]")
+      "[Data]\n9000001^42^.01^42^NAME\n[Data]\n9000001^42^.02^F^FEMALE")
 
-    result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01")
+    result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01;.02", flags: "IE")
 
-    refute result[:stray]
-    assert_equal "42", result[:fields][".01"][:internal]
+    assert result[:stray]
+    assert_equal "F", result[:fields][".02"][:internal]
+  end
+
+  def test_gets_entry_second_word_processing_row_for_same_field_sets_stray
+    key = Ddr.gets_entry_param(file: "9002011", iens: "8840,", fields: "1601", flags: "I").to_s
+    @mock.seed(:ddr_gets_entry_data, key,
+      "[Data]\n9002011^8840^1601^[WORD PROCESSING]\nline one\n$$END$$\n" \
+      "9002011^8840^1601^[WORD PROCESSING]\nline two\n$$END$$")
+
+    result = Ddr.gets_entry(file: "9002011", iens: "8840,", fields: "1601", flags: "I")
+
+    assert result[:stray]
+  end
+
+  def test_gets_entry_begin_dierrors_marker_sets_stray_and_field_rows_after_it_still_parse
+    key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01;.02", flags: "IE").to_s
+    @mock.seed(:ddr_gets_entry_data, key,
+      "[Data]\n9000001^42^.01^42^NAME\n[BEGIN_diERRORS]\n9000001^42^.02^F^FEMALE\n[END_diERRORS]")
+
+    result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01;.02", flags: "IE")
+
+    assert result[:stray]
+    assert_equal "F", result[:fields][".02"][:internal]
   end
 
   def test_gets_entry_well_formed_reply_has_no_stray_or_altered_keys

@@ -137,6 +137,32 @@ class RpmsRpc::CiaClientTest < Minitest::Test
       "a lone \\x1f row dropped outside the final GLOBAL ARRAY end marker must mark the reply altered"
   end
 
+  def test_call_rpc_final_recordset_end_byte_is_clean_only_without_row_breaks_in_body
+    body = "I00020HOSPITAL_LOCATION_ID^T00040HOSPITAL_LOCATION\x1e3^DEMO IHS CLINIC\x1e\x1f"
+    c = connected_client([ "1\x00#{body}" + EOD ])
+    reply = c.call_rpc("BSDX HOSPITAL LOCATION")
+
+    refute RpmsRpc::Reply.altered?(reply),
+      "a final \\x1f node is the GLOBAL ARRAY end only when the body has no CR or LF"
+  end
+
+  def test_call_rpc_marks_altered_when_cr_terminated_body_ends_with_lone_recordset_end_fragment
+    body = "[Data]\r9002011^1^2001^note\r\x1f\r"
+    c = connected_client([ "1\x00#{body}" + EOD ])
+    reply = c.call_rpc("DDR GETS ENTRY DATA")
+
+    assert RpmsRpc::Reply.altered?(reply),
+      "a lone \\x1f fragment before the final row break on a CR-terminated body must mark the reply altered"
+  end
+
+  def test_call_rpc_marks_altered_when_body_is_two_row_breaks_without_content
+    c = connected_client([ "1\x00\r\r" + EOD ])
+    reply = c.call_rpc("DDR GETS ENTRY DATA")
+
+    assert RpmsRpc::Reply.altered?(reply),
+      "a body of exactly \\r\\r (two row breaks, no content) must mark the reply altered"
+  end
+
   def test_call_rpc_marks_altered_when_trailing_row_break_drops_more_than_one_empty_fragment
     body = "[Data]\r\n9000001^42^.01^SYNTH,ROW^SYNTH,ROW\r\r\n"
     c = connected_client([ "1\x00#{body}" + EOD ])
