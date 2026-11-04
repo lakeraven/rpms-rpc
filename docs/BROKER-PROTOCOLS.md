@@ -241,18 +241,18 @@ then the value
 
 ### Connect
 
-Action `C` with three NAME/SUBSCRIPT/VALUE triples (`cia_client.rb:50-69`):
+Action `C` with three NAME/SUBSCRIPT/VALUE triples (`CiaClient#connect`):
 
 ```
-{CIA} \x7f 1 C · \x03VER \x00 \x032.0 · \x02LP \x00 \x049100 · \x03UCI \x00 \x0cVEH,EXTERNAL · \x7f
+{CIA} \x7f 1 C · \x03VER \x00 \x032.0 · \x02LP \x00 \x049100 · \x03UCI \x00 \x00 · \x7f
 ```
 
 - `VER`: the client's protocol version; rpms-rpc sends `2.0`.
 - `LP`: the port the client connected to.
 - `UCI`: the namespace to run in.
-  **On IRIS this must name the namespace RPMS is installed in** (`RPMS` on the builds measured); with the default `VEH,EXTERNAL` an IRIS broker closes the socket on the connect, and the only symptom is "connection closed by server" (rpms-rpc#572, open).
-  A YottaDB broker accepts the default.
-  rpms-rpc reads it from `RPMS_UCI` only, for now.
+  rpms-rpc sends it empty, and `ACTC^CIANBACT` then runs the session in the listener's own namespace (`UCI=$G(CIA("UCI"),Y)`, an empty value becoming `Y` from `UCI^%ZOSV`, `CIANBACT.m:9-11`); that works on both engines with no setting.
+  A named UCI is checked (`UCICHECK^%ZOSV`, `CIANBACT.m:12`) and switched to, and one the engine does not know ends the connect: on IRIS the broker closes the socket (rpms-rpc#572, where the old default `VEH,EXTERNAL` met a broker in namespace `RPMS`).
+  Set `RPMS_UCI` only to run in a namespace other than the broker's own; when the broker closes the connect, the error names the UCI sent.
 
 `ACTC^CIANBACT` (`CIANBACT.m:5-23`) answers `callback flag^authentication method^server version^case sensitive^context cached`.
 rpms-rpc requires only that a reply comes back.
@@ -487,7 +487,7 @@ The same FOIA routines run on both engines; these are the differences a client s
 
 | | IRIS | YottaDB |
 |---|---|---|
-| CIA `UCI` on connect | must name the RPMS namespace, or the broker closes the socket (rpms-rpc#572) | the default is accepted |
+| CIA `UCI` on connect | empty (the default; from the source, not yet run live on IRIS) or the RPMS namespace; another name closes the socket (rpms-rpc#572) | empty (the default); the connect takes any name, so a wrong one fails at sign-on instead |
 | CIA reply line ends | split on CR LF, CR or LF | bare CR (`cia_client.rb:853-857`) |
 | Arguments to one M call | CIA's own cap of 40 (`CIANBACT.m:53`) | the engine's cap of 32 actual arguments also applies, so an RPC whose entry point takes more fails there |
 
