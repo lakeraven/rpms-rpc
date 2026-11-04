@@ -18,6 +18,13 @@
 #
 # The brief is passed as the agent's prompt. This script never prints
 # environment values; the agent reads CURSOR_API_KEY itself.
+#
+# Every seat runs SANDBOXED (--sandbox enabled), the same posture as
+# bin/agent-timed. --trust only skips the workspace prompt; it does not lift the
+# sandbox, and -f (force) is not passed. A seat that needs the host (a test
+# the sandbox blocks, such as Socket.ip_address_list) reports it; the worker
+# re-runs that check itself. Do not add an unsandboxed mode here: this script
+# sits behind an allow rule, so whatever it runs, every cloud session can run.
 set -euo pipefail
 
 agent="$HOME/.local/bin/agent"
@@ -31,7 +38,7 @@ case "$seat" in
   grok)       model=grok-4.7-high;  secs=2400 ;;
   grok-xhigh) model=grok-4.7-xhigh; secs=2400 ;;
   glm)        model=glm-5.2-high;   secs=1200 ;;
-  glm-probe)  exec timeout 120 "$agent" -p -f --model glm-5.2-high 'Reply with exactly: PROBE_OK' ;;
+  glm-probe)  exec timeout 120 "$agent" -p --sandbox enabled --model glm-5.2-high 'Reply with exactly: PROBE_OK' ;;
   *)          usage ;;
 esac
 
@@ -39,4 +46,4 @@ brief="${2:-}"
 [ -n "$brief" ] || usage
 [ -f "$brief" ] && [ -s "$brief" ] || { echo "bin/seat: brief file is missing or empty: $brief" >&2; exit 66; }
 
-exec timeout "$secs" "$agent" -p -f --trust --model "$model" "$(cat -- "$brief")"
+exec timeout "$secs" "$agent" -p --trust --sandbox enabled --model "$model" "$(cat -- "$brief")"
