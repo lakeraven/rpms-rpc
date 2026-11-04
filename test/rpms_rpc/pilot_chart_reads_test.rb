@@ -14,6 +14,9 @@ require_relative "wire_contract_test"
 
 # Issue #224 (chart reads slice): pilot-ready wire evidence on the pinned build.
 #
+# Grading (expected_checklist_status): live-capture with every readiness field still
+# unproven is not-proven, not partial; partial means some but not all fields proven.
+#
 # These tests are the SPEC — they fail until the implementer adds catalog entries,
 # re-captures fixtures from live dispatch on synthetic seed patients (DFN 2 for
 # chart data on bcer-9.0-20261012-e7923a4-ydb), and writes docs/pilot_rpc_readiness.md.
@@ -42,7 +45,8 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     order_id type name status stop_date instructions comments
   ].freeze
 
-  # Mapped booleans (e.g. :inactive_icd on :problem_list) need both true and false in mapped rows.
+  # Mapped booleans (e.g. :inactive_icd on :problem_list) need a mapped true row and a mapped
+  # false row whose raw wire carries the field piece empty (truncated rows must not prove false).
   BOOLEAN_MAPPED_ATTRIBUTES = { problem_list: [ :inactive_icd ] }.freeze
 
   # Fake client: ORWPS ACTIVE lines exactly as CiaClient#call_rpc delivers them (no seq prefix).
@@ -201,9 +205,28 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     end
 
     def boolean_values_observed_in_mapped_capture?(mapping, fixture, attribute)
-      rows = mapped_rows_for_fixture(mapping, fixture)
-      rows.any? { |row| row[attribute] == true } &&
-        rows.any? { |row| row[attribute] == false }
+      field = mapping.fields.find { |candidate| candidate.attribute == attribute }
+      return false unless field
+
+      true_observed = false
+      false_observed = false
+
+      fixture.captured_data_rows.each do |raw_row|
+        mapped = mapping.parse_many([ raw_row ]).first
+        next if mapped.nil?
+
+        case mapped[attribute]
+        when true
+          true_observed = true
+        when false
+          pieces = raw_row.to_s.split("^", -1)
+          next unless pieces.length > field.position
+
+          false_observed = true if pieces[field.position].to_s.strip.empty?
+        end
+      end
+
+      true_observed && false_observed
     end
 
     def medication_active_value_present?(value)
@@ -288,12 +311,16 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
 
     def expected_checklist_status(slice, fixture)
       unproven = unproven_attributes(fixture)
+      mapping = RpmsRpc::DataMapper[fixture.mapping_name]
+      all_readiness = readiness_attribute_names(mapping, fixture)
       if slice[:rpc] == "ORQQPL LIST" && orqqpl_inactive_icd_mapping_leaks?
         "fails-live"
       elsif fixture.source == "no-data" || fixture.source == "routine-cite"
         "not-proven"
       elsif unproven.empty?
         "pilot-ready"
+      elsif unproven.sort == all_readiness.sort
+        "not-proven"
       else
         "partial"
       end
@@ -698,6 +725,39 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
                  "surrounding whitespace on code-shaped piece 4 must strip to icd_code"
   end
 
+  def test_problem_list_inactive_icd_boolean_readiness_requires_wire_piece_for_false
+    inactive_row =
+      "3^Diabetes^A^Invalid Code (not found in the ICD-9-CM system)^3230410^3261012^^^#^^^^#"
+    truncated_row = "2^HTN"
+    twelve_piece_row = "2^HTN^A^I10^3200101^3250301^^^^^^"
+    active_thirteen_piece_row =
+      "123^Hypertension^A^I10^3200101^3250301^NSC^SPEXP^Y^HIGH^^^"
+
+    stub_truncated = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
+      :problem_list, "live-capture", [ inactive_row, truncated_row ], nil
+    )
+    assert_includes self.class.unproven_attributes(stub_truncated), :inactive_icd,
+                    "truncated row must not prove inactive_icd false"
+
+    stub_twelve = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
+      :problem_list, "live-capture", [ inactive_row, twelve_piece_row ], nil
+    )
+    assert_includes self.class.unproven_attributes(stub_twelve), :inactive_icd,
+                    "row missing piece 13 must not prove inactive_icd false"
+
+    stub_proven = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
+      :problem_list, "live-capture", [ inactive_row, active_thirteen_piece_row ], nil
+    )
+    refute_includes self.class.unproven_attributes(stub_proven), :inactive_icd,
+                    "inactive true plus active row with empty piece 13 proves both boolean values"
+
+    stub_only_active = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
+      :problem_list, "live-capture", [ active_thirteen_piece_row ], nil
+    )
+    assert_includes self.class.unproven_attributes(stub_only_active), :inactive_icd,
+                    "active-only rows must not prove inactive_icd without a true observation"
+  end
+
   def test_orqqpl_list_committed_capture_icd_code_and_transcribed_unproven_after_mapping
     slice = CHART_READ_SLICE.find { |s| s[:rpc] == "ORQQPL LIST" }
     fixture = load_slice_fixture(slice)
@@ -739,11 +799,11 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       [ "A" ] => { unproven: [ :ad_flag ], status: "partial" },
       [ "D" ] => { unproven: [ :allergy_flag ], status: "partial" },
       [ "AD" ] => { unproven: [], status: "pilot-ready" },
-      [ "CW" ] => { unproven: [ :ad_flag, :allergy_flag ], status: "partial" },
-      [ "-1^Invalid DFN" ] => { unproven: [ :ad_flag, :allergy_flag ], status: "partial" },
-      [ "Application context denied" ] => { unproven: [ :ad_flag, :allergy_flag ], status: "partial" },
+      [ "CW" ] => { unproven: [ :ad_flag, :allergy_flag ], status: "not-proven" },
+      [ "-1^Invalid DFN" ] => { unproven: [ :ad_flag, :allergy_flag ], status: "not-proven" },
+      [ "Application context denied" ] => { unproven: [ :ad_flag, :allergy_flag ], status: "not-proven" },
       [ "%YDB-E-LVUNDEF, Undefined local variable: DFN" ] =>
-        { unproven: [ :ad_flag, :allergy_flag ], status: "partial" }
+        { unproven: [ :ad_flag, :allergy_flag ], status: "not-proven" }
     }.each do |rows, expected|
       stub = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
         :patient_cwad, "live-capture", rows, nil
@@ -759,12 +819,29 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
 
   # ORWPS ACTIVE readiness uses Medication.active_for_patient, not :active_text mapping alone.
   def test_orwps_active_readiness_non_empty_unparseable_blob_proves_nothing
+    slice = CHART_READ_SLICE.find { |s| s[:mapping] == :medication_active }
     stub = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
       :medication_active, "live-capture", [ "garbage without tilde headers" ], nil
     )
     unproven = self.class.unproven_attributes(stub)
     assert_equal self.class::MEDICATION_ACTIVE_READINESS_KEYS.sort, unproven.sort,
                  "unparseable text must not prove medication fields"
+    assert_equal "not-proven", self.class.expected_checklist_status(slice, stub),
+                 "live capture that proves zero medication fields grades not-proven"
+  end
+
+  # Live-capture error text that maps to no vitals fields — every readiness key unproven, not partial.
+  def test_orqqvi_vitals_live_capture_error_grades_not_proven
+    slice = CHART_READ_SLICE.find { |s| s[:rpc] == "ORQQVI VITALS" }
+    stub = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
+      :vitals, "live-capture", [ "Application context denied" ], nil
+    )
+    mapping = RpmsRpc::DataMapper[:vitals]
+    expected_names = self.class.readiness_attribute_names(mapping, stub)
+    unproven = self.class.unproven_attributes(stub)
+    assert_equal expected_names.sort, unproven.sort,
+                 "error reply must leave every vitals readiness field unproven"
+    assert_equal "not-proven", self.class.expected_checklist_status(slice, stub)
   end
 
   # Intent: capture-backed slice fixtures pass the same mapping↔wire checks as wire_contract_test.
