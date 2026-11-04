@@ -1848,3 +1848,5 @@ module RpmsRpc
     end
   end
 end
+
+require_relative "registration_edits"
