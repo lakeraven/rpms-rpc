@@ -86,13 +86,17 @@ module RpmsRpc
     # SaveError subclasses BehavioralHealth::SaveError. StandardError or
     # NotImplementedError from a DDR call before the write is SaveError
     # and keeps that exception as its cause. A visit (#9002011) or
-    # provider (file 200) DDR reply the client marked altered, or one
-    # with a line outside a word-processing block that is not exactly
-    # [Data], [ERROR], [BEGIN_diERRORS] or [END_diERRORS] and not a
+    # provider (file 200) DDR reply the client marked altered is not
+    # usable. DDR GETS ENTRY DATA emits only [Data] and [ERROR]. [Data]
+    # is a marker only as the first line of the reply; any later [Data]
+    # is stray. [ERROR] stays a marker. Outside a word-processing block,
+    # any other line that starts with "[" is stray and is skipped, and
+    # the lines after it are parsed. A line that is not a
     # FILE^IENS^FIELD^VALUE row, or a second row for a field already
-    # parsed, is not usable. Lines inside [BEGIN_diERRORS] are not stray.
-    # A visit read that carries a field outside VISIT_FIELDS is not
-    # usable either. Before the write that is SaveError and the AMHG
+    # parsed, is stray. A visit read is usable only when its parsed
+    # field keys are exactly VISIT_FIELDS: every field present, and no
+    # other. A missing row is not usable. Before the write that is
+    # SaveError ("the visit could not be read") and the AMHG
     # RPC is not sent. On
     # AMHG SAVE SCREENING and AMHG SAVE MEASUREMENTS,
     # Client::RpcNotAvailableError and Client::RpcRefusedError
@@ -104,8 +108,8 @@ module RpmsRpc
     # measurement read-back — including RpcNotAvailableError on the
     # measurement read-back — is SaveError, says the record may have
     # been filed, and keeps that exception as its cause. An altered or
-    # stray post-write visit read, or one whose fields are not drawn
-    # from VISIT_FIELDS, is that same unknown outcome.
+    # stray post-write visit read, or one whose parsed field keys are
+    # not exactly VISIT_FIELDS, is that same unknown outcome.
     module Wellness
       extend self
       extend Wire
@@ -664,10 +668,13 @@ module RpmsRpc
 
       # Missing, an error, empty, altered, or a stray line. altered and
       # stray are the extra keys from DdrFileman.gets_entry: a byte the
-      # client replaced, a line outside a word-processing block that is
-      # not a known marker and not a FILE^IENS^FIELD^VALUE row, or a
-      # second row for a field already parsed. Provider reads use this.
-      # Visit reads use unreadable_visit?, which adds the field-key check.
+      # client replaced, or a line outside a word-processing block that
+      # is not a FILE^IENS^FIELD^VALUE row. [Data] is a marker only as
+      # the first line. [ERROR] stays a marker. Any other line that
+      # starts with "[" is stray. A second row for a field already
+      # parsed is stray. Provider reads use this. Visit reads use
+      # unreadable_visit?, which requires the keys to be exactly
+      # VISIT_FIELDS.
       def unreadable?(got)
         return true unless got.is_a?(Hash)
         return true if got[:error] || got[:altered] || got[:stray]
@@ -676,16 +683,22 @@ module RpmsRpc
         got[:fields].empty?
       end
 
-      # Pre-write and post-write visit reads. unreadable?, or a field
-      # number outside VISIT_FIELDS. A repeated row is already stray.
-      # A missing field stays readable here so the signature check and
-      # the stored-screening checks can name it. Each key is present at
-      # most once because the parse keeps one value per field.
+      # Pre-write and post-write visit reads. unreadable?, or parsed
+      # field keys that are not exactly VISIT_FIELDS. Every field in
+      # that list is present and no other field number is present. A
+      # repeated row is already stray. A missing row is unreadable:
+      # before the write the visit could not be read and nothing is
+      # sent; after the write confirmed_visit! reports an unknown
+      # outcome. Each key is present at most once because the parse
+      # keeps one value per field.
       def unreadable_visit?(got)
         return true if unreadable?(got)
         return true unless got[:fields].is_a?(Hash)
 
-        got[:fields].each_key.any? { |key| !VISIT_FIELD_KEYS.include?(key.to_s) }
+        keys = got[:fields].each_key.map(&:to_s)
+        return true unless keys.size == VISIT_FIELD_KEYS.size
+
+        VISIT_FIELD_KEYS.any? { |field| !keys.include?(field) }
       end
 
       def patient_present?(got)

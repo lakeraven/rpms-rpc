@@ -144,13 +144,14 @@ module RpmsRpc
 
     # -- DDR GETS ENTRY DATA -------------------------------------------------
 
-    GETS_ENTRY_MARKERS = [ "[Data]", "[ERROR]", "[BEGIN_diERRORS]", "[END_diERRORS]" ].freeze
+    GETS_ENTRY_MARKERS = [ "[Data]", "[ERROR]" ].freeze
     private_constant :GETS_ENTRY_MARKERS
 
     # Read field values via GETS^DIQ. Default (no OPTIONS) reply format:
     # "[Data]" then "FILE^IEN^FIELD^INTERNAL^EXTERNAL" rows (word-processing
     # fields become "...^[WORD PROCESSING]" + text + "$$END$$"), "[ERROR]"
     # marker when DDRERR is set (GETSC^DDR2 + tags 1/2: DDR2.m:22-43,61).
+    # GETSC^DDR2 emits only those two markers.
     #
     # Returns { fields: { "FIELD#" => {internal:, external:} }, error: bool,
     # malformed: bool } or nil (no response). Word-processing fields yield
@@ -166,15 +167,16 @@ module RpmsRpc
     # altered: true is added when RpmsRpc::Reply.altered? of the raw reply
     # is true, read before the lines are split, so a client that replaced
     # a control character stays visible after that split drops the flag.
-    # A plain String or Array is not altered. Outside a word-processing
-    # block, stray: true is added when a "[" line is not exactly [Data],
-    # [ERROR], [BEGIN_diERRORS] or [END_diERRORS], when a line has fewer
-    # than four caret pieces, or when a second row arrives for a field
-    # already parsed. That line is still skipped, except the later field
-    # row replaces the stored value. Lines between [BEGIN_diERRORS] and
-    # [END_diERRORS] are not stray and are not field rows. :stray and
-    # :altered are omitted when false, so a well-formed reply keeps the
-    # previous hash. fields, error, and malformed are unchanged either way.
+    # A plain String or Array is not altered. "[Data]" is a marker only as
+    # the first line of the reply; any later "[Data]" sets stray. "[ERROR]"
+    # stays a marker. Outside a word-processing block, any other line that
+    # starts with "[" sets stray and is skipped; lines after it are parsed
+    # normally. A line with fewer than four caret pieces sets stray and is
+    # skipped. A second row for a field already parsed, plain or
+    # word-processing, sets stray, and the later row replaces the stored
+    # value. :stray and :altered are omitted when false, so a well-formed
+    # reply keeps the previous hash. fields, error, and malformed are
+    # unchanged either way.
     def gets_entry(file:, iens:, fields:, flags: "")
       raw = call(:ddr_gets_entry_data,
         gets_entry_param(file: file, iens: iens, fields: fields, flags: flags))
@@ -185,8 +187,7 @@ module RpmsRpc
       result = {}
       wp_field = nil
       stray = false
-      in_errors = false
-      reply.each do |line|
+      reply.each_with_index do |line, index|
         if wp_field
           if line == "$$END$$"
             wp_field = nil
@@ -195,13 +196,9 @@ module RpmsRpc
           end
           next
         end
-        if in_errors
-          in_errors = false if line == "[END_diERRORS]"
-          next
-        end
         if line.start_with?("[")
-          in_errors = true if line == "[BEGIN_diERRORS]"
-          stray = true unless GETS_ENTRY_MARKERS.include?(line)
+          # [Data] counts only on the first line. [ERROR] counts anywhere.
+          stray = true unless GETS_ENTRY_MARKERS.include?(line) && (line != "[Data]" || index.zero?)
           next
         end
 
