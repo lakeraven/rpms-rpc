@@ -46,4 +46,28 @@ brief="${2:-}"
 [ -n "$brief" ] || usage
 [ -f "$brief" ] && [ -s "$brief" ] || { echo "bin/seat: brief file is missing or empty: $brief" >&2; exit 66; }
 
-exec timeout "$secs" "$agent" -p --trust --sandbox enabled --model "$model" "$(cat -- "$brief")"
+# The brief is sent to a remote model API, so it must be a file written for the purpose, not
+# whatever file a caller names. It must be a regular file (not a symlink), inside the working
+# directory or the temp directory, with no hidden path component (.git, .env, .ssh ...), and
+# small. Anything else is refused before a byte of it is read.
+brief_refused() { echo "bin/seat: brief not allowed: $1 ($brief)" >&2; exit 65; }
+[ ! -L "$brief" ] || brief_refused "a symlink"
+dir="$(cd -- "$(dirname -- "$brief")" 2>/dev/null && pwd -P)" || brief_refused "no such directory"
+resolved="$dir/$(basename -- "$brief")"
+work="$(pwd -P)"
+tmp="$(cd -- "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P)" || tmp=/tmp
+tmp2="$(cd -- /tmp 2>/dev/null && pwd -P)" || tmp2=/tmp
+case "$resolved" in
+  "$work"/*) rel="${resolved#"$work"/}" ;;
+  "$tmp"/*)  rel="${resolved#"$tmp"/}" ;;
+  "$tmp2"/*) rel="${resolved#"$tmp2"/}" ;;
+  *)         brief_refused "outside the working directory and the temp directory" ;;
+esac
+case "/$rel" in */.*) brief_refused "a hidden path component" ;; esac
+[ "$(wc -c < "$resolved")" -le 262144 ] || brief_refused "larger than 256 KiB"
+
+# The prompt starts with a fixed line so a brief that begins with "-" can never be read as an
+# option (a brief of "--sandbox=..." must stay prompt text).
+prompt="$(printf 'Brief (the whole task follows):\n\n'; cat -- "$resolved")"
+
+exec timeout "$secs" "$agent" -p --trust --sandbox enabled --model "$model" "$prompt"
