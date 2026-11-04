@@ -1033,7 +1033,8 @@ class BehavioralHealthWellnessTest < Minitest::Test
     err = assert_raises(save_error_class) do
       wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
     end
-    assert_match(/signature date could not be read/i, err.message)
+    # A missing row is an unreadable visit (rpms-rpc#540).
+    assert_match(/the visit could not be read/i, err.message)
     assert_empty screening_calls
   end
 
@@ -1158,7 +1159,8 @@ class BehavioralHealthWellnessTest < Minitest::Test
         measurements: [ { type: "PHQ9", value: 14, provider: PROVIDER } ]
       )
     end
-    assert_match(/signature date could not be read/i, err.message)
+    # A missing row is an unreadable visit (rpms-rpc#540).
+    assert_match(/the visit could not be read/i, err.message)
     assert_empty measurements_calls
   end
 
@@ -1268,7 +1270,8 @@ class BehavioralHealthWellnessTest < Minitest::Test
     err = assert_raises(save_error_class) do
       wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
     end
-    assert_match(/stored screening cannot be resent/i, err.message)
+    # A missing row is an unreadable visit (rpms-rpc#540).
+    assert_match(/the visit could not be read/i, err.message)
     assert_empty screening_calls
   end
 
@@ -1297,7 +1300,8 @@ class BehavioralHealthWellnessTest < Minitest::Test
     err = assert_raises(save_error_class) do
       wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
     end
-    assert_match(/stored screening cannot be resent/i, err.message)
+    # A missing row is an unreadable visit (rpms-rpc#540).
+    assert_match(/the visit could not be read/i, err.message)
     assert_empty screening_calls
   end
 
@@ -1312,7 +1316,8 @@ class BehavioralHealthWellnessTest < Minitest::Test
     err = assert_raises(save_error_class) do
       wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
     end
-    assert_match(/stored screening cannot be resent/i, err.message)
+    # A missing row is an unreadable visit (rpms-rpc#540).
+    assert_match(/the visit could not be read/i, err.message)
     assert_empty screening_calls
   end
 
@@ -2547,10 +2552,10 @@ class BehavioralHealthWellnessTest < Minitest::Test
     fields = fields.reject { |f| omit_fields.include?(f) }
     rows = fields.map do |field|
       value = case field
-              when ".08" then internal.fetch(".08", patient)
-              when "1112" then signed ? "3251031.12" : ""
-              else internal.fetch(field, "")
-              end
+      when ".08" then internal.fetch(".08", patient)
+      when "1112" then signed ? "3251031.12" : ""
+      else internal.fetch(field, "")
+      end
       "#{BH_VISIT_FILE}^#{ien}^#{field}^#{value}\r"
     end
     extra_rows.each { |row| rows << "#{row}\r" }
