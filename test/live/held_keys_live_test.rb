@@ -5,7 +5,7 @@ require "rpms_rpc/security_keys"
 require "rpms_rpc/api/authentication"
 
 # Authentication.held_keys(names) reports which named security keys the
-# signed-on user holds, one ORWU NPHASKEY per name under OR CPRS GUI CHART
+# signed-on user holds, one ORWU NPHASKEY per name under CIAV VUECENTRIC
 # (rpms-rpc#521). Read-only.
 #
 # Every live persona runs this spec. What a persona holds is the build's seed,
