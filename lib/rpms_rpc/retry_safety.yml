@@ -170,7 +170,10 @@
 "RpmsRpc::NoteTemplate.items": read
 "RpmsRpc::NoteTemplate.roots": read
 "RpmsRpc::NoteTemplate.text": read
+"RpmsRpc::Notifications.forward": non_idempotent_write
 "RpmsRpc::Notifications.inbox": non_idempotent_write
+"RpmsRpc::Notifications.message": read
+"RpmsRpc::Notifications.remove": non_idempotent_write
 "RpmsRpc::Order.action_text": read
 "RpmsRpc::Order.all_sheets": read
 "RpmsRpc::Order.check": non_idempotent_write

@@ -192,7 +192,10 @@
       "TIU TEMPLATE GETTEXT"
     ],
     "RpmsRpc::Notifications": [
-      "BEHOXQ ALRLIST"
+      "BEHOXQ ALRLIST",
+      "BEHOXQ ALRMSG",
+      "BEHOXQ ALRPP",
+      "BEHOXQ FORWARD"
     ],
     "RpmsRpc::Order": [
       "ORWDX SAVE",

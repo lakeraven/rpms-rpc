@@ -220,7 +220,7 @@ cases = {
   "UserManagement.find" => -> { RpmsRpc::UserManagement.find(duz) },
   "Practitioner.search(\"PROV\")" => -> { RpmsRpc::Practitioner.search("PROV") },
   "Practitioner.find" => -> { RpmsRpc::Practitioner.find(duz) },
-  "Notifications.inbox" => -> { RpmsRpc::Notifications.inbox(duz) },
+  "Notifications.inbox" => -> { RpmsRpc::Notifications.inbox },
   "Order.expired_search_start" => -> { RpmsRpc::Order.expired_search_start },
   # patient chart
   "Patient.find" => -> { RpmsRpc::Patient.find(d) },
