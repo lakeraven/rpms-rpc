@@ -399,6 +399,52 @@ class DdrFilemanTest < Minitest::Test
     refute result[:malformed]
   end
 
+  # rpms-rpc#540: bracket-shaped stored text must not be skipped as a marker.
+  def test_gets_entry_bracket_line_outside_known_markers_sets_stray
+    key = Ddr.gets_entry_param(file: "9002011", iens: "8840,", fields: "1601;.01", flags: "I").to_s
+    @mock.seed(:ddr_gets_entry_data, key,
+      "[Data]\n9002011^8840^1601^Alcohol baseline\n[follow-up later]\n9002011^8840^.01^SYNTH^SYNTH")
+
+    result = Ddr.gets_entry(file: "9002011", iens: "8840,", fields: "1601;.01", flags: "I")
+
+    assert result[:stray]
+    assert_equal "Alcohol baseline", result[:fields]["1601"][:internal]
+  end
+
+  def test_gets_entry_second_row_for_same_field_sets_stray
+    key = Ddr.gets_entry_param(file: "9002011", iens: "8840,", fields: "1601", flags: "I").to_s
+    @mock.seed(:ddr_gets_entry_data, key,
+      "[Data]\n9002011^8840^1601^First comment^First\n9002011^8840^1601^Second comment^Second")
+
+    result = Ddr.gets_entry(file: "9002011", iens: "8840,", fields: "1601", flags: "I")
+
+    assert result[:stray]
+    assert_equal "Second comment", result[:fields]["1601"][:internal]
+  end
+
+  def test_gets_entry_begin_dierrors_lines_do_not_set_stray
+    key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01").to_s
+    @mock.seed(:ddr_gets_entry_data, key,
+      "[Data]\n9000001^42^.01^42^NAME\n[BEGIN_diERRORS]\n701^1^9000001^42,^.01^2\n[END_diERRORS]")
+
+    result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01")
+
+    refute result[:stray]
+    assert_equal "42", result[:fields][".01"][:internal]
+  end
+
+  def test_gets_entry_well_formed_reply_has_no_stray_or_altered_keys
+    key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01", flags: "IE").to_s
+    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9000001^42^.01^42^DEMOPATIENT,UNA")
+
+    result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01", flags: "IE")
+
+    refute result.key?(:stray)
+    refute result.key?(:altered)
+    refute result[:error]
+    refute result[:malformed]
+  end
+
   # ==========================================================================
   # DDR VALIDATOR
   # ==========================================================================

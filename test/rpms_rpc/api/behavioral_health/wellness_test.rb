@@ -413,6 +413,159 @@ class BehavioralHealthWellnessTest < Minitest::Test
     assert_equal 1, unlock_calls_for(RECORD_IEN).length
   end
 
+  # --- rpms-rpc#540 stored-comment CIA hazards (pre-write SaveError, no AMHG write) ---
+
+  def test_save_screening_refuses_pre_read_when_visit_carries_field_outside_visit_fields
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    seed_visit_lock(RECORD_IEN)
+    seed_visit_unlock(RECORD_IEN)
+    key = visit_ddr_key(RECORD_IEN)
+    body = pre_edit_body(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL) +
+           "\n#{BH_VISIT_FILE}^#{RECORD_IEN}^9999^EXTRA^EXTRA"
+    @mock.seed(:ddr_gets_entry_data, key, body)
+    seed_baseline_stored_screening_providers
+    seed_provider_exists(PROVIDER)
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_empty screening_calls
+    assert_match(/the visit could not be read/i, err.message)
+  end
+
+  def test_save_screening_refuses_pre_read_when_visit_ddr_repeats_a_field_row
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    seed_visit_lock(RECORD_IEN)
+    seed_visit_unlock(RECORD_IEN)
+    key = visit_ddr_key(RECORD_IEN)
+    dup = "#{BH_VISIT_FILE}^#{RECORD_IEN}^1601^Duplicate alcohol^Duplicate"
+    body = pre_edit_body(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL) + "\n#{dup}"
+    @mock.seed(:ddr_gets_entry_data, key, body)
+    seed_baseline_stored_screening_providers
+    seed_provider_exists(PROVIDER)
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_empty screening_calls
+    assert_match(/the visit could not be read/i, err.message)
+  end
+
+  def test_save_screening_refuses_cia_split_stored_alcohol_comment_with_embedded_bracket_line_without_write
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    internal = BASELINE_INTERNAL.merge("1601" => "Alcohol baseline\r[follow-up later]")
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: internal)
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    visit_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: internal)
+    client = CiaSplitVisitGetsClient.new(@mock, RECORD_IEN, visit_body)
+    RpmsRpc.configure { |c| c.client = client }
+    visit_read = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{RECORD_IEN},", fields: PRE_EDIT_FIELDS, flags: PRE_EDIT_FLAGS
+    )
+    assert visit_read[:stray], "embedded bracket fragment in stored 1601 must set stray on gets_entry"
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_empty screening_calls, "AMHG SAVE SCREENING must not run when stored 1601 splits a bracket line"
+    assert_match(/the visit could not be read/i, err.message)
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_refuses_cia_split_stored_alcohol_comment_with_lone_recordset_end_byte_without_write
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    internal = BASELINE_INTERNAL.merge("1601" => "Alcohol part one\r\n\x1f\r\n[part two]")
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: internal)
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    visit_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: internal)
+    client = CiaSplitVisitGetsClient.new(@mock, RECORD_IEN, visit_body)
+    RpmsRpc.configure { |c| c.client = client }
+    visit_read = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{RECORD_IEN},", fields: PRE_EDIT_FIELDS, flags: PRE_EDIT_FLAGS
+    )
+    assert visit_read[:altered], "a lone \\x1f row dropped from stored 1601 must set altered on gets_entry"
+
+    assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_empty screening_calls, "AMHG SAVE SCREENING must not run when a lone \\x1f row is dropped from stored 1601"
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_refuses_cia_split_stored_alcohol_comment_with_trailing_cr_without_write
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL)
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    visit_body = "#{pre_edit_body_cia(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL)}\r"
+    client = CiaSplitVisitGetsClient.new(@mock, RECORD_IEN, visit_body)
+    RpmsRpc.configure { |c| c.client = client }
+    visit_read = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{RECORD_IEN},", fields: PRE_EDIT_FIELDS, flags: PRE_EDIT_FLAGS
+    )
+    assert visit_read[:altered], "extra trailing row break on the visit DDR reply must set altered on gets_entry"
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_empty screening_calls, "AMHG SAVE SCREENING must not run when trailing row breaks truncate stored 1601"
+    assert_match(/the visit could not be read/i, err.message)
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_cia_split_clean_stored_alcohol_comment_reaches_amhg_write
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    post = BASELINE_INTERNAL.dup
+    apply_screening_updates_to_internal!(post, screenings)
+    seed_visit_lock(RECORD_IEN)
+    seed_baseline_stored_screening_providers
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    @mock.seed_text(:wellness_spec_save_screening, wire, screening_success_body(RECORD_IEN))
+    pre_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL)
+    post_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: post)
+    client = CiaSplitVisitGetsSequenceClient.new(@mock, RECORD_IEN, pre_body, [ post_body ])
+    RpmsRpc.configure { |c| c.client = client }
+
+    wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+
+    refute_nil screening_call, "a clean stored alcohol comment must reach AMHG SAVE SCREENING under CIA split"
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_raises_outcome_unknown_when_post_visit_cia_split_has_embedded_bracket_in_stored_1601
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    wire = screening_wire(screenings)
+    post = BASELINE_INTERNAL.dup
+    apply_screening_updates_to_internal!(post, screenings)
+    tab_post = post.merge("1601" => "Alcohol baseline\r[follow-up later]")
+    seed_visit_lock(RECORD_IEN)
+    seed_baseline_stored_screening_providers
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    @mock.seed_text(:wellness_spec_save_screening, wire, screening_success_body(RECORD_IEN))
+    pre_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL)
+    post_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: tab_post)
+    client = CiaSplitVisitGetsSequenceClient.new(@mock, RECORD_IEN, pre_body, [ post_body ])
+    RpmsRpc.configure { |c| c.client = client }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_match(/may have been filed/i, err.message)
+    refute_nil screening_call
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
   # --- reply / lock guards (pass on current code; rpms-rpc#540 spec F1–F4) ---
 
   def test_save_measurements_refuses_when_visit_lock_ddr_reply_is_not_exact_one_without_write
@@ -2249,6 +2402,10 @@ class BehavioralHealthWellnessTest < Minitest::Test
     "[Data]\n#{lines.join("\n")}"
   end
 
+  def pre_edit_body_cia(ien, patient, internal:, signed: false, include_1112: true)
+    pre_edit_body(ien, patient, internal: internal, signed: signed, include_1112: include_1112).tr("\n", "\r")
+  end
+
   def screening_result_external(field, value)
     return value.to_s unless %w[1401 1403 1405 1407 1409].include?(field)
 
@@ -3045,6 +3202,59 @@ class AlteredDdrGetsVisitClient < SimpleDelegator
       param["IENS"] == "#{@record_ien}," &&
       param["FIELDS"] == PRE_EDIT_FIELDS &&
       param["FLAGS"] == "I"
+  end
+end
+
+# Splits visit DDR replies the way RpmsRpc::CiaClient#call_rpc does (including RS/US).
+class CiaSplitVisitGetsClient < SimpleDelegator
+  DDR_GETS = "DDR GETS ENTRY DATA"
+  BH_VISIT = "9002011"
+  PRE_EDIT_FIELDS =
+    ".08;1112;1401;1402;1403;1404;1405;1406;1407;1408;1409;1410;1501;1601;1701;1901;2001"
+  REPLY_ROW_BREAK = /\r\n|\r|\n|\x1e/
+  RECORDSET_END = "\x1f".b
+
+  def initialize(delegate, record_ien, body)
+    super(delegate)
+    @record_ien = record_ien.to_s
+    @body = body
+  end
+
+  def call_rpc(rpc_name, *params)
+    if rpc_name == DDR_GETS && visit_param?(params.first)
+      lines = @body.b.split(REPLY_ROW_BREAK).reject { |line| line == RECORDSET_END }
+      return RpmsRpc::Reply.from_wire(lines, controls: true)
+    end
+
+    super
+  end
+
+  def visit_param?(param)
+    param.is_a?(Hash) &&
+      param["FILE"] == BH_VISIT &&
+      param["IENS"] == "#{@record_ien}," &&
+      param["FIELDS"] == PRE_EDIT_FIELDS &&
+      param["FLAGS"] == "I"
+  end
+end
+
+class CiaSplitVisitGetsSequenceClient < CiaSplitVisitGetsClient
+  def initialize(delegate, record_ien, pre_body, post_bodies)
+    super(delegate, record_ien, pre_body)
+    @post_bodies = post_bodies.dup
+    @visit_gets = 0
+  end
+
+  def call_rpc(rpc_name, *params)
+    if rpc_name == DDR_GETS && visit_param?(params.first)
+      @visit_gets += 1
+      if @visit_gets > 1 && (next_body = @post_bodies.shift)
+        lines = next_body.b.split(REPLY_ROW_BREAK).reject { |line| line == RECORDSET_END }
+        return RpmsRpc::Reply.from_wire(lines, controls: true)
+      end
+    end
+
+    super
   end
 end
 

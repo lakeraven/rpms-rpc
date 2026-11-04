@@ -96,4 +96,66 @@ class RpmsRpc::DdrFilemanCiaTest < Minitest::Test
       malformed: false
     }, result)
   end
+
+  # rpms-rpc#540: visit comment hazards over the real CiaClient row split must not
+  # parse as a clean gets_entry (stray or altered) before Wellness can resend text.
+  VISIT_FILE = "9002011"
+  VISIT_IEN = "8840"
+  SYNTH_PATIENT = "990540"
+
+  def visit_gets_reply(seq, *field_rows)
+    "#{seq}\x00[Data]\r#{field_rows.join("\r")}\r"
+  end
+
+  def visit_row(field, internal, external = internal)
+    "#{VISIT_FILE}^#{VISIT_IEN}^#{field}^#{internal}^#{external}"
+  end
+
+  def test_gets_entry_over_cia_marks_stray_when_stored_comment_splits_a_bracket_line
+    rows = [
+      visit_row(".08", SYNTH_PATIENT, "PATIENT,SYNTH"),
+      visit_row("1112", "", ""),
+      visit_row("1601", "Alcohol baseline\r[follow-up later]", "NEGATIVE"),
+      visit_row("1403", "N", "NEGATIVE")
+    ]
+    replay(visit_gets_reply("3", *rows))
+
+    result = RpmsRpc::DdrFileman.gets_entry(
+      file: VISIT_FILE, iens: "#{VISIT_IEN},", fields: ".08;1112;1601;1403", flags: "I"
+    )
+
+    assert result[:stray] || result[:altered],
+      "a bracket-shaped fragment from an embedded CR in stored 1601 must not read as clean"
+    refute_equal "Alcohol baseline\r[follow-up later]", result.dig(:fields, "1601", :internal)
+  end
+
+  def test_gets_entry_over_cia_marks_altered_when_stored_comment_contains_lone_recordset_end_byte
+    rows = [
+      visit_row(".08", SYNTH_PATIENT, "PATIENT,SYNTH"),
+      visit_row("1601", "Alcohol part one\r\n\x1f\r\n[part two]", "NEGATIVE")
+    ]
+    replay(visit_gets_reply("4", *rows))
+
+    result = RpmsRpc::DdrFileman.gets_entry(
+      file: VISIT_FILE, iens: "#{VISIT_IEN},", fields: ".08;1601", flags: "I"
+    )
+
+    assert result[:altered],
+      "a lone \\x1f dropped by CiaClient must surface as altered on gets_entry"
+  end
+
+  def test_gets_entry_over_cia_marks_altered_when_stored_comment_ends_with_cr_before_reply_terminator
+    rows = [
+      visit_row(".08", SYNTH_PATIENT, "PATIENT,SYNTH"),
+      visit_row("1601", "Alcohol baseline", "NEGATIVE")
+    ]
+    replay(visit_gets_reply("5", *rows) + "\r")
+
+    result = RpmsRpc::DdrFileman.gets_entry(
+      file: VISIT_FILE, iens: "#{VISIT_IEN},", fields: ".08;1601", flags: "I"
+    )
+
+    assert result[:altered],
+      "an extra trailing row break after the last field row must mark the reply altered"
+  end
 end
