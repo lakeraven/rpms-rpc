@@ -146,6 +146,32 @@ class RpmsRpc::CiaClientTest < Minitest::Test
       "a body ending with an extra row break beyond the final terminator must mark the reply altered"
   end
 
+  def test_call_rpc_body_of_lone_cr_terminator_returns_no_lines_unaltered
+    c = connected_client([ "1\x00\r" + EOD ])
+    reply = c.call_rpc("DDR GETS ENTRY DATA")
+
+    refute RpmsRpc::Reply.altered?(reply)
+    assert_equal [], reply.to_a
+  end
+
+  def test_call_rpc_body_of_lone_crlf_terminator_returns_no_lines_unaltered
+    c = connected_client([ "1\x00\r\n" + EOD ])
+    reply = c.call_rpc("DDR GETS ENTRY DATA")
+
+    refute RpmsRpc::Reply.altered?(reply)
+    assert_equal [], reply.to_a
+  end
+
+  def test_call_rpc_body_with_data_row_then_two_terminators_stays_altered
+    body = "x\r\r"
+    c = connected_client([ "1\x00#{body}" + EOD ])
+    reply = c.call_rpc("DDR GETS ENTRY DATA")
+
+    assert RpmsRpc::Reply.altered?(reply),
+      "a data row followed by two row terminators must mark the reply altered"
+    assert_equal [ "x" ], reply.to_a
+  end
+
   # Fix (#172 Copilot): a peer-closed read (empty recv) must clear @connected,
   # not leave the client reporting connected against a dead socket.
   def test_empty_recv_clears_connected_and_raises

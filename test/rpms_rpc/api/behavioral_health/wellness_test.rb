@@ -6,6 +6,7 @@ require "json"
 require "timeout"
 require "rpms_rpc"
 require "rpms_rpc/mock_client"
+require "rpms_rpc/cia_client"
 require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/retry_safety"
 
@@ -499,10 +500,15 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
   def test_save_screening_refuses_cia_split_stored_alcohol_comment_with_trailing_cr_without_write
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
-    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL)
+    internal = BASELINE_INTERNAL.merge("1601" => "Alcohol baseline note\r")
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: internal)
     seed_providers_for_screening_updates(screenings)
     seed_visit_unlock(RECORD_IEN)
-    visit_body = "#{pre_edit_body_cia(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL)}\r"
+    full_cia = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: internal)
+    field_order = internal.keys
+    next_after_1601 = field_order[field_order.index("1601") + 1]
+    after_1601 = full_cia.index("\r#{BH_VISIT_FILE}^#{RECORD_IEN}^#{next_after_1601}^")
+    visit_body = after_1601 ? "#{full_cia[0...after_1601]}\r" : "#{full_cia}\r"
     client = CiaSplitVisitGetsClient.new(@mock, RECORD_IEN, visit_body)
     RpmsRpc.configure { |c| c.client = client }
     visit_read = Ddr.gets_entry(
@@ -3205,14 +3211,29 @@ class AlteredDdrGetsVisitClient < SimpleDelegator
   end
 end
 
-# Splits visit DDR replies the way RpmsRpc::CiaClient#call_rpc does (including RS/US).
+# Replays visit DDR GETS bodies through RpmsRpc::CiaClient#call_rpc (same as ddr_fileman_cia_test).
 class CiaSplitVisitGetsClient < SimpleDelegator
   DDR_GETS = "DDR GETS ENTRY DATA"
   BH_VISIT = "9002011"
   PRE_EDIT_FIELDS =
     ".08;1112;1401;1402;1403;1404;1405;1406;1407;1408;1409;1410;1501;1601;1701;1901;2001"
-  REPLY_ROW_BREAK = /\r\n|\r|\n|\x1e/
-  RECORDSET_END = "\x1f".b
+  EOD = RpmsRpc::Client::EOD
+
+  class FakeSocket
+    attr_reader :writes
+
+    def initialize(reads)
+      @reads = reads.dup
+      @writes = []
+    end
+
+    def recv(_n) = @reads.empty? ? "" : @reads.shift
+    def write(str) = (@writes << str) && str.bytesize
+    def flush; end
+    def close = @closed = true
+    def closed? = !!@closed
+    def setsockopt(*); end
+  end
 
   def initialize(delegate, record_ien, body)
     super(delegate)
@@ -3222,11 +3243,21 @@ class CiaSplitVisitGetsClient < SimpleDelegator
 
   def call_rpc(rpc_name, *params)
     if rpc_name == DDR_GETS && visit_param?(params.first)
-      lines = @body.b.split(REPLY_ROW_BREAK).reject { |line| line == RECORDSET_END }
-      return RpmsRpc::Reply.from_wire(lines, controls: true)
+      return cia_visit_gets_reply(@body, rpc_name, *params)
     end
 
     super
+  end
+
+  def cia_visit_gets_reply(body, rpc_name, *params)
+    seq = 1
+    wire = "#{seq}\x00#{body.b}#{EOD}"
+    c = RpmsRpc::CiaClient.new
+    c.instance_variable_set(:@socket, FakeSocket.new([ wire ]))
+    c.instance_variable_set(:@connected, true)
+    c.instance_variable_set(:@timeout, 5)
+    c.instance_variable_set(:@seq, 0)
+    c.call_rpc(rpc_name, *params)
   end
 
   def visit_param?(param)
@@ -3249,8 +3280,7 @@ class CiaSplitVisitGetsSequenceClient < CiaSplitVisitGetsClient
     if rpc_name == DDR_GETS && visit_param?(params.first)
       @visit_gets += 1
       if @visit_gets > 1 && (next_body = @post_bodies.shift)
-        lines = next_body.b.split(REPLY_ROW_BREAK).reject { |line| line == RECORDSET_END }
-        return RpmsRpc::Reply.from_wire(lines, controls: true)
+        return cia_visit_gets_reply(next_body, rpc_name, *params)
       end
     end
 
