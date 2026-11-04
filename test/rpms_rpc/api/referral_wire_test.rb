@@ -103,6 +103,46 @@ class ReferralWireTest < Minitest::Test
     assert_equal "OCT 04, 2026", row[:acknowledged_date]
   end
 
+  # Captured from BMC SEARCH REFERRAL over CIA on bcer-9.0-20261029-7c3119b-ydb
+  # (rpms-rpc#589): one patient's two referrals, demo data filed by
+  # test/live/referral_pending_live_test.rb. CRTMSG files each record in its
+  # own node and the broker sends them with nothing between, so both arrive
+  # in one line.
+  CAPTURED_TWO_RECORDS =
+    "~`1^JAN 10, 2001^^990002^BRAVO,ALEX^^^<UNKNOWN>^^ACTIVE^^^DIRECT ONLY^^^^^^^^^^05/08/1965^^" \
+    "~`5^FEB 01, 2001^^990002^BRAVO,ALEX^^^<UNKNOWN>^^ACTIVE^^^DIRECT ONLY^^^^^^^^^^05/08/1965^^"
+
+  def test_search_reads_each_record_of_a_line_that_carries_several
+    RpmsRpc.mock! { |m| m.seed_raw_lines(:referral_search, "990002", [ CAPTURED_TWO_RECORDS ]) }
+
+    rows = RpmsRpc::Referral.for_patient(990_002)
+
+    assert_equal [ "1", "5" ], rows.map { |r| r[:ien] }
+    assert_equal [ Date.new(2001, 1, 10), Date.new(2001, 2, 1) ], rows.map { |r| r[:date] }
+    assert_equal [ 990_002, 990_002 ], rows.map { |r| r[:patient_dfn] }
+    assert_equal [ "05/08/1965" ] * 2, rows.map { |r| r[:patient_dob] }
+  end
+
+  # With no patient and no provider, the routine's date path, under its own
+  # "Active/Approved" status screen (BMCRPC1.m:40-47).
+  def test_pending_sends_no_patient_the_date_range_and_the_open_status_screen
+    mock = RpmsRpc.mock! { |m| m.seed_raw_lines(:referral_search, "", [ CAPTURED_TWO_RECORDS ]) }
+
+    rows = RpmsRpc::Referral.pending(from: Date.new(2001, 1, 1), to: Date.new(2001, 2, 28))
+
+    call = mock.received_calls.find { |c| c[:rpc] == "BMC SEARCH REFERRAL" }
+    assert_equal [ "", "", "JAN 01, 2001", "FEB 28, 2001", "", "Active/Approved" ], call[:params]
+    assert_equal [ "1", "5" ], rows.map { |r| r[:ien] }
+  end
+
+  def test_pending_refuses_a_window_that_is_not_two_ordered_dates
+    mock = RpmsRpc.mock!
+
+    assert_raises(ArgumentError) { RpmsRpc::Referral.pending(from: Date.new(2001, 2, 1), to: Date.new(2001, 1, 1)) }
+    assert_raises(ArgumentError) { RpmsRpc::Referral.pending(from: "JAN 01, 2001", to: Date.new(2001, 1, 1)) }
+    assert_empty mock.received_calls
+  end
+
   def test_detail_reads_the_detail_one_layout
     RpmsRpc.mock! { |m| m.seed_raw_lines(:referral_detail, REF, [ DETAIL_LINE ]) }
 
