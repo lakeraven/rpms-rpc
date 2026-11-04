@@ -8,7 +8,19 @@
       "Bash(PINNED=1 bin/cloud_rpms:*)",
       "Bash(LAKERAVEN_EHR_PATH=/home/user/lakeraven-ehr bin/cloud_rpms:*)",
       "Bash(LAKERAVEN_EHR_PATH=/home/user/lakeraven-ehr PINNED=1 bin/cloud_rpms:*)",
-      "Bash(PINNED=1 LAKERAVEN_EHR_PATH=/home/user/lakeraven-ehr bin/cloud_rpms:*)"
+      "Bash(PINNED=1 LAKERAVEN_EHR_PATH=/home/user/lakeraven-ehr bin/cloud_rpms:*)",
+      "Bash(bin/seat:*)",
+      "Bash(gh api repos/lakeraven/rpms-rpc/:*)",
+      "Bash(gh api -X POST repos/lakeraven/rpms-rpc/:*)",
+      "Bash(gh api -X PATCH repos/lakeraven/rpms-rpc/:*)",
+      "Bash(gh api -X PUT repos/lakeraven/rpms-rpc/:*)",
+      "Bash(gh api -X DELETE repos/lakeraven/rpms-rpc/issues/:*)",
+      "Bash(gh api repos/lakeraven/lakeraven-ehr/:*)",
+      "Bash(gh api -X POST repos/lakeraven/lakeraven-ehr/:*)",
+      "Bash(gh api -X PATCH repos/lakeraven/lakeraven-ehr/:*)",
+      "Bash(gh api -X PUT repos/lakeraven/lakeraven-ehr/:*)",
+      "Bash(gh api -X DELETE repos/lakeraven/lakeraven-ehr/issues/:*)",
+      "Bash(gh api repos/lakeraven/factory/contents/etc/scope:*)"
     ]
   }
 }

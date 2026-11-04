@@ -52,6 +52,8 @@ module RpmsRpc
     RESOURCE_USER_FILE = "9002018.15"
     # PATIENT (#44.003), a clinic appointment's patient entry under its time.
     CLINIC_APPOINTMENT_FILE = "44.003"
+    # APPOINTMENT (#2.98), the patient's appointment multiple.
+    PATIENT_APPOINTMENT_FILE = "2.98"
 
     # How many entries one DDR LISTER call asks for; a longer list is read on
     # from the MORE marker.
@@ -116,25 +118,42 @@ module RpmsRpc
     # holds no appointment for the patient then or FileMan refuses, or nil when
     # the broker gives no reply.
     def mark_overbook(hospital_location_id:, start_time:, patient_dfn:)
-      clinic = hospital_location_id.to_s
-      raise ArgumentError, "hospital_location_id must be a positive integer" unless clinic.match?(/\A[1-9]\d*\z/)
+      file_clinic_entry(hospital_location_id, start_time, patient_dfn, "9", "O")
+    end
+    shape :mark_overbook, resource: "appointments", verb: "POST", path: "/patients/{patient_dfn}/appointments/mark-overbook"
 
-      at = iens_time(start_time)
-      listing = in_context { DdrFileman.lister(file: CLINIC_APPOINTMENT_FILE, iens: ",#{at},#{clinic},", fields: "@;.01I;9I", flags: "IP") }
-      return nil if listing.nil?
-      return { success: false, error: "DDR LISTER refused ##{CLINIC_APPOINTMENT_FILE} at #{at} on clinic #{clinic}" } if listing[:error]
+    # Files a booked appointment's note on the clinic: OTHER (#44.003 field 3),
+    # the copy MAKE^BSDAPI files at booking (its "OI") and the clinic's lists
+    # print. BSDX EDIT APPOINTMENT changes only the BSDX APPOINTMENT note, so
+    # a corrected note reaches the clinic only through this (rpms-ux S-SCH-09.1).
+    # A plain free-text field (1 to 150 characters, no cross-reference), filed
+    # with DDR FILER. A blank note deletes it ("@"). Returns as mark_overbook.
+    def set_clinic_note(hospital_location_id:, start_time:, patient_dfn:, note:)
+      text = note.to_s
+      raise ArgumentError, "a clinic note is at most 150 characters" if text.length > 150
 
-      entry = listing[:entries].find { |e| e[:pieces].first.to_i == patient_dfn.to_i }
-      return { success: false, error: "the clinic holds no appointment for the patient at #{at}" } unless entry
-      return { success: true } if entry[:pieces][1] == "O"
+      file_clinic_entry(hospital_location_id, start_time, patient_dfn, "3", text.empty? ? "@" : text)
+    end
+    shape :set_clinic_note, resource: "appointments", verb: "PUT", path: "/patients/{patient_dfn}/appointments/clinic-note"
 
-      row = { file: CLINIC_APPOINTMENT_FILE, field: "9", iens: "#{entry[:ien]},#{at},#{clinic},", value: "O" }
+    # Files a cancelled or no-show appointment's remarks: CANCELLATION REMARKS
+    # (#2.98 field 17) on the patient's appointment at that time, as CANCEL^BSDAPI
+    # files them when it cancels (rpms-ux S-SCH-09.3). No BSDX RPC edits them.
+    # A plain free-text field with no cross-reference, filed with DDR FILER.
+    # Remarks are 3 to 160 characters (the rule BSDX and BPRM keep).
+    # Returns { success: true }, { success: false, error: }, or nil.
+    def set_cancellation_remarks(patient_dfn:, start_time:, remarks:)
+      text = remarks.to_s
+      raise ArgumentError, "remarks are 3 to 160 characters" unless (3..160).cover?(text.length)
+      raise ArgumentError, "patient_dfn must be a positive integer" unless patient_dfn.to_s.match?(/\A[1-9]\d*\z/)
+
+      row = { file: PATIENT_APPOINTMENT_FILE, field: "17", iens: "#{iens_time(start_time)},#{patient_dfn},", value: text }
       filed = in_context { DdrFileman.filer(mode: "EDIT", rows: [ row ]) }
       return nil if filed.nil?
 
       filed[:success] ? { success: true } : { success: false, error: Array(filed[:errors]).join(" ") }
     end
-    shape :mark_overbook, resource: "appointments", verb: "POST", path: "/patients/{patient_dfn}/appointments/mark-overbook"
+    shape :set_cancellation_remarks, resource: "appointments", verb: "PUT", path: "/patients/{patient_dfn}/appointments/cancellation-remarks"
     # Add a HOLIDAY (#40.5) row. The only writer is the interactive GO^SDHOL
     # (DIC/DIE); no #8994 entry reaches it (rpms-rpc#418, resolution 2), so
     # this is DDR FILER ADD (FILEC^DDR3). .01 DATE is DINUM and field 2 is
@@ -340,6 +359,27 @@ module RpmsRpc
 
     # A date/time as an IENS piece: the FileMan value in canonical form, with
     # no trailing zeros (^SC(clinic,"S",3261110.15) is not ...1500).
+    # Files one field of the patient's PATIENT (#44.003) entry on the clinic at
+    # that time, found with DDR LISTER, through DDR FILER.
+    def file_clinic_entry(hospital_location_id, start_time, patient_dfn, field, value)
+      clinic = hospital_location_id.to_s
+      raise ArgumentError, "hospital_location_id must be a positive integer" unless clinic.match?(/\A[1-9]\d*\z/)
+
+      at = iens_time(start_time)
+      listing = in_context { DdrFileman.lister(file: CLINIC_APPOINTMENT_FILE, iens: ",#{at},#{clinic},", fields: "@;.01I", flags: "IP") }
+      return nil if listing.nil?
+      return { success: false, error: "DDR LISTER refused ##{CLINIC_APPOINTMENT_FILE} at #{at} on clinic #{clinic}" } if listing[:error]
+
+      entry = listing[:entries].find { |e| e[:pieces].first.to_i == patient_dfn.to_i }
+      return { success: false, error: "the clinic holds no appointment for the patient at #{at}" } unless entry
+
+      row = { file: CLINIC_APPOINTMENT_FILE, field: field, iens: "#{entry[:ien]},#{at},#{clinic},", value: value }
+      filed = in_context { DdrFileman.filer(mode: "EDIT", rows: [ row ]) }
+      return nil if filed.nil?
+
+      filed[:success] ? { success: true } : { success: false, error: Array(filed[:errors]).join(" ") }
+    end
+
     def iens_time(value)
       FilemanDateParser.to_fileman(value).to_s.sub(/(\.\d*?)0+\z/, '\1').delete_suffix(".")
     end
