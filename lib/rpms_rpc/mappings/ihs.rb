@@ -816,6 +816,32 @@ module RpmsRpc
       m.field 10, :removable, :boolean
     end
 
+    # BEHOXQ ALRPP -> ALRPP^BEHOXQ (BEHOXQ.m:73-76): the Notifications tab's
+    # delete. It finds the alert's handler in #90460.021 (ALRIEN, :78-85) and
+    # runs its PROCESS code: DEL^ORB3FUP1 for an OR alert, BEHDEL^BEHOXQ for a
+    # BEH one (DELETE^XQALERT for DUZ). It answers the handler's IEN, 0 when
+    # none matched; the IEN says nothing about whether anything was deleted.
+    DataMapper.define(:notifications_remove) do |m|
+      m.rpc "BEHOXQ ALRPP"
+      m.scalar :handler, :integer
+    end
+
+    # BEHOXQ FORWARD -> FORWARD^BEHOXQ (BEHOXQ.m:56-59): FORWARD^XQALFWD(alerts,
+    # users, "A", comment), Kernel's supported forward (ICR #3009). It answers
+    # 0 whatever happened.
+    DataMapper.define(:notifications_forward) do |m|
+      m.rpc "BEHOXQ FORWARD"
+      m.scalar :result, :integer
+    end
+
+    # BEHOXQ ALRMSG -> ALRMSG^BEHOXQ (BEHOXQ.m:46-54): the forwarding comment
+    # (when there is one) and a blank line, then the alert's long text
+    # (GETLONG^XQALGUI), for DUZ's copy of the alert.
+    DataMapper.define(:notifications_message) do |m|
+      m.rpc "BEHOXQ ALRMSG"
+      m.text_blob :text
+    end
+
     # NOTE: immunization refusals file through BGOREF SET (:refusal_set)
     # with type "IMMUNIZATION". The former :immunization_refusal_save
     # binding, BGOREP SET, writes REPRODUCTIVE FACTORS (^AUPNREP —

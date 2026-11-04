@@ -55,6 +55,7 @@ RpmsRpc::NoteTemplate.boilerplate	GET /note-templates/{template_ien}/boilerplate
 RpmsRpc::NoteTemplate.items	GET /note-templates/{template_ien}/items
 RpmsRpc::NoteTemplate.roots	GET /users/{user_duz}/note-templates/roots
 RpmsRpc::NoteTemplate.text	GET /patients/{dfn}/note-templates/text
+RpmsRpc::Notifications.message	GET /notifications/{alert_id}/message
 RpmsRpc::Order.action_text	GET /orders/{order_ien}/action-text
 RpmsRpc::Order.all_sheets	GET /orders/all-sheets
 RpmsRpc::Order.expired_search_start	GET /orders/expired-search-start
