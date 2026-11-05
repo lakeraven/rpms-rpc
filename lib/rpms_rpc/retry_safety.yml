@@ -140,7 +140,7 @@
 "RpmsRpc::Eligibility.for_patient": read
 "RpmsRpc::Encounter.create": non_idempotent_write
 "RpmsRpc::Encounter.for_patient": read
-"RpmsRpc::Encounter.open": read
+"RpmsRpc::Encounter.open": non_idempotent_write
 "RpmsRpc::Encounter.visit_string": read
 "RpmsRpc::ExamComponent.add": non_idempotent_write
 "RpmsRpc::HealthFactor.add": non_idempotent_write

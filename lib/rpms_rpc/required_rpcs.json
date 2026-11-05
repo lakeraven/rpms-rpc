@@ -233,6 +233,7 @@
       "BEHOPTCX PTINFO",
       "BEHOPTPC GETBDP",
       "DDR GETS ENTRY DATA",
+      "DDR LISTER",
       "ORWPT CWAD",
       "ORWPT FULLSSN",
       "ORWPT ID INFO",
