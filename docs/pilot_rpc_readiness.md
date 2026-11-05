@@ -20,3 +20,23 @@ ORQQPL LIST | partial | both of DFN 2's rows (IEN 1 *TYPE 2 DIABETES MELLITUS, I
 ORQQAL LIST | partial | mapped severity is nil on DFN 2's penicillin allergy (IEN 1, signs HIVES) signed on as PROV123 | unproven: severity
 ORWPS ACTIVE | not-proven | live call for DFN 2 signed on as PROV123 returned no data rows (no active medications in the seed), so Medication.active_for_patient proved none of order_id, type, name, status, stop_date, instructions, or comments | unproven: comments, instructions, name, order_id, status, stop_date, type
 ORQQVI VITALS | partial | mapped qualifiers is nil on all four vitals (PU 82, BP 142/88, HT 70, WT 214) for DFN 2 signed on as PROV123 | unproven: qualifiers
+
+# Scheduling write pilot status on bcer-9.0-20261012-e7923a4-ydb (issue #565, part of #224).
+# Captured by `rake wire:capture_writes` (LIVE_DISPOSABLE=1, loopback broker), seed patient
+# DFN 3 on the synthetic resource ZZ PILOT SCHED CAPTURE (hospital location 3). A write's
+# reply is never proof by itself: each effect is proven only by a DDR GETS read-back of
+# #9002018.4 or #2.98 (internal values) equal to what the API sent.
+# pilot-ready needs every effect proven with the capture signed on as PROV123, the pilot's
+# least-privilege persona. A capture signed on as another persona proves the mapping live
+# but leaves every effect unproven for the pilot.
+# Seed gaps (rpms-ops seed issues to file; the capture provisions the first two on the
+# disposable rung): no BSDX RESOURCE (#9002018.1) or BSDX RESOURCE USER (#9002018.15);
+# BSD PARAMETERS (#9009020.2) entry 3 has no FILE ROOM PRINTER (.05); PROV123's only
+# DIVISION is INSTITUTION 1, which has no MEDICAL CENTER DIVISION (#40.8), so
+# $$DIV^BSDU is 0 for PROV123 and booking refuses.
+# One line per RPC: RPC | status | reason | unproven: <effects or none>
+
+BSDX ADD NEW APPOINTMENT | not-proven | proven live signed on as SYS123 (appointment 10 at 3261126.0915 for DFN 3, every effect read back on #9002018.4 and #2.98), but PROV123's booking is refused with "BSDX07 Error: No file room printer is defined for the chart request." -- seed gap: PROV123's division (INSTITUTION 1) has no #40.8 MEDICAL CENTER DIVISION, so $$DIV^BSDU is 0 | unproven: appointment_id, dpt_appt_clinic, patient, resource, start
+BSDX CHECKIN APPOINTMENT | pilot-ready | signed on as PROV123, appointment 10 checked in at 3261105.0557; #9002018.4 .03 reads back that time | unproven: none
+BSDX CANCEL APPOINTMENT | pilot-ready | signed on as PROV123, appointment 11 cancelled type PC with coded reason 5 (#409.2 UNABLE TO KEEP APPOINTMENT); the reply is an empty ERRORID row (no-data), and #2.98 reads back status PC and reason 5, #9002018.4 .12 a cancel time | unproven: none
+BSDX NOSHOW | pilot-ready | signed on as PROV123, appointment 12 marked no-show; #9002018.4 .1 reads back 1 and #2.98 status N, user 200, on the patient record | unproven: none
