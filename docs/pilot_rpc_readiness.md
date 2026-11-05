@@ -29,6 +29,8 @@ ORQQVI VITALS | partial | mapped qualifiers is nil on all four vitals (PU 82, BP
 # which has one: a mapping that failed live although its tests passed. Fixed in this slice.
 # Write rows have no capture (wire:capture never sends a write); they are judged by
 # test/live/encounter_visit_live_test.rb and test/live/behavioral_health_save_pcc_visit_live_test.rb.
+# A write row's status and unproven list are for the pilot persona PROV123; what SYS123 proved is
+# stated in the reason but does not make the row pilot-ready.
 
 BEHOENCX GETVISIT | partial | visit 1 for DFN 2 signed on as PROV123 returns location 6, 3260825.09, service category A and patient 2; mapped visit_id is blank (VISIT ID 15001 not set on the seed visit) and locked was observed only as 0, never 1 | unproven: locked, visit_id
 BEHOENCX FETCH | partial | CREATE=0 read of visit 1 for DFN 2 signed on as PROV123 returns DEMO PRIMARY CARE, provider 12 DEMO,DOCTOR and visit 1; PROV123 is not a provider, so piece 4 is the visit's primary provider (GETPRV2 under BEHOENCX PROV ENC FETCH, BEHOENCX.m:36-40), while for a provider persona it is the signed-on user; room_bed is blank for the outpatient, visit_id is blank (^AUPNVSIT(1,150) not set), locked was observed only as 0, and error is set only when the visit does not resolve | unproven: error, locked, room_bed, visit_id
