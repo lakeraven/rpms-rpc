@@ -9,6 +9,8 @@ require "rpms_rpc/api/coverage"
 # part and end date, and a private policy, each filed through AG's own
 # windows and read back the way AG's registration client reads them
 # (Coverage.on_file). FileMan confirms every value landed where AG files it.
+# When AG lists no billable private insurer, the spec seeds the synthetic
+# "ZZ LIVE PRIVATE INSURER" on #9999999.18 via DDR FILER so that cycle can run.
 #
 # Runs as the registration persona (PROFILE,REG): every call is in AGGRPC.
 class CoverageOnFileLiveTest < LiveSpec::Test
@@ -16,6 +18,7 @@ class CoverageOnFileLiveTest < LiveSpec::Test
 
   DFN = 990_049 # ZEPHYR,QUINN on the pinned build; unused by other live specs
   CMS_EXAMPLE_MBI = "1EG4TE5MK73"
+  SYNTHETIC_PRIVATE_INSURER = "ZZ LIVE PRIVATE INSURER"
 
   def test_medicaid_medicare_and_private_insurance_are_filed_and_read_back
     year = Date.today.year
@@ -65,6 +68,9 @@ class CoverageOnFileLiveTest < LiveSpec::Test
 
       deleted = RpmsRpc::Coverage.delete_private_insurance(DFN, record_ien: private_record_ien, client: client)
       assert deleted[:success], "private insurance delete refused: #{deleted.inspect}"
+      again = RpmsRpc::Coverage.delete_private_insurance(DFN, record_ien: private_record_ien, client: client)
+      refute again[:success], "repeat delete should not succeed: #{again.inspect}"
+      assert_equal :already_absent, again[:error]
       refute private_policy_row_on_file?(private_record_ien),
              "FileMan still has #9000006.11 #{private_record_ien},#{DFN}, after delete"
       after = RpmsRpc::Coverage.on_file(DFN, client: client)
@@ -110,13 +116,25 @@ class CoverageOnFileLiveTest < LiveSpec::Test
     ien
   end
 
-  # An insurer AG lists as private: the demo build seeds no commercial
-  # insurer, so the first billable PRIVATE one on file stands in.
+  # Billable PRIVATE insurer for AG's pick list; seeds SYNTHETIC_PRIVATE_INSURER
+  # when the build has none (reuses an existing entry on re-run).
   def private_insurer!
     insurers = RpmsRpc::Coverage.insurers(client: client)
     flunk "AGG GET INSURANCE DATA gave no answer" if insurers.nil?
     found = insurers.find { |row| row[:type] == "PRIVATE" && row[:status] == "BILLABLE" }
-    flunk "no billable private insurer on this build: #{insurers.map { |r| r[:name] }.inspect}" unless found
+    return found[:ien] if found
+
+    flunk "#{persona} cannot bind CIAV VUECENTRIC for DDR FILER" unless client.create_context("CIAV VUECENTRIC")
+    rows = { ".01" => SYNTHETIC_PRIVATE_INSURER, ".21" => "P", ".211" => "5", ".17" => "1" }.map do |field, value|
+      { file: "9999999.18", field: field, iens: "+1,", value: value }
+    end
+    filed = RpmsRpc::DdrFileman.filer(mode: "ADD", rows: rows)
+    flunk "DDR FILER could not seed synthetic private insurer: #{filed.inspect}" unless filed && filed[:success]
+
+    insurers = RpmsRpc::Coverage.insurers(client: client)
+    flunk "AGG GET INSURANCE DATA gave no answer after seeding insurer" if insurers.nil?
+    found = insurers.find { |row| row[:type] == "PRIVATE" && row[:status] == "BILLABLE" }
+    flunk "synthetic private insurer not listed after DDR FILER: #{insurers.map { |r| r[:name] }.inspect}" unless found
     found[:ien]
   end
 
