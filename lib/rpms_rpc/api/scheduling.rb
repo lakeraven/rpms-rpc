@@ -153,6 +153,9 @@ module RpmsRpc
     # sent, the unused tail as empties: the routine passes BSDXVCL/BSDXVFM/
     # BSDXOG to APCHK by value with no $G (BSDX25.m:63), so omitting them
     # <UNDEF>s server-side whenever the resource links a hospital location.
+    # Eight, not the pinned build's eleven: the FOIA BSDX25 tag stops at BSDXOG
+    # and a longer actual list faults there; the three extra formals are
+    # $G-guarded on the pinned build (BSDX25.m:67-69), so eight behave the same.
     def checkin_appointment(appointment_ien, checkin_time:, clinic_code: nil, provider: nil)
       error_write(:scheduling_checkin_appointment,
                   appointment_ien.to_s, fm(checkin_time), clinic_code.to_s, provider.to_s,
@@ -322,8 +325,9 @@ module RpmsRpc
     # (PADISP^BSDX27), the scheduling client's patient appointment list. Returns
     # [{ start_time:, clinic:, resource_id:, type:, status:, made_by:, made_at:, note: }].
     # :type is SCHED or WALK-IN ($$APPTYP^BSDU2); :status is scheduled, checked
-    # in, checked out, no-show or cancelled (STATUS^BSDX27). The routine leaves
-    # out a cancelled BSDX appointment. Each row also carries the patient's
+    # in, checked out, no-show or cancelled (STATUS^BSDX27). A live capture
+    # contradicted the earlier note that the routine leaves out a cancelled
+    # BSDX appointment, so do not rely on a cancelled row being absent. Each row also carries the patient's
     # name, date of birth, HRN, address and phone; they are not returned.
     # ERR^BSDX27's row of empty pieces raises Client::RpcError.
     def patient_appointments(dfn)

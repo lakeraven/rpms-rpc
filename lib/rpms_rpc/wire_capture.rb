@@ -27,7 +27,10 @@ module RpmsRpc
   #   per-position semantics. `rake wire:capture` drives it against a rung
   #   we own (read-only behavioral calls, never a customer instance — the
   #   conformance SPEC's non-negotiable) and writes provenance-stamped
-  #   fixtures to test/fixtures/wire_captures/.
+  #   fixtures to test/fixtures/wire_captures/. The read catalog never calls
+  #   a write RPC. `rake wire:capture_writes` is the separate scheduling-write
+  #   path (WRITE_CATALOG, mode :write_live): disposable loopback only, and
+  #   the read-back is the proof.
   # - Fixture: loads a committed capture and REJECTS any fixture whose
   #   provenance is not `live-capture` (verbatim raw + sha256) or
   #   `routine-cite` (M source citation, no raw claimed). A hand-written
@@ -47,6 +50,18 @@ module RpmsRpc
     SOURCES = [ "live-capture", "no-data", "routine-cite" ].freeze
     KINDS = [ "fields", "scalar", "text_blob", "lines" ].freeze
 
+    # Access codes README.md documents as synthetic dev personas. A capture
+    # may record one of these as signed_on_as and nothing else.
+    SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
+
+    # BMX recordset column: a type letter, a 5-digit width, then the name
+    # (I00020APPOINTMENTID, T00020ERRORID). A header row is one whose every
+    # caret piece matches. Data rows do not.
+    BMX_COLUMN = /\A[A-Za-z]\d{5}[A-Za-z][A-Za-z0-9_]*\z/
+    LINE_BREAK = /\r\n|\r|\n/
+    RECORDSET_BREAK = /\r\n|\r|\n|\x1e/
+    RECORDSET_TRAILER = /[\x1e\x1f]+\z/
+
     class InvalidFixture < Error; end
 
     Piece = Struct.new(:position, :attributes, :fileman_type, keyword_init: true)
@@ -62,12 +77,6 @@ module RpmsRpc
       def write? = mode == :write
     end
 
-    # AG GLOBAL ARRAY typed-header piece: type letter, 5-digit width, name.
-    # I00010DFN^T00030PATIENT_NAME is a header, not a patient row.
-    TYPED_HEADER_PIECE = /\A[A-Z]\d{5}[A-Z0-9_]+\z/
-    RECORD_SEP = "\x1e" # $C(30)
-    ARRAY_END = "\x1f"  # $C(31)
-
     # A committed wire capture. Validates provenance on load — an invalid
     # fixture raises InvalidFixture rather than silently entering the gate.
     # Does a verbatim reply carry rows that are EVIDENCE of a field layout?
@@ -75,28 +84,32 @@ module RpmsRpc
     # bytes it actually received instead of assuming "live-capture" and then
     # discovering at validation time that it was wrong.
     #
-    # A payload that contains $C(30) is a GLOBAL ARRAY: records split on
-    # $C(30) and on newlines, and the $C(31) terminator is dropped. A reply
-    # with no $C(30) is still split on newlines only.
+    # A BMX recordset (the body contains $C(30) or $C(31)) is split on that
+    # row break. Its typed column header and its end marker are not data.
+    # That typed-header filter applies only to a recordset. A reply with
+    # neither marker is split on newlines, and header-shaped lines stay.
     def self.data_rows(raw)
       return [] if raw.nil?
 
-      record_lines(raw).reject { |row| non_data_row?(row) }
+      reply_rows(raw).reject { |row| non_data_row?(row) }
     end
 
-    # Framing stripped, records split, empties dropped. Non-data rows (error
-    # lines, sentinels, AG typed headers) are still here; data_rows drops them.
-    def self.record_lines(raw)
-      payload = strip_frame(raw)
-      body = payload.include?(RECORD_SEP) ? payload.split(ARRAY_END, 2).first.to_s : payload
-      delimiter = body.include?(RECORD_SEP) ? /\x1e|\r\n|\r|\n/ : /\r\n|\r|\n/
-      body.split(delimiter).reject(&:empty?)
+    # Non-empty reply lines. Blank lines stay out; a lines fixture keeps those
+    # separately. The typed BMX header is dropped only when the reply is a
+    # recordset (the body contains \x1e or \x1f). A non-recordset reply keeps
+    # header-shaped lines.
+    def self.reply_rows(raw)
+      rows = payload_rows(raw).reject(&:empty?)
+      return rows unless recordset_body?(raw)
+
+      rows.reject { |row| bmx_header_row?(row) }
     end
 
     # An explicit broker error ("-N^message"), as opposed to a no-data
     # sentinel. The difference matters when recapturing: nothing came back
     # because the CALL failed, so the existing fixture is better evidence
-    # than anything this run could write.
+    # than anything this run could write. Row breaks match #data_rows so a
+    # recordset error row is not hidden behind its column header.
     def self.error_reply?(raw)
       return false if raw.nil?
 
@@ -109,10 +122,65 @@ module RpmsRpc
       return true if raw.match?(/\A\d+\x01/)
 
       # Replies without CIA framing still announce failure in the row itself.
-      raw.sub(/\A\d+[\x00\x01]/, "").split(/\r\n|\r|\n/)
-         .reject(&:empty?)
-         .any? { |row| row.match?(/\A-\d+(?:\.\d+)?\^/) }
+      payload_rows(raw).reject(&:empty?).any? { |row| row.match?(/\A-\d+(?:\.\d+)?\^/) }
     end
+
+    # A PROV123 booking probe is evidence only as a refusal. A broker error
+    # is not one. The first data row has to map through
+    # :scheduling_add_appointment to an appointment id <= 0 and a non-empty
+    # error. The mapping is loaded here, on this path only.
+    def self.persona_probe_refusal?(raw)
+      return false if raw.nil? || error_reply?(raw)
+
+      rows = data_rows(raw)
+      return false if rows.empty?
+
+      require "rpms_rpc/mappings"
+      mapped = DataMapper[:scheduling_add_appointment].parse_one(rows.first.to_s)
+      mapped.is_a?(Hash) && mapped[:appointment_id].to_i <= 0 && !mapped[:error].to_s.empty?
+    end
+
+    # A DDR GETS ENTRY DATA body captured as a write's read-back: not a broker
+    # error, and at least one FILE^IENS^FIELD^value row under the reply. A
+    # bare "[Data]" marker and an "[ERROR]" body are not evidence.
+    def self.valid_ddr_read_back_raw?(raw)
+      return false if raw.nil? || error_reply?(raw)
+
+      rows = payload_rows(raw).reject(&:empty?)
+      return false if rows.any? { |row| row.start_with?("[ERROR]") }
+
+      rows.any? { |row| ddr_field_row?(row) }
+    end
+
+    def self.payload_rows(raw)
+      body = strip_frame(raw)
+      recordset = recordset_body?(raw)
+      rows = body.split(recordset ? RECORDSET_BREAK : LINE_BREAK)
+      rows.map! { |row| row.sub(RECORDSET_TRAILER, "") } if recordset
+      rows
+    end
+
+    # A recordset reply carries $C(30) between rows or a $C(31) end marker.
+    # Anything else is split on newlines and is not run through the typed-header filter.
+    def self.recordset_body?(raw)
+      body = raw.to_s.sub(/\A\d+[\x00\x01]/, "")
+      body.include?("\x1e") || body.include?("\x1f")
+    end
+
+    def self.bmx_header_row?(line)
+      pieces = line.split("^", -1)
+      return false if pieces.empty?
+
+      pieces.all? { |piece| piece.match?(BMX_COLUMN) }
+    end
+
+    def self.ddr_field_row?(row)
+      return false if row.start_with?("[")
+
+      pieces = row.split("^", -1)
+      pieces.length >= 4 && !pieces[0].empty? && !pieces[2].empty?
+    end
+    private_class_method :payload_rows, :recordset_body?, :bmx_header_row?, :ddr_field_row?
 
     # Read catalog entries the driver may call. A write run calls none of
     # them. The note flow's only read is the BEHOENCX GETVISIT linkage check
@@ -183,15 +251,8 @@ module RpmsRpc
       return true if line.match?(/\A-\d+(?:\.\d+)?\^/)
 
       pieces = line.split("^", -1)
-      return true if pieces.length >= 2 && pieces[0].empty? &&
+      pieces.length >= 2 && pieces[0].empty? &&
         pieces[1].match?(/\A[A-Za-z]/) && pieces[2..].all?(&:empty?)
-
-      typed_header_row?(pieces)
-    end
-
-    # Every caret piece is an AG typed-header token (I00010DFN, T00030PATIENT_NAME).
-    def self.typed_header_row?(pieces)
-      !pieces.empty? && pieces.all? { |piece| piece.match?(TYPED_HEADER_PIECE) }
     end
 
     def self.strip_frame(raw)
@@ -207,7 +268,8 @@ module RpmsRpc
     class Fixture
       attr_reader :path, :rpc, :mapping_name, :kind, :source, :cite, :inputs,
                   :raw_return, :example_return, :sha256, :release_tag, :captured_at,
-                  :pieces, :note
+                  :pieces, :note, :signed_on_as, :write, :api_call, :read_back,
+                  :read_before, :persona_probe
 
       def self.load_all(dir = FIXTURES_DIR)
         Dir.glob(File.join(dir, "*.yml")).sort.map { |path| load_file(path) }
@@ -231,6 +293,12 @@ module RpmsRpc
         @release_tag = data["release_tag"]
         @captured_at = data["captured_at"]
         @note = data["note"]
+        @signed_on_as = data["signed_on_as"]
+        @write = data["write"] == true
+        @api_call = data["api_call"]
+        @read_back = data["read_back"]
+        @read_before = data["read_before"]
+        @persona_probe = data["persona_probe"]
         @pieces = (data["pieces"] || []).map do |p|
           Piece.new(position: p["position"],
                     attributes: Array(p["attribute"] || p["attributes"]).map(&:to_s),
@@ -260,9 +328,9 @@ module RpmsRpc
         # only \x00 left "6\x01-1^message" intact, so non_data_row?'s
         # "-N^message" test never matched and a FAILED RPC was counted as a
         # captured data row -- a valid-looking live fixture built from an error.
-        # record_lines is the same split data_rows uses, including $C(30)
-        # GLOBAL ARRAY records, so a typed header is its own row.
-        WireCapture.record_lines(text)
+        # Recordset replies lose the typed header and the $C(31) end marker
+        # here too, so the contract type-checks data rows.
+        WireCapture.reply_rows(text)
       end
 
       # Only live-captured rows are evidence; example rows illustrate a cite.
@@ -294,20 +362,9 @@ module RpmsRpc
       # those as capture backing is how an empty result set comes to look
       # like a verified contract.
       def captured_data_rows
-        captured_rows.reject { |row| WireCapture.non_data_row?(row) }
-      end
+        return [] if @raw_return.nil?
 
-      # Kept local rather than delegating to DataMapper.non_data_row?: this
-      # gate must be able to judge a capture even on a branch whose
-      # DataMapper predates that helper.
-      def non_data_row?(line)
-        return true if line.match?(/\A-\d+(?:\.\d+)?\^/)          # "-N^message"
-
-        pieces = line.split("^", -1)
-        return true if pieces.length >= 2 && pieces[0].empty? &&
-          pieces[1].match?(/\A[A-Za-z]/) && pieces[2..].all?(&:empty?) # "^No X found."
-
-        WireCapture.typed_header_row?(pieces)
+        WireCapture.data_rows(@raw_return)
       end
 
       private
@@ -327,6 +384,7 @@ module RpmsRpc
         when "no-data" then validate_no_data!
         else validate_routine_cite!
         end
+        validate_write_capture! if @write
       end
 
       def validate_live!
@@ -338,7 +396,9 @@ module RpmsRpc
         fail!("sha256 does not match raw_return (#{actual}) — raw was edited " \
               "after capture") unless actual == @sha256
         # The rule the corpus exists for: a reply with no data rows is not
-        # evidence of a field layout, whatever the label says.
+        # evidence of a field layout, whatever the label says. A write reply
+        # with none (CANCEL's empty ERRORID recordset) is no-data too; the
+        # read-back is the proof, and the capture labels source from the bytes.
         fail!("live-capture captured no data rows (raw_return is framing, an " \
               "error row, or a no-data sentinel) — re-capture against a seeded " \
               "box, or declare source: no-data") if captured_data_rows.empty?
@@ -356,6 +416,48 @@ module RpmsRpc
         fail!("sha256 does not match raw_return (#{actual})") unless actual == @sha256
         fail!("no-data carries #{captured_data_rows.length} data row(s) — this is " \
               "a live-capture, label it so") if captured_data_rows.any?
+      end
+
+      def validate_write_capture!
+        unless SYNTHETIC_PERSONAS.include?(@signed_on_as.to_s)
+          fail!("signed_on_as must be a synthetic persona")
+        end
+        entries = @read_back
+        fail!("write fixture requires non-empty read_back") if !entries.is_a?(Array) || entries.empty?
+        entries.each { |entry| validate_sealed_ddr_entry!(entry, "read_back") }
+        validate_read_before! unless @read_before.nil?
+        validate_persona_probe! unless @persona_probe.nil?
+      end
+
+      # Present read_before is evidence of prior state. It has to be a
+      # non-empty list of sealed, DDR-valid GETS replies. Absent means this
+      # fixture was captured before that field existed.
+      def validate_read_before!
+        entries = @read_before
+        fail!("read_before must be non-empty") if !entries.is_a?(Array) || entries.empty?
+        entries.each { |entry| validate_sealed_ddr_entry!(entry, "read_before") }
+      end
+
+      def validate_sealed_ddr_entry!(entry, label)
+        fail!("#{label} entry must be a map of rpc, inputs, raw_return, sha256") unless entry.is_a?(Hash)
+
+        raw = entry["raw_return"].to_s
+        actual = Digest::SHA256.hexdigest(raw)
+        fail!("#{label} sha256 does not match raw_return (#{actual})") unless actual == entry["sha256"]
+        fail!("#{label} has no DDR data rows") unless WireCapture.valid_ddr_read_back_raw?(raw)
+      end
+
+      def validate_persona_probe!
+        probe = @persona_probe
+        fail!("persona_probe must be a map of signed_on_as, inputs, raw_return, sha256") unless probe.is_a?(Hash)
+
+        raw = probe["raw_return"].to_s
+        actual = Digest::SHA256.hexdigest(raw)
+        fail!("persona_probe sha256 does not match raw_return (#{actual})") unless actual == probe["sha256"]
+        unless SYNTHETIC_PERSONAS.include?(probe["signed_on_as"].to_s)
+          fail!("persona_probe signed_on_as must be a synthetic persona")
+        end
+        fail!("persona_probe must be a booking refusal") unless WireCapture.persona_probe_refusal?(raw)
       end
 
       def validate_routine_cite!
@@ -377,6 +479,69 @@ module RpmsRpc
 
       def fail!(message)
         raise InvalidFixture, "#{@path || "(fixture)"}: #{message}"
+      end
+    end
+
+    # Wraps a broker client and records each `call_rpc_raw` /
+    # `call_rpc_global_array` return. The hooks are prepended onto the
+    # delegate's singleton class and stay there for that object's lifetime,
+    # so this must wrap a client created for the capture only, never the
+    # process-global RpmsRpc.client. Scheduling and DataMapper call
+    # `call_rpc`, which calls `call_rpc_raw` on the same object, so the
+    # hooks sit on the delegate — forwarding the wrapper's method is not
+    # enough to see those bytes. Every other method, including context
+    # binds, is forwarded unchanged and is not an RPC entry. A raise from
+    # the delegate is not caught, retried, or rewritten.
+    class RecordingClient
+      RECORDED_CALLS = {
+        call_rpc_raw: :raw,
+        call_rpc_global_array: :global_array
+      }.freeze
+
+      attr_reader :rpc_calls
+
+      def initialize(delegate)
+        @delegate = delegate
+        @rpc_calls = []
+        RECORDED_CALLS.each { |method_name, kind| install_hook(delegate, method_name, kind) }
+      end
+
+      # Same log as #rpc_calls. Context binds are not entries here: a
+      # filter for kind :context stays empty, and they are not RPC calls.
+      def calls
+        @rpc_calls
+      end
+
+      def method_missing(name, ...)
+        if @delegate.respond_to?(name)
+          @delegate.public_send(name, ...)
+        else
+          super
+        end
+      end
+
+      def respond_to_missing?(name, include_private = false)
+        @delegate.respond_to?(name, include_private) || super
+      end
+
+      private
+
+      # The hook's splat wraps one argument in an extra array. One argument
+      # is that argument (an inputs array, or a DDR param Hash). Several
+      # arguments are the positional list.
+      def install_hook(delegate, method_name, kind)
+        return unless delegate.respond_to?(method_name)
+
+        recorded = @rpc_calls
+        normalize = ->(params) { params.length == 1 ? params.first : params }
+        hook = Module.new do
+          define_method(method_name) do |rpc, *params, &block|
+            raw = super(rpc, *params, &block)
+            recorded << { kind: kind, rpc: rpc, inputs: normalize.call(params), raw: raw }
+            raw
+          end
+        end
+        delegate.singleton_class.prepend(hook)
       end
     end
 
@@ -1047,6 +1212,68 @@ module RpmsRpc
         note: "Seed patient DFN 2 (synthetic USER,TEST), the possible-match form the " \
               "registration duplicate guard sends; the free-text find form is the same " \
               "RPC and reply layout."
+      )
+    ].freeze
+
+    # Scheduling writes for `rake wire:capture_writes` (issue #565). These are
+    # not CATALOG entries. mode :write_live is not :live, so the read driver
+    # (`CATALOG.select(&:live?)`) never calls them. A write reply is not proof;
+    # the capture's read-back is. Piece layout matches the DataMapper mapping.
+    WRITE_CATALOG = [
+      CatalogEntry.new(
+        rpc: "BSDX ADD NEW APPOINTMENT", mapping: :scheduling_add_appointment,
+        kind: "fields", mode: :write_live,
+        cite: "APPADD^BSDX07 (BSDX07.m:55,64) → $$MAKE^BSDAPI: data row " \
+              "APPOINTMENTID^ERRORID. A positive id and an empty error is success; " \
+              "piece 0 is the appointment id and piece 1 is the error text.",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "appointment_id" ], fileman_type: "integer"),
+          Piece.new(position: 1, attributes: [ "error" ])
+        ],
+        note: "Booked as the setup persona. PROV123 cannot book on this seed " \
+              "(DUZ(2) has no #40.8 division, so $$DIV^BSDU is 0); persona_probe is " \
+              "that refusal. The read-back, not this reply, proves the appointment."
+      ),
+      CatalogEntry.new(
+        rpc: "BSDX CHECKIN APPOINTMENT", mapping: :scheduling_checkin_appointment,
+        kind: "fields", mode: :write_live,
+        cite: "CHECKIN^BSDX25 (BSDX25.m:12,37,44-45,74,361-365): header " \
+              "ERRORID^MESSAGE; the success row is \"0^\"_MESSAGE. A future check-in " \
+              "is clamped to NOW and truncated to HHMM. Piece 0 is ERRORID.",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "error" ])
+        ],
+        note: "Checked in as PROV123. The sent time is one minute before the server " \
+              "minute, at minute precision, so the clamp does not rewrite it. " \
+              "The read-back of #9002018.4 .03 is the proof."
+      ),
+      CatalogEntry.new(
+        rpc: "BSDX CANCEL APPOINTMENT", mapping: :scheduling_cancel_appointment,
+        kind: "fields", mode: :write_live,
+        cite: "APPDEL^BSDX08 (BSDX08.m:109) → $$CANCEL^BSDAPI (BSDAPI.m:199-204): " \
+              "the data row is the ERRORID column, and empty means the call was " \
+              "accepted. A blank reason files 14. The ^DPT update is skipped when " \
+              "the node is missing, so an empty ERRORID is not proof.",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "error" ])
+        ],
+        note: "Cancelled as PROV123 with type PC and a coded #409.2 reason. The " \
+              "reply is an empty ERRORID row (no-data) and proves nothing; #2.98 " \
+              "field 16 is the proof, and it is unproven when the sent reason is " \
+              "blank or 14."
+      ),
+      CatalogEntry.new(
+        rpc: "BSDX NOSHOW", mapping: :scheduling_noshow_appointment,
+        kind: "fields", mode: :write_live,
+        cite: "NOSHOW^BSDX31 → $$CANCEL^BSDAPI: data row ERRORID^ERRORTEXT. ERRORID " \
+              "is a success flag with inverted polarity (1 success, 0 failure). " \
+              "Piece 0 is that flag; piece 1 is the error text.",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "result" ], fileman_type: "integer"),
+          Piece.new(position: 1, attributes: [ "error" ])
+        ],
+        note: "No-show as PROV123. The read-back proves #9002018.4 .1 and #2.98 " \
+              "status N; the reply's success flag is not that proof."
       )
     ].freeze
   end
