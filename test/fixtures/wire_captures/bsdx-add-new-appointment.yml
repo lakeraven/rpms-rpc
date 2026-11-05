@@ -6,7 +6,7 @@ rpc: BSDX ADD NEW APPOINTMENT
 mapping: scheduling_add_appointment
 kind: fields
 release_tag: bcer-9.0-20261012-e7923a4-ydb
-captured_at: '2026-11-05T07:09:12Z'
+captured_at: '2026-11-05T08:06:41Z'
 signed_on_as: SYS123
 cite: 'APPADD^BSDX07 (BSDX07.m:55,64) → $$MAKE^BSDAPI: data row APPOINTMENTID^ERRORID.
   A positive id and an empty error is success; piece 0 is the appointment id and piece
@@ -32,8 +32,8 @@ inputs:
 - ''
 - ''
 - ''
-raw_return: "3\0I00020APPOINTMENTID^T00020ERRORID\x1E1^\x1E\x1F"
-sha256: 7b40bc0aae75e923e932a7f558388a6e1fb75c5d3fcd7cebe68ef3e356524067
+raw_return: "4\0I00020APPOINTMENTID^T00020ERRORID\x1E1^\x1E\x1F"
+sha256: 780edfa8931a9636e15cc8d70b1ff147ce3f4d1da992716d0da39b98321bcb5d
 write: true
 api_call:
   method: add_appointment
@@ -50,6 +50,11 @@ setup:
   duz:
     SYS123: 4
     PROV123: 200
+  division:
+    SYS123: 7819
+    PROV123: 1
+  medical_center_division_institutions:
+  - 7819
   notes: created BSDX RESOURCE ZZ PILOT SCHED CAPTURE on hospital location 3 (ien
     1); set file room printer on BSD PARAMETERS 3 to ZZNULL device 192
 read_back:
@@ -59,16 +64,16 @@ read_back:
     IENS: 1,
     FIELDS: ".01;.03;.05;.07;.1;.12"
     FLAGS: I
-  raw_return: "4\0[Data]\r9002018.4^1^.01^3261126.09^\r9002018.4^1^.03^^\r9002018.4^1^.05^3^\r9002018.4^1^.07^1^\r9002018.4^1^.1^^\r9002018.4^1^.12^^\r"
-  sha256: b1797af477ef7625cb349962e00c01d7ad091c23005d7d34df054eae67064a5b
+  raw_return: "5\0[Data]\r9002018.4^1^.01^3261126.09^\r9002018.4^1^.03^^\r9002018.4^1^.05^3^\r9002018.4^1^.07^1^\r9002018.4^1^.1^^\r9002018.4^1^.12^^\r"
+  sha256: 0a514cff2ce1067c6fb7e3efdf2180e337732a98345a1b3faa16052abba4de37
 - rpc: DDR GETS ENTRY DATA
   inputs:
     FILE: '2.98'
     IENS: 3261126.09,3,
     FIELDS: ".01;3;14;16"
     FLAGS: I
-  raw_return: "5\0[Data]\r2.98^3261126.09,3^.01^3^\r2.98^3261126.09,3^3^^\r2.98^3261126.09,3^14^^\r2.98^3261126.09,3^16^^\r"
-  sha256: 12111ba38cf8ec96892872dcd8346513a6d0fce50f73dd0b357710bf7ca899d7
+  raw_return: "6\0[Data]\r2.98^3261126.09,3^.01^3^\r2.98^3261126.09,3^3^^\r2.98^3261126.09,3^14^^\r2.98^3261126.09,3^16^^\r"
+  sha256: 0cbb63911d22e84d7127107fa9da4b1fd8db92f9dbb34cf327ea38d499030c54
 persona_probe:
   signed_on_as: PROV123
   inputs:

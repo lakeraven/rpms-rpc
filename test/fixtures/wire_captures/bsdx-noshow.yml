@@ -6,7 +6,7 @@ rpc: BSDX NOSHOW
 mapping: scheduling_noshow_appointment
 kind: fields
 release_tag: bcer-9.0-20261012-e7923a4-ydb
-captured_at: '2026-11-05T07:09:12Z'
+captured_at: '2026-11-05T08:06:41Z'
 signed_on_as: PROV123
 cite: 'NOSHOW^BSDX31 → $$CANCEL^BSDAPI: data row ERRORID^ERRORTEXT. ERRORID is a success
   flag with inverted polarity (1 success, 0 failure). Piece 0 is that flag; piece
@@ -39,6 +39,11 @@ setup:
   duz:
     SYS123: 4
     PROV123: 200
+  division:
+    SYS123: 7819
+    PROV123: 1
+  medical_center_division_institutions:
+  - 7819
   notes: created BSDX RESOURCE ZZ PILOT SCHED CAPTURE on hospital location 3 (ien
     1); set file room printer on BSD PARAMETERS 3 to ZZNULL device 192
 read_back:

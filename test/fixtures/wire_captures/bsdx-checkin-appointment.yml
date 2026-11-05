@@ -6,7 +6,7 @@ rpc: BSDX CHECKIN APPOINTMENT
 mapping: scheduling_checkin_appointment
 kind: fields
 release_tag: bcer-9.0-20261012-e7923a4-ydb
-captured_at: '2026-11-05T07:09:12Z'
+captured_at: '2026-11-05T08:06:41Z'
 signed_on_as: PROV123
 cite: 'CHECKIN^BSDX25 (BSDX25.m:12,37,44-45,74,361-365): header ERRORID^MESSAGE; the
   success row is "0^"_MESSAGE. A future check-in is clamped to NOW and truncated to
@@ -21,7 +21,7 @@ pieces:
 source: live-capture
 inputs:
 - '1'
-- '3261105.0708'
+- '3261105.0805'
 - ''
 - ''
 - ''
@@ -36,13 +36,18 @@ api_call:
   args:
   - 1
   kwargs:
-    checkin_time: '3261105.0708'
+    checkin_time: '3261105.0805'
 setup:
   resource_ien: 1
   hospital_location_id: 3
   duz:
     SYS123: 4
     PROV123: 200
+  division:
+    SYS123: 7819
+    PROV123: 1
+  medical_center_division_institutions:
+  - 7819
   notes: created BSDX RESOURCE ZZ PILOT SCHED CAPTURE on hospital location 3 (ien
     1); set file room printer on BSD PARAMETERS 3 to ZZNULL device 192
 read_back:
@@ -52,8 +57,8 @@ read_back:
     IENS: 1,
     FIELDS: ".01;.03;.05;.07;.1;.12"
     FLAGS: I
-  raw_return: "3\0[Data]\r9002018.4^1^.01^3261126.09^\r9002018.4^1^.03^3261105.0708^\r9002018.4^1^.05^3^\r9002018.4^1^.07^1^\r9002018.4^1^.1^^\r9002018.4^1^.12^^\r"
-  sha256: 500846dc9a6557fac9c331f59a9ebbe85edb666704fd9372f7faf91599352280
+  raw_return: "3\0[Data]\r9002018.4^1^.01^3261126.09^\r9002018.4^1^.03^3261105.0805^\r9002018.4^1^.05^3^\r9002018.4^1^.07^1^\r9002018.4^1^.1^^\r9002018.4^1^.12^^\r"
+  sha256: 1bb90d893633ecd48b5de89da32577efa378e6ade039448a8c435996821b04c2
 - rpc: DDR GETS ENTRY DATA
   inputs:
     FILE: '2.98'
@@ -68,8 +73,8 @@ read_back:
     IENS: 1,3261126.09,3,
     FIELDS: ".01;309;302"
     FLAGS: I
-  raw_return: "6\0[Data]\r44.003^1,3261126.09,3^.01^3^\r44.003^1,3261126.09,3^302^200^\r44.003^1,3261126.09,3^309^3261105.0708^\r"
-  sha256: 83d8531af0bdfdab989c3ac7d24d9cef423b2f196dc8c12b69c5e657ebc170ef
+  raw_return: "6\0[Data]\r44.003^1,3261126.09,3^.01^3^\r44.003^1,3261126.09,3^302^200^\r44.003^1,3261126.09,3^309^3261105.0805^\r"
+  sha256: 4e1d4a73e4b87774b92c16bf0df08cc220e955a5d3ba2fb4a4af70d8f97bac17
 read_before:
 - rpc: DDR GETS ENTRY DATA
   inputs:
