@@ -330,10 +330,11 @@ module RpmsRpc
         text = replay(NoteWriteFlow::GET_RPC, rows) { ProgressNote.fetch_text("1") }
         return false if text.nil? || text.to_s.empty?
 
-        first = note_body.to_s.split(/\r?\n/, 2).first.to_s.strip
+        first = note_body.to_s.split(/\r\n|\r|\n/, 2).first.to_s.strip
         return false if first.empty?
 
-        lines = frame_payload(raw).split(/\r?\n/, -1)
+        # CIA row grammar: rows separate on \r\n, a bare \r, or \n. -1 keeps the blank line's slot.
+        lines = frame_payload(raw).split(/\r\n|\r|\n/, -1)
         blank = lines.index("")
         return false if blank.nil?
 

@@ -242,7 +242,7 @@ namespace :wire do
 
     piece = raw.sub(/\A\d+[\x00\x01]/, "").split(/\r\n|\r|\n/, 2).first.to_s.split("^", 2).first.to_s
     piece = redact_esig(piece)
-    note_line = RpmsRpc::WireCapture::NoteWriteFlow::NOTE_TEXT.split(/\r?\n/, 2).first.to_s
+    note_line = RpmsRpc::WireCapture::NoteWriteFlow::NOTE_TEXT.split(/\r\n|\r|\n/, 2).first.to_s
     if entry.rpc == "TIU GET RECORD TEXT" || piece.bytesize > 80 || (!note_line.empty? && piece.include?(note_line))
       "reply withheld"
     else
