@@ -71,7 +71,10 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     "<UNDEFINED>LIST+3^ORQQPL *DFN",
     "<UNDEFINED>IDINFO+2^ORWPT *DFN",
     "1^LIST+3^ORQQPL,Undefined local variable: DFN",
-    "%GTM-E-UNDEF, Undefined local variable: DFN^x"
+    "%GTM-E-UNDEF, Undefined local variable: DFN^x",
+    # No LABEL+off^ROUTINE location and two real pieces: only the IRIS <NAME> rule rejects these.
+    "<UNDEFINED>^x^y",
+    "1^<SUBSCRIPT>^x"
   ].freeze
 
   # Round-7 (#512): empty piece 0 requires a positive integer in piece 1, not 0 or negative.
@@ -249,11 +252,13 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
 
     # M error text anywhere in the row is not a record: %YDB-E, %GTM-E, $ZSTATUS,
     # code,LABEL+off^ROUTINE, a bare LABEL+off^ROUTINE location, or an IRIS <NAME>
-    # token at a piece start.
+    # token at a piece start. A bare location needs a routine token of two or more
+    # characters, so a narrative ending in WORD+digits before a one-letter status
+    # piece (HIV+1^A^...) is not mistaken for one.
     def m_error_text?(text)
       text.include?("%YDB-E") || text.include?("%GTM-E") || text.include?("$ZSTATUS") ||
         text.match?(/\d+,[A-Z0-9%]+\+\d+\^/) ||
-        text.match?(/[A-Z0-9%]+\+\d+\^[A-Z%]/) ||
+        text.match?(/[A-Z0-9%]+\+\d+\^[A-Z%][A-Z0-9%]+(?=[,\s^]|\z)/) ||
         text.match?(/(\A|\^)<[A-Z]+>/)
     end
 

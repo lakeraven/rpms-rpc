@@ -14,6 +14,14 @@ class RpmsRpc::PilotChartReadsErrorRowsTest < Minitest::Test
   SYNTHETIC_RECORD_ROW_LOCATION_LIKE_NARRATIVE =
     "123^HTN stage 2, CKD + 3 x daily^A^I10^3200101^3250301^NSC^^^^^^".freeze
 
+  # Narratives that end in WORD+digits before a one-letter status piece look like a
+  # LABEL+off^ROUTINE location to a loose pattern; they are records.
+  SYNTHETIC_RECORD_ROWS_PLUS_DIGITS_BEFORE_STATUS_PIECE = [
+    "7^HIV+1^A^B20^3200101^3250301^NSC^^^^^^",
+    "3^ANEMIA B12+1^A^D51.9^3200101^3250301^NSC^^^^^^",
+    "5^GRADE 3+2^A^I10^3200101^3250301^NSC^^^^^^"
+  ].freeze
+
   LIVE_CAPTURE_FIELDS_POSITIVE_CONTROL_STATUS = {
     patient_id_info: "partial",
     patient_ptinfo: "partial",
@@ -193,6 +201,13 @@ class RpmsRpc::PilotChartReadsErrorRowsTest < Minitest::Test
                  "record row must prove at least one readiness field"
     refute_equal "not-proven", Grader.expected_checklist_status(slice, stub),
                  "single synthetic record row must not grade not-proven"
+  end
+
+  def test_synthetic_record_rows_with_plus_digits_before_a_status_piece_count_as_record_evidence
+    SYNTHETIC_RECORD_ROWS_PLUS_DIGITS_BEFORE_STATUS_PIECE.each do |row|
+      assert Grader.record_row?(row),
+             "#{row.inspect}: WORD+digits before a one-letter status piece is a narrative, not a location"
+    end
   end
 
   def test_synthetic_record_row_with_location_like_narrative_counts_as_record_evidence
