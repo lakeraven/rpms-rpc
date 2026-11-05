@@ -75,8 +75,9 @@ module RpmsRpc
     # PTSEC^DGSEC4 return type 2 (DGSEC4.m:13-66): an Array or Reply of
     # lines, or a String split on line breaks. The first line is RESULT(1);
     # the rest are RESULT(2+). Nil when there is no line, or the first line
-    # (stripped) is not an integer. A code that is not an integer is nil,
-    # never 0.
+    # (stripped) is not a base-10 integer. Integer(code, 10) so a leading
+    # zero is decimal: "010" is 10 and "08" is 8. A code that is not an
+    # integer is nil, never 0.
     def parse_access_reply(lines)
       rows = lines.is_a?(String) ? lines.split(/\r\n|\r|\n/) : lines
       return nil if rows.nil? || rows.empty?
@@ -84,7 +85,7 @@ module RpmsRpc
       code = rows.first.to_s.strip
       return nil unless code.match?(/\A-?\d+\z/)
 
-      { result: Integer(code), messages: rows.drop(1).map(&:to_s).reject(&:empty?) }
+      { result: Integer(code, 10), messages: rows.drop(1).map(&:to_s).reject(&:empty?) }
     end
 
     # NOTICE^DGSEC4's single value: "1" succeeded, "0" did not. Anything

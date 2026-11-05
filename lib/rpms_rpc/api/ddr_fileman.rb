@@ -361,6 +361,13 @@ module RpmsRpc
       RpmsRpc.client.call_rpc(DataMapper[mapping_name].rpc_name, *params)
     end
 
+    public
+
+    # Parse the lines from #lines. Public so a caller that read DDR LISTER
+    # on its own client uses the same grammar as #lister. #lister always
+    # calls RpmsRpc.client; Agg.update_legal_names reads file 9000033 on
+    # the client it was given.
+    #
     # V0 rows are every non-marker, non-MORE line. V1 rows are only the
     # lines inside "[BEGIN_diDATA]" ... "[END_diDATA]". An error marker
     # closes a V1 data section so its text is not a row. No data section
@@ -393,20 +400,24 @@ module RpmsRpc
       { entries: entries, more: more, error: error, data: data }
     end
 
+    # Normalize a broker reply to an array of lines, the split #lister
+    # uses. Public for the same reason as #parse_lister_reply. MockClient
+    # returns an Array (or a single-line String); a live broker returns a
+    # CR+LF-joined stream. nil/empty → nil (no response at all).
+    def lines(response)
+      return nil if response.nil?
+
+      list = response.is_a?(Array) ? response.map(&:to_s) : response.to_s.split(/\r?\n/)
+      list.empty? ? nil : list
+    end
+
+    private
+
     # "[END_diDATA]" ends the V1 row list. An error marker does too, so
     # the text under it is not parsed as another row.
     def lister_v1_data_closed?(line)
       line == "[END_diDATA]" || line == "[BEGIN_diERRORS]" ||
         line == "[Errors]" || line == "[END_diERRORS]"
-    end
-
-    # Normalize a broker reply to an array of lines: MockClient returns an
-    # Array (or a single-line String); a live broker returns a CR+LF-joined
-    # stream. nil/empty → nil (no response at all).
-    def lines(response)
-      return nil if response.nil?
-      list = response.is_a?(Array) ? response.map(&:to_s) : response.to_s.split(/\r?\n/)
-      list.empty? ? nil : list
     end
 
     # Extract the human-readable DIERR TEXT lines from a

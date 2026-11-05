@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
+require "date"
 require_relative "../mappings"
 require_relative "../client"
 require_relative "../context_scope"
 require_relative "../shape"
 require_relative "ddr_fileman"
+require_relative "orwu"
 
 module RpmsRpc
   # Symbolic API for the IHS **AG** package's GUI registration RPCs (the AGG*
@@ -92,6 +94,13 @@ module RpmsRpc
     TABLE_LOOKUP_RPC = "AGG WINDOW TABLE LOOKUP"      # LKP^AGGWTBLK, a pointed-to file's entries by name
     UPDATE_ALIASES_RPC = "AGG UPDATE ALIASES"         # ALIAS^AGGPTNAM
     UPDATE_LEGAL_NAMES_RPC = "AGG UPDATE LEGAL NAMES" # LEGL^AGGPTNAM
+    # PARS^AGGPTNAM does S @NAME=VALUE for each name in
+    # ^AGG(9009068.3,27,10,"AC"). RIEN and DFN are excluded: they are
+    # LEGL's arguments, and a PARMS value would set them before the
+    # blank-RIEN ^DIC lookup (AGGPTNAM.m:76-79).
+    LEGAL_NAME_PARMS = %w[AGGLNDTC AGGLNMC AGGLNPRF AGGLGDOC AGGLNEBY ALIASCK].freeze
+    LEGAL_NAME_FILE = "9000033"
+    LEGAL_NAME_CONTEXT = "CIAV VUECENTRIC"
     UPDATE_SPECIAL_MULTIPLES_RPC = "AGG UPDATE SPECIAL MULTIPLES" # UPD^AGGPOTH
     CHECK_SENSITIVE_RPC = "AGG CHECK SENSITIVE PATIENT" # CHK^AGGPTSEN
     SEND_SENSITIVE_NOTIFY_RPC = "AGG SEND SENSITIVE NOTIFY" # NOT^AGGPTSEN
@@ -332,25 +341,50 @@ module RpmsRpc
     # (AGGPTNAM.m:57). A DFN that is not a positive integer is
     # { success: false, error: :invalid_dfn } and sends no RPC. PROC must
     # be exactly "A", "D", or ""; anything else, including nil, is
-    # { success: false, error: :invalid_proc } and sends no RPC. A delete
-    # with a RIEN runs ^DIK on ^AUPNNAMC( (AGGPTNAM.m:70-72). An add or
-    # edit files file 9000033 field .02 to this DFN on that IENS
-    # (AGGPTNAM.m:81-83), so a non-blank RIEN has to already be this
-    # patient's row. A blank RIEN is sent only when proc is "A". Any other
-    # proc with a blank RIEN is { success: false, error: :invalid_rien }
-    # and sends no RPC. A non-blank RIEN that is not /\A[1-9]\d*\z/ is the
-    # same :invalid_rien, with no RPC. A RIEN that matches is read first,
-    # on this same client: DDR GETS ENTRY DATA, file 9000033, IENS
-    # "<rien>,", field .02, flags "I", scoped to CIAV VUECENTRIC (the RPC
-    # is not registered under AGGRPC). A reply that says [ERROR], or that
-    # does not prove .02, is { success: false, error: :rien_unverified }
-    # and LEGL is not called. A broker error raised by the read propagates
-    # and LEGL is not sent. An internal .02 that is not this DFN's
-    # canonical digit string is { success: false, error: :rien_not_for_dfn }
-    # and LEGL is not called. Only a match sends LEGL. The check is a
-    # read-then-write, not atomic. The DFN on the wire is that canonical
-    # string. Success is RESULT "1" only (AGGPTNAM.m:101-102); a rejection
-    # row is "-1^message" and is never success. A parameter value
+    # { success: false, error: :invalid_proc } and sends no RPC.
+    #
+    # Every PARMS name must be in LEGAL_NAME_PARMS
+    # (^AGG(9009068.3,27,10,"AC")), which PARS assigns with S @NAME=VALUE
+    # before the RIEN check (AGGPTNAM.m:76-79). RIEN and DFN are not in
+    # that index. Any other name is { success: false, error: :invalid_param }
+    # and sends no RPC.
+    #
+    # A delete with a RIEN runs ^DIK on ^AUPNNAMC( (AGGPTNAM.m:70-72). An
+    # add or edit files file 9000033 field .02 to this DFN (AGGPTNAM.m:81-83).
+    # A non-blank RIEN is read first on this client (DDR GETS ENTRY DATA,
+    # field .02, flags "I", CIAV VUECENTRIC). :rien_unverified or
+    # :rien_not_for_dfn sends no LEGL. A broker error from that read
+    # propagates. A blank RIEN is sent only when proc is "A"; otherwise
+    # :invalid_rien. A non-blank RIEN that is not /\A[1-9]\d*\z/ is
+    # :invalid_rien. The wire DFN is the canonical digit string. That
+    # .02 check is read-then-write, not atomic.
+    #
+    # A blank-RIEN add also pre-checks, and sends no LEGL when they refuse.
+    # ORWU DT "T" (flags "") must be seven FileMan digits. The previous
+    # calendar day is checked too: DT is set at sign-on and may lag a day.
+    # A non-blank AGGLNDTC that contains ":" is :legal_name_unverified.
+    # Otherwise ORWU DT with flags "TS" (DATE^AGGUL1, %DT="TS") adds that
+    # day; nil (the routine's "" or "-1", then DT) adds none. A reply that
+    # is not a FileMan date is :legal_name_unverified. Each distinct day is
+    # read with DDR LISTER on the B index of .01 DATE CHANGED
+    # (^DD(9000033,0,"IX","B",9000033,.01)), FROM the prior integer plus
+    # ".9999999", flags "IPQ", max 1, on this client under CIAV VUECENTRIC.
+    # ^DIC with DIC(0)="L" (AGGPTNAM.m:81) selects an existing row on an
+    # exact or prefix B match, so a first row whose .01 is that day is
+    # :legal_name_date_taken. An unreadable row is :legal_name_unverified,
+    # including when another day is taken. The highest IEN (xref "#",
+    # flags "IPB", max 1) is read only when every day is clear; no row
+    # means 0. A broker RpcError from these reads propagates. The
+    # pre-check is read-then-write, not atomic.
+    #
+    # After LEGL, only a blank-RIEN add is checked again. A result that is
+    # not success is returned unchanged. Success with no IEN is
+    # :legal_name_unverified, written: true. An IEN at or below the highest
+    # IEN from before the add is :legal_name_takeover, written: true. A
+    # higher IEN is re-read for .02: unverified, or a value that is not
+    # this DFN, is the same kind of refusal with written: true. The
+    # post-check detects a takeover and cannot undo it (written: true).
+    # Success is RESULT "1" only (AGGPTNAM.m:101-102). A parameter value
     # containing $C(28) raises before the call (encode_parms). Returns
     # { success: true, ien: } / { success: false, error:, message: } / nil.
     def update_legal_names(dfn:, proc:, rien:, params: {}, client: RpmsRpc.client)
@@ -358,15 +392,27 @@ module RpmsRpc
       return legal_name_failure(:invalid_dfn, "DFN must be a positive integer") unless dfn_text
       return legal_name_failure(:invalid_proc, "proc must be A, D, or empty") unless proc == "A" || proc == "D" || proc == ""
 
+      refusal = legal_name_param_refusal(params)
+      return refusal if refusal
+
       rien_text = rien.to_s
       refusal = legal_name_rien_refusal(dfn_text, proc, rien_text, client)
       return refusal if refusal
 
-      in_context(client) do
+      prior_max = nil
+      if proc == "A" && rien_text.empty?
+        prior_max = legal_name_blank_add_prior_max(params, client)
+        return prior_max if prior_max.is_a?(Hash)
+      end
+
+      result = in_context(client) do
         interpret_entry_write(
           call_array(client, UPDATE_LEGAL_NAMES_RPC, dfn_text, proc, rien_text, encode_parms(params))
         )
       end
+      return result unless proc == "A" && rien_text.empty?
+
+      legal_name_blank_add_postcheck(client, dfn_text, result, prior_max)
     end
     shape :update_legal_names, resource: "agg", verb: "PUT", path: "/patients/{dfn}/agg/legal-names"
 
@@ -658,10 +704,10 @@ module RpmsRpc
     # The internal .02, or :unverified when the read does not prove a
     # value. A broker error raised by the read propagates.
     def legal_name_patient(client, rien_text)
-      raw = ContextScope.scoped(client, "CIAV VUECENTRIC") do
+      raw = ContextScope.scoped(client, LEGAL_NAME_CONTEXT) do
         client.call_rpc(
           DataMapper[:ddr_gets_entry_data].rpc_name,
-          DdrFileman.gets_entry_param(file: "9000033", iens: "#{rien_text},", fields: ".02", flags: "I")
+          DdrFileman.gets_entry_param(file: LEGAL_NAME_FILE, iens: "#{rien_text},", fields: ".02", flags: "I")
         )
       end
       read = DdrFileman.parse_gets_reply(raw)
@@ -675,6 +721,181 @@ module RpmsRpc
 
     def legal_name_failure(error, message)
       { success: false, error: error, message: message }
+    end
+
+    def legal_name_param_refusal(params)
+      params.each do |name, _value|
+        text = name.to_s
+        next if LEGAL_NAME_PARMS.include?(text)
+
+        return legal_name_failure(:invalid_param, "#{text} is not a Legal Names parameter")
+      end
+      nil
+    end
+
+    # The highest file 9000033 IEN before a blank-RIEN add, or a refusal
+    # hash. No LEGL has been sent. Every day is read before deciding: an
+    # unreadable day wins over a day that is already taken.
+    def legal_name_blank_add_prior_max(params, client)
+      today = legal_name_server_today(client)
+      return today if today.is_a?(Hash)
+
+      yesterday = legal_name_previous_day(today)
+      unless yesterday
+        return legal_name_failure(:legal_name_unverified, "ORWU DT date #{today} is not a calendar day")
+      end
+
+      extra = legal_name_agglndtc_day(params, client)
+      return extra if extra.is_a?(Hash)
+
+      days = [ yesterday, today ]
+      days << extra if extra
+      refusal = legal_name_b_index_refusal(client, days.uniq.sort)
+      return refusal if refusal
+
+      legal_name_highest_ien(client)
+    end
+
+    def legal_name_server_today(client)
+      value = Orwu.fileman_datetime("T", flags: "", client: client)
+      unless value.to_s.match?(/\A\d{7}\z/)
+        return legal_name_failure(:legal_name_unverified, "ORWU DT did not return a FileMan date for T")
+      end
+
+      Integer(value, 10)
+    end
+
+    # FM = (year - 1700) * 10000 + month * 100 + day. nil when fm is not
+    # a real calendar day, so the caller refuses instead of filing.
+    def legal_name_previous_day(fm)
+      year = (fm / 10_000) + 1700
+      month = (fm / 100) % 100
+      day = fm % 100
+      return nil unless Date.valid_date?(year, month, day)
+
+      date = Date.new(year, month, day) - 1
+      ((date.year - 1700) * 10_000) + (date.month * 100) + date.day
+    end
+
+    # nil when AGGLNDTC is absent, blank, or ORWU DT answers nil (the
+    # routine then uses DT). A Hash is :legal_name_unverified.
+    def legal_name_agglndtc_day(params, client)
+      pair = params.find { |name, _value| name.to_s == "AGGLNDTC" }
+      return nil unless pair
+
+      text = pair.last.to_s
+      return nil if text.empty?
+
+      if text.include?(":")
+        return legal_name_failure(:legal_name_unverified, "AGGLNDTC contains ':' and cannot be verified as a FileMan date")
+      end
+
+      value = Orwu.fileman_datetime(text, flags: "TS", client: client)
+      return nil if value.nil?
+      unless value.match?(/\A\d{7}(\.\d+)?\z/)
+        return legal_name_failure(:legal_name_unverified, "ORWU DT did not return a FileMan date for AGGLNDTC")
+      end
+
+      Integer(value[0, 7], 10)
+    end
+
+    def legal_name_b_index_refusal(client, days)
+      statuses = days.map { |day| [ day, legal_name_b_index_status(client, day) ] }
+      unverified = statuses.find { |_, status| status == :unverified }
+      if unverified
+        return legal_name_failure(:legal_name_unverified, "file 9000033 B index for #{unverified[0]} did not verify")
+      end
+
+      taken = statuses.find { |_, status| status == :taken }
+      return nil unless taken
+
+      legal_name_failure(
+        :legal_name_date_taken,
+        "file 9000033 already has an entry dated #{taken[0]}; a blank-RIEN add would select it"
+      )
+    end
+
+    # :clear, :taken, or :unverified. The first row's .01I is the day when
+    # its first seven digits are that FileMan date (^DIC DIC(0)="L").
+    def legal_name_b_index_status(client, day)
+      param = DdrFileman.lister_param(
+        file: LEGAL_NAME_FILE, fields: "@;.01I", flags: "IPQ", max: "1", xref: "B",
+        from: "#{day - 1}.9999999"
+      )
+      parsed = legal_name_lister(client, param)
+      return :unverified if parsed.nil? || parsed[:error] || !parsed[:data]
+
+      row = parsed[:entries].first
+      return :clear unless row
+      return :unverified unless row[:ien].to_s.match?(/\A[1-9]\d*\z/)
+
+      changed = row[:pieces].first.to_s
+      return :unverified unless changed.match?(/\A\d{7}(\.\d+)?\z/)
+
+      changed[0, 7] == day.to_s ? :taken : :clear
+    end
+
+    def legal_name_highest_ien(client)
+      param = DdrFileman.lister_param(file: LEGAL_NAME_FILE, fields: "@", flags: "IPB", max: "1", xref: "#")
+      parsed = legal_name_lister(client, param)
+      if parsed.nil? || parsed[:error] || !parsed[:data]
+        return legal_name_failure(:legal_name_unverified, "file 9000033 highest IEN did not verify")
+      end
+
+      row = parsed[:entries].first
+      return 0 unless row
+
+      ien = row[:ien].to_s
+      unless ien.match?(/\A[1-9]\d*\z/)
+        return legal_name_failure(:legal_name_unverified, "file 9000033 highest IEN did not verify")
+      end
+
+      Integer(ien, 10)
+    end
+
+    def legal_name_lister(client, param)
+      raw = ContextScope.scoped(client, LEGAL_NAME_CONTEXT) do
+        client.call_rpc(DataMapper[:ddr_lister].rpc_name, param)
+      end
+      reply = DdrFileman.lines(raw)
+      return nil if reply.nil?
+
+      DdrFileman.parse_lister_reply(reply)
+    end
+
+    def legal_name_blank_add_postcheck(client, dfn_text, result, prior_max)
+      return result unless result.is_a?(Hash) && result[:success]
+      return legal_name_unverified_write("LEGL succeeded without a file 9000033 RIEN") unless result.key?(:ien)
+
+      ien = result[:ien]
+      if ien <= prior_max
+        return {
+          success: false,
+          error: :legal_name_takeover,
+          ien: ien,
+          written: true,
+          message: "LEGL filed file 9000033 IEN #{ien}, which already existed (highest IEN before the add was #{prior_max})"
+        }
+      end
+
+      stored = legal_name_patient(client, ien.to_s)
+      if stored == :unverified
+        return { success: false, error: :legal_name_unverified, ien: ien, written: true,
+                 message: "file 9000033 IEN #{ien} .02 did not verify" }
+      end
+      return { success: true, ien: ien } if stored == dfn_text
+
+      {
+        success: false,
+        error: :legal_name_takeover,
+        ien: ien,
+        written: true,
+        message: "file 9000033 IEN #{ien} .02 is not DFN #{dfn_text}"
+      }
+    end
+
+    def legal_name_unverified_write(message)
+      { success: false, error: :legal_name_unverified, written: true, message: message }
     end
 
     # A write whose reply is RESULT^ERROR[^RIEN]: ALIAS^AGGPTNAM and UPD^AGGPOTH.

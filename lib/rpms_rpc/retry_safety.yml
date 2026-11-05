@@ -131,11 +131,13 @@
 "RpmsRpc::DdrFileman.gets_entry": read
 "RpmsRpc::DdrFileman.gets_entry_param": read
 "RpmsRpc::DdrFileman.key_validator_param": read
+"RpmsRpc::DdrFileman.lines": read
 "RpmsRpc::DdrFileman.lister": non_idempotent_write
 "RpmsRpc::DdrFileman.lister_param": read
 "RpmsRpc::DdrFileman.lock": non_idempotent_write
 "RpmsRpc::DdrFileman.lock_param": read
 "RpmsRpc::DdrFileman.parse_gets_reply": read
+"RpmsRpc::DdrFileman.parse_lister_reply": read
 "RpmsRpc::DdrFileman.unlock": non_idempotent_write
 "RpmsRpc::DdrFileman.unlock_param": read
 "RpmsRpc::DdrFileman.validate_field": read
