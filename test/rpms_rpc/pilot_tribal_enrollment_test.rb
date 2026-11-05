@@ -216,6 +216,19 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
       RpmsRpc::WireCapture::Evidence.real_value?(row[attribute])
     end
 
+    # Pointer fields on enrollment/eligibility: internal_ien must fail closed (nil unless
+    # positive Integer). Evidence.real_value?(0) is true, so do not use it for IEN columns.
+    def pointer_ien_proven?(value)
+      value.is_a?(Integer) && value.positive?
+    end
+
+    def enrollment_eligibility_attribute_proven?(attribute, row)
+      case attribute
+      when :tribe_ien, :classification_ien then pointer_ien_proven?(row[attribute])
+      else RpmsRpc::WireCapture::Evidence.real_value?(row[attribute])
+      end
+    end
+
     def proven_readiness_keys(checklist_key, replay_results, validate_raws: nil)
       keys = readiness_keys_for(checklist_key)
       if checklist_key == "Tribal.validate"
@@ -240,8 +253,68 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
         keys.select { |attribute| rows.any? { |row| list_attribute_proven?(attribute, row) } }
       else
         row = replay_results.first
-        keys.select { |attribute| RpmsRpc::WireCapture::Evidence.real_value?(row[attribute]) }
+        keys.select { |attribute| enrollment_eligibility_attribute_proven?(attribute, row) }
       end
+    end
+
+    def rpc_slug_for(entry)
+      entry.rpc.downcase.tr(" /", "--")
+    end
+
+    def live_eligibility_spec_non_comment_source(source)
+      source.lines.reject { |line| line.strip.start_with?("#") }.join
+    end
+
+    def live_eligibility_spec_filed_attr_assignments_ok?(source)
+      code = live_eligibility_spec_non_comment_source(source)
+      code.match?(/^\s*eligibility_status\s*=.*before\[:eligibility_status\]/m) &&
+        code.match?(/^\s*blood_quantum\s*=.*before\[:indian_blood_quantum\]/m) &&
+        code.match?(/^\s*tribe_quantum\s*=.*before\[:tribe_quantum\]/m) &&
+        code.match?(/^\s*tribe\s*=.*before\[:tribe_ien\]/m)
+    end
+
+    def live_eligibility_spec_refute_pre_test_values_ok?(source)
+      code = live_eligibility_spec_non_comment_source(source)
+      code.match?(/before_internal\s*=\s*\{/) &&
+        code.match?(/expected\.each\s+do\s+\|field,\s*value\|/) &&
+        code.match?(/refute_equal\s+before_internal\[field\]/)
+    end
+
+    def live_eligibility_spec_covers_window_eligibility_attrs?(source = nil)
+      source = source || File.read(LIVE_ELIGIBILITY_SPEC)
+      lines = source.lines
+      return false if source.match?(/^\s*skip\b/m) || source.match?(/\bskip\s+"|\bskip\s+'/)
+
+      def_line = lines.find { |l| l =~ /^\s*def test_/ }
+      return false unless def_line && !def_line.strip.start_with?("#")
+
+      update_line = lines.find { |l| l.include?("Registration.update") && !l.strip.start_with?("#") }
+      return false unless update_line
+
+      return false unless source.match?(/Tribal\.enrollment\s*\(\s*DFN\s*\)/)
+
+      update_ok = WINDOW_ELIGIBILITY_ATTRS.all? do |attr|
+        source.match?(/(?<![a-z_])#{Regexp.escape(attr.to_s)}:\s/)
+      end
+      read_ok = source.include?('"1108"') && source.include?('"1111"') && source.include?('"1112"') &&
+                source.include?('"1110"') && source.include?('"1109"') && source.include?('".07"') &&
+                source.match?(/Tribal\.enrollment/) &&
+                source.match?(/\.values_at\(:enrollment_number/) &&
+                source.match?(/KWETHLUK|tribes\(part:\s*"KWETHLUK"\)/) &&
+                source.match?(/\b990[_ ]?052\b/)
+      filed_ok = live_eligibility_spec_filed_attr_assignments_ok?(source)
+      refute_ok = live_eligibility_spec_refute_pre_test_values_ok?(source)
+      update_ok && read_ok && filed_ok && refute_ok && source.match?(/Registration\.update/)
+    end
+
+    def live_eligibility_spec_no_op_mutant(source)
+      mutant = source.dup
+      mutant.sub!(/^\s*eligibility_status = .*$/, '    eligibility_status = "C"')
+      mutant.sub!(/^\s*blood_quantum = .*$/, '    blood_quantum = "1/2"')
+      mutant.sub!(/^\s*tribe_quantum = .*$/, '    tribe_quantum = "1/4"')
+      mutant.sub!(/^\s*before_internal = \{.*?\n    \}\n/m, "")
+      mutant.sub!(/^\s*expected\.each do \|field, value\|\n.*?^\s*end\n/m, "")
+      mutant
     end
 
     def unproven_readiness_keys(checklist_key, slices)
@@ -658,7 +731,7 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
                  "classification is proven only by filing the sole BENEFICIARY entry (IEN 1 OTHER) on this build")
     assert_match(/OTHER|seed.?data gap/i, row[:reason])
 
-    if live_eligibility_spec_covers_window_eligibility_attrs?
+    if self.class.live_eligibility_spec_covers_window_eligibility_attrs?
       assert_equal "pilot-ready", row[:status]
       assert_equal "none", row[:unproven]
     end
@@ -684,8 +757,94 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
   end
 
   def test_live_eligibility_spec_covers_ag_eligibility_window_update_and_readback
-    assert live_eligibility_spec_covers_window_eligibility_attrs?,
+    assert self.class.live_eligibility_spec_covers_window_eligibility_attrs?,
            "#{LIVE_ELIGIBILITY_SPEC} must write every WINDOW_ELIGIBILITY UPDATE_ATTRIBUTES key and read each back"
+  end
+
+  def test_live_eligibility_spec_guard_accepts_committed_live_spec_source
+    source = File.read(LIVE_ELIGIBILITY_SPEC)
+    assert self.class.live_eligibility_spec_covers_window_eligibility_attrs?(source),
+           "committed live spec must satisfy filed-attr and refute_equal guards"
+  end
+
+  def test_live_eligibility_spec_guard_rejects_no_op_mutant
+    source = File.read(LIVE_ELIGIBILITY_SPEC)
+    mutant = self.class.live_eligibility_spec_no_op_mutant(source)
+    refute self.class.live_eligibility_spec_covers_window_eligibility_attrs?(mutant),
+           "hard-coded eligibility attrs without before_internal/refute_equal must not pass the guard"
+  end
+
+  def test_tribal_eligibility_replay_zero_internal_classification_ien_is_nil_and_unproven
+    raw = "5\0[Data]\r9000001^2^1111^0^\r9000001^2^1112^^\r"
+    row = tribal_eligibility_replay(raw, 2)
+    refute_nil row
+    assert_nil row[:classification_ien],
+               "Tribal.internal_ien must return nil when wire internal is 0 (fail closed)"
+    proven = self.class.proven_readiness_keys("Tribal.eligibility", [ row ])
+    refute_includes proven, :classification_ien,
+                    "classification_ien proves only on a positive Integer pointer, not 0"
+  end
+
+  def test_tribal_eligibility_replay_blank_internal_classification_ien_is_nil_and_unproven
+    raw = "5\0[Data]\r9000001^2^1111^ ^\r9000001^2^1112^^\r"
+    row = tribal_eligibility_replay(raw, 2)
+    refute_nil row
+    assert_nil row[:classification_ien],
+               "Tribal.internal_ien must return nil when wire internal is blank"
+    proven = self.class.proven_readiness_keys("Tribal.eligibility", [ row ])
+    refute_includes proven, :classification_ien
+  end
+
+  def test_tribal_enrollment_replay_zero_internal_tribe_ien_is_nil_and_unproven
+    raw = "5\0[Data]\r9000001^2^.07^^\r9000001^2^1108^0^OTHER\r9000001^2^1109^^\r9000001^2^1110^^\r9000001^2^1111^^\r9000001^2^1112^^\r9000001^2^1118^^\r"
+    row = tribal_enrollment_replay(raw, 2)
+    refute_nil row
+    assert_nil row[:tribe_ien], "Tribal.internal_ien must return nil when wire internal is 0"
+    proven = self.class.proven_readiness_keys("Tribal.enrollment", [ row ])
+    refute_includes proven, :tribe_ien
+  end
+
+  def test_tribal_enrollment_replay_blank_internal_tribe_ien_is_nil_and_unproven
+    raw = "5\0[Data]\r9000001^2^.07^^\r9000001^2^1108^ ^\r9000001^2^1109^^\r9000001^2^1110^^\r9000001^2^1111^^\r9000001^2^1112^^\r9000001^2^1118^^\r"
+    row = tribal_enrollment_replay(raw, 2)
+    refute_nil row
+    assert_nil row[:tribe_ien], "Tribal.internal_ien must return nil when wire internal is blank"
+    proven = self.class.proven_readiness_keys("Tribal.enrollment", [ row ])
+    refute_includes proven, :tribe_ien
+  end
+
+  def test_wire_capture_exposes_cite_only_helper
+    assert RpmsRpc::WireCapture.respond_to?(:cite_only?),
+           "implement RpmsRpc::WireCapture.cite_only?(entry, tokens) for rake wire:capture and wire_capture_driver"
+  end
+
+  def test_cite_only_ddr_gets_entry_data_token_matches_only_ddr_gets_entry_data_fixture
+    assert RpmsRpc::WireCapture.respond_to?(:cite_only?),
+           "implement RpmsRpc::WireCapture.cite_only?(entry, tokens) for rake wire:capture and wire_capture_driver"
+
+    token = [ "DDR GETS ENTRY DATA" ]
+    gets_entries = RpmsRpc::WireCapture::CATALOG.select { |e| e.rpc == "DDR GETS ENTRY DATA" }
+    refute_empty gets_entries
+    gets_entries.each do |entry|
+      slug = self.class.rpc_slug_for(entry)
+      by_fixture = token.any? { |t| t == entry.fixture_name }
+      by_rpc_slug = token.any? { |t| t == entry.rpc && entry.fixture_name == slug }
+      expected = by_fixture || by_rpc_slug
+      assert_equal expected, RpmsRpc::WireCapture.cite_only?(entry, token),
+                   "CITE_ONLY=#{token.first.inspect} must not cite live tribal GETS captures " \
+                   "(entry fixture #{entry.fixture_name.inspect})"
+    end
+  end
+
+  def test_cite_only_fixture_slug_matches_only_that_catalog_entry
+    assert RpmsRpc::WireCapture.respond_to?(:cite_only?)
+
+    token = [ "tribal-enrollment" ]
+    RpmsRpc::WireCapture::CATALOG.each do |entry|
+      expected = entry.fixture_name == "tribal-enrollment"
+      assert_equal expected, RpmsRpc::WireCapture.cite_only?(entry, token),
+                   "CITE_ONLY=tribal-enrollment must match only that fixture, not #{entry.fixture_name}"
+    end
   end
 
   private
@@ -702,6 +861,14 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     with_cia_replay(raw) { Tribal.tribes(part: "X") }
   end
 
+  def tribal_eligibility_replay(raw, dfn)
+    with_cia_replay(raw) { Tribal.eligibility(dfn) }
+  end
+
+  def tribal_enrollment_replay(raw, dfn)
+    with_cia_replay(raw) { Tribal.enrollment(dfn) }
+  end
+
   def with_cia_replay(raw)
     client = CiaFramedReplayClient.new(raw)
     RpmsRpc.reset!
@@ -709,31 +876,5 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     yield
   ensure
     RpmsRpc.reset!
-  end
-
-  def live_eligibility_spec_covers_window_eligibility_attrs?
-    source = File.read(LIVE_ELIGIBILITY_SPEC)
-    lines = source.lines
-    return false if source.match?(/^\s*skip\b/m) || source.match?(/\bskip\s+"|\bskip\s+'/)
-
-    def_line = lines.find { |l| l =~ /^\s*def test_/ }
-    return false unless def_line && !def_line.strip.start_with?("#")
-
-    update_line = lines.find { |l| l.include?("Registration.update") && !l.strip.start_with?("#") }
-    return false unless update_line
-
-    return false unless source.match?(/Tribal\.enrollment\s*\(\s*DFN\s*\)/)
-
-    update_ok = WINDOW_ELIGIBILITY_ATTRS.all? do |attr|
-      source.match?(/(?<![a-z_])#{Regexp.escape(attr.to_s)}:\s/)
-    end
-    read_ok = source.include?('"1108"') && source.include?('"1111"') && source.include?('"1112"') &&
-              source.include?('"1110"') && source.include?('"1109"') && source.include?('".07"') &&
-              source.match?(/Tribal\.enrollment/) &&
-              source.match?(/\.values_at\(:enrollment_number/) &&
-              source.match?(/KWETHLUK|tribes\(part:\s*"KWETHLUK"\)/) &&
-              source.match?(/before|refute_equal|!=/) &&
-              source.match?(/\b990[_ ]?052\b/)
-    update_ok && read_ok && source.match?(/Registration\.update/)
   end
 end
