@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/behavioral_health"
+require "rpms_rpc/api/patient"
 require "rpms_rpc/api/behavioral_health/case_management"
 require "rpms_rpc/api/behavioral_health/groups"
 require "rpms_rpc/api/behavioral_health/intake"
@@ -657,6 +658,10 @@ class BehavioralHealthTest < Minitest::Test
         note: "SYNTH progress note.", comment: "SYNTH comment.",
         placement_disposition: "12", referred_to: "SYN REF"
       } ],
+      save_health_factors: [ {
+        record_ien: "8801", patient: "100", mode: :edit,
+        health_factors: [ { name: "SYN FACTOR A", level: "MINIMAL", quantity: "1", comment: "SYN CTX" } ]
+      } ],
       visit_activity: [ 8801 ],
       visit_axis_ii: [ 8801 ],
       visit_axis_iv: [ 8801 ],
@@ -853,6 +858,42 @@ class BehavioralHealthTest < Minitest::Test
                    "T00250CommentAppointment#{RS}#{comment}#{RS}#{US}")
   end
 
+  # One factor, mode E. Read-back lister is seeded under lister_param.to_s
+  # with packed rows (external name and level).
+  def seed_context_save_health_factors(mock)
+    record = "8801"
+    patient = "100"
+    name = "SYN FACTOR A"
+    wire = "E|#{record}|#{name}~MINIMAL~1~SYN CTX|#{patient}"
+    node = "^AMHREC(#{record})"
+    mock.seed_scalar(:ddr_lock_unlock_node,
+                     RpmsRpc::DdrFileman.lock_param(node: node, timeout: 5).to_s, true)
+    mock.seed_scalar(:ddr_lock_unlock_node,
+                     RpmsRpc::DdrFileman.unlock_param(node: node).to_s, true)
+    mock.seed_text(:amhg_save_health_factors, wire, "T00030Result#{RS}#{record}#{RS}#{US}")
+    seed_context_visit_patient(mock, record, patient)
+    hf_type_key = RpmsRpc::DdrFileman.lister_param(
+      file: "9999999.64", xref: "B", part: name, fields: ".01;.1;.13", flags: "IP", max: "25"
+    ).to_s
+    mock.seed(:ddr_lister, hf_type_key, "[Data]\n501^#{name}^F^")
+    screen = "I $P(^(0),U,3)=#{record}"
+    read_key = RpmsRpc::DdrFileman.lister_param(
+      file: "9002011.08", xref: "AD", part: record, screen: screen,
+      fields: ".01E;.02;.03;.04E;.06;81101", flags: "IP", max: "25"
+    ).to_s
+    mock.seed(:ddr_lister, read_key, "[Data]\n1^#{name}^#{patient}^#{record}^MINIMAL^1^SYN CTX")
+  end
+
+  def seed_context_visit_patient(mock, record, patient)
+    pre_key = RpmsRpc::DdrFileman.gets_entry_param(
+      file: "9002011", iens: "#{record},", fields: ".08;1112", flags: "I"
+    ).to_s
+    mock.seed(
+      :ddr_gets_entry_data, pre_key,
+      "[Data]\n9002011^#{record}^.08^#{patient}^PATIENT,SYNTH\n9002011^#{record}^1112^^SIGNED"
+    )
+  end
+
   def test_every_amhg_call_runs_under_amhgrpc_and_restores_the_callers_context
     AMHG_CALLS.each do |mod, table|
       table.each do |method, args|
@@ -864,13 +905,18 @@ class BehavioralHealthTest < Minitest::Test
         seed_context_save_pcc_visit(mock) if mod == BH && method == :save_pcc_visit
         seed_context_save_pov(mock) if mod == BH && method == :save_pov
         seed_context_save_progress_note(mock) if mod == BH && method == :save_progress_note
+        seed_context_save_health_factors(mock) if mod == BH && method == :save_health_factors
 
         mod.public_send(method, *positional, **keywords)
 
         calls = mock.received_calls
         refute_empty calls, "#{mod}.#{method} made no RPC call"
         calls.each do |call|
-          if [ "DDR GETS ENTRY DATA", "DDR LISTER" ].include?(call[:rpc])
+          if call[:rpc] == "DDR LOCK/UNLOCK NODE"
+            assert_equal RpmsRpc::Patient::FILEMAN_CONTEXT, call[:context],
+              "#{mod}.#{method} sent #{call[:rpc]} under #{call[:context].inspect}; the record lock " \
+              "runs under the FileMan context, as Wellness does"
+          elsif [ "DDR GETS ENTRY DATA", "DDR LISTER" ].include?(call[:rpc])
             assert_equal caller_context, call[:context],
               "#{mod}.#{method} sent #{call[:rpc]} under #{call[:context].inspect}; " \
               "that RPC is registered under the caller's option, not AMHGRPC"
@@ -884,10 +930,21 @@ class BehavioralHealthTest < Minitest::Test
           "#{mod}.#{method} left the session on #{mock.current_context.inspect}"
         expected_binds = [ "AMHGRPC", caller_context ]
         expected_binds *= 3 if mod == BH && method == :save_progress_note
+        if mod == BH && method == :save_health_factors
+          fileman = [ RpmsRpc::Patient::FILEMAN_CONTEXT, caller_context ]
+          expected_binds = fileman + expected_binds + fileman
+        end
         assert_equal expected_binds, mock.context_binds,
           "#{mod}.#{method} context binds were #{mock.context_binds.inspect}"
       end
     end
+  end
+
+  def test_save_screening_and_save_measurements_are_owned_by_wellness_not_behavioral_health
+    refute BH.respond_to?(:save_screening),
+           "Wellness owns save_screening; remove duplicate from BehavioralHealth"
+    refute BH.respond_to?(:save_measurements),
+           "Wellness owns save_measurements; remove duplicate from BehavioralHealth"
   end
 
   def test_an_amhgrpc_that_will_not_bind_raises_before_any_rpc_is_sent

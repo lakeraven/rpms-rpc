@@ -48,7 +48,8 @@ module RpmsRpc
     # context is re-bound to the DDR context before that error and
     # before the outcome-unknown error from those AMHG failures; a
     # re-bind that raises {RpmsRpc::Error} does not replace it. That is
-    # save_visit, save_pov, and save_progress_note. save_pcc_visit uses
+    # save_visit, save_pov, save_progress_note, and save_health_factors.
+    # save_pcc_visit uses
     # the same class and never names a caller value or broker text; a
     # "0~" row names its text only
     # when that text is a fixed PRECHECK or CHECKREC literal, and a blank
@@ -229,6 +230,45 @@ module RpmsRpc
                      :PROGRESS_READBACK_FIELDS, :PROGRESS_READBACK_FLAGS, :PLACEMENT_FILE,
                      :PLACEMENT_FIELDS, :PLACEMENT_FLAGS, :CHIEF_COMPLAINT_BYTES,
                      :REFERRED_TO_BYTES, :UNSAFE_PROGRESS_WP
+
+    # save_health_factors. "*" joins a list (ARRAY^AMHGU) and "~" joins
+    # one item. "|" splits AMHSTR. The pre-edit read is the same .08;1112
+    # flags "I" save_visit uses, and the name pre-read and the read-back
+    # are DDR LISTER calls outside call_amhg, in the caller's context.
+    # .01E and .04E are external: flags "I" would return the pointer IEN
+    # and the SCI internal code, and the caller sent the external text.
+    HF_RPC = "AMHG SAVE HEALTH FACTORS"
+    HF_FILE = "9002011.08"
+    HF_TYPE_FILE = "9999999.64"
+    HF_TYPE_XREF = "B"
+    HF_TYPE_FIELDS = ".01;.1;.13"
+    HF_XREF = "AD"
+    HF_READ_FIELDS = ".01E;.02;.03;.04E;.06;81101"
+    LIST_FLAGS = "IP"
+    LIST_MAX = "25"
+    # .01 name. $L and the B subscript are bytes when ydb_chset=M.
+    # The subscript is the first 40 bytes of .01.
+    HF_NAME_MAX_BYTES = 40
+    # 81101 is plain free text with a 1 to 245 byte bound, not a
+    # word-processing field. Blank clears it.
+    HF_COMMENT_BYTES = (1..245)
+    # .06 input transform: K:+X'=X!(X>99999)!(X<0)!(X?.E1"."3N.N) X.
+    # HF_QUANTITY is the canonical form (+X=X): "0", an integer with no
+    # leading zero, or a fraction with no trailing zero. Below 1 there
+    # is no zero before the point, so ".5" matches and "0.5" does not.
+    # Two decimal places and 0 through 99999 are applied with the match.
+    HF_QUANTITY = /\A(?:0|[1-9]\d*|[1-9]\d*\.\d*[1-9]|\.\d*[1-9])\z/
+    HF_QUANTITY_DECIMALS = 2
+    HF_QUANTITY_MAX = 99_999
+    # .04 LEVEL OF USE: M:MINIMAL;MO:MODERATE;H:HEAVY/SEVERE. Compared
+    # exactly. save_visit_code strips, so it is not used for this set.
+    HF_LEVELS = [ "MINIMAL", "MODERATE", "HEAVY/SEVERE" ].freeze
+    # "~" and "*" on top of UNSAFE_WIRE. These pieces are list text.
+    LIST_MARK = /[~*]/
+    private_constant :HF_RPC, :HF_FILE, :HF_TYPE_FILE, :HF_TYPE_XREF, :HF_TYPE_FIELDS,
+                     :HF_XREF, :HF_READ_FIELDS, :LIST_FLAGS, :LIST_MAX,
+                     :HF_NAME_MAX_BYTES, :HF_COMMENT_BYTES, :HF_QUANTITY,
+                     :HF_QUANTITY_DECIMALS, :HF_QUANTITY_MAX, :HF_LEVELS, :LIST_MARK
 
     # Omitted keyword, distinct from an explicit nil. On an edit both are
     # refused for every field MODV files from a piece. "" clears
@@ -1305,6 +1345,121 @@ module RpmsRpc
           if_other: presence(row[:if_other]) }
       end
     end
+
+    # File health factors on one BH visit through AMHG SAVE HEALTH FACTORS
+    # (HF^AMHGSVF, AMHGSVF.m:277-305; MODHF/DELHF^AMHGEVF).
+    #
+    # Four pipe pieces: mode, record, the factor list, patient. List items
+    # join with "*" (ARRAY^AMHGU stops at the first empty item). Each item
+    # is name~level~quantity~comment. Both modes file onto the record IEN.
+    # A blank IEN is refused on either mode. This RPC does not create the
+    # visit.
+    #
+    # Each listed factor's level, quantity, and comment replace the stored
+    # values. A blank clears that field: MODHF files .04, .05, .06, and
+    # 81101 with FILE^DIE("K") on an existing row (an empty value deletes
+    # the field) or UPDATE^DIE on a new row. Level is .04, quantity is
+    # .06, and comment is 81101. Mode :edit ("E") then runs DELHF, which
+    # deletes every stored factor of the visit that was not listed. Mode
+    # :add ("A") does not.
+    #
+    # Refused before any AMHG call. The list must not be empty, longer
+    # than 25, or name the same factor twice. A name is non-blank,
+    # at most 40 bytes (String#bytesize, which is $L when ydb_chset=M; a
+    # name too short for the type file is refused by the type pre-read), and
+    # has no separator or control character. The B subscript is the first
+    # 40 bytes of .01. Each distinct name is then pre-read with DDR
+    # LISTER on #9999999.64, xref B, part the name, fields .01;.1;.13,
+    # flags "IP", max 25. XREF "B" and PART return every entry whose B
+    # subscript starts with the name, so the reply may hold longer names
+    # too. That read runs in the caller's context, the same way
+    # {save_visit_confirm_patient!} and {save_visit_ddr} do: outside
+    # call_amhg. The reply is usable only when it has data, no error,
+    # and no MORE, and every entry has at least three pieces. Any
+    # malformed entry refuses the reply. Among the entries whose first
+    # piece equals the name exactly there must be exactly one, and that
+    # one has second piece "F" and third piece not "1". Any other entry
+    # whose .01 has the same first 40 UTF-8 bytes is refused, whatever
+    # its entry type or inactive flag. A longer name whose first 40
+    # bytes differ is not that collision. Anything else, including a
+    # missing reply, is SaveError and the write is not sent. A missing
+    # read confirms nothing.
+    #
+    # Level is "" or exactly one of MINIMAL, MODERATE, HEAVY/SEVERE. It
+    # is not case-folded and it is not stripped. Quantity is "" or a
+    # canonical number from 0 through 99999 with at most two decimal
+    # places (+X=X: "0", an integer with no leading zero, or a fraction
+    # with no trailing zero; below 1 there is no zero before the point,
+    # so ".5" is accepted and "0.5" is refused, as are "1.50" and
+    # "1.0"). Comment is "" or 1 to 245 bytes. "|", "~", "*", "^", and
+    # controls are refused in every piece. Nil is refused. "@" is the
+    # FileMan delete marker and is refused.
+    #
+    # The visit is read the way an edit reads it for save_visit: .08 and
+    # 1112, flags "I". Another patient, a missing signature field, or a
+    # non-blank 1112 (the visit is signed) is SaveError, and AMHG is not
+    # called.
+    #
+    # The reply is T00030Result, then the record IEN or AMHER ("0~Add
+    # Health Factor" / "0~Edit Health Factor"). A "0~" row, an empty
+    # reply, or any other IEN is SaveError: the outcome is unknown and
+    # the record may have been filed. The message carries no broker text
+    # and no comment.
+    #
+    # After a reply that names this record, DDR LISTER on #9002011.08
+    # (xref AD, part the record, no FROM, screen
+    # "I $P(^(0),U,3)=<record>", fields .01E;.02;.03;.04E;.06;81101,
+    # flags "IP", max 25) must show the sent rows. A row is
+    # IEN^name^patient^record^level^quantity^comment. Mode :edit requires
+    # that set to equal the sent set. Mode :add requires the sent rows to
+    # be present. A sent level that reads back blank does not match. A
+    # row that names another patient or record, an error, a MORE row, or
+    # a row that is not that shape is SaveError: the outcome is unknown
+    # and the write was not confirmed. A visit with more than 25 stored
+    # health factors cannot be confirmed (the save then raises SaveError
+    # saying the record may have been filed), and a name with more than
+    # 25 B-index prefix matches is refused. The AMHG call runs under AMHGRPC
+    # and restores the caller's context. The DDR reads stay in the
+    # caller's context. The visit-record lock and unlock (DDR LOCK/UNLOCK
+    # NODE on ^AMHREC(record)) run under the FileMan context, as Wellness
+    # does.
+    #
+    # The client is captured once, so the lock, the unlock and every read
+    # go to the same object. The whole sequence (lock, visit pre-read,
+    # factor pre-reads, write, read-back, unlock) runs under one
+    # RpmsRpc.synchronize_wire. M LOCK is incremental per broker job, so a
+    # second save on the same client and record, from a nested call or
+    # another thread, is refused with SaveError ("in progress") before any
+    # RPC; the broker would have granted it the same lock.
+    #
+    # Screening and measurements are BehavioralHealth::Wellness (#540).
+    #
+    # Returns the record IEN as a string.
+    def save_health_factors(record_ien:, patient:, mode:, health_factors:)
+      record = save_record_ien!(record_ien)
+      patient_piece = save_visit_required_ien(patient, "patient")
+      letter = save_list_mode(mode)
+      rows = save_factor_rows(health_factors)
+      client = RpmsRpc.client
+      RpmsRpc.with_client(client) do
+        with_factor_save_exclusion(client, record) do
+          RpmsRpc.synchronize_wire do
+            with_factor_record_lock(record) do
+              save_visit_confirm_patient!(record, patient_piece)
+              rows.each { |row| save_factor_type!(row[:name]) }
+              listed = rows.map { |row| [ row[:name], row[:level], row[:quantity], row[:comment] ].join("~") }.join("*")
+              wire = [ letter, record, listed, patient_piece ].join("|")
+              save_visit_piece_count!(wire, HF_RPC, 4)
+              ien = save_amhg_ien(:amhg_save_health_factors, wire, record, HF_RPC)
+              save_factor_confirm!(ien, patient_piece, rows, exact: letter == "E")
+              ien
+            end
+          end
+        end
+      end
+    end
+    shape :save_health_factors, resource: "behavioral-health", verb: "POST",
+          path: "/behavioral-health/health-factors"
 
     private
 
@@ -2677,6 +2832,352 @@ module RpmsRpc
           code: presence(row[:code]),
           narrative: presence(row[:narrative]) }
       end
+    end
+
+    # A blank string is mode E with no IEN. Health factors file onto that
+    # IEN on add and on edit. Refuse it before any RPC.
+    def save_record_ien!(value)
+      save_visit_refuse!("record IEN is missing") if value.nil?
+
+      text = save_visit_record_ien(value)
+      save_visit_refuse!("record IEN is blank") if text.empty?
+      text
+    end
+
+    def save_list_mode(mode)
+      return "E" if mode == :edit
+      return "A" if mode == :add
+
+      save_visit_refuse!("mode must be edit or add")
+    end
+
+    def save_factor_rows(value)
+      save_visit_refuse!("health factors are missing") if value.nil?
+      save_visit_refuse!("health factors must be a list") unless value.is_a?(Array)
+      save_visit_refuse!("health factors are empty") if value.empty?
+      save_visit_refuse!("more health factors than the read-back can confirm") if value.length > LIST_MAX.to_i
+
+      rows = value.map { |row| save_factor_row(row) }
+      names = rows.map { |row| row[:name] }
+      save_visit_refuse!("a health factor name is repeated") if names.uniq.length != names.length
+      rows
+    end
+
+    def save_factor_row(row)
+      save_visit_refuse!("a health factor must be a record") unless row.is_a?(Hash)
+
+      {
+        name: save_factor_name!(save_row_entry(row, :name)),
+        level: save_factor_level!(save_row_entry(row, :level)),
+        quantity: save_factor_quantity!(save_row_entry(row, :quantity)),
+        comment: save_factor_comment!(save_row_entry(row, :comment))
+      }
+    end
+
+    # No strip and no case fold. save_visit_text would hide a trailing
+    # space and a leading zero that the DD transform rejects.
+    def save_factor_piece!(value)
+      save_visit_refuse!("a value is missing") if value.nil?
+
+      text = save_visit_utf8(value)
+      save_visit_refuse!("a value contains the Unicode replacement character") if text.include?("\uFFFD")
+      if text.match?(UNSAFE_WIRE) || text.match?(LIST_MARK)
+        save_visit_refuse!("a value contains a separator or control character")
+      end
+      save_visit_refuse!("a value is the FileMan delete marker") if text == "@"
+      text
+    end
+
+    def save_factor_name!(value)
+      text = save_factor_piece!(value)
+      save_visit_refuse!("a health factor name is blank") if text.strip.empty?
+      save_visit_refuse!("a health factor name is longer than 40 bytes") if text.bytesize > HF_NAME_MAX_BYTES
+      text
+    end
+
+    def save_factor_level!(value)
+      text = save_factor_piece!(value)
+      return "" if text.empty?
+      save_visit_refuse!("level is not a filed code") unless HF_LEVELS.include?(text)
+
+      text
+    end
+
+    def save_factor_quantity!(value)
+      text = save_factor_piece!(value)
+      return "" if text.empty?
+      save_visit_refuse!("quantity is not a filed number") unless save_factor_quantity_ok?(text)
+
+      text
+    end
+
+    # .06: K:+X'=X!(X>99999)!(X<0)!(X?.E1"."3N.N) X. The regex is the
+    # canonical form (+X=X). ".5" matches; "0.5" does not. At most two
+    # decimal places, and 0 through 99999, are the other kills.
+    def save_factor_quantity_ok?(text)
+      return false unless text.match?(HF_QUANTITY)
+
+      fraction = text.split(".", 2)[1]
+      return false if fraction && fraction.length > HF_QUANTITY_DECIMALS
+
+      number = fraction ? Rational(text) : Integer(text)
+      number >= 0 && number <= HF_QUANTITY_MAX
+    end
+
+    def save_factor_comment!(value)
+      text = save_factor_piece!(value)
+      return "" if text.empty?
+      unless HF_COMMENT_BYTES.cover?(text.bytesize)
+        save_visit_refuse!("a health factor comment must be 1 to 245 bytes")
+      end
+
+      text
+    end
+
+    # M LOCK is incremental on one broker job, so a second save on the same
+    # job is granted ^AMHREC(ien) at once; the DDR lock alone does not keep
+    # two saves of one visit apart. This set is the exclusion the broker will
+    # not give. The mutex guards the set only and is never held across a
+    # save, so a re-entrant call refuses instead of deadlocking. The key is
+    # [:session, id] or [:object, object_id] plus the record IEN. No client
+    # this gem ships defines session_id, so stock clients key on object_id;
+    # a host that wraps one session in several objects shares the exclusion
+    # only by exposing session_id on each wrapper.
+    FACTOR_SAVE_GUARD = Mutex.new
+    FACTOR_SAVES_IN_PROGRESS = {}
+    # Seconds the visit-record lock waits.
+    HF_LOCK_TIMEOUT = 5
+    private_constant :FACTOR_SAVE_GUARD, :FACTOR_SAVES_IN_PROGRESS, :HF_LOCK_TIMEOUT
+
+    def with_factor_save_exclusion(client, record)
+      key = [ factor_client_identity(client), record ]
+      FACTOR_SAVE_GUARD.synchronize do
+        save_visit_refuse!("a save for this record is in progress") if FACTOR_SAVES_IN_PROGRESS[key]
+        FACTOR_SAVES_IN_PROGRESS[key] = true
+      end
+      begin
+        yield
+      ensure
+        FACTOR_SAVE_GUARD.synchronize { FACTOR_SAVES_IN_PROGRESS.delete(key) }
+      end
+    end
+
+    # [:session, id] or [:object, object_id], so a string session id and an
+    # integer object id cannot collide. session_id is read once; a raise is a
+    # refusal before any RPC.
+    def factor_client_identity(client)
+      session = factor_session_id(client)
+      return [ :session, session ] unless session.nil?
+
+      [ :object, client.object_id ]
+    end
+
+    def factor_session_id(client)
+      return nil unless client.respond_to?(:session_id)
+
+      value = client.session_id
+      case value
+      when nil, false then nil
+      when String then value.empty? ? nil : value.dup.freeze
+      else value
+      end
+    rescue StandardError, NotImplementedError => e
+      raise SaveError.new("the client session could not be read"), cause: e
+    end
+
+    # Hold ^AMHREC(record) from the visit pre-read through the read-back, as
+    # Wellness does. Mode E deletes every stored factor the list omits, so two
+    # unlocked sessions on one visit lose updates silently. The lock is taken
+    # only after local validation, and is released on every exit path.
+    def with_factor_record_lock(record)
+      node = "^AMHREC(#{record})"
+      held = factor_record_lock!(node)
+      begin
+        yield
+      ensure
+        factor_record_unlock(node) if held
+      end
+    end
+
+    # True only when the lock RPC returned true. Once the call has been sent,
+    # anything else (false, nil, StandardError, NotImplementedError) is
+    # released before the refusal, and the unlock must not replace it. When
+    # the FileMan context could not be bound the lock was never sent, so no
+    # unlock is.
+    def factor_record_lock!(node)
+      sent = false
+      cause = nil
+      acquired = begin
+        under_fileman do
+          sent = true
+          DdrFileman.lock(node: node, timeout: HF_LOCK_TIMEOUT)
+        end
+      rescue StandardError, NotImplementedError => e
+        cause = e
+        nil
+      end
+      return true if acquired == true
+
+      factor_record_unlock(node) if sent
+      raise SaveError.new("the lock #{node} was not acquired"), cause: cause
+    end
+
+    # Best-effort. A false reply, StandardError or NotImplementedError (a
+    # ScriptError) must not replace a result or an exception the save already
+    # produced. A lock this call does not release expires with the broker job.
+    def factor_record_unlock(node)
+      under_fileman { DdrFileman.unlock(node: node) }
+    rescue StandardError, NotImplementedError
+      nil
+    end
+
+    # AMHGRPC does not list the DDR lock RPC; the FileMan context does.
+    # Patient is loaded on first use so requiring this file does not pull
+    # Patient's dependency chain into the process before a save needs it.
+    def under_fileman(&block)
+      require_relative "patient"
+      ContextScope.scoped(RpmsRpc.client, RpmsRpc::Patient::FILEMAN_CONTEXT, &block)
+    end
+
+    # #9999999.64 B index. The subscript is the first 40 bytes of .01.
+    # The B index is set only when INACTIVE DATE (.15) is blank.
+    # PART is a prefix, so a longer name may be present. Usable only
+    # when the reply has data, no error, and no MORE, every entry has
+    # at least three pieces, and exactly one .01 equals this name. That
+    # row is an active FACTOR (second piece "F", third piece not "1").
+    # Any other entry whose .01 has the same first 40 UTF-8 bytes is a
+    # collision, whatever its entry type or inactive flag. A missing,
+    # errored, continued, malformed, ambiguous, or colliding reply is a
+    # refusal. Called outside call_amhg, like save_visit_ddr.
+    def save_factor_type!(name)
+      got = DdrFileman.lister(
+        file: HF_TYPE_FILE, xref: HF_TYPE_XREF, part: name,
+        fields: HF_TYPE_FIELDS, flags: LIST_FLAGS, max: LIST_MAX
+      )
+      save_visit_refuse!("the health factor could not be read") unless save_factor_type_ok?(got, name)
+    rescue Error => e
+      raise if e.is_a?(SaveError)
+
+      save_visit_refuse!("the health factor could not be read")
+    end
+
+    def save_factor_type_ok?(got, name)
+      return false unless got.is_a?(Hash)
+      return false if got[:error] || got[:more] || !got[:data]
+
+      entries = got[:entries]
+      return false unless entries.is_a?(Array)
+      return false unless entries.all? { |entry| save_factor_type_shaped?(entry) }
+
+      exact = entries.select { |entry| entry[:pieces][0].to_s == name }
+      return false unless exact.length == 1
+      return false if save_factor_subscript_collision?(entries, exact.first, name)
+
+      pieces = exact.first[:pieces]
+      pieces[1].to_s == "F" && pieces[2].to_s != "1"
+    end
+
+    # First 40 bytes of the UTF-8 encoding, or nil when the text is not
+    # valid UTF-8. The caller refuses nil. The slice is raw bytes, the
+    # same width as the B subscript when ydb_chset=M.
+    def save_factor_subscript(text)
+      raw = text.to_s
+      return nil unless [ Encoding::UTF_8, Encoding::US_ASCII, Encoding::ASCII_8BIT ].include?(raw.encoding)
+
+      utf8 = raw.encoding == Encoding::UTF_8 ? raw : raw.dup.force_encoding(Encoding::UTF_8)
+      return nil unless utf8.valid_encoding?
+
+      utf8.b.byteslice(0, HF_NAME_MAX_BYTES)
+    rescue EncodingError
+      nil
+    end
+
+    def save_factor_subscript_collision?(entries, exact, name)
+      sent = save_factor_subscript(name)
+      return true if sent.nil?
+
+      entries.any? do |entry|
+        next false if entry.equal?(exact)
+
+        other = save_factor_subscript(entry[:pieces][0])
+        other.nil? || other == sent
+      end
+    end
+
+    def save_factor_type_shaped?(entry)
+      pieces = entry.is_a?(Hash) ? entry[:pieces] : nil
+      pieces.is_a?(Array) && pieces.length >= 3
+    end
+
+    def save_row_entry(row, key)
+      return row[key] if row.key?(key)
+
+      row[key.to_s]
+    end
+
+    def save_amhg_ien(mapping_name, wire, record, rpc)
+      mapping = DataMapper[mapping_name]
+      declared = save_visit_declared_context
+      response = save_visit_amhg(mapping, wire, record, rpc: rpc)
+      ien = save_visit_reply_ien(response, record, declared, rpc: rpc, mapping: mapping_name)
+      save_visit_rebind_ddr_context(declared, ien, rpc: rpc)
+      ien
+    end
+
+    # Outside call_amhg. No FROM: PART plus the screen is this record.
+    # The screen is only the validated record IEN.
+    def save_factor_confirm!(record_ien, patient, rows, exact:)
+      got = DdrFileman.lister(
+        file: HF_FILE, xref: HF_XREF, part: record_ien,
+        screen: "I $P(^(0),U,3)=#{record_ien}",
+        fields: HF_READ_FIELDS, flags: LIST_FLAGS, max: LIST_MAX
+      )
+      found = save_factor_found(got, patient, record_ien)
+      save_visit_unconfirmed!(record_ien, rpc: HF_RPC) unless save_factor_match?(found, rows, exact: exact)
+    rescue Error => e
+      raise if e.is_a?(SaveError)
+
+      save_visit_ambiguous!(record_ien, rpc: HF_RPC, cause: e)
+    end
+
+    # A packed row is IEN^name^patient^record^level^quantity^comment.
+    # Another patient or record, a short row, or a row with an extra
+    # piece is not a confirmation. Pieces are not stripped: a blank
+    # level is a blank level.
+    def save_factor_found(got, patient, record)
+      return nil unless got.is_a?(Hash) && got[:data] && !got[:error] && !got[:more]
+      return nil unless got[:entries].is_a?(Array)
+
+      rows = got[:entries].map { |entry| save_factor_read_row(entry, patient, record) }
+      return nil if rows.any?(&:nil?)
+
+      rows
+    end
+
+    def save_factor_read_row(entry, patient, record)
+      return nil unless entry.is_a?(Hash) && entry[:ien].to_s.match?(POSITIVE_IEN)
+
+      pieces = entry[:pieces]
+      return nil unless pieces.is_a?(Array) && pieces.length == 6
+
+      name, got_patient, got_record, level, quantity, comment = pieces.map(&:to_s)
+      return nil unless got_patient == patient && got_record == record
+
+      { name: name, level: level, quantity: quantity, comment: comment }
+    end
+
+    def save_factor_match?(found, sent, exact:)
+      return false if found.nil?
+
+      got = found.map { |row| save_factor_tuple(row) }.tally
+      want = sent.map { |row| save_factor_tuple(row) }.tally
+      return got == want if exact
+
+      want.all? { |row, count| got.fetch(row, 0) >= count }
+    end
+
+    def save_factor_tuple(row)
+      [ row[:name], row[:level], row[:quantity], row[:comment] ]
     end
   end
 end

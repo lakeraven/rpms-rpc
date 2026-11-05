@@ -1251,6 +1251,16 @@ module RpmsRpc
       m.field 0, :ien, :string
     end
 
+    # AMHG SAVE HEALTH FACTORS — HF^AMHGSVF (AMHGSVF.m:277-305). One
+    # param, four pieces. Piece 3 is "*" -joined items of
+    # name~level~qty~comment. The reply is header T00030Result, then
+    # the record IEN or AMHER ("0~Add Health Factor" / "0~Edit Health
+    # Factor", AMHGEVF.m:307,312). :ien stays a string.
+    DataMapper.define(:amhg_save_health_factors) do |m|
+      m.rpc "AMHG SAVE HEALTH FACTORS"
+      m.field 0, :ien, :string
+    end
+
     # -- Visit detail tabs (AMHGDVF unless noted) -----------------------------
     # All take one param: the visit IEN. All emit a typed header + $C(30)-
     # separated rows + a bare $C(31). Single-column responses carry FREE TEXT

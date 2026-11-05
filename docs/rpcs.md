@@ -76,6 +76,33 @@ against M source per ADR 0002.
 > Replacement response layouts derive from M source and the live DD; rows without
 > live captures are marked pending-capture at their mappings.
 
+## Behavioral Health writes (AMHGRPC)
+
+Read against `rpms-ops/data/standup/bcer-9.0-ydb/r/AMHGSVF.m` and
+`AMHGEVF.m`. Each RPC takes one pipe-delimited `AMHSTR` parameter and
+returns a two-row GLOBAL ARRAY: header `T00030Result` (visit save uses
+`T00010BMXIEN`), then the MHSS RECORD IEN or `0~<reason>` from `AMHER`.
+Wrappers run under broker option `AMHGRPC`.
+
+`AMHG SAVE SCREENING` and `AMHG SAVE MEASUREMENTS` are wrapped by
+`BehavioralHealth::Wellness` (#540). `BehavioralHealth.save_health_factors`
+(#525) is the health-factor save. The live spec
+`test/live/behavioral_health_save_health_factors_live_test.rb` is written
+but has not been run against a live rung. No row below has a captured live
+reply in this repository, so every row is pending-capture; the layouts are
+read from the M source.
+
+| RPC name | Routine / Tag | Params | Return | Status |
+|----------|---------------|--------|--------|--------|
+| `AMHG SAVE VISIT` | `VISIT^AMHGSVF` | `AMHSTR` (16 pieces in total: DM, REC and pieces 3-16) | `T00010BMXIEN` + IEN | pending-capture |
+| `AMHG SAVE POV` | `POV^AMHGSVF` | `AMHSTR` (8 pieces) | `T00030Result` + IEN or error | pending-capture |
+| `AMHG SAVE PROGRESS NOTES` | `PN^AMHGSVF` | `AMHSTR` (8 pieces; mode always `E`) | `T00030Result` + IEN or error | pending-capture |
+| `AMHG SAVE SCREENING` | `SCREEN^AMHGSVF` | `AMHSTR` (19 pieces) | `T00030Result` + IEN or error | pending-capture |
+| `AMHG SAVE HEALTH FACTORS` | `HF^AMHGSVF` | `AMHSTR` (4 pieces; piece 3 is `*`-joined HF items) | `T00030Result` + IEN or error | pending-capture |
+| `AMHG SAVE MEASUREMENTS` | `MSR^AMHGSVF` | `AMHSTR` (4 pieces; piece 3 is `*`-joined MSR items) | `T00030Result` + IEN or error | pending-capture |
+
+Piece layouts and filer tags are summarized in [bh_save_rpcs.md](bh_save_rpcs.md).
+
 ## See also
 
 - [ADR 0001 — Scope and no Rails coupling](adr/0001-scope-and-no-rails-coupling.md)
