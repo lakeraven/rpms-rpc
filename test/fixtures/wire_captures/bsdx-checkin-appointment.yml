@@ -28,9 +28,6 @@ inputs:
 - ''
 - ''
 - ''
-- ''
-- ''
-- ''
 raw_return: "2\0T00020ERRORID^T00150MESSAGE\x1E0^\x1E\x1F"
 sha256: 8a24037d8e22d072042c1940835616707d21d6231440605b99aa96356e4c98a4
 write: true

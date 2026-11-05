@@ -149,17 +149,17 @@ module RpmsRpc
     #   clinic_code:     CLINIC STOP code (optional)
     #   provider:        check-in provider (optional)
     #
-    # All 11 client formals after BSDXY (BSDX25.m:12 —
-    # APTID^CDT^CC^PRV^ROU^VCL^VFM^OG^CR^PCC^WHF) are sent, the unused tail as
-    # empties: the routine passes BSDXVCL/BSDXVFM/BSDXOG to APCHK by value with
-    # no $G (BSDX25.m:63), so omitting them <UNDEF>s server-side whenever the
-    # resource links a hospital location. BSDXCR/BSDXPCC/BSDXWHF are $G-guarded
-    # (BSDX25.m:67-69) and are sent empty: this API never requests a chart
-    # request, PCC health summary or wellness handout.
+    # All 8 client formals (BSDX25.m:12 — APTID^CDT^CC^PRV^ROU^VCL^VFM^OG) are
+    # sent, the unused tail as empties: the routine passes BSDXVCL/BSDXVFM/
+    # BSDXOG to APCHK by value with no $G (BSDX25.m:63), so omitting them
+    # <UNDEF>s server-side whenever the resource links a hospital location.
+    # Eight, not the pinned build's eleven: the FOIA BSDX25 tag stops at BSDXOG
+    # and a longer actual list faults there; the three extra formals are
+    # $G-guarded on the pinned build (BSDX25.m:67-69), so eight behave the same.
     def checkin_appointment(appointment_ien, checkin_time:, clinic_code: nil, provider: nil)
       error_write(:scheduling_checkin_appointment,
                   appointment_ien.to_s, fm(checkin_time), clinic_code.to_s, provider.to_s,
-                  "", "", "", "", "", "", "",
+                  "", "", "", "",
                   zero_ok: true)
     end
 
@@ -173,7 +173,7 @@ module RpmsRpc
     # Returns { success: true } / { success: false, error: } / nil.
     def cancel_checkin(appointment_ien)
       error_write(:scheduling_checkin_appointment,
-                  appointment_ien.to_s, "@", "", "", "", "", "", "", "", "", "",
+                  appointment_ien.to_s, "@", "", "", "", "", "", "",
                   zero_ok: true)
     end
     shape :cancel_checkin, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/cancel-checkin"

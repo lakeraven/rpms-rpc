@@ -348,11 +348,15 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
 
   def test_capture_writes_task_source_never_interpolates_rpms_verify_into_fixtures
     src = File.read(WIRE_RAKE_PATH, encoding: Encoding::UTF_8)
-    task_body = src[/task\s+:capture_writes\b.*?^\s*end/m]
-    skip "wire:capture_writes task not defined yet" unless task_body
+    # The whole write path: the guard, the driver call and write_one_capture,
+    # where the fixture YAML is built. The task body alone is three lines.
+    write_path = src[/^  def capture_scheduling_writes\b.*/m]
 
-    refute_match(/RPMS_VERIFY/, task_body,
-                 "wire:capture_writes must not interpolate RPMS_VERIFY into fixture output")
+    refute_nil write_path, "wire.rake must define capture_scheduling_writes"
+    assert_includes write_path, "def write_one_capture", "the slice must reach the code that writes fixtures"
+    assert_includes write_path, "YAML", "the slice must reach the code that serializes fixtures"
+    refute_match(/RPMS_VERIFY/, write_path,
+                 "the write-capture path must not read or interpolate RPMS_VERIFY into fixture output")
   end
 
   def test_wire_capture_read_catalog_never_lists_scheduling_write_rpcs_as_live
