@@ -246,8 +246,19 @@ module RpmsRpc
     HF_READ_FIELDS = ".01E;.02;.03;.04E;.06;81101"
     LIST_FLAGS = "IP"
     LIST_MAX = "25"
-    HF_NAME_MAX = 30
-    HF_COMMENT_MAX = 245
+    # .01 name. $L and the B subscript are bytes when ydb_chset=M.
+    # The subscript is the first 30 bytes of .01.
+    HF_NAME_MAX_BYTES = 30
+    # 81101 is one word-processing line. Blank clears it. A non-blank
+    # comment is 1 through 245 bytes, the FileMan WP width.
+    HF_COMMENT_BYTES = (1..245)
+    # .06 input transform: K:+X'=X!(X>99999)!(X<0)!(X?.E1"."3N.N) X.
+    # HF_QUANTITY is the canonical form (+X=X): "0", an integer with no
+    # leading zero, or a fraction with no trailing zero. Below 1 there
+    # is no zero before the point, so ".5" matches and "0.5" does not.
+    # Two decimal places and 0 through 99999 are applied with the match.
+    HF_QUANTITY = /\A(?:0|[1-9]\d*|[1-9]\d*\.\d*[1-9]|\.\d*[1-9])\z/
+    HF_QUANTITY_DECIMALS = 2
     HF_QUANTITY_MAX = 99_999
     # .04 LEVEL OF USE: M:MINIMAL;MO:MODERATE;H:HEAVY/SEVERE. Compared
     # exactly. save_visit_code strips, so it is not used for this set.
@@ -256,7 +267,8 @@ module RpmsRpc
     LIST_MARK = /[~*]/
     private_constant :HF_RPC, :HF_FILE, :HF_TYPE_FILE, :HF_TYPE_XREF, :HF_TYPE_FIELDS,
                      :HF_XREF, :HF_READ_FIELDS, :LIST_FLAGS, :LIST_MAX,
-                     :HF_NAME_MAX, :HF_COMMENT_MAX, :HF_QUANTITY_MAX, :HF_LEVELS, :LIST_MARK
+                     :HF_NAME_MAX_BYTES, :HF_COMMENT_BYTES, :HF_QUANTITY,
+                     :HF_QUANTITY_DECIMALS, :HF_QUANTITY_MAX, :HF_LEVELS, :LIST_MARK
 
     # Omitted keyword, distinct from an explicit nil. On an edit both are
     # refused for every field MODV files from a piece. "" clears
@@ -1353,30 +1365,34 @@ module RpmsRpc
     #
     # Refused before any AMHG call. The list must not be empty, longer
     # than 25, or name the same factor twice. A name is non-blank, at
-    # most 30 characters (the B-index subscript is the first 30), and has
-    # no separator or control character. Each distinct name is then
-    # pre-read with DDR LISTER on #9999999.64, xref B, part the name,
-    # fields .01;.1;.13, flags "IP", max 25. XREF "B" and PART return
-    # every entry whose B subscript starts with the name, so the reply
-    # may hold longer names too. That read runs in the caller's context,
-    # the same way {save_visit_confirm_patient!} and {save_visit_ddr} do:
-    # outside call_amhg. The reply is usable only when it has data, no
-    # error, and no MORE, and every entry has at least three pieces. Any
+    # most 30 bytes (String#bytesize, which is $L when ydb_chset=M), and
+    # has no separator or control character. The B subscript is the first
+    # 30 bytes of .01. Each distinct name is then pre-read with DDR
+    # LISTER on #9999999.64, xref B, part the name, fields .01;.1;.13,
+    # flags "IP", max 25. XREF "B" and PART return every entry whose B
+    # subscript starts with the name, so the reply may hold longer names
+    # too. That read runs in the caller's context, the same way
+    # {save_visit_confirm_patient!} and {save_visit_ddr} do: outside
+    # call_amhg. The reply is usable only when it has data, no error,
+    # and no MORE, and every entry has at least three pieces. Any
     # malformed entry refuses the reply. Among the entries whose first
     # piece equals the name exactly there must be exactly one, and that
-    # one has second piece "F" and third piece not "1". Rows with other
-    # names are ignored. Anything else, including a missing reply, is
-    # SaveError and the write is not sent. A missing read confirms
-    # nothing.
+    # one has second piece "F" and third piece not "1". Any other entry
+    # whose .01 has the same first 30 UTF-8 bytes is refused, whatever
+    # its entry type or inactive flag. A longer name whose first 30
+    # bytes differ is not that collision. Anything else, including a
+    # missing reply, is SaveError and the write is not sent. A missing
+    # read confirms nothing.
     #
     # Level is "" or exactly one of MINIMAL, MODERATE, HEAVY/SEVERE. It
     # is not case-folded and it is not stripped. Quantity is "" or a
     # canonical number from 0 through 99999 with at most two decimal
-    # places (+X=X: no leading zero except "0", no trailing ".", no
-    # leading or trailing space, no trailing zero after the decimal, so
-    # "1.50" is refused). Comment is "" or 1 to 245 characters. "|", "~",
-    # "*", "^", and controls are refused in every piece. Nil is refused.
-    # "@" is the FileMan delete marker and is refused.
+    # places (+X=X: "0", an integer with no leading zero, or a fraction
+    # with no trailing zero; below 1 there is no zero before the point,
+    # so ".5" is accepted and "0.5" is refused, as are "1.50" and
+    # "1.0"). Comment is "" or 1 to 245 bytes. "|", "~", "*", "^", and
+    # controls are refused in every piece. Nil is refused. "@" is the
+    # FileMan delete marker and is refused.
     #
     # The visit is read the way an edit reads it for save_visit: .08 and
     # 1112, flags "I". Another patient, a missing signature field, or a
@@ -1398,7 +1414,10 @@ module RpmsRpc
     # be present. A sent level that reads back blank does not match. A
     # row that names another patient or record, an error, a MORE row, or
     # a row that is not that shape is SaveError: the outcome is unknown
-    # and the write was not confirmed. The AMHG call runs under AMHGRPC
+    # and the write was not confirmed. A visit with more than 25 stored
+    # health factors cannot be confirmed (the save then raises SaveError
+    # saying the record may have been filed), and a name with more than
+    # 25 B-index prefix matches is refused. The AMHG call runs under AMHGRPC
     # and restores the caller's context. The DDR reads stay in the
     # caller's context.
     #
@@ -2852,7 +2871,7 @@ module RpmsRpc
     def save_factor_name!(value)
       text = save_factor_piece!(value)
       save_visit_refuse!("a health factor name is blank") if text.empty?
-      save_visit_refuse!("a health factor name is longer than 30 characters") if text.length > HF_NAME_MAX
+      save_visit_refuse!("a health factor name is longer than 30 bytes") if text.bytesize > HF_NAME_MAX_BYTES
       text
     end
 
@@ -2872,14 +2891,14 @@ module RpmsRpc
       text
     end
 
-    # .06's input transform: K:+X'=X!(X>99999)!(X<0)!(X?.E1"."3N.N) X.
-    # The string is the canonical number. A fraction that ends in 0
-    # ("1.50", "1.0") is not canonical. Spaces and a trailing "." are not.
+    # .06: K:+X'=X!(X>99999)!(X<0)!(X?.E1"."3N.N) X. The regex is the
+    # canonical form (+X=X). ".5" matches; "0.5" does not. At most two
+    # decimal places, and 0 through 99999, are the other kills.
     def save_factor_quantity_ok?(text)
-      return false unless text.match?(/\A(?:0|[1-9]\d{0,4})(?:\.\d{1,2})?\z/)
+      return false unless text.match?(HF_QUANTITY)
 
       fraction = text.split(".", 2)[1]
-      return false if fraction&.end_with?("0")
+      return false if fraction && fraction.length > HF_QUANTITY_DECIMALS
 
       number = fraction ? Rational(text) : Integer(text)
       number >= 0 && number <= HF_QUANTITY_MAX
@@ -2888,16 +2907,21 @@ module RpmsRpc
     def save_factor_comment!(value)
       text = save_factor_piece!(value)
       return "" if text.empty?
-      save_visit_refuse!("a health factor comment must be 1 to 245 characters") if text.length > HF_COMMENT_MAX
+      unless HF_COMMENT_BYTES.cover?(text.bytesize)
+        save_visit_refuse!("a health factor comment must be 1 to 245 bytes")
+      end
 
       text
     end
 
-    # #9999999.64 B index. PART is a prefix, so longer names may be
-    # present and are ignored. Usable only when every entry has at
-    # least three pieces and exactly one of them is this name, an
-    # active FACTOR (second piece "F", third piece not "1"). A
-    # missing, errored, continued, malformed, or ambiguous reply is a
+    # #9999999.64 B index. The subscript is the first 30 bytes of .01.
+    # PART is a prefix, so a longer name may be present. Usable only
+    # when the reply has data, no error, and no MORE, every entry has
+    # at least three pieces, and exactly one .01 equals this name. That
+    # row is an active FACTOR (second piece "F", third piece not "1").
+    # Any other entry whose .01 has the same first 30 UTF-8 bytes is a
+    # collision, whatever its entry type or inactive flag. A missing,
+    # errored, continued, malformed, ambiguous, or colliding reply is a
     # refusal. Called outside call_amhg, like save_visit_ddr.
     def save_factor_type!(name)
       got = DdrFileman.lister(
@@ -2921,9 +2945,37 @@ module RpmsRpc
 
       exact = entries.select { |entry| entry[:pieces][0].to_s == name }
       return false unless exact.length == 1
+      return false if save_factor_subscript_collision?(entries, exact.first, name)
 
       pieces = exact.first[:pieces]
       pieces[1].to_s == "F" && pieces[2].to_s != "1"
+    end
+
+    # First 30 bytes of the UTF-8 encoding, or nil when the text is not
+    # valid UTF-8. The caller refuses nil. The slice is raw bytes, the
+    # same width as the B subscript when ydb_chset=M.
+    def save_factor_subscript(text)
+      raw = text.to_s
+      return nil unless [ Encoding::UTF_8, Encoding::US_ASCII, Encoding::ASCII_8BIT ].include?(raw.encoding)
+
+      utf8 = raw.encoding == Encoding::UTF_8 ? raw : raw.dup.force_encoding(Encoding::UTF_8)
+      return nil unless utf8.valid_encoding?
+
+      utf8.b.byteslice(0, HF_NAME_MAX_BYTES)
+    rescue EncodingError
+      nil
+    end
+
+    def save_factor_subscript_collision?(entries, exact, name)
+      sent = save_factor_subscript(name)
+      return true if sent.nil?
+
+      entries.any? do |entry|
+        next false if entry.equal?(exact)
+
+        other = save_factor_subscript(entry[:pieces][0])
+        other.nil? || other == sent
+      end
     end
 
     def save_factor_type_shaped?(entry)
