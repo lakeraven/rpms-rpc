@@ -15,7 +15,7 @@ visit from a BH save, and `BehavioralHealth.save_visit` must not report one.
 
 ## Settled point 2: what each RPC accepts
 
-All take one string `AMHSTR`, pipe-delimited (`P="|"`, repeating items separated by `~`, `R="~"`), and reply with a
+All take one string `AMHSTR`, pipe-delimited (`P="|"`, the HF and MSR lists join items with `*` (ARRAY^AMHGU), and the fields of one item with `~`), and reply with a
 two-row table: header `T00030Result` (VISIT replies `T00010BMXIEN`), then the new or edited record IEN, or an error
 string `0~<reason>` set by the filer into `AMHER`. First two pieces are always `DM|REC`: data mode (`A` add, `E` edit)
 and the MHSS RECORD IEN (blank on add).
