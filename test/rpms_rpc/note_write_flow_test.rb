@@ -680,9 +680,8 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
   end
 
   def test_run_calls_getvisit_before_create_when_visit_patient_matches_dfn
-    note_ien = "6"
     client = ScriptedClient.new(
-      flow_steps({ rpc: CREATE_RPC, raw: note_ien }),
+      flow_steps({ rpc: CREATE_RPC, raw: "0^synthetic create refused" }),
       framer: method(:framed_payload)
     )
     RpmsRpc.configure { |cfg| cfg.client = client }
@@ -818,8 +817,12 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     assert_get_read_back_evidence?(tiu_get_framed(alt_wrap),
                                    "alternate soft wrap at a different space must pass")
 
-    hard_row1 = long.byteslice(0, RpmsRpc::ProgressNote::WRAP_WIDTH)
-    hard_row2 = long.byteslice(RpmsRpc::ProgressNote::WRAP_WIDTH)
+    wrap_w = RpmsRpc::ProgressNote::WRAP_WIDTH
+    hard_row1 = long.byteslice(0, wrap_w)
+    hard_row2 = long.byteslice(wrap_w, long.bytesize - wrap_w)
+    assert_equal long, hard_row1 + hard_row2
+    refute hard_row1.end_with?(" "), "hard_row1 must not end with a space (hard cut)"
+    refute hard_row2.start_with?(" "), "hard_row2 must not start with a space (hard cut)"
     hard_body = [ first, hard_row1, hard_row2 ]
     assert_get_read_back_evidence?(tiu_get_framed(hard_body),
                                    "hard-cut wrap with bare \\r rows must pass")
