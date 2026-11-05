@@ -489,6 +489,25 @@ class DdrFilemanTest < Minitest::Test
     refute result[:stray]
   end
 
+  def test_gets_entry_flags_i_five_piece_row_whose_fifth_copies_fourth_sets_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol^Alcohol"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert result[:stray],
+           "FLAGS I emits no external piece; a fifth piece equal to the fourth is still stray"
+    assert_equal "Alcohol", result.dig(:fields, "1601", :internal),
+                 "must not treat Alcohol^Alcohol as internal Alcohol via duplicate fifth piece"
+  end
+
   def test_gets_entry_flags_i_row_with_more_than_four_caret_pieces_sets_stray
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
@@ -504,6 +523,60 @@ class DdrFilemanTest < Minitest::Test
 
     assert result[:stray],
            "a caret inside stored 1601 must not parse as a clean four-piece FLAGS I row"
+  end
+
+  # --- rpms-rpc#557 (Factory-Spec-Amendment: 557-r10) -----------------------
+
+  def test_gets_entry_flags_i_row_x_caret_x_five_piece_sets_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1601^x^x")
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert result[:stray],
+           "FLAGS I emits no external piece; a fifth caret piece is part of the comment"
+    assert_equal "x", result.dig(:fields, "1601", :internal),
+                 "must not shorten x^x to internal x via a duplicate fifth piece"
+  end
+
+  def test_gets_entry_flags_i_word_processing_header_only_on_1401_yields_text_without_internal
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1401", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n9002011^8840^1401^[WORD PROCESSING]"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1401", flags: "I"
+    )
+
+    entry = result.dig(:fields, "1401")
+    assert_equal [], entry[:text]
+    refute entry.key?(:internal)
+  end
+
+  def test_gets_entry_flags_i_word_processing_header_only_on_1402_yields_text_without_internal
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1402", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n9002011^8840^1402^[WORD PROCESSING]"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1402", flags: "I"
+    )
+
+    entry = result.dig(:fields, "1402")
+    assert_equal [], entry[:text]
+    refute entry.key?(:internal)
   end
 
   def test_gets_entry_word_processing_on_visit_field_2001_sets_stray
