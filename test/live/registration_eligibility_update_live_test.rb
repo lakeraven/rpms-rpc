@@ -14,33 +14,75 @@ class RegistrationEligibilityUpdateLiveTest < LiveSpec::Test
 
   DFN = 990_052 # BRAVO,REESE on the pinned build; unused by other live specs
 
+  ELIGIBILITY_CODES = %w[C D].freeze
+  QUANTUM_VALUES = %w[1/2 1/4].freeze
+
   def test_tribal_standing_is_filed_on_ihs_patient
-    tribe = tribe_ien!("KWETHLUK")
+    before = RpmsRpc::Tribal.enrollment(DFN)
+    refute_nil before, "Tribal.enrollment(#{DFN}) must read current standing before filing"
+
+    tribe_choices = kwethluk_tribe_iens!
+    tribe = tribe_choices.find { |ien| ien != before[:tribe_ien].to_s } || tribe_choices.first
+
+    eligibility_status = alternate_value(ELIGIBILITY_CODES, before[:eligibility_status].to_s)
+    blood_quantum = alternate_value(QUANTUM_VALUES, before[:indian_blood_quantum].to_s)
+    tribe_quantum = alternate_value(QUANTUM_VALUES, before[:tribe_quantum].to_s)
     classification = classification_ien!
+    classification_before_filing = before[:classification_ien].to_s
+    # BENEFICIARY #9999999.25 holds only IEN 1 OTHER on this build — cannot pick a
+    # different classification; clear first when already filed so the write is observable.
+    if classification_before_filing == classification
+      cleared = RpmsRpc::Registration.update(DFN, classification: "")
+      assert_equal({ success: true, dfn: DFN }, cleared)
+      after_clear = RpmsRpc::Tribal.enrollment(DFN)
+      assert_nil after_clear[:classification_ien], "clearing classification must be observable on readback"
+      classification_before_filing = after_clear[:classification_ien].to_s
+    end
+
     number = "ZZ#{rand(10_000..99_999)}"
 
-    result = RpmsRpc::Registration.update(DFN, eligibility_status: "C", classification: classification, tribe: tribe,
-                                               blood_quantum: "1/2", tribe_quantum: "1/4", enrollment_number: number)
+    result = RpmsRpc::Registration.update(DFN, eligibility_status: eligibility_status, classification: classification,
+                                               tribe: tribe, blood_quantum: blood_quantum, tribe_quantum: tribe_quantum,
+                                               enrollment_number: number)
     assert_equal({ success: true, dfn: DFN }, result)
 
     got = RpmsRpc::DdrFileman.gets_entry(file: "9000001", iens: "#{DFN},", fields: ".07;1108;1109;1110;1111;1112", flags: "I")
     refute got.nil? || got[:error], "FileMan read of #9000001: #{got.inspect}"
     filed = %w[.07 1108 1109 1110 1111 1112].to_h { |f| [ f, got.dig(:fields, f, :internal).to_s ] }
-    assert_equal({ ".07" => number, "1108" => tribe, "1109" => "1/4", "1110" => "1/2", "1111" => classification, "1112" => "C" },
-                 filed)
+    expected = { ".07" => number, "1108" => tribe, "1109" => tribe_quantum, "1110" => blood_quantum,
+                   "1111" => classification, "1112" => eligibility_status }
+    assert_equal expected, filed
+
+    before_internal = {
+      ".07" => before[:enrollment_number].to_s,
+      "1108" => before[:tribe_ien].to_s,
+      "1109" => before[:tribe_quantum].to_s,
+      "1110" => before[:indian_blood_quantum].to_s,
+      "1111" => classification_before_filing,
+      "1112" => before[:eligibility_status].to_s
+    }
+    expected.each do |field, value|
+      refute_equal before_internal[field], value,
+                   "field #{field} must differ from pre-test value (#{before_internal[field].inspect} -> #{value.inspect})"
+    end
 
     standing = RpmsRpc::Tribal.enrollment(DFN)
-    assert_equal [ number, "1/4", "1/2", "C" ],
+    assert_equal [ number, tribe_quantum, blood_quantum, eligibility_status ],
                  standing.values_at(:enrollment_number, :tribe_quantum, :indian_blood_quantum, :eligibility_status)
     puts "\n#{persona}: tribal standing filed on DFN #{DFN}"
   end
 
   private
 
-  def tribe_ien!(part)
-    found = Array(RpmsRpc::Tribal.tribes(part: part)).first
-    flunk "no tribe starting #{part} on this build" unless found
-    found[:ien].to_s
+  def alternate_value(options, current)
+    options.find { |choice| choice != current.to_s } || options.first
+  end
+
+  def kwethluk_tribe_iens!
+    listed = Array(RpmsRpc::Tribal.tribes(part: "KWETHLUK")).map { |row| row[:ien].to_s }.uniq
+    flunk "need at least two KWETHLUK tribes on this build (e.g. IEN 697 and 532), got #{listed.inspect}" if listed.size < 2
+
+    listed
   end
 
   def classification_ien!

@@ -49,6 +49,8 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     "ORQQPL LIST", "ORQQAL LIST", "ORWPS ACTIVE", "ORQQVI VITALS"
   ].freeze
 
+  CHART_READ_WIRE_FIXTURE_RPCS = CHART_READ_CHECKLIST_RPCS
+
   # API method -> fixture_name -> underlying DDR RPC (issue #566 synthetic seed, DFN 2).
   TRIBAL_SLICE = [
     { checklist_key: "Tribal.enrollment", fixture_name: "tribal-enrollment",
@@ -65,10 +67,10 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
       api: -> { Tribal.service_unit(1) } },
     { checklist_key: "Tribal.tribes", fixture_name: "tribal-tribes",
       rpc: "DDR LISTER", mapping: :ddr_lister, kind: "text_blob",
-      api: -> { Tribal.tribes(part: "A") } },
+      api: -> { Tribal.tribes(part: "OTHER") } },
     { checklist_key: "Tribal.communities", fixture_name: "tribal-communities",
       rpc: "DDR LISTER", mapping: :ddr_lister, kind: "text_blob",
-      api: -> { Tribal.communities(part: "AT") } },
+      api: -> { Tribal.communities(part: "STONEHAM") } },
     { checklist_key: "Tribal.validate", fixture_name: "tribal-validate-valid",
       rpc: "DDR VALIDATOR", mapping: :ddr_validator, kind: "text_blob",
       api: -> { Tribal.validate("12345") } },
@@ -88,8 +90,9 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     eligibility_status eligibility_status_name classification_ien classification
   ].freeze
 
-  TRIBE_INFO_READINESS_KEYS = %i[ien name code].freeze
-  SERVICE_UNIT_READINESS_KEYS = %i[ien name].freeze
+  # :ien on tribe_info/service_unit is the caller's IEN argument echoed (Tribal.rb), not wire proof.
+  TRIBE_INFO_READINESS_KEYS = %i[name code].freeze
+  SERVICE_UNIT_READINESS_KEYS = %i[name].freeze
   TRIBES_READINESS_KEYS = %i[ien name].freeze
   COMMUNITIES_READINESS_KEYS = %i[ien name county state].freeze
   VALIDATE_READINESS_KEYS = %i[valid internal external].freeze
@@ -184,20 +187,57 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
       end
     end
 
-    def proven_readiness_keys(checklist_key, replay_results)
+    def validate_proof_from_raw?(row, raw_return, want_valid:)
+      raw = raw_return.to_s
+      return false unless raw.include?("[Data]")
+      if want_valid
+        return false if raw.include?("[BEGIN_diERRORS]")
+      else
+        return false unless raw.include?("[BEGIN_diERRORS]")
+        return false unless raw.include?("^")
+      end
+      return false unless row[:valid] == want_valid
+
+      true
+    end
+
+    def validator_attribute_proven?(attribute, row)
+      value = row[attribute]
+      return false if value.nil? || value == "" || value == "^"
+
+      RpmsRpc::WireCapture::Evidence.real_value?(value)
+    end
+
+    def list_attribute_proven?(attribute, row)
+      if attribute == :ien
+        ien = row[attribute]
+        return false unless ien.is_a?(Integer) && ien.positive?
+      end
+      RpmsRpc::WireCapture::Evidence.real_value?(row[attribute])
+    end
+
+    def proven_readiness_keys(checklist_key, replay_results, validate_raws: nil)
       keys = readiness_keys_for(checklist_key)
       if checklist_key == "Tribal.validate"
-        valid_true = replay_results.any? { |row| row[:valid] == true }
-        valid_false = replay_results.any? { |row| row[:valid] == false }
+        raws = Array(validate_raws)
+        valid_true = replay_results.each_with_index.any? do |row, idx|
+          validate_proof_from_raw?(row, raws[idx], want_valid: true)
+        end
+        valid_false = replay_results.each_with_index.any? do |row, idx|
+          validate_proof_from_raw?(row, raws[idx], want_valid: false)
+        end
         keys.select do |attribute|
           case attribute
           when :valid then valid_true && valid_false
-          else replay_results.any? { |row| RpmsRpc::WireCapture::Evidence.real_value?(row[attribute]) }
+          when :internal, :external
+            replay_results.any? { |row| validator_attribute_proven?(attribute, row) }
+          else
+            replay_results.any? { |row| RpmsRpc::WireCapture::Evidence.real_value?(row[attribute]) }
           end
         end
       elsif list_checklist_key?(checklist_key)
         rows = replay_results.flatten(1)
-        keys.select { |attribute| rows.any? { |row| RpmsRpc::WireCapture::Evidence.real_value?(row[attribute]) } }
+        keys.select { |attribute| rows.any? { |row| list_attribute_proven?(attribute, row) } }
       else
         row = replay_results.first
         keys.select { |attribute| RpmsRpc::WireCapture::Evidence.real_value?(row[attribute]) }
@@ -206,8 +246,43 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
 
     def unproven_readiness_keys(checklist_key, slices)
       results = replay_results_for_slices(slices)
-      proven = proven_readiness_keys(checklist_key, results)
+      validate_raws = checklist_key == "Tribal.validate" ? slices.map { |s| load_fixture_raw(s[:fixture_name]) } : nil
+      proven = proven_readiness_keys(checklist_key, results, validate_raws: validate_raws)
       readiness_keys_for(checklist_key) - proven
+    end
+
+    def load_fixture_raw(fixture_name)
+      slice = TRIBAL_SLICE.find { |s| s[:fixture_name] == fixture_name }
+      fail "unknown fixture #{fixture_name}" unless slice
+
+      entry = catalog_entry_for_fixture(fixture_name)
+      path = fixture_path_for(entry)
+      RpmsRpc::WireCapture::Fixture.load_file(path).raw_return
+    end
+
+    def cia_reply_body(raw_return)
+      bytes = raw_return.to_s.b
+      rest = bytes.byteslice(1..) || "".b
+      case rest.getbyte(0)
+      when 0x00 then rest.byteslice(1..) || "".b
+      when 0x01 then rest.byteslice(1..).to_s
+      else rest.to_s
+      end
+    end
+
+    def lister_data_rows(raw_return)
+      body = cia_reply_body(raw_return)
+      lines = body.split(/\r\n|\r|\n|\x1e/).map(&:strip).reject(&:empty?)
+      data_at = lines.index("[Data]")
+      return [] unless data_at
+
+      rows = []
+      lines[(data_at + 1)..].each do |line|
+        break if line.start_with?("[")
+
+        rows << line
+      end
+      rows
     end
 
     def format_unproven_list(attributes)
@@ -274,9 +349,9 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     def recorded_lister_param(slice)
       case slice[:fixture_name]
       when "tribal-tribes"
-        Ddr.lister_param(file: Tribal::TRIBE_FILE, fields: Tribal::NAME_ONLY, part: "A", xref: "B")
+        Ddr.lister_param(file: Tribal::TRIBE_FILE, fields: Tribal::NAME_ONLY, part: "OTHER", xref: "B")
       when "tribal-communities"
-        Ddr.lister_param(file: Tribal::COMMUNITY_FILE, fields: Tribal::COMMUNITY_FIELDS, part: "AT", xref: "B")
+        Ddr.lister_param(file: Tribal::COMMUNITY_FILE, fields: Tribal::COMMUNITY_FIELDS, part: "STONEHAM", xref: "B")
       else
         fail "no lister param recipe for #{slice[:fixture_name]}"
       end
@@ -460,14 +535,117 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     assert_empty failures, failures.join("\n  ")
   end
 
+  def test_tribal_lister_fixtures_use_other_and_stoneham_slices_without_real_tribe_names
+    tribes_slice = TRIBAL_SLICE.find { |s| s[:fixture_name] == "tribal-tribes" }
+    communities_slice = TRIBAL_SLICE.find { |s| s[:fixture_name] == "tribal-communities" }
+    tribes_fixture = load_slice_fixture(tribes_slice)
+    communities_fixture = load_slice_fixture(communities_slice)
+
+    tribe_rows = self.class.lister_data_rows(tribes_fixture.raw_return)
+    refute_empty tribe_rows, "tribal-tribes.yml must contain [Data] rows"
+    tribe_rows.each do |row|
+      _ien, name = row.split("^", 2)
+      assert_equal "OTHER", name,
+                   "tribal-tribes.yml must not commit real tribe names (expected catch-all OTHER only, got #{name.inspect})"
+    end
+
+    part = communities_fixture.inputs&.dig(0, "PART").to_s
+    community_rows = self.class.lister_data_rows(communities_fixture.raw_return)
+    refute_empty community_rows, "tribal-communities.yml must contain [Data] rows"
+    community_rows.each do |row|
+      name = row.split("^", 2)[1]
+      assert name.to_s.start_with?(part),
+             "community name #{name.inspect} in tribal-communities.yml must start with slice PART #{part.inspect}"
+    end
+  end
+
+  def test_tribal_validate_fixtures_raw_sections_match_ddr_validator_contract
+    valid_fixture = load_slice_fixture(TRIBAL_SLICE.find { |s| s[:fixture_name] == "tribal-validate-valid" })
+    invalid_fixture = load_slice_fixture(TRIBAL_SLICE.find { |s| s[:fixture_name] == "tribal-validate-invalid" })
+    valid_raw = valid_fixture.raw_return
+    invalid_raw = invalid_fixture.raw_return
+
+    assert_includes valid_raw, "[Data]"
+    refute_includes valid_raw, "[BEGIN_diERRORS]"
+
+    assert_includes invalid_raw, "[Data]"
+    assert_includes invalid_raw, "[BEGIN_diERRORS]"
+    invalid_rows = self.class.lister_data_rows(invalid_raw)
+    assert_includes invalid_rows, "^", "invalid validator fixture must expose VAL^DIE failure marker ^ in [Data]"
+  end
+
+  def test_validate_access_denied_reply_does_not_count_as_valid_false_proof
+    raw = "5\0Access denied for remote procedure.\r"
+    row = tribal_validate_replay(raw, "12345")
+    refute_nil row
+    assert_equal false, row[:valid]
+    refute self.class.validate_proof_from_raw?(row, raw, want_valid: false),
+           "replies without [Data] must not prove :valid false branch"
+  end
+
+  def test_validate_internal_caret_does_not_prove_internal_or_external
+    row = { valid: false, internal: "^", external: "" }
+    refute self.class.validator_attribute_proven?(:internal, row)
+    refute self.class.validator_attribute_proven?(:external, row)
+  end
+
+  def test_service_unit_empty_name_reply_proves_no_readiness_keys
+    raw = "5\0[Data]\r9999999.22^1^.01^^\r"
+    row = tribal_service_unit_replay(raw, 1)
+    proven = self.class.proven_readiness_keys("Tribal.service_unit", [ row ])
+    assert_empty proven,
+                 "empty .01 external must leave service_unit not-proven (expected unproven #{SERVICE_UNIT_READINESS_KEYS.inspect})"
+  end
+
+  def test_tribes_lister_row_missing_ien_does_not_prove_ien
+    raw = "5\0[Data]\r^SOMENAME\r"
+    rows = tribal_tribes_replay(raw)
+    proven = self.class.proven_readiness_keys("Tribal.tribes", [ rows ])
+    refute_includes proven, :ien, "list :ien proves only on a positive Integer from the wire, not missing-IEN rows mapped to 0"
+    assert_includes proven, :name
+  end
+
+  def test_evidence_rejects_unknown_community_placeholder
+    refute RpmsRpc::WireCapture::Evidence.real_value?("UNKNOWN")
+    refute RpmsRpc::WireCapture::Evidence.real_value?("unknown")
+  end
+
+  def test_pilot_chart_reads_fixtures_do_not_use_bare_unknown_as_wire_token
+    chart_paths = CHART_READ_WIRE_FIXTURE_RPCS.map do |rpc|
+      File.join(RpmsRpc::WireCapture::FIXTURES_DIR, "#{rpc.downcase.tr(" /", "--")}.yml")
+    end
+    bare_unknown = chart_paths.filter_map do |path|
+      next unless File.file?(path)
+
+      raw = YAML.safe_load_file(path)["raw_return"].to_s
+      next if raw.match?(/\bUNKNOWN CODE\b/)
+
+      File.basename(path) if raw.match?(/(?<![A-Z])UNKNOWN(?![A-Z])/)
+    end
+    assert_empty bare_unknown,
+                 "pilot chart-read fixtures must not contain bare UNKNOWN placeholders " \
+                 "(would change if Evidence rejects UNKNOWN; suspicious: #{bare_unknown.join(", ")})"
+  end
+
+  def test_tribal_enrollment_replayed_fixtures_leave_community_and_enrollment_number_unproven
+    slices = self.class.slices_for_checklist_key("Tribal.enrollment")
+    unproven = self.class.unproven_readiness_keys("Tribal.enrollment", slices)
+    assert_includes unproven, :enrollment_number
+    assert_includes unproven, :community,
+                    "1118^UNKNOWN^UNKNOWN on DFN 2 is seed filler, not wire evidence of community"
+  end
+
   def test_tribal_enrollment_checklist_documents_seed_data_gap_for_blank_enrollment_number
     rows = parse_checklist
     row = rows["Tribal.enrollment"]
     refute_nil row, "checklist must include Tribal.enrollment"
     assert_equal "partial", row[:status]
     assert_includes row[:unproven], "enrollment_number"
+    assert_includes row[:unproven], "community"
     assert_match(/seed.?data gap/i, row[:reason])
     assert_match(/\.07|enrollment/i, row[:reason])
+    assert_match(/1118|community/i, row[:reason])
+    assert_match(/UNKNOWN/i, row[:reason])
     assert_match(/PROV123/, row[:reason])
   end
 
@@ -476,7 +654,8 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     row = rows["Registration.update eligibility"]
     refute_nil row, "checklist must include Registration.update eligibility write row"
     assert_includes row[:reason], "test/live/registration_eligibility_update_live_test.rb"
-    assert_match(/BENEFICIARY|9999999\.25/i, row[:reason])
+    assert_match(/BENEFICIARY.*9999999\.25.*IEN\s*1.*OTHER|9999999\.25.*OTHER.*IEN\s*1/i, row[:reason],
+                 "classification is proven only by filing the sole BENEFICIARY entry (IEN 1 OTHER) on this build")
     assert_match(/OTHER|seed.?data gap/i, row[:reason])
 
     if live_eligibility_spec_covers_window_eligibility_attrs?
@@ -511,15 +690,50 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
 
   private
 
+  def tribal_validate_replay(raw, value)
+    with_cia_replay(raw) { Tribal.validate(value) }
+  end
+
+  def tribal_service_unit_replay(raw, ien)
+    with_cia_replay(raw) { Tribal.service_unit(ien) }
+  end
+
+  def tribal_tribes_replay(raw)
+    with_cia_replay(raw) { Tribal.tribes(part: "X") }
+  end
+
+  def with_cia_replay(raw)
+    client = CiaFramedReplayClient.new(raw)
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    yield
+  ensure
+    RpmsRpc.reset!
+  end
+
   def live_eligibility_spec_covers_window_eligibility_attrs?
     source = File.read(LIVE_ELIGIBILITY_SPEC)
+    lines = source.lines
+    return false if source.match?(/^\s*skip\b/m) || source.match?(/\bskip\s+"|\bskip\s+'/)
+
+    def_line = lines.find { |l| l =~ /^\s*def test_/ }
+    return false unless def_line && !def_line.strip.start_with?("#")
+
+    update_line = lines.find { |l| l.include?("Registration.update") && !l.strip.start_with?("#") }
+    return false unless update_line
+
+    return false unless source.match?(/Tribal\.enrollment\s*\(\s*DFN\s*\)/)
+
     update_ok = WINDOW_ELIGIBILITY_ATTRS.all? do |attr|
       source.match?(/(?<![a-z_])#{Regexp.escape(attr.to_s)}:\s/)
     end
     read_ok = source.include?('"1108"') && source.include?('"1111"') && source.include?('"1112"') &&
               source.include?('"1110"') && source.include?('"1109"') && source.include?('".07"') &&
               source.match?(/Tribal\.enrollment/) &&
-              source.match?(/\.values_at\(:enrollment_number/)
-    update_ok && read_ok && source.match?(/Registration\.update/) && source.match?(/990[_ ]?052/)
+              source.match?(/\.values_at\(:enrollment_number/) &&
+              source.match?(/KWETHLUK|tribes\(part:\s*"KWETHLUK"\)/) &&
+              source.match?(/before|refute_equal|!=/) &&
+              source.match?(/\b990[_ ]?052\b/)
+    update_ok && read_ok && source.match?(/Registration\.update/)
   end
 end
