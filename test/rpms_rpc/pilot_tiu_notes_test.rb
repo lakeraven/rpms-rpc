@@ -366,23 +366,32 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
   def test_write_refusal_requires_loopback_host_and_host_mode
     assert RpmsRpc::WireCapture.respond_to?(:write_refusal), "WireCapture.write_refusal missing"
 
-    assert_nil RpmsRpc::WireCapture.write_refusal(writes: false, host: "127.0.0.1", container: nil)
-    assert_nil RpmsRpc::WireCapture.write_refusal(writes: true, host: "127.0.0.1", container: "rpms-ydb-9.0")
-    assert_nil RpmsRpc::WireCapture.write_refusal(writes: true, host: "localhost", container: "rpms-ydb-9.0")
-    assert_nil RpmsRpc::WireCapture.write_refusal(writes: true, host: "::1", container: "rpms-ydb-9.0")
+    [ false, nil ].each do |writes|
+      assert_nil RpmsRpc::WireCapture.write_refusal(writes: writes, host: "10.0.0.5", container: "rpms-ydb-9.0"),
+                 "writes #{writes.inspect} must not be refused"
+      assert_nil RpmsRpc::WireCapture.write_refusal(writes: writes, host: "127.0.0.1", container: nil),
+                 "writes #{writes.inspect} must not be refused"
+    end
 
-    off_host = RpmsRpc::WireCapture.write_refusal(writes: true, host: "10.0.0.5", container: "rpms-ydb-9.0")
+    %w[127.0.0.1 localhost ::1].each do |host|
+      assert_nil RpmsRpc::WireCapture.write_refusal(writes: true, host: host, container: nil),
+                 "loopback #{host} in host mode (no CONTAINER) must allow writes"
+      assert_nil RpmsRpc::WireCapture.write_refusal(writes: true, host: host, container: ""),
+                 "empty CONTAINER is unset — same as host mode"
+    end
+
+    off_host = RpmsRpc::WireCapture.write_refusal(writes: true, host: "10.0.0.5", container: nil)
     refute_nil off_host
     assert_match(/loopback/i, off_host)
 
-    no_container = RpmsRpc::WireCapture.write_refusal(writes: true, host: "127.0.0.1", container: nil)
-    refute_nil no_container
-    assert_match(/CONTAINER/i, no_container)
-    assert_match(/rpms-ydb-9\.0/i, no_container)
+    in_container = RpmsRpc::WireCapture.write_refusal(writes: true, host: "127.0.0.1", container: "rpms-ydb-9.0")
+    refute_nil in_container
+    assert_match(/CONTAINER/i, in_container)
 
     [ nil, "" ].each do |host|
-      refused = RpmsRpc::WireCapture.write_refusal(writes: true, host: host, container: "rpms-ydb-9.0")
-      refute_nil refused, "writes with host #{host.inspect} must be refused (no host mode)"
+      refused = RpmsRpc::WireCapture.write_refusal(writes: true, host: host, container: nil)
+      refute_nil refused, "writes with host #{host.inspect} must be refused"
+      assert_match(/loopback/i, refused)
     end
   end
 
