@@ -1429,14 +1429,16 @@ module RpmsRpc
       patient_piece = save_visit_required_ien(patient, "patient")
       letter = save_list_mode(mode)
       rows = save_factor_rows(health_factors)
-      save_visit_confirm_patient!(record, patient_piece)
-      rows.each { |row| save_factor_type!(row[:name]) }
-      listed = rows.map { |row| [ row[:name], row[:level], row[:quantity], row[:comment] ].join("~") }.join("*")
-      wire = [ letter, record, listed, patient_piece ].join("|")
-      save_visit_piece_count!(wire, HF_RPC, 4)
-      ien = save_amhg_ien(:amhg_save_health_factors, wire, record, HF_RPC)
-      save_factor_confirm!(ien, patient_piece, rows, exact: letter == "E")
-      ien
+      with_factor_record_lock(record) do
+        save_visit_confirm_patient!(record, patient_piece)
+        rows.each { |row| save_factor_type!(row[:name]) }
+        listed = rows.map { |row| [ row[:name], row[:level], row[:quantity], row[:comment] ].join("~") }.join("*")
+        wire = [ letter, record, listed, patient_piece ].join("|")
+        save_visit_piece_count!(wire, HF_RPC, 4)
+        ien = save_amhg_ien(:amhg_save_health_factors, wire, record, HF_RPC)
+        save_factor_confirm!(ien, patient_piece, rows, exact: letter == "E")
+        ien
+      end
     end
     shape :save_health_factors, resource: "behavioral-health", verb: "POST",
           path: "/behavioral-health/health-factors"
@@ -2912,6 +2914,48 @@ module RpmsRpc
       end
 
       text
+    end
+
+    # Hold ^AMHREC(record) from the visit pre-read through the read-back, as
+    # Wellness does. Mode E deletes every stored factor the list omits, so two
+    # unlocked sessions on one visit lose updates silently. The lock is taken
+    # only after local validation, and is released on every exit path.
+    HF_LOCK_TIMEOUT = 5
+
+    def with_factor_record_lock(record)
+      node = "^AMHREC(#{record})"
+      held = factor_record_lock!(node)
+      begin
+        yield
+      ensure
+        factor_record_unlock(node) if held
+      end
+    end
+
+    # True only when the lock RPC returned true. Once the call has been sent,
+    # anything else (false, nil, StandardError, NotImplementedError) is
+    # released before the refusal, and the unlock must not replace it.
+    def factor_record_lock!(node)
+      cause = nil
+      acquired = begin
+        DdrFileman.lock(node: node, timeout: HF_LOCK_TIMEOUT)
+      rescue StandardError, NotImplementedError => e
+        cause = e
+        nil
+      end
+      return true if acquired == true
+
+      factor_record_unlock(node)
+      raise SaveError.new("the lock #{node} was not acquired"), cause: cause
+    end
+
+    # Best-effort. A false reply, StandardError or NotImplementedError (a
+    # ScriptError) must not replace a result or an exception the save already
+    # produced. A lock this call does not release expires with the broker job.
+    def factor_record_unlock(node)
+      DdrFileman.unlock(node: node)
+    rescue StandardError, NotImplementedError
+      nil
     end
 
     # #9999999.64 B index. The subscript is the first 40 bytes of .01.
