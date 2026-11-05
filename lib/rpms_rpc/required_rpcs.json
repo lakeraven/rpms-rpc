@@ -98,6 +98,13 @@
       "AMHG GET PATIENT",
       "AMHG GET SITE PARAMETERS"
     ],
+    "RpmsRpc::BehavioralHealth::Wellness": [
+      "AMHG GET VISIT MSR DATA ENTRY",
+      "AMHG SAVE MEASUREMENTS",
+      "AMHG SAVE SCREENING",
+      "DDR GETS ENTRY DATA",
+      "DDR LOCK/UNLOCK NODE"
+    ],
     "RpmsRpc::Bgu": [
       "BGU MAILMAN MESSAGE"
     ],
@@ -244,6 +251,7 @@
       "BEHOPTCX PTINFO",
       "BEHOPTPC GETBDP",
       "DDR GETS ENTRY DATA",
+      "DDR LISTER",
       "ORWPT CWAD",
       "ORWPT FULLSSN",
       "ORWPT ID INFO",

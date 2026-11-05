@@ -101,6 +101,8 @@
 "RpmsRpc::BehavioralHealth::Reference.clinics": non_idempotent_write
 "RpmsRpc::BehavioralHealth::Reference.patients": non_idempotent_write
 "RpmsRpc::BehavioralHealth::Reference.site_parameters": non_idempotent_write
+"RpmsRpc::BehavioralHealth::Wellness.save_measurements": non_idempotent_write
+"RpmsRpc::BehavioralHealth::Wellness.save_screening": non_idempotent_write
 "RpmsRpc::Bgu.send_mailman_message": non_idempotent_write
 "RpmsRpc::Busa.log_security_audit": non_idempotent_write
 "RpmsRpc::Busa.parse_log_reply": read
@@ -151,7 +153,7 @@
 "RpmsRpc::Eligibility.for_patient": read
 "RpmsRpc::Encounter.create": non_idempotent_write
 "RpmsRpc::Encounter.for_patient": read
-"RpmsRpc::Encounter.open": read
+"RpmsRpc::Encounter.open": non_idempotent_write
 "RpmsRpc::Encounter.visit_string": read
 "RpmsRpc::ExamComponent.add": non_idempotent_write
 "RpmsRpc::HealthFactor.add": non_idempotent_write

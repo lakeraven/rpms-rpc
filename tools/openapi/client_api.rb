@@ -27,6 +27,7 @@ module OpenApi
       "BehavioralHealth::Groups" => { path: "behavioral-health/groups" },
       "BehavioralHealth::Intake" => { path: "behavioral-health/intakes" },
       "BehavioralHealth::Reference" => { path: "behavioral-health" },
+      "BehavioralHealth::Wellness" => { path: "behavioral-health/wellness" },
       "Bgu" => { path: "bgu" },
       "Busa" => { path: "busa" },
       "DdrFileman" => { path: "files", own: %w[file] },
