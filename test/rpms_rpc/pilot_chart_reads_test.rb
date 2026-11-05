@@ -153,7 +153,8 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     end
 
     def catalog_entry_for(rpc)
-      RpmsRpc::WireCapture::CATALOG.find { |e| e.rpc == rpc }
+      slug = rpc.downcase.tr(" /", "--")
+      RpmsRpc::WireCapture::CATALOG.find { |entry| entry.fixture_name == slug && entry.rpc == rpc }
     end
 
     # Reuses the wire-contract gate without duplicating its rules (issue #189).

@@ -105,21 +105,23 @@ module RpmsRpc
     end
 
     # Verdicts for a scratch capture against committed fixtures (rpms-ops#975),
-    # one [rpc, verdict, committed source, captured source] row per RPC called
-    # on either side. SAME: raw bytes identical. SAME-ROWS: the data rows
-    # match and only the CIA frame header differs (it counts the session's
-    # calls). DIFFERENT. NEW: the committed fixture has no raw return
-    # (routine-cite, or none). NOT-CAPTURED: the committed fixture has a raw
-    # return and the capture has none.
+    # one [fixture name, verdict, committed source, captured source] row per
+    # fixture file on either side. The name is the file basename, not the RPC:
+    # several fixtures capture one RPC, and keying on the RPC dropped all but
+    # one of them. SAME: raw bytes identical. SAME-ROWS: the data rows match
+    # and only the CIA frame header differs (it counts the session's calls).
+    # DIFFERENT. NEW: the committed fixture has no raw return (routine-cite,
+    # or none). NOT-CAPTURED: the committed fixture has a raw return and the
+    # capture has none.
     COMPARE_VERDICTS = %w[SAME SAME-ROWS DIFFERENT NEW NOT-CAPTURED].freeze
 
     def self.compare(committed_dir, captured_dir)
-      load = ->(dir) { Fixture.load_all(dir).to_h { |f| [ f.rpc, f ] } }
+      load = ->(dir) { Fixture.load_all(dir).to_h { |f| [ f.fixture_name, f ] } }
       committed = load.call(committed_dir)
       captured = load.call(captured_dir)
-      (committed.keys | captured.keys).sort.filter_map do |rpc|
-        was = committed[rpc]&.raw_return
-        now = captured[rpc]&.raw_return
+      (committed.keys | captured.keys).sort.filter_map do |name|
+        was = committed[name]&.raw_return
+        now = captured[name]&.raw_return
         next if was.nil? && now.nil? # routine-cite on both sides: nothing was called
 
         verdict = if now.nil? then "NOT-CAPTURED"
@@ -128,7 +130,7 @@ module RpmsRpc
         elsif data_rows(now) == data_rows(was) then "SAME-ROWS"
         else "DIFFERENT"
         end
-        [ rpc, verdict, committed[rpc]&.source || "-", captured[rpc]&.source || "-" ]
+        [ name, verdict, committed[name]&.source || "-", captured[name]&.source || "-" ]
       end
     end
 
@@ -145,14 +147,11 @@ module RpmsRpc
                   :raw_return, :example_return, :sha256, :release_tag, :captured_at,
                   :pieces, :note
 
-      # One file per RPC, named from the RPC. compare and the contract corpus
-      # key on that RPC, so a second capture of the same RPC (a catalog
-      # fixture: name) is not folded into this scan. Load it with fixture_path.
+      # Every fixture file in the directory. Several captures may share one
+      # RPC (a catalog fixture: name); compare and the contract corpus key on
+      # fixture_name, the file basename, so none of them is dropped.
       def self.load_all(dir = FIXTURES_DIR)
-        Dir.glob(File.join(dir, "*.yml")).sort.filter_map do |path|
-          fixture = load_file(path)
-          fixture if File.basename(path, ".yml") == fixture.rpc.downcase.tr(" /", "--")
-        end
+        Dir.glob(File.join(dir, "*.yml")).sort.map { |path| load_file(path) }
       end
 
       def self.load_file(path)
@@ -183,6 +182,14 @@ module RpmsRpc
 
       def piece_at(position)
         @pieces.find { |p| p.position == position }
+      end
+
+      # File basename without .yml. Nil when the fixture was built in memory
+      # and has no path. compare keys on this, not on the RPC.
+      def fixture_name
+        return if @path.nil?
+
+        File.basename(@path, ".yml")
       end
 
       # Captured (or, for routine-cite, illustrative) return lines.
@@ -814,21 +821,21 @@ module RpmsRpc
         fixture: "tribal-tribes",
         rpc: "DDR LISTER", mapping: :ddr_lister, kind: "text_blob", mode: :live,
         inputs: [ DdrFileman.lister_param(file: Tribal::TRIBE_FILE, fields: Tribal::NAME_ONLY,
-                                           part: "A", xref: "B") ],
-        cite: "LISTC^DDR (DDR.m:21-30,45): V0 '[Data]' then packed IEN-first rows and " \
+                                           part: "OTHER", xref: "B") ],
+        cite: "LISTC^DDR (DDR.m:21-30): V0 '[Data]' then packed IEN-first rows and " \
               "'[Errors]'; PARSE^DDR reads FILE/FIELDS/PART/XREF (DDR.m:53-65)",
         pieces: [],
-        note: "Tribal.tribes over TRIBE #9999999.03 on the B index, names starting with A."
+        note: "Tribal.tribes(part: \"OTHER\") over TRIBE #9999999.03 on the B index."
       ),
       CatalogEntry.new(
         fixture: "tribal-communities",
         rpc: "DDR LISTER", mapping: :ddr_lister, kind: "text_blob", mode: :live,
         inputs: [ DdrFileman.lister_param(file: Tribal::COMMUNITY_FILE, fields: Tribal::COMMUNITY_FIELDS,
-                                           part: "AT", xref: "B") ],
-        cite: "LISTC^DDR (DDR.m:21-30,45): V0 '[Data]' then packed IEN-first rows and " \
+                                           part: "STONEHAM", xref: "B") ],
+        cite: "LISTC^DDR (DDR.m:21-30): V0 '[Data]' then packed IEN-first rows and " \
               "'[Errors]'; PARSE^DDR reads FILE/FIELDS/PART/XREF (DDR.m:53-65)",
         pieces: [],
-        note: "Tribal.communities over COMMUNITY #9999999.05 on the B index, names starting with AT."
+        note: "Tribal.communities(part: \"STONEHAM\") over COMMUNITY #9999999.05 on the B index."
       ),
       CatalogEntry.new(
         fixture: "tribal-validate-valid",

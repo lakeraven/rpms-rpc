@@ -30,7 +30,8 @@ Same shape as the conformance pipeline, one level deeper:
    `conformance:ingest`): for the curated list in
    `RpmsRpc::WireCapture::CATALOG` (lib/rpms_rpc/wire_capture.rb), drive the
    real client (`RpmsRpc::CiaClient`) against a rung **we own** and write one
-   provenance-stamped fixture per RPC to `test/fixtures/wire_captures/`:
+   provenance-stamped fixture per catalog entry to `test/fixtures/wire_captures/`
+   (the RPC slug, or the entry's fixture name when several entries share an RPC):
    the verbatim raw reply, its sha256, the inputs, the release tag, capture
    UTC, and the cited position→semantics annotation. Read-only behavioral
    calls with synthetic inputs only — never a customer instance, never a

@@ -150,13 +150,14 @@ namespace :wire do
   # A scratch capture against the committed fixtures (rpms-ops#975): a capture
   # is only evidence when it comes from a fresh container of the release, and a
   # drifted one must be visible BEFORE it replaces a committed fixture. Prints
-  # one row per RPC and, with OUT=, writes the same as TSV (rpc, verdict,
+  # one row per fixture file (the basename, not the RPC — several fixtures can
+  # capture one RPC) and, with OUT=, writes the same as TSV (fixture, verdict,
   # committed source, captured source).
   #
   #   rake wire:compare CAPTURED=<dir written by WIRE_FIXTURES_DIR=<dir> rake wire:capture>
   #
   # The verdicts are RpmsRpc::WireCapture.compare's.
-  desc "Compare a scratch wire capture (CAPTURED=<dir>) with the committed fixtures: SAME/DIFFERENT per RPC [OUT=<tsv>]"
+  desc "Compare a scratch wire capture (CAPTURED=<dir>) with the committed fixtures: SAME/DIFFERENT per fixture [OUT=<tsv>]"
   task :compare do
     require "rpms_rpc/wire_capture"
 
@@ -167,10 +168,10 @@ namespace :wire do
     rows = RpmsRpc::WireCapture.compare(RpmsRpc::WireCapture::FIXTURES_DIR, captured_dir)
 
     width = rows.map { |r| r[0].length }.max.to_i
-    puts format("%-#{width}s  %-12s  %-12s  %s", "RPC", "VERDICT", "COMMITTED", "CAPTURED")
+    puts format("%-#{width}s  %-12s  %-12s  %s", "FIXTURE", "VERDICT", "COMMITTED", "CAPTURED")
     rows.each { |r| puts format("%-#{width}s  %-12s  %-12s  %s", *r) }
     counts = rows.group_by { |r| r[1] }.transform_values(&:size)
-    puts "wire:compare: #{rows.size} RPC(s): " +
+    puts "wire:compare: #{rows.size} fixture(s): " +
          RpmsRpc::WireCapture::COMPARE_VERDICTS.map { |v| "#{counts.fetch(v, 0)} #{v}" }.join(", ")
     File.write(ENV["OUT"], rows.map { |r| r.join("\t") }.join("\n") + "\n") if ENV["OUT"] && !ENV["OUT"].empty?
   end
