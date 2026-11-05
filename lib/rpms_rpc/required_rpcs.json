@@ -206,6 +206,7 @@
     ],
     "RpmsRpc::Order": [
       "ORWDX SAVE",
+      "ORWDX SEND",
       "ORWDXC ACCEPT",
       "ORWOR ACTION TEXT",
       "ORWOR EXPIRED",
@@ -214,7 +215,8 @@
       "ORWOR SHEETS",
       "ORWOR TSALL",
       "ORWOR UNSIGN",
-      "ORWORR AGET"
+      "ORWORR AGET",
+      "ORWU VALIDSIG"
     ],
     "RpmsRpc::Organization": [
       "DDR GETS ENTRY DATA"

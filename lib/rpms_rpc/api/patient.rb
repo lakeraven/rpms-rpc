@@ -143,6 +143,10 @@ module RpmsRpc
     # provider. Compared exactly after surrounding whitespace is stripped.
     DESIGNATED_PRIMARY_PROVIDER_LABEL = "DESIGNATED PRIMARY PROVIDER"
 
+    # ORWPT CWAD after surrounding whitespace is stripped: only the letters
+    # C, W, A, and D, including none of them. Anything else is not a CWAD scalar.
+    CWAD_LETTERS = /\A[CWAD]*\z/
+
     # Chart-banner projection per issue #60 contract:
     #
     #   { name:, dob:, sex:, mrn:, age:, allergy_flag:, ad_flag:, primary_provider: }
@@ -157,8 +161,9 @@ module RpmsRpc
     # option: CIAV VUECENTRIC lists ORWPT CWAD as well as OR CPRS GUI CHART,
     # and the broker refuses binding an option the user does not hold, so
     # binding OR CPRS GUI CHART refused every user without it (the personas
-    # included). allergy_flag is A in the scalar and ad_flag is D. An
-    # empty scalar is both flags false.
+    # included). The scalar is stripped before the flags are read. Nil or
+    # empty is both flags false. allergy_flag is A and ad_flag is D only
+    # when the stripped scalar matches CWAD_LETTERS.
     #
     # :primary_provider is the GETBDP row whose label (field 0), compared
     # exactly after surrounding whitespace is stripped, is
@@ -177,7 +182,12 @@ module RpmsRpc
     # found. A broker that does not serve one of the three RPCs raises
     # RpcNotAvailableError, one that serves it but not to this user raises
     # RpcRefusedError, and an M error raises RpcError (#363). A failed CWAD
-    # read raises the same way and is never turned into false flags.
+    # read raises the same way and is never turned into false flags. The
+    # ORWPT CWAD scalar is stripped first: nil or empty means both flags
+    # false; a value matching CWAD_LETTERS (\A[CWAD]*\z) sets allergy_flag
+    # when it includes A and ad_flag when it includes D; any other value
+    # raises RpcError. That message names ORWPT CWAD and does not include
+    # the raw reply, which may carry patient data.
     def brief_header(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
 
@@ -188,7 +198,10 @@ module RpmsRpc
       name = nil if name.nil? || name.match?(/\A[[:space:]]*\z/)
       return nil if ptinfo.nil? && name.nil?
 
-      cwad = DataMapper.patient_cwad.fetch_scalar(dfn.to_s) || ""
+      cwad = DataMapper.patient_cwad.fetch_scalar(dfn.to_s).to_s.strip
+      unless cwad.match?(CWAD_LETTERS)
+        raise Client::RpcError, "ORWPT CWAD reply is not CWAD letters"
+      end
       dob  = FilemanDateParser.parse_date(ptinfo && ptinfo[:dob_raw])
       provider = name || (ptinfo && ptinfo[:primary_provider])
 
@@ -198,8 +211,8 @@ module RpmsRpc
         sex:              ptinfo && ptinfo[:sex],
         mrn:              ptinfo && ptinfo[:mrn],
         age:              age_from(dob),
-        allergy_flag:     cwad.to_s.include?("A"),
-        ad_flag:          cwad.to_s.include?("D"),
+        allergy_flag:     cwad.include?("A"),
+        ad_flag:          cwad.include?("D"),
         primary_provider: provider
       }
     end

@@ -206,8 +206,10 @@ class PatientLiveTest < LiveSpec::Test
   # Proves ORWPT CWAD (same path brief_header uses) returns allergies without a directive for DEMO ONE.
   def test_patient_cwad_for_demo_one_has_allergy_without_directive
     cwad = RpmsRpc::DataMapper.patient_cwad.fetch_scalar(DEMO_ONE[:dfn].to_s).to_s
-    assert_includes cwad, "A"
-    refute_includes cwad, "D"
+    assert_match RpmsRpc::Patient::CWAD_LETTERS, cwad.strip,
+                 "ORWPT CWAD must be a CWAD letter scalar, not broker error text"
+    assert_includes cwad.strip, "A"
+    refute_includes cwad.strip, "D"
   end
 
   # Proves brief_header runs on the sign-on option and leaves it bound.
