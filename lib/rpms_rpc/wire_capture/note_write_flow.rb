@@ -5,7 +5,9 @@ require "socket"
 
 module RpmsRpc
   module WireCapture
-    # One TIU note on the seed patient: create, lock, set text, read it back,
+    # One TIU note on the seed patient. The write run's only read is
+    # BEHOENCX GETVISIT, before create: CREATE runs only when that reply's
+    # patient is exactly DFN. Then lock, set text, read the note back,
     # unlock, and sign only when that whole chain succeeded and a signature
     # code was actually supplied.
     #
@@ -29,6 +31,7 @@ module RpmsRpc
       # the signer is the broker session DUZ (see ESignature).
       SESSION_DUZ = "1"
 
+      GETVISIT_RPC = "BEHOENCX GETVISIT"
       CREATE_RPC = "TIU CREATE RECORD"
       LOCK_RPC = "TIU LOCK RECORD"
       SET_RPC = "TIU SET DOCUMENT TEXT"
@@ -102,6 +105,9 @@ module RpmsRpc
           lock_raised = false
           proven = false
           begin
+            # Same call Encounter.open makes. A raise is recorded and stops the flow.
+            return unless visit_patient_linked?(captures, secrets)
+
             ok, created = guarded(captures, CREATE_RPC, secrets) do
               ProgressNote.create(DFN, VISIT_IEN, TITLE_IEN)
             end
@@ -166,6 +172,33 @@ module RpmsRpc
 
         def sign?(esig)
           esig.is_a?(String) && !esig.strip.empty?
+        end
+
+        # Fail closed. CREATE runs only when GETVISIT returns a Hash whose
+        # :patient_dfn.to_s is exactly DFN. No strip and no to_i: "04" and
+        # " 4" are not DFN. The mapping stores that field as an integer, so
+        # those two already became 4 before to_s; the wire piece from this
+        # same call has to be DFN as well. Blank, nil, an empty reply, and a
+        # raise do not create.
+        def visit_patient_linked?(captures, secrets)
+          ok, visit = guarded(captures, GETVISIT_RPC, secrets) do
+            DataMapper.encounter_visit.fetch_one(VISIT_IEN)
+          end
+          ok && visit.is_a?(Hash) && visit[:patient_dfn].to_s == DFN && patient_wire_piece(captures) == DFN
+        end
+
+        def patient_wire_piece(captures)
+          capture = captures[GETVISIT_RPC]
+          return nil unless capture.is_a?(Hash)
+
+          raw = capture["raw"]
+          return nil unless raw.is_a?(String)
+
+          field = DataMapper.encounter_visit.fields.find { |item| item.attribute == :patient_dfn }
+          return nil if field.nil?
+
+          line = raw.sub(/\A\d+[\x00\x01]/, "").split(/\r\n|\r|\n/, 2).first.to_s
+          line.split("^", -1)[field.position]
         end
 
         def guarded(captures, rpc, secrets)
@@ -295,13 +328,19 @@ module RpmsRpc
     ONLY_REFUSAL = "WRITES=1 is refused when ONLY is set; the TIU note flow is captured together"
     # No spaces and no "1": a blank or one-character code must not appear in the text.
     ESIG_REFUSAL = "RPMS_ESIG-must-be-6-20-characters-with-no-leading-or-trailing-whitespace-(field-20.4)"
-    private_constant :ONLY_REFUSAL, :ESIG_REFUSAL
+    # Quarantine drops a capture whose raw or inputs contain the code. An esig
+    # whose bytes already occur in WITHHELD or NOTE_TEXT would drop the SIGN
+    # or GET capture and look like a missing step. Refuse before the socket.
+    # The reason is fixed; refusal_without strips the code and the access value.
+    ESIG_CAPTURE_REFUSAL = "RPMS_ESIG-bytes-would-be-dropped-with-the-sign-capture"
+    private_constant :ONLY_REFUSAL, :ESIG_REFUSAL, :ESIG_CAPTURE_REFUSAL
 
     # Host mode only. A read capture (writes false or nil) is not refused.
     # WRITES=1 is allowed only when the broker host resolves and every
     # address is loopback, CONTAINER is nil or "", and the access code is a
     # synthetic persona. A blank ONLY is unset. A non-blank ONLY is refused:
-    # the TIU flow is one unit, and a write run calls no read RPC.
+    # the TIU flow is one unit, and the write run's only read is the
+    # BEHOENCX GETVISIT linkage check before create.
     # RPMS_ESIG, when set, must be 6-20 characters with no leading or trailing
     # whitespace (NEW PERSON field 20.4 stores the exact code). A container
     # run goes through `docker exec`, which would put the signature code on
@@ -314,9 +353,8 @@ module RpmsRpc
       return loopback_refusal unless resolved_loopback?(host, resolver)
       return persona_refusal unless SYNTHETIC_PERSONAS.include?(access)
       return refusal_without(ONLY_REFUSAL, only, access, esig) if only_present?(only)
-      return nil if esig_acceptable?(esig)
 
-      refusal_without(ESIG_REFUSAL, esig, access)
+      esig_refusal(esig, access)
     end
 
     # Loopback address a write run may dial, or nil. Every lookup result must
@@ -395,6 +433,29 @@ module RpmsRpc
 
       def only_present?(only)
         !normalize_only(only).nil?
+      end
+
+      # nil and "" mean do not sign. A non-empty esig that passed the shape
+      # check is still refused when its bytes occur in WITHHELD or NOTE_TEXT:
+      # quarantine would then drop the SIGN or GET capture. The reason never
+      # contains the code.
+      def esig_refusal(esig, access)
+        return refusal_without(ESIG_REFUSAL, esig, access) unless esig_acceptable?(esig)
+        return nil if esig.nil? || esig == ""
+        return refusal_without(ESIG_CAPTURE_REFUSAL, esig, access) if esig_bytes_in_note_or_marker?(esig)
+
+        nil
+      end
+
+      # Byte substring, case-sensitive. Empty is not a hit: the shape check
+      # already accepted nil and "". Unreadable bytes fail closed.
+      def esig_bytes_in_note_or_marker?(esig)
+        needle = esig.to_s.b
+        return false if needle.empty?
+
+        [ NoteWriteFlow::WITHHELD, NoteWriteFlow::NOTE_TEXT ].any? { |text| text.to_s.b.include?(needle) }
+      rescue Encoding::CompatibilityError, ArgumentError
+        true
       end
 
       # nil and "" mean do not sign. Field 20.4 stores the exact code, so
@@ -500,15 +561,18 @@ module RpmsRpc
           ProgressNote.fetch_text(evidence_id(note_ien))
         end
         return false if text.nil? || text.to_s.empty?
+        return false if note_body.nil? || note_body.to_s.empty?
 
         body_lines = body_after_blank(raw)
         return false if body_lines.nil?
-        return false if body_lines.any? { |line| line.bytesize > ProgressNote::WRAP_WIDTH }
+        return false if body_lines.any? { |line| !line.is_a?(String) || line.bytesize > ProgressNote::WRAP_WIDTH }
 
         note_lines_in_order?(body_lines, note_body)
       end
 
       # CIA row grammar: rows separate on \r\n, a bare \r, or \n. -1 keeps blanks.
+      # Body rows are those after the first blank row. Trailing empty rows are
+      # the row terminator, not note lines, and are dropped later.
       def body_after_blank(raw)
         lines = frame_payload(raw).split(/\r\n|\r|\n/, -1)
         blank = lines.index("")
@@ -517,29 +581,103 @@ module RpmsRpc
         lines[(blank + 1)..] || []
       end
 
-      # Body lines are joined with a space. Whitespace is then removed so a
-      # soft break (one space dropped) and a hard cut (a space inserted inside
-      # a token) both still show the note. Each NOTE_TEXT line must occur, in
-      # order. Every body line is also at most WRAP_WIDTH bytes.
+      # Rows after the header blank, trailing empty rows dropped, must partition
+      # in order into one consecutive group per note line with nothing left over.
+      # Group k rejoined with each internal boundary equal to " " (soft wrap, the
+      # dropped character) or "" (hard cut) must equal note line k byte for byte.
+      # A blank note line is exactly one empty row. A continuation row that
+      # begins with a space is not a hard cut: that space is the soft-wrap
+      # boundary and has to sit between the rows. Every row is at most
+      # ProgressNote::WRAP_WIDTH bytes. Absence of a note body is not evidence.
       def note_lines_in_order?(body_lines, note_body)
-        body = without_space(body_lines.join(" "))
-        cursor = 0
-        found = false
-        note_body.to_s.split(/\r\n|\r|\n/, -1).each do |line|
-          needle = without_space(line)
-          next if needle.empty?
+        return false if note_body.nil? || note_body.to_s.empty?
+        return false unless body_lines.is_a?(Array)
 
-          at = body.index(needle, cursor)
-          return false if at.nil?
+        rows = drop_trailing_empty_rows(body_lines)
+        lines = note_text_lines(note_body)
+        return false if lines.empty? || rows.empty?
 
-          cursor = at + needle.length
-          found = true
-        end
-        found
+        cover_lines?(rows, lines, 0, 0, {})
       end
 
-      def without_space(text)
-        text.to_s.gsub(/\s+/, "")
+      def note_text_lines(note_body)
+        lines = note_body.to_s.split(/\r\n|\r|\n/, -1)
+        lines.pop if lines.length > 1 && lines.last.empty?
+        lines
+      end
+
+      def drop_trailing_empty_rows(rows)
+        last = rows.length
+        last -= 1 while last.positive? && rows[last - 1].to_s.empty?
+        last.zero? ? [] : rows[0, last]
+      end
+
+      def cover_lines?(rows, lines, row_index, line_index, memo)
+        key = [ row_index, line_index ]
+        return memo[key] if memo.key?(key)
+
+        memo[key] = if line_index == lines.length
+          row_index == rows.length
+        elsif row_index > rows.length
+          false
+        else
+          line_covered?(rows, lines, row_index, line_index, memo)
+        end
+      end
+
+      def line_covered?(rows, lines, row_index, line_index, memo)
+        line = lines[line_index]
+        if line.empty?
+          return false if row_index >= rows.length
+
+          row = rows[row_index]
+          return false unless row.is_a?(String) && row.empty?
+          return false if row.bytesize > ProgressNote::WRAP_WIDTH
+
+          return cover_lines?(rows, lines, row_index + 1, line_index + 1, memo)
+        end
+
+        line_end_indexes(rows, row_index, line).any? do |next_index|
+          cover_lines?(rows, lines, next_index, line_index + 1, memo)
+        end
+      end
+
+      def line_end_indexes(rows, start, line)
+        ends = []
+        walk_line(rows, start, line, 0, ends)
+        ends
+      end
+
+      # Backtrack over the two boundaries. The first row of a group has no
+      # boundary in front of it. An empty row is only a blank note line.
+      def walk_line(rows, index, line, covered, ends)
+        return if index >= rows.length || covered > line.bytesize
+
+        row = rows[index]
+        return unless row.is_a?(String)
+        return if row.empty? || row.bytesize > ProgressNote::WRAP_WIDTH
+        return unless byte_piece?(line, covered, row)
+
+        covered += row.bytesize
+        if covered == line.bytesize
+          ends << (index + 1)
+          return
+        end
+
+        [ "", " " ].each do |boundary|
+          next if boundary.empty? && space_led_row?(rows[index + 1])
+          next unless byte_piece?(line, covered, boundary)
+
+          walk_line(rows, index + 1, line, covered + boundary.bytesize, ends)
+        end
+      end
+
+      def space_led_row?(row)
+        row.is_a?(String) && row.bytesize.positive? && row.getbyte(0) == 32
+      end
+
+      def byte_piece?(line, offset, piece)
+        line.byteslice(offset, piece.bytesize) == piece
       end
 
       # Same frame strip as Fixture#rows, including the blank lines rows drops.

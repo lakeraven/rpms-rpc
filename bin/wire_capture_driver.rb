@@ -14,12 +14,15 @@
 # with synthetic inputs, against a rung we own, never a customer instance. An
 # entry that names a context option is called inside client.with_context, so
 # the broker sees that option (AGG LOOKUP PATIENTS is registered under AGGRPC
-# only). A WRITES=1 run calls none of those.
+# only). A WRITES=1 run calls none of those. Its only read is the BEHOENCX
+# GETVISIT linkage check inside NoteWriteFlow, before create. That capture
+# is returned with the others and is not a write-catalog fixture.
 # It prints one JSON document on stdout. The host-side rake task turns that
 # into provenance-stamped fixtures. This script does not edit captured bytes.
 #
-# WRITES=1 runs NoteWriteFlow and does not call read RPCs: create, lock,
-# set text, read-back, unlock, and sign when the read-back is evidence and
+# WRITES=1 runs NoteWriteFlow. The write run's only read is the BEHOENCX
+# GETVISIT linkage check before create. Then create, lock, set text, read-back,
+# unlock, and sign when the read-back is evidence and
 # RPMS_ESIG was supplied. It is refused before the socket unless the broker
 # host resolves to loopback, CONTAINER is unset, the access code is a
 # synthetic persona, ONLY is blank (the TIU flow is captured together), and
@@ -84,10 +87,10 @@ out["selected"] = entries.map(&:rpc)
 
 entries.each do |entry|
   raw = if entry.context
-          client.with_context(entry.context) { client.call_rpc_raw(entry.rpc, *entry.inputs) }
-        else
-          client.call_rpc_raw(entry.rpc, *entry.inputs)
-        end
+    client.with_context(entry.context) { client.call_rpc_raw(entry.rpc, *entry.inputs) }
+  else
+    client.call_rpc_raw(entry.rpc, *entry.inputs)
+  end
   raw = raw.join("\n") if raw.is_a?(Array)
   out["captures"][entry.rpc] = { "inputs" => entry.inputs, "raw" => raw.to_s }
 rescue StandardError => e

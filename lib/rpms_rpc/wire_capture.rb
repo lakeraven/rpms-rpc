@@ -115,8 +115,9 @@ module RpmsRpc
     end
 
     # Read catalog entries the driver may call. A write run calls none of
-    # them: the note flow is the only broker traffic on WRITES=1. writes
-    # false or nil is the live catalog, narrowed by ONLY, with CITE_ONLY left out.
+    # them. The note flow's only read is the BEHOENCX GETVISIT linkage check
+    # before create, and that call is not selected here. writes false or nil
+    # is the live catalog, narrowed by ONLY, with CITE_ONLY left out.
     def self.driver_read_entries(writes:, only:, cite_only:)
       return [] if writes == true
 
@@ -952,9 +953,9 @@ module RpmsRpc
       CatalogEntry.new(
         rpc: "TIU CREATE RECORD", mapping: :tiu_create_record, kind: "scalar", mode: :write,
         inputs: [ NoteWriteFlow::DFN, NoteWriteFlow::TITLE_IEN, "", "", NoteWriteFlow::VISIT_IEN ].freeze,
-        cite: "MAKE^TIUSRVP (TIUSRVP.m:7, 58-61): SUCCESS is the new IEN (TIUSRVP.m:61) " \
-              "or \"0^message\" (TIUSRVP.m:58, 60). Actuals DFN, TITLE, VDT, VLOC, VSIT; " \
-              "VDT and VLOC empty, visit in VSIT (TIUSRVP.m:7, 24-31)",
+        cite: "MAKE^TIUSRVP (TIUSRVP.m:7, 59-63): SUCCESS is the new IEN (TIUSRVP.m:63) " \
+              "or \"0^message\" (TIUSRVP.m:59, 62). Actuals DFN, TITLE, VDT, VLOC, VSIT; " \
+              "VDT and VLOC empty, visit in VSIT (TIUSRVP.m:24-31). VSTRBLD is TIUSRVP.m:80-85",
         pieces: [],
         note: "Write RPC. Seed patient DFN 4, title 248, visit 4. Called only by " \
               "NoteWriteFlow when WRITES=1 is allowed."

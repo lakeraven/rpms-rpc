@@ -86,17 +86,28 @@ AMHG CREATE/EDIT VISIT | not-proven | signed on as PROV123 (and SYS123) EN^AMHBH
 
 # TIU note-write pilot status on bcer-9.0-20261012-e7923a4-ydb (issue #564, slice of #224).
 # One flow written by `WRITES=1 rake wire:capture` (host mode, loopback broker), signed on as
-# PROV123: ProgressNote.create on seed patient DFN 4, visit 4, title 248 PROGRESS NOTE, then lock,
-# update_text (a line over WRAP_WIDTH, #479), the TIU GET RECORD TEXT read-back, and unlock.
+# PROV123. The flow first checks BEHOENCX GETVISIT on visit 4 and creates only when its patient
+# piece is 4. On this build ^AUPNVSIT(4,0) piece 5 is 4 and the seed's own TIU documents 1-4 sit
+# on DFN 4, visit 4. ProgressNote.create itself does not compare the visit's patient with DFN, and
+# neither does MAKE^TIUSRVP (VSTRBLD, TIUSRVP.m:80-85); the gate is in the capture flow only.
+# Then lock, update_text (a line over WRAP_WIDTH, #479), the TIU GET RECORD TEXT read-back, and
+# unlock, on seed patient DFN 4, visit 4, title 248 PROGRESS NOTE. The note IEN is run-dependent:
+# the build volume may be reused, so a create returns the next free IEN.
 # A write is proven only when the gem's public API reads its captured reply as success
 # (RpmsRpc::WireCapture.write_evidence?). A refused write is never evidence.
 # Failed live while its tests passed: the read-back check split rows on \r?\n, but this build
 # separates TIU GET RECORD TEXT rows with a bare \r; fixed in this slice.
+# Write-path limits: SETTEXT^TIUSRVPT (TIUSRVPT.m:7-38) has no author or authorization check
+# server-side; a DUZ that differs from the author only files a VBC line count (TIUSRVPT.m:32-36).
+# TIU LOCK RECORD is an M job lock, not ownership (TIUSRVP.m:211). ProgressNote.update_text never
+# calls ProgressNote.authorize, so "cannot alter someone else's note" is not enforced on this path
+# (pre-existing API property, lakeraven/rpms-rpc#614). TIU SIGN RECORD is server-guarded:
+# CANDO^TIULP (TIUSRVP2.m:49) runs before VALIDATE (TIUSRVP2.m:51).
 # One line per RPC: RPC | status | reason | unproven: <fields or none>
 
-TIU CREATE RECORD | pilot-ready | live capture signed on as PROV123 returned new note IEN 10 for DFN 4 visit 4 title 248; ProgressNote.create reads it as success | unproven: none
+TIU CREATE RECORD | pilot-ready | live capture signed on as PROV123 returned new note IEN 10 for DFN 4 visit 4 title 248; BEHOENCX GETVISIT signed on as PROV123 returned patient 4 for visit 4 before the create; ProgressNote.create reads it as success | unproven: none
 TIU LOCK RECORD | pilot-ready | live capture signed on as PROV123 returned 0 (lock held) on note 10; ProgressNote.lock reads it as true | unproven: none
-TIU SET DOCUMENT TEXT | pilot-ready | live capture signed on as PROV123 returned 10^1^1 on note 10 for the wrapped two-line note; update_text reads it as success | unproven: none
+TIU SET DOCUMENT TEXT | pilot-ready | live capture signed on as PROV123 returned 10^1^1 on note 10 for the wrapped two-line note; update_text reads it as success; no server-side author check; see #614 | unproven: none
 TIU GET RECORD TEXT | pilot-ready | live read-back signed on as PROV123 of note 10 holds every note line after the header, each wrapped line within WRAP_WIDTH (80 bytes) | unproven: none
 TIU UNLOCK RECORD | pilot-ready | live capture signed on as PROV123 returned 0 on note 10; ProgressNote.unlock reads it as true | unproven: none
 TIU SIGN RECORD | not-proven | seed gap: NEW PERSON field 20.4 (electronic signature code) is empty for PROVIDER,TEST (DUZ 200, the PROV123 persona) on this build, so a live sign signed on as PROV123 is refused with 89250005 "incorrect Electronic Signature Code"; the fixture stays routine-cite | unproven: success
