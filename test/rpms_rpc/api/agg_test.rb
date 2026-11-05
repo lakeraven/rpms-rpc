@@ -65,6 +65,27 @@ class AggTest < Minitest::Test
     assert_equal "MANDATORY", parsed[:records].last[:type]
   end
 
+  # BMX and XWB hand back an Array of lines, not a blob. BMX strips the $C(30)
+  # row separator and the $C(31) sentinel (split_bmx_reply); a line array built
+  # from the M nodes (BUSARPC.m:354,384; AGGPTNAM.m:13,49) keeps them. Both must
+  # parse like the blob; stringifying the Array is the defect.
+  def test_parse_reply_parses_a_line_array_with_separators_stripped
+    parsed = Agg.parse_reply([ "I00010RESULT^T00080MESSAGE^I00010DFN", "1^^9" ])
+
+    assert_equal %i[result message dfn], parsed[:header]
+    assert_equal [ { result: "1", message: "", dfn: "9" } ], parsed[:records]
+  end
+
+  def test_parse_reply_parses_a_line_array_with_separators_kept
+    parsed = Agg.parse_reply([ "I00010RESULT^T00080MESSAGE^I00010DFN#{RS}", "1^^9#{RS}", US ])
+
+    assert_equal [ { result: "1", message: "", dfn: "9" } ], parsed[:records]
+  end
+
+  def test_parse_reply_nil_on_empty_line_array
+    assert_nil Agg.parse_reply([])
+  end
+
   def test_parse_reply_nil_on_empty
     assert_nil Agg.parse_reply(nil)
     assert_nil Agg.parse_reply("")

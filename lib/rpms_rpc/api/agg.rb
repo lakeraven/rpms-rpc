@@ -492,10 +492,13 @@ module RpmsRpc
     # [{name => value}] }. Strips the leading sequence echo + \x00 ack, cuts
     # at the $C(31) end sentinel, splits records on $C(30), and maps each
     # record's "^"-pieces onto the typed-header field names. nil on an empty
-    # reply.
+    # reply. A line Array (BMX/XWB #call_rpc, which strip the separators, or a
+    # seeded array that keeps them) is rejoined into the same blob first;
+    # a String is untouched.
     def parse_reply(raw)
       return nil if raw.nil?
 
+      raw = lines_to_blob(raw) if raw.is_a?(Array)
       body = raw.to_s.b
       body = body.split(ACK, 2).last.to_s if body.include?(ACK)
       body = body.split(ARRAY_END, 2).first.to_s
@@ -524,6 +527,16 @@ module RpmsRpc
     end
 
     private
+
+    # Rows of a line Array as one blob: each row ends in exactly one $C(30),
+    # whether or not the client already stripped it, and the $C(31) sentinel
+    # is dropped (parse_reply cuts there anyway).
+    def lines_to_blob(lines)
+      lines.map { |line| line.to_s.delete(RECORD_SEP + ARRAY_END) }
+           .reject(&:empty?)
+           .map { |row| row + RECORD_SEP }
+           .join
+    end
 
     # Bind AGGRPC for the duration of the block and restore the caller's
     # context afterward (ContextScope#with_context — a no-op round-trip-wise

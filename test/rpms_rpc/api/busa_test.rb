@@ -34,6 +34,14 @@ class BusaTest < Minitest::Test
   end
 
   # INPUT is pipe-delimited CAT|ACTION|CALL|DESC|DETAIL (BUSARPC.m:363-367).
+  def test_parse_log_reply_accepts_a_line_array
+    assert Mod.parse_log_reply([ "I00001RESULT^T00250ERROR_MESSAGE", "1^" ])[:success]
+
+    failed = Mod.parse_log_reply([ "I00001RESULT^T00250ERROR_MESSAGE#{RS}", "0^DUZ is not defined#{RS}", US ])
+    refute failed[:success]
+    assert_equal "DUZ is not defined", failed[:message]
+  end
+
   def test_log_security_audit_encodes_input_pipe_and_sends_one_parameter
     wire = "5\x00I00001RESULT^T00250ERROR_MESSAGE#{RS}1^#{RS}#{US}"
     seed_log("", wire)
