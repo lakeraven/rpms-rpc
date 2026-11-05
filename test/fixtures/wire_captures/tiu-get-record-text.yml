@@ -6,7 +6,7 @@ rpc: TIU GET RECORD TEXT
 mapping: tiu_get_record_text
 kind: text_blob
 release_tag: bcer-9.0-20261012-e7923a4-ydb
-captured_at: '2026-11-05T03:35:38Z'
+captured_at: '2026-11-05T04:23:51Z'
 signed_on_as: PROV123
 cite: 'TGET^TIUSRVR1 (REMOTE PROCEDURE registration for TIU GET RECORD TEXT: tag TGET,
   routine TIUSRVR1, in data/fingerprints/references/bcer-9.0-20261012-e7923a4-ydb.yml
@@ -18,11 +18,11 @@ note: Read-back of the note just written. Catalog input is a note-IEN placeholde
 pieces: []
 source: live-capture
 inputs:
-- '9'
-raw_return: "4\0 LOCAL TITLE: Progress Note                                      \rSTANDARD
-  TITLE: PRIMARY CARE PROGRESS NOTE                      \rDATE OF NOTE: NOV 05, 2026@03:35:39
-  \ ENTRY DATE: NOV 05, 2026@03:35:39      \r      AUTHOR: PROVIDER,TEST        EXP
+- '10'
+raw_return: "8\0 LOCAL TITLE: Progress Note                                      \rSTANDARD
+  TITLE: PRIMARY CARE PROGRESS NOTE                      \rDATE OF NOTE: NOV 05, 2026@04:23:54
+  \ ENTRY DATE: NOV 05, 2026@04:23:54      \r      AUTHOR: PROVIDER,TEST        EXP
   COSIGNER:                           \r     URGENCY:                            STATUS:
   UNSIGNED                      \r\rSynthetic pilot note for wire capture.\rThis synthetic
   clinical-neutral sentence exists so wire capture wraps a\rprogress-note line.\r"
-sha256: 42fa728c3f24152baa4a6e0535a2b1f3f58c8311e6c8d502a0116c0d8034142a
+sha256: a6d1929c73c8e17197077592093dd2d2156e9b4c9b9ef2b8375a6713524e9749

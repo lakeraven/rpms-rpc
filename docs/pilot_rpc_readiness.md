@@ -31,9 +31,9 @@ ORQQVI VITALS | partial | mapped qualifiers is nil on all four vitals (PU 82, BP
 # separates TIU GET RECORD TEXT rows with a bare \r; fixed in this slice.
 # One line per RPC: RPC | status | reason | unproven: <fields or none>
 
-TIU CREATE RECORD | pilot-ready | live capture signed on as PROV123 returned new note IEN 9 for DFN 4 visit 4 title 248; ProgressNote.create reads it as success | unproven: none
-TIU LOCK RECORD | pilot-ready | live capture signed on as PROV123 returned 0 (lock held) on note 9; ProgressNote.lock reads it as true | unproven: none
-TIU SET DOCUMENT TEXT | pilot-ready | live capture signed on as PROV123 returned 9^1^1 on note 9 for the wrapped two-line note; update_text reads it as success | unproven: none
-TIU GET RECORD TEXT | pilot-ready | live read-back signed on as PROV123 of note 9 holds the note body after the header, each wrapped line within WRAP_WIDTH (80 bytes) | unproven: none
-TIU UNLOCK RECORD | pilot-ready | live capture signed on as PROV123 returned 0 on note 9; ProgressNote.unlock reads it as true | unproven: none
+TIU CREATE RECORD | pilot-ready | live capture signed on as PROV123 returned new note IEN 10 for DFN 4 visit 4 title 248; ProgressNote.create reads it as success | unproven: none
+TIU LOCK RECORD | pilot-ready | live capture signed on as PROV123 returned 0 (lock held) on note 10; ProgressNote.lock reads it as true | unproven: none
+TIU SET DOCUMENT TEXT | pilot-ready | live capture signed on as PROV123 returned 10^1^1 on note 10 for the wrapped two-line note; update_text reads it as success | unproven: none
+TIU GET RECORD TEXT | pilot-ready | live read-back signed on as PROV123 of note 10 holds every note line after the header, each wrapped line within WRAP_WIDTH (80 bytes) | unproven: none
+TIU UNLOCK RECORD | pilot-ready | live capture signed on as PROV123 returned 0 on note 10; ProgressNote.unlock reads it as true | unproven: none
 TIU SIGN RECORD | not-proven | seed gap: NEW PERSON field 20.4 (electronic signature code) is empty for PROVIDER,TEST (DUZ 200, the PROV123 persona) on this build, so a live sign signed on as PROV123 is refused with 89250005 "incorrect Electronic Signature Code"; the fixture stays routine-cite | unproven: success
