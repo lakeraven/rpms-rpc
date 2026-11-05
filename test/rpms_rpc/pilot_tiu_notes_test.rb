@@ -130,6 +130,24 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     end
   end
 
+  FIXTURE_WRITE_EVIDENCE_NO_NOTE_IEN = [
+    RpmsRpc::WireCapture::NoteWriteFlow::CREATE_RPC,
+    RpmsRpc::WireCapture::NoteWriteFlow::SIGN_RPC
+  ].freeze
+
+  def write_evidence_kwargs_for_fixture(entry, fixture, note_body: nil)
+    kwargs = {}
+    unless FIXTURE_WRITE_EVIDENCE_NO_NOTE_IEN.include?(entry.rpc)
+      kwargs[:note_ien] = fixture.inputs[0] if fixture.inputs&.any?
+    end
+    kwargs[:note_body] = note_body if note_body
+    kwargs
+  end
+
+  def write_evidence_for_fixture?(entry, fixture, note_body: nil)
+    write_evidence?(entry, fixture.raw_return, **write_evidence_kwargs_for_fixture(entry, fixture, note_body: note_body))
+  end
+
   def write_evidence?(entry, raw, note_body: nil, note_ien: :__unset__)
     assert RpmsRpc::WireCapture.respond_to?(:write_evidence?),
            "RpmsRpc::WireCapture.write_evidence? missing"
@@ -166,7 +184,7 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     persona = self.class.fixture_signed_on_as(fixture)
     if fixture.source == "live-capture" &&
        persona == PILOT_PERSONA &&
-       write_evidence?(entry, fixture.raw_return, note_body: note_text)
+       write_evidence_for_fixture?(entry, fixture, note_body: note_text)
       "pilot-ready"
     else
       "not-proven"
@@ -255,29 +273,25 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     ].join(row_sep)
   end
 
-  def wrap_line_for_readback(line, width: RpmsRpc::ProgressNote::WRAP_WIDTH)
-    bytes = line.to_s.b
-    return [ line.to_s ] if bytes.bytesize <= width
+  # Same line pieces ProgressNote.update_text sends in TIUX("TEXT",n,0).
+  def wrapped_note_text_lines(note_body)
+    note_ien = "1"
+    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1") }
+    RpmsRpc::ProgressNote.update_text(note_ien, note_body)
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "TIU SET DOCUMENT TEXT" }
+    flunk "TIU SET DOCUMENT TEXT was not called" unless call
 
-    pieces = []
-    until bytes.empty?
-      if bytes.bytesize <= width
-        pieces << bytes
-        break
-      end
-      cut = width
-      cut -= 1 while cut.positive? && bytes[cut] & 0x80 != 0 && (bytes[cut] & 0xC0) != 0xC0
-      pieces << bytes[0, cut]
-      bytes = bytes[cut..]
-    end
-    pieces.map { |part| part.force_encoding(line.encoding) }
+    tiux = call[:params][1]
+    tiux.select { |k, _| k.is_a?(Array) && k.first == "TEXT" }
+        .sort_by { |k, _| k[1] }
+        .map(&:last)
+  ensure
+    RpmsRpc.reset!
   end
 
   def tiu_read_back_full_wrapped(note_body, row_sep)
     header = tiu_read_back_header(row_sep)
-    body_lines = note_body.lines.map(&:chomp).flat_map do |line|
-      wrap_line_for_readback(line)
-    end
+    body_lines = wrapped_note_text_lines(note_body)
     ([ header, "" ] + body_lines).join(row_sep) + row_sep
   end
 
@@ -286,7 +300,8 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     lines = note_body.lines.map(&:chomp)
     long = lines.find { |l| l.bytesize > RpmsRpc::ProgressNote::WRAP_WIDTH } || lines.last
     short = lines.reject { |l| l == long }
-    body_lines = short.flat_map { |l| wrap_line_for_readback(l) } + [ long ]
+    short_blob = short.empty? ? "" : short.join("\n")
+    body_lines = (short_blob.empty? ? [] : wrapped_note_text_lines(short_blob)) + [ long ]
     ([ header, "" ] + body_lines).join(row_sep) + row_sep
   end
 
@@ -298,6 +313,18 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
   end
 
   def tiu_read_back_with_header(note_body)
+    header = [
+      "LOCAL TITLE: Progress Note",
+      "STANDARD TITLE: Progress Note",
+      "DATE OF NOTE: 3251105",
+      "AUTHOR: PROVIDER,TEST",
+      "URGENCY: routine"
+    ].join("\n")
+    body_lines = wrapped_note_text_lines(note_body)
+    "#{header}\n\n#{body_lines.join("\n")}\n"
+  end
+
+  def tiu_read_back_with_header_first_line_only(note_body)
     header = [
       "LOCAL TITLE: Progress Note",
       "STANDARD TITLE: Progress Note",
@@ -579,6 +606,8 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
 
     assert_equal "live-capture",
                  RpmsRpc::WireCapture.write_capture_source(get_entry, framed(read_back), note_body: body)
+    partial = tiu_read_back_with_header_first_line_only(body)
+    assert_nil RpmsRpc::WireCapture.write_capture_source(get_entry, framed(partial), note_body: body)
     assert_nil RpmsRpc::WireCapture.write_capture_source(get_entry, framed("LOCAL TITLE: only\n"), note_body: body)
     refute_equal "no-data",
                  RpmsRpc::WireCapture.write_capture_source(sign_entry, framed(ESIG_REFUSAL))
@@ -671,7 +700,7 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
         if self.class.fixture_signed_on_as(fixture) != PILOT_PERSONA
           failures << "#{slice[:rpc]}: signed_on_as must be #{PILOT_PERSONA}"
         end
-        unless write_evidence?(entry, fixture.raw_return, note_body: note_text)
+        unless write_evidence_for_fixture?(entry, fixture, note_body: note_text)
           failures << "#{slice[:rpc]}: raw_return must pass write_evidence?"
         end
         self.class.wire_contract_violations(fixture).each do |violation|
