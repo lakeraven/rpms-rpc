@@ -875,8 +875,10 @@ module RpmsRpc
     end
 
     # A new hash with AGGLNDTC first. PARS quits after every entry once
-    # BMXSEC is set (AGGPTNAM.m:112) and LEGL never NEWs AGGLNDTC, so a
-    # stale BMXSEC would otherwise leave it unset and ^DIC would run on DT.
+    # BMXSEC is set (AGGPTNAM.m:112), so a stale BMXSEC from an earlier call
+    # on a long-lived broker job would leave AGGLNDTC unset and ^DIC would run
+    # on DT. (LEGL does NEW AGGLNDTC at AGGPTNAM.m:59, but only after PARS has
+    # set it, so the order matters, not the NEW.)
     # The caller's non-blank value is kept; a blank one is dropped and the
     # verified date is used. The caller's hash is not changed.
     def legal_name_filing_params(params, mmdd)
@@ -919,11 +921,13 @@ module RpmsRpc
       DataMapper[:ddr_lock_unlock_node].parse_scalar(raw) == true
     end
 
-    # One unlock. A broker RpcError is swallowed: releasing the node must
-    # not replace a result or mask an exception from the locked section.
+    # One unlock. A broker RpcError or a transport error (ConnectionError,
+    # TimeoutError; not RpcErrors) is swallowed: releasing the node must not
+    # replace a result or mask an exception from the locked section. A dead
+    # transport has dropped its M job, and with it the lock.
     def legal_name_unlock(client, node)
       legal_name_call(client, DataMapper[:ddr_lock_unlock_node].rpc_name, DdrFileman.unlock_param(node: node))
-    rescue RpmsRpc::Client::RpcError
+    rescue RpmsRpc::Client::RpcError, RpmsRpc::Client::ConnectionError
       nil
     end
 
@@ -945,7 +949,36 @@ module RpmsRpc
           call_array(client, UPDATE_LEGAL_NAMES_RPC, dfn_text, "A", "", encode_parms(wire_params))
         )
       end
+      return legal_name_rejection_reread(client, result, day) if legal_name_rejected?(result)
+
       legal_name_blank_add_postcheck(client, dfn_text, result, prior_max, day)
+    end
+
+    def legal_name_rejected?(result)
+      result.is_a?(Hash) && !result[:success] && result[:error] == :agg_rejected
+    end
+
+    # LEGL answered -1, which is not proof nothing was filed: ^DIC LAYGO
+    # creates the entry before FILE^DIE runs (AGGPTNAM.m:78-98), so a later
+    # field error leaves a row dated `day` behind. The B index is read again
+    # under the held lock: a row for the day is written: true, a read that
+    # does not verify is written: :unknown, and a clear read leaves the
+    # rejection as it was.
+    def legal_name_rejection_reread(client, result, day)
+      case legal_name_b_index_status_or_unverified(client, day)
+      when :taken then result.merge(written: true)
+      when :clear then result
+      else result.merge(written: :unknown)
+      end
+    end
+
+    # legal_name_b_index_status, with a transport or broker error counted as
+    # unverified. Only for the read after a write; the pre-add read lets its
+    # errors propagate.
+    def legal_name_b_index_status_or_unverified(client, day)
+      legal_name_b_index_status(client, day)
+    rescue RpmsRpc::Client::RpcError, RpmsRpc::Client::ConnectionError
+      :unverified
     end
 
     def legal_name_b_index_refusal(client, day)
@@ -962,15 +995,17 @@ module RpmsRpc
 
     # :clear, :taken, or :unverified. The first row's .01I is the day when
     # its first seven digits are that FileMan date (^DIC DIC(0)="L").
-    # FROM is the prior calendar day plus ".9999999", so a month boundary
-    # starts after the real previous day.
+    # FROM is the numeric predecessor of the day plus ".9999999" (day - 1),
+    # so no stored value can sort between FROM and the day: ^DD(9000033,.01)
+    # accepts imprecise dates ("EST" has no X), and 3261100 (NOV 2026) would
+    # otherwise be the one row returned and hide an exact 3261101 behind it.
+    # A first row dated before the day is therefore not a verified answer.
     def legal_name_b_index_status(client, day)
-      prior = legal_name_previous_day(day)
-      return :unverified unless prior
+      return :unverified unless legal_name_valid_day?(day)
 
       param = DdrFileman.lister_param(
         file: LEGAL_NAME_FILE, fields: "@;.01I", flags: "IPQ", max: "1", xref: "B",
-        from: "#{prior}.9999999"
+        from: "#{day - 1}.9999999"
       )
       parsed = legal_name_lister(client, param)
       return :unverified if parsed.nil? || parsed[:error] || !parsed[:data]
@@ -982,17 +1017,17 @@ module RpmsRpc
       changed = row[:pieces].first.to_s
       return :unverified unless changed.match?(/\A\d{7}(\.\d+)?\z/)
 
-      changed[0, 7] == day.to_s ? :taken : :clear
+      found = changed[0, 7].to_i
+      return :unverified if found < day
+
+      found == day ? :taken : :clear
     end
 
-    # FM = (year - 1700) * 10000 + month * 100 + day. nil when fm is not
+    # FM = (year - 1700) * 10000 + month * 100 + day. False when fm is not
     # a real calendar day.
-    def legal_name_previous_day(fm)
+    def legal_name_valid_day?(fm)
       year, month, day = legal_name_date_parts(fm)
-      return nil unless Date.valid_date?(year, month, day)
-
-      date = Date.new(year, month, day) - 1
-      ((date.year - 1700) * 10_000) + (date.month * 100) + date.day
+      Date.valid_date?(year, month, day)
     end
 
     def legal_name_highest_ien(client)
@@ -1068,7 +1103,9 @@ module RpmsRpc
 
     # [date, patient] from one GETS of .01;.02 flags "I" under the add's
     # context, or an :legal_name_unverified, written: true refusal when the
-    # read errors, is missing a field, or is not shaped. Never raises.
+    # read errors, is missing a field, or is not shaped. A broker RpcError and
+    # a transport error (ConnectionError, TimeoutError) both land there: the
+    # write has completed, so the caller must be told it may have been filed.
     def legal_name_post_read(client, ien)
       raw = legal_name_call(
         client,
@@ -1087,7 +1124,7 @@ module RpmsRpc
       end
 
       [ date[0, 7], patient ]
-    rescue RpmsRpc::Client::RpcError
+    rescue RpmsRpc::Client::RpcError, RpmsRpc::Client::ConnectionError
       legal_name_unverified_write("file 9000033 IEN #{ien} .01;.02 read failed").merge(ien: ien)
     end
 
@@ -1104,7 +1141,12 @@ module RpmsRpc
       return { success: false, error: :agg_empty_reply, message: "AGG reply carried no data record" } if record.nil?
       return { success: false, error: :agg_rejected, message: record[:error].to_s } unless record[:result].to_s == "1"
 
-      record[:rien].to_s.empty? ? { success: true } : { success: true, ien: record[:rien].to_i }
+      rien = record[:rien].to_s
+      # A RIEN that is not a positive integer is a malformed reply: it gets no
+      # :ien, so a caller cannot take "42x" for 42 or garbage for IEN 0.
+      return { success: true } unless rien.match?(/\A[1-9]\d*\z/)
+
+      { success: true, ien: Integer(rien, 10) }
     end
 
     # require_dfn: ADD^AGGPTADD always fills the DFN piece on success, so a
