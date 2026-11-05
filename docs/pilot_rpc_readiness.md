@@ -21,6 +21,45 @@ ORQQAL LIST | partial | mapped severity is nil on DFN 2's penicillin allergy (IE
 ORWPS ACTIVE | not-proven | live call for DFN 2 signed on as PROV123 returned no data rows (no active medications in the seed), so Medication.active_for_patient proved none of order_id, type, name, status, stop_date, instructions, or comments | unproven: comments, instructions, name, order_id, status, stop_date, type
 ORQQVI VITALS | partial | mapped qualifiers is nil on all four vitals (PU 82, BP 142/88, HT 70, WT 214) for DFN 2 signed on as PROV123 | unproven: qualifiers
 
+# Registration pilot status on bcer-9.0-20261012-e7923a4-ydb (issue #562, slice of #224).
+# Register, find and possible-match through the AG package (AGGRPC). The VOA + DDR
+# composition fallback was removed in #409 and has no code path to prove.
+# AGG LOOKUP PATIENTS is graded on mapped :patient_lookup_agg values of its committed
+# live capture (signed on as PROV123, possible-match form, seed patient DFN 2).
+# A write is never proven by a capture: an AG write row stays not-proven until it is
+# live-verified as PROV123 by test/live/pilot_registration_live_test.rb, which reads the
+# filed HRN back from #9000001.41.
+# Live failure behind green tests: as PROV123, AG answered success for every HRN source
+# (derive, temporary, given) while #9000001.41 stayed empty. Patient.register now
+# returns :hrn_file_failed with the DFN instead. PROV123 (NEW PERSON DUZ 200) has one
+# DIVISION entry, INSTITUTION IEN 1, which does not exist on this build; SYS123's
+# division is 7819 DEMO IHS CLINIC, and as SYS123 the HRN files and reads back.
+# UNFIXTURED, not verified: a manual run on a disposable container that pointed PROV123's
+# division at 7819 reported that HRN filing and free-text find then worked. No committed
+# capture backs that run, so it is a lead for the rpms-ops seed issue, not evidence.
+# Free-text find (Patient.lookup "USER,TEST") returned the header only as PROV123 and
+# found DFN 2 as SYS123 in a manual run (UNFIXTURED); an HRN find (123456) is also
+# UNFIXTURED. What IS fixtured is the possible-match capture (agg-lookup-patients.yml) as
+# PROV123. COMM and MOMDN columns come only when ^AGFAC(DUZ(2),0) piece 11 is Y
+# AND ALL=1 (AGGPTLKP.m:175, 207), so they are absent for PROV123's missing division.
+# Known limits of the registration write path, both pre-existing and not fixed by this
+# slice (so a live capture here does not make registration retry-safe or HRN-unique):
+#  - rpms-rpc#609: Patient.lookup reads a header-only error reply (ERR^AGGPTLKP answers an
+#    M error with the typed header and a $C(31) terminator, AGGPTLKP.m:165-171) as zero
+#    candidates, so the duplicate-identity check passes and a retry during a lookup
+#    fault can create a second chart for the same person.
+#  - rpms-rpc#610: with no HRN given, the derived HRN (HRN := DFN) is added after the
+#    create and AG files it with .02/// (AGGPTUPD.m:104, AGGPTADD.m:112), which bypasses
+#    the field input transform, so HRN^AGGWVAL's already-assigned check (AGGWVAL.m:101-110)
+#    never runs. A new DFN equal to a legacy HRN at the facility files a second patient
+#    under that HRN and the read-back reports success. The given-HRN mode does run
+#    HRN^AGGWVAL.
+
+AGG LOOKUP PATIENTS | partial | live possible-match capture signed on as PROV123 returned DFN 2 (USER,TEST, HRN 123456-DIC, DOB MAY 5,1985, sens NO, inactive N); ssn, dod and alias are blank for that seed patient, and community and mothers_maiden_name are not sent without an ^AGFAC entry for PROV123's division; free-text name find returns no rows as PROV123 (seed-data gap) | unproven: alias, community, dod, mothers_maiden_name, ssn_raw
+AGG ADD NEW PATIENT | not-proven | (limits: see rpms-rpc#609 and #610 above) creates the chart as PROV123, but a given HRN riding the create was not on #9000001.41 afterwards (PROV123's division is a missing INSTITUTION); register now fails closed with :hrn_file_failed; live-proven as SYS123 only | unproven: hrn
+AGG UPDATE PATIENT | not-proven | the derive (HRN := DFN) update answered success as PROV123 while #9000001.41 stayed empty; register now fails closed with :hrn_file_failed; live-proven as SYS123 only | unproven: hrn
+AGG GET TEMP PAT HRN | not-proven | returns the next T-number as PROV123, but the update filing it left #9000001.41 empty; register now fails closed with :hrn_file_failed; AGGPTHRN.m:15 sets ^AUPNPAT("D",THRN,DFN,DUZ(2)) before the update, so on that fail-closed path the T-number stays indexed to a chart whose #9000001.41 is empty (AUPNLK1I.m:17 resolves it in a FileMan lookup and HRN^AGGWVAL:103 sees it as assigned) and the :hrn_file_failed hash drops hrn, so the caller cannot tell which T-number was consumed; live-proven as SYS123 only | unproven: hrn
+
 # Visit and encounter pilot status on bcer-9.0-20261012-e7923a4-ydb (issue #563, slice of #224).
 # Seed patient DFN 2, seed visit IEN 1 at hospital location 6, captured live signed on as PROV123
 # (rake wire:capture, host mode, PINNED=1). Grading is the chart-read grading above.

@@ -52,10 +52,17 @@ module RpmsRpc
 
     # One curated capture target: which RPC, which mapping gates it, how to
     # call it live (or why we can't), and the cited piece semantics.
+    # context is the option to bind before the call (nil: the sign-on option).
     CatalogEntry = Struct.new(:rpc, :mapping, :kind, :mode, :inputs, :cite, :pieces, :note,
-                              keyword_init: true) do
+                              :context, keyword_init: true) do
       def live? = mode == :live
     end
+
+    # AG GLOBAL ARRAY typed-header piece: type letter, 5-digit width, name.
+    # I00010DFN^T00030PATIENT_NAME is a header, not a patient row.
+    TYPED_HEADER_PIECE = /\A[A-Z]\d{5}[A-Z0-9_]+\z/
+    RECORD_SEP = "\x1e" # $C(30)
+    ARRAY_END = "\x1f"  # $C(31)
 
     # A committed wire capture. Validates provenance on load — an invalid
     # fixture raises InvalidFixture rather than silently entering the gate.
@@ -63,12 +70,23 @@ module RpmsRpc
     # Exposed at module level so the capture task can label a fixture from the
     # bytes it actually received instead of assuming "live-capture" and then
     # discovering at validation time that it was wrong.
+    #
+    # A payload that contains $C(30) is a GLOBAL ARRAY: records split on
+    # $C(30) and on newlines, and the $C(31) terminator is dropped. A reply
+    # with no $C(30) is still split on newlines only.
     def self.data_rows(raw)
       return [] if raw.nil?
 
-      raw.sub(/\A\d+[\x00\x01]/, "").split(/\r\n|\r|\n/)
-         .reject(&:empty?)
-         .reject { |row| non_data_row?(row) }
+      record_lines(raw).reject { |row| non_data_row?(row) }
+    end
+
+    # Framing stripped, records split, empties dropped. Non-data rows (error
+    # lines, sentinels, AG typed headers) are still here; data_rows drops them.
+    def self.record_lines(raw)
+      payload = strip_frame(raw)
+      body = payload.include?(RECORD_SEP) ? payload.split(ARRAY_END, 2).first.to_s : payload
+      delimiter = body.include?(RECORD_SEP) ? /\x1e|\r\n|\r|\n/ : /\r\n|\r|\n/
+      body.split(delimiter).reject(&:empty?)
     end
 
     # An explicit broker error ("-N^message"), as opposed to a no-data
@@ -124,9 +142,26 @@ module RpmsRpc
       return true if line.match?(/\A-\d+(?:\.\d+)?\^/)
 
       pieces = line.split("^", -1)
-      pieces.length >= 2 && pieces[0].empty? &&
+      return true if pieces.length >= 2 && pieces[0].empty? &&
         pieces[1].match?(/\A[A-Za-z]/) && pieces[2..].all?(&:empty?)
+
+      typed_header_row?(pieces)
     end
+
+    # Every caret piece is an AG typed-header token (I00010DFN, T00030PATIENT_NAME).
+    def self.typed_header_row?(pieces)
+      !pieces.empty? && pieces.all? { |piece| piece.match?(TYPED_HEADER_PIECE) }
+    end
+
+    def self.strip_frame(raw)
+      payload = raw.sub(/\A\d+[\x00\x01]/, "")
+      return payload unless payload.encoding == Encoding::ASCII_8BIT
+
+      text = payload.dup
+      text.force_encoding(Encoding::UTF_8)
+      text.valid_encoding? ? text : payload
+    end
+    private_class_method :strip_frame
 
     class Fixture
       attr_reader :path, :rpc, :mapping_name, :kind, :source, :cite, :inputs,
@@ -184,7 +219,9 @@ module RpmsRpc
         # only \x00 left "6\x01-1^message" intact, so non_data_row?'s
         # "-N^message" test never matched and a FAILED RPC was counted as a
         # captured data row -- a valid-looking live fixture built from an error.
-        text.sub(/\A\d+[\x00\x01]/, "").split(/\r\n|\r|\n/).reject(&:empty?)
+        # record_lines is the same split data_rows uses, including $C(30)
+        # GLOBAL ARRAY records, so a typed header is its own row.
+        WireCapture.record_lines(text)
       end
 
       # Only live-captured rows are evidence; example rows illustrate a cite.
@@ -226,8 +263,10 @@ module RpmsRpc
         return true if line.match?(/\A-\d+(?:\.\d+)?\^/)          # "-N^message"
 
         pieces = line.split("^", -1)
-        pieces.length >= 2 && pieces[0].empty? &&
+        return true if pieces.length >= 2 && pieces[0].empty? &&
           pieces[1].match?(/\A[A-Za-z]/) && pieces[2..].all?(&:empty?) # "^No X found."
+
+        WireCapture.typed_header_row?(pieces)
       end
 
       private
@@ -377,7 +416,9 @@ module RpmsRpc
         # other is the whole hazard this kind exists to prevent.
         return line_type_violations(field, fixture) if fixture.kind == "lines"
 
-        fixture.captured_rows.filter_map do |row|
+        # captured_data_rows, not captured_rows: a GLOBAL ARRAY typed header
+        # is not a field row, and neither is a sentinel or an error line.
+        fixture.captured_data_rows.filter_map do |row|
           raw = row.split("^", -1)[field.position]
           next if raw.nil? || raw.empty? || raw_conforms?(raw, field.type)
 
@@ -861,6 +902,40 @@ module RpmsRpc
         pieces: [],
         note: "text_blob: record types do not share one caret layout. parse_note_bundle " \
               "models the lines; an unknown type is an opaque record."
+      ),
+      # Agg.registration_candidates sends this possible-match form. The first
+      # argument is Agg.encode_parms of AGGPTLNM/FNM/MNM/SFX/DOB for
+      # USER / TEST / 05/05/1985 ($C(28) between pairs, empty middle and
+      # suffix included). Kept as a literal so this file does not load Agg.
+      CatalogEntry.new(
+        rpc: "AGG LOOKUP PATIENTS", mapping: :patient_lookup_agg, kind: "fields",
+        mode: :live, context: "AGGRPC",
+        inputs: [
+          "AGGPTLNM=USER\x1cAGGPTFNM=TEST\x1cAGGPTMNM=\x1cAGGPTSFX=\x1cAGGPTDOB=05/05/1985",
+          "",
+          "1",
+          "1"
+        ],
+        cite: "FND^AGGPTLKP (AGGPTLKP.m:33-45, the $C(28) structured branch, name OR " \
+              "DOB, LST2) and HDR^AGGPTLKP (AGGPTLKP.m:174): typed header " \
+              "DFN^PATIENT_NAME^HRN^SSN^DOB^DOD^SENS_FLAG^ALIAS^INACTIVE, optional " \
+              "COMM^MOMDN (AGGPTLKP.m:175); data rows AGGPTLKP.m:208",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "dfn_raw" ]),
+          Piece.new(position: 1, attributes: [ "name" ]),
+          Piece.new(position: 2, attributes: [ "hrn" ]),
+          Piece.new(position: 3, attributes: [ "ssn_raw" ]),
+          Piece.new(position: 4, attributes: [ "dob" ]),
+          Piece.new(position: 5, attributes: [ "dod" ]),
+          Piece.new(position: 6, attributes: [ "sens_flag" ]),
+          Piece.new(position: 7, attributes: [ "alias" ]),
+          Piece.new(position: 8, attributes: [ "inactive_raw" ]),
+          Piece.new(position: 9, attributes: [ "community" ]),
+          Piece.new(position: 10, attributes: [ "mothers_maiden_name" ])
+        ],
+        note: "Seed patient DFN 2 (synthetic USER,TEST), the possible-match form the " \
+              "registration duplicate guard sends; the free-text find form is the same " \
+              "RPC and reply layout."
       )
     ].freeze
   end
