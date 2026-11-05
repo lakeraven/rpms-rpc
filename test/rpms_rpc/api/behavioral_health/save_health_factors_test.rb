@@ -32,6 +32,10 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
   HF_MAX = "25"
   PRE_EDIT_FIELDS = ".08;1112"
   PRE_EDIT_FLAGS = "I"
+  DDR_LOCK = "DDR LOCK/UNLOCK NODE"
+  DDR_GETS = "DDR GETS ENTRY DATA"
+  DDR_LISTER = "DDR LISTER"
+  LOCK_TIMEOUT = 5
 
   STOCK_HF_NAME = "CURRENT SMOKER, STATUS UNKNOWN"
   PREFIX_HF_NAME = "CURRENT SMOKER"
@@ -81,6 +85,10 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
 
   def setup
     @mock = RpmsRpc.mock!
+    [ RECORD_IEN, RECORD_ADD ].each do |rec|
+      seed_lock(rec)
+      seed_unlock(rec)
+    end
   end
 
   def teardown
@@ -222,10 +230,191 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     assert_equal RECORD_IEN, BH.save_health_factors(**kwargs)
   end
 
-  def test_refuses_blank_name_before_rpc
-    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: "  ") ])
+  def test_refuses_blank_name_before_any_rpc
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: "") ])
+    assert_raises(BH::SaveError) { BH.save_health_factors(**kwargs) }
+    assert_empty @mock.received_calls, "a blank name is refused before any RPC, DDR included"
+  end
+
+  # Whitespace-only is not a name: it is refused locally, before the lock,
+  # the visit pre-read, the type pre-read and AMHG.
+  def test_refuses_whitespace_only_name_before_any_rpc
+    [ "  ", " ", "\t", "   " ].each do |blank|
+      @mock.received_calls.clear
+      kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: blank) ])
+      assert_raises(BH::SaveError, "name #{blank.inspect}") { BH.save_health_factors(**kwargs) }
+      assert_empty @mock.received_calls, "name #{blank.inspect} must be refused before any RPC"
+    end
+  end
+
+  # M2: the B subscript is the first 40 bytes of .01.
+  def test_longer_row_diverging_before_byte_40_is_not_a_collision_for_a_35_byte_name
+    name = "A" * 35
+    longer = "#{name}B#{"C" * 5}"
+    assert_equal 35, name.bytesize
+    assert_equal 41, longer.bytesize
+    assert_equal name.byteslice(0, 30), longer.byteslice(0, 30), "would collide at a 30-byte width"
+    refute_equal name.byteslice(0, 40), longer.byteslice(0, 40)
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: name) ])
     seed_pre_edit_patient(RECORD_IEN, PATIENT)
-    assert_pre_call_refusal(**kwargs)
+    seed_hf_type_lister(name, [ type_row(ien: "501", name: name), type_row(ien: "502", name: longer) ])
+    seed_amhg_text(wire_for(**kwargs), success_body(RECORD_IEN))
+    seed_hf_readback(RECORD_IEN, hf_rows_for(**kwargs))
+    assert_equal RECORD_IEN, BH.save_health_factors(**kwargs)
+  end
+
+  def test_longer_row_sharing_all_40_bytes_collides_with_a_40_byte_name
+    name = "A" * 40
+    [ "#{name}B", "#{name}#{"Z" * 5}" ].each do |longer|
+      @mock.received_calls.clear
+      assert_operator longer.bytesize, :>, 40
+      assert_equal name, longer.byteslice(0, 40)
+      kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: name) ])
+      seed_pre_edit_patient(RECORD_IEN, PATIENT)
+      seed_hf_type_lister(name, [ type_row(ien: "501", name: name), type_row(ien: "502", name: longer) ])
+      assert_pre_call_refusal(**kwargs)
+    end
+  end
+
+  # M3: the record is locked across pre-read, write and read-back.
+  def test_lock_is_taken_before_pre_read_and_held_through_write_and_readback
+    seed_success(RECORD_IEN, **EDIT_KWARGS)
+    assert_equal RECORD_IEN, BH.save_health_factors(**EDIT_KWARGS)
+
+    lock = index_of { |c| lock_call?(c, RECORD_IEN) }
+    gets = index_of { |c| c[:rpc] == DDR_GETS }
+    write = index_of { |c| c[:rpc] == RPC }
+    readback = index_of { |c| c[:rpc] == DDR_LISTER && c[:params].first.to_s.include?(HF_FILE) }
+    unlock = index_of { |c| unlock_call?(c, RECORD_IEN) }
+    [ lock, gets, write, readback, unlock ].each { |i| refute_nil i }
+    assert_operator lock, :<, gets, "lock before the visit pre-read"
+    assert_operator gets, :<, write
+    assert_operator write, :<, readback
+    assert_operator readback, :<, unlock, "unlock after the read-back"
+    assert_equal 1, lock_calls_for(RECORD_IEN).length
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  end
+
+  def test_lock_is_taken_before_the_type_pre_read_too
+    seed_success(RECORD_IEN, **EDIT_KWARGS)
+    BH.save_health_factors(**EDIT_KWARGS)
+    lock = index_of { |c| lock_call?(c, RECORD_IEN) }
+    type_read = index_of { |c| c[:rpc] == DDR_LISTER && c[:params].first.to_s.include?(HF_TYPE_FILE) }
+    refute_nil type_read
+    assert_operator lock, :<, type_read
+  end
+
+  def test_add_mode_locks_the_add_record
+    seed_success(RECORD_ADD, **ADD_KWARGS)
+    assert_equal RECORD_ADD, BH.save_health_factors(**ADD_KWARGS)
+    assert_equal 1, lock_calls_for(RECORD_ADD).length
+    assert_equal 1, unlock_calls_for(RECORD_ADD).length
+    assert_empty lock_calls_for(RECORD_IEN)
+  end
+
+  def test_busy_lock_refuses_with_a_distinct_not_acquired_error_before_any_write
+    seed_lock(RECORD_IEN, acquired: false)
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    seed_hf_type_valid(HF_ONE_NAME)
+    err = assert_raises(BH::SaveError) { BH.save_health_factors(**EDIT_KWARGS.merge(health_factors: [ single_factor ])) }
+    assert_match(/was not acquired/i, err.message)
+    refute_match(/may have been filed|outcome unknown/i, err.message, "nothing was sent, so the outcome is known")
+    assert_empty amhg_calls
+    assert_empty(@mock.received_calls.select { |c| c[:rpc] == DDR_GETS })
+    assert_empty(@mock.received_calls.select { |c| c[:rpc] == DDR_LISTER && c[:params].first.to_s.include?(HF_FILE) })
+    assert_equal 1, lock_calls_for(RECORD_IEN).length
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length, "same as Wellness: a sent, unacquired lock is released"
+  end
+
+  def test_lock_transport_error_refuses_before_any_write
+    client = HfLockRaiseClient.new(@mock)
+    RpmsRpc.configure { |c| c.client = client }
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    seed_hf_type_valid(HF_ONE_NAME)
+    err = assert_raises(BH::SaveError) { BH.save_health_factors(**EDIT_KWARGS.merge(health_factors: [ single_factor ])) }
+    assert_match(/was not acquired/i, err.message)
+    assert_empty amhg_calls
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_signed_visit_and_wrong_patient_refusals_happen_inside_the_lock_and_unlock
+    [ [ PATIENT, true ], [ OTHER_PATIENT, false ] ].each do |stored, signed|
+      @mock.received_calls.clear
+      seed_pre_edit_patient(RECORD_IEN, stored, signed: signed)
+      seed_hf_type_valid(HF_ONE_NAME)
+      assert_raises(BH::SaveError) { BH.save_health_factors(**EDIT_KWARGS.merge(health_factors: [ single_factor ])) }
+      lock = index_of { |c| lock_call?(c, RECORD_IEN) }
+      gets = index_of { |c| c[:rpc] == DDR_GETS }
+      refute_nil lock, "lock must be taken before the visit checks"
+      assert_operator lock, :<, gets
+      assert_equal 1, unlock_calls_for(RECORD_IEN).length
+      assert_empty amhg_calls
+    end
+  end
+
+  def test_unlocks_when_the_write_raises_and_the_original_error_propagates
+    seed_amhg_only(WIRE_EDIT_TWO, RECORD_IEN, **EDIT_KWARGS)
+    client = HfWriteRaiseClient.new(@mock, RPC)
+    RpmsRpc.configure { |c| c.client = client }
+    assert_raises(RpmsRpc::Client::RpcNotAvailableError) { BH.save_health_factors(**EDIT_KWARGS) }
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_unlocks_when_the_readback_refuses
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor ])
+    row = hf_rows_for(**kwargs).first.merge(comment: "DIFFERENT")
+    assert_post_call_readback_miss(**kwargs, readback_rows: [ row ])
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  end
+
+  def test_unlocks_when_the_write_reply_is_an_error
+    seed_post_amhg_trap(WIRE_EDIT_TWO, **EDIT_KWARGS) do
+      seed_amhg_text(WIRE_EDIT_TWO, "T00030Result#{RS}0~Add Health Factor#{RS}#{US}")
+    end
+    assert_raises(BH::SaveError) { BH.save_health_factors(**EDIT_KWARGS) }
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  end
+
+  def test_unlock_transport_error_does_not_mask_a_successful_save
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor ])
+    seed_success(RECORD_IEN, **kwargs)
+    [ StandardError, NotImplementedError ].each do |klass|
+      client = HfUnlockRaiseClient.new(@mock, klass)
+      RpmsRpc.configure { |c| c.client = client }
+      assert_equal RECORD_IEN, BH.save_health_factors(**kwargs), "unlock raising #{klass} must not mask success"
+      assert_operator client.unlock_refusals, :>=, 1
+    end
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_unlock_transport_error_does_not_replace_the_save_error
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor ])
+    row = hf_rows_for(**kwargs).first.merge(comment: "DIFFERENT")
+    client = HfUnlockRaiseClient.new(@mock, StandardError)
+    RpmsRpc.configure { |c| c.client = client }
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    seed_hf_type_valid(HF_ONE_NAME)
+    seed_amhg_text(wire_for(**kwargs), success_body(RECORD_IEN))
+    seed_hf_readback(RECORD_IEN, [ row ])
+    err = assert_raises(BH::SaveError) { BH.save_health_factors(**kwargs) }
+    assert_match(/may have been|outcome unknown|not confirmed/i, err.message)
+    assert_operator client.unlock_refusals, :>=, 1
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_unlock_transport_error_does_not_replace_the_original_write_exception
+    seed_amhg_only(WIRE_EDIT_TWO, RECORD_IEN, **EDIT_KWARGS)
+    client = HfUnlockRaiseClient.new(HfWriteRaiseClient.new(@mock, RPC), StandardError)
+    RpmsRpc.configure { |c| c.client = client }
+    assert_raises(RpmsRpc::Client::RpcNotAvailableError) { BH.save_health_factors(**EDIT_KWARGS) }
+    assert_operator client.unlock_refusals, :>=, 1
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
   end
 
   def test_refuses_name_longer_than_40_characters_before_rpc
@@ -533,14 +722,16 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     assert_includes doc.fetch("modules").fetch("RpmsRpc::BehavioralHealth"), RPC
   end
 
-  def test_rpcs_md_documents_save_health_factors_verified_under_amhgrpc
+  # No live run exists, so the row says pending and names no build.
+  def test_rpcs_md_documents_save_health_factors_as_pending_until_a_live_run
     text = File.read(RPCS_MD_PATH, encoding: Encoding::UTF_8)
     bh_section = text[/## Behavioral Health writes.*?^(?=## |\z)/m]
     refute_nil bh_section, "Behavioral Health section missing from docs/rpcs.md"
-    assert_includes bh_section, "bcer-9.0-20261012-e7923a4-ydb"
+    refute_includes bh_section, "bcer-9.0-20261012-e7923a4-ydb"
     row = bh_section.lines.find { |line| line.include?("`AMHG SAVE HEALTH FACTORS`") }
     refute_nil row
-    assert_match(/\|\s*verified\s*\|\s*\z/, row.strip)
+    assert_match(/\|\s*pending\s*\|\s*\z/, row.strip)
+    refute_match(/passed on/, bh_section)
     assert_includes text, "HF^AMHGSVF"
     assert_includes text, "AMHGRPC"
   end
@@ -551,6 +742,41 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
   end
 
   private
+
+  def lock_node(rec)
+    "^AMHREC(#{rec})"
+  end
+
+  def seed_lock(rec, acquired: true)
+    param = Ddr.lock_param(node: lock_node(rec), timeout: LOCK_TIMEOUT).to_s
+    @mock.seed_scalar(:ddr_lock_unlock_node, param, acquired)
+  end
+
+  def seed_unlock(rec)
+    @mock.seed_scalar(:ddr_lock_unlock_node, Ddr.unlock_param(node: lock_node(rec)).to_s, true)
+  end
+
+  def lock_call?(call, rec)
+    param = call[:params].first
+    call[:rpc] == DDR_LOCK && param.is_a?(Hash) && param["NODE"] == lock_node(rec) && param["LOCKMODE"] == "1"
+  end
+
+  def unlock_call?(call, rec)
+    param = call[:params].first
+    call[:rpc] == DDR_LOCK && param.is_a?(Hash) && param["NODE"] == lock_node(rec) && !param.key?("LOCKMODE")
+  end
+
+  def lock_calls_for(rec)
+    @mock.received_calls.select { |c| lock_call?(c, rec) }
+  end
+
+  def unlock_calls_for(rec)
+    @mock.received_calls.select { |c| unlock_call?(c, rec) }
+  end
+
+  def index_of(&block)
+    @mock.received_calls.index(&block)
+  end
 
   def single_factor
     { name: HF_ONE_NAME, level: "MINIMAL", quantity: "1", comment: "SYN HF" }
@@ -752,5 +978,49 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
       ].join("~")
     end.join("*")
     [ letter, record, listed, patient ].join("|")
+  end
+end
+
+class HfLockRaiseClient < SimpleDelegator
+  def call_rpc(rpc_name, *params)
+    param = params.first
+    if rpc_name == "DDR LOCK/UNLOCK NODE" && param.is_a?(Hash) && param["LOCKMODE"] == "1"
+      raise IOError, "lock transport failed (synthetic)"
+    end
+
+    super
+  end
+end
+
+class HfUnlockRaiseClient < SimpleDelegator
+  attr_reader :unlock_refusals
+
+  def initialize(delegate, error_class)
+    super(delegate)
+    @error_class = error_class
+    @unlock_refusals = 0
+  end
+
+  def call_rpc(rpc_name, *params)
+    param = params.first
+    if rpc_name == "DDR LOCK/UNLOCK NODE" && param.is_a?(Hash) && param.key?("NODE") && !param.key?("LOCKMODE")
+      @unlock_refusals += 1
+      raise @error_class, "unlock failed (synthetic)"
+    end
+
+    super
+  end
+end
+
+class HfWriteRaiseClient < SimpleDelegator
+  def initialize(delegate, rpc_name)
+    super(delegate)
+    @rpc_name = rpc_name
+  end
+
+  def call_rpc_global_array(rpc_name, *_params)
+    raise RpmsRpc::Client::RpcNotAvailableError, "#{rpc_name} not registered (synthetic)" if rpc_name == @rpc_name
+
+    super
   end
 end

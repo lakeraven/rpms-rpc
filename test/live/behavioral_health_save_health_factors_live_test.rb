@@ -26,68 +26,105 @@ class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
   HF_TYPE_FILE = "9999999.64"
 
   def test_save_health_factors_replace_all_on_edit_via_ddr_lister
+    visit_ien = create_visit!
+    name_a, name_b = discover_health_factor_names!(2)
+
+    save!(visit_ien, :edit, [ factor(name_a, "MINIMAL", "1", "SYN LIVE HF A") ])
+    assert_hf_row!(visit_ien, name_a, level: "MINIMAL", quantity: "1", comment: "SYN LIVE HF A")
+
+    save!(visit_ien, :edit, [ factor(name_a, "MODERATE", "2", "SYN LIVE HF A2") ])
+    assert_hf_row!(visit_ien, name_a, level: "MODERATE", quantity: "2", comment: "SYN LIVE HF A2")
+    assert_hf_row_count!(visit_ien, 1)
+
+    # Edit mode runs DELHF: a different factor replaces A, A is deleted.
+    save!(visit_ien, :edit, [ factor(name_b, "HEAVY/SEVERE", "3", "SYN LIVE HF B") ])
+    assert_hf_row!(visit_ien, name_b, level: "HEAVY/SEVERE", quantity: "3", comment: "SYN LIVE HF B")
+    refute_hf_name!(visit_ien, name_a)
+    assert_hf_row_count!(visit_ien, 1)
+
+    puts "\n#{persona}: BH visit #{visit_ien} edit replaced #{name_a.inspect} with #{name_b.inspect}"
+  end
+
+  def test_save_health_factors_add_keeps_existing_factors
+    visit_ien = create_visit!
+    name_a, name_b = discover_health_factor_names!(2)
+
+    save!(visit_ien, :edit, [ factor(name_a, "MINIMAL", "1", "SYN LIVE ADD A") ])
+    save!(visit_ien, :add, [ factor(name_b, "MODERATE", "2", "SYN LIVE ADD B") ])
+
+    assert_hf_row!(visit_ien, name_a, level: "MINIMAL", quantity: "1", comment: "SYN LIVE ADD A")
+    assert_hf_row!(visit_ien, name_b, level: "MODERATE", quantity: "2", comment: "SYN LIVE ADD B")
+    assert_hf_row_count!(visit_ien, 2)
+  end
+
+  def test_save_health_factors_multi_factor_list_then_narrowing_edit
+    visit_ien = create_visit!
+    name_a, name_b, name_c = discover_health_factor_names!(3)
+
+    save!(visit_ien, :edit, [
+            factor(name_a, "MINIMAL", "1", "SYN LIVE MULTI A"),
+            factor(name_b, "", "", ""),
+            factor(name_c, "HEAVY/SEVERE", "4.5", "SYN LIVE MULTI C")
+          ])
+    assert_hf_row!(visit_ien, name_a, level: "MINIMAL", quantity: "1", comment: "SYN LIVE MULTI A")
+    assert_hf_row!(visit_ien, name_b, level: "", quantity: "", comment: "")
+    assert_hf_row!(visit_ien, name_c, level: "HEAVY/SEVERE", quantity: "4.5", comment: "SYN LIVE MULTI C")
+    assert_hf_row_count!(visit_ien, 3)
+
+    save!(visit_ien, :edit, [ factor(name_b, "MODERATE", "1", "SYN LIVE MULTI B") ])
+    assert_hf_row!(visit_ien, name_b, level: "MODERATE", quantity: "1", comment: "SYN LIVE MULTI B")
+    refute_hf_name!(visit_ien, name_a)
+    refute_hf_name!(visit_ien, name_c)
+    assert_hf_row_count!(visit_ien, 1)
+  end
+
+  private
+
+  def factor(name, level, quantity, comment)
+    { name: name, level: level, quantity: quantity, comment: comment }
+  end
+
+  def save!(visit_ien, mode, factors)
+    RpmsRpc::BehavioralHealth.save_health_factors(
+      record_ien: visit_ien, patient: DFN, mode: mode, health_factors: factors
+    )
+  end
+
+  def create_visit!
     assert_synthetic_patient!(DFN)
     clinic_ien, type_ien, _t2, location_ien, community_ien, _c2 = discover_reference_iens!
-    hf_name = discover_health_factor_name!
-    provider = client.duz.to_s
-    encounter = server_now_fm
-
-    visit_ien = RpmsRpc::BehavioralHealth.save_visit(
-      provider: provider,
+    RpmsRpc::BehavioralHealth.save_visit(
+      provider: client.duz.to_s,
       program: PROGRAM,
       clinic: clinic_ien,
       type_of_contact: type_ien,
-      encounter_date: encounter,
+      encounter_date: server_now_fm,
       encounter_location: location_ien,
       community_of_service: community_ien,
       appointment_with: APPOINTMENT_WITH,
       patient: DFN
     )
-
-    RpmsRpc::BehavioralHealth.save_health_factors(
-      record_ien: visit_ien,
-      patient: DFN,
-      mode: :edit,
-      health_factors: [
-        { name: hf_name, level: "MINIMAL", quantity: "1", comment: "SYN LIVE HF A" }
-      ]
-    )
-
-    assert_hf_row!(visit_ien, hf_name, level: "MINIMAL", quantity: "1", comment: "SYN LIVE HF A")
-
-    RpmsRpc::BehavioralHealth.save_health_factors(
-      record_ien: visit_ien,
-      patient: DFN,
-      mode: :edit,
-      health_factors: [
-        { name: hf_name, level: "MODERATE", quantity: "2", comment: "SYN LIVE HF B" }
-      ]
-    )
-
-    assert_hf_row!(visit_ien, hf_name, level: "MODERATE", quantity: "2", comment: "SYN LIVE HF B")
-    assert_hf_row_count!(visit_ien, 1)
-
-    puts "\n#{persona}: BH visit #{visit_ien} health factors saved on DFN #{DFN} (#{hf_name})"
   end
 
-  private
-
-  def discover_health_factor_name!
+  # Distinct active FACTOR names whose .01 is 1 through 40 BYTES (the B
+  # subscript width), none a prefix of another within 40 bytes.
+  def discover_health_factor_names!(count)
     listed = RpmsRpc::DdrFileman.lister(
       file: HF_TYPE_FILE, fields: ".01;.1;.13", flags: HF_FLAGS, max: "50"
     )
     flunk "health factor type list failed" if listed.nil? || listed[:error]
 
-    row = listed[:entries].find do |entry|
+    names = listed[:entries].filter_map do |entry|
       pieces = entry[:pieces]
-      next false unless pieces.length >= 3
+      next unless pieces.length >= 3
 
       name = pieces[0].to_s
-      name.length.positive? && name.length <= 40 && pieces[1].to_s == "F" && pieces[2].to_s != "1"
-    end
-    flunk "no active FACTOR (.1 F, .13 not 1) with .01 length 1-40 on file #{HF_TYPE_FILE}" unless row
+      name if name.bytesize.between?(1, 40) && pieces[1].to_s == "F" && pieces[2].to_s != "1"
+    end.uniq
+    names = names.reject { |n| names.any? { |o| o != n && o.b.start_with?(n.b) } }
+    flunk "need #{count} active FACTOR names (1-40 bytes) on file #{HF_TYPE_FILE}, found #{names.length}" if names.length < count
 
-    row[:pieces].first.to_s
+    names.first(count)
   end
 
   def assert_hf_row!(visit_ien, want_name, level:, quantity:, comment:)
@@ -95,7 +132,7 @@ class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
     match = listed[:entries].find do |entry|
       pieces = entry[:pieces]
       pieces.length >= 6 &&
-        pieces[0].to_s == want_name &&
+        pieces[0].to_s.b == want_name.b &&
         pieces[3].to_s == level &&
         pieces[4].to_s == quantity &&
         pieces[5].to_s == comment
@@ -103,6 +140,12 @@ class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
     refute_nil match,
                "expected HF #{want_name.inspect} level=#{level.inspect} qty=#{quantity.inspect} " \
                "comment=#{comment.inspect} on visit #{visit_ien}"
+  end
+
+  def refute_hf_name!(visit_ien, name)
+    listed = hf_lister(visit_ien)
+    present = listed[:entries].any? { |entry| entry[:pieces][0].to_s.b == name.b }
+    refute present, "expected HF #{name.inspect} to be deleted from visit #{visit_ien}"
   end
 
   def assert_hf_row_count!(visit_ien, count)
