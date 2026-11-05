@@ -5,7 +5,8 @@
 #   rake wire:capture CONTAINER=rpms-ydb-9.0 RELEASE=bcer-9.0-ydb
 #     [RUNTIME=docker] [BROKER_PORT=9100] [RPMS_ACCESS=] [RPMS_VERIFY=] [ONLY="RPC NAME"]
 #   rake wire:capture BROKER_HOST=127.0.0.1 BROKER_PORT=<port> RELEASE=bcer-9.0-ydb ...
-#   WRITES=1 CONTAINER=rpms-ydb-9.0 BROKER_HOST=127.0.0.1 BROKER_PORT=<port> \
+#   WRITES=1 with a loopback BROKER_HOST and no CONTAINER:
+#   WRITES=1 BROKER_HOST=127.0.0.1 BROKER_PORT=<port> \
 #     RPMS_ACCESS=PROV123 rake wire:capture
 #   RPMS_ESIG, when set, is read from the environment only and is never printed.
 #
@@ -23,11 +24,10 @@
 #
 # Read-only discipline: the driver calls read RPCs with synthetic inputs
 # against a rung WE OWN — never a customer instance. Write RPCs are
-# routine-cited and are not called. The one exception is WRITES=1, and only
-# when WireCapture.write_refusal allows it: BROKER_HOST is loopback
-# (127.0.0.1, localhost, or ::1) AND CONTAINER=rpms-ydb-9.0. Any other
-# WRITES=1 aborts before a connection. The allowed run is host mode on this
-# machine's ruby, so the broker must be reachable at BROKER_HOST:BROKER_PORT.
+# routine-cited and are not called. The one exception is WRITES=1 with a
+# loopback BROKER_HOST and no CONTAINER. Any other WRITES=1 aborts before
+# a connection. The allowed run is host mode on this machine's ruby, so the
+# broker must be reachable at BROKER_HOST:BROKER_PORT.
 # RPMS_ESIG is passed only in the driver environment, never on argv, and is
 # never printed. A write fixture is stored only when the public API accepts
 # the reply; otherwise an existing fixture is left in place, and a routine-cite
@@ -75,9 +75,7 @@ namespace :wire do
     refusal = RpmsRpc::WireCapture.write_refusal(writes: writes, host: host, container: container)
     abort "wire:capture: #{refusal}" if refusal
 
-    # WRITES=1 uses host mode even when CONTAINER is set. docker exec would
-    # place RPMS_ESIG on a command line. write_refusal already required a
-    # loopback host and CONTAINER=rpms-ydb-9.0.
+    # Write path is host mode. write_refusal has already refused any CONTAINER.
     if writes || (container.nil? && !host.empty?)
       require "open3"
       require "rbconfig"
@@ -87,7 +85,6 @@ namespace :wire do
               "RPMS_VERIFY" => ver, "ONLY" => only.to_s, "CITE_ONLY" => cite_only.join(",") }
       if writes
         env["WRITES"] = "1"
-        env["CONTAINER"] = container.to_s
         # May be unset. Never interpolated into a message or an argument list.
         env["RPMS_ESIG"] = ENV["RPMS_ESIG"] if ENV.key?("RPMS_ESIG")
       end

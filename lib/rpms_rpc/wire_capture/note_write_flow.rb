@@ -210,11 +210,13 @@ module RpmsRpc
       end
     end
 
-    # Loopback broker and the owned dev container. A read capture (writes
-    # false or nil) is not refused. Anything else, including a missing host
-    # or any other CONTAINER, is a reason and must abort before a socket.
+    # Host mode only. A read capture (writes false or nil) is not refused.
+    # WRITES=1 is allowed only against a loopback broker with CONTAINER nil
+    # or "". A container run goes through `docker exec`, which would put the
+    # signature code on a command line, and a container name is a string,
+    # not proof the rung is ours. Anything else, including a missing or
+    # non-loopback host, is a reason and must abort before a socket.
     LOOPBACK_HOSTS = %w[127.0.0.1 localhost ::1].freeze
-    OWNED_WRITE_CONTAINER = "rpms-ydb-9.0"
 
     def self.write_refusal(writes:, host:, container:)
       return nil if writes == false || writes.nil?
@@ -222,13 +224,13 @@ module RpmsRpc
         return "WRITES=1 is refused"
       end
 
+      unless container.to_s.strip.empty?
+        return "WRITES=1 is refused when CONTAINER is set"
+      end
+
       unless LOOPBACK_HOSTS.include?(host.to_s.strip.downcase)
         return "WRITES=1 is refused unless the broker host is loopback " \
                "(127.0.0.1, localhost, or ::1)"
-      end
-
-      if container.to_s.strip != OWNED_WRITE_CONTAINER
-        return "WRITES=1 is refused unless CONTAINER=#{OWNED_WRITE_CONTAINER} (the owned rung)"
       end
 
       nil

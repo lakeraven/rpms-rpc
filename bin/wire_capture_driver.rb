@@ -16,7 +16,7 @@
 # into provenance-stamped fixtures. This script does not edit captured bytes.
 #
 # WRITES=1 (refused by the rake, and again here, unless the broker host is
-# loopback and CONTAINER=rpms-ydb-9.0) then runs NoteWriteFlow: create, lock,
+# loopback and no CONTAINER is set) then runs NoteWriteFlow: create, lock,
 # set text, read-back, unlock, and sign when RPMS_ESIG is a non-blank string.
 # The signature code is read from the environment only and is never printed.
 # ONLY naming one write RPC still runs the whole flow, because later steps
