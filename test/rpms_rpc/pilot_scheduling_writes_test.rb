@@ -6,6 +6,7 @@ require "fileutils"
 require "tmpdir"
 require "yaml"
 require "rpms_rpc"
+require "rpms_rpc/cia_client"
 require "rpms_rpc/live_summary"
 require "rpms_rpc/wire_capture"
 require "rpms_rpc/mappings"
@@ -25,7 +26,6 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
   PINNED_RELEASE = RpmsRpc::LiveSummary.pinned_build(LOCK_PATH).freeze
   SCHEDULING_PERSONA = "PROV123"
   SYNTHETIC_RESOURCE = "ZZ PILOT SCHED CAPTURE"
-  PATIENT_DFN = "3"
 
   SCHEDULING_WRITE_SLICE = [
     {
@@ -71,22 +71,27 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
 
   RS = "\x1e"
 
-  class DdrReplayClient
+  # Replay read_back raws through real CiaClient#call_rpc parsing; only transport is stubbed.
+  class CiaDdrReplayClient < RpmsRpc::CiaClient
     def initialize(read_backs)
+      super()
       @read_backs = Array(read_backs)
+      @connected = true
     end
 
     def with_context(_option) = yield
 
-    def call_rpc(rpc, param)
-      want = normalize_param(param)
-      hit = @read_backs.find { |e| e["rpc"] == rpc && normalize_param(e["inputs"]) == want }
-      raise "unexpected DDR replay #{rpc} #{want.inspect}" unless hit
+    def call_rpc_raw(rpc_name, *params)
+      want = normalize_ddr_inputs(params.first)
+      hit = @read_backs.find do |entry|
+        entry["rpc"] == rpc_name && normalize_ddr_inputs(entry["inputs"]) == want
+      end
+      raise KeyError, "unexpected DDR replay #{rpc_name} #{want.inspect}" unless hit
 
-      hit["raw_return"].to_s.split(/\r?\n/)
+      hit["raw_return"].to_s.b
     end
 
-    def normalize_param(param)
+    def normalize_ddr_inputs(param)
       case param
       when Hash then param.transform_keys(&:to_s).sort.to_h
       else param
@@ -142,17 +147,69 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       "#{canonical_fileman_datetime(start_time)},#{dfn},"
     end
 
-    def read_back_field_internal(read_backs, file:, iens:, field:, flags: "I")
-      client = DdrReplayClient.new(read_backs)
-      RpmsRpc.reset!
-      RpmsRpc.configure { |cfg| cfg.client = client }
-      result = RpmsRpc::DdrFileman.gets_entry(file: file, iens: iens, fields: field, flags: flags)
-      return nil if result.nil? || result[:error]
+    def field_key_variants(field)
+      text = field.to_s
+      bare = text.start_with?(".") ? text.delete_prefix(".") : text
+      [ text, bare, ".#{bare}" ].uniq
+    end
 
-      key = field.start_with?(".") ? field : ".#{field}"
-      result[:fields][key]&.dig(:internal) || result[:fields][field.delete(".")]&.dig(:internal)
+    def store_index_field!(index, file, iens, field, internal)
+      field_key_variants(field).each do |key|
+        index[[ file.to_s, iens.to_s, key ]] = internal
+      end
+    end
+
+    def index_lookup(index, file:, iens:, field:)
+      field_key_variants(field).each do |key|
+        val = index[[ file.to_s, iens.to_s, key ]]
+        return val unless val.nil?
+      end
+      nil
+    end
+
+    def read_back_index(read_backs)
+      client = CiaDdrReplayClient.new(read_backs)
+      index = {}
+      Array(read_backs).each do |entry|
+        RpmsRpc.reset!
+        RpmsRpc.configure { |cfg| cfg.client = client }
+        inputs = entry["inputs"].transform_keys(&:to_s)
+        result = RpmsRpc::DdrFileman.gets_entry(
+          file: inputs.fetch("FILE"),
+          iens: inputs.fetch("IENS"),
+          fields: inputs.fetch("FIELDS"),
+          flags: inputs.fetch("FLAGS", "I")
+        )
+        next if result.nil? || result[:error]
+
+        file = inputs.fetch("FILE")
+        iens = inputs.fetch("IENS")
+        result[:fields].each do |fname, data|
+          internal = data[:internal]
+          next if internal.nil?
+
+          store_index_field!(index, file, iens, fname, internal)
+        end
+      end
+      index
     ensure
       RpmsRpc.reset!
+    end
+
+    def appointment_context(yaml, index)
+      appt_ien = yaml.dig("api_call", "args", "appointment_ien")
+      return nil if appt_ien.nil?
+
+      appt_iens = "#{appt_ien},"
+      start = index_lookup(index, file: "9002018.4", iens: appt_iens, field: ".01")
+      patient = index_lookup(index, file: "9002018.4", iens: appt_iens, field: ".05")
+      return nil unless RpmsRpc::WireCapture::Evidence.real_value?(start) &&
+                        RpmsRpc::WireCapture::Evidence.real_value?(patient)
+
+      {
+        appt_iens: appt_iens,
+        dpt_iens: dpt_appt_iens(start, patient)
+      }
     end
 
     def write_success?(slice, fixture, yaml)
@@ -178,24 +235,29 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       end
     end
 
-    def expected_internal_for_effect(slice, effect, yaml)
+    def add_appointment_id_from_capture(yaml, fixture)
+      mapping = RpmsRpc::DataMapper[:scheduling_add_appointment]
+      row = if fixture && !fixture.captured_data_rows.empty?
+              fixture.captured_data_rows.first
+      else
+              RpmsRpc::WireCapture.data_rows(yaml["raw_return"]).first
+      end
+      mapping.parse_one(row.to_s)[:appointment_id].to_s
+    end
+
+    def expected_internal_for_effect(slice, effect, yaml, fixture = nil)
       args = yaml.fetch("api_call").fetch("args")
       case effect
       when :appointment_id
-        mapping = RpmsRpc::DataMapper[:scheduling_add_appointment]
-        row = RpmsRpc::WireCapture::Fixture.new(yaml).captured_data_rows.first
-        mapping.parse_one(row)[:appointment_id].to_s
+        add_appointment_id_from_capture(yaml, fixture)
       when :start
         canonical_fileman_datetime(args["start_time"])
       when :patient
         args["patient_dfn"].to_s
       when :resource
-        (args["resource_ien"] || yaml.dig("setup", "resource_ien")).to_s
+        yaml.dig("setup", "resource_ien").to_s
       when :dpt_appt_clinic
-        read_back_field_internal(
-          yaml["read_back"], file: "2", iens: dpt_appt_iens(args["start_time"], args["patient_dfn"]),
-          field: ".01"
-        )
+        yaml.dig("setup", "hospital_location_id").to_s
       when :checkin_time
         canonical_fileman_datetime(args["checkin_time"])
       when :cancel_status
@@ -216,7 +278,12 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     end
 
     def effect_proven?(slice, effect, yaml, fixture)
-      return false unless RpmsRpc::WireCapture::Evidence.real_value?(expected_internal_for_effect(slice, effect, yaml)) ||
+      index = read_back_index(yaml["read_back"])
+      args = yaml.fetch("api_call").fetch("args")
+
+      return false unless RpmsRpc::WireCapture::Evidence.real_value?(
+                            expected_internal_for_effect(slice, effect, yaml, fixture)
+                          ) ||
                           effect == :success || effect == :cancelled_at
 
       case effect
@@ -229,73 +296,64 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
           true
         end
       when :cancel_reason
-        reason = yaml.dig("api_call", "args", "reason").to_s
+        reason = args["reason"].to_s
         return false if reason.empty? || reason == "14"
 
-        got = read_back_field_internal(yaml["read_back"], file: "2",
-                                       iens: dpt_appt_iens(yaml.dig("api_call", "args", "start_time") ||
-                                                           yaml.dig("setup", "start_time"),
-                                                           yaml.dig("api_call", "args", "patient_dfn") || PATIENT_DFN),
-                                       field: "16")
+        ctx = appointment_context(yaml, index)
+        return false unless ctx
+
+        got = index_lookup(index, file: "2.98", iens: ctx[:dpt_iens], field: "16")
         RpmsRpc::WireCapture::Evidence.real_value?(got) && got == reason
       when :cancelled_at
-        appt_ien = yaml.dig("api_call", "args", "appointment_ien") || yaml.dig("setup", "appointment_ien")
-        got = read_back_field_internal(yaml["read_back"], file: "9002018.4", iens: "#{appt_ien},", field: ".12")
+        appt_ien = args["appointment_ien"]
+        got = index_lookup(index, file: "9002018.4", iens: "#{appt_ien},", field: ".12")
         RpmsRpc::WireCapture::Evidence.real_value?(got) && got.to_s.include?(".")
       when :cancel_status
-        args = yaml.fetch("api_call").fetch("args")
-        got = read_back_field_internal(
-          yaml["read_back"], file: "2",
-          iens: dpt_appt_iens(yaml.dig("setup", "start_time"), args["patient_dfn"] || PATIENT_DFN),
-          field: "3"
-        )
+        ctx = appointment_context(yaml, index)
+        return false unless ctx
+
+        got = index_lookup(index, file: "2.98", iens: ctx[:dpt_iens], field: "3")
         got == args["type"].to_s
       when :checkin_time
-        args = yaml.fetch("api_call").fetch("args")
         appt_ien = args["appointment_ien"]
-        got = read_back_field_internal(yaml["read_back"], file: "9002018.4", iens: "#{appt_ien},", field: ".03")
+        got = index_lookup(index, file: "9002018.4", iens: "#{appt_ien},", field: ".03")
         canonical_fileman_datetime(got) == canonical_fileman_datetime(args["checkin_time"])
       when :noshow_flag
-        appt_ien = yaml.dig("api_call", "args", "appointment_ien")
-        got = read_back_field_internal(yaml["read_back"], file: "9002018.4", iens: "#{appt_ien},", field: ".1")
+        appt_ien = args["appointment_ien"]
+        got = index_lookup(index, file: "9002018.4", iens: "#{appt_ien},", field: ".1")
         got == "1"
       when :noshow_status
-        args = yaml.fetch("api_call").fetch("args")
-        got = read_back_field_internal(
-          yaml["read_back"], file: "2",
-          iens: dpt_appt_iens(yaml.dig("setup", "start_time"), PATIENT_DFN),
-          field: "3"
-        )
+        ctx = appointment_context(yaml, index)
+        return false unless ctx
+
+        got = index_lookup(index, file: "2.98", iens: ctx[:dpt_iens], field: "3")
         got == "N"
       when :appointment_id
-        got = read_back_field_internal(yaml["read_back"], file: "9002018.4",
-                                       iens: "#{expected_internal_for_effect(slice, :appointment_id, yaml)},",
-                                       field: ".01")
-        canonical_fileman_datetime(got) == expected_internal_for_effect(slice, :start, yaml)
-      when :start
-        appt_id = expected_internal_for_effect(slice, :appointment_id, yaml)
-        got = read_back_field_internal(yaml["read_back"], file: "9002018.4", iens: "#{appt_id},", field: ".01")
-        canonical_fileman_datetime(got) == expected_internal_for_effect(slice, :start, yaml)
-      when :patient
-        appt_id = expected_internal_for_effect(slice, :appointment_id, yaml)
-        got = read_back_field_internal(yaml["read_back"], file: "9002018.4", iens: "#{appt_id},", field: ".05")
-        got == expected_internal_for_effect(slice, :patient, yaml)
-      when :resource
-        appt_id = expected_internal_for_effect(slice, :appointment_id, yaml)
-        got = read_back_field_internal(yaml["read_back"], file: "9002018.4", iens: "#{appt_id},", field: ".07")
-        got == expected_internal_for_effect(slice, :resource, yaml)
-      when :dpt_appt_clinic
-        args = yaml.fetch("api_call").fetch("args")
-        got = read_back_field_internal(
-          yaml["read_back"], file: "2", iens: dpt_appt_iens(args["start_time"], args["patient_dfn"]),
-          field: ".01"
-        )
+        appt_id = expected_internal_for_effect(slice, :appointment_id, yaml, fixture)
+        return false unless appt_id.to_i.positive? && write_success?(slice, fixture, yaml)
+
+        got = index_lookup(index, file: "9002018.4", iens: "#{appt_id},", field: ".01")
         RpmsRpc::WireCapture::Evidence.real_value?(got)
+      when :start
+        appt_id = expected_internal_for_effect(slice, :appointment_id, yaml, fixture)
+        got = index_lookup(index, file: "9002018.4", iens: "#{appt_id},", field: ".01")
+        canonical_fileman_datetime(got) == expected_internal_for_effect(slice, :start, yaml, fixture)
+      when :patient
+        appt_id = expected_internal_for_effect(slice, :appointment_id, yaml, fixture)
+        got = index_lookup(index, file: "9002018.4", iens: "#{appt_id},", field: ".05")
+        got == expected_internal_for_effect(slice, :patient, yaml, fixture)
+      when :resource
+        appt_id = expected_internal_for_effect(slice, :appointment_id, yaml, fixture)
+        got = index_lookup(index, file: "9002018.4", iens: "#{appt_id},", field: ".07")
+        got == expected_internal_for_effect(slice, :resource, yaml, fixture)
+      when :dpt_appt_clinic
+        dpt_iens = dpt_appt_iens(args["start_time"], args["patient_dfn"])
+        got = index_lookup(index, file: "2.98", iens: dpt_iens, field: ".01")
+        expected = expected_internal_for_effect(slice, :dpt_appt_clinic, yaml, fixture)
+        RpmsRpc::WireCapture::Evidence.real_value?(got) && got == expected
       else
         false
       end
-    rescue StandardError
-      false
     end
 
     def proven_effects(slice, yaml, fixture)
@@ -377,6 +435,23 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     missing = SCHEDULING_WRITE_SLICE.map { |s| s[:rpc] } - rows.keys
     assert_empty missing,
                  "docs/pilot_rpc_readiness.md must list every scheduling write RPC (#{missing.join(", ")})"
+  end
+
+  def test_pilot_checklist_has_exactly_one_row_per_scheduling_write_rpc
+    counts = Hash.new(0)
+    File.readlines(CHECKLIST_PATH, chomp: true).each do |line|
+      next if line.strip.empty? || line.lstrip.start_with?("#")
+
+      m = CHECKLIST_LINE.match(line)
+      next unless m
+
+      rpc = m[:rpc].strip
+      counts[rpc] += 1 if SCHEDULING_WRITE_SLICE.any? { |s| s[:rpc] == rpc }
+    end
+    SCHEDULING_WRITE_SLICE.each do |slice|
+      assert_equal 1, counts[slice[:rpc]],
+                   "#{slice[:rpc]}: checklist must have exactly one row (found #{counts[slice[:rpc]]})"
+    end
   end
 
   def test_pilot_checklist_field_level_readiness_matches_committed_fixtures
@@ -526,7 +601,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
 
   def test_hermetic_read_back_error_proves_no_read_back_effects
     slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_checkin_appointment }
-    yaml = hermetic_checkin_fixture(read_back_raw: "[ERROR]\n-1^bad\n")
+    yaml = hermetic_checkin_fixture(read_back_raw: "5\x00[ERROR]\r\n-1^bad\r\n")
     fixture = hermetic_fixture(yaml, [ "0^" ])
     refute self.class.effect_proven?(slice, :checkin_time, yaml, fixture)
     assert_equal "partial", self.class.expected_checklist_status(slice, yaml, fixture)
@@ -542,7 +617,36 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     refute self.class.effect_proven?(slice, :success, yaml, fixture)
   end
 
-  def test_hermetic_prov123_all_effects_proven_grades_pilot_ready
+  def test_hermetic_prov123_cancel_fixture_grades_pilot_ready
+    slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_cancel_appointment }
+    yaml = hermetic_cancel_fixture(reason: "5")
+    fixture = hermetic_fixture(yaml, [ "" ])
+    assert_equal slice[:effects].sort, self.class.proven_effects(slice, yaml, fixture).sort
+    assert_equal "pilot-ready", self.class.expected_checklist_status(slice, yaml, fixture)
+  end
+
+  def test_hermetic_prov123_noshow_fixture_grades_pilot_ready
+    slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_noshow_appointment }
+    yaml = hermetic_noshow_fixture
+    fixture = hermetic_fixture(yaml, [ "1^" ])
+    assert_equal slice[:effects].sort, self.class.proven_effects(slice, yaml, fixture).sort
+    assert_equal "pilot-ready", self.class.expected_checklist_status(slice, yaml, fixture)
+  end
+
+  def test_hermetic_add_sys123_proves_effects_but_grades_not_proven
+    slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_add_appointment }
+    yaml = hermetic_add_fixture
+    fixture = hermetic_fixture(yaml, [ "1^" ])
+    assert_equal "SYS123", yaml["signed_on_as"]
+    slice[:effects].each do |effect|
+      assert self.class.effect_proven?(slice, effect, yaml, fixture),
+             "hermetic ADD must prove #{effect} from read-back bytes"
+    end
+    assert_equal slice[:effects].sort, self.class.unproven_effects(slice, yaml, fixture).sort
+    assert_equal "not-proven", self.class.expected_checklist_status(slice, yaml, fixture)
+  end
+
+  def test_hermetic_prov123_checkin_fixture_grades_pilot_ready
     slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_checkin_appointment }
     yaml = hermetic_checkin_fixture
     fixture = hermetic_fixture(yaml, [ "0^" ])
@@ -564,9 +668,9 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
   def hermetic_checkin_fixture(overrides = {})
     raw = overrides.fetch(:raw_return) { "8\x00T00020ERRORID^T00150MESSAGE#{RS}0^#{RS}" }
     read_raw = overrides.fetch(:read_back_raw) do
-      "[Data]\n9002018.4^5,^.03^3270107.093\n"
+      "5\x00[Data]\r\n9002018.4^5,^.03^3270107.093\r\n"
     end
-    data = {
+    {
       "rpc" => "BSDX CHECKIN APPOINTMENT",
       "mapping" => "scheduling_checkin_appointment",
       "kind" => "fields",
@@ -584,7 +688,6 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
         "method" => "checkin_appointment",
         "args" => { "appointment_ien" => 5, "checkin_time" => "3270107.093" }
       },
-      "setup" => { "start_time" => "3270107.09" },
       "read_back" => [
         {
           "rpc" => "DDR GETS ENTRY DATA",
@@ -594,14 +697,16 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
         }
       ]
     }
-    data
   end
 
   def hermetic_cancel_fixture(reason:)
     start = "3270107.09"
+    patient = "3"
+    dpt_iens = self.class.dpt_appt_iens(start, patient)
     raw = "8\x00T00020ERRORID#{RS}#{RS}"
-    read_status = "[Data]\n2^#{PATIENT_DFN},#{start},^3^PC\n"
-    read_reason = "[Data]\n2^#{PATIENT_DFN},#{start},^16^#{reason}\n"
+    read_appt = "5\x00[Data]\r\n9002018.4^5,^.01^#{start}\r\n9002018.4^5,^.05^#{patient}\r\n" \
+                "9002018.4^5,^.12^3261105.0233\r\n"
+    read_dpt = "5\x00[Data]\r\n2.98^#{dpt_iens}^3^PC\r\n2.98^#{dpt_iens}^16^#{reason}\r\n"
     {
       "rpc" => "BSDX CANCEL APPOINTMENT",
       "mapping" => "scheduling_cancel_appointment",
@@ -620,19 +725,121 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
         "method" => "cancel_appointment",
         "args" => { "appointment_ien" => 5, "type" => "PC", "reason" => reason, "note" => nil }
       },
-      "setup" => { "start_time" => start, "appointment_ien" => 5 },
       "read_back" => [
         {
           "rpc" => "DDR GETS ENTRY DATA",
-          "inputs" => { "FILE" => "2", "IENS" => self.class.dpt_appt_iens(start, PATIENT_DFN), "FIELDS" => "3", "FLAGS" => "I" },
-          "raw_return" => read_status,
-          "sha256" => Digest::SHA256.hexdigest(read_status)
+          "inputs" => { "FILE" => "9002018.4", "IENS" => "5,", "FIELDS" => ".01;.05;.12", "FLAGS" => "I" },
+          "raw_return" => read_appt,
+          "sha256" => Digest::SHA256.hexdigest(read_appt)
         },
         {
           "rpc" => "DDR GETS ENTRY DATA",
-          "inputs" => { "FILE" => "2", "IENS" => "#{start},#{PATIENT_DFN},", "FIELDS" => "16", "FLAGS" => "I" },
-          "raw_return" => read_reason,
-          "sha256" => Digest::SHA256.hexdigest(read_reason)
+          "inputs" => { "FILE" => "2.98", "IENS" => dpt_iens, "FIELDS" => "3;16", "FLAGS" => "I" },
+          "raw_return" => read_dpt,
+          "sha256" => Digest::SHA256.hexdigest(read_dpt)
+        }
+      ]
+    }
+  end
+
+  def hermetic_noshow_fixture
+    start = "3270107.09"
+    patient = "3"
+    dpt_iens = self.class.dpt_appt_iens(start, patient)
+    raw = "8\x00I00020ERRORID^T00030ERRORTEXT#{RS}1^#{RS}"
+    read_appt = "5\x00[Data]\r\n9002018.4^5,^.01^#{start}\r\n9002018.4^5,^.05^#{patient}\r\n" \
+                "9002018.4^5,^.1^1\r\n"
+    read_dpt = "5\x00[Data]\r\n2.98^#{dpt_iens}^3^N\r\n"
+    {
+      "rpc" => "BSDX NOSHOW",
+      "mapping" => "scheduling_noshow_appointment",
+      "kind" => "fields",
+      "source" => "live-capture",
+      "write" => true,
+      "cite" => "NOSHOW^BSDX08 (hermetic)",
+      "release_tag" => PINNED_RELEASE,
+      "captured_at" => "2026-11-05T00:00:00Z",
+      "signed_on_as" => SCHEDULING_PERSONA,
+      "inputs" => [ "5", "", "", "", "", "", "", "" ],
+      "raw_return" => raw,
+      "sha256" => Digest::SHA256.hexdigest(raw),
+      "pieces" => [
+        { "position" => 0, "attribute" => "result", "fileman_type" => "integer" },
+        { "position" => 1, "attribute" => "error" }
+      ],
+      "api_call" => {
+        "method" => "mark_no_show",
+        "args" => { "appointment_ien" => 5 }
+      },
+      "read_back" => [
+        {
+          "rpc" => "DDR GETS ENTRY DATA",
+          "inputs" => { "FILE" => "9002018.4", "IENS" => "5,", "FIELDS" => ".01;.05;.1", "FLAGS" => "I" },
+          "raw_return" => read_appt,
+          "sha256" => Digest::SHA256.hexdigest(read_appt)
+        },
+        {
+          "rpc" => "DDR GETS ENTRY DATA",
+          "inputs" => { "FILE" => "2.98", "IENS" => dpt_iens, "FIELDS" => "3", "FLAGS" => "I" },
+          "raw_return" => read_dpt,
+          "sha256" => Digest::SHA256.hexdigest(read_dpt)
+        }
+      ]
+    }
+  end
+
+  def hermetic_add_fixture
+    start = "3270107.09"
+    patient = "3"
+    dpt_iens = self.class.dpt_appt_iens(start, patient)
+    resource_ien = "99"
+    hospital_location = "3"
+    raw = "6\x00I00020APPOINTMENTID^T00020ERRORID#{RS}1^#{RS}"
+    read_bsdx = "5\x00[Data]\r\n9002018.4^1,^.01^#{start}\r\n9002018.4^1,^.05^#{patient}\r\n" \
+                "9002018.4^1,^.07^#{resource_ien}\r\n"
+    read_dpt = "5\x00[Data]\r\n2.98^#{dpt_iens}^.01^#{hospital_location}\r\n"
+    {
+      "rpc" => "BSDX ADD NEW APPOINTMENT",
+      "mapping" => "scheduling_add_appointment",
+      "kind" => "fields",
+      "source" => "live-capture",
+      "write" => true,
+      "cite" => "APPADD^BSDX07 (hermetic)",
+      "release_tag" => PINNED_RELEASE,
+      "captured_at" => "2026-11-05T00:00:00Z",
+      "signed_on_as" => "SYS123",
+      "inputs" => [ start, "#{start}3", patient, SYNTHETIC_RESOURCE, "30", "", "", "" ],
+      "raw_return" => raw,
+      "sha256" => Digest::SHA256.hexdigest(raw),
+      "pieces" => [
+        { "position" => 0, "attribute" => "appointment_id", "fileman_type" => "integer" },
+        { "position" => 1, "attribute" => "error" }
+      ],
+      "api_call" => {
+        "method" => "add_appointment",
+        "args" => {
+          "start_time" => start,
+          "patient_dfn" => patient,
+          "resource" => SYNTHETIC_RESOURCE,
+          "length_minutes" => 30
+        }
+      },
+      "setup" => {
+        "resource_ien" => resource_ien,
+        "hospital_location_id" => hospital_location
+      },
+      "read_back" => [
+        {
+          "rpc" => "DDR GETS ENTRY DATA",
+          "inputs" => { "FILE" => "9002018.4", "IENS" => "1,", "FIELDS" => ".01;.05;.07", "FLAGS" => "I" },
+          "raw_return" => read_bsdx,
+          "sha256" => Digest::SHA256.hexdigest(read_bsdx)
+        },
+        {
+          "rpc" => "DDR GETS ENTRY DATA",
+          "inputs" => { "FILE" => "2.98", "IENS" => dpt_iens, "FIELDS" => ".01", "FLAGS" => "I" },
+          "raw_return" => read_dpt,
+          "sha256" => Digest::SHA256.hexdigest(read_dpt)
         }
       ]
     }
