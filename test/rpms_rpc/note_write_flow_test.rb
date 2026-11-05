@@ -151,12 +151,13 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
   def test_run_includes_sign_with_withheld_second_input_when_esig_given
     note_ien = "6"
     esig = "synthetic-dev-code"
+    read_back = wrapped_read_back_payload(note_ien)
     client = ScriptedClient.new(
       [
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
         { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
-        { rpc: GET_TEXT_RPC, raw: "S: line\n" },
+        { rpc: GET_TEXT_RPC, raw: read_back },
         { rpc: UNLOCK_RPC, raw: "0" },
         { rpc: SIGN_RPC, raw: "0" }
       ],
