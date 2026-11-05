@@ -56,6 +56,22 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     "0"
   ].freeze
 
+  # Round-5 (#512): caret-bearing VistA failure / YDB / sentinel rows — not record evidence.
+  YDB_ZSTATUS_LIVE_CAPTURE_ROW =
+    "150373850,LIST+3^ORQQPL,%YDB-E-LVUNDEF, Undefined local variable: DFN".freeze
+
+  # Omit "1^2^Application context denied": round-5 panel contrived it; live broker
+  # failures are the single-piece reply in NON_RECORD_LIVE_CAPTURE_ROWS or a
+  # \x01-framed "-N^…" line, and `rake wire:capture` drops both via non_data_row? /
+  # captured_data_rows — so rules 1–4 never need to reject that caret shape.
+  CARET_CONTAINING_NON_RECORD_LIVE_CAPTURE_ROWS = [
+    "0^Patient not found",
+    "-1^Invalid DFN",
+    "0^No problems^^^^^^^^^^^",
+    YDB_ZSTATUS_LIVE_CAPTURE_ROW,
+    "^No vitals found.^^oops"
+  ].freeze
+
   # Fake client: ORWPS ACTIVE lines exactly as CiaClient#call_rpc delivers them (no seq prefix).
   class MedicationActiveProbeClient
     def initialize(lines) = @lines = lines
@@ -198,12 +214,30 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       true
     end
 
+    # Piece text that is itself an integer. String#to_i would turn a word into 0.
+    def real_integer_token?(piece)
+      token = piece.to_s.strip
+      token.match?(/\A-?\d+\z/) && RpmsRpc::WireCapture::Evidence.real_value?(token)
+    end
+
+    # M error text: %YDB-E, $ZSTATUS, or code,LABEL+off^ROUTINE. Not a record.
+    def m_error_text?(text)
+      text.include?("%YDB-E") || text.include?("$ZSTATUS") ||
+        text.match?(/\A\d+,[A-Z0-9%]+\+\d+\^/)
+    end
+
+    # Record evidence needs a real key, no M error text, and two real pieces.
+    # Empty piece 0 is the ORWPT ID INFO shape only when piece 1 is an integer token (^2850505^...); a sentinel message is not.
     def record_row?(row)
-      pieces = row.to_s.split("^", -1)
-      real_count = pieces.count do |piece|
-        RpmsRpc::WireCapture::Evidence.real_value?(piece.to_s.strip)
-      end
-      real_count >= 2
+      text = row.to_s
+      return false if m_error_text?(text)
+
+      pieces = text.split("^", -1)
+      head = pieces[0].to_s.strip
+      return false if real_integer_token?(head) && head.to_i <= 0
+      return false if head.empty? && !real_integer_token?(pieces[1])
+
+      pieces.count { |piece| RpmsRpc::WireCapture::Evidence.real_value?(piece.to_s.strip) } >= 2
     end
 
     def evidence_rows(mapping, fixture)
