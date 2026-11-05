@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../shape"
+require_relative "../mappings"
 
 module RpmsRpc
   module Encounter
@@ -13,6 +14,21 @@ module RpmsRpc
       DataMapper.patient_appointments.fetch_many(dfn.to_s)
     end
     shape :for_patient, resource: "encounters", verb: "GET", path: "/patients/{dfn}/encounters"
+
+    # Texts BEHOXQPC returns when the component is present or not required.
+    # Encounter.open drops a CHKVISIT row only when :message, stripped of
+    # surrounding whitespace, is exactly one of these.
+    #
+    #   "Visit has POV"                      (NOPOV, BEHOXQPC.m:10, code -2)
+    #   "Visit has E&M code"                 (NEEDSEMC, BEHOXQPC.m:59, code -2)
+    #   "E&M code not required."             (NEEDSEMC, BEHOXQPC.m:55, code -7)
+    #   "Provider does not require E&M code" (NEEDSEMC, BEHOXQPC.m:61, code -5)
+    CHKVISIT_SATISFIED_TEXTS = [
+      "Visit has POV",
+      "Visit has E&M code",
+      "E&M code not required.",
+      "Provider does not require E&M code"
+    ].freeze
 
     # Open an active encounter — hydrates the visit context the chart needs:
     # location, provider, datetime, service category, lock state, and a
@@ -27,7 +43,23 @@ module RpmsRpc
     #      (line 107) — no 60-minute FNDVIS window — and CREATE=0 can never
     #      add one. FETCH used to be sent the visit IEN as its only param,
     #      which landed in DFN and left VSTR undefined (#211).
-    #   4. BEHOENCX CHKVISIT(IEN) -> COMPONENT^MESSAGE rows (lines 329-337)
+    #   4. BEHOENCX CHKVISIT(IEN) -> one COMPONENT^TEXT row per check
+    #      (CHKVISIT^BEHOENCX, BEHOENCX.m:329-337). CV1 overwrites piece 1
+    #      (the status code) with the component name, so the text is the
+    #      only signal. A nil message is kept: with no text, the server has
+    #      not said the component is present. Live visit 1 on
+    #      bcer-9.0-20261012-e7923a4-ydb returned "POV^Visit has POV"
+    #      although the visit has a POV. A row is left out of
+    #      :missing_components only when its message, stripped of
+    #      surrounding whitespace, is exactly one of CHKVISIT_SATISFIED_TEXTS.
+    #      The missing texts ("Notification was delivered", "Notification
+    #      exists", "Notification is disabled"), the not-checked texts
+    #      ("Visit has no note", "No primary provider", "Bad visit
+    #      specifier") and any unknown text stay. Fail closed: the API
+    #      never hides a component the server did not say is present.
+    #      CHKVISIT is not side-effect free: when a visit has a note and
+    #      lacks a POV or E&M code, SEND^BEHOXQPC files an alert to the
+    #      primary provider (BEHOXQPC.m:64-74).
     #
     # Returns nil when the visit doesn't exist, when the FETCH companion
     # response is missing or reports an error instead of a visit (incomplete
@@ -61,7 +93,10 @@ module RpmsRpc
       fetch = DataMapper.encounter_fetch.fetch_one(dfn.to_s, vstr, "", "0")
       return nil if fetch.nil? || fetch[:visit_ien].nil?
 
-      missing = DataMapper.encounter_chkvisit.fetch_many(key)
+      missing = DataMapper.encounter_chkvisit.fetch_many(key).reject do |row|
+        message = row[:message]
+        !message.nil? && CHKVISIT_SATISFIED_TEXTS.include?(message.strip)
+      end
 
       {
         visit_ien:          visit_ien.to_i,
