@@ -612,7 +612,7 @@ end
 
   def test_update_refuses_unknown_attributes_and_bad_values_before_sending
     assert_raises(ArgumentError) { Reg.update(42, nickname: "X") }
-    assert_raises(ArgumentError) { Reg.update(42, tribe: "CHEROKEE") }
+    assert_raises(ArgumentError) { Reg.update(42, tribe: "OTHER") }
     assert_raises(ArgumentError) { Reg.update(42, community_ien: "18186") }
     assert_raises(ArgumentError) { Reg.update(42, community_ien: "", community_since: "05/01/2020") }
     assert_empty @mock.received_calls

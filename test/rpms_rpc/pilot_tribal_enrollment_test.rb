@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "digest"
 require "fileutils"
+require "json"
 require "yaml"
 require "rpms_rpc"
 require "rpms_rpc/live_summary"
@@ -23,8 +24,10 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
   LOCK_PATH = File.join(ROOT, "data/fingerprints/rpms-ops.lock.yml")
   CHECKLIST_PATH = File.join(ROOT, "docs/pilot_rpc_readiness.md")
   LIVE_ELIGIBILITY_SPEC = File.join(ROOT, "test/live/registration_eligibility_update_live_test.rb")
-  LIVE_RUN_RECORD_PATH = File.join(ROOT, "test/fixtures/live_runs/registration-eligibility-update.yml")
-  LIVE_RUN_RECORD_REL = "test/fixtures/live_runs/registration-eligibility-update.yml"
+  LIVE_RUN_RECORD_PATH = File.join(ROOT, "test/fixtures/live_runs/registration-eligibility-update.json")
+  LIVE_RUN_RECORD_REL = "test/fixtures/live_runs/registration-eligibility-update.json"
+  LIVE_RUN_RECORD_SIDECAR_PATH = File.join(ROOT, "test/fixtures/live_runs/registration-eligibility-update.json.sha256")
+  LIVE_RUN_RECORD_SIDECAR_REL = "test/fixtures/live_runs/registration-eligibility-update.json.sha256"
   WIRE_CAPTURE_DRIVER_PATH = File.join(ROOT, "bin/wire_capture_driver.rb")
   WIRE_RAKE_PATH = File.join(ROOT, "lib/tasks/wire.rake")
 
@@ -481,67 +484,84 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     def load_live_run_record
       return nil unless File.file?(LIVE_RUN_RECORD_PATH)
 
-      YAML.safe_load_file(LIVE_RUN_RECORD_PATH)
+      JSON.parse(File.read(LIVE_RUN_RECORD_PATH))
+    rescue JSON::ParserError
+      nil
     end
 
-    def live_eligibility_spec_sha256
-      "sha256:" + Digest::SHA256.file(LIVE_ELIGIBILITY_SPEC).hexdigest
+    def load_live_run_record_sidecar_digest
+      return nil unless File.file?(LIVE_RUN_RECORD_SIDECAR_PATH)
+
+      line = File.read(LIVE_RUN_RECORD_SIDECAR_PATH).strip
+      line.match?(/\Asha256:[0-9a-f]{64}\z/) ? line : nil
+    end
+
+    def live_run_record_json_bytes_digest(path = LIVE_RUN_RECORD_PATH)
+      return nil unless File.file?(path)
+
+      "sha256:" + Digest::SHA256.file(path).hexdigest
+    end
+
+    def live_run_record_consistency_kwargs(record)
+      bytes = JSON.generate(record) + "\n"
+      digest = "sha256:" + Digest::SHA256.hexdigest(bytes)
+      { record_bytes_sha256: digest, sidecar_digest: digest }
     end
 
     def synthetic_live_run_record(overrides = {})
       {
-        "spec" => LIVE_ELIGIBILITY_SPEC.sub("#{ROOT}/", ""),
-        "persona" => PILOT_PERSONA,
-        "protocol" => "cia",
+        "schema" => RpmsRpc::LiveSummary::SCHEMA,
+        "written_at" => "2026-11-05T12:00:00Z",
         "build" => PINNED_RELEASE,
         "build_source" => "pinned",
-        "build_marker" => "#{PINNED_RELEASE} synthetic-marker",
-        "run_id" => "a1b2c3d4e5f6789012345678901234ab",
-        "run_at" => "2026-11-05T12:00:00Z",
+        "source" => RpmsRpc::LiveSummary.source_fingerprint(ROOT),
+        "suite" => RpmsRpc::LiveSummary.suite_fingerprint(ROOT),
+        "protocol" => "cia",
+        "persona" => PILOT_PERSONA,
         "passed" => true,
         "runs" => 1,
         "assertions" => 10,
         "failures" => 0,
         "errors" => 0,
-        "skips" => 0,
-        "spec_sha256" => live_eligibility_spec_sha256
+        "skips" => 0
       }.merge(overrides)
     end
 
     def synthetic_pilot_ready_eligibility_row(record)
-      date = record["run_at"].to_s[0, 10]
+      date = live_run_record_iso8601_date(record["written_at"])
       {
         status: "pilot-ready",
         unproven: "none",
         reason: "live spec #{LIVE_ELIGIBILITY_SPEC.sub("#{ROOT}/", "")} persona #{record["persona"]} " \
-                "build #{record["build"]} run #{record["run_id"]} on #{date} " \
+                "build #{record["build"]} on #{date} " \
                 "record #{LIVE_RUN_RECORD_REL} AG Eligibility window"
       }
     end
 
-    def live_run_record_iso8601_date(run_at)
-      return nil unless run_at.is_a?(String) && !run_at.empty?
+    def live_run_record_iso8601_date(written_at)
+      return nil unless written_at.is_a?(String) && !written_at.empty?
 
-      Time.iso8601(run_at)
-      run_at[0, 10]
+      Time.iso8601(written_at)
+      written_at[0, 10]
     rescue ArgumentError
       nil
     end
 
-    def live_run_record_reason_cites_run_id?(reason, run_id)
-      return false unless run_id.is_a?(String) && run_id.match?(/\A\h{16,}\z/)
+    UNSET_KWARG = :unset
 
-      reason.match?(/\brun\s+#{Regexp.escape(run_id)}\b/)
-    end
-
-    def live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    def live_run_record_consistency_errors(
+      row,
+      record,
+      pinned_build: PINNED_RELEASE,
+      record_bytes_sha256: UNSET_KWARG,
+      sidecar_digest: UNSET_KWARG
+    )
       errors = []
       status = row[:status].to_s
       reason = row[:reason].to_s
       unproven = row[:unproven].to_s
       cites_record = reason.include?(LIVE_RUN_RECORD_REL)
-      spec_path = "test/live/registration_eligibility_update_live_test.rb"
-      expected_spec_sha = live_eligibility_spec_sha256
+      expected_suite = RpmsRpc::LiveSummary.suite_fingerprint(ROOT)
 
       case status
       when "pilot-ready"
@@ -550,8 +570,21 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
           return errors
         end
 
-        %w[spec persona protocol build build_source build_marker run_id run_at passed runs assertions failures errors skips spec_sha256].each do |key|
-          errors << "record missing key #{key}" unless record.key?(key)
+        RpmsRpc::LiveSummary::REQUIRED_FIELDS.each do |key|
+          unless record.key?(key) && !record[key].nil?
+            errors << "record missing key #{key}"
+          end
+        end
+
+        schema = record["schema"]
+        if !schema.is_a?(Integer)
+          errors << "record schema must be Integer equal to #{RpmsRpc::LiveSummary::SCHEMA}"
+        elsif schema != RpmsRpc::LiveSummary::SCHEMA
+          errors << "record schema must be Integer equal to #{RpmsRpc::LiveSummary::SCHEMA}, got #{schema.inspect}"
+        end
+
+        if record["pending"].equal?(true)
+          errors << "record pending must be absent or not true"
         end
 
         persona = record["persona"]
@@ -570,25 +603,12 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
         errors << "record build_source must be pinned" unless record["build_source"] == "pinned"
         errors << "row reason must cite build #{build}" unless build.is_a?(String) && !build.empty? && reason.include?(build)
 
-        build_marker = record["build_marker"]
-        if !build_marker.is_a?(String) || build_marker.empty?
-          errors << "record build_marker must be a non-blank String"
-        elsif build.is_a?(String) && !build.empty? && !build_marker.start_with?(build)
-          errors << "record build_marker must start with build #{build.inspect}"
-        end
-
-        run_id = record["run_id"]
-        unless run_id.is_a?(String) && run_id.match?(/\A\h{16,}\z/)
-          errors << "record run_id must be a String of at least 16 hex digits"
-        end
-        errors << "row reason must cite run #{run_id}" unless live_run_record_reason_cites_run_id?(reason, run_id)
-
-        run_at = record["run_at"]
-        date = live_run_record_iso8601_date(run_at)
+        written_at = record["written_at"]
+        date = live_run_record_iso8601_date(written_at)
         if date.nil?
-          errors << "record run_at must be a String parseable as ISO8601"
+          errors << "record written_at must be a String parseable as ISO8601"
         else
-          errors << "row reason must cite run_at date #{date}" unless reason.include?(date)
+          errors << "row reason must cite written_at date #{date}" unless reason.include?(date)
         end
 
         unless record["passed"].equal?(true)
@@ -610,13 +630,34 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
         skips = record["skips"]
         errors << "record skips must be Integer 0" unless skips.is_a?(Integer) && skips.zero?
 
-        errors << "record spec must be live eligibility spec" unless record["spec"] == spec_path
-
-        spec_sha = record["spec_sha256"]
-        unless spec_sha.is_a?(String) && spec_sha.match?(/\Asha256:[0-9a-f]{64}\z/)
-          errors << "record spec_sha256 must be sha256:<64 hex>"
+        suite = record["suite"]
+        unless suite == expected_suite
+          errors << "record suite must match current live suite fingerprint (#{expected_suite})"
         end
-        errors << "record spec_sha256 must match live eligibility spec digest" unless spec_sha == expected_spec_sha
+
+        bytes_digest =
+          if record_bytes_sha256 == UNSET_KWARG
+            live_run_record_json_bytes_digest(LIVE_RUN_RECORD_PATH)
+          else
+            record_bytes_sha256
+          end
+
+        sidecar =
+          if sidecar_digest == UNSET_KWARG
+            load_live_run_record_sidecar_digest
+          else
+            sidecar_digest
+          end
+
+        if sidecar.nil?
+          errors << "live run record sidecar digest missing or malformed at #{LIVE_RUN_RECORD_SIDECAR_REL}"
+        elsif !sidecar.match?(/\Asha256:[0-9a-f]{64}\z/)
+          errors << "live run record sidecar digest must be sha256:<64 hex>"
+        elsif bytes_digest.nil?
+          errors << "live run record JSON bytes digest unavailable for sidecar check"
+        elsif sidecar != bytes_digest
+          errors << "live run record sidecar sha256 does not match JSON file bytes"
+        end
 
         errors << "row unproven must be none" unless unproven == "none"
         errors << "row reason must cite live run record path" unless cites_record
@@ -1036,6 +1077,36 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     assert_match(/1118|community/i, row[:reason])
     assert_match(/UNKNOWN/i, row[:reason])
     assert_match(/PROV123/, row[:reason])
+    assert_match(%r{lakeraven/rpms-ops#1079}, row[:reason])
+  end
+
+  def test_registration_update_eligibility_row_not_pilot_ready_without_sealed_json_record
+    refute File.file?(self.class::LIVE_RUN_RECORD_PATH),
+           "precondition: harness LiveSummary JSON is not committed until a sealed live run"
+    rows = parse_checklist
+    row = rows["Registration.update eligibility"]
+    refute_nil row
+    refute_equal "pilot-ready", row[:status],
+                 "row must not be pilot-ready without #{self.class::LIVE_RUN_RECORD_REL}"
+  end
+
+  def test_registration_update_eligibility_row_honestly_downgraded_not_proven
+    rows = parse_checklist
+    row = rows["Registration.update eligibility"]
+    refute_nil row
+    assert_equal "not-proven", row[:status]
+    assert_match(/live run claimed, not sealed/i, row[:reason])
+    assert_match(/928e66253ea07736/, row[:reason],
+                 "claimed run id may appear only as the unsealed claim, not as sealed record proof")
+    refute_includes row[:reason], self.class::LIVE_RUN_RECORD_REL
+    refute_equal "none", row[:unproven]
+    refute_empty row[:unproven].strip
+  end
+
+  def test_hand_written_yml_live_run_record_must_not_exist
+    yml = File.join(ROOT, "test/fixtures/live_runs/registration-eligibility-update.yml")
+    refute File.file?(yml),
+           "hand-written YAML must not grade the row; only harness JSON at #{self.class::LIVE_RUN_RECORD_REL}"
   end
 
   def test_registration_update_eligibility_checklist_row
@@ -1060,13 +1131,15 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
   def test_live_run_record_consistency_accepts_synthetic_pilot_ready_row
     record = self.class.synthetic_live_run_record
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    assert_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    assert_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
   end
 
   def test_live_run_record_consistency_rejects_pilot_ready_when_record_passed_false
     record = self.class.synthetic_live_run_record("passed" => false)
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
     refute_empty errors
     assert errors.any? { |e| e.include?("passed") }
   end
@@ -1074,36 +1147,42 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
   def test_live_run_record_consistency_rejects_pilot_ready_when_failures_nonzero
     record = self.class.synthetic_live_run_record("failures" => 1)
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
   end
 
   def test_live_run_record_consistency_rejects_pilot_ready_on_build_mismatch
     record = self.class.synthetic_live_run_record("build" => "wrong-build-tag")
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
     assert errors.any? { |e| e.include?("build") }
   end
 
-  def test_live_run_record_consistency_rejects_pilot_ready_when_run_id_not_cited
-    record = self.class.synthetic_live_run_record
+  def test_live_run_record_consistency_rejects_pilot_ready_when_build_source_not_pinned
+    record = self.class.synthetic_live_run_record("build_source" => "declared")
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    row = row.merge(reason: row[:reason].sub(record["run_id"], "not-cited"))
-    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
+    refute_empty errors
+    assert errors.any? { |e| e.include?("build_source") }
   end
 
-  def test_live_run_record_consistency_rejects_pilot_ready_when_run_date_not_cited
+  def test_live_run_record_consistency_rejects_pilot_ready_when_written_at_date_not_cited
     record = self.class.synthetic_live_run_record
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    date = record["run_at"][0, 10]
+    date = record["written_at"][0, 10]
     row = row.merge(reason: row[:reason].sub(date, "0000-00-00"))
-    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
   end
 
   def test_live_run_record_consistency_rejects_pilot_ready_when_persona_not_cited
     record = self.class.synthetic_live_run_record
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
     row = row.merge(reason: row[:reason].sub(record["persona"], "NOBODY"))
-    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
   end
 
   def test_live_run_record_consistency_rejects_pilot_ready_when_record_nil
@@ -1111,30 +1190,34 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     refute_empty self.class.live_run_record_consistency_errors(row, nil, pinned_build: PINNED_RELEASE)
   end
 
-  def test_live_run_record_consistency_rejects_pilot_ready_when_run_at_blank
-    record = self.class.synthetic_live_run_record("run_at" => "")
+  def test_live_run_record_consistency_rejects_pilot_ready_when_written_at_blank
+    record = self.class.synthetic_live_run_record("written_at" => "")
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
     refute_empty errors
-    assert errors.any? { |e| e.include?("run_at") }
+    assert errors.any? { |e| e.include?("written_at") }
   end
 
-  def test_live_run_record_consistency_rejects_pilot_ready_when_run_at_nil
-    record = self.class.synthetic_live_run_record("run_at" => nil)
+  def test_live_run_record_consistency_rejects_pilot_ready_when_written_at_nil
+    record = self.class.synthetic_live_run_record("written_at" => nil)
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
   end
 
-  def test_live_run_record_consistency_rejects_pilot_ready_when_run_at_unparsable
-    record = self.class.synthetic_live_run_record("run_at" => "yesterday")
+  def test_live_run_record_consistency_rejects_pilot_ready_when_written_at_unparsable
+    record = self.class.synthetic_live_run_record("written_at" => "yesterday")
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
   end
 
   def test_live_run_record_consistency_rejects_pilot_ready_when_persona_blank
     record = self.class.synthetic_live_run_record("persona" => "")
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
   end
 
   def test_live_run_record_consistency_rejects_pilot_ready_when_persona_not_pilot_persona
@@ -1142,7 +1225,8 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     row = self.class.synthetic_pilot_ready_eligibility_row(record).merge(
       reason: self.class.synthetic_pilot_ready_eligibility_row(record)[:reason].sub(PILOT_PERSONA, "SYS123")
     )
-    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
     refute_empty errors
     assert errors.any? { |e| e.include?(PILOT_PERSONA) }
   end
@@ -1150,83 +1234,121 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
   def test_live_run_record_consistency_rejects_pilot_ready_when_failures_nil
     record = self.class.synthetic_live_run_record("failures" => nil)
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
   end
 
   def test_live_run_record_consistency_rejects_pilot_ready_when_failures_non_integer_string
     record = self.class.synthetic_live_run_record("failures" => "many")
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
   end
 
   def test_live_run_record_consistency_rejects_pilot_ready_when_failures_float
     record = self.class.synthetic_live_run_record("failures" => 0.5)
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
   end
 
   def test_live_run_record_consistency_rejects_pilot_ready_when_errors_nil
     record = self.class.synthetic_live_run_record("errors" => nil)
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
   end
 
   def test_live_run_record_consistency_rejects_pilot_ready_when_skips_nonzero
     record = self.class.synthetic_live_run_record("skips" => 1)
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
   end
 
   def test_live_run_record_consistency_rejects_pilot_ready_when_assertions_zero
     record = self.class.synthetic_live_run_record("assertions" => 0)
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
-  end
-
-  def test_live_run_record_consistency_rejects_pilot_ready_when_build_marker_blank
-    record = self.class.synthetic_live_run_record("build_marker" => "")
-    row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
   end
 
   def test_live_run_record_consistency_rejects_pilot_ready_when_protocol_nil
     record = self.class.synthetic_live_run_record("protocol" => nil)
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
   end
 
-  def test_live_run_record_consistency_rejects_pilot_ready_when_run_id_short_and_reason_has_ien_one
-    record = self.class.synthetic_live_run_record("run_id" => "1")
-    row = self.class.synthetic_pilot_ready_eligibility_row(record).merge(
-      reason: "BENEFICIARY 9999999.25 IEN 1 OTHER #{LIVE_RUN_RECORD_REL} build #{record["build"]} " \
-              "persona #{PILOT_PERSONA} on #{record["run_at"][0, 10]}"
-    )
-    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
-    refute_empty errors
-    assert errors.any? { |e| e.include?("run_id") || e.include?("run 1") }
-  end
-
-  def test_live_run_record_consistency_rejects_pilot_ready_when_spec_sha256_missing
-    record = self.class.synthetic_live_run_record.except("spec_sha256")
+  def test_live_run_record_consistency_rejects_pilot_ready_when_schema_two
+    record = self.class.synthetic_live_run_record("schema" => 2)
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
     refute_empty errors
-    assert errors.any? { |e| e.include?("spec_sha256") }
+    assert errors.any? { |e| e.include?("schema") }
   end
 
-  def test_live_run_record_consistency_rejects_pilot_ready_when_spec_sha256_wrong_digest
-    record = self.class.synthetic_live_run_record("spec_sha256" => "sha256:#{"0" * 64}")
+  def test_live_run_record_consistency_rejects_pilot_ready_when_schema_string
+    record = self.class.synthetic_live_run_record("schema" => RpmsRpc::LiveSummary::SCHEMA.to_s)
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
-    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
     refute_empty errors
-    assert errors.any? { |e| e.include?("spec_sha256") }
+    assert errors.any? { |e| e.include?("schema") }
+  end
+
+  def test_live_run_record_consistency_rejects_pilot_ready_when_pending_true
+    record = self.class.synthetic_live_run_record("pending" => true)
+    row = self.class.synthetic_pilot_ready_eligibility_row(record)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
+    refute_empty errors
+    assert errors.any? { |e| e.include?("pending") }
+  end
+
+  def test_live_run_record_consistency_rejects_pilot_ready_when_suite_mismatch
+    record = self.class.synthetic_live_run_record("suite" => "sha256:#{"0" * 64}")
+    row = self.class.synthetic_pilot_ready_eligibility_row(record)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
+    refute_empty errors
+    assert errors.any? { |e| e.include?("suite") }
+  end
+
+  def test_live_run_record_consistency_rejects_pilot_ready_when_required_field_source_missing
+    record = self.class.synthetic_live_run_record.except("source")
+    row = self.class.synthetic_pilot_ready_eligibility_row(record)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
+    refute_empty errors
+    assert errors.any? { |e| e.include?("source") }
+  end
+
+  def test_live_run_record_consistency_rejects_pilot_ready_when_sidecar_digest_mismatch
+    record = self.class.synthetic_live_run_record
+    row = self.class.synthetic_pilot_ready_eligibility_row(record)
+    kwargs = self.class.live_run_record_consistency_kwargs(record).merge(sidecar_digest: "sha256:#{"0" * 64}")
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
+    refute_empty errors
+    assert errors.any? { |e| e.match?(/sha256/i) }
+  end
+
+  def test_live_run_record_consistency_rejects_pilot_ready_when_sidecar_digest_missing
+    record = self.class.synthetic_live_run_record
+    row = self.class.synthetic_pilot_ready_eligibility_row(record)
+    kwargs = self.class.live_run_record_consistency_kwargs(record).merge(sidecar_digest: nil)
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
+    refute_empty errors
+    assert errors.any? { |e| e.match?(/sha256/i) }
   end
 
   def test_live_run_record_consistency_rejects_pilot_ready_when_reason_omits_build
     record = self.class.synthetic_live_run_record
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
     row = row.merge(reason: row[:reason].sub(record["build"], "no-build-cited"))
-    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
     refute_empty errors
     assert errors.any? { |e| e.include?("build") }
   end
