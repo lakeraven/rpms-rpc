@@ -513,7 +513,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
     visit_read = Ddr.gets_entry(
       file: BH_VISIT_FILE, iens: "#{RECORD_IEN},", fields: PRE_EDIT_FIELDS, flags: PRE_EDIT_FLAGS
     )
-    assert visit_read[:altered], "extra trailing row break on the last visit field row must set altered on gets_entry"
+    assert visit_read[:stray], "split-off empty external on the last visit field row must make gets_entry stray"
 
     err = assert_raises(save_error_class) do
       wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
@@ -2853,8 +2853,8 @@ class BehavioralHealthWellnessTest < Minitest::Test
     visit_read = Ddr.gets_entry(
       file: BH_VISIT_FILE, iens: "#{RECORD_IEN},", fields: PRE_EDIT_FIELDS, flags: PRE_EDIT_FLAGS
     )
-    assert visit_read[:altered],
-           "trailing LF on the last stored comment row must mark the visit DDR reply altered"
+    assert visit_read[:stray],
+           "split-off empty external from trailing LF on the last stored comment row must make gets_entry stray"
 
     err = assert_raises(save_error_class) do
       wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
