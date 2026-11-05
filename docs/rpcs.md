@@ -88,7 +88,7 @@ Wrappers run under broker option `AMHGRPC`.
 `BehavioralHealth::Wellness` (#540). `BehavioralHealth.save_health_factors`
 (#525) is the health-factor save. The live spec
 `test/live/behavioral_health_save_health_factors_live_test.rb` is written
-but has not been run against a live rung, so that row is pending.
+but has not been run against a live rung, so that row is pending-capture.
 
 | RPC name | Routine / Tag | Params | Return | Status |
 |----------|---------------|--------|--------|--------|
@@ -96,7 +96,7 @@ but has not been run against a live rung, so that row is pending.
 | `AMHG SAVE POV` | `POV^AMHGSVF` | `AMHSTR` (8 pieces) | `T00030Result` + IEN or error | verified |
 | `AMHG SAVE PROGRESS NOTES` | `PN^AMHGSVF` | `AMHSTR` (8 pieces; mode always `E`) | `T00030Result` + IEN or error | verified |
 | `AMHG SAVE SCREENING` | `SCREEN^AMHGSVF` | `AMHSTR` (19 pieces) | `T00030Result` + IEN or error | verified |
-| `AMHG SAVE HEALTH FACTORS` | `HF^AMHGSVF` | `AMHSTR` (4 pieces; piece 3 is `*`-joined HF items) | `T00030Result` + IEN or error | pending |
+| `AMHG SAVE HEALTH FACTORS` | `HF^AMHGSVF` | `AMHSTR` (4 pieces; piece 3 is `*`-joined HF items) | `T00030Result` + IEN or error | pending-capture |
 | `AMHG SAVE MEASUREMENTS` | `MSR^AMHGSVF` | `AMHSTR` (4 pieces; piece 3 is `*`-joined MSR items) | `T00030Result` + IEN or error | verified |
 
 Piece layouts and filer tags are summarized in [bh_save_rpcs.md](bh_save_rpcs.md).

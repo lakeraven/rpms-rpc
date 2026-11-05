@@ -232,8 +232,11 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
 
   def test_refuses_blank_name_before_any_rpc
     kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: "") ])
-    assert_raises(BH::SaveError) { BH.save_health_factors(**kwargs) }
+    err = assert_raises(BH::SaveError) { BH.save_health_factors(**kwargs) }
+    assert_match(/blank/, err.message)
     assert_empty @mock.received_calls, "a blank name is refused before any RPC, DDR included"
+    refute ddr_lister_calls.any? { |c| c[:params].first.to_s.include?(HF_TYPE_FILE) },
+           "no DDR LISTER for 9999999.64 may fire for a blank name"
   end
 
   # Whitespace-only is not a name: it is refused locally, before the lock,
@@ -242,7 +245,8 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     [ "  ", " ", "\t", "   " ].each do |blank|
       @mock.received_calls.clear
       kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: blank) ])
-      assert_raises(BH::SaveError, "name #{blank.inspect}") { BH.save_health_factors(**kwargs) }
+      err = assert_raises(BH::SaveError, "name #{blank.inspect}") { BH.save_health_factors(**kwargs) }
+      assert_match(/blank|control/, err.message) if blank.strip.empty?
       assert_empty @mock.received_calls, "name #{blank.inspect} must be refused before any RPC"
     end
   end
@@ -667,7 +671,9 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     end
     err = assert_raises(BH::SaveError) { BH.save_health_factors(**EDIT_KWARGS) }
     assert_amhg_reached
-    assert_match(/Add Health Factor|outcome unknown|may have been/i, err.message)
+    assert_match(/outcome (is )?unknown/i, err.message)
+    assert_match(/may have been filed/i, err.message)
+    refute_includes err.message, "Add Health Factor"
   end
 
   def test_raises_on_empty_reply
@@ -730,7 +736,7 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     refute_includes bh_section, "bcer-9.0-20261012-e7923a4-ydb"
     row = bh_section.lines.find { |line| line.include?("`AMHG SAVE HEALTH FACTORS`") }
     refute_nil row
-    assert_match(/\|\s*pending\s*\|\s*\z/, row.strip)
+    assert_match(/\|\s*pending-capture\s*\|\s*\z/, row.strip)
     refute_match(/passed on/, bh_section)
     assert_includes text, "HF^AMHGSVF"
     assert_includes text, "AMHGRPC"

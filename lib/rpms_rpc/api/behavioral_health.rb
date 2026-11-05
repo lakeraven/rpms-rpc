@@ -249,8 +249,8 @@ module RpmsRpc
     # .01 name. $L and the B subscript are bytes when ydb_chset=M.
     # The subscript is the first 40 bytes of .01.
     HF_NAME_MAX_BYTES = 40
-    # 81101 is free text (a WP field). Blank clears it. A non-blank
-    # comment is 1 through 245 bytes, the FileMan WP width.
+    # 81101 is plain free text with a 1 to 245 byte bound, not a
+    # word-processing field. Blank clears it.
     HF_COMMENT_BYTES = (1..245)
     # .06 input transform: K:+X'=X!(X>99999)!(X<0)!(X?.E1"."3N.N) X.
     # HF_QUANTITY is the canonical form (+X=X): "0", an integer with no
@@ -2870,7 +2870,7 @@ module RpmsRpc
 
     def save_factor_name!(value)
       text = save_factor_piece!(value)
-      save_visit_refuse!("a health factor name is blank") if text.empty?
+      save_visit_refuse!("a health factor name is blank") if text.strip.empty?
       save_visit_refuse!("a health factor name is longer than 40 bytes") if text.bytesize > HF_NAME_MAX_BYTES
       text
     end
@@ -2915,6 +2915,7 @@ module RpmsRpc
     end
 
     # #9999999.64 B index. The subscript is the first 40 bytes of .01.
+    # The B index is set only when INACTIVE DATE (.15) is blank.
     # PART is a prefix, so a longer name may be present. Usable only
     # when the reply has data, no error, and no MORE, every entry has
     # at least three pieces, and exactly one .01 equals this name. That
