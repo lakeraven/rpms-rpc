@@ -20,3 +20,20 @@ ORQQPL LIST | partial | both of DFN 2's rows (IEN 1 *TYPE 2 DIABETES MELLITUS, I
 ORQQAL LIST | partial | mapped severity is nil on DFN 2's penicillin allergy (IEN 1, signs HIVES) signed on as PROV123 | unproven: severity
 ORWPS ACTIVE | not-proven | live call for DFN 2 signed on as PROV123 returned no data rows (no active medications in the seed), so Medication.active_for_patient proved none of order_id, type, name, status, stop_date, instructions, or comments | unproven: comments, instructions, name, order_id, status, stop_date, type
 ORQQVI VITALS | partial | mapped qualifiers is nil on all four vitals (PU 82, BP 142/88, HT 70, WT 214) for DFN 2 signed on as PROV123 | unproven: qualifiers
+
+# TIU note-write pilot status on bcer-9.0-20261012-e7923a4-ydb (issue #564, slice of #224).
+# One flow written by `WRITES=1 rake wire:capture` (host mode, loopback broker), signed on as
+# PROV123: ProgressNote.create on seed patient DFN 4, visit 4, title 248 PROGRESS NOTE, then lock,
+# update_text (a line over WRAP_WIDTH, #479), the TIU GET RECORD TEXT read-back, and unlock.
+# A write is proven only when the gem's public API reads its captured reply as success
+# (RpmsRpc::WireCapture.write_evidence?). A refused write is never evidence.
+# Failed live while its tests passed: the read-back check split rows on \r?\n, but this build
+# separates TIU GET RECORD TEXT rows with a bare \r; fixed in this slice.
+# One line per RPC: RPC | status | reason | unproven: <fields or none>
+
+TIU CREATE RECORD | pilot-ready | live capture signed on as PROV123 returned new note IEN 9 for DFN 4 visit 4 title 248; ProgressNote.create reads it as success | unproven: none
+TIU LOCK RECORD | pilot-ready | live capture signed on as PROV123 returned 0 (lock held) on note 9; ProgressNote.lock reads it as true | unproven: none
+TIU SET DOCUMENT TEXT | pilot-ready | live capture signed on as PROV123 returned 9^1^1 for the wrapped two-line note; update_text reads it as success | unproven: none
+TIU GET RECORD TEXT | pilot-ready | live read-back signed on as PROV123 of note 9 holds the note body after the header, each wrapped line within WRAP_WIDTH (80 bytes) | unproven: none
+TIU UNLOCK RECORD | pilot-ready | live capture signed on as PROV123 returned 0 on note 9; ProgressNote.unlock reads it as true | unproven: none
+TIU SIGN RECORD | not-proven | seed gap: NEW PERSON field 20.4 (electronic signature code) is empty for PROVIDER,TEST (DUZ 200, the PROV123 persona) on this build, so a live sign signed on as PROV123 is refused with 89250005 "incorrect Electronic Signature Code"; the fixture stays routine-cite | unproven: success
