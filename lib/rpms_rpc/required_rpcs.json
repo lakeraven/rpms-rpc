@@ -64,11 +64,13 @@
       "AMHG GET VISIT SCREENING",
       "AMHG GET VISIT SOAP",
       "AMHG GET VISITS",
+      "AMHG SAVE HEALTH FACTORS",
       "AMHG SAVE POV",
       "AMHG SAVE PROGRESS NOTES",
       "AMHG SAVE VISIT",
       "DDR GETS ENTRY DATA",
-      "DDR LISTER"
+      "DDR LISTER",
+      "DDR LOCK/UNLOCK NODE"
     ],
     "RpmsRpc::BehavioralHealth::CaseManagement": [
       "AMHG GET CASE DATES",
