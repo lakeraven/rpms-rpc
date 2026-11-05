@@ -32,8 +32,6 @@ class BehavioralHealthWellnessTest < Minitest::Test
     ".08;1112;1401;1402;1403;1404;1405;1406;1407;1408;1409;1410;1501;1601;1701;1901;2001".freeze
   PRE_EDIT_FLAGS = "I"
   VISIT_FIELD_KEYS = PRE_EDIT_FIELDS.split(";").freeze
-  # FLAGS "I" visit reads omit the EXTERNAL column on free-text comment fields.
-  FLAGS_I_VISIT_COMMENT_FIELDS = %w[1501 1601 1701 1901 2001].freeze
 
   PATIENT = "990540"
   OTHER_PATIENT = "990541"
@@ -679,7 +677,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
   end
 
   def test_save_screening_refuses_cia_split_when_stored_1601_contains_caret_without_write
-    assert_cia_split_depression_only_refuses_without_amhg_write(
+    assert_cia_split_depression_only_refuses_stored_cannot_be_resent_without_amhg_write(
       internal: BASELINE_INTERNAL.merge("1601" => "Alcohol^baseline note")
     )
   end
@@ -691,6 +689,15 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
     err = assert_raises(save_error_class) do
       wellness.send(:stored_code!, fields, "1401", SCREENING_EXTERNAL.fetch(:ipv))
+    end
+    assert_match(/stored screening cannot be resent/i, err.message)
+  end
+
+  def test_stored_provider_refuses_when_screening_provider_has_only_word_processing_text_key
+    fields = { "1501" => { text: [] } }
+
+    err = assert_raises(save_error_class) do
+      wellness.send(:stored_provider!, fields, "1501")
     end
     assert_match(/stored screening cannot be resent/i, err.message)
   end
@@ -710,6 +717,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
     end
     assert_empty screening_calls,
                  "AMHG SAVE SCREENING must not run when stored 1601 is x^x"
+    assert_match(/stored screening cannot be resent/i, err.message)
     assert_equal 1, unlock_calls_for(RECORD_IEN).length
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
@@ -730,6 +738,29 @@ class BehavioralHealthWellnessTest < Minitest::Test
     end
     assert_empty screening_calls,
                  "AMHG SAVE SCREENING must not run when stored 1601 is Alcohol^Alcohol"
+    assert_match(/stored screening cannot be resent/i, err.message)
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_refuses_cia_split_when_flags_i_comment_row_is_four_piece_without_write
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL)
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    visit_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: BASELINE_INTERNAL).sub(
+      /9002011\^#{RECORD_IEN}\^1601\^[^\r]*\^?\r/,
+      "9002011^#{RECORD_IEN}^1601^Alcohol baseline note\r"
+    )
+    client = CiaSplitVisitGetsClient.new(@mock, RECORD_IEN, visit_body)
+    RpmsRpc.configure { |c| c.client = client }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_empty screening_calls
+    assert_match(/the visit could not be read/i, err.message)
     assert_equal 1, unlock_calls_for(RECORD_IEN).length
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
@@ -758,7 +789,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = @mock }
   end
 
-  def test_save_screening_cia_split_four_piece_1401_row_still_reaches_amhg_write
+  def test_save_screening_cia_split_real_shape_visit_read_reaches_amhg_write
     screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
     wire = screening_wire(screenings)
     post = BASELINE_INTERNAL.dup
@@ -776,7 +807,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
     wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
 
     refute_nil screening_call,
-               "a normal four-piece CIA row for stored 1401 must still reach AMHG SAVE SCREENING"
+               "a FLAGS I visit read in broker shape must still reach AMHG SAVE SCREENING"
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
   end
@@ -2720,10 +2751,10 @@ class BehavioralHealthWellnessTest < Minitest::Test
 
   def pre_edit_body(ien, patient, internal:, signed: false, include_1112: true)
     patient_ien = internal.fetch(".08", patient)
-    lines = [ "#{BH_VISIT_FILE}^#{ien}^.08^#{patient_ien}^PATIENT,SYNTH" ]
+    lines = [ "#{BH_VISIT_FILE}^#{ien}^.08^#{patient_ien}^" ]
     if include_1112
       signed_at = signed ? "3251031.12" : ""
-      lines << "#{BH_VISIT_FILE}^#{ien}^1112^#{signed_at}^SIGNED"
+      lines << "#{BH_VISIT_FILE}^#{ien}^1112^#{signed_at}^"
     end
     internal.each do |field, value|
       next if field == ".08"
@@ -2749,7 +2780,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
         when "1112" then signed ? "3251031.12" : ""
         else internal.fetch(field, "")
         end
-        "#{BH_VISIT_FILE}^#{ien}^#{field}^#{value}\r"
+        "#{BH_VISIT_FILE}^#{ien}^#{field}^#{value}^\r"
       end
     end
     extra_rows.each { |row| rows << "#{row}\r" }
@@ -2769,6 +2800,26 @@ class BehavioralHealthWellnessTest < Minitest::Test
       "#{visit_ddr_field_row(ien, field, value)}\n"
     end
     "[Data]\n#{rows.join}"
+  end
+
+  def assert_cia_split_depression_only_refuses_stored_cannot_be_resent_without_amhg_write(internal:)
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: internal)
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    visit_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: internal)
+    client = CiaSplitVisitGetsClient.new(@mock, RECORD_IEN, visit_body)
+    RpmsRpc.configure { |c| c.client = client }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_empty screening_calls,
+                 "AMHG SAVE SCREENING must not run when stored visit text cannot be resent"
+    assert_match(/stored screening cannot be resent/i, err.message)
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
   end
 
   def assert_cia_split_depression_only_refuses_without_amhg_write(internal:)
@@ -2817,12 +2868,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
   end
 
   def visit_ddr_field_row(ien, field, value)
-    if FLAGS_I_VISIT_COMMENT_FIELDS.include?(field)
-      "#{BH_VISIT_FILE}^#{ien}^#{field}^#{value}"
-    else
-      external = screening_result_external(field, value)
-      "#{BH_VISIT_FILE}^#{ien}^#{field}^#{value}^#{external}"
-    end
+    "#{BH_VISIT_FILE}^#{ien}^#{field}^#{value}^"
   end
 
   def screening_result_external(field, value)

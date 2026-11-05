@@ -107,16 +107,21 @@ class RpmsRpc::DdrFilemanCiaTest < Minitest::Test
     "#{seq}\x00[Data]\r#{field_rows.join("\r")}\r"
   end
 
-  def visit_row(field, internal, external = internal)
+  # FLAGS "I" broker rows always end with an empty external piece (GETSC^DDR2).
+  def visit_row(field, internal)
+    "#{VISIT_FILE}^#{VISIT_IEN}^#{field}^#{internal}^"
+  end
+
+  def visit_row_with_external(field, internal, external)
     "#{VISIT_FILE}^#{VISIT_IEN}^#{field}^#{internal}^#{external}"
   end
 
   def test_gets_entry_over_cia_marks_stray_when_stored_comment_splits_a_bracket_line
     rows = [
-      visit_row(".08", SYNTH_PATIENT, "PATIENT,SYNTH"),
-      visit_row("1112", "", ""),
-      visit_row("1601", "Alcohol baseline\r[follow-up later]", "NEGATIVE"),
-      visit_row("1403", "N", "NEGATIVE")
+      visit_row(".08", SYNTH_PATIENT),
+      visit_row("1112", ""),
+      visit_row("1601", "Alcohol baseline\r[follow-up later]"),
+      visit_row("1403", "N")
     ]
     replay(visit_gets_reply("3", *rows))
 
@@ -131,8 +136,8 @@ class RpmsRpc::DdrFilemanCiaTest < Minitest::Test
 
   def test_gets_entry_over_cia_marks_altered_when_stored_comment_contains_lone_recordset_end_byte
     rows = [
-      visit_row(".08", SYNTH_PATIENT, "PATIENT,SYNTH"),
-      visit_row("1601", "Alcohol part one\r\n\x1f\r\n[part two]", "NEGATIVE")
+      visit_row(".08", SYNTH_PATIENT),
+      visit_row("1601", "Alcohol part one\r\n\x1f\r\n[part two]")
     ]
     replay(visit_gets_reply("4", *rows))
 
@@ -146,8 +151,8 @@ class RpmsRpc::DdrFilemanCiaTest < Minitest::Test
 
   def test_gets_entry_over_cia_marks_altered_when_stored_comment_ends_with_cr_before_reply_terminator
     rows = [
-      visit_row(".08", SYNTH_PATIENT, "PATIENT,SYNTH"),
-      visit_row("1601", "Alcohol baseline", "NEGATIVE")
+      visit_row(".08", SYNTH_PATIENT),
+      visit_row("1601", "Alcohol baseline")
     ]
     replay(visit_gets_reply("5", *rows) + "\r")
 
@@ -159,10 +164,10 @@ class RpmsRpc::DdrFilemanCiaTest < Minitest::Test
       "an extra trailing row break after the last field row must mark the reply altered"
   end
 
-  def test_gets_entry_over_cia_marks_stray_when_flags_i_row_has_more_than_four_caret_pieces
+  def test_gets_entry_over_cia_parses_flags_i_comment_caret_when_row_has_trailing_empty_piece
     rows = [
-      visit_row(".08", SYNTH_PATIENT, "PATIENT,SYNTH"),
-      visit_row("1601", "Alcohol^baseline note", "NEGATIVE")
+      visit_row(".08", SYNTH_PATIENT),
+      visit_row("1601", "Alcohol^baseline note")
     ]
     replay(visit_gets_reply("6", *rows))
 
@@ -170,7 +175,38 @@ class RpmsRpc::DdrFilemanCiaTest < Minitest::Test
       file: VISIT_FILE, iens: "#{VISIT_IEN},", fields: ".08;1601", flags: "I"
     )
 
+    assert_equal "Alcohol^baseline note", result.dig(:fields, "1601", :internal)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_over_cia_marks_stray_when_flags_i_comment_row_is_four_piece
+    rows = [
+      visit_row(".08", SYNTH_PATIENT),
+      "#{VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol baseline note"
+    ]
+    replay(visit_gets_reply("7", *rows))
+
+    result = RpmsRpc::DdrFileman.gets_entry(
+      file: VISIT_FILE, iens: "#{VISIT_IEN},", fields: ".08;1601", flags: "I"
+    )
+
     assert result[:stray],
-           "a stored comment caret must not parse as a clean four-piece FLAGS I row over CIA"
+           "FLAGS I broker rows include a trailing empty external piece over CIA"
+  end
+
+  def test_gets_entry_over_cia_flags_ie_comment_row_parses_internal_and_external
+    rows = [
+      visit_row_with_external(".08", SYNTH_PATIENT, "PATIENT,SYNTH"),
+      visit_row_with_external("1601", "a", "b")
+    ]
+    replay(visit_gets_reply("8", *rows))
+
+    result = RpmsRpc::DdrFileman.gets_entry(
+      file: VISIT_FILE, iens: "#{VISIT_IEN},", fields: ".08;1601", flags: "IE"
+    )
+
+    assert_equal "a", result.dig(:fields, "1601", :internal)
+    assert_equal "b", result.dig(:fields, "1601", :external)
+    refute result[:stray]
   end
 end

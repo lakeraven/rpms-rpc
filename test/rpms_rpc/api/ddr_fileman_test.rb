@@ -467,12 +467,75 @@ class DdrFilemanTest < Minitest::Test
     refute result[:malformed]
   end
 
-  # --- rpms-rpc#557 / #540 (Factory-Spec-Amendment: 557-r9) -----------------
+  # --- rpms-rpc#557 / #540: FLAGS "I" row shape (GETSC^DDR2 empty external) ---
 
   BH_VISIT_FILE = "9002011"
   VISIT_IEN = "8840"
 
-  def test_gets_entry_flags_i_four_piece_row_parses_internal_without_stray
+  def test_gets_entry_flags_i_comment_row_trailing_empty_piece_parses_internal_without_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol baseline note^"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert_equal "Alcohol baseline note", result.dig(:fields, "1601", :internal)
+    assert_equal "", result.dig(:fields, "1601", :external)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_flags_i_comment_row_caret_in_internal_recovered_without_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol^baseline note^"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert_equal "Alcohol^baseline note", result.dig(:fields, "1601", :internal)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_flags_i_comment_row_x_caret_x_trailing_empty_piece_without_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1601^x^x^")
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert_equal "x^x", result.dig(:fields, "1601", :internal)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_flags_i_comment_row_empty_internal_trailing_empty_piece_without_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1601^^")
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert_equal "", result.dig(:fields, "1601", :internal)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_flags_i_comment_four_piece_row_sets_stray
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
     ).to_s
@@ -485,11 +548,24 @@ class DdrFilemanTest < Minitest::Test
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
     )
 
-    assert_equal "Alcohol baseline note", result.dig(:fields, "1601", :internal)
-    refute result[:stray]
+    assert result[:stray],
+           "FLAGS I always emits a trailing empty external piece; four pieces is stray"
   end
 
-  def test_gets_entry_flags_i_five_piece_row_whose_fifth_copies_fourth_sets_stray
+  def test_gets_entry_flags_i_comment_row_x_caret_x_four_piece_sets_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1601^x^x")
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert result[:stray]
+  end
+
+  def test_gets_entry_flags_i_comment_row_non_empty_trailing_piece_sets_stray
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
     ).to_s
@@ -503,18 +579,66 @@ class DdrFilemanTest < Minitest::Test
     )
 
     assert result[:stray],
-           "FLAGS I emits no external piece; a fifth piece equal to the fourth is still stray"
-    assert_equal "Alcohol", result.dig(:fields, "1601", :internal),
-                 "must not treat Alcohol^Alcohol as internal Alcohol via duplicate fifth piece"
+           "FLAGS I never populates external; a non-empty last piece is stray"
   end
 
-  def test_gets_entry_flags_i_row_with_more_than_four_caret_pieces_sets_stray
+  def test_gets_entry_flags_i_non_comment_row_trailing_empty_piece_parses_internal
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1401", flags: "I"
+    ).to_s
+    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1401^N^")
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1401", flags: "I"
+    )
+
+    assert_equal "N", result.dig(:fields, "1401", :internal)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_flags_ie_comment_row_parses_internal_and_external_without_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "IE"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^a^b"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "IE"
+    )
+
+    assert_equal "a", result.dig(:fields, "1601", :internal)
+    assert_equal "b", result.dig(:fields, "1601", :external)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_default_flags_comment_row_parses_internal_and_external_without_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: ""
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^a^b"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: ""
+    )
+
+    assert_equal "a", result.dig(:fields, "1601", :internal)
+    assert_equal "b", result.dig(:fields, "1601", :external)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_flags_i_word_processing_header_immediate_end_on_comment_field_sets_stray
     key = Ddr.gets_entry_param(
       file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
     ).to_s
     @mock.seed(
       :ddr_gets_entry_data, key,
-      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol^baseline note"
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^[WORD PROCESSING]\n$$END$$"
     )
 
     result = Ddr.gets_entry(
@@ -522,25 +646,7 @@ class DdrFilemanTest < Minitest::Test
     )
 
     assert result[:stray],
-           "a caret inside stored 1601 must not parse as a clean four-piece FLAGS I row"
-  end
-
-  # --- rpms-rpc#557 (Factory-Spec-Amendment: 557-r10) -----------------------
-
-  def test_gets_entry_flags_i_row_x_caret_x_five_piece_sets_stray
-    key = Ddr.gets_entry_param(
-      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
-    ).to_s
-    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1601^x^x")
-
-    result = Ddr.gets_entry(
-      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
-    )
-
-    assert result[:stray],
-           "FLAGS I emits no external piece; a fifth caret piece is part of the comment"
-    assert_equal "x", result.dig(:fields, "1601", :internal),
-                 "must not shorten x^x to internal x via a duplicate fifth piece"
+           "an empty word-processing block on a visit comment field must set stray"
   end
 
   def test_gets_entry_flags_i_word_processing_header_only_on_1401_yields_text_without_internal
