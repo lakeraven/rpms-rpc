@@ -3,7 +3,7 @@
 # Wire-shape capture pipeline (docs/WIRE_CONTRACTS.md, issue #189).
 #
 #   rake wire:capture CONTAINER=rpms-ydb-9.0 RELEASE=bcer-9.0-ydb
-#     [RUNTIME=docker] [BROKER_PORT=9100] [RPMS_ACCESS=] [RPMS_VERIFY=] [ONLY="RPC NAME"]
+#     [RUNTIME=docker] [BROKER_PORT=9100] [RPMS_ACCESS=] [RPMS_VERIFY=] [ONLY=<RPC or fixture name>]
 #   rake wire:capture BROKER_HOST=127.0.0.1 BROKER_PORT=<port> RELEASE=bcer-9.0-ydb ...
 #
 # Two ways to reach the broker. With CONTAINER= the driver is staged into the
@@ -49,10 +49,11 @@ namespace :wire do
     ver = ENV["RPMS_VERIFY"] || "RPMS.000"
     require_synthetic_persona!(acc)
     only = ENV["ONLY"]
-    # CITE_ONLY="RPC A,RPC B": write routine-cite fixtures for these
+    # CITE_ONLY="RPC A,fixture-b": write routine-cite fixtures for these
     # live-mode entries instead of calling them (e.g. the broker is down, or
-    # a capture must land before the rung is reachable). The cite comes from
-    # the catalog; no raw is claimed.
+    # a capture must land before the rung is reachable). A token matches an
+    # entry's RPC name or its fixture name. The cite comes from the catalog;
+    # no raw is claimed.
     cite_only = (ENV["CITE_ONLY"] || "").split(",").map(&:strip)
     captured_at = Time.now.utc.iso8601
     root = File.expand_path("../..", __dir__)
@@ -89,14 +90,14 @@ namespace :wire do
     FileUtils.mkdir_p(FIXTURES_DIR)
     written = 0
     RpmsRpc::WireCapture::CATALOG.each do |entry|
-      next if only && entry.rpc != only
+      next if only && !entry.named?(only)
 
-      if entry.live? && !cite_only.include?(entry.rpc)
-        capture = captures[entry.rpc]
+      if entry.live? && cite_only.none? { |name| entry.named?(name) }
+        capture = captures[entry.fixture_name]
         next if capture.nil? # no container / not in this run: keep existing fixture
 
         if capture["error"]
-          warn "SKIP #{entry.rpc}: #{capture["error"]} (existing fixture kept)"
+          warn "SKIP #{entry.fixture_name}: #{capture["error"]} (existing fixture kept)"
           next
         end
         raw = capture.fetch("raw")
@@ -112,7 +113,7 @@ namespace :wire do
         # this run can write. Downgrading it to no-data would let a transient
         # failure erase a capture-backed contract.
         if RpmsRpc::WireCapture.error_reply?(raw)
-          warn "SKIP #{entry.rpc}: broker returned an error reply (existing fixture kept)"
+          warn "SKIP #{entry.fixture_name}: broker returned an error reply (existing fixture kept)"
           next
         end
 
@@ -134,11 +135,11 @@ namespace :wire do
       begin
         RpmsRpc::WireCapture::Fixture.new(data)
       rescue RpmsRpc::WireCapture::InvalidFixture => e
-        warn "SKIP #{entry.rpc}: #{e.message} (existing fixture kept)"
+        warn "SKIP #{entry.fixture_name}: #{e.message} (existing fixture kept)"
         next
       end
 
-      path = File.join(FIXTURES_DIR, "#{entry.rpc.downcase.tr(" /", "--")}.yml")
+      path = File.join(FIXTURES_DIR, File.basename(RpmsRpc::WireCapture.fixture_path(entry)))
       File.write(path, fixture_header(entry, data) + YAML.dump(data))
       puts "Wrote #{path} (#{data["source"]})"
       written += 1

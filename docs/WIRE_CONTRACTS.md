@@ -41,7 +41,8 @@ Same shape as the conformance pipeline, one level deeper:
    bundle exec rake wire:capture CONTAINER=rpms-ydb-9.0 RELEASE=bcer-9.0-ydb
    # without CONTAINER= or BROKER_HOST=, only routine-cite fixtures are (re)written
    # WIRE_FIXTURES_DIR=<dir> writes the fixtures there instead (a scratch capture)
-   # ONLY="RPC NAME" limits the run; CITE_ONLY="RPC A,RPC B" forces
+   # ONLY=<RPC or fixture name> limits the run (either name matches);
+   # CITE_ONLY="RPC A,fixture-b" forces
    # routine-cite output for live entries (e.g. broker unavailable)
    ```
 

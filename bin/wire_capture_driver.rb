@@ -40,25 +40,27 @@ client = RpmsRpc::CiaClient.new(host: host, port: port, timeout: 15)
 client.connect
 client.authenticate(acc, ver)
 
-# ONLY / CITE_ONLY are applied HERE, not only host-side when fixtures are
-# written. The point of CITE_ONLY is to avoid calling an RPC that faults or
-# disturbs the session; filtering after the driver has already called
-# everything does not achieve that.
+# ONLY / CITE_ONLY match an RPC name or a fixture name, and are applied
+# HERE, not only host-side when fixtures are written. The point of
+# CITE_ONLY is to avoid calling an RPC that faults or disturbs the
+# session; filtering after the driver has already called everything does
+# not achieve that. Captures are keyed by fixture name so two entries that
+# share an RPC do not overwrite each other's reply.
 only = ENV["ONLY"].to_s.strip
 cite_only = ENV["CITE_ONLY"].to_s.split(",").map(&:strip).reject(&:empty?)
 
 entries = RpmsRpc::WireCapture::CATALOG.select(&:live?)
-entries = entries.select { |e| e.rpc == only } unless only.empty?
-entries = entries.reject { |e| cite_only.include?(e.rpc) }
-out["selected"] = entries.map(&:rpc)
+entries = entries.select { |e| e.named?(only) } unless only.empty?
+entries = entries.reject { |e| cite_only.any? { |name| e.named?(name) } }
+out["selected"] = entries.map(&:fixture_name)
 
 entries.each do |entry|
   raw = client.call_rpc_raw(entry.rpc, *entry.inputs)
   raw = raw.join("\n") if raw.is_a?(Array)
-  out["captures"][entry.rpc] = { "inputs" => entry.inputs, "raw" => raw.to_s }
+  out["captures"][entry.fixture_name] = { "inputs" => entry.inputs, "raw" => raw.to_s }
 rescue StandardError => e
-  out["captures"][entry.rpc] = { "inputs" => entry.inputs,
-                                 "error" => "#{e.class}: #{e.message}" }
+  out["captures"][entry.fixture_name] = { "inputs" => entry.inputs,
+                                          "error" => "#{e.class}: #{e.message}" }
 end
 
 client.disconnect

@@ -5,6 +5,7 @@ require "yaml"
 require_relative "core"
 require_relative "fileman_date_parser"
 require_relative "wire_capture/evidence"
+require_relative "api/tribal"
 
 module RpmsRpc
   # Wire-shape capture + contract checking (issue #189).
@@ -52,9 +53,20 @@ module RpmsRpc
 
     # One curated capture target: which RPC, which mapping gates it, how to
     # call it live (or why we can't), and the cited piece semantics.
-    CatalogEntry = Struct.new(:rpc, :mapping, :kind, :mode, :inputs, :cite, :pieces, :note,
+    CatalogEntry = Struct.new(:rpc, :mapping, :kind, :mode, :inputs, :cite, :pieces, :note, :fixture,
                               keyword_init: true) do
       def live? = mode == :live
+
+      # Optional fixture: names the file when several entries share one RPC.
+      # Absent, the name stays the RPC slug, so existing entries keep their files.
+      def fixture_name = fixture || rpc.downcase.tr(" /", "--")
+
+      # ONLY= and CITE_ONLY= match either the RPC name or the fixture name.
+      def named?(name) = name == rpc || name == fixture_name
+    end
+
+    def self.fixture_path(entry)
+      File.join(FIXTURES_DIR, "#{entry.fixture_name}.yml")
     end
 
     # A committed wire capture. Validates provenance on load — an invalid
@@ -133,8 +145,14 @@ module RpmsRpc
                   :raw_return, :example_return, :sha256, :release_tag, :captured_at,
                   :pieces, :note
 
+      # One file per RPC, named from the RPC. compare and the contract corpus
+      # key on that RPC, so a second capture of the same RPC (a catalog
+      # fixture: name) is not folded into this scan. Load it with fixture_path.
       def self.load_all(dir = FIXTURES_DIR)
-        Dir.glob(File.join(dir, "*.yml")).sort.map { |path| load_file(path) }
+        Dir.glob(File.join(dir, "*.yml")).sort.filter_map do |path|
+          fixture = load_file(path)
+          fixture if File.basename(path, ".yml") == fixture.rpc.downcase.tr(" /", "--")
+        end
       end
 
       def self.load_file(path)
@@ -427,8 +445,9 @@ module RpmsRpc
     # BEHOPTCX PTINFO, BEHOPTPC GETBDP, ORQQPL LIST, ORQQAL LIST, ORWPS
     # ACTIVE, ORQQVI VITALS) call seed patient DFN 2, which has chart data
     # on the pinned build. ORWPT CWAD is routine-cited (inputs nil) until a
-    # live capture as PROV123 lands. Other entries stay on DFN 8
-    # DEMOPATIENT,REG2244. Public repo: never a real patient, partner, or tribe.
+    # live capture as PROV123 lands. Tribal reads: DFN 2; tribe/service-unit
+    # IEN 1. Other entries stay on DFN 8 DEMOPATIENT,REG2244. Public repo:
+    # never a real patient, partner, or tribe.
     CATALOG = [
       CatalogEntry.new(
         rpc: "ORQQVI VITALS", mapping: :vitals, kind: "fields", mode: :live,
@@ -744,6 +763,92 @@ module RpmsRpc
         pieces: [],
         note: "text_blob mapping — the gate checks reply-kind consistency and " \
               "records the real reply grammar; row parsing lives in DdrFileman.gets_entry."
+      ),
+      # Tribal enrollment slice (#566). Reads only: the same DDR calls
+      # Tribal already sends. fixture: keeps each reply in its own file so
+      # a GETS capture for enrollment does not overwrite the phone-fields
+      # entry above, and the two LISTER / VALIDATOR calls do not overwrite
+      # each other. Synthetic seed: patient DFN 2, tribe and service-unit IEN 1.
+      CatalogEntry.new(
+        fixture: "tribal-enrollment",
+        rpc: "DDR GETS ENTRY DATA", mapping: :ddr_gets_entry_data, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.gets_entry_param(file: Registration::PATIENT_FILE, iens: "2,",
+                                               fields: Tribal::ENROLLMENT_FIELDS, flags: "IE") ],
+        cite: "GETSC^DDR2 (DDR2.m:22-43,61): '[Data]' then " \
+              "FILE^IEN^FIELD^INTERNAL^EXTERNAL rows; '[ERROR]' block on failure",
+        pieces: [],
+        note: "Tribal.enrollment for synthetic DFN 2 on #9000001, fields .07, 1108, 1109, " \
+              "1110, 1111, 1112, and 1118, internal and external."
+      ),
+      CatalogEntry.new(
+        fixture: "tribal-eligibility",
+        rpc: "DDR GETS ENTRY DATA", mapping: :ddr_gets_entry_data, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.gets_entry_param(file: Registration::PATIENT_FILE, iens: "2,",
+                                               fields: Tribal::ELIGIBILITY_FIELDS, flags: "IE") ],
+        cite: "GETSC^DDR2 (DDR2.m:22-43,61): '[Data]' then " \
+              "FILE^IEN^FIELD^INTERNAL^EXTERNAL rows; '[ERROR]' block on failure",
+        pieces: [],
+        note: "Tribal.eligibility for synthetic DFN 2 on #9000001, fields 1111 and 1112."
+      ),
+      CatalogEntry.new(
+        fixture: "tribal-tribe-info",
+        rpc: "DDR GETS ENTRY DATA", mapping: :ddr_gets_entry_data, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.gets_entry_param(file: Tribal::TRIBE_FILE, iens: "1,",
+                                               fields: ".01;.02", flags: "IE") ],
+        cite: "GETSC^DDR2 (DDR2.m:22-43,61): '[Data]' then " \
+              "FILE^IEN^FIELD^INTERNAL^EXTERNAL rows; '[ERROR]' block on failure",
+        pieces: [],
+        note: "Tribal.tribe_info for TRIBE #9999999.03 IEN 1, fields .01 name and .02 code."
+      ),
+      CatalogEntry.new(
+        fixture: "tribal-service-unit",
+        rpc: "DDR GETS ENTRY DATA", mapping: :ddr_gets_entry_data, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.gets_entry_param(file: Tribal::SERVICE_UNIT_FILE, iens: "1,",
+                                               fields: ".01", flags: "IE") ],
+        cite: "GETSC^DDR2 (DDR2.m:22-43,61): '[Data]' then " \
+              "FILE^IEN^FIELD^INTERNAL^EXTERNAL rows; '[ERROR]' block on failure",
+        pieces: [],
+        note: "Tribal.service_unit for SERVICE UNIT #9999999.22 IEN 1, field .01 name."
+      ),
+      CatalogEntry.new(
+        fixture: "tribal-tribes",
+        rpc: "DDR LISTER", mapping: :ddr_lister, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.lister_param(file: Tribal::TRIBE_FILE, fields: Tribal::NAME_ONLY,
+                                           part: "A", xref: "B") ],
+        cite: "LISTC^DDR (DDR.m:21-30,45): V0 '[Data]' then packed IEN-first rows and " \
+              "'[Errors]'; PARSE^DDR reads FILE/FIELDS/PART/XREF (DDR.m:53-65)",
+        pieces: [],
+        note: "Tribal.tribes over TRIBE #9999999.03 on the B index, names starting with A."
+      ),
+      CatalogEntry.new(
+        fixture: "tribal-communities",
+        rpc: "DDR LISTER", mapping: :ddr_lister, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.lister_param(file: Tribal::COMMUNITY_FILE, fields: Tribal::COMMUNITY_FIELDS,
+                                           part: "AT", xref: "B") ],
+        cite: "LISTC^DDR (DDR.m:21-30,45): V0 '[Data]' then packed IEN-first rows and " \
+              "'[Errors]'; PARSE^DDR reads FILE/FIELDS/PART/XREF (DDR.m:53-65)",
+        pieces: [],
+        note: "Tribal.communities over COMMUNITY #9999999.05 on the B index, names starting with AT."
+      ),
+      CatalogEntry.new(
+        fixture: "tribal-validate-valid",
+        rpc: "DDR VALIDATOR", mapping: :ddr_validator, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.validator_param(file: Registration::PATIENT_FILE, iens: "",
+                                              field: Tribal::FIELD_ENROLLMENT_NUMBER, value: "12345") ],
+        cite: "VALC^DDR3 (DDR3.m:37-51): '[FILLER]', '[Data]', the internal result " \
+              "('^' when the input transform fails), then the external form",
+        pieces: [],
+        note: "Tribal.validate of 12345 against #9000001 field .07."
+      ),
+      CatalogEntry.new(
+        fixture: "tribal-validate-invalid",
+        rpc: "DDR VALIDATOR", mapping: :ddr_validator, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.validator_param(file: Registration::PATIENT_FILE, iens: "",
+                                              field: Tribal::FIELD_ENROLLMENT_NUMBER, value: "X" * 40) ],
+        cite: "VALC^DDR3 (DDR3.m:37-51): '[FILLER]', '[Data]', the internal result " \
+              "('^' when the input transform fails), then the external form",
+        pieces: [],
+        note: "Tribal.validate of a 40-character value against #9000001 field .07."
       ),
       # ORWPCE reads (#286). Inputs are the first call in each unmapped
       # capture (synthetic notes on the pinned image). A gated fixture holds
