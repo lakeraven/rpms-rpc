@@ -128,7 +128,6 @@ class AggStockRpcsTest < Minitest::Test
   # LEGL^AGGPTNAM (AGGPTNAM.m:57-104): RESULT^ERROR^RIEN header; row 1^^RIEN success.
   def test_update_legal_names_success
     seed_blank_add_prechecks(server_today: SERVER_TODAY_FM, max_ien: 41)
-    seed_name_patient("42", DFN)
     seed_legl_success("42")
 
     result = Agg.update_legal_names(
@@ -154,8 +153,10 @@ class AggStockRpcsTest < Minitest::Test
     assert_equal DFN, call[:params][0]
     assert_equal "A", call[:params][1]
     assert_equal "", call[:params][2]
-    assert_equal "AGGLNMC=SYNTH#{Agg::PARM_DELIM}AGGLNDTC=11/05/2026", call[:params][3]
-    assert_equal 1, ddr_calls.size, "post-check .02 read only"
+    assert_equal "AGGLNDTC=11/05/2026#{Agg::PARM_DELIM}AGGLNMC=SYNTH", call[:params][3]
+    assert_equal 1, ddr_calls.size, "post-check .01;.02 read"
+    assert_equal ".01;.02", ddr_calls.first[:params].first["FIELDS"]
+    assert_equal "CIAV VUECENTRIC", ddr_calls.first[:context]
     order = @mock.received_calls.map { |c| c[:rpc] }
     assert order.index("DDR LOCK/UNLOCK NODE") < order.index("DDR LISTER")
     assert order.index("AGG UPDATE LEGAL NAMES") < order.rindex("DDR LOCK/UNLOCK NODE")
@@ -171,6 +172,7 @@ class AggStockRpcsTest < Minitest::Test
     refute result[:success]
     assert_equal :agg_rejected, result[:error]
     assert_match(/Invalid parameter/, result[:message])
+    refute result.key?(:written)
     assert_empty ddr_calls, "LEGL rejection must not run post-check DDR GETS ENTRY DATA"
   end
 
@@ -522,7 +524,6 @@ class AggStockRpcsTest < Minitest::Test
     seed_b_lister(day: SERVER_TODAY_FM, text: "[Data]\n")
     seed_b_lister(day: prior, text: "[Data]\n55^#{prior}")
     seed_max_ien_lister("[Data]\n41")
-    seed_name_patient("42", DFN_B)
     seed_legl_success("42", dfn: DFN_B)
 
     result = Agg.update_legal_names(
@@ -580,9 +581,9 @@ class AggStockRpcsTest < Minitest::Test
 
   def test_update_legal_names_blank_add_reports_takeover_when_post_check_dfn_mismatch
     seed_blank_add_prechecks(server_today: SERVER_TODAY_FM, max_ien: 41)
-    seed_name_patient("55", DFN)
     wire = "5\x00I00010RESULT^T01024ERROR^I00010RIEN#{RS}1^^55#{RS}#{US}"
     seed_global("AGG UPDATE LEGAL NAMES", DFN_B, wire)
+    seed_legal_name_post_check("55", DFN)
 
     result = Agg.update_legal_names(dfn: DFN_B.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
 
@@ -770,9 +771,9 @@ class AggStockRpcsTest < Minitest::Test
     seed_b_lister(day: fileman_prior_calendar_day(SERVER_TODAY_FM), text: empty_v1)
     seed_b_lister(day: SERVER_TODAY_FM, text: empty_v1)
     seed_max_ien_lister(empty_v1)
-    seed_name_patient("1", DFN)
     wire = "5\x00I00010RESULT^T01024ERROR^I00010RIEN#{RS}1^^1#{RS}#{US}"
     seed_global("AGG UPDATE LEGAL NAMES", DFN, wire)
+    seed_legal_name_post_check("1", DFN)
 
     result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
 
@@ -830,7 +831,6 @@ class AggStockRpcsTest < Minitest::Test
   def test_update_legal_names_blank_add_allows_b_lister_first_row_on_later_day
     seed_blank_add_prechecks(server_today: SERVER_TODAY_FM, max_ien: 41)
     seed_b_lister(day: SERVER_TODAY_FM, text: "[Data]\n80^3261106")
-    seed_name_patient("42", DFN)
     seed_legl_success("42")
 
     result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
@@ -842,9 +842,9 @@ class AggStockRpcsTest < Minitest::Test
 
   def test_update_legal_names_blank_add_empty_max_ien_file_allows_first_rien
     seed_blank_add_prechecks(server_today: SERVER_TODAY_FM, max_ien: 0)
-    seed_name_patient("1", DFN)
     wire = "5\x00I00010RESULT^T01024ERROR^I00010RIEN#{RS}1^^1#{RS}#{US}"
     seed_global("AGG UPDATE LEGAL NAMES", DFN, wire)
+    seed_legal_name_post_check("1", DFN)
 
     result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
 
@@ -869,6 +869,185 @@ class AggStockRpcsTest < Minitest::Test
     assert_equal 1, unlock_calls.size
   end
 
+  def test_update_legal_names_blank_add_caller_agglndtc_is_first_on_wire
+    day = 3_261_101
+    seed_legal_name_lock(day)
+    seed_legal_name_unlock(day)
+    @mock.seed_scalar(:orwu_dt, "11/01/2026", day.to_s)
+    seed_b_lister(day: fileman_prior_calendar_day(day), text: "[Data]\n")
+    seed_b_lister(day: day, text: "[Data]\n")
+    seed_max_ien_lister("[Data]\n41")
+    seed_legl_success("42", day_fm: day)
+
+    result = Agg.update_legal_names(
+      dfn: DFN.to_i, proc: "A", rien: "",
+      params: { "AGGLNMC" => "SYNTH", "AGGLNDTC" => "11/01/2026" }
+    )
+
+    assert result[:success], result.inspect
+    assert_equal "AGGLNDTC=11/01/2026#{Agg::PARM_DELIM}AGGLNMC=SYNTH", legl_calls.first[:params][3]
+  end
+
+  def test_update_legal_names_blank_add_drops_blank_caller_agglndtc_and_files_server_today_first
+    seed_blank_add_prechecks(server_today: SERVER_TODAY_FM, max_ien: 41)
+    seed_legl_success("42")
+
+    result = Agg.update_legal_names(
+      dfn: DFN.to_i, proc: "A", rien: "",
+      params: { "AGGLNDTC" => "", "AGGLNMC" => "SYNTH" }
+    )
+
+    assert result[:success], result.inspect
+    wire = legl_calls.first[:params][3]
+    assert_equal "AGGLNDTC=11/05/2026#{Agg::PARM_DELIM}AGGLNMC=SYNTH", wire
+    refute wire.match?(/AGGLNDTC=\s*#{Regexp.escape(Agg::PARM_DELIM)}/)
+  end
+
+  def test_update_legal_names_blank_add_post_check_date_mismatch_reports_written
+    seed_blank_add_prechecks(server_today: SERVER_TODAY_FM, max_ien: 41)
+    seed_legl_success("42", post_check: false)
+    seed_legal_name_post_check("42", DFN, day_fm: 3_261_106)
+
+    result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
+
+    refute result[:success]
+    assert_equal :legal_name_date_mismatch, result[:error]
+    assert_equal 42, result[:ien]
+    assert result[:written]
+    assert_equal 1, unlock_calls.size
+  end
+
+  def test_update_legal_names_blank_add_post_check_missing_field_unverified_written
+    seed_blank_add_prechecks(server_today: SERVER_TODAY_FM, max_ien: 41)
+    seed_legl_success("42", post_check: false)
+    seed_gets("9000033", "42,", ".01;.02", "[Data]\n9000033^42,^.02^#{DFN}^#{DFN}")
+
+    result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
+
+    refute result[:success]
+    assert_equal :legal_name_unverified, result[:error]
+    assert_equal 42, result[:ien]
+    assert result[:written]
+    assert_equal 1, unlock_calls.size
+  end
+
+  def test_update_legal_names_blank_add_post_check_ddr_error_unverified_written_unlocks
+    client = legal_name_post_check_error_client
+    client.set_authenticated("501")
+    seed_blank_add_prechecks_on(client, server_today: SERVER_TODAY_FM, max_ien: 41)
+    seed_legl_success_on(client, "42")
+
+    result = Agg.update_legal_names(
+      dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" }, client: client
+    )
+
+    refute result[:success]
+    assert_equal :legal_name_unverified, result[:error]
+    assert_equal 42, result[:ien]
+    assert result[:written]
+    unlocks = client.received_calls.select do |c|
+      c[:rpc] == "DDR LOCK/UNLOCK NODE" && !c[:params].first.key?("LOCKMODE")
+    end
+    assert_equal 1, unlocks.size
+  end
+
+  def test_update_legal_names_blank_add_nil_legl_reply_unverified_written_unlocks
+    seed_blank_add_prechecks(server_today: SERVER_TODAY_FM, max_ien: 41)
+
+    result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
+
+    refute_nil result
+    refute result[:success]
+    assert_equal :legal_name_unverified, result[:error]
+    assert result[:written]
+    refute result.key?(:ien)
+    assert_equal 1, unlock_calls.size
+  end
+
+  def test_update_legal_names_blank_add_lock_reply_not_one_is_busy_without_b_read_or_unlock
+    seed_blank_add_server_today_flow(SERVER_TODAY_FM)
+    cases = [
+      [ "no seed", nil ],
+      [ "empty", "" ],
+      [ "garbage", "garbage" ]
+    ]
+    cases.each do |label, lock_reply|
+      @mock.received_calls.clear
+      lock_param = legal_name_b_lock_param(SERVER_TODAY_FM).to_s
+      scalars = @mock.instance_variable_get(:@scalars)
+      rpc_table = scalars["DDR LOCK/UNLOCK NODE"]
+      rpc_table&.delete(lock_param)
+      if lock_reply
+        scalars["DDR LOCK/UNLOCK NODE"] ||= {}
+        scalars["DDR LOCK/UNLOCK NODE"][lock_param] = lock_reply
+      end
+
+      result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
+
+      refute result[:success], label
+      assert_equal :legal_name_busy, result[:error], label
+      assert_empty b_index_lister_calls, label
+      assert_empty legl_calls, label
+      assert_empty unlock_calls, label
+      assert_equal 1, lock_calls.size, label
+    end
+  end
+
+  def test_update_legal_names_blank_add_unlock_rpc_error_still_returns_success
+    client = legal_name_unlock_error_client
+    client.set_authenticated("501")
+    seed_blank_add_prechecks_on(client, server_today: SERVER_TODAY_FM, max_ien: 41)
+    seed_legl_success_on(client, "42")
+
+    result = Agg.update_legal_names(
+      dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" }, client: client
+    )
+
+    assert result[:success], result.inspect
+    assert_equal 42, result[:ien]
+  end
+
+  def test_update_legal_names_blank_add_runs_lock_through_unlock_inside_synchronize_wire
+    client, trace = legal_name_wire_trace_client
+    client.set_authenticated("501")
+    seed_blank_add_prechecks_on(client, server_today: SERVER_TODAY_FM, max_ien: 41)
+    seed_legl_success_on(client, "42")
+
+    Agg.update_legal_names(
+      dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" }, client: client
+    )
+
+    refute_empty trace[:sync_opens], "update_legal_names must open synchronize_wire"
+    assert_equal 1, trace[:sync_opens].size,
+                 "lock through unlock must run under one outer synchronize_wire from update_legal_names"
+    first_open = trace[:sync_opens].first
+    lock_idx = trace[:call_records].index do |rec|
+      rec[:rpc] == "DDR LOCK/UNLOCK NODE" && rec[:params].first["LOCKMODE"] == "1"
+    end
+    refute_nil lock_idx
+    assert_operator first_open, :<, lock_idx, "wire lock must open before the B-node lock RPC"
+    assert trace[:sync_opens].all? { |open_idx| open_idx < lock_idx },
+           "lock through unlock must not run in a second outer synchronize_wire"
+
+    tracked = trace[:call_records].select do |rec|
+      case rec[:rpc]
+      when "DDR LOCK/UNLOCK NODE"
+        true
+      when "DDR LISTER"
+        true
+      when "AGG UPDATE LEGAL NAMES"
+        true
+      when "DDR GETS ENTRY DATA"
+        rec[:params].first["FIELDS"].to_s.include?(".01")
+      else
+        false
+      end
+    end
+    refute_empty tracked
+    assert tracked.all? { |rec| rec[:inside_wire] },
+           "lock, B read, max-IEN read, LEGL, post-check, and unlock must run inside synchronize_wire"
+  end
+
   private
 
   def seed_gets(file, iens, fields, text, flags: "I")
@@ -880,9 +1059,94 @@ class AggStockRpcsTest < Minitest::Test
     seed_gets("9000033", "#{rien},", ".02", "[Data]\n9000033^#{rien},^.02^#{patient_dfn}^#{patient_dfn}")
   end
 
-  def seed_legl_success(rien, dfn: DFN)
+  def seed_legal_name_post_check(rien, patient_dfn, day_fm: SERVER_TODAY_FM, mock: @mock)
+    text = "[Data]\n9000033^#{rien},^.01^#{day_fm}^\n9000033^#{rien},^.02^#{patient_dfn}^#{patient_dfn}"
+    key = Ddr.gets_entry_param(file: "9000033", iens: "#{rien},", fields: ".01;.02", flags: "I").to_s
+    mock.seed(:ddr_gets_entry_data, key, text)
+  end
+
+  def seed_legl_success(rien, dfn: DFN, day_fm: SERVER_TODAY_FM, post_check: true)
     wire = "5\x00I00010RESULT^T01024ERROR^I00010RIEN#{RS}1^^#{rien}#{RS}#{US}"
     seed_global("AGG UPDATE LEGAL NAMES", dfn, wire)
+    seed_legal_name_post_check(rien, dfn, day_fm: day_fm) if post_check
+  end
+
+  def seed_legl_success_on(client, rien, dfn: DFN, day_fm: SERVER_TODAY_FM, post_check: true)
+    wire = "5\x00I00010RESULT^T01024ERROR^I00010RIEN#{RS}1^^#{rien}#{RS}#{US}"
+    tables = client.instance_variable_get(:@lines) || {}
+    tables["AGG UPDATE LEGAL NAMES"] ||= {}
+    tables["AGG UPDATE LEGAL NAMES"][dfn.to_s] = wire
+    client.instance_variable_set(:@lines, tables)
+    seed_legal_name_post_check(rien, dfn, day_fm: day_fm, mock: client) if post_check
+  end
+
+  def seed_blank_add_prechecks_on(client, server_today:, max_ien:, b_text: "[Data]\n")
+    seed_blank_add_server_today_flow(server_today, mock: client)
+    seed_legal_name_lock_on(client, server_today)
+    seed_legal_name_unlock_on(client, server_today)
+    seed_b_lister_on(client, day: fileman_prior_calendar_day(server_today), text: "[Data]\n")
+    seed_b_lister_on(client, day: server_today, text: b_text)
+    max_text = max_ien.zero? ? "[Data]\n" : "[Data]\n#{max_ien}"
+    client.seed(:ddr_lister, max_ien_lister_param.to_s, max_text)
+  end
+
+  def legal_name_post_check_error_client
+    Class.new(RpmsRpc::MockClient) do
+      define_method(:call_rpc) do |rpc_name, *params|
+        if rpc_name == "DDR GETS ENTRY DATA" &&
+           params.first.is_a?(Hash) &&
+           params.first["FIELDS"].to_s.include?(".01")
+          raise RpmsRpc::Client::RpcError, "DDR GETS ENTRY DATA: broker failure"
+        end
+
+        super(rpc_name, *params)
+      end
+    end.new
+  end
+
+  def legal_name_unlock_error_client
+    Class.new(RpmsRpc::MockClient) do
+      define_method(:call_rpc) do |rpc_name, *params|
+        param = params.first
+        if rpc_name == "DDR LOCK/UNLOCK NODE" && param.is_a?(Hash) && !param.key?("LOCKMODE")
+          raise RpmsRpc::Client::RpcError, "DDR LOCK/UNLOCK NODE: unlock failure"
+        end
+
+        super(rpc_name, *params)
+      end
+    end.new
+  end
+
+  def legal_name_wire_trace_client
+    trace = { depth: 0, sync_opens: [], call_records: [] }
+    client = Class.new(RpmsRpc::MockClient) do
+      define_method(:initialize) do
+        super()
+        @legal_name_wire_trace = trace
+      end
+
+      define_method(:synchronize_wire) do |&block|
+        if @legal_name_wire_trace[:depth].zero?
+          @legal_name_wire_trace[:sync_opens] << @legal_name_wire_trace[:call_records].length
+        end
+        @legal_name_wire_trace[:depth] += 1
+        begin
+          super(&block)
+        ensure
+          @legal_name_wire_trace[:depth] -= 1
+        end
+      end
+
+      define_method(:call_rpc) do |rpc_name, *params|
+        @legal_name_wire_trace[:call_records] << {
+          rpc: rpc_name,
+          params: params,
+          inside_wire: @legal_name_wire_trace[:depth].positive?
+        }
+        super(rpc_name, *params)
+      end
+    end.new
+    [ client, trace ]
   end
 
   def ddr_calls
