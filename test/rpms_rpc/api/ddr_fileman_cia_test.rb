@@ -158,4 +158,19 @@ class RpmsRpc::DdrFilemanCiaTest < Minitest::Test
     assert result[:altered],
       "an extra trailing row break after the last field row must mark the reply altered"
   end
+
+  def test_gets_entry_over_cia_marks_stray_when_flags_i_row_has_more_than_four_caret_pieces
+    rows = [
+      visit_row(".08", SYNTH_PATIENT, "PATIENT,SYNTH"),
+      visit_row("1601", "Alcohol^baseline note", "NEGATIVE")
+    ]
+    replay(visit_gets_reply("6", *rows))
+
+    result = RpmsRpc::DdrFileman.gets_entry(
+      file: VISIT_FILE, iens: "#{VISIT_IEN},", fields: ".08;1601", flags: "I"
+    )
+
+    assert result[:stray],
+           "a stored comment caret must not parse as a clean four-piece FLAGS I row over CIA"
+  end
 end

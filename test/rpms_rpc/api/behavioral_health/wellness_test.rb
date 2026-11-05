@@ -7,6 +7,8 @@ require "timeout"
 require "rpms_rpc"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/cia_client"
+require "rpms_rpc/xwb_client"
+require "rpms_rpc/bmx_client"
 require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/retry_safety"
 
@@ -605,6 +607,93 @@ class BehavioralHealthWellnessTest < Minitest::Test
     assert_equal 1, unlock_calls_for(RECORD_IEN).length
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  # --- rpms-rpc#557 / #540 (Factory-Spec-Amendment: 557-r9) -----------------
+
+  def test_field_internal_is_nil_when_parse_yields_word_processing_without_internal
+    got = { fields: { "2001" => { text: [ "x" ] } } }
+
+    assert_nil wellness.send(:field_internal, got, "2001"),
+               "field_internal must not treat a missing :internal key as an empty string"
+  end
+
+  def test_stored_text_refuses_when_field_has_only_word_processing_text_key
+    fields = { "2001" => { text: [] } }
+
+    err = assert_raises(save_error_class) { wellness.send(:stored_text!, fields, "2001") }
+    assert_match(/stored screening cannot be resent/i, err.message)
+  end
+
+  def test_save_screening_refuses_cia_split_when_stored_2001_is_bare_word_processing_header_without_write
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    internal = BASELINE_INTERNAL.merge("2001" => "[WORD PROCESSING]")
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: internal)
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    visit_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: internal)
+    client = CiaSplitVisitGetsClient.new(@mock, RECORD_IEN, visit_body)
+    RpmsRpc.configure { |c| c.client = client }
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_empty screening_calls,
+                 "AMHG SAVE SCREENING must not run when stored 2001 is only [WORD PROCESSING]"
+    assert_match(/stored screening cannot be resent/i, err.message)
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_refuses_cia_split_when_stored_2001_word_processing_header_splits_hidden_line_without_write
+    assert_cia_split_depression_only_refuses_without_amhg_write(
+      internal: BASELINE_INTERNAL.merge("2001" => "[WORD PROCESSING]\rhidden")
+    )
+  end
+
+  def test_save_screening_refuses_cia_split_when_stored_1901_is_word_processing_block_without_write
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    internal = BASELINE_INTERNAL
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: internal)
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    visit_body = pre_edit_body_cia(RECORD_IEN, PATIENT, internal: internal, wp_fields: { "1901" => [ "x" ] })
+    client = CiaSplitVisitGetsClient.new(@mock, RECORD_IEN, visit_body)
+    RpmsRpc.configure { |c| c.client = client }
+    visit_read = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{RECORD_IEN},", fields: PRE_EDIT_FIELDS, flags: PRE_EDIT_FLAGS
+    )
+    assert visit_read[:stray], "word-processing on visit field 1901 must set stray on gets_entry"
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_empty screening_calls
+    assert_match(/the visit could not be read/i, err.message)
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_save_screening_refuses_cia_split_when_stored_1601_contains_caret_without_write
+    assert_cia_split_depression_only_refuses_without_amhg_write(
+      internal: BASELINE_INTERNAL.merge("1601" => "Alcohol^baseline note")
+    )
+  end
+
+  def test_save_screening_refuses_xwb_split_stored_2001_trailing_lf_on_last_row_without_write
+    assert_broker_split_depression_only_refuses_visit_unreadable_without_amhg_write(
+      client_class: XwbSplitVisitGetsClient,
+      internal: BASELINE_INTERNAL.merge("2001" => "Screen baseline note\n")
+    )
+  end
+
+  def test_save_screening_refuses_bmx_split_stored_2001_trailing_lf_on_last_row_without_write
+    assert_broker_split_depression_only_refuses_visit_unreadable_without_amhg_write(
+      client_class: BmxSplitVisitGetsClient,
+      internal: BASELINE_INTERNAL.merge("2001" => "Screen baseline note\n")
+    )
   end
 
   def test_save_screening_cia_split_clean_stored_alcohol_comment_reaches_amhg_write
@@ -2546,7 +2635,30 @@ class BehavioralHealthWellnessTest < Minitest::Test
     "[Data]\n#{lines.join("\n")}"
   end
 
-  def pre_edit_body_cia(ien, patient, internal:, signed: false, include_1112: true, omit_fields: [], extra_rows: [])
+  def pre_edit_body_cia(ien, patient, internal:, signed: false, include_1112: true, omit_fields: [], extra_rows: [], wp_fields: {})
+    fields = VISIT_FIELD_KEYS
+    fields = fields.reject { |f| f == "1112" } unless include_1112
+    fields = fields.reject { |f| omit_fields.include?(f) }
+    rows = fields.map do |field|
+      if (lines = wp_fields[field])
+        wp = [ "#{BH_VISIT_FILE}^#{ien}^#{field}^[WORD PROCESSING]\r" ]
+        lines.each { |line| wp << "#{line}\r" }
+        wp << "$$END$$\r"
+        wp.join
+      else
+        value = case field
+        when ".08" then internal.fetch(".08", patient)
+        when "1112" then signed ? "3251031.12" : ""
+        else internal.fetch(field, "")
+        end
+        "#{BH_VISIT_FILE}^#{ien}^#{field}^#{value}\r"
+      end
+    end
+    extra_rows.each { |row| rows << "#{row}\r" }
+    "[Data]\r#{rows.join}"
+  end
+
+  def pre_edit_body_xwb(ien, patient, internal:, signed: false, include_1112: true, omit_fields: [])
     fields = VISIT_FIELD_KEYS
     fields = fields.reject { |f| f == "1112" } unless include_1112
     fields = fields.reject { |f| omit_fields.include?(f) }
@@ -2556,10 +2668,10 @@ class BehavioralHealthWellnessTest < Minitest::Test
       when "1112" then signed ? "3251031.12" : ""
       else internal.fetch(field, "")
       end
-      "#{BH_VISIT_FILE}^#{ien}^#{field}^#{value}\r"
+      external = screening_result_external(field, value)
+      "#{BH_VISIT_FILE}^#{ien}^#{field}^#{value}^#{external}\n"
     end
-    extra_rows.each { |row| rows << "#{row}\r" }
-    "[Data]\r#{rows.join}"
+    "[Data]\n#{rows.join}"
   end
 
   def assert_cia_split_depression_only_refuses_without_amhg_write(internal:)
@@ -2576,6 +2688,31 @@ class BehavioralHealthWellnessTest < Minitest::Test
     end
     assert_empty screening_calls,
                  "AMHG SAVE SCREENING must not run when a stored visit comment splits the CIA visit read"
+    assert_match(/the visit could not be read/i, err.message)
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def assert_broker_split_depression_only_refuses_visit_unreadable_without_amhg_write(client_class:, internal:)
+    screenings = { depression: { result: "P", provider: PROVIDER, comment: SYNTH_DEPRESSION_COMMENT } }
+    seed_pre_edit_screening_visit_and_stored_providers(RECORD_IEN, PATIENT, internal: internal)
+    seed_providers_for_screening_updates(screenings)
+    seed_visit_unlock(RECORD_IEN)
+    visit_body = pre_edit_body_xwb(RECORD_IEN, PATIENT, internal: internal)
+    client = client_class.new(@mock, RECORD_IEN, visit_body)
+    RpmsRpc.configure { |c| c.client = client }
+    visit_read = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{RECORD_IEN},", fields: PRE_EDIT_FIELDS, flags: PRE_EDIT_FLAGS
+    )
+    assert visit_read[:altered],
+           "trailing LF on the last stored comment row must mark the visit DDR reply altered"
+
+    err = assert_raises(save_error_class) do
+      wellness.save_screening(RECORD_IEN, patient: PATIENT, screenings: screenings)
+    end
+    assert_empty screening_calls,
+                 "AMHG SAVE SCREENING must not run when trailing LF on stored 2001 is dropped"
     assert_match(/the visit could not be read/i, err.message)
     assert_equal 1, unlock_calls_for(RECORD_IEN).length
   ensure
@@ -3436,6 +3573,73 @@ class CiaSplitVisitGetsClient < SimpleDelegator
       param["IENS"] == "#{@record_ien}," &&
       param["FIELDS"] == PRE_EDIT_FIELDS &&
       param["FLAGS"] == "I"
+  end
+end
+
+class BrokerSplitVisitGetsClient < SimpleDelegator
+  DDR_GETS = "DDR GETS ENTRY DATA"
+  BH_VISIT = "9002011"
+  PRE_EDIT_FIELDS =
+    ".08;1112;1401;1402;1403;1404;1405;1406;1407;1408;1409;1410;1501;1601;1701;1901;2001"
+  EOT = RpmsRpc::Client::EOT
+
+  class FakeSocket
+    def initialize(reads) = @reads = reads.dup
+    def recv(_n) = @reads.empty? ? "" : @reads.shift
+    def write(str) = str.bytesize
+    def flush; end
+    def close = @closed = true
+    def closed? = !!@closed
+    def setsockopt(*); end
+  end
+
+  def initialize(delegate, record_ien, body, broker_class:)
+    super(delegate)
+    @record_ien = record_ien.to_s
+    @body = body
+    @broker_class = broker_class
+  end
+
+  def call_rpc(rpc_name, *params)
+    if rpc_name == DDR_GETS && visit_param?(params.first)
+      return broker_visit_gets_reply(@body, rpc_name, *params)
+    end
+
+    super
+  end
+
+  def broker_visit_gets_reply(body, rpc_name, *params)
+    c = @broker_class.new
+    if @broker_class == RpmsRpc::BmxClient
+      lines = c.send(:split_bmx_reply, body.b)
+      return RpmsRpc::Reply.from_wire(lines, altered: RpmsRpc::Reply.altered_indexes(body, lines))
+    end
+
+    wire = "\x00\x00".b + body.b + EOT
+    c.instance_variable_set(:@socket, FakeSocket.new([ wire ]))
+    c.instance_variable_set(:@connected, true)
+    c.instance_variable_set(:@timeout, 5)
+    c.call_rpc(rpc_name, *params)
+  end
+
+  def visit_param?(param)
+    param.is_a?(Hash) &&
+      param["FILE"] == BH_VISIT &&
+      param["IENS"] == "#{@record_ien}," &&
+      param["FIELDS"] == PRE_EDIT_FIELDS &&
+      param["FLAGS"] == "I"
+  end
+end
+
+class XwbSplitVisitGetsClient < BrokerSplitVisitGetsClient
+  def initialize(delegate, record_ien, body)
+    super(delegate, record_ien, body, broker_class: RpmsRpc::XwbClient)
+  end
+end
+
+class BmxSplitVisitGetsClient < BrokerSplitVisitGetsClient
+  def initialize(delegate, record_ien, body)
+    super(delegate, record_ien, body, broker_class: RpmsRpc::BmxClient)
   end
 end
 

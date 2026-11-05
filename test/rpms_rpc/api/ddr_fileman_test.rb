@@ -467,6 +467,96 @@ class DdrFilemanTest < Minitest::Test
     refute result[:malformed]
   end
 
+  # --- rpms-rpc#557 / #540 (Factory-Spec-Amendment: 557-r9) -----------------
+
+  BH_VISIT_FILE = "9002011"
+  VISIT_IEN = "8840"
+
+  def test_gets_entry_flags_i_four_piece_row_parses_internal_without_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol baseline note"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert_equal "Alcohol baseline note", result.dig(:fields, "1601", :internal)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_flags_i_row_with_more_than_four_caret_pieces_sets_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol^baseline note"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert result[:stray],
+           "a caret inside stored 1601 must not parse as a clean four-piece FLAGS I row"
+  end
+
+  def test_gets_entry_word_processing_on_visit_field_2001_sets_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "2001", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^2001^[WORD PROCESSING]\nhidden\n$$END$$"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "2001", flags: "I"
+    )
+
+    assert result[:stray],
+           "word-processing on a VISIT_FIELDS comment field must set stray on gets_entry"
+  end
+
+  def test_gets_entry_word_processing_block_still_open_at_end_sets_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "2001", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^2001^[WORD PROCESSING]\nunclosed"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "2001", flags: "I"
+    )
+
+    assert result[:stray],
+           "a word-processing block still open at end of reply must set stray on gets_entry"
+  end
+
+  def test_gets_entry_well_formed_word_processing_on_non_visit_field_has_no_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "5301", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^5301^[WORD PROCESSING]\naxis line\n$$END$$"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "5301", flags: "I"
+    )
+
+    refute result[:stray]
+    assert_equal [ "axis line" ], result.dig(:fields, "5301", :text)
+  end
+
   # ==========================================================================
   # DDR VALIDATOR
   # ==========================================================================
