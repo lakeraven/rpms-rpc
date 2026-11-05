@@ -247,9 +247,9 @@ module RpmsRpc
     LIST_FLAGS = "IP"
     LIST_MAX = "25"
     # .01 name. $L and the B subscript are bytes when ydb_chset=M.
-    # The subscript is the first 30 bytes of .01.
-    HF_NAME_MAX_BYTES = 30
-    # 81101 is one word-processing line. Blank clears it. A non-blank
+    # The subscript is the first 40 bytes of .01.
+    HF_NAME_MAX_BYTES = 40
+    # 81101 is free text (a WP field). Blank clears it. A non-blank
     # comment is 1 through 245 bytes, the FileMan WP width.
     HF_COMMENT_BYTES = (1..245)
     # .06 input transform: K:+X'=X!(X>99999)!(X<0)!(X?.E1"."3N.N) X.
@@ -1365,9 +1365,9 @@ module RpmsRpc
     #
     # Refused before any AMHG call. The list must not be empty, longer
     # than 25, or name the same factor twice. A name is non-blank, at
-    # most 30 bytes (String#bytesize, which is $L when ydb_chset=M), and
+    # most 40 bytes (String#bytesize, which is $L when ydb_chset=M), and
     # has no separator or control character. The B subscript is the first
-    # 30 bytes of .01. Each distinct name is then pre-read with DDR
+    # 40 bytes of .01. Each distinct name is then pre-read with DDR
     # LISTER on #9999999.64, xref B, part the name, fields .01;.1;.13,
     # flags "IP", max 25. XREF "B" and PART return every entry whose B
     # subscript starts with the name, so the reply may hold longer names
@@ -1378,8 +1378,8 @@ module RpmsRpc
     # malformed entry refuses the reply. Among the entries whose first
     # piece equals the name exactly there must be exactly one, and that
     # one has second piece "F" and third piece not "1". Any other entry
-    # whose .01 has the same first 30 UTF-8 bytes is refused, whatever
-    # its entry type or inactive flag. A longer name whose first 30
+    # whose .01 has the same first 40 UTF-8 bytes is refused, whatever
+    # its entry type or inactive flag. A longer name whose first 40
     # bytes differ is not that collision. Anything else, including a
     # missing reply, is SaveError and the write is not sent. A missing
     # read confirms nothing.
@@ -2871,7 +2871,7 @@ module RpmsRpc
     def save_factor_name!(value)
       text = save_factor_piece!(value)
       save_visit_refuse!("a health factor name is blank") if text.empty?
-      save_visit_refuse!("a health factor name is longer than 30 bytes") if text.bytesize > HF_NAME_MAX_BYTES
+      save_visit_refuse!("a health factor name is longer than 40 bytes") if text.bytesize > HF_NAME_MAX_BYTES
       text
     end
 
@@ -2914,12 +2914,12 @@ module RpmsRpc
       text
     end
 
-    # #9999999.64 B index. The subscript is the first 30 bytes of .01.
+    # #9999999.64 B index. The subscript is the first 40 bytes of .01.
     # PART is a prefix, so a longer name may be present. Usable only
     # when the reply has data, no error, and no MORE, every entry has
     # at least three pieces, and exactly one .01 equals this name. That
     # row is an active FACTOR (second piece "F", third piece not "1").
-    # Any other entry whose .01 has the same first 30 UTF-8 bytes is a
+    # Any other entry whose .01 has the same first 40 UTF-8 bytes is a
     # collision, whatever its entry type or inactive flag. A missing,
     # errored, continued, malformed, ambiguous, or colliding reply is a
     # refusal. Called outside call_amhg, like save_visit_ddr.
@@ -2951,7 +2951,7 @@ module RpmsRpc
       pieces[1].to_s == "F" && pieces[2].to_s != "1"
     end
 
-    # First 30 bytes of the UTF-8 encoding, or nil when the text is not
+    # First 40 bytes of the UTF-8 encoding, or nil when the text is not
     # valid UTF-8. The caller refuses nil. The slice is raw bytes, the
     # same width as the B subscript when ydb_chset=M.
     def save_factor_subscript(text)

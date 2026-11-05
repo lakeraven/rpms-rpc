@@ -83,9 +83,9 @@ class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
       next false unless pieces.length >= 3
 
       name = pieces[0].to_s
-      name.length.positive? && name.length <= 30 && pieces[1].to_s == "F" && pieces[2].to_s != "1"
+      name.length.positive? && name.length <= 40 && pieces[1].to_s == "F" && pieces[2].to_s != "1"
     end
-    flunk "no active FACTOR (.1 F, .13 not 1) with .01 length 1-30 on file #{HF_TYPE_FILE}" unless row
+    flunk "no active FACTOR (.1 F, .13 not 1) with .01 length 1-40 on file #{HF_TYPE_FILE}" unless row
 
     row[:pieces].first.to_s
   end

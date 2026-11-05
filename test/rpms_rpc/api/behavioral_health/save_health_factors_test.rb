@@ -42,7 +42,7 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
   RECORD_ADD = "8802"
 
   TWO_BYTE_CHAR = "\u00e9"
-  COLLISION_NAME = "SYN FACTOR COLLISION ABCDEFGHI"
+  COLLISION_NAME = "SYN FACTOR COLLISION ABCDEFGHIJKLMNOPQRS"
 
   HF_ONE_NAME = "SYN FACTOR A"
   HF_ONE_LEVEL = "MODERATE"
@@ -208,22 +208,42 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     assert_equal RECORD_IEN, BH.save_health_factors(**kwargs)
   end
 
-  def test_refuses_name_longer_than_30_characters_before_rpc
-    long_name = "N" * 31
+  def test_accepts_name_of_exactly_40_bytes
+    name = "N" * 40
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: name) ])
+    seed_success(RECORD_IEN, **kwargs)
+    assert_equal RECORD_IEN, BH.save_health_factors(**kwargs)
+  end
+
+  def test_accepts_name_of_31_bytes
+    name = "N" * 31
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: name) ])
+    seed_success(RECORD_IEN, **kwargs)
+    assert_equal RECORD_IEN, BH.save_health_factors(**kwargs)
+  end
+
+  def test_refuses_blank_name_before_rpc
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: "  ") ])
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    assert_pre_call_refusal(**kwargs)
+  end
+
+  def test_refuses_name_longer_than_40_characters_before_rpc
+    long_name = "N" * 41
     kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: long_name) ])
     seed_pre_edit_patient(RECORD_IEN, PATIENT)
     assert_pre_call_refusal(**kwargs)
-    refute hf_type_lister_called?(long_name), "name pre-read must not run for over-30-byte names"
+    refute hf_type_lister_called?(long_name), "name pre-read must not run for over-40-byte names"
   end
 
-  def test_refuses_name_over_30_bytes_before_rpc
-    name = TWO_BYTE_CHAR * 16
-    assert_equal 32, name.bytesize
-    assert_equal 16, name.length
+  def test_refuses_name_over_40_bytes_before_rpc
+    name = TWO_BYTE_CHAR * 21
+    assert_equal 42, name.bytesize
+    assert_equal 21, name.length
     kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: name) ])
     seed_pre_edit_patient(RECORD_IEN, PATIENT)
     assert_pre_call_refusal(**kwargs)
-    refute hf_type_lister_called?(name), "name pre-read must not run for over-30-byte names"
+    refute hf_type_lister_called?(name), "name pre-read must not run for over-40-byte names"
   end
 
   def test_refuses_name_when_pre_read_shows_no_row
@@ -258,7 +278,7 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
   end
 
   def test_refuses_name_when_pre_read_shows_b_subscript_collision_with_longer_active_row
-    assert_equal 30, COLLISION_NAME.bytesize
+    assert_equal 40, COLLISION_NAME.bytesize
     longer = "#{COLLISION_NAME} X"
     kwargs = EDIT_KWARGS.merge(
       health_factors: [ single_factor.merge(name: COLLISION_NAME, comment: "SYN COLLISION") ]
