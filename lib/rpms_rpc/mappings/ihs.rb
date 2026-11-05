@@ -919,13 +919,11 @@ module RpmsRpc
     # BSDX CHECKIN APPOINTMENT — CHECKIN^BSDX25 (check-in via BSDAPI / ^DGPM
     # check-in node). Recordset header ERRORID^MESSAGE (BSDX25.m:37); the
     # success row is "0^"_MESSAGE (BSDX25.m:74), failures are ERR^BSDX25 text.
-    # Params: the eleven client inputs after the return formal BSDXY
-    #   (pinned CHECKIN^BSDX25, BSDX25.m:12): APPOINTMENT_IEN^CHECKIN_DATETIME^
-    #   CLINIC_CODE^PROVIDER^ROUTING_SLIP^VISIT_CLASS^VISIT_FORM^OTHER^
-    #   CHART_REQUEST^PCC_HEALTH_SUMMARY^WELLNESS_HANDOUT. FOIA's tag stops
-    #   at OTHER (FOIA BSDX25.m:12). VCL/VFM/OG reach APCHK by value with no
-    #   $G (BSDX25.m:63) — omitting them <UNDEF>s when the resource links a
-    #   hospital location. CR/PCC/WHF are $G'd (BSDX25.m:66-69).
+    # Params: BSDX_APPOINTMENT_IEN^CHECKIN_DATETIME^CLINIC_CODE^PROVIDER^
+    #   ROUTING_SLIP^VISIT_CLASS^VISIT_FORM^OTHER. All 8 must be SENT (empty
+    #   ok): BSDXVCL/BSDXVFM/BSDXOG reach APCHK by value with no $G
+    #   (BSDX25.m:63) — omitting them <UNDEF>s when the resource links a
+    #   hospital location.
     DataMapper.define(:scheduling_checkin_appointment) do |m|
       m.rpc "BSDX CHECKIN APPOINTMENT"
       m.field 0, :error

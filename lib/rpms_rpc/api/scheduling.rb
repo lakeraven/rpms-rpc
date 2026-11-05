@@ -93,11 +93,6 @@ module RpmsRpc
     CONTEXT = "BSDXRPC"
     # BEHOENCX GETVISIT is not a BSDX RPC. Pinned reach lists only this option.
     GETVISIT_CONTEXT = "CIAV VUECENTRIC"
-    # Client inputs after BSDXPRV. Pinned CHECKIN^BSDX25 (standup BSDX25.m:12)
-    # is BSDXY plus these eleven: ROU, VCL, VFM, OG, CR, PCC, WHF follow the
-    # four the caller fills. The broker passes BSDXY by reference, so it is
-    # not a client parameter. FOIA's tag stops at BSDXOG (FOIA BSDX25.m:12).
-    CHECKIN_AFTER_PROVIDER = [ "", "", "", "", "", "", "" ].freeze
 
     # Book an appointment — BSDX ADD NEW APPOINTMENT (APPADD^BSDX07 → $$MAKE^BSDAPI).
     #
@@ -158,14 +153,14 @@ module RpmsRpc
     #   clinic_code:     CLINIC STOP code (optional)
     #   provider:        check-in provider (optional)
     #
-    # Option: BSDXRPC. Eleven client inputs. BSDXVCL/BSDXVFM/BSDXOG go to
-    # APCHK by value with no $G (BSDX25.m:63), so omitting them <UNDEF>s
-    # when the resource links a hospital location. BSDXCR/BSDXPCC/BSDXWHF
-    # are $G'd (BSDX25.m:66-69) and are still sent.
+    # All 8 client formals (BSDX25.m:12 — APTID^CDT^CC^PRV^ROU^VCL^VFM^OG) are
+    # sent, the unused tail as empties: the routine passes BSDXVCL/BSDXVFM/
+    # BSDXOG to APCHK by value with no $G (BSDX25.m:63), so omitting them
+    # <UNDEF>s server-side whenever the resource links a hospital location.
     def checkin_appointment(appointment_ien, checkin_time:, clinic_code: nil, provider: nil)
       error_write(:scheduling_checkin_appointment,
                   appointment_ien.to_s, fm(checkin_time), clinic_code.to_s, provider.to_s,
-                  *CHECKIN_AFTER_PROVIDER,
+                  "", "", "", "",
                   zero_ok: true)
     end
 
@@ -179,8 +174,7 @@ module RpmsRpc
     # Returns { success: true } / { success: false, error: } / nil.
     def cancel_checkin(appointment_ien)
       error_write(:scheduling_checkin_appointment,
-                  appointment_ien.to_s, "@", "", "",
-                  *CHECKIN_AFTER_PROVIDER,
+                  appointment_ien.to_s, "@", "", "", "", "", "", "",
                   zero_ok: true)
     end
 

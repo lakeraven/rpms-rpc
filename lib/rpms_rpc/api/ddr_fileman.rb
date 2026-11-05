@@ -365,8 +365,7 @@ module RpmsRpc
 
     # Parse the lines from #lines. Public so a caller that read DDR LISTER
     # on its own client uses the same grammar as #lister. #lister always
-    # calls RpmsRpc.client; Agg.update_legal_names reads file 9000033 on
-    # the client it was given.
+    # calls RpmsRpc.client; a caller holding its own client parses with this.
     #
     # V0 rows are every non-marker, non-MORE line. V1 rows are only the
     # lines inside "[BEGIN_diDATA]" ... "[END_diDATA]". An error marker

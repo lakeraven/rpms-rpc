@@ -186,21 +186,20 @@ class SchedulingTest < Minitest::Test
     assert_equal "BSDX CHECKIN APPOINTMENT", call[:rpc]
   end
 
-  # Regression: only 4 of CHECKIN^BSDX25's client inputs were sent. The
+  # Regression: only 4 of CHECKIN^BSDX25's client formals were sent. The
   # routine passes BSDXVCL/BSDXVFM/BSDXOG to APCHK by value with no $G
-  # (BSDX25.m:63), so when the resource links a hospital location a short
-  # call dies server-side with <UNDEF>. The pinned tag (BSDX25.m:12) has
-  # twelve formals including the return BSDXY; the client sends the other
-  # eleven (APTID^CDT^CC^PRV^ROU^VCL^VFM^OG^CR^PCC^WHF), trailing ones empty.
-  def test_checkin_appointment_sends_all_eleven_client_inputs_regression
+  # (BSDX25.m:63), so when the resource links a hospital location a 4-param
+  # call dies server-side with <UNDEF>. All 8 formals (BSDX25.m:12 —
+  # APTID^CDT^CC^PRV^ROU^VCL^VFM^OG) are now sent, trailing ones empty.
+  def test_checkin_appointment_sends_all_eight_formals_regression
     RpmsRpc.client.seed(:scheduling_checkin_appointment, "501", { error: "0" })
 
     RpmsRpc::Scheduling.checkin_appointment(501, checkin_time: START_T,
                                             clinic_code: "301", provider: "PROVIDER,A")
 
-    assert_equal [ "501", START_FM, "301", "PROVIDER,A", "", "", "", "", "", "", "" ],
+    assert_equal [ "501", START_FM, "301", "PROVIDER,A", "", "", "", "" ],
                  RpmsRpc.client.received_calls.last[:params],
-                 "BSDXROU/BSDXVCL/BSDXVFM/BSDXOG/BSDXCR/BSDXPCC/BSDXWHF must be sent (empty)"
+                 "BSDXROU/BSDXVCL/BSDXVFM/BSDXOG must be sent (empty) to avoid <UNDEF>"
   end
 
   # Regression: the LIVE success row is "0^"_EMSG (BSDX25.m:74) — two pieces,
@@ -272,7 +271,7 @@ def test_cancel_checkin_sends_at_sign_as_the_checkin_time
   assert RpmsRpc::Scheduling.cancel_checkin(501)[:success]
   call = RpmsRpc.client.received_calls.last
   assert_equal "BSDX CHECKIN APPOINTMENT", call[:rpc]
-  assert_equal [ "501", "@", "", "", "", "", "", "", "", "", "" ], call[:params]
+  assert_equal [ "501", "@", "", "", "", "", "", "" ], call[:params]
 end
 
 def test_cancel_checkin_live_rows

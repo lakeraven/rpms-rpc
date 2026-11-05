@@ -36,7 +36,6 @@
 "RpmsRpc::Agg.table_lookup": read
 "RpmsRpc::Agg.temporary_hrn": non_idempotent_write
 "RpmsRpc::Agg.update_aliases": non_idempotent_write
-"RpmsRpc::Agg.update_legal_names": non_idempotent_write
 "RpmsRpc::Agg.update_patient": non_idempotent_write
 "RpmsRpc::Agg.update_special_multiple": non_idempotent_write
 "RpmsRpc::Agg.validate_field": non_idempotent_write

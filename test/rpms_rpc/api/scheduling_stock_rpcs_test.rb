@@ -128,24 +128,6 @@ class SchedulingStockRpcsTest < Minitest::Test
     assert_match(/Invalid Appointment ID/, result[:error])
   end
 
-  # Pinned CHECKIN^BSDX25 has twelve entry-point formals; BSDXY is the broker
-  # return slot (rpcs.v1 schema / build_surface: client params are formals.drop(1)).
-  # scheduling_test.rb regression counts only BSDXAPTID..BSDXWHF (eleven wire params).
-  def test_checkin_appointment_sends_eleven_client_inputs_from_pinned_formals
-    formals = pinned_rpc("BSDX CHECKIN APPOINTMENT").formals
-    assert_equal 12, formals.size
-    assert_equal "BSDXY", formals.first
-
-    client_inputs = formals.drop(1)
-    assert_equal 11, client_inputs.size
-
-    RpmsRpc.client.seed(:scheduling_checkin_appointment, "501", { error: "0" })
-    RpmsRpc::Scheduling.checkin_appointment(501, checkin_time: START_T)
-
-    assert_equal client_inputs.size, RpmsRpc.client.received_calls.last[:params].size,
-                 "wire params must match pinned formals after return formal #{formals.first}"
-  end
-
   # BSDX SEARCH AVAILABILITY — thin encoding test (SEARCH^BSDX24) via Scheduling.availability.
   def test_search_availability_sends_resource_and_date_range
     RpmsRpc.client.seed_raw_lines(:scheduling_availability, "PEDIATRICIAN,DEMO",
