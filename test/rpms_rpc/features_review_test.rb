@@ -127,6 +127,21 @@ class FeaturesReviewTest < Minitest::Test
     end
   end
 
+  def test_review_511_lock_with_disallowed_yaml_tag_raises_argument_error
+    with_lock_path(malformed_lock_file("releases: !ruby/object:Object {}")) do
+      assert_raises(ArgumentError) { features!.pinned_build_tags }
+    end
+  end
+
+  def test_review_511_empty_inventory_faces_raise_argument_error_not_unavailable
+    Dir.mktmpdir do |dir|
+      tag = write_synthetic_inventory(dir, "empty-ydb", reach_lines: [], registry_lines: [])
+      assert_raises(ArgumentError) do
+        available?(:bmc_referral_workflow, build: tag, inventories_dir: dir)
+      end
+    end
+  end
+
   # --- (5) nil context: available? raises; for must raise too ------------------------------------
 
   def test_review_511_available_with_explicit_nil_context_raises_argument_error

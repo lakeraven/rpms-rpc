@@ -417,7 +417,7 @@ module RpmsRpc
       end
 
       lock
-    rescue Psych::SyntaxError, NoMethodError, TypeError => e
+    rescue Psych::Exception, NoMethodError, TypeError => e
       raise ArgumentError, "lock file is malformed: #{path} (#{e.message})"
     end
 
@@ -429,7 +429,11 @@ module RpmsRpc
 
       reject_duplicate_rows!(registry_path)
       reject_duplicate_rows!(reach)
-      Conformance::BuildSurface.from_files(tag: tag, registry: registry_path, reach: reach)
+      surface = Conformance::BuildSurface.from_files(tag: tag, registry: registry_path, reach: reach)
+      # An empty pair of faces is a truncated inventory, not a build that serves nothing.
+      raise ArgumentError, "malformed inventory: build #{tag} lists no RPCs" if surface.rpcs.empty?
+
+      surface
     rescue Conformance::BuildSurface::Error => e
       # The reader's reason (order, empty face, unknown reach class) is the
       # ArgumentError message. Same treatment for any BuildSurface::Error this
