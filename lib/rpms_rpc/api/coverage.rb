@@ -457,9 +457,12 @@ module RpmsRpc
     # :unreadable when the broker does not answer. :unreadable is
     # :verification_failed and sends no list and no write. :present
     # proceeds to the filer. :absent runs one packed DDR LISTER of
-    # #9000006.11 with IENS ",<dfn>,", fields "@;.01", flags "IP", and
-    # MAX "*". Confirmed gone (non-nil, error false, a data section, no
-    # MORE, and no entry whose IEN is the record) is :already_absent:
+    # #9000006.11 with IENS ",<dfn>,", fields "@;.01", flags "IP",
+    # MAX "*", and XREF "#" (LIST^DIC walks the record numbers, not the
+    # B index, so a row missing from the B index is still listed and
+    # never read as absent). Confirmed gone (non-nil, error false, a
+    # data section, no MORE, and no entry whose IEN is the record) is
+    # :already_absent:
     # { success: false, error: :already_absent, record_ien:,
     # message: "private insurance <record> is not on file for patient <dfn>" }.
     # Any other list is :verification_failed. Neither path sends DDR FILER.
@@ -853,13 +856,15 @@ module RpmsRpc
     end
 
     # #9000006.11 is a subfile. LIST^DIC with IENS ",DFN,", fields "@;.01",
-    # flags "IP", and MAX "*" is every policy row under that patient.
+    # flags "IP", MAX "*", and XREF "#" (LIST^DIC walks the record numbers,
+    # not the B index, so a row missing from the B index is still listed
+    # and never read as absent) is every policy row under that patient.
     # Packed rows are IEN-first on both reply framings, so entries[].ien
     # is the record IEN. A PART list is not asked: the delete confirms on
     # this one complete list.
     def private_policy_rows(dfn, client)
       fileman_read(client) do
-        DdrFileman.lister(file: PRIVATE_ELIGIBILITY_FILE, iens: ",#{dfn},", fields: "@;.01", flags: "IP", max: "*")
+        DdrFileman.lister(file: PRIVATE_ELIGIBILITY_FILE, iens: ",#{dfn},", fields: "@;.01", flags: "IP", max: "*", xref: "#")
       end
     end
 
