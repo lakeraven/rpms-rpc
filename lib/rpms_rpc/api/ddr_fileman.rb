@@ -153,8 +153,8 @@ module RpmsRpc
       .08 1112 1401 1402 1403 1404 1405 1406 1407 1408 1409 1410 1501 1601 1701 1901 2001
     ].freeze
     # Free-text screening comments. A caret in one of these is another piece.
-    # A fifth piece that copies the internal value is the EXTERNAL column
-    # FLAGS "I" seeds already use, and is not stray.
+    # A fifth piece is part of the comment; no external piece is emitted
+    # with FLAGS "I".
     FLAGS_I_COMMENT_FIELDS = %w[1501 1601 1701 1901 2001].freeze
     private_constant :GETS_ENTRY_MARKERS, :FLAGS_I_WORD_PROCESSING_FIELDS, :FLAGS_I_COMMENT_FIELDS
 
@@ -185,9 +185,8 @@ module RpmsRpc
     # normally. A line with fewer than four caret pieces sets stray and is
     # skipped. On a FLAGS "I" read, a visit comment field (1501, 1601, 1701,
     # 1901, 2001) with more than four caret pieces sets stray and is still
-    # stored, unless the row is exactly five pieces and the fifth copies the
-    # fourth: that is the EXTERNAL column. A caret inside the comment is any
-    # other extra piece. Other flags, and other fields, are unchanged. A
+    # stored. A fifth piece is part of the comment; no external piece is
+    # emitted with FLAGS "I". Other flags, and other fields, are unchanged. A
     # second row for a field already parsed, plain or word-processing, sets
     # stray, and the
     # later row replaces the stored value. A "[WORD PROCESSING]" row read
@@ -327,14 +326,10 @@ module RpmsRpc
       Array(passed || FLAGS_I_WORD_PROCESSING_FIELDS).map(&:to_s)
     end
 
-    # Five pieces whose last two match are INTERNAL^EXTERNAL. Six or more,
-    # or a fifth piece that is not that copy, is a caret in the comment.
+    # A fifth piece is part of the comment; no external piece is emitted
+    # with FLAGS "I". More than four pieces on a comment field is stray.
     def split_comment_value?(field, pieces)
-      return false unless FLAGS_I_COMMENT_FIELDS.include?(field)
-      return false unless pieces.length > 4
-      return true if pieces.length > 5
-
-      pieces[3] != pieces[4]
+      FLAGS_I_COMMENT_FIELDS.include?(field) && pieces.length > 4
     end
 
     def call(mapping_name, *params)

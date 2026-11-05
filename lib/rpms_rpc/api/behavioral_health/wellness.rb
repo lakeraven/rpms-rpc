@@ -729,10 +729,12 @@ module RpmsRpc
       end
 
       # A missing field is not resent as a clear. A blank result is.
+      # An entry with no :internal key is not a value that can be resent.
       def stored_code!(fields, field, codes)
-        refuse!("a stored screening cannot be resent") unless fields.key?(field)
+        entry = fields[field]
+        refuse!("a stored screening cannot be resent") unless entry.is_a?(Hash) && entry.key?(:internal)
 
-        code = fields[field][:internal].to_s
+        code = entry[:internal].to_s
         return "" if code.empty?
         refuse!("a stored screening cannot be resent") unless codes.key?(code)
 
@@ -753,10 +755,13 @@ module RpmsRpc
         text
       end
 
+      # A blank provider is resent as a clear. An entry with no :internal
+      # key is not a value that can be resent.
       def stored_provider!(fields, field)
-        refuse!("a stored screening cannot be resent") unless fields.key?(field)
+        entry = fields[field]
+        refuse!("a stored screening cannot be resent") unless entry.is_a?(Hash) && entry.key?(:internal)
 
-        ien = pointer_text(fields[field][:internal])
+        ien = pointer_text(entry[:internal])
         return "" if ien.empty?
         refuse!("a stored screening cannot be resent") unless safe_match?(ien, POSITIVE_IEN)
 
