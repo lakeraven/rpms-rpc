@@ -22,6 +22,9 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
   END_MARKER = "\x1f".b
 
   ADD_SUCCESS_RAW = "6\x00I00020APPOINTMENTID^T00020ERRORID#{RS}1^#{RS}".b
+  PERSONA_PROBE_REFUSAL_RAW =
+    "5\x00I00020APPOINTMENTID^T00020ERRORID#{RS}0^BSDX07 Error: No file room printer is defined for the chart request.#{RS}#{END_MARKER}".b
+  PERSONA_PROBE_SUCCESS_RAW = "3\x00I00020APPOINTMENTID^T00020ERRORID#{RS}4^#{RS}#{END_MARKER}".b
   CHECKIN_SUCCESS_RAW = "8\x00T00020ERRORID^T00150MESSAGE#{RS}0^#{RS}".b
   CANCEL_SUCCESS_RAW = "8\x00T00020ERRORID#{RS}#{RS}".b
   NOSHOW_SUCCESS_RAW = "8\x00I00020ERRORID^T00030ERRORTEXT#{RS}1^#{RS}".b
@@ -200,6 +203,30 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
     assert_match(/persona_probe/i, error.message)
   end
 
+  def test_write_fixture_persona_probe_success_reply_is_rejected
+    raw = PERSONA_PROBE_SUCCESS_RAW
+    probe = persona_probe_entry(raw)
+    error = assert_raises(RpmsRpc::WireCapture::InvalidFixture) do
+      RpmsRpc::WireCapture::Fixture.new(fields_write_fixture("persona_probe" => probe))
+    end
+    assert_match(/persona_probe/i, error.message)
+  end
+
+  def test_write_fixture_persona_probe_broker_error_reply_is_rejected
+    raw = "8\x01-1^Access denied#{RS}#{RS}".b
+    probe = persona_probe_entry(raw)
+    error = assert_raises(RpmsRpc::WireCapture::InvalidFixture) do
+      RpmsRpc::WireCapture::Fixture.new(fields_write_fixture("persona_probe" => probe))
+    end
+    assert_match(/persona_probe/i, error.message)
+  end
+
+  def test_write_fixture_persona_probe_booking_refusal_is_accepted
+    raw = PERSONA_PROBE_REFUSAL_RAW
+    probe = persona_probe_entry(raw)
+    assert RpmsRpc::WireCapture::Fixture.new(fields_write_fixture("persona_probe" => probe))
+  end
+
   def test_write_fixture_read_back_error_reply_is_rejected
     raw = "5\x00[ERROR]\r\n-1^bad iens\r\n".b
     entry = ddr_read_back_entry(raw)
@@ -307,6 +334,18 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
     )
   end
 
+  def test_capture_writes_aborts_when_release_unset
+    env = base_capture_writes_env.merge("LIVE_DISPOSABLE" => "1")
+    env.delete("RELEASE")
+    assert_capture_writes_refuses(env: env)
+  end
+
+  def test_capture_writes_aborts_when_release_blank
+    assert_capture_writes_refuses(
+      env: base_capture_writes_env.merge("LIVE_DISPOSABLE" => "1", "RELEASE" => "  ")
+    )
+  end
+
   def test_capture_writes_task_source_never_interpolates_rpms_verify_into_fixtures
     src = File.read(WIRE_RAKE_PATH, encoding: Encoding::UTF_8)
     task_body = src[/task\s+:capture_writes\b.*?^\s*end/m]
@@ -369,12 +408,22 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
     }
   end
 
+  def persona_probe_entry(raw)
+    {
+      "signed_on_as" => "PROV123",
+      "inputs" => [ "3261126.1115", "3261126.1145", "3", "ZZ PILOT SCHED CAPTURE", "30", "", "", "" ],
+      "raw_return" => raw,
+      "sha256" => Digest::SHA256.hexdigest(raw)
+    }
+  end
+
   def base_capture_writes_env
     {
       "WIRE_FIXTURES_DIR" => Dir.mktmpdir("wire_capture_writes"),
       "LIVE_DISPOSABLE" => "1",
       "BROKER_HOST" => "127.0.0.1",
-      "RPMS_ACCESS" => "PROV123"
+      "RPMS_ACCESS" => "PROV123",
+      "RELEASE" => "bcer-9.0-20261012-e7923a4-ydb"
     }
   end
 
