@@ -3,6 +3,7 @@
 Read in the pinned build's routines (`rpms-ops/data/standup/bcer-9.0-ydb/r/AMHGSVF.m`, `AMHGEVF.m`) and the
 broker inventory (`*-broker_8994.txt`, option `AMHGRPC`). Read only; no broker was run for this note.
 The live write specs (ADR 0009) are what prove each wrapper; this note settles the two points #525 left unread.
+`BehavioralHealth.save_health_factors` is the wrapper this issue adds. `AMHG SAVE SCREENING` and `AMHG SAVE MEASUREMENTS` are `BehavioralHealth::Wellness` (#540).
 
 ## Settled point 1: does `MODV^AMHGEVF` link or create a PCC visit?
 
@@ -31,7 +32,7 @@ and the MHSS RECORD IEN (blank on add).
 Assessment is registered as `AMHG SAVE ASSESSMENT` -> `ASS^AMHGSINT` (not `AMHGSVF`), so it is a different routine
 from the rest and is not wrapped here. Earlier notes saying "no RPC for ASS" were wrong about the registration.
 
-On an empty `AMHSTR` the PN, SCREEN, HF and MSR tags rebuild it from `CATSTR^AMHGU`; the wrappers always send it.
-Edits (`E`) with a blank `REC` are silently turned into adds by `MODV` (`I DM="E",REC="" S DM="A"`); the wrapper must refuse a blank record on edit.
-A screening filed here must be matched with the screening store the clinic reads (health factors vs the screening fields);
-PHQ-9 and GAD-7 totals ride on `AMHG SAVE SCREENING NEW` (`SCREENN^AMHGSVFA`), which is out of this issue's list.
+On an empty `AMHSTR` the PN, SCREEN, HF and MSR tags rebuild it from `CATSTR^AMHGU`. A caller sends `AMHSTR`.
+Edits (`E`) with a blank `REC` are silently turned into adds by `MODV` (`I DM="E",REC="" S DM="A"`); `save_visit` refuses a blank record on edit.
+A screening filed through `AMHG SAVE SCREENING` has to be matched with the screening store the clinic reads (health factors vs the screening fields).
+PHQ-9 and GAD-7 totals ride on `AMHG SAVE SCREENING NEW` (`SCREENN^AMHGSVFA`), which is not this issue. `BehavioralHealth::Wellness` (#540) wraps screening and measurements.

@@ -1251,17 +1251,6 @@ module RpmsRpc
       m.field 0, :ien, :string
     end
 
-    # AMHG SAVE SCREENING — SCREEN^AMHGSVF (AMHGSVF.m:307-341). One
-    # param, the 19-piece AMHSTR. Piece 1 is always "E": SCREEN^AMHGEVF
-    # ignores the data mode (AMHGEVF.m:331-353). The reply is a GLOBAL
-    # ARRAY: header T00030Result, then the record IEN or AMHER
-    # ("0~Edit Screening", AMHGEVF.m:354). :ien stays a string so that
-    # row, and an "M ERROR|..." row, is not coerced to 0.
-    DataMapper.define(:amhg_save_screening) do |m|
-      m.rpc "AMHG SAVE SCREENING"
-      m.field 0, :ien, :string
-    end
-
     # AMHG SAVE HEALTH FACTORS — HF^AMHGSVF (AMHGSVF.m:277-305). One
     # param, four pieces. Piece 3 is "*" -joined items of
     # name~level~qty~comment. The reply is header T00030Result, then
@@ -1269,17 +1258,6 @@ module RpmsRpc
     # Factor", AMHGEVF.m:307,312). :ien stays a string.
     DataMapper.define(:amhg_save_health_factors) do |m|
       m.rpc "AMHG SAVE HEALTH FACTORS"
-      m.field 0, :ien, :string
-    end
-
-    # AMHG SAVE MEASUREMENTS — MSR^AMHGSVF (AMHGSVF.m:343-370). One
-    # param, four pieces. Piece 3 is "*" -joined items of
-    # name~~value~provider (the second "~" piece is unused;
-    # AMHGSVF.m:362 reads piece 3). The reply is header T00030Result,
-    # then the record IEN or AMHER ("0~Add Measurement" /
-    # "0~Edit Measurement", AMHGEVF.m:421,426). :ien stays a string.
-    DataMapper.define(:amhg_save_measurements) do |m|
-      m.rpc "AMHG SAVE MEASUREMENTS"
       m.field 0, :ien, :string
     end
 
