@@ -32,6 +32,20 @@ return format.
 - `XWB CREATE CONTEXT` is sent the option name through the same
   cipher and gates whether RPCs in that context can be invoked.
 
+## Behavioral Health (option `AMHGRPC`)
+
+Verified against `rpms-ops/data/standup/bcer-9.0-ydb/r/AMHGSVF.m` and
+`AMHGEVF.m` (see `docs/bh_save_rpcs.md`, rpms-rpc#525). Each save RPC takes
+one pipe-delimited `AMHSTR` parameter and returns a GLOBAL ARRAY whose data
+row is the MHSS RECORD IEN or `0~reason` in `AMHER`.
+
+| RPC name | Routine / Tag | Params | Return | Status |
+|----------|---------------|--------|--------|--------|
+| `AMHG SAVE PROGRESS NOTES` | `PN^AMHGSVF` | `AMHSTR` (`E\|REC\|CC\|PN\|CMT\|PD\|PLN\|P`) | `T00030Result` + IEN | verified |
+| `AMHG SAVE SCREENING` | `SCREEN^AMHGSVF` | `AMHSTR` (19 pieces; pieces 3–19 screening fields, piece 10 patient) | `T00030Result` + IEN | verified |
+| `AMHG SAVE HEALTH FACTORS` | `HF^AMHGSVF` | `AMHSTR` (`DM\|REC\|HF list\|P`; HF items `name~level~qty~comment`, `*` between items) | `T00030Result` + IEN | verified |
+| `AMHG SAVE MEASUREMENTS` | `MSR^AMHGSVF` | `AMHSTR` (`DM\|REC\|MSR list\|P`; MSR items `name~~value~provider`, `*` between items) | `T00030Result` + IEN | verified |
+
 ## Conventions
 
 When new RPCs are added to the gem in downstream consumers
@@ -75,6 +89,25 @@ against M source per ADR 0002.
 >
 > Replacement response layouts derive from M source and the live DD; rows without
 > live captures are marked pending-capture at their mappings.
+
+## Behavioral Health writes (AMHGRPC)
+
+Verified against `rpms-ops/data/standup/bcer-9.0-ydb/r/AMHGSVF.m` and
+`AMHGEVF.m`. Each RPC takes one pipe-delimited `AMHSTR` parameter and
+returns a two-row GLOBAL ARRAY: header `T00030Result` (visit save uses
+`T00010BMXIEN`), then the MHSS RECORD IEN or `0~<reason>` from `AMHER`.
+Wrappers run under broker option `AMHGRPC`.
+
+| RPC name | Routine / Tag | Params | Return | Status |
+|----------|---------------|--------|--------|--------|
+| `AMHG SAVE VISIT` | `VISIT^AMHGSVF` | `AMHSTR` (16 pieces after DM\|REC) | `T00010BMXIEN` + IEN | verified |
+| `AMHG SAVE POV` | `POV^AMHGSVF` | `AMHSTR` (8 pieces) | `T00030Result` + IEN or error | verified |
+| `AMHG SAVE PROGRESS NOTES` | `PN^AMHGSVF` | `AMHSTR` (8 pieces; mode always `E`) | `T00030Result` + IEN or error | verified |
+| `AMHG SAVE SCREENING` | `SCREEN^AMHGSVF` | `AMHSTR` (19 pieces) | `T00030Result` + IEN or error | verified |
+| `AMHG SAVE HEALTH FACTORS` | `HF^AMHGSVF` | `AMHSTR` (4 pieces; piece 3 is `*`-joined HF items) | `T00030Result` + IEN or error | verified |
+| `AMHG SAVE MEASUREMENTS` | `MSR^AMHGSVF` | `AMHSTR` (4 pieces; piece 3 is `*`-joined MSR items) | `T00030Result` + IEN or error | verified |
+
+Piece layouts and filer tags are summarized in [bh_save_rpcs.md](bh_save_rpcs.md).
 
 ## See also
 

@@ -25,8 +25,8 @@ and the MHSS RECORD IEN (blank on add).
 | `AMHG SAVE VISIT` | `VISIT^AMHGSVF` | 3 PP, 4 PRO, 5 CLN, 6 TOC, 7 ARR, 8 EDT, 9 LOC, 10 AW, 11 COM, 12 P (patient), 13 GN, 14 TIG, 15 ESIG, 16 ATG | `MODV^AMHGEVF` |
 | `AMHG SAVE PROGRESS NOTES` | `PN^AMHGSVF` | 3 CC, 4 PN, 5 CMT, 6 PD, 7 PLN, 8 P | `CCPD`, `PN`, `CMT` in AMHGEVF |
 | `AMHG SAVE SCREENING` | `SCREEN^AMHGSVF` | 3 A, 4 AC, 5 D, 6 DC, 7 IP, 8 IPC, 9 PP, 10 P, 11 APRV, 12 DPRV, 13 IPRV, 14 S, 15 SC, 16 SPRV, 17 SS, 18 SSC, 19 SSIP | `SCREEN^AMHGEVF` |
-| `AMHG SAVE HEALTH FACTORS` | `HF^AMHGSVF` | 3 HF list (`~`-joined items, each `name~level~qty~comment`), 4 P | `MODHF`, `DELHF` |
-| `AMHG SAVE MEASUREMENTS` | `MSR^AMHGSVF` | 3 MSR list (each `name~~value~provider`), 4 P | `MODMSR`, `DELMSR` |
+| `AMHG SAVE HEALTH FACTORS` | `HF^AMHGSVF` | 3 HF list (`*`-joined items, each `name~level~qty~comment`), 4 P | `MODHF`, `DELHF` |
+| `AMHG SAVE MEASUREMENTS` | `MSR^AMHGSVF` | 3 MSR list (`*`-joined items, each `name~~value~provider`), 4 P | `MODMSR`, `DELMSR` |
 
 Assessment is registered as `AMHG SAVE ASSESSMENT` -> `ASS^AMHGSINT` (not `AMHGSVF`), so it is a different routine
 from the rest and is not wrapped here. Earlier notes saying "no RPC for ASS" were wrong about the registration.
