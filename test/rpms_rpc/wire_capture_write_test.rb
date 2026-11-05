@@ -78,16 +78,21 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
   end
 
   def test_fixture_captured_data_rows_split_bsdx_cancel_empty_recordset
+    cancel_attrs = {
+      "rpc" => "BSDX CANCEL APPOINTMENT",
+      "mapping" => "scheduling_cancel_appointment",
+      "raw_return" => CANCEL_SUCCESS_RAW,
+      "sha256" => Digest::SHA256.hexdigest(CANCEL_SUCCESS_RAW),
+      "pieces" => [ { "position" => 0, "attribute" => "error" } ]
+    }
     fx = RpmsRpc::WireCapture::Fixture.new(
-      fields_write_fixture(
-        "rpc" => "BSDX CANCEL APPOINTMENT",
-        "mapping" => "scheduling_cancel_appointment",
-        "raw_return" => CANCEL_SUCCESS_RAW,
-        "sha256" => Digest::SHA256.hexdigest(CANCEL_SUCCESS_RAW),
-        "pieces" => [ { "position" => 0, "attribute" => "error" } ]
-      )
+      fields_write_fixture(cancel_attrs.merge("source" => "no-data"))
     )
     assert_empty fx.captured_data_rows
+
+    assert_raises(RpmsRpc::WireCapture::InvalidFixture) do
+      RpmsRpc::WireCapture::Fixture.new(fields_write_fixture(cancel_attrs))
+    end
   end
 
   def test_wire_capture_data_rows_split_bsdx_cancel_empty_recordset
@@ -216,9 +221,15 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
 
       def initialize = @calls = []
 
-      def call_rpc_raw(rpc, params) = @calls << [ :raw, rpc, params ] and "ok-raw"
+      def call_rpc_raw(rpc, params)
+        @calls << [ :raw, rpc, params ]
+        "ok-raw"
+      end
 
-      def call_rpc_global_array(rpc, params) = @calls << [ :global, rpc, params ] and "ok-global"
+      def call_rpc_global_array(rpc, params)
+        @calls << [ :global, rpc, params ]
+        "ok-global"
+      end
     end.new
 
     recorder = RpmsRpc::WireCapture::RecordingClient.new(inner)
