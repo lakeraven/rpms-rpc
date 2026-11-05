@@ -166,11 +166,12 @@ reviewed PRs; the capture side never edits a mapping to make itself pass.
 
 `rake wire:capture_writes` captures the four scheduling writes (BSDX ADD NEW
 APPOINTMENT, BSDX CHECKIN APPOINTMENT, BSDX CANCEL APPOINTMENT, BSDX NOSHOW).
-They are captured only against a disposable rung we own: `LIVE_DISPOSABLE=1`
-and a loopback `BROKER_HOST` (`127.0.0.1`, `localhost`, or `::1`). Never a
-customer instance. The task aborts before it loads the driver or opens a
-socket when those guards fail, or when `RPMS_ACCESS` is not a synthetic
-persona (`SYS123` or `PROV123`; the default is `SYS123`).
+They are captured only against a disposable rung we own: `LIVE_DISPOSABLE=1`,
+a loopback `BROKER_HOST` (`127.0.0.1`, `localhost`, or `::1`), and `RELEASE`
+set to a non-blank release tag. Never a customer instance. The task aborts
+before it loads the driver or opens a socket when those guards fail, when
+`RELEASE` is blank, or when `RPMS_ACCESS` is not a synthetic persona
+(`SYS123` or `PROV123`; the default is `SYS123`).
 
 A write's reply is not proof. The fixture's `read_back` is DDR GETS ENTRY
 DATA taken immediately after the call: the appointment (`#9002018.4`) and
@@ -189,13 +190,20 @@ reply, or a write the API reports as refused, is not written; the previous
 fixture stays. If any of the four captures is skipped, the task exits
 non-zero after writing the ones that succeeded.
 
+The ADD fixture's `persona_probe` is PROV123's booking reply. It is kept
+only when that reply is a refusal: `WireCapture.error_reply?` is false, and
+the first data row maps through `:scheduling_add_appointment` to an
+appointment id of 0 or less with a non-empty error. A probe
+`Scheduling.add_appointment` accepts is a step error on the ADD capture,
+and that probe stays off the fixture.
+
 These RPCs live in `RpmsRpc::WireCapture::WRITE_CATALOG` with
 `mode: :write_live`. They are not `CATALOG` entries. `mode: :write_live` is
 not `mode: :live`, so `rake wire:capture` still never calls a write RPC.
 
 ```sh
 LIVE_DISPOSABLE=1 BROKER_HOST=127.0.0.1 BROKER_PORT=<port> \
-  RPMS_ACCESS=SYS123 RPMS_VERIFY=<synthetic> \
+  RPMS_ACCESS=SYS123 RPMS_VERIFY=<synthetic> RELEASE=<release> \
   bundle exec rake wire:capture_writes
 ```
 
@@ -204,8 +212,7 @@ through the environment, never on argv. The verify code is never written to
 a fixture, the driver JSON, or a log line. `PROV123` signs on through the
 client's development fallback (`VISTA_RPC_ENV=development`); the driver does
 not set that verify code. `WIRE_FIXTURES_DIR` redirects the fixtures, same
-as `rake wire:capture`. `RELEASE`, when set, stamps `release_tag`; otherwise
-the tag is the pinned build in `data/fingerprints/rpms-ops.lock.yml`.
+as `rake wire:capture`. `RELEASE` is required and stamps `release_tag`.
 
 ## Honest limits
 

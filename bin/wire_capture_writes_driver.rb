@@ -13,12 +13,18 @@
 # captured), then signs on as PROV123 through CiaClient's development
 # fallback (this script does not set that pair) and checks in, cancels, and
 # no-shows. Each persona's session DUZ is recorded under the access code
-# actually signed on as. Check-in, cancel, and no-show read the same DDR GETS
-# entries immediately before the write (read_before) and after it (read_back);
+# actually signed on as, and each sign-on records that session's bound
+# division institution IEN. The setup also reads every MEDICAL CENTER
+# DIVISION (#40.8) INSTITUTION (.07, internal) under CIAV VUECENTRIC. The
+# same setup hash, including those values, is what the rake task writes into
+# each fixture. Check-in, cancel, and no-show read the same DDR GETS entries
+# immediately before the write (read_before) and after it (read_back);
 # check-in also reads HOSPITAL LOCATION #44.003. A write the API reports
-# refused ({ success: false } or nil) is a step error. One JSON document on
-# stdout. A failed step is an "error" field in that document. Verify codes
-# and other env values are never printed.
+# refused ({ success: false } or nil) is a step error. The PROV123 booking
+# probe is attached only when it is a refusal; an accepted booking is a step
+# error on the ADD capture. One JSON document on stdout. A failed step is an
+# "error" field in that document. Verify codes and other env values are never
+# printed.
 require "json"
 require "date"
 
@@ -49,6 +55,8 @@ class WriteCaptureDriver
   CANCEL_TYPE = "PC"
   CANCEL_NOTE = "pilot live capture"
   ADD_RPC = "BSDX ADD NEW APPOINTMENT"
+  ACCEPTED_PROBE_ERROR =
+    "PROV123 booking was accepted; the seed gap no longer holds — capture ADD as PROV123"
   CHECKIN_RPC = "BSDX CHECKIN APPOINTMENT"
   CANCEL_RPC = "BSDX CANCEL APPOINTMENT"
   NOSHOW_RPC = "BSDX NOSHOW"
@@ -68,6 +76,8 @@ class WriteCaptureDriver
   CLINIC_LIST_MAX = "50"
   CLINIC_GETS_FIELDS = ".01;309;302"
   LISTER_MAX = "500"
+  MEDICAL_CENTER_DIVISION_FILE = "40.8"
+  MEDICAL_CENTER_DIVISION_FIELDS = "@;.07I"
   # Clinic hours, each quarter-hour, so a later run the same day is not stuck
   # on the four times an earlier run already booked.
   CLINIC_HOURS = [ 9, 10, 11, 13 ].freeze
@@ -91,6 +101,7 @@ class WriteCaptureDriver
     @recorder = nil
     @booked_times = []
     @session_duz = {}
+    @session_division = {}
   end
 
   def execute
@@ -119,7 +130,8 @@ class WriteCaptureDriver
     bookings = Array.new(3) { |index| book_open_slot(capture: index.zero?) }
     @out["captures"][ADD_RPC] = bookings[0][:payload]
     sign_on_pilot
-    # One attempt at a time this run has not used. The refusal is the evidence.
+    # One attempt at a time this run has not used. Only a refused probe is
+    # attached; an accepted booking is a step error on the ADD capture.
     attach_probe(probe_add(next_candidate))
     check_in(bookings[0])
     cancel_booking(bookings[1])
@@ -169,6 +181,7 @@ class WriteCaptureDriver
 
     @recorder.authenticate(access, verify)
     remember_duz(access)
+    remember_division(access)
     access
   end
 
@@ -184,6 +197,7 @@ class WriteCaptureDriver
     @recorder.connect
     @recorder.authenticate
     remember_duz(PILOT_PERSONA)
+    remember_division(PILOT_PERSONA)
   end
 
   def remember_duz(persona)
@@ -204,6 +218,25 @@ class WriteCaptureDriver
     Integer(text, 10)
   end
 
+  def remember_division(persona)
+    key = persona.to_s
+    raise "signed-on persona is not synthetic" unless SYNTHETIC_PERSONAS.include?(key)
+
+    @session_division[key] = positive_integer_division(@recorder.division)
+    setup = @out["setup"]
+    setup["division"] = @session_division.dup if setup.is_a?(Hash)
+  end
+
+  def positive_integer_division(division)
+    ien = division[:ien] if division.is_a?(Hash)
+    return ien if ien.is_a?(Integer) && ien.positive?
+
+    text = ien.to_s
+    raise "session division is not a positive integer" unless text.match?(/\A[1-9]\d*\z/)
+
+    Integer(text, 10)
+  end
+
   def hospital_location_id
     text = @out.dig("setup", "hospital_location_id").to_s.strip
     raise "setup has no hospital location" if text.empty?
@@ -218,6 +251,8 @@ class WriteCaptureDriver
       "resource_ien" => resource[:id],
       "hospital_location_id" => resource[:hospital_location_id],
       "duz" => @session_duz.dup,
+      "division" => @session_division.dup,
+      "medical_center_division_institutions" => medical_center_division_institutions,
       "notes" => @notes.join("; ")
     }
   end
@@ -305,6 +340,34 @@ class WriteCaptureDriver
     raise "DDR LISTER on #{file} was not complete" if listed[:more]
 
     listed
+  end
+
+  # Every MEDICAL CENTER DIVISION (#40.8) INSTITUTION (.07), internal, under
+  # CIAV VUECENTRIC. The packed row's first field is that pointer. A lister
+  # failure fails the run. The recorded value is the sorted unique positive
+  # integers.
+  def medical_center_division_institutions
+    listed = in_ddr do
+      RpmsRpc::DdrFileman.lister(
+        file: MEDICAL_CENTER_DIVISION_FILE, fields: MEDICAL_CENTER_DIVISION_FIELDS,
+        flags: "IP", max: LISTER_MAX
+      )
+    end
+    raise "DDR LISTER on #{MEDICAL_CENTER_DIVISION_FILE} gave no reply" if listed.nil?
+    raise "DDR LISTER on #{MEDICAL_CENTER_DIVISION_FILE} errored" if listed[:error]
+    raise "DDR LISTER on #{MEDICAL_CENTER_DIVISION_FILE} was not complete" if listed[:more]
+
+    listed[:entries].filter_map { |entry| institution_pointer(entry[:pieces].to_a[0]) }.uniq.sort
+  end
+
+  def institution_pointer(value)
+    text = value.to_s.strip
+    return nil if text.empty?
+
+    token = text.split(";", 2).first.to_s.strip
+    raise "MEDICAL CENTER DIVISION institution is not a positive integer" unless token.match?(/\A[1-9]\d*\z/)
+
+    Integer(token, 10)
   end
 
   def in_ddr(&block)
@@ -397,17 +460,35 @@ class WriteCaptureDriver
   def probe_add(start_time)
     start_fm = RpmsRpc::FilemanDateParser.to_fileman(start_time)
     end_fm = RpmsRpc::FilemanDateParser.to_fileman(start_time + (LENGTH_MINUTES * 60))
+    result = nil
     calls, error = with_recording do
-      RpmsRpc::Scheduling.add_appointment(**booking_kwargs(start_fm, end_fm).transform_keys(&:to_sym))
+      result = RpmsRpc::Scheduling.add_appointment(**booking_kwargs(start_fm, end_fm).transform_keys(&:to_sym))
     end
+    return { "error" => ACCEPTED_PROBE_ERROR } if accepted_booking?(result)
+
+    refused_probe(calls, error)
+  rescue StandardError => e
+    { "error" => safe_error(e) }
+  end
+
+  def accepted_booking?(result)
+    result.is_a?(Hash) && result[:success] == true
+  end
+
+  # Only a mapped refusal is attached. A success is handled before this, and
+  # a broker error or any other reply stays off the fixture.
+  def refused_probe(calls, error)
     write = calls.find { |call| call[:rpc] == ADD_RPC }
     if write.nil? || !write[:inputs].is_a?(Array)
       return { "error" => error || "no #{ADD_RPC} call recorded for the persona probe" }
     end
 
-    { "signed_on_as" => PILOT_PERSONA, "inputs" => export_value(write[:inputs]), "raw" => export_value(write[:raw]) }
-  rescue StandardError => e
-    { "error" => safe_error(e) }
+    raw = export_value(write[:raw])
+    unless RpmsRpc::WireCapture.persona_probe_refusal?(raw)
+      return { "error" => error || "persona probe was not a booking refusal" }
+    end
+
+    { "signed_on_as" => PILOT_PERSONA, "inputs" => export_value(write[:inputs]), "raw" => raw }
   end
 
   def attach_probe(probe)

@@ -42,9 +42,10 @@ namespace :wire do
   # Names the guards and not the values. Printed only when the task refuses
   # to start, before the driver is loaded and before any socket is opened.
   WRITE_CAPTURE_REFUSAL = "wire:capture_writes: refusing to run. Write captures require " \
-    "LIVE_DISPOSABLE=1, a loopback BROKER_HOST (127.0.0.1, localhost, or ::1), and a " \
-    "synthetic RPMS_ACCESS (SYS123 or PROV123; default SYS123). They run only against a " \
-    "disposable rung we own, and they abort before any broker connection."
+    "LIVE_DISPOSABLE=1, a loopback BROKER_HOST (127.0.0.1, localhost, or ::1), a " \
+    "synthetic RPMS_ACCESS (SYS123 or PROV123; default SYS123), and RELEASE " \
+    "(non-blank). They run only against a disposable rung we own, and they abort " \
+    "before any broker connection."
 
   desc "Capture curated RPC wire returns from a live rung container into " \
        "test/fixtures/wire_captures/*.yml (CONTAINER=, RELEASE=; without " \
@@ -192,7 +193,7 @@ namespace :wire do
   end
 
   desc "Capture scheduling writes from a disposable loopback broker into " \
-       "test/fixtures/wire_captures/*.yml (LIVE_DISPOSABLE=1, loopback BROKER_HOST)"
+       "test/fixtures/wire_captures/*.yml (LIVE_DISPOSABLE=1, loopback BROKER_HOST, RELEASE=)"
   task :capture_writes do
     capture_scheduling_writes
   end
@@ -248,9 +249,10 @@ namespace :wire do
 
   # Host-mode scheduling-write capture (issue #565). The guard runs before the
   # driver is loaded and before any socket: a write against anything but a
-  # disposable loopback rung does not start. Credentials reach the child
-  # through its environment (the parent environment is inherited); nothing
-  # secret is placed on the command line or into a fixture.
+  # disposable loopback rung does not start, and RELEASE must be non-blank.
+  # Credentials reach the child through its environment (the parent
+  # environment is inherited); nothing secret is placed on the command line
+  # or into a fixture.
   def capture_scheduling_writes
     abort WRITE_CAPTURE_REFUSAL unless disposable_write_capture?
 
@@ -264,7 +266,7 @@ namespace :wire do
     require "rpms_rpc/wire_capture"
 
     root = File.expand_path("../..", __dir__)
-    release = write_release(root)
+    release = write_release
     captured_at = Time.now.utc.iso8601
     dir = write_fixtures_dir
     FileUtils.mkdir_p(dir)
@@ -274,10 +276,12 @@ namespace :wire do
     abort "wire:capture_writes: driver returned no captures" unless captures.is_a?(Hash)
     warn "wire:capture_writes: #{document["error"]}" if document["error"].is_a?(String) && !document["error"].empty?
 
+    raw_setup = document["setup"]
+    shared_setup = fixture_setup(raw_setup)
     written = 0
     skipped = []
     RpmsRpc::WireCapture::WRITE_CATALOG.each do |entry|
-      if write_one_capture(entry, captures[entry.rpc], document["setup"], release, captured_at, dir)
+      if write_one_capture(entry, captures[entry.rpc], raw_setup, shared_setup, release, captured_at, dir)
         written += 1
       else
         skipped << entry.rpc
@@ -290,7 +294,8 @@ namespace :wire do
   end
 
   def disposable_write_capture?
-    ENV["LIVE_DISPOSABLE"] == "1" && loopback_broker_host? && SYNTHETIC_PERSONAS.include?(setup_access)
+    ENV["LIVE_DISPOSABLE"] == "1" && loopback_broker_host? && SYNTHETIC_PERSONAS.include?(setup_access) &&
+      release_given?
   end
 
   def loopback_broker_host?
@@ -302,12 +307,17 @@ namespace :wire do
     access.nil? || access.empty? ? "SYS123" : access
   end
 
-  def write_release(root)
-    given = ENV["RELEASE"].to_s.strip
-    return given unless given.empty?
+  def release_given?
+    !ENV["RELEASE"].to_s.strip.empty?
+  end
 
-    require "rpms_rpc/live_summary"
-    RpmsRpc::LiveSummary.pinned_build(File.join(root, "data/fingerprints/rpms-ops.lock.yml"))
+  # The tag stamped on every fixture this run writes. RELEASE is required;
+  # a blank value aborts before the driver runs.
+  def write_release
+    given = ENV["RELEASE"].to_s.strip
+    abort WRITE_CAPTURE_REFUSAL if given.empty?
+
+    given
   end
 
   def write_fixtures_dir
@@ -337,7 +347,7 @@ namespace :wire do
     abort "wire:capture_writes driver did not return JSON"
   end
 
-  def write_one_capture(entry, capture, setup, release, captured_at, dir)
+  def write_one_capture(entry, capture, setup, shared_setup, release, captured_at, dir)
     unless capture.is_a?(Hash)
       warn "SKIP #{entry.rpc}: no capture (existing fixture kept)"
       return false
@@ -359,6 +369,11 @@ namespace :wire do
     duz = session_duz_map(setup["duz"])
     unless duz&.key?(persona)
       warn "SKIP #{entry.rpc}: setup did not record session DUZ (existing fixture kept)"
+      return false
+    end
+    unless shared_setup
+      warn "SKIP #{entry.rpc}: setup did not record division and " \
+           "medical_center_division_institutions (existing fixture kept)"
       return false
     end
 
@@ -386,7 +401,7 @@ namespace :wire do
       "sha256" => Digest::SHA256.hexdigest(raw),
       "write" => true,
       "api_call" => capture["api_call"],
-      "setup" => setup_for_fixture(setup, duz),
+      "setup" => shared_setup,
       "read_back" => read_back
     )
     return false unless attach_read_before(entry, capture, data)
@@ -410,13 +425,58 @@ namespace :wire do
       !setup["hospital_location_id"].nil? && !setup["hospital_location_id"].to_s.empty?
   end
 
-  def setup_for_fixture(setup, duz)
+  # One setup map for every fixture this run writes, including each persona's
+  # division institution IEN and the institutions #40.8 points at. A run that
+  # did not record those writes nothing.
+  def fixture_setup(setup)
+    return nil unless setup_recorded?(setup)
+
+    duz = session_duz_map(setup["duz"])
+    division = division_map(setup["division"])
+    institutions = institution_list(setup["medical_center_division_institutions"])
+    return nil unless duz && division && institutions
+
     {
       "resource_ien" => setup["resource_ien"],
       "hospital_location_id" => setup["hospital_location_id"],
       "duz" => duz,
+      "division" => division,
+      "medical_center_division_institutions" => institutions,
       "notes" => setup["notes"]
     }.compact
+  end
+
+  # Synthetic persona to the division institution IEN bound at sign-on.
+  # Both personas are required. A non-synthetic key or a non-integer value
+  # rejects the whole map.
+  def division_map(division)
+    return nil unless division.is_a?(Hash)
+
+    mapped = {}
+    division.each do |persona, value|
+      key = persona.to_s
+      return nil unless SYNTHETIC_PERSONAS.include?(key) && value.is_a?(Integer) && value.positive?
+
+      mapped[key] = value
+    end
+    return nil unless SYNTHETIC_PERSONAS.all? { |persona| mapped.key?(persona) }
+
+    mapped
+  end
+
+  # Sorted unique positive institution IENs from MEDICAL CENTER DIVISION (#40.8).
+  def institution_list(values)
+    return nil unless values.is_a?(Array)
+
+    numbers = values.map do |value|
+      return nil unless value.is_a?(Integer) && value.positive?
+
+      value
+    end
+    numbers = numbers.uniq.sort
+    return nil if numbers.empty?
+
+    numbers
   end
 
   # Persona actually signed on as, to a positive integer DUZ. A non-synthetic

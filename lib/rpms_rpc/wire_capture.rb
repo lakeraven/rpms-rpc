@@ -120,6 +120,21 @@ module RpmsRpc
       payload_rows(raw).reject(&:empty?).any? { |row| row.match?(/\A-\d+(?:\.\d+)?\^/) }
     end
 
+    # A PROV123 booking probe is evidence only as a refusal. A broker error
+    # is not one. The first data row has to map through
+    # :scheduling_add_appointment to an appointment id <= 0 and a non-empty
+    # error. The mapping is loaded here, on this path only.
+    def self.persona_probe_refusal?(raw)
+      return false if raw.nil? || error_reply?(raw)
+
+      rows = data_rows(raw)
+      return false if rows.empty?
+
+      require "rpms_rpc/mappings"
+      mapped = DataMapper[:scheduling_add_appointment].parse_one(rows.first.to_s)
+      mapped.is_a?(Hash) && mapped[:appointment_id].to_i <= 0 && !mapped[:error].to_s.empty?
+    end
+
     # A DDR GETS ENTRY DATA body captured as a write's read-back: not a broker
     # error, and at least one FILE^IENS^FIELD^value row under the reply. A
     # bare "[Data]" marker and an "[ERROR]" body are not evidence.
@@ -387,9 +402,10 @@ module RpmsRpc
         raw = probe["raw_return"].to_s
         actual = Digest::SHA256.hexdigest(raw)
         fail!("persona_probe sha256 does not match raw_return (#{actual})") unless actual == probe["sha256"]
-        return if SYNTHETIC_PERSONAS.include?(probe["signed_on_as"].to_s)
-
-        fail!("persona_probe signed_on_as must be a synthetic persona")
+        unless SYNTHETIC_PERSONAS.include?(probe["signed_on_as"].to_s)
+          fail!("persona_probe signed_on_as must be a synthetic persona")
+        end
+        fail!("persona_probe must be a booking refusal") unless WireCapture.persona_probe_refusal?(raw)
       end
 
       def validate_routine_cite!
