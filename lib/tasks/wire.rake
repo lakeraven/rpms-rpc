@@ -5,6 +5,17 @@
 #   rake wire:capture CONTAINER=rpms-ydb-9.0 RELEASE=bcer-9.0-ydb
 #     [RUNTIME=docker] [BROKER_PORT=9100] [RPMS_ACCESS=] [RPMS_VERIFY=] [ONLY="RPC NAME"]
 #   rake wire:capture BROKER_HOST=127.0.0.1 BROKER_PORT=<port> RELEASE=bcer-9.0-ydb ...
+#   WRITES=1 runs the whole TIU note flow (its only read is the BEHOENCX GETVISIT
+#   linkage check before create) when the broker host
+#   resolves to loopback addresses, CONTAINER is unset, and RPMS_ACCESS is
+#   a synthetic persona. A blank ONLY is unset. A non-blank ONLY is refused;
+#   the flow is one unit:
+#   WRITES=1 BROKER_HOST=127.0.0.1 BROKER_PORT=<port> \
+#     RPMS_ACCESS=PROV123 rake wire:capture
+#   The driver connects to the resolved loopback address, not the host name.
+#   RPMS_ESIG, when set, must be 6-20 characters with no leading or trailing
+#   whitespace (field 20.4 stores the exact code). It is read from the
+#   environment only and is never printed.
 #
 # Two ways to reach the broker. With CONTAINER= the driver is staged into the
 # container and run there with the container's ruby. With BROKER_HOST= and no
@@ -18,16 +29,24 @@
 # test (test/rpms_rpc/wire_contract_test.rb) is the always-on CI gate and
 # needs only the committed fixtures.
 #
-# Read-only discipline: the driver calls read RPCs with synthetic inputs
-# against a rung WE OWN — never a customer instance, never a write RPC
-# (write RPCs are routine-cited; the catalog enforces the split).
+# Read-only discipline: a read run calls read RPCs with synthetic inputs
+# against a rung WE OWN — never a customer instance. Write RPCs are
+# routine-cited and are not called on that run. The write run's only read is
+# the BEHOENCX GETVISIT linkage check before create. WRITES=1 writes no read fixture,
+# writes only the TIU write fixtures, and refuses a non-blank ONLY, because
+# the TIU flow is captured together. A blank ONLY is unset. It runs only when
+# the broker host resolves to loopback addresses, CONTAINER is unset, the
+# access code is a README synthetic persona, and RPMS_ESIG is unset or 6-20
+# characters with no leading or trailing whitespace (field 20.4 stores the
+# exact code). Any other WRITES=1 aborts before a connection. The allowed run
+# is host mode on this machine's ruby, so the broker must be reachable at
+# BROKER_HOST:BROKER_PORT.
+# RPMS_ESIG is passed only in the driver environment, never on argv, and is
+# never printed. A write fixture is stored only when the public API accepts
+# the reply; otherwise an existing fixture is left in place, and a routine-cite
+# is written only when no fixture file exists yet.
 namespace :wire do
   FIXTURES_DIR = ENV["WIRE_FIXTURES_DIR"] ? File.expand_path(ENV["WIRE_FIXTURES_DIR"]) : File.expand_path("../../test/fixtures/wire_captures", __dir__)
-
-  # Access codes README.md documents as synthetic dev personas. signed_on_as
-  # may record one of these and nothing else. A real access code must not
-  # land in a public fixture, and the verify code is never written.
-  SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
 
   desc "Capture curated RPC wire returns from a live rung container into " \
        "test/fixtures/wire_captures/*.yml (CONTAINER=, RELEASE=; without " \
@@ -48,7 +67,8 @@ namespace :wire do
     # Authenticates the driver only. Never written to a fixture or a message.
     ver = ENV["RPMS_VERIFY"] || "RPMS.000"
     require_synthetic_persona!(acc)
-    only = ENV["ONLY"]
+    # Blank ONLY (nil, "", whitespace) is unset. A padded name is the stripped RPC.
+    only = RpmsRpc::WireCapture.normalize_only(ENV["ONLY"])
     # CITE_ONLY="RPC A,RPC B": write routine-cite fixtures for these
     # live-mode entries instead of calling them (e.g. the broker is down, or
     # a capture must land before the rung is reachable). The cite comes from
@@ -59,13 +79,28 @@ namespace :wire do
 
     captures = {}
     host = ENV["BROKER_HOST"].to_s.strip
-    if container.nil? && !host.empty?
+    writes = ENV["WRITES"] == "1"
+    # Before any socket. writes false is a read capture and is not refused.
+    # ONLY and RPMS_ESIG are judged here as well as in the driver.
+    refusal = RpmsRpc::WireCapture.write_refusal(
+      writes: writes, host: host, container: container, access: acc,
+      only: only, esig: ENV["RPMS_ESIG"]
+    )
+    abort "wire:capture: #{refusal}" if refusal
+
+    # Write path is host mode. write_refusal has already refused any CONTAINER.
+    if writes || (container.nil? && !host.empty?)
       require "open3"
       require "rbconfig"
       driver = File.join(root, "bin", "wire_capture_driver.rb")
       env = { "VISTA_RPC_ENV" => "development", "RPMS_RPC_LIB" => File.join(root, "lib"),
               "BROKER_HOST" => host, "BROKER_PORT" => port, "RPMS_ACCESS" => acc,
               "RPMS_VERIFY" => ver, "ONLY" => only.to_s, "CITE_ONLY" => cite_only.join(",") }
+      if writes
+        env["WRITES"] = "1"
+        # May be unset. Never interpolated into a message or an argument list.
+        env["RPMS_ESIG"] = ENV["RPMS_ESIG"] if ENV.key?("RPMS_ESIG")
+      end
       puts "Capturing from the broker at #{host}:#{port} with this machine's ruby (host mode)."
       json, status = Open3.capture2(env, RbConfig.ruby, driver)
       abort "wire:capture driver failed (exit #{status.exitstatus}):\n#{json}" unless status.success?
@@ -88,10 +123,25 @@ namespace :wire do
 
     FileUtils.mkdir_p(FIXTURES_DIR)
     written = 0
-    RpmsRpc::WireCapture::CATALOG.each do |entry|
+    # A write run iterates the TIU write catalog only, so it cannot rewrite a
+    # read or routine-cite fixture. A read run still routine-cites write
+    # entries, so it walks both slices. ONLY is already normalized.
+    entries = if writes
+      RpmsRpc::WireCapture.fixture_entries(writes: true, only: only)
+    else
+      RpmsRpc::WireCapture.fixture_entries(writes: true, only: nil) +
+        RpmsRpc::WireCapture.fixture_entries(writes: false, only: nil)
+    end
+    entries.each do |entry|
       next if only && entry.rpc != only
 
-      if entry.live? && !cite_only.include?(entry.rpc)
+      if entry.write?
+        # No capture keeps an existing fixture and routine-cites only when the
+        # file is absent. A capture is written only as live-capture, with the
+        # captured inputs rather than the catalog placeholder.
+        data = write_entry_fixture_data(entry, captures, release, captured_at, acc)
+        next if data.nil?
+      elsif entry.live? && !cite_only.include?(entry.rpc)
         capture = captures[entry.rpc]
         next if capture.nil? # no container / not in this run: keep existing fixture
 
@@ -174,10 +224,69 @@ namespace :wire do
     File.write(ENV["OUT"], rows.map { |r| r.join("\t") }.join("\n") + "\n") if ENV["OUT"] && !ENV["OUT"].empty?
   end
 
-  # Abort unless the sign-on access code is a README synthetic persona.
-  # The supplied value is never included in the message.
+  # A write entry's fixture. nil means "do not touch the files" (keep an
+  # existing one, or skip a reply the API does not accept).
+  def write_entry_fixture_data(entry, captures, release, captured_at, acc)
+    capture = captures[entry.rpc]
+    path = File.join(FIXTURES_DIR, "#{entry.rpc.downcase.tr(" /", "--")}.yml")
+    unless capture.is_a?(Hash)
+      return nil if File.file?(path)
+
+      return fixture_data(entry, release, captured_at, acc).merge("source" => "routine-cite").tap { |data| data.delete("signed_on_as") }
+    end
+
+    raw = capture["raw"]
+    inputs = capture["inputs"]
+    source = if capture.key?("error") || !raw.is_a?(String)
+      nil
+    else
+      RpmsRpc::WireCapture.write_capture_source(
+        entry, raw,
+        note_body: RpmsRpc::WireCapture::NoteWriteFlow::NOTE_TEXT,
+        note_ien: inputs.is_a?(Array) ? inputs[0] : nil
+      )
+    end
+    if source == "live-capture" && inputs.is_a?(Array)
+      return fixture_data(entry, release, captured_at, acc).merge(
+        "source" => "live-capture",
+        "inputs" => inputs,
+        "raw_return" => raw,
+        "sha256" => Digest::SHA256.hexdigest(raw)
+      )
+    end
+
+    # The reply can be the note. The RPC name and one caret piece are enough;
+    # a read-back or a long piece is not printed.
+    warn "SKIP #{entry.rpc}: write refused #{write_refused_detail(entry, raw)} (existing fixture kept)"
+    nil
+  end
+
+  def write_refused_detail(entry, raw)
+    return "error" unless raw.is_a?(String)
+
+    piece = raw.sub(/\A\d+[\x00\x01]/, "").split(/\r\n|\r|\n/, 2).first.to_s.split("^", 2).first.to_s
+    piece = redact_esig(piece)
+    note_line = RpmsRpc::WireCapture::NoteWriteFlow::NOTE_TEXT.split(/\r\n|\r|\n/, 2).first.to_s
+    if entry.rpc == "TIU GET RECORD TEXT" || piece.bytesize > 80 || (!note_line.empty? && piece.include?(note_line))
+      "reply withheld"
+    else
+      piece
+    end
+  end
+
+  # The signature code must not appear in a warning. Empty when it was not set.
+  def redact_esig(text)
+    secret = ENV["RPMS_ESIG"].to_s
+    return text if secret.empty?
+
+    text.gsub(secret, RpmsRpc::WireCapture::NoteWriteFlow::WITHHELD)
+  end
+
+  # Abort unless the sign-on access code is a README synthetic persona
+  # (WireCapture::SYNTHETIC_PERSONAS). The supplied value is never included
+  # in the message, and the verify code is never written.
   def require_synthetic_persona!(access)
-    return access if SYNTHETIC_PERSONAS.include?(access)
+    return access if RpmsRpc::WireCapture::SYNTHETIC_PERSONAS.include?(access)
 
     abort "wire:capture: captures must sign on as a synthetic persona"
   end
