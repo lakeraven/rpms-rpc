@@ -25,7 +25,10 @@ class PilotRegistrationLiveTest < LiveSpec::Test
     found_free = false
     366.times do
       params["AGGPTDOB"] = attrs[:dob].strftime("%m/%d/%Y")
-      if RpmsRpc::Agg.registration_candidates(params).empty?
+      candidates = RpmsRpc::Agg.registration_candidates(params)
+      flunk("registration_candidates returned nil for #{attrs[:name_last]},#{attrs[:name_first]} " \
+            "DOB #{params['AGGPTDOB']} (broker or AG lookup failure)") if candidates.nil?
+      if candidates.empty?
         found_free = true
         break
       end
@@ -36,27 +39,68 @@ class PilotRegistrationLiveTest < LiveSpec::Test
     flunk("no unused DOB within 366 days of #{start_dob} for #{attrs[:name_last]},#{attrs[:name_first]}")
   end
 
+  def registration_candidates_for(attrs)
+    rows = RpmsRpc::Agg.registration_candidates(
+      "AGGPTLNM" => attrs[:name_last],
+      "AGGPTFNM" => attrs[:name_first],
+      "AGGPTDOB" => attrs[:dob].strftime("%m/%d/%Y")
+    )
+    flunk("registration_candidates returned nil for #{attrs[:name_last]},#{attrs[:name_first]} " \
+          "(broker or AG lookup failure)") if rows.nil?
+
+    rows
+  end
+
+  def lookup_hrn_number(attrs, dfn)
+    row = registration_candidates_for(attrs).find { |candidate| candidate[:dfn] == dfn }
+    raw = row&.dig(:hrn).to_s
+    return nil if raw.empty?
+
+    raw.split("-", 2).first
+  end
+
   def hrn_pieces_on_file(dfn)
-    listed = Ddr.lister(file: "9000001.41", iens: ",#{dfn},", fields: ".02", flags: "IP")
+    listed = Ddr.lister(file: "9000001.41", iens: ",#{dfn},", fields: "@;.02", flags: "IP")
     flunk("DDR LISTER read-back failed for DFN #{dfn}: #{listed.inspect}") if listed.nil? || listed[:error]
 
     listed[:entries].map { |entry| entry.dig(:pieces, 0).to_s }.reject(&:empty?)
   end
 
-  def assert_fail_closed_registration(result, expected_hrn: nil)
+  def assert_registration_hrn_oracles(result, attrs, source:, expected_hrn: nil)
     refute_nil result
     dfn = result[:dfn]
+    refute_nil dfn, "registration must return a DFN when AG created the chart"
     on_file = hrn_pieces_on_file(dfn)
+    lookup_hrn = lookup_hrn_number(attrs, dfn)
+    lookup_row_hrn = registration_candidates_for(attrs).find { |row| row[:dfn] == dfn }&.dig(:hrn)
 
     if result[:success]
       refute_nil expected_hrn, "success path must name the HRN under test"
-      assert_includes on_file, expected_hrn.to_s,
+      filed = expected_hrn.to_s
+      assert_includes on_file, filed,
                       "success requires #9000001.41 to hold the returned HRN (had #{on_file.inspect})"
+      assert_equal filed, lookup_hrn,
+                   "success requires AG lookup to show the same HRN (lookup row HRN #{lookup_row_hrn.inspect})"
     else
       assert_equal :hrn_file_failed, result[:error]
-      refute_nil dfn
       refute_includes on_file, expected_hrn.to_s if expected_hrn
+      case source
+      when :temporary
+        refute_match(/\AT\d{5}\z/, lookup_hrn.to_s,
+                     "failed temporary registration must not leave a new T-number on the lookup row " \
+                     "(had #{lookup_row_hrn.inspect})")
+      else
+        if expected_hrn && lookup_hrn == expected_hrn.to_s
+          flunk("AG lookup shows HRN #{expected_hrn} for DFN #{dfn} but register reported :hrn_file_failed")
+        end
+      end
     end
+
+    if expected_hrn && lookup_hrn == expected_hrn.to_s
+      assert result[:success],
+             "a filed HRN visible in AG lookup must not be reported as :hrn_file_failed (DFN #{dfn})"
+    end
+
     refute result[:success] && on_file.empty?, "never success when #9000001.41 is empty"
   end
 
@@ -76,7 +120,7 @@ class PilotRegistrationLiveTest < LiveSpec::Test
         when :given then given_hrn
         when :temporary then result[:hrn]
         end
-      assert_fail_closed_registration(result, expected_hrn: expected_hrn)
+      assert_registration_hrn_oracles(result, attrs, source: source, expected_hrn: expected_hrn)
     end
   end
 
@@ -86,7 +130,11 @@ class PilotRegistrationLiveTest < LiveSpec::Test
       "AGGPTFNM" => "TEST",
       "AGGPTDOB" => "01/01/1950"
     )
+    flunk("registration_candidates returned nil for USER,TEST (broker or AG lookup failure)") if rows.nil?
+
     dfns = rows.map { |row| row[:dfn] }
-    assert_includes dfns, 2, "structured lookup must find USER,TEST with DOB 1950-01-01 (DFN 2)"
+    assert_includes dfns, 2,
+                    "structured NAME-branch lookup must find USER,TEST (seed DOB 05/05/1985); " \
+                    "01/01/1950 is deliberately different from the seed DOB"
   end
 end

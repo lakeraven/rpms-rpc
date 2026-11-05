@@ -56,7 +56,7 @@ class RegistrationHrnReadbackTest < Minitest::Test
   end
 
   def seed_hrn_41_readback(dfn, hrn_on_file)
-    key = Ddr.lister_param(file: "9000001.41", iens: ",#{dfn},", fields: ".02", flags: "IP").to_s
+    key = Ddr.lister_param(file: "9000001.41", iens: ",#{dfn},", fields: "@;.02", flags: "IP").to_s
     body =
       case hrn_on_file
       when :empty then "[Data]"
@@ -73,6 +73,27 @@ class RegistrationHrnReadbackTest < Minitest::Test
     end
   end
 
+  def assert_hrn_readback_lister_fields
+    refute_empty hrn_lister_calls, "expected a #9000001.41 DDR LISTER read-back"
+    hrn_lister_calls.each do |call|
+      assert_equal "@;.02", call[:params]["FIELDS"],
+                   "read-back must suppress .01 so piece 0 is field .02 under every DDR version"
+    end
+  end
+
+  def with_hrn_41_lister_raise(error_class)
+    original = @mock.method(:call_rpc)
+    @mock.define_singleton_method(:call_rpc) do |rpc, *params|
+      param = params.first
+      if rpc == "DDR LISTER" && param.is_a?(Hash) && param["FILE"] == "9000001.41"
+        raise error_class, "synthetic #9000001.41 read-back failure"
+      end
+
+      original.call(rpc, *params)
+    end
+    yield
+  end
+
   def refute_message_leaks_phi(message)
     text = message.to_s
     refute_match(/900010001|DEMOPATIENT|01\/02\/1990|1990-01-02|UNA|T00007|12345|^9$/, text)
@@ -87,6 +108,7 @@ class RegistrationHrnReadbackTest < Minitest::Test
 
     assert result[:success], "expected success only after #9000001.41 confirms HRN 9"
     assert_equal 1, hrn_lister_calls.length, "must read #9000001.41 before reporting success"
+    assert_hrn_readback_lister_fields
   end
 
   def test_derive_hrn_empty_multiple_is_hrn_file_failed
@@ -100,6 +122,7 @@ class RegistrationHrnReadbackTest < Minitest::Test
     assert_equal 9, result[:dfn]
     refute result[:success]
     refute_message_leaks_phi(result[:message])
+    assert_hrn_readback_lister_fields
   end
 
   def test_derive_hrn_mismatch_on_file_is_hrn_file_failed
@@ -169,5 +192,25 @@ class RegistrationHrnReadbackTest < Minitest::Test
     assert result[:success]
     assert_nil result[:hrn]
     assert_empty hrn_lister_calls
+  end
+
+  [
+    RpmsRpc::Client::ConnectionError,
+    RpmsRpc::Client::TimeoutError,
+    RpmsRpc::Client::ParseError
+  ].each do |error_class|
+    define_method("test_derive_hrn_#{error_class.name.split('::').last.downcase}_on_readback_is_hrn_file_failed") do
+      seed_agg_add(dfn: "9")
+      seed_agg_update
+      with_hrn_41_lister_raise(error_class) do
+        result = Reg.register(ATTRS)
+
+        refute result[:success]
+        assert_equal :hrn_file_failed, result[:error]
+        assert_equal 9, result[:dfn]
+        assert_equal Reg::HRN_UNREADABLE, result[:message]
+        refute_message_leaks_phi(result[:message])
+      end
+    end
   end
 end

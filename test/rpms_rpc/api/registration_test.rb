@@ -79,7 +79,7 @@ class RegistrationTest < Minitest::Test
   end
 
   def seed_hrn_41_readback(dfn, hrn_on_file)
-    key = Ddr.lister_param(file: "9000001.41", iens: ",#{dfn},", fields: ".02", flags: "IP").to_s
+    key = Ddr.lister_param(file: "9000001.41", iens: ",#{dfn},", fields: "@;.02", flags: "IP").to_s
     body = hrn_on_file == :empty ? "[Data]" : "[Data]\n1^#{hrn_on_file}"
     @mock.seed(:ddr_lister, key, body)
   end

@@ -28,7 +28,7 @@ class RegistrationSafetyTest < Minitest::Test
   end
 
   def seed_hrn_41_readback(dfn, hrn_on_file)
-    key = Ddr.lister_param(file: "9000001.41", iens: ",#{dfn},", fields: ".02", flags: "IP").to_s
+    key = Ddr.lister_param(file: "9000001.41", iens: ",#{dfn},", fields: "@;.02", flags: "IP").to_s
     @mock.seed(:ddr_lister, key, "[Data]\n1^#{hrn_on_file}")
   end
 
