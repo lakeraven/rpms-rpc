@@ -12,8 +12,13 @@
 # appointments at the next open weekday times (a refused time is skipped, not
 # captured), then signs on as PROV123 through CiaClient's development
 # fallback (this script does not set that pair) and checks in, cancels, and
-# no-shows. One JSON document on stdout. A failed step is an "error" field in
-# that document. Verify codes and other env values are never printed.
+# no-shows. Each persona's session DUZ is recorded under the access code
+# actually signed on as. Check-in, cancel, and no-show read the same DDR GETS
+# entries immediately before the write (read_before) and after it (read_back);
+# check-in also reads HOSPITAL LOCATION #44.003. A write the API reports
+# refused ({ success: false } or nil) is a step error. One JSON document on
+# stdout. A failed step is an "error" field in that document. Verify codes
+# and other env values are never printed.
 require "json"
 require "date"
 
@@ -57,6 +62,11 @@ class WriteCaptureDriver
   NULL_DEVICE = "ZZNULL"
   PARAMETER_FILE = "9009020.2"
   READ_BACK_COUNT = 2
+  CAUSATION_RPCS = [ CHECKIN_RPC, CANCEL_RPC, NOSHOW_RPC ].freeze
+  CLINIC_APPOINTMENT_FILE = "44.003"
+  CLINIC_LIST_FIELDS = "@;.01I"
+  CLINIC_LIST_MAX = "50"
+  CLINIC_GETS_FIELDS = ".01;309;302"
   LISTER_MAX = "500"
   # Clinic hours, each quarter-hour, so a later run the same day is not stuck
   # on the four times an earlier run already booked.
@@ -80,6 +90,7 @@ class WriteCaptureDriver
     @setup_access = nil
     @recorder = nil
     @booked_times = []
+    @session_duz = {}
   end
 
   def execute
@@ -157,6 +168,7 @@ class WriteCaptureDriver
     raise "RPMS_VERIFY is unset" if verify.nil? || verify.strip.empty?
 
     @recorder.authenticate(access, verify)
+    remember_duz(access)
     access
   end
 
@@ -171,6 +183,32 @@ class WriteCaptureDriver
     @recorder.disconnect
     @recorder.connect
     @recorder.authenticate
+    remember_duz(PILOT_PERSONA)
+  end
+
+  def remember_duz(persona)
+    key = persona.to_s
+    raise "signed-on persona is not synthetic" unless SYNTHETIC_PERSONAS.include?(key)
+
+    @session_duz[key] = positive_integer_duz(@recorder.duz)
+    setup = @out["setup"]
+    setup["duz"] = @session_duz.dup if setup.is_a?(Hash)
+  end
+
+  def positive_integer_duz(value)
+    return value if value.is_a?(Integer) && value.positive?
+
+    text = value.to_s
+    raise "session DUZ is not a positive integer" unless text.match?(/\A[1-9]\d*\z/)
+
+    Integer(text, 10)
+  end
+
+  def hospital_location_id
+    text = @out.dig("setup", "hospital_location_id").to_s.strip
+    raise "setup has no hospital location" if text.empty?
+
+    text
   end
 
   def provision
@@ -179,6 +217,7 @@ class WriteCaptureDriver
     @out["setup"] = {
       "resource_ien" => resource[:id],
       "hospital_location_id" => resource[:hospital_location_id],
+      "duz" => @session_duz.dup,
       "notes" => @notes.join("; ")
     }
   end
@@ -232,7 +271,7 @@ class WriteCaptureDriver
     listed = ddr_list(PARAMETER_FILE, "@;.01I;.05I")
     raise "no BSD PARAMETERS entries to set a file room printer on" if listed[:entries].empty?
 
-    missing = listed[:entries].select { |entry| entry[:pieces].to_a[1].to_s.split(";").first.strip.empty? }
+    missing = listed[:entries].select { |entry| entry[:pieces].to_a[1].to_s.split(";").first.to_s.strip.empty? }
     return [ "file room printer already set on every BSD PARAMETERS entry" ] if missing.empty?
 
     missing.map { |entry| set_file_room_printer(entry[:ien], null_ien) }
@@ -318,9 +357,7 @@ class WriteCaptureDriver
     calls, error = with_recording do
       result = RpmsRpc::Scheduling.add_appointment(**kwargs.transform_keys(&:to_sym))
       held[:refused] = result.is_a?(Hash) && result[:success] == false
-      held[:id] = result[:appointment_id] if result.is_a?(Hash) && result[:success]
-      raise "add_appointment was not accepted#{failure_detail(result)}" unless held[:id]
-
+      held[:id] = booked_id(result)
       read_appointment(held[:id], start_fm)
     end
     payload = if capture && held[:id]
@@ -329,6 +366,22 @@ class WriteCaptureDriver
     end
     { id: held[:id], start_time: start_time, start_fm: start_fm, payload: payload,
       refused: held[:refused] && held[:id].nil?, error: error }
+  end
+
+  # nil and { success: false } refuse the booking kept as the ADD capture.
+  # A false success while searching for an open time is retried by the caller.
+  def booked_id(result)
+    require_accepted_write!(result, "add_appointment")
+    id = result[:appointment_id].to_i
+    raise "add_appointment was refused#{failure_detail(result)}" unless id.positive?
+
+    id
+  end
+
+  def require_accepted_write!(result, method_name)
+    return if result.is_a?(Hash) && result[:success] == true
+
+    raise "#{method_name} was refused#{failure_detail(result)}"
   end
 
   def booking_kwargs(start_fm, end_fm)
@@ -379,14 +432,9 @@ class WriteCaptureDriver
       checkin_fm = RpmsRpc::FilemanDateParser.to_fileman(one_minute_before(server_now))
       args = [ booking[:id] ]
       kwargs = { "checkin_time" => checkin_fm }
-      calls, error = with_recording do
+      record_mutation(CHECKIN_RPC, "checkin_appointment", booking, args, kwargs, clinic: hospital_location_id) do
         RpmsRpc::Scheduling.checkin_appointment(*args, **kwargs.transform_keys(&:to_sym))
-        read_appointment(booking[:id], booking[:start_fm])
       end
-      @out["captures"][CHECKIN_RPC] = build_payload(
-        signed_on_as: PILOT_PERSONA, method: "checkin_appointment", args: args, kwargs: kwargs,
-        rpc: CHECKIN_RPC, calls: calls, error: error
-      )
     end
   end
 
@@ -398,14 +446,9 @@ class WriteCaptureDriver
       end
       args = [ booking[:id] ]
       kwargs = { "reason" => CANCEL_REASON, "type" => CANCEL_TYPE, "note" => CANCEL_NOTE }
-      calls, error = with_recording do
+      record_mutation(CANCEL_RPC, "cancel_appointment", booking, args, kwargs) do
         RpmsRpc::Scheduling.cancel_appointment(*args, **kwargs.transform_keys(&:to_sym))
-        read_appointment(booking[:id], booking[:start_fm])
       end
-      @out["captures"][CANCEL_RPC] = build_payload(
-        signed_on_as: PILOT_PERSONA, method: "cancel_appointment", args: args, kwargs: kwargs,
-        rpc: CANCEL_RPC, calls: calls, error: error
-      )
     end
   end
 
@@ -416,15 +459,25 @@ class WriteCaptureDriver
         next
       end
       args = [ booking[:id] ]
-      calls, error = with_recording do
+      record_mutation(NOSHOW_RPC, "mark_no_show", booking, args, {}) do
         RpmsRpc::Scheduling.mark_no_show(*args)
-        read_appointment(booking[:id], booking[:start_fm])
       end
-      @out["captures"][NOSHOW_RPC] = build_payload(
-        signed_on_as: PILOT_PERSONA, method: "mark_no_show", args: args, kwargs: {},
-        rpc: NOSHOW_RPC, calls: calls, error: error
-      )
     end
+  end
+
+  # The same DDR GETS calls immediately before the write and after it.
+  # nil or { success: false } from the API is a step error on this capture.
+  def record_mutation(rpc, method_name, booking, args, kwargs, clinic: nil)
+    calls, error = with_recording do
+      read_effect(booking[:id], booking[:start_fm], clinic: clinic)
+      result = yield
+      require_accepted_write!(result, method_name)
+      read_effect(booking[:id], booking[:start_fm], clinic: clinic)
+    end
+    @out["captures"][rpc] = build_payload(
+      signed_on_as: PILOT_PERSONA, method: method_name, args: args, kwargs: kwargs,
+      rpc: rpc, calls: calls, error: error
+    )
   end
 
   def capture_step(rpc)
@@ -447,6 +500,47 @@ class WriteCaptureDriver
     end
   end
 
+  def read_effect(appointment_ien, start_fm, clinic: nil)
+    read_appointment(appointment_ien, start_fm)
+    read_clinic_checkin(start_fm, clinic) unless clinic.nil?
+  end
+
+  # HOSPITAL LOCATION's appointment patients (#44.003) for this start and the
+  # resource's clinic, under CIAV VUECENTRIC (in_ddr). The lister only finds
+  # the sub-entry whose .01 is the patient; the GETS call is the evidence.
+  def read_clinic_checkin(start_fm, clinic)
+    canonical = canonical_fileman_datetime(start_fm)
+    list_iens = ",#{canonical},#{clinic},"
+    listed = in_ddr do
+      RpmsRpc::DdrFileman.lister(
+        file: CLINIC_APPOINTMENT_FILE, iens: list_iens, fields: CLINIC_LIST_FIELDS,
+        flags: "IP", max: CLINIC_LIST_MAX
+      )
+    end
+    raise "DDR LISTER on #{CLINIC_APPOINTMENT_FILE} gave no reply" if listed.nil?
+    raise "DDR LISTER on #{CLINIC_APPOINTMENT_FILE} errored" if listed[:error]
+    raise "DDR LISTER on #{CLINIC_APPOINTMENT_FILE} was not complete" if listed[:more]
+
+    matches = Array(listed[:entries]).select { |entry| clinic_patient?(entry) }
+    unless matches.size == 1
+      raise "HOSPITAL LOCATION #{CLINIC_APPOINTMENT_FILE} #{list_iens} has #{matches.size} entries for the patient"
+    end
+
+    sub_ien = matches.first[:ien].to_s
+    raise "HOSPITAL LOCATION entry has no sub-ien" if sub_ien.empty? || sub_ien == "0"
+
+    in_ddr do
+      RpmsRpc::DdrFileman.gets_entry(
+        file: CLINIC_APPOINTMENT_FILE, iens: "#{sub_ien},#{canonical},#{clinic},",
+        fields: CLINIC_GETS_FIELDS, flags: "I"
+      )
+    end
+  end
+
+  def clinic_patient?(entry)
+    entry[:pieces].to_a.first.to_s.split(";", 2).first.to_s.strip == PATIENT_DFN.to_s
+  end
+
   def with_recording
     mark = @recorder.rpc_calls.size
     error = nil
@@ -460,8 +554,8 @@ class WriteCaptureDriver
 
   def build_payload(signed_on_as:, method:, args:, kwargs:, rpc:, calls:, error:)
     write = calls.find { |call| call[:rpc] == rpc }
-    backs = calls.select { |call| call[:rpc] == DDR_RPC }
-    problems = payload_problems(write, backs, error, rpc)
+    before, after = gets_around_write(calls, rpc)
+    problems = payload_problems(write, before, after, error, rpc)
     payload = {
       "signed_on_as" => signed_on_as,
       "api_call" => { "method" => method, "args" => args, "kwargs" => kwargs }
@@ -470,25 +564,51 @@ class WriteCaptureDriver
       payload["inputs"] = export_value(write[:inputs])
       payload["raw"] = export_value(write[:raw])
     end
-    if backs.size == READ_BACK_COUNT && backs.all? { |call| call[:inputs].is_a?(Hash) }
-      payload["read_back"] = backs.map { |call| export_recorded(call) }
+    expect = expected_gets_count(rpc)
+    if CAUSATION_RPCS.include?(rpc) && complete_gets?(before, expect)
+      payload["read_before"] = before.map { |call| export_recorded(call) }
     end
+    payload["read_back"] = after.map { |call| export_recorded(call) } if complete_gets?(after, expect)
     payload["error"] = problems.join("; ") if problems.any?
     payload
   rescue StandardError => e
     { "signed_on_as" => signed_on_as, "error" => safe_error(e) }
   end
 
-  def payload_problems(write, backs, error, rpc)
+  def payload_problems(write, before, after, error, rpc)
     problems = []
     problems << error if error.is_a?(String) && !error.empty?
     problems << "no #{rpc} call recorded" if write.nil?
     problems << "recorded write inputs were not a parameter list" if write && !write[:inputs].is_a?(Array)
-    unless backs.size == READ_BACK_COUNT
-      problems << "read-back did not record #{READ_BACK_COUNT} DDR GETS ENTRY DATA calls"
+    expect = expected_gets_count(rpc)
+    if CAUSATION_RPCS.include?(rpc) && !complete_gets?(before, expect)
+      problems << "read-before did not record #{expect} DDR GETS ENTRY DATA calls"
     end
-    problems << "recorded read-back inputs were not parameter hashes" unless backs.all? { |call| call[:inputs].is_a?(Hash) }
+    unless complete_gets?(after, expect)
+      problems << "read-back did not record #{expect} DDR GETS ENTRY DATA calls"
+    end
     problems
+  end
+
+  def expected_gets_count(rpc)
+    rpc == CHECKIN_RPC ? READ_BACK_COUNT + 1 : READ_BACK_COUNT
+  end
+
+  def complete_gets?(calls, expect)
+    calls.size == expect && calls.all? { |call| call[:inputs].is_a?(Hash) }
+  end
+
+  # GETS calls before the write are read_before; GETS calls after it are
+  # read_back. DDR LISTER finds the #44.003 sub-entry and is not evidence.
+  def gets_around_write(calls, rpc)
+    write_at = calls.index { |call| call[:rpc] == rpc }
+    return [ [], evidence_gets(calls) ] if write_at.nil?
+
+    [ evidence_gets(calls[0...write_at]), evidence_gets(calls[(write_at + 1)..]) ]
+  end
+
+  def evidence_gets(calls)
+    Array(calls).select { |call| call[:rpc] == DDR_RPC }
   end
 
   def export_recorded(call)

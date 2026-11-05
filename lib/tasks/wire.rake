@@ -32,6 +32,13 @@ namespace :wire do
   SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
   LOOPBACK_HOSTS = %w[127.0.0.1 localhost ::1].freeze
   ADD_WRITE_RPC = "BSDX ADD NEW APPOINTMENT"
+  # Check-in, cancel, and no-show are proven only when read_before shows the
+  # effect was not already true. ADD has no read_before.
+  CAUSATION_WRITE_RPCS = [
+    "BSDX CHECKIN APPOINTMENT",
+    "BSDX CANCEL APPOINTMENT",
+    "BSDX NOSHOW"
+  ].freeze
   # Names the guards and not the values. Printed only when the task refuses
   # to start, before the driver is loaded and before any socket is opened.
   WRITE_CAPTURE_REFUSAL = "wire:capture_writes: refusing to run. Write captures require " \
@@ -268,10 +275,18 @@ namespace :wire do
     warn "wire:capture_writes: #{document["error"]}" if document["error"].is_a?(String) && !document["error"].empty?
 
     written = 0
+    skipped = []
     RpmsRpc::WireCapture::WRITE_CATALOG.each do |entry|
-      written += 1 if write_one_capture(entry, captures[entry.rpc], document["setup"], release, captured_at, dir)
+      if write_one_capture(entry, captures[entry.rpc], document["setup"], release, captured_at, dir)
+        written += 1
+      else
+        skipped << entry.rpc
+      end
     end
     puts "#{written} fixture(s) written to #{dir}"
+    # Names the RPCs only. Capture errors are already on the skip lines; this
+    # line must not repeat them, and it must not repeat environment values.
+    abort "wire:capture_writes: skipped #{skipped.join(", ")} (existing fixture kept)" if skipped.any?
   end
 
   def disposable_write_capture?
@@ -341,6 +356,11 @@ namespace :wire do
       warn "SKIP #{entry.rpc}: signed_on_as is not a synthetic persona (existing fixture kept)"
       return false
     end
+    duz = session_duz_map(setup["duz"])
+    unless duz&.key?(persona)
+      warn "SKIP #{entry.rpc}: setup did not record session DUZ (existing fixture kept)"
+      return false
+    end
 
     raw = capture["raw"]
     if raw.nil? || raw.to_s.empty?
@@ -366,9 +386,10 @@ namespace :wire do
       "sha256" => Digest::SHA256.hexdigest(raw),
       "write" => true,
       "api_call" => capture["api_call"],
-      "setup" => setup_for_fixture(setup),
+      "setup" => setup_for_fixture(setup, duz),
       "read_back" => read_back
     )
+    return false unless attach_read_before(entry, capture, data)
     return false unless attach_persona_probe(entry, capture, data)
 
     begin
@@ -389,12 +410,47 @@ namespace :wire do
       !setup["hospital_location_id"].nil? && !setup["hospital_location_id"].to_s.empty?
   end
 
-  def setup_for_fixture(setup)
+  def setup_for_fixture(setup, duz)
     {
       "resource_ien" => setup["resource_ien"],
       "hospital_location_id" => setup["hospital_location_id"],
+      "duz" => duz,
       "notes" => setup["notes"]
     }.compact
+  end
+
+  # Persona actually signed on as, to a positive integer DUZ. A non-synthetic
+  # key or a non-integer value rejects the whole map.
+  def session_duz_map(duz)
+    return nil unless duz.is_a?(Hash) && !duz.empty?
+
+    mapped = {}
+    duz.each do |persona, value|
+      key = persona.to_s
+      return nil unless SYNTHETIC_PERSONAS.include?(key) && value.is_a?(Integer) && value.positive?
+
+      mapped[key] = value
+    end
+    mapped
+  end
+
+  # Same entry shape as read_back. Required for check-in, cancel, and no-show.
+  def attach_read_before(entry, capture, data)
+    rows = capture["read_before"]
+    if rows.nil?
+      return true unless CAUSATION_WRITE_RPCS.include?(entry.rpc)
+
+      warn "SKIP #{entry.rpc}: read_before missing (existing fixture kept)"
+      return false
+    end
+
+    sealed = read_back_entries(rows)
+    unless sealed
+      warn "SKIP #{entry.rpc}: read_before incomplete (existing fixture kept)"
+      return false
+    end
+    data["read_before"] = sealed
+    true
   end
 
   def read_back_entries(rows)

@@ -172,12 +172,22 @@ customer instance. The task aborts before it loads the driver or opens a
 socket when those guards fail, or when `RPMS_ACCESS` is not a synthetic
 persona (`SYS123` or `PROV123`; the default is `SYS123`).
 
-A write's reply is not proof. The fixture's `read_back` is: DDR GETS ENTRY
-DATA on the appointment (`#9002018.4`) and the patient appointment (`#2.98`)
-immediately after the call. `source` is labelled from the write's own bytes
+A write's reply is not proof. The fixture's `read_back` is DDR GETS ENTRY
+DATA taken immediately after the call: the appointment (`#9002018.4`) and
+the patient appointment (`#2.98`). Check-in also reads the clinic appointment
+on HOSPITAL LOCATION (`#44.003`, fields `.01`, `309`, and `302`). The driver
+finds that sub-entry with DDR LISTER and records only the GETS call.
+
+Check-in, cancel, and no-show issue those same GETS calls again immediately
+before the write and store them as `read_before`. An effect counts only when
+it was not already true on that prior read.
+
+`source` is labelled from the write's own bytes
 (`live-capture` when there is a data row, `no-data` when there is not). An
 empty cancel reply is `no-data` and proves nothing by itself. A broker error
-reply is not written; the previous fixture stays.
+reply, or a write the API reports as refused, is not written; the previous
+fixture stays. If any of the four captures is skipped, the task exits
+non-zero after writing the ones that succeeded.
 
 These RPCs live in `RpmsRpc::WireCapture::WRITE_CATALOG` with
 `mode: :write_live`. They are not `CATALOG` entries. `mode: :write_live` is

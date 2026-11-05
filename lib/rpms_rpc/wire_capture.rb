@@ -79,20 +79,25 @@ module RpmsRpc
     # bytes it actually received instead of assuming "live-capture" and then
     # discovering at validation time that it was wrong.
     #
-    # A BMX recordset ($C(30) between rows, a typed column header, a $C(31)
-    # end marker) is split on that row break. The header and the end marker
-    # are not data. A reply with neither marker is split on newlines only, so
-    # a non-recordset fixture parses as it did before.
+    # A BMX recordset (the body contains $C(30) or $C(31)) is split on that
+    # row break. Its typed column header and its end marker are not data.
+    # That typed-header filter applies only to a recordset. A reply with
+    # neither marker is split on newlines, and header-shaped lines stay.
     def self.data_rows(raw)
       return [] if raw.nil?
 
       reply_rows(raw).reject { |row| non_data_row?(row) }
     end
 
-    # Non-empty reply lines with the recordset header and end marker removed.
-    # Blank lines stay out; a lines fixture keeps those separately.
+    # Non-empty reply lines. Blank lines stay out; a lines fixture keeps those
+    # separately. The typed BMX header is dropped only when the reply is a
+    # recordset (the body contains \x1e or \x1f). A non-recordset reply keeps
+    # header-shaped lines.
     def self.reply_rows(raw)
-      payload_rows(raw).reject(&:empty?).reject { |row| bmx_header_row?(row) }
+      rows = payload_rows(raw).reject(&:empty?)
+      return rows unless recordset_body?(raw)
+
+      rows.reject { |row| bmx_header_row?(row) }
     end
 
     # An explicit broker error ("-N^message"), as opposed to a no-data
@@ -129,10 +134,17 @@ module RpmsRpc
 
     def self.payload_rows(raw)
       body = raw.sub(/\A\d+[\x00\x01]/, "")
-      recordset = body.include?("\x1e") || body.include?("\x1f")
+      recordset = recordset_body?(raw)
       rows = body.split(recordset ? RECORDSET_BREAK : LINE_BREAK)
       rows.map! { |row| row.sub(RECORDSET_TRAILER, "") } if recordset
       rows
+    end
+
+    # A recordset reply carries $C(30) between rows or a $C(31) end marker.
+    # Anything else is split on newlines and is not run through the typed-header filter.
+    def self.recordset_body?(raw)
+      body = raw.to_s.sub(/\A\d+[\x00\x01]/, "")
+      body.include?("\x1e") || body.include?("\x1f")
     end
 
     def self.bmx_header_row?(line)
@@ -148,7 +160,7 @@ module RpmsRpc
       pieces = row.split("^", -1)
       pieces.length >= 4 && !pieces[0].empty? && !pieces[2].empty?
     end
-    private_class_method :payload_rows, :bmx_header_row?, :ddr_field_row?
+    private_class_method :payload_rows, :recordset_body?, :bmx_header_row?, :ddr_field_row?
 
     # Verdicts for a scratch capture against committed fixtures (rpms-ops#975),
     # one [rpc, verdict, committed source, captured source] row per RPC called
@@ -190,7 +202,7 @@ module RpmsRpc
       attr_reader :path, :rpc, :mapping_name, :kind, :source, :cite, :inputs,
                   :raw_return, :example_return, :sha256, :release_tag, :captured_at,
                   :pieces, :note, :signed_on_as, :write, :api_call, :read_back,
-                  :persona_probe
+                  :read_before, :persona_probe
 
       def self.load_all(dir = FIXTURES_DIR)
         Dir.glob(File.join(dir, "*.yml")).sort.map { |path| load_file(path) }
@@ -218,6 +230,7 @@ module RpmsRpc
         @write = data["write"] == true
         @api_call = data["api_call"]
         @read_back = data["read_back"]
+        @read_before = data["read_before"]
         @persona_probe = data["persona_probe"]
         @pieces = (data["pieces"] || []).map do |p|
           Piece.new(position: p["position"],
@@ -339,19 +352,32 @@ module RpmsRpc
       end
 
       def validate_write_capture!
+        unless SYNTHETIC_PERSONAS.include?(@signed_on_as.to_s)
+          fail!("signed_on_as must be a synthetic persona")
+        end
         entries = @read_back
         fail!("write fixture requires non-empty read_back") if !entries.is_a?(Array) || entries.empty?
-        entries.each { |entry| validate_read_back!(entry) }
+        entries.each { |entry| validate_sealed_ddr_entry!(entry, "read_back") }
+        validate_read_before! unless @read_before.nil?
         validate_persona_probe! unless @persona_probe.nil?
       end
 
-      def validate_read_back!(entry)
-        fail!("read_back entry must be a map of rpc, inputs, raw_return, sha256") unless entry.is_a?(Hash)
+      # Present read_before is evidence of prior state. It has to be a
+      # non-empty list of sealed, DDR-valid GETS replies. Absent means this
+      # fixture was captured before that field existed.
+      def validate_read_before!
+        entries = @read_before
+        fail!("read_before must be non-empty") if !entries.is_a?(Array) || entries.empty?
+        entries.each { |entry| validate_sealed_ddr_entry!(entry, "read_before") }
+      end
+
+      def validate_sealed_ddr_entry!(entry, label)
+        fail!("#{label} entry must be a map of rpc, inputs, raw_return, sha256") unless entry.is_a?(Hash)
 
         raw = entry["raw_return"].to_s
         actual = Digest::SHA256.hexdigest(raw)
-        fail!("read_back sha256 does not match raw_return (#{actual})") unless actual == entry["sha256"]
-        fail!("read_back has no DDR data rows") unless WireCapture.valid_ddr_read_back_raw?(raw)
+        fail!("#{label} sha256 does not match raw_return (#{actual})") unless actual == entry["sha256"]
+        fail!("#{label} has no DDR data rows") unless WireCapture.valid_ddr_read_back_raw?(raw)
       end
 
       def validate_persona_probe!
@@ -389,7 +415,10 @@ module RpmsRpc
     end
 
     # Wraps a broker client and records each `call_rpc_raw` /
-    # `call_rpc_global_array` return. Scheduling and DataMapper call
+    # `call_rpc_global_array` return. The hooks are prepended onto the
+    # delegate's singleton class and stay there for that object's lifetime,
+    # so this must wrap a client created for the capture only, never the
+    # process-global RpmsRpc.client. Scheduling and DataMapper call
     # `call_rpc`, which calls `call_rpc_raw` on the same object, so the
     # hooks sit on the delegate — forwarding the wrapper's method is not
     # enough to see those bytes. Every other method, including context
