@@ -209,11 +209,22 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
   end
 
   def note_body_lines_after_header(text)
-    lines = payload_without_cia_framing(text).split(/\r?\n/, -1)
+    lines = payload_without_cia_framing(text).split(/\r\n|\r|\n/, -1)
     blank = lines.index(&:empty?)
     return [] if blank.nil?
 
     lines[(blank + 1)..] || []
+  end
+
+  # Live TIU GET RECORD TEXT replies use CIA row grammar (\r or \r\n), not \n-only fixtures.
+  def tiu_read_back_live_rows(note_body, row_sep)
+    first_line = note_body.lines.first.to_s.chomp
+    header = [
+      "LOCAL TITLE: Progress Note",
+      "STANDARD TITLE: PRIMARY CARE PROGRESS NOTE",
+      "     URGENCY:   STATUS: UNSIGNED"
+    ].join(row_sep)
+    "#{header}#{row_sep}#{row_sep}#{first_line}#{row_sep}"
   end
 
   def tiu_read_back_with_header(note_body)
@@ -340,6 +351,10 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     read_back = tiu_read_back_with_header(body)
     assert write_evidence?(get_entry, framed(read_back), note_body: body),
            "read-back with note body must be write evidence"
+    assert write_evidence?(get_entry, framed(tiu_read_back_live_rows(body, "\r")), note_body: body),
+           "read-back with \\r row separators must be write evidence"
+    assert write_evidence?(get_entry, framed(tiu_read_back_live_rows(body, "\r\n")), note_body: body),
+           "read-back with \\r\\n row separators must be write evidence"
   end
 
   def test_write_evidence_rejects_errors_empty_and_refused_writes
@@ -361,6 +376,13 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     refute write_evidence?(sign_entry, framed(ESIG_REFUSAL))
     refute write_evidence?(get_entry, framed(""), note_body: body)
     refute write_evidence?(get_entry, framed("LOCAL TITLE: only\n"), note_body: body)
+    cr_header = [
+      "LOCAL TITLE: Progress Note",
+      "STANDARD TITLE: PRIMARY CARE PROGRESS NOTE",
+      "     URGENCY:   STATUS: UNSIGNED"
+    ].join("\r")
+    read_back_cr_without_note = "#{cr_header}\r\runrelated read-back line without NOTE_TEXT\r"
+    refute write_evidence?(get_entry, framed(read_back_cr_without_note), note_body: body)
   end
 
   def test_write_refusal_requires_loopback_host_and_host_mode
