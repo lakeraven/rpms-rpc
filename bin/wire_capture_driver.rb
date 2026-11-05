@@ -10,8 +10,11 @@
 #     RPMS_ACCESS=... RPMS_VERIFY=... ruby wire_capture_driver.rb
 #
 # Connects the real client (RpmsRpc::CiaClient) to the rung's broker. A read
-# run calls the live catalog — read RPCs with synthetic inputs, against a
-# rung we own, never a customer instance. A WRITES=1 run calls none of those.
+# run calls every LIVE-mode entry in RpmsRpc::WireCapture::CATALOG — read RPCs
+# with synthetic inputs, against a rung we own, never a customer instance. An
+# entry that names a context option is called inside client.with_context, so
+# the broker sees that option (AGG LOOKUP PATIENTS is registered under AGGRPC
+# only). A WRITES=1 run calls none of those.
 # It prints one JSON document on stdout. The host-side rake task turns that
 # into provenance-stamped fixtures. This script does not edit captured bytes.
 #
@@ -80,7 +83,11 @@ entries = RpmsRpc::WireCapture.driver_read_entries(writes: writes, only: only, c
 out["selected"] = entries.map(&:rpc)
 
 entries.each do |entry|
-  raw = client.call_rpc_raw(entry.rpc, *entry.inputs)
+  raw = if entry.context
+          client.with_context(entry.context) { client.call_rpc_raw(entry.rpc, *entry.inputs) }
+        else
+          client.call_rpc_raw(entry.rpc, *entry.inputs)
+        end
   raw = raw.join("\n") if raw.is_a?(Array)
   out["captures"][entry.rpc] = { "inputs" => entry.inputs, "raw" => raw.to_s }
 rescue StandardError => e

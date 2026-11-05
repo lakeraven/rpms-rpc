@@ -399,6 +399,343 @@ class DdrFilemanTest < Minitest::Test
     refute result[:malformed]
   end
 
+  # rpms-rpc#540: bracket-shaped stored text must not be skipped as a marker.
+  def test_gets_entry_bracket_line_outside_known_markers_sets_stray
+    key = Ddr.gets_entry_param(file: "9002011", iens: "8840,", fields: "1601;.01", flags: "I").to_s
+    @mock.seed(:ddr_gets_entry_data, key,
+      "[Data]\n9002011^8840^1601^Alcohol baseline\n[follow-up later]\n9002011^8840^.01^SYNTH^SYNTH")
+
+    result = Ddr.gets_entry(file: "9002011", iens: "8840,", fields: "1601;.01", flags: "I")
+
+    assert result[:stray]
+    assert_equal "Alcohol baseline", result[:fields]["1601"][:internal]
+  end
+
+  def test_gets_entry_second_row_for_same_field_sets_stray
+    key = Ddr.gets_entry_param(file: "9002011", iens: "8840,", fields: "1601", flags: "I").to_s
+    @mock.seed(:ddr_gets_entry_data, key,
+      "[Data]\n9002011^8840^1601^First comment^First\n9002011^8840^1601^Second comment^Second")
+
+    result = Ddr.gets_entry(file: "9002011", iens: "8840,", fields: "1601", flags: "I")
+
+    assert result[:stray]
+    assert_equal "Second comment", result[:fields]["1601"][:internal]
+  end
+
+  def test_gets_entry_second_data_marker_line_sets_stray
+    key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01;.02", flags: "IE").to_s
+    @mock.seed(:ddr_gets_entry_data, key,
+      "[Data]\n9000001^42^.01^42^NAME\n[Data]\n9000001^42^.02^F^FEMALE")
+
+    result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01;.02", flags: "IE")
+
+    assert result[:stray]
+    assert_equal "F", result[:fields][".02"][:internal]
+  end
+
+  def test_gets_entry_second_word_processing_row_for_same_field_sets_stray
+    key = Ddr.gets_entry_param(file: "9002011", iens: "8840,", fields: "1601", flags: "I").to_s
+    @mock.seed(:ddr_gets_entry_data, key,
+      "[Data]\n9002011^8840^1601^[WORD PROCESSING]\nline one\n$$END$$\n" \
+      "9002011^8840^1601^[WORD PROCESSING]\nline two\n$$END$$")
+
+    result = Ddr.gets_entry(file: "9002011", iens: "8840,", fields: "1601", flags: "I")
+
+    assert result[:stray]
+  end
+
+  def test_gets_entry_begin_dierrors_marker_sets_stray_and_field_rows_after_it_still_parse
+    key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01;.02", flags: "IE").to_s
+    @mock.seed(:ddr_gets_entry_data, key,
+      "[Data]\n9000001^42^.01^42^NAME\n[BEGIN_diERRORS]\n9000001^42^.02^F^FEMALE\n[END_diERRORS]")
+
+    result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01;.02", flags: "IE")
+
+    assert result[:stray]
+    assert_equal "F", result[:fields][".02"][:internal]
+  end
+
+  def test_gets_entry_well_formed_reply_has_no_stray_or_altered_keys
+    key = Ddr.gets_entry_param(file: "9000001", iens: "42,", fields: ".01", flags: "IE").to_s
+    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9000001^42^.01^42^DEMOPATIENT,UNA")
+
+    result = Ddr.gets_entry(file: "9000001", iens: "42,", fields: ".01", flags: "IE")
+
+    refute result.key?(:stray)
+    refute result.key?(:altered)
+    refute result[:error]
+    refute result[:malformed]
+  end
+
+  # --- rpms-rpc#557 / #540: FLAGS "I" row shape (GETSC^DDR2 empty external) ---
+
+  BH_VISIT_FILE = "9002011"
+  VISIT_IEN = "8840"
+
+  def test_gets_entry_flags_i_comment_row_trailing_empty_piece_parses_internal_without_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol baseline note^"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert_equal "Alcohol baseline note", result.dig(:fields, "1601", :internal)
+    assert_equal "", result.dig(:fields, "1601", :external)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_flags_i_comment_row_caret_in_internal_recovered_without_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol^baseline note^"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert_equal "Alcohol^baseline note", result.dig(:fields, "1601", :internal)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_flags_i_comment_row_x_caret_x_trailing_empty_piece_without_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1601^x^x^")
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert_equal "x^x", result.dig(:fields, "1601", :internal)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_flags_i_comment_row_empty_internal_trailing_empty_piece_without_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1601^^")
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert_equal "", result.dig(:fields, "1601", :internal)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_flags_i_comment_four_piece_row_sets_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol baseline note"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert result[:stray],
+           "FLAGS I always emits a trailing empty external piece; four pieces is stray"
+  end
+
+  def test_gets_entry_flags_i_comment_row_x_caret_x_four_piece_sets_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1601^x^x")
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert result[:stray]
+  end
+
+  def test_gets_entry_flags_i_comment_row_non_empty_trailing_piece_sets_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol^Alcohol"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert result[:stray],
+           "FLAGS I never populates external; a non-empty last piece is stray"
+  end
+
+  def test_gets_entry_flags_i_non_comment_row_trailing_empty_piece_parses_internal
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1401", flags: "I"
+    ).to_s
+    @mock.seed(:ddr_gets_entry_data, key, "[Data]\n9002011^8840^1401^N^")
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1401", flags: "I"
+    )
+
+    assert_equal "N", result.dig(:fields, "1401", :internal)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_flags_ie_comment_row_parses_internal_and_external_without_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "IE"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^a^b"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "IE"
+    )
+
+    assert_equal "a", result.dig(:fields, "1601", :internal)
+    assert_equal "b", result.dig(:fields, "1601", :external)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_default_flags_comment_row_parses_internal_and_external_without_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: ""
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^a^b"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: ""
+    )
+
+    assert_equal "a", result.dig(:fields, "1601", :internal)
+    assert_equal "b", result.dig(:fields, "1601", :external)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_flags_i_word_processing_header_immediate_end_on_comment_field_sets_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^1601^[WORD PROCESSING]\n$$END$$"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1601", flags: "I"
+    )
+
+    assert result[:stray],
+           "an empty word-processing block on a visit comment field must set stray"
+  end
+
+  def test_gets_entry_flags_i_word_processing_header_only_on_1401_yields_text_without_internal
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1401", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n9002011^8840^1401^[WORD PROCESSING]"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1401", flags: "I"
+    )
+
+    entry = result.dig(:fields, "1401")
+    assert_equal [], entry[:text]
+    refute entry.key?(:internal)
+  end
+
+  def test_gets_entry_flags_i_word_processing_header_only_on_1402_yields_text_without_internal
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1402", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n9002011^8840^1402^[WORD PROCESSING]"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "1402", flags: "I"
+    )
+
+    entry = result.dig(:fields, "1402")
+    assert_equal [], entry[:text]
+    refute entry.key?(:internal)
+  end
+
+  def test_gets_entry_word_processing_on_visit_field_2001_sets_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "2001", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^2001^[WORD PROCESSING]\nhidden\n$$END$$"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "2001", flags: "I"
+    )
+
+    assert result[:stray],
+           "word-processing on a VISIT_FIELDS comment field must set stray on gets_entry"
+  end
+
+  def test_gets_entry_word_processing_block_still_open_at_end_sets_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "2001", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^2001^[WORD PROCESSING]\nunclosed"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "2001", flags: "I"
+    )
+
+    assert result[:stray],
+           "a word-processing block still open at end of reply must set stray on gets_entry"
+  end
+
+  def test_gets_entry_well_formed_word_processing_on_non_visit_field_has_no_stray
+    key = Ddr.gets_entry_param(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "5301", flags: "I"
+    ).to_s
+    @mock.seed(
+      :ddr_gets_entry_data, key,
+      "[Data]\n#{BH_VISIT_FILE}^#{VISIT_IEN}^5301^[WORD PROCESSING]\naxis line\n$$END$$"
+    )
+
+    result = Ddr.gets_entry(
+      file: BH_VISIT_FILE, iens: "#{VISIT_IEN},", fields: "5301", flags: "I"
+    )
+
+    refute result[:stray]
+    assert_equal [ "axis line" ], result.dig(:fields, "5301", :text)
+  end
+
   # ==========================================================================
   # DDR VALIDATOR
   # ==========================================================================
