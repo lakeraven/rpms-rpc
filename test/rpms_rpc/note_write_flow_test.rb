@@ -47,6 +47,11 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
       raise "unexpected RPC #{rpc} (no scripted reply)" if step.nil?
       raise "expected #{step[:rpc]}, got #{rpc}" unless step[:rpc] == rpc
 
+      if step[:raise]
+        ex = step[:raise].is_a?(Class) ? step[:raise] : RuntimeError
+        raise ex, step[:message] || "scripted raise"
+      end
+
       @framer.call(step[:raw])
     end
 
@@ -209,5 +214,152 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     refute result.key?(SET_TEXT_RPC)
     refute result.key?(UNLOCK_RPC)
     refute result.key?(SIGN_RPC)
+  end
+
+  def test_reply_containing_signature_code_is_quarantined_not_redacted_in_raw
+    esig = "731905"
+    note_ien = "2731905"
+    body_line = note_text.lines.first.to_s.chomp
+    client = ScriptedClient.new(
+      [
+        { rpc: CREATE_RPC, raw: note_ien },
+        { rpc: LOCK_RPC, raw: "0" },
+        { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
+        { rpc: GET_TEXT_RPC, raw: "H\n\n#{body_line}\n" },
+        { rpc: UNLOCK_RPC, raw: "0" }
+      ],
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    result = run_flow(client, esig: esig)
+
+    create = result[CREATE_RPC]
+    assert create.key?("error"), "create reply embeds the signature code — must not return edited raw"
+    refute create.key?("raw"), "quarantined step must not carry raw"
+    assert_match(/signature code/i, create["error"])
+    assert_match(/not recorded/i, create["error"])
+    refute_includes create["error"], esig
+
+    result.each_value do |capture|
+      next unless capture.is_a?(Hash) && capture["raw"].is_a?(String)
+
+      refute_includes capture["raw"], esig
+      refute_includes capture["raw"], withheld
+    end
+  end
+
+  def test_quarantine_secrets_replaces_tainted_captures_and_leaves_others_byte_identical
+    flow = flow_class
+    assert flow.respond_to?(:quarantine_secrets), "NoteWriteFlow.quarantine_secrets missing"
+
+    secret = "731905"
+    pristine_raw = "5\x009"
+    tainted_raw = "5\x0012731905"
+    captures = {
+      CREATE_RPC => { "inputs" => [ "4" ], "raw" => pristine_raw.dup },
+      LOCK_RPC => { "inputs" => [ "9" ], "raw" => "5\x000" },
+      SET_TEXT_RPC => {
+        "inputs" => [ "9", { "HDR" => "1^1" } ],
+        "raw" => tainted_raw.dup
+      }
+    }
+    out = flow.quarantine_secrets(captures, [ secret ])
+
+    assert_equal pristine_raw, out[CREATE_RPC]["raw"],
+                 "untainted capture raw must be unchanged byte-for-byte"
+    tainted = out[SET_TEXT_RPC]
+    assert tainted.key?("error"), "capture whose raw contains a secret must become an error"
+    refute tainted.key?("raw")
+    assert_match(/signature code/i, tainted["error"])
+    refute_includes tainted["error"], secret
+
+    input_tainted = flow.quarantine_secrets(
+      { GET_TEXT_RPC => { "inputs" => [ secret ], "raw" => "5\x00ok" } },
+      [ secret ]
+    )
+    assert input_tainted[GET_TEXT_RPC].key?("error")
+    refute input_tainted[GET_TEXT_RPC].key?("raw")
+  end
+
+  def test_set_text_raise_still_unlocks_and_skips_sign
+    note_ien = "6"
+    client = ScriptedClient.new(
+      [
+        { rpc: CREATE_RPC, raw: note_ien },
+        { rpc: LOCK_RPC, raw: "0" },
+        { rpc: SET_TEXT_RPC, raise: RuntimeError, message: "SET failed" },
+        { rpc: UNLOCK_RPC, raw: "0" }
+      ],
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    result = run_flow(client, esig: "synthetic-esig-77")
+
+    assert result[SET_TEXT_RPC].key?("error"), "set-text failure must be recorded as error"
+    unlock = result[UNLOCK_RPC]
+    refute_nil unlock, "lock held after failed set-text must still be released"
+    assert unlock.key?("raw"), "UNLOCK must be captured"
+    assert_equal framed_payload("0"), unlock["raw"]
+    refute result.key?(SIGN_RPC), "sign must not run after set-text failure"
+  end
+
+  def test_get_text_raise_still_unlocks_and_skips_sign
+    note_ien = "6"
+    body_line = note_text.lines.first.to_s.chomp
+    client = ScriptedClient.new(
+      [
+        { rpc: CREATE_RPC, raw: note_ien },
+        { rpc: LOCK_RPC, raw: "0" },
+        { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
+        { rpc: GET_TEXT_RPC, raise: RuntimeError, message: "GET failed" },
+        { rpc: UNLOCK_RPC, raw: "0" }
+      ],
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    result = run_flow(client, esig: "synthetic-esig-77")
+
+    assert result[GET_TEXT_RPC].key?("error")
+    unlock = result[UNLOCK_RPC]
+    refute_nil unlock
+    assert unlock.key?("raw")
+    refute result.key?(SIGN_RPC)
+  end
+
+  def test_driver_read_entries_empty_on_write_run
+    assert RpmsRpc::WireCapture.respond_to?(:driver_read_entries),
+           "WireCapture.driver_read_entries missing"
+
+    assert_equal [], RpmsRpc::WireCapture.driver_read_entries(writes: true, only: "", cite_only: [])
+    assert_equal [], RpmsRpc::WireCapture.driver_read_entries(
+      writes: true, only: "ORQQVI VITALS", cite_only: [ "ORQQPL LIST" ]
+    )
+  end
+
+  def test_driver_read_entries_selects_live_reads_when_not_writing
+    live = RpmsRpc::WireCapture::CATALOG.select(&:live?)
+    expected = live.map(&:rpc).sort
+    got = RpmsRpc::WireCapture.driver_read_entries(writes: false, only: "", cite_only: [])
+    assert_equal expected, got.map(&:rpc).sort
+
+    only_rpc = "ORQQVI VITALS"
+    filtered = RpmsRpc::WireCapture.driver_read_entries(writes: nil, only: only_rpc, cite_only: [])
+    assert_equal [ only_rpc ], filtered.map(&:rpc)
+
+    cite = "ORQQPL LIST"
+    without_cited = RpmsRpc::WireCapture.driver_read_entries(
+      writes: false, only: "", cite_only: [ cite ]
+    )
+    refute_includes without_cited.map(&:rpc), cite
+  end
+
+  def test_wire_capture_driver_calls_driver_read_entries
+    path = File.expand_path("../../bin/wire_capture_driver.rb", __dir__)
+    src = File.binread(path).force_encoding(Encoding::UTF_8)
+    assert_match(/\bdriver_read_entries\b/, src,
+                 "bin/wire_capture_driver.rb must select read captures via driver_read_entries")
   end
 end

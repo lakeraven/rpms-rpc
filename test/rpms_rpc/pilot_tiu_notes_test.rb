@@ -40,6 +40,8 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     \z
   /x
 
+  NOTE_IEN_IN_REASON = /\bnote (IEN )?\d+\b/
+
   LOCKED_ELSEWHERE = "1^ Another session has this record locked."
   ESIG_REFUSAL = "89250005^You have entered an incorrect Electronic Signature Code...Try again!"
 
@@ -128,14 +130,32 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     end
   end
 
-  def write_evidence?(entry, raw, note_body: nil)
+  def write_evidence?(entry, raw, note_body: nil, note_ien: :__unset__)
     assert RpmsRpc::WireCapture.respond_to?(:write_evidence?),
            "RpmsRpc::WireCapture.write_evidence? missing"
+    params = RpmsRpc::WireCapture.method(:write_evidence?).parameters
+    if note_ien != :__unset__
+      flunk "write_evidence? must accept note_ien: keyword" unless params.any? { |_, name| name == :note_ien }
+
+      kwargs = { note_ien: note_ien }
+      kwargs[:note_body] = note_body if note_body
+      return RpmsRpc::WireCapture.write_evidence?(entry, raw, **kwargs)
+    end
     if note_body
       RpmsRpc::WireCapture.write_evidence?(entry, raw, note_body: note_body)
     else
       RpmsRpc::WireCapture.write_evidence?(entry, raw)
     end
+  end
+
+  def write_refusal(**kwargs)
+    params = RpmsRpc::WireCapture.method(:write_refusal).parameters.map(&:last)
+    %i[access resolver].each do |key|
+      next unless kwargs.key?(key)
+
+      flunk "write_refusal must accept #{key}:" unless params.include?(key)
+    end
+    RpmsRpc::WireCapture.write_refusal(**kwargs)
   end
 
   def note_text
@@ -225,6 +245,56 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
       "     URGENCY:   STATUS: UNSIGNED"
     ].join(row_sep)
     "#{header}#{row_sep}#{row_sep}#{first_line}#{row_sep}"
+  end
+
+  def tiu_read_back_header(row_sep)
+    [
+      "LOCAL TITLE: Progress Note",
+      "STANDARD TITLE: PRIMARY CARE PROGRESS NOTE",
+      "     URGENCY:   STATUS: UNSIGNED"
+    ].join(row_sep)
+  end
+
+  def wrap_line_for_readback(line, width: RpmsRpc::ProgressNote::WRAP_WIDTH)
+    bytes = line.to_s.b
+    return [ line.to_s ] if bytes.bytesize <= width
+
+    pieces = []
+    until bytes.empty?
+      if bytes.bytesize <= width
+        pieces << bytes
+        break
+      end
+      cut = width
+      cut -= 1 while cut.positive? && bytes[cut] & 0x80 != 0 && (bytes[cut] & 0xC0) != 0xC0
+      pieces << bytes[0, cut]
+      bytes = bytes[cut..]
+    end
+    pieces.map { |part| part.force_encoding(line.encoding) }
+  end
+
+  def tiu_read_back_full_wrapped(note_body, row_sep)
+    header = tiu_read_back_header(row_sep)
+    body_lines = note_body.lines.map(&:chomp).flat_map do |line|
+      wrap_line_for_readback(line)
+    end
+    ([ header, "" ] + body_lines).join(row_sep) + row_sep
+  end
+
+  def tiu_read_back_with_unwrapped_long_line(note_body, row_sep)
+    header = tiu_read_back_header(row_sep)
+    lines = note_body.lines.map(&:chomp)
+    long = lines.find { |l| l.bytesize > RpmsRpc::ProgressNote::WRAP_WIDTH } || lines.last
+    short = lines.reject { |l| l == long }
+    body_lines = short.flat_map { |l| wrap_line_for_readback(l) } + [ long ]
+    ([ header, "" ] + body_lines).join(row_sep) + row_sep
+  end
+
+  def tiu_read_back_missing_word(note_body, row_sep)
+    full = tiu_read_back_full_wrapped(note_body, row_sep)
+    words = note_body.split(/\s+/)
+    drop = words.find { |w| w.length > 4 } || words.last
+    full.sub(drop, "xyzzy")
   end
 
   def tiu_read_back_with_header(note_body)
@@ -340,21 +410,46 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
 
     assert write_evidence?(create_entry, framed(note_ien)),
            "create success IEN must be write evidence"
-    assert write_evidence?(lock_entry, framed("0")),
+    assert write_evidence?(lock_entry, framed("0"), note_ien: note_ien),
            "lock held (0) must be write evidence"
-    assert write_evidence?(set_entry, framed("#{note_ien}^1^1")),
-           "set-text acknowledgement must be write evidence"
+    assert write_evidence?(set_entry, framed("#{note_ien}^1^1"), note_ien: note_ien),
+           "set-text acknowledgement must match note_ien"
+    refute write_evidence?(set_entry, framed("12^1^1"), note_ien: note_ien),
+           "set-text reply IEN must match note_ien"
+    refute write_evidence?(set_entry, framed("#{note_ien}^1^1")),
+           "set-text without note_ien must fail closed"
     assert write_evidence?(unlock_entry, framed("0")),
            "unlock success must be write evidence"
     assert write_evidence?(sign_entry, framed("0")),
            "sign success must be write evidence"
-    read_back = tiu_read_back_with_header(body)
+    read_back = tiu_read_back_full_wrapped(body, "\n")
     assert write_evidence?(get_entry, framed(read_back), note_body: body),
-           "read-back with note body must be write evidence"
-    assert write_evidence?(get_entry, framed(tiu_read_back_live_rows(body, "\r")), note_body: body),
+           "read-back must prove every NOTE_TEXT line, wrapped within WRAP_WIDTH"
+    assert write_evidence?(get_entry, framed(tiu_read_back_full_wrapped(body, "\r")), note_body: body),
            "read-back with \\r row separators must be write evidence"
-    assert write_evidence?(get_entry, framed(tiu_read_back_live_rows(body, "\r\n")), note_body: body),
+    assert write_evidence?(get_entry, framed(tiu_read_back_full_wrapped(body, "\r\n")), note_body: body),
            "read-back with \\r\\n row separators must be write evidence"
+  end
+
+  def test_write_evidence_read_back_rejects_partial_or_unwrapped_bodies
+    get_entry = catalog_entry!("TIU GET RECORD TEXT")
+    body = note_text
+    row_sep = "\r"
+
+    first_only = tiu_read_back_live_rows(body, row_sep)
+    refute write_evidence?(get_entry, framed(first_only), note_body: body),
+           "first NOTE_TEXT line alone must not be evidence"
+
+    long_line = body.lines.find { |l| l.bytesize > RpmsRpc::ProgressNote::WRAP_WIDTH }
+    skip "NOTE_TEXT has no line longer than WRAP_WIDTH" unless long_line
+
+    unwrapped = tiu_read_back_with_unwrapped_long_line(body, row_sep)
+    refute write_evidence?(get_entry, framed(unwrapped), note_body: body),
+           "body line over WRAP_WIDTH must not be evidence"
+
+    missing_word = tiu_read_back_missing_word(body, row_sep)
+    refute write_evidence?(get_entry, framed(missing_word), note_body: body),
+           "body missing a NOTE_TEXT word must not be evidence"
   end
 
   def test_write_evidence_rejects_errors_empty_and_refused_writes
@@ -387,34 +482,83 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
 
   def test_write_refusal_requires_loopback_host_and_host_mode
     assert RpmsRpc::WireCapture.respond_to?(:write_refusal), "WireCapture.write_refusal missing"
+    persona = { access: PILOT_PERSONA }
 
     [ false, nil ].each do |writes|
-      assert_nil RpmsRpc::WireCapture.write_refusal(writes: writes, host: "10.0.0.5", container: "rpms-ydb-9.0"),
-                 "writes #{writes.inspect} must not be refused"
-      assert_nil RpmsRpc::WireCapture.write_refusal(writes: writes, host: "127.0.0.1", container: nil),
-                 "writes #{writes.inspect} must not be refused"
+      assert_nil write_refusal(
+        writes: writes, host: "10.0.0.5", container: "rpms-ydb-9.0", access: "REALCODE"
+      ), "writes #{writes.inspect} must not be refused (access ignored on reads)"
+      assert_nil write_refusal(
+        writes: writes, host: "127.0.0.1", container: nil, access: PILOT_PERSONA
+      ), "writes #{writes.inspect} must not be refused"
     end
 
-    %w[127.0.0.1 localhost ::1].each do |host|
-      assert_nil RpmsRpc::WireCapture.write_refusal(writes: true, host: host, container: nil),
-                 "loopback #{host} in host mode (no CONTAINER) must allow writes"
-      assert_nil RpmsRpc::WireCapture.write_refusal(writes: true, host: host, container: ""),
-                 "empty CONTAINER is unset — same as host mode"
+    %w[127.0.0.1 localhost ::1 127.0.0.2].each do |host|
+      assert_nil write_refusal(
+        writes: true, host: host, container: nil, **persona
+      ), "loopback #{host} in host mode (no CONTAINER) must allow writes"
+      assert_nil write_refusal(
+        writes: true, host: host, container: "", **persona
+      ), "empty CONTAINER is unset — same as host mode"
     end
 
-    off_host = RpmsRpc::WireCapture.write_refusal(writes: true, host: "10.0.0.5", container: nil)
+    off_host = write_refusal(
+      writes: true, host: "10.0.0.5", container: nil, **persona
+    )
     refute_nil off_host
     assert_match(/loopback/i, off_host)
 
-    in_container = RpmsRpc::WireCapture.write_refusal(writes: true, host: "127.0.0.1", container: "rpms-ydb-9.0")
+    doc_test_net = write_refusal(
+      writes: true, host: "192.0.2.1", container: nil, **persona
+    )
+    refute_nil doc_test_net
+    assert_match(/loopback/i, doc_test_net)
+
+    in_container = write_refusal(
+      writes: true, host: "127.0.0.1", container: "rpms-ydb-9.0", **persona
+    )
     refute_nil in_container
     assert_match(/CONTAINER/i, in_container)
 
     [ nil, "" ].each do |host|
-      refused = RpmsRpc::WireCapture.write_refusal(writes: true, host: host, container: nil)
+      refused = write_refusal(
+        writes: true, host: host, container: nil, **persona
+      )
       refute_nil refused, "writes with host #{host.inspect} must be refused"
       assert_match(/loopback/i, refused)
     end
+
+    unresolvable = write_refusal(
+      writes: true, host: "host.invalid", container: nil, **persona
+    )
+    refute_nil unresolvable
+    assert_match(/loopback/i, unresolvable)
+
+    fake_localhost = write_refusal(
+      writes: true,
+      host: "localhost",
+      container: nil,
+      access: PILOT_PERSONA,
+      resolver: ->(_host) { [ "10.0.0.5" ] }
+    )
+    refute_nil fake_localhost
+    assert_match(/loopback/i, fake_localhost)
+  end
+
+  def test_write_refusal_requires_synthetic_persona_for_writes
+    refusal = write_refusal(
+      writes: true, host: "127.0.0.1", container: nil, access: "NOT-A-README-PERSONA"
+    )
+    refute_nil refusal
+    refute_includes refusal, "NOT-A-README-PERSONA"
+    refute_includes refusal, "NOT"
+
+    assert_nil write_refusal(
+      writes: true, host: "127.0.0.1", container: nil, access: "SYS123"
+    )
+    assert_nil write_refusal(
+      writes: true, host: "127.0.0.1", container: nil, access: PILOT_PERSONA
+    )
   end
 
   def test_write_capture_source_labels_live_capture_or_skips_write_entries
@@ -640,6 +784,34 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
       end
       if row[:unproven] != expected_unproven
         failures << "#{slice[:rpc]} line #{row[:line]}: unproven #{row[:unproven].inspect}, expected #{expected_unproven.inspect}"
+      end
+    end
+    assert_empty failures, failures.join("\n  ")
+  end
+
+  def test_pilot_ready_checklist_rows_name_note_ien_from_create_fixture
+    rows = parse_checklist
+    create_slice = TIU_WRITE_SLICE.find { |s| s[:mapping] == :tiu_create_record }
+    create_fixture = load_slice_fixture(create_slice)
+    create_ien = self.class.create_ien_from_fixture(create_fixture)
+    refute_nil create_ien
+
+    pilot_ready_flow = TIU_WRITE_SLICE.select do |slice|
+      slice[:evidence] == :live_capture &&
+        rows[slice[:rpc]]&.dig(:status) == "pilot-ready"
+    end
+    refute_empty pilot_ready_flow, "expected pilot-ready live TIU rows"
+
+    failures = []
+    pilot_ready_flow.each do |slice|
+      row = rows[slice[:rpc]]
+      reason = row[:reason]
+      unless reason.match?(NOTE_IEN_IN_REASON)
+        failures << "#{slice[:rpc]} line #{row[:line]}: reason must name note IEN #{create_ien} " \
+                   "(/\\bnote (IEN )?#{create_ien}\\b/), got #{reason.inspect}"
+      end
+      unless reason.match?(/\bnote (IEN )?#{Regexp.escape(create_ien)}\b/)
+        failures << "#{slice[:rpc]} line #{row[:line]}: reason must reference create IEN #{create_ien}"
       end
     end
     assert_empty failures, failures.join("\n  ")
