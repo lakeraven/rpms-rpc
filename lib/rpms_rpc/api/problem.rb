@@ -48,8 +48,16 @@ module RpmsRpc
 
     # List a patient's problems. Underlying RPC: ORQQPL LIST — verified row
     # shape IEN^NARRATIVE^STATUS^ICD^ONSET^LAST MODIFIED^SC^SPEXP^... (see
-    # the :problem_list mapping). "No problems" comes back as the sentinel
-    # row "^No problems found." (LIST^ORQQPL: ORQQPL.m:17) — no IEN, so it
+    # the :problem_list mapping). An inactive-ICD row (ORQQPL.m:15-16:
+    # piece 13 "#", whatever piece 4 holds) yields icd_code nil, transcribed
+    # nil, and inactive_icd true. icd_code keeps piece 4 only when it is
+    # code-shaped after surrounding whitespace is stripped (ICD-10-CM or
+    # ICD-9-CM, PROBLEM_LIST_ICD_CODE_SHAPE). Anything else — any
+    # $$ICDDX/^ICDCODE failure text, "-1", empty — is nil, and a code-shaped
+    # value is the stripped token. Every other
+    # row has inactive_icd false. "No
+    # problems" comes back as the sentinel row "^No problems found."
+    # (LIST^ORQQPL: ORQQPL.m:17) — no IEN, so it
     # is dropped rather than surfaced as a phantom problem. Invalid DFNs
     # short-circuit to [] without dispatching an RPC.
     #

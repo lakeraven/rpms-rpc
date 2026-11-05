@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "yaml"
 require "rpms_rpc/wire_capture"
 require "rpms_rpc/mappings"
 
@@ -18,7 +19,18 @@ require "rpms_rpc/mappings"
 # against a real wire of IEN^TYPE^DATETIME^value and stayed green). Green
 # here means the declared shape matches evidence, not belief.
 class RpmsRpc::WireContractTest < Minitest::Test
+  ROOT = File.expand_path("../..", __dir__)
+  WIRE_RAKE_PATH = File.join(ROOT, "lib/tasks/wire.rake")
   FIXTURES = RpmsRpc::WireCapture::Fixture.load_all.freeze
+
+  # Issue #224 chart-read slice — always require signed_on_as on live/no-data fixtures.
+  CHART_READ_SLICE_MAPPINGS = %i[
+    patient_id_info patient_ptinfo patient_designated_provider patient_cwad
+    problem_list allergy_list medication_active vitals
+  ].freeze
+
+  # Live captures stamped before #224 round-2 omit signed_on_as; grandfather until re-captured.
+  SIGNED_ON_AS_INTRODUCED_ON = Date.new(2026, 10, 30)
 
   # Divergences the gate has already CAUGHT in mappings this branch must not
   # touch (mapping fixes belong to their own reviewed PRs — the capture side
@@ -105,6 +117,63 @@ class RpmsRpc::WireContractTest < Minitest::Test
     end
   end
 
+  # signed_on_as records which synthetic persona made a live broker call (#224 round-2).
+  # Routine-cite fixtures cite M source only — they must not carry it.
+  def test_routine_cite_fixtures_do_not_record_signed_on_as
+    failures = []
+    FIXTURES.select { |f| f.source == "routine-cite" }.each do |fixture|
+      data = YAML.safe_load_file(fixture.path)
+      next unless data.key?("signed_on_as")
+
+      failures << "#{File.basename(fixture.path)}: routine-cite must not include signed_on_as"
+    end
+    assert_empty failures, failures.join("\n  ")
+  end
+
+  # signed_on_as records which synthetic persona made a live broker call (#224 round-2).
+  # Required on every #224 chart-read slice fixture and on any other live-capture or
+  # no-data fixture whose captured_at is on or after SIGNED_ON_AS_INTRODUCED_ON. Older
+  # fixtures (e.g. orwpt-select, behoencx-*) are grandfathered until re-captured.
+  def test_live_capture_and_no_data_fixtures_record_signed_on_as
+    failures = []
+    FIXTURES.select { |f| signed_on_as_required?(f) }.each do |fixture|
+      data = YAML.safe_load_file(fixture.path)
+      persona = data["signed_on_as"]
+      if persona.nil? || persona.to_s.empty?
+        failures << "#{File.basename(fixture.path)} (#{fixture.source}): missing signed_on_as"
+      elsif !%w[SYS123 PROV123].include?(persona)
+        failures << "#{File.basename(fixture.path)}: signed_on_as #{persona.inspect} is not a README synthetic persona"
+      end
+    end
+    assert_empty failures, failures.join("\n  ")
+  end
+
+  # lib/tasks/wire.rake must not stamp signed_on_as onto routine-cite rewrites.
+  def test_wire_rake_routine_cite_branch_omits_signed_on_as_from_fixture_payload
+    src = File.read(WIRE_RAKE_PATH)
+    routine_branch = src[/else\s*\n\s*data = fixture_data\(entry, release, captured_at, acc\)\.merge\("source" => "routine-cite"\)[^\n]*/m]
+    refute_nil routine_branch, "could not locate routine-cite branch in lib/tasks/wire.rake"
+    assert routine_branch.include?('delete("signed_on_as")'),
+           "lib/tasks/wire.rake routine-cite branch must drop signed_on_as from fixture_data " \
+           "(signed_on_as is live-call provenance only — #224 round-2 SPEC)"
+  end
+
+  # no-data captures are live calls that returned no layout rows — the fixture header must say so.
+  # Replaces the old "no live call" header text still written by lib/tasks/wire.rake until fixed.
+  def test_no_data_fixture_headers_honest_about_empty_live_reply
+    failures = []
+    FIXTURES.select { |f| f.source == "no-data" }.each do |fixture|
+      comments = File.readlines(fixture.path, chomp: true).take(5).select { |l| l.start_with?("#") }.join("\n")
+      if comments.match?(/no live call/i)
+        failures << "#{File.basename(fixture.path)}: header must not deny the live call"
+      end
+      unless comments.match?(/live call returned no data rows/i)
+        failures << "#{File.basename(fixture.path)}: header must say the live call returned no data rows"
+      end
+    end
+    assert_empty failures, failures.join("\n  ")
+  end
+
   # -- The demonstration this gate exists for (issue #189 acceptance) --------
   #
   # The ORQQVI VITALS mapping shipped on main declaring TYPE^VALUE^UNITS^DATE
@@ -151,4 +220,15 @@ class RpmsRpc::WireContractTest < Minitest::Test
     corrected = RpmsRpc::WireCapture::Contract.check(RpmsRpc::DataMapper[:vitals], fixture)
     assert_empty corrected, corrected.join("; ")
   end
+
+  def signed_on_as_required?(fixture)
+    return false unless %w[live-capture no-data].include?(fixture.source)
+    return true if CHART_READ_SLICE_MAPPINGS.include?(fixture.mapping_name)
+
+    stamp = fixture.captured_at.to_s
+    return false unless stamp.match?(/\A\d{4}-\d{2}-\d{2}/)
+
+    stamp.byteslice(0, 10) >= SIGNED_ON_AS_INTRODUCED_ON.iso8601
+  end
+  private :signed_on_as_required?
 end

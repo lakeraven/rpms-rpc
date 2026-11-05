@@ -106,7 +106,25 @@ module RpmsRpc
     # $P(X,U)_U_$P(X,U,3)_U_$P(X,U,2)_U_$P(X,U,4..8)_U_$P(X,U,10)_U_
     # $P(X,U,9)_U_""_U_DETAIL):
     #   IEN[1]^NARRATIVE[2]^STATUS[3]^ICD[4]^ONSET[5]^LAST MODIFIED[6]^
-    #   SC[7]^SPEXP[8]^TRANSCRIBED($)[9]^PRIORITY(*)[10]^^DETAIL[12]
+    #   SC[7]^SPEXP[8]^TRANSCRIBED($)[9]^PRIORITY(*)[10]^^DETAIL[12]^#(13)
+    # Piece 13 "#" alone is the inactive-ICD branch (ORQQPL.m:15-16),
+    # whatever piece 4 holds — a real inactive code or $$ICDDX error text.
+    # That row parses :icd_code nil, :transcribed nil (piece 9's "#" is the
+    # branch marker, not a transcribed flag), and :inactive_icd true.
+    # :icd_code keeps piece 4 only when it is code-shaped after surrounding
+    # whitespace is stripped (PROBLEM_LIST_ICD_CODE_SHAPE, one alternation:
+    # ICD-10-CM [A-Z][0-9][0-9A-Z] with an optional dot and 1-4
+    # alphanumerics; ICD-9-CM numeric other than 000, with an optional dot
+    # and 1-2 digits; V codes; E codes with at most one decimal digit).
+    # Anything else — any $$ICDDX/^ICDCODE failure text, "-1", empty, "000",
+    # "E849.00" — is nil. A code-shaped value is the stripped token. Any
+    # other row has :inactive_icd false. Every other piece is unchanged.
+    #
+    # Boxes without ICD*18.0*6 return $$ICDDX/^ICDCODE failure texts other
+    # than a leading "Invalid Code", so a prefix check accepts those misses
+    # as codes. The shape is the whole rule.
+    PROBLEM_LIST_ICD_CODE_SHAPE =
+      /\A(?:[A-Z][0-9][0-9A-Z](?:\.[0-9A-Z]{1,4})?|(?!000)\d{3}(?:\.\d{1,2})?|V\d{2}(?:\.\d{1,2})?|E\d{3}(?:\.\d)?)\z/
     # STATUS is #9000011 field .12 internal ("A"/"I" — GMPLUTL3.m NODE0
     # "$P(GMPLZ0,U,12)"). The prior declaration swapped STATUS and
     # DESCRIPTION and invented RECORDED_DATE / PROVIDER_DUZ at pieces 6-7
@@ -126,6 +144,35 @@ module RpmsRpc
       m.field 7, :special_exposures
       m.field 8, :transcribed
       m.field 9, :priority
+      # Piece 13 (ORQQPL.m:15-16). The wire token is "#", not a boolean;
+      # after_row turns that marker into inactive_icd true/false.
+      # format_row writes the same branch back out for MockClient: piece 13
+      # "#" (what after_row keys on) and piece 9 "#" (the transcribed marker
+      # on that branch). An active row leaves piece 13 empty.
+      m.field 12, :inactive_icd
+      m.after_row do |row, parts|
+        # Piece 13 "#" is the inactive-ICD branch, whatever piece 4 holds.
+        # Otherwise :icd_code is the stripped piece 4 token when it matches
+        # PROBLEM_LIST_ICD_CODE_SHAPE (no case fold). $$ICDDX/^ICDCODE
+        # failure text, "-1", and empty are nil.
+        inactive = parts[12] == "#"
+        token = parts[3].to_s.strip
+        code_shaped = token.match?(PROBLEM_LIST_ICD_CODE_SHAPE)
+        row[:icd_code] = code_shaped && !inactive ? token : nil
+        row[:transcribed] = nil if inactive
+        row[:inactive_icd] = inactive
+        row
+      end
+      m.format_row do |parts, attrs|
+        case attrs[:inactive_icd]
+        when true
+          parts[8] = "#"
+          parts[12] = "#"
+        when false
+          parts[12] = ""
+        end
+        parts
+      end
     end
 
     # ORQQPL coverage — problem-list mutations + lookups + audit. Wire field

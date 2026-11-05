@@ -24,6 +24,11 @@
 namespace :wire do
   FIXTURES_DIR = ENV["WIRE_FIXTURES_DIR"] ? File.expand_path(ENV["WIRE_FIXTURES_DIR"]) : File.expand_path("../../test/fixtures/wire_captures", __dir__)
 
+  # Access codes README.md documents as synthetic dev personas. signed_on_as
+  # may record one of these and nothing else. A real access code must not
+  # land in a public fixture, and the verify code is never written.
+  SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
+
   desc "Capture curated RPC wire returns from a live rung container into " \
        "test/fixtures/wire_captures/*.yml (CONTAINER=, RELEASE=; without " \
        "CONTAINER only routine-cite fixtures are rewritten)"
@@ -40,7 +45,9 @@ namespace :wire do
     runtime = ENV["RUNTIME"] || "docker"
     port = ENV["BROKER_PORT"] || "9100"
     acc = ENV["RPMS_ACCESS"] || "SYS123"
+    # Authenticates the driver only. Never written to a fixture or a message.
     ver = ENV["RPMS_VERIFY"] || "RPMS.000"
+    require_synthetic_persona!(acc)
     only = ENV["ONLY"]
     # CITE_ONLY="RPC A,RPC B": write routine-cite fixtures for these
     # live-mode entries instead of calling them (e.g. the broker is down, or
@@ -110,14 +117,14 @@ namespace :wire do
         end
 
         source = RpmsRpc::WireCapture.data_rows(raw).empty? ? "no-data" : "live-capture"
-        data = fixture_data(entry, release, captured_at).merge(
+        data = fixture_data(entry, release, captured_at, acc).merge(
           "source" => source,
           "inputs" => entry.inputs,
           "raw_return" => raw,
           "sha256" => Digest::SHA256.hexdigest(raw)
         )
       else
-        data = fixture_data(entry, release, captured_at).merge("source" => "routine-cite")
+        data = fixture_data(entry, release, captured_at, acc).merge("source" => "routine-cite").tap { |d| d.delete("signed_on_as") }
       end
 
       # Round-trip through the validator so an invalid fixture can never be
@@ -167,13 +174,24 @@ namespace :wire do
     File.write(ENV["OUT"], rows.map { |r| r.join("\t") }.join("\n") + "\n") if ENV["OUT"] && !ENV["OUT"].empty?
   end
 
-  def fixture_data(entry, release, captured_at)
+  # Abort unless the sign-on access code is a README synthetic persona.
+  # The supplied value is never included in the message.
+  def require_synthetic_persona!(access)
+    return access if SYNTHETIC_PERSONAS.include?(access)
+
+    abort "wire:capture: captures must sign on as a synthetic persona"
+  end
+
+  def fixture_data(entry, release, captured_at, signed_on_as)
     {
       "rpc" => entry.rpc,
       "mapping" => entry.mapping.to_s,
       "kind" => entry.kind,
       "release_tag" => release,
       "captured_at" => captured_at,
+      # README synthetic persona only (SYS123 / PROV123). The verify code is
+      # never a fixture field.
+      "signed_on_as" => require_synthetic_persona!(signed_on_as),
       "cite" => entry.cite,
       "note" => entry.note,
       "pieces" => entry.pieces.map do |p|
@@ -189,6 +207,10 @@ namespace :wire do
     header << if data["source"] == "live-capture"
                 "# raw_return is VERBATIM from the #{data["release_tag"]} broker " \
                 "(synthetic data only); do not hand-edit — re-run the capture.\n"
+    elsif data["source"] == "no-data"
+      # A live call that returned no rows. Never "no live call" —
+      # that wording is only for routine-cite fixtures.
+      "# The live call returned no data rows; do not hand-edit — re-run the capture.\n"
     else
       "# Routine-cited shape (no live call — see cite); do not hand-edit raw claims.\n"
     end

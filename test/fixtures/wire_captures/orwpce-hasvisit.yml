@@ -7,6 +7,7 @@ mapping: pce_has_visit
 kind: scalar
 release_tag: bcer-9.0-20261012-e7923a4-ydb
 captured_at: '2026-10-30T10:31:31Z'
+signed_on_as: PROV123
 cite: 'HASVISIT^ORWPCE (ORWPCE.m:118-123): ORY starts -1; a positive note reads ^TIU(8925,IEN,0)
   piece 3, else $$GETENC^PXAPI(DFN,ORDTE,ORLOC). A positive visit is $$VST2APPT^PXAPI
   (VST2APPT^PXUTL1, PXUTL1.m:65-78): 0 stand-alone, 1 appointment-linked, -1 no visit'
