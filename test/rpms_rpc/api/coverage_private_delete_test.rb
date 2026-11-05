@@ -322,8 +322,9 @@ class CoveragePrivateDeleteTest < Minitest::Test
     seed_filer_ok!(client)
     seed_lister!(client, "[Data]")
 
-    Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
+    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
 
+    assert_equal({ success: true, record_ien: RECORD }, result)
     assert_empty agg_private_calls(client)
   end
 end
