@@ -55,6 +55,7 @@ Same shape as the conformance pipeline, one level deeper:
    # entries (e.g. broker unavailable). A CITE_ONLY token matches a fixture
    # name, or an RPC name only for the entry whose fixture name is that
    # RPC's slug, so naming a shared RPC does not cite the other fixtures.
+   # A token that matches no live catalog entry aborts the capture before any call.
    ```
 
    Re-run when a rung changes (new release tag), like re-ingesting a

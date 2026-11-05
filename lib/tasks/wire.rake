@@ -54,8 +54,19 @@ namespace :wire do
     # a capture must land before the rung is reachable). A token matches an
     # entry's fixture name, or its RPC name only when the fixture name is
     # that RPC's slug (WireCapture.cite_only?), so a shared RPC cites only
-    # the slug fixture. The cite comes from the catalog; no raw is claimed.
-    cite_only = (ENV["CITE_ONLY"] || "").split(",").map(&:strip)
+    # the slug fixture. A token that matches no live entry aborts before any
+    # container or driver run: it would otherwise still call the live RPC
+    # the operator meant to avoid. The cite comes from the catalog; no raw
+    # is claimed. Empty tokens are dropped, as the driver drops them.
+    cite_only = (ENV["CITE_ONLY"] || "").split(",").map(&:strip).reject(&:empty?)
+    unmatched = RpmsRpc::WireCapture.unmatched_cite_only_tokens(
+      RpmsRpc::WireCapture::CATALOG.select(&:live?), cite_only.reject(&:empty?)
+    )
+    unless unmatched.empty?
+      abort "wire:capture: CITE_ONLY token(s) match no live catalog entry: " \
+            "#{unmatched.map(&:inspect).join(", ")}; name a fixture (e.g. tribal-tribes) " \
+            "or an RPC whose fixture is its slug"
+    end
     captured_at = Time.now.utc.iso8601
     root = File.expand_path("../..", __dir__)
 

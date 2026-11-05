@@ -80,6 +80,30 @@ module RpmsRpc
       tokens.any? { |token| token == entry.fixture_name || (token == entry.rpc && entry.fixture_name == slug) }
     end
 
+    # Tokens in input order, duplicates removed, that cite no entry.
+    def self.unmatched_cite_only_tokens(entries, tokens)
+      tokens.uniq.reject { |token| entries.any? { |entry| cite_only?(entry, [ token ]) } }
+    end
+
+    # Live catalog rows for a capture, narrowed by ONLY and with CITE_ONLY
+    # entries removed. Unmatched tokens are judged on the live catalog
+    # before ONLY narrows the run, and they raise: a token that cites
+    # nothing would otherwise still call the live RPC the operator meant
+    # to avoid. A token that names a real live fixture is not an error
+    # just because ONLY narrowed the run.
+    def self.select_live_entries(catalog: CATALOG, only: "", cite_only: [])
+      entries = catalog.select(&:live?)
+      unmatched = unmatched_cite_only_tokens(entries, cite_only)
+      unless unmatched.empty?
+        names = unmatched.map(&:inspect).join(", ")
+        raise ArgumentError, "CITE_ONLY token(s) match no live catalog entry: #{names}; " \
+                             "name a fixture (e.g. tribal-tribes) or an RPC whose fixture is its slug"
+      end
+
+      entries = entries.select { |entry| entry.named?(only) } unless only.to_s.empty?
+      entries.reject { |entry| cite_only?(entry, cite_only) }
+    end
+
     # AG GLOBAL ARRAY typed-header piece: type letter, 5-digit width, name.
     # I00010DFN^T00030PATIENT_NAME is a header, not a patient row.
     TYPED_HEADER_PIECE = /\A[A-Z]\d{5}[A-Z0-9_]+\z/
