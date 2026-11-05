@@ -786,19 +786,60 @@ module RpmsRpc
     end
 
     # ========================================================================
-    # NOTIFICATIONS / ALERTS (BQI*)
+    # NOTIFICATIONS (BEHOXQ, the VueCentric Notifications component)
     # ========================================================================
-    # Field positions are best-effort pending wider trace capture.
-
+    # BEHOXQ ALRLIST -> ALRLIST^BEHOXQ (BEHOXQ.m:9-43 on the 9.0 build, BEH
+    # 1.1 patch 002008): the signed-on user's alerts in the Kernel ALERT file
+    # (#8992), each matched to a handler in #90460.021 that names its patient
+    # (OR: XQAID piece 2, TIU: the note's patient, BEH: the DFN= of its
+    # XQADATA, :24-25). One row per alert, ordered by patient then delivery
+    # (@DATA@(DFN,TOT), :40):
+    #   PRIORITY ^ INFO ONLY ^ PATIENT NAME    (HRN) ^ LOCATION ^ TEXT ^
+    #   DATE DELIVERED ^ SENDER ^ DFN ^ TYPE ^ ALERT ID ^ CAN DELETE ^ EXTRA
+    # The routine's own header (:7-8) names the pieces. An alert with no
+    # matching handler is left out (:23). P1 (a DFN) limits the list to that
+    # patient and to alerts with none (:12, :28). An alert with no patient has
+    # DFN 0 and no name. EXTRA runs to the end of the row and may hold carets
+    # (a BEH alert's XQADATA, "PRI=1^INF=0"), so it is not mapped.
     DataMapper.define(:notifications_inbox) do |m|
-      m.rpc "BQI GET COMM ALERTS SPLASH"
-      m.field 0, :id, :integer
-      m.field 1, :type
-      m.field 2, :patient_dfn, :integer
-      m.field 3, :message
-      m.field 4, :severity
-      m.field 5, :created_at, :fileman_datetime
-      m.field 6, :read_at, :fileman_datetime
+      m.rpc "BEHOXQ ALRLIST"
+      m.field 0, :priority, :integer
+      m.field 1, :info_only, :boolean
+      m.field 2, :patient
+      m.field 3, :location
+      m.field 4, :message
+      m.field 5, :delivered_at, :fileman_datetime
+      m.field 6, :sender
+      m.field 7, :patient_dfn, :integer
+      m.field 8, :type
+      m.field 9, :alert_id
+      m.field 10, :removable, :boolean
+    end
+
+    # BEHOXQ ALRPP -> ALRPP^BEHOXQ (BEHOXQ.m:73-76): the Notifications tab's
+    # delete. It finds the alert's handler in #90460.021 (ALRIEN, :78-85) and
+    # runs its PROCESS code: DEL^ORB3FUP1 for an OR alert, BEHDEL^BEHOXQ for a
+    # BEH one (DELETE^XQALERT for DUZ). It answers the handler's IEN, 0 when
+    # none matched; the IEN says nothing about whether anything was deleted.
+    DataMapper.define(:notifications_remove) do |m|
+      m.rpc "BEHOXQ ALRPP"
+      m.scalar :handler, :integer
+    end
+
+    # BEHOXQ FORWARD -> FORWARD^BEHOXQ (BEHOXQ.m:56-59): FORWARD^XQALFWD(alerts,
+    # users, "A", comment), Kernel's supported forward (ICR #3009). It answers
+    # 0 whatever happened.
+    DataMapper.define(:notifications_forward) do |m|
+      m.rpc "BEHOXQ FORWARD"
+      m.scalar :result, :integer
+    end
+
+    # BEHOXQ ALRMSG -> ALRMSG^BEHOXQ (BEHOXQ.m:46-54): the forwarding comment
+    # (when there is one) and a blank line, then the alert's long text
+    # (GETLONG^XQALGUI), for DUZ's copy of the alert.
+    DataMapper.define(:notifications_message) do |m|
+      m.rpc "BEHOXQ ALRMSG"
+      m.text_blob :text
     end
 
     # NOTE: immunization refusals file through BGOREF SET (:refusal_set)

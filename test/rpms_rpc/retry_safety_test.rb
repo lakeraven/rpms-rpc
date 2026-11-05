@@ -456,9 +456,8 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
   end
 
   # DdrFileman.lister passes caller-supplied SCREEN and ID into LIST^DIC as M code,
-  # so a retry can repeat a side effect. Notifications.inbox uses BQI GET COMM ALERTS
-  # SPLASH; mapping is best-effort pending trace capture and a splash read may record
-  # that alerts were shown.
+  # so a retry can repeat a side effect. Notifications.inbox sends BEHOXQ ALRLIST,
+  # which sets CIA session variables (SETVAR^CIANBUTL, BEHOXQ.m:11, :41-42).
   def test_fail_closed_when_code_does_not_establish_read_only_effect
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::DdrFileman, :lister)
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::Notifications, :inbox)

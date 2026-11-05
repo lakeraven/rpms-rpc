@@ -464,12 +464,27 @@ module RpmsRpc
 
           response = response.split(/\r?\n/)
         end
+        response = response.flat_map { |line| rcis_records(line) } if rcis_record? && !@rcis_sections
         response.filter_map do |line|
           next if line.nil? || line.to_s.empty?
           next if DataMapper.recordset_header_row?(line)
           next if !status_reply? && DataMapper.non_data_row?(line)
           parse_one(line)
         end
+      end
+
+      # One record line per sigil. CRTMSG^BMCRPC4 files each record in its own
+      # node, every one opening with "~`" (BMCRPC4.m:60), and the CIA broker
+      # sends the nodes with nothing between them: two referrals arrive as
+      # "~`1^...^~`5^..." in one line (rpms-rpc#589). A mapping without
+      # sections has no other use for a second sigil, so each one starts a
+      # record. A line that does not open with the sigil is left whole, so
+      # parse_one still reads it as a message.
+      def rcis_records(line)
+        text = line.to_s
+        return [ line ] unless text.start_with?(RcisWire::SIGIL)
+
+        text.split(RcisWire::SIGIL).reject(&:empty?).map { |rec| RcisWire::SIGIL + rec }
       end
 
       # parse_many, with an `altered:` flag on every row (rpms-rpc#463).

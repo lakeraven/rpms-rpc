@@ -164,6 +164,10 @@ module RpmsRpc
     # .02, when .02 changes and the field is non-blank (AG2A.m:58-64).
     # set_sex deletes it first, on that same predicate, then files .02.
     SSN_VERIFICATION_FIELD = ".23"
+    # #9000001 9001 PREFERRED NAME: free text, 1 to 30 characters (its input
+    # transform is K:$L(X)>30!($L(X)<1) X). AUPN*99.1*29 added it.
+    PREFERRED_NAME_FIELD = "9001"
+    PREFERRED_NAME_MAX = 30
     # SEXELIG^AGUTL writes these. index is the B xref (^AUPNMCR / ^AUPNMCD /
     # ^AUPNRRE). file/field is the FDA target. subfile means every .11
     # sub-entry of a B-index row whose .01 is the DFN; otherwise the field
@@ -600,6 +604,68 @@ module RpmsRpc
     end
     shape :set_legal_sex, resource: "registrations", verb: "PUT",
           path: "/patients/{dfn}/registrations/legal-sex"
+
+    # The name the patient goes by (rpms-ux S-REG-12.1): #9000001 9001
+    # PREFERRED NAME, read with DDR GETS ENTRY DATA (flags I). $$GETPREF^AUPNSOGI
+    # reads the same field, and no #8994 entry reaches it. Returns the stored
+    # text, "" when none is on file. A missing #9000001 entry, a nil reply or a
+    # malformed one raises Client::RpcError, so a failed read is never shown
+    # as "none on file". Sends no RPC for a bad DFN (ArgumentError).
+    def preferred_name(dfn)
+      id = patient_dfn(dfn)
+      raise ArgumentError, "a positive DFN is required" unless id
+
+      read = in_context { read_internal_field(PATIENT_FILE, "#{id},", PREFERRED_NAME_FIELD) }
+      raise Client::RpcError, read[:message] if read.is_a?(Hash)
+
+      read
+    end
+    shape :preferred_name, resource: "registrations", verb: "GET",
+          path: "/patients/{dfn}/registrations/preferred-name"
+
+    # File the name the patient goes by (rpms-ux S-REG-12.1), or clear it with
+    # a blank name. $$SETPREF^AUPNSOGI (AUPNSOG3.m:6) is the IHS PATIENT API:
+    # one FILE^DIE of FDA(9000001,DFN_",",9001), with a blank value sent as
+    # "@". AG's roll-and-scroll edits the same field with a plain ^DIE
+    # (PREF^AGED14, DR="9001"), so FileMan's input transform is the only check
+    # AG makes. No #8994 entry reaches either, and AG's GUI windows have no
+    # parameter for 9001 (rpms-ops#1059), so this is DDR FILER mode EDIT, which
+    # is FILE^DIE with no "E" flag, the same call SETPREF makes.
+    #
+    # What runs: the field's two MUMPS cross-references fire on the write
+    # (BPRF, S9001^AUPNSOGX: "FAMILY,PREFERRED" into the PATIENT "B" index, so
+    # a patient search by the preferred name finds the patient; APRF). What
+    # SETPREF does beyond FILE^DIE is only its return value ($$GETPREF), which
+    # this method does not need. The input transform does not run on an
+    # internal FILE^DIE, so this method applies it: after strip, 1 to 30
+    # characters. Text with "^" or a control character, or exactly "@", is
+    # :invalid. Case is kept as typed, as ^DIE keeps it.
+    #
+    # Rules (rpms-rpc#549): the read and the write run inside Agg.editing (AGG
+    # LOCK PATIENT / AGG UNLOCK PATIENT), which returns its own failure hash
+    # and sends no DDR call when the lock is not taken. The field is read
+    # first (read_internal_field); a failed read files nothing: :lookup_failed,
+    # or :not_found when the patient has no #9000001 entry. When the stored
+    # name already equals the new one, nothing is filed and the answer is
+    # { success: true, changed: false }. Otherwise one DDR FILER EDIT:
+    # { success: true, changed: true }, { success: false, error: :filer_failed,
+    # message: } with FileMan's refusal, or nil when DDR FILER gives no reply
+    # (the outcome is unknown).
+    def set_preferred_name(dfn, name)
+      id = patient_dfn(dfn)
+      return invalid("a positive DFN is required") unless id
+      return invalid("the preferred name must be text") unless name.nil? || name.is_a?(String)
+
+      text = name.to_s.strip
+      return invalid("the preferred name cannot be @ or contain ^ or a control character") if refused_free_text?(text)
+      if text.length > PREFERRED_NAME_MAX
+        return invalid("the preferred name must be #{PREFERRED_NAME_MAX} characters or fewer")
+      end
+
+      Agg.editing(dfn: id) { in_context { write_preferred_name(id, text) } }
+    end
+    shape :set_preferred_name, resource: "registrations", verb: "PUT",
+          path: "/patients/{dfn}/registrations/preferred-name"
 
     # File one MBI history row. ADDMBI^AUPNMBI (AUPNMBI.m:6) UPDATE^DIE's
     # #9000001.44 (.01 EFFECTIVE DATE dinum, 1 MBI uppercased, 2 SOURCE,
@@ -1565,6 +1631,17 @@ module RpmsRpc
       code if PATIENT_SEX_CODES.include?(code)
     end
 
+    def write_preferred_name(id, text)
+      stored = read_internal_field(PATIENT_FILE, "#{id},", PREFERRED_NAME_FIELD)
+      return stored if stored.is_a?(Hash)
+      return { success: true, changed: false } if stored == text
+
+      value = text.empty? ? "@" : text
+      filed = filer_outcome(DdrFileman.filer(mode: "EDIT",
+                                             rows: [ edit_row(PATIENT_FILE, PREFERRED_NAME_FIELD, "#{id},", value) ]))
+      filed && filed[:success] ? { success: true, changed: true } : filed
+    end
+
     def write_patient_sex(id, code)
       stored = read_internal_field(PATIENT_SEX_FILE, "#{id},", PATIENT_SEX_FIELD)
       return stored if stored.is_a?(Hash)
@@ -1771,3 +1848,5 @@ module RpmsRpc
     end
   end
 end
+
+require_relative "registration_edits"

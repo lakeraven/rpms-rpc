@@ -814,14 +814,41 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     [ c, socket ]
   end
 
+  def with_rpms_uci(value)
+    had, prev = ENV.key?("RPMS_UCI"), ENV["RPMS_UCI"]
+    value.nil? ? ENV.delete("RPMS_UCI") : ENV["RPMS_UCI"] = value
+    yield
+  ensure
+    had ? ENV["RPMS_UCI"] = prev : ENV.delete("RPMS_UCI")
+  end
+
+  # Unset, the connect sends an empty UCI: ACTC^CIANBACT then runs in the
+  # listener's own namespace (CIANBACT.m:9-11) on any engine (rpms-rpc#572).
   def test_connect_survives_strict_broker_frame_parsing
     c, broker = client_on_strict_broker
-    assert c.connect("localhost", 9100)
+    with_rpms_uci(nil) { assert c.connect("localhost", 9100) }
     assert c.connected?
     frame = broker.frames.first
     assert_equal "1", frame[:seq]
     assert_equal "C", frame[:action]
-    assert_equal [ "VER", "", "2.0", "LP", "", "9100", "UCI", "", "VEH,EXTERNAL" ], frame[:fields]
+    assert_equal [ "VER", "", "2.0", "LP", "", "9100", "UCI", "", "" ], frame[:fields]
+  end
+
+  def test_connect_sends_the_uci_rpms_uci_names
+    c, broker = client_on_strict_broker
+    with_rpms_uci("RPMS") { c.connect("localhost", 9100) }
+    assert_equal [ "UCI", "", "RPMS" ], broker.frames.first[:fields].last(3)
+  end
+
+  # A broker that hangs up on the connect frame (an unknown UCI) is reported
+  # as that, naming the UCI sent, not as a bare socket close.
+  def test_a_broker_closing_the_connect_names_the_uci
+    c, broker = client_on_strict_broker
+    broker.instance_variable_set(:@closed_by_broker, true)
+    err = with_rpms_uci("VEH,EXTERNAL") { assert_raises(RpmsRpc::Client::ConnectionError) { c.connect("localhost", 9100) } }
+    assert_match(/CIA broker closed the connect \(Connection closed by server\)/, err.message)
+    assert_match(/RPMS_UCI="VEH,EXTERNAL" must name the broker's namespace/, err.message)
+    refute c.connected?
   end
 
   def test_full_signon_round_trip_against_strict_broker
