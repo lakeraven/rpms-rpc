@@ -69,7 +69,7 @@ class RegistrationHrnReadbackTest < Minitest::Test
 
   def hrn_lister_calls
     @mock.received_calls.select do |c|
-      c[:rpc] == "DDR LISTER" && c[:param]["FILE"] == "9000001.41"
+      c[:rpc] == "DDR LISTER" && c[:params]["FILE"] == "9000001.41"
     end
   end
 

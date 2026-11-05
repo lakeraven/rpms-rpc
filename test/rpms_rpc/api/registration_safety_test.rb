@@ -62,7 +62,8 @@ class RegistrationSafetyTest < Minitest::Test
     assert_equal({ success: true, dfn: 42, created: true, hrn: "42" }, RpmsRpc::Patient.register(ATTRS))
     assert_equal({ success: false, error: :duplicate_identity, candidate_dfns: [ 42 ],
                    message: "matching patient candidates require explicit override" }, RpmsRpc::Patient.register(ATTRS))
-    assert_equal [ "AGG LOOKUP PATIENTS", "AGG ADD NEW PATIENT", "AGG UPDATE PATIENT", "AGG LOOKUP PATIENTS" ],
+    assert_equal [ "AGG LOOKUP PATIENTS", "AGG ADD NEW PATIENT", "AGG UPDATE PATIENT", "DDR LISTER",
+                   "AGG LOOKUP PATIENTS" ],
                  @mock.received_calls.map { |c| c[:rpc] } - [ "AGG WINDOW DATA VALIDATION" ]
     lookup = lookups.first
     assert_equal [ QUERY, "", "1", "1" ], lookup[:params]

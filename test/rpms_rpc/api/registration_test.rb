@@ -354,7 +354,7 @@ end
 def test_s_reg_05_1_a_temporary_hrn_is_filed_after_the_create
   seed_agg_add(dfn: "9")
   seed_temp_hrn("T00007")
-  seed_agg_update
+  seed_agg_update(hrn_on_file: "T00007")
 
   result = Reg.register(ATTRS.merge(hrn_source: :temporary))
 
