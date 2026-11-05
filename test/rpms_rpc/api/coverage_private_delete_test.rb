@@ -98,7 +98,7 @@ class CoveragePrivateDeleteTest < Minitest::Test
   end
 
   def v0_lister_body(*rows)
-    ( [ "[Data]" ] + rows.map(&:to_s) ).join("\n")
+    ([ "[Data]" ] + rows.map(&:to_s)).join("\n")
   end
 
   def seed_owner!(client, record_ien: RECORD, dfn: DFN, insurer_ien: "5")
