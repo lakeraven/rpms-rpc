@@ -32,6 +32,31 @@ return format.
 - `XWB CREATE CONTEXT` is sent the option name through the same
   cipher and gates whether RPCs in that context can be invoked.
 
+## Stock RPCs (#420)
+
+Verified against the RPMS 9.0 YDB standup routines in rpms-ops
+`data/standup/bcer-9.0-ydb/r/` (working tree `d37932d`; the pin commit
+`e7923a47` does not store the routine files). Formal lists and context
+options are the pinned inventory `bcer-9.0-20261012-e7923a4-ydb`
+(`rpc_signatures.txt`, `rpc_reach.txt`, and `rpcs.json` parameters whose
+source is `formals`). The unit fixtures for these wrappers are synthetic.
+They are not live captures (ADR 0003).
+
+| RPC name | Routine / Tag | Params | Return | Status |
+|----------|---------------|--------|--------|--------|
+| `AGG CHECK SENSITIVE PATIENT` | `CHK^AGGPTSEN` | DFN | Header `T00001SENSITIVE_INDICATOR`, one row 0/1/2 (`AGGPTSEN.m:7`, `:29-31`). Option `AGGRPC`. | verified |
+| `AGG SEND SENSITIVE NOTIFY` | `NOT^AGGPTSEN` | DFN | Header `I00010RESULT`, one row from `NOTICE^DGSEC4` (`AGGPTSEN.m:43`, `:58-60`). The logged option is hardcoded in the routine. Option `AGGRPC`. | verified |
+| `AGG ERROR SCREEN` | `FND^AGGEDCHK` | ERRNUM (`""` lists every error) | Header `I00010ERROR_NUM^T00030WINDOW^T00008FIELD` then `$C(31)` (`AGGEDCHK.m:53-68`). `FER`'s data-row write is commented out (`AGGEDCHK.m:77`), so this pin returns the header only. A data row is still parsed when present. Option `AGGRPC`. | verified |
+| `AGG UPDATE LEGAL NAMES` | `LEGL^AGGPTNAM` | DFN, PROC (`A`/`D`), RIEN, `$C(28)` PARMS | Header `I00010RESULT^T01024ERROR^I00010RIEN`. Success row `1^^RIEN`; rejection `-1^text` (`AGGPTNAM.m:57`, `:66`, `:101-102`). Option `AGGRPC`. | verified |
+| `BGU MAILMAN MESSAGE` | `EN^BGUMAIL` | subject, body, Mailman group | `BGUARRAY(1)=1`, `BGUARRAY(2)="OK"` (`BGUMAIL.m:3-7`). Body lines split on `$C(175)` (`BGUMAIL.m:11`). Option `CIAV VUECENTRIC`. | verified |
+| `BUSA LOG SECURITY AUDIT ENTRY` | `RPC^BUSARPC` | one pipe parameter `CAT\|ACTION\|CALL\|DESC\|DETAIL` | Header `I00001RESULT^T00250ERROR_MESSAGE` (`BUSARPC.m:304`, `:354`, `:363-367`). Missing `DUZ` is `0^DUZ is not defined` (`BUSARPC.m:359`). Option `BUSARPC`. | verified |
+| `DG SENSITIVE RECORD ACCESS` | `PTSEC^DGSEC4` | DFN, DGMSG, DGOPT | `RESULT(1)` is -1..4 in the #8994 text and also 5 for restricted access (`DGSEC4.m:13-46`, PATCH 1008). Messages are `RESULT(2+)`. Blank DFN is `-1` / `Required variable missing.` (`DGSEC4.m:36-38`) and is refused before the call. Options: `OR CPRS GUI CHART`, `SCMC PCMM GUI WORKSTATION`, `PSB GUI CONTEXT - USER`, `ORRCMC DASHBOARD`. | verified |
+| `DG SENSITIVE RECORD BULLETIN` | `NOTICE^DGSEC4` | DFN, DGOPT, ACTION | Single value `1` or `0` (`DGSEC4.m:67-83`). Same four options as the access RPC. | verified |
+| `ORWU DT` | `DT^ORWU` | X, `%DT` (default `TS`) | FileMan Y from `^%DT`, or `-1` (`ORWU.m:4-7`). `-1` is not a datetime. Option `CIAV VUECENTRIC`. | verified |
+| `BSDX RESOURCES BY USER` | `RESUSR^BSDX01` | DUZ (`""` uses the signed-on user, `BSDX01.m:113`) | Same resource columns as `BSDX RESOURCES` (`BSDX01.m:100-112`). Option `BSDXRPC`. | verified |
+| `BSDX CHECKIN APPOINTMENT` | `CHECKIN^BSDX25` | eleven client inputs after return formal `BSDXY`: APTID, CDT, CC, PRV, ROU, VCL, VFM, OG, CR, PCC, WHF | Recordset `ERRORID^MESSAGE`. Success row `0^` message (`BSDX25.m:12`, `:74`). FOIA `BSDX25.m:12` stops at `BSDXOG` (nine formals). Option `BSDXRPC`. | verified |
+| `BEHOENCX GETVISIT` | `GETVISIT^BEHOENCX` | visit IEN | `LOC^VDT^SVC^PAT^VID^LOCKED` (`BEHOENCX.m:8-14`). Empty when the IEN is not a visit. Option `CIAV VUECENTRIC` (not `BSDXRPC`). Already used by `RpmsRpc::Encounter`; `Scheduling.checkin_visit` calls the same RPC. | verified |
+
 ## Conventions
 
 When new RPCs are added to the gem in downstream consumers

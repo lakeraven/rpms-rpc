@@ -89,7 +89,11 @@ module RpmsRpc
     WINDOW_MULTIPLE_RPC = "AGG BUILD WINDOW MULTIPLE" # MUL^AGGPTDMG, a multiple window's entries
     TABLE_LOOKUP_RPC = "AGG WINDOW TABLE LOOKUP"      # LKP^AGGWTBLK, a pointed-to file's entries by name
     UPDATE_ALIASES_RPC = "AGG UPDATE ALIASES"         # ALIAS^AGGPTNAM
+    UPDATE_LEGAL_NAMES_RPC = "AGG UPDATE LEGAL NAMES" # LEGL^AGGPTNAM
     UPDATE_SPECIAL_MULTIPLES_RPC = "AGG UPDATE SPECIAL MULTIPLES" # UPD^AGGPOTH
+    CHECK_SENSITIVE_RPC = "AGG CHECK SENSITIVE PATIENT" # CHK^AGGPTSEN
+    SEND_SENSITIVE_NOTIFY_RPC = "AGG SEND SENSITIVE NOTIFY" # NOT^AGGPTSEN
+    ERROR_SCREEN_RPC = "AGG ERROR SCREEN"             # FND^AGGEDCHK
     PATIENT_LANGUAGES_RPC = "AGG PATIENT LANGUAGES"   # LANG^AGGWOTH, the latest entry's other languages
 
     # The context option the AGG* RPCs are registered under — file 19 IEN
@@ -321,6 +325,21 @@ module RpmsRpc
     end
     shape :update_aliases, resource: "agg", verb: "PUT", path: "/patients/{dfn}/agg/aliases"
 
+    # LEGL^AGGPTNAM — add ("A"), edit, or delete ("D") one LEGAL NAME.
+    # Option: AGGRPC. Client order is DFN, PROC, RIEN, $C(28) PARMS
+    # (AGGPTNAM.m:57). Success is RESULT "1" only (AGGPTNAM.m:101-102);
+    # a rejection row is "-1^message" and is never success. A parameter
+    # value containing $C(28) raises before the call (encode_parms).
+    # Returns { success: true, ien: } / { success: false, error:, message: } / nil.
+    def update_legal_names(dfn:, proc:, rien:, params: {}, client: RpmsRpc.client)
+      in_context(client) do
+        interpret_entry_write(
+          call_array(client, UPDATE_LEGAL_NAMES_RPC, dfn.to_s, proc.to_s, rien.to_s, encode_parms(params))
+        )
+      end
+    end
+    shape :update_legal_names, resource: "agg", verb: "PUT", path: "/patients/{dfn}/agg/legal-names"
+
     # UPD^AGGPOTH: add ("A") or delete ("D") one entry of a multiple below a
     # dated entry, for the window "Other Languages" (#9000001.8605 under a
     # LANGUAGES ENTRY DATE) or "Internet Access Method". P3 is the DFN, P4 the
@@ -392,6 +411,54 @@ module RpmsRpc
 
       { checks: reply[:records] }
     end
+
+    # CHK^AGGPTSEN — sensitive-patient indicator for this user. Option: AGGRPC.
+    # The row is 0, 1, or 2 (AGGPTSEN.m:16-19). Anything else, including a
+    # blank that would coerce to 0, is nil: 0 means "not sensitive".
+    # Returns { sensitive_indicator: Integer } or nil.
+    def check_sensitive_patient(dfn:, client: RpmsRpc.client)
+      reply = in_context(client) { parse_reply(call_array(client, CHECK_SENSITIVE_RPC, dfn.to_s)) }
+      raw = reply&.dig(:records, 0, :sensitive_indicator).to_s
+      return nil unless raw.match?(/\A[012]\z/)
+
+      { sensitive_indicator: raw.to_i }
+    end
+    shape :check_sensitive_patient, resource: "agg", verb: "GET", path: "/patients/{dfn}/agg/check-sensitive"
+
+    # NOT^AGGPTSEN — file the sensitive-record bulletin. Option: AGGRPC.
+    # The routine hardcodes the option it logs (AGGPTSEN.m:59). Success is
+    # RESULT "1" only. Returns { success: } or nil when RPMS did not answer.
+    def send_sensitive_notify(dfn:, client: RpmsRpc.client)
+      in_context(client) do
+        parsed = parse_reply(call_array(client, SEND_SENSITIVE_NOTIFY_RPC, dfn.to_s))
+        return nil if parsed.nil?
+
+        record = parsed[:records].first
+        if record.nil?
+          { success: false, message: "AGG SEND SENSITIVE NOTIFY gave no data record" }
+        else
+          { success: record[:result].to_s == "1" }
+        end
+      end
+    end
+    shape :send_sensitive_notify, resource: "agg", verb: "POST", path: "/patients/{dfn}/agg/send-sensitive-notify"
+
+    # FND^AGGEDCHK — the window and field for an edit-check error number.
+    # Option: AGGRPC. An empty ERRNUM walks the whole error file
+    # (AGGEDCHK.m:66). On the pinned routine FER's data-row write is
+    # commented out (AGGEDCHK.m:77), so a live call returns the header
+    # only; that is [], not an error. A data row ERROR_NUM^WINDOW^FIELD
+    # is still parsed when one is present.
+    # Returns [{ error_num:, window:, field: }] or nil when RPMS did not answer.
+    def error_screen(errnum:, client: RpmsRpc.client)
+      reply = in_context(client) { parse_reply(call_array(client, ERROR_SCREEN_RPC, errnum.to_s)) }
+      return nil if reply.nil?
+
+      reply[:records].map do |row|
+        { error_num: row[:error_num].to_s, window: row[:window].to_s, field: row[:field].to_s }
+      end
+    end
+    shape :error_screen, resource: "agg", verb: "GET", path: "/agg/error-screen"
 
     # GTMP^AGGPTHRN — the next temporary health record number for a patient,
     # the T-number IHS scheduling's mini-registration gives a caller who has

@@ -1,6 +1,8 @@
 RpmsRpc::Adt.admissions	GET /patients/{dfn}/admissions
 RpmsRpc::Adt.current_location	GET /patients/{dfn}/admissions/current-location
 RpmsRpc::Adt.discharge_datetime	GET /patients/{dfn}/admissions/discharge-datetime
+RpmsRpc::Agg.check_sensitive_patient	GET /patients/{dfn}/agg/check-sensitive
+RpmsRpc::Agg.error_screen	GET /agg/error-screen
 RpmsRpc::Agg.patient_languages	GET /patients/{dfn}/agg/languages
 RpmsRpc::Agg.table_lookup	GET /agg/files/{file}/table-lookup
 RpmsRpc::Agg.window_multiple	GET /patients/{dfn}/agg/window-multiple
@@ -27,6 +29,7 @@ RpmsRpc::Coverage.for_patient	GET /patients/{dfn}/coverages
 RpmsRpc::Coverage.insurers	GET /coverages/insurers
 RpmsRpc::Coverage.on_file	GET /patients/{dfn}/coverages/on-file
 RpmsRpc::DdrFileman.gets_entry	GET /files/{file}/entries/{iens}
+RpmsRpc::DgSensitive.check_access	GET /patients/{dfn}/sensitive-records/check-access
 RpmsRpc::ESignature.which_action	GET /progress-notes/{note_ien}/signatures/which-action
 RpmsRpc::Eligibility.codes	GET /eligibility/codes
 RpmsRpc::Eligibility.for_patient	GET /patients/{dfn}/eligibility
@@ -64,6 +67,7 @@ RpmsRpc::Order.result	GET /patients/{dfn}/orders/{order_ien}/result
 RpmsRpc::Order.result_history	GET /patients/{dfn}/orders/{order_ien}/result-history
 RpmsRpc::Order.sheets_for_patient	GET /patients/{dfn}/orders/sheets
 RpmsRpc::Organization.find	GET /organizations/{ien}
+RpmsRpc::Orwu.fileman_datetime	GET /orwu/fileman-datetime
 RpmsRpc::Patient.find	GET /patients/{dfn}
 RpmsRpc::Patient.find_by_ssn	GET /patients/by-ssn
 RpmsRpc::Patient.lookup	GET /patients/lookup
@@ -107,6 +111,7 @@ RpmsRpc::Registration.race_ethnicity_choices	GET /registrations/race-ethnicity-c
 RpmsRpc::Reminders.applicable	GET /patients/{dfn}/reminders/applicable
 RpmsRpc::Scheduling.patient_appointments	GET /patients/{dfn}/appointments
 RpmsRpc::Scheduling.resources	GET /appointments/resources
+RpmsRpc::Scheduling.resources_by_user	GET /appointments/resources-by-user
 RpmsRpc::SchedulingSetup.access_types	GET /appointments/access-types
 RpmsRpc::SchedulingSetup.clinic_rules	GET /appointments/clinic-rules
 RpmsRpc::SchedulingSetup.clinic_stop	GET /appointments/clinic-stop

@@ -76,9 +76,11 @@ module RpmsRpc
   # option, BSDXRPC ("WINDOWS SCHEDULING PROCEDURE CALLS", 69 entries), and in
   # no other — not the option a CIA sign-on binds (CIAV VUECENTRIC) and not
   # OR CPRS GUI CHART. A user without XUPROGMODE calling them under the
-  # sign-on option is denied before any data is returned. So every public
+  # sign-on option is denied before any data is returned. So every BSDX
   # method scopes itself to BSDXRPC via ContextScope.scoped (bind, run,
-  # restore the caller's option), the way RpmsRpc::Agg does for AGGRPC. A
+  # restore the caller's option), the way RpmsRpc::Agg does for AGGRPC.
+  # checkin_visit is the exception: it reads BEHOENCX GETVISIT, which this
+  # build serves only from CIAV VUECENTRIC, and it binds that option. A
   # client that cannot scope contexts runs as-is. A programmer-key session
   # bypasses the check either way, so only a non-programmer run is evidence
   # of this bind.
@@ -87,8 +89,15 @@ module RpmsRpc
     extend Shape::Declarable
 
     # The context option the BSDX RPCs are registered under — see the module
-    # doc. Every method here binds it.
+    # doc. Every BSDX method here binds it.
     CONTEXT = "BSDXRPC"
+    # BEHOENCX GETVISIT is not a BSDX RPC. Pinned reach lists only this option.
+    GETVISIT_CONTEXT = "CIAV VUECENTRIC"
+    # Client inputs after BSDXPRV. Pinned CHECKIN^BSDX25 (standup BSDX25.m:12)
+    # is BSDXY plus these eleven: ROU, VCL, VFM, OG, CR, PCC, WHF follow the
+    # four the caller fills. The broker passes BSDXY by reference, so it is
+    # not a client parameter. FOIA's tag stops at BSDXOG (FOIA BSDX25.m:12).
+    CHECKIN_AFTER_PROVIDER = [ "", "", "", "", "", "", "" ].freeze
 
     # Book an appointment — BSDX ADD NEW APPOINTMENT (APPADD^BSDX07 → $$MAKE^BSDAPI).
     #
@@ -149,14 +158,14 @@ module RpmsRpc
     #   clinic_code:     CLINIC STOP code (optional)
     #   provider:        check-in provider (optional)
     #
-    # All 8 client formals (BSDX25.m:12 — APTID^CDT^CC^PRV^ROU^VCL^VFM^OG) are
-    # sent, the unused tail as empties: the routine passes BSDXVCL/BSDXVFM/
-    # BSDXOG to APCHK by value with no $G (BSDX25.m:63), so omitting them
-    # <UNDEF>s server-side whenever the resource links a hospital location.
+    # Option: BSDXRPC. Eleven client inputs. BSDXVCL/BSDXVFM/BSDXOG go to
+    # APCHK by value with no $G (BSDX25.m:63), so omitting them <UNDEF>s
+    # when the resource links a hospital location. BSDXCR/BSDXPCC/BSDXWHF
+    # are $G'd (BSDX25.m:66-69) and are still sent.
     def checkin_appointment(appointment_ien, checkin_time:, clinic_code: nil, provider: nil)
       error_write(:scheduling_checkin_appointment,
                   appointment_ien.to_s, fm(checkin_time), clinic_code.to_s, provider.to_s,
-                  "", "", "", "",
+                  *CHECKIN_AFTER_PROVIDER,
                   zero_ok: true)
     end
 
@@ -170,9 +179,27 @@ module RpmsRpc
     # Returns { success: true } / { success: false, error: } / nil.
     def cancel_checkin(appointment_ien)
       error_write(:scheduling_checkin_appointment,
-                  appointment_ien.to_s, "@", "", "", "", "", "", "",
+                  appointment_ien.to_s, "@", "", "",
+                  *CHECKIN_AFTER_PROVIDER,
                   zero_ok: true)
     end
+
+    # The visit a check-in created — BEHOENCX GETVISIT (GETVISIT^BEHOENCX).
+    # Option: CIAV VUECENTRIC, not BSDXRPC. The reply is
+    # LOC^VDT^SVC^PAT^VID^LOCKED (BEHOENCX.m:8-14). A visit IEN that is not
+    # a positive integer is refused before the call. No row is nil; this
+    # method does not invent a visit.
+    # Returns the :encounter_visit hash, or nil.
+    def checkin_visit(visit_ien:)
+      ien = visit_ien.to_s
+      raise ArgumentError, "visit_ien must be a positive integer" unless ien.match?(/\A[1-9]\d*\z/)
+
+      ContextScope.scoped(RpmsRpc.client, GETVISIT_CONTEXT) do
+        DataMapper.encounter_visit.fetch_one(ien)
+      end
+    end
+    shape :checkin_visit, resource: "appointments", verb: "POST",
+          path: "/appointments/visits/{visit_ien}/checkin"
     shape :cancel_checkin, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/cancel-checkin"
 
     # Check a patient out — BSDX CHECKOUT APPOINTMENT (CHECKOUT^BSDX25 →
@@ -357,14 +384,18 @@ module RpmsRpc
     # Client::RpcError; a header-only reply is [].
     def resources
       rows = in_context { recordset("BSDX RESOURCES", "") }
-      rows&.map do |r|
-        { id: r[:resourceid].to_i, name: r[:resource_name], inactive: r[:inactive].to_s == "1",
-          time_scale: r[:timescale].to_i, hospital_location_id: r[:hospital_location_id].to_i,
-          view: r[:view].to_s == "1", overbook: r[:overbook].to_s == "1",
-          modify_schedule: r[:modify_schedule].to_s == "1", modify_appointments: r[:modify_appointments].to_s == "1" }
-      end
+      rows&.map { |r| resource_row(r) }
     end
     shape :resources, resource: "appointments", verb: "GET", path: "/appointments/resources"
+
+    # BSDX RESOURCES BY USER (RESUSR^BSDX01). Option: BSDXRPC. Same columns
+    # as BSDX RESOURCES (BSDX01.m:111-112). An empty DUZ is the signed-on
+    # user (BSDX01.m:113, `I '+BSDXDUZ`). Header-only is [].
+    def resources_by_user(duz: "")
+      rows = in_context { recordset("BSDX RESOURCES BY USER", duz.to_s) }
+      rows&.map { |r| resource_row(r) }
+    end
+    shape :resources_by_user, resource: "appointments", verb: "GET", path: "/appointments/resources-by-user"
 
     # A resource's access blocks between two dates, with their slots — BSDX
     # CREATE ASGND SLOT SCHED (CASSCH^BSDX04), what the scheduling client draws
@@ -592,6 +623,13 @@ module RpmsRpc
     def recordset_record(names, row)
       pieces = row.to_s.split("^", -1)
       names.each_with_index.to_h { |name, index| [ name, pieces[index] ] }
+    end
+
+    def resource_row(row)
+      { id: row[:resourceid].to_i, name: row[:resource_name], inactive: row[:inactive].to_s == "1",
+        time_scale: row[:timescale].to_i, hospital_location_id: row[:hospital_location_id].to_i,
+        view: row[:view].to_s == "1", overbook: row[:overbook].to_s == "1",
+        modify_schedule: row[:modify_schedule].to_s == "1", modify_appointments: row[:modify_appointments].to_s == "1" }
     end
 
     def external_time(text)

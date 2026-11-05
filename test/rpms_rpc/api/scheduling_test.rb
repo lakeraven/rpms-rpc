@@ -186,20 +186,21 @@ class SchedulingTest < Minitest::Test
     assert_equal "BSDX CHECKIN APPOINTMENT", call[:rpc]
   end
 
-  # Regression: only 4 of CHECKIN^BSDX25's client formals were sent. The
+  # Regression: only 4 of CHECKIN^BSDX25's client inputs were sent. The
   # routine passes BSDXVCL/BSDXVFM/BSDXOG to APCHK by value with no $G
-  # (BSDX25.m:63), so when the resource links a hospital location a 4-param
-  # call dies server-side with <UNDEF>. All 8 formals (BSDX25.m:12 —
-  # APTID^CDT^CC^PRV^ROU^VCL^VFM^OG) are now sent, trailing ones empty.
-  def test_checkin_appointment_sends_all_eight_formals_regression
+  # (BSDX25.m:63), so when the resource links a hospital location a short
+  # call dies server-side with <UNDEF>. The pinned tag (BSDX25.m:12) has
+  # twelve formals including the return BSDXY; the client sends the other
+  # eleven (APTID^CDT^CC^PRV^ROU^VCL^VFM^OG^CR^PCC^WHF), trailing ones empty.
+  def test_checkin_appointment_sends_all_eleven_client_inputs_regression
     RpmsRpc.client.seed(:scheduling_checkin_appointment, "501", { error: "0" })
 
     RpmsRpc::Scheduling.checkin_appointment(501, checkin_time: START_T,
                                             clinic_code: "301", provider: "PROVIDER,A")
 
-    assert_equal [ "501", START_FM, "301", "PROVIDER,A", "", "", "", "" ],
+    assert_equal [ "501", START_FM, "301", "PROVIDER,A", "", "", "", "", "", "", "" ],
                  RpmsRpc.client.received_calls.last[:params],
-                 "BSDXROU/BSDXVCL/BSDXVFM/BSDXOG must be sent (empty) to avoid <UNDEF>"
+                 "BSDXROU/BSDXVCL/BSDXVFM/BSDXOG/BSDXCR/BSDXPCC/BSDXWHF must be sent (empty)"
   end
 
   # Regression: the LIVE success row is "0^"_EMSG (BSDX25.m:74) — two pieces,
@@ -271,7 +272,7 @@ def test_cancel_checkin_sends_at_sign_as_the_checkin_time
   assert RpmsRpc::Scheduling.cancel_checkin(501)[:success]
   call = RpmsRpc.client.received_calls.last
   assert_equal "BSDX CHECKIN APPOINTMENT", call[:rpc]
-  assert_equal [ "501", "@", "", "", "", "", "", "" ], call[:params]
+  assert_equal [ "501", "@", "", "", "", "", "", "", "", "", "" ], call[:params]
 end
 
 def test_cancel_checkin_live_rows
@@ -659,6 +660,7 @@ end
     mock.seed_raw_lines(:scheduling_clinic_setup, "",
                         bsdx_fetch_many_header_only_lines(CLINIC_SETUP_HEADER))
     seed_mock_global_array!(mock, "BSDX RESOURCES", "", RESOURCES_RECORDSET_HEADER)
+    seed_mock_global_array!(mock, "BSDX RESOURCES BY USER", "", RESOURCES_RECORDSET_HEADER)
     seed_mock_global_array!(mock, "BSDX CREATE ASGND SLOT SCHED", resource, SLOTS_RECORDSET_HEADER)
     seed_mock_global_array!(mock, "BSDX CREATE APPT SCHEDULE", resource, APPTS_RECORDSET_HEADER)
     seed_mock_global_array!(mock, "BSDX PATIENT APPT DISPLAY", "100", PATIENT_APPTS_RECORDSET_HEADER)
@@ -683,6 +685,7 @@ end
     hospital_locations: [],
     clinic_setup: [],
     resources: [],
+    resources_by_user: [],
     appointments: [ { resource: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],
     slot_schedule: [ { resource: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],
     add_availability: [ { resource: "PEDIATRICIAN,DEMO", start_time: START_T, end_time: END_T, slots: 1,
@@ -693,11 +696,37 @@ end
     variable_length?: [ 44 ]
   }.freeze
 
+  # BEHOENCX GETVISIT is not a BSDX RPC. The pinned build serves it only
+  # from CIAV VUECENTRIC, so checkin_visit is not in BSDX_CALLS.
+  GETVISIT_CALLS = {
+    checkin_visit: [ { visit_ien: 44_101 } ]
+  }.freeze
+
   def test_the_bind_table_names_every_public_method
     expected = RpmsRpc::Scheduling.public_instance_methods(false).sort
 
-    assert_equal expected, BSDX_CALLS.keys.sort,
-      "a new Scheduling method must be added to BSDX_CALLS so its context bind is proven"
+    assert_equal expected, (BSDX_CALLS.keys + GETVISIT_CALLS.keys).sort,
+      "a new Scheduling method must be added to BSDX_CALLS or GETVISIT_CALLS so its context bind is proven"
+  end
+
+  def test_checkin_visit_runs_under_ciav_vuecentric_and_restores_the_callers_context
+    GETVISIT_CALLS.each do |method, args|
+      mock = RpmsRpc.mock!
+      caller_context = mock.current_context
+      keywords = args.find { |a| a.is_a?(Hash) } || {}
+
+      RpmsRpc::Scheduling.public_send(method, **keywords)
+
+      calls = mock.received_calls
+      refute_empty calls, "#{method} made no RPC call"
+      calls.each do |call|
+        assert_equal "BEHOENCX GETVISIT", call[:rpc]
+        assert_equal "CIAV VUECENTRIC", call[:context],
+          "#{method} sent #{call[:rpc]} under #{call[:context].inspect}"
+      end
+      assert_equal caller_context, mock.current_context
+      assert_equal [ "CIAV VUECENTRIC", caller_context ], mock.context_binds
+    end
   end
 
   def test_every_bsdx_call_runs_under_bsdxrpc_and_restores_the_callers_context
