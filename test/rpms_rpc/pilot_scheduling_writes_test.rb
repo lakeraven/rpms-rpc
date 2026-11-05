@@ -196,8 +196,20 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       RpmsRpc.reset!
     end
 
+    def api_call_positional(yaml)
+      yaml.fetch("api_call").fetch("args")
+    end
+
+    def api_call_kwargs(yaml)
+      yaml.fetch("api_call").fetch("kwargs")
+    end
+
+    def appointment_ien_from_api_call(yaml)
+      api_call_positional(yaml)[0]
+    end
+
     def appointment_context(yaml, index)
-      appt_ien = yaml.dig("api_call", "args", "appointment_ien")
+      appt_ien = appointment_ien_from_api_call(yaml)
       return nil if appt_ien.nil?
 
       appt_iens = "#{appt_ien},"
@@ -246,24 +258,24 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     end
 
     def expected_internal_for_effect(slice, effect, yaml, fixture = nil)
-      args = yaml.fetch("api_call").fetch("args")
+      kwargs = api_call_kwargs(yaml)
       case effect
       when :appointment_id
         add_appointment_id_from_capture(yaml, fixture)
       when :start
-        canonical_fileman_datetime(args["start_time"])
+        canonical_fileman_datetime(kwargs["start_time"])
       when :patient
-        args["patient_dfn"].to_s
+        kwargs["patient_dfn"].to_s
       when :resource
         yaml.dig("setup", "resource_ien").to_s
       when :dpt_appt_clinic
         yaml.dig("setup", "hospital_location_id").to_s
       when :checkin_time
-        canonical_fileman_datetime(args["checkin_time"])
+        canonical_fileman_datetime(kwargs["checkin_time"])
       when :cancel_status
-        args["type"].to_s
+        kwargs["type"].to_s
       when :cancel_reason
-        args["reason"].to_s
+        kwargs["reason"].to_s
       when :cancelled_at
         nil # proven by presence of any real FileMan datetime on .12, not a literal
       when :noshow_flag
@@ -279,7 +291,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
 
     def effect_proven?(slice, effect, yaml, fixture)
       index = read_back_index(yaml["read_back"])
-      args = yaml.fetch("api_call").fetch("args")
+      kwargs = api_call_kwargs(yaml)
 
       return false unless RpmsRpc::WireCapture::Evidence.real_value?(
                             expected_internal_for_effect(slice, effect, yaml, fixture)
@@ -296,7 +308,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
           true
         end
       when :cancel_reason
-        reason = args["reason"].to_s
+        reason = kwargs["reason"].to_s
         return false if reason.empty? || reason == "14"
 
         ctx = appointment_context(yaml, index)
@@ -305,7 +317,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
         got = index_lookup(index, file: "2.98", iens: ctx[:dpt_iens], field: "16")
         RpmsRpc::WireCapture::Evidence.real_value?(got) && got == reason
       when :cancelled_at
-        appt_ien = args["appointment_ien"]
+        appt_ien = appointment_ien_from_api_call(yaml)
         got = index_lookup(index, file: "9002018.4", iens: "#{appt_ien},", field: ".12")
         RpmsRpc::WireCapture::Evidence.real_value?(got) && got.to_s.include?(".")
       when :cancel_status
@@ -313,13 +325,13 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
         return false unless ctx
 
         got = index_lookup(index, file: "2.98", iens: ctx[:dpt_iens], field: "3")
-        got == args["type"].to_s
+        got == kwargs["type"].to_s
       when :checkin_time
-        appt_ien = args["appointment_ien"]
+        appt_ien = appointment_ien_from_api_call(yaml)
         got = index_lookup(index, file: "9002018.4", iens: "#{appt_ien},", field: ".03")
-        canonical_fileman_datetime(got) == canonical_fileman_datetime(args["checkin_time"])
+        canonical_fileman_datetime(got) == canonical_fileman_datetime(kwargs["checkin_time"])
       when :noshow_flag
-        appt_ien = args["appointment_ien"]
+        appt_ien = appointment_ien_from_api_call(yaml)
         got = index_lookup(index, file: "9002018.4", iens: "#{appt_ien},", field: ".1")
         got == "1"
       when :noshow_status
@@ -347,7 +359,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
         got = index_lookup(index, file: "9002018.4", iens: "#{appt_id},", field: ".07")
         got == expected_internal_for_effect(slice, :resource, yaml, fixture)
       when :dpt_appt_clinic
-        dpt_iens = dpt_appt_iens(args["start_time"], args["patient_dfn"])
+        dpt_iens = dpt_appt_iens(kwargs["start_time"], kwargs["patient_dfn"])
         got = index_lookup(index, file: "2.98", iens: dpt_iens, field: ".01")
         expected = expected_internal_for_effect(slice, :dpt_appt_clinic, yaml, fixture)
         RpmsRpc::WireCapture::Evidence.real_value?(got) && got == expected
@@ -490,7 +502,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     row = rows["BSDX CANCEL APPOINTMENT"]
     assert row, "checklist must list BSDX CANCEL APPOINTMENT"
     yaml, = load_slice_fixture(SCHEDULING_WRITE_SLICE.find { |s| s[:rpc] == "BSDX CANCEL APPOINTMENT" })
-    reason = yaml.dig("api_call", "args", "reason").to_s
+    reason = yaml.dig("api_call", "kwargs", "reason").to_s
     assert_match(/\b#{Regexp.escape(reason)}\b/, row[:reason]) if reason.match?(/\A\d+\z/)
   end
 
@@ -562,8 +574,9 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       client = SchedulingInputsClient.new
       RpmsRpc.reset!
       RpmsRpc.configure { |cfg| cfg.client = client }
-      args = api["args"].transform_keys(&:to_sym)
-      RpmsRpc::Scheduling.public_send(slice[:api_method], **args)
+      pos_args = api.fetch("args")
+      kw_args = api.fetch("kwargs").transform_keys(&:to_sym)
+      RpmsRpc::Scheduling.public_send(slice[:api_method], *pos_args, **kw_args)
       expected_rpc = RpmsRpc::DataMapper[slice[:mapping]].rpc_name
       failures << "#{slice[:rpc]}: expected rpc #{expected_rpc}" unless client.calls.last&.first == expected_rpc
       failures << "#{slice[:rpc]}: inputs #{client.calls.last&.last.inspect} != fixture #{yaml["inputs"].inspect}" if
@@ -686,7 +699,8 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       "pieces" => [ { "position" => 0, "attribute" => "error" } ],
       "api_call" => {
         "method" => "checkin_appointment",
-        "args" => { "appointment_ien" => 5, "checkin_time" => "3270107.093" }
+        "args" => [ 5 ],
+        "kwargs" => { "checkin_time" => "3270107.093" }
       },
       "read_back" => [
         {
@@ -723,7 +737,8 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       "pieces" => [ { "position" => 0, "attribute" => "error" } ],
       "api_call" => {
         "method" => "cancel_appointment",
-        "args" => { "appointment_ien" => 5, "type" => "PC", "reason" => reason, "note" => nil }
+        "args" => [ 5 ],
+        "kwargs" => { "reason" => reason, "type" => "PC", "note" => nil }
       },
       "read_back" => [
         {
@@ -769,7 +784,8 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       ],
       "api_call" => {
         "method" => "mark_no_show",
-        "args" => { "appointment_ien" => 5 }
+        "args" => [ 5 ],
+        "kwargs" => {}
       },
       "read_back" => [
         {
@@ -817,7 +833,8 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       ],
       "api_call" => {
         "method" => "add_appointment",
-        "args" => {
+        "args" => [],
+        "kwargs" => {
           "start_time" => start,
           "patient_dfn" => patient,
           "resource" => SYNTHETIC_RESOURCE,
