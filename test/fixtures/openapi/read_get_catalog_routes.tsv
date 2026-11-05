@@ -1,6 +1,7 @@
 RpmsRpc::Adt.admissions	GET /patients/{dfn}/admissions
 RpmsRpc::Adt.current_location	GET /patients/{dfn}/admissions/current-location
 RpmsRpc::Adt.discharge_datetime	GET /patients/{dfn}/admissions/discharge-datetime
+RpmsRpc::Agg.error_screen	GET /agg/error-screen
 RpmsRpc::Agg.patient_languages	GET /patients/{dfn}/agg/languages
 RpmsRpc::Agg.table_lookup	GET /agg/files/{file}/table-lookup
 RpmsRpc::Agg.window_multiple	GET /patients/{dfn}/agg/window-multiple
@@ -64,6 +65,7 @@ RpmsRpc::Order.result	GET /patients/{dfn}/orders/{order_ien}/result
 RpmsRpc::Order.result_history	GET /patients/{dfn}/orders/{order_ien}/result-history
 RpmsRpc::Order.sheets_for_patient	GET /patients/{dfn}/orders/sheets
 RpmsRpc::Organization.find	GET /organizations/{ien}
+RpmsRpc::Orwu.fileman_datetime	GET /orwu/fileman-datetime
 RpmsRpc::Patient.find	GET /patients/{dfn}
 RpmsRpc::Patient.find_by_ssn	GET /patients/by-ssn
 RpmsRpc::Patient.lookup	GET /patients/lookup
@@ -105,8 +107,10 @@ RpmsRpc::Registration.preferred_name	GET /patients/{dfn}/registrations/preferred
 RpmsRpc::Registration.race_ethnicity	GET /patients/{dfn}/registrations/race-ethnicity
 RpmsRpc::Registration.race_ethnicity_choices	GET /registrations/race-ethnicity-choices
 RpmsRpc::Reminders.applicable	GET /patients/{dfn}/reminders/applicable
+RpmsRpc::Scheduling.checkin_visit	GET /patients/{dfn}/appointments/clinics/{clinic_ien}/checkin-visit
 RpmsRpc::Scheduling.patient_appointments	GET /patients/{dfn}/appointments
 RpmsRpc::Scheduling.resources	GET /appointments/resources
+RpmsRpc::Scheduling.resources_by_user	GET /appointments/resources-by-user
 RpmsRpc::SchedulingSetup.access_types	GET /appointments/access-types
 RpmsRpc::SchedulingSetup.clinic_rules	GET /appointments/clinic-rules
 RpmsRpc::SchedulingSetup.clinic_stop	GET /appointments/clinic-stop

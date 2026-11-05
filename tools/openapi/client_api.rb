@@ -28,7 +28,10 @@ module OpenApi
       "BehavioralHealth::Intake" => { path: "behavioral-health/intakes" },
       "BehavioralHealth::Reference" => { path: "behavioral-health" },
       "BehavioralHealth::Wellness" => { path: "behavioral-health/wellness" },
+      "Bgu" => { path: "bgu" },
+      "Busa" => { path: "busa" },
       "DdrFileman" => { path: "files", own: %w[file] },
+      "DgSensitive" => { path: "sensitive-records" },
       "ESignature" => { path: "signatures" },
       "Eligibility" => { path: "eligibility" },
       "Encounter" => { path: "encounters", own: %w[visit_ien] },
@@ -45,6 +48,7 @@ module OpenApi
       "Notifications" => { path: "notifications", own: %w[alert_id] },
       "Order" => { path: "orders" },
       "Organization" => { path: "organizations" },
+      "Orwu" => { path: "orwu" },
       "Patient" => { path: "patients", own: %w[dfn patient_dfn] },
       "Phr" => { path: "phr" },
       "Pov" => { path: "purposes-of-visit" },
@@ -95,6 +99,11 @@ module OpenApi
     WRITE_CLASS_GET_BASELINE = File.readlines(
       File.expand_path("../../data/openapi/write_class_get_baseline.txt", __dir__), chomp: true
     ).reject(&:empty?).freeze
+    # checkin_visit reads BEHOENCX FETCH (CREATE=0). The name starts with the action
+    # word "checkin", so inference would publish POST at the action path.
+    # The pinned catalog route is GET at the path inference derives. Other :read methods
+    # whose names start with an action word keep the inferred verb.
+    READ_ON_ACTION_PATH = "RpmsRpc::Scheduling.checkin_visit"
 
     module_function
 
@@ -154,17 +163,18 @@ module OpenApi
       key = "#{method['module']}.#{method['method']}"
       fallback = publish_post?(key, c, retry_table: retry_table)
       # Keep the inferred words, including a plain noun with no retry row, so two nouns cannot collide.
-      a = publish(place(method, c, c[:rest]), fallback)
+      a = read_on_action_path(publish(place(method, c, c[:rest]), fallback), key, fallback)
       return a unless c[:kind] == "query"
 
       sub = publish(place(method, c, c[:sub_rest]).merge(rule: "query-sub-path"), fallback)
       a.merge(rank: QUERY_RANK[c[:verb_word]], sub: sub)
     end
 
-    # True when inference's GET must be published POST. :read keeps the inferred verb. A key in the frozen
-    # baseline keeps it too. Any other retry class does not. A name with no verb word and no retry row is
-    # the same fallback, so it cannot default to GET. A named verb with no row keeps its inference, so a
-    # hand-built example of find or search stays GET until retry_safety.yml classifies it.
+    # True when inference's GET must be published POST. :read keeps the inferred verb, except
+    # READ_ON_ACTION_PATH, which is GET at the action path. A key in the frozen baseline keeps
+    # the inferred GET too. Any other retry class does not. A name with no verb word and no retry
+    # row is the same fallback, so it cannot default to GET. A named verb with no row keeps its
+    # inference, so a hand-built example of find or search stays GET until retry_safety.yml classifies it.
     def publish_post?(key, classified, retry_table: RpmsRpc::RetrySafety.table)
       return false if WRITE_CLASS_GET_BASELINE.include?(key)
 
@@ -181,6 +191,13 @@ module OpenApi
     # A flipped GET is POST, and the rule records that the retry class (or the no-row noun) chose the verb.
     def publish(addr, fallback)
       fallback && addr[:verb] == "get" ? addr.merge(verb: "post", rule: "retry-class") : addr
+    end
+
+    # The one :read whose name is an action word and whose pinned route is GET at that action path.
+    def read_on_action_path(addr, key, fallback)
+      return addr unless key == READ_ON_ACTION_PATH && !fallback && addr[:verb] != "get"
+
+      addr.merge(verb: "get")
     end
 
     def place(method, c, words)

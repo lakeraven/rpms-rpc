@@ -659,6 +659,7 @@ end
     mock.seed_raw_lines(:scheduling_clinic_setup, "",
                         bsdx_fetch_many_header_only_lines(CLINIC_SETUP_HEADER))
     seed_mock_global_array!(mock, "BSDX RESOURCES", "", RESOURCES_RECORDSET_HEADER)
+    seed_mock_global_array!(mock, "BSDX RESOURCES BY USER", "", RESOURCES_RECORDSET_HEADER)
     seed_mock_global_array!(mock, "BSDX CREATE ASGND SLOT SCHED", resource, SLOTS_RECORDSET_HEADER)
     seed_mock_global_array!(mock, "BSDX CREATE APPT SCHEDULE", resource, APPTS_RECORDSET_HEADER)
     seed_mock_global_array!(mock, "BSDX PATIENT APPT DISPLAY", "100", PATIENT_APPTS_RECORDSET_HEADER)
@@ -683,6 +684,7 @@ end
     hospital_locations: [],
     clinic_setup: [],
     resources: [],
+    resources_by_user: [],
     appointments: [ { resource: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],
     slot_schedule: [ { resource: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],
     add_availability: [ { resource: "PEDIATRICIAN,DEMO", start_time: START_T, end_time: END_T, slots: 1,
@@ -693,11 +695,37 @@ end
     variable_length?: [ 44 ]
   }.freeze
 
+  # BEHOENCX FETCH is not a BSDX RPC. The pinned build serves it only
+  # from CIAV VUECENTRIC, so checkin_visit is not in BSDX_CALLS.
+  FETCH_CALLS = {
+    checkin_visit: [ { dfn: 990_031, clinic_ien: 44, checkin_time: START_T } ]
+  }.freeze
+
   def test_the_bind_table_names_every_public_method
     expected = RpmsRpc::Scheduling.public_instance_methods(false).sort
 
-    assert_equal expected, BSDX_CALLS.keys.sort,
-      "a new Scheduling method must be added to BSDX_CALLS so its context bind is proven"
+    assert_equal expected, (BSDX_CALLS.keys + FETCH_CALLS.keys).sort,
+      "a new Scheduling method must be added to BSDX_CALLS or FETCH_CALLS so its context bind is proven"
+  end
+
+  def test_checkin_visit_runs_under_ciav_vuecentric_and_restores_the_callers_context
+    FETCH_CALLS.each do |method, args|
+      mock = RpmsRpc.mock!
+      caller_context = mock.current_context
+      keywords = args.find { |a| a.is_a?(Hash) } || {}
+
+      RpmsRpc::Scheduling.public_send(method, **keywords)
+
+      calls = mock.received_calls
+      refute_empty calls, "#{method} made no RPC call"
+      calls.each do |call|
+        assert_equal "BEHOENCX FETCH", call[:rpc]
+        assert_equal "CIAV VUECENTRIC", call[:context],
+          "#{method} sent #{call[:rpc]} under #{call[:context].inspect}"
+      end
+      assert_equal caller_context, mock.current_context
+      assert_equal [ "CIAV VUECENTRIC", caller_context ], mock.context_binds
+    end
   end
 
   def test_every_bsdx_call_runs_under_bsdxrpc_and_restores_the_callers_context

@@ -1596,5 +1596,33 @@ module RpmsRpc
       m.field 9,  :community
       m.field 10, :mothers_maiden_name
     end
+
+    # ========================================================================
+    # STOCK WRAPPERS (rpms-rpc#420)
+    # ========================================================================
+
+    # BGU MAILMAN MESSAGE — EN^BGUMAIL. BGUARRAY(1)=1 and BGUARRAY(2)="OK"
+    # on success (BGUMAIL.m:6). The seed used by the wrapper tests is one
+    # caret row RESULT^STATUS; a live type-2 reply is two nodes, and
+    # RpmsRpc::Bgu accepts both.
+    DataMapper.define(:bgu_mailman_message) do |m|
+      m.rpc "BGU MAILMAN MESSAGE"
+      m.field 0, :result
+      m.field 1, :status
+    end
+
+    # DG SENSITIVE RECORD BULLETIN — NOTICE^DGSEC4. Single value 1 or 0
+    # (DGSEC4.m:74-83). Params: DFN^DGOPT^ACTION.
+    DataMapper.define(:dg_sensitive_bulletin) do |m|
+      m.rpc "DG SENSITIVE RECORD BULLETIN"
+      m.scalar :result
+    end
+
+    # ORWU DT — DT^ORWU. One FileMan value, or -1 from ^%DT (ORWU.m:4-7).
+    # Params: X^%DT. The wrapper treats -1 as no datetime.
+    DataMapper.define(:orwu_dt) do |m|
+      m.rpc "ORWU DT"
+      m.scalar :fileman_datetime
+    end
   end
 end

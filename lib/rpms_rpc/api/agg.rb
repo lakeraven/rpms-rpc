@@ -90,6 +90,9 @@ module RpmsRpc
     TABLE_LOOKUP_RPC = "AGG WINDOW TABLE LOOKUP"      # LKP^AGGWTBLK, a pointed-to file's entries by name
     UPDATE_ALIASES_RPC = "AGG UPDATE ALIASES"         # ALIAS^AGGPTNAM
     UPDATE_SPECIAL_MULTIPLES_RPC = "AGG UPDATE SPECIAL MULTIPLES" # UPD^AGGPOTH
+    CHECK_SENSITIVE_RPC = "AGG CHECK SENSITIVE PATIENT" # CHK^AGGPTSEN
+    SEND_SENSITIVE_NOTIFY_RPC = "AGG SEND SENSITIVE NOTIFY" # NOT^AGGPTSEN
+    ERROR_SCREEN_RPC = "AGG ERROR SCREEN"             # FND^AGGEDCHK
     PATIENT_LANGUAGES_RPC = "AGG PATIENT LANGUAGES"   # LANG^AGGWOTH, the latest entry's other languages
 
     # The context option the AGG* RPCs are registered under — file 19 IEN
@@ -393,6 +396,69 @@ module RpmsRpc
       { checks: reply[:records] }
     end
 
+    # CHK^AGGPTSEN — sensitive-patient indicator for this user. Option: AGGRPC.
+    # A DFN that is not a positive integer raises ArgumentError before any
+    # RPC. The wire value is the canonical digit string. The row is 0, 1,
+    # or 2 (AGGPTSEN.m:16-19). Anything else, including a blank that would
+    # coerce to 0, is nil: 0 means "not sensitive". CHK calls SENS^DGSEC4
+    # (AGGPTSEN.m:30). SENS audits the lookup (ACCESSED^DIET, DGSEC4.m:178)
+    # only when the DI AUDIT PATIENT LOOKUPS parameter is set. It does not write
+    # the DG SECURITY LOG: that SETLOG1 write (DGSEC4.m:65) is in PTSEC, after
+    # SENS returns, and CHK does not call PTSEC. The write class stays
+    # :non_idempotent_write because the audit can write. Returns
+    # { sensitive_indicator: Integer } or nil.
+    def check_sensitive_patient(dfn:, client: RpmsRpc.client)
+      id = canonical_dfn(dfn)
+      raise ArgumentError, "DFN must be a positive integer" unless id
+
+      reply = in_context(client) { parse_reply(call_array(client, CHECK_SENSITIVE_RPC, id)) }
+      raw = reply&.dig(:records, 0, :sensitive_indicator).to_s
+      return nil unless raw.match?(/\A[012]\z/)
+
+      { sensitive_indicator: raw.to_i }
+    end
+    shape :check_sensitive_patient, resource: "agg", verb: "POST", path: "/patients/{dfn}/agg/check-sensitive"
+
+    # NOT^AGGPTSEN — file the sensitive-record bulletin. Option: AGGRPC.
+    # A DFN that is not a positive integer raises ArgumentError before any
+    # RPC. The wire value is the canonical digit string. The routine
+    # hardcodes the option it logs (AGGPTSEN.m:59). Success is RESULT "1"
+    # only. Returns { success: } or nil when RPMS did not answer.
+    def send_sensitive_notify(dfn:, client: RpmsRpc.client)
+      id = canonical_dfn(dfn)
+      raise ArgumentError, "DFN must be a positive integer" unless id
+
+      in_context(client) do
+        parsed = parse_reply(call_array(client, SEND_SENSITIVE_NOTIFY_RPC, id))
+        return nil if parsed.nil?
+
+        record = parsed[:records].first
+        if record.nil?
+          { success: false, message: "AGG SEND SENSITIVE NOTIFY gave no data record" }
+        else
+          { success: record[:result].to_s == "1" }
+        end
+      end
+    end
+    shape :send_sensitive_notify, resource: "agg", verb: "POST", path: "/patients/{dfn}/agg/send-sensitive-notify"
+
+    # FND^AGGEDCHK — the window and field for an edit-check error number.
+    # Option: AGGRPC. An empty ERRNUM walks the whole error file
+    # (AGGEDCHK.m:66). On the pinned routine FER's data-row write is
+    # commented out (AGGEDCHK.m:77), so a live call returns the header
+    # only; that is [], not an error. A data row ERROR_NUM^WINDOW^FIELD
+    # is still parsed when one is present.
+    # Returns [{ error_num:, window:, field: }] or nil when RPMS did not answer.
+    def error_screen(errnum:, client: RpmsRpc.client)
+      reply = in_context(client) { parse_reply(call_array(client, ERROR_SCREEN_RPC, errnum.to_s)) }
+      return nil if reply.nil?
+
+      reply[:records].map do |row|
+        { error_num: row[:error_num].to_s, window: row[:window].to_s, field: row[:field].to_s }
+      end
+    end
+    shape :error_screen, resource: "agg", verb: "GET", path: "/agg/error-screen"
+
     # GTMP^AGGPTHRN — the next temporary health record number for a patient,
     # the T-number IHS scheduling's mini-registration gives a caller who has
     # no chart yet (option BSDAM MINI REGISTRATION, key SDZREGMENU: "assigns
@@ -429,10 +495,13 @@ module RpmsRpc
     # [{name => value}] }. Strips the leading sequence echo + \x00 ack, cuts
     # at the $C(31) end sentinel, splits records on $C(30), and maps each
     # record's "^"-pieces onto the typed-header field names. nil on an empty
-    # reply.
+    # reply. A line Array (BMX/XWB #call_rpc, which strip the separators, or a
+    # seeded array that keeps them) is rejoined into the same blob first;
+    # a String is untouched.
     def parse_reply(raw)
       return nil if raw.nil?
 
+      raw = lines_to_blob(raw) if raw.is_a?(Array)
       body = raw.to_s.b
       body = body.split(ACK, 2).last.to_s if body.include?(ACK)
       body = body.split(ARRAY_END, 2).first.to_s
@@ -447,7 +516,30 @@ module RpmsRpc
       { header: names, records: records, rows: split }
     end
 
+    # A DFN subscript these routines can use: a positive Integer, or a
+    # String matching /\A[1-9]\d*\z/ with no strip. The canonical wire
+    # string, or nil. "0990031" and " 990031" are not patient 990031.
+    # Sends nothing.
+    def canonical_dfn(dfn)
+      case dfn
+      when Integer
+        dfn.positive? ? dfn.to_s : nil
+      when String
+        dfn.match?(/\A[1-9]\d*\z/) ? dfn : nil
+      end
+    end
+
     private
+
+    # Rows of a line Array as one blob: each row ends in exactly one $C(30),
+    # whether or not the client already stripped it, and the $C(31) sentinel
+    # is dropped (parse_reply cuts there anyway).
+    def lines_to_blob(lines)
+      lines.map { |line| line.to_s.delete(RECORD_SEP + ARRAY_END) }
+           .reject(&:empty?)
+           .map { |row| row + RECORD_SEP }
+           .join
+    end
 
     # Bind AGGRPC for the duration of the block and restore the caller's
     # context afterward (ContextScope#with_context — a no-op round-trip-wise

@@ -10,11 +10,14 @@
       "AGG ADD NEW PATIENT",
       "AGG BUILD WINDOW DISPLAY",
       "AGG BUILD WINDOW MULTIPLE",
+      "AGG CHECK SENSITIVE PATIENT",
+      "AGG ERROR SCREEN",
       "AGG GET TEMP PAT HRN",
       "AGG LOCK PATIENT",
       "AGG LOOKUP PATIENTS",
       "AGG PATIENT EDIT CHECK",
       "AGG PATIENT LANGUAGES",
+      "AGG SEND SENSITIVE NOTIFY",
       "AGG UNLOCK PATIENT",
       "AGG UPDATE ALIASES",
       "AGG UPDATE PATIENT",
@@ -102,6 +105,12 @@
       "DDR GETS ENTRY DATA",
       "DDR LOCK/UNLOCK NODE"
     ],
+    "RpmsRpc::Bgu": [
+      "BGU MAILMAN MESSAGE"
+    ],
+    "RpmsRpc::Busa": [
+      "BUSA LOG SECURITY AUDIT ENTRY"
+    ],
     "RpmsRpc::ClinicalEvent": [
       "ORWPCE GET EDUCATION TOPICS",
       "ORWPCE GET EXAM TYPE",
@@ -133,6 +142,10 @@
       "DDR LISTER",
       "DDR LOCK/UNLOCK NODE",
       "DDR VALIDATOR"
+    ],
+    "RpmsRpc::DgSensitive": [
+      "DG SENSITIVE RECORD ACCESS",
+      "DG SENSITIVE RECORD BULLETIN"
     ],
     "RpmsRpc::ESignature": [
       "ORWU VALIDSIG",
@@ -223,6 +236,9 @@
     ],
     "RpmsRpc::Organization": [
       "DDR GETS ENTRY DATA"
+    ],
+    "RpmsRpc::Orwu": [
+      "ORWU DT"
     ],
     "RpmsRpc::Patient": [
       "AGG ADD NEW PATIENT",
@@ -353,6 +369,7 @@
       "ORQQPXRM REMINDERS APPLICABLE"
     ],
     "RpmsRpc::Scheduling": [
+      "BEHOENCX FETCH",
       "BSDX ADD NEW APPOINTMENT",
       "BSDX ADD NEW AVAILABILITY",
       "BSDX ALL APPOINTMENTS",
@@ -371,6 +388,7 @@
       "BSDX OVERBOOK",
       "BSDX PATIENT APPT DISPLAY",
       "BSDX RESOURCES",
+      "BSDX RESOURCES BY USER",
       "BSDX SEARCH AVAILABILITY",
       "BSDX UNCANCEL APPT"
     ],
