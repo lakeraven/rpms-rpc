@@ -121,6 +121,38 @@ class SchedulingStockRpcsTest < Minitest::Test
     assert_nil RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
   end
 
+  def test_checkin_visit_result_does_not_echo_the_request_time_as_visit_data
+    seed_fetch(990_031)
+    visit = RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
+
+    refute visit.key?(:datetime_raw)
+    assert_equal %i[location_ien location_name locked patient_dfn visit_id visit_ien], visit.keys.sort
+  end
+
+  def test_checkin_visit_returns_nil_on_the_real_miss_shape
+    # A populated header with empty pieces 6-9 (BEHOENCX.m:41-46 on a miss).
+    RpmsRpc.client.seed_raw_lines(:encounter_fetch, "990031", [ "LOC^ABBR^RB^PRV^NAME^^^" ])
+
+    assert_nil RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
+  end
+
+  def test_checkin_visit_returns_nil_when_the_visit_ien_is_not_positive
+    [ 0, -1 ].each do |ien|
+      seed_fetch(990_031, visit_ien: ien)
+      assert_nil RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
+    end
+  end
+
+  def test_checkin_visit_returns_nil_on_an_error_row_that_carries_a_visit_ien
+    RpmsRpc.client.seed(:encounter_fetch, "990031", {
+      location_name: "DEMO CLINIC", location_abbrev: "DC", room_bed: "",
+      provider_ien: 101, provider_name: "PROVIDER,DEMO",
+      visit_ien: 5_000_101, visit_id: "5000.101", error: "Visit does not belong to current patient"
+    })
+
+    assert_nil RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
+  end
+
   def test_checkin_visit_rejects_a_bad_dfn_clinic_or_time_before_the_wire
     bad = [
       { dfn: nil, clinic_ien: 44, checkin_time: START_T },
@@ -132,7 +164,9 @@ class SchedulingStockRpcsTest < Minitest::Test
       { dfn: 990_031, clinic_ien: 44, checkin_time: nil },
       { dfn: 990_031, clinic_ien: 44, checkin_time: "" },
       { dfn: 990_031, clinic_ien: 44, checkin_time: "3260904.09;A" },
-      { dfn: 990_031, clinic_ien: 44, checkin_time: "tomorrow" }
+      { dfn: 990_031, clinic_ien: 44, checkin_time: "tomorrow" },
+      { dfn: 990_031, clinic_ien: 44, checkin_time: Date.new(2026, 9, 4) },
+      { dfn: 990_031, clinic_ien: 44, checkin_time: "3260904" }
     ]
     bad.each do |args|
       assert_raises(ArgumentError, "expected #{args.inspect} to be refused") do

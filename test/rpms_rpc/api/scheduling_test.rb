@@ -697,19 +697,19 @@ end
 
   # BEHOENCX FETCH is not a BSDX RPC. The pinned build serves it only
   # from CIAV VUECENTRIC, so checkin_visit is not in BSDX_CALLS.
-  GETVISIT_CALLS = {
+  FETCH_CALLS = {
     checkin_visit: [ { dfn: 990_031, clinic_ien: 44, checkin_time: START_T } ]
   }.freeze
 
   def test_the_bind_table_names_every_public_method
     expected = RpmsRpc::Scheduling.public_instance_methods(false).sort
 
-    assert_equal expected, (BSDX_CALLS.keys + GETVISIT_CALLS.keys).sort,
-      "a new Scheduling method must be added to BSDX_CALLS or GETVISIT_CALLS so its context bind is proven"
+    assert_equal expected, (BSDX_CALLS.keys + FETCH_CALLS.keys).sort,
+      "a new Scheduling method must be added to BSDX_CALLS or FETCH_CALLS so its context bind is proven"
   end
 
   def test_checkin_visit_runs_under_ciav_vuecentric_and_restores_the_callers_context
-    GETVISIT_CALLS.each do |method, args|
+    FETCH_CALLS.each do |method, args|
       mock = RpmsRpc.mock!
       caller_context = mock.current_context
       keywords = args.find { |a| a.is_a?(Hash) } || {}

@@ -92,9 +92,10 @@ module RpmsRpc
     # doc. Every BSDX method here binds it.
     CONTEXT = "BSDXRPC"
     # BEHOENCX FETCH is not a BSDX RPC. Pinned reach lists only this option.
-    GETVISIT_CONTEXT = "CIAV VUECENTRIC"
-    # A FileMan date/time as it goes on the wire: 7 digits, optional time.
-    FILEMAN_MOMENT = /\A\d{7}(\.\d{1,6})?\z/
+    FETCH_CONTEXT = "CIAV VUECENTRIC"
+    # A FileMan date/time as it goes on the wire: 7 digits and a time. A bare
+    # date is refused: the visit search needs a time to centre its window.
+    FILEMAN_MOMENT = /\A\d{7}\.\d{2,6}\z/
 
     # Book an appointment — BSDX ADD NEW APPOINTMENT (APPADD^BSDX07 → $$MAKE^BSDAPI).
     #
@@ -183,25 +184,37 @@ module RpmsRpc
                   zero_ok: true)
     end
 
-    # The visit a check-in created, found by patient, clinic and check-in
-    # time — BEHOENCX FETCH with CREATE=0 (FETCH^BEHOENCX, BEHOENCX.m:24-47).
-    # CHECKIN^BSDX25 never returns the visit IEN, so a host looks it up here.
+    # The visit closest to a check-in time — BEHOENCX FETCH with CREATE=0
+    # (FETCH^BEHOENCX, BEHOENCX.m:24-47). CHECKIN^BSDX25 never returns the
+    # visit IEN, so a host looks one up here. This is a lookup, not a record of
+    # what the check-in made: it returns the CLOSEST matching visit for that
+    # patient + clinic + service category "A" within +/-60 minutes of the time
+    # (BEHOENCX.m:64-94). Ties go to the lowest IEN. The caller is not told that
+    # several visits matched. A provider session's first pass is restricted to
+    # that provider's own visits (BEHOENCX.m:36,108), so who calls can change
+    # which visit wins.
     # VSTR2VIS^BEHOENCX turns "LOC;VDT;SVC" into the patient's visit through
     # FNDVIS with IN("NEVER ADD") set (BEHOENCX.m:80), so this never creates a
-    # visit. The search is the one patient's visits within a 60-minute window
-    # of the time (BEHOENCX.m:64-94), and a visit owned by another patient is
-    # refused (VIS2VSTR, BEHOENCX.m:118), so it cannot read across patients.
-    # Option: CIAV VUECENTRIC, not BSDXRPC. Service category is ambulatory,
-    # the category CHECKIN^BSDX25 files.
+    # visit, and a visit owned by another patient is refused (VIS2VSTR,
+    # BEHOENCX.m:118), so it cannot read across patients.
+    # Option: CIAV VUECENTRIC, not BSDXRPC.
+    #
+    # nil means "no category-A visit at that clinic within 60 minutes", NOT
+    # "the check-in made none". BSDX25.m:113-117 files VISIT TYPE and SERVICE
+    # CATEGORY from file 9001001.2 fields .11/.12 ("A" is only the blank
+    # fallback), and BSDX25.m:110 checks in with TIME RANGE=-1, so a site with
+    # other parameters, or a visit outside the window, does not resolve here.
     #
     #   dfn:          patient IEN, a positive integer
     #   clinic_ien:   HOSPITAL LOCATION IEN, a positive integer
-    #   checkin_time: Date/Time or a preformatted FileMan date/time
+    #   checkin_time: Time/DateTime or a preformatted FileMan date/time with a
+    #                 time part; a bare Date is refused
     #
     # A DFN, clinic or time that is not well formed raises ArgumentError
     # before any RPC. No resolved visit, or an error row, is nil.
     # Returns { visit_ien:, visit_id:, patient_dfn:, location_ien:,
-    # location_name:, locked:, datetime_raw: } or nil.
+    # location_name:, locked: } or nil. patient_dfn and location_ien echo the
+    # request; the reply carries no location IEN.
     def checkin_visit(dfn:, clinic_ien:, checkin_time:)
       patient = canonical_id(dfn)
       clinic = canonical_id(clinic_ien)
@@ -210,14 +223,13 @@ module RpmsRpc
       raise ArgumentError, "clinic_ien must be a positive integer" unless clinic
       raise ArgumentError, "checkin_time must be a FileMan date/time" unless moment.match?(FILEMAN_MOMENT)
 
-      reply = ContextScope.scoped(RpmsRpc.client, GETVISIT_CONTEXT) do
+      reply = ContextScope.scoped(RpmsRpc.client, FETCH_CONTEXT) do
         DataMapper.encounter_fetch.fetch_one(patient, "#{clinic};#{moment};A", "", "0")
       end
       return nil if reply.nil? || reply[:error] || reply[:visit_ien].nil? || reply[:visit_ien] <= 0
 
       { visit_ien: reply[:visit_ien], visit_id: reply[:visit_id], patient_dfn: patient.to_i,
-        location_ien: clinic.to_i, location_name: reply[:location_name], locked: reply[:locked],
-        datetime_raw: moment }
+        location_ien: clinic.to_i, location_name: reply[:location_name], locked: reply[:locked] }
     end
     shape :checkin_visit, resource: "appointments", verb: "GET", path: "/patients/{dfn}/appointments/clinics/{clinic_ien}/checkin-visit"
     shape :cancel_checkin, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/cancel-checkin"
