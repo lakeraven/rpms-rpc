@@ -168,12 +168,16 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
 
   def write_refusal(**kwargs)
     params = RpmsRpc::WireCapture.method(:write_refusal).parameters.map(&:last)
-    %i[access resolver].each do |key|
+    %i[access resolver only esig].each do |key|
       next unless kwargs.key?(key)
 
       flunk "write_refusal must accept #{key}:" unless params.include?(key)
     end
     RpmsRpc::WireCapture.write_refusal(**kwargs)
+  end
+
+  def write_refusal_ok_kwargs
+    { writes: true, host: "127.0.0.1", container: nil, access: PILOT_PERSONA }
   end
 
   def note_text
@@ -588,6 +592,43 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     )
   end
 
+  def test_write_refusal_rejects_only_naming_one_catalog_rpc_on_write_run
+    write_only = write_refusal(**write_refusal_ok_kwargs, only: "TIU CREATE RECORD")
+    refute_nil write_only
+    assert_match(/ONLY/i, write_only)
+    assert_match(/TIU/i, write_only)
+    assert_match(/together/i, write_only)
+
+    read_only = write_refusal(**write_refusal_ok_kwargs, only: "ORQQVI VITALS")
+    refute_nil read_only
+    assert_match(/ONLY/i, read_only)
+    assert_match(/TIU/i, read_only)
+
+    assert_nil write_refusal(**write_refusal_ok_kwargs, only: nil)
+    assert_nil write_refusal(**write_refusal_ok_kwargs, only: "")
+  end
+
+  def test_write_refusal_validates_esig_shape_before_socket
+    esig_ok = "synthetic-esig-77"
+    assert_nil write_refusal(**write_refusal_ok_kwargs, esig: nil)
+    assert_nil write_refusal(**write_refusal_ok_kwargs, esig: "")
+    assert_nil write_refusal(**write_refusal_ok_kwargs, esig: esig_ok)
+
+    blank = write_refusal(**write_refusal_ok_kwargs, esig: " ")
+    refute_nil blank
+    refute_includes blank, " "
+
+    short = write_refusal(**write_refusal_ok_kwargs, esig: "1")
+    refute_nil short
+    refute_includes short, "1"
+
+    too_long = "synthetic-esig-777777"
+    assert_equal 21, too_long.length
+    long_refusal = write_refusal(**write_refusal_ok_kwargs, esig: too_long)
+    refute_nil long_refusal
+    refute_includes long_refusal, too_long
+  end
+
   def test_write_capture_source_labels_live_capture_or_skips_write_entries
     assert RpmsRpc::WireCapture.respond_to?(:write_capture_source),
            "RpmsRpc::WireCapture.write_capture_source missing"
@@ -601,16 +642,16 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     assert_equal "live-capture",
                  RpmsRpc::WireCapture.write_capture_source(create_entry, framed("7"))
     assert_nil RpmsRpc::WireCapture.write_capture_source(create_entry, framed("0^Patient & Visit required."))
-    refute_equal "no-data",
-                 RpmsRpc::WireCapture.write_capture_source(create_entry, framed(""))
+    assert_nil RpmsRpc::WireCapture.write_capture_source(create_entry, framed("")),
+               "empty create reply must not be labelled live-capture"
 
     assert_equal "live-capture",
                  RpmsRpc::WireCapture.write_capture_source(get_entry, framed(read_back), note_body: body)
     partial = tiu_read_back_with_header_first_line_only(body)
     assert_nil RpmsRpc::WireCapture.write_capture_source(get_entry, framed(partial), note_body: body)
     assert_nil RpmsRpc::WireCapture.write_capture_source(get_entry, framed("LOCAL TITLE: only\n"), note_body: body)
-    refute_equal "no-data",
-                 RpmsRpc::WireCapture.write_capture_source(sign_entry, framed(ESIG_REFUSAL))
+    assert_nil RpmsRpc::WireCapture.write_capture_source(sign_entry, framed(ESIG_REFUSAL)),
+               "incorrect esig reply must not be labelled live-capture"
   end
 
   def test_wire_capture_rake_keeps_existing_live_capture_write_fixture_when_nothing_captured

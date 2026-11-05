@@ -362,4 +362,167 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     assert_match(/\bdriver_read_entries\b/, src,
                  "bin/wire_capture_driver.rb must select read captures via driver_read_entries")
   end
+
+  ESIG_SYNTHETIC = "synthetic-esig-77"
+
+  def wrapped_read_back_payload(note_ien)
+    body_lines = nil
+    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1") }
+    RpmsRpc::ProgressNote.update_text(note_ien, note_text)
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == SET_TEXT_RPC }
+    flunk "TIU SET DOCUMENT TEXT was not called" unless call
+
+    tiux = call[:params][1]
+    body_lines = tiux.select { |k, _| k.is_a?(Array) && k.first == "TEXT" }
+                     .sort_by { |k, _| k[1] }
+                     .map(&:last)
+    header = [
+      "LOCAL TITLE: Progress Note",
+      "STANDARD TITLE: Progress Note",
+      "DATE OF NOTE: 3251105",
+      "AUTHOR: PROVIDER,TEST",
+      "URGENCY: routine"
+    ].join("\n")
+    "#{header}\n\n#{body_lines.join("\n")}\n"
+  ensure
+    RpmsRpc.reset!
+  end
+
+  def get_catalog_entry
+    RpmsRpc::WireCapture::CATALOG.find { |e| e.rpc == GET_TEXT_RPC }
+  end
+
+  def assert_read_back_fails_write_evidence?(raw_payload, note_ien)
+    entry = get_catalog_entry
+    refute RpmsRpc::WireCapture.write_evidence?(
+      entry, framed_payload(raw_payload), note_body: note_text, note_ien: note_ien
+    ), "read-back fixture must fail write_evidence? so sign must not run"
+  end
+
+  def assert_read_back_passes_write_evidence?(raw_payload, note_ien)
+    entry = get_catalog_entry
+    assert RpmsRpc::WireCapture.write_evidence?(
+      entry, framed_payload(raw_payload), note_body: note_text, note_ien: note_ien
+    ), "read-back must pass write_evidence? before sign"
+  end
+
+  def test_sign_skipped_when_read_back_has_header_but_no_note_body
+    note_ien = "10"
+    header_only = [
+      "LOCAL TITLE: Progress Note",
+      "STANDARD TITLE: PRIMARY CARE PROGRESS NOTE",
+      "     URGENCY:   STATUS: UNSIGNED"
+    ].join("\n")
+    assert_read_back_fails_write_evidence?(header_only, note_ien)
+
+    client = ScriptedClient.new(
+      [
+        { rpc: CREATE_RPC, raw: note_ien },
+        { rpc: LOCK_RPC, raw: "0" },
+        { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
+        { rpc: GET_TEXT_RPC, raw: header_only },
+        { rpc: UNLOCK_RPC, raw: "0" }
+      ],
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    result = run_flow(client, esig: ESIG_SYNTHETIC)
+
+    refute result.key?(SIGN_RPC),
+           "TIU SIGN RECORD must not run when GET read-back fails write_evidence? (header only, no body)"
+  end
+
+  def test_sign_skipped_when_set_text_reports_failure
+    note_ien = "10"
+    client = ScriptedClient.new(
+      [
+        { rpc: CREATE_RPC, raw: note_ien },
+        { rpc: LOCK_RPC, raw: "0" },
+        { rpc: SET_TEXT_RPC, raw: "0^0^0^Invalid" },
+        { rpc: UNLOCK_RPC, raw: "0" }
+      ],
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    result = run_flow(client, esig: ESIG_SYNTHETIC)
+
+    refute result.key?(SIGN_RPC),
+           "TIU SIGN RECORD must not run when update_text success is false"
+    refute result.key?(GET_TEXT_RPC),
+           "read-back must not run after set-text failure when sign is gated on proven read-back"
+  end
+
+  def test_sign_skipped_when_unlock_does_not_return_zero
+    note_ien = "10"
+    read_back = wrapped_read_back_payload(note_ien)
+    assert_read_back_passes_write_evidence?(read_back, note_ien)
+
+    client = ScriptedClient.new(
+      [
+        { rpc: CREATE_RPC, raw: note_ien },
+        { rpc: LOCK_RPC, raw: "0" },
+        { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
+        { rpc: GET_TEXT_RPC, raw: read_back },
+        { rpc: UNLOCK_RPC, raw: "1^x" }
+      ],
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    result = run_flow(client, esig: ESIG_SYNTHETIC)
+
+    refute result.key?(SIGN_RPC),
+           "TIU SIGN RECORD must not run when unlock did not return ERR=0"
+  end
+
+  def test_sign_runs_after_proven_read_back_unlock_and_set_success
+    note_ien = "10"
+    read_back = wrapped_read_back_payload(note_ien)
+    assert_read_back_passes_write_evidence?(read_back, note_ien)
+
+    client = ScriptedClient.new(
+      [
+        { rpc: CREATE_RPC, raw: note_ien },
+        { rpc: LOCK_RPC, raw: "0" },
+        { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
+        { rpc: GET_TEXT_RPC, raw: read_back },
+        { rpc: UNLOCK_RPC, raw: "0" },
+        { rpc: SIGN_RPC, raw: "0" }
+      ],
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    result = run_flow(client, esig: ESIG_SYNTHETIC)
+
+    assert result.key?(SIGN_RPC),
+           "TIU SIGN RECORD must run when create, set-text, read-back evidence, and unlock all succeed"
+  end
+
+  def test_lock_raise_records_error_and_attempts_unlock_without_later_steps
+    note_ien = "6"
+    client = ScriptedClient.new(
+      [
+        { rpc: CREATE_RPC, raw: note_ien },
+        { rpc: LOCK_RPC, raise: IOError, message: "lock transport failed" },
+        { rpc: UNLOCK_RPC, raw: "0" }
+      ],
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    result = run_flow(client, esig: ESIG_SYNTHETIC)
+
+    lock = result[LOCK_RPC]
+    assert lock.is_a?(Hash) && lock.key?("error"), "lock raise must be recorded as error"
+    assert_match(/IOError/i, lock["error"])
+
+    assert result.key?(UNLOCK_RPC),
+           "a lock that raises must still attempt TIU UNLOCK RECORD"
+    refute result.key?(SET_TEXT_RPC)
+    refute result.key?(GET_TEXT_RPC)
+    refute result.key?(SIGN_RPC)
+  end
 end
