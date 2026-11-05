@@ -49,7 +49,7 @@
 # LIVE_DISPOSABLE=1 and the broker is loopback, and the read-back is the proof.
 namespace :wire do
   FIXTURES_DIR = ENV["WIRE_FIXTURES_DIR"] ? File.expand_path(ENV["WIRE_FIXTURES_DIR"]) : File.expand_path("../../test/fixtures/wire_captures", __dir__)
-  SYNTHETIC_PERSONAS = RpmsRpc::WireCapture::SYNTHETIC_PERSONAS
+  SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
   LOOPBACK_HOSTS = %w[127.0.0.1 localhost ::1].freeze
   ADD_WRITE_RPC = "BSDX ADD NEW APPOINTMENT"
   # Check-in, cancel, and no-show are proven only when read_before shows the

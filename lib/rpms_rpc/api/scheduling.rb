@@ -149,14 +149,17 @@ module RpmsRpc
     #   clinic_code:     CLINIC STOP code (optional)
     #   provider:        check-in provider (optional)
     #
-    # All 8 client formals (BSDX25.m:12 — APTID^CDT^CC^PRV^ROU^VCL^VFM^OG) are
-    # sent, the unused tail as empties: the routine passes BSDXVCL/BSDXVFM/
-    # BSDXOG to APCHK by value with no $G (BSDX25.m:63), so omitting them
-    # <UNDEF>s server-side whenever the resource links a hospital location.
+    # All 11 client formals after BSDXY (BSDX25.m:12 —
+    # APTID^CDT^CC^PRV^ROU^VCL^VFM^OG^CR^PCC^WHF) are sent, the unused tail as
+    # empties: the routine passes BSDXVCL/BSDXVFM/BSDXOG to APCHK by value with
+    # no $G (BSDX25.m:63), so omitting them <UNDEF>s server-side whenever the
+    # resource links a hospital location. BSDXCR/BSDXPCC/BSDXWHF are $G-guarded
+    # (BSDX25.m:67-69) and are sent empty: this API never requests a chart
+    # request, PCC health summary or wellness handout.
     def checkin_appointment(appointment_ien, checkin_time:, clinic_code: nil, provider: nil)
       error_write(:scheduling_checkin_appointment,
                   appointment_ien.to_s, fm(checkin_time), clinic_code.to_s, provider.to_s,
-                  "", "", "", "",
+                  "", "", "", "", "", "", "",
                   zero_ok: true)
     end
 
@@ -170,7 +173,7 @@ module RpmsRpc
     # Returns { success: true } / { success: false, error: } / nil.
     def cancel_checkin(appointment_ien)
       error_write(:scheduling_checkin_appointment,
-                  appointment_ien.to_s, "@", "", "", "", "", "", "",
+                  appointment_ien.to_s, "@", "", "", "", "", "", "", "", "", "",
                   zero_ok: true)
     end
     shape :cancel_checkin, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/cancel-checkin"
@@ -322,8 +325,9 @@ module RpmsRpc
     # (PADISP^BSDX27), the scheduling client's patient appointment list. Returns
     # [{ start_time:, clinic:, resource_id:, type:, status:, made_by:, made_at:, note: }].
     # :type is SCHED or WALK-IN ($$APPTYP^BSDU2); :status is scheduled, checked
-    # in, checked out, no-show or cancelled (STATUS^BSDX27). The routine leaves
-    # out a cancelled BSDX appointment. Each row also carries the patient's
+    # in, checked out, no-show or cancelled (STATUS^BSDX27). A live capture
+    # contradicted the earlier note that the routine leaves out a cancelled
+    # BSDX appointment, so do not rely on a cancelled row being absent. Each row also carries the patient's
     # name, date of birth, HRN, address and phone; they are not returned.
     # ERR^BSDX27's row of empty pieces raises Client::RpcError.
     def patient_appointments(dfn)

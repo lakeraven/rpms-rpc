@@ -417,6 +417,8 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
     }
   end
 
+  WIRE_WRITE_REFUSAL = "wire:capture_writes: refusing to run."
+
   def base_capture_writes_env
     {
       "WIRE_FIXTURES_DIR" => Dir.mktmpdir("wire_capture_writes"),
@@ -433,7 +435,15 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
       load_wire_rake!
       assert Rake::Task.task_defined?("wire:capture_writes"),
              "missing rake wire:capture_writes task (write capture pipeline not implemented)"
-      assert_raises(SystemExit) { with_env(env) { Rake::Task["wire:capture_writes"].invoke } }
+      # The rake guard itself must refuse: the message is its own (the
+      # driver's guard words its refusal differently), so a rake guard that
+      # lets the run through and a driver that then refuses cannot pass.
+      status = nil
+      _out, err = capture_io do
+        status = assert_raises(SystemExit) { with_env(env) { Rake::Task["wire:capture_writes"].invoke } }.status
+      end
+      assert_equal 1, status
+      assert_includes err, WIRE_WRITE_REFUSAL
       assert_empty Dir.glob(File.join(dir, "*.yml"))
     ensure
       Rake::Task["wire:capture_writes"].reenable if Rake::Task.task_defined?("wire:capture_writes")
