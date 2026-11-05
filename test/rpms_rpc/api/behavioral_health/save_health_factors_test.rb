@@ -41,6 +41,9 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
   RECORD_IEN = "8801"
   RECORD_ADD = "8802"
 
+  TWO_BYTE_CHAR = "\u00e9"
+  COLLISION_NAME = "SYN FACTOR COLLISION ABCDEFGHI"
+
   HF_ONE_NAME = "SYN FACTOR A"
   HF_ONE_LEVEL = "MODERATE"
   HF_ONE_QTY = "2"
@@ -153,7 +156,10 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
   end
 
   def test_refuses_invalid_quantity_before_rpc
-    %w[abc -1 100000 1.555 01 1. \ 1].each do |bad_qty|
+    %w[
+      abc -1 100000 1.555 01 1. \ 1
+      0.5 1.50 1.0 00 0.0 +1 1e2
+    ].each do |bad_qty|
       kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(quantity: bad_qty) ])
       seed_pre_edit_patient(RECORD_IEN, PATIENT)
       seed_hf_type_valid(HF_ONE_NAME)
@@ -162,7 +168,7 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
   end
 
   def test_accepts_valid_quantity_or_blank
-    [ "", "0", "1", "2.5", "99999" ].each do |qty|
+    [ "", "0", "1", "2.5", ".5", ".25", "12.05", "99999" ].each do |qty|
       kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(level: "MINIMAL", quantity: qty, comment: "SYN") ])
       seed_success(RECORD_IEN, **kwargs)
       assert_equal RECORD_IEN, BH.save_health_factors(**kwargs), "quantity #{qty.inspect} should succeed"
@@ -177,8 +183,26 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     assert_pre_call_refusal(**kwargs)
   end
 
+  def test_refuses_comment_over_245_bytes_before_rpc
+    long = TWO_BYTE_CHAR * 123
+    assert_equal 246, long.bytesize
+    assert_equal 123, long.length
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(comment: long) ])
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    seed_hf_type_valid(HF_ONE_NAME)
+    assert_pre_call_refusal(**kwargs)
+  end
+
   def test_accepts_comment_of_245_characters
     comment = "C" * 245
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(level: "MINIMAL", comment: comment) ])
+    seed_success(RECORD_IEN, **kwargs)
+    assert_equal RECORD_IEN, BH.save_health_factors(**kwargs)
+  end
+
+  def test_accepts_comment_of_245_bytes
+    comment = (TWO_BYTE_CHAR * 122) + "A"
+    assert_equal 245, comment.bytesize
     kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(level: "MINIMAL", comment: comment) ])
     seed_success(RECORD_IEN, **kwargs)
     assert_equal RECORD_IEN, BH.save_health_factors(**kwargs)
@@ -190,6 +214,16 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     seed_pre_edit_patient(RECORD_IEN, PATIENT)
     assert_pre_call_refusal(**kwargs)
     refute hf_type_lister_called?(long_name), "name pre-read must not run for over-30-byte names"
+  end
+
+  def test_refuses_name_over_30_bytes_before_rpc
+    name = TWO_BYTE_CHAR * 16
+    assert_equal 32, name.bytesize
+    assert_equal 16, name.length
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: name) ])
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    assert_pre_call_refusal(**kwargs)
+    refute hf_type_lister_called?(name), "name pre-read must not run for over-30-byte names"
   end
 
   def test_refuses_name_when_pre_read_shows_no_row
@@ -221,6 +255,23 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     seed_pre_edit_patient(RECORD_IEN, PATIENT)
     seed_hf_type_lister(HF_ONE_NAME, [ type_row(ien: "1"), type_row(ien: "2") ])
     assert_pre_call_refusal(**EDIT_KWARGS.merge(health_factors: [ single_factor ]))
+  end
+
+  def test_refuses_name_when_pre_read_shows_b_subscript_collision_with_longer_active_row
+    assert_equal 30, COLLISION_NAME.bytesize
+    longer = "#{COLLISION_NAME} X"
+    kwargs = EDIT_KWARGS.merge(
+      health_factors: [ single_factor.merge(name: COLLISION_NAME, comment: "SYN COLLISION") ]
+    )
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    seed_hf_type_lister(
+      COLLISION_NAME,
+      [
+        type_row(ien: "501", name: COLLISION_NAME, entry_type: "F"),
+        type_row(ien: "502", name: longer, entry_type: "F")
+      ]
+    )
+    assert_pre_call_refusal(**kwargs)
   end
 
   def test_name_pre_read_accepts_exact_row_alongside_longer_prefix_rows
@@ -255,6 +306,18 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
   def test_refuses_name_when_pre_read_returns_error
     seed_pre_edit_patient(RECORD_IEN, PATIENT)
     seed_hf_type_lister(HF_ONE_NAME, [], error: true)
+    assert_pre_call_refusal(**EDIT_KWARGS.merge(health_factors: [ single_factor ]))
+  end
+
+  def test_refuses_name_when_pre_read_returns_data_and_error_block
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    seed_hf_type_lister(HF_ONE_NAME, [ type_row ], errors_with_data: true)
+    assert_pre_call_refusal(**EDIT_KWARGS.merge(health_factors: [ single_factor ]))
+  end
+
+  def test_refuses_name_when_pre_read_row_has_only_two_pieces
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    seed_hf_type_lister_two_piece(HF_ONE_NAME, ien: "501", hf_name: HF_ONE_NAME)
     assert_pre_call_refusal(**EDIT_KWARGS.merge(health_factors: [ single_factor ]))
   end
 
@@ -313,6 +376,14 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     assert_equal RECORD_ADD, BH.save_health_factors(**kwargs)
   end
 
+  def test_add_readback_missing_sent_factor_raises_unconfirmed
+    other = {
+      ien: "99", name: "SYN FACTOR OTHER", patient: PATIENT, record: RECORD_ADD,
+      level: "MINIMAL", quantity: "1", comment: "OTHER"
+    }
+    assert_post_call_readback_miss(**ADD_KWARGS, readback_rows: [ other ])
+  end
+
   def test_readback_wrong_patient_raises_ambiguous
     row = hf_rows_for(**EDIT_KWARGS.merge(health_factors: [ single_factor ])).first
     row = row.merge(patient: OTHER_PATIENT)
@@ -327,6 +398,30 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
 
   def test_readback_error_block_raises_ambiguous
     assert_post_call_readback_miss(**EDIT_KWARGS.merge(health_factors: [ single_factor ]), readback_error: true)
+  end
+
+  def test_readback_data_and_error_block_raises_unconfirmed
+    rows = hf_rows_for(**EDIT_KWARGS.merge(health_factors: [ single_factor ]))
+    assert_post_call_readback_miss(
+      **EDIT_KWARGS.merge(health_factors: [ single_factor ]), readback_rows: rows, readback_errors_with_data: true
+    )
+  end
+
+  def test_readback_row_with_extra_piece_raises_unconfirmed
+    row = hf_rows_for(**EDIT_KWARGS.merge(health_factors: [ single_factor ])).first
+    assert_post_call_readback_miss(
+      **EDIT_KWARGS.merge(health_factors: [ single_factor ]), readback_lines: [ "#{row[:ien]}^#{row[:name]}^#{row[:patient]}^#{row[:record]}^#{row[:level]}^#{row[:quantity]}^#{row[:comment]}^EXTRA" ]
+    )
+  end
+
+  def test_readback_non_numeric_ien_raises_unconfirmed
+    row = hf_rows_for(**EDIT_KWARGS.merge(health_factors: [ single_factor ])).first.merge(ien: "0")
+    assert_post_call_readback_miss(**EDIT_KWARGS.merge(health_factors: [ single_factor ]), readback_rows: [ row ])
+  end
+
+  def test_readback_alpha_ien_raises_unconfirmed
+    row = hf_rows_for(**EDIT_KWARGS.merge(health_factors: [ single_factor ])).first.merge(ien: "ABC")
+    assert_post_call_readback_miss(**EDIT_KWARGS.merge(health_factors: [ single_factor ]), readback_rows: [ row ])
   end
 
   def test_readback_more_row_raises_ambiguous
@@ -378,6 +473,26 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     end
   end
 
+  def test_refuses_at_sign_in_comment_level_and_quantity_before_rpc
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    seed_hf_type_valid(HF_ONE_NAME)
+    assert_pre_call_refusal(**EDIT_KWARGS.merge(health_factors: [ single_factor.merge(comment: "@") ]))
+    assert_pre_call_refusal(**EDIT_KWARGS.merge(health_factors: [ single_factor.merge(level: "@") ]))
+    assert_pre_call_refusal(**EDIT_KWARGS.merge(health_factors: [ single_factor.merge(quantity: "@") ]))
+  end
+
+  def test_refuses_more_than_25_health_factors_before_any_rpc
+    factors = (1..26).map do |n|
+      { name: format("SYN HF LIMIT %02d", n), level: "MINIMAL", quantity: "1", comment: "X" }
+    end
+    kwargs = EDIT_KWARGS.merge(health_factors: factors)
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    assert_pre_call_refusal(**kwargs)
+    refute ddr_lister_calls.any? { |c| c[:params].first.to_s.include?(HF_TYPE_FILE) },
+           "must not pre-read 9999999.64 when the list is over the read-back max"
+    assert_empty amhg_calls
+  end
+
   def test_refuses_pipe_in_hf_name_or_level_without_rpc
     assert_input_validation_refusal(/separator|control/i,
                                    **EDIT_KWARGS.merge(health_factors: [
@@ -399,8 +514,13 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
   end
 
   def test_rpcs_md_documents_save_health_factors_verified_under_amhgrpc
-    text = File.read(RPCS_MD_PATH)
-    assert_includes text, "`AMHG SAVE HEALTH FACTORS`"
+    text = File.read(RPCS_MD_PATH, encoding: Encoding::UTF_8)
+    bh_section = text[/## Behavioral Health writes.*?^(?=## |\z)/m]
+    refute_nil bh_section, "Behavioral Health section missing from docs/rpcs.md"
+    assert_includes bh_section, "bcer-9.0-20261012-e7923a4-ydb"
+    row = bh_section.lines.find { |line| line.include?("`AMHG SAVE HEALTH FACTORS`") }
+    refute_nil row
+    assert_match(/\|\s*verified\s*\|\s*\z/, row.strip)
     assert_includes text, "HF^AMHGSVF"
     assert_includes text, "AMHGRPC"
   end
@@ -472,33 +592,44 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     end
   end
 
-  def hf_readback_body(rows, more: false, error: false)
-    return "[Errors]" if error
+  def hf_readback_body(rows, more: false, error: false, errors_with_data: false, lines: nil)
+    return "[Errors]" if error && !errors_with_data
 
-    lines = rows.map do |row|
-      "#{row[:ien]}^#{row[:name]}^#{row[:patient]}^#{row[:record]}^#{row[:level]}^" \
-        "#{row[:quantity]}^#{row[:comment]}"
-    end
-    body = "[Data]\n#{lines.join("\n")}"
+    packed =
+      lines ||
+      rows.map do |row|
+        "#{row[:ien]}^#{row[:name]}^#{row[:patient]}^#{row[:record]}^#{row[:level]}^" \
+          "#{row[:quantity]}^#{row[:comment]}"
+      end
+    data = "[Data]\n#{Array(packed).join("\n")}"
+    body = errors_with_data ? "[Errors]\n#{data}" : data
     more ? "[Misc]\nMORE^1^1\n#{body}" : body
   end
 
-  def seed_hf_readback(record_ien, rows, more: false, error: false)
-    @mock.seed(:ddr_lister, hf_readback_lister_key(record_ien), hf_readback_body(rows, more: more, error: error))
+  def seed_hf_readback(record_ien, rows, more: false, error: false, errors_with_data: false, lines: nil)
+    @mock.seed(
+      :ddr_lister, hf_readback_lister_key(record_ien),
+      hf_readback_body(rows, more: more, error: error, errors_with_data: errors_with_data, lines: lines)
+    )
   end
 
-  def seed_hf_type_lister(name, rows, error: false, more: false)
+  def seed_hf_type_lister(name, rows, error: false, more: false, errors_with_data: false)
     body =
       if error
         "[ERROR]"
       elsif rows.empty?
         "[Data]"
       else
-        lines = rows.map { |r| "#{r[:ien]}^#{r[:name]}^#{r[:entry_type]}^#{r[:inactive]}" }
-        data = "[Data]\n#{lines.join("\n")}"
+        packed = rows.map { |r| "#{r[:ien]}^#{r[:name]}^#{r[:entry_type]}^#{r[:inactive]}" }
+        data = "[Data]\n#{packed.join("\n")}"
+        data = "[Errors]\n#{data}" if errors_with_data
         more ? "[Misc]\nMORE^1^1\n#{data}" : data
       end
     @mock.seed(:ddr_lister, hf_type_lister_key(name), body)
+  end
+
+  def seed_hf_type_lister_two_piece(part, ien:, hf_name:)
+    @mock.seed(:ddr_lister, hf_type_lister_key(part), "[Data]\n#{ien}^#{hf_name}")
   end
 
   def seed_hf_type_valid(name)
@@ -561,18 +692,27 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     assert_match pattern, err.message
   end
 
+  def ddr_lister_calls
+    @mock.received_calls.select { |c| c[:rpc] == "DDR LISTER" }
+  end
+
   def assert_post_call_readback_miss(**kwargs)
     wire = kwargs.delete(:wire)
     readback_rows = kwargs.delete(:readback_rows)
+    readback_lines = kwargs.delete(:readback_lines)
     readback_more = kwargs.delete(:readback_more) || false
     readback_error = kwargs.delete(:readback_error) || false
+    readback_errors_with_data = kwargs.delete(:readback_errors_with_data) || false
     record_ien = kwargs.fetch(:record_ien, RECORD_IEN)
     wire_param = wire || wire_for(**kwargs)
     seed_pre_edit_patient(record_ien, kwargs.fetch(:patient, PATIENT))
     kwargs.fetch(:health_factors, []).map { |r| r[:name] }.uniq.each { |n| seed_hf_type_valid(n) }
     seed_amhg_text(wire_param, success_body(record_ien))
     rows = readback_rows || hf_rows_for(**kwargs)
-    seed_hf_readback(record_ien, rows, more: readback_more, error: readback_error)
+    seed_hf_readback(
+      record_ien, rows, more: readback_more, error: readback_error,
+      errors_with_data: readback_errors_with_data, lines: readback_lines
+    )
     err = assert_raises(BH::SaveError) { BH.save_health_factors(**kwargs) }
     assert_amhg_reached
     assert_match(/may have been|outcome unknown|not confirmed/i, err.message)
