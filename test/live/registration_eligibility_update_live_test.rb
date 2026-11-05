@@ -16,7 +16,7 @@ class RegistrationEligibilityUpdateLiveTest < LiveSpec::Test
 
   def test_tribal_standing_is_filed_on_ihs_patient
     tribe = tribe_ien!("KWETHLUK")
-    classification = classification_ien!("INDIAN/ALASKA NATIVE")
+    classification = classification_ien!
     number = "ZZ#{rand(10_000..99_999)}"
 
     result = RpmsRpc::Registration.update(DFN, eligibility_status: "C", classification: classification, tribe: tribe,
@@ -43,10 +43,10 @@ class RegistrationEligibilityUpdateLiveTest < LiveSpec::Test
     found[:ien].to_s
   end
 
-  def classification_ien!(name)
-    got = RpmsRpc::DdrFileman.lister(file: "9999999.25", fields: "@;.01", flags: "IP", xref: "B", part: name, max: "1")
-    ien = Array(got && got[:entries]).first&.dig(:ien).to_s
-    flunk "no classification #{name}: #{got.inspect}" if ien.empty?
-    ien
+  def classification_ien!
+    got = RpmsRpc::DdrFileman.lister(file: "9999999.25", fields: "@;.01", flags: "IP", xref: "B", max: "10")
+    entry = Array(got && got[:entries]).first
+    flunk "BENEFICIARY #9999999.25 has no entries on this build: #{got.inspect}" unless entry
+    entry[:ien].to_s
   end
 end
