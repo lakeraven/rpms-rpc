@@ -32,6 +32,8 @@ class BehavioralHealthWellnessTest < Minitest::Test
     ".08;1112;1401;1402;1403;1404;1405;1406;1407;1408;1409;1410;1501;1601;1701;1901;2001".freeze
   PRE_EDIT_FLAGS = "I"
   VISIT_FIELD_KEYS = PRE_EDIT_FIELDS.split(";").freeze
+  # FLAGS "I" visit reads omit the EXTERNAL column on free-text comment fields.
+  FLAGS_I_VISIT_COMMENT_FIELDS = %w[1501 1601 1701 1901 2001].freeze
 
   PATIENT = "990540"
   OTHER_PATIENT = "990541"
@@ -2726,8 +2728,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
     internal.each do |field, value|
       next if field == ".08"
 
-      external = screening_result_external(field, value)
-      lines << "#{BH_VISIT_FILE}^#{ien}^#{field}^#{value}^#{external}"
+      lines << visit_ddr_field_row(ien, field, value)
     end
     "[Data]\n#{lines.join("\n")}"
   end
@@ -2765,8 +2766,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
       when "1112" then signed ? "3251031.12" : ""
       else internal.fetch(field, "")
       end
-      external = screening_result_external(field, value)
-      "#{BH_VISIT_FILE}^#{ien}^#{field}^#{value}^#{external}\n"
+      "#{visit_ddr_field_row(ien, field, value)}\n"
     end
     "[Data]\n#{rows.join}"
   end
@@ -2814,6 +2814,15 @@ class BehavioralHealthWellnessTest < Minitest::Test
     assert_equal 1, unlock_calls_for(RECORD_IEN).length
   ensure
     RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def visit_ddr_field_row(ien, field, value)
+    if FLAGS_I_VISIT_COMMENT_FIELDS.include?(field)
+      "#{BH_VISIT_FILE}^#{ien}^#{field}^#{value}"
+    else
+      external = screening_result_external(field, value)
+      "#{BH_VISIT_FILE}^#{ien}^#{field}^#{value}^#{external}"
+    end
   end
 
   def screening_result_external(field, value)
