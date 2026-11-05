@@ -137,16 +137,28 @@ class AggStockRpcsTest < Minitest::Test
 
     assert result[:success], result.inspect
     assert_equal 42, result[:ien]
-    assert_equal 1, orwu_dt_calls.size
-    assert_equal [ "T", "" ], orwu_dt_calls.first[:params]
-    assert_equal "CIAV VUECENTRIC", orwu_dt_calls.first[:context]
-    assert_equal 2, b_index_lister_calls.size, "today and yesterday B reads"
+    assert_equal 2, orwu_dt_calls.size
+    assert_equal [ "T", "" ], orwu_dt_calls[0][:params]
+    assert_equal [ "11/05/2026", "TS" ], orwu_dt_calls[1][:params]
+    assert(orwu_dt_calls.all? { |c| c[:context] == "CIAV VUECENTRIC" })
+    assert_equal 1, b_index_lister_calls.size
+    assert_equal SERVER_TODAY_FM, b_index_lister_days_from_calls.first
     assert_equal 1, max_ien_lister_calls.size
-    call = @mock.received_calls.find { |c| c[:rpc] == "AGG UPDATE LEGAL NAMES" }
+    assert_equal 1, lock_calls.size
+    assert_equal legal_name_b_lock_param(SERVER_TODAY_FM), lock_calls.first[:params].first
+    assert_equal "CIAV VUECENTRIC", lock_calls.first[:context]
+    assert_equal 1, unlock_calls.size
+    assert_equal legal_name_b_unlock_param(SERVER_TODAY_FM), unlock_calls.first[:params].first
+    call = legl_calls.first
     assert_equal Agg::CONTEXT, call[:context]
     assert_equal DFN, call[:params][0]
     assert_equal "A", call[:params][1]
+    assert_equal "", call[:params][2]
+    assert_equal "AGGLNMC=SYNTH#{Agg::PARM_DELIM}AGGLNDTC=11/05/2026", call[:params][3]
     assert_equal 1, ddr_calls.size, "post-check .02 read only"
+    order = @mock.received_calls.map { |c| c[:rpc] }
+    assert order.index("DDR LOCK/UNLOCK NODE") < order.index("DDR LISTER")
+    assert order.index("AGG UPDATE LEGAL NAMES") < order.rindex("DDR LOCK/UNLOCK NODE")
   end
 
   def test_update_legal_names_rejection_uses_error_piece
@@ -352,7 +364,34 @@ class AggStockRpcsTest < Minitest::Test
     assert_equal Agg::CONTEXT, call[:context]
   end
 
-  # --- update_legal_names guard specs (rpms-rpc#420): failing until lib adds pre/post checks ---
+  # --- update_legal_names blank-RIEN add guards (rpms-rpc#420 / PR #605) ---
+
+  def test_update_legal_names_rejects_non_hash_params_without_any_rpc
+    [ [], "SYNTH", 7 ].each do |bad_params|
+      @mock.received_calls.clear
+      result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: bad_params)
+
+      refute_nil result, bad_params.inspect
+      refute result[:success], bad_params.inspect
+      assert_equal :invalid_param, result[:error], bad_params.inspect
+      assert_no_legal_name_rpcs
+      refute @mock.received_calls.any? { |c| c[:rpc] == "ORWU DT" }, bad_params.inspect
+    end
+  end
+
+  def test_update_legal_names_rejects_duplicate_param_keys_with_same_name_without_any_rpc
+    @mock.received_calls.clear
+    result = Agg.update_legal_names(
+      dfn: DFN.to_i, proc: "A", rien: "",
+      params: { "AGGLNDTC" => "T", AGGLNDTC: "11/01/2026", "AGGLNMC" => "SYNTH" }
+    )
+
+    refute_nil result
+    refute result[:success]
+    assert_equal :invalid_param, result[:error]
+    assert_no_legal_name_rpcs
+    refute @mock.received_calls.any? { |c| c[:rpc] == "ORWU DT" }
+  end
 
   def test_update_legal_names_rejects_disallowed_param_keys_without_any_rpc
     [
@@ -384,12 +423,65 @@ class AggStockRpcsTest < Minitest::Test
       refute result[:success]
       assert_equal :legal_name_unverified, result[:error]
       assert_empty legl_calls
+      assert_empty lock_calls
     end
   end
 
-  def test_update_legal_names_blank_add_refuses_when_b_index_row_occupies_server_today
+  def test_update_legal_names_blank_add_refuses_invalid_caller_agglndtc_without_orwu
+    bad_values = [ "T", "NOW", "11/01/2026@1200", "3261105:1430", "13/01/2026", "02/30/2026" ]
+    bad_values.each do |agglndtc|
+      @mock.received_calls.clear
+      result = Agg.update_legal_names(
+        dfn: DFN.to_i, proc: "A", rien: "",
+        params: { "AGGLNMC" => "SYNTH", "AGGLNDTC" => agglndtc }
+      )
+
+      refute_nil result, agglndtc.inspect
+      refute result[:success], agglndtc.inspect
+      assert_equal :legal_name_unverified, result[:error], agglndtc.inspect
+      assert_empty legl_calls, agglndtc.inspect
+      refute @mock.received_calls.any? { |c| c[:rpc] == "ORWU DT" }, agglndtc.inspect
+    end
+  end
+
+  def test_update_legal_names_blank_add_refuses_when_orwu_ts_reply_does_not_match_day
+    seed_legal_name_lock(SERVER_TODAY_FM)
     @mock.seed_scalar(:orwu_dt, "T", SERVER_TODAY_FM.to_s)
-    seed_b_lister(day: fileman_yesterday(SERVER_TODAY_FM), text: "[Data]\n")
+    @mock.seed_scalar(:orwu_dt, "11/05/2026", "3261106")
+
+    result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
+
+    refute_nil result
+    refute result[:success]
+    assert_equal :legal_name_unverified, result[:error]
+    assert_empty legl_calls
+    assert_empty lock_calls
+    assert_equal 2, orwu_dt_calls.size
+  end
+
+  def test_update_legal_names_blank_add_refuses_when_lock_not_acquired
+    seed_blank_add_server_today_flow(SERVER_TODAY_FM)
+    seed_b_lister(day: fileman_prior_calendar_day(SERVER_TODAY_FM), text: "[Data]\n")
+    seed_b_lister(day: SERVER_TODAY_FM, text: "[Data]\n")
+    seed_max_ien_lister("[Data]\n41")
+    seed_legal_name_lock(SERVER_TODAY_FM, acquired: false)
+
+    result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
+
+    assert result.is_a?(Hash), "expected a refusal hash, got #{result.inspect}"
+    refute result[:success]
+    assert_equal :legal_name_busy, result[:error]
+    assert_empty b_index_lister_calls
+    assert_empty legl_calls
+    assert_equal 1, lock_calls.size
+    assert_empty unlock_calls
+  end
+
+  def test_update_legal_names_blank_add_refuses_when_b_index_row_occupies_server_today
+    seed_blank_add_server_today_flow(SERVER_TODAY_FM)
+    seed_legal_name_lock(SERVER_TODAY_FM)
+    seed_legal_name_unlock(SERVER_TODAY_FM)
+    seed_b_lister(day: fileman_prior_calendar_day(SERVER_TODAY_FM), text: "[Data]\n")
     seed_b_lister(day: SERVER_TODAY_FM, text: "[Data]\n55^#{SERVER_TODAY_FM}")
 
     result = Agg.update_legal_names(
@@ -401,11 +493,14 @@ class AggStockRpcsTest < Minitest::Test
     assert_equal :legal_name_date_taken, result[:error]
     assert_match(/3261105/, result[:message].to_s)
     assert_empty legl_calls
+    assert_equal 1, unlock_calls.size
   end
 
   def test_update_legal_names_blank_add_refuses_when_b_index_row_has_time_on_server_today
-    @mock.seed_scalar(:orwu_dt, "T", SERVER_TODAY_FM.to_s)
-    seed_b_lister(day: fileman_yesterday(SERVER_TODAY_FM), text: "[Data]\n")
+    seed_blank_add_server_today_flow(SERVER_TODAY_FM)
+    seed_legal_name_lock(SERVER_TODAY_FM)
+    seed_legal_name_unlock(SERVER_TODAY_FM)
+    seed_b_lister(day: fileman_prior_calendar_day(SERVER_TODAY_FM), text: "[Data]\n")
     seed_b_lister(day: SERVER_TODAY_FM, text: "[Data]\n55^#{SERVER_TODAY_FM}.143")
 
     result = Agg.update_legal_names(
@@ -416,29 +511,31 @@ class AggStockRpcsTest < Minitest::Test
     refute result[:success]
     assert_equal :legal_name_date_taken, result[:error]
     assert_empty legl_calls
+    assert_equal 1, unlock_calls.size
   end
 
-  def test_update_legal_names_blank_add_refuses_when_b_index_row_occupies_yesterday
-    @mock.seed_scalar(:orwu_dt, "T", SERVER_TODAY_FM.to_s)
-    yesterday = fileman_yesterday(SERVER_TODAY_FM)
-    seed_b_lister(day: yesterday, text: "[Data]\n55^#{yesterday}")
+  def test_update_legal_names_blank_add_allows_when_b_index_row_only_on_prior_calendar_day
+    prior = fileman_prior_calendar_day(SERVER_TODAY_FM)
+    seed_blank_add_server_today_flow(SERVER_TODAY_FM)
+    seed_legal_name_lock(SERVER_TODAY_FM)
+    seed_legal_name_unlock(SERVER_TODAY_FM)
     seed_b_lister(day: SERVER_TODAY_FM, text: "[Data]\n")
+    seed_b_lister(day: prior, text: "[Data]\n55^#{prior}")
+    seed_max_ien_lister("[Data]\n41")
+    seed_name_patient("42", DFN_B)
+    seed_legl_success("42")
 
     result = Agg.update_legal_names(
       dfn: DFN_B.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" }
     )
 
-    refute_nil result
-    refute result[:success]
-    assert_equal :legal_name_date_taken, result[:error]
-    assert_match(/#{yesterday}/, result[:message].to_s)
-    assert_empty legl_calls
+    assert result[:success], result.inspect
+    assert_equal 42, result[:ien]
+    assert_equal 1, b_index_lister_calls.size
+    assert_equal SERVER_TODAY_FM, b_index_lister_days_from_calls.first
   end
 
   def test_update_legal_names_blank_add_refuses_agglndtc_with_colon_without_legl
-    @mock.seed_scalar(:orwu_dt, "T", SERVER_TODAY_FM.to_s)
-    seed_blank_add_b_and_max_listers(server_today: SERVER_TODAY_FM)
-
     result = Agg.update_legal_names(
       dfn: DFN.to_i, proc: "A", rien: "",
       params: { "AGGLNMC" => "SYNTH", "AGGLNDTC" => "3261105:143000" }
@@ -448,6 +545,22 @@ class AggStockRpcsTest < Minitest::Test
     refute result[:success]
     assert_equal :legal_name_unverified, result[:error]
     assert_empty legl_calls
+    refute @mock.received_calls.any? { |c| c[:rpc] == "ORWU DT" }
+  end
+
+  def test_update_legal_names_blank_add_reports_takeover_when_legl_rien_equals_prior_max
+    seed_blank_add_prechecks(server_today: SERVER_TODAY_FM, max_ien: 60)
+    wire = "5\x00I00010RESULT^T01024ERROR^I00010RIEN#{RS}1^^60#{RS}#{US}"
+    seed_global("AGG UPDATE LEGAL NAMES", DFN_B, wire)
+
+    result = Agg.update_legal_names(dfn: DFN_B.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
+
+    refute_nil result
+    refute result[:success]
+    assert_equal :legal_name_takeover, result[:error]
+    assert_equal 60, result[:ien]
+    assert result[:written]
+    assert_equal 1, unlock_calls.size
   end
 
   def test_update_legal_names_blank_add_reports_takeover_when_legl_returns_existing_ien
@@ -494,8 +607,10 @@ class AggStockRpcsTest < Minitest::Test
   end
 
   def test_update_legal_names_blank_add_unverified_when_b_lister_reply_unreadable
-    @mock.seed_scalar(:orwu_dt, "T", SERVER_TODAY_FM.to_s)
-    seed_b_lister(day: fileman_yesterday(SERVER_TODAY_FM), text: "[Data]\n")
+    seed_blank_add_server_today_flow(SERVER_TODAY_FM)
+    seed_legal_name_lock(SERVER_TODAY_FM)
+    seed_legal_name_unlock(SERVER_TODAY_FM)
+    seed_b_lister(day: fileman_prior_calendar_day(SERVER_TODAY_FM), text: "[Data]\n")
     seed_b_lister(day: SERVER_TODAY_FM, text: "SYNTHETIC BROKER NOISE")
     seed_max_ien_lister("[Data]\n60")
 
@@ -505,13 +620,69 @@ class AggStockRpcsTest < Minitest::Test
     refute result[:success]
     assert_equal :legal_name_unverified, result[:error]
     assert_empty legl_calls
+    assert_equal 1, unlock_calls.size
   end
 
-  def test_update_legal_names_blank_add_agglndtc_orwu_converts_then_checks_three_b_days
+  def test_update_legal_names_blank_add_unverified_when_b_first_row_missing_date_piece
+    seed_blank_add_server_today_flow(SERVER_TODAY_FM)
+    seed_legal_name_lock(SERVER_TODAY_FM)
+    seed_legal_name_unlock(SERVER_TODAY_FM)
+    seed_b_lister(day: fileman_prior_calendar_day(SERVER_TODAY_FM), text: "[Data]\n")
+    seed_b_lister(day: SERVER_TODAY_FM, text: "[Data]\n55^")
+    seed_max_ien_lister("[Data]\n41")
+
+    result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
+
+    refute_nil result
+    refute result[:success]
+    assert_equal :legal_name_unverified, result[:error]
+    assert_empty legl_calls
+    assert_equal 1, unlock_calls.size
+  end
+
+  def test_update_legal_names_blank_add_unverified_when_b_first_row_ien_not_numeric
+    seed_blank_add_server_today_flow(SERVER_TODAY_FM)
+    seed_legal_name_lock(SERVER_TODAY_FM)
+    seed_legal_name_unlock(SERVER_TODAY_FM)
+    seed_b_lister(day: fileman_prior_calendar_day(SERVER_TODAY_FM), text: "[Data]\n")
+    seed_b_lister(day: SERVER_TODAY_FM, text: "[Data]\nX^3261105")
+    seed_max_ien_lister("[Data]\n41")
+
+    result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
+
+    refute_nil result
+    refute result[:success]
+    assert_equal :legal_name_unverified, result[:error]
+    assert_empty legl_calls
+    assert_equal 1, unlock_calls.size
+  end
+
+  def test_update_legal_names_blank_add_unverified_when_b_lister_v1_reply_truncated
+    seed_blank_add_server_today_flow(SERVER_TODAY_FM)
+    seed_legal_name_lock(SERVER_TODAY_FM)
+    seed_legal_name_unlock(SERVER_TODAY_FM)
+    seed_b_lister(day: fileman_prior_calendar_day(SERVER_TODAY_FM), text: "[Data]\n")
+    seed_b_lister(day: SERVER_TODAY_FM, text: "[BEGIN_diDATA]\n")
+    seed_max_ien_lister("[Data]\n41")
+
+    result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
+
+    refute_nil result
+    refute result[:success]
+    assert_equal :legal_name_unverified, result[:error]
+    assert_empty legl_calls
+    assert_equal 1, unlock_calls.size
+  end
+
+  def test_update_legal_names_blank_add_agglndtc_orwu_converts_then_checks_one_b_day
+    day = 3_261_101
+    seed_legal_name_lock(day)
+    seed_legal_name_unlock(day)
     @mock.seed_scalar(:orwu_dt, "T", SERVER_TODAY_FM.to_s)
-    @mock.seed_scalar(:orwu_dt, "11/01/2026", "3261101")
-    seed_b_lister(day: 3_261_101, text: "[Data]\n70^3261101")
-    seed_b_lister(day: 3_261_104, text: "[Data]\n")
+    @mock.seed_scalar(:orwu_dt, "11/01/2026", day.to_s)
+    seed_b_lister(day: fileman_prior_calendar_day(day), text: "[Data]\n")
+    seed_b_lister(day: day, text: "[Data]\n70^3261101")
+    seed_b_lister(day: fileman_prior_calendar_day(SERVER_TODAY_FM), text: "[Data]\n")
     seed_b_lister(day: SERVER_TODAY_FM, text: "[Data]\n")
     seed_max_ien_lister("[Data]\n41")
 
@@ -525,35 +696,30 @@ class AggStockRpcsTest < Minitest::Test
     assert_equal :legal_name_date_taken, result[:error]
     assert_match(/3261101/, result[:message].to_s)
     assert_empty legl_calls
-    assert_equal 2, orwu_dt_calls.size
-    assert_equal [ "T", "" ], orwu_dt_calls[0][:params]
-    assert_equal [ "11/01/2026", "TS" ], orwu_dt_calls[1][:params]
+    assert_equal 1, orwu_dt_calls.size
+    assert_equal [ "11/01/2026", "TS" ], orwu_dt_calls.first[:params]
     assert(orwu_dt_calls.all? { |c| c[:context] == "CIAV VUECENTRIC" })
-    assert_equal [ 3_261_101, 3_261_104, SERVER_TODAY_FM ], b_index_lister_days_from_calls
+    assert_equal [ day ], b_index_lister_days_from_calls
+    assert_equal 1, unlock_calls.size
   end
 
-  def test_update_legal_names_blank_add_agglndtc_orwu_minus_one_falls_back_to_today_yesterday
-    @mock.seed_scalar(:orwu_dt, "T", SERVER_TODAY_FM.to_s)
-    @mock.seed_scalar(:orwu_dt, "SYNTH/BAD-DATE", "-1")
-    seed_blank_add_prechecks(server_today: SERVER_TODAY_FM, max_ien: 41)
-    seed_name_patient("42", DFN)
-    seed_legl_success("42")
+  def test_update_legal_names_blank_add_refuses_agglndtc_when_orwu_ts_returns_minus_one
+    @mock.seed_scalar(:orwu_dt, "11/05/2026", "-1")
 
     result = Agg.update_legal_names(
       dfn: DFN.to_i, proc: "A", rien: "",
-      params: { "AGGLNMC" => "SYNTH", "AGGLNDTC" => "SYNTH/BAD-DATE" }
+      params: { "AGGLNMC" => "SYNTH", "AGGLNDTC" => "11/05/2026" }
     )
 
-    assert result[:success], result.inspect
-    assert_equal 42, result[:ien]
-    assert_equal 2, orwu_dt_calls.size
-    assert_equal [ "SYNTH/BAD-DATE", "TS" ], orwu_dt_calls.last[:params]
-    assert_equal 2, b_index_lister_calls.size, "fallback uses server today and yesterday only"
-    assert_equal 1, ddr_calls.size
+    refute_nil result
+    refute result[:success]
+    assert_equal :legal_name_unverified, result[:error]
+    assert_empty legl_calls
+    assert_equal 1, orwu_dt_calls.size
+    assert_equal [ "11/05/2026", "TS" ], orwu_dt_calls.first[:params]
   end
 
   def test_update_legal_names_blank_add_agglndtc_orwu_non_fileman_reply_unverified
-    @mock.seed_scalar(:orwu_dt, "T", SERVER_TODAY_FM.to_s)
     @mock.seed_scalar(:orwu_dt, "11/01/2026", "abc")
 
     result = Agg.update_legal_names(
@@ -565,24 +731,98 @@ class AggStockRpcsTest < Minitest::Test
     refute result[:success]
     assert_equal :legal_name_unverified, result[:error]
     assert_empty legl_calls
+    assert_empty lock_calls
   end
 
-  def test_update_legal_names_blank_add_b_reads_use_prior_day_from_at_month_boundary
-    server_today = 3_270_101
-    @mock.seed_scalar(:orwu_dt, "T", server_today.to_s)
-    seed_b_lister(day: 3_261_231, text: "[Data]\n")
-    seed_b_lister(day: server_today, text: "[Data]\n")
+  def test_update_legal_names_blank_add_b_reads_use_prior_calendar_day_from_at_month_boundary
+    day = 3_270_101
+    prior = fileman_prior_calendar_day(day)
+    seed_legal_name_lock(day)
+    seed_legal_name_unlock(day)
+    @mock.seed_scalar(:orwu_dt, "01/01/2027", day.to_s)
+    @mock.seed_scalar(:orwu_dt, "T", SERVER_TODAY_FM.to_s)
+    @mock.seed_scalar(:orwu_dt, "11/05/2026", SERVER_TODAY_FM.to_s)
+    seed_b_lister(day: fileman_prior_calendar_day(SERVER_TODAY_FM), text: "[Data]\n")
+    seed_b_lister(day: SERVER_TODAY_FM, text: "[Data]\n")
+    seed_b_lister(day: prior, text: "[Data]\n", from: "#{prior}.9999999")
+    seed_b_lister(day: day, text: "[Data]\n", from: "#{prior}.9999999")
     seed_max_ien_lister("[Data]\n41")
 
     Agg.update_legal_names(
-      dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" }
+      dfn: DFN.to_i, proc: "A", rien: "",
+      params: { "AGGLNMC" => "SYNTH", "AGGLNDTC" => "01/01/2027" }
     )
 
-    assert_equal 2, b_index_lister_calls.size
-    froms = b_index_lister_calls.map { |c| c[:params].first["FROM"] }
-    assert_equal [ b_lister_param(3_261_231)["FROM"], b_lister_param(server_today)["FROM"] ], froms
-    assert_equal "3261230.9999999", froms.first
-    assert_equal "3270100.9999999", froms.last
+    assert_equal 1, b_index_lister_calls.size
+    from = b_index_lister_calls.first[:params].first["FROM"]
+    assert_equal "#{prior}.9999999", from
+    assert_equal 1, orwu_dt_calls.size
+    assert_equal [ "01/01/2027", "TS" ], orwu_dt_calls.first[:params]
+  end
+
+  def test_update_legal_names_blank_add_v1_empty_di_data_is_clear_for_b_and_max
+    seed_blank_add_server_today_flow(SERVER_TODAY_FM)
+    seed_legal_name_lock(SERVER_TODAY_FM)
+    seed_legal_name_unlock(SERVER_TODAY_FM)
+    empty_v1 = "[BEGIN_diDATA]\n[END_diDATA]"
+    seed_b_lister(day: fileman_prior_calendar_day(SERVER_TODAY_FM), text: empty_v1)
+    seed_b_lister(day: SERVER_TODAY_FM, text: empty_v1)
+    seed_max_ien_lister(empty_v1)
+    seed_name_patient("1", DFN)
+    wire = "5\x00I00010RESULT^T01024ERROR^I00010RIEN#{RS}1^^1#{RS}#{US}"
+    seed_global("AGG UPDATE LEGAL NAMES", DFN, wire)
+
+    result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
+
+    assert result[:success], result.inspect
+    assert_equal 1, result[:ien]
+  end
+
+  def test_update_legal_names_blank_add_unverified_when_max_ien_lister_v1_reply_truncated
+    seed_blank_add_server_today_flow(SERVER_TODAY_FM)
+    seed_legal_name_lock(SERVER_TODAY_FM)
+    seed_legal_name_unlock(SERVER_TODAY_FM)
+    seed_b_lister(day: fileman_prior_calendar_day(SERVER_TODAY_FM), text: "[Data]\n")
+    seed_b_lister(day: SERVER_TODAY_FM, text: "[Data]\n")
+    seed_max_ien_lister("[BEGIN_diDATA]\n")
+
+    result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
+
+    refute_nil result
+    refute result[:success]
+    assert_equal :legal_name_unverified, result[:error]
+    assert_empty legl_calls
+    assert_equal 1, unlock_calls.size
+  end
+
+  def test_update_legal_names_blank_add_ddr_read_broker_error_unlocks_and_raises
+    error_client = Class.new(RpmsRpc::MockClient) do
+      def call_rpc(rpc_name, *params)
+        if rpc_name == "DDR LISTER" && params.first.is_a?(Hash) && params.first["XREF"] == "B"
+          raise RpmsRpc::Client::RpcError, "DDR LISTER: broker failure"
+        end
+
+        super
+      end
+    end.new
+    error_client.set_authenticated("501")
+    seed_blank_add_server_today_flow_on(error_client, SERVER_TODAY_FM)
+    seed_legal_name_lock_on(error_client, SERVER_TODAY_FM)
+    seed_legal_name_unlock_on(error_client, SERVER_TODAY_FM)
+    seed_b_lister_on(error_client, day: fileman_prior_calendar_day(SERVER_TODAY_FM), text: "[Data]\n")
+    seed_b_lister_on(error_client, day: SERVER_TODAY_FM, text: "[Data]\n")
+    error_client.seed(:ddr_lister, max_ien_lister_param.to_s, "[Data]\n41")
+
+    assert_raises(RpmsRpc::Client::RpcError) do
+      Agg.update_legal_names(
+        dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" }, client: error_client
+      )
+    end
+    refute error_client.received_calls.any? { |c| c[:rpc] == "AGG UPDATE LEGAL NAMES" }
+    unlocks = error_client.received_calls.select do |c|
+      c[:rpc] == "DDR LOCK/UNLOCK NODE" && !c[:params].first.key?("LOCKMODE")
+    end
+    assert_equal 1, unlocks.size
   end
 
   def test_update_legal_names_blank_add_allows_b_lister_first_row_on_later_day
@@ -599,10 +839,7 @@ class AggStockRpcsTest < Minitest::Test
   end
 
   def test_update_legal_names_blank_add_empty_max_ien_file_allows_first_rien
-    @mock.seed_scalar(:orwu_dt, "T", SERVER_TODAY_FM.to_s)
-    seed_b_lister(day: fileman_yesterday(SERVER_TODAY_FM), text: "[Data]\n")
-    seed_b_lister(day: SERVER_TODAY_FM, text: "[Data]\n")
-    seed_max_ien_lister("[Data]\n")
+    seed_blank_add_prechecks(server_today: SERVER_TODAY_FM, max_ien: 0)
     seed_name_patient("1", DFN)
     wire = "5\x00I00010RESULT^T01024ERROR^I00010RIEN#{RS}1^^1#{RS}#{US}"
     seed_global("AGG UPDATE LEGAL NAMES", DFN, wire)
@@ -614,8 +851,10 @@ class AggStockRpcsTest < Minitest::Test
   end
 
   def test_update_legal_names_blank_add_unverified_when_max_ien_lister_first_ien_non_numeric
-    @mock.seed_scalar(:orwu_dt, "T", SERVER_TODAY_FM.to_s)
-    seed_b_lister(day: fileman_yesterday(SERVER_TODAY_FM), text: "[Data]\n")
+    seed_blank_add_server_today_flow(SERVER_TODAY_FM)
+    seed_legal_name_lock(SERVER_TODAY_FM)
+    seed_legal_name_unlock(SERVER_TODAY_FM)
+    seed_b_lister(day: fileman_prior_calendar_day(SERVER_TODAY_FM), text: "[Data]\n")
     seed_b_lister(day: SERVER_TODAY_FM, text: "[Data]\n")
     seed_max_ien_lister("[Data]\nX^")
 
@@ -625,6 +864,7 @@ class AggStockRpcsTest < Minitest::Test
     refute result[:success]
     assert_equal :legal_name_unverified, result[:error]
     assert_empty legl_calls
+    assert_equal 1, unlock_calls.size
   end
 
   private
@@ -674,42 +914,101 @@ class AggStockRpcsTest < Minitest::Test
   end
 
   def fileman_yesterday(fm)
+    fileman_prior_calendar_day(fm)
+  end
+
+  def fileman_prior_calendar_day(fm)
     encode_fileman(decode_fileman(fm) - 1)
   end
 
-  def b_lister_param(day)
+  def mmddyyyy_from_fileman(fm)
+    d = decode_fileman(fm)
+    format("%02d/%02d/%04d", d.month, d.day, d.year)
+  end
+
+  def legal_name_b_lock_node(day)
+    "^AUPNNAMC(\"B\",#{day})"
+  end
+
+  def legal_name_b_lock_param(day)
+    Ddr.lock_param(node: legal_name_b_lock_node(day), timeout: 5)
+  end
+
+  def legal_name_b_unlock_param(day)
+    Ddr.unlock_param(node: legal_name_b_lock_node(day))
+  end
+
+  def seed_legal_name_lock(day, acquired: true, mock: @mock)
+    mock.seed_scalar(:ddr_lock_unlock_node, legal_name_b_lock_param(day).to_s, acquired)
+  end
+
+  def seed_legal_name_unlock(day, success: true, mock: @mock)
+    mock.seed_scalar(:ddr_lock_unlock_node, legal_name_b_unlock_param(day).to_s, success)
+  end
+
+  def seed_legal_name_lock_on(client, day, acquired: true)
+    seed_legal_name_lock(day, acquired: acquired, mock: client)
+  end
+
+  def seed_legal_name_unlock_on(client, day, success: true)
+    seed_legal_name_unlock(day, success: success, mock: client)
+  end
+
+  def seed_blank_add_server_today_flow(server_today, mock: @mock)
+    mock.seed_scalar(:orwu_dt, "T", server_today.to_s)
+    mmdd = mmddyyyy_from_fileman(server_today)
+    mock.seed_scalar(:orwu_dt, mmdd, server_today.to_s)
+  end
+
+  def seed_blank_add_server_today_flow_on(client, server_today)
+    seed_blank_add_server_today_flow(server_today, mock: client)
+  end
+
+  def seed_b_lister_on(client, day:, text:)
+    seed_b_lister_with_mock(client, day: day, text: text)
+  end
+
+  def b_lister_param(day, from: nil)
     Ddr.lister_param(
       file: "9000033",
       fields: "@;.01I",
       flags: "IPQ",
       max: "1",
       xref: "B",
-      from: "#{day.to_i - 1}.9999999"
+      from: from || "#{day - 1}.9999999"
     )
+  end
+
+  def seed_b_lister(day:, text:, from: nil)
+    seed_b_lister_with_mock(@mock, day: day, text: text, from: from)
   end
 
   def max_ien_lister_param
     Ddr.lister_param(file: "9000033", fields: "@", flags: "IPB", max: "1", xref: "#")
   end
 
-  def seed_b_lister(day:, text:)
-    @mock.seed(:ddr_lister, b_lister_param(day).to_s, text)
+  def seed_b_lister_with_mock(mock, day:, text:, from: nil)
+    mock.seed(:ddr_lister, b_lister_param(day, from: from).to_s, text)
   end
 
   def seed_max_ien_lister(text)
     @mock.seed(:ddr_lister, max_ien_lister_param.to_s, text)
   end
 
-  def seed_blank_add_b_and_max_listers(server_today:)
-    seed_b_lister(day: fileman_yesterday(server_today), text: "[Data]\n")
-    seed_b_lister(day: server_today, text: "[Data]\n")
+  def seed_blank_add_b_and_max_listers(server_today:, b_text: "[Data]\n")
+    seed_b_lister(day: fileman_prior_calendar_day(server_today), text: "[Data]\n")
+    seed_b_lister(day: server_today, text: b_text)
     seed_max_ien_lister("[Data]\n0")
   end
 
-  def seed_blank_add_prechecks(server_today:, max_ien:)
-    @mock.seed_scalar(:orwu_dt, "T", server_today.to_s)
-    seed_blank_add_b_and_max_listers(server_today: server_today)
-    seed_max_ien_lister("[Data]\n#{max_ien}")
+  def seed_blank_add_prechecks(server_today:, max_ien:, b_text: "[Data]\n")
+    seed_blank_add_server_today_flow(server_today)
+    seed_legal_name_lock(server_today)
+    seed_legal_name_unlock(server_today)
+    seed_b_lister(day: fileman_prior_calendar_day(server_today), text: "[Data]\n")
+    seed_b_lister(day: server_today, text: b_text)
+    max_text = max_ien.zero? ? "[Data]\n" : "[Data]\n#{max_ien}"
+    seed_max_ien_lister(max_text)
   end
 
   def b_index_lister_days_from_calls
@@ -717,7 +1016,8 @@ class AggStockRpcsTest < Minitest::Test
   end
 
   def b_lister_day_from_call(call)
-    call[:params].first["FROM"].split(".").first.to_i + 1
+    from = call[:params].first["FROM"].split(".").first.to_i
+    encode_fileman(decode_fileman(from) + 1)
   end
 
   def orwu_dt_calls
@@ -734,5 +1034,17 @@ class AggStockRpcsTest < Minitest::Test
 
   def max_ien_lister_calls
     lister_calls.select { |c| c[:params].first["XREF"] == "#" }
+  end
+
+  def ddr_lock_unlock_calls
+    @mock.received_calls.select { |c| c[:rpc] == "DDR LOCK/UNLOCK NODE" }
+  end
+
+  def lock_calls
+    ddr_lock_unlock_calls.select { |c| c[:params].first["LOCKMODE"] == "1" }
+  end
+
+  def unlock_calls
+    ddr_lock_unlock_calls.select { |c| !c[:params].first.key?("LOCKMODE") }
   end
 end
