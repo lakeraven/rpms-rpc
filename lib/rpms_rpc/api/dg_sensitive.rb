@@ -4,6 +4,7 @@ require_relative "../client"
 require_relative "../context_scope"
 require_relative "../mappings"
 require_relative "../shape"
+require_relative "agg"
 
 module RpmsRpc
   # DG SENSITIVE RECORD ACCESS (PTSEC^DGSEC4) and DG SENSITIVE RECORD
@@ -32,29 +33,39 @@ module RpmsRpc
     # RESULT(1), the integer code, including 5. The following lines are
     # RESULT(2+). Option: OR CPRS GUI CHART (this method scopes it).
     # A blank DFN is the routine's own -1 ("Required variable missing.",
-    # DGSEC4.m:36-38) and sends nothing. The call writes a DG SECURITY LOG
-    # entry (DGSEC4.m:65). Returns { result:, messages: } or nil when RPMS
-    # did not answer.
+    # DGSEC4.m:36-38) and sends nothing. Any other DFN that is not a
+    # positive integer is -1 / "DFN must be a positive integer." and sends
+    # nothing. The wire value is the canonical digit string. The call
+    # writes a DG SECURITY LOG entry (DGSEC4.m:65). Returns
+    # { result:, messages: } or nil when RPMS did not answer.
     def check_access(dfn:, generate_message: 0, option: "")
       return missing_dfn if dfn.nil? || dfn.to_s.strip.empty?
 
+      id = Agg.canonical_dfn(dfn)
+      return invalid_dfn unless id
+
       client = RpmsRpc.client
       raw = in_context(client) do
-        client.call_rpc(ACCESS_RPC, dfn.to_s, generate_message.to_s, option.to_s)
+        client.call_rpc(ACCESS_RPC, id, generate_message.to_s, option.to_s)
       end
       parse_access_reply(raw)
     end
     shape :check_access, resource: "sensitive-records", verb: "POST",
           path: "/patients/{dfn}/sensitive-records/check-access"
 
-    # NOTICE^DGSEC4. Option: OR CPRS GUI CHART. Client order is DFN, DGOPT,
-    # ACTION (DGSEC4.m:67). ACTION defaults to 3 in the routine; this method
-    # sends the value it was given. Success is the single value "1" only.
-    # Returns { success: } or nil.
+    # NOTICE^DGSEC4. Option: OR CPRS GUI CHART. A DFN that is not a positive
+    # integer, including a blank, raises ArgumentError before the call.
+    # Client order is DFN, DGOPT, ACTION (DGSEC4.m:67). ACTION defaults to
+    # 3 in the routine; this method sends the value it was given. The wire
+    # DFN is the canonical digit string. Success is the single value "1"
+    # only. Returns { success: } or nil.
     def record_bulletin(dfn:, action:, option:)
+      id = Agg.canonical_dfn(dfn)
+      raise ArgumentError, "DFN must be a positive integer" unless id
+
       client = RpmsRpc.client
       raw = in_context(client) do
-        DataMapper.dg_sensitive_bulletin.fetch_scalar(dfn.to_s, option.to_s, action.to_s)
+        DataMapper.dg_sensitive_bulletin.fetch_scalar(id, option.to_s, action.to_s)
       end
       parse_bulletin_result(raw)
     end
@@ -89,6 +100,10 @@ module RpmsRpc
 
     def missing_dfn
       { result: -1, messages: [ "Required variable missing." ] }
+    end
+
+    def invalid_dfn
+      { result: -1, messages: [ "DFN must be a positive integer." ] }
     end
 
     def in_context(client, &block)

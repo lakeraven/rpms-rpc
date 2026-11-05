@@ -329,35 +329,42 @@ module RpmsRpc
 
     # LEGL^AGGPTNAM — add ("A"), edit, or delete ("D") one LEGAL NAME.
     # Option: AGGRPC. Client order is DFN, PROC, RIEN, $C(28) PARMS
-    # (AGGPTNAM.m:57). A delete with a RIEN runs ^DIK on ^AUPNNAMC(
-    # (AGGPTNAM.m:70-72). An add or edit files file 9000033 field .02 to
-    # this DFN on that IENS (AGGPTNAM.m:81-83), so a non-blank RIEN has to
-    # already be this patient's row. A blank RIEN is sent only when proc is
-    # "A". Any other proc with a blank RIEN is
-    # { success: false, error: :invalid_rien } and sends no RPC. A non-blank
-    # RIEN that is not /\A[1-9]\d*\z/ is the same :invalid_rien, with no
-    # RPC. A RIEN that matches is read first, on this same client: DDR GETS
-    # ENTRY DATA, file 9000033, IENS "<rien>,", field .02, flags "I", scoped
-    # to CIAV VUECENTRIC (the RPC is not registered under AGGRPC). No reply,
-    # error, a malformed reply, a missing .02 row, or a blank internal value
-    # is { success: false, error: :rien_unverified } and LEGL is not called:
-    # absence of data never verifies. An internal .02 that is not this DFN
-    # (canonical integer strings) is
-    # { success: false, error: :rien_not_for_dfn } and LEGL is not called.
-    # Only a match sends LEGL. The check is a read-then-write, not atomic.
-    # Success is RESULT "1" only (AGGPTNAM.m:101-102); a rejection row is
-    # "-1^message" and is never success. A parameter value containing
-    # $C(28) raises before the call (encode_parms). Returns
+    # (AGGPTNAM.m:57). A DFN that is not a positive integer is
+    # { success: false, error: :invalid_dfn } and sends no RPC. PROC must
+    # be exactly "A", "D", or ""; anything else, including nil, is
+    # { success: false, error: :invalid_proc } and sends no RPC. A delete
+    # with a RIEN runs ^DIK on ^AUPNNAMC( (AGGPTNAM.m:70-72). An add or
+    # edit files file 9000033 field .02 to this DFN on that IENS
+    # (AGGPTNAM.m:81-83), so a non-blank RIEN has to already be this
+    # patient's row. A blank RIEN is sent only when proc is "A". Any other
+    # proc with a blank RIEN is { success: false, error: :invalid_rien }
+    # and sends no RPC. A non-blank RIEN that is not /\A[1-9]\d*\z/ is the
+    # same :invalid_rien, with no RPC. A RIEN that matches is read first,
+    # on this same client: DDR GETS ENTRY DATA, file 9000033, IENS
+    # "<rien>,", field .02, flags "I", scoped to CIAV VUECENTRIC (the RPC
+    # is not registered under AGGRPC). A reply that says [ERROR], or that
+    # does not prove .02, is { success: false, error: :rien_unverified }
+    # and LEGL is not called. A broker error raised by the read propagates
+    # and LEGL is not sent. An internal .02 that is not this DFN's
+    # canonical digit string is { success: false, error: :rien_not_for_dfn }
+    # and LEGL is not called. Only a match sends LEGL. The check is a
+    # read-then-write, not atomic. The DFN on the wire is that canonical
+    # string. Success is RESULT "1" only (AGGPTNAM.m:101-102); a rejection
+    # row is "-1^message" and is never success. A parameter value
+    # containing $C(28) raises before the call (encode_parms). Returns
     # { success: true, ien: } / { success: false, error:, message: } / nil.
     def update_legal_names(dfn:, proc:, rien:, params: {}, client: RpmsRpc.client)
-      proc_text = proc.to_s
+      dfn_text = canonical_dfn(dfn)
+      return legal_name_failure(:invalid_dfn, "DFN must be a positive integer") unless dfn_text
+      return legal_name_failure(:invalid_proc, "proc must be A, D, or empty") unless proc == "A" || proc == "D" || proc == ""
+
       rien_text = rien.to_s
-      refusal = legal_name_rien_refusal(dfn, proc_text, rien_text, client)
+      refusal = legal_name_rien_refusal(dfn_text, proc, rien_text, client)
       return refusal if refusal
 
       in_context(client) do
         interpret_entry_write(
-          call_array(client, UPDATE_LEGAL_NAMES_RPC, dfn.to_s, proc_text, rien_text, encode_parms(params))
+          call_array(client, UPDATE_LEGAL_NAMES_RPC, dfn_text, proc, rien_text, encode_parms(params))
         )
       end
     end
@@ -436,13 +443,18 @@ module RpmsRpc
     end
 
     # CHK^AGGPTSEN — sensitive-patient indicator for this user. Option: AGGRPC.
-    # The row is 0, 1, or 2 (AGGPTSEN.m:16-19). Anything else, including a
-    # blank that would coerce to 0, is nil: 0 means "not sensitive".
-    # CHK calls SENS^DGSEC4 (AGGPTSEN.m:30), the same lookup audit as
-    # PTSEC^DGSEC4 (DGSEC4.m:178) and the same DG SECURITY LOG write
-    # (DGSEC4.m:65). Returns { sensitive_indicator: Integer } or nil.
+    # A DFN that is not a positive integer raises ArgumentError before any
+    # RPC. The wire value is the canonical digit string. The row is 0, 1,
+    # or 2 (AGGPTSEN.m:16-19). Anything else, including a blank that would
+    # coerce to 0, is nil: 0 means "not sensitive". CHK calls SENS^DGSEC4
+    # (AGGPTSEN.m:30), the same lookup audit as PTSEC^DGSEC4 (DGSEC4.m:178)
+    # and the same DG SECURITY LOG write (DGSEC4.m:65). Returns
+    # { sensitive_indicator: Integer } or nil.
     def check_sensitive_patient(dfn:, client: RpmsRpc.client)
-      reply = in_context(client) { parse_reply(call_array(client, CHECK_SENSITIVE_RPC, dfn.to_s)) }
+      id = canonical_dfn(dfn)
+      raise ArgumentError, "DFN must be a positive integer" unless id
+
+      reply = in_context(client) { parse_reply(call_array(client, CHECK_SENSITIVE_RPC, id)) }
       raw = reply&.dig(:records, 0, :sensitive_indicator).to_s
       return nil unless raw.match?(/\A[012]\z/)
 
@@ -451,11 +463,16 @@ module RpmsRpc
     shape :check_sensitive_patient, resource: "agg", verb: "POST", path: "/patients/{dfn}/agg/check-sensitive"
 
     # NOT^AGGPTSEN — file the sensitive-record bulletin. Option: AGGRPC.
-    # The routine hardcodes the option it logs (AGGPTSEN.m:59). Success is
-    # RESULT "1" only. Returns { success: } or nil when RPMS did not answer.
+    # A DFN that is not a positive integer raises ArgumentError before any
+    # RPC. The wire value is the canonical digit string. The routine
+    # hardcodes the option it logs (AGGPTSEN.m:59). Success is RESULT "1"
+    # only. Returns { success: } or nil when RPMS did not answer.
     def send_sensitive_notify(dfn:, client: RpmsRpc.client)
+      id = canonical_dfn(dfn)
+      raise ArgumentError, "DFN must be a positive integer" unless id
+
       in_context(client) do
-        parsed = parse_reply(call_array(client, SEND_SENSITIVE_NOTIFY_RPC, dfn.to_s))
+        parsed = parse_reply(call_array(client, SEND_SENSITIVE_NOTIFY_RPC, id))
         return nil if parsed.nil?
 
         record = parsed[:records].first
@@ -539,6 +556,19 @@ module RpmsRpc
       { header: names, records: records, rows: split }
     end
 
+    # A DFN subscript these routines can use: a positive Integer, or a
+    # String matching /\A[1-9]\d*\z/ with no strip. The canonical wire
+    # string, or nil. "0990031" and " 990031" are not patient 990031.
+    # Sends nothing.
+    def canonical_dfn(dfn)
+      case dfn
+      when Integer
+        dfn.positive? ? dfn.to_s : nil
+      when String
+        dfn.match?(/\A[1-9]\d*\z/) ? dfn : nil
+      end
+    end
+
     private
 
     # Bind AGGRPC for the duration of the block and restore the caller's
@@ -620,35 +650,31 @@ module RpmsRpc
       if stored == :unverified
         return legal_name_failure(:rien_unverified, "file 9000033 RIEN #{rien_text} .02 did not verify")
       end
-      return nil if stored == canonical_integer_string(dfn)
+      return nil if stored == dfn
 
       legal_name_failure(:rien_not_for_dfn, "file 9000033 RIEN #{rien_text} .02 is not DFN #{dfn}")
     end
 
-    # The canonical internal .02, or :unverified when the read does not
-    # prove a value. A non-integer internal is returned as text so it
-    # cannot match a DFN.
+    # The internal .02, or :unverified when the read does not prove a
+    # value. A broker error raised by the read propagates.
     def legal_name_patient(client, rien_text)
-      read = ContextScope.scoped(client, "CIAV VUECENTRIC") do
-        DdrFileman.gets_entry(file: "9000033", iens: "#{rien_text},", fields: ".02", flags: "I", client: client)
+      raw = ContextScope.scoped(client, "CIAV VUECENTRIC") do
+        client.call_rpc(
+          DataMapper[:ddr_gets_entry_data].rpc_name,
+          DdrFileman.gets_entry_param(file: "9000033", iens: "#{rien_text},", fields: ".02", flags: "I")
+        )
       end
+      read = DdrFileman.parse_gets_reply(raw)
       return :unverified if read.nil? || read[:error] || read[:malformed]
 
       internal = read.dig(:fields, ".02", :internal).to_s.strip
       return :unverified if internal.empty?
 
-      canonical_integer_string(internal) || internal
+      internal
     end
 
     def legal_name_failure(error, message)
       { success: false, error: error, message: message }
-    end
-
-    def canonical_integer_string(value)
-      text = value.to_s.strip
-      return nil unless text.match?(/\A\d+\z/)
-
-      Integer(text, 10).to_s
     end
 
     # A write whose reply is RESULT^ERROR[^RIEN]: ALIAS^AGGPTNAM and UPD^AGGPOTH.
