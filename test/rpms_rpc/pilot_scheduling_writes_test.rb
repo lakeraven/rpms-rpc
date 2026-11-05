@@ -16,8 +16,9 @@ require "rpms_rpc/api/ddr_fileman"
 # Issue #565 / #224 scheduling write slice: pilot-ready wire evidence on the pinned build.
 #
 # Grading: pilot-ready iff signed_on_as == PROV123 and every effect is proven via
-# read-back; partial iff PROV123 and some effects proven; not-proven otherwise.
-# No-data write replies (BSDX CANCEL APPOINTMENT empty ERRORID row) prove nothing alone.
+# read-back (and read_before causation for CHECKIN/CANCEL/NOSHOW); partial iff PROV123
+# and some effects proven; not-proven otherwise. CHECKIN success requires the first
+# data row's leading piece to be exactly "0". CHECKIN also requires #44.003 clinic proof.
 class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
   LOCK_PATH = File.join(ROOT, "data/fingerprints/rpms-ops.lock.yml")
@@ -38,7 +39,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       rpc: "BSDX CHECKIN APPOINTMENT",
       mapping: :scheduling_checkin_appointment,
       api_method: :checkin_appointment,
-      effects: %i[success checkin_time]
+      effects: %i[success checkin_time checkin_clinic]
     },
     {
       rpc: "BSDX CANCEL APPOINTMENT",
@@ -52,6 +53,11 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       api_method: :mark_no_show,
       effects: %i[success noshow_flag noshow_status]
     }
+  ].freeze
+
+  # Write effects proven only when read_back matches AND read_before shows prior state differed.
+  CAUSATION_EFFECTS = %i[
+    checkin_time checkin_clinic cancel_status cancel_reason cancelled_at noshow_flag noshow_status
   ].freeze
 
   HermeticFixture = Struct.new(:mapping_name, :source, :captured_data_rows, :path, keyword_init: true)
@@ -196,6 +202,115 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       RpmsRpc.reset!
     end
 
+    def fields_list_includes?(fields_spec, field)
+      field_key_variants(field).any? do |key|
+        bare = key.delete_prefix(".")
+        fields_spec.to_s.split(";").include?(bare) || fields_spec.to_s.split(";").include?(key)
+      end
+    end
+
+    def read_before_entry_covers?(read_before, file:, iens:, field:)
+      Array(read_before).any? do |entry|
+        next unless entry["rpc"] == "DDR GETS ENTRY DATA"
+
+        inputs = entry["inputs"].transform_keys(&:to_s)
+        next unless inputs["FILE"] == file.to_s && inputs["IENS"] == iens.to_s
+
+        fields_list_includes?(inputs["FIELDS"], field)
+      end
+    end
+
+    def clinic_appt_iens_suffix(yaml, index)
+      appt_ien = appointment_ien_from_api_call(yaml)
+      clinic = yaml.dig("setup", "hospital_location_id").to_s
+      start = index_lookup(index, file: "9002018.4", iens: "#{appt_ien},", field: ".01")
+      return nil unless RpmsRpc::WireCapture::Evidence.real_value?(start) && !clinic.empty?
+
+      "#{canonical_fileman_datetime(start)},#{clinic},"
+    end
+
+    def find_44_003_read_entry(read_backs, iens_suffix)
+      Array(read_backs).find do |entry|
+        next unless entry["rpc"] == "DDR GETS ENTRY DATA"
+
+        inputs = entry["inputs"].transform_keys(&:to_s)
+        next unless inputs["FILE"] == "44.003"
+
+        inputs["IENS"].to_s.end_with?(iens_suffix)
+      end
+    end
+
+    def causation_effect?(slice, effect)
+      slice[:mapping] != :scheduling_add_appointment && CAUSATION_EFFECTS.include?(effect)
+    end
+
+    def causation_proven?(slice, effect, yaml, after_index)
+      return true unless causation_effect?(slice, effect)
+
+      read_before = yaml["read_before"]
+      return false if read_before.nil? || !read_before.is_a?(Array) || read_before.empty?
+
+      before_index = read_back_index(read_before)
+      kwargs = api_call_kwargs(yaml)
+      appt_ien = appointment_ien_from_api_call(yaml)
+      appt_iens = "#{appt_ien},"
+
+      case effect
+      when :checkin_time
+        return false unless read_before_entry_covers?(read_before, file: "9002018.4", iens: appt_iens, field: ".03")
+
+        before = index_lookup(before_index, file: "9002018.4", iens: appt_iens, field: ".03")
+        expected = canonical_fileman_datetime(kwargs["checkin_time"])
+        canonical_fileman_datetime(before) != expected
+      when :checkin_clinic
+        suffix = clinic_appt_iens_suffix(yaml, after_index)
+        return false unless suffix
+
+        entry = find_44_003_read_entry(read_before, suffix)
+        return false unless entry
+
+        iens = entry["inputs"].transform_keys(&:to_s)["IENS"]
+        patient = index_lookup(after_index, file: "9002018.4", iens: appt_iens, field: ".05")
+        expected_time = canonical_fileman_datetime(kwargs["checkin_time"])
+        before_patient = index_lookup(before_index, file: "44.003", iens: iens, field: ".01")
+        before_time = index_lookup(before_index, file: "44.003", iens: iens, field: "309")
+        before_patient != patient || canonical_fileman_datetime(before_time) != expected_time
+      when :cancel_status
+        ctx = appointment_context(yaml, after_index)
+        return false unless ctx
+        return false unless read_before_entry_covers?(read_before, file: "2.98", iens: ctx[:dpt_iens], field: "3")
+
+        before = index_lookup(before_index, file: "2.98", iens: ctx[:dpt_iens], field: "3")
+        before.to_s != kwargs["type"].to_s
+      when :cancel_reason
+        ctx = appointment_context(yaml, after_index)
+        return false unless ctx
+        return false unless read_before_entry_covers?(read_before, file: "2.98", iens: ctx[:dpt_iens], field: "16")
+
+        before = index_lookup(before_index, file: "2.98", iens: ctx[:dpt_iens], field: "16")
+        before.to_s != kwargs["reason"].to_s
+      when :cancelled_at
+        return false unless read_before_entry_covers?(read_before, file: "9002018.4", iens: appt_iens, field: ".12")
+
+        before = index_lookup(before_index, file: "9002018.4", iens: appt_iens, field: ".12")
+        !RpmsRpc::WireCapture::Evidence.real_value?(before)
+      when :noshow_flag
+        return false unless read_before_entry_covers?(read_before, file: "9002018.4", iens: appt_iens, field: ".1")
+
+        before = index_lookup(before_index, file: "9002018.4", iens: appt_iens, field: ".1")
+        before.to_s != "1"
+      when :noshow_status
+        ctx = appointment_context(yaml, after_index)
+        return false unless ctx
+        return false unless read_before_entry_covers?(read_before, file: "2.98", iens: ctx[:dpt_iens], field: "3")
+
+        before = index_lookup(before_index, file: "2.98", iens: ctx[:dpt_iens], field: "3")
+        before.to_s != "N"
+      else
+        true
+      end
+    end
+
     def api_call_positional(yaml)
       yaml.fetch("api_call").fetch("args")
     end
@@ -225,23 +340,33 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     end
 
     def write_success?(slice, fixture, yaml)
+      return false if yaml["raw_return"].nil?
       return false if RpmsRpc::WireCapture.error_reply?(yaml["raw_return"])
 
       mapping = RpmsRpc::DataMapper[slice[:mapping]]
-      row = fixture.captured_data_rows.first.to_s
-      mapped = mapping.parse_one(row) if row && !row.empty?
+      rows = fixture.captured_data_rows
+      return false if rows.nil? || rows.empty?
+
       case slice[:mapping]
       when :scheduling_add_appointment
-        id = mapped&.dig(:appointment_id).to_i
+        row = rows.first.to_s
+        return false if row.empty?
+
+        mapped = mapping.parse_one(row)
+        id = mapped[:appointment_id].to_i
         id.positive? && mapped[:error].to_s.empty?
       when :scheduling_checkin_appointment
-        piece = row.split("^", -1).first.to_s
-        piece.empty? || piece == "0"
+        row = rows.first.to_s
+        return false if row.empty?
+
+        row.split("^", -1).first.to_s == "0"
       when :scheduling_cancel_appointment
-        piece = row.split("^", -1).first.to_s
-        piece.empty?
+        rows.first.to_s.split("^", -1).first.to_s.empty?
       when :scheduling_noshow_appointment
-        mapped&.dig(:result).to_i == 1
+        row = rows.first.to_s
+        return false if row.empty?
+
+        mapping.parse_one(row)[:result].to_i == 1
       else
         false
       end
@@ -272,6 +397,8 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
         yaml.dig("setup", "hospital_location_id").to_s
       when :checkin_time
         canonical_fileman_datetime(kwargs["checkin_time"])
+      when :checkin_clinic
+        canonical_fileman_datetime(kwargs["checkin_time"])
       when :cancel_status
         kwargs["type"].to_s
       when :cancel_reason
@@ -298,7 +425,13 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
                           ) ||
                           effect == :success || effect == :cancelled_at
 
-      case effect
+      if slice[:mapping] == :scheduling_checkin_appointment &&
+         %i[checkin_time checkin_clinic].include?(effect) &&
+         !write_success?(slice, fixture, yaml)
+        return false
+      end
+
+      proven = case effect
       when :success
         return false unless write_success?(slice, fixture, yaml)
 
@@ -330,6 +463,19 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
         appt_ien = appointment_ien_from_api_call(yaml)
         got = index_lookup(index, file: "9002018.4", iens: "#{appt_ien},", field: ".03")
         canonical_fileman_datetime(got) == canonical_fileman_datetime(kwargs["checkin_time"])
+      when :checkin_clinic
+        suffix = clinic_appt_iens_suffix(yaml, index)
+        return false unless suffix
+
+        entry = find_44_003_read_entry(yaml["read_back"], suffix)
+        return false unless entry
+
+        iens = entry["inputs"].transform_keys(&:to_s)["IENS"]
+        patient = index_lookup(index, file: "9002018.4", iens: "#{appointment_ien_from_api_call(yaml)},", field: ".05")
+        got_patient = index_lookup(index, file: "44.003", iens: iens, field: ".01")
+        got_time = index_lookup(index, file: "44.003", iens: iens, field: "309")
+        got_patient == patient &&
+          canonical_fileman_datetime(got_time) == canonical_fileman_datetime(kwargs["checkin_time"])
       when :noshow_flag
         appt_ien = appointment_ien_from_api_call(yaml)
         got = index_lookup(index, file: "9002018.4", iens: "#{appt_ien},", field: ".1")
@@ -366,6 +512,8 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       else
         false
       end
+
+      proven && causation_proven?(slice, effect, yaml, index)
     end
 
     def proven_effects(slice, yaml, fixture)
@@ -614,7 +762,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
 
   def test_hermetic_read_back_error_proves_no_read_back_effects
     slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_checkin_appointment }
-    yaml = hermetic_checkin_fixture(read_back_raw: "5\x00[ERROR]\r\n-1^bad\r\n")
+    yaml = hermetic_checkin_fixture(read_back_after: "5\x00[ERROR]\r\n-1^bad\r\n")
     fixture = hermetic_fixture(yaml, [ "0^" ])
     refute self.class.effect_proven?(slice, :checkin_time, yaml, fixture)
     assert_equal "partial", self.class.expected_checklist_status(slice, yaml, fixture)
@@ -628,6 +776,86 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     )
     fixture = hermetic_fixture(yaml, [])
     refute self.class.effect_proven?(slice, :success, yaml, fixture)
+  end
+
+  def test_hermetic_checkin_errorid_only_reply_makes_success_unproven
+    slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_checkin_appointment }
+    raw = "7\x00T00020ERRORID^T00150MESSAGE\x1e\x1e\x1f"
+    yaml = hermetic_checkin_fixture(raw_return: raw, sha256: Digest::SHA256.hexdigest(raw))
+    fixture = hermetic_fixture(yaml, RpmsRpc::WireCapture.data_rows(raw))
+    refute self.class.effect_proven?(slice, :success, yaml, fixture)
+    refute self.class.effect_proven?(slice, :checkin_time, yaml, fixture)
+  end
+
+  def test_hermetic_checkin_nil_raw_return_makes_success_unproven
+    slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_checkin_appointment }
+    yaml = hermetic_checkin_fixture(raw_return: nil, sha256: Digest::SHA256.hexdigest(""))
+    fixture = hermetic_fixture(yaml, [])
+    refute self.class.effect_proven?(slice, :success, yaml, fixture)
+  end
+
+  def test_hermetic_cancel_read_before_already_cancelled_leaves_effects_unproven
+    slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_cancel_appointment }
+    yaml = hermetic_cancel_fixture(reason: "5", read_before_already_cancelled: true)
+    fixture = hermetic_fixture(yaml, [ "" ])
+    refute self.class.effect_proven?(slice, :cancel_status, yaml, fixture)
+    refute self.class.effect_proven?(slice, :cancel_reason, yaml, fixture)
+    refute self.class.effect_proven?(slice, :cancelled_at, yaml, fixture)
+  end
+
+  def test_hermetic_noshow_read_before_flag_one_leaves_noshow_flag_unproven
+    slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_noshow_appointment }
+    yaml = hermetic_noshow_fixture(read_before_flag: "1")
+    fixture = hermetic_fixture(yaml, [ "1^" ])
+    refute self.class.effect_proven?(slice, :noshow_flag, yaml, fixture)
+  end
+
+  def test_hermetic_cancel_without_read_before_leaves_causation_effects_unproven
+    slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_cancel_appointment }
+    yaml = hermetic_cancel_fixture(reason: "5").tap { |h| h.delete("read_before") }
+    fixture = hermetic_fixture(yaml, [ "" ])
+    %i[cancel_status cancel_reason cancelled_at].each do |effect|
+      refute self.class.effect_proven?(slice, effect, yaml, fixture), effect.to_s
+    end
+  end
+
+  def test_committed_checkin_cancel_noshow_fixtures_setup_duz_prov123_positive
+    failures = []
+    [
+      "BSDX CHECKIN APPOINTMENT",
+      "BSDX CANCEL APPOINTMENT",
+      "BSDX NOSHOW"
+    ].each do |rpc|
+      yaml = self.class.load_fixture_yaml(rpc)
+      next failures << "#{rpc}: no fixture" unless yaml
+
+      duz = yaml.dig("setup", "duz", "PROV123")
+      failures << "#{rpc}: setup.duz.PROV123 must be a positive integer (re-capture pending)" unless
+        duz.is_a?(Integer) && duz.positive?
+    end
+    assert_empty failures, failures.join("\n  ")
+  end
+
+  def test_committed_cancel_noshow_field_14_matches_prov123_duz
+    failures = []
+    [
+      [ "BSDX CANCEL APPOINTMENT", :scheduling_cancel_appointment ],
+      [ "BSDX NOSHOW", :scheduling_noshow_appointment ]
+    ].each do |rpc, mapping|
+      yaml = self.class.load_fixture_yaml(rpc)
+      next failures << "#{rpc}: no fixture" unless yaml
+
+      duz = yaml.dig("setup", "duz", "PROV123")
+      next failures << "#{rpc}: setup.duz.PROV123 missing (re-capture pending)" unless duz.is_a?(Integer) && duz.positive?
+
+      index = self.class.read_back_index(yaml["read_back"])
+      ctx = self.class.appointment_context(yaml, index)
+      next failures << "#{rpc}: appointment context missing" unless ctx
+
+      got = self.class.index_lookup(index, file: "2.98", iens: ctx[:dpt_iens], field: "14")
+      failures << "#{rpc}: #2.98 field 14 #{got.inspect} != PROV123 DUZ #{duz}" unless got.to_s == duz.to_s
+    end
+    assert_empty failures, failures.join("\n  ")
   end
 
   def test_hermetic_prov123_cancel_fixture_grades_pilot_ready
@@ -679,10 +907,22 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
   end
 
   def hermetic_checkin_fixture(overrides = {})
+    start = "3270107.09"
+    patient = "3"
+    clinic = "3"
+    clinic_sub_ien = "1"
+    clinic_iens = "#{clinic_sub_ien},#{start},#{clinic},"
+    checkin_time = "3270107.093"
     raw = overrides.fetch(:raw_return) { "8\x00T00020ERRORID^T00150MESSAGE#{RS}0^#{RS}" }
-    read_raw = overrides.fetch(:read_back_raw) do
-      "5\x00[Data]\r\n9002018.4^5,^.03^3270107.093\r\n"
+    read_appt = overrides.fetch(:read_back_after) do
+      "5\x00[Data]\r\n9002018.4^5,^.01^#{start}\r\n9002018.4^5,^.03^#{checkin_time}\r\n" \
+        "9002018.4^5,^.05^#{patient}\r\n"
     end
+    read_clinic = "5\x00[Data]\r\n44.003^#{clinic_iens}^.01^#{patient}\r\n" \
+                  "44.003^#{clinic_iens}^309^#{checkin_time}\r\n"
+    before_appt = "5\x00[Data]\r\n9002018.4^5,^.03^^\r\n"
+    before_clinic = "5\x00[Data]\r\n44.003^#{clinic_iens}^.01^^\r\n44.003^#{clinic_iens}^309^^\r\n"
+    sha = overrides.fetch(:sha256) { raw.nil? ? Digest::SHA256.hexdigest("") : Digest::SHA256.hexdigest(raw) }
     {
       "rpc" => "BSDX CHECKIN APPOINTMENT",
       "mapping" => "scheduling_checkin_appointment",
@@ -693,34 +933,71 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       "release_tag" => PINNED_RELEASE,
       "captured_at" => "2026-11-05T00:00:00Z",
       "signed_on_as" => SCHEDULING_PERSONA,
-      "inputs" => [ "5", "3270107.093", "", "", "", "", "", "", "" ],
+      "inputs" => [ "5", checkin_time, "", "", "", "", "", "", "" ],
       "raw_return" => raw,
-      "sha256" => overrides.fetch(:sha256) { Digest::SHA256.hexdigest(raw) },
+      "sha256" => sha,
       "pieces" => [ { "position" => 0, "attribute" => "error" } ],
       "api_call" => {
         "method" => "checkin_appointment",
         "args" => [ 5 ],
-        "kwargs" => { "checkin_time" => "3270107.093" }
+        "kwargs" => { "checkin_time" => checkin_time }
       },
-      "read_back" => [
+      "setup" => {
+        "resource_ien" => "99",
+        "hospital_location_id" => clinic,
+        "duz" => { "PROV123" => 200, "SYS123" => 1 }
+      },
+      "read_before" => [
         {
           "rpc" => "DDR GETS ENTRY DATA",
           "inputs" => { "FILE" => "9002018.4", "IENS" => "5,", "FIELDS" => ".03", "FLAGS" => "I" },
-          "raw_return" => read_raw,
-          "sha256" => Digest::SHA256.hexdigest(read_raw)
+          "raw_return" => before_appt,
+          "sha256" => Digest::SHA256.hexdigest(before_appt)
+        },
+        {
+          "rpc" => "DDR GETS ENTRY DATA",
+          "inputs" => { "FILE" => "44.003", "IENS" => clinic_iens, "FIELDS" => ".01;309;302", "FLAGS" => "I" },
+          "raw_return" => before_clinic,
+          "sha256" => Digest::SHA256.hexdigest(before_clinic)
+        }
+      ],
+      "read_back" => [
+        {
+          "rpc" => "DDR GETS ENTRY DATA",
+          "inputs" => { "FILE" => "9002018.4", "IENS" => "5,", "FIELDS" => ".01;.03;.05", "FLAGS" => "I" },
+          "raw_return" => read_appt,
+          "sha256" => Digest::SHA256.hexdigest(read_appt)
+        },
+        {
+          "rpc" => "DDR GETS ENTRY DATA",
+          "inputs" => { "FILE" => "44.003", "IENS" => clinic_iens, "FIELDS" => ".01;309;302", "FLAGS" => "I" },
+          "raw_return" => read_clinic,
+          "sha256" => Digest::SHA256.hexdigest(read_clinic)
         }
       ]
-    }
+    }.merge(overrides.except(:raw_return, :sha256, :read_back_after))
   end
 
-  def hermetic_cancel_fixture(reason:)
+  def hermetic_cancel_fixture(reason:, read_before_already_cancelled: false)
     start = "3270107.09"
     patient = "3"
     dpt_iens = self.class.dpt_appt_iens(start, patient)
+    cancel_at = "3261105.0233"
     raw = "8\x00T00020ERRORID#{RS}#{RS}"
     read_appt = "5\x00[Data]\r\n9002018.4^5,^.01^#{start}\r\n9002018.4^5,^.05^#{patient}\r\n" \
-                "9002018.4^5,^.12^3261105.0233\r\n"
-    read_dpt = "5\x00[Data]\r\n2.98^#{dpt_iens}^3^PC\r\n2.98^#{dpt_iens}^16^#{reason}\r\n"
+                "9002018.4^5,^.12^#{cancel_at}\r\n"
+    read_dpt = "5\x00[Data]\r\n2.98^#{dpt_iens}^3^PC\r\n2.98^#{dpt_iens}^14^200\r\n" \
+               "2.98^#{dpt_iens}^16^#{reason}\r\n"
+    before_appt = if read_before_already_cancelled
+                    "5\x00[Data]\r\n9002018.4^5,^.12^#{cancel_at}\r\n"
+    else
+                    "5\x00[Data]\r\n9002018.4^5,^.12^^\r\n"
+    end
+    before_dpt = if read_before_already_cancelled
+                     "5\x00[Data]\r\n2.98^#{dpt_iens}^3^PC\r\n2.98^#{dpt_iens}^16^#{reason}\r\n"
+    else
+                     "5\x00[Data]\r\n2.98^#{dpt_iens}^3^^\r\n2.98^#{dpt_iens}^16^^\r\n"
+    end
     {
       "rpc" => "BSDX CANCEL APPOINTMENT",
       "mapping" => "scheduling_cancel_appointment",
@@ -740,6 +1017,25 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
         "args" => [ 5 ],
         "kwargs" => { "reason" => reason, "type" => "PC", "note" => nil }
       },
+      "setup" => {
+        "resource_ien" => "99",
+        "hospital_location_id" => "3",
+        "duz" => { "PROV123" => 200, "SYS123" => 1 }
+      },
+      "read_before" => [
+        {
+          "rpc" => "DDR GETS ENTRY DATA",
+          "inputs" => { "FILE" => "9002018.4", "IENS" => "5,", "FIELDS" => ".12", "FLAGS" => "I" },
+          "raw_return" => before_appt,
+          "sha256" => Digest::SHA256.hexdigest(before_appt)
+        },
+        {
+          "rpc" => "DDR GETS ENTRY DATA",
+          "inputs" => { "FILE" => "2.98", "IENS" => dpt_iens, "FIELDS" => "3;16", "FLAGS" => "I" },
+          "raw_return" => before_dpt,
+          "sha256" => Digest::SHA256.hexdigest(before_dpt)
+        }
+      ],
       "read_back" => [
         {
           "rpc" => "DDR GETS ENTRY DATA",
@@ -749,7 +1045,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
         },
         {
           "rpc" => "DDR GETS ENTRY DATA",
-          "inputs" => { "FILE" => "2.98", "IENS" => dpt_iens, "FIELDS" => "3;16", "FLAGS" => "I" },
+          "inputs" => { "FILE" => "2.98", "IENS" => dpt_iens, "FIELDS" => "3;16;14", "FLAGS" => "I" },
           "raw_return" => read_dpt,
           "sha256" => Digest::SHA256.hexdigest(read_dpt)
         }
@@ -757,14 +1053,16 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     }
   end
 
-  def hermetic_noshow_fixture
+  def hermetic_noshow_fixture(read_before_flag: "")
     start = "3270107.09"
     patient = "3"
     dpt_iens = self.class.dpt_appt_iens(start, patient)
     raw = "8\x00I00020ERRORID^T00030ERRORTEXT#{RS}1^#{RS}"
     read_appt = "5\x00[Data]\r\n9002018.4^5,^.01^#{start}\r\n9002018.4^5,^.05^#{patient}\r\n" \
                 "9002018.4^5,^.1^1\r\n"
-    read_dpt = "5\x00[Data]\r\n2.98^#{dpt_iens}^3^N\r\n"
+    read_dpt = "5\x00[Data]\r\n2.98^#{dpt_iens}^3^N\r\n2.98^#{dpt_iens}^14^200\r\n"
+    before_appt = "5\x00[Data]\r\n9002018.4^5,^.1^#{read_before_flag}\r\n"
+    before_dpt = "5\x00[Data]\r\n2.98^#{dpt_iens}^3^^\r\n"
     {
       "rpc" => "BSDX NOSHOW",
       "mapping" => "scheduling_noshow_appointment",
@@ -787,6 +1085,25 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
         "args" => [ 5 ],
         "kwargs" => {}
       },
+      "setup" => {
+        "resource_ien" => "99",
+        "hospital_location_id" => "3",
+        "duz" => { "PROV123" => 200, "SYS123" => 1 }
+      },
+      "read_before" => [
+        {
+          "rpc" => "DDR GETS ENTRY DATA",
+          "inputs" => { "FILE" => "9002018.4", "IENS" => "5,", "FIELDS" => ".1", "FLAGS" => "I" },
+          "raw_return" => before_appt,
+          "sha256" => Digest::SHA256.hexdigest(before_appt)
+        },
+        {
+          "rpc" => "DDR GETS ENTRY DATA",
+          "inputs" => { "FILE" => "2.98", "IENS" => dpt_iens, "FIELDS" => "3", "FLAGS" => "I" },
+          "raw_return" => before_dpt,
+          "sha256" => Digest::SHA256.hexdigest(before_dpt)
+        }
+      ],
       "read_back" => [
         {
           "rpc" => "DDR GETS ENTRY DATA",
@@ -796,7 +1113,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
         },
         {
           "rpc" => "DDR GETS ENTRY DATA",
-          "inputs" => { "FILE" => "2.98", "IENS" => dpt_iens, "FIELDS" => "3", "FLAGS" => "I" },
+          "inputs" => { "FILE" => "2.98", "IENS" => dpt_iens, "FIELDS" => "3;14", "FLAGS" => "I" },
           "raw_return" => read_dpt,
           "sha256" => Digest::SHA256.hexdigest(read_dpt)
         }

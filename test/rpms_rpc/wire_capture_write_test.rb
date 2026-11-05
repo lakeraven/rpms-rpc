@@ -5,6 +5,8 @@ require "digest"
 require "fileutils"
 require "tmpdir"
 require "yaml"
+require "json"
+require "open3"
 require "rake"
 require "rpms_rpc/wire_capture"
 require "rpms_rpc/mappings"
@@ -99,6 +101,10 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
     assert_empty RpmsRpc::WireCapture.data_rows(CANCEL_SUCCESS_RAW)
   end
 
+  def test_wire_capture_data_rows_non_recordset_keeps_header_shaped_lines
+    assert_equal [ "S72001A", "E1165" ], RpmsRpc::WireCapture.data_rows("1\x00S72001A\r\nE1165\r\n")
+  end
+
   def test_fixture_captured_data_rows_split_bsdx_noshow_success_recordset
     fx = RpmsRpc::WireCapture::Fixture.new(
       fields_write_fixture(
@@ -145,6 +151,27 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
       RpmsRpc::WireCapture::Fixture.new(bad)
     end
     assert_match(/sha256/i, error.message)
+  end
+
+  def test_write_fixture_read_before_sha256_mismatch_is_rejected
+    entry = ddr_read_back_entry(VALID_DDR_READ_BACK_RAW)
+    bad = fields_write_fixture("read_before" => [ entry.merge("sha256" => "0" * 64) ])
+    error = assert_raises(RpmsRpc::WireCapture::InvalidFixture) do
+      RpmsRpc::WireCapture::Fixture.new(bad)
+    end
+    assert_match(/read_before/i, error.message)
+  end
+
+  def test_write_fixture_read_before_accepts_sealed_valid_ddr_entries
+    entry = ddr_read_back_entry(VALID_DDR_READ_BACK_RAW)
+    assert RpmsRpc::WireCapture::Fixture.new(fields_write_fixture("read_before" => [ entry ]))
+  end
+
+  def test_write_fixture_signed_on_as_realuser_is_rejected
+    error = assert_raises(RpmsRpc::WireCapture::InvalidFixture) do
+      RpmsRpc::WireCapture::Fixture.new(fields_write_fixture("signed_on_as" => "REALUSER1"))
+    end
+    assert_match(/signed_on_as/i, error.message)
   end
 
   def test_write_fixture_persona_probe_bad_sha256_is_rejected
@@ -294,6 +321,41 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
     overlaps = SCHEDULING_WRITE_RPCS & live
     assert_empty overlaps,
                  "wire:capture read catalog must not :live-call scheduling writes: #{overlaps.join(", ")}"
+  end
+
+  def test_capture_writes_exits_nonzero_when_driver_capture_reports_error
+    dir = Dir.mktmpdir("wire_capture_writes")
+    fake_document = {
+      "captures" => {
+        "BSDX CHECKIN APPOINTMENT" => {
+          "signed_on_as" => "PROV123",
+          "error" => "synthetic driver failure"
+        }
+      },
+      "setup" => {
+        "resource_ien" => 1,
+        "hospital_location_id" => 3
+      }
+    }
+    driver_status = Struct.new(:success?, :exitstatus).new(true, 0)
+    begin
+      load_wire_rake!
+      Open3.singleton_class.prepend(Module.new do
+        define_method(:capture2) do |_env, *_argv|
+          [ JSON.generate(fake_document), driver_status ]
+        end
+      end)
+      exit = assert_raises(SystemExit) do
+        with_env(base_capture_writes_env.merge("WIRE_FIXTURES_DIR" => dir)) do
+          Rake::Task["wire:capture_writes"].invoke
+        end
+      end
+      refute_equal 0, exit.status
+      refute File.file?(File.join(dir, "bsdx-checkin-appointment.yml"))
+    ensure
+      Rake::Task["wire:capture_writes"].reenable if Rake::Task.task_defined?("wire:capture_writes")
+      FileUtils.remove_entry(dir)
+    end
   end
 
   private
