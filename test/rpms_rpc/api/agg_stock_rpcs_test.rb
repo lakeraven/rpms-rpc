@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "rpms_rpc/client"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/retry_safety"
 require "rpms_rpc/api/agg"
@@ -46,6 +47,14 @@ class AggStockRpcsTest < Minitest::Test
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(Agg, :check_sensitive_patient)
   end
 
+  def test_check_sensitive_patient_rejects_non_canonical_dfn_without_rpc
+    [ "0990031", " 990031", "abc", "", nil, 0 ].each do |bad_dfn|
+      @mock.received_calls.clear
+      assert_raises(ArgumentError) { Agg.check_sensitive_patient(dfn: bad_dfn) }
+      refute @mock.received_calls.any? { |c| c[:rpc] == "AGG CHECK SENSITIVE PATIENT" }, "dfn #{bad_dfn.inspect}"
+    end
+  end
+
   def test_check_sensitive_patient_rejects_non_012_indicator_rows
     %w[3 -1 01 2.0].each do |row|
       wire = "5\x00T00001SENSITIVE_INDICATOR#{RS}#{row}#{RS}#{US}"
@@ -84,6 +93,14 @@ class AggStockRpcsTest < Minitest::Test
 
   def test_send_sensitive_notify_is_non_idempotent_write_in_retry_safety
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(Agg, :send_sensitive_notify)
+  end
+
+  def test_send_sensitive_notify_rejects_non_canonical_dfn_without_rpc
+    [ "0990031", " 990031", "abc", "", nil, 0 ].each do |bad_dfn|
+      @mock.received_calls.clear
+      assert_raises(ArgumentError) { Agg.send_sensitive_notify(dfn: bad_dfn) }
+      refute @mock.received_calls.any? { |c| c[:rpc] == "AGG SEND SENSITIVE NOTIFY" }, "dfn #{bad_dfn.inspect}"
+    end
   end
 
   # FND^AGGEDCHK (AGGEDCHK.m:53-68): header I00010ERROR_NUM^T00030WINDOW^T00008FIELD.
@@ -136,6 +153,76 @@ class AggStockRpcsTest < Minitest::Test
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(Agg, :update_legal_names)
   end
 
+  INVALID_LEGAL_NAME_DFNS = [
+    "0990031", " 990031", "990031 ", "abc", "", nil, 0, -5
+  ].freeze
+
+  INVALID_LEGAL_NAME_PROCS = [ "d", "a", "X", " D", "DELETE", nil ].freeze
+
+  def test_update_legal_names_rejects_non_canonical_dfn_on_add_without_rpc
+    INVALID_LEGAL_NAME_DFNS.each do |bad_dfn|
+      @mock.received_calls.clear
+      result = Agg.update_legal_names(dfn: bad_dfn, proc: "A", rien: "", params: { "AGGLNAME" => "SYNTH" })
+
+      refute result[:success], "dfn #{bad_dfn.inspect}"
+      assert_equal :invalid_dfn, result[:error], "dfn #{bad_dfn.inspect}"
+      assert_no_legal_name_rpcs
+    end
+  end
+
+  def test_update_legal_names_rejects_non_canonical_dfn_on_delete_without_rpc
+    seed_name_patient("42", DFN)
+
+    INVALID_LEGAL_NAME_DFNS.each do |bad_dfn|
+      @mock.received_calls.clear
+      result = Agg.update_legal_names(dfn: bad_dfn, proc: "D", rien: "42", params: {})
+
+      refute result[:success], "dfn #{bad_dfn.inspect}"
+      assert_equal :invalid_dfn, result[:error], "dfn #{bad_dfn.inspect}"
+      assert_no_legal_name_rpcs
+    end
+  end
+
+  def test_update_legal_names_rejects_invalid_proc_without_rpc
+    seed_name_patient("42", DFN)
+
+    INVALID_LEGAL_NAME_PROCS.each do |bad_proc|
+      @mock.received_calls.clear
+      result = Agg.update_legal_names(dfn: DFN.to_i, proc: bad_proc, rien: "42", params: {})
+
+      refute result[:success], "proc #{bad_proc.inspect}"
+      assert_equal :invalid_proc, result[:error], "proc #{bad_proc.inspect}"
+      assert_no_legal_name_rpcs
+    end
+  end
+
+  def test_update_legal_names_edit_proc_empty_with_rien_reads_then_legl
+    seed_name_patient("42", DFN)
+    seed_legl_success("42")
+
+    result = Agg.update_legal_names(dfn: DFN.to_i, proc: "", rien: "42", params: { "AGGLNAME" => "SYNTH" })
+
+    assert result[:success]
+    assert_equal 1, ddr_calls.size
+    assert_equal 1, legl_calls.size
+  end
+
+  def test_update_legal_names_ddr_read_broker_error_raises_without_legl
+    error_client = Class.new(RpmsRpc::MockClient) do
+      def call_rpc(rpc_name, *params)
+        raise RpmsRpc::Client::RpcError, "DDR GETS ENTRY DATA: broker failure" if rpc_name == "DDR GETS ENTRY DATA"
+
+        super
+      end
+    end.new
+    error_client.set_authenticated("501")
+
+    assert_raises(RpmsRpc::Client::RpcError) do
+      Agg.update_legal_names(dfn: DFN.to_i, proc: "D", rien: "42", params: {}, client: error_client)
+    end
+    refute error_client.received_calls.any? { |c| c[:rpc] == "AGG UPDATE LEGAL NAMES" }
+  end
+
   def test_update_legal_names_delete_verifies_rien_belongs_to_dfn_before_legl
     seed_name_patient("42", DFN)
     seed_legl_success("42")
@@ -181,7 +268,7 @@ class AggStockRpcsTest < Minitest::Test
 
       refute_nil result, label
       refute result[:success], label
-      assert_includes [ :rien_not_for_dfn, :rien_unverified ], result[:error], label
+      assert_equal :rien_unverified, result[:error], label
       assert_empty legl_calls, label
     end
   end
@@ -270,6 +357,13 @@ class AggStockRpcsTest < Minitest::Test
 
   def legl_calls
     @mock.received_calls.select { |c| c[:rpc] == "AGG UPDATE LEGAL NAMES" }
+  end
+
+  def assert_no_legal_name_rpcs
+    refute @mock.received_calls.any? { |c| c[:rpc] == "DDR GETS ENTRY DATA" },
+           "DDR GETS ENTRY DATA must not run for refused input"
+    refute @mock.received_calls.any? { |c| c[:rpc] == "AGG UPDATE LEGAL NAMES" },
+           "AGG UPDATE LEGAL NAMES must not run for refused input"
   end
 
   def seed_global(rpc, key, wire)

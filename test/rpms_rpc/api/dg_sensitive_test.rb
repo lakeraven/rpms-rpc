@@ -130,6 +130,30 @@ class DgSensitiveTest < Minitest::Test
     assert_match(/Required variable missing/, result[:messages].join)
   end
 
+  INVALID_CHECK_ACCESS_DFNS = [ "0990031", " 990031", "990031abc", "0", "-1", 0 ].freeze
+
+  def test_check_access_rejects_non_canonical_dfn_without_rpc
+    INVALID_CHECK_ACCESS_DFNS.each do |bad_dfn|
+      RpmsRpc.client.received_calls.clear
+      result = Mod.check_access(dfn: bad_dfn, generate_message: 0, option: "SYNTH^MENU")
+
+      assert_equal(-1, result[:result], "dfn #{bad_dfn.inspect}")
+      assert_equal 1, result[:messages].size, "dfn #{bad_dfn.inspect}"
+      assert_match(/DFN/i, result[:messages].first, "dfn #{bad_dfn.inspect}")
+      refute RpmsRpc.client.received_calls.any? { |c| c[:rpc] == "DG SENSITIVE RECORD ACCESS" },
+             "dfn #{bad_dfn.inspect}"
+    end
+  end
+
+  def test_record_bulletin_rejects_non_canonical_dfn_without_rpc
+    (INVALID_CHECK_ACCESS_DFNS + [ nil, "" ]).each do |bad_dfn|
+      RpmsRpc.client.received_calls.clear
+      assert_raises(ArgumentError) { Mod.record_bulletin(dfn: bad_dfn, action: 3, option: "SYNTH^MENU") }
+      refute RpmsRpc.client.received_calls.any? { |c| c[:rpc] == "DG SENSITIVE RECORD BULLETIN" },
+             "dfn #{bad_dfn.inspect}"
+    end
+  end
+
   def test_record_bulletin_sends_dfn_action_and_dgopt
     RpmsRpc.client.seed_scalar(:dg_sensitive_bulletin, DFN, "1")
 

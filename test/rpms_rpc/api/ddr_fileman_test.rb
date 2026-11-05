@@ -474,4 +474,11 @@ class DdrFilemanTest < Minitest::Test
   def test_validate_key_returns_nil_when_broker_gives_no_response
     assert_nil Ddr.validate_key(values: [ { file: "200", iens: "+1,", field: ".01", value: "X" } ])
   end
+
+  # GET /files/{file}/entries/{iens} must not expose a `client:` keyword (it
+  # would become an HTTP query param). Callers pass client via RpmsRpc.client.
+  def test_gets_entry_public_signature_has_no_client_keyword
+    param_names = Ddr.method(:gets_entry).parameters.map(&:last)
+    refute_includes param_names, :client
+  end
 end
