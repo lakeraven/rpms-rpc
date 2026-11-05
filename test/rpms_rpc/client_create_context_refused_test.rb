@@ -144,7 +144,7 @@ class RpmsRpc::ClientCreateContextRefusedTest < Minitest::Test
     RpmsRpc.configure { |cfg| cfg.client = client }
 
     assert_nil RpmsRpc::Authentication.held_keys([ "SYNKEYA" ]),
-                 "held_keys must return nil when OR CPRS GUI CHART cannot be bound"
+                 "held_keys must return nil when its context cannot be bound"
 
     assert_equal SYN_APP_CTX, client.current_context,
                  "held_keys scope must restore the caller context after its bind is refused"

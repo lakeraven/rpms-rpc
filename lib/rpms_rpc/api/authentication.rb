@@ -49,8 +49,14 @@ module RpmsRpc
       0 => "user"
     }.freeze
 
-    # The option that registers ORWU NPHASKEY for a chart session (rpms-rpc#521).
-    HELD_KEYS_CONTEXT = "OR CPRS GUI CHART"
+    # The option whose RPC multiple carries ORWU NPHASKEY for the asking user
+    # (rpms-rpc#521). OR CPRS GUI CHART carries it too, but over CIA a user who
+    # does not have that option is refused the call ("Access denied for remote
+    # procedure: ORWU NPHASKEY", verified live as the front-desk persona on
+    # bcer-9.0-20261029-7c3119b-ydb), and sign-on reads keys for every user.
+    # CIAV VUECENTRIC is the option every lakeraven-ehr user holds (the chart
+    # gate), and it answers for the same persona.
+    HELD_KEYS_CONTEXT = "CIAV VUECENTRIC"
 
     # Sign on with an access/verify pair.
     #

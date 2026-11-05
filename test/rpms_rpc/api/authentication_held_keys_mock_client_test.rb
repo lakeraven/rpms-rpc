@@ -103,14 +103,14 @@ class RpmsRpc::AuthenticationHeldKeysMockClientTest < Minitest::Test
   def test_held_keys_returns_nil_when_held_keys_context_refuses_bind
     RpmsRpc.mock! do |m|
       m.set_authenticated(SYNTHETIC_DUZ)
-      m.create_context("CIAV VUECENTRIC")
+      m.create_context("AGGRPC")
       m.unbindable_context!(HELD_CONTEXT)
       m.seed(:person_has_key, [ SYNTHETIC_DUZ, "SYNKEYA" ], true)
     end
 
     assert_nil RpmsRpc::Authentication.held_keys([ "SYNKEYA" ])
     assert_empty nphaskey_calls(RpmsRpc.client)
-    refute_equal "OR CPRS GUI CHART", RpmsRpc.client.current_context
+    refute_equal HELD_CONTEXT, RpmsRpc.client.current_context
   end
 
   def test_two_data_lines_in_nphaskey_reply_returns_nil
