@@ -5,12 +5,13 @@
 #   rake wire:capture CONTAINER=rpms-ydb-9.0 RELEASE=bcer-9.0-ydb
 #     [RUNTIME=docker] [BROKER_PORT=9100] [RPMS_ACCESS=] [RPMS_VERIFY=] [ONLY="RPC NAME"]
 #   rake wire:capture BROKER_HOST=127.0.0.1 BROKER_PORT=<port> RELEASE=bcer-9.0-ydb ...
-#   WRITES=1 runs only the note flow (no read RPCs) when the broker host
+#   WRITES=1 runs the whole TIU note flow (no read RPCs) when the broker host
 #   resolves to loopback addresses, CONTAINER is unset, and RPMS_ACCESS is
-#   a synthetic persona:
+#   a synthetic persona. A non-blank ONLY is refused; the flow is one unit:
 #   WRITES=1 BROKER_HOST=127.0.0.1 BROKER_PORT=<port> \
 #     RPMS_ACCESS=PROV123 rake wire:capture
-#   RPMS_ESIG, when set, is read from the environment only and is never printed.
+#   RPMS_ESIG, when set, must be 6-20 characters after strip (field 20.4).
+#   It is read from the environment only and is never printed.
 #
 # Two ways to reach the broker. With CONTAINER= the driver is staged into the
 # container and run there with the container's ruby. With BROKER_HOST= and no
@@ -26,10 +27,12 @@
 #
 # Read-only discipline: a read run calls read RPCs with synthetic inputs
 # against a rung WE OWN — never a customer instance. Write RPCs are
-# routine-cited and are not called on that run. WRITES=1 calls no read RPC;
-# it runs the note flow only when the broker host resolves to loopback
-# addresses, CONTAINER is unset, and the access code is a README synthetic
-# persona. Any other WRITES=1 aborts before a connection. The allowed run
+# routine-cited and are not called on that run. WRITES=1 calls no read RPC
+# and refuses a non-blank ONLY, because the TIU flow is captured together.
+# It runs only when the broker host resolves to loopback addresses, CONTAINER
+# is unset, the access code is a README synthetic persona, and RPMS_ESIG is
+# unset or 6-20 characters after strip (field 20.4). Any other WRITES=1
+# aborts before a connection. The allowed run
 # is host mode on this machine's ruby, so the broker must be reachable at
 # BROKER_HOST:BROKER_PORT.
 # RPMS_ESIG is passed only in the driver environment, never on argv, and is
@@ -71,8 +74,10 @@ namespace :wire do
     host = ENV["BROKER_HOST"].to_s.strip
     writes = ENV["WRITES"] == "1"
     # Before any socket. writes false is a read capture and is not refused.
+    # ONLY and RPMS_ESIG are judged here as well as in the driver.
     refusal = RpmsRpc::WireCapture.write_refusal(
-      writes: writes, host: host, container: container, access: acc
+      writes: writes, host: host, container: container, access: acc,
+      only: only, esig: ENV["RPMS_ESIG"]
     )
     abort "wire:capture: #{refusal}" if refusal
 

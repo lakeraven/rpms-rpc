@@ -15,14 +15,14 @@
 # It prints one JSON document on stdout. The host-side rake task turns that
 # into provenance-stamped fixtures. This script does not edit captured bytes.
 #
-# WRITES=1 (refused unless the broker host resolves to loopback, CONTAINER
-# is unset, and the access code is a synthetic persona) runs NoteWriteFlow
-# and does not call read RPCs: create, lock, set text, read-back, unlock,
-# and sign when RPMS_ESIG is a non-blank string. The signature code is read
-# from the environment only and is never printed. A capture that contains it
-# is dropped, not rewritten. ONLY naming one write RPC still runs the whole
-# flow, because later steps need the note IEN; the rake task writes only
-# that RPC's fixture.
+# WRITES=1 runs NoteWriteFlow and does not call read RPCs: create, lock,
+# set text, read-back, unlock, and sign when the read-back is evidence and
+# RPMS_ESIG was supplied. It is refused before the socket unless the broker
+# host resolves to loopback, CONTAINER is unset, the access code is a
+# synthetic persona, ONLY is blank (the TIU flow is captured together), and
+# RPMS_ESIG is unset or 6-20 characters after strip (field 20.4). The
+# signature code is read from the environment only and is never printed. A
+# capture that contains it is dropped, not rewritten.
 require "json"
 
 # rpms-rpc references IO::TimeoutError (Ruby >= 3.2); container rubies can be
@@ -40,13 +40,18 @@ port = ENV.fetch("BROKER_PORT", "9100").to_i
 acc = ENV.fetch("RPMS_ACCESS", "SYS123")
 ver = ENV.fetch("RPMS_VERIFY", "RPMS.000")
 writes = ENV["WRITES"] == "1"
+# Judged before the socket. A write run captures the TIU flow as one unit.
+only = ENV["ONLY"].to_s.strip
+cite_only = ENV["CITE_ONLY"].to_s.split(",").map(&:strip).reject(&:empty?)
 # Plain code only. The flow already drops a capture that holds the ciphertext.
-esig_secrets = [ ENV["RPMS_ESIG"] ]
+esig = ENV["RPMS_ESIG"]
+esig_secrets = [ esig ]
 
 # Same gate as the rake task, before the socket. A direct run cannot skip it.
 if writes
   reason = RpmsRpc::WireCapture.write_refusal(
-    writes: true, host: host, container: ENV["CONTAINER"], access: acc
+    writes: true, host: host, container: ENV["CONTAINER"], access: acc,
+    only: only, esig: esig
   )
   abort reason if reason
 end
@@ -59,13 +64,10 @@ client = RpmsRpc::CiaClient.new(host: host, port: port, timeout: 15)
 client.connect
 client.authenticate(acc, ver)
 
-# ONLY / CITE_ONLY are applied HERE, not only host-side when fixtures are
+# ONLY / CITE_ONLY narrow read captures here, not only when fixtures are
 # written. The point of CITE_ONLY is to avoid calling an RPC that faults or
 # disturbs the session; filtering after the driver has already called
-# everything does not achieve that.
-only = ENV["ONLY"].to_s.strip
-cite_only = ENV["CITE_ONLY"].to_s.split(",").map(&:strip).reject(&:empty?)
-
+# everything does not achieve that. A write run has already refused ONLY.
 entries = RpmsRpc::WireCapture.driver_read_entries(writes: writes, only: only, cite_only: cite_only)
 out["selected"] = entries.map(&:rpc)
 
@@ -80,17 +82,16 @@ rescue StandardError => e
   }
 end
 
-# ONLY naming a write RPC still runs every step (the IEN comes from create).
-# The rake task writes only the named fixture. ONLY naming a read does not
-# create a note.
-write_rpcs = RpmsRpc::WireCapture::CATALOG.select(&:write?).map(&:rpc)
-if writes && (only.empty? || write_rpcs.include?(only))
+# ONLY was refused above. The note flow runs as one unit, or not at all.
+if writes
   begin
-    RpmsRpc::WireCapture::NoteWriteFlow.run(client, esig: ENV["RPMS_ESIG"]).each do |rpc, capture|
+    RpmsRpc::WireCapture::NoteWriteFlow.run(client, esig: esig).each do |rpc, capture|
       out["captures"][rpc] = capture
     end
   rescue StandardError => e
-    rpc = write_rpcs.include?(only) ? only : write_rpcs.first
+    # A failure before any step has no RPC of its own. Record it on the first
+    # write entry so the code is still redacted and the run does not look empty.
+    rpc = RpmsRpc::WireCapture::CATALOG.find(&:write?)&.rpc
     if rpc
       out["captures"][rpc] = {
         "error" => RpmsRpc::WireCapture::NoteWriteFlow.redacted_error(e, esig_secrets)

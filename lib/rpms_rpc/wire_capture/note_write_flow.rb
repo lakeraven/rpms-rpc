@@ -6,7 +6,8 @@ require "socket"
 module RpmsRpc
   module WireCapture
     # One TIU note on the seed patient: create, lock, set text, read it back,
-    # unlock, and sign only when a signature code was actually supplied.
+    # unlock, and sign only when that whole chain succeeded and a signature
+    # code was actually supplied.
     #
     # The code is never logged and never returned. A capture whose reply or
     # inputs contain it is dropped, not rewritten. The broker still receives
@@ -98,7 +99,8 @@ module RpmsRpc
           require_api
           note_ien = nil
           locked = false
-          ready = false
+          lock_raised = false
+          proven = false
           begin
             ok, created = guarded(captures, CREATE_RPC, secrets) do
               ProgressNote.create(DFN, VISIT_IEN, TITLE_IEN)
@@ -107,15 +109,22 @@ module RpmsRpc
 
             note_ien = created[:ien].to_s
             ok, held = guarded(captures, LOCK_RPC, secrets) { ProgressNote.lock(note_ien) }
-            return unless ok && held == true
+            unless ok
+              lock_raised = true
+              return
+            end
+            return unless held == true
 
             locked = true
-            ready = write_and_read(captures, secrets, note_ien)
+            proven = write_and_read(captures, secrets, note_ien)
           ensure
-            # lock returned true: unlock even when set-text or the read-back raised.
-            if locked
-              ready = false unless unlock_note(captures, secrets, note_ien)
-              sign_note(captures, secrets, esig, note_ien) if ready
+            if lock_raised
+              # UNLOCK^TIUSRVP always answers 0, so a raised lock still gets one release.
+              unlock_note(captures, secrets, note_ien)
+            elsif locked
+              # Lock was held: unlock even when set text or the read-back raised.
+              proven = false unless unlock_note(captures, secrets, note_ien)
+              sign_note(captures, secrets, esig, note_ien) if proven
             end
           end
         end
@@ -124,11 +133,23 @@ module RpmsRpc
           ok, updated = guarded(captures, SET_RPC, secrets) do
             ProgressNote.update_text(note_ien, NOTE_TEXT)
           end
-          wrote = ok && updated.is_a?(Hash) && updated[:success] == true
-          return false unless ok
+          # A failed set text is not read back: sign is gated on a proven body.
+          return false unless ok && updated.is_a?(Hash) && updated[:success] == true
 
           ok_read, = guarded(captures, GET_RPC, secrets) { ProgressNote.fetch_text(note_ien) }
-          wrote && ok_read
+          ok_read && read_back_proven?(captures, note_ien)
+        end
+
+        # Fail closed: sign needs this capture's bytes to pass the GET evidence check.
+        def read_back_proven?(captures, note_ien)
+          capture = captures[GET_RPC]
+          return false unless capture.is_a?(Hash)
+
+          raw = capture["raw"]
+          entry = WireCapture::CATALOG.find { |item| item.rpc == GET_RPC }
+          return false if entry.nil? || !raw.is_a?(String)
+
+          WireCapture.write_evidence?(entry, raw, note_body: NOTE_TEXT, note_ien: note_ien)
         end
 
         def unlock_note(captures, secrets, note_ien)
@@ -136,7 +157,7 @@ module RpmsRpc
           ok && unlocked == true
         end
 
-        # Sign only after create, set-text, read-back, and unlock all succeeded.
+        # Create, a held lock, set text, proven read-back, and unlock already succeeded.
         def sign_note(captures, secrets, esig, note_ien)
           return unless sign?(esig)
 
@@ -271,21 +292,30 @@ module RpmsRpc
     # README.md synthetic dev personas. A write may sign on as one of these
     # and nothing else. The access code is never copied into a refusal or a fixture.
     SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
+    ONLY_REFUSAL = "WRITES=1 is refused when ONLY is set; the TIU note flow is captured together"
+    # No spaces and no "1": a blank or one-character code must not appear in the text.
+    ESIG_REFUSAL = "RPMS_ESIG-must-be-6-20-characters-after-strip-(field-20.4)"
+    private_constant :ONLY_REFUSAL, :ESIG_REFUSAL
 
     # Host mode only. A read capture (writes false or nil) is not refused.
     # WRITES=1 is allowed only when the broker host resolves and every
     # address is loopback, CONTAINER is nil or "", and the access code is a
-    # synthetic persona. A container run goes through `docker exec`, which
-    # would put the signature code on a command line. Anything else is a
-    # reason and must abort before a socket.
-    def self.write_refusal(writes:, host:, container:, access: nil, resolver: nil)
+    # synthetic persona. ONLY must be blank: the TIU flow is one unit, and a
+    # write run calls no read RPC. RPMS_ESIG, when set, must be 6-20 characters
+    # after strip (NEW PERSON field 20.4). A container run goes through
+    # `docker exec`, which would put the signature code on a command line.
+    # Anything else is a reason and must abort before a socket. The code and
+    # the access value are never copied into a reason.
+    def self.write_refusal(writes:, host:, container:, access: nil, resolver: nil, only: nil, esig: nil)
       return nil if writes == false || writes.nil?
       return "WRITES=1 is refused" unless writes == true
       return "WRITES=1 is refused when CONTAINER is set" unless container.to_s.strip.empty?
       return loopback_refusal unless resolved_loopback?(host, resolver)
       return persona_refusal unless SYNTHETIC_PERSONAS.include?(access)
+      return refusal_without(ONLY_REFUSAL, only, access, esig) if only_present?(only)
+      return nil if esig_acceptable?(esig)
 
-      nil
+      refusal_without(ESIG_REFUSAL, esig, access)
     end
 
     # True only when the public API accepts the reply. Odd input is false.
@@ -348,6 +378,29 @@ module RpmsRpc
 
       def loopback_refusal
         "WRITES=1 is refused unless the broker host resolves to loopback addresses only"
+      end
+
+      def only_present?(only)
+        !only.to_s.strip.empty?
+      end
+
+      # nil and "" mean do not sign. Any other value must be 6-20 characters after strip.
+      def esig_acceptable?(esig)
+        return true if esig.nil? || esig == ""
+        return false unless esig.is_a?(String)
+
+        code = esig.strip
+        !code.empty? && code.length.between?(6, 20)
+      end
+
+      # Fail closed: the reason is dropped rather than returned still holding a secret.
+      def refusal_without(message, *secrets)
+        text = message.dup
+        needles = secrets.map { |secret| secret.to_s }.reject(&:empty?)
+        needles.each { |needle| text = text.gsub(needle, "") }
+        return "WRITES-refused" if text.empty? || needles.any? { |needle| text.include?(needle) }
+
+        text
       end
 
       def persona_refusal
