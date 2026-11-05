@@ -223,6 +223,35 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     assert_pre_call_refusal(**EDIT_KWARGS.merge(health_factors: [ single_factor ]))
   end
 
+  def test_name_pre_read_accepts_exact_row_alongside_longer_prefix_rows
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: PREFIX_HF_NAME) ])
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    seed_hf_type_lister(
+      PREFIX_HF_NAME,
+      [
+        type_row(ien: "501", name: PREFIX_HF_NAME, entry_type: "F"),
+        type_row(ien: "77", name: STOCK_HF_NAME, entry_type: "F")
+      ]
+    )
+    wire = wire_for(**kwargs)
+    seed_amhg_text(wire, success_body(RECORD_IEN))
+    seed_hf_readback(RECORD_IEN, hf_rows_for(**kwargs))
+    assert_equal RECORD_IEN, BH.save_health_factors(**kwargs)
+  end
+
+  def test_name_pre_read_refuses_when_only_the_exact_row_is_a_category_among_prefix_rows
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: PREFIX_HF_NAME) ])
+    seed_pre_edit_patient(RECORD_IEN, PATIENT)
+    seed_hf_type_lister(
+      PREFIX_HF_NAME,
+      [
+        type_row(ien: "501", name: PREFIX_HF_NAME, entry_type: "C"),
+        type_row(ien: "77", name: STOCK_HF_NAME, entry_type: "F")
+      ]
+    )
+    assert_pre_call_refusal(**kwargs)
+  end
+
   def test_refuses_name_when_pre_read_returns_error
     seed_pre_edit_patient(RECORD_IEN, PATIENT)
     seed_hf_type_lister(HF_ONE_NAME, [], error: true)
