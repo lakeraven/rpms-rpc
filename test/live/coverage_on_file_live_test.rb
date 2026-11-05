@@ -47,9 +47,10 @@ class CoverageOnFileLiveTest < LiveSpec::Test
                                                           ends_on: ends, client: client)
     assert policy[:success], "private insurance add refused: #{policy.inspect}"
     private_record_ien = policy[:record_ien]
-    assert_equal "ZZM49", fileman("9000006.11", "#{private_record_ien},#{DFN},", "21"), "member number (21)"
 
     begin
+      assert_equal "ZZM49", fileman("9000006.11", "#{private_record_ien},#{DFN},", "21"), "member number (21)"
+
       on_file = RpmsRpc::Coverage.on_file(DFN, client: client)
       refute_nil on_file, "Coverage.on_file gave no answer"
 
@@ -139,11 +140,13 @@ class CoverageOnFileLiveTest < LiveSpec::Test
   end
 
   def private_policy_row_on_file?(record_ien)
-    got = RpmsRpc::DdrFileman.gets_entry(file: "9000006.11", iens: "#{record_ien},#{DFN},", fields: ".01", flags: "I")
-    flunk "FileMan read 9000006.11 #{record_ien},#{DFN}, .01 failed: #{got.inspect}" if got.nil?
-    return false if got[:error]
+    listed = RpmsRpc::DdrFileman.lister(file: "9000006.11", iens: ",#{DFN},", fields: "@;.01", flags: "IP", max: "*", xref: "#")
+    flunk "FileMan list of 9000006.11 under #{DFN} gave no answer" if listed.nil?
+    flunk "FileMan list of 9000006.11 under #{DFN} failed: #{listed.inspect}" if listed[:error]
+    flunk "FileMan list of 9000006.11 under #{DFN} gave no data section: #{listed.inspect}" unless listed[:data] == true
+    flunk "FileMan list of 9000006.11 under #{DFN} is incomplete (more rows): #{listed.inspect}" if listed[:more]
 
-    got.dig(:fields, ".01", :internal).to_s.strip != ""
+    Array(listed[:entries]).any? { |entry| entry[:ien].to_s == record_ien.to_s }
   end
 
   def cleanup_private_policy!(record_ien)
