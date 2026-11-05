@@ -343,11 +343,12 @@ module RpmsRpc
     # be exactly "A", "D", or ""; anything else, including nil, is
     # { success: false, error: :invalid_proc } and sends no RPC.
     #
-    # Every PARMS name must be in LEGAL_NAME_PARMS
-    # (^AGG(9009068.3,27,10,"AC")), which PARS assigns with S @NAME=VALUE
-    # before the RIEN check (AGGPTNAM.m:76-79). RIEN and DFN are not in
-    # that index. Any other name is { success: false, error: :invalid_param }
-    # and sends no RPC.
+    # For every proc, params must be a Hash. Two keys with the same to_s,
+    # or a name outside LEGAL_NAME_PARMS
+    # (^AGG(9009068.3,27,10,"AC")), are
+    # { success: false, error: :invalid_param } and send no RPC. PARS
+    # assigns each name with S @NAME=VALUE before the RIEN check
+    # (AGGPTNAM.m:76-79). RIEN and DFN are not in that index.
     #
     # A delete with a RIEN runs ^DIK on ^AUPNNAMC( (AGGPTNAM.m:70-72). An
     # add or edit files file 9000033 field .02 to this DFN (AGGPTNAM.m:81-83).
@@ -359,29 +360,51 @@ module RpmsRpc
     # :invalid_rien. The wire DFN is the canonical digit string. That
     # .02 check is read-then-write, not atomic.
     #
-    # A blank-RIEN add also pre-checks, and sends no LEGL when they refuse.
-    # ORWU DT "T" (flags "") must be seven FileMan digits. The previous
-    # calendar day is checked too: DT is set at sign-on and may lag a day.
-    # A non-blank AGGLNDTC that contains ":" is :legal_name_unverified.
-    # Otherwise ORWU DT with flags "TS" (DATE^AGGUL1, %DT="TS") adds that
-    # day; nil (the routine's "" or "-1", then DT) adds none. A reply that
-    # is not a FileMan date is :legal_name_unverified. Each distinct day is
-    # read with DDR LISTER on the B index of .01 DATE CHANGED
-    # (^DD(9000033,0,"IX","B",9000033,.01)), FROM the prior integer plus
-    # ".9999999", flags "IPQ", max 1, on this client under CIAV VUECENTRIC.
-    # ^DIC with DIC(0)="L" (AGGPTNAM.m:81) selects an existing row on an
-    # exact or prefix B match, so a first row whose .01 is that day is
-    # :legal_name_date_taken. An unreadable row is :legal_name_unverified,
-    # including when another day is taken. The highest IEN (xref "#",
-    # flags "IPB", max 1) is read only when every day is clear; no row
-    # means 0. A broker RpcError from these reads propagates. The
-    # pre-check is read-then-write, not atomic.
+    # A blank-RIEN add files one absolute AGGLNDTC (MM/DD/YYYY). There is
+    # no DT fallback. A non-blank caller AGGLNDTC must match
+    # /\A\d{2}\/\d{2}\/\d{4}\z/ and Date.valid_date?, or the call is
+    # :legal_name_unverified with no RPC. When AGGLNDTC is absent, nil, or
+    # blank, ORWU DT "T" (flags "") must be /\A\d{7}\z/ and a calendar
+    # day, then zero-padded MM/DD/YYYY. Either text is sent to ORWU DT
+    # with flags "TS"; the reply must equal that day's FileMan date,
+    # (year-1700)*10000 + month*100 + day. DATE^AGGUL1 runs the same
+    # %DT="TS" ^%DT and leaves a value with no ":" unchanged
+    # (AGGUL1.m:28-34), so the reply is what PARS will file. The wire
+    # PARMS carry AGGLNDTC once: the caller's, or one appended when the
+    # caller left it out. A blank caller entry is dropped. The caller's
+    # hash is not changed. A refusal here sends no LEGL.
     #
-    # After LEGL, only a blank-RIEN add is checked again. A result that is
-    # not success is returned unchanged. Success with no IEN is
-    # :legal_name_unverified, written: true. An IEN at or below the highest
-    # IEN from before the add is :legal_name_takeover, written: true. A
-    # higher IEN is re-read for .02: unverified, or a value that is not
+    # Only that day D is checked. After the date is verified and before
+    # the B read, DDR LOCK/UNLOCK NODE locks ^AUPNNAMC("B",D) on this
+    # client under CIAV VUECENTRIC (LOCKC^DDR1, DDR1.m:18-30; timeout 5).
+    # The mapping parses the scalar; only true ("1") is acquired. Anything
+    # else is :legal_name_busy, with no unlock and no further RPC. The
+    # lock is held across the B read, the highest-IEN read, LEGL, and the
+    # post-check, then released once, including when a later read raises.
+    # An RpcError from the unlock is swallowed so it cannot mask that
+    # error or replace the result. The stock GUI and other clients do not
+    # take this lock, so the post-check stays the backstop.
+    #
+    # The B read is DDR LISTER on .01 DATE CHANGED
+    # (^DD(9000033,0,"IX","B",9000033,.01)), FROM the prior calendar day
+    # plus ".9999999", flags "IPQ", max 1, on this client under CIAV
+    # VUECENTRIC. ^DIC with DIC(0)="L" (AGGPTNAM.m:81) selects an existing
+    # row on an exact or prefix B match, so a first row whose .01 is D is
+    # :legal_name_date_taken. An unreadable row is :legal_name_unverified.
+    # A V1 reply that contains [BEGIN_diDATA] and not [END_diDATA] is
+    # unreadable in this reader; DdrFileman.parse_lister_reply is unchanged
+    # for other callers. The highest IEN (xref "#", flags "IPB", max 1)
+    # is read only when the day is clear; no row means 0. A broker
+    # RpcError from these reads propagates. The pre-check is
+    # read-then-write, not atomic.
+    #
+    # After LEGL, only a blank-RIEN add is checked again, still under the
+    # lock. A result that is not success is returned unchanged. Success
+    # with no IEN is :legal_name_unverified, written: true. An IEN at or
+    # below the highest IEN from before the add is :legal_name_takeover,
+    # written: true. A concurrent non-wrapper add on the same day is still
+    # only detectable when it selects an IEN at or below that prior max.
+    # A higher IEN is re-read for .02: unverified, or a value that is not
     # this DFN, is the same kind of refusal with written: true. The
     # post-check detects a takeover and cannot undo it (written: true).
     # Success is RESULT "1" only (AGGPTNAM.m:101-102). A parameter value
@@ -398,21 +421,13 @@ module RpmsRpc
       rien_text = rien.to_s
       refusal = legal_name_rien_refusal(dfn_text, proc, rien_text, client)
       return refusal if refusal
+      return legal_name_blank_add(client, dfn_text, params) if proc == "A" && rien_text.empty?
 
-      prior_max = nil
-      if proc == "A" && rien_text.empty?
-        prior_max = legal_name_blank_add_prior_max(params, client)
-        return prior_max if prior_max.is_a?(Hash)
-      end
-
-      result = in_context(client) do
+      in_context(client) do
         interpret_entry_write(
           call_array(client, UPDATE_LEGAL_NAMES_RPC, dfn_text, proc, rien_text, encode_parms(params))
         )
       end
-      return result unless proc == "A" && rien_text.empty?
-
-      legal_name_blank_add_postcheck(client, dfn_text, result, prior_max)
     end
     shape :update_legal_names, resource: "agg", verb: "PUT", path: "/patients/{dfn}/agg/legal-names"
 
@@ -724,8 +739,17 @@ module RpmsRpc
     end
 
     def legal_name_param_refusal(params)
-      params.each do |name, _value|
-        text = name.to_s
+      unless params.is_a?(Hash)
+        return legal_name_failure(:invalid_param, "params must be a Hash")
+      end
+
+      names = params.each_key.map(&:to_s)
+      duplicate = names.tally.find { |_name, count| count > 1 }
+      if duplicate
+        return legal_name_failure(:invalid_param, "#{duplicate[0]} is specified more than once")
+      end
+
+      names.each do |text|
         next if LEGAL_NAME_PARMS.include?(text)
 
         return legal_name_failure(:invalid_param, "#{text} is not a Legal Names parameter")
@@ -733,27 +757,64 @@ module RpmsRpc
       nil
     end
 
-    # The highest file 9000033 IEN before a blank-RIEN add, or a refusal
-    # hash. No LEGL has been sent. Every day is read before deciding: an
-    # unreadable day wins over a day that is already taken.
-    def legal_name_blank_add_prior_max(params, client)
-      today = legal_name_server_today(client)
-      return today if today.is_a?(Hash)
+    # Blank-RIEN add: verify one absolute day, hold the B-node lock across
+    # the reads, LEGL, and the post-check, then unlock once.
+    def legal_name_blank_add(client, dfn_text, params)
+      dated = legal_name_add_date(params, client)
+      return dated if dated.is_a?(Hash)
 
-      yesterday = legal_name_previous_day(today)
-      unless yesterday
-        return legal_name_failure(:legal_name_unverified, "ORWU DT date #{today} is not a calendar day")
+      day, wire_params = dated
+      legal_name_with_b_lock(client, day) do
+        legal_name_file_blank_add(client, dfn_text, wire_params, day)
+      end
+    end
+
+    # The MM/DD/YYYY PARS will file, proved by ORWU DT "TS", and the PARMS
+    # hash that carries it once. A Hash is a refusal. Does not mutate params.
+    def legal_name_add_date(params, client)
+      mmdd = legal_name_date_text(params, client)
+      return mmdd if mmdd.is_a?(Hash)
+
+      day = legal_name_confirm_agglndtc(client, mmdd)
+      return day if day.is_a?(Hash)
+
+      [ day, legal_name_filing_params(params, mmdd) ]
+    end
+
+    # The absolute date text, or a refusal. A supplied AGGLNDTC is checked
+    # before any RPC. An omitted one is server today, then still confirmed
+    # with "TS" by the caller.
+    def legal_name_date_text(params, client)
+      supplied = legal_name_supplied_agglndtc(params)
+      if supplied
+        unless legal_name_absolute_date?(supplied)
+          return legal_name_failure(:legal_name_unverified, "AGGLNDTC must be an absolute MM/DD/YYYY date")
+        end
+
+        return supplied
       end
 
-      extra = legal_name_agglndtc_day(params, client)
-      return extra if extra.is_a?(Hash)
+      fm = legal_name_server_today(client)
+      return fm if fm.is_a?(Hash)
 
-      days = [ yesterday, today ]
-      days << extra if extra
-      refusal = legal_name_b_index_refusal(client, days.uniq.sort)
-      return refusal if refusal
+      legal_name_mmddyyyy(fm)
+    end
 
-      legal_name_highest_ien(client)
+    # nil when AGGLNDTC is absent, nil, or blank. The caller's text otherwise.
+    def legal_name_supplied_agglndtc(params)
+      pair = params.find { |name, _value| name.to_s == "AGGLNDTC" }
+      return nil unless pair
+
+      text = pair.last.to_s
+      text.empty? ? nil : text
+    end
+
+    def legal_name_absolute_date?(text)
+      match = text.match(/\A(\d{2})\/(\d{2})\/(\d{4})\z/)
+      return false unless match
+
+      month, day, year = match.captures.map { |part| Integer(part, 10) }
+      Date.valid_date?(year, month, day)
     end
 
     def legal_name_server_today(client)
@@ -762,65 +823,141 @@ module RpmsRpc
         return legal_name_failure(:legal_name_unverified, "ORWU DT did not return a FileMan date for T")
       end
 
-      Integer(value, 10)
-    end
-
-    # FM = (year - 1700) * 10000 + month * 100 + day. nil when fm is not
-    # a real calendar day, so the caller refuses instead of filing.
-    def legal_name_previous_day(fm)
-      year = (fm / 10_000) + 1700
-      month = (fm / 100) % 100
-      day = fm % 100
-      return nil unless Date.valid_date?(year, month, day)
-
-      date = Date.new(year, month, day) - 1
-      ((date.year - 1700) * 10_000) + (date.month * 100) + date.day
-    end
-
-    # nil when AGGLNDTC is absent, blank, or ORWU DT answers nil (the
-    # routine then uses DT). A Hash is :legal_name_unverified.
-    def legal_name_agglndtc_day(params, client)
-      pair = params.find { |name, _value| name.to_s == "AGGLNDTC" }
-      return nil unless pair
-
-      text = pair.last.to_s
-      return nil if text.empty?
-
-      if text.include?(":")
-        return legal_name_failure(:legal_name_unverified, "AGGLNDTC contains ':' and cannot be verified as a FileMan date")
+      fm = Integer(value, 10)
+      unless legal_name_calendar_fm?(fm)
+        return legal_name_failure(:legal_name_unverified, "ORWU DT date #{value} is not a calendar day")
       end
 
-      value = Orwu.fileman_datetime(text, flags: "TS", client: client)
-      return nil if value.nil?
-      unless value.match?(/\A\d{7}(\.\d+)?\z/)
-        return legal_name_failure(:legal_name_unverified, "ORWU DT did not return a FileMan date for AGGLNDTC")
-      end
-
-      Integer(value[0, 7], 10)
+      fm
     end
 
-    def legal_name_b_index_refusal(client, days)
-      statuses = days.map { |day| [ day, legal_name_b_index_status(client, day) ] }
-      unverified = statuses.find { |_, status| status == :unverified }
-      if unverified
-        return legal_name_failure(:legal_name_unverified, "file 9000033 B index for #{unverified[0]} did not verify")
+    def legal_name_calendar_fm?(fm)
+      year, month, day = legal_name_date_parts(fm)
+      Date.valid_date?(year, month, day)
+    end
+
+    def legal_name_date_parts(fm)
+      [ (fm / 10_000) + 1700, (fm / 100) % 100, fm % 100 ]
+    end
+
+    def legal_name_mmddyyyy(fm)
+      year, month, day = legal_name_date_parts(fm)
+      format("%02d/%02d/%04d", month, day, year)
+    end
+
+    # FM = (year - 1700) * 10000 + month * 100 + day. text is already a
+    # valid MM/DD/YYYY.
+    def legal_name_fileman_date(text)
+      month, day, year = text.split("/").map { |part| Integer(part, 10) }
+      ((year - 1700) * 10_000) + (month * 100) + day
+    end
+
+    # The FileMan day ORWU DT "TS" proves, or :legal_name_unverified.
+    # DATE^AGGUL1 uses the same %DT on the same text (AGGUL1.m:28-34).
+    def legal_name_confirm_agglndtc(client, mmdd)
+      expected = legal_name_fileman_date(mmdd)
+      value = Orwu.fileman_datetime(mmdd, flags: "TS", client: client)
+      unless value == expected.to_s
+        return legal_name_failure(:legal_name_unverified, "ORWU DT did not confirm AGGLNDTC #{mmdd}")
       end
 
-      taken = statuses.find { |_, status| status == :taken }
-      return nil unless taken
+      expected
+    end
 
-      legal_name_failure(
-        :legal_name_date_taken,
-        "file 9000033 already has an entry dated #{taken[0]}; a blank-RIEN add would select it"
+    # A new hash. A non-blank caller AGGLNDTC stays where the caller put
+    # it. A blank one is dropped and the verified date is appended.
+    def legal_name_filing_params(params, mmdd)
+      filed = {}
+      params.each do |name, value|
+        next if name.to_s == "AGGLNDTC" && value.to_s.empty?
+
+        filed[name] = value
+      end
+      filed["AGGLNDTC"] = mmdd unless filed.any? { |name, _value| name.to_s == "AGGLNDTC" }
+      filed
+    end
+
+    def legal_name_with_b_lock(client, day)
+      node = legal_name_b_node(day)
+      unless legal_name_lock_acquired?(client, node)
+        return legal_name_failure(:legal_name_busy, "file 9000033 B index for #{day} is locked")
+      end
+
+      begin
+        yield
+      ensure
+        legal_name_unlock(client, node)
+      end
+    end
+
+    def legal_name_b_node(day)
+      "^AUPNNAMC(\"B\",#{day})"
+    end
+
+    # True only when the mapping parses the LOCKC^DDR1 scalar as true
+    # ("1"; DDR1.m:18-30). The seed is format_scalar of a boolean, and
+    # call_rpc returns that scalar for this client.
+    def legal_name_lock_acquired?(client, node)
+      raw = legal_name_call(
+        client,
+        DataMapper[:ddr_lock_unlock_node].rpc_name,
+        DdrFileman.lock_param(node: node, timeout: 5)
       )
+      DataMapper[:ddr_lock_unlock_node].parse_scalar(raw) == true
+    end
+
+    # One unlock. A broker RpcError is swallowed: releasing the node must
+    # not replace a result or mask an exception from the locked section.
+    def legal_name_unlock(client, node)
+      legal_name_call(client, DataMapper[:ddr_lock_unlock_node].rpc_name, DdrFileman.unlock_param(node: node))
+    rescue RpmsRpc::Client::RpcError
+      nil
+    end
+
+    def legal_name_call(client, rpc, param)
+      ContextScope.scoped(client, LEGAL_NAME_CONTEXT) do
+        client.call_rpc(rpc, param)
+      end
+    end
+
+    def legal_name_file_blank_add(client, dfn_text, wire_params, day)
+      refusal = legal_name_b_index_refusal(client, day)
+      return refusal if refusal
+
+      prior_max = legal_name_highest_ien(client)
+      return prior_max if prior_max.is_a?(Hash)
+
+      result = in_context(client) do
+        interpret_entry_write(
+          call_array(client, UPDATE_LEGAL_NAMES_RPC, dfn_text, "A", "", encode_parms(wire_params))
+        )
+      end
+      legal_name_blank_add_postcheck(client, dfn_text, result, prior_max)
+    end
+
+    def legal_name_b_index_refusal(client, day)
+      case legal_name_b_index_status(client, day)
+      when :unverified
+        legal_name_failure(:legal_name_unverified, "file 9000033 B index for #{day} did not verify")
+      when :taken
+        legal_name_failure(
+          :legal_name_date_taken,
+          "file 9000033 already has an entry dated #{day}; a blank-RIEN add would select it"
+        )
+      end
     end
 
     # :clear, :taken, or :unverified. The first row's .01I is the day when
     # its first seven digits are that FileMan date (^DIC DIC(0)="L").
+    # FROM is the prior calendar day plus ".9999999", so a month boundary
+    # starts after the real previous day.
     def legal_name_b_index_status(client, day)
+      prior = legal_name_previous_day(day)
+      return :unverified unless prior
+
       param = DdrFileman.lister_param(
         file: LEGAL_NAME_FILE, fields: "@;.01I", flags: "IPQ", max: "1", xref: "B",
-        from: "#{day - 1}.9999999"
+        from: "#{prior}.9999999"
       )
       parsed = legal_name_lister(client, param)
       return :unverified if parsed.nil? || parsed[:error] || !parsed[:data]
@@ -833,6 +970,16 @@ module RpmsRpc
       return :unverified unless changed.match?(/\A\d{7}(\.\d+)?\z/)
 
       changed[0, 7] == day.to_s ? :taken : :clear
+    end
+
+    # FM = (year - 1700) * 10000 + month * 100 + day. nil when fm is not
+    # a real calendar day.
+    def legal_name_previous_day(fm)
+      year, month, day = legal_name_date_parts(fm)
+      return nil unless Date.valid_date?(year, month, day)
+
+      date = Date.new(year, month, day) - 1
+      ((date.year - 1700) * 10_000) + (date.month * 100) + date.day
     end
 
     def legal_name_highest_ien(client)
@@ -854,13 +1001,19 @@ module RpmsRpc
     end
 
     def legal_name_lister(client, param)
-      raw = ContextScope.scoped(client, LEGAL_NAME_CONTEXT) do
-        client.call_rpc(DataMapper[:ddr_lister].rpc_name, param)
-      end
+      raw = legal_name_call(client, DataMapper[:ddr_lister].rpc_name, param)
       reply = DdrFileman.lines(raw)
       return nil if reply.nil?
+      # V1^DDR closes the row list with [END_diDATA] (DDR.m:31-41). Opening
+      # [BEGIN_diDATA] without that close is a truncated reply, not an empty
+      # list. parse_lister_reply is left unchanged for its other callers.
+      return { entries: [], more: nil, error: true, data: false } if legal_name_lister_truncated?(reply)
 
       DdrFileman.parse_lister_reply(reply)
+    end
+
+    def legal_name_lister_truncated?(reply)
+      reply.include?("[BEGIN_diDATA]") && !reply.include?("[END_diDATA]")
     end
 
     def legal_name_blank_add_postcheck(client, dfn_text, result, prior_max)

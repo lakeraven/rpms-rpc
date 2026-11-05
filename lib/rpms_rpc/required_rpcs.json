@@ -28,6 +28,7 @@
       "CIANBRPC CANRUN",
       "DDR GETS ENTRY DATA",
       "DDR LISTER",
+      "DDR LOCK/UNLOCK NODE",
       "ORWU DT"
     ],
     "RpmsRpc::Allergy": [
