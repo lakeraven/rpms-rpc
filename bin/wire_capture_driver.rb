@@ -10,11 +10,17 @@
 #     RPMS_ACCESS=... RPMS_VERIFY=... ruby wire_capture_driver.rb
 #
 # Connects the real client (RpmsRpc::CiaClient) to the rung's broker, calls
-# every LIVE-mode entry in RpmsRpc::WireCapture::CATALOG — read-only
-# behavioral RPCs with synthetic inputs, against a rung we own, never a
-# customer instance — and prints one JSON document on stdout. The host-side
-# rake task turns that into provenance-stamped fixtures. This script never
-# writes to the target and never edits captured bytes.
+# every LIVE-mode entry in RpmsRpc::WireCapture::CATALOG — read RPCs with
+# synthetic inputs, against a rung we own, never a customer instance — and
+# prints one JSON document on stdout. The host-side rake task turns that
+# into provenance-stamped fixtures. This script does not edit captured bytes.
+#
+# WRITES=1 (refused by the rake, and again here, unless the broker host is
+# loopback and CONTAINER=rpms-ydb-9.0) then runs NoteWriteFlow: create, lock,
+# set text, read-back, unlock, and sign when RPMS_ESIG is a non-blank string.
+# The signature code is read from the environment only and is never printed.
+# ONLY naming one write RPC still runs the whole flow, because later steps
+# need the note IEN; the rake task writes only that RPC's fixture.
 require "json"
 
 # rpms-rpc references IO::TimeoutError (Ruby >= 3.2); container rubies can be
@@ -31,6 +37,12 @@ host = ENV.fetch("BROKER_HOST", "127.0.0.1")
 port = ENV.fetch("BROKER_PORT", "9100").to_i
 acc = ENV.fetch("RPMS_ACCESS", "SYS123")
 ver = ENV.fetch("RPMS_VERIFY", "RPMS.000")
+
+# Same gate as the rake task, before the socket. A direct run cannot skip it.
+if ENV["WRITES"] == "1"
+  reason = RpmsRpc::WireCapture.write_refusal(writes: true, host: host, container: ENV["CONTAINER"])
+  abort reason if reason
+end
 
 out = { "client" => "rpms-rpc RpmsRpc::CiaClient",
         "client_version" => (RpmsRpc.const_defined?(:VERSION) ? RpmsRpc::VERSION : "unversioned"),
@@ -61,5 +73,25 @@ rescue StandardError => e
                                  "error" => "#{e.class}: #{e.message}" }
 end
 
+# ONLY naming a write RPC still runs every step (the IEN comes from create).
+# The rake task writes only the named fixture. ONLY naming a read does not
+# create a note.
+write_rpcs = RpmsRpc::WireCapture::CATALOG.select(&:write?).map(&:rpc)
+if ENV["WRITES"] == "1" && (only.empty? || write_rpcs.include?(only))
+  begin
+    RpmsRpc::WireCapture::NoteWriteFlow.run(client, esig: ENV["RPMS_ESIG"]).each do |rpc, capture|
+      out["captures"][rpc] = capture
+    end
+  rescue StandardError => e
+    rpc = write_rpcs.include?(only) ? only : write_rpcs.first
+    if rpc
+      out["captures"][rpc] = {
+        "error" => RpmsRpc::WireCapture::NoteWriteFlow.redacted_error(e, [ ENV["RPMS_ESIG"] ])
+      }
+    end
+  end
+end
+
 client.disconnect
-puts JSON.generate(out)
+# RPMS_ESIG is redacted again here so a bug in the flow cannot print it.
+puts JSON.generate(RpmsRpc::WireCapture::NoteWriteFlow.redact(out, [ ENV["RPMS_ESIG"] ]))

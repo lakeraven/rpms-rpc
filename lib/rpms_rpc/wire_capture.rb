@@ -5,6 +5,7 @@ require "yaml"
 require_relative "core"
 require_relative "fileman_date_parser"
 require_relative "wire_capture/evidence"
+require_relative "wire_capture/note_write_flow"
 
 module RpmsRpc
   # Wire-shape capture + contract checking (issue #189).
@@ -55,6 +56,9 @@ module RpmsRpc
     CatalogEntry = Struct.new(:rpc, :mapping, :kind, :mode, :inputs, :cite, :pieces, :note,
                               keyword_init: true) do
       def live? = mode == :live
+
+      # A patient-record write. live? stays false so the read driver never calls it.
+      def write? = mode == :write
     end
 
     # A committed wire capture. Validates provenance on load — an invalid
@@ -843,6 +847,75 @@ module RpmsRpc
         pieces: [],
         note: "text_blob: record types do not share one caret layout. parse_note_bundle " \
               "models the lines; an unknown type is an opaque record."
+      ),
+
+      # TIU note writes (#564 / #224). mode :write, so live? is false and a read
+      # capture never calls them. Cites are the lines already named in
+      # ProgressNote, ESignature, and stock_vista — no line numbers beyond those.
+      # CREATE inputs are the MAKE actuals. The other inputs are a note-IEN
+      # placeholder; a WRITES=1 fixture stores the captured parameters instead.
+      CatalogEntry.new(
+        rpc: "TIU CREATE RECORD", mapping: :tiu_create_record, kind: "scalar", mode: :write,
+        inputs: [ NoteWriteFlow::DFN, NoteWriteFlow::TITLE_IEN, "", "", NoteWriteFlow::VISIT_IEN ].freeze,
+        cite: "MAKE^TIUSRVP (TIUSRVP.m:7, 58-61): SUCCESS is the new IEN (TIUSRVP.m:61) " \
+              "or \"0^message\" (TIUSRVP.m:58, 60). Actuals DFN, TITLE, VDT, VLOC, VSIT; " \
+              "VDT and VLOC empty, visit in VSIT (TIUSRVP.m:7, 24-31)",
+        pieces: [],
+        note: "Write RPC. Seed patient DFN 4, title 248, visit 4. Called only by " \
+              "NoteWriteFlow when WRITES=1 is allowed."
+      ),
+      CatalogEntry.new(
+        rpc: "TIU LOCK RECORD", mapping: :tiu_lock_record, kind: "scalar", mode: :write,
+        inputs: [ "<note ien>" ].freeze,
+        cite: "LOCK^TIUSRVP (TIUSRVP.m:210-212): ERR=0 when the lock is held " \
+              "(TIUSRVP.m:211); \"1^ Another session has this record locked.\" when it " \
+              "is not (TIUSRVP.m:212)",
+        pieces: [],
+        note: "Write RPC. Catalog input is a note-IEN placeholder; a live fixture " \
+              "records the captured IEN."
+      ),
+      CatalogEntry.new(
+        rpc: "TIU SET DOCUMENT TEXT", mapping: :tiu_set_document_text, kind: "scalar", mode: :write,
+        inputs: [ "<note ien>" ].freeze,
+        cite: "SETTEXT^TIUSRVPT (TIUSRVPT.m:7-38): TIUX(\"HDR\") is PAGE^PAGES " \
+              "(TIUSRVPT.m:12), body is TIUX(\"TEXT\",n,0) (TIUSRVPT.m:18). Success is " \
+              "TIUDA^PAGE^PAGES (TIUSRVPT.m:38); failure is \"0^0^0^message\" " \
+              "(TIUSRVPT.m:10, 14)",
+        pieces: [],
+        note: "Write RPC. Catalog input is a note-IEN placeholder; a live fixture " \
+              "records the captured IEN and TEXT list."
+      ),
+      CatalogEntry.new(
+        rpc: "TIU GET RECORD TEXT", mapping: :tiu_get_record_text, kind: "text_blob", mode: :write,
+        inputs: [ "<note ien>" ].freeze,
+        cite: "TGET^TIUSRVR1 (REMOTE PROCEDURE registration for TIU GET RECORD TEXT: " \
+              "tag TGET, routine TIUSRVR1, in " \
+              "data/fingerprints/references/bcer-9.0-20261012-e7923a4-ydb.yml and " \
+              "data/inventories/bcer-9.0-20261012-e7923a4-ydb/" \
+              "bcer-9.0-20261012-e7923a4-ydb-broker_8994.txt). Text blob. This repo " \
+              "does not cite TGET line numbers",
+        pieces: [],
+        note: "Read-back of the note just written. Catalog input is a note-IEN " \
+              "placeholder; a live fixture records the captured IEN. Evidence requires " \
+              "the note body after the header blank line."
+      ),
+      CatalogEntry.new(
+        rpc: "TIU UNLOCK RECORD", mapping: :tiu_unlock_record, kind: "scalar", mode: :write,
+        inputs: [ "<note ien>" ].freeze,
+        cite: "UNLOCK^TIUSRVP (TIUSRVP.m:214-215): always ERR=0",
+        pieces: [],
+        note: "Write RPC. Catalog input is a note-IEN placeholder; a live fixture " \
+              "records the captured IEN."
+      ),
+      CatalogEntry.new(
+        rpc: "TIU SIGN RECORD", mapping: :tiu_sign_record, kind: "scalar", mode: :write,
+        inputs: [ "<note ien>" ].freeze,
+        cite: "SIGN^TIUSRVP (ESignature: TIU SIGN RECORD is SIGN(ERR,TIUDA,TIUX)^TIUSRVP; " \
+              "params are the note IEN and the XWB-encrypted signature code; the signer " \
+              "is the session DUZ and is not sent). This repo does not cite a SIGN line number",
+        pieces: [],
+        note: "Write RPC. The signature code is never stored. A live fixture's second " \
+              "input is the withheld marker; the catalog input is only a note-IEN placeholder."
       )
     ].freeze
   end
