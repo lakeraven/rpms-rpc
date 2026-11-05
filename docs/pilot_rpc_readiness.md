@@ -20,3 +20,18 @@ ORQQPL LIST | partial | both of DFN 2's rows (IEN 1 *TYPE 2 DIABETES MELLITUS, I
 ORQQAL LIST | partial | mapped severity is nil on DFN 2's penicillin allergy (IEN 1, signs HIVES) signed on as PROV123 | unproven: severity
 ORWPS ACTIVE | not-proven | live call for DFN 2 signed on as PROV123 returned no data rows (no active medications in the seed), so Medication.active_for_patient proved none of order_id, type, name, status, stop_date, instructions, or comments | unproven: comments, instructions, name, order_id, status, stop_date, type
 ORQQVI VITALS | partial | mapped qualifiers is nil on all four vitals (PU 82, BP 142/88, HT 70, WT 214) for DFN 2 signed on as PROV123 | unproven: qualifiers
+
+# Visit and encounter pilot status on bcer-9.0-20261012-e7923a4-ydb (issue #563, slice of #224).
+# Seed patient DFN 2, seed visit IEN 1 at hospital location 6, captured live signed on as PROV123
+# (rake wire:capture, host mode, PINNED=1). Grading is the chart-read grading above.
+# BEHOENCX CHKVISIT returns one COMPONENT^TEXT row per check whatever the outcome (CV1 overwrites
+# the status code, BEHOENCX.m:329-337), so Encounter.open used to report POV missing on visit 1,
+# which has one: a mapping that failed live although its tests passed. Fixed in this slice.
+# Write rows have no capture (wire:capture never sends a write); they are judged by
+# test/live/encounter_visit_live_test.rb and test/live/behavioral_health_save_pcc_visit_live_test.rb.
+
+BEHOENCX GETVISIT | partial | visit 1 for DFN 2 signed on as PROV123 returns location 6, 3260825.09, service category A, patient 2 and locked 0; mapped visit_id is blank (VISIT ID 15001 not set on the seed visit) | unproven: visit_id
+BEHOENCX FETCH | partial | CREATE=0 read of visit 1 for DFN 2 signed on as PROV123 returns DEMO PRIMARY CARE, provider 12 and visit 1; room_bed is blank for the outpatient, visit_id is blank (^AUPNVSIT(1,150) not set), and error is set only when the visit does not resolve | unproven: error, room_bed, visit_id
+BEHOENCX CHKVISIT | pilot-ready | visit 1 signed on as PROV123 returns POV^Visit has POV and E&M^Visit has no note; Encounter.open now lists only E&M (not checked: no note), since POV is present; visit 1 has no note, so no alert is filed by the call | unproven: none
+BEHOENCX FETCH CREATE=1 | not-proven | signed on as PROV123 the create replies "Error Creating Visit": PROV123's NEW PERSON division is institution 1, which has no PCC MASTER CONTROL (#9001000) entry, so FNDVIS sends a blank VISIT TYPE and APCDALV refuses with .03 TYPE OF VISIT MISSING (seed gap, rpms-ops); no V VISIT is written. Signed on as SYS123 (division 7819) the same call created a visit, a second CREATE=1 returned the same IEN, and CREATE=0 found it, but that is not the pilot persona | unproven: locked, visit_id, visit_ien
+AMHG CREATE/EDIT VISIT | not-proven | signed on as PROV123 (and SYS123) EN^AMHBHRU refuses with 0~Activity Type Missing! because BehavioralHealth.save_visit cannot file #9002011 .06 activity type, so PCC VISIT LINK .16 stays blank and no PCC visit is created (rpms-rpc API gap, not seed) | unproven: row
