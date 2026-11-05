@@ -252,14 +252,15 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
 
     # M error text anywhere in the row is not a record: %YDB-E, %GTM-E, $ZSTATUS,
     # code,LABEL+off^ROUTINE, a bare LABEL+off^ROUTINE location, or an IRIS <NAME>
-    # token at a piece start. A bare location needs a routine token of two or more
+    # token at a piece start, except a whole piece <NONE>, the field placeholder
+    # WireCapture::Evidence recognises. A bare location needs a routine token of two or more
     # characters, so a narrative ending in WORD+digits before a one-letter status
     # piece (HIV+1^A^...) is not mistaken for one.
     def m_error_text?(text)
       text.include?("%YDB-E") || text.include?("%GTM-E") || text.include?("$ZSTATUS") ||
         text.match?(/\d+,[A-Z0-9%]+\+\d+\^/) ||
         text.match?(/[A-Z0-9%]+\+\d+\^[A-Z%][A-Z0-9%]+(?=[,\s^]|\z)/) ||
-        text.match?(/(\A|\^)<[A-Z]+>/)
+        text.match?(/(\A|\^)(?!<NONE>(\^|\z))<[A-Z]+>/)
     end
 
     # Record evidence needs a real key, no M error text, and two real pieces.
@@ -986,6 +987,15 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       end
     end
     assert_empty failures, failures.join("\n  ")
+  end
+
+  # A <NONE> piece is a blank field, not an IRIS error, so the row still proves the
+  # others. <NONE> leading a longer token is still an error.
+  def test_none_placeholder_piece_leaves_the_row_a_record
+    assert self.class.record_row?("123^<NONE>^A^I10^")
+    assert self.class.record_row?("123^DESC^A^<NONE>")
+    refute self.class.record_row?("123^<NOLINE>^A^I10^")
+    refute self.class.record_row?("123^<NONE>RTN+1^A^I10^")
   end
 
   # Intent: capture-backed slice fixtures pass the same mapping↔wire checks as wire_contract_test.

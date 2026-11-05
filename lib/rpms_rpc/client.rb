@@ -42,6 +42,10 @@ module RpmsRpc
     # working, but callers can distinguish "credential misconfigured"
     # from "credential rejected by broker".
     class CredentialError < AuthenticationError; end
+    # RPMS accepted the codes, but the user may not use the context sign-on
+    # binds, so a host can say that instead of asking for their codes again
+    # (#501). Subclass of AuthenticationError: sign-on still fails closed.
+    class ContextRefusedError < AuthenticationError; end
     class RpcError < Error; end
     # A request cannot be put on the wire within the protocol's framing limits,
     # so nothing was sent and the connection is untouched (#472). XWB and BMX
