@@ -3,6 +3,7 @@
 require_relative "../shape"
 require_relative "../mappings"
 require_relative "../xwb_cipher"
+require_relative "../valid_signature"
 
 module RpmsRpc
   # Symbolic API for TIU e-signature. Server validates the signature code
@@ -53,9 +54,10 @@ module RpmsRpc
     def validate(user_duz, signature_code)
       return false if invalid_id?(user_duz) || blank?(signature_code)
 
-      DataMapper.tiu_valid_signature.fetch_scalar(
-        XwbCipher.encrypt(signature_code.to_s)
-      ) == true
+      # Same ORWU VALIDSIG call Order.sign_and_release makes. Boolean
+      # true is the mapper's "1" or "yes"; the ciphertext stays inside
+      # ValidSignature because validate does not send it again.
+      ValidSignature.accepted?(ValidSignature.line_for(ValidSignature.encrypt(signature_code)))
     end
 
     # Server-side authoritative answer for which signing action the session

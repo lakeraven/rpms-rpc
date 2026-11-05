@@ -8,8 +8,13 @@ require "rpms_rpc/fileman_date_parser"
 
 # Order.save unreleased (ORWDX SAVE, #455), read back through Order.list and
 # ORDER (#100) via DDR. Order.check (ORWDXC ACCEPT, #454) is a separate live
-# test. ORWDX SEND (#456) is out of scope. OR GXTEXT WORD PROCESSING ORDER
+# test. Order.sign_and_release (ORWDX SEND, #456) signs and releases a saved
+# order and is read back from file 100. OR GXTEXT WORD PROCESSING ORDER
 # WRITES against a disposable local container.
+#
+# The sign-and-release spec needs the persona's electronic signature code in
+# RPMS_ESIG (never logged). Without it the spec skips, tracked by #456, rather
+# than pass or fail on a code it was never given.
 class OrderWriteLiveTest < LiveSpec::Test
   writes!
 
@@ -72,6 +77,43 @@ class OrderWriteLiveTest < LiveSpec::Test
          "(dialog #{dialog.fetch(:ien)}, location #{location}, " \
          "prompts COMMENT/START/STOP=#{prompts.values_at(:comment, :start, :stop).join('/')}) " \
          "reads back through list and file 100"
+  end
+
+  def test_sign_and_release_releases_a_saved_order_and_reads_it_back
+    esig = ENV["RPMS_ESIG"].to_s
+    skip_tracked("#456", "RPMS_ESIG (#{persona}'s signature code) is not set; ORWDX SEND is not live-proven") if esig.empty?
+
+    dialog = resolve_dialog!
+    prompts = resolve_dialog_prompts!(dialog.fetch(:name))
+    location = resolve_hospital_location!
+    display_group = resolve_display_group!(dialog.fetch(:ien))
+    responses = ordialog_responses(prompts, server_now_fm, "#{ORDER_SNIPPET} sign #{persona}")
+
+    saved = RpmsRpc::Order.save(
+      DFN, client.duz, location, dialog.fetch(:name), responses, display_group: display_group
+    )
+    assert saved[:success], "Order.save answered #{saved.inspect}"
+    order_id = saved.fetch(:order_id)
+
+    results = RpmsRpc::Order.sign_and_release(DFN, client.duz, location, [ order_id ], esig)
+
+    assert_equal [ order_id ], results.map { |r| r[:order_id] }, results.inspect
+    assert_equal [ :released ], results.map { |r| r[:status] }, results.inspect
+
+    status = RpmsRpc::DdrFileman.gets_entry(
+      file: ORDER_FILE, iens: "#{saved[:ien]},", fields: "5", flags: "IE"
+    )
+    refute_nil status, "DDR GETS on order #{saved[:ien]} status"
+    refute status[:error], status.inspect
+    internal = status[:fields].dig("5", :internal).to_s
+    refute_includes [ RpmsRpc::Order::SAVE_STATUS_UNRELEASED.to_s, RpmsRpc::Order::SAVE_STATUS_DELAYED.to_s ], internal,
+                    "order #{saved[:ien]} is still unreleased after sign_and_release (status #{internal.inspect})"
+
+    unsigned = RpmsRpc::Order.list(DFN, filter: :unsigned)
+    assert_nil unsigned.find { |row| row[:ien] == saved[:ien] },
+               "order #{saved[:ien]} must leave the unsigned list once signed"
+
+    puts "\n#{persona}: order #{saved[:ien]} signed and released on DFN #{DFN} (status #{internal})"
   end
 
   def test_order_checks_return_check_rows
