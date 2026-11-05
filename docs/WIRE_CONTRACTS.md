@@ -37,6 +37,14 @@ Same shape as the conformance pipeline, one level deeper:
    `rake wire:capture` never calls a write RPC (the conformance SPEC's
    non-negotiable applies to this read catalog verbatim). Scheduling writes
    are a separate capture, `rake wire:capture_writes`, gated below.
+   One catalog entry is the single exception to "read-only": BEHOENCX
+   CHKVISIT is captured live although it can file a Kernel alert (the
+   NOEMC path, BEHOXQPC.m:37-41 into SEND 64-74, which calls ENTRY^XQALGUI)
+   when a visit has a note but no E&M code. That is accepted because the
+   capture runs only on a disposable pinned build, the alert would land in
+   ALERT file #8992 there, and seed visit 1 has no note, so no alert is
+   filed. Any change to the seed visit must re-check that before the next
+   capture.
 
    ```sh
    bundle exec rake wire:capture BROKER_HOST=127.0.0.1 BROKER_PORT=<port> RELEASE=bcer-9.0-ydb

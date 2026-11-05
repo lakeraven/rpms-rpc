@@ -131,6 +131,15 @@ module RpmsRpc
     # CIA sign-on binds. Same option RpmsRpc::SchedulingSetup uses.
     CONTEXT = "CIAV VUECENTRIC"
 
+    # IHS PATIENT HEALTH RECORD NO. multiple. Field .02 is the HRN. AG can
+    # report a create or an HRN update as success and still leave this empty
+    # (rpms-rpc#562); register reads it back before it reports success.
+    HEALTH_RECORD_MULTIPLE = "9000001.41"
+    HRN_NOT_ON_MULTIPLE =
+      "the HRN is not on the patient's HEALTH RECORD NO. multiple (#9000001.41) after filing"
+    HRN_UNREADABLE =
+      "the patient's HEALTH RECORD NO. multiple (#9000001.41) could not be read back"
+
     # IHS PATIENT subfiles the SOGI and MBI tags write with UPDATE^DIE.
     # .01 on each dated subfile is DINUM (the date). Value multiples point at
     # the code files (#9999999.104 gender identity, #9999999.103 sexual
@@ -224,12 +233,37 @@ module RpmsRpc
     #   { success: true, dfn:, created: true, hrn: }    — registered; hrn: is
     #                                                     the number filed (nil
     #                                                     in clerk mode with
-    #                                                     no hrn:)
+    #                                                     no hrn:, which sends
+    #                                                     no read-back). When an
+    #                                                     HRN was filed, success
+    #                                                     means that number was
+    #                                                     read back from the
+    #                                                     patient's HEALTH RECORD
+    #                                                     NO. multiple
+    #                                                     (#9000001.41). On the
+    #                                                     pinned build a sign-on
+    #                                                     whose division points
+    #                                                     at a missing
+    #                                                     INSTITUTION reported
+    #                                                     success while filing
+    #                                                     nothing (rpms-rpc#562).
+    #
+    #   Known limits (both pre-existing, tracked, not fixed here):
+    #   rpms-rpc#609: a lookup that faults inside AG answers the typed header and
+    #   a $C(31) terminator, which Patient.lookup reads as zero candidates, so the
+    #   duplicate check passes and a retry during the fault can create a second
+    #   chart. rpms-rpc#610: with no hrn:, the derived HRN is added after the
+    #   create with .02/// and never meets HRN^AGGWVAL's already-assigned check, so
+    #   a DFN equal to a legacy HRN at the facility files a second patient under
+    #   that HRN and the read-back still reports success. An hrn: given by the
+    #   caller does run HRN^AGGWVAL.
     #   { success: false, error: Symbol, message: }     — rejected; error is
     #     :duplicate_identity (includes candidate_dfns), :identity_unverifiable,
     #     :agg_rejected / :hrn_file_failed, or (with field:) :agg_invalid,
     #     AG's own field check refused it, or :validation_unavailable, AG gave
-    #     that check no answer; neither files anything
+    #     that check no answer; neither files anything. :hrn_file_failed is
+    #     also the read-back: #9000001.41 does not hold the filed HRN, or that
+    #     multiple could not be read. The DFN is included; the patient exists.
     #   nil                                             — no add response
     #
     # Raises Client::FrameTooLongError if a value cannot be framed on the wire
@@ -286,6 +320,13 @@ module RpmsRpc
       else file_hrn(dfn, source)
       end
       return hrn if hrn.is_a?(Hash)
+
+      # :none filed no HRN. Every other source has one only when #9000001.41
+      # .02 reads it back; AG's own success flag is not that evidence.
+      unless source == :none
+        failed = confirm_hrn_filed(dfn, hrn)
+        return failed if failed
+      end
 
       with_unfiled({ success: true, dfn: dfn, created: true, hrn: hrn }, agg_unsent(attrs))
     end
@@ -947,14 +988,46 @@ module RpmsRpc
     def file_hrn(dfn, source)
       hrn = source == :temporary ? Agg.temporary_hrn(dfn: dfn) : dfn.to_s
       unless hrn
-        return { success: false, error: :hrn_file_failed, dfn: dfn,
-                 message: "AGG GET TEMP PAT HRN gave no number" }
+        return hrn_file_failed(dfn, "AGG GET TEMP PAT HRN gave no number")
       end
 
       updated = Agg.update_patient(window: AGG_WINDOW, dfn: dfn, params: { "AGGPTHRN" => hrn })
       return hrn if updated && updated[:success]
 
-      { success: false, error: :hrn_file_failed, dfn: dfn, message: updated&.dig(:message).to_s }
+      hrn_file_failed(dfn, updated&.dig(:message).to_s)
+    end
+
+    # DDR LISTER of #9000001.41 under CIAV VUECENTRIC, after AG has reported
+    # the HRN write. Fields are "@;.02" (suppress .01, so piece 0 is .02
+    # under every DDR version). nil when some entry's .02 equals the HRN
+    # just filed. An empty multiple or a different number fails closed.
+    # A nil reply, an error reply, RpcError, ConnectionError (TimeoutError
+    # is a subclass), or ParseError returns hrn_file_failed(dfn,
+    # HRN_UNREADABLE). AG has already created the chart, so the caller gets
+    # the DFN back instead of an exception. The rescue wraps this read-back
+    # only. The message is fixed text: it names no HRN, name, DOB, or SSN.
+    def confirm_hrn_filed(dfn, hrn)
+      listing = read_hrn_multiple(dfn)
+      return hrn_file_failed(dfn, HRN_UNREADABLE) if listing.nil? || listing[:error]
+      return if hrn_multiple_includes?(listing, hrn)
+
+      hrn_file_failed(dfn, HRN_NOT_ON_MULTIPLE)
+    rescue Client::RpcError, Client::ConnectionError, Client::ParseError
+      hrn_file_failed(dfn, HRN_UNREADABLE)
+    end
+
+    def read_hrn_multiple(dfn)
+      in_context do
+        DdrFileman.lister(file: HEALTH_RECORD_MULTIPLE, iens: ",#{dfn},", fields: "@;.02", flags: "IP")
+      end
+    end
+
+    def hrn_multiple_includes?(listing, hrn)
+      Array(listing[:entries]).any? { |entry| entry[:pieces]&.[](0) == hrn }
+    end
+
+    def hrn_file_failed(dfn, message)
+      { success: false, error: :hrn_file_failed, dfn: dfn, message: message }
     end
 
     # Where this registration's HRN comes from: attrs[:hrn_source] (:derive,
@@ -1005,12 +1078,17 @@ module RpmsRpc
 
     def duplicate_identity(params, allow_duplicate:)
       candidates = Agg.registration_candidates(params)
+      return identity_unverifiable unless candidates
       return if candidates.empty? || allow_duplicate == true
 
       { success: false, error: :duplicate_identity,
         candidate_dfns: candidates.map { |candidate| candidate[:dfn] }.uniq.sort,
         message: "matching patient candidates require explicit override" }
     rescue Client::RpcError, Client::ConnectionError
+      identity_unverifiable
+    end
+
+    def identity_unverifiable
       { success: false, error: :identity_unverifiable,
         message: "patient duplicate lookup could not be verified" }
     end

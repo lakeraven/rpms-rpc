@@ -67,8 +67,9 @@ module RpmsRpc
 
     # One curated capture target: which RPC, which mapping gates it, how to
     # call it live (or why we can't), and the cited piece semantics.
+    # context is the option to bind before the call (nil: the sign-on option).
     CatalogEntry = Struct.new(:rpc, :mapping, :kind, :mode, :inputs, :cite, :pieces, :note,
-                              keyword_init: true) do
+                              :context, keyword_init: true) do
       def live? = mode == :live
     end
 
@@ -148,7 +149,7 @@ module RpmsRpc
     end
 
     def self.payload_rows(raw)
-      body = raw.sub(/\A\d+[\x00\x01]/, "")
+      body = strip_frame(raw)
       recordset = recordset_body?(raw)
       rows = body.split(recordset ? RECORDSET_BREAK : LINE_BREAK)
       rows.map! { |row| row.sub(RECORDSET_TRAILER, "") } if recordset
@@ -212,6 +213,16 @@ module RpmsRpc
       pieces.length >= 2 && pieces[0].empty? &&
         pieces[1].match?(/\A[A-Za-z]/) && pieces[2..].all?(&:empty?)
     end
+
+    def self.strip_frame(raw)
+      payload = raw.sub(/\A\d+[\x00\x01]/, "")
+      return payload unless payload.encoding == Encoding::ASCII_8BIT
+
+      text = payload.dup
+      text.force_encoding(Encoding::UTF_8)
+      text.valid_encoding? ? text : payload
+    end
+    private_class_method :strip_frame
 
     class Fixture
       attr_reader :path, :rpc, :mapping_name, :kind, :source, :cite, :inputs,
@@ -570,7 +581,9 @@ module RpmsRpc
         # other is the whole hazard this kind exists to prevent.
         return line_type_violations(field, fixture) if fixture.kind == "lines"
 
-        fixture.captured_rows.filter_map do |row|
+        # captured_data_rows, not captured_rows: a GLOBAL ARRAY typed header
+        # is not a field row, and neither is a sentinel or an error line.
+        fixture.captured_data_rows.filter_map do |row|
           raw = row.split("^", -1)[field.position]
           next if raw.nil? || raw.empty? || raw_conforms?(raw, field.type)
 
@@ -883,7 +896,8 @@ module RpmsRpc
       # (BEHOENCX.m:107-111), and even a 3-piece VSTR runs FNDVIS with
       # IN("NEVER ADD")=1 (BEHOENCX.m:80). The inputs name the one visit the
       # rung carries at build time (visit IEN 1 of the build's test patient,
-      # DFN 2, at hospital location 6) by DFN and extended VSTR.
+      # DFN 2, at hospital location 6) by DFN and extended VSTR. The capture
+      # runs as PROV123 on the pinned build.
       CatalogEntry.new(
         rpc: "BEHOENCX FETCH", mapping: :encounter_fetch, kind: "fields", mode: :live,
         inputs: [ "2", "6;3260825.09;A;1", "", "0" ],
@@ -905,6 +919,23 @@ module RpmsRpc
         note: "Params positionally FETCH(DATA,DFN,VSTR,PRV,CREATE) (registry formals " \
               "DATA,DFN,VSTR,PRV,CREATE). CREATE=0 is the read form; CREATE=1/-1 " \
               "creates a VISIT and is never sent by the capture task."
+      ),
+      # BEHOENCX CHKVISIT returns one COMPONENT^TEXT row per check. CV1
+      # overwrites piece 1 (the status code) with the component name.
+      # Visit 1 (seed DFN 2) has a POV and no note, so the capture stops
+      # before SEND and files no alert.
+      CatalogEntry.new(
+        rpc: "BEHOENCX CHKVISIT", mapping: :encounter_chkvisit, kind: "fields", mode: :live,
+        inputs: [ "1" ],
+        cite: "CHKVISIT^BEHOENCX (BEHOENCX.m:329-337) and NOPOV/NOEMC^BEHOXQPC " \
+              "(BEHOXQPC.m:5-14, 32-41): one COMPONENT^TEXT row per check; CV1 " \
+              "overwrites piece 1 (the status code) with the component name",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "component" ]),
+          Piece.new(position: 1, attributes: [ "message" ])
+        ],
+        note: "Visit 1 (seed DFN 2) has a POV and no note, so NOPOV returns at " \
+              "line 10 and NOEMC at line 37, before SEND — the capture files no alert."
       ),
       # BEHOVM2 VUNITS is deliberately NOT live-captured: on the
       # bcer-9.0-ydb rung the call M-faults server-side and takes the
@@ -1036,6 +1067,40 @@ module RpmsRpc
         pieces: [],
         note: "text_blob: record types do not share one caret layout. parse_note_bundle " \
               "models the lines; an unknown type is an opaque record."
+      ),
+      # Agg.registration_candidates sends this possible-match form. The first
+      # argument is Agg.encode_parms of AGGPTLNM/FNM/MNM/SFX/DOB for
+      # USER / TEST / 05/05/1985 ($C(28) between pairs, empty middle and
+      # suffix included). Kept as a literal so this file does not load Agg.
+      CatalogEntry.new(
+        rpc: "AGG LOOKUP PATIENTS", mapping: :patient_lookup_agg, kind: "fields",
+        mode: :live, context: "AGGRPC",
+        inputs: [
+          "AGGPTLNM=USER\x1cAGGPTFNM=TEST\x1cAGGPTMNM=\x1cAGGPTSFX=\x1cAGGPTDOB=05/05/1985",
+          "",
+          "1",
+          "1"
+        ],
+        cite: "FND^AGGPTLKP (AGGPTLKP.m:33-45, the $C(28) structured branch, name OR " \
+              "DOB, LST2) and HDR^AGGPTLKP (AGGPTLKP.m:174): typed header " \
+              "DFN^PATIENT_NAME^HRN^SSN^DOB^DOD^SENS_FLAG^ALIAS^INACTIVE, optional " \
+              "COMM^MOMDN (AGGPTLKP.m:175); data rows AGGPTLKP.m:208",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "dfn_raw" ]),
+          Piece.new(position: 1, attributes: [ "name" ]),
+          Piece.new(position: 2, attributes: [ "hrn" ]),
+          Piece.new(position: 3, attributes: [ "ssn_raw" ]),
+          Piece.new(position: 4, attributes: [ "dob" ]),
+          Piece.new(position: 5, attributes: [ "dod" ]),
+          Piece.new(position: 6, attributes: [ "sens_flag" ]),
+          Piece.new(position: 7, attributes: [ "alias" ]),
+          Piece.new(position: 8, attributes: [ "inactive_raw" ]),
+          Piece.new(position: 9, attributes: [ "community" ]),
+          Piece.new(position: 10, attributes: [ "mothers_maiden_name" ])
+        ],
+        note: "Seed patient DFN 2 (synthetic USER,TEST), the possible-match form the " \
+              "registration duplicate guard sends; the free-text find form is the same " \
+              "RPC and reply layout."
       )
     ].freeze
 

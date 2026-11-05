@@ -17,6 +17,7 @@ require "rpms_rpc/api/ddr_fileman"
 class RegistrationTest < Minitest::Test
   Reg = RpmsRpc::Registration
   Agg = RpmsRpc::Agg
+  Ddr = RpmsRpc::DdrFileman
 
   ATTRS = {
     name: "DEMOPATIENT,UNA",
@@ -69,9 +70,18 @@ class RegistrationTest < Minitest::Test
     @mock.seed(:agg_add_patient, Agg::NEW_PATIENT_WINDOW, reply)
   end
 
-  def seed_agg_update(result: "1", error: "")
+  def seed_agg_update(result: "1", error: "", dfn: "9", hrn_on_file: nil, seed_hrn_readback: true)
     reply = "I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1e#{result}^#{error}^\x1e\x1f"
     @mock.seed(:agg_update_patient, Agg::DEFAULT_WINDOW, reply)
+    return unless seed_hrn_readback && result == "1"
+
+    seed_hrn_41_readback(dfn, hrn_on_file || dfn)
+  end
+
+  def seed_hrn_41_readback(dfn, hrn_on_file)
+    key = Ddr.lister_param(file: "9000001.41", iens: ",#{dfn},", fields: "@;.02", flags: "IP").to_s
+    body = hrn_on_file == :empty ? "[Data]" : "[Data]\n1^#{hrn_on_file}"
+    @mock.seed(:ddr_lister, key, body)
   end
 
   # AGG WINDOW DATA VALIDATION's reply, as captured live (header, then a row).
@@ -310,6 +320,7 @@ class RegistrationTest < Minitest::Test
   def test_delegation_clerk_mode_sends_supplied_hrn_on_create_and_skips_update
     Reg.hrn_mode = Reg::HRN_MODE_CLERK
     seed_agg_add(dfn: "9")
+    seed_hrn_41_readback("9", "100001")
 
     result = Reg.register(ATTRS)
 
@@ -343,7 +354,7 @@ end
 def test_s_reg_05_1_a_temporary_hrn_is_filed_after_the_create
   seed_agg_add(dfn: "9")
   seed_temp_hrn("T00007")
-  seed_agg_update
+  seed_agg_update(hrn_on_file: "T00007")
 
   result = Reg.register(ATTRS.merge(hrn_source: :temporary))
 
@@ -365,6 +376,7 @@ end
 
 def test_s_reg_05_2_a_given_hrn_is_checked_by_ag_and_rides_the_create
   seed_agg_add(dfn: "9")
+  seed_hrn_41_readback("9", "12345")
 
   result = Reg.register(ATTRS.merge(hrn_source: :given, hrn: "12345"))
 
@@ -413,7 +425,7 @@ end
 
   def test_delegation_hrn_update_failure_surfaces_with_dfn
     seed_agg_add(dfn: "9")
-    seed_agg_update(result: "-1", error: "HRN FIELD REJECTED")
+    seed_agg_update(result: "-1", error: "HRN FIELD REJECTED", seed_hrn_readback: false)
 
     result = Reg.register(ATTRS)
 

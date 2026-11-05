@@ -30,3 +30,5 @@ require_relative "mappings/amhg_groups"
 require_relative "mappings/amhg_reference"
 require_relative "mappings/amhg_case_management"
 require_relative "mappings/amhg_intake"
+# Screening and measurement writes (rpms-rpc#540).
+require_relative "mappings/amhg_wellness"
