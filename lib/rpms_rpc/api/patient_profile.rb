@@ -54,6 +54,10 @@ module RpmsRpc
     LANGUAGE_FILE = "9999999.99"
     STATE_FILE = "5"
 
+    MIGRANT_TYPES = %w[M S].freeze             # #9000001.84 .03
+    HOMELESS_TYPES = %w[H T D S O U].freeze    # #9000001.85 .03
+    YES_NO = %w[Y N].freeze
+
     # A contact parameter: its suffix after AGGEC/AGGNK, its type, and the
     # window's length limits (min, max), from the FOIA export of #9009068.3.
     ContactField = Struct.new(:suffix, :min, :max)
@@ -204,6 +208,55 @@ module RpmsRpc
     end
     shape :record_languages, resource: "patient-profiles", verb: "POST", path: "/patients/{dfn}/patient-profiles/languages"
 
+    # -- Migrant, homeless and internet -----------------------------------------
+
+    # The patient's latest entry of each, as the Other Patient window shows them:
+    #   { migrant: { status: "Y"/"N", type: "M"/"S", date: },
+    #     homeless: { status: "Y"/"N", type: "H"/"T"/..., date: },
+    #     internet: { access: true/false, date: } }
+    # A value is nil when nothing is on file; nil when RPMS did not answer.
+    def social_status(dfn)
+      record = Agg.window_values(window: OTHER_PATIENT_WINDOW, dfn: dfn.to_i)
+      return nil if record.nil?
+
+      internet = code(record["AGGINTNT"])
+      { migrant: { status: code(record["AGGMGSTS"]), type: code(record["AGGMGTYP"]), date: date_text(record["AGGMSTDT"]) },
+        homeless: { status: code(record["AGGHMSTS"]), type: code(record["AGGHMTYP"]), date: date_text(record["AGGHMSDT"]) },
+        internet: { access: internet && internet == "1", date: date_text(record["AGGINTDT"]) } }
+    end
+    shape :social_status, resource: "patient-profiles", verb: "GET", path: "/patients/{dfn}/patient-profiles/social-status"
+
+    # Record whether the patient is a migrant worker or homeless, and whether
+    # they can reach the internet (rpms-ux S-REG-31.2, 31.3): AG's edit check
+    # warns until each is on file. Only what is given is sent, and each answer
+    # is a new entry dated today, kept beside the earlier ones (MSTS, HSTS and
+    # UINT^AGGPOTH), so a caller sends what the person answered and no more.
+    #
+    # migrant: and homeless: take "Y" or "N". "Y" needs its type, the codes
+    # #9000001.84 and .85 field .03 define, and "N" takes none: AG's triggers
+    # require and disable the type the same way (AGGPTRGO.m:140-141, 160-161),
+    # and AG's save does not check it. internet: takes true or false.
+    #
+    # Returns { success: true, dfn: } or a failure hash.
+    def record_social_status(dfn, migrant: nil, migrant_type: nil, homeless: nil, homeless_type: nil, internet: nil)
+      params = social_params(:migrant, migrant, migrant_type, "AGGMGSTS", "AGGMGTYP", MIGRANT_TYPES)
+      return params if params[:error]
+
+      other = social_params(:homeless, homeless, homeless_type, "AGGHMSTS", "AGGHMTYP", HOMELESS_TYPES)
+      return other if other[:error]
+
+      params = params.merge(other)
+      params["AGGINTNT"] = internet ? "1" : "0" unless internet.nil?
+      return { success: false, error: :no_fields, message: "nothing to update" } if params.empty?
+
+      dfn = dfn.to_i
+      Agg.editing(dfn: dfn) do
+        result = Agg.update_patient(window: OTHER_PATIENT_WINDOW, dfn: dfn, params: params)
+        result && (result[:success] ? { success: true, dfn: dfn } : result)
+      end
+    end
+    shape :record_social_status, resource: "patient-profiles", verb: "POST", path: "/patients/{dfn}/patient-profiles/social-status"
+
     # -- Other names (aliases) ------------------------------------------------
 
     # The patient's other names (#2.01): [{ ien:, name: }], nil for no reply.
@@ -337,6 +390,22 @@ module RpmsRpc
       end
 
       nil
+    end
+
+    def social_params(field, status, type, status_param, type_param, types)
+      return {} if status.nil?
+      raise ArgumentError, "#{field}: takes one of #{YES_NO.join(', ')}" unless YES_NO.include?(status)
+
+      type_field = :"#{field}_type"
+      return type ? invalid(type_field, "is only recorded for a yes") : { status_param => status } if status == "N"
+      return invalid(type_field, "must be one of #{types.join(', ')}") unless types.include?(type)
+
+      { status_param => status, type_param => type }
+    end
+
+    def date_text(value)
+      text = value.to_s
+      text.empty? ? nil : text
     end
 
     def english_language_ien

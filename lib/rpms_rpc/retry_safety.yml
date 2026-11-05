@@ -228,8 +228,10 @@
 "RpmsRpc::PatientProfile.language_lookup": read
 "RpmsRpc::PatientProfile.languages": read
 "RpmsRpc::PatientProfile.record_languages": non_idempotent_write
+"RpmsRpc::PatientProfile.record_social_status": non_idempotent_write
 "RpmsRpc::PatientProfile.relationships": read
 "RpmsRpc::PatientProfile.remove_alias": non_idempotent_write
+"RpmsRpc::PatientProfile.social_status": read
 "RpmsRpc::PatientProfile.states": read
 "RpmsRpc::PatientProfile.update_contact": non_idempotent_write
 "RpmsRpc::PatientSelection.find": read
