@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/retry_safety"
 require "rpms_rpc/api/agg"
+require "rpms_rpc/api/ddr_fileman"
 require_relative "../stock_rpcs_test_helper"
 
 # AGG stock RPC wrappers on RpmsRpc::Agg (rpms-rpc#420). Synthetic data only.
@@ -11,6 +12,7 @@ class AggStockRpcsTest < Minitest::Test
   include StockRpcsTestHelper
 
   Agg = RpmsRpc::Agg
+  Ddr = RpmsRpc::DdrFileman
   RS = "\x1e"
   US = "\x1f"
   DFN = "990031"
@@ -38,6 +40,35 @@ class AggStockRpcsTest < Minitest::Test
 
   def test_check_sensitive_patient_nil_when_no_reply
     assert_nil Agg.check_sensitive_patient(dfn: 1)
+  end
+
+  def test_check_sensitive_patient_is_non_idempotent_write_in_retry_safety
+    assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(Agg, :check_sensitive_patient)
+  end
+
+  def test_check_sensitive_patient_rejects_non_012_indicator_rows
+    %w[3 -1 01 2.0].each do |row|
+      wire = "5\x00T00001SENSITIVE_INDICATOR#{RS}#{row}#{RS}#{US}"
+      seed_global("AGG CHECK SENSITIVE PATIENT", DFN, wire)
+
+      assert_nil Agg.check_sensitive_patient(dfn: DFN.to_i), "row #{row.inspect} must not coerce"
+      @mock.received_calls.clear
+    end
+
+    wire = "5\x00T00001SENSITIVE_INDICATOR#{RS}#{RS}#{US}"
+    seed_global("AGG CHECK SENSITIVE PATIENT", DFN, wire)
+    assert_nil Agg.check_sensitive_patient(dfn: DFN.to_i), "blank row must not coerce to 0"
+  end
+
+  def test_check_sensitive_patient_accepts_only_zero_one_two
+    { "0" => 0, "1" => 1, "2" => 2 }.each do |row, expected|
+      wire = "5\x00T00001SENSITIVE_INDICATOR#{RS}#{row}#{RS}#{US}"
+      seed_global("AGG CHECK SENSITIVE PATIENT", DFN, wire)
+
+      result = Agg.check_sensitive_patient(dfn: DFN.to_i)
+      assert_equal expected, result[:sensitive_indicator], "row #{row.inspect}"
+      @mock.received_calls.clear
+    end
   end
 
   # NOT^AGGPTSEN (AGGPTSEN.m:43-62): header I00010RESULT, row is NOTICE^DGSEC4 RESULT.
@@ -87,6 +118,8 @@ class AggStockRpcsTest < Minitest::Test
     assert_equal Agg::CONTEXT, call[:context]
     assert_equal DFN, call[:params][0], "LEGL^AGGPTNAM: DATA is the return slot; DFN is wire param 0"
     assert_equal "A", call[:params][1]
+    refute @mock.received_calls.any? { |c| c[:rpc] == "DDR GETS ENTRY DATA" },
+           "add with blank RIEN must not pre-read file 9000033"
   end
 
   def test_update_legal_names_rejection_uses_error_piece
@@ -101,6 +134,96 @@ class AggStockRpcsTest < Minitest::Test
 
   def test_update_legal_names_is_non_idempotent_write_in_retry_safety
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(Agg, :update_legal_names)
+  end
+
+  def test_update_legal_names_delete_verifies_rien_belongs_to_dfn_before_legl
+    seed_name_patient("42", DFN)
+    seed_legl_success("42")
+
+    result = Agg.update_legal_names(dfn: DFN.to_i, proc: "D", rien: "42", params: {})
+
+    assert result[:success]
+    assert_equal 1, ddr_calls.size
+    assert_equal "CIAV VUECENTRIC", ddr_calls.first[:context]
+    assert_equal "9000033", ddr_calls.first[:params].first["FILE"]
+    assert_equal 1, legl_calls.size
+    assert_equal Agg::CONTEXT, legl_calls.first[:context]
+    order = @mock.received_calls.map { |c| c[:rpc] }
+    assert order.index("DDR GETS ENTRY DATA") < order.index("AGG UPDATE LEGAL NAMES")
+  end
+
+  def test_update_legal_names_refuses_rien_for_wrong_patient_without_legl
+    seed_name_patient("42", "990077")
+
+    [ "D", "A", "" ].each do |proc|
+      @mock.received_calls.clear
+      result = Agg.update_legal_names(dfn: DFN.to_i, proc: proc, rien: "42", params: {})
+
+      refute_nil result
+      refute result[:success]
+      assert_equal :rien_not_for_dfn, result[:error]
+      assert_empty legl_calls, "proc #{proc.inspect} must not call LEGL when .02 != DFN"
+    end
+  end
+
+  def test_update_legal_names_read_failure_fails_closed_without_legl
+    cases = [
+      [ "no seed", nil ],
+      [ "error marker", "[ERROR]\nRemote procedure error" ],
+      [ "data without field", "[Data]" ],
+      [ "empty internal", "[Data]\n9000033^42,^.02^^" ]
+    ]
+    cases.each do |label, text|
+      @mock.received_calls.clear
+      seed_gets("9000033", "42,", ".02", text) if text
+
+      result = Agg.update_legal_names(dfn: DFN.to_i, proc: "D", rien: "42", params: {})
+
+      refute_nil result, label
+      refute result[:success], label
+      assert_includes [ :rien_not_for_dfn, :rien_unverified ], result[:error], label
+      assert_empty legl_calls, label
+    end
+  end
+
+  def test_update_legal_names_invalid_rien_refuses_before_any_rpc
+    [ "abc", "0", "-1", "4,2", "42 " ].each do |bad_rien|
+      @mock.received_calls.clear
+      result = Agg.update_legal_names(dfn: DFN.to_i, proc: "D", rien: bad_rien, params: {})
+
+      refute_nil result
+      refute result[:success]
+      assert_equal :invalid_rien, result[:error]
+      refute @mock.received_calls.any? { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
+      refute @mock.received_calls.any? { |c| c[:rpc] == "AGG UPDATE LEGAL NAMES" }
+    end
+  end
+
+  def test_update_legal_names_delete_with_blank_rien_is_invalid_without_legl
+    result = Agg.update_legal_names(dfn: DFN.to_i, proc: "D", rien: "", params: {})
+
+    refute_nil result
+    refute result[:success]
+    assert_equal :invalid_rien, result[:error]
+    assert_empty legl_calls
+  end
+
+  def test_update_legal_names_explicit_client_routes_ddr_and_legl_through_it
+    secondary = RpmsRpc::MockClient.new
+    secondary.set_authenticated("501")
+    key = Ddr.gets_entry_param(file: "9000033", iens: "42,", fields: ".02", flags: "I").to_s
+    secondary.seed(:ddr_gets_entry_data, key, "[Data]\n9000033^42,^.02^#{DFN}^#{DFN}")
+    wire = "5\x00I00010RESULT^T01024ERROR^I00010RIEN#{RS}1^^42#{RS}#{US}"
+    tables = secondary.instance_variable_get(:@lines) || {}
+    tables["AGG UPDATE LEGAL NAMES"] = { DFN => wire }
+    secondary.instance_variable_set(:@lines, tables)
+
+    Agg.update_legal_names(dfn: DFN.to_i, proc: "D", rien: "42", params: {}, client: secondary)
+
+    refute @mock.received_calls.any? { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
+    refute @mock.received_calls.any? { |c| c[:rpc] == "AGG UPDATE LEGAL NAMES" }
+    assert secondary.received_calls.any? { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
+    assert secondary.received_calls.any? { |c| c[:rpc] == "AGG UPDATE LEGAL NAMES" }
   end
 
   def test_required_rpcs_lists_agg_stock_rpcs_under_agg
@@ -126,6 +249,28 @@ class AggStockRpcsTest < Minitest::Test
   end
 
   private
+
+  def seed_gets(file, iens, fields, text, flags: "I")
+    key = Ddr.gets_entry_param(file: file, iens: iens, fields: fields, flags: flags).to_s
+    @mock.seed(:ddr_gets_entry_data, key, text)
+  end
+
+  def seed_name_patient(rien, patient_dfn)
+    seed_gets("9000033", "#{rien},", ".02", "[Data]\n9000033^#{rien},^.02^#{patient_dfn}^#{patient_dfn}")
+  end
+
+  def seed_legl_success(rien)
+    wire = "5\x00I00010RESULT^T01024ERROR^I00010RIEN#{RS}1^^#{rien}#{RS}#{US}"
+    seed_global("AGG UPDATE LEGAL NAMES", DFN, wire)
+  end
+
+  def ddr_calls
+    @mock.received_calls.select { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
+  end
+
+  def legl_calls
+    @mock.received_calls.select { |c| c[:rpc] == "AGG UPDATE LEGAL NAMES" }
+  end
 
   def seed_global(rpc, key, wire)
     tables = @mock.instance_variable_get(:@lines) || {}

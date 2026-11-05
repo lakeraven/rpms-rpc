@@ -55,6 +55,22 @@ class BusaTest < Minitest::Test
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(Mod, :log_security_audit)
   end
 
+  # BUSARPC.m:363-367 splits INPUT on "|"; a piece containing "|" must be refused client-side.
+  def test_log_security_audit_rejects_pipe_in_any_piece
+    base = {
+      category: "P",
+      action: "E",
+      call: "SYNTH RPC",
+      description: "Synthetic demographic update",
+      detail: "990031"
+    }
+    base.each_key do |field|
+      RpmsRpc.client.received_calls.clear
+      assert_raises(ArgumentError) { Mod.log_security_audit(**base.merge(field => "a|b")) }
+      assert_empty busa_calls, "field #{field} with embedded pipe must not call BUSA"
+    end
+  end
+
   def test_context_is_busa_rpc_on_the_pinned_build
     assert_includes pinned_rpc("BUSA LOG SECURITY AUDIT ENTRY").contexts, Mod::CONTEXT
   end
@@ -64,6 +80,10 @@ class BusaTest < Minitest::Test
   end
 
   private
+
+  def busa_calls
+    RpmsRpc.client.received_calls.select { |c| c[:rpc] == "BUSA LOG SECURITY AUDIT ENTRY" }
+  end
 
   def seed_log(_key, wire)
     tables = RpmsRpc.client.instance_variable_get(:@lines) || {}
