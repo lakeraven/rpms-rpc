@@ -12,9 +12,11 @@
 # Connects the real client (RpmsRpc::CiaClient) to the rung's broker, calls
 # every LIVE-mode entry in RpmsRpc::WireCapture::CATALOG — read-only
 # behavioral RPCs with synthetic inputs, against a rung we own, never a
-# customer instance — and prints one JSON document on stdout. The host-side
-# rake task turns that into provenance-stamped fixtures. This script never
-# writes to the target and never edits captured bytes.
+# customer instance — and prints one JSON document on stdout. An entry that
+# names a context option is called inside client.with_context, so the broker
+# sees that option (AGG LOOKUP PATIENTS is registered under AGGRPC only).
+# The host-side rake task turns the JSON into provenance-stamped fixtures.
+# This script never writes to the target and never edits captured bytes.
 require "json"
 
 # rpms-rpc references IO::TimeoutError (Ruby >= 3.2); container rubies can be
@@ -57,7 +59,11 @@ entries = entries.reject { |e| RpmsRpc::WireCapture.cite_only?(e, cite_only) }
 out["selected"] = entries.map(&:fixture_name)
 
 entries.each do |entry|
-  raw = client.call_rpc_raw(entry.rpc, *entry.inputs)
+  raw = if entry.context
+          client.with_context(entry.context) { client.call_rpc_raw(entry.rpc, *entry.inputs) }
+        else
+          client.call_rpc_raw(entry.rpc, *entry.inputs)
+        end
   raw = raw.join("\n") if raw.is_a?(Array)
   out["captures"][entry.fixture_name] = { "inputs" => entry.inputs, "raw" => raw.to_s }
 rescue StandardError => e
