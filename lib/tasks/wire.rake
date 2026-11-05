@@ -5,7 +5,9 @@
 #   rake wire:capture CONTAINER=rpms-ydb-9.0 RELEASE=bcer-9.0-ydb
 #     [RUNTIME=docker] [BROKER_PORT=9100] [RPMS_ACCESS=] [RPMS_VERIFY=] [ONLY="RPC NAME"]
 #   rake wire:capture BROKER_HOST=127.0.0.1 BROKER_PORT=<port> RELEASE=bcer-9.0-ydb ...
-#   WRITES=1 with a loopback BROKER_HOST and no CONTAINER:
+#   WRITES=1 runs only the note flow (no read RPCs) when the broker host
+#   resolves to loopback addresses, CONTAINER is unset, and RPMS_ACCESS is
+#   a synthetic persona:
 #   WRITES=1 BROKER_HOST=127.0.0.1 BROKER_PORT=<port> \
 #     RPMS_ACCESS=PROV123 rake wire:capture
 #   RPMS_ESIG, when set, is read from the environment only and is never printed.
@@ -22,23 +24,20 @@
 # test (test/rpms_rpc/wire_contract_test.rb) is the always-on CI gate and
 # needs only the committed fixtures.
 #
-# Read-only discipline: the driver calls read RPCs with synthetic inputs
+# Read-only discipline: a read run calls read RPCs with synthetic inputs
 # against a rung WE OWN — never a customer instance. Write RPCs are
-# routine-cited and are not called. The one exception is WRITES=1 with a
-# loopback BROKER_HOST and no CONTAINER. Any other WRITES=1 aborts before
-# a connection. The allowed run is host mode on this machine's ruby, so the
-# broker must be reachable at BROKER_HOST:BROKER_PORT.
+# routine-cited and are not called on that run. WRITES=1 calls no read RPC;
+# it runs the note flow only when the broker host resolves to loopback
+# addresses, CONTAINER is unset, and the access code is a README synthetic
+# persona. Any other WRITES=1 aborts before a connection. The allowed run
+# is host mode on this machine's ruby, so the broker must be reachable at
+# BROKER_HOST:BROKER_PORT.
 # RPMS_ESIG is passed only in the driver environment, never on argv, and is
 # never printed. A write fixture is stored only when the public API accepts
 # the reply; otherwise an existing fixture is left in place, and a routine-cite
 # is written only when no fixture file exists yet.
 namespace :wire do
   FIXTURES_DIR = ENV["WIRE_FIXTURES_DIR"] ? File.expand_path(ENV["WIRE_FIXTURES_DIR"]) : File.expand_path("../../test/fixtures/wire_captures", __dir__)
-
-  # Access codes README.md documents as synthetic dev personas. signed_on_as
-  # may record one of these and nothing else. A real access code must not
-  # land in a public fixture, and the verify code is never written.
-  SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
 
   desc "Capture curated RPC wire returns from a live rung container into " \
        "test/fixtures/wire_captures/*.yml (CONTAINER=, RELEASE=; without " \
@@ -72,7 +71,9 @@ namespace :wire do
     host = ENV["BROKER_HOST"].to_s.strip
     writes = ENV["WRITES"] == "1"
     # Before any socket. writes false is a read capture and is not refused.
-    refusal = RpmsRpc::WireCapture.write_refusal(writes: writes, host: host, container: container)
+    refusal = RpmsRpc::WireCapture.write_refusal(
+      writes: writes, host: host, container: container, access: acc
+    )
     abort "wire:capture: #{refusal}" if refusal
 
     # Write path is host mode. write_refusal has already refused any CONTAINER.
@@ -219,7 +220,9 @@ namespace :wire do
       nil
     else
       RpmsRpc::WireCapture.write_capture_source(
-        entry, raw, note_body: RpmsRpc::WireCapture::NoteWriteFlow::NOTE_TEXT
+        entry, raw,
+        note_body: RpmsRpc::WireCapture::NoteWriteFlow::NOTE_TEXT,
+        note_ien: inputs.is_a?(Array) ? inputs[0] : nil
       )
     end
     if source == "live-capture" && inputs.is_a?(Array)
@@ -258,10 +261,11 @@ namespace :wire do
     text.gsub(secret, RpmsRpc::WireCapture::NoteWriteFlow::WITHHELD)
   end
 
-  # Abort unless the sign-on access code is a README synthetic persona.
-  # The supplied value is never included in the message.
+  # Abort unless the sign-on access code is a README synthetic persona
+  # (WireCapture::SYNTHETIC_PERSONAS). The supplied value is never included
+  # in the message, and the verify code is never written.
   def require_synthetic_persona!(access)
-    return access if SYNTHETIC_PERSONAS.include?(access)
+    return access if RpmsRpc::WireCapture::SYNTHETIC_PERSONAS.include?(access)
 
     abort "wire:capture: captures must sign on as a synthetic persona"
   end

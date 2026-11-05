@@ -1,12 +1,17 @@
 # frozen_string_literal: true
 
+require "ipaddr"
+require "socket"
+
 module RpmsRpc
   module WireCapture
     # One TIU note on the seed patient: create, lock, set text, read it back,
     # unlock, and sign only when a signature code was actually supplied.
     #
-    # The code is never logged and never returned. The broker still receives
-    # the XWB ciphertext; the structure this returns puts WITHHELD in its place.
+    # The code is never logged and never returned. A capture whose reply or
+    # inputs contain it is dropped, not rewritten. The broker still receives
+    # the XWB ciphertext; the structure this returns puts WITHHELD in its
+    # place before that check, so the marker itself is not a hit.
     class NoteWriteFlow
       DFN = "4"
       VISIT_IEN = "4"
@@ -32,8 +37,8 @@ module RpmsRpc
 
       class << self
         # { rpc => {"inputs" => ..., "raw" => verbatim} } in call order.
-        # A step that raises is {"error" => ...} with the code removed, and
-        # the flow stops: a later write would file against an unknown note.
+        # A step that raises is {"error" => ...} with the message dropped when
+        # it holds the code. A held lock is unlocked before this returns.
         def run(client, esig: nil)
           captures = {}
           secrets = []
@@ -41,20 +46,35 @@ module RpmsRpc
           with_recorder(client, captures, secrets) do
             RpmsRpc.with_client(client) { perform(captures, secrets, esig) }
           end
-          redact(captures, secrets)
+          quarantine_secrets(captures, secrets)
         end
 
-        # Drop every secret from a returned structure. Fail closed: if a secret
-        # cannot be searched in the encoding, replace the whole string.
-        def redact(value, secrets)
-          list = Array(secrets).flatten.compact.map(&:to_s).reject(&:empty?).uniq
-          return value if list.empty?
+        # A capture whose raw or inputs contain a secret becomes an error.
+        # Every other capture is the same object, bytes unchanged.
+        def quarantine_secrets(captures, secrets)
+          needles = secret_needles(secrets)
+          return captures if needles.empty?
 
-          scrub(value, list.sort_by { |secret| -secret.bytesize })
+          captures.each_with_object({}) do |(rpc, capture), clean|
+            clean[rpc] = if secret_in_capture?(capture, needles)
+              { "error" => quarantine_error(rpc) }
+            else
+              capture
+            end
+          end
         end
 
+        # An exception message that contains a secret is replaced wholesale.
+        # Substituting inside it would leave the rest of the text.
         def redacted_error(error, secrets)
-          "#{error.class}: #{redact(error.message.to_s, secrets)}"
+          message = error.message.to_s
+          needles = secret_needles(secrets)
+          return "#{error.class}: #{WITHHELD}" if tainted_string?(message, needles)
+
+          "#{error.class}: #{message}"
+        rescue Encoding::CompatibilityError, ArgumentError
+          # Fail closed: an unreadable message may hold the code, so none of it is kept.
+          "#{error.class}: #{WITHHELD}"
         end
 
         def remember_sign_cipher(rpc, params, secrets)
@@ -67,6 +87,7 @@ module RpmsRpc
         def recorded_inputs(rpc, params)
           inputs = params.map { |param| copy_input(param) }
           # The client's own param list keeps the ciphertext. This copy does not.
+          # Quarantine runs after this replacement, so WITHHELD is not a hit.
           inputs[1] = WITHHELD if rpc == SIGN_RPC && inputs.size > 1
           inputs
         end
@@ -75,30 +96,51 @@ module RpmsRpc
 
         def perform(captures, secrets, esig)
           require_api
-          ok, created = guarded(captures, CREATE_RPC, secrets) do
-            ProgressNote.create(DFN, VISIT_IEN, TITLE_IEN)
+          note_ien = nil
+          locked = false
+          ready = false
+          begin
+            ok, created = guarded(captures, CREATE_RPC, secrets) do
+              ProgressNote.create(DFN, VISIT_IEN, TITLE_IEN)
+            end
+            return unless ok && created.is_a?(Hash) && created[:success] == true
+
+            note_ien = created[:ien].to_s
+            ok, held = guarded(captures, LOCK_RPC, secrets) { ProgressNote.lock(note_ien) }
+            return unless ok && held == true
+
+            locked = true
+            ready = write_and_read(captures, secrets, note_ien)
+          ensure
+            # lock returned true: unlock even when set-text or the read-back raised.
+            if locked
+              ready = false unless unlock_note(captures, secrets, note_ien)
+              sign_note(captures, secrets, esig, note_ien) if ready
+            end
           end
-          return unless ok && created.is_a?(Hash) && created[:success] == true
+        end
 
-          note_ien = created[:ien].to_s
-          ok, held = guarded(captures, LOCK_RPC, secrets) { ProgressNote.lock(note_ien) }
-          return unless ok && held == true
+        def write_and_read(captures, secrets, note_ien)
+          ok, updated = guarded(captures, SET_RPC, secrets) do
+            ProgressNote.update_text(note_ien, NOTE_TEXT)
+          end
+          wrote = ok && updated.is_a?(Hash) && updated[:success] == true
+          return false unless ok
 
-          # Lock is held. Set the text, read it back, then unlock, even when
-          # update_text reports failure: the lock is still ours. A raise stops
-          # instead; the failed step is the last capture.
-          ok, = guarded(captures, SET_RPC, secrets) { ProgressNote.update_text(note_ien, NOTE_TEXT) }
-          return unless ok
+          ok_read, = guarded(captures, GET_RPC, secrets) { ProgressNote.fetch_text(note_ien) }
+          wrote && ok_read
+        end
 
-          ok, = guarded(captures, GET_RPC, secrets) { ProgressNote.fetch_text(note_ien) }
-          return unless ok
+        def unlock_note(captures, secrets, note_ien)
+          ok, unlocked = guarded(captures, UNLOCK_RPC, secrets) { ProgressNote.unlock(note_ien) }
+          ok && unlocked == true
+        end
 
-          ok, = guarded(captures, UNLOCK_RPC, secrets) { ProgressNote.unlock(note_ien) }
-          return unless ok
+        # Sign only after create, set-text, read-back, and unlock all succeeded.
+        def sign_note(captures, secrets, esig, note_ien)
           return unless sign?(esig)
 
           guarded(captures, SIGN_RPC, secrets) { ESignature.add(note_ien, SESSION_DUZ, esig) }
-          nil
         end
 
         def sign?(esig)
@@ -187,58 +229,70 @@ module RpmsRpc
           end
         end
 
-        def scrub(value, secrets)
+        def secret_needles(secrets)
+          Array(secrets).flatten.compact.map { |secret| secret.to_s.b }.reject(&:empty?).uniq
+        end
+
+        def secret_in_capture?(capture, needles)
+          # Fail closed: a capture that is not a hash may still hold the code.
+          return true unless capture.is_a?(Hash)
+
+          secret_in_value?(capture["raw"], needles) || secret_in_value?(capture["inputs"], needles)
+        end
+
+        def secret_in_value?(value, needles)
           case value
-          when Hash
-            value.each_with_object({}) do |(key, item), copy|
-              copy[scrub(key, secrets)] = scrub(item, secrets)
-            end
-          when Array
-            value.map { |item| scrub(item, secrets) }
+          when nil
+            false
           when String
-            apply_secrets(value, secrets)
+            tainted_string?(value, needles)
+          when Array
+            value.any? { |item| secret_in_value?(item, needles) }
+          when Hash
+            value.any? { |key, item| secret_in_value?(key, needles) || secret_in_value?(item, needles) }
           else
-            value
+            tainted_string?(value.to_s, needles)
           end
         end
 
-        def apply_secrets(text, secrets)
-          secrets.reduce(text) { |current, secret| current.gsub(secret, WITHHELD) }
-        rescue Encoding::CompatibilityError, ArgumentError
-          WITHHELD
+        def tainted_string?(text, needles)
+          return false if needles.empty?
+
+          bytes = text.to_s.b
+          needles.any? { |needle| bytes.include?(needle) }
+        end
+
+        def quarantine_error(rpc)
+          "#{rpc}: reply contains the signature code; not recorded"
         end
       end
     end
 
+    # README.md synthetic dev personas. A write may sign on as one of these
+    # and nothing else. The access code is never copied into a refusal or a fixture.
+    SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
+
     # Host mode only. A read capture (writes false or nil) is not refused.
-    # WRITES=1 is allowed only against a loopback broker with CONTAINER nil
-    # or "". A container run goes through `docker exec`, which would put the
-    # signature code on a command line, and a container name is a string,
-    # not proof the rung is ours. Anything else, including a missing or
-    # non-loopback host, is a reason and must abort before a socket.
-    LOOPBACK_HOSTS = %w[127.0.0.1 localhost ::1].freeze
-
-    def self.write_refusal(writes:, host:, container:)
+    # WRITES=1 is allowed only when the broker host resolves and every
+    # address is loopback, CONTAINER is nil or "", and the access code is a
+    # synthetic persona. A container run goes through `docker exec`, which
+    # would put the signature code on a command line. Anything else is a
+    # reason and must abort before a socket.
+    def self.write_refusal(writes:, host:, container:, access: nil, resolver: nil)
       return nil if writes == false || writes.nil?
-      unless writes == true
-        return "WRITES=1 is refused"
-      end
-
-      unless container.to_s.strip.empty?
-        return "WRITES=1 is refused when CONTAINER is set"
-      end
-
-      unless LOOPBACK_HOSTS.include?(host.to_s.strip.downcase)
-        return "WRITES=1 is refused unless the broker host is loopback " \
-               "(127.0.0.1, localhost, or ::1)"
-      end
+      return "WRITES=1 is refused" unless writes == true
+      return "WRITES=1 is refused when CONTAINER is set" unless container.to_s.strip.empty?
+      return loopback_refusal unless resolved_loopback?(host, resolver)
+      return persona_refusal unless SYNTHETIC_PERSONAS.include?(access)
 
       nil
     end
 
     # True only when the public API accepts the reply. Odd input is false.
     # error_reply? and a reply with no data rows are false before the API runs.
-    def self.write_evidence?(entry, raw, note_body: nil)
+    # note_ien is the captured note. SET fails closed when it is nil; lock,
+    # unlock, and the read-back are called with it when it was supplied.
+    def self.write_evidence?(entry, raw, note_body: nil, note_ien: nil)
       return false unless raw.is_a?(String)
       return false unless entry.respond_to?(:rpc)
       return false if error_reply?(raw)
@@ -250,11 +304,11 @@ module RpmsRpc
       require_write_api
       case entry.rpc
       when NoteWriteFlow::CREATE_RPC then create_evidence?(rows)
-      when NoteWriteFlow::LOCK_RPC then replay(entry.rpc, rows) { ProgressNote.lock("1") } == true
-      when NoteWriteFlow::UNLOCK_RPC then replay(entry.rpc, rows) { ProgressNote.unlock("1") } == true
-      when NoteWriteFlow::SET_RPC then set_evidence?(rows)
+      when NoteWriteFlow::LOCK_RPC then lock_evidence?(rows, note_ien)
+      when NoteWriteFlow::UNLOCK_RPC then unlock_evidence?(rows, note_ien)
+      when NoteWriteFlow::SET_RPC then set_evidence?(rows, note_ien)
       when NoteWriteFlow::SIGN_RPC then sign_evidence?(rows)
-      when NoteWriteFlow::GET_RPC then read_back_evidence?(rows, raw, note_body)
+      when NoteWriteFlow::GET_RPC then read_back_evidence?(rows, raw, note_body, note_ien)
       else false
       end
     rescue StandardError
@@ -263,8 +317,8 @@ module RpmsRpc
       false
     end
 
-    def self.write_capture_source(entry, raw, note_body: nil)
-      return "live-capture" if write_evidence?(entry, raw, note_body: note_body)
+    def self.write_capture_source(entry, raw, note_body: nil, note_ien: nil)
+      return "live-capture" if write_evidence?(entry, raw, note_body: note_body, note_ien: note_ien)
 
       nil
     rescue StandardError
@@ -292,6 +346,38 @@ module RpmsRpc
     class << self
       private
 
+      def loopback_refusal
+        "WRITES=1 is refused unless the broker host resolves to loopback addresses only"
+      end
+
+      def persona_refusal
+        "WRITES=1 is refused unless the sign-on is a synthetic persona"
+      end
+
+      def resolved_loopback?(host, resolver)
+        name = host.to_s.strip
+        return false if name.empty?
+
+        addresses = resolver ? resolver.call(name) : resolve_host_addresses(name)
+        list = addresses.is_a?(Array) ? addresses : Array(addresses)
+        return false if list.empty?
+
+        list.all? { |address| ip_loopback?(address) }
+      rescue StandardError
+        # Fail closed: an unresolved host is not a loopback broker.
+        false
+      end
+
+      def resolve_host_addresses(host)
+        Addrinfo.getaddrinfo(host.to_s, nil).map(&:ip_address)
+      end
+
+      def ip_loopback?(address)
+        IPAddr.new(address.to_s).loopback?
+      rescue IPAddr::InvalidAddressError, ArgumentError
+        false
+      end
+
       def require_write_api
         require_relative "../api/progress_note"
         require_relative "../api/e_signature"
@@ -308,13 +394,26 @@ module RpmsRpc
         result.is_a?(Hash) && result[:success] == true
       end
 
-      # Pass the reply's own IEN when it is a positive integer so update_text
-      # can accept TIUDA^PAGE^PAGES. Otherwise pass "1": invalid_id? would
-      # return before the API read the reply, and a "0^..." failure would
-      # never be judged.
-      def set_evidence?(rows)
+      def lock_evidence?(rows, note_ien)
+        replay(NoteWriteFlow::LOCK_RPC, rows) { ProgressNote.lock(evidence_id(note_ien)) } == true
+      end
+
+      def unlock_evidence?(rows, note_ien)
+        replay(NoteWriteFlow::UNLOCK_RPC, rows) { ProgressNote.unlock(evidence_id(note_ien)) } == true
+      end
+
+      # The API refuses a blank id before it reads the reply. SET must not
+      # use this placeholder: a nil note IEN has nothing to match against TIUDA.
+      def evidence_id(note_ien)
+        note_ien.nil? ? "1" : note_ien
+      end
+
+      def set_evidence?(rows, note_ien)
+        # Fail closed: a missing note IEN must not be treated as the reply's TIUDA.
+        return false if note_ien.nil?
+
         result = replay(NoteWriteFlow::SET_RPC, rows) do
-          ProgressNote.update_text(reply_ien(rows), "x")
+          ProgressNote.update_text(note_ien, "x")
         end
         result.is_a?(Hash) && result[:success] == true
       end
@@ -326,24 +425,51 @@ module RpmsRpc
         result.is_a?(Hash) && result[:success] == true
       end
 
-      def read_back_evidence?(rows, raw, note_body)
-        text = replay(NoteWriteFlow::GET_RPC, rows) { ProgressNote.fetch_text("1") }
+      def read_back_evidence?(rows, raw, note_body, note_ien)
+        text = replay(NoteWriteFlow::GET_RPC, rows) do
+          ProgressNote.fetch_text(evidence_id(note_ien))
+        end
         return false if text.nil? || text.to_s.empty?
 
-        first = note_body.to_s.split(/\r\n|\r|\n/, 2).first.to_s.strip
-        return false if first.empty?
+        body_lines = body_after_blank(raw)
+        return false if body_lines.nil?
+        return false if body_lines.any? { |line| line.bytesize > ProgressNote::WRAP_WIDTH }
 
-        # CIA row grammar: rows separate on \r\n, a bare \r, or \n. -1 keeps the blank line's slot.
-        lines = frame_payload(raw).split(/\r\n|\r|\n/, -1)
-        blank = lines.index("")
-        return false if blank.nil?
-
-        lines[(blank + 1)..].to_a.any? { |line| line.include?(first) }
+        note_lines_in_order?(body_lines, note_body)
       end
 
-      def reply_ien(rows)
-        piece = rows.first.to_s.split("^", 2).first.to_s
-        piece.match?(/\A[1-9]\d*\z/) ? piece : "1"
+      # CIA row grammar: rows separate on \r\n, a bare \r, or \n. -1 keeps blanks.
+      def body_after_blank(raw)
+        lines = frame_payload(raw).split(/\r\n|\r|\n/, -1)
+        blank = lines.index("")
+        return nil if blank.nil?
+
+        lines[(blank + 1)..] || []
+      end
+
+      # Body lines are joined with a space. Whitespace is then removed so a
+      # soft break (one space dropped) and a hard cut (a space inserted inside
+      # a token) both still show the note. Each NOTE_TEXT line must occur, in
+      # order. Every body line is also at most WRAP_WIDTH bytes.
+      def note_lines_in_order?(body_lines, note_body)
+        body = without_space(body_lines.join(" "))
+        cursor = 0
+        found = false
+        note_body.to_s.split(/\r\n|\r|\n/, -1).each do |line|
+          needle = without_space(line)
+          next if needle.empty?
+
+          at = body.index(needle, cursor)
+          return false if at.nil?
+
+          cursor = at + needle.length
+          found = true
+        end
+        found
+      end
+
+      def without_space(text)
+        text.to_s.gsub(/\s+/, "")
       end
 
       # Same frame strip as Fixture#rows, including the blank lines rows drops.

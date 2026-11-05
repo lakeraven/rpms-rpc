@@ -96,6 +96,19 @@ module RpmsRpc
          .any? { |row| row.match?(/\A-\d+(?:\.\d+)?\^/) }
     end
 
+    # Read catalog entries the driver may call. A write run calls none of
+    # them: the note flow is the only broker traffic on WRITES=1. writes
+    # false or nil is the live catalog, narrowed by ONLY, with CITE_ONLY left out.
+    def self.driver_read_entries(writes:, only:, cite_only:)
+      return [] if writes == true
+
+      entries = CATALOG.select(&:live?)
+      name = only.to_s.strip
+      entries = entries.select { |entry| entry.rpc == name } unless name.empty?
+      cited = Array(cite_only).map { |rpc| rpc.to_s.strip }
+      entries.reject { |entry| cited.include?(entry.rpc) }
+    end
+
     # Verdicts for a scratch capture against committed fixtures (rpms-ops#975),
     # one [rpc, verdict, committed source, captured source] row per RPC called
     # on either side. SAME: raw bytes identical. SAME-ROWS: the data rows
