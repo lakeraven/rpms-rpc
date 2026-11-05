@@ -369,6 +369,75 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
       code.scan(/part:\s*(["'])(.*?)\1/).all? { |(_, value)| value == "OTHER" }
     end
 
+    def live_eligibility_spec_test_method_body_lines(source)
+      lines = source.lines
+      bodies = []
+      i = 0
+      while i < lines.length
+        line = lines[i]
+        if line =~ /^\s*def test_/
+          def_indent = line[/^\s*/].length
+          i += 1
+          while i < lines.length
+            body_line = lines[i]
+            if body_line =~ /^\s*end\s*$/ && body_line[/^\s*/].length == def_indent
+              i += 1
+              break
+            end
+            bodies << body_line
+            i += 1
+          end
+        else
+          i += 1
+        end
+      end
+      bodies
+    end
+
+    LIVE_ELIGIBILITY_SPEC_SKIP_FAMILY_OR_OMIT_PENDING_CALL = /
+      ^\s*(?:omit|pending)\b
+      |
+      \b(?:omit|pending)\s*\(
+      |
+      \bskip[a-z0-9_]*\s*(?:\(|["']|:)
+      |
+      ^\s*skip\b
+      |
+      \bskip[a-z0-9_]*\s+\S
+    /x
+
+    TEST_METHOD_ESCAPE_HATCH_LINE = Regexp.new(
+      "^\\s*(?:return|next|break)\\b|#{LIVE_ELIGIBILITY_SPEC_SKIP_FAMILY_OR_OMIT_PENDING_CALL.source}",
+      Regexp::EXTENDED
+    )
+
+    def live_eligibility_spec_code_without_inline_comments(source)
+      live_eligibility_spec_non_comment_source(source).lines.map { |line| line.sub(/#.*$/, "") }.join
+    end
+
+    def live_eligibility_spec_skip_family_or_omit_pending_call_line?(line)
+      line.match?(LIVE_ELIGIBILITY_SPEC_SKIP_FAMILY_OR_OMIT_PENDING_CALL)
+    end
+
+    def live_eligibility_spec_whole_source_free_of_skip_family_calls?(source)
+      live_eligibility_spec_code_without_inline_comments(source).lines.none? do |line|
+        live_eligibility_spec_skip_family_or_omit_pending_call_line?(line)
+      end
+    end
+
+    def live_eligibility_spec_test_method_escape_hatch_line?(line)
+      return false if line.strip.start_with?("#")
+
+      sans_inline_comment = line.sub(/#.*$/, "")
+      sans_inline_comment.match?(TEST_METHOD_ESCAPE_HATCH_LINE)
+    end
+
+    def live_eligibility_spec_test_methods_free_of_escape_hatches?(source)
+      live_eligibility_spec_test_method_body_lines(source).none? do |line|
+        live_eligibility_spec_test_method_escape_hatch_line?(line)
+      end
+    end
+
     def tribal_tribes_fixture_catch_all_other?(path = File.join(RpmsRpc::WireCapture::FIXTURES_DIR, "tribal-tribes.yml"))
       return false unless File.file?(path)
 
@@ -389,7 +458,8 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     def live_eligibility_spec_covers_window_eligibility_attrs?(source = nil)
       source = source || File.read(LIVE_ELIGIBILITY_SPEC, encoding: Encoding::UTF_8)
       lines = source.lines
-      return false if source.match?(/^\s*skip\b/m) || source.match?(/\bskip\s+"|\bskip\s+'/)
+      return false unless live_eligibility_spec_test_methods_free_of_escape_hatches?(source)
+      return false unless live_eligibility_spec_whole_source_free_of_skip_family_calls?(source)
 
       def_line = lines.find { |l| l =~ /^\s*def test_/ }
       return false unless def_line && !def_line.strip.start_with?("#")
@@ -490,6 +560,45 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
 
     def live_eligibility_spec_mutant_tribes_part_not_other(source)
       source.sub(/Array\(RpmsRpc::Tribal\.tribes\)/, 'Array(RpmsRpc::Tribal.tribes(part: "ZZTRIBE"))')
+    end
+
+    def live_eligibility_spec_mutant_insert_first_line_in_first_test_method(source, insertion)
+      source.sub(/(^\s*def test_[^\n]+\n)/, "\\1#{insertion}\n")
+    end
+
+    def live_eligibility_spec_mutant_skip_tracked(source)
+      live_eligibility_spec_mutant_insert_first_line_in_first_test_method(
+        source,
+        '    skip_tracked("#1079", "seed gap")'
+      )
+    end
+
+    def live_eligibility_spec_mutant_skip_tracked_symbol(source)
+      live_eligibility_spec_mutant_insert_first_line_in_first_test_method(
+        source,
+        "    skip_tracked :seed_gap"
+      )
+    end
+
+    def live_eligibility_spec_mutant_skip_tracked_in_helper(source)
+      source.sub(
+        /(^\s*def classification_ien!\n)/,
+        "\\1    skip_tracked(\"#1079\", \"seed gap\")\n"
+      )
+    end
+
+    def live_eligibility_spec_mutant_early_return(source)
+      live_eligibility_spec_mutant_insert_first_line_in_first_test_method(
+        source,
+        '    return if ENV["LIVE_SKIP_ELIGIBILITY"]'
+      )
+    end
+
+    def live_eligibility_spec_mutant_bare_return(source)
+      live_eligibility_spec_mutant_insert_first_line_in_first_test_method(
+        source,
+        "    return"
+      )
     end
 
     def load_live_run_record
@@ -1573,6 +1682,46 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     mutant = self.class.live_eligibility_spec_mutant_tribes_part_not_other(source)
     refute self.class.live_eligibility_spec_covers_window_eligibility_attrs?(mutant),
            "Tribal.tribes(part: ...) other than OTHER must not pass part literal guard"
+  end
+
+  def test_live_eligibility_spec_guard_rejects_mutant_skip_tracked
+    source = File.read(LIVE_ELIGIBILITY_SPEC, encoding: Encoding::UTF_8)
+    mutant = self.class.live_eligibility_spec_mutant_skip_tracked(source)
+    refute_equal source, mutant, "skip_tracked mutant must alter the live spec source"
+    refute self.class.live_eligibility_spec_covers_window_eligibility_attrs?(mutant),
+           "skip_tracked in the live eligibility test must not pass the guard"
+  end
+
+  def test_live_eligibility_spec_guard_rejects_mutant_skip_tracked_symbol
+    source = File.read(LIVE_ELIGIBILITY_SPEC, encoding: Encoding::UTF_8)
+    mutant = self.class.live_eligibility_spec_mutant_skip_tracked_symbol(source)
+    refute_equal source, mutant, "skip_tracked :seed_gap mutant must alter the live spec source"
+    refute self.class.live_eligibility_spec_covers_window_eligibility_attrs?(mutant),
+           "skip_tracked :seed_gap in the live eligibility test must not pass the guard"
+  end
+
+  def test_live_eligibility_spec_guard_rejects_mutant_skip_tracked_in_helper
+    source = File.read(LIVE_ELIGIBILITY_SPEC, encoding: Encoding::UTF_8)
+    mutant = self.class.live_eligibility_spec_mutant_skip_tracked_in_helper(source)
+    refute_equal source, mutant, "skip_tracked in classification_ien! must alter the live spec source"
+    refute self.class.live_eligibility_spec_covers_window_eligibility_attrs?(mutant),
+           "skip_tracked inside classification_ien! must not pass the guard"
+  end
+
+  def test_live_eligibility_spec_guard_rejects_mutant_early_return
+    source = File.read(LIVE_ELIGIBILITY_SPEC, encoding: Encoding::UTF_8)
+    mutant = self.class.live_eligibility_spec_mutant_early_return(source)
+    refute_equal source, mutant, "early-return mutant must alter the live spec source"
+    refute self.class.live_eligibility_spec_covers_window_eligibility_attrs?(mutant),
+           "return if ENV[...] in the live eligibility test must not pass the guard"
+  end
+
+  def test_live_eligibility_spec_guard_rejects_mutant_bare_return
+    source = File.read(LIVE_ELIGIBILITY_SPEC, encoding: Encoding::UTF_8)
+    mutant = self.class.live_eligibility_spec_mutant_bare_return(source)
+    refute_equal source, mutant, "bare return mutant must alter the live spec source"
+    refute self.class.live_eligibility_spec_covers_window_eligibility_attrs?(mutant),
+           "bare return in the live eligibility test must not pass the guard"
   end
 
   def test_tribal_tribes_wire_fixture_uses_other_catch_all_only
