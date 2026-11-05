@@ -66,6 +66,23 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     "2^x^150373850,GET+1^ORWPT,%YDB-E-LVUNDEF"
   ].freeze
 
+  # Round-7 (#512): IRIS $ZERROR, bare LABEL+off^ROUTINE, %GTM-E — not YDB code-prefixed stacks.
+  IRIS_GTM_M_ERROR_LIVE_CAPTURE_ROWS = [
+    "<UNDEFINED>LIST+3^ORQQPL *DFN",
+    "<UNDEFINED>IDINFO+2^ORWPT *DFN",
+    "1^LIST+3^ORQQPL,Undefined local variable: DFN",
+    "%GTM-E-UNDEF, Undefined local variable: DFN^x",
+    # No LABEL+off^ROUTINE location and two real pieces: only the IRIS <NAME> rule rejects these.
+    "<UNDEFINED>^x^y",
+    "1^<SUBSCRIPT>^x"
+  ].freeze
+
+  # Round-7 (#512): empty piece 0 requires a positive integer in piece 1, not 0 or negative.
+  EMPTY_HEAD_NON_POSITIVE_PIECE_ONE_LIVE_CAPTURE_ROWS = [
+    "^-1^Invalid DFN",
+    "^0^x"
+  ].freeze
+
   # Omit "1^2^Application context denied": round-5 panel contrived it; live broker
   # failures are the single-piece reply in NON_RECORD_LIVE_CAPTURE_ROWS or a
   # \x01-framed "-N^…" line, and `rake wire:capture` drops both via non_data_row? /
@@ -227,14 +244,26 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       token.match?(/\A-?\d+\z/) && RpmsRpc::WireCapture::Evidence.real_value?(token)
     end
 
-    # M error text: %YDB-E, $ZSTATUS, or code,LABEL+off^ROUTINE anywhere in the row. Not a record.
+    # Positive integer token (1, 2, …). 0 and -N are integer tokens but not positive.
+    def positive_integer_token?(piece)
+      token = piece.to_s.strip
+      real_integer_token?(token) && token.to_i > 0
+    end
+
+    # M error text anywhere in the row is not a record: %YDB-E, %GTM-E, $ZSTATUS,
+    # code,LABEL+off^ROUTINE, a bare LABEL+off^ROUTINE location, or an IRIS <NAME>
+    # token at a piece start. A bare location needs a routine token of two or more
+    # characters, so a narrative ending in WORD+digits before a one-letter status
+    # piece (HIV+1^A^...) is not mistaken for one.
     def m_error_text?(text)
-      text.include?("%YDB-E") || text.include?("$ZSTATUS") ||
-        text.match?(/\d+,[A-Z0-9%]+\+\d+\^/)
+      text.include?("%YDB-E") || text.include?("%GTM-E") || text.include?("$ZSTATUS") ||
+        text.match?(/\d+,[A-Z0-9%]+\+\d+\^/) ||
+        text.match?(/[A-Z0-9%]+\+\d+\^[A-Z%][A-Z0-9%]+(?=[,\s^]|\z)/) ||
+        text.match?(/(\A|\^)<[A-Z]+>/)
     end
 
     # Record evidence needs a real key, no M error text, and two real pieces.
-    # Empty piece 0 is the ORWPT ID INFO shape only when piece 1 is an integer token (^2850505^...); a sentinel message is not.
+    # Empty piece 0 is the ORWPT ID INFO shape only when piece 1 is a positive integer token (^2850505^...); 0, -N, and a sentinel message are not.
     def record_row?(row)
       text = row.to_s
       return false if m_error_text?(text)
@@ -242,7 +271,7 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       pieces = text.split("^", -1)
       head = pieces[0].to_s.strip
       return false if real_integer_token?(head) && head.to_i <= 0
-      return false if head.empty? && !real_integer_token?(pieces[1])
+      return false if head.empty? && !positive_integer_token?(pieces[1])
 
       pieces.count { |piece| RpmsRpc::WireCapture::Evidence.real_value?(piece.to_s.strip) } >= 2
     end
