@@ -364,6 +364,70 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
                  "bin/wire_capture_driver.rb must select read captures via driver_read_entries")
   end
 
+  def test_write_connect_host_returns_resolved_loopback_or_nil
+    assert RpmsRpc::WireCapture.respond_to?(:write_connect_host),
+           "WireCapture.write_connect_host missing (#564)"
+    assert_equal "127.0.0.1",
+                 RpmsRpc::WireCapture.write_connect_host(
+                   host: "broker.example",
+                   resolver: ->(_name) { [ "127.0.0.1" ] }
+                 )
+    assert_nil RpmsRpc::WireCapture.write_connect_host(
+      host: "broker.example",
+      resolver: ->(_name) { [ "10.0.0.5" ] }
+    )
+  end
+
+  def test_wire_capture_driver_connects_via_write_connect_host_not_raw_name
+    path = File.expand_path("../../bin/wire_capture_driver.rb", __dir__)
+    src = File.binread(path).force_encoding(Encoding::UTF_8)
+    assert_match(/\bwrite_connect_host\b/, src,
+                 "bin/wire_capture_driver.rb must resolve the broker via write_connect_host")
+    refute_match(/RpmsRpc::CiaClient\.new\(\s*host:\s*host\b/, src,
+                 "CiaClient must receive write_connect_host's resolved address, not the raw BROKER_HOST name")
+  end
+
+  def test_fixture_entries_returns_write_catalog_only_when_writes_enabled
+    assert RpmsRpc::WireCapture.respond_to?(:fixture_entries),
+           "WireCapture.fixture_entries missing (#564)"
+    write_rpcs = RpmsRpc::WireCapture::CATALOG.select(&:write?).map(&:rpc).sort
+    got = RpmsRpc::WireCapture.fixture_entries(writes: true, only: nil).map(&:rpc).sort
+    assert_equal write_rpcs, got
+    refute_includes got, "ORQQVI VITALS"
+  end
+
+  def test_fixture_entries_returns_read_and_routine_cite_catalog_when_not_writing
+    expected = RpmsRpc::WireCapture::CATALOG.reject(&:write?).map(&:rpc).sort
+    got = RpmsRpc::WireCapture.fixture_entries(writes: false, only: nil).map(&:rpc).sort
+    assert_equal expected, got
+    refute_includes got, "TIU CREATE RECORD"
+    assert_includes got, "ORWPT CWAD"
+    assert_includes got, "ORQQVI VITALS"
+  end
+
+  def test_fixture_entries_honors_only_when_narrowing_read_catalog
+    only_rpc = "ORQQVI VITALS"
+    got = RpmsRpc::WireCapture.fixture_entries(writes: false, only: only_rpc)
+    assert_equal [ only_rpc ], got.map(&:rpc)
+  end
+
+  def test_fixture_entries_treats_blank_only_as_unset
+    full = RpmsRpc::WireCapture.fixture_entries(writes: false, only: nil).map(&:rpc).sort
+    [ "", " ", "  " ].each do |blank|
+      got = RpmsRpc::WireCapture.fixture_entries(writes: false, only: blank).map(&:rpc).sort
+      assert_equal full, got, "only #{blank.inspect} must behave like unset"
+    end
+  end
+
+  def test_wire_rake_fixture_loop_uses_fixture_entries
+    path = File.expand_path("../../lib/tasks/wire.rake", __dir__)
+    src = File.binread(path).force_encoding(Encoding::UTF_8)
+    assert_match(/\bfixture_entries\b/, src,
+                 "lib/tasks/wire.rake must iterate catalog entries via fixture_entries")
+    refute_match(/WireCapture::CATALOG\.each\b/, src,
+                 "wire.rake must not iterate the full catalog directly for fixture writes")
+  end
+
   ESIG_SYNTHETIC = "synthetic-esig-77"
 
   def wrapped_read_back_payload(note_ien)

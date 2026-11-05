@@ -374,7 +374,8 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     "CONTAINER" => nil,
     "BROKER_HOST" => nil,
     "WRITES" => nil,
-    "CITE_ONLY" => nil
+    "CITE_ONLY" => nil,
+    "ONLY" => nil
   }.freeze
 
   def run_wire_capture_rake(env, timeout_s: nil)
@@ -629,6 +630,36 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     refute_includes long_refusal, too_long
   end
 
+  def test_write_refusal_rejects_esig_with_leading_or_trailing_whitespace
+    esig_ok = "abcdef"
+    assert_equal 6, esig_ok.length
+    padded = "  #{esig_ok}  "
+    refusal = write_refusal(**write_refusal_ok_kwargs, esig: padded)
+    refute_nil refusal,
+               "esig with surrounding whitespace must be refused (field 20.4 stores the exact code, not strip)"
+    refute_includes refusal, esig_ok
+    refute_includes refusal, padded.strip
+    refute_includes refusal, " "
+  end
+
+  def test_normalize_only_treats_blank_values_as_unset
+    assert RpmsRpc::WireCapture.respond_to?(:normalize_only),
+           "WireCapture.normalize_only missing (blank ONLY must not filter every catalog entry)"
+    assert_nil RpmsRpc::WireCapture.normalize_only(nil)
+    assert_nil RpmsRpc::WireCapture.normalize_only("")
+    assert_nil RpmsRpc::WireCapture.normalize_only(" ")
+    assert_nil RpmsRpc::WireCapture.normalize_only("  \t  ")
+    assert_equal "ORQQVI VITALS", RpmsRpc::WireCapture.normalize_only("ORQQVI VITALS")
+    assert_equal "ORQQVI VITALS", RpmsRpc::WireCapture.normalize_only("  ORQQVI VITALS  ")
+  end
+
+  def test_wire_rake_fixture_loop_uses_normalize_only
+    path = File.expand_path("../../lib/tasks/wire.rake", __dir__)
+    src = File.binread(path).force_encoding(Encoding::UTF_8)
+    assert_match(/\bnormalize_only\b/, src,
+                 "lib/tasks/wire.rake must normalize ONLY before the catalog fixture loop")
+  end
+
   def test_write_capture_source_labels_live_capture_or_skips_write_entries
     assert RpmsRpc::WireCapture.respond_to?(:write_capture_source),
            "RpmsRpc::WireCapture.write_capture_source missing"
@@ -695,6 +726,27 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
       assert_equal "routine-cite", data["source"]
       refute data.key?("raw_return"), "routine-cite sign fixture must not claim raw_return"
       refute data.key?("signed_on_as"), "routine-cite sign fixture must not carry signed_on_as"
+    end
+  end
+
+  def test_wire_capture_rake_whitespace_only_writes_routine_cite_fixtures_like_unset_only
+    entry = catalog_entry!("TIU SIGN RECORD")
+
+    Dir.mktmpdir do |dir|
+      env = {
+        "WIRE_FIXTURES_DIR" => dir,
+        "ONLY" => " ",
+        "RELEASE" => PINNED_RELEASE
+      }
+      out, err, status = run_wire_capture_rake(env)
+      assert status.success?,
+             "wire:capture with ONLY=' ' must succeed like unset ONLY (no broker, routine-cite only):\n#{out}\n#{err}"
+
+      path = File.join(dir, File.basename(self.class.fixture_path_for(entry.rpc)))
+      assert File.file?(path),
+             "ONLY=' ' must not skip every catalog entry; expected routine-cite sign fixture at #{path}"
+      data = YAML.safe_load_file(path)
+      assert_equal "routine-cite", data["source"]
     end
   end
 
