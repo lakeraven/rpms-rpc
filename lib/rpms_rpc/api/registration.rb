@@ -988,23 +988,27 @@ module RpmsRpc
     end
 
     # DDR LISTER of #9000001.41 under CIAV VUECENTRIC, after AG has reported
-    # the HRN write. nil when some entry's .02 equals the HRN just filed.
-    # An empty multiple, a different number, a nil reply, an error reply, or
-    # RpcError all fail closed. The message is fixed text: it names no HRN,
-    # name, DOB, or SSN.
+    # the HRN write. Fields are "@;.02" (suppress .01, so piece 0 is .02
+    # under every DDR version). nil when some entry's .02 equals the HRN
+    # just filed. An empty multiple or a different number fails closed.
+    # A nil reply, an error reply, RpcError, ConnectionError (TimeoutError
+    # is a subclass), or ParseError returns hrn_file_failed(dfn,
+    # HRN_UNREADABLE). AG has already created the chart, so the caller gets
+    # the DFN back instead of an exception. The rescue wraps this read-back
+    # only. The message is fixed text: it names no HRN, name, DOB, or SSN.
     def confirm_hrn_filed(dfn, hrn)
       listing = read_hrn_multiple(dfn)
       return hrn_file_failed(dfn, HRN_UNREADABLE) if listing.nil? || listing[:error]
       return if hrn_multiple_includes?(listing, hrn)
 
       hrn_file_failed(dfn, HRN_NOT_ON_MULTIPLE)
-    rescue Client::RpcError
+    rescue Client::RpcError, Client::ConnectionError, Client::ParseError
       hrn_file_failed(dfn, HRN_UNREADABLE)
     end
 
     def read_hrn_multiple(dfn)
       in_context do
-        DdrFileman.lister(file: HEALTH_RECORD_MULTIPLE, iens: ",#{dfn},", fields: ".02", flags: "IP")
+        DdrFileman.lister(file: HEALTH_RECORD_MULTIPLE, iens: ",#{dfn},", fields: "@;.02", flags: "IP")
       end
     end
 

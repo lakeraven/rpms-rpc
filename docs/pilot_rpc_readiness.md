@@ -39,7 +39,7 @@ ORQQVI VITALS | partial | mapped qualifiers is nil on all four vitals (PU 82, BP
 # Free-text find (Patient.lookup "USER,TEST") returns the header only as PROV123 and
 # finds DFN 2 as SYS123; HRN find (123456) and the possible-match name branch work as
 # PROV123. COMM and MOMDN columns come only when ^AGFAC(DUZ(2),0) piece 11 is Y
-# (AGGPTLKP.m:175), so they are absent for PROV123's missing division.
+# AND ALL=1 (AGGPTLKP.m:175, 207), so they are absent for PROV123's missing division.
 
 AGG LOOKUP PATIENTS | partial | live possible-match capture signed on as PROV123 returned DFN 2 (USER,TEST, HRN 123456-DIC, DOB MAY 5,1985, sens NO, inactive N); ssn, dod and alias are blank for that seed patient, and community and mothers_maiden_name are not sent without an ^AGFAC entry for PROV123's division; free-text name find returns no rows as PROV123 (seed-data gap) | unproven: alias, community, dod, mothers_maiden_name, ssn_raw
 AGG ADD NEW PATIENT | not-proven | creates the chart as PROV123, but a given HRN riding the create was not on #9000001.41 afterwards (PROV123's division is a missing INSTITUTION); register now fails closed with :hrn_file_failed; live-proven as SYS123 only | unproven: hrn
