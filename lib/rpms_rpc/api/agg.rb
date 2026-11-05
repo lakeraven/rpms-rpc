@@ -370,8 +370,8 @@ module RpmsRpc
     # (year-1700)*10000 + month*100 + day. DATE^AGGUL1 runs the same
     # %DT="TS" ^%DT and leaves a value with no ":" unchanged
     # (AGGUL1.m:28-34), so the reply is what PARS will file. The wire
-    # PARMS carry AGGLNDTC once: the caller's, or one appended when the
-    # caller left it out. A blank caller entry is dropped. The caller's
+    # PARMS carry AGGLNDTC once, first: the caller's, or one added when the
+    # caller left it out (PARS stops after BMXSEC, AGGPTNAM.m:112). A blank caller entry is dropped. The caller's
     # hash is not changed. A refusal here sends no LEGL.
     #
     # Only that day D is checked. After the date is verified and before
@@ -760,13 +760,23 @@ module RpmsRpc
     # Blank-RIEN add: verify one absolute day, hold the B-node lock across
     # the reads, LEGL, and the post-check, then unlock once.
     def legal_name_blank_add(client, dfn_text, params)
-      dated = legal_name_add_date(params, client)
-      return dated if dated.is_a?(Hash)
+      legal_name_on_wire(client) do
+        dated = legal_name_add_date(params, client)
+        next dated if dated.is_a?(Hash)
 
-      day, wire_params = dated
-      legal_name_with_b_lock(client, day) do
-        legal_name_file_blank_add(client, dfn_text, wire_params, day)
+        day, wire_params = dated
+        legal_name_with_b_lock(client, day) do
+          legal_name_file_blank_add(client, dfn_text, wire_params, day)
+        end
       end
+    end
+
+    # Date proof, lock, reads, LEGL, post-check and unlock run under one outer
+    # synchronize_wire so no other thread's RPC interleaves with them.
+    def legal_name_on_wire(client, &block)
+      return block.call unless client.respond_to?(:synchronize_wire)
+
+      client.synchronize_wire(&block)
     end
 
     # The MM/DD/YYYY PARS will file, proved by ORWU DT "TS", and the PARMS
@@ -864,16 +874,19 @@ module RpmsRpc
       expected
     end
 
-    # A new hash. A non-blank caller AGGLNDTC stays where the caller put
-    # it. A blank one is dropped and the verified date is appended.
+    # A new hash with AGGLNDTC first. PARS quits after every entry once
+    # BMXSEC is set (AGGPTNAM.m:112) and LEGL never NEWs AGGLNDTC, so a
+    # stale BMXSEC would otherwise leave it unset and ^DIC would run on DT.
+    # The caller's non-blank value is kept; a blank one is dropped and the
+    # verified date is used. The caller's hash is not changed.
     def legal_name_filing_params(params, mmdd)
-      filed = {}
+      supplied = legal_name_supplied_agglndtc(params)
+      filed = { "AGGLNDTC" => supplied || mmdd }
       params.each do |name, value|
-        next if name.to_s == "AGGLNDTC" && value.to_s.empty?
+        next if name.to_s == "AGGLNDTC"
 
         filed[name] = value
       end
-      filed["AGGLNDTC"] = mmdd unless filed.any? { |name, _value| name.to_s == "AGGLNDTC" }
       filed
     end
 
@@ -932,7 +945,7 @@ module RpmsRpc
           call_array(client, UPDATE_LEGAL_NAMES_RPC, dfn_text, "A", "", encode_parms(wire_params))
         )
       end
-      legal_name_blank_add_postcheck(client, dfn_text, result, prior_max)
+      legal_name_blank_add_postcheck(client, dfn_text, result, prior_max, day)
     end
 
     def legal_name_b_index_refusal(client, day)
@@ -1016,7 +1029,8 @@ module RpmsRpc
       reply.include?("[BEGIN_diDATA]") && !reply.include?("[END_diDATA]")
     end
 
-    def legal_name_blank_add_postcheck(client, dfn_text, result, prior_max)
+    def legal_name_blank_add_postcheck(client, dfn_text, result, prior_max, day)
+      return legal_name_unverified_write("LEGL gave no reply; the add may have been filed") if result.nil?
       return result unless result.is_a?(Hash) && result[:success]
       return legal_name_unverified_write("LEGL succeeded without a file 9000033 RIEN") unless result.key?(:ien)
 
@@ -1031,10 +1045,15 @@ module RpmsRpc
         }
       end
 
-      stored = legal_name_patient(client, ien.to_s)
-      if stored == :unverified
-        return { success: false, error: :legal_name_unverified, ien: ien, written: true,
-                 message: "file 9000033 IEN #{ien} .02 did not verify" }
+      checked = legal_name_post_read(client, ien)
+      return checked if checked.is_a?(Hash)
+
+      date, stored = checked
+      if date != day.to_s
+        return {
+          success: false, error: :legal_name_date_mismatch, ien: ien, written: true,
+          message: "file 9000033 IEN #{ien} .01 is #{date}, not the checked day #{day}"
+        }
       end
       return { success: true, ien: ien } if stored == dfn_text
 
@@ -1045,6 +1064,31 @@ module RpmsRpc
         written: true,
         message: "file 9000033 IEN #{ien} .02 is not DFN #{dfn_text}"
       }
+    end
+
+    # [date, patient] from one GETS of .01;.02 flags "I" under the add's
+    # context, or an :legal_name_unverified, written: true refusal when the
+    # read errors, is missing a field, or is not shaped. Never raises.
+    def legal_name_post_read(client, ien)
+      raw = legal_name_call(
+        client,
+        DataMapper[:ddr_gets_entry_data].rpc_name,
+        DdrFileman.gets_entry_param(file: LEGAL_NAME_FILE, iens: "#{ien},", fields: ".01;.02", flags: "I")
+      )
+      read = DdrFileman.parse_gets_reply(raw)
+      if read.nil? || read[:error] || read[:malformed]
+        return legal_name_unverified_write("file 9000033 IEN #{ien} .01;.02 did not verify").merge(ien: ien)
+      end
+
+      date = read.dig(:fields, ".01", :internal).to_s.strip
+      patient = read.dig(:fields, ".02", :internal).to_s.strip
+      if date.empty? || patient.empty?
+        return legal_name_unverified_write("file 9000033 IEN #{ien} .01;.02 did not verify").merge(ien: ien)
+      end
+
+      [ date[0, 7], patient ]
+    rescue RpmsRpc::Client::RpcError
+      legal_name_unverified_write("file 9000033 IEN #{ien} .01;.02 read failed").merge(ien: ien)
     end
 
     def legal_name_unverified_write(message)
