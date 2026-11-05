@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "yaml"
 require "rpms_rpc"
 require "rpms_rpc/wire_capture"
+require "rpms_rpc/retry_safety"
 require "rpms_rpc/api/encounter"
 require_relative "pilot_chart_reads_test"
 
@@ -239,6 +240,35 @@ class RpmsRpc::PilotVisitEncounterTest < Minitest::Test
     assert_equal [ { component: "E&M", message: "Visit has no note" } ], result[:missing_components]
   ensure
     RpmsRpc.reset!
+  end
+
+  # Intent: an empty CHKVISIT reply never reads as a complete visit (BEHOXQPC absent quits with no rows).
+  def test_open_with_empty_chkvisit_reply_leaves_missing_components_unestablished
+    getvisit = load_slice_fixture(VISIT_ENCOUNTER_SLICE[0])
+    fetch = load_slice_fixture(VISIT_ENCOUNTER_SLICE[1])
+
+    client = VisitEncounterProbeClient.new(
+      getvisit.captured_data_rows,
+      fetch.captured_data_rows,
+      []
+    )
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    result = RpmsRpc::Encounter.open(2, 1)
+    refute_nil result, "Encounter.open(2, 1) should hydrate from GETVISIT and FETCH"
+    assert_equal 1, result[:visit_ien]
+    assert_equal 2, result[:patient_dfn]
+    assert_nil result[:missing_components]
+  ensure
+    RpmsRpc.reset!
+  end
+
+  # Intent: retry_safety defines read as no FileMan file; CHKVISIT can file an alert via
+  # SEND^BEHOXQPC -> ENTRY^XQALGUI (BEHOXQPC.m:64-74), whose "-4 Notification exists" dedupe
+  # lasts only until the alert is processed or deleted.
+  def test_encounter_open_is_non_idempotent_write_in_retry_safety_yml
+    assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(RpmsRpc::Encounter, :open)
+    refute RpmsRpc::RetrySafety.auto_retry_safe?(RpmsRpc::Encounter, :open)
   end
 
   # Intent: checklist rows for read RPCs match fixture-derived status and unproven lists.

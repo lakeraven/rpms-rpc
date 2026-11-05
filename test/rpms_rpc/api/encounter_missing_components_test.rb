@@ -10,11 +10,14 @@ class EncounterMissingComponentsTest < Minitest::Test
   VISIT_IEN = 1
   DFN = 2
 
-  SATISFIED_MESSAGES = [
-    "Visit has POV",
-    "Visit has E&M code",
-    "E&M code not required.",
-    "Provider does not require E&M code"
+  POV_SATISFIED = "Visit has POV"
+  EM_SATISFIED = "Visit has E&M code"
+
+  SATISFIED_ROWS = [
+    [ "POV", POV_SATISFIED ],
+    [ "E&M", EM_SATISFIED ],
+    [ "E&M", "E&M code not required." ],
+    [ "E&M", "Provider does not require E&M code" ]
   ].freeze
 
   MISSING_MESSAGES = [
@@ -56,41 +59,113 @@ class EncounterMissingComponentsTest < Minitest::Test
     RpmsRpc.reset!
   end
 
-  def missing_components_for(rows)
-    RpmsRpc.client.seed_keyed_collection(:encounter_chkvisit, VISIT_IEN.to_s, rows)
-    RpmsRpc::Encounter.open(DFN, VISIT_IEN)[:missing_components]
+  def open_encounter(chkvisit_rows)
+    RpmsRpc.client.seed_keyed_collection(:encounter_chkvisit, VISIT_IEN.to_s, chkvisit_rows)
+    RpmsRpc::Encounter.open(DFN, VISIT_IEN)
   end
 
-  SATISFIED_MESSAGES.each do |message|
+  def missing_components_for(rows)
+    open_encounter(rows)[:missing_components]
+  end
+
+  def satisfied_row_for(component)
+    case component
+    when "POV" then { component: "POV", message: POV_SATISFIED }
+    when "E&M" then { component: "E&M", message: EM_SATISFIED }
+    else
+      raise ArgumentError, "no satisfied pairing for #{component.inspect}"
+    end
+  end
+
+  def with_both_components_present(*rows)
+    pov = rows.find { |r| r[:component] == "POV" }
+    em = rows.find { |r| r[:component] == "E&M" }
+    out = rows.dup
+    out << satisfied_row_for("POV") unless pov
+    out << satisfied_row_for("E&M") unless em
+    out
+  end
+
+  SATISFIED_ROWS.each do |component, message|
     define_method(:"test_drops_satisfied_message_#{message.gsub(/\W+/, '_')}") do
-      list = missing_components_for([ { component: "POV", message: message } ])
+      row = { component: component, message: message }
+      other = satisfied_row_for(component == "POV" ? "E&M" : "POV")
+      list = missing_components_for([ row, other ])
       assert_empty list, "satisfied message #{message.inspect} must be dropped"
     end
   end
 
   def test_drops_satisfied_message_with_surrounding_whitespace
-    list = missing_components_for([ { component: "POV", message: " Visit has POV " } ])
+    list = missing_components_for([
+      { component: "POV", message: " Visit has POV " },
+      satisfied_row_for("E&M")
+    ])
     assert_empty list
+  end
+
+  def test_both_components_satisfied_yields_empty_missing_components
+    list = missing_components_for([
+      satisfied_row_for("POV"),
+      satisfied_row_for("E&M")
+    ])
+    assert_empty list
+  end
+
+  def test_missing_components_nil_when_chkvisit_empty
+    result = open_encounter([])
+    refute_nil result
+    assert_equal VISIT_IEN, result[:visit_ien]
+    assert_equal DFN, result[:patient_dfn]
+    assert_nil result[:missing_components]
+  end
+
+  def test_missing_components_nil_when_only_pov_row
+    result = open_encounter([ { component: "POV", message: "Visit has POV pending" } ])
+    refute_nil result
+    assert_nil result[:missing_components]
+  end
+
+  def test_missing_components_nil_when_only_em_row
+    result = open_encounter([ { component: "E&M", message: "Visit has no note" } ])
+    refute_nil result
+    assert_nil result[:missing_components]
+  end
+
+  def test_keeps_cross_component_satisfied_text_on_pov_row
+    list = missing_components_for(with_both_components_present(
+      { component: "POV", message: "Visit has E&M code" }
+    ))
+    assert_equal [ { component: "POV", message: "Visit has E&M code" } ], list
+  end
+
+  def test_keeps_cross_component_satisfied_text_on_em_row
+    list = missing_components_for(with_both_components_present(
+      { component: "E&M", message: "Visit has POV" }
+    ))
+    assert_equal [ { component: "E&M", message: "Visit has POV" } ], list
   end
 
   MISSING_MESSAGES.each do |message|
     define_method(:"test_keeps_missing_message_#{message.gsub(/\W+/, '_')}") do
-      list = missing_components_for([ { component: "NOTIF", message: message } ])
-      assert_equal [ { component: "NOTIF", message: message } ], list
+      row = { component: "NOTIF", message: message }
+      list = missing_components_for(with_both_components_present(row))
+      assert_equal [ row ], list
     end
   end
 
   NOT_CHECKED_MESSAGES.each do |message|
     define_method(:"test_keeps_not_checked_message_#{message.gsub(/\W+/, '_')}") do
       component = message == "Visit has no note" ? "E&M" : "POV"
-      list = missing_components_for([ { component: component, message: message } ])
-      assert_equal [ { component: component, message: message } ], list
+      row = { component: component, message: message }
+      list = missing_components_for(with_both_components_present(row))
+      assert_equal [ row ], list
     end
   end
 
   def test_keeps_unrecognised_message_fail_closed
-    list = missing_components_for([ { component: "X", message: "Something new" } ])
-    assert_equal [ { component: "X", message: "Something new" } ], list
+    row = { component: "X", message: "Something new" }
+    list = missing_components_for(with_both_components_present(row))
+    assert_equal [ row ], list
   end
 
   def test_live_mix_keeps_only_em_row
@@ -102,7 +177,9 @@ class EncounterMissingComponentsTest < Minitest::Test
   end
 
   def test_keeps_lookalike_that_is_not_exact_satisfied_text
-    list = missing_components_for([ { component: "POV", message: "Visit has POV pending" } ])
+    list = missing_components_for(with_both_components_present(
+      { component: "POV", message: "Visit has POV pending" }
+    ))
     assert_equal [ { component: "POV", message: "Visit has POV pending" } ], list
   end
 end
