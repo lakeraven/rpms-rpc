@@ -42,7 +42,7 @@ module OpenApi
       "Measurement" => { path: "measurements" },
       "Medication" => { path: "medications" },
       "NoteTemplate" => { path: "note-templates" },
-      "Notifications" => { path: "notifications" },
+      "Notifications" => { path: "notifications", own: %w[alert_id] },
       "Order" => { path: "orders" },
       "Organization" => { path: "organizations" },
       "Patient" => { path: "patients", own: %w[dfn patient_dfn] },
@@ -194,7 +194,7 @@ module OpenApi
 
       # Identifier params: required positional ones, and required keywords; a user is one only as the first argument.
       ids = params.each_with_index.select do |p, i|
-        %w[req keyreq].include?(p["kind"]) && id_name?(p["name"]) && !(%w[duz user_duz].include?(p["name"]) && i.positive?)
+        %w[req keyreq].include?(p["kind"]) && (id_name?(p["name"]) || own.include?(p["name"])) && !(%w[duz user_duz].include?(p["name"]) && i.positive?)
       end.map(&:first)
       collection_of = lambda do |p|
         next { coll: last, own: true, words: [] } if own.include?(p["name"])

@@ -42,6 +42,18 @@ module RpmsRpc
     # denied under CIANB MAIN MENU and answered under CIAV VUECENTRIC.
     SIGNON_CONTEXT = "CIAV VUECENTRIC"
 
+    # The UCI (namespace) the connect asks the broker to run in: empty, which
+    # means "the namespace you are already in". ACTC^CIANBACT reads it as
+    # UCI=$G(CIA("UCI"),Y) and an empty one becomes Y, the listener's own UCI
+    # from UCI^%ZOSV (CIANBACT.m:9-11), so it never reaches the UCICHECK that
+    # validates a named one (CIANBACT.m:12). That answers on every engine: a
+    # broker listens in the namespace RPMS is installed in. A named UCI is
+    # checked and switched to, and one the engine does not know closes the
+    # connect (rpms-rpc#572: "VEH,EXTERNAL", the old default, on a broker whose
+    # namespace is RPMS). Set RPMS_UCI only to run in a namespace other than
+    # the broker's own.
+    DEFAULT_UCI = ""
+
     def default_port = 9100
 
     # Open the socket and perform the {CIA} connect handshake.
@@ -53,10 +65,25 @@ module RpmsRpc
         @seq = 0
         @session_uid = nil
         reset_context # a new session starts on whatever sign-on binds
-        @uci = ENV.fetch("RPMS_UCI", "VEH,EXTERNAL")
-        reply = exchange("C", pk("VER"), pk(""), pk("2.0"),
-          pk("LP"), pk(""), pk(port.to_s),
-          pk("UCI"), pk(""), pk(@uci), require_connection: false)
+        @uci = ENV.fetch("RPMS_UCI", DEFAULT_UCI)
+        reply = begin
+          exchange("C", pk("VER"), pk(""), pk("2.0"),
+            pk("LP"), pk(""), pk(port.to_s),
+            pk("UCI"), pk(""), pk(@uci), require_connection: false)
+        rescue TimeoutError
+          raise
+        rescue ConnectionError => e
+          # The broker hanging up on the connect frame is what an unknown UCI
+          # looks like from here; say so, or the caller is left reading socket code.
+          hint = if ENV.key?("RPMS_UCI")
+            "check the UCI: RPMS_UCI=#{@uci.inspect} must name the broker's namespace, or be unset to use the broker's own"
+          else
+            "UCI: the broker's own namespace"
+          end
+          # The hint is not sanitized: the UCI is the operator's own setting, and
+          # "VEH,EXTERNAL" has the shape of a patient name to the PHI filter.
+          raise ConnectionError, "CIA broker closed the connect (#{RpmsRpc.sanitize_error(e.message)}); #{hint}"
+        end
         raise ConnectionError, RpmsRpc.sanitize_error("CIA broker did not answer connect") if reply.empty?
 
         @connected = true

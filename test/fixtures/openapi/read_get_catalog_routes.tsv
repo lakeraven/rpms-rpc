@@ -55,6 +55,7 @@ RpmsRpc::NoteTemplate.boilerplate	GET /note-templates/{template_ien}/boilerplate
 RpmsRpc::NoteTemplate.items	GET /note-templates/{template_ien}/items
 RpmsRpc::NoteTemplate.roots	GET /users/{user_duz}/note-templates/roots
 RpmsRpc::NoteTemplate.text	GET /patients/{dfn}/note-templates/text
+RpmsRpc::Notifications.message	GET /notifications/{alert_id}/message
 RpmsRpc::Order.action_text	GET /orders/{order_ien}/action-text
 RpmsRpc::Order.all_sheets	GET /orders/all-sheets
 RpmsRpc::Order.expired_search_start	GET /orders/expired-search-start
@@ -67,6 +68,8 @@ RpmsRpc::Patient.find	GET /patients/{dfn}
 RpmsRpc::Patient.find_by_ssn	GET /patients/by-ssn
 RpmsRpc::Patient.lookup	GET /patients/lookup
 RpmsRpc::Patient.search	GET /patients
+RpmsRpc::PatientApplication.for_patient	GET /patients/{dfn}/patient-applications
+RpmsRpc::PatientApplication.types	GET /patient-applications/types
 RpmsRpc::PatientProfile.aliases	GET /patients/{dfn}/patient-profiles/aliases
 RpmsRpc::PatientProfile.contacts	GET /patients/{dfn}/patient-profiles/contacts
 RpmsRpc::PatientProfile.language_lookup	GET /patient-profiles/language-lookup
@@ -93,8 +96,14 @@ RpmsRpc::Procedure.for_patient	GET /patients/{dfn}/procedures
 RpmsRpc::ProgressNote.authorize	GET /progress-notes/{note_ien}/authorize
 RpmsRpc::ProgressNote.fetch_text	GET /progress-notes/{note_ien}/text
 RpmsRpc::ProgressNote.list	GET /patients/{dfn}/progress-notes
+RpmsRpc::Referral.pending	GET /referrals/pending
+RpmsRpc::Registration.address_history	GET /patients/{dfn}/registrations/address-history
+RpmsRpc::Registration.cell_phone	GET /patients/{dfn}/registrations/cell-phone
 RpmsRpc::Registration.mbis	GET /patients/{dfn}/registrations/mbis
 RpmsRpc::Registration.pick_list	GET /registrations/pick-list
+RpmsRpc::Registration.preferred_name	GET /patients/{dfn}/registrations/preferred-name
+RpmsRpc::Registration.race_ethnicity	GET /patients/{dfn}/registrations/race-ethnicity
+RpmsRpc::Registration.race_ethnicity_choices	GET /registrations/race-ethnicity-choices
 RpmsRpc::Reminders.applicable	GET /patients/{dfn}/reminders/applicable
 RpmsRpc::Scheduling.patient_appointments	GET /patients/{dfn}/appointments
 RpmsRpc::Scheduling.resources	GET /appointments/resources

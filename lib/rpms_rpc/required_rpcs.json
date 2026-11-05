@@ -199,7 +199,10 @@
       "TIU TEMPLATE GETTEXT"
     ],
     "RpmsRpc::Notifications": [
-      "BQI GET COMM ALERTS SPLASH"
+      "BEHOXQ ALRLIST",
+      "BEHOXQ ALRMSG",
+      "BEHOXQ ALRPP",
+      "BEHOXQ FORWARD"
     ],
     "RpmsRpc::Order": [
       "ORWDX SAVE",
@@ -233,6 +236,13 @@
       "ORWPT ID INFO",
       "ORWPT LIST ALL",
       "ORWPT SELECT"
+    ],
+    "RpmsRpc::PatientApplication": [
+      "AGG LOCK PATIENT",
+      "AGG UNLOCK PATIENT",
+      "DDR FILER",
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
     ],
     "RpmsRpc::PatientProfile": [
       "AGG BUILD WINDOW DISPLAY",
