@@ -200,9 +200,13 @@ module RpmsRpc
       fields.dig(field, :internal)
     end
 
+    # Pointer internal from DDR GETS, as a positive Integer. Blank, "0", and
+    # any other non-digit fail closed: " ".to_i and "0".to_i are both 0, and
+    # a zero IEN is not a file entry.
     def internal_ien(fields, field)
-      value = internal(fields, field)
-      value.nil? || value.empty? ? nil : value.to_i
+      text = internal(fields, field).to_s.strip
+      ien = text.to_i
+      text.match?(/\A\d+\z/) && ien.positive? ? ien : nil
     end
   end
 end

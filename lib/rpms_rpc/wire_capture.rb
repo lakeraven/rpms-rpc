@@ -61,12 +61,22 @@ module RpmsRpc
       # Absent, the name stays the RPC slug, so existing entries keep their files.
       def fixture_name = fixture || rpc.downcase.tr(" /", "--")
 
-      # ONLY= and CITE_ONLY= match either the RPC name or the fixture name.
+      # ONLY= matches the RPC name or the fixture name. CITE_ONLY= does not:
+      # a shared RPC name would cite every fixture that calls it. See cite_only?.
       def named?(name) = name == rpc || name == fixture_name
     end
 
     def self.fixture_path(entry)
       File.join(FIXTURES_DIR, "#{entry.fixture_name}.yml")
+    end
+
+    # CITE_ONLY token list. True when a token is this entry's fixture name,
+    # or is the RPC name and this entry's fixture name is that RPC's slug
+    # (the name used when fixture: is omitted). Naming "DDR GETS ENTRY DATA"
+    # cites ddr-gets-entry-data and leaves tribal-enrollment live.
+    def self.cite_only?(entry, tokens)
+      slug = entry.rpc.downcase.tr(" /", "--")
+      tokens.any? { |token| token == entry.fixture_name || (token == entry.rpc && entry.fixture_name == slug) }
     end
 
     # A committed wire capture. Validates provenance on load — an invalid

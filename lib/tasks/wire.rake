@@ -52,8 +52,9 @@ namespace :wire do
     # CITE_ONLY="RPC A,fixture-b": write routine-cite fixtures for these
     # live-mode entries instead of calling them (e.g. the broker is down, or
     # a capture must land before the rung is reachable). A token matches an
-    # entry's RPC name or its fixture name. The cite comes from the catalog;
-    # no raw is claimed.
+    # entry's fixture name, or its RPC name only when the fixture name is
+    # that RPC's slug (WireCapture.cite_only?), so a shared RPC cites only
+    # the slug fixture. The cite comes from the catalog; no raw is claimed.
     cite_only = (ENV["CITE_ONLY"] || "").split(",").map(&:strip)
     captured_at = Time.now.utc.iso8601
     root = File.expand_path("../..", __dir__)
@@ -92,7 +93,7 @@ namespace :wire do
     RpmsRpc::WireCapture::CATALOG.each do |entry|
       next if only && !entry.named?(only)
 
-      if entry.live? && cite_only.none? { |name| entry.named?(name) }
+      if entry.live? && !RpmsRpc::WireCapture.cite_only?(entry, cite_only)
         capture = captures[entry.fixture_name]
         next if capture.nil? # no container / not in this run: keep existing fixture
 

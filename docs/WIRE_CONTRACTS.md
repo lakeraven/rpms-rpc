@@ -43,8 +43,10 @@ Same shape as the conformance pipeline, one level deeper:
    # without CONTAINER= or BROKER_HOST=, only routine-cite fixtures are (re)written
    # WIRE_FIXTURES_DIR=<dir> writes the fixtures there instead (a scratch capture)
    # ONLY=<RPC or fixture name> limits the run (either name matches);
-   # CITE_ONLY="RPC A,fixture-b" forces
-   # routine-cite output for live entries (e.g. broker unavailable)
+   # CITE_ONLY="RPC A,fixture-b" forces routine-cite output for those live
+   # entries (e.g. broker unavailable). A CITE_ONLY token matches a fixture
+   # name, or an RPC name only for the entry whose fixture name is that
+   # RPC's slug, so naming a shared RPC does not cite the other fixtures.
    ```
 
    Re-run when a rung changes (new release tag), like re-ingesting a
