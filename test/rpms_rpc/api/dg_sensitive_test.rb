@@ -172,6 +172,19 @@ class DgSensitiveTest < Minitest::Test
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(Mod, :check_access)
   end
 
+  def test_parse_access_reply_parses_leading_zero_decimal_codes_in_base_ten
+    assert_equal 1, Mod.parse_access_reply([ "01" ])[:result]
+    assert_equal 10, Mod.parse_access_reply([ "010" ])[:result]
+  end
+
+  def test_check_access_does_not_raise_on_leading_zero_eight_code
+    seed_access([ "08", "Synthetic bulletin line" ])
+
+    result = Mod.check_access(dfn: DFN.to_i, generate_message: 0, option: "SYNTH^MENU")
+
+    assert_equal 8, result[:result]
+  end
+
   def test_context_matches_pinned_registry
     rpc = pinned_rpc("DG SENSITIVE RECORD ACCESS")
     assert_includes rpc.contexts, Mod::CONTEXT
