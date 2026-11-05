@@ -3,6 +3,19 @@
 require "json"
 require "rpms_rpc/conformance/inventory_lock"
 
+# The #420 stock specs ask an array for its one element (.sole). This Ruby
+# has no Enumerable#sole; this is that check, for the specs that load this helper.
+unless Enumerable.method_defined?(:sole)
+  module Enumerable
+    def sole
+      items = to_a
+      raise ArgumentError, "expected exactly one element, got #{items.size}" unless items.size == 1
+
+      items.first
+    end
+  end
+end
+
 # Shared pins for rpms-rpc#420 stock-RPC wrapper tests (pinned bcer-9.0 build).
 module StockRpcsTestHelper
   ROOT = File.expand_path("../..", __dir__)

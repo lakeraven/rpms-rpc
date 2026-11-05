@@ -109,6 +109,7 @@ RpmsRpc::Registration.preferred_name	GET /patients/{dfn}/registrations/preferred
 RpmsRpc::Registration.race_ethnicity	GET /patients/{dfn}/registrations/race-ethnicity
 RpmsRpc::Registration.race_ethnicity_choices	GET /registrations/race-ethnicity-choices
 RpmsRpc::Reminders.applicable	GET /patients/{dfn}/reminders/applicable
+RpmsRpc::Scheduling.checkin_visit	GET /appointments/visits/{visit_ien}/checkin
 RpmsRpc::Scheduling.patient_appointments	GET /patients/{dfn}/appointments
 RpmsRpc::Scheduling.resources	GET /appointments/resources
 RpmsRpc::Scheduling.resources_by_user	GET /appointments/resources-by-user

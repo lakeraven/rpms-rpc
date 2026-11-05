@@ -92,6 +92,23 @@ class SchedulingStockRpcsTest < Minitest::Test
     assert_equal :read, RpmsRpc::RetrySafety.for(RpmsRpc::Scheduling, :checkin_visit)
   end
 
+  READ_GET_ROUTES = File.join(__dir__, "../../fixtures/openapi/read_get_catalog_routes.tsv").freeze
+
+  # BEHOENCX GETVISIT is a read; the OpenAPI catalog publishes it as GET (read_get_catalog_routes.tsv).
+  def test_checkin_visit_openapi_catalog_route_is_get
+    key = "RpmsRpc::Scheduling.checkin_visit"
+    expected = File.readlines(READ_GET_ROUTES, chomp: true).reject(&:empty?).to_h do |line|
+      route_key, route = line.split("\t", 2)
+      [ route_key, route ]
+    end.fetch(key)
+
+    shape = RpmsRpc::Shape.for(RpmsRpc::Scheduling, :checkin_visit)
+    refute_nil shape, "checkin_visit must declare an OpenAPI shape"
+    verb, path = expected.split(" ", 2)
+    assert_equal verb, shape[:verb]
+    assert_equal path, shape[:path]
+  end
+
   # CHECKIN^BSDX25 (BSDX25.m:24-25): non-numeric and unknown IEN → Invalid Appointment ID.
   def test_checkin_appointment_non_numeric_id_returns_invalid_appointment_id
     stub_checkin_reply("Invalid Appointment ID#{RS}")

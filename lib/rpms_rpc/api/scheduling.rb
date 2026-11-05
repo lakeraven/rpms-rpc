@@ -198,7 +198,7 @@ module RpmsRpc
         DataMapper.encounter_visit.fetch_one(ien)
       end
     end
-    shape :checkin_visit, resource: "appointments", verb: "POST",
+    shape :checkin_visit, resource: "appointments", verb: "GET",
           path: "/appointments/visits/{visit_ien}/checkin"
     shape :cancel_checkin, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/cancel-checkin"
 

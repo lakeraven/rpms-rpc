@@ -6,7 +6,7 @@ require "rpms_rpc/retry_safety"
 require "rpms_rpc/api/agg"
 require_relative "../stock_rpcs_test_helper"
 
-# AGG stock RPCs not yet wrapped on RpmsRpc::Agg (rpms-rpc#420). Synthetic data only.
+# AGG stock RPC wrappers on RpmsRpc::Agg (rpms-rpc#420). Synthetic data only.
 class AggStockRpcsTest < Minitest::Test
   include StockRpcsTestHelper
 

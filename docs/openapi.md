@@ -186,7 +186,7 @@ When the first identifier is a patient, a user or a progress note, or names the 
 | noun | GET | any other first word | a sub-resource: `GET /patients/{dfn}/allergies/assessment` |
 | retry-class | POST | an inferred GET published as POST | the same path, when the retry class is not `:read`, and when a name has no verb word and no retry row. The unchecked names frozen in `data/openapi/write_class_get_baseline.txt` keep the inferred GET; the list may only shrink, and only when a method's retry class is verified `:read` |
 
-A method name with no verb word infers GET, unlike an RPC name (POST). With no retry row it is published POST at that inferred path, so the remaining words stay and two nouns in one module do not collide. A named verb with no retry row keeps its inferred verb. A `:read` method keeps the inferred verb, path and rule.
+A method name with no verb word infers GET, unlike an RPC name (POST). With no retry row it is published POST at that inferred path, so the remaining words stay and two nouns in one module do not collide. A named verb with no retry row keeps its inferred verb. A `:read` method keeps the inferred verb, path and rule, except `Scheduling.checkin_visit`: the name starts with the action word `checkin`, and the catalog publishes GET at that action path because the method reads `BEHOENCX GETVISIT`.
 
 **Two queries on one collection.**
 A plain read of the collection keeps it, then `search`, then `lookup`, then `find_by_<x>`.
