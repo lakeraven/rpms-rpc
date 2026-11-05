@@ -23,7 +23,7 @@
 "RpmsRpc::Adt.discharge_datetime": read
 "RpmsRpc::Agg.add_patient": non_idempotent_write
 "RpmsRpc::Agg.available?": non_idempotent_write
-"RpmsRpc::Agg.check_sensitive_patient": read
+"RpmsRpc::Agg.check_sensitive_patient": non_idempotent_write
 "RpmsRpc::Agg.edit_check": non_idempotent_write
 "RpmsRpc::Agg.editing": non_idempotent_write
 "RpmsRpc::Agg.encode_parms": read
@@ -137,7 +137,7 @@
 "RpmsRpc::DdrFileman.validate_field": read
 "RpmsRpc::DdrFileman.validate_key": read
 "RpmsRpc::DdrFileman.validator_param": read
-"RpmsRpc::DgSensitive.check_access": read
+"RpmsRpc::DgSensitive.check_access": non_idempotent_write
 "RpmsRpc::DgSensitive.parse_access_reply": read
 "RpmsRpc::DgSensitive.parse_bulletin_result": read
 "RpmsRpc::DgSensitive.record_bulletin": non_idempotent_write

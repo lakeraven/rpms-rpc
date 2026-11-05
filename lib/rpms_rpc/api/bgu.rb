@@ -7,9 +7,12 @@ require_relative "../shape"
 
 module RpmsRpc
   # BGU MAILMAN MESSAGE (EN^BGUMAIL). Option: CIAV VUECENTRIC, the only
-  # option the pinned build registers this RPC under. EN^BGUMAIL sets
-  # BGUARRAY(1)=1 and BGUARRAY(2)="OK" (BGUMAIL.m:6) after the send.
-  # The body is one parameter; the routine splits it on $C(175) (BGUMAIL.m:11).
+  # option the pinned build registers this RPC under. EN^BGUMAIL runs
+  # D MAIL,KILL and then sets BGUARRAY(1)=1 and BGUARRAY(2)="OK"
+  # unconditionally (BGUMAIL.m:5-6). MAIL calls D ^XMD, so a nonexistent
+  # mail group still answers 1/OK. success: true means the routine ran,
+  # not that the group exists or that mail was delivered. The body is one
+  # parameter; the routine splits it on $C(175) (BGUMAIL.m:11).
   module Bgu
     extend self
     extend Shape::Declarable
@@ -31,9 +34,12 @@ module RpmsRpc
     # (EN(BGUARRAY,BGUDATA,BGUSBJ,BGUGROUP), BGUMAIL.m:3). A multi-line body
     # is one parameter, lines joined by $C(175). $C(175), "^", "|", and a
     # control character in the body or the subject are refused before the
-    # call, as is a group name that is not a file 3.8 NAME. Success is the
-    # reply "1" then "OK" only. A two-node array and a "1^OK" record are
-    # that same answer. Returns { success:, status: } or nil.
+    # call, as is a group name that is not a file 3.8 NAME. EN^BGUMAIL sets
+    # 1/OK unconditionally after D ^XMD (BGUMAIL.m:5-6), so success: true
+    # means the routine ran, not that the group exists or that mail was
+    # delivered. The reply "1" then "OK" is that answer. A two-node array
+    # and a "1^OK" record are the same answer. Returns { success:, status: }
+    # or nil.
     def send_mailman_message(subject:, body:, group:)
       subject_text = subject.to_s
       group_text = group.to_s

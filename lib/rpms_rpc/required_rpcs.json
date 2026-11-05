@@ -25,7 +25,8 @@
       "AGG UPDATE SPECIAL MULTIPLES",
       "AGG WINDOW DATA VALIDATION",
       "AGG WINDOW TABLE LOOKUP",
-      "CIANBRPC CANRUN"
+      "CIANBRPC CANRUN",
+      "DDR GETS ENTRY DATA"
     ],
     "RpmsRpc::Allergy": [
       "ORQQAL LIST",

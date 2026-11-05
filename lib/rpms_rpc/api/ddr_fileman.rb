@@ -159,9 +159,10 @@ module RpmsRpc
     # error: broker/M error strings ("-1^...", raw error text) don't match
     # the FILE^IENS^FIELD^... grammar, and silently returning empty fields
     # would let callers fabricate "value absent" from "read failed".
-    def gets_entry(file:, iens:, fields:, flags: "")
+    # client is the broker session the read uses (default RpmsRpc.client).
+    def gets_entry(file:, iens:, fields:, flags: "", client: RpmsRpc.client)
       reply = lines(call(:ddr_gets_entry_data,
-        gets_entry_param(file: file, iens: iens, fields: fields, flags: flags)))
+        gets_entry_param(file: file, iens: iens, fields: fields, flags: flags), client: client))
       return nil if reply.nil?
 
       result = {}
@@ -256,8 +257,8 @@ module RpmsRpc
 
     private
 
-    def call(mapping_name, *params)
-      RpmsRpc.client.call_rpc(DataMapper[mapping_name].rpc_name, *params)
+    def call(mapping_name, *params, client: RpmsRpc.client)
+      client.call_rpc(DataMapper[mapping_name].rpc_name, *params)
     end
 
     # V0 rows are every non-marker, non-MORE line. V1 rows are only the
