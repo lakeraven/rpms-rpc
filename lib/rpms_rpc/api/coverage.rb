@@ -450,6 +450,50 @@ module RpmsRpc
     end
     shape :add_private_insurance, resource: "coverages", verb: "POST", path: "/patients/{dfn}/coverages/private-insurance"
 
+    # One #9000006.11 policy row for this patient. The child-first IENS
+    # "<record_ien>,<dfn>," is that patient's row; .01 must be filed, read
+    # on this client, before anything is written. A nil reply, a FileMan
+    # error, or a blank .01 is :verification_failed and sends no write.
+    # The delete goes through DDR FILER (one EDIT row, .01 = "@") under
+    # CIAV VUECENTRIC. AGG UPDATE PRIVATE INSUR PROC D is never sent:
+    # UPD^AGGUPPVT.m:36-39 sets AGGUPD(FILE,IENS,.01)="@" before IENS is
+    # set. After the filer reports success, DDR LISTER of #9000006.11 with
+    # IENS ",<dfn>," fields ".01" and MAX "*" must be a positive answer
+    # (non-nil, error false, a data section, no MORE) whose entries do not
+    # include the record IEN. Still listed, or any other list, is
+    # :verification_failed. A FileMan error is never absence. A filer
+    # refusal is :delete_failed. { success: true, record_ien: } when the
+    # row is confirmed gone.
+    def delete_private_insurance(dfn, record_ien:, client: RpmsRpc.client)
+      record = positive_ien!(record_ien, "record_ien")
+      id = canonical_dfn(dfn)
+      return nil unless id
+      unless private_policy_present?(record, id, client)
+        return verification_failed("private insurance #{record} could not be verified for patient #{id}",
+                                   record_ien: record)
+      end
+
+      filed = fileman_read(client) do
+        DdrFileman.filer(mode: "EDIT", rows: [
+          { file: PRIVATE_ELIGIBILITY_FILE, field: ".01", iens: "#{record},#{id},", value: "@" }
+        ])
+      end
+      unless filed.is_a?(Hash) && filed[:success]
+        message = filed.is_a?(Hash) ? Array(filed[:errors]).join("\n") : "DDR FILER gave no reply"
+        return { success: false, error: :delete_failed, message: message, record_ien: record }
+      end
+
+      listed = private_policy_rows(id, client)
+      unless private_policy_confirmed_gone?(listed, record)
+        return verification_failed("private insurance #{record} for patient #{id} could not be confirmed deleted",
+                                   record_ien: record)
+      end
+
+      { success: true, record_ien: record }
+    end
+    shape :delete_private_insurance, resource: "coverages", verb: "DELETE",
+          path: "/patients/{dfn}/coverages/records/{record_ien}/private-insurance"
+
     # $C(28)-delimited NAME=VALUE, the PARMS string both AGG updates take.
     # nil values are dropped. "=", "OVERRIDE" (any case), a caret, $C(28),
     # or another ASCII control in a name or a value is refused — nothing is sent.
@@ -770,6 +814,36 @@ module RpmsRpc
       return false if got.nil? || got[:error]
 
       got.dig(:fields, ".01", :internal).to_s.strip == dfn.to_s
+    end
+
+    # True when #9000006.11 .01 is filed under IENS "<record>,<dfn>,".
+    # A nil reply, a FileMan error, or a blank .01 is not a confirmed row.
+    # A FileMan error is not absence. The IENS is the ownership check:
+    # the row is this patient's by construction.
+    def private_policy_present?(record_ien, dfn, client)
+      got = fileman_entry(PRIVATE_ELIGIBILITY_FILE, "#{record_ien},#{dfn},", client)
+      return false if got.nil? || got[:error]
+
+      !got.dig(:fields, ".01", :internal).to_s.strip.empty?
+    end
+
+    # #9000006.11 is a subfile. LIST^DIC with IENS ",DFN," and MAX "*" is
+    # every policy row under that patient. A PART list is not asked: the
+    # delete confirms on this one complete list.
+    def private_policy_rows(dfn, client)
+      fileman_read(client) do
+        DdrFileman.lister(file: PRIVATE_ELIGIBILITY_FILE, iens: ",#{dfn},", fields: ".01", max: "*")
+      end
+    end
+
+    # A positive list is non-nil, error false, a data section, and no MORE.
+    # The record IEN must be absent from entries[].ien. Anything else,
+    # including a FileMan error, is not confirmed absence.
+    def private_policy_confirmed_gone?(listed, record_ien)
+      return false unless listed.is_a?(Hash)
+      return false unless listed[:error] == false && listed[:data] == true && listed[:more].nil?
+
+      Array(listed[:entries]).none? { |entry| entry[:ien].to_s == record_ien.to_s }
     end
 
     def fileman_entry(file, iens, client)

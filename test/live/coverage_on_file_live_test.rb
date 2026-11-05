@@ -23,6 +23,7 @@ class CoverageOnFileLiveTest < LiveSpec::Test
     ends = "12/31/#{year + 1}"
     state = state_ien!("WASHINGTON")
     insurer = private_insurer!
+    private_record_ien = nil
 
     medicaid = RpmsRpc::Coverage.add_medicaid(DFN, effective_on: starts, ends_on: ends, number: "ZZ4900001",
                                                    state_ien: state, coverage: nil, client: client)
@@ -42,25 +43,40 @@ class CoverageOnFileLiveTest < LiveSpec::Test
                                                           member_number: "ZZM49", effective_on: starts,
                                                           ends_on: ends, client: client)
     assert policy[:success], "private insurance add refused: #{policy.inspect}"
-    assert_equal "ZZM49", fileman("9000006.11", "#{policy[:record_ien]},#{DFN},", "21"), "member number (21)"
+    private_record_ien = policy[:record_ien]
+    assert_equal "ZZM49", fileman("9000006.11", "#{private_record_ien},#{DFN},", "21"), "member number (21)"
 
-    on_file = RpmsRpc::Coverage.on_file(DFN, client: client)
-    refute_nil on_file, "Coverage.on_file gave no answer"
+    begin
+      on_file = RpmsRpc::Coverage.on_file(DFN, client: client)
+      refute_nil on_file, "Coverage.on_file gave no answer"
 
-    mcd = on_file[:medicaid].find { |entry| entry[:record_ien] == record }
-    refute_nil mcd, "Medicaid record #{record} not read back: #{on_file[:medicaid].inspect}"
-    assert_equal [ "MEDICAID", "ZZ4900001", "WASHINGTON", true ], mcd.values_at(:payer, :number, :state, :active)
-    assert_equal [ Date.new(year, 1, 1), Date.new(year + 1, 12, 31) ], mcd[:eligibility].first.values_at(:starts_on, :ends_on)
+      mcd = on_file[:medicaid].find { |entry| entry[:record_ien] == record }
+      refute_nil mcd, "Medicaid record #{record} not read back: #{on_file[:medicaid].inspect}"
+      assert_equal [ "MEDICAID", "ZZ4900001", "WASHINGTON", true ], mcd.values_at(:payer, :number, :state, :active)
+      assert_equal [ Date.new(year, 1, 1), Date.new(year + 1, 12, 31) ], mcd[:eligibility].first.values_at(:starts_on, :ends_on)
 
-    mcr = on_file[:medicare].first
-    assert_equal [ CMS_EXAMPLE_MBI, true, "PART B" ], [ mcr[:number], mcr[:active], mcr[:eligibility].first[:coverage] ]
+      mcr = on_file[:medicare].first
+      assert_equal [ CMS_EXAMPLE_MBI, true, "PART B" ], [ mcr[:number], mcr[:active], mcr[:eligibility].first[:coverage] ]
 
-    pvt = on_file[:private].find { |entry| entry[:record_ien] == policy[:record_ien] }
-    refute_nil pvt, "private policy not read back: #{on_file[:private].inspect}"
-    assert_equal [ "ZZM49", true, Date.new(year, 1, 1), Date.new(year + 1, 12, 31) ],
-                 pvt.values_at(:number, :active, :starts_on, :ends_on)
+      pvt = on_file[:private].find { |entry| entry[:record_ien] == private_record_ien }
+      refute_nil pvt, "private policy not read back: #{on_file[:private].inspect}"
+      assert_equal [ "ZZM49", true, Date.new(year, 1, 1), Date.new(year + 1, 12, 31) ],
+                   pvt.values_at(:number, :active, :starts_on, :ends_on)
 
-    puts "\n#{persona}: coverage filed and read back on DFN #{DFN}"
+      deleted = RpmsRpc::Coverage.delete_private_insurance(DFN, record_ien: private_record_ien, client: client)
+      assert deleted[:success], "private insurance delete refused: #{deleted.inspect}"
+      refute private_policy_row_on_file?(private_record_ien),
+             "FileMan still has #9000006.11 #{private_record_ien},#{DFN}, after delete"
+      after = RpmsRpc::Coverage.on_file(DFN, client: client)
+      refute_nil after
+      refute after[:private].any? { |entry| entry[:record_ien].to_s == private_record_ien.to_s },
+             "private policy still listed in on_file: #{after[:private].inspect}"
+      private_record_ien = nil
+
+      puts "\n#{persona}: coverage filed, read back, and private policy deleted on DFN #{DFN}"
+    ensure
+      cleanup_private_policy!(private_record_ien)
+    end
   end
 
   def test_a_lapsed_medicaid_record_reads_back_inactive
@@ -102,5 +118,21 @@ class CoverageOnFileLiveTest < LiveSpec::Test
     found = insurers.find { |row| row[:type] == "PRIVATE" && row[:status] == "BILLABLE" }
     flunk "no billable private insurer on this build: #{insurers.map { |r| r[:name] }.inspect}" unless found
     found[:ien]
+  end
+
+  def private_policy_row_on_file?(record_ien)
+    got = RpmsRpc::DdrFileman.gets_entry(file: "9000006.11", iens: "#{record_ien},#{DFN},", fields: ".01", flags: "I")
+    flunk "FileMan read 9000006.11 #{record_ien},#{DFN}, .01 failed: #{got.inspect}" if got.nil?
+    return false if got[:error]
+
+    got.dig(:fields, ".01", :internal).to_s.strip != ""
+  end
+
+  def cleanup_private_policy!(record_ien)
+    return if record_ien.to_s.strip.empty?
+
+    RpmsRpc::Coverage.delete_private_insurance(DFN, record_ien: record_ien, client: client)
+  rescue StandardError
+    # best-effort teardown when an earlier assertion failed
   end
 end
