@@ -995,4 +995,86 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
     end
     assert_empty failures, failures.join("\n  ")
   end
+
+  def tiu_note_write_checklist_section
+    lines = File.readlines(CHECKLIST_PATH, chomp: true)
+    start = lines.index { |line| line.include?("TIU note-write pilot status") }
+    flunk "TIU note-write section missing from #{CHECKLIST_PATH}" unless start
+
+    section = []
+    lines[start..].each do |line|
+      section << line
+      break if line.start_with?("TIU SIGN RECORD |")
+    end
+    section.join("\n")
+  end
+
+  def test_pilot_checklist_tiu_note_write_section_documents_limits_and_gates
+    section = tiu_note_write_checklist_section
+    rows = parse_checklist
+    failures = []
+
+    unless section.match?(/TIUSRVPT\.m.*no author/i)
+      failures << "comment block must mention TIUSRVPT.m with no author check"
+    end
+    failures << "section must cite issue #614" unless section.include?("#614")
+    failures << "section must cite TIUSRVP.m:211 (M job lock)" unless section.include?("TIUSRVP.m:211")
+    unless section.match?(/CANDO\^TIULP.*TIUSRVP2\.m:49/m)
+      failures << "section must cite CANDO^TIULP before sign (TIUSRVP2.m:49)"
+    end
+    failures << "section must say note IEN is run-dependent" unless section.match?(/run-dependent/i)
+
+    set_reason = rows["TIU SET DOCUMENT TEXT"]&.dig(:reason).to_s
+    failures << "TIU SET DOCUMENT TEXT reason must cite #614" unless set_reason.include?("#614")
+
+    create_reason = rows["TIU CREATE RECORD"]&.dig(:reason).to_s
+    unless create_reason.include?("BEHOENCX GETVISIT")
+      failures << "TIU CREATE RECORD reason must mention BEHOENCX GETVISIT"
+    end
+    unless create_reason.match?(/patient 4/)
+      failures << "TIU CREATE RECORD reason must say visit patient matched patient 4"
+    end
+
+    assert_empty failures, failures.join("\n  ")
+  end
+
+  def test_write_refusal_rejects_esig_whose_bytes_appear_in_withheld_or_note_text
+    base = write_refusal_ok_kwargs.merge(resolver: ->(_name) { [ "127.0.0.1" ] })
+    failures = []
+    %w[signature withheld Synthetic].each do |esig|
+      refusal = write_refusal(**base, esig: esig)
+      if refusal.nil?
+        failures << "esig #{esig.inspect} must be refused when it is a substring of WITHHELD or NOTE_TEXT"
+      elsif refusal.include?(esig)
+        failures << "refusal must not contain esig #{esig.inspect}"
+      end
+    end
+    pilot_note_esig = "pilot note"
+    refusal = write_refusal(**base, esig: pilot_note_esig)
+    if refusal.nil?
+      failures << "esig #{pilot_note_esig.inspect} must be refused (substring of NOTE_TEXT)"
+    elsif refusal.include?(pilot_note_esig)
+      failures << "refusal must not contain esig"
+    end
+
+    assert_nil write_refusal(**base, esig: "Zq7Kx2Wm"),
+               "neutral esig must still be accepted"
+    assert_empty failures, failures.join("\n  ")
+  end
+
+  def test_tiu_create_record_catalog_and_fixture_cite_tiusrvp_success_and_refusal_lines
+    entry = catalog_entry!("TIU CREATE RECORD")
+    cite = self.class.normalize_cite(entry.cite)
+    failures = []
+    failures << "cite must name TIUSRVP.m:63 for SUCCESS=+TIUDA" unless cite.include?("TIUSRVP.m:63")
+    failures << "cite must name TIUSRVP.m:59, 62 for 0^ refusals" unless cite.match?(/TIUSRVP\.m:59,\s*62/)
+    failures << "cite must not use TIUSRVP.m:61)" if cite.include?("TIUSRVP.m:61)")
+    failures << "cite must not use TIUSRVP.m:58, 60" if cite.include?("TIUSRVP.m:58, 60")
+
+    fixture = load_slice_fixture(TIU_WRITE_SLICE.find { |s| s[:rpc] == "TIU CREATE RECORD" })
+    if self.class.normalize_cite(fixture.cite) != cite
+      failures << "tiu-create-record.yml cite must match catalog entry cite"
+    end
+    assert_empty failures, failures.join("\n  ")
+  end
 end

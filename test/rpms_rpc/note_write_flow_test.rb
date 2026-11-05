@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "json"
+require "yaml"
 require "rpms_rpc"
 require "rpms_rpc/wire_capture"
 require "rpms_rpc/api/progress_note"
@@ -12,6 +13,7 @@ require "rpms_rpc/api/e_signature"
 # recording client. These tests fail until lib/rpms_rpc/wire_capture.rb
 # defines NoteWriteFlow.
 class RpmsRpc::NoteWriteFlowTest < Minitest::Test
+  GETVISIT_RPC = "BEHOENCX GETVISIT"
   CREATE_RPC = "TIU CREATE RECORD"
   LOCK_RPC = "TIU LOCK RECORD"
   SET_TEXT_RPC = "TIU SET DOCUMENT TEXT"
@@ -21,6 +23,7 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
 
   LOCKED_ELSEWHERE = "1^ Another session has this record locked."
   CIA_SEQ = "5"
+  VISIT_PATIENT_OK = "3^3260902.12^E^4^^0"
 
   def framed_payload(payload)
     "#{CIA_SEQ}\x00#{payload}"
@@ -83,8 +86,23 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     flow_class::NOTE_TEXT
   end
 
+  def visit_step(raw: VISIT_PATIENT_OK)
+    { rpc: GETVISIT_RPC, raw: raw }
+  end
+
+  def flow_steps(*steps)
+    [ visit_step ] + steps
+  end
+
   def withheld
     flow_class::WITHHELD
+  end
+
+  def assert_getvisit_capture(result, raw: VISIT_PATIENT_OK)
+    capture = result[GETVISIT_RPC]
+    refute_nil capture, "NoteWriteFlow must record BEHOENCX GETVISIT"
+    assert_equal [ flow_class::VISIT_IEN ], capture["inputs"]
+    assert_equal framed_payload(raw), capture["raw"]
   end
 
   def assert_long_line_in_note_text
@@ -108,22 +126,23 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
                 note_text.lines.first
     read_back = "S: #{body_line.strip}\nO: synthetic observation\n"
     client = ScriptedClient.new(
-      [
+      flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
         { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
         { rpc: GET_TEXT_RPC, raw: read_back },
         { rpc: UNLOCK_RPC, raw: "0" }
-      ],
+      ),
       framer: method(:framed_payload)
     )
     RpmsRpc.configure { |cfg| cfg.client = client }
 
     result = run_flow(client, esig: nil)
 
-    assert_equal [ CREATE_RPC, LOCK_RPC, SET_TEXT_RPC, GET_TEXT_RPC, UNLOCK_RPC ],
+    assert_equal [ GETVISIT_RPC, CREATE_RPC, LOCK_RPC, SET_TEXT_RPC, GET_TEXT_RPC, UNLOCK_RPC ],
                  result.keys
     refute result.key?(SIGN_RPC)
+    assert_getvisit_capture(result)
 
     assert_equal [ flow_class::DFN, flow_class::TITLE_IEN, "", "", flow_class::VISIT_IEN ],
                  result[CREATE_RPC]["inputs"]
@@ -153,14 +172,14 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     esig = "synthetic-dev-code"
     read_back = wrapped_read_back_payload(note_ien)
     client = ScriptedClient.new(
-      [
+      flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
         { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
         { rpc: GET_TEXT_RPC, raw: read_back },
         { rpc: UNLOCK_RPC, raw: "0" },
         { rpc: SIGN_RPC, raw: "0" }
-      ],
+      ),
       framer: method(:framed_payload)
     )
     RpmsRpc.configure { |cfg| cfg.client = client }
@@ -187,31 +206,33 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
 
   def test_create_failure_stops_before_lock
     client = ScriptedClient.new(
-      [ { rpc: CREATE_RPC, raw: "0^Patient & Visit required." } ],
+      flow_steps({ rpc: CREATE_RPC, raw: "0^Patient & Visit required." }),
       framer: method(:framed_payload)
     )
     RpmsRpc.configure { |cfg| cfg.client = client }
 
     result = run_flow(client, esig: "anything")
 
-    assert_equal [ CREATE_RPC ], result.keys
+    assert_equal [ GETVISIT_RPC, CREATE_RPC ], result.keys
+    assert_getvisit_capture(result)
     assert_equal framed_payload("0^Patient & Visit required."), result[CREATE_RPC]["raw"]
   end
 
   def test_lock_failure_skips_set_text_and_unlock
     note_ien = "6"
     client = ScriptedClient.new(
-      [
+      flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: LOCKED_ELSEWHERE }
-      ],
+      ),
       framer: method(:framed_payload)
     )
     RpmsRpc.configure { |cfg| cfg.client = client }
 
     result = run_flow(client, esig: "anything")
 
-    assert_equal [ CREATE_RPC, LOCK_RPC ], result.keys
+    assert_equal [ GETVISIT_RPC, CREATE_RPC, LOCK_RPC ], result.keys
+    assert_getvisit_capture(result)
     refute result.key?(SET_TEXT_RPC)
     refute result.key?(UNLOCK_RPC)
     refute result.key?(SIGN_RPC)
@@ -222,13 +243,13 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     note_ien = "2731905"
     body_line = note_text.lines.first.to_s.chomp
     client = ScriptedClient.new(
-      [
+      flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
         { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
         { rpc: GET_TEXT_RPC, raw: "H\n\n#{body_line}\n" },
         { rpc: UNLOCK_RPC, raw: "0" }
-      ],
+      ),
       framer: method(:framed_payload)
     )
     RpmsRpc.configure { |cfg| cfg.client = client }
@@ -286,12 +307,12 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
   def test_set_text_raise_still_unlocks_and_skips_sign
     note_ien = "6"
     client = ScriptedClient.new(
-      [
+      flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
         { rpc: SET_TEXT_RPC, raise: RuntimeError, message: "SET failed" },
         { rpc: UNLOCK_RPC, raw: "0" }
-      ],
+      ),
       framer: method(:framed_payload)
     )
     RpmsRpc.configure { |cfg| cfg.client = client }
@@ -310,13 +331,13 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     note_ien = "6"
     body_line = note_text.lines.first.to_s.chomp
     client = ScriptedClient.new(
-      [
+      flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
         { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
         { rpc: GET_TEXT_RPC, raise: RuntimeError, message: "GET failed" },
         { rpc: UNLOCK_RPC, raw: "0" }
-      ],
+      ),
       framer: method(:framed_payload)
     )
     RpmsRpc.configure { |cfg| cfg.client = client }
@@ -429,6 +450,73 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
   end
 
   ESIG_SYNTHETIC = "synthetic-esig-77"
+  READ_BACK_NOTE_IEN = "10"
+  GET_TEXT_CIA_FRAME = "8"
+  TIU_FLOW_RPCS = [
+    CREATE_RPC, LOCK_RPC, SET_TEXT_RPC, GET_TEXT_RPC, UNLOCK_RPC, SIGN_RPC
+  ].freeze
+
+  def tiu_get_fixture_raw
+    path = File.expand_path("../fixtures/wire_captures/tiu-get-record-text.yml", __dir__)
+    RpmsRpc::WireCapture::Fixture.load_file(path).raw_return
+  end
+
+  def tiu_get_read_back_header(row_sep)
+    [
+      "LOCAL TITLE: Progress Note                                      ",
+      "STANDARD TITLE: PRIMARY CARE PROGRESS NOTE                      ",
+      "DATE OF NOTE: NOV 05, 2026@04:23:54  ENTRY DATE: NOV 05, 2026@04:23:54      ",
+      "      AUTHOR: PROVIDER,TEST        EXP COSIGNER:                           ",
+      "     URGENCY:                            STATUS: UNSIGNED                      "
+    ].join(row_sep)
+  end
+
+  def tiu_get_framed(body_rows, row_sep: "\r")
+    payload = ([ tiu_get_read_back_header(row_sep), "" ] + body_rows).join(row_sep) + row_sep
+    "#{GET_TEXT_CIA_FRAME}\x00#{payload}"
+  end
+
+  def wrapped_note_body_rows
+    note_ien = "1"
+    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1") }
+    RpmsRpc::ProgressNote.update_text(note_ien, note_text)
+    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == SET_TEXT_RPC }
+    flunk "TIU SET DOCUMENT TEXT was not called" unless call
+
+    tiux = call[:params][1]
+    tiux.select { |k, _| k.is_a?(Array) && k.first == "TEXT" }
+        .sort_by { |k, _| k[1] }
+        .map(&:last)
+  ensure
+    RpmsRpc.reset!
+  end
+
+  def assert_get_read_back_evidence?(raw, message)
+    entry = get_catalog_entry
+    assert RpmsRpc::WireCapture.write_evidence?(
+      entry, raw, note_body: note_text, note_ien: READ_BACK_NOTE_IEN
+    ), message
+  end
+
+  def refute_get_read_back_evidence?(raw, message)
+    entry = get_catalog_entry
+    refute RpmsRpc::WireCapture.write_evidence?(
+      entry, raw, note_body: note_text, note_ien: READ_BACK_NOTE_IEN
+    ), message
+  end
+
+  def assert_flow_stops_after_getvisit(client, visit_raw:, result: nil)
+    result ||= run_flow(client, esig: ESIG_SYNTHETIC)
+    assert_equal [ GETVISIT_RPC ], client.calls.map { |c| c[:rpc] },
+                 "only BEHOENCX GETVISIT must run when the visit patient gate fails"
+    TIU_FLOW_RPCS.each do |rpc|
+      capture = result[rpc]
+      refute capture.is_a?(Hash) && capture.key?("raw"),
+             "#{rpc} must not record raw when create is gated off"
+    end
+    assert_getvisit_capture(result, raw: visit_raw) if visit_raw
+    result
+  end
 
   def wrapped_read_back_payload(note_ien)
     body_lines = nil
@@ -481,13 +569,13 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     assert_read_back_fails_write_evidence?(header_only, note_ien)
 
     client = ScriptedClient.new(
-      [
+      flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
         { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
         { rpc: GET_TEXT_RPC, raw: header_only },
         { rpc: UNLOCK_RPC, raw: "0" }
-      ],
+      ),
       framer: method(:framed_payload)
     )
     RpmsRpc.configure { |cfg| cfg.client = client }
@@ -501,12 +589,12 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
   def test_sign_skipped_when_set_text_reports_failure
     note_ien = "10"
     client = ScriptedClient.new(
-      [
+      flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
         { rpc: SET_TEXT_RPC, raw: "0^0^0^Invalid" },
         { rpc: UNLOCK_RPC, raw: "0" }
-      ],
+      ),
       framer: method(:framed_payload)
     )
     RpmsRpc.configure { |cfg| cfg.client = client }
@@ -525,13 +613,13 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     assert_read_back_passes_write_evidence?(read_back, note_ien)
 
     client = ScriptedClient.new(
-      [
+      flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
         { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
         { rpc: GET_TEXT_RPC, raw: read_back },
         { rpc: UNLOCK_RPC, raw: "1^x" }
-      ],
+      ),
       framer: method(:framed_payload)
     )
     RpmsRpc.configure { |cfg| cfg.client = client }
@@ -548,14 +636,14 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     assert_read_back_passes_write_evidence?(read_back, note_ien)
 
     client = ScriptedClient.new(
-      [
+      flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
         { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
         { rpc: GET_TEXT_RPC, raw: read_back },
         { rpc: UNLOCK_RPC, raw: "0" },
         { rpc: SIGN_RPC, raw: "0" }
-      ],
+      ),
       framer: method(:framed_payload)
     )
     RpmsRpc.configure { |cfg| cfg.client = client }
@@ -569,11 +657,11 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
   def test_lock_raise_records_error_and_attempts_unlock_without_later_steps
     note_ien = "6"
     client = ScriptedClient.new(
-      [
+      flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raise: IOError, message: "lock transport failed" },
         { rpc: UNLOCK_RPC, raw: "0" }
-      ],
+      ),
       framer: method(:framed_payload)
     )
     RpmsRpc.configure { |cfg| cfg.client = client }
@@ -589,5 +677,153 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     refute result.key?(SET_TEXT_RPC)
     refute result.key?(GET_TEXT_RPC)
     refute result.key?(SIGN_RPC)
+  end
+
+  def test_run_calls_getvisit_before_create_when_visit_patient_matches_dfn
+    note_ien = "6"
+    client = ScriptedClient.new(
+      flow_steps({ rpc: CREATE_RPC, raw: note_ien }),
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    run_flow(client, esig: nil)
+
+    assert_equal 2, client.calls.length
+    assert_equal GETVISIT_RPC, client.calls[0][:rpc]
+    assert_equal [ flow_class::VISIT_IEN ], client.calls[0][:params]
+    assert_equal CREATE_RPC, client.calls[1][:rpc]
+  end
+
+  def test_run_skips_tiu_when_getvisit_patient_does_not_match_dfn
+    visit_raw = "3^3260902.12^E^2^^0"
+    client = ScriptedClient.new(
+      [ visit_step(raw: visit_raw) ],
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    assert_flow_stops_after_getvisit(client, visit_raw: visit_raw)
+  end
+
+  def test_run_skips_tiu_when_getvisit_patient_piece_blank
+    visit_raw = "3^3260902.12^E^^^0"
+    client = ScriptedClient.new(
+      [ visit_step(raw: visit_raw) ],
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    assert_flow_stops_after_getvisit(client, visit_raw: visit_raw)
+  end
+
+  def test_run_skips_tiu_when_getvisit_reply_empty
+    visit_raw = ""
+    client = ScriptedClient.new(
+      [ visit_step(raw: visit_raw) ],
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    assert_flow_stops_after_getvisit(client, visit_raw: visit_raw)
+  end
+
+  def test_run_skips_tiu_when_getvisit_raises
+    client = ScriptedClient.new(
+      [ { rpc: GETVISIT_RPC, raise: RuntimeError, message: "GETVISIT transport failed" } ],
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    result = run_flow(client, esig: ESIG_SYNTHETIC)
+    assert_equal [ GETVISIT_RPC ], client.calls.map { |c| c[:rpc] }
+    TIU_FLOW_RPCS.each do |rpc|
+      refute result[rpc].is_a?(Hash) && result[rpc].key?("raw"),
+             "#{rpc} must not run when GETVISIT raises"
+    end
+  end
+
+  def test_run_skips_tiu_when_getvisit_patient_is_zero_padded
+    visit_raw = "3^3260902.12^E^04^^0"
+    client = ScriptedClient.new(
+      [ visit_step(raw: visit_raw) ],
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    assert_flow_stops_after_getvisit(client, visit_raw: visit_raw)
+  end
+
+  def test_run_skips_tiu_when_getvisit_patient_has_leading_space
+    visit_raw = "3^3260902.12^E^ 4^^0"
+    client = ScriptedClient.new(
+      [ visit_step(raw: visit_raw) ],
+      framer: method(:framed_payload)
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    assert_flow_stops_after_getvisit(client, visit_raw: visit_raw)
+  end
+
+  def test_write_evidence_read_back_requires_exact_row_grammar
+    canonical = wrapped_note_body_rows
+    first = note_text.lines.first.chomp
+    long = note_text.lines[1].chomp
+
+    assert_get_read_back_evidence?(tiu_get_fixture_raw,
+                                   "committed live GET fixture must remain evidence")
+
+    refute_get_read_back_evidence?(
+      tiu_get_framed([ "Syntheticpilot note for wire capture." ] + canonical.drop(1)),
+      "space removed inside a body row must not pass"
+    )
+    refute_get_read_back_evidence?(
+      tiu_get_framed([ "Synthetic  pilot note for wire capture." ] + canonical.drop(1)),
+      "extra space inside a body row must not pass"
+    )
+    refute_get_read_back_evidence?(
+      tiu_get_framed([ first, "This synthetic clinical-neutral sentence exists so wire capture wraps a",
+                       " progress-note line." ]),
+      "leading space on a continuation row must not pass"
+    )
+    refute_get_read_back_evidence?(
+      tiu_get_framed(canonical + [ "Extra synthetic row." ]),
+      "extra body row after the note must not pass"
+    )
+    refute_get_read_back_evidence?(
+      tiu_get_framed([ "Extra synthetic row." ] + canonical),
+      "extra body row before the note must not pass"
+    )
+    refute_get_read_back_evidence?(
+      tiu_get_framed(canonical.take(2) + [ "Extra synthetic row." ] + canonical.drop(2)),
+      "extra body row between note lines must not pass"
+    )
+    bad_rows = canonical.dup
+    bad_rows[-1] = bad_rows[-1].sub(/\.\z/, "")
+    refute_get_read_back_evidence?(
+      tiu_get_framed(bad_rows),
+      "missing trailing punctuation on a note line must not pass"
+    )
+    over = "x" * (RpmsRpc::ProgressNote::WRAP_WIDTH + 1)
+    refute_get_read_back_evidence?(
+      tiu_get_framed([ first, over ]),
+      "body row over WRAP_WIDTH must not pass"
+    )
+
+    alt_wrap = [
+      first,
+      "This synthetic clinical-neutral sentence exists so wire capture",
+      "wraps a progress-note line."
+    ]
+    assert_get_read_back_evidence?(tiu_get_framed(alt_wrap),
+                                   "alternate soft wrap at a different space must pass")
+
+    hard_row1 = long.byteslice(0, RpmsRpc::ProgressNote::WRAP_WIDTH)
+    hard_row2 = long.byteslice(RpmsRpc::ProgressNote::WRAP_WIDTH)
+    hard_body = [ first, hard_row1, hard_row2 ]
+    assert_get_read_back_evidence?(tiu_get_framed(hard_body),
+                                   "hard-cut wrap with bare \\r rows must pass")
+    assert_get_read_back_evidence?(tiu_get_framed(hard_body, row_sep: "\r\n"),
+                                   "hard-cut wrap with \\r\\n rows must pass")
   end
 end
