@@ -29,20 +29,21 @@ ORQQVI VITALS | partial | mapped qualifiers is nil on all four vitals (PU 82, BP
 # pilot-ready needs every effect proven with the capture signed on as PROV123, the pilot's
 # least-privilege persona. A capture signed on as another persona proves the mapping live
 # but leaves every effect unproven for the pilot.
-# Seed gaps (rpms-ops seed issues to file), observed on a fresh volume of the pinned build
-# before the capture provisioned anything (DDR LISTER; BSDX07.m:55, BSDX07.m:64, DIV^BSDU):
-# (1) no BSDX RESOURCE (#9002018.1) and no BSDX RESOURCE USER (#9002018.15) entries, so
-# BSDX ADD NEW APPOINTMENT answers "Invalid Resource ID"; (2) BSD PARAMETERS (#9009020.2)
-# entry 3 has no FILE ROOM PRINTER (.05), so booking answers "No file room printer is
-# defined for the chart request."; (3) PROV123's only DIVISION is INSTITUTION 1, which has
-# no MEDICAL CENTER DIVISION (#40.8 "AD"), so $$DIV^BSDU is 0 for PROV123 and booking
-# refuses the same way even with (2) fixed -- the ADD fixture's persona_probe is that
-# refusal. On the disposable rung the capture creates the synthetic resource and sets the
-# ZZNULL device as the printer when absent (its setup notes say which); it does not add
-# a RESOURCE USER entry and does not change any division.
+# Seed gaps (rpms-ops seed issues to file) on a fresh volume of the pinned build:
+# (1) no BSDX RESOURCE (#9002018.1) entry, so booking answers "Invalid Resource ID"
+# (BSDX07.m:55), and no BSDX RESOURCE USER (#9002018.15) entries (DDR LISTER, observed
+# while preparing the capture; not recorded in the fixtures); (2) BSD PARAMETERS
+# (#9009020.2) entry 3 has no FILE ROOM PRINTER (.05), so booking answers "No file room
+# printer is defined for the chart request." (BSDX07.m:64); (3) PROV123's sign-on division
+# is INSTITUTION 1, and no MEDICAL CENTER DIVISION (#40.8) points to it (the fixtures'
+# setup.division and setup.medical_center_division_institutions), so $$DIV^BSDU is 0 for
+# PROV123 and booking answers the same printer refusal even with (2) fixed -- the ADD
+# fixture's persona_probe is that refusal. On the disposable rung the capture creates the
+# synthetic resource and sets the ZZNULL device as the printer (its setup.notes say so); it
+# adds no RESOURCE USER entry and changes no division.
 # One line per RPC: RPC | status | reason | unproven: <effects or none>
 
-BSDX ADD NEW APPOINTMENT | not-proven | proven live signed on as SYS123 (appointment 1 at 3261126.09 for DFN 3, every effect read back on #9002018.4 and #2.98), but PROV123's booking is refused with "BSDX07 Error: No file room printer is defined for the chart request." -- seed gap: PROV123's division (INSTITUTION 1) has no #40.8 MEDICAL CENTER DIVISION, so $$DIV^BSDU is 0 | unproven: appointment_id, dpt_appt_clinic, patient, resource, start
-BSDX CHECKIN APPOINTMENT | pilot-ready | signed on as PROV123 (DUZ 200), appointment 1 checked in at 3261105.0708; #9002018.4 .03 and the clinic's #44.003 entry (patient 3, field 309) read back that time, both empty just before the call | unproven: none
+BSDX ADD NEW APPOINTMENT | not-proven | proven live signed on as SYS123 (division 7819; appointment 1 at 3261126.09 for DFN 3, every effect read back on #9002018.4 and #2.98), but PROV123's booking is refused with "BSDX07 Error: No file room printer is defined for the chart request." -- seed gap: PROV123's division, INSTITUTION 1, has no #40.8 MEDICAL CENTER DIVISION, so $$DIV^BSDU is 0 | unproven: appointment_id, dpt_appt_clinic, patient, resource, start
+BSDX CHECKIN APPOINTMENT | pilot-ready | signed on as PROV123 (DUZ 200), appointment 1 checked in at 3261105.0805; #9002018.4 .03 and the clinic's #44.003 entry (patient 3, field 309) read back that time, both empty just before the call | unproven: none
 BSDX CANCEL APPOINTMENT | pilot-ready | signed on as PROV123 (DUZ 200), appointment 2 cancelled type PC with coded reason 5; the reply is an empty ERRORID row (no-data, not proof by itself), and #2.98 reads back status PC, reason 5 and user 200, #9002018.4 .12 a cancel time, none of them set just before the call | unproven: none
 BSDX NOSHOW | pilot-ready | signed on as PROV123 (DUZ 200), appointment 3 marked no-show; #9002018.4 .1 reads back 1 and #2.98 status N and user 200 on the patient record, neither set just before the call | unproven: none
