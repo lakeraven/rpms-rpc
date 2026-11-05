@@ -190,6 +190,10 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
 
         file = inputs.fetch("FILE")
         iens = inputs.fetch("IENS")
+        # DdrFileman.gets_entry discards the echoed FILE/IENS columns, so a reply
+        # for another record would otherwise be indexed under this one's key.
+        next unless echoed_identity_matches?(entry["raw_return"], file, iens)
+
         result[:fields].each do |fname, data|
           internal = data[:internal]
           next if internal.nil?
@@ -200,6 +204,17 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       index
     ensure
       RpmsRpc.reset!
+    end
+
+    # Every DDR GETS ENTRY DATA row is FILE^IENS^FIELD^INTERNAL^EXTERNAL. The
+    # broker omits the IENS trailing comma, so compare without it. A row that
+    # names another record leaves the whole reply unproven.
+    def echoed_identity_matches?(raw, file, iens)
+      rows = raw.to_s.split(/[\r\n]+/).select { |line| line.count("^") >= 3 && !line.start_with?("[") }
+      rows.all? do |line|
+        row_file, row_iens = line.split("^", 3)
+        row_file == file.to_s && row_iens.to_s.delete_suffix(",") == iens.to_s.delete_suffix(",")
+      end
     end
 
     def fields_list_includes?(fields_spec, field)
@@ -527,7 +542,10 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
         patient = index_lookup(index, file: "9002018.4", iens: "#{appointment_ien_from_api_call(yaml)},", field: ".05")
         got_patient = index_lookup(index, file: "44.003", iens: iens, field: ".01")
         got_time = index_lookup(index, file: "44.003", iens: iens, field: "309")
-        got_patient == patient &&
+        # Two missing patient rows must not compare equal (nil == nil).
+        RpmsRpc::WireCapture::Evidence.real_value?(patient) &&
+          RpmsRpc::WireCapture::Evidence.real_value?(got_patient) &&
+          got_patient == patient &&
           canonical_fileman_datetime(got_time) == canonical_fileman_datetime(kwargs["checkin_time"])
       when :noshow_flag
         appt_ien = appointment_ien_from_api_call(yaml)
@@ -1090,6 +1108,38 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     fixture = hermetic_fixture(yaml, [ "0^" ])
     assert_equal slice[:effects].sort, self.class.proven_effects(slice, yaml, fixture).sort
     assert_equal "pilot-ready", self.class.expected_checklist_status(slice, yaml, fixture)
+  end
+
+  def test_hermetic_checkin_reply_echoing_another_record_leaves_effects_unproven
+    slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_checkin_appointment }
+    yaml = hermetic_checkin_fixture
+    other = yaml["read_back"].first["raw_return"].gsub("^5,^", "^6,^")
+    yaml["read_back"].first["raw_return"] = other
+    yaml["read_back"].first["sha256"] = Digest::SHA256.hexdigest(other)
+    fixture = hermetic_fixture(yaml, [ "0^" ])
+    refute self.class.effect_proven?(slice, :checkin_time, yaml, fixture)
+    refute self.class.effect_proven?(slice, :checkin_clinic, yaml, fixture)
+  end
+
+  def test_hermetic_checkin_echo_without_trailing_comma_still_grades_pilot_ready
+    slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_checkin_appointment }
+    yaml = hermetic_checkin_fixture
+    bare = yaml["read_back"].first["raw_return"].gsub("^5,^", "^5^")
+    yaml["read_back"].first["raw_return"] = bare
+    yaml["read_back"].first["sha256"] = Digest::SHA256.hexdigest(bare)
+    fixture = hermetic_fixture(yaml, [ "0^" ])
+    assert self.class.effect_proven?(slice, :checkin_time, yaml, fixture)
+  end
+
+  def test_hermetic_checkin_missing_patient_rows_in_both_after_reads_leaves_clinic_unproven
+    slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_checkin_appointment }
+    yaml = hermetic_checkin_fixture
+    appt = yaml["read_back"][0]["raw_return"].lines.reject { |l| l.include?("^.05^") }.join
+    clinic = yaml["read_back"][1]["raw_return"].lines.reject { |l| l.include?("^.01^") }.join
+    yaml["read_back"][0].merge!("raw_return" => appt, "sha256" => Digest::SHA256.hexdigest(appt))
+    yaml["read_back"][1].merge!("raw_return" => clinic, "sha256" => Digest::SHA256.hexdigest(clinic))
+    fixture = hermetic_fixture(yaml, [ "0^" ])
+    refute self.class.effect_proven?(slice, :checkin_clinic, yaml, fixture)
   end
 
   private

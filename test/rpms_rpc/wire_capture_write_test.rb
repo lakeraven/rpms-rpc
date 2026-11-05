@@ -13,6 +13,21 @@ require "rpms_rpc/mappings"
 
 # Issue #565 / #224 scheduling write slice — wire-capture side (recordset rows,
 # write-fixture validation, RecordingClient, capture_writes guardrails).
+# Prepended once; answers only while a test sets `fake`, otherwise defers to the
+# real Open3.capture2 so no other test or task sees the stub.
+module Open3CaptureStub
+  class << self
+    attr_accessor :fake
+  end
+
+  def capture2(*args, **opts, &block)
+    return Open3CaptureStub.fake.call(*args) if Open3CaptureStub.fake
+
+    super
+  end
+end
+Open3.singleton_class.prepend(Open3CaptureStub)
+
 class RpmsRpc::WireCaptureWriteTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
   WIRE_RAKE_PATH = File.join(ROOT, "lib/tasks/wire.rake")
@@ -335,9 +350,8 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
   end
 
   def test_capture_writes_aborts_when_release_unset
-    env = base_capture_writes_env.merge("LIVE_DISPOSABLE" => "1")
-    env.delete("RELEASE")
-    assert_capture_writes_refuses(env: env)
+    # nil makes with_env remove an inherited RELEASE for the run and restore it.
+    assert_capture_writes_refuses(env: base_capture_writes_env.merge("LIVE_DISPOSABLE" => "1", "RELEASE" => nil))
   end
 
   def test_capture_writes_aborts_when_release_blank
@@ -383,19 +397,18 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
     driver_status = Struct.new(:success?, :exitstatus).new(true, 0)
     begin
       load_wire_rake!
-      Open3.singleton_class.prepend(Module.new do
-        define_method(:capture2) do |_env, *_argv|
-          [ JSON.generate(fake_document), driver_status ]
-        end
-      end)
+      Open3CaptureStub.fake = ->(_env, *_argv) { [ JSON.generate(fake_document), driver_status ] }
       exit = assert_raises(SystemExit) do
-        with_env(base_capture_writes_env.merge("WIRE_FIXTURES_DIR" => dir)) do
-          Rake::Task["wire:capture_writes"].invoke
+        capture_io do
+          with_env(base_capture_writes_env.merge("WIRE_FIXTURES_DIR" => dir)) do
+            Rake::Task["wire:capture_writes"].invoke
+          end
         end
       end
       refute_equal 0, exit.status
       refute File.file?(File.join(dir, "bsdx-checkin-appointment.yml"))
     ensure
+      Open3CaptureStub.fake = nil
       Rake::Task["wire:capture_writes"].reenable if Rake::Task.task_defined?("wire:capture_writes")
       FileUtils.remove_entry(dir)
     end
@@ -461,7 +474,7 @@ class RpmsRpc::WireCaptureWriteTest < Minitest::Test
 
   def with_env(env)
     prior = env.keys.to_h { |k| [ k, ENV[k] ] }
-    env.each { |k, v| ENV[k] = v }
+    env.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
     yield
   ensure
     prior.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
