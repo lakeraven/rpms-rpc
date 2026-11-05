@@ -31,6 +31,8 @@ class RpmsRpc::PilotVisitEncounterTest < Minitest::Test
     "E&M^Visit has no note"
   ].freeze
 
+  VISIT_BOOLEAN_ATTRIBUTES = { encounter_visit: [ :locked ], encounter_fetch: [ :locked ] }.freeze
+
   # Replays committed wire fixtures through Encounter.open (issue #563 test d).
   class VisitEncounterProbeClient
     def initialize(getvisit_rows, fetch_rows, chkvisit_rows)
@@ -67,8 +69,56 @@ class RpmsRpc::PilotVisitEncounterTest < Minitest::Test
     def wire_contract_violations(...) = RpmsRpc::PilotChartReadsTest.wire_contract_violations(...)
     def unproven_attributes(...) = RpmsRpc::PilotChartReadsTest.unproven_attributes(...)
     def format_unproven_list(...) = RpmsRpc::PilotChartReadsTest.format_unproven_list(...)
-    def expected_checklist_status(...) = RpmsRpc::PilotChartReadsTest.expected_checklist_status(...)
     def normalize_cite(...) = RpmsRpc::PilotChartReadsTest.normalize_cite(...)
+    def readiness_attribute_names(...) = RpmsRpc::PilotChartReadsTest.readiness_attribute_names(...)
+
+    def locked_observed_both_ways?(mapping, fixture, attr)
+      field = mapping.fields.find { |candidate| candidate.attribute == attr }
+      return false unless field
+
+      true_observed = false
+      false_observed = false
+
+      fixture.captured_data_rows.each do |raw_row|
+        pieces = raw_row.to_s.split("^", -1)
+        next unless pieces.length > field.position
+
+        piece = pieces[field.position].to_s
+        mapped = mapping.parse_many([ raw_row ]).first
+        next if mapped.nil?
+
+        true_observed = true if piece == "1" && mapped[attr] == true
+        false_observed = true if piece == "0" && mapped[attr] == false
+      end
+
+      true_observed && false_observed
+    end
+
+    def visit_unproven_attributes(fixture)
+      mapping = RpmsRpc::DataMapper[fixture.mapping_name]
+      unproven = unproven_attributes(fixture).dup
+      (VISIT_BOOLEAN_ATTRIBUTES[fixture.mapping_name] || []).each do |attr|
+        next if locked_observed_both_ways?(mapping, fixture, attr)
+
+        unproven << attr unless unproven.include?(attr)
+      end
+      unproven
+    end
+
+    def visit_expected_status(_slice, fixture)
+      unproven = visit_unproven_attributes(fixture)
+      mapping = RpmsRpc::DataMapper[fixture.mapping_name]
+      all_readiness = readiness_attribute_names(mapping, fixture)
+      if fixture.source == "no-data" || fixture.source == "routine-cite"
+        "not-proven"
+      elsif unproven.empty?
+        "pilot-ready"
+      elsif unproven.sort == all_readiness.sort
+        "not-proven"
+      else
+        "partial"
+      end
+    end
   end
 
   def parse_checklist
@@ -202,12 +252,12 @@ class RpmsRpc::PilotVisitEncounterTest < Minitest::Test
         next
       end
       fixture = load_slice_fixture(slice)
-      expected_unproven = self.class.format_unproven_list(self.class.unproven_attributes(fixture))
+      expected_unproven = self.class.format_unproven_list(self.class.visit_unproven_attributes(fixture))
       if row[:unproven] != expected_unproven
         failures << "#{slice[:rpc]} line #{row[:line]}: unproven #{row[:unproven].inspect}, " \
                      "expected #{expected_unproven.inspect}"
       end
-      expected_status = self.class.expected_checklist_status(slice, fixture)
+      expected_status = self.class.visit_expected_status(slice, fixture)
       if row[:status] != expected_status
         failures << "#{slice[:rpc]} line #{row[:line]}: status #{row[:status].inspect}, " \
                      "expected #{expected_status.inspect}"
@@ -217,6 +267,40 @@ class RpmsRpc::PilotVisitEncounterTest < Minitest::Test
       end
     end
     assert_empty failures, failures.join("\n  ")
+  end
+
+  # Intent: visit :locked is proven only when wire pieces "1" and "0" both map true/false (-1 or missing proves neither).
+  def test_visit_locked_boolean_readiness_requires_one_and_zero_on_the_wire
+    mapping = RpmsRpc::DataMapper[:encounter_visit]
+    stub = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
+      :encounter_visit, "live-capture", [ "6^3260825.09^A^2^^0" ], nil
+    )
+    assert_includes self.class.visit_unproven_attributes(stub), :locked,
+                    "locked 0 alone must stay unproven"
+
+    both = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
+      :encounter_visit, "live-capture",
+      [ "6^3260825.09^A^2^^1", "6^3260825.09^A^2^^0" ], nil
+    )
+    refute_includes self.class.visit_unproven_attributes(both), :locked,
+                    "locked 1 and 0 together prove the boolean"
+
+    one_and_sentinel = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
+      :encounter_visit, "live-capture",
+      [ "6^3260825.09^A^2^^1", "6^3260825.09^A^2^^-1" ], nil
+    )
+    assert_includes self.class.visit_unproven_attributes(one_and_sentinel), :locked,
+                    "locked 1 with -1 must not prove false"
+
+    one_and_empty = Struct.new(:mapping_name, :source, :captured_data_rows, :path).new(
+      :encounter_visit, "live-capture",
+      [ "6^3260825.09^A^2^^1", "6^3260825.09^A^2^^" ], nil
+    )
+    assert_includes self.class.visit_unproven_attributes(one_and_empty), :locked,
+                    "locked 1 with missing piece must not prove false"
+
+    refute self.class.locked_observed_both_ways?(mapping, stub, :locked)
+    assert self.class.locked_observed_both_ways?(mapping, both, :locked)
   end
 
   # Intent: write paths stay not-proven with named seed gaps (PROV123 division / AMHG activity type).
