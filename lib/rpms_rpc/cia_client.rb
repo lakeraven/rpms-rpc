@@ -403,9 +403,28 @@ module RpmsRpc
     # BSDX HOSPITAL LOCATION (HOSPLOC^BSDX32): the header and every clinic
     # arrived as one line, and Scheduling.hospital_locations returned the
     # header as its only row.
+    #
+    # The body is split with a limit of -1, so a trailing row break is an
+    # empty fragment that can be counted and nothing is dropped unseen.
+    # The one-terminator allowance is the body's final row break: that one
+    # trailing empty fragment is dropped. When the body has no kept
+    # content, a body of exactly one row break is a single empty line
+    # terminated once: it returns [] and is not altered. Two or more
+    # breaks with nothing else ("\r\r") stay altered. A single final $C(31)
+    # fragment is the GLOBAL ARRAY end node, and is dropped without
+    # marking the reply altered, only when the body contains no CR or LF.
+    # A GLOBAL ARRAY reply is $C(30)-separated nodes with no line break.
+    # The one terminator that may follow that end node is dropped too. A
+    # body that contains a CR or LF and drops a $C(31) fragment anywhere,
+    # including last, is altered. A $C(31) fragment anywhere other than
+    # that clean end node, or more than one trailing empty fragment after
+    # kept content, is still dropped, and the reply is marked altered.
+    # Interior empty lines are kept. A well-formed body returns the same
+    # lines as before.
     def call_rpc(rpc_name, *params)
       body = parse_cia_reply(call_rpc_raw(rpc_name, *params))
-      Reply.from_wire(body.split(REPLY_ROW_BREAK).reject { |line| line == RECORDSET_END }, controls: true)
+      lines, altered = cia_reply_lines(body)
+      Reply.from_wire(lines, controls: true, altered: altered)
     end
 
     REPLY_ROW_BREAK = /\r\n|\r|\n|\x1e/
@@ -532,6 +551,42 @@ module RpmsRpc
     def read_response = synchronize_wire { read_until_raw(EOD) }
 
     private
+
+    # See #call_rpc. The index passed back is the last kept line (or 0
+    # when nothing was kept) so Reply.altered? is true when a drop was
+    # not the body's final row break, or not a final $C(31) node in a
+    # body that contains no CR or LF.
+    def cia_reply_lines(body)
+      text = body.to_s
+      fragments = text.split(REPLY_ROW_BREAK, -1)
+      trailing = 0
+      trailing += 1 while trailing < fragments.length && fragments[-(trailing + 1)].empty?
+      core = trailing.zero? ? fragments : fragments[0...-trailing]
+      lines = []
+      dropped_end = 0
+      core.each do |fragment|
+        if fragment.b == RECORDSET_END
+          dropped_end += 1
+        else
+          lines << fragment
+        end
+      end
+      final_end = !core.empty? && core.last.b == RECORDSET_END
+      # Every fragment empty means the body kept nothing. The fragment
+      # count is the row breaks plus one: ["", ""] is one empty line
+      # closed by the final row break, and [] is unaltered. More than
+      # one break ("\r\r") stays altered. Kept content still allows only
+      # that one trailing empty fragment. A final $C(31) is clean only
+      # when the body has no CR or LF.
+      no_kept_content = trailing == fragments.length
+      extra_break = no_kept_content ? fragments.length > 2 : trailing > 1
+      bytes = text.b
+      line_break = bytes.include?("\r".b) || bytes.include?("\n".b)
+      recordset_end_on_lines = dropped_end.positive? && line_break
+      bad_drop = extra_break || dropped_end > 1 || (dropped_end == 1 && !final_end) || recordset_end_on_lines
+      altered = bad_drop ? [ lines.empty? ? 0 : lines.length - 1 ] : []
+      [ lines, altered ]
+    end
 
     # The served NAMEs in #8994, read with DDR LISTER (LISTC^DDR) by the B
     # index, REGISTRY_PAGE rows a call: "IEN^NAME^INACTIVE" rows, then a

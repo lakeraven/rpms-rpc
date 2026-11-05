@@ -810,16 +810,44 @@ module RpmsRpc
       end
     end
 
-    # Split response string into array of lines (gateway convention)
+    # Split response string into lines (gateway convention).
+    #
+    # One trailing terminator (CRLF, or the LF/CR that String#chomp("\n")
+    # removes) is the end of the reply and is dropped. A second trailing
+    # terminator is left in place and the reply is marked altered, the same
+    # way CiaClient marks a drop that is not the single final row break
+    # (Reply.altered? via an altered line index). A string with no
+    # terminator, including an empty string, is unchanged.
     def split_response(response)
-      response.chomp!("\r\n")
-      response.chomp!("\n")
-      if response.include?("\r\n")
-        response.split("\r\n", -1)
-      elsif response.include?("\n")
-        response.split("\n", -1)
+      text = response.dup
+      drop_one_terminator!(text)
+      lines = split_response_lines(text)
+      return lines unless trailing_terminator?(text)
+
+      Reply.from_wire(lines, altered: [ lines.empty? ? 0 : lines.length - 1 ])
+    end
+
+    def drop_one_terminator!(text)
+      return unless trailing_terminator?(text)
+
+      if text.end_with?("\r\n")
+        text.delete_suffix!("\r\n")
       else
-        response.empty? ? [] : [ response ]
+        text.chomp!("\n")
+      end
+    end
+
+    def trailing_terminator?(text)
+      text.end_with?("\n") || text.end_with?("\r")
+    end
+
+    def split_response_lines(text)
+      if text.include?("\r\n")
+        text.split("\r\n", -1)
+      elsif text.include?("\n")
+        text.split("\n", -1)
+      else
+        text.empty? ? [] : [ text ]
       end
     end
   end
