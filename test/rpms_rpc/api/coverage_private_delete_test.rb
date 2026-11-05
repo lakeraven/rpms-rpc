@@ -97,6 +97,10 @@ class CoveragePrivateDeleteTest < Minitest::Test
     lines.join("\n")
   end
 
+  def v0_lister_body(*rows)
+    ( [ "[Data]" ] + rows.map(&:to_s) ).join("\n")
+  end
+
   def seed_owner!(client, record_ien: RECORD, dfn: DFN, insurer_ien: "5")
     key = gets_key(record_ien, dfn)
     body = "[Data]\n#{PRIVATE_FILE}^#{record_ien},#{dfn},^.01^#{insurer_ien}^#{insurer_ien}\n"
@@ -151,7 +155,7 @@ class CoveragePrivateDeleteTest < Minitest::Test
   end
 
   def expected_lister_param(dfn = DFN, **overrides)
-    Ddr.lister_param(file: PRIVATE_FILE, iens: ",#{dfn},", fields: "@;.01", flags: "IP", max: "*", **overrides)
+    Ddr.lister_param(file: PRIVATE_FILE, iens: ",#{dfn},", fields: "@;.01", flags: "IP", max: "*", xref: "#", **overrides)
   end
 
   def test_delete_private_insurance_files_one_at_row_after_one_owner_read_and_confirms_with_lister
@@ -243,6 +247,7 @@ class CoveragePrivateDeleteTest < Minitest::Test
     refute result[:message].to_s.strip.empty?
     assert_empty filer_calls(client)
     assert_equal 1, lister_calls(client).size
+    assert_equal expected_lister_param, lister_calls(client).first[1]
     assert_empty agg_private_calls(client)
   end
 
@@ -363,7 +368,7 @@ class CoveragePrivateDeleteTest < Minitest::Test
     assert_empty agg_private_calls(client)
   end
 
-  def test_delete_private_insurance_post_delete_lister_param_is_packed_ip
+  def test_delete_private_insurance_post_delete_lister_param_is_packed_ip_and_walks_record_numbers
     client = RecordingClient.new
     seed_owner!(client)
     seed_filer_ok!(client)
@@ -398,6 +403,76 @@ class CoveragePrivateDeleteTest < Minitest::Test
     assert_equal :verification_failed, result[:error]
     assert_equal 1, filer_calls(client).size
     assert_equal 1, lister_calls(client).size
+  end
+
+  def test_delete_private_insurance_confirms_deletion_with_v0_lister_reply
+    client = RecordingClient.new
+    seed_owner!(client)
+    seed_filer_ok!(client)
+    seed_lister!(client, v0_lister_body("8^5"))
+
+    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
+
+    assert_equal({ success: true, record_ien: RECORD }, result)
+  end
+
+  def test_delete_private_insurance_verification_failed_when_v0_lister_still_lists_the_record
+    client = RecordingClient.new
+    seed_owner!(client)
+    seed_filer_ok!(client)
+    seed_lister!(client, v0_lister_body("#{RECORD}^5"))
+
+    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
+
+    refute result[:success]
+    assert_equal :verification_failed, result[:error]
+    assert_equal 1, filer_calls(client).size
+    assert_equal 1, lister_calls(client).size
+  end
+
+  def test_delete_private_insurance_already_absent_when_owner_read_errors_and_v0_list_omits_the_record
+    client = RecordingClient.new
+    seed_absent_gets!(client)
+    seed_lister!(client, v0_lister_body("8^5"))
+
+    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
+
+    refute result[:success]
+    assert_equal :already_absent, result[:error]
+    assert_equal RECORD, result[:record_ien]
+    refute result[:message].to_s.strip.empty?
+    assert_empty filer_calls(client)
+    assert_equal 1, lister_calls(client).size
+    assert_equal expected_lister_param, lister_calls(client).first[1]
+    assert_empty agg_private_calls(client)
+  end
+
+  def test_delete_private_insurance_verification_failed_when_owner_read_errors_and_lister_errors_only
+    client = RecordingClient.new
+    seed_absent_gets!(client)
+    seed_lister!(client, "[BEGIN_diERRORS]\n701^1^.01^#{PRIVATE_FILE}\nList failed.\n[END_diERRORS]")
+
+    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
+
+    refute result[:success]
+    assert_equal :verification_failed, result[:error]
+    assert_empty filer_calls(client)
+    assert_equal 1, lister_calls(client).size
+    assert_empty agg_private_calls(client)
+  end
+
+  def test_delete_private_insurance_verification_failed_when_owner_read_errors_and_lister_is_bare_broker_text
+    client = RecordingClient.new
+    seed_absent_gets!(client)
+    seed_lister!(client, "SOME BROKER TEXT")
+
+    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
+
+    refute result[:success]
+    assert_equal :verification_failed, result[:error]
+    assert_empty filer_calls(client)
+    assert_equal 1, lister_calls(client).size
+    assert_empty agg_private_calls(client)
   end
 
   def test_delete_private_insurance_repeat_delete_returns_already_absent_without_second_filer
