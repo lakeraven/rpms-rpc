@@ -339,34 +339,60 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       }
     end
 
+    BMX_TYPED_COLUMN = /\A[A-Za-z]\d{5}[A-Za-z][A-Za-z0-9_]*\z/
+
+    # BSDX CANCEL success is an ERRORID-only recordset (header + empty row); no-data fixtures have no captured rows.
+    def cancel_write_reply_success?(raw)
+      return false if raw.nil?
+      return false if RpmsRpc::WireCapture.error_reply?(raw)
+
+      body = raw.to_s.sub(/\A\d+[\x00\x01]/, "")
+      return false unless body.include?("\x1e") || body.include?("\x1f")
+
+      rows = body.split("\x1e").map { |row| row.sub("\x1f", "") }
+      non_empty = rows.reject(&:empty?)
+      return false if non_empty.empty?
+
+      header = non_empty.first
+      return false unless header.split("^", -1).length == 1 &&
+                          header.match?(BMX_TYPED_COLUMN) &&
+                          header.end_with?("ERRORID")
+
+      non_empty.length == 1
+    end
+
     def write_success?(slice, fixture, yaml)
       return false if yaml["raw_return"].nil?
       return false if RpmsRpc::WireCapture.error_reply?(yaml["raw_return"])
 
       mapping = RpmsRpc::DataMapper[slice[:mapping]]
-      rows = fixture.captured_data_rows
-      return false if rows.nil? || rows.empty?
 
       case slice[:mapping]
-      when :scheduling_add_appointment
-        row = rows.first.to_s
-        return false if row.empty?
-
-        mapped = mapping.parse_one(row)
-        id = mapped[:appointment_id].to_i
-        id.positive? && mapped[:error].to_s.empty?
-      when :scheduling_checkin_appointment
-        row = rows.first.to_s
-        return false if row.empty?
-
-        row.split("^", -1).first.to_s == "0"
       when :scheduling_cancel_appointment
-        rows.first.to_s.split("^", -1).first.to_s.empty?
-      when :scheduling_noshow_appointment
-        row = rows.first.to_s
-        return false if row.empty?
+        cancel_write_reply_success?(yaml["raw_return"])
+      when :scheduling_add_appointment, :scheduling_checkin_appointment, :scheduling_noshow_appointment
+        rows = fixture.captured_data_rows
+        return false if rows.nil? || rows.empty?
 
-        mapping.parse_one(row)[:result].to_i == 1
+        case slice[:mapping]
+        when :scheduling_add_appointment
+          row = rows.first.to_s
+          return false if row.empty?
+
+          mapped = mapping.parse_one(row)
+          id = mapped[:appointment_id].to_i
+          id.positive? && mapped[:error].to_s.empty?
+        when :scheduling_checkin_appointment
+          row = rows.first.to_s
+          return false if row.empty?
+
+          row.split("^", -1).first.to_s == "0"
+        when :scheduling_noshow_appointment
+          row = rows.first.to_s
+          return false if row.empty?
+
+          mapping.parse_one(row)[:result].to_i == 1
+        end
       else
         false
       end
@@ -814,9 +840,47 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_cancel_appointment }
     yaml = hermetic_cancel_fixture(reason: "5").tap { |h| h.delete("read_before") }
     fixture = hermetic_fixture(yaml, [ "" ])
+    refute self.class.effect_proven?(slice, :success, yaml, fixture)
     %i[cancel_status cancel_reason cancelled_at].each do |effect|
       refute self.class.effect_proven?(slice, effect, yaml, fixture), effect.to_s
     end
+  end
+
+  def test_hermetic_cancel_empty_errorid_reply_proves_success_when_cancel_status_proven
+    slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_cancel_appointment }
+    yaml = hermetic_cancel_fixture(reason: "5")
+    fixture = hermetic_fixture(yaml, [])
+    assert self.class.effect_proven?(slice, :success, yaml, fixture)
+    assert self.class.effect_proven?(slice, :cancel_status, yaml, fixture)
+  end
+
+  def test_hermetic_cancel_empty_errorid_reply_leaves_success_unproven_without_cancel_status
+    slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_cancel_appointment }
+    yaml = hermetic_cancel_fixture(reason: "5", read_before_already_cancelled: true)
+    fixture = hermetic_fixture(yaml, [])
+    refute self.class.effect_proven?(slice, :cancel_status, yaml, fixture)
+    refute self.class.effect_proven?(slice, :success, yaml, fixture)
+  end
+
+  def test_hermetic_cancel_errorid_text_row_makes_success_unproven
+    slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_cancel_appointment }
+    raw = "8\x00T00020ERRORID#{RS}BSDX08: Invalid Appointment ID#{RS}"
+    yaml = hermetic_cancel_fixture(reason: "5").merge(
+      "raw_return" => raw,
+      "sha256" => Digest::SHA256.hexdigest(raw)
+    )
+    fixture = hermetic_fixture(yaml, RpmsRpc::WireCapture.data_rows(raw))
+    refute self.class.effect_proven?(slice, :success, yaml, fixture)
+  end
+
+  def test_hermetic_cancel_nil_raw_return_makes_success_unproven
+    slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_cancel_appointment }
+    yaml = hermetic_cancel_fixture(reason: "5").merge(
+      "raw_return" => nil,
+      "sha256" => Digest::SHA256.hexdigest("")
+    )
+    fixture = hermetic_fixture(yaml, [])
+    refute self.class.effect_proven?(slice, :success, yaml, fixture)
   end
 
   def test_committed_checkin_cancel_noshow_fixtures_setup_duz_prov123_positive
