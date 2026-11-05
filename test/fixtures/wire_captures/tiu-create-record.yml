@@ -6,7 +6,7 @@ rpc: TIU CREATE RECORD
 mapping: tiu_create_record
 kind: scalar
 release_tag: bcer-9.0-20261012-e7923a4-ydb
-captured_at: '2026-11-05T04:23:51Z'
+captured_at: '2026-11-05T08:14:02Z'
 signed_on_as: PROV123
 cite: 'MAKE^TIUSRVP (TIUSRVP.m:7, 59-63): SUCCESS is the new IEN (TIUSRVP.m:63) or
   "0^message" (TIUSRVP.m:59, 62). Actuals DFN, TITLE, VDT, VLOC, VSIT; VDT and VLOC
@@ -21,5 +21,5 @@ inputs:
 - ''
 - ''
 - '4'
-raw_return: "5\010"
-sha256: ecd954413b52424df0c36038e160fe6af2b946da727d363a2189c9e413ff3273
+raw_return: "6\06"
+sha256: 491586216985ba5e8fe28c560d76f80314982ebbeb25e197f3a02e1af0457401
