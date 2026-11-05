@@ -21,8 +21,12 @@ class RegistrationEligibilityUpdateLiveTest < LiveSpec::Test
     before = RpmsRpc::Tribal.enrollment(DFN)
     refute_nil before, "Tribal.enrollment(#{DFN}) must read current standing before filing"
 
-    tribe_choices = kwethluk_tribe_iens!
-    tribe = tribe_choices.find { |ien| ien != before[:tribe_ien].to_s } || tribe_choices.first
+    tribe_rows = Array(RpmsRpc::Tribal.tribes).select { |row| row[:ien].is_a?(Integer) && row[:ien].positive? }
+    flunk "need at least two tribes with positive IEN on this build" if tribe_rows.size < 2
+
+    tribe_row = tribe_rows.find { |row| row[:ien].to_s != before[:tribe_ien].to_s }
+    flunk "need a tribe distinct from current membership on this build" unless tribe_row
+    tribe = tribe_row[:ien].to_s
 
     eligibility_status = alternate_value(ELIGIBILITY_CODES, before[:eligibility_status].to_s)
     blood_quantum = alternate_value(QUANTUM_VALUES, before[:indian_blood_quantum].to_s)
@@ -76,13 +80,6 @@ class RegistrationEligibilityUpdateLiveTest < LiveSpec::Test
 
   def alternate_value(options, current)
     options.find { |choice| choice != current.to_s } || options.first
-  end
-
-  def kwethluk_tribe_iens!
-    listed = Array(RpmsRpc::Tribal.tribes(part: "KWETHLUK")).map { |row| row[:ien].to_s }.uniq
-    flunk "need at least two KWETHLUK tribes on this build (e.g. IEN 697 and 532), got #{listed.inspect}" if listed.size < 2
-
-    listed
   end
 
   def classification_ien!

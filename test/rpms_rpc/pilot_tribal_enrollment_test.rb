@@ -280,10 +280,53 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
         code.match?(/refute_equal\s+before_internal\[field\]/)
     end
 
+    WINDOW_ELIGIBILITY_FILED_FIELD_VARS = {
+      '".07"' => "number",
+      '"1108"' => "tribe",
+      '"1109"' => "tribe_quantum",
+      '"1110"' => "blood_quantum",
+      '"1111"' => "classification",
+      '"1112"' => "eligibility_status"
+    }.freeze
+
+    def live_eligibility_spec_assert_equal_expected_filed_ok?(source)
+      code = live_eligibility_spec_non_comment_source(source)
+      return false unless code.match?(/^\s*assert_equal\s+expected,\s+filed\s*$/m)
+
+      body = code[/expected\s*=\s*\{([^}]+)\}/m, 1]
+      return false unless body
+
+      WINDOW_ELIGIBILITY_FILED_FIELD_VARS.all? do |field_key, var_name|
+        body.match?(/#{Regexp.escape(field_key)}\s*=>\s*#{var_name}\b/)
+      end
+    end
+
+    def live_eligibility_spec_filed_from_gets_entry_ok?(source)
+      code = live_eligibility_spec_non_comment_source(source)
+      code.match?(/DdrFileman\.gets_entry/m) &&
+        code.match?(/fields:\s*"[^"]*\.07[^"]*1108[^"]*1109[^"]*1110[^"]*1111[^"]*1112/m) &&
+        code.match?(/%w\[\.07\s+1108\s+1109\s+1110\s+1111\s+1112\]/) &&
+        code.match?(/filed\s*=.*\.dig\(:fields,\s*f,\s*:internal\)/m)
+    end
+
+    def live_eligibility_spec_forbidden_tribe_name_pattern
+      /#{Regexp.escape(%w[KWE THLUK].join)}/i
+    end
+
+    def live_eligibility_spec_tribe_from_tribes_ok?(source)
+      code = live_eligibility_spec_non_comment_source(source)
+      return false if code.match?(live_eligibility_spec_forbidden_tribe_name_pattern)
+
+      code.match?(/Tribal\.tribes\b/) &&
+        code.match?(/before\[:tribe_ien\]/) &&
+        code.match?(/!=.*before\[:tribe_ien\]|before\[:tribe_ien\].*!=/)
+    end
+
     def live_eligibility_spec_covers_window_eligibility_attrs?(source = nil)
       source = source || File.read(LIVE_ELIGIBILITY_SPEC)
       lines = source.lines
       return false if source.match?(/^\s*skip\b/m) || source.match?(/\bskip\s+"|\bskip\s+'/)
+      return false if source.match?(live_eligibility_spec_forbidden_tribe_name_pattern)
 
       def_line = lines.find { |l| l =~ /^\s*def test_/ }
       return false unless def_line && !def_line.strip.start_with?("#")
@@ -296,15 +339,16 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
       update_ok = WINDOW_ELIGIBILITY_ATTRS.all? do |attr|
         source.match?(/(?<![a-z_])#{Regexp.escape(attr.to_s)}:\s/)
       end
-      read_ok = source.include?('"1108"') && source.include?('"1111"') && source.include?('"1112"') &&
-                source.include?('"1110"') && source.include?('"1109"') && source.include?('".07"') &&
-                source.match?(/Tribal\.enrollment/) &&
-                source.match?(/\.values_at\(:enrollment_number/) &&
-                source.match?(/KWETHLUK|tribes\(part:\s*"KWETHLUK"\)/) &&
-                source.match?(/\b990[_ ]?052\b/)
+      wire_readback_ok = source.match?(/Tribal\.enrollment/) &&
+                         source.match?(/\.values_at\(:enrollment_number/) &&
+                         source.match?(/\b990[_ ]?052\b/)
+      assert_filed_ok = live_eligibility_spec_assert_equal_expected_filed_ok?(source)
+      gets_entry_filed_ok = live_eligibility_spec_filed_from_gets_entry_ok?(source)
+      tribes_ok = live_eligibility_spec_tribe_from_tribes_ok?(source)
       filed_ok = live_eligibility_spec_filed_attr_assignments_ok?(source)
       refute_ok = live_eligibility_spec_refute_pre_test_values_ok?(source)
-      update_ok && read_ok && filed_ok && refute_ok && source.match?(/Registration\.update/)
+      update_ok && wire_readback_ok && assert_filed_ok && gets_entry_filed_ok && tribes_ok &&
+        filed_ok && refute_ok && source.match?(/Registration\.update/)
     end
 
     def live_eligibility_spec_no_op_mutant(source)
@@ -314,6 +358,16 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
       mutant.sub!(/^\s*tribe_quantum = .*$/, '    tribe_quantum = "1/4"')
       mutant.sub!(/^\s*before_internal = \{.*?\n    \}\n/m, "")
       mutant.sub!(/^\s*expected\.each do \|field, value\|\n.*?^\s*end\n/m, "")
+      mutant
+    end
+
+    def live_eligibility_spec_mutant_delete_assert_equal(source)
+      source.lines.reject { |line| line.match?(/^\s*assert_equal\s+expected,\s+filed\s*$/) }.join
+    end
+
+    def live_eligibility_spec_mutant_remove_expected_field(source, field_key, var_name)
+      mutant = source.dup
+      mutant.sub!(/#{Regexp.escape(field_key)}\s*=>\s*#{var_name}\s*,?\s*/, "")
       mutant
     end
 
@@ -772,6 +826,35 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     mutant = self.class.live_eligibility_spec_no_op_mutant(source)
     refute self.class.live_eligibility_spec_covers_window_eligibility_attrs?(mutant),
            "hard-coded eligibility attrs without before_internal/refute_equal must not pass the guard"
+  end
+
+  def test_live_eligibility_spec_guard_rejects_mutant_without_assert_equal_expected_filed
+    source = File.read(LIVE_ELIGIBILITY_SPEC)
+    mutant = self.class.live_eligibility_spec_mutant_delete_assert_equal(source)
+    refute self.class.live_eligibility_spec_covers_window_eligibility_attrs?(mutant),
+           "live spec without assert_equal expected, filed must not pass the guard"
+  end
+
+  def test_live_eligibility_spec_guard_rejects_mutant_without_expected_classification_pair
+    source = File.read(LIVE_ELIGIBILITY_SPEC)
+    mutant = self.class.live_eligibility_spec_mutant_remove_expected_field(source, '"1111"', "classification")
+    refute self.class.live_eligibility_spec_covers_window_eligibility_attrs?(mutant),
+           "expected hash missing 1111 => classification must not pass the guard"
+  end
+
+  def test_live_eligibility_spec_guard_rejects_mutant_without_expected_tribe_pair
+    source = File.read(LIVE_ELIGIBILITY_SPEC)
+    mutant = self.class.live_eligibility_spec_mutant_remove_expected_field(source, '"1108"', "tribe")
+    refute self.class.live_eligibility_spec_covers_window_eligibility_attrs?(mutant),
+           "expected hash missing 1108 => tribe must not pass the guard"
+  end
+
+  def test_tribal_enrollment_specs_do_not_mention_real_tribe_names
+    forbidden = self.class.live_eligibility_spec_forbidden_tribe_name_pattern
+    live = File.read(LIVE_ELIGIBILITY_SPEC)
+    pilot = File.read(__FILE__)
+    refute_match forbidden, live, "live spec must not name real tribes"
+    refute_match forbidden, pilot, "pilot tribal enrollment spec must not name real tribes"
   end
 
   def test_tribal_eligibility_replay_zero_internal_classification_ien_is_nil_and_unproven
