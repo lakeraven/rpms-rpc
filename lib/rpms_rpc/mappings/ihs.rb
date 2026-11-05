@@ -448,13 +448,16 @@ module RpmsRpc
       m.field 8, :error
     end
 
-    # BEHOENCX CHKVISIT(DATA,IEN) — one COMPONENT^TEXT row per check
-    # (CHKVISIT^BEHOENCX, BEHOENCX.m:329-337). CV1 overwrites piece 1 (the
-    # status code) with the component name, so the text is the only signal.
-    # Present or not required: "Visit has POV" (NOPOV, BEHOXQPC.m:10, code
-    # -2), "Visit has E&M code" (NEEDSEMC, BEHOXQPC.m:59, code -2), "E&M
-    # code not required." (NEEDSEMC, BEHOXQPC.m:55, code -7), "Provider does
-    # not require E&M code" (NEEDSEMC, BEHOXQPC.m:61, code -5). Missing:
+    # BEHOENCX CHKVISIT(DATA,IEN) (CHKVISIT^BEHOENCX, BEHOENCX.m:329-337).
+    # The reply is empty when BEHOXQPC is absent (BEHOENCX.m:330); otherwise
+    # it is one POV row and one E&M row. CV1 overwrites piece 1 (the status
+    # code) with the component name, so the text is the only signal.
+    # Satisfied texts are per component. POV: "Visit has POV" (NOPOV,
+    # BEHOXQPC.m:10, code -2). E&M: "Visit has E&M code" (NEEDSEMC,
+    # BEHOXQPC.m:59, code -2), "E&M code not required." (NEEDSEMC,
+    # BEHOXQPC.m:55, code -7), "Provider does not require E&M code"
+    # (NEEDSEMC, BEHOXQPC.m:61, code -5). A satisfied text counts only for
+    # its own component. Missing:
     # "Notification was delivered", "Notification exists", "Notification is
     # disabled". Not checked: "Visit has no note", "No primary provider",
     # "Bad visit specifier". Any other text, and a nil message, stays: the
