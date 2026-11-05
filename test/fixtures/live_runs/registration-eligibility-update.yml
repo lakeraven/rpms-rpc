@@ -1,0 +1,23 @@
+# Live run record for test/live/registration_eligibility_update_live_test.rb (#566).
+# Written by hand from the harness output of one `rake test:live_summary_pending test:live
+# TEST=test/live/registration_eligibility_update_live_test.rb` run in a cloud VM against the
+# pinned build (bin/cloud_rpms up with PINNED=1), synthetic data only. run_id is the
+# LIVE_RUN_ID the pending marker stamped for that run. build_marker is the container's
+# /data/BUILD.json tag and rpms_ops commit. Hermetic tests read this file for consistency
+# with docs/pilot_rpc_readiness.md only; they cannot observe a live result. Replace it
+# (do not edit values) after re-running the live spec.
+spec: test/live/registration_eligibility_update_live_test.rb
+persona: PROV123
+protocol: cia
+build: bcer-9.0-20261012-e7923a4-ydb
+build_source: pinned
+build_marker: bcer-9.0-20261012-e7923a4-ydb rpms_ops e7923a4
+image: ghcr.io/lakeraven/rpms-ydb@sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7
+run_id: 87823ff492e1bc60
+run_at: '2026-11-05T06:32:05Z'
+passed: true
+runs: 1
+assertions: 13
+failures: 0
+errors: 0
+skips: 0
