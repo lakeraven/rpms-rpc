@@ -109,6 +109,29 @@ module RpmsRpc
       entries.reject { |entry| cited.include?(entry.rpc) }
     end
 
+    # nil, "", and whitespace are unset. Otherwise the stripped RPC name.
+    # A blank ONLY must not match nothing and skip every fixture.
+    def self.normalize_only(value)
+      return nil if value.nil?
+
+      text = value.to_s.strip
+      return nil if text.empty?
+
+      text
+    end
+
+    # Fixtures a run may write. WRITES=1 is only the TIU write catalog, so a
+    # write run never rewrites a read or routine-cite fixture. A read run is
+    # the live and routine-cite catalog, narrowed by ONLY. A blank ONLY is
+    # that whole set.
+    def self.fixture_entries(writes:, only:)
+      entries = writes == true ? CATALOG.select(&:write?) : CATALOG.reject(&:write?)
+      name = normalize_only(only)
+      return entries if name.nil?
+
+      entries.select { |entry| entry.rpc == name }
+    end
+
     # Verdicts for a scratch capture against committed fixtures (rpms-ops#975),
     # one [rpc, verdict, committed source, captured source] row per RPC called
     # on either side. SAME: raw bytes identical. SAME-ROWS: the data rows

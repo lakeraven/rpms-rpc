@@ -20,9 +20,11 @@
 # RPMS_ESIG was supplied. It is refused before the socket unless the broker
 # host resolves to loopback, CONTAINER is unset, the access code is a
 # synthetic persona, ONLY is blank (the TIU flow is captured together), and
-# RPMS_ESIG is unset or 6-20 characters after strip (field 20.4). The
-# signature code is read from the environment only and is never printed. A
-# capture that contains it is dropped, not rewritten.
+# RPMS_ESIG is unset or 6-20 characters with no leading or trailing
+# whitespace (field 20.4 stores the exact code). A write run dials the
+# resolved loopback address, not the host name. The signature code is read
+# from the environment only and is never printed. A capture that contains
+# it is dropped, not rewritten.
 require "json"
 
 # rpms-rpc references IO::TimeoutError (Ruby >= 3.2); container rubies can be
@@ -40,27 +42,33 @@ port = ENV.fetch("BROKER_PORT", "9100").to_i
 acc = ENV.fetch("RPMS_ACCESS", "SYS123")
 ver = ENV.fetch("RPMS_VERIFY", "RPMS.000")
 writes = ENV["WRITES"] == "1"
-# Judged before the socket. A write run captures the TIU flow as one unit.
-only = ENV["ONLY"].to_s.strip
+# Judged before the socket. A blank ONLY is unset; a write run captures the TIU flow as one unit.
+only = RpmsRpc::WireCapture.normalize_only(ENV["ONLY"])
 cite_only = ENV["CITE_ONLY"].to_s.split(",").map(&:strip).reject(&:empty?)
 # Plain code only. The flow already drops a capture that holds the ciphertext.
 esig = ENV["RPMS_ESIG"]
 esig_secrets = [ esig ]
 
 # Same gate as the rake task, before the socket. A direct run cannot skip it.
+# Read runs keep the host name. A write run dials the loopback address it checked.
+connect_host = host
 if writes
   reason = RpmsRpc::WireCapture.write_refusal(
     writes: true, host: host, container: ENV["CONTAINER"], access: acc,
     only: only, esig: esig
   )
   abort reason if reason
+
+  connect_host = RpmsRpc::WireCapture.write_connect_host(host: host)
+  # Fail closed: a name that does not resolve to loopback must not be dialed.
+  abort "WRITES=1 is refused unless the broker host resolves to loopback addresses only" if connect_host.nil?
 end
 
 out = { "client" => "rpms-rpc RpmsRpc::CiaClient",
         "client_version" => (RpmsRpc.const_defined?(:VERSION) ? RpmsRpc::VERSION : "unversioned"),
         "captures" => {} }
 
-client = RpmsRpc::CiaClient.new(host: host, port: port, timeout: 15)
+client = RpmsRpc::CiaClient.new(host: connect_host, port: port, timeout: 15)
 client.connect
 client.authenticate(acc, ver)
 

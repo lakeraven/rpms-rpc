@@ -7,11 +7,14 @@
 #   rake wire:capture BROKER_HOST=127.0.0.1 BROKER_PORT=<port> RELEASE=bcer-9.0-ydb ...
 #   WRITES=1 runs the whole TIU note flow (no read RPCs) when the broker host
 #   resolves to loopback addresses, CONTAINER is unset, and RPMS_ACCESS is
-#   a synthetic persona. A non-blank ONLY is refused; the flow is one unit:
+#   a synthetic persona. A blank ONLY is unset. A non-blank ONLY is refused;
+#   the flow is one unit:
 #   WRITES=1 BROKER_HOST=127.0.0.1 BROKER_PORT=<port> \
 #     RPMS_ACCESS=PROV123 rake wire:capture
-#   RPMS_ESIG, when set, must be 6-20 characters after strip (field 20.4).
-#   It is read from the environment only and is never printed.
+#   The driver connects to the resolved loopback address, not the host name.
+#   RPMS_ESIG, when set, must be 6-20 characters with no leading or trailing
+#   whitespace (field 20.4 stores the exact code). It is read from the
+#   environment only and is never printed.
 #
 # Two ways to reach the broker. With CONTAINER= the driver is staged into the
 # container and run there with the container's ruby. With BROKER_HOST= and no
@@ -27,12 +30,13 @@
 #
 # Read-only discipline: a read run calls read RPCs with synthetic inputs
 # against a rung WE OWN — never a customer instance. Write RPCs are
-# routine-cited and are not called on that run. WRITES=1 calls no read RPC
-# and refuses a non-blank ONLY, because the TIU flow is captured together.
-# It runs only when the broker host resolves to loopback addresses, CONTAINER
-# is unset, the access code is a README synthetic persona, and RPMS_ESIG is
-# unset or 6-20 characters after strip (field 20.4). Any other WRITES=1
-# aborts before a connection. The allowed run
+# routine-cited and are not called on that run. WRITES=1 calls no read RPC,
+# writes only the TIU write fixtures, and refuses a non-blank ONLY, because
+# the TIU flow is captured together. A blank ONLY is unset. It runs only when
+# the broker host resolves to loopback addresses, CONTAINER is unset, the
+# access code is a README synthetic persona, and RPMS_ESIG is unset or 6-20
+# characters with no leading or trailing whitespace (field 20.4 stores the
+# exact code). Any other WRITES=1 aborts before a connection. The allowed run
 # is host mode on this machine's ruby, so the broker must be reachable at
 # BROKER_HOST:BROKER_PORT.
 # RPMS_ESIG is passed only in the driver environment, never on argv, and is
@@ -61,7 +65,8 @@ namespace :wire do
     # Authenticates the driver only. Never written to a fixture or a message.
     ver = ENV["RPMS_VERIFY"] || "RPMS.000"
     require_synthetic_persona!(acc)
-    only = ENV["ONLY"]
+    # Blank ONLY (nil, "", whitespace) is unset. A padded name is the stripped RPC.
+    only = RpmsRpc::WireCapture.normalize_only(ENV["ONLY"])
     # CITE_ONLY="RPC A,RPC B": write routine-cite fixtures for these
     # live-mode entries instead of calling them (e.g. the broker is down, or
     # a capture must land before the rung is reachable). The cite comes from
@@ -116,7 +121,16 @@ namespace :wire do
 
     FileUtils.mkdir_p(FIXTURES_DIR)
     written = 0
-    RpmsRpc::WireCapture::CATALOG.each do |entry|
+    # A write run iterates the TIU write catalog only, so it cannot rewrite a
+    # read or routine-cite fixture. A read run still routine-cites write
+    # entries, so it walks both slices. ONLY is already normalized.
+    entries = if writes
+      RpmsRpc::WireCapture.fixture_entries(writes: true, only: only)
+    else
+      RpmsRpc::WireCapture.fixture_entries(writes: true, only: nil) +
+        RpmsRpc::WireCapture.fixture_entries(writes: false, only: nil)
+    end
+    entries.each do |entry|
       next if only && entry.rpc != only
 
       if entry.write?

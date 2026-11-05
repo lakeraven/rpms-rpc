@@ -294,18 +294,19 @@ module RpmsRpc
     SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
     ONLY_REFUSAL = "WRITES=1 is refused when ONLY is set; the TIU note flow is captured together"
     # No spaces and no "1": a blank or one-character code must not appear in the text.
-    ESIG_REFUSAL = "RPMS_ESIG-must-be-6-20-characters-after-strip-(field-20.4)"
+    ESIG_REFUSAL = "RPMS_ESIG-must-be-6-20-characters-with-no-leading-or-trailing-whitespace-(field-20.4)"
     private_constant :ONLY_REFUSAL, :ESIG_REFUSAL
 
     # Host mode only. A read capture (writes false or nil) is not refused.
     # WRITES=1 is allowed only when the broker host resolves and every
     # address is loopback, CONTAINER is nil or "", and the access code is a
-    # synthetic persona. ONLY must be blank: the TIU flow is one unit, and a
-    # write run calls no read RPC. RPMS_ESIG, when set, must be 6-20 characters
-    # after strip (NEW PERSON field 20.4). A container run goes through
-    # `docker exec`, which would put the signature code on a command line.
-    # Anything else is a reason and must abort before a socket. The code and
-    # the access value are never copied into a reason.
+    # synthetic persona. A blank ONLY is unset. A non-blank ONLY is refused:
+    # the TIU flow is one unit, and a write run calls no read RPC.
+    # RPMS_ESIG, when set, must be 6-20 characters with no leading or trailing
+    # whitespace (NEW PERSON field 20.4 stores the exact code). A container
+    # run goes through `docker exec`, which would put the signature code on
+    # a command line. Anything else is a reason and must abort before a
+    # socket. The code and the access value are never copied into a reason.
     def self.write_refusal(writes:, host:, container:, access: nil, resolver: nil, only: nil, esig: nil)
       return nil if writes == false || writes.nil?
       return "WRITES=1 is refused" unless writes == true
@@ -316,6 +317,18 @@ module RpmsRpc
       return nil if esig_acceptable?(esig)
 
       refusal_without(ESIG_REFUSAL, esig, access)
+    end
+
+    # Loopback address a write run may dial, or nil. Every lookup result must
+    # be loopback; the return is one of those addresses, never the host name.
+    # resolver defaults to getaddrinfo, the same lookup write_refusal uses.
+    def self.write_connect_host(host:, resolver: nil)
+      list = resolved_addresses(host, resolver)
+      return nil if list.empty?
+      # Fail closed: do not dial a name, or any address that was not proved loopback.
+      return nil unless list.all? { |address| ip_loopback?(address) }
+
+      list.first.to_s
     end
 
     # True only when the public API accepts the reply. Odd input is false.
@@ -381,16 +394,18 @@ module RpmsRpc
       end
 
       def only_present?(only)
-        !only.to_s.strip.empty?
+        !normalize_only(only).nil?
       end
 
-      # nil and "" mean do not sign. Any other value must be 6-20 characters after strip.
+      # nil and "" mean do not sign. Field 20.4 stores the exact code, so
+      # leading or trailing whitespace is refused rather than stripped.
       def esig_acceptable?(esig)
         return true if esig.nil? || esig == ""
         return false unless esig.is_a?(String)
+        # Fail closed: strip would check one code and the broker would store another.
+        return false unless esig == esig.strip
 
-        code = esig.strip
-        !code.empty? && code.length.between?(6, 20)
+        esig.length.between?(6, 20)
       end
 
       # Fail closed: the reason is dropped rather than returned still holding a secret.
@@ -408,17 +423,19 @@ module RpmsRpc
       end
 
       def resolved_loopback?(host, resolver)
+        list = resolved_addresses(host, resolver)
+        !list.empty? && list.all? { |address| ip_loopback?(address) }
+      end
+
+      def resolved_addresses(host, resolver)
         name = host.to_s.strip
-        return false if name.empty?
+        return [] if name.empty?
 
         addresses = resolver ? resolver.call(name) : resolve_host_addresses(name)
-        list = addresses.is_a?(Array) ? addresses : Array(addresses)
-        return false if list.empty?
-
-        list.all? { |address| ip_loopback?(address) }
+        addresses.is_a?(Array) ? addresses : Array(addresses)
       rescue StandardError
         # Fail closed: an unresolved host is not a loopback broker.
-        false
+        []
       end
 
       def resolve_host_addresses(host)
