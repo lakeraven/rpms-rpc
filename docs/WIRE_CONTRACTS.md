@@ -33,8 +33,10 @@ Same shape as the conformance pipeline, one level deeper:
    provenance-stamped fixture per RPC to `test/fixtures/wire_captures/`:
    the verbatim raw reply, its sha256, the inputs, the release tag, capture
    UTC, and the cited position→semantics annotation. Read-only behavioral
-   calls with synthetic inputs only — never a customer instance, never a
-   write RPC (the conformance SPEC's non-negotiable applies here verbatim).
+   calls with synthetic inputs only — never a customer instance.
+   `rake wire:capture` never calls a write RPC (the conformance SPEC's
+   non-negotiable applies to this read catalog verbatim). Scheduling writes
+   are a separate capture, `rake wire:capture_writes`, gated below.
 
    ```sh
    bundle exec rake wire:capture BROKER_HOST=127.0.0.1 BROKER_PORT=<port> RELEASE=bcer-9.0-ydb
@@ -44,6 +46,8 @@ Same shape as the conformance pipeline, one level deeper:
    # ONLY="RPC NAME" limits the run; CITE_ONLY="RPC A,RPC B" forces
    # routine-cite output for live entries (e.g. broker unavailable)
    ```
+
+   Scheduling writes are not part of that command. See [Write captures](#write-captures).
 
    Re-run when a rung changes (new release tag), like re-ingesting a
    fingerprint. With `BROKER_HOST=` (host mode) the driver,
@@ -96,13 +100,16 @@ and in CI both. Concretely:
   capture against a seeded box to promote it to `live-capture`. Declaring
   `live-capture` on an empty reply, or `no-data` on a reply that has data
   rows, is rejected either way.
-- `source: routine-cite` — for RPCs that cannot be behaviorally captured
-  (write RPCs; RPCs that fault the rung, like
+- `source: routine-cite` — for RPCs that `rake wire:capture` does not call
+  (a write RPC, which that task never calls; an RPC that faults the rung, like
   BEHOVM2 VUNITS on bcer-9.0-ydb). The shape is cited to the M routine
   serving the RPC in the release corpus
   (rpms-ops/data/standup/bcer-9.0-ydb/r/, file:line). A routine-cite
   fixture must **not** claim a `raw_return` (an illustrative row goes in
-  `example_return`, which is never treated as evidence).
+  `example_return`, which is never treated as evidence). Scheduling writes
+  are not routine-cited stand-ins: `rake wire:capture_writes` captures them
+  under the gates in [Write captures](#write-captures), and a write reply
+  still is not proof.
 - `kind: lines` covers mappings declared with `line_field` — one field per
   LINE of the reply, not per caret piece (19 registered mappings, including
   the sign-on / user-info reads). The contract checks these on line number
@@ -124,7 +131,10 @@ and in CI both. Concretely:
    layout **with file:line cites**.
 2. Add a `CatalogEntry` to `RpmsRpc::WireCapture::CATALOG`: RPC name, the
    mapping that parses it, reply kind, capture inputs (synthetic), the cite,
-   and the piece annotations. Write RPCs get `mode: :routine_cite`.
+   and the piece annotations. `rake wire:capture` selects `mode: :live` only,
+   so a write RPC does not belong in this catalog. A scheduling write belongs
+   in `WRITE_CATALOG` (`mode: :write_live`) and is captured only by
+   `rake wire:capture_writes`.
 3. Run `rake wire:capture CONTAINER=<rung>` and commit the fixture.
 4. The contract test picks the fixture up automatically. If the existing
    mapping diverges from the captured truth, the gate goes red — fix the
@@ -151,6 +161,41 @@ Committed captures from bcer-9.0-ydb (2026-09-02), first pass over ten RPCs:
 
 Both are pinned in `KNOWN_DIVERGENCES` — mapping fixes belong in their own
 reviewed PRs; the capture side never edits a mapping to make itself pass.
+
+## Write captures
+
+`rake wire:capture_writes` captures the four scheduling writes (BSDX ADD NEW
+APPOINTMENT, BSDX CHECKIN APPOINTMENT, BSDX CANCEL APPOINTMENT, BSDX NOSHOW).
+They are captured only against a disposable rung we own: `LIVE_DISPOSABLE=1`
+and a loopback `BROKER_HOST` (`127.0.0.1`, `localhost`, or `::1`). Never a
+customer instance. The task aborts before it loads the driver or opens a
+socket when those guards fail, or when `RPMS_ACCESS` is not a synthetic
+persona (`SYS123` or `PROV123`; the default is `SYS123`).
+
+A write's reply is not proof. The fixture's `read_back` is: DDR GETS ENTRY
+DATA on the appointment (`#9002018.4`) and the patient appointment (`#2.98`)
+immediately after the call. `source` is labelled from the write's own bytes
+(`live-capture` when there is a data row, `no-data` when there is not). An
+empty cancel reply is `no-data` and proves nothing by itself. A broker error
+reply is not written; the previous fixture stays.
+
+These RPCs live in `RpmsRpc::WireCapture::WRITE_CATALOG` with
+`mode: :write_live`. They are not `CATALOG` entries. `mode: :write_live` is
+not `mode: :live`, so `rake wire:capture` still never calls a write RPC.
+
+```sh
+LIVE_DISPOSABLE=1 BROKER_HOST=127.0.0.1 BROKER_PORT=<port> \
+  RPMS_ACCESS=SYS123 RPMS_VERIFY=<synthetic> \
+  bundle exec rake wire:capture_writes
+```
+
+The driver is `bin/wire_capture_writes_driver.rb`. Credentials reach it
+through the environment, never on argv. The verify code is never written to
+a fixture, the driver JSON, or a log line. `PROV123` signs on through the
+client's development fallback (`VISTA_RPC_ENV=development`); the driver does
+not set that verify code. `WIRE_FIXTURES_DIR` redirects the fixtures, same
+as `rake wire:capture`. `RELEASE`, when set, stamps `release_tag`; otherwise
+the tag is the pinned build in `data/fingerprints/rpms-ops.lock.yml`.
 
 ## Honest limits
 
