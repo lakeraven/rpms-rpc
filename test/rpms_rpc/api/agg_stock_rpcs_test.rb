@@ -523,7 +523,7 @@ class AggStockRpcsTest < Minitest::Test
     seed_b_lister(day: prior, text: "[Data]\n55^#{prior}")
     seed_max_ien_lister("[Data]\n41")
     seed_name_patient("42", DFN_B)
-    seed_legl_success("42")
+    seed_legl_success("42", dfn: DFN_B)
 
     result = Agg.update_legal_names(
       dfn: DFN_B.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" }
@@ -700,6 +700,8 @@ class AggStockRpcsTest < Minitest::Test
     assert_equal [ "11/01/2026", "TS" ], orwu_dt_calls.first[:params]
     assert(orwu_dt_calls.all? { |c| c[:context] == "CIAV VUECENTRIC" })
     assert_equal [ day ], b_index_lister_days_from_calls
+    from = b_index_lister_calls.first[:params].first["FROM"]
+    assert_equal "#{fileman_prior_calendar_day(day)}.9999999", from
     assert_equal 1, unlock_calls.size
   end
 
@@ -878,9 +880,9 @@ class AggStockRpcsTest < Minitest::Test
     seed_gets("9000033", "#{rien},", ".02", "[Data]\n9000033^#{rien},^.02^#{patient_dfn}^#{patient_dfn}")
   end
 
-  def seed_legl_success(rien)
+  def seed_legl_success(rien, dfn: DFN)
     wire = "5\x00I00010RESULT^T01024ERROR^I00010RIEN#{RS}1^^#{rien}#{RS}#{US}"
-    seed_global("AGG UPDATE LEGAL NAMES", DFN, wire)
+    seed_global("AGG UPDATE LEGAL NAMES", dfn, wire)
   end
 
   def ddr_calls
@@ -975,7 +977,7 @@ class AggStockRpcsTest < Minitest::Test
       flags: "IPQ",
       max: "1",
       xref: "B",
-      from: from || "#{day - 1}.9999999"
+      from: from || "#{fileman_prior_calendar_day(day)}.9999999"
     )
   end
 
