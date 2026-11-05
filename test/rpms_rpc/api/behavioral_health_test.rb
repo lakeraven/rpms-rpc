@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/behavioral_health"
+require "rpms_rpc/api/patient"
 require "rpms_rpc/api/behavioral_health/case_management"
 require "rpms_rpc/api/behavioral_health/groups"
 require "rpms_rpc/api/behavioral_health/intake"
@@ -864,6 +865,11 @@ class BehavioralHealthTest < Minitest::Test
     patient = "100"
     name = "SYN FACTOR A"
     wire = "E|#{record}|#{name}~MINIMAL~1~SYN CTX|#{patient}"
+    node = "^AMHREC(#{record})"
+    mock.seed_scalar(:ddr_lock_unlock_node,
+                     RpmsRpc::DdrFileman.lock_param(node: node, timeout: 5).to_s, true)
+    mock.seed_scalar(:ddr_lock_unlock_node,
+                     RpmsRpc::DdrFileman.unlock_param(node: node).to_s, true)
     mock.seed_text(:amhg_save_health_factors, wire, "T00030Result#{RS}#{record}#{RS}#{US}")
     seed_context_visit_patient(mock, record, patient)
     hf_type_key = RpmsRpc::DdrFileman.lister_param(
@@ -906,7 +912,11 @@ class BehavioralHealthTest < Minitest::Test
         calls = mock.received_calls
         refute_empty calls, "#{mod}.#{method} made no RPC call"
         calls.each do |call|
-          if [ "DDR GETS ENTRY DATA", "DDR LISTER" ].include?(call[:rpc])
+          if call[:rpc] == "DDR LOCK/UNLOCK NODE"
+            assert_equal RpmsRpc::Patient::FILEMAN_CONTEXT, call[:context],
+              "#{mod}.#{method} sent #{call[:rpc]} under #{call[:context].inspect}; the record lock " \
+              "runs under the FileMan context, as Wellness does"
+          elsif [ "DDR GETS ENTRY DATA", "DDR LISTER" ].include?(call[:rpc])
             assert_equal caller_context, call[:context],
               "#{mod}.#{method} sent #{call[:rpc]} under #{call[:context].inspect}; " \
               "that RPC is registered under the caller's option, not AMHGRPC"
@@ -920,6 +930,10 @@ class BehavioralHealthTest < Minitest::Test
           "#{mod}.#{method} left the session on #{mock.current_context.inspect}"
         expected_binds = [ "AMHGRPC", caller_context ]
         expected_binds *= 3 if mod == BH && method == :save_progress_note
+        if mod == BH && method == :save_health_factors
+          fileman = [ RpmsRpc::Patient::FILEMAN_CONTEXT, caller_context ]
+          expected_binds = fileman + expected_binds + fileman
+        end
         assert_equal expected_binds, mock.context_binds,
           "#{mod}.#{method} context binds were #{mock.context_binds.inspect}"
       end

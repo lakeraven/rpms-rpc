@@ -88,16 +88,18 @@ Wrappers run under broker option `AMHGRPC`.
 `BehavioralHealth::Wellness` (#540). `BehavioralHealth.save_health_factors`
 (#525) is the health-factor save. The live spec
 `test/live/behavioral_health_save_health_factors_live_test.rb` is written
-but has not been run against a live rung, so that row is pending-capture.
+but has not been run against a live rung. No row below has a captured live
+reply in this repository, so every row is pending-capture; the layouts are
+read from the M source.
 
 | RPC name | Routine / Tag | Params | Return | Status |
 |----------|---------------|--------|--------|--------|
-| `AMHG SAVE VISIT` | `VISIT^AMHGSVF` | `AMHSTR` (16 pieces in total: DM, REC and pieces 3-16) | `T00010BMXIEN` + IEN | verified |
-| `AMHG SAVE POV` | `POV^AMHGSVF` | `AMHSTR` (8 pieces) | `T00030Result` + IEN or error | verified |
-| `AMHG SAVE PROGRESS NOTES` | `PN^AMHGSVF` | `AMHSTR` (8 pieces; mode always `E`) | `T00030Result` + IEN or error | verified |
-| `AMHG SAVE SCREENING` | `SCREEN^AMHGSVF` | `AMHSTR` (19 pieces) | `T00030Result` + IEN or error | verified |
+| `AMHG SAVE VISIT` | `VISIT^AMHGSVF` | `AMHSTR` (16 pieces in total: DM, REC and pieces 3-16) | `T00010BMXIEN` + IEN | pending-capture |
+| `AMHG SAVE POV` | `POV^AMHGSVF` | `AMHSTR` (8 pieces) | `T00030Result` + IEN or error | pending-capture |
+| `AMHG SAVE PROGRESS NOTES` | `PN^AMHGSVF` | `AMHSTR` (8 pieces; mode always `E`) | `T00030Result` + IEN or error | pending-capture |
+| `AMHG SAVE SCREENING` | `SCREEN^AMHGSVF` | `AMHSTR` (19 pieces) | `T00030Result` + IEN or error | pending-capture |
 | `AMHG SAVE HEALTH FACTORS` | `HF^AMHGSVF` | `AMHSTR` (4 pieces; piece 3 is `*`-joined HF items) | `T00030Result` + IEN or error | pending-capture |
-| `AMHG SAVE MEASUREMENTS` | `MSR^AMHGSVF` | `AMHSTR` (4 pieces; piece 3 is `*`-joined MSR items) | `T00030Result` + IEN or error | verified |
+| `AMHG SAVE MEASUREMENTS` | `MSR^AMHGSVF` | `AMHSTR` (4 pieces; piece 3 is `*`-joined MSR items) | `T00030Result` + IEN or error | pending-capture |
 
 Piece layouts and filer tags are summarized in [bh_save_rpcs.md](bh_save_rpcs.md).
 

@@ -1364,8 +1364,9 @@ module RpmsRpc
     # :add ("A") does not.
     #
     # Refused before any AMHG call. The list must not be empty, longer
-    # than 25, or name the same factor twice. A name is non-blank, at
-    # most 40 bytes (String#bytesize, which is $L when ydb_chset=M), and
+    # than 25, or name the same factor twice. A name is non-blank,
+    # at most 40 bytes (String#bytesize, which is $L when ydb_chset=M; a
+    # name too short for the type file is refused by the type pre-read), and
     # has no separator or control character. The B subscript is the first
     # 40 bytes of .01. Each distinct name is then pre-read with DDR
     # LISTER on #9999999.64, xref B, part the name, fields .01;.1;.13,
@@ -1419,7 +1420,17 @@ module RpmsRpc
     # saying the record may have been filed), and a name with more than
     # 25 B-index prefix matches is refused. The AMHG call runs under AMHGRPC
     # and restores the caller's context. The DDR reads stay in the
-    # caller's context.
+    # caller's context. The visit-record lock and unlock (DDR LOCK/UNLOCK
+    # NODE on ^AMHREC(record)) run under the FileMan context, as Wellness
+    # does.
+    #
+    # The client is captured once, so the lock, the unlock and every read
+    # go to the same object. The whole sequence (lock, visit pre-read,
+    # factor pre-reads, write, read-back, unlock) runs under one
+    # RpmsRpc.synchronize_wire. M LOCK is incremental per broker job, so a
+    # second save on the same client and record, from a nested call or
+    # another thread, is refused with SaveError ("in progress") before any
+    # RPC; the broker would have granted it the same lock.
     #
     # Screening and measurements are BehavioralHealth::Wellness (#540).
     #
@@ -1429,15 +1440,22 @@ module RpmsRpc
       patient_piece = save_visit_required_ien(patient, "patient")
       letter = save_list_mode(mode)
       rows = save_factor_rows(health_factors)
-      with_factor_record_lock(record) do
-        save_visit_confirm_patient!(record, patient_piece)
-        rows.each { |row| save_factor_type!(row[:name]) }
-        listed = rows.map { |row| [ row[:name], row[:level], row[:quantity], row[:comment] ].join("~") }.join("*")
-        wire = [ letter, record, listed, patient_piece ].join("|")
-        save_visit_piece_count!(wire, HF_RPC, 4)
-        ien = save_amhg_ien(:amhg_save_health_factors, wire, record, HF_RPC)
-        save_factor_confirm!(ien, patient_piece, rows, exact: letter == "E")
-        ien
+      client = RpmsRpc.client
+      RpmsRpc.with_client(client) do
+        with_factor_save_exclusion(client, record) do
+          RpmsRpc.synchronize_wire do
+            with_factor_record_lock(record) do
+              save_visit_confirm_patient!(record, patient_piece)
+              rows.each { |row| save_factor_type!(row[:name]) }
+              listed = rows.map { |row| [ row[:name], row[:level], row[:quantity], row[:comment] ].join("~") }.join("*")
+              wire = [ letter, record, listed, patient_piece ].join("|")
+              save_visit_piece_count!(wire, HF_RPC, 4)
+              ien = save_amhg_ien(:amhg_save_health_factors, wire, record, HF_RPC)
+              save_factor_confirm!(ien, patient_piece, rows, exact: letter == "E")
+              ien
+            end
+          end
+        end
       end
     end
     shape :save_health_factors, resource: "behavioral-health", verb: "POST",
@@ -2916,12 +2934,61 @@ module RpmsRpc
       text
     end
 
+    # M LOCK is incremental on one broker job, so a second save on the same
+    # job is granted ^AMHREC(ien) at once; the DDR lock alone does not keep
+    # two saves of one visit apart. This set is the exclusion the broker will
+    # not give. The mutex guards the set only and is never held across a
+    # save, so a re-entrant call refuses instead of deadlocking. The key is
+    # [:session, id] or [:object, object_id] plus the record IEN. No client
+    # this gem ships defines session_id, so stock clients key on object_id;
+    # a host that wraps one session in several objects shares the exclusion
+    # only by exposing session_id on each wrapper.
+    FACTOR_SAVE_GUARD = Mutex.new
+    FACTOR_SAVES_IN_PROGRESS = {}
+    # Seconds the visit-record lock waits.
+    HF_LOCK_TIMEOUT = 5
+    private_constant :FACTOR_SAVE_GUARD, :FACTOR_SAVES_IN_PROGRESS, :HF_LOCK_TIMEOUT
+
+    def with_factor_save_exclusion(client, record)
+      key = [ factor_client_identity(client), record ]
+      FACTOR_SAVE_GUARD.synchronize do
+        save_visit_refuse!("a save for this record is in progress") if FACTOR_SAVES_IN_PROGRESS[key]
+        FACTOR_SAVES_IN_PROGRESS[key] = true
+      end
+      begin
+        yield
+      ensure
+        FACTOR_SAVE_GUARD.synchronize { FACTOR_SAVES_IN_PROGRESS.delete(key) }
+      end
+    end
+
+    # [:session, id] or [:object, object_id], so a string session id and an
+    # integer object id cannot collide. session_id is read once; a raise is a
+    # refusal before any RPC.
+    def factor_client_identity(client)
+      session = factor_session_id(client)
+      return [ :session, session ] unless session.nil?
+
+      [ :object, client.object_id ]
+    end
+
+    def factor_session_id(client)
+      return nil unless client.respond_to?(:session_id)
+
+      value = client.session_id
+      case value
+      when nil, false then nil
+      when String then value.empty? ? nil : value.dup.freeze
+      else value
+      end
+    rescue StandardError, NotImplementedError => e
+      raise SaveError.new("the client session could not be read"), cause: e
+    end
+
     # Hold ^AMHREC(record) from the visit pre-read through the read-back, as
     # Wellness does. Mode E deletes every stored factor the list omits, so two
     # unlocked sessions on one visit lose updates silently. The lock is taken
     # only after local validation, and is released on every exit path.
-    HF_LOCK_TIMEOUT = 5
-
     def with_factor_record_lock(record)
       node = "^AMHREC(#{record})"
       held = factor_record_lock!(node)
@@ -2934,18 +3001,24 @@ module RpmsRpc
 
     # True only when the lock RPC returned true. Once the call has been sent,
     # anything else (false, nil, StandardError, NotImplementedError) is
-    # released before the refusal, and the unlock must not replace it.
+    # released before the refusal, and the unlock must not replace it. When
+    # the FileMan context could not be bound the lock was never sent, so no
+    # unlock is.
     def factor_record_lock!(node)
+      sent = false
       cause = nil
       acquired = begin
-        DdrFileman.lock(node: node, timeout: HF_LOCK_TIMEOUT)
+        under_fileman do
+          sent = true
+          DdrFileman.lock(node: node, timeout: HF_LOCK_TIMEOUT)
+        end
       rescue StandardError, NotImplementedError => e
         cause = e
         nil
       end
       return true if acquired == true
 
-      factor_record_unlock(node)
+      factor_record_unlock(node) if sent
       raise SaveError.new("the lock #{node} was not acquired"), cause: cause
     end
 
@@ -2953,9 +3026,17 @@ module RpmsRpc
     # ScriptError) must not replace a result or an exception the save already
     # produced. A lock this call does not release expires with the broker job.
     def factor_record_unlock(node)
-      DdrFileman.unlock(node: node)
+      under_fileman { DdrFileman.unlock(node: node) }
     rescue StandardError, NotImplementedError
       nil
+    end
+
+    # AMHGRPC does not list the DDR lock RPC; the FileMan context does.
+    # Patient is loaded on first use so requiring this file does not pull
+    # Patient's dependency chain into the process before a save needs it.
+    def under_fileman(&block)
+      require_relative "patient"
+      ContextScope.scoped(RpmsRpc.client, RpmsRpc::Patient::FILEMAN_CONTEXT, &block)
     end
 
     # #9999999.64 B index. The subscript is the first 40 bytes of .01.
@@ -3065,6 +3146,7 @@ module RpmsRpc
     # level is a blank level.
     def save_factor_found(got, patient, record)
       return nil unless got.is_a?(Hash) && got[:data] && !got[:error] && !got[:more]
+      return nil unless got[:entries].is_a?(Array)
 
       rows = got[:entries].map { |entry| save_factor_read_row(entry, patient, record) }
       return nil if rows.any?(&:nil?)
@@ -3073,7 +3155,7 @@ module RpmsRpc
     end
 
     def save_factor_read_row(entry, patient, record)
-      return nil unless entry[:ien].to_s.match?(POSITIVE_IEN)
+      return nil unless entry.is_a?(Hash) && entry[:ien].to_s.match?(POSITIVE_IEN)
 
       pieces = entry[:pieces]
       return nil unless pieces.is_a?(Array) && pieces.length == 6

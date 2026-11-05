@@ -8,6 +8,7 @@ require "rpms_rpc/mock_client"
 require "rpms_rpc/mappings"
 require "rpms_rpc/api/behavioral_health"
 require "rpms_rpc/api/ddr_fileman"
+require "rpms_rpc/api/patient"
 require "rpms_rpc/retry_safety"
 
 # AMHG SAVE HEALTH FACTORS — HF^AMHGSVF (AMHGSVF.m:277-305), MODHF/DELHF^AMHGEVF.
@@ -421,6 +422,178 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     RpmsRpc.configure { |c| c.client = @mock }
   end
 
+  # --- #603 review: exclusion on one broker job, wire serialization, context ---
+
+  # M LOCK + is incremental per $J, so the broker grants a second save on the
+  # same job the same ^AMHREC(ien). The in-process guard is the exclusion.
+  def test_reentrant_save_on_the_same_client_and_record_is_refused_before_any_rpc
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor ])
+    seed_success(RECORD_IEN, **kwargs)
+    wrapper = HfReentrantClient.new(@mock, trigger_rpc: RPC) { BH.save_health_factors(**kwargs) }
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    assert_equal RECORD_IEN, BH.save_health_factors(**kwargs)
+
+    refute_nil wrapper.inner_error, "the nested save must have been refused"
+    assert_instance_of BH::SaveError, wrapper.inner_error
+    assert_match(/in progress/i, wrapper.inner_error.message)
+    assert_equal wrapper.calls_before, wrapper.calls_after, "a refused nested save sends no RPC"
+    assert_equal 1, amhg_calls.length
+    assert_equal 1, lock_calls_for(RECORD_IEN).length
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_concurrent_save_on_the_same_client_and_record_is_refused_until_the_first_finishes
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor ])
+    seed_success(RECORD_IEN, **kwargs)
+    entered = Queue.new
+    release = Queue.new
+    blocker = HfBlockOnWriteClient.new(@mock, entered: entered, release: release)
+    RpmsRpc.configure { |c| c.client = blocker }
+
+    worker = Thread.new { BH.save_health_factors(**kwargs) }
+    entered.pop(timeout: 5) || flunk("timed out waiting for the write RPC")
+
+    before = @mock.received_calls.length
+    err = assert_raises(BH::SaveError) { BH.save_health_factors(**kwargs) }
+    assert_match(/in progress/i, err.message)
+    assert_equal before, @mock.received_calls.length, "the refused save sends nothing"
+
+    release.push(true)
+    assert_equal RECORD_IEN, worker.value
+    assert_equal RECORD_IEN, BH.save_health_factors(**kwargs), "the guard is released afterwards"
+  ensure
+    release&.push(true)
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_the_guard_does_not_cross_records
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor ])
+    seed_success(RECORD_IEN, **kwargs)
+    other = ADD_KWARGS.merge(health_factors: [ single_factor ])
+    seed_success(RECORD_ADD, **other)
+    wrapper = HfReentrantClient.new(@mock, trigger_rpc: RPC) { BH.save_health_factors(**other) }
+    RpmsRpc.configure { |c| c.client = wrapper }
+
+    BH.save_health_factors(**kwargs)
+
+    assert_nil wrapper.inner_error
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_guard_is_released_after_a_refused_save
+    seed_lock(RECORD_IEN, acquired: false)
+    assert_raises(BH::SaveError) { BH.save_health_factors(**EDIT_KWARGS) }
+    seed_lock(RECORD_IEN)
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor ])
+    seed_success(RECORD_IEN, **kwargs)
+    assert_equal RECORD_IEN, BH.save_health_factors(**kwargs)
+  end
+
+  def test_lock_pre_read_write_readback_and_unlock_run_in_one_wire_scope
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor ])
+    seed_success(RECORD_IEN, **kwargs)
+    client = HfWireTrackingClient.new(@mock)
+    RpmsRpc.configure { |c| c.client = client }
+
+    assert_equal RECORD_IEN, BH.save_health_factors(**kwargs)
+
+    assert_equal 1, client.outermost_entries, "one wire scope holds the whole sequence"
+    refute_empty client.rpc_depths
+    client.rpc_depths.each do |rpc, depth|
+      assert_operator depth, :>, 0, "#{rpc} ran outside the wire scope"
+    end
+    assert_equal 1, client.rpc_depths.count { |rpc, _| rpc == RPC }
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_unlock_goes_to_the_client_that_took_the_lock
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor ])
+    seed_success(RECORD_IEN, **kwargs)
+    replacement = RpmsRpc::MockClient.new
+    swapper = HfSwapOnLockClient.new(@mock, replacement)
+    RpmsRpc.configure { |c| c.client = swapper }
+
+    assert_equal RECORD_IEN, BH.save_health_factors(**kwargs)
+
+    assert swapper.swapped?, "the configured client must have been replaced mid-save"
+    assert_equal 1, unlock_calls_for(RECORD_IEN).length, "unlock must reach the locking client"
+    assert_empty replacement.received_calls, "the replacement client must see no RPC of this save"
+  ensure
+    RpmsRpc.configure { |c| c.client = @mock }
+  end
+
+  def test_lock_and_unlock_run_under_the_fileman_context_and_restore_the_callers
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor ])
+    seed_success(RECORD_IEN, **kwargs)
+    caller_context = @mock.current_context
+
+    BH.save_health_factors(**kwargs)
+
+    node_calls = lock_calls_for(RECORD_IEN) + unlock_calls_for(RECORD_IEN)
+    assert_equal 2, node_calls.length
+    node_calls.each do |call|
+      assert_equal RpmsRpc::Patient::FILEMAN_CONTEXT, call[:context],
+                   "DDR LOCK/UNLOCK NODE must run under the FileMan context"
+    end
+    assert_equal caller_context, @mock.current_context
+  end
+
+  def test_unlock_runs_under_the_fileman_context_when_the_save_refuses
+    seed_pre_edit_patient(RECORD_IEN, OTHER_PATIENT)
+    seed_hf_type_valid(HF_ONE_NAME)
+
+    assert_raises(BH::SaveError) { BH.save_health_factors(**EDIT_KWARGS.merge(health_factors: [ single_factor ])) }
+
+    unlock = unlock_calls_for(RECORD_IEN)
+    assert_equal 1, unlock.length
+    assert_equal RpmsRpc::Patient::FILEMAN_CONTEXT, unlock.first[:context]
+  end
+
+  def test_no_unlock_is_sent_when_the_fileman_context_cannot_be_bound
+    @mock.unbindable_context!(RpmsRpc::Patient::FILEMAN_CONTEXT)
+
+    err = assert_raises(BH::SaveError) { BH.save_health_factors(**EDIT_KWARGS) }
+
+    assert_match(/not acquired/i, err.message)
+    assert_empty lock_calls_for(RECORD_IEN), "the lock RPC was never sent"
+    assert_empty unlock_calls_for(RECORD_IEN), "L - is not sent when the lock call never went out"
+  end
+
+  def test_hf_lock_timeout_is_not_public
+    assert_raises(NameError) { BH::HF_LOCK_TIMEOUT }
+  end
+
+  # A read-back that parses but is not shaped like entries is an unknown
+  # outcome, not a NoMethodError out of the save.
+  def test_malformed_readback_is_an_outcome_unknown_save_error_not_a_nomethod_error
+    kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor ])
+    [
+      { data: true },
+      { data: true, entries: nil },
+      { data: true, entries: "not an array" },
+      { data: true, entries: [ nil ] },
+      { data: true, entries: [ "not a hash" ] },
+      { data: true, entries: [ {} ] },
+      { data: true, entries: [ { ien: "1" } ] },
+      { data: true, entries: [ { ien: "1", pieces: "x" } ] },
+      { data: true, entries: [ { ien: nil, pieces: %w[a b c d e f] } ] }
+    ].each do |malformed|
+      @mock.received_calls.clear
+      seed_success(RECORD_IEN, **kwargs)
+      with_readback_reply(malformed) do
+        err = assert_raises(BH::SaveError, "read-back #{malformed.inspect}") do
+          BH.save_health_factors(**kwargs)
+        end
+        assert_match(/outcome unknown/i, err.message, malformed.inspect)
+      end
+      assert_equal 1, unlock_calls_for(RECORD_IEN).length
+    end
+  end
+
   def test_refuses_name_longer_than_40_characters_before_rpc
     long_name = "N" * 41
     kwargs = EDIT_KWARGS.merge(health_factors: [ single_factor.merge(name: long_name) ])
@@ -749,6 +922,18 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
 
   private
 
+  # Replace the parsed health-factor read-back with `reply` for the block.
+  # Every other lister call keeps its real behaviour.
+  def with_readback_reply(reply)
+    real = Ddr.method(:lister)
+    Ddr.define_singleton_method(:lister) do |**args|
+      args[:file] == HF_FILE ? reply : real.call(**args)
+    end
+    yield
+  ensure
+    Ddr.singleton_class.send(:remove_method, :lister)
+  end
+
   def lock_node(rec)
     "^AMHREC(#{rec})"
   end
@@ -1028,5 +1213,106 @@ class HfWriteRaiseClient < SimpleDelegator
     raise RpmsRpc::Client::RpcNotAvailableError, "#{rpc_name} not registered (synthetic)" if rpc_name == @rpc_name
 
     super
+  end
+end
+
+class HfReentrantClient < SimpleDelegator
+  attr_reader :inner_error, :calls_before, :calls_after
+
+  def initialize(delegate, trigger_rpc:, &inner)
+    super(delegate)
+    @trigger_rpc = trigger_rpc
+    @inner = inner
+    @reentered = false
+    @inner_error = nil
+  end
+
+  def call_rpc_global_array(rpc_name, *params)
+    reenter if !@reentered && rpc_name == @trigger_rpc
+    super
+  end
+
+  private
+
+  def reenter
+    @reentered = true
+    @calls_before = received_calls.length
+    begin
+      @inner.call
+    rescue StandardError => e
+      @inner_error = e
+    end
+    @calls_after = received_calls.length
+  end
+end
+
+class HfBlockOnWriteClient < SimpleDelegator
+  def initialize(delegate, entered:, release:)
+    super(delegate)
+    @entered = entered
+    @release = release
+    @blocked = false
+  end
+
+  def call_rpc_global_array(rpc_name, *params)
+    if !@blocked && rpc_name == "AMHG SAVE HEALTH FACTORS"
+      @blocked = true
+      @entered.push(true)
+      @release.pop(timeout: 10)
+    end
+    super
+  end
+end
+
+# Counts how many times the wire scope is entered from outside it, and the
+# scope depth at which each RPC is sent.
+class HfWireTrackingClient < SimpleDelegator
+  attr_reader :outermost_entries, :rpc_depths
+
+  def initialize(delegate)
+    super
+    @depth = 0
+    @outermost_entries = 0
+    @rpc_depths = []
+  end
+
+  def synchronize_wire(&block)
+    @outermost_entries += 1 if @depth.zero?
+    @depth += 1
+    super
+  ensure
+    @depth -= 1
+  end
+
+  def call_rpc(rpc_name, *params)
+    @rpc_depths << [ rpc_name, @depth ]
+    super
+  end
+
+  def call_rpc_global_array(rpc_name, *params)
+    @rpc_depths << [ rpc_name, @depth ]
+    super
+  end
+end
+
+class HfSwapOnLockClient < SimpleDelegator
+  def initialize(delegate, replacement)
+    super(delegate)
+    @replacement = replacement
+    @swapped = false
+  end
+
+  def swapped?
+    @swapped
+  end
+
+  def call_rpc(rpc_name, *params)
+    result = super
+    param = params.first
+    if !@swapped && rpc_name == "DDR LOCK/UNLOCK NODE" && param.is_a?(Hash) && param["LOCKMODE"] == "1"
+      @swapped = true
+      RpmsRpc.configure { |c| c.client = @replacement }
+    end
+    result
   end
 end
