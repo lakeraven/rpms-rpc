@@ -172,8 +172,50 @@ class AggStockRpcsTest < Minitest::Test
     refute result[:success]
     assert_equal :agg_rejected, result[:error]
     assert_match(/Invalid parameter/, result[:message])
-    refute result.key?(:written)
     assert_empty ddr_calls, "LEGL rejection must not run post-check DDR GETS ENTRY DATA"
+    # M2: the rejection is not proof nothing was filed, so the B index is
+    # re-read under the lock; a clear re-read leaves written unclaimed.
+    assert_equal 2, b_index_lister_calls.size, "B index re-read after a LEGL -1 reply"
+    refute_includes [ true, :unknown ], result[:written]
+  end
+
+  def test_update_legal_names_blank_add_legl_rejection_with_entry_now_present_reports_written
+    seed_blank_add_prechecks(server_today: SERVER_TODAY_FM, max_ien: 41)
+    wire = "5\x00I00010RESULT^T01024ERROR^I00010RIEN#{RS}-1^Invalid parameter#{RS}#{US}"
+    seed_global("AGG UPDATE LEGAL NAMES", DFN, wire)
+    client = b_reread_client([ "[Data]\n", "[Data]\n77^#{SERVER_TODAY_FM}" ])
+    seed_legl_rejection_prechecks_on(client, wire)
+
+    result = Agg.update_legal_names(
+      dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" }, client: client
+    )
+
+    refute result[:success]
+    assert_equal true, result[:written], result.inspect
+    assert_equal 2, client.b_reads
+    order = client.received_calls.map { |c| c[:rpc] }
+    reread_idx = client.b_read_positions.last
+    assert_operator reread_idx, :<, order.rindex("DDR LOCK/UNLOCK NODE"), "re-read happens before unlock"
+  end
+
+  def test_update_legal_names_blank_add_legl_rejection_with_failed_reread_reports_written_unknown
+    wire = "5\x00I00010RESULT^T01024ERROR^I00010RIEN#{RS}-1^Invalid parameter#{RS}#{US}"
+    [ RpmsRpc::Client::RpcError.new("boom"), RpmsRpc::Client::ConnectionError.new("lost"),
+      RpmsRpc::Client::TimeoutError.new("slow"), "[BEGIN_diDATA]\n" ].each do |second|
+      client = b_reread_client([ "[Data]\n", second ])
+      seed_legl_rejection_prechecks_on(client, wire)
+
+      result = Agg.update_legal_names(
+        dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" }, client: client
+      )
+
+      refute result[:success], second.inspect
+      assert_equal :unknown, result[:written], "#{second.inspect}: #{result.inspect}"
+      unlocks = client.received_calls.select do |c|
+        c[:rpc] == "DDR LOCK/UNLOCK NODE" && !c[:params].first.key?("LOCKMODE")
+      end
+      assert_equal 1, unlocks.size, second.inspect
+    end
   end
 
   def test_update_legal_names_is_non_idempotent_write_in_retry_safety
@@ -702,7 +744,7 @@ class AggStockRpcsTest < Minitest::Test
     assert(orwu_dt_calls.all? { |c| c[:context] == "CIAV VUECENTRIC" })
     assert_equal [ day ], b_index_lister_days_from_calls
     from = b_index_lister_calls.first[:params].first["FROM"]
-    assert_equal "#{fileman_prior_calendar_day(day)}.9999999", from
+    assert_equal "#{day - 1}.9999999", from
     assert_equal 1, unlock_calls.size
   end
 
@@ -737,18 +779,16 @@ class AggStockRpcsTest < Minitest::Test
     assert_empty lock_calls
   end
 
-  def test_update_legal_names_blank_add_b_reads_use_prior_calendar_day_from_at_month_boundary
+  # FROM is the numeric predecessor of the day, never the prior calendar day:
+  # 3270100 sorts between 3261231 and 3270101 and would hide nothing, but
+  # 3261231.9999999 would skip an imprecise-date row at 3270100 (M1).
+  def test_update_legal_names_blank_add_b_from_is_numeric_predecessor_at_month_boundary
     day = 3_270_101
-    prior = fileman_prior_calendar_day(day)
+    from = "3270100.9999999"
     seed_legal_name_lock(day)
     seed_legal_name_unlock(day)
     @mock.seed_scalar(:orwu_dt, "01/01/2027", day.to_s)
-    @mock.seed_scalar(:orwu_dt, "T", SERVER_TODAY_FM.to_s)
-    @mock.seed_scalar(:orwu_dt, "11/05/2026", SERVER_TODAY_FM.to_s)
-    seed_b_lister(day: fileman_prior_calendar_day(SERVER_TODAY_FM), text: "[Data]\n")
-    seed_b_lister(day: SERVER_TODAY_FM, text: "[Data]\n")
-    seed_b_lister(day: prior, text: "[Data]\n", from: "#{prior}.9999999")
-    seed_b_lister(day: day, text: "[Data]\n", from: "#{prior}.9999999")
+    seed_b_lister(day: day, text: "[Data]\n", from: from)
     seed_max_ien_lister("[Data]\n41")
 
     Agg.update_legal_names(
@@ -757,10 +797,53 @@ class AggStockRpcsTest < Minitest::Test
     )
 
     assert_equal 1, b_index_lister_calls.size
-    from = b_index_lister_calls.first[:params].first["FROM"]
-    assert_equal "#{prior}.9999999", from
+    assert_equal from, b_index_lister_calls.first[:params].first["FROM"]
     assert_equal 1, orwu_dt_calls.size
     assert_equal [ "01/01/2027", "TS" ], orwu_dt_calls.first[:params]
+  end
+
+  def test_update_legal_names_blank_add_b_from_is_numeric_predecessor_mid_month
+    day = 3_261_101
+    seed_legal_name_lock(day)
+    seed_legal_name_unlock(day)
+    @mock.seed_scalar(:orwu_dt, "11/01/2026", day.to_s)
+    seed_b_lister(day: day, text: "[Data]\n", from: "3261100.9999999")
+    seed_max_ien_lister("[Data]\n41")
+    seed_legl_success("42", day_fm: day)
+
+    Agg.update_legal_names(
+      dfn: DFN.to_i, proc: "A", rien: "",
+      params: { "AGGLNMC" => "SYNTH", "AGGLNDTC" => "11/01/2026" }
+    )
+
+    assert_equal "3261100.9999999", b_index_lister_calls.first[:params].first["FROM"]
+  end
+
+  # M1: an imprecise-date row (3261100 = NOV 2026) sorts between the prior
+  # calendar day and the requested day. When the B read comes back with that
+  # row for requested 3261101, an exact 3261101 entry may sit behind it, so
+  # the add must be refused (taken or unverified), nothing written.
+  def test_update_legal_names_blank_add_refuses_when_imprecise_date_row_returned_for_requested_day
+    day = 3_261_101
+    seed_legal_name_lock(day)
+    seed_legal_name_unlock(day)
+    @mock.seed_scalar(:orwu_dt, "11/01/2026", day.to_s)
+    [ "3261100.9999999", "3261031.9999999", "3261100" ].each do |from|
+      seed_b_lister(day: day, text: "[Data]\n55^3261100", from: from)
+    end
+    seed_max_ien_lister("[Data]\n41")
+    seed_legl_success("42", day_fm: day)
+
+    result = Agg.update_legal_names(
+      dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH", "AGGLNDTC" => "11/01/2026" }
+    )
+
+    refute_nil result
+    refute result[:success], result.inspect
+    assert_includes %i[legal_name_date_taken legal_name_unverified], result[:error]
+    assert_empty legl_calls
+    refute result[:written]
+    assert_equal 1, unlock_calls.size
   end
 
   def test_update_legal_names_blank_add_v1_empty_di_data_is_clear_for_b_and_max
@@ -1048,7 +1131,123 @@ class AggStockRpcsTest < Minitest::Test
            "lock, B read, max-IEN read, LEGL, post-check, and unlock must run inside synchronize_wire"
   end
 
+  # M3: transport errors (ConnectionError / TimeoutError, not RpcError) on a
+  # completed write must not escape as a bare exception.
+  def test_update_legal_names_blank_add_post_read_transport_error_is_unverified_written
+    [ RpmsRpc::Client::ConnectionError, RpmsRpc::Client::TimeoutError ].each do |klass|
+      client = legal_name_post_check_error_client(klass)
+      client.set_authenticated("501")
+      seed_blank_add_prechecks_on(client, server_today: SERVER_TODAY_FM, max_ien: 41)
+      seed_legl_success_on(client, "42")
+
+      result = Agg.update_legal_names(
+        dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" }, client: client
+      )
+
+      refute result[:success], klass.name
+      assert_equal :legal_name_unverified, result[:error], klass.name
+      assert_equal true, result[:written], klass.name
+      assert_equal 42, result[:ien], klass.name
+      unlocks = client.received_calls.select do |c|
+        c[:rpc] == "DDR LOCK/UNLOCK NODE" && !c[:params].first.key?("LOCKMODE")
+      end
+      assert_equal 1, unlocks.size, klass.name
+    end
+  end
+
+  def test_update_legal_names_blank_add_unlock_transport_error_does_not_mask_success
+    [ RpmsRpc::Client::ConnectionError, RpmsRpc::Client::TimeoutError ].each do |klass|
+      client = legal_name_unlock_error_client(klass)
+      client.set_authenticated("501")
+      seed_blank_add_prechecks_on(client, server_today: SERVER_TODAY_FM, max_ien: 41)
+      seed_legl_success_on(client, "42")
+
+      result = Agg.update_legal_names(
+        dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" }, client: client
+      )
+
+      assert result[:success], "#{klass.name}: #{result.inspect}"
+      assert_equal 42, result[:ien], klass.name
+    end
+  end
+
+  def test_update_legal_names_blank_add_unlock_transport_error_does_not_mask_original_exception
+    error_client = legal_name_unlock_error_client(RpmsRpc::Client::ConnectionError, also_lister_rpc_error: true)
+    error_client.set_authenticated("501")
+    seed_blank_add_prechecks_on(error_client, server_today: SERVER_TODAY_FM, max_ien: 41)
+
+    err = assert_raises(RpmsRpc::Client::RpcError) do
+      Agg.update_legal_names(
+        dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" }, client: error_client
+      )
+    end
+    assert_match(/broker failure/, err.message)
+    refute error_client.received_calls.any? { |c| c[:rpc] == "AGG UPDATE LEGAL NAMES" }
+  end
+
+  # LOW: a non-numeric RIEN is a malformed reply, not a takeover of IEN 0.
+  def test_update_legal_names_blank_add_non_numeric_rien_is_not_reported_as_takeover
+    [ "abc", "42x", "4.2", "-3", " " ].each do |bad|
+      @mock.received_calls.clear
+      seed_blank_add_prechecks(server_today: SERVER_TODAY_FM, max_ien: 41)
+      wire = "5\x00I00010RESULT^T01024ERROR^I00010RIEN#{RS}1^^#{bad}#{RS}#{US}"
+      seed_global("AGG UPDATE LEGAL NAMES", DFN, wire)
+
+      result = Agg.update_legal_names(dfn: DFN.to_i, proc: "A", rien: "", params: { "AGGLNMC" => "SYNTH" })
+
+      refute result[:success], bad.inspect
+      refute_equal :legal_name_takeover, result[:error], bad.inspect
+      assert_equal :legal_name_unverified, result[:error], bad.inspect
+      assert_equal true, result[:written], bad.inspect
+      refute_equal 0, result[:ien], bad.inspect
+      assert_empty ddr_calls, "#{bad.inspect}: no post-read of a guessed IEN"
+    end
+  end
+
   private
+
+  # Serves B-index lister replies from a queue (String text, or an exception
+  # to raise); the max-IEN lister and everything else fall through to seeds.
+  def b_reread_client(queue)
+    klass = Class.new(RpmsRpc::MockClient) do
+      attr_reader :b_reads, :b_read_positions
+
+      define_method(:initialize) do
+        super()
+        @queue = queue.dup
+        @b_reads = 0
+        @b_read_positions = []
+      end
+
+      define_method(:call_rpc) do |rpc_name, *params|
+        if rpc_name == "DDR LISTER" && params.first.is_a?(Hash) && params.first["XREF"] == "B"
+          @b_reads += 1
+          @b_read_positions << received_calls.size
+          reply = @queue.shift
+          raise reply if reply.is_a?(Exception)
+
+          super(rpc_name, *params) # records the call
+          return reply
+        end
+
+        super(rpc_name, *params)
+      end
+    end
+    client = klass.new
+    client.set_authenticated("501")
+    client
+  end
+
+  def seed_legl_rejection_prechecks_on(client, wire)
+    seed_blank_add_server_today_flow(SERVER_TODAY_FM, mock: client)
+    seed_legal_name_lock_on(client, SERVER_TODAY_FM)
+    seed_legal_name_unlock_on(client, SERVER_TODAY_FM)
+    client.seed(:ddr_lister, max_ien_lister_param.to_s, "[Data]\n41")
+    tables = client.instance_variable_get(:@lines) || {}
+    tables["AGG UPDATE LEGAL NAMES"] ||= {}
+    tables["AGG UPDATE LEGAL NAMES"][DFN] = wire
+    client.instance_variable_set(:@lines, tables)
+  end
 
   def seed_gets(file, iens, fields, text, flags: "I")
     key = Ddr.gets_entry_param(file: file, iens: iens, fields: fields, flags: flags).to_s
@@ -1090,13 +1289,13 @@ class AggStockRpcsTest < Minitest::Test
     client.seed(:ddr_lister, max_ien_lister_param.to_s, max_text)
   end
 
-  def legal_name_post_check_error_client
+  def legal_name_post_check_error_client(error_class = RpmsRpc::Client::RpcError)
     Class.new(RpmsRpc::MockClient) do
       define_method(:call_rpc) do |rpc_name, *params|
         if rpc_name == "DDR GETS ENTRY DATA" &&
            params.first.is_a?(Hash) &&
            params.first["FIELDS"].to_s.include?(".01")
-          raise RpmsRpc::Client::RpcError, "DDR GETS ENTRY DATA: broker failure"
+          raise error_class, "DDR GETS ENTRY DATA: broker failure"
         end
 
         super(rpc_name, *params)
@@ -1104,12 +1303,15 @@ class AggStockRpcsTest < Minitest::Test
     end.new
   end
 
-  def legal_name_unlock_error_client
+  def legal_name_unlock_error_client(error_class = RpmsRpc::Client::RpcError, also_lister_rpc_error: false)
     Class.new(RpmsRpc::MockClient) do
       define_method(:call_rpc) do |rpc_name, *params|
         param = params.first
         if rpc_name == "DDR LOCK/UNLOCK NODE" && param.is_a?(Hash) && !param.key?("LOCKMODE")
-          raise RpmsRpc::Client::RpcError, "DDR LOCK/UNLOCK NODE: unlock failure"
+          raise error_class, "DDR LOCK/UNLOCK NODE: unlock failure"
+        end
+        if also_lister_rpc_error && rpc_name == "DDR LISTER" && param.is_a?(Hash) && param["XREF"] == "#"
+          raise RpmsRpc::Client::RpcError, "DDR LISTER: broker failure"
         end
 
         super(rpc_name, *params)
@@ -1241,7 +1443,7 @@ class AggStockRpcsTest < Minitest::Test
       flags: "IPQ",
       max: "1",
       xref: "B",
-      from: from || "#{fileman_prior_calendar_day(day)}.9999999"
+      from: from || "#{day - 1}.9999999"
     )
   end
 
@@ -1282,8 +1484,7 @@ class AggStockRpcsTest < Minitest::Test
   end
 
   def b_lister_day_from_call(call)
-    from = call[:params].first["FROM"].split(".").first.to_i
-    encode_fileman(decode_fileman(from) + 1)
+    call[:params].first["FROM"].split(".").first.to_i + 1
   end
 
   def orwu_dt_calls
