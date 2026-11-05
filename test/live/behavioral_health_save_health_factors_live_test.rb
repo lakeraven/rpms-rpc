@@ -13,8 +13,7 @@ class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
   DFN = 990_037
   HF_FILE = "9002011.08"
   HF_XREF = "AD"
-  HF_FROM = "0"
-  HF_FIELDS = ".01;.04;.06;81101"
+  HF_FIELDS = ".01E;.02;.03;.04E;.06;81101"
   HF_FLAGS = "IP"
   HF_MAX = "25"
 
@@ -24,6 +23,7 @@ class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
   TYPE_OF_CONTACT_FILE = "9002012.1"
   ENCOUNTER_LOCATION_FILE = "9999999.06"
   COMMUNITY_FILE = "9999999.05"
+  HF_TYPE_FILE = "9999999.64"
 
   def test_save_health_factors_replace_all_on_edit_via_ddr_lister
     assert_synthetic_patient!(DFN)
@@ -49,22 +49,23 @@ class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
       patient: DFN,
       mode: :edit,
       health_factors: [
-        { name: hf_name, level: "YES", quantity: "1", comment: "SYN LIVE HF A" }
+        { name: hf_name, level: "MINIMAL", quantity: "1", comment: "SYN LIVE HF A" }
       ]
     )
 
-    assert_hf_comment!(visit_ien, hf_name, "SYN LIVE HF A")
+    assert_hf_row!(visit_ien, hf_name, level: "MINIMAL", quantity: "1", comment: "SYN LIVE HF A")
 
     RpmsRpc::BehavioralHealth.save_health_factors(
       record_ien: visit_ien,
       patient: DFN,
       mode: :edit,
       health_factors: [
-        { name: hf_name, level: "NO", quantity: "2", comment: "SYN LIVE HF B" }
+        { name: hf_name, level: "MODERATE", quantity: "2", comment: "SYN LIVE HF B" }
       ]
     )
 
-    assert_hf_comment!(visit_ien, hf_name, "SYN LIVE HF B")
+    assert_hf_row!(visit_ien, hf_name, level: "MODERATE", quantity: "2", comment: "SYN LIVE HF B")
+    assert_hf_row_count!(visit_ien, 1)
 
     puts "\n#{persona}: BH visit #{visit_ien} health factors saved on DFN #{DFN} (#{hf_name})"
   end
@@ -72,28 +73,53 @@ class BehavioralHealthSaveHealthFactorsLiveTest < LiveSpec::Test
   private
 
   def discover_health_factor_name!
-    listed = RpmsRpc::DdrFileman.lister(file: "9999999.64", fields: ".01", flags: "IP", max: "50")
+    listed = RpmsRpc::DdrFileman.lister(
+      file: HF_TYPE_FILE, fields: ".01;.1;.13", flags: HF_FLAGS, max: "50"
+    )
     flunk "health factor type list failed" if listed.nil? || listed[:error]
-    row = listed[:entries].find { |e| e[:pieces].first.to_s.length.positive? }
-    flunk "no health factor type .01 on this build" unless row
+
+    row = listed[:entries].find do |entry|
+      pieces = entry[:pieces]
+      next false unless pieces.length >= 3
+
+      name = pieces[0].to_s
+      name.length.positive? && name.length <= 30 && pieces[1].to_s == "F" && pieces[2].to_s != "1"
+    end
+    flunk "no active FACTOR (.1 F, .13 not 1) with .01 length 1-30 on file #{HF_TYPE_FILE}" unless row
 
     row[:pieces].first.to_s
   end
 
-  def assert_hf_comment!(visit_ien, want_name, want_comment)
+  def assert_hf_row!(visit_ien, want_name, level:, quantity:, comment:)
+    listed = hf_lister(visit_ien)
+    match = listed[:entries].find do |entry|
+      pieces = entry[:pieces]
+      pieces.length >= 6 &&
+        pieces[0].to_s == want_name &&
+        pieces[3].to_s == level &&
+        pieces[4].to_s == quantity &&
+        pieces[5].to_s == comment
+    end
+    refute_nil match,
+               "expected HF #{want_name.inspect} level=#{level.inspect} qty=#{quantity.inspect} " \
+               "comment=#{comment.inspect} on visit #{visit_ien}"
+  end
+
+  def assert_hf_row_count!(visit_ien, count)
+    listed = hf_lister(visit_ien)
+    assert_equal count, listed[:entries].length,
+                 "expected exactly #{count} HF row(s) on visit #{visit_ien}, got #{listed[:entries].length}"
+  end
+
+  def hf_lister(visit_ien)
     listed = RpmsRpc::DdrFileman.lister(
       file: HF_FILE, xref: HF_XREF, part: visit_ien.to_s,
-      from: HF_FROM, screen: "I $P(^(0),U,3)=#{visit_ien}",
+      screen: "I $P(^(0),U,3)=#{visit_ien}",
       fields: HF_FIELDS, flags: HF_FLAGS, max: HF_MAX
     )
     flunk "HF list read failed for visit #{visit_ien}" if listed.nil? || listed[:error]
 
-    match = listed[:entries].find do |entry|
-      entry[:pieces].length >= 4 &&
-        entry[:pieces][0].to_s == want_name &&
-        entry[:pieces][3].to_s == want_comment
-    end
-    refute_nil match, "expected HF #{want_name.inspect} with comment #{want_comment.inspect} on visit #{visit_ien}"
+    listed
   end
 
   def discover_reference_iens!
