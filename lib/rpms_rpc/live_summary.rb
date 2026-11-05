@@ -171,18 +171,26 @@ module RpmsRpc
     end
 
     # The live suite, as one token: SHA-256 over every file under test/live/
-    # plus data/rpc_coverage/config.yml. Same per-file scheme as
-    # source_fingerprint (relative name, newline, hex digest, newline), sorted.
-    # A gutted spec or a pin bump is a different suite, so it cannot ride a
-    # summary of the previous one.
+    # plus data/rpc_coverage/config.yml. Junk is skipped: a basename that
+    # starts with ".", ends with "~", or is wrapped in "#...#". Same per-file
+    # scheme as source_fingerprint (relative name, newline, hex digest,
+    # newline), sorted. A gutted spec or a pin bump is a different suite, so
+    # it cannot ride a summary of the previous one.
     def suite_fingerprint(root)
       root = File.expand_path(root)
       names = Dir.glob(File.join(root, "test", "live", "**", "*"), File::FNM_DOTMATCH)
-                 .select { |path| File.file?(path) }
+                 .select { |path| File.file?(path) && !editor_junk?(path) }
                  .map { |path| relative_name(root, path) }
       config = "data/rpc_coverage/config.yml"
       names << config if File.file?(File.join(root, config))
       digest_named_files(root, names.uniq.sort)
+    end
+
+    # Editor and OS junk under test/live: dotfiles, backups ending in ~, and
+    # files wrapped in #...#. A real spec or helper is not junk.
+    def editor_junk?(path)
+      name = File.basename(path)
+      name.start_with?(".") || name.end_with?("~") || name.match?(/\A#.+#\z/)
     end
 
     # [ok, reasons]. Fail closed: a blank build, source, or suite, a missing
@@ -196,6 +204,12 @@ module RpmsRpc
       [ false, [ "#{e.class}: #{e.message}" ] ]
     end
 
+    # Full paths of the JSON summaries in dir, sorted. base: so a directory
+    # name that contains [ ] * ? { } is not read as a glob pattern.
+    def summary_paths(dir)
+      Dir.glob("*.json", base: dir).sort.map { |name| File.join(dir, name) }
+    end
+
     # One line per summary in dir, for the guard's OK message: how many live
     # specs passed and how many were skipped, and the build_source. The guard
     # passes a run with skips, so it says how many; it does not ask the server
@@ -203,7 +217,7 @@ module RpmsRpc
     def outcomes(dir)
       return [] unless dir.is_a?(String) && File.directory?(dir)
 
-      Dir.glob(File.join(dir, "*.json")).sort.filter_map { |path| outcome_of(path) }
+      summary_paths(dir).filter_map { |path| outcome_of(path) }
     end
 
     # The one release in the rpms-ops lock. Zero or several is an error:
@@ -249,7 +263,7 @@ module RpmsRpc
       return [ "expected suite is blank" ] if suite.nil? || suite.to_s.strip.empty?
       return [ missing_summary(dir) ] unless dir.is_a?(String) && File.directory?(dir)
 
-      paths = Dir.glob(File.join(dir, "*.json")).sort
+      paths = summary_paths(dir)
       return [ missing_summary(dir) ] if paths.empty?
 
       reasons = paths.flat_map { |path| reasons_for(path, build, source, suite) }
@@ -437,6 +451,6 @@ module RpmsRpc
                          :count_reasons, :release_keys, :summary_token, :broker_protocol,
                          :coverage_release, :outcome_of, :cia_file?, :write_pending, :digest_named_files,
                          :relative_name, :marker_value, :marker_suite_matches?, :filename_identity,
-                         :identity_reasons
+                         :identity_reasons, :editor_junk?, :summary_paths
   end
 end
