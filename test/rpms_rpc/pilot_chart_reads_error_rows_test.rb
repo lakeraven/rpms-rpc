@@ -3,10 +3,13 @@
 require "minitest/autorun"
 require_relative "pilot_chart_reads_test"
 
-# Issue #512 round 5: caret-bearing error / sentinel rows must not count as record evidence
+# Issue #512 round 5–6: caret-bearing error / sentinel rows must not count as record evidence
 # (see CARET_CONTAINING_NON_RECORD_LIVE_CAPTURE_ROWS in pilot_chart_reads_test.rb).
 class RpmsRpc::PilotChartReadsErrorRowsTest < Minitest::Test
   Grader = RpmsRpc::PilotChartReadsTest
+
+  COMMITTED_RECORD_ROW_COMMA_PLUS_IN_NARRATIVE =
+    "123^Diabetes, type 2 w/ neuropathy + CKD^A^E11.9^3200101^3250301^NSC^^^*^^10".freeze
 
   LIVE_CAPTURE_FIELDS_POSITIVE_CONTROL_STATUS = {
     patient_id_info: "partial",
@@ -55,6 +58,39 @@ class RpmsRpc::PilotChartReadsErrorRowsTest < Minitest::Test
     assert_empty failures, failures.join("\n  ")
   end
 
+  # Round 6 (#512): M-location / YDB stack text in a later piece must not satisfy record_row?.
+  def test_m_location_stack_line_rows_are_not_record_rows
+    failures = []
+    Grader::M_LOCATION_STACK_LINE_LIVE_CAPTURE_ROWS.each do |error_row|
+      next unless Grader.record_row?(error_row)
+
+      failures << "#{error_row.inspect}: record_row? must be false"
+    end
+    assert_empty failures, failures.join("\n  ")
+  end
+
+  def test_m_location_stack_line_rows_grade_not_proven_on_fields_kind_slices
+    failures = []
+    Grader::M_LOCATION_STACK_LINE_LIVE_CAPTURE_ROWS.each do |error_row|
+      Grader::CHART_FIELDS_READINESS_MAPPINGS.each do |mapping_name|
+        stub = live_capture_stub(mapping_name, [ error_row ])
+        mapping = RpmsRpc::DataMapper[mapping_name]
+        slice = slice_for(mapping_name)
+        all_readiness = Grader.readiness_attribute_names(mapping, stub).sort
+        unproven = Grader.unproven_attributes(stub).sort
+        if unproven != all_readiness
+          failures << ":#{mapping_name} row #{error_row.inspect}: unproven #{unproven.inspect}, " \
+                       "expected all #{all_readiness.inspect}"
+        end
+        status = Grader.expected_checklist_status(slice, stub)
+        next if status == "not-proven"
+
+        failures << ":#{mapping_name} row #{error_row.inspect}: status #{status.inspect}, expected not-proven"
+      end
+    end
+    assert_empty failures, failures.join("\n  ")
+  end
+
   def test_problem_list_mixed_valid_row_and_vista_error_does_not_add_proof
     path = Grader.fixture_path_for("ORQQPL LIST")
     skip "no ORQQPL LIST fixture" unless File.file?(path)
@@ -74,6 +110,22 @@ class RpmsRpc::PilotChartReadsErrorRowsTest < Minitest::Test
 
     assert_includes mixed_unproven, :inactive_icd,
                     "error row must not prove inactive_icd false when valid row alone does not"
+  end
+
+  def test_committed_record_row_with_comma_and_plus_in_narrative_counts_as_record_evidence
+    row = COMMITTED_RECORD_ROW_COMMA_PLUS_IN_NARRATIVE
+    assert Grader.record_row?(row),
+           "narrative comma/plus must not be treated as M-location error text"
+
+    stub = live_capture_stub(:problem_list, [ row ])
+    slice = slice_for(:problem_list)
+    mapping = RpmsRpc::DataMapper[:problem_list]
+    all_readiness = Grader.readiness_attribute_names(mapping, stub)
+    unproven = Grader.unproven_attributes(stub)
+    refute_equal all_readiness.sort, unproven.sort,
+                 "record row must prove at least one readiness field"
+    refute_equal "not-proven", Grader.expected_checklist_status(slice, stub),
+                 "single committed-shaped record row must not grade not-proven"
   end
 
   # Positive controls: tightening record_row? must not demote committed live-capture grades.

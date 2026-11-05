@@ -60,6 +60,12 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
   YDB_ZSTATUS_LIVE_CAPTURE_ROW =
     "150373850,LIST+3^ORQQPL,%YDB-E-LVUNDEF, Undefined local variable: DFN".freeze
 
+  # Round-6 (#512): M stack text after piece 0 (unanchored code,LABEL+off^ROUTINE / %YDB-E).
+  M_LOCATION_STACK_LINE_LIVE_CAPTURE_ROWS = [
+    "1^150373850,LIST+3^ORQQPL, Undefined local variable: DFN",
+    "2^x^150373850,GET+1^ORWPT,%YDB-E-LVUNDEF"
+  ].freeze
+
   # Omit "1^2^Application context denied": round-5 panel contrived it; live broker
   # failures are the single-piece reply in NON_RECORD_LIVE_CAPTURE_ROWS or a
   # \x01-framed "-N^…" line, and `rake wire:capture` drops both via non_data_row? /
@@ -69,7 +75,8 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     "-1^Invalid DFN",
     "0^No problems^^^^^^^^^^^",
     YDB_ZSTATUS_LIVE_CAPTURE_ROW,
-    "^No vitals found.^^oops"
+    "^No vitals found.^^oops",
+    *M_LOCATION_STACK_LINE_LIVE_CAPTURE_ROWS
   ].freeze
 
   # Fake client: ORWPS ACTIVE lines exactly as CiaClient#call_rpc delivers them (no seq prefix).
@@ -220,10 +227,10 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       token.match?(/\A-?\d+\z/) && RpmsRpc::WireCapture::Evidence.real_value?(token)
     end
 
-    # M error text: %YDB-E, $ZSTATUS, or code,LABEL+off^ROUTINE. Not a record.
+    # M error text: %YDB-E, $ZSTATUS, or code,LABEL+off^ROUTINE anywhere in the row. Not a record.
     def m_error_text?(text)
       text.include?("%YDB-E") || text.include?("$ZSTATUS") ||
-        text.match?(/\A\d+,[A-Z0-9%]+\+\d+\^/)
+        text.match?(/\d+,[A-Z0-9%]+\+\d+\^/)
     end
 
     # Record evidence needs a real key, no M error text, and two real pieces.
