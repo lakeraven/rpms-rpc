@@ -29,10 +29,12 @@ class NotificationsLiveTest < LiveSpec::Test
   DFN = 3 # MOUSE,MICKEY M, a demo patient of the image
   OTHER_DFN = 4
   OTHER_PAIR = [ "PSCH123", "PSCH123!!" ].freeze
+  THIRD_PAIR = [ "PREG123", "PREG123!!" ].freeze
 
   def teardown
     Array(@sent).each { |alert_id| delete_alert(alert_id) }
     @other&.disconnect
+    @third&.disconnect
     super
   end
 
@@ -60,12 +62,17 @@ class NotificationsLiveTest < LiveSpec::Test
   end
 
   def other
-    @other ||= begin
-      c = RpmsRpc::CiaClient.new(host: ENV.fetch("BROKER_HOST"), port: Integer(ENV.fetch("BROKER_PORT")), timeout: 30)
+    @other ||= connect_as(OTHER_PAIR).tap { |c| refute_equal client.duz, c.duz, "the second persona is another user" }
+  end
+
+  def third
+    @third ||= connect_as(THIRD_PAIR).tap { |c| refute_includes [ client.duz, other.duz ], c.duz, "the third persona is another user" }
+  end
+
+  def connect_as(pair)
+    RpmsRpc::CiaClient.new(host: ENV.fetch("BROKER_HOST"), port: Integer(ENV.fetch("BROKER_PORT")), timeout: 30).tap do |c|
       c.connect
-      c.authenticate(*OTHER_PAIR)
-      refute_equal client.duz, c.duz, "the second persona is another user"
-      c
+      c.authenticate(*pair)
     end
   end
 
@@ -131,23 +138,30 @@ class NotificationsLiveTest < LiveSpec::Test
     assert_includes inbox_ids, alert_id, "the alert is still listed for its own recipient"
   end
 
+  # Three users, so the sender and the forwarder are not the same person. The
+  # recipient's row names the original sender, not the forwarder: ALRLIST looks
+  # for the forwarder in pieces 7-8 of the recipient's #8992.1 row
+  # (BEHOXQ.m:32-33), and this build's Kernel records a forward in that row's
+  # own multiple, #8992.112, instead (XQALSET.m:105-106).
   def test_i_forward_a_notification_and_it_arrives_with_my_comment
     message = "Live spec forward #{SecureRandom.hex(4)}"
-    alert_id = send_alert(message)
+    alert_id = send_alert(message, to: [ other.duz ])
     comment = "Please review today #{SecureRandom.hex(2)}"
 
-    result = RpmsRpc::Notifications.forward(alert_id, to: other.duz, comment: comment)
-
-    assert_equal({ alert_id: alert_id, forwarded_to: [ other.duz.to_i ], comment: comment }, result)
-    assert_includes inbox_ids, alert_id, "forwarding leaves my own copy"
     as_other do
+      result = RpmsRpc::Notifications.forward(alert_id, to: third.duz, comment: comment)
+      assert_equal({ alert_id: alert_id, forwarded_to: [ third.duz.to_i ], comment: comment }, result)
+      assert_includes inbox_ids, alert_id, "forwarding leaves my own copy"
+    end
+    RpmsRpc.with_client(third) do
       row = RpmsRpc::Notifications.inbox.find { |r| r[:alert_id] == alert_id }
       refute_nil row, "the forwarded alert is in the recipient's notifications"
       assert_equal message, row[:message]
       assert_equal DFN, row[:patient_dfn]
-      assert_equal client.signon_user, row[:sender], "ALRLIST names the forwarder (BEHOXQ.m:32-33)"
+      assert_equal client.signon_user, row[:sender], "ALRLIST names the original sender"
+      refute_equal other.signon_user, row[:sender], "not the forwarder"
       assert_equal comment, RpmsRpc::Notifications.message(alert_id).first, "BEHOXQ ALRMSG answers the forwarding comment first"
     end
-    puts "\n#{persona}: alert #{alert_id} forwarded to DUZ #{other.duz} with its comment"
+    puts "\n#{persona}: alert #{alert_id} forwarded by DUZ #{other.duz} to DUZ #{third.duz} with its comment"
   end
 end

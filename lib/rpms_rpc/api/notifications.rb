@@ -97,8 +97,9 @@ module RpmsRpc
     # Forward one of the signed-on user's notifications to other users, by
     # DUZ, with an optional comment, as the tab's Forward does: BEHOXQ
     # FORWARD, FORWARD^XQALFWD(alert, users, "A", comment). Each recipient
-    # gets their own copy, naming the forwarder and carrying the comment
-    # (read back with #message); the user keeps theirs. Only an alert
+    # gets their own copy, carrying the comment (read back with #message);
+    # the user keeps theirs. The copy's :sender stays the original sender:
+    # #inbox has no field for who forwarded it. Only an alert
     # ALRLIST lists for the user is sent, since Kernel forwards nothing else
     # (RESETUP^XQALFWD, XQALFWD.m:99) and answers 0 either way.
     # Answers { alert_id:, forwarded_to: [DUZ], comment: }.
