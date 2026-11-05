@@ -353,6 +353,17 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
       !tribal_update.match?(/\btribe:\s*before\[:tribe_ien\]/)
     end
 
+    def live_eligibility_spec_main_write_update_keyword_names(source = nil)
+      source = source || File.read(LIVE_ELIGIBILITY_SPEC, encoding: Encoding::UTF_8)
+      code = live_eligibility_spec_non_comment_source(source)
+      block = code.scan(/Registration\.update\([\s\S]*?\)/m).find do |call|
+        call.match?(/\benrollment_number:/)
+      end
+      return [] unless block
+
+      block.scan(/(?<![a-z_])([a-z_]+):/).map(&:first).uniq
+    end
+
     def live_eligibility_spec_part_string_literals_ok?(source)
       code = live_eligibility_spec_non_comment_source(source)
       code.scan(/part:\s*(["'])(.*?)\1/).all? { |(_, value)| value == "OTHER" }
@@ -562,6 +573,7 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
       unproven = row[:unproven].to_s
       cites_record = reason.include?(LIVE_RUN_RECORD_REL)
       expected_suite = RpmsRpc::LiveSummary.suite_fingerprint(ROOT)
+      expected_source = RpmsRpc::LiveSummary.source_fingerprint(ROOT)
 
       case status
       when "pilot-ready"
@@ -628,7 +640,20 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
         errors << "record errors must be Integer 0" unless record_errors.is_a?(Integer) && record_errors.zero?
 
         skips = record["skips"]
-        errors << "record skips must be Integer 0" unless skips.is_a?(Integer) && skips.zero?
+        if !skips.is_a?(Integer) || skips.negative?
+          errors << "record skips must be a non-negative Integer"
+        elsif runs.is_a?(Integer) && runs >= 1
+          max_skip = RpmsRpc::LiveSummary::MAX_SKIP_PERCENT
+          if skips * 100 > runs * max_skip
+            errors << "record skips #{skips} of #{runs} skipped, over the #{max_skip}% ceiling"
+          end
+          errors << "record runs minus skips must leave at least one live spec that ran" if runs - skips <= 0
+        end
+
+        source = record["source"]
+        unless source == expected_source
+          errors << "record source must match current shipped source fingerprint (#{expected_source})"
+        end
 
         suite = record["suite"]
         unless suite == expected_suite
@@ -1103,6 +1128,21 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     refute_empty row[:unproven].strip
   end
 
+  def test_registration_update_eligibility_row_unproven_matches_live_spec_main_write_keywords
+    rows = parse_checklist
+    row = rows["Registration.update eligibility"]
+    refute_nil row, "checklist must include Registration.update eligibility write row"
+    refute_equal "pilot-ready", row[:status]
+
+    source = File.read(LIVE_ELIGIBILITY_SPEC, encoding: Encoding::UTF_8)
+    expected_keywords = self.class.live_eligibility_spec_main_write_update_keyword_names(source)
+    refute_empty expected_keywords,
+                 "live spec main Registration.update (with enrollment_number:) must expose keyword names"
+
+    actual = row[:unproven].split(", ").sort
+    assert_equal expected_keywords.sort, actual
+  end
+
   def test_hand_written_yml_live_run_record_must_not_exist
     yml = File.join(ROOT, "test/fixtures/live_runs/registration-eligibility-update.yml")
     refute File.file?(yml),
@@ -1259,11 +1299,52 @@ class RpmsRpc::PilotTribalEnrollmentTest < Minitest::Test
     refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
   end
 
-  def test_live_run_record_consistency_rejects_pilot_ready_when_skips_nonzero
-    record = self.class.synthetic_live_run_record("skips" => 1)
+  def test_live_run_record_consistency_rejects_pilot_ready_when_skips_one_with_runs_one
+    record = self.class.synthetic_live_run_record("runs" => 1, "skips" => 1)
+    row = self.class.synthetic_pilot_ready_eligibility_row(record)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
+    refute_empty errors
+    assert errors.any? { |e| e.match?(/skip/i) }
+  end
+
+  def test_live_run_record_consistency_accepts_pilot_ready_when_skips_within_ceiling
+    record = self.class.synthetic_live_run_record("runs" => 20, "skips" => 1)
+    row = self.class.synthetic_pilot_ready_eligibility_row(record)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    assert_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
+  end
+
+  def test_live_run_record_consistency_rejects_pilot_ready_when_skips_over_ceiling
+    record = self.class.synthetic_live_run_record("runs" => 20, "skips" => 3)
+    row = self.class.synthetic_pilot_ready_eligibility_row(record)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
+    refute_empty errors
+    assert errors.any? { |e| e.match?(/ceiling/i) }
+  end
+
+  def test_live_run_record_consistency_rejects_pilot_ready_when_skips_nil
+    record = self.class.synthetic_live_run_record("skips" => nil)
     row = self.class.synthetic_pilot_ready_eligibility_row(record)
     kwargs = self.class.live_run_record_consistency_kwargs(record)
     refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
+  end
+
+  def test_live_run_record_consistency_rejects_pilot_ready_when_skips_non_integer_string
+    record = self.class.synthetic_live_run_record("skips" => "1")
+    row = self.class.synthetic_pilot_ready_eligibility_row(record)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    refute_empty self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
+  end
+
+  def test_live_run_record_consistency_rejects_pilot_ready_when_source_mismatch
+    record = self.class.synthetic_live_run_record("source" => "sha256:#{"0" * 64}")
+    row = self.class.synthetic_pilot_ready_eligibility_row(record)
+    kwargs = self.class.live_run_record_consistency_kwargs(record)
+    errors = self.class.live_run_record_consistency_errors(row, record, pinned_build: PINNED_RELEASE, **kwargs)
+    refute_empty errors
+    assert errors.any? { |e| e.include?("source") }
   end
 
   def test_live_run_record_consistency_rejects_pilot_ready_when_assertions_zero
