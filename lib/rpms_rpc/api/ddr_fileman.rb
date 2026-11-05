@@ -152,9 +152,12 @@ module RpmsRpc
     FLAGS_I_WORD_PROCESSING_FIELDS = %w[
       .08 1112 1401 1402 1403 1404 1405 1406 1407 1408 1409 1410 1501 1601 1701 1901 2001
     ].freeze
-    # Free-text screening comments. A caret in one of these is another piece.
-    # A fifth piece is part of the comment; no external piece is emitted
-    # with FLAGS "I".
+    # Free-text screening comments. GETSC^DDR2 (DDR2.m:32,42) emits each
+    # non-word-processing row as FILE^IENS^FIELD^I^E, the caret before E
+    # unconditional. With FLAGS "I" only, E is empty, so a row is
+    # FILE^IENS^FIELD^INTERNAL^ (five or more pieces, last piece empty).
+    # A caret in the stored comment is part of internal. A last piece that
+    # is not empty, including a four-piece row, is stray.
     FLAGS_I_COMMENT_FIELDS = %w[1501 1601 1701 1901 2001].freeze
     private_constant :GETS_ENTRY_MARKERS, :FLAGS_I_WORD_PROCESSING_FIELDS, :FLAGS_I_COMMENT_FIELDS
 
@@ -183,13 +186,18 @@ module RpmsRpc
     # stays a marker. Outside a word-processing block, any other line that
     # starts with "[" sets stray and is skipped; lines after it are parsed
     # normally. A line with fewer than four caret pieces sets stray and is
-    # skipped. On a FLAGS "I" read, a visit comment field (1501, 1601, 1701,
-    # 1901, 2001) with more than four caret pieces sets stray and is still
-    # stored. A fifth piece is part of the comment; no external piece is
-    # emitted with FLAGS "I". Other flags, and other fields, are unchanged. A
-    # second row for a field already parsed, plain or word-processing, sets
-    # stray, and the
-    # later row replaces the stored value. A "[WORD PROCESSING]" row read
+    # skipped. GETSC^DDR2 (DDR2.m:32,42) emits each non-word-processing row
+    # as FILE^IENS^FIELD^I^E, the caret before E unconditional. With FLAGS
+    # "I" only, E is empty. On that read, a non-word-processing visit
+    # comment field (1501, 1601, 1701, 1901, 2001) with at least five pieces
+    # and an empty last piece stores internal as the pieces from the fourth
+    # through the one before the last, joined by "^", and external as "".
+    # A caret in the stored comment is recovered. A last piece that is not
+    # empty, including a four-piece row, sets stray and is still stored.
+    # Other flags, and other fields, are unchanged. Word-processing rows
+    # follow the rules below. A second row for a field already parsed, plain
+    # or word-processing, sets stray, and the later row replaces the stored
+    # value. A "[WORD PROCESSING]" row read
     # with FLAGS "I" whose field is in word_processing_stray_fields (the
     # visit screening fields, when the caller does not pass a set) sets
     # stray once the block holds a text line or closes with "$$END$$". A
@@ -237,7 +245,6 @@ module RpmsRpc
           next
         end
         field = pieces[2]
-        stray = true if internal_only && split_comment_value?(field, pieces)
         if pieces[3] == "[WORD PROCESSING]"
           stray = true if result.key?(field)
           result[field] = { text: [] }
@@ -245,7 +252,13 @@ module RpmsRpc
           wp_text = false
         else
           stray = true if result.key?(field)
-          result[field] = { internal: pieces[3], external: pieces[4..].join("^") }
+          entry = { internal: pieces[3], external: pieces[4..].join("^") }
+          if internal_only && flags_i_comment_row_stray?(field, pieces)
+            stray = true
+          elsif internal_only && FLAGS_I_COMMENT_FIELDS.include?(field)
+            entry = { internal: pieces[3..-2].join("^"), external: "" }
+          end
+          result[field] = entry
         end
       end
       stray = true if wp_field && wp_text
@@ -326,10 +339,12 @@ module RpmsRpc
       Array(passed || FLAGS_I_WORD_PROCESSING_FIELDS).map(&:to_s)
     end
 
-    # A fifth piece is part of the comment; no external piece is emitted
-    # with FLAGS "I". More than four pieces on a comment field is stray.
-    def split_comment_value?(field, pieces)
-      FLAGS_I_COMMENT_FIELDS.include?(field) && pieces.length > 4
+    # A FLAGS "I" comment row is stray unless it is the GETSC^DDR2 shape
+    # (DDR2.m:32,42): at least five pieces and an empty last piece. A
+    # four-piece row has no empty external piece, so it is stray.
+    def flags_i_comment_row_stray?(field, pieces)
+      FLAGS_I_COMMENT_FIELDS.include?(field) &&
+        (pieces.length < 5 || !pieces.last.empty?)
     end
 
     def call(mapping_name, *params)
