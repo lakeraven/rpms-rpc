@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "behavioral_health/wire"
+require_relative "behavioral_health/save_error"
 require_relative "ddr_fileman"
 require_relative "../shape"
 

@@ -202,4 +202,49 @@ class RpmsRpc::ClientTest < Minitest::Test
     assert_nil Client.new.send(:check_for_rpc_error, "")
     assert_nil Client.new.send(:check_for_rpc_error, nil)
   end
+
+  # --- rpms-rpc#557 (Factory-Spec-Amendment: 557-r9): split_response terminators
+
+  class StringBodyClient < Client
+    def initialize(body)
+      super()
+      @body = body
+    end
+
+    def call_rpc(*) = @body
+  end
+
+  def reply_from_split(body)
+    StringBodyClient.new(body.dup).call_rpc_lines("SYNTHETIC RPC")
+  end
+
+  def test_split_response_normal_crlf_terminator_is_not_altered
+    reply = reply_from_split("a\r\n")
+    assert_equal [ "a" ], reply.to_a
+    refute reply.altered?, "one final CRLF terminator must not mark the reply altered"
+  end
+
+  def test_split_response_double_crlf_terminator_marks_reply_altered
+    reply = reply_from_split("a\r\n\r\n")
+    assert reply.altered?,
+           "dropping more than one final terminator must mark the reply altered"
+  end
+
+  def test_split_response_double_lf_terminator_marks_reply_altered
+    reply = reply_from_split("a\n\n")
+    assert reply.altered?,
+           "dropping more than one final LF terminator must mark the reply altered"
+  end
+
+  def test_split_response_empty_string_yields_no_lines
+    reply = reply_from_split("")
+    assert_equal [], reply.to_a
+    refute reply.altered?
+  end
+
+  def test_split_response_single_line_without_terminator_is_one_element
+    reply = reply_from_split("a")
+    assert_equal [ "a" ], reply.to_a
+    refute reply.altered?
+  end
 end
