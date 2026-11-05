@@ -247,6 +247,16 @@ module RpmsRpc
     #                                                     INSTITUTION reported
     #                                                     success while filing
     #                                                     nothing (rpms-rpc#562).
+    #
+    #   Known limits (both pre-existing, tracked, not fixed here):
+    #   rpms-rpc#609: a lookup that faults inside AG answers the typed header and
+    #   a $C(31) terminator, which Patient.lookup reads as zero candidates, so the
+    #   duplicate check passes and a retry during the fault can create a second
+    #   chart. rpms-rpc#610: with no hrn:, the derived HRN is added after the
+    #   create with .02/// and never meets HRN^AGGWVAL's already-assigned check, so
+    #   a DFN equal to a legacy HRN at the facility files a second patient under
+    #   that HRN and the read-back still reports success. An hrn: given by the
+    #   caller does run HRN^AGGWVAL.
     #   { success: false, error: Symbol, message: }     — rejected; error is
     #     :duplicate_identity (includes candidate_dfns), :identity_unverifiable,
     #     :agg_rejected / :hrn_file_failed, or (with field:) :agg_invalid,

@@ -731,7 +731,8 @@ module RpmsRpc
       # (BEHOENCX.m:107-111), and even a 3-piece VSTR runs FNDVIS with
       # IN("NEVER ADD")=1 (BEHOENCX.m:80). The inputs name the one visit the
       # rung carries at build time (visit IEN 1 of the build's test patient,
-      # DFN 2, at hospital location 6) by DFN and extended VSTR.
+      # DFN 2, at hospital location 6) by DFN and extended VSTR. The capture
+      # runs as PROV123 on the pinned build.
       CatalogEntry.new(
         rpc: "BEHOENCX FETCH", mapping: :encounter_fetch, kind: "fields", mode: :live,
         inputs: [ "2", "6;3260825.09;A;1", "", "0" ],
@@ -753,6 +754,23 @@ module RpmsRpc
         note: "Params positionally FETCH(DATA,DFN,VSTR,PRV,CREATE) (registry formals " \
               "DATA,DFN,VSTR,PRV,CREATE). CREATE=0 is the read form; CREATE=1/-1 " \
               "creates a VISIT and is never sent by the capture task."
+      ),
+      # BEHOENCX CHKVISIT returns one COMPONENT^TEXT row per check. CV1
+      # overwrites piece 1 (the status code) with the component name.
+      # Visit 1 (seed DFN 2) has a POV and no note, so the capture stops
+      # before SEND and files no alert.
+      CatalogEntry.new(
+        rpc: "BEHOENCX CHKVISIT", mapping: :encounter_chkvisit, kind: "fields", mode: :live,
+        inputs: [ "1" ],
+        cite: "CHKVISIT^BEHOENCX (BEHOENCX.m:329-337) and NOPOV/NOEMC^BEHOXQPC " \
+              "(BEHOXQPC.m:5-14, 32-41): one COMPONENT^TEXT row per check; CV1 " \
+              "overwrites piece 1 (the status code) with the component name",
+        pieces: [
+          Piece.new(position: 0, attributes: [ "component" ]),
+          Piece.new(position: 1, attributes: [ "message" ])
+        ],
+        note: "Visit 1 (seed DFN 2) has a POV and no note, so NOPOV returns at " \
+              "line 10 and NOEMC at line 37, before SEND — the capture files no alert."
       ),
       # BEHOVM2 VUNITS is deliberately NOT live-captured: on the
       # bcer-9.0-ydb rung the call M-faults server-side and takes the
