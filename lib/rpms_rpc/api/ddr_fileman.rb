@@ -145,7 +145,18 @@ module RpmsRpc
     # -- DDR GETS ENTRY DATA -------------------------------------------------
 
     GETS_ENTRY_MARKERS = [ "[Data]", "[ERROR]" ].freeze
-    private_constant :GETS_ENTRY_MARKERS
+    # BehavioralHealth::Wellness::VISIT_FIELDS. Copied so this file does not
+    # load Wellness (wellness.rb loads ddr_fileman). A FLAGS "I" word-processing
+    # block on one of these fields is stray once it holds a text line or closes
+    # with $$END$$. A header alone stays { text: [] }.
+    FLAGS_I_WORD_PROCESSING_FIELDS = %w[
+      .08 1112 1401 1402 1403 1404 1405 1406 1407 1408 1409 1410 1501 1601 1701 1901 2001
+    ].freeze
+    # Free-text screening comments. A caret in one of these is another piece.
+    # A fifth piece that copies the internal value is the EXTERNAL column
+    # FLAGS "I" seeds already use, and is not stray.
+    FLAGS_I_COMMENT_FIELDS = %w[1501 1601 1701 1901 2001].freeze
+    private_constant :GETS_ENTRY_MARKERS, :FLAGS_I_WORD_PROCESSING_FIELDS, :FLAGS_I_COMMENT_FIELDS
 
     # Read field values via GETS^DIQ. Default (no OPTIONS) reply format:
     # "[Data]" then "FILE^IEN^FIELD^INTERNAL^EXTERNAL" rows (word-processing
@@ -172,27 +183,46 @@ module RpmsRpc
     # stays a marker. Outside a word-processing block, any other line that
     # starts with "[" sets stray and is skipped; lines after it are parsed
     # normally. A line with fewer than four caret pieces sets stray and is
-    # skipped. A second row for a field already parsed, plain or
-    # word-processing, sets stray, and the later row replaces the stored
-    # value. :stray and :altered are omitted when false, so a well-formed
-    # reply keeps the previous hash. fields, error, and malformed are
-    # unchanged either way.
-    def gets_entry(file:, iens:, fields:, flags: "")
+    # skipped. On a FLAGS "I" read, a visit comment field (1501, 1601, 1701,
+    # 1901, 2001) with more than four caret pieces sets stray and is still
+    # stored, unless the row is exactly five pieces and the fifth copies the
+    # fourth: that is the EXTERNAL column. A caret inside the comment is any
+    # other extra piece. Other flags, and other fields, are unchanged. A
+    # second row for a field already parsed, plain or word-processing, sets
+    # stray, and the
+    # later row replaces the stored value. A "[WORD PROCESSING]" row read
+    # with FLAGS "I" whose field is in word_processing_stray_fields (the
+    # visit screening fields, when the caller does not pass a set) sets
+    # stray once the block holds a text line or closes with "$$END$$". A
+    # header with no text line and no terminator stays { text: [] } and is
+    # not stray. A block still open at the end of the reply that already
+    # holds a text line sets stray for any field. A closed block on a field
+    # outside that set is unchanged. :stray and :altered are omitted when
+    # false, so a well-formed reply keeps the previous hash. fields, error,
+    # and malformed are unchanged either way.
+    def gets_entry(file:, iens:, fields:, flags: "", word_processing_stray_fields: nil)
       raw = call(:ddr_gets_entry_data,
         gets_entry_param(file: file, iens: iens, fields: fields, flags: flags))
       altered = Reply.altered?(raw)
       reply = lines(raw)
       return nil if reply.nil?
 
+      internal_only = flags.to_s == "I"
+      stray_wp = internal_only ? word_processing_fields(word_processing_stray_fields) : []
       result = {}
       wp_field = nil
+      wp_text = false
       stray = false
       reply.each_with_index do |line, index|
         if wp_field
           if line == "$$END$$"
+            stray = true if stray_wp.include?(wp_field)
             wp_field = nil
+            wp_text = false
           else
             result[wp_field][:text] << line
+            wp_text = true
+            stray = true if stray_wp.include?(wp_field)
           end
           next
         end
@@ -208,15 +238,18 @@ module RpmsRpc
           next
         end
         field = pieces[2]
+        stray = true if internal_only && split_comment_value?(field, pieces)
         if pieces[3] == "[WORD PROCESSING]"
           stray = true if result.key?(field)
           result[field] = { text: [] }
           wp_field = field
+          wp_text = false
         else
           stray = true if result.key?(field)
           result[field] = { internal: pieces[3], external: pieces[4..].join("^") }
         end
       end
+      stray = true if wp_field && wp_text
       error = reply.include?("[ERROR]") ||
               (result.empty? && !reply.include?("[Data]"))
       malformed = result.empty? && !reply.include?("[Data]") && !reply.include?("[ERROR]")
@@ -289,6 +322,20 @@ module RpmsRpc
     end
 
     private
+
+    def word_processing_fields(passed)
+      Array(passed || FLAGS_I_WORD_PROCESSING_FIELDS).map(&:to_s)
+    end
+
+    # Five pieces whose last two match are INTERNAL^EXTERNAL. Six or more,
+    # or a fifth piece that is not that copy, is a caret in the comment.
+    def split_comment_value?(field, pieces)
+      return false unless FLAGS_I_COMMENT_FIELDS.include?(field)
+      return false unless pieces.length > 4
+      return true if pieces.length > 5
+
+      pieces[3] != pieces[4]
+    end
 
     def call(mapping_name, *params)
       RpmsRpc.client.call_rpc(DataMapper[mapping_name].rpc_name, *params)

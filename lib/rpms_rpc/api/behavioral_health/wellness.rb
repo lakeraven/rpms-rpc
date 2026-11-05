@@ -742,11 +742,13 @@ module RpmsRpc
       # Stored text is resent as filed. The 2..245 limit applies only to a
       # comment the caller supplied. A separator or U+FFFD still cannot go
       # on the wire: the stored comment would be rewritten as whatever the
-      # broker substituted.
+      # broker substituted. A word-processing field has :text and no
+      # :internal; that is not a value that can be resent.
       def stored_text!(fields, field)
-        refuse!("a stored screening cannot be resent") unless fields.key?(field)
+        entry = fields[field]
+        refuse!("a stored screening cannot be resent") unless entry.is_a?(Hash) && entry.key?(:internal)
 
-        text = fields[field][:internal].to_s
+        text = entry[:internal].to_s
         refuse!("a stored screening cannot be resent") if unsafe?(text) || replacement_text?(text)
         text
       end
@@ -1037,10 +1039,13 @@ module RpmsRpc
         line
       end
 
+      # Missing :internal is not the empty string. A word-processing field
+      # stores :text only; callers must not resend that as a blank.
       def field_internal(got, field)
-        return nil unless got[:fields].key?(field)
+        entry = got[:fields][field]
+        return nil unless entry.is_a?(Hash) && entry.key?(:internal)
 
-        got[:fields][field][:internal].to_s
+        entry[:internal].to_s
       end
 
       def pointer_text(raw)
