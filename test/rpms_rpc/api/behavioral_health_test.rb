@@ -657,6 +657,26 @@ class BehavioralHealthTest < Minitest::Test
         note: "SYNTH progress note.", comment: "SYNTH comment.",
         placement_disposition: "12", referred_to: "SYN REF"
       } ],
+      save_screening: [ {
+        record_ien: "8801", patient: "100",
+        alcohol_result: "", alcohol_comment: "",
+        depression_result: "", depression_comment: "",
+        ipv_result: "", ipv_comment: "",
+        wellness_primary_provider: "",
+        alcohol_screening_provider: "", depression_screening_provider: "",
+        ipv_screening_provider: "",
+        suicide_result: "", suicide_comment: "", suicide_screening_provider: "",
+        suicide_screening_result: "", suicide_screening_comment: "",
+        suicide_screening_ipv_provider: ""
+      } ],
+      save_health_factors: [ {
+        record_ien: "8801", patient: "100", mode: :edit,
+        health_factors: [ { name: "TOBACCO", level: "YES", quantity: "1", comment: "SYN CTX" } ]
+      } ],
+      save_measurements: [ {
+        record_ien: "8801", patient: "100", mode: :edit,
+        measurements: [ { name: "WEIGHT", value: "42", provider: "412" } ]
+      } ],
       visit_activity: [ 8801 ],
       visit_axis_ii: [ 8801 ],
       visit_axis_iv: [ 8801 ],
@@ -853,6 +873,56 @@ class BehavioralHealthTest < Minitest::Test
                    "T00250CommentAppointment#{RS}#{comment}#{RS}#{US}")
   end
 
+  # Nineteen pieces, mode always E, every free-text piece blank. Pre-edit
+  # only: SCREEN^AMHGEVF has no field read-back in this call.
+  def seed_context_save_screening(mock)
+    record = "8801"
+    patient = "100"
+    wire = [
+      "E", record,
+      "", "", "", "", "", "", "",
+      patient,
+      "", "", "", "", "", "", "", "", ""
+    ].join("|")
+    mock.seed_text(:amhg_save_screening, wire, "T00030Result#{RS}#{record}#{RS}#{US}")
+    seed_context_visit_patient(mock, record, patient)
+  end
+
+  # One factor, mode E. The lister seed is a packed row under the spec
+  # pipe key (file|xref|ien|from|screen|fields|flags|max), which is what
+  # the read-back param's to_s is.
+  def seed_context_save_health_factors(mock)
+    record = "8801"
+    patient = "100"
+    wire = "E|#{record}|TOBACCO~YES~1~SYN CTX|#{patient}"
+    mock.seed_text(:amhg_save_health_factors, wire, "T00030Result#{RS}#{record}#{RS}#{US}")
+    seed_context_visit_patient(mock, record, patient)
+    screen = "I $P(^(0),U,3)=#{record}"
+    key = [ "9002011.08", "AD", record, "0", screen, ".01;.02;.03;.04;.06;81101", "IP", "25" ].join("|")
+    mock.seed(:ddr_lister, key, "[Data]\n1^TOBACCO^#{patient}^#{record}^YES^1^SYN CTX")
+  end
+
+  def seed_context_save_measurements(mock)
+    record = "8801"
+    patient = "100"
+    wire = "E|#{record}|WEIGHT~~42~412|#{patient}"
+    mock.seed_text(:amhg_save_measurements, wire, "T00030Result#{RS}#{record}#{RS}#{US}")
+    seed_context_visit_patient(mock, record, patient)
+    screen = "I $P(^(0),U,3)=#{record}"
+    key = [ "9002011.12", "AD", record, "0", screen, ".01;.02;.03;.04;1204", "IP", "25" ].join("|")
+    mock.seed(:ddr_lister, key, "[Data]\n1^WEIGHT^#{patient}^#{record}^42^412")
+  end
+
+  def seed_context_visit_patient(mock, record, patient)
+    pre_key = RpmsRpc::DdrFileman.gets_entry_param(
+      file: "9002011", iens: "#{record},", fields: ".08;1112", flags: "I"
+    ).to_s
+    mock.seed(
+      :ddr_gets_entry_data, pre_key,
+      "[Data]\n9002011^#{record}^.08^#{patient}^PATIENT,SYNTH\n9002011^#{record}^1112^^SIGNED"
+    )
+  end
+
   def test_every_amhg_call_runs_under_amhgrpc_and_restores_the_callers_context
     AMHG_CALLS.each do |mod, table|
       table.each do |method, args|
@@ -864,6 +934,9 @@ class BehavioralHealthTest < Minitest::Test
         seed_context_save_pcc_visit(mock) if mod == BH && method == :save_pcc_visit
         seed_context_save_pov(mock) if mod == BH && method == :save_pov
         seed_context_save_progress_note(mock) if mod == BH && method == :save_progress_note
+        seed_context_save_screening(mock) if mod == BH && method == :save_screening
+        seed_context_save_health_factors(mock) if mod == BH && method == :save_health_factors
+        seed_context_save_measurements(mock) if mod == BH && method == :save_measurements
 
         mod.public_send(method, *positional, **keywords)
 
