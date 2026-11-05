@@ -74,7 +74,8 @@ class RpmsRpc::PilotRegistrationTest < Minitest::Test
 
     def call_rpc_global_array(rpc, *params)
       @calls << { rpc: rpc, params: params, context: @current_context }
-      "5\x00I00010DFN^T00030PATIENT_NAME\x1e\x1f"
+      header = "I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE"
+      "5\x00#{header}\x1e\x1f"
     end
 
     def call_rpc(*) = raise "unexpected scalar RPC"
