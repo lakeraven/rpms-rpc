@@ -6,7 +6,7 @@ rpc: BSDX CHECKIN APPOINTMENT
 mapping: scheduling_checkin_appointment
 kind: fields
 release_tag: bcer-9.0-20261012-e7923a4-ydb
-captured_at: '2026-11-05T05:58:08Z'
+captured_at: '2026-11-05T07:09:12Z'
 signed_on_as: PROV123
 cite: 'CHECKIN^BSDX25 (BSDX25.m:12,37,44-45,74,361-365): header ERRORID^MESSAGE; the
   success row is "0^"_MESSAGE. A future check-in is clamped to NOW and truncated to
@@ -20,42 +20,78 @@ pieces:
   - error
 source: live-capture
 inputs:
-- '10'
-- '3261105.0557'
+- '1'
+- '3261105.0708'
 - ''
 - ''
 - ''
 - ''
 - ''
 - ''
-raw_return: "7\0T00020ERRORID^T00150MESSAGE\x1E0^\x1E\x1F"
-sha256: c401484c6fbd20f31bbea9b70f97bc03b394c0fca815d7b36996b5d8413b95e8
+raw_return: "2\0T00020ERRORID^T00150MESSAGE\x1E0^\x1E\x1F"
+sha256: 8a24037d8e22d072042c1940835616707d21d6231440605b99aa96356e4c98a4
 write: true
 api_call:
   method: checkin_appointment
   args:
-  - 10
+  - 1
   kwargs:
-    checkin_time: '3261105.0557'
+    checkin_time: '3261105.0708'
 setup:
   resource_ien: 1
   hospital_location_id: 3
-  notes: BSDX RESOURCE ZZ PILOT SCHED CAPTURE already present (ien 1, hospital location
-    3); file room printer already set on every BSD PARAMETERS entry
+  duz:
+    SYS123: 4
+    PROV123: 200
+  notes: created BSDX RESOURCE ZZ PILOT SCHED CAPTURE on hospital location 3 (ien
+    1); set file room printer on BSD PARAMETERS 3 to ZZNULL device 192
 read_back:
 - rpc: DDR GETS ENTRY DATA
   inputs:
     FILE: '9002018.4'
-    IENS: 10,
+    IENS: 1,
     FIELDS: ".01;.03;.05;.07;.1;.12"
     FLAGS: I
-  raw_return: "8\0[Data]\r9002018.4^10^.01^3261126.0915^\r9002018.4^10^.03^3261105.0557^\r9002018.4^10^.05^3^\r9002018.4^10^.07^1^\r9002018.4^10^.1^^\r9002018.4^10^.12^^\r"
-  sha256: e0d3bdc31e1608c2ad98335ce217d7da2839e04d03766c5b6af4593a09f80680
+  raw_return: "3\0[Data]\r9002018.4^1^.01^3261126.09^\r9002018.4^1^.03^3261105.0708^\r9002018.4^1^.05^3^\r9002018.4^1^.07^1^\r9002018.4^1^.1^^\r9002018.4^1^.12^^\r"
+  sha256: 500846dc9a6557fac9c331f59a9ebbe85edb666704fd9372f7faf91599352280
 - rpc: DDR GETS ENTRY DATA
   inputs:
     FILE: '2.98'
-    IENS: 3261126.0915,3,
+    IENS: 3261126.09,3,
     FIELDS: ".01;3;14;16"
     FLAGS: I
-  raw_return: "9\0[Data]\r2.98^3261126.0915,3^.01^3^\r2.98^3261126.0915,3^3^^\r2.98^3261126.0915,3^14^^\r2.98^3261126.0915,3^16^^\r"
-  sha256: 466d6dc38b93af9748659b4cc10a65a4ac3a1b2f0c4740d9143728c3d195e12c
+  raw_return: "4\0[Data]\r2.98^3261126.09,3^.01^3^\r2.98^3261126.09,3^3^^\r2.98^3261126.09,3^14^^\r2.98^3261126.09,3^16^^\r"
+  sha256: 16ca607f0e35ad48f9a25d453dfd70db135ec242db7f2391da501bb69fba4ae0
+- rpc: DDR GETS ENTRY DATA
+  inputs:
+    FILE: '44.003'
+    IENS: 1,3261126.09,3,
+    FIELDS: ".01;309;302"
+    FLAGS: I
+  raw_return: "6\0[Data]\r44.003^1,3261126.09,3^.01^3^\r44.003^1,3261126.09,3^302^200^\r44.003^1,3261126.09,3^309^3261105.0708^\r"
+  sha256: 83d8531af0bdfdab989c3ac7d24d9cef423b2f196dc8c12b69c5e657ebc170ef
+read_before:
+- rpc: DDR GETS ENTRY DATA
+  inputs:
+    FILE: '9002018.4'
+    IENS: 1,
+    FIELDS: ".01;.03;.05;.07;.1;.12"
+    FLAGS: I
+  raw_return: "7\0[Data]\r9002018.4^1^.01^3261126.09^\r9002018.4^1^.03^^\r9002018.4^1^.05^3^\r9002018.4^1^.07^1^\r9002018.4^1^.1^^\r9002018.4^1^.12^^\r"
+  sha256: eee5000d7c24eff41fe8c53320a9e9bfc634f8b90494a57f3ad016762ad543ae
+- rpc: DDR GETS ENTRY DATA
+  inputs:
+    FILE: '2.98'
+    IENS: 3261126.09,3,
+    FIELDS: ".01;3;14;16"
+    FLAGS: I
+  raw_return: "8\0[Data]\r2.98^3261126.09,3^.01^3^\r2.98^3261126.09,3^3^^\r2.98^3261126.09,3^14^^\r2.98^3261126.09,3^16^^\r"
+  sha256: 2f669148fa921f57201e6830267ac44ee78cb2e0fbf927df8249f92a3aeb7cdb
+- rpc: DDR GETS ENTRY DATA
+  inputs:
+    FILE: '44.003'
+    IENS: 1,3261126.09,3,
+    FIELDS: ".01;309;302"
+    FLAGS: I
+  raw_return: "1\0[Data]\r44.003^1,3261126.09,3^.01^3^\r44.003^1,3261126.09,3^302^^\r44.003^1,3261126.09,3^309^^\r"
+  sha256: f934e2e2473bccbbe0614942cb6c7469f0492ddf73d4cf344a53322cee5c729a

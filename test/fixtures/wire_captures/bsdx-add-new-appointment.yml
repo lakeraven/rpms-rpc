@@ -6,7 +6,7 @@ rpc: BSDX ADD NEW APPOINTMENT
 mapping: scheduling_add_appointment
 kind: fields
 release_tag: bcer-9.0-20261012-e7923a4-ydb
-captured_at: '2026-11-05T05:58:08Z'
+captured_at: '2026-11-05T07:09:12Z'
 signed_on_as: SYS123
 cite: 'APPADD^BSDX07 (BSDX07.m:55,64) → $$MAKE^BSDAPI: data row APPOINTMENTID^ERRORID.
   A positive id and an empty error is success; piece 0 is the appointment id and piece
@@ -24,16 +24,16 @@ pieces:
   - error
 source: live-capture
 inputs:
-- '3261126.0915'
-- '3261126.0945'
+- '3261126.0900'
+- '3261126.0930'
 - '3'
 - ZZ PILOT SCHED CAPTURE
 - '30'
 - ''
 - ''
 - ''
-raw_return: "1\0I00020APPOINTMENTID^T00020ERRORID\x1E10^\x1E\x1F"
-sha256: f4d9077cebf31c5e386610701761d3dfe383571a55400b0f6d217ef55ab5be40
+raw_return: "3\0I00020APPOINTMENTID^T00020ERRORID\x1E1^\x1E\x1F"
+sha256: 7b40bc0aae75e923e932a7f558388a6e1fb75c5d3fcd7cebe68ef3e356524067
 write: true
 api_call:
   method: add_appointment
@@ -41,36 +41,39 @@ api_call:
   kwargs:
     patient_dfn: 3
     resource: ZZ PILOT SCHED CAPTURE
-    start_time: '3261126.0915'
-    end_time: '3261126.0945'
+    start_time: '3261126.0900'
+    end_time: '3261126.0930'
     length_minutes: 30
 setup:
   resource_ien: 1
   hospital_location_id: 3
-  notes: BSDX RESOURCE ZZ PILOT SCHED CAPTURE already present (ien 1, hospital location
-    3); file room printer already set on every BSD PARAMETERS entry
+  duz:
+    SYS123: 4
+    PROV123: 200
+  notes: created BSDX RESOURCE ZZ PILOT SCHED CAPTURE on hospital location 3 (ien
+    1); set file room printer on BSD PARAMETERS 3 to ZZNULL device 192
 read_back:
 - rpc: DDR GETS ENTRY DATA
   inputs:
     FILE: '9002018.4'
-    IENS: 10,
+    IENS: 1,
     FIELDS: ".01;.03;.05;.07;.1;.12"
     FLAGS: I
-  raw_return: "2\0[Data]\r9002018.4^10^.01^3261126.0915^\r9002018.4^10^.03^^\r9002018.4^10^.05^3^\r9002018.4^10^.07^1^\r9002018.4^10^.1^^\r9002018.4^10^.12^^\r"
-  sha256: 61addcc91d7261f80792dfd5b30725ea60c449710cd13bcb3202d14c5d5ec200
+  raw_return: "4\0[Data]\r9002018.4^1^.01^3261126.09^\r9002018.4^1^.03^^\r9002018.4^1^.05^3^\r9002018.4^1^.07^1^\r9002018.4^1^.1^^\r9002018.4^1^.12^^\r"
+  sha256: b1797af477ef7625cb349962e00c01d7ad091c23005d7d34df054eae67064a5b
 - rpc: DDR GETS ENTRY DATA
   inputs:
     FILE: '2.98'
-    IENS: 3261126.0915,3,
+    IENS: 3261126.09,3,
     FIELDS: ".01;3;14;16"
     FLAGS: I
-  raw_return: "3\0[Data]\r2.98^3261126.0915,3^.01^3^\r2.98^3261126.0915,3^3^^\r2.98^3261126.0915,3^14^^\r2.98^3261126.0915,3^16^^\r"
-  sha256: 2eb6cc44d6877dabff9457e3b41dd45ba6a377694762d6c71dbaa16c4955b6f4
+  raw_return: "5\0[Data]\r2.98^3261126.09,3^.01^3^\r2.98^3261126.09,3^3^^\r2.98^3261126.09,3^14^^\r2.98^3261126.09,3^16^^\r"
+  sha256: 12111ba38cf8ec96892872dcd8346513a6d0fce50f73dd0b357710bf7ca899d7
 persona_probe:
   signed_on_as: PROV123
   inputs:
-  - '3261126.1130'
-  - '3261126.1200'
+  - '3261126.1115'
+  - '3261126.1145'
   - '3'
   - ZZ PILOT SCHED CAPTURE
   - '30'
