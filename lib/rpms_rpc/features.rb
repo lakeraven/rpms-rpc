@@ -70,6 +70,10 @@ module RpmsRpc
   # guards the caches for concurrent readers; the out-of-order set is
   # computed once, under that mutex, before the entry is published.
   #
+  # LIMIT: source checkout only. data/ is not in the gem's file list, so
+  # outside a checkout (or a github:/path: source) the pinned lock is missing
+  # and every call fails closed. Shipping the inventories is a release decision.
+  #
   # `inventories_dir:` reads `<dir>/<tag>/` instead of data/inventories.
   # A directory passed that way is the build under test, pin or not.
   module Features
