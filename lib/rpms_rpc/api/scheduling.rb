@@ -79,7 +79,7 @@ module RpmsRpc
   # sign-on option is denied before any data is returned. So every BSDX
   # method scopes itself to BSDXRPC via ContextScope.scoped (bind, run,
   # restore the caller's option), the way RpmsRpc::Agg does for AGGRPC.
-  # checkin_visit is the exception: it reads BEHOENCX GETVISIT, which this
+  # checkin_visit is the exception: it reads BEHOENCX FETCH, which this
   # build serves only from CIAV VUECENTRIC, and it binds that option. A
   # client that cannot scope contexts runs as-is. A programmer-key session
   # bypasses the check either way, so only a non-programmer run is evidence
@@ -91,8 +91,10 @@ module RpmsRpc
     # The context option the BSDX RPCs are registered under — see the module
     # doc. Every BSDX method here binds it.
     CONTEXT = "BSDXRPC"
-    # BEHOENCX GETVISIT is not a BSDX RPC. Pinned reach lists only this option.
+    # BEHOENCX FETCH is not a BSDX RPC. Pinned reach lists only this option.
     GETVISIT_CONTEXT = "CIAV VUECENTRIC"
+    # A FileMan date/time as it goes on the wire: 7 digits, optional time.
+    FILEMAN_MOMENT = /\A\d{7}(\.\d{1,6})?\z/
 
     # Book an appointment — BSDX ADD NEW APPOINTMENT (APPADD^BSDX07 → $$MAKE^BSDAPI).
     #
@@ -181,22 +183,43 @@ module RpmsRpc
                   zero_ok: true)
     end
 
-    # The visit a check-in created — BEHOENCX GETVISIT (GETVISIT^BEHOENCX).
-    # Option: CIAV VUECENTRIC, not BSDXRPC. The reply is
-    # LOC^VDT^SVC^PAT^VID^LOCKED (BEHOENCX.m:8-14). A visit IEN that is not
-    # a positive integer is refused before the call. No row is nil; this
-    # method does not invent a visit.
-    # Returns the :encounter_visit hash, or nil.
-    def checkin_visit(visit_ien:)
-      ien = visit_ien.to_s
-      raise ArgumentError, "visit_ien must be a positive integer" unless ien.match?(/\A[1-9]\d*\z/)
+    # The visit a check-in created, found by patient, clinic and check-in
+    # time — BEHOENCX FETCH with CREATE=0 (FETCH^BEHOENCX, BEHOENCX.m:24-47).
+    # CHECKIN^BSDX25 never returns the visit IEN, so a host looks it up here.
+    # VSTR2VIS^BEHOENCX turns "LOC;VDT;SVC" into the patient's visit through
+    # FNDVIS with IN("NEVER ADD") set (BEHOENCX.m:80), so this never creates a
+    # visit. The search is the one patient's visits within a 60-minute window
+    # of the time (BEHOENCX.m:64-94), and a visit owned by another patient is
+    # refused (VIS2VSTR, BEHOENCX.m:118), so it cannot read across patients.
+    # Option: CIAV VUECENTRIC, not BSDXRPC. Service category is ambulatory,
+    # the category CHECKIN^BSDX25 files.
+    #
+    #   dfn:          patient IEN, a positive integer
+    #   clinic_ien:   HOSPITAL LOCATION IEN, a positive integer
+    #   checkin_time: Date/Time or a preformatted FileMan date/time
+    #
+    # A DFN, clinic or time that is not well formed raises ArgumentError
+    # before any RPC. No resolved visit, or an error row, is nil.
+    # Returns { visit_ien:, visit_id:, patient_dfn:, location_ien:,
+    # location_name:, locked:, datetime_raw: } or nil.
+    def checkin_visit(dfn:, clinic_ien:, checkin_time:)
+      patient = canonical_id(dfn)
+      clinic = canonical_id(clinic_ien)
+      moment = fm(checkin_time)
+      raise ArgumentError, "dfn must be a positive integer" unless patient
+      raise ArgumentError, "clinic_ien must be a positive integer" unless clinic
+      raise ArgumentError, "checkin_time must be a FileMan date/time" unless moment.match?(FILEMAN_MOMENT)
 
-      ContextScope.scoped(RpmsRpc.client, GETVISIT_CONTEXT) do
-        DataMapper.encounter_visit.fetch_one(ien)
+      reply = ContextScope.scoped(RpmsRpc.client, GETVISIT_CONTEXT) do
+        DataMapper.encounter_fetch.fetch_one(patient, "#{clinic};#{moment};A", "", "0")
       end
+      return nil if reply.nil? || reply[:error] || reply[:visit_ien].nil? || reply[:visit_ien] <= 0
+
+      { visit_ien: reply[:visit_ien], visit_id: reply[:visit_id], patient_dfn: patient.to_i,
+        location_ien: clinic.to_i, location_name: reply[:location_name], locked: reply[:locked],
+        datetime_raw: moment }
     end
-    shape :checkin_visit, resource: "appointments", verb: "GET",
-          path: "/appointments/visits/{visit_ien}/checkin"
+    shape :checkin_visit, resource: "appointments", verb: "GET", path: "/patients/{dfn}/appointments/clinics/{clinic_ien}/checkin-visit"
     shape :cancel_checkin, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/cancel-checkin"
 
     # Check a patient out — BSDX CHECKOUT APPOINTMENT (CHECKOUT^BSDX25 →
@@ -662,6 +685,13 @@ module RpmsRpc
     # DateTime first and dropped the time.)
     def fm(value)
       FilemanDateParser.to_fileman(value)
+    end
+
+    def canonical_id(value)
+      case value
+      when Integer then value.positive? ? value.to_s : nil
+      when String then value.match?(/\A[1-9]\d*\z/) ? value : nil
+      end
     end
   end
 end

@@ -695,10 +695,10 @@ end
     variable_length?: [ 44 ]
   }.freeze
 
-  # BEHOENCX GETVISIT is not a BSDX RPC. The pinned build serves it only
+  # BEHOENCX FETCH is not a BSDX RPC. The pinned build serves it only
   # from CIAV VUECENTRIC, so checkin_visit is not in BSDX_CALLS.
   GETVISIT_CALLS = {
-    checkin_visit: [ { visit_ien: 44_101 } ]
+    checkin_visit: [ { dfn: 990_031, clinic_ien: 44, checkin_time: START_T } ]
   }.freeze
 
   def test_the_bind_table_names_every_public_method
@@ -719,7 +719,7 @@ end
       calls = mock.received_calls
       refute_empty calls, "#{method} made no RPC call"
       calls.each do |call|
-        assert_equal "BEHOENCX GETVISIT", call[:rpc]
+        assert_equal "BEHOENCX FETCH", call[:rpc]
         assert_equal "CIAV VUECENTRIC", call[:context],
           "#{method} sent #{call[:rpc]} under #{call[:context].inspect}"
       end

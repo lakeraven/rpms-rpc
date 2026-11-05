@@ -57,35 +57,93 @@ class SchedulingStockRpcsTest < Minitest::Test
     assert_equal :read, RpmsRpc::RetrySafety.for(RpmsRpc::Scheduling, :resources_by_user)
   end
 
-  # Check-in visit: BEHOENCX GETVISIT (GETVISIT^BEHOENCX, BEHOENCX.m:8-15) returns
-  # LOC^VDT^SVC^PAT^VID^LOCKED for a visit IEN — chosen over DDR LISTER on #9000010
-  # because CHECKIN^BSDX25 already uses GETVISIT^BSDAPI4 for the same shape.
-  def test_checkin_visit_reads_behoencx_getvisit_not_ddr_lister_on_9000010
-    # GETVISIT^BEHOENCX: LOC^VDT^SVC^PAT^VID^LOCKED (BEHOENCX.m:8-15)
-    RpmsRpc.client.seed(:encounter_visit, "44101", {
-      location_ien: 44,
-      datetime_raw: START_FM,
-      service_category: "A",
-      patient_dfn: 990_031,
-      visit_id: "5000.101",
-      locked: false
+  # Check-in visit: a host cannot obtain the visit IEN (CHECKIN^BSDX25 never
+  # returns it), so the lookup is by patient, clinic and check-in time through
+  # BEHOENCX FETCH with CREATE=0 (FETCH^BEHOENCX, VSTR2VIS -> FNDVIS with
+  # IN("NEVER ADD") set, BEHOENCX.m:24-47, :80). FNDVIS searches the one
+  # patient's visits, and VIS2VSTR refuses a visit owned by another patient
+  # (BEHOENCX.m:118), so there is no cross-patient read.
+  CHECKIN_FM = "3260904.09"
+
+  def seed_fetch(dfn, visit_ien: 5_000_101)
+    RpmsRpc.client.seed(:encounter_fetch, dfn.to_s, {
+      location_name: "DEMO CLINIC", location_abbrev: "DC", room_bed: "",
+      provider_ien: 101, provider_name: "PROVIDER,DEMO",
+      visit_ien: visit_ien, visit_id: "5000.101", locked: false
     })
-
-    visit = RpmsRpc::Scheduling.checkin_visit(visit_ien: 44_101)
-
-    assert_equal 44, visit[:location_ien]
-    assert_equal "A", visit[:service_category]
-    assert_equal 990_031, visit[:patient_dfn]
-    refute visit[:locked]
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BEHOENCX GETVISIT" }
-    refute_nil call, "expected BEHOENCX GETVISIT, not DDR LISTER on file 9000010"
-    assert_equal [ "44101" ], call[:params]
-    refute RpmsRpc.client.received_calls.any? { |c| c[:rpc] == "DDR LISTER" }
   end
 
-  def test_checkin_visit_returns_nil_when_getvisit_data_is_empty
-    # Unresolved visit IEN: GETVISIT leaves DATA empty (BEHOENCX.m:11-12).
-    assert_nil RpmsRpc::Scheduling.checkin_visit(visit_ien: 99_999)
+  def fetch_calls
+    RpmsRpc.client.received_calls.select { |c| c[:rpc] == "BEHOENCX FETCH" }
+  end
+
+  def test_checkin_visit_resolves_by_patient_clinic_and_time_with_create_zero
+    seed_fetch(990_031)
+
+    visit = RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
+
+    assert_equal 5_000_101, visit[:visit_ien]
+    assert_equal 990_031, visit[:patient_dfn]
+    assert_equal 44, visit[:location_ien]
+    assert_equal "5000.101", visit[:visit_id]
+    call = fetch_calls.fetch(0)
+    assert_equal [ "990031", "44;3260904.0900;A", "", "0" ], call[:params].to_a
+    assert_equal "CIAV VUECENTRIC", call[:context]
+    assert_equal 1, fetch_calls.length
+    refute RpmsRpc.client.received_calls.any? { |c| c[:rpc] == "BEHOENCX GETVISIT" }
+  end
+
+  def test_checkin_visit_accepts_a_preformatted_fileman_time
+    seed_fetch(990_031)
+    RpmsRpc::Scheduling.checkin_visit(dfn: "990031", clinic_ien: "44", checkin_time: CHECKIN_FM)
+
+    assert_equal [ "990031", "44;#{CHECKIN_FM};A", "", "0" ], fetch_calls.fetch(0)[:params].to_a
+  end
+
+  def test_checkin_visit_never_sends_a_create_flag_other_than_zero
+    seed_fetch(990_031)
+    RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
+
+    assert fetch_calls.all? { |c| c[:params].to_a.last == "0" }
+  end
+
+  def test_checkin_visit_returns_nil_when_no_visit_resolves
+    # No visit: FNDVIS found nothing and NEVER ADD is set.
+    assert_nil RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
+  end
+
+  def test_checkin_visit_returns_nil_on_an_error_row
+    RpmsRpc.client.seed(:encounter_fetch, "990031", {
+      location_name: "DEMO CLINIC", location_abbrev: "DC", room_bed: "",
+      provider_ien: 101, provider_name: "PROVIDER,DEMO", error: "Visit does not belong to current patient"
+    })
+
+    assert_nil RpmsRpc::Scheduling.checkin_visit(dfn: 990_031, clinic_ien: 44, checkin_time: START_T)
+  end
+
+  def test_checkin_visit_rejects_a_bad_dfn_clinic_or_time_before_the_wire
+    bad = [
+      { dfn: nil, clinic_ien: 44, checkin_time: START_T },
+      { dfn: "0", clinic_ien: 44, checkin_time: START_T },
+      { dfn: "12;3", clinic_ien: 44, checkin_time: START_T },
+      { dfn: 990_031, clinic_ien: nil, checkin_time: START_T },
+      { dfn: 990_031, clinic_ien: "4;4", checkin_time: START_T },
+      { dfn: 990_031, clinic_ien: 0, checkin_time: START_T },
+      { dfn: 990_031, clinic_ien: 44, checkin_time: nil },
+      { dfn: 990_031, clinic_ien: 44, checkin_time: "" },
+      { dfn: 990_031, clinic_ien: 44, checkin_time: "3260904.09;A" },
+      { dfn: 990_031, clinic_ien: 44, checkin_time: "tomorrow" }
+    ]
+    bad.each do |args|
+      assert_raises(ArgumentError, "expected #{args.inspect} to be refused") do
+        RpmsRpc::Scheduling.checkin_visit(**args)
+      end
+    end
+    assert_empty RpmsRpc.client.received_calls
+  end
+
+  def test_checkin_visit_no_longer_takes_a_visit_ien
+    assert_raises(ArgumentError) { RpmsRpc::Scheduling.checkin_visit(visit_ien: 44_101) }
   end
 
   def test_checkin_visit_is_read_in_retry_safety
@@ -94,7 +152,7 @@ class SchedulingStockRpcsTest < Minitest::Test
 
   READ_GET_ROUTES = File.join(__dir__, "../../fixtures/openapi/read_get_catalog_routes.tsv").freeze
 
-  # BEHOENCX GETVISIT is a read; the OpenAPI catalog publishes it as GET (read_get_catalog_routes.tsv).
+  # A read; the OpenAPI catalog publishes it as GET (read_get_catalog_routes.tsv).
   def test_checkin_visit_openapi_catalog_route_is_get
     key = "RpmsRpc::Scheduling.checkin_visit"
     expected = File.readlines(READ_GET_ROUTES, chomp: true).reject(&:empty?).to_h do |line|
@@ -107,6 +165,7 @@ class SchedulingStockRpcsTest < Minitest::Test
     verb, path = expected.split(" ", 2)
     assert_equal verb, shape[:verb]
     assert_equal path, shape[:path]
+    refute_includes path, "visit_ien", "the route must not take a visit IEN"
   end
 
   # CHECKIN^BSDX25 (BSDX25.m:24-25): non-numeric and unknown IEN → Invalid Appointment ID.

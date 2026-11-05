@@ -99,9 +99,9 @@ module OpenApi
     WRITE_CLASS_GET_BASELINE = File.readlines(
       File.expand_path("../../data/openapi/write_class_get_baseline.txt", __dir__), chomp: true
     ).reject(&:empty?).freeze
-    # checkin_visit reads BEHOENCX GETVISIT. The name starts with the action
+    # checkin_visit reads BEHOENCX FETCH (CREATE=0). The name starts with the action
     # word "checkin", so inference would publish POST at the action path.
-    # The pinned catalog route is GET on that same path. Other :read methods
+    # The pinned catalog route is GET at the path inference derives. Other :read methods
     # whose names start with an action word keep the inferred verb.
     READ_ON_ACTION_PATH = "RpmsRpc::Scheduling.checkin_visit"
 

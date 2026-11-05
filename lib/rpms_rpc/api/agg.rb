@@ -401,8 +401,11 @@ module RpmsRpc
     # RPC. The wire value is the canonical digit string. The row is 0, 1,
     # or 2 (AGGPTSEN.m:16-19). Anything else, including a blank that would
     # coerce to 0, is nil: 0 means "not sensitive". CHK calls SENS^DGSEC4
-    # (AGGPTSEN.m:30), the same lookup audit as PTSEC^DGSEC4 (DGSEC4.m:178)
-    # and the same DG SECURITY LOG write (DGSEC4.m:65). Returns
+    # (AGGPTSEN.m:30). SENS audits the lookup (ACCESSED^DIET, DGSEC4.m:178)
+    # only when the DI AUDIT PATIENT LOOKUPS parameter is set. It does not write
+    # the DG SECURITY LOG: that SETLOG1 write (DGSEC4.m:65) is in PTSEC, after
+    # SENS returns, and CHK does not call PTSEC. The write class stays
+    # :non_idempotent_write because the audit can write. Returns
     # { sensitive_indicator: Integer } or nil.
     def check_sensitive_patient(dfn:, client: RpmsRpc.client)
       id = canonical_dfn(dfn)
