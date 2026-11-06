@@ -257,6 +257,7 @@
       "BEHOPTPC GETBDP",
       "DDR GETS ENTRY DATA",
       "DDR LISTER",
+      "ORPRF HASFLG",
       "ORWPT CWAD",
       "ORWPT FULLSSN",
       "ORWPT ID INFO",
