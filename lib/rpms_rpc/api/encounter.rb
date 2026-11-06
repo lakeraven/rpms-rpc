@@ -35,6 +35,29 @@ module RpmsRpc
       ].freeze
     }.freeze
 
+    # Service categories that are not an encounter with this site: VISITLST
+    # leaves X (ancillary) out unless told otherwise (BEHOENCX.m:233).
+    VISIT_EXCLUDED_CATEGORIES = "X"
+    # Dates a patient's whole history falls between. VISITLST's own default
+    # window is a site's recent days, and the visit a client names by id can
+    # be older than that.
+    VISIT_HISTORY_START = "2000101"
+    VISIT_HISTORY_END = "3991231"
+    # VISITLST's IGPFLG: visits only, not appointments pending check-in.
+    VISITS_ONLY = "1"
+
+    # The patient's visits, newest first: the V file parent every V POV, V CPT
+    # and V MEASUREMENT hangs from, where #for_patient is the appointment list.
+    # Each is { visit_ien:, location_ien:, location:, service_category:,
+    # category:, datetime:, locked:, provider_ien:, provider:, standalone: }.
+    # Underlying RPC: BEHOENCX VISITLST
+    def visits(dfn)
+      DataMapper.encounter_visit_list
+        .fetch_many(dfn.to_s, VISIT_HISTORY_START, VISIT_HISTORY_END, "", VISIT_EXCLUDED_CATEGORIES, VISITS_ONLY)
+        .filter_map { |row| visit_with_identifiers(row) }
+    end
+    shape :visits, resource: "encounters", verb: "GET", path: "/patients/{dfn}/encounters/visits"
+
     # Open an active encounter — hydrates the visit context the chart needs:
     # location, provider, datetime, service category, lock state, and a
     # missing-components report.
@@ -169,6 +192,16 @@ module RpmsRpc
     # is given: VSTR2VIS then takes that IEN and skips the FNDVIS search.
     # A Time or DateTime formats with its clock; a plain Date has none, so it
     # formats as a FileMan date (a Date answers no #hour, and asking raised).
+    # A row without a visit IEN is not a visit.
+    private def visit_with_identifiers(row)
+      location_ien, _date, category, visit_ien = row[:visit_string].to_s.split(";", -1)
+      return if visit_ien.to_s.empty?
+
+      row.except(:visit_string).merge(
+        visit_ien: visit_ien.to_i, location_ien: location_ien.to_i, service_category: category
+      )
+    end
+
     def visit_string(location_ien, datetime, service_category, visit_ien: nil)
       dt = datetime
       if dt.is_a?(Time) || dt.is_a?(DateTime)

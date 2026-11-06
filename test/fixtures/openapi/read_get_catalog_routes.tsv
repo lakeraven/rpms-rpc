@@ -32,6 +32,7 @@ RpmsRpc::ESignature.which_action	GET /progress-notes/{note_ien}/signatures/which
 RpmsRpc::Eligibility.codes	GET /eligibility/codes
 RpmsRpc::Eligibility.for_patient	GET /patients/{dfn}/eligibility
 RpmsRpc::Encounter.for_patient	GET /patients/{dfn}/encounters
+RpmsRpc::Encounter.visits	GET /patients/{dfn}/encounters/visits
 RpmsRpc::HealthSummary.clinical_reminders	GET /patients/{dfn}/health-summaries/clinical-reminders
 RpmsRpc::HealthSummary.component_data	GET /patients/{dfn}/health-summaries/component-data
 RpmsRpc::HealthSummary.for_patient	GET /patients/{dfn}/health-summaries
@@ -88,6 +89,7 @@ RpmsRpc::Phr.find	GET /phr/{ien}
 RpmsRpc::Phr.for_patient	GET /patients/{dfn}/phr
 RpmsRpc::Phr.has_access?	GET /patients/{dfn}/phr/has-access
 RpmsRpc::Phr.referrals_for_visits	GET /phr/referrals
+RpmsRpc::Pov.for_patient	GET /patients/{dfn}/purposes-of-visit
 RpmsRpc::Practitioner.find	GET /practitioners/{ien}
 RpmsRpc::Practitioner.search	GET /practitioners
 RpmsRpc::Problem.audit_history	GET /problems/{ien}/audit-history

@@ -163,6 +163,7 @@
       "BEHOENCX CHKVISIT",
       "BEHOENCX FETCH",
       "BEHOENCX GETVISIT",
+      "BEHOENCX VISITLST",
       "ORWPT APPTLST"
     ],
     "RpmsRpc::ExamComponent": [
@@ -298,6 +299,7 @@
       "BEHOCIR1 GETCCDS"
     ],
     "RpmsRpc::Pov": [
+      "BGOVPOV RECENT",
       "BGOVPOV SET"
     ],
     "RpmsRpc::Practitioner": [
