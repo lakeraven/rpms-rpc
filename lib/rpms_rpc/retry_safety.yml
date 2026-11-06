@@ -344,6 +344,7 @@
 "RpmsRpc::Scheduling.variable_length?": non_idempotent_write
 "RpmsRpc::SchedulingSetup.access_types": read
 "RpmsRpc::SchedulingSetup.add_holiday": non_idempotent_write
+"RpmsRpc::SchedulingSetup.cancelled_by": read
 "RpmsRpc::SchedulingSetup.clinic_rules": read
 "RpmsRpc::SchedulingSetup.clinic_stop": read
 "RpmsRpc::SchedulingSetup.clinic_stops": read
@@ -351,6 +352,7 @@
 "RpmsRpc::SchedulingSetup.holidays": read
 "RpmsRpc::SchedulingSetup.mark_overbook": non_idempotent_write
 "RpmsRpc::SchedulingSetup.master_overbook?": read
+"RpmsRpc::SchedulingSetup.overbook?": read
 "RpmsRpc::SchedulingSetup.remove_holiday": non_idempotent_write
 "RpmsRpc::SchedulingSetup.set_cancellation_remarks": non_idempotent_write
 "RpmsRpc::SchedulingSetup.set_clinic_note": non_idempotent_write
