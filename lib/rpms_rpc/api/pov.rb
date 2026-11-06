@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../mappings"
+require_relative "../shape"
 
 module RpmsRpc
   # Symbolic API for visit purpose-of-visit (POV) entry — visit-level diagnosis
@@ -8,6 +9,18 @@ module RpmsRpc
   # Underlying RPC: BGOVPOV SET (SET^BGOVPOV — BGOVPOV.m:291).
   module Pov
     extend self
+    extend Shape::Declarable
+
+    # The diagnoses recorded on the patient's visits, in one read: { ien:,
+    # visit_ien:, visit_date:, facility:, icd_code:, icd_name:, narrative:,
+    # onset_date:, snomed_ct: }. visit_date and onset_date are MM/DD/YYYY text,
+    # as RPMS sends them. Underlying RPC: BGOVPOV RECENT
+    def for_patient(dfn)
+      return [] if invalid_id?(dfn)
+
+      DataMapper.patient_pov_list.fetch_many(dfn.to_s)
+    end
+    shape :for_patient, resource: "purposes-of-visit", verb: "GET", path: "/patients/{dfn}/purposes-of-visit"
 
     # Add a POV to an open visit.
     #
