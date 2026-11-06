@@ -160,6 +160,7 @@
 "RpmsRpc::Encounter.for_patient": read
 "RpmsRpc::Encounter.open": non_idempotent_write
 "RpmsRpc::Encounter.visit_string": read
+"RpmsRpc::Encounter.visits": read
 "RpmsRpc::ExamComponent.add": non_idempotent_write
 "RpmsRpc::HealthFactor.add": non_idempotent_write
 "RpmsRpc::HealthSummary.clinical_reminders": read
@@ -247,6 +248,7 @@
 "RpmsRpc::Phr.has_access?": read
 "RpmsRpc::Phr.referrals_for_visits": read
 "RpmsRpc::Pov.add": non_idempotent_write
+"RpmsRpc::Pov.for_patient": read
 "RpmsRpc::Practitioner.detail": non_idempotent_write
 "RpmsRpc::Practitioner.find": read
 "RpmsRpc::Practitioner.roles": non_idempotent_write
