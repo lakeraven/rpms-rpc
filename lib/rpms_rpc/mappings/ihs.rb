@@ -405,6 +405,41 @@ module RpmsRpc
     # not an encounter status, and piece 5 is the visit id, not a ward —
     # the :status / :ward labels that sat there were never on this wire
     # (#211). Live capture: test/fixtures/wire_captures/behoencx-getvisit.yml.
+    # BEHOENCX VISITLST(DATA,DFN,BEG,END,LOC,SCEXC,IGPFLG): the patient's
+    # visits, newest first, one row each (VISITLST^BEHOENCX, BEHOENCX.m:230-251):
+    #   VSTR^LOCNAME^DATE^STATUS^LOCKED^PRV^PRVNM^STANDALONE
+    # VSTR is LOC;DATE;SERVICE CATEGORY;VISIT IEN. An appointment pending
+    # check-in has no IEN in its VSTR and stops at STATUS (lines 268-269).
+    DataMapper.define(:encounter_visit_list) do |m|
+      m.rpc "BEHOENCX VISITLST"
+      m.field 0, :visit_string
+      m.field 1, :location
+      m.field 2, :datetime,      :fileman_datetime
+      m.field 3, :category
+      m.field 4, :locked,        :boolean
+      m.field 5, :provider_ien,  :integer
+      m.field 6, :provider
+      m.field 7, :standalone,    :boolean
+    end
+
+    # BGOVPOV RECENT(RET,INP): a patient's POVs, newest visit first,
+    # at most MAX of them (INP is DFN^MAX^VISIT IEN, RECENT^BGOVPOV,
+    # BGOVPOV.m:351; a blank MAX is 9999). Row, BGOVPOV.m:348-350 and RECBUILD:
+    #   VISIT DATE^FACILITY ID^FACILITY^ICD^ICD TEXT^NARRATIVE^V POV IEN^
+    #   VISIT IEN^ICD IEN^LOCKED^ONSET^ASTHMA CONTROL^SNOMED CT
+    DataMapper.define(:patient_pov_list) do |m|
+      m.rpc "BGOVPOV RECENT"
+      m.field 0,  :visit_date
+      m.field 2,  :facility
+      m.field 3,  :icd_code
+      m.field 4,  :icd_name
+      m.field 5,  :narrative
+      m.field 6,  :ien
+      m.field 7,  :visit_ien
+      m.field 10, :onset_date
+      m.field 12, :snomed_ct
+    end
+
     DataMapper.define(:encounter_visit) do |m|
       m.rpc "BEHOENCX GETVISIT"
       m.field 0, :location_ien,     :integer
@@ -448,8 +483,24 @@ module RpmsRpc
       m.field 8, :error
     end
 
-    # BEHOENCX CHKVISIT — missing-component report (multi-line)
-    # Format per line: COMPONENT^MESSAGE
+    # BEHOENCX CHKVISIT(DATA,IEN) (CHKVISIT^BEHOENCX, BEHOENCX.m:329-337).
+    # The reply is empty when BEHOXQPC is absent (BEHOENCX.m:330); otherwise
+    # it is one POV row and one E&M row. CV1 overwrites piece 1 (the status
+    # code) with the component name, so the text is the only signal.
+    # Satisfied texts are per component. POV: "Visit has POV" (NOPOV,
+    # BEHOXQPC.m:10, code -2). E&M: "Visit has E&M code" (NEEDSEMC,
+    # BEHOXQPC.m:59, code -2), "E&M code not required." (NEEDSEMC,
+    # BEHOXQPC.m:55, code -7), "Provider does not require E&M code"
+    # (NEEDSEMC, BEHOXQPC.m:61, code -5). A satisfied text counts only for
+    # its own component. Missing:
+    # "Notification was delivered", "Notification exists", "Notification is
+    # disabled". Not checked: "Visit has no note", "No primary provider",
+    # "Bad visit specifier". Any other text, and a nil message, stays: the
+    # server has not said the component is present. CHKVISIT is not
+    # side-effect free: when a visit has a note and lacks a POV or E&M
+    # code, SEND^BEHOXQPC files an alert to the primary provider
+    # (BEHOXQPC.m:64-74).
+    # Live capture: test/fixtures/wire_captures/behoencx-chkvisit.yml.
     DataMapper.define(:encounter_chkvisit) do |m|
       m.rpc "BEHOENCX CHKVISIT"
       m.field 0, :component
@@ -570,17 +621,6 @@ module RpmsRpc
     DataMapper.define(:user_option_access) do |m|
       m.rpc "ORWU HAS OPTION ACCESS"
       m.scalar :access
-    end
-
-    # CIAVCXUS HASKEYS — which of the named security keys the signed-on user
-    # holds (rpms-rpc#318). HASKEYS(DATA,KEYS), CIAVCXUS.m:14-18: one actual,
-    # the names joined with "^"; one reply line with a 0/1 per name, in order
-    # (HASKEY, CIAVCXUS.m:8-12, answers ''$D(^XUSEC(KEY,DUZ))). In CIAV
-    # VUECENTRIC's RPC multiple, so a least-privilege CIA user can ask.
-    # Consumer: Authentication.held_keys.
-    DataMapper.define(:user_held_keys) do |m|
-      m.rpc "CIAVCXUS HASKEYS"
-      m.line_field 0, :flags
     end
 
     # ========================================================================
@@ -797,19 +837,60 @@ module RpmsRpc
     end
 
     # ========================================================================
-    # NOTIFICATIONS / ALERTS (BQI*)
+    # NOTIFICATIONS (BEHOXQ, the VueCentric Notifications component)
     # ========================================================================
-    # Field positions are best-effort pending wider trace capture.
-
+    # BEHOXQ ALRLIST -> ALRLIST^BEHOXQ (BEHOXQ.m:9-43 on the 9.0 build, BEH
+    # 1.1 patch 002008): the signed-on user's alerts in the Kernel ALERT file
+    # (#8992), each matched to a handler in #90460.021 that names its patient
+    # (OR: XQAID piece 2, TIU: the note's patient, BEH: the DFN= of its
+    # XQADATA, :24-25). One row per alert, ordered by patient then delivery
+    # (@DATA@(DFN,TOT), :40):
+    #   PRIORITY ^ INFO ONLY ^ PATIENT NAME    (HRN) ^ LOCATION ^ TEXT ^
+    #   DATE DELIVERED ^ SENDER ^ DFN ^ TYPE ^ ALERT ID ^ CAN DELETE ^ EXTRA
+    # The routine's own header (:7-8) names the pieces. An alert with no
+    # matching handler is left out (:23). P1 (a DFN) limits the list to that
+    # patient and to alerts with none (:12, :28). An alert with no patient has
+    # DFN 0 and no name. EXTRA runs to the end of the row and may hold carets
+    # (a BEH alert's XQADATA, "PRI=1^INF=0"), so it is not mapped.
     DataMapper.define(:notifications_inbox) do |m|
-      m.rpc "BQI GET COMM ALERTS SPLASH"
-      m.field 0, :id, :integer
-      m.field 1, :type
-      m.field 2, :patient_dfn, :integer
-      m.field 3, :message
-      m.field 4, :severity
-      m.field 5, :created_at, :fileman_datetime
-      m.field 6, :read_at, :fileman_datetime
+      m.rpc "BEHOXQ ALRLIST"
+      m.field 0, :priority, :integer
+      m.field 1, :info_only, :boolean
+      m.field 2, :patient
+      m.field 3, :location
+      m.field 4, :message
+      m.field 5, :delivered_at, :fileman_datetime
+      m.field 6, :sender
+      m.field 7, :patient_dfn, :integer
+      m.field 8, :type
+      m.field 9, :alert_id
+      m.field 10, :removable, :boolean
+    end
+
+    # BEHOXQ ALRPP -> ALRPP^BEHOXQ (BEHOXQ.m:73-76): the Notifications tab's
+    # delete. It finds the alert's handler in #90460.021 (ALRIEN, :78-85) and
+    # runs its PROCESS code: DEL^ORB3FUP1 for an OR alert, BEHDEL^BEHOXQ for a
+    # BEH one (DELETE^XQALERT for DUZ). It answers the handler's IEN, 0 when
+    # none matched; the IEN says nothing about whether anything was deleted.
+    DataMapper.define(:notifications_remove) do |m|
+      m.rpc "BEHOXQ ALRPP"
+      m.scalar :handler, :integer
+    end
+
+    # BEHOXQ FORWARD -> FORWARD^BEHOXQ (BEHOXQ.m:56-59): FORWARD^XQALFWD(alerts,
+    # users, "A", comment), Kernel's supported forward (ICR #3009). It answers
+    # 0 whatever happened.
+    DataMapper.define(:notifications_forward) do |m|
+      m.rpc "BEHOXQ FORWARD"
+      m.scalar :result, :integer
+    end
+
+    # BEHOXQ ALRMSG -> ALRMSG^BEHOXQ (BEHOXQ.m:46-54): the forwarding comment
+    # (when there is one) and a blank line, then the alert's long text
+    # (GETLONG^XQALGUI), for DUZ's copy of the alert.
+    DataMapper.define(:notifications_message) do |m|
+      m.rpc "BEHOXQ ALRMSG"
+      m.text_blob :text
     end
 
     # NOTE: immunization refusals file through BGOREF SET (:refusal_set)
@@ -880,6 +961,22 @@ module RpmsRpc
     #   hospital location.
     DataMapper.define(:scheduling_checkin_appointment) do |m|
       m.rpc "BSDX CHECKIN APPOINTMENT"
+      m.field 0, :error
+    end
+
+    # BSDX CHECKOUT APPOINTMENT — CHECKOUT^BSDX25 (check-out via CO^BSDX25A).
+    # Recordset header ERRORID; the success row is "0", a failure row is the
+    # reason. Params: DFN^APPT_DATETIME^CHECKOUT_DATETIME^BSDX_APPOINTMENT_IEN^VPRV.
+    DataMapper.define(:scheduling_checkout_appointment) do |m|
+      m.rpc "BSDX CHECKOUT APPOINTMENT"
+      m.field 0, :error
+    end
+
+    # BSDX CANCEL CHECKOUT APPT — CANCKOUT^BSDX25 (undo a check-out). Recordset
+    # header ERRORID; the success row is "0", a failure row is the reason.
+    # Params: BSDX_APPOINTMENT_IEN.
+    DataMapper.define(:scheduling_cancel_checkout) do |m|
+      m.rpc "BSDX CANCEL CHECKOUT APPT"
       m.field 0, :error
     end
 
@@ -994,12 +1091,52 @@ module RpmsRpc
       m.text_blob :reply
     end
 
+    # AGG GET TEMP PAT HRN — GTMP^AGGPTHRN (return type GLOBAL ARRAY). Params:
+    # DFN. Reply header "T00010AGGPTHRN", then the temporary number
+    # ("T00001"). Parsed by Agg.temporary_hrn.
+    DataMapper.define(:agg_get_temp_pat_hrn) do |m|
+      m.rpc "AGG GET TEMP PAT HRN"
+      m.text_blob :reply
+    end
+
+    # AGG BUILD WINDOW DISPLAY — BLD^AGGWDISP (return type GLOBAL ARRAY). Params:
+    # window name, DFN. Reply: a header naming the window's displayed
+    # parameters, then one record of their values. Parsed by Agg.window_values.
+    DataMapper.define(:agg_build_window_display) do |m|
+      m.rpc "AGG BUILD WINDOW DISPLAY"
+      m.text_blob :reply
+    end
+
     # AGG UPDATE PATIENT — UPD^AGGPTUPD. Same PARMS convention; DFN required.
     # Reply header "I00010RESULT^T01024ERROR^T01024OTHER_PARMS"; "1^^" ok.
     # Parsed by Agg.
     DataMapper.define(:agg_update_patient) do |m|
       m.rpc "AGG UPDATE PATIENT"
       m.text_blob :reply
+    end
+
+    # The window reads and writes RpmsRpc::PatientProfile uses (contacts,
+    # languages, other names), beside AGG BUILD WINDOW DISPLAY above. Same GLOBAL ARRAY replies, parsed by Agg.
+    #   AGG BUILD WINDOW MULTIPLE     MUL^AGGPTDMG    window, node, DFN, entry
+    #   AGG WINDOW TABLE LOOKUP       LKP^AGGWTBLK    file, text, screen
+    #   AGG UPDATE ALIASES            ALIAS^AGGPTNAM  DFN, A/D, entry, PARMS
+    #   AGG UPDATE SPECIAL MULTIPLES  UPD^AGGPOTH     window, DFN, entry, A/D, PARMS
+    #   AGG UPDATE A MULTIPLE RECORD  UPD^AGGMLUPD    window, A/D, DFN, entry, PARMS
+    #   AGG QUANTUM VALIDATION        QNT^AGGFTVAL    tribe, quantum, membership, its quantum, blood quantum, class, others
+    #   AGG PATIENT LANGUAGES         LANG^AGGWOTH    DFN
+    {
+      agg_window_multiple: "AGG BUILD WINDOW MULTIPLE",
+      agg_table_lookup: "AGG WINDOW TABLE LOOKUP",
+      agg_update_aliases: "AGG UPDATE ALIASES",
+      agg_update_special_multiples: "AGG UPDATE SPECIAL MULTIPLES",
+      agg_update_multiple_record: "AGG UPDATE A MULTIPLE RECORD",
+      agg_quantum_validation: "AGG QUANTUM VALIDATION",
+      agg_patient_languages: "AGG PATIENT LANGUAGES"
+    }.each do |name, rpc|
+      DataMapper.define(name) do |m|
+        m.rpc rpc
+        m.text_blob :reply
+      end
     end
 
     # AGG LOCK PATIENT / AGG UNLOCK PATIENT — LOCK^AGGLOCK / UNLOCK^AGGLOCK
@@ -1115,6 +1252,21 @@ module RpmsRpc
       m.field 0, :ien, :string
     end
 
+    # AMHG CREATE/EDIT VISIT — PCC^AMHGPCC (AMHGPCC.m:10-28). One param,
+    # the two-piece AMHSTR: BH record IEN, then the PCC visit IEN. A blank
+    # second piece falls back to #9002011 .16 (AMHGPCC.m:17-19). The reply
+    # is a GLOBAL ARRAY: header T00030Result, then one row (AMHGPCC.m:25-28).
+    # The row is "0~<message>" when EN^AMHBHRU failed, else the internal
+    # .16, which may be empty.
+    #
+    # :row stays a string. MERR^AMHGU writes one data row "M ERROR|<text>"
+    # $C(30) and no $C(31) (AMHGU.m:108-120). An integer field would coerce
+    # that row, and a blank success row, to 0.
+    DataMapper.define(:amhg_create_edit_visit) do |m|
+      m.rpc "AMHG CREATE/EDIT VISIT"
+      m.field 0, :row, :string
+    end
+
     # AMHG SAVE POV — POV^AMHGSVF (AMHGSVF.m:47-75). One param, the
     # 8-piece AMHSTR. The reply is a GLOBAL ARRAY: header T00030Result,
     # then the echoed record IEN, or AMHER when the last add failed
@@ -1135,6 +1287,16 @@ module RpmsRpc
     # so an "M ERROR|..." row is not coerced to 0.
     DataMapper.define(:amhg_save_progress_notes) do |m|
       m.rpc "AMHG SAVE PROGRESS NOTES"
+      m.field 0, :ien, :string
+    end
+
+    # AMHG SAVE HEALTH FACTORS — HF^AMHGSVF (AMHGSVF.m:277-305). One
+    # param, four pieces. Piece 3 is "*" -joined items of
+    # name~level~qty~comment. The reply is header T00030Result, then
+    # the record IEN or AMHER ("0~Add Health Factor" / "0~Edit Health
+    # Factor", AMHGEVF.m:307,312). :ien stays a string.
+    DataMapper.define(:amhg_save_health_factors) do |m|
+      m.rpc "AMHG SAVE HEALTH FACTORS"
       m.field 0, :ien, :string
     end
 
@@ -1472,6 +1634,34 @@ module RpmsRpc
       m.field 8,  :inactive_raw
       m.field 9,  :community
       m.field 10, :mothers_maiden_name
+    end
+
+    # ========================================================================
+    # STOCK WRAPPERS (rpms-rpc#420)
+    # ========================================================================
+
+    # BGU MAILMAN MESSAGE — EN^BGUMAIL. BGUARRAY(1)=1 and BGUARRAY(2)="OK"
+    # on success (BGUMAIL.m:6). The seed used by the wrapper tests is one
+    # caret row RESULT^STATUS; a live type-2 reply is two nodes, and
+    # RpmsRpc::Bgu accepts both.
+    DataMapper.define(:bgu_mailman_message) do |m|
+      m.rpc "BGU MAILMAN MESSAGE"
+      m.field 0, :result
+      m.field 1, :status
+    end
+
+    # DG SENSITIVE RECORD BULLETIN — NOTICE^DGSEC4. Single value 1 or 0
+    # (DGSEC4.m:74-83). Params: DFN^DGOPT^ACTION.
+    DataMapper.define(:dg_sensitive_bulletin) do |m|
+      m.rpc "DG SENSITIVE RECORD BULLETIN"
+      m.scalar :result
+    end
+
+    # ORWU DT — DT^ORWU. One FileMan value, or -1 from ^%DT (ORWU.m:4-7).
+    # Params: X^%DT. The wrapper treats -1 as no datetime.
+    DataMapper.define(:orwu_dt) do |m|
+      m.rpc "ORWU DT"
+      m.scalar :fileman_datetime
     end
   end
 end

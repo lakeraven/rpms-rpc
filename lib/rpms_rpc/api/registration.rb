@@ -2,6 +2,10 @@
 
 require_relative "../mappings"
 require_relative "agg"
+require_relative "../shape"
+require_relative "../context_scope"
+require_relative "../fileman_date_parser"
+require_relative "ddr_fileman"
 
 module RpmsRpc
   # Patient registration on RPMS: delegation to the IHS AG package's own
@@ -60,8 +64,27 @@ module RpmsRpc
   # There is deliberately NO client-side HRN uniqueness/validation in either
   # mode (the PR #212 lineage's D-xref pre-check has been removed as
   # deprecated-by-design per #214).
+  #
+  # ## SOGI, MBI, sex, and insurance (rpms-rpc#418)
+  #
+  # Gender identity, sexual orientation, legal sex, patient sex (#2 .02),
+  # and the Medicare Beneficiary Identifier have no stock RPC. They are
+  # filed or read with DDR FILER, DDR LISTER, or DDR GETS ENTRY DATA under
+  # CIAV VUECENTRIC. set_sex deletes #9000001 .23 when the sex changes and
+  # that field is non-blank, then files #2 .02, then copies the sex onto
+  # the MCR/MCD/RRE rows SEXELIG^AGUTL updates. That order deliberately
+  # differs from AG2A, which files .02 interactively first, so a retry can
+  # finish a half-done run. The end state on success matches AG2A. That
+  # cascade is not a cross-reference on .02. Insurance billing order
+  # (^AUPNICP via ^AGCAT)
+  # and insurance-in-use (USED^AGUTILS) are not supported: no RPC reaches
+  # those routines, and a raw FileMan write is not what they do.
+  # `update(dfn, sex:)` still goes through AGG UPDATE PATIENT, which files
+  # #2 .02 and does not call SEXELIG^AGUTL. See
+  # docs/REGISTRATION_SCHEDULING_WRITES.md.
   module Registration
     extend self
+    extend Shape::Declarable
 
     # HRN assignment mode — see the module doc / rpms-rpc#214.
     HRN_MODE_DERIVE = :derive_from_dfn # greenfield default: HRN := DFN
@@ -104,6 +127,70 @@ module RpmsRpc
     AGG_ADD_WINDOW = Agg::NEW_PATIENT_WINDOW
     AGG_WINDOW = Agg::DEFAULT_WINDOW
 
+    # DDR FILER / DDR LISTER are registered on CIAV VUECENTRIC, the option a
+    # CIA sign-on binds. Same option RpmsRpc::SchedulingSetup uses.
+    CONTEXT = "CIAV VUECENTRIC"
+
+    # IHS PATIENT HEALTH RECORD NO. multiple. Field .02 is the HRN. AG can
+    # report a create or an HRN update as success and still leave this empty
+    # (rpms-rpc#562); register reads it back before it reports success.
+    HEALTH_RECORD_MULTIPLE = "9000001.41"
+    HRN_NOT_ON_MULTIPLE =
+      "the HRN is not on the patient's HEALTH RECORD NO. multiple (#9000001.41) after filing"
+    HRN_UNREADABLE =
+      "the patient's HEALTH RECORD NO. multiple (#9000001.41) could not be read back"
+
+    # IHS PATIENT subfiles the SOGI and MBI tags write with UPDATE^DIE.
+    # .01 on each dated subfile is DINUM (the date). Value multiples point at
+    # the code files (#9999999.104 gender identity, #9999999.103 sexual
+    # orientation). Legal-sex source points at #9000030.
+    GENDER_IDENTITY_FILE = "9000001.9401"
+    GENDER_IDENTITY_VALUE_FILE = "9000001.94011"
+    SEXUAL_ORIENTATION_FILE = "9000001.9301"
+    SEXUAL_ORIENTATION_VALUE_FILE = "9000001.93011"
+    LEGAL_SEX_FILE = "9000001.9201"
+    MBI_FILE = "9000001.44"
+    # Code files the value multiples point at. Field 1 CODE is piece 2 of
+    # the code file's 0 node. Each distinct value is read there before
+    # anything is filed. $$GI^AUTSOGI / $$SO^AUTSOGI(val,"I") returns ""
+    # for an unknown record. S9394^AUPNSOG3 always sets FDA field 2: the
+    # text only when that CODE is OTH and the text is non-blank
+    # ($$GI^AUTSOGI / $$SO^AUTSOGI(val,"C")), otherwise "".
+    GENDER_IDENTITY_CODE_FILE = "9999999.104"
+    SEXUAL_ORIENTATION_CODE_FILE = "9999999.103"
+    OTHER_CODE = "OTH"
+    # S9394 numbers the date row as placeholder 1 and the value rows after it.
+    SOGI_VALUE_PLACEHOLDER = 2
+    # #9000001.9201 field 1, the internal set. Names such as MALE are not
+    # translated here: DDR FILER files internal values (DDR3.m:15,18).
+    LEGAL_SEX_CODES = %w[M F X].freeze
+    # PATIENT (#2) .02 SEX. Internal set M/F/U. Names such as MALE are not
+    # translated: DDR FILER files internal values (DDR3.m:15,18).
+    PATIENT_SEX_FILE = "2"
+    PATIENT_SEX_FIELD = ".02"
+    PATIENT_SEX_CODES = %w[M F U].freeze
+    # #9000001 .23 SSN VERIFICATION STATUS. AG2A deletes it after filing
+    # .02, when .02 changes and the field is non-blank (AG2A.m:58-64).
+    # set_sex deletes it first, on that same predicate, then files .02.
+    SSN_VERIFICATION_FIELD = ".23"
+    # #9000001 9001 PREFERRED NAME: free text, 1 to 30 characters (its input
+    # transform is K:$L(X)>30!($L(X)<1) X). AUPN*99.1*29 added it.
+    PREFERRED_NAME_FIELD = "9001"
+    PREFERRED_NAME_MAX = 30
+    # SEXELIG^AGUTL writes these. index is the B xref (^AUPNMCR / ^AUPNMCD /
+    # ^AUPNRRE). file/field is the FDA target. subfile means every .11
+    # sub-entry of a B-index row whose .01 is the DFN; otherwise the field
+    # is on that row itself.
+    ELIGIBILITY_SEX = [
+      { index: "9000003", file: "9000003.11", field: ".08", subfile: true }.freeze,
+      { index: "9000004", file: "9000004", field: ".07", subfile: false }.freeze,
+      { index: "9000005", file: "9000005.11", field: ".08", subfile: true }.freeze
+    ].freeze
+    # One B-index page. FROM is exclusive, so the walk starts at DFN - 1.
+    # A truncated page that has not walked past this DFN cannot be resumed:
+    # LIST^DIC's IEN half does not fit in a flat DDR parameter.
+    ELIGIBILITY_B_MAX = 100
+
     # attrs (FileMan-external values unless noted):
     #
     #   name:               "LAST,FIRST MIDDLE SUFFIX" (split at the first
@@ -134,14 +221,49 @@ module RpmsRpc
     #   allow_duplicate:    only literal true permits adding after the caller
     #                       reviews AG's name/DOB candidates. Lookup failures
     #                       and invalid identity cannot be overridden.
+    #   hrn_source:         where the HRN comes from, for this registration:
+    #                       :derive (HRN := DFN), :temporary (AG's next
+    #                       T-number, as IHS scheduling's mini-registration
+    #                       assigns, Agg.temporary_hrn) or :given (hrn:, which
+    #                       AG's own HRN check refuses when another patient
+    #                       holds it at this facility, AGGWVAL.m:101-111).
+    #                       Absent, hrn_mode decides, as before.
     #
     # Returns:
-    #   { success: true, dfn:, created: true }          — registered
+    #   { success: true, dfn:, created: true, hrn: }    — registered; hrn: is
+    #                                                     the number filed (nil
+    #                                                     in clerk mode with
+    #                                                     no hrn:, which sends
+    #                                                     no read-back). When an
+    #                                                     HRN was filed, success
+    #                                                     means that number was
+    #                                                     read back from the
+    #                                                     patient's HEALTH RECORD
+    #                                                     NO. multiple
+    #                                                     (#9000001.41). On the
+    #                                                     pinned build a sign-on
+    #                                                     whose division points
+    #                                                     at a missing
+    #                                                     INSTITUTION reported
+    #                                                     success while filing
+    #                                                     nothing (rpms-rpc#562).
+    #
+    #   Known limits (both pre-existing, tracked, not fixed here):
+    #   rpms-rpc#609: a lookup that faults inside AG answers the typed header and
+    #   a $C(31) terminator, which Patient.lookup reads as zero candidates, so the
+    #   duplicate check passes and a retry during the fault can create a second
+    #   chart. rpms-rpc#610: with no hrn:, the derived HRN is added after the
+    #   create with .02/// and never meets HRN^AGGWVAL's already-assigned check, so
+    #   a DFN equal to a legacy HRN at the facility files a second patient under
+    #   that HRN and the read-back still reports success. An hrn: given by the
+    #   caller does run HRN^AGGWVAL.
     #   { success: false, error: Symbol, message: }     — rejected; error is
     #     :duplicate_identity (includes candidate_dfns), :identity_unverifiable,
     #     :agg_rejected / :hrn_file_failed, or (with field:) :agg_invalid,
     #     AG's own field check refused it, or :validation_unavailable, AG gave
-    #     that check no answer; neither files anything
+    #     that check no answer; neither files anything. :hrn_file_failed is
+    #     also the read-back: #9000001.41 does not hold the filed HRN, or that
+    #     multiple could not be read. The DFN is included; the patient exists.
     #   nil                                             — no add response
     #
     # Raises Client::FrameTooLongError if a value cannot be framed on the wire
@@ -169,15 +291,15 @@ module RpmsRpc
     # short broker session per registration (AG routines leak locals into long
     # sessions — see Agg).
     def register_via_agg(attrs)
-      clerk = (hrn_mode == HRN_MODE_CLERK)
+      source = hrn_source(attrs)
       params = agg_add_params(attrs)
       invalid = validate_identity(params)
       return invalid if invalid
 
-      # Legacy clerk-supplied HRN rides the create call (the capsule files it
-      # into the 41-multiple). Greenfield sends no HRN — it is set to the DFN
-      # afterward, below.
-      params["AGGPTHRN"] = attrs[:hrn].to_s if clerk && present?(attrs[:hrn])
+      # A given HRN rides the create call (the capsule files it into the
+      # 41-multiple). Otherwise none is sent: HRN := DFN, or a temporary
+      # number, is filed afterward, below.
+      params["AGGPTHRN"] = attrs[:hrn].to_s.strip if source == :given
 
       # Validate all values before lookup: a parameter delimiter in even an
       # IHS field must not replace the identity after it has been checked.
@@ -192,18 +314,21 @@ module RpmsRpc
       return created unless created && created[:success]
 
       dfn = created[:dfn]
-      unless clerk
-        # Greenfield: HRN := DFN. FileMan's IEN allocation already assigned a
-        # unique DFN; echo it into the HRN field via the delegation update
-        # path. No client-side uniqueness — unique by construction (#214).
-        updated = Agg.update_patient(window: AGG_WINDOW, dfn: dfn, params: { "AGGPTHRN" => dfn.to_s })
-        unless updated && updated[:success]
-          return { success: false, error: :hrn_file_failed, dfn: dfn,
-                   message: updated&.dig(:message).to_s }
-        end
+      hrn = case source
+      when :given then params["AGGPTHRN"]
+      when :none then nil
+      else file_hrn(dfn, source)
+      end
+      return hrn if hrn.is_a?(Hash)
+
+      # :none filed no HRN. Every other source has one only when #9000001.41
+      # .02 reads it back; AG's own success flag is not that evidence.
+      unless source == :none
+        failed = confirm_hrn_filed(dfn, hrn)
+        return failed if failed
       end
 
-      with_unfiled({ success: true, dfn: dfn, created: true }, agg_unsent(attrs))
+      with_unfiled({ success: true, dfn: dfn, created: true, hrn: hrn }, agg_unsent(attrs))
     end
 
     # -- Patient update through AG (rpms-rpc#381) -----------------------------
@@ -225,12 +350,16 @@ module RpmsRpc
     # PATIENT call per window it touches.
     #
     #   attribute           window           parameter  type  files
+    #   name                Personal Detail  PTNAME     X     #2 .01 (LAST,FIRST MIDDLE)
     #   dob                 Personal Detail  AGGPTDOB   D     #2 .03
     #   sex                 Personal Detail  AGGPTSEX   C     #2 .02
     #   ssn                 Personal Detail  AGGPTSSN   X     #2 .09
     #   marital_status      Personal Detail  AGGPTMAR   T     #2 .05
     #   birth_city          Personal Detail  AGGPTPBC   X     #2 .092
     #   birth_state         Personal Detail  AGGPTPBS   T     #2 .093
+    #   religion            Personal Detail  AGGPTRLG   T     #2 .08
+    #   employer            Personal Detail  AGGPTEPL   T     #9000001 .19
+    #   employment_status   Personal Detail  AGGEMSTS   C     #9000001 .21
     #   address_line1..3    Address          AGGPTAD1-3 X     #2 .111-.113
     #   city                Address          AGGPTCTY   X     #2 .114
     #   state               Address          AGGPTSTE   T     #2 .115
@@ -252,6 +381,9 @@ module RpmsRpc
     #   tribe               Eligibility      AGGPTTRI   T     #9000001 1108
     #   classification      Eligibility      AGGPTCLB   T     #9000001 1111
     #   eligibility_status  Eligibility      AGGPTELG   C     #9000001 1112
+    #   blood_quantum       Eligibility      AGGPTBLQ   X     #9000001 1110
+    #   tribe_quantum       Eligibility      AGGPTTRQ   X     #9000001 1109
+    #   enrollment_number   Eligibility      AGGPTTEN   X     #9000001 .07
     #
     # Value forms are AG's (AGGPTUPD.m:50-56): D is an external date that
     # AG converts ($$DATE^AGGUL1, %DT "TS"), so a Date goes as MM/DD/YYYY; C
@@ -283,10 +415,22 @@ module RpmsRpc
       email:              UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTEML", PATIENT_FILE, "1802", :text),
       community_ien:      UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTCOM", PATIENT_FILE, "1117", :pointer),
       community_since:    UpdateAttribute.new(WINDOW_ADDRESS, "AGGPTCDT", PATIENT_FILE, nil, :date_moved),
+      name:               UpdateAttribute.new(WINDOW_PERSONAL_DETAIL, "PTNAME", "2", ".01", :name),
+      religion:           UpdateAttribute.new(WINDOW_PERSONAL_DETAIL, "AGGPTRLG", "2", ".08", :pointer),
+      employer:           UpdateAttribute.new(WINDOW_PERSONAL_DETAIL, "AGGPTEPL", PATIENT_FILE, ".19", :pointer),
+      employment_status:  UpdateAttribute.new(WINDOW_PERSONAL_DETAIL, "AGGEMSTS", PATIENT_FILE, ".21", :choice),
       tribe:              UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTTRI", PATIENT_FILE, FIELD_TRIBE, :pointer),
       classification:     UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTCLB", PATIENT_FILE, FIELD_CLASSIFICATION, :pointer),
-      eligibility_status: UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTELG", PATIENT_FILE, FIELD_ELIGIBILITY, :choice)
+      eligibility_status: UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTELG", PATIENT_FILE, FIELD_ELIGIBILITY, :choice),
+      blood_quantum:      UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTBLQ", PATIENT_FILE, "1110", :text),
+      tribe_quantum:      UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTTRQ", PATIENT_FILE, "1109", :text),
+      enrollment_number:  UpdateAttribute.new(WINDOW_ELIGIBILITY, "AGGPTTEN", PATIENT_FILE, ".07", :text)
     }.freeze
+
+    # UPD turns an empty value into "@" and files it internal (AGGPTUPD.m:63,
+    # 124), with no required-field check: an empty name, sex or date of birth
+    # would delete the field. They are refused before anything is sent.
+    UNCLEARABLE = UPDATE_ATTRIBUTES.values_at(:name, :sex, :dob).freeze
 
     # Raised before anything is sent when an update names something AG's
     # update windows do not file.
@@ -335,16 +479,572 @@ module RpmsRpc
     #     was refused before its window was sent (nothing of that window is
     #     filed; message names the limit, never the value)
     #   nil  no broker reply to an AGG UPDATE PATIENT call
+    #
+    # Before anything is locked or filed, each value a window checks is run
+    # through AG's own check, AGG WINDOW DATA VALIDATION, as AG's client does
+    # (UPDATE_VALIDATIONS). A refusal is
+    #   { success: false, error: :agg_invalid, field: <attribute>, message: AG's message }
+    # and a check RPMS gives no answer to is :validation_unavailable; in both
+    # cases nothing is filed.
     def update(dfn, **attrs)
       params_by_window = update_params(attrs)
       dfn = dfn.to_i
       return { success: false, error: :invalid_dfn, message: "a positive DFN is required" } if dfn <= 0
       return { success: false, error: :no_fields, message: "no attributes to update" } if params_by_window.empty?
 
+      refused = validate_update(dfn, params_by_window)
+      return refused if refused
+
       Agg.editing(dfn: dfn) { update_windows(dfn, params_by_window) }
     end
 
+    # File a gender-identity row. SETGI^AUPNSOGI reaches SETGI/S9394^AUPNSOG3,
+    # which UPDATE^DIE's #9000001.9401 (.01 DATE, DINUM; 2 OTHER) and
+    # #9000001.94011 (.01 pointer to #9999999.104). No #8994 entry reaches
+    # SETGI (rpms-rpc#418, resolution 2), so this is DDR FILER (FILEC^DDR3,
+    # DDR3.m:14-18) under CIAV VUECENTRIC. FileMan xrefs AGI1/AGI2 still fire.
+    #
+    # Each distinct value is checked against #9999999.104 before the date
+    # rows are listed. SETGI passes the value through $$GI^AUTSOGI(val,"I"),
+    # which returns "" for an unknown record and then files nothing for it.
+    # This method reads field 1 CODE with DDR GETS ENTRY DATA (iens
+    # "<ien>,", fields "1", flags "I") whether or not other is given. A
+    # genuine [ERROR] reply means the code does not exist: { success:
+    # false, error: :invalid } and nothing is filed, including no date-row
+    # lookup. A reply with neither [Data] nor [ERROR] and no field rows
+    # (malformed: true) is checked before that and is :lookup_failed; the
+    # message names the file and field, the same way read_internal_field
+    # does. A nil reply is :lookup_failed. DDR GETS returns a row even for
+    # an empty field, so a "[Data]" reply with no row for field 1 is
+    # :lookup_failed too, and nothing is filed (no DDR LISTER, no DDR
+    # FILER), whether or not other is given. The same reads decide OTHER.
+    #
+    # S9394^AUPNSOG3 always sets FDA(SF,IENS,2)=OTH. OTH is "" unless a
+    # chosen value's CODE is OTH and the text is non-blank. This method
+    # always carries field 2 on the ADD call: that text, or "" (which
+    # clears text already stored on the date). other text when no chosen
+    # value's CODE is OTH is :invalid and files nothing. Field 1 is piece
+    # 2 of the code file's 0 node ($$GI^AUTSOGI(val,"C")). DDR GETS of
+    # field .02 errors: ^DD(9999999.104,.02) does not exist.
+    #
+    # The date IENS is $S($D(^AUPNPAT(PAT,94,EDT)):EDT,1:"+1") (S9394).
+    # This method lists the date rows with DDR LISTER (iens ",<dfn>,",
+    # fields "@;.01I", flags "IP"). A missing date and an existing date
+    # are both one DDR FILER call in mode ADD (UPDATE^DIE).
+    # S9394^AUPNSOG3 makes two UPDATE^DIE calls (the header, then the
+    # values and the deletes). This gem makes one, so a refused add
+    # cannot follow a delete. FILE^DIE (mode EDIT) rejects "+n"
+    # placeholders ("The IENS '+2,3260115,990042,' is syntactically
+    # incorrect.") after that same call's "@" rows have already deleted
+    # the old value sub-entries, so an existing date is never mode EDIT
+    # and the deletes are never filed apart from the adds. No such row,
+    # including an empty [Data] (entries [], error false), is header IENS
+    # "+1,<dfn>," with placeholder 1 DINUM'd to the date (DDR3.m:12-13).
+    # A row whose first piece equals the requested FileMan date is header
+    # IENS "<fmdate>,<dfn>," (the stored subscript, no placeholder). A nil
+    # reply, [Errors], or a reply with no [Data] line on the date list or
+    # the value list is :lookup_failed and files nothing. "[Data]" with no
+    # rows stays an empty list (a missing date, or no value sub-entries).
+    # DDR GETS ENTRY DATA cannot make
+    # the date check: GETS on a missing entry replies error: true, the
+    # same reply as a failed read.
+    #
+    # Value sub-entries are DINUM'd to the code IEN. S9394 files
+    # FDA(SF,"?+"_CNT_IENS,.01) with RES(CNT) equal to the code, and
+    # G9394^AUPNSOG2 reads the value from the sub-entry subscript, so a
+    # subscript of 1 is the wrong code. Placeholders 2, 3, ... are pinned
+    # to each value's IEN. A repeated value is filed once. On an existing
+    # date the value multiple is listed (DDR LISTER, .01I). A sub-entry
+    # whose .01 is not in the new list is "<code>,<fmdate>,<dfn>," with
+    # .01 "@". A code that is not already stored is "+n,<fmdate>,<dfn>,"
+    # DINUM'd to that code. A code already stored is not re-added. Those
+    # rows ride in the same ADD call as the header.
+    #
+    # SETGI's code translation and defaults do not run: values are internal
+    # IENs, and an omitted date is today only because this method sends it.
+    # Returns { success: true }, { success: false, error: :invalid /
+    # :lookup_failed / :filer_failed, message: }, or nil when DDR FILER
+    # gives no reply. A FILER reply with no [Data] marker is :filer_failed
+    # because filer success is false. A bad DFN, an empty value list, a
+    # non-integer value, or other text that after strip contains "^", a
+    # control character, or is exactly "@" sends no RPC. Ordinary other
+    # text still files.
+    def set_gender_identity(dfn, values:, other: nil, date: Date.today)
+      ready = prepare_sogi(dfn, values: values, other: other, date: date)
+      return ready if ready[:error]
+
+      file_sogi(ready[:dfn], file: GENDER_IDENTITY_FILE, multiple: GENDER_IDENTITY_VALUE_FILE,
+                code_file: GENDER_IDENTITY_CODE_FILE, values: values, other: ready[:other], day: ready[:day])
+    end
+    shape :set_gender_identity, resource: "registrations", verb: "PUT",
+          path: "/patients/{dfn}/registrations/gender-identity"
+
+    # File a sexual-orientation row. SETSO^AUPNSOGI reaches AUPNSOG3, which
+    # UPDATE^DIE's #9000001.9301 and #9000001.93011 (.01 pointer to
+    # #9999999.103). No #8994 entry reaches SETSO (rpms-rpc#418, resolution
+    # 2). Same DDR FILER contract as set_gender_identity, including one
+    # mode ADD call when ^AUPNPAT(PAT,93,EDT) already exists.
+    # S9394^AUPNSOG3 makes two UPDATE^DIE calls; this gem makes one so a
+    # refused add cannot follow a delete. Each distinct value is read on
+    # #9999999.103 field 1 before the date rows are listed.
+    # $$SO^AUTSOGI(val,"I") returns "" for an unknown record: a genuine
+    # [ERROR] reply is :invalid and files nothing. A reply with neither
+    # [Data] nor [ERROR] and no field rows (malformed: true) is
+    # :lookup_failed, and the message names the file and field. A "[Data]"
+    # reply with no field 1 row is :lookup_failed, and nothing is filed.
+    # other text that after strip contains "^", a control character, or is
+    # exactly "@" is :invalid and sends no RPC. Ordinary text still files.
+    # Field 2 is always filed: the text when a chosen value's CODE is OTH
+    # and the text is non-blank ($$SO^AUTSOGI(val,"C")), otherwise "".
+    # FileMan xrefs ASO1/ASO2 still fire; SETSO's code translation and
+    # defaults do not.
+    def set_sexual_orientation(dfn, values:, other: nil, date: Date.today)
+      ready = prepare_sogi(dfn, values: values, other: other, date: date)
+      return ready if ready[:error]
+
+      file_sogi(ready[:dfn], file: SEXUAL_ORIENTATION_FILE, multiple: SEXUAL_ORIENTATION_VALUE_FILE,
+                code_file: SEXUAL_ORIENTATION_CODE_FILE, values: values, other: ready[:other], day: ready[:day])
+    end
+    shape :set_sexual_orientation, resource: "registrations", verb: "PUT",
+          path: "/patients/{dfn}/registrations/sexual-orientation"
+
+    # File a legal-sex history row. SETLSEX^AUPNSOGI reaches AUPNSOG3:53,
+    # which UPDATE^DIE's #9000001.9201 (.01 EFFECTIVE DATE dinum, 1 LEGAL SEX,
+    # 2 SOURCE pointer to #9000030, 3 DATE ENTERED). The IENS is
+    # $S($D(^AUPNPAT(PAT,92,EDT)):EDT,1:"+1"). The date rows are listed with
+    # DDR LISTER (iens ",<dfn>,", fields "@;.01I", flags "IP"). A row whose
+    # first piece equals the requested FileMan date is mode EDIT at
+    # "<fmdate>,<dfn>,". No such row, including an empty [Data], is mode ADD
+    # with placeholder 1 DINUM'd to the date. A nil reply, [Errors], or a
+    # reply with no [Data] line is :lookup_failed and files nothing.
+    # "[Data]" with no rows is a missing date. No #8994 entry reaches SETLSEX
+    # (rpms-rpc#418, resolution 2). sex must already be M, F, or X; source
+    # must already be the #9000030 IEN. DATE ENTERED is the client's today:
+    # FILEC^DDR3 does not default it to DT.
+    def set_legal_sex(dfn, sex:, source:, date: Date.today)
+      id = patient_dfn(dfn)
+      return invalid("a positive DFN is required") unless id
+      return invalid("legal sex must be M, F, or X") unless sex.is_a?(String) && LEGAL_SEX_CODES.include?(sex.strip.upcase)
+      return invalid("source must be a positive integer") unless positive_integer?(source)
+
+      day = fileman_day(date)
+      return invalid("date must be a Date") unless day
+
+      sex_code = sex.strip.upcase
+      today = FilemanDateParser.to_fileman(Date.today)
+      in_context do
+        file_dated_row(LEGAL_SEX_FILE, id, day) do |node|
+          [
+            { file: LEGAL_SEX_FILE, field: ".01", iens: node, value: day },
+            { file: LEGAL_SEX_FILE, field: "1", iens: node, value: sex_code },
+            { file: LEGAL_SEX_FILE, field: "2", iens: node, value: source.to_s },
+            { file: LEGAL_SEX_FILE, field: "3", iens: node, value: today }
+          ]
+        end
+      end
+    end
+    shape :set_legal_sex, resource: "registrations", verb: "PUT",
+          path: "/patients/{dfn}/registrations/legal-sex"
+
+    # The name the patient goes by (rpms-ux S-REG-12.1): #9000001 9001
+    # PREFERRED NAME, read with DDR GETS ENTRY DATA (flags I). $$GETPREF^AUPNSOGI
+    # reads the same field, and no #8994 entry reaches it. Returns the stored
+    # text, "" when none is on file. A missing #9000001 entry, a nil reply or a
+    # malformed one raises Client::RpcError, so a failed read is never shown
+    # as "none on file". Sends no RPC for a bad DFN (ArgumentError).
+    def preferred_name(dfn)
+      id = patient_dfn(dfn)
+      raise ArgumentError, "a positive DFN is required" unless id
+
+      read = in_context { read_internal_field(PATIENT_FILE, "#{id},", PREFERRED_NAME_FIELD) }
+      raise Client::RpcError, read[:message] if read.is_a?(Hash)
+
+      read
+    end
+    shape :preferred_name, resource: "registrations", verb: "GET",
+          path: "/patients/{dfn}/registrations/preferred-name"
+
+    # File the name the patient goes by (rpms-ux S-REG-12.1), or clear it with
+    # a blank name. $$SETPREF^AUPNSOGI (AUPNSOG3.m:6) is the IHS PATIENT API:
+    # one FILE^DIE of FDA(9000001,DFN_",",9001), with a blank value sent as
+    # "@". AG's roll-and-scroll edits the same field with a plain ^DIE
+    # (PREF^AGED14, DR="9001"), so FileMan's input transform is the only check
+    # AG makes. No #8994 entry reaches either, and AG's GUI windows have no
+    # parameter for 9001 (rpms-ops#1059), so this is DDR FILER mode EDIT, which
+    # is FILE^DIE with no "E" flag, the same call SETPREF makes.
+    #
+    # What runs: the field's two MUMPS cross-references fire on the write
+    # (BPRF, S9001^AUPNSOGX: "FAMILY,PREFERRED" into the PATIENT "B" index, so
+    # a patient search by the preferred name finds the patient; APRF). What
+    # SETPREF does beyond FILE^DIE is only its return value ($$GETPREF), which
+    # this method does not need. The input transform does not run on an
+    # internal FILE^DIE, so this method applies it: after strip, 1 to 30
+    # characters. Text with "^" or a control character, or exactly "@", is
+    # :invalid. Case is kept as typed, as ^DIE keeps it.
+    #
+    # Rules (rpms-rpc#549): the read and the write run inside Agg.editing (AGG
+    # LOCK PATIENT / AGG UNLOCK PATIENT), which returns its own failure hash
+    # and sends no DDR call when the lock is not taken. The field is read
+    # first (read_internal_field); a failed read files nothing: :lookup_failed,
+    # or :not_found when the patient has no #9000001 entry. When the stored
+    # name already equals the new one, nothing is filed and the answer is
+    # { success: true, changed: false }. Otherwise one DDR FILER EDIT:
+    # { success: true, changed: true }, { success: false, error: :filer_failed,
+    # message: } with FileMan's refusal, or nil when DDR FILER gives no reply
+    # (the outcome is unknown).
+    def set_preferred_name(dfn, name)
+      id = patient_dfn(dfn)
+      return invalid("a positive DFN is required") unless id
+      return invalid("the preferred name must be text") unless name.nil? || name.is_a?(String)
+
+      text = name.to_s.strip
+      return invalid("the preferred name cannot be @ or contain ^ or a control character") if refused_free_text?(text)
+      if text.length > PREFERRED_NAME_MAX
+        return invalid("the preferred name must be #{PREFERRED_NAME_MAX} characters or fewer")
+      end
+
+      Agg.editing(dfn: id) { in_context { write_preferred_name(id, text) } }
+    end
+    shape :set_preferred_name, resource: "registrations", verb: "PUT",
+          path: "/patients/{dfn}/registrations/preferred-name"
+
+    # File one MBI history row. ADDMBI^AUPNMBI (AUPNMBI.m:6) UPDATE^DIE's
+    # #9000001.44 (.01 EFFECTIVE DATE dinum, 1 MBI uppercased, 2 SOURCE,
+    # 3 DATE ENTERED, 4 ENTERED BY = DUZ). ADDMBI uses "?+1" when
+    # ^AUPNPAT(PAT,44,EFFDATE) exists and "+1" when it does not. This method
+    # lists #9000001.44 with DDR LISTER (iens ",<dfn>,", fields "@;.01I",
+    # flags "IP"). A row whose first piece equals the effective FileMan date
+    # is mode EDIT at "<fmdate>,<dfn>,". No such row, including an empty
+    # [Data], is mode ADD with placeholder 1 DINUM'd to the date. A nil
+    # reply, [Errors], or a reply with no [Data] line is :lookup_failed
+    # and files nothing. "[Data]" with no rows is a missing date.
+    # No #8994 entry reaches ADDMBI (rpms-rpc#418, resolution 2), so this is
+    # DDR FILER. Field 1's triggers and xrefs still fire. Anything else
+    # ADDMBI does is not run. The MBI is uppercased here; DATE ENTERED is the
+    # client's today; ENTERED BY is the signed-on DUZ. ADDMBI^AUPNMBI
+    # always sets FDA(SF,IENS,2)=$G(SOURCE) (AUPNMBI.m:19). On an existing
+    # row this EDIT call files field 2 as "@" when source is omitted, so a
+    # source already stored is cleared, and files the source when one is
+    # given. On a new row, source is filed only when given. A missing DUZ,
+    # or an MBI that is not 11 letters or digits, sends no RPC.
+    def add_mbi(dfn, mbi:, effective_date:, source: nil)
+      id = patient_dfn(dfn)
+      return invalid("a positive DFN is required") unless id
+
+      canonical = canonical_mbi(mbi)
+      return invalid("MBI must be 11 letters or digits") unless canonical
+
+      day = fileman_day(effective_date)
+      return invalid("effective date must be a Date") unless day
+      return invalid("source must be a positive integer") unless source.nil? || positive_integer?(source)
+
+      duz = signed_on_duz
+      return invalid("a signed-on DUZ is required") unless duz
+
+      today = FilemanDateParser.to_fileman(Date.today)
+      in_context do
+        file_dated_row(MBI_FILE, id, day) do |node, adding|
+          rows = [
+            { file: MBI_FILE, field: ".01", iens: node, value: day },
+            { file: MBI_FILE, field: "1", iens: node, value: canonical }
+          ]
+          filed_source = mbi_source_value(source, adding: adding)
+          rows << { file: MBI_FILE, field: "2", iens: node, value: filed_source } unless filed_source.nil?
+          rows << { file: MBI_FILE, field: "3", iens: node, value: today }
+          rows << { file: MBI_FILE, field: "4", iens: node, value: duz }
+          rows
+        end
+      end
+    end
+    shape :add_mbi, resource: "registrations", verb: "POST", path: "/patients/{dfn}/registrations/mbi"
+
+    # MBI history for one patient. GETMBI/HISTMBI^AUPNMBI have no RPC that
+    # returns the MBI (GETMBI is reached only inside lab-manifest RPCs), so
+    # this reads #9000001.44 with DDR LISTER (LISTC^DDR). #9000001 is DINUM'd
+    # to the DFN. DDR GETS ENTRY DATA of #9000001 .01 (flags I) runs first:
+    # a nil reply, an error reply, or a [Data] reply that omits the .01 row
+    # raises Client::RpcError and the subfile is not listed. A failed list
+    # (no reply, [Errors], or a reply with no [Data] line) raises
+    # Client::RpcError. "[Data]" with no rows is []. Field 1 MBI is required
+    # in the DD; a row whose MBI is blank raises Client::RpcError rather than
+    # returning mbi: "". An empty subfile is [].
+    #
+    # Returns [{ effective_date: Date, mbi:, source: Integer or nil }].
+    def mbis(dfn)
+      id = patient_dfn(dfn)
+      raise ArgumentError, "a positive DFN is required" unless id
+
+      listed = in_context do
+        require_ihs_patient!(id)
+        DdrFileman.lister(file: MBI_FILE, iens: ",#{id},", fields: ".01I;1;2I", flags: "IP")
+      end
+      raise Client::RpcError, "DDR LISTER gave no reply for #9000001.44" if listed.nil?
+      raise Client::RpcError, "DDR LISTER refused #9000001.44" if listed[:error]
+
+      listed[:entries].map { |entry| mbi_row(entry) }
+    end
+    shape :mbis, resource: "registrations", verb: "GET", path: "/patients/{dfn}/registrations/mbis"
+
+    # File #2 .02 SEX and the eligibility cascade SEXELIG^AGUTL performs.
+    # SEXELIG^AGUTL (AGUTL.m:51) is the BPRM AG_SetPatientGenderQ target. It
+    # reads #2 .02 internal and UPDATE^DIE's #9000003.11 .08 GENDER (each
+    # sub-entry of every #9000003 entry on ^AUPNMCR("B",DFN) whose .01 is
+    # the DFN), #9000004 .07 SEX OF INSURED (^AUPNMCD("B",DFN)), and
+    # #9000005.11 .08 GENDER (^AUPNRRE("B",DFN)). That cascade is not a
+    # cross-reference, so a #2 .02 write alone does not run it. No #8994
+    # entry reaches SEXELIG (callers are AG2A, roll-and-scroll, and the
+    # AG71A11 KIDS post-install), so this is DDR FILER (rpms-rpc#418,
+    # resolution 2).
+    #
+    # AG2A.m:58-64 files #2 .02 interactively first and, when that sex
+    # changed, deletes #9000001 .23 SSN VERIFICATION STATUS, then calls
+    # SEXELIG^AGUTL. This method deliberately uses a different order. It
+    # deletes .23 first, then files #2 .02, then the eligibility cascade,
+    # each a DDR FILER mode EDIT (FILE^DIE). The end state on success is
+    # the same as AG2A's. Filing .02 first left a failed .23 delete
+    # unrepairable: the retry pre-reads the new sex and skips the delete,
+    # so SSN VERIFICATION STATUS stays set for a sex that changed. With
+    # .23 first, a half-done run leaves .23 cleared and .02 unchanged. A
+    # retry sees the stored sex differ from the code and .23 blank, skips
+    # the delete, files .02, runs the cascade, and finishes.
+    # #2 .02 is the set M/F/U. Its traditional xrefs and trigger (ASX,
+    # AENR02, IVM02, AVAFC02, ADGRU02, the trigger to .083 CHECK FOR
+    # DUPLICATE, AAVABDW2) are FileMan and fire on that EDIT. Mode EDIT on
+    # #2 .02 was verified live. sex is stripped and upcased. MALE/FEMALE
+    # are not translated. A bad DFN or sex sends no RPC.
+    #
+    # Every DDR read and write runs inside Agg.editing(dfn: id), the lock
+    # Registration.update takes (AGG LOCK PATIENT, then AGG UNLOCK PATIENT,
+    # under AGGRPC). A lock that is not taken returns Agg's failure hash
+    # and sends no DDR call: :lock_failed when the lock is held elsewhere
+    # (the message names who) or gives no reply, and :invalid_dfn when the
+    # result is -1. Unlock is not sent unless the lock was taken. When it
+    # was, unlock always follows, including when a later read or write
+    # fails. The DDR calls inside the lock bind CIAV VUECENTRIC.
+    #
+    # Reads, before any write: #2 .02 and #9000001 .23 (DDR GETS ENTRY
+    # DATA, flags I). A nil reply, a [Data] reply that omits the field
+    # row, or a reply with neither [Data] nor [ERROR] and no field rows
+    # is :lookup_failed. The nil and malformed messages name the file and
+    # the field. A genuine [ERROR] reply is :not_found. An empty field
+    # still comes back as a row. Then the B xref of #9000003, #9000004, and
+    # #9000005 (fields @;.01I, flags IP, from one below the DFN, max 100).
+    # A row whose .01 is not this DFN is ignored. #9000003 and #9000005
+    # list subfile .11 (iens ",<ien>,"). A nil reply, [Errors], or a reply
+    # with no [Data] line is :lookup_failed. "[Data]" with no rows is an
+    # empty list. A MORE line on a subfile is :lookup_failed: the flat
+    # DDR parameter cannot carry FROM("IEN"). A MORE line on the B list is
+    # :lookup_failed unless the last row's .01 is already past this DFN.
+    # A failed lookup files nothing.
+    #
+    # Writes, in order, each its own EDIT. #9000001 .23 is set to "@" only
+    # when clear_ssn_verification? is true (the pre-read says .02 changes
+    # and .23 is non-blank). #2 .02 is always filed, whether or not it
+    # changed. Then one EDIT of every eligibility row, when any were
+    # found. A retry after :partial finishes the job. When .23 was cleared
+    # and .02 was not filed, the retry sees the stored sex differ and .23
+    # blank, skips the delete, files .02, and runs the cascade. A :partial
+    # on the cascade is retried by repeating the call: the cascade always
+    # runs when rows exist and the earlier EDITs on that call succeeded.
+    # The writes are not atomic. A refusal of the first call, or a reply
+    # with no [Data], is :filer_failed and later calls are not sent. nil
+    # only when the first FILER call gives no reply. A reply with no
+    # [Data] is not a no-reply: filer success is false, so the first call
+    # is :filer_failed and a later call is :partial with the refusal
+    # wording. A refusal, a reply with no [Data], or no reply on a later
+    # call is :partial. When .02 fails after the .23 delete, the message
+    # names #2 .02 and says it was not filed (refusal or no [Data]), or,
+    # on no reply, that the outcome of the last write is unknown and that
+    # #2 .02 may not have been filed. Both say #9000001 .23 was already
+    # cleared. A cascade failure names eligibility, on a refusal and on no
+    # reply. Success is { success: true }.
+    #
+    # What this path skips: anything AG2A does interactively beyond the
+    # .23 delete and SEXELIG (prompts, confirmation). SEXELIG^AGUTL is not
+    # called by name. update(dfn, sex:) still goes through AGG UPDATE
+    # PATIENT, which files #2 .02 and does not call SEXELIG^AGUTL.
+    def set_sex(dfn, sex)
+      id = patient_dfn(dfn)
+      return invalid("a positive DFN is required") unless id
+
+      code = canonical_patient_sex(sex)
+      return invalid("sex must be M, F, or U") unless code
+
+      Agg.editing(dfn: id) { in_context { write_patient_sex(id, code) } }
+    end
+    shape :set_sex, resource: "registrations", verb: "PUT", path: "/patients/{dfn}/registrations/sex"
+
+    # Not supported. ^AUPNICP (#9000035) is written by LOADICP/DELICP^AGCAT
+    # and REVERSE^AGED4A2 with DIC/DIK sequencing. No #8994 entry reaches
+    # that writer. Sends no RPC.
+    def set_insurance_billing_order(_dfn, _order)
+      not_supported("Insurance billing order is not supported. ^AUPNICP is written by " \
+                    "LOADICP/DELICP^AGCAT with sequencing no RPC performs.")
+    end
+
+    # Not supported. USED^AGUTILS scans 3PB bills and claims. It is only an
+    # internal guard inside AGG UPDATE MEDICAID; no RPC returns it. Sends no RPC.
+    def insurance_in_use(_dfn)
+      not_supported("Insurance in use is not supported. USED^AGUTILS scans 3PB bills and " \
+                    "claims, and no RPC returns it.")
+    end
+
+    # What AG's Personal Detail and Address windows show for a patient, read
+    # the way AG's client reads them before an edit: AGG BUILD WINDOW DISPLAY
+    # (BLD^AGGWDISP), once per window. Values are AG's: pointers and choices
+    # as { internal:, external: } (internal is the IEN or the code), dob as a
+    # Date (dob_text keeps AG's text, which may be imprecise), the rest text.
+    # The SSN is returned as filed: a caller that shows it applies AGZVIEWSSN.
+    # Email is not in AG's display (Patient.contact reads it).
+    #
+    # Returns the record, or nil when either read gets no reply, or the
+    # patient has no name (no such patient).
+    def record(dfn)
+      dfn = dfn.to_i
+      return nil unless dfn.positive?
+
+      personal = Agg.window_values(window: WINDOW_PERSONAL_DETAIL, dfn: dfn)
+      address = personal && Agg.window_values(window: WINDOW_ADDRESS, dfn: dfn)
+      return nil if address.nil? || personal["PTNAME"].to_s.strip.empty?
+
+      record_from(dfn, personal, address)
+    end
+    shape :record, resource: "registrations", verb: "POST", path: "/patients/{dfn}/registrations"
+
+    # The files the pointer attributes of an update point at (#2 and #9000001
+    # DD; the windows' node 2 piece 3 names the same files: 11, 13, 5 and
+    # 9999999.75).
+    PICK_LIST_FILES = {
+      marital_status: "11", religion: "13", birth_state: "5", state: "5", employer: "9999999.75"
+    }.freeze
+
+    # The entries a pointer attribute can take, for a clerk to choose from:
+    # LIST^DIC over the file's "B" index (DDR LISTER), as RpmsRpc::Tribal
+    # lists tribes and communities. part: narrows to names starting with the
+    # text. Returns [{ ien:, name: }], [] when FileMan answers with an error,
+    # or nil when the broker gives no reply.
+    def pick_list(attribute, part: nil)
+      require_relative "ddr_fileman"
+      file = PICK_LIST_FILES.fetch(attribute) { raise ArgumentError, "no pick list for #{attribute}:" }
+      listing = DdrFileman.lister(file: file, fields: "@;.01", part: part, xref: "B", max: "200")
+      return nil if listing.nil?
+      return [] if listing[:error]
+
+      listing[:entries].map { |entry| { ien: entry[:ien].to_i, name: entry[:pieces]&.first } }
+    end
+    shape :pick_list, resource: "registrations", verb: "GET", path: "/registrations/pick-list"
+
+    # AG's display parameter for each attribute record returns.
+    RECORD_PARAMETERS = {
+      name: "PTNAME", name_last: "AGGPTLNM", name_first: "AGGPTFNM", name_middle: "AGGPTMNM",
+      name_suffix: "AGGPTSFX", ssn: "AGGPTSSN", ssn_verification: "AGGPTSSV", sex: "AGGPTSEX",
+      marital_status: "AGGPTMAR", hrn: "AGGPTHRN", birth_city: "AGGPTPBC", birth_state: "AGGPTPBS",
+      employer: "AGGPTEPL", employment_status: "AGGEMSTS", religion: "AGGPTRLG"
+    }.freeze
+
+    ADDRESS_PARAMETERS = {
+      address_line1: "AGGPTAD1", address_line2: "AGGPTAD2", address_line3: "AGGPTAD3", city: "AGGPTCTY",
+      state: "AGGPTSTE", zip: "AGGPTZIP", phone_home: "AGGPTHPH", phone_work: "AGGPTWPH",
+      phone_other: "AGGPTOPH", community: "AGGPTCOM"
+    }.freeze
+
+    # The values AG's update windows check before they save, by parameter: the
+    # check's window and the companions it names (#9009068.3 entries 1 and 2,
+    # field node 2). SSN^AGGWVAL takes the DFN: a number already on ANOTHER
+    # patient is refused, and one the SSA has verified cannot be edited.
+    # DOB^AGGWVAL refuses a date before 1871 or in the future, ZIP^AGGWVAL a
+    # zip that is not 5 or 9 digits. Reason for No SSN is not offered on update.
+    #
+    # The name is the exception. Personal Detail files PTNAME (#2 .01) with
+    # FILE^DIE and no "E" flag (AGGPTUPD.m:124), so FileMan does not run the
+    # field's input transform, and the window defines no server check for it:
+    # AG's client builds the name from its pieces (FORM^AGGWTRIG). A name not
+    # in LAST,FIRST form would be filed as typed (live, 2026-11-03). AG's
+    # check of a patient name is NAM^AGGWVAL ($$FORMAT^DPTNAME, 3 to 35
+    # characters, a comma and no space after it), which the Aliases window
+    # (#9009068.3 entry 33) runs on AGGPTALS, the patient's other names; the
+    # name is checked there.
+    WINDOW_ALIASES = "Aliases"
+
+    # parameter => [window whose check runs, the parameter it is asked about]
+    UPDATE_VALIDATIONS = {
+      "PTNAME" => [ WINDOW_ALIASES, "AGGPTALS" ],
+      "AGGPTSSN" => [ WINDOW_PERSONAL_DETAIL, "AGGPTSSN" ],
+      "AGGPTDOB" => [ WINDOW_PERSONAL_DETAIL, "AGGPTDOB" ],
+      "AGGPTZIP" => [ WINDOW_ADDRESS, "AGGPTZIP" ]
+    }.freeze
+
     private
+
+    # Files the HRN for a patient just created, and returns it, or the
+    # :hrn_file_failed result (with the DFN: the patient exists).
+    #
+    #   :derive     HRN := DFN. FileMan's IEN allocation already assigned a
+    #               unique DFN; echo it into the HRN field via the delegation
+    #               update path. No client-side uniqueness: unique by
+    #               construction (#214).
+    #   :temporary  AG's next temporary number (Agg.temporary_hrn, the
+    #               mini-registration's T-number), filed the same way.
+    def file_hrn(dfn, source)
+      hrn = source == :temporary ? Agg.temporary_hrn(dfn: dfn) : dfn.to_s
+      unless hrn
+        return hrn_file_failed(dfn, "AGG GET TEMP PAT HRN gave no number")
+      end
+
+      updated = Agg.update_patient(window: AGG_WINDOW, dfn: dfn, params: { "AGGPTHRN" => hrn })
+      return hrn if updated && updated[:success]
+
+      hrn_file_failed(dfn, updated&.dig(:message).to_s)
+    end
+
+    # DDR LISTER of #9000001.41 under CIAV VUECENTRIC, after AG has reported
+    # the HRN write. Fields are "@;.02" (suppress .01, so piece 0 is .02
+    # under every DDR version). nil when some entry's .02 equals the HRN
+    # just filed. An empty multiple or a different number fails closed.
+    # A nil reply, an error reply, RpcError, ConnectionError (TimeoutError
+    # is a subclass), or ParseError returns hrn_file_failed(dfn,
+    # HRN_UNREADABLE). AG has already created the chart, so the caller gets
+    # the DFN back instead of an exception. The rescue wraps this read-back
+    # only. The message is fixed text: it names no HRN, name, DOB, or SSN.
+    def confirm_hrn_filed(dfn, hrn)
+      listing = read_hrn_multiple(dfn)
+      return hrn_file_failed(dfn, HRN_UNREADABLE) if listing.nil? || listing[:error]
+      return if hrn_multiple_includes?(listing, hrn)
+
+      hrn_file_failed(dfn, HRN_NOT_ON_MULTIPLE)
+    rescue Client::RpcError, Client::ConnectionError, Client::ParseError
+      hrn_file_failed(dfn, HRN_UNREADABLE)
+    end
+
+    def read_hrn_multiple(dfn)
+      in_context do
+        DdrFileman.lister(file: HEALTH_RECORD_MULTIPLE, iens: ",#{dfn},", fields: "@;.02", flags: "IP")
+      end
+    end
+
+    def hrn_multiple_includes?(listing, hrn)
+      Array(listing[:entries]).any? { |entry| entry[:pieces]&.[](0) == hrn }
+    end
+
+    def hrn_file_failed(dfn, message)
+      { success: false, error: :hrn_file_failed, dfn: dfn, message: message }
+    end
+
+    # Where this registration's HRN comes from: attrs[:hrn_source] (:derive,
+    # :temporary, or :given with hrn:), else the module's hrn_mode: derive,
+    # or in clerk mode the hrn: given (:none when there is none, as before).
+    def hrn_source(attrs)
+      source = attrs[:hrn_source]
+      if source.nil?
+        return :derive unless hrn_mode == HRN_MODE_CLERK
+
+        return present?(attrs[:hrn]) ? :given : :none
+      end
+      raise ArgumentError, "hrn_source must be :derive, :temporary or :given" unless %i[derive temporary given].include?(source)
+      raise ArgumentError, "hrn_source: :given needs hrn:" if source == :given && !present?(attrs[:hrn])
+
+      source
+    end
 
     def validate_identity(params)
       date = identity_date(params["AGGPTDOB"])
@@ -378,12 +1078,17 @@ module RpmsRpc
 
     def duplicate_identity(params, allow_duplicate:)
       candidates = Agg.registration_candidates(params)
+      return identity_unverifiable unless candidates
       return if candidates.empty? || allow_duplicate == true
 
       { success: false, error: :duplicate_identity,
         candidate_dfns: candidates.map { |candidate| candidate[:dfn] }.uniq.sort,
         message: "matching patient candidates require explicit override" }
     rescue Client::RpcError, Client::ConnectionError
+      identity_unverifiable
+    end
+
+    def identity_unverifiable
       { success: false, error: :identity_unverifiable,
         message: "patient duplicate lookup could not be verified" }
     end
@@ -503,6 +1208,9 @@ module RpmsRpc
 
     # The value in the form AG's window type takes (see UPDATE_ATTRIBUTES).
     def update_value(attribute, value, given)
+      if value.to_s.strip.empty? && UNCLEARABLE.include?(attribute)
+        raise ArgumentError, "#{attribute.parameter} cannot be cleared"
+      end
       return "" if value.to_s.strip.empty? && attribute.form != :date_moved
 
       case attribute.form
@@ -510,10 +1218,20 @@ module RpmsRpc
       when :date_moved then agg_date_moved(community_since: value, dob: given[:dob])
       when :sex then agg_sex(value)
       when :ssn then value.to_s.delete("-")
+      when :name then name_value(value)
       when :choice then value.to_s.strip.upcase
       when :pointer then pointer_value(attribute, value)
       else value.to_s
       end
+    end
+
+    # PTNAME files #2 .01 as given (type X, FILE^DIE external), so FileMan's
+    # own input transform judges the form. Only the wire's "^" is refused here.
+    def name_value(value)
+      name = value.to_s.strip.upcase
+      raise ArgumentError, "name must not contain '^'" if name.include?("^")
+
+      name
     end
 
     # T parameters file internal (AGGPTUPD.m:82-85,125), so the value must
@@ -532,7 +1250,11 @@ module RpmsRpc
     FIELD_VALIDATIONS = {
       "AGGPTSSN" => %w[AGGNOSSN],
       "AGGNOSSN" => %w[AGGPTSSN],
-      "AGGPTDOB" => []
+      "AGGPTDOB" => [],
+      # HRN^AGGWVAL: refused when another patient holds the number at the
+      # signed-on facility. Checked only when an HRN is sent: an empty one
+      # would $ORDER from the start of the "D" index (AGGWVAL.m:103).
+      "AGGPTHRN" => []
     }.freeze
 
     # Runs AG's own check of each field, as its client does, and stops at the
@@ -541,6 +1263,7 @@ module RpmsRpc
     def validate_fields(params)
       FIELD_VALIDATIONS.each do |field, companions|
         return ssn_or_reason_required if field == "AGGNOSSN" && neither_ssn_nor_reason?(params)
+        next if field == "AGGPTHRN" && params[field].to_s.empty?
 
         values = ([ field ] + companions).to_h { |name| [ name, params[name].to_s ] }.merge("DFN" => "")
         checked = check_field(values)
@@ -551,6 +1274,42 @@ module RpmsRpc
         return { success: false, error: :agg_invalid, field: field, message: checked[:message] } unless checked[:valid]
       end
       nil
+    end
+
+    # AG's check of each value an update sends that AG checks
+    # (UPDATE_VALIDATIONS), with the patient's DFN. Stops at the first
+    # refusal; fails closed when a check gets no answer.
+    def validate_update(dfn, params_by_window)
+      params_by_window.each_value do |params|
+        params.each do |parameter, value|
+          check_window, checked_as = UPDATE_VALIDATIONS[parameter]
+          next unless check_window
+
+          checked = check_field({ checked_as => value, "DFN" => dfn.to_s }, window: check_window)
+          attribute = UPDATE_ATTRIBUTES.find { |_, a| a.parameter == parameter }.first
+          unless checked
+            return { success: false, error: :validation_unavailable, field: attribute,
+                     message: "RPMS could not check #{parameter} (AGG WINDOW DATA VALIDATION gave no answer)" }
+          end
+          return { success: false, error: :agg_invalid, field: attribute, message: checked[:message] } unless checked[:valid]
+        end
+      end
+      nil
+    end
+
+    def record_from(dfn, personal, address)
+      values = RECORD_PARAMETERS.transform_values { |p| record_value(personal[p]) }
+                                .merge(ADDRESS_PARAMETERS.transform_values { |p| record_value(address[p]) })
+      dob_text = record_value(personal["AGGPTDOB"])
+      { dfn: dfn, dob: FilemanDateParser.parse_external_date(dob_text), dob_text: dob_text }.merge(values)
+    end
+
+    # Text is stripped, empty is nil; a pair with neither half is nil.
+    def record_value(value)
+      return (value.values.any? ? value : nil) if value.is_a?(Hash)
+
+      text = value.to_s.strip
+      text.empty? ? nil : text
     end
 
     # With neither an SSN nor a reason, NOSSN^AGGWVAL calls $$ISREQ^AGGUL2, which
@@ -568,8 +1327,8 @@ module RpmsRpc
 
     # A broker error on a check is "could not check" (nil), never a pass, and its
     # message is not passed on: it can carry the patient's details.
-    def check_field(values)
-      Agg.validate_field(window: AGG_ADD_WINDOW, params: values)
+    def check_field(values, window: AGG_ADD_WINDOW)
+      Agg.validate_field(window: window, params: values)
     rescue Client::RpcError, Client::ConnectionError
       nil
     end
@@ -671,5 +1430,501 @@ module RpmsRpc
     def present?(value)
       !value.nil? && !value.to_s.strip.empty?
     end
+
+    # "^", a control character, or a value that is exactly "@" after strip.
+    # Blank and nil are not this refusal.
+    def refused_free_text?(text)
+      text.include?("^") || text.match?(/[[:cntrl:]]/) || text == "@"
+    end
+
+    def prepare_sogi(dfn, values:, other:, date:)
+      id = patient_dfn(dfn)
+      return invalid("a positive DFN is required") unless id
+      return invalid("values must be a non-empty list of positive integers") unless positive_integers?(values)
+      return invalid("other must be text") unless other.nil? || other.is_a?(String)
+
+      text = other&.strip
+      text = nil if text.nil? || text.empty?
+      # "^" breaks a FileMan piece, "@" deletes the field, and a control
+      # character is not free text. Blank stays "no other text".
+      return invalid("other cannot contain ^, a control character, or be @") if text && refused_free_text?(text)
+
+      day = fileman_day(date)
+      return invalid("date must be a Date") unless day
+
+      { dfn: id, other: text, day: day }
+    end
+
+    def file_sogi(dfn, file:, multiple:, code_file:, values:, other:, day:)
+      codes = values.uniq
+      in_context do
+        screened = sogi_other_value(code_file, codes, other)
+        return screened if screened[:error]
+
+        found = probe_dated_row(file, dfn, day)
+        return found if found.is_a?(Hash)
+
+        # S9394^AUPNSOG3 makes two UPDATE^DIE calls: the header, then the
+        # values and the deletes. This file_rows is the only SOGI write,
+        # one UPDATE^DIE for the whole FDA, so a refused add cannot follow
+        # a delete. Mode EDIT is FILE^DIE, which applies "@" and then
+        # rejects "+n".
+        built = if found == :present
+          existing_sogi_rows(dfn, file: file, multiple: multiple, codes: codes,
+                             other: screened[:value], day: day)
+        else
+          new_sogi_rows(dfn, file: file, multiple: multiple, codes: codes,
+                        other: screened[:value], day: day)
+        end
+        return built if built[:error]
+
+        file_rows(mode: "ADD", rows: built[:rows], iens: built[:pins])
+      end
+    end
+
+    # $$GI^AUTSOGI / $$SO^AUTSOGI(val,"I") returns "" for an unknown record.
+    # A genuine [ERROR] reply from DDR GETS of field 1 is that answer
+    # (:invalid, and the date rows are not listed). malformed: true is
+    # checked first and is :lookup_failed; the message names the file and
+    # field. A nil reply is :lookup_failed. DDR GETS returns a row for an
+    # empty field, so a "[Data]" reply with no field 1 row is
+    # :lookup_failed too: no DDR LISTER and no DDR FILER, whether or not
+    # other was given. The internal CODE also decides
+    # field 2: the text when it is OTH and the text is non-blank, otherwise
+    # "". DDR GETS of field .02 errors: ^DD(9999999.104,.02) does not exist.
+    def sogi_other_value(code_file, codes, other)
+      oth = false
+      codes.each do |ien|
+        read = DdrFileman.gets_entry(file: code_file, iens: "#{ien},", fields: "1", flags: "I")
+        return lookup_failed("DDR GETS ENTRY DATA gave no reply for ##{code_file}") if read.nil?
+        return lookup_failed("DDR GETS ENTRY DATA gave a malformed reply for ##{code_file} 1") if read[:malformed]
+        return invalid("#{ien} is not a code in ##{code_file}") if read[:error]
+        return lookup_failed("DDR GETS ENTRY DATA gave no field 1 row for ##{code_file}") unless read[:fields].key?("1")
+
+        oth = true if read[:fields]["1"][:internal].to_s == OTHER_CODE
+      end
+      return invalid("other text requires a value whose code is OTH") if other && !oth
+
+      { value: (oth && other ? other : "") }
+    end
+
+    # $S($D(^AUPNPAT(PAT,node,EDT)):EDT,1:"+1") and ADDMBI's "?+1" when the
+    # effective-date node exists. DDR LISTER on the subfile (iens ",<dfn>,",
+    # fields "@;.01I", flags "IP"). A packed row is IEN-first, so its first
+    # piece is the subfile subscript; that piece equaling the FileMan date
+    # is :present. No such row, including an empty [Data], is :absent.
+    # Legal sex and MBI file :present as EDIT and :absent as ADD. SOGI
+    # files both as ADD; :present only selects the stored header IENS.
+    # A nil reply, [Errors], or a reply with no [Data] line is a lookup
+    # failure. GETS is not used: a missing entry replies error: true, the
+    # same as a failed read.
+    def probe_dated_row(file, dfn, day)
+      listed = DdrFileman.lister(file: file, iens: ",#{dfn},", fields: "@;.01I", flags: "IP")
+      return lookup_failed("DDR LISTER gave no reply for ##{file}") if listed.nil?
+      return lookup_failed("DDR LISTER refused ##{file}") if listed[:error]
+
+      listed[:entries].any? { |entry| entry[:ien].to_s == day.to_s } ? :present : :absent
+    end
+
+    # Caller is inside in_context. Legal sex and MBI only: those rows have
+    # no "+n" value placeholders, and EDIT of an existing date works live.
+    # A stored date is FILE^DIE (mode EDIT) at the date IENS; a missing
+    # date is UPDATE^DIE (mode ADD) with placeholder 1 DINUM'd to the date.
+    # The block receives the IENS and whether the row is new. SOGI does
+    # not use this. An existing SOGI date is also mode ADD, because
+    # FILE^DIE rejects the value-row "+n" placeholders after it has
+    # applied "@".
+    def file_dated_row(file, dfn, day)
+      found = probe_dated_row(file, dfn, day)
+      return found if found.is_a?(Hash)
+
+      adding = found == :absent
+      node = adding ? "+1,#{dfn}," : "#{day},#{dfn},"
+      pins = adding ? { 1 => day } : {}
+      file_rows(mode: (adding ? "ADD" : "EDIT"), rows: yield(node, adding), iens: pins)
+    end
+
+    # FDA for a date that is not stored yet. Does not file. Field 2 is
+    # always present: S9394 sets FDA(SF,IENS,2) on every call.
+    def new_sogi_rows(dfn, file:, multiple:, codes:, other:, day:)
+      root = "+1,#{dfn},"
+      rows = [
+        { file: file, field: ".01", iens: root, value: day },
+        { file: file, field: "2", iens: root, value: other.to_s }
+      ]
+      pins = { 1 => day }
+      sogi_value_rows(rows, pins, multiple: multiple, codes: codes, parent: root)
+      { rows: rows, pins: pins }
+    end
+
+    # FDA for a stored date: header at the existing subscript, field 2
+    # ("" clears OTHER text already stored), "@" for each dropped value,
+    # "+n" DINUM'd for each new value. Does not file. The caller sends
+    # this FDA in one mode ADD call. S9394 files the header in one
+    # UPDATE^DIE and the values and deletes in a second; splitting them
+    # here would delete the patient's values when the add was refused.
+    def existing_sogi_rows(dfn, file:, multiple:, codes:, other:, day:)
+      listed = DdrFileman.lister(file: multiple, iens: ",#{day},#{dfn},", fields: ".01I", flags: "IP")
+      return lookup_failed("DDR LISTER gave no reply for ##{multiple}") if listed.nil?
+      return lookup_failed("DDR LISTER refused ##{multiple}") if listed[:error]
+
+      node = "#{day},#{dfn},"
+      rows = [
+        { file: file, field: ".01", iens: node, value: day },
+        { file: file, field: "2", iens: node, value: other.to_s }
+      ]
+      kept = reconcile_sogi_values(rows, listed[:entries], multiple: multiple, codes: codes, node: node)
+      pins = {}
+      fresh = codes.reject { |ien| kept.include?(ien.to_s) }
+      sogi_value_rows(rows, pins, multiple: multiple, codes: fresh, parent: node)
+      { rows: rows, pins: pins }
+    end
+
+    # Append "@" rows for value sub-entries whose .01 is not in the new
+    # list. Returns the codes that stay, so the caller adds only the rest,
+    # DINUM'd, onto the same FDA. Does not file.
+    def reconcile_sogi_values(rows, entries, multiple:, codes:, node:)
+      wanted = codes.map(&:to_s)
+      kept = []
+      entries.each do |entry|
+        sub_ien = entry[:ien].to_s
+        code = entry[:pieces].to_a.first.to_s.strip
+        next if sub_ien.empty?
+
+        if wanted.include?(code)
+          kept << code
+        else
+          rows << { file: multiple, field: ".01", iens: "#{sub_ien},#{node}", value: "@" }
+        end
+      end
+      kept
+    end
+
+    # S9394: FDA(SF,"?+"_CNT_IENS,.01) with RES(CNT)=the code. CNT starts at
+    # 2 because placeholder 1 is the new date row. An existing date has no
+    # "+" on the header, and new values still start at 2.
+    def sogi_value_rows(rows, pins, multiple:, codes:, parent:)
+      codes.each_with_index do |ien, index|
+        number = index + SOGI_VALUE_PLACEHOLDER
+        rows << { file: multiple, field: ".01", iens: "+#{number},#{parent}", value: ien.to_s }
+        pins[number] = ien.to_s
+      end
+    end
+
+    def file_rows(mode:, rows:, iens:)
+      filer_outcome(DdrFileman.filer(mode: mode, rows: rows, iens: iens))
+    end
+
+    def filer_outcome(filed)
+      return nil if filed.nil?
+      return { success: true } if filed[:success]
+
+      { success: false, error: :filer_failed, message: Array(filed[:errors]).join("\n") }
+    end
+
+    def mbi_row(entry)
+      pieces = entry[:pieces] || []
+      date = FilemanDateParser.parse_date(pieces[0])
+      raise Client::RpcError, "DDR LISTER returned an MBI row with an unreadable effective date" unless date
+
+      mbi = pieces[1].to_s
+      raise Client::RpcError, "DDR LISTER returned an MBI row with a blank MBI" if mbi.strip.empty?
+
+      source = pieces[2]
+      unless source.nil? || source.empty? || source.match?(/\A\d+\z/)
+        raise Client::RpcError, "DDR LISTER returned an MBI row with an unreadable source"
+      end
+
+      { effective_date: date, mbi: mbi, source: (source.nil? || source.empty? ? nil : source.to_i) }
+    end
+
+    def lookup_failed(message)
+      { success: false, error: :lookup_failed, message: message }
+    end
+
+    def not_found(message)
+      { success: false, error: :not_found, message: message }
+    end
+
+    # ADDMBI sets FDA field 2 to $G(SOURCE). FILE^DIE leaves a value already
+    # stored unless the EDIT sends "@". A new row omits the field when
+    # source was not given.
+    def mbi_source_value(source, adding:)
+      return source.to_s unless source.nil?
+      return "@" unless adding
+
+      nil
+    end
+
+    def canonical_mbi(value)
+      text = value.to_s
+      return nil unless text.match?(/\A[A-Za-z0-9]{11}\z/)
+
+      text.upcase
+    end
+
+    def signed_on_duz
+      client = RpmsRpc.client
+      return nil unless client.respond_to?(:duz)
+
+      text = client.duz.to_s
+      text.match?(/\A[1-9]\d*\z/) ? text : nil
+    end
+
+    def patient_dfn(dfn)
+      text = dfn.to_s
+      text.match?(/\A[1-9]\d*\z/) ? text : nil
+    end
+
+    def positive_integers?(values)
+      values.is_a?(Array) && !values.empty? && values.all? { |value| positive_integer?(value) }
+    end
+
+    def positive_integer?(value)
+      value.is_a?(Integer) && value.positive?
+    end
+
+    def fileman_day(value)
+      return unless value.instance_of?(Date)
+
+      FilemanDateParser.to_fileman(value)
+    end
+
+    def in_context(&block)
+      ContextScope.scoped(RpmsRpc.client, CONTEXT, &block)
+    end
+
+    def invalid(message)
+      { success: false, error: :invalid, message: message }
+    end
+
+    def not_supported(message)
+      { success: false, error: :not_supported, message: message }
+    end
+
+    def canonical_patient_sex(sex)
+      return unless sex.is_a?(String)
+
+      code = sex.strip.upcase
+      code if PATIENT_SEX_CODES.include?(code)
+    end
+
+    def write_preferred_name(id, text)
+      stored = read_internal_field(PATIENT_FILE, "#{id},", PREFERRED_NAME_FIELD)
+      return stored if stored.is_a?(Hash)
+      return { success: true, changed: false } if stored == text
+
+      value = text.empty? ? "@" : text
+      filed = filer_outcome(DdrFileman.filer(mode: "EDIT",
+                                             rows: [ edit_row(PATIENT_FILE, PREFERRED_NAME_FIELD, "#{id},", value) ]))
+      filed && filed[:success] ? { success: true, changed: true } : filed
+    end
+
+    def write_patient_sex(id, code)
+      stored = read_internal_field(PATIENT_SEX_FILE, "#{id},", PATIENT_SEX_FIELD)
+      return stored if stored.is_a?(Hash)
+
+      verification = read_internal_field(PATIENT_FILE, "#{id},", SSN_VERIFICATION_FIELD)
+      return verification if verification.is_a?(Hash)
+
+      cascade = eligibility_sex_rows(id, code)
+      return cascade if cascade.is_a?(Hash)
+
+      file_sex_writes(id, code, stored: stored, verification: verification, cascade: cascade)
+    end
+
+    # DDR GETS of one internal field. A nil reply is :lookup_failed, and
+    # the message names the file and field. A [Data] reply that omits the
+    # field row is :lookup_failed too: an empty field still comes back as
+    # a row. A reply with neither [Data] nor [ERROR] and no field rows
+    # (malformed:) is :lookup_failed, and that message names the file and
+    # field the same way. A genuine [ERROR] reply is :not_found.
+    def read_internal_field(file, iens, field)
+      read = DdrFileman.gets_entry(file: file, iens: iens, fields: field, flags: "I")
+      return lookup_failed("DDR GETS ENTRY DATA gave no reply for ##{file} #{field}") if read.nil?
+      return lookup_failed("DDR GETS ENTRY DATA gave a malformed reply for ##{file} #{field}") if read[:malformed]
+      return not_found("no ##{file} entry at #{iens}") if read[:error]
+      return lookup_failed("DDR GETS ENTRY DATA gave no #{field} row for ##{file}") unless read[:fields].key?(field)
+
+      read[:fields][field][:internal].to_s
+    end
+
+    # #9000001 is DINUM'd to the DFN. GETS on a missing entry replies
+    # error: true. A [Data] reply with no .01 row is malformed.
+    def require_ihs_patient!(dfn)
+      read = DdrFileman.gets_entry(file: PATIENT_FILE, iens: "#{dfn},", fields: ".01", flags: "I")
+      raise Client::RpcError, "DDR GETS ENTRY DATA gave no reply for #9000001" if read.nil?
+      raise Client::RpcError, "DDR GETS ENTRY DATA refused #9000001 #{dfn}" if read[:error]
+
+      pointer = read[:fields].dig(".01", :internal).to_s.strip
+      raise Client::RpcError, "no #9000001 entry for DFN #{dfn}" if pointer.empty?
+    end
+
+    def eligibility_sex_rows(dfn, sex)
+      rows = []
+      ELIGIBILITY_SEX.each do |target|
+        iens = patient_b_iens(target[:index], dfn)
+        return iens if iens.is_a?(Hash)
+
+        iens.each do |ien|
+          built = sex_rows_for(target, ien, sex)
+          return built if built.is_a?(Hash)
+
+          rows.concat(built)
+        end
+      end
+      rows
+    end
+
+    def patient_b_iens(file, dfn)
+      listed = DdrFileman.lister(file: file, fields: "@;.01I", flags: "IP", xref: "B",
+                                 from: (dfn.to_i - 1).to_s, max: ELIGIBILITY_B_MAX)
+      failed = lister_failure(listed, file)
+      return failed if failed
+      unless b_index_covers?(listed, dfn)
+        return lookup_failed("DDR LISTER did not finish the ##{file} B index through DFN #{dfn}")
+      end
+
+      rows = listed[:entries].select { |entry| b_pointer(entry) == dfn }
+      iens = rows.map { |entry| entry[:ien].to_s }
+      unless numeric_iens?(iens)
+        return lookup_failed("DDR LISTER returned a non-numeric IEN on the ##{file} B index")
+      end
+
+      iens
+    end
+
+    # The B xref is ordered by the pointed-to DFN. No MORE means the walk
+    # finished. A MORE whose last row is already past this DFN means every
+    # row for this patient is on the page. Anything else is incomplete:
+    # the resume IEN cannot be sent on a flat DDR parameter.
+    def b_index_covers?(listed, dfn)
+      return true unless listed[:more]
+
+      last = listed[:entries].reverse_each.find { |entry| !b_pointer(entry).empty? }
+      return false unless last
+
+      pointer = b_pointer(last)
+      pointer.match?(/\A\d+\z/) && pointer.to_i > dfn.to_i
+    end
+
+    def b_pointer(entry)
+      entry[:pieces].to_a.first.to_s.strip
+    end
+
+    def lister_failure(listed, file)
+      return lookup_failed("DDR LISTER gave no reply for ##{file}") if listed.nil?
+      return lookup_failed("DDR LISTER refused ##{file}") if listed[:error]
+
+      nil
+    end
+
+    def sex_rows_for(target, ien, sex)
+      return subfile_sex_rows(target, ien, sex) if target[:subfile]
+
+      [ entry_sex_row(target, ien, sex) ]
+    end
+
+    def subfile_sex_rows(target, parent_ien, sex)
+      file = target[:file]
+      listed = DdrFileman.lister(file: file, iens: ",#{parent_ien},", fields: "@;.01I", flags: "IP")
+      failed = lister_failure(listed, file)
+      return failed if failed
+      return lookup_failed("DDR LISTER did not finish ##{file} under #{parent_ien}") if listed[:more]
+
+      subs = listed[:entries].map { |entry| entry[:ien].to_s }
+      return lookup_failed("DDR LISTER returned a non-numeric IEN for ##{file}") unless numeric_iens?(subs)
+
+      subs.map { |sub| edit_row(file, target[:field], "#{sub},#{parent_ien},", sex) }
+    end
+
+    def entry_sex_row(target, ien, sex)
+      edit_row(target[:file], target[:field], "#{ien},", sex)
+    end
+
+    def numeric_iens?(iens)
+      iens.all? { |ien| ien.match?(/\A[1-9]\d*\z/) }
+    end
+
+    def file_sex_writes(id, code, stored:, verification:, cascade:)
+      clear_ssn = clear_ssn_verification?(stored, code, verification)
+      if clear_ssn
+        step = sex_edit([ edit_row(PATIENT_FILE, SSN_VERIFICATION_FIELD, "#{id},", "@") ], prior: false)
+        return step unless step == :written
+      end
+
+      step = sex_edit([ edit_row(PATIENT_SEX_FILE, PATIENT_SEX_FIELD, "#{id},", code) ],
+                      prior: clear_ssn, step: (clear_ssn ? patient_sex_step : nil))
+      return step unless step == :written
+
+      return { success: true } if cascade.empty?
+
+      step = sex_edit(cascade, prior: true, step: "eligibility")
+      step == :written ? { success: true } : step
+    end
+
+    def clear_ssn_verification?(stored, code, verification)
+      stored.strip.upcase != code && !verification.strip.empty?
+    end
+
+    # file_sex_writes calls this for the #9000001 .23 "@" delete first, and
+    # only when clear_ssn_verification? is true. That call has no step: it
+    # is the first FILER call when it is sent. Then #2 .02, always. .02 has
+    # no step when the delete was skipped (it is the first call) and step
+    # "#2 .02" when the delete was filed. Then the eligibility cascade when
+    # rows exist, step "eligibility". step is a short label for later
+    # calls; it is not a public argument. Each call is its own EDIT. nil
+    # only when this is the first FILER call and it gives no reply. A
+    # refusal of that first call, including a reply with no [Data], is
+    # :filer_failed and later calls are not sent. A refusal (success false,
+    # including no [Data]) or a no-reply on .02 after the .23 delete, or on
+    # the cascade, is :partial. The .02 message names #2 .02. A refusal
+    # says it was not filed. A no-reply says the outcome of the last write
+    # is unknown and that it may not have been filed. Both say #9000001 .23
+    # was already cleared. A cascade failure names eligibility. The
+    # no-reply wording "outcome of the last write is unknown" stays.
+    def sex_edit(rows, prior:, step: nil)
+      filed = DdrFileman.filer(mode: "EDIT", rows: rows)
+      return unknown_later_sex_write(step) if filed.nil? && prior
+      return nil if filed.nil?
+      return :written if filed[:success]
+
+      message = Array(filed[:errors]).join("\n")
+      return { success: false, error: :filer_failed, message: message } unless prior
+
+      { success: false, error: :partial, message: refused_sex_step(step, message) }
+    end
+
+    def patient_sex_step
+      "#2 .02"
+    end
+
+    def refused_sex_step(step, message)
+      lead = if step == patient_sex_step
+        "#{step} was not filed and #9000001 .23 was already cleared"
+      elsif step
+        "#{step} was refused"
+      else
+        "a later one was refused"
+      end
+      "an earlier sex write was filed and #{lead}: #{message}"
+    end
+
+    def unknown_later_sex_write(step = nil)
+      base = "an earlier sex write was filed and the outcome of the last write is unknown"
+      tail = if step == patient_sex_step
+        "#{step} may not have been filed and #9000001 .23 was already cleared"
+      else
+        step
+      end
+      text = tail ? "#{base}: #{tail}" : base
+      { success: false, error: :partial, message: text }
+    end
+
+    def edit_row(file, field, iens, value)
+      { file: file, field: field, iens: iens, value: value }
+    end
   end
 end
+
+require_relative "registration_edits"

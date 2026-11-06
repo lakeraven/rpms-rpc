@@ -83,6 +83,19 @@ module RpmsRpc
     LOCK_RPC = "AGG LOCK PATIENT"             # LOCK^AGGLOCK, return type GLOBAL ARRAY
     UNLOCK_RPC = "AGG UNLOCK PATIENT"         # UNLOCK^AGGLOCK, return type GLOBAL ARRAY
     VALIDATE_RPC = "AGG WINDOW DATA VALIDATION" # VAL^AGGWVAL, return type GLOBAL ARRAY
+    TEMP_HRN_RPC = "AGG GET TEMP PAT HRN"     # GTMP^AGGPTHRN, return type GLOBAL ARRAY
+    DISPLAY_RPC = "AGG BUILD WINDOW DISPLAY"    # BLD^AGGWDISP, return type GLOBAL ARRAY
+    VALUE_PAIR = "\x1c" # $C(28): a T or C value is INTERNAL_$C(28)_EXTERNAL (AGGWDISP.m:35-50)
+    WINDOW_MULTIPLE_RPC = "AGG BUILD WINDOW MULTIPLE" # MUL^AGGPTDMG, a multiple window's entries
+    TABLE_LOOKUP_RPC = "AGG WINDOW TABLE LOOKUP"      # LKP^AGGWTBLK, a pointed-to file's entries by name
+    UPDATE_ALIASES_RPC = "AGG UPDATE ALIASES"         # ALIAS^AGGPTNAM
+    UPDATE_SPECIAL_MULTIPLES_RPC = "AGG UPDATE SPECIAL MULTIPLES" # UPD^AGGPOTH
+    UPDATE_MULTIPLE_RECORD_RPC = "AGG UPDATE A MULTIPLE RECORD" # UPD^AGGMLUPD
+    QUANTUM_VALIDATION_RPC = "AGG QUANTUM VALIDATION" # QNT^AGGFTVAL
+    CHECK_SENSITIVE_RPC = "AGG CHECK SENSITIVE PATIENT" # CHK^AGGPTSEN
+    SEND_SENSITIVE_NOTIFY_RPC = "AGG SEND SENSITIVE NOTIFY" # NOT^AGGPTSEN
+    ERROR_SCREEN_RPC = "AGG ERROR SCREEN"             # FND^AGGEDCHK
+    PATIENT_LANGUAGES_RPC = "AGG PATIENT LANGUAGES"   # LANG^AGGWOTH, the latest entry's other languages
 
     # The context option the AGG* RPCs are registered under — file 19 IEN
     # 13112, TYPE "B", no LOCK. Every method here binds it; see the module doc.
@@ -243,11 +256,133 @@ module RpmsRpc
     end
     shape :validate_field, resource: "agg", verb: "POST", path: "/agg/validate-field"
 
+    # BLD^AGGWDISP — what AG's own window shows for a patient: the read AG's
+    # client makes before an edit. P1 = window name, P2 = DFN. The reply's
+    # header names each displayed parameter (a parameter whose node 0 piece 11
+    # is set is not displayed, AGGWDISP.m:23, so Address carries no email) and
+    # its one record holds the values: a T (pointer) or C (choice) value is
+    # INTERNAL_$C(28)_EXTERNAL, a D (date) value is AG's external date
+    # ($$FMTE^AGGUL1), the rest are text (AGGWDISP.m:27-79). No record means
+    # every value is empty (AGGWDISP.m:83).
+    #
+    # Returns { "PARAMETER" => value } with T and C values as
+    # { internal:, external: } (both nil when empty), or nil when the broker
+    # gives no reply or AG answers without its header (an unknown window).
+    def window_values(window:, dfn:, client: RpmsRpc.client)
+      reply = in_context(client) { parse_reply(call_array(client, DISPLAY_RPC, window, dfn.to_s)) }
+      return nil if reply.nil? || reply[:header].empty?
+
+      record = reply[:records].first || {}
+      reply[:header].to_h do |name|
+        value = record[name].to_s.dup.force_encoding(Encoding::UTF_8)
+        [ name.to_s.upcase, value.include?(VALUE_PAIR) ? pair(value) : value ]
+      end
+    end
+    shape :window_values, resource: "agg", verb: "POST", path: "/patients/{dfn}/agg/window-values"
+
     def update_patient(dfn:, params:, window: DEFAULT_WINDOW, client: RpmsRpc.client)
       in_context(client) do
         interpret_write(call_array(client, UPDATE_RPC, window, dfn.to_s, encode_parms(params)))
       end
     end
+
+
+    # MUL^AGGPTDMG: the entries of a multiple window (P1 window, P2 the node of the
+    # multiple under the patient's record, P3 the DFN, P4 one entry or "" for all).
+    # Returns the records, or nil when RPMS did not answer.
+    def window_multiple(window:, node:, dfn:, client: RpmsRpc.client)
+      reply = in_context(client) { parse_reply(call_array(client, WINDOW_MULTIPLE_RPC, window, node.to_s, dfn.to_s, "")) }
+      reply && reply[:records]
+    end
+    shape :window_multiple, resource: "agg", verb: "GET", path: "/patients/{dfn}/agg/window-multiple"
+
+    # LKP^AGGWTBLK: the entries of a pointed-to file whose name starts with the
+    # text (FIND^DIC, AGGWTBLK.m), the look-up AG's client runs for a table
+    # field. Returns [{ ien:, name: }], [] when none match, or nil when RPMS did
+    # not answer. The text must not be empty: LKP refuses it.
+    def table_lookup(file:, text:, client: RpmsRpc.client)
+      text = text.to_s.strip
+      raise ArgumentError, "a look-up needs text" if text.empty?
+
+      reply = in_context(client) { parse_reply(call_array(client, TABLE_LOOKUP_RPC, file.to_s, text, "")) }
+      return nil if reply.nil?
+
+      # The name is the second column, read by position: a file's header can
+      # name two columns alike (STATE's is IEN^NAME^VA_STATE_CODE^NAME), and the
+      # record hash keeps only the last of them.
+      reply[:rows].map { |pieces| { ien: pieces[0].to_i, name: pieces[1].to_s } }
+    end
+    shape :table_lookup, resource: "agg", verb: "GET", path: "/agg/files/{file}/table-lookup"
+
+    # ALIAS^AGGPTNAM: add ("A") or delete ("D") one entry of the PATIENT ALIAS
+    # multiple (#2.01). An add files the name through FILE^DICN with no input
+    # transform, so a caller checks the name first. Reply header
+    # "I00010RESULT^T01024ERROR^I00010RIEN"; returns { success: true, ien: } or
+    # { success: false, error: :agg_rejected, message: }, nil for no reply.
+    def update_aliases(dfn:, action:, ien: "", params: {}, client: RpmsRpc.client)
+      in_context(client) do
+        interpret_entry_write(call_array(client, UPDATE_ALIASES_RPC, dfn.to_s, action.to_s, ien.to_s, encode_parms(params)))
+      end
+    end
+    shape :update_aliases, resource: "agg", verb: "PUT", path: "/patients/{dfn}/agg/aliases"
+
+    # UPD^AGGPOTH: add ("A") or delete ("D") one entry of a multiple below a
+    # dated entry, for the window "Other Languages" (#9000001.8605 under a
+    # LANGUAGES ENTRY DATE) or "Internet Access Method". P3 is the DFN, P4 the
+    # dated entry's IEN. Returns { success: true } or { success: false, ... }.
+    def update_special_multiple(window:, dfn:, entry:, action:, params:, client: RpmsRpc.client)
+      in_context(client) do
+        interpret_entry_write(call_array(client, UPDATE_SPECIAL_MULTIPLES_RPC, window, dfn.to_s, entry.to_s, action.to_s,
+                                         encode_parms(params)))
+      end
+    end
+    shape :update_special_multiple, resource: "agg", verb: "PUT", path: "/patients/{dfn}/agg/special-multiple"
+
+    # UPD^AGGMLUPD: add ("A") or delete ("D") one entry of a multiple under the
+    # patient, for the window "Other Tribe" (#9000001.43). P3 is the DFN, P4 the
+    # entry, "" to add. Returns { success: true } or { success: false, ... }.
+    def update_multiple_record(window:, dfn:, action:, entry: "", params: {}, client: RpmsRpc.client)
+      in_context(client) do
+        interpret_entry_write(call_array(client, UPDATE_MULTIPLE_RECORD_RPC, window, action.to_s, dfn.to_s, entry.to_s,
+                                         encode_parms(params)))
+      end
+    end
+    shape :update_multiple_record, resource: "agg", verb: "PUT", path: "/patients/{dfn}/agg/multiple-record"
+
+    # QNT^AGGFTVAL: whether a new other tribe's quantum, with the tribe of
+    # membership's and every other tribe's, stays within the Indian blood
+    # quantum. AG skips it unless the patient is Indian/Alaska Native and the
+    # facility records tribal quantums. others: the quantums already on file.
+    # Returns { valid: true } or { valid: false, message: }, or nil when RPMS
+    # did not answer.
+    def quantum_check(tribe:, quantum:, membership:, membership_quantum:, blood_quantum:, classification:, others: [],
+                      client: RpmsRpc.client)
+      reply = in_context(client) do
+        parse_reply(call_array(client, QUANTUM_VALIDATION_RPC, tribe.to_s, quantum.to_s, membership.to_s, membership_quantum.to_s,
+                               blood_quantum.to_s, classification.to_s, others.empty? ? "" : "AGGOTTRQ=#{others.join("\x1d")}"))
+      end
+      return nil if reply.nil?
+
+      record = reply[:records].first
+      return { valid: true } if record.nil? || record[:result].to_s == "1"
+
+      { valid: false, message: record[:error].to_s }
+    end
+    shape :quantum_check, resource: "agg", verb: "POST", path: "/agg/quantum-check"
+
+    # LANG^AGGWOTH: the other languages of the patient's latest LANGUAGES ENTRY
+    # DATE (#9000001.86) entry, as [{ ien:, name: }], or nil when RPMS did not
+    # answer.
+    def patient_languages(dfn:, client: RpmsRpc.client)
+      reply = in_context(client) { parse_reply(call_array(client, PATIENT_LANGUAGES_RPC, dfn.to_s)) }
+      return nil if reply.nil?
+
+      reply[:records].map do |row|
+        ien, name = row[:agglgoth].to_s.split(PARM_DELIM, 2)
+        { ien: ien.to_i, name: name.to_s }
+      end
+    end
+    shape :patient_languages, resource: "agg", verb: "GET", path: "/patients/{dfn}/agg/languages"
 
     # Run the block holding AG's own edit lock on the patient, under AGGRPC,
     # and release it afterward. This is the lock AG ships for editing a
@@ -295,6 +430,88 @@ module RpmsRpc
       { checks: reply[:records] }
     end
 
+    # CHK^AGGPTSEN — sensitive-patient indicator for this user. Option: AGGRPC.
+    # A DFN that is not a positive integer raises ArgumentError before any
+    # RPC. The wire value is the canonical digit string. The row is 0, 1,
+    # or 2 (AGGPTSEN.m:16-19). Anything else, including a blank that would
+    # coerce to 0, is nil: 0 means "not sensitive". CHK calls SENS^DGSEC4
+    # (AGGPTSEN.m:30). SENS audits the lookup (ACCESSED^DIET, DGSEC4.m:178)
+    # only when the DI AUDIT PATIENT LOOKUPS parameter is set. It does not write
+    # the DG SECURITY LOG: that SETLOG1 write (DGSEC4.m:65) is in PTSEC, after
+    # SENS returns, and CHK does not call PTSEC. The write class stays
+    # :non_idempotent_write because the audit can write. Returns
+    # { sensitive_indicator: Integer } or nil.
+    def check_sensitive_patient(dfn:, client: RpmsRpc.client)
+      id = canonical_dfn(dfn)
+      raise ArgumentError, "DFN must be a positive integer" unless id
+
+      reply = in_context(client) { parse_reply(call_array(client, CHECK_SENSITIVE_RPC, id)) }
+      raw = reply&.dig(:records, 0, :sensitive_indicator).to_s
+      return nil unless raw.match?(/\A[012]\z/)
+
+      { sensitive_indicator: raw.to_i }
+    end
+    shape :check_sensitive_patient, resource: "agg", verb: "POST", path: "/patients/{dfn}/agg/check-sensitive"
+
+    # NOT^AGGPTSEN — file the sensitive-record bulletin. Option: AGGRPC.
+    # A DFN that is not a positive integer raises ArgumentError before any
+    # RPC. The wire value is the canonical digit string. The routine
+    # hardcodes the option it logs (AGGPTSEN.m:59). Success is RESULT "1"
+    # only. Returns { success: } or nil when RPMS did not answer.
+    def send_sensitive_notify(dfn:, client: RpmsRpc.client)
+      id = canonical_dfn(dfn)
+      raise ArgumentError, "DFN must be a positive integer" unless id
+
+      in_context(client) do
+        parsed = parse_reply(call_array(client, SEND_SENSITIVE_NOTIFY_RPC, id))
+        return nil if parsed.nil?
+
+        record = parsed[:records].first
+        if record.nil?
+          { success: false, message: "AGG SEND SENSITIVE NOTIFY gave no data record" }
+        else
+          { success: record[:result].to_s == "1" }
+        end
+      end
+    end
+    shape :send_sensitive_notify, resource: "agg", verb: "POST", path: "/patients/{dfn}/agg/send-sensitive-notify"
+
+    # FND^AGGEDCHK — the window and field for an edit-check error number.
+    # Option: AGGRPC. An empty ERRNUM walks the whole error file
+    # (AGGEDCHK.m:66). On the pinned routine FER's data-row write is
+    # commented out (AGGEDCHK.m:77), so a live call returns the header
+    # only; that is [], not an error. A data row ERROR_NUM^WINDOW^FIELD
+    # is still parsed when one is present.
+    # Returns [{ error_num:, window:, field: }] or nil when RPMS did not answer.
+    def error_screen(errnum:, client: RpmsRpc.client)
+      reply = in_context(client) { parse_reply(call_array(client, ERROR_SCREEN_RPC, errnum.to_s)) }
+      return nil if reply.nil?
+
+      reply[:records].map do |row|
+        { error_num: row[:error_num].to_s, window: row[:window].to_s, field: row[:field].to_s }
+      end
+    end
+    shape :error_screen, resource: "agg", verb: "GET", path: "/agg/error-screen"
+
+    # GTMP^AGGPTHRN — the next temporary health record number for a patient,
+    # the T-number IHS scheduling's mini-registration gives a caller who has
+    # no chart yet (option BSDAM MINI REGISTRATION, key SDZREGMENU: "assigns
+    # a temporary chart number"). AG takes the highest "T" number in the
+    # IHS PATIENT "D" index and adds one, or returns the one this patient
+    # already holds (AGGPTHRN.m:20-31), and reserves it by setting
+    # ^AUPNPAT("D",THRN,DFN,DUZ(2)) (AGGPTHRN.m:15). It does not file the
+    # HEALTH RECORD NO. multiple: the caller files the number through AGG
+    # UPDATE PATIENT, as RpmsRpc::Registration does.
+    #
+    # Reply: header "T00010AGGPTHRN", then the number (AGGPTHRN.m:13-16).
+    # Returns the number ("T00001"), or nil when RPMS gave none.
+    def temporary_hrn(dfn:, client: RpmsRpc.client)
+      reply = in_context(client) { parse_reply(call_array(client, TEMP_HRN_RPC, dfn.to_s)) }
+      number = reply&.dig(:records, 0, :aggpthrn).to_s
+      number.match?(/\AT\d{5}\z/) ? number : nil
+    end
+    shape :temporary_hrn, resource: "agg", verb: "POST", path: "/patients/{dfn}/agg/temporary-hrn"
+
     # Encode a NAME=VALUE PARMS hash as the $C(28)-delimited string P3.
     # nil values are dropped; everything is sent as-is (FileMan-external —
     # AGGPTSEX is the coded set value "MALE"/"FEMALE", dates MM/DD/YYYY).
@@ -312,10 +529,13 @@ module RpmsRpc
     # [{name => value}] }. Strips the leading sequence echo + \x00 ack, cuts
     # at the $C(31) end sentinel, splits records on $C(30), and maps each
     # record's "^"-pieces onto the typed-header field names. nil on an empty
-    # reply.
+    # reply. A line Array (BMX/XWB #call_rpc, which strip the separators, or a
+    # seeded array that keeps them) is rejoined into the same blob first;
+    # a String is untouched.
     def parse_reply(raw)
       return nil if raw.nil?
 
+      raw = lines_to_blob(raw) if raw.is_a?(Array)
       body = raw.to_s.b
       body = body.split(ACK, 2).last.to_s if body.include?(ACK)
       body = body.split(ARRAY_END, 2).first.to_s
@@ -325,14 +545,35 @@ module RpmsRpc
       return nil if rows.empty?
 
       names = parse_header(rows.shift)
-      records = rows.reject(&:empty?).map do |row|
-        pieces = row.split("^", -1)
-        names.each_with_index.to_h { |name, i| [ name, pieces[i] ] }
+      split = rows.reject(&:empty?).map { |row| row.split("^", -1) }
+      records = split.map { |pieces| names.each_with_index.to_h { |name, i| [ name, pieces[i] ] } }
+      { header: names, records: records, rows: split }
+    end
+
+    # A DFN subscript these routines can use: a positive Integer, or a
+    # String matching /\A[1-9]\d*\z/ with no strip. The canonical wire
+    # string, or nil. "0990031" and " 990031" are not patient 990031.
+    # Sends nothing.
+    def canonical_dfn(dfn)
+      case dfn
+      when Integer
+        dfn.positive? ? dfn.to_s : nil
+      when String
+        dfn.match?(/\A[1-9]\d*\z/) ? dfn : nil
       end
-      { header: names, records: records }
     end
 
     private
+
+    # Rows of a line Array as one blob: each row ends in exactly one $C(30),
+    # whether or not the client already stripped it, and the $C(31) sentinel
+    # is dropped (parse_reply cuts there anyway).
+    def lines_to_blob(lines)
+      lines.map { |line| line.to_s.delete(RECORD_SEP + ARRAY_END) }
+           .reject(&:empty?)
+           .map { |row| row + RECORD_SEP }
+           .join
+    end
 
     # Bind AGGRPC for the duration of the block and restore the caller's
     # context afterward (ContextScope#with_context — a no-op round-trip-wise
@@ -382,6 +623,11 @@ module RpmsRpc
       end
     end
 
+    def pair(value)
+      internal, external = value.split(VALUE_PAIR, 2)
+      { internal: internal.to_s.empty? ? nil : internal, external: external.to_s.empty? ? nil : external }
+    end
+
     # nil when the lock was taken; the failure hash otherwise.
     def lock_result(parsed)
       record = parsed && parsed[:records].first
@@ -390,6 +636,18 @@ module RpmsRpc
 
       error = record[:result].to_s == "-1" ? :invalid_dfn : :lock_failed
       { success: false, error: error, message: record[:message].to_s }
+    end
+
+    # A write whose reply is RESULT^ERROR[^RIEN]: ALIAS^AGGPTNAM and UPD^AGGPOTH.
+    def interpret_entry_write(reply)
+      parsed = parse_reply(reply)
+      return nil if parsed.nil?
+
+      record = parsed[:records].first
+      return { success: false, error: :agg_empty_reply, message: "AGG reply carried no data record" } if record.nil?
+      return { success: false, error: :agg_rejected, message: record[:error].to_s } unless record[:result].to_s == "1"
+
+      record[:rien].to_s.empty? ? { success: true } : { success: true, ien: record[:rien].to_i }
     end
 
     # require_dfn: ADD^AGGPTADD always fills the DFN piece on success, so a
@@ -409,7 +667,11 @@ module RpmsRpc
           return { success: false, error: :agg_malformed_reply,
                    message: "AGG success record carried no DFN" }
         end
-        { success: true, dfn: dfn.empty? ? nil : dfn.to_i, message: message.to_s }
+        result = { success: true, dfn: dfn.empty? ? nil : dfn.to_i, message: message.to_s }
+        # UPD^AGGPTUPD's OTHER_PARMS names what a filing code created, e.g.
+        # "AGGLNG=7" for a new LANGUAGES ENTRY DATE entry (ULNG^AGGPOTH).
+        other = record[:other_parms].to_s
+        other.empty? ? result : result.merge(other_parms: other)
       else
         text = message.to_s.empty? ? record.values.compact.join("^") : message.to_s
         { success: false, error: :agg_rejected, message: text }

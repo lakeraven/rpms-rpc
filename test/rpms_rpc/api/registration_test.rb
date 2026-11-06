@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/registration"
+require "rpms_rpc/api/ddr_fileman"
 
 # Tests for RpmsRpc::Registration — patient registration through the IHS AG
 # package (rpms-rpc#214): AGG ADD NEW PATIENT / AGG UPDATE PATIENT. The VAFC
@@ -16,6 +17,7 @@ require "rpms_rpc/api/registration"
 class RegistrationTest < Minitest::Test
   Reg = RpmsRpc::Registration
   Agg = RpmsRpc::Agg
+  Ddr = RpmsRpc::DdrFileman
 
   ATTRS = {
     name: "DEMOPATIENT,UNA",
@@ -41,7 +43,9 @@ class RegistrationTest < Minitest::Test
       @mock.seed_raw_lines(:patient_lookup_agg, query, [ header ])
     end
     # AG's field checks answer "valid" unless a test says otherwise.
-    seed_validation("1^^^^^\x1e")
+    [ Agg::NEW_PATIENT_WINDOW, "Personal Detail", "Address", "Aliases" ].each do |window|
+      seed_validation("1^^^^^\x1e", window: window)
+    end
   end
 
   def teardown
@@ -66,15 +70,24 @@ class RegistrationTest < Minitest::Test
     @mock.seed(:agg_add_patient, Agg::NEW_PATIENT_WINDOW, reply)
   end
 
-  def seed_agg_update(result: "1", error: "")
+  def seed_agg_update(result: "1", error: "", dfn: "9", hrn_on_file: nil, seed_hrn_readback: true)
     reply = "I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1e#{result}^#{error}^\x1e\x1f"
     @mock.seed(:agg_update_patient, Agg::DEFAULT_WINDOW, reply)
+    return unless seed_hrn_readback && result == "1"
+
+    seed_hrn_41_readback(dfn, hrn_on_file || dfn)
+  end
+
+  def seed_hrn_41_readback(dfn, hrn_on_file)
+    key = Ddr.lister_param(file: "9000001.41", iens: ",#{dfn},", fields: "@;.02", flags: "IP").to_s
+    body = hrn_on_file == :empty ? "[Data]" : "[Data]\n1^#{hrn_on_file}"
+    @mock.seed(:ddr_lister, key, body)
   end
 
   # AGG WINDOW DATA VALIDATION's reply, as captured live (header, then a row).
-  def seed_validation(row)
+  def seed_validation(row, window: Agg::NEW_PATIENT_WINDOW)
     header = "5\x00I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1e"
-    @mock.seed(:agg_window_validation, Agg::NEW_PATIENT_WINDOW, header + row.to_s)
+    @mock.seed(:agg_window_validation, window, header + row.to_s)
   end
 
   def agg_calls(rpc)
@@ -307,6 +320,7 @@ class RegistrationTest < Minitest::Test
   def test_delegation_clerk_mode_sends_supplied_hrn_on_create_and_skips_update
     Reg.hrn_mode = Reg::HRN_MODE_CLERK
     seed_agg_add(dfn: "9")
+    seed_hrn_41_readback("9", "100001")
 
     result = Reg.register(ATTRS)
 
@@ -316,6 +330,87 @@ class RegistrationTest < Minitest::Test
     assert_empty agg_calls("AGG UPDATE PATIENT"),
                  "clerk-supplied HRN rides the create call — no HRN:=DFN update"
   end
+
+# -- hrn_source: the mini-registration from scheduling (rpms-ux S-REG-05) ---
+
+def seed_temp_hrn(number)
+  @mock.seed(:agg_get_temp_pat_hrn, "9", "T00010AGGPTHRN\x1e#{number}\x1e\x1f")
+end
+
+# AG's HRN check refuses the number; its other checks pass.
+def refuse_hrn_check(message)
+  mock = @mock
+  original = mock.method(:call_rpc_global_array)
+  mock.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
+    if rpc == "AGG WINDOW DATA VALIDATION" && params[1].to_s.start_with?("AGGPTHRN=")
+      mock.received_calls << { rpc: rpc, params: params, context: mock.current_context }
+      RpmsRpc::Reply.text("5\x00I00010RESULT^T00100MSG\x1e-1^#{message}\x1e\x1f")
+    else
+      original.call(rpc, *params)
+    end
+  end
+end
+
+def test_s_reg_05_1_a_temporary_hrn_is_filed_after_the_create
+  seed_agg_add(dfn: "9")
+  seed_temp_hrn("T00007")
+  seed_agg_update(hrn_on_file: "T00007")
+
+  result = Reg.register(ATTRS.merge(hrn_source: :temporary))
+
+  assert_equal({ success: true, dfn: 9, created: true, hrn: "T00007", unfiled: [ :community ] }, result)
+  refute agg_calls("AGG ADD NEW PATIENT").first[:params][2].include?("AGGPTHRN="), "the create sends no HRN"
+  assert_equal [ "9" ], agg_calls("AGG GET TEMP PAT HRN").first[:params]
+  assert_equal "AGGPTHRN=T00007", agg_calls("AGG UPDATE PATIENT").first[:params][2]
+end
+
+def test_a_temporary_hrn_rpms_does_not_give_is_hrn_file_failed_with_the_dfn
+  seed_agg_add(dfn: "9")
+
+  result = Reg.register(ATTRS.merge(hrn_source: :temporary))
+
+  assert_equal :hrn_file_failed, result[:error]
+  assert_equal 9, result[:dfn]
+  assert_empty agg_calls("AGG UPDATE PATIENT")
+end
+
+def test_s_reg_05_2_a_given_hrn_is_checked_by_ag_and_rides_the_create
+  seed_agg_add(dfn: "9")
+  seed_hrn_41_readback("9", "12345")
+
+  result = Reg.register(ATTRS.merge(hrn_source: :given, hrn: "12345"))
+
+  assert_equal "12345", result[:hrn]
+  assert_includes agg_calls("AGG ADD NEW PATIENT").first[:params][2].split("\x1c"), "AGGPTHRN=12345"
+  checked = agg_calls("AGG WINDOW DATA VALIDATION").map { |c| c[:params][1] }
+  assert_includes checked, "AGGPTHRN=12345\x1cDFN="
+  assert_empty agg_calls("AGG UPDATE PATIENT")
+end
+
+def test_s_reg_05_5_an_hrn_another_patient_holds_is_refused_in_ag_words_and_nothing_is_filed
+  refuse_hrn_check("HRN 12345 is already assigned to patient DEMOPATIENT,OTHER")
+
+  result = Reg.register(ATTRS.merge(hrn_source: :given, hrn: "12345"))
+
+  assert_equal({ success: false, error: :agg_invalid, field: "AGGPTHRN",
+                 message: "HRN 12345 is already assigned to patient DEMOPATIENT,OTHER" }, result)
+  assert_empty agg_calls("AGG ADD NEW PATIENT")
+end
+
+def test_no_hrn_check_is_sent_without_an_hrn
+  seed_agg_add(dfn: "9")
+  seed_agg_update
+
+  Reg.register(ATTRS)
+
+  refute agg_calls("AGG WINDOW DATA VALIDATION").any? { |c| c[:params][1].start_with?("AGGPTHRN") }
+end
+
+def test_hrn_source_given_needs_an_hrn_and_an_unknown_source_is_refused
+  assert_raises(ArgumentError) { Reg.register(ATTRS.merge(hrn_source: :given, hrn: "")) }
+  assert_raises(ArgumentError) { Reg.register(ATTRS.merge(hrn_source: :clerk)) }
+  assert_empty agg_calls("AGG ADD NEW PATIENT")
+end
 
   def test_delegation_surfaces_agg_rejection
     seed_agg_add(result: "-1", message: "MISSING MANDATORY FIELD", dfn: "")
@@ -330,7 +425,7 @@ class RegistrationTest < Minitest::Test
 
   def test_delegation_hrn_update_failure_surfaces_with_dfn
     seed_agg_add(dfn: "9")
-    seed_agg_update(result: "-1", error: "HRN FIELD REJECTED")
+    seed_agg_update(result: "-1", error: "HRN FIELD REJECTED", seed_hrn_readback: false)
 
     result = Reg.register(ATTRS)
 
@@ -386,7 +481,7 @@ class RegistrationTest < Minitest::Test
   # window's "AC" index, filing the field it claims, with the type its value
   # form assumes.
   def test_every_update_attribute_is_a_parameter_of_its_ag_window
-    forms = { date: "D", sex: "C", choice: "C", pointer: "T", text: "X", ssn: "X", date_moved: "X" }
+    forms = { date: "D", sex: "C", choice: "C", pointer: "T", text: "X", ssn: "X", date_moved: "X", name: "X" }
     Reg::UPDATE_ATTRIBUTES.each do |name, attribute|
       window = UPDATE_WINDOWS.fetch(attribute.window)
       row = window.fetch(attribute.parameter) { flunk "#{name}: #{attribute.parameter} is not in #{attribute.window}" }
@@ -443,7 +538,7 @@ class RegistrationTest < Minitest::Test
       [ "Eligibility", { "AGGPTTRI" => "123", "AGGPTELG" => "DIRECT ONLY" } ]
     ], sent_windows
     assert(update_calls.all? { |c| c[:params][1] == "42" })
-    rpcs = @mock.received_calls.map { |c| c[:rpc] }
+    rpcs = @mock.received_calls.map { |c| c[:rpc] } - [ "AGG WINDOW DATA VALIDATION" ]
     assert_equal "AGG LOCK PATIENT", rpcs.first
     assert_equal "AGG UNLOCK PATIENT", rpcs.last
     assert(@mock.received_calls.all? { |c| c[:context] == Agg::CONTEXT || c[:rpc] !~ /\AAGG/ })
@@ -457,6 +552,18 @@ class RegistrationTest < Minitest::Test
     Reg.update(42, phone_work: "406-555-0199")
 
     assert_equal [ [ "Address", { "AGGPTWPH" => "406-555-0199" } ] ], sent_windows
+  end
+
+  # rpms-ux S-REG-07.1: the tribal standing goes in one Eligibility window call.
+  def test_update_sends_quantums_and_enrollment_number_on_the_eligibility_window
+    seed_lock
+    seed_window(Reg::WINDOW_ELIGIBILITY)
+
+    Reg.update(42, tribe: "532", classification: "2", eligibility_status: "c", blood_quantum: "1/2",
+                   tribe_quantum: "1/4", enrollment_number: "ZZ4901")
+
+    assert_equal [ [ "Eligibility", { "AGGPTTRI" => "532", "AGGPTCLB" => "2", "AGGPTELG" => "C", "AGGPTBLQ" => "1/2",
+                                      "AGGPTTRQ" => "1/4", "AGGPTTEN" => "ZZ4901" } ] ], sent_windows
   end
 
   # UPD re-converts AGGPTCDT before every later parameter (AGGPTUPD.m:61);
@@ -615,5 +722,130 @@ class RegistrationTest < Minitest::Test
     checked = agg_calls("AGG WINDOW DATA VALIDATION").map { |c| c[:params][1].split("=").first }
     refute_includes checked, "AGGNOSSN"
     assert_empty agg_calls("AGG ADD NEW PATIENT")
+  end
+  # ==========================================================================
+  # Keeping a registered patient current (rpms-ux S-REG-20, S-REG-21)
+  # ==========================================================================
+
+  def validation_calls
+    agg_calls("AGG WINDOW DATA VALIDATION").map { |c| c[:params] }
+  end
+
+  # S-REG-20.1: the Personal Detail parameters AG files for religion, employer
+  # and employment status (#9009068.3 entry 1, parameters 20, 17, 18).
+  def test_update_files_religion_employer_and_employment_status_through_personal_detail
+    seed_lock
+    seed_window(Reg::WINDOW_PERSONAL_DETAIL)
+
+    result = Reg.update(42, religion: "1", employer: "1", employment_status: "full-time", marital_status: "2")
+
+    assert_equal({ success: true, dfn: 42 }, result)
+    assert_equal [ [ "Personal Detail", { "AGGPTRLG" => "1", "AGGPTEPL" => "1", "AGGEMSTS" => "FULL-TIME", "AGGPTMAR" => "2" } ] ],
+                 sent_windows
+  end
+
+  # S-REG-20.10: the name is PTNAME, #2 .01, checked first by AG's name rule.
+  def test_update_files_a_corrected_name_after_ags_name_check
+    seed_lock
+    seed_window(Reg::WINDOW_PERSONAL_DETAIL)
+
+    assert Reg.update(42, name: " demopatient,una ")[:success]
+
+    assert_equal [ [ "Personal Detail", { "PTNAME" => "DEMOPATIENT,UNA" } ] ], sent_windows
+    assert_equal [ [ "Aliases", "AGGPTALS=DEMOPATIENT,UNA\x1cDFN=42" ] ], validation_calls
+  end
+
+  def test_update_refuses_a_name_ag_refuses_and_files_nothing
+    seed_validation("-1^Name does not contain a comma^^^^\x1e", window: "Aliases")
+
+    result = Reg.update(42, name: "DEMOPATIENT UNA")
+
+    assert_equal({ success: false, error: :agg_invalid, field: :name, message: "Name does not contain a comma" }, result)
+    assert_empty update_calls
+    refute_includes @mock.received_calls.map { |c| c[:rpc] }, "AGG LOCK PATIENT"
+  end
+
+  # S-REG-20.7: SSN^AGGWVAL with the patient's DFN refuses another patient's number.
+  def test_update_refuses_an_ssn_on_another_patient_with_ags_message
+    seed_validation("-1^SSN already used by another patient.^^^^\x1e", window: "Personal Detail")
+
+    result = Reg.update(42, ssn: "666-01-0101", phone_home: "406-555-0101")
+
+    assert_equal({ success: false, error: :agg_invalid, field: :ssn, message: "SSN already used by another patient." }, result)
+    assert_equal [ [ "Personal Detail", "AGGPTSSN=666010101\x1cDFN=42" ] ], validation_calls
+    assert_empty update_calls
+  end
+
+  def test_update_checks_dob_and_zip_in_their_windows
+    seed_lock
+    seed_window(Reg::WINDOW_PERSONAL_DETAIL)
+    seed_window(Reg::WINDOW_ADDRESS)
+
+    Reg.update(42, dob: Date.new(1990, 1, 2), zip: "59000", city: "ANYWHERE")
+
+    assert_equal [ [ "Personal Detail", "AGGPTDOB=01/02/1990\x1cDFN=42" ], [ "Address", "AGGPTZIP=59000\x1cDFN=42" ] ],
+                 validation_calls
+  end
+
+  def test_update_fails_closed_when_a_check_gives_no_answer
+    seed_validation("", window: "Address")
+
+    result = Reg.update(42, zip: "59000")
+
+    assert_equal :validation_unavailable, result[:error]
+    assert_equal :zip, result[:field]
+    assert_empty update_calls
+  end
+
+  # UPD would file "@" for an empty value, deleting the field.
+  def test_update_refuses_to_clear_name_sex_or_dob_before_sending
+    %i[name sex dob].each do |attribute|
+      assert_raises(ArgumentError) { Reg.update(42, attribute => "") }
+    end
+    assert_empty @mock.received_calls
+  end
+
+  DISPLAY_PERSONAL = "5\x00T00035AGGPTLNM^T00025AGGPTFNM^T00025AGGPTMNM^T00010AGGPTSFX^T00030PTNAME^T00009AGGPTSSN^" \
+                     "T00020AGGNOSSN^D00015AGGPTDOB^T00006AGGPTSEX^T00030AGGPTMAR^T00033AGGPTSSV^T00009AGGPTHRN^" \
+                     "T00020AGGPTPBC^T00035AGGPTPBS^T00020AGGPTMPI^T00010AGGAGE^T00060AGGPTEPL^T00030AGGEMSTS^" \
+                     "I00010DFN^T00040AGGPTRLG\x1eEMBER^AVERY^^^EMBER,AVERY^666321031^^MAR 15,1997^F\x1cFEMALE^2\x1cMARRIED^" \
+                     "Pending Verification^990031^^\x1c^^29 YRS^1\x1cNEW PERSON EMPLOYER^1\x1cFULL-TIME^^1\x1cCATHOLIC\x1e"
+  DISPLAY_ADDRESS = "6\x00T00035AGGPTAD1^T00035AGGPTAD2^T00035AGGPTAD3^T00015AGGPTCTY^T00035AGGPTSTE^T00020AGGPTZIP^" \
+                    "T01024AGGPTHME^T00040AGGPTCOM^T00015AGGPTCDT^T00020AGGPTHPH^T00020AGGPTWPH^T00060AGGPTOPH^" \
+                    "T00050AGGCMCNY\x1e317 DUNEGRASS ST^^^ANYWHERE^27\x1cMONTANA^59000^^\x1c^^406-555-1031^^^\x1e"
+
+  def test_record_reads_ags_personal_detail_and_address_windows
+    @mock.seed(:agg_build_window_display, "Personal Detail", DISPLAY_PERSONAL)
+    @mock.seed(:agg_build_window_display, "Address", DISPLAY_ADDRESS)
+
+    record = Reg.record(990_031)
+
+    assert_equal "EMBER,AVERY", record[:name]
+    assert_equal Date.new(1997, 3, 15), record[:dob]
+    assert_equal({ internal: "F", external: "FEMALE" }, record[:sex])
+    assert_equal({ internal: "2", external: "MARRIED" }, record[:marital_status])
+    assert_equal({ internal: "1", external: "FULL-TIME" }, record[:employment_status])
+    assert_equal({ internal: "1", external: "CATHOLIC" }, record[:religion])
+    assert_nil record[:birth_state]
+    assert_equal "317 DUNEGRASS ST", record[:address_line1]
+    assert_equal({ internal: "27", external: "MONTANA" }, record[:state])
+    assert_nil record[:community]
+  end
+
+  def test_record_is_nil_for_no_patient_or_no_reply
+    assert_nil Reg.record(990_031)
+    @mock.seed(:agg_build_window_display, "Personal Detail", "7\x00T00030PTNAME\x1e")
+    @mock.seed(:agg_build_window_display, "Address", DISPLAY_ADDRESS)
+    assert_nil Reg.record(99_999_999)
+    assert_nil Reg.record(0)
+  end
+  # The marital status, religion, state and employer a clerk chooses from:
+  # LIST^DIC over each pointed-to file's "B" index, as Tribal lists tribes.
+  def test_pick_list_lists_the_pointed_to_file_by_name
+    key = RpmsRpc::DdrFileman.lister_param(file: "11", fields: "@;.01", part: "MA", xref: "B", max: "200").to_s
+    @mock.seed(:ddr_lister, key, "[Data]\n2^MARRIED")
+
+    assert_equal [ { ien: 2, name: "MARRIED" } ], Reg.pick_list(:marital_status, part: "MA")
+    assert_raises(ArgumentError) { Reg.pick_list(:tribe) }
   end
 end

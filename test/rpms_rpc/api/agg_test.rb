@@ -65,6 +65,27 @@ class AggTest < Minitest::Test
     assert_equal "MANDATORY", parsed[:records].last[:type]
   end
 
+  # BMX and XWB hand back an Array of lines, not a blob. BMX strips the $C(30)
+  # row separator and the $C(31) sentinel (split_bmx_reply); a line array built
+  # from the M nodes (BUSARPC.m:354,384; AGGPTNAM.m:13,49) keeps them. Both must
+  # parse like the blob; stringifying the Array is the defect.
+  def test_parse_reply_parses_a_line_array_with_separators_stripped
+    parsed = Agg.parse_reply([ "I00010RESULT^T00080MESSAGE^I00010DFN", "1^^9" ])
+
+    assert_equal %i[result message dfn], parsed[:header]
+    assert_equal [ { result: "1", message: "", dfn: "9" } ], parsed[:records]
+  end
+
+  def test_parse_reply_parses_a_line_array_with_separators_kept
+    parsed = Agg.parse_reply([ "I00010RESULT^T00080MESSAGE^I00010DFN#{RS}", "1^^9#{RS}", US ])
+
+    assert_equal [ { result: "1", message: "", dfn: "9" } ], parsed[:records]
+  end
+
+  def test_parse_reply_nil_on_empty_line_array
+    assert_nil Agg.parse_reply([])
+  end
+
   def test_parse_reply_nil_on_empty
     assert_nil Agg.parse_reply(nil)
     assert_nil Agg.parse_reply("")
@@ -146,6 +167,38 @@ class AggTest < Minitest::Test
     assert_equal [ Agg::NEW_PATIENT_WINDOW, "AGGPTSSN=123456789#{FS}AGGNOSSN=#{FS}DFN=" ], call[:params]
   end
 
+# -- AGG BUILD WINDOW DISPLAY (BLD^AGGWDISP) --------------------------------
+# Replies captured live on bcer-9.0-20261029-7c3119b-ydb as PROFILE,REG, for a
+# synthetic seed patient and for a DFN with no patient (header, no record).
+DISPLAY_PERSONAL = "5\x00T00035AGGPTLNM^T00025AGGPTFNM^T00025AGGPTMNM^T00010AGGPTSFX^T00030PTNAME^T00009AGGPTSSN^" \
+                   "T00020AGGNOSSN^D00015AGGPTDOB^T00006AGGPTSEX^T00030AGGPTMAR^T00033AGGPTSSV^T00009AGGPTHRN^" \
+                   "T00020AGGPTPBC^T00035AGGPTPBS^T00020AGGPTMPI^T00010AGGAGE^T00060AGGPTEPL^T00030AGGEMSTS^" \
+                   "I00010DFN^T00040AGGPTRLG\x1eEMBER^AVERY^^^EMBER,AVERY^666321031^^MAR 15,1997^F\x1cFEMALE^\x1c^" \
+                   "Pending Verification^990031^^\x1c^^29 YRS^\x1c^^^\x1c\x1e"
+DISPLAY_NO_PATIENT = "7\x00T00035AGGPTLNM^T00025AGGPTFNM\x1e"
+
+def test_window_values_reads_each_parameter_with_pointer_and_choice_pairs
+  @mock.seed(:agg_build_window_display, "Personal Detail", DISPLAY_PERSONAL)
+
+  values = Agg.window_values(window: "Personal Detail", dfn: 990_031)
+
+  assert_equal "EMBER,AVERY", values["PTNAME"]
+  assert_equal "MAR 15,1997", values["AGGPTDOB"]
+  assert_equal({ internal: "F", external: "FEMALE" }, values["AGGPTSEX"])
+  assert_equal({ internal: nil, external: nil }, values["AGGPTMAR"])
+  assert_equal "", values["AGGEMSTS"]
+  call = @mock.received_calls.find { |c| c[:rpc] == "AGG BUILD WINDOW DISPLAY" }
+  assert_equal [ "Personal Detail", "990031" ], call[:params]
+  assert_equal Agg::CONTEXT, call[:context] if call.key?(:context)
+end
+
+def test_window_values_for_no_patient_are_empty_and_no_reply_is_nil
+  @mock.seed(:agg_build_window_display, "Personal Detail", DISPLAY_NO_PATIENT)
+  assert_equal({ "AGGPTLNM" => "", "AGGPTFNM" => "" }, Agg.window_values(window: "Personal Detail", dfn: 1))
+
+  assert_nil Agg.window_values(window: "Address", dfn: 1)
+end
+
   def test_add_patient_nil_when_no_broker_response
     assert_nil Agg.add_patient(params: { "AGGPTLNM" => "PROBE" })
   end
@@ -174,6 +227,26 @@ class AggTest < Minitest::Test
     assert_equal :agg_rejected, result[:error]
     assert_match(/BAD FIELD/, result[:message])
   end
+
+# -- temporary_hrn ---------------------------------------------------------
+
+# GTMP^AGGPTHRN (AGGPTHRN.m:5-17): P1 = DFN; header T00010AGGPTHRN, then
+# the number.
+def test_temporary_hrn_reads_the_number_for_the_patient_under_aggrpc
+  @mock.seed(:agg_get_temp_pat_hrn, "9", "T00010AGGPTHRN#{RS}T00012#{RS}#{US}")
+
+  assert_equal "T00012", Agg.temporary_hrn(dfn: 9)
+  call = @mock.received_calls.find { |c| c[:rpc] == "AGG GET TEMP PAT HRN" }
+  assert_equal [ "9" ], call[:params]
+  assert_equal "AGGRPC", call[:context]
+end
+
+def test_temporary_hrn_nil_when_rpms_gives_no_number
+  assert_nil Agg.temporary_hrn(dfn: 9)
+
+  @mock.seed(:agg_get_temp_pat_hrn, "9", "T00010AGGPTHRN#{RS}#{US}")
+  assert_nil Agg.temporary_hrn(dfn: 9)
+end
 
   # -- edit_check ------------------------------------------------------------
 

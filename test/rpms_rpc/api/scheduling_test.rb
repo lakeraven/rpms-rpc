@@ -260,6 +260,71 @@ class SchedulingTest < Minitest::Test
     assert_nil RpmsRpc::Scheduling.checkin_appointment(501, checkin_time: START_T)
   end
 
+# ===========================================================================
+# UNDO CHECK-IN, CHECK-OUT, UNDO CHECK-OUT (rows as a live 7c3119b build
+# answered, 2026-11-03)
+# ===========================================================================
+
+def test_cancel_checkin_sends_at_sign_as_the_checkin_time
+  RpmsRpc.client.seed(:scheduling_checkin_appointment, "501", { error: "0" })
+
+  assert RpmsRpc::Scheduling.cancel_checkin(501)[:success]
+  call = RpmsRpc.client.received_calls.last
+  assert_equal "BSDX CHECKIN APPOINTMENT", call[:rpc]
+  assert_equal [ "501", "@", "", "", "", "", "", "" ], call[:params]
+end
+
+def test_cancel_checkin_live_rows
+  stub_broker_response([ "T00020ERRORID^T00150MESSAGE", "0^", "" ])
+  assert RpmsRpc::Scheduling.cancel_checkin(501)[:success]
+
+  stub_broker_response([ "T00020ERRORID^T00150MESSAGE", "Could not locate appointment in database or appointment is cancelled.", "" ])
+  result = RpmsRpc::Scheduling.cancel_checkin(501)
+  refute result[:success]
+  assert_match(/Could not locate appointment/, result[:error])
+end
+
+def test_checkout_appointment_sends_dfn_times_and_id_in_checkout_order
+  RpmsRpc.client.seed(:scheduling_checkout_appointment, "100", { error: "0" })
+
+  result = RpmsRpc::Scheduling.checkout_appointment(501, patient_dfn: 100, appointment_time: START_T, checkout_time: END_T)
+
+  assert result[:success]
+  call = RpmsRpc.client.received_calls.last
+  assert_equal "BSDX CHECKOUT APPOINTMENT", call[:rpc]
+  assert_equal [ "100", START_FM, END_FM, "501", "" ], call[:params]
+end
+
+def test_checkout_appointment_live_rows
+  stub_broker_response([ "T00020ERRORID", "0", "" ])
+  assert RpmsRpc::Scheduling.checkout_appointment(501, patient_dfn: 3, appointment_time: START_T, checkout_time: END_T)[:success]
+
+  [ "BSDX25B: Patient not checked in", "Check Out time cannot be in the future.",
+    "Check Out time must be at least 1 minute after the Check In time of Nov 03, 2026 09:10." ].each do |reason|
+    stub_broker_response([ "T00020ERRORID", reason, "" ])
+    result = RpmsRpc::Scheduling.checkout_appointment(501, patient_dfn: 3, appointment_time: START_T, checkout_time: END_T)
+    refute result[:success], reason
+    assert_equal reason, result[:error]
+  end
+end
+
+def test_cancel_checkout_live_rows
+  RpmsRpc.client.seed(:scheduling_cancel_checkout, "501", { error: "0" })
+  assert RpmsRpc::Scheduling.cancel_checkout(501)[:success]
+  assert_equal [ "BSDX CANCEL CHECKOUT APPT", [ "501" ] ], RpmsRpc.client.received_calls.last.values_at(:rpc, :params)
+
+  stub_broker_response([ "T00020ERRORID", "Appointment is not Checked Out.", "" ])
+  result = RpmsRpc::Scheduling.cancel_checkout(501)
+  refute result[:success]
+  assert_equal "Appointment is not Checked Out.", result[:error]
+end
+
+def test_checkout_writes_return_nil_when_unreachable
+  assert_nil RpmsRpc::Scheduling.cancel_checkin(501)
+  assert_nil RpmsRpc::Scheduling.checkout_appointment(501, patient_dfn: 3, appointment_time: START_T, checkout_time: END_T)
+  assert_nil RpmsRpc::Scheduling.cancel_checkout(501)
+end
+
   # ===========================================================================
   # NO-SHOW (INVERTED polarity: result 1 == success)
   # ===========================================================================
@@ -594,9 +659,13 @@ class SchedulingTest < Minitest::Test
     mock.seed_raw_lines(:scheduling_clinic_setup, "",
                         bsdx_fetch_many_header_only_lines(CLINIC_SETUP_HEADER))
     seed_mock_global_array!(mock, "BSDX RESOURCES", "", RESOURCES_RECORDSET_HEADER)
+    seed_mock_global_array!(mock, "BSDX RESOURCES BY USER", "", RESOURCES_RECORDSET_HEADER)
     seed_mock_global_array!(mock, "BSDX CREATE ASGND SLOT SCHED", resource, SLOTS_RECORDSET_HEADER)
     seed_mock_global_array!(mock, "BSDX CREATE APPT SCHEDULE", resource, APPTS_RECORDSET_HEADER)
     seed_mock_global_array!(mock, "BSDX PATIENT APPT DISPLAY", "100", PATIENT_APPTS_RECORDSET_HEADER)
+    # BSDX OVERBOOK always answers one row; a header alone is a failed read.
+    seed_mock_global_array!(mock, "BSDX OVERBOOK", "44", "T00020OVERBOOK\x1eYES")
+    seed_mock_global_array!(mock, "BSDX CLINIC VAR APPT", "44", "I00020VAR_APPT_FLAG\x1e1")
   end
 
   BSDX_CALLS = {
@@ -605,6 +674,9 @@ class SchedulingTest < Minitest::Test
     cancel_appointment: [ 501, { reason: 3 } ],
     uncancel_appointment: [ 501 ],
     checkin_appointment: [ 501, { checkin_time: START_T } ],
+    cancel_checkin: [ 501 ],
+    checkout_appointment: [ 501, { patient_dfn: 100, appointment_time: START_T, checkout_time: END_T } ],
+    cancel_checkout: [ 501 ],
     mark_no_show: [ 501 ],
     patient_appointments: [ 100 ],
     availability: [ { resources: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],
@@ -612,15 +684,48 @@ class SchedulingTest < Minitest::Test
     hospital_locations: [],
     clinic_setup: [],
     resources: [],
+    resources_by_user: [],
     appointments: [ { resource: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],
-    slot_schedule: [ { resource: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ]
+    slot_schedule: [ { resource: "PEDIATRICIAN,DEMO", start_date: START_T, end_date: END_T } ],
+    add_availability: [ { resource: "PEDIATRICIAN,DEMO", start_time: START_T, end_time: END_T, slots: 1,
+                          access_type_id: 1 } ],
+    cancel_availability_by_date: [ { resource_id: 7, start_date: START_T, end_date: END_T } ],
+    overbook_allowed: [ { hospital_location_id: 44, start_time: START_T, resource_id: 7 } ],
+    edit_appointment: [ 501, { note: "follow-up", length_minutes: 30 } ],
+    variable_length?: [ 44 ]
+  }.freeze
+
+  # BEHOENCX FETCH is not a BSDX RPC. The pinned build serves it only
+  # from CIAV VUECENTRIC, so checkin_visit is not in BSDX_CALLS.
+  FETCH_CALLS = {
+    checkin_visit: [ { dfn: 990_031, clinic_ien: 44, checkin_time: START_T } ]
   }.freeze
 
   def test_the_bind_table_names_every_public_method
     expected = RpmsRpc::Scheduling.public_instance_methods(false).sort
 
-    assert_equal expected, BSDX_CALLS.keys.sort,
-      "a new Scheduling method must be added to BSDX_CALLS so its context bind is proven"
+    assert_equal expected, (BSDX_CALLS.keys + FETCH_CALLS.keys).sort,
+      "a new Scheduling method must be added to BSDX_CALLS or FETCH_CALLS so its context bind is proven"
+  end
+
+  def test_checkin_visit_runs_under_ciav_vuecentric_and_restores_the_callers_context
+    FETCH_CALLS.each do |method, args|
+      mock = RpmsRpc.mock!
+      caller_context = mock.current_context
+      keywords = args.find { |a| a.is_a?(Hash) } || {}
+
+      RpmsRpc::Scheduling.public_send(method, **keywords)
+
+      calls = mock.received_calls
+      refute_empty calls, "#{method} made no RPC call"
+      calls.each do |call|
+        assert_equal "BEHOENCX FETCH", call[:rpc]
+        assert_equal "CIAV VUECENTRIC", call[:context],
+          "#{method} sent #{call[:rpc]} under #{call[:context].inspect}"
+      end
+      assert_equal caller_context, mock.current_context
+      assert_equal [ "CIAV VUECENTRIC", caller_context ], mock.context_binds
+    end
   end
 
   def test_every_bsdx_call_runs_under_bsdxrpc_and_restores_the_callers_context

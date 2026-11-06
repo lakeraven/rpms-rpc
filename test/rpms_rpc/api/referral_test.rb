@@ -163,6 +163,7 @@ class ReferralTest < Minitest::Test
   # the mock answers "" and still records the call with its context.
   BMC_CALLS = {
     for_patient: [ DFN ],
+    pending: [ { from: Date.new(2001, 1, 1), to: Date.new(2001, 1, 31) } ],
     find: [ "3001" ],
     cancel: [ "3001" ],
     add: [ DFN, "44" ],
@@ -197,7 +198,8 @@ class ReferralTest < Minitest::Test
       mock = RpmsRpc.mock!
       caller_context = mock.current_context
 
-      RpmsRpc::Referral.public_send(method, *args)
+      *positional, keywords = args.last.is_a?(Hash) ? args : [ *args, {} ]
+      RpmsRpc::Referral.public_send(method, *positional, **keywords)
 
       calls = mock.received_calls
       refute_empty calls, "#{method} made no RPC call"

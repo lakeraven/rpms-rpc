@@ -32,6 +32,31 @@ return format.
 - `XWB CREATE CONTEXT` is sent the option name through the same
   cipher and gates whether RPCs in that context can be invoked.
 
+## Stock RPCs (#420)
+
+Verified against the RPMS 9.0 YDB standup routines in rpms-ops
+`data/standup/bcer-9.0-ydb/r/` (working tree `d37932d`; the pin commit
+`e7923a47` does not store the routine files). Formal lists and context
+options are the pinned inventory `bcer-9.0-20261012-e7923a4-ydb`
+(`rpc_signatures.txt`, `rpc_reach.txt`, and `rpcs.json` parameters whose
+source is `formals`). The unit fixtures for these wrappers are synthetic.
+They are not live captures (ADR 0003).
+
+| RPC name | Routine / Tag | Params | Return | Status |
+|----------|---------------|--------|--------|--------|
+| `AGG CHECK SENSITIVE PATIENT` | `CHK^AGGPTSEN` | DFN | Header `T00001SENSITIVE_INDICATOR`, one row 0/1/2 (`AGGPTSEN.m:7`, `:29-31`). `SENS^DGSEC4` (`AGGPTSEN.m:30`) audits the lookup only when `DI AUDIT PATIENT LOOKUPS` is set (`DGSEC4.m:178`); it does not write the DG SECURITY LOG (`SETLOG1`, `DGSEC4.m:65`, is in `PTSEC`, after `SENS` returns). A non-canonical DFN raises before the call. Option `AGGRPC`. | verified |
+| `AGG SEND SENSITIVE NOTIFY` | `NOT^AGGPTSEN` | DFN | Header `I00010RESULT`, one row from `NOTICE^DGSEC4` (`AGGPTSEN.m:43`, `:58-60`). The logged option is hardcoded in the routine. A non-canonical DFN raises before the call. Option `AGGRPC`. | verified |
+| `AGG ERROR SCREEN` | `FND^AGGEDCHK` | ERRNUM (`""` lists every error) | Header `I00010ERROR_NUM^T00030WINDOW^T00008FIELD` then `$C(31)` (`AGGEDCHK.m:53-68`). `FER`'s data-row write is commented out (`AGGEDCHK.m:77`), so this pin returns the header only. A data row is still parsed when present. Option `AGGRPC`. | verified |
+| `BGU MAILMAN MESSAGE` | `EN^BGUMAIL` | body, subject, Mailman group | `EN^BGUMAIL` sets `BGUARRAY(1)=1` and `BGUARRAY(2)="OK"` unconditionally after `D ^XMD` (`BGUMAIL.m:5-6`), so a nonexistent group still answers 1/OK. `success: true` means the routine ran, not that the group exists or that mail was delivered. Body lines split on `$C(175)` (`BGUMAIL.m:11`). Option `CIAV VUECENTRIC`. | verified |
+| `BUSA LOG SECURITY AUDIT ENTRY` | `RPC^BUSARPC` | one pipe parameter `CAT\|ACTION\|CALL\|DESC\|DETAIL` | Header `I00001RESULT^T00250ERROR_MESSAGE` (`BUSARPC.m:304`, `:354`, `:363-367`). Missing `DUZ` is `0^DUZ is not defined` (`BUSARPC.m:359`). Option `BUSARPC`. | verified |
+| `DG SENSITIVE RECORD ACCESS` | `PTSEC^DGSEC4` | DFN, DGMSG, DGOPT | Return type 2 (ARRAY): `RESULT(1)` is the first line and `RESULT(2+)` the following lines, no typed header (`DGSEC4.m:13-66`). The code is -1..4 in the #8994 text and also 5 for restricted access (`DGSEC4.m:43-46`, PATCH 1008). The call writes a DG SECURITY LOG entry (`DGSEC4.m:65`). Blank DFN is `-1` / `Required variable missing.` (`DGSEC4.m:36-38`) and is refused before the call. Any other non-canonical DFN is `-1` / `DFN must be a positive integer.` and sends nothing. Options: `OR CPRS GUI CHART`, `SCMC PCMM GUI WORKSTATION`, `PSB GUI CONTEXT - USER`, `ORRCMC DASHBOARD`. Those options can be bound from a CIAV VUECENTRIC session; the wrapper scopes `OR CPRS GUI CHART`. | verified |
+| `DG SENSITIVE RECORD BULLETIN` | `NOTICE^DGSEC4` | DFN, DGOPT, ACTION | Single value `1` or `0` (`DGSEC4.m:67-83`). A non-canonical DFN raises before the call. Same four options as the access RPC. | verified |
+| `ORWU DT` | `DT^ORWU` | X, `%DT` (default `TS`) | FileMan Y from `^%DT`, or `-1` (`ORWU.m:4-7`). `-1` is not a datetime. Option `CIAV VUECENTRIC`. | verified |
+| `BSDX RESOURCES BY USER` | `RESUSR^BSDX01` | DUZ (`""` uses the signed-on user, `BSDX01.m:113`) | Same resource columns as `BSDX RESOURCES` (`BSDX01.m:100-112`). Option `BSDXRPC`. | verified |
+| `BSDX CHECKIN APPOINTMENT` | `CHECKIN^BSDX25` | The pinned tag declares eleven client formals after return formal `BSDXY`: APTID, CDT, CC, PRV, ROU, VCL, VFM, OG, CR, PCC, WHF. The wrapper sends 8: APTID, CDT, CC, PRV and four empty strings (proven live in #615). Do not raise it to 11: FOIA's tag stops at `BSDXOG` and a longer list faults there; the extra three are `$G`-guarded on the pinned build | Recordset `ERRORID^MESSAGE`. Success row `0^` message (`BSDX25.m:12`, `:74`). FOIA `BSDX25.m:12` stops at `BSDXOG` (nine formals). Option `BSDXRPC`. | verified |
+| `BEHOENCX GETVISIT` | `GETVISIT^BEHOENCX` | visit IEN | `LOC^VDT^SVC^PAT^VID^LOCKED` (`BEHOENCX.m:8-14`). Empty when the IEN is not a visit. Option `CIAV VUECENTRIC` (not `BSDXRPC`). Used by `RpmsRpc::Encounter`. | verified |
+| `BEHOENCX FETCH` | `FETCH^BEHOENCX` | DFN, VSTR `LOC;VDT;SVC`, PRV, CREATE | `Scheduling.checkin_visit` sends CREATE=0 only (`VSTR2VIS`/`FNDVIS` with `NEVER ADD`, `BEHOENCX.m:24-47`, `:80`), so it never creates a visit. It returns the closest visit for that patient, clinic and service category `A` within +/-60 minutes of the time (ties to the lowest IEN; the caller is not told several matched; a provider session's first pass is restricted to its own visits, `BEHOENCX.m:36,108`, so the caller can change which wins). nil means no category-A visit at that clinic within 60 minutes, not that the check-in made none: `BSDX25.m:113-117` files VISIT TYPE and SERVICE CATEGORY from file 9001001.2 fields .11/.12 (`A` is only the blank fallback) and `:110` checks in with TIME RANGE=-1, so a site with other parameters, or a visit outside the window, does not resolve; a visit owned by another patient is refused (`BEHOENCX.m:118`). Option `CIAV VUECENTRIC`. | verified |
+
 ## Conventions
 
 When new RPCs are added to the gem in downstream consumers
@@ -75,6 +100,33 @@ against M source per ADR 0002.
 >
 > Replacement response layouts derive from M source and the live DD; rows without
 > live captures are marked pending-capture at their mappings.
+
+## Behavioral Health writes (AMHGRPC)
+
+Read against `rpms-ops/data/standup/bcer-9.0-ydb/r/AMHGSVF.m` and
+`AMHGEVF.m`. Each RPC takes one pipe-delimited `AMHSTR` parameter and
+returns a two-row GLOBAL ARRAY: header `T00030Result` (visit save uses
+`T00010BMXIEN`), then the MHSS RECORD IEN or `0~<reason>` from `AMHER`.
+Wrappers run under broker option `AMHGRPC`.
+
+`AMHG SAVE SCREENING` and `AMHG SAVE MEASUREMENTS` are wrapped by
+`BehavioralHealth::Wellness` (#540). `BehavioralHealth.save_health_factors`
+(#525) is the health-factor save. The live spec
+`test/live/behavioral_health_save_health_factors_live_test.rb` is written
+but has not been run against a live rung. No row below has a captured live
+reply in this repository, so every row is pending-capture; the layouts are
+read from the M source.
+
+| RPC name | Routine / Tag | Params | Return | Status |
+|----------|---------------|--------|--------|--------|
+| `AMHG SAVE VISIT` | `VISIT^AMHGSVF` | `AMHSTR` (16 pieces in total: DM, REC and pieces 3-16) | `T00010BMXIEN` + IEN | pending-capture |
+| `AMHG SAVE POV` | `POV^AMHGSVF` | `AMHSTR` (8 pieces) | `T00030Result` + IEN or error | pending-capture |
+| `AMHG SAVE PROGRESS NOTES` | `PN^AMHGSVF` | `AMHSTR` (8 pieces; mode always `E`) | `T00030Result` + IEN or error | pending-capture |
+| `AMHG SAVE SCREENING` | `SCREEN^AMHGSVF` | `AMHSTR` (19 pieces) | `T00030Result` + IEN or error | pending-capture |
+| `AMHG SAVE HEALTH FACTORS` | `HF^AMHGSVF` | `AMHSTR` (4 pieces; piece 3 is `*`-joined HF items) | `T00030Result` + IEN or error | pending-capture |
+| `AMHG SAVE MEASUREMENTS` | `MSR^AMHGSVF` | `AMHSTR` (4 pieces; piece 3 is `*`-joined MSR items) | `T00030Result` + IEN or error | pending-capture |
+
+Piece layouts and filer tags are summarized in [bh_save_rpcs.md](bh_save_rpcs.md).
 
 ## See also
 

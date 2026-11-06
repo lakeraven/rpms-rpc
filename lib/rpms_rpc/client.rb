@@ -42,6 +42,10 @@ module RpmsRpc
     # working, but callers can distinguish "credential misconfigured"
     # from "credential rejected by broker".
     class CredentialError < AuthenticationError; end
+    # RPMS accepted the codes, but the user may not use the context sign-on
+    # binds, so a host can say that instead of asking for their codes again
+    # (#501). Subclass of AuthenticationError: sign-on still fails closed.
+    class ContextRefusedError < AuthenticationError; end
     class RpcError < Error; end
     # A request cannot be put on the wire within the protocol's framing limits,
     # so nothing was sent and the connection is untouched (#472). XWB and BMX
@@ -512,14 +516,31 @@ module RpmsRpc
     # bound option then disagreed, and a later with_context for the stale
     # name saw a match and SKIPPED the rebind — RPCs ran under the other
     # thread's option. Same defect class as committing @duz after the lock.
+    #
+    # Once "Not connected" and "Not authenticated" have passed, the old name
+    # is dropped (@current_context = nil) before the CREATE CONTEXT frame is
+    # sent, and option_name is stored only after the reply is "1". Any
+    # exception after that point — RpcError from a refusal, a timeout, an
+    # interrupt — leaves it nil, still under this lock. There is no rescue:
+    # clearing only StandardError kept the old name when the frame had
+    # already gone out. CRCONTXT^XWBSEC kills XQY0 and XQY before it answers,
+    # so the session has no context; keeping the old name would make a later
+    # with_context for that name skip the rebind. current_context equals the
+    # previous name after a failed bind only when nothing was sent.
+    # ContextScope#with_context then re-binds the caller's previous context
+    # (scope entry or nested). If that restore is refused too,
+    # current_context stays nil. XwbClient and BmxClient use this method.
+    # CiaClient binds on the client and does not share this path.
     def create_context(option_name = "OR CPRS GUI CHART")
       synchronize_wire do
         raise ConnectionError, "Not connected" unless connected?
         raise AuthenticationError, "Not authenticated" unless authenticated?
 
         encrypted = xwb_encrypt(option_name)
+        # Unknown until the reply is "1". The frame is about to be sent, so
+        # any exception from here on must not leave the previous name.
+        @current_context = nil
         reply = call_rpc_raw("XWB CREATE CONTEXT", encrypted)
-
         unless reply&.strip == "1"
           raise RpcError, RpmsRpc.sanitize_error(
             "Failed to create context '#{option_name}': #{reply}"
@@ -793,16 +814,44 @@ module RpmsRpc
       end
     end
 
-    # Split response string into array of lines (gateway convention)
+    # Split response string into lines (gateway convention).
+    #
+    # One trailing terminator (CRLF, or the LF/CR that String#chomp("\n")
+    # removes) is the end of the reply and is dropped. A second trailing
+    # terminator is left in place and the reply is marked altered, the same
+    # way CiaClient marks a drop that is not the single final row break
+    # (Reply.altered? via an altered line index). A string with no
+    # terminator, including an empty string, is unchanged.
     def split_response(response)
-      response.chomp!("\r\n")
-      response.chomp!("\n")
-      if response.include?("\r\n")
-        response.split("\r\n", -1)
-      elsif response.include?("\n")
-        response.split("\n", -1)
+      text = response.dup
+      drop_one_terminator!(text)
+      lines = split_response_lines(text)
+      return lines unless trailing_terminator?(text)
+
+      Reply.from_wire(lines, altered: [ lines.empty? ? 0 : lines.length - 1 ])
+    end
+
+    def drop_one_terminator!(text)
+      return unless trailing_terminator?(text)
+
+      if text.end_with?("\r\n")
+        text.delete_suffix!("\r\n")
       else
-        response.empty? ? [] : [ response ]
+        text.chomp!("\n")
+      end
+    end
+
+    def trailing_terminator?(text)
+      text.end_with?("\n") || text.end_with?("\r")
+    end
+
+    def split_response_lines(text)
+      if text.include?("\r\n")
+        text.split("\r\n", -1)
+      elsif text.include?("\n")
+        text.split("\n", -1)
+      else
+        text.empty? ? [] : [ text ]
       end
     end
   end

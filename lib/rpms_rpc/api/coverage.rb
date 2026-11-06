@@ -83,6 +83,7 @@ module RpmsRpc
     MEDICARE_FILE = "9000003"
     MEDICARE_ELIGIBILITY_FILE = "9000003.11"
     MEDICAID_FILE = "9000004"
+    PRIVATE_ELIGIBILITY_FILE = "9000006.11"
 
     # PARMS names for each window. RIEN and MIEN are the positional IEN
     # arguments and are not allowed here. Type D names are calendar dates.
@@ -117,6 +118,35 @@ module RpmsRpc
     MEDICARE_RPC = "AGG UPDATE MEDICARE" # UPD^AGGUPMCR
     MEDICAID_RPC = "AGG UPDATE MEDICAID" # UPD^AGGUPMCD
     BQI_RPC = "BQI PATIENT INSURANCE" # GET^BQIPTINS
+
+    # AG's own reads of a patient's coverage: the RPCs the AG registration
+    # client fills its Medicaid, Medicare and Private Insurance windows with.
+    WINDOW_MANY_RPC = "AGG BUILD WINDOW MANY"         # MANY^AGGPTDMG
+    WINDOW_DISPLAY_RPC = "AGG BUILD WINDOW DISPLAY"   # BLD^AGGWDISP
+    WINDOW_MULTIPLE_RPC = "AGG BUILD WINDOW MULTIPLE" # MUL^AGGPTDMG
+    PRIVATE_RPC = "AGG UPDATE PRIVATE INSUR"          # UPD^AGGUPPVT
+    INSURERS_RPC = "AGG GET INSURANCE DATA"           # GET^AGGINSUR
+
+    PRIVATE_INSURANCE_WINDOW = "Private Insurance" # IEN 14, file 9000006.11 (read)
+    # Each window's eligibility rows sit under node 11 of their record
+    # (^AUPNMCD(RIEN,11), ^AUPNMCR(DFN,11), ^AUPNPRVT(DFN,11)).
+    ELIGIBILITY_NODE = "11"
+
+    # "Insurance Edit" (IEN 45) parameters add_private_insurance sends (the
+    # window's "AC" index; AGGUPPVT.m PARS). AGGPIINS and AGGPIREL are IENs.
+    PRIVATE_FIELDS = %w[
+      AGGPIINS AGGPIHLN AGGPINUM AGGPIMBN AGGPIREL AGGPIESD AGGPIEED AGGPHESD AGGPHEED
+    ].freeze
+    PRIVATE_DATE_FIELDS = %w[AGGPIESD AGGPIEED AGGPHESD AGGPHEED].freeze
+
+    # Medicare coverage types, as the Medicare Eligibility window's choices name them.
+    MEDICARE_PARTS = { "A" => "PART A", "B" => "PART B", "D" => "PART D" }.freeze
+
+    # AG's display of a date: "JAN 1,2026" ($$FMTE^AGGUL1).
+    AG_DATE = /\A[A-Z]{3} \d{1,2},\d{4}\z/
+    # AG's in-force answer for a record (MCDACT/MCRACT/PVTACT^AGGARVAL):
+    # some eligibility row covers today.
+    ACTIVE = "ACTIVE"
 
     PARM_DELIM = "\x1c" # $C(28)
     RECORD_SEP = "\x1e" # $C(30)
@@ -197,14 +227,20 @@ module RpmsRpc
     # rien and mien come from the eligibility reply (pieces 3 and 4). A blank
     # or non-positive mien is failure. The header is never deleted from here:
     # an eligibility failure leaves it and reports header_left.
-    def add_medicare(dfn, roi_on:, name:, number:, suffix: nil, effective_on:, client: RpmsRpc.client)
+    #
+    # ends_on: (MM/DD/YYYY) files the eligibility end date (#9000003.11 .02)
+    # and part: the coverage type (.03: A, B or D), both on the same row.
+    # roi_on: (the release-of-information date, #9000001 .04) is sent only
+    # when given: a clerk recording a Medicare card has not always taken one.
+    def add_medicare(dfn, name:, number:, effective_on:, roi_on: nil, suffix: nil, ends_on: nil, part: nil,
+                     client: RpmsRpc.client)
       header_params = {
         "AGGMCROI" => roi_on,
         "AGGMCNME" => name,
         "AGGMCNUM" => number,
         "AGGMCSUF" => suffix
-      }
-      eligibility_params = { "AGGMCESD" => effective_on }
+      }.compact
+      eligibility_params = { "AGGMCESD" => effective_on }.merge({ "AGGMCEED" => ends_on, "AGGMCCOV" => medicare_part(part) }.compact)
       validate_window_params!(MEDICARE_WINDOW, header_params)
       validate_window_params!(MEDICARE_ELIGIBILITY_WINDOW, eligibility_params)
       return nil unless canonical_dfn(dfn)
@@ -276,12 +312,21 @@ module RpmsRpc
     # sent. When the eligibility row does not file, the record IEN the header
     # step returned is deleted (PROC D) without a read-back; it is the IEN
     # this call was just handed, not one the caller supplied.
-    def add_medicaid(dfn, effective_on:, coverage: "FULL", client: RpmsRpc.client)
-      eligibility_params = { "AGGMDESD" => effective_on, "AGGMDECV" => coverage }
+    #
+    # number: is the Medicaid number (#9000004 .03) and state_ien: the STATE
+    # (#5) IEN the number was issued by (.04); both file on the record, in the
+    # header step. ends_on: (MM/DD/YYYY) is the eligibility end date (.02 of
+    # the row). AG files the insurer itself (MEDICAID, AGGUPMCD.m MCD).
+    def add_medicaid(dfn, effective_on:, ends_on: nil, coverage: "FULL", number: nil, state_ien: nil,
+                     client: RpmsRpc.client)
+      header_params = { "AGGMDNUM" => number, "AGGMDSTE" => state_ien && positive_ien!(state_ien, "state_ien") }
+                      .compact
+      eligibility_params = { "AGGMDESD" => effective_on }.merge({ "AGGMDEED" => ends_on, "AGGMDECV" => coverage }.compact)
+      validate_window_params!(MEDICAID_WINDOW, header_params)
       validate_window_params!(MEDICAID_ELIGIBILITY_WINDOW, eligibility_params)
       return nil unless canonical_dfn(dfn)
 
-      header = medicaid_update(dfn, proc: "A", definition: MEDICAID_WINDOW, client: client)
+      header = medicaid_update(dfn, proc: "A", definition: MEDICAID_WINDOW, params: header_params, client: client)
       return header unless header && header[:success]
 
       record = header[:record_ien].to_s
@@ -324,6 +369,151 @@ module RpmsRpc
     shape :delete_medicaid, resource: "coverages", verb: "DELETE",
           path: "/patients/{dfn}/coverages/records/{record_ien}/medicaid"
 
+    # The patient's coverage as AG's registration windows show it: one
+    # entry per Medicaid record, Medicare record and private policy, each
+    # with its payer, member number, eligibility rows and AG's own
+    # active/inactive answer for today (MCDACT/MCRACT/PVTACT^AGGARVAL).
+    #
+    #   { medicaid: [{ record_ien:, payer:, number:, state:, active:,
+    #                  eligibility: [{ ien:, starts_on:, ends_on:, coverage: }] }],
+    #     medicare: [{ record_ien:, payer:, number:, suffix:, active:,
+    #                  eligibility: [{ ien:, starts_on:, ends_on:, coverage: }] }],
+    #     private:  [{ record_ien:, payer:, payer_ien:, number:, policy_holder:,
+    #                  starts_on:, ends_on:, active: }] }
+    #
+    # Dates are Date or nil. nil (never a partial answer) when the DFN is not
+    # a positive integer or any window read gives no reply in AG's typed form.
+    def on_file(dfn, client: RpmsRpc.client)
+      id = canonical_dfn(dfn)
+      return nil unless id
+
+      found = scoped(client, AGG_CONTEXT) do
+        medicaid = medicaid_on_file(id, client)
+        medicare = medicare_on_file(id, client)
+        private_rows = window_rows(client, WINDOW_MULTIPLE_RPC, PRIVATE_INSURANCE_WINDOW, ELIGIBILITY_NODE, id, "")
+        next nil if medicaid.nil? || medicare.nil? || private_rows.nil?
+
+        { medicaid: medicaid, medicare: medicare, private: private_rows }
+      end
+      return nil if found.nil?
+
+      policies = found[:private].map { |row| private_entry(row, id, client) }
+      return nil if policies.any?(&:nil?)
+
+      found.merge(private: policies)
+    end
+    shape :on_file, resource: "coverages", verb: "GET", path: "/patients/{dfn}/coverages/on-file"
+
+    # The insurers on file (#9999999.18) as AG lists them for its insurer
+    # pick: [{ ien:, name:, city:, state:, status:, type: }], or nil when
+    # the reply is not AG's typed list.
+    def insurers(client: RpmsRpc.client)
+      rows = scoped(client, AGG_CONTEXT) { typed_rows(call_array(client, INSURERS_RPC, "")) }
+      return nil if rows.nil?
+
+      rows.map do |row|
+        { ien: row["IEN"], name: row["NAME"], city: row["CITY"], state: row["STATE"],
+          status: row["STATUS"], type: row["TYPE"] }
+      end
+    end
+    shape :insurers, resource: "coverages", verb: "GET", path: "/coverages/insurers"
+
+    # A private policy through AG's "Insurance Edit" window (UPD^AGGUPPVT):
+    # the patient's #9000006.11 row for the insurer, with the member number
+    # (21) and eligibility dates (.06/.07), and its POLICY HOLDER (#9000003.1)
+    # found by name for that insurer or added (AGGUPPVT.m:46-59). The holder's
+    # effective and expiration dates (.17/.18) are sent too: AG's window shows
+    # those, and for a SELF member copies them onto the row (UPOL).
+    #
+    # Returns { success: true, record_ien:, policy_holder_ien: } or
+    # { success: false, error: :coverage_rejected, message: }; nil on no reply.
+    def add_private_insurance(dfn, insurer_ien:, policy_holder:, member_number:, effective_on:,
+                              policy_number: nil, ends_on: nil, relationship_ien: nil, client: RpmsRpc.client)
+      params = {
+        "AGGPIINS" => positive_ien!(insurer_ien, "insurer_ien"),
+        "AGGPIHLN" => policy_holder,
+        "AGGPINUM" => policy_number,
+        "AGGPIMBN" => member_number,
+        "AGGPIREL" => relationship_ien && positive_ien!(relationship_ien, "relationship_ien"),
+        "AGGPIESD" => effective_on,
+        "AGGPIEED" => ends_on,
+        "AGGPHESD" => effective_on,
+        "AGGPHEED" => ends_on
+      }.compact
+      validate_private_params!(params)
+      id = canonical_dfn(dfn)
+      return nil unless id
+
+      scoped(client, AGG_CONTEXT) do
+        finish_private(call_array(client, PRIVATE_RPC, "A", id, "", "", encode_params(params)))
+      end
+    end
+    shape :add_private_insurance, resource: "coverages", verb: "POST", path: "/patients/{dfn}/coverages/private-insurance"
+
+    # One #9000006.11 policy row for this patient. The child-first IENS
+    # "<record_ien>,<dfn>," is that patient's row; .01 is read on this
+    # client, flags "I", before anything is written. The read is :present
+    # when .01 is filed, :absent when FileMan errors or .01 is blank, and
+    # :unreadable when the broker does not answer. :unreadable is
+    # :verification_failed and sends no list and no write. :present
+    # proceeds to the filer. :absent runs one packed DDR LISTER of
+    # #9000006.11 with IENS ",<dfn>,", fields "@;.01", flags "IP",
+    # MAX "*", and XREF "#" (LIST^DIC walks the record numbers, not the
+    # B index, so a row missing from the B index is still listed and
+    # never read as absent). Confirmed gone (non-nil, error false, a
+    # data section, no MORE, and no entry whose IEN is the record) is
+    # :already_absent:
+    # { success: false, error: :already_absent, record_ien:,
+    # message: "private insurance <record> is not on file for patient <dfn>" }.
+    # Any other list is :verification_failed. Neither path sends DDR FILER.
+    # Absence alone never verifies; the positive list must confirm it.
+    # The delete goes through DDR FILER (one EDIT row, .01 = "@") under
+    # CIAV VUECENTRIC. AGG UPDATE PRIVATE INSUR PROC D is never sent:
+    # UPD^AGGUPPVT sets AGGUPD(FILE,IENS,.01)="@" before IENS is set
+    # (AGGUPPVT.m:36-39). After the filer reports success, the same packed
+    # list must be a positive answer whose entries do not include the
+    # record IEN. Still listed, or any other list, is :verification_failed.
+    # A FileMan error on the list is never absence. A filer refusal is
+    # :delete_failed. { success: true, record_ien: } when the row is
+    # confirmed gone.
+    def delete_private_insurance(dfn, record_ien:, client: RpmsRpc.client)
+      record = positive_ien!(record_ien, "record_ien")
+      id = canonical_dfn(dfn)
+      return nil unless id
+
+      case private_policy_status(record, id, client)
+      when :absent
+        listed = private_policy_rows(id, client)
+        return already_absent(record, id) if private_policy_confirmed_gone?(listed, record)
+
+        return verification_failed("private insurance #{record} could not be verified for patient #{id}",
+                                   record_ien: record)
+      when :unreadable
+        return verification_failed("private insurance #{record} could not be verified for patient #{id}",
+                                   record_ien: record)
+      end
+
+      filed = fileman_read(client) do
+        DdrFileman.filer(mode: "EDIT", rows: [
+          { file: PRIVATE_ELIGIBILITY_FILE, field: ".01", iens: "#{record},#{id},", value: "@" }
+        ])
+      end
+      unless filed.is_a?(Hash) && filed[:success]
+        message = filed.is_a?(Hash) ? Array(filed[:errors]).join("\n") : "DDR FILER gave no reply"
+        return { success: false, error: :delete_failed, message: message, record_ien: record }
+      end
+
+      listed = private_policy_rows(id, client)
+      unless private_policy_confirmed_gone?(listed, record)
+        return verification_failed("private insurance #{record} for patient #{id} could not be confirmed deleted",
+                                   record_ien: record)
+      end
+
+      { success: true, record_ien: record }
+    end
+    shape :delete_private_insurance, resource: "coverages", verb: "DELETE",
+          path: "/patients/{dfn}/coverages/records/{record_ien}/private-insurance"
+
     # $C(28)-delimited NAME=VALUE, the PARMS string both AGG updates take.
     # nil values are dropped. "=", "OVERRIDE" (any case), a caret, $C(28),
     # or another ASCII control in a name or a value is refused — nothing is sent.
@@ -333,6 +523,146 @@ module RpmsRpc
     end
 
     private
+
+    def medicare_part(part)
+      return nil if part.nil?
+
+      MEDICARE_PARTS.fetch(part.to_s.strip.upcase.delete_prefix("PART ")) do
+        raise ArgumentError, "part must be A, B or D"
+      end
+    end
+
+    def validate_private_params!(params)
+      %w[AGGPIHLN AGGPIMBN AGGPIESD].each do |key|
+        raise ArgumentError, "#{key} is required" if params[key].to_s.strip.empty?
+      end
+      params.each do |key, value|
+        raise ArgumentError, "unknown private insurance parameter #{key}" unless PRIVATE_FIELDS.include?(key)
+
+        text = wire!(value)
+        if PRIVATE_DATE_FIELDS.include?(key) && !calendar_date?(text)
+          raise ArgumentError, "#{key} must be a real MM/DD/YYYY date"
+        end
+      end
+    end
+
+    def finish_private(raw)
+      row = result_pieces(raw)
+      return nil if row.nil?
+      if row == :header_only
+        return { success: false, error: :coverage_empty_reply, message: "coverage reply carried no data record" }
+      end
+
+      result, message, record_ien, holder_ien = row
+      return { success: false, error: :coverage_rejected, message: message.to_s } unless result == "1"
+
+      { success: true, error: nil, record_ien: record_ien.to_s, policy_holder_ien: holder_ien.to_s }
+    end
+
+    # Medicaid records (MANY, "B" index on DFN), each with its eligibility
+    # rows (MULTIPLE under the record). nil when a read does not answer.
+    def medicaid_on_file(dfn, client)
+      records = window_rows(client, WINDOW_MANY_RPC, MEDICAID_WINDOW, "B", dfn)
+      return nil if records.nil?
+
+      records.map do |row|
+        record = row["RIEN"]
+        rows = window_rows(client, WINDOW_MULTIPLE_RPC, MEDICAID_ELIGIBILITY_WINDOW, ELIGIBILITY_NODE, record, "")
+        return nil if rows.nil?
+
+        { record_ien: record, payer: external(row["AGGMDINS"]), number: row["AGGMDNUM"],
+          state: external(row["AGGMDSTE"]), active: row["AGGMDSTS"] == ACTIVE,
+          eligibility: rows.map { |elig| eligibility_entry(elig, "AGGMDESD", "AGGMDEED", "AGGMDECV") } }
+      end
+    end
+
+    # The Medicare record is DINUM to the patient: one at most. The window
+    # answers one blank row when there is none.
+    def medicare_on_file(dfn, client)
+      records = window_rows(client, WINDOW_DISPLAY_RPC, MEDICARE_WINDOW, dfn)
+      return nil if records.nil?
+
+      records = records.reject { |row| row["AGGMCNUM"].to_s.empty? && external(row["AGGMCINS"]).empty? }
+      return [] if records.empty?
+
+      rows = window_rows(client, WINDOW_MULTIPLE_RPC, MEDICARE_ELIGIBILITY_WINDOW, ELIGIBILITY_NODE, dfn, "")
+      return nil if rows.nil?
+
+      records.map do |row|
+        { record_ien: dfn, payer: external(row["AGGMCINS"]), number: row["AGGMCNUM"],
+          suffix: external(row["AGGMCSUF"]), active: row["AGGMCSTS"] == ACTIVE,
+          eligibility: rows.map { |elig| eligibility_entry(elig, "AGGMCESD", "AGGMCEED", "AGGMCCOV") } }
+      end
+    end
+
+    # AG's Private Insurance window shows the policy holder's dates and
+    # blanks an expiration date still to come (PVID^AGGUL2), so the member's
+    # own eligibility dates (#9000006.11 .06/.07, what PVTACT^AGGARVAL judges
+    # first) are read from FileMan. nil when that read does not answer.
+    def private_entry(row, dfn, client)
+      record = row["AGGPIIEN"].to_s
+      return nil unless record.match?(CANONICAL_DFN)
+
+      got = fileman_read(client) do
+        DdrFileman.gets_entry(file: PRIVATE_ELIGIBILITY_FILE, iens: "#{record},#{dfn},", fields: ".06;.07", flags: "I")
+      end
+      return nil if got.nil? || got[:error]
+
+      { record_ien: record, payer: external(row["AGGPIINS"]), payer_ien: internal(row["AGGPIINS"]),
+        number: row["AGGPIMBN"], policy_holder: row["AGGPIHLN"],
+        starts_on: fm_date(got.dig(:fields, ".06", :internal)), ends_on: fm_date(got.dig(:fields, ".07", :internal)),
+        active: row["AGGPISTS"] == ACTIVE }
+    end
+
+    # A FileMan internal date (CYYMMDD), or nil.
+    def fm_date(value)
+      text = value.to_s
+      return nil unless text.match?(/\A\d{7}\z/)
+
+      Date.new(text[0, 3].to_i + 1700, text[3, 2].to_i, text[5, 2].to_i)
+    rescue Date::Error
+      nil
+    end
+
+    def eligibility_entry(row, starts, ends, coverage)
+      { ien: row["MIEN"], starts_on: ag_date(row[starts]), ends_on: ag_date(row[ends]),
+        coverage: external(row[coverage]) }
+    end
+
+    # One AG window read: its data rows as { PARAMETER => value }, or nil when
+    # the reply has no typed header.
+    def window_rows(client, rpc, *params)
+      typed_rows(call_array(client, rpc, *params))
+    end
+
+    def typed_rows(raw)
+      rows = framed_rows(raw)
+      return nil if rows.nil? || rows.empty?
+
+      names = rows.first.split("^", -1).map { |piece| piece[TYPED_FIELD, 1] }
+      return nil if names.empty? || names.any?(&:nil?)
+
+      rows.drop(1).map { |row| names.zip(row.split("^", -1).map(&:strip)).to_h }
+    end
+
+    # A coded window value is "internal$C(28)external"; plain text is both.
+    def external(value)
+      text = value.to_s
+      text.include?(PARM_DELIM) ? text.split(PARM_DELIM, 2).last.to_s : text
+    end
+
+    def internal(value)
+      value.to_s.split(PARM_DELIM, 2).first.to_s
+    end
+
+    def ag_date(value)
+      text = value.to_s.strip
+      return nil unless text.match?(AG_DATE)
+
+      Date.strptime(text, "%b %d,%Y")
+    rescue Date::Error
+      nil
+    end
 
     def scoped(client, option, &block)
       ContextScope.scoped(client, option, &block)
@@ -476,6 +806,12 @@ module RpmsRpc
         rien: nil, mien: nil }
     end
 
+    def already_absent(record, dfn)
+      { success: false, error: :already_absent,
+        message: "private insurance #{record} is not on file for patient #{dfn}",
+        record_ien: record }
+    end
+
     def verification_failed(message, **ids)
       { success: false, error: :verification_failed, message: message, **ids }
     end
@@ -504,6 +840,42 @@ module RpmsRpc
       return false if got.nil? || got[:error]
 
       got.dig(:fields, ".01", :internal).to_s.strip == dfn.to_s
+    end
+
+    # :present when #9000006.11 .01 is filed under IENS "<record>,<dfn>,",
+    # :absent when FileMan errors or .01 is blank, :unreadable when the
+    # broker does not answer. :absent is not confirmed absence; the packed
+    # list must show the record gone. The IENS is the ownership check:
+    # the row is this patient's by construction.
+    def private_policy_status(record_ien, dfn, client)
+      got = fileman_entry(PRIVATE_ELIGIBILITY_FILE, "#{record_ien},#{dfn},", client)
+      return :unreadable if got.nil?
+      return :absent if got[:error] || got.dig(:fields, ".01", :internal).to_s.strip.empty?
+
+      :present
+    end
+
+    # #9000006.11 is a subfile. LIST^DIC with IENS ",DFN,", fields "@;.01",
+    # flags "IP", MAX "*", and XREF "#" (LIST^DIC walks the record numbers,
+    # not the B index, so a row missing from the B index is still listed
+    # and never read as absent) is every policy row under that patient.
+    # Packed rows are IEN-first on both reply framings, so entries[].ien
+    # is the record IEN. A PART list is not asked: the delete confirms on
+    # this one complete list.
+    def private_policy_rows(dfn, client)
+      fileman_read(client) do
+        DdrFileman.lister(file: PRIVATE_ELIGIBILITY_FILE, iens: ",#{dfn},", fields: "@;.01", flags: "IP", max: "*", xref: "#")
+      end
+    end
+
+    # A positive list is non-nil, error false, a data section, and no MORE.
+    # The record IEN must be absent from entries[].ien. Anything else,
+    # including a FileMan error, is not confirmed absence.
+    def private_policy_confirmed_gone?(listed, record_ien)
+      return false unless listed.is_a?(Hash)
+      return false unless listed[:error] == false && listed[:data] == true && listed[:more].nil?
+
+      Array(listed[:entries]).none? { |entry| entry[:ien].to_s == record_ien.to_s }
     end
 
     def fileman_entry(file, iens, client)

@@ -107,11 +107,95 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     reply = "I00020HOSPITAL_LOCATION_ID^T00040HOSPITAL_LOCATION\x1e" \
             "3^DEMO IHS CLINIC\x1e8^OTHER\x1e\x1f"
     c = connected_client([ "1\x00#{reply}" + EOD ])
+    reply = c.call_rpc("BSDX HOSPITAL LOCATION")
     assert_equal [
       "I00020HOSPITAL_LOCATION_ID^T00040HOSPITAL_LOCATION",
       "3^DEMO IHS CLINIC",
       "8^OTHER"
-    ], c.call_rpc("BSDX HOSPITAL LOCATION")
+    ], reply
+    refute RpmsRpc::Reply.altered?(reply),
+      "a GLOBAL ARRAY recordset must not be marked altered when only the final US node is dropped"
+  end
+
+  # rpms-rpc#540: a dropped lone $C(31) fragment or extra trailing row break must
+  # surface as Reply.altered? so hosts refuse instead of truncating stored text.
+  def test_call_rpc_ddr_data_rows_with_crlf_terminator_stays_unaltered
+    body = "[Data]\r\n9000001^42^.01^SYNTH,ROW^SYNTH,ROW\r\n"
+    c = connected_client([ "1\x00#{body}" + EOD ])
+    reply = c.call_rpc("DDR GETS ENTRY DATA")
+
+    refute RpmsRpc::Reply.altered?(reply)
+    assert_equal [ "[Data]", "9000001^42^.01^SYNTH,ROW^SYNTH,ROW" ], reply.to_a
+  end
+
+  def test_call_rpc_marks_altered_when_lone_recordset_end_byte_is_dropped_mid_reply
+    body = "[Data]\r\n9002011^8840^1601^Alcohol part one\r\n\x1f\r\n[part two]\r\n"
+    c = connected_client([ "1\x00#{body}" + EOD ])
+    reply = c.call_rpc("DDR GETS ENTRY DATA")
+
+    assert RpmsRpc::Reply.altered?(reply),
+      "a lone \\x1f row dropped outside the final GLOBAL ARRAY end marker must mark the reply altered"
+  end
+
+  def test_call_rpc_final_recordset_end_byte_is_clean_only_without_row_breaks_in_body
+    body = "I00020HOSPITAL_LOCATION_ID^T00040HOSPITAL_LOCATION\x1e3^DEMO IHS CLINIC\x1e\x1f"
+    c = connected_client([ "1\x00#{body}" + EOD ])
+    reply = c.call_rpc("BSDX HOSPITAL LOCATION")
+
+    refute RpmsRpc::Reply.altered?(reply),
+      "a final \\x1f node is the GLOBAL ARRAY end only when the body has no CR or LF"
+  end
+
+  def test_call_rpc_marks_altered_when_cr_terminated_body_ends_with_lone_recordset_end_fragment
+    body = "[Data]\r9002011^1^2001^note\r\x1f\r"
+    c = connected_client([ "1\x00#{body}" + EOD ])
+    reply = c.call_rpc("DDR GETS ENTRY DATA")
+
+    assert RpmsRpc::Reply.altered?(reply),
+      "a lone \\x1f fragment before the final row break on a CR-terminated body must mark the reply altered"
+  end
+
+  def test_call_rpc_marks_altered_when_body_is_two_row_breaks_without_content
+    c = connected_client([ "1\x00\r\r" + EOD ])
+    reply = c.call_rpc("DDR GETS ENTRY DATA")
+
+    assert RpmsRpc::Reply.altered?(reply),
+      "a body of exactly \\r\\r (two row breaks, no content) must mark the reply altered"
+  end
+
+  def test_call_rpc_marks_altered_when_trailing_row_break_drops_more_than_one_empty_fragment
+    body = "[Data]\r\n9000001^42^.01^SYNTH,ROW^SYNTH,ROW\r\r\n"
+    c = connected_client([ "1\x00#{body}" + EOD ])
+    reply = c.call_rpc("DDR GETS ENTRY DATA")
+
+    assert RpmsRpc::Reply.altered?(reply),
+      "a body ending with an extra row break beyond the final terminator must mark the reply altered"
+  end
+
+  def test_call_rpc_body_of_lone_cr_terminator_returns_no_lines_unaltered
+    c = connected_client([ "1\x00\r" + EOD ])
+    reply = c.call_rpc("DDR GETS ENTRY DATA")
+
+    refute RpmsRpc::Reply.altered?(reply)
+    assert_equal [], reply.to_a
+  end
+
+  def test_call_rpc_body_of_lone_crlf_terminator_returns_no_lines_unaltered
+    c = connected_client([ "1\x00\r\n" + EOD ])
+    reply = c.call_rpc("DDR GETS ENTRY DATA")
+
+    refute RpmsRpc::Reply.altered?(reply)
+    assert_equal [], reply.to_a
+  end
+
+  def test_call_rpc_body_with_data_row_then_two_terminators_stays_altered
+    body = "x\r\r"
+    c = connected_client([ "1\x00#{body}" + EOD ])
+    reply = c.call_rpc("DDR GETS ENTRY DATA")
+
+    assert RpmsRpc::Reply.altered?(reply),
+      "a data row followed by two row terminators must mark the reply altered"
+    assert_equal [ "x" ], reply.to_a
   end
 
   # Fix (#172 Copilot): a peer-closed read (empty recv) must clear @connected,
@@ -814,14 +898,41 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     [ c, socket ]
   end
 
+  def with_rpms_uci(value)
+    had, prev = ENV.key?("RPMS_UCI"), ENV["RPMS_UCI"]
+    value.nil? ? ENV.delete("RPMS_UCI") : ENV["RPMS_UCI"] = value
+    yield
+  ensure
+    had ? ENV["RPMS_UCI"] = prev : ENV.delete("RPMS_UCI")
+  end
+
+  # Unset, the connect sends an empty UCI: ACTC^CIANBACT then runs in the
+  # listener's own namespace (CIANBACT.m:9-11) on any engine (rpms-rpc#572).
   def test_connect_survives_strict_broker_frame_parsing
     c, broker = client_on_strict_broker
-    assert c.connect("localhost", 9100)
+    with_rpms_uci(nil) { assert c.connect("localhost", 9100) }
     assert c.connected?
     frame = broker.frames.first
     assert_equal "1", frame[:seq]
     assert_equal "C", frame[:action]
-    assert_equal [ "VER", "", "2.0", "LP", "", "9100", "UCI", "", "VEH,EXTERNAL" ], frame[:fields]
+    assert_equal [ "VER", "", "2.0", "LP", "", "9100", "UCI", "", "" ], frame[:fields]
+  end
+
+  def test_connect_sends_the_uci_rpms_uci_names
+    c, broker = client_on_strict_broker
+    with_rpms_uci("RPMS") { c.connect("localhost", 9100) }
+    assert_equal [ "UCI", "", "RPMS" ], broker.frames.first[:fields].last(3)
+  end
+
+  # A broker that hangs up on the connect frame (an unknown UCI) is reported
+  # as that, naming the UCI sent, not as a bare socket close.
+  def test_a_broker_closing_the_connect_names_the_uci
+    c, broker = client_on_strict_broker
+    broker.instance_variable_set(:@closed_by_broker, true)
+    err = with_rpms_uci("VEH,EXTERNAL") { assert_raises(RpmsRpc::Client::ConnectionError) { c.connect("localhost", 9100) } }
+    assert_match(/CIA broker closed the connect \(Connection closed by server\)/, err.message)
+    assert_match(/RPMS_UCI="VEH,EXTERNAL" must name the broker's namespace/, err.message)
+    refute c.connected?
   end
 
   def test_full_signon_round_trip_against_strict_broker

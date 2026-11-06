@@ -3,10 +3,12 @@
 require "minitest/autorun"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/api/patient"
+require "rpms_rpc/api/ddr_fileman"
 
 class RegistrationSafetyTest < Minitest::Test
   Reg = RpmsRpc::Registration
   Agg = RpmsRpc::Agg
+  Ddr = RpmsRpc::DdrFileman
   # A reason for no SSN: AG cannot check a registration with neither (rpms-ops#1040).
   ATTRS = { name: "DEMOPATIENT,UNA", dob: Date.new(1990, 1, 2), sex: "F", no_ssn_reason: "N" }.freeze
   # HDR/LST2^AGGPTLKP: name OR DOB candidates, no sex column.
@@ -22,6 +24,12 @@ class RegistrationSafetyTest < Minitest::Test
     # AG's field checks, AGG WINDOW DATA VALIDATION, answer "valid", as captured live.
     @mock.seed(:agg_window_validation, Agg::NEW_PATIENT_WINDOW,
                "5\x00I00010RESULT^T00100MSG^T00001HANDLER^I00010IEN^T00008CODE^T00100REVALIDATE\x1e1^^^^^\x1e")
+    seed_hrn_41_readback(42, "42")
+  end
+
+  def seed_hrn_41_readback(dfn, hrn_on_file)
+    key = Ddr.lister_param(file: "9000001.41", iens: ",#{dfn},", fields: "@;.02", flags: "IP").to_s
+    @mock.seed(:ddr_lister, key, "[Data]\n1^#{hrn_on_file}")
   end
 
   def teardown
@@ -51,10 +59,11 @@ class RegistrationSafetyTest < Minitest::Test
       response
     end
 
-    assert_equal({ success: true, dfn: 42, created: true }, RpmsRpc::Patient.register(ATTRS))
+    assert_equal({ success: true, dfn: 42, created: true, hrn: "42" }, RpmsRpc::Patient.register(ATTRS))
     assert_equal({ success: false, error: :duplicate_identity, candidate_dfns: [ 42 ],
                    message: "matching patient candidates require explicit override" }, RpmsRpc::Patient.register(ATTRS))
-    assert_equal [ "AGG LOOKUP PATIENTS", "AGG ADD NEW PATIENT", "AGG UPDATE PATIENT", "AGG LOOKUP PATIENTS" ],
+    assert_equal [ "AGG LOOKUP PATIENTS", "AGG ADD NEW PATIENT", "AGG UPDATE PATIENT", "DDR LISTER",
+                   "AGG LOOKUP PATIENTS" ],
                  @mock.received_calls.map { |c| c[:rpc] } - [ "AGG WINDOW DATA VALIDATION" ]
     lookup = lookups.first
     assert_equal [ QUERY, "", "1", "1" ], lookup[:params]

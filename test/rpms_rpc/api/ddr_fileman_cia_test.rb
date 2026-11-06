@@ -76,7 +76,8 @@ class RpmsRpc::DdrFilemanCiaTest < Minitest::Test
         ".02" => { internal: "F", external: "FEMALE" },
         ".03" => { internal: "3010101", external: "01/01/2001" }
       },
-      error: false
+      error: false,
+      malformed: false
     }, result)
   end
 
@@ -91,7 +92,121 @@ class RpmsRpc::DdrFilemanCiaTest < Minitest::Test
         "1" => { internal: "SM", external: "SM" },
         "4" => { internal: "M", external: "MALE" }
       },
-      error: false
+      error: false,
+      malformed: false
     }, result)
+  end
+
+  # rpms-rpc#540: visit comment hazards over the real CiaClient row split must not
+  # parse as a clean gets_entry (stray or altered) before Wellness can resend text.
+  VISIT_FILE = "9002011"
+  VISIT_IEN = "8840"
+  SYNTH_PATIENT = "990540"
+
+  def visit_gets_reply(seq, *field_rows)
+    "#{seq}\x00[Data]\r#{field_rows.join("\r")}\r"
+  end
+
+  # FLAGS "I" broker rows always end with an empty external piece (GETSC^DDR2).
+  def visit_row(field, internal)
+    "#{VISIT_FILE}^#{VISIT_IEN}^#{field}^#{internal}^"
+  end
+
+  def visit_row_with_external(field, internal, external)
+    "#{VISIT_FILE}^#{VISIT_IEN}^#{field}^#{internal}^#{external}"
+  end
+
+  def test_gets_entry_over_cia_marks_stray_when_stored_comment_splits_a_bracket_line
+    rows = [
+      visit_row(".08", SYNTH_PATIENT),
+      visit_row("1112", ""),
+      visit_row("1601", "Alcohol baseline\r[follow-up later]"),
+      visit_row("1403", "N")
+    ]
+    replay(visit_gets_reply("3", *rows))
+
+    result = RpmsRpc::DdrFileman.gets_entry(
+      file: VISIT_FILE, iens: "#{VISIT_IEN},", fields: ".08;1112;1601;1403", flags: "I"
+    )
+
+    assert result[:stray] || result[:altered],
+      "a bracket-shaped fragment from an embedded CR in stored 1601 must not read as clean"
+    refute_equal "Alcohol baseline\r[follow-up later]", result.dig(:fields, "1601", :internal)
+  end
+
+  def test_gets_entry_over_cia_marks_altered_when_stored_comment_contains_lone_recordset_end_byte
+    rows = [
+      visit_row(".08", SYNTH_PATIENT),
+      visit_row("1601", "Alcohol part one\r\n\x1f\r\n[part two]")
+    ]
+    replay(visit_gets_reply("4", *rows))
+
+    result = RpmsRpc::DdrFileman.gets_entry(
+      file: VISIT_FILE, iens: "#{VISIT_IEN},", fields: ".08;1601", flags: "I"
+    )
+
+    assert result[:altered],
+      "a lone \\x1f dropped by CiaClient must surface as altered on gets_entry"
+  end
+
+  def test_gets_entry_over_cia_marks_altered_when_stored_comment_ends_with_cr_before_reply_terminator
+    rows = [
+      visit_row(".08", SYNTH_PATIENT),
+      visit_row("1601", "Alcohol baseline")
+    ]
+    replay(visit_gets_reply("5", *rows) + "\r")
+
+    result = RpmsRpc::DdrFileman.gets_entry(
+      file: VISIT_FILE, iens: "#{VISIT_IEN},", fields: ".08;1601", flags: "I"
+    )
+
+    assert result[:altered],
+      "an extra trailing row break after the last field row must mark the reply altered"
+  end
+
+  def test_gets_entry_over_cia_parses_flags_i_comment_caret_when_row_has_trailing_empty_piece
+    rows = [
+      visit_row(".08", SYNTH_PATIENT),
+      visit_row("1601", "Alcohol^baseline note")
+    ]
+    replay(visit_gets_reply("6", *rows))
+
+    result = RpmsRpc::DdrFileman.gets_entry(
+      file: VISIT_FILE, iens: "#{VISIT_IEN},", fields: ".08;1601", flags: "I"
+    )
+
+    assert_equal "Alcohol^baseline note", result.dig(:fields, "1601", :internal)
+    refute result[:stray]
+  end
+
+  def test_gets_entry_over_cia_marks_stray_when_flags_i_comment_row_is_four_piece
+    rows = [
+      visit_row(".08", SYNTH_PATIENT),
+      "#{VISIT_FILE}^#{VISIT_IEN}^1601^Alcohol baseline note"
+    ]
+    replay(visit_gets_reply("7", *rows))
+
+    result = RpmsRpc::DdrFileman.gets_entry(
+      file: VISIT_FILE, iens: "#{VISIT_IEN},", fields: ".08;1601", flags: "I"
+    )
+
+    assert result[:stray],
+           "FLAGS I broker rows include a trailing empty external piece over CIA"
+  end
+
+  def test_gets_entry_over_cia_flags_ie_comment_row_parses_internal_and_external
+    rows = [
+      visit_row_with_external(".08", SYNTH_PATIENT, "PATIENT,SYNTH"),
+      visit_row_with_external("1601", "a", "b")
+    ]
+    replay(visit_gets_reply("8", *rows))
+
+    result = RpmsRpc::DdrFileman.gets_entry(
+      file: VISIT_FILE, iens: "#{VISIT_IEN},", fields: ".08;1601", flags: "IE"
+    )
+
+    assert_equal "a", result.dig(:fields, "1601", :internal)
+    assert_equal "b", result.dig(:fields, "1601", :external)
+    refute result[:stray]
   end
 end

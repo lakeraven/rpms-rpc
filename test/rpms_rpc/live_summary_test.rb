@@ -249,6 +249,89 @@ module RpmsRpc
       end
     end
 
+    # rpms-rpc#361: Dir.glob on the summary dir must not treat [ ] * ? { } in the path as patterns.
+    def test_check_and_outcomes_find_summaries_in_directories_with_glob_metacharacters_in_the_name
+      Dir.mktmpdir do |parent|
+        dir = File.join(parent, "live[1]{a}*?")
+        FileUtils.mkdir_p(dir)
+        write_summary(dir, "PERSONA_A.json", summary_fields)
+
+        ok, reasons = LiveSummary.check(dir: dir, build: SYNTHETIC_BUILD, source: SYNTHETIC_SOURCE, suite: SYNTHETIC_SUITE)
+        assert ok, reasons.join("\n")
+        assert_empty reasons
+
+        outcomes = LiveSummary.outcomes(dir)
+        refute_empty outcomes, "outcomes must list the green summary file"
+        assert_match(/\APERSONA_A\.json:/, outcomes.first)
+
+        write_summary(dir, "PERSONA_A.json", summary_fields("failures" => 2))
+        _ok, reasons = refuse_check(dir)
+        assert_match(/failure/i, reasons.join(" "))
+      end
+    end
+
+    # rpms-rpc#361: editor swap/backup junk under test/live/ must not change suite_fingerprint.
+    def test_suite_fingerprint_ignores_editor_junk_under_test_live
+      junk = [
+        ".foo.rb.swp",
+        "foo.rb~",
+        "#foo.rb#",
+        ".#foo.rb",
+        ".DS_Store"
+      ]
+      Dir.mktmpdir do |root|
+        live = File.join(root, "test/live")
+        FileUtils.mkdir_p(live)
+        File.write(File.join(live, "a_live_test.rb"), "# spec\n")
+        FileUtils.mkdir_p(File.join(root, "data/rpc_coverage"))
+        File.write(File.join(root, "data/rpc_coverage/config.yml"), "release: pin\n")
+
+        baseline = LiveSummary.suite_fingerprint(root)
+
+        junk.each do |name|
+          path = File.join(live, name)
+          File.write(path, "editor junk\n")
+          assert_equal baseline, LiveSummary.suite_fingerprint(root), "#{name} must not change suite fingerprint"
+          File.delete(path)
+        end
+      end
+    end
+
+    def test_suite_fingerprint_changes_when_live_specs_or_coverage_config_change
+      Dir.mktmpdir do |root|
+        live = File.join(root, "test/live")
+        FileUtils.mkdir_p(live)
+        spec = File.join(live, "a_live_test.rb")
+        File.write(spec, "# spec\n")
+        config = File.join(root, "data/rpc_coverage/config.yml")
+        FileUtils.mkdir_p(File.dirname(config))
+        File.write(config, "release: pin\n")
+
+        baseline = LiveSummary.suite_fingerprint(root)
+
+        File.write(spec, "# gutted: every assertion removed\n")
+        refute_equal baseline, LiveSummary.suite_fingerprint(root), "gutted spec must be a new suite"
+
+        File.write(spec, "# spec\n")
+        assert_equal baseline, LiveSummary.suite_fingerprint(root)
+
+        File.write(File.join(live, "added_live_test.rb"), "# added spec\n")
+        refute_equal baseline, LiveSummary.suite_fingerprint(root), "a new *_test.rb must change the suite"
+
+        File.delete(File.join(live, "added_live_test.rb"))
+        assert_equal baseline, LiveSummary.suite_fingerprint(root)
+
+        File.write(File.join(live, "support.rb"), "# helper\n")
+        refute_equal baseline, LiveSummary.suite_fingerprint(root), "a new helper .rb must change the suite"
+
+        File.delete(File.join(live, "support.rb"))
+        assert_equal baseline, LiveSummary.suite_fingerprint(root)
+
+        File.write(config, "release: pin-bumped\n")
+        refute_equal baseline, LiveSummary.suite_fingerprint(root), "coverage config pin bump must change the suite"
+      end
+    end
+
     def test_source_fingerprint_ignores_test_live
       Dir.mktmpdir do |root|
         File.write(File.join(root, "probe.gemspec"), <<~SPEC)

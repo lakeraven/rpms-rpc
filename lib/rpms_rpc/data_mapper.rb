@@ -393,6 +393,20 @@ module RpmsRpc
         @text_attribute = attribute
       end
 
+      # Row hook (result hash, caret pieces). Must return the row. Used when
+      # a piece is a marker whose parsed value is not the raw token.
+      def after_row(&block)
+        @after_row = block
+      end
+
+      # Format hook (caret pieces, source attrs). Must return the pieces.
+      # A mapping uses it when the wire token for a marker is not what
+      # format_value emits from the parsed attribute. Mappings that do not
+      # declare one keep format_value's output.
+      def format_row(&block)
+        @format_row = block
+      end
+
       def text_blob?
         !@text_attribute.nil?
       end
@@ -431,6 +445,7 @@ module RpmsRpc
           result[f.attribute] = coerce(raw, f.type)
         end
         result[@rcis_sections] = RcisWire.sections(rest) if @rcis_sections
+        result = instance_exec(result, parts, &@after_row) if @after_row # rubocop:disable Security/Eval
 
         extras.each { |k, v| result[k] = v }
         result
@@ -449,12 +464,27 @@ module RpmsRpc
 
           response = response.split(/\r?\n/)
         end
+        response = response.flat_map { |line| rcis_records(line) } if rcis_record? && !@rcis_sections
         response.filter_map do |line|
           next if line.nil? || line.to_s.empty?
           next if DataMapper.recordset_header_row?(line)
           next if !status_reply? && DataMapper.non_data_row?(line)
           parse_one(line)
         end
+      end
+
+      # One record line per sigil. CRTMSG^BMCRPC4 files each record in its own
+      # node, every one opening with "~`" (BMCRPC4.m:60), and the CIA broker
+      # sends the nodes with nothing between them: two referrals arrive as
+      # "~`1^...^~`5^..." in one line (rpms-rpc#589). A mapping without
+      # sections has no other use for a second sigil, so each one starts a
+      # record. A line that does not open with the sigil is left whole, so
+      # parse_one still reads it as a message.
+      def rcis_records(line)
+        text = line.to_s
+        return [ line ] unless text.start_with?(RcisWire::SIGIL)
+
+        text.split(RcisWire::SIGIL).reject(&:empty?).map { |rec| RcisWire::SIGIL + rec }
       end
 
       # parse_many, with an `altered:` flag on every row (rpms-rpc#463).
@@ -526,6 +556,8 @@ module RpmsRpc
           parts[f.position] = format_value(attrs[f.attribute], f.type)
           claimed[f.position] = true if attrs.key?(f.attribute)
         end
+
+        parts = instance_exec(parts, attrs, &@format_row) if @format_row # rubocop:disable Security/Eval
 
         line = parts.join("^")
         rcis_record? ? RcisWire::SIGIL + line : line
@@ -624,6 +656,24 @@ module RpmsRpc
         parse_lines(response, extras: extras)
       end
 
+      # Data lines of a reply, the normalisation #normalize_line applies, all
+      # of them. Trailing $C(30)/$C(31) are removed. An Array also drops empty
+      # lines and recordset header rows; a String is one line, which is how a
+      # scalar reply arrives (MockClient#call_rpc returns one). [] when there
+      # is nothing. Public so a caller can require an exact raw line instead
+      # of the scalar coercion, which turns any other text into true or false.
+      def normalized_lines(response)
+        return [] if response.nil?
+        return [] if response.is_a?(String) && response.empty?
+
+        if response.is_a?(Array)
+          response.map { |line| DataMapper.strip_recordset_separators(line) }
+                  .reject { |line| line.empty? || DataMapper.recordset_header_row?(line) }
+        else
+          [ DataMapper.strip_recordset_separators(response) ]
+        end
+      end
+
       private
 
       def format_value(val, type)
@@ -663,19 +713,10 @@ module RpmsRpc
       end
 
       # First DATA line of a response: recordset header rows and $C(30)/$C(31)
-      # separators (see RECORDSET_SEPARATORS) are not data.
+      # separators (see RECORDSET_SEPARATORS) are not data. nil when there is
+      # none. See #normalized_lines for every such line.
       def normalize_line(response)
-        return nil if response.nil?
-        return nil if response.is_a?(String) && response.empty?
-
-        if response.is_a?(Array)
-          return response.lazy
-                         .map { |l| DataMapper.strip_recordset_separators(l) }
-                         .reject { |l| l.empty? || DataMapper.recordset_header_row?(l) }
-                         .first
-        end
-
-        DataMapper.strip_recordset_separators(response)
+        normalized_lines(response).first
       end
 
       def coerce(raw, type)

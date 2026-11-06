@@ -36,7 +36,7 @@ Two routes the first pass missed:
 | Widget registry | `CIAVMCFG GETREG` | none needed | D | Dumps VueCentric's widget registry. The web app has no use for it. |
 | Patient selection | `BEHOPTPL LOOKUP`, `HRNLKP`, `DOBLKP`, `LISTALL` | not chosen; `AGG LOOKUP PATIENTS` (option `AGGRPC`) is a candidate | E | Four of the 37. Read from the inventory only; behaviour not compared. `PatientSelection.find` already mirrors VueCentric's lookup. |
 | Banner flags (C, W, A, D) | `BEHOCACV CWAD` | `ORWPT CWAD` (option `OR CPRS GUI CHART`) | A | Same scan; no Patient Record Flag letter "F". |
-| Patient Record Flags | `BEHOCACV CWAD` ("F") | none known | E | A behavioral-health safety flag is a real banner item. `ORPRF*` RPCs unchecked. |
+| Patient Record Flags | `BEHOCACV CWAD` ("F") | `ORPRF HASFLG` (`CIAV VUECENTRIC`, `OR CPRS GUI CHART`), `Patient.flags` | A | A behavioral-health safety flag is a real banner item. Live spec on the demo flag rpms-ops seeds (`test/live/patient_flags_live_test.rb`). |
 | Designated provider | `BEHOPTPC GETBDP` | DDR read of IHS PATIENT (#9000001) field .14 (the PCP field, as in `lib/rpms_rpc/mappings/ihs.rb`); `ORWPT1 PRCARE` reads PCMM, which IHS sites do not fill | B | Latent bug: the banner uses the first row of an alphabetical category list. |
 | Create the visit | `BEHOENCX FETCH` (create) | Scheduling check-in; `AMHG SAVE VISIT` for BH | A | Depends on the clinic's create-visit flag. Unverified on a running image. |
 | Visit diagnosis | `BGOVPOV SET` | `AMHG SAVE POV` for BH visits | A for BH, E otherwise | Stock `ORWPCE SAVE` is registered to `CIAVCXPC`, a routine absent from the source tree. |

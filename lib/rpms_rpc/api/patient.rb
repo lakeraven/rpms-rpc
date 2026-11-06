@@ -19,10 +19,6 @@ module RpmsRpc
     # Practitioner.
     FILEMAN_CONTEXT = "CIAV VUECENTRIC"
 
-    # The option that lists ORWPT CWAD (CWAD^ORWPT). Same option as
-    # Practitioner::ROLES_CONTEXT.
-    CWAD_CONTEXT = "OR CPRS GUI CHART"
-
     def find(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
 
@@ -136,9 +132,20 @@ module RpmsRpc
       Registration.update(dfn, **attrs)
     end
 
+    # A patient's registration as AG's Personal Detail and Address windows show
+    # it (AGG BUILD WINDOW DISPLAY). See RpmsRpc::Registration.record.
+    def registration_record(dfn)
+      Registration.record(dfn)
+    end
+    shape :registration_record, resource: "patients", verb: "POST", path: "/patients/{dfn}/registration-record"
+
     # Field 0 of the BEHOPTPC GETBDP row that names the designated primary
     # provider. Compared exactly after surrounding whitespace is stripped.
     DESIGNATED_PRIMARY_PROVIDER_LABEL = "DESIGNATED PRIMARY PROVIDER"
+
+    # ORWPT CWAD after surrounding whitespace is stripped: only the letters
+    # C, W, A, and D, including none of them. Anything else is not a CWAD scalar.
+    CWAD_LETTERS = /\A[CWAD]*\z/
 
     # Chart-banner projection per issue #60 contract:
     #
@@ -150,10 +157,13 @@ module RpmsRpc
     #                              alphabetical)
     #   - ORWPT CWAD              (Crises/Warnings/Allergies/Directives flags)
     #
-    # ORWPT CWAD is CWAD^ORWPT (formals Y,DFN). Only that fetch binds
-    # CWAD_CONTEXT and restores the caller's option; PTINFO and GETBDP stay
-    # on the caller's context. allergy_flag is A in the scalar and ad_flag
-    # is D. An empty scalar is both flags false.
+    # ORWPT CWAD is CWAD^ORWPT (formals Y,DFN). All three run on the caller's
+    # option: CIAV VUECENTRIC lists ORWPT CWAD as well as OR CPRS GUI CHART,
+    # and the broker refuses binding an option the user does not hold, so
+    # binding OR CPRS GUI CHART refused every user without it (the personas
+    # included). The scalar is stripped before the flags are read. Nil or
+    # empty is both flags false. allergy_flag is A and ad_flag is D only
+    # when the stripped scalar matches CWAD_LETTERS.
     #
     # :primary_provider is the GETBDP row whose label (field 0), compared
     # exactly after surrounding whitespace is stripped, is
@@ -172,7 +182,12 @@ module RpmsRpc
     # found. A broker that does not serve one of the three RPCs raises
     # RpcNotAvailableError, one that serves it but not to this user raises
     # RpcRefusedError, and an M error raises RpcError (#363). A failed CWAD
-    # read raises the same way and is never turned into false flags.
+    # read raises the same way and is never turned into false flags. The
+    # ORWPT CWAD scalar is stripped first: nil or empty means both flags
+    # false; a value matching CWAD_LETTERS (\A[CWAD]*\z) sets allergy_flag
+    # when it includes A and ad_flag when it includes D; any other value
+    # raises RpcError. That message names ORWPT CWAD and does not include
+    # the raw reply, which may carry patient data.
     def brief_header(dfn)
       return nil if dfn.nil? || dfn.to_i <= 0
 
@@ -183,9 +198,10 @@ module RpmsRpc
       name = nil if name.nil? || name.match?(/\A[[:space:]]*\z/)
       return nil if ptinfo.nil? && name.nil?
 
-      cwad = ContextScope.scoped(RpmsRpc.client, CWAD_CONTEXT) do
-        DataMapper.patient_cwad.fetch_scalar(dfn.to_s)
-      end || ""
+      cwad = DataMapper.patient_cwad.fetch_scalar(dfn.to_s).to_s.strip
+      unless cwad.match?(CWAD_LETTERS)
+        raise Client::RpcError, "ORWPT CWAD reply is not CWAD letters"
+      end
       dob  = FilemanDateParser.parse_date(ptinfo && ptinfo[:dob_raw])
       provider = name || (ptinfo && ptinfo[:primary_provider])
 
@@ -195,11 +211,32 @@ module RpmsRpc
         sex:              ptinfo && ptinfo[:sex],
         mrn:              ptinfo && ptinfo[:mrn],
         age:              age_from(dob),
-        allergy_flag:     cwad.to_s.include?("A"),
-        ad_flag:          cwad.to_s.include?("D"),
+        allergy_flag:     cwad.include?("A"),
+        ad_flag:          cwad.include?("D"),
         primary_provider: provider
       }
     end
+    # Active Patient Record Flags, the banner item BEHOCACV CWAD reports as "F"
+    # and ORWPT CWAD does not. ORPRF HASFLG is HASFLG^ORPRF, on the caller
+    # option: CIAV VUECENTRIC and OR CPRS GUI CHART both list it. It reads
+    # $$GETACT^DGPFAPI, so only ACTIVE assignments answer: one row per flag,
+    # id^flag name^1 for a national (Category I) flag. A patient with no flag
+    # answers nothing, which is []. Returns [] for an invalid DFN. A safety flag
+    # must not read as absent because the reply was bad: a row that is not that
+    # shape raises RpcError, which names the RPC and not the raw reply.
+    def flags(dfn)
+      return [] if dfn.nil? || dfn.to_i <= 0
+
+      DataMapper.patient_record_flags.fetch_many(dfn.to_s).map do |flag|
+        unless flag[:id].to_s.match?(/\A\d+\z/) && !flag[:name].to_s.strip.empty?
+          raise Client::RpcError, "ORPRF HASFLG reply is not a flag row"
+        end
+
+        { name: flag[:name], national: flag[:category].to_s == "1" }
+      end
+    end
+    shape :flags, resource: "patients", verb: "GET", path: "/patients/{dfn}/flags"
+
     shape :brief_header, resource: "patients", verb: "POST", path: "/patients/{dfn}/brief-header"
 
     # Patient telecom (FHIR Patient.telecom source) — home / work / cell /
