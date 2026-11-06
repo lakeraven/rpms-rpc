@@ -70,6 +70,7 @@ RpmsRpc::Organization.find	GET /organizations/{ien}
 RpmsRpc::Orwu.fileman_datetime	GET /orwu/fileman-datetime
 RpmsRpc::Patient.find	GET /patients/{dfn}
 RpmsRpc::Patient.find_by_ssn	GET /patients/by-ssn
+RpmsRpc::Patient.flags	GET /patients/{dfn}/flags
 RpmsRpc::Patient.lookup	GET /patients/lookup
 RpmsRpc::Patient.search	GET /patients
 RpmsRpc::PatientApplication.for_patient	GET /patients/{dfn}/patient-applications

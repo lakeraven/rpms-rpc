@@ -599,6 +599,15 @@ module RpmsRpc
       m.scalar :cwad
     end
 
+    # ORPRF HASFLG — active Patient Record Flags. HASFLG^ORPRF, formals ORY,PTDFN.
+    # One row per flag: id^flag name^1 for a national (Category I) flag.
+    DataMapper.define(:patient_record_flags) do |m|
+      m.rpc "ORPRF HASFLG"
+      m.field 0, :id
+      m.field 1, :name
+      m.field 2, :category
+    end
+
     # ORWPT DIEDON — deceased check (FileMan date or "0")
     DataMapper.define(:patient_deceased) do |m|
       m.rpc "ORWPT DIEDON"

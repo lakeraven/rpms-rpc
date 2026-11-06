@@ -215,6 +215,7 @@
 "RpmsRpc::Patient.decode_global_array": read
 "RpmsRpc::Patient.find": read
 "RpmsRpc::Patient.find_by_ssn": read
+"RpmsRpc::Patient.flags": read
 "RpmsRpc::Patient.lookup": read
 "RpmsRpc::Patient.normalize_lookup_row": read
 "RpmsRpc::Patient.race": non_idempotent_write
