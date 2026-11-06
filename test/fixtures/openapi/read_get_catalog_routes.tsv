@@ -78,6 +78,7 @@ RpmsRpc::PatientProfile.contacts	GET /patients/{dfn}/patient-profiles/contacts
 RpmsRpc::PatientProfile.language_lookup	GET /patient-profiles/language-lookup
 RpmsRpc::PatientProfile.languages	GET /patients/{dfn}/patient-profiles/languages
 RpmsRpc::PatientProfile.relationships	GET /patient-profiles/relationships
+RpmsRpc::PatientProfile.other_tribes	GET /patients/{dfn}/patient-profiles/other-tribes
 RpmsRpc::PatientProfile.social_status	GET /patients/{dfn}/patient-profiles/social-status
 RpmsRpc::PatientProfile.states	GET /patient-profiles/states
 RpmsRpc::PatientSelection.find	GET /patient-selections
@@ -107,6 +108,8 @@ RpmsRpc::Registration.cell_phone	GET /patients/{dfn}/registrations/cell-phone
 RpmsRpc::Registration.mbis	GET /patients/{dfn}/registrations/mbis
 RpmsRpc::Registration.pick_list	GET /registrations/pick-list
 RpmsRpc::Registration.preferred_name	GET /patients/{dfn}/registrations/preferred-name
+RpmsRpc::Registration.eligibility_modifiers	GET /patients/{dfn}/registrations/eligibility-modifiers
+RpmsRpc::Registration.eligibility_modifier_choices	GET /registrations/eligibility-modifier-choices
 RpmsRpc::Registration.race_ethnicity	GET /patients/{dfn}/registrations/race-ethnicity
 RpmsRpc::Registration.race_ethnicity_choices	GET /registrations/race-ethnicity-choices
 RpmsRpc::Reminders.applicable	GET /patients/{dfn}/reminders/applicable

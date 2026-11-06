@@ -41,6 +41,12 @@ module RpmsRpc
   #   never both: this module refuses that mix (rpms-ux S-REG-20.4) rather
   #   than asking. FileMan fires the .01 TRIGGER (.02 defaults to SELF) and
   #   ARACE (sets the historical #2 .06 when it is empty).
+  # - Eligibility modifiers. AG's roll-and-scroll (ADDMOD^AGED11A) adds a
+  #   reason to ELIGIBILITY MODIFIERS (#9000001.03401), DINUM'd to its
+  #   #9000030 entry, picking only from the entries whose .02 TYPE is the
+  #   patient's eligibility status. AG's GUI has no window for it, so no
+  #   stock RPC files it for a registration user: filed here with DDR FILER,
+  #   under the same rules.
   # - AG's edit pages end with UPDATE1^AGED: #9000001 .03 DATE OF LAST REG.
   #   UPDATE and .16 DATE OF LAST UPDATE today, .12 USER-LAST UPDATE the
   #   DUZ. The race and ethnicity write files those in the same call, as
@@ -60,6 +66,10 @@ module RpmsRpc
     }.freeze
     ADDRESS_HISTORY_FIELDS = "@;.01I;.02;.03;.04;.05;.06E;.07;.08;.11I;.12I"
     EARLIEST_DATE = Date.new(1871, 1, 1)
+
+    ELIGIBILITY_MODIFIER_FILE = "9000030"
+    PATIENT_MODIFIER_FILE = "9000001.03401"
+    ELIGIBILITY_STATUSES = %w[C D I P].freeze # #9000001 1112
 
     CELL_PHONE_FILE = "2"
     CELL_PHONE_FIELD = ".134"
@@ -229,6 +239,62 @@ module RpmsRpc
     shape :set_race_ethnicity, resource: "registrations", verb: "PUT",
           path: "/patients/{dfn}/registrations/race-ethnicity"
 
+    # The reasons a clerk may give for an eligibility status (rpms-ux
+    # S-REG-07.3): [{ ien:, name: }] from #9000030, as ADDMOD^AGED11A screens
+    # them. Raises Client::RpcError on a failed read.
+    def eligibility_modifier_choices(status)
+      raise ArgumentError, "status: takes one of #{ELIGIBILITY_STATUSES.join(', ')}" unless ELIGIBILITY_STATUSES.include?(status)
+
+      in_context { choice_list(ELIGIBILITY_MODIFIER_FILE, modifier_screen(status)) }
+    end
+    shape :eligibility_modifier_choices, resource: "registrations", verb: "GET",
+          path: "/registrations/eligibility-modifier-choices"
+
+    # The patient's reasons: [{ ien:, name: }], ien the #9000030 entry (the
+    # multiple is DINUM'd to it). Raises Client::RpcError on a failed read.
+    def eligibility_modifiers(dfn)
+      id = patient_dfn(dfn)
+      raise ArgumentError, "a positive DFN is required" unless id
+
+      in_context { modifier_rows(id) }
+    end
+    shape :eligibility_modifiers, resource: "registrations", verb: "GET",
+          path: "/patients/{dfn}/registrations/eligibility-modifiers"
+
+    # Add one reason (S-REG-07.3). Inside Agg.editing, read before write: a
+    # reason that does not belong to the patient's status, or one already on
+    # file, is :invalid and files nothing. Returns { success: true },
+    # :filer_failed, or nil when DDR FILER gives no reply.
+    def add_eligibility_modifier(dfn, modifier)
+      id = patient_dfn(dfn)
+      return invalid("a positive DFN is required") unless id
+      return invalid("a reason is required") unless positive_integer?(modifier)
+
+      Agg.editing(dfn: id) { in_context { write_eligibility_modifier(id, modifier) } }
+    end
+    shape :add_eligibility_modifier, resource: "registrations", verb: "POST",
+          path: "/patients/{dfn}/registrations/eligibility-modifier"
+
+    # Remove one reason. :not_found when the patient does not have it.
+    def remove_eligibility_modifier(dfn, modifier)
+      id = patient_dfn(dfn)
+      return invalid("a positive DFN is required") unless id
+
+      Agg.editing(dfn: id) do
+        in_context do
+          next not_found("no such reason on file") unless modifier_rows(id).any? { |row| row[:ien] == modifier }
+
+          stamp = update1_stamp_rows(id)
+          next stamp if stamp.is_a?(Hash)
+
+          rows = [ edit_row(PATIENT_MODIFIER_FILE, ".01", "#{modifier},#{id},", "@") ]
+          filer_outcome(DdrFileman.filer(mode: "ADD", rows: rows + stamp))
+        end
+      end
+    end
+    shape :remove_eligibility_modifier, resource: "registrations", verb: "DELETE",
+          path: "/patients/{dfn}/registrations/eligibility-modifier"
+
     private
 
     def address_history_row(entry)
@@ -342,6 +408,34 @@ module RpmsRpc
       today = FilemanDateParser.to_fileman(Date.today)
       [ edit_row(PATIENT_FILE, ".03", "#{id},", today), edit_row(PATIENT_FILE, ".12", "#{id},", duz),
         edit_row(PATIENT_FILE, ".16", "#{id},", today) ]
+    end
+
+    def modifier_screen(status) = "I $P(^(0),U,2)=\"#{status}\""
+
+    def modifier_rows(id)
+      listed = DdrFileman.lister(file: PATIENT_MODIFIER_FILE, iens: ",#{id},", fields: "@;.01E", flags: "IP")
+      raise Client::RpcError, "DDR LISTER gave no reply for ##{PATIENT_MODIFIER_FILE}" if listed.nil?
+      raise Client::RpcError, "DDR LISTER refused ##{PATIENT_MODIFIER_FILE}" if listed[:error] || listed[:more]
+
+      listed[:entries].map { |entry| { ien: entry[:ien].to_i, name: entry[:pieces][0].to_s } }
+    end
+
+    def write_eligibility_modifier(id, modifier)
+      read = DdrFileman.gets_entry(file: PATIENT_FILE, iens: "#{id},", fields: FIELD_ELIGIBILITY, flags: "I")
+      return lookup_failed("DDR GETS ENTRY DATA gave no reply for ##{PATIENT_FILE}") if read.nil?
+      return not_found("no ##{PATIENT_FILE} entry at #{id},") if read[:error]
+
+      status = read[:fields].dig(FIELD_ELIGIBILITY, :internal).to_s
+      return invalid("record the eligibility status first") unless ELIGIBILITY_STATUSES.include?(status)
+      return invalid("is not a reason for this eligibility status") unless
+        choice_list(ELIGIBILITY_MODIFIER_FILE, modifier_screen(status)).any? { |row| row[:ien] == modifier }
+      return invalid("is already recorded") if modifier_rows(id).any? { |row| row[:ien] == modifier }
+
+      stamp = update1_stamp_rows(id)
+      return stamp if stamp.is_a?(Hash)
+
+      rows = [ { file: PATIENT_MODIFIER_FILE, field: ".01", iens: "+1,#{id},", value: modifier.to_s } ]
+      filer_outcome(DdrFileman.filer(mode: "ADD", rows: rows + stamp, iens: { 1 => modifier }))
     end
 
     def choice_list(file, screen)

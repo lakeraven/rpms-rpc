@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "agg"
+require_relative "tribal"
 
 module RpmsRpc
   # The parts of a patient's registration that sit beside the demographics:
@@ -15,6 +16,7 @@ module RpmsRpc
   #   languages           16 Other Patient          AGG BUILD WINDOW DISPLAY    AGG UPDATE PATIENT
   #   other languages     26 Other Languages        AGG PATIENT LANGUAGES       AGG UPDATE SPECIAL MULTIPLES
   #   other names         33 Aliases                AGG BUILD WINDOW MULTIPLE   AGG UPDATE ALIASES
+  #   other tribes        4 Other Tribe             AGG BUILD WINDOW MULTIPLE   AGG UPDATE A MULTIPLE RECORD
   #
   # What AG's save does not check, and so what this module checks before it
   # sends anything (each proven live on bcer-9.0-20261029-7c3119b-ydb):
@@ -49,6 +51,8 @@ module RpmsRpc
     OTHER_LANGUAGES_WINDOW = "Other Languages"  # #9009068.3 entry 26
     ALIASES_WINDOW = "Aliases"                  # #9009068.3 entry 33
     ALIAS_NODE = ".01"                          # ^DPT(DFN,.01,...), the ALIAS multiple
+    OTHER_TRIBE_WINDOW = "Other Tribe"          # #9009068.3 entry 4
+    OTHER_TRIBE_NODE = "43"                     # ^AUPNPAT(DFN,43,...), the OTHER TRIBE multiple
 
     RELATIONSHIP_FILE = "9999999.36"
     LANGUAGE_FILE = "9999999.99"
@@ -257,6 +261,57 @@ module RpmsRpc
     end
     shape :record_social_status, resource: "patient-profiles", verb: "POST", path: "/patients/{dfn}/patient-profiles/social-status"
 
+    # -- Other tribes ------------------------------------------------------------
+
+    # The patient's other tribes (#9000001.43): [{ ien:, tribe_ien:, tribe:,
+    # quantum: }], nil for no reply.
+    def other_tribes(dfn)
+      rows = Agg.window_multiple(window: OTHER_TRIBE_WINDOW, node: OTHER_TRIBE_NODE, dfn: dfn.to_i)
+      rows&.map do |row|
+        tribe_ien, tribe = row[:aggottri].to_s.split(Agg::VALUE_PAIR, 2)
+        { ien: row[:mien].to_i, tribe_ien: tribe_ien.to_i, tribe: tribe.to_s, quantum: row[:aggottrq].to_s }
+      end
+    end
+    shape :other_tribes, resource: "patient-profiles", verb: "GET", path: "/patients/{dfn}/patient-profiles/other-tribes"
+
+    # Add another tribe with its quantum (rpms-ux S-REG-07.2). Refused before
+    # sending when it is the tribe of membership or already listed (S-REG-07.9),
+    # or when AG's quantum check says the quantums add up to more than the
+    # Indian blood quantum (S-REG-07.8). AG's save checks neither.
+    # Returns { success: true } or a failure hash.
+    def add_other_tribe(dfn, tribe:, quantum: "")
+      dfn = dfn.to_i
+      tribe = tribe.to_i
+      Agg.editing(dfn: dfn) do
+        current = other_tribes(dfn)
+        # DDR, which a registration user holds under CIAV VUECENTRIC and not AGGRPC.
+        enrollment = ContextScope.scoped(RpmsRpc.client, Registration::CONTEXT) { Tribal.enrollment(dfn) }
+        next nil if current.nil? || enrollment.nil?
+
+        refusal = check_other_tribe(tribe, quantum.to_s, current, enrollment)
+        next refusal if refusal
+
+        Agg.update_multiple_record(window: OTHER_TRIBE_WINDOW, dfn: dfn, action: "A",
+                                   params: { "AGGOTTRI" => tribe.to_s, "AGGOTTRQ" => quantum.to_s })
+      end
+    end
+    shape :add_other_tribe, resource: "patient-profiles", verb: "POST", path: "/patients/{dfn}/patient-profiles/other-tribe"
+
+    # Remove one other tribe by its entry number. Refused when the patient has
+    # no such entry.
+    def remove_other_tribe(dfn, ien)
+      dfn = dfn.to_i
+      ien = ien.to_i
+      Agg.editing(dfn: dfn) do
+        current = other_tribes(dfn)
+        next nil if current.nil?
+        next { success: false, error: :not_found, message: "no such other tribe" } unless current.any? { |row| row[:ien] == ien }
+
+        Agg.update_multiple_record(window: OTHER_TRIBE_WINDOW, dfn: dfn, action: "D", entry: ien)
+      end
+    end
+    shape :remove_other_tribe, resource: "patient-profiles", verb: "DELETE", path: "/patients/{dfn}/patient-profiles/{ien}/other-tribe"
+
     # -- Other names (aliases) ------------------------------------------------
 
     # The patient's other names (#2.01): [{ ien:, name: }], nil for no reply.
@@ -390,6 +445,19 @@ module RpmsRpc
       end
 
       nil
+    end
+
+    def check_other_tribe(tribe, quantum, current, enrollment)
+      return invalid(:tribe, "is required") unless tribe.positive?
+      return invalid(:tribe, "is the patient's tribe of membership") if tribe == enrollment[:tribe_ien].to_i
+      return invalid(:tribe, "is already listed") if current.any? { |row| row[:tribe_ien] == tribe }
+
+      check = Agg.quantum_check(tribe: tribe, quantum: quantum, membership: enrollment[:tribe_ien],
+                                membership_quantum: enrollment[:tribe_quantum], blood_quantum: enrollment[:indian_blood_quantum],
+                                classification: enrollment[:classification_ien], others: current.map { |row| row[:quantum] })
+      return invalid(:quantum, "could not be checked by RPMS; try again") if check.nil?
+
+      check[:valid] ? nil : invalid(:quantum, check[:message])
     end
 
     def social_params(field, status, type, status_param, type_param, types)
