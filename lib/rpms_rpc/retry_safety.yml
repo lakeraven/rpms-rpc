@@ -387,3 +387,9 @@
 "RpmsRpc::Vital.for_patient": read
 "RpmsRpc::Vital.template": read
 "RpmsRpc::Vital.validate": read
+"RpmsRpc::WaitList.add": non_idempotent_write
+"RpmsRpc::WaitList.entries": read
+"RpmsRpc::WaitList.lists": read
+"RpmsRpc::WaitList.reasons": read
+"RpmsRpc::WaitList.remove": non_idempotent_write
+"RpmsRpc::WaitList.update": non_idempotent_write

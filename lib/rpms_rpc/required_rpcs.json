@@ -430,6 +430,10 @@
       "BEHOVM TEMPLATE",
       "BEHOVM VALIDATE",
       "ORQQVI VITALS"
+    ],
+    "RpmsRpc::WaitList": [
+      "DDR FILER",
+      "DDR LISTER"
     ]
   }
 }
