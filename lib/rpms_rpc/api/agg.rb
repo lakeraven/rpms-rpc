@@ -90,6 +90,8 @@ module RpmsRpc
     TABLE_LOOKUP_RPC = "AGG WINDOW TABLE LOOKUP"      # LKP^AGGWTBLK, a pointed-to file's entries by name
     UPDATE_ALIASES_RPC = "AGG UPDATE ALIASES"         # ALIAS^AGGPTNAM
     UPDATE_SPECIAL_MULTIPLES_RPC = "AGG UPDATE SPECIAL MULTIPLES" # UPD^AGGPOTH
+    UPDATE_MULTIPLE_RECORD_RPC = "AGG UPDATE A MULTIPLE RECORD" # UPD^AGGMLUPD
+    QUANTUM_VALIDATION_RPC = "AGG QUANTUM VALIDATION" # QNT^AGGFTVAL
     CHECK_SENSITIVE_RPC = "AGG CHECK SENSITIVE PATIENT" # CHK^AGGPTSEN
     SEND_SENSITIVE_NOTIFY_RPC = "AGG SEND SENSITIVE NOTIFY" # NOT^AGGPTSEN
     ERROR_SCREEN_RPC = "AGG ERROR SCREEN"             # FND^AGGEDCHK
@@ -335,6 +337,38 @@ module RpmsRpc
       end
     end
     shape :update_special_multiple, resource: "agg", verb: "PUT", path: "/patients/{dfn}/agg/special-multiple"
+
+    # UPD^AGGMLUPD: add ("A") or delete ("D") one entry of a multiple under the
+    # patient, for the window "Other Tribe" (#9000001.43). P3 is the DFN, P4 the
+    # entry, "" to add. Returns { success: true } or { success: false, ... }.
+    def update_multiple_record(window:, dfn:, action:, entry: "", params: {}, client: RpmsRpc.client)
+      in_context(client) do
+        interpret_entry_write(call_array(client, UPDATE_MULTIPLE_RECORD_RPC, window, action.to_s, dfn.to_s, entry.to_s,
+                                         encode_parms(params)))
+      end
+    end
+    shape :update_multiple_record, resource: "agg", verb: "PUT", path: "/patients/{dfn}/agg/multiple-record"
+
+    # QNT^AGGFTVAL: whether a new other tribe's quantum, with the tribe of
+    # membership's and every other tribe's, stays within the Indian blood
+    # quantum. AG skips it unless the patient is Indian/Alaska Native and the
+    # facility records tribal quantums. others: the quantums already on file.
+    # Returns { valid: true } or { valid: false, message: }, or nil when RPMS
+    # did not answer.
+    def quantum_check(tribe:, quantum:, membership:, membership_quantum:, blood_quantum:, classification:, others: [],
+                      client: RpmsRpc.client)
+      reply = in_context(client) do
+        parse_reply(call_array(client, QUANTUM_VALIDATION_RPC, tribe.to_s, quantum.to_s, membership.to_s, membership_quantum.to_s,
+                               blood_quantum.to_s, classification.to_s, others.empty? ? "" : "AGGOTTRQ=#{others.join("\x1d")}"))
+      end
+      return nil if reply.nil?
+
+      record = reply[:records].first
+      return { valid: true } if record.nil? || record[:result].to_s == "1"
+
+      { valid: false, message: record[:error].to_s }
+    end
+    shape :quantum_check, resource: "agg", verb: "POST", path: "/agg/quantum-check"
 
     # LANG^AGGWOTH: the other languages of the patient's latest LANGUAGES ENTRY
     # DATE (#9000001.86) entry, as [{ ien:, name: }], or nil when RPMS did not
