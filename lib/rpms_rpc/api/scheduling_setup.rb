@@ -28,7 +28,6 @@ module RpmsRpc
 
     ACCESS_TYPE_FILE = "9002018.35"
     HOLIDAY_FILE = "40.5"
-    PATIENT_APPOINTMENT_FILE = "2.98"
     CANCELLED_BY = { "PC" => :patient, "PCA" => :patient, "C" => :clinic, "CA" => :clinic }.freeze
     HOSPITAL_LOCATION_FILE = 44
     # #9009017.2, the hospital location's IHS scheduling companion entry.
