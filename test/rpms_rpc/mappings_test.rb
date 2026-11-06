@@ -510,7 +510,8 @@ class RpmsRpc::MappingsTest < Minitest::Test
     expected = %i[
       patient_select patient_id_info patient_list patient_ssn
       patient_appointments allergy_list problem_list vitals
-      encounter_visit encounter_fetch encounter_chkvisit
+      encounter_visit encounter_visit_list encounter_fetch encounter_chkvisit
+      patient_pov_list
       vitals_for_date_range
       ddr_lister ddr_lock_unlock_node ddr_gets_entry_data
       ddr_filer ddr_validator
