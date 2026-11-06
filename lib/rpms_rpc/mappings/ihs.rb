@@ -405,6 +405,41 @@ module RpmsRpc
     # not an encounter status, and piece 5 is the visit id, not a ward —
     # the :status / :ward labels that sat there were never on this wire
     # (#211). Live capture: test/fixtures/wire_captures/behoencx-getvisit.yml.
+    # BEHOENCX VISITLST(DATA,DFN,BEG,END,LOC,SCEXC,IGPFLG): the patient's
+    # visits, newest first, one row each (VISITLST^BEHOENCX, BEHOENCX.m:230-251):
+    #   VSTR^LOCNAME^DATE^STATUS^LOCKED^PRV^PRVNM^STANDALONE
+    # VSTR is LOC;DATE;SERVICE CATEGORY;VISIT IEN. An appointment pending
+    # check-in has no IEN in its VSTR and stops at STATUS (lines 268-269).
+    DataMapper.define(:encounter_visit_list) do |m|
+      m.rpc "BEHOENCX VISITLST"
+      m.field 0, :visit_string
+      m.field 1, :location
+      m.field 2, :datetime,      :fileman_datetime
+      m.field 3, :category
+      m.field 4, :locked,        :boolean
+      m.field 5, :provider_ien,  :integer
+      m.field 6, :provider
+      m.field 7, :standalone,    :boolean
+    end
+
+    # BGOVPOV RECENT(RET,INP): a patient's POVs, newest visit first,
+    # at most MAX of them (INP is DFN^MAX^VISIT IEN, RECENT^BGOVPOV,
+    # BGOVPOV.m:351; a blank MAX is 9999). Row, BGOVPOV.m:348-350 and RECBUILD:
+    #   VISIT DATE^FACILITY ID^FACILITY^ICD^ICD TEXT^NARRATIVE^V POV IEN^
+    #   VISIT IEN^ICD IEN^LOCKED^ONSET^ASTHMA CONTROL^SNOMED CT
+    DataMapper.define(:patient_pov_list) do |m|
+      m.rpc "BGOVPOV RECENT"
+      m.field 0,  :visit_date
+      m.field 2,  :facility
+      m.field 3,  :icd_code
+      m.field 4,  :icd_name
+      m.field 5,  :narrative
+      m.field 6,  :ien
+      m.field 7,  :visit_ien
+      m.field 10, :onset_date
+      m.field 12, :snomed_ct
+    end
+
     DataMapper.define(:encounter_visit) do |m|
       m.rpc "BEHOENCX GETVISIT"
       m.field 0, :location_ien,     :integer
