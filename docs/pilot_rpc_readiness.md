@@ -102,3 +102,59 @@ BEHOENCX FETCH | partial | CREATE=0 read of visit 1 for DFN 2 signed on as PROV1
 BEHOENCX CHKVISIT | pilot-ready | visit 1 signed on as PROV123 returns POV^Visit has POV and E&M^Visit has no note; pilot-ready grades the mapped component and message fields; Encounter.open now lists only E&M (not checked: no note), since POV is present, and of the four present/not-required texts it drops only Visit has POV was seen live (the other three are read from BEHOXQPC.m and fail closed if they differ); visit 1 has no note, so no alert is filed by the call | unproven: none
 BEHOENCX FETCH CREATE=1 | not-proven | signed on as PROV123 the create replies "Error Creating Visit" (live spec); diagnosed in the container, not pinned by a test: PROV123's NEW PERSON division is institution 1, which has no PCC MASTER CONTROL (#9001000) entry, so FNDVIS sends a blank VISIT TYPE and APCDALV refuses with .03 TYPE OF VISIT MISSING (seed gap, rpms-ops); no V VISIT is written. Signed on as SYS123 (division 7819) the same call created a visit, a second CREATE=1 returned the same IEN, and CREATE=0 found it, but that is not the pilot persona | unproven: locked, visit_id, visit_ien
 AMHG CREATE/EDIT VISIT | not-proven | signed on as PROV123 (and SYS123) EN^AMHBHRU refuses with 0~Activity Type Missing! because BehavioralHealth.save_visit cannot file #9002011 .06 activity type, so PCC VISIT LINK .16 stays blank and no PCC visit is linked (rpms-rpc API gap, not seed) | unproven: row
+
+# Scheduling write pilot status on bcer-9.0-20261012-e7923a4-ydb (issue #565, part of #224).
+# Captured by `rake wire:capture_writes` (LIVE_DISPOSABLE=1, loopback broker), seed patient
+# DFN 3 on the synthetic resource ZZ PILOT SCHED CAPTURE (hospital location 3). A write's
+# reply is never proof by itself: each effect is proven only by a DDR GETS read-back of
+# #9002018.4 or #2.98 (internal values) equal to what the API sent.
+# pilot-ready needs every effect proven with the capture signed on as PROV123, the pilot's
+# least-privilege persona. A capture signed on as another persona proves the mapping live
+# but leaves every effect unproven for the pilot.
+# Seed gaps (rpms-ops seed issues to file) on a fresh volume of the pinned build:
+# (1) no BSDX RESOURCE (#9002018.1) entry, so booking answers "Invalid Resource ID"
+# (BSDX07.m:55), and no BSDX RESOURCE USER (#9002018.15) entries (DDR LISTER, observed
+# while preparing the capture; not recorded in the fixtures); (2) BSD PARAMETERS
+# (#9009020.2) entries have no FILE ROOM PRINTER (.05) (the capture driver sets the null device on every entry missing one), so booking answers "No file room
+# printer is defined for the chart request." (BSDX07.m:64); (3) PROV123's sign-on division
+# is INSTITUTION 1, and no MEDICAL CENTER DIVISION (#40.8) points to it (the fixtures'
+# setup.division and setup.medical_center_division_institutions), so $$DIV^BSDU is 0 for
+# PROV123 and booking answers the same printer refusal even with (2) fixed -- the ADD
+# fixture's persona_probe is that refusal. On the disposable rung the capture creates the
+# synthetic resource and sets the ZZNULL device as the printer (its setup.notes say so); it
+# adds no RESOURCE USER entry and changes no division.
+# One line per RPC: RPC | status | reason | unproven: <effects or none>
+
+BSDX ADD NEW APPOINTMENT | not-proven | proven live signed on as SYS123 (division 7819; appointment 1 at 3261126.09 for DFN 3, the effects read back on #9002018.4 and #2.98: not the .02 end time), but PROV123's booking is refused with "BSDX07 Error: No file room printer is defined for the chart request." -- seed gap: PROV123's division, INSTITUTION 1, has no #40.8 MEDICAL CENTER DIVISION, so $$DIV^BSDU is 0 | unproven: appointment_id, dpt_appt_clinic, patient, resource, start
+BSDX CHECKIN APPOINTMENT | pilot-ready | signed on as PROV123 (DUZ 200), appointment 1 checked in at 3261105.0805; #9002018.4 .03 and the clinic's #44.003 entry (patient 3, field 309) read back that time, both empty just before the call; the call sends the 8 client formals the capture ran with (BSDX25.m:12 through BSDXOG); the pinned build's tag takes three more ($G-guarded, BSDX25.m:67-69) that this API does not send, and an 11-actual call shape has not been dispatched live; check-in, cancel and no-show take only the appointment IEN and the API has no patient cross-check | unproven: none
+BSDX CANCEL APPOINTMENT | pilot-ready | signed on as PROV123 (DUZ 200), appointment 2 cancelled type PC with coded reason 5; the reply is an empty ERRORID row (no-data, not proof by itself), and #2.98 reads back status PC, reason 5 and user 200, #9002018.4 .12 a cancel time, none of them set just before the call | unproven: none
+BSDX NOSHOW | pilot-ready | signed on as PROV123 (DUZ 200), appointment 3 marked no-show; #9002018.4 .1 reads back 1 and #2.98 status N and user 200 on the patient record, neither set just before the call | unproven: none
+
+# TIU note-write pilot status on bcer-9.0-20261012-e7923a4-ydb (issue #564, slice of #224).
+# One flow written by `WRITES=1 rake wire:capture` (host mode, loopback broker), signed on as
+# PROV123. The flow first checks BEHOENCX GETVISIT on visit 4 and creates only when its patient
+# piece is 4. On this build ^AUPNVSIT(4,0) piece 5 is 4 and the seed's own TIU documents 1-4 sit
+# on DFN 4, visit 4. ProgressNote.create itself does not compare the visit's patient with DFN, and
+# neither does MAKE^TIUSRVP (VSTRBLD, TIUSRVP.m:80-85); the gate is in the capture flow only.
+# Then lock, update_text (a line over WRAP_WIDTH, #479), the TIU GET RECORD TEXT read-back, and
+# unlock, on seed patient DFN 4, visit 4, title 248 PROGRESS NOTE. The note IEN is run-dependent:
+# the build volume may be reused, so a create returns the next free IEN (this capture ran on a
+# fresh volume, where the seed holds TIU documents 1-5, and created note 6 on DFN 4, visit 4).
+# A write is proven only when the gem's public API reads its captured reply as success
+# (RpmsRpc::WireCapture.write_evidence?). A refused write is never evidence.
+# Failed live while its tests passed: the read-back check split rows on \r?\n, but this build
+# separates TIU GET RECORD TEXT rows with a bare \r; fixed in this slice.
+# Write-path limits: SETTEXT^TIUSRVPT (TIUSRVPT.m:7-38) has no author or authorization check
+# server-side; a DUZ that differs from the author only files a VBC line count (TIUSRVPT.m:32-36).
+# TIU LOCK RECORD is an M job lock, not ownership (TIUSRVP.m:211). ProgressNote.update_text never
+# calls ProgressNote.authorize, so "cannot alter someone else's note" is not enforced on this path
+# (pre-existing API property, lakeraven/rpms-rpc#614). TIU SIGN RECORD is server-guarded:
+# CANDO^TIULP (TIUSRVP2.m:49) runs before VALIDATE (TIUSRVP2.m:51).
+# One line per RPC: RPC | status | reason | unproven: <fields or none>
+
+TIU CREATE RECORD | pilot-ready | live capture signed on as PROV123 returned new note IEN 6 for DFN 4 visit 4 title 248; BEHOENCX GETVISIT signed on as PROV123 returned patient 4 for visit 4 before the create; ProgressNote.create reads it as success | unproven: none
+TIU LOCK RECORD | pilot-ready | live capture signed on as PROV123 returned 0 (lock held) on note 6; ProgressNote.lock reads it as true | unproven: none
+TIU SET DOCUMENT TEXT | pilot-ready | live capture signed on as PROV123 returned 6^1^1 on note 6 for the wrapped two-line note; update_text reads it as success; no server-side author check; see #614 | unproven: none
+TIU GET RECORD TEXT | pilot-ready | live read-back signed on as PROV123 of note 6 matches the note lines row for row after the header (only a wrap-boundary space or hard cut tolerated), each wrapped line within WRAP_WIDTH (80 bytes) | unproven: none
+TIU UNLOCK RECORD | pilot-ready | live capture signed on as PROV123 returned 0 on note 6; ProgressNote.unlock reads it as true | unproven: none
+TIU SIGN RECORD | not-proven | seed gap: NEW PERSON field 20.4 (electronic signature code) is empty for PROVIDER,TEST (DUZ 200, the PROV123 persona) on this build, so a live sign signed on as PROV123 is refused with 89250005 "incorrect Electronic Signature Code"; the fixture stays routine-cite | unproven: success

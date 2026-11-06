@@ -63,6 +63,33 @@ class SchedulingOverbookLiveTest < LiveSpec::Test
     end
   end
 
+  def test_s_sch_05_3_an_overbook_and_who_cancelled_read_back
+    resource = demo_resource
+    clinic = resource[:hospital_location_id]
+    day = far_day
+    start = Time.new(day.year, day.month, day.day, 10, 15 * rand(4))
+    booked = RpmsRpc::Scheduling.add_appointment(patient_dfn: PATIENT, resource: RESOURCE_NAME, start_time: start,
+                                                 end_time: start + 900, length_minutes: 15)
+    assert booked && booked[:success], "BSDX ADD NEW APPOINTMENT: #{booked.inspect}"
+    where = { hospital_location_id: clinic, start_time: start, patient_dfn: PATIENT }
+
+    refute RpmsRpc::SchedulingSetup.overbook?(**where)
+    assert RpmsRpc::SchedulingSetup.mark_overbook(**where)[:success]
+    assert RpmsRpc::SchedulingSetup.overbook?(**where)
+    refute RpmsRpc::SchedulingSetup.overbook?(**where, patient_dfn: 999_999)
+    assert_nil RpmsRpc::SchedulingSetup.cancelled_by(start_time: start, patient_dfn: PATIENT)
+
+    RpmsRpc::Scheduling.cancel_appointment(booked[:appointment_id], reason: "", type: "PC", note: "live spec")
+    assert_equal :patient, RpmsRpc::SchedulingSetup.cancelled_by(start_time: start, patient_dfn: PATIENT)
+
+    later = start + 3600
+    second = RpmsRpc::Scheduling.add_appointment(patient_dfn: PATIENT, resource: RESOURCE_NAME, start_time: later,
+                                                 end_time: later + 900, length_minutes: 15)
+    assert second && second[:success], "BSDX ADD NEW APPOINTMENT: #{second.inspect}"
+    RpmsRpc::Scheduling.cancel_appointment(second[:appointment_id], reason: "", type: "C", note: "live spec")
+    assert_equal :clinic, RpmsRpc::SchedulingSetup.cancelled_by(start_time: later, patient_dfn: PATIENT)
+  end
+
   private
 
   def demo_resource

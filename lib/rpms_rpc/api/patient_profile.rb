@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "agg"
+require_relative "tribal"
 
 module RpmsRpc
   # The parts of a patient's registration that sit beside the demographics:
@@ -15,6 +16,7 @@ module RpmsRpc
   #   languages           16 Other Patient          AGG BUILD WINDOW DISPLAY    AGG UPDATE PATIENT
   #   other languages     26 Other Languages        AGG PATIENT LANGUAGES       AGG UPDATE SPECIAL MULTIPLES
   #   other names         33 Aliases                AGG BUILD WINDOW MULTIPLE   AGG UPDATE ALIASES
+  #   other tribes        4 Other Tribe             AGG BUILD WINDOW MULTIPLE   AGG UPDATE A MULTIPLE RECORD
   #
   # What AG's save does not check, and so what this module checks before it
   # sends anything (each proven live on bcer-9.0-20261029-7c3119b-ydb):
@@ -49,10 +51,16 @@ module RpmsRpc
     OTHER_LANGUAGES_WINDOW = "Other Languages"  # #9009068.3 entry 26
     ALIASES_WINDOW = "Aliases"                  # #9009068.3 entry 33
     ALIAS_NODE = ".01"                          # ^DPT(DFN,.01,...), the ALIAS multiple
+    OTHER_TRIBE_WINDOW = "Other Tribe"          # #9009068.3 entry 4
+    OTHER_TRIBE_NODE = "43"                     # ^AUPNPAT(DFN,43,...), the OTHER TRIBE multiple
 
     RELATIONSHIP_FILE = "9999999.36"
     LANGUAGE_FILE = "9999999.99"
     STATE_FILE = "5"
+
+    MIGRANT_TYPES = %w[M S].freeze             # #9000001.84 .03
+    HOMELESS_TYPES = %w[H T D S O U].freeze    # #9000001.85 .03
+    YES_NO = %w[Y N].freeze
 
     # A contact parameter: its suffix after AGGEC/AGGNK, its type, and the
     # window's length limits (min, max), from the FOIA export of #9009068.3.
@@ -204,6 +212,106 @@ module RpmsRpc
     end
     shape :record_languages, resource: "patient-profiles", verb: "POST", path: "/patients/{dfn}/patient-profiles/languages"
 
+    # -- Migrant, homeless and internet -----------------------------------------
+
+    # The patient's latest entry of each, as the Other Patient window shows them:
+    #   { migrant: { status: "Y"/"N", type: "M"/"S", date: },
+    #     homeless: { status: "Y"/"N", type: "H"/"T"/..., date: },
+    #     internet: { access: true/false, date: } }
+    # A value is nil when nothing is on file; nil when RPMS did not answer.
+    def social_status(dfn)
+      record = Agg.window_values(window: OTHER_PATIENT_WINDOW, dfn: dfn.to_i)
+      return nil if record.nil?
+
+      internet = code(record["AGGINTNT"])
+      { migrant: { status: code(record["AGGMGSTS"]), type: code(record["AGGMGTYP"]), date: date_text(record["AGGMSTDT"]) },
+        homeless: { status: code(record["AGGHMSTS"]), type: code(record["AGGHMTYP"]), date: date_text(record["AGGHMSDT"]) },
+        internet: { access: internet && internet == "1", date: date_text(record["AGGINTDT"]) } }
+    end
+    shape :social_status, resource: "patient-profiles", verb: "GET", path: "/patients/{dfn}/patient-profiles/social-status"
+
+    # Record whether the patient is a migrant worker or homeless, and whether
+    # they can reach the internet (rpms-ux S-REG-31.2, 31.3): AG's edit check
+    # warns until each is on file. Only what is given is sent, and each answer
+    # is a new entry dated today, kept beside the earlier ones (MSTS, HSTS and
+    # UINT^AGGPOTH), so a caller sends what the person answered and no more.
+    #
+    # migrant: and homeless: take "Y" or "N". "Y" needs its type, the codes
+    # #9000001.84 and .85 field .03 define, and "N" takes none: AG's triggers
+    # require and disable the type the same way (AGGPTRGO.m:140-141, 160-161),
+    # and AG's save does not check it. internet: takes true or false.
+    #
+    # Returns { success: true, dfn: } or a failure hash.
+    def record_social_status(dfn, migrant: nil, migrant_type: nil, homeless: nil, homeless_type: nil, internet: nil)
+      params = social_params(:migrant, migrant, migrant_type, "AGGMGSTS", "AGGMGTYP", MIGRANT_TYPES)
+      return params if params[:error]
+
+      other = social_params(:homeless, homeless, homeless_type, "AGGHMSTS", "AGGHMTYP", HOMELESS_TYPES)
+      return other if other[:error]
+
+      params = params.merge(other)
+      params["AGGINTNT"] = internet ? "1" : "0" unless internet.nil?
+      return { success: false, error: :no_fields, message: "nothing to update" } if params.empty?
+
+      dfn = dfn.to_i
+      Agg.editing(dfn: dfn) do
+        result = Agg.update_patient(window: OTHER_PATIENT_WINDOW, dfn: dfn, params: params)
+        result && (result[:success] ? { success: true, dfn: dfn } : result)
+      end
+    end
+    shape :record_social_status, resource: "patient-profiles", verb: "POST", path: "/patients/{dfn}/patient-profiles/social-status"
+
+    # -- Other tribes ------------------------------------------------------------
+
+    # The patient's other tribes (#9000001.43): [{ ien:, tribe_ien:, tribe:,
+    # quantum: }], nil for no reply.
+    def other_tribes(dfn)
+      rows = Agg.window_multiple(window: OTHER_TRIBE_WINDOW, node: OTHER_TRIBE_NODE, dfn: dfn.to_i)
+      rows&.map do |row|
+        tribe_ien, tribe = row[:aggottri].to_s.split(Agg::VALUE_PAIR, 2)
+        { ien: row[:mien].to_i, tribe_ien: tribe_ien.to_i, tribe: tribe.to_s, quantum: row[:aggottrq].to_s }
+      end
+    end
+    shape :other_tribes, resource: "patient-profiles", verb: "GET", path: "/patients/{dfn}/patient-profiles/other-tribes"
+
+    # Add another tribe with its quantum (rpms-ux S-REG-07.2). Refused before
+    # sending when it is the tribe of membership or already listed (S-REG-07.9),
+    # or when AG's quantum check says the quantums add up to more than the
+    # Indian blood quantum (S-REG-07.8). AG's save checks neither.
+    # Returns { success: true } or a failure hash.
+    def add_other_tribe(dfn, tribe:, quantum: "")
+      dfn = dfn.to_i
+      tribe = tribe.to_i
+      Agg.editing(dfn: dfn) do
+        current = other_tribes(dfn)
+        # DDR, which a registration user holds under CIAV VUECENTRIC and not AGGRPC.
+        enrollment = ContextScope.scoped(RpmsRpc.client, Registration::CONTEXT) { Tribal.enrollment(dfn) }
+        next nil if current.nil? || enrollment.nil?
+
+        refusal = check_other_tribe(tribe, quantum.to_s, current, enrollment)
+        next refusal if refusal
+
+        Agg.update_multiple_record(window: OTHER_TRIBE_WINDOW, dfn: dfn, action: "A",
+                                   params: { "AGGOTTRI" => tribe.to_s, "AGGOTTRQ" => quantum.to_s })
+      end
+    end
+    shape :add_other_tribe, resource: "patient-profiles", verb: "POST", path: "/patients/{dfn}/patient-profiles/other-tribe"
+
+    # Remove one other tribe by its entry number. Refused when the patient has
+    # no such entry.
+    def remove_other_tribe(dfn, ien)
+      dfn = dfn.to_i
+      ien = ien.to_i
+      Agg.editing(dfn: dfn) do
+        current = other_tribes(dfn)
+        next nil if current.nil?
+        next { success: false, error: :not_found, message: "no such other tribe" } unless current.any? { |row| row[:ien] == ien }
+
+        Agg.update_multiple_record(window: OTHER_TRIBE_WINDOW, dfn: dfn, action: "D", entry: ien)
+      end
+    end
+    shape :remove_other_tribe, resource: "patient-profiles", verb: "DELETE", path: "/patients/{dfn}/patient-profiles/{ien}/other-tribe"
+
     # -- Other names (aliases) ------------------------------------------------
 
     # The patient's other names (#2.01): [{ ien:, name: }], nil for no reply.
@@ -337,6 +445,35 @@ module RpmsRpc
       end
 
       nil
+    end
+
+    def check_other_tribe(tribe, quantum, current, enrollment)
+      return invalid(:tribe, "is required") unless tribe.positive?
+      return invalid(:tribe, "is the patient's tribe of membership") if tribe == enrollment[:tribe_ien].to_i
+      return invalid(:tribe, "is already listed") if current.any? { |row| row[:tribe_ien] == tribe }
+
+      check = Agg.quantum_check(tribe: tribe, quantum: quantum, membership: enrollment[:tribe_ien],
+                                membership_quantum: enrollment[:tribe_quantum], blood_quantum: enrollment[:indian_blood_quantum],
+                                classification: enrollment[:classification_ien], others: current.map { |row| row[:quantum] })
+      return invalid(:quantum, "could not be checked by RPMS; try again") if check.nil?
+
+      check[:valid] ? nil : invalid(:quantum, check[:message])
+    end
+
+    def social_params(field, status, type, status_param, type_param, types)
+      return {} if status.nil?
+      raise ArgumentError, "#{field}: takes one of #{YES_NO.join(', ')}" unless YES_NO.include?(status)
+
+      type_field = :"#{field}_type"
+      return type ? invalid(type_field, "is only recorded for a yes") : { status_param => status } if status == "N"
+      return invalid(type_field, "must be one of #{types.join(', ')}") unless types.include?(type)
+
+      { status_param => status, type_param => type }
+    end
+
+    def date_text(value)
+      text = value.to_s
+      text.empty? ? nil : text
     end
 
     def english_language_ien

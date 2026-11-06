@@ -405,6 +405,41 @@ module RpmsRpc
     # not an encounter status, and piece 5 is the visit id, not a ward —
     # the :status / :ward labels that sat there were never on this wire
     # (#211). Live capture: test/fixtures/wire_captures/behoencx-getvisit.yml.
+    # BEHOENCX VISITLST(DATA,DFN,BEG,END,LOC,SCEXC,IGPFLG): the patient's
+    # visits, newest first, one row each (VISITLST^BEHOENCX, BEHOENCX.m:230-251):
+    #   VSTR^LOCNAME^DATE^STATUS^LOCKED^PRV^PRVNM^STANDALONE
+    # VSTR is LOC;DATE;SERVICE CATEGORY;VISIT IEN. An appointment pending
+    # check-in has no IEN in its VSTR and stops at STATUS (lines 268-269).
+    DataMapper.define(:encounter_visit_list) do |m|
+      m.rpc "BEHOENCX VISITLST"
+      m.field 0, :visit_string
+      m.field 1, :location
+      m.field 2, :datetime,      :fileman_datetime
+      m.field 3, :category
+      m.field 4, :locked,        :boolean
+      m.field 5, :provider_ien,  :integer
+      m.field 6, :provider
+      m.field 7, :standalone,    :boolean
+    end
+
+    # BGOVPOV RECENT(RET,INP): a patient's POVs, newest visit first,
+    # at most MAX of them (INP is DFN^MAX^VISIT IEN, RECENT^BGOVPOV,
+    # BGOVPOV.m:351; a blank MAX is 9999). Row, BGOVPOV.m:348-350 and RECBUILD:
+    #   VISIT DATE^FACILITY ID^FACILITY^ICD^ICD TEXT^NARRATIVE^V POV IEN^
+    #   VISIT IEN^ICD IEN^LOCKED^ONSET^ASTHMA CONTROL^SNOMED CT
+    DataMapper.define(:patient_pov_list) do |m|
+      m.rpc "BGOVPOV RECENT"
+      m.field 0,  :visit_date
+      m.field 2,  :facility
+      m.field 3,  :icd_code
+      m.field 4,  :icd_name
+      m.field 5,  :narrative
+      m.field 6,  :ien
+      m.field 7,  :visit_ien
+      m.field 10, :onset_date
+      m.field 12, :snomed_ct
+    end
+
     DataMapper.define(:encounter_visit) do |m|
       m.rpc "BEHOENCX GETVISIT"
       m.field 0, :location_ien,     :integer
@@ -1086,12 +1121,16 @@ module RpmsRpc
     #   AGG WINDOW TABLE LOOKUP       LKP^AGGWTBLK    file, text, screen
     #   AGG UPDATE ALIASES            ALIAS^AGGPTNAM  DFN, A/D, entry, PARMS
     #   AGG UPDATE SPECIAL MULTIPLES  UPD^AGGPOTH     window, DFN, entry, A/D, PARMS
+    #   AGG UPDATE A MULTIPLE RECORD  UPD^AGGMLUPD    window, A/D, DFN, entry, PARMS
+    #   AGG QUANTUM VALIDATION        QNT^AGGFTVAL    tribe, quantum, membership, its quantum, blood quantum, class, others
     #   AGG PATIENT LANGUAGES         LANG^AGGWOTH    DFN
     {
       agg_window_multiple: "AGG BUILD WINDOW MULTIPLE",
       agg_table_lookup: "AGG WINDOW TABLE LOOKUP",
       agg_update_aliases: "AGG UPDATE ALIASES",
       agg_update_special_multiples: "AGG UPDATE SPECIAL MULTIPLES",
+      agg_update_multiple_record: "AGG UPDATE A MULTIPLE RECORD",
+      agg_quantum_validation: "AGG QUANTUM VALIDATION",
       agg_patient_languages: "AGG PATIENT LANGUAGES"
     }.each do |name, rpc|
       DataMapper.define(name) do |m|
@@ -1248,6 +1287,16 @@ module RpmsRpc
     # so an "M ERROR|..." row is not coerced to 0.
     DataMapper.define(:amhg_save_progress_notes) do |m|
       m.rpc "AMHG SAVE PROGRESS NOTES"
+      m.field 0, :ien, :string
+    end
+
+    # AMHG SAVE HEALTH FACTORS — HF^AMHGSVF (AMHGSVF.m:277-305). One
+    # param, four pieces. Piece 3 is "*" -joined items of
+    # name~level~qty~comment. The reply is header T00030Result, then
+    # the record IEN or AMHER ("0~Add Health Factor" / "0~Edit Health
+    # Factor", AMHGEVF.m:307,312). :ien stays a string.
+    DataMapper.define(:amhg_save_health_factors) do |m|
+      m.rpc "AMHG SAVE HEALTH FACTORS"
       m.field 0, :ien, :string
     end
 
@@ -1585,6 +1634,34 @@ module RpmsRpc
       m.field 8,  :inactive_raw
       m.field 9,  :community
       m.field 10, :mothers_maiden_name
+    end
+
+    # ========================================================================
+    # STOCK WRAPPERS (rpms-rpc#420)
+    # ========================================================================
+
+    # BGU MAILMAN MESSAGE — EN^BGUMAIL. BGUARRAY(1)=1 and BGUARRAY(2)="OK"
+    # on success (BGUMAIL.m:6). The seed used by the wrapper tests is one
+    # caret row RESULT^STATUS; a live type-2 reply is two nodes, and
+    # RpmsRpc::Bgu accepts both.
+    DataMapper.define(:bgu_mailman_message) do |m|
+      m.rpc "BGU MAILMAN MESSAGE"
+      m.field 0, :result
+      m.field 1, :status
+    end
+
+    # DG SENSITIVE RECORD BULLETIN — NOTICE^DGSEC4. Single value 1 or 0
+    # (DGSEC4.m:74-83). Params: DFN^DGOPT^ACTION.
+    DataMapper.define(:dg_sensitive_bulletin) do |m|
+      m.rpc "DG SENSITIVE RECORD BULLETIN"
+      m.scalar :result
+    end
+
+    # ORWU DT — DT^ORWU. One FileMan value, or -1 from ^%DT (ORWU.m:4-7).
+    # Params: X^%DT. The wrapper treats -1 as no datetime.
+    DataMapper.define(:orwu_dt) do |m|
+      m.rpc "ORWU DT"
+      m.scalar :fileman_datetime
     end
   end
 end

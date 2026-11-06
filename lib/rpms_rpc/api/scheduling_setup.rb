@@ -28,6 +28,7 @@ module RpmsRpc
 
     ACCESS_TYPE_FILE = "9002018.35"
     HOLIDAY_FILE = "40.5"
+    CANCELLED_BY = { "PC" => :patient, "PCA" => :patient, "C" => :clinic, "CA" => :clinic }.freeze
     HOSPITAL_LOCATION_FILE = 44
     # #9009017.2, the hospital location's IHS scheduling companion entry.
     # Field .09 is CREATE VISIT AT CHECK-IN, a set of codes. CHECKIN^BSDX25
@@ -121,6 +122,36 @@ module RpmsRpc
       file_clinic_entry(hospital_location_id, start_time, patient_dfn, "9", "O")
     end
     shape :mark_overbook, resource: "appointments", verb: "POST", path: "/patients/{patient_dfn}/appointments/mark-overbook"
+
+    # The times on a clinic's day that hold an overbook (rpms-ux S-SCH-05.3):
+    # OVERBOOK (#44.003 field 9) on the patient's entry at that time. The
+    # BSDX reads do not carry it. false when the clinic holds no entry for the
+    # patient then, as after a cancellation. A failed read raises
+    # Client::RpcError.
+    def overbook?(hospital_location_id:, start_time:, patient_dfn:)
+      clinic = hospital_location_id.to_s
+      raise ArgumentError, "hospital_location_id must be a positive integer" unless clinic.match?(/\A[1-9]\d*\z/)
+
+      at = iens_time(start_time)
+      entries = list(CLINIC_APPOINTMENT_FILE, "@;.01I;9I", iens: ",#{at},#{clinic},")
+      entries.any? { |e| e[:pieces][0].to_i == patient_dfn.to_i && e[:pieces][1] == "O" }
+    end
+    shape :overbook?, resource: "appointments", verb: "GET", path: "/patients/{patient_dfn}/appointments/overbook"
+
+    # Who cancelled the patient's appointment at that time (S-SCH-05.3): "PC"
+    # or "PCA" is the patient and "C" or "CA" the clinic, by STATUS (#2.98
+    # field 3); the BSDX reads say only that it was cancelled. Returns :patient,
+    # :clinic, or nil for any other status. A failed read raises
+    # Client::RpcError.
+    def cancelled_by(start_time:, patient_dfn:)
+      iens = "#{iens_time(start_time)},#{patient_dfn.to_i},"
+      read = in_context { DdrFileman.gets_entry(file: PATIENT_APPOINTMENT_FILE, iens: iens, fields: "3", flags: "I") }
+      raise Client::RpcError, "DDR GETS ENTRY DATA gave no reply for ##{PATIENT_APPOINTMENT_FILE}" if read.nil?
+      return nil if read[:error]
+
+      CANCELLED_BY[read[:fields].dig("3", :internal).to_s]
+    end
+    shape :cancelled_by, resource: "appointments", verb: "GET", path: "/patients/{patient_dfn}/appointments/cancelled-by"
 
     # Files a booked appointment's note on the clinic: OTHER (#44.003 field 3),
     # the copy MAKE^BSDAPI files at booking (its "OI") and the clinic's lists

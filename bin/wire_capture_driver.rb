@@ -9,14 +9,28 @@
 #     BROKER_HOST=127.0.0.1 BROKER_PORT=9100 \
 #     RPMS_ACCESS=... RPMS_VERIFY=... ruby wire_capture_driver.rb
 #
-# Connects the real client (RpmsRpc::CiaClient) to the rung's broker, calls
-# every LIVE-mode entry in RpmsRpc::WireCapture::CATALOG — read-only
-# behavioral RPCs with synthetic inputs, against a rung we own, never a
-# customer instance — and prints one JSON document on stdout. An entry that
-# names a context option is called inside client.with_context, so the broker
-# sees that option (AGG LOOKUP PATIENTS is registered under AGGRPC only).
-# The host-side rake task turns the JSON into provenance-stamped fixtures.
-# This script never writes to the target and never edits captured bytes.
+# Connects the real client (RpmsRpc::CiaClient) to the rung's broker. A read
+# run calls every LIVE-mode entry in RpmsRpc::WireCapture::CATALOG — read RPCs
+# with synthetic inputs, against a rung we own, never a customer instance. An
+# entry that names a context option is called inside client.with_context, so
+# the broker sees that option (AGG LOOKUP PATIENTS is registered under AGGRPC
+# only). A WRITES=1 run calls none of those. Its only read is the BEHOENCX
+# GETVISIT linkage check inside NoteWriteFlow, before create. That capture
+# is returned with the others and is not a write-catalog fixture.
+# It prints one JSON document on stdout. The host-side rake task turns that
+# into provenance-stamped fixtures. This script does not edit captured bytes.
+#
+# WRITES=1 runs NoteWriteFlow. The write run's only read is the BEHOENCX
+# GETVISIT linkage check before create. Then create, lock, set text, read-back,
+# unlock, and sign when the read-back is evidence and
+# RPMS_ESIG was supplied. It is refused before the socket unless the broker
+# host resolves to loopback, CONTAINER is unset, the access code is a
+# synthetic persona, ONLY is blank (the TIU flow is captured together), and
+# RPMS_ESIG is unset or 6-20 characters with no leading or trailing
+# whitespace (field 20.4 stores the exact code). A write run dials the
+# resolved loopback address, not the host name. The signature code is read
+# from the environment only and is never printed. A capture that contains
+# it is dropped, not rewritten.
 require "json"
 
 # rpms-rpc references IO::TimeoutError (Ruby >= 3.2); container rubies can be
@@ -33,6 +47,28 @@ host = ENV.fetch("BROKER_HOST", "127.0.0.1")
 port = ENV.fetch("BROKER_PORT", "9100").to_i
 acc = ENV.fetch("RPMS_ACCESS", "SYS123")
 ver = ENV.fetch("RPMS_VERIFY", "RPMS.000")
+writes = ENV["WRITES"] == "1"
+# Judged before the socket. A blank ONLY is unset; a write run captures the TIU flow as one unit.
+only = RpmsRpc::WireCapture.normalize_only(ENV["ONLY"])
+cite_only = ENV["CITE_ONLY"].to_s.split(",").map(&:strip).reject(&:empty?)
+# Plain code only. The flow already drops a capture that holds the ciphertext.
+esig = ENV["RPMS_ESIG"]
+esig_secrets = [ esig ]
+
+# Same gate as the rake task, before the socket. A direct run cannot skip it.
+# Read runs keep the host name. A write run dials the loopback address it checked.
+connect_host = host
+if writes
+  reason = RpmsRpc::WireCapture.write_refusal(
+    writes: true, host: host, container: ENV["CONTAINER"], access: acc,
+    only: only, esig: esig
+  )
+  abort reason if reason
+
+  connect_host = RpmsRpc::WireCapture.write_connect_host(host: host)
+  # Fail closed: a name that does not resolve to loopback must not be dialed.
+  abort "WRITES=1 is refused unless the broker host resolves to loopback addresses only" if connect_host.nil?
+end
 
 # ONLY matches an RPC name or a fixture name. CITE_ONLY matches a fixture
 # name, or an RPC name only when the entry's fixture name is that RPC's
@@ -57,9 +93,14 @@ out = { "client" => "rpms-rpc RpmsRpc::CiaClient",
         "captures" => {} }
 out["selected"] = entries.map(&:fixture_name)
 
-client = RpmsRpc::CiaClient.new(host: host, port: port, timeout: 15)
+client = RpmsRpc::CiaClient.new(host: connect_host, port: port, timeout: 15)
 client.connect
 client.authenticate(acc, ver)
+
+# A write run calls no read entries (driver_read_entries); the note flow
+# below is its whole capture. ONLY / CITE_ONLY were judged before connect.
+entries = RpmsRpc::WireCapture.driver_read_entries(writes: writes, only: only, cite_only: cite_only)
+out["selected"] = entries.map(&:fixture_name)
 
 entries.each do |entry|
   raw = if entry.context
@@ -70,9 +111,31 @@ entries.each do |entry|
   raw = raw.join("\n") if raw.is_a?(Array)
   out["captures"][entry.fixture_name] = { "inputs" => entry.inputs, "raw" => raw.to_s }
 rescue StandardError => e
-  out["captures"][entry.fixture_name] = { "inputs" => entry.inputs,
-                                          "error" => "#{e.class}: #{e.message}" }
+  out["captures"][entry.fixture_name] = {
+    "inputs" => entry.inputs,
+    "error" => RpmsRpc::WireCapture::NoteWriteFlow.redacted_error(e, esig_secrets)
+  }
+end
+
+# ONLY was refused above. The note flow runs as one unit, or not at all.
+if writes
+  begin
+    RpmsRpc::WireCapture::NoteWriteFlow.run(client, esig: esig).each do |rpc, capture|
+      out["captures"][rpc] = capture
+    end
+  rescue StandardError => e
+    # A failure before any step has no RPC of its own. Record it on the first
+    # write entry so the code is still redacted and the run does not look empty.
+    rpc = RpmsRpc::WireCapture::CATALOG.find(&:write?)&.rpc
+    if rpc
+      out["captures"][rpc] = {
+        "error" => RpmsRpc::WireCapture::NoteWriteFlow.redacted_error(e, esig_secrets)
+      }
+    end
+  end
 end
 
 client.disconnect
+# Drop any capture that still holds the plain code, including read replies.
+out["captures"] = RpmsRpc::WireCapture::NoteWriteFlow.quarantine_secrets(out["captures"], esig_secrets)
 puts JSON.generate(out)

@@ -216,6 +216,27 @@ module RpmsRpc
         primary_provider: provider
       }
     end
+    # Active Patient Record Flags, the banner item BEHOCACV CWAD reports as "F"
+    # and ORWPT CWAD does not. ORPRF HASFLG is HASFLG^ORPRF, on the caller
+    # option: CIAV VUECENTRIC and OR CPRS GUI CHART both list it. It reads
+    # $$GETACT^DGPFAPI, so only ACTIVE assignments answer: one row per flag,
+    # id^flag name^1 for a national (Category I) flag. A patient with no flag
+    # answers nothing, which is []. Returns [] for an invalid DFN. A safety flag
+    # must not read as absent because the reply was bad: a row that is not that
+    # shape raises RpcError, which names the RPC and not the raw reply.
+    def flags(dfn)
+      return [] if dfn.nil? || dfn.to_i <= 0
+
+      DataMapper.patient_record_flags.fetch_many(dfn.to_s).map do |flag|
+        unless flag[:id].to_s.match?(/\A\d+\z/) && !flag[:name].to_s.strip.empty?
+          raise Client::RpcError, "ORPRF HASFLG reply is not a flag row"
+        end
+
+        { name: flag[:name], national: flag[:category].to_s == "1" }
+      end
+    end
+    shape :flags, resource: "patients", verb: "GET", path: "/patients/{dfn}/flags"
+
     shape :brief_header, resource: "patients", verb: "POST", path: "/patients/{dfn}/brief-header"
 
     # Patient telecom (FHIR Patient.telecom source) — home / work / cell /

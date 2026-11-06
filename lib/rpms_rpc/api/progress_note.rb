@@ -41,8 +41,11 @@ module RpmsRpc
 
     # MAKE(SUCCESS,DFN,TITLE,VDT,VLOC,VSIT,TIUX,VSTR,SUPPRESS,NOASF)
     # (TIUSRVP.m:7). The visit goes in VSIT; MAKE builds the visit string
-    # and date from it (TIUSRVP.m:24-31), so VDT and VLOC go empty.
-    # SUCCESS is the new IEN (TIUSRVP.m:61) or "0^message" (TIUSRVP.m:58, 60).
+    # and date from it (TIUSRVP.m:24-31; VSTRBLD is TIUSRVP.m:80-85), so VDT
+    # and VLOC go empty. On the pinned build MAKE^TIUSRVP refuses with "0^"
+    # at TIUSRVP.m:59 and :62 and sets SUCCESS=+TIUDA at TIUSRVP.m:63.
+    # SUCCESS is the new IEN (TIUSRVP.m:63) or "0^message" (TIUSRVP.m:59, 62).
+    # ProgressNote.create does not compare the visit's patient with DFN.
     def create(dfn, visit_ien, title_ien)
       return failure if invalid_id?(dfn) || invalid_id?(visit_ien) || invalid_id?(title_ien)
 

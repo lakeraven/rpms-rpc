@@ -207,9 +207,20 @@ module RpmsRpc
     # outside that set is unchanged. :stray and :altered are omitted when
     # false, so a well-formed reply keeps the previous hash. fields, error,
     # and malformed are unchanged either way.
+    # The broker reply is parsed by parse_gets_reply.
     def gets_entry(file:, iens:, fields:, flags: "", word_processing_stray_fields: nil)
-      raw = call(:ddr_gets_entry_data,
-        gets_entry_param(file: file, iens: iens, fields: fields, flags: flags))
+      parse_gets_reply(call(:ddr_gets_entry_data,
+        gets_entry_param(file: file, iens: iens, fields: fields, flags: flags)),
+        flags: flags, word_processing_stray_fields: word_processing_stray_fields)
+    end
+    shape :gets_entry, resource: "files", verb: "GET", path: "/files/{file}/entries/{iens}"
+
+    # GETSC^DDR2's default reply (DDR2.m:22-43,61), the parser gets_entry
+    # uses. `raw` is the broker reply or the lines already split from it.
+    # flags and word_processing_stray_fields are the ones gets_entry was
+    # called with (see its rules above). Nil when there is no reply. Sends
+    # nothing.
+    def parse_gets_reply(raw, flags: "", word_processing_stray_fields: nil)
       altered = Reply.altered?(raw)
       reply = lines(raw)
       return nil if reply.nil?
@@ -270,7 +281,6 @@ module RpmsRpc
       parsed[:stray] = true if stray
       parsed
     end
-    shape :gets_entry, resource: "files", verb: "GET", path: "/files/{file}/entries/{iens}"
 
     def gets_entry_param(file:, iens:, fields:, flags: "")
       param = { "FILE" => file.to_s, "IENS" => iens.to_s, "FIELDS" => fields.to_s }
@@ -351,6 +361,12 @@ module RpmsRpc
       RpmsRpc.client.call_rpc(DataMapper[mapping_name].rpc_name, *params)
     end
 
+    public
+
+    # Parse the lines from #lines. Public so a caller that read DDR LISTER
+    # on its own client uses the same grammar as #lister. #lister always
+    # calls RpmsRpc.client; a caller holding its own client parses with this.
+    #
     # V0 rows are every non-marker, non-MORE line. V1 rows are only the
     # lines inside "[BEGIN_diDATA]" ... "[END_diDATA]". An error marker
     # closes a V1 data section so its text is not a row. No data section
@@ -383,20 +399,24 @@ module RpmsRpc
       { entries: entries, more: more, error: error, data: data }
     end
 
+    # Normalize a broker reply to an array of lines, the split #lister
+    # uses. Public for the same reason as #parse_lister_reply. MockClient
+    # returns an Array (or a single-line String); a live broker returns a
+    # CR+LF-joined stream. nil/empty → nil (no response at all).
+    def lines(response)
+      return nil if response.nil?
+
+      list = response.is_a?(Array) ? response.map(&:to_s) : response.to_s.split(/\r?\n/)
+      list.empty? ? nil : list
+    end
+
+    private
+
     # "[END_diDATA]" ends the V1 row list. An error marker does too, so
     # the text under it is not parsed as another row.
     def lister_v1_data_closed?(line)
       line == "[END_diDATA]" || line == "[BEGIN_diERRORS]" ||
         line == "[Errors]" || line == "[END_diERRORS]"
-    end
-
-    # Normalize a broker reply to an array of lines: MockClient returns an
-    # Array (or a single-line String); a live broker returns a CR+LF-joined
-    # stream. nil/empty → nil (no response at all).
-    def lines(response)
-      return nil if response.nil?
-      list = response.is_a?(Array) ? response.map(&:to_s) : response.to_s.split(/\r?\n/)
-      list.empty? ? nil : list
     end
 
     # Extract the human-readable DIERR TEXT lines from a

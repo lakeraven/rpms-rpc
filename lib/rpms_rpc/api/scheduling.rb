@@ -76,9 +76,11 @@ module RpmsRpc
   # option, BSDXRPC ("WINDOWS SCHEDULING PROCEDURE CALLS", 69 entries), and in
   # no other — not the option a CIA sign-on binds (CIAV VUECENTRIC) and not
   # OR CPRS GUI CHART. A user without XUPROGMODE calling them under the
-  # sign-on option is denied before any data is returned. So every public
+  # sign-on option is denied before any data is returned. So every BSDX
   # method scopes itself to BSDXRPC via ContextScope.scoped (bind, run,
-  # restore the caller's option), the way RpmsRpc::Agg does for AGGRPC. A
+  # restore the caller's option), the way RpmsRpc::Agg does for AGGRPC.
+  # checkin_visit is the exception: it reads BEHOENCX FETCH, which this
+  # build serves only from CIAV VUECENTRIC, and it binds that option. A
   # client that cannot scope contexts runs as-is. A programmer-key session
   # bypasses the check either way, so only a non-programmer run is evidence
   # of this bind.
@@ -87,8 +89,13 @@ module RpmsRpc
     extend Shape::Declarable
 
     # The context option the BSDX RPCs are registered under — see the module
-    # doc. Every method here binds it.
+    # doc. Every BSDX method here binds it.
     CONTEXT = "BSDXRPC"
+    # BEHOENCX FETCH is not a BSDX RPC. Pinned reach lists only this option.
+    FETCH_CONTEXT = "CIAV VUECENTRIC"
+    # A FileMan date/time as it goes on the wire: 7 digits and a time. A bare
+    # date is refused: the visit search needs a time to centre its window.
+    FILEMAN_MOMENT = /\A\d{7}\.\d{2,6}\z/
 
     # Book an appointment — BSDX ADD NEW APPOINTMENT (APPADD^BSDX07 → $$MAKE^BSDAPI).
     #
@@ -153,6 +160,9 @@ module RpmsRpc
     # sent, the unused tail as empties: the routine passes BSDXVCL/BSDXVFM/
     # BSDXOG to APCHK by value with no $G (BSDX25.m:63), so omitting them
     # <UNDEF>s server-side whenever the resource links a hospital location.
+    # Eight, not the pinned build's eleven: the FOIA BSDX25 tag stops at BSDXOG
+    # and a longer actual list faults there; the three extra formals are
+    # $G-guarded on the pinned build (BSDX25.m:67-69), so eight behave the same.
     def checkin_appointment(appointment_ien, checkin_time:, clinic_code: nil, provider: nil)
       error_write(:scheduling_checkin_appointment,
                   appointment_ien.to_s, fm(checkin_time), clinic_code.to_s, provider.to_s,
@@ -173,6 +183,55 @@ module RpmsRpc
                   appointment_ien.to_s, "@", "", "", "", "", "", "",
                   zero_ok: true)
     end
+
+    # The visit closest to a check-in time — BEHOENCX FETCH with CREATE=0
+    # (FETCH^BEHOENCX, BEHOENCX.m:24-47). CHECKIN^BSDX25 never returns the
+    # visit IEN, so a host looks one up here. This is a lookup, not a record of
+    # what the check-in made: it returns the CLOSEST matching visit for that
+    # patient + clinic + service category "A" within +/-60 minutes of the time
+    # (BEHOENCX.m:64-94). Ties go to the lowest IEN. The caller is not told that
+    # several visits matched. A provider session's first pass is restricted to
+    # that provider's own visits (BEHOENCX.m:36,108), so who calls can change
+    # which visit wins.
+    # VSTR2VIS^BEHOENCX turns "LOC;VDT;SVC" into the patient's visit through
+    # FNDVIS with IN("NEVER ADD") set (BEHOENCX.m:80), so this never creates a
+    # visit, and a visit owned by another patient is refused (VIS2VSTR,
+    # BEHOENCX.m:118), so it cannot read across patients.
+    # Option: CIAV VUECENTRIC, not BSDXRPC.
+    #
+    # nil means "no category-A visit at that clinic within 60 minutes", NOT
+    # "the check-in made none". BSDX25.m:113-117 files VISIT TYPE and SERVICE
+    # CATEGORY from file 9001001.2 fields .11/.12 ("A" is only the blank
+    # fallback), and BSDX25.m:110 checks in with TIME RANGE=-1, so a site with
+    # other parameters, or a visit outside the window, does not resolve here.
+    #
+    #   dfn:          patient IEN, a positive integer
+    #   clinic_ien:   HOSPITAL LOCATION IEN, a positive integer
+    #   checkin_time: Time/DateTime or a preformatted FileMan date/time with a
+    #                 time part; a bare Date is refused
+    #
+    # A DFN, clinic or time that is not well formed raises ArgumentError
+    # before any RPC. No resolved visit, or an error row, is nil.
+    # Returns { visit_ien:, visit_id:, patient_dfn:, location_ien:,
+    # location_name:, locked: } or nil. patient_dfn and location_ien echo the
+    # request; the reply carries no location IEN.
+    def checkin_visit(dfn:, clinic_ien:, checkin_time:)
+      patient = canonical_id(dfn)
+      clinic = canonical_id(clinic_ien)
+      moment = fm(checkin_time)
+      raise ArgumentError, "dfn must be a positive integer" unless patient
+      raise ArgumentError, "clinic_ien must be a positive integer" unless clinic
+      raise ArgumentError, "checkin_time must be a FileMan date/time" unless moment.match?(FILEMAN_MOMENT)
+
+      reply = ContextScope.scoped(RpmsRpc.client, FETCH_CONTEXT) do
+        DataMapper.encounter_fetch.fetch_one(patient, "#{clinic};#{moment};A", "", "0")
+      end
+      return nil if reply.nil? || reply[:error] || reply[:visit_ien].nil? || reply[:visit_ien] <= 0
+
+      { visit_ien: reply[:visit_ien], visit_id: reply[:visit_id], patient_dfn: patient.to_i,
+        location_ien: clinic.to_i, location_name: reply[:location_name], locked: reply[:locked] }
+    end
+    shape :checkin_visit, resource: "appointments", verb: "GET", path: "/patients/{dfn}/appointments/clinics/{clinic_ien}/checkin-visit"
     shape :cancel_checkin, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/cancel-checkin"
 
     # Check a patient out — BSDX CHECKOUT APPOINTMENT (CHECKOUT^BSDX25 →
@@ -322,8 +381,9 @@ module RpmsRpc
     # (PADISP^BSDX27), the scheduling client's patient appointment list. Returns
     # [{ start_time:, clinic:, resource_id:, type:, status:, made_by:, made_at:, note: }].
     # :type is SCHED or WALK-IN ($$APPTYP^BSDU2); :status is scheduled, checked
-    # in, checked out, no-show or cancelled (STATUS^BSDX27). The routine leaves
-    # out a cancelled BSDX appointment. Each row also carries the patient's
+    # in, checked out, no-show or cancelled (STATUS^BSDX27). A live capture
+    # contradicted the earlier note that the routine leaves out a cancelled
+    # BSDX appointment, so do not rely on a cancelled row being absent. Each row also carries the patient's
     # name, date of birth, HRN, address and phone; they are not returned.
     # ERR^BSDX27's row of empty pieces raises Client::RpcError.
     def patient_appointments(dfn)
@@ -357,14 +417,18 @@ module RpmsRpc
     # Client::RpcError; a header-only reply is [].
     def resources
       rows = in_context { recordset("BSDX RESOURCES", "") }
-      rows&.map do |r|
-        { id: r[:resourceid].to_i, name: r[:resource_name], inactive: r[:inactive].to_s == "1",
-          time_scale: r[:timescale].to_i, hospital_location_id: r[:hospital_location_id].to_i,
-          view: r[:view].to_s == "1", overbook: r[:overbook].to_s == "1",
-          modify_schedule: r[:modify_schedule].to_s == "1", modify_appointments: r[:modify_appointments].to_s == "1" }
-      end
+      rows&.map { |r| resource_row(r) }
     end
     shape :resources, resource: "appointments", verb: "GET", path: "/appointments/resources"
+
+    # BSDX RESOURCES BY USER (RESUSR^BSDX01). Option: BSDXRPC. Same columns
+    # as BSDX RESOURCES (BSDX01.m:111-112). An empty DUZ is the signed-on
+    # user (BSDX01.m:113, `I '+BSDXDUZ`). Header-only is [].
+    def resources_by_user(duz: "")
+      rows = in_context { recordset("BSDX RESOURCES BY USER", duz.to_s) }
+      rows&.map { |r| resource_row(r) }
+    end
+    shape :resources_by_user, resource: "appointments", verb: "GET", path: "/appointments/resources-by-user"
 
     # A resource's access blocks between two dates, with their slots — BSDX
     # CREATE ASGND SLOT SCHED (CASSCH^BSDX04), what the scheduling client draws
@@ -594,6 +658,13 @@ module RpmsRpc
       names.each_with_index.to_h { |name, index| [ name, pieces[index] ] }
     end
 
+    def resource_row(row)
+      { id: row[:resourceid].to_i, name: row[:resource_name], inactive: row[:inactive].to_s == "1",
+        time_scale: row[:timescale].to_i, hospital_location_id: row[:hospital_location_id].to_i,
+        view: row[:view].to_s == "1", overbook: row[:overbook].to_s == "1",
+        modify_schedule: row[:modify_schedule].to_s == "1", modify_appointments: row[:modify_appointments].to_s == "1" }
+    end
+
     def external_time(text)
       FilemanDateParser.parse_external_datetime(text) unless text.to_s.strip.empty?
     end
@@ -626,6 +697,13 @@ module RpmsRpc
     # DateTime first and dropped the time.)
     def fm(value)
       FilemanDateParser.to_fileman(value)
+    end
+
+    def canonical_id(value)
+      case value
+      when Integer then value.positive? ? value.to_s : nil
+      when String then value.match?(/\A[1-9]\d*\z/) ? value : nil
+      end
     end
   end
 end

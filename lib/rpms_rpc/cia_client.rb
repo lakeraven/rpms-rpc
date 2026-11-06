@@ -178,6 +178,9 @@ module RpmsRpc
         # @session_uid are already set here).
         duz = begin
           signon_duz
+        rescue RpcRefusedError
+          clear_signon_state
+          raise ContextRefusedError, "CIA sign-on: this user may not use #{application}"
         rescue RpcError => e
           clear_signon_state
           raise AuthenticationError,

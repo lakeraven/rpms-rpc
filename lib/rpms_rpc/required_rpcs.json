@@ -10,12 +10,17 @@
       "AGG ADD NEW PATIENT",
       "AGG BUILD WINDOW DISPLAY",
       "AGG BUILD WINDOW MULTIPLE",
+      "AGG CHECK SENSITIVE PATIENT",
+      "AGG ERROR SCREEN",
       "AGG GET TEMP PAT HRN",
       "AGG LOCK PATIENT",
       "AGG LOOKUP PATIENTS",
       "AGG PATIENT EDIT CHECK",
       "AGG PATIENT LANGUAGES",
+      "AGG QUANTUM VALIDATION",
+      "AGG SEND SENSITIVE NOTIFY",
       "AGG UNLOCK PATIENT",
+      "AGG UPDATE A MULTIPLE RECORD",
       "AGG UPDATE ALIASES",
       "AGG UPDATE PATIENT",
       "AGG UPDATE SPECIAL MULTIPLES",
@@ -61,11 +66,13 @@
       "AMHG GET VISIT SCREENING",
       "AMHG GET VISIT SOAP",
       "AMHG GET VISITS",
+      "AMHG SAVE HEALTH FACTORS",
       "AMHG SAVE POV",
       "AMHG SAVE PROGRESS NOTES",
       "AMHG SAVE VISIT",
       "DDR GETS ENTRY DATA",
-      "DDR LISTER"
+      "DDR LISTER",
+      "DDR LOCK/UNLOCK NODE"
     ],
     "RpmsRpc::BehavioralHealth::CaseManagement": [
       "AMHG GET CASE DATES",
@@ -100,6 +107,12 @@
       "DDR GETS ENTRY DATA",
       "DDR LOCK/UNLOCK NODE"
     ],
+    "RpmsRpc::Bgu": [
+      "BGU MAILMAN MESSAGE"
+    ],
+    "RpmsRpc::Busa": [
+      "BUSA LOG SECURITY AUDIT ENTRY"
+    ],
     "RpmsRpc::ClinicalEvent": [
       "ORWPCE GET EDUCATION TOPICS",
       "ORWPCE GET EXAM TYPE",
@@ -120,6 +133,7 @@
       "AGG UPDATE MEDICARE",
       "AGG UPDATE PRIVATE INSUR",
       "BQI PATIENT INSURANCE",
+      "DDR FILER",
       "DDR GETS ENTRY DATA",
       "DDR LISTER"
     ],
@@ -130,6 +144,10 @@
       "DDR LISTER",
       "DDR LOCK/UNLOCK NODE",
       "DDR VALIDATOR"
+    ],
+    "RpmsRpc::DgSensitive": [
+      "DG SENSITIVE RECORD ACCESS",
+      "DG SENSITIVE RECORD BULLETIN"
     ],
     "RpmsRpc::ESignature": [
       "ORWU VALIDSIG",
@@ -145,6 +163,7 @@
       "BEHOENCX CHKVISIT",
       "BEHOENCX FETCH",
       "BEHOENCX GETVISIT",
+      "BEHOENCX VISITLST",
       "ORWPT APPTLST"
     ],
     "RpmsRpc::ExamComponent": [
@@ -175,7 +194,8 @@
       "BGOREF SET"
     ],
     "RpmsRpc::Location": [
-      "DDR GETS ENTRY DATA"
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
     ],
     "RpmsRpc::Measurement": [
       "BEHOENCX GETVISIT",
@@ -221,6 +241,9 @@
     "RpmsRpc::Organization": [
       "DDR GETS ENTRY DATA"
     ],
+    "RpmsRpc::Orwu": [
+      "ORWU DT"
+    ],
     "RpmsRpc::Patient": [
       "AGG ADD NEW PATIENT",
       "AGG BUILD WINDOW DISPLAY",
@@ -234,6 +257,7 @@
       "BEHOPTPC GETBDP",
       "DDR GETS ENTRY DATA",
       "DDR LISTER",
+      "ORPRF HASFLG",
       "ORWPT CWAD",
       "ORWPT FULLSSN",
       "ORWPT ID INFO",
@@ -252,12 +276,15 @@
       "AGG BUILD WINDOW MULTIPLE",
       "AGG LOCK PATIENT",
       "AGG PATIENT LANGUAGES",
+      "AGG QUANTUM VALIDATION",
       "AGG UNLOCK PATIENT",
+      "AGG UPDATE A MULTIPLE RECORD",
       "AGG UPDATE ALIASES",
       "AGG UPDATE PATIENT",
       "AGG UPDATE SPECIAL MULTIPLES",
       "AGG WINDOW DATA VALIDATION",
-      "AGG WINDOW TABLE LOOKUP"
+      "AGG WINDOW TABLE LOOKUP",
+      "DDR GETS ENTRY DATA"
     ],
     "RpmsRpc::PatientSelection": [
       "BEHOPTPL DOBLKP",
@@ -273,6 +300,7 @@
       "BEHOCIR1 GETCCDS"
     ],
     "RpmsRpc::Pov": [
+      "BGOVPOV RECENT",
       "BGOVPOV SET"
     ],
     "RpmsRpc::Practitioner": [
@@ -350,6 +378,7 @@
       "ORQQPXRM REMINDERS APPLICABLE"
     ],
     "RpmsRpc::Scheduling": [
+      "BEHOENCX FETCH",
       "BSDX ADD NEW APPOINTMENT",
       "BSDX ADD NEW AVAILABILITY",
       "BSDX ALL APPOINTMENTS",
@@ -368,6 +397,7 @@
       "BSDX OVERBOOK",
       "BSDX PATIENT APPT DISPLAY",
       "BSDX RESOURCES",
+      "BSDX RESOURCES BY USER",
       "BSDX SEARCH AVAILABILITY",
       "BSDX UNCANCEL APPT"
     ],
@@ -401,6 +431,10 @@
       "BEHOVM TEMPLATE",
       "BEHOVM VALIDATE",
       "ORQQVI VITALS"
+    ],
+    "RpmsRpc::WaitList": [
+      "DDR FILER",
+      "DDR LISTER"
     ]
   }
 }
