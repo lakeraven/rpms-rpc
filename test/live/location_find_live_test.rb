@@ -43,4 +43,16 @@ class LocationFindLiveTest < LiveSpec::Test
       assert_nil client.with_context(CONTEXT) { RpmsRpc::Location.find(bad) }, "Location.find(#{bad.inspect})"
     end
   end
+
+  def test_search_finds_the_location_by_the_start_of_its_name
+    found = RpmsRpc::Location.search("demo prim")
+
+    refute_empty found, "the seed build has DEMO PRIMARY CARE"
+    assert found.all? { |location| location[:name].start_with?("DEMO PRIM") }, found.inspect
+    assert found.all? { |location| location[:ien].positive? }, found.inspect
+  end
+
+  def test_search_for_a_name_nothing_starts_with_finds_nothing
+    assert_empty RpmsRpc::Location.search("ZZNOSUCHLOCATION")
+  end
 end
