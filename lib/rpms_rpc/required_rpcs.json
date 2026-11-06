@@ -193,7 +193,8 @@
       "BGOREF SET"
     ],
     "RpmsRpc::Location": [
-      "DDR GETS ENTRY DATA"
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
     ],
     "RpmsRpc::Measurement": [
       "BEHOENCX GETVISIT",

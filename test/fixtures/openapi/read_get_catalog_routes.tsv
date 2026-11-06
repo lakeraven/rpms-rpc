@@ -44,6 +44,7 @@ RpmsRpc::ImmunizationLot.find	GET /immunization-lots/{ien}
 RpmsRpc::ImmunizationLot.list	GET /immunization-lots
 RpmsRpc::ImmunizationRefusal.reasons	GET /immunization-refusals/reasons
 RpmsRpc::Location.find	GET /locations/{ien}
+RpmsRpc::Location.search	GET /locations
 RpmsRpc::Measurement.find	GET /measurements/{measurement_ien}
 RpmsRpc::Measurement.for_visit	GET /visits/{visit_ien}/measurements
 RpmsRpc::Measurement.latest	GET /patients/{dfn}/measurements/latest
