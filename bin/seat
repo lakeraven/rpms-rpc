@@ -12,6 +12,12 @@
 #   gate2        reviewer 2, read-only                (a third vendor, when one is available)
 #   probe        is the gate2 seat reachable? (no brief)
 #
+# When Cursor is out of usage the seat cannot run. The script then prints one line,
+#   SEAT_FALLBACK role=<role> model=<opus|sonnet|fable>
+# and exits 75. The caller plays that role itself with a fresh native Claude subagent on
+# that model (read-only for gate and gate2), and its panel record says the seats were
+# native: one vendor, not the cross-vendor panel. Any other failure is passed through.
+#
 # Prompts, allow rules and docs say the role only. The model behind a role is named in ONE
 # place, the table below, so swapping a model is a one-line change here and nothing else.
 #
@@ -37,6 +43,14 @@ model_build=grok-4.7-high;      secs_build=2400
 model_build_hard=grok-4.7-xhigh; secs_build_hard=2400
 model_gate=composer-2.5;        secs_gate=1200
 model_gate2=glm-5.2-high;       secs_gate2=1200
+# Native fallbacks, used only when Cursor answers that it is out of usage. build-hard and
+# gate2 share opus, so a caller whose build-hard fell back skips the gate2 fallback rather
+# than have a model review its own build.
+fallback_spec=fable
+fallback_build=sonnet
+fallback_build_hard=opus
+fallback_gate=fable
+fallback_gate2=opus
 # -----------------------------------------------------------------------------------------
 
 agent="$HOME/.local/bin/agent"
@@ -45,13 +59,31 @@ usage() { sed -n '2,/^# Why this exists/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//
 [ -x "$agent" ] || { echo "bin/seat: $agent is missing or not executable" >&2; exit 69; }
 
 role="${1:-}"
+# Run the agent, streaming its output, and turn Cursor's out-of-usage answer into the
+# fallback line. The CLI reports it as ActionRequiredError ("You're out of usage" /
+# "usage limit"); nothing else maps to a fallback, so a real seat failure stays a failure.
+run_seat() {
+  local role=$1 fallback=$2
+  shift 2
+  local out rc=0
+  out="$(mktemp)"
+  "$@" 2>&1 | tee "$out" || rc=$?
+  if grep -q 'ActionRequiredError' "$out" && grep -Eqi "out of usage|usage limit" "$out"; then
+    rm -f "$out"
+    echo "SEAT_FALLBACK role=$role model=$fallback"
+    exit 75
+  fi
+  rm -f "$out"
+  exit "$rc"
+}
+
 case "$role" in
-  spec)       model=$model_spec;       secs=$secs_spec ;;
-  build)      model=$model_build;      secs=$secs_build ;;
-  build-hard) model=$model_build_hard; secs=$secs_build_hard ;;
-  gate)       model=$model_gate;       secs=$secs_gate ;;
-  gate2)      model=$model_gate2;      secs=$secs_gate2 ;;
-  probe)      exec timeout 120 "$agent" -p --sandbox enabled --model "$model_gate2" 'Reply with exactly: PROBE_OK' ;;
+  spec)       model=$model_spec;       secs=$secs_spec;       fallback=$fallback_spec ;;
+  build)      model=$model_build;      secs=$secs_build;      fallback=$fallback_build ;;
+  build-hard) model=$model_build_hard; secs=$secs_build_hard; fallback=$fallback_build_hard ;;
+  gate)       model=$model_gate;       secs=$secs_gate;       fallback=$fallback_gate ;;
+  gate2)      model=$model_gate2;      secs=$secs_gate2;      fallback=$fallback_gate2 ;;
+  probe)      run_seat gate2 "$fallback_gate2" timeout 120 "$agent" -p --trust --sandbox enabled --model "$model_gate2" 'Reply with exactly: PROBE_OK' ;;
   *)          usage ;;
 esac
 
@@ -83,4 +115,4 @@ case "/$rel" in */.*) brief_refused "a hidden path component" ;; esac
 # option (a brief of "--sandbox=..." must stay prompt text).
 prompt="$(printf 'Brief (the whole task follows):\n\n'; cat -- "$resolved")"
 
-exec timeout "$secs" "$agent" -p --trust --sandbox enabled --model "$model" "$prompt"
+run_seat "$role" "$fallback" timeout "$secs" "$agent" -p --trust --sandbox enabled --model "$model" "$prompt"
