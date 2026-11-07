@@ -35,9 +35,10 @@ class ShapeTest < Minitest::Test
                  "#{violations.map { |e| "#{e[:module]}.#{e[:method]}" }.join("\n")}"
   end
 
-  # Slice 3 (#389): the only methods still allowed to be undeclared are the #471 frozen
-  # write-class-GET exceptions, whose verb cannot be derived from retry class. Both baselines
-  # ratchet down together; a method leaving one must leave the other.
+  # Slice 3 (#389): the only methods still allowed to be undeclared are the #471 frozen exceptions:
+  # write-class in retry_safety.yml (unverified) but frozen GET in the catalog. GET would break "a GET
+  # declaration requires retry class read"; a non-GET verb would contradict the catalog, so they stay
+  # undeclared until the owner reclassifies them or the freeze lifts. Both baselines ratchet together.
   def test_undeclared_baseline_is_exactly_the_frozen_write_class_get_exceptions
     undeclared = File.readlines(BASELINE, chomp: true).reject(&:empty?).to_set
     frozen = load_write_class_get_baseline.to_set
@@ -61,6 +62,7 @@ class ShapeTest < Minitest::Test
   def test_every_rpc_sending_method_published_non_get_is_declared
     report = ApiCoverage.build(ROOT)
     catalog_by_method = openapi_catalog_by_method(report[:entries], registry_tag: report[:registry_tag])
+    refute_empty catalog_by_method, "OpenAPI catalog is empty"
 
     violations = report[:entries].filter_map do |entry|
       next if entry[:rpcs].empty?
