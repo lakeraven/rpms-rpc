@@ -51,7 +51,7 @@ gem "rpms-rpc"
 
 Then `bundle install`.
 
-Requires Ruby 3.4+.
+Requires Ruby 4.0+ (the version in `.ruby-version`).
 
 ## Usage
 

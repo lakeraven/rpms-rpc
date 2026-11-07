@@ -4,7 +4,7 @@ require "minitest/autorun"
 require "yaml"
 
 # Ruby 4 readiness (#47): the breakages Ruby 4.0 and Minitest 6 are known to bring, each pinned so
-# it cannot come back unnoticed. The suite itself runs on 3.4 and 4.0 in CI.
+# it cannot come back unnoticed. The suite runs on the one Ruby .ruby-version names (4.0).
 class Ruby4ReadinessTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
 
@@ -28,7 +28,7 @@ class Ruby4ReadinessTest < Minitest::Test
   # Ruby 3.4 and 4.0 turned default gems into bundled gems (bigdecimal, ostruct, mutex_m, drb,
   # observer, abbrev, getoptlong, logger, benchmark, irb ...). Under Bundler a bundled gem only loads
   # if something declares it. Ruby's own list (Gem::BUNDLED_GEMS::SINCE, which on 3.4 already names
-  # the gems 4.0 unbundles) is the reference, so this fails on 3.4 for a 4.0 breakage.
+  # the gems 4.0 unbundles) is the reference.
   def bundled_gems
     require "bundled_gems"
     Gem::BUNDLED_GEMS::SINCE.keys
@@ -55,13 +55,29 @@ class Ruby4ReadinessTest < Minitest::Test
     assert_empty missing, "bin/ requires these bundled (non-default) gems without a Gemfile or gemspec entry"
   end
 
-  def test_ci_runs_the_suite_on_ruby_3_4_and_4_0_with_frozen_string_literals
+  def test_ci_runs_the_suite_with_frozen_string_literals
     ci = YAML.safe_load_file(File.join(ROOT, ".github/workflows/ci.yml"))
-    rubies = ci.dig("jobs", "test", "strategy", "matrix", "ruby")
-    assert_includes rubies, "3.4"
-    assert_includes rubies, "4.0"
     run = ci.dig("jobs", "test", "steps").find { |s| s["run"].to_s.include?("rake test") }
     assert_includes run.dig("env", "RUBYOPT").to_s, "--enable-frozen-string-literal"
+  end
+
+  # CI runs one Ruby: every setup-ruby step names the minor .ruby-version names (setup-ruby then
+  # takes the newest patch the runner has; .ruby-version pins the patch rbenv installs), and that
+  # Ruby satisfies the gemspec floor.
+  def test_ci_runs_the_ruby_version_files_minor_and_it_meets_the_gemspec_floor
+    ruby = Gem::Version.new(File.read(File.join(ROOT, ".ruby-version")).strip)
+    minor = ruby.segments.first(2).join(".")
+    named = Dir[File.join(ROOT, ".github/workflows/*.yml")].flat_map do |wf|
+      YAML.safe_load_file(wf)["jobs"].flat_map do |name, job|
+        Array(job["steps"]).select { |s| s["uses"].to_s.start_with?("ruby/setup-ruby") }
+                           .map { |s| [ "#{File.basename(wf)}:#{name}", s.dig("with", "ruby-version").to_s ] }
+      end
+    end
+    refute_empty named
+    wrong = named.reject { |_, version| version == minor }
+    assert_empty wrong, "these setup-ruby steps do not name #{minor} (.ruby-version is #{ruby})"
+    assert gemspec.required_ruby_version.satisfied_by?(ruby),
+      ".ruby-version #{ruby} does not satisfy the gemspec floor #{gemspec.required_ruby_version}"
   end
 
   # With the magic comment on every file, --enable-frozen-string-literal (CI runs the suite with it)
