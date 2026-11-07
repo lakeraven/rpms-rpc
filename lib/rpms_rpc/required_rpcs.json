@@ -1,5 +1,5 @@
 {
-  "build": "bcer-9.0-20261012-e7923a4-ydb",
+  "build": "bcer-9.0-20261106-0b1c4df-ydb",
   "modules": {
     "RpmsRpc::Adt": [
       "ORWPT ADMITLST",

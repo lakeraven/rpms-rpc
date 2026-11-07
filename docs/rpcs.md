@@ -37,7 +37,7 @@ return format.
 Verified against the RPMS 9.0 YDB standup routines in rpms-ops
 `data/standup/bcer-9.0-ydb/r/` (working tree `d37932d`; the pin commit
 `e7923a47` does not store the routine files). Formal lists and context
-options are the pinned inventory `bcer-9.0-20261012-e7923a4-ydb`
+options are the inventory pinned at the time, `bcer-9.0-20261012-e7923a4-ydb`
 (`rpc_signatures.txt`, `rpc_reach.txt`, and `rpcs.json` parameters whose
 source is `formals`). The unit fixtures for these wrappers are synthetic.
 They are not live captures (ADR 0003).
