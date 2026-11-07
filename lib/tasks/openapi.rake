@@ -64,7 +64,19 @@ namespace :openapi do
       header = JSON.parse(File.read(file))
       commit = header["commit"].to_s
       name = header["schema"].to_s
-      abort "openapi:pin: #{asset} names no build commit" unless commit.match?(/\A[0-9a-f]{40}\z/)
+      # rpcs.v2 names the commit short (7-40 hex). Fetch the schema only at a full commit that
+      # `rake conformance:pin` has already verified for this tag, and only when the file's commit is
+      # a prefix of it: the pin never trusts an abbreviated ref on its own.
+      unless commit.match?(/\A[0-9a-f]{40}\z/)
+        abort "openapi:pin: #{asset} names no build commit" unless commit.match?(/\A[0-9a-f]{7,39}\z/)
+        conformance = YAML.safe_load_file(File.join(root, "data/fingerprints/rpms-ops.lock.yml"))
+        full = conformance.dig("releases", tag, "build_commit").to_s
+        unless full.match?(/\A[0-9a-f]{40}\z/) && full.start_with?(commit)
+          abort "openapi:pin: #{asset} names short commit #{commit}, and rpms-ops.lock.yml pins no verified " \
+                "build_commit for #{tag} that it abbreviates (run `rake conformance:pin RELEASE=#{tag}` first)"
+        end
+        commit = full
+      end
       abort "openapi:pin: #{asset} has schema #{name.inspect}, not one of #{pin::SCHEMAS.join(', ')}" unless pin::SCHEMAS.include?(name)
 
       # The schema the file names, at the commit that built it: what rpms-ops validated it against.

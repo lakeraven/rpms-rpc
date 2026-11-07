@@ -28,7 +28,8 @@ Before anything is read, `openapi:surface` proves the pin offline:
 It reads the file through `RpmsRpc::Conformance::BuildSurface.from_rpcs_json`, the second constructor of the one reader of rpms-ops files (#394).
 
 **rpcs.v1 and rpcs.v2.**
-A release keeps the schema it was published with: `bcer-9.0-20261012-e7923a4-ydb`, the build pinned now, publishes rpcs.v1, and releases gated after rpms-ops#877 publish rpcs.v2.
+A release keeps the schema it was published with: `bcer-9.0-20261012-e7923a4-ydb` publishes rpcs.v1, and releases gated after rpms-ops#877 publish rpcs.v2, among them `bcer-9.0-20261106-0b1c4df-ydb`, the build pinned now.
+rpcs.v2 records the build commit short (7-40 hex); `openapi:pin` then fetches the schema only at the full `build_commit` that `rake conformance:pin` already verified for that tag, and refuses the pin when the short commit does not abbreviate it.
 `openapi:pin` fetches the schema the file's `schema` field names, at the build's own commit, and the lock records which (`schema`).
 rpcs.v2 adds #8994's text, kept as stored (each byte is the Latin-1 code point of its value).
 From an rpcs.v2 file the surface is the document the raw files give, field for field: on 1012, a v2 file regenerated with rpms-ops#877's generator gives a document byte-identical to the one from the raw files.
@@ -46,7 +47,7 @@ rpcs.v2 carries all of them; re-pinning to the first release that publishes it (
 
 **Which build.**
 Both documents name the same build.
-`data/rpc_coverage/config.yml`, which the client API's analysis reads, and `data/openapi/rpcs.lock.yml`, which the surface reads, both pin `bcer-9.0-20261012-e7923a4-ydb`.
+`data/rpc_coverage/config.yml`, which the client API's analysis reads, and `data/openapi/rpcs.lock.yml`, which the surface reads, both pin `bcer-9.0-20261106-0b1c4df-ydb`.
 `rake openapi` refuses to report success when the two documents' `x-rpms-build.tag` differ, and a test holds the defaults to the same tag.
 The surface keeps a pin of its own because `conformance:pin` does not fetch `<tag>-rpcs.json`, so a re-pin is both commands with the same tag: `rake conformance:pin RELEASE=<tag>` and `rake openapi:pin RELEASE=<tag>`.
 
@@ -72,7 +73,7 @@ To attach them to an existing release, run the workflow by hand with that tag.
 | `x-rpms-gem.name`, `.version` | `rpms-rpc` and `RpmsRpc::VERSION` |
 | `x-rpms-gem.commit` | the gem commit the document was generated from (`GEM_COMMIT=` overrides `git rev-parse HEAD`) |
 | `x-rpms-gem.dirty` | `true` when the checkout had uncommitted changes, so the document is not exactly the commit's; absent otherwise |
-| `x-rpms-build.tag` | the rpms-ops build tag (`bcer-9.0-20261012-e7923a4-ydb`) |
+| `x-rpms-build.tag` | the rpms-ops build tag (`bcer-9.0-20261106-0b1c4df-ydb`) |
 
 The surface's `x-rpms-build` also carries `rpms_version`, `engine`, `rpms_ops_commit` (the rpcs.json header's), `source` (`<tag>-rpcs.json`, its sha256 and its `schema`) and `inputs` (each raw file rpms-ops projected it from, with the sha256 the header names).
 Its `info.version` is the RPMS version (`bcer-9.0`); the client API's is the gem version.

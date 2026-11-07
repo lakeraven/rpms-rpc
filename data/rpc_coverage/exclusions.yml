@@ -15,14 +15,14 @@
 # by `rake rpc:exclusions`; regenerate on every re-pin, never hand-edit them. gui_plumbing and
 # write_needs_fixture are reviewed decisions: add one per PR with its evidence; regeneration keeps them.
 #
-# reach: data/inventories/bcer-9.0-20261012-e7923a4-ydb/bcer-9.0-20261012-e7923a4-ydb-rpc_reach.txt
-# reach sha256: 810b6a5d357414b54bea986075cd221934e203fe29b404cc0dd0a778278bbcf6 (pinned in data/fingerprints/rpms-ops.lock.yml)
-# reach classes: broker-exempt=21 client-callable=4940 no-context=226 no-entry-point=87 no-routine=203 out-of-order=80
-# registry: bcer-9.0-20261012-e7923a4-ydb (5557 names)
+# reach: data/inventories/bcer-9.0-20261106-0b1c4df-ydb/bcer-9.0-20261106-0b1c4df-ydb-rpc_reach.txt
+# reach sha256: 96c709b06fa228fbdc1a693a1486268133c401b2da3cd832bb0b5e0d93461747 (pinned in data/fingerprints/rpms-ops.lock.yml)
+# reach classes: broker-exempt=21 client-callable=4967 no-context=226 no-entry-point=95 no-routine=203 out-of-order=80
+# registry: bcer-9.0-20261106-0b1c4df-ydb (5592 names)
 # regenerate: bundle exec rake rpc:exclusions
 # count context_out_of_order: 80
 # count no_context: 226
-# count no_entry_point_on_image: 87
+# count no_entry_point_on_image: 95
 # count no_routine_on_image: 203
 "ADE APPT ADD": no_routine_on_image
 "ADE APPT CANCEL": no_routine_on_image
@@ -168,6 +168,7 @@
 "BGPG 07 XP 2012": no_entry_point_on_image
 "BGPG 08 CHK COMM TAX NTL": no_entry_point_on_image
 "BGPG 08 CMP PAT LIST": no_entry_point_on_image
+"BGPG 08 PAT ED RPT PP": no_entry_point_on_image
 "BGPG 20 AREA ELDER CARE": no_entry_point_on_image
 "BGPG 20 AREA EO": no_entry_point_on_image
 "BGPG 20 AREA HEDIS": no_entry_point_on_image
@@ -209,6 +210,13 @@
 "BGPG 25 PAT ED RPT PP": no_entry_point_on_image
 "BGPG 25 QUEUE AREA EXTRACT": no_entry_point_on_image
 "BGPG 25 QUEUE MANUAL EXTRACT": no_entry_point_on_image
+"BGPG 26 AREA ELDER CARE": no_entry_point_on_image
+"BGPG 26 AREA ONM": no_entry_point_on_image
+"BGPG 26 AREA PAT ED": no_entry_point_on_image
+"BGPG 26 PAT ED RPT": no_entry_point_on_image
+"BGPG 26 PAT ED RPT PP": no_entry_point_on_image
+"BGPG 26 QUEUE AREA EXTRACT": no_entry_point_on_image
+"BGPG 26 QUEUE MANUAL EXTRACT": no_entry_point_on_image
 "BGU CREATERECORD": no_routine_on_image
 "BGU EDITREFERRAL": no_routine_on_image
 "BGU FIELDNAMES": no_routine_on_image
@@ -350,6 +358,8 @@
 "BPCBH TIU NOTES": no_context
 "BPCBH TP PRINT": no_context
 "BQI GET AUTOPOP REPORT": no_context
+"BQI GET EMP HEALTH GLOSSARY": no_context
+"BQI GET LIST EMPLOYERS": no_context
 "BQI GET REGISTER DISPLAY": no_context
 "BQI MU GET PROV CQM EXPORT": no_routine_on_image
 "BQI MU GET PROV EXPORT": no_routine_on_image
@@ -357,7 +367,6 @@
 "BQI PATIENT DUE/OVERDUE": no_entry_point_on_image
 "BQI UPDATE FAMILY PLANNING": no_context
 "BQI VFILE TRIGGER FH": no_context
-"BRANCLNI REQUIRED": no_context
 "BTPW FOLLOWUP DUE TRIGGER": no_routine_on_image
 "BTPW SET CMET VIEW": no_context
 "BYIM DISPLAY IMM AND FORECAST": no_context
@@ -579,7 +588,6 @@
 "VAFC NEW NC TREATING FACILITY": no_context
 "VAFC REMOTE AUDIT": no_context
 "VAFC REMOTE PDAT": no_context
-"VAFC VOA ADD PATIENT": no_context
 "VEN WCM DEV BENCHMARKS TX POP": no_context
 "VEN WCM DEV COMMENTS TX POP": no_context
 "VEN WCM DEVEL TX FLUSH": no_context

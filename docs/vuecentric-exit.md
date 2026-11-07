@@ -1,6 +1,6 @@
 # Leaving VueCentric-only RPCs: what the December path needs
 
-**Status:** findings and a work list. Nothing here is built. Read-only analysis of the pinned build `bcer-9.0-20261012-e7923a4-ydb`.
+**Status:** findings and a work list. Nothing here is built. Read-only analysis of `bcer-9.0-20261012-e7923a4-ydb`, the build pinned when it was written.
 **Why:** rpms-rpc signs on as the VueCentric application (`CIAV VUECENTRIC`) and calls 37 RPCs that sit in no other broker option. The direction is stock RPMS RPCs first, then DDR FILER for FileMan-only changes, otherwise "not supported, done in RPMS". We write no M.
 
 ## How the 37 were counted
