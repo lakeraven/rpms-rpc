@@ -73,6 +73,7 @@ module RpmsRpc
         type: "SELECTIVE"
       }
     end
+    shape :generate_selective, resource: "health-summaries", verb: "POST", path: "/patients/{dfn}/health-summaries/generate-selective"
 
     def component_data(dfn, component)
       return nil if invalid_id?(dfn) || component.nil?

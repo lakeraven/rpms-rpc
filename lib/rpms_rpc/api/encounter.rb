@@ -153,6 +153,7 @@ module RpmsRpc
         missing_components: missing
       }
     end
+    shape :open, resource: "encounters", verb: "POST", path: "/patients/{dfn}/encounters/{visit_ien}/open"
 
     # Get-or-create a visit — the visit-create path, replacing the removed
     # placeholder visit-create wire name (docs/rpcs.md, BHDPTRPC provenance
@@ -186,6 +187,7 @@ module RpmsRpc
 
       result.merge(success: true)
     end
+    shape :create, resource: "encounters", verb: "POST", path: "/patients/{dfn}/encounters"
 
     # VSTR "LOC;FM_DATETIME;SVC_CAT" per VSTR2VIS^BEHOENCX (BEHOENCX.m:107),
     # or the EXTENDED form "LOC;FM_DATETIME;SVC_CAT;VISITIEN" when visit_ien

@@ -121,19 +121,23 @@ module RpmsRpc
     def add(*params)
       bmc_scalar_result(:bmc_add_referral, *params)
     end
+    shape :add, resource: "referrals", verb: "POST", path: "/referrals"
 
     def update(ien, *params)
       bmc_scalar_result(:bmc_update_referral, ien, *params)
     end
+    shape :update, resource: "referrals", verb: "PUT", path: "/referrals/{ien}"
 
     # The STANDARD IHS REFERRAL LETTER as text (PRINT^BMCRPC5, BMCRPC5.m:50-64).
     def print(ien, *params)
       bmc_text(:bmc_print_referral, ien.to_s, *params)
     end
+    shape :print, resource: "referrals", verb: "POST", path: "/referrals/{ien}/print"
 
     def update_status(ien, status, *params)
       bmc_scalar_result(:bmc_referral_status_update, ien.to_s, status.to_s, *params)
     end
+    shape :update_status, resource: "referrals", verb: "PUT", path: "/referrals/{ien}/status"
 
     # Cancel a referral: file its status as CANCELLED_STATUS through BMC
     # REFERRAL STATUS UPDATE (UPDTSTRF^BMCRPC3(RSLT,REFIEN,STATUS),
@@ -154,10 +158,12 @@ module RpmsRpc
         refusal ? result.merge(success: false, message: refusal[1].strip) : result
       end
     end
+    shape :cancel, resource: "referrals", verb: "POST", path: "/referrals/{ien}/cancel"
 
     def update_consultation_status(consultation_ien, status, *params)
       bmc_scalar_result(:bmc_consultation_status_update, consultation_ien.to_s, status.to_s, *params)
     end
+    shape :update_consultation_status, resource: "referrals", verb: "PUT", path: "/referrals/consultations/{consultation_ien}/status"
 
     def purposes(*params)
       bmc_many(:bmc_purpose_of_referral_list, *params)
@@ -225,6 +231,7 @@ module RpmsRpc
     def add_c32_print_log(*params)
       bmc_scalar_result(:bmc_add_c32_print_log, *params)
     end
+    shape :add_c32_print_log, resource: "referrals", verb: "POST", path: "/referrals/c32-print-log"
 
     # NOT IMPLEMENTED — and honestly so (#217). The former binding,
     # BGOREF SET, is the personal REFUSALS writer (SET^BGOREF files

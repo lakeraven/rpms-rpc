@@ -64,6 +64,7 @@ module RpmsRpc
       # (#472): nothing was filed, and the errors array says why.
       { success: false, iens: {}, errors: [ e.message ] }
     end
+    shape :filer, resource: "files", verb: "PUT", path: "/files"
 
     def filer_params(mode:, rows:, iens: {}, flags: "")
       root = rows.each_with_index.to_h do |row, i|
@@ -127,11 +128,13 @@ module RpmsRpc
     def lock(node:, timeout: 5)
       DataMapper.ddr_lock_unlock_node.fetch_scalar(lock_param(node: node, timeout: timeout))
     end
+    shape :lock, resource: "files", verb: "POST", path: "/files/lock"
 
     # Release the lock ('L -node' — always "1", DDR1.m:25-27).
     def unlock(node:)
       DataMapper.ddr_lock_unlock_node.fetch_scalar(unlock_param(node: node)) == true
     end
+    shape :unlock, resource: "files", verb: "POST", path: "/files/unlock"
 
     def lock_param(node:, timeout: 5)
       { "NODE" => node.to_s, "LOCKMODE" => "1", "TIMEOUT" => timeout.to_s }
@@ -308,6 +311,7 @@ module RpmsRpc
       { valid: internal != "^" && errors.empty?, internal: internal,
         external: external, errors: errors }
     end
+    shape :validate_field, resource: "files", verb: "POST", path: "/files/{file}/entries/{iens}/validate-field"
 
     def validator_param(file:, iens:, field:, value:)
       { "FILE" => file.to_s, "IENS" => iens.to_s, "FIELD" => field.to_s, "VALUE" => value.to_s }
@@ -335,6 +339,7 @@ module RpmsRpc
 
       { valid: false, error: reply.join("\n") }
     end
+    shape :validate_key, resource: "files", verb: "POST", path: "/files/validate-key"
 
     def key_validator_param(values:)
       values.each_with_index.each_with_object({}) do |(v, i), param|

@@ -59,6 +59,7 @@ module RpmsRpc
       # (#472); the failure shape says why instead of raising.
       failure.merge(error: e.message)
     end
+    shape :record, resource: "immunization-refusals", verb: "POST", path: "/patients/{dfn}/immunization-refusals"
 
     # Valid refusal reasons for a refusal type (default "IMMUNIZATION" —
     # BGOREF.m:67). Rows: { ien:, text: } (GETREA^BGOREF — BGOREF.m:61-62).

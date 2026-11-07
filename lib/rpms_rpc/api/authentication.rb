@@ -91,6 +91,7 @@ module RpmsRpc
         parse_auth_response(DataMapper.av_code.fetch_lines(XwbCipher.encrypt(av_code)))
       end
     end
+    shape :authenticate, resource: "users", verb: "POST", path: "/users/authenticate"
 
     def user_info(duz)
       return nil if invalid_id?(duz)
@@ -294,6 +295,7 @@ module RpmsRpc
         validation_error("Verify code change failed")
       end
     end
+    shape :change_verify_code, resource: "users", verb: "PUT", path: "/users/verify-code"
 
     # Retained for callers that clear state between tests. There is no longer
     # a cache to clear — see #signon_setup.

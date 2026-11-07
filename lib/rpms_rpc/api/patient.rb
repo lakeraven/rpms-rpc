@@ -121,6 +121,7 @@ module RpmsRpc
     def register(attrs)
       Registration.register(attrs)
     end
+    shape :register, resource: "patients", verb: "POST", path: "/patients"
 
     # Update a patient through AG: AGG UPDATE PATIENT, one call per AG
     # window touched, under AG's edit lock (rpms-rpc#381). Takes named
@@ -131,6 +132,7 @@ module RpmsRpc
     def update(dfn, **attrs)
       Registration.update(dfn, **attrs)
     end
+    shape :update, resource: "patients", verb: "PUT", path: "/patients/{dfn}"
 
     # A patient's registration as AG's Personal Detail and Address windows show
     # it (AGG BUILD WINDOW DISPLAY). See RpmsRpc::Registration.record.
