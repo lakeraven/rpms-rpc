@@ -61,19 +61,24 @@ usage() { sed -n '2,/^# Why this exists/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//
 role="${1:-}"
 # Run the agent, streaming its output, and turn Cursor's out-of-usage answer into the
 # fallback line. The CLI reports it as ActionRequiredError ("You're out of usage" /
-# "usage limit"); nothing else maps to a fallback, so a real seat failure stays a failure.
+# "usage limit") and exits non-zero. Only a FAILED run that says so maps to a fallback: a
+# seat that succeeds while quoting that text (a gate reviewing this script) keeps its
+# success, and any other failure keeps its own exit code.
+seat_out=""
+trap 'rm -f "$seat_out"' EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 run_seat() {
   local role=$1 fallback=$2
   shift 2
-  local out rc=0
-  out="$(mktemp)"
-  "$@" 2>&1 | tee "$out" || rc=$?
-  if grep -q 'ActionRequiredError' "$out" && grep -Eqi "out of usage|usage limit" "$out"; then
-    rm -f "$out"
+  local rc=0
+  seat_out="$(mktemp)"
+  "$@" 2>&1 | tee "$seat_out" || rc=$?
+  if [ "$rc" -ne 0 ] && grep -q 'ActionRequiredError' "$seat_out" &&
+    grep -Eqi "out of usage|usage limit" "$seat_out"; then
     echo "SEAT_FALLBACK role=$role model=$fallback"
     exit 75
   fi
-  rm -f "$out"
   exit "$rc"
 }
 
