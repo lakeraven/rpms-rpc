@@ -249,7 +249,7 @@ class RpmsRpc::WireCaptureTest < Minitest::Test
     RpmsRpc::WireCapture::CATALOG.each do |entry|
       mapping = RpmsRpc::DataMapper[entry.mapping]
       assert_equal entry.rpc, mapping.rpc_name,
-                   "catalog entry #{entry.rpc} must bind the mapping that declares that RPC"
+                   "catalog entry #{entry.fixture_name} (#{entry.rpc}) must bind the mapping that declares that RPC"
     end
   end
 
@@ -290,8 +290,9 @@ class RpmsRpc::WireCaptureTest < Minitest::Test
   # ORQQVI VITALS FOR DATE RANGE and swaps those two pieces -- the exact
   # confusion that produced the shipped mapping this gate exists to catch.
   def test_catalog_entry_for_orqqvi_vitals_follows_fastvit_not_vitals
-    entry = RpmsRpc::WireCapture::CATALOG.find { |e| e.rpc == "ORQQVI VITALS" }
+    entry = RpmsRpc::WireCapture::CATALOG.find { |e| e.fixture_name == "orqqvi-vitals" }
     refute_nil entry
+    assert_equal "ORQQVI VITALS", entry.rpc
 
     assert_includes entry.cite, "FASTVIT^ORQQVI"
     value = entry.pieces.find { |pc| pc.attributes.include?("value") }

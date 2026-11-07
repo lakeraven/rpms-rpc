@@ -81,7 +81,7 @@ class RpmsRpc::WireCaptureEvidenceTest < Minitest::Test
     [
       nil, "", "   ", "XXX-XX-XXXX", "XXX-XX-1234", "xxx-xx-xxxx",
       "**Pseudo SSN**", "602000000P **Pseudo SSN**", "***", "000-00-0000",
-      "---", "<none>"
+      "---", "<none>", "UNKNOWN", "unknown", "Unknown"
     ].each do |value|
       refute ev.real_value?(value), "expected not real: #{value.inspect}"
     end
@@ -91,7 +91,7 @@ class RpmsRpc::WireCaptureEvidenceTest < Minitest::Test
     ev = RpmsRpc::WireCapture::Evidence
     [
       "123-45-6789", "602000000", "DEMOPATIENT,REG2244", "M", "N", "MRN123",
-      "2850115", "123456789"
+      "2850115", "123456789", "STATUS UNKNOWN", "UNKNOWN CODE"
     ].each do |value|
       assert ev.real_value?(value), "expected real: #{value.inspect}"
     end

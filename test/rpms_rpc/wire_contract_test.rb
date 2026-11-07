@@ -70,8 +70,8 @@ class RpmsRpc::WireContractTest < Minitest::Test
   # The corpus must say out loud how much of it is actually evidence, so a
   # growing pile of no-data fixtures cannot read as growing coverage.
   def test_capture_backed_coverage_is_reported_not_assumed
-    backed = FIXTURES.select { |f| f.captured_data_rows.any? }.map(&:mapping_name).sort
-    unbacked = (FIXTURES.map(&:mapping_name) - backed).sort
+    backed = FIXTURES.select { |f| f.captured_data_rows.any? }.map(&:fixture_name).sort
+    unbacked = FIXTURES.reject { |f| f.captured_data_rows.any? }.map(&:fixture_name).sort
 
     refute_empty backed, "no mapping has capture-backed evidence"
     puts "\n  wire-contract evidence: #{backed.size} capture-backed " \
@@ -94,7 +94,7 @@ class RpmsRpc::WireContractTest < Minitest::Test
 
       mapping = RpmsRpc::DataMapper[fixture.mapping_name]
       RpmsRpc::WireCapture::Contract.check(mapping, fixture).each do |violation|
-        failures << "#{fixture.mapping_name} (#{fixture.rpc}, #{fixture.source}): #{violation}"
+        failures << "#{fixture.fixture_name} (#{fixture.mapping_name}, #{fixture.rpc}, #{fixture.source}): #{violation}"
       end
     end
     assert_empty failures, "wire-contract violations:\n  #{failures.join("\n  ")}"
@@ -105,15 +105,17 @@ class RpmsRpc::WireContractTest < Minitest::Test
   # lands (then this entry comes out and the mapping joins the green path).
   def test_known_divergences_are_still_detected_exactly
     KNOWN_DIVERGENCES.each do |mapping_name, positions|
-      fixture = FIXTURES.find { |f| f.mapping_name == mapping_name }
-      refute_nil fixture, "no fixture for known divergence :#{mapping_name}"
+      fixtures = FIXTURES.select { |f| f.mapping_name == mapping_name }
+      refute_empty fixtures, "no fixture for known divergence :#{mapping_name}"
 
       mapping = RpmsRpc::DataMapper[mapping_name]
-      violations = RpmsRpc::WireCapture::Contract.check(mapping, fixture)
-      assert_equal positions, violations.map(&:position).uniq.sort,
-                   ":#{mapping_name} divergence set changed — the mapping was fixed " \
-                   "(remove the KNOWN_DIVERGENCES entry) or drifted (investigate):\n  " +
-                   violations.map(&:to_s).join("\n  ")
+      fixtures.each do |fixture|
+        violations = RpmsRpc::WireCapture::Contract.check(mapping, fixture)
+        assert_equal positions, violations.map(&:position).uniq.sort,
+                     ":#{mapping_name} (#{fixture.fixture_name}) divergence set changed — the mapping was fixed " \
+                     "(remove the KNOWN_DIVERGENCES entry) or drifted (investigate):\n  " +
+                     violations.map(&:to_s).join("\n  ")
+      end
     end
   end
 
@@ -192,8 +194,9 @@ class RpmsRpc::WireContractTest < Minitest::Test
       field 3, :recorded_date, :fileman_date
     end
 
-    fixture = FIXTURES.find { |f| f.rpc == "ORQQVI VITALS" }
+    fixture = FIXTURES.find { |f| f.fixture_name == "orqqvi-vitals" }
     refute_nil fixture
+    assert_equal "ORQQVI VITALS", fixture.rpc
 
     violations = RpmsRpc::WireCapture::Contract.check(fabricated, fixture)
     # Assert on the ATTRIBUTE mismatches specifically, and on the set of

@@ -60,6 +60,54 @@ class TribalTest < Minitest::Test
     assert_equal "EXAMPLE COMMUNITY", result[:community]
   end
 
+  # " ".to_i and "0".to_i are 0; a pointer IEN is nil unless the internal is a
+  # positive whole number after strip.
+  def test_pointer_iens_fail_closed_unless_internal_is_a_positive_integer
+    { "0" => nil, " " => nil, "" => nil, "12" => 12 }.each do |internal, expected|
+      seed_gets(file: "9000001", iens: "1,", fields: Tribal::ENROLLMENT_FIELDS,
+                text: enrollment_pointer_reply(internal))
+      enrollment = Tribal.enrollment(1)
+      assert_pointer expected, enrollment[:tribe_ien], "tribe_ien for internal #{internal.inspect}"
+      assert_pointer expected, enrollment[:classification_ien],
+                     "classification_ien for internal #{internal.inspect}"
+
+      seed_gets(file: "9000001", iens: "1,", fields: Tribal::ELIGIBILITY_FIELDS,
+                text: eligibility_pointer_reply(internal))
+      eligibility = Tribal.eligibility(1)
+      assert_pointer expected, eligibility[:classification_ien],
+                     "eligibility classification_ien for internal #{internal.inspect}"
+    end
+  end
+
+  def assert_pointer(expected, actual, message)
+    if expected.nil?
+      assert_nil actual, message
+    else
+      assert_equal expected, actual, message
+    end
+  end
+
+  def enrollment_pointer_reply(internal)
+    <<~REPLY.strip
+      [Data]
+      9000001^1^.07^EX-12345^EX-12345
+      9000001^1^1108^#{internal}^EXAMPLE TRIBE
+      9000001^1^1109^1/2^1/2
+      9000001^1^1110^1/2^1/2
+      9000001^1^1111^#{internal}^EXAMPLE CLASS
+      9000001^1^1112^I^INDIAN/ALASKA NATIVE
+      9000001^1^1118^EXAMPLE COMMUNITY^EXAMPLE COMMUNITY
+    REPLY
+  end
+
+  def eligibility_pointer_reply(internal)
+    <<~REPLY.strip
+      [Data]
+      9000001^1^1111^#{internal}^EXAMPLE CLASS
+      9000001^1^1112^I^INDIAN/ALASKA NATIVE
+    REPLY
+  end
+
   def test_enrollment_returns_nil_for_unknown_dfn
     seed_gets(file: "9000001", iens: "999,", fields: Tribal::ENROLLMENT_FIELDS, text: "[ERROR]")
 
