@@ -19,7 +19,7 @@ end
 # Shared pins for rpms-rpc#420 stock-RPC wrapper tests (pinned bcer-9.0 build).
 module StockRpcsTestHelper
   ROOT = File.expand_path("../..", __dir__)
-  PINNED_TAG = "bcer-9.0-20261012-e7923a4-ydb"
+  PINNED_TAG = "bcer-9.0-20261106-0b1c4df-ydb"
   INVENTORIES_DIR = File.join(ROOT, "data/inventories")
   REQUIRED_RPCS_PATH = File.join(ROOT, "lib/rpms_rpc/required_rpcs.json")
 

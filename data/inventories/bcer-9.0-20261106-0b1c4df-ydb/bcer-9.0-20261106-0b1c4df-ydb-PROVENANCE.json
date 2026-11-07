@@ -1,0 +1,40 @@
+{
+  "artifact": "bcer-ydb-genesis-export",
+  "source_iris_dat_sha256": "fafa05961e7d21fcda8d7bb890342c3e3b54534b0d2cee42b8e18dd95557bd47",
+  "source_git_sha": "a2864f2c6ec12e875164bf084f9fe2d430430fa1",
+  "engine": "containers.intersystems.com/intersystems/irishealth:2022.1.3.670.1",
+  "namespace": "RPMS",
+  "method": "ydb_export.sh (ZWRITE globals + ^%RO->ro2m routines); BMW/BPRM omitted",
+  "global_nodes": 130093081,
+  "routine_m_files": 66882,
+  "excluded_internal_globals": 110,
+  "excluded_reconciliation_routines": 64,
+  "iris_only_overrides_carried": 1,
+  "layout": "OSEHRA (r/*.m + globals/chunk_*.zwr.gz)",
+  "rpms_ops_commit": "0b1c4dfdb0f80a36502b37f134b45ad0f522cb0d",
+  "genesis_note": "cut of main after #1051 revert and the compile baseline update; carries #1054 #1055 #1057 #1066 #1069 #1079 #1083 #1086 #1087",
+  "artifacts": {
+    "routines.tar.gz": {
+      "sha256": "62032e8632bbdc1d218f165b77c97d56b6df52a21a34de385a458e2420dddc0d",
+      "bytes": 99377137
+    },
+    "globals.tar.gz": {
+      "sha256": "5afc1bc75249eaf4122110630f4c1f7c3d38f00892d52ee751ebcbeb5f29a066",
+      "bytes": 653967452
+    },
+    "kernel.tar.gz": {
+      "sha256": "27b4fd506375e5ac6681c22b56a71f79ed549d435786137d64bbfbee3ab48948",
+      "bytes": 383458
+    }
+  },
+  "lock": {
+    "path": "releases/locks/bcer-9.0-iris.lock.json",
+    "sha256": "10175a185b565791b3ca9c794b05bbc4641dd1f4c242fded13411dd0c1712434"
+  },
+  "ydb_base_image_digest": "sha256:8d10fa30982a213b0388a0e680ba61e5a9986ca66e36e0bd3cb6d39261fa59a9",
+  "release": "bcer-9.0-20261106-0b1c4df-ydb",
+  "build_instance_of": "bcer-9.0-20261021-3b0f4ef-ydb",
+  "genesis_release": "bcer-9.0-20261021-3b0f4ef-ydb",
+  "genesis_assets": "carried forward UNCHANGED from bcer-9.0-20261106-bc4ee8d-ydb \u2014 this build instance changes the STANDUP SCRIPTS, not the exported data. Checked against the committed lineage record releases/lineages/bcer-9.0-ydb.json. Named by bcer-9.0-20261106-0b1c4df-ydb-GENESIS.json and kept on bcer-9.0-20261021-3b0f4ef-ydb, not re-uploaded (#775).",
+  "vuecentric_evidence": "NOT CLAIMED unless an application-level evidence JSON exists for THIS tag (#416). The build-level round-trip is a floor, not a qualification (#411): it has passed while real clients died."
+}

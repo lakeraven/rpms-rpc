@@ -38,7 +38,8 @@ class OpenApiPinnedDocumentsTest < Minitest::Test
     lock = PIN.lock(ROOT)
     assert_equal "#{lock['tag']}-rpcs.json", lock["asset"]
     assert_equal PIN.sha256(File.join(ROOT, PIN::DIR, lock["asset"])), lock["sha256"]
-    assert_match(%r{\Alakeraven/rpms-ops@[0-9a-f]{40}:releases/schema/rpcs\.v1\.schema\.json\z}, lock["schema_source"])
+    assert_includes PIN::SCHEMAS, lock["schema"]
+    assert_match(%r{\Alakeraven/rpms-ops@[0-9a-f]{40}:releases/schema/#{Regexp.escape(lock['schema'])}\.schema\.json\z}, lock["schema_source"])
     Dir.mktmpdir do |tmp|
       FileUtils.mkdir_p(File.join(tmp, "data"))
       FileUtils.cp_r(File.join(ROOT, PIN::DIR), File.join(tmp, "data"))
@@ -56,7 +57,8 @@ class OpenApiPinnedDocumentsTest < Minitest::Test
     schema = File.join(ROOT, PIN.schema_file(PIN.lock(ROOT).fetch("schema")))
     assert_empty PIN.schema_problems(doc, schema)
     refute_empty PIN.schema_problems(doc.merge("extra" => 1), schema)
-    refute_empty PIN.schema_problems(doc.merge("schema" => "rpcs.v2"), schema)
+    other = (PIN::SCHEMAS - [ PIN.lock(ROOT).fetch("schema") ]).first
+    refute_empty PIN.schema_problems(doc.merge("schema" => other), schema)
     Dir.mktmpdir do |tmp|
       path = File.join(tmp, "x-rpcs.json")
       File.write(path, JSON.generate(doc.merge("schema" => "rpcs.v3")))
@@ -75,7 +77,7 @@ class OpenApiPinnedDocumentsTest < Minitest::Test
     assert_equal rpcs.size, self.class.surface_text.scan(/^ {6}"(get|post|put|delete)": \{$/).size
     build = doc["x-rpms-build"]
     assert_equal [ self.class.pin[:tag], self.class.pin[:doc]["commit"] ], build.values_at("tag", "rpms_ops_commit")
-    assert_equal({ "file" => "#{self.class.pin[:tag]}-rpcs.json", "sha256" => self.class.pin[:sha256], "schema" => "rpcs.v1" }, build["source"])
+    assert_equal({ "file" => "#{self.class.pin[:tag]}-rpcs.json", "sha256" => self.class.pin[:sha256], "schema" => PIN.lock(ROOT).fetch("schema") }, build["source"])
     assert_equal self.class.pin[:surface].reach_counts, doc["x-rpms-counts"]["reach"]
   end
 
