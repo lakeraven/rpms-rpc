@@ -28,6 +28,9 @@ jobs:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
       - uses: ruby/setup-ruby@v1
         with:
+          # The minor .ruby-version names; setup-ruby takes the newest patch the runner offers
+          # (ubuntu-latest has only the latest 4.0.x), while .ruby-version pins what rbenv installs.
+          ruby-version: "4.0"
           bundler-cache: true
       - name: Generate and check both documents
         # Each task fails unless its document is valid OpenAPI 3.1 with every verb + path unique.
