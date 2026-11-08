@@ -251,6 +251,7 @@ module RpmsRpc
         raw: raw
       }
     end
+    shape :add, resource: "measurements", verb: "POST", path: "/patients/{dfn}/measurements"
 
     private
 

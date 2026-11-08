@@ -80,6 +80,7 @@ module RpmsRpc
 
       write(dfn, nil, problem)
     end
+    shape :add, resource: "problems", verb: "POST", path: "/patients/{dfn}/problems"
 
     def update(dfn, ien, changes)
       raise ArgumentError, "changes must be a Hash" unless changes.is_a?(Hash)
@@ -87,6 +88,7 @@ module RpmsRpc
 
       write(dfn, ien, changes)
     end
+    shape :update, resource: "problems", verb: "PUT", path: "/patients/{dfn}/problems/{ien}"
 
     # Logical delete via DEL^BGOPROB (BGOPROB.m:209-211): status "D" plus
     # deletion audit fields. Param: IEN ^ TYPE ^ REASON ^ COMMENT ^ PROB ID.
@@ -104,6 +106,7 @@ module RpmsRpc
       # (#472); this API's contract is a failure hash, so it says why.
       failure.merge(error: e.message)
     end
+    shape :delete, resource: "problems", verb: "DELETE", path: "/patients/{dfn}/problems/{ien}"
 
     # ORQQPL stock-VistA reads. Use these when the engine wants the
     # stock-VistA lookup/audit surface rather than the IHS BGOPROB writes
@@ -155,6 +158,7 @@ module RpmsRpc
 
       DataMapper.problem_init_patient.fetch_one(dfn.to_s)
     end
+    shape :init_patient, resource: "problems", verb: "POST", path: "/patients/{dfn}/problems/init"
 
     def provider_list(dfn)
       return [] if invalid_id?(dfn)
@@ -187,11 +191,13 @@ module RpmsRpc
       raw = DataMapper.problem_inactivate.fetch_scalar(ien.to_s)
       success_result(raw)
     end
+    shape :inactivate, resource: "problems", verb: "POST", path: "/problems/{ien}/inactivate"
 
     def verify(ien)
       raw = DataMapper.problem_verify.fetch_scalar(ien.to_s)
       success_result(raw)
     end
+    shape :verify, resource: "problems", verb: "POST", path: "/problems/{ien}/verify"
 
     # Stock-VistA add. ORQQPL ADD SAVE -> ADDSAVE^ORQQPL1
     # (ORQQPL1.m:149): four actuals, GMPDFN, GMPROV, GMPVAMC, ADDARRAY.

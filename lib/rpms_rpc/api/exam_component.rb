@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../shape"
 require_relative "../mappings"
 
 module RpmsRpc
@@ -8,6 +9,7 @@ module RpmsRpc
   # Underlying RPC: BGOVEXAM SET (SET^BGOVEXAM — BGOVEXAM.m:106).
   module ExamComponent
     extend self
+    extend Shape::Declarable
 
     # Add an exam result to an open visit.
     #
@@ -47,6 +49,7 @@ module RpmsRpc
       # (#472); the failure shape says why instead of raising.
       failure.merge(error: e.message)
     end
+    shape :add, resource: "exam-components", verb: "POST", path: "/patients/{dfn}/exam-components"
 
     private
 

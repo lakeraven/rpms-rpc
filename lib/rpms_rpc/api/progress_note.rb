@@ -52,6 +52,7 @@ module RpmsRpc
       raw = DataMapper.tiu_create_record.fetch_scalar(dfn.to_s, title_ien.to_s, "", "", visit_ien.to_s)
       success_with_ien(raw)
     end
+    shape :create, resource: "progress-notes", verb: "POST", path: "/patients/{dfn}/progress-notes"
 
     # CONTEXT(TIUY,CLASS,CONTEXT,DFN,EARLY,LATE,PERSON,...) (TIUSRVLO.m:16).
     # PERSON narrows contexts 2-4 and defaults to the signed-on user;
@@ -96,6 +97,7 @@ module RpmsRpc
 
       first_piece(DataMapper.tiu_lock_record.fetch_scalar(note_ien.to_s)) == "0"
     end
+    shape :lock, resource: "progress-notes", verb: "POST", path: "/progress-notes/{note_ien}/lock"
 
     # SETTEXT(TIUY,TIUDA,TIUX,SUPPRESS) (TIUSRVPT.m:7) reads TIUX as a list:
     # PAGE^PAGES from TIUX("HDR") (TIUSRVPT.m:12) and the body from
@@ -151,6 +153,7 @@ module RpmsRpc
       # already created the note holds an empty one (#480).
       { success: false, raw: nil, error: too_long_reason(e) }
     end
+    shape :update_text, resource: "progress-notes", verb: "PUT", path: "/progress-notes/{note_ien}/text"
 
     # UNLOCK(ERR,TIUDA) (TIUSRVP.m:214-215): always ERR=0.
     def unlock(note_ien)
@@ -158,6 +161,7 @@ module RpmsRpc
 
       first_piece(DataMapper.tiu_unlock_record.fetch_scalar(note_ien.to_s)) == "0"
     end
+    shape :unlock, resource: "progress-notes", verb: "POST", path: "/progress-notes/{note_ien}/unlock"
 
     private
 

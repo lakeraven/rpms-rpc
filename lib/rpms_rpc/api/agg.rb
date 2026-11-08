@@ -235,6 +235,7 @@ module RpmsRpc
         interpret_write(call_array(client, ADD_RPC, window, dfn.to_s, encode_parms(params)), require_dfn: true)
       end
     end
+    shape :add_patient, resource: "agg", verb: "POST", path: "/agg/patient"
 
     # UPD^AGGPTUPD — edit an existing patient (DFN required). Same PARMS
     # convention and reply shape as ADD (header RESULT^ERROR^OTHER_PARMS).
@@ -285,6 +286,7 @@ module RpmsRpc
         interpret_write(call_array(client, UPDATE_RPC, window, dfn.to_s, encode_parms(params)))
       end
     end
+    shape :update_patient, resource: "agg", verb: "PUT", path: "/patients/{dfn}/agg"
 
 
     # MUL^AGGPTDMG: the entries of a multiple window (P1 window, P2 the node of the
