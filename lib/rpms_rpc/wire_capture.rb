@@ -1151,9 +1151,9 @@ module RpmsRpc
         inputs: [ "<note ien>" ].freeze,
         cite: "TGET^TIUSRVR1 (REMOTE PROCEDURE registration for TIU GET RECORD TEXT: " \
               "tag TGET, routine TIUSRVR1, in " \
-              "data/fingerprints/references/bcer-9.0-20261012-e7923a4-ydb.yml and " \
-              "data/inventories/bcer-9.0-20261012-e7923a4-ydb/" \
-              "bcer-9.0-20261012-e7923a4-ydb-broker_8994.txt). Text blob. This repo " \
+              "data/fingerprints/references/bcer-9.0-20261106-0b1c4df-ydb.yml and " \
+              "data/inventories/bcer-9.0-20261106-0b1c4df-ydb/" \
+              "bcer-9.0-20261106-0b1c4df-ydb-broker_8994.txt). Text blob. This repo " \
               "does not cite TGET line numbers",
         pieces: [],
         note: "Read-back of the note just written. Catalog input is a note-IEN " \

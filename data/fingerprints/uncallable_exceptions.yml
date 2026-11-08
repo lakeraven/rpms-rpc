@@ -9,7 +9,8 @@
 #
 # Shape: <tag> => { <RPC name> => { reach:, issue: <owner/repo#N>, why: } }
 #
-# None on bcer-9.0-20261012-e7923a4-ydb. The two 0930 entries left with that pin (rpms-rpc#409):
+# None on bcer-9.0-20261106-0b1c4df-ydb (the gate passes with no exceptions after the 2026-11-06 move, rpms-rpc#391),
+# nor on bcer-9.0-20261012-e7923a4-ydb. The two 0930 entries left with that pin (rpms-rpc#409):
 # DDR KEY VALIDATOR is client-callable on 1012 (rpms-ops#720 fixed), and VAFC VOA ADD PATIENT was
 # never a build defect - no RPMS context serves it, by design (rpms-ops#499, #674) - so the gem
 # stopped sending it.
