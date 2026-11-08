@@ -12,7 +12,8 @@ class ShapeTest < Minitest::Test
   BASELINE = File.join(__dir__, "undeclared_baseline.txt")
   WRITE_CLASS_GET_BASELINE = File.join(ROOT, "data/openapi/write_class_get_baseline.txt")
   # Baseline line count when the ratchet was introduced; may only be lowered.
-  UNDECLARED_BASELINE_MAX_LINES = 116
+  # Slice 3 (#389) lowered it to the 67 frozen write-class-GET exceptions of #471.
+  UNDECLARED_BASELINE_MAX_LINES = 67
   # Frozen exception (#471): write-class methods that stay GET until reclassified read; may only shrink.
   WRITE_CLASS_GET_BASELINE_LINE_COUNT = 67
 
@@ -32,6 +33,98 @@ class ShapeTest < Minitest::Test
     assert_empty violations,
                  "undeclared RPC-sending methods not in baseline:\n" \
                  "#{violations.map { |e| "#{e[:module]}.#{e[:method]}" }.join("\n")}"
+  end
+
+  # Slice 3 (#389): the only methods still allowed to be undeclared are the #471 frozen exceptions:
+  # write-class in retry_safety.yml (unverified) but frozen GET in the catalog. GET would break "a GET
+  # declaration requires retry class read"; a non-GET verb would contradict the catalog, so they stay
+  # undeclared until the owner reclassifies them or the freeze lifts. Both baselines ratchet together.
+  def test_undeclared_baseline_is_exactly_the_frozen_write_class_get_exceptions
+    undeclared = File.readlines(BASELINE, chomp: true).reject(&:empty?).to_set
+    frozen = load_write_class_get_baseline.to_set
+
+    extra = (undeclared - frozen).sort
+    missing = (frozen - undeclared).sort
+    message = []
+    unless extra.empty?
+      message << "undeclared baseline lists methods that are not frozen write-class-GET exceptions " \
+                 "(declare them, or add them to #{WRITE_CLASS_GET_BASELINE}):\n#{extra.join("\n")}"
+    end
+    unless missing.empty?
+      message << "frozen write-class-GET exceptions missing from the undeclared baseline:\n#{missing.join("\n")}"
+    end
+
+    assert_equal frozen, undeclared, message.join("\n\n")
+  end
+
+  # Every RPC-sending method the catalog publishes with POST, PUT or DELETE has a verb derivable
+  # from its retry class, so it must carry a declaration (the catalog's verb, path and resource).
+  def test_every_rpc_sending_method_published_non_get_is_declared
+    report = ApiCoverage.build(ROOT)
+    catalog_by_method = openapi_catalog_by_method(report[:entries], registry_tag: report[:registry_tag])
+    refute_empty catalog_by_method, "OpenAPI catalog is empty"
+
+    violations = report[:entries].filter_map do |entry|
+      next if entry[:rpcs].empty?
+      next if entry[:shape_status] == "declared"
+
+      catalog_entry = catalog_by_method[[ entry[:module], entry[:method] ]]
+      next unless catalog_entry
+
+      verb = catalog_entry[:addr][:verb].upcase
+      next if verb == "GET"
+
+      "#{entry[:module]}.#{entry[:method]}: catalog publishes #{verb} #{catalog_entry[:addr][:path]} " \
+        "(#{catalog_entry[:collection]}); shape_status #{entry[:shape_status].inspect}"
+    end.sort
+
+    assert_empty violations,
+                 "RPC-sending methods published with a non-GET verb must declare their shape:\n" \
+                 "#{violations.join("\n")}"
+  end
+
+  # Spot checks of the slice 3 seeded write declarations; values are today's catalog addresses.
+  def test_seeded_write_declarations_match_catalog_spot_checks
+    expected = {
+      [ RpmsRpc::Problem, :delete ] => { resource: "problems", verb: "DELETE", path: "/patients/{dfn}/problems/{ien}" },
+      [ RpmsRpc::Patient, :update ] => { resource: "patients", verb: "PUT", path: "/patients/{dfn}" },
+      [ RpmsRpc::Referral, :add ] => { resource: "referrals", verb: "POST", path: "/referrals" },
+      [ RpmsRpc::ESignature, :remove ] => { resource: "signatures", verb: "DELETE", path: "/progress-notes/{note_ien}/signatures" },
+      [ RpmsRpc::Tribal, :validate ] => { resource: "tribes", verb: "POST", path: "/tribes/validate" }
+    }
+
+    problems = expected.filter_map do |(mod, method), shape|
+      actual = RpmsRpc::Shape.for(mod, method)
+      label = "#{mod.name}.#{method}"
+      if actual.nil?
+        "#{label}: not declared (expected #{shape[:verb]} #{shape[:path]}, resource #{shape[:resource].inspect})"
+      elsif actual != shape
+        "#{label}: declared #{actual.inspect}, expected #{shape.inspect}"
+      end
+    end
+
+    assert_empty problems, problems.join("\n")
+  end
+
+  # A write-class method (idempotent or not) never declares GET; the verb comes from retry safety.
+  def test_every_write_class_declaration_uses_a_non_get_verb
+    retry_table = RpmsRpc::RetrySafety.table
+    write_classes = %i[idempotent_write non_idempotent_write]
+
+    violations = ApiCoverage.build(ROOT)[:entries].filter_map do |entry|
+      next unless entry[:shape_status] == "declared"
+
+      key = "#{entry[:module]}.#{entry[:method]}"
+      next unless write_classes.include?(retry_table[key])
+
+      verb = entry[:shape][:verb].to_s.upcase
+      next if %w[POST PUT DELETE].include?(verb)
+
+      "#{key}: retry class #{retry_table[key]} declares #{verb}"
+    end.sort
+
+    assert_empty violations,
+                 "write-class declarations must use POST, PUT or DELETE:\n#{violations.join("\n")}"
   end
 
   def test_every_read_method_published_as_get_is_declared

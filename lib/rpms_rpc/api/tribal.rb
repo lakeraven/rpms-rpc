@@ -118,6 +118,7 @@ module RpmsRpc
 
       { valid: result[:valid], internal: result[:internal], external: result[:external] }
     end
+    shape :validate, resource: "tribes", verb: "POST", path: "/tribes/validate"
 
     # SERVICE UNIT (#9999999.22) table entry by IEN. Only .01 NAME has
     # verified semantics; the old placeholder's per-patient signature and

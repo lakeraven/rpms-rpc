@@ -59,6 +59,7 @@ module RpmsRpc
       # ValidSignature because validate does not send it again.
       ValidSignature.accepted?(ValidSignature.line_for(ValidSignature.encrypt(signature_code)))
     end
+    shape :validate, resource: "signatures", verb: "POST", path: "/users/{user_duz}/signatures/validate"
 
     # Server-side authoritative answer for which signing action the session
     # user may perform on a given note. Returns :sign, :cosign, or nil (no
@@ -91,6 +92,7 @@ module RpmsRpc
       )
       result_shape(raw)
     end
+    shape :add, resource: "signatures", verb: "POST", path: "/progress-notes/{note_ien}/signatures"
 
     # Retract a note. TIU has no "remove signature" action — retraction is
     # document deletion via TIU DELETE RECORD (TIUDA, reason, override flag).
@@ -107,6 +109,7 @@ module RpmsRpc
       # (#472); this API's contract is a failure hash, so it says why.
       failure.merge(error: e.message)
     end
+    shape :remove, resource: "signatures", verb: "DELETE", path: "/progress-notes/{note_ien}/signatures"
 
     private
 

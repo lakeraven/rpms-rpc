@@ -74,6 +74,7 @@ module RpmsRpc
       # (#472); this API's contract is a failure hash, so it says why.
       failure.merge(error: e.message)
     end
+    shape :add, resource: "purposes-of-visit", verb: "POST", path: "/patients/{dfn}/purposes-of-visit"
 
     private
 

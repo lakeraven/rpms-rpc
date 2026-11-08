@@ -129,6 +129,7 @@ module RpmsRpc
       # { success: false, error: String }.
       { success: false, error: e.message }
     end
+    shape :add_appointment, resource: "appointments", verb: "POST", path: "/patients/{patient_dfn}/appointments"
 
     # Cancel an appointment — BSDX CANCEL APPOINTMENT (APPDEL^BSDX08 → $$CANCEL^BSDAPI).
     #
@@ -140,12 +141,14 @@ module RpmsRpc
       error_write(:scheduling_cancel_appointment,
                   appointment_ien.to_s, type.to_s, reason.to_s, note.to_s)
     end
+    shape :cancel_appointment, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/cancel"
 
     # Undo a clinic cancellation — BSDX UNCANCEL APPT (APPUDEL^BSDX08).
     # (Patient-cancelled appointments cannot be uncancelled server-side.)
     def uncancel_appointment(appointment_ien)
       error_write(:scheduling_uncancel_appointment, appointment_ien.to_s)
     end
+    shape :uncancel_appointment, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/uncancel"
 
     # Check a patient in — BSDX CHECKIN APPOINTMENT (CHECKIN^BSDX25).
     # Success row is "0^"_MESSAGE (BSDX25.m:74); failures are the error text
@@ -169,6 +172,7 @@ module RpmsRpc
                   "", "", "", "",
                   zero_ok: true)
     end
+    shape :checkin_appointment, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/checkin"
 
     # Undo a check-in — BSDX CHECKIN APPOINTMENT with "@" as the check-in time,
     # which CHECKIN^BSDX25 takes as "delete check-in": it clears BSDX
@@ -291,6 +295,7 @@ module RpmsRpc
         { success: false, error: result[:error].to_s }
       end
     end
+    shape :mark_no_show, resource: "appointments", verb: "POST", path: "/appointments/{appointment_ien}/mark-no-show"
 
     # -- reads -----------------------------------------------------------------
     #

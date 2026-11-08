@@ -286,6 +286,7 @@ module RpmsRpc
     def register(attrs)
       register_via_agg(attrs)
     end
+    shape :register, resource: "registrations", verb: "POST", path: "/registrations"
 
     # Create via AGG ADD NEW PATIENT, then file the HRN per hrn_mode. Prefer a
     # short broker session per registration (AG routines leak locals into long
@@ -330,6 +331,7 @@ module RpmsRpc
 
       with_unfiled({ success: true, dfn: dfn, created: true, hrn: hrn }, agg_unsent(attrs))
     end
+    shape :register_via_agg, resource: "registrations", verb: "POST", path: "/registrations/via-agg"
 
     # -- Patient update through AG (rpms-rpc#381) -----------------------------
     #
@@ -497,6 +499,7 @@ module RpmsRpc
 
       Agg.editing(dfn: dfn) { update_windows(dfn, params_by_window) }
     end
+    shape :update, resource: "registrations", verb: "PUT", path: "/patients/{dfn}/registrations"
 
     # File a gender-identity row. SETGI^AUPNSOGI reaches SETGI/S9394^AUPNSOG3,
     # which UPDATE^DIE's #9000001.9401 (.01 DATE, DINUM; 2 OTHER) and
