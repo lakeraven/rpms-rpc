@@ -357,6 +357,28 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     def setsockopt(*); end
   end
 
+# A late EOD in front of a global-array reply (rpms-ops#917). A global array ends in two writes,
+# its $C(31) node and then the frame EOD, and the EOD of an earlier reply can land after
+# discard_stale_bytes has drained the socket. These are the pieces a client received, in order, for
+# AGG UPDATE PATIENT (seq 8) on a YottaDB release image (bcer-9.0-20261108-1fe9370-ydb, synthetic
+# patient, 2026-11-08): the earlier reply's EOD, the echo, then the whole reply. Glued to the
+# reply, the EOD hid its echo, the reply was skipped as stale and the call timed out.
+UPDATE_AFTER_LATE_EOD = [
+  "\x7F",
+  "8",
+  "\x00I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E\x1F\x7F"
+].map(&:b).freeze
+
+def test_a_late_eod_in_front_of_a_global_array_reply_is_not_part_of_it
+  c = client_on(InFlightSocket.new(UPDATE_AFTER_LATE_EOD))
+  c.instance_variable_set(:@seq, 7) # the next exchange uses seq 8
+
+  reply = c.call_rpc_global_array("AGG UPDATE PATIENT", "Mini Registration", "990099", "AGGPTHRN=990099")
+
+  assert_equal "8\x00I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E".b, reply
+  assert c.connected?
+end
+
   def test_an_in_flight_tail_with_a_mismatched_echo_is_not_the_next_reply
     # Request 1 read "1\x00HEADER" and left the rest of its global-array body
     # unread; that tail lands on the socket only after request 2 (seq 2) has
