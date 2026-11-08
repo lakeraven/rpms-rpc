@@ -132,8 +132,9 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
       inputs: [ "2" ], evidence: :live },
     { rpc: "BEHOPTPC GETBDP", mapping: :patient_designated_provider, kind: "fields",
       inputs: [ "2" ], evidence: :no_data },
+    # Patient.brief_header sends the DFN alone (#535): live capture as PROV123 on the pinned build.
     { rpc: "ORWPT CWAD", mapping: :patient_cwad, kind: "scalar",
-      inputs: nil, evidence: :routine_cite },
+      inputs: [ "2" ], evidence: :live },
     { rpc: "ORQQPL LIST", mapping: :problem_list, kind: "fields",
       inputs: [ "2", "" ], evidence: :live },
     { rpc: "ORQQAL LIST", mapping: :allergy_list, kind: "fields",
@@ -891,25 +892,65 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
                     "capture shows inactive_icd true only — false must be observed for proof"
   end
 
-  def test_orwpt_cwad_routine_cite_fixture_is_honest_not_proven
+  # Issue #535: ORWPT CWAD is captured live on the pinned build as PROV123 against
+  # seed DFN 2 (the inputs Patient.brief_header sends). The exact letters are not
+  # pinned (that would over-pin the seed); the checklist row is graded from whatever
+  # was captured. Absent or routine-cited data never verifies: this fails, not skips.
+  def test_orwpt_cwad_fixture_is_a_live_capture_as_the_chart_read_persona
     slice = CHART_READ_SLICE.find { |s| s[:mapping] == :patient_cwad }
     path = self.class.fixture_path_for(slice[:rpc])
-    assert File.file?(path), "missing #{path} — routine-cite ORWPT CWAD fixture required"
+    assert File.file?(path),
+           "missing #{path} — run rake wire:capture for ORWPT CWAD as PROV123 on #{PINNED_RELEASE}"
 
     fixture = RpmsRpc::WireCapture::Fixture.load_file(path)
-    assert_equal "routine-cite", fixture.source
+    assert_equal "live-capture", fixture.source,
+                 "ORWPT CWAD fixture must be a live capture written by rake wire:capture, not #{fixture.source.inspect}"
     assert_equal :patient_cwad, fixture.mapping_name
-    assert_empty fixture.captured_data_rows, "routine-cite CWAD must not claim captured data rows"
+    assert_equal PINNED_RELEASE, fixture.release_tag,
+                 "ORWPT CWAD must be captured on the pinned build"
+    assert_equal [ "2" ], fixture.inputs,
+                 "ORWPT CWAD capture inputs must be the DFN alone, as Patient.brief_header sends"
+    assert_equal CHART_READ_PERSONA, self.class.fixture_signed_on_as(fixture),
+                 "ORWPT CWAD must be captured as the least-privilege clinician persona"
 
-    unproven = self.class.unproven_attributes(fixture)
-    assert_equal self.class::BRIEF_HEADER_READINESS_FLAGS.sort, unproven.sort
-    assert_equal "not-proven", self.class.expected_checklist_status(slice, fixture)
+    rows_captured = fixture.captured_data_rows
+    assert_equal 1, rows_captured.length,
+                 "ORWPT CWAD is one scalar — expected exactly one captured data row, got #{rows_captured.inspect}"
+    cwad = rows_captured.first.to_s
+    assert_match(/\A[CWAD]*\z/, cwad,
+                 "ORWPT CWAD scalar must be letters from C, W, A, D only (got #{cwad.inspect})")
+    assert_equal cwad.chars.uniq.length, cwad.length,
+                 "ORWPT CWAD scalar must not repeat a letter (got #{cwad.inspect})"
 
-    rows = parse_checklist
-    row = rows[slice[:rpc]]
-    refute_nil row, "checklist must list ORWPT CWAD"
-    assert_equal "not-proven", row[:status]
-    assert_equal "ad_flag, allergy_flag", row[:unproven]
+    row = parse_checklist[slice[:rpc]]
+    refute_nil row, "docs/pilot_rpc_readiness.md must list ORWPT CWAD"
+    expected_unproven = self.class.format_unproven_list(self.class.unproven_attributes(fixture))
+    assert_equal expected_unproven, row[:unproven],
+                 "ORWPT CWAD line #{row[:line]}: unproven list must be graded from the live capture via brief_header"
+    assert_equal self.class.expected_checklist_status(slice, fixture), row[:status],
+                 "ORWPT CWAD line #{row[:line]}: status must be graded from the live capture"
+    if row[:unproven] != "none"
+      refute_equal "pilot-ready", row[:status],
+                   "ORWPT CWAD cannot be pilot-ready while a brief_header flag is unproven (no-data is never proof)"
+    end
+  end
+
+  # Intent: once ORWPT CWAD is a live capture, its fixture header must not still claim
+  # the routine-cited / no-live-call provenance.
+  def test_orwpt_cwad_fixture_header_does_not_claim_routine_cite_once_live
+    slice = CHART_READ_SLICE.find { |s| s[:mapping] == :patient_cwad }
+    path = self.class.fixture_path_for(slice[:rpc])
+    assert File.file?(path), "missing #{path} — run rake wire:capture for ORWPT CWAD"
+
+    source = YAML.safe_load_file(path)["source"]
+    assert_equal "live-capture", source,
+                 "ORWPT CWAD fixture source must be live-capture, got #{source.inspect}"
+
+    comments = File.readlines(path, chomp: true).take(5).select { |l| l.start_with?("#") }.join("\n")
+    refute_match(/routine-cited/i, comments,
+                 "ORWPT CWAD header must not claim a routine-cited shape once source is live-capture (#{path})")
+    refute_match(/no live call/i, comments,
+                 "ORWPT CWAD header must not deny the live call once source is live-capture (#{path})")
   end
 
   def test_patient_cwad_live_capture_readiness_via_brief_header_flags
