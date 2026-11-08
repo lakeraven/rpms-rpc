@@ -761,8 +761,15 @@ module RpmsRpc
     # refused call waiting out the whole timeout and dropping the session, so read to the first
     # EOD: an error reply is then complete; a data reply is complete if the sentinel came before
     # that EOD, and otherwise its body embedded an EOD (#254) and the read goes on to the sentinel.
+    #
+    # An empty first piece is a late EOD from an EARLIER reply that landed in front of this one, after
+    # discard_stale_bytes had drained the socket. No reply is empty (each starts with its sequence
+    # echo), so it goes back to #read_reply to be skipped. Reading on to the sentinel glued that EOD to
+    # the front of this reply: the echo check then refused the whole reply as stale, and the call waited
+    # out its timeout while the broker sat waiting for the next request (rpms-ops#917).
     def read_global_array_raw
       first = read_until_raw(EOD)
+      return first if first.empty?
       return first if first.getbyte(1) == 0x01
 
       if (sentinel = first.index(AGG_ARRAY_END.b))
