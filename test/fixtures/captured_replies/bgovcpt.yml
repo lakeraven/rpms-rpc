@@ -1,0 +1,39 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb bgovcpt.rb.
+---
+rpc: BGOVCPT GET
+entry_point: GET^BGOVCPT
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T04:24:48Z'
+note: DFN 4 carries the build's seeded V CPT entries. The SET frame faults before
+  anything is filed (ACTLSTTOOLONG).
+captures:
+- name: dfn_4
+  inputs:
+  - '4'
+  context: the V CPT entries of demo patient DFN 4
+  raw_return: "5\009/02/2026^000012^DEMO IHS CLINIC^B9999^Parenteral Supp Not Othrws
+    C^Parenteral supp not othrws c^^Y^^^1^4^913^1^MANAGER,SYSTEM^^^1^CPT^\r10/16/2026^000012^DEMO
+    IHS CLINIC^A4206^1 cc sterile syringe&needle^1 cc sterile syringe&needle^^^^^2^7^87^1^MANAGER,SYSTEM^^^0^CPT^\r10/16/2026^000012^DEMO
+    IHS CLINIC^J1670^Tetanus immune globulin inj^Tetanus immune globulin inj^^^^^3^7^4726^1^PROFILE,MD^^^0^CPT^\r10/16/2026^000012^DEMO
+    IHS CLINIC^M1299^Flu immunize order/admin^Flu immunize order/admin^^^^^4^7^6957^1^PROFILE,MD^^^0^CPT^\r10/01/2026^000012^DEMO
+    IHS CLINIC^J1670^Tetanus immune globulin inj^Tetanus immune globulin inj^^^^^7^8^4726^1^PROFILE,MD^^^0^CPT^\r10/02/2026^000012^DEMO
+    IHS CLINIC^A4206^1 cc sterile syringe&needle^1 cc sterile syringe&needle^^^^^8^9^87^1^PROFILE,MD^^^0^CPT^\r10/05/2026^000012^DEMO
+    IHS CLINIC^J1670^Tetanus immune globulin inj^Tetanus immune globulin inj^^^^^9^11^4726^1^PROFILE,MD^^^0^CPT^\r"
+  sha256: 286d23c11b3dbf26e100d927dd57db2c8e71c3894ce67f6e0d8ea6c4ae330cf2
+- name: set_three_params
+  rpc: BGOVCPT SET
+  inputs:
+  - '4'
+  - '4'
+  - 99213^^office visit^1
+  context: 'Procedure.add''s frame: SET(RET,INP) takes one parameter, so the build
+    refuses three'
+  raw_return: "6\x011\rThe server has reported the following error:\r\rSET^BGOVCPT,
+    More actual parameters than formal parameters: ,150374474,-%YDB-E-ACTLSTTOOLONG\r\rA
+    detailed log of the error has been created.\r"
+  sha256: 4cda414c182dc6c67b816da97a74097a045b183f2098ec5b7e181080ebc500a4

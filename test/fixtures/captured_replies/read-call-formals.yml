@@ -1,0 +1,159 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb read-call-formals.rb.
+---
+rpc: ORQQPS LIST
+entry_point: LIST^ORQQPS
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T04:33:01Z'
+note: Seed patient DFN 4 (synthetic data); every call is a read. The health summary
+  frame faults in the report's own error trap (ERR+9^ORWRP), captured as the error
+  it is.
+captures:
+- name: orqqps_list
+  inputs:
+  - '4'
+  - ''
+  - ''
+  context: 'Medication.for_patient: DFN and both dates'
+  raw_return: "5\0^No medications found.\r"
+  sha256: 56717ec52e368a7952ddff5afa1acf0c8e21c4f548bb571c0515f76644f5c419
+- name: orwps_active
+  rpc: ORWPS ACTIVE
+  inputs:
+  - '4'
+  context: 'Medication.active_for_patient: DFN only'
+  raw_return: "6\0"
+  sha256: aa4fb8a61cab7db73f42671f2bb987a7291a436929b3d5f17ffe05f96be13371
+- name: orqqpl_list
+  rpc: ORQQPL LIST
+  inputs:
+  - '4'
+  - ''
+  context: 'Problem.for_patient: DFN and status (all)'
+  raw_return: "7\04^Type 2 diabetes mellitus ^A^Invalid Code (not found in the ICD-9-CM
+    system)^^3260902.213244^^^#^^^ORQQPL DETAIL^#\r3^Acute bronchitis ^E^Invalid Code
+    (not found in the ICD-9-CM system)^^3260902.213131^^^#^*^^ORQQPL DETAIL^#\r5^Acute
+    urinary tract infection ^E^Invalid Code (not found in the ICD-9-CM system)^^3260902.214632^^^#^*^^ORQQPL
+    DETAIL^#\r6^Coronary atherosclerosis ^E^Invalid Code (not found in the ICD-9-CM
+    system)^^3260903.173526^^^#^*^^ORQQPL DETAIL^#\r"
+  sha256: a78e561db995b13f6815946d5ce4fec1dae098b7358f69290e9a0e855cb93d1e
+- name: orqqpl_detail
+  rpc: ORQQPL DETAIL
+  inputs:
+  - '4'
+  - '1'
+  context: 'Problem.details: DFN then problem 1'
+  raw_return: "8\0*TYPE 2 DIABETES MELLITUS (Invalid Code (not found in the ICD-9-CM
+    system))\r*** The ICD code Invalid Code (not found in the ICD-9-CM system) is
+    currently inactive. ***\r \r   Onset: 4/10/23\r  Status: ACTIVE\r SC Cond: UNKNOWN\rExposure:
+    None\r \rProvider: DEMO,DOCTOR\r  Clinic: \r \rRecorded: 11/9/26, by DEMO,DOCTOR\r
+    Entered: 11/9/26, by DEMO,DOCTOR\r Updated: 11/9/26\r \r \r"
+  sha256: f2306ea7fcb92b6abf10e5b6ee21bfb33ff7cab5d42bdb25de5d681b0ab62b09
+- name: orqqpl_edit_load
+  rpc: ORQQPL EDIT LOAD
+  inputs:
+  - '1'
+  - '206'
+  - '7819'
+  context: 'Problem.edit_load: problem 1, provider PROFILE,MD (206), institution 7819'
+  raw_return: !binary |-
+    OQBORVf+LjAx/jUwMzEyNl5FMTEuOQ1ORVf+LjAz/jMyNjExMDkuMDEwODA1XjExLzkvMjYNTkVX/i4wNf4xXipUWVBFIDIgRElBQkVURVMgTUVMTElUVVMNTkVX/i4wOP4zMjYxMTA5XjExLzkvMjYNTkVX/i4xMv5BXkNIUk9OSUMNTkVX/i4xM/4zMjMwNDEwXjQvMTAvMjMNTkVX/jEuMDH+DU5FV/4xLjAy/g1ORVf+MS4wNf4xMl5ERU1PLERPQ1RPUg1ORVf+MS4wNv4NTkVX/jEuMDf+DU5FV/4xLjA4/g1ORVf+MS4wOf4zMjYxMTA5XjExLzkvMjYNTkVX/jEuMf4NTkVX/jEuMTH+DU5FV/4xLjEy/g1ORVf+MS4xM/4NTkVX/jEuMTT+DU5FV/4xLjE1/g1ORVf+MS4xNv4NTkVX/jEuMTf+DU5FV/4xLjE4/g1ORVf+MTAsMP4wXg1PUkf+LjAx/jUwMzEyNl5FMTEuOQ1PUkf+LjAz/jMyNjExMDkuMDEwODA1XjExLzkvMjYNT1JH/i4wNf4xXipUWVBFIDIgRElBQkVURVMgTUVMTElUVVMNT1JH/i4wOP4zMjYxMTA5XjExLzkvMjYNT1JH/i4xMv5BXkNIUk9OSUMNT1JH/i4xM/4zMjMwNDEwXjQvMTAvMjMNT1JH/jEuMDH+DU9SR/4xLjAy/g1PUkf+MS4wNf4xMl5ERU1PLERPQ1RPUg1PUkf+MS4wNv4NT1JH/jEuMDf+DU9SR/4xLjA4/g1PUkf+MS4wOf4zMjYxMTA5XjExLzkvMjYNT1JH/jEuMf4NT1JH/jEuMTH+DU9SR/4xLjEy/g1PUkf+MS4xM/4NT1JH/jEuMTT+DU9SR/4xLjE1/g1PUkf+MS4xNv4NT1JH/jEuMTf+DU9SR/4xLjE4/g1PUkf+MTAsMP4wXg0=
+  sha256: 61ed74dfd16c7f8e5e38f2503c8f0b00ddc71f2e6d7ca91ac9569fa3860b98ea
+- name: orwrp_report_text
+  rpc: ORWRP REPORT TEXT
+  inputs:
+  - '4'
+  - '1'
+  - '1'
+  - ''
+  - ''
+  - ''
+  - ''
+  context: 'HealthSummary.for_patient: the seven report formals'
+  raw_return: "1\x011\rThe server has reported the following error:\r\rERR+9^ORWRP,
+    Non-empty value assigned to $ECODE (user-defined error trap),150379506,-%YDB-E-SETECODE\r\rA
+    detailed log of the error has been created.\r"
+  sha256: 725260bc76d547aa708dd508388aaa09e3ef16b3b5eb1dfc8ffc54dd84cd9a0f
+- name: tiu_template_gettext
+  rpc: TIU TEMPLATE GETTEXT
+  inputs:
+  - '4'
+  - 349;3260514.09;A;2090059
+  - ? - 1
+      - 0
+    : Patient |PATIENT NAME|
+    ? - 2
+      - 0
+    : Age |PATIENT AGE|
+  context: 'NoteTemplate.text: DFN, visit string, the text as TIUX(n,0) nodes'
+  raw_return: "2\0^^2^2^3261109^^\rPatient DEMO,PATIENT ONE\rAge 25\r"
+  sha256: 1cf56407da0892f0dbeb505bffd7869f3b072011a69d08ed95debed8e9e3e29a
+- name: orwor_result
+  rpc: ORWOR RESULT
+  inputs:
+  - '4'
+  - '1'
+  - '1'
+  context: 'Order.result: DFN then order 1 twice'
+  raw_return: "3\0>> Ambulate in hallway twice daily as tolerated. (rpms-ops demo
+    seed order,\rsynthetic) *UNSIGNED*\r\r   \rThere are no results to report.\r"
+  sha256: 380bd556a99a433c9f0284b8ef8798996cd886808deccdf7b627c2154939b612
+- name: orwdal32_symptoms
+  rpc: ORWDAL32 SYMPTOMS
+  inputs:
+  - COUGH
+  - '1'
+  context: 'Symptom.search: FROM and direction'
+  raw_return: "4\0217^COUGHING\t<COUGH>^COUGH\r488^CPK INCREASED\t<INCREASED SERUM
+    CREATINE KINAS>^INCREASED SERUM CREATINE KINAS\r218^CRAMP\r488^CREATINE KINASE
+    INCREASED\t<INCREASED SERUM CREATINE KINAS>^INCREASED SERUM CREATINE KINAS\r508^CREATININE
+    SERUM INCREASED\t<INCREASED SERUM CREATININE>^INCREASED SERUM CREATININE\r133^CUTANEOUS
+    ERUPTION\t<RASH>^RASH\r521^CUTANEOUS HYPERSENSITIVITY\r473^CVA\t<STROKE>^STROKE\r220^CYANOSIS\r484^DEAFNESS\t<HEARING
+    IMPAIRMENT>^HEARING IMPAIRMENT\r322^DECREASED APPETITE\t<LOSS OF APPETITE>^LOSS
+    OF APPETITE\r520^DECREASED CALCIUM\t<HYPOCALCEMIA>^HYPOCALCEMIA\r199^DECREASED
+    HEART RATE\t<BRADYCARDIA>^BRADYCARDIA\r563^DECREASED MAGNESIUM\t<HYPOMAGNESEMIA>^HYPOMAGNESEMIA\r222^DECREASED
+    RENAL FUNCTION\r317^DECREASED WBC\t<LEUKOPENIA>^LEUKOPENIA\r223^DEHYDRATED\r224^DELAY
+    STARTING URINE STREAM\r225^DELIRIUM\r226^DELUSIONS\r227^DEMENTIA\r60^DEPRESSION\r83^DERMATITIS\r255^DERMATITIS\t<EXFOLIATIVE
+    DERMATITIS>^EXFOLIATIVE DERMATITIS\r215^DERMATITIS, CONTACT\t<CONTACT DERMATITIS>^CONTACT
+    DERMATITIS\r360^DERMATITIS, PHOTOALLERGIC\t<PHOTOALLERGIC DERMATITIS>^PHOTOALLERGIC
+    DERMATITIS\r61^DIAPHORESIS\r9^DIARRHEA\r70^DIFFICULTY BREATHING\t<DYSPNEA>^DYSPNEA\r363^DIGOXIN
+    TOXICITY\t<POISONING BY DIGOXIN>^POISONING BY DIGOXIN\r365^DILANTIN TOXICITY\t<POISONING
+    BY PHENYTOIN>^POISONING BY PHENYTOIN\r62^DIPLOPIA\r229^DISCOLORATION OF SKIN\r216^DISCOORDINATION\t<COORDINATION
+    PROBLEM>^COORDINATION PROBLEM\r230^DISINHIBITION\r231^DISORIENTATED\t<DISORIENTED>^DISORIENTED\r231^DISORIENTATION\t<DISORIENTED>^DISORIENTED\r231^DISORIENTED\r216^DISTURBED
+    COORDINATION\t<COORDINATION PROBLEM>^COORDINATION PROBLEM\r232^DIURESIS\r233^DIVERTICULITIS\r64^DIZZINESS\r62^DOUBLE
+    VISION\t<DIPLOPIA>^DIPLOPIA\r235^DREAM DISORDER\r"
+  sha256: fa77ba01f1f312069fdf8bdd5128ae8dbeb6d911d1328cb9158826868e6aae6c
+- name: behovm_template
+  rpc: BEHOVM TEMPLATE
+  inputs:
+  - '4'
+  - 349;3260514.09;A;2090059
+  - "-1"
+  context: 'Vital.template: DFN, visit string, default units'
+  raw_return: "5\020^0^0\r3^3^TEMPERATURE^TMP^F^^^^1^2\r5^5^PULSE^PU^/min^60^100^^1^2\r15^15^RESPIRATIONS^RS^/min^^^^1^2\r4^4^BLOOD
+    PRESSURE^BP^mmHg^90^150^^1^2\r344^22^O2 SATURATION^O2^%^^^^1^2\r21^21^PAIN^PA^^^^^0^2\r1^1^HEIGHT^HT^in^^^BEHOVM
+    PCTILE^1^2\r2^2^WEIGHT^WT^lb^^^BEHOVM PCTILE^1^3\r9^9^VISION CORRECTED^VC^^^^^0^2\r8^8^VISION
+    UNCORRECTED^VU^^^^^0^2\r10^10^AUDIOMETRY^AUD^^^^^0^2\r6^6^HEAD CIRCUMFERENCE^HC^in^^^BEHOVM
+    PCTILE^1^2\r47^60^ESTIMATED GESTATIONAL AGE^EGA^^^^^0^2\r13^13^FUNDAL HEIGHT^FH^cm^^^^0^2\r14^14^FETAL
+    HEART TONES^FT^^^^^1^2\r16^16^EDEMA^ED^^^^^0^2\r46^59^MINI MENTAL STATUS EXAM^MMSE^^^^^0^2\r27^41^PHQ2^PHQ2^^^^^0^2\r28^42^PHQ9^PHQ9^^^^^0^2\r31^25^ANKLE
+    BLOOD PRESSURE^AKBP^mmHg^90^150^^1^2\r"
+  sha256: 25716af2dc67a0e8f188a140852b2cfe4307d586e078eda2b2ad3d6d0ea2d7f2
+- name: behovm_template_metric
+  rpc: BEHOVM TEMPLATE
+  inputs:
+  - '4'
+  - 349;3260514.09;A;2090059
+  - '1'
+  context: 'Vital.template: DFN, visit string, metric units'
+  raw_return: "6\020^0^0\r3^3^TEMPERATURE^TMP^C^^^^1^2\r5^5^PULSE^PU^/min^60^100^^1^2\r15^15^RESPIRATIONS^RS^/min^^^^1^2\r4^4^BLOOD
+    PRESSURE^BP^mmHg^90^150^^1^2\r344^22^O2 SATURATION^O2^%^^^^1^2\r21^21^PAIN^PA^^^^^0^2\r1^1^HEIGHT^HT^cm^^^BEHOVM
+    PCTILE^1^2\r2^2^WEIGHT^WT^kg^^^BEHOVM PCTILE^1^3\r9^9^VISION CORRECTED^VC^^^^^0^2\r8^8^VISION
+    UNCORRECTED^VU^^^^^0^2\r10^10^AUDIOMETRY^AUD^^^^^0^2\r6^6^HEAD CIRCUMFERENCE^HC^cm^^^BEHOVM
+    PCTILE^1^2\r47^60^ESTIMATED GESTATIONAL AGE^EGA^^^^^0^2\r13^13^FUNDAL HEIGHT^FH^cm^^^^0^2\r14^14^FETAL
+    HEART TONES^FT^^^^^1^2\r16^16^EDEMA^ED^^^^^0^2\r46^59^MINI MENTAL STATUS EXAM^MMSE^^^^^0^2\r27^41^PHQ2^PHQ2^^^^^0^2\r28^42^PHQ9^PHQ9^^^^^0^2\r31^25^ANKLE
+    BLOOD PRESSURE^AKBP^mmHg^90^150^^1^2\r"
+  sha256: a0c4603c2468813cff726f5c775d4bb47ab4fe8cdf3d6fea902c63a97ac33c9b

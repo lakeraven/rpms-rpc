@@ -1,0 +1,18 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb behosicx-siteinfo.rb.
+---
+rpc: BEHOSICX SITEINFO
+entry_point: SITEINFO^BEHOSICX
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T04:24:44Z'
+note: The build's demo site; nothing is filed.
+captures:
+- name: current
+  inputs: []
+  context: the site of the signed-on user
+  raw_return: "5\0DEMO.IHS.GOV\rDEMO IHS CLINIC\r8904\rILLINOIS\r\r123 ELM STREET\r\rANYWHERE\r99999\r7819\rI\r"
+  sha256: 0ce1c16399058c6dd6a1df77f13c95315e6b05417dfde44f7dc10e5d4b74f7a4
