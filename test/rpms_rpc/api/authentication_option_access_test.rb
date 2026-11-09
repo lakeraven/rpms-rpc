@@ -2,51 +2,65 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
+require "rpms_rpc/api/authentication"
+require_relative "../captured_replies"
 
 # Authentication.option_access over ORWU HAS OPTION ACCESS (HASOPTN^ORWU).
-# Replies as a fresh rpms-ydb e9b78c8 sent them to PMD123: ["1"] for CIAV
-# VUECENTRIC, ["0"] for an option off the user's menus or not on file.
+# The replies are the build's (test/fixtures/captured_replies/orwu-has-option-access.yml):
+# option_access run as PROFILE,MD and PROFILE,REG on a throwaway container,
+# recorded as flows and replayed through CiaClient. The live spec is
+# test/live/option_access_live_test.rb.
 class AuthenticationOptionAccessTest < Minitest::Test
+  SLUG = "orwu-has-option-access"
+
   def teardown
     RpmsRpc.reset!
   end
 
-  def seed(answers)
-    RpmsRpc.mock! { |m| answers.each { |option, lines| m.seed_raw_lines(:user_option_access, option, lines) } }
+  def replay(script)
+    client = CapturedReplies::ReplayCiaClient.new(script)
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
   end
 
+  def replay_flow(name) = replay(CapturedReplies.flow_script(SLUG, name))
+
+  def sent(client) = client.calls.map { |c| [ c[:rpc], c[:params] ] }
+
   def test_answers_the_options_the_user_may_run_in_the_order_asked
-    seed("CIAV VUECENTRIC" => [ "1" ], "AGMENU" => [ "0" ], "NO SUCH OPTION" => [ "0" ])
+    client = replay_flow("option_access")
 
     assert_equal [ "CIAV VUECENTRIC" ], RpmsRpc::Authentication.option_access([ "AGMENU", "CIAV VUECENTRIC", "NO SUCH OPTION" ])
-    assert_equal %w[AGMENU CIAV\ VUECENTRIC NO\ SUCH\ OPTION], RpmsRpc.client.received_calls.map { |c| c[:params].first }
+    assert_equal CapturedReplies.flow_calls(SLUG, "option_access"), sent(client)
   end
 
   def test_may_run_none_is_empty_not_nil
-    seed("AGMENU" => [ "0" ])
+    replay_flow("option_access_none")
 
     assert_equal [], RpmsRpc::Authentication.option_access([ "AGMENU" ])
   end
 
-  def test_an_answer_that_is_not_0_or_1_is_could_not_ask
-    seed("CIAV VUECENTRIC" => [ "1" ], "AGMENU" => [])
-
-    assert_nil RpmsRpc::Authentication.option_access([ "CIAV VUECENTRIC", "AGMENU" ])
-  end
-
+  # The build refuses the RPC from an option that does not carry it.
   def test_a_refused_call_is_could_not_ask
-    client = Object.new
-    def client.call_rpc(*) = raise(RpmsRpc::Client::RpcError, "Remote Procedure 'ORWU HAS OPTION ACCESS' is not registered")
-    RpmsRpc.configure { |c| c.client = client }
+    replay_flow("option_access_refused")
 
     assert_nil RpmsRpc::Authentication.option_access([ "CIAV VUECENTRIC" ])
   end
 
+  # A client mechanic no server produces on demand: an answer that is not 0 or
+  # 1 (here an empty reply frame, written by hand) is could-not-ask, even when
+  # the other answers are the build's.
+  def test_an_answer_that_is_not_0_or_1_is_could_not_ask
+    ciav = CapturedReplies.flow(SLUG, "option_access").find { |c| c["inputs"] == [ "CIAV VUECENTRIC" ] }
+    replay("ORWU HAS OPTION ACCESS" => [ ciav.fetch("raw_return"), "5\x00" ])
+
+    assert_nil RpmsRpc::Authentication.option_access([ "CIAV VUECENTRIC", "AGMENU" ])
+  end
+
   def test_no_names_sends_nothing
-    seed({})
+    client = replay({})
 
     assert_equal [], RpmsRpc::Authentication.option_access([ "", nil ])
-    assert_empty RpmsRpc.client.received_calls
+    assert_empty client.calls
   end
 end

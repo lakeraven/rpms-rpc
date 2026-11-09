@@ -2,8 +2,8 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/api/allergy"
+require_relative "../captured_replies"
 
 # Issue #485 — Allergy.save and Allergy.no_known_allergies must fail closed on
 # text that is not wire-safe before ORWDAL32 SAVE ALLERGY is sent. Only UTF-8
@@ -12,6 +12,12 @@ require "rpms_rpc/api/allergy"
 # return invalid_value (invalid_dfn for the DFN) with no RPC and must not raise
 # (valid_encoding? alone is not enough for UTF-16/32; BINARY with a high byte
 # must not rely on regexp Encoding::CompatibilityError).
+#
+# These are guard tests: a refused input answers nothing and sends nothing, so
+# the client is a ReplayCiaClient with no script, and any call it gets fails
+# the test. An accepted input is answered with the build's own success reply
+# (test/fixtures/captured_replies/allergy-save.yml, save_new), to check the
+# frame it sends; the round trip is allergy_save_test.rb's and the live spec's.
 class AllergySaveEncodingTest < Minitest::Test
   DFN = "8791"
   RPC = "ORWDAL32 SAVE ALLERGY"
@@ -50,6 +56,15 @@ class AllergySaveEncodingTest < Minitest::Test
 
   def teardown
     RpmsRpc.reset!
+  end
+
+  # A client that answers nothing: a guard test asserts no call reaches it.
+  def answer_nothing = replay({})
+
+  def replay(script)
+    @client = CapturedReplies::ReplayCiaClient.new(script)
+    RpmsRpc.configure { |cfg| cfg.client = @client }
+    @client
   end
 
   def test_save_invalid_utf8_on_every_validated_string_field_returns_invalid_value_without_rpc
@@ -116,15 +131,15 @@ class AllergySaveEncodingTest < Minitest::Test
   def test_save_accepts_pure_ascii_binary_on_every_validated_string_field
     cases = scalar_ascii_binary_cases + symptom_ascii_binary_cases + comment_ascii_binary_cases
     cases.each do |attrs|
-      seed_save_reply("0")
+      seed_save_reply
       result = RpmsRpc::Allergy.save(DFN, SYNTH_ALLERGY.merge(attrs))
       assert result[:success], result.inspect
-      refute_empty RpmsRpc.client.received_calls
+      refute_nil save_call, "#{attrs.keys.first} sent no #{RPC}"
     end
   end
 
   def test_save_accepts_frozen_string_fields
-    seed_save_reply("0")
+    seed_save_reply
     attrs = SYNTH_ALLERGY.merge(
       agent: SYNTH_ALLERGY[:agent].dup.freeze,
       agent_pointer: SYNTH_ALLERGY[:agent_pointer].dup.freeze,
@@ -163,7 +178,7 @@ class AllergySaveEncodingTest < Minitest::Test
   # GMRACMTS(n) is read whole in ADCOM^GMRAGUI1 (GMRAGUI1.m:59-60) and filed via ^DIWP;
   # EDITSAVE^ORWDAL32 merges OREDITED without splitting comment text (ORWDAL32.m:137-138).
   def test_save_accepts_caret_in_comment_and_sends_verbatim_on_wire
-    seed_save_reply("0")
+    seed_save_reply
     comment = "BP 120^80"
     attrs = SYNTH_ALLERGY.merge(comments: [ comment ])
     result = RpmsRpc::Allergy.save(DFN, attrs)
@@ -311,7 +326,7 @@ class AllergySaveEncodingTest < Minitest::Test
   end
 
   def assert_invalid_value_refusal(field, attrs, context: nil)
-    RpmsRpc.mock!
+    answer_nothing
     result = nil
     begin
       result = RpmsRpc::Allergy.save(DFN, attrs)
@@ -321,16 +336,16 @@ class AllergySaveEncodingTest < Minitest::Test
     end
     expected = { success: false, error: :invalid_value, message: "invalid #{field}" }
     unless result == expected
-      rpc_sent = !RpmsRpc.client.received_calls.empty?
+      rpc_sent = !@client.calls.empty?
       label = [ field, context ].compact.join(" ")
       flunk "expected #{expected.inspect} for #{label}, got #{result.inspect} (RPC sent: #{rpc_sent})"
     end
     label = [ field, context ].compact.join(" ")
-    assert_empty RpmsRpc.client.received_calls, "invalid #{label}"
+    assert_empty @client.calls, "invalid #{label}"
   end
 
   def assert_invalid_dfn_refusal(dfn)
-    RpmsRpc.mock!
+    answer_nothing
     result = nil
     begin
       result = yield(dfn)
@@ -339,19 +354,18 @@ class AllergySaveEncodingTest < Minitest::Test
     end
     expected = { success: false, error: :invalid_dfn, message: "a positive DFN is required" }
     unless result == expected
-      rpc_sent = !RpmsRpc.client.received_calls.empty?
+      rpc_sent = !@client.calls.empty?
       flunk "expected #{expected.inspect} for #{dfn.encoding.name}, got #{result.inspect} (RPC sent: #{rpc_sent})"
     end
-    assert_empty RpmsRpc.client.received_calls, "invalid dfn #{dfn.encoding.name}"
+    assert_empty @client.calls, "invalid dfn #{dfn.encoding.name}"
   end
 
   def save_call
-    RpmsRpc.client.received_calls.find { |c| c[:rpc] == RPC }
+    @client.calls.find { |c| c[:rpc] == RPC }
   end
 
-  def seed_save_reply(value)
-    RpmsRpc.mock!
-    scalars = RpmsRpc.client.instance_variable_get(:@scalars)
-    scalars[RPC] = { "" => [ value ] }
+  # The build's reply to a save it filed (allergy-save.yml, save_new/1).
+  def seed_save_reply
+    replay(RPC => [ CapturedReplies.flow("allergy-save", "save_new").first.fetch("raw_return") ])
   end
 end

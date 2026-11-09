@@ -138,6 +138,11 @@ module RpmsRpc
       AGGPIINS AGGPIHLN AGGPINUM AGGPIMBN AGGPIREL AGGPIESD AGGPIEED AGGPHESD AGGPHEED
     ].freeze
     PRIVATE_DATE_FIELDS = %w[AGGPIESD AGGPIEED AGGPHESD AGGPHEED].freeze
+    # Sent on every add, blank when no end date is given. UPOL^AGGUPPVT reads
+    # AGGPHEED bare (AGGUPPVT.m:146, :148) and only PARS sets it, so a frame
+    # without it filed the policy, then died LVUNDEF before the result row
+    # (#688).
+    PRIVATE_END_FIELDS = %w[AGGPIEED AGGPHEED].freeze
 
     # Medicare coverage types, as the Medicare Eligibility window's choices name them.
     MEDICARE_PARTS = { "A" => "PART A", "B" => "PART B", "D" => "PART D" }.freeze
@@ -436,9 +441,9 @@ module RpmsRpc
         "AGGPIMBN" => member_number,
         "AGGPIREL" => relationship_ien && positive_ien!(relationship_ien, "relationship_ien"),
         "AGGPIESD" => effective_on,
-        "AGGPIEED" => ends_on,
+        "AGGPIEED" => ends_on.nil? ? "" : ends_on,
         "AGGPHESD" => effective_on,
-        "AGGPHEED" => ends_on
+        "AGGPHEED" => ends_on.nil? ? "" : ends_on
       }.compact
       validate_private_params!(params)
       id = canonical_dfn(dfn)
@@ -540,6 +545,8 @@ module RpmsRpc
         raise ArgumentError, "unknown private insurance parameter #{key}" unless PRIVATE_FIELDS.include?(key)
 
         text = wire!(value)
+        next if PRIVATE_END_FIELDS.include?(key) && text.empty?
+
         if PRIVATE_DATE_FIELDS.include?(key) && !calendar_date?(text)
           raise ArgumentError, "#{key} must be a real MM/DD/YYYY date"
         end
