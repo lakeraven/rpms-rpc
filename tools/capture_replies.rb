@@ -21,6 +21,15 @@ require "rpms_rpc/mappings"
 require "rpms_rpc/cia_client"
 require "rpms_rpc/valid_signature"
 
+# A reply that is valid UTF-8 is written as text, so a fixture reads as the
+# wire did. One that is not (a FileMan \xFE delimiter, say) is written as
+# YAML !binary: forcing it to UTF-8 would make an invalid string Psych cannot
+# dump. Either way CapturedReplies reads the bytes back with #b.
+def yaml_bytes(raw)
+  text = raw.dup.force_encoding(Encoding::UTF_8)
+  text.valid_encoding? ? text : raw
+end
+
 spec_path = ARGV.fetch(0) { abort "usage: capture_replies.rb tools/captured_replies/<slug>.rb" }
 load spec_path
 spec = CAPTURE
@@ -46,7 +55,7 @@ captures = spec.fetch(:calls).map do |call|
   entry = { "name" => call.fetch(:name) }
   entry["rpc"] = call[:rpc] if call[:rpc]
   entry.merge("inputs" => call.fetch(:inputs), "context" => call.fetch(:about),
-              "raw_return" => raw.dup.force_encoding(Encoding::UTF_8), "sha256" => Digest::SHA256.hexdigest(raw))
+              "raw_return" => yaml_bytes(raw), "sha256" => Digest::SHA256.hexdigest(raw))
 end
 client.disconnect
 
