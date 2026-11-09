@@ -1,0 +1,33 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb patient-brief-header.rb.
+---
+rpc: BEHOPTCX PTINFO
+entry_point: PTINFO^BEHOPTCX
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T03:11:14Z'
+note: Seed patient DFN 4 (synthetic data).
+captures:
+- name: ptinfo
+  inputs:
+  - '4'
+  context: the banner's demographics
+  raw_return: "5\0DEMO,PATIENT ONE^F^3010101^XXX-XX-XXXX^^^^0^0^^99901^0^^^0^0^^^^"
+  sha256: 2d0a8abda7c7e13bb1b089122d5f9a9d7f4a856d53586714fd8c9c613fb8f4b9
+- name: getbdp
+  rpc: BEHOPTPC GETBDP
+  inputs:
+  - '4'
+  context: the designated providers
+  raw_return: "6\0"
+  sha256: aa4fb8a61cab7db73f42671f2bb987a7291a436929b3d5f17ffe05f96be13371
+- name: cwad
+  rpc: ORWPT CWAD
+  inputs:
+  - '4'
+  context: the CWAD letters
+  raw_return: "7\0WA"
+  sha256: 36daa7fe3d18be20b218016c85f1f4ea4951ce3f01976021c5d6eae5e9e75076

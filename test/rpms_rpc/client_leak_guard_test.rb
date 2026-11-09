@@ -2,7 +2,7 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
+require "rpms_rpc/cia_client"
 
 # Guard against test-order leaks: RpmsRpc.configure installs a process-wide
 # client, so a test that configures one and does not reset it changes what the
@@ -37,13 +37,13 @@ class RpmsRpc::ClientLeakGuardTest < Minitest::Test
   end
 
   def test_leaked_reports_a_configured_client
-    RpmsRpc.configure { |c| c.client = RpmsRpc::MockClient.new }
+    RpmsRpc.configure { |c| c.client = RpmsRpc::CiaClient.new(host: "127.0.0.1", port: 9100) }
 
     assert RpmsRpc::ClientLeakGuard.leaked?
   end
 
   def test_leaked_is_false_once_reset
-    RpmsRpc.configure { |c| c.client = RpmsRpc::MockClient.new }
+    RpmsRpc.configure { |c| c.client = RpmsRpc::CiaClient.new(host: "127.0.0.1", port: 9100) }
     RpmsRpc.reset!
 
     refute RpmsRpc::ClientLeakGuard.leaked?
