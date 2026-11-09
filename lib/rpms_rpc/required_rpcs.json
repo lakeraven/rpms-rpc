@@ -182,8 +182,8 @@
       "ORWRA IMAGING EXAMS1"
     ],
     "RpmsRpc::Immunization": [
-      "BEHOCIR GETTXT",
       "BGOVIMM GET",
+      "BGOVIMM PROFILE",
       "DDR GETS ENTRY DATA"
     ],
     "RpmsRpc::ImmunizationLot": [
@@ -435,6 +435,7 @@
     ],
     "RpmsRpc::WaitList": [
       "DDR FILER",
+      "DDR GETS ENTRY DATA",
       "DDR LISTER"
     ]
   }
