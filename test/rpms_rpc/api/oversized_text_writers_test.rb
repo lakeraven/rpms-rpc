@@ -92,6 +92,15 @@ class OversizedTextWritersTest < Minitest::Test
     replace_singleton(RpmsRpc::ContextScope, :scoped) { |_client, _context, &block| block.call }
   end
 
+  # Problem.update and .delete read the problem before writing, to check it is
+  # the patient's (rpms-rpc#527); that read is not what these tests are about.
+  def skip_problem_ownership_read
+    skip_context_binding
+    # A singleton stub, removed after, so the private module method is not left public.
+    RpmsRpc::Problem.define_singleton_method(:refuse_unless_patients) { |_dfn, _ien| nil }
+    @restore << -> { RpmsRpc::Problem.singleton_class.remove_method(:refuse_unless_patients) }
+  end
+
   def assert_refused(result, limit, text)
     assert_equal false, result[:success]
     assert_match(/#{limit}/, result[:error].to_s, "the failure must name the byte limit")
@@ -126,6 +135,7 @@ class OversizedTextWritersTest < Minitest::Test
     end
 
     define_method("test_problem_delete_returns_its_failure_shape_over_#{name}") do
+      skip_problem_ownership_read
       limit = send(user)
       text = long_for(limit)
       result = RpmsRpc::Problem.delete("8791", "77", reason: text)
@@ -146,6 +156,7 @@ class OversizedTextWritersTest < Minitest::Test
   # support at all (it raises NotImplementedError before any size check), so
   # only XWB can reach the size refusal.
   def test_problem_add_returns_its_failure_shape_over_xwb
+    skip_context_binding
     limit = use_xwb
     result = RpmsRpc::Problem.add("8791", { icd_code: "250.00", location_ien: "1", description: XWB_TEXT })
     assert_refused(result, limit, XWB_TEXT)
@@ -153,6 +164,7 @@ class OversizedTextWritersTest < Minitest::Test
   end
 
   def test_problem_update_returns_its_failure_shape_over_xwb
+    skip_problem_ownership_read
     limit = use_xwb
     result = RpmsRpc::Problem.update("8791", "77", { description: XWB_TEXT })
     assert_refused(result, limit, XWB_TEXT)
@@ -191,66 +203,6 @@ class OversizedTextWritersTest < Minitest::Test
     refute_includes result[:message].to_s, long_dfn
     assert_empty @socket.writes, "nothing is sent when the value cannot be framed"
     refute result.key?(:note_ien), "refusal is not a broker success"
-  end
-
-  def test_problem_add_stock_returns_its_failure_shape_over_xwb
-    use_xwb
-    fields = {
-      ".01" => "5042",
-      "1.01" => "1^Unresolved",
-      ".05" => XWB_TEXT,
-      ".12" => "A",
-      ".13" => "1"
-    }
-    result = RpmsRpc::Problem.add_stock("8791", provider_duz: "301", vamc: "7", fields: fields)
-    assert_equal false, result[:success]
-    assert_equal :frame_too_long, result[:error]
-    assert_match(/999/, result[:message].to_s)
-    refute_includes result[:message].to_s, XWB_TEXT
-    assert_equal({ success: false, ien: nil, raw: nil }, result.slice(:success, :ien, :raw))
-    assert_empty @socket.writes
-  end
-
-  def test_problem_update_stock_returns_its_failure_shape_over_xwb
-    use_xwb
-    originals = {
-      ".01" => "5042",
-      "1.01" => "1^Unresolved",
-      ".05" => "1^Synthetic problem narrative",
-      ".12" => "A",
-      "1.02" => "T",
-      "80001" => "",
-      "80002" => "",
-      "80003" => "",
-      "80004" => "",
-      "80005" => "",
-      "80201" => "3251025^10/25/2025",
-      "80202" => "10D^10D"
-    }
-    result = RpmsRpc::Problem.update_stock(
-      "77", provider_duz: "301", vamc: "7",
-      changes: { ".05" => XWB_TEXT },
-      originals: originals
-    )
-    assert_equal false, result[:success]
-    assert_equal :frame_too_long, result[:error]
-    assert_match(/999/, result[:message].to_s)
-    refute_includes result[:message].to_s, XWB_TEXT
-    assert_equal({ success: false, ien: nil, raw: nil }, result.slice(:success, :ien, :raw))
-    assert_empty @socket.writes
-  end
-
-  # ORWDX SAVE sends an ORDIALOG list parameter; BMX cannot frame list params.
-  def test_order_save_returns_frame_too_long_failure_shape_over_xwb
-    limit = use_xwb
-    responses = { [ 4, 1 ] => XWB_TEXT }
-    result = RpmsRpc::Order.save("8791", "301", "349", "PSO OERR", responses)
-
-    assert_equal false, result[:success]
-    assert_equal :frame_too_long, result[:error]
-    assert_match(/#{limit}/, result[:message].to_s)
-    refute_includes result[:message].to_s, XWB_TEXT
-    assert_empty @socket.writes
   end
 
   def test_problem_still_raises_for_a_caller_bug

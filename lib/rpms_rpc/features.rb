@@ -144,19 +144,15 @@ module RpmsRpc
         source: "RpmsRpc::Problem",
         context: nil,
         rpcs: [
-          "ORQQPL ADD SAVE",
           "ORQQPL AUDIT HIST",
           "ORQQPL CLIN SRCH",
           "ORQQPL DETAIL",
           "ORQQPL EDIT LOAD",
-          "ORQQPL EDIT SAVE",
-          "ORQQPL INACTIVATE",
           "ORQQPL INIT PT",
           "ORQQPL LIST",
           "ORQQPL PROB COMMENTS",
           "ORQQPL PROBLEM LEX SEARCH",
-          "ORQQPL PROVIDER LIST",
-          "ORQQPL VERIFY"
+          "ORQQPL PROVIDER LIST"
         ].freeze
       }.freeze
     ].freeze
