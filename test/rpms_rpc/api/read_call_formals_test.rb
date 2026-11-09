@@ -126,10 +126,10 @@ class ReadCallFormalsTest < Minitest::Test
   # (TIUSRVD.m:82-83) with ROOT="TIUX", so each line goes over as TIUX(n,0).
   # The build expands both objects for DFN 4, which only a frame it read can do.
   def test_note_template_text_sends_dfn_visit_and_text_as_n_0_nodes
-    RpmsRpc::NoteTemplate.text([ "Patient |PATIENT NAME|", "Age |PATIENT AGE|" ], dfn: DFN, visit_string: VSTR)
+    text = RpmsRpc::NoteTemplate.text([ "Patient |PATIENT NAME|", "Age |PATIENT AGE|" ], dfn: DFN, visit_string: VSTR)
     assert_equal [ DFN, VSTR, { [ 1, 0 ] => "Patient |PATIENT NAME|", [ 2, 0 ] => "Age |PATIENT AGE|" } ],
                  params_sent_to("TIU TEMPLATE GETTEXT")
-    assert_includes CapturedReplies.raw(SLUG, "tiu_template_gettext"), "Patient DEMO,PATIENT ONE"
+    assert_equal "Patient DEMO,PATIENT ONE\nAge 25", text
   end
 
   # RESULT(REF,DFN,ORID,ID)^ORWOR (ORWOR.m:29-34): ORDERS^ORCXPND1 reads ID
