@@ -143,6 +143,7 @@ RpmsRpc::UserManagement.find	GET /users/{duz}
 RpmsRpc::UserManagement.search	GET /users
 RpmsRpc::Vital.for_patient	GET /patients/{dfn}/vitals
 RpmsRpc::Vital.template	GET /patients/{dfn}/vitals/template
+RpmsRpc::WaitList.comments	GET /wait-lists/comments
 RpmsRpc::WaitList.entries	GET /wait-lists/entries
 RpmsRpc::WaitList.lists	GET /wait-lists/lists
 RpmsRpc::WaitList.reasons	GET /wait-lists/reasons
