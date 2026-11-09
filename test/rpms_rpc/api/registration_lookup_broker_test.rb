@@ -55,6 +55,14 @@ class RegistrationLookupBrokerTest < Minitest::Test
 
   def frame(name) = bmx_doc.fetch("frames").find { |f| f["name"] == name }.fetch("frame")
 
+  # The capture's signed-on identity, as the clients hold it.
+  def identity(client, duz:, division: bmx_doc.fetch("division"))
+    client.instance_variable_set(:@duz, duz)
+    client.instance_variable_set(:@division, division.transform_keys(&:to_sym))
+    client.instance_variable_set(:@divisions, bmx_doc.fetch("divisions").map { |d| d.transform_keys(&:to_sym) })
+    client
+  end
+
   # A BmxClient signed on as the capture's user, AGGRPC bound, whose wire is
   # the named frames in order.
   def bmx_lookup(*names, duz: bmx_doc.fetch("duz"))
@@ -62,16 +70,15 @@ class RegistrationLookupBrokerTest < Minitest::Test
     client.instance_variable_set(:@socket, FrameSocket.new(names.map { |n| frame(n) }))
     client.instance_variable_set(:@connected, true)
     client.instance_variable_set(:@authenticated, true)
-    client.instance_variable_set(:@duz, duz)
+    identity(client, duz: duz)
     client.instance_variable_set(:@current_context, "AGGRPC")
     client.instance_variable_set(:@timeout, 1)
     client
   end
 
   # The CIA session registration runs on, signed on as the same user.
-  def cia_session(script = {}, duz: bmx_doc.fetch("duz"))
-    client = CapturedReplies::ReplayCiaClient.new(script)
-    client.instance_variable_set(:@duz, duz)
+  def cia_session(script = {}, duz: bmx_doc.fetch("duz"), division: bmx_doc.fetch("division"))
+    client = identity(CapturedReplies::ReplayCiaClient.new(script), duz: duz, division: division)
     RpmsRpc.configure { |cfg| cfg.client = client }
     client
   end
@@ -130,26 +137,46 @@ class RegistrationLookupBrokerTest < Minitest::Test
     result = RpmsRpc::Registration.register(ATTRS)
 
     assert_equal :identity_unverifiable, result[:error]
-    assert_includes result[:message], "lookup_client"
+    assert_includes result[:message], "with_lookup_client"
     assert_empty session.calls
   end
 
-  def test_register_refuses_a_lookup_client_that_is_not_a_signed_on_bmx_client
+  def test_only_a_signed_on_bmx_client_can_be_the_lookup_client
     session = cia_session
-    assert_raises(ArgumentError) { RpmsRpc::Registration.register(ATTRS, lookup_client: session) }
+    assert_raises(ArgumentError) { RpmsRpc::Registration.with_lookup_client(session) { flunk "ran" } }
     unsigned = bmx_lookup("no_match")
     unsigned.instance_variable_set(:@authenticated, false)
-    assert_raises(ArgumentError) { RpmsRpc::Registration.register(ATTRS, lookup_client: unsigned) }
+    assert_raises(ArgumentError) { RpmsRpc::Registration.with_lookup_client(unsigned) { flunk "ran" } }
     assert_empty session.calls
   end
 
   def test_register_refuses_a_lookup_client_signed_on_as_another_user
     session = cia_session(duz: "999")
     lookup = bmx_lookup("no_match")
-    result = RpmsRpc::Patient.register(ATTRS, lookup_client: lookup)
+    result = RpmsRpc::Registration.with_lookup_client(lookup) { RpmsRpc::Patient.register(ATTRS) }
 
     assert_equal :identity_unverifiable, result[:error]
     assert_empty session.calls
     assert_empty lookup.instance_variable_get(:@socket).writes
+  end
+
+  # A DUZ is local to its database: the same number on another database is
+  # another person, so the division facts must agree too.
+  def test_register_refuses_a_lookup_client_bound_to_another_division
+    other = bmx_doc.fetch("division").merge("ien" => 1, "station" => "1")
+    session = cia_session(division: other)
+    lookup = bmx_lookup("no_match")
+    result = RpmsRpc::Registration.with_lookup_client(lookup) { RpmsRpc::Patient.register(ATTRS) }
+
+    assert_equal :identity_unverifiable, result[:error]
+    assert_empty session.calls
+    assert_empty lookup.instance_variable_get(:@socket).writes
+  end
+
+  def test_the_lookup_client_scope_restores_when_it_ends
+    cia_session
+    lookup = bmx_lookup("no_match")
+    RpmsRpc::Registration.with_lookup_client(lookup) { nil }
+    assert_equal :identity_unverifiable, RpmsRpc::Registration.register(ATTRS)[:error], "outside the scope there is no lookup client"
   end
 end

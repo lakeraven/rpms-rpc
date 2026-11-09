@@ -5,9 +5,19 @@ release_tag: bcer-9.0-20261109-d3adcff-ydb
 image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
 client: RpmsRpc::BmxClient (socket reads, per call)
 signed_on_as: PROFILE,REG (PREG123, a published demo pair)
-duz: ''
+duz: '207'
+division:
+  ien: 7819
+  name: DEMO IHS CLINIC
+  station: '8904'
+  default: true
+divisions:
+- ien: 7819
+  name: DEMO IHS CLINIC
+  station: '8904'
+  default: true
 bound_context: AGGRPC
-captured_at: '2026-11-09T04:43:16Z'
+captured_at: '2026-11-09T05:03:44Z'
 note: Reads only. The fault pair is the one way to make FND fault without a broken
   build.
 frames:
@@ -44,5 +54,5 @@ frames:
   - '1'
   context: the no-match pairs plus 1BAD=X, which faults S @NAME=VALUE inside FND
   outcome: raised RpmsRpc::Client::ConnectionError
-  frame: "7Recording that an error occurred at NOV 9,2026@04:43:16\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E\x1F\x04"
-  sha256: 49ddc4c25f50fe6ae8942de91b0551ec3167be5d6edf3e6f28bab743fdbec1d3
+  frame: "7Recording that an error occurred at NOV 9,2026@05:03:44\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E\x1F\x04"
+  sha256: b9ddf9a426e8be6a0b5e6d4e15a7d8a9dfd9e33ba6aa80fca8a12c27ac241178

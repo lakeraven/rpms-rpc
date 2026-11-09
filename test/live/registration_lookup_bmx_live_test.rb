@@ -9,11 +9,11 @@ require "securerandom"
 # bytes as a genuine no-match, so a CIA session cannot tell "nobody" from "the
 # lookup broke"; over BMX the error rides the security packet and raises.
 #
-# On the wire, signed on over CIA with a BMX lookup_client for the same
+# On the wire, signed on over CIA with a BMX lookup client for the same
 # persona: a no-match over BMX reads as no match and the registration files
 # one patient; the repeat finds that patient; a lookup that faults inside FND
 # fails closed over BMX and reads as zero candidates over CIA; and register
-# over CIA with no lookup_client refuses and files nothing.
+# over CIA with no lookup client scoped refuses and files nothing.
 #
 # Creates one synthetic patient: run on a disposable container and discard it.
 # Needs BMX_PORT (the container's 9101). PROFILE,REG holds AGGRPC.
@@ -24,10 +24,10 @@ class RegistrationLookupBmxLiveTest < LiveSpec::Test
 
   def test_a_no_match_over_bmx_registers_and_the_repeat_is_a_duplicate
     attrs = fresh_identity
-    first = RpmsRpc::Patient.register(attrs, lookup_client: lookup_client)
+    first = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(attrs) }
     assert first && first[:success], "no candidate over BMX, so the registration files: #{first.inspect}"
 
-    second = RpmsRpc::Patient.register(attrs, lookup_client: lookup_client)
+    second = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(attrs) }
     assert_equal :duplicate_identity, second[:error]
     assert_equal [ first[:dfn] ], second[:candidate_dfns]
     puts "\n#{persona}: registered DFN #{first[:dfn]} after a BMX no-match; the repeat found it"

@@ -25,24 +25,24 @@ class RegistrationWindowValidationLiveTest < LiveSpec::Test
 
   def test_s_reg_02_8_an_ssn_already_on_another_patient_is_refused_and_nothing_is_filed
     ssn = fresh_ssn
-    first = RpmsRpc::Patient.register(synthetic(ssn: ssn), lookup_client: lookup_client)
+    first = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(synthetic(ssn: ssn)) }
     assert first && first[:success], "the first registration failed: #{first.inspect}"
 
     second_attrs = synthetic(ssn: ssn)
-    second = RpmsRpc::Patient.register(second_attrs, lookup_client: lookup_client)
+    second = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(second_attrs) }
     assert_equal({ success: false, error: :agg_invalid, field: "AGGPTSSN", message: "SSN already used by another patient." }, second)
     assert_empty candidates(second_attrs), "the refused registration must file nothing"
   end
 
   def test_an_ssn_and_a_reason_for_none_together_are_refused
-    result = RpmsRpc::Patient.register(synthetic(ssn: fresh_ssn, no_ssn_reason: "R"), lookup_client: lookup_client)
+    result = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(synthetic(ssn: fresh_ssn, no_ssn_reason: "R")) }
     assert_equal :agg_invalid, result[:error]
     assert_match(/cannot enter both/, result[:message])
   end
 
   def test_no_ssn_with_a_reason_registers
     attrs = synthetic(no_ssn_reason: "R")
-    result = RpmsRpc::Patient.register(attrs, lookup_client: lookup_client)
+    result = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(attrs) }
     assert result && result[:success], "registration with a reason for no SSN failed: #{result.inspect}"
     assert_equal [ result[:dfn] ], candidates(attrs).map { |row| row[:dfn] }.uniq
   end
@@ -53,12 +53,12 @@ class RegistrationWindowValidationLiveTest < LiveSpec::Test
   # after it must still go through on the same session.
   def test_s_reg_02_6_no_ssn_and_no_reason_is_not_filed_unchecked
     attrs = synthetic
-    result = RpmsRpc::Patient.register(attrs, lookup_client: lookup_client)
+    result = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(attrs) }
     assert_equal({ success: false, error: :ssn_or_reason_required, field: "AGGNOSSN",
                    message: "Enter a SSN or a Reason for No SSN" }, result)
     assert_empty candidates(attrs)
 
-    after = RpmsRpc::Patient.register(synthetic(no_ssn_reason: "N"), lookup_client: lookup_client)
+    after = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(synthetic(no_ssn_reason: "N")) }
     assert after && after[:success], "the session must still register afterwards: #{after.inspect}"
   end
 end

@@ -8,7 +8,7 @@ image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42
 client: RpmsRpc::CiaClient#call_rpc_raw
 signed_on_as: PROFILE,REG (PREG123, a published demo pair)
 bound_context: AGGRPC
-captured_at: '2026-11-09T04:43:32Z'
+captured_at: '2026-11-09T05:03:47Z'
 note: Reads only. The fault pair makes S @NAME=VALUE (AGGPTLKP.m:39) fault inside
   FND; ^%ZTER records it.
 captures:

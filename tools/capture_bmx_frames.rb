@@ -30,6 +30,10 @@ client = RpmsRpc::BmxClient.new(host: "127.0.0.1", port: Integer(ENV.fetch("BMX_
 client.connect
 client.authenticate(spec.fetch(:access), spec.fetch(:verify))
 client.create_context(spec.fetch(:context))
+# The signed-on identity, read now: a call that raises a ConnectionError (a
+# security packet) resets the session and forgets it.
+plain = ->(division) { division&.transform_keys(&:to_s) }
+identity = { "duz" => client.duz.to_s, "division" => plain.(client.division), "divisions" => Array(client.divisions).map(&plain) }
 
 # Tee the socket's reads: what one call receives is its frame.
 received = "".b
@@ -58,7 +62,7 @@ client.disconnect
 
 doc = {
   "release_tag" => build, "image" => image, "client" => "RpmsRpc::BmxClient (socket reads, per call)",
-  "signed_on_as" => spec.fetch(:signed_on_as), "duz" => client.duz.to_s, "bound_context" => spec.fetch(:context),
+  "signed_on_as" => spec.fetch(:signed_on_as), **identity, "bound_context" => spec.fetch(:context),
   "captured_at" => Time.now.utc.iso8601, "note" => spec.fetch(:note), "frames" => frames
 }
 File.write(out, "# BMX reply frames, verbatim from a throwaway container of the release below; synthetic\n" \

@@ -57,14 +57,21 @@ call stays on `RpmsRpc.client`:
 lookup = RpmsRpc::BmxClient.new(host: host, port: 9101)
 lookup.connect
 lookup.authenticate(access, verify) # the same user as the CIA session
-result = RpmsRpc::Patient.register(attrs, lookup_client: lookup)
+result = RpmsRpc::Registration.with_lookup_client(lookup) { RpmsRpc::Patient.register(attrs) }
 ```
 
-- Over CIA with no `lookup_client:`, registration answers `:identity_unverifiable`
-  and sends nothing.
-- A `lookup_client:` that is not a signed-on `BmxClient` raises `ArgumentError`.
-  One signed on as a different DUZ from `RpmsRpc.client` is
-  `:identity_unverifiable`, and nothing is sent.
+`with_lookup_client` scopes the lookup client the way `RpmsRpc.with_client` scopes
+`RpmsRpc.client`: for this fiber and what it starts, restored when the block ends.
+The `register` signatures are unchanged.
+
+- Over CIA with no lookup client scoped, registration answers
+  `:identity_unverifiable` and sends nothing.
+- A lookup client that is not a signed-on `BmxClient` raises `ArgumentError`.
+  One that does not show the same user as `RpmsRpc.client` (DUZ, bound division
+  and the user's division list) is `:identity_unverifiable`, and nothing is sent.
+  A DUZ is local to its database, so the DUZ alone does not say it is the same
+  user. Two copies of one database still look alike; the host must point both
+  clients at the same server.
 - When `RpmsRpc.client` itself speaks BMX, the lookup runs on it, as before.
 - A faulted lookup over BMX raises, and the duplicate check answers
   `:identity_unverifiable`, as it does for any failed lookup.
