@@ -18,6 +18,8 @@ require "rpms_rpc/api/immunization_refusal"
 class OversizedTextTest < Minitest::Test
   EOT = RpmsRpc::Client::EOT
   TIU_SET_TEXT_ACK = "5001^1^1#{EOT}".b
+  # update_text asks TIU AUTHORIZATION before it sets text (#614).
+  TIU_AUTHORIZED_ACK = "1#{EOT}".b
 
   class RecordingSocket
     attr_reader :writes
@@ -40,7 +42,7 @@ class OversizedTextTest < Minitest::Test
   end
 
   def setup
-    @socket = RecordingSocket.new([ TIU_SET_TEXT_ACK ])
+    @socket = RecordingSocket.new([ TIU_AUTHORIZED_ACK, TIU_SET_TEXT_ACK ])
     client = RpmsRpc::XwbClient.new
     client.instance_variable_set(:@socket, @socket)
     client.instance_variable_set(:@connected, true)
@@ -107,7 +109,12 @@ class OversizedTextTest < Minitest::Test
   def test_update_text_wire_refusal_returns_failure_hash_without_note_text
     text = "short line\n#{LONG}"
     refusing = Object.new
-    refusing.define_singleton_method(:call_rpc) { |_rpc, *_params| raise RpmsRpc::Client::FrameTooLongError, "stub wire refusal" }
+    # TIU AUTHORIZATION is allowed (#614), so the refusal is SET's.
+    refusing.define_singleton_method(:call_rpc) do |rpc, *_params|
+      next "1" if rpc == "TIU AUTHORIZATION"
+
+      raise RpmsRpc::Client::FrameTooLongError, "stub wire refusal"
+    end
     RpmsRpc.configure { |cfg| cfg.client = refusing }
 
     result = RpmsRpc::ProgressNote.update_text("5001", text)
