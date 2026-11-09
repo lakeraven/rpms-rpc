@@ -1,0 +1,44 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb orwu-dt.rb.
+---
+rpc: ORWU DT
+entry_point: DT^ORWU
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T02:35:04Z'
+note: Captured at 18:3x America/Los_Angeles on the calendar day before the server's
+  date.
+captures:
+- name: today
+  inputs:
+  - T
+  - TS
+  context: the server's today, as BehavioralHealth asks for it (Orwu.fileman_datetime
+    default flags)
+  raw_return: "5\03261109"
+  sha256: 77ed3f423fc6e4c041a100bca2a2a39c733df410849b36bda630d973ca92db06
+- name: now
+  inputs:
+  - NOW
+  - TS
+  context: the server's now
+  raw_return: "6\03261109.023504"
+  sha256: e9e4fba1efc276d652f323b4901fdd830db6430b8e14db8f7c46050a007e37a1
+- name: not_a_date
+  inputs:
+  - NOTADATE
+  - TS
+  context: "^%DT's answer to text that is not a date"
+  raw_return: "7\0-1"
+  sha256: 63629609e0b36f54392e997999064db79518d6629c32467badc00ca59ac34535
+- name: refused
+  inputs:
+  - T
+  - TS
+  context: 'the same call under AMHGRPC, which does not list ORWU DT: the broker refuses
+    it'
+  raw_return: "8\x014\rAccess denied for remote procedure: ORWU DT\r"
+  sha256: 97b68f2b4da33123588fe272333be23b914049e8684649ef87cf8aceeff75fc2
