@@ -27,6 +27,8 @@ module RpmsRpc
     IMAGE_REPOSITORY = "ghcr.io/lakeraven/rpms-ydb"
     OPS_RELEASES = "repos/lakeraven/rpms-ops/releases"
     CONTAINER_PORT = 9100
+    # The image's BMX broker: a CIA spec that registers a patient runs its duplicate lookup over BMX (#609).
+    BMX_CONTAINER_PORT = 9101
     # Hosts that mean this machine. An all-interface publish is this broker
     # only for one of these; a remote BROKER_HOST must match the publish IP.
     LOOPBACK_BROKER_HOSTS = %w[127.0.0.1 localhost ::1].freeze
@@ -437,8 +439,8 @@ module RpmsRpc
       def fresh_dry_run
         latest = @releases.fetch_latest_ydb
         ensure_fresh_build_matches!(latest)
-        port = @port_picker.free_loopback_port
-        @plan_io.write(DailyReport.redact(fresh_plan(latest, port), @env))
+        port, bmx_port = @port_picker.free_loopback_ports(2)
+        @plan_io.write(DailyReport.redact(fresh_plan(latest, port, bmx_port), @env))
         0
       rescue ReleaseChoice::NoRelease, BuildMismatch => e
         write_error(e.message)
@@ -447,8 +449,8 @@ module RpmsRpc
 
       def run_fresh(latest)
         ensure_fresh_build_matches!(latest)
-        port = @port_picker.free_loopback_port
-        run_fresh_container(latest, port)
+        port, bmx_port = @port_picker.free_loopback_ports(2)
+        run_fresh_container(latest, port, bmx_port)
       end
 
       # FRESH reports the release tag that was started, including when the
@@ -472,12 +474,12 @@ module RpmsRpc
       # The name is read once, before docker run, and is the only name
       # removed. ensure covers Interrupt and SignalException, which are not
       # StandardError, as well as ordinary failures.
-      def run_fresh_container(latest, port)
+      def run_fresh_container(latest, port, bmx_port)
         name = @docker.predetermined_name
         removal_failure = nil
         status = nil
         begin
-          status = boot_and_finish(latest, port, name)
+          status = boot_and_finish(latest, port, bmx_port, name)
         ensure
           removal_failure = remove_named_container(name)
           note_removal_failure(removal_failure)
@@ -487,17 +489,17 @@ module RpmsRpc
         status
       end
 
-      def boot_and_finish(latest, port, name)
+      def boot_and_finish(latest, port, bmx_port, name)
         @docker.run!(
           image: latest.fetch(:image),
-          publish: "127.0.0.1:#{port}:#{CONTAINER_PORT}",
+          publish: [ "127.0.0.1:#{port}:#{CONTAINER_PORT}", "127.0.0.1:#{bmx_port}:#{BMX_CONTAINER_PORT}" ],
           container_name: name
         )
         unless @broker_probe.cia_connects?("127.0.0.1", port)
           raise BrokerTimeout, "CIA broker connect timed out on 127.0.0.1:#{port}"
         end
 
-        finish(latest, host: "127.0.0.1", port: port, build: started_release_tag(latest))
+        finish(latest, host: "127.0.0.1", port: port, bmx_port: bmx_port, build: started_release_tag(latest))
       end
 
       def remove_named_container(name)
@@ -523,20 +525,20 @@ module RpmsRpc
         @error_io.write("#{DailyReport.redact(message.to_s, @env)}\n")
       end
 
-      def fresh_plan(latest, port)
+      def fresh_plan(latest, port, bmx_port)
         <<~PLAN
           daily report plan (dry run)
           image: #{latest[:image]}
           release: #{latest[:tag]}
-          bind: 127.0.0.1:#{port}:#{CONTAINER_PORT}
-          broker: 127.0.0.1:#{port}
+          bind: 127.0.0.1:#{port}:#{CONTAINER_PORT} 127.0.0.1:#{bmx_port}:#{BMX_CONTAINER_PORT}
+          broker: 127.0.0.1:#{port} (BMX 127.0.0.1:#{bmx_port})
           suites: rake test; rake test:live PERSONA=PROV123; rake test:live PERSONA=SYS123
         PLAN
       end
 
-      def finish(latest, host:, port:, image: nil, build: nil)
+      def finish(latest, host:, port:, bmx_port: @env["BMX_PORT"], image: nil, build: nil)
         build = resolve_build(host, port, image) if build.nil?
-        suites = collect_suites(host, port)
+        suites = collect_suites(host, port, bmx_port)
         write_report(build, latest, suites)
         # An unknown build is recorded and fails the run. Every live persona
         # is reported; a missing sign-on pair is an errored suite and also
@@ -553,20 +555,20 @@ module RpmsRpc
         DailyReport.build_under_test(env: @env, docker: @docker, broker_host: host, broker_port: port)
       end
 
-      def collect_suites(host, port)
+      def collect_suites(host, port, bmx_port)
         suites = [ run_command("rake test", %w[rake test], unit_env(host, port)) ]
-        LIVE_PERSONAS.each { |persona| suites << live_suite(host, port, persona) }
+        LIVE_PERSONAS.each { |persona| suites << live_suite(host, port, bmx_port, persona) }
         suites
       end
 
-      def live_suite(host, port, persona)
+      def live_suite(host, port, bmx_port, persona)
         pair = sign_on_pair(persona)
         if pair.nil?
           return errored_suite("rake test:live (#{persona})", "missing #{persona}_ACCESS/#{persona}_VERIFY")
         end
 
         access, verify = pair
-        run_command("rake test:live (#{persona})", %w[rake test:live], live_env(host, port, persona, access, verify))
+        run_command("rake test:live (#{persona})", %w[rake test:live], live_env(host, port, bmx_port, persona, access, verify))
       end
 
       def sign_on_pair(persona)
@@ -667,8 +669,9 @@ module RpmsRpc
         ChildEnv.new(DailyReport.baseline_env(@env).merge(broker_pairs(host, port)))
       end
 
-      def live_env(host, port, persona, access, verify)
+      def live_env(host, port, bmx_port, persona, access, verify)
         pairs = DailyReport.baseline_env(@env).merge(broker_pairs(host, port))
+        pairs["BMX_PORT"] = bmx_port.to_s unless bmx_port.to_s.strip.empty?
         pairs["PERSONA"] = persona
         pairs["RPMS_ACCESS"] = access
         pairs["RPMS_VERIFY"] = verify
@@ -856,12 +859,12 @@ module RpmsRpc
       end
 
       def run!(image:, publish:, container_name: predetermined_name)
-        spec = publish.to_s
-        raise Error, "docker publish must bind 127.0.0.1 only" unless spec.start_with?("127.0.0.1:")
+        specs = Array(publish).map(&:to_s)
+        raise Error, "docker publish must bind 127.0.0.1 only" if specs.empty? || specs.any? { |spec| !spec.start_with?("127.0.0.1:") }
 
         name = container_name.to_s
         stdout, stderr, status = Open3.capture3(
-          "docker", "run", "--detach", "--name", name, "--publish", spec, image.to_s
+          "docker", "run", "--detach", "--name", name, *specs.flat_map { |spec| [ "--publish", spec ] }, image.to_s
         )
         id = stdout.to_s.strip
         return id if status.success? && !id.empty?
@@ -960,11 +963,13 @@ module RpmsRpc
     end
 
     class LoopbackPortPicker
-      def free_loopback_port
-        server = TCPServer.new("127.0.0.1", 0)
-        server.addr[1]
+      # Distinct ports: every socket is held open until all are chosen.
+      def free_loopback_ports(count)
+        servers = []
+        count.times { servers << TCPServer.new("127.0.0.1", 0) }
+        servers.map { |server| server.addr[1] }
       ensure
-        server&.close
+        servers.each(&:close)
       end
     end
 
