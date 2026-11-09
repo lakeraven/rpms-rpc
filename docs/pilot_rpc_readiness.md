@@ -131,9 +131,9 @@ BSDX NOSHOW | pilot-ready | signed on as PROV123 (DUZ 200), appointment 3 marked
 # separates TIU GET RECORD TEXT rows with a bare \r; fixed in this slice.
 # Write-path limits: SETTEXT^TIUSRVPT (TIUSRVPT.m:7-38) has no author or authorization check
 # server-side; a DUZ that differs from the author only files a VBC line count (TIUSRVPT.m:32-36).
-# TIU LOCK RECORD is an M job lock, not ownership (TIUSRVP.m:211). ProgressNote.update_text never
-# calls ProgressNote.authorize, so "cannot alter someone else's note" is not enforced on this path
-# (pre-existing API property, lakeraven/rpms-rpc#614). TIU SIGN RECORD is server-guarded:
+# TIU LOCK RECORD is an M job lock, not ownership (TIUSRVP.m:211). So ProgressNote.update_text
+# calls ProgressNote.authorize (TIU AUTHORIZATION, EDIT RECORD) first and sends TIU SET DOCUMENT
+# TEXT only on its "1" (lakeraven/rpms-rpc#614). TIU SIGN RECORD is server-guarded:
 # CANDO^TIULP (TIUSRVP2.m:49) runs before VALIDATE (TIUSRVP2.m:51).
 # Evidence limits of the capture itself:
 # - The esig gate (WireCapture.write_refusal) refuses a code found in the note text or the
@@ -147,7 +147,7 @@ BSDX NOSHOW | pilot-ready | signed on as PROV123 (DUZ 200), appointment 3 marked
 
 TIU CREATE RECORD | pilot-ready | live capture signed on as PROV123 returned new note IEN 6 for DFN 4 visit 4 title 248; BEHOENCX GETVISIT signed on as PROV123 returned patient 4 for visit 4 before the create; ProgressNote.create reads it as success | unproven: none
 TIU LOCK RECORD | pilot-ready | live capture signed on as PROV123 returned 0 (lock held) on note 6; ProgressNote.lock reads it as true | unproven: none
-TIU SET DOCUMENT TEXT | pilot-ready | live capture signed on as PROV123 returned 6^1^1 on note 6 for the wrapped two-line note; update_text reads it as success; no server-side author check; see #614 | unproven: none
+TIU SET DOCUMENT TEXT | pilot-ready | live capture signed on as PROV123 returned 6^1^1 on note 6 for the wrapped two-line note; update_text reads it as success; SETTEXT^TIUSRVPT has no author check, so update_text sends it only after TIU AUTHORIZATION (EDIT RECORD) answers 1, captured live for the author and refused for another user (#614) | unproven: none
 TIU GET RECORD TEXT | pilot-ready | live read-back signed on as PROV123 of note 6 matches the note lines row for row after the header (only a wrap-boundary space or hard cut tolerated), each wrapped line within WRAP_WIDTH (80 bytes) | unproven: none
 TIU UNLOCK RECORD | pilot-ready | live capture signed on as PROV123 returned 0 on note 6; ProgressNote.unlock reads it as true | unproven: none
 TIU SIGN RECORD | not-proven | seed gap: NEW PERSON field 20.4 (electronic signature code) is empty for PROVIDER,TEST (DUZ 200, the PROV123 persona) on this build, so a live sign signed on as PROV123 is refused with 89250005 "incorrect Electronic Signature Code"; the fixture stays routine-cite | unproven: success
