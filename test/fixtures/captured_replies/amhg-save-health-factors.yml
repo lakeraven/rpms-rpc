@@ -1,0 +1,129 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb amhg-save-health-factors.rb.
+---
+rpc: AMHG SAVE HEALTH FACTORS
+entry_point: HF^AMHGSVF
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: SYS123 (the build's operator, MANAGER,SYSTEM; DUZ 4), the persona AMHGRPC
+  lets file BH records
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T16:32:04Z'
+note: 'Setup files one BH visit (AMHG SAVE VISIT, as the live spec does); its IEN
+  is in each capture''s inputs. The calls replay one edit-mode save of one health
+  factor in the gem''s order: lock, visit pre-read, type pre-read, AMHG SAVE HEALTH
+  FACTORS, read-back, unlock. Synthetic patient and text only.'
+captures:
+- name: lock
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^AMHREC(6)"
+    LOCKMODE: '1'
+    TIMEOUT: '5'
+  context: the save locks ^AMHREC(visit)
+  raw_return: "2\01"
+  sha256: 3bde6d42d0a69dfee87ee5ecbeb030f288ebd4e6b927e144cee108e3cdebbc19
+- name: lock_held_elsewhere
+  rpc: DDR LOCK/UNLOCK NODE
+  signed_on_as: SYS123 again, on a second broker session
+  inputs:
+  - NODE: "^AMHREC(6)"
+    LOCKMODE: '1'
+    TIMEOUT: '1'
+  context: a second session asks for the lock the first holds
+  raw_return: "5\00"
+  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
+- name: visit
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 6,
+    FIELDS: ".08;1112"
+    FLAGS: I
+  context: 'the visit pre-read: patient and signature date'
+  raw_return: "3\0[Data]\r9002011^6^.08^990037^\r9002011^6^1112^^\r"
+  sha256: d7674bcc8b23201f8b38e0df3e363b095f9183e08e3a3acaa5ea1d3b0fe24a92
+- name: type_active
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9999999.64'
+    FIELDS: ".01;.1;.13"
+    FLAGS: IP
+    MAX: '25'
+    PART: 4PS I HAD DIFFICULTIES DUE TO AOD USE
+    XREF: B
+  context: an active FACTOR entry
+  raw_return: "4\0[Data]\r170^4PS I HAD DIFFICULTIES DUE TO AOD USE^F^\r"
+  sha256: 45d801e14cd5068d07a483c3a651555e084f6430c2c6fabe49a34b2ac66a2901
+- name: type_inactive
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9999999.64'
+    FIELDS: ".01;.1;.13"
+    FLAGS: IP
+    MAX: '25'
+    PART: 0-FOOD AND EXERCISE
+    XREF: B
+  context: an inactive FACTOR entry (.13 = 1)
+  raw_return: "5\0[Data]\r25^0-FOOD AND EXERCISE^F^1\r"
+  sha256: 06c2a0ba4da58502b2bd90bfb365496eedba7fd61177dfa8f8532f60f910454b
+- name: type_category
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9999999.64'
+    FIELDS: ".01;.1;.13"
+    FLAGS: IP
+    MAX: '25'
+    PART: 4PS
+    XREF: B
+  context: a CATEGORY entry, listed with the longer FACTOR names it prefixes
+  raw_return: "6\0[Data]\r167^4PS^C^\r170^4PS I HAD DIFFICULTIES DUE TO AOD USE^F^\r171^4PS
+    I HAVE USED AOD IN PAST MONTH ^F^\r168^4PS PARENT HAS PROBLEM WITH AOD USE^F^\r169^4PS
+    PARTNER HAS PROBLEM WITH AOD USE  ^F^\r172^4PS SCREENING NEGATIVE  ^F^\r"
+  sha256: 9da00043e8cc8e616b2116070252b1ef8ed297b18ef436289bf9a470f25c91e5
+- name: type_not_on_file
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9999999.64'
+    FIELDS: ".01;.1;.13"
+    FLAGS: IP
+    MAX: '25'
+    PART: SYN FACTOR NOT ON FILE
+    XREF: B
+  context: a name no entry has
+  raw_return: "7\0[Data]\r"
+  sha256: '068bb8070d253d80d4417f6076932b27c49f0b79215d3407e1e963e5b00a47ef'
+- name: save_name_not_on_file
+  inputs:
+  - E|6|SYN FACTOR NOT ON FILE~MINIMAL~1~SYN HF|990037
+  context: 'a factor name the type file does not hold: AMHG''s error reply'
+  raw_return: "8\0T00030Result\x1E0~Add Health Factor\x1E\x1F"
+  sha256: 9074ab4a0e3df1f0e96388f7c4dc68691eef8dfbbc08e9468174040f93c7ad6a
+- name: save
+  inputs:
+  - E|6|4PS I HAD DIFFICULTIES DUE TO AOD USE~MINIMAL~1~SYN HF|990037
+  context: edit mode, one factor
+  raw_return: "9\0T00030Result\x1E6\x1E\x1F"
+  sha256: 640118e3b36e68c9a460f1e4ff49164488f9594e3d30f31413f6b2d362d4e152
+- name: readback
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9002011.08'
+    FIELDS: ".01E;.02;.03;.04E;.06;81101"
+    FLAGS: IP
+    MAX: '25'
+    PART: '6'
+    XREF: AD
+    SCREEN: I $P(^(0),U,3)=6
+  context: the visit's health factors after the save
+  raw_return: "1\0[Data]\r9^4PS I HAD DIFFICULTIES DUE TO AOD USE^990037^6^MINIMAL^1^SYN
+    HF\r"
+  sha256: f46b1c8b1fa8ab1534306e73afed4a6b44d56bf395be9175f8f2144cd1561f54
+- name: unlock
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^AMHREC(6)"
+  context: the save releases the lock
+  raw_return: "2\01"
+  sha256: 3bde6d42d0a69dfee87ee5ecbeb030f288ebd4e6b927e144cee108e3cdebbc19

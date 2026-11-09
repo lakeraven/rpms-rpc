@@ -1,0 +1,645 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb measurement-provenance.rb.
+---
+rpc: BGOVMSR GET
+entry_point: GET^BGOVMSR
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T16:39:07Z'
+note: Run on a throwaway container. Setup marks measurement 7 entered in error with
+  BEHOVM2 EIE; nothing else is filed. Every visit on the build with a measurement
+  is ambulatory (A), so no capture holds a reported (T, E) visit.
+captures:
+- name: for_visit/1
+  rpc: BGOVMSR GET
+  inputs:
+  - 6^0
+  context: 'for_visit(6): demo patient 4''s vitals and their provenance'
+  raw_return: "5\0TMP^98^09/11/2026@21:34^5^6^MANAGER,SYSTEM^0\rPU^50^09/11/2026@21:34^6^6^MANAGER,SYSTEM^0\rRS^20^09/11/2026@21:34^7^6^MANAGER,SYSTEM^0\rBP^117/81^09/11/2026@21:34^8^6^MANAGER,SYSTEM^0\rO2^98^09/11/2026@21:34^9^6^MANAGER,SYSTEM^0\rPA^0^09/11/2026@21:34^10^6^MANAGER,SYSTEM^0\r"
+  sha256: 2591dc03f2713b41452cd87ef60ccc217b7b60a057985b3c474cc0bccc1a8c31
+- name: for_visit/2
+  rpc: BEHOENCX GETVISIT
+  inputs:
+  - '6'
+  context: 'for_visit(6): demo patient 4''s vitals and their provenance'
+  raw_return: "6\03^3260911.1947^A^4^^0"
+  sha256: 55a053fb6826ca4add299f9f7e5956285a2753e7cfd133e382dbc2adda833032
+- name: for_visit/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 5,
+    FIELDS: 2;.07;1201
+    FLAGS: IE
+  context: 'for_visit(6): demo patient 4''s vitals and their provenance'
+  raw_return: "7\0[Data]\r9000010.01^5^.07^3260911.213436^SEP 11, 2026@21:34:36\r9000010.01^5^2^^\r9000010.01^5^1201^3260911.2134^SEP
+    11, 2026@21:34\r"
+  sha256: bd5996f1f6c93350fe6b8008222277f2c4f025d2e09b2e9be325535a6bb22a09
+- name: for_visit/4
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - TMP
+  context: 'for_visit(6): demo patient 4''s vitals and their provenance'
+  raw_return: "8\0F^^^C^^"
+  sha256: fe219ea0adcc82d753112894b7183fa4279ff1050fbd827927e8cd011d3341bd
+- name: for_visit/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 6,
+    FIELDS: 2;.07;1201
+    FLAGS: IE
+  context: 'for_visit(6): demo patient 4''s vitals and their provenance'
+  raw_return: "9\0[Data]\r9000010.01^6^.07^3260911.213436^SEP 11, 2026@21:34:36\r9000010.01^6^2^^\r9000010.01^6^1201^3260911.2134^SEP
+    11, 2026@21:34\r"
+  sha256: a990855a79a371d3a0ecdd945c0f7123403101927bae86e16184d3b9a527b997
+- name: for_visit/6
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - PU
+  context: 'for_visit(6): demo patient 4''s vitals and their provenance'
+  raw_return: "1\0/min^60^100^/min^60^100"
+  sha256: d16150f2d7920b51c393b5ee65c468638a92dba477b136a5bf06ba90788b98fa
+- name: for_visit/7
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 7,
+    FIELDS: 2;.07;1201
+    FLAGS: IE
+  context: 'for_visit(6): demo patient 4''s vitals and their provenance'
+  raw_return: "2\0[Data]\r9000010.01^7^.07^3260911.213436^SEP 11, 2026@21:34:36\r9000010.01^7^2^1^YES\r9000010.01^7^1201^3260911.2134^SEP
+    11, 2026@21:34\r"
+  sha256: 2d508ce3c6519fd235966a9f7ba39cfcdcfd0fad7c0ab60f309972be33f3730b
+- name: for_visit/8
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - RS
+  context: 'for_visit(6): demo patient 4''s vitals and their provenance'
+  raw_return: "3\0/min^^^/min^^"
+  sha256: 8c819c628d0ff0ad34f581b4247f13d2b3bc363915317b6ffff0aaf9a1770f36
+- name: for_visit/9
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 8,
+    FIELDS: 2;.07;1201
+    FLAGS: IE
+  context: 'for_visit(6): demo patient 4''s vitals and their provenance'
+  raw_return: "4\0[Data]\r9000010.01^8^.07^3260911.213436^SEP 11, 2026@21:34:36\r9000010.01^8^2^^\r9000010.01^8^1201^3260911.2134^SEP
+    11, 2026@21:34\r"
+  sha256: 18467aac34f789581bc02d1848721e3a6e7f3baeea077bb1ce11d7eaf5f9260a
+- name: for_visit/10
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - BP
+  context: 'for_visit(6): demo patient 4''s vitals and their provenance'
+  raw_return: "5\0mmHg^90^150^mmHg^90^150"
+  sha256: 053f447349e0309c67ba4ad9cfedc51fc17966df7afe6e7bae0e6bdb3c3d919a
+- name: for_visit/11
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 9,
+    FIELDS: 2;.07;1201
+    FLAGS: IE
+  context: 'for_visit(6): demo patient 4''s vitals and their provenance'
+  raw_return: "6\0[Data]\r9000010.01^9^.07^3260911.213436^SEP 11, 2026@21:34:36\r9000010.01^9^2^^\r9000010.01^9^1201^3260911.2134^SEP
+    11, 2026@21:34\r"
+  sha256: '08d764d8072f107c9a2fea7cd157fd0ba63688c1181dc5fb2b4893e08fb73a95'
+- name: for_visit/12
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - O2
+  context: 'for_visit(6): demo patient 4''s vitals and their provenance'
+  raw_return: "7\0%^^^%^^"
+  sha256: d0cb16826276433dea10a1dbc90ef446b9dd930609b00679ef217bbc394577d8
+- name: for_visit/13
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 10,
+    FIELDS: 2;.07;1201
+    FLAGS: IE
+  context: 'for_visit(6): demo patient 4''s vitals and their provenance'
+  raw_return: "8\0[Data]\r9000010.01^10^.07^3260911.213436^SEP 11, 2026@21:34:36\r9000010.01^10^2^^\r9000010.01^10^1201^3260911.2134^SEP
+    11, 2026@21:34\r"
+  sha256: cab3661ccfcc55b12ddc18979d225d2d9eda8febcf5b585336d5cfafe39b4263
+- name: for_visit/14
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - PA
+  context: 'for_visit(6): demo patient 4''s vitals and their provenance'
+  raw_return: "9\0^^^^^"
+  sha256: 63c5bebf7f89e799f5d64d21446afc15e253a0533ff04e3d577034f20882da31
+- name: for_visit_none/1
+  rpc: BGOVMSR GET
+  inputs:
+  - 999999^0
+  context: for_visit of a visit IEN no visit holds
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
+- name: latest/1
+  rpc: BGOVMSR LAST
+  inputs:
+  - 4^^
+  context: 'latest(4): the newest of each type'
+  raw_return: "5\0TMP^98^09/11/2026@21:34^5^6^0\rBP^117/81^09/11/2026@21:34^8^6^0\rPU^50^09/11/2026@21:34^6^6^0\rRS^20^09/11/2026@21:34^7^6^0\rPA^0^09/11/2026@21:34^10^6^0\r"
+  sha256: 9621eec3e25f2680cddc4088478587fe120a6269050c6614ec0c93f9827bef94
+- name: latest/2
+  rpc: BEHOENCX GETVISIT
+  inputs:
+  - '6'
+  context: 'latest(4): the newest of each type'
+  raw_return: "6\03^3260911.1947^A^4^^0"
+  sha256: 55a053fb6826ca4add299f9f7e5956285a2753e7cfd133e382dbc2adda833032
+- name: latest/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 5,
+    FIELDS: 2;.07;1201
+    FLAGS: IE
+  context: 'latest(4): the newest of each type'
+  raw_return: "7\0[Data]\r9000010.01^5^.07^3260911.213436^SEP 11, 2026@21:34:36\r9000010.01^5^2^^\r9000010.01^5^1201^3260911.2134^SEP
+    11, 2026@21:34\r"
+  sha256: bd5996f1f6c93350fe6b8008222277f2c4f025d2e09b2e9be325535a6bb22a09
+- name: latest/4
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - TMP
+  context: 'latest(4): the newest of each type'
+  raw_return: "8\0F^^^C^^"
+  sha256: fe219ea0adcc82d753112894b7183fa4279ff1050fbd827927e8cd011d3341bd
+- name: latest/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 8,
+    FIELDS: 2;.07;1201
+    FLAGS: IE
+  context: 'latest(4): the newest of each type'
+  raw_return: "9\0[Data]\r9000010.01^8^.07^3260911.213436^SEP 11, 2026@21:34:36\r9000010.01^8^2^^\r9000010.01^8^1201^3260911.2134^SEP
+    11, 2026@21:34\r"
+  sha256: 7c3bf1964115faa3882eff74bc3884cb8359ca10d870530a2a368b1353659fab
+- name: latest/6
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - BP
+  context: 'latest(4): the newest of each type'
+  raw_return: "1\0mmHg^90^150^mmHg^90^150"
+  sha256: 21fe0f272c1b00f1fa62a1686c97680587f4006d6140a5382f824c17ec86713c
+- name: latest/7
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 6,
+    FIELDS: 2;.07;1201
+    FLAGS: IE
+  context: 'latest(4): the newest of each type'
+  raw_return: "2\0[Data]\r9000010.01^6^.07^3260911.213436^SEP 11, 2026@21:34:36\r9000010.01^6^2^^\r9000010.01^6^1201^3260911.2134^SEP
+    11, 2026@21:34\r"
+  sha256: 2808e129c55a1554ca1cafc2cec96664caba1b76553ad676e5823878fcd93b4f
+- name: latest/8
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - PU
+  context: 'latest(4): the newest of each type'
+  raw_return: "3\0/min^60^100^/min^60^100"
+  sha256: 345ac171ecc5250d0314829eebd240efe5c6d19b0bd7c1c92ab334ba23b8fc4d
+- name: latest/9
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 7,
+    FIELDS: 2;.07;1201
+    FLAGS: IE
+  context: 'latest(4): the newest of each type'
+  raw_return: "4\0[Data]\r9000010.01^7^.07^3260911.213436^SEP 11, 2026@21:34:36\r9000010.01^7^2^1^YES\r9000010.01^7^1201^3260911.2134^SEP
+    11, 2026@21:34\r"
+  sha256: 67f3a0eafb1a301e22c7750c1dc2fa38eb61bec2444dcf87a74fb880d3594e0c
+- name: latest/10
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - RS
+  context: 'latest(4): the newest of each type'
+  raw_return: "5\0/min^^^/min^^"
+  sha256: 258301ee38e19aa736cf48efdc506fc283f21e06737e9dd51893241ec7ca5ead
+- name: latest/11
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 10,
+    FIELDS: 2;.07;1201
+    FLAGS: IE
+  context: 'latest(4): the newest of each type'
+  raw_return: "6\0[Data]\r9000010.01^10^.07^3260911.213436^SEP 11, 2026@21:34:36\r9000010.01^10^2^^\r9000010.01^10^1201^3260911.2134^SEP
+    11, 2026@21:34\r"
+  sha256: f72145898f5cfd6c6b1ef901545301894b9a3e2d978645f4df95290625bf11a0
+- name: latest/12
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - PA
+  context: 'latest(4): the newest of each type'
+  raw_return: "7\0^^^^^"
+  sha256: 9f734b4b286035711b86e285f2ceeaa1fae3862b9e4d9b37991a53e0e3db4c7c
+- name: latest_types_visit/1
+  rpc: BGOVMSR LAST
+  inputs:
+  - 4^BP;WT^6
+  context: 'latest(4, types: BP and WT, visit 6)'
+  raw_return: "5\0BP^117/81^09/11/2026@21:34^8^6^0\r"
+  sha256: 1277093383a3abba10ae2510441192d6fdba8c5fc64d1d844e923fb183866d9e
+- name: latest_types_visit/2
+  rpc: BEHOENCX GETVISIT
+  inputs:
+  - '6'
+  context: 'latest(4, types: BP and WT, visit 6)'
+  raw_return: "6\03^3260911.1947^A^4^^0"
+  sha256: 55a053fb6826ca4add299f9f7e5956285a2753e7cfd133e382dbc2adda833032
+- name: latest_types_visit/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 8,
+    FIELDS: 2;.07;1201
+    FLAGS: IE
+  context: 'latest(4, types: BP and WT, visit 6)'
+  raw_return: "7\0[Data]\r9000010.01^8^.07^3260911.213436^SEP 11, 2026@21:34:36\r9000010.01^8^2^^\r9000010.01^8^1201^3260911.2134^SEP
+    11, 2026@21:34\r"
+  sha256: 2d9a92f515c059e7aa605dd84862ff67f08dbed8391b4a38fd7b8b1186e606ed
+- name: latest_types_visit/4
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - BP
+  context: 'latest(4, types: BP and WT, visit 6)'
+  raw_return: "8\0mmHg^90^150^mmHg^90^150"
+  sha256: 0c7b3f64c869e79e4fdb83577b7434cf44f92ac93b110ad74440162fafbbd403
+- name: latest_none/1
+  rpc: BGOVMSR LAST
+  inputs:
+  - 999999^^
+  context: latest of a DFN no patient holds
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
+- name: find_event/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 8,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: 'find(8): demo patient 4''s blood pressure, with an EVENT DATE/TIME'
+  raw_return: "5\0[Data]\r9000010.01^8^.01^4^BP\r9000010.01^8^.02^4^DEMO,PATIENT ONE\r9000010.01^8^.03^6^SEP
+    11, 2026@19:47\r9000010.01^8^.04^117/81^117/81\r9000010.01^8^.07^3260911.213436^SEP
+    11, 2026@21:34:36\r9000010.01^8^2^^\r9000010.01^8^1201^3260911.2134^SEP 11, 2026@21:34\r"
+  sha256: b4d3d3a5d805cec42e875aceeddfed1db9ad6d83e1143d34e54af63115417104
+- name: find_event/2
+  rpc: BEHOENCX GETVISIT
+  inputs:
+  - '6'
+  context: 'find(8): demo patient 4''s blood pressure, with an EVENT DATE/TIME'
+  raw_return: "6\03^3260911.1947^A^4^^0"
+  sha256: 55a053fb6826ca4add299f9f7e5956285a2753e7cfd133e382dbc2adda833032
+- name: find_event/3
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - BP
+  context: 'find(8): demo patient 4''s blood pressure, with an EVENT DATE/TIME'
+  raw_return: "7\0mmHg^90^150^mmHg^90^150"
+  sha256: 7b63ab5a3eb0d90a51c4801ed33c450a6d5076e15afd4556c47f409b861487dd
+- name: find_visit_date/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 13,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: 'find(13): a height with no EVENT DATE/TIME'
+  raw_return: "5\0[Data]\r9000010.01^13^.01^1^HT\r9000010.01^13^.02^990001^ALPHA,CASEY\r9000010.01^13^.03^13^JUL
+    16, 2026@09:00\r9000010.01^13^.04^63^63\r9000010.01^13^.07^3261109.011116^NOV
+    09, 2026@01:11:16\r9000010.01^13^2^^\r9000010.01^13^1201^^\r"
+  sha256: 02cafe72273e4a1086b00cdeb9a286756f5bb8b419abcbc8e00dd8e818210c1d
+- name: find_visit_date/2
+  rpc: BEHOENCX GETVISIT
+  inputs:
+  - '13'
+  context: 'find(13): a height with no EVENT DATE/TIME'
+  raw_return: "6\06^3260716.09^A^990001^^0"
+  sha256: 5bf32afe3f587e89616ff500ad5425d12482d75b13cd533d46b33fe3336c0b89
+- name: find_visit_date/3
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - HT
+  context: 'find(13): a height with no EVENT DATE/TIME'
+  raw_return: "7\0in^^^cm^^"
+  sha256: 3628b75f7b1dfd3f7da73267a8a0437d0ec472b8a0e65a4a7bd6f2415660473e
+- name: find_eie/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 7,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: 'find(7): the respiration setup marked entered in error'
+  raw_return: "5\0[Data]\r9000010.01^7^.01^15^RS\r9000010.01^7^.02^4^DEMO,PATIENT
+    ONE\r9000010.01^7^.03^6^SEP 11, 2026@19:47\r9000010.01^7^.04^20^20\r9000010.01^7^.07^3260911.213436^SEP
+    11, 2026@21:34:36\r9000010.01^7^2^1^YES\r9000010.01^7^1201^3260911.2134^SEP 11,
+    2026@21:34\r"
+  sha256: aa537906058b88c1a684d88ad004e10563a3d33ba8b2245dab55b18275f89d14
+- name: find_eie/2
+  rpc: BEHOENCX GETVISIT
+  inputs:
+  - '6'
+  context: 'find(7): the respiration setup marked entered in error'
+  raw_return: "6\03^3260911.1947^A^4^^0"
+  sha256: 55a053fb6826ca4add299f9f7e5956285a2753e7cfd133e382dbc2adda833032
+- name: find_eie/3
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - RS
+  context: 'find(7): the respiration setup marked entered in error'
+  raw_return: "7\0/min^^^/min^^"
+  sha256: eb5f517059bde3a60c731103220900dd00186c473ed82c1ebde0400fd3729769
+- name: find_unknown/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 999999999,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: find of an IEN no measurement holds
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
+- name: newest/1
+  rpc: ORQQVI VITALS
+  inputs:
+  - '4'
+  context: newest_by_type(4)
+  raw_return: "5\05^TMP^98^3260911.2134^98 F^(36.7 C)^\r6^PU^50^3260911.2134^50^^\r7^RS^20^3260911.2134^20^^\r8^BP^117/81^3260911.2134^117/81^^\r10^PA^0^3260911.2134^0^^\r9^O2^98^3260911.2134^98^^^\r"
+  sha256: dda60610dd23b33ee5894c66f2c30fbfd46d3756e6bdd106f83459959058a5c1
+- name: newest/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 5,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: newest_by_type(4)
+  raw_return: "6\0[Data]\r9000010.01^5^.01^3^TMP\r9000010.01^5^.02^4^DEMO,PATIENT
+    ONE\r9000010.01^5^.03^6^SEP 11, 2026@19:47\r9000010.01^5^.04^98^98\r9000010.01^5^.07^3260911.213436^SEP
+    11, 2026@21:34:36\r9000010.01^5^2^^\r9000010.01^5^1201^3260911.2134^SEP 11, 2026@21:34\r"
+  sha256: '02510728e702aa30ca076c1904a1a2e08fa768b8239d348dfe129e7c0352fff5'
+- name: newest/3
+  rpc: BEHOENCX GETVISIT
+  inputs:
+  - '6'
+  context: newest_by_type(4)
+  raw_return: "7\03^3260911.1947^A^4^^0"
+  sha256: aa89e9d87f0cbec1aad8c1c6683c8d2bf9b3b9a075dd315c0a1f5c6f3551ff71
+- name: newest/4
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - TMP
+  context: newest_by_type(4)
+  raw_return: "8\0F^^^C^^"
+  sha256: fe219ea0adcc82d753112894b7183fa4279ff1050fbd827927e8cd011d3341bd
+- name: newest/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 6,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: newest_by_type(4)
+  raw_return: "9\0[Data]\r9000010.01^6^.01^5^PU\r9000010.01^6^.02^4^DEMO,PATIENT ONE\r9000010.01^6^.03^6^SEP
+    11, 2026@19:47\r9000010.01^6^.04^50^50\r9000010.01^6^.07^3260911.213436^SEP 11,
+    2026@21:34:36\r9000010.01^6^2^^\r9000010.01^6^1201^3260911.2134^SEP 11, 2026@21:34\r"
+  sha256: 179eceef2ad0401ec8a85b7ebf2949278872e520ed1e152113fbd8d6e410c41c
+- name: newest/6
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - PU
+  context: newest_by_type(4)
+  raw_return: "1\0/min^60^100^/min^60^100"
+  sha256: d16150f2d7920b51c393b5ee65c468638a92dba477b136a5bf06ba90788b98fa
+- name: newest/7
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 7,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: newest_by_type(4)
+  raw_return: "2\0[Data]\r9000010.01^7^.01^15^RS\r9000010.01^7^.02^4^DEMO,PATIENT
+    ONE\r9000010.01^7^.03^6^SEP 11, 2026@19:47\r9000010.01^7^.04^20^20\r9000010.01^7^.07^3260911.213436^SEP
+    11, 2026@21:34:36\r9000010.01^7^2^1^YES\r9000010.01^7^1201^3260911.2134^SEP 11,
+    2026@21:34\r"
+  sha256: 97f88c19279318e7826ebfd169dd857dd1e6f79e89482a3d51839b3c3bbe31ff
+- name: newest/8
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - RS
+  context: newest_by_type(4)
+  raw_return: "3\0/min^^^/min^^"
+  sha256: 8c819c628d0ff0ad34f581b4247f13d2b3bc363915317b6ffff0aaf9a1770f36
+- name: newest/9
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 8,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: newest_by_type(4)
+  raw_return: "4\0[Data]\r9000010.01^8^.01^4^BP\r9000010.01^8^.02^4^DEMO,PATIENT ONE\r9000010.01^8^.03^6^SEP
+    11, 2026@19:47\r9000010.01^8^.04^117/81^117/81\r9000010.01^8^.07^3260911.213436^SEP
+    11, 2026@21:34:36\r9000010.01^8^2^^\r9000010.01^8^1201^3260911.2134^SEP 11, 2026@21:34\r"
+  sha256: b762ec77c1d7741dd0539d38abd2e6d805d40acfbcb1c6a7d21376459da012d9
+- name: newest/10
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - BP
+  context: newest_by_type(4)
+  raw_return: "5\0mmHg^90^150^mmHg^90^150"
+  sha256: 053f447349e0309c67ba4ad9cfedc51fc17966df7afe6e7bae0e6bdb3c3d919a
+- name: newest/11
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 10,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: newest_by_type(4)
+  raw_return: "6\0[Data]\r9000010.01^10^.01^21^PA\r9000010.01^10^.02^4^DEMO,PATIENT
+    ONE\r9000010.01^10^.03^6^SEP 11, 2026@19:47\r9000010.01^10^.04^0^0\r9000010.01^10^.07^3260911.213436^SEP
+    11, 2026@21:34:36\r9000010.01^10^2^^\r9000010.01^10^1201^3260911.2134^SEP 11,
+    2026@21:34\r"
+  sha256: c810d82a1061fd74276c48cee47aafa30776606d7ebf81565f277001af201beb
+- name: newest/12
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - PA
+  context: newest_by_type(4)
+  raw_return: "7\0^^^^^"
+  sha256: 9f734b4b286035711b86e285f2ceeaa1fae3862b9e4d9b37991a53e0e3db4c7c
+- name: newest/13
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 9,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: newest_by_type(4)
+  raw_return: "8\0[Data]\r9000010.01^9^.01^22^O2\r9000010.01^9^.02^4^DEMO,PATIENT
+    ONE\r9000010.01^9^.03^6^SEP 11, 2026@19:47\r9000010.01^9^.04^98^98\r9000010.01^9^.07^3260911.213436^SEP
+    11, 2026@21:34:36\r9000010.01^9^2^^\r9000010.01^9^1201^3260911.2134^SEP 11, 2026@21:34\r"
+  sha256: b3062b2537b2199e7691cd9323038732fb4ae4934257619be47117e286c8354f
+- name: newest/14
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - O2
+  context: newest_by_type(4)
+  raw_return: "9\0%^^^%^^"
+  sha256: 2e3b952ce7d6f1eb995329a7768b7f94da75fe24d7389ea51b58707a12bdc57a
+- name: newest_range/1
+  rpc: ORQQVI VITALS
+  inputs:
+  - '4'
+  - '3260901.0000'
+  - '3260930.2359'
+  context: newest_by_type(4) bounded to September 2026
+  raw_return: "5\05^TMP^98^3260911.2134^98 F^(36.7 C)^\r6^PU^50^3260911.2134^50^^\r7^RS^20^3260911.2134^20^^\r8^BP^117/81^3260911.2134^117/81^^\r10^PA^0^3260911.2134^0^^\r9^O2^98^3260911.2134^98^^^\r"
+  sha256: dda60610dd23b33ee5894c66f2c30fbfd46d3756e6bdd106f83459959058a5c1
+- name: newest_range/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 5,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: newest_by_type(4) bounded to September 2026
+  raw_return: "6\0[Data]\r9000010.01^5^.01^3^TMP\r9000010.01^5^.02^4^DEMO,PATIENT
+    ONE\r9000010.01^5^.03^6^SEP 11, 2026@19:47\r9000010.01^5^.04^98^98\r9000010.01^5^.07^3260911.213436^SEP
+    11, 2026@21:34:36\r9000010.01^5^2^^\r9000010.01^5^1201^3260911.2134^SEP 11, 2026@21:34\r"
+  sha256: '02510728e702aa30ca076c1904a1a2e08fa768b8239d348dfe129e7c0352fff5'
+- name: newest_range/3
+  rpc: BEHOENCX GETVISIT
+  inputs:
+  - '6'
+  context: newest_by_type(4) bounded to September 2026
+  raw_return: "7\03^3260911.1947^A^4^^0"
+  sha256: aa89e9d87f0cbec1aad8c1c6683c8d2bf9b3b9a075dd315c0a1f5c6f3551ff71
+- name: newest_range/4
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - TMP
+  context: newest_by_type(4) bounded to September 2026
+  raw_return: "8\0F^^^C^^"
+  sha256: fe219ea0adcc82d753112894b7183fa4279ff1050fbd827927e8cd011d3341bd
+- name: newest_range/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 6,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: newest_by_type(4) bounded to September 2026
+  raw_return: "9\0[Data]\r9000010.01^6^.01^5^PU\r9000010.01^6^.02^4^DEMO,PATIENT ONE\r9000010.01^6^.03^6^SEP
+    11, 2026@19:47\r9000010.01^6^.04^50^50\r9000010.01^6^.07^3260911.213436^SEP 11,
+    2026@21:34:36\r9000010.01^6^2^^\r9000010.01^6^1201^3260911.2134^SEP 11, 2026@21:34\r"
+  sha256: 179eceef2ad0401ec8a85b7ebf2949278872e520ed1e152113fbd8d6e410c41c
+- name: newest_range/6
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - PU
+  context: newest_by_type(4) bounded to September 2026
+  raw_return: "1\0/min^60^100^/min^60^100"
+  sha256: d16150f2d7920b51c393b5ee65c468638a92dba477b136a5bf06ba90788b98fa
+- name: newest_range/7
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 7,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: newest_by_type(4) bounded to September 2026
+  raw_return: "2\0[Data]\r9000010.01^7^.01^15^RS\r9000010.01^7^.02^4^DEMO,PATIENT
+    ONE\r9000010.01^7^.03^6^SEP 11, 2026@19:47\r9000010.01^7^.04^20^20\r9000010.01^7^.07^3260911.213436^SEP
+    11, 2026@21:34:36\r9000010.01^7^2^1^YES\r9000010.01^7^1201^3260911.2134^SEP 11,
+    2026@21:34\r"
+  sha256: 97f88c19279318e7826ebfd169dd857dd1e6f79e89482a3d51839b3c3bbe31ff
+- name: newest_range/8
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - RS
+  context: newest_by_type(4) bounded to September 2026
+  raw_return: "3\0/min^^^/min^^"
+  sha256: 8c819c628d0ff0ad34f581b4247f13d2b3bc363915317b6ffff0aaf9a1770f36
+- name: newest_range/9
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 8,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: newest_by_type(4) bounded to September 2026
+  raw_return: "4\0[Data]\r9000010.01^8^.01^4^BP\r9000010.01^8^.02^4^DEMO,PATIENT ONE\r9000010.01^8^.03^6^SEP
+    11, 2026@19:47\r9000010.01^8^.04^117/81^117/81\r9000010.01^8^.07^3260911.213436^SEP
+    11, 2026@21:34:36\r9000010.01^8^2^^\r9000010.01^8^1201^3260911.2134^SEP 11, 2026@21:34\r"
+  sha256: b762ec77c1d7741dd0539d38abd2e6d805d40acfbcb1c6a7d21376459da012d9
+- name: newest_range/10
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - BP
+  context: newest_by_type(4) bounded to September 2026
+  raw_return: "5\0mmHg^90^150^mmHg^90^150"
+  sha256: 053f447349e0309c67ba4ad9cfedc51fc17966df7afe6e7bae0e6bdb3c3d919a
+- name: newest_range/11
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 10,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: newest_by_type(4) bounded to September 2026
+  raw_return: "6\0[Data]\r9000010.01^10^.01^21^PA\r9000010.01^10^.02^4^DEMO,PATIENT
+    ONE\r9000010.01^10^.03^6^SEP 11, 2026@19:47\r9000010.01^10^.04^0^0\r9000010.01^10^.07^3260911.213436^SEP
+    11, 2026@21:34:36\r9000010.01^10^2^^\r9000010.01^10^1201^3260911.2134^SEP 11,
+    2026@21:34\r"
+  sha256: c810d82a1061fd74276c48cee47aafa30776606d7ebf81565f277001af201beb
+- name: newest_range/12
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - PA
+  context: newest_by_type(4) bounded to September 2026
+  raw_return: "7\0^^^^^"
+  sha256: 9f734b4b286035711b86e285f2ceeaa1fae3862b9e4d9b37991a53e0e3db4c7c
+- name: newest_range/13
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010.01'
+    IENS: 9,
+    FIELDS: ".01;.02;.03;.04;2;1201;.07"
+    FLAGS: IE
+  context: newest_by_type(4) bounded to September 2026
+  raw_return: "8\0[Data]\r9000010.01^9^.01^22^O2\r9000010.01^9^.02^4^DEMO,PATIENT
+    ONE\r9000010.01^9^.03^6^SEP 11, 2026@19:47\r9000010.01^9^.04^98^98\r9000010.01^9^.07^3260911.213436^SEP
+    11, 2026@21:34:36\r9000010.01^9^2^^\r9000010.01^9^1201^3260911.2134^SEP 11, 2026@21:34\r"
+  sha256: b3062b2537b2199e7691cd9323038732fb4ae4934257619be47117e286c8354f
+- name: newest_range/14
+  rpc: BEHOVM2 VUNITS
+  inputs:
+  - O2
+  context: newest_by_type(4) bounded to September 2026
+  raw_return: "9\0%^^^%^^"
+  sha256: 2e3b952ce7d6f1eb995329a7768b7f94da75fe24d7389ea51b58707a12bdc57a
+- name: newest_none/1
+  rpc: ORQQVI VITALS
+  inputs:
+  - '999999'
+  context: newest_by_type of a DFN no patient holds
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
