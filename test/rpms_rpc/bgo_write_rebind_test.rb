@@ -3,7 +3,6 @@
 require "minitest/autorun"
 require "rpms_rpc"
 require "rpms_rpc/mock_client"
-require "rpms_rpc/api/problem"
 require "rpms_rpc/api/pov"
 require "rpms_rpc/api/health_factor"
 require "rpms_rpc/api/exam_component"
@@ -47,76 +46,8 @@ class BgoWriteRebindTest < Minitest::Test
     client
   end
 
-  # -- Problem.add/update/delete → BGOPROB SET / BGOPROB DEL (finding 1) ----
-  # SET^BGOPROB formals after RET: DFN, PRIEN, VIEN, ARRAY, SPEC, PIP
-  # (BGOPROB.m:225). ARRAY "P" line layout (BGOPROB.m:218-220), parsed in
-  # PROB^BGOPROB: SNOMED CT [2] (:246), Descriptive CT [3] (:260), Provider
-  # text [4] (:241), Mapped ICD [5] (:240), Location [6] (:243), Onset [7]
-  # (:244), Status [8] (:262), Class [9] (:245), Problem # [10] (:269),
-  # Priority [11] (:271). Returns the problem IEN (BGOPROB.m:322).
-
-  def test_problem_add_dispatches_bgoprob_set_not_the_edprob_read
-    client = script("BGOPROB SET" => "6001")
-
-    result = RpmsRpc::Problem.add(DFN, {
-      icd_code: "I10", description: "Hypertension", location_ien: "3049",
-      status: "Episodic"
-    })
-
-    call = client.calls.find { |c| c[:rpc] == "BGOPROB SET" }
-    refute_nil call, "Problem.add must call BGOPROB SET (SET^BGOPROB — BGOPROB.m:225), " \
-                     "not BGOPROB1 EDPROB, which is a READ (EDPROB^BGOPROB1 'Get active problems')"
-    assert_equal DFN, call[:params][0], "formal 1 is DFN (BGOPROB.m:225)"
-    assert_equal "", call[:params][1], "formal 2 PRIEN is empty for a new problem"
-    assert result[:success]
-    assert_equal 6001, result[:ien]
-  end
-
-  def test_problem_add_p_line_matches_bgoprob_layout
-    client = script("BGOPROB SET" => "6001")
-
-    RpmsRpc::Problem.add(DFN, {
-      snomed_ct: "38341003", descriptive_ct: "1234567890", description: "Hypertension",
-      icd_code: "I10", location_ien: "3049", onset_date: "3250101",
-      status: "Chronic", problem_class: "", problem_number: "", priority: ""
-    })
-
-    array_param = client.calls.last[:params][3]
-    assert_kind_of Array, array_param, "formal 4 ARRAY is a list param (BGOPROB.m:225,232)"
-    assert_equal "P^38341003^1234567890^Hypertension^I10^3049^3250101^Chronic^^^",
-      array_param.first
-  end
-
-  def test_problem_add_error_reply_is_failure
-    # ERR^BGOUTL(1049) — no location (BGOPROB.m:276, BGOUTL.m:408-409)
-    script("BGOPROB SET" => "-1049^Location must be specified")
-
-    result = RpmsRpc::Problem.add(DFN, { icd_code: "I10", description: "HTN" })
-    refute result[:success]
-    assert_nil result[:ien]
-    assert_equal "-1049^Location must be specified", result[:raw]
-  end
-
-  def test_problem_update_sends_problem_ien
-    client = script("BGOPROB SET" => "5001")
-
-    result = RpmsRpc::Problem.update(DFN, "5001", { icd_code: "I10", description: "HTN" })
-    assert_equal "5001", client.calls.last[:params][1],
-      "formal 2 PRIEN carries the problem IEN on edit (BGOPROB.m:225,290-291)"
-    assert result[:success]
-  end
-
-  def test_problem_delete_dispatches_bgoprob_del_with_reason_piece_3
-    client = script("BGOPROB DEL" => "")
-
-    RpmsRpc::Problem.delete(DFN, "5001", reason: "Entered in error")
-
-    call = client.calls.find { |c| c[:rpc] == "BGOPROB DEL" }
-    refute_nil call, "Problem.delete must call BGOPROB DEL (DEL^BGOPROB — BGOPROB.m:210)"
-    # PRIEN = Problem IEN ^ TYPE ^ DELETE REASON ^ COMMENT ^ PROB ID
-    # (BGOPROB.m:209; REASON=$P(PRIEN,U,3) in DEL^BGOPROB3)
-    assert_equal "5001^^Entered in error", call[:params][0]
-  end
+  # Problem.add/update/delete: test/rpms_rpc/api/problem_write_test.rb, on the
+  # build's own replies (rpms-rpc#527).
 
   # -- Pov.add → BGOVPOV SET (finding 4a) -----------------------------------
   # SET^BGOVPOV formals after RET: INP, QUAL, INJ, NORM, SPEC (BGOVPOV.m:291).

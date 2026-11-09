@@ -1,0 +1,166 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb problem-write.rb.
+---
+rpc: BGOPROB SET
+entry_point: SET^BGOPROB
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T17:59:03Z'
+note: Run on a fresh throwaway container, flows in order. DFN 990055 and 990056 are
+  synthetic seed patients. ICD F32.9 and INSTITUTION 7819 are the build's own entries.
+captures:
+- name: add_new/1
+  rpc: BGOPROB SET
+  inputs:
+  - '990055'
+  - ''
+  - ''
+  - - P^^^SYNTH CAPTURE DEPRESSION^F32.9^7819^11/01/2026^Chronic^^^
+  - '1'
+  context: 'add: F32.9, Chronic, onset 11/01/2026, at location 7819, on DFN 990055'
+  raw_return: "5\0148"
+  sha256: 123678f104cc58bf046047d547132678796062af041336346019a5a955005d10
+- name: add_new/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000011'
+    IENS: 148,
+    FIELDS: ".01;.02;.12"
+    FLAGS: I
+  context: 'add: F32.9, Chronic, onset 11/01/2026, at location 7819, on DFN 990055'
+  raw_return: "6\0[Data]\r9000011^148^.01^504091^\r9000011^148^.02^990055^\r9000011^148^.12^A^\r"
+  sha256: b36ae70111264283bfaac460a2b5e3b7f7a7988909707dad4619a715494c201f
+- name: update/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000011'
+    IENS: 148,
+    FIELDS: ".01;.02;.12"
+    FLAGS: I
+  context: 'update: the same problem, status Inactive and a new narrative'
+  raw_return: "5\0[Data]\r9000011^148^.01^504091^\r9000011^148^.02^990055^\r9000011^148^.12^A^\r"
+  sha256: d1cd97a11fae9b75060f1c8d07f137d553d651f983c2aa09ba49a0549039c2ba
+- name: update/2
+  rpc: BGOPROB SET
+  inputs:
+  - '990055'
+  - '148'
+  - ''
+  - - P^^^SYNTH CAPTURE EDITED^F32.9^7819^11/01/2026^Inactive^^^
+  - '1'
+  context: 'update: the same problem, status Inactive and a new narrative'
+  raw_return: "6\0148"
+  sha256: 2d3102e8024f29748f845333119d2ecc786189e77e7f68c91a4fded6c6fba9b5
+- name: update/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000011'
+    IENS: 148,
+    FIELDS: ".01;.02;.12"
+    FLAGS: I
+  context: 'update: the same problem, status Inactive and a new narrative'
+  raw_return: "7\0[Data]\r9000011^148^.01^504091^\r9000011^148^.02^990055^\r9000011^148^.12^I^\r"
+  sha256: e91d516b6215d6ba2779eb56fc42e781d29d26186fa5ee26e1537a9aaf59169b
+- name: update_wrong_patient/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000011'
+    IENS: 148,
+    FIELDS: ".01;.02;.12"
+    FLAGS: I
+  context: 'update: the problem, named with DFN 990056, whose it is not'
+  raw_return: "5\0[Data]\r9000011^148^.01^504091^\r9000011^148^.02^990055^\r9000011^148^.12^I^\r"
+  sha256: 47bd71a3a0bfe689d51b6854a87750ed407b1b45f5ed032e8bc11fefcd9db4b8
+- name: delete_wrong_patient/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000011'
+    IENS: 148,
+    FIELDS: ".01;.02;.12"
+    FLAGS: I
+  context: 'delete: the problem, named with DFN 990056, whose it is not'
+  raw_return: "5\0[Data]\r9000011^148^.01^504091^\r9000011^148^.02^990055^\r9000011^148^.12^I^\r"
+  sha256: 47bd71a3a0bfe689d51b6854a87750ed407b1b45f5ed032e8bc11fefcd9db4b8
+- name: delete/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000011'
+    IENS: 148,
+    FIELDS: ".01;.02;.12"
+    FLAGS: I
+  context: 'delete: the problem, on DFN 990055, reason Entered in error'
+  raw_return: "5\0[Data]\r9000011^148^.01^504091^\r9000011^148^.02^990055^\r9000011^148^.12^I^\r"
+  sha256: 47bd71a3a0bfe689d51b6854a87750ed407b1b45f5ed032e8bc11fefcd9db4b8
+- name: delete/2
+  rpc: BGOPROB DEL
+  inputs:
+  - 148^^Entered in error
+  context: 'delete: the problem, on DFN 990055, reason Entered in error'
+  raw_return: "6\0"
+  sha256: aa4fb8a61cab7db73f42671f2bb987a7291a436929b3d5f17ffe05f96be13371
+- name: delete/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000011'
+    IENS: 148,
+    FIELDS: ".01;.02;.12"
+    FLAGS: I
+  context: 'delete: the problem, on DFN 990055, reason Entered in error'
+  raw_return: "7\0[Data]\r9000011^148^.01^504091^\r9000011^148^.02^990055^\r9000011^148^.12^D^\r"
+  sha256: bca1a1bc3e30a8bf03c6272a78ee6ef2fa132a8d327f38262ad8f1cd5b8740dc
+- name: delete_not_found/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000011'
+    IENS: 999999,
+    FIELDS: ".01;.02;.12"
+    FLAGS: I
+  context: 'delete: problem IEN 999999, not on file'
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
+- name: add_no_location/1
+  rpc: BGOPROB SET
+  inputs:
+  - '990055'
+  - ''
+  - ''
+  - - P^^^SYNTH CAPTURE DEPRESSION^F32.9^^11/01/2026^Chronic^^^
+  - '1'
+  context: 'add: no location'
+  raw_return: "5\0-1049^The specified location is unknown."
+  sha256: ec56699bfa90211c1b1cf2fd1101e9158d59d970966564baa6d9c4249aab73af
+- name: add_unknown_patient/1
+  rpc: BGOPROB SET
+  inputs:
+  - '1999999'
+  - ''
+  - ''
+  - - P^^^SYNTH CAPTURE DEPRESSION^F32.9^7819^11/01/2026^Chronic^^^
+  - '1'
+  context: 'add: DFN 1999999, not on file'
+  raw_return: "5\0-1001^Unknown patient specified"
+  sha256: 756bb57b28eb5a487d9fcedf42c7a2cded96b904519202e1195bf87127091f40
+- name: add_unresolved_icd/1
+  rpc: BGOPROB SET
+  inputs:
+  - '990055'
+  - ''
+  - ''
+  - - P^^^SYNTH CAPTURE DEPRESSION^NOTACODE^7819^11/01/2026^Chronic^^^
+  - '1'
+  context: 'add: ICD code NOTACODE, which the build cannot resolve'
+  raw_return: "5\0149"
+  sha256: da9229de149755f1973ac013c1ef5907bf23fd8992c14e01d7e4d13b54360d7b
+- name: add_unresolved_icd/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000011'
+    IENS: 149,
+    FIELDS: ".01;.02;.12"
+    FLAGS: I
+  context: 'add: ICD code NOTACODE, which the build cannot resolve'
+  raw_return: "6\0[Data]\r9000011^149^.01^-1^\r9000011^149^.02^990055^\r9000011^149^.12^A^\r"
+  sha256: a4edbb02bb7b074fbe9905f03fdb14efc680b907d208a69685092aea8f93cecf
