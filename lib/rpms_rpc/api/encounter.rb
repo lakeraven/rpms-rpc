@@ -9,9 +9,23 @@ module RpmsRpc
     extend Shape::Declarable
 
     # List recent appointments for a patient.
-    # Underlying RPC: ORWPT APPTLST
+    # Underlying RPC: ORWPT APPTLST. Rows are APPTTIME^LOCIEN^LOCNAME^EXTSTATUS
+    # (APPTLST^ORWPT). When the scheduling read fails, APPTLST answers one
+    # row with no time, from SDA^ORQRY01: "^Error encountered^Error
+    # encountered" for VAERR 1 (no such patient, or the appointment API
+    # refused the request) and "^Database is unavailable^Database is
+    # unavailable" for VAERR 2. A row with no appointment time is not an
+    # appointment, so the read fails closed: it raises Client::RpcError
+    # naming the text, and never lists a visit at a location called "Error
+    # encountered" (#679).
     def for_patient(dfn)
-      DataMapper.patient_appointments.fetch_many(dfn.to_s)
+      rows = DataMapper.patient_appointments.fetch_many(dfn.to_s)
+      failed = rows.find { |row| row[:datetime].nil? }
+      if failed
+        raise Client::RpcError, "ORWPT APPTLST could not read appointments for patient #{dfn}: #{failed[:location]}"
+      end
+
+      rows
     end
     shape :for_patient, resource: "encounters", verb: "GET", path: "/patients/{dfn}/encounters"
 
