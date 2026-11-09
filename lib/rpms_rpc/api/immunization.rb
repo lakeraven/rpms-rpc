@@ -12,7 +12,7 @@ module RpmsRpc
   #     history, the read VueCentric's immunization component uses
   #     (GET^BGOVIMM -> GET^BGOVIMM5)
   #   - DDR GETS ENTRY DATA (find): the patient a V IMMUNIZATION belongs to
-  #   - BEHOCIR GETTXT (text_summary): the CCD patient-summary text blob
+  #   - BGOVIMM PROFILE (text_summary): the Immunization Profile text
   #
   # `for_patient` and `find` once sent BIPC IMMLIST / IMMGET, names no
   # built image registers (#207). They are kept, rebuilt on BGOVIMM GET.
@@ -54,15 +54,44 @@ module RpmsRpc
     end
     shape :find, resource: "immunizations", verb: "GET", path: "/immunizations/{ien}"
 
-    # The CCD patient-summary text blob (BEHOCIR GETTXT).
+    # The patient's Immunization Profile as text, one line per profile line:
+    # BGOVIMM PROFILE, the read VueCentric's immunization component shows
+    # (see the :immunization_profile mapping). A patient not in the
+    # Immunization Register gets the package's three lines saying so. When
+    # the package reports an error (text on the $C(31)$C(31) end line, or
+    # that line rewritten as -1082^text: no profile produced, deceased
+    # patient) this raises RpcError; it never returns an error as a
+    # summary. nil for an
+    # invalid DFN, sent nowhere.
+    #
+    # It once sent the DFN to BEHOCIR GETTXT, which is a SNOMED CT term
+    # lookup (GETTXT^BEHOCIR, BEHOCIR.m:101-109) and answered "^" for every
+    # patient (#656).
     def text_summary(dfn)
       return nil if invalid_id?(dfn)
 
-      DataMapper.immunization_text.fetch_text(dfn.to_s)
+      rpc = DataMapper.immunization_profile.rpc_name
+      profile_text(rpc, Array(RpmsRpc.client.call_rpc(rpc, dfn.to_s)).map(&:to_s))
     end
     shape :text_summary, resource: "immunizations", verb: "GET", path: "/patients/{dfn}/immunizations/text-summary"
 
     private
+
+    # IMMPROF^BIRPC ends every reply with a line of $C(31)$C(31) and the
+    # error text, if any (BIRPC.m:274-275). The CIA reply grammar turns the
+    # two $C(31) into spaces and splits on each line's $C(30), so the end
+    # line is the last non-empty line and the empty lines are the $C(30)
+    # separators. A blank profile line is " " (BIRPC.m:268) and reads "".
+    # When no line came before it, PROFILE^BGOVIMM2 rewrites the end line as
+    # -1082^text (BGOVIMM2.m:131), which is not blank either.
+    def profile_text(rpc, lines)
+      lines = lines.reject(&:empty?)
+      trailer = lines.pop
+      raise RpmsRpc::Client::RpcError, "#{rpc}: the reply has no end line" if trailer.nil?
+      raise RpmsRpc::Client::RpcError, "#{rpc}: #{trailer.strip}" unless trailer.strip.empty?
+
+      lines.map(&:rstrip).join("\n")
+    end
 
     def dose(row)
       performer_duz, performer_name = pair(row[:performer])

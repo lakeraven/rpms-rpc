@@ -1,0 +1,31 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb bgovimm-profile.rb.
+---
+rpc: BGOVIMM PROFILE
+entry_point: PROFILE^BGOVIMM2
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T04:33:51Z'
+note: Setup adds demo patient 2 to the Immunization Register (BGOVIMM SETREG). The
+  build has no ImmServe forecaster, so a registered patient's profile is the package's
+  error 307.
+captures:
+- name: not_in_register
+  inputs:
+  - '4'
+  context: 'demo patient 4, who is not in the Immunization Register: the register
+    message (BIRPC.m:246-254)'
+  raw_return: "6\0This patient is not in the Immunization Register.\x1E\rThe Immserve
+    Profile cannot be stored and displayed\x1E\rif the patient is not in the Register.\x1E\r\x1F\x1F\r"
+  sha256: 31056ea4d3be2b3d587260e36c42344f7d7edbd00e4e48e3cd0d1a7e8be3737e
+- name: registered_no_profile
+  inputs:
+  - '2'
+  context: 'demo patient 2, registered by setup: no profile is produced, so the package
+    reports error 307 (BIRPC.m:271-275, IMMERR^BGOVIMM)'
+  raw_return: "7\0-1082^The immunization package has reported an error: Imm/Serve
+    Patient Profile not provided (software error). #307\r"
+  sha256: e031f1fd9b7e9ea21d771b6d62e136fd1910671cc7b97f4a550f2c35c945b52e

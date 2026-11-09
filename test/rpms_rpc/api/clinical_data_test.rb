@@ -29,7 +29,6 @@ class ClinicalDataApiTest < Minitest::Test
       m.seed(:medication_detail, "1", "Drug: Lisinopril 10mg\nSIG: Take 1 tablet by mouth daily\nStatus: Active\nRefills: 3")
       m.seed_collection(:patient_appointments,
         [ { datetime: Date.new(2026, 2, 1), location_ien: 1, location: "Primary Care", status: "scheduled" } ])
-      m.seed(:immunization_text, "1", "01/15/2026  COVID-19 Vaccine  Pfizer  LOT-ABC  Site: Left Deltoid")
     end
   end
 
@@ -214,18 +213,6 @@ class ClinicalDataApiTest < Minitest::Test
 
     assert results.is_a?(Array)
     assert_equal "Primary Care", results.first[:location]
-  end
-
-  # =============================================================================
-  # IMMUNIZATION
-  # =============================================================================
-
-  def test_immunization_text_summary_returns_text
-    result = RpmsRpc::Immunization.text_summary("1")
-    flattened = Array(result).join("\n")
-
-    refute_nil result
-    assert_includes flattened, "COVID-19"
   end
 
   private
