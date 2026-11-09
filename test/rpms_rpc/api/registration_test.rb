@@ -397,13 +397,16 @@ def test_s_reg_05_5_an_hrn_another_patient_holds_is_refused_in_ag_words_and_noth
   assert_empty agg_calls("AGG ADD NEW PATIENT")
 end
 
-def test_no_hrn_check_is_sent_without_an_hrn
+def test_without_an_hrn_the_only_hrn_check_is_the_derived_number_with_its_dfn
   seed_agg_add(dfn: "9")
   seed_agg_update
 
   Reg.register(ATTRS)
 
-  refute agg_calls("AGG WINDOW DATA VALIDATION").any? { |c| c[:params][1].start_with?("AGGPTHRN") }
+  # No empty HRN is checked before the create (it would $ORDER from the start of
+  # the "D" index); the derived number is checked after it, with the new DFN (#610).
+  hrn_checks = agg_calls("AGG WINDOW DATA VALIDATION").select { |c| c[:params][1].start_with?("AGGPTHRN") }
+  assert_equal [ "AGGPTHRN=9\x1cDFN=9" ], hrn_checks.map { |c| c[:params][1] }
 end
 
 def test_hrn_source_given_needs_an_hrn_and_an_unknown_source_is_refused
@@ -696,7 +699,9 @@ end
     assert_equal [
       [ Agg::NEW_PATIENT_WINDOW, "AGGPTSSN=\x1cAGGNOSSN=R\x1cDFN=" ],
       [ Agg::NEW_PATIENT_WINDOW, "AGGNOSSN=R\x1cAGGPTSSN=\x1cDFN=" ],
-      [ Agg::NEW_PATIENT_WINDOW, "AGGPTDOB=01/02/1990\x1cDFN=" ]
+      [ Agg::NEW_PATIENT_WINDOW, "AGGPTDOB=01/02/1990\x1cDFN=" ],
+      # after the create: the derived HRN, with the new DFN (#610)
+      [ Agg::NEW_PATIENT_WINDOW, "AGGPTHRN=9\x1cDFN=9" ]
     ], sent
   end
 
