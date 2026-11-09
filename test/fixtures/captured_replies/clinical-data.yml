@@ -71,15 +71,6 @@ captures:
   context: demo patient 4's condensed medication list; no demo patient has a medication
   raw_return: "3\0^No medications found.\r"
   sha256: 04a2d2f82c387ebdf6c51728b992f1509495cf0c3772ab90a884b8eb871d6883
-- name: medication_detail_one_param
-  rpc: ORQQPS DETAIL
-  inputs:
-  - '1'
-  context: the one-parameter frame Medication.find sends to DETAIL(ORY,ORPT,ORMED)^ORQQPS
-  raw_return: "4\x011\rThe server has reported the following error:\r\rDETAIL+2^ORQQPS,
-    Undefined local variable: ORMED,150373850,-%YDB-E-LVUNDEF\r\rA detailed log of
-    the error has been created.\r"
-  sha256: 16e9d7f11ef92285f3e9ca335f1838cae0ce4132579c9dad045ed8cc43df5e64
 - name: appointments_dfn_4
   rpc: ORWPT APPTLST
   inputs:
