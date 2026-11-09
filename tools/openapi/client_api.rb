@@ -43,7 +43,7 @@ module OpenApi
       "ImmunizationRefusal" => { path: "immunization-refusals" },
       "Location" => { path: "locations" },
       "Measurement" => { path: "measurements" },
-      "Medication" => { path: "medications" },
+      "Medication" => { path: "medications", own: %w[medication_id] },
       "NoteTemplate" => { path: "note-templates" },
       "Notifications" => { path: "notifications", own: %w[alert_id] },
       "Order" => { path: "orders" },
