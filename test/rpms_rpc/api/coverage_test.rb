@@ -62,6 +62,13 @@ class CoverageTest < Minitest::Test
 
   def agg_calls(client, rpc) = wire(client).select { |r, _, _| r == rpc }
 
+  # Every RPC the gem sent, with its parameters, is the one the build answered
+  # in that flow: replies are chosen by RPC name, so this is what checks the
+  # guard reads' IENS and lister parameters.
+  def assert_sent_the_flow(client, name)
+    assert_equal CapturedReplies.flow_calls(SLUG, name), wire(client).map { |rpc, params, _| [ rpc, params ] }
+  end
+
   # -- distinct from VFC Eligibility -----------------------------------------
 
   def test_module_is_not_vfc_eligibility
@@ -144,6 +151,7 @@ class CoverageTest < Minitest::Test
     client = replay_flow("add_medicare")
 
     result = Cov.add_medicare(DFN, **MEDICARE_ARGS)
+    assert_sent_the_flow(client, "add_medicare")
 
     assert_equal({ success: true, error: nil, message: "", rien: DFN, mien: "1" }, result)
     assert_equal [
@@ -178,6 +186,7 @@ class CoverageTest < Minitest::Test
     client = replay_flow("add_medicaid")
 
     result = Cov.add_medicaid(DFN, effective_on: "11/01/2026", coverage: "FULL")
+    assert_sent_the_flow(client, "add_medicaid")
 
     assert_equal({ success: true, error: nil, message: "", record_ien: "3", multiple_ien: "3261101" }, result)
     assert_equal [ Cov::MEDICAID_WINDOW, Cov::MEDICAID_ELIGIBILITY_WINDOW ], agg_calls(client, MEDICAID_RPC).map { |_, p, _| p[2] }
@@ -214,6 +223,7 @@ class CoverageTest < Minitest::Test
     client = replay_flow("delete_medicare_record_with_rows")
 
     result = Cov.delete_medicare_record(DFN)
+    assert_sent_the_flow(client, "delete_medicare_record_with_rows")
 
     assert_equal :verification_failed, result[:error]
     assert_empty agg_calls(client, MEDICARE_RPC), "no delete while a row remains"
@@ -223,6 +233,7 @@ class CoverageTest < Minitest::Test
     client = replay_flow("delete_medicaid_other_patient")
 
     result = Cov.delete_medicaid(OTHER_DFN, record_ien: "3", eligibility_mien: "3261101")
+    assert_sent_the_flow(client, "delete_medicaid_other_patient")
 
     assert_equal :verification_failed, result[:error]
     assert_empty agg_calls(client, MEDICAID_RPC)
@@ -232,6 +243,7 @@ class CoverageTest < Minitest::Test
     client = replay_flow("delete_medicare")
 
     result = Cov.delete_medicare(DFN, eligibility_mien: "1")
+    assert_sent_the_flow(client, "delete_medicare")
 
     assert result[:success]
     assert_equal [ [ MEDICARE_RPC, [ DFN.to_s, "D", Cov::MEDICARE_ELIGIBILITY_WINDOW, "1", "" ], Agg::CONTEXT ] ],
@@ -252,6 +264,7 @@ class CoverageTest < Minitest::Test
     client = replay_flow("delete_medicaid")
 
     result = Cov.delete_medicaid(DFN, record_ien: "3", eligibility_mien: "3261101")
+    assert_sent_the_flow(client, "delete_medicaid")
 
     assert_equal({ success: true, error: nil, message: "", record_ien: "3", multiple_ien: "3261101" }, result)
     assert_equal [ [ MEDICAID_RPC, [ DFN.to_s, "D", Cov::MEDICAID_ELIGIBILITY_WINDOW, "3", "3261101", "" ], Agg::CONTEXT ] ],
@@ -262,6 +275,7 @@ class CoverageTest < Minitest::Test
     client = replay_flow("delete_medicare_record")
 
     assert Cov.delete_medicare_record(DFN)[:success]
+    assert_sent_the_flow(client, "delete_medicare_record")
     assert_equal [ [ MEDICARE_RPC, [ DFN.to_s, "D", Cov::MEDICARE_WINDOW, "", "" ], Agg::CONTEXT ] ],
                  agg_calls(client, MEDICARE_RPC)
   end
@@ -270,6 +284,7 @@ class CoverageTest < Minitest::Test
     client = replay_flow("delete_medicare_none")
 
     assert_equal :no_medicare, Cov.delete_medicare(DFN, eligibility_mien: "1")[:error]
+    assert_sent_the_flow(client, "delete_medicare_none")
     assert_empty agg_calls(client, MEDICARE_RPC)
   end
 
