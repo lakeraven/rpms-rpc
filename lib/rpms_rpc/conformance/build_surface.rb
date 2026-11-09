@@ -213,32 +213,6 @@ module RpmsRpc
         end
       end
 
-      private
-
-      def require_contexts!
-        raise Error, "#{tag}: no contexts_19_05.txt pinned (a release from before rpms-ops#626; re-pin it)" unless contexts?
-      end
-
-      # { option => Context } from <tag>-contexts_19_05.txt. Refuses a file without rpms-ops' header,
-      # a row that is not six fields, and an option whose rows disagree on TYPE or LOCK.
-      def read_contexts(path)
-        file = File.basename(path)
-        rows = File.readlines(path, chomp: true).reject { |l| l.strip.empty? }
-        header = rows.shift.to_s.split("\t", -1)
-        raise Error, "#{file}: header is not #{CONTEXTS_HEADER.join(' ')} (got #{header.join(' ').inspect})" unless header == CONTEXTS_HEADER
-
-        rows.each_with_object({}) do |line, out|
-          f = line.split("\t", -1)
-          raise Error, "#{file}: row #{line.inspect} has #{f.size} fields, not #{CONTEXTS_HEADER.size}" unless f.size == CONTEXTS_HEADER.size
-
-          option, type, lock, rpc, key, rules = f.map { |v| self.class.blank(v) }
-          ctx = out[option] ||= Context.new(option: option, type: type, lock: lock, rpcs: {})
-          raise Error, "#{file}: #{option} has rows with TYPE/LOCK #{[ ctx.type, ctx.lock ]} and #{[ type, lock ]}" unless [ ctx.type, ctx.lock ] == [ type, lock ]
-
-          ctx.rpcs[rpc] = { key: key, rules: rules }
-        end
-      end
-
       # rpcs.v1 / rpcs.v2 records -> Rpcs. Codes are kept as stored (null when empty); INACTIVE 0 is nil.
       # A record's parameters list holds #8994's INPUT PARAMETERs (source "8994") or, when there are none,
       # the formals after the reply variable (source "formals"); params holds only the first kind, and the

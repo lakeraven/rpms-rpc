@@ -155,6 +155,13 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
     end
   end
 
+  def test_verify_dir_rejects_a_provenance_face_sha_rpcs_json_was_not_projected_from
+    with_inventory do |dir|
+      edit_json(dir, "INVENTORY-PROVENANCE.json", reseal: true) { |d| d["rpc_signatures"]["sha256"] = "0" * 64 }
+      assert_match(/provenance rpc_signatures.sha256 "0{64}" is not #{TAG}-rpcs.json's rpc_signatures.txt input/, refusal(dir))
+    end
+  end
+
   def test_verify_dir_rejects_an_image_that_is_not_the_artifact
     with_inventory do |dir|
       edit_json(dir, "INVENTORY-PROVENANCE.json", reseal: true) { |d| d["image"]["digest"] = "sha256:0ther" }

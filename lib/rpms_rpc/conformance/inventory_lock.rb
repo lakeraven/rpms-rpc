@@ -230,6 +230,9 @@ module RpmsRpc
         { "rpc_reach" => "records", "rpc_signatures" => "rpcs" }.each do |key, count|
           n = provenance.dig(key, count)
           problems << "provenance #{key} counts #{n.inspect} RPCs, #{file} lists #{surface.rpcs.size}" unless n.to_i == surface.rpcs.size
+          # Each face the provenance describes is the raw file rpcs.json was projected from.
+          sha = provenance.dig(key, "sha256")
+          problems << "provenance #{key}.sha256 #{sha.inspect} is not #{file}'s #{key}.txt input #{inputs["#{key}.txt"]}" unless sha == inputs["#{key}.txt"]
         end
         classes = provenance.dig("rpc_reach", "classes").to_h.sort.to_h
         problems << "#{file} reach classes #{surface.reach_counts} != provenance #{classes}" unless surface.reach_counts == classes
