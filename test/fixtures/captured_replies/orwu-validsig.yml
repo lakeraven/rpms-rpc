@@ -1,0 +1,26 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb orwu-validsig.rb.
+---
+rpc: ORWU VALIDSIG
+entry_point: VALIDSIG^ORWU
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MA (PMA123, a published demo pair; DUZ 204)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T02:14:55Z'
+note: The one wire parameter is the XWB-encrypted signature code. The cipher picks
+  a random row pair, so the inputs are withheld; the reply is what a test reads.
+captures:
+- name: stored_code
+  inputs:
+  - "<the persona's demo signature code, encrypted; withheld>"
+  context: the code SEEDPERS files for PROFILE,MA
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
+- name: other_code
+  inputs:
+  - "<a code the persona does not hold, encrypted; withheld>"
+  context: a six-digit code that is not the persona's
+  raw_return: "6\00"
+  sha256: 357d2d10c7c743bd0a87cd91e7007b7277f67f562cf7314042c70e75588f67c6
