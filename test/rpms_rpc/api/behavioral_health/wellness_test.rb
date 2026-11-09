@@ -2907,8 +2907,10 @@ class BehavioralHealthWellnessTest < Minitest::Test
     ddr_key(file: PROVIDER_FILE, iens: "#{ien},", fields: ".01", flags: "I")
   end
 
+  # FLAGS "I" rows end in an empty external piece, as GETSC^DDR2 writes them
+  # (captured: test/fixtures/captured_replies/ddr-gets-entry-data-flags-i.yml, #612).
   def seed_provider_exists(ien, name: "PROVIDER,SYNTH")
-    body = "[Data]\n#{PROVIDER_FILE}^#{ien}^.01^#{name}^#{name}"
+    body = "[Data]\n#{PROVIDER_FILE}^#{ien}^.01^#{name}^"
     @mock.seed(:ddr_gets_entry_data, provider_ddr_key(ien), body)
   end
 
@@ -2922,7 +2924,7 @@ class BehavioralHealthWellnessTest < Minitest::Test
   end
 
   def seed_provider_error_with_row(ien, name: "PROVIDER,SYNTH")
-    body = "[Data]\n[ERROR]\n#{PROVIDER_FILE}^#{ien}^.01^#{name}^#{name}"
+    body = "[Data]\n[ERROR]\n#{PROVIDER_FILE}^#{ien}^.01^#{name}^"
     @mock.seed(:ddr_gets_entry_data, provider_ddr_key(ien), body)
   end
 

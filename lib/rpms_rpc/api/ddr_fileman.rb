@@ -195,9 +195,10 @@ module RpmsRpc
     # comment field (1501, 1601, 1701, 1901, 2001) with at least five pieces
     # and an empty last piece stores internal as the pieces from the fourth
     # through the one before the last, joined by "^", and external as "".
-    # A caret in the stored comment is recovered. A last piece that is not
-    # empty, including a four-piece row, sets stray and is still stored.
-    # Other flags, and other fields, are unchanged. Word-processing rows
+    # A caret in the stored comment is recovered. On that read, any
+    # non-word-processing row whose last piece is not empty, including a
+    # four-piece row, sets stray and is still stored (#612). Other flags are
+    # unchanged. Word-processing rows
     # follow the rules below. A second row for a field already parsed, plain
     # or word-processing, sets stray, and the later row replaces the stored
     # value. A "[WORD PROCESSING]" row read
@@ -267,7 +268,7 @@ module RpmsRpc
         else
           stray = true if result.key?(field)
           entry = { internal: pieces[3], external: pieces[4..].join("^") }
-          if internal_only && flags_i_comment_row_stray?(field, pieces)
+          if internal_only && flags_i_row_stray?(pieces)
             stray = true
           elsif internal_only && FLAGS_I_COMMENT_FIELDS.include?(field)
             entry = { internal: pieces[3..-2].join("^"), external: "" }
@@ -354,12 +355,12 @@ module RpmsRpc
       Array(passed || FLAGS_I_WORD_PROCESSING_FIELDS).map(&:to_s)
     end
 
-    # A FLAGS "I" comment row is stray unless it is the GETSC^DDR2 shape
-    # (DDR2.m:32,42): at least five pieces and an empty last piece. A
-    # four-piece row has no empty external piece, so it is stray.
-    def flags_i_comment_row_stray?(field, pieces)
-      FLAGS_I_COMMENT_FIELDS.include?(field) &&
-        (pieces.length < 5 || !pieces.last.empty?)
+    # A FLAGS "I" non-word-processing row is stray unless it is the
+    # GETSC^DDR2 shape (DDR2.m:32,42): at least five pieces and an empty last
+    # piece. A four-piece row has no empty external piece, so it is stray.
+    # Every such field, not only the comments (#612).
+    def flags_i_row_stray?(pieces)
+      pieces.length < 5 || !pieces.last.empty?
     end
 
     def call(mapping_name, *params)
