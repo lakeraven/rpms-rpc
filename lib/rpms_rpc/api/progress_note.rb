@@ -137,6 +137,7 @@ module RpmsRpc
 
       utf8 = utf8_text(text)
       return utf8_failure if utf8.nil?
+      return unauthorized_failure unless edit_authorized?(note_ien)
 
       raw = DataMapper.tiu_set_document_text.fetch_scalar(note_ien.to_s, text_list(utf8, wrap_width))
       { success: first_piece(raw) == note_ien.to_i.to_s, raw: raw }
@@ -189,6 +190,19 @@ module RpmsRpc
 
     def utf8_failure
       { success: false, raw: nil, error: "note text is not valid UTF-8" }
+    end
+
+    # SETTEXT^TIUSRVPT has no author check (TIUSRVPT.m:7-38) and TIU LOCK
+    # RECORD is no ownership check, so update_text asks CANDO^TIUSRVA first
+    # (#614). Only its "1" allows the edit: "0^reason" and an empty reply
+    # refuse, and nothing is sent. A broker error raises, as an error from
+    # TIU SET DOCUMENT TEXT does, before anything is sent.
+    def edit_authorized?(note_ien)
+      authorize(note_ien, action: EDIT_RECORD)
+    end
+
+    def unauthorized_failure
+      { success: false, raw: nil, error: "not authorized to edit this note (TIU AUTHORIZATION, EDIT RECORD)" }
     end
 
     def text_lines(text)

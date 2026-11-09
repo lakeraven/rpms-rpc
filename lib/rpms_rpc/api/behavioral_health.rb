@@ -207,7 +207,8 @@ module RpmsRpc
     # Unary + of a leading zero drops it (AMHGSVF.m:26). A FileMan year in
     # 1800-2099 is 100-399, so the date must begin with 1, 2, or 3.
     # .01's DD minimum is 2000101 (1 Jan 1900). A later check refuses a
-    # date after Date.today; that one uses the local clock.
+    # date after the RPMS server's today (ORWU DT "T"), never the local
+    # clock's (#644).
     FILEMAN_CENTURY = /\A[1-3]/
     ENCOUNTER_DATE_MIN = 20_001_01
 
@@ -406,9 +407,10 @@ module RpmsRpc
     # (AMHGEVF.m:77-88). The date of service is piece 8. Unary + drops a
     # leading zero, so "0251031" would file 251031; a date that does not
     # begin with 1, 2, or 3 is refused before any RPC. A date before
-    # 2000101, the DD minimum for .01, is refused. A date after today is
-    # refused. That comparison uses Date.today, the process local clock,
-    # not the RPMS server date. Every call sends exactly these 16 pieces,
+    # 2000101, the DD minimum for .01, is refused. A date after the RPMS
+    # server's today is refused: one ORWU DT "T" read, the server's clock and
+    # never the process's (a US evening is already tomorrow on a UTC server,
+    # #644). A server date that cannot be read refuses the save. Every call sends exactly these 16 pieces,
     # blanks included. Omitting the arrival piece would put the date in
     # piece 7.
     #
@@ -1628,9 +1630,21 @@ module RpmsRpc
       text
     end
 
-    # Local calendar date as a FileMan integer. Not the RPMS server's DT.
+    # The RPMS server's today as a FileMan date integer, from ORWU DT "T"
+    # (DT^ORWU, ORWU.m:4-7; "TS" is the routine's own default %DT). Fail
+    # closed: no answer, "-1", a value that is not a FileMan date, or a
+    # broker error refuses the save (#644). Read in the caller's context, as
+    # the DDR reads before the AMHG call are: ORWU DT is registered under
+    # CIAV VUECENTRIC, which a CIA sign-on binds, and save_visit binds
+    # nothing before AMHGRPC.
     def save_visit_today_fm
-      FilemanDateParser.format_date(Date.today).to_i
+      today = DataMapper[:orwu_dt].fetch_scalar("T", "TS").to_s.strip.split(".", 2).first.to_s
+      unless today.match?(/\A[1-3]\d{6}\z/) && FilemanDateParser.parse_datetime_or_date(today)
+        save_visit_refuse!("the server date could not be read")
+      end
+      today.to_i
+    rescue Client::RpcError, Client::ConnectionError => e
+      raise SaveError, "the server date could not be read", cause: e
     end
 
     def save_visit_text(value)

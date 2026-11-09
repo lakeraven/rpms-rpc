@@ -54,7 +54,10 @@ class ProgressNoteWrapTest < Minitest::Test
   end
 
   def assert_update_succeeds(note_ien, text, wrap_width: nil)
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1") }
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:tiu_authorization, note_ien, "1") # update_text asks CANDO^TIUSRVA first (#614)
+      m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1")
+    end
     result = if wrap_width.nil?
                RpmsRpc::ProgressNote.update_text(note_ien, text)
     else
@@ -317,7 +320,10 @@ class ProgressNoteWrapTest < Minitest::Test
   end
 
   def test_existing_two_line_update_shape_unchanged_at_default_width
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1") }
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") # update_text asks CANDO^TIUSRVA first (#614)
+      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1")
+    end
     RpmsRpc::ProgressNote.update_text(NOTE_IEN, "S: cough\nO: afebrile")
     assert_equal [ NOTE_IEN, { "HDR" => "1^1", [ "TEXT", 1, 0 ] => "S: cough", [ "TEXT", 2, 0 ] => "O: afebrile" } ],
                  params_sent_to("TIU SET DOCUMENT TEXT")
@@ -349,7 +355,10 @@ class ProgressNoteWrapTest < Minitest::Test
 
   def test_single_line_that_used_to_hit_frame_too_long_now_succeeds_on_xwb
     line = "n" * 5000
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1") }
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") # update_text asks CANDO^TIUSRVA first (#614)
+      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1")
+    end
     client = RpmsRpc::XwbClient.new
     socket_writes = []
     socket = Object.new
@@ -361,7 +370,9 @@ class ProgressNoteWrapTest < Minitest::Test
     socket.define_singleton_method(:setsockopt) { |*| }
     client.instance_variable_set(:@socket, socket)
     client.instance_variable_set(:@connected, true)
-    client.define_singleton_method(:read_response) { "#{NOTE_IEN}^1^1" }
+    # TIU AUTHORIZATION answers "1" first (#614), then the SET acknowledgement.
+    replies = [ "1", "#{NOTE_IEN}^1^1" ]
+    client.define_singleton_method(:read_response) { replies.shift }
     RpmsRpc.configure { |cfg| cfg.client = client }
 
     result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, line)
@@ -414,7 +425,10 @@ class ProgressNoteWrapTest < Minitest::Test
   end
 
   def test_non_string_with_valid_to_s_is_coerced_and_sent
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1") }
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") # update_text asks CANDO^TIUSRVA first (#614)
+      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1")
+    end
     result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, 123)
     assert_equal({ success: true, raw: "#{NOTE_IEN}^1^1" }, result)
     tiux = tiux_from_params(params_sent_to("TIU SET DOCUMENT TEXT"))
@@ -477,7 +491,10 @@ class ProgressNoteWrapTest < Minitest::Test
 
   def assert_long_whitespace_run_wraps_quickly(run_char, run_length)
     line = (run_char * run_length) + "x"
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1") }
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") # update_text asks CANDO^TIUSRVA first (#614)
+      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1")
+    end
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, line)
     elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
