@@ -1,0 +1,140 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb amhg-wellness.rb.
+---
+rpc: AMHG SAVE SCREENING
+entry_point: SCREEN^AMHGSVF
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: SYS123 (the build's operator, MANAGER,SYSTEM; DUZ 4), the persona AMHGRPC
+  lets file BH records
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T16:32:19Z'
+note: Setup files one BH visit (AMHG SAVE VISIT, as the live spec does); its IEN is
+  in each capture's inputs. The screening save files alcohol NEGATIVE with provider
+  DUZ 4; the measurement save files PHQ9 14. 999999 is an IEN no visit or user has.
+  Synthetic patient and text only.
+captures:
+- name: lock
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^AMHREC(8)"
+    LOCKMODE: '1'
+    TIMEOUT: '5'
+  context: the save locks ^AMHREC(visit)
+  raw_return: "2\01"
+  sha256: 3bde6d42d0a69dfee87ee5ecbeb030f288ebd4e6b927e144cee108e3cdebbc19
+- name: lock_held_elsewhere
+  rpc: DDR LOCK/UNLOCK NODE
+  signed_on_as: SYS123 again, on a second broker session
+  inputs:
+  - NODE: "^AMHREC(8)"
+    LOCKMODE: '1'
+    TIMEOUT: '1'
+  context: a second session asks for the lock the first holds
+  raw_return: "5\00"
+  sha256: 13b612a1dfb586c63d2aed3cc890eaca196f58388b5558d976540b2722916415
+- name: visit_before
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 8,
+    FIELDS: ".08;1112;1401;1402;1403;1404;1405;1406;1407;1408;1409;1410;1501;1601;1701;1901;2001"
+    FLAGS: I
+  context: the visit pre-read, nothing screened yet
+  raw_return: "3\0[Data]\r9002011^8^.08^990045^\r9002011^8^1112^^\r9002011^8^1401^^\r9002011^8^1402^^\r9002011^8^1403^^\r9002011^8^1404^^\r9002011^8^1405^^\r9002011^8^1406^^\r9002011^8^1407^^\r9002011^8^1408^^\r9002011^8^1409^^\r9002011^8^1410^^\r9002011^8^1501^^\r9002011^8^1601^^\r9002011^8^1701^^\r9002011^8^1901^^\r9002011^8^2001^^\r"
+  sha256: a8126b90dd7527f4227c4ccdcafe076a3879933e314584c8d294cfa43619372e
+- name: visit_not_on_file
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 999999,
+    FIELDS: ".08;1112;1401;1402;1403;1404;1405;1406;1407;1408;1409;1410;1501;1601;1701;1901;2001"
+    FLAGS: I
+  context: a visit IEN not on file
+  raw_return: "4\0[ERROR]\r"
+  sha256: 90c2709fe86b8acf0df6220c868088d787baf3e1f6a24b91e49c4c6114067b8a
+- name: provider
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '200'
+    IENS: 4,
+    FIELDS: ".01"
+    FLAGS: I
+  context: the provider, on file 200
+  raw_return: "5\0[Data]\r200^4^.01^MANAGER,SYSTEM^\r"
+  sha256: dc4bc1cfe60d004f983c1434a1eb1bf5085163d3ad62fd1623d5b9e1981722a1
+- name: provider_not_on_file
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '200'
+    IENS: 999999,
+    FIELDS: ".01"
+    FLAGS: I
+  context: a provider IEN not on file 200
+  raw_return: "6\0[ERROR]\r"
+  sha256: 3d76cc942428dd0736dea3a5c5d24a9287da98b663a904e758603caa10ed4065
+- name: save_screening
+  inputs:
+  - E|8|NEGATIVE|Synthetic alcohol screening note|||||||4||||||||
+  context: alcohol NEGATIVE, the other four screenings blank
+  raw_return: "7\0T00030Result\x1E8\x1E\x1F"
+  sha256: b45ac7e72a1377eabe44c4b8500a0b16a4838d4f0a320875105ffa6a0ce9be54
+- name: save_screening_not_on_file
+  inputs:
+  - E|999999|NEGATIVE|Synthetic alcohol screening note|||||||4||||||||
+  context: 'the same screening for a visit not on file: AMHG''s error reply'
+  raw_return: "8\0T00030Result\x1E0~Edit Screening\x1E\x1F"
+  sha256: 410c276dde4bb25135fa6e1f5db0353979e1e737857191d2950bec15cdb8e593
+- name: visit_after_screening
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 8,
+    FIELDS: ".08;1112;1401;1402;1403;1404;1405;1406;1407;1408;1409;1410;1501;1601;1701;1901;2001"
+    FLAGS: I
+  context: the visit read after the screening write
+  raw_return: "9\0[Data]\r9002011^8^.08^990045^\r9002011^8^1112^^\r9002011^8^1401^^\r9002011^8^1402^^\r9002011^8^1403^N^\r9002011^8^1404^4^\r9002011^8^1405^^\r9002011^8^1406^^\r9002011^8^1407^^\r9002011^8^1408^^\r9002011^8^1409^^\r9002011^8^1410^^\r9002011^8^1501^^\r9002011^8^1601^Synthetic
+    alcohol screening note^\r9002011^8^1701^^\r9002011^8^1901^^\r9002011^8^2001^^\r"
+  sha256: c5a83760cf3152951e0760b1d5464540244dd311f1b82420e4e5a9b34d18c5f9
+- name: save_measurements
+  rpc: AMHG SAVE MEASUREMENTS
+  inputs:
+  - A|8|PHQ9~~14~4|990045
+  context: PHQ9 14, provider DUZ 4, mode A
+  raw_return: "1\0T00030Result\x1E8\x1E\x1F"
+  sha256: 6f0afcf0641d914bda5ac0e42b49e4d64d6835cf4f67a950eacb0117ec5dddbc
+- name: save_measurements_not_on_file
+  rpc: AMHG SAVE MEASUREMENTS
+  inputs:
+  - A|999999|PHQ9~~14~4|990045
+  context: 'measurements for a visit not on file: the build answers that IEN, as if
+    filed'
+  raw_return: "2\0T00030Result\x1E999999\x1E\x1F"
+  sha256: cdda7d53a50d52bae361004d3457e49383bafda2d911cb2415c7b1f983c5ef7e
+- name: visit_after_measurements
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9002011'
+    IENS: 8,
+    FIELDS: ".08;1112;1401;1402;1403;1404;1405;1406;1407;1408;1409;1410;1501;1601;1701;1901;2001"
+    FLAGS: I
+  context: the visit read after the measurement write
+  raw_return: "3\0[Data]\r9002011^8^.08^990045^\r9002011^8^1112^^\r9002011^8^1401^^\r9002011^8^1402^^\r9002011^8^1403^N^\r9002011^8^1404^4^\r9002011^8^1405^^\r9002011^8^1406^^\r9002011^8^1407^^\r9002011^8^1408^^\r9002011^8^1409^^\r9002011^8^1410^^\r9002011^8^1501^^\r9002011^8^1601^Synthetic
+    alcohol screening note^\r9002011^8^1701^^\r9002011^8^1901^^\r9002011^8^2001^^\r"
+  sha256: 198e5161bfb2d9f481fcd10bb150463071d0b1ecd5c9414092af8f41fa321641
+- name: msr_read
+  rpc: AMHG GET VISIT MSR DATA ENTRY
+  inputs:
+  - '8'
+  context: the visit's measurements after the write
+  raw_return: "4\0T00010BMXIEN^T00010Measurement^T00030Description^T00030Value^T00010Provider
+    IEN^T00030Provider\x1E42^PHQ9^PHQ9^14^4^MANAGER,SYSTEM\x1E\x1F"
+  sha256: 564248842e4a12a2f7f07a466589d3b6b974ecbfc1ab77e87b495f40d923fd9a
+- name: unlock
+  rpc: DDR LOCK/UNLOCK NODE
+  inputs:
+  - NODE: "^AMHREC(8)"
+  context: the save releases the lock
+  raw_return: "5\01"
+  sha256: '08a34bb30955934006e0c0e057f90907e74b266b2577ee616291fc66ed0a10cc'
