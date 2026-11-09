@@ -3,6 +3,7 @@
 require "yaml"
 require "digest"
 require "rpms_rpc/cia_client"
+require "rpms_rpc/bmx_client"
 
 # Replies captured from a throwaway container of a pinned build, replayed
 # through the real CiaClient reply parser (ADR 0009: a test reads what RPMS
@@ -117,6 +118,51 @@ module CapturedReplies
     # The wire, for a call_rpc_global_array in flight: its scripted reply.
     def exchange(*, **)
       @scripted || raise("ReplayCiaClient: a wire exchange outside a scripted call")
+    end
+  end
+
+  # A BmxClient whose socket answers a script of whole BMX reply frames
+  # (security packet, application packet, data, EOT), as a BMX flow recorded
+  # them (tools/capture_replies.rb, broker: :bmx). The frame each call sends is
+  # built by BmxClient itself and dropped; the reply is read by BmxClient's own
+  # read_response, so a refusal in the security packet raises as it does live.
+  # The client starts connected and not signed on, as a BMX session does.
+  class ReplayBmxClient < RpmsRpc::BmxClient
+    attr_reader :calls
+
+    # Answers recv from the next scripted frame of the RPC in flight.
+    class ScriptedSocket
+      def initialize(client) = @client = client
+      def write(_bytes) = nil
+      def flush = nil
+      def closed? = false
+      def close = nil
+      def recv(_max) = @client.send(:next_frame)
+    end
+
+    def initialize(script)
+      super(host: "127.0.0.1", port: 9101)
+      @script = script.transform_values { |replies| Array(replies).dup }
+      @calls = []
+      @socket = ScriptedSocket.new(self)
+      @connected = true
+    end
+
+    def build_bmx_message(rpc_name, params = [])
+      @calls << { rpc: rpc_name, params: params }
+      @in_flight = rpc_name
+      super
+    end
+
+    def rpcs_called = @calls.map { |c| c[:rpc] }
+
+    private
+
+    def next_frame
+      replies = @script[@in_flight]
+      raise "ReplayBmxClient: no scripted reply left for #{@in_flight}" if replies.nil? || replies.empty?
+
+      replies.shift.b
     end
   end
 end

@@ -19,12 +19,15 @@
 # made) that an `inputs` lambda reads. A call with `as:` runs on its own
 # session, signed on as that entry of `personas`. A call that sets global_array: true
 # reads a GLOBAL ARRAY reply (the AGG RPCs) with call_rpc_global_array. `flows`, when
-# given, run gem code and keep every reply it got (see RecordingCiaClient). Loopback only.
+# given, run gem code and keep every reply it got (see RecordingCiaClient); a flow with
+# broker: :bmx runs on BMX instead (see RecordingBmxClient). Loopback only.
 require "yaml"
 require "digest"
 require "time"
+require "delegate"
 require "rpms_rpc/mappings"
 require "rpms_rpc/cia_client"
+require "rpms_rpc/bmx_client"
 require "rpms_rpc/valid_signature"
 require "rpms_rpc"
 
@@ -114,17 +117,72 @@ class RecordingCiaClient < RpmsRpc::CiaClient
   end
 end
 
+# A BMX flow (broker: :bmx) runs on a BmxClient that is only connected: the
+# gem's own sign-on (Authentication.authenticate) is part of what the flow
+# records. Each reply is kept as the whole frame the broker sent (security
+# packet, application packet, data, EOT), so a refusal in the security packet
+# is recorded too and replays through BmxClient's own read_response. The
+# inputs to the RPCs a flow names in `withhold:` (an encrypted access/verify
+# pair) are recorded as withheld. BMX_PORT names the BMX listener.
+class RecordingBmxClient < RpmsRpc::BmxClient
+  attr_reader :recorded
+
+  # The socket, with every byte it receives kept for the reply being read.
+  class TeeSocket < SimpleDelegator
+    attr_accessor :inbox
+
+    def recv(...)
+      __getobj__.recv(...).tap { |chunk| inbox&.<<(chunk.to_s.b) }
+    end
+  end
+
+  def initialize(...)
+    super
+    @recorded = []
+  end
+
+  def build_bmx_message(rpc_name, params = [])
+    @sent = [ rpc_name, params ]
+    super
+  end
+
+  private
+
+  def connect_tcp(...) = TeeSocket.new(super)
+
+  def read_response
+    @socket.inbox = "".b
+    super
+  ensure
+    if @sent
+      frame = @socket.inbox
+      @recorded << [ *@sent, frame.byteslice(0, frame.bytesize - @rbuf.to_s.bytesize) ]
+      @sent = nil
+    end
+    @socket.inbox = nil
+  end
+end
+
 spec.fetch(:flows, {}).each do |flow_name, flow|
   pair = flow[:as] ? spec.fetch(:personas).fetch(flow[:as]) : spec
-  session = RecordingCiaClient.new(host: "127.0.0.1", port: Integer(ENV.fetch("BROKER_PORT", "9100")), timeout: 30)
+  bmx = flow[:broker] == :bmx
+  session = if bmx
+    RecordingBmxClient.new(host: "127.0.0.1", port: Integer(ENV.fetch("BMX_PORT", "9101")), timeout: 30)
+  else
+    RecordingCiaClient.new(host: "127.0.0.1", port: Integer(ENV.fetch("BROKER_PORT", "9100")), timeout: 30)
+  end
   session.connect
-  session.authenticate(pair.fetch(:access), pair.fetch(:verify))
-  session.recorded.clear # the sign-on's own calls, not the flow's
+  unless bmx
+    session.authenticate(pair.fetch(:access), pair.fetch(:verify))
+    session.recorded.clear # the sign-on's own calls, not the flow's
+  end
   RpmsRpc.configure { |cfg| cfg.client = session }
   flow.fetch(:run).call
   session.recorded.each_with_index do |(rpc, params, raw), i|
     entry = { "name" => "#{flow_name}/#{i + 1}", "rpc" => rpc }
+    entry["broker"] = "bmx" if bmx
     entry["signed_on_as"] = pair.fetch(:signed_on_as) if flow[:as]
+    params = [ "<withheld: an encrypted credential>" ] if Array(flow[:withhold]).include?(rpc)
     captures << entry.merge("inputs" => params, "context" => flow.fetch(:about),
                             "raw_return" => yaml_bytes(raw), "sha256" => Digest::SHA256.hexdigest(raw))
   end
@@ -136,7 +194,11 @@ end
 doc = {
   "rpc" => spec.fetch(:rpc), "entry_point" => spec.fetch(:entry_point),
   "release_tag" => build, "image" => image,
-  "client" => "RpmsRpc::CiaClient#call_rpc_raw",
+  "client" => if captures.any? { |c| c["broker"] == "bmx" }
+                "RpmsRpc::CiaClient#call_rpc_raw; an entry with broker: bmx is the whole RpmsRpc::BmxClient reply frame"
+              else
+                "RpmsRpc::CiaClient#call_rpc_raw"
+              end,
   "signed_on_as" => spec.fetch(:signed_on_as),
   "bound_context" => spec[:context] || RpmsRpc::CiaClient::SIGNON_CONTEXT,
   "captured_at" => Time.now.utc.iso8601, "note" => spec.fetch(:note), "captures" => captures
