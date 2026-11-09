@@ -9,7 +9,7 @@ client: 'RpmsRpc::CiaClient#call_rpc_raw; an entry with broker: bmx is the whole
   reply frame'
 signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
 bound_context: CIAV VUECENTRIC
-captured_at: '2026-11-09T16:48:36Z'
+captured_at: '2026-11-09T17:00:39Z'
 note: Run on a throwaway container. The access/verify pair and the verify codes cross
   the wire XWB-encrypted and are withheld. The last flow changes PROFILE,RN's verify
   code on that container only.
@@ -74,9 +74,9 @@ captures:
   - "<withheld: an encrypted credential>"
   context: authenticate as PROFILE,MD, then bind CIAV VUECENTRIC and read the user
     class
-  raw_return: "\0\0206\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood afternoon PROFILE,MD\r\n
-    \    You last signed on today at 16:48\r\n\x04"
-  sha256: 75eb90d941dce8a673083ee0d0580891373aae0e929e99d4a36d8594c1783d96
+  raw_return: "\0\0206\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood evening PROFILE,MD\r\n
+    \    You last signed on today at 17:00\r\n\x04"
+  sha256: 68f7979e37201e261933fcf02293024b8e77993de3cdf00f15f126d8bb5960b5
 - name: signon/3
   rpc: XUS GET USER INFO
   broker: bmx
@@ -89,7 +89,7 @@ captures:
   rpc: XWB CREATE CONTEXT
   broker: bmx
   inputs:
-  - +IF-{1{rKIKA6vFI"
+  - "(Gk\\|>|S.G.):ykG3"
   context: authenticate as PROFILE,MD, then bind CIAV VUECENTRIC and read the user
     class
   raw_return: "\0\01\x04"
@@ -132,9 +132,9 @@ captures:
   - "<withheld: an encrypted credential>"
   context: authenticate as PROFILE,SCHED, then again on the same session with a wrong
     verify code
-  raw_return: "\0\0208\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood afternoon PROFILE,SCHED\r\n
-    \    You last signed on today at 16:48\r\n\x04"
-  sha256: 987aebf99245629fa04bb52d1efa55bc3617b5c70eb586dcf38c2d27bb92a5f2
+  raw_return: "\0\0208\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood evening PROFILE,SCHED\r\n
+    \    You last signed on today at 17:00\r\n\x04"
+  sha256: 0d8e6d4718379528e17f0843ec0a41722473580fe10baa8be51b623b1aa47668
 - name: second_signon/3
   rpc: XUS GET USER INFO
   broker: bmx
@@ -176,9 +176,9 @@ captures:
   - "<withheld: an encrypted credential>"
   context: as PROFILE,RN, change the verify code giving a current code that is not
     theirs
-  raw_return: "\0\0205\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood afternoon PROFILE,RN\r\n
-    \    You last signed on today at 16:48\r\n\x04"
-  sha256: e231fc9100752d98c5571ce42db3d5deec77dc33cff2cce40b2f666c4d7c3dbc
+  raw_return: "\0\0205\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood evening PROFILE,RN\r\n
+    \    You last signed on today at 17:00\r\n\x04"
+  sha256: 306645dd6ee1b64f8ebb524969ebe7ff6f5d7977486ef63f2445488cc7ec2392
 - name: cvc_wrong_old/3
   rpc: XUS GET USER INFO
   broker: bmx
@@ -209,9 +209,9 @@ captures:
   inputs:
   - "<withheld: an encrypted credential>"
   context: as PROFILE,RN, change the verify code
-  raw_return: "\0\0205\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood afternoon PROFILE,RN\r\n
-    \    You last signed on today at 16:48\r\n\x04"
-  sha256: e231fc9100752d98c5571ce42db3d5deec77dc33cff2cce40b2f666c4d7c3dbc
+  raw_return: "\0\0205\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood evening PROFILE,RN\r\n
+    \    You last signed on today at 17:00\r\n\x04"
+  sha256: 306645dd6ee1b64f8ebb524969ebe7ff6f5d7977486ef63f2445488cc7ec2392
 - name: cvc/3
   rpc: XUS GET USER INFO
   broker: bmx

@@ -24,7 +24,6 @@
 require "yaml"
 require "digest"
 require "time"
-require "delegate"
 require "rpms_rpc/mappings"
 require "rpms_rpc/cia_client"
 require "rpms_rpc/bmx_client"
@@ -127,15 +126,6 @@ end
 class RecordingBmxClient < RpmsRpc::BmxClient
   attr_reader :recorded
 
-  # The socket, with every byte it receives kept for the reply being read.
-  class TeeSocket < SimpleDelegator
-    attr_accessor :inbox
-
-    def recv(...)
-      __getobj__.recv(...).tap { |chunk| inbox&.<<(chunk.to_s.b) }
-    end
-  end
-
   def initialize(...)
     super
     @recorded = []
@@ -148,18 +138,26 @@ class RecordingBmxClient < RpmsRpc::BmxClient
 
   private
 
-  def connect_tcp(...) = TeeSocket.new(super)
+  # The real socket, so the read timeout's IO.select still applies, with its
+  # recv taught to keep every byte it returns for the reply being read.
+  def connect_tcp(...)
+    recorder = self
+    super.tap do |socket|
+      socket.define_singleton_method(:recv) { |*args| super(*args).tap { |chunk| recorder.send(:keep, chunk) } }
+    end
+  end
+
+  def keep(chunk) = @inbox&.<<(chunk.to_s.b)
 
   def read_response
-    @socket.inbox = "".b
+    @inbox = "".b
     super
   ensure
     if @sent
-      frame = @socket.inbox
-      @recorded << [ *@sent, frame.byteslice(0, frame.bytesize - @rbuf.to_s.bytesize) ]
+      @recorded << [ *@sent, @inbox.byteslice(0, @inbox.bytesize - @rbuf.to_s.bytesize) ]
       @sent = nil
     end
-    @socket.inbox = nil
+    @inbox = nil
   end
 end
 
