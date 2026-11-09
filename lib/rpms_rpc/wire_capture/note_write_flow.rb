@@ -407,15 +407,21 @@ module RpmsRpc
     end
 
     class WriteReplay
-      def initialize(rpc, rows)
+      # allowed: RPCs the API asks before the one under test, each answered
+      # once with the reply that lets it go on (update_text's TIU
+      # AUTHORIZATION, #614). The gate itself is proven by its own tests;
+      # this judges only the reply of the RPC under test.
+      def initialize(rpc, rows, allowed: {})
         @rpc = rpc.to_s
         @rows = rows
+        @allowed = allowed.dup
         @used = false
       end
 
       # One call, and only the RPC under test. Fixture#rows is the payload:
       # CIA frame stripped, empty lines dropped. A second call is nil.
       def call_rpc(name, *)
+        return @allowed.delete(name.to_s) if @allowed.key?(name.to_s)
         return nil if @used || name.to_s != @rpc
 
         @used = true
@@ -514,8 +520,8 @@ module RpmsRpc
         require_relative "../api/e_signature"
       end
 
-      def replay(rpc, rows)
-        RpmsRpc.with_client(WriteReplay.new(rpc, rows)) { yield }
+      def replay(rpc, rows, allowed: {})
+        RpmsRpc.with_client(WriteReplay.new(rpc, rows, allowed: allowed)) { yield }
       end
 
       def create_evidence?(rows)
@@ -543,7 +549,7 @@ module RpmsRpc
         # Fail closed: a missing note IEN must not be treated as the reply's TIUDA.
         return false if note_ien.nil?
 
-        result = replay(NoteWriteFlow::SET_RPC, rows) do
+        result = replay(NoteWriteFlow::SET_RPC, rows, allowed: { "TIU AUTHORIZATION" => [ "1" ] }) do
           ProgressNote.update_text(note_ien, "x")
         end
         result.is_a?(Hash) && result[:success] == true
