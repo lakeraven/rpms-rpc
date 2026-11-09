@@ -265,8 +265,8 @@ by definition, not a clean reply, and an unknown lookalike can only make the ans
   allergen text in piece 2, and no control character anywhere (so RS/US framing and NUL are never stripped into a clean row). ASCII
   controls always count. A real U+0080-U+009F **codepoint** read from UTF-8 (NEL, CSI: a control sequence, not text) makes the row
   unrecognised, but a **byte** 0x80-0x9F in a BINARY string that is not valid UTF-8, or in a Latin-1 / Windows-1252 tagged string, is
-  a byte (printable in Windows-1252) and stays a clean row, byte-identical to `main`. Which charset a live site uses is unproven
-  (rpms-rpc#476).
+  a byte (printable in Windows-1252) and stays a clean row, byte-identical to `main`. The wire carries stored bytes untranscoded; which
+  single-byte charset a site stores is not declared (rpms-rpc#476).
   A real row has **at most four pieces** (`IEN^agent[^severity[^signs]]`): a fifth or later non-blank piece makes the line unrecognised
   (surfaced, conflict), so the four-field mapping can never drop text. An allergen whose *text* mentions a marker, on such a row, is
   a normal row.
@@ -358,12 +358,12 @@ reply.altered_lines   # => zero-based indexes of those lines
 RpmsRpc::Reply.altered?(x)  # false for anything that is not an altered Reply
 ```
 
-**Charset: assumed UTF-8, UNPROVEN.** Latin-1 is observed in stored data
-(`conformance/build_surface.rb`, the `\xB7` bullet in the `bcer-9.0-20260930`
-RPC descriptions; `api/patient.rb` notes non-UTF-8 name bytes), so real
-Latin-1 text is replaced and reported as altered. No site or broker character
-set is documented in this repository; a live read with a known high byte is the
-follow-up that settles it.
+**Charset: the wire carries stored bytes untranscoded** (rpms-rpc#476). A stored
+`0xB7` bullet (`#8994` XWB CREATE CONTEXT's description) arrives as that one byte
+over CIA and over BMX on YottaDB, not as the UTF-8 pair `C2 B7`; the captures are in
+`test/fixtures/wire_charset/`. One byte cannot tell Latin-1 from Windows-1252, so the
+gem declares no site charset: a reply is read as UTF-8, and a byte that is not is
+replaced and reported as altered. XWB on IRIS has not been read this way yet.
 
 Altered text must never read as verified identity: a host that matches on reply
 text (an allergen name, a patient name) must check `altered?` and refuse an

@@ -1143,8 +1143,9 @@ class ClinicalReadWireTest < Minitest::Test
   # A byte 0x80-0x9F in a BINARY / Latin-1 / Windows-1252 string is a byte (a
   # printable character in Windows-1252), so the row stays clean and its bytes
   # are untouched. A real U+0080-U+009F CODEPOINT in valid UTF-8 (NEL, CSI...)
-  # is a control sequence, not text: unrecognised. Unproven: which charset a
-  # live site uses (rpms-rpc#476).
+  # is a control sequence, not text: unrecognised. The wire carries stored
+  # bytes untranscoded; which single-byte charset a site stores is not
+  # declared (rpms-rpc#476).
 
   def test_c1_bytes_in_a_binary_row_stay_clean_and_byte_identical
     [ "\x80", "\x85", "\x96", "\x9B", "\x9F" ].each do |byte|

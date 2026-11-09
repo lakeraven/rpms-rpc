@@ -7,12 +7,13 @@ module RpmsRpc
   # indexing) works unchanged. What it adds is one fact a plain Array cannot
   # carry: whether any line had to be altered to become valid UTF-8, and which.
   #
-  # CHARSET: assumed UTF-8, UNPROVEN. Latin-1 is observed in stored data
-  # (conformance/build_surface.rb, the \xB7 bullet in the bcer-9.0-20260930
-  # RPC descriptions; api/patient.rb notes non-UTF-8 name bytes), so real
-  # Latin-1 text is replaced and reported as altered. No site or broker
-  # character set is documented in this repository; a live read with a known
-  # high byte is the follow-up that settles it.
+  # CHARSET: the wire carries stored bytes untranscoded (rpms-rpc#476). A live
+  # read of a stored 0xB7 bullet (#8994 XWB CREATE CONTEXT's description)
+  # arrives as that one byte over CIA and over BMX on YottaDB, never as the
+  # UTF-8 pair C2 B7 (test/fixtures/wire_charset/). One byte cannot tell
+  # Latin-1 from Windows-1252, so no site charset is declared: a reply is read
+  # as UTF-8, and a byte that is not is replaced and reported as altered.
+  # XWB on IRIS has not been read this way yet.
   #
   # Altered text must never read as verified identity. A host that matches on
   # reply text (an allergen name, a patient name) asks #altered? and refuses
