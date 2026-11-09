@@ -1,0 +1,47 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb orqqpxrm-reminders-applicable.rb.
+---
+rpc: ORQQPXRM REMINDERS APPLICABLE
+entry_point: APPL^ORQQPXRM
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T04:35:32Z'
+note: Seed patients DFN 4 and DFN 3 (synthetic data); location 6 is DEMO PRIMARY CARE.
+  Evaluation files nothing.
+captures:
+- name: dfn_4
+  inputs:
+  - '4'
+  - ''
+  context: 'DFN 4, no location: due, applicable and cannot-be-determined rows'
+  raw_return: "5\0212^Weight^CNBD^^2^4^1^^^^0\r309^Mammogram 50-74^CNBD^^2^4^1^^^^0\r123^Depression
+    Screen^3270902^3260902^2^0^1^^^^0\r211^Tobacco Screen^DUE NOW^^2^1^1^^^^0\r274^Domestic
+    Violence^DUE NOW^^2^1^1^^^^0\r"
+  sha256: 9167563c3ab977119a96cf4a1c2c8e817575386650ebe1eaac466e327f27b4b5
+- name: dfn_4_at_location
+  inputs:
+  - '4'
+  - '6'
+  context: DFN 4 at DEMO PRIMARY CARE
+  raw_return: "6\0212^Weight^CNBD^^2^4^1^^^^0\r309^Mammogram 50-74^CNBD^^2^4^1^^^^0\r123^Depression
+    Screen^3270902^3260902^2^0^1^^^^0\r211^Tobacco Screen^DUE NOW^^2^1^1^^^^0\r274^Domestic
+    Violence^DUE NOW^^2^1^1^^^^0\r"
+  sha256: 83967d1a1a639f47ac1614005022555661ac183850de128043dc04575ab3b2b8
+- name: dfn_3
+  inputs:
+  - '3'
+  - ''
+  context: 'DFN 3, no location: not-applicable rows'
+  raw_return: "7\0212^Weight^CNBD^^2^4^1^^^^0\r309^Mammogram 50-74^^^^2^1^^^^0\r123^Depression
+    Screen^^^^2^1^^^^0\r211^Tobacco Screen^^^^2^1^^^^0\r274^Domestic Violence^^^^2^1^^^^0\r"
+  sha256: d1b76c6b1a2f9e557cb9b434883967b45fab53b2a918bf3b26f380d6b020d083
+- name: no_such_patient
+  inputs:
+  - '999999'
+  - ''
+  context: a DFN no patient holds
+  raw_return: "8\0"
+  sha256: 0c59629d81806b2b169bcd633f8a9cb7da43a8d692dbc95bc201d0f5cf5e08d5

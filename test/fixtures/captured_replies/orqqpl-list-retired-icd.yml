@@ -1,0 +1,37 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb orqqpl-list-retired-icd.rb.
+---
+rpc: ORQQPL LIST
+entry_point: LIST^ORQQPL
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T04:28:16Z'
+note: Setup files one problem for demo patient 4 with retired ICD-9-CM 203.1 (BGOPROB
+  SET, location 1, SPEC 1). Patient 4's seeded problems carry ICD-10 codes, which
+  this build's LIST^GMPLUTL2 answers with $$ICDDX error text in piece 4, also marked
+  '#'.
+captures:
+- name: retired_code
+  inputs:
+  - '4'
+  - ''
+  context: 'demo patient 4, all statuses: four seeded rows with error text in piece
+    4 and the filed row with 203.1, every row ''#'''
+  raw_return: "6\04^Type 2 diabetes mellitus ^A^Invalid Code (not found in the ICD-9-CM
+    system)^^3260902.213244^^^#^^^ORQQPL DETAIL^#\r3^Acute bronchitis ^E^Invalid Code
+    (not found in the ICD-9-CM system)^^3260902.213131^^^#^*^^ORQQPL DETAIL^#\r5^Acute
+    urinary tract infection ^E^Invalid Code (not found in the ICD-9-CM system)^^3260902.214632^^^#^*^^ORQQPL
+    DETAIL^#\r6^Coronary atherosclerosis ^E^Invalid Code (not found in the ICD-9-CM
+    system)^^3260903.173526^^^#^*^^ORQQPL DETAIL^#\r148^*Retired code demo^E^203.1^^3261109.042816^^^#^*^^ORQQPL
+    DETAIL^#\r"
+  sha256: '093ad41269ecaa41da535523c338b15f8f800eae068742e8b6289df8176e6812'
+- name: no_problems
+  inputs:
+  - '999999'
+  - ''
+  context: 'a DFN no patient has: the ''^No problems found.'' sentinel'
+  raw_return: "7\0^No problems found.\r"
+  sha256: fb23ed5fae8cf0f687650d8ce83e9c0b1069a9f2d3dfc87412ac7af8a4eae4a5

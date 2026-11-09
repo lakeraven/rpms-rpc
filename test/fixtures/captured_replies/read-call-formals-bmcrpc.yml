@@ -1,0 +1,24 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb read-call-formals-bmcrpc.rb.
+---
+rpc: BMC SEARCH REFERRAL
+entry_point: SRCHREF^BMCRPC1
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: BMCRPC
+captured_at: '2026-11-09T04:32:41Z'
+note: Seed patient DFN 4 (synthetic data); a read.
+captures:
+- name: dfn_4
+  inputs:
+  - '4'
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  context: 'Referral.for_patient: DFN and five empty filters'
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f

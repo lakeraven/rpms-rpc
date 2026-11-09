@@ -449,9 +449,8 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
         marker = pieces[12] == "#"
         inactive = parsed[:inactive_icd] == true
         next true if marker != inactive
-        next true if inactive && mapped_value_present?(parsed[:icd_code])
-        next true if !marker && mapped_value_present?(parsed[:icd_code]) &&
-                      !piece4_icd_code_shaped?(pieces[3])
+        # A retired code is kept on the "#" branch (#532); error text never is.
+        next true if mapped_value_present?(parsed[:icd_code]) && !piece4_icd_code_shaped?(pieces[3])
 
         false
       end
@@ -759,8 +758,8 @@ class RpmsRpc::PilotChartReadsTest < Minitest::Test
     refute_nil parsed
     assert_equal true, parsed[:inactive_icd],
                  "piece 13 '#' marker must set inactive_icd even when piece 4 is a real inactive code"
-    assert_nil parsed[:icd_code],
-               "inactive ICD rows must not report piece 4 as icd_code (real code or error text)"
+    assert_equal "250.00", parsed[:icd_code],
+                 "an inactive-ICD row keeps a real retired code in piece 4 as icd_code (#532)"
     assert_nil parsed[:transcribed],
                "inactive ICD rows must not expose '#' as transcribed"
 
