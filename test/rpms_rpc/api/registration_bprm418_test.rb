@@ -178,6 +178,15 @@ class RegistrationBprm418Test < Minitest::Test
     end
   end
 
+  def test_set_gender_identity_refuses_a_bad_dfn_or_value_list_without_rpc
+    [ [ "", [ 1 ] ], [ DFN, [] ], [ DFN, [ "7" ] ] ].each do |dfn, values|
+      replay
+
+      assert_refused(Reg.set_gender_identity(dfn, values: values), :invalid)
+      assert_empty rpcs_sent, [ dfn, values ].inspect
+    end
+  end
+
   # -- set_sexual_orientation -------------------------------------------------
 
   def test_set_sexual_orientation_files_a_new_date_with_dinum_pins
@@ -220,6 +229,17 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_refused(Reg.set_sexual_orientation(DFN, values: [ nil ]), :invalid)
     assert_empty rpcs_sent
+  end
+
+  def test_set_sexual_orientation_refuses_other_text_that_must_not_reach_m_without_rpc
+    [ "self^described", "@", "note\x01" ].each do |other|
+      replay
+
+      result = Reg.set_sexual_orientation(DFN, values: [ 4 ], other: other, date: ROW_DATE)
+
+      assert_refused(result, :invalid)
+      assert_empty rpcs_sent, other.inspect
+    end
   end
 
   # -- set_legal_sex ----------------------------------------------------------
@@ -314,6 +334,7 @@ class RegistrationBprm418Test < Minitest::Test
 
     assert_raises(RpmsRpc::Client::RpcError) { Reg.mbis(NO_PATIENT) }
     assert_equal [ "DDR GETS ENTRY DATA" ], rpcs_sent
+    assert_sends_the_recorded_flow
   end
 
   # -- set_sex -----------------------------------------------------------------
@@ -350,7 +371,7 @@ class RegistrationBprm418Test < Minitest::Test
 
     result = Reg.set_sex(NO_PATIENT, "M")
 
-    refute result[:success]
+    assert_refused(result, :invalid_dfn)
     assert_equal [ "AGG LOCK PATIENT" ], rpcs_sent
     assert_sends_the_recorded_flow
   end
