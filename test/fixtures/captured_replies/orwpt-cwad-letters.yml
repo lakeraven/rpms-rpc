@@ -1,0 +1,40 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb orwpt-cwad-letters.rb.
+---
+rpc: ORWPT CWAD
+entry_point: CWAD^ORWPT
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T16:22:02Z'
+note: Reads only, seed patients (synthetic data). unknown_rpc asks for ORWPT CWADX,
+  a name the build does not register, so the broker's not-served refusal is captured
+  as RPMS sends it.
+captures:
+- name: warning_and_allergy
+  inputs:
+  - '4'
+  context: 'DFN 4: WA'
+  raw_return: "5\0WA"
+  sha256: c2108aed2a7596e2ecad2c9f8637d00f1d1ab48612ce1c0454300365d40575a6
+- name: allergy
+  inputs:
+  - '2'
+  context: 'DFN 2: A'
+  raw_return: "6\0A"
+  sha256: b63b6ddcb63da50ccda924e4bbdf219e6d7c59e53e1068c31a11904aa08b7f3c
+- name: none
+  inputs:
+  - '3'
+  context: 'DFN 3: no postings'
+  raw_return: "7\0"
+  sha256: bb153e97380f82aa57033add2c11b28a3ae640c8daaa89d2bd5bd317456ecb03
+- name: unknown_rpc
+  rpc: ORWPT CWADX
+  inputs:
+  - '4'
+  context: an RPC the broker does not serve
+  raw_return: "8\x013\rUnknown remote procedure: ORWPT CWADX\r"
+  sha256: 91c65ac9207bf77ff0e96f377d57118320986b195ad6bf844effa72c63319e9b
