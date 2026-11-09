@@ -42,7 +42,7 @@ Two routes the first pass missed:
 | Visit diagnosis | `BGOVPOV SET` | `AMHG SAVE POV` for BH visits | A for BH, E otherwise | `BEHOENPC SAVE` files a V POV with its narrative, live-proven; it is in `CIAV VUECENTRIC` only. `ORWPCE SAVE` is not a route (below). |
 | Progress notes | (TIU, stock) | `AMHG SAVE PROGRESS NOTES` for BH notes | stock | |
 | Screening results | `BGOVHF SET` | `AMHG SAVE SCREENING` | A (probable) | Which store a PHQ-9 or GAD-7 belongs in is unconfirmed. |
-| Problem list | `BGOPROB SET/DEL` | `ORQQPL ADD SAVE`, `ORQQPL DELETE` | B | Loses SNOMED, laterality, IHS numbering. Needs a decision. |
+| Problem list | `BGOPROB SET/DEL` | `ORQQPL ADD SAVE`, `ORQQPL DELETE` (not taken) | B | Decided (#527): writes stay on `BGOPROB SET/DEL`, which keep SNOMED, laterality and IHS numbering; the gem wraps no `ORQQPL` write. Live-proven by `test/live/problem_write_live_test.rb`. Goes on the exceptions list. |
 | Psych CPT | `BGOVCPT SET` | none outside `CIAV VUECENTRIC` | E | `Procedure.add` is wire-incompatible with `BGOVCPT SET`. `BEHOENPC SAVE` files a V CPT with the visit, live-proven; it is in `CIAV VUECENTRIC` only. |
 | Vitals and measurements | `BEHOVM*`, `BGOVMSR*` | `AMHG SAVE MEASUREMENTS` (BH); GMV vitals unchecked | E | Not on the December path. |
 | Immunization, refusal, eligibility, PHR | `BGOVIMM*`, `BGOREF*`, `BGOVIMM2 GETELIG`, `BEHOCCD*`, `BEHOCIR*` | none | D or E | Primary care, planned for later. The C-CDA is built in Rails, not from these RPCs. |
