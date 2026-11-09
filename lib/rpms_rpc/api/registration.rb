@@ -248,18 +248,21 @@ module RpmsRpc
     #                                                     success while filing
     #                                                     nothing (rpms-rpc#562).
     #
-    #   Known limits (both pre-existing, tracked, not fixed here):
+    #   Known limit (pre-existing, tracked, not fixed here):
     #   rpms-rpc#609: a lookup that faults inside AG answers the typed header and
     #   a $C(31) terminator, which Patient.lookup reads as zero candidates, so the
     #   duplicate check passes and a retry during the fault can create a second
-    #   chart. rpms-rpc#610: with no hrn:, the derived HRN is added after the
-    #   create with .02/// and never meets HRN^AGGWVAL's already-assigned check, so
-    #   a DFN equal to a legacy HRN at the facility files a second patient under
-    #   that HRN and the read-back still reports success. An hrn: given by the
-    #   caller does run HRN^AGGWVAL.
+    #   chart.
+    #
+    #   A derived HRN (no hrn:) is filed after the create with .02///, past the
+    #   input transform, so it is first put to HRN^AGGWVAL with the new DFN, as a
+    #   given hrn: is before the create. One another patient holds at this
+    #   facility returns :hrn_already_assigned (with dfn:; the chart exists and
+    #   no HRN is filed); a check with no answer returns :hrn_file_failed
+    #   (rpms-rpc#610).
     #   { success: false, error: Symbol, message: }     — rejected; error is
     #     :duplicate_identity (includes candidate_dfns), :identity_unverifiable,
-    #     :agg_rejected / :hrn_file_failed, or (with field:) :agg_invalid,
+    #     :agg_rejected / :hrn_file_failed / :hrn_already_assigned (with dfn:), or (with field:) :agg_invalid,
     #     AG's own field check refused it, or :validation_unavailable, AG gave
     #     that check no answer; neither files anything. :hrn_file_failed is
     #     also the read-back: #9000001.41 does not hold the filed HRN, or that
@@ -993,6 +996,10 @@ module RpmsRpc
       unless hrn
         return hrn_file_failed(dfn, "AGG GET TEMP PAT HRN gave no number")
       end
+      if source == :derive
+        refused = derived_hrn_refusal(dfn, hrn)
+        return refused if refused
+      end
 
       updated = Agg.update_patient(window: AGG_WINDOW, dfn: dfn, params: { "AGGPTHRN" => hrn })
       return hrn if updated && updated[:success]
@@ -1027,6 +1034,24 @@ module RpmsRpc
 
     def hrn_multiple_includes?(listing, hrn)
       Array(listing[:entries]).any? { |entry| entry[:pieces]&.[](0) == hrn }
+    end
+
+    # AG files the HRN with .02/// (AGGPTUPD.m:104), past the field's input
+    # transform, so HRN^AGGWVAL (AGGWVAL.m:101-110) never sees a derived
+    # number. Ask it first, as the given-HRN path does, with the new DFN: a
+    # number another patient holds at this facility is not filed (#610). No
+    # answer fails closed. Either way the chart exists without an HRN, and
+    # the message names no number or patient.
+    def derived_hrn_refusal(dfn, hrn)
+      checked = check_field({ "AGGPTHRN" => hrn.to_s, "DFN" => dfn.to_s })
+      unless checked
+        return hrn_file_failed(dfn, "RPMS could not check the derived HRN (AGG WINDOW DATA VALIDATION " \
+                                    "gave no answer); no HRN was filed")
+      end
+      return if checked[:valid]
+
+      { success: false, error: :hrn_already_assigned, dfn: dfn,
+        message: "the derived HRN is already assigned to another patient at this facility; no HRN was filed" }
     end
 
     def hrn_file_failed(dfn, message)
