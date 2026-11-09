@@ -1,0 +1,670 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb registration-bprm418.rb.
+---
+rpc: DDR FILER
+entry_point: FILEC^DDR3
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T16:30:55Z'
+note: 'Run on a throwaway container: the flows file rows for DFN 990042 in this order,
+  so each flow''s replies follow from the ones before. Code IENs are the build''s
+  #9999999.104 and #9999999.103 entries (7 ASKU, 3 FTM, 9 CIS, 6 OTH; 3 BI, 5 UNK,
+  4 OTH); legal-sex source 30 is a #9000030 entry. DATE ENTERED rows are the capture
+  day''s.'
+captures:
+- name: gi_new/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.104'
+    IENS: 7,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'set_gender_identity: a new date, two values'
+  raw_return: "5\0[Data]\r9999999.104^7^1^ASKU^\r"
+  sha256: 781cb80cf1289bf4518a5b2bad01b10e28f4f5a56d3f084d90eac3b8257f38db
+- name: gi_new/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.104'
+    IENS: 3,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'set_gender_identity: a new date, two values'
+  raw_return: "6\0[Data]\r9999999.104^3^1^FTM^\r"
+  sha256: 750ee5b7ce80bf23e36b29703fdd8a0a585e28b6d8cf5039866466e845b05aa1
+- name: gi_new/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.9401'
+    IENS: ",990042,"
+    FIELDS: "@;.01I"
+    FLAGS: IP
+  context: 'set_gender_identity: a new date, two values'
+  raw_return: "7\0[Data]\r"
+  sha256: '068bb8070d253d80d4417f6076932b27c49f0b79215d3407e1e963e5b00a47ef'
+- name: gi_new/4
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000001.9401^.01^+1,990042,^3261015
+    2: 9000001.9401^2^+1,990042,^
+    3: 9000001.94011^.01^+2,+1,990042,^7
+    4: 9000001.94011^.01^+3,+1,990042,^3
+  - ''
+  - 1: '3261015'
+    2: '7'
+    3: '3'
+  context: 'set_gender_identity: a new date, two values'
+  raw_return: "8\0[Data]\r+1,^3261015\r+2,^7\r+3,^3\r"
+  sha256: 2f9e5ba3c1b1e7fe73a6c3627363f24a05e76ca8d43f70b6fa07743ea933fafb
+- name: gi_existing/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.104'
+    IENS: 3,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'set_gender_identity: the same date, values 3 and 9, so 7 is removed and
+    9 added'
+  raw_return: "5\0[Data]\r9999999.104^3^1^FTM^\r"
+  sha256: c37d4d99cd6a32dd1b544c4f8bab61cbe49fd39f2617c0d1fa9ec43e9a610f0d
+- name: gi_existing/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.104'
+    IENS: 9,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'set_gender_identity: the same date, values 3 and 9, so 7 is removed and
+    9 added'
+  raw_return: "6\0[Data]\r9999999.104^9^1^CIS^\r"
+  sha256: b660c4793e03d6b39039d5ab2e217892ad4de1b3ef405fd1f2c799c06e13b088
+- name: gi_existing/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.9401'
+    IENS: ",990042,"
+    FIELDS: "@;.01I"
+    FLAGS: IP
+  context: 'set_gender_identity: the same date, values 3 and 9, so 7 is removed and
+    9 added'
+  raw_return: "7\0[Data]\r3261015^3261015\r"
+  sha256: 29683005e398f3af60dab3ee71f162526a8a04c8f1e482f39ad10bed0de8a8fb
+- name: gi_existing/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.94011'
+    IENS: ",3261015,990042,"
+    FIELDS: ".01I"
+    FLAGS: IP
+  context: 'set_gender_identity: the same date, values 3 and 9, so 7 is removed and
+    9 added'
+  raw_return: "8\0[Data]\r3^3\r7^7\r"
+  sha256: 14c21284b6bc63a67d070a6c21ad53017f9f1eacec3faa7acdd6ee379a327aa1
+- name: gi_existing/5
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000001.9401^.01^3261015,990042,^3261015
+    2: 9000001.9401^2^3261015,990042,^
+    3: 9000001.94011^.01^7,3261015,990042,^@
+    4: 9000001.94011^.01^+2,3261015,990042,^9
+  - ''
+  - 2: '9'
+  context: 'set_gender_identity: the same date, values 3 and 9, so 7 is removed and
+    9 added'
+  raw_return: "9\0[Data]\r+2,^9\r"
+  sha256: 3b9d4441ac627e64d0b44a522be274a327d9a5473782525cdbc72b290381cf56
+- name: gi_other/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.104'
+    IENS: 6,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'set_gender_identity: a new date, OTH with other text'
+  raw_return: "5\0[Data]\r9999999.104^6^1^OTH^\r"
+  sha256: 78ac5a67aee5627e062cd5b207b1289d586e632fe1ec7e13cbdf4f002d6f2e91
+- name: gi_other/2
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.9401'
+    IENS: ",990042,"
+    FIELDS: "@;.01I"
+    FLAGS: IP
+  context: 'set_gender_identity: a new date, OTH with other text'
+  raw_return: "6\0[Data]\r3261015^3261015\r"
+  sha256: 9e89b222edc88a392e4370e0f8c8742f4deda1241b976b038cd49bb942ba01fe
+- name: gi_other/3
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000001.9401^.01^+1,990042,^3261016
+    2: 9000001.9401^2^+1,990042,^synthetic other text
+    3: 9000001.94011^.01^+2,+1,990042,^6
+  - ''
+  - 1: '3261016'
+    2: '6'
+  context: 'set_gender_identity: a new date, OTH with other text'
+  raw_return: "7\0[Data]\r+1,^3261016\r+2,^6\r"
+  sha256: 22452bf9df35e1c9e0e6c85fa22e5ed99d6c33980323317d8732b192b70a5fcc
+- name: gi_clear_other/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.104'
+    IENS: 7,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'set_gender_identity: the OTH date rewritten as ASKU, so the other text
+    is cleared'
+  raw_return: "5\0[Data]\r9999999.104^7^1^ASKU^\r"
+  sha256: 781cb80cf1289bf4518a5b2bad01b10e28f4f5a56d3f084d90eac3b8257f38db
+- name: gi_clear_other/2
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.9401'
+    IENS: ",990042,"
+    FIELDS: "@;.01I"
+    FLAGS: IP
+  context: 'set_gender_identity: the OTH date rewritten as ASKU, so the other text
+    is cleared'
+  raw_return: "6\0[Data]\r3261015^3261015\r3261016^3261016\r"
+  sha256: 6902d0ce062ef3159914a985df75a0637c698a2df2fdd1522b91494a9c38fd86
+- name: gi_clear_other/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.94011'
+    IENS: ",3261016,990042,"
+    FIELDS: ".01I"
+    FLAGS: IP
+  context: 'set_gender_identity: the OTH date rewritten as ASKU, so the other text
+    is cleared'
+  raw_return: "7\0[Data]\r6^6\r"
+  sha256: 989f38adc86dc85e29b99be3921f91f30885b8e50ce7bc7dff880bb261327359
+- name: gi_clear_other/4
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000001.9401^.01^3261016,990042,^3261016
+    2: 9000001.9401^2^3261016,990042,^
+    3: 9000001.94011^.01^6,3261016,990042,^@
+    4: 9000001.94011^.01^+2,3261016,990042,^7
+  - ''
+  - 2: '7'
+  context: 'set_gender_identity: the OTH date rewritten as ASKU, so the other text
+    is cleared'
+  raw_return: "8\0[Data]\r+2,^7\r"
+  sha256: 59768fdbffc1b752a0324400b61c89e39c250f12dcef8db4727da2c0fd88f1ec
+- name: gi_duplicates/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.104'
+    IENS: 7,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'set_gender_identity: a new date, the same value twice'
+  raw_return: "5\0[Data]\r9999999.104^7^1^ASKU^\r"
+  sha256: 781cb80cf1289bf4518a5b2bad01b10e28f4f5a56d3f084d90eac3b8257f38db
+- name: gi_duplicates/2
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.9401'
+    IENS: ",990042,"
+    FIELDS: "@;.01I"
+    FLAGS: IP
+  context: 'set_gender_identity: a new date, the same value twice'
+  raw_return: "6\0[Data]\r3261015^3261015\r3261016^3261016\r"
+  sha256: 6902d0ce062ef3159914a985df75a0637c698a2df2fdd1522b91494a9c38fd86
+- name: gi_duplicates/3
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000001.9401^.01^+1,990042,^3261017
+    2: 9000001.9401^2^+1,990042,^
+    3: 9000001.94011^.01^+2,+1,990042,^7
+  - ''
+  - 1: '3261017'
+    2: '7'
+  context: 'set_gender_identity: a new date, the same value twice'
+  raw_return: "7\0[Data]\r+1,^3261017\r+2,^7\r"
+  sha256: 58298ba3c2b36358cc9fbe6383e53731babe866c505db685d3e6d34a06ff74a7
+- name: gi_other_text_not_oth/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.104'
+    IENS: 7,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'set_gender_identity: other text beside a value that is not OTH'
+  raw_return: "5\0[Data]\r9999999.104^7^1^ASKU^\r"
+  sha256: 781cb80cf1289bf4518a5b2bad01b10e28f4f5a56d3f084d90eac3b8257f38db
+- name: gi_unknown_code/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.104'
+    IENS: 424242,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'set_gender_identity: a code IEN the build does not have'
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
+- name: so_new/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.103'
+    IENS: 3,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'set_sexual_orientation: a new date, two values'
+  raw_return: "5\0[Data]\r9999999.103^3^1^BI^\r"
+  sha256: dea5dceca8eaf1c0d1765ecf1a152c52cb70d3d482bb5dbdd34e686d6e113fcb
+- name: so_new/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.103'
+    IENS: 5,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'set_sexual_orientation: a new date, two values'
+  raw_return: "6\0[Data]\r9999999.103^5^1^UNK^\r"
+  sha256: ed1d16aa3d68a5394599d395d855cb865c5f3049b5e0e8fcb7eb47072cdf0b8c
+- name: so_new/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.9301'
+    IENS: ",990042,"
+    FIELDS: "@;.01I"
+    FLAGS: IP
+  context: 'set_sexual_orientation: a new date, two values'
+  raw_return: "7\0[Data]\r"
+  sha256: '068bb8070d253d80d4417f6076932b27c49f0b79215d3407e1e963e5b00a47ef'
+- name: so_new/4
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000001.9301^.01^+1,990042,^3261015
+    2: 9000001.9301^2^+1,990042,^
+    3: 9000001.93011^.01^+2,+1,990042,^3
+    4: 9000001.93011^.01^+3,+1,990042,^5
+  - ''
+  - 1: '3261015'
+    2: '3'
+    3: '5'
+  context: 'set_sexual_orientation: a new date, two values'
+  raw_return: "8\0[Data]\r+1,^3261015\r+2,^3\r+3,^5\r"
+  sha256: fd62159a86a4c00e6149c448e92653225281faef954e8a91e6b190e39d9fb476
+- name: so_existing/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.103'
+    IENS: 5,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'set_sexual_orientation: the same date, 5 and OTH with other text'
+  raw_return: "5\0[Data]\r9999999.103^5^1^UNK^\r"
+  sha256: 8ebd0ad33275e3419e45d488eab431a002af78cefc5f2eebbc63bae3c2464767
+- name: so_existing/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.103'
+    IENS: 4,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'set_sexual_orientation: the same date, 5 and OTH with other text'
+  raw_return: "6\0[Data]\r9999999.103^4^1^OTH^\r"
+  sha256: 60fde28ea9efb309a915f848c6c64639ee117d5a9319c58ad5ee854c7e39951c
+- name: so_existing/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.9301'
+    IENS: ",990042,"
+    FIELDS: "@;.01I"
+    FLAGS: IP
+  context: 'set_sexual_orientation: the same date, 5 and OTH with other text'
+  raw_return: "7\0[Data]\r3261015^3261015\r"
+  sha256: 29683005e398f3af60dab3ee71f162526a8a04c8f1e482f39ad10bed0de8a8fb
+- name: so_existing/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.93011'
+    IENS: ",3261015,990042,"
+    FIELDS: ".01I"
+    FLAGS: IP
+  context: 'set_sexual_orientation: the same date, 5 and OTH with other text'
+  raw_return: "8\0[Data]\r3^3\r5^5\r"
+  sha256: 650f8a9f25b80ca7e9ddf2433b80d599b79c04330e61b2b81f2c89985ff243d1
+- name: so_existing/5
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000001.9301^.01^3261015,990042,^3261015
+    2: 9000001.9301^2^3261015,990042,^synthetic other text
+    3: 9000001.93011^.01^3,3261015,990042,^@
+    4: 9000001.93011^.01^+2,3261015,990042,^4
+  - ''
+  - 2: '4'
+  context: 'set_sexual_orientation: the same date, 5 and OTH with other text'
+  raw_return: "9\0[Data]\r+2,^4\r"
+  sha256: 3555add5cdecda10493e913f57f4c9471d302f125d4f6de02bf9b0f4be88fccc
+- name: so_unknown_code/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9999999.103'
+    IENS: 424242,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'set_sexual_orientation: a code IEN the build does not have'
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
+- name: legal_new/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.9201'
+    IENS: ",990042,"
+    FIELDS: "@;.01I"
+    FLAGS: IP
+  context: 'set_legal_sex: a new date'
+  raw_return: "5\0[Data]\r"
+  sha256: db45af62402ba3ff7621e959a6ba1957a57c94a35ca44b1ae396a536e42a1a82
+- name: legal_new/2
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000001.9201^.01^+1,990042,^3261015
+    2: 9000001.9201^1^+1,990042,^F
+    3: 9000001.9201^2^+1,990042,^30
+    4: 9000001.9201^3^+1,990042,^3261109
+  - ''
+  - 1: '3261015'
+  context: 'set_legal_sex: a new date'
+  raw_return: "6\0[Data]\r+1,^3261015\r"
+  sha256: 8d3f7380ebde0c23aef6fd68eb9ad1b220e0d8d3dde3b33af53e6e8d04500827
+- name: legal_existing/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.9201'
+    IENS: ",990042,"
+    FIELDS: "@;.01I"
+    FLAGS: IP
+  context: 'set_legal_sex: the same date again, X'
+  raw_return: "5\0[Data]\r3261015^3261015\r"
+  sha256: c9a9847961a69b2a103ce7a6ff47677afeee1f34ee3960059953098b0b5698e4
+- name: legal_existing/2
+  rpc: DDR FILER
+  inputs:
+  - EDIT
+  - 1: 9000001.9201^.01^3261015,990042,^3261015
+    2: 9000001.9201^1^3261015,990042,^X
+    3: 9000001.9201^2^3261015,990042,^30
+    4: 9000001.9201^3^3261015,990042,^3261109
+  - ''
+  - {}
+  context: 'set_legal_sex: the same date again, X'
+  raw_return: "6\0[Data]\r"
+  sha256: 3e6f5d579b94fddc53fc3d163468464cab1e01778d1c2d2a7ceb162cb6dd8872
+- name: mbi_new/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.44'
+    IENS: ",990042,"
+    FIELDS: "@;.01I"
+    FLAGS: IP
+  context: 'add_mbi: a new effective date with a source, lower case'
+  raw_return: "5\0[Data]\r"
+  sha256: db45af62402ba3ff7621e959a6ba1957a57c94a35ca44b1ae396a536e42a1a82
+- name: mbi_new/2
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000001.44^.01^+1,990042,^3300601
+    2: 9000001.44^1^+1,990042,^1EG4TE5MK73
+    3: 9000001.44^2^+1,990042,^1
+    4: 9000001.44^3^+1,990042,^3261109
+    5: 9000001.44^4^+1,990042,^207
+  - ''
+  - 1: '3300601'
+  context: 'add_mbi: a new effective date with a source, lower case'
+  raw_return: "6\0[Data]\r+1,^3300601\r"
+  sha256: d8e8cd8441add243fae38622dde491e194dd72a92a6cfe608a5482f5ea3e8b17
+- name: mbi_existing/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.44'
+    IENS: ",990042,"
+    FIELDS: "@;.01I"
+    FLAGS: IP
+  context: 'add_mbi: the same effective date with no source, so the source is cleared'
+  raw_return: "5\0[Data]\r3300601^3300601\r"
+  sha256: fb59c3be81d267aa10eeca61113ef0e93a7313319a3920d38c1d6ea766e68f8d
+- name: mbi_existing/2
+  rpc: DDR FILER
+  inputs:
+  - EDIT
+  - 1: 9000001.44^.01^3300601,990042,^3300601
+    2: 9000001.44^1^3300601,990042,^1EG4TE5MK73
+    3: 9000001.44^2^3300601,990042,^@
+    4: 9000001.44^3^3300601,990042,^3261109
+    5: 9000001.44^4^3300601,990042,^207
+  - ''
+  - {}
+  context: 'add_mbi: the same effective date with no source, so the source is cleared'
+  raw_return: "6\0[Data]\r"
+  sha256: 3e6f5d579b94fddc53fc3d163468464cab1e01778d1c2d2a7ceb162cb6dd8872
+- name: mbis/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990042,
+    FIELDS: ".01"
+    FLAGS: I
+  context: mbis after the two writes
+  raw_return: "5\0[Data]\r9000001^990042^.01^990042^\r"
+  sha256: 9f454d91b3312d11cf66e315fea41be3b32ea181ca586d9dfb1f5708dba2d631
+- name: mbis/2
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.44'
+    IENS: ",990042,"
+    FIELDS: ".01I;1;2I"
+    FLAGS: IP
+  context: mbis after the two writes
+  raw_return: "6\0[Data]\r3300601^3300601^1EG4TE5MK73^\r"
+  sha256: 4be7abf17a7d1ec89217aa559eaf7da2649db7b6d1c634c3b25132e8edce3f97
+- name: mbis_no_patient/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 98765432,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'mbis of a DFN with no #9000001 entry'
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
+- name: sex_change/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990042'
+  context: 'set_sex: M to F, with SSN verification on file and no eligibility rows'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: sex_change/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 990042,
+    FIELDS: ".02"
+    FLAGS: I
+  context: 'set_sex: M to F, with SSN verification on file and no eligibility rows'
+  raw_return: "6\0[Data]\r2^990042^.02^M^\r"
+  sha256: 64ababc9953d9bcfd8a658e878450cc46fb9ee026cb91a65377b09de400599b8
+- name: sex_change/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990042,
+    FIELDS: ".23"
+    FLAGS: I
+  context: 'set_sex: M to F, with SSN verification on file and no eligibility rows'
+  raw_return: "7\0[Data]\r9000001^990042^.23^5^\r"
+  sha256: d30fc85fd3748ca9916442392f3ac2cfc3b5ed07f25fb25002edbfc4f4f92fd2
+- name: sex_change/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000003'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '100'
+    FROM: '990041'
+    XREF: B
+  context: 'set_sex: M to F, with SSN verification on file and no eligibility rows'
+  raw_return: "8\0[Data]\r"
+  sha256: 9f07b17857959cc07a53dd044a04aea65217d60e9017acfcd24e8e37508c3e87
+- name: sex_change/5
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000004'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '100'
+    FROM: '990041'
+    XREF: B
+  context: 'set_sex: M to F, with SSN verification on file and no eligibility rows'
+  raw_return: "9\0[Data]\r"
+  sha256: ebaf021a35cbea40549c975f65b9ddaecc9087f9f7c1dd8f5bf58d85178a7e23
+- name: sex_change/6
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000005'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '100'
+    FROM: '990041'
+    XREF: B
+  context: 'set_sex: M to F, with SSN verification on file and no eligibility rows'
+  raw_return: "1\0[Data]\r"
+  sha256: 2faaeda7dae752865786c20db2d2cef20269d8b2e9e2d26caff499752c26a4b1
+- name: sex_change/7
+  rpc: DDR FILER
+  inputs:
+  - EDIT
+  - 1: 9000001^.23^990042,^@
+  - ''
+  - {}
+  context: 'set_sex: M to F, with SSN verification on file and no eligibility rows'
+  raw_return: "2\0[Data]\r"
+  sha256: 1a81148e05f4de2f1b02fdb920c73d67728946fdde9d39bcf6f07954bb30752f
+- name: sex_change/8
+  rpc: DDR FILER
+  inputs:
+  - EDIT
+  - 1: 2^.02^990042,^F
+  - ''
+  - {}
+  context: 'set_sex: M to F, with SSN verification on file and no eligibility rows'
+  raw_return: "3\0[Data]\r"
+  sha256: d1a295f898d3b38286d861f13eb055c0b782aa814276e3ff14a7152e1b3e8549
+- name: sex_change/9
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990042'
+  context: 'set_sex: M to F, with SSN verification on file and no eligibility rows'
+  raw_return: "4\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 6b99ba2b73ebc9f74ef3cbb05510459f5c17c7d9210c0ccdc21a2e91eb799583
+- name: sex_unchanged/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990042'
+  context: 'set_sex: F again, SSN verification now blank'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: sex_unchanged/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 990042,
+    FIELDS: ".02"
+    FLAGS: I
+  context: 'set_sex: F again, SSN verification now blank'
+  raw_return: "6\0[Data]\r2^990042^.02^F^\r"
+  sha256: 7ef50f677d8b8d5e2e6cfc7c36c08055919d4eedbdaedbc91a4002ff14f1cb6b
+- name: sex_unchanged/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990042,
+    FIELDS: ".23"
+    FLAGS: I
+  context: 'set_sex: F again, SSN verification now blank'
+  raw_return: "7\0[Data]\r9000001^990042^.23^^\r"
+  sha256: 04ed2718f2fc695e39e31d61f280738889d45160ac04782c6519f63ab97ec28a
+- name: sex_unchanged/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000003'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '100'
+    FROM: '990041'
+    XREF: B
+  context: 'set_sex: F again, SSN verification now blank'
+  raw_return: "8\0[Data]\r"
+  sha256: 9f07b17857959cc07a53dd044a04aea65217d60e9017acfcd24e8e37508c3e87
+- name: sex_unchanged/5
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000004'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '100'
+    FROM: '990041'
+    XREF: B
+  context: 'set_sex: F again, SSN verification now blank'
+  raw_return: "9\0[Data]\r"
+  sha256: ebaf021a35cbea40549c975f65b9ddaecc9087f9f7c1dd8f5bf58d85178a7e23
+- name: sex_unchanged/6
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000005'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '100'
+    FROM: '990041'
+    XREF: B
+  context: 'set_sex: F again, SSN verification now blank'
+  raw_return: "1\0[Data]\r"
+  sha256: 2faaeda7dae752865786c20db2d2cef20269d8b2e9e2d26caff499752c26a4b1
+- name: sex_unchanged/7
+  rpc: DDR FILER
+  inputs:
+  - EDIT
+  - 1: 2^.02^990042,^F
+  - ''
+  - {}
+  context: 'set_sex: F again, SSN verification now blank'
+  raw_return: "2\0[Data]\r"
+  sha256: 1a81148e05f4de2f1b02fdb920c73d67728946fdde9d39bcf6f07954bb30752f
+- name: sex_unchanged/8
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990042'
+  context: 'set_sex: F again, SSN verification now blank'
+  raw_return: "3\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 6f27f36c4e5290ceecd41fc1b08482149ca31a4bacfaae6a3a8250dadd574493
+- name: sex_no_patient/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '98765432'
+  context: set_sex of a DFN no patient holds
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E-1^Invalid Patient selected\x1E"
+  sha256: 68991bd11547cb951d72c179e9d21e0ab8d9890ce875fe14302ce493ba1cd836
+- name: sex_lock_held/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990042'
+  context: set_sex while another user holds AG's lock on the patient
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E0^This event is locked for editing
+    by PROFILE,SCHED.\x1E"
+  sha256: 4f2caf4f37db3ccdfdc6ed231142210318cfacd3f283217fa3ab50e041bb86f9
