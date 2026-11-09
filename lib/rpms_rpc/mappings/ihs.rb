@@ -561,6 +561,19 @@ module RpmsRpc
       m.field 25, :manufacturer
     end
 
+    # BGOVIMM PROFILE — the patient's Immunization Profile, the text
+    # VueCentric's immunization component shows. PROFILE^BGOVIMM2
+    # (BGOVIMM2.m:129-132) is IMMPROF^BIRPC(.RET,DFN,"","") (BIRPC.m:219-276):
+    # one line per ^BIP(DFN,1,N,0) line, each ending $C(30), then a last line
+    # of $C(31)$C(31) and any error text. A patient not in the Immunization
+    # Register gets three lines saying so (BIRPC.m:246-254); an error in the
+    # first line (no DFN, deceased, no profile produced) comes back as
+    # -1082^text (IMMERR^BGOVIMM). Immunization.text_summary reads it.
+    DataMapper.define(:immunization_profile) do |m|
+      m.rpc "BGOVIMM PROFILE"
+      m.text_blob :content
+    end
+
     # BEHOCIR GETTXT — CCD document content
     DataMapper.define(:immunization_text) do |m|
       m.rpc "BEHOCIR GETTXT"

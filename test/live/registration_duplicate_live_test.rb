@@ -28,14 +28,14 @@ class RegistrationDuplicateLiveTest < LiveSpec::Test
       attrs[:dob] += 1
     end
 
-    first = RpmsRpc::Patient.register(attrs)
+    first = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(attrs) }
     assert first && first[:success], "initial synthetic registration failed: #{first&.dig(:error)}"
     assert_operator first[:dfn], :>, 0
 
     # A fresh session also proves this is persisted identity, not Ruby state.
     @client.disconnect
     @client = sign_on
-    second = RpmsRpc::Patient.register(attrs)
+    second = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(attrs) }
     assert_equal({ success: false, error: :duplicate_identity, candidate_dfns: [ first[:dfn] ],
                    message: "matching patient candidates require explicit override" }, second)
 
