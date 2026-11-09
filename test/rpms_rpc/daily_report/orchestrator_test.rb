@@ -149,7 +149,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
 
   class FakePortPicker
     def initialize(port) = @port = port
-    def free_loopback_port = @port
+    def free_loopback_ports(count) = Array.new(count) { |i| @port + i }
   end
 
   class FakeWriter
@@ -402,6 +402,7 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
 
       plan = io.string
       assert_match(/127\.0\.0\.1:19301/, plan)
+      assert_match(/127\.0\.0\.1:19302:9101/, plan)
       assert_match(/bcer-9\.0-20261101-latest-ydb/, plan)
       assert_empty runner.calls
       assert_empty docker.runs
@@ -508,6 +509,34 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
         assert_equal "1", call[:env]["LIVE_DISPOSABLE"]
         assert_equal "127.0.0.1", call[:env]["BROKER_HOST"]
       end
+    end
+  end
+
+  # A CIA spec that registers a patient runs its duplicate lookup over BMX (#609), so a fresh container
+  # publishes the BMX broker (9101) beside CIA (9100) and every live child is told its port.
+  def test_fresh_container_publishes_bmx_and_live_children_receive_its_port
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      runner = FakeRunner.new([ { stdout: passing_minitest }, { stdout: passing_minitest }, { stdout: passing_minitest } ])
+      docker = FakeDocker.new
+      orchestrator(rpms_diffs_dir: diffs, runner: runner, docker: docker, env: persona_sign_on_env("FRESH" => "1"),
+                   broker_probe: FakeBrokerProbe.new([ true ])).run
+
+      assert_equal [ "127.0.0.1:19301:9100", "127.0.0.1:19302:9101" ], Array(docker.runs.first[:publish])
+      runner.calls.drop(1).each do |call|
+        assert_equal "19301", call[:env]["BROKER_PORT"]
+        assert_equal "19302", call[:env]["BMX_PORT"]
+      end
+    end
+  end
+
+  def test_existing_broker_passes_the_operators_bmx_port_to_live_children
+    Dir.mktmpdir do |diffs|
+      FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+      runner = FakeRunner.new([ { stdout: passing_minitest }, { stdout: passing_minitest }, { stdout: passing_minitest } ])
+      orchestrator(rpms_diffs_dir: diffs, runner: runner, env: persona_sign_on_env("BMX_PORT" => "19400")).run
+
+      runner.calls.drop(1).each { |call| assert_equal "19400", call[:env]["BMX_PORT"] }
     end
   end
 
