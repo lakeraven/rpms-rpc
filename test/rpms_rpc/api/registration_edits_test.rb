@@ -110,6 +110,7 @@ class RegistrationEditsTest < Minitest::Test
 
     refute result[:success]
     assert_equal [ "AGG LOCK PATIENT" ], rpcs_sent
+    assert_sends_the_recorded_flow
   end
 
   def test_s_reg_21_7_a_date_moved_before_the_date_of_birth_files_nothing
@@ -150,6 +151,7 @@ class RegistrationEditsTest < Minitest::Test
     replay("history_empty")
 
     assert_equal [], Reg.address_history(DFN)
+    assert_sends_the_recorded_flow
   end
 
   # DDR GETS answers [ERROR] for a DFN no patient holds.
@@ -157,6 +159,7 @@ class RegistrationEditsTest < Minitest::Test
     replay("history_no_patient")
 
     assert_raises(RpmsRpc::Client::RpcError) { Reg.address_history(999_999) }
+    assert_sends_the_recorded_flow
   end
 
   # -- cell phone (S-REG-21.5) -----------------------------------------------
@@ -207,7 +210,20 @@ class RegistrationEditsTest < Minitest::Test
     assert_sends_the_recorded_flow
   end
 
-  def test_s_reg_20_4_declined_beside_another_race_is_refused_and_files_nothing
+# AMERICAN INDIAN OR ALASKA NATIVE (2) and WHITE (14) are on file; asking
+# for WHITE alone removes the other with FileMan's "@".
+def test_s_reg_20_2_a_race_left_out_of_the_list_is_removed
+  replay("races_narrow")
+
+  result = Reg.set_race_ethnicity(DFN, races: [ { code: 14, method: 2 } ], ethnicities: [ { code: 2, method: 1 } ])
+
+  assert_equal({ success: true }, result)
+  assert_equal [ "2.02^.01^2,#{DFN},^@", "9000001^.03^#{DFN},^#{today}", "9000001^.12^#{DFN},^#{DUZ}",
+                 "9000001^.16^#{DFN},^#{today}" ], filer_calls.first.last[1].values
+  assert_sends_the_recorded_flow
+end
+
+def test_s_reg_20_4_declined_beside_another_race_is_refused_and_files_nothing
     replay("declined_beside_another")
 
     result = Reg.set_race_ethnicity(DFN, races: [ { code: 11, method: 1 }, { code: 14, method: 1 } ],
@@ -254,6 +270,7 @@ class RegistrationEditsTest < Minitest::Test
 
     assert_equal :lock_failed, result[:error]
     refute(rpcs_sent.any? { |rpc| rpc.start_with?("DDR") })
+    assert_sends_the_recorded_flow
   end
 
   def test_s_reg_20_2_reads_races_and_ethnicities_with_their_methods

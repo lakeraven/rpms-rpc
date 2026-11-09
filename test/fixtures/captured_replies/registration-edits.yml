@@ -8,7 +8,7 @@ image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42
 client: RpmsRpc::CiaClient#call_rpc_raw
 signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
 bound_context: CIAV VUECENTRIC
-captured_at: '2026-11-09T05:39:57Z'
+captured_at: '2026-11-09T05:59:11Z'
 note: 'Run on a throwaway container: the flows file addresses, a cell phone and races
   for DFN 990009, in this order, so each flow''s replies follow from the ones before.
   Dates the gem computes are the capture day''s.'
@@ -622,3 +622,99 @@ captures:
   context: race_ethnicity after the replace
   raw_return: "7\0[Data]\r2^NOT HISPANIC OR LATINO^1^SELF IDENTIFICATION\r"
   sha256: d6c1dfbbb5a5f6c1b9fde9cc12016abc3c8f98340f4eca74a94ba0478eb03953
+- name: races_narrow/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'set_race_ethnicity: narrow the two races to WHITE alone, so the other
+    is removed'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: races_narrow/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10'
+    IENS: 14,
+    FIELDS: ".01;200;3"
+    FLAGS: I
+  context: 'set_race_ethnicity: narrow the two races to WHITE alone, so the other
+    is removed'
+  raw_return: "6\0[Data]\r10^14^.01^WHITE^\r10^14^3^2106-3^\r10^14^200^^\r"
+  sha256: f31fc70e84ad6bbfd55218203e58b89bfe2a97e746efed68123252eadbffb9ea
+- name: races_narrow/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10.2'
+    IENS: 2,
+    FIELDS: ".01;200;3"
+    FLAGS: I
+  context: 'set_race_ethnicity: narrow the two races to WHITE alone, so the other
+    is removed'
+  raw_return: "7\0[Data]\r10.2^2^.01^NOT HISPANIC OR LATINO^\r10.2^2^3^2186-5^\r10.2^2^200^^\r"
+  sha256: 738170a43b3927ab8f9ea2b9b2ce86c3d29c3f1683e4aacc7415be808b9943c3
+- name: races_narrow/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10.3'
+    IENS: 2,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'set_race_ethnicity: narrow the two races to WHITE alone, so the other
+    is removed'
+  raw_return: "8\0[Data]\r10.3^2^.01^PROXY^\r"
+  sha256: d93bcca2a135872485090c33cb2c5cf65970a9ba6b94abe7d55b269f1b0ae00c
+- name: races_narrow/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10.3'
+    IENS: 1,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'set_race_ethnicity: narrow the two races to WHITE alone, so the other
+    is removed'
+  raw_return: "9\0[Data]\r10.3^1^.01^SELF IDENTIFICATION^\r"
+  sha256: b1093538b4b2ae8e5568276f745ca9750794928dd94c038b2a92389caed4f6e3
+- name: races_narrow/6
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '2.02'
+    IENS: ",990009,"
+    FIELDS: "@;.02I"
+    FLAGS: IP
+  context: 'set_race_ethnicity: narrow the two races to WHITE alone, so the other
+    is removed'
+  raw_return: "1\0[Data]\r2^1\r14^2\r"
+  sha256: a9d3d0c6a6a0f9e807ba78d45bbd7251706be93791a360795ed1065783bef2a5
+- name: races_narrow/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '2.06'
+    IENS: ",990009,"
+    FIELDS: "@;.02I"
+    FLAGS: IP
+  context: 'set_race_ethnicity: narrow the two races to WHITE alone, so the other
+    is removed'
+  raw_return: "2\0[Data]\r2^1\r"
+  sha256: 92e4bf6b25c1b384e0c5ab1bbadb54bbc22e40d50e9a4769d450fae96fddefd6
+- name: races_narrow/8
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 2.02^.01^2,990009,^@
+    2: 9000001^.03^990009,^3261108
+    3: 9000001^.12^990009,^207
+    4: 9000001^.16^990009,^3261108
+  - ''
+  - {}
+  context: 'set_race_ethnicity: narrow the two races to WHITE alone, so the other
+    is removed'
+  raw_return: "3\0[Data]\r"
+  sha256: d1a295f898d3b38286d861f13eb055c0b782aa814276e3ff14a7152e1b3e8549
+- name: races_narrow/9
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'set_race_ethnicity: narrow the two races to WHITE alone, so the other
+    is removed'
+  raw_return: "4\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 6b99ba2b73ebc9f74ef3cbb05510459f5c17c7d9210c0ccdc21a2e91eb799583

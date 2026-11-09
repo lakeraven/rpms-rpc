@@ -64,6 +64,8 @@ CAPTURE = {
                          Reg.set_race_ethnicity(DFN, races: [ { code: 2, method: 1 } ], ethnicities: [ { code: 2, method: 1 } ])
                        end
                      } },
-    "races_read" => { about: "race_ethnicity after the replace", run: -> { Reg.race_ethnicity(DFN) } }
+    "races_read" => { about: "race_ethnicity after the replace", run: -> { Reg.race_ethnicity(DFN) } },
+    "races_narrow" => { about: "set_race_ethnicity: narrow the two races to WHITE alone, so the other is removed",
+                        run: -> { Reg.set_race_ethnicity(DFN, races: [ { code: 14, method: 2 } ], ethnicities: [ { code: 2, method: 1 } ]) } }
   }
 }.freeze
