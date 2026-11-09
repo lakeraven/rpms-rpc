@@ -10,7 +10,8 @@
 #   docker rm -f <name>
 #
 # A spec file defines CAPTURE: the RPC, the persona's published demo pair, the
-# context to bind, and the calls. A call's `inputs` are what the fixture
+# context to bind, and the calls. A refused call aborts the run (nothing is
+# written) unless it sets expect_error: true. A call's `inputs` are what the fixture
 # records; `wire_inputs`, when given, computes what is sent (an encrypted
 # code), so a secret-shaped input never lands in the fixture. Loopback only.
 require "yaml"
@@ -36,6 +37,12 @@ spec.fetch(:setup, nil)&.call(client)
 captures = spec.fetch(:calls).map do |call|
   wire = call[:wire_inputs] ? call[:wire_inputs].call(client) : call.fetch(:inputs)
   raw = client.call_rpc_raw(call.fetch(:rpc, spec[:rpc]), *wire).b
+  # call_rpc_raw returns a refusal's bytes without raising. A capture that is
+  # an error reply ($C(1) after the sequence echo) writes nothing, unless the
+  # spec says that call is meant to capture the error (expect_error: true).
+  if raw.getbyte(1) == 0x01 && !call[:expect_error]
+    abort "#{call.fetch(:name)}: the broker answered an error, not data: #{raw.byteslice(2..).inspect}; nothing written"
+  end
   entry = { "name" => call.fetch(:name) }
   entry["rpc"] = call[:rpc] if call[:rpc]
   entry.merge("inputs" => call.fetch(:inputs), "context" => call.fetch(:about),
