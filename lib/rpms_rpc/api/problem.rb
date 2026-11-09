@@ -115,8 +115,8 @@ module RpmsRpc
         raw = RpmsRpc.client.call_rpc(DataMapper.problem_remove.rpc_name, "#{ien}^^#{reason}")
         next { success: false, ien: nil, raw: raw } unless DataMapper.write_accepted?(raw)
 
-        status = problem_fields(ien)&.dig(".12")
-        next { success: true, ien: ien.to_i, raw: raw } if status == "D"
+        filed = problem_fields(ien)
+        next { success: true, ien: ien.to_i, raw: raw } if filed.is_a?(Hash) && filed[".12"] == "D"
 
         { success: false, ien: ien.to_i, raw: raw, error: :not_filed }
       end
@@ -214,7 +214,7 @@ module RpmsRpc
       return { success: false, ien: nil, raw: raw } unless saved_ien
 
       filed = problem_fields(saved_ien)
-      if filed && filed[".02"] == dfn.to_s && filed[".01"].to_s.match?(/\A[1-9]\d*\z/)
+      if filed.is_a?(Hash) && filed[".02"] == dfn.to_s && filed[".01"].to_s.match?(/\A[1-9]\d*\z/)
         { success: true, ien: saved_ien, raw: raw }
       else
         { success: false, ien: saved_ien, raw: raw, error: :not_filed }
@@ -225,20 +225,24 @@ module RpmsRpc
       failure.merge(error: e.message)
     end
 
-    # nil when problem `ien` is on file for patient `dfn`; else the refusal.
+    # nil when problem `ien` is on file for patient `dfn`; else the refusal:
+    # :not_found, :unreadable (see problem_fields) or :wrong_patient.
     def refuse_unless_patients(dfn, ien)
       filed = problem_fields(ien)
-      return failure.merge(error: :not_found) if filed.nil?
+      return failure.merge(error: filed) if filed.is_a?(Symbol)
       return failure.merge(error: :wrong_patient) unless filed[".02"] == dfn.to_s
 
       nil
     end
 
-    # PROBLEM (#9000011) .01, .02 and .12, internal, or nil when the entry
-    # is not on file (GETS^DIQ answers an error for it) or the read failed.
+    # PROBLEM (#9000011) .01, .02 and .12, internal. :not_found when
+    # GETS^DIQ answers an error for the entry; :unreadable when the read
+    # cannot be trusted: no reply, or one DdrFileman marks malformed, stray
+    # (a field may have been read twice, the later value kept) or altered.
     def problem_fields(ien)
       entry = DdrFileman.gets_entry(file: PROBLEM_FILE, iens: "#{ien},", fields: ".01;.02;.12", flags: "I")
-      return nil if entry.nil? || entry[:error] || entry[:malformed] || entry[:fields].empty?
+      return :unreadable if entry.nil? || entry[:malformed] || entry[:stray] || entry[:altered]
+      return :not_found if entry[:error] || entry[:fields].empty?
 
       entry[:fields].transform_values { |f| f[:internal].to_s }
     end

@@ -205,6 +205,19 @@ class OversizedTextWritersTest < Minitest::Test
     refute result.key?(:note_ien), "refusal is not a broker success"
   end
 
+  # ORWDX SAVE sends an ORDIALOG list parameter; BMX cannot frame list params.
+  def test_order_save_returns_frame_too_long_failure_shape_over_xwb
+    limit = use_xwb
+    responses = { [ 4, 1 ] => XWB_TEXT }
+    result = RpmsRpc::Order.save("8791", "301", "349", "PSO OERR", responses)
+
+    assert_equal false, result[:success]
+    assert_equal :frame_too_long, result[:error]
+    assert_match(/#{limit}/, result[:message].to_s)
+    refute_includes result[:message].to_s, XWB_TEXT
+    assert_empty @socket.writes
+  end
+
   def test_problem_still_raises_for_a_caller_bug
     use_xwb
     assert_raises(ArgumentError) { RpmsRpc::Problem.add("8791", "not a hash") }
