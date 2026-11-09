@@ -116,6 +116,16 @@ class BehavioralHealthSaveHealthFactorsTest < Minitest::Test
     assert_includes @client.calls.select { |c| c[:rpc] == DDR_LISTER }.last[:params].first["FILE"], HF_FILE
   end
 
+  # Every request is the one the build answered: the lock and unlock NODE, the
+  # visit IENS, the type pre-read and the read-back filters, and the write.
+  def test_each_request_is_the_one_the_capture_answered
+    replay
+    BH.save_health_factors(**kwargs)
+
+    expected = %w[lock visit type_active save readback unlock].map { |n| self.class.capture(n).fetch("inputs") }
+    assert_equal expected, @client.calls.select { |c| c[:rpc].is_a?(String) }.map { |c| c[:params] }
+  end
+
   def test_the_write_runs_under_amhgrpc_and_the_fileman_calls_under_the_fileman_context
     replay
     caller_context = @client.current_context

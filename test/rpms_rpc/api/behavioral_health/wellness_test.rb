@@ -119,6 +119,22 @@ class BehavioralHealthWellnessTest < Minitest::Test
     assert_equal [ DDR_LOCK, DDR_GETS, DDR_GETS, RPC_SCREENING, DDR_GETS, DDR_LOCK ], rpcs
   end
 
+  # Every request is the one the build answered: the lock and unlock NODE, the
+  # visit IENS, the provider read, the writes and the MSR read.
+  def test_each_request_is_the_one_the_capture_answered
+    inputs = ->(names) { names.map { |n| self.class.capture(n).fetch("inputs") } }
+    sent = -> { @client.calls.select { |c| c[:rpc].is_a?(String) }.map { |c| c[:params] } }
+
+    replay_screening
+    W.save_screening(RECORD_IEN, patient: PATIENT, screenings: ALCOHOL)
+    assert_equal inputs.(%w[lock visit_before provider save_screening visit_after_screening unlock]), sent.()
+
+    replay_measurements
+    W.save_measurements(RECORD_IEN, patient: PATIENT, measurements: PHQ9)
+    assert_equal inputs.(%w[lock visit_after_screening provider save_measurements visit_after_measurements msr_read unlock]),
+                 sent.()
+  end
+
   def test_the_write_runs_under_amhgrpc_and_the_fileman_calls_under_the_fileman_context
     replay_screening
     caller_context = @client.current_context
