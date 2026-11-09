@@ -132,6 +132,26 @@ class RegistrationLookupBrokerTest < Minitest::Test
 
   # -- register over CIA -----------------------------------------------------
 
+  # rpms-rpc#702: a user without AGGRPC is refused AG's field check, the first call
+  # register makes. The refusal reaches the caller as a refusal, never as a check
+  # RPMS "gave no answer" to. The reply is the build's, captured as PROFILE,MD.
+  def test_register_by_a_user_without_aggrpc_raises_the_brokers_refusal
+    capture = CapturedReplies.file("registration-refused-validation").fetch("captures").first
+    session = cia_session({ "AGG WINDOW DATA VALIDATION" => [ capture.fetch("raw_return").b ] })
+    lookup = bmx_lookup
+
+    error = assert_raises(RpmsRpc::Client::RpcRefusedError) do
+      RpmsRpc::Registration.with_lookup_client(lookup) { RpmsRpc::Patient.register(ATTRS) }
+    end
+    assert_match(/Access denied for remote procedure: AGG WINDOW DATA VALIDATION/, error.message)
+    assert_equal [ { rpc: :create_context, params: [ "AGGRPC" ] },
+                   { rpc: "AGG WINDOW DATA VALIDATION", params: capture.fetch("inputs") },
+                   { rpc: :create_context, params: [ "CIAV VUECENTRIC" ] } ], session.calls,
+                 "register binds AGGRPC, sends the frame the capture was refused for, then restores the session context"
+    assert_empty lookup.instance_variable_get(:@socket).writes, "no duplicate lookup after a refusal"
+  end
+
+
   def test_register_over_cia_without_a_lookup_client_is_unverifiable_and_sends_nothing
     session = cia_session
     result = RpmsRpc::Registration.register(ATTRS)

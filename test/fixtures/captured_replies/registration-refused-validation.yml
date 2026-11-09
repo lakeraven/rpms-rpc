@@ -1,0 +1,20 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb registration-refused-validation.rb.
+---
+rpc: AGG WINDOW DATA VALIDATION
+entry_point: VAL^AGGWVAL
+release_tag: bcer-9.0-20261109-a8a905e-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:2d7db058f9fd62c1a75d9c25b19ae70f2d7340e58de8dd6f95fe8235e1154dde
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; holds no AGGRPC)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T20:24:52Z'
+note: The broker refuses the check for a user without AGGRPC; nothing is filed.
+captures:
+- name: ssn_check_refused
+  inputs:
+  - New Patient
+  - "AGGPTSSN=\x1CAGGNOSSN=N\x1CDFN="
+  context: the SSN field check register sends first, as a user without AGGRPC
+  raw_return: "5\x014\rAccess denied for remote procedure: AGG WINDOW DATA VALIDATION\r"
+  sha256: 7bf53347bc4699886f0cd318a70e51c644a7c3b4fea197db11ca09a3e58cb0f3

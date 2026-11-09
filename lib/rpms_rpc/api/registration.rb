@@ -1424,8 +1424,13 @@ module RpmsRpc
 
     # A broker error on a check is "could not check" (nil), never a pass, and its
     # message is not passed on: it can carry the patient's details.
+    # A check RPMS gives no answer to (a broker error, a lost connection) is nil,
+    # and the caller fails closed. A refusal is an answer: the user may not run
+    # the check (no AGGRPC), so it is raised as the refusal it is (rpms-rpc#702).
     def check_field(values, window: AGG_ADD_WINDOW)
       Agg.validate_field(window: window, params: values)
+    rescue Client::RpcRefusedError
+      raise
     rescue Client::RpcError, Client::ConnectionError
       nil
     end
