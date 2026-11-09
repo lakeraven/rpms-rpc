@@ -776,9 +776,12 @@ module RpmsRpc
       m.field 14, :provider
     end
 
-    # BGOVCPT SET — visit CPT-code save. Returns the saved IEN on success.
-    DataMapper.define(:procedure_save) do |m|
-      m.rpc "BGOVCPT SET"
+    # BEHOENPC SAVE — SAVE^BEHOENPC(DATA,PCC,X,Y), the encounter write
+    # VueCentric uses (rpms-rpc#645, #524). PCC is a list of "TYPE^CODE^..."
+    # lines (HDR, VST, PRV, POV, CPT, HF, ...); X and Y are "not used (but
+    # required)" (BEHOENPC.m:6-10). DATA is 0 when it files, else -n^text.
+    DataMapper.define(:encounter_save) do |m|
+      m.rpc "BEHOENPC SAVE"
       m.scalar :result
     end
 
