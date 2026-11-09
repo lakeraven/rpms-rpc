@@ -1,0 +1,203 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb coverage-on-file.rb.
+---
+rpc: AGG BUILD WINDOW MULTIPLE
+entry_point: MULT^AGGBLDWN
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T18:09:18Z'
+note: Run on a throwaway container. Medicare number 1EG4TE5MK73 is the CMS example
+  MBI; names are synthetic. STATE WASHINGTON and insurer VETERANS MEDICAL BENEFIT
+  are the build's own entries.
+captures:
+- name: on_file_none/1
+  rpc: AGG BUILD WINDOW MANY
+  inputs:
+  - Medicaid
+  - B
+  - '990049'
+  context: on_file before any coverage is filed
+  raw_return: "5\0T00030AGGMDNME^T00030AGGMDNUM^D00015AGGMDDOB^T00030AGGMDINS^T00040AGGMDSTE^T00040AGGMDPLN^T00007AGGMDCCF^D00015AGGMDCRD^T00040AGGMDREL^T00040AGGMDGRP^T00017AGGMDGRN^T00035AGGMDINM^T00035AGGMDPCP^T00006AGGMDRCD^T01024MDELIG^I00010RIEN^T00010SEQNBR^D00015AGGMDESD^D00015AGGMDEED^T00015AGGMDSTS^D00015AGGLSTDT\x1E"
+  sha256: a5dca727f8962df6aeb3a153af7ae8f5afc2f3a029bf54a9f3424cf2a323d99b
+- name: on_file_none/2
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Medicare
+  - '990049'
+  context: on_file before any coverage is filed
+  raw_return: "6\0T00035AGGMCNME^T00009AGGMCNUM^T00007AGGMCSUF^T00040AGGMCINS^T00030AGGMCPCP^D00015AGGMCDOB^T00007AGGMCCCF^D00015AGGMCCRD^T00010AGGMCQMB^D00015AGGMCROI^T01024MCELIG^T00010SEQNBR^D00015AGGLSTDT^T00015AGGMCSTS^D00015AGGMCIMP^D00015AGGMCABN\x1E"
+  sha256: c14dd55b1f7acdca575238c335fc60434b5adee10daef576bac4acffc9074e61
+- name: on_file_none/3
+  rpc: AGG BUILD WINDOW MULTIPLE
+  inputs:
+  - Private Insurance
+  - '11'
+  - '990049'
+  - ''
+  context: on_file before any coverage is filed
+  raw_return: "7\0T00040AGGPIINS^T00010AGGPIPCD^T00035AGGPIPCP^T00007AGGPICCF^D00016AGGPICRD^T00020AGGPIMBN^T00050AGGPIREL^T00040AGGPIHLN^I00010AGGPLIEN^T00010SEQNBR^D00015AGGPIESD^D00015AGGPIEED^T00010AGGPISTS^T00020AGGINADR^T00050AGGINCSZ^T00020AGGINPHN^I00010AGGPIIEN\x1E"
+  sha256: a1bae7b0480b9b74931dc5341c11d5d555c680632b05aae93820327b143436a5
+- name: add_medicaid/1
+  rpc: AGG UPDATE MEDICAID
+  inputs:
+  - '990049'
+  - A
+  - Medicaid
+  - ''
+  - ''
+  - "AGGMDNUM=ZZ4900001\x1CAGGMDSTE=48"
+  context: add_medicaid with a number, the state (STATE WASHINGTON) and an end date
+  raw_return: "6\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^3^\x1E"
+  sha256: 577613f542e5a8eacb51505db58a10c9a64d56cd3b324fbdb8d4beed255aeb5a
+- name: add_medicaid/2
+  rpc: AGG UPDATE MEDICAID
+  inputs:
+  - '990049'
+  - A
+  - Medicaid Eligibility
+  - '3'
+  - ''
+  - "AGGMDESD=01/01/2026\x1CAGGMDEED=12/31/2027"
+  context: add_medicaid with a number, the state (STATE WASHINGTON) and an end date
+  raw_return: "7\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^3^3260101\x1E"
+  sha256: 59714fab47c3400cc7264a6f86af5e1691187625a4d455522d7a0e539730d1fe
+- name: add_medicaid_lapsed/1
+  rpc: AGG UPDATE MEDICAID
+  inputs:
+  - '990049'
+  - A
+  - Medicaid
+  - ''
+  - ''
+  - AGGMDNUM=ZZ49LAPSE
+  context: add_medicaid whose eligibility ended 06/30/2025
+  raw_return: "5\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^4^\x1E"
+  sha256: 23b0f711c81cc4c5dc0e754680978b0e281aeaabed52dc47fbbc3945068912bd
+- name: add_medicaid_lapsed/2
+  rpc: AGG UPDATE MEDICAID
+  inputs:
+  - '990049'
+  - A
+  - Medicaid Eligibility
+  - '4'
+  - ''
+  - "AGGMDESD=01/01/2024\x1CAGGMDEED=06/30/2025"
+  context: add_medicaid whose eligibility ended 06/30/2025
+  raw_return: "6\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^4^3240101\x1E"
+  sha256: 0d73e12239655f430f8f92f52aead195486c2bd2e330b8eb6e6504bf3f274638
+- name: add_medicare/1
+  rpc: AGG UPDATE MEDICARE
+  inputs:
+  - '990049'
+  - A
+  - Medicare
+  - ''
+  - "AGGMCNME=ZEPHYR,QUINN\x1CAGGMCNUM=1EG4TE5MK73"
+  context: add_medicare Part B (given as "b") with an end date
+  raw_return: "5\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^990049^\x1E"
+  sha256: aa27c4ba12814f2e58085ead6f792fea849f5f8fd14a0afee827d833af3d5bd7
+- name: add_medicare/2
+  rpc: AGG UPDATE MEDICARE
+  inputs:
+  - '990049'
+  - A
+  - Medicare Eligibility
+  - ''
+  - "AGGMCESD=01/01/2026\x1CAGGMCEED=12/31/2027\x1CAGGMCCOV=PART B"
+  context: add_medicare Part B (given as "b") with an end date
+  raw_return: "6\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^990049^1\x1E"
+  sha256: bf0b4253bf8c5af92bf5b98baafee9f0e77cdae74e6bdb70f97a94f51bd8c21d
+- name: add_private/1
+  rpc: AGG UPDATE PRIVATE INSUR
+  inputs:
+  - A
+  - '990049'
+  - ''
+  - ''
+  - "AGGPIINS=5\x1CAGGPIHLN=ZEPHYR,QUINN\x1CAGGPIMBN=ZZM49\x1CAGGPIESD=01/01/2026\x1CAGGPIEED=12/31/2027\x1CAGGPHESD=01/01/2026\x1CAGGPHEED=12/31/2027"
+  context: add_private_insurance with VETERANS MEDICAL BENEFIT (insurer 5) and an
+    end date
+  raw_return: "5\0I00010RESULT^T01024ERROR^I00010AGGPIIEN^I00010AGGPLHIN\x1E1^^1^1\x1E"
+  sha256: 1aa599137a4b1a89beffc9c908739f6d7517c4604ea5ef029af00a6f04eceaf0
+- name: on_file/1
+  rpc: AGG BUILD WINDOW MANY
+  inputs:
+  - Medicaid
+  - B
+  - '990049'
+  context: on_file with both Medicaid records, Medicare and the private policy on
+    file
+  raw_return: "5\0T00030AGGMDNME^T00030AGGMDNUM^D00015AGGMDDOB^T00030AGGMDINS^T00040AGGMDSTE^T00040AGGMDPLN^T00007AGGMDCCF^D00015AGGMDCRD^T00040AGGMDREL^T00040AGGMDGRP^T00017AGGMDGRN^T00035AGGMDINM^T00035AGGMDPCP^T00006AGGMDRCD^I00010RIEN^T00010SEQNBR^D00015AGGMDESD^D00015AGGMDEED^T00015AGGMDSTS^D00015AGGLSTDT\x1E^ZZ4900001^^MEDICAID^48\x1CWASHINGTON^\x1C^\x1C^^\x1C^\x1C^\x1C^^^^3^^^^ACTIVE^\x1E^ZZ49LAPSE^^MEDICAID^\x1C^\x1C^\x1C^^\x1C^\x1C^\x1C^^^^4^^^^INACTIVE^\x1E"
+  sha256: 07bef71204daeff2216f166f28c0b7c7eec17f09cce2dde9658a31cf93d91987
+- name: on_file/2
+  rpc: AGG BUILD WINDOW MULTIPLE
+  inputs:
+  - Medicaid Eligibility
+  - '11'
+  - '3'
+  - ''
+  context: on_file with both Medicaid records, Medicare and the private policy on
+    file
+  raw_return: "6\0D00015AGGMDESD^D00015AGGMDEED^T00002AGGMDECV^I00010MIEN\x1EJAN 1,2026^DEC
+    31,2027^^3260101\x1E"
+  sha256: 4a69af5f59e1c77d8b4e7411d52fad1622871dcaef6f178cf280f4f9b7e99e19
+- name: on_file/3
+  rpc: AGG BUILD WINDOW MULTIPLE
+  inputs:
+  - Medicaid Eligibility
+  - '11'
+  - '4'
+  - ''
+  context: on_file with both Medicaid records, Medicare and the private policy on
+    file
+  raw_return: "7\0D00015AGGMDESD^D00015AGGMDEED^T00002AGGMDECV^I00010MIEN\x1EJAN 1,2024^JUN
+    30,2025^^3240101\x1E"
+  sha256: a4f8037f86e75238897b9561ab049f334278fdbbddefce69d5a525eac6cdd4f6
+- name: on_file/4
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Medicare
+  - '990049'
+  context: on_file with both Medicaid records, Medicare and the private policy on
+    file
+  raw_return: "8\0T00035AGGMCNME^T00009AGGMCNUM^T00007AGGMCSUF^T00040AGGMCINS^T00030AGGMCPCP^D00015AGGMCDOB^T00007AGGMCCCF^D00015AGGMCCRD^T00010AGGMCQMB^D00015AGGMCROI^T01024MCELIG^T00010SEQNBR^D00015AGGLSTDT^T00015AGGMCSTS^D00015AGGMCIMP^D00015AGGMCABN\x1EZEPHYR,QUINN^1EG4TE5MK73^\x1C^2\x1CMEDICARE^^^^^^^^1^^ACTIVE^^\x1E"
+  sha256: 969a8adbf551cf9fefbeccc1f598d70e240a338fbee51b7ec2ab5d00869bae4c
+- name: on_file/5
+  rpc: AGG BUILD WINDOW MULTIPLE
+  inputs:
+  - Medicare Eligibility
+  - '11'
+  - '990049'
+  - ''
+  context: on_file with both Medicaid records, Medicare and the private policy on
+    file
+  raw_return: "9\0D00015AGGMCESD^T00005AGGMCCOV^D00015AGGMCEED^T00030AGGMCPN^T00030AGGMCMN^T00030AGGMCIDN^T00010AGGMCPC^T00010AGGMCG^D00015AGGMRDOB^T00030AGGMCGN^I00010MIEN\x1EJAN
+    1,2026^B\x1CPART B^DEC 31,2027^\x1C^^^^^^\x1C^1\x1E"
+  sha256: 93ee039626c9362006491ac5ffd1c8cc3e438010be9792b73c615b47bb6f8792
+- name: on_file/6
+  rpc: AGG BUILD WINDOW MULTIPLE
+  inputs:
+  - Private Insurance
+  - '11'
+  - '990049'
+  - ''
+  context: on_file with both Medicaid records, Medicare and the private policy on
+    file
+  raw_return: "1\0T00040AGGPIINS^T00010AGGPIPCD^T00035AGGPIPCP^T00007AGGPICCF^D00016AGGPICRD^T00020AGGPIMBN^T00050AGGPIREL^T00040AGGPIHLN^I00010AGGPLIEN^T00010SEQNBR^D00015AGGPIESD^D00015AGGPIEED^T00010AGGPISTS^T00020AGGINADR^T00050AGGINCSZ^T00020AGGINPHN^I00010AGGPIIEN\x1E5\x1CVETERANS
+    MEDICAL BENEFIT^^^^^ZZM49^\x1C^ZEPHYR,QUINN^1^3^JAN 1,2026^^ACTIVE^1660 South
+    Columbian Way^SEATTLE, WA 98108^(253)582-8440^1\x1E"
+  sha256: 4ffeace7b21d0bb71d465f5aca6078344b208fbd08c00a75bd3e88be2552d669
+- name: on_file/7
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000006.11'
+    IENS: 1,990049,
+    FIELDS: ".06;.07"
+    FLAGS: I
+  context: on_file with both Medicaid records, Medicare and the private policy on
+    file
+  raw_return: "2\0[Data]\r9000006.11^1,990049^.06^3260101^\r9000006.11^1,990049^.07^3271231^\r"
+  sha256: b69d8fb6dbee54da38ab86379da173e5c20062249e30479e7dede13598ff601e
