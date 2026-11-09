@@ -116,6 +116,11 @@ module RpmsRpc
     #   :identity_unverifiable and never authorizes an add. Only literal
     #   allow_duplicate: true overrides reviewed lookup candidates.
     #
+    # Over CIA the duplicate lookup needs a BmxClient signed on as the same
+    # user, scoped with Registration.with_lookup_client; without one,
+    # registration is :identity_unverifiable and sends nothing (see
+    # Registration.register, rpms-rpc#609).
+    #
     # Raises Client::FrameTooLongError for a value the wire cannot frame
     # (see Registration.register, #480).
     def register(attrs)

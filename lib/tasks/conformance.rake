@@ -40,10 +40,10 @@ namespace :conformance do
   end
 
   # ---- the pinned-dependency contract with rpms-ops (rpms-rpc#160, #222) -----------------------
-  # rpms-ops attaches, to every gated release, the #8994 + #9.4 inventory that build serves
-  # (<tag>-broker_8994.txt, -packages_9_4.txt, -rpc_reach.txt, -rpc_signatures.txt, -contexts_19_05.txt,
-  # -INVENTORY-PROVENANCE.json, -INVENTORY.sha256;
-  # rpms-ops bin/release_inventory.sh + bin/publish_inventory.sh) and the build record
+  # rpms-ops attaches, to every gated release, the RPC surface that build serves: one document of it,
+  # <tag>-rpcs.json (rpms-ops#732, rpms-rpc#406), beside the raw inventory it was projected from
+  # (-packages_9_4.txt, -contexts_19_05.txt, -INVENTORY-PROVENANCE.json, -INVENTORY.sha256 and the
+  # flat dumps; rpms-ops bin/release_inventory.sh + bin/publish_inventory.sh) and the build record
   # (<tag>-PROVENANCE.json, naming the commit). `pin` is the `bundle install` of that contract,
   # `check` its `bundle check`. The assets are committed under data/inventories/<tag>/:
   # they are the signature the gem is held to.
@@ -99,7 +99,7 @@ namespace :conformance do
 
     env_name = ENV["ENV"] || "references/#{tag}"
     r = RpmsRpc::Conformance::Ingest.run(
-      dump: inv.broker_dump, packages: inv.packages_dump, env: env_name, fingerprints_dir: FINGERPRINTS_DIR,
+      surface: inv.surface, packages: inv.packages_dump, env: env_name, fingerprints_dir: FINGERPRINTS_DIR,
       backend: RpmsRpc::Conformance::Ingest::BACKEND_FOR_ENGINE.fetch(inv.engine),
       captured_at: inv.provenance["captured_at"].to_s[0, 10],
       release: tag, dat_sha: inv.provenance["artifact_sha256"],

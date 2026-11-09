@@ -7,7 +7,7 @@ require_relative "../../lib/rpms_rpc/conformance/build_surface"
 # RPC coverage: how much of ONE backend's registered RPC surface rpms-rpc has shown working
 # against that backend (rpms-rpc#270). Offline; `rake rpc:coverage` drives it.
 #
-#   denominator  every #8994 NAME on the pinned build (data/inventories/<tag>/<tag>-broker_8994.txt),
+#   denominator  every RPC the pinned build registers (data/inventories/<tag>/<tag>-rpcs.json),
 #                minus the names data/rpc_coverage/exclusions.yml excludes with a reason
 #   covered      registered, not excluded, and a live run against the backend
 #                (rpc-coverage/live/<backend>.json in rpms-diffs, written by `rake rpc:live`) got an answer
@@ -36,8 +36,7 @@ module RpcCoverage
     "gui_plumbing" => "drives a thick-client GUI (layout, window state); no headless use (ADR-0004 tiers)",
     "write_needs_fixture" => "a write or side effect that needs a disposable fixture before it can run live"
   }.freeze
-  # The pinned build's reach face (<tag>-rpc_reach.txt, rpms-ops#713) gives each registered RPC one
-  # REACH class. The uncallable classes map to an exclusion reason; the callable ones
+  # The pinned build's rpcs.json (rpms-ops#713, #732) gives each registered RPC one REACH class. The uncallable classes map to an exclusion reason; the callable ones
   # (BuildSurface::CALLABLE: client-callable, broker-exempt) stay in the denominator. A class in
   # neither fails, so a new reach class is a decision here (#394).
   REACH_REASONS = {
@@ -71,13 +70,25 @@ module RpcCoverage
 
   # --- inputs ---------------------------------------------------------------------------------
 
-  # An rpms-ops broker dump has one #8994 0-node per line, NAME first (#222). It is read through
-  # BuildSurface, the one reader of the pinned files (#394); the tag comes from the file name.
+  # The registry: a pinned build's <tag>-rpcs.json (data/inventories/<tag>/, rpms-rpc#406), read
+  # through BuildSurface, the one reader of the build's surface; the tag is the document's. Any other
+  # path is a flat registry, NAME first on each line ("#" lines are its header): the names file
+  # rpms-ops bin/rpms_rpc_live_score.rb writes from a release's broker dump, scored here without a
+  # pinned document. The tag is the file name's.
   def load_registry(path)
     raise Error, "registry not found: #{path}" unless File.exist?(path)
 
-    surface = RpmsRpc::Conformance::BuildSurface.from_files(registry: path)
-    Registry.new(path: path, tag: surface.tag, names: surface.names, header: surface.header, surface: surface)
+    if path.end_with?(".json")
+      surface = RpmsRpc::Conformance::BuildSurface.from_rpcs_json(path)
+      return Registry.new(path: path, tag: surface.tag, names: surface.names, header: [], surface: surface)
+    end
+
+    lines = File.readlines(path, chomp: true).reject { |l| l.strip.empty? }
+    header, rows = lines.partition { |l| l.start_with?("#") }
+    Registry.new(path: path, tag: File.basename(path, ".txt"),
+                 names: rows.map { |l| l.split("^", 2).first }, header: header, surface: nil)
+  rescue RpmsRpc::Conformance::BuildSurface::Error => e
+    raise Error, e.message
   end
 
   def registry_problems(registry)
@@ -112,12 +123,10 @@ module RpcCoverage
     end
   end
 
-  # --- exclusions generated from the pinned build's reach face (#278, #394) ------------------
+  # --- exclusions generated from the pinned build's reach classes (#278, #394, #406) ------------------
 
-  # name => reason for every RPC the pinned build's reach face classes as not callable.
+  # name => reason for every RPC the pinned build's rpcs.json classes as not callable.
   def unreachable_from_surface(surface)
-    raise Error, "#{surface.tag}: no rpc_reach.txt pinned; re-pin the release (rake conformance:pin)" unless surface.reach?
-
     surface.uncallable.to_h do |name, reach|
       raise Error, "#{surface.tag}: #{name.inspect} has reach #{reach.inspect}, which rpc_coverage.rb does not map" unless REACH_REASONS.key?(reach)
 
@@ -127,7 +136,7 @@ module RpcCoverage
 
   Regenerated = Struct.new(:exclusions, :not_in_registry, keyword_init: true)
 
-  # The reach face owns the reach-derived reasons: they are replaced wholesale, so an RPC that became
+  # The reach classes own the reach-derived reasons: they are replaced wholesale, so an RPC that became
   # callable loses its exclusion. Any other reason is a reviewed decision and is kept as it is. Only
   # names the pinned registry registers are excluded; the rest are returned as residue to report.
   def regenerate_exclusions(current, unreachable, registry)
@@ -151,7 +160,7 @@ module RpcCoverage
     head += [
       "#",
       "# The unreachable reasons (no_routine_on_image .. context_out_of_order) are GENERATED from the",
-      "# pinned release's reach face (data/inventories/<tag>/<tag>-rpc_reach.txt, published by rpms-ops)",
+      "# pinned release's reach classes (data/inventories/<tag>/<tag>-rpcs.json, published by rpms-ops)",
       "# by `rake rpc:exclusions`; regenerate on every re-pin, never hand-edit them. gui_plumbing and",
       "# write_needs_fixture are reviewed decisions: add one per PR with its evidence; regeneration keeps them.",
       "#"

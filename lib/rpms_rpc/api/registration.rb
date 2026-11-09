@@ -229,6 +229,19 @@ module RpmsRpc
     #                       holds it at this facility, AGGWVAL.m:101-111).
     #                       Absent, hrn_mode decides, as before.
     #
+    # The duplicate lookup runs on the BmxClient a surrounding
+    #   Registration.with_lookup_client(bmx) { ... } scoped, signed on as the
+    #   same user as RpmsRpc.client. Over CIA an M error inside AGG LOOKUP
+    #   PATIENTS answers the same bytes as a genuine no-match (ERR^AGGPTLKP
+    #   writes the $C(31) DONE writes, AGGPTLKP.m:73 and :170; its only signal,
+    #   BMXSEC, reaches a BMX client alone), so a CIA session cannot verify the
+    #   lookup itself (rpms-rpc#609). When RpmsRpc.client is a CiaClient and no
+    #   lookup client is scoped, registration answers :identity_unverifiable
+    #   and sends nothing. When RpmsRpc.client speaks BMX it runs the lookup
+    #   itself. The add and every other call stay on RpmsRpc.client. A lookup
+    #   client signed on as another user (DUZ), or bound to another division
+    #   or division list, is :identity_unverifiable and nothing is sent.
+    #
     # Returns:
     #   { success: true, dfn:, created: true, hrn: }    — registered; hrn: is
     #                                                     the number filed (nil
@@ -247,12 +260,6 @@ module RpmsRpc
     #                                                     INSTITUTION reported
     #                                                     success while filing
     #                                                     nothing (rpms-rpc#562).
-    #
-    #   Known limit (pre-existing, tracked, not fixed here):
-    #   rpms-rpc#609: a lookup that faults inside AG answers the typed header and
-    #   a $C(31) terminator, which Patient.lookup reads as zero candidates, so the
-    #   duplicate check passes and a retry during the fault can create a second
-    #   chart.
     #
     #   A derived HRN (no hrn:) is filed after the create with .02///, past the
     #   input transform, so it is first put to HRN^AGGWVAL with the new DFN, as a
@@ -289,12 +296,39 @@ module RpmsRpc
     def register(attrs)
       register_via_agg(attrs)
     end
+
+    # Run the block with +client+ as the client Registration's duplicate lookup
+    # runs on (see register), for this fiber and the fibers and threads it
+    # starts, as RpmsRpc.with_client scopes RpmsRpc.client. +client+ must be a
+    # signed-on BmxClient; anything else raises ArgumentError before the block
+    # runs. Scopes nest and restore, including when the block raises.
+    def with_lookup_client(client)
+      require_relative "../bmx_client"
+      unless client.is_a?(RpmsRpc::BmxClient) && client.authenticated?
+        raise ArgumentError, "the lookup client must be a signed-on RpmsRpc::BmxClient"
+      end
+
+      previous = Fiber[LOOKUP_CLIENT_KEY]
+      Fiber[LOOKUP_CLIENT_KEY] = client
+      begin
+        yield client
+      ensure
+        Fiber[LOOKUP_CLIENT_KEY] = previous
+      end
+    end
+
+    LOOKUP_CLIENT_KEY = :rpms_rpc_registration_lookup_client
+    private_constant :LOOKUP_CLIENT_KEY
     shape :register, resource: "registrations", verb: "POST", path: "/registrations"
 
     # Create via AGG ADD NEW PATIENT, then file the HRN per hrn_mode. Prefer a
     # short broker session per registration (AG routines leak locals into long
     # sessions — see Agg).
     def register_via_agg(attrs)
+      lookup = duplicate_lookup_client(Fiber[LOOKUP_CLIENT_KEY])
+      return identity_unverifiable(LOOKUP_NEEDS_BMX) if lookup == :cia_only
+      return identity_unverifiable(LOOKUP_OTHER_USER) if lookup == :other_user
+
       source = hrn_source(attrs)
       params = agg_add_params(attrs)
       invalid = validate_identity(params)
@@ -311,7 +345,7 @@ module RpmsRpc
       refused = validate_fields(params)
       return refused if refused
 
-      duplicate = duplicate_identity(params, allow_duplicate: attrs[:allow_duplicate])
+      duplicate = duplicate_identity(params, allow_duplicate: attrs[:allow_duplicate], lookup_client: lookup)
       return duplicate if duplicate
 
       created = Agg.add_patient(window: AGG_ADD_WINDOW, params: params)
@@ -1104,8 +1138,8 @@ module RpmsRpc
       nil
     end
 
-    def duplicate_identity(params, allow_duplicate:)
-      candidates = Agg.registration_candidates(params)
+    def duplicate_identity(params, allow_duplicate:, lookup_client: RpmsRpc.client)
+      candidates = RpmsRpc.with_client(lookup_client) { Agg.registration_candidates(params) }
       return identity_unverifiable unless candidates
       return if candidates.empty? || allow_duplicate == true
 
@@ -1116,9 +1150,44 @@ module RpmsRpc
       identity_unverifiable
     end
 
-    def identity_unverifiable
-      { success: false, error: :identity_unverifiable,
-        message: "patient duplicate lookup could not be verified" }
+    def identity_unverifiable(message = "patient duplicate lookup could not be verified")
+      { success: false, error: :identity_unverifiable, message: message }
+    end
+
+    LOOKUP_NEEDS_BMX = "patient duplicate lookup cannot be verified over CIA: scope a BmxClient signed on " \
+                       "as the same user with Registration.with_lookup_client (rpms-rpc#609)"
+    LOOKUP_OTHER_USER = "patient duplicate lookup client is not signed on as the same user and division"
+
+    # The client the duplicate lookup runs on (see register): the scoped
+    # BmxClient, RpmsRpc.client when it is not a CiaClient, :cia_only when it
+    # is and none is scoped, :other_user when the two sessions do not show the
+    # same user: DUZ, bound division and the user's division list. A DUZ is
+    # local to its database, so the division facts are compared too; two
+    # copies of one database still look alike, which is the host's to avoid.
+    def duplicate_lookup_client(lookup_client)
+      session = RpmsRpc.client
+      if lookup_client.nil?
+        return defined?(RpmsRpc::CiaClient) && session.is_a?(RpmsRpc::CiaClient) ? :cia_only : session
+      end
+      return :other_user unless same_user?(session, lookup_client)
+
+      lookup_client
+    end
+
+    def same_user?(session, lookup)
+      return false unless session.respond_to?(:duz) && !session.duz.to_s.empty?
+      return false unless lookup.duz.to_s == session.duz.to_s
+
+      return true unless session.respond_to?(:division) && session.respond_to?(:divisions)
+
+      division_key(session.division) == division_key(lookup.division) &&
+        Array(session.divisions).map { |d| division_key(d) }.sort == Array(lookup.divisions).map { |d| division_key(d) }.sort
+    end
+
+    # A division as both brokers report it: CIA's DIVGET and BMX's XUS
+    # DIVISION GET carry the IEN and station; the name and default flag vary.
+    def division_key(division)
+      division.is_a?(Hash) ? [ division[:ien].to_i, division[:station].to_s ] : nil
     end
 
     # The name as LAST^FIRST^MIDDLE^SUFFIX, which name_parts splits into

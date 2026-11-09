@@ -33,7 +33,7 @@ module StockRpcsTestHelper
 
   def pinned_rpc(name)
     rpc = pinned_surface[name]
-    raise "#{name} must be registered on #{PINNED_TAG} (broker_8994.txt)" if rpc.nil?
+    raise "#{name} must be registered on #{PINNED_TAG} (rpcs.json)" if rpc.nil?
 
     rpc
   end

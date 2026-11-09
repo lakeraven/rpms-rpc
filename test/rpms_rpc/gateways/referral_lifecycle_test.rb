@@ -1,57 +1,58 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
+require "rpms_rpc/api/referral"
+require_relative "../captured_replies"
 
-# Tests for the referral detail RPC.
+# Referral.find (BMC GET REFERRAL, GTRFBYID^BMCRPC1) on the replies a fresh
+# rpms-ydb container sent (test/fixtures/captured_replies/bmc-get-referral.yml),
+# replayed through CiaClient: the refusal cases, per ADR 0009. The record read
+# is not pinned here: on the pinned build the only referral a fresh container
+# can get (the minimal one test/live/referral_cancel_live_test.rb files) has no
+# referral number, and GTRFBYID answers an M error for it.
+#
+# This file used to seed three referral hashes into MockClient and read them
+# back, which asserted the fake and nothing RPMS sent (rpms-rpc#622).
 class ReferralLifecycleTest < Minitest::Test
-  def setup
-    RpmsRpc.mock! do |m|
-      m.seed(:referral_detail, "SR-001", { ien: "SR-001", status: "draft", patient_dfn: 1,
-                                            type: "Cardiology", provider_ien: "201", facility: "ANMC" })
-      m.seed(:referral_detail, "SR-002", { ien: "SR-002", status: "pending", patient_dfn: 1,
-                                            type: "Orthopedics", provider_ien: "202", facility: "ANMC" })
-      m.seed(:referral_detail, "SR-003", { ien: "SR-003", status: "authorized", patient_dfn: 1,
-                                            type: "Neurology", provider_ien: "201", facility: "ANMC" })
-    end
-  end
+  SLUG = "bmc-get-referral"
+  RPC = "BMC GET REFERRAL"
 
   def teardown
     RpmsRpc.reset!
   end
 
-  # =============================================================================
-  # REFERRAL DETAIL
-  # =============================================================================
-
-  def test_fetch_referral_detail_returns_data
-    result = RpmsRpc::DataMapper.referral_detail.fetch_one("SR-001")
-
-    refute_nil result
-    assert_equal "SR-001", result[:ien]
-    assert_equal "draft", result[:status]
-    assert_equal "Cardiology", result[:type]
+  def replay(name)
+    client = CapturedReplies::ReplayCiaClient.new(RPC => [ CapturedReplies.raw(SLUG, name) ])
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
   end
 
-  def test_fetch_referral_detail_different_statuses
-    draft = RpmsRpc::DataMapper.referral_detail.fetch_one("SR-001")
-    pending = RpmsRpc::DataMapper.referral_detail.fetch_one("SR-002")
-    authorized = RpmsRpc::DataMapper.referral_detail.fetch_one("SR-003")
+  def sent(name) = CapturedReplies.file(SLUG).fetch("captures").find { |c| c["name"] == name }.fetch("inputs")
 
-    assert_equal "draft", draft[:status]
-    assert_equal "pending", pending[:status]
-    assert_equal "authorized", authorized[:status]
+  # An M error inside GTRFBYID is never a referral, nor "no referral".
+  def test_an_m_error_inside_the_read_raises
+    client = replay("m_error")
+
+    error = assert_raises(RpmsRpc::Client::RpcMError) { RpmsRpc::Referral.find("1") }
+    assert_includes error.message, "GTRFBYID+31^BMCRPC1"
+    assert_equal [ sent("m_error") ], client.calls.select { |c| c[:rpc] == RPC }.map { |c| c[:params] }
   end
 
-  def test_fetch_referral_detail_returns_nil_for_unknown
-    assert_nil RpmsRpc::DataMapper.referral_detail.fetch_one("NONEXISTENT")
+  # For an IEN no referral has, GTRFBYID sets its message as the result
+  # (BMCRPC1.m:57), and on the pinned build the broker answers an M error in
+  # OUT^CIANBACT for that reply. It raises, rather than reading as a record.
+  def test_an_ien_with_no_referral_raises_rather_than_reading_as_a_record
+    replay("no_such_referral")
+
+    error = assert_raises(RpmsRpc::Client::RpcMError) { RpmsRpc::Referral.find("999999999") }
+    assert_includes error.message, "OUT+5^CIANBACT"
   end
 
-  def test_referral_detail_includes_type_and_provider_ien
-    result = RpmsRpc::DataMapper.referral_detail.fetch_one("SR-003")
+  def test_a_nil_ien_reaches_no_wire
+    client = replay("m_error")
 
-    assert_equal "Neurology", result[:type]
-    assert_equal "201", result[:provider_ien]
-    assert_equal "ANMC", result[:facility]
+    assert_nil RpmsRpc::Referral.find(nil)
+    assert_empty client.calls
   end
 end

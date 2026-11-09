@@ -11,12 +11,12 @@
 #   write_needs_fixture      a write or side effect that needs a disposable fixture before it can run live
 #
 # The unreachable reasons (no_routine_on_image .. context_out_of_order) are GENERATED from the
-# pinned release's reach face (data/inventories/<tag>/<tag>-rpc_reach.txt, published by rpms-ops)
+# pinned release's reach classes (data/inventories/<tag>/<tag>-rpcs.json, published by rpms-ops)
 # by `rake rpc:exclusions`; regenerate on every re-pin, never hand-edit them. gui_plumbing and
 # write_needs_fixture are reviewed decisions: add one per PR with its evidence; regeneration keeps them.
 #
-# reach: data/inventories/bcer-9.0-20261012-e7923a4-ydb/bcer-9.0-20261012-e7923a4-ydb-rpc_reach.txt
-# reach sha256: 810b6a5d357414b54bea986075cd221934e203fe29b404cc0dd0a778278bbcf6 (pinned in data/fingerprints/rpms-ops.lock.yml)
+# rpcs: data/inventories/bcer-9.0-20261012-e7923a4-ydb/bcer-9.0-20261012-e7923a4-ydb-rpcs.json
+# rpcs sha256: aac0d6d6b8ca261fe5c93331ed82597964493bf680c47138664ba0fd2a3268cd (pinned in data/fingerprints/rpms-ops.lock.yml)
 # reach classes: broker-exempt=21 client-callable=4940 no-context=226 no-entry-point=87 no-routine=203 out-of-order=80
 # registry: bcer-9.0-20261012-e7923a4-ydb (5557 names)
 # regenerate: bundle exec rake rpc:exclusions
