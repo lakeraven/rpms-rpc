@@ -42,21 +42,18 @@ ORQQVI VITALS | partial | mapped qualifiers is nil on all four vitals (PU 82, BP
 # UNFIXTURED. What IS fixtured is the possible-match capture (agg-lookup-patients.yml) as
 # PROV123. COMM and MOMDN columns come only when ^AGFAC(DUZ(2),0) piece 11 is Y
 # AND ALL=1 (AGGPTLKP.m:175, 207), so they are absent for PROV123's missing division.
-# Known limits of the registration write path, both pre-existing and not fixed by this
-# slice (so a live capture here does not make registration retry-safe or HRN-unique):
+# Known limit of the registration write path, pre-existing and not fixed by this
+# slice (so a live capture here does not make registration retry-safe):
 #  - rpms-rpc#609: Patient.lookup reads a header-only error reply (ERR^AGGPTLKP answers an
 #    M error with the typed header and a $C(31) terminator, AGGPTLKP.m:165-171) as zero
 #    candidates, so the duplicate-identity check passes and a retry during a lookup
 #    fault can create a second chart for the same person.
-#  - rpms-rpc#610: with no HRN given, the derived HRN (HRN := DFN) is added after the
-#    create and AG files it with .02/// (AGGPTUPD.m:104, AGGPTADD.m:112), which bypasses
-#    the field input transform, so HRN^AGGWVAL's already-assigned check (AGGWVAL.m:101-110)
-#    never runs. A new DFN equal to a legacy HRN at the facility files a second patient
-#    under that HRN and the read-back reports success. The given-HRN mode does run
-#    HRN^AGGWVAL.
+# rpms-rpc#610 is fixed: a derived HRN (HRN := DFN) is put to HRN^AGGWVAL with the new
+# DFN before it is filed, and one another patient holds at the facility is refused
+# (:hrn_already_assigned), live-proven in test/live/registration_hrn_source_live_test.rb.
 
 AGG LOOKUP PATIENTS | partial | live possible-match capture signed on as PROV123 returned DFN 2 (USER,TEST, HRN 123456-DIC, DOB MAY 5,1985, sens NO, inactive N); ssn, dod and alias are blank for that seed patient, and community and mothers_maiden_name are not sent without an ^AGFAC entry for PROV123's division; free-text name find returns no rows as PROV123 (seed-data gap) | unproven: alias, community, dod, mothers_maiden_name, ssn_raw
-AGG ADD NEW PATIENT | not-proven | (limits: see rpms-rpc#609 and #610 above) creates the chart as PROV123, but a given HRN riding the create was not on #9000001.41 afterwards (PROV123's division is a missing INSTITUTION); register now fails closed with :hrn_file_failed; live-proven as SYS123 only | unproven: hrn
+AGG ADD NEW PATIENT | not-proven | (limit: see rpms-rpc#609 above) creates the chart as PROV123, but a given HRN riding the create was not on #9000001.41 afterwards (PROV123's division is a missing INSTITUTION); register now fails closed with :hrn_file_failed; live-proven as SYS123 only | unproven: hrn
 AGG UPDATE PATIENT | not-proven | the derive (HRN := DFN) update answered success as PROV123 while #9000001.41 stayed empty; register now fails closed with :hrn_file_failed; live-proven as SYS123 only | unproven: hrn
 AGG GET TEMP PAT HRN | not-proven | returns the next T-number as PROV123, but the update filing it left #9000001.41 empty; register now fails closed with :hrn_file_failed; AGGPTHRN.m:15 sets ^AUPNPAT("D",THRN,DFN,DUZ(2)) before the update, so on that fail-closed path the T-number stays indexed to a chart whose #9000001.41 is empty (AUPNLK1I.m:17 resolves it in a FileMan lookup and HRN^AGGWVAL:103 sees it as assigned) and the :hrn_file_failed hash drops hrn, so the caller cannot tell which T-number was consumed; live-proven as SYS123 only | unproven: hrn
 
@@ -114,8 +111,12 @@ BSDX NOSHOW | pilot-ready | signed on as PROV123 (DUZ 200), appointment 3 marked
 # TIU note-write pilot status on bcer-9.0-20261012-e7923a4-ydb (issue #564, slice of #224).
 # One flow written by `WRITES=1 rake wire:capture` (host mode, loopback broker), signed on as
 # PROV123. The flow first checks BEHOENCX GETVISIT on visit 4 and creates only when its patient
-# piece is 4. On this build ^AUPNVSIT(4,0) piece 5 is 4 and the seed's own TIU documents 1-4 sit
-# on DFN 4, visit 4. ProgressNote.create itself does not compare the visit's patient with DFN, and
+# piece is 4. That GETVISIT capture is not committed (rake wire:capture keeps only the write
+# entries, lib/tasks/wire.rake). The visit-patient pair is in two committed fixtures instead:
+# test/fixtures/wire_captures/orwpce-get-visit.yml (GETVISIT^ORWPCE2 for note 3, DFN 4, answers
+# visit 4) and orwpce-pce4note.yml (note 3's encounter, VST^PT^4). The seed holds TIU documents 1-5,
+# all on DFN 4: documents 1-4 on visit 4 and document 5 on visit 5 (DDR LISTER on #8925 fields .02
+# and .03, read live on bcer-9.0-20261109-d3adcff-ydb; not a committed fixture). ProgressNote.create itself does not compare the visit's patient with DFN, and
 # neither does MAKE^TIUSRVP (VSTRBLD, TIUSRVP.m:80-85); the gate is in the capture flow only.
 # Then lock, update_text (a line over WRAP_WIDTH, #479), the TIU GET RECORD TEXT read-back, and
 # unlock, on seed patient DFN 4, visit 4, title 248 PROGRESS NOTE. The note IEN is run-dependent:
@@ -131,6 +132,14 @@ BSDX NOSHOW | pilot-ready | signed on as PROV123 (DUZ 200), appointment 3 marked
 # calls ProgressNote.authorize (TIU AUTHORIZATION, EDIT RECORD) first and sends TIU SET DOCUMENT
 # TEXT only on its "1" (lakeraven/rpms-rpc#614). TIU SIGN RECORD is server-guarded:
 # CANDO^TIULP (TIUSRVP2.m:49) runs before VALIDATE (TIUSRVP2.m:51).
+# Evidence limits of the capture itself:
+# - The esig gate (WireCapture.write_refusal) refuses a code found in the note text or the
+#   withheld marker, but not one found in the read-back header. The quarantine scans every
+#   capture's raw bytes. So a code equal to a header word (for example UNSIGNED or PROVIDER)
+#   passes the gate, SIGN fires, and the GET capture is then dropped: the fixture set mixes
+#   note IENs. Choose a code that is not an English word until that is closed (rpms-rpc#617).
+# - The TIU GET RECORD TEXT reply carries no note IEN (no TIUDA). Its evidence is bound to the
+#   note by the call's input and by the note text matching, not by anything in the reply.
 # One line per RPC: RPC | status | reason | unproven: <fields or none>
 
 TIU CREATE RECORD | pilot-ready | live capture signed on as PROV123 returned new note IEN 6 for DFN 4 visit 4 title 248; BEHOENCX GETVISIT signed on as PROV123 returned patient 4 for visit 4 before the create; ProgressNote.create reads it as success | unproven: none
