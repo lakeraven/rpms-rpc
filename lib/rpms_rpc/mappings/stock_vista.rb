@@ -108,10 +108,12 @@ module RpmsRpc
     #   IEN[1]^NARRATIVE[2]^STATUS[3]^ICD[4]^ONSET[5]^LAST MODIFIED[6]^
     #   SC[7]^SPEXP[8]^TRANSCRIBED($)[9]^PRIORITY(*)[10]^^DETAIL[12]^#(13)
     # Piece 13 "#" alone is the inactive-ICD branch (ORQQPL.m:15-16),
-    # whatever piece 4 holds — a real inactive code or $$ICDDX error text.
-    # That row parses :icd_code nil, :transcribed nil (piece 9's "#" is the
-    # branch marker, not a transcribed flag), and :inactive_icd true.
-    # :icd_code keeps piece 4 only when it is code-shaped after surrounding
+    # whatever piece 4 holds — a real retired code or $$ICDDX error text.
+    # That row parses :inactive_icd true and :transcribed nil (piece 9's "#"
+    # is the branch marker, not a transcribed flag). A retired code is kept:
+    # :icd_code is the code and :inactive_icd flags it, as CPRS shows it
+    # with the "#" (#532; live: "203.1" on bcer-9.0-20261109-d3adcff-ydb).
+    # On every row :icd_code keeps piece 4 only when it is code-shaped after surrounding
     # whitespace is stripped (PROBLEM_LIST_ICD_CODE_SHAPE, one alternation:
     # ICD-10-CM [A-Z][0-9][0-9A-Z] with an optional dot and 1-4
     # alphanumerics; ICD-9-CM numeric other than 000, with an optional dot
@@ -152,13 +154,13 @@ module RpmsRpc
       m.field 12, :inactive_icd
       m.after_row do |row, parts|
         # Piece 13 "#" is the inactive-ICD branch, whatever piece 4 holds.
-        # Otherwise :icd_code is the stripped piece 4 token when it matches
-        # PROBLEM_LIST_ICD_CODE_SHAPE (no case fold). $$ICDDX/^ICDCODE
-        # failure text, "-1", and empty are nil.
+        # On either branch :icd_code is the stripped piece 4 token when it
+        # matches PROBLEM_LIST_ICD_CODE_SHAPE (no case fold), so a retired
+        # code comes back flagged by :inactive_icd. $$ICDDX/^ICDCODE failure
+        # text, "-1", and empty are nil.
         inactive = parts[12] == "#"
         token = parts[3].to_s.strip
-        code_shaped = token.match?(PROBLEM_LIST_ICD_CODE_SHAPE)
-        row[:icd_code] = code_shaped && !inactive ? token : nil
+        row[:icd_code] = token.match?(PROBLEM_LIST_ICD_CODE_SHAPE) ? token : nil
         row[:transcribed] = nil if inactive
         row[:inactive_icd] = inactive
         row
