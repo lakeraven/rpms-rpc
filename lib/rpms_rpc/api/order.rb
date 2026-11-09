@@ -752,7 +752,9 @@ module RpmsRpc
       # ("malformed reply"), ahead of the empty-reply and Order Checking
       # Unavailable paths. valid_encoding? runs before the control regexp.
       # A banner on those lines is still remembered.
-      controlled = lines.any? { |line| unreadable_reply_line?(line) }
+      # CiaClient replaces such bytes with U+FFFD and marks the reply altered
+      # (#463): the same unreadable reply.
+      controlled = Reply.altered?(reply) || lines.any? { |line| unreadable_reply_line?(line) }
       return check_unavailable("empty reply") if !controlled && blank_reply?(lines)
 
       rows = lines.map { |line| parse_chk2lst_row(line) }
