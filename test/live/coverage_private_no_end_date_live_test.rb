@@ -18,7 +18,7 @@ class CoveragePrivateNoEndDateLiveTest < LiveSpec::Test
 
   def test_a_policy_with_no_end_date_is_reported_filed_and_is_on_file_once
     insurer = billable_private_insurer!
-    before = policies.size
+    before = policies
     record = nil
 
     added = RpmsRpc::Coverage.add_private_insurance(DFN, insurer_ien: insurer, policy_holder: "ASHGROVE,SAM",
@@ -29,17 +29,27 @@ class CoveragePrivateNoEndDateLiveTest < LiveSpec::Test
     refute_empty record.to_s, "no record IEN: #{added.inspect}"
 
     after = policies
-    assert_equal before + 1, after.size, "one policy filed: #{after.inspect}"
+    assert_equal before.size + 1, after.size, "one policy filed: #{after.inspect}"
     filed = after.find { |p| p[:record_ien].to_s == record.to_s }
     refute_nil filed, "the record the gem reported (#{record}) is not on file: #{after.inspect}"
     assert_equal "ZZ6880001", filed[:number]
     assert_equal Date.new(2026, 11, 1), filed[:starts_on]
     assert_nil filed[:ends_on]
   ensure
-    RpmsRpc::Coverage.delete_private_insurance(DFN, record_ien: record, client: client) if record
+    cleanup!(record, before)
   end
 
   private
+
+  # Delete what this test filed: the record the gem reported or, when the reply
+  # named none (the #688 regression), every policy that was not on file before.
+  def cleanup!(record, before)
+    known = Array(before).map { |p| p[:record_ien].to_s }
+    ids = record.to_s.empty? ? policies.map { |p| p[:record_ien].to_s } - known : [ record.to_s ]
+    ids.each { |id| RpmsRpc::Coverage.delete_private_insurance(DFN, record_ien: id, client: client) }
+  rescue StandardError, Minitest::Assertion
+    # best-effort teardown when an earlier assertion failed
+  end
 
   def policies
     found = RpmsRpc::Coverage.on_file(DFN, client: client)

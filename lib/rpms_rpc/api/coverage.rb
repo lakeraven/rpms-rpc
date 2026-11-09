@@ -441,9 +441,9 @@ module RpmsRpc
         "AGGPIMBN" => member_number,
         "AGGPIREL" => relationship_ien && positive_ien!(relationship_ien, "relationship_ien"),
         "AGGPIESD" => effective_on,
-        "AGGPIEED" => ends_on || "",
+        "AGGPIEED" => ends_on.nil? ? "" : ends_on,
         "AGGPHESD" => effective_on,
-        "AGGPHEED" => ends_on || ""
+        "AGGPHEED" => ends_on.nil? ? "" : ends_on
       }.compact
       validate_private_params!(params)
       id = canonical_dfn(dfn)

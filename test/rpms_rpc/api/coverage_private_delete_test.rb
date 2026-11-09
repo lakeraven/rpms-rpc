@@ -115,6 +115,20 @@ class CoveragePrivateDeleteTest < Minitest::Test
                     AGGPHESD=11/01/2026 AGGPHEED=], parms.split("\x1C")
   end
 
+  # Only a missing end date goes blank: any other value that is not a real date
+  # is refused before anything is sent, never filed as an open-ended policy.
+  def test_add_private_insurance_refuses_an_end_date_that_is_not_a_date
+    client = replay
+
+    [ false, "13/01/2027", "soon" ].each do |bad|
+      assert_raises(ArgumentError, "ends_on: #{bad.inspect}") do
+        Cov.add_private_insurance(DFN, insurer_ien: "1", policy_holder: "ZZCOV,HOLDER", member_number: "ZZ0001",
+                                       effective_on: "11/01/2026", ends_on: bad)
+      end
+    end
+    assert_empty rpcs(client)
+  end
+
   # ...and the policy it reports is the one on file, with no end date.
   def test_the_policy_reads_back_on_file
     replay_flow("on_file_private")
