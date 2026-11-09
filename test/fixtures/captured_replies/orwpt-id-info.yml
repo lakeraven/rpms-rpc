@@ -1,0 +1,26 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb orwpt-id-info.rb.
+---
+rpc: ORWPT ID INFO
+entry_point: IDINFO^ORWPT
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T04:37:02Z'
+note: Reads only. No demo patient has both SSN and DOB blank; the bad-patient reply
+  is the one real reply that does.
+captures:
+- name: no_such_patient
+  inputs:
+  - '999999'
+  context: 'a DFN no patient has: every piece blank, SSN and DOB included'
+  raw_return: "5\0^^^^^^^"
+  sha256: af4a901cde9d0d534fdfc612aa304f3eab674833de51182d0609d69d6c8b02ff
+- name: blank_ssn
+  inputs:
+  - '2'
+  context: 'demo patient 2 (USER,TEST): SSN blank, DOB and the rest filed'
+  raw_return: "6\0^2850505^M^N^^^^USER,TEST"
+  sha256: 73467baefdea3c769d67d4dbf2cff63b7f6273c30acb3e38a97819abba3edc55
