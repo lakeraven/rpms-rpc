@@ -1,0 +1,97 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb amhg-groups-cases.rb.
+---
+rpc: AMHG GET GROUPS
+entry_point: GROUPL^AMHGDA
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: SYS123 (the build's operator, MANAGER,SYSTEM)
+bound_context: AMHGRPC
+captured_at: '2026-11-09T05:05:37Z'
+note: Reads only. Lists send from|to|provider (or dfn); provider 4 is the operator's
+  DUZ. 999999 is an IEN with no record in any of these files.
+captures:
+- name: groups_none
+  inputs:
+  - 3000101|3271231|4
+  context: 'the operator''s groups over 2000-2027: none'
+  raw_return: "5\0T00010BMXIEN^T00030SortDate^T00030Date^T00030GroupName^T00050ActivityCode^T00030Program^T00030Clinic^T00030Provider^T00030ContactType^T00080POV^T00001Signed^T00030LocationofEncounter\x1E\x1F"
+  sha256: b1ab9ca19e719087ed3d54f144d60c0abf942a95e365f5e109146834ea0316f7
+- name: group_information_not_on_file
+  rpc: AMHG GET GROUP INFORMATION
+  inputs:
+  - '999999'
+  context: 'a group IEN not on file: one row of blanks'
+  raw_return: "6\0T00010BMXIEN^T00030PrimaryProvider^T00030Program^T00030GroupName^T00030Clinic^T00030TypeofContact^T00030EncounterLocation^T00020EncounterDate^T00010ArrivalTime^T00050CommofService^T00050Activity^T00010ActivityTime^T00250ChiefComplaint\x1E999999^^^^^^^1700,,,12,0^^^^^\x1E\x1F"
+  sha256: 002affeafa29d1d5ca7cd730ddf7f745649187b28d8355bf33cb45939294edcd
+- name: group_patients_not_on_file
+  rpc: AMHG GET GROUP PATIENTS
+  inputs:
+  - '999999'
+  context: 'no group: no patients'
+  raw_return: "7\0T00010BMXIEN^T00010PatientIEN^T00010AMHREC^T00030PatientName^T00001Sex^T00010Age^T00020DOB^T00010Chart^T00030DOD\x1E\x1F"
+  sha256: a155e6f5eb64adbc8933019ba7cf91b9ee72a54916f3cb54352f80549c1cfe63
+- name: group_cpt_not_on_file
+  rpc: AMHG GET GROUP CPT
+  inputs:
+  - '999999'
+  context: 'no group: no CPT rows'
+  raw_return: "8\0T00010BMXIEN^T00010Code^T00050Narrative^T00010Quantity^T00010Mod1IEN^T00010Mod1^T00010Mod2IEN^T00010Mod2\x1E\x1F"
+  sha256: 490b28454becb81c3b8cab8bce52b796015ef828c1707207d803c5835726ee80
+- name: group_edu_not_on_file
+  rpc: AMHG GET GROUP EDU
+  inputs:
+  - '999999'
+  context: 'no group: no education rows'
+  raw_return: "9\0T00010BMXIEN^T00030EducationTopic^T00010TimeSpent^T00030LevelOfUnderstanding^T00100Comment^T00050CPT^T00030Status^T00030Goal^T00050Provider\x1E\x1F"
+  sha256: 733ed0cd3b99b2e96b87c60d85ca71fdc71e2ce0a6731d2cc29bea49ed9eca99
+- name: group_pov_not_on_file
+  rpc: AMHG GET GROUP POV
+  inputs:
+  - '999999'
+  context: 'no group: no POV rows'
+  raw_return: "1\0T00010BMXIEN^T00010Code^T00100Narrative\x1E\x1F"
+  sha256: 82528c94efa65d4841e883d5e893a849cf6f8c31851aba41466416536d87389b
+- name: group_soap_not_on_file
+  rpc: AMHG GET GROUP SOAP
+  inputs:
+  - '999999'
+  context: 'no group: the SOAP header alone'
+  raw_return: "2\0T00250Soap\x1E\x1F"
+  sha256: 70702d2a27e2fd75cefd75c35cee31987842712e0a5ce0d60534299133bccece
+- name: group_secondary_providers_not_on_file
+  rpc: AMHG GET GROUP SEC PROVIDERS
+  inputs:
+  - '999999'
+  context: 'no group: no secondary providers'
+  raw_return: "3\0T00010BMXIEN^T00030Provider\x1E\x1F"
+  sha256: 1e8dd8630582517296b9843d8b10c62fd68699a733ba4f6d275f20b09eae78b1
+- name: case_dates_none
+  rpc: AMHG GET CASE DATES
+  inputs:
+  - 3000101|3271231|4
+  context: 'demo patient 4''s case dates over 2000-2027: none'
+  raw_return: "4\0T00010BMXIEN^T00030SortDate^T00030OpenDate^T00030AdmitDate^T00030ClosedDate^T00050Disposition^T00030Program^T00030Provider\x1E\x1F"
+  sha256: 22c4fd18f9edbd1637ba552b3f4e41ad8e609bca9e81bbbf592ae06c45e03b00
+- name: case_management_not_on_file
+  rpc: AMHG GET CASE MANAGEMENT
+  inputs:
+  - '999999'
+  context: 'a case IEN not on file: one row of blanks'
+  raw_return: "5\0T00010BMXIEN^T00030CaseOpen^T00030CaseAdmit^T00030CaseClosed^T00030Disposition^T00030Program^T00030Provider^T00030Problem^T00030NextReview^T00250Comment\x1E999999^^^^^^^^^\x1E\x1F"
+  sha256: 551c696f1ed5ffc037c15840ed2400a3310931f4811fc666ff8f920dd0b9418b
+- name: community_activities_none
+  rpc: AMHG GET COMMUNITY ACTIVITIES
+  inputs:
+  - 3000101|3271231|4
+  context: 'the operator''s community activities over 2000-2027: none'
+  raw_return: "6\0T00010BMXIEN^T00030SortDate^T00030Date^T00030Provider^T00010Time^T00050ActivityCode^T00050POV^T00080ProviderNarrative^T00030LocationofEncounter\x1E\x1F"
+  sha256: 81f09f3cbba23b35a98027605a686f4b99a0cbd6d64ff91722d0d8d16663a7e6
+- name: community_activity_not_on_file
+  rpc: AMHG GET COMMUNITY ACTIVITY
+  inputs:
+  - '999999'
+  context: 'a community activity IEN not on file: one row of blanks'
+  raw_return: "7\0T00010BMXIEN^T00050Provider^T00030Program^T00050TypeofContact^T00010StartTime^T00010Time^T00010NumberServed^T00030Target^T00030Date^T00050Location^T00050CommunityofService^T00060ActivityCode^T00050LocalServiceSite^T00010Flag^T00050Clinic\x1E999999^^^^^^^^1700,,,12,0^^^^^^\x1E\x1F"
+  sha256: 8bbf518fa8144caf0a2638ed7d1169cdf6647caa840501afd812f00b1cdcc46e

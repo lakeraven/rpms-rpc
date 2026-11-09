@@ -1,0 +1,64 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb amhg-reference.rb.
+---
+rpc: AMHG GET PATIENT
+entry_point: GETPAT^AMHGP
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: SYS123 (the build's operator, MANAGER,SYSTEM)
+bound_context: AMHGRPC
+captured_at: '2026-11-09T04:59:22Z'
+note: Reads only. Pieces are facility|query|max (patients), site IEN, from|to|provider
+  (admin, intakes) and dfn|program|from|to (intake documents); provider 4 is the operator's
+  DUZ.
+captures:
+- name: patients
+  inputs:
+  - "|DEMO|ALL"
+  context: 'name prefix DEMO, no facility: demo patient 4'
+  raw_return: "5\0T00010IEN^T00030PATIENTNAME^T00015DOB^T00001SEX^T00007CHART^T00009SSN^T00010REG^T00030MORE^T00030DOD^T00010AGE^T00001MESSAGEFLAG^T02500MESSAGE^T00001PRF\x1E4^DEMO,PATIENT
+    ONE^01/01/2001^F^99901^^^^^25^^^0\x1E\x1F"
+  sha256: 07a42cc11deff17431c9ad48aef7b1261a04e2af235bf4b00c26ba6d573d1134
+- name: patients_none
+  inputs:
+  - 7819|ZZZNOMATCH|ALL
+  context: 'a name prefix no patient has: the header alone'
+  raw_return: "6\0T00010IEN^T00030PATIENTNAME^T00015DOB^T00001SEX^T00007CHART^T00009SSN^T00010REG^T00030MORE^T00030DOD^T00010AGE^T00001MESSAGEFLAG^T02500MESSAGE^T00001PRF\x1E\x1F"
+  sha256: f6347af19e181047549f1e4453cbbacdd5e01baefd16da3bbd868959afc98f48
+- name: site
+  rpc: AMHG GET SITE PARAMETERS
+  inputs:
+  - '1'
+  context: BH site parameters entry 1
+  raw_return: "7\0T00010BMXIEN^T00030TypeofVisit^T00030TypeofHS^T00030DefMHLoc^T00030DefMHComm^T00030DefMHClinic^T00030DefTypeofContact^T00001AskInterpreter^T00001AllowPCCPrbUp^T00030DefSSLoc^T00030DefSSComm^T00030DefSSClinic^T00030DefCDLoc^T00030DefCDComm^T00030DefCDClinic^T00030DefOthLoc^T00030DefOthComm^T00030DefOthClinic^T00030DefEHRComm^T00001InteractivePCCLink^T00030DefAppt^T00005Lockout^T00001DeleteOverride\x1E1^^^^^^^^^^^^^^^^^^^0^^99999^0\x1E\x1F"
+  sha256: 02d2f6c999cddadede00ba162f997e3f39fa5c6f2b29615a187ee6f4adcb74a8
+- name: site_not_on_file
+  rpc: AMHG GET SITE PARAMETERS
+  inputs:
+  - '99999'
+  context: 'an IEN with no site parameters: SITE^AMHGU still writes one row'
+  raw_return: "8\0T00010BMXIEN^T00030TypeofVisit^T00030TypeofHS^T00030DefMHLoc^T00030DefMHComm^T00030DefMHClinic^T00030DefTypeofContact^T00001AskInterpreter^T00001AllowPCCPrbUp^T00030DefSSLoc^T00030DefSSComm^T00030DefSSClinic^T00030DefCDLoc^T00030DefCDComm^T00030DefCDClinic^T00030DefOthLoc^T00030DefOthComm^T00030DefOthClinic^T00030DefEHRComm^T00001InteractivePCCLink^T00030DefAppt^T00005Lockout^T00001DeleteOverride\x1E99999^^^^^^^^^^^^^^^^^^^0^^99999^0\x1E\x1F"
+  sha256: baad7703263b19300f70e8436fce5979bdb02999373a84b27b18b80dd0925240
+- name: admin_none
+  rpc: AMHG GET ADMIN RECORDS
+  inputs:
+  - 3000101|3271231|4
+  context: 'the operator''s administrative records over 2000-2027: none on file'
+  raw_return: "9\0T00010BMXIEN^T00030SortDate^T00030Date^T00050Program^T00050ActivityCode^T00050POV^T00010Time^T00030Provider^T00080ProviderNarrative^T00030LocationofEncounter\x1E\x1F"
+  sha256: 94311620755ffc76e6d0a93bcafcae4added5e031ca3dcbd5988edb9f85aafe1
+- name: intakes_none
+  rpc: AMHG GET INTAKE
+  inputs:
+  - 3000101|3271231|4
+  context: 'demo patient 4''s intakes over 2000-2027: none on file'
+  raw_return: "1\0T00010BMXIEN^T00030SortDate^T00030Date^T00050Program^T00050InitialProvider^T00007VisitIEN^T00030Visit^T00050PrimaryProvider\x1E\x1F"
+  sha256: 2c3682a492c95137c73fdd96a10cea34e3dc500ecc6e856a653434c43ab58cf9
+- name: intake_documents_none
+  rpc: AMHG GET INTAKE DOCUMENTS
+  inputs:
+  - 4|M|3000101|3271231
+  context: 'demo patient 4''s mental health intake documents over 2000-2027: none
+    on file'
+  raw_return: "2\0T00010BMXIEN^T00001Type^T00010AMHREC^T00030DateInitial^T00030Program^T00030ProviderInitial^T00030DateUpdate^T00030ProviderUpdate^T00001Signed^T00010IPIen^T00010UpdIen^T00010InitialIntake^T00030UpdateProgram^T00010UserUpdate^T00030DateofLastUpdate\x1E\x1F"
+  sha256: 9ba1f71dcb22c1e5592175309e1dfd40f3539dd034d377eceb465bd3c5f5666c

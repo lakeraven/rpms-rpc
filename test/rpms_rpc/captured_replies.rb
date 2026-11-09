@@ -85,6 +85,10 @@ module CapturedReplies
       @scripted = nil
     end
 
+    # A GLOBAL ARRAY read: the next scripted reply for that RPC, read as
+    # CiaClient#call_rpc_global_array reads the frame it receives.
+    def call_rpc_global_array(rpc_name, *params) = global_array_reply(call_rpc_raw(rpc_name, *params))
+
     def create_context(option_name = SIGNON_CONTEXT)
       @calls << { rpc: :create_context, params: [ option_name ] }
       @current_context = option_name

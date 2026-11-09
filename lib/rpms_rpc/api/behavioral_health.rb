@@ -2022,22 +2022,9 @@ module RpmsRpc
       raise
     end
 
-    # GLOBAL ARRAY pieces: optional "<seq>\x00" ack, cut at $C(31), split
-    # on $C(30). A body with no $C(30) is split on newlines.
-    def save_visit_frame_parts(response)
-      body = response.is_a?(Array) ? response.join("\n") : response.to_s
-      body = body.split("\x00", 2).last if body.include?("\x00")
-      body = body.split("\x1f", 2).first.to_s
-      body.include?("\x1e") ? body.split("\x1e") : body.split(/\r?\n/)
-    end
-
-    def save_visit_rows(response)
-      save_visit_frame_parts(response).filter_map do |row|
-        row = row.delete_prefix("\r\n").delete_prefix("\n").delete_prefix("\r")
-        stripped = DataMapper.strip_recordset_separators(row)
-        stripped.empty? ? nil : stripped
-      end
-    end
+    # The GLOBAL ARRAY frame, split as Wire#rows splits it.
+    def save_visit_frame_parts(response) = frame_parts(response)
+    def save_visit_rows(response) = strip_frame_rows(frame_parts(response))
 
     def save_visit_refuse!(message)
       raise SaveError, message
