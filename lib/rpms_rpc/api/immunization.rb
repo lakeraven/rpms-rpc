@@ -71,22 +71,35 @@ module RpmsRpc
       return nil if invalid_id?(dfn)
 
       rpc = DataMapper.immunization_profile.rpc_name
-      profile_text(rpc, Array(RpmsRpc.client.call_rpc(rpc, dfn.to_s)).map(&:to_s))
+      profile_text(rpc, profile_lines(RpmsRpc.client, rpc, dfn.to_s))
     end
     shape :text_summary, resource: "immunizations", verb: "GET", path: "/patients/{dfn}/immunizations/text-summary"
 
     private
 
-    # IMMPROF^BIRPC ends every reply with a line of $C(31)$C(31) and the
-    # error text, if any (BIRPC.m:274-275). The CIA reply grammar turns the
-    # two $C(31) into spaces and splits on each line's $C(30), so the end
-    # line is the last non-empty line and the empty lines are the $C(30)
-    # separators. A blank profile line is " " (BIRPC.m:268) and reads "".
-    # When no line came before it, PROFILE^BGOVIMM2 rewrites the end line as
-    # -1082^text (BGOVIMM2.m:131), which is not blank either.
+    # The reply's lines. BmxClient#call_rpc reads $C(31) as a recordset's
+    # end marker and the byte after it as a query error, so over BMX the
+    # profile is read raw: the data, after the security and application
+    # packets (which still raise), split at CR LF. Every other client splits
+    # it itself.
+    def profile_lines(client, rpc, dfn)
+      return client.call_rpc_raw(rpc, dfn).to_s.split(/\r?\n/) if defined?(RpmsRpc::BmxClient) && client.is_a?(RpmsRpc::BmxClient)
+
+      Array(client.call_rpc(rpc, dfn)).map(&:to_s)
+    end
+
+    # IMMPROF^BIRPC ends every line with $C(30) and the reply with a line of
+    # $C(31)$C(31) and the error text, if any (BIRPC.m:268-275). The CIA
+    # reply grammar turns the two $C(31) into spaces and splits each line at
+    # its $C(30); another client may keep the bytes. Either way, with the
+    # $C(30)s gone and the empty lines they leave dropped, the end line is
+    # the last line, and it is blank once its $C(31)s are gone. A blank
+    # profile line is " " (BIRPC.m:268) and reads "". When no line came
+    # before it, PROFILE^BGOVIMM2 rewrites the end line as -1082^text
+    # (BGOVIMM2.m:131), which is not blank either.
     def profile_text(rpc, lines)
-      lines = lines.reject(&:empty?)
-      trailer = lines.pop
+      lines = lines.map { |line| line.delete("\x1E") }.reject(&:empty?)
+      trailer = lines.pop&.delete("\x1F")
       raise RpmsRpc::Client::RpcError, "#{rpc}: the reply has no end line" if trailer.nil?
       raise RpmsRpc::Client::RpcError, "#{rpc}: #{trailer.strip}" unless trailer.strip.empty?
 
