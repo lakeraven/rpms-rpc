@@ -168,6 +168,7 @@
 "RpmsRpc::HealthSummary.for_patient": read
 "RpmsRpc::HealthSummary.generate_selective": read
 "RpmsRpc::HealthSummary.reminder_detail": read
+"RpmsRpc::HealthSummary.summary_types": read
 "RpmsRpc::Image.exams_for_patient": read
 "RpmsRpc::Immunization.find": read
 "RpmsRpc::Immunization.for_patient": read
