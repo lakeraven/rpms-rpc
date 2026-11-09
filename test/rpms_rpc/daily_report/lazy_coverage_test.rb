@@ -73,7 +73,7 @@ class RpmsRpc::DailyReport::LazyCoverageTest < Minitest::Test
   end
 
   class FakePortPicker
-    def free_loopback_port = 19_301
+    def free_loopback_ports(count) = [ 19_301, 19_302 ].first(count)
   end
 
   class FakeWriter
