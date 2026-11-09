@@ -153,6 +153,17 @@ class OrderSaveTest < Minitest::Test
     end
   end
 
+  # Guard: GETFLDS appends "|" and the PKI XML ("x" lines) after the order text
+  # when a signature is held (ORWORR.m:165-172); text stops at "|".
+  def test_save_text_stops_at_pipe_and_ignores_pki_xml
+    replay(with_body(captured_body + "|\rx<xml/>\r".b))
+
+    result = save
+
+    assert result[:success]
+    assert_equal [ ">> rpms-rpc captured order *UNSIGNED*", "" ], result[:text]
+  end
+
   # Guard: an order text line without its "t" prefix (ORWORR.m:165-169).
   def test_save_text_line_without_t_prefix_is_malformed_reply
     replay(with_body(captured_body.sub("\rt>>".b, "\r>>".b)))
