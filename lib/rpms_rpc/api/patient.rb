@@ -357,11 +357,15 @@ module RpmsRpc
     end
     shape :address, resource: "patients", verb: "POST", path: "/patients/{dfn}/address"
 
+    # DEPRECATED (rpms-rpc#486): use Registration.race_ethnicity, which reads
+    # the RACE INFORMATION multiple (#2.02) and how each race was collected.
+    # This method warns once per process, keeps working for one release, and
+    # is removed in the release after that.
+    #
     # PATIENT (#2) field .06 RACE is P10'X. Its input transform is
     # historical-only ("ENTRY OF DATA NOT ALLOWED") but the value is
-    # readable, via DDR GETS ENTRY DATA the same way as #address. The
-    # USCDI multiples (2 RACE INFORMATION, 6 ETHNICITY INFORMATION) are
-    # out of scope for #294.
+    # readable, via DDR GETS ENTRY DATA the same way as #address. It holds
+    # one race; a patient's races are in the multiple.
     #
     # Returns { dfn:, race: } (the external value, or nil when empty), or
     # nil when the DFN is not a positive whole number (the same guard as
@@ -369,6 +373,7 @@ module RpmsRpc
     # the reply has no field rows. The read binds FILEMAN_CONTEXT and
     # restores the caller's option.
     def race(dfn)
+      warn_race_deprecated
       return nil unless dfn.to_s.match?(/\A\d+\z/) && dfn.to_i.positive?
 
       fields = ContextScope.scoped(RpmsRpc.client, FILEMAN_CONTEXT) do
@@ -379,6 +384,19 @@ module RpmsRpc
       { dfn: dfn.to_i, race: external(fields, ".06") }
     end
     shape :race, resource: "patients", verb: "POST", path: "/patients/{dfn}/race"
+
+    RACE_DEPRECATION = "RpmsRpc::Patient.race is deprecated and will be removed in the next release: " \
+                       "use RpmsRpc::Registration.race_ethnicity(dfn), which reads every race on file " \
+                       "(rpms-rpc#486)"
+
+    # Warns once per process, pointing at the caller's line.
+    def warn_race_deprecated
+      return if @race_deprecation_warned
+
+      @race_deprecation_warned = true
+      Kernel.warn(RACE_DEPRECATION, uplevel: 2)
+    end
+    private :warn_race_deprecated
 
     # The parsed fields of one DDR GETS ENTRY DATA read, or nil when it
     # failed. A reply that parsed NO field rows is a failed read, not
