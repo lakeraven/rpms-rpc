@@ -1,0 +1,384 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb bsdx-scheduling.rb.
+---
+rpc: BSDX ADD NEW APPOINTMENT
+entry_point: APPADD^BSDX07
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,SCHED (PSCH123, a published demo pair)
+bound_context: BSDXRPC
+captured_at: '2026-11-09T16:32:47Z'
+note: 'Seed patient DFN 4 and the demo clinic (DEMO IHS CLINIC: hospital location
+  3, resource 2), synthetic data. Setup books appointment A at 3261109.0800 and C
+  at 3261109.0830; the inputs that name them read their IENs. 999999 is an appointment
+  IEN no record has. The checkout_future refusal depends on the capture date (the
+  captured_at below). The check-in visit read binds CIAV VUECENTRIC, where BEHOENCX
+  FETCH is served.'
+captures:
+- name: hospital_locations
+  rpc: BSDX HOSPITAL LOCATION
+  inputs: []
+  context: every clinic
+  raw_return: "7\0I00020HOSPITAL_LOCATION_ID^T00040HOSPITAL_LOCATION^T00030DEFAULT_PROVIDER^T00030STOP_CODE_NUMBER^D00020INACTIVATE_DATE^D00020REACTIVATE_DATE\x1E7^CHART
+    REVIEW^^CHART REV/REC MOD^^\x1E10^DEMO DIABETES^DEMO,DOCTOR^DIABETIC^^\x1E3^DEMO
+    IHS CLINIC^PROFILE,MD^FAMILY PRACTICE^^\x1E6^DEMO PRIMARY CARE^PROFILE,MD^INTERNAL
+    MEDICINE^^\x1E9^DEMO SAME DAY^PROFILE,MD^URGENT CARE^^\x1E4^LAB DIV 8904 OOS ID
+    76^^LABORATORY SERVICES^^\x1E8^OTHER^^OTHER^^\x1E5^PHARMACY^^PHARMACY^^\x1E\x1F"
+  sha256: 6b9fabec86038fc2b177aac0b80d24a90a9614a8d94ed34f0e7dba796536a672
+- name: clinic_setup
+  rpc: BSDX CLINIC SETUP
+  inputs: []
+  context: every clinic's setup
+  raw_return: "8\0I00020HOSPITAL_LOCATION_ID^T00040HOSPITAL_LOCATION^T00030CREATE_VISIT^T00030VISIT_SERVICE_CATEGORY^T00030MULTIPLE_CLINIC_CODES_USED?^T00030VISIT_PROVIDER_REQUIRED^T00030GENERATE_PCCPLUS_FORMS?^T00030MAX_OVERBOOKS\x1E3^DEMO
+    IHS CLINIC^YES^AMBULATORY^NO^YES^^1\x1E6^DEMO PRIMARY CARE^YES^^^^^5\x1E8^OTHER^^^^^^0\x1E9^DEMO
+    SAME DAY^YES^^^^^10\x1E10^DEMO DIABETES^YES^^^^^2\x1E\x1F"
+  sha256: f904b156902b322e0b04ef04dec817259243ec42f2d74ac24bc6166152688bee
+- name: resources
+  rpc: BSDX RESOURCES
+  inputs:
+  - ''
+  context: every resource
+  raw_return: "9\0I00010RESOURCEID^T00030RESOURCE_NAME^T00010INACTIVE^I00010TIMESCALE^I00010HOSPITAL_LOCATION_ID^T00030LETTER_TEXT^T00030NO_SHOW_LETTER^T00030CLINIC_CANCELLATION_LETTER^I00010VIEW^I00010OVERBOOK^I00010MODIFY_SCHEDULE^I00010MODIFY_APPOINTMENTS\x1E1^DEMO
+    PRIMARY CARE^0^15^6^^^^1^1^1^1\x1E2^DEMO IHS CLINIC^0^15^3^^^^1^1^1^1\x1E3^DEMO
+    SAME DAY^0^15^9^^^^1^1^1^1\x1E4^DEMO DIABETES^0^30^10^^^^1^0^1^1\x1E5^DEMO PODIATRY^0^30^11^^^^1^0^1^1\x1E\x1F"
+  sha256: 2953cd6fed7242948cc8884ce627a75c135e83a45ed3c2641e3842bff15728ab
+- name: resources_by_user
+  rpc: BSDX RESOURCES BY USER
+  inputs:
+  - ''
+  context: the signed-on user's resources
+  raw_return: "1\0I00010RESOURCEID^T00030RESOURCE_NAME^T00010INACTIVE^I00010TIMESCALE^I00010HOSPITAL_LOCATION_ID^T00030LETTER_TEXT^T00030NO_SHOW_LETTER^T00030CLINIC_CANCELLATION_LETTER^I00010VIEW^I00010OVERBOOK^I00010MODIFY_SCHEDULE^I00010MODIFY_APPOINTMENTS\x1E1^DEMO
+    PRIMARY CARE^0^15^6^^^^1^1^1^1\x1E2^DEMO IHS CLINIC^0^15^3^^^^1^1^1^1\x1E3^DEMO
+    SAME DAY^0^15^9^^^^1^1^1^1\x1E4^DEMO DIABETES^0^30^10^^^^1^0^1^1\x1E5^DEMO PODIATRY^0^30^11^^^^1^0^1^1\x1E\x1F"
+  sha256: e6ed9954479615cb489aa7a55c3383a7f81e994a3ba6b85f4366500d7d22f67e
+- name: availability
+  rpc: BSDX SEARCH AVAILABILITY
+  inputs:
+  - DEMO IHS CLINIC
+  - '3261116'
+  - '3261116'
+  - ''
+  - ''
+  - ''
+  context: the demo clinic's open blocks on one day
+  raw_return: "2\0T00030RESOURCENAME^D00030DATE^T00030ACCESSTYPE^T00030COMMENT\x1EDEMO
+    IHS CLINIC^NOV 16, 2026^DEMO GENERAL^\x1E\x1F"
+  sha256: 07613d577595ee7bddd265a9116ea0fda2581c658d49ab0769f9c39a545b0cd0
+- name: availability_unknown_resource
+  rpc: BSDX SEARCH AVAILABILITY
+  inputs:
+  - NO SUCH RESOURCE
+  - '3261116'
+  - '3261116'
+  - ''
+  - ''
+  - ''
+  context: a resource name no record has
+  raw_return: "3\0T00030RESOURCENAME^D00030DATE^T00030ACCESSTYPE^T00030COMMENT\x1E\x1F"
+  sha256: ca19cf46a81d9ce79d9715977daff73afea9f7c92471acb9e5e8906322a56369
+- name: all_appointments
+  rpc: BSDX ALL APPOINTMENTS
+  inputs:
+  - '3261109'
+  - '3261109'
+  context: every appointment on A's day
+  raw_return: "4\0D00030START_TIME^D00030END_TIME^I00010PAT_ID^T00030RES_NAME\x1ENOV
+    9,2026 08:00^NOV 9,2026 08:15^4^DEMO IHS CLINIC\x1ENOV 9,2026 08:30^NOV 9,2026
+    08:45^4^DEMO IHS CLINIC\x1E\x1F"
+  sha256: f02a59269afd1da96115bb0f67dc5279418105a643dca46f58d0d281393981ea
+- name: all_appointments_none
+  rpc: BSDX ALL APPOINTMENTS
+  inputs:
+  - '3261117'
+  - '3261117'
+  context: a day with no appointment
+  raw_return: "5\0D00030START_TIME^D00030END_TIME^I00010PAT_ID^T00030RES_NAME\x1E\x1F"
+  sha256: 2b69c1a79d748bb1e25e4ad73b2907f5d8ac1ff879280c0e23fd18bb51ac399f
+- name: slot_schedule
+  rpc: BSDX CREATE ASGND SLOT SCHED
+  inputs:
+  - DEMO IHS CLINIC
+  - '3261116.0001'
+  - '3261116.2359'
+  - ''
+  - ''
+  context: the demo clinic's slots on one day
+  raw_return: "6\0D00030START_TIME^D00030END_TIME^I00010SLOTS^T00030RESOURCE^T00010ACCESS_TYPE^T00250NOTE^I00030AVAILABILITYID\x1ENOV
+    16,2026 00:01^NOV 16,2026 08:00^0^DEMO IHS CLINIC^0^^0\x1ENOV 16,2026 08:00^NOV
+    16,2026 17:00^4^DEMO IHS CLINIC^1^^46\x1ENOV 16,2026 17:00^NOV 16,2026 23:59^0^DEMO
+    IHS CLINIC^0^^0\x1E\x1F"
+  sha256: 6d9c5fb4ca7b9102ff25b78fa60b084481077a55e284e03ebd2ffeb4ca8114e3
+- name: slot_schedule_unknown_resource
+  rpc: BSDX CREATE ASGND SLOT SCHED
+  inputs:
+  - NO SUCH RESOURCE
+  - '3261116.0001'
+  - '3261116.2359'
+  - ''
+  - ''
+  context: a resource name no record has
+  raw_return: "7\0D00030START_TIME^D00030END_TIME^I00010SLOTS^T00030RESOURCE^T00010ACCESS_TYPE^T00250NOTE^I00030AVAILABILITYID\x1E\x1F"
+  sha256: 7aad377a60ce609a3e16f6845babe4a8316d2ae445eb8a1a401e7a6b6a39cae0
+- name: appointments
+  rpc: BSDX CREATE APPT SCHEDULE
+  inputs:
+  - DEMO IHS CLINIC
+  - '3261109.0001'
+  - '3261109.2359'
+  - ''
+  context: the demo clinic's appointments on A's day
+  raw_return: "8\0I00020APPOINTMENTID^D00030START_TIME^D00030END_TIME^D00030CHECKIN^D00030AUXTIME^I00020PATIENTID^T00030PATIENTNAME^T00030RESOURCENAME^I00005NOSHOW^T00020HRN^I00005ACCESSTYPEID^I00005WALKIN^D00030CHECKOUT^I00020VPROVIDER^T00020CANCELLED^T00250NOTE\x1E1^NOV
+    9,2026 08:00^NOV 9,2026 08:15^^^4^DEMO,PATIENT ONE^DEMO IHS CLINIC^0^99901^0^0^^^0^\x1E2^NOV
+    9,2026 08:30^NOV 9,2026 08:45^^^4^DEMO,PATIENT ONE^DEMO IHS CLINIC^0^99901^0^0^^^0^\x1E\x1F"
+  sha256: c15811f24fd36fa93cfbadbe0c865242da47c9aa4e72b7656d4f97077223df3a
+- name: appointments_none
+  rpc: BSDX CREATE APPT SCHEDULE
+  inputs:
+  - DEMO IHS CLINIC
+  - '3261117.0001'
+  - '3261117.2359'
+  - ''
+  context: a day with no appointment
+  raw_return: "9\0I00020APPOINTMENTID^D00030START_TIME^D00030END_TIME^D00030CHECKIN^D00030AUXTIME^I00020PATIENTID^T00030PATIENTNAME^T00030RESOURCENAME^I00005NOSHOW^T00020HRN^I00005ACCESSTYPEID^I00005WALKIN^D00030CHECKOUT^I00020VPROVIDER^T00020CANCELLED^T00250NOTE\x1E\x1F"
+  sha256: 491d7224dbf06c180695be1241f6fc391437982870928a0aca863404f7372da2
+- name: patient_appointments_none
+  rpc: BSDX PATIENT APPT DISPLAY
+  inputs:
+  - '999999999'
+  context: a DFN no patient has
+  raw_return: "1\0T00030Name^D00020DOB^T00030Sex^T00030HRN^D00030ApptDate^T00030Clinic^T00030TypeStatus^I00010RESOURCEID^T00030APPT_MADE_BY^D00020DATE_APPT_MADE^T00250NOTE^T00030STREET^T00030CITY^T00030STATE^T00030ZIP^T00030HOMEPHONE\x1E\x1F"
+  sha256: 0b1bdaaa7682d010a44e3635561dd13749dd9cfbac7ccddb1ae7f061da4839ed
+- name: overbook
+  rpc: BSDX OVERBOOK
+  inputs:
+  - '3'
+  - '3261109.0800'
+  - '2'
+  context: may A's slot be overbooked
+  raw_return: "2\0T00020OVERBOOK\x1EYES\x1E\x1F"
+  sha256: 26f260a410ebe66b9e0dcfe3d9c7393ab28192b440c2fbe3ed877e311da28132
+- name: variable_length
+  rpc: BSDX CLINIC VAR APPT
+  inputs:
+  - '3'
+  context: does the clinic allow variable lengths
+  raw_return: "3\0I00020VAR_APPT_FLAG\x1E1\x1E\x1F"
+  sha256: c8fe21b130eb8b7833e127f052af775de286ae81f6a22d6ff4b03b889c7382de
+- name: add
+  inputs:
+  - '3261116.0900'
+  - '3261116.0915'
+  - '4'
+  - DEMO IHS CLINIC
+  - '15'
+  - synthetic
+  - ''
+  - ''
+  context: book appointment B
+  raw_return: "4\0I00020APPOINTMENTID^T00020ERRORID\x1E3^\x1E\x1F"
+  sha256: 90ba376af62e0a8a4261afb88527c0c7ddb8e17641a5d6af505593c9cbc47f87
+- name: add_unknown_resource
+  inputs:
+  - '3261116.0900'
+  - '3261116.0915'
+  - '4'
+  - NO SUCH RESOURCE
+  - '15'
+  - ''
+  - ''
+  - ''
+  context: book on a resource name no record has
+  raw_return: "5\0I00020APPOINTMENTID^T00020ERRORID\x1E0^BSDX07 Error: Invalid Resource
+    ID\x1E\x1F"
+  sha256: bf6f335900e31cafc4df2923bd6d1a730693a34e91435d0b3614f3f68c617d42
+- name: checkin
+  rpc: BSDX CHECKIN APPOINTMENT
+  inputs:
+  - '1'
+  - '3261109.0801'
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  context: check A in
+  raw_return: "6\0T00020ERRORID^T00150MESSAGE\x1E0^\x1E\x1F"
+  sha256: 3e5a6fd260ce5b3bbfe6b941c9e3ebfe54b2050e7b6ec82262c935567fc58499
+- name: checkin_missing
+  rpc: BSDX CHECKIN APPOINTMENT
+  inputs:
+  - '999999'
+  - '3261109.0801'
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  context: check in an appointment IEN no record has
+  raw_return: "7\0T00020ERRORID^T00150MESSAGE\x1EInvalid Appointment ID\x1E\x1F"
+  sha256: 60ed7f55070e19eeeee41a4955d0dd46489830edae23865b9106750a81023120
+- name: checkout_future
+  rpc: BSDX CHECKOUT APPOINTMENT
+  inputs:
+  - '4'
+  - '3261109.0800'
+  - '3261201.0900'
+  - '1'
+  - ''
+  context: check A out at a time after the capture
+  raw_return: "8\0T00020ERRORID\x1ECheck Out time cannot be in the future.\x1E\x1F"
+  sha256: 97f43c1b85e99f6465bcb0c9651a2c8e5366e0306b7cc86c6f2b2f8e21395b4a
+- name: checkout
+  rpc: BSDX CHECKOUT APPOINTMENT
+  inputs:
+  - '4'
+  - '3261109.0800'
+  - '3261109.0810'
+  - '1'
+  - ''
+  context: check A out
+  raw_return: "9\0T00020ERRORID\x1E0\x1E\x1F"
+  sha256: 6b6a0b8ac32a5f0f937687b738bf57ace31c0d0c9edbb07b59ad66e75834d876
+- name: cancel_checkout
+  rpc: BSDX CANCEL CHECKOUT APPT
+  inputs:
+  - '1'
+  context: undo A's check-out
+  raw_return: "1\0T00020ERRORID\x1E0\x1E\x1F"
+  sha256: 208273170a7b309780e439b79708239437b6ac22401f0fc9f76a42d0a8fe14a1
+- name: cancel_checkout_not_checked_out
+  rpc: BSDX CANCEL CHECKOUT APPT
+  inputs:
+  - '1'
+  context: 'undo it again: A is not checked out'
+  raw_return: "2\0T00020ERRORID\x1EAppointment is not Checked Out.\x1E\x1F"
+  sha256: 608334909fb4ed5b64dae4017af3b0fdd3fcf32ca22bd3633928a2d5058c4506
+- name: cancel_checkin
+  rpc: BSDX CHECKIN APPOINTMENT
+  inputs:
+  - '1'
+  - "@"
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  context: undo A's check-in
+  raw_return: "3\0T00020ERRORID^T00150MESSAGE\x1E0^\x1E\x1F"
+  sha256: fd726e88aa81c198f7455725d3a64fd5a8bd911793402ef585314e6b45226a7c
+- name: edit
+  rpc: BSDX EDIT APPOINTMENT
+  inputs:
+  - '1'
+  - synthetic edit
+  - '20'
+  context: edit A's note and length
+  raw_return: "4\0T00020ERRORID\x1E-1\x1E\x1F"
+  sha256: d6f0c66b06d2304209064c197f4157e5402524e86e7f975ddb1e86e06d678f3c
+- name: no_show
+  rpc: BSDX NOSHOW
+  inputs:
+  - '1'
+  - '1'
+  context: mark A a no-show
+  raw_return: "5\0I00020ERRORID^T00030ERRORTEXT\x1E1^\x1E\x1F"
+  sha256: 8be0044597b8d992a85ae468d77c6e47c8a79af74e93a378133b26ac3b2cc1fa
+- name: clear_no_show
+  rpc: BSDX NOSHOW
+  inputs:
+  - '1'
+  - '0'
+  context: clear the no-show
+  raw_return: "6\0I00020ERRORID^T00030ERRORTEXT\x1E1^\x1E\x1F"
+  sha256: 2b3f863e999b57452e9276653dec90ca6f0d1872f2bf80e06c2b9f9a60480c11
+- name: no_show_missing
+  rpc: BSDX NOSHOW
+  inputs:
+  - '999999'
+  - '1'
+  context: an appointment IEN no record has
+  raw_return: "7\0I00020ERRORID^T00030ERRORTEXT\x1E0^BSDX31: Invalid Appointment ID\x1E\x1F"
+  sha256: ea3dd9ae1650f90f07ffec42c2b24093649ca131306216e0d9d5e9fc659fba6b
+- name: cancel
+  rpc: BSDX CANCEL APPOINTMENT
+  inputs:
+  - '1'
+  - C
+  - '1'
+  - moved
+  context: cancel A, clinic-cancelled, reason 1, with a note
+  raw_return: "8\0T00020ERRORID\x1E\x1E\x1F"
+  sha256: c0a8f08be09f97b0ddac420bd3d98a5404f527c2371eb5cd52ca9ab3601395df
+- name: cancel_missing
+  rpc: BSDX CANCEL APPOINTMENT
+  inputs:
+  - '999999'
+  - C
+  - '1'
+  - ''
+  context: an appointment IEN no record has
+  raw_return: "9\0T00020ERRORID\x1EBSDX08: Invalid Appointment ID\x1E\x1F"
+  sha256: c3696129696b568305caac6794f2be3c2079ee07196394bdabcc8e3113fea0a5
+- name: uncancel
+  rpc: BSDX UNCANCEL APPT
+  inputs:
+  - '1'
+  context: restore A
+  raw_return: "1\0T00020ERRORID\x1E\x1E\x1F"
+  sha256: 394de0574723ee86e6323acbf1285f6e479f88318a2444b6d3b14813351c2b37
+- name: cancel_by_patient
+  rpc: BSDX CANCEL APPOINTMENT
+  inputs:
+  - '2'
+  - PC
+  - '1'
+  - ''
+  context: cancel C, patient-cancelled
+  raw_return: "2\0T00020ERRORID\x1E\x1E\x1F"
+  sha256: 0672c8691eae8fbc8d49df08059a780fe139032cfecbe0cd49a1f804d0086205
+- name: uncancel_patient_cancelled
+  rpc: BSDX UNCANCEL APPT
+  inputs:
+  - '2'
+  context: 'restore C: APPUDEL^BSDX08 refuses a patient-cancelled appointment, but
+    its TROLLBACK runs twice (again inside ERR), and on YottaDB the second one is
+    an M error (TLVLZERO)'
+  raw_return: "3\x011\rThe server has reported the following error:\r\rERR+3^BSDX08,
+    Transaction is not in progress,150376058,-%YDB-E-TLVLZERO\r\rA detailed log of
+    the error has been created.\r"
+  sha256: 231488ed1e163756f83fbf489a867fd500101bbbb70c2215f7d205f0c212988e
+- name: add_availability
+  rpc: BSDX ADD NEW AVAILABILITY
+  inputs:
+  - '3261207.0800'
+  - '3261207.1200'
+  - '1'
+  - DEMO IHS CLINIC
+  - '2'
+  - ''
+  context: open a block of two slots
+  raw_return: "4\0I00020AVAILABILITYID^I00020ERRORID\x1E173^-1\x1E\x1F"
+  sha256: 8fc9146be03b2f7815f0f962057681d9895786f468428a3007a136dd0d833651
+- name: cancel_availability
+  rpc: BSDX CANCEL AV BY DATE
+  inputs:
+  - '2'
+  - '3261207'
+  - '3261207'
+  context: cancel that day's blocks on resource 2
+  raw_return: "5\0I00020ERRORID^T00030ERRORTEXT\x1E-1^\x1E\x1F"
+  sha256: 891b43398de1363d406f3914e59f7de6de860cd277169373a41fe830d7fddefa
+- name: checkin_visit
+  rpc: BEHOENCX FETCH
+  inputs:
+  - '4'
+  - 3;3261109.0801;A
+  - ''
+  - '0'
+  context: the visit for A's check-in, read without creating one
+  raw_return: "6\0DEMO IHS CLINIC^DIC^^0^^^^^"
+  sha256: 80a9c306db6a734d1b863048cb0c486a7da8875a4e3f9cb245f19100ceec1982

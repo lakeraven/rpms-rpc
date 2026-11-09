@@ -168,6 +168,9 @@ module RpmsRpc
     def self.classify_bsdx_list_read(response, split_newlines:)
       return [ :failure, "empty reply" ] if bsdx_list_blank?(response)
       return [ :failure, "unexpected reply type" ] unless response.is_a?(Array) || response.is_a?(String)
+      # A client that replaced bytes that were not UTF-8 (CiaClient, #463) hands back
+      # valid text marked altered: the same failure as the bytes themselves.
+      return [ :failure, "reply is not valid UTF-8" ] if Reply.altered?(response)
 
       chunks = bsdx_chunks_as_utf8(response)
       return [ :failure, "reply is not valid UTF-8" ] if chunks.nil?
