@@ -26,8 +26,12 @@ module RpmsRpc
   #   module checks them.
   # - An entry is closed by .07 DATE REMOVED FROM LIST.
   #
-  # COMMENTS (#9009017.111) is word processing: DDR FILER cannot file it, so
-  # no comment is read or filed here (rpms-ops#1083 asks for a path).
+  # COMMENTS (field 1, the word-processing subfile #9009017.111) is read with
+  # DDR GETS ENTRY DATA and filed with DDR FILER (rpms-rpc#641, rpms-ops#1083).
+  # A FileMan word-processing value is the name of an array, and FILEC^DDR3
+  # holds one in scope in EDIT mode: its fourth parameter, DDRIENS, otherwise
+  # unused there. So the field's value is the text "DDRIENS" and the lines go
+  # in that parameter. A filing replaces the whole field.
   module WaitList
     extend self
     extend Shape::Declarable
@@ -148,7 +152,47 @@ module RpmsRpc
     end
     shape :remove, resource: "wait-lists", verb: "DELETE", path: "/wait-lists"
 
+    # An entry's COMMENTS as an Array of lines, [] when it has none (S-SCH-10).
+    # A failed read raises Client::RpcError.
+    def comments(list:, entry:)
+      reply = in_context do
+        DdrFileman.gets_entry(file: ENTRY_FILE, iens: "#{entry.to_i},#{list.to_i},", fields: COMMENTS_FIELD, flags: "E")
+      end
+      raise Client::RpcError, "DDR GETS gave no reply for wait list entry #{entry}" if reply.nil?
+      raise Client::RpcError, "DDR GETS refused wait list entry #{entry}" if reply[:error] || reply[:malformed]
+
+      Array(reply.dig(:fields, COMMENTS_FIELD, :text))
+    end
+    shape :comments, resource: "wait-lists", verb: "GET", path: "/wait-lists/comments"
+
+    # Replace an entry's COMMENTS with lines (S-SCH-10.1, 10.4, 10.7): a
+    # non-empty Array of Strings, each one line. Refused with nothing filed
+    # when the entry is not on file or a line is not a String, holds a line
+    # break or is "$$END$$". A line the wire cannot frame is refused by DDR FILER before
+    # anything is sent. Returns { success: true }, a failure hash, or nil
+    # when DDR FILER gives no reply.
+    def set_comments(list:, entry:, lines:)
+      return invalid("lines: takes a non-empty Array of Strings") unless lines.is_a?(Array) && !lines.empty? && lines.all?(String)
+      return invalid("a comment line cannot hold a line break") if lines.any? { |line| line.match?(/[\r\n]/) }
+      # GETSC^DDR2 ends a word-processing block at a line "$$END$$", so such a line
+      # would read back as the end of the comment.
+      return invalid("a comment line cannot be #{WP_END}") if lines.include?(WP_END)
+
+      in_context do
+        next not_found("no such wait list entry") unless find_entry(list, entry)
+
+        text = lines.each_with_index.to_h { |line, i| [ i + 1, line ] }
+        outcome(DdrFileman.filer(mode: "EDIT", rows: [ row(COMMENTS_FIELD, "#{entry.to_i},#{list.to_i},", WP_VALUE) ], iens: text))
+      end
+    end
+    shape :set_comments, resource: "wait-lists", verb: "PUT", path: "/wait-lists/comments"
+
     private
+
+    COMMENTS_FIELD = "1"
+    WP_VALUE = "DDRIENS"
+    WP_END = "$$END$$"
+    private_constant :COMMENTS_FIELD, :WP_VALUE, :WP_END
 
     def entry_row(entry)
       dfn, patient, priority, added_on, added_by, recall_on, provider_ien, provider, removed_on, resolution_ien,
