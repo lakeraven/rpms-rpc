@@ -150,21 +150,33 @@ class ClinicalDataApiTest < Minitest::Test
     assert_equal [ { rpc: "ORQQPS LIST", params: [ "4", "", "" ] } ], client.calls
   end
 
-  # Medication.find sends DETAIL(ORY,ORPT,ORMED)^ORQQPS one parameter, and the
-  # build dies in M on the missing ORMED (rpms-rpc#678). The error is raised,
-  # never read as detail text.
-  def test_medication_find_raises_the_builds_m_error_for_its_one_parameter_frame
-    replay("ORQQPS DETAIL" => [ capture("medication_detail_one_param") ])
+  # Medication.find sends DETAIL(ORY,ORPT,ORMED)^ORQQPS the patient and the
+  # medication id (rpms-rpc#678; the id alone died in M on ORMED). The replies
+  # are the build's to the frame the gem sent (medication-detail.yml): no demo
+  # patient has a medication, so both answer the routine's own "not found" text.
+  def test_medication_find_sends_the_patient_and_the_outpatient_id
+    client = replay(CapturedReplies.flow_script("medication-detail", "find_outpatient"))
 
-    error = assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Medication.find(1) }
-    assert_includes error.message, "DETAIL+2^ORQQPS"
+    assert_equal "No detailed information found.", RpmsRpc::Medication.find(4, "1R;O").strip
+    assert_equal [ { rpc: "ORQQPS DETAIL", params: [ "4", "1R;O" ] } ], client.calls
+    assert_equal CapturedReplies.flow_calls("medication-detail", "find_outpatient"),
+                 client.calls.map { |c| [ c[:rpc], c[:params] ] }
   end
 
-  def test_medication_find_invalid_ien_does_not_dispatch
+  def test_medication_find_sends_the_patient_and_the_inpatient_id
+    client = replay(CapturedReplies.flow_script("medication-detail", "find_inpatient"))
+
+    assert_equal "No detailed information found.", RpmsRpc::Medication.find("4", "1U;I").strip
+    assert_equal [ { rpc: "ORQQPS DETAIL", params: [ "4", "1U;I" ] } ], client.calls
+  end
+
+  def test_medication_find_sends_nothing_without_a_patient_and_a_list_id
     client = replay({})
 
-    assert_nil RpmsRpc::Medication.find(nil)
-    assert_nil RpmsRpc::Medication.find(0)
+    [ [ nil, "1R;O" ], [ 0, "1R;O" ], [ "4x", "1R;O" ], [ 4, nil ], [ 4, "" ], [ 4, "1" ], [ 4, "R;O" ],
+      [ 4, "1R;O;X" ], [ 4, "1r;o" ], [ 4, "1R^O" ] ].each do |dfn, id|
+      assert_nil RpmsRpc::Medication.find(dfn, id), "find(#{dfn.inspect}, #{id.inspect})"
+    end
     assert_empty client.calls
   end
 

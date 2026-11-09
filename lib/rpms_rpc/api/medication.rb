@@ -58,12 +58,27 @@ module RpmsRpc
     end
     shape :active_for_patient, resource: "medications", verb: "GET", path: "/patients/{dfn}/medications/active"
 
-    def find(ien)
-      return nil if ien.nil? || ien.to_i <= 0
+    # A medication's id as ORQQPS LIST gives it, piece 1 of a row: the
+    # order or prescription number, a kind letter, ";", and O (outpatient)
+    # or I (inpatient). PSOORRL writes "<IFN>R;O", "<IFN>P;O" and
+    # "<IFN>N;O" (PSOORRL.m:21, :42, :122); OEL^PSOORRL sends ";I" to
+    # inpatient pharmacy (PSOORRL.m:53).
+    MEDICATION_ID = /\A\d+[A-Z]*;[A-Z]\z/
 
-      DataMapper.medication_detail.fetch_text(ien.to_s)
+    # Detail text for one medication on a patient's list. Underlying RPC:
+    # ORQQPS DETAIL. Formals: DETAIL(ORY,ORPT,ORMED) (ORQQPS.m:56): the
+    # patient, then the medication's id from ORQQPS LIST (see
+    # {MEDICATION_ID}); both go over the wire. A frame with the id alone
+    # left ORMED undefined and the call died in M (#678). A medication the
+    # patient does not have answers "No detailed information found."
+    # (ORQQPS.m:63), returned as the text it is. nil, with nothing sent,
+    # for a DFN that is not a positive integer or a medication id not of that shape.
+    def find(dfn, medication_id)
+      return nil unless dfn.to_s.match?(/\A[1-9]\d*\z/) && medication_id.to_s.match?(MEDICATION_ID)
+
+      DataMapper.medication_detail.fetch_text(dfn.to_s, medication_id.to_s)
     end
-    shape :find, resource: "medications", verb: "GET", path: "/medications/{ien}"
+    shape :find, resource: "medications", verb: "GET", path: "/patients/{dfn}/medications/{medication_id}"
 
     private
 

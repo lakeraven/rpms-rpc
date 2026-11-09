@@ -1,0 +1,30 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb medication-detail.rb.
+---
+rpc: ORQQPS DETAIL
+entry_point: DETAIL^ORQQPS
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T18:19:43Z'
+note: Read-only. No demo patient on the build has a medication, so each id is one
+  the patient does not have.
+captures:
+- name: find_outpatient/1
+  rpc: ORQQPS DETAIL
+  inputs:
+  - '4'
+  - 1R;O
+  context: 'find(4, "1R;O"): demo patient 4, an outpatient prescription id'
+  raw_return: "5\0No detailed information found.\r"
+  sha256: 81b18daecb813d36782591bd51ff2ca0ad6945b2e3748a634f08121a9926be2e
+- name: find_inpatient/1
+  rpc: ORQQPS DETAIL
+  inputs:
+  - '4'
+  - 1U;I
+  context: 'find(4, "1U;I"): demo patient 4, an inpatient order id'
+  raw_return: "5\0No detailed information found.\r"
+  sha256: 81b18daecb813d36782591bd51ff2ca0ad6945b2e3748a634f08121a9926be2e
