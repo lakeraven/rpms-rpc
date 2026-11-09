@@ -12,7 +12,7 @@ require_relative "../../tools/api_coverage/api_coverage"
 #
 # "Registered" (registered_rpc_names_test.rb) passed while BMC ADD SECONDARY REFERRAL could not be
 # called: its #8994 entry names a label that does not exist (rpms-ops#653). rpms-ops now publishes,
-# per release, whether each registered RPC is callable (<tag>-rpc_reach.txt, rpms-ops#713), and
+# per release, whether each registered RPC is callable (each record's reach in <tag>-rpcs.json, rpms-ops#713, #732), and
 # `rake conformance:pin` commits it under data/inventories/<tag>/. This test reads it through
 # RpmsRpc::Conformance::BuildSurface and holds every RPC the gem sends to it:
 #
@@ -60,7 +60,7 @@ class CallableRpcNamesTest < Minitest::Test
   def test_every_pinned_build_has_its_reach_face
     refute_empty surfaces, "no rpms-ops build pinned in #{LOCK.path}"
     surfaces.each do |tag, surface|
-      assert surface.reach?, "#{tag}: no rpc_reach.txt pinned; re-pin it (rake conformance:pin RELEASE=#{tag})"
+      assert surface.reach?, "#{tag}: no rpcs.json pinned; re-pin it (rake conformance:pin RELEASE=#{tag})"
       assert_equal surface.names.size, surface.rpcs.count(&:reach), "#{tag}: every registered RPC has a reach class"
     end
   end
@@ -117,27 +117,17 @@ class CallableRpcNamesTest < Minitest::Test
     assert_empty problems, "stale entries in #{EXCEPTIONS_PATH.delete_prefix("#{ROOT}/")}:\n  #{problems.join("\n  ")}"
   end
 
-  # The gate's question on the shapes a real reach face has (bcer-9.0-20260930-8c88e47-ydb rows).
+  # The gate's question on the pinned build's own rpcs.json records, one per kind of answer.
   def test_not_callable_names_the_reach_class
-    Dir.mktmpdir do |dir|
-      tag = "bcer-9.0-20260930-8c88e47-ydb"
-      rows = {
-        "ORWPT SELECT^SELECT^ORWPT^2^R" => "ORWPT SELECT^client-callable^1^1^OR CPRS GUI CHART;CIAV VUECENTRIC^",
-        "CIANBRPC AUTH^AUTH^CIANBRPC^2" => "CIANBRPC AUTH^broker-exempt^1^1^^cia",
-        "VAFC VOA ADD PATIENT^ADD^VAFCPTAD^2^R^0" => "VAFC VOA ADD PATIENT^no-context^1^1^^",
-        "DDR KEY VALIDATOR^KEYVAL^DDR3^2^P" => "DDR KEY VALIDATOR^no-entry-point^1^0^XQAL GUI ALERTS^",
-        "SCMC X^X^SCMCX^2" => "SCMC X^out-of-order^1^1^SCMC PCMM GUI WORKSTATION^"
-      }
-      File.write(File.join(dir, "#{tag}-broker_8994.txt"), "#{rows.keys.join("\n")}\n")
-      File.write(File.join(dir, "#{tag}-rpc_reach.txt"), "#{rows.values.join("\n")}\n")
-      surface = RpmsRpc::Conformance::BuildSurface.load(dir, tag)
+    tag = LOCK.entries.keys.first
+    surface = RpmsRpc::Conformance::BuildSurface.load(File.join(ROOT, "data/inventories", tag), tag)
 
-      assert_equal({ "VAFC VOA ADD PATIENT" => "no-context", "DDR KEY VALIDATOR" => "no-entry-point",
-                     "SCMC X" => "out-of-order", "ZZZ NOT REGISTERED" => "not registered" },
-                   surface.not_callable([ "ORWPT SELECT", "CIANBRPC AUTH", "VAFC VOA ADD PATIENT", "DDR KEY VALIDATOR",
-                                          "SCMC X", "ZZZ NOT REGISTERED" ]))
-      assert_equal %w[OR\ CPRS\ GUI\ CHART CIAV\ VUECENTRIC], surface["ORWPT SELECT"].contexts
-      assert_equal [ "cia" ], surface["CIANBRPC AUTH"].exempt_on
-    end
+    assert_equal({ "VAFC VOA ADD PATIENT" => "no-context", "BMC ADD SECONDARY REFERRAL" => "no-entry-point",
+                   "SC FIND" => "out-of-order", "MAGGECHO" => "no-routine", "ZZZ NOT REGISTERED" => "not registered" },
+                 surface.not_callable([ "ORWPT SELECT", "CIANBRPC AUTH", "VAFC VOA ADD PATIENT", "BMC ADD SECONDARY REFERRAL",
+                                        "SC FIND", "MAGGECHO", "ZZZ NOT REGISTERED" ]))
+    assert_equal "broker-exempt", surface.reach("CIANBRPC AUTH")
+    assert_includes surface["ORWPT SELECT"].contexts, "OR CPRS GUI CHART"
+    assert_equal [ "cia" ], surface["CIANBRPC AUTH"].exempt_on
   end
 end

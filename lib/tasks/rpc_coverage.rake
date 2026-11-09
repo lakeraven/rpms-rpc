@@ -5,8 +5,8 @@
 #   rake rpc:coverage   offline, CI-safe: pinned registry x committed live evidence -> one number
 #   rake rpc:coverage_html  the same report in SimpleCov's HTML interface, one file per package
 #   rake rpc:exclusions regenerates the unreachable exclusions (no routine, no entry point, inactive,
-#                       no context, out of order) from the pinned release's reach face, the
-#                       <tag>-rpc_reach.txt rpms-ops publishes and conformance:pin commits (#278, #394)
+#                       no context, out of order) from the pinned release's reach classes, in the
+#                       <tag>-rpcs.json rpms-ops publishes and conformance:pin commits (#278, #394, #406)
 #   rake rpc:cases CASES=<cases.jsonl> BROKER_HOST= BROKER_PORT= RPMS_ACCESS= RPMS_VERIFY= [PERSONA=] [OUT=]
 #                       runs rpms-ops' wire-level cases (data, not API calls; rpms-ops#834) and
 #                       exits 1 unless every case of the persona gives its expected verdict
@@ -125,8 +125,8 @@ namespace :rpc do
     puts "open #{index.delete_prefix("#{rpc_root}/")}"
   end
 
-  desc "Regenerate the unreachable RPCs in data/rpc_coverage/exclusions.yml from the pinned release's reach face " \
-       "(data/inventories/<release>/<release>-rpc_reach.txt; release from data/rpc_coverage/config.yml)"
+  desc "Regenerate the unreachable RPCs in data/rpc_coverage/exclusions.yml from the pinned release's reach classes " \
+       "(data/inventories/<release>/<release>-rpcs.json; release from data/rpc_coverage/config.yml)"
   task :exclusions do
     abort "rpc:exclusions needs a source checkout (#{rpc_tool} is not in the gem)" unless File.exist?(rpc_tool)
     require rpc_tool
@@ -137,15 +137,15 @@ namespace :rpc do
     lock_class = RpmsRpc::Conformance::InventoryLock
     lock = lock_class.load(File.join(rpc_root, "data/fingerprints", lock_class::DEFAULT_PATH))
     entry = lock[tag] or abort "rpc:exclusions: #{tag} is not pinned (rake conformance:pin RELEASE=#{tag})"
-    # The reach face is read only after its bytes are proven to be the pinned ones.
+    # The document is read only after its bytes are proven to be the pinned ones.
     inv = begin
       lock_class.verify_dir(tag, File.join(rpc_root, "data/inventories", tag))
     rescue lock_class::Error => e
       abort "rpc:exclusions: the pinned files for #{tag} fail verification: #{e.message}"
     end
-    reach_file = "#{tag}-rpc_reach.txt"
-    unless inv.shas[reach_file] == entry.dig("assets", reach_file)
-      abort "rpc:exclusions: #{reach_file} sha256 #{inv.shas[reach_file]} is not the pinned #{entry.dig('assets', reach_file).inspect}"
+    rpcs_file = "#{tag}-#{lock_class::RPCS_SUFFIX}"
+    unless inv.shas[rpcs_file] == entry.dig("assets", rpcs_file)
+      abort "rpc:exclusions: #{rpcs_file} sha256 #{inv.shas[rpcs_file]} is not the pinned #{entry.dig('assets', rpcs_file).inspect}"
     end
 
     surface = inv.surface
@@ -158,8 +158,8 @@ namespace :rpc do
     unreachable = RpcCoverage.unreachable_from_surface(surface)
     result = RpcCoverage.regenerate_exclusions(RpcCoverage.load_exclusions(path), unreachable, registry)
     source = [
-      "reach: data/inventories/#{tag}/#{reach_file}",
-      "reach sha256: #{inv.shas[reach_file]} (pinned in data/fingerprints/rpms-ops.lock.yml)",
+      "rpcs: data/inventories/#{tag}/#{rpcs_file}",
+      "rpcs sha256: #{inv.shas[rpcs_file]} (pinned in data/fingerprints/rpms-ops.lock.yml)",
       "reach classes: #{surface.reach_counts.map { |k, v| "#{k}=#{v}" }.join(' ')}",
       "registry: #{tag} (#{registry.names.size} names)",
       "regenerate: bundle exec rake rpc:exclusions"

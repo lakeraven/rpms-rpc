@@ -6,7 +6,7 @@ require "tmpdir"
 require_relative "../../tools/openapi/surface"
 
 # OpenApi::Surface (rpms-rpc#395): the pinned build's RPC surface as OpenAPI 3.1. Hermetic: four
-# hand-written RPCs, each a case the generator must get right, read through BuildSurface.
+# hand-written rpcs.json records, each a case the generator must get right, read through BuildSurface.
 class OpenApiSurfaceTest < Minitest::Test
   Surface = OpenApi::Surface
   TAG = "bcer-0.0-20260101-abc1234-ydb"
@@ -14,37 +14,55 @@ class OpenApiSurfaceTest < Minitest::Test
   BUILD = { "tag" => TAG }.freeze
 
   # 1 XUS AV CODE    #8994 defines its parameter; ARRAY reply; a return description
-  # 2 ORWPT SELECT   no #8994 parameters: the routine's formals after the reply variable (DFN)
+  # 2 ORWPT SELECT   no #8994 parameters: the routine's formals after the reply variable (DFN); its
+  #                  package is ORWPT, a longer #9.4 prefix than OR (rpms-ops assigns the longest)
   # 3 BMC GONE       registered, its routine is not on the image; INACTIVE 1
   # 4 ORWU WHO?      a "?" in the name; no description at all
-  REGISTRY = "XUS AV CODE^VALIDAV^XUSRB^2^R\nORWPT SELECT^SELECT^ORWPT^1\nBMC GONE^GONE^BMCNOPE^1^^1\nORWU WHO?^WHO^ORWU^1\n"
-  SIGNATURES = [
-    "RPC|11|XUS AV CODE|VALIDAV|XUSRB|2|R|0||||||1|1|RET,AVCODE",
-    "DESC|11|This API checks if a ACCESS/VERIFY code pair is valid.   ",
-    "DESC|11|R(0)=DUZ if sign-on was OK, zero if not OK.",
-    "PARAM|11|1|AVCODE|1|50|1",
-    "PDESC|11|1|The access;verify pair, encrypted.",
-    "RET|11|R(0) is the DUZ.",
-    "RPC|769|ORWPT SELECT|SELECT|ORWPT|1||||||||1|1|REC,DFN",
-    "DESC|769|Selects a patient.",
-    "RPC|900|BMC GONE|GONE|BMCNOPE|1||1||||||0|0|",
-    "RPC|901|ORWU WHO?|WHO|ORWU|1||||||||1|1|Y",
-    "EXPLICIT SUCCESS: rpcs=4 description-lines=3 parameters=1"
-  ].map { |l| l.tr("|", "\t") }.join("\n") + "\n"
-  REACH = "XUS AV CODE^client-callable^1^1^XUS SIGNON^\nORWPT SELECT^client-callable^1^1^OR CPRS GUI CHART;CIAV VUECENTRIC^\n" \
-          "BMC GONE^no-routine^0^0^BMCRPC^\nORWU WHO?^no-context^1^1^^\n"
-  # ORWPT is listed as a prefix too: the routine ORWPT matches both, and the longest prefix wins.
-  PACKAGES = "XU^KERNEL^8.0\nOR^ORDER ENTRY/RESULTS REPORTING^3.0\nORWPT^SHOULD NOT WIN^9\nBMC^REFERRED CARE INFO SYSTEM^4.0\n"
+  # The four RPCs as rpms-ops#732's <tag>-rpcs.json (schema rpcs.v1) records them.
+  RPCS_JSON = {
+    "schema" => "rpcs.v1", "tag" => TAG, "commit" => "abc1234", "engine" => "yottadb", "rpms_version" => "bcer-0.0", "inputs" => {},
+    "rpcs" => [
+      [ "BMC GONE", "GONE", "BMCNOPE", [], "1", nil, "1", [], [ "BMC", "REFERRED CARE INFO SYSTEM", "4.0" ], [ "no-routine", false, false, [ "BMCRPC" ] ] ],
+      [ "ORWPT SELECT", "SELECT", "ORWPT", %w[REC DFN], "1", nil, nil, [ [ "DFN", nil, nil, "formals" ] ], [ "ORWPT", "SHOULD NOT WIN", "9" ],
+        [ "client-callable", true, true, [ "OR CPRS GUI CHART", "CIAV VUECENTRIC" ] ] ],
+      [ "ORWU WHO?", "WHO", "ORWU", %w[Y], "1", nil, nil, [], [ "OR", "ORDER ENTRY/RESULTS REPORTING", "3.0" ], [ "no-context", true, true, [] ] ],
+      [ "XUS AV CODE", "VALIDAV", "XUSRB", %w[RET AVCODE], "2", "R", "0", [ [ "AVCODE", "1", true, "8994" ] ], [ "XU", "KERNEL", "8.0" ],
+        [ "client-callable", true, true, [ "XUS SIGNON" ] ] ]
+    ].map do |name, tag, routine, formals, ret, avail, inactive, params, (prefix, pname, version), (klass, rp, tp, contexts)|
+      { "name" => name, "entry_point" => { "tag" => tag, "routine" => routine, "formals" => formals }, "availability" => avail,
+        "inactive" => inactive, "return_type" => ret,
+        "parameters" => params.map { |n, t, r, src| { "name" => n, "type" => t, "required" => r, "source" => src } },
+        "package" => { "prefix" => prefix, "name" => pname, "version" => version },
+        "reach" => { "class" => klass, "routine_present" => rp, "tag_present" => tp, "contexts" => contexts, "exemptions" => [] } }
+    end
+  }.freeze
 
-  def surface(registry: REGISTRY, signatures: SIGNATURES, reach: REACH)
+  # The same four RPCs as rpcs.v2 (rpms-ops#877) records them: v1 plus #8994's text, as stored.
+  RPCS_V2_JSON = RPCS_JSON.merge(
+    "schema" => "rpcs.v2",
+    "rpcs" => RPCS_JSON["rpcs"].map do |r|
+      text = {
+        "XUS AV CODE" => { "description" => [ "This API checks if a ACCESS/VERIFY code pair is valid.   ", "R(0)=DUZ if sign-on was OK, zero if not OK." ],
+                           "returns" => [ "R(0) is the DUZ." ] },
+        "ORWPT SELECT" => { "description" => [ "Selects a patient." ], "returns" => [] }
+      }.fetch(r["name"], { "description" => [], "returns" => [] })
+      params = r["parameters"].map do |p|
+        extra = p["source"] == "8994" ? { "sequence" => "1", "max_length" => "50", "description" => [ "The access;verify pair, encrypted." ] } : { "sequence" => nil, "max_length" => nil, "description" => [] }
+        p.merge(extra)
+      end
+      r.merge(text, "word_wrap" => nil, "version" => nil, "parameters" => params)
+    end
+  ).freeze
+
+  def surface(document = RPCS_V2_JSON)
     Dir.mktmpdir do |dir|
-      { "broker_8994.txt" => registry, "rpc_signatures.txt" => signatures, "rpc_reach.txt" => reach,
-        "packages_9_4.txt" => PACKAGES }.each { |k, v| File.binwrite(File.join(dir, "#{TAG}-#{k}"), v) }
-      RpmsRpc::Conformance::BuildSurface.load(dir, TAG)
+      path = File.join(dir, "#{TAG}-rpcs.json")
+      File.write(path, JSON.generate(document))
+      RpmsRpc::Conformance::BuildSurface.from_rpcs_json(path, tag: TAG)
     end
   end
 
-  def doc(**kw) = Surface.document(surface(**kw), build: BUILD, gem: GEM)
+  def doc(document = RPCS_V2_JSON) = Surface.document(surface(document), build: BUILD, gem: GEM)
 
   def op(document, name) = OpenApi.operations(document["paths"]).map(&:last).find { |o| o["x-rpms"]["rpc"] == name }
   def body(o) = o.dig("requestBody", "content", Surface::MEDIA, "schema")
@@ -83,10 +101,17 @@ class OpenApiSurfaceTest < Minitest::Test
   # rpms-ux#26: SEQUENCE NUMBER is empty on many parameters and repeated on some, and an RPC can register
   # one name twice. Every parameter survives, in walk order, with its own description.
   def test_parameters_keep_walk_order_and_a_repeated_name
-    sig = [ "RPC|12|TIU COSIGN|COS|TIUSRVP|1||||||||1|1|Y,A,B,C,D", "PARAM|12||DOC|1||1", "PDESC|12||The document.",
-            "PARAM|12||COSIGN|1||0", "PDESC|12||The first cosigner.", "PARAM|12|2|COSIGN|1||0", "PARAM|12|2|WHEN|1||0",
-            "EXPLICIT SUCCESS: rpcs=1 description-lines=0 parameters=4" ].map { |l| l.tr("|", "\t") }.join("\n") + "\n"
-    d = doc(registry: "TIU COSIGN^COS^TIUSRVP^1\n", signatures: sig, reach: "TIU COSIGN^client-callable^1^1^OR CPRS GUI CHART^\n")
+    param = ->(seq, name, required, description) do
+      { "name" => name, "type" => "1", "required" => required, "source" => "8994", "sequence" => seq, "max_length" => nil, "description" => description }
+    end
+    cosign = { "name" => "TIU COSIGN", "entry_point" => { "tag" => "COS", "routine" => "TIUSRVP", "formals" => %w[Y A B C D] },
+               "availability" => nil, "inactive" => nil, "return_type" => "1", "word_wrap" => nil, "version" => nil,
+               "description" => [], "returns" => [], "package" => nil,
+               "parameters" => [ param.(nil, "DOC", true, [ "The document." ]), param.(nil, "COSIGN", false, [ "The first cosigner." ]),
+                                 param.("2", "COSIGN", false, []), param.("2", "WHEN", false, []) ],
+               "reach" => { "class" => "client-callable", "routine_present" => true, "tag_present" => true,
+                            "contexts" => [ "OR CPRS GUI CHART" ], "exemptions" => [] } }
+    d = doc(RPCS_V2_JSON.merge("rpcs" => [ cosign ]))
     props = body(OpenApi.operations(d["paths"])[0][2])["properties"]
     assert_equal [ [ "DOC", 1, nil, nil ], [ "COSIGN", 2, nil, nil ], [ "COSIGN (2)", 3, 2, "COSIGN" ], [ "WHEN", 4, 2, nil ] ],
                  props.map { |k, p| [ k, p["x-position"], p["x-rpms-sequence"], p["x-rpms-name"] ] }
@@ -163,25 +188,6 @@ class OpenApiSurfaceTest < Minitest::Test
     assert_raises(OpenApi::Refused) { Surface.addresses([ "XU WHO?", "XU WHO!" ], "p") }
   end
 
-  # The same four RPCs as rpms-ops#732's <tag>-rpcs.json projects them from the raw files above.
-  RPCS_JSON = {
-    "schema" => "rpcs.v1", "tag" => TAG, "commit" => "abc1234", "engine" => "yottadb", "rpms_version" => "bcer-0.0", "inputs" => {},
-    "rpcs" => [
-      [ "BMC GONE", "GONE", "BMCNOPE", [], "1", nil, "1", [], [ "BMC", "REFERRED CARE INFO SYSTEM", "4.0" ], [ "no-routine", false, false, [ "BMCRPC" ] ] ],
-      [ "ORWPT SELECT", "SELECT", "ORWPT", %w[REC DFN], "1", nil, nil, [ [ "DFN", nil, nil, "formals" ] ], [ "ORWPT", "SHOULD NOT WIN", "9" ],
-        [ "client-callable", true, true, [ "OR CPRS GUI CHART", "CIAV VUECENTRIC" ] ] ],
-      [ "ORWU WHO?", "WHO", "ORWU", %w[Y], "1", nil, nil, [], [ "OR", "ORDER ENTRY/RESULTS REPORTING", "3.0" ], [ "no-context", true, true, [] ] ],
-      [ "XUS AV CODE", "VALIDAV", "XUSRB", %w[RET AVCODE], "2", "R", "0", [ [ "AVCODE", "1", true, "8994" ] ], [ "XU", "KERNEL", "8.0" ],
-        [ "client-callable", true, true, [ "XUS SIGNON" ] ] ]
-    ].map do |name, tag, routine, formals, ret, avail, inactive, params, (prefix, pname, version), (klass, rp, tp, contexts)|
-      { "name" => name, "entry_point" => { "tag" => tag, "routine" => routine, "formals" => formals }, "availability" => avail,
-        "inactive" => inactive, "return_type" => ret,
-        "parameters" => params.map { |n, t, r, src| { "name" => n, "type" => t, "required" => r, "source" => src } },
-        "package" => { "prefix" => prefix, "name" => pname, "version" => version },
-        "reach" => { "class" => klass, "routine_present" => rp, "tag_present" => tp, "contexts" => contexts, "exemptions" => [] } }
-    end
-  }.freeze
-
   # #8994's text that rpcs.v1 does not carry: everything else about an operation is the same from either source.
   def without_text(document)
     ops = OpenApi.operations(document["paths"]).to_h do |verb, path, op|
@@ -196,43 +202,12 @@ class OpenApiSurfaceTest < Minitest::Test
     [ ops, document["tags"], document["x-rpms-counts"] ]
   end
 
-  def test_rpcs_json_gives_the_same_document_as_the_raw_files_but_for_8994_text
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "#{TAG}-rpcs.json")
-      File.write(path, JSON.generate(RPCS_JSON))
-      from_json = Surface.document(RpmsRpc::Conformance::BuildSurface.from_rpcs_json(path, tag: TAG), build: BUILD, gem: GEM)
-      assert_equal without_text(doc), without_text(from_json)
-      assert_equal "XUS AV CODE (entry point VALIDAV^XUSRB). The rpcs.v1 file this document is generated from carries no #8994 DESCRIPTION.",
-                   op(from_json, "XUS AV CODE")["description"]
-      assert_empty OpenApi.problems(from_json)
-    end
-  end
-
-  # The same four RPCs as rpcs.v2 (rpms-ops#877) projects them: v1 plus #8994's text, as stored in the walk above.
-  RPCS_V2_JSON = RPCS_JSON.merge(
-    "schema" => "rpcs.v2",
-    "rpcs" => RPCS_JSON["rpcs"].map do |r|
-      text = {
-        "XUS AV CODE" => { "description" => [ "This API checks if a ACCESS/VERIFY code pair is valid.   ", "R(0)=DUZ if sign-on was OK, zero if not OK." ],
-                           "returns" => [ "R(0) is the DUZ." ] },
-        "ORWPT SELECT" => { "description" => [ "Selects a patient." ], "returns" => [] }
-      }.fetch(r["name"], { "description" => [], "returns" => [] })
-      params = r["parameters"].map do |p|
-        extra = p["source"] == "8994" ? { "sequence" => "1", "max_length" => "50", "description" => [ "The access;verify pair, encrypted." ] } : { "sequence" => nil, "max_length" => nil, "description" => [] }
-        p.merge(extra)
-      end
-      r.merge(text, "word_wrap" => nil, "version" => nil, "parameters" => params)
-    end
-  ).freeze
-
-  # With the text, a document from rpcs.json alone is the document from the raw files, field for field.
-  def test_rpcs_v2_gives_exactly_the_document_the_raw_files_give
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "#{TAG}-rpcs.json")
-      File.write(path, JSON.generate(RPCS_V2_JSON))
-      from_json = Surface.document(RpmsRpc::Conformance::BuildSurface.from_rpcs_json(path, tag: TAG), build: BUILD, gem: GEM)
-      assert_equal OpenApi.pretty(doc), OpenApi.pretty(from_json)
-    end
+  def test_rpcs_v1_gives_the_same_document_as_rpcs_v2_but_for_8994_text
+    from_v1 = doc(RPCS_JSON)
+    assert_equal without_text(doc), without_text(from_v1)
+    assert_equal "XUS AV CODE (entry point VALIDAV^XUSRB). The rpcs.v1 file this document is generated from carries no #8994 DESCRIPTION.",
+                 op(from_v1, "XUS AV CODE")["description"]
+    assert_empty OpenApi.problems(from_v1)
   end
 
   def test_the_same_inputs_give_the_same_bytes

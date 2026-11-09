@@ -5,10 +5,11 @@ require "json"
 require "rpms_rpc"
 require "rpms_rpc/conformance/build_surface"
 require "rpms_rpc/conformance/inventory_lock"
+require_relative "pinned_rpcs_test_helper"
 
 # Shared expectations for rpms-rpc#384 (declarative Features vs pinned reach face).
 # Round-1 review: RPC lists and reach expectations come from committed sources at
-# test time (required_rpcs.json, reach files), not hand-copied constants.
+# test time (required_rpcs.json, rpcs.json documents), not hand-copied constants.
 module FeaturesTestHelper
   ROOT = File.expand_path("../..", __dir__)
   Lock = RpmsRpc::Conformance::InventoryLock
@@ -116,17 +117,16 @@ module FeaturesTestHelper
   REACH_MISSING_TAG = "features-reach-missing-ydb"
   REGISTRY_DUPLICATE_TAG = "features-registry-duplicate-rpc-ydb"
 
-  CHART_BANNER_REGISTRY_LINES = [
-    "BEHOPTCX PTINFO^PTINFO^BEHOPTCX^1",
-    "BEHOPTPC GETBDP^GETBDP^BEHOPTPC^1",
-    "ORWPT CWAD^CWAD^ORWPT^1"
-  ].freeze
+  CHART_BANNER_RPCS = PATIENT_CHART_BANNER_RPCS
 
-  CHART_BANNER_REACH_OK_LINES = [
-    "BEHOPTCX PTINFO^client-callable^1^1^CIAV VUECENTRIC^",
-    "BEHOPTPC GETBDP^client-callable^1^1^CIAV VUECENTRIC^",
-    "ORWPT CWAD^client-callable^1^1^CIAV VUECENTRIC^"
-  ].freeze
+  # The chart-banner RPCs' records from the pinned rpcs.json, each client-callable under CIAV
+  # VUECENTRIC; REACH (name => reach fields) changes one record's reach.
+  def self.chart_banner_records(reach = {})
+    CHART_BANNER_RPCS.map do |name|
+      PinnedRpcsTestHelper.record(name, reach: { "class" => CLIENT_CALLABLE, "routine_present" => true, "tag_present" => true,
+                                                 "contexts" => [ "CIAV VUECENTRIC" ], "exemptions" => [] }.merge(reach.fetch(name, {})))
+    end
+  end
 
   module_function
 
@@ -168,19 +168,9 @@ module FeaturesTestHelper
     end
   end
 
-  # Write `<tmpdir>/<tag>/` with registry and reach faces for Features under test (round-3 #384).
-  def write_synthetic_inventory(tmpdir, tag, reach_lines:, registry_lines: CHART_BANNER_REGISTRY_LINES)
-    dir = File.join(tmpdir, tag)
-    FileUtils.mkdir_p(dir)
-    File.write(File.join(dir, "#{tag}-broker_8994.txt"), registry_lines.join("\n") + "\n")
-    File.write(File.join(dir, "#{tag}-rpc_reach.txt"), reach_lines.join("\n") + "\n")
-    tag
-  end
-
-  def write_reach_only_inventory(tmpdir, tag, reach_lines:)
-    dir = File.join(tmpdir, tag)
-    FileUtils.mkdir_p(dir)
-    File.write(File.join(dir, "#{tag}-rpc_reach.txt"), reach_lines.join("\n") + "\n")
+  # Write `<tmpdir>/<tag>/<tag>-rpcs.json` of RECORDS for Features under test (round-3 #384, #406).
+  def write_synthetic_inventory(tmpdir, tag, records: FeaturesTestHelper.chart_banner_records, sort: true)
+    PinnedRpcsTestHelper.write_inventory(tmpdir, tag, records, sort: sort)
     tag
   end
 
@@ -190,13 +180,13 @@ module FeaturesTestHelper
     tag
   end
 
-  def reach_face_path(tmpdir, tag)
-    File.join(tmpdir, tag, "#{tag}-rpc_reach.txt")
+  def rpcs_json_path(tmpdir, tag)
+    File.join(tmpdir, tag, "#{tag}-rpcs.json")
   end
 
-  # After the build surface is cached, an uncached read would raise (reach face missing).
-  def break_reach_face_on_disk(tmpdir, tag)
-    File.delete(reach_face_path(tmpdir, tag))
+  # After the build surface is cached, an uncached read would raise (rpcs.json missing).
+  def break_rpcs_json_on_disk(tmpdir, tag)
+    File.delete(rpcs_json_path(tmpdir, tag))
   end
 
   # Pinned test seam (round-2 #384): swap REQUIRED_RPCS_PATH, then Features.reset! reloads the registry.
@@ -237,10 +227,7 @@ module FeaturesTestHelper
   end
 
   def reach_surface(tag, inventories_dir: FIXTURE_INVENTORIES)
-    dir = File.join(inventories_dir, tag)
-    registry = File.join(dir, "#{tag}-broker_8994.txt")
-    reach = File.join(dir, "#{tag}-rpc_reach.txt")
-    RpmsRpc::Conformance::BuildSurface.from_files(tag: tag, registry: registry, reach: reach)
+    RpmsRpc::Conformance::BuildSurface.load(File.join(inventories_dir, tag), tag)
   end
 
   def pinned_reach_surface
