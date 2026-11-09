@@ -1,0 +1,32 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb bmc-get-referral.rb.
+---
+rpc: BMC GET REFERRAL
+entry_point: GTRFBYID^BMCRPC1
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: BMCRPC
+captured_at: '2026-11-09T04:50:50Z'
+note: 'Reads only. Referral 1 is the minimal one the referral cancel live spec filed
+  (no referral number, .02), so LIST^DIC on the C index finds nothing, CRTMSG^BMCRPC4
+  builds no line and GTRFBYID+31 reads ^TMP($J,"PRNRC",1) undefined: the broker answers
+  that M error.'
+captures:
+- name: m_error
+  inputs:
+  - '1'
+  context: 'referral 1, filed without a referral number: an M error inside GTRFBYID'
+  raw_return: "5\x011\rThe server has reported the following error:\r\rGTRFBYID+31^BMCRPC1,
+    Global variable undefined: ^TMP(386,150372994,-%YDB-E-GVUNDEF\r\rA detailed log
+    of the error has been created.\r"
+  sha256: eda72b8cc10f7a4e4058cc738751e51b47233df96efec79cc0b3f58ea20e9972
+- name: no_such_referral
+  inputs:
+  - '999999999'
+  context: 'an IEN no referral has: the routine''s message, not a record'
+  raw_return: "6\0\x011\rThe server has reported the following error:\r\rOUT+5^CIANBACT,
+    Indirection string contains extra trailing characters,150373010,-%YDB-E-INDEXTRACHARS\r\rA
+    detailed log of the error has been created.\r"
+  sha256: 0af0ae8f160c9d3933bb78b33560b8ad9569af4cd881de363896c7e0348743fc

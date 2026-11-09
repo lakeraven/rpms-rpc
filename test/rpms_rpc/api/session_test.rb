@@ -1,81 +1,73 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
 require "rpms_rpc/api/session"
+require_relative "../captured_replies"
 
+# Session reads the CIAVCXUS VIMINFO replies a fresh rpms-ydb container sent
+# (test/fixtures/captured_replies/ciavcxus-viminfo.yml), replayed through
+# CiaClient. DUZ 206 is PROFILE,MD on the build.
 class SessionTest < Minitest::Test
-  def setup
-    RpmsRpc.mock! do |m|
-      m.seed(:session_vim_info, "301", {
-        duz: 301,
-        user_name: "PROVIDER,TEST"
-      })
-    end
-  end
+  VIMINFO = "CIAVCXUS VIMINFO"
 
   def teardown
     RpmsRpc.reset!
   end
 
-  def test_bootstrap_returns_documented_hash_shape
-    result = RpmsRpc::Session.bootstrap("301")
+  def replay(name = "profile_md")
+    client = CapturedReplies::ReplayCiaClient.new(VIMINFO => [ CapturedReplies.raw("ciavcxus-viminfo", name) ])
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
+  end
+
+  def test_bootstrap_returns_the_vim_info_of_the_user
+    replay
+
+    result = RpmsRpc::Session.bootstrap("206")
 
     assert_equal [ :vim_info ], result.keys
-    assert_equal 301, result[:vim_info][:duz]
-    assert_equal "PROVIDER,TEST", result[:vim_info][:user_name]
+    assert_equal({ duz: 206, user_name: "PROFILE,MD", timeouts: "1800;1800;60", compose_mode: false, design_mode: false },
+                 result[:vim_info].slice(:duz, :user_name, :timeouts, :compose_mode, :design_mode))
   end
 
-  # "CIAVM DEFAULT SOURCE" is the VueCentric client's config root — the path
+  # "CIAVM DEFAULT SOURCE" is the VueCentric client's config root, the path
   # the Windows shell loads its component registry from. A frontend-agnostic
   # consumer has none, so the bootstrap neither asks for it nor returns it
-  # (#239; ADR 0004 disqualifier 2).
-  def test_bootstrap_does_not_read_the_vuecentric_config_root
-    result = RpmsRpc::Session.bootstrap("301")
+  # (#239; ADR 0004 disqualifier 2). CIAVMCFG GETREG dumps VueCentric's
+  # widget registry (^CIAVOBJ), which a web app has no use for (#522).
+  # Bootstrap sends VIMINFO, with the DUZ, and nothing else.
+  def test_bootstrap_sends_viminfo_with_the_duz_and_nothing_else
+    client = replay
 
+    result = RpmsRpc::Session.bootstrap("206")
+
+    assert_equal [ { rpc: VIMINFO, params: [ "206" ] } ], client.calls
     refute result.key?(:config_root)
-    refute_includes RpmsRpc.client.received_calls.map { |c| c[:rpc] }, "CIAVMRPC GETPAR"
-    refute RpmsRpc::Session.const_defined?(:DEFAULT_SOURCE_PARAM)
-  end
-
-  # CIAVMCFG GETREG dumps VueCentric's widget registry (^CIAVOBJ) as ID=VALUE
-  # lines. A web app has no use for it (#522).
-  def test_bootstrap_does_not_fetch_the_vuecentric_widget_registry
-    result = RpmsRpc::Session.bootstrap("301")
-
     refute result.key?(:registry)
-    refute_includes RpmsRpc.client.received_calls.map { |c| c[:rpc] }, "CIAVMCFG GETREG"
+    refute RpmsRpc::Session.const_defined?(:DEFAULT_SOURCE_PARAM)
   end
 
   def test_the_getpar_mapping_is_gone
     assert_raises(NoMethodError, KeyError, ArgumentError) { RpmsRpc::DataMapper[:session_default_source] }
   end
 
-  def test_bootstrap_issues_viminfo_rpc_only
-    RpmsRpc::Session.bootstrap("301")
+  def test_bootstrap_returns_nil_for_blank_duz_without_a_call
+    client = CapturedReplies::ReplayCiaClient.new({})
+    RpmsRpc.configure { |cfg| cfg.client = client }
 
-    rpcs = RpmsRpc.client.received_calls.map { |c| c[:rpc] }
-    assert_includes rpcs, "CIAVCXUS VIMINFO"
-  end
-
-  def test_bootstrap_passes_duz_to_viminfo
-    RpmsRpc::Session.bootstrap("301")
-
-    vim = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "CIAVCXUS VIMINFO" }
-    assert_equal [ "301" ], vim[:params]
-  end
-
-  def test_bootstrap_returns_nil_for_blank_duz
     assert_nil RpmsRpc::Session.bootstrap(nil)
     assert_nil RpmsRpc::Session.bootstrap("")
     assert_nil RpmsRpc::Session.bootstrap("0")
+    assert_empty client.calls
   end
 
-  def test_bootstrap_handles_missing_vim_info_gracefully
+  # VIMINFO answers an empty reply for a DUZ no user holds (#221).
+  def test_bootstrap_of_an_unknown_duz_has_empty_vim_info
+    replay("no_such_user")
+
     result = RpmsRpc::Session.bootstrap("9999")
 
-    refute result.key?(:registry)
-    refute result.key?(:default_site_ien)
-    assert_equal({}, result[:vim_info])
+    assert_equal({ vim_info: {} }, result)
   end
 end
