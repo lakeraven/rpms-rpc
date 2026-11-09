@@ -101,8 +101,17 @@ module RpmsRpc
 
       # The frame's rows, each without the line feed the broker may write
       # after a $C(30) (`W @X,EOL,!`, CIANBACT.m:122) and without separators.
+      # Only a String (the raw frame CiaClient#call_rpc_global_array returns)
+      # is split here. An Array is a client's rows already (BmxClient#call_rpc
+      # splits at $C(30)), and each element stays whole, so a newline inside a
+      # field never starts another record.
       def frame_rows(response)
-        frame_parts(response).filter_map do |row|
+        parts = response.is_a?(String) ? frame_parts(response) : Array(response).map(&:to_s)
+        strip_frame_rows(parts)
+      end
+
+      def strip_frame_rows(parts)
+        parts.filter_map do |row|
           row = row.delete_prefix("\r\n").delete_prefix("\n").delete_prefix("\r")
           stripped = DataMapper.strip_recordset_separators(row)
           stripped.empty? ? nil : stripped

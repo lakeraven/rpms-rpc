@@ -2024,7 +2024,7 @@ module RpmsRpc
 
     # The GLOBAL ARRAY frame, split as Wire#rows splits it.
     def save_visit_frame_parts(response) = frame_parts(response)
-    def save_visit_rows(response) = frame_rows(response)
+    def save_visit_rows(response) = strip_frame_rows(frame_parts(response))
 
     def save_visit_refuse!(message)
       raise SaveError, message

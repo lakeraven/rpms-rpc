@@ -76,4 +76,21 @@ class BehavioralHealthReferenceTest < Minitest::Test
     assert_empty R.admin_records("4", from: "3000101", to: "3271231")
     assert_equal capture("admin_none")["inputs"], sent(client).first[:params]
   end
+  # A client whose #call_rpc already splits the recordset into rows
+  # (BmxClient splits at $C(30)) hands Wire an Array. Each element is a row
+  # and stays whole: a newline inside a field is data, not another record.
+  # The rows are the captured patients reply, split as BmxClient splits it,
+  # with a newline put into the name field.
+  def test_rows_a_client_already_split_keep_a_newline_inside_a_field
+    header, row = CapturedReplies.raw(SLUG, "patients").byteslice(2..).split("\x1e").first(2)
+    split_rows = [ header, row.sub("DEMO,PATIENT ONE", "DEMO,PATIENT\nONE") ]
+    client = Object.new
+    client.define_singleton_method(:call_rpc) { |*| split_rows }
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    patients = R.patients("DEMO")
+    assert_equal 1, patients.size, "a newline inside a field is not a record boundary"
+    assert_equal "DEMO,PATIENT\nONE", patients.first[:name]
+    assert_equal "99901", patients.first[:chart]
+  end
 end
