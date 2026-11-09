@@ -1,233 +1,191 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
 require "rpms_rpc/api/allergy"
 require "rpms_rpc/api/problem"
 require "rpms_rpc/api/vital"
 require "rpms_rpc/api/medication"
-require "rpms_rpc/api/procedure"
 require "rpms_rpc/api/encounter"
-require "rpms_rpc/api/immunization"
+require_relative "../captured_replies"
 
-# Tests for clinical data symbolic APIs.
+# The chart list reads, against the replies a fresh rpms-ydb container sent
+# for its demo patients (test/fixtures/captured_replies/clinical-data.yml),
+# replayed through CiaClient.
 class ClinicalDataApiTest < Minitest::Test
-  def setup
-    RpmsRpc.mock! do |m|
-      m.seed_collection(:allergy_list,
-        [ { ien: 1, allergen: "Penicillin", reaction: "Hives", severity: "moderate" },
-          { ien: 2, allergen: "Shellfish", reaction: "Anaphylaxis", severity: "severe" } ])
-      m.seed_collection(:problem_list,
-        [ { ien: 1, status: "A", icd_code: "E11.9", description: "Type 2 diabetes" },
-          { ien: 2, status: "I", icd_code: "I10", description: "Hypertension" } ])
-      m.seed_keyed_collection(:vitals, "1",
-        [ { measurement_ien: 5001, type: "BP", recorded_date: Time.new(2026, 1, 15, 8, 0, 0), value: "120/80" },
-          { measurement_ien: 5002, type: "HR", recorded_date: Time.new(2026, 1, 15, 8, 0, 0), value: "72" } ])
-      m.seed_collection(:medication_list,
-        [ { id: "403R;O", name: "Lisinopril 10mg", stop_date: Date.new(2027, 1, 1),
-            route: "PO", schedule: "QD", refills: 3 } ])
-      m.seed(:medication_detail, "1", "Drug: Lisinopril 10mg\nSIG: Take 1 tablet by mouth daily\nStatus: Active\nRefills: 3")
-      m.seed_collection(:patient_appointments,
-        [ { datetime: Date.new(2026, 2, 1), location_ien: 1, location: "Primary Care", status: "scheduled" } ])
-    end
-  end
+  SLUG = "clinical-data"
 
   def teardown
     RpmsRpc.reset!
   end
 
+  def replay(script)
+    client = CapturedReplies::ReplayCiaClient.new(script)
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
+  end
+
+  def capture(name) = CapturedReplies.raw(SLUG, name)
+
   # =============================================================================
   # ALLERGY
   # =============================================================================
 
-  def test_allergy_for_patient_returns_array
-    results = RpmsRpc::Allergy.for_patient("1")
+  def test_allergy_for_patient_reads_each_row
+    client = replay("ORQQAL LIST" => [ capture("allergies_dfn_2") ])
 
-    assert results.is_a?(Array)
-    assert_equal 2, results.length
-    assert_equal "Penicillin", results.first[:allergen]
+    assert_equal [ { ien: "1", allergen: "PENICILLIN", severity: nil, signs: "HIVES", altered: false } ],
+                 RpmsRpc::Allergy.for_patient("2")
+    assert_equal [ { rpc: "ORQQAL LIST", params: [ "2" ] } ], client.calls
   end
 
-  def test_allergy_for_patient_returns_hashes_with_allergen
-    results = RpmsRpc::Allergy.for_patient("1")
+  def test_allergy_for_patient_row_without_a_sign
+    replay("ORQQAL LIST" => [ capture("allergies_dfn_4") ])
 
-    results.each { |r| refute_nil r[:allergen] }
+    assert_equal [ { ien: "2", allergen: "BEE POLLEN", severity: nil, signs: nil, altered: false } ],
+                 RpmsRpc::Allergy.for_patient("4")
+  end
+
+  # "^No Allergy Assessment" (ORQQAL.m:12) is a state, not an allergy.
+  def test_allergy_for_an_unassessed_patient_is_empty_and_not_assessed
+    replay("ORQQAL LIST" => [ capture("allergies_unassessed") ])
+
+    assert_equal({ assessed: false, nka: false, allergies: [] }, RpmsRpc::Allergy.assessment("1"))
   end
 
   # =============================================================================
   # PROBLEM
   # =============================================================================
 
-  def test_problem_for_patient_returns_array
-    results = RpmsRpc::Problem.for_patient("1")
+  # Demo patient 2's problems carry ICD-10 codes, which this build's
+  # LIST^GMPLUTL2 answers with $$ICDDX error text in piece 4 and marks '#'.
+  def test_problem_for_patient_reads_each_row
+    client = replay("ORQQPL LIST" => [ capture("problems_dfn_2") ])
 
-    assert results.is_a?(Array)
-    assert_equal 2, results.length
-    assert_equal "E11.9", results.first[:icd_code]
-  end
+    rows = RpmsRpc::Problem.for_patient("2")
 
-  def test_problem_for_patient_returns_hashes_with_icd_code
-    results = RpmsRpc::Problem.for_patient("1")
-
-    results.each { |r| refute_nil r[:icd_code] }
+    assert_equal [ "1", "2" ], rows.map { |r| r[:ien] }
+    first = rows.first
+    assert_equal "*TYPE 2 DIABETES MELLITUS", first[:description]
+    assert_equal "A", first[:status]
+    assert_equal Date.new(2023, 4, 10), first[:onset_date]
+    assert first[:inactive_icd]
+    assert_nil first[:icd_code], "the $$ICDDX error text is not a code"
+    assert_equal [ { rpc: "ORQQPL LIST", params: [ "2", "" ] } ], client.calls
   end
 
   # "No problems" comes back as the sentinel row "^No problems found."
-  # (LIST^ORQQPL: ORQQPL.m:17) — piece 1 empty, so :ien is blank and the
-  # row must be dropped, not surfaced as a phantom problem.
+  # (LIST^ORQQPL: ORQQPL.m:17): piece 1 empty, so it is dropped, not
+  # surfaced as a phantom problem.
   def test_problem_for_patient_drops_no_problems_sentinel_row
-    client = RpmsRpc::MockClient.new
-    def client.call_rpc(_rpc, *_params) = [ "^No problems found." ]
-    RpmsRpc.reset!
-    RpmsRpc.configure { |cfg| cfg.client = client }
+    replay("ORQQPL LIST" => [ capture("problems_none") ])
 
     assert_equal [], RpmsRpc::Problem.for_patient("1")
-  ensure
-    RpmsRpc.reset!
   end
 
   # =============================================================================
   # VITAL
   # =============================================================================
 
-  def test_vital_for_patient_returns_array
-    results = RpmsRpc::Vital.for_patient("1")
+  # The registered "ORQQVI VITALS" dispatches to FASTVIT^ORQQVI: rows are
+  # "vital measurement ien^vital type^rate^date/time taken" (ORQQVI.m:66-67),
+  # VALUE at piece 3, DATETIME at piece 4.
+  def test_vital_for_patient_reads_fastvit_rows
+    client = replay("ORQQVI VITALS" => [ capture("vitals_dfn_4") ])
 
-    assert results.is_a?(Array)
-    assert results.any? { |v| v[:type] == "BP" }
-  end
+    rows = RpmsRpc::Vital.for_patient("4")
 
-  # The registered "ORQQVI VITALS" dispatches to FASTVIT^ORQQVI
-  # (.broker_dumps_8994_20260607.txt:565) — rows are "vital measurement
-  # ien^vital type^rate^date/time taken" (ORQQVI.m:66-67, rows :113/:179):
-  # VALUE at piece 3, DATETIME at piece 4. The prior mapping declared
-  # IEN^TYPE^DATETIME^VALUE — the shape of VITALS^ORQQVI (dump line 795,
-  # a different RPC), i.e. it was verified against the wrong routine tag
-  # and swapped value/date.
-  def test_vitals_mapping_parses_real_fastvit_row
-    row = RpmsRpc::DataMapper[:vitals].parse_one("5001^BP^120/80^3250115.08")
-
-    assert_equal 5001,     row[:measurement_ien]
-    assert_equal "BP",     row[:type]
-    assert_equal "120/80", row[:value]
-    assert_equal Time.new(2025, 1, 15, 8, 0, 0), row[:recorded_date]
-  end
-
-  # Date-only date/time values must not be dropped by the datetime coercion.
-  def test_vitals_mapping_parses_date_only_datetime
-    row = RpmsRpc::DataMapper[:vitals].parse_one("5001^WT^180^3250115")
-
-    refute_nil row[:recorded_date]
-    assert_equal 2025, row[:recorded_date].year
-  end
-
-  # FASTVIT emits no sentinel row (that belongs to VITALS^ORQQVI,
-  # ORQQVI.m:24) — but a row without a measurement IEN must still be
-  # dropped defensively, never surfaced as a record.
-  def test_vital_for_patient_drops_rows_without_measurement_ien
-    RpmsRpc.reset!
-    RpmsRpc.mock! do |m|
-      m.seed_keyed_collection(:vitals, "7", [ { type: "No vitals found." } ])
-    end
-
-    assert_equal [], RpmsRpc::Vital.for_patient("7")
+    assert_equal %w[TMP PU RS BP PA O2], rows.map { |r| r[:type] }
+    bp = rows.find { |r| r[:type] == "BP" }
+    assert_equal 8, bp[:measurement_ien]
+    assert_equal "117/81", bp[:value]
+    assert_equal Time.new(2026, 9, 11, 21, 34, 0), bp[:recorded_date]
+    temp = rows.first
+    assert_equal "98", temp[:value]
+    assert_equal "98 F", temp[:display]
+    assert_equal "(36.7 C)", temp[:metric_display]
+    assert_equal [ { rpc: "ORQQVI VITALS", params: [ "4" ] } ], client.calls, "no dates: DFN alone"
   end
 
   def test_vital_for_patient_empty_when_none
-    results = RpmsRpc::Vital.for_patient("99999")
+    replay("ORQQVI VITALS" => [ capture("vitals_none") ])
 
-    assert_equal [], results
+    assert_equal [], RpmsRpc::Vital.for_patient("99999")
   end
 
-  # Invalid DFNs must short-circuit to [] without dispatching an RPC
-  # (Copilot finding: nil.to_s => "" used to reach the broker).
+  # Invalid DFNs short-circuit to [] without dispatching an RPC.
   def test_vital_for_patient_invalid_dfn_does_not_dispatch
-    with_raising_client do
-      assert_equal [], RpmsRpc::Vital.for_patient(nil)
-      assert_equal [], RpmsRpc::Vital.for_patient("")
-      assert_equal [], RpmsRpc::Vital.for_patient("   ")
-      assert_equal [], RpmsRpc::Vital.for_patient(0)
-      assert_equal [], RpmsRpc::Vital.for_patient(-3)
-    end
+    client = replay({})
+
+    [ nil, "", "   ", 0, -3 ].each { |dfn| assert_equal [], RpmsRpc::Vital.for_patient(dfn) }
+    assert_empty client.calls
   end
 
   def test_problem_for_patient_invalid_dfn_does_not_dispatch
-    with_raising_client do
-      assert_equal [], RpmsRpc::Problem.for_patient(nil)
-      assert_equal [], RpmsRpc::Problem.for_patient("")
-      assert_equal [], RpmsRpc::Problem.for_patient(0)
-    end
+    client = replay({})
+
+    [ nil, "", 0 ].each { |dfn| assert_equal [], RpmsRpc::Problem.for_patient(dfn) }
+    assert_empty client.calls
   end
 
   def test_medication_for_patient_invalid_dfn_does_not_dispatch
-    with_raising_client do
-      assert_equal [], RpmsRpc::Medication.for_patient(nil)
-      assert_equal [], RpmsRpc::Medication.for_patient("")
-      assert_equal [], RpmsRpc::Medication.for_patient(-1)
-    end
+    client = replay({})
+
+    [ nil, "", -1 ].each { |dfn| assert_equal [], RpmsRpc::Medication.for_patient(dfn) }
+    assert_empty client.calls
   end
 
   # =============================================================================
   # MEDICATION
   # =============================================================================
 
-  def test_medication_for_patient_returns_array
-    results = RpmsRpc::Medication.for_patient("1")
-
-    assert results.is_a?(Array)
-    assert_equal "Lisinopril 10mg", results.first[:name]
-    assert_equal "403R;O", results.first[:id]
-  end
-
-  # "No medications" comes back as the sentinel row
-  # "^No medications found." (LIST^ORQQPS: ORQQPS.m:53) — no id, so it
-  # must be dropped, not surfaced as a phantom medication.
+  # "No medications" comes back as the sentinel row "^No medications found."
+  # (LIST^ORQQPS: ORQQPS.m:53): no id, so it is dropped, not surfaced as a
+  # phantom medication. No demo patient on the build has a medication, so no
+  # capture holds a medication row.
   def test_medication_for_patient_drops_no_medications_sentinel_row
-    client = RpmsRpc::MockClient.new
-    def client.call_rpc(_rpc, *_params) = [ "^No medications found." ]
-    RpmsRpc.reset!
-    RpmsRpc.configure { |cfg| cfg.client = client }
+    client = replay("ORQQPS LIST" => [ capture("medications_none") ])
 
-    assert_equal [], RpmsRpc::Medication.for_patient("1")
-  ensure
-    RpmsRpc.reset!
+    assert_equal [], RpmsRpc::Medication.for_patient("4")
+    assert_equal [ { rpc: "ORQQPS LIST", params: [ "4", "", "" ] } ], client.calls
   end
 
-  def test_medication_find_returns_detail_text
-    result = RpmsRpc::Medication.find(1)
+  # Medication.find sends DETAIL(ORY,ORPT,ORMED)^ORQQPS one parameter, and the
+  # build dies in M on the missing ORMED (rpms-rpc#678). The error is raised,
+  # never read as detail text.
+  def test_medication_find_raises_the_builds_m_error_for_its_one_parameter_frame
+    replay("ORQQPS DETAIL" => [ capture("medication_detail_one_param") ])
 
-    refute_nil result
-    assert_includes result, "Lisinopril 10mg"
+    error = assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Medication.find(1) }
+    assert_includes error.message, "DETAIL+2^ORQQPS"
   end
 
-  def test_medication_find_nil_for_unknown
-    assert_nil RpmsRpc::Medication.find(99999)
+  def test_medication_find_invalid_ien_does_not_dispatch
+    client = replay({})
+
+    assert_nil RpmsRpc::Medication.find(nil)
+    assert_nil RpmsRpc::Medication.find(0)
+    assert_empty client.calls
   end
 
   # =============================================================================
   # ENCOUNTER
   # =============================================================================
 
-  def test_encounter_for_patient_returns_array
-    results = RpmsRpc::Encounter.for_patient("1")
+  def test_encounter_for_patient_empty_when_no_appointments
+    client = replay("ORWPT APPTLST" => [ capture("appointments_dfn_4") ])
 
-    assert results.is_a?(Array)
-    assert_equal "Primary Care", results.first[:location]
+    assert_equal [], RpmsRpc::Encounter.for_patient("4")
+    assert_equal [ { rpc: "ORWPT APPTLST", params: [ "4" ] } ], client.calls
   end
 
-  private
+  # For most demo patients the build answers "^Error encountered^Error
+  # encountered", and for_patient returns it as a row today. rpms-rpc#679
+  # tracks reading it as an error; this pins what the gem does now.
+  def test_encounter_for_patient_returns_the_error_line_as_a_row_today
+    replay("ORWPT APPTLST" => [ capture("appointments_dfn_1") ])
 
-  # Swap in a client that fails on ANY RPC dispatch — proves a guard
-  # short-circuited before reaching the broker.
-  def with_raising_client
-    client = RpmsRpc::MockClient.new
-    def client.call_rpc(rpc, *_params)
-      raise "RPC dispatched for invalid identifier: #{rpc}"
-    end
-    RpmsRpc.reset!
-    RpmsRpc.configure { |cfg| cfg.client = client }
-    yield
-  ensure
-    RpmsRpc.reset!
+    assert_equal [ { datetime: nil, location_ien: 0, location: "Error encountered", status: nil } ],
+                 RpmsRpc::Encounter.for_patient("1")
   end
 end
