@@ -1,0 +1,118 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb order-write.rb.
+---
+rpc: ORWDX SAVE
+entry_point: SAVE^ORWDX
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T16:45:18Z'
+note: Seed patient DFN 990034 (synthetic data), hospital location 7. Setup saves two
+  orders (unrecorded) for the sign captures to act on; their ids are in those captures'
+  inputs. The signature code is the persona's demo code that SEEDPERS files (published
+  like the sign-on pairs); its ciphertext is withheld, because the cipher picks a
+  random row pair. The build answers ORWDXC ACCEPT with no rows for every orderable
+  tried (rpms-rpc#383).
+captures:
+- name: validsig
+  rpc: ORWU VALIDSIG
+  inputs:
+  - "<the persona's demo signature code, encrypted; withheld>"
+  context: the persona's own code
+  raw_return: "1\01"
+  sha256: b05a11033c781c31748c1c48e5b7cc95ec857f67c07e44889e64d1618daa5b9b
+- name: send
+  rpc: ORWDX SEND
+  inputs:
+  - '990034'
+  - '206'
+  - '7'
+  - "<the same code, encrypted; withheld>"
+  - - 2;1^1^1^E
+  context: sign and release the first saved order
+  raw_return: "2\02;1^RS\r"
+  sha256: a2dfbf0b682299289692f4878ef1af422eb276d4623868ec0145201ce4695dc8
+- name: send_again
+  rpc: ORWDX SEND
+  inputs:
+  - '990034'
+  - '206'
+  - '7'
+  - "<the same code, encrypted; withheld>"
+  - - 2;1^1^1^E
+  context: the same order again, already released
+  raw_return: "3\02;1^S\r"
+  sha256: 826b48bffabd70c501e7c0bb6d9eed43feef4ec5f7baa46ad2590ffb19b5cd4f
+- name: validsig_wrong
+  rpc: ORWU VALIDSIG
+  inputs:
+  - "<a code the persona does not hold, encrypted; withheld>"
+  context: a code that is not the persona's
+  raw_return: "4\00"
+  sha256: 257062d6ffc44c7b0b2518754eb6958b1692590a58cbc709b6ce93a75f57a4dc
+- name: accept_unknown_rpc
+  rpc: ORWDXC ACCEPTX
+  inputs:
+  - '990034'
+  context: 'an RPC the broker does not serve: its refusal'
+  raw_return: "5\x013\rUnknown remote procedure: ORWDXC ACCEPTX\r"
+  sha256: 45391ac3ce3023c880716e74ea5461b0cb6f92c1b489c5d346b4b84f0b8b309f
+- name: save/1
+  rpc: ORWDX SAVE
+  inputs:
+  - '990034'
+  - '206'
+  - '7'
+  - OR GXTEXT WORD PROCESSING ORDER
+  - '13'
+  - ''
+  - ''
+  - ? - 6
+      - 1
+    : NOW
+    ? - 24
+      - 1
+    : ''
+    ? - 15
+      - 1
+    : ORDIALOG("WP",15,1)
+    ? - WP
+      - 15
+      - 1
+      - 1
+      - 0
+    : rpms-rpc captured order
+  - ''
+  - ''
+  - ''
+  context: 'Order.save: a word-processing order, left unreleased'
+  raw_return: "5\0~4;1^13^3261109.1645^NOW^^11^2^^^206^PROFILE,MD^^0^^^AP1234563^^^CHART
+    REVIEW:7^^0^0\rt>> rpms-rpc captured order *UNSIGNED*\rt\r"
+  sha256: f3495207d7d31bd6f9482e337b5980332edc8ee9270b394087f01c9a17d86e65
+- name: check_drug/1
+  rpc: ORWDXC ACCEPT
+  inputs:
+  - '4'
+  - PSO
+  - ''
+  - '7'
+  - - 1521^PS^1
+  - ''
+  context: 'Order.check: the build''s one PS orderable (ASPIRIN, #101.43 1521) for
+    DFN 4'
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
+- name: check_lab/1
+  rpc: ORWDXC ACCEPT
+  inputs:
+  - '990034'
+  - LR
+  - ''
+  - '7'
+  - - 450^LR^
+  - ''
+  context: 'Order.check: a lab orderable (#101.43 450) for DFN 990034'
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f

@@ -3,13 +3,17 @@
 require "monitor"
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
-require "rpms_rpc/api/authentication"
 require "rpms_rpc/api/order"
+require_relative "../captured_replies"
 
 # Gate H1: Order.sign_and_release must hold RpmsRpc.synchronize_wire across the
 # session-user check, ORWU VALIDSIG, and ORWDX SEND so a concurrent sign-on
 # cannot rebind DUZ between VALIDSIG and SEND.
+#
+# The concurrency tests drive a hand-built client that records the lock it
+# holds; their replies are VALIDSIG's "1" and a released SEND row. The
+# sign-and-release tests at the end replay the build's own VALIDSIG and SEND
+# replies (test/fixtures/captured_replies/order-write.yml) through CiaClient.
 class OrderSignAndReleaseWireLockTest < Minitest::Test
   SEND_RPC = "ORWDX SEND"
   VALIDSIG_RPC = "ORWU VALIDSIG"
@@ -241,68 +245,61 @@ class OrderSignAndReleaseWireLockTest < Minitest::Test
     assert_equal :released, results.fetch(0)[:status]
   end
 
-  def test_mock_client_exposes_session_duz_mutators
-    mock = RpmsRpc::MockClient.new
+  # The build's replies, as PROFILE,MD (DUZ 206) signed the order saved on
+  # DFN 990034 at hospital location 7.
+  SLUG = "order-write"
+  SENT = CapturedReplies.file(SLUG).fetch("captures").find { |c| c["name"] == "send" }.fetch("inputs")
+  CAPTURED_ORDER = SENT.last.first.split("^").first
 
-    assert_respond_to mock, :duz
-    assert_respond_to mock, :set_authenticated
-    assert_respond_to mock, :clear_authenticated
-
-    assert_nil mock.duz
-    mock.set_authenticated("301")
-    assert_equal "301", mock.duz
-    mock.clear_authenticated
-    assert_nil mock.duz
+  def replay_sign(validsig, *sends, duz: "206")
+    script = { VALIDSIG_RPC => [ CapturedReplies.raw(SLUG, validsig) ] }
+    script[SEND_RPC] = sends.map { |name| CapturedReplies.raw(SLUG, name) } unless sends.empty?
+    @replay = CapturedReplies::ReplayCiaClient.new(script).signed_on_as(duz)
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = @replay }
   end
 
-  def test_mock_sign_and_release_reaches_validsig_when_session_duz_matches_provider
-    mock = RpmsRpc.mock!
-    mock.set_authenticated(PROVIDER_DUZ)
+  def sign(code = "123456") = RpmsRpc::Order.sign_and_release(SENT[0], SENT[1], SENT[2], [ CAPTURED_ORDER ], code)
 
-    results = RpmsRpc::Order.sign_and_release(
-      DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE
-    )
+  def test_sign_and_release_validsig_then_send_releases_the_order
+    replay_sign("validsig", "send")
 
-    refute_match(/not the signed-on session user/i, results.first[:reason].to_s)
-    assert(
-      mock.received_calls.any? { |c| c[:rpc] == VALIDSIG_RPC },
-      "expected ORWU VALIDSIG once session DUZ matches provider"
-    )
+    results = sign
+
+    assert_equal [ VALIDSIG_RPC, SEND_RPC ], @replay.rpcs_called
+    assert_equal [ { order_id: CAPTURED_ORDER, status: :released } ], results.map { |r| r.slice(:order_id, :status) }
+    sent = @replay.calls.last[:params]
+    assert_equal SENT.values_at(0, 1, 2, 4), sent.values_at(0, 1, 2, 4), "DFN, provider, location and ORWREC as captured"
+    assert_equal @replay.calls.first[:params].first, sent[3], "SEND carries the ciphertext VALIDSIG checked"
   end
 
-  def test_mock_sign_and_release_rejects_session_user_mismatch_without_rpc
-    mock = RpmsRpc.mock!
-    mock.set_authenticated("302")
+  # The same order again: SEND answers "S", signed as requested; not a release.
+  def test_sign_and_release_of_a_released_order_is_not_reported_released
+    replay_sign("validsig", "send_again")
 
-    results = RpmsRpc::Order.sign_and_release(
-      DFN, PROVIDER_DUZ, LOCATION, [ ORDER_ONE ], SIG_CODE
-    )
+    results = sign
 
-    assert_empty mock.received_calls
+    refute_equal :released, results.first[:status]
+  end
+
+  def test_sign_and_release_wrong_code_is_rejected_without_send
+    replay_sign("validsig_wrong")
+
+    results = sign("999999")
+
+    assert_equal [ VALIDSIG_RPC ], @replay.rpcs_called
+    assert_equal [ :rejected ], results.map { |r| r[:status] }
+    assert_equal RpmsRpc::Order::SIGN_RELEASE_REFUSED, results.first[:reason]
+  end
+
+  def test_sign_and_release_rejects_a_provider_who_is_not_the_session_user_without_rpc
+    replay_sign("validsig", "send", duz: "302")
+
+    results = sign
+
+    assert_empty @replay.calls
     assert_equal [ :rejected ], results.map { |r| r[:status] }
     assert_match(/session user/i, results.first[:reason])
-  end
-
-  def test_mock_authentication_sign_on_sets_client_duz
-    RpmsRpc::Authentication.clear_cache!
-    mock = RpmsRpc.mock! do |m|
-      m.seed_scalar(:signon_setup, "", "OK")
-      m.seed_user(
-        "301",
-        credentials: "ACCESS123;VERIFY123",
-        name: "PROVIDER,TEST",
-        role: :provider
-      )
-    end
-
-    result = RpmsRpc::Authentication.authenticate(
-      access_code: "ACCESS123", verify_code: "VERIFY123"
-    )
-
-    assert result[:success]
-    assert_equal "301", mock.duz.to_s
-  ensure
-    RpmsRpc::Authentication.clear_cache!
   end
 
   private

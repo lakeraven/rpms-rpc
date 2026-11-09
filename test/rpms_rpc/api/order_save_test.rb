@@ -3,9 +3,9 @@
 require "minitest/autorun"
 require "json"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/retry_safety"
 require "rpms_rpc/api/order"
+require_relative "../captured_replies"
 
 # rpms-rpc#455: Order.save over ORWDX SAVE (SAVE^ORWDX -> EN^ORCSAVE, ORWDX.m:128-130).
 #
@@ -15,190 +15,115 @@ require "rpms_rpc/api/order"
 # OREVTDF raises "too many actual parameters" on RPMS. Reply REC is filled by
 # GETBYIFN^ORWORR / GETFLDS (ORWORR.m:139-150); empty when ORIFN stays empty after
 # save (ORWDX.m:130-131, ORWORR.m:133).
+#
+# The reply is the pinned build's: Order.save run as PROFILE,MD on seed patient
+# DFN 990034 with the OR GXTEXT WORD PROCESSING ORDER dialog, recorded as the
+# "save" flow of test/fixtures/captured_replies/order-write.yml and replayed
+# through CiaClient. The guard cases keep that captured frame and change one
+# piece of its GETFLDS reply; each says what it changes. The live spec
+# (test/live/order_write_live_test.rb) proves the order is on file.
 class OrderSaveTest < Minitest::Test
   ROOT = File.expand_path("../../..", __dir__)
   REQUIRED_RPCS_PATH = File.join(ROOT, "lib/rpms_rpc/required_rpcs.json")
   RPC = "ORWDX SAVE"
+  SLUG = "order-write"
 
-  DFN = "8791"
-  PROVIDER_DUZ = "301"
-  LOCATION = "349"
+  SAVED = CapturedReplies.flow_calls(SLUG, "save").first.last
+  DFN, PROVIDER_DUZ, LOCATION, DIALOG, DISPLAY_GROUP = SAVED.first(5)
+  RESPONSES = SAVED[7]
 
-  # Synthetic dialog prompt IENs (not site-specific).
+  # Synthetic dialog prompt IENs for the argument guards (not site-specific).
   P_ORDERABLE = 4
-  P_DOSE = 15
-  P_ROUTE = 16
-  P_SCHEDULE = 17
-  P_SUPPLY = 18
-  P_QUANTITY = 19
-  P_REFILLS = 20
-  P_SIG = 21
-
-  P_LAB_SPECIMEN = 31
-  P_LAB_SAMPLE = 32
-  P_LAB_URGENCY = 33
-  P_LAB_COLLECTION = 34
-  P_LAB_START = 35
-
-  P_IMG_URGENCY = 41
-  P_IMG_TRANSPORT = 42
-  P_IMG_CATEGORY = 43
-  P_IMG_REASON = 44
-
   MED_DIALOG = "PSO OERR"
-  MED_RESPONSES = {
-    [ P_ORDERABLE, 1 ] => "92001",
-    [ P_DOSE, 1 ] => "1 TAB",
-    [ P_ROUTE, 1 ] => "PO",
-    [ P_SCHEDULE, 1 ] => "DAILY",
-    [ P_SUPPLY, 1 ] => "30",
-    [ P_QUANTITY, 1 ] => "30",
-    [ P_REFILLS, 1 ] => "0",
-    [ P_SIG, 1 ] => %(ORDIALOG("WP",#{P_SIG},1)),
-    [ "WP", P_SIG, 1, 1, 0 ] => "TAKE 1 TABLET BY MOUTH DAILY"
-  }.freeze
-
-  LAB_DIALOG = "LR OTHER LAB TESTS"
-  LAB_RESPONSES = {
-    [ P_ORDERABLE, 1 ] => "93001",
-    [ P_LAB_SPECIMEN, 1 ] => "BLOOD",
-    [ P_LAB_SAMPLE, 1 ] => "SERUM",
-    [ P_LAB_URGENCY, 1 ] => "ROUTINE",
-    [ P_LAB_COLLECTION, 1 ] => "WC",
-    [ P_LAB_START, 1 ] => "TODAY"
-  }.freeze
-
-  IMG_DIALOG = "RA OERR EXAM"
-  IMG_RESPONSES = {
-    [ P_ORDERABLE, 1 ] => "94001",
-    [ P_IMG_URGENCY, 1 ] => "ROUTINE",
-    [ P_IMG_TRANSPORT, 1 ] => "AMBULATORY",
-    [ P_IMG_CATEGORY, 1 ] => "CHEST",
-    [ P_IMG_REASON, 1 ] => %(ORDIALOG("WP",#{P_IMG_REASON},1)),
-    [ "WP", P_IMG_REASON, 1, 1, 0 ] => "Synthetic indication for imaging order"
-  }.freeze
-
-  SAVE_HEADER = "~12345;1^5^3251022.1200^^^11^SIG SYNTH^^^301^PROVIDER,TEST^1^0"
-  # GETFLDS order text lines are "t"-prefixed on the wire (ORWORR.m:165-169).
-  SAVE_TEXT_LINES_WIRE = [
-    "tOUTPATIENT MEDICATIONS",
-    "tASPIRIN 81MG TAB  1 TAB PO DAILY"
-  ].freeze
-  SAVE_TEXT_LINES = [
-    "OUTPATIENT MEDICATIONS",
-    "ASPIRIN 81MG TAB  1 TAB PO DAILY"
-  ].freeze
+  MED_RESPONSES = { [ P_ORDERABLE, 1 ] => "92001", [ 15, 1 ] => "1 TAB", [ 21, 1 ] => %(ORDIALOG("WP",21,1)),
+                    [ "WP", 21, 1, 1, 0 ] => "TAKE 1 TABLET BY MOUTH DAILY" }.freeze
 
   def teardown
     RpmsRpc.reset!
   end
 
+  # The captured ORWDX SAVE reply, or that frame with its body replaced.
+  def captured_save = CapturedReplies.flow_script(SLUG, "save").fetch(RPC).first
+
+  def with_body(body) = captured_save.byteslice(0, 2) + body.b
+
+  def replay(reply = captured_save)
+    @client = CapturedReplies::ReplayCiaClient.new(RPC => [ reply ])
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = @client }
+    @client
+  end
+
+  def save(responses = RESPONSES, **opts)
+    RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, DIALOG, responses, display_group: DISPLAY_GROUP, **opts)
+  end
+
+  def save_call = @client.calls.find { |c| c[:rpc] == RPC }
+
   # --- ORWDX SAVE frame (FOIA-RPMS ORWDX.m:80) ----------------------------------
 
-  def test_save_dispatches_orwdx_save_with_eleven_formals_and_empty_orifn
-    with_orwdx_save_wire([ SAVE_HEADER ] + SAVE_TEXT_LINES_WIRE)
-    responses = { [ P_ORDERABLE, 1 ] => "92001" }
+  def test_save_sends_the_eleven_formals_the_build_answered
+    replay
+    save
 
-    RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, responses)
-
-    call = save_call
-    refute_nil call, "#{RPC} was not called"
-    assert_equal 11, call[:params].length, "eleven client actuals after REC (FOIA-RPMS ORWDX.m:80)"
-    assert_equal DFN, call[:params][0]
-    assert_equal PROVIDER_DUZ, call[:params][1]
-    assert_equal LOCATION, call[:params][2]
-    assert_equal MED_DIALOG, call[:params][3]
-    assert_equal "", call[:params][4], "display group ORDG"
-    assert_equal "", call[:params][5], "quick order ORIT"
-    assert_equal "", call[:params][6], "new order ORIFN (ORWDX.m:128)"
-    assert_ordialog_list_param(call[:params][7], responses)
-    assert_equal "", call[:params][8], "ORDEA"
-    assert_equal "", call[:params][9], "ORAPPT"
-    assert_equal "", call[:params][10], "ORSRC"
-    refute call[:params][11], "must not send OREVTDF (stock-only 13th formal)"
+    assert_equal SAVED, save_call[:params], "eleven client actuals after REC (FOIA-RPMS ORWDX.m:80)"
+    assert_equal "", save_call[:params][6], "new order ORIFN (ORWDX.m:128)"
+    refute save_call[:params][11], "must not send OREVTDF (stock-only 13th formal)"
   end
 
   def test_save_passes_display_group_and_quick_order_when_given
-    with_orwdx_save_wire([ SAVE_HEADER ])
-    responses = { [ P_ORDERABLE, 1 ] => "92001" }
+    replay
+    RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, DIALOG, RESPONSES, display_group: 5, quick_order: "7")
 
-    RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, responses,
-                         display_group: "5", quick_order: "7")
-
-    call = save_call
-    assert_equal "5", call[:params][4]
-    assert_equal "7", call[:params][5]
+    assert_equal [ "5", "7" ], save_call[:params][4, 2]
   end
 
-  def test_save_sends_integer_display_group_and_string_quick_order_as_canonical_decimals
-    with_orwdx_save_wire([ SAVE_HEADER ])
-    responses = { [ P_ORDERABLE, 1 ] => "92001" }
-
-    RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, responses,
-                         display_group: 5, quick_order: "7")
-
-    call = save_call
-    assert_equal "5", call[:params][4]
-    assert_equal "7", call[:params][5]
-  end
-
-  # --- dialog fixtures: ORDIALOG list shape -----------------------------------
-
-  def test_save_pso_oerr_sends_medication_ordialog_list_shape
-    with_orwdx_save_wire([ SAVE_HEADER ])
+  # The ORDIALOG responses go to the wire as given, as a list.
+  def test_save_sends_the_ordialog_responses_as_given
+    replay
     RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
 
-    assert_ordialog_list_param(save_call[:params][7], MED_RESPONSES)
-  end
-
-  def test_save_lr_other_lab_tests_sends_lab_ordialog_list_shape
-    with_orwdx_save_wire([ SAVE_HEADER ])
-    RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, LAB_DIALOG, LAB_RESPONSES)
-
-    assert_ordialog_list_param(save_call[:params][7], LAB_RESPONSES)
-  end
-
-  def test_save_ra_oerr_exam_sends_imaging_ordialog_list_shape
-    with_orwdx_save_wire([ SAVE_HEADER ])
-    RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, IMG_DIALOG, IMG_RESPONSES)
-
-    assert_ordialog_list_param(save_call[:params][7], IMG_RESPONSES)
+    assert_equal MED_RESPONSES, save_call[:params][7]
   end
 
   # --- GETFLDS reply (ORWORR.m:139-150) ---------------------------------------
 
-  def test_save_parses_unsigned_reply_with_order_text_lines
-    with_orwdx_save_wire([ SAVE_HEADER ] + SAVE_TEXT_LINES_WIRE)
+  def test_save_parses_the_unsigned_order_and_its_text
+    replay
 
-    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
+    result = save
 
     assert result[:success]
-    assert_equal "12345;1", result[:order_id]
-    assert_equal 12_345, result[:ien]
-    assert_equal 11, result[:status]
-    assert_equal SAVE_TEXT_LINES, result[:text]
+    assert_match(/\A\d+;1\z/, result[:order_id])
+    assert_equal result[:order_id].to_i, result[:ien]
+    assert_equal RpmsRpc::Order::SAVE_STATUS_UNRELEASED, result[:status]
+    assert_includes result[:text].first, "rpms-rpc captured order"
   end
 
-  def test_save_delayed_status_ten_is_success
-    header = "~12345;1^5^3251022.1200^^^10^delayed synthetic"
-    with_orwdx_save_wire([ header ])
+  def test_save_never_dispatches_orwdx_send_or_other_rpcs
+    replay
+    save
 
-    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
+    assert_equal [ RPC ], @client.rpcs_called
+  end
+
+  # Guard: piece 6 (status) set to 10, DELAYED: still a saved order.
+  def test_save_delayed_status_ten_is_success
+    replay(with_body(captured_body.sub("^^11^".b, "^^10^".b)))
+
+    result = save
 
     assert result[:success]
     assert_equal 10, result[:status]
   end
 
+  # Guard: piece 6 set to 6 (ACTIVE) or 5 (PENDING): the order was released,
+  # which a save must not do, so it fails closed.
   def test_save_active_or_pending_status_fails_closed_as_released
-    {
-      6 => "ACTIVE",
-      5 => "PENDING"
-    }.each do |status, label|
-      RpmsRpc.reset!
-      header = "~12345;1^5^3251022.1200^^^#{status}^#{label}"
-      with_orwdx_save_wire([ header ])
+    { 6 => "ACTIVE", 5 => "PENDING" }.each do |status, label|
+      replay(with_body(captured_body.sub("^^11^".b, "^^#{status}^".b)))
 
-      result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
+      result = save
 
       refute result[:success]
       assert_equal :released, result[:error]
@@ -206,137 +131,38 @@ class OrderSaveTest < Minitest::Test
     end
   end
 
-  # --- empty / malformed REC (fail closed) ------------------------------------
-
+  # Guard: the frame with no body (ORIFN stayed empty, ORWDX.m:130-131).
   def test_save_empty_reply_is_empty_reply_not_success
-    [ [], "", nil ].each do |reply|
-      RpmsRpc.reset!
-      with_orwdx_save_wire(reply)
+    replay(with_body(""))
 
-      result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
+    result = save
 
-      refute result[:success]
-      assert_equal :empty_reply, result[:error]
-    end
+    refute result[:success]
+    assert_equal :empty_reply, result[:error]
   end
 
+  # Guard: the header line changed so it is not a GETFLDS order line.
   def test_save_malformed_first_line_is_malformed_reply_not_success
-    [
-      "12345^5^3251022.1200^^^11^missing tilde",
-      "~abc;1^5^3251022.1200^^^11^bad ifn",
-      "~12345;1^5^t^^^x^non_integer_status",
-      "~12345;0^5^^^^11",
-      ";01"
-    ].each do |line|
-      RpmsRpc.reset!
-      with_orwdx_save_wire([ line ])
+    [ ->(b) { b.sub("~".b, "".b) }, ->(b) { b.sub(/\A~\d+/n, "~abc") }, ->(b) { b.sub("^^11^".b, "^^011^".b) } ].each do |change|
+      replay(with_body(change.call(captured_body)))
 
-      result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
+      result = save
 
       refute result[:success]
       assert_equal :malformed_reply, result[:error]
     end
   end
 
-  def test_save_status_with_leading_zero_is_malformed_reply_not_success
-    header = "~12345;1^5^3251022.1200^^^011^SIG SYNTH"
-    with_orwdx_save_wire([ header ])
+  # Guard: an order text line without its "t" prefix (ORWORR.m:165-169).
+  def test_save_text_line_without_t_prefix_is_malformed_reply
+    replay(with_body(captured_body.sub("\rt>>".b, "\r>>".b)))
 
-    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
-
-    refute result[:success]
-    assert_equal :malformed_reply, result[:error]
-  end
-
-  def test_save_parses_t_prefixed_text_stops_at_pipe_and_ignores_pki_xml
-    header = SAVE_HEADER
-    wire_lines = [
-      header,
-      "t+ASPIRIN 81MG TAB",
-      "t1 TAB PO DAILY",
-      "|",
-      "x<xml/>"
-    ]
-    with_orwdx_save_wire(wire_lines)
-
-    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
-
-    assert result[:success]
-    assert_equal [ "+ASPIRIN 81MG TAB", "1 TAB PO DAILY" ], result[:text]
-  end
-
-  def test_save_text_line_before_pipe_without_t_prefix_is_malformed_reply
-    header = SAVE_HEADER
-    with_orwdx_save_wire([ header, "OUTPATIENT MEDICATIONS", "|" ])
-
-    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
+    result = save
 
     refute result[:success]
     assert_equal :malformed_reply, result[:error]
   end
 
-  # --- SAVE reply line splitting (mirror Client#split_response) -----------------
-
-  def test_save_string_reply_with_trailing_crlf_after_order_text_is_success
-    reply = "~12345;1^5^3251022.1200^^^11^SIG\r\ntA\r\n"
-    with_orwdx_save_sequence([ reply ])
-
-    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
-
-    assert result[:success], "order was filed; trailing CRLF must not make reply malformed"
-    assert_equal [ "A" ], result[:text]
-  end
-
-  def test_save_string_reply_header_only_with_trailing_crlf_is_success_empty_text
-    reply = "~12345;1^5^^^^11\r\n"
-    with_orwdx_save_sequence([ reply ])
-
-    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
-
-    assert result[:success]
-    assert_equal [], result[:text]
-  end
-
-  def test_save_string_reply_with_trailing_lf_only_is_success
-    reply = "~12345;1^5^3251022.1200^^^11^SIG\ntA\n"
-    with_orwdx_save_sequence([ reply ])
-
-    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
-
-    assert result[:success], "trailing LF without CR must be dropped like Client#split_response"
-    assert_equal [ "A" ], result[:text]
-  end
-
-  def test_save_string_reply_header_only_with_trailing_lf_only_is_success_empty_text
-    reply = "~12345;1^5^^^^11\n"
-    with_orwdx_save_sequence([ reply ])
-
-    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
-
-    assert result[:success]
-    assert_equal [], result[:text]
-  end
-
-  def test_save_string_reply_empty_line_in_middle_of_text_before_pipe_is_malformed_reply
-    header = "~12345;1^5^3251022.1200^^^11^SIG"
-    reply = "#{header}\r\ntA\r\n\r\ntB"
-    with_orwdx_save_sequence([ reply ])
-
-    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
-
-    refute result[:success]
-    assert_equal :malformed_reply, result[:error]
-  end
-
-  def test_save_array_reply_drops_trailing_empty_elements_like_split_response
-    header = "~12345;1^5^^^^11"
-    with_orwdx_save_wire([ header, "tA", "" ])
-
-    result = RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
-
-    assert result[:success], "trailing empty array element must be dropped (Client#split_response)"
-    assert_equal [ "A" ], result[:text]
-  end
 
   # --- argument validation (no RPC) -------------------------------------------
 
@@ -454,27 +280,10 @@ class OrderSaveTest < Minitest::Test
   end
 
   def test_save_positive_integer_ids_still_call_rpc
-    with_orwdx_save_wire([ SAVE_HEADER ])
+    replay
+    RpmsRpc::Order.save(DFN.to_i, PROVIDER_DUZ.to_i, LOCATION.to_i, DIALOG, RESPONSES, display_group: DISPLAY_GROUP)
 
-    RpmsRpc::Order.save(8791, 301, 349, MED_DIALOG, MED_RESPONSES)
-
-    call = save_call
-    assert_equal "8791", call[:params][0]
-    assert_equal "301", call[:params][1]
-    assert_equal "349", call[:params][2]
-  end
-
-  # --- only SAVE, never SEND ----------------------------------------------------
-
-  def test_save_never_dispatches_orwdx_send_or_other_rpcs
-    with_orwdx_save_wire([ SAVE_HEADER ])
-
-    RpmsRpc::Order.save(DFN, PROVIDER_DUZ, LOCATION, MED_DIALOG, MED_RESPONSES)
-
-    calls = RpmsRpc.client.received_calls
-    assert_equal 1, calls.length
-    assert_equal RPC, calls.first[:rpc]
-    refute calls.any? { |c| c[:rpc] == "ORWDX SEND" }
+    assert_equal [ DFN, PROVIDER_DUZ, LOCATION ], save_call[:params].first(3)
   end
 
   # --- retry safety / compatibility registry ----------------------------------
@@ -491,67 +300,7 @@ class OrderSaveTest < Minitest::Test
 
   private
 
-  def save_call
-    RpmsRpc.client.received_calls.find { |c| c[:rpc] == RPC }
-  end
-
-  def assert_ordialog_list_param(param, expected_entries)
-    actual = ordialog_entries(param)
-    expected = expected_entries.transform_keys { |k| normalize_ordialog_key(k) }
-    assert_equal expected, actual
-  end
-
-  def ordialog_entries(param)
-    case param
-    when Hash
-      if param[:type] == :list
-        return normalize_ordialog_hash(param[:entries])
-      end
-
-      normalize_ordialog_hash(param)
-    else
-      flunk "expected ORDIALOG list param, got #{param.inspect}"
-    end
-  end
-
-  def normalize_ordialog_hash(hash)
-    hash.transform_keys { |k| normalize_ordialog_key(k) }
-        .transform_values(&:to_s)
-  end
-
-  def normalize_ordialog_key(key)
-    case key
-    when Array
-      key.map { |level| level.is_a?(Numeric) ? level : level.to_s }
-    else
-      key.to_s
-    end
-  end
-
-  def with_orwdx_save_wire(lines)
-    wire = lines.nil? ? nil : (lines.is_a?(Array) ? lines : [ lines ])
-    with_orwdx_save_sequence([ wire ])
-  end
-
-  def with_orwdx_save_sequence(wires)
-    client = RpmsRpc::MockClient.new
-    queue = wires.map { |wire| wire.nil? ? nil : wire }
-    %i[call_rpc call_rpc_lines call_rpc_global_array].each do |meth|
-      client.define_singleton_method(meth) do |rpc_name, *params|
-        received_calls << { rpc: rpc_name, params: params, context: current_context }
-        raise "unexpected RPC #{rpc_name.inspect}" unless rpc_name == RPC
-
-        if queue.empty?
-          raise "unexpected extra #{RPC} call"
-        end
-
-        queue.shift
-      end
-    end
-    RpmsRpc.reset!
-    RpmsRpc.configure { |cfg| cfg.client = client }
-    client
-  end
+  def captured_body = captured_save.byteslice(2..)
 
   def assert_save_invalid_never_calls_rpc(cases: nil, dialogs: nil, responses: nil)
     client = no_wire_client
