@@ -1,86 +1,66 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
 require "rpms_rpc/api/eligibility"
-require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/coverage"
 require "rpms_rpc/api/agg"
+require_relative "../captured_replies"
 
-# RpmsRpc::Coverage — insurance eligibility (Medicare/Medicaid/private) through
+# RpmsRpc::Coverage: insurance eligibility (Medicare/Medicaid/private) through
 # AGG/BQI RPCs (rpms-rpc#382). Distinct from RpmsRpc::Eligibility (VFC immunization).
 #
-# Panel round 2 (pinned AGGUPMCR.m / AGGUPMCD.m): medicare_update / medicaid_update
-# are module-internal (not public, no HTTP shape); public writers only; PARMS
-# allowlists exclude RIEN/MIEN and refuse "=", OVERRIDE, "^", and controls;
-# guard DDR reads use the same client: as the write; verification_failed on
-# guard failures; #9000003.11 lister IENS ",DFN," only; add_medicare never
-# deletes a header on rollback; delete_medicare* refuse :no_medicare without header.
+# The replies are the build's (test/fixtures/captured_replies/coverage.yml): each
+# Coverage call run on a throwaway container as PROFILE,REG on demo patient
+# 990048, recorded as a flow (with the guard reads each delete makes first) and
+# replayed through CiaClient. The BQI reads were taken as the operator: the
+# build answers BQI PATIENT INSURANCE to no clinical persona.
+#
+# Not captured, so not tested here: an eligibility row the build refuses, and so
+# the add_medicare / add_medicaid failure and rollback paths (the build accepted
+# every eligibility row it was sent, even an end before the start), a header
+# reply with no record IEN, a billed-eligibility warning on delete, and the
+# reply shapes of other transports. Those were tested against replies written
+# by hand, which ADR 0009 retires. The round trip is test/live/coverage_write_live_test.rb.
 class CoverageTest < Minitest::Test
+  SLUG = "coverage"
   Cov = RpmsRpc::Coverage
   Agg = RpmsRpc::Agg
-  Ddr = RpmsRpc::DdrFileman
-  FS = "\x1c" # $C(28) — PARMS delimiter (AGGUPMCR.m:59, AGGUPMCD.m:132)
-  RS = "\x1e" # $C(30)
-  US = "\x1f" # $C(31)
+  FS = "\x1c" # $C(28): PARMS delimiter (AGGUPMCR.m:59, AGGUPMCD.m:132)
 
-  MEDICARE_RPC = "AGG UPDATE MEDICARE"       # UPD^AGGUPMCR.m:7
-  MEDICAID_RPC = "AGG UPDATE MEDICAID"       # UPD^AGGUPMCD.m:5
-  BQI_RPC = "BQI PATIENT INSURANCE"          # GET^BQIPTINS.m:6
-
-  MCR_HEADER = "I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN#{RS}" # AGGUPMCR.m:25
-  MCD_HEADER = "I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN#{RS}" # AGGUPMCD.m:21
-  BQI_HEADER = "T00100INSURANCE_COVERAGE^D00015EFFECTIVE_DATE#{RS}"  # BQIPTINS.m:14
-
+  MEDICARE_RPC = "AGG UPDATE MEDICARE"   # UPD^AGGUPMCR.m:7
+  MEDICAID_RPC = "AGG UPDATE MEDICAID"   # UPD^AGGUPMCD.m:5
+  BQI_RPC = "BQI PATIENT INSURANCE"      # GET^BQIPTINS.m:6
   CMS_EXAMPLE_MBI = "1EG4TE5MK73"
-  MEDICARE_FILE = "9000003"
-  MEDICARE_ELIG_FILE = "9000003.11"
-  MEDICAID_FILE = "9000004"
 
-  DFN = 42
-
-  class RecordingClient
-    include RpmsRpc::ContextScope
-
-    attr_reader :received_calls, :context_binds
-
-    def initialize(replies = {})
-      @replies = replies.transform_keys(&:to_s)
-      @received_calls = []
-      @context_binds = []
-      @current_context = RpmsRpc::MockClient::DEFAULT_CONTEXT
-    end
-
-    def create_context(name)
-      @context_binds << name
-      @current_context = name
-      true
-    end
-
-    def current_context = @current_context
-
-    def call_rpc(rpc, *params)
-      @received_calls << { rpc: rpc, params: params, context: @current_context }
-      text = @replies[[ rpc, params.first.to_s ].join("\0")] || @replies[rpc]
-      return [] if text.nil?
-
-      text.is_a?(Array) ? text : text.to_s.split(/\r?\n/)
-    end
-
-    def call_rpc_global_array(rpc, *params)
-      @received_calls << { rpc: rpc, params: params.map(&:to_s), context: @current_context }
-      key = [ rpc, *params.map(&:to_s) ].join("\0")
-      @replies[key] || @replies[rpc] || ""
-    end
-  end
-
-  def setup
-    @mock = RpmsRpc.mock!
-  end
+  DFN = 990_048
+  OTHER_DFN = 990_049
+  MEDICARE_ARGS = { roi_on: "11/01/2026", name: "ZZCOV,MEDICARE", number: CMS_EXAMPLE_MBI, suffix: "A",
+                    effective_on: "11/01/2026" }.freeze
 
   def teardown
     RpmsRpc.reset!
   end
+
+  def replay(script = {})
+    client = CapturedReplies::ReplayCiaClient.new(script)
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
+  end
+
+  def replay_flow(name) = replay(CapturedReplies.flow_script(SLUG, name))
+
+  # The RPCs the gem sent, with the context bound when each went out.
+  def wire(client)
+    context = CapturedReplies::ReplayCiaClient::SIGNON_CONTEXT
+    client.calls.filter_map do |c|
+      next (context = c[:params].first) && nil if c[:rpc] == :create_context
+
+      [ c[:rpc], c[:params], context ]
+    end
+  end
+
+  def agg_calls(client, rpc) = wire(client).select { |r, _, _| r == rpc }
 
   # -- distinct from VFC Eligibility -----------------------------------------
 
@@ -89,70 +69,36 @@ class CoverageTest < Minitest::Test
     assert_equal "RpmsRpc::Coverage", Cov.name
   end
 
-  # -- for_patient (GET^BQIPTINS) --------------------------------------------
+  # -- for_patient (BQI PATIENT INSURANCE) -------------------------------------
 
-  def test_for_patient_parses_active_rows
-    body = BQI_HEADER + "MEDICARE PART A^JAN 1, 2026#{RS}#{US}"
-    client = RecordingClient.new(BQI_RPC => body)
-    RpmsRpc.configure { |c| c.client = client }
+  def test_for_patient_is_empty_when_nothing_is_on_file
+    replay_flow("bqi_none")
 
-    rows = Cov.for_patient(DFN)
-
-    assert_equal [ { coverage: "MEDICARE PART A", effective_on: "JAN 1, 2026" } ], rows[:entries]
+    assert_equal({ entries: [] }, Cov.for_patient(DFN))
   end
 
-  def test_for_patient_empty_when_only_header_and_sentinel
-    client = RecordingClient.new(BQI_RPC => BQI_HEADER + US)
-    RpmsRpc.configure { |c| c.client = client }
+  def test_for_patient_reads_medicare_and_medicaid_rows
+    replay_flow("bqi_both")
 
-    assert_equal Cov::EMPTY, Cov.for_patient(DFN)
-  end
-
-  def test_for_patient_nil_when_reply_lacks_typed_header_line
-    client = RecordingClient.new(BQI_RPC => "NOT_A_BQI_HEADER#{RS}#{US}")
-    RpmsRpc.configure { |c| c.client = client }
-
-    assert_nil Cov.for_patient(DFN)
-  end
-
-  def test_for_patient_nil_when_reply_carries_error_marker
-    body = "T01024ERROR^Patient not found#{RS}#{US}"
-    client = RecordingClient.new(BQI_RPC => body)
-    RpmsRpc.configure { |c| c.client = client }
-
-    assert_nil Cov.for_patient(DFN)
-  end
-
-  def test_for_patient_nil_on_blank_reply
-    client = RecordingClient.new(BQI_RPC => "")
-    RpmsRpc.configure { |c| c.client = client }
-
-    assert_nil Cov.for_patient(DFN)
-    assert_nil Cov.for_patient(DFN, client: RecordingClient.new(BQI_RPC => nil))
-  end
-
-  def test_for_patient_invalid_dfn_makes_no_rpc_call
-    client = RecordingClient.new
-    RpmsRpc.configure { |c| c.client = client }
-
-    [ nil, "", "0", "-1", "abc", "3.5" ].each do |bad|
-      assert_nil Cov.for_patient(bad, client: client)
-    end
-    assert_empty client.received_calls
+    assert_equal({ entries: [ { coverage: "MEDICARE", effective_on: "NOV 1, 2026" },
+                              { coverage: "MEDICAID FULL", effective_on: "NOV 1, 2026" } ] },
+                 Cov.for_patient(DFN))
   end
 
   def test_for_patient_binds_bqirpc_and_restores_caller_context
-    client = RecordingClient.new(BQI_RPC => BQI_HEADER + US)
-    client.create_context("OR CPRS GUI CHART")
-    RpmsRpc.configure { |c| c.client = client }
+    client = replay_flow("bqi_none")
+    client.create_context("AGGRPC")
 
     Cov.for_patient(DFN)
 
-    call = client.received_calls.find { |c| c[:rpc] == BQI_RPC }
-    assert_equal "BQIRPC", call[:context]
-    assert_equal [ DFN.to_s ], call[:params]
-    assert_equal "OR CPRS GUI CHART", client.current_context
-    assert_equal [ "OR CPRS GUI CHART", "BQIRPC", "OR CPRS GUI CHART" ], client.context_binds
+    assert_equal [ [ BQI_RPC, [ DFN.to_s ], "BQIRPC" ] ], wire(client)
+    assert_equal "AGGRPC", client.current_context
+  end
+
+  def test_for_patient_invalid_dfn_makes_no_rpc_call
+    client = replay
+    [ nil, "", "0", "-1", "abc", "3.5" ].each { |bad| assert_nil Cov.for_patient(bad) }
+    assert_empty client.calls
   end
 
   # -- public API (rpms-rpc#382) ---------------------------------------------
@@ -168,17 +114,12 @@ class CoverageTest < Minitest::Test
   end
 
   def test_low_level_medicare_and_medicaid_writers_are_not_callable
-    assert_raises(NoMethodError) do
-      Cov.medicare_update(DFN, proc: "A", definition: Cov::MEDICARE_WINDOW)
-    end
-    assert_raises(NoMethodError) do
-      Cov.medicaid_update(DFN, proc: "A", definition: Cov::MEDICAID_WINDOW)
-    end
+    assert_raises(NoMethodError) { Cov.medicare_update(DFN, proc: "A", definition: Cov::MEDICARE_WINDOW) }
+    assert_raises(NoMethodError) { Cov.medicaid_update(DFN, proc: "A", definition: Cov::MEDICAID_WINDOW) }
   end
 
-  # Asserts on the real Coverage::WINDOW_FIELDS, not test-local copies, so a
-  # RIEN/MIEN entry added to the lib allowlist turns this red. The names the
-  # write paths actually send must be members of the real lists.
+  # Asserts on the real Coverage::WINDOW_FIELDS, so a RIEN/MIEN entry added to
+  # the lib allowlist turns this red.
   def test_real_window_fields_exclude_rien_and_mien_and_cover_sent_names
     windows = Cov::MEDICARE_WINDOWS + Cov::MEDICAID_WINDOWS
     assert_equal windows.sort, Cov::WINDOW_FIELDS.keys.sort
@@ -192,824 +133,175 @@ class CoverageTest < Minitest::Test
       end
     end
 
-    # Names the add_* write paths send (add_medicaid sends AGGMDESD/AGGMDECV).
     assert_empty %w[AGGMCROI AGGMCNME AGGMCNUM AGGMCSUF] - Cov::WINDOW_FIELDS[Cov::MEDICARE_WINDOW]
     assert_empty %w[AGGMCESD AGGMCCOV] - Cov::WINDOW_FIELDS[Cov::MEDICARE_ELIGIBILITY_WINDOW]
     assert_empty %w[AGGMDESD AGGMDECV] - Cov::WINDOW_FIELDS[Cov::MEDICAID_ELIGIBILITY_WINDOW]
-
-    # Names only the stale test-local lists carried; the lib does not list them.
-    all = Cov::WINDOW_FIELDS.values.flatten
-    %w[AGGMCEDD AGGMCETM AGGMDEDD AGGMDETM].each do |name|
-      refute_includes all, name, "#{name} is not in the lib allowlists"
-    end
   end
 
-  # -- add_medicare AGG wire (UPD^AGGUPMCR.m:7) ------------------------------
+  # -- add_medicare (UPD^AGGUPMCR.m:7): header, then the eligibility row --------
 
-  def test_add_medicare_sends_dfn_proc_def_mien_parms_under_aggrpc
-    client = RecordingClient.new
-    recorder = client
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      recorder.received_calls << { rpc: rpc, params: params.map(&:to_s), context: recorder.current_context }
-      MCR_HEADER + "1^^#{DFN}^#{RS}#{US}"
-    end
-    seed_medicare_absent!(client)
-    RpmsRpc.configure { |c| c.client = client }
+  def test_add_medicare_files_header_then_eligibility_under_aggrpc
+    client = replay_flow("add_medicare")
 
-    Cov.add_medicare(DFN, roi_on: "01/01/2026", name: "ZZCOV,TEST", number: CMS_EXAMPLE_MBI,
-                     effective_on: "01/01/2026", client: client)
+    result = Cov.add_medicare(DFN, **MEDICARE_ARGS)
 
-    header = client.received_calls.find { |c| c[:params][2] == Cov::MEDICARE_WINDOW }
-    refute_nil header
-    assert_equal MEDICARE_RPC, header[:rpc]
-    assert_equal [ DFN.to_s, "A", Cov::MEDICARE_WINDOW, "", "AGGMCROI=01/01/2026#{FS}AGGMCNME=ZZCOV,TEST#{FS}AGGMCNUM=#{CMS_EXAMPLE_MBI}" ],
-                 header[:params]
-    assert_equal Agg::CONTEXT, header[:context]
+    assert_equal({ success: true, error: nil, message: "", rien: DFN, mien: "1" }, result)
+    assert_equal [
+      [ MEDICARE_RPC, [ DFN.to_s, "A", Cov::MEDICARE_WINDOW, "",
+                        "AGGMCROI=11/01/2026#{FS}AGGMCNME=ZZCOV,MEDICARE#{FS}AGGMCNUM=#{CMS_EXAMPLE_MBI}#{FS}AGGMCSUF=A" ], Agg::CONTEXT ],
+      [ MEDICARE_RPC, [ DFN.to_s, "A", Cov::MEDICARE_ELIGIBILITY_WINDOW, "", "AGGMCESD=11/01/2026" ], Agg::CONTEXT ]
+    ], wire(client)
+    assert_equal CapturedReplies::ReplayCiaClient::SIGNON_CONTEXT, client.current_context
   end
 
-  def test_add_medicare_only_uses_medicare_and_medicare_eligibility_windows
-    client = RecordingClient.new
-    recorder = client
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      recorder.received_calls << { rpc: rpc, params: params.map(&:to_s), context: recorder.current_context }
-      case params[2].to_s
-      when Cov::MEDICARE_WINDOW
-        MCR_HEADER + "1^^#{DFN}^#{RS}#{US}"
-      when Cov::MEDICARE_ELIGIBILITY_WINDOW
-        MCR_HEADER + "1^^#{DFN}^1#{RS}#{US}"
-      else
-        flunk "unexpected AGG definition #{params[2].inspect}"
-      end
-    end
-    seed_medicare_absent!(client)
-    RpmsRpc.configure { |c| c.client = client }
+  # "@" alone is FileMan's delete sentinel; a value that only contains it is data.
+  def test_a_value_containing_at_is_sent
+    client = replay_flow("add_medicare")
 
-    Cov.add_medicare(DFN, roi_on: "01/01/2026", name: "ZZCOV,TEST", number: CMS_EXAMPLE_MBI,
-                     effective_on: "01/01/2026", client: client)
+    Cov.add_medicare(DFN, **MEDICARE_ARGS, number: "AB@12")
 
-    defs = client.received_calls.select { |c| c[:rpc] == MEDICARE_RPC }.map { |c| c[:params][2] }
-    assert_equal [ Cov::MEDICARE_WINDOW, Cov::MEDICARE_ELIGIBILITY_WINDOW ], defs
+    assert_includes agg_calls(client, MEDICARE_RPC).first[1].last, "AGGMCNUM=AB@12"
   end
 
-  def test_add_medicare_rejects_caret_in_field_values
-    client = RecordingClient.new
-    RpmsRpc.configure { |c| c.client = client }
+  def test_add_medicare_restores_context_when_a_call_raises
+    client = replay
+    client.create_context("AGGRPC2")
 
-    assert_raises(ArgumentError) do
-      Cov.add_medicare(DFN, roi_on: "01/01/2026", name: "BAD^NAME", number: CMS_EXAMPLE_MBI,
-                       effective_on: "01/01/2026", client: client)
-    end
-    assert_empty client.received_calls
+    assert_raises(RuntimeError) { Cov.add_medicare(DFN, **MEDICARE_ARGS) }
+    assert_equal "AGGRPC2", client.current_context
   end
 
-  def test_add_medicare_rejects_equals_in_field_values
-    client = RecordingClient.new
-    RpmsRpc.configure { |c| c.client = client }
+  # -- add_medicaid (UPD^AGGUPMCD.m:5): record, then its eligibility row --------
 
-    assert_raises(ArgumentError) do
-      Cov.add_medicare(DFN, roi_on: "01/01/2026", name: "ZZCOV,TEST", number: "MBI=1",
-                       effective_on: "01/01/2026", client: client)
-    end
-    assert_empty client.received_calls
+  # The build keys the eligibility row by its start date (3261101).
+  def test_add_medicaid_creates_record_then_eligibility_row
+    client = replay_flow("add_medicaid")
+
+    result = Cov.add_medicaid(DFN, effective_on: "11/01/2026", coverage: "FULL")
+
+    assert_equal({ success: true, error: nil, message: "", record_ien: "3", multiple_ien: "3261101" }, result)
+    assert_equal [ Cov::MEDICAID_WINDOW, Cov::MEDICAID_ELIGIBILITY_WINDOW ], agg_calls(client, MEDICAID_RPC).map { |_, p, _| p[2] }
+    assert_equal [ DFN.to_s, "A", Cov::MEDICAID_ELIGIBILITY_WINDOW, "3", "", "AGGMDESD=11/01/2026#{FS}AGGMDECV=FULL" ],
+                 agg_calls(client, MEDICAID_RPC).last[1]
   end
 
-  def test_add_medicare_rejects_control_character_in_field_values
-    client = RecordingClient.new
-    RpmsRpc.configure { |c| c.client = client }
+  # -- reads of what is on file ------------------------------------------------
 
-    assert_raises(ArgumentError) do
-      Cov.add_medicare(DFN, roi_on: "01/01/2026", name: "ZZ\x1fCOV", number: CMS_EXAMPLE_MBI,
-                       effective_on: "01/01/2026", client: client)
-    end
-    assert_empty client.received_calls
+  def test_on_file_reads_medicare_and_medicaid_with_their_eligibility
+    replay_flow("on_file_both")
+
+    found = Cov.on_file(DFN)
+
+    medicaid = found[:medicaid].first
+    assert_equal [ "3", true ], [ medicaid[:record_ien], medicaid[:active] ]
+    assert_equal [ { ien: "3261101", starts_on: Date.new(2026, 11, 1), ends_on: nil, coverage: "FULL" } ], medicaid[:eligibility]
+    medicare = found[:medicare].first
+    assert_equal [ "990048", CMS_EXAMPLE_MBI, true ], [ medicare[:record_ien], medicare[:number], medicare[:active] ]
+    assert_equal [ "1", Date.new(2026, 11, 1) ], medicare[:eligibility].first.values_at(:ien, :starts_on)
+    assert_equal [], found[:private]
   end
 
-  def test_add_medicare_restores_context_when_rpc_raises
-    client = RecordingClient.new
-    client.create_context("OR CPRS GUI CHART")
-    RpmsRpc.configure { |c| c.client = client }
+  def test_insurers_reads_the_builds_insurer_list
+    replay_flow("insurers")
 
-    def client.call_rpc_global_array(*)
-      raise RpmsRpc::Client::RpcError, "boom"
-    end
-
-    assert_raises(RpmsRpc::Client::RpcError) do
-      Cov.add_medicare(DFN, roi_on: "01/01/2026", name: "ZZCOV,TEST", number: CMS_EXAMPLE_MBI,
-                       effective_on: "01/01/2026", client: client)
-    end
-    assert_equal "OR CPRS GUI CHART", client.current_context
+    assert_equal({ ien: "1", name: "RAILROAD RETIREMENT", city: "", state: "TEXAS", status: "BILLABLE", type: "MEDICARE FI" },
+                 Cov.insurers.first)
   end
 
-  # -- add_medicaid AGG wire (UPD^AGGUPMCD.m:5) ------------------------------
+  # -- deletes: the guard reads come first ------------------------------------
 
-  def test_add_medicaid_sends_dfn_proc_def_rien_mien_parms
-    client = RecordingClient.new
-    recorder = client
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      recorder.received_calls << { rpc: rpc, params: params.map(&:to_s), context: recorder.current_context }
-      if rpc == MEDICAID_RPC && params[2].to_s == Cov::MEDICAID_WINDOW
-        MCD_HEADER + "1^^9^#{RS}#{US}"
-      else
-        MCD_HEADER + "1^^9^3261031#{RS}#{US}"
-      end
-    end
-    RpmsRpc.configure { |c| c.client = client }
+  def test_delete_medicare_record_refuses_while_an_eligibility_row_remains
+    client = replay_flow("delete_medicare_record_with_rows")
 
-    Cov.add_medicaid(DFN, effective_on: "01/01/2026", coverage: "FULL", client: client)
+    result = Cov.delete_medicare_record(DFN)
 
-    elig = client.received_calls.find { |c| c[:params][2] == Cov::MEDICAID_ELIGIBILITY_WINDOW }
-    refute_nil elig
-    assert_equal [ DFN.to_s, "A", Cov::MEDICAID_ELIGIBILITY_WINDOW, "9", "",
-                  "AGGMDESD=01/01/2026#{FS}AGGMDECV=FULL" ], elig[:params]
-    assert_equal Agg::CONTEXT, elig[:context]
+    assert_equal :verification_failed, result[:error]
+    assert_empty agg_calls(client, MEDICARE_RPC), "no delete while a row remains"
   end
 
-  def test_add_medicaid_only_uses_medicaid_and_medicaid_eligibility_windows
-    client = RecordingClient.new
-    recorder = client
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      recorder.received_calls << { rpc: rpc, params: params.map(&:to_s), context: recorder.current_context }
-      if params[2].to_s == Cov::MEDICAID_WINDOW
-        MCD_HEADER + "1^^6^#{RS}#{US}"
-      else
-        MCD_HEADER + "1^^6^3261031#{RS}#{US}"
-      end
-    end
-    RpmsRpc.configure { |c| c.client = client }
+  def test_delete_medicaid_refuses_a_record_that_is_not_the_patients
+    client = replay_flow("delete_medicaid_other_patient")
 
-    Cov.add_medicaid(DFN, effective_on: "01/01/2026", coverage: "FULL", client: client)
+    result = Cov.delete_medicaid(OTHER_DFN, record_ien: "3", eligibility_mien: "3261101")
 
-    defs = client.received_calls.select { |c| c[:rpc] == MEDICAID_RPC }.map { |c| c[:params][2] }
-    assert_equal [ Cov::MEDICAID_WINDOW, Cov::MEDICAID_ELIGIBILITY_WINDOW ], defs
+    assert_equal :verification_failed, result[:error]
+    assert_empty agg_calls(client, MEDICAID_RPC)
   end
-
-  def test_add_medicaid_override_in_coverage_makes_no_call
-    client = RecordingClient.new
-    RpmsRpc.configure { |c| c.client = client }
-
-    assert_raises(ArgumentError) do
-      Cov.add_medicaid(DFN, effective_on: "01/01/2026", coverage: "OVERRIDE=Y", client: client)
-    end
-    assert_empty client.received_calls
-  end
-
-  def test_add_medicaid_rejects_override_case_insensitive_in_coverage
-    client = RecordingClient.new
-    RpmsRpc.configure { |c| c.client = client }
-
-    assert_raises(ArgumentError) do
-      Cov.add_medicaid(DFN, effective_on: "01/01/2026", coverage: "full override", client: client)
-    end
-    assert_empty client.received_calls
-  end
-
-  def test_add_medicaid_rejects_equals_in_coverage_value
-    client = RecordingClient.new
-    RpmsRpc.configure { |c| c.client = client }
-
-    assert_raises(ArgumentError) do
-      Cov.add_medicaid(DFN, effective_on: "01/01/2026", coverage: "FULL=Y", client: client)
-    end
-    assert_empty client.received_calls
-  end
-
-  def test_add_medicaid_restores_context_when_rpc_raises
-    client = RecordingClient.new
-    client.create_context("OR CPRS GUI CHART")
-    RpmsRpc.configure { |c| c.client = client }
-
-    def client.call_rpc_global_array(*)
-      raise RpmsRpc::Client::RpcError, "boom"
-    end
-
-    assert_raises(RpmsRpc::Client::RpcError) do
-      Cov.add_medicaid(DFN, effective_on: "01/01/2026", coverage: "FULL", client: client)
-    end
-    assert_equal "OR CPRS GUI CHART", client.current_context
-  end
-
-  # -- identifier validation (before the wire) --------------------------------
-
-  def test_delete_medicare_rejects_bad_eligibility_mien_before_wire
-    client = RecordingClient.new
-    RpmsRpc.configure { |c| c.client = client }
-
-    [ "", "0", "-1", "1.5", "abc" ].each do |bad|
-      assert_raises(ArgumentError) { Cov.delete_medicare(DFN, eligibility_mien: bad, client: client) }
-    end
-    assert_empty client.received_calls
-  end
-
-  def test_delete_medicaid_rejects_bad_record_or_eligibility_ien_before_wire
-    client = RecordingClient.new
-    RpmsRpc.configure { |c| c.client = client }
-
-    [ [ "", "1" ], [ "0", "1" ], [ "9", "" ], [ "9", "0" ], [ "9", "-2" ], [ "9", "x" ] ].each do |record, mult|
-      assert_raises(ArgumentError) do
-        Cov.delete_medicaid(DFN, record_ien: record, eligibility_mien: mult, client: client)
-      end
-    end
-    assert_empty client.received_calls
-  end
-
-  def test_add_medicare_rejects_bad_dates_before_wire
-    client = RecordingClient.new
-    RpmsRpc.configure { |c| c.client = client }
-
-    assert_raises(ArgumentError) do
-      Cov.add_medicare(DFN, roi_on: "13/01/2026", name: "ZZ", number: CMS_EXAMPLE_MBI,
-                       effective_on: "01/01/2026", client: client)
-    end
-    assert_empty client.received_calls
-  end
-
-  # -- delete_medicare: one eligibility row only (AGGUPMCR PROC D + MIEN) ---
 
   def test_delete_medicare_sends_one_eligibility_row_delete
-    client = RecordingClient.new(MEDICARE_RPC => MCR_HEADER + "1^^#{DFN}^#{RS}#{US}")
-    seed_medicare_present!(client)
-    RpmsRpc.configure { |c| c.client = client }
+    client = replay_flow("delete_medicare")
 
-    Cov.delete_medicare(DFN, eligibility_mien: "3", client: client)
-
-    agg = client.received_calls.select { |c| c[:rpc] == MEDICARE_RPC }
-    assert_equal 1, agg.size
-    assert_equal [ DFN.to_s, "D", Cov::MEDICARE_ELIGIBILITY_WINDOW, "3", "" ], agg.first[:params]
-  end
-
-  def test_delete_medicare_refuses_without_medicare_header
-    client = RecordingClient.new
-    seed_medicare_absent!(client)
-    RpmsRpc.configure { |c| c.client = client }
-
-    result = Cov.delete_medicare(DFN, eligibility_mien: "3", client: client)
-
-    refute_nil result, "delete_medicare must answer with a result hash when no Medicare header"
-    refute result[:success]
-    assert_equal :no_medicare, result[:error]
-    assert_empty client.received_calls.select { |c| c[:rpc] == MEDICARE_RPC }
-  end
-
-  def test_delete_medicare_guard_reads_use_passed_client_not_rpms_default
-    default = RecordingClient.new
-    write_client = RecordingClient.new(MEDICARE_RPC => MCR_HEADER + "1^^#{DFN}^#{RS}#{US}")
-    seed_medicare_present!(write_client)
-    RpmsRpc.configure { |c| c.client = default }
-
-    Cov.delete_medicare(DFN, eligibility_mien: "3", client: write_client)
-
-    assert write_client.received_calls.any? { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
-    refute default.received_calls.any? { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
-  end
-
-  # -- delete_medicare_record: header only when #9000003.11 is empty --------
-
-  def test_delete_medicare_record_refuses_when_eligibility_rows_remain
-    client = medicare_client_with_lister("[Data]\n1^row\n")
-    RpmsRpc.configure { |c| c.client = client }
-    seed_medicare_present!(client)
-
-    result = Cov.delete_medicare_record(DFN, client: client)
-
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_empty client.received_calls.select { |c| c[:rpc] == MEDICARE_RPC }
-  end
-
-  def test_delete_medicare_record_refuses_when_v1_shaped_lister_lists_eligibility_rows
-    body = "[BEGIN_diDATA]\n1^3250101\n2^3260101\n[END_diDATA]\n"
-    client = medicare_client_with_lister(body)
-    seed_medicare_present!(client)
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      client.received_calls << { rpc: rpc, params: params.map(&:to_s), context: client.current_context }
-      MCR_HEADER + "1^^#{DFN}^#{RS}#{US}" if rpc == MEDICARE_RPC
-    end
-    RpmsRpc.configure { |c| c.client = client }
-
-    result = Cov.delete_medicare_record(DFN, client: client)
-
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_empty client.received_calls.select { |c| c[:rpc] == MEDICARE_RPC }
-  end
-
-  def test_delete_medicare_record_fails_closed_when_eligibility_lister_is_bare_non_ddr_line
-    client = medicare_client_with_lister("-1^Remote procedure DDR LISTER doesn't exist")
-    seed_medicare_present!(client)
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      client.received_calls << { rpc: rpc, params: params.map(&:to_s), context: client.current_context }
-      MCR_HEADER + "1^^#{DFN}^#{RS}#{US}" if rpc == MEDICARE_RPC
-    end
-    RpmsRpc.configure { |c| c.client = client }
-
-    result = Cov.delete_medicare_record(DFN, client: client)
-
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_empty client.received_calls.select { |c| c[:rpc] == MEDICARE_RPC }
-  end
-
-  def test_delete_medicare_record_fails_closed_when_eligibility_lister_errors
-    client = medicare_client_with_lister("[Errors]\n")
-    seed_medicare_present!(client)
-    RpmsRpc.configure { |c| c.client = client }
-
-    result = Cov.delete_medicare_record(DFN, client: client)
-
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_empty client.received_calls.select { |c| c[:rpc] == MEDICARE_RPC }
-  end
-
-  def test_delete_medicare_record_fails_closed_when_v1_shaped_lister_reports_errors
-    client = medicare_client_with_lister("[BEGIN_diERRORS]\n")
-    seed_medicare_present!(client)
-    RpmsRpc.configure { |c| c.client = client }
-
-    result = Cov.delete_medicare_record(DFN, client: client)
-
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_empty client.received_calls.select { |c| c[:rpc] == MEDICARE_RPC }
-  end
-
-  def test_delete_medicare_record_refuses_without_medicare_header
-    client = medicare_client_with_lister("[Data]\n")
-    seed_medicare_absent!(client)
-    RpmsRpc.configure { |c| c.client = client }
-
-    result = Cov.delete_medicare_record(DFN, client: client)
-
-    refute_nil result, "delete_medicare_record must answer with a result hash when no Medicare header"
-    refute result[:success]
-    assert_equal :no_medicare, result[:error]
-    assert_empty client.received_calls.select { |c| c[:rpc] == MEDICARE_RPC }
-  end
-
-  def test_delete_medicare_record_deletes_header_when_no_eligibility_rows
-    client = medicare_client_with_lister("[Data]\n")
-    seed_medicare_present!(client)
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      client.received_calls << { rpc: rpc, params: params.map(&:to_s), context: client.current_context }
-      MCR_HEADER + "1^^#{DFN}^#{RS}#{US}" if rpc == MEDICARE_RPC
-    end
-    RpmsRpc.configure { |c| c.client = client }
-
-    result = Cov.delete_medicare_record(DFN, client: client)
+    result = Cov.delete_medicare(DFN, eligibility_mien: "1")
 
     assert result[:success]
-    lister = client.received_calls.find { |c| c[:rpc] == "DDR LISTER" }
-    refute_nil lister
-    assert_includes lister[:params].join, MEDICARE_ELIG_FILE
-    assert_includes lister[:params].join, ",#{DFN},"
-    refute_includes lister[:params].join, "PART"
-    header_del = client.received_calls.find { |c| c[:rpc] == MEDICARE_RPC }
-    assert_equal [ DFN.to_s, "D", Cov::MEDICARE_WINDOW, "", "" ], header_del[:params]
+    assert_equal [ [ MEDICARE_RPC, [ DFN.to_s, "D", Cov::MEDICARE_ELIGIBILITY_WINDOW, "1", "" ], Agg::CONTEXT ] ],
+                 agg_calls(client, MEDICARE_RPC)
   end
 
-  def test_delete_medicare_record_guard_reads_use_passed_client_not_rpms_default
-    default = RecordingClient.new
-    write_client = medicare_client_with_lister("[Data]\n")
-    seed_medicare_present!(write_client)
-    write_client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      write_client.received_calls << { rpc: rpc, params: params.map(&:to_s), context: write_client.current_context }
-      MCR_HEADER + "1^^#{DFN}^#{RS}#{US}" if rpc == MEDICARE_RPC
-    end
-    RpmsRpc.configure { |c| c.client = default }
+  # The guard reads go to the client passed in, not to RpmsRpc.client.
+  def test_delete_guard_reads_use_the_passed_client
+    default = replay
+    write = CapturedReplies::ReplayCiaClient.new(CapturedReplies.flow_script(SLUG, "delete_medicare"))
 
-    Cov.delete_medicare_record(DFN, client: write_client)
-
-    assert write_client.received_calls.any? { |c| c[:rpc] == "DDR LISTER" }
-    refute default.received_calls.any? { |c| c[:rpc] == "DDR LISTER" }
+    assert Cov.delete_medicare(DFN, eligibility_mien: "1", client: write)[:success]
+    assert_empty default.calls
+    assert_equal [ "DDR GETS ENTRY DATA", MEDICARE_RPC ], write.rpcs_called.grep(String)
   end
-
-  # -- delete_medicaid: one row delete; billed rows fail closed ---------------
 
   def test_delete_medicaid_sends_one_eligibility_row_delete
-    client = RecordingClient.new(MEDICAID_RPC => MCD_HEADER + "1^^6^99#{RS}#{US}")
-    seed_medicaid_owner!(client, record_ien: "6", patient_dfn: DFN)
-    RpmsRpc.configure { |c| c.client = client }
+    client = replay_flow("delete_medicaid")
 
-    result = Cov.delete_medicaid(DFN, record_ien: "6", eligibility_mien: "99", client: client)
+    result = Cov.delete_medicaid(DFN, record_ien: "3", eligibility_mien: "3261101")
 
-    assert result[:success]
-    agg = client.received_calls.select { |c| c[:rpc] == MEDICAID_RPC }
-    assert_equal 1, agg.size
-    assert_equal [ DFN.to_s, "D", Cov::MEDICAID_ELIGIBILITY_WINDOW, "6", "99", "" ], agg.first[:params]
+    assert_equal({ success: true, error: nil, message: "", record_ien: "3", multiple_ien: "3261101" }, result)
+    assert_equal [ [ MEDICAID_RPC, [ DFN.to_s, "D", Cov::MEDICAID_ELIGIBILITY_WINDOW, "3", "3261101", "" ], Agg::CONTEXT ] ],
+                 agg_calls(client, MEDICAID_RPC)
   end
 
-  def test_delete_medicaid_refuses_when_record_is_not_patients
-    client = RecordingClient.new
-    seed_medicaid_owner!(client, record_ien: "6", patient_dfn: 99)
-    RpmsRpc.configure { |c| c.client = client }
+  def test_delete_medicare_record_deletes_the_header_once_no_row_remains
+    client = replay_flow("delete_medicare_record")
 
-    result = Cov.delete_medicaid(DFN, record_ien: "6", eligibility_mien: "1", client: client)
-
-    refute_nil result, "delete_medicaid must answer with a result hash"
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_empty client.received_calls.select { |c| c[:rpc] == MEDICAID_RPC }
+    assert Cov.delete_medicare_record(DFN)[:success]
+    assert_equal [ [ MEDICARE_RPC, [ DFN.to_s, "D", Cov::MEDICARE_WINDOW, "", "" ], Agg::CONTEXT ] ],
+                 agg_calls(client, MEDICARE_RPC)
   end
 
-  def test_delete_medicaid_fails_closed_when_ownership_read_errors
-    client = RecordingClient.new
-    key = ddr_gets_reply_key(MEDICAID_FILE, "6,", ".01", "I")
-    client.instance_eval { @replies[key] = "[Errors]\n" }
-    RpmsRpc.configure { |c| c.client = client }
+  def test_delete_medicare_without_a_header_is_no_medicare
+    client = replay_flow("delete_medicare_none")
 
-    result = Cov.delete_medicaid(DFN, record_ien: "6", eligibility_mien: "1", client: client)
-
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_empty client.received_calls.select { |c| c[:rpc] == MEDICAID_RPC }
+    assert_equal :no_medicare, Cov.delete_medicare(DFN, eligibility_mien: "1")[:error]
+    assert_empty agg_calls(client, MEDICARE_RPC)
   end
 
-  def test_delete_medicaid_guard_reads_use_passed_client_not_rpms_default
-    default = RecordingClient.new
-    write_client = RecordingClient.new(MEDICAID_RPC => MCD_HEADER + "1^^6^99#{RS}#{US}")
-    seed_medicaid_owner!(write_client, record_ien: "6", patient_dfn: DFN)
-    RpmsRpc.configure { |c| c.client = default }
+  # -- guards: refused before the wire ----------------------------------------
 
-    Cov.delete_medicaid(DFN, record_ien: "6", eligibility_mien: "99", client: write_client)
-
-    assert write_client.received_calls.any? { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
-    refute default.received_calls.any? { |c| c[:rpc] == "DDR GETS ENTRY DATA" }
-  end
-
-  def test_delete_medicaid_surfaces_billed_eligibility_without_override
-    billed = MCD_HEADER + "-1^WARNING: This member has outstanding claims.^^^#{RS}#{US}"
-    client = RecordingClient.new(MEDICAID_RPC => billed)
-    seed_medicaid_owner!(client, record_ien: "6", patient_dfn: DFN)
-    RpmsRpc.configure { |c| c.client = client }
-
-    result = Cov.delete_medicaid(DFN, record_ien: "6", eligibility_mien: "1", client: client)
-
-    refute result[:success]
-    assert_equal :billed_eligibility, result[:error]
-  end
-
-  # -- convenience writers ---------------------------------------------------
-
-  def test_add_medicare_files_header_then_eligibility
-    client = RecordingClient.new
-    recorder = client
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      recorder.received_calls << { rpc: rpc, params: params.map(&:to_s), context: recorder.current_context }
-      case [ rpc, params[2].to_s ]
-      when [ MEDICARE_RPC, Cov::MEDICARE_WINDOW ]
-        MCR_HEADER + "1^^#{DFN}^#{RS}#{US}"
-      when [ MEDICARE_RPC, Cov::MEDICARE_ELIGIBILITY_WINDOW ]
-        MCR_HEADER + "1^^#{DFN}^1#{RS}#{US}"
-      else
-        ""
-      end
-    end
-    seed_medicare_absent!(client)
-    RpmsRpc.configure { |c| c.client = client }
-
-    result = Cov.add_medicare(DFN, roi_on: "01/01/2026", name: "ZZCOV,TEST", number: CMS_EXAMPLE_MBI,
-                              suffix: "A", effective_on: "01/01/2026", client: client)
-
-    assert result[:success]
-    assert_equal 2, client.received_calls.count { |c| c[:rpc] == MEDICARE_RPC }
-  end
-
-  def test_add_medicare_fails_when_eligibility_returns_blank_mien
-    client = RecordingClient.new
-    recorder = client
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      recorder.received_calls << { rpc: rpc, params: params.map(&:to_s), context: recorder.current_context }
-      case [ rpc, params[2].to_s ]
-      when [ MEDICARE_RPC, Cov::MEDICARE_WINDOW ]
-        MCR_HEADER + "1^^#{DFN}^#{RS}#{US}"
-      when [ MEDICARE_RPC, Cov::MEDICARE_ELIGIBILITY_WINDOW ]
-        MCR_HEADER + "1^^#{DFN}^#{RS}#{US}"
-      else
-        ""
-      end
-    end
-    seed_medicare_absent!(client)
-    RpmsRpc.configure { |c| c.client = client }
-
-    result = Cov.add_medicare(DFN, roi_on: "01/01/2026", name: "ZZCOV,TEST", number: CMS_EXAMPLE_MBI,
-                              effective_on: "01/01/2026", client: client)
-
-    refute result[:success]
-  end
-
-  def test_add_medicare_never_deletes_header_when_eligibility_fails
-    client = RecordingClient.new
-    recorder = client
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      recorder.received_calls << { rpc: rpc, params: params.map(&:to_s), context: recorder.current_context }
-      case [ rpc, params[2].to_s, params[1].to_s ]
-      when [ MEDICARE_RPC, Cov::MEDICARE_WINDOW, "A" ]
-        MCR_HEADER + "1^^#{DFN}^#{RS}#{US}"
-      when [ MEDICARE_RPC, Cov::MEDICARE_ELIGIBILITY_WINDOW, "A" ]
-        MCR_HEADER + "-1^Bad effective date.^^^#{RS}#{US}"
-      else
-        ""
-      end
-    end
-    seed_medicare_absent!(client)
-    RpmsRpc.configure { |c| c.client = client }
-
-    result = Cov.add_medicare(DFN, roi_on: "01/01/2026", name: "ZZCOV,TEST", number: CMS_EXAMPLE_MBI,
-                              effective_on: "01/01/2026", client: client)
-
-    refute result[:success]
-    assert_equal :eligibility_failed, result[:error]
-    assert_equal false, result[:rolled_back]
-    assert_equal true, result[:header_left]
-    refute client.received_calls.any? { |c| c[:rpc] == MEDICARE_RPC && c[:params][1] == "D" }
-  end
-
-  def test_add_medicare_leaves_header_when_eligibility_fails_and_header_preexisted
-    client = RecordingClient.new
-    recorder = client
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      recorder.received_calls << { rpc: rpc, params: params.map(&:to_s), context: recorder.current_context }
-      case [ rpc, params[2].to_s, params[1].to_s ]
-      when [ MEDICARE_RPC, Cov::MEDICARE_WINDOW, "A" ]
-        MCR_HEADER + "1^^#{DFN}^#{RS}#{US}"
-      when [ MEDICARE_RPC, Cov::MEDICARE_ELIGIBILITY_WINDOW, "A" ]
-        MCR_HEADER + "-1^Bad effective date.^^^#{RS}#{US}"
-      else
-        ""
-      end
-    end
-    seed_medicare_present!(client)
-    RpmsRpc.configure { |c| c.client = client }
-
-    result = Cov.add_medicare(DFN, roi_on: "01/01/2026", name: "ZZCOV,TEST", number: CMS_EXAMPLE_MBI,
-                              effective_on: "01/01/2026", client: client)
-
-    refute result[:success]
-    assert_equal :eligibility_failed, result[:error]
-    assert_equal false, result[:rolled_back]
-    assert_equal true, result[:header_left]
-    refute client.received_calls.any? { |c| c[:rpc] == MEDICARE_RPC && c[:params][1] == "D" }
-  end
-
-  def test_add_medicaid_returns_record_ien_missing_when_header_has_no_record_ien
-    client = RecordingClient.new(MEDICAID_RPC => MCD_HEADER + "1^^^#{RS}#{US}")
-    RpmsRpc.configure { |c| c.client = client }
-
-    result = Cov.add_medicaid(DFN, effective_on: "01/01/2026", coverage: "FULL", client: client)
-
-    refute result[:success]
-    assert_equal :record_ien_missing, result[:error]
-    assert_equal 1, client.received_calls.count { |c| c[:rpc] == MEDICAID_RPC }
-  end
-
-  def test_add_medicaid_creates_record_then_eligibility_row
-    client = RecordingClient.new
-    recorder = client
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      recorder.received_calls << { rpc: rpc, params: params.map(&:to_s), context: recorder.current_context }
-      if rpc == MEDICAID_RPC && params[2].to_s == Cov::MEDICAID_WINDOW
-        MCD_HEADER + "1^^6^#{RS}#{US}"
-      elsif rpc == MEDICAID_RPC
-        MCD_HEADER + "1^^6^3261031#{RS}#{US}"
-      else
-        ""
-      end
-    end
-    RpmsRpc.configure { |c| c.client = client }
-
-    result = Cov.add_medicaid(DFN, effective_on: "01/01/2026", coverage: "FULL", client: client)
-
-    assert result[:success]
-    assert_equal "6", result[:record_ien]
-    elig_call = client.received_calls.find { |c| c[:params][2] == Cov::MEDICAID_ELIGIBILITY_WINDOW }
-    assert_equal "6", elig_call[:params][3]
-  end
-
-  def test_add_medicaid_rolls_back_record_when_eligibility_fails
-    client = RecordingClient.new
-    recorder = client
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      recorder.received_calls << { rpc: rpc, params: params.map(&:to_s), context: recorder.current_context }
-      case [ rpc, params[2].to_s, params[1].to_s ]
-      when [ MEDICAID_RPC, Cov::MEDICAID_WINDOW, "A" ]
-        MCD_HEADER + "1^^6^#{RS}#{US}"
-      when [ MEDICAID_RPC, Cov::MEDICAID_ELIGIBILITY_WINDOW, "A" ]
-        MCD_HEADER + "-1^Bad date.^^^#{RS}#{US}"
-      when [ MEDICAID_RPC, Cov::MEDICAID_WINDOW, "D" ]
-        MCD_HEADER + "1^^6^#{RS}#{US}"
-      else
-        ""
-      end
-    end
-    RpmsRpc.configure { |c| c.client = client }
-
-    result = Cov.add_medicaid(DFN, effective_on: "01/01/2026", coverage: "FULL", client: client)
-
-    refute result[:success]
-    assert_equal :eligibility_failed, result[:error]
-    assert_equal true, result[:rolled_back]
-    rollback = client.received_calls.find do |c|
-      c[:rpc] == MEDICAID_RPC && c[:params][1] == "D" && c[:params][2] == Cov::MEDICAID_WINDOW && c[:params][3] == "6"
-    end
-    refute_nil rollback
-  end
-
-  # -- review threads on #547 -------------------------------------------------
-
-  # The FileMan deletion sentinel "@" would delete the field, not file it.
-  def test_add_medicare_rejects_filemandelete_sentinel_in_every_field_before_wire
-    [ { name: "@" }, { number: "@" }, { suffix: "@" }, { number: "  @  " } ].each do |override|
-      client = RecordingClient.new
-      RpmsRpc.configure { |c| c.client = client }
-      args = { roi_on: "01/01/2026", name: "ZZCOV,TEST", number: CMS_EXAMPLE_MBI, effective_on: "01/01/2026",
-               client: client }.merge(override)
-
-      assert_raises(ArgumentError, "#{override.inspect} must be refused") { Cov.add_medicare(DFN, **args) }
-      assert_empty client.received_calls, "#{override.inspect} reached the wire"
+  def test_add_medicare_refuses_bad_field_values_before_wire
+    [ { name: "BAD^NAME" }, { number: "MBI=1" }, { name: "ZZ\x1fCOV" }, { roi_on: "13/01/2026" },
+      { effective_on: nil }, { name: "@" }, { number: "@" }, { suffix: "@" }, { number: "  @  " } ].each do |override|
+      client = replay
+      assert_raises(ArgumentError, "#{override.inspect} must be refused") { Cov.add_medicare(DFN, **MEDICARE_ARGS, **override) }
+      assert_empty client.calls, "#{override.inspect} reached the wire"
     end
   end
 
-  def test_add_medicaid_rejects_filemandelete_sentinel_in_coverage_before_wire
-    client = RecordingClient.new
-    RpmsRpc.configure { |c| c.client = client }
-
-    assert_raises(ArgumentError) { Cov.add_medicaid(DFN, effective_on: "01/01/2026", coverage: "@", client: client) }
-    assert_empty client.received_calls
-  end
-
-  def test_sentinel_only_exact_value_is_refused_not_values_containing_at
-    client = RecordingClient.new
-    recorder = client
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      recorder.received_calls << { rpc: rpc, params: params.map(&:to_s), context: recorder.current_context }
-      MCR_HEADER + "1^^#{DFN}^3#{RS}#{US}"
-    end
-    seed_medicare_absent!(client)
-    RpmsRpc.configure { |c| c.client = client }
-
-    Cov.add_medicare(DFN, roi_on: "01/01/2026", name: "ZZCOV,TEST", number: "AB@12", effective_on: "01/01/2026",
-                     client: client)
-
-    refute_empty client.received_calls
-  end
-
-  # XWB/BMX replies are Arrays (RpmsRpc::Reply < Array); they carry the payload.
-  class ArrayReplyClient
-    include RpmsRpc::ContextScope
-
-    attr_reader :received_calls
-
-    def initialize(&reply)
-      @reply = reply
-      @received_calls = []
-      @current_context = RpmsRpc::MockClient::DEFAULT_CONTEXT
-    end
-
-    def create_context(name) = (@current_context = name; true)
-    def current_context = @current_context
-
-    def call_rpc(rpc, *params)
-      @received_calls << { rpc: rpc, params: params.map(&:to_s) }
-      @reply.call(rpc, params.map(&:to_s))
+  def test_add_medicaid_refuses_bad_coverage_or_dates_before_wire
+    [ { coverage: "OVERRIDE=Y" }, { coverage: "full override" }, { coverage: "FULL=Y" }, { coverage: "@" },
+      { effective_on: nil } ].each do |override|
+      client = replay
+      args = { effective_on: "11/01/2026", coverage: "FULL" }.merge(override)
+      assert_raises(ArgumentError, "#{override.inspect} must be refused") { Cov.add_medicaid(DFN, **args) }
+      assert_empty client.calls, "#{override.inspect} reached the wire"
     end
   end
 
-  def test_add_medicaid_parses_array_replies_from_clients_without_global_array_call
-    client = ArrayReplyClient.new do |_rpc, params|
-      if params[2] == Cov::MEDICAID_WINDOW
-        [ "I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN", "1^^9^" ]
-      else
-        [ "I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN", "1^^9^31" ]
-      end
+  def test_deletes_refuse_bad_iens_before_wire
+    client = replay
+    [ "", "0", "-1", "1.5", "abc" ].each do |bad|
+      assert_raises(ArgumentError) { Cov.delete_medicare(DFN, eligibility_mien: bad) }
     end
-
-    result = Cov.add_medicaid(DFN, effective_on: "01/01/2026", client: client)
-
-    assert result[:success], result.inspect
-    assert_equal "9", result[:record_ien]
-    assert_equal "31", result[:multiple_ien]
-  end
-
-  def test_add_medicaid_array_reply_keeps_string_path_working
-    client = RecordingClient.new
-    client.define_singleton_method(:call_rpc_global_array) do |_rpc, *params|
-      MCD_HEADER + (params[2].to_s == Cov::MEDICAID_WINDOW ? "1^^9^" : "1^^9^31") + "#{RS}#{US}"
+    [ [ "", "1" ], [ "0", "1" ], [ "9", "" ], [ "9", "0" ], [ "9", "-2" ], [ "9", "x" ] ].each do |record, mult|
+      assert_raises(ArgumentError) { Cov.delete_medicaid(DFN, record_ien: record, eligibility_mien: mult) }
     end
-
-    assert Cov.add_medicaid(DFN, effective_on: "01/01/2026", client: client)[:success]
-  end
-
-  # After the header returns a record IEN, an eligibility exception must not
-  # lose that IEN, and the unknown outcome must not be reported as success.
-  def medicaid_client_eligibility_raises
-    client = RecordingClient.new
-    recorder = client
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      recorder.received_calls << { rpc: rpc, params: params.map(&:to_s), context: recorder.current_context }
-      raise RpmsRpc::Client::RpcError, "timeout" if params[2].to_s == Cov::MEDICAID_ELIGIBILITY_WINDOW
-
-      MCD_HEADER + "1^^6^#{RS}#{US}"
-    end
-    client
-  end
-
-  def test_add_medicaid_eligibility_exception_reports_record_ien_and_fails_closed
-    client = medicaid_client_eligibility_raises
-
-    result = Cov.add_medicaid(DFN, effective_on: "01/01/2026", client: client)
-
-    refute result[:success]
-    assert_equal "6", result[:record_ien]
-    assert_equal false, result[:rolled_back]
-    assert_match(/timeout/, result[:message])
-  end
-
-  def test_add_medicaid_eligibility_exception_does_not_delete_record_of_unknown_outcome
-    client = medicaid_client_eligibility_raises
-
-    Cov.add_medicaid(DFN, effective_on: "01/01/2026", client: client)
-
-    deletes = client.received_calls.select { |c| c[:params][1] == "D" }
-    assert_empty deletes, "unknown write outcome must not be cleaned up blindly"
-  end
-
-  def test_add_medicaid_rollback_exception_preserves_record_ien_and_outcome
-    client = RecordingClient.new
-    recorder = client
-    client.define_singleton_method(:call_rpc_global_array) do |rpc, *params|
-      recorder.received_calls << { rpc: rpc, params: params.map(&:to_s), context: recorder.current_context }
-      case [ params[2].to_s, params[1].to_s ]
-      when [ Cov::MEDICAID_WINDOW, "A" ] then MCD_HEADER + "1^^6^#{RS}#{US}"
-      when [ Cov::MEDICAID_ELIGIBILITY_WINDOW, "A" ] then MCD_HEADER + "-1^Bad date.^^^#{RS}#{US}"
-      else raise RpmsRpc::Client::RpcError, "rollback timeout"
-      end
-    end
-
-    result = Cov.add_medicaid(DFN, effective_on: "01/01/2026", client: client)
-
-    refute result[:success]
-    assert_equal :eligibility_failed, result[:error]
-    assert_equal false, result[:rolled_back]
-    assert_equal "6", result[:record_ien]
-    assert_match(/rollback timeout/, result[:rollback_error].to_s)
-  end
-
-  # Required dates may not be omitted by passing nil.
-  def test_add_medicaid_rejects_nil_effective_on_before_wire
-    client = RecordingClient.new
-    RpmsRpc.configure { |c| c.client = client }
-
-    assert_raises(ArgumentError) { Cov.add_medicaid(DFN, effective_on: nil, client: client) }
-    assert_empty client.received_calls
-  end
-
-  # roi_on: is optional (sent only when given); effective_on: is not.
-  def test_add_medicare_rejects_a_nil_effective_date_before_wire
-    [ { effective_on: nil } ].each do |override|
-      client = RecordingClient.new
-      RpmsRpc.configure { |c| c.client = client }
-      args = { roi_on: "01/01/2026", name: "ZZCOV,TEST", number: CMS_EXAMPLE_MBI, effective_on: "01/01/2026",
-               client: client }.merge(override)
-
-      assert_raises(ArgumentError, "#{override.inspect} must be refused") { Cov.add_medicare(DFN, **args) }
-      assert_empty client.received_calls
-    end
-  end
-
-  private
-
-  def ddr_gets_reply_key(file, iens, fields, flags)
-    param = Ddr.gets_entry_param(file: file, iens: iens, fields: fields, flags: flags)
-    [ "DDR GETS ENTRY DATA", param.to_s ].join("\0")
-  end
-
-  def ddr_lister_reply_key(**kwargs)
-    [ "DDR LISTER", Ddr.lister_param(**kwargs).to_s ].join("\0")
-  end
-
-  def seed_medicare_absent!(client)
-    key = ddr_gets_reply_key(MEDICARE_FILE, "#{DFN},", ".01", "I")
-    client.instance_eval { @replies[key] = "[Errors]\n" }
-  end
-
-  def seed_medicare_present!(client)
-    key = ddr_gets_reply_key(MEDICARE_FILE, "#{DFN},", ".01", "I")
-    client.instance_eval do
-      @replies[key] = "[Data]\n9000003^#{DFN}^.01^#{DFN}^#{DFN}\n"
-    end
-  end
-
-  def seed_medicaid_owner!(client, record_ien:, patient_dfn:)
-    key = ddr_gets_reply_key(MEDICAID_FILE, "#{record_ien},", ".01", "I")
-    client.instance_eval do
-      @replies[key] = "[Data]\n9000004^#{record_ien}^.01^#{patient_dfn}^#{patient_dfn}\n"
-    end
-  end
-
-  def medicare_client_with_lister(lister_body)
-    client = RecordingClient.new
-    key = ddr_lister_reply_key(file: MEDICARE_ELIG_FILE, fields: "@;.01", flags: "IP", iens: ",#{DFN},")
-    client.instance_eval { @replies[key] = lister_body }
-    client
+    assert_empty client.calls
   end
 end
