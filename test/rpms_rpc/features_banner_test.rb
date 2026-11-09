@@ -1,21 +1,19 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/api/patient"
 require_relative "features_test_helper"
+require_relative "captured_replies"
 
 # #384: patient_chart_banner RPCs must match Patient.brief_header; availability
 # requires every banner RPC (including ORWPT CWAD) under the session context.
 class FeaturesBannerTest < Minitest::Test
   include FeaturesTestHelper
 
-  DFN = "384"
   CIAV = "CIAV VUECENTRIC"
   CPRS = "OR CPRS GUI CHART"
 
   def setup
-    RpmsRpc.mock!
     features!.reset!
   end
 
@@ -24,17 +22,21 @@ class FeaturesBannerTest < Minitest::Test
     features!.reset!
   end
 
+  # The calls brief_header makes, answered with the replies the demo patient's
+  # banner got live (test/fixtures/captured_replies/patient-brief-header.yml).
   def test_patient_chart_banner_rpcs_match_brief_header_code_path
-    mock = RpmsRpc.client
-    mock.create_context(CIAV)
-    mock.seed(:patient_ptinfo, DFN,
-              { name: "SYNTH,PATIENT", sex: "F", dob_raw: "3010101", mrn: "MRN01", primary_provider: "PROV,ONE" })
-    mock.seed_raw_lines(:patient_designated_provider, DFN, [])
-    mock.seed_scalar(:patient_cwad, DFN, "WA")
+    slug = "patient-brief-header"
+    client = CapturedReplies::ReplayCiaClient.new(
+      "BEHOPTCX PTINFO" => [ CapturedReplies.raw(slug, "ptinfo") ],
+      "BEHOPTPC GETBDP" => [ CapturedReplies.raw(slug, "getbdp") ],
+      "ORWPT CWAD" => [ CapturedReplies.raw(slug, "cwad") ]
+    )
+    RpmsRpc.configure { |cfg| cfg.client = client }
 
-    RpmsRpc::Patient.brief_header(DFN)
+    header = RpmsRpc::Patient.brief_header("4")
 
-    from_calls = mock.received_calls.map { |c| c[:rpc] }.uniq.sort
+    assert_equal "DEMO,PATIENT ONE", header[:name], "the captured banner reads back"
+    from_calls = client.rpcs_called.uniq.sort
     banner_rpcs = feature_rpcs(meta_for(:patient_chart_banner)).map(&:to_s).sort
     assert_equal from_calls, banner_rpcs
   end
