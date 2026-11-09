@@ -111,7 +111,7 @@ class PilotRegistrationLiveTest < LiveSpec::Test
       given_hrn = format("%06d", 900_000 + rand(99_999)) if source == :given
       attrs[:hrn] = given_hrn if source == :given
 
-      result = RpmsRpc::Patient.register(attrs)
+      result = RpmsRpc::Patient.register(attrs, lookup_client: lookup_client)
       refute_equal :duplicate_identity, result[:error],
                    "registration must not fail as duplicate_identity after unused DOB selection"
       expected_hrn =

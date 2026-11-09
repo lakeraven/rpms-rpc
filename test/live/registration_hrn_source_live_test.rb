@@ -30,13 +30,13 @@ class RegistrationHrnSourceLiveTest < LiveSpec::Test
 
   def test_s_reg_05_1_a_temporary_number_is_filed_on_the_new_patient
     attrs = synthetic
-    result = RpmsRpc::Patient.register(attrs.merge(hrn_source: :temporary))
+    result = RpmsRpc::Patient.register(attrs.merge(hrn_source: :temporary), lookup_client: lookup_client)
 
     assert result && result[:success], "registration failed: #{result.inspect}"
     assert_match(/\AT\d{5}\z/, result[:hrn])
     assert_includes filed_hrns(attrs, result[:dfn]).join(" "), result[:hrn]
 
-    following = RpmsRpc::Patient.register(synthetic(hrn_source: :temporary))
+    following = RpmsRpc::Patient.register(synthetic(hrn_source: :temporary), lookup_client: lookup_client)
     assert following && following[:success], "the next registration failed: #{following.inspect}"
     refute_equal result[:hrn], following[:hrn], "each new patient gets its own temporary number"
   end
@@ -44,13 +44,13 @@ class RegistrationHrnSourceLiveTest < LiveSpec::Test
   def test_s_reg_05_2_and_05_5_a_given_number_is_filed_once_and_refused_for_a_second_patient
     number = format("%06d", 900_000 + rand(99_999))
     first_attrs = synthetic(hrn_source: :given, hrn: number)
-    first = RpmsRpc::Patient.register(first_attrs)
+    first = RpmsRpc::Patient.register(first_attrs, lookup_client: lookup_client)
     assert first && first[:success], "registration failed: #{first.inspect}"
     assert_equal number, first[:hrn]
     assert_includes filed_hrns(first_attrs, first[:dfn]).join(" "), number
 
     second_attrs = synthetic(hrn_source: :given, hrn: number)
-    second = RpmsRpc::Patient.register(second_attrs)
+    second = RpmsRpc::Patient.register(second_attrs, lookup_client: lookup_client)
     assert_equal :agg_invalid, second[:error]
     assert_equal "AGGPTHRN", second[:field]
     assert_match(/\AHRN #{number} is already assigned to patient /, second[:message])

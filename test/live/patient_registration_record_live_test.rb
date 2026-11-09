@@ -22,7 +22,7 @@ class PatientRegistrationRecordLiveTest < LiveSpec::Test
     suffix = SecureRandom.hex(5).tr("0-9", "G-P").upcase
     attrs = { name_last: "ZZEDIT#{suffix}", name_first: "DEMO", dob: Date.new(1950, 1 + rand(12), 1 + rand(28)),
               sex: "F", ssn: "6660#{format('%05d', rand(100_000))}" }.merge(extra)
-    result = RpmsRpc::Patient.register(attrs)
+    result = RpmsRpc::Patient.register(attrs, lookup_client: lookup_client)
     assert result && result[:success], "could not register a synthetic patient: #{result.inspect}"
     [ result[:dfn], attrs ]
   end

@@ -40,6 +40,45 @@ both calls. `1/2/90` means January 2, 1990; Ruby's `%y` boundary is 69–99 for
 in any AG value raises before lookup, preventing another field from replacing
 the checked name in the add payload.
 
+## The lookup runs over BMX (#609)
+
+Over CIA, an M error inside `AGG LOOKUP PATIENTS` cannot be told from a genuine
+no-match. `ERR^AGGPTLKP` writes the same `$C(31)` that `DONE` writes
+(AGGPTLKP.m:73 and :170) and returns normally. Its only signal is `BMXSEC`
+(AGGPTLKP.m:169), and only the BMX broker delivers that, in the security
+packet, which `BmxClient` raises. A CIA session that trusted its own lookup
+could read a faulted lookup as "no candidates" and file a second chart on a
+retry.
+
+So the duplicate lookup runs on a BMX client, and every other registration
+call stays on `RpmsRpc.client`:
+
+```ruby
+lookup = RpmsRpc::BmxClient.new(host: host, port: 9101)
+lookup.connect
+lookup.authenticate(access, verify) # the same user as the CIA session
+result = RpmsRpc::Patient.register(attrs, lookup_client: lookup)
+```
+
+- Over CIA with no `lookup_client:`, registration answers `:identity_unverifiable`
+  and sends nothing.
+- A `lookup_client:` that is not a signed-on `BmxClient` raises `ArgumentError`.
+  One signed on as a different DUZ from `RpmsRpc.client` is
+  `:identity_unverifiable`, and nothing is sent.
+- When `RpmsRpc.client` itself speaks BMX, the lookup runs on it, as before.
+- A faulted lookup over BMX raises, and the duplicate check answers
+  `:identity_unverifiable`, as it does for any failed lookup.
+
+Evidence: `test/fixtures/bmx/agg-lookup-patients.yml` (BMX frames) and
+`test/fixtures/captured_replies/agg-lookup-patients.yml` (CIA replies) were
+captured on a throwaway container of `bcer-9.0-20261109-d3adcff-ydb` as
+PROFILE,REG, for a no-match and for a lookup that faults inside `FND`. After
+the sequence echo the CIA fault reply is byte-identical to the no-match reply.
+The BMX fault frame carries `Recording that an error occurred at ...`.
+`test/rpms_rpc/api/registration_lookup_broker_test.rb` replays both, and
+`test/live/registration_lookup_bmx_live_test.rb` proves it on the wire. Live
+registration specs over CIA need `BMX_PORT`.
+
 ## How this addresses the issue on current main
 
 PR #409 removed the VOA + DDR registration path and the `Agg.available?`

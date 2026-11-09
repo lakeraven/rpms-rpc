@@ -229,6 +229,19 @@ module RpmsRpc
     #                       holds it at this facility, AGGWVAL.m:101-111).
     #                       Absent, hrn_mode decides, as before.
     #
+    # lookup_client: (keyword) the BmxClient the duplicate lookup runs on,
+    #   signed on as the same user as RpmsRpc.client. Over CIA an M error
+    #   inside AGG LOOKUP PATIENTS answers the same bytes as a genuine no-match
+    #   (ERR^AGGPTLKP writes the $C(31) DONE writes, AGGPTLKP.m:73 and :170;
+    #   its only signal, BMXSEC, reaches a BMX client alone), so a CIA session
+    #   cannot verify the lookup itself (rpms-rpc#609). When RpmsRpc.client is
+    #   a CiaClient and no lookup_client is given, registration answers
+    #   :identity_unverifiable and sends nothing. When RpmsRpc.client speaks
+    #   BMX it runs the lookup itself. The add and every other call stay on
+    #   RpmsRpc.client. A lookup_client that is not a signed-on BmxClient
+    #   raises ArgumentError; one signed on as another DUZ is
+    #   :identity_unverifiable.
+    #
     # Returns:
     #   { success: true, dfn:, created: true, hrn: }    — registered; hrn: is
     #                                                     the number filed (nil
@@ -248,11 +261,8 @@ module RpmsRpc
     #                                                     success while filing
     #                                                     nothing (rpms-rpc#562).
     #
-    #   Known limits (both pre-existing, tracked, not fixed here):
-    #   rpms-rpc#609: a lookup that faults inside AG answers the typed header and
-    #   a $C(31) terminator, which Patient.lookup reads as zero candidates, so the
-    #   duplicate check passes and a retry during the fault can create a second
-    #   chart. rpms-rpc#610: with no hrn:, the derived HRN is added after the
+    #   Known limit (pre-existing, tracked, not fixed here):
+    #   rpms-rpc#610: with no hrn:, the derived HRN is added after the
     #   create with .02/// and never meets HRN^AGGWVAL's already-assigned check, so
     #   a DFN equal to a legacy HRN at the facility files a second patient under
     #   that HRN and the read-back still reports success. An hrn: given by the
@@ -283,15 +293,22 @@ module RpmsRpc
     # Name/DOB lookup candidates are conservative: sex is not returned, and
     # a different DOB does not prove a same-name add cannot resolve a chart.
     # See docs/REGISTRATION_SAFETY.md for limits of this two-RPC preflight.
-    def register(attrs)
-      register_via_agg(attrs)
+    # attrs may be given as a Hash or as keywords; lookup_client: is never an
+    # attribute.
+    def register(attrs = {}, lookup_client: nil, **keywords)
+      register_via_agg(attrs.merge(keywords), lookup_client: lookup_client)
     end
     shape :register, resource: "registrations", verb: "POST", path: "/registrations"
 
     # Create via AGG ADD NEW PATIENT, then file the HRN per hrn_mode. Prefer a
     # short broker session per registration (AG routines leak locals into long
     # sessions — see Agg).
-    def register_via_agg(attrs)
+    def register_via_agg(attrs = {}, lookup_client: nil, **keywords)
+      attrs = attrs.merge(keywords)
+      lookup = duplicate_lookup_client(lookup_client)
+      return identity_unverifiable(LOOKUP_NEEDS_BMX) if lookup == :cia_only
+      return identity_unverifiable(LOOKUP_OTHER_USER) if lookup == :other_user
+
       source = hrn_source(attrs)
       params = agg_add_params(attrs)
       invalid = validate_identity(params)
@@ -308,7 +325,7 @@ module RpmsRpc
       refused = validate_fields(params)
       return refused if refused
 
-      duplicate = duplicate_identity(params, allow_duplicate: attrs[:allow_duplicate])
+      duplicate = duplicate_identity(params, allow_duplicate: attrs[:allow_duplicate], lookup_client: lookup)
       return duplicate if duplicate
 
       created = Agg.add_patient(window: AGG_ADD_WINDOW, params: params)
@@ -1079,8 +1096,8 @@ module RpmsRpc
       nil
     end
 
-    def duplicate_identity(params, allow_duplicate:)
-      candidates = Agg.registration_candidates(params)
+    def duplicate_identity(params, allow_duplicate:, lookup_client: RpmsRpc.client)
+      candidates = RpmsRpc.with_client(lookup_client) { Agg.registration_candidates(params) }
       return identity_unverifiable unless candidates
       return if candidates.empty? || allow_duplicate == true
 
@@ -1091,9 +1108,32 @@ module RpmsRpc
       identity_unverifiable
     end
 
-    def identity_unverifiable
-      { success: false, error: :identity_unverifiable,
-        message: "patient duplicate lookup could not be verified" }
+    def identity_unverifiable(message = "patient duplicate lookup could not be verified")
+      { success: false, error: :identity_unverifiable, message: message }
+    end
+
+    LOOKUP_NEEDS_BMX = "patient duplicate lookup cannot be verified over CIA: pass lookup_client:, " \
+                       "a BmxClient signed on as the same user (rpms-rpc#609)"
+    LOOKUP_OTHER_USER = "patient duplicate lookup client is signed on as another user"
+
+    # The client the duplicate lookup runs on (see register): the given
+    # BmxClient, RpmsRpc.client when it is not a CiaClient, :cia_only when it
+    # is and none was given, :other_user when the two are signed on as
+    # different DUZs.
+    def duplicate_lookup_client(lookup_client)
+      session = RpmsRpc.client
+      if lookup_client.nil?
+        return defined?(RpmsRpc::CiaClient) && session.is_a?(RpmsRpc::CiaClient) ? :cia_only : session
+      end
+
+      require_relative "../bmx_client"
+      unless lookup_client.is_a?(RpmsRpc::BmxClient) && lookup_client.authenticated?
+        raise ArgumentError, "lookup_client must be a signed-on RpmsRpc::BmxClient"
+      end
+      return lookup_client unless session.respond_to?(:duz)
+      return :other_user unless lookup_client.duz.to_s == session.duz.to_s
+
+      lookup_client
     end
 
     # The name as LAST^FIRST^MIDDLE^SUFFIX, which name_parts splits into

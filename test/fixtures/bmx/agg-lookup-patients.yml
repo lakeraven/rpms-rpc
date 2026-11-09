@@ -1,0 +1,48 @@
+# BMX reply frames, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit a frame: re-run tools/capture_bmx_frames.rb agg-lookup-patients.rb.
+---
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::BmxClient (socket reads, per call)
+signed_on_as: PROFILE,REG (PREG123, a published demo pair)
+duz: ''
+bound_context: AGGRPC
+captured_at: '2026-11-09T04:43:16Z'
+note: Reads only. The fault pair is the one way to make FND fault without a broken
+  build.
+frames:
+- name: no_match
+  rpc: AGG LOOKUP PATIENTS
+  inputs:
+  - "AGGPTLNM=ZZNOSUCHQX\x1CAGGPTFNM=NOBODY\x1CAGGPTMNM=\x1CAGGPTSFX=\x1CAGGPTDOB=02/03/1901"
+  - ''
+  - '1'
+  - '1'
+  context: 'a name and DOB no patient has: the typed header alone'
+  outcome: 'reply: ["I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE"]'
+  frame: "\0\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E\x1F\x04"
+  sha256: 0bc7e0d0ecc3521ccbfe043dd7fec4f1e2fd94a54fa3d286608dc37d330955f3
+- name: match
+  rpc: AGG LOOKUP PATIENTS
+  inputs:
+  - "AGGPTLNM=USER\x1CAGGPTFNM=TEST\x1CAGGPTMNM=\x1CAGGPTSFX=\x1CAGGPTDOB=05/05/1985"
+  - ''
+  - '1'
+  - '1'
+  context: 'demo patient 2''s name and DOB (USER,TEST, 05/05/1985): one candidate'
+  outcome: 'reply: ["I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE",
+    "2^USER,TEST^123456-DIC^^MAY 5,1985^^NO^^N"]'
+  frame: "\0\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E2^USER,TEST^123456-DIC^^MAY
+    5,1985^^NO^^N\x1E\x1F\x04"
+  sha256: cab996d3fb16c8e9ba5e14b26b93b4488785877f47711c28ad3302b12fbf0f80
+- name: fault
+  rpc: AGG LOOKUP PATIENTS
+  inputs:
+  - "AGGPTLNM=ZZNOSUCHQX\x1CAGGPTFNM=NOBODY\x1CAGGPTMNM=\x1CAGGPTSFX=\x1CAGGPTDOB=02/03/1901\x1C1BAD=X"
+  - ''
+  - '1'
+  - '1'
+  context: the no-match pairs plus 1BAD=X, which faults S @NAME=VALUE inside FND
+  outcome: raised RpmsRpc::Client::ConnectionError
+  frame: "7Recording that an error occurred at NOV 9,2026@04:43:16\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E\x1F\x04"
+  sha256: 49ddc4c25f50fe6ae8942de91b0551ec3167be5d6edf3e6f28bab743fdbec1d3

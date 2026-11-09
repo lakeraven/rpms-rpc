@@ -1,0 +1,33 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb agg-lookup-patients.rb.
+---
+rpc: AGG LOOKUP PATIENTS
+entry_point: FND^AGGPTLKP
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair)
+bound_context: AGGRPC
+captured_at: '2026-11-09T04:43:32Z'
+note: Reads only. The fault pair makes S @NAME=VALUE (AGGPTLKP.m:39) fault inside
+  FND; ^%ZTER records it.
+captures:
+- name: no_match
+  inputs:
+  - "AGGPTLNM=ZZNOSUCHQX\x1CAGGPTFNM=NOBODY\x1CAGGPTMNM=\x1CAGGPTSFX=\x1CAGGPTDOB=02/03/1901"
+  - ''
+  - '1'
+  - '1'
+  context: a name and DOB no patient has
+  raw_return: "5\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E\x1F"
+  sha256: eb72be56e182dafb59eccf10bae144e223f860c28538070c3666e528007d0683
+- name: fault
+  inputs:
+  - "AGGPTLNM=ZZNOSUCHQX\x1CAGGPTFNM=NOBODY\x1CAGGPTMNM=\x1CAGGPTSFX=\x1CAGGPTDOB=02/03/1901\x1C1BAD=X"
+  - ''
+  - '1'
+  - '1'
+  context: 'the no-match pairs plus 1BAD=X: an M error inside FND, answered like a
+    no-match'
+  raw_return: "6\0I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE\x1E\x1F"
+  sha256: 476931f61ba3a98a4b403597c33a8651392affe463eaacd833f612e0a191922e
