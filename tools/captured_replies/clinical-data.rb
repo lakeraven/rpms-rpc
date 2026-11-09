@@ -18,8 +18,6 @@ CAPTURE = {
     { name: "vitals_none", rpc: "ORQQVI VITALS", inputs: [ "99999" ], about: "a DFN no patient holds" },
     { name: "medications_none", rpc: "ORQQPS LIST", inputs: [ "4", "", "" ],
       about: "demo patient 4's condensed medication list; no demo patient has a medication" },
-    { name: "medication_detail_one_param", rpc: "ORQQPS DETAIL", inputs: [ "1" ], expect_error: true,
-      about: "the one-parameter frame Medication.find sends to DETAIL(ORY,ORPT,ORMED)^ORQQPS" },
     { name: "appointments_dfn_4", rpc: "ORWPT APPTLST", inputs: [ "4" ], about: "demo patient 4: no appointments in the window" },
     { name: "appointments_dfn_1", rpc: "ORWPT APPTLST", inputs: [ "1" ], about: "demo patient 1" }
   ]
