@@ -109,7 +109,12 @@ class OversizedTextTest < Minitest::Test
   def test_update_text_wire_refusal_returns_failure_hash_without_note_text
     text = "short line\n#{LONG}"
     refusing = Object.new
-    refusing.define_singleton_method(:call_rpc) { |_rpc, *_params| raise RpmsRpc::Client::FrameTooLongError, "stub wire refusal" }
+    # TIU AUTHORIZATION is allowed (#614), so the refusal is SET's.
+    refusing.define_singleton_method(:call_rpc) do |rpc, *_params|
+      next "1" if rpc == "TIU AUTHORIZATION"
+
+      raise RpmsRpc::Client::FrameTooLongError, "stub wire refusal"
+    end
     RpmsRpc.configure { |cfg| cfg.client = refusing }
 
     result = RpmsRpc::ProgressNote.update_text("5001", text)

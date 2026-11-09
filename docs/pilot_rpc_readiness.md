@@ -127,9 +127,9 @@ BSDX NOSHOW | pilot-ready | signed on as PROV123 (DUZ 200), appointment 3 marked
 # separates TIU GET RECORD TEXT rows with a bare \r; fixed in this slice.
 # Write-path limits: SETTEXT^TIUSRVPT (TIUSRVPT.m:7-38) has no author or authorization check
 # server-side; a DUZ that differs from the author only files a VBC line count (TIUSRVPT.m:32-36).
-# TIU LOCK RECORD is an M job lock, not ownership (TIUSRVP.m:211). ProgressNote.update_text never
-# calls ProgressNote.authorize, so "cannot alter someone else's note" is not enforced on this path
-# (pre-existing API property, lakeraven/rpms-rpc#614). TIU SIGN RECORD is server-guarded:
+# TIU LOCK RECORD is an M job lock, not ownership (TIUSRVP.m:211). So ProgressNote.update_text
+# calls ProgressNote.authorize (TIU AUTHORIZATION, EDIT RECORD) first and sends TIU SET DOCUMENT
+# TEXT only on its "1" (lakeraven/rpms-rpc#614). TIU SIGN RECORD is server-guarded:
 # CANDO^TIULP (TIUSRVP2.m:49) runs before VALIDATE (TIUSRVP2.m:51).
 # One line per RPC: RPC | status | reason | unproven: <fields or none>
 

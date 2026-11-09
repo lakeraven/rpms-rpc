@@ -28,6 +28,12 @@ class ProgressNoteTest < Minitest::Test
     def call_rpc(*) = @response
   end
 
+  # The same, past update_text's TIU AUTHORIZATION (#614): that call is
+  # allowed, so the canned response reaches TIU SET DOCUMENT TEXT.
+  class AuthorizedRawResponseClient < RawResponseClient
+    def call_rpc(rpc, *) = rpc == "TIU AUTHORIZATION" ? "1" : @response
+  end
+
   def teardown
     RpmsRpc.reset!
   end
@@ -281,9 +287,16 @@ class ProgressNoteTest < Minitest::Test
   end
 
   def test_update_text_nil_broker_response_does_not_raise
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = AuthorizedRawResponseClient.new(nil) }
+
+    assert_equal({ success: false, raw: nil }, RpmsRpc::ProgressNote.update_text(NOTE_IEN, "x"),
+                 "a nil TIU SET DOCUMENT TEXT reply is a failure, not a raise")
+  end
+
+  def test_update_text_nil_authorization_reply_sends_no_text
     stub_broker_response(nil)
 
-    # The nil reply is TIU AUTHORIZATION's, so nothing is set (#614).
     result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, "x")
     refute result[:success]
     assert_nil result[:raw]
