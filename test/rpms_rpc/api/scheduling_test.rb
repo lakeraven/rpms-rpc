@@ -74,7 +74,7 @@ class SchedulingTest < Minitest::Test
     )
 
     assert result[:success]
-    assert result[:appointment_id].positive?
+    assert_equal 3, result[:appointment_id], "the APPOINTMENTID the capture answered"
     assert_equal inputs_of("add"), sent("BSDX ADD NEW APPOINTMENT")
   end
 
@@ -261,7 +261,7 @@ class SchedulingTest < Minitest::Test
                                                   end_time: Time.new(2026, 12, 7, 12, 0, 0), slots: 2, access_type_id: 1)
 
     assert result[:success]
-    assert result[:availability_id].positive?
+    assert_equal 173, result[:availability_id], "the AVAILABILITYID the capture answered"
     assert_equal inputs_of("add_availability"), sent("BSDX ADD NEW AVAILABILITY")
   end
 
