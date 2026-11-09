@@ -114,8 +114,12 @@ BSDX NOSHOW | pilot-ready | signed on as PROV123 (DUZ 200), appointment 3 marked
 # TIU note-write pilot status on bcer-9.0-20261012-e7923a4-ydb (issue #564, slice of #224).
 # One flow written by `WRITES=1 rake wire:capture` (host mode, loopback broker), signed on as
 # PROV123. The flow first checks BEHOENCX GETVISIT on visit 4 and creates only when its patient
-# piece is 4. On this build ^AUPNVSIT(4,0) piece 5 is 4 and the seed's own TIU documents 1-4 sit
-# on DFN 4, visit 4. ProgressNote.create itself does not compare the visit's patient with DFN, and
+# piece is 4. That GETVISIT capture is not committed (rake wire:capture keeps only the write
+# entries, lib/tasks/wire.rake). The visit-patient pair is in two committed fixtures instead:
+# test/fixtures/wire_captures/orwpce-get-visit.yml (GETVISIT^ORWPCE2 for note 3, DFN 4, answers
+# visit 4) and orwpce-pce4note.yml (note 3's encounter, VST^PT^4). The seed holds TIU documents 1-5,
+# all on DFN 4: documents 1-4 on visit 4 and document 5 on visit 5 (DDR LISTER on #8925 fields .02
+# and .03, read live on bcer-9.0-20261109-d3adcff-ydb; not a committed fixture). ProgressNote.create itself does not compare the visit's patient with DFN, and
 # neither does MAKE^TIUSRVP (VSTRBLD, TIUSRVP.m:80-85); the gate is in the capture flow only.
 # Then lock, update_text (a line over WRAP_WIDTH, #479), the TIU GET RECORD TEXT read-back, and
 # unlock, on seed patient DFN 4, visit 4, title 248 PROGRESS NOTE. The note IEN is run-dependent:
@@ -131,6 +135,14 @@ BSDX NOSHOW | pilot-ready | signed on as PROV123 (DUZ 200), appointment 3 marked
 # calls ProgressNote.authorize, so "cannot alter someone else's note" is not enforced on this path
 # (pre-existing API property, lakeraven/rpms-rpc#614). TIU SIGN RECORD is server-guarded:
 # CANDO^TIULP (TIUSRVP2.m:49) runs before VALIDATE (TIUSRVP2.m:51).
+# Evidence limits of the capture itself:
+# - The esig gate (WireCapture.write_refusal) refuses a code found in the note text or the
+#   withheld marker, but not one found in the read-back header. The quarantine scans every
+#   capture's raw bytes. So a code equal to a header word (for example UNSIGNED or PROVIDER)
+#   passes the gate, SIGN fires, and the GET capture is then dropped: the fixture set mixes
+#   note IENs. Choose a code that is not an English word until that is closed (rpms-rpc#617).
+# - The TIU GET RECORD TEXT reply carries no note IEN (no TIUDA). Its evidence is bound to the
+#   note by the call's input and by the note text matching, not by anything in the reply.
 # One line per RPC: RPC | status | reason | unproven: <fields or none>
 
 TIU CREATE RECORD | pilot-ready | live capture signed on as PROV123 returned new note IEN 6 for DFN 4 visit 4 title 248; BEHOENCX GETVISIT signed on as PROV123 returned patient 4 for visit 4 before the create; ProgressNote.create reads it as success | unproven: none
