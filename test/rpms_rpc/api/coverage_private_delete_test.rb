@@ -98,19 +98,24 @@ class CoveragePrivateDeleteTest < Minitest::Test
     refute_includes rpcs(client), PRIVATE_AGG_RPC
   end
 
-  # add_private_insurance with no end date files the policy, then the build
-  # dies in UPOL^AGGUPPVT on the AGGPHEED the gem did not send, and the reply
-  # stops after its header (rpms-rpc#688). This pins what the gem reports today.
-  def test_add_private_insurance_without_an_end_date_reports_failure_today
-    replay_flow("add_private")
+  # add_private_insurance with no end date sends both end-date fields blank:
+  # UPOL^AGGUPPVT reads AGGPHEED bare, and without it the build filed the
+  # policy, then died before the result row, and the gem reported a failure a
+  # retry would answer with a second policy (rpms-rpc#688). With them, the
+  # build answers its result row and the gem reports the record it filed.
+  def test_add_private_insurance_without_an_end_date_sends_them_blank_and_reports_the_record
+    client = replay_flow("add_private")
 
     result = Cov.add_private_insurance(DFN, insurer_ien: "1", policy_holder: "ZZCOV,HOLDER", member_number: "ZZ0001",
                                             effective_on: "11/01/2026")
 
-    assert_equal :coverage_empty_reply, result[:error]
+    assert_equal({ success: true, error: nil, record_ien: RECORD, policy_holder_ien: "1" }, result)
+    parms = client.calls.find { |c| c[:rpc] == PRIVATE_AGG_RPC }[:params].last
+    assert_equal %w[AGGPIINS=1 AGGPIHLN=ZZCOV,HOLDER AGGPIMBN=ZZ0001 AGGPIESD=11/01/2026 AGGPIEED=
+                    AGGPHESD=11/01/2026 AGGPHEED=], parms.split("\x1C")
   end
 
-  # ...yet the policy is on file.
+  # ...and the policy it reports is the one on file, with no end date.
   def test_the_policy_reads_back_on_file
     replay_flow("on_file_private")
 
