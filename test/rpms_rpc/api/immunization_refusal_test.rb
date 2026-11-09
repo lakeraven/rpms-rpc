@@ -2,7 +2,7 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
+require_relative "../captured_replies"
 require "rpms_rpc/api/immunization_refusal"
 
 class ImmunizationRefusalTest < Minitest::Test
@@ -102,18 +102,18 @@ class ImmunizationRefusalTest < Minitest::Test
     refute result[:success], "broker silence must not read as a filed refusal"
   end
 
+  # BGOREF GETREA's reply, captured live (test/fixtures/captured_replies/bgoref-getrea.yml):
+  # IEN^TEXT per reason (BGOREF.m:61), the text from BSTS (BGOREF.m:79-83).
   def test_reasons_lists_refusal_reason_iens
-    RpmsRpc.mock! do |m|
-      m.seed_keyed_collection(:refusal_reasons, "IMMUNIZATION", [
-        { ien: "3", text: "Parental decision" },
-        { ien: "5", text: "Religious exemption" }
-      ])
-    end
+    client = CapturedReplies::ReplayCiaClient.new("BGOREF GETREA" => [ CapturedReplies.raw("bgoref-getrea", "immunization") ])
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = client }
 
     rows = RpmsRpc::ImmunizationRefusal.reasons
-    assert_equal 2, rows.length
-    assert_equal "3", rows.first[:ien]
-    assert_equal "Parental decision", rows.first[:text]
+    assert_equal 21, rows.length
+    assert_equal({ ien: "2", text: "Absent response to treatment" }, rows.first.slice(:ien, :text))
+    assert_equal({ ien: "23", text: "Refused" }, rows.find { |r| r[:ien] == "23" }.slice(:ien, :text))
+    assert_equal [ "IMMUNIZATION" ], client.calls.first[:params]
   end
 
   def test_reason_ien_is_required_keyword
