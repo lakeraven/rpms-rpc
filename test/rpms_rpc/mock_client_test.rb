@@ -171,10 +171,10 @@ class RpmsRpc::MockClientTest < Minitest::Test
 
   def test_seed_text_blob_with_caret_rows
     RpmsRpc.mock! do |m|
-      m.seed(:immunization_text, "Header", "1^name^string\n2^dob^date")
+      m.seed(:report_text, "Header", "1^name^string\n2^dob^date")
     end
 
-    text = RpmsRpc::DataMapper.immunization_text.fetch_text("Header")
+    text = RpmsRpc::DataMapper.report_text.fetch_text("Header")
     assert_includes text, "name"
     assert_includes text, "dob"
   end

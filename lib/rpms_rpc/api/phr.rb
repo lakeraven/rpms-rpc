@@ -9,6 +9,12 @@ module RpmsRpc
   # module once offered (`patient_direct_address`, `provider_direct_address`,
   # `facility_direct_domain`, `record_access`) sent BPHR * names no built
   # 9.0 image registers; they were removed (#207).
+  #
+  # `find(ien)` sent a document IEN to BEHOCIR GETTXT, which is a SNOMED CT
+  # term lookup (GETTXT^BEHOCIR, BEHOCIR.m:101-108), and returned its reply
+  # as the document. A CCD document is a VistA Imaging image (#2005, type
+  # CCD-SUMMARY) whose content is a file on the image store; no RPC the
+  # build registers returns it, so `find` was removed (#668, ADR 0008).
   module Phr
     extend self
     extend Shape::Declarable
@@ -54,16 +60,6 @@ module RpmsRpc
     end
     shape :for_patient, resource: "phr", verb: "GET", path: "/patients/{dfn}/phr"
 
-    def find(ien)
-      return nil if invalid_id?(ien)
-
-      content = DataMapper.immunization_text.fetch_text(ien.to_s)
-      return nil if blank?(content)
-
-      { content: content, format: detect_format(content) }
-    end
-    shape :find, resource: "phr", verb: "GET", path: "/phr/{ien}"
-
     def counts(dfn)
       return zero_counts if invalid_id?(dfn)
 
@@ -91,16 +87,6 @@ module RpmsRpc
         title: blank?(row[:title]) ? DEFAULT_CCD_TITLE : row[:title],
         type: blank?(row[:type]) ? DEFAULT_CCD_TYPE : row[:type]
       )
-    end
-
-    def detect_format(content)
-      if content.include?("<?xml") || content.include?("<ClinicalDocument")
-        "xml"
-      elsif content.include?("<html") || content.include?("<HTML")
-        "html"
-      else
-        "text"
-      end
     end
 
     def zero_counts
