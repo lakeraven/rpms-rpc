@@ -65,10 +65,15 @@ class PinnedBuildSignatureTest < Minitest::Test
     tag = LOCK.entries.keys.first
     Dir.mktmpdir do |tmp|
       FileUtils.cp_r(File.join(INVENTORIES_DIR, tag), tmp)
-      dump = File.join(tmp, tag, "#{tag}-broker_8994.txt")
-      File.write(dump, File.read(dump).sub("ORWPT SELECT^SELECT^ORWPT", "ORWPT SELECT^SELECT^ORWPX"))
+      doc = File.join(tmp, tag, "#{tag}-rpcs.json")
+      text = File.read(doc)
+      # One routine name in one record, in place: SELECT^ORWPT becomes SELECT^ORWPX.
+      at = text.index("\"name\": \"ORWPT SELECT\"") or flunk "the pinned rpcs.json no longer records ORWPT SELECT"
+      routine = text.index("\"routine\": \"ORWPT\"", at) or flunk "ORWPT SELECT is no longer at a routine ORWPT"
+      text[routine, 18] = "\"routine\": \"ORWPX\""
+      File.write(doc, text)
       problems = LOCK.check(fingerprints_dir: FINGERPRINTS_DIR, inventories_dir: tmp, require_inventories: true)
-      refute_empty problems.grep(/#{Regexp.escape(tag)}/)
+      refute_empty problems.grep(/#{Regexp.escape(tag)}-rpcs.json sha256/)
     end
   end
 
@@ -103,13 +108,13 @@ class PinnedBuildSignatureTest < Minitest::Test
     assert_nil Lock.cited_entry_point(nil)
   end
 
-  # AC 6: one source. rpc:coverage reads the pinned signature itself; the
+  # AC 6: one source. rpc:coverage reads the pinned signature itself (its rpcs.json, #406); the
   # names-only copies it used to keep are gone.
   def test_rpc_coverage_reads_the_pinned_signature
     cfg = YAML.safe_load_file(File.join(ROOT, "data/rpc_coverage/config.yml"))
     tag = cfg.fetch("release")
     assert LOCK[tag], "rpc:coverage release #{tag} is not pinned in #{LOCK.path}"
-    assert_equal "data/inventories/#{tag}/#{tag}-broker_8994.txt", cfg.fetch("registry")
+    assert_equal "data/inventories/#{tag}/#{tag}-rpcs.json", cfg.fetch("registry")
     assert_equal "data/inventories/#{tag}/#{tag}-packages_9_4.txt", cfg.fetch("packages")
     refute File.exist?(File.join(ROOT, "data/rpc_coverage/registry")),
            "data/rpc_coverage/registry/ held a names-only copy of a signature; read data/inventories/ instead"

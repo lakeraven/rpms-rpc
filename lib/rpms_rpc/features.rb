@@ -39,18 +39,18 @@ module RpmsRpc
   # ArgumentError, as `available?` does for a session-context feature.
   #
   # `available?` is true when every RPC the feature names is client-callable
-  # under that context on the build's reach face (`<tag>-rpc_reach.txt`).
-  # The rows are read by Conformance::BuildSurface, the same reader as the
-  # pinned signature; this module does not parse reach classes itself. An
+  # under that context on the build's RPC surface (`<tag>-rpcs.json`, each
+  # record's reach). The records are read by Conformance::BuildSurface, the
+  # same reader as the pinned signature; this module does not parse them itself. An
   # option named by any out-of-order reach row is out of order and never
   # counts as a serving context. That class means every option listing the
   # RPC is out of order, so excluding those names never marks a usable option
   # unusable. With no `build:`, the one tag in
   # data/fingerprints/rpms-ops.lock.yml is used. Zero or several pins is an
   # ArgumentError: the caller passes `build:`. An unknown feature, a missing
-  # or malformed lock file, a missing reach face, a missing
-  # `<tag>-broker_8994.txt` registry, an empty or non-directory
-  # `inventories_dir:`, a duplicate RPC row, a malformed reach face, or a
+  # or malformed lock file, a missing `<tag>-rpcs.json`, an
+  # empty or non-directory `inventories_dir:`, a duplicate RPC record, a
+  # malformed record (an unknown reach class, records out of order), or a
   # build that is not pinned and not a readable inventory directory, is an
   # ArgumentError too. `Conformance::BuildSurface::Error` from that reader is
   # re-raised as ArgumentError with the reader's reason kept.
@@ -422,23 +422,14 @@ module RpmsRpc
     end
 
     def read_surface(dir, tag)
-      registry_path = File.join(dir, "#{tag}-broker_8994.txt")
-      reach = File.join(dir, "#{tag}-rpc_reach.txt")
-      raise ArgumentError, "reach face is missing for build #{tag}" unless File.file?(reach)
-      raise ArgumentError, "registry is missing for build #{tag}" unless File.file?(registry_path)
+      path = File.join(dir, "#{tag}-#{Conformance::BuildSurface::RPCS_SUFFIX}")
+      raise ArgumentError, "rpcs.json is missing for build #{tag}" unless File.file?(path)
 
-      reject_duplicate_rows!(registry_path)
-      reject_duplicate_rows!(reach)
-      surface = Conformance::BuildSurface.from_files(tag: tag, registry: registry_path, reach: reach)
-      # An empty pair of faces is a truncated inventory, not a build that serves nothing.
-      raise ArgumentError, "malformed inventory: build #{tag} lists no RPCs" if surface.rpcs.empty?
-
-      surface
+      Conformance::BuildSurface.from_rpcs_json(path, tag: tag)
     rescue Conformance::BuildSurface::Error => e
-      # The reader's reason (order, empty face, unknown reach class) is the
-      # ArgumentError message. Same treatment for any BuildSurface::Error this
-      # read raises.
-      raise ArgumentError, e.message
+      # The reader's reason (empty, duplicated or out-of-order RPCs, an unknown reach class, another
+      # tag) is the ArgumentError message.
+      raise ArgumentError, "malformed inventory: #{e.message}"
     end
 
     def inventories_root(dir)
@@ -449,18 +440,6 @@ module RpmsRpc
       raise ArgumentError, "inventories_dir #{path.inspect} is not a directory" unless File.directory?(path)
 
       path
-    end
-
-    def reject_duplicate_rows!(path)
-      names = File.readlines(path, chomp: true).filter_map do |line|
-        next if line.strip.empty? || line.start_with?("#")
-
-        line.split("^", 2).first
-      end
-      dupes = names.tally.select { |_name, count| count > 1 }.keys
-      return if dupes.empty?
-
-      raise ArgumentError, "malformed inventory: #{File.basename(path)} lists #{dupes.join(', ')} more than once"
     end
 
     def resolve_tag(build, inventories_dir)

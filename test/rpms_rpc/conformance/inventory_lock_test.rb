@@ -7,224 +7,193 @@ require "tmpdir"
 require "yaml"
 require "rpms_rpc/conformance/inventory_lock"
 require "rpms_rpc/conformance/ingest"
+require_relative "../pinned_rpcs_test_helper"
 
+# InventoryLock (rpms-rpc#222, #394, #406) on the pinned release's own assets: each test copies
+# data/inventories/<tag>/ as rpms-ops published it and changes the one thing it is about.
 class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
   Lock = RpmsRpc::Conformance::InventoryLock
-  TAG = "bcer-9.0-20260903-abc1234-ydb"
+  P = PinnedRpcsTestHelper
+  TAG = P::TAG
+  ENTRY = P::LOCK[TAG]
 
-  BUILD_COMMIT = "abc1234#{'0' * 33}"
+  def asset(dir, suffix) = File.join(dir, "#{TAG}-#{suffix}")
 
-  # #8994 0-nodes as rpms-ops dumps them: NAME^TAG^ROUTINE^RETURN VALUE TYPE^AVAILABILITY^INACTIVE^...
-  REGISTRY = <<~TXT
-    XWB IM HERE^IMHERE^XWBIMHER^1^P
-    ORWPT SELECT^SELECT^ORWPT^1
-    BEHOVM2 VUNITS^VUNITS^BEHOVM2^1^^^^1
-    XUS CCOW VAULT PARAM^CCOWPC^XUSRB4^2^R^3^^0
-  TXT
-  PACKAGES = "XWB^RPC BROKER^1.1\nOR^ORDER ENTRY/RESULTS REPORTING^3.0\n"
-  # The reach face, same RPCs in the same order: NAME^REACH^ROUTINE_PRESENT^TAG_PRESENT^CONTEXTS^EXEMPT_ON
-  REACH = <<~TXT
-    XWB IM HERE^broker-exempt^1^1^^xwb
-    ORWPT SELECT^client-callable^1^1^OR CPRS GUI CHART;CIAV VUECENTRIC^
-    BEHOVM2 VUNITS^client-callable^1^1^CIAV VUECENTRIC^
-    XUS CCOW VAULT PARAM^no-context^1^1^^
-  TXT
-  # #19.05, tab-separated, header first (rpms-ops#626): which contexts serve which RPCs.
-  CONTEXTS = "OPTION\tTYPE\tLOCK\tRPC\tRPC_KEY\tRPC_RULES\n" \
-             "CIAV VUECENTRIC\tB\t\tBEHOVM2 VUNITS\t\t\n" \
-             "CIAV VUECENTRIC\tB\t\tORWPT SELECT\t\t\n" \
-             "OR CPRS GUI CHART\tB\t\tORWPT SELECT\t\t\n"
-  REACH_CLASSES = { "broker-exempt" => 1, "client-callable" => 2, "no-context" => 1 }.freeze
-  # ZRPCCAT's walk (tab-separated), ending in its EXPLICIT SUCCESS line.
-  SIGNATURES = [
-    "RPC\t1\tXWB IM HERE\tIMHERE\tXWBIMHER\t1\tP\t\t\t\t\t\t\t1\t1\tRESULT",
-    "DESC\t1\tReturns 1 when the broker is alive.",
-    "RPC\t2\tORWPT SELECT\tSELECT\tORWPT\t1\t\t\t\t\t\t\t\t1\t1\tY,DFN",
-    "PARAM\t2\t\tDFN\t1\t\t1",
-    "PDESC\t2\t\tThe patient's internal entry number.",
-    "RET\t2\tDFN^NAME^SEX^DOB...",
-    "RPC\t3\tBEHOVM2 VUNITS\tVUNITS\tBEHOVM2\t1\t\t\t1\t\t\t\t\t1\t1\tRET",
-    "RPC\t4\tXUS CCOW VAULT PARAM\tCCOWPC\tXUSRB4\t2\tR\t3\t\t\t\t\t\t1\t1\tRES",
-    "EXPLICIT SUCCESS: rpcs=4 description-lines=1 parameters=1"
-  ].join("\n") + "\n"
-
-  # Write the four rpms-ops assets for TAG into DIR (what bin/release_inventory.sh produces).
-  def write_inventory(dir, tag: TAG, registry: REGISTRY, bound: true, release_tag: nil, records: nil, engine: "yottadb",
-                      build_commit: BUILD_COMMIT, build_release: nil, reach: REACH, reach_classes: REACH_CLASSES,
-                      signatures: SIGNATURES, contexts: CONTEXTS, image_digest: "sha256:deadbeef", faces: true)
-    FileUtils.mkdir_p(dir)
-    File.write(File.join(dir, "#{tag}-broker_8994.txt"), registry)
-    File.write(File.join(dir, "#{tag}-packages_9_4.txt"), PACKAGES)
-    File.write(File.join(dir, "#{tag}-rpc_reach.txt"), reach)
-    File.write(File.join(dir, "#{tag}-rpc_signatures.txt"), signatures)
-    File.write(File.join(dir, "#{tag}-contexts_19_05.txt"), contexts)
-    sha = ->(suffix) { Digest::SHA256.file(File.join(dir, "#{tag}-#{suffix}")).hexdigest }
-    prov = {
-      "schema_version" => 3, "label" => "inventory-#{tag}", "release_tag" => release_tag || tag,
-      "artifact_sha256" => "sha256:deadbeef", "engine" => engine, "m_backend" => engine,
-      "artifact_bound" => bound, "transport" => "local", "container" => "rpms-ydb",
-      "captured_at" => "2026-09-03T12:00:00Z", "tool_git_sha" => "0123456789abcdef",
-      "dumps" => { "packages" => { "records" => 2 }, "builds" => { "records" => 9 },
-                   "rpcs" => { "records" => records || registry.lines.count } }
-    }
-    if faces
-      prov["rpc_reach"] = { "sha256" => sha.("rpc_reach.txt"), "records" => reach.lines.count, "classes" => reach_classes }
-      prov["rpc_signatures"] = { "sha256" => sha.("rpc_signatures.txt"), "rpcs" => registry.lines.count }
-      prov["image"] = { "repository" => "ghcr.io/lakeraven/rpms-ydb", "digest" => image_digest,
-                        "ref" => "ghcr.io/lakeraven/rpms-ydb@#{image_digest}" }
-    end
-    File.write(File.join(dir, "#{tag}-INVENTORY-PROVENANCE.json"), JSON.pretty_generate(prov))
-    sidecar = Lock::ASSET_SUFFIXES.map do |s|
-      name = "#{tag}-#{s}"
-      "#{Digest::SHA256.file(File.join(dir, name)).hexdigest}  #{name}"
-    end
-    File.write(File.join(dir, "#{tag}-INVENTORY.sha256"), "#{sidecar.join("\n")}\n")
-    # The build record rpms-ops attaches beside the inventory (not covered by the sidecar).
-    build = { "release" => build_release || tag, "rpms_ops_commit" => build_commit }
-    File.write(File.join(dir, "#{tag}-PROVENANCE.json"), JSON.pretty_generate(build))
-    dir
+  def with_inventory
+    Dir.mktmpdir { |root| yield P.copy_pinned_inventory(root), root }
   end
 
-  def test_verify_dir_accepts_a_bound_complete_inventory
-    Dir.mktmpdir do |dir|
-      inv = Lock.verify_dir(TAG, write_inventory(dir))
-      assert_equal "yottadb", inv.engine
-      assert_equal 6, Lock::ASSET_SUFFIXES.size
-      assert_equal Digest::SHA256.hexdigest(REGISTRY), inv.shas["#{TAG}-broker_8994.txt"]
-      assert_equal TAG, inv.to_source["tag"]
-      assert_equal "sha256:deadbeef", inv.to_source["artifact_sha256"]
-      assert_equal "bcer-9.0", inv.rpms_version
-      assert_equal BUILD_COMMIT, inv.build_commit
-      assert_equal BUILD_COMMIT, inv.to_source["build_commit"]
-      assert_equal "0123456789abcdef", inv.to_source["inventory_tool_commit"]
-      assert_equal Digest::SHA256.hexdigest(REACH), inv.to_source["rpc_reach_sha256"]
-      assert_equal "ghcr.io/lakeraven/rpms-ydb@sha256:deadbeef", inv.image_ref
-      assert_equal REACH_CLASSES.sort.to_h, inv.surface.reach_counts
+  # Rewrite one JSON asset through BLOCK, keeping the sidecar honest when it covers the asset, so
+  # the change reaches the check that is under test.
+  def edit_json(dir, suffix, reseal: false)
+    path = asset(dir, suffix)
+    doc = JSON.parse(File.read(path, encoding: "UTF-8"))
+    yield doc
+    File.write(path, JSON.pretty_generate(doc))
+    reseal_sidecar(dir, suffix) if reseal
+  end
+
+  def reseal_sidecar(dir, suffix)
+    sidecar = asset(dir, Lock::SIDECAR_SUFFIX)
+    name = "#{TAG}-#{suffix}"
+    lines = File.readlines(sidecar, chomp: true).map do |l|
+      l.end_with?(name) ? "#{Digest::SHA256.file(File.join(dir, name)).hexdigest}  #{name}" : l
+    end
+    File.write(sidecar, "#{lines.join("\n")}\n")
+  end
+
+  def refusal(dir) = assert_raises(Lock::Error) { Lock.verify_dir(TAG, dir) }.message
+
+  def test_verify_dir_accepts_the_pinned_release
+    with_inventory do |dir|
+      inv = Lock.verify_dir(TAG, dir)
+      assert_equal %w[rpcs.json packages_9_4.txt contexts_19_05.txt INVENTORY-PROVENANCE.json], Lock::ASSET_SUFFIXES
+      assert_equal ENTRY["assets"], inv.shas.sort.to_h
+      assert_equal ENTRY["engine"], inv.engine
+      assert_equal ENTRY["build_commit"], inv.build_commit
+      assert_equal ENTRY["image"], inv.image_ref
+      assert_equal ENTRY["reach_classes"], inv.surface.reach_counts
+      assert_equal ENTRY["rpcs"], inv.surface.rpcs.size
+      src = inv.to_source
+      assert_equal [ TAG, ENTRY["assets"]["#{TAG}-rpcs.json"], "rpcs.v1" ], src.values_at("tag", "rpcs_json_sha256", "rpcs_json_schema")
+      # The raw files the document was projected from, as it names them: the sidecar's bytes.
+      sidecar = File.readlines(asset(dir, Lock::SIDECAR_SUFFIX), chomp: true).to_h { |l| l.split(/\s+\*?/, 2).reverse }
+      %w[broker_8994 rpc_reach rpc_signatures].each do |raw|
+        assert_equal sidecar["#{TAG}-#{raw}.txt"], src["#{raw}_sha256"], raw
+      end
     end
   end
 
-  # --- the reach face and the signatures (#394) ----------------------------------------------
+  # --- rpcs.json against the build it claims to describe (#406) ----------------------------------
 
-  # rpms-rpc#416: the contexts face is a pinned asset, held to the sidecar like the others.
-  def test_verify_dir_rejects_a_release_without_the_contexts_face
-    Dir.mktmpdir do |dir|
-      write_inventory(dir)
-      File.delete(File.join(dir, "#{TAG}-contexts_19_05.txt"))
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, dir) }
-      assert_match(/missing or empty asset #{TAG}-contexts_19_05.txt/, e.message)
+  def test_verify_dir_rejects_a_release_without_rpcs_json
+    with_inventory do |dir|
+      File.delete(asset(dir, "rpcs.json"))
+      assert_match(/missing or empty asset #{TAG}-rpcs.json/, refusal(dir))
     end
   end
 
-  def test_verify_dir_rejects_a_contexts_face_the_sidecar_does_not_match
-    Dir.mktmpdir do |dir|
-      write_inventory(dir)
-      File.write(File.join(dir, "#{TAG}-contexts_19_05.txt"), CONTEXTS.sub("OR CPRS GUI CHART", "OR CPRS GUI CHARX"))
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, dir) }
-      assert_match(/sha256 mismatch for #{TAG}-contexts_19_05.txt/, e.message)
+  def test_verify_dir_rejects_rpcs_json_projected_from_other_bytes
+    with_inventory do |dir|
+      edit_json(dir, "rpcs.json") { |d| d["inputs"]["rpc_reach.txt"] = "0" * 64 }
+      assert_match(/projected from rpc_reach.txt "0{64}", not the sidecar's/, refusal(dir))
     end
   end
 
-  def test_the_verified_surface_reads_the_contexts_face
-    Dir.mktmpdir do |dir|
-      surface = Lock.verify_dir(TAG, write_inventory(dir)).surface
-      assert surface.contexts?
-      assert_nil surface.context_refusal("OR CPRS GUI CHART", "ORWPT SELECT")
-      assert_match(/does not serve BEHOVM2 VUNITS/, surface.context_refusal("OR CPRS GUI CHART", "BEHOVM2 VUNITS"))
+  def test_verify_dir_rejects_rpcs_json_for_another_build
+    with_inventory do |dir|
+      edit_json(dir, "rpcs.json") { |d| d["commit"] = "f" * 40 }
+      assert_match(/commit "f{40}" is not the build record's/, refusal(dir))
+    end
+    with_inventory do |dir|
+      edit_json(dir, "rpcs.json") { |d| d["engine"] = "iris" }
+      assert_match(/engine "iris" is not the provenance's "yottadb"/, refusal(dir))
+    end
+    with_inventory do |dir|
+      edit_json(dir, "rpcs.json") { |d| d["tag"] = "bcer-9.0-20990101-0000000-ydb" }
+      assert_match(/names tag "bcer-9.0-20990101-0000000-ydb", not #{TAG}/, refusal(dir))
     end
   end
 
-  def test_verify_dir_rejects_a_release_without_the_reach_face
-    Dir.mktmpdir do |dir|
-      write_inventory(dir)
-      File.delete(File.join(dir, "#{TAG}-rpc_reach.txt"))
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, dir) }
-      assert_match(/missing or empty asset #{TAG}-rpc_reach.txt/, e.message)
-    end
-  end
-
-  def test_verify_dir_rejects_a_provenance_without_the_reach_face
-    Dir.mktmpdir do |dir|
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, faces: false)) }
-      assert_match(/no rpc_reach face/, e.message)
-    end
-  end
-
-  def test_verify_dir_rejects_a_reach_face_out_of_step_with_the_registry
-    Dir.mktmpdir do |dir|
-      reach = REACH.lines.reverse.join
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, reach: reach)) }
-      assert_match(/rpc_reach.txt does not name the registry's 4 RPCs in order/, e.message)
+  def test_verify_dir_rejects_a_truncated_rpcs_json
+    with_inventory do |dir|
+      edit_json(dir, "rpcs.json") { |d| d["rpcs"].pop }
+      assert_match(/lists #{ENTRY['rpcs'] - 1} RPCs, the provenance counted #{ENTRY['rpcs']} \(truncated\?\)/, refusal(dir))
     end
   end
 
   def test_verify_dir_rejects_reach_classes_the_provenance_does_not_count
-    Dir.mktmpdir do |dir|
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, reach_classes: { "client-callable" => 4 })) }
-      assert_match(/classes/, e.message)
+    with_inventory do |dir|
+      edit_json(dir, "rpcs.json") { |d| d["rpcs"].find { |r| r.dig("reach", "class") == "no-context" }["reach"]["class"] = "client-callable" }
+      assert_match(/reach classes .* != provenance/, refusal(dir))
     end
   end
 
   def test_verify_dir_rejects_an_unknown_reach_class
-    Dir.mktmpdir do |dir|
-      reach = REACH.sub("no-context", "maybe-callable")
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, reach: reach)) }
-      assert_match(/maybe-callable/, e.message)
+    with_inventory do |dir|
+      edit_json(dir, "rpcs.json") { |d| d["rpcs"].find { |r| r["name"] == "ORWPT SELECT" }["reach"]["class"] = "maybe-callable" }
+      assert_match(/"ORWPT SELECT" has reach "maybe-callable"/, refusal(dir))
     end
   end
 
-  def test_verify_dir_rejects_a_truncated_signatures_walk
-    Dir.mktmpdir do |dir|
-      sigs = SIGNATURES.lines[0..-2].join
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, signatures: sigs)) }
-      assert_match(/EXPLICIT SUCCESS/, e.message)
+  # --- the other faces and the provenance ----------------------------------------------------
+
+  # rpms-rpc#416: the contexts face is a pinned asset, held to the sidecar like the others.
+  def test_verify_dir_rejects_a_release_without_the_contexts_face
+    with_inventory do |dir|
+      File.delete(asset(dir, "contexts_19_05.txt"))
+      assert_match(/missing or empty asset #{TAG}-contexts_19_05.txt/, refusal(dir))
+    end
+  end
+
+  def test_verify_dir_rejects_a_tampered_face_the_sidecar_covers
+    with_inventory do |dir|
+      File.write(asset(dir, "contexts_19_05.txt"), File.read(asset(dir, "contexts_19_05.txt")).sub("OR CPRS GUI CHART", "OR CPRS GUI CHARX"))
+      assert_match(/sha256 mismatch for #{TAG}-contexts_19_05.txt/, refusal(dir))
+    end
+    with_inventory do |dir|
+      File.open(asset(dir, "packages_9_4.txt"), "a") { |f| f.puts "ZZ^LATE PACKAGE^1.0" }
+      assert_match(/sha256 mismatch for #{TAG}-packages_9_4.txt/, refusal(dir))
+    end
+  end
+
+  def test_the_verified_surface_reads_the_contexts_face
+    with_inventory do |dir|
+      surface = Lock.verify_dir(TAG, dir).surface
+      assert surface.contexts?
+      assert_nil surface.context_refusal("OR CPRS GUI CHART", "ORWPT SELECT")
+      assert_nil surface.context_refusal("BMCRPC", "BMC ADD REFERRAL")
+      assert_equal "OR CPRS GUI CHART does not serve BMC ADD REFERRAL on #{TAG}", surface.context_refusal("OR CPRS GUI CHART", "BMC ADD REFERRAL")
+    end
+  end
+
+  def test_verify_dir_rejects_a_provenance_without_the_reach_face
+    with_inventory do |dir|
+      edit_json(dir, "INVENTORY-PROVENANCE.json", reseal: true) { |d| d.delete("rpc_reach") }
+      message = refusal(dir)
+      assert_match(/no rpc_reach face/, message)
+    end
+  end
+
+  def test_verify_dir_rejects_a_provenance_face_sha_rpcs_json_was_not_projected_from
+    with_inventory do |dir|
+      edit_json(dir, "INVENTORY-PROVENANCE.json", reseal: true) { |d| d["rpc_signatures"]["sha256"] = "0" * 64 }
+      assert_match(/provenance rpc_signatures.sha256 "0{64}" is not #{TAG}-rpcs.json's rpc_signatures.txt input/, refusal(dir))
     end
   end
 
   def test_verify_dir_rejects_an_image_that_is_not_the_artifact
-    Dir.mktmpdir do |dir|
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, image_digest: "sha256:0ther")) }
-      assert_match(/image.digest/, e.message)
+    with_inventory do |dir|
+      edit_json(dir, "INVENTORY-PROVENANCE.json", reseal: true) { |d| d["image"]["digest"] = "sha256:0ther" }
+      assert_match(/image.digest/, refusal(dir))
     end
   end
 
-  def test_the_surface_reads_signatures_reach_and_registry_together
-    Dir.mktmpdir do |dir|
-      surface = Lock.verify_dir(TAG, write_inventory(dir)).surface
-      select = surface["ORWPT SELECT"]
-      assert_equal "SELECT^ORWPT", select.entry_point
-      assert_equal "client-callable", select.reach
-      assert select.callable?
-      assert_equal %w[Y DFN], select.formals
-      assert_equal [ "DFN" ], select.params.map(&:name)
-      assert_equal [ "The patient's internal entry number." ], select.params.first.description
-      assert select.params.first.required
-      assert_equal [ "DFN^NAME^SEX^DOB..." ], select.returns
-      assert_equal [ "Returns 1 when the broker is alive." ], surface["XWB IM HERE"].description
-      assert_equal [ "xwb" ], surface["XWB IM HERE"].exempt_on
-      assert_equal "3", surface["XUS CCOW VAULT PARAM"].inactive
-      assert_equal({ "XUS CCOW VAULT PARAM" => "no-context" }, surface.uncallable)
-      assert_equal 2, surface.packages.size
+  def test_verify_dir_rejects_an_unbound_capture_or_one_for_another_tag
+    with_inventory do |dir|
+      edit_json(dir, "INVENTORY-PROVENANCE.json", reseal: true) { |d| d["artifact_bound"] = false }
+      assert_match(/not artifact_bound/, refusal(dir))
+    end
+    with_inventory do |dir|
+      edit_json(dir, "INVENTORY-PROVENANCE.json", reseal: true) { |d| d["release_tag"] = "bcer-9.0-other-ydb" }
+      assert_match(/release_tag/, refusal(dir))
     end
   end
 
-  def test_verify_dir_rejects_a_build_record_for_another_commit
-    Dir.mktmpdir do |dir|
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, build_commit: "f" * 40)) }
-      assert_match(/build record commit/, e.message)
+  def test_verify_dir_rejects_a_build_record_for_another_commit_or_release
+    with_inventory do |dir|
+      edit_json(dir, "PROVENANCE.json") { |d| d["rpms_ops_commit"] = "f" * 40 }
+      assert_match(/build record commit/, refusal(dir))
     end
-  end
-
-  def test_verify_dir_rejects_a_build_record_for_another_release
-    Dir.mktmpdir do |dir|
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, build_release: "bcer-9.0-other-ydb")) }
-      assert_match(/build record release/, e.message)
+    with_inventory do |dir|
+      edit_json(dir, "PROVENANCE.json") { |d| d["release"] = "bcer-9.0-other-ydb" }
+      assert_match(/build record release/, refusal(dir))
     end
   end
 
   def test_verify_dir_rejects_a_tag_that_names_no_build
-    Dir.mktmpdir do |dir|
-      e = assert_raises(Lock::Error) { Lock.verify_dir("bcer-9.0-iris", write_inventory(dir, tag: "bcer-9.0-iris")) }
-      assert_match(/names no build/, e.message)
+    with_inventory do |dir|
+      assert_match(/names no build/, assert_raises(Lock::Error) { Lock.verify_dir("bcer-9.0-ydb", dir) }.message)
     end
   end
 
@@ -235,109 +204,57 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
     assert_nil Lock.parse_tag("bcer-9.0-iris")
   end
 
-  def test_verify_dir_rejects_a_tampered_registry
-    Dir.mktmpdir do |dir|
-      write_inventory(dir)
-      File.open(File.join(dir, "#{TAG}-broker_8994.txt"), "a") { |f| f.puts "EVIL RPC^X^Y" }
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, dir) }
-      assert_match(/sha256 mismatch/, e.message)
-    end
-  end
-
-  def test_verify_dir_rejects_an_unbound_capture
-    Dir.mktmpdir do |dir|
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, bound: false)) }
-      assert_match(/not artifact_bound/, e.message)
-    end
-  end
-
-  def test_verify_dir_rejects_a_provenance_for_another_tag
-    Dir.mktmpdir do |dir|
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, release_tag: "bcer-9.0-other-ydb")) }
-      assert_match(/release_tag/, e.message)
-    end
-  end
-
-  def test_verify_dir_rejects_a_truncated_registry
-    Dir.mktmpdir do |dir|
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, write_inventory(dir, records: 5265)) }
-      assert_match(/truncated/, e.message)
-    end
-  end
-
-  def test_verify_dir_rejects_a_missing_asset
-    Dir.mktmpdir do |dir|
-      write_inventory(dir)
-      File.delete(File.join(dir, "#{TAG}-packages_9_4.txt"))
-      e = assert_raises(Lock::Error) { Lock.verify_dir(TAG, dir) }
-      assert_match(/missing or empty asset/, e.message)
-    end
-  end
+  # --- pin, ingest, check ----------------------------------------------------------------------
 
   def test_pin_ingest_and_check_round_trip
-    Dir.mktmpdir do |root|
-      inv_dir = write_inventory(File.join(root, "inventories", TAG))
+    with_inventory do |inv_dir, root|
+      inventories = root
       fp_dir = File.join(root, "fingerprints")
-      lock_path = File.join(fp_dir, Lock::DEFAULT_PATH)
       inv = Lock.verify_dir(TAG, inv_dir)
 
       r = RpmsRpc::Conformance::Ingest.run(
-        dump: inv.broker_dump, packages: inv.packages_dump, env: "references/#{TAG}", fingerprints_dir: fp_dir,
+        surface: inv.surface, packages: inv.packages_dump, env: "references/#{TAG}", fingerprints_dir: fp_dir,
         backend: RpmsRpc::Conformance::Ingest::BACKEND_FOR_ENGINE.fetch(inv.engine),
-        captured_at: "2026-09-03", release: TAG, dat_sha: inv.provenance["artifact_sha256"], inventory: inv.to_source
+        captured_at: inv.provenance["captured_at"].to_s[0, 10], release: TAG, dat_sha: inv.provenance["artifact_sha256"],
+        note: "rpms-ops release inventory #{TAG} (lakeraven/rpms-ops), pinned by conformance:pin", inventory: inv.to_source
       )
-      assert_equal 4, r[:rpcs]
-      assert_equal 2, r[:packages]
+      assert_equal [ ENTRY["rpcs"], ENTRY["packages"] ], [ r[:rpcs], r[:packages] ]
 
-      lock = Lock.load(lock_path)
-      lock.pin!(inv, fingerprint: "references/#{TAG}", rpcs: r[:rpcs], packages: r[:packages])
-      lock.save
+      # The fingerprint rake conformance:pin committed is what the same steps derive here.
+      committed = File.join(P::ROOT, "data/fingerprints", "#{ENTRY['fingerprint']}.yml")
+      assert_equal File.read(committed), File.read(r[:path])
 
       fp = YAML.safe_load_file(r[:path])
-      assert_equal "yottadb_rpms", fp["backend"]
-      assert_equal "rpms", fp["lineage"]
-      assert_equal TAG, fp["release"]
-      assert_equal Digest::SHA256.hexdigest(REGISTRY), fp.dig("source", "inventory", "broker_8994_sha256")
-      assert_equal({ "tag" => "VUNITS", "routine" => "BEHOVM2", "return_type" => "1" }, fp["rpcs"]["BEHOVM2 VUNITS"])
-      assert_equal({ "tag" => "IMHERE", "routine" => "XWBIMHER", "return_type" => "1", "availability" => "P" },
-                   fp["rpcs"]["XWB IM HERE"])
+      assert_equal({ "tag" => "SELECT", "routine" => "ORWPT", "return_type" => "1" }, fp["rpcs"]["ORWPT SELECT"])
       assert_equal "3", fp["rpcs"]["XUS CCOW VAULT PARAM"]["inactive"]
-      assert_equal "3.0", fp["packages"]["ORDER ENTRY/RESULTS REPORTING"].to_s
 
-      reloaded = Lock.load(lock_path)
-      assert_equal 4, reloaded[TAG]["rpcs"]
-      assert_equal "bcer-9.0", reloaded[TAG]["rpms_version"]
-      assert_equal BUILD_COMMIT, reloaded[TAG]["build_commit"]
-      assert_equal "sha256:deadbeef", reloaded[TAG]["artifact_sha256"]
-      assert_empty reloaded.check(fingerprints_dir: fp_dir, inventories_dir: File.join(root, "inventories"))
-      assert_equal 4, reloaded.surfaces(inventories_dir: File.join(root, "inventories"))[TAG].names.size
-      assert_equal "ghcr.io/lakeraven/rpms-ydb@sha256:deadbeef", reloaded[TAG]["image"]
-      assert_equal REACH_CLASSES.sort.to_h, reloaded[TAG]["reach_classes"]
+      lock = Lock.load(File.join(fp_dir, Lock::DEFAULT_PATH))
+      lock.pin!(inv, fingerprint: "references/#{TAG}", rpcs: r[:rpcs], packages: r[:packages])
+      lock.save
+      reloaded = Lock.load(lock.path)
+      assert_equal ENTRY, reloaded[TAG]
+      assert_empty reloaded.check(fingerprints_dir: fp_dir, inventories_dir: inventories)
+      assert_equal ENTRY["rpcs"], reloaded.surfaces(inventories_dir: inventories)[TAG].names.size
 
-      # A hand-edited fingerprint no longer matches its pin.
-      File.write(r[:path], File.read(r[:path]).sub("BEHOVM2 VUNITS", "BEHOVM2 VUNITZ"))
-      problems = reloaded.check(fingerprints_dir: fp_dir)
-      assert_empty problems.grep(/sha256/), "renaming an RPC does not change the pinned dump sha"
-      # ...but against the committed signature the fingerprint no longer re-derives.
-      problems = reloaded.check(fingerprints_dir: fp_dir, inventories_dir: File.join(root, "inventories"))
-      refute_empty problems.grep(/fingerprint rpcs differ from the pinned dump \(BEHOVM2 VUNITS/)
-      # ...but deleting one changes the count the lock recorded.
-      File.write(r[:path], File.read(r[:path]).sub(/^  ORWPT SELECT:\n(    .*\n)+/, ""))
-      problems = reloaded.check(fingerprints_dir: fp_dir)
-      refute_empty problems.grep(/3 RPCs, lock says 4/)
+      # A hand-edited fingerprint no longer re-derives from the committed rpcs.json...
+      File.write(r[:path], File.read(r[:path]).sub("ORWPT SELECT:", "ORWPT SELECX:"))
+      problems = reloaded.check(fingerprints_dir: fp_dir, inventories_dir: inventories)
+      refute_empty problems.grep(/fingerprint rpcs differ from the pinned rpcs.json \(ORWPT SELECT/)
+      # ...and deleting one changes the count the lock recorded.
+      File.write(r[:path], File.read(r[:path]).sub(/^  ORWPT SELECX:\n(    .*\n)+/, ""))
+      refute_empty reloaded.check(fingerprints_dir: fp_dir).grep(/#{ENTRY['rpcs'] - 1} RPCs, lock says #{ENTRY['rpcs']}/)
 
-      # A local inventory dir whose bytes drifted from the lock is reported too.
-      File.open(File.join(inv_dir, "#{TAG}-broker_8994.txt"), "a") { |f| f.puts "LATE RPC^X^Y" }
-      problems = reloaded.check(fingerprints_dir: fp_dir, inventories_dir: File.join(root, "inventories"))
-      refute_empty problems.grep(/local inventory dir fails verification/)
+      # A committed rpcs.json whose bytes drifted from the lock is reported, though it still verifies.
+      edit_json(inv_dir, "rpcs.json") { |d| d["rpcs"].find { |x| x["name"] == "ORWPT SELECT" }["entry_point"]["routine"] = "ORWPX" }
+      problems = reloaded.check(fingerprints_dir: fp_dir, inventories_dir: inventories)
+      refute_empty problems.grep(/local asset #{TAG}-rpcs.json sha256 \h+ != lock/)
     end
   end
 
   def test_check_reports_a_missing_fingerprint
-    Dir.mktmpdir do |root|
-      inv = Lock.verify_dir(TAG, write_inventory(File.join(root, "inv")))
+    with_inventory do |dir, root|
       lock = Lock.load(File.join(root, "lock.yml"))
-      lock.pin!(inv, fingerprint: "references/#{TAG}", rpcs: 4, packages: 2)
+      lock.pin!(Lock.verify_dir(TAG, dir), fingerprint: "references/#{TAG}", rpcs: ENTRY["rpcs"], packages: ENTRY["packages"])
       problems = lock.check(fingerprints_dir: File.join(root, "fingerprints"))
       assert_equal 1, problems.size
       assert_match(/is missing/, problems.first)
@@ -345,10 +262,9 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
   end
 
   def test_check_requires_the_committed_signature_when_asked
-    Dir.mktmpdir do |root|
-      inv = Lock.verify_dir(TAG, write_inventory(File.join(root, "inv")))
+    with_inventory do |dir, root|
       lock = Lock.load(File.join(root, "lock.yml"))
-      lock.pin!(inv, fingerprint: "references/#{TAG}", rpcs: 4, packages: 2)
+      lock.pin!(Lock.verify_dir(TAG, dir), fingerprint: "references/#{TAG}", rpcs: ENTRY["rpcs"], packages: ENTRY["packages"])
       problems = lock.check(fingerprints_dir: root, inventories_dir: File.join(root, "absent"), require_inventories: true)
       refute_empty problems.grep(/signature is not committed/)
     end

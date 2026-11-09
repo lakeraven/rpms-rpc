@@ -5,6 +5,7 @@ require "tmpdir"
 require "fileutils"
 require "json"
 require_relative "../../tools/rpc_coverage/rpc_coverage"
+require_relative "../rpms_rpc/pinned_rpcs_test_helper"
 
 # rake rpc:coverage (rpms-rpc#270): the computation and every gate, on tiny fixtures.
 class RpcCoverageTest < Minitest::Test
@@ -130,23 +131,26 @@ class RpcCoverageTest < Minitest::Test
     assert_equal [ "exclusion \"A ONE\" (no_context) answered live: the exclusion is stale, remove it" ], problems
   end
 
-  # --- exclusions generated from the pinned build's reach face (#278, #394) ------------------
+  # --- exclusions generated from the pinned build's reach classes (#278, #394, #406) ----------
 
-  # A pinned build's files: the registry and its reach face, same RPCs in the same order.
-  def surface(*rows)
-    tag = "bcer-9.0-20260930-8c88e47-ydb"
-    write("inventories/#{tag}/#{tag}-broker_8994.txt", rows.map { |n, _| "#{n}^TAG^RTN^2" }.join("\n") + "\n")
-    write("inventories/#{tag}/#{tag}-rpc_reach.txt", rows.map { |n, reach| "#{n}^#{reach}^1^1^^" }.join("\n") + "\n")
-    RpmsRpc::Conformance::BuildSurface.load(File.join(@dir, "inventories", tag), tag)
+  P = PinnedRpcsTestHelper
+
+  # A build's rpcs.json of real pinned records, one per reach class rpms-ops publishes. The pinned
+  # build has no RPC in the inactive class, so that one is a real record with its class changed.
+  def surface(records)
+    dir = P.write_inventory(@dir, P::TAG, records)
+    RpmsRpc::Conformance::BuildSurface.load(dir, P::TAG)
   end
 
   def test_reach_classes_map_to_reasons_and_callable_rpcs_are_not_excluded
-    s = surface([ "A ONE", "no-routine" ], [ "A TWO", "no-entry-point" ], [ "A THREE", "inactive" ],
-                [ "A FOUR", "no-context" ], [ "A FIVE", "out-of-order" ],
-                [ "A SIX", "broker-exempt" ], [ "A SEVEN", "client-callable" ])
-    assert_equal({ "A ONE" => "no_routine_on_image", "A TWO" => "no_entry_point_on_image",
-                   "A THREE" => "inactive_on_image", "A FOUR" => "no_context", "A FIVE" => "context_out_of_order" },
-                 RpcCoverage.unreachable_from_surface(s))
+    by_class = RpmsRpc::Conformance::BuildSurface::REACH_CLASSES.to_h do |klass|
+      rec = klass == "inactive" ? P.record("ORWPT SELECT", reach: { "class" => "inactive" }) : P.record_of_class(klass)
+      [ klass, rec ]
+    end
+    s = surface(by_class.values)
+    expected = RpcCoverage::REACH_REASONS.to_h { |klass, reason| [ by_class.fetch(klass)["name"], reason ] }
+    assert_equal expected, RpcCoverage.unreachable_from_surface(s)
+    assert_equal 7, s.rpcs.size
   end
 
   # Every reach class rpms-ops publishes is either callable or mapped to a reason: a class added
@@ -158,12 +162,7 @@ class RpcCoverageTest < Minitest::Test
   end
 
   def test_a_reach_class_the_reader_does_not_know_fails
-    assert_raises(RpmsRpc::Conformance::BuildSurface::Error) { surface([ "A ONE", "maybe-callable" ]) }
-  end
-
-  def test_a_build_without_a_reach_face_cannot_generate_exclusions
-    s = RpmsRpc::Conformance::BuildSurface.from_files(registry: write("r/bcer-test-broker_8994.txt", "A ONE^T^R\n"))
-    assert_raises(RpcCoverage::Error) { RpcCoverage.unreachable_from_surface(s) }
+    assert_raises(RpmsRpc::Conformance::BuildSurface::Error) { surface([ P.record("ORWPT SELECT", reach: { "class" => "maybe-callable" }) ]) }
   end
 
   def test_regenerating_keeps_reviewed_exclusions_and_only_registered_names
@@ -235,15 +234,23 @@ class RpcCoverageTest < Minitest::Test
     assert_equal 2, ev["runs"].size
   end
 
-  # The registry rpc:coverage reads is the rpms-ops signature itself (#222): one #8994 0-node per
-  # line, NAME first. The release tag comes from the file name.
-  def test_load_registry_reads_an_rpms_ops_broker_dump
-    path = write("inventories/bcer-9.0-20260930-8c88e47-ydb/bcer-9.0-20260930-8c88e47-ydb-broker_8994.txt",
-                 "XWB ECHO STRING^ECHO1^XWBZ1^1^P\nBPC GETLABVISITDATA\nXUS CCOW VAULT PARAM^CCOWPC^XUSRB4^2^R^3^^0\n")
-    reg = RpcCoverage.load_registry(path)
-    assert_equal [ "XWB ECHO STRING", "BPC GETLABVISITDATA", "XUS CCOW VAULT PARAM" ], reg.names
-    assert_equal "bcer-9.0-20260930-8c88e47-ydb", reg.tag
+  # The registry rpc:coverage reads is the pinned build's own rpcs.json (#222, #406); its tag is the
+  # document's.
+  def test_load_registry_reads_the_pinned_rpcs_json
+    reg = RpcCoverage.load_registry(P::PATH)
+    assert_equal P::TAG, reg.tag
+    assert_equal P.pinned_doc["rpcs"].map { |r| r["name"] }, reg.names
+    assert_equal reg.names, reg.surface.names
     assert_empty RpcCoverage.registry_problems(reg)
+  end
+
+  # rpms-ops bin/rpms_rpc_live_score.rb scores a release's live evidence against a names file it
+  # writes from that release's broker dump (NAME first on each line); the tag is the file name's.
+  def test_load_registry_reads_the_names_file_rpms_ops_scores_with
+    reg = RpcCoverage.load_registry(write("live/local-ydb.txt", "XWB ECHO STRING\nBPC GETLABVISITDATA\n"))
+    assert_equal [ "XWB ECHO STRING", "BPC GETLABVISITDATA" ], reg.names
+    assert_equal "local-ydb", reg.tag
+    assert_nil reg.surface
   end
 
   # --- declared names --------------------------------------------------------------------------
@@ -268,10 +275,10 @@ class RpcCoverageTest < Minitest::Test
     assert_empty RpcCoverage.exclusion_problems(RpcCoverage.load_exclusions(File.join(root, "data/rpc_coverage/exclusions.yml")), reg)
   end
 
-  # #278, #394: every RPC the pinned release's reach face says no client can call is excluded with
-  # a reason, the file cites the pinned reach face it came from, and regenerating it from that face
-  # changes nothing (the committed file is what `rake rpc:exclusions` writes, not a local atlas).
-  def test_the_committed_exclusions_are_generated_from_the_pinned_reach_face
+  # #278, #394, #406: every RPC the pinned release's rpcs.json says no client can call is excluded
+  # with a reason, the file cites the pinned document it came from, and regenerating it from that
+  # document changes nothing (the committed file is what `rake rpc:exclusions` writes, not a local atlas).
+  def test_the_committed_exclusions_are_generated_from_the_pinned_rpcs_json
     root = File.expand_path("../..", __dir__)
     cfg = YAML.safe_load_file(File.join(root, "data/rpc_coverage/config.yml"))
     tag = cfg.fetch("release")
@@ -280,10 +287,10 @@ class RpcCoverageTest < Minitest::Test
     excl = RpcCoverage.load_exclusions(path)
     refute_empty excl
 
-    reach_file = "#{tag}-rpc_reach.txt"
+    rpcs_file = "#{tag}-rpcs.json"
     lock = YAML.safe_load_file(File.join(root, "data/fingerprints/rpms-ops.lock.yml"))
-    assert_includes text, "# reach: data/inventories/#{tag}/#{reach_file}\n"
-    assert_includes text, "# reach sha256: #{lock.dig('releases', tag, 'assets', reach_file)} "
+    assert_includes text, "# rpcs: data/inventories/#{tag}/#{rpcs_file}\n"
+    assert_includes text, "# rpcs sha256: #{lock.dig('releases', tag, 'assets', rpcs_file)} "
     assert_match(/^# registry: #{Regexp.escape(tag)} \(\d+ names\)$/, text)
     assert_match(/^# regenerate: bundle exec rake rpc:exclusions$/, text)
     refute_match(/atlas/i, text)
@@ -293,7 +300,7 @@ class RpcCoverageTest < Minitest::Test
     surface = RpmsRpc::Conformance::BuildSurface.load(File.join(root, "data/inventories", tag), tag)
     registry = RpcCoverage.load_registry(File.join(root, cfg.fetch("registry")))
     regenerated = RpcCoverage.regenerate_exclusions(excl, RpcCoverage.unreachable_from_surface(surface), registry)
-    assert_equal excl, regenerated.exclusions, "exclusions.yml is stale against the pinned reach face: run rake rpc:exclusions"
+    assert_equal excl, regenerated.exclusions, "exclusions.yml is stale against the pinned rpcs.json: run rake rpc:exclusions"
     assert_empty regenerated.not_in_registry
   end
 end
