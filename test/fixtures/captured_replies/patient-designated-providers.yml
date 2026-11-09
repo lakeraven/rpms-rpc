@@ -1,0 +1,93 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb patient-designated-providers.rb.
+---
+rpc: BEHOPTPC GETBDP
+entry_point: GETBDP^BEHOPTPC
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T16:20:20Z'
+note: 'Seed patient DFN 2 (synthetic data). The SETBDP captures are the writes between
+  the reads: PROFILE,REG (DUZ 207) as CASE MANAGER, then PROFILE,MD (DUZ 206) as DESIGNATED
+  PRIMARY PROVIDER.'
+captures:
+- name: ptinfo_none
+  rpc: BEHOPTCX PTINFO
+  inputs:
+  - '2'
+  context: demographics before any designation
+  raw_return: "5\0USER,TEST^M^2850505^XXX-XX-XXXX^^^^0^0^^123456^0^^^0^0^^^^"
+  sha256: 5bd303d7969a139c58ad20451bb3adc8b93add2b9ca4ec2ba9d3a39b336fb2bb
+- name: getbdp_none
+  inputs:
+  - '2'
+  context: no designated provider on file
+  raw_return: "6\0"
+  sha256: aa4fb8a61cab7db73f42671f2bb987a7291a436929b3d5f17ffe05f96be13371
+- name: set_case_manager
+  rpc: BEHOPTPC SETBDP
+  inputs:
+  - '2'
+  - CASE MANAGER
+  - '207'
+  context: file PROFILE,REG as the case manager
+  raw_return: "7\01"
+  sha256: bf99417d3ac903676812876c10750f047bfa6ef30ad12e44d647d604de94967b
+- name: ptinfo_case_manager
+  rpc: BEHOPTCX PTINFO
+  inputs:
+  - '2'
+  context: demographics with only a case manager
+  raw_return: "8\0USER,TEST^M^2850505^XXX-XX-XXXX^^^^0^0^^123456^0^^^0^0^^^^"
+  sha256: 0eae1f6533d65b7d68f56be6229f978a42e7e8f74d0232a26aa4c1339240e906
+- name: getbdp_case_manager
+  inputs:
+  - '2'
+  context: one row, CASE MANAGER
+  raw_return: "9\0CASE MANAGER^PROFILE,REG^207^^3261109\r"
+  sha256: a8f0112d3a87770b350615a19bdd03a30bedd70ffddc3dc86704e67382674c3a
+- name: set_primary
+  rpc: BEHOPTPC SETBDP
+  inputs:
+  - '2'
+  - DESIGNATED PRIMARY PROVIDER
+  - '206'
+  context: file PROFILE,MD as the designated primary provider
+  raw_return: "1\01"
+  sha256: b05a11033c781c31748c1c48e5b7cc95ec857f67c07e44889e64d1618daa5b9b
+- name: ptinfo_primary
+  rpc: BEHOPTCX PTINFO
+  inputs:
+  - '2'
+  context: demographics with a designated primary provider
+  raw_return: "2\0USER,TEST^M^2850505^XXX-XX-XXXX^^^^0^0^^123456^0^^^0^0^^PROFILE,MD^^"
+  sha256: 376181bcf6b71bbe9f04d54a64a8eb950690770d30fcaeffe3c2d84f153772d5
+- name: getbdp_primary
+  inputs:
+  - '2'
+  context: 'two rows by category name: CASE MANAGER first'
+  raw_return: "3\0CASE MANAGER^PROFILE,REG^207^^3261109\rDESIGNATED PRIMARY PROVIDER^PROFILE,MD^206^FAMILY
+    PRACTICE^3261109\r"
+  sha256: 6c8d997cc931ded922ca797f0e0428558ac39c5150dfb8c745868f412c38d067
+- name: cwad
+  rpc: ORWPT CWAD
+  inputs:
+  - '2'
+  context: DFN 2's CWAD letters
+  raw_return: "4\0A"
+  sha256: ae7ab44786d0ddb9f4fc60c1c501ab61d9c72286fff0ad9fdb5fc22fdccd8ec4
+- name: ptinfo_unknown
+  rpc: BEHOPTCX PTINFO
+  inputs:
+  - '999999999'
+  context: a DFN no patient has
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
+- name: getbdp_unknown
+  inputs:
+  - '999999999'
+  context: 'the same DFN: no rows'
+  raw_return: "6\0"
+  sha256: aa4fb8a61cab7db73f42671f2bb987a7291a436929b3d5f17ffe05f96be13371

@@ -2,43 +2,46 @@
 
 require "minitest/autorun"
 require "json"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
 require "rpms_rpc/retry_safety"
 require "rpms_rpc/api/patient"
 require "rpms_rpc/shape"
+require_relative "../captured_replies"
 
 # Chart-banner CWAD must come from ORWPT CWAD, not BEHOCACV CWAD (VueCentric-only),
 # on the caller's option: CIAV VUECENTRIC lists it, and binding OR CPRS GUI CHART
-# is refused on IRIS to a user without it. Synthetic seeds only.
+# is refused on IRIS to a user without it.
+#
+# Replies are the pinned build's: the banner reads for seed patient DFN 4
+# (patient-brief-header.yml) and ORWPT CWAD for seed patients with and
+# without postings, plus the broker's refusal of an RPC it does not serve
+# (orwpt-cwad-letters.yml), replayed through CiaClient. The guard test keeps a
+# captured frame and changes only its body; it says so.
 class PatientCwadTest < Minitest::Test
-  DFN = "42"
+  DFN = "4"
   CALLER_CONTEXT = "CIAV VUECENTRIC"
+  CWAD = "orwpt-cwad-letters"
   REQUIRED_RPCS_PATH = File.expand_path("../../../lib/rpms_rpc/required_rpcs.json", __dir__)
   WRITE_CLASS_GET_BASELINE = File.expand_path("../../../data/openapi/write_class_get_baseline.txt", __dir__)
-
-  # MockClient subclass: PTINFO/GETBDP still seed; ORWPT CWAD is not served.
-  class CwadUnavailableMockClient < RpmsRpc::MockClient
-    def seeded_reply(rpc_name, *params)
-      if rpc_name == "ORWPT CWAD"
-        raise RpmsRpc::Client::RpcNotAvailableError, "3 Unknown remote procedure: ORWPT CWAD"
-      end
-
-      super
-    end
-  end
-
-  def setup
-    RpmsRpc.mock!
-  end
 
   def teardown
     RpmsRpc.reset!
   end
 
-  def use(client)
+  # DFN 4's banner reads, with ORWPT CWAD answering the given raw reply.
+  def replay_banner(cwad_raw = CapturedReplies.raw(CWAD, "warning_and_allergy"))
+    banner = "patient-brief-header"
+    @client = CapturedReplies::ReplayCiaClient.new(
+      "BEHOPTCX PTINFO" => [ CapturedReplies.raw(banner, "ptinfo") ],
+      "BEHOPTPC GETBDP" => [ CapturedReplies.raw(banner, "getbdp") ],
+      "ORWPT CWAD" => [ cwad_raw ]
+    )
     RpmsRpc.reset!
-    RpmsRpc.configure { |cfg| cfg.client = client }
+    RpmsRpc.configure { |cfg| cfg.client = @client }
+    @client
   end
+
+  def cwad_call = @client.calls.find { |c| c[:rpc] == "ORWPT CWAD" }
 
   # Proves the registry names the CPRS RPC, not the VueCentric BEHOCACV entry.
   def test_patient_cwad_mapping_uses_orwpt_cwad_rpc
@@ -47,99 +50,70 @@ class PatientCwadTest < Minitest::Test
 
   # Proves brief_header asks ORWPT for CWAD with the DFN as its only parameter.
   def test_brief_header_sends_orwpt_cwad_with_dfn_only
-    seed_banner(cwad: "WA")
+    replay_banner
     RpmsRpc::Patient.brief_header(DFN)
 
-    call = cwad_call
-    refute_nil call, "expected ORWPT CWAD"
-    assert_equal [ DFN ], call[:params]
+    refute_nil cwad_call, "expected ORWPT CWAD"
+    assert_equal [ DFN ], cwad_call[:params]
   end
 
   # Proves the banner path never calls the VueCentric-only BEHOCACV CWAD RPC.
   def test_brief_header_never_sends_behocacv_cwad
-    seed_banner(cwad: "WA")
+    replay_banner
     RpmsRpc::Patient.brief_header(DFN)
 
-    refute RpmsRpc.client.received_calls.any? { |c| c[:rpc] == "BEHOCACV CWAD" }
+    assert_equal [ "BEHOPTCX PTINFO", "BEHOPTPC GETBDP", "ORWPT CWAD" ], @client.rpcs_called
   end
 
   # Proves CWAD runs on the caller's option and no option is bound for it.
   def test_brief_header_fetches_cwad_on_the_callers_option_and_binds_none
-    mock = RpmsRpc.client
-    mock.create_context(CALLER_CONTEXT)
-    caller_context = mock.current_context
-    binds_after_setup = mock.context_binds.length
-    seed_banner(cwad: "WA")
-
+    replay_banner
     RpmsRpc::Patient.brief_header(DFN)
 
-    refute_nil cwad_call
-    assert_equal caller_context, cwad_call[:context]
-    assert_equal caller_context, mock.current_context
-    assert_empty mock.context_binds.drop(binds_after_setup)
+    assert_equal CALLER_CONTEXT, @client.current_context
+    refute @client.rpcs_called.include?(:create_context)
   end
 
-  # Proves allergy_flag and ad_flag follow A and D in the CWAD scalar.
-  def test_brief_header_allergy_and_ad_flags_from_cwad_letters
+  # Proves allergy_flag and ad_flag follow A and D in the CWAD letters RPMS sent.
+  def test_brief_header_allergy_and_ad_flags_from_captured_cwad_letters
     {
-      "A" => [ true, false ],
-      "D" => [ false, true ],
-      "AD" => [ true, true ],
-      "W" => [ false, false ],
-      "WA" => [ true, false ],
-      "CWAD" => [ true, true ],
-      "" => [ false, false ],
-      " AD " => [ true, true ]
-    }.each do |cwad, (allergy, ad)|
-      RpmsRpc.reset!
-      RpmsRpc.mock!
-      RpmsRpc.client.create_context(CALLER_CONTEXT)
-      seed_banner(cwad: cwad)
+      "warning_and_allergy" => [ true, false ],
+      "allergy" => [ true, false ],
+      "none" => [ false, false ]
+    }.each do |capture, (allergy, ad)|
+      replay_banner(CapturedReplies.raw(CWAD, capture))
 
       header = RpmsRpc::Patient.brief_header(DFN)
 
-      refute_nil header, cwad.inspect
-      assert_equal allergy, header[:allergy_flag], "allergy for #{cwad.inspect}"
-      assert_equal ad, header[:ad_flag], "ad for #{cwad.inspect}"
+      refute_nil header, capture
+      assert_equal allergy, header[:allergy_flag], "allergy for #{capture}"
+      assert_equal ad, header[:ad_flag], "ad for #{capture}"
     end
   end
 
-  # Proves non-CWAD scalars (errors, prose, lowercase) raise instead of substring flags.
-  def test_brief_header_raises_on_invalid_orwpt_cwad_scalars_without_echoing_reply
-    invalid_cwads = [
-      "-1^Invalid DFN",
-      "Application context denied",
-      "%YDB-E-LVUNDEF, Undefined local variable: DFN",
-      "N/A",
-      "DATA",
-      "ad"
-    ]
-    invalid_cwads.each do |cwad|
-      RpmsRpc.reset!
-      RpmsRpc.mock!
-      RpmsRpc.client.create_context(CALLER_CONTEXT)
-      seed_banner(cwad: cwad)
+  # Proves a reply that is not CWAD letters raises instead of reading flags from
+  # a substring, and does not echo the reply. The frame is the captured one
+  # (DFN 4's sequence echo); only its body is replaced.
+  def test_brief_header_raises_on_a_cwad_reply_that_is_not_letters_without_echoing_it
+    frame = CapturedReplies.raw(CWAD, "warning_and_allergy")
+    [ "-1^Invalid DFN", "Application context denied", "DATA", "ad" ].each do |body|
+      replay_banner(frame.byteslice(0, 2) + body.b)
 
       err = assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Patient.brief_header(DFN) }
-      assert_match(/ORWPT CWAD/i, err.message, "message must name the RPC for #{cwad.inspect}")
-      refute_includes err.message, cwad,
-                      "ORWPT CWAD error must not echo raw reply text for #{cwad.inspect}"
+      assert_match(/ORWPT CWAD/i, err.message, "message must name the RPC for #{body.inspect}")
+      refute_includes err.message, body, "ORWPT CWAD error must not echo raw reply text for #{body.inspect}"
     end
   end
 
-  # Proves a broker without ORWPT CWAD fails closed instead of a banner with false flags.
+  # Proves a broker that does not serve ORWPT CWAD fails closed instead of a
+  # banner with false flags. The refusal is the build's for an unregistered
+  # name (ORWPT CWADX); it is the reply a build without ORWPT CWAD sends.
   def test_brief_header_raises_when_orwpt_cwad_is_not_served
-    mock = CwadUnavailableMockClient.new
-    use(mock)
-    mock.create_context(CALLER_CONTEXT)
-    caller_context = mock.current_context
-    binds_after_setup = mock.context_binds.length
-    seed_banner(cwad: "WA")
+    replay_banner(CapturedReplies.raw(CWAD, "unknown_rpc"))
 
     assert_raises(RpmsRpc::Client::RpcNotAvailableError) { RpmsRpc::Patient.brief_header(DFN) }
-
-    assert_equal caller_context, mock.current_context
-    assert_empty mock.context_binds.drop(binds_after_setup)
+    assert_equal CALLER_CONTEXT, @client.current_context
+    refute @client.rpcs_called.include?(:create_context)
   end
 
   # Classed non_idempotent_write since #520, when it bound OR CPRS GUI CHART for CWAD.
@@ -168,18 +142,5 @@ class PatientCwadTest < Minitest::Test
     patient = doc.fetch("modules").fetch("RpmsRpc::Patient")
     assert_includes patient, "ORWPT CWAD"
     refute_includes doc.fetch("modules").values.flatten, "BEHOCACV CWAD"
-  end
-
-  private
-
-  def seed_banner(cwad:)
-    mock = RpmsRpc.client
-    mock.seed(:patient_ptinfo, DFN,
-              { name: "SYNTH,PATIENT", sex: "F", dob_raw: "3010101", mrn: "MRN01", primary_provider: nil })
-    mock.seed_scalar(:patient_cwad, DFN, cwad)
-  end
-
-  def cwad_call
-    RpmsRpc.client.received_calls.find { |c| c[:rpc] == "ORWPT CWAD" }
   end
 end
