@@ -1,0 +1,39 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb bgoref-getrea.rb.
+---
+rpc: BGOREF GETREA
+entry_point: GETREA^BGOREF
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T03:06:49Z'
+note: The reasons are the build's own table; nothing is filed.
+captures:
+- name: immunization
+  inputs:
+  - IMMUNIZATION
+  context: the IMMUNIZATION refusal type (the default)
+  raw_return: "5\02^Absent response to treatment\r8^Medical contraindication\r9^Patient
+    transfer\r11^Not entitled to benefits\r12^Delay in receiving benefits\r13^Loss
+    of benefits\r15^Finding related to health insurance issues\r16^Uninsured medical
+    expenses\r17^Patient noncompliance - general\r20^Patient non-compliant - refused
+    access to services\r21^Patient requests alternative treatment\r22^Refusal of treatment
+    by patient\r23^Refused\r24^Complication of medical care\r25^Contraindicated\r26^Medical
+    care unavailable\r27^Patient on waiting list\r28^Treatment not available\r29^Considered
+    and not done\r30^Not indicated\r31^Patient defaulted from follow-up\r"
+  sha256: 437b374ed34fcfe42aaa51fccb3c92c91cea0621e489829bd1a1092f3ef781c5
+- name: no_such_type
+  inputs:
+  - NOT A REFUSAL TYPE
+  context: a type name the build does not have
+  raw_return: "6\02^Absent response to treatment\r8^Medical contraindication\r9^Patient
+    transfer\r11^Not entitled to benefits\r12^Delay in receiving benefits\r13^Loss
+    of benefits\r15^Finding related to health insurance issues\r16^Uninsured medical
+    expenses\r17^Patient noncompliance - general\r20^Patient non-compliant - refused
+    access to services\r21^Patient requests alternative treatment\r22^Refusal of treatment
+    by patient\r23^Refused\r24^Complication of medical care\r25^Contraindicated\r26^Medical
+    care unavailable\r27^Patient on waiting list\r28^Treatment not available\r29^Considered
+    and not done\r30^Not indicated\r31^Patient defaulted from follow-up\r"
+  sha256: d8bc122eef9f15a3c7cc764531a812608e04e6425797685f64b05db36d7e28f0

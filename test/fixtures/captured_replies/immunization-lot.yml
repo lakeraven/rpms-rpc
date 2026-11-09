@@ -1,0 +1,51 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb immunization-lot.rb.
+---
+rpc: DDR GETS ENTRY DATA
+entry_point: GETSC^DDR2
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: SYS123 (the build's operator, MANAGER,SYSTEM)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T03:04:57Z'
+note: Run after the immunization lot live spec. Inputs are the DdrFileman params ImmunizationLot
+  sends.
+captures:
+- name: lot
+  inputs:
+  - FILE: '9999999.41'
+    IENS: 1,
+    FIELDS: ".01;.03;.04;.09;.13"
+    FLAGS: IE
+  context: 'IMMUNIZATION LOT 1: number, status, vaccine, expiration, source'
+  raw_return: "5\0[Data]\r9999999.41^1^.01^LIVESPEC-190441^LIVESPEC-190441\r9999999.41^1^.03^1^INACTIVE\r9999999.41^1^.04^104^TETANUS
+    TOXOID\r9999999.41^1^.09^3271231^DEC 31, 2027\r9999999.41^1^.13^v^VFC\r"
+  sha256: ce5b15402e9d4b8775cd22a72eebe07186ade779cf6fc959861954bb4d86368a
+- name: vaccine
+  inputs:
+  - FILE: '9999999.14'
+    IENS: 104,
+    FIELDS: ".01;.03"
+    FLAGS: I
+  context: 'IMMUNIZATION 104, the lot''s vaccine: name and HL7-CVX code'
+  raw_return: "6\0[Data]\r9999999.14^104^.01^TETANUS TOXOID^\r9999999.14^104^.03^35^\r"
+  sha256: d1a6700ec2241c0fb32f808c6f9b66930793eac0a251c5682d5a68c71e5f726d
+- name: no_such_lot
+  inputs:
+  - FILE: '9999999.41'
+    IENS: 999999999,
+    FIELDS: ".01;.03;.04;.09;.13"
+    FLAGS: IE
+  context: a lot IEN that does not exist
+  raw_return: "7\0[ERROR]\r"
+  sha256: 99bfcc86e844c1677120732d7693ad6bdda93da90ae267f5e9ec5cdcc0e3e087
+- name: lister
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9999999.41'
+    FIELDS: ".01I;.03I;.04I;.09I;.13I"
+    FLAGS: IP
+  context: every lot, the fields ImmunizationLot.list asks for
+  raw_return: "8\0[Data]\r1^LIVESPEC-190441^1^104^3271231^v\r"
+  sha256: 98561f54afc80937f2b04e98ea3d2171f8a68378113bc2f4350aad551dc1c1c1
