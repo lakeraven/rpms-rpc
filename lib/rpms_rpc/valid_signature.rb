@@ -42,11 +42,13 @@ module RpmsRpc
         return nil if response.nil?
         return nil if response.is_a?(String) && response.empty?
 
+        # VALIDSIG^ORWU answers one scalar. Fail closed (#601): a reply with
+        # more than one data line is ambiguous ("1" then "0", or "1" then
+        # junk), so it is no line at all, never its first.
         line = if response.is_a?(Array)
-          response.lazy
-                  .map { |row| DataMapper.strip_recordset_separators(row) }
-                  .reject { |row| row.empty? || DataMapper.recordset_header_row?(row) }
-                  .first
+          lines = response.map { |row| DataMapper.strip_recordset_separators(row) }
+                          .reject { |row| row.empty? || DataMapper.recordset_header_row?(row) }
+          lines.length == 1 ? lines.first : nil
         else
           DataMapper.strip_recordset_separators(response)
         end
