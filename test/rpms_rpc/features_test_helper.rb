@@ -48,19 +48,15 @@ module FeaturesTestHelper
   ].freeze
 
   ORQQPL_PROBLEM_WORKFLOW_RPCS = [
-    "ORQQPL ADD SAVE",
     "ORQQPL AUDIT HIST",
     "ORQQPL CLIN SRCH",
     "ORQQPL DETAIL",
     "ORQQPL EDIT LOAD",
-    "ORQQPL EDIT SAVE",
-    "ORQQPL INACTIVATE",
     "ORQQPL INIT PT",
     "ORQQPL LIST",
     "ORQQPL PROB COMMENTS",
     "ORQQPL PROBLEM LEX SEARCH",
-    "ORQQPL PROVIDER LIST",
-    "ORQQPL VERIFY"
+    "ORQQPL PROVIDER LIST"
   ].freeze
 
   BMC_REFERRAL_WORKFLOW_RPCS = [
@@ -100,7 +96,9 @@ module FeaturesTestHelper
     "BGOPROB SET" =>
       "IHS problem writes used by Problem.add/update/delete; outside the stock-VistA ORQQPL workflow the removed ServerCapabilities feature covered",
     "BGOPROB DEL" =>
-      "IHS problem writes used by Problem.add/update/delete; outside the stock-VistA ORQQPL workflow the removed ServerCapabilities feature covered"
+      "IHS problem writes used by Problem.add/update/delete; outside the stock-VistA ORQQPL workflow the removed ServerCapabilities feature covered",
+    "DDR GETS ENTRY DATA" =>
+      "Problem.update/delete read the PROBLEM entry before writing and every write reads it back (#527)"
   }.freeze
 
   FEATURE_MODULE_RPC_EXCLUSIONS = {
