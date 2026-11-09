@@ -331,6 +331,7 @@
 "RpmsRpc::Registration.set_sex": non_idempotent_write
 "RpmsRpc::Registration.set_sexual_orientation": non_idempotent_write
 "RpmsRpc::Registration.update": non_idempotent_write
+"RpmsRpc::Registration.with_lookup_client": non_idempotent_write
 "RpmsRpc::Reminders.applicable": read
 "RpmsRpc::Scheduling.add_appointment": non_idempotent_write
 "RpmsRpc::Scheduling.add_availability": non_idempotent_write
