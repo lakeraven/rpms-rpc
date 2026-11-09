@@ -16,6 +16,7 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
   GETVISIT_RPC = "BEHOENCX GETVISIT"
   CREATE_RPC = "TIU CREATE RECORD"
   LOCK_RPC = "TIU LOCK RECORD"
+  AUTH_RPC = "TIU AUTHORIZATION"
   SET_TEXT_RPC = "TIU SET DOCUMENT TEXT"
   GET_TEXT_RPC = "TIU GET RECORD TEXT"
   UNLOCK_RPC = "TIU UNLOCK RECORD"
@@ -129,6 +130,7 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
       flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
+        { rpc: AUTH_RPC, raw: "1" }, # update_text asks TIU AUTHORIZATION first (#614)
         { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
         { rpc: GET_TEXT_RPC, raw: read_back },
         { rpc: UNLOCK_RPC, raw: "0" }
@@ -139,7 +141,7 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
 
     result = run_flow(client, esig: nil)
 
-    assert_equal [ GETVISIT_RPC, CREATE_RPC, LOCK_RPC, SET_TEXT_RPC, GET_TEXT_RPC, UNLOCK_RPC ],
+    assert_equal [ GETVISIT_RPC, CREATE_RPC, LOCK_RPC, AUTH_RPC, SET_TEXT_RPC, GET_TEXT_RPC, UNLOCK_RPC ],
                  result.keys
     refute result.key?(SIGN_RPC)
     assert_getvisit_capture(result)
@@ -175,6 +177,7 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
       flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
+        { rpc: AUTH_RPC, raw: "1" }, # update_text asks TIU AUTHORIZATION first (#614)
         { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
         { rpc: GET_TEXT_RPC, raw: read_back },
         { rpc: UNLOCK_RPC, raw: "0" },
@@ -246,6 +249,7 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
       flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
+        { rpc: AUTH_RPC, raw: "1" }, # update_text asks TIU AUTHORIZATION first (#614)
         { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
         { rpc: GET_TEXT_RPC, raw: "H\n\n#{body_line}\n" },
         { rpc: UNLOCK_RPC, raw: "0" }
@@ -310,6 +314,7 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
       flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
+        { rpc: AUTH_RPC, raw: "1" }, # update_text asks TIU AUTHORIZATION first (#614)
         { rpc: SET_TEXT_RPC, raise: RuntimeError, message: "SET failed" },
         { rpc: UNLOCK_RPC, raw: "0" }
       ),
@@ -334,6 +339,7 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
       flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
+        { rpc: AUTH_RPC, raw: "1" }, # update_text asks TIU AUTHORIZATION first (#614)
         { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
         { rpc: GET_TEXT_RPC, raise: RuntimeError, message: "GET failed" },
         { rpc: UNLOCK_RPC, raw: "0" }
@@ -478,7 +484,10 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
 
   def wrapped_note_body_rows
     note_ien = "1"
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1") }
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:tiu_authorization, note_ien, "1") # update_text asks CANDO^TIUSRVA first (#614)
+      m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1")
+    end
     RpmsRpc::ProgressNote.update_text(note_ien, note_text)
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == SET_TEXT_RPC }
     flunk "TIU SET DOCUMENT TEXT was not called" unless call
@@ -520,7 +529,10 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
 
   def wrapped_read_back_payload(note_ien)
     body_lines = nil
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1") }
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:tiu_authorization, note_ien, "1") # update_text asks CANDO^TIUSRVA first (#614)
+      m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1")
+    end
     RpmsRpc::ProgressNote.update_text(note_ien, note_text)
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == SET_TEXT_RPC }
     flunk "TIU SET DOCUMENT TEXT was not called" unless call
@@ -572,6 +584,7 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
       flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
+        { rpc: AUTH_RPC, raw: "1" }, # update_text asks TIU AUTHORIZATION first (#614)
         { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
         { rpc: GET_TEXT_RPC, raw: header_only },
         { rpc: UNLOCK_RPC, raw: "0" }
@@ -592,6 +605,7 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
       flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
+        { rpc: AUTH_RPC, raw: "1" }, # update_text asks TIU AUTHORIZATION first (#614)
         { rpc: SET_TEXT_RPC, raw: "0^0^0^Invalid" },
         { rpc: UNLOCK_RPC, raw: "0" }
       ),
@@ -616,6 +630,7 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
       flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
+        { rpc: AUTH_RPC, raw: "1" }, # update_text asks TIU AUTHORIZATION first (#614)
         { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
         { rpc: GET_TEXT_RPC, raw: read_back },
         { rpc: UNLOCK_RPC, raw: "1^x" }
@@ -639,6 +654,7 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
       flow_steps(
         { rpc: CREATE_RPC, raw: note_ien },
         { rpc: LOCK_RPC, raw: "0" },
+        { rpc: AUTH_RPC, raw: "1" }, # update_text asks TIU AUTHORIZATION first (#614)
         { rpc: SET_TEXT_RPC, raw: "#{note_ien}^1^1" },
         { rpc: GET_TEXT_RPC, raw: read_back },
         { rpc: UNLOCK_RPC, raw: "0" },

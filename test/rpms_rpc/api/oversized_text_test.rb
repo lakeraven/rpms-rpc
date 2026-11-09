@@ -18,6 +18,8 @@ require "rpms_rpc/api/immunization_refusal"
 class OversizedTextTest < Minitest::Test
   EOT = RpmsRpc::Client::EOT
   TIU_SET_TEXT_ACK = "5001^1^1#{EOT}".b
+  # update_text asks TIU AUTHORIZATION before it sets text (#614).
+  TIU_AUTHORIZED_ACK = "1#{EOT}".b
 
   class RecordingSocket
     attr_reader :writes
@@ -40,7 +42,7 @@ class OversizedTextTest < Minitest::Test
   end
 
   def setup
-    @socket = RecordingSocket.new([ TIU_SET_TEXT_ACK ])
+    @socket = RecordingSocket.new([ TIU_AUTHORIZED_ACK, TIU_SET_TEXT_ACK ])
     client = RpmsRpc::XwbClient.new
     client.instance_variable_set(:@socket, @socket)
     client.instance_variable_set(:@connected, true)
