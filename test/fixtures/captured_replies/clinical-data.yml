@@ -1,0 +1,96 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb clinical-data.rb.
+---
+rpc: ORQQAL LIST
+entry_point: LIST^ORQQAL
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T16:24:27Z'
+note: 'Read-only: nothing is filed. Rows are the build''s demo patients and their
+  seeded data.'
+captures:
+- name: allergies_dfn_2
+  inputs:
+  - '2'
+  context: 'demo patient 2: one allergy with a sign'
+  raw_return: "5\01^PENICILLIN^^HIVES\r"
+  sha256: 838138eeebfe8230532553a887cfd0756798bb4ca4944aaebb85035eb279cc53
+- name: allergies_dfn_4
+  inputs:
+  - '4'
+  context: 'demo patient 4: one allergy, no sign'
+  raw_return: "6\02^BEE POLLEN^\r"
+  sha256: 62679b6b6739a69dcee7d3c8f4d6e0f6300384edaa8cbb44de52da9fabc36b35
+- name: allergies_unassessed
+  inputs:
+  - '1'
+  context: 'demo patient 1: no allergy assessment'
+  raw_return: "7\0^No Allergy Assessment\r"
+  sha256: 56c3c3e41bb62dfe878edd3f699ecf411c38fca7a307ed49628aa59cdf0cf1bc
+- name: problems_dfn_2
+  rpc: ORQQPL LIST
+  inputs:
+  - '2'
+  - ''
+  context: demo patient 2, all statuses
+  raw_return: "8\01^*TYPE 2 DIABETES MELLITUS^A^Invalid Code (not found in the ICD-9-CM
+    system)^3230410^3261109.010805^^^#^^^ORQQPL DETAIL^#\r2^*ESSENTIAL HYPERTENSION^A^Invalid
+    Code (not found in the ICD-9-CM system)^3240905^3261109.010805^^^#^^^ORQQPL DETAIL^#\r"
+  sha256: 74b60436251966a95cbf73af27c07a9d87be90dc50825de12598abe89af66494
+- name: problems_none
+  rpc: ORQQPL LIST
+  inputs:
+  - '1'
+  - ''
+  context: demo patient 1, who has no problems
+  raw_return: "9\0^No problems found.\r"
+  sha256: a82de91904bc301c52d0d9cb84f91cd2653d03e1815c480e2a1942dbccc5be15
+- name: vitals_dfn_4
+  rpc: ORQQVI VITALS
+  inputs:
+  - '4'
+  context: demo patient 4's latest vitals
+  raw_return: "1\05^TMP^98^3260911.2134^98 F^(36.7 C)^\r6^PU^50^3260911.2134^50^^\r7^RS^20^3260911.2134^20^^\r8^BP^117/81^3260911.2134^117/81^^\r10^PA^0^3260911.2134^0^^\r9^O2^98^3260911.2134^98^^^\r"
+  sha256: 2feed1fbe09ca457a48ab6dcd046f5d9ebcb2ccaaf19181223cf7352d76f890d
+- name: vitals_none
+  rpc: ORQQVI VITALS
+  inputs:
+  - '99999'
+  context: a DFN no patient holds
+  raw_return: "2\0"
+  sha256: 913da1f8df6f8fd47593840d533ba0458cc9873996bf310460abb495b34c232a
+- name: medications_none
+  rpc: ORQQPS LIST
+  inputs:
+  - '4'
+  - ''
+  - ''
+  context: demo patient 4's condensed medication list; no demo patient has a medication
+  raw_return: "3\0^No medications found.\r"
+  sha256: 04a2d2f82c387ebdf6c51728b992f1509495cf0c3772ab90a884b8eb871d6883
+- name: medication_detail_one_param
+  rpc: ORQQPS DETAIL
+  inputs:
+  - '1'
+  context: the one-parameter frame Medication.find sends to DETAIL(ORY,ORPT,ORMED)^ORQQPS
+  raw_return: "4\x011\rThe server has reported the following error:\r\rDETAIL+2^ORQQPS,
+    Undefined local variable: ORMED,150373850,-%YDB-E-LVUNDEF\r\rA detailed log of
+    the error has been created.\r"
+  sha256: 16e9d7f11ef92285f3e9ca335f1838cae0ce4132579c9dad045ed8cc43df5e64
+- name: appointments_dfn_4
+  rpc: ORWPT APPTLST
+  inputs:
+  - '4'
+  context: 'demo patient 4: no appointments in the window'
+  raw_return: "5\0"
+  sha256: 166f829e016f2315a8099e3a8d2dbec6d91572379ff02c760ba4e0335789d47f
+- name: appointments_dfn_1
+  rpc: ORWPT APPTLST
+  inputs:
+  - '1'
+  context: demo patient 1
+  raw_return: "6\0^Error encountered^Error encountered\r"
+  sha256: 030e66882c5735c25b2845d7c557d4ad93997a84f7acd8041282d9cb2d36a8a6

@@ -1,0 +1,63 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb e-signature.rb.
+---
+rpc: TIU SIGN RECORD
+entry_point: SIGN^TIUSRVP
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206), the notes' author
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T16:22:51Z'
+note: Setup files two unsigned notes, one with text; each capture's inputs name the
+  IEN TIU CREATE RECORD returned. The signature code crosses the wire XWB-encrypted
+  with a random row pair, so it is withheld. Synthetic text only.
+captures:
+- name: which_action_unsigned
+  rpc: TIU WHICH SIGNATURE ACTION
+  inputs:
+  - '7'
+  context: the author asks which signature the unsigned note takes
+  raw_return: "8\0SIGNATURE"
+  sha256: f594a338ecbe70744fd4cb178d42be0275a68be87ad10306f7a3a900fb382489
+- name: sign_wrong_code
+  inputs:
+  - '7'
+  - "<a code the author does not hold, encrypted; withheld>"
+  context: the author signs with a code that is not theirs
+  raw_return: "9\089250005^You have entered an incorrect Electronic Signature Code...Try
+    again!"
+  sha256: cf8260f49b4bd164387ed553ba59d3fabb6da5d33022f59b8fb21ccd1ea85135
+- name: sign
+  inputs:
+  - '7'
+  - "<the author's demo signature code, encrypted; withheld>"
+  context: the author signs with the code SEEDPERS files for PROFILE,MD
+  raw_return: "1\00"
+  sha256: ee3d96c33ea92b08916ea5544f876b971831bf03f0a280f8e781e5c0fd444382
+- name: which_action_signed
+  rpc: TIU WHICH SIGNATURE ACTION
+  inputs:
+  - '7'
+  context: the same question once the note is signed
+  raw_return: "2\0COSIGNATURE"
+  sha256: 41247990970eec3135bcaf78fc78a80ed19a8e18444d4690e3bd959172e65d3c
+- name: delete_signed
+  rpc: TIU DELETE RECORD
+  inputs:
+  - '7'
+  - entered in error
+  - '0'
+  context: the author asks to delete the signed note, no override
+  raw_return: "3\089250003^You may not DELETE the current document, given its type
+    and status."
+  sha256: 715e7a0dc98e468603c6e6e7068bfff2edbcba749dee79eb782a263d7d8caabc
+- name: delete_unsigned
+  rpc: TIU DELETE RECORD
+  inputs:
+  - '8'
+  - entered in error
+  - '0'
+  context: the author deletes the second, unsigned note
+  raw_return: "4\00"
+  sha256: 257062d6ffc44c7b0b2518754eb6958b1692590a58cbc709b6ce93a75f57a4dc
