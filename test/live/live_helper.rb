@@ -17,6 +17,11 @@
 # Optional:
 #   BROKER_PROTOCOL            cia (default), xwb or bmx: the broker line spoken
 #   LIVE_BUILD                 the target's build, when it is not the pin
+#   BMX_PORT                   the BMX broker of the same target, for a CIA
+#                              spec that registers a patient: Registration's
+#                              duplicate lookup runs over BMX (#609), scoped
+#                              with Registration.with_lookup_client. A spec
+#                              that calls lookup_client fails without it.
 #
 # One broker line per run. A spec is written for one line and declares it
 # (`broker :xwb`; undeclared is :cia). CIA specs live in test/live/, XWB specs
@@ -95,12 +100,31 @@ module LiveSpec
     end
 
     def teardown
+      @lookup_client&.disconnect
       @client&.disconnect
       RpmsRpc.reset!
       super
     end
 
     def persona = ENV.fetch("PERSONA")
+
+    # A BmxClient on the same target, signed on as the same persona: the
+    # client Registration.with_lookup_client scopes for a registration over
+    # CIA (#609).
+    def lookup_client
+      @lookup_client ||= begin
+        port = ENV["BMX_PORT"].to_s.strip
+        flunk "BMX_PORT is not set: registration over CIA runs its duplicate lookup over BMX (#609); set the target's BMX port" if port.empty?
+
+        bmx = RpmsRpc::BmxClient.new(host: ENV.fetch("BROKER_HOST"), port: Integer(port), timeout: 30)
+        bmx.connect
+        bmx.authenticate(ENV.fetch("RPMS_ACCESS"), ENV.fetch("RPMS_VERIFY"))
+        bmx
+      rescue RpmsRpc::Client::ConnectionError, RpmsRpc::Client::AuthenticationError => e
+        bmx&.disconnect # a failed sign-on must not hold a broker session
+        flunk "no BMX sign-on as #{persona} at #{ENV['BROKER_HOST']}:#{port} (#{e.class.name.split('::').last}): #{e.message}"
+      end
+    end
 
     # The one acceptable skip: it names the tracked issue that will make the
     # spec runnable, and the summary counts it under that issue.
