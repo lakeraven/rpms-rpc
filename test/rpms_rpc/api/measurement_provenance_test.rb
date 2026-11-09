@@ -113,6 +113,9 @@ class MeasurementProvenanceTest < Minitest::Test
     assert_equal "A", bp[:service_category]
     assert_equal :office, bp[:capture_mode]
     assert_equal false, bp[:entered_in_error]
+    # GET^BGOVMSR pieces 6 and 7 (BGOVMSR.m:76): who entered it, and whether it is locked.
+    assert_equal "MANAGER,SYSTEM", bp[:provider_name]
+    assert_equal false, bp[:locked]
     # BEHOVM2 VUNITS answers "^^^^^" for PA: no unit, not an empty string.
     assert_nil rows.find { |r| r[:type] == "PA" }[:units]
   end
@@ -132,6 +135,8 @@ class MeasurementProvenanceTest < Minitest::Test
 
     assert_equal %w[TMP BP PU RS PA], rows.map { |r| r[:type] }
     assert(rows.all? { |r| r[:capture_mode] == :office && r[:visit_ien] == VISIT_IEN })
+    # LAST^BGOVMSR piece 6 (BGOVMSR.m:35) is ISLOCKED; it carries no provider.
+    assert(rows.all? { |r| r[:locked] == false && !r.key?(:provider_name) })
     assert_equal true, rows.find { |r| r[:measurement_ien] == 7 }[:entered_in_error]
   end
 
