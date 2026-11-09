@@ -1,0 +1,46 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb ddr-gets-entry-data-flags-i.rb.
+---
+rpc: DDR GETS ENTRY DATA
+entry_point: GETSC^DDR2
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: SYS123 (the build's operator, MANAGER,SYSTEM)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T02:26:55Z'
+note: Run after the Wellness live spec, which leaves its visit on the throwaway container.
+  GETSC^DDR2 writes FILE^IENS^FIELD^internal^external (DDR2.m:42); under FLAGS I only
+  the internal is set.
+captures:
+- name: bh_visit_screening_fields
+  inputs:
+  - FILE: '9002011'
+    IENS: 1,
+    FIELDS: ".08;1112;1401;1402;1403;1404;1405;1406;1407;1408;1409;1410;1501;1601;1701;1901;2001"
+    FLAGS: I
+  context: BH visit 1 on synthetic DFN 990045, as the Wellness live spec filed it
+  raw_return: "5\0[Data]\r9002011^1^.08^990045^\r9002011^1^1112^^\r9002011^1^1401^^\r9002011^1^1402^^\r9002011^1^1403^N^\r9002011^1^1404^4^\r9002011^1^1405^P^\r9002011^1^1406^4^\r9002011^1^1407^^\r9002011^1^1408^^\r9002011^1^1409^^\r9002011^1^1410^^\r9002011^1^1501^^\r9002011^1^1601^Synthetic
+    live alcohol screening note^\r9002011^1^1701^Synthetic live depression screening
+    note^\r9002011^1^1901^^\r9002011^1^2001^^\r"
+  sha256: 1e68e5fad8f32a09683c5a2c07c97fe46e7fac691f09b7253457f8ecfd1f9460
+- name: patient_fields
+  inputs:
+  - FILE: '2'
+    IENS: 2,
+    FIELDS: ".01;.02;.03;.09;.301;1901"
+    FLAGS: I
+  context: 'seed patient DFN 2 (synthetic USER,TEST): free text, set, date, blank
+    and set-of-codes fields'
+  raw_return: "6\0[Data]\r2^2^.01^USER,TEST^\r2^2^.02^M^\r2^2^.03^2850505^\r2^2^.09^^\r2^2^.301^^\r2^2^1901^N^\r"
+  sha256: fa588629c45e572afffe0cc53d3a9c1bc485750cbb9ede38a2bc3840a6b85158
+- name: provider_name
+  inputs:
+  - FILE: '200'
+    IENS: 204,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'NEW PERSON 204, the demo persona PROFILE,MA: the provider read Wellness
+    makes before a save'
+  raw_return: "7\0[Data]\r200^204^.01^PROFILE,MA^\r"
+  sha256: b23f11fa94900d820ee1c774ec3b4ca2c0b1300880fa56e619cf9efc372ea9bf
