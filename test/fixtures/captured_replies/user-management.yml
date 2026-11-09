@@ -1,0 +1,35 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb user-management.rb.
+---
+rpc: ORWU NEWPERS
+entry_point: NEWPERS^ORWU
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: SYS123 (the build's operator, MANAGER,SYSTEM)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T04:24:45Z'
+note: XUS GET USER INFO is refused to the clinical personas under CIAV VUECENTRIC,
+  so find is captured as the operator. Nothing is filed.
+captures:
+- name: newpers_pro
+  inputs:
+  - PRO
+  - '1'
+  context: users whose names follow PRO, walking forward
+  raw_return: "5\0209^Profile,Bill^- BILLING TECHNICIAN\r204^Profile,Ma^- MEDICAL
+    ASSISTANT\r206^Profile,Md^- PHYSICIAN\r207^Profile,Reg^- PAT REG.\r210^Profile,Regsup^-
+    PAT REG. SUPERVISOR\r205^Profile,Rn^- NURSE\r208^Profile,Sched^- MEDICAL SCHEDULER\r200^Provider,Test\r"
+  sha256: 5b6064b97074f3fe3ab92516d9510830254429e18ca513efb15e044abfd32a6d
+- name: user_info
+  rpc: XUS GET USER INFO
+  inputs: []
+  context: the signed-on user (DUZ 4)
+  raw_return: "6\04\rMANAGER,SYSTEM\rSystem Manager\r7819^DEMO IHS CLINIC^8904\r\rIRM\r\r99999\r\r"
+  sha256: 75eaabadf54539ded544b08aa16e33f1521bae8352acec88d5573a19924f50d6
+- name: userinfo
+  rpc: ORWU USERINFO
+  inputs: []
+  context: the signed-on user's CPRS settings (DUZ 4)
+  raw_return: "7\04^MANAGER,SYSTEM^3^1^1^3^0^99999^20^1^1^5^DEMO.IHS.GOV^1^180^^^^1^^^0^0^8904^^0"
+  sha256: abe0cf628be345de989d806a08cbd9ce4cf962622c9ee912712a6c9afc3c2fee
