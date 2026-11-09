@@ -28,6 +28,12 @@ class ProgressNoteTest < Minitest::Test
     def call_rpc(*) = @response
   end
 
+  # The same, past update_text's TIU AUTHORIZATION (#614): that call is
+  # allowed, so the canned response reaches TIU SET DOCUMENT TEXT.
+  class AuthorizedRawResponseClient < RawResponseClient
+    def call_rpc(rpc, *) = rpc == "TIU AUTHORIZATION" ? "1" : @response
+  end
+
   def teardown
     RpmsRpc.reset!
   end
@@ -247,7 +253,10 @@ class ProgressNoteTest < Minitest::Test
   # TIUX("TEXT",n,0) (TIUSRVPT.m:18). A flat string has no "HDR" node, so
   # every update failed "Invalid text block header" (TIUSRVPT.m:13-14).
   def test_update_text_sends_tiux_as_a_header_and_text_list
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1") }
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") # update_text asks CANDO^TIUSRVA first (#614)
+      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1")
+    end
 
     RpmsRpc::ProgressNote.update_text(NOTE_IEN, "S: cough\nO: afebrile")
     assert_equal [ NOTE_IEN, { "HDR" => "1^1", [ "TEXT", 1, 0 ] => "S: cough", [ "TEXT", 2, 0 ] => "O: afebrile" } ],
@@ -256,7 +265,10 @@ class ProgressNoteTest < Minitest::Test
 
   # TIUY=TIUDA_U_PAGE_U_PAGES acknowledges the page (TIUSRVPT.m:38).
   def test_update_text_succeeds_on_the_page_acknowledgement
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1") }
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") # update_text asks CANDO^TIUSRVA first (#614)
+      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1")
+    end
 
     assert_equal({ success: true, raw: "#{NOTE_IEN}^1^1" }, RpmsRpc::ProgressNote.update_text(NOTE_IEN, "x"))
   end
@@ -264,7 +276,10 @@ class ProgressNoteTest < Minitest::Test
   # TIUY="0^0^0^"_message on failure (TIUSRVPT.m:10, 14). The old check
   # called a bare "0" success.
   def test_update_text_fails_on_a_zero_reply
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "0^0^0^Invalid text block header") }
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") # update_text asks CANDO^TIUSRVA first (#614)
+      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "0^0^0^Invalid text block header")
+    end
 
     result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, "x")
     refute result[:success]
@@ -272,9 +287,19 @@ class ProgressNoteTest < Minitest::Test
   end
 
   def test_update_text_nil_broker_response_does_not_raise
+    RpmsRpc.reset!
+    RpmsRpc.configure { |cfg| cfg.client = AuthorizedRawResponseClient.new(nil) }
+
+    assert_equal({ success: false, raw: nil }, RpmsRpc::ProgressNote.update_text(NOTE_IEN, "x"),
+                 "a nil TIU SET DOCUMENT TEXT reply is a failure, not a raise")
+  end
+
+  def test_update_text_nil_authorization_reply_sends_no_text
     stub_broker_response(nil)
 
-    assert_equal({ success: false, raw: nil }, RpmsRpc::ProgressNote.update_text(NOTE_IEN, "x"))
+    result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, "x")
+    refute result[:success]
+    assert_nil result[:raw]
   end
 
   # -- guards ----------------------------------------------------------------
