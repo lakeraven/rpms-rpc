@@ -34,6 +34,23 @@ module CapturedReplies
     capture.fetch("raw_return").b
   end
 
+  # The captures of one recorded flow ("<flow>/<n>", tools/capture_replies.rb
+  # `flows`), in the order the gem made the calls.
+  def flow(slug, name)
+    captures = file(slug).fetch("captures").select { |c| c["name"].start_with?("#{name}/") }
+    raise KeyError, "#{slug}.yml has no flow named #{name.inspect}" if captures.empty?
+
+    captures.sort_by { |c| c["name"].split("/").last.to_i }
+  end
+
+  # A ReplayCiaClient script that answers a flow's calls with its replies.
+  def flow_script(slug, name)
+    flow(slug, name).group_by { |c| c.fetch("rpc") }.transform_values { |cs| cs.map { |c| c.fetch("raw_return").b } }
+  end
+
+  # The [rpc, params] the gem sent in a recorded flow.
+  def flow_calls(slug, name) = flow(slug, name).map { |c| [ c.fetch("rpc"), c.fetch("inputs") ] }
+
   # A CiaClient whose wire is a script of raw replies: each call_rpc_raw
   # answers the next scripted reply for that RPC, and every call is recorded.
   # call_rpc, call_rpc_lines and the reply grammar are CiaClient's own, so a
@@ -55,12 +72,17 @@ module CapturedReplies
     def connected? = true
     def authenticated? = true
 
-    def call_rpc_raw(rpc_name, *params)
-      @calls << { rpc: rpc_name, params: params }
-      replies = @script[rpc_name]
-      raise "ReplayCiaClient: no scripted reply left for #{rpc_name}" if replies.nil? || replies.empty?
+    def call_rpc_raw(rpc_name, *params) = next_reply(rpc_name, params)
 
-      replies.shift.b
+    # A GLOBAL ARRAY reply (the AGG registration RPCs) runs through
+    # CiaClient's own call_rpc_global_array, so its refusal check and decoding
+    # are the real ones; only the wire exchange is the script. Capture it with
+    # global_array: true, which reads to the same $C(31) end sentinel.
+    def call_rpc_global_array(rpc_name, *params)
+      @scripted = next_reply(rpc_name, params)
+      super
+    ensure
+      @scripted = nil
     end
 
     # A GLOBAL ARRAY read: the next scripted reply for that RPC, read as
@@ -74,5 +96,27 @@ module CapturedReplies
     end
 
     def rpcs_called = @calls.map { |c| c[:rpc] }
+
+    # The signed-on user the capture was taken as, for code that reads
+    # Client#duz (a filer row naming who entered it).
+    def signed_on_as(duz)
+      @duz = duz.to_s
+      self
+    end
+
+    private
+
+    def next_reply(rpc_name, params)
+      @calls << { rpc: rpc_name, params: params }
+      replies = @script[rpc_name]
+      raise "ReplayCiaClient: no scripted reply left for #{rpc_name}" if replies.nil? || replies.empty?
+
+      replies.shift.b
+    end
+
+    # The wire, for a call_rpc_global_array in flight: its scripted reply.
+    def exchange(*, **)
+      @scripted || raise("ReplayCiaClient: a wire exchange outside a scripted call")
+    end
   end
 end
