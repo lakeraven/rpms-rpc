@@ -435,6 +435,7 @@
     ],
     "RpmsRpc::WaitList": [
       "DDR FILER",
+      "DDR GETS ENTRY DATA",
       "DDR LISTER"
     ]
   }
