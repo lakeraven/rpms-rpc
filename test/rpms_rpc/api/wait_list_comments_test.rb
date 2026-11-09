@@ -27,4 +27,9 @@ class WaitListCommentsTest < Minitest::Test
       assert_equal :invalid, result[:error], "#{line.inspect} should be refused: #{result.inspect}"
     end
   end
+
+  def test_the_word_processing_end_marker_is_refused_as_a_line
+    result = WL.set_comments(list: 1, entry: 1, lines: [ "first", "$$END$$", "third" ])
+    assert_equal :invalid, result[:error], result.inspect
+  end
 end

@@ -167,13 +167,16 @@ module RpmsRpc
 
     # Replace an entry's COMMENTS with lines (S-SCH-10.1, 10.4, 10.7): a
     # non-empty Array of Strings, each one line. Refused with nothing filed
-    # when the entry is not on file or a line is not a String or holds a line
-    # break. A line the wire cannot frame is refused by DDR FILER before
+    # when the entry is not on file or a line is not a String, holds a line
+    # break or is "$$END$$". A line the wire cannot frame is refused by DDR FILER before
     # anything is sent. Returns { success: true }, a failure hash, or nil
     # when DDR FILER gives no reply.
     def set_comments(list:, entry:, lines:)
       return invalid("lines: takes a non-empty Array of Strings") unless lines.is_a?(Array) && !lines.empty? && lines.all?(String)
       return invalid("a comment line cannot hold a line break") if lines.any? { |line| line.match?(/[\r\n]/) }
+      # GETSC^DDR2 ends a word-processing block at a line "$$END$$", so such a line
+      # would read back as the end of the comment.
+      return invalid("a comment line cannot be #{WP_END}") if lines.include?(WP_END)
 
       in_context do
         next not_found("no such wait list entry") unless find_entry(list, entry)
@@ -188,7 +191,8 @@ module RpmsRpc
 
     COMMENTS_FIELD = "1"
     WP_VALUE = "DDRIENS"
-    private_constant :COMMENTS_FIELD, :WP_VALUE
+    WP_END = "$$END$$"
+    private_constant :COMMENTS_FIELD, :WP_VALUE, :WP_END
 
     def entry_row(entry)
       dfn, patient, priority, added_on, added_by, recall_on, provider_ien, provider, removed_on, resolution_ien,
