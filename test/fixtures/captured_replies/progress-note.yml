@@ -1,0 +1,150 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb progress-note.rb.
+---
+rpc: TIU CREATE RECORD
+entry_point: MAKE^TIUSRVP
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206), the note's author
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T05:23:13Z'
+note: Setup files one unsigned note; the note IEN is whatever TIU CREATE RECORD returned,
+  and each capture's inputs name it. The create capture files a second note. Synthetic
+  text only.
+captures:
+- name: create
+  inputs:
+  - '4'
+  - '248'
+  - ''
+  - ''
+  - '4'
+  context: 'create: DFN, title, empty VDT and VLOC, the visit'
+  raw_return: "6\09"
+  sha256: 3807810a2528f9439b27e91b10de6d1a30b4c27d7ffa83251bf54258c1689497
+- name: lock
+  rpc: TIU LOCK RECORD
+  inputs:
+  - '8'
+  context: the author locks the note
+  raw_return: "7\00"
+  sha256: 4d96c1d786ac6f00df71e5b9e5e48dba51440f178e8e71f673e96faa49fd7060
+- name: lock_held_elsewhere
+  rpc: TIU LOCK RECORD
+  signed_on_as: PROFILE,RN (PRN123, a published demo pair), not the author
+  inputs:
+  - '8'
+  context: another session asks for the lock the author holds
+  raw_return: "5\01^ Another session has this record locked."
+  sha256: 0f733f39cd9b2d93434ab755165d6a5ea61dec355594fd5205ffac9bacbc5db5
+- name: unlock
+  rpc: TIU UNLOCK RECORD
+  inputs:
+  - '8'
+  context: the author releases the lock
+  raw_return: "8\00"
+  sha256: b60798d62504d6dc8f8efafeb88a3bf63c83f1053f14d505daa1cf957e83a4a8
+- name: authorize_edit
+  rpc: TIU AUTHORIZATION
+  inputs:
+  - '8'
+  - EDIT RECORD
+  context: the author asks to edit the unsigned note
+  raw_return: "9\01"
+  sha256: 2228eb3943fef85d20006043445967b2fb86093f727368beefe0df7533f0cf97
+- name: authorize_signature
+  rpc: TIU AUTHORIZATION
+  inputs:
+  - '8'
+  - SIGNATURE
+  context: the author asks to sign it
+  raw_return: "1\01"
+  sha256: b05a11033c781c31748c1c48e5b7cc95ec857f67c07e44889e64d1618daa5b9b
+- name: authorize_edit_other_user
+  rpc: TIU AUTHORIZATION
+  signed_on_as: PROFILE,RN (PRN123, a published demo pair), not the author
+  inputs:
+  - '8'
+  - EDIT RECORD
+  context: another user asks to edit it
+  raw_return: "6\00^ You may not EDIT this UNSIGNED Progress Note."
+  sha256: d5b1e26c85d0b02896c4e43367c7d38a262e610f6a06689f086eabad7007b1c8
+- name: set_text
+  rpc: TIU SET DOCUMENT TEXT
+  inputs:
+  - '8'
+  - "<NOTE_TEXT as update_text sends it>"
+  context: the author sets the text as a HDR and TEXT list
+  raw_return: "2\08^1^1"
+  sha256: 74e8a209cc9955cd2003aba7940f2475f4b2541fb47a3c91e32e02c99ad59547
+- name: set_text_flat
+  rpc: TIU SET DOCUMENT TEXT
+  inputs:
+  - '8'
+  - |-
+    S: cough
+    O: afebrile
+  context: the same text sent flat, with no HDR node
+  raw_return: "3\00^0^0^Invalid text block header"
+  sha256: a4075483dc4458c88523a3e2ae7948ea7950e66c6f0903afa8491d4a2b4a1c64
+- name: get_text
+  rpc: TIU GET RECORD TEXT
+  inputs:
+  - '8'
+  context: the note's text, read back
+  raw_return: "4\0 LOCAL TITLE: Progress Note                                      \rSTANDARD
+    TITLE: PRIMARY CARE PROGRESS NOTE                      \rDATE OF NOTE: NOV 09,
+    2026@05:23:11  ENTRY DATE: NOV 09, 2026@05:23:11      \r      AUTHOR: PROFILE,MD
+    \          EXP COSIGNER:                           \r     URGENCY:                            STATUS:
+    UNSIGNED                      \r\rS: cough\rO: afebrile\r"
+  sha256: cbde95bcc751efb7d0c77e62818b59e147410f00d7ce82aa10f2f30ea9bde3f0
+- name: list_unsigned
+  rpc: TIU DOCUMENTS BY CONTEXT
+  inputs:
+  - '3'
+  - '2'
+  - '4'
+  context: DFN 4's unsigned progress notes (class 3, context 2)
+  raw_return: "5\08^Progress Note^3261109.052311^DEMO, PATIENT O (D0101)^206;MD PROFILE;PROFILE,MD^^unsigned^Visit:
+    09/02/26^        ^^0^^^2^\r9^Progress Note^3261109.052311^DEMO, PATIENT O (D0101)^206;MD
+    PROFILE;PROFILE,MD^^unsigned^Visit: 09/02/26^        ^^0^^^2^\r6^Progress Note^3261109.052258^DEMO,
+    PATIENT O (D0101)^206;MD PROFILE;PROFILE,MD^^unsigned^Visit: 09/02/26^        ^^0^^^2^\r7^Progress
+    Note^3261109.052258^DEMO, PATIENT O (D0101)^206;MD PROFILE;PROFILE,MD^^unsigned^Visit:
+    09/02/26^        ^^0^^^2^\r"
+  sha256: 4d3bfa71dbc3331261ce2cd775e13abff0958af77220084ae7a38aa50cca9c9d
+- name: list_all_signed
+  rpc: TIU DOCUMENTS BY CONTEXT
+  inputs:
+  - '3'
+  - '1'
+  - '4'
+  context: DFN 4's signed progress notes (context 1)
+  raw_return: "6\05^TELEPHONE NOTE^3260904.23444^DEMO, PATIENT O (D0101)^4;SYSTEM
+    MANAGER;MANAGER,SYSTEM^CHART REVIEW^completed^Visit: 09/04/26^        ^^0^^^1^\r4^TELEHEALTH
+    SCREENING CONSULT^3260904.2131^DEMO, PATIENT O (D0101)^4;SYSTEM MANAGER;MANAGER,SYSTEM^DEMO
+    IHS CLINIC^completed^Visit: 09/02/26^        ^^0^^^1^\r3^Progress Note^3260904.1913^DEMO,
+    PATIENT O (D0101)^4;SYSTEM MANAGER;MANAGER,SYSTEM^DEMO IHS CLINIC^completed^Visit:
+    09/02/26^        ^^0^^^1^\r2^Progress Note^3260902.1712^DEMO, PATIENT O (D0101)^4;SYSTEM
+    MANAGER;MANAGER,SYSTEM^DEMO IHS CLINIC^completed^Visit: 08/28/26^        ^^0^^^1^\r1^CLINICAL
+    WARNING^3260828.0126^DEMO, PATIENT O (D0101)^4;SYSTEM MANAGER;MANAGER,SYSTEM^DEMO
+    IHS CLINIC^completed^Visit: 08/28/26^        ^^0^^^1^\r"
+  sha256: 0e6614f65d91428131efb78096b61a05ffb54304e663e5fb702174fa485d80af
+- name: list_by_date_range
+  rpc: TIU DOCUMENTS BY CONTEXT
+  inputs:
+  - '3'
+  - '5'
+  - '4'
+  - '3260901'
+  - '3261231'
+  - '206'
+  context: context 5, bounded by EARLY and LATE, PERSON PROFILE,MD
+  raw_return: "7\05^TELEPHONE NOTE^3260904.23444^DEMO, PATIENT O (D0101)^4;SYSTEM
+    MANAGER;MANAGER,SYSTEM^CHART REVIEW^completed^Visit: 09/04/26^        ^^0^^^5^\r4^TELEHEALTH
+    SCREENING CONSULT^3260904.2131^DEMO, PATIENT O (D0101)^4;SYSTEM MANAGER;MANAGER,SYSTEM^DEMO
+    IHS CLINIC^completed^Visit: 09/02/26^        ^^0^^^5^\r3^Progress Note^3260904.1913^DEMO,
+    PATIENT O (D0101)^4;SYSTEM MANAGER;MANAGER,SYSTEM^DEMO IHS CLINIC^completed^Visit:
+    09/02/26^        ^^0^^^5^\r2^Progress Note^3260902.1712^DEMO, PATIENT O (D0101)^4;SYSTEM
+    MANAGER;MANAGER,SYSTEM^DEMO IHS CLINIC^completed^Visit: 08/28/26^        ^^0^^^5^\r"
+  sha256: 356993d76c4257d3c9638367059d8949f9fd918bd5acbf5436420e35b1ba7f94
