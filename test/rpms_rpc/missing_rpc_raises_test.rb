@@ -191,8 +191,6 @@ class MissingRpcRaisesTest < Minitest::Test
     "Problem.init_patient" => -> { RpmsRpc::Problem.init_patient(8791) },
     "Problem.provider_list" => -> { RpmsRpc::Problem.provider_list(8791) },
     "Problem.edit_load" => -> { RpmsRpc::Problem.edit_load(5001, provider_duz: 301, institution_ien: 1) },
-    "Problem.inactivate" => -> { RpmsRpc::Problem.inactivate(5001) },
-    "Problem.verify" => -> { RpmsRpc::Problem.verify(5001) },
     "Referral.add" => -> { RpmsRpc::Referral.add("1") },
     "Referral.update" => -> { RpmsRpc::Referral.update("1", "x") },
     "Referral.print" => -> { RpmsRpc::Referral.print("1") },

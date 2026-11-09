@@ -177,15 +177,12 @@ module RpmsRpc
       end
     end
 
-    # ORQQPL coverage — problem-list mutations + lookups + audit. Wire field
+    # ORQQPL coverage — problem-list lookups + audit; the gem's problem writes
+    # are BGOPROB SET / DEL (mappings/ihs.rb, rpms-rpc#527). Wire field
     # formats below are best-effort pending broker trace capture; mapping
     # names + RPC bindings are deliberate so the API layer can dispatch
     # without re-deriving names. Callers using fetch_scalar / fetch_many on
     # these mappings will get raw strings + simple keyed rows respectively.
-
-    DataMapper.define(:problem_add_save) do |m|
-      m.rpc "ORQQPL ADD SAVE"
-    end
 
     # Best-effort field positions pending broker trace capture for
     # problem_audit_history / problem_comments / problem_detail /
@@ -215,10 +212,6 @@ module RpmsRpc
       m.field 1, :description
     end
 
-    DataMapper.define(:problem_delete) do |m|
-      m.rpc "ORQQPL DELETE"
-    end
-
     DataMapper.define(:problem_detail) do |m|
       m.rpc "ORQQPL DETAIL"
       m.field 0, :ien
@@ -231,14 +224,6 @@ module RpmsRpc
       m.field 0, :ien
       m.field 1, :status
       m.field 2, :description
-    end
-
-    DataMapper.define(:problem_edit_save) do |m|
-      m.rpc "ORQQPL EDIT SAVE"
-    end
-
-    DataMapper.define(:problem_inactivate) do |m|
-      m.rpc "ORQQPL INACTIVATE"
     end
 
     DataMapper.define(:problem_init_patient) do |m|
@@ -278,10 +263,6 @@ module RpmsRpc
       m.field 1, :name
     end
 
-    DataMapper.define(:problem_replace) do |m|
-      m.rpc "ORQQPL REPLACE"
-    end
-
     DataMapper.define(:problem_save_view) do |m|
       m.rpc "ORQQPL SAVEVIEW"
     end
@@ -294,20 +275,12 @@ module RpmsRpc
       m.rpc "ORQQPL SRVC SRCH"
     end
 
-    DataMapper.define(:problem_update) do |m|
-      m.rpc "ORQQPL UPDATE"
-    end
-
     DataMapper.define(:problem_user_categories) do |m|
       m.rpc "ORQQPL USER PROB CATS"
     end
 
     DataMapper.define(:problem_user_list) do |m|
       m.rpc "ORQQPL USER PROB LIST"
-    end
-
-    DataMapper.define(:problem_verify) do |m|
-      m.rpc "ORQQPL VERIFY"
     end
 
     # ORQQVI VITALS — the patient's MOST RECENT vital per type, optionally
