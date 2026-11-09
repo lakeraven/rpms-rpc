@@ -111,7 +111,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
     with_real_inactive_code =
       mapper.parse_many([ "3^Diabetes^A^250.00^3230410^3261012^^^#^^^ORQQPL DETAIL^#" ]).first
     assert_equal true, with_real_inactive_code[:inactive_icd]
-    assert_nil with_real_inactive_code[:icd_code]
+    assert_equal "250.00", with_real_inactive_code[:icd_code], "a retired code is kept, flagged inactive (#532)"
     assert_nil with_real_inactive_code[:transcribed]
 
     error_no_markers =

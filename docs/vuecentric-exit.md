@@ -38,21 +38,57 @@ Two routes the first pass missed:
 | Banner flags (C, W, A, D) | `BEHOCACV CWAD` | `ORWPT CWAD` (option `OR CPRS GUI CHART`) | A | Same scan; no Patient Record Flag letter "F". |
 | Patient Record Flags | `BEHOCACV CWAD` ("F") | `ORPRF HASFLG` (`CIAV VUECENTRIC`, `OR CPRS GUI CHART`), `Patient.flags` | A | A behavioral-health safety flag is a real banner item. Live spec on the demo flag rpms-ops seeds (`test/live/patient_flags_live_test.rb`). |
 | Designated provider | `BEHOPTPC GETBDP` | DDR read of IHS PATIENT (#9000001) field .14 (the PCP field, as in `lib/rpms_rpc/mappings/ihs.rb`); `ORWPT1 PRCARE` reads PCMM, which IHS sites do not fill | B | Latent bug: the banner uses the first row of an alphabetical category list. |
-| Create the visit | `BEHOENCX FETCH` (create) | Scheduling check-in; `AMHG SAVE VISIT` for BH | A | Depends on the clinic's create-visit flag. Unverified on a running image. |
-| Visit diagnosis | `BGOVPOV SET` | `AMHG SAVE POV` for BH visits | A for BH, E otherwise | Stock `ORWPCE SAVE` is registered to `CIAVCXPC`, a routine absent from the source tree. |
+| Create the visit | `BEHOENCX FETCH` (create) | Scheduling check-in; `AMHG SAVE VISIT` for BH | A | Depends on the clinic's create-visit flag. Unverified on a running image. `BEHOENPC SAVE` also creates the visit it files onto (see "Filing an encounter" below). |
+| Visit diagnosis | `BGOVPOV SET` | `AMHG SAVE POV` for BH visits | A for BH, E otherwise | `BEHOENPC SAVE` files a V POV with its narrative, live-proven; it is in `CIAV VUECENTRIC` only. `ORWPCE SAVE` is not a route (below). |
 | Progress notes | (TIU, stock) | `AMHG SAVE PROGRESS NOTES` for BH notes | stock | |
 | Screening results | `BGOVHF SET` | `AMHG SAVE SCREENING` | A (probable) | Which store a PHQ-9 or GAD-7 belongs in is unconfirmed. |
 | Problem list | `BGOPROB SET/DEL` | `ORQQPL ADD SAVE`, `ORQQPL DELETE` | B | Loses SNOMED, laterality, IHS numbering. Needs a decision. |
-| Psych CPT | `BGOVCPT SET` | none found | E | `Procedure.add` is wire-incompatible with `BGOVCPT SET`. |
+| Psych CPT | `BGOVCPT SET` | none outside `CIAV VUECENTRIC` | E | `Procedure.add` is wire-incompatible with `BGOVCPT SET`. `BEHOENPC SAVE` files a V CPT with the visit, live-proven; it is in `CIAV VUECENTRIC` only. |
 | Vitals and measurements | `BEHOVM*`, `BGOVMSR*` | `AMHG SAVE MEASUREMENTS` (BH); GMV vitals unchecked | E | Not on the December path. |
 | Immunization, refusal, eligibility, PHR | `BGOVIMM*`, `BGOREF*`, `BGOVIMM2 GETELIG`, `BEHOCCD*`, `BEHOCIR*` | none | D or E | Primary care, planned for later. The C-CDA is built in Rails, not from these RPCs. |
+
+## Filing an encounter: `BEHOENPC SAVE`, not `ORWPCE SAVE`
+
+`BEHOENPC SAVE` (`SAVE^BEHOENPC`) files a whole encounter in one call: the visit, V POV with its narrative, V CPT, V HEALTH FACTOR and V PROVIDER, all on that visit.
+It is the RPC the released VueCentric client names for an encounter save, and it is registered in `CIAV VUECENTRIC` only.
+It takes one list parameter, in the layout `BEHOENPC.m` documents, and answers `0` when it files:
+
+```
+HDR^0^^<loc>;<date>;<category>
+VST^DT^<date>
+VST^PT^<dfn>
+VST^HL^<loc>
+VST^VC^<category>
+PRV^<duz>^^^^1
+POV+^<icd>^^^^1^^^^<narrative>
+CPT+^<cpt>
+HF+^<health factor ien>^^^^<duz>
+```
+
+The second and third parameters are "not used (but required)" (`BEHOENPC.m` lines 6-8).
+A `+` adds a row; a line without it edits the matching row on the visit; a `-` deletes.
+On the same day, clinic and category, it files onto the visit already there (`FNDVIS^BEHOENCX`).
+
+`test/live/encounter_save_behoenpc_live_test.rb` files one encounter this way over the real CIA broker, as the run's persona, and reads every row back with DDR.
+It passed on `bcer-9.0-20261109-d3adcff-ydb` as PROFILE,MD (no XUPROGMODE) and as PROV123.
+rpms-ops proves the same at build level (`test/encounter_save_build_level.sh`, rpms-ops#1042).
+The gem has no wrapper for it yet.
+
+`ORWPCE SAVE`, the CPRS name, is not a route and should not be repointed.
+As registered it points at `SAVE^CIAVCXPC`, a routine the image does not carry, and it fails with `%YDB-E-ZLINKFILE`.
+Repointed to the stock `SAVE^ORWPCE`, it answers empty and files nothing, because stock PCE asks Visit Tracking for the visit and file 150.9 ships empty.
+That road would need new site configuration and at least one more defect fixed, for an RPC nothing calls (rpms-ops#1042, FOIA defects register E8).
+
+Not proven: the behavioral-health path through `AMHG SAVE *` was not compared with it; the list comes from the routine's comments and the build-level test, not from a client trace; vitals, immunizations, skin tests and patient education lines were not exercised; it ran on YottaDB only.
 
 ## Verified, and not
 
 Read in the pinned routines (`rpms-ops/data/standup/bcer-9.0-ydb/r/`), not run:
 `OPTCHK^CIANBUTL`; `CHECKIN^BSDX25` and `GETVISIT^BSDAPI4` call; `VISIT^AMHGSVF`; the `BGOVCPT` input layout (`Visit IEN ^ CPT IEN ^ DFN ^ Event date ^ Qty ^ Dx ^ Mod1 ^ Prov …`); `GETBDP^BEHOPTPC` and `ALLDP^BDPAPI`.
 
-Not verified: any live behaviour (no broker was reachable); that `AMHGEVF` links the BH record to a PCC visit; the clinic create-visit flag on the target tenant; what the `AMHG SAVE POV`, `AMHG SAVE SCREENING` and `AMHG SAVE MEASUREMENTS` RPCs accept; whether `CIAVCXPC` exists on the running image; the generic-path RPCs under a non-CIA context.
+Since verified live: `BEHOENPC SAVE` files an encounter, and `CIAVCXPC` is not on the image (above).
+
+Not verified: other live behaviour; that `AMHGEVF` links the BH record to a PCC visit; the clinic create-visit flag on the target tenant; what the `AMHG SAVE POV`, `AMHG SAVE SCREENING` and `AMHG SAVE MEASUREMENTS` RPCs accept; the generic-path RPCs under a non-CIA context.
 
 ## Open points
 
