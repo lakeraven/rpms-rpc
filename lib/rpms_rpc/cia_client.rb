@@ -471,7 +471,13 @@ module RpmsRpc
     def call_rpc_global_array(rpc_name, *params)
       raise ConnectionError, "Not connected" unless connected?
 
-      raw = exchange("R", terminator: :global_array) { rpc_frame_fields(rpc_name, params) }
+      global_array_reply(exchange("R", terminator: :global_array) { rpc_frame_fields(rpc_name, params) })
+    rescue TimeoutError
+      raise_rpc_timeout(rpc_name)
+    end
+
+    # The reply #call_rpc_global_array returns for the raw frame it read.
+    def global_array_reply(raw)
       # A refusal (no such RPC, not in the bound context: CIANBACT error 3, 4, 5) is an error
       # reply ending at EOD, never a $C(31): raise it, as #call_rpc does through parse_cia_reply.
       # This reads the RAW bytes, before any decoding.
@@ -481,9 +487,8 @@ module RpmsRpc
       # ($C(0), $C(30), $C(31)) are valid UTF-8 and are kept; only an invalid
       # byte is replaced, and the returned Text says so (Reply.altered?).
       Reply.text(raw)
-    rescue TimeoutError
-      raise_rpc_timeout(rpc_name)
     end
+    private :global_array_reply
 
     # Client#served_rpcs over CIA reads REMOTE PROCEDURE (#8994) itself: each
     # entry's NAME and INACTIVE, with DDR LISTER, a page at a time. An RPC is

@@ -80,9 +80,42 @@ module RpmsRpc
         end
       end
 
+      # CiaClient#call_rpc_global_array answers the raw GLOBAL ARRAY frame:
+      # a sequence echo, a \x00 ack, the typed header and $C(30)-separated
+      # rows, then $C(31). parse_many splits on newlines only, so the frame is
+      # split first; read whole, the echo stays on the header and the header
+      # is parsed as a record (rpms-rpc#673).
       def rows(mapping_name, *pieces)
         mapping = DataMapper[mapping_name]
-        mapping.parse_many(call_amhg(mapping, *pieces))
+        mapping.parse_many(frame_rows(call_amhg(mapping, *pieces)))
+      end
+
+      # GLOBAL ARRAY pieces: optional "<seq>\x00" ack, cut at $C(31), split
+      # on $C(30). A body with no $C(30) is split on newlines.
+      def frame_parts(response)
+        body = response.is_a?(Array) ? response.join("\n") : response.to_s
+        body = body.split("\x00", 2).last if body.include?("\x00")
+        body = body.split("\x1f", 2).first.to_s
+        body.include?("\x1e") ? body.split("\x1e") : body.split(/\r?\n/)
+      end
+
+      # The frame's rows, each without the line feed the broker may write
+      # after a $C(30) (`W @X,EOL,!`, CIANBACT.m:122) and without separators.
+      # Only a String (the raw frame CiaClient#call_rpc_global_array returns)
+      # is split here. An Array is a client's rows already (BmxClient#call_rpc
+      # splits at $C(30)), and each element stays whole, so a newline inside a
+      # field never starts another record.
+      def frame_rows(response)
+        parts = response.is_a?(String) ? frame_parts(response) : Array(response).map(&:to_s)
+        strip_frame_rows(parts)
+      end
+
+      def strip_frame_rows(parts)
+        parts.filter_map do |row|
+          row = row.delete_prefix("\r\n").delete_prefix("\n").delete_prefix("\r")
+          stripped = DataMapper.strip_recordset_separators(row)
+          stripped.empty? ? nil : stripped
+        end
       end
 
       def first_row(mapping_name, *pieces)
@@ -110,16 +143,9 @@ module RpmsRpc
       # clinical punctuation. Check the routine before assuming otherwise.
       def text_lines(mapping_name, *pieces)
         mapping = DataMapper[mapping_name]
-        response = call_amhg(mapping, *pieces)
-        lines = response.is_a?(String) ? response.split(/\r?\n/) : Array(response)
-
-        lines.filter_map do |line|
-          next if line.nil?
-          next if DataMapper.recordset_header_row?(line)
-
-          stripped = DataMapper.strip_recordset_separators(line)
-          stripped.empty? ? nil : stripped
-        end
+        # Each node of the frame is one line; the frame is split as #rows
+        # splits it, so the sequence echo never rides the header (#673).
+        frame_rows(call_amhg(mapping, *pieces)).reject { |line| DataMapper.recordset_header_row?(line) }
       end
 
       # AMHG flags are presence-based: "" is false, anything else but "0" is
