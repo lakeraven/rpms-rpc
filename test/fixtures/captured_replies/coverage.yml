@@ -8,7 +8,7 @@ image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42
 client: RpmsRpc::CiaClient#call_rpc_raw
 signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
 bound_context: CIAV VUECENTRIC
-captured_at: '2026-11-09T16:55:30Z'
+captured_at: '2026-11-09T18:37:09Z'
 note: Run on a throwaway container. Medicare number 1EG4TE5MK73 is the CMS example
   MBI; names are synthetic. Each flow's record and multiple IENs are the ones the
   flow before it filed.
@@ -264,10 +264,10 @@ captures:
   - '990048'
   - ''
   - ''
-  - "AGGPIINS=1\x1CAGGPIHLN=ZZCOV,HOLDER\x1CAGGPIMBN=ZZ0001\x1CAGGPIESD=11/01/2026\x1CAGGPHESD=11/01/2026"
+  - "AGGPIINS=1\x1CAGGPIHLN=ZZCOV,HOLDER\x1CAGGPIMBN=ZZ0001\x1CAGGPIESD=11/01/2026\x1CAGGPIEED=\x1CAGGPHESD=11/01/2026\x1CAGGPHEED="
   context: add_private_insurance with the first insurer
-  raw_return: "5\0I00010RESULT^T01024ERROR^I00010AGGPIIEN^I00010AGGPLHIN\x1E"
-  sha256: f416031e05f4aa00c5945911676caa27f9c76eeed906eece7590ac2b00679967
+  raw_return: "5\0I00010RESULT^T01024ERROR^I00010AGGPIIEN^I00010AGGPLHIN\x1E1^^1^1\x1E"
+  sha256: 1aa599137a4b1a89beffc9c908739f6d7517c4604ea5ef029af00a6f04eceaf0
 - name: on_file_private/1
   rpc: AGG BUILD WINDOW MANY
   inputs:
