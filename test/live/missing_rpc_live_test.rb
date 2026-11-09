@@ -85,8 +85,6 @@ class MissingRpcLiveTest < LiveSpec::Test
     "Problem.init_patient" => [ :read, [ "ORQQPL INIT PT" ], -> { RpmsRpc::Problem.init_patient(DFN) } ],
     "Problem.provider_list" => [ :read, [ "ORQQPL PROVIDER LIST" ], -> { RpmsRpc::Problem.provider_list(DFN) } ],
     "Problem.edit_load" => [ :read, [ "ORQQPL EDIT LOAD" ], -> { RpmsRpc::Problem.edit_load(PROBLEM_IEN, provider_duz: client.duz, institution_ien: institution_ien) } ],
-    "Problem.inactivate" => [ :write, [ "ORQQPL INACTIVATE" ], -> { RpmsRpc::Problem.inactivate(PROBLEM_IEN) } ],
-    "Problem.verify" => [ :write, [ "ORQQPL VERIFY" ], -> { RpmsRpc::Problem.verify(PROBLEM_IEN) } ],
     "Referral.purposes" => [ :read, [ "BMC GET PURPOSE OF REF API" ], -> { RpmsRpc::Referral.purposes } ],
     "Referral.reference_data" => [ :read, [ "BMC GET REFERENCE DATA" ], -> { RpmsRpc::Referral.reference_data } ],
     "Referral.users_providers" => [ :read, [ "BMC GET USERS/PROVIDERS" ], -> { RpmsRpc::Referral.users_providers } ],

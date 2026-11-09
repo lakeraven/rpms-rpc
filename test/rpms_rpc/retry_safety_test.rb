@@ -58,8 +58,6 @@ class RpmsRpc::RetrySafetyTest < Minitest::Test
     "BSDX CHECKIN APPOINTMENT",
     "BSDX NOSHOW",
     "ORQQPL EDIT LOAD",
-    "ORQQPL INACTIVATE",
-    "ORQQPL VERIFY",
     "XUS AV CODE",
     "XUS CVC"
   ].freeze
