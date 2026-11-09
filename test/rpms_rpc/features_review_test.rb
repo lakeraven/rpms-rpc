@@ -17,11 +17,11 @@ class FeaturesReviewTest < Minitest::Test
   CACHE_ALIAS_TAG = "features-review-cache-alias-ydb"
   BROKEN_OPTION = "ZZ BROKEN OPTION"
 
-  PINNED_REACH_FILE = File.join(PINNED_INVENTORIES, PINNED_TAG, "#{PINNED_TAG}-rpc_reach.txt")
+  # The pinned rpcs.json (committed data): BEHO chart-banner RPCs are client-callable under CIAV VUECENTRIC only.
+  PINNED_BEHOPTPC_GETBDP_REACH =
+    { "class" => "client-callable", "routine_present" => true, "tag_present" => true, "contexts" => [ "CIAV VUECENTRIC" ], "exemptions" => [] }.freeze
 
-  # Pin reach face (committed data): BEHO chart-banner RPCs are client-callable under CIAV VUECENTRIC only.
-  PINNED_BEHOPTPC_GETBDP_REACH_LINE =
-    "BEHOPTPC GETBDP^client-callable^1^1^CIAV VUECENTRIC^".freeze
+  def pinned_reach(name) = PinnedRpcsTestHelper.record(name)["reach"]
 
   def setup
     features!.reset!
@@ -46,14 +46,12 @@ class FeaturesReviewTest < Minitest::Test
   end
 
   def test_review_511_pin_ddr_lister_and_gets_entry_data_golden_document_scmc_ooo_option
-    reach_lines = File.readlines(PINNED_REACH_FILE, chomp: true)
-    lister = reach_lines.find { |line| line.start_with?("DDR LISTER^") }
-    gets = reach_lines.find { |line| line.start_with?("DDR GETS ENTRY DATA^") }
-    ooo_marker = reach_lines.find { |line| line.start_with?("SC DELETE ENTRY^") }
-
-    assert_equal "DDR LISTER^client-callable^1^1^SCMC PCMM GUI WORKSTATION;CIAV VUECENTRIC;XU EPCS EDIT DATA^", lister
-    assert_equal "DDR GETS ENTRY DATA^client-callable^1^1^SCMC PCMM GUI WORKSTATION;CIAV VUECENTRIC;XU EPCS EDIT DATA^", gets
-    assert_equal "SC DELETE ENTRY^out-of-order^1^1^SCMC PCMM GUI WORKSTATION^", ooo_marker
+    ddr = { "class" => "client-callable", "routine_present" => true, "tag_present" => true,
+            "contexts" => [ "SCMC PCMM GUI WORKSTATION", "CIAV VUECENTRIC", "XU EPCS EDIT DATA" ], "exemptions" => [] }
+    assert_equal ddr, pinned_reach("DDR LISTER")
+    assert_equal ddr, pinned_reach("DDR GETS ENTRY DATA")
+    assert_equal({ "class" => "out-of-order", "routine_present" => true, "tag_present" => true,
+                   "contexts" => [ "SCMC PCMM GUI WORKSTATION" ], "exemptions" => [] }, pinned_reach("SC DELETE ENTRY"))
   end
 
   def test_review_511_fixture_client_callable_only_under_out_of_order_named_option_is_not_served
@@ -88,8 +86,8 @@ class FeaturesReviewTest < Minitest::Test
   end
 
   def test_review_511_pin_patient_chart_banner_not_available_under_or_cprs_gui_chart
-    # BEHOPTPC GETBDP row lists CIAV VUECENTRIC only (see PINNED_BEHOPTPC_GETBDP_REACH_LINE).
-    assert_includes File.readlines(PINNED_REACH_FILE, chomp: true), PINNED_BEHOPTPC_GETBDP_REACH_LINE
+    # BEHOPTPC GETBDP's record lists CIAV VUECENTRIC only (see PINNED_BEHOPTPC_GETBDP_REACH).
+    assert_equal PINNED_BEHOPTPC_GETBDP_REACH, pinned_reach("BEHOPTPC GETBDP")
     refute available?(:patient_chart_banner, build: PINNED_TAG, context: "OR CPRS GUI CHART")
   end
 
@@ -135,7 +133,7 @@ class FeaturesReviewTest < Minitest::Test
 
   def test_review_511_empty_inventory_faces_raise_argument_error_not_unavailable
     Dir.mktmpdir do |dir|
-      tag = write_synthetic_inventory(dir, "empty-ydb", reach_lines: [], registry_lines: [])
+      tag = write_synthetic_inventory(dir, "empty-ydb", records: [])
       assert_raises(ArgumentError) do
         available?(:bmc_referral_workflow, build: tag, inventories_dir: dir)
       end

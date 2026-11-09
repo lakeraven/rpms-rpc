@@ -140,15 +140,16 @@ class FeaturesTest < Minitest::Test
     assert_raises(ArgumentError) { available?(:patient_chart_banner, build: "bcer-0.0-20990101-deadbee-ydb") }
   end
 
-  def test_pinned_build_without_reach_face_raises_argument_error
-    # Round-1 #384: missing reach for a build under test is not "unknown build".
-    err = assert_raises(ArgumentError) do
-      available?(:bmc_referral_workflow,
-                 build: REACH_MISSING_TAG,
-                 inventories_dir: FIXTURE_INVENTORIES)
+  def test_build_without_rpcs_json_raises_argument_error
+    # Round-1 #384: a build dir without its surface is not "unknown build".
+    Dir.mktmpdir("features-missing-") do |tmpdir|
+      FileUtils.mkdir_p(File.join(tmpdir, REACH_MISSING_TAG))
+      err = assert_raises(ArgumentError) do
+        available?(:bmc_referral_workflow, build: REACH_MISSING_TAG, inventories_dir: tmpdir)
+      end
+      assert_match(/rpcs.json is missing/i, err.message)
+      refute_match(/unknown build/i, err.message)
     end
-    assert_match(/reach face is missing/i, err.message)
-    refute_match(/unknown build/i, err.message)
   end
 
   def test_missing_lock_file_raises_argument_error
@@ -180,7 +181,7 @@ class FeaturesTest < Minitest::Test
   end
 
   def test_duplicate_rpc_in_inventory_raises_malformed_argument_error
-    # Round-1 #384: duplicate RPC names in registry/reach → ArgumentError (malformed inventory).
+    # Round-1 #384: duplicate RPC names in rpcs.json → ArgumentError (malformed inventory).
     err = assert_raises(ArgumentError) do
       available?(:bmc_referral_workflow,
                  build: REGISTRY_DUPLICATE_TAG,
@@ -311,12 +312,10 @@ class FeaturesTest < Minitest::Test
                       context: "CIAV VUECENTRIC")
   end
 
-  def test_malformed_reach_rows_out_of_registry_order_raises_argument_error
+  def test_malformed_rpcs_out_of_order_raises_argument_error
     Dir.mktmpdir("features-reach-") do |tmpdir|
-      tag = write_synthetic_inventory(
-        tmpdir, "features-reach-order-ydb",
-        reach_lines: CHART_BANNER_REACH_OK_LINES.rotate(1)
-      )
+      tag = write_synthetic_inventory(tmpdir, "features-reach-order-ydb",
+                                      records: FeaturesTestHelper.chart_banner_records.rotate(1), sort: false)
       err = assert_raises(ArgumentError) do
         available?(:patient_chart_banner, build: tag, inventories_dir: tmpdir, context: "CIAV VUECENTRIC")
       end
@@ -325,21 +324,20 @@ class FeaturesTest < Minitest::Test
     end
   end
 
-  def test_malformed_reach_empty_file_raises_argument_error
+  def test_malformed_rpcs_empty_list_raises_argument_error
     Dir.mktmpdir("features-reach-") do |tmpdir|
-      tag = write_synthetic_inventory(tmpdir, "features-reach-empty-ydb", reach_lines: [])
+      tag = write_synthetic_inventory(tmpdir, "features-reach-empty-ydb", records: [])
       err = assert_raises(ArgumentError) do
         available?(:patient_chart_banner, build: tag, inventories_dir: tmpdir, context: "CIAV VUECENTRIC")
       end
-      assert_match(/reach/i, err.message)
+      assert_match(/lists no RPCs/i, err.message)
     end
   end
 
   def test_malformed_reach_unknown_class_raises_argument_error
-    reach = CHART_BANNER_REACH_OK_LINES.dup
-    reach[0] = "BEHOPTCX PTINFO^maybe-callable^1^1^CIAV VUECENTRIC^"
+    records = FeaturesTestHelper.chart_banner_records("BEHOPTCX PTINFO" => { "class" => "maybe-callable" })
     Dir.mktmpdir("features-reach-") do |tmpdir|
-      tag = write_synthetic_inventory(tmpdir, "features-reach-bad-class-ydb", reach_lines: reach)
+      tag = write_synthetic_inventory(tmpdir, "features-reach-bad-class-ydb", records: records)
       err = assert_raises(ArgumentError) do
         available?(:patient_chart_banner, build: tag, inventories_dir: tmpdir, context: "CIAV VUECENTRIC")
       end
@@ -348,14 +346,15 @@ class FeaturesTest < Minitest::Test
     end
   end
 
-  def test_build_with_reach_but_no_registry_raises_argument_error
+  def test_rpcs_json_for_another_build_raises_argument_error
     Dir.mktmpdir("features-registry-") do |tmpdir|
-      tag = write_reach_only_inventory(tmpdir, "features-no-registry-ydb", reach_lines: CHART_BANNER_REACH_OK_LINES)
+      tag = write_synthetic_inventory(tmpdir, "features-other-tag-ydb")
+      FileUtils.mv(File.join(tmpdir, tag), File.join(tmpdir, "features-renamed-ydb"))
+      File.rename(File.join(tmpdir, "features-renamed-ydb", "#{tag}-rpcs.json"), File.join(tmpdir, "features-renamed-ydb", "features-renamed-ydb-rpcs.json"))
       err = assert_raises(ArgumentError) do
-        available?(:bmc_referral_workflow, build: tag, inventories_dir: tmpdir)
+        available?(:bmc_referral_workflow, build: "features-renamed-ydb", inventories_dir: tmpdir)
       end
-      assert_match(/registry.*missing/i, err.message)
-      refute_match(/unknown build/i, err.message)
+      assert_match(/names tag "features-other-tag-ydb"/, err.message)
     end
   end
 
@@ -369,14 +368,14 @@ class FeaturesTest < Minitest::Test
       chart = available?(:patient_chart_banner, **kw, context: "CIAV VUECENTRIC")
       listed = for_build(PINNED_TAG, inventories_dir: tmpdir)
 
-      break_reach_face_on_disk(tmpdir, PINNED_TAG)
+      break_rpcs_json_on_disk(tmpdir, PINNED_TAG)
 
       assert_equal bmc, available?(:bmc_referral_workflow, **kw),
-                   "cached build surface must answer after reach face changes on disk"
+                   "cached build surface must answer after rpcs.json changes on disk"
       assert_equal chart, available?(:patient_chart_banner, **kw, context: "CIAV VUECENTRIC"),
-                   "cached build surface must answer after reach face changes on disk"
+                   "cached build surface must answer after rpcs.json changes on disk"
       assert_equal listed, for_build(PINNED_TAG, inventories_dir: tmpdir),
-                   "cached build surface must answer after reach face changes on disk"
+                   "cached build surface must answer after rpcs.json changes on disk"
     end
   ensure
     feat.reset!
@@ -390,7 +389,7 @@ class FeaturesTest < Minitest::Test
       kw = { build: PINNED_TAG, inventories_dir: tmpdir }
       assert available?(:bmc_referral_workflow, **kw)
 
-      break_reach_face_on_disk(tmpdir, PINNED_TAG)
+      break_rpcs_json_on_disk(tmpdir, PINNED_TAG)
 
       assert available?(:bmc_referral_workflow, **kw),
              "second available? must reuse the cached build surface"
@@ -398,7 +397,7 @@ class FeaturesTest < Minitest::Test
       feat.reset!
 
       err = assert_raises(ArgumentError) { available?(:bmc_referral_workflow, **kw) }
-      assert_match(/reach/i, err.message)
+      assert_match(/rpcs.json is missing/i, err.message)
     end
   ensure
     feat.reset!
