@@ -30,13 +30,13 @@ class RegistrationHrnSourceLiveTest < LiveSpec::Test
 
   def test_s_reg_05_1_a_temporary_number_is_filed_on_the_new_patient
     attrs = synthetic
-    result = RpmsRpc::Patient.register(attrs.merge(hrn_source: :temporary))
+    result = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(attrs.merge(hrn_source: :temporary)) }
 
     assert result && result[:success], "registration failed: #{result.inspect}"
     assert_match(/\AT\d{5}\z/, result[:hrn])
     assert_includes filed_hrns(attrs, result[:dfn]).join(" "), result[:hrn]
 
-    following = RpmsRpc::Patient.register(synthetic(hrn_source: :temporary))
+    following = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(synthetic(hrn_source: :temporary)) }
     assert following && following[:success], "the next registration failed: #{following.inspect}"
     refute_equal result[:hrn], following[:hrn], "each new patient gets its own temporary number"
   end
@@ -44,13 +44,13 @@ class RegistrationHrnSourceLiveTest < LiveSpec::Test
   def test_s_reg_05_2_and_05_5_a_given_number_is_filed_once_and_refused_for_a_second_patient
     number = format("%06d", 900_000 + rand(99_999))
     first_attrs = synthetic(hrn_source: :given, hrn: number)
-    first = RpmsRpc::Patient.register(first_attrs)
+    first = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(first_attrs) }
     assert first && first[:success], "registration failed: #{first.inspect}"
     assert_equal number, first[:hrn]
     assert_includes filed_hrns(first_attrs, first[:dfn]).join(" "), number
 
     second_attrs = synthetic(hrn_source: :given, hrn: number)
-    second = RpmsRpc::Patient.register(second_attrs)
+    second = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(second_attrs) }
     assert_equal :agg_invalid, second[:error]
     assert_equal "AGGPTHRN", second[:field]
     assert_match(/\AHRN #{number} is already assigned to patient /, second[:message])
@@ -66,18 +66,18 @@ class RegistrationHrnSourceLiveTest < LiveSpec::Test
   # The number is set up the way a legacy chart number arrives: given, on the
   # patient registered just before, equal to the DFN the next patient gets.
   def test_a_derived_hrn_that_another_patient_holds_here_is_not_filed
-    probe = RpmsRpc::Patient.register(synthetic(hrn_source: :derive))
+    probe = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(synthetic(hrn_source: :derive)) }
     assert probe && probe[:success], "registration failed: #{probe.inspect}"
     legacy = (probe[:dfn].to_i + 2).to_s
 
     holder_attrs = synthetic(hrn_source: :given, hrn: legacy)
-    holder = RpmsRpc::Patient.register(holder_attrs)
+    holder = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(holder_attrs) }
     assert holder && holder[:success], "registration failed: #{holder.inspect}"
     assert_equal probe[:dfn].to_i + 1, holder[:dfn].to_i,
                  "this spec needs DFNs handed out in order on a quiet container; got #{holder[:dfn]} after #{probe[:dfn]}"
 
     attrs = synthetic(hrn_source: :derive)
-    result = RpmsRpc::Patient.register(attrs)
+    result = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(attrs) }
     assert_equal legacy, result[:dfn].to_s, "the derived patient's DFN is the legacy number: #{result.inspect}"
     refute result[:success], "a derived HRN another patient holds here must not be filed: #{result.inspect}"
     assert_equal :hrn_already_assigned, result[:error]
