@@ -11,7 +11,8 @@
 #
 # A spec file defines CAPTURE: the RPC, the persona's published demo pair, the
 # context to bind, and the calls. A refused call aborts the run (nothing is
-# written) unless it sets expect_error: true. A call's `inputs` are what the fixture
+# written) unless it sets expect_error: true. A call's `context:` binds that
+# option before it, for the rest of the run. A call's `inputs` are what the fixture
 # records; `wire_inputs`, when given, computes what is sent (an encrypted
 # code), so a secret-shaped input never lands in the fixture. Loopback only.
 require "yaml"
@@ -35,6 +36,7 @@ client.authenticate(spec.fetch(:access), spec.fetch(:verify))
 client.create_context(spec[:context]) if spec[:context]
 spec.fetch(:setup, nil)&.call(client)
 captures = spec.fetch(:calls).map do |call|
+  client.create_context(call[:context]) if call[:context]
   wire = call[:wire_inputs] ? call[:wire_inputs].call(client) : call.fetch(:inputs)
   raw = client.call_rpc_raw(call.fetch(:rpc, spec[:rpc]), *wire).b
   # call_rpc_raw returns a refusal's bytes without raising. A capture that is

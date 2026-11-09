@@ -724,6 +724,7 @@ class BehavioralHealthTest < Minitest::Test
   # 16 pieces, blank arrival in piece 7, date in piece 8. The read-back
   # seed is the stored internals for that wire (patient 100, date 3251031).
   def seed_context_save_visit(mock)
+    mock.seed_scalar(:orwu_dt, "T", "3261109") # the server date the after-today guard reads (#644)
     wire = "A||412|MENTAL HEALTH|17|3||3251031|55||42|100||||"
     mock.seed_text(:amhg_save_visit, wire, "T00010BMXIEN#{RS}8801#{RS}#{US}")
     fields = {
@@ -916,7 +917,7 @@ class BehavioralHealthTest < Minitest::Test
             assert_equal RpmsRpc::Patient::FILEMAN_CONTEXT, call[:context],
               "#{mod}.#{method} sent #{call[:rpc]} under #{call[:context].inspect}; the record lock " \
               "runs under the FileMan context, as Wellness does"
-          elsif [ "DDR GETS ENTRY DATA", "DDR LISTER" ].include?(call[:rpc])
+          elsif [ "DDR GETS ENTRY DATA", "DDR LISTER", "ORWU DT" ].include?(call[:rpc])
             assert_equal caller_context, call[:context],
               "#{mod}.#{method} sent #{call[:rpc]} under #{call[:context].inspect}; " \
               "that RPC is registered under the caller's option, not AMHGRPC"

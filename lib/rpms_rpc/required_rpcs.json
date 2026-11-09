@@ -72,7 +72,8 @@
       "AMHG SAVE VISIT",
       "DDR GETS ENTRY DATA",
       "DDR LISTER",
-      "DDR LOCK/UNLOCK NODE"
+      "DDR LOCK/UNLOCK NODE",
+      "ORWU DT"
     ],
     "RpmsRpc::BehavioralHealth::CaseManagement": [
       "AMHG GET CASE DATES",
