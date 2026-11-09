@@ -38,7 +38,8 @@ module CapturedReplies
   # answers the next scripted reply for that RPC, and every call is recorded.
   # call_rpc, call_rpc_lines and the reply grammar are CiaClient's own, so a
   # captured reply is read exactly as a live one is. An RPC with no scripted
-  # reply left fails the test rather than inventing one.
+  # reply left fails the test rather than inventing one. The session starts
+  # bound to CIAV VUECENTRIC, as a CIA sign-on binds it.
   class ReplayCiaClient < RpmsRpc::CiaClient
     attr_reader :calls
 
@@ -48,6 +49,7 @@ module CapturedReplies
       @calls = []
       @connected = true
       @authenticated = true
+      @current_context = SIGNON_CONTEXT
     end
 
     def connected? = true

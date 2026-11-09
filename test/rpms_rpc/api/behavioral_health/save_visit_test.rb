@@ -125,8 +125,13 @@ class BehavioralHealthSaveVisitTest < Minitest::Test
     community_of_service: COMMUNITY_OF_SERVICE
   }.freeze
 
+  # The server's today, which the after-today guard reads (ORWU DT "T", #644);
+  # the value captured live in test/fixtures/captured_replies/orwu-dt.yml.
+  SERVER_TODAY = "3261109"
+
   def setup
     @mock = RpmsRpc.mock!
+    @mock.seed_scalar(:orwu_dt, "T", SERVER_TODAY)
   end
 
   def teardown
