@@ -44,9 +44,10 @@ class PatientDesignatedProviderTest < Minitest::Test
     yield(raw("getbdp_primary").dup)
   end
 
-  # The case-manager row comes first and must not win.
+  # The case-manager row comes first and must not win. PTINFO here names no
+  # primary provider, so PROFILE,MD can only come from the GETBDP reply.
   def test_brief_header_uses_designated_primary_row_not_first_category
-    header = brief_header(ptinfo: "ptinfo_primary", getbdp: "getbdp_primary")
+    header = brief_header(ptinfo: "ptinfo_case_manager", getbdp: "getbdp_primary")
 
     assert_equal "PROFILE,MD", header[:primary_provider]
   end
