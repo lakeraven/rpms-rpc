@@ -191,13 +191,14 @@ class ClinicalDataApiTest < Minitest::Test
     assert_equal [ { rpc: "ORWPT APPTLST", params: [ "4" ] } ], client.calls
   end
 
-  # For most demo patients the build answers "^Error encountered^Error
-  # encountered", and for_patient returns it as a row today. rpms-rpc#679
-  # tracks reading it as an error; this pins what the gem does now.
-  def test_encounter_for_patient_returns_the_error_line_as_a_row_today
-    replay("ORWPT APPTLST" => [ capture("appointments_dfn_1") ])
+  # When the scheduling read fails (DFN 1 holds no patient on the build), APPTLST
+  # answers SDA^ORQRY01's one row with no time, "^Error encountered^Error
+  # encountered". It is an error, never an appointment (rpms-rpc#679).
+  def test_encounter_for_patient_raises_on_the_scheduling_error_row
+    client = replay("ORWPT APPTLST" => [ capture("appointments_dfn_1") ])
 
-    assert_equal [ { datetime: nil, location_ien: 0, location: "Error encountered", status: nil } ],
-                 RpmsRpc::Encounter.for_patient("1")
+    error = assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Encounter.for_patient("1") }
+    assert_equal "ORWPT APPTLST could not read appointments for patient 1: Error encountered", error.message
+    assert_equal [ { rpc: "ORWPT APPTLST", params: [ "1" ] } ], client.calls
   end
 end

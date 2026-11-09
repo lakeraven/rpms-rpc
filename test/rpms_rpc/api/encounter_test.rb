@@ -8,11 +8,6 @@ require "rpms_rpc/api/encounter"
 class EncounterTest < Minitest::Test
   def setup
     RpmsRpc.mock! do |m|
-      # Existing read API
-      m.seed_keyed_collection(:patient_appointments, "26664", [
-        { datetime: nil, location_ien: 1608, location: "PS CLINICS", status: "scheduled" }
-      ])
-
       # Open: BEHOENCX GETVISIT — visit_ien -> LOC^VDT^SVC^PAT^VID^LOCKED
       # (GETVISIT^BEHOENCX: BEHOENCX.m:5,8-15)
       m.seed(:encounter_visit, "2090061", {
@@ -162,14 +157,6 @@ class EncounterTest < Minitest::Test
   def test_visit_string_appends_the_visit_ien_when_given
     assert_equal "6;3260915.003;A;1", RpmsRpc::Encounter.visit_string(6, "3260915.003", "A", visit_ien: 1)
     assert_equal "6;3260915.003;A", RpmsRpc::Encounter.visit_string(6, "3260915.003", "A", visit_ien: nil)
-  end
-
-  def test_for_patient_still_works
-    # Regression: the existing read API is unchanged.
-    appointments = RpmsRpc::Encounter.for_patient("26664")
-    assert_kind_of Array, appointments
-    refute appointments.empty?
-    assert_equal "PS CLINICS", appointments.first[:location]
   end
 
   # ===========================================================================
