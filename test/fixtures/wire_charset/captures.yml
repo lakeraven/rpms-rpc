@@ -1,0 +1,35 @@
+# Wire character set captures (rpms-rpc#476): the raw reply bytes of one stored text with a known
+# high byte, read live and written by the capture as they arrived. Do not hand-edit the .bin files:
+# re-capture instead. test/rpms_rpc/wire_charset_test.rb checks each sha256 below.
+#
+# The text is the stock DESCRIPTION (field 1) of REMOTE PROCEDURE #8994 entry 199, XWB CREATE CONTEXT:
+# public IHS/VA documentation, no patient, site or person. Two of its lines start with a bullet stored
+# as the single byte 0xB7.
+---
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+signed_on_as: PMD123
+captured_at: '2026-11-08'
+note: A fresh disposable container. A second capture in a new session was byte-identical.
+captures:
+  cia:
+    file: cia-ddr-gets-8994-description.bin
+    rpc: DDR GETS ENTRY DATA
+    params:
+      FILE: '8994'
+      IENS: '199,'
+      FIELDS: '1'
+    # CiaClient#call_rpc_raw: the session's sequence echo and NUL ack, then the body.
+    framing: seq echo + NUL, then the body
+    bytes: 860
+    sha256: d260ffad37bafc3b609a1efb7c893647959b040774760f8a44acbb910c90297a
+  bmx:
+    file: bmx-sql-8994-description.bin
+    context: BMXRPC
+    rpc: BMX SQL
+    params:
+    - SELECT DESCRIPTION FROM REMOTE_PROCEDURE WHERE NAME = 'XWB CREATE CONTEXT'
+    # BmxClient#call_rpc_raw: the reply body.
+    framing: body
+    bytes: 816
+    sha256: e9ce86228e05ed4136a1049c7ca265cfddcd3e51d9fb5009b50459647799d449

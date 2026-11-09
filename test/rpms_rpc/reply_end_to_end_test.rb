@@ -18,7 +18,7 @@ require "rpms_rpc/mock_client"
 # and Patient.lookup return carries `altered: true|false`. It is true when any
 # text of that row had a byte replaced to become valid UTF-8.
 #
-# CHARSET: assumed UTF-8, UNPROVEN (see Reply). Every byte string below is
+# CHARSET: stored bytes, read as UTF-8 (see Reply). Every byte string below is
 # SYNTHETIC.
 class RpmsRpc::ReplyEndToEndTest < Minitest::Test
   EOD = RpmsRpc::Client::EOD

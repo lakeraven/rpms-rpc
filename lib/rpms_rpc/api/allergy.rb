@@ -423,8 +423,9 @@ module RpmsRpc
     # A real U+0080-U+009F CODEPOINT read from UTF-8 (NEL, CSI ...) is a control
     # sequence, not text. A BYTE 0x80-0x9F in a BINARY string that is not valid
     # UTF-8, or in a Latin-1 / Windows-1252 tagged string, is a byte (printable
-    # in Windows-1252), so it is not one. Which charset a live site uses is
-    # unproven (rpms-rpc#476).
+    # in Windows-1252), so it is not one. The wire carries stored bytes
+    # untranscoded; which single-byte charset a site stores is not declared
+    # (rpms-rpc#476).
     def c1_codepoint?(text, scrubbed)
       [ Encoding::UTF_8, Encoding::BINARY, Encoding::US_ASCII ].include?(text.encoding) && scrubbed.match?(/[\u0080-\u009F]/)
     end

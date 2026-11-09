@@ -10,10 +10,9 @@ require "rpms_rpc/mappings"
 # rpms-rpc#463 — a reply reaches the host as valid UTF-8, and a reply whose
 # bytes had to be altered says so.
 #
-# CHARSET: assumed UTF-8, UNPROVEN. Latin-1 is observed in stored data
-# (conformance/build_surface.rb:292-297; patient.rb:314 notes non-UTF-8 name
-# bytes), so real Latin-1 text WILL read as altered. That is the accepted,
-# fail-closed behaviour until a live read settles the wire charset.
+# CHARSET: the wire carries stored bytes untranscoded (rpms-rpc#476; the live
+# captures and their test are in wire_charset_test.rb), so stored Latin-1 or
+# Windows-1252 text reads as altered. That is the accepted, fail-closed rule.
 #
 # Every byte string below is SYNTHETIC: clearly invented text, never a
 # recorded reply.
