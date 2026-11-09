@@ -17,13 +17,16 @@
 # code), so a secret-shaped input never lands in the fixture. `setup`, when
 # given, runs first on the default session and returns state (say, a note it
 # made) that an `inputs` lambda reads. A call with `as:` runs on its own
-# session, signed on as that entry of `personas`. Loopback only.
+# session, signed on as that entry of `personas`. A call that sets global_array: true
+# reads a GLOBAL ARRAY reply (the AGG RPCs) with call_rpc_global_array. `flows`, when
+# given, run gem code and keep every reply it got (see RecordingCiaClient). Loopback only.
 require "yaml"
 require "digest"
 require "time"
 require "rpms_rpc/mappings"
 require "rpms_rpc/cia_client"
 require "rpms_rpc/valid_signature"
+require "rpms_rpc"
 
 # A reply that is valid UTF-8 is written as text, so a fixture reads as the
 # wire did. One that is not (a FileMan \xFE delimiter, say) is written as
@@ -51,7 +54,7 @@ sessions = Hash.new do |opened, who|
   opened[who] = session
 end
 state = spec.fetch(:setup, nil)&.call(sessions[:default]) || {}
-captures = spec.fetch(:calls).map do |call|
+captures = spec.fetch(:calls, []).map do |call|
   client = sessions[call.fetch(:as, :default)]
   client.create_context(call[:context]) if call[:context]
   inputs = call.fetch(:inputs)
@@ -61,7 +64,16 @@ captures = spec.fetch(:calls).map do |call|
   else
     inputs
   end
-  raw = client.call_rpc_raw(call.fetch(:rpc, spec[:rpc]), *wire).b
+  rpc = call.fetch(:rpc, spec[:rpc])
+  raw = if call[:global_array]
+    # A GLOBAL ARRAY reply (AGG*) reads to its $C(31) end sentinel; call_rpc_raw
+    # would stop at the typed header. A refusal raises here, so nothing is written.
+    text = client.call_rpc_global_array(rpc, *wire)
+    abort "#{call.fetch(:name)}: the reply had bytes that are not UTF-8; nothing written" if text.altered?
+    text.to_s.b
+  else
+    client.call_rpc_raw(rpc, *wire).b
+  end
   # call_rpc_raw returns a refusal's bytes without raising. A capture that is
   # an error reply ($C(1) after the sequence echo) writes nothing, unless the
   # spec says that call is meant to capture the error (expect_error: true).
@@ -75,6 +87,51 @@ captures = spec.fetch(:calls).map do |call|
               "raw_return" => yaml_bytes(raw), "sha256" => Digest::SHA256.hexdigest(raw))
 end
 sessions.each_value(&:disconnect)
+
+# A flow runs gem code against a recording session and keeps every reply it
+# got, in order, as "<flow>/<n>": the whole conversation a write makes (lock,
+# reads, filer, unlock), with the frames the gem itself sent. Each flow signs
+# on afresh (as its `as:` persona, else the default pair), so the session is
+# the gem's from the start. A refusal the gem raises is not recorded; the
+# flow rescues it if it means to.
+class RecordingCiaClient < RpmsRpc::CiaClient
+  attr_reader :recorded
+
+  def initialize(...)
+    super
+    @recorded = []
+  end
+
+  def call_rpc_raw(rpc_name, *params)
+    super.tap { |raw| @recorded << [ rpc_name, params, raw.b ] }
+  end
+
+  def call_rpc_global_array(rpc_name, *params)
+    super.tap do |text|
+      abort "#{rpc_name}: a GLOBAL ARRAY reply had bytes that are not UTF-8; nothing written" if text.altered?
+      @recorded << [ rpc_name, params, text.to_s.b ]
+    end
+  end
+end
+
+spec.fetch(:flows, {}).each do |flow_name, flow|
+  pair = flow[:as] ? spec.fetch(:personas).fetch(flow[:as]) : spec
+  session = RecordingCiaClient.new(host: "127.0.0.1", port: Integer(ENV.fetch("BROKER_PORT", "9100")), timeout: 30)
+  session.connect
+  session.authenticate(pair.fetch(:access), pair.fetch(:verify))
+  session.recorded.clear # the sign-on's own calls, not the flow's
+  RpmsRpc.configure { |cfg| cfg.client = session }
+  flow.fetch(:run).call
+  session.recorded.each_with_index do |(rpc, params, raw), i|
+    entry = { "name" => "#{flow_name}/#{i + 1}", "rpc" => rpc }
+    entry["signed_on_as"] = pair.fetch(:signed_on_as) if flow[:as]
+    captures << entry.merge("inputs" => params, "context" => flow.fetch(:about),
+                            "raw_return" => yaml_bytes(raw), "sha256" => Digest::SHA256.hexdigest(raw))
+  end
+  session.disconnect
+ensure
+  RpmsRpc.reset!
+end
 
 doc = {
   "rpc" => spec.fetch(:rpc), "entry_point" => spec.fetch(:entry_point),

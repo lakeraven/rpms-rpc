@@ -1,0 +1,95 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb registration-preferred-name.rb.
+---
+rpc: DDR GETS ENTRY DATA
+entry_point: GETSC^DDR2
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T05:33:17Z'
+note: Files and then clears the preferred name of DFN 990008 on a throwaway container;
+  it ends blank, as it began.
+captures:
+- name: lock
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990008'
+  context: PROFILE,REG takes AG's edit lock
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: lock_held
+  rpc: AGG LOCK PATIENT
+  signed_on_as: PROFILE,SCHED (PSCH123, a published demo pair)
+  inputs:
+  - '990008'
+  context: another user asks for the lock PROFILE,REG holds
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E0^This event is locked for editing
+    by PROFILE,REG.\x1E"
+  sha256: 46d3c515e2da3456e3c856204a0c48cfd38e80b7275565f54f4bd663580f1a6c
+- name: read_blank
+  inputs:
+  - FILE: '9000001'
+    IENS: 990008,
+    FIELDS: '9001'
+    FLAGS: I
+  context: '9001 before: no preferred name on file'
+  raw_return: "6\0[Data]\r9000001^990008^9001^^\r"
+  sha256: f786cc03ac34febc97eb36408f26315df5a461c6a1b045421809c863281d6280
+- name: file_bobby
+  rpc: DDR FILER
+  inputs:
+  - EDIT
+  - 1: 9000001^9001^990008,^Bobby
+  - ''
+  - {}
+  context: file the preferred name Bobby
+  raw_return: "7\0[Data]\r"
+  sha256: '068bb8070d253d80d4417f6076932b27c49f0b79215d3407e1e963e5b00a47ef'
+- name: read_bobby
+  inputs:
+  - FILE: '9000001'
+    IENS: 990008,
+    FIELDS: '9001'
+    FLAGS: I
+  context: '9001 after: Bobby'
+  raw_return: "8\0[Data]\r9000001^990008^9001^Bobby^\r"
+  sha256: 6887c2e1d1838356c609b111edf5739a44526391a69083b473eb9e1a8d6a121f
+- name: file_clear
+  rpc: DDR FILER
+  inputs:
+  - EDIT
+  - 1: 9000001^9001^990008,^@
+  - ''
+  - {}
+  context: 'clear it: FileMan''s @'
+  raw_return: "9\0[Data]\r"
+  sha256: ebaf021a35cbea40549c975f65b9ddaecc9087f9f7c1dd8f5bf58d85178a7e23
+- name: unlock
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990008'
+  context: PROFILE,REG releases the lock
+  raw_return: "1\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 55ce75b73e8117e0ae477abee3b3ebc6841abfcd51ca2d3f270a9fcd8048d869
+- name: read_no_such_patient
+  inputs:
+  - FILE: '9000001'
+    IENS: 999999,
+    FIELDS: '9001'
+    FLAGS: I
+  context: 9001 of a DFN no patient holds
+  raw_return: "2\0[ERROR]\r"
+  sha256: 50fc00a899b22f3ec69958aaee844f6ba39d4d823cca6273e60cce364193a833
+- name: file_no_such_patient
+  rpc: DDR FILER
+  inputs:
+  - EDIT
+  - 1: 9000001^9001^999999,^Bobby
+  - ''
+  - {}
+  context: 'an EDIT FileMan refuses: the entry does not exist'
+  raw_return: "3\0[Data]\r[BEGIN_diERRORS]\r601^1^9000001^999999,^^2\rFILE^9000001\rIENS^999999,\rThe
+    entry does not exist.\r[END_diERRORS]\r"
+  sha256: ff11828e154255ae48eb92089ff729a8362039563e724d0c3c3eb10ecc952bbd
