@@ -2,23 +2,44 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/xwb_client"
 require "rpms_rpc/api/progress_note"
+require_relative "../captured_replies"
 
 # Issue #479 (SPEC): long TIU note lines are wrapped before TIU SET DOCUMENT TEXT.
 # These tests pin the wrap_width API, piece boundaries, readback, UTF-8 safety,
 # blank-line preservation, validation, and XWB L-PACK limits. They fail until
 # ProgressNote#update_text implements wrapping.
+#
+# The broker's side is the pinned build's: TIU AUTHORIZATION's "1" and TIU
+# SET DOCUMENT TEXT's acknowledgement, captured on a note PROFILE,MD filed
+# (test/fixtures/captured_replies/progress-note.yml), replayed through
+# CiaClient. SETTEXT acknowledges with TIUDA_U_PAGE_U_PAGES (TIUSRVPT.m:38),
+# which names the note and the page, not the text, so the one captured
+# acknowledgement answers every single-page update here.
 class ProgressNoteWrapTest < Minitest::Test
-  NOTE_IEN = "5001"
+  SLUG = "progress-note"
+  NOTE_IEN = CapturedReplies.file(SLUG).fetch("captures").find { |c| c["name"] == "set_text" }.fetch("inputs").first
+  AUTH = "TIU AUTHORIZATION"
+  SET = "TIU SET DOCUMENT TEXT"
 
   def teardown
     RpmsRpc.reset!
   end
 
+  # A CiaClient answering `updates` update_text calls with the captured
+  # authorization and acknowledgement; with 0 it answers nothing, so any
+  # call fails the test.
+  def replay(updates = 1)
+    script = updates.zero? ? {} : { AUTH => [ CapturedReplies.raw(SLUG, "authorize_edit") ] * updates,
+                                    SET => [ CapturedReplies.raw(SLUG, "set_text") ] * updates }
+    @client = CapturedReplies::ReplayCiaClient.new(script)
+    RpmsRpc.configure { |cfg| cfg.client = @client }
+    @client
+  end
+
   def params_sent_to(rpc)
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == rpc }
+    call = @client.calls.find { |c| c[:rpc] == rpc }
     refute_nil call, "#{rpc} was not called"
     call[:params]
   end
@@ -41,12 +62,12 @@ class ProgressNoteWrapTest < Minitest::Test
   end
 
   def assert_update_text_utf8_rejection(input)
-    RpmsRpc.mock!
+    replay(0)
     result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, input)
     assert_equal false, result[:success], result.inspect
     assert_nil result[:raw]
     assert_match(/UTF-8/i, result[:error].to_s)
-    assert_empty RpmsRpc.client.received_calls
+    assert_empty @client.calls
   end
 
   def assert_pieces_at_most(values, wrap_width)
@@ -54,10 +75,7 @@ class ProgressNoteWrapTest < Minitest::Test
   end
 
   def assert_update_succeeds(note_ien, text, wrap_width: nil)
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:tiu_authorization, note_ien, "1") # update_text asks CANDO^TIUSRVA first (#614)
-      m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1")
-    end
+    replay
     result = if wrap_width.nil?
                RpmsRpc::ProgressNote.update_text(note_ien, text)
     else
@@ -320,10 +338,7 @@ class ProgressNoteWrapTest < Minitest::Test
   end
 
   def test_existing_two_line_update_shape_unchanged_at_default_width
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") # update_text asks CANDO^TIUSRVA first (#614)
-      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1")
-    end
+    replay
     RpmsRpc::ProgressNote.update_text(NOTE_IEN, "S: cough\nO: afebrile")
     assert_equal [ NOTE_IEN, { "HDR" => "1^1", [ "TEXT", 1, 0 ] => "S: cough", [ "TEXT", 2, 0 ] => "O: afebrile" } ],
                  params_sent_to("TIU SET DOCUMENT TEXT")
@@ -355,10 +370,6 @@ class ProgressNoteWrapTest < Minitest::Test
 
   def test_single_line_that_used_to_hit_frame_too_long_now_succeeds_on_xwb
     line = "n" * 5000
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") # update_text asks CANDO^TIUSRVA first (#614)
-      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1")
-    end
     client = RpmsRpc::XwbClient.new
     socket_writes = []
     socket = Object.new
@@ -370,8 +381,9 @@ class ProgressNoteWrapTest < Minitest::Test
     socket.define_singleton_method(:setsockopt) { |*| }
     client.instance_variable_set(:@socket, socket)
     client.instance_variable_set(:@connected, true)
-    # TIU AUTHORIZATION answers "1" first (#614), then the SET acknowledgement.
-    replies = [ "1", "#{NOTE_IEN}^1^1" ]
+    # TIU AUTHORIZATION answers "1" first (#614), then the SET acknowledgement:
+    # the captured reply bodies, without the CIA sequence echo.
+    replies = %w[authorize_edit set_text].map { |name| CapturedReplies.raw(SLUG, name).byteslice(2..) }
     client.define_singleton_method(:read_response) { replies.shift }
     RpmsRpc.configure { |cfg| cfg.client = client }
 
@@ -386,12 +398,12 @@ class ProgressNoteWrapTest < Minitest::Test
   def test_invalid_wrap_width_raises_argument_error_and_sends_no_rpc
     bad_values = [ nil, 3, 1000, "80", 80.0 ]
     bad_values.each do |bad|
-      RpmsRpc.mock!
+      replay(0)
       error = assert_raises(ArgumentError) do
         RpmsRpc::ProgressNote.update_text(NOTE_IEN, "x", wrap_width: bad)
       end
       assert_match(/wrap_width/i, error.message)
-      assert_empty RpmsRpc.client.received_calls, "wrap_width #{bad.inspect} must not RPC"
+      assert_empty @client.calls, "wrap_width #{bad.inspect} must not RPC"
     end
   end
 
@@ -408,13 +420,13 @@ class ProgressNoteWrapTest < Minitest::Test
   def test_utf16_and_utf32_encoded_strings_return_utf8_failure_without_rpc
     plain = "abc\ndef"
     %w[UTF-16LE UTF-16BE UTF-32LE UTF-32BE].each do |encoding|
-      RpmsRpc.mock!
+      replay(0)
       encoded = plain.encode(encoding)
       result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, encoded)
       assert_equal false, result[:success], encoding
       assert_nil result[:raw], encoding
       assert_match(/UTF-8/i, result[:error].to_s, encoding)
-      assert_empty RpmsRpc.client.received_calls, encoding
+      assert_empty @client.calls, encoding
     end
   end
 
@@ -425,10 +437,7 @@ class ProgressNoteWrapTest < Minitest::Test
   end
 
   def test_non_string_with_valid_to_s_is_coerced_and_sent
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") # update_text asks CANDO^TIUSRVA first (#614)
-      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1")
-    end
+    replay
     result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, 123)
     assert_equal({ success: true, raw: "#{NOTE_IEN}^1^1" }, result)
     tiux = tiux_from_params(params_sent_to("TIU SET DOCUMENT TEXT"))
@@ -491,10 +500,7 @@ class ProgressNoteWrapTest < Minitest::Test
 
   def assert_long_whitespace_run_wraps_quickly(run_char, run_length)
     line = (run_char * run_length) + "x"
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") # update_text asks CANDO^TIUSRVA first (#614)
-      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1")
-    end
+    replay
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, line)
     elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
@@ -509,21 +515,21 @@ class ProgressNoteWrapTest < Minitest::Test
 
   def test_invalid_utf8_returns_failure_shape_and_sends_no_rpc
     invalid = "\xFF".b
-    RpmsRpc.mock!
+    replay(0)
     result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, invalid)
     assert_equal false, result[:success]
     assert_nil result[:raw]
     assert_match(/UTF-8/i, result[:error].to_s)
-    assert_empty RpmsRpc.client.received_calls
+    assert_empty @client.calls
   end
 
   def test_ascii8bit_invalid_utf8_returns_failure_shape_and_sends_no_rpc
     invalid = String.new("\xC0\x80", encoding: Encoding::ASCII_8BIT)
-    RpmsRpc.mock!
+    replay(0)
     result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, invalid)
     assert_equal false, result[:success]
     assert_nil result[:raw]
     assert_match(/UTF-8/i, result[:error].to_s)
-    assert_empty RpmsRpc.client.received_calls
+    assert_empty @client.calls
   end
 end

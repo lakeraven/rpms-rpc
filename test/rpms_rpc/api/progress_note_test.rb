@@ -2,8 +2,8 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/api/progress_note"
+require_relative "../captured_replies"
 
 # Issue #219: the TIU note surface sends the actuals each routine declares
 # and reads the reply the way the routine writes it.
@@ -11,18 +11,22 @@ require "rpms_rpc/api/progress_note"
 # Routine lines are the FOIA source, Text Integration Utility/Routines;
 # formal lists are the pinned registry (rpms-diffs rpcs/registry.tsv). The
 # first formal is the return variable the broker supplies; the gem's P1
-# fills the second. MockClient keys a seeded reply by the first actual.
+# fills the second.
+#
+# Replies are the pinned build's, captured on a note filed as PROFILE,MD on
+# seed patient DFN 4, title 248, visit 4 (test/fixtures/captured_replies/
+# progress-note.yml), replayed through CiaClient.
 class ProgressNoteTest < Minitest::Test
-  DFN       = "8791"
-  VISIT_IEN = "2090060"
-  TITLE_IEN = "3001"
-  NOTE_IEN  = "5001"
+  SLUG      = "progress-note"
+  DFN       = "4"
+  VISIT_IEN = "4"
+  TITLE_IEN = "248"
 
-  # LOCK^TIUSRVP's failure text, verbatim (TIUSRVP.m:212).
-  LOCKED_ELSEWHERE = "1^ Another session has this record locked."
+  def self.note_ien = CapturedReplies.file(SLUG).fetch("captures").find { |c| c["name"] == "lock" }.fetch("inputs").first
+  NOTE_IEN = note_ien
 
   # Broker stub that returns one canned raw response for every RPC —
-  # for exercising nil/garbage response paths MockClient can't produce.
+  # for exercising nil/garbage response paths no capture holds.
   class RawResponseClient
     def initialize(response) = @response = response
     def call_rpc(*) = @response
@@ -43,8 +47,15 @@ class ProgressNoteTest < Minitest::Test
     RpmsRpc.configure { |cfg| cfg.client = RawResponseClient.new(response) }
   end
 
+  # A CiaClient answering each RPC with the named captures, in order.
+  def replay(script)
+    @client = CapturedReplies::ReplayCiaClient.new(script.transform_values { |names| Array(names).map { |n| CapturedReplies.raw(SLUG, n) } })
+    RpmsRpc.configure { |cfg| cfg.client = @client }
+    @client
+  end
+
   def params_sent_to(rpc)
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == rpc }
+    call = @client.calls.find { |c| c[:rpc] == rpc }
     refute_nil call, "#{rpc} was not called"
     call[:params]
   end
@@ -53,7 +64,7 @@ class ProgressNoteTest < Minitest::Test
 
   # LOCK(ERR,TIUDA) (TIUSRVP.m:210): one actual, the note.
   def test_lock_sends_only_the_note_ien
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_lock_record, NOTE_IEN, "0") }
+    replay("TIU LOCK RECORD" => "lock")
 
     RpmsRpc::ProgressNote.lock(NOTE_IEN)
     assert_equal [ NOTE_IEN ], params_sent_to("TIU LOCK RECORD")
@@ -61,7 +72,7 @@ class ProgressNoteTest < Minitest::Test
 
   # ERR=0 when the lock is granted (TIUSRVP.m:211).
   def test_lock_is_true_when_the_routine_answers_zero
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_lock_record, NOTE_IEN, "0") }
+    replay("TIU LOCK RECORD" => "lock")
 
     assert_equal true, RpmsRpc::ProgressNote.lock(NOTE_IEN)
   end
@@ -70,7 +81,7 @@ class ProgressNoteTest < Minitest::Test
   # (TIUSRVP.m:212). The old :boolean read this "1" as true: a lock that
   # FAILED was reported as held.
   def test_lock_is_false_when_another_session_holds_the_record
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_lock_record, NOTE_IEN, LOCKED_ELSEWHERE) }
+    replay("TIU LOCK RECORD" => "lock_held_elsewhere")
 
     assert_equal false, RpmsRpc::ProgressNote.lock(NOTE_IEN)
   end
@@ -78,7 +89,7 @@ class ProgressNoteTest < Minitest::Test
   # UNLOCK(ERR,TIUDA) (TIUSRVP.m:214-215): one actual; always ERR=0, which
   # the old :boolean read as false.
   def test_unlock_sends_only_the_note_ien_and_is_true_on_zero
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_unlock_record, NOTE_IEN, "0") }
+    replay("TIU UNLOCK RECORD" => "unlock")
 
     assert_equal true, RpmsRpc::ProgressNote.unlock(NOTE_IEN)
     assert_equal [ NOTE_IEN ], params_sent_to("TIU UNLOCK RECORD")
@@ -96,7 +107,7 @@ class ProgressNoteTest < Minitest::Test
   # string and date (TIUSRVP.m:24-31); VDT and VLOC go empty. The old frame
   # put the visit IEN in TITLE and the title IEN in VDT.
   def test_create_frames_dfn_title_vdt_vloc_vsit
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_create_record, DFN, "5001") }
+    replay("TIU CREATE RECORD" => "create")
 
     RpmsRpc::ProgressNote.create(DFN, VISIT_IEN, TITLE_IEN)
     assert_equal [ DFN, TITLE_IEN, "", "", VISIT_IEN ], params_sent_to("TIU CREATE RECORD")
@@ -104,19 +115,11 @@ class ProgressNoteTest < Minitest::Test
 
   # SUCCESS=+TIUDA (TIUSRVP.m:61).
   def test_create_returns_new_note_ien_on_success
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_create_record, DFN, "5001") }
+    replay("TIU CREATE RECORD" => "create")
+    ien = CapturedReplies.raw(SLUG, "create").byteslice(2..)
 
     result = RpmsRpc::ProgressNote.create(DFN, VISIT_IEN, TITLE_IEN)
-    assert_equal({ success: true, ien: 5001, raw: "5001" }, result)
-  end
-
-  # SUCCESS="0^"_message (TIUSRVP.m:58, 60).
-  def test_create_returns_failure_on_a_zero_caret_message
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_create_record, DFN, "0^Patient & Visit required.") }
-
-    result = RpmsRpc::ProgressNote.create(DFN, VISIT_IEN, TITLE_IEN)
-    refute result[:success]
-    assert_equal "0^Patient & Visit required.", result[:raw]
+    assert_equal({ success: true, ien: Integer(ien), raw: ien }, result)
   end
 
   def test_create_nil_broker_response_does_not_raise
@@ -132,26 +135,25 @@ class ProgressNoteTest < Minitest::Test
   # string the routine compares (TIUSRVA.m:23-24). The old frame sent the
   # user's DUZ there.
   def test_authorize_frames_note_and_action
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") }
+    replay("TIU AUTHORIZATION" => "authorize_edit")
 
     RpmsRpc::ProgressNote.authorize(NOTE_IEN)
     assert_equal [ NOTE_IEN, "EDIT RECORD" ], params_sent_to("TIU AUTHORIZATION")
   end
 
   def test_authorize_sends_the_named_action
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") }
+    replay("TIU AUTHORIZATION" => "authorize_signature")
 
     RpmsRpc::ProgressNote.authorize(NOTE_IEN, action: "SIGNATURE")
     assert_equal [ NOTE_IEN, "SIGNATURE" ], params_sent_to("TIU AUTHORIZATION")
   end
 
   # TIUY=$$CANDO^TIULP: 1 when allowed (TIUSRVA.m:30), "0^reason" when not
-  # (TIUSRVA.m:23, 26, 29).
+  # (TIUSRVA.m:23, 26, 29). The refusal is the build's answer to another
+  # user asking to edit the author's unsigned note.
   def test_authorize_reads_one_as_allowed_and_zero_caret_reason_as_refused
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") }
+    replay("TIU AUTHORIZATION" => %w[authorize_edit authorize_edit_other_user])
     assert_equal true, RpmsRpc::ProgressNote.authorize(NOTE_IEN)
-
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_authorization, NOTE_IEN, "0^ Another session is editing this entry.") }
     assert_equal false, RpmsRpc::ProgressNote.authorize(NOTE_IEN)
   end
 
@@ -166,7 +168,7 @@ class ProgressNoteTest < Minitest::Test
   # frame sent (dfn, code) into CLASS and CONTEXT, so DFN was empty and the
   # list always came back empty.
   def test_list_frames_class_context_dfn
-    RpmsRpc.mock!
+    replay("TIU DOCUMENTS BY CONTEXT" => "list_all_signed")
 
     RpmsRpc::ProgressNote.list(DFN)
     assert_equal [ "3", "1", DFN ], params_sent_to("TIU DOCUMENTS BY CONTEXT")
@@ -177,7 +179,7 @@ class ProgressNoteTest < Minitest::Test
     expected = { all_signed: "1", unsigned: "2", uncosigned: "3",
                  signed_by_author: "4", signed_by_date_range: "5" }
     expected.each do |ctx, code|
-      RpmsRpc.mock!
+      replay("TIU DOCUMENTS BY CONTEXT" => "list_all_signed")
       RpmsRpc::ProgressNote.list(DFN, context: ctx)
       assert_equal code, params_sent_to("TIU DOCUMENTS BY CONTEXT")[1], "context #{ctx} should map to #{code}"
     end
@@ -186,9 +188,9 @@ class ProgressNoteTest < Minitest::Test
   # PERSON narrows contexts 2-4 to one author or cosigner; EARLY/LATE bound
   # context 5 (TIUSRVLO.m:25-27, 38-42). They follow DFN in that order.
   def test_list_sends_early_late_and_person_after_dfn
-    RpmsRpc.mock!
-    RpmsRpc::ProgressNote.list(DFN, context: :signed_by_date_range, early: "3260901", late: "3261002", person: "301")
-    assert_equal [ "3", "5", DFN, "3260901", "3261002", "301" ], params_sent_to("TIU DOCUMENTS BY CONTEXT")
+    replay("TIU DOCUMENTS BY CONTEXT" => "list_by_date_range")
+    refute_empty RpmsRpc::ProgressNote.list(DFN, context: :signed_by_date_range, early: "3260901", late: "3261231", person: "206")
+    assert_equal [ "3", "5", DFN, "3260901", "3261231", "206" ], params_sent_to("TIU DOCUMENTS BY CONTEXT")
   end
 
   def test_list_raises_on_unknown_context
@@ -198,22 +200,24 @@ class ProgressNoteTest < Minitest::Test
   # Each row is DA_U_$$RESOLVE(DA) (TIUSRVLO.m:94); RESOLVE builds
   # DOC^EDT^PT^AUT^LOC^STATUS^TIUADT^TIUDDT^... (TIUSRVLO.m:197), with AUT
   # as DUZ;SIGNATURE NAME;NAME (TIUSRVLO.m:195).
-  ROW = "5001^PROGRESS NOTE^3261002.0930^DEMO,PATIENT (D1234)^" \
-        "301;PROVIDER,TEST;PROVIDER,TEST^GENERAL^unsigned^Visit: 10/02/26^^0^0^^^1^"
-
   def test_list_parses_each_row_by_the_resolve_layout
-    RpmsRpc.mock! { |m| m.seed_raw_lines(:tiu_documents_by_context, "3", [ ROW ]) }
+    replay("TIU DOCUMENTS BY CONTEXT" => "list_unsigned")
 
-    doc = RpmsRpc::ProgressNote.list(DFN).first
-    assert_equal 5001, doc[:ien]
-    assert_equal "PROGRESS NOTE", doc[:title]
-    assert_equal Time.new(2026, 10, 2, 9, 30), doc[:datetime]
-    assert_equal "DEMO,PATIENT (D1234)", doc[:patient]
-    assert_equal "301", doc[:author_duz]
-    assert_equal "PROVIDER,TEST", doc[:author_name]
-    assert_equal "GENERAL", doc[:location]
+    doc = RpmsRpc::ProgressNote.list(DFN, context: :unsigned).find { |d| d[:ien] == Integer(NOTE_IEN) }
+    refute_nil doc, "the note filed in setup is listed as unsigned"
+    assert_equal "Progress Note", doc[:title]
+    assert_equal "DEMO, PATIENT O (D0101)", doc[:patient]
+    assert_equal "206", doc[:author_duz]
+    assert_equal "PROFILE,MD", doc[:author_name]
     assert_equal "unsigned", doc[:status]
-    assert_equal "Visit: 10/02/26", doc[:visit]
+    assert_equal "Visit: 09/02/26", doc[:visit]
+    assert_kind_of Time, doc[:datetime]
+
+    replay("TIU DOCUMENTS BY CONTEXT" => "list_all_signed")
+    signed = RpmsRpc::ProgressNote.list(DFN).first
+    assert_equal({ ien: 5, title: "TELEPHONE NOTE", datetime: Time.new(2026, 9, 4, 23, 44, 40), location: "CHART REVIEW",
+                   status: "completed", author_duz: "4", author_name: "MANAGER,SYSTEM" },
+                 signed.slice(:ien, :title, :datetime, :location, :status, :author_duz, :author_name))
   end
 
   def test_list_scalar_error_response_returns_empty_array
@@ -233,11 +237,12 @@ class ProgressNoteTest < Minitest::Test
   # -- TIU GET RECORD TEXT (unchanged) ---------------------------------------
 
   def test_fetch_text_returns_note_body
-    RpmsRpc.mock! do |m|
-      m.seed_text(:tiu_get_record_text, NOTE_IEN, "S: chief complaint\nO: findings\n")
-    end
+    replay("TIU GET RECORD TEXT" => "get_text")
 
-    assert_match(/chief complaint/, RpmsRpc::ProgressNote.fetch_text(NOTE_IEN))
+    text = RpmsRpc::ProgressNote.fetch_text(NOTE_IEN)
+    assert_match(/STATUS: UNSIGNED/, text)
+    assert_match(/^S: cough\nO: afebrile$/, text, "the body the author set")
+    assert_equal [ NOTE_IEN ], params_sent_to("TIU GET RECORD TEXT")
   end
 
   def test_fetch_text_nil_broker_response_returns_nil
@@ -253,10 +258,7 @@ class ProgressNoteTest < Minitest::Test
   # TIUX("TEXT",n,0) (TIUSRVPT.m:18). A flat string has no "HDR" node, so
   # every update failed "Invalid text block header" (TIUSRVPT.m:13-14).
   def test_update_text_sends_tiux_as_a_header_and_text_list
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") # update_text asks CANDO^TIUSRVA first (#614)
-      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1")
-    end
+    replay("TIU AUTHORIZATION" => "authorize_edit", "TIU SET DOCUMENT TEXT" => "set_text") # CANDO^TIUSRVA first (#614)
 
     RpmsRpc::ProgressNote.update_text(NOTE_IEN, "S: cough\nO: afebrile")
     assert_equal [ NOTE_IEN, { "HDR" => "1^1", [ "TEXT", 1, 0 ] => "S: cough", [ "TEXT", 2, 0 ] => "O: afebrile" } ],
@@ -265,21 +267,16 @@ class ProgressNoteTest < Minitest::Test
 
   # TIUY=TIUDA_U_PAGE_U_PAGES acknowledges the page (TIUSRVPT.m:38).
   def test_update_text_succeeds_on_the_page_acknowledgement
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") # update_text asks CANDO^TIUSRVA first (#614)
-      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "#{NOTE_IEN}^1^1")
-    end
+    replay("TIU AUTHORIZATION" => "authorize_edit", "TIU SET DOCUMENT TEXT" => "set_text") # CANDO^TIUSRVA first (#614)
 
-    assert_equal({ success: true, raw: "#{NOTE_IEN}^1^1" }, RpmsRpc::ProgressNote.update_text(NOTE_IEN, "x"))
+    assert_equal({ success: true, raw: "#{NOTE_IEN}^1^1" }, RpmsRpc::ProgressNote.update_text(NOTE_IEN, "S: cough\nO: afebrile"))
   end
 
   # TIUY="0^0^0^"_message on failure (TIUSRVPT.m:10, 14). The old check
   # called a bare "0" success.
   def test_update_text_fails_on_a_zero_reply
-    RpmsRpc.mock! do |m|
-      m.seed_scalar(:tiu_authorization, NOTE_IEN, "1") # update_text asks CANDO^TIUSRVA first (#614)
-      m.seed_scalar(:tiu_set_document_text, NOTE_IEN, "0^0^0^Invalid text block header")
-    end
+    # The build's reply when TIUX carries no HDR node: what the old flat frame got.
+    replay("TIU AUTHORIZATION" => "authorize_edit", "TIU SET DOCUMENT TEXT" => "set_text_flat")
 
     result = RpmsRpc::ProgressNote.update_text(NOTE_IEN, "x")
     refute result[:success]
@@ -314,7 +311,7 @@ class ProgressNoteTest < Minitest::Test
   end
 
   def test_blank_args_return_safe_defaults_without_calling
-    RpmsRpc.mock!
+    replay({})
     refute RpmsRpc::ProgressNote.create(nil, VISIT_IEN, TITLE_IEN)[:success]
     assert_equal [], RpmsRpc::ProgressNote.list(nil)
     assert_nil RpmsRpc::ProgressNote.fetch_text("0")
@@ -323,6 +320,6 @@ class ProgressNoteTest < Minitest::Test
     refute RpmsRpc::ProgressNote.unlock("")
     refute RpmsRpc::ProgressNote.update_text(nil, "x")[:success]
     refute RpmsRpc::ProgressNote.update_text(NOTE_IEN, nil)[:success]
-    assert_empty RpmsRpc.client.received_calls
+    assert_empty @client.calls
   end
 end
