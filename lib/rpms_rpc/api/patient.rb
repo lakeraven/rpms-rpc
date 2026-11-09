@@ -111,7 +111,7 @@ module RpmsRpc
     #   { success: true, dfn:, created: }           on success,
     #   { success: false, error: Symbol, message: } on rejection
     #     (:duplicate_identity with candidate_dfns; :identity_unverifiable;
-    #      :agg_rejected / :hrn_file_failed), or
+    #      :agg_rejected / :hrn_file_failed / :hrn_already_assigned), or
     #   nil when the add gives no response. A missing lookup response is
     #   :identity_unverifiable and never authorizes an add. Only literal
     #   allow_duplicate: true overrides reviewed lookup candidates.

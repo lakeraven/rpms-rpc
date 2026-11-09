@@ -58,4 +58,30 @@ class RegistrationHrnSourceLiveTest < LiveSpec::Test
                                                       "AGGPTDOB" => second_attrs[:dob].strftime("%m/%d/%Y")),
                  "the refused registration must file nothing"
   end
+
+  # rpms-rpc#610: a derived HRN (HRN := DFN) is filed after the create, past
+  # AG's input transform, so HRN^AGGWVAL's already-assigned check (AGGWVAL.m:101-110)
+  # never ran on it. A legacy number at this facility equal to the next DFN
+  # then went onto a second patient. The derive path now asks AG's check first.
+  # The number is set up the way a legacy chart number arrives: given, on the
+  # patient registered just before, equal to the DFN the next patient gets.
+  def test_a_derived_hrn_that_another_patient_holds_here_is_not_filed
+    probe = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(synthetic(hrn_source: :derive)) }
+    assert probe && probe[:success], "registration failed: #{probe.inspect}"
+    legacy = (probe[:dfn].to_i + 2).to_s
+
+    holder_attrs = synthetic(hrn_source: :given, hrn: legacy)
+    holder = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(holder_attrs) }
+    assert holder && holder[:success], "registration failed: #{holder.inspect}"
+    assert_equal probe[:dfn].to_i + 1, holder[:dfn].to_i,
+                 "this spec needs DFNs handed out in order on a quiet container; got #{holder[:dfn]} after #{probe[:dfn]}"
+
+    attrs = synthetic(hrn_source: :derive)
+    result = RpmsRpc::Registration.with_lookup_client(lookup_client) { RpmsRpc::Patient.register(attrs) }
+    assert_equal legacy, result[:dfn].to_s, "the derived patient's DFN is the legacy number: #{result.inspect}"
+    refute result[:success], "a derived HRN another patient holds here must not be filed: #{result.inspect}"
+    assert_equal :hrn_already_assigned, result[:error]
+    assert_empty filed_hrns(attrs, result[:dfn]).reject(&:empty?), "no HRN is filed on the new chart"
+    assert_includes filed_hrns(holder_attrs, holder[:dfn]).join(" "), legacy, "the holder keeps its number"
+  end
 end
