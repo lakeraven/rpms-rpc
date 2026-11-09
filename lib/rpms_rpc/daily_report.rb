@@ -965,10 +965,11 @@ module RpmsRpc
     class LoopbackPortPicker
       # Distinct ports: every socket is held open until all are chosen.
       def free_loopback_ports(count)
-        servers = Array.new(count) { TCPServer.new("127.0.0.1", 0) }
+        servers = []
+        count.times { servers << TCPServer.new("127.0.0.1", 0) }
         servers.map { |server| server.addr[1] }
       ensure
-        servers&.each(&:close)
+        servers.each(&:close)
       end
     end
 
