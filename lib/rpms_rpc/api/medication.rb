@@ -72,13 +72,13 @@ module RpmsRpc
     # left ORMED undefined and the call died in M (#678). A medication the
     # patient does not have answers "No detailed information found."
     # (ORQQPS.m:63), returned as the text it is. nil, with nothing sent,
-    # for a DFN that is not a positive integer or an id not of that shape.
-    def find(dfn, id)
-      return nil unless dfn.to_s.match?(/\A[1-9]\d*\z/) && id.to_s.match?(MEDICATION_ID)
+    # for a DFN that is not a positive integer or a medication id not of that shape.
+    def find(dfn, medication_id)
+      return nil unless dfn.to_s.match?(/\A[1-9]\d*\z/) && medication_id.to_s.match?(MEDICATION_ID)
 
-      DataMapper.medication_detail.fetch_text(dfn.to_s, id.to_s)
+      DataMapper.medication_detail.fetch_text(dfn.to_s, medication_id.to_s)
     end
-    shape :find, resource: "medications", verb: "GET", path: "/patients/{dfn}/medications/{id}"
+    shape :find, resource: "medications", verb: "GET", path: "/patients/{dfn}/medications/{medication_id}"
 
     private
 

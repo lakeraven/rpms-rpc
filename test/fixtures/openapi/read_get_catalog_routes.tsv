@@ -51,7 +51,7 @@ RpmsRpc::Measurement.for_visit	GET /visits/{visit_ien}/measurements
 RpmsRpc::Measurement.latest	GET /patients/{dfn}/measurements/latest
 RpmsRpc::Measurement.newest_by_type	GET /patients/{dfn}/measurements/newest-by-type
 RpmsRpc::Medication.active_for_patient	GET /patients/{dfn}/medications/active
-RpmsRpc::Medication.find	GET /patients/{dfn}/medications/{id}
+RpmsRpc::Medication.find	GET /patients/{dfn}/medications/{medication_id}
 RpmsRpc::Medication.for_patient	GET /patients/{dfn}/medications
 RpmsRpc::NoteTemplate.access_level	GET /note-templates/{template_ien}/access-level
 RpmsRpc::NoteTemplate.boilerplate	GET /note-templates/{template_ien}/boilerplate
