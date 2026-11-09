@@ -1,15 +1,27 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/mock_client"
+require "rpms_rpc"
 require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/coverage"
+require_relative "../captured_replies"
 
-# Hermetic contract for RpmsRpc::Coverage.delete_private_insurance (rpms-rpc#382):
-# verify ownership on #9000006.11 with one DDR GETS ENTRY DATA read, one DDR FILER
-# "@" row, confirm absence with a DDR LISTER of the patient's policy rows — never
-# AGG UPDATE PRIVATE INSUR PROC D.
+# RpmsRpc::Coverage.delete_private_insurance (rpms-rpc#382): verify ownership on
+# #9000006.11 with one DDR GETS ENTRY DATA read, one DDR FILER "@" row, confirm
+# absence with a DDR LISTER of the patient's policy rows; never AGG UPDATE
+# PRIVATE INSUR PROC D.
+#
+# The replies are the build's (test/fixtures/captured_replies/coverage.yml):
+# a policy filed for demo patient 990048 by add_private_insurance, then deleted
+# as PROFILE,REG on a throwaway container, recorded as flows and replayed
+# through CiaClient.
+#
+# Not captured, so not tested here: a filer error, an owner read or lister that
+# errors or does not answer, a lister that still lists the record after the
+# delete, and the v1 packed lister shape. The build sent none of these; they
+# were tested against replies written by hand, which ADR 0009 retires.
 class CoveragePrivateDeleteTest < Minitest::Test
+  SLUG = "coverage"
   Cov = RpmsRpc::Coverage
   Ddr = RpmsRpc::DdrFileman
 
@@ -17,522 +29,114 @@ class CoveragePrivateDeleteTest < Minitest::Test
   PRIVATE_AGG_RPC = "AGG UPDATE PRIVATE INSUR"
   FILEMAN_CONTEXT = "CIAV VUECENTRIC"
 
-  DFN = "990049"
-  RECORD = "7"
-
-  class RecordingClient
-    include RpmsRpc::ContextScope
-
-    attr_reader :calls
-
-    def initialize(replies = {})
-      @replies = replies
-      @sequences = Hash.new { |h, k| h[k] = [] }
-      @calls = []
-      @current_context = RpmsRpc::MockClient::DEFAULT_CONTEXT
-    end
-
-    def create_context(name)
-      @current_context = name
-      true
-    end
-
-    def current_context = @current_context
-
-    def queue(key, *bodies)
-      @sequences[key].concat(bodies)
-    end
-
-    def call_rpc(rpc, *params)
-      @calls << [ rpc, *params, @current_context ]
-      body = dequeue_reply(rpc, params)
-      return [] if body.nil?
-
-      body.is_a?(Array) ? body : body.to_s.split(/\r?\n/)
-    end
-
-    def call_rpc_global_array(rpc, *params)
-      @calls << [ rpc, *params.map(&:to_s), @current_context ]
-      body = dequeue_reply(rpc, params.map(&:to_s))
-      body || ""
-    end
-
-    private
-
-    def dequeue_reply(rpc, params)
-      key = reply_key(rpc, params)
-      @sequences[key].shift || @replies[key] || @replies[rpc]
-    end
-
-    def reply_key(rpc, params)
-      case rpc
-      when "DDR GETS ENTRY DATA", "DDR FILER", "DDR LISTER"
-        [ rpc, params.first.to_s ].join("\0")
-      else
-        [ rpc, *params.map(&:to_s) ].join("\0")
-      end
-    end
-  end
-
-  def setup
-    RpmsRpc.mock!
-  end
+  DFN = "990048"
+  OTHER_DFN = "990049"
+  RECORD = "1"
 
   def teardown
     RpmsRpc.reset!
   end
 
-  def gets_key(record_ien, dfn)
-    param = Ddr.gets_entry_param(file: PRIVATE_FILE, iens: "#{record_ien},#{dfn},", fields: ".01", flags: "I")
-    [ "DDR GETS ENTRY DATA", param.to_s ].join("\0")
+  def replay(script = {})
+    client = CapturedReplies::ReplayCiaClient.new(script)
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
   end
 
-  def lister_key(dfn = DFN, **overrides)
-    param = expected_lister_param(dfn, **overrides)
-    [ "DDR LISTER", param.to_s ].join("\0")
+  def replay_flow(name) = replay(CapturedReplies.flow_script(SLUG, name))
+
+  def rpcs(client) = client.rpcs_called.grep(String)
+
+  def expected_lister_param(dfn = DFN)
+    Ddr.lister_param(file: PRIVATE_FILE, iens: ",#{dfn},", fields: "@;.01", flags: "IP", max: "*", xref: "#")
   end
 
-  def packed_lister_body(*rows)
-    lines = [ "[BEGIN_diDATA]" ] + rows.map(&:to_s) + [ "[END_diDATA]" ]
-    lines.join("\n")
-  end
+  def test_delete_files_one_at_row_after_one_owner_read_and_confirms_with_lister
+    client = replay_flow("delete_private")
 
-  def v0_lister_body(*rows)
-    ([ "[Data]" ] + rows.map(&:to_s)).join("\n")
-  end
-
-  def seed_owner!(client, record_ien: RECORD, dfn: DFN, insurer_ien: "5")
-    key = gets_key(record_ien, dfn)
-    body = "[Data]\n#{PRIVATE_FILE}^#{record_ien},#{dfn},^.01^#{insurer_ien}^#{insurer_ien}\n"
-    client.instance_eval { @replies[key] = body }
-  end
-
-  def seed_empty_owner!(client, record_ien: RECORD, dfn: DFN)
-    key = gets_key(record_ien, dfn)
-    body = "[Data]\n#{PRIVATE_FILE}^#{record_ien},#{dfn},^.01^^\n"
-    client.instance_eval { @replies[key] = body }
-  end
-
-  def seed_absent_gets!(client, record_ien: RECORD, dfn: DFN)
-    key = gets_key(record_ien, dfn)
-    client.instance_eval { @replies[key] = "[Errors]\n" }
-  end
-
-  def seed_filer_ok!(client)
-    key = [ "DDR FILER", "EDIT" ].join("\0")
-    client.instance_eval { @replies[key] = "[Data]\n" }
-  end
-
-  def seed_filer_fail!(client, message: "The entry does not exist.")
-    key = [ "DDR FILER", "EDIT" ].join("\0")
-    body = "[Data]\n[BEGIN_diERRORS]\n701^1^.01^#{PRIVATE_FILE}\n#{message}\n[END_diERRORS]"
-    client.instance_eval { @replies[key] = body }
-  end
-
-  def seed_lister!(client, body, dfn: DFN, **overrides)
-    key = lister_key(dfn, **overrides)
-    client.instance_eval { @replies[key] = body }
-  end
-
-  def ddr_gets_calls(client)
-    client.calls.select { |call| call.first == "DDR GETS ENTRY DATA" }
-  end
-
-  def filer_calls(client)
-    client.calls.select { |call| call.first == "DDR FILER" }
-  end
-
-  def lister_calls(client)
-    client.calls.select { |call| call.first == "DDR LISTER" }
-  end
-
-  def agg_private_calls(client)
-    client.calls.select { |call| call.first == PRIVATE_AGG_RPC }
-  end
-
-  def ddr_call_order(client)
-    client.calls.map(&:first).grep(/\AD(?:DR GETS ENTRY DATA|DR FILER|DR LISTER)\z/)
-  end
-
-  def expected_lister_param(dfn = DFN, **overrides)
-    Ddr.lister_param(file: PRIVATE_FILE, iens: ",#{dfn},", fields: "@;.01", flags: "IP", max: "*", xref: "#", **overrides)
-  end
-
-  def test_delete_private_insurance_files_one_at_row_after_one_owner_read_and_confirms_with_lister
-    client = RecordingClient.new
-    seed_owner!(client)
-    seed_filer_ok!(client)
-    seed_lister!(client, packed_lister_body("8^5"))
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
+    result = Cov.delete_private_insurance(DFN, record_ien: RECORD)
 
     assert_equal({ success: true, record_ien: RECORD }, result)
-    assert_equal 1, ddr_gets_calls(client).size
-    assert_equal 1, filer_calls(client).size
-    rows = filer_calls(client).first[2]
-    assert_equal({ 1 => "#{PRIVATE_FILE}^.01^#{RECORD},#{DFN},^@" }, rows)
-    assert_equal 1, lister_calls(client).size
-    assert_equal expected_lister_param, lister_calls(client).first[1]
-    assert_equal [ "DDR GETS ENTRY DATA", "DDR FILER", "DDR LISTER" ], ddr_call_order(client)
-    ddr = client.calls.select { |call| call.first.start_with?("DDR") }
-    assert(ddr.all? { |call| call.last == FILEMAN_CONTEXT }, "every DDR call runs in #{FILEMAN_CONTEXT}")
-    assert_empty agg_private_calls(client)
+    assert_equal [ "DDR GETS ENTRY DATA", "DDR FILER", "DDR LISTER" ], rpcs(client)
+    calls = client.calls.reject { |c| c[:rpc] == :create_context }
+    assert_equal [ { "FILE" => PRIVATE_FILE, "IENS" => "#{RECORD},#{DFN},", "FIELDS" => ".01", "FLAGS" => "I" } ],
+                 calls[0][:params]
+    assert_equal({ 1 => "#{PRIVATE_FILE}^.01^#{RECORD},#{DFN},^@" }, calls[1][:params][1])
+    assert_equal expected_lister_param.to_h, calls[2][:params].first
+    assert_equal FILEMAN_CONTEXT, client.current_context
+    assert_equal CapturedReplies.flow_calls(SLUG, "delete_private"), calls.map { |c| [ c[:rpc], c[:params] ] }
   end
 
-  def test_delete_private_insurance_refuses_when_the_row_is_not_verified_for_the_patient
-    client = RecordingClient.new
-    seed_empty_owner!(client)
+  # A record that is not on file under that patient (the build answers the
+  # owner read with an error block, and the patient's list omits it) is
+  # already absent: nothing is filed.
+  def test_a_record_not_on_file_for_the_patient_is_already_absent_without_a_filer
+    client = replay_flow("delete_private_other_patient")
 
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
+    result = Cov.delete_private_insurance(OTHER_DFN, record_ien: RECORD)
 
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_empty filer_calls(client)
-    assert_equal 1, lister_calls(client).size
-    assert_equal expected_lister_param, lister_calls(client).first[1]
-    assert_empty agg_private_calls(client)
-  end
-
-  def test_delete_private_insurance_already_absent_when_owner_read_is_blank_and_packed_list_omits_the_record
-    client = RecordingClient.new
-    seed_empty_owner!(client)
-    seed_lister!(client, packed_lister_body("8^5"))
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    refute result[:success]
     assert_equal :already_absent, result[:error]
-    assert_equal RECORD, result[:record_ien]
-    refute result[:message].to_s.strip.empty?
-    assert_empty filer_calls(client)
-    assert_equal 1, lister_calls(client).size
-    assert_empty agg_private_calls(client)
-  end
-
-  def test_delete_private_insurance_fails_closed_when_the_owner_read_does_not_answer
-    client = RecordingClient.new
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
     refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_empty filer_calls(client)
-    assert_empty lister_calls(client)
-    assert_empty agg_private_calls(client)
+    assert_equal [ "DDR GETS ENTRY DATA", "DDR LISTER" ], rpcs(client)
   end
 
-  def test_delete_private_insurance_fails_closed_when_the_owner_read_errors
-    client = RecordingClient.new
-    seed_absent_gets!(client)
+  def test_a_repeat_delete_is_already_absent_without_a_second_filer
+    client = replay_flow("delete_private_again")
 
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
+    result = Cov.delete_private_insurance(DFN, record_ien: RECORD)
 
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_empty filer_calls(client)
-    assert_equal 1, lister_calls(client).size
-    assert_empty agg_private_calls(client)
+    assert_equal({ success: false, error: :already_absent, message: "private insurance 1 is not on file for patient 990048",
+                   record_ien: RECORD }, result)
+    refute_includes rpcs(client), "DDR FILER"
   end
 
-  def test_delete_private_insurance_already_absent_when_owner_read_errors_and_packed_list_omits_the_record
-    client = RecordingClient.new
-    seed_absent_gets!(client)
-    seed_lister!(client, packed_lister_body("8^5"))
+  def test_delete_never_calls_agg_update_private_insur
+    client = replay_flow("delete_private")
 
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
+    Cov.delete_private_insurance(DFN, record_ien: RECORD)
 
-    refute result[:success]
-    assert_equal :already_absent, result[:error]
-    assert_equal RECORD, result[:record_ien]
-    refute result[:message].to_s.strip.empty?
-    assert_empty filer_calls(client)
-    assert_equal 1, lister_calls(client).size
-    assert_equal expected_lister_param, lister_calls(client).first[1]
-    assert_empty agg_private_calls(client)
+    refute_includes rpcs(client), PRIVATE_AGG_RPC
   end
 
-  def test_delete_private_insurance_fails_closed_when_owner_read_errors_and_packed_list_still_has_the_record
-    client = RecordingClient.new
-    seed_absent_gets!(client)
-    seed_lister!(client, packed_lister_body("#{RECORD}^5", "8^5"))
+  # add_private_insurance with no end date files the policy, then the build
+  # dies in UPOL^AGGUPPVT on the AGGPHEED the gem did not send, and the reply
+  # stops after its header (rpms-rpc#688). This pins what the gem reports today.
+  def test_add_private_insurance_without_an_end_date_reports_failure_today
+    replay_flow("add_private")
 
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
+    result = Cov.add_private_insurance(DFN, insurer_ien: "1", policy_holder: "ZZCOV,HOLDER", member_number: "ZZ0001",
+                                            effective_on: "11/01/2026")
 
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_empty filer_calls(client)
-    assert_equal 1, lister_calls(client).size
-    assert_empty agg_private_calls(client)
+    assert_equal :coverage_empty_reply, result[:error]
   end
 
-  def test_delete_private_insurance_fails_closed_when_owner_read_errors_and_lister_has_more_continuation
-    client = RecordingClient.new
-    seed_absent_gets!(client)
-    seed_lister!(client, "[Misc]\nMORE^POLICY,OTHER^8\n#{packed_lister_body("8^5")}")
+  # ...yet the policy is on file.
+  def test_the_policy_reads_back_on_file
+    replay_flow("on_file_private")
 
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
+    policy = Cov.on_file(DFN)[:private].first
 
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_empty filer_calls(client)
-    assert_equal 1, lister_calls(client).size
-    assert_empty agg_private_calls(client)
+    assert_equal({ record_ien: RECORD, payer: "RAILROAD RETIREMENT", payer_ien: "1", number: "ZZ0001",
+                   policy_holder: "ZZCOV,HOLDER", starts_on: Date.new(2026, 11, 1), ends_on: nil, active: true }, policy)
   end
 
-  def test_delete_private_insurance_fails_when_lister_still_lists_the_record
-    client = RecordingClient.new
-    seed_owner!(client)
-    seed_filer_ok!(client)
-    seed_lister!(client, packed_lister_body("#{RECORD}^5", "8^5"))
+  # -- guards: nothing reaches the wire ----------------------------------------
 
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
+  def test_delete_rejects_a_bad_record_ien_before_wire
+    client = replay
 
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_equal 1, filer_calls(client).size
-    assert_equal 1, lister_calls(client).size
-    assert_empty agg_private_calls(client)
-  end
-
-  def test_delete_private_insurance_fails_closed_when_post_delete_lister_gives_no_reply
-    client = RecordingClient.new
-    seed_owner!(client)
-    seed_filer_ok!(client)
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_equal 1, filer_calls(client).size
-    assert_equal 1, lister_calls(client).size
-    assert_empty agg_private_calls(client)
-  end
-
-  def test_delete_private_insurance_fails_closed_when_post_delete_lister_errors
-    client = RecordingClient.new
-    seed_owner!(client)
-    seed_filer_ok!(client)
-    seed_lister!(client, "[Data]\n[Errors]")
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_equal 1, filer_calls(client).size
-    assert_equal 1, lister_calls(client).size
-    assert_empty agg_private_calls(client)
-  end
-
-  def test_delete_private_insurance_fails_closed_when_post_delete_lister_has_no_data_section
-    client = RecordingClient.new
-    seed_owner!(client)
-    seed_filer_ok!(client)
-    seed_lister!(client, "[Misc]\nMORE^POLICY,OTHER^42")
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_equal 1, filer_calls(client).size
-    assert_equal 1, lister_calls(client).size
-    assert_empty agg_private_calls(client)
-  end
-
-  def test_delete_private_insurance_fails_closed_when_post_delete_lister_has_more_continuation
-    client = RecordingClient.new
-    seed_owner!(client)
-    seed_filer_ok!(client)
-    seed_lister!(client, "[Misc]\nMORE^POLICY,OTHER^8\n[Data]\n6^5")
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_equal 1, filer_calls(client).size
-    assert_equal 1, lister_calls(client).size
-    assert_empty agg_private_calls(client)
-  end
-
-  def test_delete_private_insurance_surfaces_filer_errors_as_delete_failed
-    client = RecordingClient.new
-    seed_owner!(client)
-    seed_filer_fail!(client)
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    refute result[:success]
-    assert_equal :delete_failed, result[:error]
-    assert_includes result[:message].to_s, "does not exist"
-    assert_equal 1, filer_calls(client).size
-    assert_empty lister_calls(client)
-    assert_empty agg_private_calls(client)
-  end
-
-  def test_delete_private_insurance_post_delete_lister_param_is_packed_ip_and_walks_record_numbers
-    client = RecordingClient.new
-    seed_owner!(client)
-    seed_filer_ok!(client)
-    seed_lister!(client, packed_lister_body("8^5"))
-
-    Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    assert_equal 1, lister_calls(client).size
-    assert_equal expected_lister_param, lister_calls(client).first[1]
-  end
-
-  def test_delete_private_insurance_confirms_deletion_with_v1_packed_lister_reply
-    client = RecordingClient.new
-    seed_owner!(client)
-    seed_filer_ok!(client)
-    seed_lister!(client, packed_lister_body("8^5"))
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    assert_equal({ success: true, record_ien: RECORD }, result)
-  end
-
-  def test_delete_private_insurance_verification_failed_when_v1_packed_lister_still_lists_the_record
-    client = RecordingClient.new
-    seed_owner!(client)
-    seed_filer_ok!(client)
-    seed_lister!(client, packed_lister_body("#{RECORD}^5"))
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_equal 1, filer_calls(client).size
-    assert_equal 1, lister_calls(client).size
-  end
-
-  def test_delete_private_insurance_confirms_deletion_with_v0_lister_reply
-    client = RecordingClient.new
-    seed_owner!(client)
-    seed_filer_ok!(client)
-    seed_lister!(client, v0_lister_body("8^5"))
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    assert_equal({ success: true, record_ien: RECORD }, result)
-  end
-
-  def test_delete_private_insurance_verification_failed_when_v0_lister_still_lists_the_record
-    client = RecordingClient.new
-    seed_owner!(client)
-    seed_filer_ok!(client)
-    seed_lister!(client, v0_lister_body("#{RECORD}^5"))
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_equal 1, filer_calls(client).size
-    assert_equal 1, lister_calls(client).size
-  end
-
-  def test_delete_private_insurance_already_absent_when_owner_read_errors_and_v0_list_omits_the_record
-    client = RecordingClient.new
-    seed_absent_gets!(client)
-    seed_lister!(client, v0_lister_body("8^5"))
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    refute result[:success]
-    assert_equal :already_absent, result[:error]
-    assert_equal RECORD, result[:record_ien]
-    refute result[:message].to_s.strip.empty?
-    assert_empty filer_calls(client)
-    assert_equal 1, lister_calls(client).size
-    assert_equal expected_lister_param, lister_calls(client).first[1]
-    assert_empty agg_private_calls(client)
-  end
-
-  def test_delete_private_insurance_verification_failed_when_owner_read_errors_and_lister_errors_only
-    client = RecordingClient.new
-    seed_absent_gets!(client)
-    seed_lister!(client, "[BEGIN_diERRORS]\n701^1^.01^#{PRIVATE_FILE}\nList failed.\n[END_diERRORS]")
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_empty filer_calls(client)
-    assert_equal 1, lister_calls(client).size
-    assert_empty agg_private_calls(client)
-  end
-
-  def test_delete_private_insurance_verification_failed_when_owner_read_errors_and_lister_is_bare_broker_text
-    client = RecordingClient.new
-    seed_absent_gets!(client)
-    seed_lister!(client, "SOME BROKER TEXT")
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    refute result[:success]
-    assert_equal :verification_failed, result[:error]
-    assert_empty filer_calls(client)
-    assert_equal 1, lister_calls(client).size
-    assert_empty agg_private_calls(client)
-  end
-
-  def test_delete_private_insurance_repeat_delete_returns_already_absent_without_second_filer
-    client = RecordingClient.new
-    seed_owner!(client)
-    seed_filer_ok!(client)
-    seed_lister!(client, packed_lister_body("8^5"))
-
-    first = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-    assert_equal({ success: true, record_ien: RECORD }, first)
-    assert_equal 1, filer_calls(client).size
-
-    seed_absent_gets!(client)
-    seed_lister!(client, packed_lister_body("8^5"))
-
-    second = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    refute second[:success]
-    assert_equal :already_absent, second[:error]
-    assert_equal RECORD, second[:record_ien]
-    refute second[:message].to_s.strip.empty?
-    assert_equal 1, filer_calls(client).size
-    assert_equal 2, lister_calls(client).size
-    assert_empty agg_private_calls(client)
-  end
-
-  def test_delete_private_insurance_rejects_bad_record_ien_before_wire
-    client = RecordingClient.new
-    RpmsRpc.configure { |c| c.client = client }
-
-    bad_values = [ "", "0", "-1", "1.5", "abc", "7^1", "7,1", "7&1", "7[1", "7]1" ]
-    bad_values.each do |bad|
-      assert_raises(ArgumentError) { Cov.delete_private_insurance(DFN, record_ien: bad, client: client) }
+    [ "", "0", "-1", "1.5", "abc", "7^1", "7,1", "7&1", "7[1", "7]1" ].each do |bad|
+      assert_raises(ArgumentError) { Cov.delete_private_insurance(DFN, record_ien: bad) }
     end
     assert_empty client.calls
   end
 
-  def test_delete_private_insurance_invalid_dfn_returns_nil_with_no_calls
-    client = RecordingClient.new
+  def test_delete_with_an_invalid_dfn_returns_nil_with_no_calls
+    client = replay
 
-    bad_values = [
-      nil, "", "0", "-1", "abc",
-      "990049^1", "990049,1", "990049&1", "990049[1", "990049]1",
-      "^", ",", "&", "[", "]"
-    ]
-    bad_values.each do |bad|
-      assert_nil Cov.delete_private_insurance(bad, record_ien: RECORD, client: client)
+    [ nil, "", "0", "-1", "abc", "990049^1", "990049,1", "990049&1", "990049[1", "990049]1", "^", ",", "&", "[", "]" ].each do |bad|
+      assert_nil Cov.delete_private_insurance(bad, record_ien: RECORD)
     end
     assert_empty client.calls
-  end
-
-  def test_delete_private_insurance_never_calls_agg_update_private_insur_on_success
-    client = RecordingClient.new
-    seed_owner!(client)
-    seed_filer_ok!(client)
-    seed_lister!(client, packed_lister_body)
-
-    result = Cov.delete_private_insurance(DFN, record_ien: RECORD, client: client)
-
-    assert_equal({ success: true, record_ien: RECORD }, result)
-    assert_empty agg_private_calls(client)
   end
 end

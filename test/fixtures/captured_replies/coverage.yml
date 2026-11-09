@@ -1,0 +1,393 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb coverage.rb.
+---
+rpc: AGG UPDATE MEDICARE
+entry_point: UPD^AGGUPMCR
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T16:55:30Z'
+note: Run on a throwaway container. Medicare number 1EG4TE5MK73 is the CMS example
+  MBI; names are synthetic. Each flow's record and multiple IENs are the ones the
+  flow before it filed.
+captures:
+- name: bqi_none/1
+  rpc: BQI PATIENT INSURANCE
+  signed_on_as: 'SYS123 (the build''s operator, MANAGER,SYSTEM): BQIRPC answers only
+    the operator on this build'
+  inputs:
+  - '990048'
+  context: for_patient before any coverage is filed
+  raw_return: "5\0T00100INSURANCE_COVERAGE^D00015EFFECTIVE_DATE\x1E"
+  sha256: 37311317485745644da4705038fb4a0cba168f67424926d828c9331df6beb9f6
+- name: add_medicare/1
+  rpc: AGG UPDATE MEDICARE
+  inputs:
+  - '990048'
+  - A
+  - Medicare
+  - ''
+  - "AGGMCROI=11/01/2026\x1CAGGMCNME=ZZCOV,MEDICARE\x1CAGGMCNUM=1EG4TE5MK73\x1CAGGMCSUF=A"
+  context: 'add_medicare: header (ROI, name, number, suffix) then the eligibility
+    row'
+  raw_return: "5\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^990048^\x1E"
+  sha256: 614f59f5f6e522091ae49f16fb949a5e9713a8d787cbfc664aabe9bed6a90bf0
+- name: add_medicare/2
+  rpc: AGG UPDATE MEDICARE
+  inputs:
+  - '990048'
+  - A
+  - Medicare Eligibility
+  - ''
+  - AGGMCESD=11/01/2026
+  context: 'add_medicare: header (ROI, name, number, suffix) then the eligibility
+    row'
+  raw_return: "6\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^990048^1\x1E"
+  sha256: 9ec4153545751c807db7709177443437159e15132ff7dd09233d8163e2cd3a0d
+- name: add_medicaid/1
+  rpc: AGG UPDATE MEDICAID
+  inputs:
+  - '990048'
+  - A
+  - Medicaid
+  - ''
+  - ''
+  - ''
+  context: 'add_medicaid: the record then its FULL eligibility row'
+  raw_return: "5\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^3^\x1E"
+  sha256: 2f393657fe8ae0e2b4dea2e5fc86f6a9a78dd5147a32b9e176b6b4eda971de1c
+- name: add_medicaid/2
+  rpc: AGG UPDATE MEDICAID
+  inputs:
+  - '990048'
+  - A
+  - Medicaid Eligibility
+  - '3'
+  - ''
+  - "AGGMDESD=11/01/2026\x1CAGGMDECV=FULL"
+  context: 'add_medicaid: the record then its FULL eligibility row'
+  raw_return: "6\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^3^3261101\x1E"
+  sha256: 9bf54f3062246c678ddbd911669e44a4a76df3b5bd86dbe74f3a3e2e2c4baf66
+- name: bqi_both/1
+  rpc: BQI PATIENT INSURANCE
+  signed_on_as: 'SYS123 (the build''s operator, MANAGER,SYSTEM): BQIRPC answers only
+    the operator on this build'
+  inputs:
+  - '990048'
+  context: for_patient with Medicare and Medicaid on file
+  raw_return: "5\0T00100INSURANCE_COVERAGE^D00015EFFECTIVE_DATE\x1EMEDICARE ^NOV 1,
+    2026\x1EMEDICAID FULL^NOV 1, 2026\x1E"
+  sha256: 9aab5856856027c5ed05fdd2a752b4705efd5be3136ba9835ca92fa693af5661
+- name: on_file_both/1
+  rpc: AGG BUILD WINDOW MANY
+  inputs:
+  - Medicaid
+  - B
+  - '990048'
+  context: on_file with Medicare and Medicaid on file
+  raw_return: "5\0T00030AGGMDNME^T00030AGGMDNUM^D00015AGGMDDOB^T00030AGGMDINS^T00040AGGMDSTE^T00040AGGMDPLN^T00007AGGMDCCF^D00015AGGMDCRD^T00040AGGMDREL^T00040AGGMDGRP^T00017AGGMDGRN^T00035AGGMDINM^T00035AGGMDPCP^T00006AGGMDRCD^I00010RIEN^T00010SEQNBR^D00015AGGMDESD^D00015AGGMDEED^T00015AGGMDSTS^D00015AGGLSTDT\x1E^^^MEDICAID^\x1C^\x1C^\x1C^^\x1C^\x1C^\x1C^^^^3^^^^ACTIVE^\x1E"
+  sha256: 4728981ca88985d9d84d844652db95c988ded601e75fb751f5467aec73b6cc09
+- name: on_file_both/2
+  rpc: AGG BUILD WINDOW MULTIPLE
+  inputs:
+  - Medicaid Eligibility
+  - '11'
+  - '3'
+  - ''
+  context: on_file with Medicare and Medicaid on file
+  raw_return: "6\0D00015AGGMDESD^D00015AGGMDEED^T00002AGGMDECV^I00010MIEN\x1ENOV 1,2026^^FULL^3261101\x1E"
+  sha256: a40d81a7384f3f0fb554a349ac7660b6561d1eb001dd003e9e33d3a85f3c8c99
+- name: on_file_both/3
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Medicare
+  - '990048'
+  context: on_file with Medicare and Medicaid on file
+  raw_return: "7\0T00035AGGMCNME^T00009AGGMCNUM^T00007AGGMCSUF^T00040AGGMCINS^T00030AGGMCPCP^D00015AGGMCDOB^T00007AGGMCCCF^D00015AGGMCCRD^T00010AGGMCQMB^D00015AGGMCROI^T01024MCELIG^T00010SEQNBR^D00015AGGLSTDT^T00015AGGMCSTS^D00015AGGMCIMP^D00015AGGMCABN\x1EZZCOV,MEDICARE^1EG4TE5MK73^A\x1C^2\x1CMEDICARE^^^^^^NOV
+    1,2026^^1^^ACTIVE^^\x1E"
+  sha256: a770f9af0f0508212fab923529934d7b4f49ca89947094b09e7b07f5f993a707
+- name: on_file_both/4
+  rpc: AGG BUILD WINDOW MULTIPLE
+  inputs:
+  - Medicare Eligibility
+  - '11'
+  - '990048'
+  - ''
+  context: on_file with Medicare and Medicaid on file
+  raw_return: "8\0D00015AGGMCESD^T00005AGGMCCOV^D00015AGGMCEED^T00030AGGMCPN^T00030AGGMCMN^T00030AGGMCIDN^T00010AGGMCPC^T00010AGGMCG^D00015AGGMRDOB^T00030AGGMCGN^I00010MIEN\x1ENOV
+    1,2026^NOV 1,2026^^\x1C^^^^^^\x1C^1\x1E"
+  sha256: 8e2ab6def0cc72161a17976321ba49e6d59ceef4be67dbb0630110f4c2787770
+- name: on_file_both/5
+  rpc: AGG BUILD WINDOW MULTIPLE
+  inputs:
+  - Private Insurance
+  - '11'
+  - '990048'
+  - ''
+  context: on_file with Medicare and Medicaid on file
+  raw_return: "9\0T00040AGGPIINS^T00010AGGPIPCD^T00035AGGPIPCP^T00007AGGPICCF^D00016AGGPICRD^T00020AGGPIMBN^T00050AGGPIREL^T00040AGGPIHLN^I00010AGGPLIEN^T00010SEQNBR^D00015AGGPIESD^D00015AGGPIEED^T00010AGGPISTS^T00020AGGINADR^T00050AGGINCSZ^T00020AGGINPHN^I00010AGGPIIEN\x1E"
+  sha256: b0352042f3584e4b15d082e6d75181a5925507d1561bd213ab969469934b9e13
+- name: delete_medicare_record_with_rows/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000003'
+    IENS: 990048,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'delete_medicare_record while the eligibility row remains: refused before
+    any delete'
+  raw_return: "5\0[Data]\r9000003^990048^.01^990048^\r"
+  sha256: bbf4e0daa3fed0d3b0f39c104d970fccc550c3e45a37a5af31826257eb3bc9af
+- name: delete_medicare_record_with_rows/2
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000003.11'
+    IENS: ",990048,"
+    FIELDS: "@;.01"
+    FLAGS: IP
+  context: 'delete_medicare_record while the eligibility row remains: refused before
+    any delete'
+  raw_return: "6\0[Data]\r1^3261101\r"
+  sha256: aba45ac2432c3ea3216d6107ea36c228fc9485f12fbd80291d80e2a7fd7c033e
+- name: delete_medicaid_other_patient/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000004'
+    IENS: 3,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'delete_medicaid naming another patient: the ownership read refuses it'
+  raw_return: "5\0[Data]\r9000004^3^.01^990048^\r"
+  sha256: 76f92be9fdeedbbc811cf13c64263eb5adf17b15f9ee6c7ec3cf731fb2af0681
+- name: delete_medicare/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000003'
+    IENS: 990048,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'delete_medicare: the eligibility row the add filed'
+  raw_return: "5\0[Data]\r9000003^990048^.01^990048^\r"
+  sha256: bbf4e0daa3fed0d3b0f39c104d970fccc550c3e45a37a5af31826257eb3bc9af
+- name: delete_medicare/2
+  rpc: AGG UPDATE MEDICARE
+  inputs:
+  - '990048'
+  - D
+  - Medicare Eligibility
+  - '1'
+  - ''
+  context: 'delete_medicare: the eligibility row the add filed'
+  raw_return: "6\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^990048^1\x1E"
+  sha256: 9ec4153545751c807db7709177443437159e15132ff7dd09233d8163e2cd3a0d
+- name: delete_medicaid/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000004'
+    IENS: 3,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'delete_medicaid: the eligibility row the add filed'
+  raw_return: "5\0[Data]\r9000004^3^.01^990048^\r"
+  sha256: 76f92be9fdeedbbc811cf13c64263eb5adf17b15f9ee6c7ec3cf731fb2af0681
+- name: delete_medicaid/2
+  rpc: AGG UPDATE MEDICAID
+  inputs:
+  - '990048'
+  - D
+  - Medicaid Eligibility
+  - '3'
+  - '3261101'
+  - ''
+  context: 'delete_medicaid: the eligibility row the add filed'
+  raw_return: "6\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^3^3261101\x1E"
+  sha256: 9bf54f3062246c678ddbd911669e44a4a76df3b5bd86dbe74f3a3e2e2c4baf66
+- name: delete_medicare_record/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000003'
+    IENS: 990048,
+    FIELDS: ".01"
+    FLAGS: I
+  context: delete_medicare_record once no eligibility row remains
+  raw_return: "5\0[Data]\r9000003^990048^.01^990048^\r"
+  sha256: bbf4e0daa3fed0d3b0f39c104d970fccc550c3e45a37a5af31826257eb3bc9af
+- name: delete_medicare_record/2
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000003.11'
+    IENS: ",990048,"
+    FIELDS: "@;.01"
+    FLAGS: IP
+  context: delete_medicare_record once no eligibility row remains
+  raw_return: "6\0[Data]\r"
+  sha256: 3e6f5d579b94fddc53fc3d163468464cab1e01778d1c2d2a7ceb162cb6dd8872
+- name: delete_medicare_record/3
+  rpc: AGG UPDATE MEDICARE
+  inputs:
+  - '990048'
+  - D
+  - Medicare
+  - ''
+  - ''
+  context: delete_medicare_record once no eligibility row remains
+  raw_return: "7\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^990048^\x1E"
+  sha256: 560bcc9abba71070aa74a5bac0f365863b7795f2974172a18f6a6bf145b4bf89
+- name: delete_medicare_none/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000003'
+    IENS: 990048,
+    FIELDS: ".01"
+    FLAGS: I
+  context: delete_medicare once the header is gone
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
+- name: insurers/1
+  rpc: AGG GET INSURANCE DATA
+  inputs:
+  - ''
+  context: 'insurers: the build''s insurer list'
+  raw_return: "5\0I00010IEN^T00030NAME^T00030STREET^T00015CITY^T00030STATE^T00010ZIP^T00015PHONE^T00015STATUS^T00025TYPE\x1E1^RAILROAD
+    RETIREMENT^^^TEXAS^75265^^BILLABLE^MEDICARE FI\x1E2^MEDICARE^P.O. BOX 6700^FARGO^NORTH
+    DAKOTA^58108-6700^^BILLABLE^MEDICARE FI\x1E3^MEDICAID^PO BOX 45531^OLYMPIA^WASHINGTON^98504^562-3022^BILLABLE^MEDICAID
+    FI\x1E4^NON-BENEFICIARY PATIENT^PO BOX 31001-0700^PASEDENA^CALIFORNIA^91110-0700^(888)996-7321^BILLABLE^PRIVATE\x1E5^VETERANS
+    MEDICAL BENEFIT^1660 South Columbian Way^SEATTLE^WASHINGTON^98108^(253)582-8440^BILLABLE^PRIVATE\x1E6^WASHINGTON
+    MEDICAID^626 8TH AVE SE^OLYMPIA^WASHINGTON^98501^562-3022^BILLABLE^MEDICAID FI\x1E"
+  sha256: 39f84a5c8217c171409fbeab52e1e3ef27dbfe290a3de61af4438e0cace1e5cd
+- name: add_private/1
+  rpc: AGG UPDATE PRIVATE INSUR
+  inputs:
+  - A
+  - '990048'
+  - ''
+  - ''
+  - "AGGPIINS=1\x1CAGGPIHLN=ZZCOV,HOLDER\x1CAGGPIMBN=ZZ0001\x1CAGGPIESD=11/01/2026\x1CAGGPHESD=11/01/2026"
+  context: add_private_insurance with the first insurer
+  raw_return: "5\0I00010RESULT^T01024ERROR^I00010AGGPIIEN^I00010AGGPLHIN\x1E"
+  sha256: f416031e05f4aa00c5945911676caa27f9c76eeed906eece7590ac2b00679967
+- name: on_file_private/1
+  rpc: AGG BUILD WINDOW MANY
+  inputs:
+  - Medicaid
+  - B
+  - '990048'
+  context: 'on_file with the private policy on file: the policy''s record IEN'
+  raw_return: "5\0T00030AGGMDNME^T00030AGGMDNUM^D00015AGGMDDOB^T00030AGGMDINS^T00040AGGMDSTE^T00040AGGMDPLN^T00007AGGMDCCF^D00015AGGMDCRD^T00040AGGMDREL^T00040AGGMDGRP^T00017AGGMDGRN^T00035AGGMDINM^T00035AGGMDPCP^T00006AGGMDRCD^T01024MDELIG^I00010RIEN^T00010SEQNBR^D00015AGGMDESD^D00015AGGMDEED^T00015AGGMDSTS^D00015AGGLSTDT\x1E"
+  sha256: a5dca727f8962df6aeb3a153af7ae8f5afc2f3a029bf54a9f3424cf2a323d99b
+- name: on_file_private/2
+  rpc: AGG BUILD WINDOW DISPLAY
+  inputs:
+  - Medicare
+  - '990048'
+  context: 'on_file with the private policy on file: the policy''s record IEN'
+  raw_return: "6\0T00035AGGMCNME^T00009AGGMCNUM^T00007AGGMCSUF^T00040AGGMCINS^T00030AGGMCPCP^D00015AGGMCDOB^T00007AGGMCCCF^D00015AGGMCCRD^T00010AGGMCQMB^D00015AGGMCROI^T01024MCELIG^T00010SEQNBR^D00015AGGLSTDT^T00015AGGMCSTS^D00015AGGMCIMP^D00015AGGMCABN\x1E"
+  sha256: c14dd55b1f7acdca575238c335fc60434b5adee10daef576bac4acffc9074e61
+- name: on_file_private/3
+  rpc: AGG BUILD WINDOW MULTIPLE
+  inputs:
+  - Private Insurance
+  - '11'
+  - '990048'
+  - ''
+  context: 'on_file with the private policy on file: the policy''s record IEN'
+  raw_return: "7\0T00040AGGPIINS^T00010AGGPIPCD^T00035AGGPIPCP^T00007AGGPICCF^D00016AGGPICRD^T00020AGGPIMBN^T00050AGGPIREL^T00040AGGPIHLN^I00010AGGPLIEN^T00010SEQNBR^D00015AGGPIESD^D00015AGGPIEED^T00010AGGPISTS^T00020AGGINADR^T00050AGGINCSZ^T00020AGGINPHN^I00010AGGPIIEN\x1E1\x1CRAILROAD
+    RETIREMENT^^^^^ZZ0001^\x1C^ZZCOV,HOLDER^1^1^NOV 1,2026^^ACTIVE^^, TX 75265^^1\x1E"
+  sha256: 2348b5ed810efa7092e3c0f0f44d1d06b6b347a9d91da50f03a979e50fe71ccf
+- name: on_file_private/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000006.11'
+    IENS: 1,990048,
+    FIELDS: ".06;.07"
+    FLAGS: I
+  context: 'on_file with the private policy on file: the policy''s record IEN'
+  raw_return: "8\0[Data]\r9000006.11^1,990048^.06^3261101^\r9000006.11^1,990048^.07^^\r"
+  sha256: 849aeca44146bf76d9138a6dc92c604dd82ac27ab48195b9a908d8de6820f609
+- name: delete_private_other_patient/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000006.11'
+    IENS: 1,990049,
+    FIELDS: ".01"
+    FLAGS: I
+  context: delete_private_insurance naming another patient
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
+- name: delete_private_other_patient/2
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000006.11'
+    IENS: ",990049,"
+    FIELDS: "@;.01"
+    FLAGS: IP
+    MAX: "*"
+    XREF: "#"
+  context: delete_private_insurance naming another patient
+  raw_return: "6\0[Data]\r"
+  sha256: 3e6f5d579b94fddc53fc3d163468464cab1e01778d1c2d2a7ceb162cb6dd8872
+- name: delete_private/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000006.11'
+    IENS: 1,990048,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'delete_private_insurance: the policy the add filed'
+  raw_return: "5\0[Data]\r9000006.11^1,990048^.01^1^\r"
+  sha256: 0f1ee6d9e8dbde782e88af0e3a19752a37d9d568020931eab779d66c1ab84725
+- name: delete_private/2
+  rpc: DDR FILER
+  inputs:
+  - EDIT
+  - 1: 9000006.11^.01^1,990048,^@
+  - ''
+  - {}
+  context: 'delete_private_insurance: the policy the add filed'
+  raw_return: "6\0[Data]\r"
+  sha256: 3e6f5d579b94fddc53fc3d163468464cab1e01778d1c2d2a7ceb162cb6dd8872
+- name: delete_private/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000006.11'
+    IENS: ",990048,"
+    FIELDS: "@;.01"
+    FLAGS: IP
+    MAX: "*"
+    XREF: "#"
+  context: 'delete_private_insurance: the policy the add filed'
+  raw_return: "7\0[Data]\r"
+  sha256: '068bb8070d253d80d4417f6076932b27c49f0b79215d3407e1e963e5b00a47ef'
+- name: delete_private_again/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000006.11'
+    IENS: 1,990048,
+    FIELDS: ".01"
+    FLAGS: I
+  context: delete_private_insurance of the same policy again
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
+- name: delete_private_again/2
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000006.11'
+    IENS: ",990048,"
+    FIELDS: "@;.01"
+    FLAGS: IP
+    MAX: "*"
+    XREF: "#"
+  context: delete_private_insurance of the same policy again
+  raw_return: "6\0[Data]\r"
+  sha256: 3e6f5d579b94fddc53fc3d163468464cab1e01778d1c2d2a7ceb162cb6dd8872
+- name: bqi_after/1
+  rpc: BQI PATIENT INSURANCE
+  signed_on_as: 'SYS123 (the build''s operator, MANAGER,SYSTEM): BQIRPC answers only
+    the operator on this build'
+  inputs:
+  - '990048'
+  context: for_patient after every delete
+  raw_return: "5\0T00100INSURANCE_COVERAGE^D00015EFFECTIVE_DATE\x1E"
+  sha256: 37311317485745644da4705038fb4a0cba168f67424926d828c9331df6beb9f6
