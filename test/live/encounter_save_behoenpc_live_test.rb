@@ -53,7 +53,8 @@ class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
     hf = first_health_factor!
     duz = client.duz.to_s
     narrative = "SYNTH LIVE BEHOENPC #{persona} #{Time.now.utc.strftime('%H%M%S')}"
-    when_fm = visit_time_fm
+    now = server_now
+    when_fm = RpmsRpc::FilemanDateParser.format_datetime(Time.new(now.year, now.month, now.day, now.hour, now.min, 0))
 
     pcc = {
       1 => "HDR^0^^#{loc};#{when_fm};#{CATEGORY}",
@@ -74,10 +75,11 @@ class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
 
     # The narrative is filed to PROVIDER NARRATIVE (#9999999.27) and reads back
     # with a leading "*" (observed on the pinned build).
-    pov = rows(POV_FILE, ".01;.02;.03;.04E").find { |r| r[1] == DFN.to_s && r[3].delete_prefix("*") == narrative }
+    pov = rows(POV_FILE, ".01E;.02;.03;.04E").find { |r| r[1] == DFN.to_s && r[3].delete_prefix("*") == narrative }
     refute_nil pov, "no V POV on DFN #{DFN} carries the narrative sent (#{narrative.inspect})"
     visit = pov[2]
     assert_match(/\A\d+\z/, visit, "the V POV row names no visit: #{pov.inspect}")
+    assert_equal ICD, pov[0], "the V POV with the narrative sent is not diagnosis #{ICD}"
 
     entry = RpmsRpc::DdrFileman.gets_entry(file: VISIT_FILE, iens: "#{visit},", fields: ".05;.07;.22", flags: "IE")
     flunk "DDR GETS on VISIT #{visit} failed: #{entry.inspect}" if entry.nil? || entry[:error]
@@ -96,11 +98,15 @@ class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
     refute_nil hf_row, "BEHOENPC SAVE filed no new V HEALTH FACTOR on visit #{visit}"
     assert_equal [ hf.to_s, DFN.to_s ], hf_row[0, 2], "the new V HEALTH FACTOR on visit #{visit} is not the factor and patient sent"
 
-    # "PRV" without "+" edits the user's existing row on the visit, so it is found, not new.
+    # "PRV" without "+" edits the user's existing row on the visit, so it is found, not
+    # new. Every store stamps 1218 DATE/TIME LAST MODIFIED with $$NOW^XLFDT
+    # (STORE^BEHOENPC), so this call's store is the one stamped at or after `now`.
 
-    prv = rows(PRV_FILE, ".01;.02;.03;.04").find { |r| r[2] == visit && r[0] == duz }
+    prv = rows(PRV_FILE, ".01;.02;.03;.04;1218").find { |r| r[2] == visit && r[0] == duz }
     refute_nil prv, "no V PROVIDER for DUZ #{duz} on visit #{visit}"
     assert_equal [ DFN.to_s, "P" ], [ prv[1], prv[3] ], "V PROVIDER #{duz} on visit #{visit} is not the patient's primary provider"
+    stamped = RpmsRpc::FilemanDateParser.parse_datetime(prv[4])
+    assert stamped && stamped >= now, "V PROVIDER #{duz} on visit #{visit} was not stored by this call (1218 #{prv[4].inspect}, call at #{now})"
 
     puts "\n#{persona}: BEHOENPC SAVE filed visit #{visit} on DFN #{DFN} with V POV, V CPT, V HF and V PROVIDER"
   end
@@ -141,10 +147,9 @@ class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
     refute_nil RpmsRpc::Patient.find(dfn), "DFN #{dfn} must exist on this disposable container's seed data"
   end
 
-  # The server's now, to the minute, as BEHOENPC's VST^DT wants it.
-  def visit_time_fm
+  # The server's now, to the second.
+  def server_now
     value = Array(client.call_rpc("ORWU DT", "NOW")).first.to_s
-    t = RpmsRpc::FilemanDateParser.parse_datetime(value) || flunk("ORWU DT NOW did not yield a FileMan datetime: #{value.inspect}")
-    RpmsRpc::FilemanDateParser.format_datetime(Time.new(t.year, t.month, t.day, t.hour, t.min, 0))
+    RpmsRpc::FilemanDateParser.parse_datetime(value) || flunk("ORWU DT NOW did not yield a FileMan datetime: #{value.inspect}")
   end
 end
