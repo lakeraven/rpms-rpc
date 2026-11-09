@@ -1,278 +1,98 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require "rpms_rpc/mock_client"
-require "rpms_rpc/mappings"
+require "rpms_rpc"
 require "rpms_rpc/api/authentication"
+require_relative "../captured_replies"
 
-# ORWU NPHASKEY for has_security_key? must be read like held_key_flag: not
-# altered, exactly one normalised data line, strictly "0" or "1" (rpms-rpc#556).
+# has_security_key? reads ORWU NPHASKEY like held_key_flag: not altered, exactly
+# one normalised data line, strictly "0" or "1" (rpms-rpc#556). The replies are
+# the build's (test/fixtures/captured_replies/authentication.yml): PROFILE,MD
+# (DUZ 206) holds ORES and not XUPROG, and AGGRPC does not carry the RPC.
+#
+# The build answers "1", "0" or a refusal. The other shapes the strict read
+# refuses ("2", "yes", " 1", two lines, an altered line) were tested against
+# replies written by hand, which ADR 0009 retires; the CIA framing cases are in
+# authentication_held_keys_test.rb.
 class RpmsRpc::AuthenticationHasSecurityKeyStrictTest < Minitest::Test
-  SYNTHETIC_DUZ = "900001"
-  SYN_KEY = "SYNKEYZ"
-  NPHASKEY_RPC = RpmsRpc::DataMapper[:person_has_key].rpc_name
-  CALLER_CONTEXT = "SYN APP CTX"
+  SLUG = "authentication"
+  NPHASKEY = "ORWU NPHASKEY"
+  DUZ = "206"
 
   def teardown
     RpmsRpc.reset!
   end
 
-  def nphaskey_calls(mock = RpmsRpc.client)
-    mock.received_calls.select { |c| c[:rpc] == NPHASKEY_RPC }
+  def capture(name) = CapturedReplies.raw(SLUG, name)
+
+  def replay(*names)
+    client = CapturedReplies::ReplayCiaClient.new(NPHASKEY => names.map { |name| capture(name) }).signed_on_as(DUZ)
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client
   end
 
-  # Factory-Spec-Amendment: MockClient answers ORWU NPHASKEY only for the full
-  # [DUZ, KEY] seed (#521). A DUZ-only seed leaves every reply unanswered, so the
-  # "false for ..." tests would pass without ever exercising the reply read.
-  def with_nphaskey_raw_lines(lines)
-    RpmsRpc.mock! do |m|
-      m.seed_raw_lines(:person_has_key, [ SYNTHETIC_DUZ, SYN_KEY ], Array(lines))
-    end
+  def test_has_security_key_is_true_for_a_held_key
+    replay("nphaskey_held")
+
+    assert_equal true, RpmsRpc::Authentication.has_security_key?(DUZ, "ORES")
   end
 
-  def with_signed_on_nphaskey_raw_lines(lines)
-    RpmsRpc.mock! do |m|
-      m.set_authenticated(SYNTHETIC_DUZ)
-      m.seed_raw_lines(:person_has_key, [ SYNTHETIC_DUZ, SYN_KEY ], Array(lines))
-    end
+  def test_has_security_key_is_false_for_an_unheld_key
+    replay("nphaskey_unheld")
+
+    assert_equal false, RpmsRpc::Authentication.has_security_key?(DUZ, "XUPROG")
   end
 
-  # --- contract 1: true only for unaltered, single normalised line "1" --------
+  # A refused call is not "does not hold": it raises.
+  def test_has_security_key_propagates_the_builds_refusal_instead_of_returning_false
+    replay("nphaskey_refused")
 
-  def test_has_security_key_is_true_only_when_reply_is_unaltered_single_normalised_line_one
-    with_nphaskey_raw_lines([ "1" ])
-
-    assert RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  # --- contract 2: false for every non-"1" strict shape -----------------------
-
-  def test_has_security_key_is_false_for_reply_line_zero
-    with_nphaskey_raw_lines([ "0" ])
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  def test_has_security_key_is_false_for_reply_line_two
-    with_nphaskey_raw_lines([ "2" ])
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  def test_has_security_key_is_false_for_reply_line_yes
-    with_nphaskey_raw_lines([ "yes" ])
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  def test_has_security_key_is_false_for_reply_line_true
-    with_nphaskey_raw_lines([ "true" ])
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  def test_has_security_key_is_false_for_reply_line_leading_space_one
-    with_nphaskey_raw_lines([ " 1" ])
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  def test_has_security_key_is_false_for_reply_line_trailing_space_one
-    with_nphaskey_raw_lines([ "1 " ])
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  def test_has_security_key_is_false_for_empty_reply_line
-    with_nphaskey_raw_lines([ "" ])
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  def test_has_security_key_is_false_when_rpc_returns_empty_string
-    RpmsRpc.mock!
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  def test_has_security_key_is_false_when_rpc_returns_empty_array
-    with_nphaskey_raw_lines([])
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  def test_has_security_key_is_false_for_two_line_reply_one_one
-    with_nphaskey_raw_lines(%w[1 1])
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  def test_has_security_key_is_false_for_two_line_reply_one_zero
-    with_nphaskey_raw_lines(%w[1 0])
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  def test_has_security_key_is_false_for_two_line_reply_zero_one
-    with_nphaskey_raw_lines(%w[0 1])
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  class AlteredOneLineReplyMock < RpmsRpc::MockClient
-    def call_rpc(rpc_name, *params)
-      received_calls << { rpc: rpc_name, params: params, context: current_context }
-      RpmsRpc::Reply.from_wire([ "1" ], altered: [ 0 ])
-    end
-  end
-
-  def test_has_security_key_is_false_when_altered_reply_normalises_to_line_one
-    mock = AlteredOneLineReplyMock.new
-    RpmsRpc.configure { |cfg| cfg.client = mock }
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  # --- contract 3: multi-line reply must not trust the first line alone -------
-
-  def test_has_security_key_is_false_when_first_data_line_is_one_but_reply_has_multiple_lines
-    with_nphaskey_raw_lines(%w[1 0])
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  # --- contract 4: unchanged behaviour (must stay green before the fix) ---------
-
-  def test_has_security_key_returns_false_for_nil_duz_and_sends_no_nphaskey
-    RpmsRpc.mock!
-
-    refute RpmsRpc::Authentication.has_security_key?(nil, SYN_KEY)
-    assert_empty nphaskey_calls
-  end
-
-  def test_has_security_key_returns_false_for_zero_duz_and_sends_no_nphaskey
-    RpmsRpc.mock!
-
-    refute RpmsRpc::Authentication.has_security_key?(0, SYN_KEY)
-    assert_empty nphaskey_calls
-  end
-
-  def test_has_security_key_returns_false_for_negative_duz_and_sends_no_nphaskey
-    RpmsRpc.mock!
-
-    refute RpmsRpc::Authentication.has_security_key?(-5, SYN_KEY)
-    assert_empty nphaskey_calls
-  end
-
-  def test_has_security_key_returns_false_for_non_numeric_duz_and_sends_no_nphaskey
-    RpmsRpc.mock!
-
-    refute RpmsRpc::Authentication.has_security_key?("900001abc", SYN_KEY)
-    assert_empty nphaskey_calls
-  end
-
-  def test_has_security_key_returns_false_for_blank_key_name_and_sends_no_nphaskey
-    RpmsRpc.mock!
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, "  ")
-    assert_empty nphaskey_calls
-  end
-
-  class RefusingNphaskeyMock < RpmsRpc::MockClient
-    def call_rpc(rpc_name, *params)
-      raise RpmsRpc::Client::RpcError, "Access denied for remote procedure." if rpc_name == NPHASKEY_RPC
-
-      super
-    end
-  end
-
-  def test_has_security_key_propagates_client_rpc_error_instead_of_returning_false
-    mock = RefusingNphaskeyMock.new
-    RpmsRpc.configure { |cfg| cfg.client = mock }
-
-    assert_raises(RpmsRpc::Client::RpcError) do
-      RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-    end
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Authentication.has_security_key?(DUZ, "ORES") }
   end
 
   def test_has_security_key_sends_exactly_one_orwu_nphaskey_with_duz_and_key_params
-    RpmsRpc.mock! do |m|
-      m.seed(:person_has_key, [ SYNTHETIC_DUZ, SYN_KEY ], true)
+    client = replay("nphaskey_held")
+
+    RpmsRpc::Authentication.has_security_key?(DUZ, "ORES")
+
+    assert_equal [ { rpc: NPHASKEY, params: [ DUZ, "ORES" ] } ], client.calls
+  end
+
+  def test_has_security_key_does_not_bind_or_change_the_callers_context
+    client = replay("nphaskey_held")
+    client.create_context("AGGRPC")
+
+    RpmsRpc::Authentication.has_security_key?(DUZ, "ORES")
+
+    assert_equal "AGGRPC", client.current_context
+    assert_equal [ :create_context, NPHASKEY ], client.rpcs_called
+  end
+
+  # --- guards: nothing reaches the wire --------------------------------------
+
+  def test_has_security_key_returns_false_for_an_invalid_duz_or_key_and_sends_nothing
+    client = replay
+
+    [ nil, 0, -5, "900001abc" ].each do |duz|
+      refute RpmsRpc::Authentication.has_security_key?(duz, "ORES"), "duz #{duz.inspect}"
+    end
+    refute RpmsRpc::Authentication.has_security_key?(DUZ, "  ")
+    assert_empty client.calls
+  end
+
+  # --- agreement with held_keys on every reply the build sends ---------------
+
+  def test_has_security_key_agrees_with_held_keys_on_each_captured_reply
+    { "nphaskey_held" => "ORES", "nphaskey_unheld" => "XUPROG" }.each do |name, key|
+      replay(name, name)
+      held = RpmsRpc::Authentication.held_keys([ key ])
+      has = RpmsRpc::Authentication.has_security_key?(DUZ, key)
+
+      assert_equal held.include?(key), has, "reply #{name}: held_keys=#{held.inspect}"
     end
 
-    RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-
-    calls = nphaskey_calls
-    assert_equal 1, calls.size
-    assert_equal [ SYNTHETIC_DUZ, SYN_KEY ], calls.first[:params]
-  end
-
-  def test_has_security_key_does_not_bind_or_change_caller_context
-    mock = RpmsRpc::MockClient.new
-    mock.create_context(CALLER_CONTEXT)
-    mock.seed(:person_has_key, [ SYNTHETIC_DUZ, SYN_KEY ], true)
-    binds_before = mock.context_binds.dup
-    RpmsRpc.configure { |cfg| cfg.client = mock }
-
-    RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-
-    assert_equal CALLER_CONTEXT, mock.current_context
-    assert_equal binds_before, mock.context_binds
-    refute_includes mock.received_calls.map { |c| c[:rpc] }, "XWB CREATE CONTEXT"
-  end
-
-  def test_has_security_key_is_true_for_seeded_scalar_line_one
-    RpmsRpc.mock! do |m|
-      m.seed(:person_has_key, [ SYNTHETIC_DUZ, SYN_KEY ], true)
-    end
-
-    assert RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  def test_has_security_key_is_false_for_seeded_scalar_line_zero
-    RpmsRpc.mock! do |m|
-      m.seed(:person_has_key, [ SYNTHETIC_DUZ, SYN_KEY ], false)
-    end
-
-    refute RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-  end
-
-  # --- contract 5: agree with held_keys on every reply shape ------------------
-
-  NPHASKEY_REPLY_SHAPES = [
-    [ "single line one", [ "1" ] ],
-    [ "single line zero", [ "0" ] ],
-    [ "line two", [ "2" ] ],
-    [ "line yes", [ "yes" ] ],
-    [ "line true", [ "true" ] ],
-    [ "leading space one", [ " 1" ] ],
-    [ "trailing space one", [ "1 " ] ],
-    [ "empty line", [ "" ] ],
-    [ "empty line list", [] ],
-    [ "two lines one one", %w[1 1] ],
-    [ "two lines one zero", %w[1 0] ],
-    [ "two lines zero one", %w[0 1] ],
-    [ "altered tab one", [ "\t1" ] ]
-  ].freeze
-
-  def assert_has_security_key_agrees_with_held_keys(label)
-    held = RpmsRpc::Authentication.held_keys([ SYN_KEY ])
-    has = RpmsRpc::Authentication.has_security_key?(SYNTHETIC_DUZ, SYN_KEY)
-    expected = !held.nil? && held.include?(SYN_KEY)
-
-    assert_equal expected, has,
-                 "shape #{label.inspect}: held_keys=#{held.inspect} must match has_security_key?"
-  end
-
-  def test_has_security_key_agrees_with_held_keys_on_every_pinned_nphaskey_reply_shape
-    NPHASKEY_REPLY_SHAPES.each do |label, lines|
-      with_signed_on_nphaskey_raw_lines(lines)
-      assert_has_security_key_agrees_with_held_keys(label)
-    end
-
-    mock = AlteredOneLineReplyMock.new
-    mock.set_authenticated(SYNTHETIC_DUZ)
-    RpmsRpc.configure { |cfg| cfg.client = mock }
-    assert_has_security_key_agrees_with_held_keys("altered reply marked line one")
+    replay("nphaskey_refused", "nphaskey_refused")
+    assert_nil RpmsRpc::Authentication.held_keys([ "ORES" ]), "a refusal is 'could not ask' for held_keys"
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::Authentication.has_security_key?(DUZ, "ORES") }
   end
 end

@@ -1,0 +1,229 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb authentication.rb.
+---
+rpc: XUS AV CODE
+entry_point: VALIDAV^XUSRB
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: 'RpmsRpc::CiaClient#call_rpc_raw; an entry with broker: bmx is the whole RpmsRpc::BmxClient
+  reply frame'
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T17:00:39Z'
+note: Run on a throwaway container. The access/verify pair and the verify codes cross
+  the wire XWB-encrypted and are withheld. The last flow changes PROFILE,RN's verify
+  code on that container only.
+captures:
+- name: userinfo_md
+  rpc: ORWU USERINFO
+  inputs: []
+  context: 'PROFILE,MD''s user info: USRCLS 3, DTIME 9999'
+  raw_return: "5\0206^PROFILE,MD^3^1^1^3^0^9999^20^1^1^5^DEMO.IHS.GOV^3^180^^^^1^^^0^0^8904^^0"
+  sha256: 6566f7aca3afb30a83ff1d47453416b16114c1c6340fc02af632eb6c0408c558
+- name: userinfo_sched
+  rpc: ORWU USERINFO
+  signed_on_as: PROFILE,SCHED (PSCH123, a published demo pair; DUZ 208)
+  inputs: []
+  context: PROFILE,SCHED's user info
+  raw_return: "5\0208^PROFILE,SCHED^0^0^0^0^0^600^20^1^1^5^DEMO.IHS.GOV^5^180^^^^1^^^0^0^8904^^0"
+  sha256: 905181d11ff3dc27b7fc1bdbd1f481a91dc64aa3381769d73f95b667b47e2eec
+- name: userinfo_rn
+  rpc: ORWU USERINFO
+  signed_on_as: PROFILE,RN (PRN123, a published demo pair)
+  inputs: []
+  context: PROFILE,RN's user info
+  raw_return: "5\0205^PROFILE,RN^2^0^1^2^0^999^20^1^1^5^DEMO.IHS.GOV^3^180^^^^1^^^0^0^8904^^0"
+  sha256: 4821a44821a04f23bbad88014bd590eefab849a653e61726b25ce356b6a3be71
+- name: nphaskey_held
+  rpc: ORWU NPHASKEY
+  inputs:
+  - '206'
+  - ORES
+  context: does DUZ 206 hold ORES
+  raw_return: "6\01"
+  sha256: 6eff1937e808320fe4b7c06e5d01df487ff1857993cce09081dd27095cfc672a
+- name: nphaskey_unheld
+  rpc: ORWU NPHASKEY
+  inputs:
+  - '206'
+  - XUPROG
+  context: does DUZ 206 hold XUPROG
+  raw_return: "7\00"
+  sha256: 4d96c1d786ac6f00df71e5b9e5e48dba51440f178e8e71f673e96faa49fd7060
+- name: nphaskey_refused
+  rpc: ORWU NPHASKEY
+  signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+  inputs:
+  - '207'
+  - ORES
+  context: ORWU NPHASKEY asked in AGGRPC, an option that does not carry it
+  raw_return: "5\x014\rAccess denied for remote procedure: ORWU NPHASKEY\r"
+  sha256: 30d3882fa808a613d92909c7f47736f09a706ee54901741a6aed078592d63ad5
+- name: signon/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: authenticate as PROFILE,MD, then bind CIAV VUECENTRIC and read the user
+    class
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: signon/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: authenticate as PROFILE,MD, then bind CIAV VUECENTRIC and read the user
+    class
+  raw_return: "\0\0206\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood evening PROFILE,MD\r\n
+    \    You last signed on today at 17:00\r\n\x04"
+  sha256: 68f7979e37201e261933fcf02293024b8e77993de3cdf00f15f126d8bb5960b5
+- name: signon/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: authenticate as PROFILE,MD, then bind CIAV VUECENTRIC and read the user
+    class
+  raw_return: "\0\0206\r\nPROFILE,MD\r\nMd Profile\r\n7819^DEMO IHS CLINIC^8904\r\nPHYSICIAN\r\nMEDICINE\r\n\r\n9999\r\n\r\n\x04"
+  sha256: f6bb82483cb5d6cdeb4f64768df48668d519245d3cc4a9ddf4307f6a301badc4
+- name: signon/4
+  rpc: XWB CREATE CONTEXT
+  broker: bmx
+  inputs:
+  - "(Gk\\|>|S.G.):ykG3"
+  context: authenticate as PROFILE,MD, then bind CIAV VUECENTRIC and read the user
+    class
+  raw_return: "\0\01\x04"
+  sha256: 677c63b0dc04bb94efd4360ddd868562a9628f2f0a8b18efa2ece4f1e704600f
+- name: signon/5
+  rpc: ORWU USERINFO
+  broker: bmx
+  inputs: []
+  context: authenticate as PROFILE,MD, then bind CIAV VUECENTRIC and read the user
+    class
+  raw_return: "\0\0206^PROFILE,MD^3^1^1^3^0^9999^20^1^1^5^DEMO.IHS.GOV^3^180^^^^1^^^0^0^8904^^0\x04"
+  sha256: 46c45c8d84022e192078535111a3e43cc609d728e418427d3b45bb5b413925da
+- name: signon_unknown/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: authenticate with a pair no user holds
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: signon_unknown/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: authenticate with a pair no user holds
+  raw_return: "\0\00\r\n0\r\n0\r\nNot a valid ACCESS CODE/VERIFY CODE pair.\r\n0\r\n0\r\n\x04"
+  sha256: a39df0bf570a3244b18d9e2aaf47e74a01e1bbab93fbd40270ec9334a28a196a
+- name: second_signon/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: authenticate as PROFILE,SCHED, then again on the same session with a wrong
+    verify code
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: second_signon/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: authenticate as PROFILE,SCHED, then again on the same session with a wrong
+    verify code
+  raw_return: "\0\0208\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood evening PROFILE,SCHED\r\n
+    \    You last signed on today at 17:00\r\n\x04"
+  sha256: 0d8e6d4718379528e17f0843ec0a41722473580fe10baa8be51b623b1aa47668
+- name: second_signon/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: authenticate as PROFILE,SCHED, then again on the same session with a wrong
+    verify code
+  raw_return: "\0\0208\r\nPROFILE,SCHED\r\nSched Profile\r\n7819^DEMO IHS CLINIC^8904\r\nMEDICAL
+    SCHEDULER\r\nHEALTH INFORMATION MANAGMENT\r\n\r\n600\r\n\r\n\x04"
+  sha256: 00d3ff6600c237c4458d2ce268d2815980dc93b3535202633b18f496ddefb5a9
+- name: second_signon/4
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: authenticate as PROFILE,SCHED, then again on the same session with a wrong
+    verify code
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: second_signon/5
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: authenticate as PROFILE,SCHED, then again on the same session with a wrong
+    verify code
+  raw_return: "\0\00\r\n0\r\n0\r\nNot a valid ACCESS CODE/VERIFY CODE pair.\r\n0\r\n0\r\n\x04"
+  sha256: a39df0bf570a3244b18d9e2aaf47e74a01e1bbab93fbd40270ec9334a28a196a
+- name: cvc_wrong_old/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: as PROFILE,RN, change the verify code giving a current code that is not
+    theirs
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: cvc_wrong_old/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: as PROFILE,RN, change the verify code giving a current code that is not
+    theirs
+  raw_return: "\0\0205\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood evening PROFILE,RN\r\n
+    \    You last signed on today at 17:00\r\n\x04"
+  sha256: 306645dd6ee1b64f8ebb524969ebe7ff6f5d7977486ef63f2445488cc7ec2392
+- name: cvc_wrong_old/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: as PROFILE,RN, change the verify code giving a current code that is not
+    theirs
+  raw_return: "\0\0205\r\nPROFILE,RN\r\nRn Profile\r\n7819^DEMO IHS CLINIC^8904\r\nNURSE\r\nMEDICINE\r\n\r\n999\r\n\r\n\x04"
+  sha256: 95d94c05c36fc0b36e86ed09237f7780370f2caea2d98336291d88b1a6ca60d3
+- name: cvc_wrong_old/4
+  rpc: XUS CVC
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: as PROFILE,RN, change the verify code giving a current code that is not
+    theirs
+  raw_return: "\0\01\r\nSorry that isn't the correct current code\r\n\x04"
+  sha256: f1fb0df9530f2a15cfd7ed90e6c001d23e5dd7b20a3e14dc3264356ac039641e
+- name: cvc/1
+  rpc: XUS SIGNON SETUP
+  broker: bmx
+  inputs: []
+  context: as PROFILE,RN, change the verify code
+  raw_return: "\0\0gtm_sysid\r\nROU\r\nVEH\r\n/dev/null\r\n5\r\n0\r\nDEMO.IHS.GOV\r\n0\r\n\x04"
+  sha256: 448d0fcfd7b92942ca18b19a0464158be160252dea7d596e82acb1a8672a5bd7
+- name: cvc/2
+  rpc: XUS AV CODE
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: as PROFILE,RN, change the verify code
+  raw_return: "\0\0205\r\n0\r\n0\r\n\r\n0\r\n0\r\n\r\nGood evening PROFILE,RN\r\n
+    \    You last signed on today at 17:00\r\n\x04"
+  sha256: 306645dd6ee1b64f8ebb524969ebe7ff6f5d7977486ef63f2445488cc7ec2392
+- name: cvc/3
+  rpc: XUS GET USER INFO
+  broker: bmx
+  inputs: []
+  context: as PROFILE,RN, change the verify code
+  raw_return: "\0\0205\r\nPROFILE,RN\r\nRn Profile\r\n7819^DEMO IHS CLINIC^8904\r\nNURSE\r\nMEDICINE\r\n\r\n999\r\n\r\n\x04"
+  sha256: 95d94c05c36fc0b36e86ed09237f7780370f2caea2d98336291d88b1a6ca60d3
+- name: cvc/4
+  rpc: XUS CVC
+  broker: bmx
+  inputs:
+  - "<withheld: an encrypted credential>"
+  context: as PROFILE,RN, change the verify code
+  raw_return: "\0\00\r\n\r\n\x04"
+  sha256: f0f5a5865b241e4be4a862c133c1f43bcf295a42cbef39c25e0881fa7c8373bc
