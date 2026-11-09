@@ -32,6 +32,7 @@ class ProcedureTest < Minitest::Test
   end
 
   def capture(name) = CapturedReplies.raw(SLUG, name)
+  def sent(name) = CapturedReplies.file(SLUG).fetch("captures").find { |c| c["name"] == name }.fetch("inputs")
 
   def test_for_patient_reads_each_v_cpt_row_with_its_visit_date
     client = replay("BGOVCPT GET" => [ capture("dfn_4") ])
@@ -56,10 +57,14 @@ class ProcedureTest < Minitest::Test
   # rpms-rpc#524: the build refuses Procedure.add's frame. The refusal is
   # raised, never read as a saved entry.
   def test_add_raises_the_builds_refusal_of_its_frame
-    replay("BGOVCPT SET" => [ capture("set_three_params") ])
+    client = replay("BGOVCPT SET" => [ capture("set_three_params") ])
 
-    error = assert_raises(RpmsRpc::Client::RpcMError) { RpmsRpc::Procedure.add(DFN, VISIT_IEN, CPT) }
+    error = assert_raises(RpmsRpc::Client::RpcMError) do
+      RpmsRpc::Procedure.add(DFN, VISIT_IEN, CPT, narrative: "office visit")
+    end
     assert_match(/ACTLSTTOOLONG/, error.message)
+    assert_equal [ { rpc: "BGOVCPT SET", params: sent("set_three_params") } ], client.calls,
+                 "add sends the frame the capture was refused for"
   end
 
   def test_blank_args_return_failure_without_a_call
