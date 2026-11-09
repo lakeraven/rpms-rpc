@@ -1,0 +1,624 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb registration-edits.rb.
+---
+rpc: DDR FILER
+entry_point: FILEC^DDR3
+release_tag: bcer-9.0-20261109-d3adcff-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-09T05:39:57Z'
+note: 'Run on a throwaway container: the flows file addresses, a cell phone and races
+  for DFN 990009, in this order, so each flow''s replies follow from the ones before.
+  Dates the gem computes are the capture day''s.'
+captures:
+- name: history_empty/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990009,
+    FIELDS: ".01"
+    FLAGS: I
+  context: address_history before any move
+  raw_return: "5\0[Data]\r9000001^990009^.01^990009^\r"
+  sha256: 1bffc8a56f96cf0adcd6840bba1357ee718af7bc890dd9ddd92f648a2f03bcb3
+- name: history_empty/2
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.83'
+    IENS: ",990009,"
+    FIELDS: "@;.01I;.02;.03;.04;.05;.06E;.07;.08;.11I;.12I"
+    FLAGS: IP
+  context: address_history before any move
+  raw_return: "6\0[Data]\r"
+  sha256: 3e6f5d579b94fddc53fc3d163468464cab1e01778d1c2d2a7ceb162cb6dd8872
+- name: move_first/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'change_address: moved 400 days ago to 2 NEW RD'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: move_first/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 990009,
+    FIELDS: ".03;.111;.112;.113;.114;.115;.116;.1112;.131"
+    FLAGS: IE
+  context: 'change_address: moved 400 days ago to 2 NEW RD'
+  raw_return: "6\0[Data]\r2^990009^.03^2811009^10/09/1981\r2^990009^.111^163 JUNIPER
+    ST^163 JUNIPER ST\r2^990009^.1112^59000^59000\r2^990009^.112^^\r2^990009^.113^^\r2^990009^.114^ANYWHERE^ANYWHERE\r2^990009^.115^27^MONTANA\r2^990009^.116^59000^59000\r2^990009^.131^406-555-1009^406-555-1009\r"
+  sha256: eda5f69dedd118175daa4e1de79584079b8cdfe22e2d3fc168b9c25b4176a89e
+- name: move_first/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990009,
+    FIELDS: '7911'
+    FLAGS: I
+  context: 'change_address: moved 400 days ago to 2 NEW RD'
+  raw_return: "7\0[Data]\r9000001^990009^7911^^\r"
+  sha256: 59cb796b5d36583a1ce35730122020ae97132ed985325f51144b40c59680afa5
+- name: move_first/4
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Address
+  - '990009'
+  - AGGPTAD1=2 NEW RD
+  context: 'change_address: moved 400 days ago to 2 NEW RD'
+  raw_return: "8\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 6fac656ee20be41889e7d535d6fe56a95ca6b918ec141277d044628bd3ea24f9
+- name: move_first/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 990009,
+    FIELDS: ".03;.111;.112;.113;.114;.115;.116;.1112;.131"
+    FLAGS: IE
+  context: 'change_address: moved 400 days ago to 2 NEW RD'
+  raw_return: "9\0[Data]\r2^990009^.03^2811009^10/09/1981\r2^990009^.111^2 NEW RD^2
+    NEW RD\r2^990009^.1112^59000^59000\r2^990009^.112^^\r2^990009^.113^^\r2^990009^.114^ANYWHERE^ANYWHERE\r2^990009^.115^27^MONTANA\r2^990009^.116^59000^59000\r2^990009^.131^406-555-1009^406-555-1009\r"
+  sha256: 576ce85d9e7abb807e57189202593d592e5706be1ab5e837b99d84a76ad31d29
+- name: move_first/6
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990009,
+    FIELDS: '7911'
+    FLAGS: I
+  context: 'change_address: moved 400 days ago to 2 NEW RD'
+  raw_return: "1\0[Data]\r9000001^990009^7911^^\r"
+  sha256: a4fecaa0d096fbfa7fb172f418e2eeb8df39bb34dc6500a2ba8d69158aa838bd
+- name: move_first/7
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000001.83^.01^+1,990009,^3261108
+    2: 9000001.83^.02^+1,990009,^163 JUNIPER ST
+    3: 9000001.83^.05^+1,990009,^ANYWHERE
+    4: 9000001.83^.06^+1,990009,^27
+    5: 9000001.83^.07^+1,990009,^59000
+    6: 9000001.83^.08^+1,990009,^406-555-1009
+    7: 9000001.83^.12^+1,990009,^3251004
+    8: 9000001^7911^990009,^3251004
+  - ''
+  - {}
+  context: 'change_address: moved 400 days ago to 2 NEW RD'
+  raw_return: "2\0[Data]\r+1,^1\r"
+  sha256: c47a68915dabf3c856f852c3a66fef863bc88651b3456daf6f478702e8fae0e4
+- name: move_first/8
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'change_address: moved 400 days ago to 2 NEW RD'
+  raw_return: "3\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 6f27f36c4e5290ceecd41fc1b08482149ca31a4bacfaae6a3a8250dadd574493
+- name: move_second/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'change_address: moved 3 days ago to 3 NEWER RD'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: move_second/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 990009,
+    FIELDS: ".03;.111;.112;.113;.114;.115;.116;.1112;.131"
+    FLAGS: IE
+  context: 'change_address: moved 3 days ago to 3 NEWER RD'
+  raw_return: "6\0[Data]\r2^990009^.03^2811009^10/09/1981\r2^990009^.111^2 NEW RD^2
+    NEW RD\r2^990009^.1112^59000^59000\r2^990009^.112^^\r2^990009^.113^^\r2^990009^.114^ANYWHERE^ANYWHERE\r2^990009^.115^27^MONTANA\r2^990009^.116^59000^59000\r2^990009^.131^406-555-1009^406-555-1009\r"
+  sha256: b77e4a3b8ba04907c9a70e42e0fae673ec4dfe18b7277c19d1b4c57be36bc0b8
+- name: move_second/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990009,
+    FIELDS: '7911'
+    FLAGS: I
+  context: 'change_address: moved 3 days ago to 3 NEWER RD'
+  raw_return: "7\0[Data]\r9000001^990009^7911^3251004^\r"
+  sha256: 8511e2f1323f50b04cf71a7f7dd0bd581b3e30e876a0290c970d12f2a97f5698
+- name: move_second/4
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Address
+  - '990009'
+  - AGGPTAD1=3 NEWER RD
+  context: 'change_address: moved 3 days ago to 3 NEWER RD'
+  raw_return: "8\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 6fac656ee20be41889e7d535d6fe56a95ca6b918ec141277d044628bd3ea24f9
+- name: move_second/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 990009,
+    FIELDS: ".03;.111;.112;.113;.114;.115;.116;.1112;.131"
+    FLAGS: IE
+  context: 'change_address: moved 3 days ago to 3 NEWER RD'
+  raw_return: "9\0[Data]\r2^990009^.03^2811009^10/09/1981\r2^990009^.111^3 NEWER RD^3
+    NEWER RD\r2^990009^.1112^59000^59000\r2^990009^.112^^\r2^990009^.113^^\r2^990009^.114^ANYWHERE^ANYWHERE\r2^990009^.115^27^MONTANA\r2^990009^.116^59000^59000\r2^990009^.131^406-555-1009^406-555-1009\r"
+  sha256: d0d7e63efd69cae783d595e91a480fd25b70b60c0ddae6d4f2e3edf2723ac6d2
+- name: move_second/6
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990009,
+    FIELDS: '7911'
+    FLAGS: I
+  context: 'change_address: moved 3 days ago to 3 NEWER RD'
+  raw_return: "1\0[Data]\r9000001^990009^7911^3251004^\r"
+  sha256: 7284c8c8e312c11131f7e272f6f4cf1ed595869be5e1b31e4482b25e7421e43f
+- name: move_second/7
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 9000001.83^.01^+1,990009,^3261108
+    2: 9000001.83^.02^+1,990009,^2 NEW RD
+    3: 9000001.83^.05^+1,990009,^ANYWHERE
+    4: 9000001.83^.06^+1,990009,^27
+    5: 9000001.83^.07^+1,990009,^59000
+    6: 9000001.83^.08^+1,990009,^406-555-1009
+    7: 9000001.83^.11^+1,990009,^3251004
+    8: 9000001.83^.12^+1,990009,^3261105
+    9: 9000001^7911^990009,^3261105
+  - ''
+  - {}
+  context: 'change_address: moved 3 days ago to 3 NEWER RD'
+  raw_return: "2\0[Data]\r+1,^2\r"
+  sha256: b2bfd810016a23b3e2b47b76bb39f6296a5a5b43465b326ddd5c9f7858b295e8
+- name: move_second/8
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'change_address: moved 3 days ago to 3 NEWER RD'
+  raw_return: "3\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 6f27f36c4e5290ceecd41fc1b08482149ca31a4bacfaae6a3a8250dadd574493
+- name: unchanged/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'change_address: only the work phone changes'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: unchanged/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 990009,
+    FIELDS: ".03;.111;.112;.113;.114;.115;.116;.1112;.131"
+    FLAGS: IE
+  context: 'change_address: only the work phone changes'
+  raw_return: "6\0[Data]\r2^990009^.03^2811009^10/09/1981\r2^990009^.111^3 NEWER RD^3
+    NEWER RD\r2^990009^.1112^59000^59000\r2^990009^.112^^\r2^990009^.113^^\r2^990009^.114^ANYWHERE^ANYWHERE\r2^990009^.115^27^MONTANA\r2^990009^.116^59000^59000\r2^990009^.131^406-555-1009^406-555-1009\r"
+  sha256: 1d2112c6246846916aa4c6882e3a81695548b154f2c5ba047e67a78b823f55dc
+- name: unchanged/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990009,
+    FIELDS: '7911'
+    FLAGS: I
+  context: 'change_address: only the work phone changes'
+  raw_return: "7\0[Data]\r9000001^990009^7911^3261105^\r"
+  sha256: 8352301f1791a8fa55ee23dd5926d85e3a65930006e2c84be69ca91b46d4d60e
+- name: unchanged/4
+  rpc: AGG UPDATE PATIENT
+  inputs:
+  - Address
+  - '990009'
+  - AGGPTWPH=406-555-0199
+  context: 'change_address: only the work phone changes'
+  raw_return: "8\0I00010RESULT^T01024ERROR^T01024OTHER_PARMS\x1E1^^\x1E"
+  sha256: 6fac656ee20be41889e7d535d6fe56a95ca6b918ec141277d044628bd3ea24f9
+- name: unchanged/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 990009,
+    FIELDS: ".03;.111;.112;.113;.114;.115;.116;.1112;.131"
+    FLAGS: IE
+  context: 'change_address: only the work phone changes'
+  raw_return: "9\0[Data]\r2^990009^.03^2811009^10/09/1981\r2^990009^.111^3 NEWER RD^3
+    NEWER RD\r2^990009^.1112^59000^59000\r2^990009^.112^^\r2^990009^.113^^\r2^990009^.114^ANYWHERE^ANYWHERE\r2^990009^.115^27^MONTANA\r2^990009^.116^59000^59000\r2^990009^.131^406-555-1009^406-555-1009\r"
+  sha256: d0d7e63efd69cae783d595e91a480fd25b70b60c0ddae6d4f2e3edf2723ac6d2
+- name: unchanged/6
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990009,
+    FIELDS: '7911'
+    FLAGS: I
+  context: 'change_address: only the work phone changes'
+  raw_return: "1\0[Data]\r9000001^990009^7911^3261105^\r"
+  sha256: 22c8ef3ad4c5de6b6e309ee0472924573c553c4608adbf705f1eae2ec295aca3
+- name: unchanged/7
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'change_address: only the work phone changes'
+  raw_return: "2\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: b1aa4723fe6bd5895803e2faadf7d455ea2b5e633b041b4376b631aa5d48f05c
+- name: before_birth/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'change_address: a move dated before the date of birth'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: before_birth/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 990009,
+    FIELDS: ".03;.111;.112;.113;.114;.115;.116;.1112;.131"
+    FLAGS: IE
+  context: 'change_address: a move dated before the date of birth'
+  raw_return: "6\0[Data]\r2^990009^.03^2811009^10/09/1981\r2^990009^.111^3 NEWER RD^3
+    NEWER RD\r2^990009^.1112^59000^59000\r2^990009^.112^^\r2^990009^.113^^\r2^990009^.114^ANYWHERE^ANYWHERE\r2^990009^.115^27^MONTANA\r2^990009^.116^59000^59000\r2^990009^.131^406-555-1009^406-555-1009\r"
+  sha256: 1d2112c6246846916aa4c6882e3a81695548b154f2c5ba047e67a78b823f55dc
+- name: before_birth/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990009,
+    FIELDS: '7911'
+    FLAGS: I
+  context: 'change_address: a move dated before the date of birth'
+  raw_return: "7\0[Data]\r9000001^990009^7911^3261105^\r"
+  sha256: 8352301f1791a8fa55ee23dd5926d85e3a65930006e2c84be69ca91b46d4d60e
+- name: before_birth/4
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'change_address: a move dated before the date of birth'
+  raw_return: "8\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 18a3ba3355cdf465fa49a771291479d54f282782382fe3c0c6c5e4d81ba8db83
+- name: history/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990009,
+    FIELDS: ".01"
+    FLAGS: I
+  context: address_history after two moves
+  raw_return: "5\0[Data]\r9000001^990009^.01^990009^\r"
+  sha256: 1bffc8a56f96cf0adcd6840bba1357ee718af7bc890dd9ddd92f648a2f03bcb3
+- name: history/2
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9000001.83'
+    IENS: ",990009,"
+    FIELDS: "@;.01I;.02;.03;.04;.05;.06E;.07;.08;.11I;.12I"
+    FLAGS: IP
+  context: address_history after two moves
+  raw_return: "6\0[Data]\r1^3261108^163 JUNIPER ST^^^ANYWHERE^MONTANA^59000^406-555-1009^^3251004\r2^3261108^2
+    NEW RD^^^ANYWHERE^MONTANA^59000^406-555-1009^3251004^3261105\r"
+  sha256: c2e0b2f20fcf682ddbfe12acf707c9015d4391695503223e8c37982769eaf7e6
+- name: history_no_patient/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 999999,
+    FIELDS: ".01"
+    FLAGS: I
+  context: address_history of a DFN no patient holds
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
+- name: address_no_patient/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '999999'
+  context: change_address of a DFN no patient holds
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E-1^Invalid Patient selected\x1E"
+  sha256: 68991bd11547cb951d72c179e9d21e0ab8d9890ce875fe14302ce493ba1cd836
+- name: cell_phone/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '2'
+    IENS: 990009,
+    FIELDS: ".134"
+    FLAGS: I
+  context: cell_phone of a patient with none on file
+  raw_return: "5\0[Data]\r2^990009^.134^^\r"
+  sha256: 859b11b20050f32368cb2f65bd687c7537f0f93a5dcf76da5895333ca367769a
+- name: races_first/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'set_race_ethnicity: one race, one ethnicity'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: races_first/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10'
+    IENS: 14,
+    FIELDS: ".01;200;3"
+    FLAGS: I
+  context: 'set_race_ethnicity: one race, one ethnicity'
+  raw_return: "6\0[Data]\r10^14^.01^WHITE^\r10^14^3^2106-3^\r10^14^200^^\r"
+  sha256: f31fc70e84ad6bbfd55218203e58b89bfe2a97e746efed68123252eadbffb9ea
+- name: races_first/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10.2'
+    IENS: 2,
+    FIELDS: ".01;200;3"
+    FLAGS: I
+  context: 'set_race_ethnicity: one race, one ethnicity'
+  raw_return: "7\0[Data]\r10.2^2^.01^NOT HISPANIC OR LATINO^\r10.2^2^3^2186-5^\r10.2^2^200^^\r"
+  sha256: 738170a43b3927ab8f9ea2b9b2ce86c3d29c3f1683e4aacc7415be808b9943c3
+- name: races_first/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10.3'
+    IENS: 1,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'set_race_ethnicity: one race, one ethnicity'
+  raw_return: "8\0[Data]\r10.3^1^.01^SELF IDENTIFICATION^\r"
+  sha256: 9b42e1132dd1921975091ef3bdd5b5f04abefaf6812dd534c16c14800cc97772
+- name: races_first/5
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '2.02'
+    IENS: ",990009,"
+    FIELDS: "@;.02I"
+    FLAGS: IP
+  context: 'set_race_ethnicity: one race, one ethnicity'
+  raw_return: "9\0[Data]\r"
+  sha256: ebaf021a35cbea40549c975f65b9ddaecc9087f9f7c1dd8f5bf58d85178a7e23
+- name: races_first/6
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '2.06'
+    IENS: ",990009,"
+    FIELDS: "@;.02I"
+    FLAGS: IP
+  context: 'set_race_ethnicity: one race, one ethnicity'
+  raw_return: "1\0[Data]\r"
+  sha256: 2faaeda7dae752865786c20db2d2cef20269d8b2e9e2d26caff499752c26a4b1
+- name: races_first/7
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 2.02^.01^+1,990009,^14
+    2: 2.02^.02^+1,990009,^1
+    3: 2.06^.01^+2,990009,^2
+    4: 2.06^.02^+2,990009,^1
+    5: 9000001^.03^990009,^3261108
+    6: 9000001^.12^990009,^207
+    7: 9000001^.16^990009,^3261108
+  - ''
+  - 1: '14'
+    2: '2'
+  context: 'set_race_ethnicity: one race, one ethnicity'
+  raw_return: "2\0[Data]\r+1,^14\r+2,^2\r"
+  sha256: 9acf368b101884a96c4b3986237d2ae744908666abb92bf53b00861a7a113239
+- name: races_first/8
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'set_race_ethnicity: one race, one ethnicity'
+  raw_return: "3\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 6f27f36c4e5290ceecd41fc1b08482149ca31a4bacfaae6a3a8250dadd574493
+- name: races_replace/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'set_race_ethnicity: replace them with two races, the second by proxy'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: races_replace/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10'
+    IENS: 2,
+    FIELDS: ".01;200;3"
+    FLAGS: I
+  context: 'set_race_ethnicity: replace them with two races, the second by proxy'
+  raw_return: "6\0[Data]\r10^2^.01^AMERICAN INDIAN OR ALASKA NATIVE^\r10^2^3^1002-5^\r10^2^200^^\r"
+  sha256: 3717403088bc23f7697125033961f55d5c9a1caf59bfa2da0c6fee102419d2cf
+- name: races_replace/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10'
+    IENS: 14,
+    FIELDS: ".01;200;3"
+    FLAGS: I
+  context: 'set_race_ethnicity: replace them with two races, the second by proxy'
+  raw_return: "7\0[Data]\r10^14^.01^WHITE^\r10^14^3^2106-3^\r10^14^200^^\r"
+  sha256: a2a74641726503ea88d3f4662bf4ba37a679e52ef0324c6ab055082061603e9e
+- name: races_replace/4
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10.2'
+    IENS: 2,
+    FIELDS: ".01;200;3"
+    FLAGS: I
+  context: 'set_race_ethnicity: replace them with two races, the second by proxy'
+  raw_return: "8\0[Data]\r10.2^2^.01^NOT HISPANIC OR LATINO^\r10.2^2^3^2186-5^\r10.2^2^200^^\r"
+  sha256: 824281eb316c17024b16c1e19f7ad4de2b2b529df2f25edd0ad6d54bab3ddf37
+- name: races_replace/5
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10.3'
+    IENS: 1,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'set_race_ethnicity: replace them with two races, the second by proxy'
+  raw_return: "9\0[Data]\r10.3^1^.01^SELF IDENTIFICATION^\r"
+  sha256: b1093538b4b2ae8e5568276f745ca9750794928dd94c038b2a92389caed4f6e3
+- name: races_replace/6
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10.3'
+    IENS: 2,
+    FIELDS: ".01"
+    FLAGS: I
+  context: 'set_race_ethnicity: replace them with two races, the second by proxy'
+  raw_return: "1\0[Data]\r10.3^2^.01^PROXY^\r"
+  sha256: 77c2f7cdda6a898fbd28a6ef0a75fce3b6ac85193410703aefd776b461ed6f0d
+- name: races_replace/7
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '2.02'
+    IENS: ",990009,"
+    FIELDS: "@;.02I"
+    FLAGS: IP
+  context: 'set_race_ethnicity: replace them with two races, the second by proxy'
+  raw_return: "2\0[Data]\r14^1\r"
+  sha256: 8930d1ba9f15b71d7ea08d5f2ee60470dd2f35cc1a273344d9a87b983177d0cb
+- name: races_replace/8
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '2.06'
+    IENS: ",990009,"
+    FIELDS: "@;.02I"
+    FLAGS: IP
+  context: 'set_race_ethnicity: replace them with two races, the second by proxy'
+  raw_return: "3\0[Data]\r2^1\r"
+  sha256: f8d0d2f1243ce3f5ec3b6a02382b7613c7b22852522f1dc9405dd5cccf7382aa
+- name: races_replace/9
+  rpc: DDR FILER
+  inputs:
+  - ADD
+  - 1: 2.02^.01^+1,990009,^2
+    2: 2.02^.02^+1,990009,^1
+    3: 2.02^.02^14,990009,^2
+    4: 9000001^.03^990009,^3261108
+    5: 9000001^.12^990009,^207
+    6: 9000001^.16^990009,^3261108
+  - ''
+  - 1: '2'
+  context: 'set_race_ethnicity: replace them with two races, the second by proxy'
+  raw_return: "4\0[Data]\r+1,^2\r"
+  sha256: c484ca5d38ca14d946b12aa27e3586a5ad3146080e44929eae9f6d24ea260c6c
+- name: races_replace/10
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'set_race_ethnicity: replace them with two races, the second by proxy'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: declined_beside_another/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'set_race_ethnicity: DECLINED TO ANSWER beside WHITE'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: declined_beside_another/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10'
+    IENS: 11,
+    FIELDS: ".01;200;3"
+    FLAGS: I
+  context: 'set_race_ethnicity: DECLINED TO ANSWER beside WHITE'
+  raw_return: "6\0[Data]\r10^11^.01^DECLINED TO ANSWER^\r10^11^3^0000-0^\r10^11^200^^\r"
+  sha256: 8133aae8caa22f9cd82115ebdf82dc08399f77dc90e0993f37e8f43503b461e6
+- name: declined_beside_another/3
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10'
+    IENS: 14,
+    FIELDS: ".01;200;3"
+    FLAGS: I
+  context: 'set_race_ethnicity: DECLINED TO ANSWER beside WHITE'
+  raw_return: "7\0[Data]\r10^14^.01^WHITE^\r10^14^3^2106-3^\r10^14^200^^\r"
+  sha256: a2a74641726503ea88d3f4662bf4ba37a679e52ef0324c6ab055082061603e9e
+- name: declined_beside_another/4
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'set_race_ethnicity: DECLINED TO ANSWER beside WHITE'
+  raw_return: "8\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 18a3ba3355cdf465fa49a771291479d54f282782382fe3c0c6c5e4d81ba8db83
+- name: inactive_race/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'set_race_ethnicity: race 3, which the build marks inactive'
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: ac242d68b23892945ec6a81ca74d0cbe7e7dc84713ca6e8f6aea598cdefbeafb
+- name: inactive_race/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '10'
+    IENS: 3,
+    FIELDS: ".01;200;3"
+    FLAGS: I
+  context: 'set_race_ethnicity: race 3, which the build marks inactive'
+  raw_return: "6\0[Data]\r10^3^.01^WHITE, NOT OF HISPANIC ORIGIN^\r10^3^3^^\r10^3^200^1^\r"
+  sha256: 7f4b1f47e101d5afd70f2cf6c127d251363e5979c985cf192dd4efd5a9dfd293
+- name: inactive_race/3
+  rpc: AGG UNLOCK PATIENT
+  inputs:
+  - '990009'
+  context: 'set_race_ethnicity: race 3, which the build marks inactive'
+  raw_return: "7\0I00010RESULT^T00080MESSAGE\x1E1^\x1E"
+  sha256: 9933fb013328d51055f6dabf992226cd3e5776edbcc9d480ac0668748358f55d
+- name: lock_held/1
+  rpc: AGG LOCK PATIENT
+  inputs:
+  - '990009'
+  context: set_race_ethnicity while another user holds AG's lock on the patient
+  raw_return: "5\0I00010RESULT^T00080MESSAGE\x1E0^This event is locked for editing
+    by PROFILE,SCHED.\x1E"
+  sha256: 4f2caf4f37db3ccdfdc6ed231142210318cfacd3f283217fa3ab50e041bb86f9
+- name: races_read/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000001'
+    IENS: 990009,
+    FIELDS: ".01"
+    FLAGS: I
+  context: race_ethnicity after the replace
+  raw_return: "5\0[Data]\r9000001^990009^.01^990009^\r"
+  sha256: 1bffc8a56f96cf0adcd6840bba1357ee718af7bc890dd9ddd92f648a2f03bcb3
+- name: races_read/2
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '2.02'
+    IENS: ",990009,"
+    FIELDS: "@;.01E;.02I;.02E"
+    FLAGS: IP
+  context: race_ethnicity after the replace
+  raw_return: "6\0[Data]\r2^AMERICAN INDIAN OR ALASKA NATIVE^1^SELF IDENTIFICATION\r14^WHITE^2^PROXY\r"
+  sha256: 931a6ce1b2e8f983b4475b1198e6d413b392ff30f725d4b278a21eb813701782
+- name: races_read/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '2.06'
+    IENS: ",990009,"
+    FIELDS: "@;.01E;.02I;.02E"
+    FLAGS: IP
+  context: race_ethnicity after the replace
+  raw_return: "7\0[Data]\r2^NOT HISPANIC OR LATINO^1^SELF IDENTIFICATION\r"
+  sha256: d6c1dfbbb5a5f6c1b9fde9cc12016abc3c8f98340f4eca74a94ba0478eb03953
