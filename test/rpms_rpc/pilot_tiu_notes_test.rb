@@ -8,6 +8,7 @@ require "open3"
 require "timeout"
 require "tmpdir"
 require "rpms_rpc"
+require_relative "captured_replies"
 require "rpms_rpc/live_summary"
 require "rpms_rpc/wire_capture"
 require "rpms_rpc/mappings"
@@ -280,7 +281,10 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
   # Same line pieces ProgressNote.update_text sends in TIUX("TEXT",n,0).
   def wrapped_note_text_lines(note_body)
     note_ien = "1"
-    RpmsRpc.mock! { |m| m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1") }
+    RpmsRpc.mock! do |m|
+      m.seed_scalar(:tiu_authorization, note_ien, "1") # update_text asks CANDO^TIUSRVA first (#614)
+      m.seed_scalar(:tiu_set_document_text, note_ien, "#{note_ien}^1^1")
+    end
     RpmsRpc::ProgressNote.update_text(note_ien, note_body)
     call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "TIU SET DOCUMENT TEXT" }
     flunk "TIU SET DOCUMENT TEXT was not called" unless call
@@ -968,7 +972,12 @@ class RpmsRpc::PilotTiuNotesTest < Minitest::Test
       next unless expected_checklist_status(slice, fixture, entry) == "pilot-ready"
 
       raw = fixture.raw_return.to_s.sub(/\A\d+[\x00\x01]/, "")
-      client = TiuProbeClient.new(slice[:rpc] => raw)
+      replies = { slice[:rpc] => raw }
+      # update_text asks TIU AUTHORIZATION first (#614): the author's live answer.
+      if slice[:mapping] == :tiu_set_document_text
+        replies["TIU AUTHORIZATION"] = CapturedReplies.raw("tiu-authorization", "author_edit").sub(/\A\d+\x00/n, "")
+      end
+      client = TiuProbeClient.new(replies)
       RpmsRpc.reset!
       RpmsRpc.configure { |cfg| cfg.client = client }
 
