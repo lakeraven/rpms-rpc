@@ -415,16 +415,16 @@ rake rpc:coverage
 ```
 
 - **Denominator:** every #8994 name on the pinned rpms-ops build
-  (`data/inventories/<release-tag>/<release-tag>-broker_8994.txt`, the release's own inventory,
+  (`data/inventories/<release-tag>/<release-tag>-rpcs.json`, the release's own RPC surface,
   pinned by `rake conformance:pin`; see [docs/conformance/CAPTURE.md](docs/conformance/CAPTURE.md)),
   minus the names in `data/rpc_coverage/exclusions.yml`. Each exclusion carries a reason from a
   fixed list, and is reviewed like code.
-- **Unreachable RPCs are excluded from the pinned build's reach face (#278, #394):** an RPC whose
+- **Unreachable RPCs are excluded from the pinned build's reach classes (#278, #394, #406):** an RPC whose
   routine or entry point is not on the image, that is inactive, that no context lists, or whose
   every context is out of order cannot be called by any client. rpms-ops publishes that class per
-  RPC (`<tag>-rpc_reach.txt`), `rake conformance:pin` commits it, and `rake rpc:exclusions`
+  RPC (in `<tag>-rpcs.json`), `rake conformance:pin` commits it, and `rake rpc:exclusions`
   regenerates the exclusions from it, recording its path and pinned sha256. Run it after every
-  re-pin; a test fails when the committed file is stale against the pinned face. Out-of-order RPCs get their own reason (`context_out_of_order`),
+  re-pin; a test fails when the committed file is stale against the pinned document. Out-of-order RPCs get their own reason (`context_out_of_order`),
   since a site can put a context back in service. Reviewed reasons (`gui_plumbing`,
   `write_needs_fixture`) survive regeneration.
 - **"Not in FOIA" is not "not real"; registration is the test (rpms-ops `docs/CLIENTS.md`).** FOIA is a
@@ -549,7 +549,7 @@ The JSON (default `coverage/api/methods.json`, `OUT=` to override) is the input 
 |---|---|
 | `module`, `method` | `RpmsRpc::Patient` and `find`: the call is `RpmsRpc::Patient.find` |
 | `arity`, `params` | Ruby's `Method#arity` and `#parameters`; `kind` is `req`, `opt`, `rest`, `keyreq`, `key`, `keyrest` or `block` |
-| `rpcs[]` | each RPC the method sends: `name`, `registered` on the pinned registry, `entry_point` (`TAG^ROUTINE`, `null` when not registered), `reach` (its class in the pinned build's `rpc_reach.txt`: `client-callable`, `broker-exempt`, `no-context`, ...; `null` when not registered), `via` (`mapping :name` or `literal`) |
+| `rpcs[]` | each RPC the method sends: `name`, `registered` on the pinned registry, `entry_point` (`TAG^ROUTINE`, `null` when not registered), `reach` (its class in the pinned build's `rpcs.json`: `client-callable`, `broker-exempt`, `no-context`, ...; `null` when not registered), `via` (`mapping :name` or `literal`) |
 | `unresolved[]` | RPC names the analysis could not bind, with where; empty when every send resolved |
 | `live_specs[]` | `file:line` of each call in `test/live/` |
 | `personas[]` | the personas those specs run as; empty when there are none |

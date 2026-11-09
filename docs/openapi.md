@@ -25,7 +25,7 @@ Before anything is read, `openapi:surface` proves the pin offline:
 - it validates against the closed schema;
 - its header names the pinned tag.
 
-It reads the file through `RpmsRpc::Conformance::BuildSurface.from_rpcs_json`, the second constructor of the one reader of rpms-ops files (#394).
+It reads the file through `RpmsRpc::Conformance::BuildSurface.from_rpcs_json`, the one reader of the build's surface (#394, #406).
 
 **rpcs.v1 and rpcs.v2.**
 A release keeps the schema it was published with: `bcer-9.0-20261012-e7923a4-ydb`, the build pinned now, publishes rpcs.v1, and releases gated after rpms-ops#877 publish rpcs.v2.
@@ -48,7 +48,8 @@ rpcs.v2 carries all of them; re-pinning to the first release that publishes it (
 Both documents name the same build.
 `data/rpc_coverage/config.yml`, which the client API's analysis reads, and `data/openapi/rpcs.lock.yml`, which the surface reads, both pin `bcer-9.0-20261012-e7923a4-ydb`.
 `rake openapi` refuses to report success when the two documents' `x-rpms-build.tag` differ, and a test holds the defaults to the same tag.
-The surface keeps a pin of its own because `conformance:pin` does not fetch `<tag>-rpcs.json`, so a re-pin is both commands with the same tag: `rake conformance:pin RELEASE=<tag>` and `rake openapi:pin RELEASE=<tag>`.
+The surface keeps a pin of its own (it also pins the schema the file names, and validates against it), so a re-pin is both commands with the same tag: `rake conformance:pin RELEASE=<tag>` and `rake openapi:pin RELEASE=<tag>`.
+Both commit the same `<tag>-rpcs.json` bytes; `conformance:pin` puts it in `data/inventories/<tag>/`, where the gates read it (#406).
 
 **The client API** runs `rake rpc:api_coverage`'s analysis in process (`METHODS=<file>` reads a JSON it wrote instead); its build is the one `data/rpc_coverage/config.yml` pins.
 
