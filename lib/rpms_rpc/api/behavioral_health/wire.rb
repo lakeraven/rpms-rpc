@@ -41,6 +41,9 @@ module RpmsRpc
       # value and its external form.
       IEN_NAME_SEPARATOR = "~"
 
+      # The row ERR^AMHGU writes when an AMHG routine's M error trap fires.
+      M_ERROR_ROW = "M ERROR|"
+
       # Helpers for the AMHG modules that extend Wire; not part of their public API.
       private
 
@@ -105,9 +108,22 @@ module RpmsRpc
       # is split here. An Array is a client's rows already (BmxClient#call_rpc
       # splits at $C(30)), and each element stays whole, so a newline inside a
       # field never starts another record.
+      #
+      # A read whose routine failed answers the M error as a row: MERR^AMHGU
+      # writes "M ERROR|<text>" over row 1 (AMHGU.m:108-120), and whatever
+      # rows follow it are a half-written list. Raise the error rather than
+      # parse it as a record (rpms-rpc#706).
       def frame_rows(response)
         parts = response.is_a?(String) ? frame_parts(response) : Array(response).map(&:to_s)
-        strip_frame_rows(parts)
+        raise_m_error_row!(strip_frame_rows(parts))
+      end
+
+      # The rows, unless one is an "M ERROR|" row: then that error, raised.
+      def raise_m_error_row!(rows)
+        m_error = rows.find { |row| row.start_with?(M_ERROR_ROW) }
+        raise Client::RpcMError, RpmsRpc.sanitize_error(m_error) if m_error
+
+        rows
       end
 
       def strip_frame_rows(parts)

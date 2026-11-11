@@ -139,6 +139,18 @@ class BehavioralHealthTest < Minitest::Test
     assert_empty BH.visits(100, from: "3250101", to: "3251231")
   end
 
+  # VISITL^AMHGD arms the same trap as ADML^AMHGDA (MERR^AMHGU), whose ERR
+  # writes "M ERROR|<text>" over row 1 and no $C(31). The row is the one IRIS
+  # sent for AMHG GET ADMIN RECORDS (rpms-rpc#706). It raises; it is never a
+  # visit with an IEN of "M ERROR|...".
+  def test_visits_raise_the_m_error_row
+    frame = "5\x00#{VISITS_HEADER}M ERROR|MUMPS error: \"<UNDEFINED>ADML+32^AMHGDA *AMHPOVE\"#{RS}"
+    @mock.seed_text(:amhg_visit_list, "3250101|3251231|100", frame)
+
+    error = assert_raises(RpmsRpc::Client::RpcMError) { BH.visits(100, from: "3250101", to: "3251231") }
+    assert_match(/\AM ERROR\|MUMPS error/, error.message)
+  end
+
   # CiaClient#call_rpc_global_array returns one blob: "<seq>\x00" + header +
   # $C(30) rows + $C(31), with no newlines. Left unsplit, the sequence echo
   # hides the header and the only "IEN" is "<seq>\x00T00010BMXIEN", which

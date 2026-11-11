@@ -761,11 +761,17 @@ module RpmsRpc
       )
     end
 
-    # One global-array reply. Data ends at its $C(31) sentinel; an error reply (the \x01 flag after
-    # the sequence echo) carries no sentinel and ends at EOD. Reading only to the sentinel left a
-    # refused call waiting out the whole timeout and dropping the session, so read to the first
-    # EOD: an error reply is then complete; a data reply is complete if the sentinel came before
-    # that EOD, and otherwise its body embedded an EOD (#254) and the read goes on to the sentinel.
+    # One global-array reply, read to the broker's end of data (EOD). A data reply's $C(31) sentinel
+    # comes just before that EOD; an error reply (the \x01 flag after the sequence echo) carries no
+    # sentinel. Nor does a stock error reply sent as data: ERR^AMHGU writes its "M ERROR|" row over
+    # row 1 and returns, so ADML^AMHGDA never writes its closing $C(31) (rpms-rpc#706). Reading on
+    # to a sentinel that never comes left each of them waiting out the whole timeout and dropping
+    # the session, so the reply is complete at the first EOD.
+    #
+    # The broker writes nothing between its EOD and the next request, so bytes already received past
+    # that EOD can only be more of this reply: a body that embedded the EOD byte (#254, from when the
+    # EOD was $C(30)). Only then does the read go on to the sentinel. Bytes not yet received are not
+    # waited for: DEL, the EOD since #241, is not in RPMS reply text.
     #
     # An empty first piece is a late EOD from an EARLIER reply that landed in front of this one, after
     # discard_stale_bytes had drained the socket. No reply is empty (each starts with its sequence
@@ -780,6 +786,7 @@ module RpmsRpc
       if (sentinel = first.index(AGG_ARRAY_END.b))
         return first.byteslice(0, sentinel)
       end
+      return first if @rbuf.to_s.empty?
 
       first + EOD.b + read_until_raw(AGG_ARRAY_END)
     end
