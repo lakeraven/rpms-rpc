@@ -439,6 +439,14 @@ module RpmsRpc
     # effective and expiration dates (.17/.18) are sent too: AG's window shows
     # those, and for a SELF member copies them onto the row (UPOL).
     #
+    # The insurer must be one AG lists (AGG GET INSURANCE DATA, the pick its
+    # own client offers), checked before the write: UPD^AGGUPPVT files the
+    # pointer as given (FILE^DICN, AGGUPPVT.m:47-53), and RET^AGGINSUR then
+    # reads ^AUTNINS(IIEN,0) bare (AGGINSUR.m:25), so every later read of
+    # the patient's Private Insurance window dies (#691). An insurer not
+    # listed is :insurer_not_on_file and a list that does not answer is
+    # :verification_failed; neither sends the write.
+    #
     # Returns { success: true, record_ien:, policy_holder_ien: } or
     # { success: false, error: :coverage_rejected, message: }; nil on no reply.
     def add_private_insurance(dfn, insurer_ien:, policy_holder:, member_number:, effective_on:,
@@ -457,6 +465,9 @@ module RpmsRpc
       validate_private_params!(params)
       id = canonical_dfn(dfn)
       return nil unless id
+
+      refused = unlisted_insurer(params["AGGPIINS"], client)
+      return refused if refused
 
       scoped(client, AGG_CONTEXT) do
         finish_private(call_array(client, PRIVATE_RPC, "A", id, "", "", encode_params(params)))
@@ -826,6 +837,15 @@ module RpmsRpc
       { success: false, error: :already_absent,
         message: "private insurance #{record} is not on file for patient #{dfn}",
         record_ien: record }
+    end
+
+    # nil when AG lists the insurer; otherwise the refusal add_private_insurance returns.
+    def unlisted_insurer(ien, client)
+      listed = insurers(client: client)
+      return verification_failed("the insurers on file could not be read, so insurer #{ien} was not checked") if listed.nil?
+      return nil if listed.any? { |row| row[:ien] == ien }
+
+      { success: false, error: :insurer_not_on_file, message: "insurer #{ien} is not on file (AGG GET INSURANCE DATA)" }
     end
 
     def verification_failed(message, **ids)

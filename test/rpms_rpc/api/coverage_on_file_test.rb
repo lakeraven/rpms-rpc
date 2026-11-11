@@ -15,8 +15,9 @@ require_relative "../captured_replies"
 # FileMan confirming each value, is test/live/coverage_on_file_live_test.rb.
 #
 # Not captured, so not tested here: a refusal from UPD^AGGUPPVT (the build
-# filed every policy it was sent, even one naming no insurer on file), a window
-# that answers a blank Medicare row, and a window read with no typed reply.
+# files every policy it is sent, even one naming no insurer on file, which is
+# why the gem checks the insurer first, #691), a window that answers a blank
+# Medicare row, and a window read with no typed reply.
 # Those were tested against replies written by hand, which ADR 0009 retires.
 class CoverageOnFileTest < Minitest::Test
   SLUG = "coverage-on-file"
@@ -134,6 +135,19 @@ class CoverageOnFileTest < Minitest::Test
     assert_equal [ "AGG UPDATE PRIVATE INSUR", "A", DFN.to_s, "", "", "AGGRPC" ], [ rpc, proc, dfn, record, holder, context ]
     assert_equal %w[AGGPIINS=5 AGGPIHLN=ZEPHYR,QUINN AGGPIMBN=ZZM49 AGGPIESD=01/01/2026 AGGPIEED=12/31/2027
                     AGGPHESD=01/01/2026 AGGPHEED=12/31/2027], parms.split(FS)
+  end
+
+  # UPD^AGGUPPVT files the insurer pointer as given, and RET^AGGINSUR then dies
+  # on the patient's window (#691). The gem asks AG's insurer list first.
+  def test_add_private_insurance_refuses_an_insurer_ag_does_not_list_without_writing
+    client = replay_flow("add_private_unknown_insurer")
+    got = Cov.add_private_insurance(DFN, insurer_ien: 999_999, policy_holder: "ZEPHYR,QUINN", member_number: "ZZM691",
+                                         effective_on: "01/01/2026")
+
+    assert_equal({ success: false, error: :insurer_not_on_file,
+                   message: "insurer 999999 is not on file (AGG GET INSURANCE DATA)" }, got)
+    assert_sent_the_flow(client, "add_private_unknown_insurer")
+    assert_equal [ [ "AGG GET INSURANCE DATA", [ "" ], "AGGRPC" ] ], wire(client), "the write is never sent"
   end
 
   def test_add_private_insurance_refuses_before_sending_without_holder_member_or_start
