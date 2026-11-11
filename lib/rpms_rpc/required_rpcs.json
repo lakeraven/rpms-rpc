@@ -298,7 +298,6 @@
       "BEHOCCD GETREF",
       "BEHOCCD PHR",
       "BEHOCIR GETNUM",
-      "BEHOCIR GETTXT",
       "BEHOCIR1 GETCCDS"
     ],
     "RpmsRpc::Pov": [

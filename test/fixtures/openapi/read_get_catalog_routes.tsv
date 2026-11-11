@@ -87,7 +87,6 @@ RpmsRpc::PatientProfile.states	GET /patient-profiles/states
 RpmsRpc::PatientSelection.find	GET /patient-selections
 RpmsRpc::Phr.counts	GET /patients/{dfn}/phr/counts
 RpmsRpc::Phr.enrollment_status	GET /patients/{dfn}/phr/enrollment-status
-RpmsRpc::Phr.find	GET /phr/{ien}
 RpmsRpc::Phr.for_patient	GET /patients/{dfn}/phr
 RpmsRpc::Phr.has_access?	GET /patients/{dfn}/phr/has-access
 RpmsRpc::Phr.referrals_for_visits	GET /phr/referrals
