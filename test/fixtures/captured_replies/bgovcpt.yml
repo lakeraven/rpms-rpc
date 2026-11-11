@@ -8,9 +8,8 @@ image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42
 client: RpmsRpc::CiaClient#call_rpc_raw
 signed_on_as: PROFILE,MD (PMD123, a published demo pair)
 bound_context: CIAV VUECENTRIC
-captured_at: '2026-11-09T04:24:48Z'
-note: DFN 4 carries the build's seeded V CPT entries. The SET frame faults before
-  anything is filed (ACTLSTTOOLONG).
+captured_at: '2026-11-09T18:21:41Z'
+note: DFN 4 carries the build's seeded V CPT entries.
 captures:
 - name: dfn_4
   inputs:
@@ -25,15 +24,3 @@ captures:
     IHS CLINIC^A4206^1 cc sterile syringe&needle^1 cc sterile syringe&needle^^^^^8^9^87^1^PROFILE,MD^^^0^CPT^\r10/05/2026^000012^DEMO
     IHS CLINIC^J1670^Tetanus immune globulin inj^Tetanus immune globulin inj^^^^^9^11^4726^1^PROFILE,MD^^^0^CPT^\r"
   sha256: 286d23c11b3dbf26e100d927dd57db2c8e71c3894ce67f6e0d8ea6c4ae330cf2
-- name: set_three_params
-  rpc: BGOVCPT SET
-  inputs:
-  - '4'
-  - '4'
-  - 99213^^office visit^1
-  context: 'Procedure.add''s frame: SET(RET,INP) takes one parameter, so the build
-    refuses three'
-  raw_return: "6\x011\rThe server has reported the following error:\r\rSET^BGOVCPT,
-    More actual parameters than formal parameters: ,150374474,-%YDB-E-ACTLSTTOOLONG\r\rA
-    detailed log of the error has been created.\r"
-  sha256: 4cda414c182dc6c67b816da97a74097a045b183f2098ec5b7e181080ebc500a4
