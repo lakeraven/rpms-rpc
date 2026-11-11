@@ -136,6 +136,28 @@ class HealthSummaryApiTest < Minitest::Test
     refute_includes component[:content], "IMMUNIZATION FORECAST", "only the component's own section"
   end
 
+  # A heading of 74 or more characters prints with no dashes (BREAK^APCHS0):
+  # " SCHEDULED ENCOUNTERS (...) (max 10 visits or 90 days) " is a section of
+  # its own, so the medications end where it starts.
+  def test_a_banner_too_long_for_dashes_opens_its_own_section
+    replay_flow("for_patient")
+    summary = HS.for_patient(DFN)
+    medications = summary[:sections].find { |s| s[:name].start_with?("CURRENT MEDICATIONS") }
+
+    assert_includes summary[:sections].map { |s| s[:name] },
+                    "SCHEDULED ENCOUNTERS (INCLUDES CHART REQ AND WALK INS) (max 10 visits or 90 days)"
+    refute_includes medications[:content], "SCHEDULED ENCOUNTERS"
+  end
+
+  # Components whose IHS headings are other words than their names.
+  def test_component_data_finds_components_under_their_ihs_headings
+    replay_flow_repeatedly("for_patient", 3)
+
+    assert_includes HS.component_data(DFN, :demographics)[:content], "DOB:"
+    assert_includes HS.component_data(DFN, :vitals)[:content], "117/81"
+    refute_includes HS.component_data(DFN, :medications)[:content], "SCHEDULED ENCOUNTERS"
+  end
+
   def test_component_data_is_nil_when_the_summary_has_no_such_section
     replay_flow("for_patient")
 

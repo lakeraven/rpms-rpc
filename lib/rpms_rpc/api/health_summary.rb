@@ -107,11 +107,10 @@ module RpmsRpc
       # and the "~component" suffix of RPTID feeds only the listview reports
       # (ORWRP.m:91,103,124). So the summary is fetched whole and the
       # component's section picked out of it here: the first section whose
-      # banner, less any "(max ...)" note, is the component's name or ends
-      # with it ("CURRENT MEDICATIONS" for :medications).
+      # banner is one of the component's headings (COMPONENT_HEADINGS).
       summary = for_patient(dfn)
       name = titleize(component.to_s)
-      section = summary[:sections].find { |s| component_section?(s[:name], name) }
+      section = summary[:sections].find { |s| component_section?(s[:name], sym) }
       return nil if section.nil? || blank?(section[:content])
 
       {
@@ -161,15 +160,43 @@ module RpmsRpc
       types.find { |type| text.match?(/\A\d+\z/) ? type[:ien] == text : type[:name].casecmp?(text) }
     end
 
-    # HSX^ORWRPBHS prints the summary in pages (APCHS0). Each page opens with
-    # banner lines of asterisks at the left margin (the confidentiality line,
-    # then the patient, type and page number) and the report closes with one
-    # ("*** END * ..."). Each section opens with a dashed banner at the left
-    # margin, "---- ACTIVE PROBLEMS (ALL) ----", which repeats at the top of
-    # the next page when the section runs on.
+    # HSX^ORWRPBHS prints the summary in pages, 80 columns wide (APCHS0,
+    # through CAPTURE^CIAUHFS at width 80). Each page opens with HEADER^APCHS0:
+    # the confidentiality line, then the patient, type and page number, each
+    # centred between runs of asterisks; the report closes with "*** END *".
+    # Each section opens with BREAK^APCHS0: the component's heading and any
+    # "(max ...)" note, centred between equal runs of dashes, which repeats at
+    # the top of the next page when the section runs on. A run is
+    # (80-3-length)/2-1 whole characters long (BREAK+2^APCHS0), and a line is a
+    # banner only when its runs are exactly that long. A heading of 74 or
+    # more characters has none: " SCHEDULED ENCOUNTERS (...) (max 10 visits or
+    # 90 days) ", one space either side. A page's patient line can lose its
+    # asterisks the same way, so the line after the confidentiality line is
+    # dropped whatever it holds.
     PAGE_BANNER = /\A\*{3,} .*\*{3,}\z/
-    SECTION_BANNER = /\A-{3,} (.+?) -{3,}\z/
-    private_constant :PAGE_BANNER, :SECTION_BANNER
+    CONFIDENTIALITY_LINE = "CONFIDENTIAL PATIENT INFORMATION"
+    SECTION_BANNER = /\A(-*) (\S.*\S) \1\z/
+    REPORT_WIDTH = 80
+    private_constant :PAGE_BANNER, :CONFIDENTIALITY_LINE, :SECTION_BANNER, :REPORT_WIDTH
+
+    # The heading words each component's sections print under, as the IHS
+    # summary types on the pinned build print them, less "(...)" notes. A
+    # section belongs to a component when its heading is one of these or
+    # ends with one ("PCC ACTIVE PROBLEMS", "MOST RECENT PATIENT EDUCATION").
+    # A component not listed matches its own name ("LABS").
+    COMPONENT_HEADINGS = {
+      demographics: [ "DEMOGRAPHIC DATA", "BRIEF DEMOGRAPHICS" ],
+      problems: [ "ACTIVE PROBLEMS" ],
+      allergies: [ "ALLERGIES", "ALLERGIES/ADVERSE REACTIONS", "ALLERG" ],
+      medications: [ "CURRENT MEDICATIONS", "ALL MEDICATIONS" ],
+      immunizations: [ "IMMUNIZATIONS" ],
+      vitals: [ "MEASUREMENT PANELS", "MEASUREMENTS TAKEN" ],
+      appointments: [ "SCHEDULED ENCOUNTERS", "SCHEDULED APPOINTMENTS", "FUTURE APPOINTMENTS" ],
+      clinical_reminders: [ "HEALTH MAINTENANCE REMINDERS" ],
+      health_factors: [ "HEALTH FACTORS" ],
+      education: [ "PATIENT EDUCATION" ]
+    }.freeze
+    private_constant :COMPONENT_HEADINGS
 
     # { type:, generated_at:, sections: [{ name:, content: }], raw_content: }.
     # A section's name is its banner's text as the server printed it. Page
@@ -180,28 +207,39 @@ module RpmsRpc
       return error_summary("The server could not generate the #{type} health summary") if text.lstrip.start_with?(REPORT_FAULT)
 
       sections = []
+      after_confidentiality = false
       text.to_s.split(/\r?\n/).each do |line|
-        line = line.rstrip
-        next if line.match?(PAGE_BANNER)
+        next after_confidentiality = false if after_confidentiality
+        next after_confidentiality = line.include?(CONFIDENTIALITY_LINE) if line.match?(PAGE_BANNER)
 
-        if (banner = line[SECTION_BANNER, 1])
+        if (banner = section_banner(line))
           sections << { name: banner, content: +"" } unless sections.last&.fetch(:name) == banner
         elsif sections.any?
-          sections.last[:content] << "#{line}\n"
+          sections.last[:content] << "#{line.rstrip}\n"
         elsif !blank?(line)
-          sections << { name: "Summary", content: +"#{line}\n" }
+          sections << { name: "Summary", content: +"#{line.rstrip}\n" }
         end
       end
 
       { type: type, generated_at: Time.now, sections: sections.reject { |s| blank?(s[:content]) }, raw_content: text }
     end
 
-    # A section banner names a component when, less a trailing "(...)" note,
-    # it is the component's name or ends with it, in any case.
-    def component_section?(banner, name)
-      words = banner.sub(/\s*\(.*\z/, "").strip.upcase
-      wanted = name.upcase
-      words == wanted || words.end_with?(" #{wanted}")
+    # The heading a BREAK^APCHS0 banner line prints, or nil.
+    def section_banner(line)
+      match = line.match(SECTION_BANNER)
+      return nil if match.nil?
+      return nil unless match[1].length == [ ((REPORT_WIDTH - 3 - match[2].length) / 2) - 1, 0 ].max
+
+      match[2]
+    end
+
+    # A section banner names a component when, less its "(...)" notes, it is
+    # one of the component's headings or ends with one, in any case.
+    def component_section?(banner, component)
+      words = banner.gsub(/\s*\([^)]*\)/, "").strip.upcase
+      COMPONENT_HEADINGS.fetch(component) { [ titleize(component.to_s) ] }.any? do |heading|
+        words == heading.upcase || words.end_with?(" #{heading.upcase}")
+      end
     end
 
     def error_summary(message)

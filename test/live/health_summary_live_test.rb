@@ -36,6 +36,8 @@ class HealthSummaryLiveTest < LiveSpec::Test
 
       assert_nil summary[:error], "#{type[:name]} (#{type[:ien]}): #{summary[:error]}"
       assert_includes summary[:raw_content], "(#{type[:name]} SUMMARY)"
+      page_lines = summary[:sections].flat_map { |s| s[:content].lines }.grep(/CONFIDENTIAL PATIENT INFORMATION|SUMMARY\)  pg /)
+      assert_empty page_lines, "#{type[:name]}: page banners stay out of the sections"
     end
   end
 
