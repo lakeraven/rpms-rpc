@@ -580,7 +580,7 @@ module RpmsRpc
     # the read so nothing is parsed. Otherwise the mapping parses it.
     def designated_provider_rows(dfn)
       mapping = DataMapper.patient_designated_provider
-      response = RpmsRpc.client.call_rpc(mapping.rpc_name, dfn.to_s)
+      response = mapping.in_context { RpmsRpc.client.call_rpc(mapping.rpc_name, dfn.to_s) }
       return [] if response.nil? || response == "" || (response.is_a?(Array) && response.empty?)
       return [] if designated_provider_error_reply?(response)
 

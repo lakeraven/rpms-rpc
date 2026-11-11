@@ -347,6 +347,15 @@ module RpmsRpc
 
       def bound_context = @context
 
+      # Run the block under #context (bind, run, restore), or as-is when the
+      # mapping declares none. For an API that sends the mapping's RPC
+      # itself, to read the raw reply, rather than through fetch_*.
+      def in_context(client = RpmsRpc.client, &)
+        return yield if @context.nil?
+
+        ContextScope.scoped(client, @context, &)
+      end
+
       def field(position, attribute, type = :string, terminology: nil, pointer: nil)
         @fields << Field.new(position: position, attribute: attribute, type: type,
                              terminology: terminology, pointer: pointer)
@@ -699,12 +708,6 @@ module RpmsRpc
       def call(*params)
         client = RpmsRpc.client
         in_context(client) { client.call_rpc(rpc_name, *params) }
-      end
-
-      def in_context(client, &)
-        return yield if @context.nil?
-
-        ContextScope.scoped(client, @context, &)
       end
 
       def format_value(val, type)

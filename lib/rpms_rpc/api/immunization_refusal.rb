@@ -52,7 +52,8 @@ module RpmsRpc
       # Client called directly: SET^BGOREF returns "" on success, which
       # fetch_scalar would collapse into nil — indistinguishable from
       # broker silence, and silence must never read as a filed refusal.
-      raw = RpmsRpc.client.call_rpc(DataMapper.refusal_set.rpc_name, inp)
+      mapping = DataMapper.refusal_set
+      raw = mapping.in_context { RpmsRpc.client.call_rpc(mapping.rpc_name, inp) }
       { success: DataMapper.write_accepted?(raw), ien: nil, raw: raw }
     rescue RpmsRpc::Client::FrameTooLongError => e
       # A value the wire would mis-frame is refused before anything is sent

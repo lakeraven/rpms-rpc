@@ -22,7 +22,7 @@ On `bcer-9.0-20261012-e7923a4-ydb` that is 41 RPCs.
 2. A VueCentric-only RPC is added to the gem only with a row here, in the same change. `test/rpms_rpc/vuecentric_only_rpcs_test.rb` fails when `required_rpcs.json` gains one this table does not list, and when the table lists one that is no longer VueCentric-only or no longer sent.
 3. The problem-list writes and the psych CPT are decided, not pending: problem writes stay on `BGOPROB SET` / `BGOPROB DEL` (#527), and the CPT is filed through `BEHOENPC SAVE` (#524). Both are live-proven.
 4. Leaving one of these for a stock route takes its own change: the stock route proven live, the RPC gone from `required_rpcs.json`, and its row deleted.
-5. Each of these RPCs binds its own option. Its mapping declares it (`m.context VUECENTRIC` in `lib/rpms_rpc/mappings/ihs.rb`), and DataMapper sends the call under that option and restores the caller's (`ContextScope.scoped`), so the RPC answers whichever option the session has bound. On a CIA session, already bound to `CIAV VUECENTRIC` by sign-on, that costs nothing. The test fails when a VueCentric-only RPC's mapping declares no option, and `test/live/vuecentric_only_context_live_test.rb` proves the bind on the pinned build.
+5. Each of these RPCs binds its own option. Its mapping declares it (`m.context VUECENTRIC` in `lib/rpms_rpc/mappings/ihs.rb`), and DataMapper sends the call under that option and restores the caller's (`ContextScope.scoped`). An API that sends the RPC itself, to read the raw reply, does so inside the mapping's `in_context`, so the RPC answers whichever option the session has bound. On a CIA session, already bound to `CIAV VUECENTRIC` by sign-on, that costs nothing. The test fails when a VueCentric-only RPC's mapping declares no option, and `test/live/vuecentric_only_context_live_test.rb` proves the bind on the pinned build.
 
 | RPC | Used by | Why no stock route yet | Replacement path |
 |---|---|---|---|
@@ -79,7 +79,7 @@ On `bcer-9.0-20261012-e7923a4-ydb` that is 41 RPCs.
 
 - The list is computed against one build's inventory (the one `required_rpcs.json` names). A build whose options differ needs its inventory pinned before the test reflects it.
 - On a session bound to another option, each of these calls costs a bind and a restore.
-- The bind covers these RPCs only. A method that also sends an RPC the session's option lacks still needs that option bound: `Measurement.latest` reads `DDR GETS ENTRY DATA` beside `BGOVMSR LAST`, and `OR CPRS GUI CHART` does not carry it.
+- The bind covers these RPCs only. A method that also sends an RPC the session's option lacks still needs that option bound: `Measurement.latest` reads `DDR GETS ENTRY DATA` beside `BGOVMSR LAST`, and `Patient.brief_header` reads `BEHOPTCX PTINFO` (in `CIAV VUECENTRIC` and `VEN RPC`) beside `BEHOPTPC GETBDP`; `OR CPRS GUI CHART` carries neither.
 
 ### Alternatives considered
 

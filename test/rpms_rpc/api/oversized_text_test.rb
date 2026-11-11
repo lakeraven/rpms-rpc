@@ -134,7 +134,7 @@ class OversizedTextTest < Minitest::Test
     refute_pre479_update_text_refusal(result)
   end
 
-  # BGOVEXAM SET and BGOVHF SET bind CIAV VUECENTRIC (ADR 0011). The session
+  # BGOVEXAM SET, BGOVHF SET and BGOREF SET bind CIAV VUECENTRIC (ADR 0011). The session
   # here stands for one already bound to it, as CIA sign-on leaves it.
   def bound_to_vuecentric
     RpmsRpc.client.instance_variable_set(:@current_context, RpmsRpc::Mappings::VUECENTRIC)
@@ -153,6 +153,7 @@ class OversizedTextTest < Minitest::Test
   end
 
   def test_immunization_refusal_record_returns_its_failure_shape_for_a_long_narrative
+    bound_to_vuecentric
     result = RpmsRpc::ImmunizationRefusal.record("8791", "9", reason_ien: "3", narrative: "n" * 1000)
     assert_refused(result, %i[success ien raw error])
   end
