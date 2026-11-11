@@ -3,11 +3,10 @@
 require "rpms_rpc/api/health_summary"
 
 # The conversations RpmsRpc::HealthSummary has with the build, recorded as
-# PROFILE,MD on demo patient DFN 4: the IHS types the site lists (the
-# [HEALTH SUMMARY TYPES] block of ORWRP REPORT LISTS), the ADULT REGULAR
-# summary by name and the MEDICATIONS summary by IEN, through the IHS report
-# (RPTID "IHS", HS^ORWRPBHS). Two direct calls keep what the gem must not
-# send: a type the site does not have, and the old frame (report 1, which
+# PROFILE,MD on demo patient DFN 4: the IHS types on file (DDR LISTER on
+# #9001015), the ADULT REGULAR summary by name and the MEDICATIONS summary by
+# IEN, through the IHS report (RPTID "IHS", HS^ORWRPBHS). Two direct calls keep what the gem must
+# not send: a type the site does not have, and the old frame (report 1, which
 # reads HSTYPE as a VA type, with type 1). rpms-rpc#662.
 HS = RpmsRpc::HealthSummary
 
@@ -23,7 +22,7 @@ CAPTURE = {
       about: "report 1 (HS^ORWRP1, VA types #142) with HSTYPE 1, the frame the gem sent before #662: the report faults" }
   ],
   flows: {
-    "summary_types" => { about: "summary_types: the IHS types ORWRP REPORT LISTS lists",
+    "summary_types" => { about: "summary_types: DDR LISTER of the IHS types on file (#9001015)",
                          run: -> { HS.summary_types } },
     "for_patient" => { about: "for_patient(4): ADULT REGULAR, the default type", run: -> { HS.for_patient(4) } },
     "for_patient_by_ien" => { about: "for_patient(4, summary_type: 55): MEDICATIONS, by IEN",

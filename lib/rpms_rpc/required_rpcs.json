@@ -174,9 +174,9 @@
       "BGOVHF SET"
     ],
     "RpmsRpc::HealthSummary": [
+      "DDR LISTER",
       "ORQQPX REMINDER DETAIL",
       "ORQQPX REMINDERS LIST",
-      "ORWRP REPORT LISTS",
       "ORWRP REPORT TEXT"
     ],
     "RpmsRpc::Image": [
