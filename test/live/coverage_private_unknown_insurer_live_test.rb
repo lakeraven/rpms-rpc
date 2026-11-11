@@ -29,19 +29,19 @@ class CoveragePrivateUnknownInsurerLiveTest < LiveSpec::Test
                    message: "insurer #{unknown} is not on file (AGG GET INSURANCE DATA)" }, got)
     assert_equal before, policies, "nothing filed, and the Private Insurance window still answers"
   ensure
-    cleanup!(before)
+    cleanup!(got)
   end
 
   private
 
-  # Delete any policy that was not on file before (a regression that filed one).
-  def cleanup!(before)
-    return if before.nil?
+  # Delete the policy a regression filed, by the record IEN the add reported:
+  # delete_private_insurance goes through FileMan, not the AG window a
+  # dangling insurer breaks.
+  def cleanup!(got)
+    record = got.is_a?(Hash) && got[:success] ? got[:record_ien].to_s : ""
+    return if record.empty?
 
-    known = before.map { |p| p[:record_ien].to_s }
-    (policies.map { |p| p[:record_ien].to_s } - known).each do |id|
-      RpmsRpc::Coverage.delete_private_insurance(DFN, record_ien: id, client: client)
-    end
+    RpmsRpc::Coverage.delete_private_insurance(DFN, record_ien: record, client: client)
   rescue StandardError, Minitest::Assertion
     # best-effort teardown when an earlier assertion failed
   end
