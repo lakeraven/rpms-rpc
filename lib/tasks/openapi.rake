@@ -38,8 +38,14 @@ namespace :openapi do
     puts "EXPLICIT SUCCESS: #{task} wrote #{path.delete_prefix("#{root}/")} (OpenAPI #{document['openapi']}, valid, every verb + path unique)"
   end
 
+  parse_json = lambda do |text, what|
+    JSON.parse(text)
+  rescue JSON::ParserError => e
+    abort "openapi:pin: #{what} is not valid JSON: #{e.message[0, 120]}"
+  end
+
   desc "Pin a release's <tag>-rpcs.json for openapi:surface: RELEASE=<rpms-ops tag> [REPO=lakeraven/rpms-ops]. " \
-       "Downloads it over REST (gh api), checks it against the release asset digest, resolves its header commit to the " \
+       "Downloads it over REST (gh api), checks the release asset digest against the sha256 conformance:pin locked, checks the bytes against it, resolves its header commit to the " \
        "full commit rake conformance:pin locked for the tag, fetches the rpms-ops schema its `schema` field names " \
        "(rpcs.v1, rpcs.v2) at that commit, validates, and writes data/openapi/rpcs.lock.yml. Run conformance:pin first."
   task :pin do
@@ -51,13 +57,18 @@ namespace :openapi do
     tag = ENV["RELEASE"] or abort "openapi:pin requires RELEASE=<rpms-ops release tag>"
     abort "refusing RELEASE with unsafe characters: #{tag.inspect}" unless tag.match?(/\A[A-Za-z0-9._-]+\z/)
     repo = ENV["REPO"] || pin::REPO
+    abort "refusing REPO that is not owner/name: #{repo.inspect}" unless repo.match?(%r{\A[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\z})
+    locked_repo = pin.inventory_lock(root, tag)["repo"]
+    abort "openapi:pin: REPO #{repo} is not the repo #{pin::INVENTORY_LOCK} vouches for (#{locked_repo.inspect})" unless repo == locked_repo
     asset = "#{tag}-rpcs.json"
 
     # REST through `gh api` (GraphQL, which `gh release` uses, is blocked in some environments).
     out, status = Open3.capture2("gh", "api", "repos/#{repo}/releases/tags/#{tag}")
     abort "openapi:pin: gh api releases/tags/#{tag} failed on #{repo} (published? gh auth?)" unless status.success?
-    found = pin.release_asset(JSON.parse(out), asset)
+    found = pin.release_asset(parse_json.call(out, "release #{tag}"), asset)
     digest = found[:digest]
+    locked = pin.locked_asset_digest(asset, tag: tag, root: root)
+    abort "openapi:pin: release digest #{digest} for #{asset} is not the sha256 #{locked} that #{pin::INVENTORY_LOCK} locked" unless digest == locked
 
     Dir.mktmpdir do |tmp|
       bytes, status = Open3.capture2("gh", "api", "-H", "Accept: application/octet-stream", "repos/#{repo}/releases/assets/#{found[:id]}", binmode: true)
@@ -66,10 +77,11 @@ namespace :openapi do
       File.binwrite(file, bytes)
       abort "openapi:pin: #{asset} sha256 #{pin.sha256(file)} is not the release asset digest #{digest}" unless pin.sha256(file) == digest
 
-      header = JSON.parse(File.read(file))
+      header = parse_json.call(File.read(file), asset)
+      abort "openapi:pin: #{asset} is not a JSON object" unless header.is_a?(Hash)
       name = header["schema"].to_s
       # The header's commit may be short; the inventory lock (conformance:pin) gives the full one.
-      commit = pin.build_commit(header["commit"].to_s, tag: tag, root: root)
+      commit = pin.build_commit(header["commit"], tag: tag, root: root)
       abort "openapi:pin: #{asset} has schema #{name.inspect}, not one of #{pin::SCHEMAS.join(', ')}" unless pin::SCHEMAS.include?(name)
 
       # The schema the file names, at the commit that built it: what rpms-ops validated it against.

@@ -15,9 +15,9 @@ The same inputs give byte-identical output: nothing in either document is a time
 
 **The surface** reads ONE rpms-ops file: the pinned build's `<tag>-rpcs.json` (rpms-ops#732), the structured view rpms-ops projects from a release's raw inventory files.
 `rake openapi:pin RELEASE=<tag>` pins it the way `conformance:pin` pins the raw files:
-- it reads the release over REST (`gh api`) and downloads the file, checking it against the release asset's digest (published releases only);
+- it reads the release over REST (`gh api`), refuses unless the asset's digest is the sha256 `conformance:pin` locked for it, and downloads the file, checking the bytes against that digest (published releases only);
 - it resolves the file's header commit (7 to 40 hex) to the full build commit `conformance:pin` locked for the tag in `data/fingerprints/rpms-ops.lock.yml`, and refuses if the lock is silent or disagrees, so run `conformance:pin` first;
-- it fetches rpms-ops's `releases/schema/rpcs.v1.schema.json` at that commit;
+- it fetches the rpms-ops `releases/schema/<schema>.schema.json` the file's `schema` field names (`rpcs.v1` or `rpcs.v2`) at that commit;
 - it validates the file and commits both under `data/openapi/`, with `data/openapi/rpcs.lock.yml` recording the tag, the sha256 of each, and the schema's source.
 
 Before anything is read, `openapi:surface` proves the pin offline:
