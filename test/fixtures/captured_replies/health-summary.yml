@@ -1,0 +1,224 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb health-summary.rb.
+---
+rpc: ORWRP REPORT TEXT
+entry_point: RPT^ORWRP
+release_tag: bcer-9.0-20261110-55d9e3e-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:89e5f4584b3be5526116a0fe2f8691758f6a9d934bedf2333c14313bff9656b8
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-11T17:45:36Z'
+note: Run on a throwaway container; reads only. DFN 4 is the build's demo patient
+  DEMO,PATIENT ONE.
+captures:
+- name: ihs_type_not_on_file
+  inputs:
+  - '4'
+  - IHS
+  - '999'
+  - ''
+  - ''
+  - ''
+  - ''
+  context: 'the IHS report with HSTYPE 999, which is not in #9001015: HSX^ORWRPBHS
+    prints its fault'
+  raw_return: "5\0An error was encountered generating this report.\rThe error was:
+    HEADER+5^APCHS0, Global variable undefined: ^APCHSCTL(999,150372994,-%YDB-E-GVUNDEF\r\r***
+    END  CONFIDENTIAL PATIENT INFORMATION -- 11/11/2026  5:45 PM  [MD] *******\r"
+  sha256: 5f6604fc8eb70aac809a31b221f31955996980ce8fae7691ca134fb2c5368c09
+- name: report_1_type_1
+  inputs:
+  - '4'
+  - '1'
+  - '1'
+  - ''
+  - ''
+  - ''
+  - ''
+  context: 'report 1 (HS^ORWRP1, VA types #142) with HSTYPE 1, the frame the gem sent
+    before #662: the report faults'
+  raw_return: "6\x011\rThe server has reported the following error:\r\rERR+9^ORWRP,
+    Non-empty value assigned to $ECODE (user-defined error trap),150379506,-%YDB-E-SETECODE\r\rA
+    detailed log of the error has been created.\r"
+  sha256: a90a9565fa0b5f1019758839234dcb3a4bedbb101753e251c91af5310c5b24b2
+- name: summary_types/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9001015'
+    FIELDS: "@;.01"
+    FLAGS: IP
+    XREF: B
+  context: 'summary_types: DDR LISTER of the IHS types on file (#9001015)'
+  raw_return: "5\0[Data]\r7^ADULT REGULAR\r76^ALL REMINDERS\r23^BEHAVIORAL HEALTH\r10^CHR\r9^DENTAL\r24^DIABETES
+    STANDARD\r53^EMERGENCY\r73^FUTURE SCHEDULED APPOINTMENTS\r6^IMMUNIZATION\r55^MEDICATIONS\r8^PEDIATRIC\r17^PROBLEM
+    LIST\r74^RENAL\r42^VPR LABS\r1^VPR MINI\r3^VPR REMINDERS\r2^VPR VISITS\r64^WELL
+    BABY\r75^WELL CHILD EXAM\r"
+  sha256: b1e73adbe71741befb0bc982a7f1e16de94accd4bd2c0bfe5a18cd6f3659df2f
+- name: for_patient/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9001015'
+    FIELDS: "@;.01"
+    FLAGS: IP
+    XREF: B
+  context: 'for_patient(4): ADULT REGULAR, the default type'
+  raw_return: "5\0[Data]\r7^ADULT REGULAR\r76^ALL REMINDERS\r23^BEHAVIORAL HEALTH\r10^CHR\r9^DENTAL\r24^DIABETES
+    STANDARD\r53^EMERGENCY\r73^FUTURE SCHEDULED APPOINTMENTS\r6^IMMUNIZATION\r55^MEDICATIONS\r8^PEDIATRIC\r17^PROBLEM
+    LIST\r74^RENAL\r42^VPR LABS\r1^VPR MINI\r3^VPR REMINDERS\r2^VPR VISITS\r64^WELL
+    BABY\r75^WELL CHILD EXAM\r"
+  sha256: b1e73adbe71741befb0bc982a7f1e16de94accd4bd2c0bfe5a18cd6f3659df2f
+- name: for_patient/2
+  rpc: ORWRP REPORT TEXT
+  inputs:
+  - '4'
+  - IHS
+  - '7'
+  - ''
+  - ''
+  - ''
+  - ''
+  context: 'for_patient(4): ADULT REGULAR, the default type'
+  raw_return: "6\0******* CONFIDENTIAL PATIENT INFORMATION -- 11/11/2026  5:45 PM
+    \ [MD] *******\r******** DEMO,PATIENT ONE #99901 <WA>   (ADULT REGULAR SUMMARY)
+    \ pg 1 ********\r\r----------------------------- DEMOGRAPHIC DATA -----------------------------\r\rDEMO,PATIENT
+    ONE                  DOB: JAN 1,2001  25 YRS  FEMALE  no blood type\rATQASUK VILLAGE
+    (ATKASOOK)\r                                  MOTHER'S MAIDEN NAME: DEMO,MOM\r(H)
+    907-901-0101 (W) 907-910-1010 FATHER'S NAME: DEMO,DAD\r\rATQASUK (123 MEADE RIVER
+    ROAD,ATQASUK,AK,99791)  \r\rLAST UPDATED: SEP 11,2026         ELIGIBILITY: CHS
+    & DIRECT\r\rNOTICE OF PRIVACY PRACTICES REC'D BY PATIENT?  \r                    DATE
+    RECEIVED BY PATIENT:  \r                  WAS ACKNOWLEDGEMENT SIGNED?  \r\rHEALTH
+    RECORD NUMBERS:  099901  DEMO IHS CLINIC\rDESIGNATED PRIMARY CARE PROVIDER: <none
+    identified>\r\r--------------------------- INSURANCE INFORMATION ---------------------------\r\rINSURANCE
+    \                      NUMBER      SUFF COV  EL DATE  SIG DATE END DATE\rMEDICARE
+    \                       666010101A  A    A    01/01/20          \rMEDICARE                        666010101A
+    \ A    B    01/01/20          \rMEDICARE                        666010101A  A
+    \   D    01/01/20          \r\r\r----------------------- ALLERGIES (FROM PROBLEM
+    LIST) -----------------------\r\r\r                           ***** NONE RECORDED
+    *****\r\rAllergy List Reviewed On:                          By: \rAllergy List
+    Updated On:                           By: \rNo Active Allergies documented On:
+    \                By:  \r\rProblem List Reviewed On:           Sep 04, 2026   By:
+    MANAGER,SYSTEM\rProblem List Updated On:            Sep 04, 2026   By: MANAGER,SYSTEM\rNo
+    Active Problems Documented On:                  By: \r\r--------- MEASUREMENT
+    PANELS (OUTPATIENT) (max 5 visits or 2 years) ---------\r\r\r           HT    WT
+    \        BP      BMI       %RW            VU\r09/11/26                  117/81
+    \                     \r\r\r\r--------------------------- ACTIVE PROBLEMS (ALL)
+    ---------------------------\r\r             ENT.    MODIFIED\r DIC2       09/02/26
+    09/02/26  Type 2 diabetes mellitus |  (Status: CHRONIC)\r\rProblem List Reviewed
+    On:           Sep 04, 2026   By: MANAGER,SYSTEM\rProblem List Updated On:            Sep
+    04, 2026   By: MANAGER,SYSTEM\rNo Active Problems Documented On:                  By:
+    \r\r\r----------------------------- INACTIVE PROBLEMS -----------------------------\r\r\rProblem
+    List Reviewed On:           Sep 04, 2026   By: MANAGER,SYSTEM\r\r\r******* CONFIDENTIAL
+    PATIENT INFORMATION -- 11/11/2026  5:45 PM  [MD] *******\r******** DEMO,PATIENT
+    ONE #99901 <WA>   (ADULT REGULAR SUMMARY)  pg 2 ********\r\r-----------------------------
+    INACTIVE PROBLEMS -----------------------------\r\rProblem List Updated On:            Sep
+    04, 2026   By: MANAGER,SYSTEM\rNo Active Problems Documented On:                  By:
+    \r\r---------------------------- HISTORY OF SURGERY ----------------------------\r\rMinor
+    procedures are on file but have not been displayed.\r\r\r\r------------------------------
+    HEALTH FACTORS ------------------------------\r\r\r\r-------------- CURRENT MEDICATIONS
+    (max 6 visits or 6 months) --------------\r\r\r\rMedication List Reviewed On:
+    \                      By:  \rMedication List Updated On:                        By:
+    \ \rNo Active Medications Documented On:               By:  \r\r SCHEDULED ENCOUNTERS
+    (INCLUDES CHART REQ AND WALK INS) (max 10 visits or 90 days) \r\rPAST:\r  09/18/26
+    \ 9:00am  DEMO IHS CLINIC\r  09/11/26  7:47pm  DEMO IHS CLINIC\r  09/08/26  8:00am
+    \ DEMO PRIMARY CARE\r  08/28/26  0:08am  DEMO IHS CLINIC\r  08/27/26  8:00am  DEMO
+    PRIMARY CARE\r  08/26/26  4:14pm  DEMO IHS CLINIC\r\r--------------- IN HOSPITAL
+    VISITS (max 10 visits or 2 years) ---------------\r\r\r------ OUTPATIENT/FIELD/TELEMEDICINE
+    VISITS (max 6 visits or 2 years) ------\r\r10/16/26  DIC          INT      Adjustment
+    disorder with mixed disturbance of\r                                 emotions
+    AND conduct | \r                                Acute urinary tract infection
+    | \r10/05/26  DIC          CHR      Acute urinary tract infection | \r10/02/26
+    \ DIC          GEN      Adjustment disorder with mixed disturbance of\r                                 emotions
+    AND conduct | \r                       GEN      Acute urinary tract infection
+    | \r10/01/26  DIC          GEN      Acute urinary tract infection | \r09/11/26
+    \ DIC          FAMPRA   <purpose of visit not yet entered>\r09/04/26  DIC          CHR
+    \     <purpose of visit not yet entered>\r\r\r                        <<<  RCIS
+    ACTIVE REFERRALS  >>> \r\rNo Referred Care Referral records on file.\r\r----------
+    MOST RECENT PATIENT EDUCATION (max 5 visits or 2 years) ----------\r\r09/02/26
+    \ DEMO IHS CLI AN-C        AN-COMPLICATIONS - (IND)\r                                   GOOD
+    UNDERSTANDING\r                       IM-L        IM-LITERATURE\r                                   GOOD
+    UNDERSTANDING\r\r\r******* CONFIDENTIAL PATIENT INFORMATION -- 11/11/2026  5:45
+    PM  [MD] *******\r******** DEMO,PATIENT ONE #99901 <WA>   (ADULT REGULAR SUMMARY)
+    \ pg 3 ********\r\r---------- MOST RECENT PATIENT EDUCATION (max 5 visits or 2
+    years) ----------\r\r08/26/26  DIC          ACNE-AP     ACNE-ANATOMY AND PHYSIOLOGY
+    - (IND)\r                                   GOOD UNDERSTANDING\r                                   Acute
+    bronchitis-EXERCISE - (IND)\r                                   FAIR UNDERSTANDING\r\r\r------------
+    MOST RECENT EXAMINATIONS (max 5 visits or 2 years) ------------\r\rFOOT INSPECTION
+    \                     09/02/26  NORMAL/NEGATIVE   MANAGER,SYSTEM\rDEPRESSION SCREENING
+    \                09/02/26  NORMAL/NEGATIVE   MANAGER,SYSTEM\r\r-------------------------------
+    IMMUNIZATIONS -------------------------------\r\r   IMMUNIZATION FORECAST:\r \r
+    \     *Immunization Forecasting disabled (see Site Parameters). #314\r   IMMUNIZATION
+    HISTORY:\r \r      FLU-IIV3ad           09/02/26  25 yrs  Demo Ihs Clinic      \r
+    \r      COV,1vPfrA           09/02/26  25 yrs  Demo Ihs Clinic      \r\r\r-----------------------
+    HEALTH MAINTENANCE REMINDERS -----------------------\r\r                          LAST
+    \       NEXT\r\rBLOOD PRESSURE            09/11/26  09/11/27\rHEIGHT                              01/01/01\r\rWEIGHT
+    \                             01/01/01\rPAP SMEAR                           01/01/22\r\rPELVIC
+    EXAM                         01/01/19\rBREAST EXAM                         01/01/21\r\rIMMUNIZATIONS
+    DUE * Immunization Forecasting disabled (see Site Parameters). #314\r\rPHYSICAL
+    EXAM                       01/01/19\rTD-ADULT                            01/01/13\r\rALCOHOL
+    USE SCREENING               01/01/14\rTOBACCO USE SCREENING               01/01/14\r\r\rDIABETES
+    PATIENT CARE SUMMARY          Report Date:  11/11/2026\r\rPatient: DEMO,PATIENT
+    ONE                                          HRN: 99901\rAge:  25 (DOB 01/01/2001)
+    \             Sex: FEMALE\rCLASS/BEN: OTHER                       Designated PCP:
+    \r\rDate of DM Diagnosis: \rDiabetes type: (1 or 2): 2\r\rBMI:       Last Height:
+    \ \r           Last Weight:  0 lbs           \r\rTobacco Use:\r   Last Screened:
+    \r   Current Status: Not Documented\r      Tobacco cessation counseling/education
+    received in the past year: N/A\r\rElectronic Nicotine Delivery Systems (ENDS)\r
+    \  Last Screened:  Never\r   Current Status: \r\rHTN Diagnosed ever:  No\rCVD
+    Diagnosed ever:  Yes - Problem List I25.10\rLast 3 BP:      117/81   09/11/2026\r\rACE
+    Inhibitor or ARB prescribed (in past 6 months): No\rAspirin or Other Anti-platelet/Anticoagulant
+    prescribed (past 6 months):  No\rStatin prescribed (in past 6 months):  No\r\rExams
+    (in past 12 months):\r   Foot:    No\r   Eye:     No\r   Dental:  No\r\rDepression:\r
+    \  Screened in past year:  Yes - Exam: DEPRESSION SCR 09/02/2026\r   Active diagnosis
+    in past year: No\r\rImmunizations:\r   Influenza vaccine (since August 1st): Yes
+    \ 09/02/2026\r   Pneumococcal [PCV15, PCV20, PCV21, or PPSV23] (ever):  No\r   Td/Tdap/DTAP/DT
+    (in past 10 yrs):     No  \r   Tdap (ever):                          No  \r   Hepatitis
+    B complete series (ever):   No\r   Shingrix/RZV complete series (ever):  No\r
+    \  Respiratory syncytial virus (RSV) vaccine (ever): No\r\rTuberculosis (TB):\r
+    \  TB diagnosis (latent or active) documented ever: No\r   Last Documented TB
+    Test: \r     TB Test Result: \r\rHepatitis C (HCV)\r   Diagnosed with HCV ever:
+    No\r   Screened for HCV ever: No\r\rRetinopathy Diagnosed (ever): No\r\rAmputation\r
+    \  Lower extremity (ever), any type (e.g., toe, partial foot, above or\r   below
+    knee):  No\r\rLaboratory Results (most recent):                     RPMS LAB TEST
+    NAME\r   A1C:                                               \r\r\r******* CONFIDENTIAL
+    PATIENT INFORMATION -- 11/11/2026  5:45 PM  [MD] *******\r\rDiabetes Patient Care
+    Summary - continued\rPatient: DEMO,PATIENT ONE  HRN: 99901\r\r   Next most recent
+    A1C:                              \r\r   Serum Creatinine:                                  \r
+    \  eGFR:                                              \r   Quantitative UACR:
+    \                                \r\r   Total Cholesterol:                                 \r
+    \  LDL Cholesterol:                                   \r   HDL Cholesterol:                                   \r
+    \  Triglycerides:                                     \r\rContinuous Glucose Monitoring
+    (CGM) (most recent data)\r    < No data on file >\r \rEducation Provided (in past
+    yr): \r  Last Dietitian Visit (ever):  \r\rDEMO,PATIENT ONE                  DOB:
+    1/1/2001       Chart #DIC 99901\r*** END  CONFIDENTIAL PATIENT INFORMATION --
+    11/11/2026  5:45 PM  [MD] *******\r"
+  sha256: da5165401376b48ed2da7035ae104f1345eaaf4d299ea6ecbbfbd5a08157da84
+- name: for_patient_by_ien/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9001015'
+    FIELDS: "@;.01"
+    FLAGS: IP
+    XREF: B
+  context: 'for_patient(4, summary_type: 55): MEDICATIONS, by IEN'
+  raw_return: "5\0[Data]\r7^ADULT REGULAR\r76^ALL REMINDERS\r23^BEHAVIORAL HEALTH\r10^CHR\r9^DENTAL\r24^DIABETES
+    STANDARD\r53^EMERGENCY\r73^FUTURE SCHEDULED APPOINTMENTS\r6^IMMUNIZATION\r55^MEDICATIONS\r8^PEDIATRIC\r17^PROBLEM
+    LIST\r74^RENAL\r42^VPR LABS\r1^VPR MINI\r3^VPR REMINDERS\r2^VPR VISITS\r64^WELL
+    BABY\r75^WELL CHILD EXAM\r"
+  sha256: b1e73adbe71741befb0bc982a7f1e16de94accd4bd2c0bfe5a18cd6f3659df2f
+- name: for_patient_by_ien/2
+  rpc: ORWRP REPORT TEXT
+  inputs:
+  - '4'
+  - IHS
+  - '55'
+  - ''
+  - ''
+  - ''
+  - ''
+  context: 'for_patient(4, summary_type: 55): MEDICATIONS, by IEN'
+  raw_return: "6\0******* CONFIDENTIAL PATIENT INFORMATION -- 11/11/2026  5:45 PM
+    \ [MD] *******\r********* DEMO,PATIENT ONE #99901 <WA>   (MEDICATIONS SUMMARY)
+    \ pg 1 *********\r\r*** END  CONFIDENTIAL PATIENT INFORMATION -- 11/11/2026  5:45
+    PM  [MD] *******\r"
+  sha256: 735bf627b6c25f5acf7e7303b35d687cd653580ab22a871a41cd12c12c976f70

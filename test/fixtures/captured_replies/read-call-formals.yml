@@ -9,9 +9,7 @@ client: RpmsRpc::CiaClient#call_rpc_raw
 signed_on_as: PROFILE,MD (PMD123, a published demo pair)
 bound_context: CIAV VUECENTRIC
 captured_at: '2026-11-09T04:33:01Z'
-note: Seed patient DFN 4 (synthetic data); every call is a read. The health summary
-  frame faults in the report's own error trap (ERR+9^ORWRP), captured as the error
-  it is.
+note: Seed patient DFN 4 (synthetic data); every call is a read.
 captures:
 - name: orqqps_list
   inputs:
@@ -63,21 +61,6 @@ captures:
   raw_return: !binary |-
     OQBORVf+LjAx/jUwMzEyNl5FMTEuOQ1ORVf+LjAz/jMyNjExMDkuMDEwODA1XjExLzkvMjYNTkVX/i4wNf4xXipUWVBFIDIgRElBQkVURVMgTUVMTElUVVMNTkVX/i4wOP4zMjYxMTA5XjExLzkvMjYNTkVX/i4xMv5BXkNIUk9OSUMNTkVX/i4xM/4zMjMwNDEwXjQvMTAvMjMNTkVX/jEuMDH+DU5FV/4xLjAy/g1ORVf+MS4wNf4xMl5ERU1PLERPQ1RPUg1ORVf+MS4wNv4NTkVX/jEuMDf+DU5FV/4xLjA4/g1ORVf+MS4wOf4zMjYxMTA5XjExLzkvMjYNTkVX/jEuMf4NTkVX/jEuMTH+DU5FV/4xLjEy/g1ORVf+MS4xM/4NTkVX/jEuMTT+DU5FV/4xLjE1/g1ORVf+MS4xNv4NTkVX/jEuMTf+DU5FV/4xLjE4/g1ORVf+MTAsMP4wXg1PUkf+LjAx/jUwMzEyNl5FMTEuOQ1PUkf+LjAz/jMyNjExMDkuMDEwODA1XjExLzkvMjYNT1JH/i4wNf4xXipUWVBFIDIgRElBQkVURVMgTUVMTElUVVMNT1JH/i4wOP4zMjYxMTA5XjExLzkvMjYNT1JH/i4xMv5BXkNIUk9OSUMNT1JH/i4xM/4zMjMwNDEwXjQvMTAvMjMNT1JH/jEuMDH+DU9SR/4xLjAy/g1PUkf+MS4wNf4xMl5ERU1PLERPQ1RPUg1PUkf+MS4wNv4NT1JH/jEuMDf+DU9SR/4xLjA4/g1PUkf+MS4wOf4zMjYxMTA5XjExLzkvMjYNT1JH/jEuMf4NT1JH/jEuMTH+DU9SR/4xLjEy/g1PUkf+MS4xM/4NT1JH/jEuMTT+DU9SR/4xLjE1/g1PUkf+MS4xNv4NT1JH/jEuMTf+DU9SR/4xLjE4/g1PUkf+MTAsMP4wXg0=
   sha256: 61ed74dfd16c7f8e5e38f2503c8f0b00ddc71f2e6d7ca91ac9569fa3860b98ea
-- name: orwrp_report_text
-  rpc: ORWRP REPORT TEXT
-  inputs:
-  - '4'
-  - '1'
-  - '1'
-  - ''
-  - ''
-  - ''
-  - ''
-  context: 'HealthSummary.for_patient: the seven report formals'
-  raw_return: "1\x011\rThe server has reported the following error:\r\rERR+9^ORWRP,
-    Non-empty value assigned to $ECODE (user-defined error trap),150379506,-%YDB-E-SETECODE\r\rA
-    detailed log of the error has been created.\r"
-  sha256: 725260bc76d547aa708dd508388aaa09e3ef16b3b5eb1dfc8ffc54dd84cd9a0f
 - name: tiu_template_gettext
   rpc: TIU TEMPLATE GETTEXT
   inputs:

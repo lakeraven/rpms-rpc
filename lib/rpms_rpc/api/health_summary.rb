@@ -2,6 +2,7 @@
 
 require_relative "../shape"
 require_relative "../mappings"
+require_relative "ddr_fileman"
 
 module RpmsRpc
   # Symbolic API for RPMS Health Summary reports and clinical reminders.
@@ -35,30 +36,49 @@ module RpmsRpc
       procedures: "PRC"
     }.freeze
 
-    # The summary types `for_patient` resolves `summary_type:` against. A
-    # static list: no registered RPC lists the HEALTH SUMMARY TYPE file
-    # (#142) this way, so the IENs here are assumptions the caller can
-    # override by passing a type name that is in the list.
-    DEFAULT_TYPES = [
-      { ien: 1, name: "STANDARD", description: "Standard Health Summary", owner: nil },
-      { ien: 2, name: "BRIEF", description: "Brief Summary", owner: nil },
-      { ien: 3, name: "COMPREHENSIVE", description: "Comprehensive Summary", owner: nil },
-      { ien: 4, name: "PATIENT", description: "Patient-Facing Summary", owner: nil }
-    ].freeze
+    # The IHS Health Summary report: the OE/RR REPORT entry (#101.24) whose
+    # ID is "IHS" runs HS^ORWRPBHS, which prints the IHS HEALTH SUMMARY TYPE
+    # (#9001015) it is sent as HSTYPE (ORWRPBHS.m:5-17). RPT^ORWRP finds the
+    # entry by that ID (ORWRP.m:103-107). Report ID 1 runs HS^ORWRP1 instead,
+    # which reads HSTYPE as a VA type (#142): an IHS type IEN sent there
+    # prints whichever VA type has that IEN, or faults (#662).
+    HEALTH_SUMMARY_REPORT_ID = "IHS"
 
-    # The Health Summary entry of the OE/RR REPORT file (#101.24): ORWRP
-    # REPORT LISTS lists it as "1^Health Summary^...^HS^ORWRP1^...^ORWRP
-    # REPORT TEXT", and RPT^ORWRP resolves RPTID against that file's ID
-    # field (ORWRP.m:103-107) before dispatching to HS^ORWRP1.
-    HEALTH_SUMMARY_REPORT_ID = "1"
+    # The IHS type for adults that IHS distributes to every site (APCHZMGR).
+    DEFAULT_SUMMARY_TYPE = "ADULT REGULAR"
 
-    def for_patient(dfn, summary_type: "STANDARD")
+    # What HSX^ORWRPBHS prints in place of the summary when generating it
+    # faults (ORWRPBHS.m:19-22).
+    REPORT_FAULT = "An error was encountered generating this report."
+
+    # The IHS HEALTH SUMMARY TYPE file (#9001015), whose IEN HS^ORWRPBHS
+    # takes as HSTYPE.
+    SUMMARY_TYPE_FILE = "9001015"
+
+    # The IHS health summary types on file, by name:
+    # [{ ien: "7", name: "ADULT REGULAR" }, ...], read through DDR LISTER on
+    # #9001015's B index. nil when the list cannot be read whole.
+    def summary_types
+      listed = DdrFileman.lister(file: SUMMARY_TYPE_FILE, fields: "@;.01", flags: "IP", xref: "B")
+      return nil if listed.nil? || listed[:error] || !listed[:data] || listed[:more]
+
+      listed[:entries].map { |entry| { ien: entry[:ien].to_s, name: entry[:pieces].first.to_s } }
+    end
+    shape :summary_types, resource: "health-summaries", verb: "GET", path: "/health-summaries/summary-types"
+
+    # The patient's IHS health summary of `summary_type`, a type name from
+    # {summary_types} (any case) or its IEN. A type that is not on file
+    # sends no report and answers an error summary that names it.
+    def for_patient(dfn, summary_type: DEFAULT_SUMMARY_TYPE)
       return error_summary("Invalid patient DFN") if invalid_id?(dfn)
 
-      resolved = resolve_summary_type(summary_type)
+      types = summary_types
+      return error_summary("Could not read the health summary types") if types.nil?
+
+      resolved = resolve_summary_type(types, summary_type)
+      return error_summary("Unknown health summary type: #{summary_type}") if resolved.nil?
+
       text = report_text(dfn, HEALTH_SUMMARY_REPORT_ID, hs_type: resolved[:ien])
-      # Report the resolved type name (which may differ from the caller's input
-      # when the input was unknown and we fell back to the first available type).
       parse_health_summary(text, resolved[:name])
     end
     shape :for_patient, resource: "health-summaries", verb: "GET", path: "/patients/{dfn}/health-summaries"
@@ -83,13 +103,14 @@ module RpmsRpc
       return nil if code.nil?
 
       # ORWRP REPORT TEXT has no component selector for the Health Summary
-      # report: HS^ORWRP1 runs the whole summary type (ORWRP1.m:12-28), and
-      # the "~component" suffix of RPTID feeds only the listview reports
+      # report: HS^ORWRPBHS prints the whole summary type (ORWRPBHS.m:5-17),
+      # and the "~component" suffix of RPTID feeds only the listview reports
       # (ORWRP.m:91,103,124). So the summary is fetched whole and the
-      # component's section picked out of it here.
+      # component's section picked out of it here: the first section whose
+      # banner is one of the component's headings (COMPONENT_HEADINGS).
       summary = for_patient(dfn)
       name = titleize(component.to_s)
-      section = summary[:sections].find { |s| s[:name].casecmp?(name) }
+      section = summary[:sections].find { |s| component_section?(s[:name], sym) }
       return nil if section.nil? || blank?(section[:content])
 
       {
@@ -134,57 +155,94 @@ module RpmsRpc
                                         exam_id.to_s, from.to_s, to.to_s)
     end
 
-    # Resolve a caller-supplied summary type to the entry of DEFAULT_TYPES
-    # that will be used; an unrecognised name falls back to the first type,
-    # so callers see the resolved name rather than their input.
-    def resolve_summary_type(type_name)
-      match = DEFAULT_TYPES.find { |type| type[:name].to_s.upcase == type_name.to_s.upcase }
-      return { ien: match[:ien], name: match[:name] } if match
+    # The listed type that a caller's name (any case) or IEN names, or nil.
+    def resolve_summary_type(types, wanted)
+      text = wanted.to_s.strip
+      return nil if text.empty?
 
-      fallback = DEFAULT_TYPES.first
-      { ien: fallback[:ien], name: fallback[:name] }
+      types.find { |type| text.match?(/\A\d+\z/) ? type[:ien] == text : type[:name].casecmp?(text) }
     end
 
+    # HSX^ORWRPBHS prints the summary in pages, 80 columns wide (APCHS0,
+    # through CAPTURE^CIAUHFS at width 80). Each page opens with HEADER^APCHS0:
+    # the confidentiality line, then the patient, type and page number, each
+    # centred between runs of asterisks; the report closes with "*** END *".
+    # Each section opens with BREAK^APCHS0: the component's heading and any
+    # "(max ...)" note, centred between equal runs of dashes, which repeats at
+    # the top of the next page when the section runs on. A run is
+    # (80-3-length)/2-1 whole characters long (BREAK+2^APCHS0), and a line is a
+    # banner only when its runs are exactly that long. A heading of 74 or
+    # more characters has none: " SCHEDULED ENCOUNTERS (...) (max 10 visits or
+    # 90 days) ", one space either side. A page's patient line can lose its
+    # asterisks the same way, so the line after the confidentiality line is
+    # dropped whatever it holds.
+    PAGE_BANNER = /\A\*{3,} .*\*{3,}\z/
+    CONFIDENTIALITY_LINE = "CONFIDENTIAL PATIENT INFORMATION"
+    SECTION_BANNER = /\A(-*) (\S.*\S) \1\z/
+    REPORT_WIDTH = 80
+    private_constant :PAGE_BANNER, :CONFIDENTIALITY_LINE, :SECTION_BANNER, :REPORT_WIDTH
+
+    # The heading words each component's sections print under, as the IHS
+    # summary types on the pinned build print them, less "(...)" notes. A
+    # section belongs to a component when its heading is one of these or
+    # ends with one ("PCC ACTIVE PROBLEMS", "MOST RECENT PATIENT EDUCATION").
+    # A component not listed matches its own name ("LABS").
+    COMPONENT_HEADINGS = {
+      demographics: [ "DEMOGRAPHIC DATA", "BRIEF DEMOGRAPHICS" ],
+      problems: [ "ACTIVE PROBLEMS" ],
+      allergies: [ "ALLERGIES", "ALLERGIES/ADVERSE REACTIONS", "ALLERG" ],
+      medications: [ "CURRENT MEDICATIONS", "ALL MEDICATIONS" ],
+      immunizations: [ "IMMUNIZATIONS" ],
+      vitals: [ "MEASUREMENT PANELS", "MEASUREMENTS TAKEN" ],
+      appointments: [ "SCHEDULED ENCOUNTERS", "SCHEDULED APPOINTMENTS", "FUTURE APPOINTMENTS" ],
+      clinical_reminders: [ "HEALTH MAINTENANCE REMINDERS" ],
+      health_factors: [ "HEALTH FACTORS" ],
+      education: [ "PATIENT EDUCATION" ]
+    }.freeze
+    private_constant :COMPONENT_HEADINGS
+
+    # { type:, generated_at:, sections: [{ name:, content: }], raw_content: }.
+    # A section's name is its banner's text as the server printed it. Page
+    # banners are dropped, and a section that runs onto the next page is
+    # kept as one. A report that faulted (REPORT_FAULT) is an error summary.
     def parse_health_summary(text, type)
       return error_summary("No data returned") if blank?(text)
+      return error_summary("The server could not generate the #{type} health summary") if text.lstrip.start_with?(REPORT_FAULT)
 
       sections = []
-      current = nil
-
+      after_confidentiality = false
       text.to_s.split(/\r?\n/).each do |line|
-        stripped = line.strip
+        next after_confidentiality = false if after_confidentiality
+        next after_confidentiality = line.include?(CONFIDENTIALITY_LINE) if line.match?(PAGE_BANNER)
 
-        if section_header?(stripped)
-          # Separator-only lines (just dashes / equals / asterisks) start a
-          # header context but contribute no content. Match the gateway by
-          # skipping them entirely.
-          next if stripped.match?(/^[-=*]+$/)
-
-          sections << current if current && !blank?(current[:content])
-
-          # Gateway strips ALL punctuation in [-*:=] from the line and uses the
-          # remainder as the section name. So "PATIENT: Test Patient" becomes
-          # the name "PATIENT Test Patient" with no inline content split.
-          section_name = stripped.gsub(/[-*:=]+/, "").strip
-          current = { name: titleize(section_name), content: "" }
-        elsif current
-          current[:content] += "#{line}\n"
-        else
-          current = { name: "Summary", content: "#{line}\n" }
+        if (banner = section_banner(line))
+          sections << { name: banner, content: +"" } unless sections.last&.fetch(:name) == banner
+        elsif sections.any?
+          sections.last[:content] << "#{line.rstrip}\n"
+        elsif !blank?(line)
+          sections << { name: "Summary", content: +"#{line.rstrip}\n" }
         end
       end
 
-      sections << current if current && !blank?(current[:content])
-      { type: type, generated_at: Time.now, sections: sections, raw_content: text }
+      { type: type, generated_at: Time.now, sections: sections.reject { |s| blank?(s[:content]) }, raw_content: text }
     end
 
-    # Gateway recognises four header forms: ALL-CAPS-WITH-COLON, and lines of
-    # dashes / equals / asterisks (3+).
-    def section_header?(stripped)
-      stripped.match?(/^[A-Z]{3,}:/) ||
-        stripped.match?(/^-{3,}$/) ||
-        stripped.match?(/^={3,}$/) ||
-        stripped.match?(/^\*{3,}$/)
+    # The heading a BREAK^APCHS0 banner line prints, or nil.
+    def section_banner(line)
+      match = line.match(SECTION_BANNER)
+      return nil if match.nil?
+      return nil unless match[1].length == [ ((REPORT_WIDTH - 3 - match[2].length) / 2) - 1, 0 ].max
+
+      match[2]
+    end
+
+    # A section banner names a component when, less its "(...)" notes, it is
+    # one of the component's headings or ends with one, in any case.
+    def component_section?(banner, component)
+      words = banner.gsub(/\s*\([^)]*\)/, "").strip.upcase
+      COMPONENT_HEADINGS.fetch(component) { [ titleize(component.to_s) ] }.any? do |heading|
+        words == heading.upcase || words.end_with?(" #{heading.upcase}")
+      end
     end
 
     def error_summary(message)

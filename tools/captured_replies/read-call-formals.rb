@@ -10,8 +10,7 @@ CAPTURE = {
   rpc: "ORQQPS LIST", entry_point: "LIST^ORQQPS",
   signed_on_as: "PROFILE,MD (PMD123, a published demo pair)",
   access: "PMD123", verify: "PMD123!!",
-  note: "Seed patient DFN 4 (synthetic data); every call is a read. The health summary frame faults in the " \
-        "report's own error trap (ERR+9^ORWRP), captured as the error it is.",
+  note: "Seed patient DFN 4 (synthetic data); every call is a read.",
   calls: [
     { name: "orqqps_list", inputs: [ "4", "", "" ], about: "Medication.for_patient: DFN and both dates" },
     { name: "orwps_active", rpc: "ORWPS ACTIVE", inputs: [ "4" ], about: "Medication.active_for_patient: DFN only" },
@@ -19,8 +18,6 @@ CAPTURE = {
     { name: "orqqpl_detail", rpc: "ORQQPL DETAIL", inputs: [ "4", "1" ], about: "Problem.details: DFN then problem 1" },
     { name: "orqqpl_edit_load", rpc: "ORQQPL EDIT LOAD", inputs: [ "1", "206", "7819" ],
       about: "Problem.edit_load: problem 1, provider PROFILE,MD (206), institution 7819" },
-    { name: "orwrp_report_text", rpc: "ORWRP REPORT TEXT", inputs: [ "4", "1", "1", "", "", "", "" ], expect_error: true,
-      about: "HealthSummary.for_patient: the seven report formals" },
     { name: "tiu_template_gettext", rpc: "TIU TEMPLATE GETTEXT",
       inputs: [ "4", VSTR, { [ 1, 0 ] => "Patient |PATIENT NAME|", [ 2, 0 ] => "Age |PATIENT AGE|" } ],
       about: "NoteTemplate.text: DFN, visit string, the text as TIUX(n,0) nodes" },

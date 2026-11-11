@@ -25,7 +25,8 @@ require_relative "../captured_replies"
 # build sent to exactly that frame, for demo patient DFN 4
 # (test/fixtures/captured_replies/read-call-formals.yml and
 # read-call-formals-bmcrpc.yml; the brief header's replies are
-# patient-brief-header.yml), replayed through CiaClient.
+# patient-brief-header.yml; the health summary's are health-summary.yml),
+# replayed through CiaClient.
 class ReadCallFormalsTest < Minitest::Test
   DFN = "4"
   VSTR = "349;3260514.09;A;2090059"
@@ -51,6 +52,12 @@ class ReadCallFormalsTest < Minitest::Test
   end
 
   def calls = @client.calls.reject { |c| c[:rpc] == :create_context }
+
+  # The health summary flow's replies, as the build sent them to DFN 4.
+  def replay_health_summary
+    @client = CapturedReplies::ReplayCiaClient.new(CapturedReplies.flow_script("health-summary", "for_patient"))
+    RpmsRpc.configure { |cfg| cfg.client = @client }
+  end
 
   def params_sent_to(rpc)
     call = calls.find { |c| c[:rpc] == rpc }
@@ -107,18 +114,19 @@ class ReadCallFormalsTest < Minitest::Test
   end
 
   # RPT(ROOT,DFN,RPTID,HSTYPE,DTRANGE,EXAMID,ALPHA,OMEGA)^ORWRP (ORWRP.m:88).
-  # The Health Summary report is ID 1 in file 101.24 (ORWRP REPORT LISTS
-  # row "1^Health Summary^..."); HSTYPE is the summary type IEN. The frame
-  # is the one the routine declares, but the build has no summary type 1, so
-  # the report faults in its own trap and the fault is raised (rpms-rpc#662).
+  # The IHS Health Summary is report ID "IHS" in file 101.24 (HS^ORWRPBHS);
+  # HSTYPE is the IHS summary type IEN the site lists, ADULT REGULAR (7) on
+  # the pinned build (rpms-rpc#662). Answered by health-summary.yml.
   def test_health_summary_for_patient_sends_the_seven_report_formals
-    assert_raises(RpmsRpc::Client::RpcMError) { RpmsRpc::HealthSummary.for_patient(DFN) }
-    assert_equal [ DFN, "1", "1", "", "", "", "" ], params_sent_to("ORWRP REPORT TEXT")
+    replay_health_summary
+    refute_equal "ERROR", RpmsRpc::HealthSummary.for_patient(DFN)[:type]
+    assert_equal [ DFN, "IHS", "7", "", "", "", "" ], params_sent_to("ORWRP REPORT TEXT")
   end
 
   def test_health_summary_component_data_sends_the_seven_report_formals
-    assert_raises(RpmsRpc::Client::RpcMError) { RpmsRpc::HealthSummary.component_data(DFN, :medications) }
-    assert_equal [ DFN, "1", "1", "", "", "", "" ], params_sent_to("ORWRP REPORT TEXT")
+    replay_health_summary
+    refute_nil RpmsRpc::HealthSummary.component_data(DFN, :medications)
+    assert_equal [ DFN, "IHS", "7", "", "", "", "" ], params_sent_to("ORWRP REPORT TEXT")
   end
 
   # GETTEXT(TIUY,DFN,VSTR,TIUX)^TIUSRVT (TIUSRVT.m:67) expands the
