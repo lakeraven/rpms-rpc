@@ -74,7 +74,7 @@ class ProcedureTest < Minitest::Test
     RpmsRpc::Procedure.add(990_054, "117", CPT, quantity: 2)
 
     save = client.calls.find { |c| c[:rpc] == "BEHOENPC SAVE" }
-    assert_equal [ { 1 => "HDR^0^^6;3261109.1821;A;117", 2 => "VST^PT^990054", 3 => "CPT+^A0021^^^^^2" }, "0", "6" ],
+    assert_equal [ { 1 => "HDR^0^^6;3261111.1748;A;117", 2 => "VST^PT^990054", 3 => "CPT+^A0021^^^^^2" }, "0", "6" ],
                  save[:params], "HDR location;date;category;visit, VST^PT, CPT+ with quantity in piece 7 (BEHOENPC.m)"
   end
 
@@ -137,6 +137,20 @@ class ProcedureTest < Minitest::Test
     result = RpmsRpc::Procedure.add(990_054, "117", CPT, quantity: 2)
 
     assert_equal :not_filed, result[:error]
+  end
+
+  def test_add_when_two_new_rows_match_is_filed_with_no_ien
+    # add's rows before (none), its save, and add_again's rows after, which
+    # list the rows add and add_again filed: as if another session's add of
+    # the same code on the same visit came between the two reads. Neither
+    # row can be told to be this call's.
+    replay("DDR GETS ENTRY DATA" => [ CapturedReplies.raw(ADD, "add/1") ],
+           "BGOVCPT GET" => [ CapturedReplies.raw(ADD, "add/2"), CapturedReplies.raw(ADD, "add_again/4") ],
+           "BEHOENPC SAVE" => [ CapturedReplies.raw(ADD, "add/3") ])
+
+    result = RpmsRpc::Procedure.add(990_054, "117", CPT, quantity: 2)
+
+    assert_equal({ success: true, ien: nil, raw: "0", error: :ambiguous }, result)
   end
 
   def test_blank_args_return_failure_without_a_call

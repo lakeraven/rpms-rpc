@@ -55,7 +55,14 @@ module RpmsRpc
     # row on this visit with this code, and its IEN is returned. A visit
     # the build will not change any more answers -1^text.
     #
-    # Returns { success:, ien:, raw: }, plus error: on a refusal.
+    # The save answers no IEN, so when another session filed the same code
+    # on the same visit between the two reads, more than one new row matches
+    # and none can be told to be this call's: the CPT is filed (success:
+    # true, so a caller does not file it again), its IEN is nil and error: is
+    # :ambiguous.
+    #
+    # Returns { success:, ien:, raw: }, plus error: on a refusal or an
+    # ambiguous IEN.
     def add(dfn, visit_ien, cpt_code, modifiers: [], narrative: nil, quantity: 1)
       unless Array(modifiers).empty? && narrative.to_s.empty?
         raise ArgumentError, "BEHOENPC SAVE's CPT line files no modifiers or narrative; send neither"
@@ -73,12 +80,13 @@ module RpmsRpc
                                                      "0", visit[".22"])
         next { success: false, ien: nil, raw: raw } unless raw.to_s == "0"
 
-        filed = for_patient(dfn).find do |row|
+        filed = for_patient(dfn).select do |row|
           !before.include?(row[:ien]) && row[:visit_ien] == visit_ien.to_s && row[:cpt_code] == cpt_code.to_s
         end
-        next { success: false, ien: nil, raw: raw, error: :not_filed } if filed.nil?
+        next { success: false, ien: nil, raw: raw, error: :not_filed } if filed.empty?
+        next { success: true, ien: nil, raw: raw, error: :ambiguous } if filed.size > 1
 
-        { success: true, ien: filed[:ien].to_i, raw: raw }
+        { success: true, ien: filed.first[:ien].to_i, raw: raw }
       end
     rescue RpmsRpc::Client::FrameTooLongError => e
       # A value the wire would mis-frame is refused before anything is sent

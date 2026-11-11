@@ -41,6 +41,9 @@ CAPTURE = {
   flows: {
     "add" => { about: "add: CPT A0021, quantity 2, on DFN 990054's visit from setup",
                run: -> { Procedure.add(DFN, VISIT.fetch(:ien), "A0021", quantity: 2) } },
+    "add_again" => { about: "add: CPT A0021 again on the same visit, after add; its rows after list both, for the " \
+                            "unit test that replays them against add's rows before (another session's add in between)",
+                     run: -> { Procedure.add(DFN, VISIT.fetch(:ien), "A0021", quantity: 2) } },
     "add_unresolved_cpt" => { about: "add: CPT NOTACPT, which the build cannot resolve, on the same visit",
                               run: -> { Procedure.add(DFN, VISIT.fetch(:ien), "NOTACPT") } },
     "add_wrong_patient" => { about: "add: the same visit, named with DFN 990055, whose it is not",
