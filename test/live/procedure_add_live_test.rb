@@ -14,7 +14,8 @@ require "rpms_rpc/fileman_date_parser"
 # its own (as encounter_save_behoenpc_live_test.rb does), adds a CPT to it with
 # Procedure.add, and reads the new V CPT (#9000010.18) back with DDR. It then
 # checks that a CPT the build cannot resolve and a visit named with another
-# patient file nothing.
+# patient file nothing. Neither save carries a POV line, so the SNOMED
+# concept POV^BEHOENPC needs in piece 9 (rpms-rpc#704) does not arise.
 #
 # WRITES against a disposable local container only.
 class ProcedureAddLiveTest < LiveSpec::Test

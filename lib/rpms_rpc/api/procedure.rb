@@ -40,7 +40,10 @@ module RpmsRpc
     # (STORE^BEHOENPC). The CPT line files the code (.01) and quantity
     # (.16) only (CPT^BEHOENPC: SET(.16,7),STORE(.18)); the narrative and
     # modifier pieces it documents are not filed, so a caller that passes
-    # either gets ArgumentError rather than a silent drop.
+    # either gets ArgumentError rather than a silent drop. No POV line is
+    # sent, so the SNOMED concept a POV carries in piece 9 (POV^BEHOENPC,
+    # rpms-rpc#704) does not arise here: CPT^BEHOENPC and STORE^BEHOENPC
+    # use no piece the gem leaves empty as a subscript.
     #
     # The visit is read first (VISIT .01, .05, .07, .22): nothing is sent
     # unless it is this patient's (:not_found, :wrong_patient): the build
@@ -110,7 +113,6 @@ module RpmsRpc
 
       entry[:fields].transform_values { |f| f[:internal].to_s }
     end
-
 
     # $$FMTDATE^BGOUTL writes the visit date as MM/DD/YYYY (BGOUTL.m:373-377).
     def visit_date(value)
