@@ -1,0 +1,33 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb behocir1-getccds.rb.
+---
+rpc: BEHOCIR1 GETCCDS
+entry_point: GETCCDS^BEHOCIR1
+release_tag: bcer-9.0-20261110-55d9e3e-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:89e5f4584b3be5526116a0fe2f8691758f6a9d934bedf2333c14313bff9656b8
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-11T17:42:48Z'
+note: Seed patient DFN 4 (synthetic data). The build has no IMAGE (#2005) entries.
+captures:
+- name: one_parameter
+  inputs:
+  - 4^01/01/2000^12/31/2026
+  context: 'the frame for_patient used to send: one caret-joined parameter'
+  raw_return: "5\x011\rThe server has reported the following error:\r\rGETCCDS+6^BEHOCIR1,
+    Error while zlinking \"MAGSIXG1\",150373978,-%YDB-E-ZLINKFILE\r\rA detailed log
+    of the error has been created.\r"
+  sha256: 6579aa43ea317727c4abf48b81cc7d3e5492731f01f9ddd355e93dfed823f145
+- name: for_patient/1
+  rpc: BEHOCIR1 GETCCDS
+  inputs:
+  - '4'
+  - '3000101'
+  - '3261231'
+  context: 'for_patient for DFN 4, 01/01/2000 to 12/31/2026: three parameters; MAGSIXG1
+    is absent'
+  raw_return: "5\x011\rThe server has reported the following error:\r\rGETCCDS+6^BEHOCIR1,
+    Error while zlinking \"MAGSIXG1\",150373978,-%YDB-E-ZLINKFILE\r\rA detailed log
+    of the error has been created.\r"
+  sha256: 6579aa43ea317727c4abf48b81cc7d3e5492731f01f9ddd355e93dfed823f145
