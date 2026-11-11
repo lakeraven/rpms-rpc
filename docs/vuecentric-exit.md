@@ -43,7 +43,7 @@ Two routes the first pass missed:
 | Progress notes | (TIU, stock) | `AMHG SAVE PROGRESS NOTES` for BH notes | stock | |
 | Screening results | `BGOVHF SET` | `AMHG SAVE SCREENING` | A (probable) | Which store a PHQ-9 or GAD-7 belongs in is unconfirmed. |
 | Problem list | `BGOPROB SET/DEL` | `ORQQPL ADD SAVE`, `ORQQPL DELETE` (not taken) | B | Decided (#527): writes stay on `BGOPROB SET/DEL`, which keep SNOMED, laterality and IHS numbering; the gem wraps no `ORQQPL` write. Live-proven by `test/live/problem_write_live_test.rb`. Goes on the exceptions list. |
-| Psych CPT | `BGOVCPT SET` | none outside `CIAV VUECENTRIC` | E | `Procedure.add` is wire-incompatible with `BGOVCPT SET`. `BEHOENPC SAVE` files a V CPT with the visit, live-proven; it is in `CIAV VUECENTRIC` only. |
+| Psych CPT | `BEHOENPC SAVE` | none outside `CIAV VUECENTRIC` | D | Decided (#524): `Procedure.add` files through `BEHOENPC SAVE`, not `BGOVCPT SET`, live-proven by `test/live/procedure_add_live_test.rb`. Its CPT line files the code and quantity only. Goes on the exceptions list. |
 | Vitals and measurements | `BEHOVM*`, `BGOVMSR*` | `AMHG SAVE MEASUREMENTS` (BH); GMV vitals unchecked | E | Not on the December path. |
 | Immunization, refusal, eligibility, PHR | `BGOVIMM*`, `BGOREF*`, `BGOVIMM2 GETELIG`, `BEHOCCD*`, `BEHOCIR*` | none | D or E | Primary care, planned for later. The C-CDA is built in Rails, not from these RPCs. |
 

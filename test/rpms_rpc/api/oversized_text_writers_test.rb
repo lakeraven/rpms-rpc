@@ -126,14 +126,6 @@ class OversizedTextWritersTest < Minitest::Test
       assert_equal({ success: false, ien: nil, raw: nil }, result.slice(:success, :ien, :raw))
     end
 
-    define_method("test_procedure_add_returns_its_failure_shape_over_#{name}") do
-      limit = send(user)
-      text = long_for(limit)
-      result = RpmsRpc::Procedure.add("8791", "2090060", "99213", narrative: text)
-      assert_refused(result, limit, text)
-      assert_equal({ success: false, ien: nil, raw: nil }, result.slice(:success, :ien, :raw))
-    end
-
     define_method("test_problem_delete_returns_its_failure_shape_over_#{name}") do
       skip_problem_ownership_read
       limit = send(user)
@@ -382,7 +374,7 @@ class OversizedTextWritersTest < Minitest::Test
     "allergy_no_known" => -> { RpmsRpc::Allergy.no_known_allergies("8791") },
     "progress_note" => -> { RpmsRpc::ProgressNote.update_text("5001", "ok") },
     "pov" => -> { RpmsRpc::Pov.add("8791", "2090060", "250.00", narrative: "ok") },
-    "procedure" => -> { RpmsRpc::Procedure.add("8791", "2090060", "99213", narrative: "ok") },
+    "procedure" => -> { RpmsRpc::Procedure.add("8791", "2090060", "99213") },
     "problem_delete" => -> { RpmsRpc::Problem.delete("8791", "77", reason: "ok") },
     "problem_add" => -> { RpmsRpc::Problem.add("8791", { icd_code: "250.00", location_ien: "1", description: "ok" }) },
     "e_signature" => -> { RpmsRpc::ESignature.remove("5001", "12", reason: "ok") },
