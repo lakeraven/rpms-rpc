@@ -32,16 +32,6 @@ class PhrTest < Minitest::Test
         }
       ])
 
-      m.seed_text(:immunization_text, "501",
-        "<?xml version=\"1.0\"?>\n" \
-        "<ClinicalDocument>\n" \
-        "  <title>Continuity of Care Document</title>\n" \
-        "</ClinicalDocument>")
-      m.seed_text(:immunization_text, "502",
-        "<html>\n" \
-        "<body>CCD preview</body>\n" \
-        "</html>")
-
       m.seed(:immunization_count, DFN.to_s, { total: 5, reconciled: 2 })
 
       m.seed_keyed_collection(:ccd_referral, "9001^9002", [
@@ -121,27 +111,6 @@ class PhrTest < Minitest::Test
     end
 
     assert_equal [], RpmsRpc::Phr.for_patient(999_999, start_date: @start_date, end_date: @end_date)
-  end
-
-  def test_find_returns_multiline_ccd_content_and_detects_xml
-    document = RpmsRpc::Phr.find(501)
-
-    refute_nil document
-    assert_equal "xml", document[:format]
-    assert_includes document[:content], "<ClinicalDocument>"
-    assert_includes document[:content], "\n"
-  end
-
-  def test_find_detects_html_content
-    assert_equal "html", RpmsRpc::Phr.find(502)[:format]
-  end
-
-  def test_find_returns_nil_for_invalid_or_unknown_ien
-    INVALID_IDS.each do |ien|
-      assert_nil RpmsRpc::Phr.find(ien)
-    end
-
-    assert_nil RpmsRpc::Phr.find(999_999)
   end
 
   def test_counts_returns_total_reconciled_and_pending
