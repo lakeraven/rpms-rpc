@@ -27,7 +27,7 @@ CAPTURE = {
       run: lambda {
         listed = RpmsRpc::DdrFileman.lister(file: "5", fields: "@;.01", flags: "IP", xref: "B", from: "WASHINGTO",
                                             part: "WASHINGTON", max: "1")
-        state = listed.fetch(:entries).first.fetch(:ien)
+        state = ON_FILE_STATE[:state] = listed.fetch(:entries).first.fetch(:ien)
         RpmsRpc.client.recorded.clear # the state look-up is the flow's set-up, not the add
         ON_FILE_STATE[:medicaid] = Cov.add_medicaid(ON_FILE_DFN, effective_on: "01/01/2026", ends_on: "12/31/2027",
                                                                  number: "ZZ4900001", state_ien: state, coverage: nil)
@@ -37,7 +37,7 @@ CAPTURE = {
       about: "add_medicaid whose eligibility ended 06/30/2025",
       run: lambda {
         Cov.add_medicaid(ON_FILE_DFN, effective_on: "01/01/2024", ends_on: "06/30/2025", number: "ZZ49LAPSE",
-                                      coverage: nil)
+                                      state_ien: ON_FILE_STATE.fetch(:state), coverage: nil)
       }
     },
     "add_medicare" => {
