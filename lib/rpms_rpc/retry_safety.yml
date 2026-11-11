@@ -245,7 +245,6 @@
 "RpmsRpc::PatientSelection.find": read
 "RpmsRpc::Phr.counts": read
 "RpmsRpc::Phr.enrollment_status": read
-"RpmsRpc::Phr.find": read
 "RpmsRpc::Phr.for_patient": read
 "RpmsRpc::Phr.has_access?": read
 "RpmsRpc::Phr.referrals_for_visits": read

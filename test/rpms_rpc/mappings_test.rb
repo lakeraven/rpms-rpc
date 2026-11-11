@@ -523,7 +523,7 @@ class RpmsRpc::MappingsTest < Minitest::Test
       signon_setup av_code cvc_verify
       report_text
       medication_detail referral_detail
-      ccd_document ccd_referral immunization_text immunization_count
+      ccd_document ccd_referral immunization_count
       phr_access
       bmc_add_c32_print_log bmc_add_referral
       bmc_check_year_site_param bmc_consultation_status_update

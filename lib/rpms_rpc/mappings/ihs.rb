@@ -575,12 +575,6 @@ module RpmsRpc
       m.text_blob :content
     end
 
-    # BEHOCIR GETTXT — CCD document content
-    DataMapper.define(:immunization_text) do |m|
-      m.rpc "BEHOCIR GETTXT"
-      m.text_blob :content
-    end
-
     # BEHOCIR GETNUM — CCD count and reconciliation status
     # Format: TOTAL^RECONCILED
     DataMapper.define(:immunization_count) do |m|
