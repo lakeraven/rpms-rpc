@@ -19,6 +19,7 @@ class CoverageWriteLiveTest < LiveSpec::Test
   MEDICARE_ELIG_FILE = "9000003.11"
   MEDICAID_FILE = "9000004"
   CMS_EXAMPLE_MBI = "1EG4TE5MK73"
+  MEDICAID_NUMBER = "ZZ382MCD"
 
   def test_medicare_and_medicaid_coverage_round_trip
     today = Date.today.strftime("%m/%d/%Y")
@@ -45,7 +46,9 @@ class CoverageWriteLiveTest < LiveSpec::Test
       refute m3[:error], "no #9000003 for DFN #{DFN}"
       assert_equal CMS_EXAMPLE_MBI, m3.dig(:fields, ".03", :external), "Medicare number (#9000003 .03)"
 
-      mcd = RpmsRpc::Coverage.add_medicaid(DFN, effective_on: today, coverage: mcd_cov)
+      state = state_ien!("WASHINGTON")
+      mcd = RpmsRpc::Coverage.add_medicaid(DFN, effective_on: today, number: MEDICAID_NUMBER, state_ien: state,
+                                                coverage: mcd_cov)
       assert mcd[:success], "Medicaid add failed: #{mcd.inspect}"
       refute_empty mcd[:record_ien].to_s
 
@@ -53,9 +56,11 @@ class CoverageWriteLiveTest < LiveSpec::Test
       assert entries.any? { |row| row[:coverage].to_s.include?(mcd_cov) && row[:coverage].to_s.match?(/MEDICAID/i) },
              "BQI read missing Medicaid row: #{entries.inspect}"
 
-      m4 = RpmsRpc::DdrFileman.gets_entry(file: MEDICAID_FILE, iens: "#{mcd[:record_ien]},", fields: ".01;.02", flags: "IE")
+      m4 = RpmsRpc::DdrFileman.gets_entry(file: MEDICAID_FILE, iens: "#{mcd[:record_ien]},", fields: ".01;.02;.03;.04", flags: "IE")
       refute m4[:error], "no #9000004 IEN #{mcd[:record_ien]}"
       assert_equal DFN.to_s, m4.dig(:fields, ".01", :internal), "#9000004 .01 points at patient"
+      assert_equal [ MEDICAID_NUMBER, state ], [ m4.dig(:fields, ".03", :internal), m4.dig(:fields, ".04", :internal) ],
+                   "Medicaid number and state (#9000004 .03, .04)"
 
       assert medicare_eligibility_row_exists?(mcr[:mien]),
              "Medicare eligibility IEN #{mcr[:mien]} missing on FileMan before row delete"
@@ -90,6 +95,14 @@ class CoverageWriteLiveTest < LiveSpec::Test
   end
 
   private
+
+  # STATE (#5) IEN by name, as coverage_on_file_live_test.rb finds it.
+  def state_ien!(name)
+    got = RpmsRpc::DdrFileman.lister(file: "5", fields: "@;.01", flags: "IP", xref: "B", from: name[0..-2], part: name, max: "1")
+    ien = Array(got && got[:entries]).first&.dig(:ien).to_s
+    flunk "no STATE #{name} on this build: #{got.inspect}" if ien.empty?
+    ien
+  end
 
   def coverage_entries!
     got = RpmsRpc::Coverage.for_patient(DFN, client: client)

@@ -11,6 +11,7 @@ require "rpms_rpc/api/coverage"
 Cov = RpmsRpc::Coverage
 COVERAGE_DFN = 990_048
 OTHER_DFN = 990_049
+WASHINGTON = "48" # STATE WASHINGTON on the pinned build (coverage-on-file.rb finds it by name)
 COVERAGE_STATE = {} # rubocop:disable Style/MutableConstant
 
 CAPTURE = {
@@ -34,8 +35,11 @@ CAPTURE = {
       }
     },
     "add_medicaid" => {
-      about: "add_medicaid: the record then its FULL eligibility row",
-      run: -> { COVERAGE_STATE[:medicaid] = Cov.add_medicaid(COVERAGE_DFN, effective_on: "11/01/2026", coverage: "FULL") }
+      about: "add_medicaid: the record (number, state) then its FULL eligibility row",
+      run: lambda {
+        COVERAGE_STATE[:medicaid] = Cov.add_medicaid(COVERAGE_DFN, effective_on: "11/01/2026", number: "ZZCOV0001",
+                                                                   state_ien: WASHINGTON, coverage: "FULL")
+      }
     },
     "bqi_both" => { as: :sys, about: "for_patient with Medicare and Medicaid on file", run: -> { Cov.for_patient(COVERAGE_DFN) } },
     "on_file_both" => { about: "on_file with Medicare and Medicaid on file", run: -> { Cov.on_file(COVERAGE_DFN) } },

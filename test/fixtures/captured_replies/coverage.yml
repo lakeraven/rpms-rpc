@@ -8,7 +8,7 @@ image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42
 client: RpmsRpc::CiaClient#call_rpc_raw
 signed_on_as: PROFILE,REG (PREG123, a published demo pair; DUZ 207)
 bound_context: CIAV VUECENTRIC
-captured_at: '2026-11-09T18:37:09Z'
+captured_at: '2026-11-11T07:06:32Z'
 note: Run on a throwaway container. Medicare number 1EG4TE5MK73 is the CMS example
   MBI; names are synthetic. Each flow's record and multiple IENs are the ones the
   flow before it filed.
@@ -54,8 +54,8 @@ captures:
   - Medicaid
   - ''
   - ''
-  - ''
-  context: 'add_medicaid: the record then its FULL eligibility row'
+  - "AGGMDNUM=ZZCOV0001\x1CAGGMDSTE=48"
+  context: 'add_medicaid: the record (number, state) then its FULL eligibility row'
   raw_return: "5\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^3^\x1E"
   sha256: 2f393657fe8ae0e2b4dea2e5fc86f6a9a78dd5147a32b9e176b6b4eda971de1c
 - name: add_medicaid/2
@@ -67,7 +67,7 @@ captures:
   - '3'
   - ''
   - "AGGMDESD=11/01/2026\x1CAGGMDECV=FULL"
-  context: 'add_medicaid: the record then its FULL eligibility row'
+  context: 'add_medicaid: the record (number, state) then its FULL eligibility row'
   raw_return: "6\0I00010RESULT^T01024ERROR^I00010RIEN^I00010MIEN\x1E1^^3^3261101\x1E"
   sha256: 9bf54f3062246c678ddbd911669e44a4a76df3b5bd86dbe74f3a3e2e2c4baf66
 - name: bqi_both/1
@@ -87,8 +87,8 @@ captures:
   - B
   - '990048'
   context: on_file with Medicare and Medicaid on file
-  raw_return: "5\0T00030AGGMDNME^T00030AGGMDNUM^D00015AGGMDDOB^T00030AGGMDINS^T00040AGGMDSTE^T00040AGGMDPLN^T00007AGGMDCCF^D00015AGGMDCRD^T00040AGGMDREL^T00040AGGMDGRP^T00017AGGMDGRN^T00035AGGMDINM^T00035AGGMDPCP^T00006AGGMDRCD^I00010RIEN^T00010SEQNBR^D00015AGGMDESD^D00015AGGMDEED^T00015AGGMDSTS^D00015AGGLSTDT\x1E^^^MEDICAID^\x1C^\x1C^\x1C^^\x1C^\x1C^\x1C^^^^3^^^^ACTIVE^\x1E"
-  sha256: 4728981ca88985d9d84d844652db95c988ded601e75fb751f5467aec73b6cc09
+  raw_return: "5\0T00030AGGMDNME^T00030AGGMDNUM^D00015AGGMDDOB^T00030AGGMDINS^T00040AGGMDSTE^T00040AGGMDPLN^T00007AGGMDCCF^D00015AGGMDCRD^T00040AGGMDREL^T00040AGGMDGRP^T00017AGGMDGRN^T00035AGGMDINM^T00035AGGMDPCP^T00006AGGMDRCD^I00010RIEN^T00010SEQNBR^D00015AGGMDESD^D00015AGGMDEED^T00015AGGMDSTS^D00015AGGLSTDT\x1E^ZZCOV0001^^MEDICAID^48\x1CWASHINGTON^\x1C^\x1C^^\x1C^\x1C^\x1C^^^^3^^^^ACTIVE^\x1E"
+  sha256: 6aa1328e566bdeaa8a1d68fdc0df2d564d0dca7b15fd243df116162ac1e69efb
 - name: on_file_both/2
   rpc: AGG BUILD WINDOW MULTIPLE
   inputs:

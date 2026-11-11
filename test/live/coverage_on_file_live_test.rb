@@ -88,7 +88,8 @@ class CoverageOnFileLiveTest < LiveSpec::Test
 
   def test_a_lapsed_medicaid_record_reads_back_inactive
     medicaid = RpmsRpc::Coverage.add_medicaid(DFN, effective_on: "01/01/2024", ends_on: "06/30/2025",
-                                                   number: "ZZ49LAPSE", coverage: nil, client: client)
+                                                   number: "ZZ49LAPSE", state_ien: state_ien!("WASHINGTON"),
+                                                   coverage: nil, client: client)
     assert medicaid[:success], "Medicaid add refused: #{medicaid.inspect}"
 
     mcd = RpmsRpc::Coverage.on_file(DFN, client: client)[:medicaid].find { |e| e[:record_ien] == medicaid[:record_ien] }

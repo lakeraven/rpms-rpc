@@ -37,6 +37,8 @@ class CoverageTest < Minitest::Test
   OTHER_DFN = 990_049
   MEDICARE_ARGS = { roi_on: "11/01/2026", name: "ZZCOV,MEDICARE", number: CMS_EXAMPLE_MBI, suffix: "A",
                     effective_on: "11/01/2026" }.freeze
+  WASHINGTON = "48" # STATE WASHINGTON on the pinned build
+  MEDICAID_ARGS = { effective_on: "11/01/2026", number: "ZZCOV0001", state_ien: WASHINGTON, coverage: "FULL" }.freeze
 
   def teardown
     RpmsRpc.reset!
@@ -185,11 +187,12 @@ class CoverageTest < Minitest::Test
   def test_add_medicaid_creates_record_then_eligibility_row
     client = replay_flow("add_medicaid")
 
-    result = Cov.add_medicaid(DFN, effective_on: "11/01/2026", coverage: "FULL")
+    result = Cov.add_medicaid(DFN, **MEDICAID_ARGS)
     assert_sent_the_flow(client, "add_medicaid")
 
     assert_equal({ success: true, error: nil, message: "", record_ien: "3", multiple_ien: "3261101" }, result)
     assert_equal [ Cov::MEDICAID_WINDOW, Cov::MEDICAID_ELIGIBILITY_WINDOW ], agg_calls(client, MEDICAID_RPC).map { |_, p, _| p[2] }
+    assert_equal "AGGMDNUM=ZZCOV0001#{FS}AGGMDSTE=48", agg_calls(client, MEDICAID_RPC).first[1].last
     assert_equal [ DFN.to_s, "A", Cov::MEDICAID_ELIGIBILITY_WINDOW, "3", "", "AGGMDESD=11/01/2026#{FS}AGGMDECV=FULL" ],
                  agg_calls(client, MEDICAID_RPC).last[1]
   end
@@ -299,11 +302,14 @@ class CoverageTest < Minitest::Test
     end
   end
 
+  # The Medicaid window requires the number and the state, and a record with no
+  # state cannot be indexed (rpms-rpc#705): either missing is refused, naming it.
   def test_add_medicaid_refuses_bad_coverage_or_dates_before_wire
     [ { coverage: "OVERRIDE=Y" }, { coverage: "full override" }, { coverage: "FULL=Y" }, { coverage: "@" },
-      { effective_on: nil } ].each do |override|
+      { effective_on: nil }, { number: nil }, { number: " " }, { state_ien: nil }, { state_ien: "" },
+      { state_ien: "WASHINGTON" } ].each do |override|
       client = replay
-      args = { effective_on: "11/01/2026", coverage: "FULL" }.merge(override)
+      args = MEDICAID_ARGS.merge(override)
       assert_raises(ArgumentError, "#{override.inspect} must be refused") { Cov.add_medicaid(DFN, **args) }
       assert_empty client.calls, "#{override.inspect} reached the wire"
     end
