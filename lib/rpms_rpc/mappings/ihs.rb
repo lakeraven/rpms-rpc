@@ -511,8 +511,12 @@ module RpmsRpc
     # PHR / CCD (BEHOCCD*, BEHOCIR*)
     # ========================================================================
 
-    # BEHOCIR1 GETCCDS — CCD documents for patient
-    # Format per line: IEN^DATE^SOURCE^TITLE^TYPE
+    # BEHOCIR1 GETCCDS — CCD documents for patient (Phr.for_patient)
+    # Format per line: IEN^DATE^SOURCE^TITLE^TYPE, UNPROVEN. The rows are
+    # GETIMGS^MAGSIXG1's (VistA Imaging, not in the FOIA release), and no build
+    # has answered one: GETCCDS keeps rows 0 and 1 as given and data rows
+    # whose piece 10 is CCD-SUMMARY (BEHOCIR1.m:14-19), so piece 5 is not
+    # the type (#698).
     DataMapper.define(:ccd_document) do |m|
       m.rpc "BEHOCIR1 GETCCDS"
       m.field 0, :ien, :integer

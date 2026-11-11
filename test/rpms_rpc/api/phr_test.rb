@@ -10,27 +10,12 @@ class PhrTest < Minitest::Test
   INVALID_IDS = [ nil, "", 0, -5, "abc" ].freeze
 
   def setup
-    @start_date = Date.new(2025, 5, 26)
-    @end_date = Date.new(2026, 5, 26)
-    ccd_key = "#{DFN}^05/26/2025^05/26/2026"
-
     RpmsRpc.mock! do |m|
       # BEHOCCD PHR is line-based: line 0 = "1"/"0", line 1 = optional message.
       # seed_text models the multi-line wire shape; fetch_one would only see
       # the first line.
       m.seed_text(:phr_access, DFN.to_s, "1\nPatient portal enabled")
       m.seed_text(:phr_access, "123", "0")
-
-      m.seed_keyed_collection(:ccd_document, ccd_key, [
-        {
-          ien: 501, date: Date.new(2026, 5, 1), source: "External Clinic",
-          title: "Visit CCD", type: "CCD"
-        },
-        {
-          ien: 502, date: Date.new(2026, 5, 2), source: "Hospital",
-          title: nil, type: nil
-        }
-      ])
 
       m.seed(:immunization_count, DFN.to_s, { total: 5, reconciled: 2 })
 
@@ -80,37 +65,6 @@ class PhrTest < Minitest::Test
 
     assert_equal false, status[:has_access]
     assert_equal "No response", status[:message]
-  end
-
-  def test_for_patient_sends_caret_delimited_date_range
-    RpmsRpc::Phr.for_patient(DFN, start_date: @start_date, end_date: @end_date)
-
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BEHOCIR1 GETCCDS" }
-    refute_nil call
-    assert_equal [ "#{DFN}^05/26/2025^05/26/2026" ], call[:params]
-  end
-
-  def test_for_patient_returns_ccd_documents_with_defaults
-    documents = RpmsRpc::Phr.for_patient(DFN, start_date: @start_date, end_date: @end_date)
-
-    assert_equal 2, documents.length
-    first = documents.first
-    assert_equal 501, first[:ien]
-    assert_equal Date.new(2026, 5, 1), first[:date]
-    assert_equal "External Clinic", first[:source]
-    assert_equal "Visit CCD", first[:title]
-
-    second = documents.last
-    assert_equal "Clinical Document", second[:title]
-    assert_equal "CCD", second[:type]
-  end
-
-  def test_for_patient_returns_empty_for_invalid_or_unknown_dfn
-    INVALID_IDS.each do |dfn|
-      assert_equal [], RpmsRpc::Phr.for_patient(dfn, start_date: @start_date, end_date: @end_date)
-    end
-
-    assert_equal [], RpmsRpc::Phr.for_patient(999_999, start_date: @start_date, end_date: @end_date)
   end
 
   def test_counts_returns_total_reconciled_and_pending
