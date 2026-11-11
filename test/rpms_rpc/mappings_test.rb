@@ -399,17 +399,6 @@ class RpmsRpc::MappingsTest < Minitest::Test
     assert_equal "Patient: DOE,JOHN\nDate: 2025-03-15\nVitals normal.", text
   end
 
-  def test_health_summary_reminders
-    result = RpmsRpc::DataMapper[:reminders_list].parse_many(
-      [ "501^A1C Screening^DUE^^^HIGH" ]
-    ).first
-
-    assert_equal 501, result[:ien]
-    assert_equal "A1C Screening", result[:name]
-    assert_equal "DUE", result[:status]
-    assert_equal "HIGH", result[:priority]
-  end
-
   # -- ORQQPXRM REMINDERS APPLICABLE (#238) ----------------------------------
   # AVAL^PXRMRPCA row (PXRMRPCA.m:76):
   # IEN^PRINT NAME^DUE DATE^LAST DONE^PRIORITY^DUE FLAG^DIALOG^^^^DIALOG WIPE

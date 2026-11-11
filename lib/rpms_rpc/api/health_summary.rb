@@ -108,10 +108,13 @@ module RpmsRpc
     end
     shape :clinical_reminders, resource: "health-summaries", verb: "GET", path: "/patients/{dfn}/health-summaries/clinical-reminders"
 
+    # REMDET(ORY,ORPT,ORIEN)^ORQQPX (ORQQPX.m:51) takes the DFN and the
+    # reminder (#811.9) IEN as two formals. Sent as one "DFN^IEN" parameter,
+    # ORIEN is undefined and the call dies (LVUNDEF at REMDET+5, #694).
     def reminder_detail(dfn, reminder_ien)
       return nil if invalid_id?(dfn) || invalid_id?(reminder_ien)
 
-      text = DataMapper.reminder_detail.fetch_text("#{dfn}^#{reminder_ien}")
+      text = DataMapper.reminder_detail.fetch_text(dfn.to_s, reminder_ien.to_s)
       blank?(text) ? nil : { content: text, parsed_at: Time.now }
     end
     shape :reminder_detail, resource: "health-summaries", verb: "GET", path: "/patients/{dfn}/health-summaries/reminders/{reminder_ien}"

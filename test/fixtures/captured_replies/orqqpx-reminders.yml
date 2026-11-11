@@ -1,0 +1,44 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb orqqpx-reminders.rb.
+---
+rpc: ORQQPX REMINDER DETAIL
+entry_point: REMDET^ORQQPX
+release_tag: bcer-9.0-20261110-55d9e3e-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:89e5f4584b3be5526116a0fe2f8691758f6a9d934bedf2333c14313bff9656b8
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-11T17:39:17Z'
+note: Seed patient DFN 4 (synthetic data). Reminder evaluation files nothing.
+captures:
+- name: detail_one_parameter
+  inputs:
+  - 4^211
+  context: 'the frame reminder_detail used to send: DFN and IEN in one parameter;
+    ORIEN is undefined'
+  raw_return: "5\x011\rThe server has reported the following error:\r\rREMDET+5^ORQQPX,
+    Undefined local variable: ORIEN,150373850,-%YDB-E-LVUNDEF\r\rA detailed log of
+    the error has been created.\r"
+  sha256: 1b7530bd663fba2c5b7dc18765ce6b0f0e999934ced519d00eec10f070e66c8d
+- name: reminders/1
+  rpc: ORQQPX REMINDERS LIST
+  inputs:
+  - '4'
+  context: clinical_reminders for DFN 4
+  raw_return: "5\0211^Tobacco Screen^DUE NOW^^2^1^1^^^^0\r274^Domestic Violence^DUE
+    NOW^^2^1^1^^^^0\r"
+  sha256: 789e718043d387118cce1b575c67e6a972fd5d1bbd3cb8d1c5ac73a34b7cf337
+- name: detail/1
+  rpc: ORQQPX REMINDER DETAIL
+  inputs:
+  - '4'
+  - '211'
+  context: reminder_detail for DFN 4, reminder 211 (Tobacco Screen)
+  raw_return: "5\0Frequency: Due every 1 year for ages 1D to 110Y.\r\r\rREMINDER DUE:
+    All patients and no tobacco screening, \rdiagnosis or counseling (health factor,
+    CPT or POV/Problem) \rdocumented in the past year. \r\rREMINDER ON: 3 months before
+    due date. \r\r  ***This reminder resolves using the RPMS data found by the \r
+    \    PCC Health Maintenance Reminder look up*** \r\r    ==============================================================
+    \r    Reference: Healthy People 2020, Tobacco Use \r    ==============================================================
+    \r\r"
+  sha256: 06cd21d1dc1ff3918a357385d3a8b5c3fe396def167d18c835f4c21cfa40f488
