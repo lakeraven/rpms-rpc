@@ -70,6 +70,21 @@ class BehavioralHealthReferenceTest < Minitest::Test
     assert_empty site.except(:ien, :lockout).values.reject { |v| v.nil? || v == false }
   end
 
+  # The reply IRIS (bcer-9.0-20261109-d3adcff-iris, Community 2026.2) sent for a provider with an
+  # administrative record and no POV, 2026-11-11: ADML^AMHGDA failed at +32 (rpms-ops#1119) and its
+  # trap wrote the error over row 1. It is raised, not read as a record (rpms-rpc#706).
+  ADMIN_RECORDS_ERROR = "5\x00T00010BMXIEN^T00030SortDate^T00030Date^T00050Program^T00050ActivityCode^T00050POV^" \
+                        "T00010Time^T00030Provider^T00080ProviderNarrative^T00030LocationofEncounter\x1E" \
+                        "M ERROR|MUMPS error: \"<UNDEFINED>ADML+32^AMHGDA *AMHPOVE\"\x1E"
+
+  def test_admin_records_raises_the_m_error_row
+    client = CapturedReplies::ReplayCiaClient.new({ "AMHG GET ADMIN RECORDS" => [ ADMIN_RECORDS_ERROR.b ] })
+    RpmsRpc.configure { |cfg| cfg.client = client }
+
+    error = assert_raises(RpmsRpc::Client::RpcMError) { R.admin_records("4", from: "3000101", to: "3271231") }
+    assert_match(/ADML\+32\^AMHGDA/, error.message)
+  end
+
   def test_admin_records_with_none_on_file_is_empty_and_sends_the_provider
     client = replay("admin_none")
 

@@ -379,6 +379,39 @@ def test_a_late_eod_in_front_of_a_global_array_reply_is_not_part_of_it
   assert c.connected?
 end
 
+  # A stock error reply sent as data has no $C(31) (rpms-rpc#706). When ADML^AMHGDA fails, its
+  # trap (MERR^AMHGU, then ERR^AMHGU) writes "M ERROR|<text>" over row 1 and returns, so ADML never
+  # writes its closing $C(31); the broker then ends the reply with its EOD. These are the pieces a
+  # client received for AMHG GET ADMIN RECORDS (seq 5) on a provider with an administrative record
+  # and no POV, synthetic data on throwaway instances, 2026-11-11: IRIS (bcer-9.0-20261109-d3adcff-iris
+  # on IRIS for Health Community 2026.2) sent the reply in one piece; YottaDB
+  # (bcer-9.0-20261110-55d9e3e-ydb) in five, its EOD alone in the last. Reading on for a sentinel
+  # waited out the timeout and dropped the session.
+  ADMIN_RECORDS_HEADER = "T00010BMXIEN^T00030SortDate^T00030Date^T00050Program^T00050ActivityCode^T00050POV^" \
+                         "T00010Time^T00030Provider^T00080ProviderNarrative^T00030LocationofEncounter\x1E"
+  ADMIN_RECORDS_ERROR_IRIS = [
+    "5\x00#{ADMIN_RECORDS_HEADER}M ERROR|MUMPS error: \"<UNDEFINED>ADML+32^AMHGDA *AMHPOVE\"\x1E\x7F"
+  ].map(&:b).freeze
+  ADMIN_RECORDS_ERROR_YDB = [
+    "5", "\x00", ADMIN_RECORDS_HEADER,
+    "M ERROR|MUMPS error: \"150373850,ADML+32^AMHGDA,%YDB-E-LVUNDEF, Undefined local variable: AMHPOVE <UNDEFINED>\"\x1E",
+    "\x7F"
+  ].map(&:b).freeze
+
+  def test_a_stock_error_reply_with_no_sentinel_ends_at_the_brokers_eod
+    { iris: ADMIN_RECORDS_ERROR_IRIS, ydb: ADMIN_RECORDS_ERROR_YDB }.each do |engine, pieces|
+      c = client_on(InFlightSocket.new(pieces))
+      c.instance_variable_set(:@seq, 4) # the next exchange uses seq 5
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+      reply = c.call_rpc_global_array("AMHG GET ADMIN RECORDS", "3000101|3271231|1")
+
+      assert_equal pieces.join.delete_suffix(EOD.b), reply, "#{engine}: the reply is every byte before the EOD"
+      assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1, "#{engine}: waited for a sentinel"
+      assert c.connected?, "#{engine}: a complete reply is not a broken connection"
+    end
+  end
+
   def test_an_in_flight_tail_with_a_mismatched_echo_is_not_the_next_reply
     # Request 1 read "1\x00HEADER" and left the rest of its global-array body
     # unread; that tail lands on the socket only after request 2 (seq 2) has
