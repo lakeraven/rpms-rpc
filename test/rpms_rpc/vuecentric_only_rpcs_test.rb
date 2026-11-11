@@ -2,6 +2,10 @@
 
 require "minitest/autorun"
 require "json"
+require "rpms_rpc"
+require "rpms_rpc/mappings"
+require "rpms_rpc/api/procedure"
+require_relative "captured_replies"
 
 # ADR 0011: every RPC the gem sends that the build registers in CIAV
 # VUECENTRIC and no other broker option is listed in the ADR's table, with
@@ -66,6 +70,36 @@ class VuecentricOnlyRpcsTest < Minitest::Test
     vuecentric_only.each do |rpc|
       assert_equal sent_by[rpc].sort, rows.fetch(rpc, []).sort, "#{rpc}: the Used by cell disagrees with required_rpcs.json"
     end
+  end
+
+  # ADR 0011, decision 5: each one's mapping binds CIAV VUECENTRIC itself.
+  def test_each_vuecentric_only_rpc_is_mapped_under_its_own_option
+    mappings = RpmsRpc::DataMapper.instance_variable_get(:@registry).values
+    vuecentric_only.each do |rpc|
+      mine = mappings.select { |m| m.rpc_name == rpc }
+      refute_empty mine, "#{rpc}: no DataMapper mapping sends it"
+      mine.each do |m|
+        assert_equal VUECENTRIC, m.bound_context, "#{rpc} (DataMapper.#{m.name}) does not bind #{VUECENTRIC}"
+      end
+    end
+  end
+
+  # The build's reply to BGOVCPT GET (bgovcpt.yml), on a session bound to
+  # OR CPRS GUI CHART, which does not carry it: the read binds CIAV
+  # VUECENTRIC, sends, and binds the caller's option back.
+  def test_a_kept_rpc_binds_its_option_and_restores_the_callers
+    client = CapturedReplies::ReplayCiaClient.new("BGOVCPT GET" => [ CapturedReplies.raw("bgovcpt", "dfn_4") ])
+    RpmsRpc.configure { |cfg| cfg.client = client }
+    client.create_context("OR CPRS GUI CHART")
+    client.calls.clear
+
+    refute_empty RpmsRpc::Procedure.for_patient("4")
+
+    assert_equal [ [ :create_context, [ VUECENTRIC ] ], [ "BGOVCPT GET", [ "4" ] ], [ :create_context, [ "OR CPRS GUI CHART" ] ] ],
+                 client.calls.map { |c| [ c[:rpc], c[:params] ] }
+    assert_equal "OR CPRS GUI CHART", client.current_context
+  ensure
+    RpmsRpc.reset!
   end
 
   def test_the_adr_count_matches

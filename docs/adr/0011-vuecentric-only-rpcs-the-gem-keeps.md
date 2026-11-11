@@ -1,7 +1,7 @@
 # ADR 0011: The VueCentric-only RPCs the gem keeps
 
 **Status:** Proposed
-**Date:** 2026-11-09
+**Date:** 2026-11-11
 **Relates to:** rpms-rpc#528, #527 (problem list), #524 (psych CPT), #645 (the encounter write), [docs/vuecentric-exit.md](../vuecentric-exit.md)
 
 ## Context
@@ -14,21 +14,21 @@ A web client that keeps them stays tied to VueCentric's option, so each one shou
 This ADR is the short list that analysis feeds: which VueCentric-only RPCs the gem keeps today, and why.
 
 The list is computed, not kept by hand: an RPC is on it when `lib/rpms_rpc/required_rpcs.json` names it and the build's broker-option inventory (`data/inventories/<build>/<build>-contexts_19_05.txt`, the build `required_rpcs.json` names) lists it in `CIAV VUECENTRIC` only.
-On `bcer-9.0-20261012-e7923a4-ydb` that is 42 RPCs.
+On `bcer-9.0-20261012-e7923a4-ydb` that is 41 RPCs.
 
 ## Decision
 
-1. The gem keeps the 42 RPCs below. Each row names the module that sends it, why no stock route is used yet, and the route that would replace it.
+1. The gem keeps the 41 RPCs below. Each row names the module that sends it, why no stock route is used yet, and the route that would replace it.
 2. A VueCentric-only RPC is added to the gem only with a row here, in the same change. `test/rpms_rpc/vuecentric_only_rpcs_test.rb` fails when `required_rpcs.json` gains one this table does not list, and when the table lists one that is no longer VueCentric-only or no longer sent.
 3. The problem-list writes and the psych CPT are decided, not pending: problem writes stay on `BGOPROB SET` / `BGOPROB DEL` (#527), and the CPT is filed through `BEHOENPC SAVE` (#524). Both are live-proven.
 4. Leaving one of these for a stock route takes its own change: the stock route proven live, the RPC gone from `required_rpcs.json`, and its row deleted.
+5. Each of these RPCs binds its own option. Its mapping declares it (`m.context VUECENTRIC` in `lib/rpms_rpc/mappings/ihs.rb`), and DataMapper sends the call under that option and restores the caller's (`ContextScope.scoped`), so the RPC answers whichever option the session has bound. On a CIA session, already bound to `CIAV VUECENTRIC` by sign-on, that costs nothing. The test fails when a VueCentric-only RPC's mapping declares no option, and `test/live/vuecentric_only_context_live_test.rb` proves the bind on the pinned build.
 
 | RPC | Used by | Why no stock route yet | Replacement path |
 |---|---|---|---|
 | `BEHOCCD GETREF` | `RpmsRpc::Phr` | PHR and C-CDA reads; no stock RPC outside `CIAV VUECENTRIC` serves them. | None planned for December; the C-CDA is built in Rails. |
 | `BEHOCCD PHR` | `RpmsRpc::Phr` | As above. | As above. |
 | `BEHOCIR GETNUM` | `RpmsRpc::Phr` | As above. | As above. |
-| `BEHOCIR GETTXT` | `RpmsRpc::Phr` | As above. | As above. |
 | `BEHOCIR1 GETCCDS` | `RpmsRpc::Phr` | As above. | As above. |
 | `BEHOENCX CHKVISIT` | `RpmsRpc::Encounter` | The visit-context calls VueCentric makes; the stock routes that create a visit are package writes, not yet verified on a running image. | `BSDX CHECKIN APPOINTMENT` (creates the visit when the clinic's flag is set) or `AMHG SAVE VISIT` for BH. |
 | `BEHOENCX FETCH` | `RpmsRpc::Encounter`, `RpmsRpc::Scheduling` | As above. | As above. |
@@ -78,14 +78,16 @@ On `bcer-9.0-20261012-e7923a4-ydb` that is 42 RPCs.
 ### Negative
 
 - The list is computed against one build's inventory (the one `required_rpcs.json` names). A build whose options differ needs its inventory pinned before the test reflects it.
-- These RPCs still run under the session's bound option, `CIAV VUECENTRIC`. `Problem` and `Procedure` bind it explicitly; the other modules rely on sign-on having bound it.
+- On a session bound to another option, each of these calls costs a bind and a restore.
+- The bind covers these RPCs only. A method that also sends an RPC the session's option lacks still needs that option bound: `Measurement.latest` reads `DDR GETS ENTRY DATA` beside `BGOVMSR LAST`, and `OR CPRS GUI CHART` does not carry it.
 
 ### Alternatives considered
 
-- **Leave the list in docs/vuecentric-exit.md.** That document is analysis, with a count that has already drifted (37 there, 42 here). A list a test checks cannot drift.
+- **Leave the list in docs/vuecentric-exit.md.** That document is analysis, with a count that has already drifted (37 there, 41 here). A list a test checks cannot drift.
 - **Move every write to a stock route first.** For the problem list and the CPT, the stock routes lose data or do not work on the build (#527, #524).
 
 ## References
 
 - docs/vuecentric-exit.md, for the needs, the stock candidates and the class of each.
+- `test/rpms_rpc/vuecentric_only_rpcs_test.rb` (the list and each RPC's option) and `test/live/vuecentric_only_context_live_test.rb` (the bind, live).
 - rpms-rpc#527, #524, #645, #661; rpms-ops#1042.
