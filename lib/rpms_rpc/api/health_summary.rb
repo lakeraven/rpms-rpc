@@ -2,12 +2,11 @@
 
 require_relative "../shape"
 require_relative "../mappings"
-require_relative "ddr_fileman"
 
 module RpmsRpc
   # Symbolic API for RPMS Health Summary reports and clinical reminders.
-  # Underlying RPCs: ORWRP REPORT TEXT, ORQQPX REMINDERS LIST, ORQQPX
-  # REMINDER DETAIL.
+  # Underlying RPCs: ORWRP REPORT LISTS, ORWRP REPORT TEXT, ORQQPX
+  # REMINDERS LIST, ORQQPX REMINDER DETAIL.
   #
   # The report-type reads (`types`, `type_components`) and the GMTS reads
   # (`personal_wellness_report`, `flowsheet_definitions`, `flowsheet`,
@@ -51,23 +50,33 @@ module RpmsRpc
     # faults (ORWRPBHS.m:19-22).
     REPORT_FAULT = "An error was encountered generating this report."
 
-    # The IHS HEALTH SUMMARY TYPE file (#9001015), whose IEN HS^ORWRPBHS
-    # takes as HSTYPE.
-    SUMMARY_TYPE_FILE = "9001015"
+    # The block of ORWRP REPORT LISTS that lists the summary types (ORWRP.m:60).
+    SUMMARY_TYPES_BLOCK = "[HEALTH SUMMARY TYPES]"
 
-    # The IHS health summary types on file, by name:
-    # [{ ien: "7", name: "ADULT REGULAR" }, ...], read through DDR LISTER on
-    # #9001015's B index. nil when the list cannot be read whole.
+    # The IHS health summary types the site offers, in the order it lists
+    # them: [{ ien: "7", name: "ADULT REGULAR" }, ...]. They are the "x"
+    # rows of the [HEALTH SUMMARY TYPES] block of ORWRP REPORT LISTS, the
+    # list the reports tab offers: GETHS^ORWRPBHS writes "x<ien>^<name>" for
+    # each IHS HEALTH SUMMARY TYPE (#9001015), all of them or the site's
+    # ORWRPBHS HEALTH SUMMARY LIST (ORWRP.m:64, ORWRPBHS.m:31-41). The "h"
+    # rows beside them are VA types (#142), which the IHS report does not
+    # print. nil when the list cannot be read.
     def summary_types
-      listed = DdrFileman.lister(file: SUMMARY_TYPE_FILE, fields: "@;.01", flags: "IP", xref: "B")
-      return nil if listed.nil? || listed[:error] || !listed[:data] || listed[:more]
+      text = DataMapper.report_lists.fetch_text
+      return nil if blank?(text)
 
-      listed[:entries].map { |entry| { ien: entry[:ien].to_s, name: entry[:pieces].first.to_s } }
+      block = text.to_s.split(/\r?\n/).drop_while { |line| line.strip != SUMMARY_TYPES_BLOCK }
+      return nil if block.empty?
+
+      block.drop(1).take_while { |line| !line.start_with?("[", "$$END") }.filter_map do |line|
+        ien, name = line.delete_prefix("x").split("^", 2) if line.start_with?("x")
+        { ien: ien, name: name.to_s.strip } if ien&.match?(/\A[1-9]\d*\z/) && !blank?(name)
+      end
     end
-    shape :summary_types, resource: "health-summaries", verb: "GET", path: "/health-summaries/types"
+    shape :summary_types, resource: "health-summaries", verb: "GET", path: "/health-summaries/summary-types"
 
     # The patient's IHS health summary of `summary_type`, a type name from
-    # {summary_types} (any case) or its IEN. A type that is not on file
+    # {summary_types} (any case) or its IEN. A type the site does not list
     # sends no report and answers an error summary that names it.
     def for_patient(dfn, summary_type: DEFAULT_SUMMARY_TYPE)
       return error_summary("Invalid patient DFN") if invalid_id?(dfn)

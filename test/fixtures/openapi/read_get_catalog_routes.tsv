@@ -37,7 +37,7 @@ RpmsRpc::HealthSummary.clinical_reminders	GET /patients/{dfn}/health-summaries/c
 RpmsRpc::HealthSummary.component_data	GET /patients/{dfn}/health-summaries/component-data
 RpmsRpc::HealthSummary.for_patient	GET /patients/{dfn}/health-summaries
 RpmsRpc::HealthSummary.reminder_detail	GET /patients/{dfn}/health-summaries/reminders/{reminder_ien}
-RpmsRpc::HealthSummary.summary_types	GET /health-summaries/types
+RpmsRpc::HealthSummary.summary_types	GET /health-summaries/summary-types
 RpmsRpc::Image.exams_for_patient	GET /patients/{dfn}/images/exams
 RpmsRpc::Immunization.find	GET /immunizations/{ien}
 RpmsRpc::Immunization.for_patient	GET /patients/{dfn}/immunizations

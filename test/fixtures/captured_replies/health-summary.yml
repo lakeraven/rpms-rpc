@@ -3,12 +3,12 @@
 ---
 rpc: ORWRP REPORT TEXT
 entry_point: RPT^ORWRP
-release_tag: bcer-9.0-20261109-d3adcff-ydb
-image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+release_tag: bcer-9.0-20261110-55d9e3e-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:89e5f4584b3be5526116a0fe2f8691758f6a9d934bedf2333c14313bff9656b8
 client: RpmsRpc::CiaClient#call_rpc_raw
 signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
 bound_context: CIAV VUECENTRIC
-captured_at: '2026-11-09T18:44:39Z'
+captured_at: '2026-11-11T17:35:52Z'
 note: Run on a throwaway container; reads only. DFN 4 is the build's demo patient
   DEMO,PATIENT ONE.
 captures:
@@ -25,8 +25,8 @@ captures:
     prints its fault'
   raw_return: "5\0An error was encountered generating this report.\rThe error was:
     HEADER+5^APCHS0, Global variable undefined: ^APCHSCTL(999,150372994,-%YDB-E-GVUNDEF\r\r***
-    END * CONFIDENTIAL PATIENT INFORMATION -- 11/9/2026  6:44 PM  [MD] ********\r"
-  sha256: 1d302a42c095adb5d6118faad48f20673eed3798d297f02a3511d0583ca536ea
+    END  CONFIDENTIAL PATIENT INFORMATION -- 11/11/2026  5:35 PM  [MD] *******\r"
+  sha256: 916b31a2d78decc46478d55c61cac22525c4ef78915fde1632e0f81bea034cfd
 - name: report_1_type_1
   inputs:
   - '4'
@@ -43,31 +43,63 @@ captures:
     detailed log of the error has been created.\r"
   sha256: a90a9565fa0b5f1019758839234dcb3a4bedbb101753e251c91af5310c5b24b2
 - name: summary_types/1
-  rpc: DDR LISTER
-  inputs:
-  - FILE: '9001015'
-    FIELDS: "@;.01"
-    FLAGS: IP
-    XREF: B
-  context: 'summary_types: DDR LISTER of the IHS types on file (#9001015)'
-  raw_return: "5\0[Data]\r7^ADULT REGULAR\r76^ALL REMINDERS\r23^BEHAVIORAL HEALTH\r10^CHR\r9^DENTAL\r24^DIABETES
-    STANDARD\r53^EMERGENCY\r73^FUTURE SCHEDULED APPOINTMENTS\r6^IMMUNIZATION\r55^MEDICATIONS\r8^PEDIATRIC\r17^PROBLEM
-    LIST\r74^RENAL\r42^VPR LABS\r1^VPR MINI\r3^VPR REMINDERS\r2^VPR VISITS\r64^WELL
-    BABY\r75^WELL CHILD EXAM\r"
-  sha256: b1e73adbe71741befb0bc982a7f1e16de94accd4bd2c0bfe5a18cd6f3659df2f
+  rpc: ORWRP REPORT LISTS
+  inputs: []
+  context: 'summary_types: the IHS types ORWRP REPORT LISTS lists'
+  raw_return: "5\0[REPORT LIST]\r1^Health Summary^1^;^HS^ORWRP1^1^R^4^ORWRP REPORT
+    TEXT^1^1\rOR_DEMG^Demographics^6^DEM;ORDV07^HSQUERY^ORDV01^1^V^0^ORWRP REPORT
+    TEXT^5^1033\rOR_BADR^Allergies^6^ADR;ORDV01^HSQUERY^ORDV01^1^V^0^ORWRP REPORT
+    TEXT^10^1032\rOR_PL^Problem List^^;^^^1^M^^^15^1026\rOR_PN^Progress Notes^6^TIUPRG;ORDV04^HSQUERY^ORDV01^1^V^6^ORWRP
+    REPORT TEXT^20^1086\rOR_MENU^Orders^^;^^^^M^^^35^1023\rOR_LAB^Laboratory^^;^^^1^M^^^40^1021\rOR_RAD^Radiology^^;^^^1^M^^^45^1027\rOR_PH^Pharmacy^^;^^^1^M^^^50^1025\r19^Procedures
+    (local only)^19^;^MED^ORWRP1^^V^4^ORWRP REPORT TEXT^55^9\r17^Nutritional Assessment^6^DIETNS;ORDV08^HSQUERY^ORDV01^1^V^6^ORWRP
+    REPORT TEXT^60^8\r28^Surgery (local only)^28^;^RPTTEXT^ORWSR^^V^4^ORWRP REPORT
+    TEXT^65^48\rOR_VS^Vital Signs^6^VS;ORDV04^HSQUERY^ORDV01^1^V^6^ORWRP REPORT TEXT^70^1029\r5^Vitals
+    Cumulative^2^;^VITALS^ORWRP1^1^R^1^ORWRP REPORT TEXT^75^5\r$$END\r[HEALTH SUMMARY
+    TYPES]\rh1^PATIENT MERGE^^^^^1\rh0^GMTS Adhoc Report\rh5000005^Clinical Data (1y)^^^^^1\rh5000004^Clinical
+    Data (3m)^^^^^1\rh5000009^Clinical Data (4y)^^^^^1\rh5000006^Demographics/Visits/PCE
+    (1y)^^^^^1\rh5000001^Demographics/Visits/PCE (3m)^^^^^1\rh5000013^Discharge Sum/Surg/Prod
+    (12y)^^^^^1\rh5000011^Labs All (1y)^^^^^1\rh5000012^Labs All (3m)^^^^^1\rh5000010^Labs
+    Long View (12Y)^^^^^1\rh5000007^Meds/Labs/Orders (1y)^^^^^1\rh5000002^Meds/Labs/Orders
+    (3m)^^^^^1\rh5000015^Oncology View^^^^^1\rh5000014^Remote Outpatient Meds (6m)^^^^^1\rh5000008^Text
+    Reports (1y)^^^^^1\rh5000003^Text Reports (3m)^^^^^1\rh19^SAMPLE 1^^^^^1\rh20^SAMPLE
+    2^^^^^1\rh21^SAMPLE 3^^^^^1\rh23^SAMPLE 4^^^^^1\rh5^Future Appointments (TPBN)^^^^^1\rh2^VA-BRADEN
+    SCALE 30D^^^^^1\rh3^VA-PRESSURE ULCER^^^^^1\rh4^VA-PU INTERVENTIONS^^^^^1\rx7^ADULT
+    REGULAR\rx76^ALL REMINDERS\rx23^BEHAVIORAL HEALTH\rx10^CHR\rx9^DENTAL\rx24^DIABETES
+    STANDARD\rx53^EMERGENCY\rx73^FUTURE SCHEDULED APPOINTMENTS\rx6^IMMUNIZATION\rx55^MEDICATIONS\rx8^PEDIATRIC\rx17^PROBLEM
+    LIST\rx74^RENAL\rx42^VPR LABS\rx1^VPR MINI\rx3^VPR REMINDERS\rx2^VPR VISITS\rx64^WELL
+    BABY\rx75^WELL CHILD EXAM\r$$END\r[DATE RANGES]\rdS^Date Range...\rd0^Today\rd7^One
+    Week Back\rd14^Two Weeks Back\rd30^One Month Back\rd180^Six Months Back\rd365^One
+    Year Back\rd732^Two Years Back\rd50000^All Results\r"
+  sha256: 34dfae0dd3e57b8b3282c2edaf40ab1dbe769deca5923af23a5bb7400a846b44
 - name: for_patient/1
-  rpc: DDR LISTER
-  inputs:
-  - FILE: '9001015'
-    FIELDS: "@;.01"
-    FLAGS: IP
-    XREF: B
+  rpc: ORWRP REPORT LISTS
+  inputs: []
   context: 'for_patient(4): ADULT REGULAR, the default type'
-  raw_return: "5\0[Data]\r7^ADULT REGULAR\r76^ALL REMINDERS\r23^BEHAVIORAL HEALTH\r10^CHR\r9^DENTAL\r24^DIABETES
-    STANDARD\r53^EMERGENCY\r73^FUTURE SCHEDULED APPOINTMENTS\r6^IMMUNIZATION\r55^MEDICATIONS\r8^PEDIATRIC\r17^PROBLEM
-    LIST\r74^RENAL\r42^VPR LABS\r1^VPR MINI\r3^VPR REMINDERS\r2^VPR VISITS\r64^WELL
-    BABY\r75^WELL CHILD EXAM\r"
-  sha256: b1e73adbe71741befb0bc982a7f1e16de94accd4bd2c0bfe5a18cd6f3659df2f
+  raw_return: "5\0[REPORT LIST]\r1^Health Summary^1^;^HS^ORWRP1^1^R^4^ORWRP REPORT
+    TEXT^1^1\rOR_DEMG^Demographics^6^DEM;ORDV07^HSQUERY^ORDV01^1^V^0^ORWRP REPORT
+    TEXT^5^1033\rOR_BADR^Allergies^6^ADR;ORDV01^HSQUERY^ORDV01^1^V^0^ORWRP REPORT
+    TEXT^10^1032\rOR_PL^Problem List^^;^^^1^M^^^15^1026\rOR_PN^Progress Notes^6^TIUPRG;ORDV04^HSQUERY^ORDV01^1^V^6^ORWRP
+    REPORT TEXT^20^1086\rOR_MENU^Orders^^;^^^^M^^^35^1023\rOR_LAB^Laboratory^^;^^^1^M^^^40^1021\rOR_RAD^Radiology^^;^^^1^M^^^45^1027\rOR_PH^Pharmacy^^;^^^1^M^^^50^1025\r19^Procedures
+    (local only)^19^;^MED^ORWRP1^^V^4^ORWRP REPORT TEXT^55^9\r17^Nutritional Assessment^6^DIETNS;ORDV08^HSQUERY^ORDV01^1^V^6^ORWRP
+    REPORT TEXT^60^8\r28^Surgery (local only)^28^;^RPTTEXT^ORWSR^^V^4^ORWRP REPORT
+    TEXT^65^48\rOR_VS^Vital Signs^6^VS;ORDV04^HSQUERY^ORDV01^1^V^6^ORWRP REPORT TEXT^70^1029\r5^Vitals
+    Cumulative^2^;^VITALS^ORWRP1^1^R^1^ORWRP REPORT TEXT^75^5\r$$END\r[HEALTH SUMMARY
+    TYPES]\rh1^PATIENT MERGE^^^^^1\rh0^GMTS Adhoc Report\rh5000005^Clinical Data (1y)^^^^^1\rh5000004^Clinical
+    Data (3m)^^^^^1\rh5000009^Clinical Data (4y)^^^^^1\rh5000006^Demographics/Visits/PCE
+    (1y)^^^^^1\rh5000001^Demographics/Visits/PCE (3m)^^^^^1\rh5000013^Discharge Sum/Surg/Prod
+    (12y)^^^^^1\rh5000011^Labs All (1y)^^^^^1\rh5000012^Labs All (3m)^^^^^1\rh5000010^Labs
+    Long View (12Y)^^^^^1\rh5000007^Meds/Labs/Orders (1y)^^^^^1\rh5000002^Meds/Labs/Orders
+    (3m)^^^^^1\rh5000015^Oncology View^^^^^1\rh5000014^Remote Outpatient Meds (6m)^^^^^1\rh5000008^Text
+    Reports (1y)^^^^^1\rh5000003^Text Reports (3m)^^^^^1\rh19^SAMPLE 1^^^^^1\rh20^SAMPLE
+    2^^^^^1\rh21^SAMPLE 3^^^^^1\rh23^SAMPLE 4^^^^^1\rh5^Future Appointments (TPBN)^^^^^1\rh2^VA-BRADEN
+    SCALE 30D^^^^^1\rh3^VA-PRESSURE ULCER^^^^^1\rh4^VA-PU INTERVENTIONS^^^^^1\rx7^ADULT
+    REGULAR\rx76^ALL REMINDERS\rx23^BEHAVIORAL HEALTH\rx10^CHR\rx9^DENTAL\rx24^DIABETES
+    STANDARD\rx53^EMERGENCY\rx73^FUTURE SCHEDULED APPOINTMENTS\rx6^IMMUNIZATION\rx55^MEDICATIONS\rx8^PEDIATRIC\rx17^PROBLEM
+    LIST\rx74^RENAL\rx42^VPR LABS\rx1^VPR MINI\rx3^VPR REMINDERS\rx2^VPR VISITS\rx64^WELL
+    BABY\rx75^WELL CHILD EXAM\r$$END\r[DATE RANGES]\rdS^Date Range...\rd0^Today\rd7^One
+    Week Back\rd14^Two Weeks Back\rd30^One Month Back\rd180^Six Months Back\rd365^One
+    Year Back\rd732^Two Years Back\rd50000^All Results\r"
+  sha256: 34dfae0dd3e57b8b3282c2edaf40ab1dbe769deca5923af23a5bb7400a846b44
 - name: for_patient/2
   rpc: ORWRP REPORT TEXT
   inputs:
@@ -79,8 +111,8 @@ captures:
   - ''
   - ''
   context: 'for_patient(4): ADULT REGULAR, the default type'
-  raw_return: "6\0******** CONFIDENTIAL PATIENT INFORMATION -- 11/9/2026  6:44 PM
-    \ [MD] ********\r******** DEMO,PATIENT ONE #99901 <WA>   (ADULT REGULAR SUMMARY)
+  raw_return: "6\0******* CONFIDENTIAL PATIENT INFORMATION -- 11/11/2026  5:35 PM
+    \ [MD] *******\r******** DEMO,PATIENT ONE #99901 <WA>   (ADULT REGULAR SUMMARY)
     \ pg 1 ********\r\r----------------------------- DEMOGRAPHIC DATA -----------------------------\r\rDEMO,PATIENT
     ONE                  DOB: JAN 1,2001  25 YRS  FEMALE  no blood type\rATQASUK VILLAGE
     (ATKASOOK)\r                                  MOTHER'S MAIDEN NAME: DEMO,MOM\r(H)
@@ -108,8 +140,8 @@ captures:
     On:           Sep 04, 2026   By: MANAGER,SYSTEM\rProblem List Updated On:            Sep
     04, 2026   By: MANAGER,SYSTEM\rNo Active Problems Documented On:                  By:
     \r\r\r----------------------------- INACTIVE PROBLEMS -----------------------------\r\r\rProblem
-    List Reviewed On:           Sep 04, 2026   By: MANAGER,SYSTEM\r\r\r******** CONFIDENTIAL
-    PATIENT INFORMATION -- 11/9/2026  6:44 PM  [MD] ********\r******** DEMO,PATIENT
+    List Reviewed On:           Sep 04, 2026   By: MANAGER,SYSTEM\r\r\r******* CONFIDENTIAL
+    PATIENT INFORMATION -- 11/11/2026  5:35 PM  [MD] *******\r******** DEMO,PATIENT
     ONE #99901 <WA>   (ADULT REGULAR SUMMARY)  pg 2 ********\r\r-----------------------------
     INACTIVE PROBLEMS -----------------------------\r\rProblem List Updated On:            Sep
     04, 2026   By: MANAGER,SYSTEM\rNo Active Problems Documented On:                  By:
@@ -137,8 +169,8 @@ captures:
     MOST RECENT PATIENT EDUCATION (max 5 visits or 2 years) ----------\r\r09/02/26
     \ DEMO IHS CLI AN-C        AN-COMPLICATIONS - (IND)\r                                   GOOD
     UNDERSTANDING\r                       IM-L        IM-LITERATURE\r                                   GOOD
-    UNDERSTANDING\r\r\r******** CONFIDENTIAL PATIENT INFORMATION -- 11/9/2026  6:44
-    PM  [MD] ********\r******** DEMO,PATIENT ONE #99901 <WA>   (ADULT REGULAR SUMMARY)
+    UNDERSTANDING\r\r\r******* CONFIDENTIAL PATIENT INFORMATION -- 11/11/2026  5:35
+    PM  [MD] *******\r******** DEMO,PATIENT ONE #99901 <WA>   (ADULT REGULAR SUMMARY)
     \ pg 3 ********\r\r---------- MOST RECENT PATIENT EDUCATION (max 5 visits or 2
     years) ----------\r\r08/26/26  DIC          ACNE-AP     ACNE-ANATOMY AND PHYSIOLOGY
     - (IND)\r                                   GOOD UNDERSTANDING\r                                   Acute
@@ -157,7 +189,7 @@ captures:
     DUE * Immunization Forecasting disabled (see Site Parameters). #314\r\rPHYSICAL
     EXAM                       01/01/19\rTD-ADULT                            01/01/13\r\rALCOHOL
     USE SCREENING               01/01/14\rTOBACCO USE SCREENING               01/01/14\r\r\rDIABETES
-    PATIENT CARE SUMMARY          Report Date:  11/09/2026\r\rPatient: DEMO,PATIENT
+    PATIENT CARE SUMMARY          Report Date:  11/11/2026\r\rPatient: DEMO,PATIENT
     ONE                                          HRN: 99901\rAge:  25 (DOB 01/01/2001)
     \             Sex: FEMALE\rCLASS/BEN: OTHER                       Designated PCP:
     \r\rDate of DM Diagnosis: \rDiabetes type: (1 or 2): 2\r\rBMI:       Last Height:
@@ -180,8 +212,8 @@ captures:
     No\r   Screened for HCV ever: No\r\rRetinopathy Diagnosed (ever): No\r\rAmputation\r
     \  Lower extremity (ever), any type (e.g., toe, partial foot, above or\r   below
     knee):  No\r\rLaboratory Results (most recent):                     RPMS LAB TEST
-    NAME\r   A1C:                                               \r\r\r******** CONFIDENTIAL
-    PATIENT INFORMATION -- 11/9/2026  6:44 PM  [MD] ********\r\rDiabetes Patient Care
+    NAME\r   A1C:                                               \r\r\r******* CONFIDENTIAL
+    PATIENT INFORMATION -- 11/11/2026  5:35 PM  [MD] *******\r\rDiabetes Patient Care
     Summary - continued\rPatient: DEMO,PATIENT ONE  HRN: 99901\r\r   Next most recent
     A1C:                              \r\r   Serum Creatinine:                                  \r
     \  eGFR:                                              \r   Quantitative UACR:
@@ -190,22 +222,38 @@ captures:
     \  Triglycerides:                                     \r\rContinuous Glucose Monitoring
     (CGM) (most recent data)\r    < No data on file >\r \rEducation Provided (in past
     yr): \r  Last Dietitian Visit (ever):  \r\rDEMO,PATIENT ONE                  DOB:
-    1/1/2001       Chart #DIC 99901\r*** END * CONFIDENTIAL PATIENT INFORMATION --
-    11/9/2026  6:44 PM  [MD] ********\r"
-  sha256: b90017b46dbdd75d1253376ad694b9e02f57d1e27ce43cf68cfe5be8de85b249
+    1/1/2001       Chart #DIC 99901\r*** END  CONFIDENTIAL PATIENT INFORMATION --
+    11/11/2026  5:35 PM  [MD] *******\r"
+  sha256: 49ab4093ad262e5129aff1b8cb1c181618ea211bbf00845cdb5822e77d0923de
 - name: for_patient_by_ien/1
-  rpc: DDR LISTER
-  inputs:
-  - FILE: '9001015'
-    FIELDS: "@;.01"
-    FLAGS: IP
-    XREF: B
+  rpc: ORWRP REPORT LISTS
+  inputs: []
   context: 'for_patient(4, summary_type: 55): MEDICATIONS, by IEN'
-  raw_return: "5\0[Data]\r7^ADULT REGULAR\r76^ALL REMINDERS\r23^BEHAVIORAL HEALTH\r10^CHR\r9^DENTAL\r24^DIABETES
-    STANDARD\r53^EMERGENCY\r73^FUTURE SCHEDULED APPOINTMENTS\r6^IMMUNIZATION\r55^MEDICATIONS\r8^PEDIATRIC\r17^PROBLEM
-    LIST\r74^RENAL\r42^VPR LABS\r1^VPR MINI\r3^VPR REMINDERS\r2^VPR VISITS\r64^WELL
-    BABY\r75^WELL CHILD EXAM\r"
-  sha256: b1e73adbe71741befb0bc982a7f1e16de94accd4bd2c0bfe5a18cd6f3659df2f
+  raw_return: "5\0[REPORT LIST]\r1^Health Summary^1^;^HS^ORWRP1^1^R^4^ORWRP REPORT
+    TEXT^1^1\rOR_DEMG^Demographics^6^DEM;ORDV07^HSQUERY^ORDV01^1^V^0^ORWRP REPORT
+    TEXT^5^1033\rOR_BADR^Allergies^6^ADR;ORDV01^HSQUERY^ORDV01^1^V^0^ORWRP REPORT
+    TEXT^10^1032\rOR_PL^Problem List^^;^^^1^M^^^15^1026\rOR_PN^Progress Notes^6^TIUPRG;ORDV04^HSQUERY^ORDV01^1^V^6^ORWRP
+    REPORT TEXT^20^1086\rOR_MENU^Orders^^;^^^^M^^^35^1023\rOR_LAB^Laboratory^^;^^^1^M^^^40^1021\rOR_RAD^Radiology^^;^^^1^M^^^45^1027\rOR_PH^Pharmacy^^;^^^1^M^^^50^1025\r19^Procedures
+    (local only)^19^;^MED^ORWRP1^^V^4^ORWRP REPORT TEXT^55^9\r17^Nutritional Assessment^6^DIETNS;ORDV08^HSQUERY^ORDV01^1^V^6^ORWRP
+    REPORT TEXT^60^8\r28^Surgery (local only)^28^;^RPTTEXT^ORWSR^^V^4^ORWRP REPORT
+    TEXT^65^48\rOR_VS^Vital Signs^6^VS;ORDV04^HSQUERY^ORDV01^1^V^6^ORWRP REPORT TEXT^70^1029\r5^Vitals
+    Cumulative^2^;^VITALS^ORWRP1^1^R^1^ORWRP REPORT TEXT^75^5\r$$END\r[HEALTH SUMMARY
+    TYPES]\rh1^PATIENT MERGE^^^^^1\rh0^GMTS Adhoc Report\rh5000005^Clinical Data (1y)^^^^^1\rh5000004^Clinical
+    Data (3m)^^^^^1\rh5000009^Clinical Data (4y)^^^^^1\rh5000006^Demographics/Visits/PCE
+    (1y)^^^^^1\rh5000001^Demographics/Visits/PCE (3m)^^^^^1\rh5000013^Discharge Sum/Surg/Prod
+    (12y)^^^^^1\rh5000011^Labs All (1y)^^^^^1\rh5000012^Labs All (3m)^^^^^1\rh5000010^Labs
+    Long View (12Y)^^^^^1\rh5000007^Meds/Labs/Orders (1y)^^^^^1\rh5000002^Meds/Labs/Orders
+    (3m)^^^^^1\rh5000015^Oncology View^^^^^1\rh5000014^Remote Outpatient Meds (6m)^^^^^1\rh5000008^Text
+    Reports (1y)^^^^^1\rh5000003^Text Reports (3m)^^^^^1\rh19^SAMPLE 1^^^^^1\rh20^SAMPLE
+    2^^^^^1\rh21^SAMPLE 3^^^^^1\rh23^SAMPLE 4^^^^^1\rh5^Future Appointments (TPBN)^^^^^1\rh2^VA-BRADEN
+    SCALE 30D^^^^^1\rh3^VA-PRESSURE ULCER^^^^^1\rh4^VA-PU INTERVENTIONS^^^^^1\rx7^ADULT
+    REGULAR\rx76^ALL REMINDERS\rx23^BEHAVIORAL HEALTH\rx10^CHR\rx9^DENTAL\rx24^DIABETES
+    STANDARD\rx53^EMERGENCY\rx73^FUTURE SCHEDULED APPOINTMENTS\rx6^IMMUNIZATION\rx55^MEDICATIONS\rx8^PEDIATRIC\rx17^PROBLEM
+    LIST\rx74^RENAL\rx42^VPR LABS\rx1^VPR MINI\rx3^VPR REMINDERS\rx2^VPR VISITS\rx64^WELL
+    BABY\rx75^WELL CHILD EXAM\r$$END\r[DATE RANGES]\rdS^Date Range...\rd0^Today\rd7^One
+    Week Back\rd14^Two Weeks Back\rd30^One Month Back\rd180^Six Months Back\rd365^One
+    Year Back\rd732^Two Years Back\rd50000^All Results\r"
+  sha256: 34dfae0dd3e57b8b3282c2edaf40ab1dbe769deca5923af23a5bb7400a846b44
 - name: for_patient_by_ien/2
   rpc: ORWRP REPORT TEXT
   inputs:
@@ -217,8 +265,8 @@ captures:
   - ''
   - ''
   context: 'for_patient(4, summary_type: 55): MEDICATIONS, by IEN'
-  raw_return: "6\0******** CONFIDENTIAL PATIENT INFORMATION -- 11/9/2026  6:44 PM
-    \ [MD] ********\r********* DEMO,PATIENT ONE #99901 <WA>   (MEDICATIONS SUMMARY)
-    \ pg 1 *********\r\r*** END * CONFIDENTIAL PATIENT INFORMATION -- 11/9/2026  6:44
-    PM  [MD] ********\r"
-  sha256: 0ca5a3a1926439ea029bddbb7e1748c29e23b20cd7303172eab5118dc3ac2c2e
+  raw_return: "6\0******* CONFIDENTIAL PATIENT INFORMATION -- 11/11/2026  5:35 PM
+    \ [MD] *******\r********* DEMO,PATIENT ONE #99901 <WA>   (MEDICATIONS SUMMARY)
+    \ pg 1 *********\r\r*** END  CONFIDENTIAL PATIENT INFORMATION -- 11/11/2026  5:35
+    PM  [MD] *******\r"
+  sha256: 7003ffe3d080bdbdfe0c085dd0ef643306b2a2849325c74774daf805bb0fbe41

@@ -2,7 +2,7 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
+require "rpms_rpc/mock_client" # HealthSummaryRemindersTest, below (#694)
 require "rpms_rpc/api/health_summary"
 require_relative "../captured_replies"
 
@@ -34,14 +34,17 @@ class HealthSummaryApiTest < Minitest::Test
 
   def sent = @client.calls.map { |c| [ c[:rpc], c[:params] ] }
 
-  def test_summary_types_are_the_ihs_types_on_file
+  # The "x" rows of ORWRP REPORT LISTS' [HEALTH SUMMARY TYPES] block, in the
+  # server's order; its "h" rows (VA types, #142) are not IHS types.
+  def test_summary_types_are_the_ihs_types_the_site_lists
     replay_flow("summary_types")
     types = HS.summary_types
 
-    assert_includes types, { ien: "7", name: "ADULT REGULAR" }
+    assert_equal [ "ORWRP REPORT LISTS" ], @client.rpcs_called
+    assert_equal({ ien: "7", name: "ADULT REGULAR" }, types.first)
     assert_includes types, { ien: "55", name: "MEDICATIONS" }
-    assert_equal types.map { |t| t[:name] }.sort, types.map { |t| t[:name] }, "in name order, the B index"
-    assert(types.all? { |t| t[:ien].match?(/\A\d+\z/) }, types.inspect)
+    refute(types.any? { |t| t[:name] == "PATIENT MERGE" }, "VA type 1 is not an IHS type")
+    assert(types.all? { |t| t[:ien].match?(/\A[1-9]\d*\z/) }, types.inspect)
   end
 
   # Report "IHS" runs HS^ORWRPBHS with HSTYPE as an IHS type (#9001015):
@@ -97,13 +100,14 @@ class HealthSummaryApiTest < Minitest::Test
 
     assert_equal "ERROR", summary[:type]
     assert_equal "Unknown health summary type: STANDARD", summary[:error]
-    assert_equal [ "DDR LISTER" ], @client.rpcs_called
+    assert_equal [ "ORWRP REPORT LISTS" ], @client.rpcs_called
   end
 
-  # The fault HSX^ORWRPBHS prints for a type that is not in #9001015, read
+  # The fault HSX^ORWRPBHS prints for a type that is not in #9001015 (HSTYPE
+  # 999, captured direct), read
   # as an error summary rather than as a report.
   def test_a_report_that_faulted_is_an_error_summary
-    replay("DDR LISTER" => [ CapturedReplies.flow(SLUG, "summary_types").first.fetch("raw_return") ],
+    replay("ORWRP REPORT LISTS" => [ CapturedReplies.flow(SLUG, "summary_types").first.fetch("raw_return") ],
            "ORWRP REPORT TEXT" => [ CapturedReplies.raw(SLUG, "ihs_type_not_on_file") ])
     summary = HS.for_patient(DFN, summary_type: 7)
 

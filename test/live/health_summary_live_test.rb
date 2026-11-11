@@ -3,8 +3,8 @@
 require_relative "live_helper"
 require "rpms_rpc/api/health_summary"
 
-# HealthSummary.summary_types reads the IHS summary types on file (DDR
-# LISTER on #9001015), and for_patient prints one through the IHS report
+# HealthSummary.summary_types reads the IHS summary types the site lists
+# (ORWRP REPORT LISTS), and for_patient prints one through the IHS report
 # (ORWRP REPORT TEXT, RPTID "IHS", HS^ORWRPBHS) for that type's IEN. Before
 # #662 the gem sent report 1 with an invented type IEN, which the build ran
 # as a VA type and faulted on. The spec reads only.
@@ -14,7 +14,7 @@ class HealthSummaryLiveTest < LiveSpec::Test
   def test_the_site_lists_ihs_summary_types_with_their_iens
     types = RpmsRpc::HealthSummary.summary_types
 
-    refute_nil types, "DDR LISTER could not list #9001015"
+    refute_nil types, "ORWRP REPORT LISTS listed no health summary types"
     refute_empty types
     assert(types.all? { |t| t[:ien].match?(/\A\d+\z/) && !t[:name].empty? }, types.inspect)
     puts "\n#{persona}: #{types.size} IHS summary types, first #{types.first.inspect}"

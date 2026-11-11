@@ -655,6 +655,13 @@ module RpmsRpc
     # TEXT BLOB RESPONSES (free text reports)
     # ========================================================================
 
+    # ORWRP REPORT LISTS — the reports tab's lists: reports, health summary
+    # types and date ranges, each block opened by a [NAME] line (LIST^ORWRP)
+    DataMapper.define(:report_lists) do |m|
+      m.rpc "ORWRP REPORT LISTS"
+      m.text_blob :report_lists
+    end
+
     # ORWRP REPORT TEXT — health summary report text
     DataMapper.define(:report_text) do |m|
       m.rpc "ORWRP REPORT TEXT"
