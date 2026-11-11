@@ -115,7 +115,11 @@ module RpmsRpc
       # parse it as a record (rpms-rpc#706).
       def frame_rows(response)
         parts = response.is_a?(String) ? frame_parts(response) : Array(response).map(&:to_s)
-        rows = strip_frame_rows(parts)
+        raise_m_error_row!(strip_frame_rows(parts))
+      end
+
+      # The rows, unless one is an "M ERROR|" row: then that error, raised.
+      def raise_m_error_row!(rows)
         m_error = rows.find { |row| row.start_with?(M_ERROR_ROW) }
         raise Client::RpcMError, RpmsRpc.sanitize_error(m_error) if m_error
 

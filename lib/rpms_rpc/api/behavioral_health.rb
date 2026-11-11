@@ -343,12 +343,13 @@ module RpmsRpc
     # $C(31). parse_many splits only on newlines, so the echo stays on the
     # header and that header is parsed as a visit whose IEN is
     # "<seq>\x00T00010BMXIEN" — a different value on every call, even when
-    # the visit set did not change. The frame is split before parsing.
+    # the visit set did not change. The frame is split before parsing, and an
+    # "M ERROR|" row raises RpcMError rather than parse as a visit (#706).
     def visits(dfn, from:, to:)
       mapping = DataMapper[:amhg_visit_list]
       response = call_amhg(mapping, from, to, dfn)
 
-      mapping.parse_many(save_visit_rows(response)).map { |row| decorate_visit(row) }
+      mapping.parse_many(raise_m_error_row!(save_visit_rows(response))).map { |row| decorate_visit(row) }
     end
 
     # Detail for one visit, or nil when the IEN yields no row.
