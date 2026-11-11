@@ -59,7 +59,9 @@ module RpmsRpc
     # own default units, 0 US, 1 metric, as for {template}) and the value.
     # The routine answers the value it would file, in the type's default
     # units ("36C" for TMP answers 96.8), or "-1^<why>" for a value it
-    # refuses (BEHOVM.m:371). error_message is the server's reason.
+    # refuses (BEHOVM.m:371): a filed value never holds a caret, so a reply
+    # with one is a refusal (BEHOVM.m:372). error_message is the server's
+    # reason.
     # A type the build does not have faults in the routine (LVUNDEF
     # VUNT("")); that measurement is an error, not a raise.
     #
@@ -163,7 +165,7 @@ module RpmsRpc
     def refusal(abbreviation, value, metric)
       reply = DataMapper.vital_validate.fetch_scalar(abbreviation.to_s, metric.to_i.to_s, value.to_s)
       return "No reply from BEHOVM VALIDATE" if reply.nil?
-      return nil unless reply.start_with?("-1")
+      return nil unless reply.include?("^")
 
       why = reply.split("^", 2)[1].to_s.strip
       why.empty? ? "Invalid entry." : why

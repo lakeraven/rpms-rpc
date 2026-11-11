@@ -3,12 +3,12 @@
 ---
 rpc: BEHOVM VALIDATE
 entry_point: VALIDATE^BEHOVM
-release_tag: bcer-9.0-20261109-d3adcff-ydb
-image: ghcr.io/lakeraven/rpms-ydb@sha256:65e4e3472f600a5abaac4e187e202b0b381db42702d0a9c54aedebccbdc04894
+release_tag: bcer-9.0-20261110-55d9e3e-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:89e5f4584b3be5526116a0fe2f8691758f6a9d934bedf2333c14313bff9656b8
 client: RpmsRpc::CiaClient#call_rpc_raw
 signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
 bound_context: CIAV VUECENTRIC
-captured_at: '2026-11-09T18:31:13Z'
+captured_at: '2026-11-11T17:38:34Z'
 note: Run on a throwaway container; VALIDATE files nothing.
 captures:
 - name: old_frame
