@@ -9,6 +9,11 @@ require_relative "../data_mapper"
 # see ../mappings.rb.
 module RpmsRpc
   module Mappings
+    # The broker option the VueCentric-only RPCs are registered in, and in no
+    # other (ADR 0011). Their mappings bind it themselves (DataMapper's
+    # `context`), so they run whichever option the session has bound.
+    VUECENTRIC = "CIAV VUECENTRIC"
+
     # ========================================================================
     # PATIENT (BEHOPT*, BEHOVM*)
     # ========================================================================
@@ -37,6 +42,7 @@ module RpmsRpc
       patient_selection_hrn: "BEHOPTPL HRNLKP", patient_selection_dob: "BEHOPTPL DOBLKP" }.each do |key, rpc|
       DataMapper.define(key) do |m|
         m.rpc rpc
+        m.context VUECENTRIC
         m.field 0, :dfn, :integer
         m.field 1, :name
       end
@@ -46,6 +52,7 @@ module RpmsRpc
     # Format: LABEL^PROVIDER_NAME^PROVIDER_IEN^TITLE^DATE
     DataMapper.define(:patient_designated_provider) do |m|
       m.rpc "BEHOPTPC GETBDP"
+      m.context VUECENTRIC
       m.field 0, :label
       m.field 1, :provider_name
       m.field 2, :provider_ien, :integer
@@ -57,6 +64,7 @@ module RpmsRpc
     # Format per line: IEN^DISPLAY_ORDER^NAME^ABBREV^UNITS^LOW^HIGH^PERCENTILE_RPC^REQUIRED^DISPLAY_ROW
     DataMapper.define(:vital_template) do |m|
       m.rpc "BEHOVM TEMPLATE"
+      m.context VUECENTRIC
       m.field 0, :ien,            :integer
       m.field 1, :display_order,  :integer
       m.field 2, :name
@@ -74,6 +82,7 @@ module RpmsRpc
     # "-1^<reason>" (BEHOVM.m:359-374).
     DataMapper.define(:vital_validate) do |m|
       m.rpc "BEHOVM VALIDATE"
+      m.context VUECENTRIC
       m.scalar :validated_value
     end
 
@@ -81,6 +90,7 @@ module RpmsRpc
     # Returns "0" for success; non-zero/non-empty for error.
     DataMapper.define(:vital_save) do |m|
       m.rpc "BEHOVM SAVE"
+      m.context VUECENTRIC
       m.scalar :result_code
     end
 
@@ -113,6 +123,7 @@ module RpmsRpc
     # check the flag themselves.
     DataMapper.define(:visit_measurements) do |m|
       m.rpc "BGOVMSR GET"
+      m.context VUECENTRIC
       m.field 0, :type
       m.field 1, :value
       m.field 2, :date_display
@@ -132,6 +143,7 @@ module RpmsRpc
     # date, no entered-in-error filter).
     DataMapper.define(:latest_measurements) do |m|
       m.rpc "BGOVMSR LAST"
+      m.context VUECENTRIC
       m.field 0, :type
       m.field 1, :value
       m.field 2, :date_display
@@ -148,6 +160,7 @@ module RpmsRpc
     # empty reply (RET stays "").
     DataMapper.define(:vital_units) do |m|
       m.rpc "BEHOVM2 VUNITS"
+      m.context VUECENTRIC
       m.field 0, :us_unit
       m.field 1, :us_low
       m.field 2, :us_high
@@ -413,6 +426,7 @@ module RpmsRpc
     # check-in has no IEN in its VSTR and stops at STATUS (lines 268-269).
     DataMapper.define(:encounter_visit_list) do |m|
       m.rpc "BEHOENCX VISITLST"
+      m.context VUECENTRIC
       m.field 0, :visit_string
       m.field 1, :location
       m.field 2, :datetime,      :fileman_datetime
@@ -430,6 +444,7 @@ module RpmsRpc
     #   VISIT IEN^ICD IEN^LOCKED^ONSET^ASTHMA CONTROL^SNOMED CT
     DataMapper.define(:patient_pov_list) do |m|
       m.rpc "BGOVPOV RECENT"
+      m.context VUECENTRIC
       m.field 0,  :visit_date
       m.field 2,  :facility
       m.field 3,  :icd_code
@@ -443,6 +458,7 @@ module RpmsRpc
 
     DataMapper.define(:encounter_visit) do |m|
       m.rpc "BEHOENCX GETVISIT"
+      m.context VUECENTRIC
       m.field 0, :location_ien,     :integer
       m.field 1, :datetime_raw
       m.field 2, :service_category
@@ -473,6 +489,7 @@ module RpmsRpc
     # Live capture (CREATE=0): test/fixtures/wire_captures/behoencx-fetch.yml.
     DataMapper.define(:encounter_fetch) do |m|
       m.rpc "BEHOENCX FETCH"
+      m.context VUECENTRIC
       m.field 0, :location_name
       m.field 1, :location_abbrev
       m.field 2, :room_bed
@@ -504,6 +521,7 @@ module RpmsRpc
     # Live capture: test/fixtures/wire_captures/behoencx-chkvisit.yml.
     DataMapper.define(:encounter_chkvisit) do |m|
       m.rpc "BEHOENCX CHKVISIT"
+      m.context VUECENTRIC
       m.field 0, :component
       m.field 1, :message
     end
@@ -520,6 +538,7 @@ module RpmsRpc
     # the type (#698).
     DataMapper.define(:ccd_document) do |m|
       m.rpc "BEHOCIR1 GETCCDS"
+      m.context VUECENTRIC
       m.field 0, :ien, :integer
       m.field 1, :date, :fileman_date
       m.field 2, :source
@@ -531,6 +550,7 @@ module RpmsRpc
     # Format per line: REFERRAL_IEN^VISIT_IEN^HAS_CCD^CCD_SENT_DATE^PROVIDER^FACILITY
     DataMapper.define(:ccd_referral) do |m|
       m.rpc "BEHOCCD GETREF"
+      m.context VUECENTRIC
       m.field 0, :referral_ien, :integer
       m.field 1, :visit_ien, :integer
       m.field 2, :has_ccd, :boolean
@@ -555,6 +575,7 @@ module RpmsRpc
     # Immunization.for_patient keeps the "I" rows and splits the ~ pairs.
     DataMapper.define(:immunization_list) do |m|
       m.rpc "BGOVIMM GET"
+      m.context VUECENTRIC
       m.field 0,  :record_type
       m.field 3,  :ien
       m.field 7,  :lot_number
@@ -576,6 +597,7 @@ module RpmsRpc
     # -1082^text (IMMERR^BGOVIMM). Immunization.text_summary reads it.
     DataMapper.define(:immunization_profile) do |m|
       m.rpc "BGOVIMM PROFILE"
+      m.context VUECENTRIC
       m.text_blob :content
     end
 
@@ -583,6 +605,7 @@ module RpmsRpc
     # Format: TOTAL^RECONCILED
     DataMapper.define(:immunization_count) do |m|
       m.rpc "BEHOCIR GETNUM"
+      m.context VUECENTRIC
       m.field 0, :total, :integer
       m.field 1, :reconciled, :integer
     end
@@ -590,6 +613,7 @@ module RpmsRpc
     # BEHOCCD PHR — PHR enrollment/access check
     DataMapper.define(:phr_access) do |m|
       m.rpc "BEHOCCD PHR"
+      m.context VUECENTRIC
       m.field 0, :has_access, :boolean
       m.field 1, :message
     end
@@ -619,6 +643,7 @@ module RpmsRpc
     # CIAV DESIGN (1/0). It carries no site: an unknown user answers "" (#221).
     DataMapper.define(:session_vim_info) do |m|
       m.rpc "CIAVCXUS VIMINFO"
+      m.context VUECENTRIC
       m.field 0, :duz, :integer
       m.field 1, :user_name
       m.field 2, :timeouts
@@ -655,6 +680,7 @@ module RpmsRpc
     #   [10] (unknown, ignored)
     DataMapper.define(:site_info) do |m|
       m.rpc "BEHOSICX SITEINFO"
+      m.context VUECENTRIC
       m.line_field 0, :domain
       m.line_field 1, :name
       m.line_field 2, :abbreviation
@@ -679,6 +705,7 @@ module RpmsRpc
     # problems for a patient" — and silently ignored write payloads: #217.)
     DataMapper.define(:problem_set) do |m|
       m.rpc "BGOPROB SET"
+      m.context VUECENTRIC
       m.scalar :result
     end
 
@@ -688,6 +715,7 @@ module RpmsRpc
     # status "D" plus deletion audit fields. Returns "" on success.
     DataMapper.define(:problem_remove) do |m|
       m.rpc "BGOPROB DEL"
+      m.context VUECENTRIC
       m.scalar :result
     end
 
@@ -723,6 +751,7 @@ module RpmsRpc
     #   First/Revisit[4]^Injury Dt[5]^Onset Date[6]
     DataMapper.define(:pov_set) do |m|
       m.rpc "BGOVPOV SET"
+      m.context VUECENTRIC
       m.scalar :result
     end
 
@@ -732,6 +761,7 @@ module RpmsRpc
     #   Provider IEN[5] ^ Quantity[6] ^ Comment[7] ^ Event dt[8]
     DataMapper.define(:health_factor_set) do |m|
       m.rpc "BGOVHF SET"
+      m.context VUECENTRIC
       m.scalar :result
     end
 
@@ -742,6 +772,7 @@ module RpmsRpc
     #   Other Location[9] ^ Historical Flag[10] ^ DFN[11]
     DataMapper.define(:exam_set) do |m|
       m.rpc "BGOVEXAM SET"
+      m.context VUECENTRIC
       m.scalar :result
     end
 
@@ -753,6 +784,7 @@ module RpmsRpc
     # units are fixed by the measurement type (file 9999999.07).
     DataMapper.define(:measurement_set) do |m|
       m.rpc "BGOVMSR SET"
+      m.context VUECENTRIC
       m.scalar :result
     end
 
@@ -767,6 +799,7 @@ module RpmsRpc
     # MOD1/MOD2 are CODE~NAME. Procedure.for_patient parses the date.
     DataMapper.define(:procedure_list) do |m|
       m.rpc "BGOVCPT GET"
+      m.context VUECENTRIC
       m.field 0,  :date
       m.field 2,  :facility
       m.field 3,  :cpt_code
@@ -787,6 +820,7 @@ module RpmsRpc
     # required)" (BEHOENPC.m:6-10). DATA is 0 when it files, else -n^text.
     DataMapper.define(:encounter_save) do |m|
       m.rpc "BEHOENPC SAVE"
+      m.context VUECENTRIC
       m.scalar :result
     end
 
@@ -803,6 +837,7 @@ module RpmsRpc
     # not validated: an unknown one answers "Y^<age>^0".
     DataMapper.define(:vfc_default) do |m|
       m.rpc "BGOVIMM GETVFC"
+      m.context VUECENTRIC
       m.field 0, :ihs_site
       m.field 1, :age
       m.field 2, :default_label
@@ -814,6 +849,7 @@ module RpmsRpc
     # .02[3] ^ LOCAL TEXT .04[4]. The DFN parameter is unused.
     DataMapper.define(:vfc_eligibility_codes) do |m|
       m.rpc "BGOVIMM2 GETELIG"
+      m.context VUECENTRIC
       m.field 0, :ien
       m.field 1, :code
       m.field 2, :label
@@ -839,6 +875,7 @@ module RpmsRpc
     # BGOREF.m:12-13).
     DataMapper.define(:refusal_set) do |m|
       m.rpc "BGOREF SET"
+      m.context VUECENTRIC
       m.scalar :result
     end
 
@@ -847,6 +884,7 @@ module RpmsRpc
     # Rows: IEN[1] ^ TEXT[2] (BGOREF.m:61).
     DataMapper.define(:refusal_reasons) do |m|
       m.rpc "BGOREF GETREA"
+      m.context VUECENTRIC
       m.field 0, :ien
       m.field 1, :text
     end
@@ -869,6 +907,7 @@ module RpmsRpc
     # (a BEH alert's XQADATA, "PRI=1^INF=0"), so it is not mapped.
     DataMapper.define(:notifications_inbox) do |m|
       m.rpc "BEHOXQ ALRLIST"
+      m.context VUECENTRIC
       m.field 0, :priority, :integer
       m.field 1, :info_only, :boolean
       m.field 2, :patient
@@ -889,6 +928,7 @@ module RpmsRpc
     # none matched; the IEN says nothing about whether anything was deleted.
     DataMapper.define(:notifications_remove) do |m|
       m.rpc "BEHOXQ ALRPP"
+      m.context VUECENTRIC
       m.scalar :handler, :integer
     end
 
@@ -897,6 +937,7 @@ module RpmsRpc
     # 0 whatever happened.
     DataMapper.define(:notifications_forward) do |m|
       m.rpc "BEHOXQ FORWARD"
+      m.context VUECENTRIC
       m.scalar :result, :integer
     end
 
@@ -905,6 +946,7 @@ module RpmsRpc
     # (GETLONG^XQALGUI), for DUZ's copy of the alert.
     DataMapper.define(:notifications_message) do |m|
       m.rpc "BEHOXQ ALRMSG"
+      m.context VUECENTRIC
       m.text_blob :text
     end
 
@@ -1661,6 +1703,7 @@ module RpmsRpc
     # RpmsRpc::Bgu accepts both.
     DataMapper.define(:bgu_mailman_message) do |m|
       m.rpc "BGU MAILMAN MESSAGE"
+      m.context VUECENTRIC
       m.field 0, :result
       m.field 1, :status
     end

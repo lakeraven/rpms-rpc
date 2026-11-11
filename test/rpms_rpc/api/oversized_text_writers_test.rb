@@ -86,7 +86,8 @@ class OversizedTextWritersTest < Minitest::Test
     @restore << -> { target.define_singleton_method(name, original) }
   end
 
-  # The scheduling and referral writes bind an option first; that round trip is
+  # The scheduling and referral writes, and the VueCentric-only RPCs (ADR
+  # 0011), bind an option first; that round trip is
   # not what these tests are about, so run the block straight through.
   def skip_context_binding
     replace_singleton(RpmsRpc::ContextScope, :scoped) { |_client, _context, &block| block.call }
@@ -111,6 +112,7 @@ class OversizedTextWritersTest < Minitest::Test
   # -- BGO visit-entry writes: the siblings of ExamComponent and HealthFactor --
 
   def test_exam_component_add_returns_its_failure_shape_over_bmx
+    skip_context_binding
     limit = use_bmx
     result = RpmsRpc::ExamComponent.add("8791", "2090060", "77", finding: "NORMAL", narrative: BMX_TEXT)
     assert_refused(result, limit, BMX_TEXT)
@@ -119,6 +121,7 @@ class OversizedTextWritersTest < Minitest::Test
 
   [ [ "xwb", :use_xwb ], [ "bmx", :use_bmx ] ].each do |name, user|
     define_method("test_pov_add_returns_its_failure_shape_over_#{name}") do
+      skip_context_binding
       limit = send(user)
       text = long_for(limit)
       result = RpmsRpc::Pov.add("8791", "2090060", "250.00", narrative: text)

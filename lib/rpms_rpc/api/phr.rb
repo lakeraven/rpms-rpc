@@ -32,7 +32,8 @@ module RpmsRpc
       # fetch_one normalizes to first line only, which would drop the
       # message and would fail to coerce "1Some text" forms — so the
       # parsing is done here against the raw response.
-      response = RpmsRpc.client.call_rpc(DataMapper.phr_access.rpc_name, dfn.to_s)
+      mapping = DataMapper.phr_access
+      response = mapping.in_context { RpmsRpc.client.call_rpc(mapping.rpc_name, dfn.to_s) }
       return disabled_status("No response") if blank_response?(response)
 
       lines = response.is_a?(Array) ? response : response.to_s.split(/\r?\n/)
