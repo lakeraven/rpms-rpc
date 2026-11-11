@@ -18,13 +18,6 @@ class VitalTest < Minitest::Test
         { ien: 2,  display_order: 2,  name: "WEIGHT",       abbreviation: "WT",  units: "lb",    low: nil, high: nil, percentile_rpc: "BEHOVM PCTILE", required: 1, display_row: 3 }
       ])
 
-      # Validate: BEHOVM VALIDATE — scalar, keyed by "abbrev|value"; echoes value on success.
-      m.seed_scalar(:vital_validate, "TMP|97",   "97")
-      m.seed_scalar(:vital_validate, "PU|80",    "80")
-      m.seed_scalar(:vital_validate, "BP|130/90", "130/90")
-      m.seed_scalar(:vital_validate, "TMP|999",  "INVALID")
-      m.seed_scalar(:vital_validate, "PU|10",    "INVALID")
-
       # Save: BEHOVM SAVE — "0" success per observed trace
       m.seed_scalar(:vital_save, "8791", "0")
       m.seed_scalar(:vital_save, "9999", "1^bad request")
@@ -64,45 +57,7 @@ class VitalTest < Minitest::Test
     assert_empty RpmsRpc.client.received_calls.select { |c| c[:rpc] == "BEHOVM TEMPLATE" }
   end
 
-  # === validate(dfn, measurements) — per issue #61 contract ===
-
-  def test_validate_returns_valid_true_for_all_valid_measurements
-    result = RpmsRpc::Vital.validate(8791, [
-      { abbreviation: "TMP", value: 97 },
-      { abbreviation: "PU",  value: 80 },
-      { abbreviation: "BP",  value: "130/90" }
-    ])
-    assert result[:valid], "Expected valid; got #{result.inspect}"
-    assert_empty result[:errors]
-  end
-
-  def test_validate_returns_field_level_errors_with_index_and_abbreviation
-    result = RpmsRpc::Vital.validate(8791, [
-      { abbreviation: "TMP", value: 97 },
-      { abbreviation: "TMP", value: 999 },
-      { abbreviation: "PU",  value: 10 }
-    ])
-    refute result[:valid]
-    assert_equal 2, result[:errors].length
-    first = result[:errors].first
-    assert_equal 1,     first[:index]
-    assert_equal "TMP", first[:abbreviation]
-    assert_equal 999,   first[:value]
-    assert_match(/Validation failed/, first[:error_message])
-  end
-
-  def test_validate_handles_empty_measurement_list
-    result = RpmsRpc::Vital.validate(8791, [])
-    assert result[:valid]
-    assert_empty result[:errors]
-  end
-
-  def test_validate_forwards_dfn_to_underlying_rpc
-    RpmsRpc::Vital.validate(8791, [ { abbreviation: "TMP", value: 97 } ])
-    call = RpmsRpc.client.received_calls.find { |c| c[:rpc] == "BEHOVM VALIDATE" }
-    refute_nil call, "Expected BEHOVM VALIDATE to fire"
-    assert_includes call[:params], "8791", "DFN should be forwarded to RPC"
-  end
+  # validate is tested against the build's replies in vital_validate_test.rb.
 
   # === add(dfn, visit_string, measurements, provider_duz:) ===
 

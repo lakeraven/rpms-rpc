@@ -70,7 +70,8 @@ module RpmsRpc
     end
 
     # BEHOVM VALIDATE — server-side vital value validation (scalar)
-    # Returns echoed value when valid, error marker string otherwise.
+    # VALIDATE(DATA,VCTL,METRIC,X): the value as it would be filed, or
+    # "-1^<reason>" (BEHOVM.m:359-374).
     DataMapper.define(:vital_validate) do |m|
       m.rpc "BEHOVM VALIDATE"
       m.scalar :validated_value
