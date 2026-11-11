@@ -322,10 +322,19 @@ module RpmsRpc
     # (#5) IEN the number was issued by (.04); both file on the record, in the
     # header step. ends_on: (MM/DD/YYYY) is the eligibility end date (.02 of
     # the row). AG files the insurer itself (MEDICAID, AGGUPMCD.m MCD).
-    def add_medicaid(dfn, effective_on:, ends_on: nil, coverage: "FULL", number: nil, state_ien: nil,
+    #
+    # Both are required, and a call without one is refused before the wire,
+    # naming it. The registration GUI's Medicaid window requires both, and the
+    # data dictionary requires STATE (^DD(9000004,.04,0) "RP5'I"). A record
+    # filed without a state cannot be indexed: the eligibility row's AA
+    # cross-reference subscripts by it, which IRIS refuses, and UPD^AGGUPMCD's
+    # trap then answers no data row (rpms-rpc#705).
+    def add_medicaid(dfn, effective_on:, number:, state_ien:, ends_on: nil, coverage: "FULL",
                      client: RpmsRpc.client)
-      header_params = { "AGGMDNUM" => number, "AGGMDSTE" => state_ien && positive_ien!(state_ien, "state_ien") }
-                      .compact
+      raise ArgumentError, "number: (the Medicaid number) is required" if number.to_s.strip.empty?
+      raise ArgumentError, "state_ien: (the STATE that issued the number) is required" if state_ien.to_s.strip.empty?
+
+      header_params = { "AGGMDNUM" => number, "AGGMDSTE" => positive_ien!(state_ien, "state_ien") }
       eligibility_params = { "AGGMDESD" => effective_on }.merge({ "AGGMDEED" => ends_on, "AGGMDECV" => coverage }.compact)
       validate_window_params!(MEDICAID_WINDOW, header_params)
       validate_window_params!(MEDICAID_ELIGIBILITY_WINDOW, eligibility_params)
