@@ -19,7 +19,10 @@ class SchedulingCheckinVisitLiveTest < LiveSpec::Test
   CLINIC_FLAG_FILE = "9009017.2"
   BSD_PARAM_FILE = "9009020.2"
   DEVICE_FILE = "3.5"
-  NULL_DEVICE_NAME = "ZZNULL"
+  # The null device (#3.5) is ZZNULL on YottaDB and NULL DEVICE, its stock
+  # name, on IRIS: the same entry under two names. The first name on file wins,
+  # as rpms-ops SEEDBSDX finds it for the chart request printer (rpms-rpc#704).
+  NULL_DEVICE_NAMES = [ "ZZNULL", "NULL DEVICE" ].freeze
   CONSECUTIVE_MISSES = 25
 
   def setup
@@ -200,10 +203,9 @@ class SchedulingCheckinVisitLiveTest < LiveSpec::Test
       flunk "DDR LISTER on #{DEVICE_FILE} gave no reply" if listed.nil?
       flunk "DDR LISTER on #{DEVICE_FILE} errored: #{listed.inspect}" if listed[:error]
 
-      entry = listed[:entries].find do |row|
-        row[:pieces][0].to_s.split(";").first == NULL_DEVICE_NAME
-      end
-      flunk "no #{DEVICE_FILE} device named #{NULL_DEVICE_NAME} on this build" unless entry
+      by_name = listed[:entries].to_h { |row| [ row[:pieces][0].to_s.split(";").first, row ] }
+      entry = by_name.values_at(*NULL_DEVICE_NAMES).compact.first
+      flunk "no #{DEVICE_FILE} device named #{NULL_DEVICE_NAMES.join(' or ')} on this build" unless entry
 
       entry[:ien].to_s
     end

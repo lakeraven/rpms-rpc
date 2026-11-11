@@ -11,7 +11,9 @@ jobs:
     # One Ruby: the one .ruby-version names. The job name carries no version,
     # so a Ruby bump changes .ruby-version and nothing branch protection names.
     name: Test
-    runs-on: ubuntu-latest
+    # ubuntu-latest is 26.04, whose apt mirror stopped resolving security.ubuntu.com (2026-11-10/11), so the
+    # stunnel install below failed before any test ran; 24.04 is what rpms-ops and the site pin too.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
