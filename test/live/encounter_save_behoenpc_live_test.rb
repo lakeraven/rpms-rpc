@@ -25,7 +25,12 @@ require "rpms_rpc/fileman_date_parser"
 # sends (SAVE^BEHOENPC: PCC(n) = "TYPE^CODE^...", "+" adds, "-" deletes):
 #   HDR^0^^<loc>;<date>;<category>   VST^DT^<date>   VST^PT^<dfn>
 #   VST^HL^<loc>   VST^VC^<category>   PRV^<duz>^^^^1 (primary)
-#   POV+^<icd>^^^^1^^^^<narrative>   CPT+^<code>   HF+^<ien>^^^^<duz>
+#   POV+^<icd>^^^^1^^^<snomed>^<narrative>   CPT+^<code>   HF+^<ien>^^^^<duz>
+# Piece 9 of a POV is its SNOMED concept, as VueCentric always sends it: POV^BEHOENPC
+# maps it to its ICD with $$CONC^AUPNSICD and uses it as a subscript in
+# PROBLST^BEHOENP2, which IRIS and a strict-null YottaDB refuse when it is
+# empty (rpms-rpc#704). On the pinned build 35489007 (Depressive disorder)
+# maps to F32.9 on both engines.
 # P2 and P3 are "not used (but required)" (BEHOENPC.m:6-8); the build-level
 # test sends 0 and the location, and so does this spec.
 #
@@ -36,6 +41,8 @@ class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
   DFN = 990_053 # a synthetic seed patient; unused by other live specs
   CLINIC = "DEMO PRIMARY CARE"
   ICD = "F32.9"
+  SNOMED = "35489007" # $$CONC^AUPNSICD maps it to F32.9
+  PREFERRED_TERM = "Depressive disorder" # its preferred term
   CPT = "A0021"
   CATEGORY = "A"
 
@@ -63,7 +70,7 @@ class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
       4 => "VST^HL^#{loc}",
       5 => "VST^VC^#{CATEGORY}",
       6 => "PRV^#{duz}^^^^1",
-      7 => "POV+^#{ICD}^^^^1^^^^#{narrative}",
+      7 => "POV+^#{ICD}^^^^1^^^#{SNOMED}^#{narrative}",
       8 => "CPT+^#{CPT}",
       9 => "HF+^#{hf}^^^^#{duz}"
     }
@@ -73,13 +80,17 @@ class EncounterSaveBehoenpcLiveTest < LiveSpec::Test
     reply = Array(client.call_rpc("BEHOENPC SAVE", pcc, "0", loc.to_s)).map(&:to_s)
     assert_equal [ "0" ], reply, "BEHOENPC SAVE answers 0 when it files (BEHOENPC.m:5); it answered #{reply.inspect}"
 
-    # The narrative is filed to PROVIDER NARRATIVE (#9999999.27) and reads back
-    # with a leading "*" (observed on the pinned build).
-    pov = rows(POV_FILE, ".01E;.02;.03;.04E").find { |r| r[1] == DFN.to_s && r[3].delete_prefix("*") == narrative }
-    refute_nil pov, "no V POV on DFN #{DFN} carries the narrative sent (#{narrative.inspect})"
+    # The narrative is filed to PROVIDER NARRATIVE (#9999999.27) with the
+    # concept's preferred-term description id ("<text>|<id>", POV^BEHOENPC), and
+    # reads back as "<preferred term> | <text>" (observed on the pinned build).
+    # The concept is filed to SNOMED CT (1101).
+    shown = "#{PREFERRED_TERM} | #{narrative}"
+    pov = rows(POV_FILE, ".01E;.02;.03;.04E;1101").find { |r| r[1] == DFN.to_s && r[3] == shown }
+    refute_nil pov, "no V POV on DFN #{DFN} carries the narrative sent (#{shown.inspect})"
     visit = pov[2]
     assert_match(/\A\d+\z/, visit, "the V POV row names no visit: #{pov.inspect}")
     assert_equal ICD, pov[0], "the V POV with the narrative sent is not diagnosis #{ICD}"
+    assert_equal SNOMED, pov[4], "the V POV with the narrative sent is not SNOMED concept #{SNOMED}"
 
     entry = RpmsRpc::DdrFileman.gets_entry(file: VISIT_FILE, iens: "#{visit},", fields: ".05;.07;.22", flags: "IE")
     flunk "DDR GETS on VISIT #{visit} failed: #{entry.inspect}" if entry.nil? || entry[:error]
