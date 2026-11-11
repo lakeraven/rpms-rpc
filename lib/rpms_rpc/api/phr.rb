@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../shape"
+require_relative "../fileman_date_parser"
 require "date"
 
 module RpmsRpc
@@ -52,11 +53,18 @@ module RpmsRpc
     end
     shape :has_access?, resource: "phr", verb: "GET", path: "/patients/{dfn}/phr/has-access"
 
+    # GETCCDS(DATA,DFN,STRTDT,ENDDT)^BEHOCIR1 (BEHOCIR1.m:7) takes the
+    # patient and the date range as three formals, FileMan dates, and hands
+    # them to GETIMGS^MAGSIXG1 as the image date range (:13). VistA Imaging's
+    # MAGSIXG1 is not in the FOIA release, so a build without it answers an M
+    # error, which raises Client::RpcMError (#698). The row layout below is
+    # GETIMGS's, which no build here has answered; see the mapping.
     def for_patient(dfn, start_date: Date.today - 365, end_date: Date.today)
       return [] if invalid_id?(dfn)
 
-      key = "#{dfn}^#{format_date(start_date)}^#{format_date(end_date)}"
-      Array(DataMapper.ccd_document.fetch_many(key)).map { |row| decorate_ccd(row) }
+      rows = DataMapper.ccd_document.fetch_many(dfn.to_s, FilemanDateParser.to_fileman(start_date.to_date),
+                                                FilemanDateParser.to_fileman(end_date.to_date))
+      Array(rows).map { |row| decorate_ccd(row) }
     end
     shape :for_patient, resource: "phr", verb: "GET", path: "/patients/{dfn}/phr"
 
@@ -99,10 +107,6 @@ module RpmsRpc
 
     def default_status_message(has_access)
       has_access ? "PHR access enabled" : "PHR not enrolled"
-    end
-
-    def format_date(date)
-      date.strftime("%m/%d/%Y")
     end
 
     def invalid_id?(value)
