@@ -90,7 +90,12 @@ module FeaturesTestHelper
 
   # Reverse drift guard (#384): module RPCs in required_rpcs.json must appear in the
   # feature list or here with a one-line reason (Referral: every call runs under BMCRPC).
-  BMC_REFERRAL_WORKFLOW_MODULE_RPC_EXCLUSIONS = {}.freeze
+  BMC_REFERRAL_WORKFLOW_MODULE_RPC_EXCLUSIONS = {
+    "DDR GETS ENTRY DATA" =>
+      "Referral.record_follow_up reads the referral before BMC UPDATE REFERRAL rewrites it, and follow_up_state reads it back (#722)",
+    "DDR LISTER" =>
+      "Referral.record_follow_up lists the SNOMED CT terms it must resend, and follow_up_state lists the case notes (#722)"
+  }.freeze
 
   ORQQPL_PROBLEM_WORKFLOW_MODULE_RPC_EXCLUSIONS = {
     "BGOPROB SET" =>

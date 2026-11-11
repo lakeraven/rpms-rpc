@@ -104,6 +104,7 @@ RpmsRpc::Procedure.for_patient	GET /patients/{dfn}/procedures
 RpmsRpc::ProgressNote.authorize	GET /progress-notes/{note_ien}/authorize
 RpmsRpc::ProgressNote.fetch_text	GET /progress-notes/{note_ien}/text
 RpmsRpc::ProgressNote.list	GET /patients/{dfn}/progress-notes
+RpmsRpc::Referral.follow_up_state	GET /referrals/{ien}/follow-up-state
 RpmsRpc::Referral.pending	GET /referrals/pending
 RpmsRpc::Registration.address_history	GET /patients/{dfn}/registrations/address-history
 RpmsRpc::Registration.cell_phone	GET /patients/{dfn}/registrations/cell-phone
