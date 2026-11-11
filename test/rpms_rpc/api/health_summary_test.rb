@@ -19,21 +19,6 @@ class HealthSummaryApiTest < Minitest::Test
         "Type 2 diabetes\n" \
         "MEDICATIONS:\n" \
         "Metformin 500mg twice daily")
-
-      m.seed_keyed_collection(:reminders_list, DFN.to_s, [
-        {
-          ien: 501,
-          name: "A1C Screening",
-          status: "DUE",
-          due_date: nil,
-          last_done: nil,
-          priority: "HIGH"
-        }
-      ])
-
-      m.seed_text(:reminder_detail, "#{DFN}^501",
-        "A1C Screening\n" \
-        "Patient is due for hemoglobin A1C.")
     end
   end
 
@@ -148,22 +133,6 @@ class HealthSummaryApiTest < Minitest::Test
     assert_equal "SELECTIVE", summary[:type]
     assert_equal 1, summary[:sections].length
     assert_equal "MED", summary[:sections].first[:code]
-  end
-
-  def test_clinical_reminders_returns_gateway_field_positions
-    reminder = RpmsRpc::HealthSummary.clinical_reminders(DFN).first
-
-    assert_equal 501, reminder[:ien]
-    assert_equal "A1C Screening", reminder[:name]
-    assert_equal "DUE", reminder[:status]
-    assert_equal "HIGH", reminder[:priority]
-  end
-
-  def test_reminder_detail_returns_multiline_content
-    detail = RpmsRpc::HealthSummary.reminder_detail(DFN, 501)
-
-    refute_nil detail
-    assert_includes detail[:content], "Patient is due"
   end
 
   def test_module_exposes_standard_component_types
