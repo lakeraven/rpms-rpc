@@ -2,6 +2,7 @@
 
 require_relative "fileman_date_parser"
 require_relative "rcis_wire"
+require_relative "context_scope"
 
 module RpmsRpc
   # Declarative mapping from RPMS RPC caret-delimited responses to hashes.
@@ -334,6 +335,27 @@ module RpmsRpc
         @rpc_name = name
       end
 
+      # The broker option the RPC is registered in, when the mapping binds it
+      # itself: every fetch_* then runs under that option (ContextScope.scoped:
+      # bind, call, restore the caller's), so the call works whichever option
+      # the session has bound. The VueCentric-only RPCs declare CIAV
+      # VUECENTRIC (ADR 0011). Without one, the call runs under whatever the
+      # session has bound.
+      def context(name)
+        @context = name
+      end
+
+      def bound_context = @context
+
+      # Run the block under #context (bind, run, restore), or as-is when the
+      # mapping declares none. For an API that sends the mapping's RPC
+      # itself, to read the raw reply, rather than through fetch_*.
+      def in_context(client = RpmsRpc.client, &)
+        return yield if @context.nil?
+
+        ContextScope.scoped(client, @context, &)
+      end
+
       def field(position, attribute, type = :string, terminology: nil, pointer: nil)
         @fields << Field.new(position: position, attribute: attribute, type: type,
                              terminology: terminology, pointer: pointer)
@@ -578,17 +600,18 @@ module RpmsRpc
 
       # -- fetch_* methods: call RPC + parse in one shot -------------------------
       #
-      # All fetch methods use RpmsRpc.client (configured at boot or via RpmsRpc.mock!).
+      # All fetch methods use RpmsRpc.client (configured at boot or via RpmsRpc.mock!),
+      # under the mapping's own context when it declares one (#context).
 
       def fetch_one(*params, extras: {})
-        response = RpmsRpc.client.call_rpc(rpc_name, *params)
+        response = call(*params)
         return nil if response.nil? || response.empty?
 
         parse_one(response, extras: extras)
       end
 
       def fetch_many(*params)
-        response = RpmsRpc.client.call_rpc(rpc_name, *params)
+        response = call(*params)
         return [] if response.nil? || response.empty?
 
         parse_many(response)
@@ -602,7 +625,7 @@ module RpmsRpc
       # broker gave nothing or an error row ("-N^message"), otherwise the
       # parsed rows, [] included.
       def fetch_many_or_nil(*params)
-        response = RpmsRpc.client.call_rpc(rpc_name, *params)
+        response = call(*params)
         return nil if response.nil? || response.empty?
 
         first = response.is_a?(String) ? response.split(/\r?\n/).first : response.first
@@ -622,7 +645,7 @@ module RpmsRpc
       # change fetch_many or fetch_many_or_nil: on these mappings they keep the
       # old contract for direct mapper callers. Only the Scheduling methods changed.
       def fetch_many_or_raise(*params)
-        response = RpmsRpc.client.call_rpc(rpc_name, *params)
+        response = call(*params)
         lines = DataMapper.read_bsdx_list!(response, rpc_name, split_newlines: true)
         return [] if lines == :empty
 
@@ -630,14 +653,14 @@ module RpmsRpc
       end
 
       def fetch_scalar(*params)
-        response = RpmsRpc.client.call_rpc(rpc_name, *params)
+        response = call(*params)
         return nil if response.nil? || response.empty?
 
         parse_scalar(response)
       end
 
       def fetch_text(*params)
-        response = RpmsRpc.client.call_rpc(rpc_name, *params)
+        response = call(*params)
         return nil if response.nil? || response.empty?
 
         parse_text(response)
@@ -649,10 +672,12 @@ module RpmsRpc
         # reply grammar. A client whose call_rpc returns a String would be
         # read character by character (sequence echo "2" + ACK -> DUZ 2,
         # error 0, success), so ask for lines when the client offers them.
-        response = if client.respond_to?(:call_rpc_lines)
-          client.call_rpc_lines(rpc_name, *params)
-        else
-          client.call_rpc(rpc_name, *params)
+        response = in_context(client) do
+          if client.respond_to?(:call_rpc_lines)
+            client.call_rpc_lines(rpc_name, *params)
+          else
+            client.call_rpc(rpc_name, *params)
+          end
         end
         return nil if response.nil? || response.empty?
 
@@ -678,6 +703,12 @@ module RpmsRpc
       end
 
       private
+
+      # The RPC, sent under #context when the mapping declares one.
+      def call(*params)
+        client = RpmsRpc.client
+        in_context(client) { client.call_rpc(rpc_name, *params) }
+      end
 
       def format_value(val, type)
         return "" if val.nil?

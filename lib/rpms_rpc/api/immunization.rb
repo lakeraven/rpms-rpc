@@ -70,8 +70,9 @@ module RpmsRpc
     def text_summary(dfn)
       return nil if invalid_id?(dfn)
 
-      rpc = DataMapper.immunization_profile.rpc_name
-      profile_text(rpc, profile_lines(RpmsRpc.client, rpc, dfn.to_s))
+      mapping = DataMapper.immunization_profile
+      lines = mapping.in_context { profile_lines(RpmsRpc.client, mapping.rpc_name, dfn.to_s) }
+      profile_text(mapping.rpc_name, lines)
     end
     shape :text_summary, resource: "immunizations", verb: "GET", path: "/patients/{dfn}/immunizations/text-summary"
 
