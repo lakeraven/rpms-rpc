@@ -70,7 +70,8 @@ module RpmsRpc
     end
 
     # BEHOVM VALIDATE — server-side vital value validation (scalar)
-    # Returns echoed value when valid, error marker string otherwise.
+    # VALIDATE(DATA,VCTL,METRIC,X): the value as it would be filed, or
+    # "-1^<reason>" (BEHOVM.m:359-374).
     DataMapper.define(:vital_validate) do |m|
       m.rpc "BEHOVM VALIDATE"
       m.scalar :validated_value
@@ -511,8 +512,12 @@ module RpmsRpc
     # PHR / CCD (BEHOCCD*, BEHOCIR*)
     # ========================================================================
 
-    # BEHOCIR1 GETCCDS — CCD documents for patient
-    # Format per line: IEN^DATE^SOURCE^TITLE^TYPE
+    # BEHOCIR1 GETCCDS — CCD documents for patient (Phr.for_patient)
+    # Format per line: IEN^DATE^SOURCE^TITLE^TYPE, UNPROVEN. The rows are
+    # GETIMGS^MAGSIXG1's (VistA Imaging, not in the FOIA release), and no build
+    # has answered one: GETCCDS keeps rows 0 and 1 as given and data rows
+    # whose piece 10 is CCD-SUMMARY (BEHOCIR1.m:14-19), so piece 5 is not
+    # the type (#698).
     DataMapper.define(:ccd_document) do |m|
       m.rpc "BEHOCIR1 GETCCDS"
       m.field 0, :ien, :integer
@@ -776,9 +781,12 @@ module RpmsRpc
       m.field 14, :provider
     end
 
-    # BGOVCPT SET — visit CPT-code save. Returns the saved IEN on success.
-    DataMapper.define(:procedure_save) do |m|
-      m.rpc "BGOVCPT SET"
+    # BEHOENPC SAVE — SAVE^BEHOENPC(DATA,PCC,X,Y), the encounter write
+    # VueCentric uses (rpms-rpc#645, #524). PCC is a list of "TYPE^CODE^..."
+    # lines (HDR, VST, PRV, POV, CPT, HF, ...); X and Y are "not used (but
+    # required)" (BEHOENPC.m:6-10). DATA is 0 when it files, else -n^text.
+    DataMapper.define(:encounter_save) do |m|
+      m.rpc "BEHOENPC SAVE"
       m.scalar :result
     end
 

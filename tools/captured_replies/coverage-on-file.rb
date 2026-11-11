@@ -7,8 +7,9 @@ require "rpms_rpc/api/ddr_fileman"
 # recorded as flows as PROFILE,REG on demo patient 990049, which has no
 # coverage on file, in this order: on_file before anything is filed, a
 # Medicaid number with its state and dates, a lapsed Medicaid record, Medicare
-# Part B with an end date and a private policy with an end date, then on_file
-# with all of it. The flows mirror test/live/coverage_on_file_live_test.rb.
+# Part B with an end date and a private policy with an end date, a private
+# policy naming an insurer not on file (refused, #691), then on_file with all
+# of it. The flows mirror test/live/coverage_on_file_live_test.rb.
 # rpms-rpc#619.
 Cov = RpmsRpc::Coverage
 ON_FILE_DFN = 990_049
@@ -52,6 +53,13 @@ CAPTURE = {
       run: lambda {
         Cov.add_private_insurance(ON_FILE_DFN, insurer_ien: 5, policy_holder: "ZEPHYR,QUINN", member_number: "ZZM49",
                                                effective_on: "01/01/2026", ends_on: "12/31/2027")
+      }
+    },
+    "add_private_unknown_insurer" => {
+      about: "add_private_insurance naming insurer 999999, which is not on file: refused after the insurer list",
+      run: lambda {
+        Cov.add_private_insurance(ON_FILE_DFN, insurer_ien: 999_999, policy_holder: "ZEPHYR,QUINN",
+                                               member_number: "ZZM691", effective_on: "01/01/2026")
       }
     },
     "on_file" => { about: "on_file with both Medicaid records, Medicare and the private policy on file",

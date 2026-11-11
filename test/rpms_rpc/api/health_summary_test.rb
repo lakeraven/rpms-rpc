@@ -2,7 +2,6 @@
 
 require "minitest/autorun"
 require "rpms_rpc"
-require "rpms_rpc/mock_client"
 require "rpms_rpc/api/health_summary"
 require_relative "../captured_replies"
 
@@ -183,42 +182,5 @@ class HealthSummaryApiTest < Minitest::Test
     assert_equal "DEM", HS::COMPONENT_TYPES[:demographics]
     assert_equal "PRB", HS::COMPONENT_TYPES[:problems]
     assert_equal "IMM", HS::COMPONENT_TYPES[:immunizations]
-  end
-end
-
-# The reminder reads still answer from MockClient: the gem's
-# ORQQPX REMINDER DETAIL frame dies on the build and its ORQQPX REMINDERS LIST
-# fields do not match the build's rows (#694). They move onto captured
-# replies with that fix (#619).
-class HealthSummaryRemindersTest < Minitest::Test
-  DFN = 8791
-
-  def setup
-    RpmsRpc.mock! do |m|
-      m.seed_keyed_collection(:reminders_list, DFN.to_s, [
-        { ien: 501, name: "A1C Screening", status: "DUE", due_date: nil, last_done: nil, priority: "HIGH" }
-      ])
-      m.seed_text(:reminder_detail, "#{DFN}^501", "A1C Screening\nPatient is due for hemoglobin A1C.")
-    end
-  end
-
-  def teardown
-    RpmsRpc.reset!
-  end
-
-  def test_clinical_reminders_returns_gateway_field_positions
-    reminder = RpmsRpc::HealthSummary.clinical_reminders(DFN).first
-
-    assert_equal 501, reminder[:ien]
-    assert_equal "A1C Screening", reminder[:name]
-    assert_equal "DUE", reminder[:status]
-    assert_equal "HIGH", reminder[:priority]
-  end
-
-  def test_reminder_detail_returns_multiline_content
-    detail = RpmsRpc::HealthSummary.reminder_detail(DFN, 501)
-
-    refute_nil detail
-    assert_includes detail[:content], "Patient is due"
   end
 end

@@ -513,16 +513,28 @@ module RpmsRpc
     # HEALTH SUMMARY & REMINDERS (ORWRP*, ORQQPX*)
     # ========================================================================
 
-    # ORQQPX REMINDERS LIST — clinical reminders (multi-line)
-    # Format: IEN^NAME^STATUS^DUE_DATE^LAST_DONE^PRIORITY
+    # ORQQPX REMINDERS LIST — the patient's cover-sheet reminders, REMIND^ORQQPX.
+    # The build runs ORQQPX at OR*3.0*226 (the FOIA tree carries it at *190,
+    # whose row is only the first four pieces). Its row (REMIND, the
+    # `S ORY(ORJ)=` lines after `D MAIN^PXRM(ORPT,ORIEN,0)`) is the same as
+    # AVAL^PXRMRPCA's (:reminders_applicable below):
+    #   IEN^PRINT NAME^DUE DATE^LAST DONE^PRIORITY^DUE FLAG^DIALOG^^^^WIPE
+    # - DUE DATE is kept raw: a FileMan date or "DUE NOW", "CNBD" and the like.
+    # - LAST DONE is emptied when not a date.
+    # - PRIORITY is #811.9 piece 10, default 2.
+    # - DUE FLAG: 1 due, 3 error, 4 cannot be determined, 2 otherwise; a flag-2
+    #   row leaves DUE DATE, LAST DONE and PRIORITY empty.
+    # There is no status piece: the due flag and the due date carry it (#694).
     DataMapper.define(:reminders_list) do |m|
       m.rpc "ORQQPX REMINDERS LIST"
-      m.field 0, :ien, :integer
-      m.field 1, :name
-      m.field 2, :status
-      m.field 3, :due_date,  :fileman_date
-      m.field 4, :last_done, :fileman_date
-      m.field 5, :priority
+      m.field 0,  :ien,         :integer
+      m.field 1,  :name
+      m.field 2,  :due_date
+      m.field 3,  :last_done,   :fileman_date
+      m.field 4,  :priority,    :integer
+      m.field 5,  :due_flag,    :integer
+      m.field 6,  :dialog,      :boolean
+      m.field 10, :dialog_wipe, :boolean
     end
 
     # ORQQPXRM REMINDERS APPLICABLE: the reminder engine's own evaluation of

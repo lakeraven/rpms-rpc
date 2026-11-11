@@ -1,0 +1,191 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb procedure-add.rb.
+---
+rpc: BEHOENPC SAVE
+entry_point: SAVE^BEHOENPC
+release_tag: bcer-9.0-20261110-55d9e3e-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:89e5f4584b3be5526116a0fe2f8691758f6a9d934bedf2333c14313bff9656b8
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-11T17:48:28Z'
+note: Run on a fresh throwaway container. Setup files today's visit for synthetic
+  DFN 990054 at DEMO PRIMARY CARE; CPT A0021 is in the build's CPT file and NOTACPT
+  is not. DFN 990055 is another synthetic patient.
+captures:
+- name: add/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010'
+    IENS: 117,
+    FIELDS: ".01;.05;.07;.22"
+    FLAGS: I
+  context: 'add: CPT A0021, quantity 2, on DFN 990054''s visit from setup'
+  raw_return: "5\0[Data]\r9000010^117^.01^3261111.1748^\r9000010^117^.05^990054^\r9000010^117^.07^A^\r9000010^117^.22^6^\r"
+  sha256: 6c9cd948ede33dc07590380016982fbb2a8f3a06774011ab7e8358fe7756c441
+- name: add/2
+  rpc: BGOVCPT GET
+  inputs:
+  - '990054'
+  context: 'add: CPT A0021, quantity 2, on DFN 990054''s visit from setup'
+  raw_return: "6\0"
+  sha256: aa4fb8a61cab7db73f42671f2bb987a7291a436929b3d5f17ffe05f96be13371
+- name: add/3
+  rpc: BEHOENPC SAVE
+  inputs:
+  - 1: HDR^0^^6;3261111.1748;A;117
+    2: VST^PT^990054
+    3: CPT+^A0021^^^^^2
+  - '0'
+  - '6'
+  context: 'add: CPT A0021, quantity 2, on DFN 990054''s visit from setup'
+  raw_return: "7\00"
+  sha256: 4d96c1d786ac6f00df71e5b9e5e48dba51440f178e8e71f673e96faa49fd7060
+- name: add/4
+  rpc: BGOVCPT GET
+  inputs:
+  - '990054'
+  context: 'add: CPT A0021, quantity 2, on DFN 990054''s visit from setup'
+  raw_return: "8\011/11/2026^000012^DEMO IHS CLINIC^A0021^Outside state ambulance
+    serv^Outside state ambulance serv^^^^^11^117^1^2^PROFILE,MD^^^0^CPT^\r"
+  sha256: be4a2e431fc275aa3236cf2610f4417525ca6e1cb4371a2c64d99265b20bac2c
+- name: add_again/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010'
+    IENS: 117,
+    FIELDS: ".01;.05;.07;.22"
+    FLAGS: I
+  context: 'add: CPT A0021 again on the same visit, after add; its rows after list
+    both, for the unit test that replays them against add''s rows before (another
+    session''s add in between)'
+  raw_return: "5\0[Data]\r9000010^117^.01^3261111.1748^\r9000010^117^.05^990054^\r9000010^117^.07^A^\r9000010^117^.22^6^\r"
+  sha256: 6c9cd948ede33dc07590380016982fbb2a8f3a06774011ab7e8358fe7756c441
+- name: add_again/2
+  rpc: BGOVCPT GET
+  inputs:
+  - '990054'
+  context: 'add: CPT A0021 again on the same visit, after add; its rows after list
+    both, for the unit test that replays them against add''s rows before (another
+    session''s add in between)'
+  raw_return: "6\011/11/2026^000012^DEMO IHS CLINIC^A0021^Outside state ambulance
+    serv^Outside state ambulance serv^^^^^11^117^1^2^PROFILE,MD^^^0^CPT^\r"
+  sha256: 7884aac00d991355a4df1954ca9645e37742eecfd672f16a41087092400e1895
+- name: add_again/3
+  rpc: BEHOENPC SAVE
+  inputs:
+  - 1: HDR^0^^6;3261111.1748;A;117
+    2: VST^PT^990054
+    3: CPT+^A0021^^^^^2
+  - '0'
+  - '6'
+  context: 'add: CPT A0021 again on the same visit, after add; its rows after list
+    both, for the unit test that replays them against add''s rows before (another
+    session''s add in between)'
+  raw_return: "7\00"
+  sha256: 4d96c1d786ac6f00df71e5b9e5e48dba51440f178e8e71f673e96faa49fd7060
+- name: add_again/4
+  rpc: BGOVCPT GET
+  inputs:
+  - '990054'
+  context: 'add: CPT A0021 again on the same visit, after add; its rows after list
+    both, for the unit test that replays them against add''s rows before (another
+    session''s add in between)'
+  raw_return: "8\011/11/2026^000012^DEMO IHS CLINIC^A0021^Outside state ambulance
+    serv^Outside state ambulance serv^^^^^11^117^1^2^PROFILE,MD^^^0^CPT^\r11/11/2026^000012^DEMO
+    IHS CLINIC^A0021^Outside state ambulance serv^Outside state ambulance serv^^^^^12^117^1^2^PROFILE,MD^^^0^CPT^\r"
+  sha256: 4129aff3037887349faef678098e01e7ca6da0226f4aff97fb901435e6536bbf
+- name: add_unresolved_cpt/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010'
+    IENS: 117,
+    FIELDS: ".01;.05;.07;.22"
+    FLAGS: I
+  context: 'add: CPT NOTACPT, which the build cannot resolve, on the same visit'
+  raw_return: "5\0[Data]\r9000010^117^.01^3261111.1748^\r9000010^117^.05^990054^\r9000010^117^.07^A^\r9000010^117^.22^6^\r"
+  sha256: 6c9cd948ede33dc07590380016982fbb2a8f3a06774011ab7e8358fe7756c441
+- name: add_unresolved_cpt/2
+  rpc: BGOVCPT GET
+  inputs:
+  - '990054'
+  context: 'add: CPT NOTACPT, which the build cannot resolve, on the same visit'
+  raw_return: "6\011/11/2026^000012^DEMO IHS CLINIC^A0021^Outside state ambulance
+    serv^Outside state ambulance serv^^^^^11^117^1^2^PROFILE,MD^^^0^CPT^\r11/11/2026^000012^DEMO
+    IHS CLINIC^A0021^Outside state ambulance serv^Outside state ambulance serv^^^^^12^117^1^2^PROFILE,MD^^^0^CPT^\r"
+  sha256: 10bb93edf9fc0e85b6fa7f71ce230489fbb072d308e2225d1bba961d32a7591e
+- name: add_unresolved_cpt/3
+  rpc: BEHOENPC SAVE
+  inputs:
+  - 1: HDR^0^^6;3261111.1748;A;117
+    2: VST^PT^990054
+    3: CPT+^NOTACPT^^^^^1
+  - '0'
+  - '6'
+  context: 'add: CPT NOTACPT, which the build cannot resolve, on the same visit'
+  raw_return: "7\00"
+  sha256: 4d96c1d786ac6f00df71e5b9e5e48dba51440f178e8e71f673e96faa49fd7060
+- name: add_unresolved_cpt/4
+  rpc: BGOVCPT GET
+  inputs:
+  - '990054'
+  context: 'add: CPT NOTACPT, which the build cannot resolve, on the same visit'
+  raw_return: "8\011/11/2026^000012^DEMO IHS CLINIC^A0021^Outside state ambulance
+    serv^Outside state ambulance serv^^^^^11^117^1^2^PROFILE,MD^^^0^CPT^\r11/11/2026^000012^DEMO
+    IHS CLINIC^A0021^Outside state ambulance serv^Outside state ambulance serv^^^^^12^117^1^2^PROFILE,MD^^^0^CPT^\r"
+  sha256: 4129aff3037887349faef678098e01e7ca6da0226f4aff97fb901435e6536bbf
+- name: add_wrong_patient/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010'
+    IENS: 117,
+    FIELDS: ".01;.05;.07;.22"
+    FLAGS: I
+  context: 'add: the same visit, named with DFN 990055, whose it is not'
+  raw_return: "5\0[Data]\r9000010^117^.01^3261111.1748^\r9000010^117^.05^990054^\r9000010^117^.07^A^\r9000010^117^.22^6^\r"
+  sha256: 6c9cd948ede33dc07590380016982fbb2a8f3a06774011ab7e8358fe7756c441
+- name: add_visit_not_found/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010'
+    IENS: 999999,
+    FIELDS: ".01;.05;.07;.22"
+    FLAGS: I
+  context: 'add: visit 999999, not on file'
+  raw_return: "5\0[ERROR]\r"
+  sha256: 81149747bb40658a8896e5f78ae83a89ce3fca2e75ee9adf07e71b8f6f1fdd6b
+- name: add_locked_visit/1
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9000010'
+    IENS: 4,
+    FIELDS: ".01;.05;.07;.22"
+    FLAGS: I
+  context: 'add: CPT A0021 on the build''s historical visit 4 (DFN 4)'
+  raw_return: "5\0[Data]\r9000010^4^.01^3260902.12^\r9000010^4^.05^4^\r9000010^4^.07^E^\r9000010^4^.22^^\r"
+  sha256: 3508ad7880bd6802987bad3d078a0bdee1b7429e55354374ebcae8cfda1cd8dd
+- name: add_locked_visit/2
+  rpc: BGOVCPT GET
+  inputs:
+  - '4'
+  context: 'add: CPT A0021 on the build''s historical visit 4 (DFN 4)'
+  raw_return: "6\009/02/2026^000012^DEMO IHS CLINIC^B9999^Parenteral Supp Not Othrws
+    C^Parenteral supp not othrws c^^Y^^^1^4^913^1^MANAGER,SYSTEM^^^1^CPT^\r10/16/2026^000012^DEMO
+    IHS CLINIC^A4206^1 cc sterile syringe&needle^1 cc sterile syringe&needle^^^^^2^7^87^1^MANAGER,SYSTEM^^^0^CPT^\r10/16/2026^000012^DEMO
+    IHS CLINIC^J1670^Tetanus immune globulin inj^Tetanus immune globulin inj^^^^^3^7^4726^1^PROFILE,MD^^^0^CPT^\r10/16/2026^000012^DEMO
+    IHS CLINIC^M1299^Flu immunize order/admin^Flu immunize order/admin^^^^^4^7^6957^1^PROFILE,MD^^^0^CPT^\r10/01/2026^000012^DEMO
+    IHS CLINIC^J1670^Tetanus immune globulin inj^Tetanus immune globulin inj^^^^^7^8^4726^1^PROFILE,MD^^^0^CPT^\r10/02/2026^000012^DEMO
+    IHS CLINIC^A4206^1 cc sterile syringe&needle^1 cc sterile syringe&needle^^^^^8^9^87^1^PROFILE,MD^^^0^CPT^\r10/05/2026^000012^DEMO
+    IHS CLINIC^J1670^Tetanus immune globulin inj^Tetanus immune globulin inj^^^^^9^11^4726^1^PROFILE,MD^^^0^CPT^\r"
+  sha256: 6174a080481c448aa40e3b790317e6e71d4a04ae39af26e68662fb1897a46536
+- name: add_locked_visit/3
+  rpc: BEHOENPC SAVE
+  inputs:
+  - 1: HDR^0^^;3260902.12;E;4
+    2: VST^PT^4
+    3: CPT+^A0021^^^^^1
+  - '0'
+  - ''
+  context: 'add: CPT A0021 on the build''s historical visit 4 (DFN 4)'
+  raw_return: "7\0-1^The data associated with this visit may no longer be modified."
+  sha256: f66fb82e853ec7552005f2eafbdf73215961e177e50a4a75dd1c55aec55aaf73

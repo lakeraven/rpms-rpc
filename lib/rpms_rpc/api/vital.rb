@@ -48,30 +48,32 @@ module RpmsRpc
     end
     shape :template, resource: "vitals", verb: "GET", path: "/patients/{dfn}/vitals/template"
 
-    # Pre-save validation of a set of measurements. Calls BEHOVM VALIDATE
-    # per-field and returns aggregated field-level errors without persisting.
+    # Pre-save validation of a set of measurements: BEHOVM VALIDATE for each
+    # one, nothing filed.
     #
-    #   validate(dfn, [{abbreviation:, value:}, ...])
+    #   validate(dfn, [{abbreviation:, value:}, ...], metric: -1)
     #   => { valid: bool, errors: [{ index:, abbreviation:, value:, error_message: }, ...] }
     #
-    # The dfn param is accepted (and forwarded to the RPC call) so future
-    # per-patient range adjustment (e.g. pediatric vs adult) lands without
-    # signature change. Today the underlying RPC validates only against the
-    # field's static range.
-    def validate(dfn, measurements)
-      measurements = Array(measurements)
-      errors = measurements.each_with_index.filter_map do |m, idx|
-        abbrev = m[:abbreviation]
-        value  = m[:value]
-        validated = DataMapper.vital_validate.fetch_scalar("#{abbrev}|#{value}", dfn.to_s)
-        next nil if valid_response?(validated, value)
+    # Formals: VALIDATE(DATA,VCTL,METRIC,X) (BEHOVM.m:359): the vital type
+    # (its abbreviation, resolved by TYPEINFO), the units flag (-1 the type's
+    # own default units, 0 US, 1 metric, as for {template}) and the value.
+    # The routine answers the value it would file, in the type's default
+    # units ("36C" for TMP answers 96.8), or "-1^<why>" for a value it
+    # refuses (BEHOVM.m:371): a filed value never holds a caret, so a reply
+    # with one is a refusal (BEHOVM.m:372). error_message is the server's
+    # reason.
+    # A type the build does not have faults in the routine (LVUNDEF
+    # VUNT("")); that measurement is an error, not a raise.
+    #
+    # dfn is accepted for callers and not sent: VALIDATE takes no patient
+    # (#665). A frame of "<abbrev>|<value>" and the DFN left X undefined,
+    # so every measurement died in M.
+    def validate(dfn, measurements, metric: -1)
+      errors = Array(measurements).each_with_index.filter_map do |m, idx|
+        message = refusal(m[:abbreviation], m[:value], metric)
+        next if message.nil?
 
-        {
-          index:         idx,
-          abbreviation:  abbrev,
-          value:         value,
-          error_message: "Validation failed: server returned #{validated.inspect}"
-        }
+        { index: idx, abbreviation: m[:abbreviation], value: m[:value], error_message: message }
       end
       { valid: errors.empty?, errors: errors }
     end
@@ -159,10 +161,16 @@ module RpmsRpc
       end
     end
 
-    def valid_response?(validated, value)
-      return false if validated.nil?
-      return false if validated.to_s.upcase == "INVALID"
-      validated.to_s == value.to_s
+    # Why BEHOVM VALIDATE refuses one measurement, or nil when it accepts it.
+    def refusal(abbreviation, value, metric)
+      reply = DataMapper.vital_validate.fetch_scalar(abbreviation.to_s, metric.to_i.to_s, value.to_s)
+      return "No reply from BEHOVM VALIDATE" if reply.nil?
+      return nil unless reply.include?("^")
+
+      why = reply.split("^", 2)[1].to_s.strip
+      why.empty? ? "Invalid entry." : why
+    rescue Client::RpcMError
+      "The server could not validate a #{abbreviation} measurement"
     end
 
     # Accepts an Array of measurement hashes OR a single measurement hash.

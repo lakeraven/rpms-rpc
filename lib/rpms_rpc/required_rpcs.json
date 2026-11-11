@@ -325,8 +325,9 @@
       "ORQQPL PROVIDER LIST"
     ],
     "RpmsRpc::Procedure": [
+      "BEHOENPC SAVE",
       "BGOVCPT GET",
-      "BGOVCPT SET"
+      "DDR GETS ENTRY DATA"
     ],
     "RpmsRpc::ProgressNote": [
       "TIU AUTHORIZATION",

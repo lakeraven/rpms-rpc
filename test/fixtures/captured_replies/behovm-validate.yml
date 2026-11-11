@@ -1,0 +1,105 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb behovm-validate.rb.
+---
+rpc: BEHOVM VALIDATE
+entry_point: VALIDATE^BEHOVM
+release_tag: bcer-9.0-20261110-55d9e3e-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:89e5f4584b3be5526116a0fe2f8691758f6a9d934bedf2333c14313bff9656b8
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair; DUZ 206)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-11T17:38:34Z'
+note: Run on a throwaway container; VALIDATE files nothing.
+captures:
+- name: old_frame
+  inputs:
+  - TMP|97
+  - '4'
+  context: 'the frame validate sent before #665: VALIDATE dies on X (LVUNDEF)'
+  raw_return: "5\x011\rThe server has reported the following error:\r\rVALIDATE+3^BEHOVM,
+    Undefined local variable: X,150373850,-%YDB-E-LVUNDEF\r\rA detailed log of the
+    error has been created.\r"
+  sha256: bc4ce5392cbe22616a068e4f5961d5e75954a5d8015a0730697fb884181e9a59
+- name: accepted/1
+  rpc: BEHOVM VALIDATE
+  inputs:
+  - TMP
+  - "-1"
+  - '97'
+  context: 'validate: TMP 97, PU 80 and BP 130/90 in each type''s default units'
+  raw_return: "5\097"
+  sha256: 83dc927e1ac45decde4ea1c3e4c21a48d65ca6554c33a9a33915b6eef66ed007
+- name: accepted/2
+  rpc: BEHOVM VALIDATE
+  inputs:
+  - PU
+  - "-1"
+  - '80'
+  context: 'validate: TMP 97, PU 80 and BP 130/90 in each type''s default units'
+  raw_return: "6\080"
+  sha256: 783187ad19978464cdd00234109aa1a052a4cb042f235edc85328ffa52d80c10
+- name: accepted/3
+  rpc: BEHOVM VALIDATE
+  inputs:
+  - BP
+  - "-1"
+  - 130/90
+  context: 'validate: TMP 97, PU 80 and BP 130/90 in each type''s default units'
+  raw_return: "7\0130/90"
+  sha256: 1524bb212baf89801dc63080671336930bfdb1288734abd71e562d281453683d
+- name: refused/1
+  rpc: BEHOVM VALIDATE
+  inputs:
+  - TMP
+  - "-1"
+  - '97'
+  context: 'validate: TMP 97, then TMP 999 (out of range) and TMP blank (not numeric)'
+  raw_return: "5\097"
+  sha256: 83dc927e1ac45decde4ea1c3e4c21a48d65ca6554c33a9a33915b6eef66ed007
+- name: refused/2
+  rpc: BEHOVM VALIDATE
+  inputs:
+  - TMP
+  - "-1"
+  - '999'
+  context: 'validate: TMP 97, then TMP 999 (out of range) and TMP blank (not numeric)'
+  raw_return: "6\0-1^Input must be between 70 and 120 F."
+  sha256: 39fbdc09ab5d690b4157f15ca91925cbcd28bf946cfdde721b329ca1ce86e923
+- name: refused/3
+  rpc: BEHOVM VALIDATE
+  inputs:
+  - TMP
+  - "-1"
+  - ''
+  context: 'validate: TMP 97, then TMP 999 (out of range) and TMP blank (not numeric)'
+  raw_return: "7\0-1^Input must be a numeric value."
+  sha256: 4ad82298ef9a82db25e6280a163fa97041c2b5f88bf608326260f860cecb022d
+- name: converted/1
+  rpc: BEHOVM VALIDATE
+  inputs:
+  - TMP
+  - "-1"
+  - 36C
+  context: 'validate: TMP 36C, which the build converts to its default units (F)'
+  raw_return: "5\096.8"
+  sha256: 598c22538fcd45fe58a2a63edb896911569c4a48cf32b4e12a933224a2937e1a
+- name: metric/1
+  rpc: BEHOVM VALIDATE
+  inputs:
+  - TMP
+  - '1'
+  - '97'
+  context: 'validate with metric: 1: TMP 97, out of range in C'
+  raw_return: "5\0-1^Input must be between 21.11 and 48.89 C."
+  sha256: 841ceeb294d08d082074b1a7e932ca0eff47525ebefe99586283e52096d68d7c
+- name: unknown_type/1
+  rpc: BEHOVM VALIDATE
+  inputs:
+  - ZZZ
+  - "-1"
+  - '5'
+  context: 'validate: ZZZ, a vital type the build does not have: the routine faults'
+  raw_return: "5\x011\rThe server has reported the following error:\r\rVALIDATE+7^BEHOVM,
+    Undefined local variable: VUNT(\"\"),150373850,-%YDB-E-LVUNDEF\r\rA detailed log
+    of the error has been created.\r"
+  sha256: 9ca97712bc6a91e91e7b975d6d59d512e15e8f7dff0e25b57f4a5f300b8ca0a7
