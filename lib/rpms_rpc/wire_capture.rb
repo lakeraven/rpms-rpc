@@ -5,6 +5,7 @@ require "yaml"
 require_relative "core"
 require_relative "fileman_date_parser"
 require_relative "wire_capture/evidence"
+require_relative "api/tribal"
 require_relative "wire_capture/note_write_flow"
 
 module RpmsRpc
@@ -70,12 +71,58 @@ module RpmsRpc
     # call it live (or why we can't), and the cited piece semantics.
     # context is the option to bind before the call (nil: the sign-on option).
     CatalogEntry = Struct.new(:rpc, :mapping, :kind, :mode, :inputs, :cite, :pieces, :note,
-                              :context, keyword_init: true) do
+                              :context, :fixture, keyword_init: true) do
       def live? = mode == :live
+
+      # Optional fixture: names the file when several entries share one RPC.
+      # Absent, the name stays the RPC slug, so existing entries keep their files.
+      def fixture_name = fixture || rpc.downcase.tr(" /", "--")
+
+      # ONLY= matches the RPC name or the fixture name. CITE_ONLY= does not:
+      # a shared RPC name would cite every fixture that calls it. See cite_only?.
+      def named?(name) = name == rpc || name == fixture_name
 
       # A patient-record write. live? stays false so the read driver never calls it.
       def write? = mode == :write
     end
+
+    def self.fixture_path(entry)
+      File.join(FIXTURES_DIR, "#{entry.fixture_name}.yml")
+    end
+
+    # CITE_ONLY token list. True when a token is this entry's fixture name,
+    # or is the RPC name and this entry's fixture name is that RPC's slug
+    # (the name used when fixture: is omitted). Naming "DDR GETS ENTRY DATA"
+    # cites ddr-gets-entry-data and leaves tribal-enrollment live.
+    def self.cite_only?(entry, tokens)
+      slug = entry.rpc.downcase.tr(" /", "--")
+      tokens.any? { |token| token == entry.fixture_name || (token == entry.rpc && entry.fixture_name == slug) }
+    end
+
+    # Tokens in input order, duplicates removed, that cite no entry.
+    def self.unmatched_cite_only_tokens(entries, tokens)
+      tokens.uniq.reject { |token| entries.any? { |entry| cite_only?(entry, [ token ]) } }
+    end
+
+    # Live catalog rows for a capture, narrowed by ONLY and with CITE_ONLY
+    # entries removed. Unmatched tokens are judged on the live catalog
+    # before ONLY narrows the run, and they raise: a token that cites
+    # nothing would otherwise still call the live RPC the operator meant
+    # to avoid. A token that names a real live fixture is not an error
+    # just because ONLY narrowed the run.
+    def self.select_live_entries(catalog: CATALOG, only: "", cite_only: [])
+      entries = catalog.select(&:live?)
+      unmatched = unmatched_cite_only_tokens(entries, cite_only)
+      unless unmatched.empty?
+        names = unmatched.map(&:inspect).join(", ")
+        raise ArgumentError, "CITE_ONLY token(s) match no live catalog entry: #{names}; " \
+                             "name a fixture (e.g. tribal-tribes) or an RPC whose fixture is its slug"
+      end
+
+      entries = entries.select { |entry| entry.named?(only) } unless only.to_s.empty?
+      entries.reject { |entry| cite_only?(entry, cite_only) }
+    end
+
 
     # A committed wire capture. Validates provenance on load — an invalid
     # fixture raises InvalidFixture rather than silently entering the gate.
@@ -189,11 +236,8 @@ module RpmsRpc
     def self.driver_read_entries(writes:, only:, cite_only:)
       return [] if writes == true
 
-      entries = CATALOG.select(&:live?)
-      name = only.to_s.strip
-      entries = entries.select { |entry| entry.rpc == name } unless name.empty?
-      cited = Array(cite_only).map { |rpc| rpc.to_s.strip }
-      entries.reject { |entry| cited.include?(entry.rpc) }
+      tokens = Array(cite_only).map { |token| token.to_s.strip }.reject(&:empty?)
+      select_live_entries(only: only.to_s.strip, cite_only: tokens)
     end
 
     # nil, "", and whitespace are unset. Otherwise the stripped RPC name.
@@ -216,25 +260,27 @@ module RpmsRpc
       name = normalize_only(only)
       return entries if name.nil?
 
-      entries.select { |entry| entry.rpc == name }
+      entries.select { |entry| entry.named?(name) }
     end
 
     # Verdicts for a scratch capture against committed fixtures (rpms-ops#975),
-    # one [rpc, verdict, committed source, captured source] row per RPC called
-    # on either side. SAME: raw bytes identical. SAME-ROWS: the data rows
-    # match and only the CIA frame header differs (it counts the session's
-    # calls). DIFFERENT. NEW: the committed fixture has no raw return
-    # (routine-cite, or none). NOT-CAPTURED: the committed fixture has a raw
-    # return and the capture has none.
+    # one [fixture name, verdict, committed source, captured source] row per
+    # fixture file on either side. The name is the file basename, not the RPC:
+    # several fixtures capture one RPC, and keying on the RPC dropped all but
+    # one of them. SAME: raw bytes identical. SAME-ROWS: the data rows match
+    # and only the CIA frame header differs (it counts the session's calls).
+    # DIFFERENT. NEW: the committed fixture has no raw return (routine-cite,
+    # or none). NOT-CAPTURED: the committed fixture has a raw return and the
+    # capture has none.
     COMPARE_VERDICTS = %w[SAME SAME-ROWS DIFFERENT NEW NOT-CAPTURED].freeze
 
     def self.compare(committed_dir, captured_dir)
-      load = ->(dir) { Fixture.load_all(dir).to_h { |f| [ f.rpc, f ] } }
+      load = ->(dir) { Fixture.load_all(dir).to_h { |f| [ f.fixture_name, f ] } }
       committed = load.call(committed_dir)
       captured = load.call(captured_dir)
-      (committed.keys | captured.keys).sort.filter_map do |rpc|
-        was = committed[rpc]&.raw_return
-        now = captured[rpc]&.raw_return
+      (committed.keys | captured.keys).sort.filter_map do |name|
+        was = committed[name]&.raw_return
+        now = captured[name]&.raw_return
         next if was.nil? && now.nil? # routine-cite on both sides: nothing was called
 
         verdict = if now.nil? then "NOT-CAPTURED"
@@ -243,7 +289,7 @@ module RpmsRpc
         elsif data_rows(now) == data_rows(was) then "SAME-ROWS"
         else "DIFFERENT"
         end
-        [ rpc, verdict, committed[rpc]&.source || "-", captured[rpc]&.source || "-" ]
+        [ name, verdict, committed[name]&.source || "-", captured[name]&.source || "-" ]
       end
     end
 
@@ -271,6 +317,9 @@ module RpmsRpc
                   :pieces, :note, :signed_on_as, :write, :api_call, :read_back,
                   :read_before, :persona_probe
 
+      # Every fixture file in the directory. Several captures may share one
+      # RPC (a catalog fixture: name); compare and the contract corpus key on
+      # fixture_name, the file basename, so none of them is dropped.
       def self.load_all(dir = FIXTURES_DIR)
         Dir.glob(File.join(dir, "*.yml")).sort.map { |path| load_file(path) }
       end
@@ -309,6 +358,14 @@ module RpmsRpc
 
       def piece_at(position)
         @pieces.find { |p| p.position == position }
+      end
+
+      # File basename without .yml. Nil when the fixture was built in memory
+      # and has no path. compare keys on this, not on the RPC.
+      def fixture_name
+        return if @path.nil?
+
+        File.basename(@path, ".yml")
       end
 
       # Captured (or, for routine-cite, illustrative) return lines.
@@ -674,8 +731,9 @@ module RpmsRpc
     # BEHOPTCX PTINFO, BEHOPTPC GETBDP, ORQQPL LIST, ORQQAL LIST, ORWPS
     # ACTIVE, ORQQVI VITALS) call seed patient DFN 2, which has chart data
     # on the pinned build. ORWPT CWAD is routine-cited (inputs nil) until a
-    # live capture as PROV123 lands. Other entries stay on DFN 8
-    # DEMOPATIENT,REG2244. Public repo: never a real patient, partner, or tribe.
+    # live capture as PROV123 lands. Tribal reads: DFN 2; tribe/service-unit
+    # IEN 1. Other entries stay on DFN 8 DEMOPATIENT,REG2244. Public repo:
+    # never a real patient, partner, or tribe.
     CATALOG = [
       CatalogEntry.new(
         rpc: "ORQQVI VITALS", mapping: :vitals, kind: "fields", mode: :live,
@@ -1009,6 +1067,92 @@ module RpmsRpc
         pieces: [],
         note: "text_blob mapping — the gate checks reply-kind consistency and " \
               "records the real reply grammar; row parsing lives in DdrFileman.gets_entry."
+      ),
+      # Tribal enrollment slice (#566). Reads only: the same DDR calls
+      # Tribal already sends. fixture: keeps each reply in its own file so
+      # a GETS capture for enrollment does not overwrite the phone-fields
+      # entry above, and the two LISTER / VALIDATOR calls do not overwrite
+      # each other. Synthetic seed: patient DFN 2, tribe and service-unit IEN 1.
+      CatalogEntry.new(
+        fixture: "tribal-enrollment",
+        rpc: "DDR GETS ENTRY DATA", mapping: :ddr_gets_entry_data, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.gets_entry_param(file: Registration::PATIENT_FILE, iens: "2,",
+                                               fields: Tribal::ENROLLMENT_FIELDS, flags: "IE") ],
+        cite: "GETSC^DDR2 (DDR2.m:22-43,61): '[Data]' then " \
+              "FILE^IEN^FIELD^INTERNAL^EXTERNAL rows; '[ERROR]' block on failure",
+        pieces: [],
+        note: "Tribal.enrollment for synthetic DFN 2 on #9000001, fields .07, 1108, 1109, " \
+              "1110, 1111, 1112, and 1118, internal and external."
+      ),
+      CatalogEntry.new(
+        fixture: "tribal-eligibility",
+        rpc: "DDR GETS ENTRY DATA", mapping: :ddr_gets_entry_data, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.gets_entry_param(file: Registration::PATIENT_FILE, iens: "2,",
+                                               fields: Tribal::ELIGIBILITY_FIELDS, flags: "IE") ],
+        cite: "GETSC^DDR2 (DDR2.m:22-43,61): '[Data]' then " \
+              "FILE^IEN^FIELD^INTERNAL^EXTERNAL rows; '[ERROR]' block on failure",
+        pieces: [],
+        note: "Tribal.eligibility for synthetic DFN 2 on #9000001, fields 1111 and 1112."
+      ),
+      CatalogEntry.new(
+        fixture: "tribal-tribe-info",
+        rpc: "DDR GETS ENTRY DATA", mapping: :ddr_gets_entry_data, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.gets_entry_param(file: Tribal::TRIBE_FILE, iens: "1,",
+                                               fields: ".01;.02", flags: "IE") ],
+        cite: "GETSC^DDR2 (DDR2.m:22-43,61): '[Data]' then " \
+              "FILE^IEN^FIELD^INTERNAL^EXTERNAL rows; '[ERROR]' block on failure",
+        pieces: [],
+        note: "Tribal.tribe_info for TRIBE #9999999.03 IEN 1, fields .01 name and .02 code."
+      ),
+      CatalogEntry.new(
+        fixture: "tribal-service-unit",
+        rpc: "DDR GETS ENTRY DATA", mapping: :ddr_gets_entry_data, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.gets_entry_param(file: Tribal::SERVICE_UNIT_FILE, iens: "1,",
+                                               fields: ".01", flags: "IE") ],
+        cite: "GETSC^DDR2 (DDR2.m:22-43,61): '[Data]' then " \
+              "FILE^IEN^FIELD^INTERNAL^EXTERNAL rows; '[ERROR]' block on failure",
+        pieces: [],
+        note: "Tribal.service_unit for SERVICE UNIT #9999999.22 IEN 1, field .01 name."
+      ),
+      CatalogEntry.new(
+        fixture: "tribal-tribes",
+        rpc: "DDR LISTER", mapping: :ddr_lister, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.lister_param(file: Tribal::TRIBE_FILE, fields: Tribal::NAME_ONLY,
+                                           part: "OTHER", xref: "B") ],
+        cite: "LISTC^DDR (DDR.m:21-30): V0 '[Data]' then packed IEN-first rows and " \
+              "'[Errors]'; PARSE^DDR reads FILE/FIELDS/PART/XREF (DDR.m:53-65)",
+        pieces: [],
+        note: "Tribal.tribes(part: \"OTHER\") over TRIBE #9999999.03 on the B index."
+      ),
+      CatalogEntry.new(
+        fixture: "tribal-communities",
+        rpc: "DDR LISTER", mapping: :ddr_lister, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.lister_param(file: Tribal::COMMUNITY_FILE, fields: Tribal::COMMUNITY_FIELDS,
+                                           part: "STONEHAM", xref: "B") ],
+        cite: "LISTC^DDR (DDR.m:21-30): V0 '[Data]' then packed IEN-first rows and " \
+              "'[Errors]'; PARSE^DDR reads FILE/FIELDS/PART/XREF (DDR.m:53-65)",
+        pieces: [],
+        note: "Tribal.communities(part: \"STONEHAM\") over COMMUNITY #9999999.05 on the B index."
+      ),
+      CatalogEntry.new(
+        fixture: "tribal-validate-valid",
+        rpc: "DDR VALIDATOR", mapping: :ddr_validator, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.validator_param(file: Registration::PATIENT_FILE, iens: "",
+                                              field: Tribal::FIELD_ENROLLMENT_NUMBER, value: "12345") ],
+        cite: "VALC^DDR3 (DDR3.m:37-51): '[FILLER]', '[Data]', the internal result " \
+              "('^' when the input transform fails), then the external form",
+        pieces: [],
+        note: "Tribal.validate of 12345 against #9000001 field .07."
+      ),
+      CatalogEntry.new(
+        fixture: "tribal-validate-invalid",
+        rpc: "DDR VALIDATOR", mapping: :ddr_validator, kind: "text_blob", mode: :live,
+        inputs: [ DdrFileman.validator_param(file: Registration::PATIENT_FILE, iens: "",
+                                              field: Tribal::FIELD_ENROLLMENT_NUMBER, value: "X" * 40) ],
+        cite: "VALC^DDR3 (DDR3.m:37-51): '[FILLER]', '[Data]', the internal result " \
+              "('^' when the input transform fails), then the external form",
+        pieces: [],
+        note: "Tribal.validate of a 40-character value against #9000001 field .07."
       ),
       # ORWPCE reads (#286). Inputs are the first call in each unmapped
       # capture (synthetic notes on the pinned image). A gated fixture holds

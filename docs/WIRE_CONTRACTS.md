@@ -30,7 +30,8 @@ Same shape as the conformance pipeline, one level deeper:
    `conformance:ingest`): for the curated list in
    `RpmsRpc::WireCapture::CATALOG` (lib/rpms_rpc/wire_capture.rb), drive the
    real client (`RpmsRpc::CiaClient`) against a rung **we own** and write one
-   provenance-stamped fixture per RPC to `test/fixtures/wire_captures/`:
+   provenance-stamped fixture per catalog entry to `test/fixtures/wire_captures/`
+   (the RPC slug, or the entry's fixture name when several entries share an RPC):
    the verbatim raw reply, its sha256, the inputs, the release tag, capture
    UTC, and the cited position→semantics annotation. Read-only behavioral
    calls with synthetic inputs only — never a customer instance.
@@ -51,8 +52,12 @@ Same shape as the conformance pipeline, one level deeper:
    bundle exec rake wire:capture CONTAINER=rpms-ydb-9.0 RELEASE=bcer-9.0-ydb
    # without CONTAINER= or BROKER_HOST=, only routine-cite fixtures are (re)written
    # WIRE_FIXTURES_DIR=<dir> writes the fixtures there instead (a scratch capture)
-   # ONLY="RPC NAME" limits the run; CITE_ONLY="RPC A,RPC B" forces
-   # routine-cite output for live entries (e.g. broker unavailable)
+   # ONLY=<RPC or fixture name> limits the run (either name matches);
+   # CITE_ONLY="RPC A,fixture-b" forces routine-cite output for those live
+   # entries (e.g. broker unavailable). A CITE_ONLY token matches a fixture
+   # name, or an RPC name only for the entry whose fixture name is that
+   # RPC's slug, so naming a shared RPC does not cite the other fixtures.
+   # A token that matches no live catalog entry aborts the capture before any call.
    ```
 
    Scheduling writes are not part of that command. See [Write captures](#write-captures).

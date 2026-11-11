@@ -8,13 +8,15 @@ module RpmsRpc
     # and +0+ are real values, not absence. An Array is real when any
     # element is. Placeholder shapes live in PLACEHOLDER_PATTERNS.
     module Evidence
+      # UNKNOWN is the whole value only: "STATUS UNKNOWN" is a real label.
       PLACEHOLDER_PATTERNS = [
         /\AXXX-XX-(?:XXXX|\d{4})\z/i,
         /\*\*.*?\*\*/,
         /\A\*+\z/,
         /\A-+\z/,
         /\A000-00-0000\z/,
-        /\A<none>\z/i
+        /\A<none>\z/i,
+        /\AUNKNOWN\z/i
       ].freeze
 
       module_function

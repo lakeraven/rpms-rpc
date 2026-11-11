@@ -11,6 +11,17 @@
 # Known limits of this grading: a Y/N flag (veteran, sex) is proven from a single
 # observed value, not both (L6).
 # One line per RPC: RPC | status | reason | unproven: <fields or none>
+# Tribal enrollment slice (issue #566): persona PROV123, seed patient DFN 2.
+# Each Tribal read is graded on the API's returned keys. A whole-value UNKNOWN
+# (any case) is filler, not evidence. A validator "^" is the failed
+# input-transform marker and proves neither internal nor external. Tribe info
+# and service unit are called with IEN 1; that IEN is echoed from the request,
+# not returned by the build, so it is not wire evidence. A list :ien is proven
+# only by a positive integer on a row. List methods are proven by any row.
+# :valid is proven only when both true and false were observed.
+# test/live/registration_eligibility_update_live_test.rb failed live although its
+# hermetic tests passed: it looked up classification INDIAN/ALASKA NATIVE, absent
+# on this build; fixed in the spec commit.
 
 ORWPT ID INFO | partial | mapped ssn, sc_percent, ward_location, and room_bed are nil for outpatient DFN 2 (USER,TEST, sex M, veteran N, dob 1985-05-05) signed on as PROV123 | unproven: room_bed, sc_percent, ssn, ward_location
 BEHOPTCX PTINFO | partial | mapped mrn, designated_team, and primary_provider are nil for DFN 2 signed on as PROV123 (blank $$HRN for that sign-on division); ssn maps to FMTSSN's constant mask XXX-XX-XXXX, populated on the wire but not evidence | unproven: designated_team, mrn, primary_provider, ssn
@@ -20,6 +31,14 @@ ORQQPL LIST | partial | both of DFN 2's rows (IEN 1 *TYPE 2 DIABETES MELLITUS, I
 ORQQAL LIST | partial | mapped severity is nil on DFN 2's penicillin allergy (IEN 1, signs HIVES) signed on as PROV123 | unproven: severity
 ORWPS ACTIVE | not-proven | live call for DFN 2 signed on as PROV123 returned no data rows (no active medications in the seed), so Medication.active_for_patient proved none of order_id, type, name, status, stop_date, instructions, or comments | unproven: comments, instructions, name, order_id, status, stop_date, type
 ORQQVI VITALS | partial | mapped qualifiers is nil on all four vitals (PU 82, BP 142/88, HT 70, WT 214) for DFN 2 signed on as PROV123 | unproven: qualifiers
+Tribal.enrollment | partial | seed-data gaps for DFN 2 signed on as PROV123: .07 TRIBAL ENROLLMENT NO. is blank on every seed patient, so enrollment_number is empty; field 1118 community is the UNKNOWN filler, not a community. Tribe, quantum, classification, and eligibility status are populated. The seed gaps are tracked as lakeraven/rpms-ops#1079 | unproven: community, enrollment_number
+Tribal.eligibility | pilot-ready | DDR GETS ENTRY DATA for DFN 2 signed on as PROV123 populated eligibility status C, name CHS & DIRECT, classification IEN 1, and classification OTHER | unproven: none
+Tribal.tribe_info | pilot-ready | TRIBE #9999999.03 looked up at the requested IEN 1, signed on as PROV123, returned name OTHER and code 998 | unproven: none
+Tribal.service_unit | pilot-ready | SERVICE UNIT #9999999.22 looked up at the requested IEN 1, signed on as PROV123, returned name NON SERVICE UNIT | unproven: none
+Tribal.tribes | pilot-ready | DDR LISTER of TRIBE #9999999.03 for Tribal.tribes(part: "OTHER"), signed on as PROV123, returned one row with positive IEN 1 and name OTHER, so the list method is proven by any row | unproven: none
+Tribal.communities | pilot-ready | DDR LISTER of COMMUNITY #9999999.05 for Tribal.communities(part: "STONEHAM"), signed on as PROV123, returned a row with positive IEN 10663, name STONEHAM, county MIDDLESEX, and state MASSACHUSETTS, so the list method is proven by any row | unproven: none
+Tribal.validate | pilot-ready | :valid is proven only when both true and false were observed: DDR VALIDATOR on #9000001 field .07 signed on as PROV123 accepted 12345 (internal and external populated) and rejected a 40-character value whose internal is the "^" marker | unproven: none
+Registration.update eligibility | not-proven | AG Eligibility window via AGG UPDATE PATIENT, read back through DDR GETS ENTRY DATA and Tribal.enrollment by test/live/registration_eligibility_update_live_test.rb on synthetic DFN 990052 as PROV123; classification is proven only by filing BENEFICIARY #9999999.25 IEN 1 OTHER, the one entry on this build. Live run claimed, not sealed: run 928e66253ea07736 (2026-11-05, bcer-9.0-20261012-e7923a4-ydb) was reported passing but was a TEST= filtered run, which the harness never records (test/live/live_helper.rb write_summary prints NOT RECORDED for a filtered run), so no LiveSummary JSON exists. The row is graded pilot-ready only from a committed harness LiveSummary JSON of a full PROV123 rake test:live run on the pinned build plus its sha256 sidecar | unproven: blood_quantum, classification, eligibility_status, enrollment_number, tribe, tribe_quantum
 
 # Registration pilot status on bcer-9.0-20261012-e7923a4-ydb (issue #562, slice of #224).
 # Register, find and possible-match through the AG package (AGGRPC). The VOA + DDR

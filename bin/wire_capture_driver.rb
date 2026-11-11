@@ -70,20 +70,37 @@ if writes
   abort "WRITES=1 is refused unless the broker host resolves to loopback addresses only" if connect_host.nil?
 end
 
+# ONLY matches an RPC name or a fixture name. CITE_ONLY matches a fixture
+# name, or an RPC name only when the entry's fixture name is that RPC's
+# slug. Both are applied here, before connect, not only when fixtures are
+# written. The point of CITE_ONLY is to avoid calling an RPC that faults
+# or disturbs the session; filtering after the driver has already called
+# everything does not achieve that. An unmatched token aborts before any
+# call: a token that cites nothing would otherwise still call the live RPC
+# the operator meant to avoid. Captures are keyed by fixture name so two
+# entries that share an RPC do not overwrite each other's reply.
+only = ENV["ONLY"].to_s.strip
+cite_only = ENV["CITE_ONLY"].to_s.split(",").map(&:strip).reject(&:empty?)
+begin
+  entries = RpmsRpc::WireCapture.select_live_entries(only: only, cite_only: cite_only)
+rescue ArgumentError => e
+  warn e.message
+  exit 2
+end
+
 out = { "client" => "rpms-rpc RpmsRpc::CiaClient",
         "client_version" => (RpmsRpc.const_defined?(:VERSION) ? RpmsRpc::VERSION : "unversioned"),
         "captures" => {} }
+out["selected"] = entries.map(&:fixture_name)
 
 client = RpmsRpc::CiaClient.new(host: connect_host, port: port, timeout: 15)
 client.connect
 client.authenticate(acc, ver)
 
-# ONLY / CITE_ONLY narrow read captures here, not only when fixtures are
-# written. The point of CITE_ONLY is to avoid calling an RPC that faults or
-# disturbs the session; filtering after the driver has already called
-# everything does not achieve that. A write run has already refused ONLY.
+# A write run calls no read entries (driver_read_entries); the note flow
+# below is its whole capture. ONLY / CITE_ONLY were judged before connect.
 entries = RpmsRpc::WireCapture.driver_read_entries(writes: writes, only: only, cite_only: cite_only)
-out["selected"] = entries.map(&:rpc)
+out["selected"] = entries.map(&:fixture_name)
 
 entries.each do |entry|
   raw = if entry.context
@@ -92,9 +109,9 @@ entries.each do |entry|
     client.call_rpc_raw(entry.rpc, *entry.inputs)
   end
   raw = raw.join("\n") if raw.is_a?(Array)
-  out["captures"][entry.rpc] = { "inputs" => entry.inputs, "raw" => raw.to_s }
+  out["captures"][entry.fixture_name] = { "inputs" => entry.inputs, "raw" => raw.to_s }
 rescue StandardError => e
-  out["captures"][entry.rpc] = {
+  out["captures"][entry.fixture_name] = {
     "inputs" => entry.inputs,
     "error" => RpmsRpc::WireCapture::NoteWriteFlow.redacted_error(e, esig_secrets)
   }
