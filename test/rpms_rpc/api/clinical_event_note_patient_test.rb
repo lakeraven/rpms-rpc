@@ -242,6 +242,29 @@ class ClinicalEventNotePatientTest < Minitest::Test
     end
   end
 
+  # -- a note IEN with a leading zero -------------------------------------------
+  #
+  # GETALRT^TIUSRVR reads ^TIU(8925,"01",0) with the IEN as a string subscript,
+  # which is not the note's node, and the pinned build answers with an M
+  # GVUNDEF error. "01" is not a canonical IEN and names no note: the read
+  # refuses it (reason :unknown) before any RPC is sent.
+
+  NON_CANONICAL_NOTES = %w[01 001 0001 010].freeze
+
+  GUARDED.each do |method, (_rpc, rest, _zero_rest)|
+    define_method("test_#{method}_refuses_a_note_ien_with_a_leading_zero_before_any_rpc") do
+      NON_CANONICAL_NOTES.each do |note|
+        client = use RecordingClient.new(owner_reply: "1^#{OWNER}^903")
+
+        assert_refused(:unknown, client, "#{method} on note #{note.inspect}") do
+          clinical_event.public_send(method, note, OWNER, *rest)
+        end
+        assert_empty client.calls,
+                     "#{method} on note #{note.inspect}: no RPC may be sent, the ownership read included"
+      end
+    end
+  end
+
   # -- malformed optional arguments on a positive note -------------------------
 
   def test_malformed_optional_arguments_make_no_ownership_read

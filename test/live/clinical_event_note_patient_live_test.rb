@@ -20,32 +20,38 @@ class ClinicalEventNotePatientLiveTest < LiveSpec::Test
   OWNER_DFN = 4        # DEMO,PATIENT ONE
   OTHER_DFN = 990_002  # BRAVO,ALEX, a synthetic seed patient
 
-  VISIT_STATUSES = %i[none stand_alone appointment].freeze
+  # What the pinned build answers for note 1 under DFN 4.
+  VISIT_IEN = 4
+  VISIT_STRING_FORMAT = /\A\d+;\d{7}(\.\d+)?;[A-Z]\z/ # observed "3;3260828.0008;A"
+  SEED_CHANGED = "the seed may have changed: is this the pinned build?"
 
   def clinical_event = RpmsRpc::ClinicalEvent
 
   # -- the note asked for under its own patient -------------------------------
 
   def test_visit_for_note_answers_for_the_notes_own_patient
-    visit = clinical_event.visit_for_note(NOTE_IEN, OWNER_DFN)
-
-    assert visit.nil? || (visit.is_a?(Integer) && visit.positive?),
-           "expected nil or a visit IEN for note #{NOTE_IEN}; got #{visit.inspect}"
+    assert_equal VISIT_IEN, clinical_event.visit_for_note(NOTE_IEN, OWNER_DFN),
+                 "expected visit #{VISIT_IEN} for note #{NOTE_IEN}; #{SEED_CHANGED}"
   end
 
   def test_has_visit_answers_for_the_notes_own_patient
-    assert_includes [ true, false ], clinical_event.has_visit?(NOTE_IEN, OWNER_DFN)
+    assert_equal true, clinical_event.has_visit?(NOTE_IEN, OWNER_DFN),
+                 "expected note #{NOTE_IEN} to have a visit; #{SEED_CHANGED}"
   end
 
   def test_visit_status_answers_for_the_notes_own_patient
-    assert_includes VISIT_STATUSES, clinical_event.visit_status(NOTE_IEN, OWNER_DFN)
+    assert_equal :stand_alone, clinical_event.visit_status(NOTE_IEN, OWNER_DFN),
+                 "expected a stand-alone visit for note #{NOTE_IEN}; #{SEED_CHANGED}"
   end
 
   def test_pce_for_note_answers_for_the_notes_own_patient
     bundle = clinical_event.pce_for_note(NOTE_IEN, OWNER_DFN)
 
-    assert bundle.nil? || bundle.is_a?(Hash),
-           "expected nil or the PCE bundle for note #{NOTE_IEN}; got #{bundle.class}"
+    assert_kind_of Hash, bundle, "expected the PCE bundle for note #{NOTE_IEN}; #{SEED_CHANGED}"
+    header = bundle[:header]
+    assert_kind_of Hash, header, "expected a header in the PCE bundle for note #{NOTE_IEN}; #{SEED_CHANGED}"
+    assert_match VISIT_STRING_FORMAT, header[:visit_string].to_s,
+                 "expected a visit string in the PCE header for note #{NOTE_IEN}; #{SEED_CHANGED}"
   end
 
   # -- the same note asked for under another patient --------------------------
