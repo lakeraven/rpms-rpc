@@ -6,9 +6,9 @@
 #   rake rpc:coverage_html  the same report in SimpleCov's HTML interface, one file per package
 #   rake rpc:exclusions regenerates the unreachable exclusions (no routine, no entry point, inactive,
 #                       no context, out of order) from the pinned release's reach classes, in the
-#                       <tag>-rpcs.json rpms-ops publishes and conformance:pin commits (#278, #394, #406)
+#                       <tag>-rpcs.json openrpms publishes and conformance:pin commits (#278, #394, #406)
 #   rake rpc:cases CASES=<cases.jsonl> BROKER_HOST= BROKER_PORT= RPMS_ACCESS= RPMS_VERIFY= [PERSONA=] [OUT=]
-#                       runs rpms-ops' wire-level cases (data, not API calls; rpms-ops#834) and
+#                       runs openrpms' wire-level cases (data, not API calls; openrpms#834) and
 #                       exits 1 unless every case of the persona gives its expected verdict
 #   rake rpc:live BACKEND=<label> BROKER_HOST= BROKER_PORT= RPMS_ACCESS= RPMS_VERIFY= [RPMS_CONTEXT=] [PERSONA=]
 #                       runs the read catalogue against a live CIA broker and merges the result
@@ -198,7 +198,7 @@ namespace :rpc do
     sh({ "EVIDENCE_DIR" => rpc_evidence_dir.call, "EVIDENCE" => nil }, RbConfig.ruby, runner)
   end
 
-  desc "Run rpms-ops' wire-level cases (CASES=<data/conformance/cases.jsonl>) against one live CIA backend (rpms-ops#834)"
+  desc "Run openrpms' wire-level cases (CASES=<data/conformance/cases.jsonl>) against one live CIA backend (openrpms#834)"
   task :cases do
     runner = File.join(rpc_root, "tools/rpc_coverage/run_cases.rb")
     abort "rpc:cases needs a source checkout (#{runner} is not in the gem)" unless File.exist?(runner)

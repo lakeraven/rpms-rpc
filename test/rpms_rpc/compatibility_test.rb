@@ -161,7 +161,7 @@ class RpmsRpc::CompatibilityTest < Minitest::Test
     assert_match(/did not advance past "ORWPT SELECT"/, err.message)
   end
 
-  # What CIANBRPC GETRPCS sends on every engine (rpms-ops#957): the names run together, because
+  # What CIANBRPC GETRPCS sends on every engine (openrpms#957): the names run together, because
   # its entry has WORD WRAP ON unset and `W !` ends a row with no bytes on the CIA socket. A row
   # that is not IEN^NAME^INACTIVE fails closed rather than become a name.
   def test_cia_a_row_that_is_not_ien_name_inactive_fails_closed

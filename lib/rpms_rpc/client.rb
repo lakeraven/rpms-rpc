@@ -4,7 +4,7 @@ require "socket"
 require "monitor"
 # RpmsRpc.sanitize_error and RpmsRpc.configuration live in core.rb. Every raise site below calls
 # sanitize_error, so a consumer that requires a client file directly (rpms_rpc/cia_client, as the
-# rpms-ops release gate driver does) must still get it - otherwise any broker error surfaces as
+# openrpms release gate driver does) must still get it - otherwise any broker error surfaces as
 # NoMethodError and the real message is lost. Core, not the entry point: rpms_rpc.rb also
 # pulls the mappings and key-capability tables, which a standalone client has no use for.
 require "rpms_rpc/core"
@@ -382,7 +382,7 @@ module RpmsRpc
         # Step 2: XUS AV CODE with encrypted credentials.
         # NOT "BGU AVLOGON", which looks like an equivalent and is not: it sets
         # DUZ(0)="@" three lines before it checks the codes and never clears it
-        # (rpms-ops#655). Enforced by test/rpms_rpc/forbidden_auth_rpcs_test.rb.
+        # (openrpms#655). Enforced by test/rpms_rpc/forbidden_auth_rpcs_test.rb.
         reply = call_rpc_raw("XUS AV CODE", xwb_encrypt("#{ac};#{vc}"))
 
         lines = reply.split("\r\n")

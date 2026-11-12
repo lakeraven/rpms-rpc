@@ -2,7 +2,7 @@
 
 module RpmsRpc
   module Conformance
-    # Parses a PACKAGE #9.4 capture (rpms-ops bin/capture.sh) into the
+    # Parses a PACKAGE #9.4 capture (openrpms bin/capture.sh) into the
     # Fingerprint `packages` face: { name => version }.
     #
     # The capture's M loop writes, per entry:

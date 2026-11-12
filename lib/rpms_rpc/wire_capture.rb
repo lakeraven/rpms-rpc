@@ -262,7 +262,7 @@ module RpmsRpc
       entries.select { |entry| entry.named?(name) }
     end
 
-    # Verdicts for a scratch capture against committed fixtures (rpms-ops#975),
+    # Verdicts for a scratch capture against committed fixtures (openrpms#975),
     # one [fixture, verdict, committed source, captured source] row per fixture called
     # on either side. SAME: raw bytes identical. SAME-ROWS: the data rows
     # match and only the CIA frame header differs (it counts the session's
@@ -711,7 +711,7 @@ module RpmsRpc
     # -- Curated capture targets ---------------------------------------------
     #
     # Piece semantics below are CITED to the M routines serving these RPCs in
-    # the bcer-9.0-ydb corpus (rpms-ops/data/standup/bcer-9.0-ydb/r/) — the
+    # the bcer-9.0-ydb corpus (openrpms/data/standup/bcer-9.0-ydb/r/) — the
     # same corpus the registration/DDR mappings were verified against. The
     # capture task stamps them into the fixtures; the contract test then
     # gates mappings against the committed fixtures.

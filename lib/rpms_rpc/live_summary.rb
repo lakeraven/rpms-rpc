@@ -220,7 +220,7 @@ module RpmsRpc
       summary_paths(dir).filter_map { |path| outcome_of(path) }
     end
 
-    # The one release in the rpms-ops lock. Zero or several is an error:
+    # The one release in the openrpms lock. Zero or several is an error:
     # the guard refuses rather than guess which build the live run was for.
     # ArgumentError, not an RpmsRpc::Error: a lock that does not name exactly
     # one build is a bad pin in the repo, not a failure a host rescues from RPMS.

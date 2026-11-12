@@ -2,7 +2,7 @@
 #
 # backend           label of the backend the number is about; its live evidence is
 #                   rpc-coverage/live/<backend>.json in lakeraven/rpms-diffs (written by `rake rpc:live BACKEND=<backend>`)
-# release           the pinned rpms-ops build whose RPC signature the number is about; it must be pinned in
+# release           the pinned openrpms build whose RPC signature the number is about; it must be pinned in
 #                   data/fingerprints/rpms-ops.lock.yml (`rake conformance:pin`, rpms-rpc#222)
 # registry          that build's RPC-surface document (<tag>-rpcs.json), as committed by conformance:pin
 # packages          that build's #9.4 package list; groups RPCs by package in rpc:coverage_html
@@ -16,9 +16,9 @@
 # NOTE: the live evidence (local-ydb-0930) is a local docker container of
 # bcer-9.0-20260930-8c88e47-ydb; the pinned release moved to bcer-9.0-20261012-e7923a4-ydb on
 # 2026-10-12 (rpms-rpc#409). The two registries differ in one #8994 row: DDR KEY VALIDATOR names
-# KEYVAL^DDR4 on 1012, where 0930 named a label that does not exist (rpms-ops#720). The reach
+# KEYVAL^DDR4 on 1012, where 0930 named a label that does not exist (openrpms#720). The reach
 # faces differ only in that RPC (client-callable on 1012) and in which options list the DDR
-# family (rpms-ops#674). Re-run `rake rpc:live` against a 1012 container to bring the evidence
+# family (openrpms#674). Re-run `rake rpc:live` against a 1012 container to bring the evidence
 # onto the pinned build. minimum_percent 0.8 was recorded from a programmer run; the evidence
 # is now taken as the least-privilege PROV123 (0.67%), so rpc:coverage prints a NOTE until
 # coverage climbs back past it.

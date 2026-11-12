@@ -5,7 +5,7 @@ require "tmpdir"
 require "rpms_rpc/conformance/package_dump"
 
 class RpmsRpc::Conformance::PackageDumpTest < Minitest::Test
-  # Real capture shape (rpms-ops bin/capture.sh): the M loop writes
+  # Real capture shape (openrpms bin/capture.sh): the M loop writes
   # PREFIX^NAME^VERSION per PACKAGE #9.4 entry, wrapped in session noise —
   # blank lines and bare "RPMS>" prompts.
   DUMP = <<~DUMP

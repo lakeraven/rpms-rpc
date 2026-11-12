@@ -79,7 +79,7 @@ bmw_tables: {}              # optional IRIS face — { "BMW.PATIENT": [col, col]
 ```
 
 A **reference** fingerprint is the same shape with `release` set; captured once
-per rung (follow-up: emitted by rpms-ops at release-cut, pinned here).
+per rung (follow-up: emitted by openrpms at release-cut, pinned here).
 
 ## Requirements (what our code needs)
 
@@ -142,5 +142,5 @@ does not change when they do.
   dump (representative subset), plus seed reference fingerprints for two rungs.
 - `rake conformance:probe`; minitest coverage.
 - **Out of scope (follow-ups):** live reader adapters, all-5-rung reference
-  fingerprints (need booted releases / rpms-ops emit), capability→patch map,
+  fingerprints (need booted releases / openrpms emit), capability→patch map,
   packages/patches/BMW faces populated.

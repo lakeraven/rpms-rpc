@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # A release may be tagged only when live summaries prove a green run against
-# the single pinned rpms-ops build (rpms-rpc#361, ADR 0010 assertion 10), of
+# the single pinned openrpms build (rpms-rpc#361, ADR 0010 assertion 10), of
 # the very files the gem ships (rpms-rpc#441) and the live suite that produced
 # the summary (schema 3: passed and suite).
 # This task runs before Bundler tags or pushes. It does not tag, publish,

@@ -34,7 +34,7 @@ return format.
 
 ## Stock RPCs (#420)
 
-Verified against the RPMS 9.0 YDB standup routines in rpms-ops
+Verified against the RPMS 9.0 YDB standup routines in openrpms
 `data/standup/bcer-9.0-ydb/r/` (working tree `d37932d`; the pin commit
 `e7923a47` does not store the routine files). Formal lists and context
 options are the pinned inventory `bcer-9.0-20261012-e7923a4-ydb`
@@ -88,7 +88,7 @@ against M source per ADR 0002.
 > - registration → the AG package's `AGG ADD NEW PATIENT` / `AGG UPDATE PATIENT`
 >   under `AGGRPC` (`RpmsRpc::Registration.register`). The `VAFC VOA ADD PATIENT`
 >   + DDR composition that first replaced it was removed in #409: no RPMS
->   context serves `VAFC VOA ADD PATIENT` (rpms-ops#499, #674)
+>   context serves `VAFC VOA ADD PATIENT` (openrpms#499, #674)
 > - patient update → the AG package's `AGG UPDATE PATIENT`, one call per AG window, under
 >   `AGG LOCK PATIENT` (`RpmsRpc::Registration.update`, #381). It replaced a `DDR FILER`
 >   path: `EDIT^VAFCPTED` has no `^XWB(8994)` registration on any observed target
@@ -103,7 +103,7 @@ against M source per ADR 0002.
 
 ## Behavioral Health writes (AMHGRPC)
 
-Read against `rpms-ops/data/standup/bcer-9.0-ydb/r/AMHGSVF.m` and
+Read against `openrpms/data/standup/bcer-9.0-ydb/r/AMHGSVF.m` and
 `AMHGEVF.m`. Each RPC takes one pipe-delimited `AMHSTR` parameter and
 returns a two-row GLOBAL ARRAY: header `T00030Result` (visit save uses
 `T00010BMXIEN`), then the MHSS RECORD IEN or `0~<reason>` from `AMHER`.

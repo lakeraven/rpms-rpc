@@ -976,7 +976,7 @@ module RpmsRpc
     #
     # NOTE: these are exercised via MockClient because no live-dispatch proof
     # exists for this RPC set yet (rpms-rpc#224) — NOT because the backend is
-    # blocked. rpms-ops#366 (the YDB releases lacking the #8994 registry) closed
+    # blocked. openrpms#366 (the YDB releases lacking the #8994 registry) closed
     # 2026-08-23: ^XWB is force-included in the export and its absence fails the
     # build.
 
@@ -1129,7 +1129,7 @@ module RpmsRpc
     # CiaClient#call_rpc_global_array reads the reply to its $C(31) sentinel.
     # The text_blob attribute lets MockClient.seed the raw reply verbatim.
     # Names/registration confirmed in the observed #8994 registry
-    # (rpms-ops/data/observed/broker_8994.txt, per #203/#209).
+    # (openrpms/data/observed/broker_8994.txt, per #203/#209).
 
     # AGG ADD NEW PATIENT — ADD^AGGPTADD (return type GLOBAL ARRAY). Params:
     # window name, DFN ("" = new), $C(28)-delimited NAME=VALUE PARMS. Reply

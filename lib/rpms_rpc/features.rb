@@ -58,14 +58,14 @@ module RpmsRpc
   # LIMIT: the out-of-order set is a sound but incomplete derivation. An
   # out-of-order option whose RPCs are all also listed by usable options is
   # not detected — those RPCs are published as client-callable, so no
-  # out-of-order row names the option. The complete fix needs rpms-ops to
-  # publish a per-option out-of-order flag, tracked in lakeraven/rpms-ops#1043.
+  # out-of-order row names the option. The complete fix needs openrpms to
+  # publish a per-option out-of-order flag, tracked in lakeraven/openrpms#1043.
   #
   # The parsed build surface, and the out-of-order options derived from it,
   # are cached per [realpath, tag]. The tag is the inventory directory's own
   # name after realpath, so a symlinked alias and the real tag share one
   # entry and answer the same whether the alias is asked first or second.
-  # The parsed rpms-ops lock is cached with them, so a repeated `available?`
+  # The parsed openrpms lock is cached with them, so a repeated `available?`
   # or `for` does not read those files again. `reset!` drops both. One mutex
   # guards the caches for concurrent readers; the out-of-order set is
   # computed once, under that mutex, before the entry is published.
@@ -84,7 +84,7 @@ module RpmsRpc
     # the session's bound context.
     Feature = Data.define(:name, :context, :rpcs)
 
-    # Reach class published by rpms-ops bin/rpc_reach_face.rb. Callable in
+    # Reach class published by openrpms bin/rpc_reach_face.rb. Callable in
     # general also includes broker-exempt; a feature names a context, so
     # only client-callable under that context counts.
     CLIENT_CALLABLE = "client-callable"
@@ -170,7 +170,7 @@ module RpmsRpc
     private_constant :OMITTED
 
     # One lock for the feature registry, the per-directory build surfaces, and
-    # the parsed rpms-ops lock. Enough for concurrent readers; writers are reset!.
+    # the parsed openrpms lock. Enough for concurrent readers; writers are reset!.
     CACHE_MUTEX = Mutex.new
     private_constant :CACHE_MUTEX
 
@@ -178,7 +178,7 @@ module RpmsRpc
       registry
     end
 
-    # Drop the cached feature registry, parsed build surfaces, and rpms-ops lock
+    # Drop the cached feature registry, parsed build surfaces, and openrpms lock
     # so the next read loads REQUIRED_RPCS_PATH and the inventory files again.
     def reset!
       CACHE_MUTEX.synchronize do
@@ -208,7 +208,7 @@ module RpmsRpc
       registry.select { |entry| served_for?(surface, entry, context) }.map(&:name)
     end
 
-    # Release tags recorded in the rpms-ops lock, in file order.
+    # Release tags recorded in the openrpms lock, in file order.
     # `available?` with no build calls this and will not choose among them.
     def pinned_build_tags
       pinned_lock.entries.keys
@@ -329,8 +329,8 @@ module RpmsRpc
     # LIMIT: sound but incomplete. An out-of-order option whose RPCs are all
     # also listed by usable options is not detected — those RPCs are published
     # as client-callable, so no out-of-order row names the option. The complete
-    # fix needs rpms-ops to publish a per-option out-of-order flag, tracked in
-    # lakeraven/rpms-ops#1043.
+    # fix needs openrpms to publish a per-option out-of-order flag, tracked in
+    # lakeraven/openrpms#1043.
     def client_callable_under?(cached, rpc_name, context)
       return false if cached.out_of_order_options.include?(context)
 
@@ -384,7 +384,7 @@ module RpmsRpc
       CachedSurface.new(surface: surface, out_of_order_options: out_of_order_options(surface)).freeze
     end
 
-    # The parsed rpms-ops lock, read once per path until reset!.
+    # The parsed openrpms lock, read once per path until reset!.
     def pinned_lock
       path = LOCK_PATH
       CACHE_MUTEX.synchronize do

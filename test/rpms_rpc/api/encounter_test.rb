@@ -161,7 +161,7 @@ class EncounterTest < Minitest::Test
 
   # ===========================================================================
   # CREATE — visit get-or-create over BEHOENCX FETCH with the CREATE flag
-  # (FETCH^BEHOENCX; GETVISIT is a pure fetch and never creates — rpms-ops
+  # (FETCH^BEHOENCX; GETVISIT is a pure fetch and never creates — openrpms
   # docs/REGISTRATION_RPC_CONTRACTS.md §3).
   # ===========================================================================
 

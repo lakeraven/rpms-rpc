@@ -8,7 +8,7 @@ require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/patient_application"
 
 # Hermetic tests for PATIENT APPLICATIONS (#9000045) through DDR LISTER and
-# DDR FILER inside AG's edit lock (rpms-ux S-REG-03.3 to 03.5, rpms-ops#1053).
+# DDR FILER inside AG's edit lock (rpms-ux S-REG-03.3 to 03.5, openrpms#1053).
 class PatientApplicationTest < Minitest::Test
   PA = RpmsRpc::PatientApplication
   Ddr = RpmsRpc::DdrFileman

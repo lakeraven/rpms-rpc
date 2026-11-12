@@ -1,6 +1,6 @@
 # Behavioral Health save RPCs: what each reads and what it files
 
-Read in the pinned build's routines (`rpms-ops/data/standup/bcer-9.0-ydb/r/AMHGSVF.m`, `AMHGEVF.m`) and the
+Read in the pinned build's routines (`openrpms/data/standup/bcer-9.0-ydb/r/AMHGSVF.m`, `AMHGEVF.m`) and the
 broker inventory (`*-broker_8994.txt`, option `AMHGRPC`). Read only; no broker was run for this note.
 The live write specs (ADR 0009) are what prove each wrapper; this note settles the two points #525 left unread.
 `BehavioralHealth.save_health_factors` is the wrapper this issue adds. `AMHG SAVE SCREENING` and `AMHG SAVE MEASUREMENTS` are `BehavioralHealth::Wellness` (#540).

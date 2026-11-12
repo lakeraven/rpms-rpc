@@ -71,7 +71,7 @@ class BehavioralHealthReferenceTest < Minitest::Test
   end
 
   # The reply IRIS (bcer-9.0-20261109-d3adcff-iris, Community 2026.2) sent for a provider with an
-  # administrative record and no POV, 2026-11-11: ADML^AMHGDA failed at +32 (rpms-ops#1119) and its
+  # administrative record and no POV, 2026-11-11: ADML^AMHGDA failed at +32 (openrpms#1119) and its
   # trap wrote the error over row 1. It is raised, not read as a record (rpms-rpc#706).
   ADMIN_RECORDS_ERROR = "5\x00T00010BMXIEN^T00030SortDate^T00030Date^T00050Program^T00050ActivityCode^T00050POV^" \
                         "T00010Time^T00030Provider^T00080ProviderNarrative^T00030LocationofEncounter\x1E" \

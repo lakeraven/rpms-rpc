@@ -174,7 +174,7 @@ module RpmsRpc
     # notes). Runs the registered BEHOENCX FETCH with its CREATE flag
     # (FETCH^BEHOENCX; params/reply on :encounter_fetch). Creation
     # descends to GETVISIT^BSDAPI4, the IHS PCC visit-creation API —
-    # GETVISIT^BEHOENCX itself never creates (rpms-ops
+    # GETVISIT^BEHOENCX itself never creates (openrpms
     # docs/REGISTRATION_RPC_CONTRACTS.md §3).
     #
     #   location_ien:     hospital location IEN

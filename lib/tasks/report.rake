@@ -10,7 +10,7 @@
 # LIVE_DISPOSABLE is passed to live children only when set to 1.
 # BROKER_PROTOCOL, when set, is passed to those live children only.
 # Fresh container: FRESH=1, optional DRY_RUN=1. The image is the newest
-# published bcer-*-ydb release of lakeraven/rpms-ops. Each
+# published bcer-*-ydb release of lakeraven/openrpms. Each
 # run names its container with the time and a random hex token and removes
 # only that name, including after an interrupt. Live children get
 # LIVE_DISPOSABLE=1. The report's build is that release's tag, including a

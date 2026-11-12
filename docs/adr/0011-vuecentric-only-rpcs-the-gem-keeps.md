@@ -34,7 +34,7 @@ On `bcer-9.0-20261012-e7923a4-ydb` that is 41 RPCs.
 | `BEHOENCX FETCH` | `RpmsRpc::Encounter`, `RpmsRpc::Scheduling` | As above. | As above. |
 | `BEHOENCX GETVISIT` | `RpmsRpc::Encounter`, `RpmsRpc::Measurement` | As above. | As above. |
 | `BEHOENCX VISITLST` | `RpmsRpc::Encounter` | `VISITLST^BEHOENCX` lists the patient's visits with the IHS lock flag (`ISLOCKED^BEHOENCX`), the primary provider and a standalone flag, then appointments pending check-in (`SDA^VADPT`). `ORWCV VST` and `ORQQVS VISITS/APPTS` (`OR CPRS GUI CHART`) list visits and appointments without those fields. Not compared live. | `ORWCV VST` plus a DDR read of VISIT for the lock and provider, unverified. |
-| `BEHOENPC SAVE` | `RpmsRpc::Procedure` | Files the visit and its V files in one call. `ORWPCE SAVE` is registered to `SAVE^CIAVCXPC`, which the build does not carry (rpms-ops#1042). Decided for the psych CPT (#524). | None outside `CIAV VUECENTRIC`. |
+| `BEHOENPC SAVE` | `RpmsRpc::Procedure` | Files the visit and its V files in one call. `ORWPCE SAVE` is registered to `SAVE^CIAVCXPC`, which the build does not carry (openrpms#1042). Decided for the psych CPT (#524). | None outside `CIAV VUECENTRIC`. |
 | `BEHOPTPC GETBDP` | `RpmsRpc::Patient` | Designated provider. `ORWPT1 PRCARE` reads PCMM, which IHS sites do not fill. | DDR read of IHS PATIENT (#9000001) .14. |
 | `BEHOPTPL DOBLKP` | `RpmsRpc::PatientSelection` | VueCentric's patient lookups; behaviour not compared with a stock lookup. | `AGG LOOKUP PATIENTS` (`AGGRPC`), a candidate. |
 | `BEHOPTPL HRNLKP` | `RpmsRpc::PatientSelection` | As above. | As above. |
@@ -90,4 +90,4 @@ On `bcer-9.0-20261012-e7923a4-ydb` that is 41 RPCs.
 
 - docs/vuecentric-exit.md, for the needs, the stock candidates and the class of each.
 - `test/rpms_rpc/vuecentric_only_rpcs_test.rb` (the list and each RPC's option) and `test/live/vuecentric_only_context_live_test.rb` (the bind, live).
-- rpms-rpc#527, #524, #645, #661; rpms-ops#1042.
+- rpms-rpc#527, #524, #645, #661; openrpms#1042.
