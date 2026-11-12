@@ -58,6 +58,7 @@ module OpenApi
       "ProgressNote" => { path: "progress-notes", own: %w[note_ien] },
       "Referral" => { path: "referrals" },
       "Registration" => { path: "registrations" },
+      "RegistrationParameters" => { path: "registration-parameters" },
       "Reminders" => { path: "reminders" },
       "Scheduling" => { path: "appointments" },
       "SchedulingMaintenance" => { path: "appointments" },
