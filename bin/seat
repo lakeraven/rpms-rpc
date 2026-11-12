@@ -57,7 +57,7 @@ chain_spec="cursor:composer-2.5 native:fable";          secs_spec=1200
 chain_build="cursor:grok-4.7-high native:sonnet";       secs_build=2400
 chain_build_hard="cursor:grok-4.7-xhigh native:opus";   secs_build_hard=2400
 chain_gate="cursor:composer-2.5 native:fable";          secs_gate=1200
-chain_gate2="codex:gpt-5.6-terra cursor:glm-5.2-high native:opus"; secs_gate2=1200
+chain_gate2="codex:gpt-5.6-terra native:opus";   secs_gate2=1200
 # build-hard and gate2 both end in native opus, so a caller whose build-hard fell back skips
 # the gate2 fallback rather than have a model review its own build.
 # Reasoning effort for Codex links (--ignore-user-config drops the user's setting).
