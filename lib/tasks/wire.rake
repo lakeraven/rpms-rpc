@@ -110,6 +110,8 @@ namespace :wire do
     )
     abort "wire:capture: #{refusal}" if refusal
 
+    abort "wire:capture: CITE_ONLY is refused on a write run (WRITES=1)" if writes && !cite_only.empty?
+
     # Fail closed before any container or driver run.
     unmatched = RpmsRpc::WireCapture.unmatched_cite_only_tokens(RpmsRpc::WireCapture::CATALOG.select(&:live?), cite_only)
     abort "wire:capture: CITE_ONLY names no live catalog entry: #{unmatched.map(&:inspect).join(", ")}" unless unmatched.empty?

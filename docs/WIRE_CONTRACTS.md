@@ -57,6 +57,7 @@ Same shape as the conformance pipeline, one level deeper:
    # forces routine-cite output for live entries (e.g. broker unavailable).
    # CITE_ONLY matches a fixture name, or an RPC name only for the entry whose
    # fixture is the RPC slug. A token matching no live entry aborts before any call.
+   # CITE_ONLY is refused on WRITES=1 (as ONLY is). Duplicate fixture names among live entries abort.
    # rake wire:compare reports one row per fixture.
    ```
 

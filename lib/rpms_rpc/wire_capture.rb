@@ -88,6 +88,9 @@ module RpmsRpc
     # ONLY narrows them.
     def self.select_live_entries(catalog: CATALOG, only: "", cite_only: [])
       live = catalog.select(&:live?)
+      duplicates = live.group_by(&:fixture_name).select { |_, group| group.size > 1 }.keys
+      raise ArgumentError, "duplicate live fixture names: #{duplicates.map(&:inspect).join(", ")}" unless duplicates.empty?
+
       unmatched = unmatched_cite_only_tokens(live, cite_only)
       raise ArgumentError, "CITE_ONLY names no live catalog entry: #{unmatched.map(&:inspect).join(", ")}" unless unmatched.empty?
 
@@ -226,9 +229,13 @@ module RpmsRpc
     # before create, and that call is not selected here. writes false or nil
     # is the live catalog, narrowed by ONLY, with CITE_ONLY left out.
     def self.driver_read_entries(writes:, only:, cite_only:)
-      return [] if writes == true
-
       tokens = Array(cite_only).map { |token| token.to_s.strip }.reject(&:empty?)
+      if writes == true
+        raise ArgumentError, "CITE_ONLY is refused on a write run (WRITES=1): #{tokens.map(&:inspect).join(", ")}" unless tokens.empty?
+
+        return []
+      end
+
       select_live_entries(only: only.to_s.strip, cite_only: tokens)
     end
 
