@@ -18,6 +18,12 @@ require "set"
 #   note and ignores DFN (GETVISIT^ORWPCE2). Optional visit_string / location_ien /
 #   datetime on that path are sent only when blank or well-formed; malformed values
 #   must not reach the broker.
+# - Because the server ignores DFN there, ClinicalEvent reads the note's patient
+#   first (issue #531): TIU GET ALERT INFO (GETALRT^TIUSRVR), one parameter, the
+#   note IEN, under OR CPRS GUI CHART. The reply is "note^DFN^tab", or -1. The
+#   ORWPCE RPC is sent only when that DFN is the DFN the caller passed; anything
+#   else raises ClinicalEvent::NotePatientMismatchError and sends no ORWPCE RPC.
+#   Note 0 (the location lookup, which does use DFN) makes no such read.
 # - PCE4NOTE HDR piece 5 (1-indexed) is the note author ($P(^TIU(8925,IEN,12),U,2)),
 #   exposed as :author_ien (Integer), not :visit_ien.
 module OrwpceReadHelpers
@@ -51,6 +57,14 @@ module OrwpceReadHelpers
     "ORWPCE HASVISIT" => :pce_has_visit,
     "ORWPCE NOTEVSTR" => :pce_note_visit_string
   }.freeze
+
+  # The note-ownership read (#531). Not an ORWPCE read and not a promoted
+  # capture, so it stays out of IN_SCOPE_RPCS; ClinicalEvent still requires it.
+  NOTE_PATIENT_RPC = "TIU GET ALERT INFO"
+  NOTE_PATIENT_MAPPING = :tiu_note_patient
+  NOTE_PATIENT_CONTEXT = "OR CPRS GUI CHART"
+  NOTE_KEYED_RPCS = [ "ORWPCE GET VISIT", "ORWPCE HASVISIT", "ORWPCE PCE4NOTE" ].freeze
+  REQUIRED_RPCS = (IN_SCOPE_RPCS + [ NOTE_PATIENT_RPC ]).freeze
 
   CAPTURE_BASENAME = ->(rpc) { "#{rpc.downcase.tr(" /", "--")}.yml" }
 
@@ -101,26 +115,94 @@ module OrwpceReadHelpers
     def served_rpcs(names) = names.to_set
   end
 
-  class RecordingClient
-    attr_reader :calls
+  # The reply GETALRT^TIUSRVR gives for a note on file: note^DFN^tab.
+  def note_owner_reply(note_ien, dfn)
+    "#{note_ien}^#{dfn}^903"
+  end
 
-    def initialize(served: IN_SCOPE_RPCS)
+  # Seed a MockClient with the note's patient, as verbatim wire lines.
+  def seed_note_owner(mock, note_ien, dfn)
+    mock.seed_raw_lines(NOTE_PATIENT_MAPPING, note_ien, [ note_owner_reply(note_ien, dfn) ])
+  end
+
+  def note_patient_calls(client)
+    client.calls.select { |rpc, *| rpc == NOTE_PATIENT_RPC }
+  end
+
+  # Every call but the ownership read.
+  def orwpce_calls(client)
+    client.calls.reject { |rpc, *| rpc == NOTE_PATIENT_RPC }
+  end
+
+  # A positive-note read: one ownership read carrying the note IEN, then the
+  # ORWPCE call, and nothing else.
+  def assert_guarded_calls(client, note_ien, expected_call, msg = nil)
+    assert_equal [ expected_call ], orwpce_calls(client), msg
+    owner = note_patient_calls(client)
+    assert_equal 1, owner.size, "expected one #{NOTE_PATIENT_RPC} call; got #{client.calls.inspect}"
+    assert_equal [ note_ien.to_s ], owner.first.drop(1).map(&:to_s),
+                 "#{NOTE_PATIENT_RPC} takes the note IEN and nothing else"
+    assert_equal NOTE_PATIENT_RPC, client.calls.first.first,
+                 "the ownership read must come before #{expected_call.first}"
+  end
+
+  # Records every call as [ rpc, *params ] and the option it ran under
+  # (#contexts, same index). ORWPCE calls answer empty. TIU GET ALERT INFO
+  # answers +owner_reply+: by default the note asked for, owned by
+  # +owner_dfn+; otherwise the raw reply given (String, Array or nil), or an
+  # exception to raise.
+  class RecordingClient
+    OWNED = Object.new.freeze
+
+    attr_reader :calls, :contexts
+
+    def initialize(served: REQUIRED_RPCS, owner_dfn: "4", owner_reply: OWNED)
       @calls = []
+      @contexts = []
+      @context_stack = []
       @served = served.to_set
+      @owner_dfn = owner_dfn
+      @owner_reply = owner_reply
     end
 
     def authenticated? = true
 
     def served_rpcs(names) = names.to_set & @served
 
+    def with_context(option_name)
+      @context_stack.push(option_name)
+      yield
+    ensure
+      @context_stack.pop
+    end
+
     def call_rpc(rpc, *params)
-      @calls << [ rpc, *params ]
+      record(rpc, params)
+      return owner_reply(params) if rpc == NOTE_PATIENT_RPC
+
       ""
     end
 
     def call_rpc_lines(rpc, *params)
+      record(rpc, params)
+      return [] unless rpc == NOTE_PATIENT_RPC
+
+      reply = owner_reply(params)
+      reply.is_a?(String) ? reply.split(/\r\n|\r|\n/) : reply
+    end
+
+    private
+
+    def record(rpc, params)
       @calls << [ rpc, *params ]
-      []
+      @contexts << @context_stack.last
+    end
+
+    def owner_reply(params)
+      raise @owner_reply if @owner_reply.is_a?(Exception)
+      return "#{params.first}^#{@owner_dfn}^903" if @owner_reply.equal?(OWNED)
+
+      @owner_reply
     end
   end
 end
