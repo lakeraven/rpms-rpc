@@ -3,8 +3,11 @@
 # Wire-shape capture pipeline (docs/WIRE_CONTRACTS.md, issue #189).
 #
 #   rake wire:capture CONTAINER=rpms-ydb-9.0 RELEASE=bcer-9.0-ydb
-#     [RUNTIME=docker] [BROKER_PORT=9100] [RPMS_ACCESS=] [RPMS_VERIFY=] [ONLY="RPC NAME"]
+#     [RUNTIME=docker] [BROKER_PORT=9100] [RPMS_ACCESS=] [RPMS_VERIFY=] [ONLY="RPC NAME|fixture-name"]
 #   rake wire:capture BROKER_HOST=127.0.0.1 BROKER_PORT=<port> RELEASE=bcer-9.0-ydb ...
+#   ONLY matches an entry's RPC name or its fixture name. CITE_ONLY="a,b" matches a
+#   fixture name, or an RPC name for the entry whose fixture is the RPC slug; a
+#   token matching no live entry aborts before any call.
 #   WRITES=1 runs the whole TIU note flow (its only read is the BEHOENCX GETVISIT
 #   linkage check before create) when the broker host
 #   resolves to loopback addresses, CONTAINER is unset, and RPMS_ACCESS is
@@ -92,7 +95,7 @@ namespace :wire do
     # live-mode entries instead of calling them (e.g. the broker is down, or
     # a capture must land before the rung is reachable). The cite comes from
     # the catalog; no raw is claimed.
-    cite_only = (ENV["CITE_ONLY"] || "").split(",").map(&:strip)
+    cite_only = (ENV["CITE_ONLY"] || "").split(",").map(&:strip).reject(&:empty?)
     captured_at = Time.now.utc.iso8601
     root = File.expand_path("../..", __dir__)
 
@@ -106,6 +109,10 @@ namespace :wire do
       only: only, esig: ENV["RPMS_ESIG"]
     )
     abort "wire:capture: #{refusal}" if refusal
+
+    # Fail closed before any container or driver run.
+    unmatched = RpmsRpc::WireCapture.unmatched_cite_only_tokens(RpmsRpc::WireCapture::CATALOG.select(&:live?), cite_only)
+    abort "wire:capture: CITE_ONLY names no live catalog entry: #{unmatched.map(&:inspect).join(", ")}" unless unmatched.empty?
 
     # Write path is host mode. write_refusal has already refused any CONTAINER.
     if writes || (container.nil? && !host.empty?)
@@ -152,7 +159,7 @@ namespace :wire do
         RpmsRpc::WireCapture.fixture_entries(writes: false, only: nil)
     end
     entries.each do |entry|
-      next if only && entry.rpc != only
+      next if only && !entry.named?(only)
 
       if entry.write?
         # No capture keeps an existing fixture and routine-cites only when the
@@ -160,12 +167,12 @@ namespace :wire do
         # captured inputs rather than the catalog placeholder.
         data = write_entry_fixture_data(entry, captures, release, captured_at, acc)
         next if data.nil?
-      elsif entry.live? && !cite_only.include?(entry.rpc)
-        capture = captures[entry.rpc]
+      elsif entry.live? && !RpmsRpc::WireCapture.cite_only?(entry, cite_only)
+        capture = captures[entry.fixture_name]
         next if capture.nil? # no container / not in this run: keep existing fixture
 
         if capture["error"]
-          warn "SKIP #{entry.rpc}: #{capture["error"]} (existing fixture kept)"
+          warn "SKIP #{entry.fixture_name}: #{capture["error"]} (existing fixture kept)"
           next
         end
         raw = capture.fetch("raw")
@@ -181,7 +188,7 @@ namespace :wire do
         # this run can write. Downgrading it to no-data would let a transient
         # failure erase a capture-backed contract.
         if RpmsRpc::WireCapture.error_reply?(raw)
-          warn "SKIP #{entry.rpc}: broker returned an error reply (existing fixture kept)"
+          warn "SKIP #{entry.fixture_name}: broker returned an error reply (existing fixture kept)"
           next
         end
 
@@ -203,11 +210,11 @@ namespace :wire do
       begin
         RpmsRpc::WireCapture::Fixture.new(data)
       rescue RpmsRpc::WireCapture::InvalidFixture => e
-        warn "SKIP #{entry.rpc}: #{e.message} (existing fixture kept)"
+        warn "SKIP #{entry.fixture_name}: #{e.message} (existing fixture kept)"
         next
       end
 
-      path = File.join(FIXTURES_DIR, "#{entry.rpc.downcase.tr(" /", "--")}.yml")
+      path = fixture_file(entry)
       File.write(path, fixture_header(entry, data) + YAML.dump(data))
       puts "Wrote #{path} (#{data["source"]})"
       written += 1
@@ -218,13 +225,13 @@ namespace :wire do
   # A scratch capture against the committed fixtures (rpms-ops#975): a capture
   # is only evidence when it comes from a fresh container of the release, and a
   # drifted one must be visible BEFORE it replaces a committed fixture. Prints
-  # one row per RPC and, with OUT=, writes the same as TSV (rpc, verdict,
+  # one row per fixture and, with OUT=, writes the same as TSV (fixture, verdict,
   # committed source, captured source).
   #
   #   rake wire:compare CAPTURED=<dir written by WIRE_FIXTURES_DIR=<dir> rake wire:capture>
   #
   # The verdicts are RpmsRpc::WireCapture.compare's.
-  desc "Compare a scratch wire capture (CAPTURED=<dir>) with the committed fixtures: SAME/DIFFERENT per RPC [OUT=<tsv>]"
+  desc "Compare a scratch wire capture (CAPTURED=<dir>) with the committed fixtures: SAME/DIFFERENT per fixture [OUT=<tsv>]"
   task :compare do
     require "rpms_rpc/wire_capture"
 
@@ -235,10 +242,10 @@ namespace :wire do
     rows = RpmsRpc::WireCapture.compare(RpmsRpc::WireCapture::FIXTURES_DIR, captured_dir)
 
     width = rows.map { |r| r[0].length }.max.to_i
-    puts format("%-#{width}s  %-12s  %-12s  %s", "RPC", "VERDICT", "COMMITTED", "CAPTURED")
+    puts format("%-#{width}s  %-12s  %-12s  %s", "FIXTURE", "VERDICT", "COMMITTED", "CAPTURED")
     rows.each { |r| puts format("%-#{width}s  %-12s  %-12s  %s", *r) }
     counts = rows.group_by { |r| r[1] }.transform_values(&:size)
-    puts "wire:compare: #{rows.size} RPC(s): " +
+    puts "wire:compare: #{rows.size} fixture(s): " +
          RpmsRpc::WireCapture::COMPARE_VERDICTS.map { |v| "#{counts.fetch(v, 0)} #{v}" }.join(", ")
     File.write(ENV["OUT"], rows.map { |r| r.join("\t") }.join("\n") + "\n") if ENV["OUT"] && !ENV["OUT"].empty?
   end
@@ -249,11 +256,16 @@ namespace :wire do
     capture_scheduling_writes
   end
 
+  # fixture_path(entry), in the WIRE_FIXTURES_DIR scratch dir when one is set.
+  def fixture_file(entry)
+    File.join(FIXTURES_DIR, File.basename(RpmsRpc::WireCapture.fixture_path(entry)))
+  end
+
   # A write entry's fixture. nil means "do not touch the files" (keep an
   # existing one, or skip a reply the API does not accept).
   def write_entry_fixture_data(entry, captures, release, captured_at, acc)
-    capture = captures[entry.rpc]
-    path = File.join(FIXTURES_DIR, "#{entry.rpc.downcase.tr(" /", "--")}.yml")
+    capture = captures[entry.rpc] # the TIU flow keys its captures by RPC
+    path = fixture_file(entry)
     unless capture.is_a?(Hash)
       return nil if File.file?(path)
 
@@ -524,7 +536,7 @@ namespace :wire do
       return false
     end
 
-    path = File.join(dir, "#{entry.rpc.downcase.tr(" /", "--")}.yml")
+    path = File.join(dir, "#{entry.fixture_name}.yml")
     File.write(path, write_fixture_header(entry, data) + YAML.dump(data))
     puts "Wrote #{path} (#{data["source"]})"
     true
