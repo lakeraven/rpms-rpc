@@ -24,8 +24,19 @@ module RpmsRpc
   #   (piece 1, compared as an integer) and a positive integer DFN
   #   (piece 2, digits only), as with -1 or an empty reply, or when the
   #   server answers which RPCs it serves and omits TIU GET ALERT INFO.
+  # - reason :unknown, before any RPC, for a String note IEN with a
+  #   leading zero ("01"): GETALRT^TIUSRVR takes it as a string subscript
+  #   and the pinned build dies with an M GVUNDEF error.
   # A broker error from that read propagates unchanged. The guard runs
   # after argument validation; invalid arguments still make no call.
+  #
+  # The guard proves the note's patient (node 0 piece 2), not the patient
+  # of the visit the note points to. These four reads also need the
+  # session's user to be able to bind OR CPRS GUI CHART: on XWB/BMX a user
+  # who may not gets the broker's context refusal on a positive-note read,
+  # even for the patient's own note, so it fails closed. A session with no
+  # declared context is left on OR CPRS GUI CHART after the guard
+  # (ContextScope cannot restore an unknown context and warns).
   #
   # Optional visit_string, location IEN, and datetime on the positive-note
   # path are sent only when blank or well-formed; nil is sent as "". A
@@ -222,9 +233,13 @@ module RpmsRpc
 
     # On a positive note the ORWPCE RPC ignores DFN, so raise unless TIU GET
     # ALERT INFO proves the note is +dfn+'s. Note 0 is looked up by DFN on
-    # the server and has no note to check.
+    # the server and has no note to check. A String IEN with a leading zero
+    # ("01") is refused as :unknown before any RPC: GETALRT^TIUSRVR reads
+    # ^TIU(8925,"01",0) as a string subscript, which names no note, and the
+    # pinned build dies with an M GVUNDEF error.
     def guard_note_patient!(note_ien, dfn)
       return unless positive_id?(note_ien)
+      raise NotePatientMismatchError.new(:unknown, note_ien) if leading_zero?(note_ien)
 
       owner = note_patient(note_ien)
       raise NotePatientMismatchError.new(:unknown, note_ien) if owner.nil?
@@ -257,6 +272,10 @@ module RpmsRpc
           client.call_rpc(mapping.rpc_name, note_ien)
         end
       end
+    end
+
+    def leading_zero?(note_ien)
+      note_ien.is_a?(String) && note_ien.match?(/\A0\d/)
     end
 
     def first_reply_line(reply)
