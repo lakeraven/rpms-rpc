@@ -18,6 +18,15 @@
 # that model (read-only for gate and gate2), and its panel record says the seats were
 # native: one vendor, not the cross-vendor panel. Any other failure is passed through.
 #
+# gate2 (and probe) first try the Codex CLI (OpenAI, billed to the ChatGPT plan) when Cursor
+# is out of usage. A Codex run prints
+#   SEAT_VENDOR role=gate2 vendor=openai model=<id>
+# before its output and keeps its own exit code; the panel record names it, and a panel with
+# a Codex gate2 is not single-vendor. Only when Codex is missing, signed out or refuses the
+# model does gate2 fall back to the native seat as above. Codex runs read-only and ignores
+# ~/.codex/config.toml (so no MCP servers or plugins load; sign-in still comes from ~/.codex),
+# without the Cursor or GitHub tokens in its environment.
+#
 # Prompts, allow rules and docs say the role only. The model behind a role is named in ONE
 # place, the table below, so swapping a model is a one-line change here and nothing else.
 #
@@ -51,6 +60,9 @@ fallback_build=sonnet
 fallback_build_hard=opus
 fallback_gate=fable
 fallback_gate2=opus
+# Codex seat for gate2 when Cursor is out of usage. The ChatGPT plan refuses ids it does not
+# serve (model_not_found), so this names one a probe answered.
+codex_gate2=gpt-6-luna;    codex_effort_gate2=high
 # -----------------------------------------------------------------------------------------
 
 agent="$HOME/.local/bin/agent"
@@ -76,7 +88,33 @@ run_seat() {
   "$@" 2>&1 | tee "$seat_out" || rc=$?
   if [ "$rc" -ne 0 ] && grep -q 'ActionRequiredError' "$seat_out" &&
     grep -Eqi "out of usage|usage limit" "$seat_out"; then
+    [ "$role" = gate2 ] && run_codex "$codex_prompt" "$codex_secs"
     echo "SEAT_FALLBACK role=$role model=$fallback"
+    exit 75
+  fi
+  exit "$rc"
+}
+codex_prompt='Reply with exactly: PROBE_OK'
+codex_secs=120
+
+# Run gate2 on Codex. A run that never got started (CLI missing, signed out, model refused,
+# out of usage) falls back to the native seat; a run that did start keeps its own exit code.
+run_codex() {
+  local prompt=$1 secs=$2 codex rc=0
+  codex="$(command -v codex || true)"
+  if [ -z "$codex" ]; then
+    echo "bin/seat: codex CLI not found; gate2 falls back to native" >&2
+    echo "SEAT_FALLBACK role=gate2 model=$fallback_gate2"
+    exit 75
+  fi
+  echo "SEAT_VENDOR role=gate2 vendor=openai model=$codex_gate2"
+  rm -f "$seat_out"
+  seat_out="$(mktemp)"
+  env -u CURSOR_API_KEY -u GH_TOKEN -u GITHUB_TOKEN \
+    timeout "$secs" "$codex" exec --skip-git-repo-check --ignore-user-config --sandbox read-only \
+    -m "$codex_gate2" -c "model_reasoning_effort=$codex_effort_gate2" "$prompt" 2>&1 | tee "$seat_out" || rc=$?
+  if [ "$rc" -ne 0 ] && grep -Eqi "not supported when using Codex|model_not_found|Not logged in|codex login|401 Unauthorized|usage limit" "$seat_out"; then
+    echo "SEAT_FALLBACK role=gate2 model=$fallback_gate2"
     exit 75
   fi
   exit "$rc"
@@ -88,7 +126,8 @@ case "$role" in
   build-hard) model=$model_build_hard; secs=$secs_build_hard; fallback=$fallback_build_hard ;;
   gate)       model=$model_gate;       secs=$secs_gate;       fallback=$fallback_gate ;;
   gate2)      model=$model_gate2;      secs=$secs_gate2;      fallback=$fallback_gate2 ;;
-  probe)      run_seat gate2 "$fallback_gate2" timeout 120 "$agent" -p --trust --sandbox enabled --model "$model_gate2" 'Reply with exactly: PROBE_OK' ;;
+  probe)      codex_secs=300
+              run_seat gate2 "$fallback_gate2" timeout 120 "$agent" -p --trust --sandbox enabled --model "$model_gate2" 'Reply with exactly: PROBE_OK' ;;
   *)          usage ;;
 esac
 
@@ -120,4 +159,6 @@ case "/$rel" in */.*) brief_refused "a hidden path component" ;; esac
 # option (a brief of "--sandbox=..." must stay prompt text).
 prompt="$(printf 'Brief (the whole task follows):\n\n'; cat -- "$resolved")"
 
+codex_prompt=$prompt
+codex_secs=$secs
 run_seat "$role" "$fallback" timeout "$secs" "$agent" -p --trust --sandbox enabled --model "$model" "$prompt"
