@@ -67,7 +67,7 @@ class FactoryLiveRpmsTest < Minitest::Test
   def test_flag_starts_the_pinned_release_in_the_background
     assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => stub)
     wait_for("healthy")
-    assert_equal ["1 #{@ehr} up"], calls
+    assert_equal [ "1 #{@ehr} up" ], calls
   end
 
   def test_returns_before_the_stack_is_up
