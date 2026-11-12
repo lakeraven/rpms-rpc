@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# bin/factory_live_rpms — SessionStart hook. In an environment that sets FACTORY_LIVE_RPMS=1, start
+# the pinned RPMS release in the background so a session finds a broker coming up on
+# 127.0.0.1:9100 without running `bin/cloud_rpms up` itself. Anywhere else it does nothing.
+#
+# It returns at once and never fails session start. Progress goes to a state directory
+# (FACTORY_LIVE_RPMS_DIR, default $TMPDIR/factory_live_rpms):
+#   status   starting, then healthy or failed
+#   log      output of the clone (if one was needed) and of `bin/cloud_rpms up`
+# A second session start while a run is starting or healthy starts nothing; after a failed run the
+# next session start tries again.
+#
+# LAKERAVEN_EHR_PATH points at the lakeraven-ehr checkout whose compose.yml runs the image
+# (default ../lakeraven-ehr); it is cloned when missing. CLOUD_RPMS overrides the script that is run
+# (tests use this).
+set -u
+
+[ "${FACTORY_LIVE_RPMS:-}" = "1" ] || exit 0
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)" || exit 0
+EHR="${LAKERAVEN_EHR_PATH:-$ROOT/../lakeraven-ehr}"
+CLOUD_RPMS="${CLOUD_RPMS:-$ROOT/bin/cloud_rpms}"
+DIR="${FACTORY_LIVE_RPMS_DIR:-${TMPDIR:-/tmp}/factory_live_rpms}"
+STATUS="$DIR/status"
+LOG="$DIR/log"
+
+mkdir -p "$DIR" 2>/dev/null || exit 0
+
+# One run at a time: mkdir is atomic, so two sessions starting together can't both win.
+if ! mkdir "$DIR/lock" 2>/dev/null; then
+  [ "$(cat "$STATUS" 2>/dev/null)" = "failed" ] || exit 0
+  rm -rf "$DIR/lock" 2>/dev/null
+  mkdir "$DIR/lock" 2>/dev/null || exit 0
+fi
+
+echo starting >"$STATUS"
+
+(
+  if [ ! -f "$EHR/compose.yml" ]; then
+    git clone --depth 1 https://github.com/lakeraven/lakeraven-ehr.git "$EHR" || {
+      echo failed >"$STATUS"; exit 0
+    }
+  fi
+  if LAKERAVEN_EHR_PATH="$EHR" PINNED=1 "$CLOUD_RPMS" up; then
+    echo healthy >"$STATUS"
+  else
+    echo failed >"$STATUS"
+  fi
+) >>"$LOG" 2>&1 </dev/null &
+
+exit 0
