@@ -12,6 +12,12 @@
 #   gate2        reviewer 2, read-only                (a third vendor, when one is available)
 #   probe        is the gate2 seat reachable? (no brief)
 #
+# When the Cursor seat is unavailable, gate2 (and probe) first try the Codex CLI (OpenAI). If it
+# answers, its output is the seat's output, the last line is
+#   SEAT_VENDOR role=gate2 vendor=openai cli=codex model=<id|default>
+# and the exit is 0. Codex runs read-only and ephemeral, without the user's config.toml. If it
+# is missing, signed out or fails, gate2 falls through to the native fallback below.
+#
 # When Cursor is out of usage the seat cannot run. The script then prints one line,
 #   SEAT_FALLBACK role=<role> model=<opus|sonnet|fable>
 # and exits 75. The caller plays that role itself with a fresh native Claude subagent on
@@ -51,6 +57,13 @@ fallback_build=sonnet
 fallback_build_hard=opus
 fallback_gate=fable
 fallback_gate2=opus
+# Second-vendor gate2 when the Cursor seat is unavailable: the Codex CLI (OpenAI). An empty
+# model means the CLI's default; codex_gate2=off goes straight to the native fallback. Send
+# only synthetic data through it. --ignore-user-config also drops any reasoning setting, so
+# the effort is set here.
+codex_gate2=on
+model_codex_gate2=""
+effort_codex_gate2=high
 # -----------------------------------------------------------------------------------------
 
 agent="$HOME/.local/bin/agent"
@@ -65,9 +78,29 @@ role="${1:-}"
 # seat that succeeds while quoting that text (a gate reviewing this script) keeps its
 # success, and any other failure keeps its own exit code.
 seat_out=""
+codex_prompt=""
+codex_secs=$secs_gate2
 trap 'rm -f "$seat_out"' EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
+# gate2 only: when the Cursor seat is unavailable, try Codex before the native fallback. Exits 0
+# when Codex answers; returns (so the caller prints SEAT_FALLBACK) when it is off, missing or
+# fails.
+codex_seat() {
+  [ "$codex_gate2" = on ] && [ -n "$codex_prompt" ] || return 0
+  command -v codex >/dev/null 2>&1 || return 0
+  local rc=0
+  timeout "$codex_secs" codex exec --sandbox read-only --skip-git-repo-check \
+    --ignore-user-config --ephemeral -c model_reasoning_effort="$effort_codex_gate2" \
+    ${model_codex_gate2:+--model "$model_codex_gate2"} \
+    "$codex_prompt" </dev/null || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    echo "SEAT_VENDOR role=gate2 vendor=openai cli=codex model=${model_codex_gate2:-default}"
+    exit 0
+  fi
+  echo "bin/seat: codex gate2 failed (exit $rc); using the native fallback" >&2
+}
+
 run_seat() {
   local role=$1 fallback=$2
   shift 2
@@ -76,6 +109,7 @@ run_seat() {
   "$@" 2>&1 | tee "$seat_out" || rc=$?
   if [ "$rc" -ne 0 ] && grep -q 'ActionRequiredError' "$seat_out" &&
     grep -Eqi "out of usage|usage limit" "$seat_out"; then
+    [ "$role" != gate2 ] || codex_seat
     echo "SEAT_FALLBACK role=$role model=$fallback"
     exit 75
   fi
@@ -88,7 +122,8 @@ case "$role" in
   build-hard) model=$model_build_hard; secs=$secs_build_hard; fallback=$fallback_build_hard ;;
   gate)       model=$model_gate;       secs=$secs_gate;       fallback=$fallback_gate ;;
   gate2)      model=$model_gate2;      secs=$secs_gate2;      fallback=$fallback_gate2 ;;
-  probe)      run_seat gate2 "$fallback_gate2" timeout 120 "$agent" -p --trust --sandbox enabled --model "$model_gate2" 'Reply with exactly: PROBE_OK' ;;
+  probe)      codex_prompt='Reply with exactly: PROBE_OK'; codex_secs=120
+              run_seat gate2 "$fallback_gate2" timeout 120 "$agent" -p --trust --sandbox enabled --model "$model_gate2" 'Reply with exactly: PROBE_OK' ;;
   *)          usage ;;
 esac
 
@@ -119,5 +154,6 @@ case "/$rel" in */.*) brief_refused "a hidden path component" ;; esac
 # The prompt starts with a fixed line so a brief that begins with "-" can never be read as an
 # option (a brief of "--sandbox=..." must stay prompt text).
 prompt="$(printf 'Brief (the whole task follows):\n\n'; cat -- "$resolved")"
+[ "$role" != gate2 ] || codex_prompt=$prompt
 
 run_seat "$role" "$fallback" timeout "$secs" "$agent" -p --trust --sandbox enabled --model "$model" "$prompt"
