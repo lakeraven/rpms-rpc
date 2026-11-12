@@ -64,17 +64,16 @@ class RpmsRpc::WireCaptureFixtureNameTest < Minitest::Test
     refute shared_slug.named?("synthetic-second")
   end
 
-  # CATALOG today has no two entries for one RPC (checked when this was
-  # written), so uniqueness of fixture names holds across the whole catalog
-  # and every entry's file name is its RPC slug, as before.
-  def test_every_catalog_entry_keeps_its_rpc_slug_file_name
+  # Fixture names are unique across CATALOG, every entry has its committed
+  # file, and an entry without its own fixture: is named by its RPC slug.
+  # Two entries may share an RPC as long as their fixture names differ.
+  def test_catalog_fixture_names_are_unique_and_default_to_the_rpc_slug
     refute_empty WC::CATALOG
-    assert_equal WC::CATALOG.map(&:rpc).uniq, WC::CATALOG.map(&:rpc), "premise: one CATALOG entry per RPC"
 
     names = WC::CATALOG.map(&:fixture_name)
-    assert_equal WC::CATALOG.map { |e| slug(e.rpc) }, names
     assert_equal names.uniq, names, "fixture names must be unique across CATALOG"
     WC::CATALOG.each do |e|
+      assert_equal slug(e.rpc), e.fixture_name, "#{e.rpc} has no fixture: of its own" if e.fixture.nil?
       assert File.exist?(WC.fixture_path(e)), "no committed fixture at #{WC.fixture_path(e)}"
     end
   end
@@ -166,6 +165,38 @@ class RpmsRpc::WireCaptureFixtureNameTest < Minitest::Test
         assert_includes error.message, token.inspect
       end
     end
+  end
+
+  # Two live entries with one fixture name would share a capture key and a
+  # file, the second silently overwriting the first.
+  def test_select_live_entries_raises_on_two_slug_entries_for_one_rpc
+    entries = [ shared_slug, other, entry(rpc: OTHER_RPC) ]
+    error = assert_raises(ArgumentError) { WC.select_live_entries(catalog: entries) }
+    assert_includes error.message, "orwpt-select".inspect
+    refute_includes error.message, "ddr-gets-entry-data".inspect
+  end
+
+  def test_select_live_entries_raises_on_a_fixture_equal_to_another_entrys_slug
+    entries = [ shared_slug, shared_named, other, entry(rpc: "SYNTHETIC X", fixture: "orwpt-select") ]
+    error = assert_raises(ArgumentError) { WC.select_live_entries(catalog: entries) }
+    assert_includes error.message, "orwpt-select".inspect
+    refute_includes error.message, "synthetic-second".inspect
+  end
+
+  def test_select_live_entries_names_every_duplicated_fixture_name
+    entries = [ shared_slug, entry(rpc: SHARED_RPC), other,
+                shared_named, entry(rpc: "SYNTHETIC X", fixture: "synthetic-second") ]
+    error = assert_raises(ArgumentError) { WC.select_live_entries(catalog: entries, only: OTHER_RPC) }
+    assert_includes error.message, "ddr-gets-entry-data".inspect
+    assert_includes error.message, "synthetic-second".inspect
+    refute_includes error.message, "orwpt-select".inspect
+  end
+
+  # Only live entries are captured by this selection: a routine-cite or
+  # write entry sharing a live entry's name is not judged here.
+  def test_select_live_entries_judges_duplicates_among_live_entries_only
+    entries = [ other, entry(rpc: OTHER_RPC, mode: :routine_cite), entry(rpc: OTHER_RPC, mode: :write) ]
+    assert_equal [ other ], WC.select_live_entries(catalog: entries)
   end
 
   # ONLY narrows after the tokens are judged: a token for a real live fixture
