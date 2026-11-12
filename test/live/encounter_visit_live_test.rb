@@ -59,7 +59,7 @@ class EncounterVisitLiveTest < LiveSpec::Test
              "GETVISIT datetime_raw #{row[:datetime_raw].inspect} must start with sent date #{date_part.inspect}"
     elsif persona == "PROV123"
       # PROV123 pins the named seed gap: division 1 has no #9001000 PCC MASTER CONTROL entry,
-      # so ADDVIST returns TYPE OF VISIT MISSING / Error Creating Visit until rpms-ops seeds it.
+      # so ADDVIST returns TYPE OF VISIT MISSING / Error Creating Visit until openrpms seeds it.
       datetime = server_now_fm
       vstr_args = {
         location_ien: LOCATION_IEN,

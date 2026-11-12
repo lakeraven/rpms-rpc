@@ -11,7 +11,7 @@ module RpmsRpc
   # DDR list params or parsing the bracket-marker reply grammars.
   #
   # Wire contracts are cited per method from the bcer-9.0-ydb corpus
-  # (rpms-ops/data/standup/bcer-9.0-ydb/r/): LISTC^DDR, LOCKC^DDR1,
+  # (openrpms/data/standup/bcer-9.0-ydb/r/): LISTC^DDR, LOCKC^DDR1,
   # GETSC^DDR2, FILEC^DDR3, VALC^DDR3. All DDR RPCs take LIST params;
   # the *_param / *_params builders are public so tests and mocks can seed
   # against the exact payload each RPC receives.

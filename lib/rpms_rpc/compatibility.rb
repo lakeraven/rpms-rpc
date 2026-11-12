@@ -42,7 +42,7 @@ module RpmsRpc
       end
     end
 
-    # build    the rpms-ops build the gem's RPC list was derived against
+    # build    the openrpms build the gem's RPC list was derived against
     # required { API module => [RPC names] } this release sends
     # missing  the subset of required the server does not serve, same shape; modules with none
     #          are left out

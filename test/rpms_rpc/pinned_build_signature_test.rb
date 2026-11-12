@@ -7,9 +7,9 @@ require "yaml"
 require "rpms_rpc/conformance/inventory_lock"
 require "rpms_rpc/wire_capture"
 
-# rpms-rpc conforms to the RPC signature of a named rpms-ops build (rpms-rpc#222).
+# rpms-rpc conforms to the RPC signature of a named openrpms build (rpms-rpc#222).
 #
-# rpms-ops attaches to every gated release the #8994 + #9.4 inventory that build
+# openrpms attaches to every gated release the #8994 + #9.4 inventory that build
 # serves, plus the build record (PROVENANCE.json) naming the commit it was cut
 # from. `rake conformance:pin RELEASE=<tag>` downloads those assets, verifies
 # them, commits them unchanged under data/inventories/<tag>/, derives the
@@ -39,7 +39,7 @@ class PinnedBuildSignatureTest < Minitest::Test
              "#{tag}: build_commit #{entry['build_commit']} is not the commit the tag names"
       assert_match(/\Asha256:[0-9a-f]{64}\z/, entry["artifact_sha256"].to_s, "#{tag}: artifact_sha256")
       assert_match(/\A[0-9a-f]{40}\z/, entry["inventory_tool_commit"].to_s, "#{tag}: inventory_tool_commit")
-      # The image a -ydb release pins, by digest (rpms-ops#727), is the artifact the lock names.
+      # The image a -ydb release pins, by digest (openrpms#727), is the artifact the lock names.
       assert_equal "ghcr.io/lakeraven/rpms-ydb@#{entry['artifact_sha256']}", entry["image"], "#{tag}: image" if parts[:engine] == "yottadb"
       assert_equal RpmsRpc::Conformance::BuildSurface::REACH_CLASSES.sort & entry["reach_classes"].keys, entry["reach_classes"].keys.sort,
                    "#{tag}: reach_classes names only reach classes"

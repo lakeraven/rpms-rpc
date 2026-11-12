@@ -15,10 +15,10 @@ class OpenApiSurfaceTest < Minitest::Test
 
   # 1 XUS AV CODE    #8994 defines its parameter; ARRAY reply; a return description
   # 2 ORWPT SELECT   no #8994 parameters: the routine's formals after the reply variable (DFN); its
-  #                  package is ORWPT, a longer #9.4 prefix than OR (rpms-ops assigns the longest)
+  #                  package is ORWPT, a longer #9.4 prefix than OR (openrpms assigns the longest)
   # 3 BMC GONE       registered, its routine is not on the image; INACTIVE 1
   # 4 ORWU WHO?      a "?" in the name; no description at all
-  # The four RPCs as rpms-ops#732's <tag>-rpcs.json (schema rpcs.v1) records them.
+  # The four RPCs as openrpms#732's <tag>-rpcs.json (schema rpcs.v1) records them.
   RPCS_JSON = {
     "schema" => "rpcs.v1", "tag" => TAG, "commit" => "abc1234", "engine" => "yottadb", "rpms_version" => "bcer-0.0", "inputs" => {},
     "rpcs" => [
@@ -37,7 +37,7 @@ class OpenApiSurfaceTest < Minitest::Test
     end
   }.freeze
 
-  # The same four RPCs as rpcs.v2 (rpms-ops#877) records them: v1 plus #8994's text, as stored.
+  # The same four RPCs as rpcs.v2 (openrpms#877) records them: v1 plus #8994's text, as stored.
   RPCS_V2_JSON = RPCS_JSON.merge(
     "schema" => "rpcs.v2",
     "rpcs" => RPCS_JSON["rpcs"].map do |r|

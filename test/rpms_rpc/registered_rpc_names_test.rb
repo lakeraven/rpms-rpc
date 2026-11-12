@@ -4,14 +4,14 @@ require "minitest/autorun"
 require "rpms_rpc/conformance/inventory_lock"
 require_relative "../../tools/rpc_coverage/rpc_coverage"
 
-# Every RPC name the gem uses must be available on every pinned rpms-ops build
+# Every RPC name the gem uses must be available on every pinned openrpms build
 # (rpms-rpc#207, #295, #222).
 #
 # A name is only real if a built baseline registers it. Mappings written from
 # belief rather than a registry survived for months because nothing compared
 # the declared names with a registry (the invented BMCRPC/XM/BIPC/... clusters
 # of #207). This test makes that comparison on every run, offline, against the
-# RPC signature rpms-ops published for a named build: the release inventory
+# RPC signature openrpms published for a named build: the release inventory
 # pinned in data/fingerprints/rpms-ops.lock.yml (`rake conformance:pin`).
 #
 # "Available" here is what the build signature can show from the #8994 0-node
@@ -39,7 +39,7 @@ class RegisteredRpcNamesTest < Minitest::Test
   end
 
   def test_a_build_is_pinned
-    refute_empty pinned_builds, "no rpms-ops build pinned in #{LOCK.path}"
+    refute_empty pinned_builds, "no openrpms build pinned in #{LOCK.path}"
     pinned_builds.each do |tag, surface|
       assert_operator surface.names.size, :>, 5_000, "#{tag}: a #8994 registry of a built 9.0 image has thousands of names"
     end
@@ -55,12 +55,12 @@ class RegisteredRpcNamesTest < Minitest::Test
     end
 
     assert_empty problems,
-                 "#{problems.size} RPC name(s) used in lib/ are not available on a pinned rpms-ops build:\n" \
+                 "#{problems.size} RPC name(s) used in lib/ are not available on a pinned openrpms build:\n" \
                  "#{problems.join("\n")}"
   end
 
   # The reasons the gate gives, on the shapes a real #8994 dump has
-  # (rpms-ops bcer-9.0-20260930-8c88e47-ydb: BPC GETLABVISITDATA has no entry
+  # (openrpms bcer-9.0-20260930-8c88e47-ydb: BPC GETLABVISITDATA has no entry
   # point, XUS CCOW VAULT PARAM is INACTIVE=3, remote only).
   def test_unavailable_reasons
     reason = ->(meta) { RpmsRpc::Conformance::InventoryLock.unavailable_reason(meta) }

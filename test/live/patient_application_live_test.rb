@@ -6,8 +6,8 @@ require "rpms_rpc/api/ddr_fileman"
 
 # PATIENT APPLICATIONS (#9000045), filed through DDR FILER inside AG's edit
 # lock and read back through FileMan (rpms-ux S-REG-03.3 to 03.5,
-# rpms-ops#1053). Needs PATIENT APPLICATION TYPES (#9000048) to hold a type
-# (rpms-ops SEEDAPPT). An application cannot be deleted through AG, so run on
+# openrpms#1053). Needs PATIENT APPLICATION TYPES (#9000048) to hold a type
+# (openrpms SEEDAPPT). An application cannot be deleted through AG, so run on
 # a disposable container; each run records one application on a new date.
 class PatientApplicationLiveTest < LiveSpec::Test
   writes!
@@ -36,7 +36,7 @@ class PatientApplicationLiveTest < LiveSpec::Test
 
   def test_s_reg_03_3_to_03_5_an_application_is_recorded_its_outcome_dated_and_it_is_never_deleted
     type = PA.types.find { |t| t[:name] == "MEDICAID FORM 100" }
-    refute_nil type, "PATIENT APPLICATION TYPES has no MEDICAID FORM 100 (run rpms-ops SEEDAPPT)"
+    refute_nil type, "PATIENT APPLICATION TYPES has no MEDICAID FORM 100 (run openrpms SEEDAPPT)"
     obtained = free_date
     submitted = obtained + 1 > Date.today ? obtained : obtained + 1
     duz = client.duz.to_i

@@ -190,7 +190,7 @@ module RpmsRpc
 
 # Hold this mock to a pinned build's contexts (rpms-rpc#416): SURFACE is a
 # Conformance::BuildSurface read with its <tag>-contexts_19_05.txt (#19.05,
-# rpms-ops#626); KEYS are the security keys the signed-on user holds. From
+# openrpms#626); KEYS are the security keys the signed-on user holds. From
 # then on a bind of a context the build does not have, or whose LOCK is a
 # key not held, raises Client::RpcError; so does an RPC the bound context
 # does not serve (or whose #19.05 RPC KEY is not held), the way XWBSEC and

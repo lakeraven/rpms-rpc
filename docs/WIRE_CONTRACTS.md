@@ -67,7 +67,7 @@ Same shape as the conformance pipeline, one level deeper:
    fingerprint. With `BROKER_HOST=` (host mode) the driver,
    `bin/wire_capture_driver.rb`, runs on this machine's Ruby against the
    broker over the network; a release image carries no Ruby, so this is the
-   mode that works on a release (rpms-ops#975, whose `make fresh-up` /
+   mode that works on a release (openrpms#975, whose `make fresh-up` /
    `make fresh-capture` start a fresh container of a release and capture from
    it into a scratch directory). With `CONTAINER=` the task stages `lib/` and
    the driver into a container that has a Ruby and runs it there. Either way
@@ -118,7 +118,7 @@ and in CI both. Concretely:
   (a write RPC, which that task never calls; an RPC that faults the rung, like
   BEHOVM2 VUNITS on bcer-9.0-ydb). The shape is cited to the M routine
   serving the RPC in the release corpus
-  (rpms-ops/data/standup/bcer-9.0-ydb/r/, file:line). A routine-cite
+  (openrpms/data/standup/bcer-9.0-ydb/r/, file:line). A routine-cite
   fixture must **not** claim a `raw_return` (an illustrative row goes in
   `example_return`, which is never treated as evidence). Scheduling writes
   are not routine-cited stand-ins: `rake wire:capture_writes` captures them
@@ -141,7 +141,7 @@ and in CI both. Concretely:
 ## Adding an RPC to the gate
 
 1. Read the M routine that serves the RPC (corpus at
-   rpms-ops/data/standup/<release>/r/) and write down the position→meaning
+   openrpms/data/standup/<release>/r/) and write down the position→meaning
    layout **with file:line cites**.
 2. Add a `CatalogEntry` to `RpmsRpc::WireCapture::CATALOG`: RPC name, the
    mapping that parses it, reply kind, capture inputs (synthetic), the cite,

@@ -5,13 +5,13 @@ require "rpms_rpc/core"
 
 module RpmsRpc
   module Conformance
-    # The RPC surface of ONE pinned rpms-ops build, read from the one document rpms-ops publishes
-    # of it, <tag>-rpcs.json (rpms-ops#732; rpms-rpc#394, #395, #406). This is the only reader of
+    # The RPC surface of ONE pinned openrpms build, read from the one document openrpms publishes
+    # of it, <tag>-rpcs.json (openrpms#732; rpms-rpc#394, #395, #406). This is the only reader of
     # that document in this repo: the registered-names gate, the callable gate, Features,
     # `rake rpc:exclusions`, `rpc:coverage`, `rpc:api_coverage`, `conformance:pin`/`check` and
     # `openapi:surface` all go through it.
     #
-    # The document, as rpms-ops writes it (bin/release_rpcs_json.rb, the format's authority; schema
+    # The document, as openrpms writes it (bin/release_rpcs_json.rb, the format's authority; schema
     # releases/schema/rpcs.v1.schema.json and rpcs.v2.schema.json):
     #
     #   schema, tag, commit, engine, rpms_version   the build it describes
@@ -25,21 +25,21 @@ module RpmsRpc
     #
     # rpcs.v1 carries no #8994 text (DESCRIPTION, INPUT PARAMETER descriptions, RETURN PARAMETER
     # DESCRIPTION) and no MAX LENGTH, SEQUENCE NUMBER, WORD WRAP or VERSION, so those fields stay
-    # empty (texts? is false); rpcs.v2 (rpms-ops#877) carries them all (texts? is true). Neither
+    # empty (texts? is false); rpcs.v2 (openrpms#877) carries them all (texts? is true). Neither
     # carries the IEN.
     #
     # Beside it, <tag>-contexts_19_05.txt (one row per #19.05 RPC multiple entry, tab-separated,
-    # byte-sorted, under a header row OPTION TYPE LOCK RPC RPC_KEY RPC_RULES; rpms-ops#626,
+    # byte-sorted, under a header row OPTION TYPE LOCK RPC RPC_KEY RPC_RULES; openrpms#626,
     # rpms-rpc#416) answers which option serves which RPC; it is read when present.
     #
     # Checksums are not this class's job: InventoryLock verifies the bytes before anything reads them.
     class BuildSurface
-      # rpms-ops bin/rpc_reach_face.rb, in its order of precedence.
+      # openrpms bin/rpc_reach_face.rb, in its order of precedence.
       REACH_CLASSES = %w[no-routine no-entry-point inactive client-callable broker-exempt no-context out-of-order].freeze
-      # "Callable is client-callable or broker-exempt" (rpms-ops releases/README.md).
+      # "Callable is client-callable or broker-exempt" (openrpms releases/README.md).
       CALLABLE = %w[client-callable broker-exempt].freeze
-      # The <tag>-rpcs.json schemas this reader knows: rpcs.v1 (rpms-ops#732) and rpcs.v2, which adds
-      # #8994's text (rpms-ops#877). A release keeps the schema it was published with.
+      # The <tag>-rpcs.json schemas this reader knows: rpcs.v1 (openrpms#732) and rpcs.v2, which adds
+      # #8994's text (openrpms#877). A release keeps the schema it was published with.
       RPCS_SCHEMAS = %w[rpcs.v1 rpcs.v2].freeze
       # The schemas that carry #8994's text: DESCRIPTION, RETURN PARAMETER DESCRIPTION, WORD WRAP, VERSION,
       # and each INPUT PARAMETER's description, MAXIMUM DATA LENGTH and SEQUENCE NUMBER.
@@ -47,7 +47,7 @@ module RpmsRpc
       RPCS_SUFFIX = "rpcs.json"
       CONTEXTS_SUFFIX = "contexts_19_05.txt"
 
-      # The header row rpms-ops writes over <tag>-contexts_19_05.txt (rpms-ops#626).
+      # The header row openrpms writes over <tag>-contexts_19_05.txt (openrpms#626).
       CONTEXTS_HEADER = %w[OPTION TYPE LOCK RPC RPC_KEY RPC_RULES].freeze
       # XWBSEC.m:11-19: a session holds XUS SIGNON before any context is created, and may always run its RPCs.
       SIGNON_CONTEXT = "XUS SIGNON"
@@ -62,7 +62,7 @@ module RpmsRpc
       Param = Struct.new(:seq, :name, :type, :max_length, :required, :description, keyword_init: true)
 
       # One registered RPC, from its rpcs.json record. package is the #9.4 package ({prefix:, name:,
-      # version:}) rpms-ops assigned it (the longest PREFIX of its routine), nil when none.
+      # version:}) openrpms assigned it (the longest PREFIX of its routine), nil when none.
       Rpc = Struct.new(
         :name, :tag, :routine, :return_type, :availability, :inactive,
         :reach, :routine_present, :tag_present, :contexts, :exempt_on,
@@ -84,7 +84,7 @@ module RpmsRpc
         from_rpcs_json(File.join(dir, "#{tag}-#{RPCS_SUFFIX}"), tag: tag, contexts: File.file?(contexts) ? contexts : nil)
       end
 
-      # The build's surface from <tag>-rpcs.json (rpms-ops#732). Refuses a file that is not JSON, whose
+      # The build's surface from <tag>-rpcs.json (openrpms#732). Refuses a file that is not JSON, whose
       # schema is not one this reader knows, that names another tag, lists no RPC, lists one twice or
       # out of byte order, or whose records disagree with themselves.
       def self.from_rpcs_json(path, tag: nil, contexts: nil)
@@ -190,10 +190,10 @@ module RpmsRpc
       private
 
       def require_contexts!
-        raise Error, "#{tag}: no contexts_19_05.txt pinned (a release from before rpms-ops#626; re-pin it)" unless contexts?
+        raise Error, "#{tag}: no contexts_19_05.txt pinned (a release from before openrpms#626; re-pin it)" unless contexts?
       end
 
-      # { option => Context } from <tag>-contexts_19_05.txt. Refuses a file without rpms-ops' header,
+      # { option => Context } from <tag>-contexts_19_05.txt. Refuses a file without openrpms' header,
       # a row that is not six fields, and an option whose rows disagree on TYPE or LOCK.
       def read_contexts(path)
         file = File.basename(path)
@@ -253,9 +253,9 @@ module RpmsRpc
         names = rpcs.map(&:name)
         dupes = names.tally.select { |_, n| n > 1 }.keys
         raise Error, "#{file} lists #{dupes.first(3).join(', ')} more than once" unless dupes.empty?
-        # rpms-ops writes the records in byte order of the name; any other order is not its document.
+        # openrpms writes the records in byte order of the name; any other order is not its document.
         unless names.each_cons(2).all? { |a, b| a.b < b.b }
-          raise Error, "#{file} does not list its RPCs in byte order of name (rpms-ops writes them so)"
+          raise Error, "#{file} does not list its RPCs in byte order of name (openrpms writes them so)"
         end
 
         rpcs

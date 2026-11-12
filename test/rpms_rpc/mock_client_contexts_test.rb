@@ -4,7 +4,7 @@ require "minitest/autorun"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/conformance/inventory_lock"
 
-# rpms-rpc#416: a MockClient held to a pinned build's #19.05 (<tag>-contexts_19_05.txt, rpms-ops#626)
+# rpms-rpc#416: a MockClient held to a pinned build's #19.05 (<tag>-contexts_19_05.txt, openrpms#626)
 # refuses an RPC its bound context does not serve, and a locked context, the way the server does.
 class RpmsRpc::MockClientContextsTest < Minitest::Test
   Lock = RpmsRpc::Conformance::InventoryLock

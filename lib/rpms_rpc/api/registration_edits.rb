@@ -4,7 +4,7 @@ require "date"
 
 module RpmsRpc
   # Three registration edits no stock RPC files for a registration user
-  # (rpms-ops#1055): the address history, the cell phone, and race and
+  # (openrpms#1055): the address history, the cell phone, and race and
   # ethnicity. Two are filed with DDR FILER under the rules of rpms-rpc#549:
   # inside AG's edit lock (Agg.editing), read before write (a failed read
   # files nothing), what AG's own screens do around the write done
@@ -31,7 +31,7 @@ module RpmsRpc
   #   no DFN, so FileMan files .134 and its .139 trigger and then stops on
   #   LVUNDEF at XECUTE+10^DIKC (seen live on 7c3119b, 2026-11-03): a write
   #   that half lands and errors. So the cell phone is read here and not
-  #   filed; set_cell_phone answers :not_supported (rpms-ops#1055).
+  #   filed; set_cell_phone answers :not_supported (openrpms#1055).
   # - Race and ethnicity. AG's page 10 (EDRACE/EDETHNIC^AGED10B) edits the
   #   RACE INFORMATION (#2.02) and ETHNICITY INFORMATION (#2.06) multiples
   #   with ^DIE, .01 and .02 METHOD OF COLLECTION (#10.3) for each. Both
@@ -168,13 +168,13 @@ module RpmsRpc
     shape :cell_phone, resource: "registrations", verb: "GET",
           path: "/patients/{dfn}/registrations/cell-phone"
 
-    # Not supported (rpms-ux S-REG-21.5, rpms-ops#1055). No stock RPC files
+    # Not supported (rpms-ux S-REG-21.5, openrpms#1055). No stock RPC files
     # #2 .134, and DDR FILER cannot: the AXENR13 index on the field runs
     # EVENT^IVMPLOG(DFN), and DDR has no DFN, so FileMan files the number
     # and then errors (see the module comment). Sends no RPC.
     def set_cell_phone(_dfn, _phone)
       not_supported("The cell phone (#2 .134) cannot be filed over the broker: its AXENR13 index " \
-                    "needs DFN, which DDR FILER does not define (rpms-ops#1055).")
+                    "needs DFN, which DDR FILER does not define (openrpms#1055).")
     end
 
     # The races and ethnicities a clerk picks from (CHOICE_SCREEN), by name:

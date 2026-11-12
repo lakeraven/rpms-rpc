@@ -135,7 +135,7 @@ class RpcCoverageTest < Minitest::Test
 
   P = PinnedRpcsTestHelper
 
-  # A build's rpcs.json of real pinned records, one per reach class rpms-ops publishes. The pinned
+  # A build's rpcs.json of real pinned records, one per reach class openrpms publishes. The pinned
   # build has no RPC in the inactive class, so that one is a real record with its class changed.
   def surface(records)
     dir = P.write_inventory(@dir, P::TAG, records)
@@ -153,7 +153,7 @@ class RpcCoverageTest < Minitest::Test
     assert_equal 7, s.rpcs.size
   end
 
-  # Every reach class rpms-ops publishes is either callable or mapped to a reason: a class added
+  # Every reach class openrpms publishes is either callable or mapped to a reason: a class added
   # upstream is a decision here, not a silent pass.
   def test_every_reach_class_is_callable_or_has_a_reason
     classes = RpmsRpc::Conformance::BuildSurface::REACH_CLASSES
@@ -244,7 +244,7 @@ class RpcCoverageTest < Minitest::Test
     assert_empty RpcCoverage.registry_problems(reg)
   end
 
-  # rpms-ops bin/rpms_rpc_live_score.rb scores a release's live evidence against a names file it
+  # openrpms bin/rpms_rpc_live_score.rb scores a release's live evidence against a names file it
   # writes from that release's broker dump (NAME first on each line); the tag is the file name's.
   def test_load_registry_reads_the_names_file_rpms_ops_scores_with
     reg = RpcCoverage.load_registry(write("live/local-ydb.txt", "XWB ECHO STRING\nBPC GETLABVISITDATA\n"))

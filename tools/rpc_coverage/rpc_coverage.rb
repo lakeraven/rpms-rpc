@@ -36,7 +36,7 @@ module RpcCoverage
     "gui_plumbing" => "drives a thick-client GUI (layout, window state); no headless use (ADR-0004 tiers)",
     "write_needs_fixture" => "a write or side effect that needs a disposable fixture before it can run live"
   }.freeze
-  # The pinned build's rpcs.json (rpms-ops#713, #732) gives each registered RPC one REACH class. The uncallable classes map to an exclusion reason; the callable ones
+  # The pinned build's rpcs.json (openrpms#713, #732) gives each registered RPC one REACH class. The uncallable classes map to an exclusion reason; the callable ones
   # (BuildSurface::CALLABLE: client-callable, broker-exempt) stay in the denominator. A class in
   # neither fails, so a new reach class is a decision here (#394).
   REACH_REASONS = {
@@ -73,7 +73,7 @@ module RpcCoverage
   # The registry: a pinned build's <tag>-rpcs.json (data/inventories/<tag>/, rpms-rpc#406), read
   # through BuildSurface, the one reader of the build's surface; the tag is the document's. Any other
   # path is a flat registry, NAME first on each line ("#" lines are its header): the names file
-  # rpms-ops bin/rpms_rpc_live_score.rb writes from a release's broker dump, scored here without a
+  # openrpms bin/rpms_rpc_live_score.rb writes from a release's broker dump, scored here without a
   # pinned document. The tag is the file name's.
   def load_registry(path)
     raise Error, "registry not found: #{path}" unless File.exist?(path)

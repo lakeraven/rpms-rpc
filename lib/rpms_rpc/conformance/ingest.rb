@@ -9,7 +9,7 @@ module RpmsRpc
   module Conformance
     # Turn a file-8994 broker dump (+ optional #9.4 packages dump) into a committed fingerprint
     # YAML. Extracted from the conformance:ingest rake task so `conformance:pin` can run the
-    # identical transformation over a verified rpms-ops inventory and stamp its provenance
+    # identical transformation over a verified openrpms inventory and stamp its provenance
     # (the source.inventory face) into the result.
     module Ingest
       LINEAGE = {
@@ -23,7 +23,7 @@ module RpmsRpc
       # Dump lines are #8994 0-nodes, the fields ^DD(8994) defines in order:
       #   .01 NAME ^ .02 TAG ^ .03 ROUTINE ^ .04 RETURN VALUE TYPE (1-5) ^ .05 AVAILABILITY (P/S/A/R)
       #   ^ .06 INACTIVE (0-3) ^ ...
-      # This is the flat dump rpms-ops emits for an instance (bin/assess_instance.sh --emit-flat,
+      # This is the flat dump openrpms emits for an instance (bin/assess_instance.sh --emit-flat,
       # docs/conformance/CAPTURE.md), the input of `rake conformance:ingest`. A pinned release is read
       # from its <tag>-rpcs.json instead (BuildSurface, rpms-rpc#406); see registry below.
       # A name with no entry point keeps tag/routine nil. Returns [rpcs_hash, total_lines].

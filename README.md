@@ -185,10 +185,10 @@ RpmsRpc::Authentication.held_keys(%w[PROVIDER XUPROGMODE])
 
 On a machine with Docker and no route to a staging stack (a cloud agent VM, say),
 `bin/cloud_rpms up` starts `dockerd` if none is running, then runs lakeraven-ehr's
-`compose.yml`, so the run recipe lives in one place. By default it runs the rpms-ops
+`compose.yml`, so the run recipe lives in one place. By default it runs the openrpms
 release marked Latest (the newest that passed the gate); `RPMS_TAG=<release tag>` runs a
 specific one, and `PINNED=1` runs the build `data/fingerprints/rpms-ops.lock.yml` records.
-When `gh` can't read the Latest release (no access to rpms-ops), it falls back to that
+When `gh` can't read the Latest release (no access to openrpms), it falls back to that
 lock pin. Changing release resets the container's synthetic data. It needs a
 lakeraven-ehr checkout (`LAKERAVEN_EHR_PATH=`, default `../lakeraven-ehr`) and pull
 access to `ghcr.io/lakeraven`. The CIA broker is on `127.0.0.1:9100`; `down` removes the
@@ -414,20 +414,20 @@ rake rpc:coverage
 # RPC coverage: 0.7% (37 / 4961 registered on bcer-9.0-20261012-e7923a4-ydb; 596 excluded) · declared 197 · unregistered names used 0
 ```
 
-- **Denominator:** every #8994 name on the pinned rpms-ops build
+- **Denominator:** every #8994 name on the pinned openrpms build
   (`data/inventories/<release-tag>/<release-tag>-rpcs.json`, the release's own RPC surface,
   pinned by `rake conformance:pin`; see [docs/conformance/CAPTURE.md](docs/conformance/CAPTURE.md)),
   minus the names in `data/rpc_coverage/exclusions.yml`. Each exclusion carries a reason from a
   fixed list, and is reviewed like code.
 - **Unreachable RPCs are excluded from the pinned build's reach classes (#278, #394, #406):** an RPC whose
   routine or entry point is not on the image, that is inactive, that no context lists, or whose
-  every context is out of order cannot be called by any client. rpms-ops publishes that class per
+  every context is out of order cannot be called by any client. openrpms publishes that class per
   RPC (in `<tag>-rpcs.json`), `rake conformance:pin` commits it, and `rake rpc:exclusions`
   regenerates the exclusions from it, recording its path and pinned sha256. Run it after every
   re-pin; a test fails when the committed file is stale against the pinned document. Out-of-order RPCs get their own reason (`context_out_of_order`),
   since a site can put a context back in service. Reviewed reasons (`gui_plumbing`,
   `write_needs_fixture`) survive regeneration.
-- **"Not in FOIA" is not "not real"; registration is the test (rpms-ops `docs/CLIENTS.md`).** FOIA is a
+- **"Not in FOIA" is not "not real"; registration is the test (openrpms `docs/CLIENTS.md`).** FOIA is a
   partial public copy of what IHS distributes. On bcer-8.3, 550 registered RPCs had backing routines absent
   from the FOIA *source tree*, and every one was legitimate IHS: most from packages registered in `#9.4`
   whose source IHS does not publish (Clinical Reporting BGP, imaging MAG, dental ADE, BPC), the rest from IHS
@@ -586,13 +586,13 @@ The gem never retries. `RpmsRpc::RetrySafety` and `lib/rpms_rpc/retry_safety.yml
 rpms-rpc generates two OpenAPI 3.1 documents (#395), and every GitHub release of the gem carries them as assets (`.github/workflows/openapi-release.yml`).
 
 ```sh
-rake openapi:pin RELEASE=<tag>  # pin that rpms-ops release's <tag>-rpcs.json (data/openapi/)
+rake openapi:pin RELEASE=<tag>  # pin that openrpms release's <tag>-rpcs.json (data/openapi/)
 rake openapi:surface   # pkg/openapi/rpc-surface.openapi.json: every RPC the pinned build registers, addressed as a resource
 rake openapi:api       # pkg/openapi/client-api.openapi.json: the gem's public methods, each with the RPCs behind it
 rake openapi           # both
 ```
 
-The surface reads one rpms-ops file, the pinned build's `<tag>-rpcs.json` (rpms-ops#732), through `BuildSurface`, after proving its sha256 and validating it against the schema it names (rpcs.v1 or rpcs.v2); the client API is `rake rpc:api_coverage`'s analysis.
+The surface reads one openrpms file, the pinned build's `<tag>-rpcs.json` (openrpms#732), through `BuildSurface`, after proving its sha256 and validating it against the schema it names (rpcs.v1 or rpcs.v2); the client API is `rake rpc:api_coverage`'s analysis.
 Both name the gem commit and the build tag, are byte-identical for the same inputs, and fail unless they are valid OpenAPI 3.1 with every verb and path unique.
 [docs/openapi.md](docs/openapi.md) defines every `x-rpms` field, the addressing rules and how to fetch the documents from a release.
 

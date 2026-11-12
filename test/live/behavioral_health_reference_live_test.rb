@@ -38,17 +38,17 @@ class BehavioralHealthReferenceLiveTest < LiveSpec::Test
 
   # ADML^AMHGDA dies at +32 (AMHPOVE undefined) once the provider has an
   # administrative BH record with no POV, which the BH save live specs file
-  # (lakeraven/rpms-ops#1119). Its trap answers an "M ERROR|" row and no
+  # (lakeraven/openrpms#1119). Its trap answers an "M ERROR|" row and no
   # $C(31), and the read raises it (rpms-rpc#706). That is IRIS, and YottaDB
-  # from bcer-9.0-20261110-55d9e3e (rpms-ops#1127); an older YottaDB image
+  # from bcer-9.0-20261110-55d9e3e (openrpms#1127); an older YottaDB image
   # overwrites the error row with $C(31) and answers no rows.
   def test_admin_records_answer_record_rows_or_raise_the_builds_adml_error
     rows = BH::Reference.admin_records(client.duz.to_s, from: FROM, to: TO)
     rows.each { |row| assert_match(/\A\d+\z/, row[:ien].to_s, "a row whose IEN is not a record IEN: #{row.inspect}") }
     puts "\n#{persona}: admin_records answered #{rows.size} row(s)"
   rescue RpmsRpc::Client::RpcMError => e
-    assert_match(/ADML\+32\^AMHGDA/, e.message, "an M error other than rpms-ops#1119")
-    puts "\n#{persona}: admin_records raised the build's ADML error (rpms-ops#1119)"
+    assert_match(/ADML\+32\^AMHGDA/, e.message, "an M error other than openrpms#1119")
+    puts "\n#{persona}: admin_records raised the build's ADML error (openrpms#1119)"
   end
 
   def test_lists_answer_rows_with_record_iens_only

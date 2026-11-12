@@ -36,7 +36,7 @@ Two routes the first pass missed:
 | Widget registry | `CIAVMCFG GETREG` | none needed | D | Dumps VueCentric's widget registry. The web app has no use for it. |
 | Patient selection | `BEHOPTPL LOOKUP`, `HRNLKP`, `DOBLKP`, `LISTALL` | not chosen; `AGG LOOKUP PATIENTS` (option `AGGRPC`) is a candidate | E | Four of the 37. Read from the inventory only; behaviour not compared. `PatientSelection.find` already mirrors VueCentric's lookup. |
 | Banner flags (C, W, A, D) | `BEHOCACV CWAD` | `ORWPT CWAD` (option `OR CPRS GUI CHART`) | A | Same scan; no Patient Record Flag letter "F". |
-| Patient Record Flags | `BEHOCACV CWAD` ("F") | `ORPRF HASFLG` (`CIAV VUECENTRIC`, `OR CPRS GUI CHART`), `Patient.flags` | A | A behavioral-health safety flag is a real banner item. Live spec on the demo flag rpms-ops seeds (`test/live/patient_flags_live_test.rb`). |
+| Patient Record Flags | `BEHOCACV CWAD` ("F") | `ORPRF HASFLG` (`CIAV VUECENTRIC`, `OR CPRS GUI CHART`), `Patient.flags` | A | A behavioral-health safety flag is a real banner item. Live spec on the demo flag openrpms seeds (`test/live/patient_flags_live_test.rb`). |
 | Designated provider | `BEHOPTPC GETBDP` | DDR read of IHS PATIENT (#9000001) field .14 (the PCP field, as in `lib/rpms_rpc/mappings/ihs.rb`); `ORWPT1 PRCARE` reads PCMM, which IHS sites do not fill | B | Latent bug: the banner uses the first row of an alphabetical category list. |
 | Create the visit | `BEHOENCX FETCH` (create) | Scheduling check-in; `AMHG SAVE VISIT` for BH | A | Depends on the clinic's create-visit flag. Unverified on a running image. `BEHOENPC SAVE` also creates the visit it files onto (see "Filing an encounter" below). |
 | Visit diagnosis | `BGOVPOV SET` | `AMHG SAVE POV` for BH visits | A for BH, E otherwise | `BEHOENPC SAVE` files a V POV with its narrative, live-proven; it is in `CIAV VUECENTRIC` only. `ORWPCE SAVE` is not a route (below). |
@@ -71,19 +71,19 @@ On the same day, clinic and category, it files onto the visit already there (`FN
 
 `test/live/encounter_save_behoenpc_live_test.rb` files one encounter this way over the real CIA broker, as the run's persona, and reads every row back with DDR.
 It passed on `bcer-9.0-20261109-d3adcff-ydb` as PROFILE,MD (no XUPROGMODE) and as PROV123.
-rpms-ops proves the same at build level (`test/encounter_save_build_level.sh`, rpms-ops#1042).
+openrpms proves the same at build level (`test/encounter_save_build_level.sh`, openrpms#1042).
 The gem has no wrapper for it yet.
 
 `ORWPCE SAVE`, the CPRS name, is not a route and should not be repointed.
 As registered it points at `SAVE^CIAVCXPC`, a routine the image does not carry, and it fails with `%YDB-E-ZLINKFILE`.
 Repointed to the stock `SAVE^ORWPCE`, it answers empty and files nothing, because stock PCE asks Visit Tracking for the visit and file 150.9 ships empty.
-That road would need new site configuration and at least one more defect fixed, for an RPC nothing calls (rpms-ops#1042, FOIA defects register E8).
+That road would need new site configuration and at least one more defect fixed, for an RPC nothing calls (openrpms#1042, FOIA defects register E8).
 
 Not proven: the behavioral-health path through `AMHG SAVE *` was not compared with it; the list comes from the routine's comments and the build-level test, not from a client trace; vitals, immunizations, skin tests and patient education lines were not exercised; it ran on YottaDB only.
 
 ## Verified, and not
 
-Read in the pinned routines (`rpms-ops/data/standup/bcer-9.0-ydb/r/`), not run:
+Read in the pinned routines (`openrpms/data/standup/bcer-9.0-ydb/r/`), not run:
 `OPTCHK^CIANBUTL`; `CHECKIN^BSDX25` and `GETVISIT^BSDAPI4` call; `VISIT^AMHGSVF`; the `BGOVCPT` input layout (`Visit IEN ^ CPT IEN ^ DFN ^ Event date ^ Qty ^ Dx ^ Mod1 ^ Prov …`); `GETBDP^BEHOPTPC` and `ALLDP^BDPAPI`.
 
 Since verified live: `BEHOENPC SAVE` files an encounter, and `CIAVCXPC` is not on the image (above).

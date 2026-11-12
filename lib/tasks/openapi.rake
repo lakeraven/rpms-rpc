@@ -2,12 +2,12 @@
 
 # The OpenAPI documents (rpms-rpc#395): the RPC surface of a pinned build, and the gem's client API.
 #
-#   rake openapi:pin     RELEASE=<rpms-ops tag>   pin that release's <tag>-rpcs.json (and the schema it names)
+#   rake openapi:pin     RELEASE=<openrpms tag>   pin that release's <tag>-rpcs.json (and the schema it names)
 #   rake openapi:surface [OUT=pkg/openapi/rpc-surface.openapi.json]
 #   rake openapi:api     [METHODS=<rake rpc:api_coverage JSON>] [OUT=pkg/openapi/client-api.openapi.json]
 #   rake openapi         surface + api, into pkg/openapi/
 #
-# The surface reads ONE rpms-ops file, the pinned <tag>-rpcs.json (rpms-ops#732), and only after it is
+# The surface reads ONE openrpms file, the pinned <tag>-rpcs.json (openrpms#732), and only after it is
 # proven offline: its sha256 is the pin's, its schema field (rpcs.v1 or rpcs.v2) is the pinned schema's,
 # and it validates against that schema (tools/openapi/rpcs_pin.rb). The API document runs rpc:api_coverage's analysis in process
 # unless METHODS= names a file it wrote; its build is the one data/rpc_coverage/config.yml names. Each
@@ -36,8 +36,8 @@ namespace :openapi do
     puts "EXPLICIT SUCCESS: #{task} wrote #{path.delete_prefix("#{root}/")} (OpenAPI #{document['openapi']}, valid, every verb + path unique)"
   end
 
-  desc "Pin a release's <tag>-rpcs.json for openapi:surface: RELEASE=<rpms-ops tag> [REPO=lakeraven/rpms-ops]. " \
-       "Downloads it, checks it against the release asset digest, fetches the rpms-ops schema its `schema` field " \
+  desc "Pin a release's <tag>-rpcs.json for openapi:surface: RELEASE=<openrpms tag> [REPO=lakeraven/openrpms]. " \
+       "Downloads it, checks it against the release asset digest, fetches the openrpms schema its `schema` field " \
        "names (rpcs.v1, rpcs.v2) at the build's commit, validates, and writes data/openapi/rpcs.lock.yml."
   task :pin do
     load_tool.("rpcs_pin")
@@ -45,7 +45,7 @@ namespace :openapi do
     require "open3"
     require "tmpdir"
     pin = OpenApi::RpcsPin
-    tag = ENV["RELEASE"] or abort "openapi:pin requires RELEASE=<rpms-ops release tag>"
+    tag = ENV["RELEASE"] or abort "openapi:pin requires RELEASE=<openrpms release tag>"
     abort "refusing RELEASE with unsafe characters: #{tag.inspect}" unless tag.match?(/\A[A-Za-z0-9._-]+\z/)
     repo = ENV["REPO"] || pin::REPO
     asset = "#{tag}-rpcs.json"
@@ -53,7 +53,7 @@ namespace :openapi do
     out, status = Open3.capture2("gh", "release", "view", tag, "--repo", repo, "--json", "assets")
     abort "openapi:pin: gh release view failed for #{tag} on #{repo} (published? gh auth?)" unless status.success?
     digest = JSON.parse(out)["assets"].find { |a| a["name"] == asset }&.dig("digest").to_s.delete_prefix("sha256:")
-    abort "openapi:pin: #{tag} publishes no #{asset} (released before rpms-ops#732?)" if digest.empty?
+    abort "openapi:pin: #{tag} publishes no #{asset} (released before openrpms#732?)" if digest.empty?
 
     Dir.mktmpdir do |tmp|
       ok = system("gh", "release", "download", tag, "--repo", repo, "--pattern", asset, "--dir", tmp)
@@ -67,7 +67,7 @@ namespace :openapi do
       abort "openapi:pin: #{asset} names no build commit" unless commit.match?(/\A[0-9a-f]{40}\z/)
       abort "openapi:pin: #{asset} has schema #{name.inspect}, not one of #{pin::SCHEMAS.join(', ')}" unless pin::SCHEMAS.include?(name)
 
-      # The schema the file names, at the commit that built it: what rpms-ops validated it against.
+      # The schema the file names, at the commit that built it: what openrpms validated it against.
       source = pin.schema_source_path(name)
       schema, status = Open3.capture2("gh", "api", "-H", "Accept: application/vnd.github.raw", "repos/#{repo}/contents/#{source}?ref=#{commit}")
       abort "openapi:pin: cannot fetch #{source} at #{repo}@#{commit}" unless status.success? && !schema.empty?
