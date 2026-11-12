@@ -50,7 +50,7 @@ namespace :conformance do
   INVENTORIES_DIR = ENV["INVENTORIES_DIR"] ? File.expand_path(ENV["INVENTORIES_DIR"]) : File.expand_path("../../data/inventories", __dir__)
   LOCK_PATH = File.join(FINGERPRINTS_DIR, "rpms-ops.lock.yml")
 
-  desc "Pin the RPC signature of an openrpms build: RELEASE=<tag> [REPO=lakeraven/openrpms] " \
+  desc "Pin the RPC signature of an openrpms build: RELEASE=<tag> [REPO=<owner/repo>; default: the repo the lock records] " \
        "[SOURCE=<dir holding the assets; skips the download>] [ENV=references/<tag>]. " \
        "Downloads the inventory + build record (gh release download), checks each against the " \
        "release's asset digest, verifies sidecar, binding and build commit, commits the bytes to " \
