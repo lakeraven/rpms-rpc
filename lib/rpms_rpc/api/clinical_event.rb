@@ -7,16 +7,35 @@ require_relative "../fileman_date_parser"
 module RpmsRpc
   # Symbolic API for PCE encounter reads (ORWPCE). Reads only.
   #
-  # These methods do not guard cross-patient access on the note path. When
-  # the note IEN is a positive integer, ORWPCE GET VISIT, ORWPCE HASVISIT,
-  # and ORWPCE PCE4NOTE take the visit from ^TIU(8925,note,0) and ignore
-  # DFN (GETVISIT^ORWPCE2, ORWPCE2.m:64-67; HASVISIT^ORWPCE,
-  # ORWPCE.m:118-123; PCE4NOTE^ORWPCE3, ORWPCE3.m:9-17). Optional
-  # visit_string, location IEN, and datetime on that path are sent only
-  # when blank or well-formed; nil is sent as "". A malformed value makes
-  # no call. A note IEN of 0 looks the visit up by DFN instead: GET VISIT
-  # and PCE4NOTE use the visit string (location;FileMan datetime;service
-  # category); HASVISIT uses the location IEN and the FileMan datetime.
+  # When the note IEN is a positive integer, ORWPCE GET VISIT, ORWPCE
+  # HASVISIT, and ORWPCE PCE4NOTE take the visit from ^TIU(8925,note,0) and
+  # ignore DFN (GETVISIT^ORWPCE2, ORWPCE2.m:64-67; HASVISIT^ORWPCE,
+  # ORWPCE.m:118-123; PCE4NOTE^ORWPCE3, ORWPCE3.m:9-17). So on that path
+  # visit_for_note, has_visit?, visit_status, and pce_for_note guard the
+  # patient scope themselves (#531): before the ORWPCE call they read the
+  # note's patient with TIU GET ALERT INFO (GETALRT^TIUSRVR,
+  # TIUSRVR.m:67-84; DataMapper :tiu_note_patient), sent under OR CPRS GUI
+  # CHART, the only option that registers it, with the caller's context
+  # restored afterwards. The ORWPCE call is sent only when that read proves
+  # the note is the DFN's. It fails closed, raising
+  # NotePatientMismatchError and sending no ORWPCE RPC:
+  # - reason :mismatch when the reply names another patient;
+  # - reason :unknown when the reply's first line is not this note
+  #   (piece 1, compared as an integer) and a positive integer DFN
+  #   (piece 2, digits only), as with -1 or an empty reply, or when the
+  #   server answers which RPCs it serves and omits TIU GET ALERT INFO.
+  # A broker error from that read propagates unchanged. The guard runs
+  # after argument validation; invalid arguments still make no call.
+  #
+  # Optional visit_string, location IEN, and datetime on the positive-note
+  # path are sent only when blank or well-formed; nil is sent as "". A
+  # malformed value makes no call. A note IEN of 0 looks the visit up by
+  # DFN instead, so it makes no ownership read: GET VISIT and PCE4NOTE use
+  # the visit string (location;FileMan datetime;service category); HASVISIT
+  # uses the location IEN and the FileMan datetime.
+  #
+  # note_visit_string is unscoped: ORWPCE NOTEVSTR takes no DFN, so it
+  # answers for any note.
   #
   # HASVISIT^ORWPCE answers -1 when there is no visit, 0 for a stand-alone
   # visit, and 1 when that visit is tied to an appointment
@@ -26,11 +45,26 @@ module RpmsRpc
     extend self
     extend Shape::Declarable
 
+    # A note-keyed read refused because the note is not proven to be the
+    # patient's. +reason+ is :mismatch (the note names another patient) or
+    # :unknown (the note's patient could not be determined). The message
+    # names the note, never the patient the note belongs to.
+    class NotePatientMismatchError < Error
+      attr_reader :reason
+
+      def initialize(reason, note_ien)
+        @reason = reason
+        detail = reason == :mismatch ? "is not a note of the patient asked for" : "has no patient that could be determined"
+        super("note #{note_ien} #{detail}; no PCE read was sent")
+      end
+    end
+
     # Visit IEN for a note, or nil when the broker reports none (-1 or an
     # empty reply) or the arguments cannot name a visit.
     def visit_for_note(note_ien, dfn, visit_string = "")
       return nil unless note_lookup?(note_ien, dfn, visit_string)
       return nil unless rpc_served?(DataMapper.pce_get_visit)
+      guard_note_patient!(note_ien, dfn)
 
       DataMapper.pce_get_visit.fetch_scalar(note_ien, dfn, empty_optional(visit_string))
     end
@@ -42,6 +76,7 @@ module RpmsRpc
     def has_visit?(note_ien, dfn, location_ien = "", datetime = "")
       return false unless hasvisit_args?(note_ien, dfn, location_ien, datetime)
       return false unless rpc_served?(DataMapper.pce_has_visit)
+      guard_note_patient!(note_ien, dfn)
 
       DataMapper.pce_has_visit.fetch_scalar(
         note_ien, dfn, empty_optional(location_ien), empty_optional(datetime)
@@ -54,6 +89,7 @@ module RpmsRpc
     def visit_status(note_ien, dfn, location_ien = "", datetime = "")
       return nil unless hasvisit_args?(note_ien, dfn, location_ien, datetime)
       return nil unless rpc_served?(DataMapper.pce_has_visit)
+      guard_note_patient!(note_ien, dfn)
 
       raw = RpmsRpc.client.call_rpc(
         DataMapper.pce_has_visit.rpc_name, note_ien, dfn,
@@ -65,7 +101,9 @@ module RpmsRpc
           path: "/progress-notes/{note_ien}/clinical-events/patients/{dfn}/visit-status"
 
     # { location_ien:, datetime_raw:, service_category: } for a note, or nil
-    # when the note has no visit string.
+    # when the note has no visit string. Unscoped: NOTEVSTR^ORWPCE takes no
+    # DFN, so this returns any note's visit string, whichever patient the
+    # note belongs to. The caller must not treat it as patient-scoped.
     def note_visit_string(note_ien)
       return nil unless positive_id?(note_ien)
       return nil unless rpc_served?(DataMapper.pce_note_visit_string)
@@ -81,6 +119,7 @@ module RpmsRpc
     def pce_for_note(note_ien, dfn, visit_string = "")
       return nil unless note_lookup?(note_ien, dfn, visit_string)
       return nil unless rpc_served?(DataMapper.pce_for_note)
+      guard_note_patient!(note_ien, dfn)
 
       raw = RpmsRpc.client.call_rpc(
         DataMapper.pce_for_note.rpc_name, note_ien, dfn, empty_optional(visit_string)
@@ -155,7 +194,8 @@ module RpmsRpc
     # A positive note reads the visit off the TIU document. Note 0 is the
     # location lookup, and only when the visit string names a location and
     # a FileMan datetime. Either way the patient id has to be a positive
-    # integer; the note path does not compare it to the note. On the
+    # integer; on the note path guard_note_patient! compares it to the
+    # note's patient. On the
     # positive-note path an optional visit string is sent only when blank
     # or well-formed.
     def note_lookup?(note_ien, dfn, visit_string)
@@ -178,6 +218,50 @@ module RpmsRpc
       return false unless zero_id?(note_ien)
 
       positive_id?(location_ien) && fileman_datetime?(datetime)
+    end
+
+    # On a positive note the ORWPCE RPC ignores DFN, so raise unless TIU GET
+    # ALERT INFO proves the note is +dfn+'s. Note 0 is looked up by DFN on
+    # the server and has no note to check.
+    def guard_note_patient!(note_ien, dfn)
+      return unless positive_id?(note_ien)
+
+      owner = note_patient(note_ien)
+      raise NotePatientMismatchError.new(:unknown, note_ien) if owner.nil?
+      raise NotePatientMismatchError.new(:mismatch, note_ien) unless owner == digit_text(dfn).to_i
+    end
+
+    # The note's DFN, or nil when the reply does not prove one. GETALRT^TIUSRVR
+    # (TIUSRVR.m:67-84) answers TIUDA^DFN^ORTAB, or -1. Proof is the first
+    # line naming this note (piece 1) and a positive integer DFN (piece 2).
+    # A server that answers served_rpcs and omits the RPC proves nothing.
+    def note_patient(note_ien)
+      mapping = DataMapper.tiu_note_patient
+      return nil unless rpc_served?(mapping)
+
+      note, patient, = first_reply_line(note_patient_reply(mapping, note_ien)).to_s.split("^", -1)
+      return nil unless digit_text(note)&.to_i == digit_text(note_ien).to_i
+      return nil unless positive_id?(patient)
+
+      patient.to_i
+    end
+
+    # Sent under the mapping's option (OR CPRS GUI CHART); the caller's
+    # context is restored. Lines when the client offers them.
+    def note_patient_reply(mapping, note_ien)
+      client = RpmsRpc.client
+      mapping.in_context(client) do
+        if client.respond_to?(:call_rpc_lines)
+          client.call_rpc_lines(mapping.rpc_name, note_ien)
+        else
+          client.call_rpc(mapping.rpc_name, note_ien)
+        end
+      end
+    end
+
+    def first_reply_line(reply)
+      line = reply.is_a?(Array) ? reply.first : reply.to_s.split(/\r\n|\r|\n/).first
+      line.nil? ? nil : DataMapper.strip_recordset_separators(line.to_s)
     end
 
     def optional_location?(location_ien)
