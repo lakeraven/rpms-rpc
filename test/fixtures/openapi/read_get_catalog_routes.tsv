@@ -114,6 +114,11 @@ RpmsRpc::Registration.pick_list	GET /registrations/pick-list
 RpmsRpc::Registration.preferred_name	GET /patients/{dfn}/registrations/preferred-name
 RpmsRpc::Registration.race_ethnicity	GET /patients/{dfn}/registrations/race-ethnicity
 RpmsRpc::Registration.race_ethnicity_choices	GET /registrations/race-ethnicity-choices
+RpmsRpc::RegistrationSetup.eligibility_modifier_table	GET /registration-setups/eligibility-modifier-table
+RpmsRpc::RegistrationSetup.flag_types	GET /registration-setups/flag-types
+RpmsRpc::RegistrationSetup.local_flag	GET /registration-setups/{ien}/local-flag
+RpmsRpc::RegistrationSetup.local_flag_history	GET /registration-setups/{ien}/local-flag-history
+RpmsRpc::RegistrationSetup.local_flags	GET /registration-setups/local-flags
 RpmsRpc::Reminders.applicable	GET /patients/{dfn}/reminders/applicable
 RpmsRpc::Scheduling.checkin_visit	GET /patients/{dfn}/appointments/clinics/{clinic_ien}/checkin-visit
 RpmsRpc::Scheduling.patient_appointments	GET /patients/{dfn}/appointments
