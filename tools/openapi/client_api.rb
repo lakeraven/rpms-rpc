@@ -61,6 +61,7 @@ module OpenApi
       "RegistrationParameters" => { path: "registration-parameters" },
       "Reminders" => { path: "reminders" },
       "Scheduling" => { path: "appointments" },
+      "SchedulingMaintenance" => { path: "appointments" },
       "SchedulingSetup" => { path: "appointments" },
       "Session" => { path: "sessions" },
       "Site" => { path: "sites" },
