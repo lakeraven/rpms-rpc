@@ -247,7 +247,7 @@ module RpmsRpc
     #
     # Returns { valid: true }, { valid: false, message: } for RESULT -1 (1 and 0
     # are not refusals), or nil when RPMS gave no result row: the tag errored
-    # (rpms-ops#1040) or the broker did not answer.
+    # (openrpms#1040) or the broker did not answer.
     def validate_field(params:, window: DEFAULT_WINDOW, client: RpmsRpc.client)
       reply = in_context(client) { parse_reply(call_array(client, VALIDATE_RPC, window, encode_parms(params))) }
       result = reply&.dig(:records, 0, :result).to_s

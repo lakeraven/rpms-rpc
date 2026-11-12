@@ -31,9 +31,9 @@ module RpmsRpc
   # half). It is gone, under ADR 0008 rule 3: no RPMS build serves
   # VAFC VOA ADD PATIENT to a client. Stock RPMS lists it in no option's RPC
   # multiple, so both brokers refuse it outside the XUPROGMODE bypass
-  # (CANRUN^CIANBACT, CHK^XQCS), and rpms-ops keeps it that way on purpose:
+  # (CANRUN^CIANBACT, CHK^XQCS), and openrpms keeps it that way on purpose:
   # FIXDDRCX takes off the grants an earlier cut added and deletes the
-  # LR REGISTRATION CONTEXT option it once created (rpms-ops#499, #500, #674,
+  # LR REGISTRATION CONTEXT option it once created (openrpms#499, #500, #674,
   # docs/DEVIATIONS.md). Its reach class is no-context on every pinned build.
   # AG is on every RPMS baseline (rpms-rpc#407), and its AGGRPC option is how
   # RPMS registers a patient.
@@ -114,7 +114,7 @@ module RpmsRpc
     #                                    AG0.m:48; set of codes I/D/C/P per
     #                                    the live DD)
     #   1118 CURRENT COMMUNITY          (AGED1.m:354; free text per the live DD)
-    # Field definitions confirmed against the live bcer-9.0-ydb DD in rpms-ops
+    # Field definitions confirmed against the live bcer-9.0-ydb DD in openrpms
     # docs/REGISTRATION_RPC_CONTRACTS.md §5.
     FIELD_TRIBE = "1108"
     FIELD_CLASSIFICATION = "1111"
@@ -710,7 +710,7 @@ module RpmsRpc
     # "@". AG's roll-and-scroll edits the same field with a plain ^DIE
     # (PREF^AGED14, DR="9001"), so FileMan's input transform is the only check
     # AG makes. No #8994 entry reaches either, and AG's GUI windows have no
-    # parameter for 9001 (rpms-ops#1059), so this is DDR FILER mode EDIT, which
+    # parameter for 9001 (openrpms#1059), so this is DDR FILER mode EDIT, which
     # is FILE^DIE with no "E" flag, the same call SETPREF makes.
     #
     # What runs: the field's two MUMPS cross-references fire on the write
@@ -1356,7 +1356,7 @@ module RpmsRpc
 
     # Runs AG's own check of each field, as its client does, and stops at the
     # first refusal. A check RPMS gives no answer to fails closed: nothing is
-    # filed on a field nobody checked (rpms-ops#1040).
+    # filed on a field nobody checked (openrpms#1040).
     def validate_fields(params)
       FIELD_VALIDATIONS.each do |field, companions|
         return ssn_or_reason_required if field == "AGGNOSSN" && neither_ssn_nor_reason?(params)
@@ -1411,7 +1411,7 @@ module RpmsRpc
 
     # With neither an SSN nor a reason, NOSSN^AGGWVAL calls $$ISREQ^AGGUL2, which
     # quits without a value on a site that does not list SSN as required: an M
-    # error, after which the broker job hangs on its next AG call (rpms-ops#1040).
+    # error, after which the broker job hangs on its next AG call (openrpms#1040).
     # That one check is not sent; the registration is refused in AG's own words.
     # Drop this when the build carries the ISREQ fix and AG can answer.
     def neither_ssn_nor_reason?(params)

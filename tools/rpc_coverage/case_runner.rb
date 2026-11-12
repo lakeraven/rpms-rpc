@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-# Wire-level conformance cases, as data (rpms-ops#834).
+# Wire-level conformance cases, as data (openrpms#834).
 #
-# rpms-ops owns the cases (data/conformance/cases.jsonl): one JSON object per line naming an RPC,
+# openrpms owns the cases (data/conformance/cases.jsonl): one JSON object per line naming an RPC,
 # the context option to bind, the persona, the literal parameters and the verdict the build must
 # give. This runs them at the wire through CiaClient#call_rpc_raw. It calls no API method: a case
 # is a property of the build, not of this gem's API, so any client can run the same file.
@@ -57,7 +57,7 @@ module RpcCoverage
       rows
     end
 
-    # Shape only: rpms-ops lints the file against the release's #8994 list.
+    # Shape only: openrpms lints the file against the release's #8994 list.
     def problems(rows)
       out = []
       seen = {}

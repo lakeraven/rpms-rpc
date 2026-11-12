@@ -323,7 +323,7 @@ module RpmsRpc
     # ("D MSR(VITAL,ABBREV,DFN,.ORY,CNT,F1,F2)" — bcer-9.0-ydb
     # r/ORQQVI.m:96; note CNT with no leading dot), so each per-type call
     # resets the counter and every vital overwrites ORY(1) — only the last
-    # type walked survives. rpms-ops carries a corrected overlay passing
+    # type walked survives. openrpms carries a corrected overlay passing
     # ".CNT" (reconciliation/yottadb-ubuntu/ORQQVI.m:103). A single-row
     # reply for a patient with several vitals is this bug, not an empty
     # chart: check the site's routine before chasing the data.
@@ -967,7 +967,7 @@ module RpmsRpc
     # These are the ADT/movement RPCs that actually exist in the #8994 registry.
     # There is NO stock movement-WRITE RPC (admit/transfer/discharge): the BPRM
     # twin's ADT-write scenario (#15) requires a new FileMan-safe (^DIE/DGPMV*)
-    # server RPC to be authored — tracked with rpms-ops#371. Parameter/response
+    # server RPC to be authored — tracked with openrpms#371. Parameter/response
     # shapes below are from ORWPT.m (Order Entry) entry points ADMITLST/INPLOC/
     # DISCHRG in FOIA-RPMS.
 
@@ -1017,7 +1017,7 @@ module RpmsRpc
     # Stock-VistA RPCs used by the FileMan Delphi Components wrapper
     # (RpmsRpc::DdrFileman), Patient.contact and RpmsRpc::Tribal. Every wire shape below is cited to the M
     # routine serving the RPC in the bcer-9.0-ydb corpus
-    # (rpms-ops/data/standup/bcer-9.0-ydb/r/); tag^routine bindings are from
+    # (openrpms/data/standup/bcer-9.0-ydb/r/); tag^routine bindings are from
     # the live #8994 REMOTE PROCEDURE dump (.broker_dumps_8994_20260607.txt):
     #
     #   DDR LISTER            → LISTC^DDR       (return type 4 = GLOBAL ARRAY)

@@ -4,7 +4,7 @@ require_relative "live_helper"
 require "rpms_rpc/api/registration"
 require "rpms_rpc/api/ddr_fileman"
 
-# The registration edits of rpms-ops#1055, filed inside AG's edit lock and
+# The registration edits of openrpms#1055, filed inside AG's edit lock and
 # read back through FileMan: the address history (rpms-ux S-REG-21.1) and
 # race and ethnicity (S-REG-20.2 to 20.4). The cell phone (S-REG-21.5) is
 # read only: DDR FILER cannot file #2 .134 (its AXENR13 index needs DFN).

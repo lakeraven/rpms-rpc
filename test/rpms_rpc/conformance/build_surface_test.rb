@@ -12,7 +12,7 @@ class RpmsRpc::Conformance::BuildSurfaceTest < Minitest::Test
   Surface = RpmsRpc::Conformance::BuildSurface
   P = PinnedRpcsTestHelper
   TAG = P::TAG
-  # Two records, verbatim, from bcer-9.0-20261108-095b233-ydb-rpcs.json (schema rpcs.v2, rpms-ops#877).
+  # Two records, verbatim, from bcer-9.0-20261108-095b233-ydb-rpcs.json (schema rpcs.v2, openrpms#877).
   V2_EXTRACT = File.expand_path("../../fixtures/rpcs/bcer-9.0-20261108-095b233-ydb-rpcs.extract.json", __dir__)
 
   def pinned = @pinned ||= Surface.load(P::INVENTORY_DIR, TAG)
@@ -69,7 +69,7 @@ class RpmsRpc::Conformance::BuildSurfaceTest < Minitest::Test
     assert_match(/"ORWPT SELECT" has reach "maybe-callable", not one of/, e.message)
   end
 
-  # rpcs.v2 (rpms-ops#877) adds #8994's text, as stored: XWB CREATE CONTEXT's description carries the
+  # rpcs.v2 (openrpms#877) adds #8994's text, as stored: XWB CREATE CONTEXT's description carries the
   # Latin-1 bullet (U+00B7) its #8994 entry stores.
   def test_rpcs_v2_carries_the_8994_text
     s = Surface.from_rpcs_json(V2_EXTRACT, tag: "bcer-9.0-20261108-095b233-ydb")
@@ -88,7 +88,7 @@ class RpmsRpc::Conformance::BuildSurfaceTest < Minitest::Test
     assert_equal [ [], [], nil, nil, nil ], [ r.description, r.returns, r.word_wrap, r.params[0].seq, r.params[0].max_length ]
   end
 
-  # --- <tag>-contexts_19_05.txt (rpms-rpc#416, rpms-ops#626) -------------------------------------
+  # --- <tag>-contexts_19_05.txt (rpms-rpc#416, openrpms#626) -------------------------------------
 
   CONTEXTS = [
     "OPTION|TYPE|LOCK|RPC|RPC_KEY|RPC_RULES",
@@ -97,7 +97,7 @@ class RpmsRpc::Conformance::BuildSurfaceTest < Minitest::Test
     "XUS SIGNON|B||XUS AV CODE||"
   ].map { |l| l.tr("|", "\t") }.join("\n") + "\n"
 
-  # Real records of the four RPCs, beside a contexts file of the shapes rpms-ops#626 writes.
+  # Real records of the four RPCs, beside a contexts file of the shapes openrpms#626 writes.
   # XQ OPT stands for an RPC a keyed and a locked context list; it is the pinned XUS DIVISION GET.
   def with_contexts(contexts = CONTEXTS, reach: {})
     Dir.mktmpdir do |dir|

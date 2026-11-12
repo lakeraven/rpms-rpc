@@ -4,7 +4,7 @@ require_relative "live_helper"
 require "rpms_rpc/api/tribal"
 
 # Tribal.enrollment on a panel patient, the fields a seed gap left unproven on
-# DFN 2 (rpms-ops#1079, rpms-rpc#616). SEEDPNL files TRIBAL ENROLLMENT NO. as
+# DFN 2 (openrpms#1079, rpms-rpc#616). SEEDPNL files TRIBAL ENROLLMENT NO. as
 # SYN<DFN> on every panel patient; the pin predates it until #639. The panel
 # carries no tribe or quantum, so those fields stay unproven here.
 class TribalPanelEnrollmentLiveTest < LiveSpec::Test

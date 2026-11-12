@@ -1,24 +1,24 @@
-# The pinned rpms-ops build signature
+# The pinned openrpms build signature
 
-rpms-rpc conforms to the RPC signature of a named rpms-ops build (#160, #222).
+rpms-rpc conforms to the RPC signature of a named openrpms build (#160, #222).
 A reference fingerprint answers "what does build X provide?", and it is only a
 reference if its bytes trace to a real, artifact-bound capture of that build.
-rpms-ops produces that capture as a build output; this repo pins it like a
+openrpms produces that capture as a build output; this repo pins it like a
 dependency. Nothing here boots an engine.
 
 ## The contract
 
-For every gated release tag, rpms-ops attaches the RPC surface that build serves to the GitHub
-release (rpms-ops `bin/release_inventory.sh` and `bin/release_rpcs_json.rb`, run by the gate
+For every gated release tag, openrpms attaches the RPC surface that build serves to the GitHub
+release (openrpms `bin/release_inventory.sh` and `bin/release_rpcs_json.rb`, run by the gate
 workflows, then `bin/publish_inventory.sh`). `conformance:pin` takes the one document of that
 surface and the faces it does not carry (rpms-rpc#406):
 
 | asset | content |
 | --- | --- |
-| `<tag>-rpcs.json` | **the RPC surface** (rpms-ops#732; schema `rpcs.v1`, or `rpcs.v2` with #8994's text, rpms-ops#877): a header naming the build (`schema`, `tag`, `commit`, `engine`, `rpms_version`) and the sha256 of each raw file it was projected from (`inputs`), then one record per registered RPC in byte order of its name: entry point and formals, #8994 codes, INPUT PARAMETERs, #9.4 package, and its **reach** (class, routine/tag present, contexts, exemptions). rpms-ops `bin/release_rpcs_json.rb` is the format's authority. |
+| `<tag>-rpcs.json` | **the RPC surface** (openrpms#732; schema `rpcs.v1`, or `rpcs.v2` with #8994's text, openrpms#877): a header naming the build (`schema`, `tag`, `commit`, `engine`, `rpms_version`) and the sha256 of each raw file it was projected from (`inputs`), then one record per registered RPC in byte order of its name: entry point and formals, #8994 codes, INPUT PARAMETERs, #9.4 package, and its **reach** (class, routine/tag present, contexts, exemptions). openrpms `bin/release_rpcs_json.rb` is the format's authority. |
 | `<tag>-packages_9_4.txt` | `PREFIX^NAME^VERSION`, one installed package per line (the fingerprint's packages face: rpcs.json names only the packages that own an RPC) |
-| `<tag>-contexts_19_05.txt` | which **context** (option) serves which RPC: one row per `#19.05` RPC multiple entry, tab-separated and byte-sorted under the header `OPTION TYPE LOCK RPC RPC_KEY RPC_RULES`; `LOCK` is `#19` piece 6 (rpms-ops#626, from `bcer-9.0-20261012-e7923a4-ydb`) |
-| `<tag>-INVENTORY-PROVENANCE.json` | engine, M backend, container, `artifact_bound`, `artifact_sha256`, per-dump sha256 + record counts, inventory tool commit; the reach face's sha256 + class counts (`rpc_reach`), the signatures' sha256 + counts (`rpc_signatures`), and for `-ydb` the image by digest (`image`, rpms-ops#727) |
+| `<tag>-contexts_19_05.txt` | which **context** (option) serves which RPC: one row per `#19.05` RPC multiple entry, tab-separated and byte-sorted under the header `OPTION TYPE LOCK RPC RPC_KEY RPC_RULES`; `LOCK` is `#19` piece 6 (openrpms#626, from `bcer-9.0-20261012-e7923a4-ydb`) |
+| `<tag>-INVENTORY-PROVENANCE.json` | engine, M backend, container, `artifact_bound`, `artifact_sha256`, per-dump sha256 + record counts, inventory tool commit; the reach face's sha256 + class counts (`rpc_reach`), the signatures' sha256 + counts (`rpc_signatures`), and for `-ydb` the image by digest (`image`, openrpms#727) |
 | `<tag>-INVENTORY.sha256` | sidecar over the raw inventory files (`shasum -a 256 -c`); it does not cover `rpcs.json` |
 | `<tag>-PROVENANCE.json` | the build record: `release`, `rpms_ops_commit` (the commit the build was cut from) |
 
@@ -26,7 +26,7 @@ The raw files rpcs.json is projected from (`<tag>-broker_8994.txt`, `-rpc_reach.
 `-rpc_signatures.txt`) stay on the release, and the sidecar still names them; the pin does not
 commit them. rpcs.json is bound to them through its `inputs`: each must be the sidecar's sha256.
 
-A build tag is `bcer-<RPMS version>-<yyyymmdd>-<rpms-ops short commit>-<ydb|iris>`.
+A build tag is `bcer-<RPMS version>-<yyyymmdd>-<openrpms short commit>-<ydb|iris>`.
 The RPMS version and engine come from the tag; the build commit comes from the
 build record and must start with the tag's short commit.
 
@@ -61,9 +61,9 @@ give (rpms-rpc#416).
 The registered-names gate, the callable gate, `Features`, `rake rpc:exclusions`, `rake rpc:coverage`,
 `rake rpc:api_coverage`, `conformance:pin`/`check` and `rake openapi:surface` all read through it.
 The per-file parsers of `broker_8994.txt` and `rpc_reach.txt` (and of `rpc_signatures.txt`) are gone
-(#394 AC 4, #406). Two flat readers stay, each for a contract with rpms-ops rather than a pinned
+(#394 AC 4, #406). Two flat readers stay, each for a contract with openrpms rather than a pinned
 release: `rake conformance:ingest DUMP=` reads the flat #8994 dump `bin/assess_instance.sh --emit-flat`
-writes for an instance, and `RpcCoverage.load_registry` reads the names file rpms-ops
+writes for an instance, and `RpcCoverage.load_registry` reads the names file openrpms
 `bin/rpms_rpc_live_score.rb` scores with.
 | `data/fingerprints/references/<tag>.yml` | the fingerprint ingested from exactly those bytes; its `source.inventory` face repeats the build and the shas. |
 
@@ -92,7 +92,7 @@ what it claims is proven by a live call (ADR 0008 rule 4), not by the signature.
 
 ```sh
 bundle exec rake conformance:pin RELEASE=bcer-9.0-20261012-e7923a4-ydb
-# 1. gh release download the six assets above (REPO= overrides lakeraven/rpms-ops)
+# 1. gh release download the six assets above (REPO= overrides lakeraven/openrpms)
 # 2. each file's sha256 must equal the release's asset digest
 # 3. verify: sidecar matches the bytes it covers; provenance artifact_bound, release_tag == tag,
 #    engine == the tag's, has rpc_reach and rpc_signatures faces, image.digest == artifact_sha256;
@@ -105,7 +105,7 @@ bundle exec rake rpc:exclusions
 git add data/rpc_coverage/exclusions.yml data/fingerprints/rpms-ops.lock.yml data/fingerprints/references/<tag>.yml data/inventories/<tag>
 ```
 
-A release published before rpms-ops#732 has no rpcs.json and cannot be pinned until it is re-gated.
+A release published before openrpms#732 has no rpcs.json and cannot be pinned until it is re-gated.
 After a re-pin, run `rake rpc:exclusions` (the unreachable exclusions come from the pinned rpcs.json).
 
 `SOURCE=<dir>` copies the six assets from a directory instead of downloading them
@@ -134,7 +134,7 @@ bundle exec rake conformance:probe TARGET=<some fingerprint>.yml [REQUIRED=refer
 ## Raw ingest (no gated release)
 
 `rake conformance:ingest DUMP=<broker_8994.txt> ENV=<name> [PACKAGES=] [RELEASE=] [DAT_SHA=]`
-is the same transformation without the pin: for a dump you captured yourself (rpms-ops
+is the same transformation without the pin: for a dump you captured yourself (openrpms
 `bin/assess_instance.sh --emit-flat --engine <iris|yottadb> ...` against any instance,
 including a deployed stack over SSM). The result carries no `source.inventory` face and
 is therefore an observation, not a reference; do not put it under `references/`.
@@ -142,5 +142,5 @@ is therefore an observation, not a reference; do not put it under `references/`.
 ## Do not
 
 - Do not hand-edit a lock entry, a committed signature or a fingerprint: the tests fail, by design.
-- Do not pin an inventory whose provenance is not `artifact_bound`: `pin` refuses it (rpms-ops#482).
-- Do not boot rung containers here to capture registries; that is rpms-ops's build side.
+- Do not pin an inventory whose provenance is not `artifact_bound`: `pin` refuses it (openrpms#482).
+- Do not boot rung containers here to capture registries; that is openrpms's build side.

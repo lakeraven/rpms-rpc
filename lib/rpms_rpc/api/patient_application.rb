@@ -16,10 +16,10 @@ module RpmsRpc
   # APPLICATION SUBMITTED sub-entry (#9000045.1101), and each status the
   # state sent back a STATUS DATE sub-entry under the submission
   # (#9000045.110101). The type points at PATIENT APPLICATION TYPES
-  # (#9000048), which each site fills (rpms-ops#1053 seeds the demo's).
+  # (#9000048), which each site fills (openrpms#1053 seeds the demo's).
   #
   # AG edits these only in roll-and-scroll (AGEDBED, AGEDBEE), and no #8994
-  # entry reads or files them (rpms-ops#1053). So this module reads with DDR
+  # entry reads or files them (openrpms#1053). So this module reads with DDR
   # LISTER and files with DDR FILER, under the rules of rpms-rpc#549: inside
   # AG's edit lock (Agg.editing), read before write (a failed read files
   # nothing), what AG's screens do around the write done explicitly, and the

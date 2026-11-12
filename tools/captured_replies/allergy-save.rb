@@ -7,7 +7,7 @@ require "rpms_rpc/api/allergy"
 # demo patients with no allergy assessment (DFN 3 and 5). rpms-rpc#619.
 #
 # No flow holds the patient's allergy-edit lock: under the YDB CIA broker a
-# busy lock answers 0 and files nothing (rpms-ops#1121), so a capture of it
+# busy lock answers 0 and files nothing (openrpms#1121), so a capture of it
 # would record a false success.
 Allergy = RpmsRpc::Allergy
 

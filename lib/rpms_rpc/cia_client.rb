@@ -148,7 +148,7 @@ module RpmsRpc
       # pairs from interleaving on the shared socket.)
       # CIANBRPC AUTH, never "BGU AVLOGON". BGU's is reachable on this broker
       # family — it sits in the CIAV VUECENTRIC context — and it grants
-      # programmer access before authenticating (rpms-ops#655). Enforced by
+      # programmer access before authenticating (openrpms#655). Enforced by
       # test/rpms_rpc/forbidden_auth_rpcs_test.rb.
       synchronize_wire do
         reply = exchange("R", pk("UID"), pk(""), pk("0"),
@@ -231,7 +231,7 @@ module RpmsRpc
     #   CIANBRPC GETVAR  "DUZ","0"    -> DUZ=
     #   XUS GET USER INFO             -> 4 / MANAGER,SYSTEM / System Manager / ...
     # while ^XTMP("CIA",uid,"V",0,"DUZ") held 4 the whole time. Once #249 made
-    # a missing DUZ fatal, every CIA sign-on failed and so did the rpms-ops
+    # a missing DUZ fatal, every CIA sign-on failed and so did the openrpms
     # release gate.
     # Framed by #parse_cia_reply, never by hand: splitting on "\x00" and falling
     # back to the whole raw reply leaves the sequence echo as line 1 on a no-data
@@ -286,7 +286,7 @@ module RpmsRpc
     # reshape it. A named division must be one of the user's: DIVSET checks
     # nothing, so sign-on fails closed, and signs the client off, on one the
     # user lacks, and on a user with no division at all. A division whose
-    # INSTITUTION has no name is bound as the chart binds it (rpms-ops#970
+    # INSTITUTION has no name is bound as the chart binds it (openrpms#970
     # fixed that in the seeds; a guard here would hide stale data).
     DIVISION_LIST_RPC = "CIANBRPC DIVGET"
     DIVISION_SET_RPC = "CIANBRPC DIVSET"
@@ -502,7 +502,7 @@ module RpmsRpc
     # ON unset, so OUT^CIANBACT ends each name with a bare `W !`, and the CIA
     # socket has no line terminator on any engine (IRIS opens it "DS" or "S",
     # CIANBLIS TCPOPEN and ZISTCP.m:30-31; YDB with no DELIMITER). The names
-    # arrive as one line no client can split (rpms-ops#957). DDR LISTER is a
+    # arrive as one line no client can split (openrpms#957). DDR LISTER is a
     # GLOBAL ARRAY with WORD WRAP ON, so each of its rows ends in CR.
     #
     # DDR LISTER needs an option that lists it: the read binds the sign-on
@@ -777,7 +777,7 @@ module RpmsRpc
     # discard_stale_bytes had drained the socket. No reply is empty (each starts with its sequence
     # echo), so it goes back to #read_reply to be skipped. Reading on to the sentinel glued that EOD to
     # the front of this reply: the echo check then refused the whole reply as stale, and the call waited
-    # out its timeout while the broker sat waiting for the next request (rpms-ops#917).
+    # out its timeout while the broker sat waiting for the next request (openrpms#917).
     def read_global_array_raw
       first = read_until_raw(EOD)
       return first if first.empty?

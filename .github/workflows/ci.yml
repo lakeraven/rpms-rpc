@@ -12,7 +12,7 @@ jobs:
     # so a Ruby bump changes .ruby-version and nothing branch protection names.
     name: Test
     # ubuntu-latest is 26.04, whose apt mirror stopped resolving security.ubuntu.com (2026-11-10/11), so the
-    # stunnel install below failed before any test ran; 24.04 is what rpms-ops and the site pin too.
+    # stunnel install below failed before any test ran; 24.04 is what openrpms and the site pin too.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7

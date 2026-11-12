@@ -4,9 +4,9 @@ require_relative "live_helper"
 require "rpms_rpc/api/patient"
 
 # The banner's Patient Record Flags (rpms-rpc#526): the behavioral-health
-# safety flag BEHOCACV CWAD reports as "F" and ORWPT CWAD does not. rpms-ops
+# safety flag BEHOCACV CWAD reports as "F" and ORWPT CWAD does not. openrpms
 # SEEDPRF assigns the stock national BEHAVIORAL flag to one panel patient
-# (rpms-ops#1082); the pin predates it until #639.
+# (openrpms#1082); the pin predates it until #639.
 class PatientFlagsLiveTest < LiveSpec::Test
   FLAGGED_DFN = 990_003 # CHARLIE,JORDAN, a synthetic panel patient
   UNFLAGGED_DFN = 990_004
