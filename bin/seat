@@ -113,7 +113,10 @@ run_codex() {
   env -u CURSOR_API_KEY -u GH_TOKEN -u GITHUB_TOKEN \
     timeout "$secs" "$codex" exec --skip-git-repo-check --ignore-user-config --sandbox read-only \
     -m "$codex_gate2" -c "model_reasoning_effort=$codex_effort_gate2" "$prompt" 2>&1 | tee "$seat_out" || rc=$?
-  if [ "$rc" -ne 0 ] && grep -Eqi "not supported when using Codex|model_not_found|Not logged in|codex login|401 Unauthorized|usage limit" "$seat_out"; then
+  # Only the CLI's own error lines count (they start with "ERROR:"), so a review that quotes
+  # these words and then fails keeps its exit code, and a timeout (124) is never a fallback.
+  if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] &&
+    grep -Eqi "^ERROR: .*(not supported when using Codex|model_not_found|not logged in|codex login|401 Unauthorized|usage limit)" "$seat_out"; then
     echo "SEAT_FALLBACK role=gate2 model=$fallback_gate2"
     exit 75
   fi
