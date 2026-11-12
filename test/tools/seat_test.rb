@@ -114,6 +114,7 @@ class SeatTest < Minitest::Test
 
       assert_equal 75, code
       assert_equal "SEAT_FALLBACK role=gate2 model=opus", out.lines.last.chomp
+      refute_includes out, "SEAT_VENDOR"
     end
   end
 
@@ -126,6 +127,7 @@ class SeatTest < Minitest::Test
 
       assert_equal 75, code
       assert_equal "SEAT_FALLBACK role=gate2 model=opus", out.lines.last.chomp
+      refute_includes out, "SEAT_VENDOR"
     end
   end
 
@@ -136,6 +138,7 @@ class SeatTest < Minitest::Test
 
       assert_equal 3, code
       refute_includes out, "SEAT_FALLBACK"
+      assert_match(/^SEAT_VENDOR role=gate2 vendor=openai/, out)
     end
   end
 
@@ -147,6 +150,7 @@ class SeatTest < Minitest::Test
 
       assert_equal 3, code
       refute_includes out, "SEAT_FALLBACK"
+      assert_match(/^SEAT_VENDOR role=gate2 vendor=openai/, out)
     end
   end
 

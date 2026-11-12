@@ -21,7 +21,7 @@
 # gate2 (and probe) first try the Codex CLI (OpenAI, billed to the ChatGPT plan) when Cursor
 # is out of usage. A Codex run prints
 #   SEAT_VENDOR role=gate2 vendor=openai model=<id>
-# before its output and keeps its own exit code; the panel record names it, and a panel with
+# after its output and keeps its own exit code; the panel record names it, and a panel with
 # a Codex gate2 is not single-vendor. Only when Codex is missing, signed out or refuses the
 # model does gate2 fall back to the native seat as above. Codex runs read-only and ignores
 # ~/.codex/config.toml (so no MCP servers or plugins load; sign-in still comes from ~/.codex),
@@ -107,7 +107,6 @@ run_codex() {
     echo "SEAT_FALLBACK role=gate2 model=$fallback_gate2"
     exit 75
   fi
-  echo "SEAT_VENDOR role=gate2 vendor=openai model=$codex_gate2"
   rm -f "$seat_out"
   seat_out="$(mktemp)"
   env -u CURSOR_API_KEY -u GH_TOKEN -u GITHUB_TOKEN \
@@ -120,6 +119,8 @@ run_codex() {
     echo "SEAT_FALLBACK role=gate2 model=$fallback_gate2"
     exit 75
   fi
+  # Printed only once Codex has really run, so a fallback never carries an OpenAI vendor line.
+  echo "SEAT_VENDOR role=gate2 vendor=openai model=$codex_gate2"
   exit "$rc"
 }
 
