@@ -47,8 +47,8 @@ class BehavioralHealthReferenceLiveTest < LiveSpec::Test
     rows.each { |row| assert_match(/\A\d+\z/, row[:ien].to_s, "a row whose IEN is not a record IEN: #{row.inspect}") }
     puts "\n#{persona}: admin_records answered #{rows.size} row(s)"
   rescue RpmsRpc::Client::RpcMError => e
-    assert_match(/ADML\+32\^AMHGDA/, e.message, "an M error other than openrpms#1119")
-    puts "\n#{persona}: admin_records raised the build's ADML error (openrpms#1119)"
+    assert_match(/ADML\+32\^AMHGDA/, e.message, "an M error other than rpms-ops#1119")
+    puts "\n#{persona}: admin_records raised the build's ADML error (rpms-ops#1119)"
   end
 
   def test_lists_answer_rows_with_record_iens_only

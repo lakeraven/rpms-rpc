@@ -38,7 +38,7 @@ class OpenApiPinnedDocumentsTest < Minitest::Test
     lock = PIN.lock(ROOT)
     assert_equal "#{lock['tag']}-rpcs.json", lock["asset"]
     assert_equal PIN.sha256(File.join(ROOT, PIN::DIR, lock["asset"])), lock["sha256"]
-    assert_match(%r{\Alakeraven/(?:openrpms|rpms-ops)@[0-9a-f]{40}:releases/schema/rpcs\.v1\.schema\.json\z}, lock["schema_source"])
+    assert_match(%r{\Alakeraven/rpms-ops@[0-9a-f]{40}:releases/schema/rpcs\.v1\.schema\.json\z}, lock["schema_source"])
     Dir.mktmpdir do |tmp|
       FileUtils.mkdir_p(File.join(tmp, "data"))
       FileUtils.cp_r(File.join(ROOT, PIN::DIR), File.join(tmp, "data"))

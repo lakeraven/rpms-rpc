@@ -54,11 +54,11 @@ wanted_image() {
   # On failure gh still prints the error body to stdout, so take the tag only on success and only
   # when it is a well-formed Docker tag.
   local tag
-  if tag=$(gh api repos/lakeraven/openrpms/releases/latest --jq .tag_name 2>/dev/null) &&
+  if tag=$(gh api repos/lakeraven/rpms-ops/releases/latest --jq .tag_name 2>/dev/null) &&
      [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
     echo "$REPO_IMAGE:$tag"; return
   fi
-  log "can't read the Latest openrpms release; using the lock pin"
+  log "can't read the Latest rpms-ops release; using the lock pin"
   lock_image
 }
 

@@ -23,7 +23,7 @@ module OpenApi
     DIR = "data/openapi"
     LOCK = "#{DIR}/rpcs.lock.yml".freeze
     SCHEMAS = RpmsRpc::Conformance::BuildSurface::RPCS_SCHEMAS
-    REPO = "lakeraven/openrpms"
+    REPO = "lakeraven/rpms-ops"
 
     module_function
 

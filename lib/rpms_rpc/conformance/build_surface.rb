@@ -190,7 +190,7 @@ module RpmsRpc
       private
 
       def require_contexts!
-        raise Error, "#{tag}: no contexts_19_05.txt pinned (a release from before openrpms#626; re-pin it)" unless contexts?
+        raise Error, "#{tag}: no contexts_19_05.txt pinned (a release from before rpms-ops#626; re-pin it)" unless contexts?
       end
 
       # { option => Context } from <tag>-contexts_19_05.txt. Refuses a file without openrpms' header,
@@ -255,7 +255,7 @@ module RpmsRpc
         raise Error, "#{file} lists #{dupes.first(3).join(', ')} more than once" unless dupes.empty?
         # openrpms writes the records in byte order of the name; any other order is not its document.
         unless names.each_cons(2).all? { |a, b| a.b < b.b }
-          raise Error, "#{file} does not list its RPCs in byte order of name (openrpms writes them so)"
+          raise Error, "#{file} does not list its RPCs in byte order of name (rpms-ops writes them so)"
         end
 
         rpcs

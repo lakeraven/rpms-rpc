@@ -36,8 +36,8 @@ namespace :openapi do
     puts "EXPLICIT SUCCESS: #{task} wrote #{path.delete_prefix("#{root}/")} (OpenAPI #{document['openapi']}, valid, every verb + path unique)"
   end
 
-  desc "Pin a release's <tag>-rpcs.json for openapi:surface: RELEASE=<openrpms tag> [REPO=lakeraven/openrpms]. " \
-       "Downloads it, checks it against the release asset digest, fetches the openrpms schema its `schema` field " \
+  desc "Pin a release's <tag>-rpcs.json for openapi:surface: RELEASE=<rpms-ops tag> [REPO=lakeraven/rpms-ops]. " \
+       "Downloads it, checks it against the release asset digest, fetches the rpms-ops schema its `schema` field " \
        "names (rpcs.v1, rpcs.v2) at the build's commit, validates, and writes data/openapi/rpcs.lock.yml."
   task :pin do
     load_tool.("rpcs_pin")
@@ -45,7 +45,7 @@ namespace :openapi do
     require "open3"
     require "tmpdir"
     pin = OpenApi::RpcsPin
-    tag = ENV["RELEASE"] or abort "openapi:pin requires RELEASE=<openrpms release tag>"
+    tag = ENV["RELEASE"] or abort "openapi:pin requires RELEASE=<rpms-ops release tag>"
     abort "refusing RELEASE with unsafe characters: #{tag.inspect}" unless tag.match?(/\A[A-Za-z0-9._-]+\z/)
     repo = ENV["REPO"] || pin::REPO
     asset = "#{tag}-rpcs.json"
@@ -53,7 +53,7 @@ namespace :openapi do
     out, status = Open3.capture2("gh", "release", "view", tag, "--repo", repo, "--json", "assets")
     abort "openapi:pin: gh release view failed for #{tag} on #{repo} (published? gh auth?)" unless status.success?
     digest = JSON.parse(out)["assets"].find { |a| a["name"] == asset }&.dig("digest").to_s.delete_prefix("sha256:")
-    abort "openapi:pin: #{tag} publishes no #{asset} (released before openrpms#732?)" if digest.empty?
+    abort "openapi:pin: #{tag} publishes no #{asset} (released before rpms-ops#732?)" if digest.empty?
 
     Dir.mktmpdir do |tmp|
       ok = system("gh", "release", "download", tag, "--repo", repo, "--pattern", asset, "--dir", tmp)

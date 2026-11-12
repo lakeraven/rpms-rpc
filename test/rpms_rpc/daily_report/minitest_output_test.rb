@@ -38,7 +38,7 @@ class RpmsRpc::DailyReport::MinitestOutputTest < Minitest::Test
 
     Skipped:
     EpsilonTest#test_five:
-    lakeraven/openrpms#834 waiting on wire cases
+    lakeraven/rpms-ops#834 waiting on wire cases
   OUT
 
   def test_passing_run_parses_counts_and_passed
@@ -66,7 +66,7 @@ class RpmsRpc::DailyReport::MinitestOutputTest < Minitest::Test
     assert_equal [ "AlphaTest#test_one" ], summary.first_failures.take(1)
     assert_includes summary.first_failures, "BetaTest#test_two"
     assert_operator summary.first_failures.size, :<=, 5
-    assert_equal [ "#365", "#366", "lakeraven/openrpms#834" ].sort, summary.skip_issues.sort
+    assert_equal [ "#365", "#366", "lakeraven/rpms-ops#834" ].sort, summary.skip_issues.sort
   end
 
   def test_output_without_summary_line_is_errored_not_passed

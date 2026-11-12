@@ -25,7 +25,7 @@ module RpmsRpc
     LIVE_PERSONAS = %w[PROV123 SYS123].freeze
     DEVELOPMENT_PERSONAS = %w[PROV123].freeze
     IMAGE_REPOSITORY = "ghcr.io/lakeraven/rpms-ydb"
-    OPS_RELEASES = "repos/lakeraven/openrpms/releases"
+    OPS_RELEASES = "repos/lakeraven/rpms-ops/releases"
     CONTAINER_PORT = 9100
     # The image's BMX broker: a CIA spec that registers a patient runs its duplicate lookup over BMX (#609).
     BMX_CONTAINER_PORT = 9101

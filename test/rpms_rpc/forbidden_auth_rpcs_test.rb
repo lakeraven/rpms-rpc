@@ -94,7 +94,7 @@ class ForbiddenAuthRpcsTest < Minitest::Test
       lines BEFORE it checks the access and verify codes, and never clears it —
       the WEB rebuild is dead code, and XUP:61 would not clear it anyway. Any
       signed-on user can then reset any other user's credentials via
-      BGUXUSRC:41. See the comment above and openrpms#655.
+      BGUXUSRC:41. See the comment above and rpms-ops#655.
 
       Sign on with XUS AV CODE or CIANBRPC AUTH.
     WHY

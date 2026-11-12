@@ -198,7 +198,7 @@ namespace :rpc do
     sh({ "EVIDENCE_DIR" => rpc_evidence_dir.call, "EVIDENCE" => nil }, RbConfig.ruby, runner)
   end
 
-  desc "Run openrpms' wire-level cases (CASES=<data/conformance/cases.jsonl>) against one live CIA backend (openrpms#834)"
+  desc "Run rpms-ops' wire-level cases (CASES=<data/conformance/cases.jsonl>) against one live CIA backend (rpms-ops#834)"
   task :cases do
     runner = File.join(rpc_root, "tools/rpc_coverage/run_cases.rb")
     abort "rpc:cases needs a source checkout (#{runner} is not in the gem)" unless File.exist?(runner)

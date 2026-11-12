@@ -174,7 +174,7 @@ module RpmsRpc
     # and then errors (see the module comment). Sends no RPC.
     def set_cell_phone(_dfn, _phone)
       not_supported("The cell phone (#2 .134) cannot be filed over the broker: its AXENR13 index " \
-                    "needs DFN, which DDR FILER does not define (openrpms#1055).")
+                    "needs DFN, which DDR FILER does not define (rpms-ops#1055).")
     end
 
     # The races and ethnicities a clerk picks from (CHOICE_SCREEN), by name:
