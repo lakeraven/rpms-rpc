@@ -62,7 +62,7 @@ fallback_gate=fable
 fallback_gate2=opus
 # Codex seat for gate2 when Cursor is out of usage. The ChatGPT plan refuses ids it does not
 # serve (model_not_found), so this names one a probe answered.
-codex_gate2=gpt-6-luna;    codex_effort_gate2=high
+codex_gate2=gpt-6-luna;    codex_effort_gate2=xhigh
 # -----------------------------------------------------------------------------------------
 
 agent="$HOME/.local/bin/agent"
