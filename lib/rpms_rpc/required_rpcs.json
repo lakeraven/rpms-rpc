@@ -377,6 +377,11 @@
       "DDR GETS ENTRY DATA",
       "DDR LISTER"
     ],
+    "RpmsRpc::RegistrationSetup": [
+      "DDR FILER",
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
+    ],
     "RpmsRpc::Reminders": [
       "ORQQPXRM REMINDERS APPLICABLE"
     ],

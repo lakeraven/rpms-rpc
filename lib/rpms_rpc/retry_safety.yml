@@ -330,6 +330,15 @@
 "RpmsRpc::Registration.with_lookup_client": non_idempotent_write
 "RpmsRpc::RegistrationParameters.for_facility": read
 "RpmsRpc::RegistrationParameters.required?": read
+"RpmsRpc::RegistrationSetup.add_eligibility_modifier": non_idempotent_write
+"RpmsRpc::RegistrationSetup.add_local_flag": non_idempotent_write
+"RpmsRpc::RegistrationSetup.eligibility_modifier_table": read
+"RpmsRpc::RegistrationSetup.flag_types": read
+"RpmsRpc::RegistrationSetup.local_flag": read
+"RpmsRpc::RegistrationSetup.local_flag_history": read
+"RpmsRpc::RegistrationSetup.local_flags": read
+"RpmsRpc::RegistrationSetup.rename_eligibility_modifier": non_idempotent_write
+"RpmsRpc::RegistrationSetup.update_local_flag": non_idempotent_write
 "RpmsRpc::Reminders.applicable": read
 "RpmsRpc::Scheduling.add_appointment": non_idempotent_write
 "RpmsRpc::Scheduling.add_availability": non_idempotent_write
