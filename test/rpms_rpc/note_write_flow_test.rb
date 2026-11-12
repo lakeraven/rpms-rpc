@@ -384,6 +384,41 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
     refute_includes without_cited.map(&:rpc), cite
   end
 
+  # #700: a CITE_ONLY token that names no live entry is an error, not a
+  # silent no-op that calls the RPC the operator meant to skip.
+  def test_driver_read_entries_raises_on_a_cite_only_token_matching_no_live_entry
+    error = assert_raises(ArgumentError) do
+      RpmsRpc::WireCapture.driver_read_entries(
+        writes: false, only: "", cite_only: [ "ORQQPL LIST", "SYNTHETIC NO SUCH RPC" ]
+      )
+    end
+    assert_includes error.message, "SYNTHETIC NO SUCH RPC".inspect
+    refute_includes error.message, "ORQQPL LIST".inspect
+
+    # A write entry is in the catalog but not live: still unmatched.
+    error = assert_raises(ArgumentError) do
+      RpmsRpc::WireCapture.driver_read_entries(writes: nil, only: "", cite_only: [ SIGN_RPC ])
+    end
+    assert_includes error.message, SIGN_RPC.inspect
+  end
+
+  # #700: blank tokens are dropped (not judged unmatched), tokens and ONLY are
+  # stripped, and both match a fixture name as well as an RPC name.
+  def test_driver_read_entries_drops_blank_tokens_and_matches_fixture_names
+    live = RpmsRpc::WireCapture::CATALOG.select(&:live?).map(&:rpc)
+    assert_includes live, "ORQQPL LIST"
+
+    got = RpmsRpc::WireCapture.driver_read_entries(
+      writes: false, only: "", cite_only: [ "", "   ", " orqqpl-list " ]
+    )
+    assert_equal (live - [ "ORQQPL LIST" ]).sort, got.map(&:rpc).sort
+
+    by_fixture = RpmsRpc::WireCapture.driver_read_entries(
+      writes: false, only: " orqqvi-vitals ", cite_only: [ "", " " ]
+    )
+    assert_equal [ "ORQQVI VITALS" ], by_fixture.map(&:rpc)
+  end
+
   def test_wire_capture_driver_calls_driver_read_entries
     path = File.expand_path("../../bin/wire_capture_driver.rb", __dir__)
     src = File.binread(path).force_encoding(Encoding::UTF_8)

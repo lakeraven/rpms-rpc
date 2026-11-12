@@ -97,6 +97,23 @@ class RpmsRpc::WireCaptureEvidenceTest < Minitest::Test
     end
   end
 
+  # #700: a whole value of UNKNOWN is a placeholder, in any case.
+  def test_real_value_rejects_a_whole_value_of_unknown_in_any_case
+    ev = RpmsRpc::WireCapture::Evidence
+    [ "UNKNOWN", "unknown", "Unknown", "  UNKNOWN  ", "uNkNoWn" ].each do |value|
+      refute ev.real_value?(value), "expected not real: #{value.inspect}"
+    end
+    refute ev.real_value?([ "", "UNKNOWN" ]), "an array of placeholders only is not real"
+    assert ev.real_value?([ "UNKNOWN", "MRN123" ])
+  end
+
+  def test_real_value_keeps_values_that_only_contain_unknown
+    ev = RpmsRpc::WireCapture::Evidence
+    [ "STATUS UNKNOWN", "UNKNOWN CODE", "UNKNOWNS", "X-UNKNOWN" ].each do |value|
+      assert ev.real_value?(value), "expected real: #{value.inspect}"
+    end
+  end
+
   def test_real_value_treats_false_and_zero_as_real
     ev = RpmsRpc::WireCapture::Evidence
     assert ev.real_value?(false)
