@@ -29,6 +29,7 @@ class FactoryLiveRpmsTest < Minitest::Test
     path = File.join(@tmp, "cloud_rpms")
     File.write(path, <<~SH)
       #!/usr/bin/env bash
+      echo $$ $PPID > #{@tmp}/pids
       echo "$PINNED $LAKERAVEN_EHR_PATH ${RPMS_IMAGE:-} ${RPMS_TAG:-} $*" >> #{@calls}
       sleep #{sleep_for}
       exit #{exit_code}
@@ -106,6 +107,31 @@ class FactoryLiveRpmsTest < Minitest::Test
                     "RPMS_IMAGE" => "other:image", "RPMS_TAG" => "other-tag")
     wait_for("healthy")
     assert_equal [ "1 #{@ehr}   up" ], calls
+  end
+
+  def test_start_after_a_killed_run_tries_again
+    assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => stub(sleep_for: 30))
+    50.times { break if File.exist?(File.join(@tmp, "pids")); sleep 0.1 }
+    File.read(File.join(@tmp, "pids")).split.each do |pid|
+      Process.kill("KILL", pid.to_i)
+    rescue Errno::ESRCH
+      nil
+    end
+    sleep 0.3
+    assert_equal "starting", status
+    assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => stub)
+    wait_for("healthy")
+    assert_equal 2, calls.size
+  end
+
+  def test_a_state_directory_owned_by_someone_else_or_a_symlink_is_refused
+    target = File.join(@tmp, "elsewhere")
+    FileUtils.mkdir_p(target)
+    File.symlink(target, @state)
+    assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => stub)
+    sleep 0.3
+    assert_empty Dir.children(target)
+    assert_empty calls
   end
 
   def test_start_after_a_failure_tries_again
