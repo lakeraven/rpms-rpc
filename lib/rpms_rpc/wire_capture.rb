@@ -64,14 +64,56 @@ module RpmsRpc
 
     class InvalidFixture < Error; end
 
+    # The one rule that turns an RPC name into a fixture name.
+    def self.slug(rpc) = rpc.downcase.tr(" /", "--")
+
+    def self.fixture_path(entry) = File.join(FIXTURES_DIR, "#{entry.fixture_name}.yml")
+
+    # A token cites an entry by its fixture name, or by its RPC name when the
+    # entry's fixture is the RPC slug. An entry with its own fixture: is never
+    # cited by the RPC name it shares with others.
+    def self.cite_only?(entry, tokens)
+      tokens.any? do |token|
+        token == entry.fixture_name || (token == entry.rpc && entry.fixture_name == slug(entry.rpc))
+      end
+    end
+
+    # Tokens (first occurrence order) that cite none of the entries.
+    def self.unmatched_cite_only_tokens(entries, tokens)
+      tokens.uniq.reject { |token| entries.any? { |entry| cite_only?(entry, [ token ]) } }
+    end
+
+    # The live entries a read run calls: ONLY narrows, CITE_ONLY removes. An
+    # unmatched CITE_ONLY token is an error, judged on all live entries before
+    # ONLY narrows them.
+    def self.select_live_entries(catalog: CATALOG, only: "", cite_only: [])
+      live = catalog.select(&:live?)
+      duplicates = live.group_by(&:fixture_name).select { |_, group| group.size > 1 }.keys
+      raise ArgumentError, "duplicate live fixture names: #{duplicates.map(&:inspect).join(", ")}" unless duplicates.empty?
+
+      unmatched = unmatched_cite_only_tokens(live, cite_only)
+      raise ArgumentError, "CITE_ONLY names no live catalog entry: #{unmatched.map(&:inspect).join(", ")}" unless unmatched.empty?
+
+      live = live.select { |entry| entry.named?(only) } unless only.empty?
+      live.reject { |entry| cite_only?(entry, cite_only) }
+    end
+
     Piece = Struct.new(:position, :attributes, :fileman_type, keyword_init: true)
 
     # One curated capture target: which RPC, which mapping gates it, how to
     # call it live (or why we can't), and the cited piece semantics.
     # context is the option to bind before the call (nil: the sign-on option).
     CatalogEntry = Struct.new(:rpc, :mapping, :kind, :mode, :inputs, :cite, :pieces, :note,
-                              :context, keyword_init: true) do
+                              :context, :fixture, keyword_init: true) do
       def live? = mode == :live
+
+      # The fixture file's base name: the entry's own fixture:, else the RPC
+      # slug. Two entries calling one RPC with different inputs need distinct
+      # names or they overwrite each other's file.
+      def fixture_name = fixture || WireCapture.slug(rpc)
+
+      # ONLY matches either the RPC name or the fixture name.
+      def named?(name) = name == rpc || name == fixture_name
 
       # A patient-record write. live? stays false so the read driver never calls it.
       def write? = mode == :write
@@ -187,13 +229,14 @@ module RpmsRpc
     # before create, and that call is not selected here. writes false or nil
     # is the live catalog, narrowed by ONLY, with CITE_ONLY left out.
     def self.driver_read_entries(writes:, only:, cite_only:)
-      return [] if writes == true
+      tokens = Array(cite_only).map { |token| token.to_s.strip }.reject(&:empty?)
+      if writes == true
+        raise ArgumentError, "CITE_ONLY is refused on a write run (WRITES=1): #{tokens.map(&:inspect).join(", ")}" unless tokens.empty?
 
-      entries = CATALOG.select(&:live?)
-      name = only.to_s.strip
-      entries = entries.select { |entry| entry.rpc == name } unless name.empty?
-      cited = Array(cite_only).map { |rpc| rpc.to_s.strip }
-      entries.reject { |entry| cited.include?(entry.rpc) }
+        return []
+      end
+
+      select_live_entries(only: only.to_s.strip, cite_only: tokens)
     end
 
     # nil, "", and whitespace are unset. Otherwise the stripped RPC name.
@@ -216,11 +259,11 @@ module RpmsRpc
       name = normalize_only(only)
       return entries if name.nil?
 
-      entries.select { |entry| entry.rpc == name }
+      entries.select { |entry| entry.named?(name) }
     end
 
     # Verdicts for a scratch capture against committed fixtures (rpms-ops#975),
-    # one [rpc, verdict, committed source, captured source] row per RPC called
+    # one [fixture, verdict, committed source, captured source] row per fixture called
     # on either side. SAME: raw bytes identical. SAME-ROWS: the data rows
     # match and only the CIA frame header differs (it counts the session's
     # calls). DIFFERENT. NEW: the committed fixture has no raw return
@@ -229,12 +272,13 @@ module RpmsRpc
     COMPARE_VERDICTS = %w[SAME SAME-ROWS DIFFERENT NEW NOT-CAPTURED].freeze
 
     def self.compare(committed_dir, captured_dir)
-      load = ->(dir) { Fixture.load_all(dir).to_h { |f| [ f.rpc, f ] } }
+      # One row per fixture file, so two entries sharing an RPC stay apart.
+      load = ->(dir) { Fixture.load_all(dir).to_h { |f| [ f.fixture_name, f ] } }
       committed = load.call(committed_dir)
       captured = load.call(captured_dir)
-      (committed.keys | captured.keys).sort.filter_map do |rpc|
-        was = committed[rpc]&.raw_return
-        now = captured[rpc]&.raw_return
+      (committed.keys | captured.keys).sort.filter_map do |name|
+        was = committed[name]&.raw_return
+        now = captured[name]&.raw_return
         next if was.nil? && now.nil? # routine-cite on both sides: nothing was called
 
         verdict = if now.nil? then "NOT-CAPTURED"
@@ -243,7 +287,7 @@ module RpmsRpc
         elsif data_rows(now) == data_rows(was) then "SAME-ROWS"
         else "DIFFERENT"
         end
-        [ rpc, verdict, committed[rpc]&.source || "-", captured[rpc]&.source || "-" ]
+        [ name, verdict, committed[name]&.source || "-", captured[name]&.source || "-" ]
       end
     end
 
@@ -306,6 +350,8 @@ module RpmsRpc
         end
         validate!
       end
+
+      def fixture_name = @path && File.basename(@path, ".yml")
 
       def piece_at(position)
         @pieces.find { |p| p.position == position }

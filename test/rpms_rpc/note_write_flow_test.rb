@@ -363,8 +363,51 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
 
     assert_equal [], RpmsRpc::WireCapture.driver_read_entries(writes: true, only: "", cite_only: [])
     assert_equal [], RpmsRpc::WireCapture.driver_read_entries(
-      writes: true, only: "ORQQVI VITALS", cite_only: [ "ORQQPL LIST" ]
+      writes: true, only: "ORQQVI VITALS", cite_only: []
     )
+    # Blank tokens are no CITE_ONLY at all.
+    assert_equal [], RpmsRpc::WireCapture.driver_read_entries(writes: true, only: "", cite_only: [ "", "  " ])
+    assert_equal [], RpmsRpc::WireCapture.driver_read_entries(writes: true, only: nil, cite_only: nil)
+  end
+
+  # #700: CITE_ONLY is refused on a write run, as ONLY is. The write flow
+  # selects no read entry, so a token would otherwise go unjudged, and a
+  # token naming BEHOENCX GETVISIT would be "cited" while the flow still
+  # calls it.
+  def test_driver_read_entries_refuses_cite_only_on_a_write_run
+    live = RpmsRpc::WireCapture::CATALOG.select(&:live?).map(&:rpc)
+    assert_includes live, "BEHOENCX GETVISIT", "premise: the linkage read is a live catalog entry"
+
+    [
+      [ "BEHOENCX GETVISIT" ],           # matches a live entry the write flow still calls
+      [ "behoencx-getvisit" ],           # the same entry by fixture name
+      [ "ORQQPL LIST" ],                 # matches a live entry the write flow never calls
+      [ "SYNTHETIC NO SUCH RPC" ],       # matches nothing
+      [ "", "  ", " SYNTHETIC NO SUCH RPC " ]
+    ].each do |tokens|
+      error = assert_raises(ArgumentError, "writes: true, cite_only: #{tokens.inspect}") do
+        RpmsRpc::WireCapture.driver_read_entries(writes: true, only: nil, cite_only: tokens)
+      end
+      assert_includes error.message, "CITE_ONLY", "the refusal must name CITE_ONLY (tokens #{tokens.inspect})"
+    end
+  end
+
+  # #700: the same refusal in the rake task, before the driver is spawned.
+  # A light source check: between `task :capture do` and the first driver
+  # run, either write_refusal is given cite_only, or one statement line
+  # reads both `writes` and `cite_only`.
+  def test_wire_rake_refuses_cite_only_on_a_write_run_before_the_driver
+    path = File.expand_path("../../lib/tasks/wire.rake", __dir__)
+    src = File.binread(path).force_encoding(Encoding::UTF_8)
+    start = src.index(/^\s*task :capture do\b/)
+    refute_nil start, "premise: wire.rake defines task :capture"
+    driver_run = src.index("Open3.capture2", start)
+    refute_nil driver_run, "premise: wire:capture runs the driver via Open3.capture2"
+
+    code = src[start...driver_run].lines.reject { |line| line.strip.start_with?("#") }
+    judged = code.join.match?(/\bwrite_refusal\([^)]*\bcite_only\b/m) ||
+             code.any? { |line| line.match?(/\bwrites\b/) && line.match?(/\bcite_only\b/) }
+    assert judged, "wire:capture must abort on WRITES=1 with a non-blank CITE_ONLY before any driver run"
   end
 
   def test_driver_read_entries_selects_live_reads_when_not_writing
@@ -382,6 +425,41 @@ class RpmsRpc::NoteWriteFlowTest < Minitest::Test
       writes: false, only: "", cite_only: [ cite ]
     )
     refute_includes without_cited.map(&:rpc), cite
+  end
+
+  # #700: a CITE_ONLY token that names no live entry is an error, not a
+  # silent no-op that calls the RPC the operator meant to skip.
+  def test_driver_read_entries_raises_on_a_cite_only_token_matching_no_live_entry
+    error = assert_raises(ArgumentError) do
+      RpmsRpc::WireCapture.driver_read_entries(
+        writes: false, only: "", cite_only: [ "ORQQPL LIST", "SYNTHETIC NO SUCH RPC" ]
+      )
+    end
+    assert_includes error.message, "SYNTHETIC NO SUCH RPC".inspect
+    refute_includes error.message, "ORQQPL LIST".inspect
+
+    # A write entry is in the catalog but not live: still unmatched.
+    error = assert_raises(ArgumentError) do
+      RpmsRpc::WireCapture.driver_read_entries(writes: nil, only: "", cite_only: [ SIGN_RPC ])
+    end
+    assert_includes error.message, SIGN_RPC.inspect
+  end
+
+  # #700: blank tokens are dropped (not judged unmatched), tokens and ONLY are
+  # stripped, and both match a fixture name as well as an RPC name.
+  def test_driver_read_entries_drops_blank_tokens_and_matches_fixture_names
+    live = RpmsRpc::WireCapture::CATALOG.select(&:live?).map(&:rpc)
+    assert_includes live, "ORQQPL LIST"
+
+    got = RpmsRpc::WireCapture.driver_read_entries(
+      writes: false, only: "", cite_only: [ "", "   ", " orqqpl-list " ]
+    )
+    assert_equal (live - [ "ORQQPL LIST" ]).sort, got.map(&:rpc).sort
+
+    by_fixture = RpmsRpc::WireCapture.driver_read_entries(
+      writes: false, only: " orqqvi-vitals ", cite_only: [ "", " " ]
+    )
+    assert_equal [ "ORQQVI VITALS" ], by_fixture.map(&:rpc)
   end
 
   def test_wire_capture_driver_calls_driver_read_entries
