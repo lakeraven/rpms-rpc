@@ -29,7 +29,7 @@ class FactoryLiveRpmsTest < Minitest::Test
     path = File.join(@tmp, "cloud_rpms")
     File.write(path, <<~SH)
       #!/usr/bin/env bash
-      echo "$PINNED $LAKERAVEN_EHR_PATH $*" >> #{@calls}
+      echo "$PINNED $LAKERAVEN_EHR_PATH ${RPMS_IMAGE:-} ${RPMS_TAG:-} $*" >> #{@calls}
       sleep #{sleep_for}
       exit #{exit_code}
     SH
@@ -38,7 +38,8 @@ class FactoryLiveRpmsTest < Minitest::Test
   end
 
   def run_hook(env)
-    base = { "FACTORY_LIVE_RPMS_DIR" => @state, "LAKERAVEN_EHR_PATH" => @ehr }
+    base = { "FACTORY_LIVE_RPMS" => nil, "RPMS_IMAGE" => nil, "RPMS_TAG" => nil,
+             "FACTORY_LIVE_RPMS_DIR" => @state, "LAKERAVEN_EHR_PATH" => @ehr }
     system(base.merge(env), SCRIPT, out: File::NULL, err: File::NULL)
   end
 
@@ -67,7 +68,7 @@ class FactoryLiveRpmsTest < Minitest::Test
   def test_flag_starts_the_pinned_release_in_the_background
     assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => stub)
     wait_for("healthy")
-    assert_equal [ "1 #{@ehr} up" ], calls
+    assert_equal [ "1 #{@ehr}   up" ], calls
   end
 
   def test_returns_before_the_stack_is_up
@@ -90,6 +91,21 @@ class FactoryLiveRpmsTest < Minitest::Test
     assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => cmd)
     sleep 0.3
     assert_equal 1, calls.size
+  end
+
+  def test_start_while_a_run_is_in_progress_starts_nothing
+    cmd = stub(sleep_for: 1)
+    assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => cmd)
+    assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => cmd)
+    wait_for("healthy")
+    assert_equal 1, calls.size
+  end
+
+  def test_inherited_image_overrides_do_not_replace_the_pin
+    assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => stub,
+                    "RPMS_IMAGE" => "other:image", "RPMS_TAG" => "other-tag")
+    wait_for("healthy")
+    assert_equal [ "1 #{@ehr}   up" ], calls
   end
 
   def test_start_after_a_failure_tries_again

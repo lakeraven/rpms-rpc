@@ -7,8 +7,8 @@
 # (FACTORY_LIVE_RPMS_DIR, default $TMPDIR/factory_live_rpms):
 #   status   starting, then healthy or failed
 #   log      output of the clone (if one was needed) and of `bin/cloud_rpms up`
-# A second session start while a run is starting or healthy starts nothing; after a failed run the
-# next session start tries again.
+# A second session start while a run is in progress, or after a healthy one, starts nothing; after
+# a failed run the next session start tries again.
 #
 # LAKERAVEN_EHR_PATH points at the lakeraven-ehr checkout whose compose.yml runs the image
 # (default ../lakeraven-ehr); it is cloned when missing. CLOUD_RPMS overrides the script that is run
@@ -26,22 +26,24 @@ LOG="$DIR/log"
 
 mkdir -p "$DIR" 2>/dev/null || exit 0
 
-# One run at a time: mkdir is atomic, so two sessions starting together can't both win.
-if ! mkdir "$DIR/lock" 2>/dev/null; then
-  [ "$(cat "$STATUS" 2>/dev/null)" = "failed" ] || exit 0
-  rm -rf "$DIR/lock" 2>/dev/null
-  mkdir "$DIR/lock" 2>/dev/null || exit 0
-fi
+# One run at a time: the background run holds an flock on $DIR/lock until it ends, so a session
+# that starts meanwhile exits here. Once the run ends, a healthy stack is left alone and a failed
+# one is tried again. Children run with the lock's fd closed, so a dockerd that
+# `bin/cloud_rpms up` leaves running does not keep holding it.
+exec 9>"$DIR/lock" 2>/dev/null || exit 0
+if command -v flock >/dev/null; then flock -n 9 || exit 0; fi
+[ "$(cat "$STATUS" 2>/dev/null)" = "healthy" ] && exit 0
 
 echo starting >"$STATUS"
 
 (
   if [ ! -f "$EHR/compose.yml" ]; then
-    git clone --depth 1 https://github.com/lakeraven/lakeraven-ehr.git "$EHR" || {
+    git clone --depth 1 https://github.com/lakeraven/lakeraven-ehr.git "$EHR" 9>&- || {
       echo failed >"$STATUS"; exit 0
     }
   fi
-  if LAKERAVEN_EHR_PATH="$EHR" PINNED=1 "$CLOUD_RPMS" up; then
+  # The pinned release only: an inherited RPMS_IMAGE or RPMS_TAG would win over PINNED.
+  if env -u RPMS_IMAGE -u RPMS_TAG LAKERAVEN_EHR_PATH="$EHR" PINNED=1 "$CLOUD_RPMS" up 9>&-; then
     echo healthy >"$STATUS"
   else
     echo failed >"$STATUS"
