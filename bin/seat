@@ -23,7 +23,8 @@
 # Providers:
 #   cursor:<model>   the Cursor agent CLI ($HOME/.local/bin/agent), sandboxed
 #   codex:<model>    the Codex CLI, read-only and ephemeral, without the user's config;
-#                    "codex:default" uses the CLI's default model
+#                    "codex:default" uses the CLI's default model. Read-only, so it is
+#                    allowed only in the gate and gate2 chains
 #   native:<model>   the caller plays the role itself with a fresh Claude subagent on that
 #                    model (read-only for gate and gate2). bin/seat prints
 #                      SEAT_FALLBACK role=<role> model=<model>
@@ -72,6 +73,7 @@ if [ -f "$conf" ] && [ ! -L "$conf" ]; then
     case "$r" in spec|build|build-hard|gate|gate2) ;; *) echo "bin/seat: $conf: unknown role: $r" >&2; exit 78 ;; esac
     for l in $links; do
       [[ "$l" =~ ^(cursor|codex|native):[A-Za-z0-9._-]+$ ]] || { echo "bin/seat: $conf: bad link for $r: $l" >&2; exit 78; }
+      case "$r:$l" in gate:codex:*|gate2:codex:*) ;; *:codex:*) echo "bin/seat: $conf: codex is read-only, not allowed for $r" >&2; exit 78 ;; esac
     done
     [ -n "$links" ] || { echo "bin/seat: $conf: empty chain for $r" >&2; exit 78; }
     printf -v "chain_${r//-/_}" '%s' "$links"
@@ -118,9 +120,9 @@ provider_codex() { # <model> <secs> <prompt>
   [ "$1" = default ] || model=(--model "$1")
   timeout "$2" codex exec --sandbox read-only --skip-git-repo-check --ignore-user-config \
     --ephemeral -c model_reasoning_effort="$effort_codex" "${model[@]}" "$3" </dev/null || rc=$?
-  # Codex reports a signed-out CLI, a refused model or a provider error the same way; any
-  # failure but a timeout hands the role on.
-  [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ] || rc=75
+  # Codex reports a signed-out CLI, a refused model or a provider error with exit 1, which hands
+  # the role on. A timeout (124), a signal (128+n) or any other exit is a real failure.
+  [ "$rc" -ne 1 ] || rc=75
   return "$rc"
 }
 
@@ -133,6 +135,10 @@ run_chain() { # <role> <secs> <prompt>
         echo "SEAT_FALLBACK role=$role model=$model"
         exit 75 ;;
       cursor|codex)
+        case "$role:$provider" in
+          gate:codex|gate2:codex|*:cursor) ;;
+          *) echo "bin/seat: codex is read-only, not allowed for $role" >&2; exit 78 ;;
+        esac
         rc=0
         "provider_$provider" "$model" "$secs" "$prompt" || rc=$?
         if [ "$rc" -eq 0 ]; then
