@@ -36,7 +36,7 @@ class PatientApplicationLiveTest < LiveSpec::Test
 
   def test_s_reg_03_3_to_03_5_an_application_is_recorded_its_outcome_dated_and_it_is_never_deleted
     type = PA.types.find { |t| t[:name] == "MEDICAID FORM 100" }
-    refute_nil type, "PATIENT APPLICATION TYPES has no MEDICAID FORM 100 (run rpms-ops SEEDAPPT)"
+    refute_nil type, "PATIENT APPLICATION TYPES has no MEDICAID FORM 100 (run openrpms SEEDAPPT)"
     obtained = free_date
     submitted = obtained + 1 > Date.today ? obtained : obtained + 1
     duz = client.duz.to_i

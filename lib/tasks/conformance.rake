@@ -21,7 +21,7 @@ namespace :conformance do
        "(DUMP=, ENV=, BACKEND=iris_rpms, optional SUBSET= allowlist, CAPTURED_AT=, NOTE=, " \
        "PACKAGES=<packages_9_4.txt> for the #9.4 versions face; " \
        "RELEASE= + DAT_SHA= stamp a per-rung reference for references/). " \
-       "Prefer conformance:pin for a published rpms-ops release."
+       "Prefer conformance:pin for a published openrpms release."
   task :ingest do
     require "rpms_rpc/conformance/ingest"
 
@@ -50,7 +50,7 @@ namespace :conformance do
   INVENTORIES_DIR = ENV["INVENTORIES_DIR"] ? File.expand_path(ENV["INVENTORIES_DIR"]) : File.expand_path("../../data/inventories", __dir__)
   LOCK_PATH = File.join(FINGERPRINTS_DIR, "rpms-ops.lock.yml")
 
-  desc "Pin the RPC signature of an rpms-ops build: RELEASE=<tag> [REPO=lakeraven/rpms-ops] " \
+  desc "Pin the RPC signature of an openrpms build: RELEASE=<tag> [REPO=lakeraven/openrpms] " \
        "[SOURCE=<dir holding the assets; skips the download>] [ENV=references/<tag>]. " \
        "Downloads the inventory + build record (gh release download), checks each against the " \
        "release's asset digest, verifies sidecar, binding and build commit, commits the bytes to " \
@@ -63,7 +63,7 @@ namespace :conformance do
     require "rpms_rpc/conformance/inventory_lock"
 
     lock_class = RpmsRpc::Conformance::InventoryLock
-    tag = ENV["RELEASE"] or abort "conformance:pin requires RELEASE=<rpms-ops release tag, e.g. bcer-9.0-20260930-8c88e47-ydb>"
+    tag = ENV["RELEASE"] or abort "conformance:pin requires RELEASE=<openrpms release tag, e.g. bcer-9.0-20260930-8c88e47-ydb>"
     abort "refusing RELEASE with unsafe characters: #{tag.inspect}" unless tag.match?(/\A[A-Za-z0-9._-]+\z/)
     abort "#{tag} names no build (want bcer-<version>-<yyyymmdd>-<commit>-<ydb|iris>)" unless lock_class.parse_tag(tag)
     lock = lock_class.load(LOCK_PATH)
@@ -78,7 +78,7 @@ namespace :conformance do
       puts "Downloading #{assets.size} assets of #{tag} from #{repo} into #{dir}"
       patterns = assets.flat_map { |name| [ "--pattern", name ] }
       ok = system("gh", "release", "download", tag, "--repo", repo, *patterns, "--dir", dir, "--clobber")
-      abort "gh release download failed for #{tag} on #{repo} (published? inventory attached via rpms-ops bin/publish_inventory.sh? gh auth?)" unless ok
+      abort "gh release download failed for #{tag} on #{repo} (published? inventory attached via openrpms bin/publish_inventory.sh? gh auth?)" unless ok
 
       # The build record is not in the sidecar: bind every downloaded byte to the digest GitHub
       # records for the release asset.
@@ -103,7 +103,7 @@ namespace :conformance do
       backend: RpmsRpc::Conformance::Ingest::BACKEND_FOR_ENGINE.fetch(inv.engine),
       captured_at: inv.provenance["captured_at"].to_s[0, 10],
       release: tag, dat_sha: inv.provenance["artifact_sha256"],
-      note: "rpms-ops release inventory #{tag} (#{repo}), pinned by conformance:pin",
+      note: "openrpms release inventory #{tag} (#{repo}), pinned by conformance:pin",
       inventory: inv.to_source
     )
     lock.pin!(inv, fingerprint: env_name, rpcs: r[:rpcs], packages: r[:packages])

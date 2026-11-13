@@ -39,7 +39,7 @@ class RegisteredRpcNamesTest < Minitest::Test
   end
 
   def test_a_build_is_pinned
-    refute_empty pinned_builds, "no rpms-ops build pinned in #{LOCK.path}"
+    refute_empty pinned_builds, "no openrpms build pinned in #{LOCK.path}"
     pinned_builds.each do |tag, surface|
       assert_operator surface.names.size, :>, 5_000, "#{tag}: a #8994 registry of a built 9.0 image has thousands of names"
     end
@@ -55,7 +55,7 @@ class RegisteredRpcNamesTest < Minitest::Test
     end
 
     assert_empty problems,
-                 "#{problems.size} RPC name(s) used in lib/ are not available on a pinned rpms-ops build:\n" \
+                 "#{problems.size} RPC name(s) used in lib/ are not available on a pinned openrpms build:\n" \
                  "#{problems.join("\n")}"
   end
 

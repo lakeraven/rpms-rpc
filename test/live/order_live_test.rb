@@ -162,7 +162,7 @@ class OrderLiveTest < LiveSpec::Test
   def flunk_if_order_file_empty!(dfn)
     return unless dfn.nil?
 
-    flunk "ORDER file (100) holds no patient order; SEEDORD (rpms-ops#723) seeds one unsigned order on the pinned build (and the 1029 build)"
+    flunk "ORDER file (100) holds no patient order; SEEDORD (openrpms#723) seeds one unsigned order on the pinned build (and the 1029 build)"
   end
 
   # [TOT, TXTVW, ORYD] from AGET's .1 header line.

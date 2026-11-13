@@ -58,7 +58,7 @@ class CallableRpcNamesTest < Minitest::Test
   end
 
   def test_every_pinned_build_has_its_reach_face
-    refute_empty surfaces, "no rpms-ops build pinned in #{LOCK.path}"
+    refute_empty surfaces, "no openrpms build pinned in #{LOCK.path}"
     surfaces.each do |tag, surface|
       assert surface.reach?, "#{tag}: no rpcs.json pinned; re-pin it (rake conformance:pin RELEASE=#{tag})"
       assert_equal surface.names.size, surface.rpcs.count(&:reach), "#{tag}: every registered RPC has a reach class"
@@ -94,7 +94,7 @@ class CallableRpcNamesTest < Minitest::Test
     end
     assert_empty problems,
                  "#{problems.size} RPC(s) the gem sends are not callable (client-callable or broker-exempt) " \
-                 "on a pinned rpms-ops build:\n  #{problems.join("\n  ")}"
+                 "on a pinned openrpms build:\n  #{problems.join("\n  ")}"
   end
 
   # An exception names a pinned build, an RPC the gem still sends that is still uncallable there in

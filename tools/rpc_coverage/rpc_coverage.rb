@@ -160,7 +160,7 @@ module RpcCoverage
     head += [
       "#",
       "# The unreachable reasons (no_routine_on_image .. context_out_of_order) are GENERATED from the",
-      "# pinned release's reach classes (data/inventories/<tag>/<tag>-rpcs.json, published by rpms-ops)",
+      "# pinned release's reach classes (data/inventories/<tag>/<tag>-rpcs.json, published by openrpms)",
       "# by `rake rpc:exclusions`; regenerate on every re-pin, never hand-edit them. gui_plumbing and",
       "# write_needs_fixture are reviewed decisions: add one per PR with its evidence; regeneration keeps them.",
       "#"

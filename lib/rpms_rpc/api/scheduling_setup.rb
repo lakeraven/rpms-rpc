@@ -56,6 +56,51 @@ module RpmsRpc
     # APPOINTMENT (#2.98), the patient's appointment multiple.
     PATIENT_APPOINTMENT_FILE = "2.98"
 
+    # A clinic's scheduling settings, as BPRM's clinic configuration shows and
+    # changes them (lakeraven-ehr#984). Each key names its HOSPITAL LOCATION
+    # (#44) field, or its CLINIC SETUP PARAMETERS (#9009017.2) field, and how
+    # the value is held: :int a whole number, :flag a set of codes with a yes
+    # and a no (or blank) code, :pointer an entry of another file.
+    CLINIC_SETTINGS = {
+      abbreviation: { file: 44, field: "1", kind: :text },
+      institution: { file: 44, field: "3", kind: :pointer },
+      division: { file: 44, field: "3.5", kind: :pointer },
+      stop_code: { file: 44, field: "8", kind: :pointer },
+      length_minutes: { file: 44, field: "1912", kind: :int },
+      variable_length: { file: 44, field: "1913", kind: :flag, yes: "V", no: "@" },
+      display_begins: { file: 44, field: "1914", kind: :int },
+      increments_per_hour: { file: 44, field: "1917", kind: :int },
+      overbooks_per_day: { file: 44, field: "1918", kind: :int },
+      schedule_on_holidays: { file: 44, field: "1918.5", kind: :flag, yes: "Y", no: "@" },
+      allowable_no_shows: { file: 44, field: "2001", kind: :int },
+      max_future_days: { file: 44, field: "2002", kind: :int },
+      prohibit_access: { file: 44, field: "2500", kind: :flag, yes: "Y", no: "@" },
+      non_count: { file: 44, field: "2502", kind: :flag, yes: "Y", no: "N" },
+      include_on_file_room_lists: { file: 44, field: "2502.5", kind: :flag, yes: "1", no: "0" },
+      meets_at_facility: { file: 44, field: "2504", kind: :flag, yes: "Y", no: "N" },
+      no_show_letter: { file: 44, field: "2508", kind: :pointer },
+      pre_appointment_letter: { file: 44, field: "2509", kind: :pointer },
+      clinic_cancellation_letter: { file: 44, field: "2510", kind: :pointer },
+      appointment_cancellation_letter: { file: 44, field: "2511", kind: :pointer },
+      no_show_waiting_days: { file: IHS_CLINIC_FILE, field: ".03", kind: :int },
+      create_visit_at_checkin: { file: IHS_CLINIC_FILE, field: ".09", kind: :flag, yes: "1", no: "0" },
+      visit_provider_required: { file: IHS_CLINIC_FILE, field: ".14", kind: :flag, yes: "1", no: "0" }
+    }.freeze
+    # DISPLAY INCREMENTS PER HOUR (#44 field 1917) codes: the code is the
+    # number of increments in an hour (1 is 60 minutes, 4 is 15).
+    INCREMENTS_PER_HOUR = [ 1, 2, 3, 4, 6 ].freeze
+    # LETTER (#407.5) field 1 TYPE, and the #44 field that names a clinic's
+    # letter of that type (each field's screen allows only its type).
+    LETTER_FILE = "407.5"
+    LETTER_TYPES = { "N" => :no_show, "P" => :pre_appointment, "C" => :clinic_cancellation,
+                     "A" => :appointment_cancellation }.freeze
+    # PROVIDER (#44 field 2600), the clinic's providers: .01 PROVIDER, .02
+    # DEFAULT PROVIDER.
+    CLINIC_PROVIDER_FILE = "44.1"
+    # BSDX RESOURCE GROUP and its RESOURCE multiple.
+    RESOURCE_GROUP_FILE = "9002018.2"
+    RESOURCE_GROUP_ITEM_FILE = "9002018.21"
+
     # How many entries one DDR LISTER call asks for; a longer list is read on
     # from the MORE marker.
     PAGE = 100
@@ -67,12 +112,15 @@ module RpmsRpc
     # Every BSDX ACCESS TYPE (#9002018.35) with its .01 ACCESS TYPE NAME, .02
     # INACTIVE and .08 PREVENT ACCESS. A block whose access type prevents access
     # takes no appointment (rpms-ux S-SCH-04.2). An unset flag reads as false.
-    # Returns [{ id:, name:, inactive:, prevent_access: }], by name. A failed
-    # read raises Client::RpcError.
+    # color is "#RRGGBB" from .05 RED, .06 GREEN and .07 BLUE (0-255 each), the
+    # colour a schedule shows its blocks in, or nil when any is unset.
+    # Returns [{ id:, name:, inactive:, prevent_access:, color: }], by name. A
+    # failed read raises Client::RpcError.
     def access_types
-      list(ACCESS_TYPE_FILE, "@;.01;.02I;.08I").map do |entry|
-        name, inactive, prevent = entry[:pieces]
-        { id: entry[:ien].to_i, name: name, inactive: inactive == "1", prevent_access: prevent == "1" }
+      list(ACCESS_TYPE_FILE, "@;.01;.02I;.08I;.05;.06;.07").map do |entry|
+        name, inactive, prevent, *rgb = entry[:pieces]
+        color = rgb.size == 3 && rgb.all? { |c| c.to_s.match?(/\A\d{1,3}\z/) && c.to_i <= 255 } ? format("#%02X%02X%02X", *rgb.map(&:to_i)) : nil
+        { id: entry[:ien].to_i, name: name, inactive: inactive == "1", prevent_access: prevent == "1", color: color }
       end
     end
     shape :access_types, resource: "appointments", verb: "GET", path: "/appointments/access-types"
@@ -348,7 +396,319 @@ module RpmsRpc
     end
     shape :clinic_stop, resource: "appointments", verb: "GET", path: "/appointments/clinic-stop"
 
+    # A clinic's scheduling settings (lakeraven-ehr#984): the HOSPITAL
+    # LOCATION (#44) fields and the CLINIC SETUP PARAMETERS (#9009017.2)
+    # fields of CLINIC_SETTINGS, read with DDR GETS ENTRY DATA, and the
+    # clinic's providers. Returns a Hash with :id, :name, every
+    # CLINIC_SETTINGS key, :setup_entry (false when the clinic has no
+    # #9009017.2 entry, whose three keys are then nil) and :providers
+    # (clinic_providers). A whole number is an Integer or nil, a flag true or
+    # false, a pointer { id:, name: } or nil. nil for an IEN that is not a
+    # positive integer. A failed read, or an IEN with no #44 entry, raises
+    # Client::RpcError.
+    def clinic_settings(hospital_location_id)
+      ien = positive_id(hospital_location_id)
+      return nil unless ien
+
+      fields = CLINIC_SETTINGS.select { |_, s| s[:file] == HOSPITAL_LOCATION_FILE }
+      got = gets!(HOSPITAL_LOCATION_FILE, ien, ([ ".01" ] + fields.values.map { |s| s[:field] }).join(";"))
+      setup_fields = CLINIC_SETTINGS.reject { |_, s| s[:file] == HOSPITAL_LOCATION_FILE }
+      setup = in_context do
+        DdrFileman.gets_entry(file: IHS_CLINIC_FILE, iens: "#{ien},", fields: setup_fields.values.map { |s| s[:field] }.join(";"), flags: "IE")
+      end
+      raise Client::RpcError, "DDR GETS ENTRY DATA gave no reply for ##{IHS_CLINIC_FILE} #{ien}" if setup.nil?
+
+      # A clinic with no #9009017.2 entry answers the bare [ERROR] (see creates_visit_at_checkin).
+      setup_entry = !setup[:error]
+      settings = { id: ien.to_i, name: got[:fields].dig(".01", :external).to_s }
+      fields.each { |key, spec| settings[key] = setting_value(spec, got[:fields][spec[:field]]) }
+      setup_fields.each { |key, spec| settings[key] = setup_entry ? setting_value(spec, setup[:fields][spec[:field]]) : nil }
+      settings.merge(setup_entry: setup_entry, providers: clinic_providers(ien))
+    end
+    shape :clinic_settings, resource: "appointments", verb: "GET", path: "/appointments/clinic-settings"
+
+    # Files changes to a clinic's scheduling settings. changes is a Hash of
+    # CLINIC_SETTINGS keys: a whole number as an Integer (nil clears it), a
+    # flag true or false, a pointer as the other file's IEN (nil clears it),
+    # the abbreviation as text. An unknown key raises ArgumentError before
+    # anything is sent.
+    #
+    # Each #44 field is filed on its own with DDR FILER (FILE^DIE) and the
+    # "E" flag, so FileMan validates it as its own editor would: the field's
+    # input transform and, for a pointer, its screen (a no-show letter must be
+    # a LETTER of type N). LENGTH OF APP'T (1912) must be a multiple of the
+    # minutes in one display increment (1917), and the two transforms each
+    # check the other's stored value, so a field FileMan refuses is tried
+    # once more after the rest are filed. #9009017.2 fields file the same way,
+    # or are added with the entry when the clinic has none (its .01 is the
+    # clinic, DINUM).
+    #
+    # Returns { success: true } when every field filed, or
+    # { success: false, refused: { key => FileMan's message } } naming each
+    # field that did not; the others are filed. nil when the broker gives no
+    # reply.
+    def update_clinic_settings(hospital_location_id, changes)
+      ien = positive_id(hospital_location_id)
+      raise ArgumentError, "hospital_location_id must be a positive integer" unless ien
+
+      unknown = changes.keys - CLINIC_SETTINGS.keys
+      raise ArgumentError, "unknown clinic settings: #{unknown.join(', ')}" unless unknown.empty?
+
+      values = changes.to_h { |key, value| [ key, filed_value(key, CLINIC_SETTINGS[key], value) ] }
+      setup = values.select { |key, _| CLINIC_SETTINGS[key][:file] == IHS_CLINIC_FILE }
+      refused = {}
+      unless setup.empty? || setup_entry?(ien)
+        outcome = add_setup_entry(ien, setup)
+        return nil if outcome.nil?
+
+        setup.each_key { |key| refused[key] = outcome } unless outcome == true
+        values = values.except(*setup.keys)
+      end
+
+      failed = file_settings(ien, values)
+      return nil if failed.nil?
+
+      # One may have been refused only for the other stored value (1912 and 1917).
+      if failed.any? && failed.size < values.size
+        failed = file_settings(ien, values.slice(*failed.keys))
+        return nil if failed.nil?
+      end
+      refused.merge!(failed)
+      refused.empty? ? { success: true } : { success: false, refused: refused }
+    end
+    shape :update_clinic_settings, resource: "appointments", verb: "PUT", path: "/appointments/clinic-settings"
+
+    # Every LETTER (#407.5): .01 NAME and field 1 TYPE, as { id:, name:, type: }
+    # with type :no_show, :pre_appointment, :clinic_cancellation or
+    # :appointment_cancellation (nil for any other code), by name. A clinic's
+    # letter of each type is one of these (clinic_settings). A failed read
+    # raises Client::RpcError.
+    def letters
+      list(LETTER_FILE, "@;.01;1").map do |entry|
+        name, type = entry[:pieces]
+        { id: entry[:ien].to_i, name: name, type: LETTER_TYPES[type.to_s] }
+      end
+    end
+    shape :letters, resource: "appointments", verb: "GET", path: "/appointments/letters"
+
+    # A clinic's providers, PROVIDER (#44 field 2600): [{ id:, duz:, name:,
+    # default: }] by name, id being the entry in the multiple. BSDX HOSPITAL
+    # LOCATION names the first whose DEFAULT PROVIDER (.02) is YES as the
+    # clinic's default provider. A failed read raises Client::RpcError.
+    def clinic_providers(hospital_location_id)
+      ien = positive_id(hospital_location_id)
+      raise ArgumentError, "hospital_location_id must be a positive integer" unless ien
+
+      list(CLINIC_PROVIDER_FILE, "@;.01I;.01E;.02I", iens: ",#{ien},").map do |entry|
+        duz, name, default = entry[:pieces]
+        { id: entry[:ien].to_i, duz: duz.to_i, name: name.to_s, default: default == "1" }
+      end.sort_by { |p| p[:name] }
+    end
+    shape :clinic_providers, resource: "appointments", verb: "GET", path: "/appointments/clinic-providers"
+
+    # Adds a provider to the clinic, or keeps the one already there, and makes
+    # them the default when default is true (any other default is cleared
+    # first, as DEFAULT PROVIDER's transform allows only one). The provider is
+    # checked against the field's own screen with DDR VALIDATOR ($$SCREEN^SDUTL2:
+    # an active user who may be a provider) before anything is filed.
+    # Returns { success: true, id: } (the entry), { success: false, error: },
+    # or nil when the broker gives no reply.
+    def add_clinic_provider(hospital_location_id:, duz:, default: false)
+      ien = positive_id(hospital_location_id)
+      raise ArgumentError, "hospital_location_id must be a positive integer" unless ien
+      raise ArgumentError, "duz must be a positive integer" unless positive_id(duz)
+
+      existing = clinic_providers(ien).find { |p| p[:duz] == duz.to_i }
+      unless existing
+        check = in_context { DdrFileman.validate_field(file: CLINIC_PROVIDER_FILE, iens: "+1,#{ien},", field: ".01", value: "`#{duz.to_i}") }
+        return nil if check.nil?
+        return { success: false, error: "RPMS does not accept user #{duz} as a provider for this clinic" } unless check[:valid]
+
+        added = in_context { DdrFileman.filer(mode: "ADD", rows: [ { file: CLINIC_PROVIDER_FILE, field: ".01", iens: "+1,#{ien},", value: duz.to_i.to_s } ]) }
+        return nil if added.nil?
+        return { success: false, error: Array(added[:errors]).join(" ") } unless added[:success]
+
+        existing = { id: added[:iens][1].to_i }
+      end
+      return { success: true, id: existing[:id] } unless default
+
+      outcome = set_default_provider(hospital_location_id: ien, entry_id: existing[:id])
+      outcome && outcome[:success] ? { success: true, id: existing[:id] } : outcome
+    end
+    shape :add_clinic_provider, resource: "appointments", verb: "POST", path: "/appointments/clinic-provider"
+
+    # Makes one of the clinic's providers its default: DEFAULT PROVIDER (.02)
+    # NO on every other entry, then YES on this one, filed as internal codes
+    # (FILE^DIE without "E", so the field's interactive transform is not run;
+    # its cross-reference is). Returns { success: true }, { success: false,
+    # error: }, or nil.
+    def set_default_provider(hospital_location_id:, entry_id:)
+      ien = positive_id(hospital_location_id)
+      raise ArgumentError, "hospital_location_id must be a positive integer" unless ien
+
+      providers = clinic_providers(ien)
+      return { success: false, error: "no provider entry #{entry_id} on clinic #{ien}" } unless providers.any? { |p| p[:id] == entry_id.to_i }
+
+      rows = providers.select { |p| p[:default] && p[:id] != entry_id.to_i }
+                      .map { |p| { file: CLINIC_PROVIDER_FILE, field: ".02", iens: "#{p[:id]},#{ien},", value: "0" } }
+      rows << { file: CLINIC_PROVIDER_FILE, field: ".02", iens: "#{entry_id.to_i},#{ien},", value: "1" }
+      filer_result(in_context { DdrFileman.filer(mode: "EDIT", rows: rows) })
+    end
+    shape :set_default_provider, resource: "appointments", verb: "PUT", path: "/appointments/default-provider"
+
+    # Removes a provider entry from the clinic (.01 set to "@", FileMan's
+    # delete). Returns { success: true }, { success: false, error: }, or nil.
+    def remove_clinic_provider(hospital_location_id:, entry_id:)
+      ien = positive_id(hospital_location_id)
+      entry = positive_id(entry_id)
+      raise ArgumentError, "hospital_location_id and entry_id must be positive integers" unless ien && entry
+
+      filer_result(in_context { DdrFileman.filer(mode: "EDIT", rows: [ { file: CLINIC_PROVIDER_FILE, field: ".01", iens: "#{entry},#{ien},", value: "@" } ]) })
+    end
+    shape :remove_clinic_provider, resource: "appointments", verb: "DELETE", path: "/appointments/clinic-provider"
+
+    # The users a clinic's resource names in BSDX RESOURCE USER
+    # (#9002018.15), with their rights on it: [{ id:, duz:, name:, overbook:,
+    # modify_schedule:, modify_appointments:, master_overbook: }] by name.
+    # These are BPRM's "clinic users". A failed read raises Client::RpcError.
+    def resource_users(resource_id)
+      resource = positive_id(resource_id)
+      raise ArgumentError, "resource_id must be a positive integer" unless resource
+
+      list(RESOURCE_USER_FILE, "@;.01I;.02I;.02E;.03I;.04I;.05I;.06I").filter_map do |entry|
+        res, duz, name, overbook, schedule, appointments, master = entry[:pieces]
+        next unless res.to_i == resource.to_i
+
+        { id: entry[:ien].to_i, duz: duz.to_i, name: name.to_s, overbook: overbook == "1", modify_schedule: schedule == "1",
+          modify_appointments: appointments == "1", master_overbook: master == "1" }
+      end.sort_by { |u| u[:name] }
+    end
+    shape :resource_users, resource: "appointments", verb: "GET", path: "/appointments/resource-users"
+
+    # Sets a resource user's master overbook right, MASTEROVERBOOK (.06),
+    # which BSDX ADD/EDIT RESOURCEUSER does not file. Returns { success: true },
+    # { success: false, error: }, or nil.
+    def set_master_overbook(resource_user_id:, master:)
+      id = positive_id(resource_user_id)
+      raise ArgumentError, "resource_user_id must be a positive integer" unless id
+
+      row = { file: RESOURCE_USER_FILE, field: ".06", iens: "#{id},", value: master ? "1" : "0" }
+      filer_result(in_context { DdrFileman.filer(mode: "EDIT", rows: [ row ]) })
+    end
+    shape :set_master_overbook, resource: "appointments", verb: "PUT", path: "/appointments/master-overbook"
+
+    # Every BSDX RESOURCE GROUP (#9002018.2) with its resources (the
+    # RESOURCE multiple, #9002018.21): [{ id:, name:, inactive_date:,
+    # resources: [{ id:, resource_id:, name: }] }] by name, id in resources
+    # being the entry in the multiple. Unlike BSDX RESOURCE GROUPS BY USER,
+    # it lists every group, as table maintenance does. A failed read raises
+    # Client::RpcError.
+    def resource_groups
+      list(RESOURCE_GROUP_FILE, "@;.01;.02I").map do |entry|
+        name, inactive = entry[:pieces]
+        items = list(RESOURCE_GROUP_ITEM_FILE, "@;.01I;.01E", iens: ",#{entry[:ien]},").map do |item|
+          resource, resource_name = item[:pieces]
+          { id: item[:ien].to_i, resource_id: resource.to_i, name: resource_name.to_s }
+        end
+        { id: entry[:ien].to_i, name: name.to_s, inactive_date: date_or_nil(inactive.to_s), resources: items.sort_by { |i| i[:name] } }
+      end
+    end
+    shape :resource_groups, resource: "appointments", verb: "GET", path: "/appointments/resource-groups"
+
     private
+
+    def positive_id(value)
+      text = value.to_s
+      text.match?(/\A[1-9]\d*\z/) ? text : nil
+    end
+
+    def gets!(file, ien, fields)
+      got = in_context { DdrFileman.gets_entry(file: file, iens: "#{ien},", fields: fields, flags: "IE") }
+      raise Client::RpcError, "DDR GETS ENTRY DATA gave no reply for ##{file} #{ien}" if got.nil?
+      raise Client::RpcError, "DDR GETS ENTRY DATA refused ##{file} #{ien}" if got[:error]
+
+      got
+    end
+
+    # A CLINIC_SETTINGS field's value as clinic_settings returns it.
+    def setting_value(spec, row)
+      internal = row&.dig(:internal).to_s
+      case spec[:kind]
+      when :int then integer_or_nil(internal)
+      when :flag then internal == spec[:yes]
+      when :pointer then internal.empty? ? nil : { id: internal.to_i, name: row[:external].to_s }
+      else internal
+      end
+    end
+
+    # A CLINIC_SETTINGS value as FILE^DIE takes it with the "E" flag: "@"
+    # deletes, a pointer is "`IEN" (FileMan's lookup by number).
+    def filed_value(key, spec, value)
+      case spec[:kind]
+      when :int
+        return "@" if value.nil?
+        raise ArgumentError, "#{key} must be a whole number" unless value.is_a?(Integer) && value >= 0
+
+        value.to_s
+      when :flag
+        raise ArgumentError, "#{key} must be true or false" unless [ true, false ].include?(value)
+
+        value ? spec[:yes] : spec[:no]
+      when :pointer
+        return "@" if value.nil?
+        raise ArgumentError, "#{key} must be an IEN" unless positive_id(value)
+
+        "`#{value}"
+      else
+        text = value.to_s.strip
+        return "@" if text.empty?
+        raise ArgumentError, "#{key} cannot contain ^ or a control character" if text.include?("^") || text.match?(/[[:cntrl:]]/)
+
+        text
+      end
+    end
+
+    # Files each value on its own (see update_clinic_settings). Returns
+    # { key => FileMan's message } for those refused, or nil when the broker
+    # gave no reply.
+    def file_settings(ien, values)
+      values.each_with_object({}) do |(key, value), failed|
+        spec = CLINIC_SETTINGS[key]
+        row = { file: spec[:file], field: spec[:field], iens: "#{ien},", value: value }
+        filed = in_context { DdrFileman.filer(mode: "EDIT", rows: [ row ], flags: "E") }
+        return nil if filed.nil?
+
+        failed[key] = Array(filed[:errors]).join(" ") unless filed[:success]
+      end
+    end
+
+    def setup_entry?(ien)
+      got = in_context { DdrFileman.gets_entry(file: IHS_CLINIC_FILE, iens: "#{ien},", fields: ".01", flags: "I") }
+      raise Client::RpcError, "DDR GETS ENTRY DATA gave no reply for ##{IHS_CLINIC_FILE} #{ien}" if got.nil?
+
+      !got[:error]
+    end
+
+    # Adds the clinic's CLINIC SETUP PARAMETERS entry (DINUM: its IEN is the
+    # clinic's) with the given values. UPDATE^DIE files internal values, which
+    # these are (filed_value's codes and numbers). true, FileMan's message, or
+    # nil when the broker gave no reply.
+    def add_setup_entry(ien, values)
+      rows = [ { file: IHS_CLINIC_FILE, field: ".01", iens: "+1,", value: ien.to_s } ]
+      values.each do |key, value|
+        rows << { file: IHS_CLINIC_FILE, field: CLINIC_SETTINGS[key][:field], iens: "+1,", value: value } unless value == "@"
+      end
+      added = in_context { DdrFileman.filer(mode: "ADD", rows: rows, iens: { 1 => ien }) }
+      return nil if added.nil?
+
+      added[:success] ? true : Array(added[:errors]).join(" ")
+    end
+
+    def filer_result(filed)
+      return nil if filed.nil?
+
+      filed[:success] ? { success: true } : { success: false, error: Array(filed[:errors]).join(" ") }
+    end
 
     def in_context(&block)
       ContextScope.scoped(RpmsRpc.client, CONTEXT, &block)

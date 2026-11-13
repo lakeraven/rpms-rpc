@@ -1,9 +1,9 @@
-# rpms-ops builds whose RPC signature rpms-rpc conforms to - written by `rake conformance:pin`; do not hand-edit.
-# Each entry pins the RPC-surface document (rpcs.json), #9.4 and #19.05 faces and build record lakeraven/rpms-ops attaches to that release
+# openrpms builds whose RPC signature rpms-rpc conforms to - written by `rake conformance:pin`; do not hand-edit.
+# Each entry pins the RPC-surface document (rpcs.json), #9.4 and #19.05 faces and build record lakeraven/openrpms attaches to that release
 # (sha256 per asset; the bytes are committed under data/inventories/<tag>/), and names the fingerprint
 # ingested from exactly those bytes. test/rpms_rpc/pinned_build_signature_test.rb checks all three agree.
 ---
-repo: lakeraven/rpms-ops
+repo: lakeraven/openrpms
 releases:
   bcer-9.0-20261012-e7923a4-ydb:
     rpms_version: bcer-9.0

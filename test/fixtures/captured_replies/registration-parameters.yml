@@ -1,0 +1,100 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb registration-parameters.rb.
+---
+rpc: DDR LISTER
+entry_point: LISTC^DDR
+release_tag: bcer-9.0-20261111-7d0e827-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:16af1f14cdd42a8ac2cee25ad08d490d23a0a77c623c4453f1fd94fcc6798ad4
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,REG (PREG123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-12T21:54:53Z'
+note: The build's demo division (INSTITUTION 7819) and its registration parameters;
+  nothing is filed.
+captures:
+- name: mandatory_files_of_absent_facility
+  inputs:
+  - FILE: '9009061.11'
+    IENS: ",999999,"
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '100'
+  context: 'the mandatory-field files of a facility with no entry: what LISTC^DDR
+    answers for a parent that does not exist'
+  raw_return: "5\0[Data]\r"
+  sha256: db45af62402ba3ff7621e959a6ba1957a57c94a35ca44b1ae396a536e42a1a82
+- name: switches_of_absent_facility
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9009061'
+    IENS: 999999,
+    FIELDS: '1'
+    FLAGS: I
+  context: 'a switch of a facility with no entry: GETSC^DDR2''s refusal, the shape
+    of a failed read'
+  raw_return: "6\0[ERROR]\r"
+  sha256: 3d76cc942428dd0736dea3a5c5d24a9287da98b663a904e758603caa10ed4065
+- name: division/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9009061'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '100'
+  context: for_facility for the demo division 7819, as the registration persona
+  raw_return: "5\0[Data]\r7819^7819\r"
+  sha256: 18d1d8954aebb2781f15fed3f4e74f310baf81f567263254332a4d1c05fa2efc
+- name: division/2
+  rpc: DDR GETS ENTRY DATA
+  inputs:
+  - FILE: '9009061'
+    IENS: 7819,
+    FIELDS: 1;2;3;4;5;6;7;8;9;10;11;12;20;23;26;27;28;2101
+    FLAGS: I
+  context: for_facility for the demo division 7819, as the registration persona
+  raw_return: "6\0[Data]\r9009061^7819^1^N^\r9009061^7819^2^N^\r9009061^7819^3^N^\r9009061^7819^4^N^\r9009061^7819^5^N^\r9009061^7819^6^Y^\r9009061^7819^7^N^\r9009061^7819^8^N^\r9009061^7819^9^N^\r9009061^7819^10^N^\r9009061^7819^11^N^\r9009061^7819^12^N^\r9009061^7819^20^Y^\r9009061^7819^23^N^\r9009061^7819^26^N^\r9009061^7819^27^Y^\r9009061^7819^28^Y^\r9009061^7819^2101^^\r"
+  sha256: 9da0889fc21e77d6e1c9099e9d470e197d8d7c89df930aab05a1f16c8c7c0bfc
+- name: division/3
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9009061.11'
+    IENS: ",7819,"
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '100'
+  context: for_facility for the demo division 7819, as the registration persona
+  raw_return: "7\0[Data]\r2^2\r1^9000001\r"
+  sha256: 8137184f0459c0098ed6d547d4e5b9b69b005e48fee7427516ad6739196d3e92
+- name: division/4
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9009061.1101'
+    IENS: ",2,7819,"
+    FIELDS: "@;.01;.02I"
+    FLAGS: IP
+    MAX: '100'
+  context: for_facility for the demo division 7819, as the registration persona
+  raw_return: "8\0[Data]\r1^ETHNICITY INFORMATION^1\r2^RACE^1\r"
+  sha256: 981e8e0d9c9be222a193f72734ac520aa0ac410090d7a271feeb72ea6599b0e4
+- name: division/5
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9009061.1101'
+    IENS: ",1,7819,"
+    FIELDS: "@;.01;.02I"
+    FLAGS: IP
+    MAX: '100'
+  context: for_facility for the demo division 7819, as the registration persona
+  raw_return: "9\0[Data]\r1^ASSIGN BENEFITS OBTAINED DATE^1\r3^PREFERRED LANGUAGE^1\r4^PRIMARY
+    LANGUAGE^0\r2^RELEASE OF INFORMATION^1\r"
+  sha256: 14a44a17bddb7cef2886eb79c123ea2157d81bcd19900cc062cd79baf8500d01
+- name: not_on_file/1
+  rpc: DDR LISTER
+  inputs:
+  - FILE: '9009061'
+    FIELDS: "@;.01I"
+    FLAGS: IP
+    MAX: '100'
+  context: 'for_facility for INSTITUTION 999999, which has no #9009061 entry'
+  raw_return: "5\0[Data]\r7819^7819\r"
+  sha256: 18d1d8954aebb2781f15fed3f4e74f310baf81f567263254332a4d1c05fa2efc
