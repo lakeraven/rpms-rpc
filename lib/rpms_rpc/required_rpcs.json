@@ -373,6 +373,15 @@
       "DDR GETS ENTRY DATA",
       "DDR LISTER"
     ],
+    "RpmsRpc::RegistrationParameters": [
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
+    ],
+    "RpmsRpc::RegistrationSetup": [
+      "DDR FILER",
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
+    ],
     "RpmsRpc::Reminders": [
       "ORQQPXRM REMINDERS APPLICABLE"
     ],
@@ -400,10 +409,21 @@
       "BSDX SEARCH AVAILABILITY",
       "BSDX UNCANCEL APPT"
     ],
+    "RpmsRpc::SchedulingMaintenance": [
+      "BSDX ADD RES GROUP ITEM",
+      "BSDX ADD/EDIT ACCESS TYPE",
+      "BSDX ADD/EDIT RESOURCE GROUP",
+      "BSDX ADD/EDIT RESOURCEUSER",
+      "BSDX DELETE RES GROUP ITEM",
+      "BSDX DELETE RESOURCEUSER",
+      "BSDX RESOURCES",
+      "DDR LISTER"
+    ],
     "RpmsRpc::SchedulingSetup": [
       "DDR FILER",
       "DDR GETS ENTRY DATA",
-      "DDR LISTER"
+      "DDR LISTER",
+      "DDR VALIDATOR"
     ],
     "RpmsRpc::Session": [
       "CIAVCXUS VIMINFO"

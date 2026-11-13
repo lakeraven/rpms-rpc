@@ -7,7 +7,7 @@ require "digest"
 require "yaml"
 require "rpms_rpc/wire_capture"
 
-# RpmsRpc::WireCapture.compare (rpms-ops#975): a scratch capture against the
+# RpmsRpc::WireCapture.compare (openrpms#975): a scratch capture against the
 # committed fixtures, so a drifted capture is visible before it replaces one.
 # The inputs are the committed fixtures themselves (real captures), copied to
 # a scratch directory and changed one way per test.

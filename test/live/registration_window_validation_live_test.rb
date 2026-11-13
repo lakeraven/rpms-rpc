@@ -49,7 +49,7 @@ class RegistrationWindowValidationLiveTest < LiveSpec::Test
 
   # S-REG-02.6. On this build AG's check of a missing reason errors in
   # ISREQ^AGGUL2 and leaves the broker job hanging on its next AG call
-  # (rpms-ops#1040), so the gem does not send it and refuses. A registration
+  # (openrpms#1040), so the gem does not send it and refuses. A registration
   # after it must still go through on the same session.
   def test_s_reg_02_6_no_ssn_and_no_reason_is_not_filed_unchecked
     attrs = synthetic

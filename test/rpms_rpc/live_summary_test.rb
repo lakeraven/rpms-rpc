@@ -11,7 +11,7 @@ require "rpms_rpc/live_summary"
 require_relative "../../tools/changelog_fragments"
 
 # ADR 0010 assertion 10 (offline slice): a release may be tagged only when live
-# summaries on disk prove a green run against the pinned rpms-ops build.
+# summaries on disk prove a green run against the pinned openrpms build.
 module RpmsRpc
   class LiveSummaryTest < Minitest::Test
     REPO_ROOT = File.expand_path("../..", __dir__)

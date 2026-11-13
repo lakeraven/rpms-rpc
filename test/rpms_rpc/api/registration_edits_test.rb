@@ -6,7 +6,7 @@ require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/registration"
 require_relative "../captured_replies"
 
-# The registration edits of rpms-ops#1055: the address history (rpms-ux
+# The registration edits of openrpms#1055: the address history (rpms-ux
 # S-REG-21.1), the cell phone (S-REG-21.5) and race and ethnicity (S-REG-20.2
 # to 20.4), filed with DDR FILER inside AG's edit lock under the rules of
 # rpms-rpc#549.

@@ -4,7 +4,7 @@ require "rpms_rpc/api/registration"
 require "rpms_rpc/api/ddr_fileman"
 
 # The conversations RpmsRpc::Registration's address-history, cell-phone and
-# race-and-ethnicity methods have with the build (rpms-ops#1055), recorded as
+# race-and-ethnicity methods have with the build (openrpms#1055), recorded as
 # flows: each flow runs the gem as PROFILE,REG on seed patient DFN 990009 (DOB
 # 1981-10-09) and keeps every reply, in order. rpms-rpc#621.
 DFN = 990_009

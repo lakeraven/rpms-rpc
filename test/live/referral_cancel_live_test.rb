@@ -39,7 +39,7 @@ class ReferralCancelLiveTest < LiveSpec::Test
 
   # BMC REFERRAL STATUS UPDATE checks the IEN and FileMan refuses an entry
   # not on file (UPDTSTRF^BMCRPC3, BMCRPC3.m:181-184). On builds without
-  # rpms-ops#702 the refusal path QUITs with a value under a broker that DOes
+  # openrpms#702 the refusal path QUITs with a value under a broker that DOes
   # the tag, so the broker answers an M error at that line instead of
   # "~`0^message". Either way nothing is filed and cancel does not succeed.
   def test_cancel_of_a_referral_not_on_file_is_refused

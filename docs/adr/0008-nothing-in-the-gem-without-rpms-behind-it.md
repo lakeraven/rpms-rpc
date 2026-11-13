@@ -29,7 +29,7 @@ seeded to match the guess, and the tests passed.
    image.** That covers RPC names, context option names, security key names,
    file and field numbers. A name with no evidence is not added.
 2. **Each kind of name has a committed list and a test that fails on a name
-   outside it.** RPC names have one (the rpms-ops build signature pinned under
+   outside it.** RPC names have one (the openrpms build signature pinned under
    `data/inventories/`, #222, and the test added with #207). Option names and key names get the same.
 3. **A function exists only to call something RPMS serves.** A method whose RPC
    is not registered is deleted, not kept behind a capability check that quietly

@@ -22,7 +22,7 @@
 #
 # Two ways to reach the broker. With CONTAINER= the driver is staged into the
 # container and run there with the container's ruby. With BROKER_HOST= and no
-# CONTAINER= (host mode, rpms-ops#975) it runs on THIS machine's ruby against
+# CONTAINER= (host mode, openrpms#975) it runs on THIS machine's ruby against
 # the broker over the network, as every other client does: a release image
 # carries no ruby, so host mode is the one that works on a release. The sign-on
 # pair reaches the host-mode driver through its environment, never its argv.
@@ -136,7 +136,7 @@ namespace :wire do
     elsif container
       driver = File.join(root, "bin", "wire_capture_driver.rb")
       # Stage lib + driver as root (`docker cp` writes as root; chmod opens the
-      # tree to a non-root exec user) — the rpms-ops evidence-script pattern.
+      # tree to a non-root exec user) — the openrpms evidence-script pattern.
       sh "#{runtime} exec -u root #{container} sh -lc 'rm -rf /tmp/rr /tmp/rr_driver.rb && mkdir -p /tmp/rr'"
       sh "#{runtime} cp #{root}/lib #{container}:/tmp/rr/lib"
       sh "#{runtime} cp #{driver} #{container}:/tmp/rr_driver.rb"
@@ -224,7 +224,7 @@ namespace :wire do
     puts "#{written} fixture(s) written to #{FIXTURES_DIR}"
   end
 
-  # A scratch capture against the committed fixtures (rpms-ops#975): a capture
+  # A scratch capture against the committed fixtures (openrpms#975): a capture
   # is only evidence when it comes from a fresh container of the release, and a
   # drifted one must be visible BEFORE it replaces a committed fixture. Prints
   # one row per fixture and, with OUT=, writes the same as TSV (fixture, verdict,

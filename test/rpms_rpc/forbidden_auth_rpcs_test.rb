@@ -53,7 +53,7 @@ class ForbiddenAuthRpcsTest < Minitest::Test
   # XUSRB:17 `S DUZ=0,DUZ(0)=""` then XUS1A:41
   # `S DUZ(0)=$P(XUSER(0),U,4)`, unconditional.
   #
-  # Tracked: rpms-ops#655.
+  # Tracked: openrpms#655.
   # All eight live in that one context. AVLOGON is the sign-on defect above;
   # ACCESSCODE/VERIFYCODE CHANGE are what the leaked "@" unlocks. The other
   # four are here because of what they are, not because of that bug:
@@ -94,7 +94,7 @@ class ForbiddenAuthRpcsTest < Minitest::Test
       lines BEFORE it checks the access and verify codes, and never clears it —
       the WEB rebuild is dead code, and XUP:61 would not clear it anyway. Any
       signed-on user can then reset any other user's credentials via
-      BGUXUSRC:41. See the comment above and rpms-ops#655.
+      BGUXUSRC:41. See the comment above and openrpms#655.
 
       Sign on with XUS AV CODE or CIANBRPC AUTH.
     WHY

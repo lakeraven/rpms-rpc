@@ -1,4 +1,4 @@
-# RPCs the gem sends that are NOT callable on a pinned rpms-ops build, kept only because the build
+# RPCs the gem sends that are NOT callable on a pinned openrpms build, kept only because the build
 # is defective, each with the issue that tracks the fix. test/rpms_rpc/callable_rpc_names_test.rb
 # (rpms-rpc#394) prints every entry loudly on each run, and fails when an entry is stale: the RPC
 # became callable, the gem stopped sending it, its reach class changed, or the tag is not pinned.
@@ -10,7 +10,7 @@
 # Shape: <tag> => { <RPC name> => { reach:, issue: <owner/repo#N>, why: } }
 #
 # None on bcer-9.0-20261012-e7923a4-ydb. The two 0930 entries left with that pin (rpms-rpc#409):
-# DDR KEY VALIDATOR is client-callable on 1012 (rpms-ops#720 fixed), and VAFC VOA ADD PATIENT was
-# never a build defect - no RPMS context serves it, by design (rpms-ops#499, #674) - so the gem
+# DDR KEY VALIDATOR is client-callable on 1012 (openrpms#720 fixed), and VAFC VOA ADD PATIENT was
+# never a build defect - no RPMS context serves it, by design (openrpms#499, #674) - so the gem
 # stopped sending it.
 --- {}

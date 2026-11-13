@@ -33,7 +33,7 @@ Before any mapping is written, the RPC's contract is extracted from artifacts we
 already capture — the #8994 registry and the M source that backs it:
 
 ```sh
-# in rpms-ops
+# in openrpms
 bin/rpc_contract_extract.rb --release <release> --routines <standup>/r \
   --names <rpc-list> --out data/observed/<release>/rpc_contracts.tsv
 ```
@@ -122,9 +122,9 @@ honest tests of a real contract, and they should not be mistaken for coverage.
 
 - [ADR 0001 — Scope and no Rails coupling](0001-scope-and-no-rails-coupling.md) — why the BDD tier cannot live in this gem
 - [ADR 0002 — Verified routine policy](0002-verified-routine-policy.md) — the policy this ADR orders in time
-- `rpms-ops bin/rpc_contract_extract.rb` — generates the contract rows
-- `rpms-ops data/observed/<release>/rpc_contracts.tsv` — the current extract
-- `rpms-ops data/observed/<release>/broker_8994.txt` — `NAME^TAG^ROUTINE^RETURN_TYPE`
+- `openrpms bin/rpc_contract_extract.rb` — generates the contract rows
+- `openrpms data/observed/<release>/rpc_contracts.tsv` — the current extract
+- `openrpms data/observed/<release>/broker_8994.txt` — `NAME^TAG^ROUTINE^RETURN_TYPE`
 - #189 — wire-shape mappings contract-tested against captured real returns, gated in CI
 - #193 — every mapping verified sound **and** complete against a real instance
 - #198 — AMH RPCs take a single pipe-delimited parameter (`YDB-E-ACTLSTTOOLONG`)

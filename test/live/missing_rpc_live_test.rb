@@ -65,7 +65,7 @@ class MissingRpcLiveTest < LiveSpec::Test
 
   # Served, but the routine fails with an M error on the pinned build (#364),
   # under the option the method binds. Empty: the four BMC rows answer since
-  # the YottaDB overrides of BMCRPC1-5 (rpms-ops#702), and Referral.providers
+  # the YottaDB overrides of BMCRPC1-5 (openrpms#702), and Referral.providers
   # sends no parameter to PROV^ORQPTQ2. A method added here names its M error.
   KNOWN_BINDING_BUGS = %w[].freeze
 

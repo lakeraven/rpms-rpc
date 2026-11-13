@@ -69,7 +69,7 @@ class RpcCoverageProgrammerPersonaTest < Minitest::Test
     assert_equal "least_privilege", RpcCoverage.persona_of(holds_progmode: false)
   end
 
-  # SYS123 (the operator every rpms-ops image ships) with no PERSONA set is a programmer run, not a refusal.
+  # SYS123 (the operator every openrpms image ships) with no PERSONA set is a programmer run, not a refusal.
   def test_no_persona_set_expects_nothing_so_any_signed_on_user_is_recorded
     assert_nil RpcCoverage.expected_persona(nil)
     assert_nil RpcCoverage.expected_persona("")

@@ -8,7 +8,7 @@ require_relative "../captured_replies"
 
 # The preferred name (rpms-ux S-REG-12.1): #9000001 9001, read with DDR GETS
 # and filed with DDR FILER inside AG's edit lock, as $$SETPREF^AUPNSOGI files
-# it (rpms-ops#1059, rpms-rpc#549).
+# it (openrpms#1059, rpms-rpc#549).
 #
 # Every reply is the pinned build's, captured as PROFILE,REG on seed patient
 # HOTEL,DREW (test/fixtures/captured_replies/registration-preferred-name.yml),

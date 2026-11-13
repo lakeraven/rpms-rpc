@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Run rpms-ops' wire-level conformance cases against ONE live CIA broker (rpms-ops#834):
+# Run openrpms' wire-level conformance cases against ONE live CIA broker (openrpms#834):
 # `rake rpc:cases`. The cases are data (see case_runner.rb); this signs on, reads the persona from
 # who signed on (#397), runs the rows written for that persona and writes one verdict per case.
 #

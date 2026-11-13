@@ -147,7 +147,7 @@ module RpmsRpc
     #
     # Returns { success:, message:, raw: }. The routine answers "1" when it
     # filed and "~`0^message" when it refused. On builds without
-    # rpms-ops#702 its refusal path QUITs with a value under a broker that
+    # openrpms#702 its refusal path QUITs with a value under a broker that
     # DOes the tag, and the call raises Client::RpcError instead.
     def cancel(ien)
       return failure if invalid_id?(ien)

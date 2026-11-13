@@ -12,13 +12,13 @@
 #
 # Which release, first match wins:
 #   RPMS_IMAGE=<ref>   any image ref, e.g. a digest
-#   RPMS_TAG=<tag>     a gated rpms-ops release tag, to reproduce a specific build
+#   RPMS_TAG=<tag>     a gated openrpms release tag, to reproduce a specific build
 #   PINNED=1           the newest `image:` in data/fingerprints/rpms-ops.lock.yml (what the
 #                      conformance fixtures were captured from)
-#   (default)          the rpms-ops release marked Latest, the newest one that passed the gate;
+#   (default)          the openrpms release marked Latest, the newest one that passed the gate;
 #                      the lock pin when the releases API can't be reached
 #
-# The compose project is named rpms-rpc. A release refuses another build's /data (rpms-ops#514),
+# The compose project is named rpms-rpc. A release refuses another build's /data (openrpms#514),
 # so when the release changes, `up` removes this project's container and volume first: it holds
 # only synthetic data.
 #
@@ -54,11 +54,11 @@ wanted_image() {
   # On failure gh still prints the error body to stdout, so take the tag only on success and only
   # when it is a well-formed Docker tag.
   local tag
-  if tag=$(gh api repos/lakeraven/rpms-ops/releases/latest --jq .tag_name 2>/dev/null) &&
+  if tag=$(gh api repos/lakeraven/openrpms/releases/latest --jq .tag_name 2>/dev/null) &&
      [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
     echo "$REPO_IMAGE:$tag"; return
   fi
-  log "can't read the Latest rpms-ops release; using the lock pin"
+  log "can't read the Latest openrpms release; using the lock pin"
   lock_image
 }
 
@@ -94,7 +94,7 @@ up() {
     log "start failed. On 'unauthorized' or 'denied', this machine has no working ghcr.io credential."
     exit 1
   fi
-  # The compose healthcheck checks LISTEN, not a connect: a connect is a broker session (rpms-ops#444).
+  # The compose healthcheck checks LISTEN, not a connect: a connect is a broker session (openrpms#444).
   for _ in $(seq 1 60); do
     if [ "$(health)" = healthy ]; then
       log "broker is listening on 127.0.0.1:9100"

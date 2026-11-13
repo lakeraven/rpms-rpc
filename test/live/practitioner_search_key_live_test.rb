@@ -6,7 +6,7 @@ require "rpms_rpc/api/practitioner"
 # Practitioner.search(name, key: "PROVIDER") lists only users holding the
 # PROVIDER key, as VueCentric's provider selection does (ORWU NEWPERS with its
 # KEY parameter). On the demo build PROFILE,MD holds PROVIDER and
-# PROFILE,SCHED does not (rpms-ops SEEDPERS). It reads only.
+# PROFILE,SCHED does not (openrpms SEEDPERS). It reads only.
 class PractitionerSearchKeyLiveTest < LiveSpec::Test
   def test_a_provider_search_lists_providers_and_not_other_users
     everyone = RpmsRpc::Practitioner.search("PROFILE").map { |r| r[:name].to_s.upcase }

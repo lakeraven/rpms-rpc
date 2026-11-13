@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 # Client half of `rake wire:capture` (issue #189). In host mode (BROKER_HOST=,
-# rpms-ops#975) the task runs it on this machine against the broker; with
+# openrpms#975) the task runs it on this machine against the broker; with
 # CONTAINER= it is staged into the rung container alongside rpms-rpc/lib (the
-# rpms-ops evidence-script pattern) and run there. Either way it runs as:
+# openrpms evidence-script pattern) and run there. Either way it runs as:
 #
 #   VISTA_RPC_ENV=development RPMS_RPC_LIB=/tmp/rr/lib \
 #     BROKER_HOST=127.0.0.1 BROKER_PORT=9100 \
@@ -34,7 +34,7 @@
 require "json"
 
 # rpms-rpc references IO::TimeoutError (Ruby >= 3.2); container rubies can be
-# older (see rpms-ops#440). Alias keeps the rescue paths valid.
+# older (see openrpms#440). Alias keeps the rescue paths valid.
 IO::TimeoutError = Class.new(IOError) unless IO.const_defined?(:TimeoutError)
 
 lib = ENV["RPMS_RPC_LIB"] or abort("set RPMS_RPC_LIB to rpms-rpc/lib")
