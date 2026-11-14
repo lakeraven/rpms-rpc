@@ -354,6 +354,23 @@ class RpmsRpc::PilotVisitEncounterTest < Minitest::Test
     refute_equal "none", amhg_row[:unproven]
   end
 
+  # Intent: the CREATE=1 row cites the live spec that pins the seed gap, names the blocker and
+  # records the division-swap experiment; the pilot persona still cannot create (#721).
+  def test_pilot_checklist_create_row_cites_the_live_spec_that_pins_the_seed_gap
+    fetch_row = parse_checklist["BEHOENCX FETCH CREATE=1"]
+    refute_nil fetch_row, "checklist must list BEHOENCX FETCH CREATE=1"
+    assert_equal "not-proven", fetch_row[:status]
+    assert_includes fetch_row[:unproven], "visit_ien"
+
+    reason = fetch_row[:reason]
+    assert_includes reason, "test/live/encounter_visit_live_test.rb",
+                    "the row must cite the live spec that pins the cause, by path"
+    assert_includes reason, "openrpms#1078", "the row must name the blocking seed issue"
+    refute_match(/not pinned by a test/i, reason, "the cause is pinned by the live spec now")
+    assert_match(/7819/, reason, "the row must record the division-swap experiment (division 7819)")
+    assert_match(/GETVISIT/, reason, "the row must record that GETVISIT read the visit back in the experiment")
+  end
+
   # Intent: no visit/encounter slice RPC is pilot-ready without a live capture that carries data rows.
   def test_no_visit_encounter_slice_rpc_is_pilot_ready_without_live_capture_rows
     rows = parse_checklist
