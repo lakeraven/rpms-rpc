@@ -222,7 +222,7 @@ A consumer must stop seeding `:session_registry` and stop reading `bootstrap(...
 - `BROKER_PROTOCOL=bmx` runs the new live specs in `test/live/bmx/`; `test/fixtures/bmx/replies.yml` holds the
   frames captured from a live BMX session.
 
-### Added — `rake wire:capture` host mode and `rake wire:compare` (rpms-ops#975)
+### Added — `rake wire:capture` host mode and `rake wire:compare` (openrpms#975)
 
 - `rake wire:capture BROKER_HOST=<host> BROKER_PORT=<port>` (no `CONTAINER=`) runs the capture driver on this
   machine's Ruby against the broker over the network. A release image carries no Ruby, so staging the driver
@@ -308,7 +308,7 @@ A consumer must stop seeding `:session_registry` and stop reading `bootstrap(...
 - Not `CIANBRPC GETRPCS`, though it lists the same entries: its #8994 entry has WORD WRAP ON unset,
   and the CIA broker ends each row of such a reply with a bare `W !`, which sends no bytes on IRIS
   (the socket is opened "DS" or "S", with no line terminator) or on YottaDB. Every name arrives on
-  one line that cannot be split (rpms-ops#957). `DDR LISTER` is wrap-on, so its rows end in CR.
+  one line that cannot be split (openrpms#957). `DDR LISTER` is wrap-on, so its rows end in CR.
 - The read fails closed with the new `RpmsRpc::Client::ParseError` when a row is not
   IEN^NAME^INACTIVE, and with `RpcError` on an empty registry or a FileMan error reply, rather than
   report RPCs missing. A user whose menu lacks `CIAV VUECENTRIC` gets the broker's refusal.
@@ -352,14 +352,14 @@ A consumer must stop seeding `:session_registry` and stop reading `bootstrap(...
 
 - The persona comes from `ORWU HASKEY XUPROGMODE`: held is `programmer`, not held is
   `least_privilege`. A `SYS123` run with no `PERSONA` set is recorded as a programmer run
-  (`<BACKEND>.programmer.json`) instead of being refused (rpms-ops#790).
+  (`<BACKEND>.programmer.json`) instead of being refused (openrpms#790).
 - `PERSONA=` is now an optional expectation: set, the run fails when the signed-on user is not
   that persona; unset, any user is recorded under what it is. Evidence paths and the `persona:`
   checks on recorded evidence are unchanged.
 
-### Added — `rake rpc:cases`: rpms-ops' wire-level cases, run as data (rpms-ops#834)
+### Added — `rake rpc:cases`: openrpms' wire-level cases, run as data (openrpms#834)
 
-- `tools/rpc_coverage/run_cases.rb` reads rpms-ops' `data/conformance/cases.jsonl` (RPC, context,
+- `tools/rpc_coverage/run_cases.rb` reads openrpms' `data/conformance/cases.jsonl` (RPC, context,
   persona, literal parameters, expected verdict) and runs each row through `CiaClient#call_rpc_raw`,
   with the verdict read from the CIA reply flag byte. It calls no API method, so the cases are the
   build's, and any client can run the same file. Not part of the gem.
@@ -372,7 +372,7 @@ A consumer must stop seeding `:session_registry` and stop reading `bootstrap(...
 - **Breaking:** `Referral.providers` takes no arguments, and its rows no longer carry `:title`;
   `PROV^ORQPTQ2` never sent one.
 - The four other BMC reads #364 listed (`purposes`, `reference_data`, `search_referred_to`,
-  `rcis_templates`) answer on YottaDB builds that carry the BMCRPC1-5 overrides (rpms-ops#702), so
+  `rcis_templates`) answer on YottaDB builds that carry the BMCRPC1-5 overrides (openrpms#702), so
   `KNOWN_BINDING_BUGS` in the missing-RPC live spec is empty. The live spec calls
   `search_referred_to` with a referral type: without one, `SRRFRDTO^BMCRPC1` returns a message
   where the broker expects a global name.
@@ -409,7 +409,7 @@ A consumer must stop seeding `:session_registry` and stop reading `bootstrap(...
   (`AGG ADD NEW PATIENT` / `AGG UPDATE PATIENT` under `AGGRPC`). They no longer ask
   `Agg.available?` first, and never fall back to composing `VAFC VOA ADD PATIENT` with the DDR
   FileMan family: no RPMS context serves `VAFC VOA ADD PATIENT`. Stock RPMS lists it in no option,
-  and rpms-ops keeps it that way on purpose (`FIXDDRCX`, rpms-ops#499, #500, #674), so both
+  and openrpms keeps it that way on purpose (`FIXDDRCX`, openrpms#499, #500, #674), so both
   brokers refuse it to any client (ADR 0008 rule 3). A broker where `AGGRPC` will not bind now
   raises the client's error instead of composing.
 - **Breaking:** `Registration.register_via_composition`, `Registration.voa_param`, the
@@ -421,14 +421,14 @@ A consumer must stop seeding `:session_registry` and stop reading `bootstrap(...
   (`RpmsRpc::Tribal` reads them).
 - `Registration.update` is unchanged: it files through `DDR FILER`, which `CIAV VUECENTRIC` serves.
 
-### Changed — the pinned rpms-ops build is bcer-9.0-20261012-e7923a4-ydb (#409)
+### Changed — the pinned openrpms build is bcer-9.0-20261012-e7923a4-ydb (#409)
 
 - `data/fingerprints/rpms-ops.lock.yml` pins `bcer-9.0-20261012-e7923a4-ydb` in place of
   `bcer-9.0-20260930-8c88e47-ydb`, and `data/rpc_coverage/config.yml` names it. The 0930
   inventory is removed; its reference fingerprint stays as a `conformance:probe` rung.
 - `data/fingerprints/uncallable_exceptions.yml` is empty. Both 0930 entries left with the pin:
-  `DDR KEY VALIDATOR` is client-callable on 1012 (rpms-ops#720), and the `VAFC VOA ADD PATIENT`
-  entry cited rpms-ops#737, an image-drift issue that was not the cause. The RPC is served by no
+  `DDR KEY VALIDATOR` is client-callable on 1012 (openrpms#720), and the `VAFC VOA ADD PATIENT`
+  entry cited openrpms#737, an image-drift issue that was not the cause. The RPC is served by no
   context by design, so it was never a build defect the file allows.
 - `rake rpc:exclusions` on 1012: 596 exclusions (`DDR KEY VALIDATOR` is callable and leaves).
   Coverage: 37 / 4961. The live evidence is still `local-ydb-0930`; the config notes how the
@@ -439,9 +439,9 @@ A consumer must stop seeding `:session_registry` and stop reading `bootstrap(...
 - `rake openapi:surface` writes `pkg/openapi/rpc-surface.openapi.json`: every RPC the pinned build
   registers, addressed as a resource (`XUS DIVISION GET` is `GET /kernel/division`), with its real
   name, arguments in broker order, reply, and `x-rpms` (entry point, reach and contexts, parameter
-  source). It reads ONE rpms-ops file, the build's `<tag>-rpcs.json` (rpms-ops#732), pinned by tag and
+  source). It reads ONE openrpms file, the build's `<tag>-rpcs.json` (openrpms#732), pinned by tag and
   sha256 under `data/openapi/` by `rake openapi:pin` (now `bcer-9.0-20261012-e7923a4-ydb`), with the
-  schema it is validated against. It reads rpcs.v1 and rpcs.v2 (rpms-ops#877). The pinned 1012 file is
+  schema it is validated against. It reads rpcs.v1 and rpcs.v2 (openrpms#877). The pinned 1012 file is
   rpcs.v1, which carries no #8994 text (descriptions, max length, sequence, word wrap, version), so the
   document leaves those out until a release publishing rpcs.v2 is pinned; from rpcs.v2 the document is
   the raw files' document, field for field. Both documents name the build the repo pins
@@ -525,19 +525,19 @@ A consumer must stop seeding `:session_registry` and stop reading `bootstrap(...
   signatures (`<tag>-rpc_signatures.txt`) with the registry, checksum-verified against the
   sidecar, the release's asset digests and the provenance's `rpc_reach` / `rpc_signatures`
   faces, and records the image digest and reach class counts in the lock. A release published
-  before rpms-ops#713 has no reach face and cannot be pinned until re-gated.
-- `bcer-9.0-20260930-8c88e47-ydb` re-pinned after rpms-ops#740 backfilled its inventory: new
+  before openrpms#713 has no reach face and cannot be pinned until re-gated.
+- `bcer-9.0-20260930-8c88e47-ydb` re-pinned after openrpms#740 backfilled its inventory: new
   provenance and sidecar, two new assets; the registry and package bytes are unchanged.
 - `RpmsRpc::Conformance::BuildSurface` is the one reader of the pinned files (registry, reach,
   signatures, packages). The names gate, the new callable gate, `rpc:exclusions`, `rpc:coverage`,
   `rpc:api_coverage` and the pin all read through it; it is the seam the OpenAPI generator (#395)
-  and rpms-ops's structured `<tag>-rpcs.json` (rpms-ops#732) plug into.
+  and openrpms's structured `<tag>-rpcs.json` (openrpms#732) plug into.
 - `test/rpms_rpc/callable_rpc_names_test.rb` fails on any RPC a public method sends whose reach
   class is not `client-callable` or `broker-exempt`, naming the RPC, the class and the methods.
   On this pin two are build defects, recorded with their issues in
   `data/fingerprints/uncallable_exceptions.yml` and printed on every run: `DDR KEY VALIDATOR`
-  (no-entry-point, rpms-ops#720) and `VAFC VOA ADD PATIENT` (no-context in the published image,
-  rpms-ops#737/#740).
+  (no-entry-point, openrpms#720) and `VAFC VOA ADD PATIENT` (no-context in the published image,
+  openrpms#737/#740).
 - `rake rpc:api_coverage` reports each RPC's `reach` beside its `entry_point`.
 
 ### Changed — `rake rpc:exclusions` reads the pinned reach face, not a local RPC atlas (#394)
@@ -685,9 +685,9 @@ formals; before, every one was a placeholder that shifted or dropped fields.
   the no-results report). The fabricated-reply cases in `order_test.rb` are
   gone. Row-layout specs wait on an order in the demo data (#391).
 
-### Added — the gem conforms to a pinned rpms-ops build's RPC signature (#222, #160)
+### Added — the gem conforms to a pinned openrpms build's RPC signature (#222, #160)
 
-- `rake conformance:pin RELEASE=<tag>` pins the RPC signature rpms-ops publishes on a
+- `rake conformance:pin RELEASE=<tag>` pins the RPC signature openrpms publishes on a
   release: the `#8994` + `#9.4` inventory and the build record. It checks every file against
   the release's asset digest, the sidecar, the artifact binding, and that the build record's
   commit is the one the tag names. It commits the five files unchanged under
@@ -802,7 +802,7 @@ had its wire shape evidenced in the repo as the replacement, and the
 default for an invented name is deletion, not a guess at its real twin.
 
 `test/rpms_rpc/registered_rpc_names_test.rb` now fails when any name the
-gem uses is on no pinned registry (now the pinned rpms-ops build signature, #222), and
+gem uses is on no pinned registry (now the pinned openrpms build signature, #222), and
 `rake rpc:coverage`'s `max_unregistered` ratchet is 0. To add an RPC: pin
 its registry capture first, then map it (ADR 0003).
 
@@ -878,7 +878,7 @@ IHS clusters (second PR):
   (CLOSED-NOT COMPLETED, which RCIS's reports treat as cancelled) through
   BMC REFERRAL STATUS UPDATE (UPDTSTRF^BMCRPC3), under the BMCRPC option.
   It takes no `reason:`, because the routine files no reason. It returns
-  `{ success:, message:, raw: }`. On builds without rpms-ops#702 a refusal
+  `{ success:, message:, raw: }`. On builds without openrpms#702 a refusal
   raises `Client::RpcError`. Proved live by
   `test/live/referral_cancel_live_test.rb`, which cancels a referral on a
   disposable container, reads the status back and files it active again.
@@ -928,7 +928,7 @@ IHS clusters (second PR):
 - `RpmsRpc::Referral.add_secondary`: BMC ADD SECONDARY REFERRAL. Registered,
   but not callable on any built image: #8994 points it at SETSCNRF^BMCRPC2,
   and the tag lives in BMCRPC4 (FOIA BMCRPC4.m:144), so the broker finds no
-  entry point (rpms-ops#653). The registered-names gate cannot see this;
+  entry point (openrpms#653). The registered-names gate cannot see this;
   the 0921 RPC atlas classifies it `no-entry-point`. It comes back when the
   build registers it where the routine is.
 
@@ -1623,7 +1623,7 @@ The invented BHDPTRPC placeholder namespace is now fully removed
 staging file-8994 fingerprint, and IHS public RPC docs), and patient
 registration now delegates to the IHS AG package when it is present,
 composing verified stock-VistA RPCs otherwise. Live round-trip
-verification is gated on the rpms-ops evidence run (contracts: rpms-ops
+verification is gated on the openrpms evidence run (contracts: openrpms
 `docs/REGISTRATION_RPC_CONTRACTS.md`).
 
 ### Added
@@ -1638,7 +1638,7 @@ verification is gated on the rpms-ops evidence run (contracts: rpms-ops
   `BEHOENCX FETCH` with its CREATE flag (`-1` always / `0` never / `1`
   if-not-found); creation descends to `GETVISIT^BSDAPI4`, the IHS PCC
   visit-creation API. `GETVISIT^BEHOENCX` is a pure fetch and never
-  creates (rpms-ops `docs/REGISTRATION_RPC_CONTRACTS.md` §3). Reply
+  creates (openrpms `docs/REGISTRATION_RPC_CONTRACTS.md` §3). Reply
   layout is source-derived (`:encounter_get_or_create`); live capture
   pending.
 - `RpmsRpc::Tribal.tribes` — tribe list via `DDR LISTER` over the TRIBE
