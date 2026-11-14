@@ -359,7 +359,9 @@
       "BMC REFERRAL STATUS UPDATE",
       "BMC SEARCH REFERRAL",
       "BMC SEARCH REFERRED TO",
-      "BMC UPDATE REFERRAL"
+      "BMC UPDATE REFERRAL",
+      "DDR GETS ENTRY DATA",
+      "DDR LISTER"
     ],
     "RpmsRpc::Registration": [
       "AGG ADD NEW PATIENT",
