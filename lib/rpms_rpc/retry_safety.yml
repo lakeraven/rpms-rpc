@@ -295,6 +295,7 @@
 "RpmsRpc::Referral.rcis_template_detail": non_idempotent_write
 "RpmsRpc::Referral.rcis_templates": non_idempotent_write
 "RpmsRpc::Referral.record_follow_up": non_idempotent_write
+"RpmsRpc::Referral.record_status": non_idempotent_write
 "RpmsRpc::Referral.reference_data": non_idempotent_write
 "RpmsRpc::Referral.search_referred_to": non_idempotent_write
 "RpmsRpc::Referral.update": non_idempotent_write

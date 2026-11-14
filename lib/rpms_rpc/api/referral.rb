@@ -43,6 +43,10 @@ module RpmsRpc
     # "cancelled" (BMCRR121.m:39, BMCRR41.m:38).
     CANCELLED_STATUS = "X"
 
+    # STATUS OF REFERRAL (.15) set of codes on the pinned build:
+    # A:ACTIVE;A1:APPROVED;C1:CLOSED-COMPLETED;X:CLOSED-NOT COMPLETED.
+    STATUS_CODES = %w[A A1 C1 X].freeze
+
     # Every referral on file for one patient: BMC SEARCH REFERRAL, which is
     # SRCHREF^BMCRPC1(RSLT,PATIENT,REFPRVDR,STRTDATE,ENDDATE,RECNMBR,STATUS)
     # (BMCRPC1.m:9). All six formals are sent, because the routine reads
@@ -165,6 +169,46 @@ module RpmsRpc
       end
     end
     shape :cancel, resource: "referrals", verb: "POST", path: "/referrals/{ien}/cancel"
+
+    # File a checked STATUS OF REFERRAL (.15) through BMC REFERRAL STATUS
+    # UPDATE, UPDTSTRF^BMCRPC3(RSLT,REFIEN,STATUS) (BMCRPC3.m:176-187), under
+    # CONTEXT, and decide success by reading .15 back (rpms-rpc#722). Observed
+    # live on the pinned build:
+    # 1. FILE^DIE is called without the E flag, so the routine files any
+    #   string ("H" was filed): status must be one of STATUS_CODES, checked here.
+    # 2. ERR1 is not NEWed, so after one failed update in a broker session
+    #   every later one answers that stale "~`0^..." while it files: the reply
+    #   is not evidence, the read-back is.
+    # 3. In an option without the RPC the broker refuses it, and
+    #   Client::RpcRefusedError propagates.
+    #
+    # .15 is read before and after with DDR GETS ENTRY DATA in the caller's
+    # option. Returns { success: true, status:, previous_status:, raw: }, or
+    # { success: false, error: :not_filed, status: <read back or nil>,
+    # previous_status:, message:, raw: } when .15 does not read back as sent,
+    # or a refusal (:invalid_ien, :invalid_status, :unread, :not_found) before
+    # anything is sent.
+    def record_status(ien, status)
+      # invalid_id? alone passes "1,2" (to_i is 1); the IEN goes into an IENS.
+      return refusal(:invalid_ien, "not a referral IEN: #{ien.inspect}") if invalid_id?(ien) || !ien.to_s.strip.match?(/\A[1-9]\d*\z/)
+      unless status.is_a?(String) && STATUS_CODES.include?(status)
+        return refusal(:invalid_status, "not a STATUS OF REFERRAL code (#{STATUS_CODES.join(', ')}): #{status.inspect}")
+      end
+
+      ien = ien.to_s.strip
+      entry = status_entry(ien)
+      return refusal(:unread, "DDR GETS ENTRY DATA gave no reply for referral #{ien}") if entry.nil?
+      return refusal(:not_found, "referral #{ien} is not on file") if entry[:error] || entry[:fields].empty?
+
+      previous = filed_status(entry).to_s
+      result = bmc_scalar_result(:bmc_referral_status_update, ien, status)
+      filed = filed_status(status_entry(ien))
+      return { success: true, status: filed, previous_status: previous, raw: result[:raw] } if filed == status
+
+      message = result[:error] || "referral #{ien} .15 reads #{filed.inspect} after the update, not #{status.inspect}"
+      { success: false, error: :not_filed, status: filed, previous_status: previous, message: message, raw: result[:raw] }
+    end
+    shape :record_status, resource: "referrals", verb: "POST", path: "/referrals/status"
 
     # The most actual arguments a YottaDB M call takes, RSLT included.
     YDB_MAX_ACTUALS = 32
@@ -392,6 +436,18 @@ module RpmsRpc
         include_flags: INCLUDE_FLAG_FIELDS.to_h { |field| [ field, internal.call(field) ] },
         snomed_term: terms.first
       }
+    end
+
+    # STATUS OF REFERRAL (.15) internal, for record_status.
+    def status_entry(ien)
+      DdrFileman.gets_entry(file: REFERRAL_FILE, iens: "#{ien},", fields: ".15", flags: "I")
+    end
+
+    # The .15 code a status_entry reply holds, or nil when it holds none.
+    def filed_status(entry)
+      return nil if entry.nil? || entry[:error]
+
+      entry[:fields].dig(".15", :internal)&.to_s
     end
 
     def snomed_terms(ien)

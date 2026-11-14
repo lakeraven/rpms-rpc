@@ -189,8 +189,10 @@ class ReferralTest < Minitest::Test
   def test_the_bind_table_names_every_public_method_that_reaches_the_wire
     # follow_up_state sends only stock DDR reads, in the caller's option, and
     # record_follow_up reaches BMC UPDATE REFERRAL only after those reads
-    # answer: referral_follow_up_test.rb proves both binds.
-    expected = RpmsRpc::Referral.public_instance_methods(false).sort - %i[create follow_up_state record_follow_up]
+    # answer: referral_follow_up_test.rb proves both binds. record_status
+    # likewise reads .15 in the caller's option around BMC REFERRAL STATUS
+    # UPDATE: referral_status_test.rb proves its binds.
+    expected = RpmsRpc::Referral.public_instance_methods(false).sort - %i[create follow_up_state record_follow_up record_status]
 
     assert_equal expected, BMC_CALLS.keys.sort,
       "a new Referral method must be added to BMC_CALLS so its context bind is proven"
