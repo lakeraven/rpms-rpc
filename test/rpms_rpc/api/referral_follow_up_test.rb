@@ -26,6 +26,22 @@ class ReferralFollowUpTest < Minitest::Test
     "an error" => [ "[Errors]", "The file is not available." ],
     "a truncated list" => [ "[Misc]", "MORE^3261111^31", "[Data]", "31^3261111^#{IEN}^C" ]
   }.freeze
+  # DDR LISTER replies that are not a complete list of the SNOMED CT terms.
+  UNREAD_TERMS = {
+    "no data section" => [ "[Misc]" ],
+    "a truncated list" => [ "[Misc]", "MORE^SYNTHETIC TERM^1", "[Data]", "1^SYNTHETIC TERM" ]
+  }.freeze
+  NOT_ON_FILE = [ "[ERROR]", "[BEGIN_diERRORS]", "601^The entry does not exist.", "[END_diERRORS]" ].freeze
+  # Replies the mock gives after the update (see #fake_referral's record[:replies]):
+  # the write went out, and the read-back cannot say what it did.
+  UNREADABLE = {
+    "no reply to the referral read" => { "90001" => [] },
+    "an error from the referral read" => { "90001" => NOT_ON_FILE },
+    "no reply to the CASE note list" => { notes: [] },
+    "a truncated CASE note list" => { notes: UNREAD_NOTES["a truncated list"] },
+    "a CASE note text that cannot be read" => { "90001.03" => [] },
+    "a SNOMED CT list with no data section" => { terms: UNREAD_TERMS["no data section"] }
+  }.freeze
 
   def teardown
     RpmsRpc.reset!
@@ -96,13 +112,44 @@ class ReferralFollowUpTest < Minitest::Test
     assert_empty update_calls(mock)
   end
 
-  # The reply is not evidence: "~`1" with any of these read-backs is :not_filed.
-  def test_a_success_reply_is_not_filed_when_the_read_back_differs
+  # After the write is sent a caller must be able to tell "may have landed"
+  # from "did not": an unreadable read-back is :unverified, never :not_filed.
+  def test_a_write_that_cannot_be_read_back_is_unverified
+    UNREADABLE.each do |what, replies|
+      mock, = fake_referral do |record, params|
+        updrefrl(record, params)
+        record[:replies].merge!(replies)
+      end
+      result = RpmsRpc::Referral.record_follow_up(IEN, appointment_on: DAY, time: "09:30", case_note: NOTE)
+
+      assert_equal [ false, :unverified ], result.values_at(:success, :error), "#{what}: #{result.inspect}"
+      assert_kind_of String, result[:message], what
+      assert_equal "~`1", result[:raw].to_s, what
+      assert_equal 1, update_calls(mock).size, what
+    end
+  end
+
+  def test_a_date_filed_without_its_note_is_partially_filed
+    fake_referral do |record, params|
+      updrefrl(record, params)
+      record[:notes].pop
+    end
+
+    result = RpmsRpc::Referral.record_follow_up(IEN, appointment_on: DAY, time: "09:30", case_note: NOTE)
+
+    assert_equal [ false, :partially_filed ], result.values_at(:success, :error), result.inspect
+    assert_match(/1106/, result[:message], "the message names what changed")
+    assert_match(/note/i, result[:message], "the message names what did not")
+    assert_equal "~`1", result[:raw].to_s
+  end
+
+  # The reply is not evidence: "~`1" with a readable read-back that differs
+  # from the read before, but not as requested, is :partially_filed.
+  def test_a_read_back_that_changed_but_not_as_requested_is_partially_filed
     drifts = {
-      "1106 not filed" => ->(r, _p) { r[:fields]["1106"] = "" },
+      "the note filed, 1106 not" => ->(r, _p) { r[:fields]["1106"] = "" },
       "1106 filed as another value" => ->(r, _p) { r[:fields]["1106"] = "3261204.0930" },
-      "no case note" => ->(r, _p) { r[:notes].pop },
-      "two case notes" => ->(r, p) { add_note(r, p[29]) },
+      "two case notes with the sent text" => ->(r, p) { add_note(r, p[29]) },
       "a case note with another text" => ->(r, _p) { r[:notes].last[:text] = "something else" },
       "1302 changed" => ->(r, _p) { r[:fields]["1302"] = "" },
       "an INCLUDE flag lost" => ->(r, _p) { r[:fields]["401"] = "" },
@@ -115,10 +162,40 @@ class ReferralFollowUpTest < Minitest::Test
       end
       result = RpmsRpc::Referral.record_follow_up(IEN, appointment_on: DAY, time: "09:30", case_note: NOTE)
 
-      assert_equal [ false, :not_filed ], result.values_at(:success, :error), "#{what}: #{result.inspect}"
+      assert_equal [ false, :partially_filed ], result.values_at(:success, :error), "#{what}: #{result.inspect}"
       assert_kind_of String, result[:message], what
       assert_equal "~`1", result[:raw].to_s, what
     end
+  end
+
+  def test_a_success_reply_is_not_filed_when_nothing_changed
+    fake_referral { |_record, _params| }
+
+    result = RpmsRpc::Referral.record_follow_up(IEN, appointment_on: DAY, time: "09:30", case_note: NOTE)
+
+    assert_equal [ false, :not_filed ], result.values_at(:success, :error), result.inspect
+    assert_kind_of String, result[:message]
+    assert_equal "~`1", result[:raw].to_s
+  end
+
+  # Someone else's CASE note landing between the two reads is not a failure:
+  # exactly one new note must carry the sent text, and that one is returned.
+  def test_a_case_note_added_concurrently_by_someone_else_is_ignored
+    fake_referral do |record, params|
+      add_note(record, "SYNTHETIC note typed by someone else")
+      updrefrl(record, params)
+    end
+    result = RpmsRpc::Referral.record_follow_up(IEN, appointment_on: DAY, time: "09:30", case_note: NOTE)
+
+    assert_equal [ true, "3261204.093", "33" ], result.values_at(:success, :appointment, :case_note_ien), result.inspect
+
+    fake_referral do |record, params|
+      updrefrl(record, params)
+      add_note(record, "SYNTHETIC note typed by someone else")
+    end
+    result = RpmsRpc::Referral.record_follow_up(IEN, appointment_on: DAY, time: "09:30")
+
+    assert_equal [ true, "3261204.093", nil ], result.values_at(:success, :appointment, :case_note_ien), result.inspect
   end
 
   def test_a_routine_refusal_is_not_filed_and_carries_its_message
@@ -147,6 +224,52 @@ class ReferralFollowUpTest < Minitest::Test
 
       assert_equal [ false, :unread ], result.values_at(:success, :error), "#{what}: #{result.inspect}"
       assert_empty update_calls(mock), what
+    end
+  end
+
+  # A list read as empty goes out as an empty SNMDST, and UPDREFRL then
+  # kills the term (K ^BMCREF(REFIEN,22)): an unread list is not "no terms".
+  def test_unreadable_snomed_terms_are_refused_before_the_update
+    UNREAD_TERMS.each do |what, reply|
+      mock, = fake_referral(terms_reply: reply)
+      result = RpmsRpc::Referral.record_follow_up(IEN, appointment_on: DAY, time: "09:30", case_note: NOTE)
+
+      assert_equal [ false, :unread ], result.values_at(:success, :error), "#{what}: #{result.inspect}"
+      assert(mock.received_calls.none? { |c| c[:rpc].start_with?("BMC") }, what)
+    end
+  end
+
+  # The routine's own reader walks ^BMCCOM("AD",referral,DA) (BMCRPC1.m:133).
+  # PART "7" also matches referral 70, so the screen stays.
+  def test_case_notes_are_listed_through_the_referral_index
+    mock, = fake_referral
+
+    RpmsRpc::Referral.follow_up_state(IEN)
+
+    listers = mock.received_calls.select { |c| c[:rpc] == "DDR LISTER" }.map { |c| c[:params].to_a.first }
+    param = listers.find { |p| p["FILE"] == "90001.03" }
+    assert_equal [ "AD", IEN ], param.values_at("XREF", "PART"), param.inspect
+    assert_match(/U,3\)=#{IEN}(?!\d)/, param["SCREEN"], "the screen still restricts to the referral")
+    assert_match(/U,5\)="C"/, param["SCREEN"], "the screen still restricts to type C")
+  end
+
+  # UPDREFRL files 1106 without its input transform; the DD's own kills
+  # anything outside 2950101..4000101.
+  def test_an_appointment_date_outside_the_fields_range_is_refused_without_the_wire
+    mock, = fake_referral
+    [ Date.new(1994, 12, 31), Date.new(2100, 1, 1) ].each do |day|
+      result = RpmsRpc::Referral.record_follow_up(IEN, appointment_on: day, time: "09:30", case_note: NOTE)
+
+      assert_equal [ false, :invalid_date ], result.values_at(:success, :error), "#{day}: #{result.inspect}"
+      assert_kind_of String, result[:message], day.to_s
+    end
+    assert_empty mock.received_calls
+
+    { Date.new(1995, 1, 1) => "2950101.093", Date.new(2099, 12, 31) => "3991231.093" }.each do |day, filed|
+      fake_referral
+      result = RpmsRpc::Referral.record_follow_up(IEN, appointment_on: day, time: "09:30")
+
+      assert_equal [ true, filed ], result.values_at(:success, :appointment), "#{day}: #{result.inspect}"
     end
   end
 
@@ -205,6 +328,14 @@ class ReferralFollowUpTest < Minitest::Test
     assert_empty mock.received_calls
   end
 
+  # A time with no date was dropped silently, and the note filed without it.
+  def test_a_time_without_an_appointment_date_raises
+    mock, = fake_referral
+
+    assert_raises(ArgumentError) { RpmsRpc::Referral.record_follow_up(IEN, time: "09:30", case_note: NOTE) }
+    assert_empty mock.received_calls
+  end
+
   def test_follow_up_state_reads_status_date_and_case_notes
     fake_referral({ "1106" => "3261204.093" })
 
@@ -232,16 +363,20 @@ class ReferralFollowUpTest < Minitest::Test
   # A mock that answers from one referral: `fields` are its #90001 internal
   # values over the defaults (nil: not on file), `terms` its SNOMED CT
   # multiple, and it has one CASE note, 31. BMC UPDATE REFERRAL runs the
-  # block on [record, params], or #updrefrl, and answers `reply`. notes_reply
-  # replaces the DDR LISTER reply for the CASE notes. Returns [mock, record].
-  def fake_referral(fields = {}, terms: [ "SYNTHETIC TERM" ], reply: "~`1", notes_reply: nil, &update)
+  # block on [record, params], or #updrefrl, and answers `reply`.
+  # record[:replies] replaces replies, and a block may fill it to break the
+  # read-back: :notes and :terms the DDR LISTER reply for the CASE notes and
+  # the SNOMED CT terms (notes_reply, terms_reply), "90001" and "90001.03"
+  # the DDR GETS ENTRY DATA reply for that file. Returns [mock, record].
+  def fake_referral(fields = {}, terms: [ "SYNTHETIC TERM" ], reply: "~`1", notes_reply: nil, terms_reply: nil, &update)
     record = { fields: fields && { ".15" => "A", "1106" => "", "1302" => "14", "1303" => "" }.merge(FLAGS, fields),
-               terms: terms.dup, notes: [ { ien: "31", date: "3261111", text: "booked for 12/4" } ] }
+               terms: terms.dup, notes: [ { ien: "31", date: "3261111", text: "booked for 12/4" } ],
+               replies: { notes: notes_reply, terms: terms_reply }.compact }
     update ||= method(:updrefrl)
     answer = lambda do |rpc, params|
       case rpc
       when "DDR GETS ENTRY DATA" then gets_reply(record, params.first)
-      when "DDR LISTER" then lister_reply(record, params.first, notes_reply)
+      when "DDR LISTER" then lister_reply(record, params.first)
       when UPDATE_RPC then update.call(record, params).then { reply }
       else ""
       end
@@ -273,8 +408,10 @@ class ReferralFollowUpTest < Minitest::Test
 
   def gets_reply(record, param)
     file, ien = param["FILE"], param["IENS"].to_s.delete_suffix(",")
+    return record[:replies][file] if record[:replies][file]
+
     values = file == "90001" ? (record[:fields] if ien == IEN) : note_values(record, ien)
-    return [ "[ERROR]", "[BEGIN_diERRORS]", "601^The entry does not exist.", "[END_diERRORS]" ] if values.nil?
+    return NOT_ON_FILE if values.nil?
 
     rows = param["FIELDS"].split(";").flat_map do |field|
       next [ "#{file}^#{ien},^1^[WORD PROCESSING]", values["1"], "$$END$$" ] if file == "90001.03" && field == "1"
@@ -289,9 +426,10 @@ class ReferralFollowUpTest < Minitest::Test
     note && { ".01" => note[:date], ".03" => IEN, ".05" => "C", "1" => note[:text] }
   end
 
-  def lister_reply(record, param, notes_reply)
-    return [ "[Data]" ] + record[:terms].each_with_index.map { |term, i| "#{i + 1}^#{term}" } if param["FILE"] == "90001.22"
-    return notes_reply if notes_reply
+  def lister_reply(record, param)
+    terms = param["FILE"] == "90001.22"
+    return record[:replies][terms ? :terms : :notes] if record[:replies][terms ? :terms : :notes]
+    return [ "[Data]" ] + record[:terms].each_with_index.map { |term, i| "#{i + 1}^#{term}" } if terms
 
     fields = param["FIELDS"].split(";") - [ "@" ]
     [ "[Data]" ] + record[:notes].map { |n| ([ n[:ien] ] + note_values(record, n[:ien]).values_at(*fields)).join("^") }
