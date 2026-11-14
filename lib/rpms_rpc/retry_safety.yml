@@ -282,6 +282,7 @@
 "RpmsRpc::Referral.check_year_site_param": non_idempotent_write
 "RpmsRpc::Referral.create": non_idempotent_write
 "RpmsRpc::Referral.find": non_idempotent_write
+"RpmsRpc::Referral.follow_up_state": read
 "RpmsRpc::Referral.for_patient": non_idempotent_write
 "RpmsRpc::Referral.health_summary_types": non_idempotent_write
 "RpmsRpc::Referral.patient_eligibility_status": non_idempotent_write
@@ -293,6 +294,8 @@
 "RpmsRpc::Referral.purposes": non_idempotent_write
 "RpmsRpc::Referral.rcis_template_detail": non_idempotent_write
 "RpmsRpc::Referral.rcis_templates": non_idempotent_write
+"RpmsRpc::Referral.record_follow_up": non_idempotent_write
+"RpmsRpc::Referral.record_status": non_idempotent_write
 "RpmsRpc::Referral.reference_data": non_idempotent_write
 "RpmsRpc::Referral.search_referred_to": non_idempotent_write
 "RpmsRpc::Referral.update": non_idempotent_write
