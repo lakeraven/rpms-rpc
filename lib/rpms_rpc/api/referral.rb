@@ -128,13 +128,13 @@ module RpmsRpc
     end
     shape :add, resource: "referrals", verb: "POST", path: "/referrals"
 
-    # BMC UPDATE REFERRAL is UPDREFRL^BMCRPC2 (BMCRPC2.m:158), 36 formals with
+    # BMC UPDATE REFERRAL is UPDREFRL^BMCRPC2 (BMCRPC2.m:161), 36 formals with
     # RSLT. All of them as actuals is more than YottaDB takes (32 actual
     # arguments; the broker answers %YDB-E-MAXACTARG, as for BMC ADD REFERRAL).
     # A call with fewer is fine as long as the routine never reads the
     # missing formals unguarded: see record_follow_up, which sends 30.
     # Every call on an open referral also sets DATE LAST UPDATED (.27) to
-    # today and sends a MailMan notice through SENDXM^BMCRPC3 (BMCRPC2.m:227,245).
+    # today and sends a MailMan notice through SENDXM^BMCRPC3 (BMCRPC2.m:232,250).
     def update(ien, *params)
       bmc_scalar_result(:bmc_update_referral, ien, *params)
     end
@@ -153,7 +153,7 @@ module RpmsRpc
 
     # Cancel a referral: file its status as CANCELLED_STATUS through BMC
     # REFERRAL STATUS UPDATE (UPDTSTRF^BMCRPC3(RSLT,REFIEN,STATUS),
-    # BMCRPC3.m:176-187), under CONTEXT. RCIS has no delete; this replaces
+    # BMCRPC3.m:179-190), under CONTEXT. RCIS has no delete; this replaces
     # the removed `delete`. The routine files field .15 and nothing else, so
     # there is no reason argument: a cancellation reason is not filed by it.
     #
@@ -173,7 +173,7 @@ module RpmsRpc
     shape :cancel, resource: "referrals", verb: "POST", path: "/referrals/{ien}/cancel"
 
     # File a checked STATUS OF REFERRAL (.15) through BMC REFERRAL STATUS
-    # UPDATE, UPDTSTRF^BMCRPC3(RSLT,REFIEN,STATUS) (BMCRPC3.m:176-187), under
+    # UPDATE, UPDTSTRF^BMCRPC3(RSLT,REFIEN,STATUS) (BMCRPC3.m:179-190), under
     # CONTEXT, and decide success by reading .15 back (rpms-rpc#722). Observed
     # live on the pinned build:
     # 1. FILE^DIE is called without the E flag, so the routine files any
@@ -188,13 +188,28 @@ module RpmsRpc
     # 3. In an option without the RPC the broker refuses it, and
     #   Client::RpcRefusedError propagates.
     #
+    # Filing .15 fires its cross-references (^DD(90001,.15,1) on the pinned
+    # build): the triggers on .16, .17 (today), .24 (DUZ) and 1305, an
+    # approval alert on A1 (APRV^BMCALERT, BMCALERT.m:91), and on C1 the CPT
+    # consistency check BMCPXCHK, which sends a bulletin (EN3^BMCBULL) when
+    # the CPT category and procedures disagree.
+    #
+    # The entry is locked (with_referral_lock: DDR LOCK/UNLOCK NODE on
+    # ^BMCREF(ien), timeout 5, in the caller's option) from before the first
+    # read until after the read-back. UPDTSTRF takes no lock itself; the lock
+    # excludes FileMan's interactive editors and other gem callers, which
+    # lock the entry.
+    #
     # .15 is read before and after with DDR GETS ENTRY DATA in the caller's
-    # option. Returns { success: true, status:, previous_status:, raw: };
+    # option; a reply without the .15 row is not read (complete_entry).
+    # Returns { success: true, status:, previous_status:, raw: };
     # { success: false, error: :session_poisoned, status: <read back or nil>,
     # previous_status:, message:, raw: } for a "~`0" reply; { success: false,
-    # error: :not_filed, ... } when .15 does not read back as sent; or a
-    # refusal (:invalid_ien, :invalid_status, :unread, :not_found) before
-    # anything is sent.
+    # error: :unverified, status: nil, ... } when .15 cannot be read back
+    # (it may have filed: read it before resending); { success: false,
+    # error: :not_filed, ... } when .15 reads back other than sent; or a
+    # refusal (:invalid_ien, :invalid_status, :locked, :unread, :not_found)
+    # before anything is written.
     def record_status(ien, status)
       id = referral_ien(ien)
       return refusal(:invalid_ien, "not a referral IEN: #{ien.inspect}") unless id
@@ -202,24 +217,7 @@ module RpmsRpc
         return refusal(:invalid_status, "not a STATUS OF REFERRAL code (#{STATUS_CODES.join(', ')}): #{status.inspect}")
       end
 
-      entry = status_entry(id)
-      return refusal(:unread, "DDR GETS ENTRY DATA gave no reply for referral #{id}") if entry.nil?
-      return refusal(:not_found, "referral #{id} is not on file") if entry[:error] || entry[:fields].empty?
-
-      previous = filed_status(entry).to_s
-      result = bmc_scalar_result(:bmc_referral_status_update, id, status)
-      filed = filed_status(status_entry(id))
-      outcome = { status: filed, previous_status: previous, raw: result[:raw] }
-      if result[:code] == "0"
-        message = "BMC REFERRAL STATUS UPDATE answered #{result[:raw].to_s.strip.inspect}: this broker session holds an " \
-                  "earlier failed FileMan write (UPDTSTRF^BMCRPC3 keeps it queued) that every status update re-files, " \
-                  "on any referral; close the session before filing again"
-        return { success: false, error: :session_poisoned, message: message }.merge(outcome)
-      end
-      return { success: true }.merge(outcome) if filed == status
-
-      message = result[:error] || "referral #{id} .15 reads #{filed.inspect} after the update, not #{status.inspect}"
-      { success: false, error: :not_filed, message: message }.merge(outcome)
+      with_referral_lock(id) { file_status(id, status) }
     end
     shape :record_status, resource: "referrals", verb: "POST", path: "/referrals/status"
 
@@ -228,11 +226,11 @@ module RpmsRpc
 
     # STATUS OF REFERRAL (.15) codes of a closed referral. UPDREFRL^BMCRPC2
     # files only notes on one of these and silently drops every other field
-    # (BMCRPC2.m:165-175).
+    # (BMCRPC2.m:168-178).
     CLOSED_STATUSES = %w[C1 X].freeze
 
     # INCLUDE ... flags, fields 401-412, in UPDREFRL's formal order ICSRP
-    # through IXRYF (BMCRPC2.m:158; filed at :215-226). Each one is filed
+    # through IXRYF (BMCRPC2.m:161; filed at :218-229). Each one is filed
     # whenever "YN" contains it, and "YN" contains "", so a flag not resent
     # with its current value is deleted: they are read first and resent.
     INCLUDE_FLAG_FIELDS = %w[411 405 406 408 407 412 401 403 404 402 409 410].freeze
@@ -247,33 +245,41 @@ module RpmsRpc
 
     # A confirmed follow-up on an open referral: the scheduled date of service
     # (1106, ACTUAL APPT/BEGIN DOS) and a case note, filed through BMC UPDATE
-    # REFERRAL (UPDREFRL^BMCRPC2, BMCRPC2.m:158-252) under CONTEXT, and
+    # REFERRAL (UPDREFRL^BMCRPC2, BMCRPC2.m:161-257) under CONTEXT, and
     # decided by reading the referral back. Part of rpms-rpc#722.
     #
     # The routine rewrites the record rather than patching it, so this:
+    # - locks the entry (with_referral_lock: DDR LOCK/UNLOCK NODE on
+    #   ^BMCREF(ien), timeout 5, in the caller's option) from before the
+    #   first read until after the read-back. UPDREFRL takes no lock itself;
+    #   the lock excludes FileMan's interactive editors and other gem
+    #   callers, which lock the entry, so an edit cannot land between the
+    #   read and the rewrite and be reverted;
     # - reads the current state first with DDR GETS ENTRY DATA and DDR LISTER
     #   (stock FileMan, in the caller's option, not BMCRPC): .15, 1106, 1302,
     #   1303, the INCLUDE flags 401-412, the SNOMED CT multiple (#90001.22) and
-    #   the CASE notes;
+    #   the CASE notes; a reply without a requested field's row is not read
+    #   (complete_entry);
     # - sends exactly 30 parameters, REFIEN through CN (31 actuals with
     #   RSLT, under YDB_MAX_ACTUALS). The five formals left off (RDCODE,
     #   RDN, RDT, RQPR, DUPREF) are read with $G, read only when RDCODE and
-    #   RDN are set, or not read at all (BMCRPC2.m:190,240);
+    #   RDN are set, or not read at all (BMCRPC2.m:193,247);
     # - sends TYPE, INOROUT, ICDCAT, CPTCAT, PURPOSE, PRIORITY, TYPEEXT,
-    #   VISITS and NOTESCHD empty, which the routine skips (:189-211);
+    #   VISITS and NOTESCHD empty, which the routine skips (:192-214);
     # - always sends SCHWIDAY: the routine deletes 1106 when SCHWIDAY carries
-    #   no date (:182-188,216-217), so a note-only call resends the date on
+    #   no date (:185-191,216-217), so a note-only call resends the date on
     #   file as "<1302>^MM/DD/YYYY@<its time digits exactly>";
     # - resends the INCLUDE flags as read, and the one SNOMED CT term, since
-    #   the routine kills ^BMCREF(REFIEN,22) and refiles only SNMDST (:232-233).
+    #   the routine kills ^BMCREF(REFIEN,22) and refiles only SNMDST (:235-236).
     # Every call also sets DATE LAST UPDATED (.27) to today and ADDITIONAL
     # INFO (.34) from the flags, and sends a MailMan notice through
-    # SENDXM^BMCRPC3 (:227-229,245); filing 1106 also fires its trigger on
+    # SENDXM^BMCRPC3 (:230-232,250); filing 1106 also fires its trigger on
     # 1110 (INP ACTUAL LOS) for an inpatient referral.
     #
-    # It refuses, before anything is written: a non-IEN (:invalid_ien), a
-    # referral not on file (:not_found) or one it cannot read (:unread, also
-    # when the CASE notes cannot be listed), a closed one (:closed, where the
+    # It refuses, before anything is written: a non-IEN (:invalid_ien), an
+    # entry it cannot lock (:locked, nothing else sent), a referral not on
+    # file (:not_found) or one it cannot read (:unread, also when the CASE
+    # notes cannot be listed), a closed one (:closed, where the
     # routine would file the note and drop the date), one with more than one
     # SNOMED CT term (:several_snomed_terms; all but one would be lost), one
     # linked to an EHR referral (:linked_ehr_referral; field 1303, which the
@@ -288,7 +294,8 @@ module RpmsRpc
     # "date.digits" as built, so the time goes out as FileMan's canonical
     # digits: no colon, trailing zeros dropped ("09:30" -> "093", "12:00" ->
     # "12"); 00:00 has none and raises ArgumentError. case_note is one line of
-    # text, filed as a CASE note (type C, #90001.03) by SETMEDHX^BMCRPC3.
+    # text, filed as a CASE note (type C, #90001.03) by SETMEDHX^BMCRPC3
+    # (BMCRPC3.m:135).
     #
     # The reply is not evidence: success is 1106 reading back as expected,
     # exactly one new CASE note with the sent text when a note was sent
@@ -314,6 +321,12 @@ module RpmsRpc
         return refusal(:invalid_date, "appointment_on #{appointment_on} is outside 1106's range, 1995-01-01 to 2099-12-31")
       end
 
+      with_referral_lock(id) { file_follow_up(id, sent, note) }
+    end
+    shape :record_follow_up, resource: "referrals", verb: "POST", path: "/referrals/follow-up"
+
+    # record_follow_up from the first read on, the entry locked.
+    def file_follow_up(id, sent, note)
       before = follow_up_record(id)
       refused = before[:error] ? before : follow_up_refusal(id, before)
       return refused if refused
@@ -330,7 +343,36 @@ module RpmsRpc
 
       outcome.merge(message: [ result[:message] || result[:error], outcome[:message] ].compact.join("; "), raw: result[:raw])
     end
-    shape :record_follow_up, resource: "referrals", verb: "POST", path: "/referrals/follow-up"
+    private :file_follow_up
+
+    # record_status from the first read on, the entry locked.
+    def file_status(id, status)
+      entry = status_entry(id)
+      return refusal(:unread, "DDR GETS ENTRY DATA gave no .15 row for referral #{id}") if entry.nil?
+      return refusal(:not_found, "referral #{id} is not on file") if entry[:error]
+
+      previous = filed_status(entry).to_s
+      result = bmc_scalar_result(:bmc_referral_status_update, id, status)
+      filed = filed_status(status_entry(id))
+      outcome = { status: filed, previous_status: previous, raw: result[:raw] }
+      if result[:code] == "0"
+        message = "BMC REFERRAL STATUS UPDATE answered #{result[:raw].to_s.strip.inspect}: this broker session holds an " \
+                  "earlier failed FileMan write (UPDTSTRF^BMCRPC3 keeps it queued) that every status update re-files, " \
+                  "on any referral; close the session before filing again"
+        return { success: false, error: :session_poisoned, message: message }.merge(outcome)
+      end
+      return { success: true }.merge(outcome) if filed == status
+
+      if filed.nil?
+        message = "sent, but referral #{id} .15 could not be read back: the status may have filed; read it before " \
+                  "filing again, do not resend blindly"
+        return { success: false, error: :unverified, message: message }.merge(outcome)
+      end
+
+      message = result[:error] || "referral #{id} .15 reads #{filed.inspect} after the update, not #{status.inspect}"
+      { success: false, error: :not_filed, message: message }.merge(outcome)
+    end
+    private :file_status
 
     # The 30 positional parameters record_follow_up sends, REFIEN through CN.
     # SCHWIDAY carries the 1106 the call expects to read back.
@@ -505,12 +547,11 @@ module RpmsRpc
     # The fields record_follow_up reads and resends, internal: .15, 1106,
     # 1302, 1303, 401-412, the SNOMED CT terms and the CASE notes (each nil
     # when its list cannot be read); or a refusal hash (with :error) when
-    # the referral cannot be read or is not on file.
+    # the referral cannot be read (complete_entry) or is not on file.
     def follow_up_record(ien)
-      entry = DdrFileman.gets_entry(file: REFERRAL_FILE, iens: "#{ien},",
-                                    fields: ".15;1106;1302;1303;#{INCLUDE_FLAG_FIELDS.sort.join(';')}", flags: "I")
-      return refusal(:unread, "DDR GETS ENTRY DATA gave no reply for referral #{ien}") if entry.nil?
-      return refusal(:not_found, "referral #{ien} is not on file") if entry[:error] || entry[:fields].empty?
+      entry = complete_entry(REFERRAL_FILE, ien, %w[.15 1106 1302 1303] + INCLUDE_FLAG_FIELDS.sort)
+      return refusal(:unread, "DDR GETS ENTRY DATA gave no reply, or not every requested row, for referral #{ien}") if entry.nil?
+      return refusal(:not_found, "referral #{ien} is not on file") if entry[:error]
 
       internal = ->(field) { entry[:fields].dig(field, :internal).to_s }
       {
@@ -561,9 +602,39 @@ module RpmsRpc
         message: "#{changed.map { |key| FOLLOW_UP_FIELDS[key] }.join(', ')} changed, but #{wrong.join('; ')}" }
     end
 
-    # STATUS OF REFERRAL (.15) internal, for record_status.
+    # STATUS OF REFERRAL (.15) internal, for record_status (complete_entry).
     def status_entry(ien)
-      DdrFileman.gets_entry(file: REFERRAL_FILE, iens: "#{ien},", fields: ".15", flags: "I")
+      complete_entry(REFERRAL_FILE, ien, %w[.15])
+    end
+
+    # DDR GETS ENTRY DATA, flags "I", of `fields` of one entry, for a read
+    # that gates or verifies a write: the parsed reply (with :error when
+    # FileMan refused), or nil when there is no reply or it lacks the row of
+    # any requested field. GETS with flags "I" answers a row for every
+    # requested field, empty ones included (observed live), so a missing row
+    # means the field was not read, not that it is empty.
+    def complete_entry(file, ien, fields)
+      entry = DdrFileman.gets_entry(file: file, iens: "#{ien},", fields: fields.join(";"), flags: "I")
+      return entry if entry.nil? || entry[:error]
+
+      entry if fields.all? { |field| entry[:fields].key?(field) }
+    end
+
+    # Run the block holding an incremental lock on ^BMCREF(ien) (DDR
+    # LOCK/UNLOCK NODE, timeout 5, in the caller's option) and release it
+    # however the block ends. A :locked refusal, with nothing else sent,
+    # when the lock is not acquired (false on timeout, nil on no reply).
+    def with_referral_lock(ien)
+      node = "^BMCREF(#{ien})"
+      unless DdrFileman.lock(node: node, timeout: 5) == true
+        return refusal(:locked, "referral #{ien} is locked by another user or process (#{node}); try again later")
+      end
+
+      begin
+        yield
+      ensure
+        DdrFileman.unlock(node: node)
+      end
     end
 
     # The .15 code a status_entry reply holds, or nil when it holds none.
@@ -581,7 +652,7 @@ module RpmsRpc
     end
 
     # CASE notes for one referral from RCIS COMMENTS (#90001.03): .01 date,
-    # .03 referral, .05 type, text in field 1 (SETMEDHX^BMCRPC3, BMCRPC3.m:132-153).
+    # .03 referral, .05 type, text in field 1 (SETMEDHX^BMCRPC3, BMCRPC3.m:135-157).
     # Listed on the "AD" index of .03, as the routine's own reader does
     # (BMCRPC1.m:133); PART "7" also matches referral 70, so the screen stays.
     # Nil when DDR LISTER fails, stops short (MORE) or sends no data section,
@@ -593,7 +664,7 @@ module RpmsRpc
       return nil unless listed
 
       listed.map do |e|
-        text = DdrFileman.gets_entry(file: COMMENTS_FILE, iens: "#{e[:ien]},", fields: "1", flags: "I")
+        text = complete_entry(COMMENTS_FILE, e[:ien], %w[1])
         return nil if text.nil? || text[:error]
 
         { ien: e[:ien], date: e[:pieces][0], text: Array(text.dig(:fields, "1", :text)).join("\n") }

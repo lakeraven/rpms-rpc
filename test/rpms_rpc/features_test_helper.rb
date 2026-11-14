@@ -94,7 +94,9 @@ module FeaturesTestHelper
     "DDR GETS ENTRY DATA" =>
       "Referral.record_follow_up reads the referral before BMC UPDATE REFERRAL rewrites it, and follow_up_state reads it back (#722)",
     "DDR LISTER" =>
-      "Referral.record_follow_up lists the SNOMED CT terms it must resend, and follow_up_state lists the case notes (#722)"
+      "Referral.record_follow_up lists the SNOMED CT terms it must resend, and follow_up_state lists the case notes (#722)",
+    "DDR LOCK/UNLOCK NODE" =>
+      "Referral.record_follow_up and record_status hold the FileMan entry lock on ^BMCREF(ien) from the read to the read-back (#722)"
   }.freeze
 
   ORQQPL_PROBLEM_WORKFLOW_MODULE_RPC_EXCLUSIONS = {

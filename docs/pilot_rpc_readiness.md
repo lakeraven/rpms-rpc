@@ -154,15 +154,20 @@ TIU SIGN RECORD | not-proven | seed gap: NEW PERSON field 20.4 (electronic signa
 # multiple empty), live-verified signed on as PROV123 and PMD123 by test/live/referral_follow_up_live_test.rb and
 # test/live/referral_status_live_test.rb (writes, restores; disposable container only). A write is proven by its
 # read-back (DDR GETS ENTRY DATA / DDR LISTER in the caller's option), never by its reply: record_follow_up and
-# record_status both decide success from the read-back. No committed wire-capture fixture yet: rake
+# record_status both decide success from the read-back, hold the FileMan entry lock on ^BMCREF(ien) from the read to
+# the read-back (a lock held by a second session was refused as :locked, live), refuse a read missing any requested
+# row, and answer :unverified when the read-back cannot be read after the call. No committed wire-capture fixture yet: rake
 # wire:capture_writes knows only scheduling and TIU, so a referral capture flow is the rest of #722.
 # Live findings behind green tests:
 #  - A note-only BMC UPDATE REFERRAL deletes the date of service: UPDREFRL^BMCRPC2 files 1106 = "@" whenever SCHWIDAY
-#    carries no date (BMCRPC2.m:216-217). record_follow_up resends the 1106 on file, and refuses a date-only one.
+#    carries no date (BMCRPC2.m:216-217, UPDREFRL at :161). record_follow_up resends the 1106 on file, and refuses a date-only one.
 #  - UPDREFRL files the time as typed (date_"."_HHMM, FILE^DIE without E): "09:30" filed 3261204.0930.
 #    record_follow_up sends the canonical digits (093) and requires a time with a date.
-#  - UPDTSTRF^BMCRPC3 files .15 without the E flag, so any string files ("H" did). record_status refuses a code
-#    outside A, A1, C1, X before anything is sent.
+#  - UPDREFRL and UPDTSTRF take no lock, so the gem's lock excludes FileMan editors and other gem callers only; a
+#    writer that takes no lock can still change the entry between the read and the rewrite.
+#  - UPDTSTRF^BMCRPC3 (BMCRPC3.m:179) files .15 without the E flag, so any string files ("H" did). record_status refuses a code
+#    outside A, A1, C1, X before anything is sent. Filing .15 fires its triggers (.16, .17, .24, 1305),
+#    an approval alert on A1 (APRV^BMCALERT) and, on C1, BMCPXCHK.
 #  - UPDTSTRF NEWs neither FDA nor ERR1, and FILE^DIE keeps the FDA when it fails (DIEF.m:24). After one failed
 #    update in a broker session, every later BMC REFERRAL STATUS UPDATE in it re-files the queued writes and answers
 #    the stale "~`0^...": live, a status write on referral 2 set referral 1 back to A1. record_status answers

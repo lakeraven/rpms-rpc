@@ -361,7 +361,8 @@
       "BMC SEARCH REFERRED TO",
       "BMC UPDATE REFERRAL",
       "DDR GETS ENTRY DATA",
-      "DDR LISTER"
+      "DDR LISTER",
+      "DDR LOCK/UNLOCK NODE"
     ],
     "RpmsRpc::Registration": [
       "AGG ADD NEW PATIENT",
