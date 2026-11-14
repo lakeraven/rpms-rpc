@@ -367,8 +367,11 @@ class RpmsRpc::PilotVisitEncounterTest < Minitest::Test
                     "the row must cite the live spec that pins the cause, by path"
     assert_includes reason, "openrpms#1078", "the row must name the blocking seed issue"
     refute_match(/not pinned by a test/i, reason, "the cause is pinned by the live spec now")
-    assert_match(/7819/, reason, "the row must record the division-swap experiment (division 7819)")
+    assert_match(/visit 111/, reason, "the row must record the division-swap experiment (it created visit 111)")
     assert_match(/GETVISIT/, reason, "the row must record that GETVISIT read the visit back in the experiment")
+    assert_includes reason, "BEHOENCX.m:68", "the row must cite the source line that picks the visit type"
+    assert_includes reason, 'DUZ("AG")', "the row must name the agency condition on the #9001000 path"
+    assert_match(/field \.04|\.04 TYPE OF VISIT/, reason, "the row must name the #9001000 field the create reads")
   end
 
   # Intent: no visit/encounter slice RPC is pilot-ready without a live capture that carries data rows.

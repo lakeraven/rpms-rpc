@@ -14,6 +14,8 @@ class EncounterVisitLiveTest < LiveSpec::Test
   LOCATION_IEN = 6
   VISIT_FILE = "9000010"
   PCC_MASTER_CONTROL_FILE = "9001000"
+  KERNEL_SYSTEM_PARAMETERS_FILE = "8989.3"
+  AGENCY_CODE_FIELD = "9"
 
   def test_open_visit_one_lists_no_component_the_server_reports_present
     result = RpmsRpc::Encounter.open(DFN, VISIT_IEN)
@@ -61,14 +63,21 @@ class EncounterVisitLiveTest < LiveSpec::Test
     elsif persona == "PROV123"
       # PROV123 pins the named seed gap: division 1 has no #9001000 PCC MASTER CONTROL entry,
       # so ADDVIST returns TYPE OF VISIT MISSING / Error Creating Visit until openrpms seeds it.
-      # The cause is read live before the create (#721): both reads must answer with data.
+      # The cause is read live before the create (#721): every read must answer with data.
+      # BEHOENCX.m:68 takes the visit type from #9001000 field .04 of DUZ(2) only when DUZ("AG")="I".
+      assert_equal "I", site_agency_code,
+                   "agency is not I (IHS), so BEHOENCX.m:68 reads XPAR BEHOENCX VISIT TYPE and the " \
+                   "##{PCC_MASTER_CONTROL_FILE} path does not apply: the named seed gap is not the cause here"
       division = signed_on_division_ien
-      master_control = pcc_master_control_iens
-      refute_includes master_control, division,
-                      "division #{division} now has a ##{PCC_MASTER_CONTROL_FILE} PCC MASTER CONTROL entry " \
-                      "(listed: #{master_control.inspect}): the seed gap looks fixed (openrpms#1078). Regrade the " \
-                      "BEHOENCX FETCH CREATE=1 readiness row and make this branch prove the create and the " \
-                      "GETVISIT read-back as the SYS123 branch does"
+      master_control = pcc_master_control_visit_types
+      if master_control.key?(division)
+        visit_type = master_control[division]
+        flunk "division #{division} now has a ##{PCC_MASTER_CONTROL_FILE} PCC MASTER CONTROL entry with " \
+              ".04 TYPE OF VISIT #{visit_type.inspect} (listed: #{master_control.inspect}). If .04 is blank the " \
+              "refusal may persist; otherwise the seed gap looks fixed (openrpms#1078): regrade the BEHOENCX " \
+              "FETCH CREATE=1 readiness row and make this branch prove the create and the GETVISIT read-back " \
+              "as the SYS123 branch does"
+      end
 
       datetime = server_now_fm
       vstr_args = {
@@ -110,6 +119,9 @@ class EncounterVisitLiveTest < LiveSpec::Test
   def signed_on_division_ien
     info = client.with_context("XUS SIGNON") { RpmsRpc::DataMapper.user_info.fetch_lines }
     flunk "XUS GET USER INFO answered nothing for #{persona}, so the signed-on division is unknown" if info.nil?
+    unless info[:duz].is_a?(Integer) && info[:duz] == client.duz.to_i
+      flunk "XUS GET USER INFO answered for DUZ #{info[:duz].inspect}, not the signed-on DUZ #{client.duz.inspect}"
+    end
 
     division = info[:current_site].to_s.split("^", -1).first.to_s
     unless division.match?(/\A[1-9]\d*\z/)
@@ -119,21 +131,43 @@ class EncounterVisitLiveTest < LiveSpec::Test
     division.to_i
   end
 
-  # Every IEN on file #9001000. A failed, empty or truncated list is no evidence
-  # that an entry is absent, so each of those fails.
-  def pcc_master_control_iens
-    listed = RpmsRpc::DdrFileman.lister(file: PCC_MASTER_CONTROL_FILE, fields: ".01", flags: "IP")
+  # AGENCY CODE (#8989.3 field 9, internal) of KERNEL SYSTEM PARAMETERS entry 1,
+  # the source of DUZ("AG"). A failed, malformed or empty read fails.
+  def site_agency_code
+    entry = RpmsRpc::DdrFileman.gets_entry(
+      file: KERNEL_SYSTEM_PARAMETERS_FILE, iens: "1,", fields: AGENCY_CODE_FIELD, flags: "I"
+    )
+    if entry.nil? || entry[:error] || entry[:malformed]
+      flunk "DDR GETS ENTRY DATA on file #{KERNEL_SYSTEM_PARAMETERS_FILE} failed: #{entry.inspect}"
+    end
+    field = entry[:fields]&.[](AGENCY_CODE_FIELD)
+    unless field.is_a?(Hash) && field.key?(:internal)
+      flunk "file #{KERNEL_SYSTEM_PARAMETERS_FILE} entry 1 answered no field #{AGENCY_CODE_FIELD}: #{entry.inspect}"
+    end
+
+    field[:internal]
+  end
+
+  # IEN => .04 TYPE OF VISIT (internal) for every entry on file #9001000, walked by
+  # IEN (xref "#") because BEHOENCX.m:68 reads the entry by subscript, not through
+  # the B index. A failed, empty or truncated list is no evidence that an entry is
+  # absent, so each of those fails.
+  def pcc_master_control_visit_types
+    listed = RpmsRpc::DdrFileman.lister(file: PCC_MASTER_CONTROL_FILE, fields: ".01;.04", flags: "IP", xref: "#")
     if listed.nil? || listed[:error] || !listed[:data]
       flunk "DDR LISTER on file #{PCC_MASTER_CONTROL_FILE} failed: #{listed.inspect}"
     end
     flunk "DDR LISTER on file #{PCC_MASTER_CONTROL_FILE} was truncated: #{listed[:more].inspect}" if listed[:more]
     flunk "file #{PCC_MASTER_CONTROL_FILE} lists no entry, so it cannot show which division lacks one" if listed[:entries].empty?
 
-    listed[:entries].map do |entry|
+    listed[:entries].to_h do |entry|
       ien = entry[:ien].to_s
-      flunk "file #{PCC_MASTER_CONTROL_FILE} row has a non-numeric IEN: #{entry.inspect}" unless ien.match?(/\A[1-9]\d*\z/)
+      pieces = Array(entry[:pieces])
+      unless ien.match?(/\A[1-9]\d*\z/) && pieces.length >= 2
+        flunk "file #{PCC_MASTER_CONTROL_FILE} row is not IEN^.01^.04: #{entry.inspect}"
+      end
 
-      ien.to_i
+      [ ien.to_i, pieces[1].to_s ]
     end
   end
 
