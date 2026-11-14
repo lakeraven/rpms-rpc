@@ -237,10 +237,18 @@ module RpmsRpc
     # with its current value is deleted: they are read first and resent.
     INCLUDE_FLAG_FIELDS = %w[411 405 406 408 407 412 401 403 404 402 409 410].freeze
 
+    # The range DD 1106's input transform accepts, 2950101 up to 4000101
+    # (exclusive); UPDREFRL files without it (no E flag), so it is checked here.
+    APPOINTMENT_RANGE = (Date.new(1995, 1, 1)...Date.new(2100, 1, 1)).freeze
+
+    # What record_follow_up compares before and after the write, by name.
+    FOLLOW_UP_FIELDS = { appointment: "1106", schedule_within_days: "1302", include_flags: "INCLUDE flags 401-412",
+                         snomed_terms: "the SNOMED CT term", case_notes: "the CASE notes" }.freeze
+
     # A confirmed follow-up on an open referral: the scheduled date of service
-    # (1106) and a case note, filed through BMC UPDATE REFERRAL (UPDREFRL^BMCRPC2,
-    # BMCRPC2.m:158-252) under CONTEXT, and decided by reading the referral
-    # back. Part of rpms-rpc#722.
+    # (1106, ACTUAL APPT/BEGIN DOS) and a case note, filed through BMC UPDATE
+    # REFERRAL (UPDREFRL^BMCRPC2, BMCRPC2.m:158-252) under CONTEXT, and
+    # decided by reading the referral back. Part of rpms-rpc#722.
     #
     # The routine rewrites the record rather than patching it, so this:
     # - reads the current state first with DDR GETS ENTRY DATA and DDR LISTER
@@ -260,7 +268,8 @@ module RpmsRpc
     #   the routine kills ^BMCREF(REFIEN,22) and refiles only SNMDST (:232-233).
     # Every call also sets DATE LAST UPDATED (.27) to today and ADDITIONAL
     # INFO (.34) from the flags, and sends a MailMan notice through
-    # SENDXM^BMCRPC3 (:227-229,245).
+    # SENDXM^BMCRPC3 (:227-229,245); filing 1106 also fires its trigger on
+    # 1110 (INP ACTUAL LOS) for an inpatient referral.
     #
     # It refuses, before anything is written: a non-IEN (:invalid_ien), a
     # referral not on file (:not_found) or one it cannot read (:unread, also
@@ -273,28 +282,38 @@ module RpmsRpc
     # (:date_only_appointment; the routine would file "3261204." with a
     # trailing dot).
     #
-    # appointment_on is a Date and needs time: "HH:MM", 00:01 to 23:59, with
-    # no default. FILE^DIE runs without the E flag and the routine files
+    # appointment_on is a Date in APPOINTMENT_RANGE (:invalid_date otherwise,
+    # before anything is read) and needs time: "HH:MM", 00:01 to 23:59, with
+    # no default; time without appointment_on raises ArgumentError. FILE^DIE runs without the E flag and the routine files
     # "date.digits" as built, so the time goes out as FileMan's canonical
     # digits: no colon, trailing zeros dropped ("09:30" -> "093", "12:00" ->
     # "12"); 00:00 has none and raises ArgumentError. case_note is one line of
     # text, filed as a CASE note (type C, #90001.03) by SETMEDHX^BMCRPC3.
     #
-    # The reply is not evidence: success is 1106 reading back as expected, one
-    # new CASE note with the sent text when a note was sent (none otherwise),
-    # and 1302, 401-412 and the SNOMED CT term reading as before. Returns
-    # { success: true, appointment: <1106 internal>, case_note_ien:, raw: },
-    # { success: false, error: :not_filed, message:, raw: } (with the
-    # routine's refusal text when it gave one), or a refusal above.
+    # The reply is not evidence: success is 1106 reading back as expected,
+    # exactly one new CASE note with the sent text when a note was sent
+    # (other new notes, someone else's, are ignored), and 1302, 401-412 and
+    # the SNOMED CT term reading as before. Returns
+    # { success: true, appointment: <1106 internal>, case_note_ien:, raw: }, or
+    # { success: false, error:, message:, raw: } (message with the routine's
+    # refusal text when it gave one) where error is :unverified (the
+    # read-back cannot be read: the write may have landed, do not resend),
+    # :partially_filed (it reads changed, but not as sent) or :not_filed
+    # (nothing reads changed); or a refusal above.
     def record_follow_up(ien, appointment_on: nil, time: nil, case_note: nil)
       id = referral_ien(ien)
       return refusal(:invalid_ien, "not a referral IEN: #{ien.inspect}") unless id
 
       note = one_line(case_note)
       return refusal(:nothing_to_file, "give an appointment date, a case note, or both") if appointment_on.nil? && note.empty?
+      raise ArgumentError, "time needs appointment_on" if appointment_on.nil? && !time.nil?
       raise ArgumentError, "appointment_on must be a Date" if appointment_on && !appointment_on.is_a?(Date)
 
       sent = appointment_on && "#{FilemanDateParser.format_date(appointment_on)}.#{time_digits(time)}"
+      if appointment_on && !APPOINTMENT_RANGE.cover?(appointment_on)
+        return refusal(:invalid_date, "appointment_on #{appointment_on} is outside 1106's range, 1995-01-01 to 2099-12-31")
+      end
+
       before = follow_up_record(id)
       refused = before[:error] ? before : follow_up_refusal(id, before)
       return refused if refused
@@ -306,15 +325,10 @@ module RpmsRpc
       end
 
       result = bmc_scalar_result(:bmc_update_referral, *follow_up_params(id, before, expected, note))
-      after = follow_up_record(id)
-      problem = follow_up_drift(before, after, expected, note)
-      unless problem
-        added = new_case_notes(before, after).first
-        return { success: true, appointment: after[:appointment], case_note_ien: added&.dig(:ien), raw: result[:raw] }
-      end
+      outcome = follow_up_outcome(before, follow_up_record(id), expected, note)
+      return outcome.merge(raw: result[:raw]) if outcome[:success]
 
-      { success: false, error: :not_filed, message: [ result[:message] || result[:error], problem ].compact.join("; "),
-        raw: result[:raw] }
+      outcome.merge(message: [ result[:message] || result[:error], outcome[:message] ].compact.join("; "), raw: result[:raw])
     end
     shape :record_follow_up, resource: "referrals", verb: "POST", path: "/referrals/follow-up"
 
@@ -515,29 +529,36 @@ module RpmsRpc
       status, linked, terms = state.values_at(:status, :ehr_referral, :snomed_terms)
       return refusal(:closed, "referral #{ien} is closed (status #{status}); BMC UPDATE REFERRAL would drop the date") if CLOSED_STATUSES.include?(status)
       return refusal(:linked_ehr_referral, "referral #{ien} is linked to EHR referral #{linked}; not supported") unless linked.empty?
-      return refusal(:unread, "DDR LISTER gave no reply for referral #{ien}'s SNOMED CT terms") if terms.nil?
+      return refusal(:unread, "DDR LISTER could not list referral #{ien}'s SNOMED CT terms") if terms.nil?
       return refusal(:several_snomed_terms, "referral #{ien} has #{terms.size} SNOMED CT terms; only one would be kept") if terms.size > 1
 
       refusal(:unread, "DDR LISTER could not list referral #{ien}'s CASE notes") if state[:case_notes].nil?
     end
 
-    # What the read-back shows was not filed as sent, or nil when it all was.
-    def follow_up_drift(before, after, appointment, note)
-      return "the referral could not be read back: #{after[:message]}" if after[:error]
-      return "1106 reads #{after[:appointment].inspect}, not #{appointment.inspect}" unless after[:appointment] == appointment
+    # What the read-back after the write says: { success: true, appointment:,
+    # case_note_ien: } when it all filed as sent, else { success: false,
+    # error: :unverified | :partially_filed | :not_filed, message: }. Any new
+    # CASE note counts as a change, so a write that may have landed is never
+    # reported :not_filed.
+    def follow_up_outcome(before, after, appointment, note)
+      unread = after[:error] ? after[:message] : %i[snomed_terms case_notes].find { |key| after[key].nil? }
+      if unread
+        return { success: false, error: :unverified,
+                 message: "sent, but the read-back could not be read (#{FOLLOW_UP_FIELDS.fetch(unread, unread)}); do not resend" }
+      end
 
-      changed = %i[schedule_within_days include_flags snomed_terms].reject { |key| after[key] == before[key] }
-      return "#{changed.join(', ')} changed" unless changed.empty?
-      return "the CASE notes could not be read back" if after[:case_notes].nil?
-
-      added = new_case_notes(before, after).map { |n| n[:text].strip }
-      "#{added.size} new CASE notes #{added.inspect}, expected #{note.empty? ? 'none' : [ note ].inspect}" unless added == [ note ].reject(&:empty?)
-    end
-
-    # The CASE notes the after read lists that the before read did not.
-    def new_case_notes(before, after)
       known = before[:case_notes].map { |n| n[:ien] }
-      after[:case_notes].reject { |n| known.include?(n[:ien]) }
+      added = after[:case_notes].reject { |n| known.include?(n[:ien]) }
+      sent = added.select { |n| n[:text].strip == note }
+      changed = FOLLOW_UP_FIELDS.keys.reject { |key| key == :case_notes ? added.empty? : after[key] == before[key] }
+      wrong = (changed & %i[schedule_within_days include_flags snomed_terms]).map { |key| "#{FOLLOW_UP_FIELDS[key]} changed" }
+      wrong.unshift("1106 reads #{after[:appointment].inspect}, not #{appointment.inspect}") unless after[:appointment] == appointment
+      wrong << "#{sent.size} new CASE notes with the sent text, expected 1" unless note.empty? || sent.size == 1
+      return { success: true, appointment: after[:appointment], case_note_ien: (sent.first[:ien] unless note.empty?) } if wrong.empty?
+      return { success: false, error: :not_filed, message: "nothing reads changed: #{wrong.join('; ')}" } if changed.empty?
+
+      { success: false, error: :partially_filed,
+        message: "#{changed.map { |key| FOLLOW_UP_FIELDS[key] }.join(', ')} changed, but #{wrong.join('; ')}" }
     end
 
     # STATUS OF REFERRAL (.15) internal, for record_status.
@@ -552,28 +573,36 @@ module RpmsRpc
       entry[:fields].dig(".15", :internal)&.to_s
     end
 
+    # The referral's SNOMED CT terms (#90001.22 .01), or nil when DDR LISTER
+    # fails, stops short (MORE) or sends no data section: [] means none.
     def snomed_terms(ien)
-      listed = DdrFileman.lister(file: SNOMED_FILE, iens: ",#{ien},", fields: "@;.01", flags: "IP")
-      return nil if listed.nil? || listed[:error]
-
-      listed[:entries].map { |e| e[:pieces].first.to_s }.reject(&:empty?)
+      listed = complete_list(DdrFileman.lister(file: SNOMED_FILE, iens: ",#{ien},", fields: "@;.01", flags: "IP"))
+      listed && listed.map { |e| e[:pieces].first.to_s }.reject(&:empty?)
     end
 
     # CASE notes for one referral from RCIS COMMENTS (#90001.03): .01 date,
     # .03 referral, .05 type, text in field 1 (SETMEDHX^BMCRPC3, BMCRPC3.m:132-153).
-    # Nil when DDR LISTER fails or stops short (MORE), or a note's text
-    # cannot be read: [] means the referral has none.
+    # Listed on the "AD" index of .03, as the routine's own reader does
+    # (BMCRPC1.m:133); PART "7" also matches referral 70, so the screen stays.
+    # Nil when DDR LISTER fails, stops short (MORE) or sends no data section,
+    # or a note's text cannot be read: [] means the referral has none.
     def case_notes(ien)
-      listed = DdrFileman.lister(file: COMMENTS_FILE, fields: "@;.01;.03;.05", flags: "IP",
-                                 screen: "I $P(^(0),U,3)=#{ien.to_i},$P(^(0),U,5)=\"C\"")
-      return nil if listed.nil? || listed[:error] || listed[:more] || !listed[:data]
+      listed = complete_list(DdrFileman.lister(file: COMMENTS_FILE, fields: "@;.01;.03;.05", flags: "IP",
+                                               xref: "AD", part: ien,
+                                               screen: "I $P(^(0),U,3)=#{ien.to_i},$P(^(0),U,5)=\"C\""))
+      return nil unless listed
 
-      listed[:entries].map do |e|
+      listed.map do |e|
         text = DdrFileman.gets_entry(file: COMMENTS_FILE, iens: "#{e[:ien]},", fields: "1", flags: "I")
         return nil if text.nil? || text[:error]
 
         { ien: e[:ien], date: e[:pieces][0], text: Array(text.dig(:fields, "1", :text)).join("\n") }
       end
+    end
+
+    # A DDR LISTER result's entries, or nil unless it is a whole list.
+    def complete_list(listed)
+      listed[:entries] unless listed.nil? || listed[:error] || listed[:more] || !listed[:data]
     end
 
     # One line, without the "~" the RCIS word-processing writer splits on.
