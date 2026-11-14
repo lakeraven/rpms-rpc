@@ -371,6 +371,9 @@ class RpmsRpc::PilotVisitEncounterTest < Minitest::Test
     assert_match(/GETVISIT/, reason, "the row must record that GETVISIT read the visit back in the experiment")
     assert_includes reason, "BEHOENCX.m:68", "the row must cite the source line that picks the visit type"
     assert_includes reason, 'DUZ("AG")', "the row must name the agency condition on the #9001000 path"
+    assert_includes reason, "XUS1A.m:43", "the row must cite where broker sign-on sets DUZ(\"AG\")"
+    refute_includes reason, "XUP.m:62", "broker sign-on sets DUZ(\"AG\") in DUZ^XUS1A, not XUP"
+    assert_match(/observed/i, reason, "seed literals are observed on a date; only the relations are pinned")
     assert_match(/field \.04|\.04 TYPE OF VISIT/, reason, "the row must name the #9001000 field the create reads")
   end
 

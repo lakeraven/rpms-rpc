@@ -14,6 +14,7 @@ class EncounterVisitLiveTest < LiveSpec::Test
   LOCATION_IEN = 6
   VISIT_FILE = "9000010"
   PCC_MASTER_CONTROL_FILE = "9001000"
+  INSTITUTION_FILE = "4"
   KERNEL_SYSTEM_PARAMETERS_FILE = "8989.3"
   AGENCY_CODE_FIELD = "9"
 
@@ -65,10 +66,12 @@ class EncounterVisitLiveTest < LiveSpec::Test
       # so ADDVIST returns TYPE OF VISIT MISSING / Error Creating Visit until openrpms seeds it.
       # The cause is read live before the create (#721): every read must answer with data.
       # BEHOENCX.m:68 takes the visit type from #9001000 field .04 of DUZ(2) only when DUZ("AG")="I".
-      assert_equal "I", site_agency_code,
-                   "agency is not I (IHS), so BEHOENCX.m:68 reads XPAR BEHOENCX VISIT TYPE and the " \
-                   "##{PCC_MASTER_CONTROL_FILE} path does not apply: the named seed gap is not the cause here"
+      # The spec asserts those relations, not the seed's literal division or #9001000 entries.
       division = signed_on_division_ien
+      assert_equal "I", effective_agency_code(division),
+                   "DUZ(\"AG\") as XUS1A.m:43 sets it at sign-on is not I (IHS), so BEHOENCX.m:68 reads XPAR " \
+                   "BEHOENCX VISIT TYPE and the ##{PCC_MASTER_CONTROL_FILE} path does not apply: the named seed " \
+                   "gap is not the cause here"
       master_control = pcc_master_control_visit_types
       if master_control.key?(division)
         visit_type = master_control[division]
@@ -131,8 +134,38 @@ class EncounterVisitLiveTest < LiveSpec::Test
     division.to_i
   end
 
+  # DUZ("AG") as broker sign-on sets it (XUS1A.m:43): the division's #4 AGENCY
+  # CODE (field 95, stored 99;5) when that is not blank, else the site's.
+  def effective_agency_code(division)
+    institution_agency = institution_agency_code(division)
+    institution_agency.empty? ? site_agency_code : institution_agency
+  end
+
+  # AGENCY CODE (#4 field 95, internal) of the division's INSTITUTION entry, ""
+  # when the division has no #4 entry. The entry is found by walking IENs from
+  # division - 1: an answer that leads with another IEN, or an empty list from a
+  # read that succeeded, shows the division has no entry. A failed read fails.
+  def institution_agency_code(division)
+    listed = RpmsRpc::DdrFileman.lister(
+      file: INSTITUTION_FILE, fields: ".01;95", flags: "IP", xref: "#", from: (division - 1).to_s, max: "1"
+    )
+    if listed.nil? || listed[:error] || !listed[:data]
+      flunk "DDR LISTER on file #{INSTITUTION_FILE} from IEN #{division - 1} failed: #{listed.inspect}"
+    end
+    entry = listed[:entries].first
+    return "" if entry.nil?
+
+    ien = entry[:ien].to_s
+    pieces = Array(entry[:pieces])
+    unless ien.match?(/\A[1-9]\d*\z/) && ien.to_i >= division && pieces.length >= 2
+      flunk "file #{INSTITUTION_FILE} row from IEN #{division - 1} is not a later IEN^.01^95: #{entry.inspect}"
+    end
+
+    ien.to_i == division ? pieces[1].to_s : ""
+  end
+
   # AGENCY CODE (#8989.3 field 9, internal) of KERNEL SYSTEM PARAMETERS entry 1,
-  # the source of DUZ("AG"). A failed, malformed or empty read fails.
+  # the fallback XUS1A.m:43 uses. A failed, malformed or empty read fails.
   def site_agency_code
     entry = RpmsRpc::DdrFileman.gets_entry(
       file: KERNEL_SYSTEM_PARAMETERS_FILE, iens: "1,", fields: AGENCY_CODE_FIELD, flags: "I"
