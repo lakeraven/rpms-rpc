@@ -2,7 +2,9 @@
 
 # The OpenAPI documents (rpms-rpc#395): the RPC surface of a pinned build, and the gem's client API.
 #
-#   rake openapi:pin     RELEASE=<openrpms tag>   pin that release's <tag>-rpcs.json (and the schema it names)
+#   rake openapi:pin     RELEASE=<openrpms tag>   pin that release's <tag>-rpcs.json (and the schema it names), read
+#                                                 over REST (gh api); needs conformance:pin RELEASE= first, whose
+#                                                 lock gives the full build commit the header's short one abbreviates
 #   rake openapi:surface [OUT=pkg/openapi/rpc-surface.openapi.json]
 #   rake openapi:api     [METHODS=<rake rpc:api_coverage JSON>] [OUT=pkg/openapi/client-api.openapi.json]
 #   rake openapi         surface + api, into pkg/openapi/
@@ -36,9 +38,16 @@ namespace :openapi do
     puts "EXPLICIT SUCCESS: #{task} wrote #{path.delete_prefix("#{root}/")} (OpenAPI #{document['openapi']}, valid, every verb + path unique)"
   end
 
+  parse_json = lambda do |text, what|
+    JSON.parse(text)
+  rescue JSON::ParserError => e
+    abort "openapi:pin: #{what} is not valid JSON: #{e.message[0, 120]}"
+  end
+
   desc "Pin a release's <tag>-rpcs.json for openapi:surface: RELEASE=<openrpms tag> [REPO=lakeraven/openrpms]. " \
-       "Downloads it, checks it against the release asset digest, fetches the openrpms schema its `schema` field " \
-       "names (rpcs.v1, rpcs.v2) at the build's commit, validates, and writes data/openapi/rpcs.lock.yml."
+       "Downloads it over REST (gh api), checks the release asset digest against the sha256 conformance:pin locked, checks the bytes against it, resolves its header commit to the " \
+       "full commit rake conformance:pin locked for the tag, fetches the openrpms schema its `schema` field names " \
+       "(rpcs.v1, rpcs.v2) at that commit, validates, and writes data/openapi/rpcs.lock.yml. Run conformance:pin first."
   task :pin do
     load_tool.("rpcs_pin")
     require "fileutils"
@@ -48,23 +57,31 @@ namespace :openapi do
     tag = ENV["RELEASE"] or abort "openapi:pin requires RELEASE=<openrpms release tag>"
     abort "refusing RELEASE with unsafe characters: #{tag.inspect}" unless tag.match?(/\A[A-Za-z0-9._-]+\z/)
     repo = ENV["REPO"] || pin::REPO
+    abort "refusing REPO that is not owner/name: #{repo.inspect}" unless repo.match?(%r{\A[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\z})
+    locked_repo = pin.inventory_lock(root, tag)["repo"]
+    abort "openapi:pin: REPO #{repo} is not the repo #{pin::INVENTORY_LOCK} vouches for (#{locked_repo.inspect})" unless repo == locked_repo
     asset = "#{tag}-rpcs.json"
 
-    out, status = Open3.capture2("gh", "release", "view", tag, "--repo", repo, "--json", "assets")
-    abort "openapi:pin: gh release view failed for #{tag} on #{repo} (published? gh auth?)" unless status.success?
-    digest = JSON.parse(out)["assets"].find { |a| a["name"] == asset }&.dig("digest").to_s.delete_prefix("sha256:")
-    abort "openapi:pin: #{tag} publishes no #{asset} (released before openrpms#732?)" if digest.empty?
+    # REST through `gh api` (GraphQL, which `gh release` uses, is blocked in some environments).
+    out, status = Open3.capture2("gh", "api", "repos/#{repo}/releases/tags/#{tag}")
+    abort "openapi:pin: gh api releases/tags/#{tag} failed on #{repo} (published? gh auth?)" unless status.success?
+    found = pin.release_asset(parse_json.call(out, "release #{tag}"), asset)
+    digest = found[:digest]
+    locked = pin.locked_asset_digest(asset, tag: tag, root: root)
+    abort "openapi:pin: release digest #{digest} for #{asset} is not the sha256 #{locked} that #{pin::INVENTORY_LOCK} locked" unless digest == locked
 
     Dir.mktmpdir do |tmp|
-      ok = system("gh", "release", "download", tag, "--repo", repo, "--pattern", asset, "--dir", tmp)
-      abort "openapi:pin: gh release download of #{asset} failed" unless ok
+      bytes, status = Open3.capture2("gh", "api", "-H", "Accept: application/octet-stream", "repos/#{repo}/releases/assets/#{found[:id]}", binmode: true)
+      abort "openapi:pin: download of #{asset} failed" unless status.success? && !bytes.empty?
       file = File.join(tmp, asset)
+      File.binwrite(file, bytes)
       abort "openapi:pin: #{asset} sha256 #{pin.sha256(file)} is not the release asset digest #{digest}" unless pin.sha256(file) == digest
 
-      header = JSON.parse(File.read(file))
-      commit = header["commit"].to_s
+      header = parse_json.call(File.read(file), asset)
+      abort "openapi:pin: #{asset} is not a JSON object" unless header.is_a?(Hash)
       name = header["schema"].to_s
-      abort "openapi:pin: #{asset} names no build commit" unless commit.match?(/\A[0-9a-f]{40}\z/)
+      # The header's commit may be short; the inventory lock (conformance:pin) gives the full one.
+      commit = pin.build_commit(header["commit"], tag: tag, root: root)
       abort "openapi:pin: #{asset} has schema #{name.inspect}, not one of #{pin::SCHEMAS.join(', ')}" unless pin::SCHEMAS.include?(name)
 
       # The schema the file names, at the commit that built it: what openrpms validated it against.
