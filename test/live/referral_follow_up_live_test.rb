@@ -19,7 +19,8 @@ require "rpms_rpc/api/ddr_fileman"
 # otherwise files a minimal one with DDR FILER, because BMC ADD REFERRAL
 # cannot be called on YottaDB. Each test restores what it changed: the date
 # of service (1106) as read before, the case note it added is deleted, and a
-# cancelled referral is filed ACTIVE again. DATE LAST UPDATED (.27) keeps the
+# cancelled referral is filed ACTIVE again. The lock test signs on a second
+# session to hold the entry's lock. DATE LAST UPDATED (.27) keeps the
 # run's date, and UPDREFRL sends its MailMan notice (SENDXM^BMCRPC3).
 #
 # Observed live on the pinned build, and guarded here: UPDREFRL files the
@@ -106,6 +107,37 @@ class ReferralFollowUpLiveTest < LiveSpec::Test
       client.with_context(RpmsRpc::Referral::CONTEXT) { RpmsRpc::Referral.update_status(ien, ACTIVE) }
       assert_equal ACTIVE, RpmsRpc::Referral.follow_up_state(ien)[:status], "referral #{ien} left cancelled"
     end
+  end
+
+  # UPDREFRL takes no lock; record_follow_up locks ^BMCREF(ien) around its
+  # reads, rewrite and read-back. A second broker session (its own M
+  # process) holds that lock here: the call waits out its timeout, answers
+  # :locked and changes nothing.
+  def test_a_referral_locked_by_another_session_is_refused_and_nothing_changes
+    ien = active_referral
+    node = "^BMCREF(#{ien})"
+    before = RpmsRpc::Referral.follow_up_state(ien)
+    refute_nil before, "follow_up_state(#{ien}) read nothing before the update"
+    untouched = untouched_fields(ien)
+    mine = client
+    other = sign_on # a second session; sign_on also makes it RpmsRpc.client
+    assert_equal true, RpmsRpc::DdrFileman.lock(node: node, timeout: 5), "the second session could not lock #{node}"
+    RpmsRpc.configure { |cfg| cfg.client = mine }
+
+    result = RpmsRpc::Referral.record_follow_up(ien, appointment_on: APPOINTMENT, time: "09:30", case_note: NOTE)
+    after = RpmsRpc::Referral.follow_up_state(ien)
+    assert_equal [ false, :locked, nil ], result.values_at(:success, :error, :raw), result.inspect
+    assert_equal before, after, "the referral changed under another session's lock"
+    assert_equal untouched, untouched_fields(ien)
+    puts "\n#{persona}: referral #{ien} locked by a second session: #{result[:message]}"
+  ensure
+    if other
+      RpmsRpc.configure { |cfg| cfg.client = other }
+      RpmsRpc::DdrFileman.unlock(node: node)
+      other.disconnect
+    end
+    RpmsRpc.configure { |cfg| cfg.client = mine } if mine
+    restore(ien, before, after[:case_notes].map { |n| n[:ien] } - before[:case_notes].map { |n| n[:ien] }) if before && after
   end
 
   def test_a_referral_not_on_file_is_a_typed_refusal

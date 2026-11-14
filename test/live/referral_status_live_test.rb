@@ -16,7 +16,8 @@ require "rpms_rpc/api/ddr_fileman"
 # referral_follow_up_live_test.rb it reuses ACTIVE referrals with no EHR
 # referral link (1303), or files minimal ones with DDR FILER. Each test
 # files ACTIVE again in `ensure`. Every test has its own broker session
-# (LiveSpec::Test#setup), so the poisoned one ends with its test.
+# (LiveSpec::Test#setup), so the poisoned one ends with its test. The lock
+# test signs on a second session to hold the entry's lock.
 #
 #   bin/cloud_rpms up
 #   LIVE_DISPOSABLE=1 BROKER_HOST=127.0.0.1 BROKER_PORT=9100 PERSONA=PMD123 \
@@ -72,6 +73,32 @@ class ReferralStatusLiveTest < LiveSpec::Test
     assert_match(/#{STATUS_RPC}/o, error.message)
     assert_equal ACTIVE, status_of(ien)
   ensure
+    restore_active(ien)
+  end
+
+  # UPDTSTRF takes no lock; record_status locks ^BMCREF(ien) around its read,
+  # update and read-back. A second broker session (its own M process) holds
+  # that lock here: the call waits out its timeout, answers :locked and
+  # files nothing.
+  def test_a_referral_locked_by_another_session_is_refused_and_nothing_is_filed
+    ien = active_referral
+    node = "^BMCREF(#{ien})"
+    mine = client
+    other = sign_on # a second session; sign_on also makes it RpmsRpc.client
+    assert_equal true, RpmsRpc::DdrFileman.lock(node: node, timeout: 5), "the second session could not lock #{node}"
+    RpmsRpc.configure { |cfg| cfg.client = mine }
+
+    result = RpmsRpc::Referral.record_status(ien, APPROVED)
+    assert_equal [ false, :locked, nil ], result.values_at(:success, :error, :raw), result.inspect
+    assert_equal ACTIVE, status_of(ien), "the update was filed under another session's lock"
+    puts "\n#{persona}: referral #{ien} locked by a second session: #{result[:message]}"
+  ensure
+    if other
+      RpmsRpc.configure { |cfg| cfg.client = other }
+      RpmsRpc::DdrFileman.unlock(node: node)
+      other.disconnect
+    end
+    RpmsRpc.configure { |cfg| cfg.client = mine } if mine
     restore_active(ien)
   end
 

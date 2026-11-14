@@ -9,13 +9,20 @@ require "rpms_rpc/api/referral"
 # case note) through BMC UPDATE REFERRAL, UPDREFRL^BMCRPC2 (FOIA BMCRPC2.m:158),
 # and follow_up_state reads it back (rpms-rpc#722). The mock here answers DDR
 # GETS ENTRY DATA and DDR LISTER from one in-memory referral, and BMC UPDATE
-# REFERRAL changes that referral the way UPDREFRL does (see #updrefrl), so
+# REFERRAL changes that referral the way UPDREFRL does (see #updrefrl). The
+# entry is locked (DDR LOCK/UNLOCK NODE on ^BMCREF(ien)) from before the
+# first read until after the read-back, and a referral read that lacks a
+# requested field's row is unreadable, not empty. So
 # these tests prove the frame, the guards and the read-back, not the build:
 # test/live/referral_follow_up_live_test.rb is the live proof.
 class ReferralFollowUpTest < Minitest::Test
   IEN = "7"
   SIGN_ON_CONTEXT = "CIAV VUECENTRIC"
   UPDATE_RPC = "BMC UPDATE REFERRAL"
+  LOCK_RPC = "DDR LOCK/UNLOCK NODE"
+  NODE = "^BMCREF(#{IEN})"
+  LOCK = RpmsRpc::DdrFileman.lock_param(node: NODE, timeout: 5).freeze
+  UNLOCK = RpmsRpc::DdrFileman.unlock_param(node: NODE).freeze
   FLAGS = %w[401 Y 402 Y 403 N 404 N 405 N 406 Y 407 N 408 N 409 N 410 N 411 Y 412 Y].each_slice(2).to_h.freeze
   DAY = Date.new(2026, 12, 4)
   NOTE = "Patient says the cardiology appointment is booked for 12/4."
@@ -126,7 +133,79 @@ class ReferralFollowUpTest < Minitest::Test
       assert_kind_of String, result[:message], what
       assert_equal "~`1", result[:raw].to_s, what
       assert_equal 1, update_calls(mock).size, what
+      assert_equal [ LOCK_RPC, [ UNLOCK ] ], last_call(mock), "#{what}: the lock is released"
     end
+  end
+
+  # A read-back without a requested row says nothing about that field: not
+  # "the flag was lost" (:partially_filed), and not a success.
+  def test_a_read_back_without_a_requested_row_is_unverified
+    [ "402", "411", "1302", "1106", "1303" ].each do |field|
+      mock, = fake_referral do |record, params|
+        updrefrl(record, params)
+        record[:replies][:missing] = [ field ]
+      end
+      result = RpmsRpc::Referral.record_follow_up(IEN, appointment_on: DAY, time: "09:30", case_note: NOTE)
+
+      assert_equal [ false, :unverified ], result.values_at(:success, :error), "no #{field} row: #{result.inspect}"
+      assert_equal "~`1", result[:raw].to_s, field
+      assert_equal 1, update_calls(mock).size, field
+    end
+  end
+
+  # GETS with flags "I" answers a row for every requested field, empty ones
+  # included: a reply without one was not read, and 1303 read as empty would
+  # pass the EHR-link guard.
+  def test_a_referral_read_without_a_requested_row_is_unread_and_nothing_is_sent
+    [ "1303", "1302", "411", ".15" ].each do |field|
+      mock, = fake_referral(missing: [ field ])
+      result = RpmsRpc::Referral.record_follow_up(IEN, appointment_on: DAY, time: "09:30", case_note: NOTE)
+
+      assert_equal [ false, :unread, nil ], result.values_at(:success, :error, :raw), "no #{field} row: #{result.inspect}"
+      assert(mock.received_calls.none? { |c| c[:rpc].start_with?("BMC") }, "no #{field} row")
+      assert_equal [ LOCK_RPC, [ UNLOCK ] ], last_call(mock), "no #{field} row: the lock is released"
+    end
+  end
+
+  # UPDREFRL takes no lock; FileMan's editors and other gem callers lock the
+  # entry, so an edit between the read and the rewrite cannot be reverted.
+  def test_the_entry_is_locked_from_before_the_first_read_until_after_the_read_back
+    mock, = fake_referral
+
+    assert RpmsRpc::Referral.record_follow_up(IEN, appointment_on: DAY, time: "09:30", case_note: NOTE)[:success]
+
+    calls = mock.received_calls
+    rpcs = calls.map { |c| c[:rpc] }
+    assert_equal [ [ LOCK_RPC, [ LOCK ] ], [ LOCK_RPC, [ UNLOCK ] ] ],
+                 calls.values_at(0, -1).map { |c| [ c[:rpc], c[:params].to_a ] }, "lock first (incremental, timeout 5), unlock last"
+    assert_equal [ SIGN_ON_CONTEXT ] * 2, calls.values_at(0, -1).map { |c| c[:context] }
+    assert_equal 2, rpcs.count(LOCK_RPC)
+    at = rpcs.index(UPDATE_RPC)
+    [ rpcs[1...at], rpcs[(at + 1)...-1] ].each do |reads|
+      assert_equal [ "DDR GETS ENTRY DATA", "DDR LISTER" ], reads.uniq.sort, "reads on both sides of the update, inside the lock"
+    end
+  end
+
+  def test_an_entry_locked_by_someone_else_is_refused_and_nothing_else_is_sent
+    { "timed out" => "0", "no reply" => "" }.each do |what, lock|
+      mock, = fake_referral(lock: lock)
+      result = RpmsRpc::Referral.record_follow_up(IEN, appointment_on: DAY, time: "09:30", case_note: NOTE)
+
+      assert_equal [ false, :locked, nil ], result.values_at(:success, :error, :raw), "#{what}: #{result.inspect}"
+      assert_kind_of String, result[:message], what
+      assert_equal [ [ LOCK_RPC, [ LOCK ] ] ], mock.received_calls.map { |c| [ c[:rpc], c[:params].to_a ] }, what
+    end
+  end
+
+  def test_the_lock_is_released_when_the_update_raises_and_on_a_refusal_after_it
+    mock, = fake_referral { |_record, _params| raise RpmsRpc::Client::RpcRefusedError, "Access denied for remote procedure: #{UPDATE_RPC}" }
+    error = assert_raises(RpmsRpc::Client::RpcRefusedError) { RpmsRpc::Referral.record_follow_up(IEN, case_note: NOTE) }
+    assert_match(/Access denied/, error.message)
+    assert_equal [ LOCK_RPC, [ UNLOCK ] ], last_call(mock), "the update raised"
+
+    mock, = fake_referral({ ".15" => "C1" })
+    assert_equal :closed, RpmsRpc::Referral.record_follow_up(IEN, case_note: NOTE)[:error]
+    assert_equal [ LOCK_RPC, [ UNLOCK ] ], last_call(mock), "a closed referral"
   end
 
   def test_a_date_filed_without_its_note_is_partially_filed
@@ -367,17 +446,22 @@ class ReferralFollowUpTest < Minitest::Test
   # record[:replies] replaces replies, and a block may fill it to break the
   # read-back: :notes and :terms the DDR LISTER reply for the CASE notes and
   # the SNOMED CT terms (notes_reply, terms_reply), "90001" and "90001.03"
-  # the DDR GETS ENTRY DATA reply for that file. Returns [mock, record].
-  def fake_referral(fields = {}, terms: [ "SYNTHETIC TERM" ], reply: "~`1", notes_reply: nil, terms_reply: nil, &update)
+  # the DDR GETS ENTRY DATA reply for that file, :missing the #90001 fields
+  # whose row a referral read leaves out (missing). The lock on NODE (timeout
+  # 5) answers `lock` and the unlock "1"; any other lock call gets no reply.
+  # Returns [mock, record].
+  def fake_referral(fields = {}, terms: [ "SYNTHETIC TERM" ], reply: "~`1", notes_reply: nil, terms_reply: nil,
+                    missing: nil, lock: "1", &update)
     record = { fields: fields && { ".15" => "A", "1106" => "", "1302" => "14", "1303" => "" }.merge(FLAGS, fields),
                terms: terms.dup, notes: [ { ien: "31", date: "3261111", text: "booked for 12/4" } ],
-               replies: { notes: notes_reply, terms: terms_reply }.compact }
+               replies: { notes: notes_reply, terms: terms_reply, missing: missing }.compact }
     update ||= method(:updrefrl)
     answer = lambda do |rpc, params|
       case rpc
       when "DDR GETS ENTRY DATA" then gets_reply(record, params.first)
       when "DDR LISTER" then lister_reply(record, params.first)
       when UPDATE_RPC then update.call(record, params).then { reply }
+      when LOCK_RPC then { LOCK => lock, UNLOCK => "1" }.fetch(params.first, "")
       else ""
       end
     end
@@ -413,7 +497,8 @@ class ReferralFollowUpTest < Minitest::Test
     values = file == "90001" ? (record[:fields] if ien == IEN) : note_values(record, ien)
     return NOT_ON_FILE if values.nil?
 
-    rows = param["FIELDS"].split(";").flat_map do |field|
+    requested = param["FIELDS"].split(";") - (file == "90001" ? Array(record[:replies][:missing]) : [])
+    rows = requested.flat_map do |field|
       next [ "#{file}^#{ien},^1^[WORD PROCESSING]", values["1"], "$$END$$" ] if file == "90001.03" && field == "1"
 
       "#{file}^#{ien},^#{field}^#{values[field]}"
@@ -433,6 +518,10 @@ class ReferralFollowUpTest < Minitest::Test
 
     fields = param["FIELDS"].split(";") - [ "@" ]
     [ "[Data]" ] + record[:notes].map { |n| ([ n[:ien] ] + note_values(record, n[:ien]).values_at(*fields)).join("^") }
+  end
+
+  def last_call(mock)
+    mock.received_calls.last.then { |c| [ c[:rpc], c[:params].to_a ] }
   end
 
   def update_calls(mock)
