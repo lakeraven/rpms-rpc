@@ -7,11 +7,13 @@ require "rpms_rpc/api/referral"
 
 # Referral.record_status files a checked STATUS OF REFERRAL (#90001 .15)
 # through BMC REFERRAL STATUS UPDATE, UPDTSTRF^BMCRPC3(RSLT,REFIEN,STATUS)
-# (rpms-rpc#722). The routine files any string (FILE^DIE without the E flag)
-# and does not NEW ERR1, so after one failed update in a session every later
-# one answers that same "~`0^..." while it files: the reply is not evidence,
-# the read-back of .15 is. Every reply here is seeded, so these tests prove
-# the frame and the guards, not the build:
+# (rpms-rpc#722). The routine files any string (FILE^DIE without the E flag),
+# and it does not NEW FDA or ERR1: FILE^DIE keeps the FDA when it fails
+# (DIEF.m:24), so after one failed update in a broker session every later
+# one re-files every queued write and answers "~`0^...". A "1" reply is
+# decided by the read-back of .15; a "~`0" reply is :session_poisoned
+# whatever .15 reads. Every reply here is seeded, so these tests prove the
+# frame and the guards, not the build:
 # test/live/referral_status_live_test.rb is the live proof.
 class ReferralStatusTest < Minitest::Test
   IEN = "7"
@@ -45,15 +47,19 @@ class ReferralStatusTest < Minitest::Test
     assert_equal SIGN_ON_CONTEXT, mock.current_context
   end
 
-  def test_a_stale_error_reply_is_a_success_when_the_read_back_matches
-    seeded_mock(before: "A", after: "A1", reply: STALE)
+  # The session holds an earlier failed write that this call re-filed, here
+  # or on another referral: not a success even when .15 reads as sent.
+  def test_a_refusal_reply_is_a_poisoned_session_whatever_the_read_back_says
+    [ "A1", "A" ].each do |after|
+      seeded_mock(before: "A", after: after, reply: STALE)
 
-    result = RpmsRpc::Referral.record_status(IEN, "A1")
+      result = RpmsRpc::Referral.record_status(IEN, "A1")
 
-    assert result[:success], "ERR1 left over from an earlier call: #{result.inspect}"
-    assert_equal "A1", result[:status]
-    assert_equal "A", result[:previous_status]
-    assert_equal STALE, result[:raw].to_s
+      expected = { success: false, error: :session_poisoned, status: after, previous_status: "A" }
+      assert_equal expected, result.except(:message, :raw), ".15 reads #{after} after the update"
+      assert_match(/session.*close/im, result[:message], "say that the broker session must be closed")
+      assert_equal STALE, result[:raw].to_s
+    end
   end
 
   def test_a_success_reply_is_not_filed_when_the_read_back_differs
@@ -71,7 +77,7 @@ class ReferralStatusTest < Minitest::Test
 
   def test_a_bad_ien_is_refused_without_the_wire
     RpmsRpc.mock!
-    [ nil, "", "0", "abc", "1,2" ].each do |ien|
+    [ nil, "", "0", "abc", "1,2", "7abc", "+7" ].each do |ien|
       result = RpmsRpc::Referral.record_status(ien, "A")
       assert_equal({ success: false, error: :invalid_ien, raw: nil }, result.except(:message), ien.inspect)
       assert_kind_of String, result[:message]

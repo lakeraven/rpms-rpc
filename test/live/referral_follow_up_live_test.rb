@@ -22,6 +22,11 @@ require "rpms_rpc/api/ddr_fileman"
 # cancelled referral is filed ACTIVE again. DATE LAST UPDATED (.27) keeps the
 # run's date, and UPDREFRL sends its MailMan notice (SENDXM^BMCRPC3).
 #
+# Observed live on the pinned build, and guarded here: UPDREFRL files the
+# time as typed ("09:30" was filed "3261204.0930", not FileMan's
+# "3261204.093"), and it deletes 1106 when SCHWIDAY carries no date, so a
+# note-only follow-up has to resend the date on file.
+#
 #   bin/cloud_rpms up
 #   LIVE_DISPOSABLE=1 BROKER_HOST=127.0.0.1 BROKER_PORT=9100 PERSONA=PMD123 \
 #   RPMS_ACCESS=PMD123 RPMS_VERIFY='PMD123!!' \
@@ -34,6 +39,7 @@ class ReferralFollowUpLiveTest < LiveSpec::Test
   FIXTURE_DFN = "990001"
   ACTIVE = "A"
   APPOINTMENT = Date.new(2026, 12, 4)
+  FILED = "3261204.093" # 12/4/2026 09:30, FileMan internal: no trailing zero
   NOTE = "SYNTHETIC rpms-rpc#722 live spec: patient says the cardiology appointment is booked for 12/4."
 
   def test_a_follow_up_files_the_date_and_a_case_note_and_reads_back
@@ -47,9 +53,11 @@ class ReferralFollowUpLiveTest < LiveSpec::Test
 
       after = RpmsRpc::Referral.follow_up_state(ien)
       assert_equal ACTIVE, after[:status], "the update changed the referral's status"
-      assert_match(/\A3261204\.093/, after[:appointment], "1106 does not read back 12/4/2026 09:30")
+      assert_equal FILED, after[:appointment], "1106 does not read back 12/4/2026 09:30 in FileMan's form"
+      assert_equal FILED, result[:appointment]
       added = after[:case_notes].map { |n| n[:ien] } - before[:case_notes].map { |n| n[:ien] }
       assert_equal 1, added.size, "expected one new CASE note, got #{added.inspect}"
+      assert_equal added.first, result[:case_note_ien]
       note = after[:case_notes].find { |n| n[:ien] == added.first }
       assert_equal NOTE, note[:text].strip
       assert_equal untouched, untouched_fields(ien), "fields the update should resend as read changed"
@@ -59,11 +67,39 @@ class ReferralFollowUpLiveTest < LiveSpec::Test
     end
   end
 
+  # UPDREFRL deletes 1106 when it gets no date (BMCRPC2.m:216-217): it did,
+  # live, before record_follow_up resent the date on file.
+  def test_a_note_only_follow_up_keeps_the_date_of_service
+    ien = active_referral
+    before = RpmsRpc::Referral.follow_up_state(ien)
+    refute_nil before, "follow_up_state(#{ien}) read nothing before the update"
+    untouched = untouched_fields(ien)
+    begin
+      dated = RpmsRpc::Referral.record_follow_up(ien, appointment_on: APPOINTMENT, time: "09:30")
+      assert dated[:success], "record_follow_up(#{ien}) with a date answered #{dated.inspect}"
+      assert_nil dated[:case_note_ien]
+      assert_equal FILED, RpmsRpc::Referral.follow_up_state(ien)[:appointment]
+
+      result = RpmsRpc::Referral.record_follow_up(ien, case_note: NOTE)
+      assert result[:success], "note-only record_follow_up(#{ien}) answered #{result.inspect}"
+
+      after = RpmsRpc::Referral.follow_up_state(ien)
+      assert_equal FILED, after[:appointment], "the note-only follow-up changed the date of service"
+      assert_equal FILED, result[:appointment]
+      added = after[:case_notes].map { |n| n[:ien] } - before[:case_notes].map { |n| n[:ien] }
+      assert_equal [ result[:case_note_ien] ], added, "expected one new CASE note"
+      assert_equal untouched, untouched_fields(ien), "fields the update should resend as read changed"
+      puts "\n#{persona}: referral #{ien} 1106=#{after[:appointment]} kept by a note-only follow-up (note #{added.first})"
+    ensure
+      restore(ien, before, added)
+    end
+  end
+
   def test_a_closed_referral_is_refused_before_anything_is_written
     ien = active_referral
     begin
       assert RpmsRpc::Referral.cancel(ien)[:success], "could not cancel referral #{ien} for the test"
-      result = RpmsRpc::Referral.record_follow_up(ien, appointment_on: APPOINTMENT, case_note: NOTE)
+      result = RpmsRpc::Referral.record_follow_up(ien, appointment_on: APPOINTMENT, time: "09:30", case_note: NOTE)
       refute result[:success]
       assert_equal :closed, result[:error]
     ensure

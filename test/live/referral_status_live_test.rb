@@ -7,13 +7,16 @@ require "rpms_rpc/api/ddr_fileman"
 # Referral.record_status files a checked STATUS OF REFERRAL (#90001 .15)
 # through BMC REFERRAL STATUS UPDATE (UPDTSTRF^BMCRPC3) under BMCRPC and
 # decides success by reading .15 back (rpms-rpc#722). The routine files any
-# string, and it does not NEW ERR1: after one failed update in a broker
-# session, every later one answers that same "~`0^..." while it files.
+# string, and it does not NEW FDA or ERR1: FILE^DIE keeps a failed FDA
+# (DIEF.m:24), so after one failed update in a broker session every later
+# one re-files every write queued since and answers "~`0^...". record_status
+# answers :session_poisoned for that reply.
 #
 # It WRITES, so it runs only against a disposable local container. Like
-# referral_follow_up_live_test.rb it reuses an ACTIVE referral with no EHR
-# referral link (1303), or files a minimal one with DDR FILER. Each test
-# files ACTIVE again in `ensure`.
+# referral_follow_up_live_test.rb it reuses ACTIVE referrals with no EHR
+# referral link (1303), or files minimal ones with DDR FILER. Each test
+# files ACTIVE again in `ensure`. Every test has its own broker session
+# (LiveSpec::Test#setup), so the poisoned one ends with its test.
 #
 #   bin/cloud_rpms up
 #   LIVE_DISPOSABLE=1 BROKER_HOST=127.0.0.1 BROKER_PORT=9100 PERSONA=PMD123 \
@@ -72,18 +75,32 @@ class ReferralStatusLiveTest < LiveSpec::Test
     restore_active(ien)
   end
 
-  # One failed update leaves ERR1 set for this session: the read-back decides.
-  def test_a_stale_error_reply_in_the_same_session_is_still_a_success
-    ien = active_referral
-    failed = RpmsRpc::Referral.update_status(UNKNOWN_IEN, ACTIVE)
+  # One failed update leaves its FDA queued for this session. Every later
+  # update re-files the queue: the second referral's update files the first
+  # referral's A1 again, after DDR FILER had set it back to A.
+  def test_a_failed_update_poisons_the_session_and_later_updates_refile_earlier_ones
+    first, second = active_referrals(2)
+    failed = RpmsRpc::Referral.update_status(UNKNOWN_IEN, RpmsRpc::Referral::CANCELLED_STATUS)
     refute failed[:success], "update_status on an unknown IEN answered #{failed.inspect}"
 
-    result = RpmsRpc::Referral.record_status(ien, APPROVED)
-    assert result[:success], "record_status after a failed update answered #{result.inspect}"
-    assert_equal APPROVED, status_of(ien)
-    puts "\n#{persona}: referral #{ien} filed A1, reply #{result[:raw].inspect} after #{failed[:raw].inspect}"
+    poisoned = RpmsRpc::Referral.record_status(first, APPROVED)
+    assert_equal [ false, :session_poisoned ], poisoned.values_at(:success, :error), poisoned.inspect
+    assert_equal [ APPROVED, ACTIVE ], poisoned.values_at(:status, :previous_status), "the routine files while it refuses"
+    assert_match(/\A~`0/, poisoned[:raw].to_s)
+    assert_match(/session.*close/im, poisoned[:message])
+
+    file_active(first)
+    assert_equal ACTIVE, status_of(first), "DDR FILER did not set referral #{first} back to A"
+    again = RpmsRpc::Referral.record_status(second, APPROVED)
+    assert_equal [ false, :session_poisoned ], again.values_at(:success, :error), again.inspect
+    assert_equal APPROVED, status_of(first), "the update of referral #{second} did not re-file referral #{first}'s queued A1"
+    puts "\n#{persona}: after #{failed[:raw].inspect}, record_status(#{second}) re-filed referral #{first} A1: #{again[:raw].inspect}"
   ensure
-    restore_active(ien)
+    # A fresh session, and DDR FILER, which does not go through UPDTSTRF's FDA.
+    @client&.disconnect
+    @client = sign_on
+    [ first, second ].compact.each { |ien| file_active(ien) }
+    [ first, second ].compact.each { |ien| assert_equal ACTIVE, status_of(ien), "referral #{ien} not left ACTIVE" }
   end
 
   private
@@ -99,12 +116,21 @@ class ReferralStatusLiveTest < LiveSpec::Test
     assert_equal ACTIVE, status_of(ien), "referral #{ien} not left ACTIVE"
   end
 
-  def active_referral
+  def active_referral = active_referrals(1).first
+
+  # `count` ACTIVE referrals with no EHR referral link, filing what is missing.
+  def active_referrals(count)
     listed = RpmsRpc::DdrFileman.lister(file: REFERRAL_FILE, fields: "@;.15;1303", flags: "IP")
     flunk "DDR LISTER on file #{REFERRAL_FILE} answered #{listed.inspect}" if listed.nil? || listed[:error]
 
-    found = listed[:entries].find { |e| e[:pieces][0] == ACTIVE && e[:pieces][1].to_s.empty? }
-    found ? found[:ien] : file_fixture
+    found = listed[:entries].select { |e| e[:pieces][0] == ACTIVE && e[:pieces][1].to_s.empty? }.map { |e| e[:ien] }.first(count)
+    found + Array.new(count - found.size) { file_fixture }
+  end
+
+  # .15 = "A" with DDR FILER: no UPDTSTRF, so nothing queued is re-filed.
+  def file_active(ien)
+    filed = RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: [ { file: REFERRAL_FILE, field: ".15", iens: "#{ien},", value: ACTIVE } ])
+    assert filed && filed[:success], "DDR FILER could not file referral #{ien} ACTIVE: #{filed.inspect}"
   end
 
   # A minimal ACTIVE referral: BMC ADD REFERRAL cannot be called on YottaDB.
