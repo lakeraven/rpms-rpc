@@ -148,3 +148,25 @@ TIU SET DOCUMENT TEXT | pilot-ready | live capture signed on as PROV123 returned
 TIU GET RECORD TEXT | pilot-ready | live read-back signed on as PROV123 of note 6 matches the note lines row for row after the header (only a wrap-boundary space or hard cut tolerated), each wrapped line within WRAP_WIDTH (80 bytes) | unproven: none
 TIU UNLOCK RECORD | pilot-ready | live capture signed on as PROV123 returned 0 on note 6; ProgressNote.unlock reads it as true | unproven: none
 TIU SIGN RECORD | not-proven | seed gap: NEW PERSON field 20.4 (electronic signature code) is empty for PROVIDER,TEST (DUZ 200, the PROV123 persona) on this build, so a live sign signed on as PROV123 is refused with 89250005 "incorrect Electronic Signature Code"; the fixture stays routine-cite | unproven: success
+
+# Referral write-back status on bcer-9.0-20261012-e7923a4-ydb (issue #722, slice of lakeraven-ehr#993).
+# Synthetic referral 1 (ACTIVE, no EHR referral link), live-verified signed on as PROV123 and PMD123 by
+# test/live/referral_follow_up_live_test.rb and test/live/referral_status_live_test.rb (writes, restores;
+# disposable container only). As for the AG writes, a write is proven by its read-back (DDR GETS ENTRY
+# DATA / DDR LISTER in the caller's option), never by its reply. No committed wire-capture fixture yet:
+# rake wire:capture_writes knows only scheduling and TIU, so a referral capture flow is the rest of #722.
+# Live findings behind green tests:
+#  - UPDTSTRF^BMCRPC3 files .15 through FILE^DIE without the E flag, so any string files ("H" did).
+#    Referral.record_status refuses a code outside A, A1, C1, X before anything is sent.
+#  - UPDTSTRF does not NEW ERR1: after one failed update in a broker session, every later reply is that
+#    same "~`0^Error updating referral:..." while the new status files. Referral.update_status and
+#    Referral.cancel read the reply and so can report a filed change as failed; record_status decides
+#    by reading .15 back.
+#  - In an option without the RPC (OR CPRS GUI CHART) the broker answers "Access denied for remote
+#    procedure" and the client raises Client::RpcRefusedError; .15 is unchanged.
+#  - UPDREFRL^BMCRPC2 takes 36 actuals with RSLT, over YottaDB's 32 (%YDB-E-MAXACTARG, proven live);
+#    record_follow_up sends 31. An unknown IEN is refused (:not_found) before the write.
+# One line per RPC: RPC | status | reason | unproven: <fields or none>
+
+BMC UPDATE REFERRAL | partial | Referral.record_follow_up signed on as PROV123 filed 1106 = 3261204.093 (12/4/2026 09:30) and one CASE note (#90001.03 type C) on referral 1, read back through DDR GETS ENTRY DATA and DDR LISTER with the INCLUDE flags (401-412), 1302, .04, .06 and .14 unchanged; a closed referral and an unknown IEN are typed refusals before the call; no committed capture fixture; referrals linked to an EHR referral (1303) or with several SNOMED CT terms are refused, not written | unproven: capture fixture
+BMC REFERRAL STATUS UPDATE | partial | Referral.record_status signed on as PROV123 filed .15 A -> A1 -> A on referral 1, each read back; after a failed update in the same session the reply was the stale "~`0^..." while A1 filed, and record_status reported success from the read-back; the wrong option raises RpcRefusedError with .15 unchanged; update_status and cancel still trust the reply; no committed capture fixture | unproven: capture fixture, update_status and cancel replies
