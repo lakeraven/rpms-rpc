@@ -24,8 +24,8 @@ module RpmsRpc
     SIGN_ON_KEYS = %w[RPMS_ACCESS RPMS_VERIFY PROV123_ACCESS PROV123_VERIFY SYS123_ACCESS SYS123_VERIFY].freeze
     LIVE_PERSONAS = %w[PROV123 SYS123].freeze
     DEVELOPMENT_PERSONAS = %w[PROV123].freeze
-    IMAGE_REPOSITORY = "ghcr.io/lakeraven/rpms-ydb"
-    OPS_RELEASES = "repos/lakeraven/rpms-ops/releases"
+    IMAGE_REPOSITORY = "ghcr.io/lakeraven/openrpms"
+    OPS_RELEASES = "repos/lakeraven/openrpms/releases"
     CONTAINER_PORT = 9100
     # The image's BMX broker: a CIA spec that registers a patient runs its duplicate lookup over BMX (#609).
     BMX_CONTAINER_PORT = 9101
@@ -743,7 +743,7 @@ module RpmsRpc
       end
     end
 
-    # `gh api repos/lakeraven/rpms-ops/releases`, then ReleaseChoice. When
+    # `gh api repos/lakeraven/openrpms/releases`, then ReleaseChoice. When
     # that list cannot be read, NoRelease is raised with the gh error and a
     # dry run fails closed. The image ref is the lock's `image:` for that
     # tag when the lock pins it, otherwise the same repository the lock uses,

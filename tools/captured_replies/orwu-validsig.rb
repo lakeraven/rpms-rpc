@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# ORWU VALIDSIG as PROFILE,MA, whose demo signature code SEEDPERS files (rpms-ops
+# ORWU VALIDSIG as PROFILE,MA, whose demo signature code SEEDPERS files (openrpms
 # reconciliation/shared/SEEDPERS.m, published like the sign-on pairs). rpms-rpc#601.
 CAPTURE = {
   rpc: "ORWU VALIDSIG", entry_point: "VALIDSIG^ORWU",

@@ -2,14 +2,14 @@
 
 # The OpenAPI documents (rpms-rpc#395): the RPC surface of a pinned build, and the gem's client API.
 #
-#   rake openapi:pin     RELEASE=<rpms-ops tag>   pin that release's <tag>-rpcs.json (and the schema it names), read
+#   rake openapi:pin     RELEASE=<openrpms tag>   pin that release's <tag>-rpcs.json (and the schema it names), read
 #                                                 over REST (gh api); needs conformance:pin RELEASE= first, whose
 #                                                 lock gives the full build commit the header's short one abbreviates
 #   rake openapi:surface [OUT=pkg/openapi/rpc-surface.openapi.json]
 #   rake openapi:api     [METHODS=<rake rpc:api_coverage JSON>] [OUT=pkg/openapi/client-api.openapi.json]
 #   rake openapi         surface + api, into pkg/openapi/
 #
-# The surface reads ONE rpms-ops file, the pinned <tag>-rpcs.json (rpms-ops#732), and only after it is
+# The surface reads ONE openrpms file, the pinned <tag>-rpcs.json (openrpms#732), and only after it is
 # proven offline: its sha256 is the pin's, its schema field (rpcs.v1 or rpcs.v2) is the pinned schema's,
 # and it validates against that schema (tools/openapi/rpcs_pin.rb). The API document runs rpc:api_coverage's analysis in process
 # unless METHODS= names a file it wrote; its build is the one data/rpc_coverage/config.yml names. Each
@@ -44,9 +44,9 @@ namespace :openapi do
     abort "openapi:pin: #{what} is not valid JSON: #{e.message[0, 120]}"
   end
 
-  desc "Pin a release's <tag>-rpcs.json for openapi:surface: RELEASE=<rpms-ops tag> [REPO=lakeraven/rpms-ops]. " \
+  desc "Pin a release's <tag>-rpcs.json for openapi:surface: RELEASE=<openrpms tag> [REPO=lakeraven/openrpms]. " \
        "Downloads it over REST (gh api), checks the release asset digest against the sha256 conformance:pin locked, checks the bytes against it, resolves its header commit to the " \
-       "full commit rake conformance:pin locked for the tag, fetches the rpms-ops schema its `schema` field names " \
+       "full commit rake conformance:pin locked for the tag, fetches the openrpms schema its `schema` field names " \
        "(rpcs.v1, rpcs.v2) at that commit, validates, and writes data/openapi/rpcs.lock.yml. Run conformance:pin first."
   task :pin do
     load_tool.("rpcs_pin")
@@ -54,7 +54,7 @@ namespace :openapi do
     require "open3"
     require "tmpdir"
     pin = OpenApi::RpcsPin
-    tag = ENV["RELEASE"] or abort "openapi:pin requires RELEASE=<rpms-ops release tag>"
+    tag = ENV["RELEASE"] or abort "openapi:pin requires RELEASE=<openrpms release tag>"
     abort "refusing RELEASE with unsafe characters: #{tag.inspect}" unless tag.match?(/\A[A-Za-z0-9._-]+\z/)
     repo = ENV["REPO"] || pin::REPO
     abort "refusing REPO that is not owner/name: #{repo.inspect}" unless repo.match?(%r{\A[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\z})
@@ -84,7 +84,7 @@ namespace :openapi do
       commit = pin.build_commit(header["commit"], tag: tag, root: root)
       abort "openapi:pin: #{asset} has schema #{name.inspect}, not one of #{pin::SCHEMAS.join(', ')}" unless pin::SCHEMAS.include?(name)
 
-      # The schema the file names, at the commit that built it: what rpms-ops validated it against.
+      # The schema the file names, at the commit that built it: what openrpms validated it against.
       source = pin.schema_source_path(name)
       schema, status = Open3.capture2("gh", "api", "-H", "Accept: application/vnd.github.raw", "repos/#{repo}/contents/#{source}?ref=#{commit}")
       abort "openapi:pin: cannot fetch #{source} at #{repo}@#{commit}" unless status.success? && !schema.empty?
@@ -99,7 +99,7 @@ namespace :openapi do
       lock = { "repo" => repo, "tag" => tag, "asset" => asset, "sha256" => digest, "schema" => name,
                "schema_source" => "#{repo}@#{commit}:#{source}", "schema_sha256" => pin.sha256(File.join(root, pin.schema_file(name))) }
       File.write(File.join(root, pin::LOCK),
-                 "# The rpms-ops build whose <tag>-rpcs.json `rake openapi:surface` reads (rpms-rpc#395) - written by\n" \
+                 "# The openrpms build whose <tag>-rpcs.json `rake openapi:surface` reads (rpms-rpc#395) - written by\n" \
                  "# `rake openapi:pin`; do not hand-edit. test/openapi/pinned_documents_test.rb checks the bytes against it.\n" +
                  YAML.dump(lock))
     end

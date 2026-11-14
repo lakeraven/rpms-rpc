@@ -14,7 +14,8 @@ module RpmsRpc
         /\A\*+\z/,
         /\A-+\z/,
         /\A000-00-0000\z/,
-        /\A<none>\z/i
+        /\A<none>\z/i,
+        /\AUNKNOWN\z/i # only the whole value; "unknown allergen" is real text
       ].freeze
 
       module_function

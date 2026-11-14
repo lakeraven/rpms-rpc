@@ -6,7 +6,7 @@ require "yaml"
 require "rpms_rpc/conformance/inventory_lock"
 
 # Real inputs for the tests of the RPC-surface reader and its callers (rpms-rpc#406): records taken
-# from the pinned build's own <tag>-rpcs.json, as rpms-ops published it, written into a temp dir with
+# from the pinned build's own <tag>-rpcs.json, as openrpms published it, written into a temp dir with
 # at most the one change a test is about. No record here is hand-written.
 module PinnedRpcsTestHelper
   ROOT = File.expand_path("../..", __dir__)

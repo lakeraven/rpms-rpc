@@ -9,7 +9,7 @@ class RegistrationSafetyTest < Minitest::Test
   Reg = RpmsRpc::Registration
   Agg = RpmsRpc::Agg
   Ddr = RpmsRpc::DdrFileman
-  # A reason for no SSN: AG cannot check a registration with neither (rpms-ops#1040).
+  # A reason for no SSN: AG cannot check a registration with neither (openrpms#1040).
   ATTRS = { name: "DEMOPATIENT,UNA", dob: Date.new(1990, 1, 2), sex: "F", no_ssn_reason: "N" }.freeze
   # HDR/LST2^AGGPTLKP: name OR DOB candidates, no sex column.
   HEADER = "I00010DFN^T00030PATIENT_NAME^T00030HRN^T00009SSN^D00030DOB^D00030DOD^T00003SENS_FLAG^T01024ALIAS^T00001INACTIVE"

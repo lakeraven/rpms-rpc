@@ -8,11 +8,11 @@ require "rpms_rpc/conformance/inventory_lock"
 require_relative "../../tools/rpc_coverage/rpc_coverage"
 require_relative "../../tools/api_coverage/api_coverage"
 
-# Every RPC the gem sends must be CALLABLE on every pinned rpms-ops build (rpms-rpc#394).
+# Every RPC the gem sends must be CALLABLE on every pinned openrpms build (rpms-rpc#394).
 #
 # "Registered" (registered_rpc_names_test.rb) passed while BMC ADD SECONDARY REFERRAL could not be
-# called: its #8994 entry names a label that does not exist (rpms-ops#653). rpms-ops now publishes,
-# per release, whether each registered RPC is callable (each record's reach in <tag>-rpcs.json, rpms-ops#713, #732), and
+# called: its #8994 entry names a label that does not exist (openrpms#653). openrpms now publishes,
+# per release, whether each registered RPC is callable (each record's reach in <tag>-rpcs.json, openrpms#713, #732), and
 # `rake conformance:pin` commits it under data/inventories/<tag>/. This test reads it through
 # RpmsRpc::Conformance::BuildSurface and holds every RPC the gem sends to it:
 #
@@ -58,7 +58,7 @@ class CallableRpcNamesTest < Minitest::Test
   end
 
   def test_every_pinned_build_has_its_reach_face
-    refute_empty surfaces, "no rpms-ops build pinned in #{LOCK.path}"
+    refute_empty surfaces, "no openrpms build pinned in #{LOCK.path}"
     surfaces.each do |tag, surface|
       assert surface.reach?, "#{tag}: no rpcs.json pinned; re-pin it (rake conformance:pin RELEASE=#{tag})"
       assert_equal surface.names.size, surface.rpcs.count(&:reach), "#{tag}: every registered RPC has a reach class"
@@ -94,7 +94,7 @@ class CallableRpcNamesTest < Minitest::Test
     end
     assert_empty problems,
                  "#{problems.size} RPC(s) the gem sends are not callable (client-callable or broker-exempt) " \
-                 "on a pinned rpms-ops build:\n  #{problems.join("\n  ")}"
+                 "on a pinned openrpms build:\n  #{problems.join("\n  ")}"
   end
 
   # An exception names a pinned build, an RPC the gem still sends that is still uncallable there in

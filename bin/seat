@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run one Cursor-hosted factory seat, named by its ROLE, on a brief file.
+# Run one factory seat, named by its ROLE, on a brief file.
 #
 #   bin/seat <role> <brief-file>
 #   bin/seat probe
@@ -10,16 +10,31 @@
 #   build-hard   the same, for auth, credentials, money, PHI, concurrency
 #   gate         reviewer 1, read-only                (a different vendor from build)
 #   gate2        reviewer 2, read-only                (a third vendor, when one is available)
-#   probe        is the gate2 seat reachable? (no brief)
+#   probe        is a gate2 seat reachable? (no brief)
 #
-# When Cursor is out of usage the seat cannot run. The script then prints one line,
-#   SEAT_FALLBACK role=<role> model=<opus|sonnet|fable>
-# and exits 75. The caller plays that role itself with a fresh native Claude subagent on
-# that model (read-only for gate and gate2), and its panel record says the seats were
-# native: one vendor, not the cross-vendor panel. Any other failure is passed through.
+# Each role has a CHAIN: provider:model links tried left to right. A link that is
+# unavailable (CLI missing, signed out, out of usage, or a provider-side failure) passes the
+# role to the next link. The first link that answers is the seat; its output is streamed,
+# its last line is
+#   SEAT_VENDOR role=<role> vendor=<vendor> cli=<provider> model=<model>
+# and the exit is 0. A run that fails for any other reason (a timeout, a crash) keeps its
+# own exit code and the chain stops there.
 #
-# Prompts, allow rules and docs say the role only. The model behind a role is named in ONE
-# place, the table below, so swapping a model is a one-line change here and nothing else.
+# Providers:
+#   cursor:<model>   the Cursor agent CLI ($HOME/.local/bin/agent), sandboxed
+#   codex:<model>    the Codex CLI, read-only and ephemeral, without the user's config;
+#                    "codex:default" uses the CLI's default model. Read-only, so it is
+#                    allowed only in the gate and gate2 chains
+#   native:<model>   the caller plays the role itself with a fresh Claude subagent on that
+#                    model (read-only for gate and gate2). bin/seat prints
+#                      SEAT_FALLBACK role=<role> model=<model>
+#                    and exits 75. Put it last: nothing after it is tried.
+# A chain that runs out without a native link exits 69.
+#
+# The chains live in ONE place: the table below, or etc/seats.conf when that file exists.
+# Prompts, allow rules and docs say the role only, so swapping a model or a provider is a
+# one-line change there and nothing else. etc/seats.conf is parsed, never sourced: one line
+# per role, "<role> <link> [<link> ...]", '#' starts a comment.
 #
 # Why this exists: cloud sessions allow `Bash(bin/seat <role>:*)` in
 # .claude/settings.json. A seat call composed by hand (cd ... &&, a heredoc,
@@ -27,68 +42,125 @@
 # refuses it. Write the brief to a file, then run this as its own Bash call.
 #
 # The brief is passed as the agent's prompt. This script never prints
-# environment values; the agent reads CURSOR_API_KEY itself.
+# environment values; each CLI reads its own credentials.
 #
-# Every seat runs SANDBOXED (--sandbox enabled), the same posture as
-# bin/agent-timed. --trust only skips the workspace prompt; it does not lift the
-# sandbox, and -f (force) is not passed. A seat that needs the host (a test
-# the sandbox blocks, such as Socket.ip_address_list) reports it; the worker
-# re-runs that check itself. Do not add an unsandboxed mode here: this script
-# sits behind an allow rule, so whatever it runs, every cloud session can run.
+# Every seat runs SANDBOXED: Cursor with --sandbox enabled (the same posture as
+# bin/agent-timed; --trust only skips the workspace prompt, -f is not passed), Codex with
+# --sandbox read-only. A seat that needs the host (a test the sandbox blocks, such as
+# Socket.ip_address_list) reports it; the worker re-runs that check itself. Do not add an
+# unsandboxed mode here: this script sits behind an allow rule, so whatever it runs, every
+# cloud session can run. Send only synthetic data to any seat.
 set -euo pipefail
 
-# ---- the only place a model is named (and its time limit, in seconds) -------------------
-model_spec=composer-2.5;        secs_spec=1200
-model_build=grok-4.7-high;      secs_build=2400
-model_build_hard=grok-4.7-xhigh; secs_build_hard=2400
-model_gate=composer-2.5;        secs_gate=1200
-model_gate2=glm-5.2-high;       secs_gate2=1200
-# Native fallbacks, used only when Cursor answers that it is out of usage. build-hard and
-# gate2 share opus, so a caller whose build-hard fell back skips the gate2 fallback rather
-# than have a model review its own build.
-fallback_spec=fable
-fallback_build=sonnet
-fallback_build_hard=opus
-fallback_gate=fable
-fallback_gate2=opus
+# ---- the only place a model is named (default chains, and time limits in seconds) --------
+chain_spec="cursor:composer-2.5 native:fable";          secs_spec=1200
+chain_build="cursor:grok-4.7-high native:sonnet";       secs_build=2400
+chain_build_hard="cursor:grok-4.7-xhigh native:opus";   secs_build_hard=2400
+chain_gate="cursor:composer-2.5 native:fable";          secs_gate=1200
+chain_gate2="codex:gpt-5.6-terra cursor:glm-5.2-high native:opus"; secs_gate2=1200
+# build-hard and gate2 both end in native opus, so a caller whose build-hard fell back skips
+# the gate2 fallback rather than have a model review its own build.
+# Reasoning effort for Codex links (--ignore-user-config drops the user's setting).
+effort_codex=high
 # -----------------------------------------------------------------------------------------
 
-agent="$HOME/.local/bin/agent"
+conf=etc/seats.conf
+if [ -f "$conf" ] && [ ! -L "$conf" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    read -r r links <<<"$line" || true
+    [ -n "${r:-}" ] || continue
+    case "$r" in spec|build|build-hard|gate|gate2) ;; *) echo "bin/seat: $conf: unknown role: $r" >&2; exit 78 ;; esac
+    for l in $links; do
+      [[ "$l" =~ ^(cursor|codex|native):[A-Za-z0-9._-]+$ ]] || { echo "bin/seat: $conf: bad link for $r: $l" >&2; exit 78; }
+      case "$r:$l" in gate:codex:*|gate2:codex:*) ;; *:codex:*) echo "bin/seat: $conf: codex is read-only, not allowed for $r" >&2; exit 78 ;; esac
+    done
+    [ -n "$links" ] || { echo "bin/seat: $conf: empty chain for $r" >&2; exit 78; }
+    printf -v "chain_${r//-/_}" '%s' "$links"
+  done <"$conf"
+fi
+
 usage() { sed -n '2,/^# Why this exists/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//' >&2; exit 64; }
 
-[ -x "$agent" ] || { echo "bin/seat: $agent is missing or not executable" >&2; exit 69; }
-
-role="${1:-}"
-# Run the agent, streaming its output, and turn Cursor's out-of-usage answer into the
-# fallback line. The CLI reports it as ActionRequiredError ("You're out of usage" /
-# "usage limit") and exits non-zero. Only a FAILED run that says so maps to a fallback: a
-# seat that succeeds while quoting that text (a gate reviewing this script) keeps its
-# success, and any other failure keeps its own exit code.
+cursor_agent="$HOME/.local/bin/agent"
 seat_out=""
 trap 'rm -f "$seat_out"' EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
-run_seat() {
-  local role=$1 fallback=$2
-  shift 2
-  local rc=0
-  seat_out="$(mktemp)"
-  "$@" 2>&1 | tee "$seat_out" || rc=$?
-  if [ "$rc" -ne 0 ] && grep -q 'ActionRequiredError' "$seat_out" &&
-    grep -Eqi "out of usage|usage limit" "$seat_out"; then
-    echo "SEAT_FALLBACK role=$role model=$fallback"
-    exit 75
-  fi
-  exit "$rc"
+
+vendor_of() {
+  case "$1" in
+    composer*) echo cursor ;;   grok*) echo xai ;;       glm*) echo zhipu ;;
+    kimi*) echo moonshot ;;     gemini*) echo google ;;  gpt*|o[0-9]*|default) echo openai ;;
+    claude*|fable*|opus*|sonnet*|haiku*) echo anthropic ;;
+    *) echo unknown ;;
+  esac
 }
 
+# Each provider runs one link. Return 0 when it answered, 75 when the provider is unavailable
+# (try the next link), anything else for a real failure.
+provider_cursor() { # <model> <secs> <prompt>
+  [ -x "$cursor_agent" ] || return 75
+  local rc=0
+  seat_out="$(mktemp)"
+  timeout "$2" "$cursor_agent" -p --trust --sandbox enabled --model "$1" "$3" 2>&1 | tee "$seat_out" || rc=$?
+  # Only a FAILED run that reports Cursor's out-of-usage error is "unavailable": a seat that
+  # succeeds while quoting that text (a gate reviewing this script) keeps its success.
+  if [ "$rc" -ne 0 ] && grep -q 'ActionRequiredError' "$seat_out" &&
+    grep -Eqi "out of usage|usage limit" "$seat_out"; then
+    rc=75
+  fi
+  rm -f "$seat_out"
+  return "$rc"
+}
+
+provider_codex() { # <model> <secs> <prompt>
+  command -v codex >/dev/null 2>&1 || return 75
+  local rc=0 model=()
+  [ "$1" = default ] || model=(--model "$1")
+  timeout "$2" codex exec --sandbox read-only --skip-git-repo-check --ignore-user-config \
+    --ephemeral -c model_reasoning_effort="$effort_codex" "${model[@]}" "$3" </dev/null || rc=$?
+  # Codex reports a signed-out CLI, a refused model or a provider error with exit 1, which hands
+  # the role on. A timeout (124), a signal (128+n) or any other exit is a real failure.
+  [ "$rc" -ne 1 ] || rc=75
+  return "$rc"
+}
+
+run_chain() { # <role> <secs> <prompt>
+  local role=$1 secs=$2 prompt=$3 var="chain_${1//-/_}" link provider model rc
+  for link in ${!var}; do
+    provider=${link%%:*} model=${link#*:}
+    case "$provider" in
+      native)
+        echo "SEAT_FALLBACK role=$role model=$model"
+        exit 75 ;;
+      cursor|codex)
+        case "$role:$provider" in
+          gate:codex|gate2:codex|*:cursor) ;;
+          *) echo "bin/seat: codex is read-only, not allowed for $role" >&2; exit 78 ;;
+        esac
+        rc=0
+        "provider_$provider" "$model" "$secs" "$prompt" || rc=$?
+        if [ "$rc" -eq 0 ]; then
+          echo "SEAT_VENDOR role=$role vendor=$(vendor_of "$model") cli=$provider model=$model"
+          exit 0
+        fi
+        [ "$rc" -eq 75 ] || exit "$rc"
+        echo "bin/seat: $role on $link unavailable; trying the next link" >&2 ;;
+    esac
+  done
+  echo "bin/seat: no seat in the $role chain is available" >&2
+  exit 69
+}
+
+role="${1:-}"
 case "$role" in
-  spec)       model=$model_spec;       secs=$secs_spec;       fallback=$fallback_spec ;;
-  build)      model=$model_build;      secs=$secs_build;      fallback=$fallback_build ;;
-  build-hard) model=$model_build_hard; secs=$secs_build_hard; fallback=$fallback_build_hard ;;
-  gate)       model=$model_gate;       secs=$secs_gate;       fallback=$fallback_gate ;;
-  gate2)      model=$model_gate2;      secs=$secs_gate2;      fallback=$fallback_gate2 ;;
-  probe)      run_seat gate2 "$fallback_gate2" timeout 120 "$agent" -p --trust --sandbox enabled --model "$model_gate2" 'Reply with exactly: PROBE_OK' ;;
+  spec)       secs=$secs_spec ;;
+  build)      secs=$secs_build ;;
+  build-hard) secs=$secs_build_hard ;;
+  gate)       secs=$secs_gate ;;
+  gate2)      secs=$secs_gate2 ;;
+  probe)      run_chain gate2 120 'Reply with exactly: PROBE_OK' ;;
   *)          usage ;;
 esac
 
@@ -119,5 +191,5 @@ case "/$rel" in */.*) brief_refused "a hidden path component" ;; esac
 # The prompt starts with a fixed line so a brief that begins with "-" can never be read as an
 # option (a brief of "--sandbox=..." must stay prompt text).
 prompt="$(printf 'Brief (the whole task follows):\n\n'; cat -- "$resolved")"
+run_chain "$role" "$secs" "$prompt"
 
-run_seat "$role" "$fallback" timeout "$secs" "$agent" -p --trust --sandbox enabled --model "$model" "$prompt"

@@ -9,20 +9,20 @@ require "rpms_rpc/conformance/ingest"
 
 module RpmsRpc
   module Conformance
-    # The RPC signature of an rpms-ops build, consumed as a PINNED DEPENDENCY (rpms-rpc#160, #222, #406).
+    # The RPC signature of an openrpms build, consumed as a PINNED DEPENDENCY (rpms-rpc#160, #222, #406).
     #
-    # rpms-ops attaches to every gated release tag the RPC surface that build serves, captured from the
-    # gate's own container and bound to the artifact digest (rpms-ops bin/release_inventory.sh,
+    # openrpms attaches to every gated release tag the RPC surface that build serves, captured from the
+    # gate's own container and bound to the artifact digest (openrpms bin/release_inventory.sh,
     # bin/release_rpcs_json.rb), plus the build record naming the commit it was cut from. This pin
     # takes the one document of that surface and the faces it does not carry:
     #
     #   <tag>-rpcs.json                  the RPC surface: one record per registered RPC (entry point,
     #                                    #8994 codes, parameters, package, reach), and the sha256 of
-    #                                    each raw file it was projected from (rpms-ops#732)
+    #                                    each raw file it was projected from (openrpms#732)
     #   <tag>-packages_9_4.txt           PREFIX^NAME^VERSION per installed package (the fingerprint's
     #                                    packages face: rpcs.json names only packages that own an RPC)
     #   <tag>-contexts_19_05.txt         one row per #19.05 entry, tab-separated under its header:
-    #                                    OPTION TYPE LOCK RPC RPC_KEY RPC_RULES (rpms-ops#626, #416)
+    #                                    OPTION TYPE LOCK RPC RPC_KEY RPC_RULES (openrpms#626, #416)
     #   <tag>-INVENTORY-PROVENANCE.json  engine, artifact binding, per-dump sha256 + counts, tool sha,
     #                                    the reach face's sha256 + class counts, the image digest
     #   <tag>-INVENTORY.sha256           sidecar over the raw inventory files (shasum -c shape)
@@ -44,9 +44,9 @@ module RpmsRpc
     # The committed files are READ through BuildSurface, the one reader of them (#394, #395, #406).
     class InventoryLock
       DEFAULT_PATH = "rpms-ops.lock.yml"
-      DEFAULT_REPO = "lakeraven/rpms-ops"
+      DEFAULT_REPO = "lakeraven/openrpms"
       # The surface document, the packages and contexts faces, and the provenance. A release published
-      # before rpms-ops#732 has no rpcs.json, and one before rpms-ops#626 no contexts face: neither can be
+      # before openrpms#732 has no rpcs.json, and one before openrpms#626 no contexts face: neither can be
       # pinned until re-gated.
       ASSET_SUFFIXES = %w[rpcs.json packages_9_4.txt contexts_19_05.txt INVENTORY-PROVENANCE.json].freeze
       RPCS_SUFFIX = "rpcs.json"
@@ -57,7 +57,7 @@ module RpmsRpc
       SIDECAR_SUFFIX = "INVENTORY.sha256"
       BUILD_RECORD_SUFFIX = "PROVENANCE.json"
       ENGINES = %w[iris yottadb].freeze
-      # A build tag: bcer-<RPMS version>-<yyyymmdd>-<rpms-ops short commit>-<engine>.
+      # A build tag: bcer-<RPMS version>-<yyyymmdd>-<openrpms short commit>-<engine>.
       TAG = /\A(?<rpms_version>bcer-\d+\.\d+)-(?<date>\d{8})-(?<short_commit>[0-9a-f]{7,40})-(?<engine>ydb|iris)\z/
       # ^DD(8994,.06): 1 INACTIVE, 2 LOCAL INACTIVE (ACTIVE REMOTELY) block a local broker call;
       # 0 ACTIVE and 3 REMOTE INACTIVE (ACTIVE LOCALLY) do not.
@@ -195,10 +195,10 @@ module RpmsRpc
       end
 
       # The reach and signature faces the provenance describes, and the image a -ydb release pins
-      # (rpms-ops#727), whose digest is the artifact's.
+      # (openrpms#727), whose digest is the artifact's.
       def self.face_problems(provenance)
         problems = %w[rpc_reach rpc_signatures].filter_map do |key|
-          "provenance has no #{key} face (published before rpms-ops#713? re-gate the release)" unless provenance[key].is_a?(Hash)
+          "provenance has no #{key} face (published before openrpms#713? re-gate the release)" unless provenance[key].is_a?(Hash)
         end
         image = provenance["image"]
         if image.is_a?(Hash) && image["digest"] != provenance["artifact_sha256"]
@@ -279,8 +279,8 @@ module RpmsRpc
       end
 
       def save
-        header = "# rpms-ops builds whose RPC signature rpms-rpc conforms to - written by `rake conformance:pin`; do not hand-edit.\n" \
-                 "# Each entry pins the RPC-surface document (rpcs.json), #9.4 and #19.05 faces and build record lakeraven/rpms-ops attaches to that release\n" \
+        header = "# openrpms builds whose RPC signature rpms-rpc conforms to - written by `rake conformance:pin`; do not hand-edit.\n" \
+                 "# Each entry pins the RPC-surface document (rpcs.json), #9.4 and #19.05 faces and build record lakeraven/openrpms attaches to that release\n" \
                  "# (sha256 per asset; the bytes are committed under data/inventories/<tag>/), and names the fingerprint\n" \
                  "# ingested from exactly those bytes. test/rpms_rpc/pinned_build_signature_test.rb checks all three agree.\n"
         sorted = { "repo" => repo, "releases" => entries.sort.to_h }

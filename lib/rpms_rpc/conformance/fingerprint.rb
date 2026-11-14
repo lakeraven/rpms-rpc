@@ -11,7 +11,7 @@ module RpmsRpc
     # fixture). Schema per docs/conformance/SPEC.md:
     #
     #   backend:    iris_rpms | yottadb_rpms | yottadb_vista | worldvista
-    #               (yottadb_rpms = IHS RPMS on YottaDB, lineage rpms — the rpms-ops -ydb line)
+    #               (yottadb_rpms = IHS RPMS on YottaDB, lineage rpms — the openrpms -ydb line)
     #   lineage:    rpms | vista | worldvista
     #   release:    set on reference fingerprints (e.g. "bcer-8.0"); nil on
     #               probed targets

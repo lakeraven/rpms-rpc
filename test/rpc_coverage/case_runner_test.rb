@@ -4,7 +4,7 @@ require "minitest/autorun"
 require "tempfile"
 require_relative "../../tools/rpc_coverage/case_runner"
 
-# rake rpc:cases: rpms-ops' wire-level cases (rpms-ops#834), read as data and run through
+# rake rpc:cases: openrpms' wire-level cases (openrpms#834), read as data and run through
 # call_rpc_raw. Offline: a fake client answers with raw CIA replies (seq echo, flag, body).
 class CaseRunnerTest < Minitest::Test
   Cases = RpcCoverage::Cases

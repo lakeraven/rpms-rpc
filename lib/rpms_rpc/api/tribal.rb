@@ -13,7 +13,7 @@ module RpmsRpc
   #
   # Files and fields (file numbers verified against the FOIA data
   # dictionary; #9000001 field numbers against the live DD cited in
-  # rpms-ops docs/REGISTRATION_RPC_CONTRACTS.md §5 and the AG field maps,
+  # openrpms docs/REGISTRATION_RPC_CONTRACTS.md §5 and the AG field maps,
   # AGED1.m/AGED2.m):
   #
   #   #9000001    IHS PATIENT (^AUPNPAT)

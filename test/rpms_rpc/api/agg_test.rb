@@ -151,7 +151,7 @@ class AggTest < Minitest::Test
     assert_equal({ valid: true }, Agg.validate_field(window: Agg::NEW_PATIENT_WINDOW, params: { "AGGNOSSN" => "R" }))
   end
 
-  # The validator errored (rpms-ops#1040): the reply carries the header and no row.
+  # The validator errored (openrpms#1040): the reply carries the header and no row.
   def test_validate_field_is_nil_when_rpms_gives_no_result_row
     seed_validation("")
 

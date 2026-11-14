@@ -27,7 +27,7 @@ module RpmsRpc
   # - An entry is closed by .07 DATE REMOVED FROM LIST.
   #
   # COMMENTS (field 1, the word-processing subfile #9009017.111) is read with
-  # DDR GETS ENTRY DATA and filed with DDR FILER (rpms-rpc#641, rpms-ops#1083).
+  # DDR GETS ENTRY DATA and filed with DDR FILER (rpms-rpc#641, openrpms#1083).
   # A FileMan word-processing value is the name of an array, and FILEC^DDR3
   # holds one in scope in EDIT mode: its fourth parameter, DDRIENS, otherwise
   # unused there. So the field's value is the text "DDRIENS" and the lines go

@@ -45,8 +45,8 @@ class SchedulingSetupTest < Minitest::Test
   def test_access_types_carry_their_flags_and_are_read_in_ciav_vuecentric
     client = use([ "[Data]", "1^DEMO GENERAL^0^", "2^LIVE SPEC PREVENTS^0^1" ])
 
-    assert_equal [ { id: 1, name: "DEMO GENERAL", inactive: false, prevent_access: false },
-                   { id: 2, name: "LIVE SPEC PREVENTS", inactive: false, prevent_access: true } ],
+    assert_equal [ { id: 1, name: "DEMO GENERAL", inactive: false, prevent_access: false, color: nil },
+                   { id: 2, name: "LIVE SPEC PREVENTS", inactive: false, prevent_access: true, color: nil } ],
                  RpmsRpc::SchedulingSetup.access_types
     assert_equal [ [ "DDR LISTER", "CIAV VUECENTRIC", "9002018.35" ] ], client.calls.map { |c| [ c[:rpc], c[:context], c[:param]["FILE"] ] }
   end

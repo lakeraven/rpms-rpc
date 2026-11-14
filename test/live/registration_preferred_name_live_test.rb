@@ -6,7 +6,7 @@ require "rpms_rpc/api/ddr_fileman"
 require "rpms_rpc/api/patient"
 
 # The preferred name (rpms-ux S-REG-12.1): #9000001 9001, filed through DDR
-# FILER inside AG's edit lock (rpms-ops#1059), read back through FileMan, and
+# FILER inside AG's edit lock (openrpms#1059), read back through FileMan, and
 # found by a patient search through the field's BPRF cross-reference. AGG
 # LOOKUP PATIENTS uppercases what it is given, so only an uppercase preferred
 # name is found by search; the gem files the case it is given, as SETPREF does.

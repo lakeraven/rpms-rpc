@@ -13,11 +13,11 @@ The same inputs give byte-identical output: nothing in either document is a time
 
 ## Where the facts come from
 
-**The surface** reads ONE rpms-ops file: the pinned build's `<tag>-rpcs.json` (rpms-ops#732), the structured view rpms-ops projects from a release's raw inventory files.
+**The surface** reads ONE openrpms file: the pinned build's `<tag>-rpcs.json` (openrpms#732), the structured view openrpms projects from a release's raw inventory files.
 `rake openapi:pin RELEASE=<tag>` pins it the way `conformance:pin` pins the raw files:
 - it reads the release over REST (`gh api`), refuses unless the asset's digest is the sha256 `conformance:pin` locked for it, and downloads the file, checking the bytes against that digest (published releases only);
 - it resolves the file's header commit (7 to 40 hex) to the full build commit `conformance:pin` locked for the tag in `data/fingerprints/rpms-ops.lock.yml`, and refuses if the lock is silent or disagrees, so run `conformance:pin` first;
-- it fetches the rpms-ops `releases/schema/<schema>.schema.json` the file's `schema` field names (`rpcs.v1` or `rpcs.v2`) at that commit;
+- it fetches the openrpms `releases/schema/<schema>.schema.json` the file's `schema` field names (`rpcs.v1` or `rpcs.v2`) at that commit;
 - it validates the file and commits both under `data/openapi/`, with `data/openapi/rpcs.lock.yml` recording the tag, the sha256 of each, and the schema's source.
 
 Before anything is read, `openapi:surface` proves the pin offline:
@@ -29,10 +29,10 @@ Before anything is read, `openapi:surface` proves the pin offline:
 It reads the file through `RpmsRpc::Conformance::BuildSurface.from_rpcs_json`, the one reader of the build's surface (#394, #406).
 
 **rpcs.v1 and rpcs.v2.**
-A release keeps the schema it was published with: `bcer-9.0-20261012-e7923a4-ydb`, the build pinned now, publishes rpcs.v1, and releases gated after rpms-ops#877 publish rpcs.v2.
+A release keeps the schema it was published with: `bcer-9.0-20261012-e7923a4-ydb`, the build pinned now, publishes rpcs.v1, and releases gated after openrpms#877 publish rpcs.v2.
 `openapi:pin` fetches the schema the file's `schema` field names, at the build's own commit, and the lock records which (`schema`).
 rpcs.v2 adds #8994's text, kept as stored (each byte is the Latin-1 code point of its value).
-From an rpcs.v2 file the surface is the document the raw files give, field for field: on 1012, a v2 file regenerated with rpms-ops#877's generator gives a document byte-identical to the one from the raw files.
+From an rpcs.v2 file the surface is the document the raw files give, field for field: on 1012, a v2 file regenerated with openrpms#877's generator gives a document byte-identical to the one from the raw files.
 
 **What rpcs.v1 does not carry.**
 It has no #8994 text and none of a few #8994 fields, so the surface leaves out what it would otherwise take from them:
@@ -74,9 +74,9 @@ To attach them to an existing release, run the workflow by hand with that tag.
 | `x-rpms-gem.name`, `.version` | `rpms-rpc` and `RpmsRpc::VERSION` |
 | `x-rpms-gem.commit` | the gem commit the document was generated from (`GEM_COMMIT=` overrides `git rev-parse HEAD`) |
 | `x-rpms-gem.dirty` | `true` when the checkout had uncommitted changes, so the document is not exactly the commit's; absent otherwise |
-| `x-rpms-build.tag` | the rpms-ops build tag (`bcer-9.0-20261012-e7923a4-ydb`) |
+| `x-rpms-build.tag` | the openrpms build tag (`bcer-9.0-20261012-e7923a4-ydb`) |
 
-The surface's `x-rpms-build` also carries `rpms_version`, `engine`, `rpms_ops_commit` (the rpcs.json header's), `source` (`<tag>-rpcs.json`, its sha256 and its `schema`) and `inputs` (each raw file rpms-ops projected it from, with the sha256 the header names).
+The surface's `x-rpms-build` also carries `rpms_version`, `engine`, `rpms_ops_commit` (the rpcs.json header's), `source` (`<tag>-rpcs.json`, its sha256 and its `schema`) and `inputs` (each raw file openrpms projected it from, with the sha256 the header names).
 Its `info.version` is the RPMS version (`bcer-9.0`); the client API's is the gem version.
 
 ## The RPC surface

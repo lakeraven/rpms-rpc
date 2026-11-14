@@ -21,7 +21,7 @@ class SchedulingCheckinVisitLiveTest < LiveSpec::Test
   DEVICE_FILE = "3.5"
   # The null device (#3.5) is ZZNULL on YottaDB and NULL DEVICE, its stock
   # name, on IRIS: the same entry under two names. The first name on file wins,
-  # as rpms-ops SEEDBSDX finds it for the chart request printer (rpms-rpc#704).
+  # as openrpms SEEDBSDX finds it for the chart request printer (rpms-rpc#704).
   NULL_DEVICE_NAMES = [ "ZZNULL", "NULL DEVICE" ].freeze
   CONSECUTIVE_MISSES = 25
 

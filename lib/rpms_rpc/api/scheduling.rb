@@ -23,7 +23,7 @@ module RpmsRpc
   # column header; the gateway/mock supplies only the data row here.
   #
   # These are still exercised through MockClient — but NOT because dispatch is
-  # unavailable. rpms-ops#366 (the YDB releases lacking the #8994 registry)
+  # unavailable. openrpms#366 (the YDB releases lacking the #8994 registry)
   # closed 2026-08-23: ^XWB is force-included in the export and its absence now
   # fails the build. What remains missing is a live-dispatch proof for this RPC
   # set (rpms-rpc#224), which is a different thing from a blocked backend.

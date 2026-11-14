@@ -8,7 +8,7 @@ require "rpms_rpc/fileman_date_parser"
 # BEHOENPC SAVE (SAVE^BEHOENPC) files an encounter: a visit, its diagnosis
 # (V POV, with the narrative), a CPT (V CPT), a health factor (V HEALTH
 # FACTOR) and the primary provider (V PROVIDER), all on one visit, in one call
-# (rpms-rpc#645, rpms-ops#1042 and its build-level test
+# (rpms-rpc#645, openrpms#1042 and its build-level test
 # test/encounter_save_build_level.sh).
 #
 # It is the stock route for an encounter write. ORWPCE SAVE, the CPRS name, is

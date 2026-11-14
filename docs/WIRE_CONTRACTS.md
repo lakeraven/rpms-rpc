@@ -30,7 +30,9 @@ Same shape as the conformance pipeline, one level deeper:
    `conformance:ingest`): for the curated list in
    `RpmsRpc::WireCapture::CATALOG` (lib/rpms_rpc/wire_capture.rb), drive the
    real client (`RpmsRpc::CiaClient`) against a rung **we own** and write one
-   provenance-stamped fixture per RPC to `test/fixtures/wire_captures/`:
+   provenance-stamped fixture per catalog entry to `test/fixtures/wire_captures/`
+   (named by the RPC slug, or by the entry's own `fixture:` name when several
+   entries share an RPC):
    the verbatim raw reply, its sha256, the inputs, the release tag, capture
    UTC, and the cited position→semantics annotation. Read-only behavioral
    calls with synthetic inputs only — never a customer instance.
@@ -51,8 +53,12 @@ Same shape as the conformance pipeline, one level deeper:
    bundle exec rake wire:capture CONTAINER=rpms-ydb-9.0 RELEASE=bcer-9.0-ydb
    # without CONTAINER= or BROKER_HOST=, only routine-cite fixtures are (re)written
    # WIRE_FIXTURES_DIR=<dir> writes the fixtures there instead (a scratch capture)
-   # ONLY="RPC NAME" limits the run; CITE_ONLY="RPC A,RPC B" forces
-   # routine-cite output for live entries (e.g. broker unavailable)
+   # ONLY="RPC NAME" (or a fixture name) limits the run; CITE_ONLY="RPC A,fixture-b"
+   # forces routine-cite output for live entries (e.g. broker unavailable).
+   # CITE_ONLY matches a fixture name, or an RPC name only for the entry whose
+   # fixture is the RPC slug. A token matching no live entry aborts before any call.
+   # CITE_ONLY is refused on WRITES=1 (as ONLY is). Duplicate fixture names among live entries abort.
+   # rake wire:compare reports one row per fixture.
    ```
 
    Scheduling writes are not part of that command. See [Write captures](#write-captures).
@@ -61,7 +67,7 @@ Same shape as the conformance pipeline, one level deeper:
    fingerprint. With `BROKER_HOST=` (host mode) the driver,
    `bin/wire_capture_driver.rb`, runs on this machine's Ruby against the
    broker over the network; a release image carries no Ruby, so this is the
-   mode that works on a release (rpms-ops#975, whose `make fresh-up` /
+   mode that works on a release (openrpms#975, whose `make fresh-up` /
    `make fresh-capture` start a fresh container of a release and capture from
    it into a scratch directory). With `CONTAINER=` the task stages `lib/` and
    the driver into a container that has a Ruby and runs it there. Either way
@@ -112,7 +118,7 @@ and in CI both. Concretely:
   (a write RPC, which that task never calls; an RPC that faults the rung, like
   BEHOVM2 VUNITS on bcer-9.0-ydb). The shape is cited to the M routine
   serving the RPC in the release corpus
-  (rpms-ops/data/standup/bcer-9.0-ydb/r/, file:line). A routine-cite
+  (openrpms/data/standup/bcer-9.0-ydb/r/, file:line). A routine-cite
   fixture must **not** claim a `raw_return` (an illustrative row goes in
   `example_return`, which is never treated as evidence). Scheduling writes
   are not routine-cited stand-ins: `rake wire:capture_writes` captures them
@@ -135,7 +141,7 @@ and in CI both. Concretely:
 ## Adding an RPC to the gate
 
 1. Read the M routine that serves the RPC (corpus at
-   rpms-ops/data/standup/<release>/r/) and write down the position→meaning
+   openrpms/data/standup/<release>/r/) and write down the position→meaning
    layout **with file:line cites**.
 2. Add a `CatalogEntry` to `RpmsRpc::WireCapture::CATALOG`: RPC name, the
    mapping that parses it, reply kind, capture inputs (synthetic), the cite,

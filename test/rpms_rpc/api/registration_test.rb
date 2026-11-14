@@ -715,7 +715,7 @@ end
     assert_includes add[:params][2].split("\x1c"), "AGGNOSSN=R"
   end
   # With neither an SSN nor a reason, AG's check errors in ISREQ^AGGUL2 and the
-  # broker job then hangs on its next AG call (rpms-ops#1040), so that one check
+  # broker job then hangs on its next AG call (openrpms#1040), so that one check
   # is not sent: the registration is refused with AG's own wording for it.
   def test_register_with_neither_ssn_nor_reason_is_refused_without_sending_that_check
     seed_agg_add

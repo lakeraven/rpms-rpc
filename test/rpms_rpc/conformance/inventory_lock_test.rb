@@ -10,7 +10,7 @@ require "rpms_rpc/conformance/ingest"
 require_relative "../pinned_rpcs_test_helper"
 
 # InventoryLock (rpms-rpc#222, #394, #406) on the pinned release's own assets: each test copies
-# data/inventories/<tag>/ as rpms-ops published it and changes the one thing it is about.
+# data/inventories/<tag>/ as openrpms published it and changes the one thing it is about.
 class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
   Lock = RpmsRpc::Conformance::InventoryLock
   P = PinnedRpcsTestHelper
@@ -216,7 +216,7 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
         surface: inv.surface, packages: inv.packages_dump, env: "references/#{TAG}", fingerprints_dir: fp_dir,
         backend: RpmsRpc::Conformance::Ingest::BACKEND_FOR_ENGINE.fetch(inv.engine),
         captured_at: inv.provenance["captured_at"].to_s[0, 10], release: TAG, dat_sha: inv.provenance["artifact_sha256"],
-        note: "rpms-ops release inventory #{TAG} (lakeraven/rpms-ops), pinned by conformance:pin", inventory: inv.to_source
+        note: "openrpms release inventory #{TAG} (lakeraven/openrpms), pinned by conformance:pin", inventory: inv.to_source
       )
       assert_equal [ ENTRY["rpcs"], ENTRY["packages"] ], [ r[:rpcs], r[:packages] ]
 

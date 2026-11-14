@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# bin/factory_live_rpms — SessionStart hook. In an environment that sets FACTORY_LIVE_RPMS=1, start
+# the pinned RPMS release in the background so a session finds a broker coming up on
+# 127.0.0.1:9100 without running `bin/cloud_rpms up` itself. Anywhere else it does nothing.
+#
+# It returns at once and never fails session start. Progress goes to a state directory
+# (FACTORY_LIVE_RPMS_DIR, default ~/.cache/factory_live_rpms; it must be a real directory the
+# session user owns, or the hook does nothing):
+#   status    starting, then healthy or failed; each value replaces the file in one rename
+#   attempts  "<count> <epoch>" of the last failed run, cleared by a healthy one
+#   log       output of the clone (if one was needed) and of `bin/cloud_rpms up`
+#
+# Idempotent: a broker already answering on the port (FACTORY_LIVE_RPMS_PORT, default 9100) is
+# left alone, as is a healthy earlier run. One run at a time: the run holds an flock(1) on
+# $DIR/lock until it ends, so a session that starts meanwhile starts nothing; without flock the
+# hook does nothing. After a failed run the next session start tries again once a backoff has
+# passed: FACTORY_LIVE_RPMS_BACKOFF seconds (default 60) doubled per failure, capped at 32x.
+# A killed run holds no lock, so the next start tries again at once.
+#
+# LAKERAVEN_EHR_PATH points at the lakeraven-ehr checkout whose compose.yml runs the image
+# (default ../lakeraven-ehr); it is cloned when missing. CLOUD_RPMS overrides the script that is run
+# (tests use this).
+set -u
+
+[ "${FACTORY_LIVE_RPMS:-}" = "1" ] || exit 0
+command -v flock >/dev/null 2>&1 || exit 0
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)" || exit 0
+EHR="${LAKERAVEN_EHR_PATH:-$ROOT/../lakeraven-ehr}"
+CLOUD_RPMS="${CLOUD_RPMS:-$ROOT/bin/cloud_rpms}"
+DIR="${FACTORY_LIVE_RPMS_DIR:-${HOME:-/nonexistent}/.cache/factory_live_rpms}"
+PORT="${FACTORY_LIVE_RPMS_PORT:-9100}"
+BACKOFF="${FACTORY_LIVE_RPMS_BACKOFF:-60}"
+STATUS="$DIR/status"
+ATTEMPTS="$DIR/attempts"
+LOG="$DIR/log"
+
+mkdir -p -m 700 "$DIR" 2>/dev/null || exit 0
+# A real directory, ours, and private: nothing another user can plant inside it.
+{ [ -d "$DIR" ] && [ ! -L "$DIR" ] && [ -O "$DIR" ] && chmod 700 "$DIR"; } 2>/dev/null || exit 0
+[ -L "$LOG" ] && exit 0
+
+# Every state write lands in one rename: a reader never sees a half-written file, and a symlink
+# at the destination is replaced, not followed.
+put() { # put <path> <content>
+  local tmp
+  tmp="$(mktemp "$DIR/.tmp.XXXXXX")" || return 1
+  printf '%s\n' "$2" >"$tmp" && mv -f "$tmp" "$1"
+}
+
+# One run at a time. The background run inherits fd 9 and so holds the lock until it ends; a
+# session that starts meanwhile exits here. Children run with the fd closed, so a dockerd that
+# `bin/cloud_rpms up` leaves running does not keep holding it.
+exec 9>"$DIR/lock" 2>/dev/null || exit 0
+flock -n 9 || exit 0
+
+status="$(cat "$STATUS" 2>/dev/null)"
+[ "$status" = "healthy" ] && exit 0
+
+# A broker already answering needs nothing from us.
+if (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; then
+  put "$STATUS" healthy
+  exit 0
+fi
+
+# After a failure, wait out the backoff before trying again.
+tries=0
+if [ "$status" = "failed" ]; then
+  read -r tries failed_at <"$ATTEMPTS" 2>/dev/null || { tries=0; failed_at=0; }
+  case "$tries$failed_at" in *[!0-9]*) tries=0; failed_at=0 ;; esac
+  if [ "$tries" -gt 0 ]; then
+    shift=$((tries - 1)); [ "$shift" -gt 5 ] && shift=5
+    wait=$((BACKOFF << shift))
+    [ $(( $(date +%s) - failed_at )) -lt "$wait" ] && exit 0
+  fi
+fi
+
+failed() {
+  put "$ATTEMPTS" "$((tries + 1)) $(date +%s)"
+  put "$STATUS" failed
+}
+
+put "$STATUS" starting || exit 0
+
+(
+  if [ ! -f "$EHR/compose.yml" ]; then
+    git clone --depth 1 https://github.com/lakeraven/lakeraven-ehr.git "$EHR" 9>&- || {
+      failed; exit 0
+    }
+  fi
+  # The pinned release only: an inherited RPMS_IMAGE or RPMS_TAG would win over PINNED.
+  if env -u RPMS_IMAGE -u RPMS_TAG LAKERAVEN_EHR_PATH="$EHR" PINNED=1 "$CLOUD_RPMS" up 9>&-; then
+    rm -f "$ATTEMPTS"
+    put "$STATUS" healthy
+  else
+    failed
+  fi
+) >>"$LOG" 2>&1 </dev/null &
+
+exit 0

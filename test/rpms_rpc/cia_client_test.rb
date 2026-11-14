@@ -357,7 +357,7 @@ class RpmsRpc::CiaClientTest < Minitest::Test
     def setsockopt(*); end
   end
 
-# A late EOD in front of a global-array reply (rpms-ops#917). A global array ends in two writes,
+# A late EOD in front of a global-array reply (openrpms#917). A global array ends in two writes,
 # its $C(31) node and then the frame EOD, and the EOD of an earlier reply can land after
 # discard_stale_bytes has drained the socket. These are the pieces a client received, in order, for
 # AGG UPDATE PATIENT (seq 8) on a YottaDB release image (bcer-9.0-20261108-1fe9370-ydb, synthetic
@@ -843,7 +843,7 @@ end
   # this suite would stay green even if the client stopped speaking {CIA}
   # entirely — which is exactly how a wrong-protocol client (a pre-rename
   # CiaClient that actually spoke stock XWB [XWB]1130) got mistaken for a live
-  # v0.2.0 connect regression against the real broker (rpms-ops evidence run,
+  # v0.2.0 connect regression against the real broker (openrpms evidence run,
   # 2026-09-01). This socket emulates DOACTION^CIANBLIS as observed on the
   # real wire (bcer-9.0-ydb, CIANBLIS on :9100):
   #
@@ -1094,7 +1094,7 @@ end
   end
 
   # End-to-end reproduction through the broker-faithful double: the two FILER
-  # frames the registration round trip sends (rpms-ops#501). The second frame's
+  # frames the registration round trip sends (openrpms#501). The second frame's
   # 30-byte P2(1) value is the #241 trigger — with a colliding terminator the
   # double truncates the frame and closes the session, exactly as the live
   # broker did.
@@ -1239,7 +1239,7 @@ end
   # "0" with the real reconnect-failure reply (verbatim from the evidence
   # transcript), and answers UID "0" by allocating session 7.
   class UidGatedCiaBrokerSocket < StrictCiaBrokerSocket
-    # Verbatim shape of the live reconnect-failure reply (rpms-ops evidence,
+    # Verbatim shape of the live reconnect-failure reply (openrpms evidence,
     # releases/evidence/bcer-9.0-ydb-vuecentric.json "signon"): DATA(0)="4^<msg>",
     # DATA(1)="server^volume^UCI^port" (NON-numeric piece 1), DATA(2)=intro text
     # (which still contains a "Good morning" greeting).

@@ -15,7 +15,7 @@ require_relative "../captured_replies"
 #
 # Not captured, so not tested here: a reply that names a progress note
 # ("0^IEN"), the busy-lock reply (under the YDB CIA broker a busy lock answers
-# 0 and files nothing, rpms-ops#1121), and "Unable to update assessment".
+# 0 and files nothing, openrpms#1121), and "Unable to update assessment".
 class AllergySaveTest < Minitest::Test
   SLUG = "allergy-save"
   RPC = "ORWDAL32 SAVE ALLERGY"

@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 # Client half of `rake wire:capture` (issue #189). In host mode (BROKER_HOST=,
-# rpms-ops#975) the task runs it on this machine against the broker; with
+# openrpms#975) the task runs it on this machine against the broker; with
 # CONTAINER= it is staged into the rung container alongside rpms-rpc/lib (the
-# rpms-ops evidence-script pattern) and run there. Either way it runs as:
+# openrpms evidence-script pattern) and run there. Either way it runs as:
 #
 #   VISTA_RPC_ENV=development RPMS_RPC_LIB=/tmp/rr/lib \
 #     BROKER_HOST=127.0.0.1 BROKER_PORT=9100 \
@@ -34,7 +34,7 @@
 require "json"
 
 # rpms-rpc references IO::TimeoutError (Ruby >= 3.2); container rubies can be
-# older (see rpms-ops#440). Alias keeps the rescue paths valid.
+# older (see openrpms#440). Alias keeps the rescue paths valid.
 IO::TimeoutError = Class.new(IOError) unless IO.const_defined?(:TimeoutError)
 
 lib = ENV["RPMS_RPC_LIB"] or abort("set RPMS_RPC_LIB to rpms-rpc/lib")
@@ -70,6 +70,19 @@ if writes
   abort "WRITES=1 is refused unless the broker host resolves to loopback addresses only" if connect_host.nil?
 end
 
+# ONLY / CITE_ONLY narrow read captures here, not only when fixtures are
+# written. The point of CITE_ONLY is to avoid calling an RPC that faults or
+# disturbs the session; filtering after the driver has already called
+# everything does not achieve that. A write run has already refused ONLY.
+# Selected once, before the socket: an unmatched CITE_ONLY token aborts
+# before any broker call.
+begin
+  entries = RpmsRpc::WireCapture.driver_read_entries(writes: writes, only: only, cite_only: cite_only)
+rescue ArgumentError => e
+  warn e.message
+  exit 2
+end
+
 out = { "client" => "rpms-rpc RpmsRpc::CiaClient",
         "client_version" => (RpmsRpc.const_defined?(:VERSION) ? RpmsRpc::VERSION : "unversioned"),
         "captures" => {} }
@@ -78,12 +91,7 @@ client = RpmsRpc::CiaClient.new(host: connect_host, port: port, timeout: 15)
 client.connect
 client.authenticate(acc, ver)
 
-# ONLY / CITE_ONLY narrow read captures here, not only when fixtures are
-# written. The point of CITE_ONLY is to avoid calling an RPC that faults or
-# disturbs the session; filtering after the driver has already called
-# everything does not achieve that. A write run has already refused ONLY.
-entries = RpmsRpc::WireCapture.driver_read_entries(writes: writes, only: only, cite_only: cite_only)
-out["selected"] = entries.map(&:rpc)
+out["selected"] = entries.map(&:fixture_name)
 
 entries.each do |entry|
   raw = if entry.context
@@ -92,9 +100,9 @@ entries.each do |entry|
     client.call_rpc_raw(entry.rpc, *entry.inputs)
   end
   raw = raw.join("\n") if raw.is_a?(Array)
-  out["captures"][entry.rpc] = { "inputs" => entry.inputs, "raw" => raw.to_s }
+  out["captures"][entry.fixture_name] = { "inputs" => entry.inputs, "raw" => raw.to_s }
 rescue StandardError => e
-  out["captures"][entry.rpc] = {
+  out["captures"][entry.fixture_name] = {
     "inputs" => entry.inputs,
     "error" => RpmsRpc::WireCapture::NoteWriteFlow.redacted_error(e, esig_secrets)
   }
