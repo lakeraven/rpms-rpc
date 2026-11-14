@@ -373,7 +373,10 @@ class RpmsRpc::PilotVisitEncounterTest < Minitest::Test
     assert_includes reason, 'DUZ("AG")', "the row must name the agency condition on the #9001000 path"
     assert_includes reason, "XUS1A.m:43", "the row must cite where broker sign-on sets DUZ(\"AG\")"
     refute_includes reason, "XUP.m:62", "broker sign-on sets DUZ(\"AG\") in DUZ^XUS1A, not XUP"
-    assert_match(/observed/i, reason, "seed literals are observed on a date; only the relations are pinned")
+    assert_includes reason, "not asserted", "the row must say the seed literals are not asserted by the spec"
+    assert_includes reason, "DEFAULT INSTITUTION", "sign-on takes DUZ(\"AG\") from the #8989.3 DEFAULT INSTITUTION"
+    refute_includes reason, "the division's INSTITUTION #4 AGENCY CODE",
+                    "DUZ(\"AG\") is set before the division is bound, so the division's #4 entry plays no part"
     assert_match(/field \.04|\.04 TYPE OF VISIT/, reason, "the row must name the #9001000 field the create reads")
   end
 
