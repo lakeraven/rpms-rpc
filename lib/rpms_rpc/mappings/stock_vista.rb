@@ -1099,6 +1099,22 @@ module RpmsRpc
     # PCE ENCOUNTER READS (ORWPCE*)
     # ========================================================================
 
+    # TIU GET ALERT INFO — the patient of a TIU note, for the ClinicalEvent
+    # note guard (#531). GETALRT^TIUSRVR (TIUSRVR.m:67-84) takes one
+    # parameter, XQAID: it strips the letters from $P(XQAID,";",1) for
+    # TIUDA, so a bare note IEN asks for that note. It answers -1 when
+    # ^TIU(8925,TIUDA,0) is missing or its document type or patient (node 0
+    # piece 2) is empty, and TIUDA^DFN^ORTAB otherwise. Read-only. On the
+    # pinned build only OR CPRS GUI CHART registers it, so the mapping binds
+    # that option. (TIU LOAD RECORD FOR EDIT was rejected: GET4EDIT requires
+    # EDIT RECORD authority via CANDO and sets ^TIU(8925,"ASAVE",DUZ,TIUDA),
+    # a write.) ClinicalEvent reads the reply's first line itself.
+    DataMapper.define(:tiu_note_patient) do |m|
+      m.rpc "TIU GET ALERT INFO"
+      m.context "OR CPRS GUI CHART"
+      m.scalar :note_patient, :string
+    end
+
     # ORWPCE GET VISIT — the visit IEN for a note, or for a location lookup.
     # GETVISIT^ORWPCE2 (ORWPCE2.m:64-67): a note IEN below 1 asks
     # $$GETENC^PXAPI(DFN, $P(VSITSTR,";",2), $P(VSITSTR,";")). Any other
