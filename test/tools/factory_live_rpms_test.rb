@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "tmpdir"
 require "fileutils"
 require "json"
+require "socket"
 
 # bin/factory_live_rpms is the SessionStart hook that starts the pinned RPMS release in an
 # environment that sets FACTORY_LIVE_RPMS=1. These runs use a stub in place of bin/cloud_rpms and a
@@ -11,8 +12,13 @@ require "json"
 class FactoryLiveRpmsTest < Minitest::Test
   SCRIPT = File.expand_path("../../bin/factory_live_rpms", __dir__)
   SETTINGS = File.expand_path("../../.claude/settings.json", __dir__)
+  FLOCK = system("command -v flock >/dev/null 2>&1")
+  # The hook does nothing without flock(1), so on a machine without it (macOS) only these can run.
+  WITHOUT_FLOCK = %w[test_unset_flag_does_nothing test_settings_run_it_at_session_startup
+                     test_a_state_directory_owned_by_someone_else_or_a_symlink_is_refused].freeze
 
   def setup
+    skip "flock(1) is not installed here; the hook does nothing and CI covers this" unless FLOCK || WITHOUT_FLOCK.include?(name)
     @tmp = Dir.mktmpdir("live")
     @state = File.join(@tmp, "state")
     @ehr = File.join(@tmp, "ehr")
@@ -134,12 +140,55 @@ class FactoryLiveRpmsTest < Minitest::Test
     assert_empty calls
   end
 
-  def test_start_after_a_failure_tries_again
+  def test_start_after_a_failure_tries_again_once_the_backoff_has_passed
+    assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => stub(exit_code: 1), "FACTORY_LIVE_RPMS_BACKOFF" => "0")
+    wait_for("failed")
+    assert_equal "1", File.read(File.join(@state, "attempts")).split.first
+    assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => stub, "FACTORY_LIVE_RPMS_BACKOFF" => "0")
+    wait_for("healthy")
+    assert_equal 2, calls.size
+    refute File.exist?(File.join(@state, "attempts"))
+  end
+
+  def test_a_failure_is_not_retried_before_the_backoff_passes
     assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => stub(exit_code: 1))
     wait_for("failed")
     assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => stub)
-    wait_for("healthy")
+    sleep 0.3
+    assert_equal 1, calls.size
+    assert_equal "failed", status
+  end
+
+  def test_repeated_failures_count_up_so_the_backoff_grows
+    2.times do
+      assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => stub(exit_code: 1), "FACTORY_LIVE_RPMS_BACKOFF" => "0")
+      wait_for("failed")
+      sleep 0.2
+    end
     assert_equal 2, calls.size
+    assert_equal "2", File.read(File.join(@state, "attempts")).split.first
+  end
+
+  def test_a_broker_already_answering_is_left_alone
+    server = TCPServer.new("127.0.0.1", 0)
+    port = server.addr[1]
+    assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => stub, "FACTORY_LIVE_RPMS_PORT" => port.to_s)
+    sleep 0.3
+    assert_empty calls
+    assert_equal "healthy", status
+  ensure
+    server&.close
+  end
+
+  def test_status_replaces_a_planted_symlink_instead_of_writing_through_it
+    elsewhere = File.join(@tmp, "elsewhere")
+    File.write(elsewhere, "untouched\n")
+    FileUtils.mkdir_p(@state, mode: 0o700)
+    File.symlink(elsewhere, File.join(@state, "status"))
+    assert run_hook("FACTORY_LIVE_RPMS" => "1", "CLOUD_RPMS" => stub)
+    wait_for("healthy")
+    assert_equal "untouched\n", File.read(elsewhere)
+    refute File.symlink?(File.join(@state, "status"))
   end
 
   def test_settings_run_it_at_session_startup
