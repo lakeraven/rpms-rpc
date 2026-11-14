@@ -133,6 +133,8 @@ module RpmsRpc
     # arguments; the broker answers %YDB-E-MAXACTARG, as for BMC ADD REFERRAL).
     # A call with fewer is fine as long as the routine never reads the
     # missing formals unguarded: see record_follow_up, which sends 30.
+    # Every call on an open referral also sets DATE LAST UPDATED (.27) to
+    # today and sends a MailMan notice through SENDXM^BMCRPC3 (BMCRPC2.m:227,245).
     def update(ien, *params)
       bmc_scalar_result(:bmc_update_referral, ien, *params)
     end
@@ -176,37 +178,48 @@ module RpmsRpc
     # live on the pinned build:
     # 1. FILE^DIE is called without the E flag, so the routine files any
     #   string ("H" was filed): status must be one of STATUS_CODES, checked here.
-    # 2. ERR1 is not NEWed, so after one failed update in a broker session
-    #   every later one answers that stale "~`0^..." while it files: the reply
-    #   is not evidence, the read-back is.
+    # 2. The routine NEWs neither FDA nor ERR1, and FILE^DIE kills the FDA only
+    #   when it files without error (DIEF.m:24). After one failed update in a
+    #   broker session the failed write stays queued: every later update in
+    #   that session re-files every queued entry (on any referral) and answers
+    #   the stale "~`0^...". So a "~`0" reply is :session_poisoned whatever .15
+    #   reads back, and the session must be closed; a "1" reply is decided by
+    #   the read-back.
     # 3. In an option without the RPC the broker refuses it, and
     #   Client::RpcRefusedError propagates.
     #
     # .15 is read before and after with DDR GETS ENTRY DATA in the caller's
-    # option. Returns { success: true, status:, previous_status:, raw: }, or
-    # { success: false, error: :not_filed, status: <read back or nil>,
-    # previous_status:, message:, raw: } when .15 does not read back as sent,
-    # or a refusal (:invalid_ien, :invalid_status, :unread, :not_found) before
+    # option. Returns { success: true, status:, previous_status:, raw: };
+    # { success: false, error: :session_poisoned, status: <read back or nil>,
+    # previous_status:, message:, raw: } for a "~`0" reply; { success: false,
+    # error: :not_filed, ... } when .15 does not read back as sent; or a
+    # refusal (:invalid_ien, :invalid_status, :unread, :not_found) before
     # anything is sent.
     def record_status(ien, status)
-      # invalid_id? alone passes "1,2" (to_i is 1); the IEN goes into an IENS.
-      return refusal(:invalid_ien, "not a referral IEN: #{ien.inspect}") if invalid_id?(ien) || !ien.to_s.strip.match?(/\A[1-9]\d*\z/)
+      id = referral_ien(ien)
+      return refusal(:invalid_ien, "not a referral IEN: #{ien.inspect}") unless id
       unless status.is_a?(String) && STATUS_CODES.include?(status)
         return refusal(:invalid_status, "not a STATUS OF REFERRAL code (#{STATUS_CODES.join(', ')}): #{status.inspect}")
       end
 
-      ien = ien.to_s.strip
-      entry = status_entry(ien)
-      return refusal(:unread, "DDR GETS ENTRY DATA gave no reply for referral #{ien}") if entry.nil?
-      return refusal(:not_found, "referral #{ien} is not on file") if entry[:error] || entry[:fields].empty?
+      entry = status_entry(id)
+      return refusal(:unread, "DDR GETS ENTRY DATA gave no reply for referral #{id}") if entry.nil?
+      return refusal(:not_found, "referral #{id} is not on file") if entry[:error] || entry[:fields].empty?
 
       previous = filed_status(entry).to_s
-      result = bmc_scalar_result(:bmc_referral_status_update, ien, status)
-      filed = filed_status(status_entry(ien))
-      return { success: true, status: filed, previous_status: previous, raw: result[:raw] } if filed == status
+      result = bmc_scalar_result(:bmc_referral_status_update, id, status)
+      filed = filed_status(status_entry(id))
+      outcome = { status: filed, previous_status: previous, raw: result[:raw] }
+      if result[:code] == "0"
+        message = "BMC REFERRAL STATUS UPDATE answered #{result[:raw].to_s.strip.inspect}: this broker session holds an " \
+                  "earlier failed FileMan write (UPDTSTRF^BMCRPC3 keeps it queued) that every status update re-files, " \
+                  "on any referral; close the session before filing again"
+        return { success: false, error: :session_poisoned, message: message }.merge(outcome)
+      end
+      return { success: true }.merge(outcome) if filed == status
 
-      message = result[:error] || "referral #{ien} .15 reads #{filed.inspect} after the update, not #{status.inspect}"
-      { success: false, error: :not_filed, status: filed, previous_status: previous, message: message, raw: result[:raw] }
+      message = result[:error] || "referral #{id} .15 reads #{filed.inspect} after the update, not #{status.inspect}"
+      { success: false, error: :not_filed, message: message }.merge(outcome)
     end
     shape :record_status, resource: "referrals", verb: "POST", path: "/referrals/status"
 
@@ -225,59 +238,93 @@ module RpmsRpc
     INCLUDE_FLAG_FIELDS = %w[411 405 406 408 407 412 401 403 404 402 409 410].freeze
 
     # A confirmed follow-up on an open referral: the scheduled date of service
-    # and a case note, filed through BMC UPDATE REFERRAL (UPDREFRL^BMCRPC2,
-    # BMCRPC2.m:158-252) under CONTEXT. Part of rpms-rpc#722.
+    # (1106) and a case note, filed through BMC UPDATE REFERRAL (UPDREFRL^BMCRPC2,
+    # BMCRPC2.m:158-252) under CONTEXT, and decided by reading the referral
+    # back. Part of rpms-rpc#722.
     #
     # The routine rewrites the record rather than patching it, so this:
     # - reads the current state first with DDR GETS ENTRY DATA and DDR LISTER
-    #   (stock FileMan, in the caller's option, not BMCRPC): .15, 1302, the
-    #   INCLUDE flags 401-412 and the SNOMED CT multiple (#90001.22);
+    #   (stock FileMan, in the caller's option, not BMCRPC): .15, 1106, 1302,
+    #   1303, the INCLUDE flags 401-412, the SNOMED CT multiple (#90001.22) and
+    #   the CASE notes;
     # - sends exactly 30 parameters, REFIEN through CN (31 actuals with
     #   RSLT, under YDB_MAX_ACTUALS). The five formals left off (RDCODE,
     #   RDN, RDT, RQPR, DUPREF) are read with $G, read only when RDCODE and
     #   RDN are set, or not read at all (BMCRPC2.m:190,240);
     # - sends TYPE, INOROUT, ICDCAT, CPTCAT, PURPOSE, PRIORITY, TYPEEXT,
     #   VISITS and NOTESCHD empty, which the routine skips (:189-211);
+    # - always sends SCHWIDAY: the routine deletes 1106 when SCHWIDAY carries
+    #   no date (:182-188,216-217), so a note-only call resends the date on
+    #   file as "<1302>^MM/DD/YYYY@<its time digits exactly>";
     # - resends the INCLUDE flags as read, and the one SNOMED CT term, since
     #   the routine kills ^BMCREF(REFIEN,22) and refiles only SNMDST (:232-233).
+    # Every call also sets DATE LAST UPDATED (.27) to today and ADDITIONAL
+    # INFO (.34) from the flags, and sends a MailMan notice through
+    # SENDXM^BMCRPC3 (:227-229,245).
     #
-    # It refuses, before anything is written: a non-IEN, a referral not on
-    # file, a closed one (where the routine would file the note and drop the
-    # date), one with more than one SNOMED CT term (all but one would be
-    # lost), and one linked to an EHR referral (field 1303), which the routine
-    # also rewrites through UPENVREF^BMCRPC5 with fields this does not read.
+    # It refuses, before anything is written: a non-IEN (:invalid_ien), a
+    # referral not on file (:not_found) or one it cannot read (:unread, also
+    # when the CASE notes cannot be listed), a closed one (:closed, where the
+    # routine would file the note and drop the date), one with more than one
+    # SNOMED CT term (:several_snomed_terms; all but one would be lost), one
+    # linked to an EHR referral (:linked_ehr_referral; field 1303, which the
+    # routine also rewrites through UPENVREF^BMCRPC5 with fields this does not
+    # read), and a note-only call on a 1106 with no time
+    # (:date_only_appointment; the routine would file "3261204." with a
+    # trailing dot).
     #
-    # appointment_on is a Date; time "HH:MM" (the routine files SCHWIDAY's
-    # "date@time" as 1106, BMCRPC2.m:182-187,213). case_note is one line of
+    # appointment_on is a Date and needs time: "HH:MM", 00:01 to 23:59, with
+    # no default. FILE^DIE runs without the E flag and the routine files
+    # "date.digits" as built, so the time goes out as FileMan's canonical
+    # digits: no colon, trailing zeros dropped ("09:30" -> "093", "12:00" ->
+    # "12"); 00:00 has none and raises ArgumentError. case_note is one line of
     # text, filed as a CASE note (type C, #90001.03) by SETMEDHX^BMCRPC3.
     #
-    # Returns { success:, message:, raw: } like the other writers, or
-    # { success: false, error: <symbol>, message: } for a refusal.
-    def record_follow_up(ien, appointment_on: nil, time: "12:00", case_note: nil)
-      return refusal(:invalid_ien, "not a referral IEN: #{ien.inspect}") if invalid_id?(ien)
-      if appointment_on.nil? && case_note.to_s.strip.empty?
-        return refusal(:nothing_to_file, "give an appointment date, a case note, or both")
-      end
-      if appointment_on && !appointment_on.is_a?(Date)
-        raise ArgumentError, "appointment_on must be a Date"
-      end
-      raise ArgumentError, "time must be HH:MM" unless time.to_s.match?(/\A([01]\d|2[0-3]):[0-5]\d\z/)
+    # The reply is not evidence: success is 1106 reading back as expected, one
+    # new CASE note with the sent text when a note was sent (none otherwise),
+    # and 1302, 401-412 and the SNOMED CT term reading as before. Returns
+    # { success: true, appointment: <1106 internal>, case_note_ien:, raw: },
+    # { success: false, error: :not_filed, message:, raw: } (with the
+    # routine's refusal text when it gave one), or a refusal above.
+    def record_follow_up(ien, appointment_on: nil, time: nil, case_note: nil)
+      id = referral_ien(ien)
+      return refusal(:invalid_ien, "not a referral IEN: #{ien.inspect}") unless id
 
-      ien = ien.to_s.strip
-      state = current_follow_up_fields(ien)
-      return state if state[:error]
+      note = one_line(case_note)
+      return refusal(:nothing_to_file, "give an appointment date, a case note, or both") if appointment_on.nil? && note.empty?
+      raise ArgumentError, "appointment_on must be a Date" if appointment_on && !appointment_on.is_a?(Date)
 
-      params = follow_up_params(ien, state, appointment_on: appointment_on, time: time, case_note: case_note)
-      bmc_scalar_result(:bmc_update_referral, *params)
+      sent = appointment_on && "#{FilemanDateParser.format_date(appointment_on)}.#{time_digits(time)}"
+      before = follow_up_record(id)
+      refused = before[:error] ? before : follow_up_refusal(id, before)
+      return refused if refused
+
+      expected = sent || before[:appointment]
+      unless expected.empty? || schwiday_date(expected)
+        return refusal(:date_only_appointment, "referral #{id} 1106 reads #{expected.inspect}, a date with no time; " \
+                                               "resent, BMC UPDATE REFERRAL would file it with a trailing dot")
+      end
+
+      result = bmc_scalar_result(:bmc_update_referral, *follow_up_params(id, before, expected, note))
+      after = follow_up_record(id)
+      problem = follow_up_drift(before, after, expected, note)
+      unless problem
+        added = new_case_notes(before, after).first
+        return { success: true, appointment: after[:appointment], case_note_ien: added&.dig(:ien), raw: result[:raw] }
+      end
+
+      { success: false, error: :not_filed, message: [ result[:message] || result[:error], problem ].compact.join("; "),
+        raw: result[:raw] }
     end
     shape :record_follow_up, resource: "referrals", verb: "POST", path: "/referrals/follow-up"
 
     # The 30 positional parameters record_follow_up sends, REFIEN through CN.
-    def follow_up_params(ien, state, appointment_on:, time:, case_note:)
-      schwiday = appointment_on ? "#{state[:schedule_within_days]}^#{appointment_on.strftime('%m/%d/%Y')}@#{time}" : ""
-      flags = INCLUDE_FLAG_FIELDS.map { |field| state[:include_flags][field].to_s }
+    # SCHWIDAY carries the 1106 the call expects to read back.
+    def follow_up_params(ien, state, appointment, note)
+      schwiday = appointment.empty? ? "" : "#{state[:schedule_within_days]}^#{schwiday_date(appointment)}"
+      flags = INCLUDE_FLAG_FIELDS.map { |field| state[:include_flags][field] }
       params = [ ien ] + Array.new(9, "") + [ "", schwiday ] + flags +
-               [ "", "", "", "", state[:snomed_term].to_s, one_line(case_note) ]
+               [ "", "", "", "", state[:snomed_terms].first.to_s, note ]
       raise ArgumentError, "BMC UPDATE REFERRAL would get #{params.size + 1} actuals" if params.size + 1 > YDB_MAX_ACTUALS
 
       params
@@ -286,19 +333,23 @@ module RpmsRpc
 
     # What record_follow_up reads back: STATUS OF REFERRAL (.15, internal),
     # the date of service it files (1106, FileMan internal, e.g.
-    # "3261204.12"), and the referral's CASE notes (#90001.03, type C),
-    # oldest first, as { ien:, date:, text: }. Read with DDR GETS ENTRY DATA
-    # and DDR LISTER, in the caller's option. Nil when the referral is not on
-    # file.
+    # "3261204.093"), and the referral's CASE notes (#90001.03, type C),
+    # oldest first, as { ien:, date:, text: }, or nil when DDR LISTER cannot
+    # list them all. Read with DDR GETS ENTRY DATA and DDR LISTER, in the
+    # caller's option. Nil, with nothing sent, for a non-IEN; nil when the
+    # referral is not on file.
     def follow_up_state(ien)
-      entry = DdrFileman.gets_entry(file: REFERRAL_FILE, iens: "#{ien},", fields: ".15;1106", flags: "I")
+      id = referral_ien(ien)
+      return nil unless id
+
+      entry = DdrFileman.gets_entry(file: REFERRAL_FILE, iens: "#{id},", fields: ".15;1106", flags: "I")
       return nil if entry.nil? || entry[:error]
 
       fields = entry[:fields]
       {
         status: fields.dig(".15", :internal).to_s,
         appointment: fields.dig("1106", :internal).to_s,
-        case_notes: case_notes(ien)
+        case_notes: case_notes(id)
       }
     end
     shape :follow_up_state, resource: "referrals", verb: "GET", path: "/referrals/{ien}/follow-up-state"
@@ -412,30 +463,81 @@ module RpmsRpc
       { success: false, error: error, message: message, raw: nil }
     end
 
-    # .15, 1302, 401-412 and 1303 internal, and the SNOMED CT multiple, or a
-    # refusal hash (with :error) when the update must not be sent.
-    def current_follow_up_fields(ien)
+    # The referral IEN as sent (stripped), or nil. invalid_id? alone passes
+    # "1,2" and "+7" (to_i is 1 and 7), and the IEN goes into an IENS.
+    def referral_ien(ien)
+      id = ien.to_s.strip
+      id unless invalid_id?(ien) || !id.match?(/\A[1-9]\d*\z/)
+    end
+
+    # FileMan's canonical time digits for "HH:MM": no colon, trailing zeros
+    # dropped. 00:00 leaves none and is refused like a malformed time.
+    def time_digits(time)
+      hhmm = time.match(/\A([01]\d|2[0-3]):([0-5]\d)\z/) if time.is_a?(String)
+      digits = hhmm ? hhmm.captures.join.sub(/0+\z/, "") : ""
+      raise ArgumentError, "time must be HH:MM, 00:01 through 23:59: #{time.inspect}" if digits.empty?
+
+      digits
+    end
+
+    # SCHWIDAY's "MM/DD/YYYY@digits" for a FileMan date/time, with the time
+    # digits exactly as given; nil when it has no time part.
+    def schwiday_date(internal)
+      date, digits = internal.match(/\A(\d{7})\.(\d+)\z/)&.captures
+      day = date && FilemanDateParser.parse_date(date)
+      day && "#{day.strftime('%m/%d/%Y')}@#{digits}"
+    end
+
+    # The fields record_follow_up reads and resends, internal: .15, 1106,
+    # 1302, 1303, 401-412, the SNOMED CT terms and the CASE notes (each nil
+    # when its list cannot be read); or a refusal hash (with :error) when
+    # the referral cannot be read or is not on file.
+    def follow_up_record(ien)
       entry = DdrFileman.gets_entry(file: REFERRAL_FILE, iens: "#{ien},",
-                                    fields: ".15;1302;1303;#{INCLUDE_FLAG_FIELDS.sort.join(';')}", flags: "I")
+                                    fields: ".15;1106;1302;1303;#{INCLUDE_FLAG_FIELDS.sort.join(';')}", flags: "I")
       return refusal(:unread, "DDR GETS ENTRY DATA gave no reply for referral #{ien}") if entry.nil?
       return refusal(:not_found, "referral #{ien} is not on file") if entry[:error] || entry[:fields].empty?
 
-      fields = entry[:fields]
-      internal = ->(field) { fields.dig(field, :internal).to_s }
-      status = internal.call(".15")
-      return refusal(:closed, "referral #{ien} is closed (status #{status}); BMC UPDATE REFERRAL would drop the date") if CLOSED_STATUSES.include?(status)
-      return refusal(:linked_ehr_referral, "referral #{ien} is linked to EHR referral #{internal.call('1303')}; not supported") unless internal.call("1303").empty?
+      internal = ->(field) { entry[:fields].dig(field, :internal).to_s }
+      {
+        status: internal.call(".15"),
+        appointment: internal.call("1106"),
+        schedule_within_days: internal.call("1302"),
+        ehr_referral: internal.call("1303"),
+        include_flags: INCLUDE_FLAG_FIELDS.to_h { |field| [ field, internal.call(field) ] },
+        snomed_terms: snomed_terms(ien),
+        case_notes: case_notes(ien)
+      }
+    end
 
-      terms = snomed_terms(ien)
+    # Why record_follow_up must not send the update for this record, or nil.
+    def follow_up_refusal(ien, state)
+      status, linked, terms = state.values_at(:status, :ehr_referral, :snomed_terms)
+      return refusal(:closed, "referral #{ien} is closed (status #{status}); BMC UPDATE REFERRAL would drop the date") if CLOSED_STATUSES.include?(status)
+      return refusal(:linked_ehr_referral, "referral #{ien} is linked to EHR referral #{linked}; not supported") unless linked.empty?
       return refusal(:unread, "DDR LISTER gave no reply for referral #{ien}'s SNOMED CT terms") if terms.nil?
       return refusal(:several_snomed_terms, "referral #{ien} has #{terms.size} SNOMED CT terms; only one would be kept") if terms.size > 1
 
-      {
-        status: status,
-        schedule_within_days: internal.call("1302"),
-        include_flags: INCLUDE_FLAG_FIELDS.to_h { |field| [ field, internal.call(field) ] },
-        snomed_term: terms.first
-      }
+      refusal(:unread, "DDR LISTER could not list referral #{ien}'s CASE notes") if state[:case_notes].nil?
+    end
+
+    # What the read-back shows was not filed as sent, or nil when it all was.
+    def follow_up_drift(before, after, appointment, note)
+      return "the referral could not be read back: #{after[:message]}" if after[:error]
+      return "1106 reads #{after[:appointment].inspect}, not #{appointment.inspect}" unless after[:appointment] == appointment
+
+      changed = %i[schedule_within_days include_flags snomed_terms].reject { |key| after[key] == before[key] }
+      return "#{changed.join(', ')} changed" unless changed.empty?
+      return "the CASE notes could not be read back" if after[:case_notes].nil?
+
+      added = new_case_notes(before, after).map { |n| n[:text].strip }
+      "#{added.size} new CASE notes #{added.inspect}, expected #{note.empty? ? 'none' : [ note ].inspect}" unless added == [ note ].reject(&:empty?)
+    end
+
+    # The CASE notes the after read lists that the before read did not.
+    def new_case_notes(before, after)
+      known = before[:case_notes].map { |n| n[:ien] }
+      after[:case_notes].reject { |n| known.include?(n[:ien]) }
     end
 
     # STATUS OF REFERRAL (.15) internal, for record_status.
@@ -459,14 +561,18 @@ module RpmsRpc
 
     # CASE notes for one referral from RCIS COMMENTS (#90001.03): .01 date,
     # .03 referral, .05 type, text in field 1 (SETMEDHX^BMCRPC3, BMCRPC3.m:132-153).
+    # Nil when DDR LISTER fails or stops short (MORE), or a note's text
+    # cannot be read: [] means the referral has none.
     def case_notes(ien)
       listed = DdrFileman.lister(file: COMMENTS_FILE, fields: "@;.01;.03;.05", flags: "IP",
                                  screen: "I $P(^(0),U,3)=#{ien.to_i},$P(^(0),U,5)=\"C\"")
-      return [] if listed.nil? || listed[:error]
+      return nil if listed.nil? || listed[:error] || listed[:more] || !listed[:data]
 
       listed[:entries].map do |e|
         text = DdrFileman.gets_entry(file: COMMENTS_FILE, iens: "#{e[:ien]},", fields: "1", flags: "I")
-        { ien: e[:ien], date: e[:pieces][0], text: Array(text&.dig(:fields, "1", :text)).join("\n") }
+        return nil if text.nil? || text[:error]
+
+        { ien: e[:ien], date: e[:pieces][0], text: Array(text.dig(:fields, "1", :text)).join("\n") }
       end
     end
 
