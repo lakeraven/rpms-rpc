@@ -24,7 +24,7 @@ module RpmsRpc
     SIGN_ON_KEYS = %w[RPMS_ACCESS RPMS_VERIFY PROV123_ACCESS PROV123_VERIFY SYS123_ACCESS SYS123_VERIFY].freeze
     LIVE_PERSONAS = %w[PROV123 SYS123].freeze
     DEVELOPMENT_PERSONAS = %w[PROV123].freeze
-    IMAGE_REPOSITORY = "ghcr.io/lakeraven/rpms-ydb"
+    IMAGE_REPOSITORY = "ghcr.io/lakeraven/openrpms"
     OPS_RELEASES = "repos/lakeraven/openrpms/releases"
     CONTAINER_PORT = 9100
     # The image's BMX broker: a CIA spec that registers a patient runs its duplicate lookup over BMX (#609).
