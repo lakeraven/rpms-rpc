@@ -22,6 +22,7 @@ class AggLegalNamesTest < Minitest::Test
   DDR_CONTEXT = "CIAV VUECENTRIC"
   HEADER = "I00010RESULT^T01024ERROR^I00010RIEN"
   EDIT = { "AGGLNMC" => "SYNTH,LEGAL" }.freeze
+  MAPPINGS = { GETS => :ddr_gets_entry_data, LEGL => :agg_update_legal_names }.freeze
 
   def setup
     @mock = RpmsRpc.mock!
@@ -62,8 +63,81 @@ class AggLegalNamesTest < Minitest::Test
     end
   end
 
-  def test_legal_name_parms_allowlist_excludes_rien_and_dfn
-    assert_equal %w[AGGLNDTC AGGLNMC AGGLNPRF AGGLGDOC AGGLNEBY ALIASCK], Agg::LEGAL_NAME_PARMS
+  # AGGLNEBY's EXEC files DUZ whatever the value, and ALIASCK has no field:
+  # both answer success while filing nothing the caller asked.
+  def test_legal_name_parms_allowlist_is_the_four_fields_legl_files
+    assert_equal %w[AGGLNDTC AGGLNMC AGGLNPRF AGGLGDOC], Agg::LEGAL_NAME_PARMS
+  end
+
+  def test_refuses_agglneby_aliasck_and_keys_that_are_not_a_string_or_symbol
+    seed_happy
+    [ "AGGLNEBY", :AGGLNEBY, "ALIASCK", :ALIASCK, 7, to_s_object("AGGLNMC"), flipping("AGGLNMC", "RIEN") ].each do |name|
+      assert_refused :invalid_param, "name #{name.inspect}", dfn: DFN, proc: "", rien: RIEN, params: { name => "SYNTH,LEGAL" }
+    end
+  end
+
+  def test_refuses_values_that_are_not_a_string_or_for_agglnprf_a_positive_integer
+    seed_happy
+    [ [ "SYNTH,LEGAL" ], { "SYNTH" => "LEGAL" }, :SYNTH_LEGAL, 1.5, 12_345, to_s_object("SYNTH,LEGAL") ].each do |bad|
+      assert_refused :invalid_param, "AGGLNMC #{bad.class}", dfn: DFN, proc: "", rien: RIEN, params: { "AGGLNMC" => bad }
+    end
+    [ 0, -1, 1.5, "07", "0", "1.5", "SYNTH", :"7", [ 7 ] ].each do |bad|
+      assert_refused :invalid_param, "AGGLNPRF #{bad.inspect}", dfn: DFN, proc: "", rien: RIEN, params: { "AGGLNPRF" => bad }
+    end
+  end
+
+  # FILE^DIE files "@" as a field delete (DIEF.m:61), refuses "^" (error 714),
+  # and LEGL files with no validation, so the wrapper checks every value.
+  def test_refuses_at_sign_control_characters_caret_and_surrounding_whitespace
+    seed_happy
+    [ "@", " @ ", "SYNTH\nLEGAL", "SYNTH\tLEGAL", "SYNTH#{RS}LEGAL", "SYNTH#{US}LEGAL", "SYNTH\x7fLEGAL",
+      "SYNTH#{Agg::PARM_DELIM}DFN=1", "SYNTH^LEGAL", " SYNTH,LEGAL", "SYNTH,LEGAL ", "SYNTH,LEGAL\n" ].each do |bad|
+      %w[AGGLNMC AGGLGDOC].each do |name|
+        assert_refused :invalid_param, "#{name} #{bad.inspect}", dfn: DFN, proc: "", rien: RIEN, params: { name => bad }
+      end
+    end
+    [ "@", " 7", "7 ", "7\n", "7^8" ].each do |bad|
+      assert_refused :invalid_param, "AGGLNPRF #{bad.inspect}", dfn: DFN, proc: "", rien: RIEN, params: { "AGGLNPRF" => bad }
+    end
+  end
+
+  def test_refuses_agglnmc_outside_3_to_45_and_agglgdoc_outside_3_to_20_characters
+    seed_happy
+    { "AGGLNMC" => [ "AB", "A" * 46 ], "AGGLGDOC" => [ "AB", "A" * 21 ] }.each do |name, values|
+      values.each do |bad|
+        assert_refused :invalid_param, "#{name} of #{bad.size}", dfn: DFN, proc: "", rien: RIEN, params: { name => bad }
+      end
+    end
+  end
+
+  def test_sends_values_at_the_length_bounds_and_agglnprf_as_string_or_integer
+    seed_happy
+    { { "AGGLNMC" => "ABC" } => "AGGLNMC=ABC", { "AGGLNMC" => "A" * 45 } => "AGGLNMC=#{'A' * 45}",
+      { "AGGLGDOC" => "ABC" } => "AGGLGDOC=ABC", { AGGLGDOC: "A" * 20 } => "AGGLGDOC=#{'A' * 20}",
+      { "AGGLNPRF" => "7" } => "AGGLNPRF=7", { AGGLNPRF: 7 } => "AGGLNPRF=7",
+      { "AGGLNDTC" => "01/01/1800" } => "AGGLNDTC=01/01/1800",
+      { "AGGLNDTC" => "12/31/2699" } => "AGGLNDTC=12/31/2699" }.each do |params, parms|
+      @mock.received_calls.clear
+      assert_equal({ success: true, ien: 42 }, Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: params), parms)
+      assert_equal [ DFN, "", RIEN, parms ], legl_call[:params]
+    end
+  end
+
+  # The bytes validated are the bytes sent: a String subclass whose bytes are
+  # "@" and whose to_s answers a valid name once is refused, or sent as that
+  # one validated answer; "AGGLNMC=@" (a field delete) never reaches the wire.
+  def test_each_value_is_converted_once_so_the_wire_carries_what_was_validated
+    seed_happy
+    value = Class.new(String) do
+      def to_s = (@asked = @asked.to_i + 1) == 1 ? "SYNTH,LEGAL" : "@"
+    end.new("@")
+
+    result = Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: { "AGGLNMC" => value })
+
+    sent = @mock.received_calls.select { |c| c[:rpc] == LEGL }.map { |c| c[:params][3] }
+    assert_includes [ [], [ "AGGLNMC=SYNTH,LEGAL" ] ], sent
+    assert_equal :invalid_param, result[:error] if sent.empty?
+    assert_empty @mock.received_calls if sent.empty?
   end
 
   def test_refuses_params_that_are_not_a_hash_or_name_an_unlisted_parameter
@@ -92,7 +166,11 @@ class AggLegalNamesTest < Minitest::Test
   end
 
   def test_refuses_agglndtc_that_is_not_an_absolute_real_calendar_day
-    [ "T", "T-1", "TODAY", "11/5/2026", "2026-11-05", "02/30/2026", "13/01/2026", "11/05/2026@1200" ].each do |bad|
+    seed_happy
+    # %DT takes years 1800-2699 only (DIDT.m:76); DATE^AGGUL1 turns the failure
+    # into "" and FILE^DIE of a null .01 deletes the row (DIEF.m:56).
+    [ "T", "T-1", "TODAY", "11/5/2026", "2026-11-05", "02/30/2026", "13/01/2026", "11/05/2026@1200",
+      "01/01/1799", "12/31/2700", "11/05/1026", "01/01/0001", "01/01/9999" ].each do |bad|
       assert_refused :invalid_param, "AGGLNDTC #{bad.inspect}", dfn: DFN, proc: "A", rien: RIEN, params: { "AGGLNDTC" => bad }
     end
   end
@@ -108,14 +186,6 @@ class AggLegalNamesTest < Minitest::Test
     Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: given)
     assert_equal({ AGGLNMC: "SYNTH,LEGAL" }, given)
     refute given.frozen?
-  end
-
-  def test_value_holding_the_parameter_delimiter_raises_before_any_rpc
-    seed_owner(RIEN, DFN)
-    assert_raises(ArgumentError) do
-      Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: { "AGGLNMC" => "SYNTH#{Agg::PARM_DELIM}DFN=1" })
-    end
-    assert_empty @mock.received_calls
   end
 
   # -- 5: ownership read ------------------------------------------------------
@@ -146,6 +216,26 @@ class AggLegalNamesTest < Minitest::Test
     seed_owner(RIEN, DFN_B)
     [ [ "D", {} ], [ "A", EDIT ], [ "", EDIT ] ].each do |proc, params|
       assert_read_refusal :rien_not_for_dfn, "proc #{proc.inspect}", proc: proc, params: params
+    end
+  end
+
+  # The read proves ownership only when it is exactly one clean .02 row of
+  # this file and this IENS holding the canonical DFN.
+  def test_ownership_read_fails_closed_on_any_reply_that_is_not_one_clean_row
+    seed_legl("1^^#{RIEN}")
+    { "duplicate .02 rows" => [ "9000033^#{RIEN},^.02^#{DFN_B}^", "9000033^#{RIEN},^.02^#{DFN}^" ],
+      "four-piece row" => [ "9000033^#{RIEN},^.02^#{DFN}" ],
+      "row for IENS 7," => [ "9000033^7,^.02^#{DFN}^" ],
+      "row for IENS without a comma" => [ "9000033^#{RIEN}^.02^#{DFN}^" ],
+      "row for file 2" => [ "2^#{RIEN},^.02^#{DFN}^" ],
+      "second row of another file" => [ "9000033^#{RIEN},^.02^#{DFN}^", "2^#{RIEN},^.01^SYNTH^" ],
+      "altered reply" => [ "9000033^#{RIEN},^.02^#{DFN}^\xFF" ],
+      "padded .02" => [ "9000033^#{RIEN},^.02^ #{DFN} ^" ],
+      "non-canonical .02" => [ "9000033^#{RIEN},^.02^0#{DFN}^" ] }.each do |label, rows|
+      seed_lines(GETS, gets_param(RIEN).to_s, [ "[Data]", *rows ])
+      [ [ "D", {} ], [ "", EDIT ] ].each do |proc, params|
+        assert_read_refusal :rien_unverified, "#{label} proc #{proc.inspect}", proc: proc, params: params
+      end
     end
   end
 
@@ -189,13 +279,26 @@ class AggLegalNamesTest < Minitest::Test
     end
   end
 
-  def test_legl_rejection_row_is_agg_rejected_with_its_text
+  # A -1 or header-only reply can follow a partial write (AGGDATA is filed
+  # before AGGDATAI), so once LEGL is sent a failure does not say "not written".
+  def test_legl_rejection_row_is_agg_rejected_with_its_text_and_written_unknown
     seed_owner(RIEN, DFN)
     seed_legl("-1^AGGLNMC not a valid parameter for this update^^")
 
     result = Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: EDIT)
 
-    assert_equal({ success: false, error: :agg_rejected, message: "AGGLNMC not a valid parameter for this update" }, result)
+    assert_equal({ success: false, error: :agg_rejected, message: "AGGLNMC not a valid parameter for this update",
+                   written: :unknown }, result)
+  end
+
+  def test_header_only_legl_reply_is_agg_empty_reply_with_written_unknown
+    seed_owner(RIEN, DFN)
+    seed_lines(LEGL, DFN, "5\x00#{HEADER}#{RS}#{US}")
+
+    result = Agg.update_legal_names(dfn: DFN, proc: "D", rien: RIEN, params: {})
+
+    assert_kind_of String, result[:message]
+    assert_equal({ success: false, error: :agg_empty_reply, written: :unknown }, result.except(:message))
   end
 
   def test_no_legl_reply_is_nil
@@ -248,6 +351,41 @@ class AggLegalNamesTest < Minitest::Test
     assert_equal 1, client.wire_entries, "one outer synchronize_wire block holds the read and the write"
   end
 
+  # A client with no synchronize_wire of its own is serialized by the module lock.
+  def test_client_without_synchronize_wire_runs_read_and_legl_under_the_module_wire_lock
+    client = Class.new do
+      attr_reader :owned
+
+      def call_rpc(rpc_name, *)
+        (@owned ||= []) << [ rpc_name, RpmsRpc::MODULE_WIRE_LOCK.mon_owned? ]
+        return [ "[Data]", "9000033^#{RIEN},^.02^#{DFN}^" ] if rpc_name == GETS
+
+        "5\x00#{HEADER}#{RS}1^^#{RIEN}#{RS}#{US}"
+      end
+      alias_method :call_rpc_lines, :call_rpc
+    end.new
+    refute_respond_to client, :synchronize_wire
+
+    result = Agg.update_legal_names(dfn: DFN, proc: "D", rien: RIEN, params: {}, client: client)
+
+    assert_equal({ success: true, ien: 42 }, result)
+    assert_equal [ [ GETS, true ], [ LEGL, true ] ], client.owned
+  end
+
+  def test_context_is_restored_after_a_success_and_after_an_ownership_refusal
+    before = @mock.current_context
+    seed_happy
+    assert_equal true, Agg.update_legal_names(dfn: DFN, proc: "D", rien: RIEN, params: {})[:success]
+    assert_equal before, @mock.current_context
+    assert_equal [ DDR_CONTEXT, before, Agg::CONTEXT, before ], @mock.context_binds
+
+    seed_owner(RIEN, DFN_B)
+    @mock.context_binds.clear
+    assert_equal :rien_not_for_dfn, Agg.update_legal_names(dfn: DFN, proc: "D", rien: RIEN, params: {})[:error]
+    assert_equal before, @mock.current_context
+    assert_equal [ DDR_CONTEXT, before ], @mock.context_binds
+  end
+
   def test_update_legal_names_is_non_idempotent_write_in_retry_safety
     assert_equal :non_idempotent_write, RpmsRpc::RetrySafety.for(Agg, :update_legal_names)
   end
@@ -262,7 +400,24 @@ class AggLegalNamesTest < Minitest::Test
     RpmsRpc::DdrFileman.gets_entry_param(file: "9000033", iens: "#{rien},", fields: ".02", flags: "I")
   end
 
+  # An object that is not a String but whose to_s is +text+.
+  def to_s_object(text) = Object.new.tap { |o| o.define_singleton_method(:to_s) { text } }
+
+  # An object whose to_s answers +first+ once and +later+ from then on.
+  def flipping(first, later)
+    asked = 0
+    Object.new.tap { |o| o.define_singleton_method(:to_s) { (asked += 1) == 1 ? first : later } }
+  end
+
+  # The row is DFN's and LEGL answers success: a refusal is the wrapper's own.
+  def seed_happy
+    seed_owner(RIEN, DFN)
+    seed_legl("1^^#{RIEN}")
+  end
+
   def seed_lines(rpc, key, reply, mock: @mock)
+    return mock.seed_raw_lines(MAPPINGS.fetch(rpc), key, reply) if reply.is_a?(Array)
+
     tables = mock.instance_variable_get(:@lines) || {}
     tables[rpc] ||= {}
     reply.nil? ? tables[rpc].delete(key.to_s) : tables[rpc][key.to_s] = reply
@@ -291,6 +446,7 @@ class AggLegalNamesTest < Minitest::Test
     assert_equal error, result[:error], label
     assert_kind_of String, result[:message], label
     assert_empty @mock.received_calls, "#{label}: no RPC may be sent"
+    refute result.key?(:written), "#{label}: nothing was sent, so no :written"
     result
   end
 
@@ -302,5 +458,6 @@ class AggLegalNamesTest < Minitest::Test
     assert_equal error, result[:error], label
     assert_kind_of String, result[:message], label
     assert_equal [ GETS ], @mock.received_calls.map { |c| c[:rpc] }, label
+    refute result.key?(:written), "#{label}: LEGL was not sent, so no :written"
   end
 end
