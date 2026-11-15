@@ -41,7 +41,7 @@ class AggLegalNamesTest < Minitest::Test
   end
 
   def test_refuses_proc_other_than_a_d_or_empty_without_rpc
-    [ "d", "a", "X", " D", "DELETE", nil ].each do |bad|
+    [ "d", "a", "X", " D", "DELETE", nil, :D, :A, 1 ].each do |bad|
       assert_refused :invalid_proc, "proc #{bad.inspect}", dfn: DFN, proc: bad, rien: RIEN, params: {}
     end
   end
@@ -57,16 +57,79 @@ class AggLegalNamesTest < Minitest::Test
     end
   end
 
+  # A RIEN is an Integer or a String of 1 to 15 digits with no leading zero.
   def test_refuses_non_canonical_rien_without_rpc
-    [ "0", "042", "4 2", "-1", "abc", "1.5" ].each do |bad|
+    seed_owner(RIEN, DFN)
+    seed_owner("1234567890123456", DFN)
+    seed_legl("1^^#{RIEN}")
+    [ "0", "042", "4 2", "-1", "abc", "1.5", "1234567890123456", 10**15, 0, -42,
+      :"42", 42.0, [ 42 ], to_s_object(RIEN) ].each do |bad|
       assert_refused :invalid_rien, "rien #{bad.inspect}", dfn: DFN, proc: "D", rien: bad, params: {}
     end
   end
 
+  def test_fifteen_digit_rien_is_read_and_sent
+    rien = "9" * 15
+    seed_owner(rien, DFN)
+    seed_legl("1^^#{rien}")
+
+    assert_equal({ success: true, ien: rien.to_i }, Agg.update_legal_names(dfn: DFN, proc: "D", rien: rien, params: {}))
+    assert_equal [ gets_param(rien) ], @mock.received_calls.first[:params]
+    assert_equal [ DFN, "D", rien, "" ], legl_call[:params]
+  end
+
+  # DFN, proc and RIEN are compared with a regexp or ==, which raise or
+  # misjudge on a String that is not ASCII-compatible or not valid.
+  def test_dfn_proc_and_rien_in_another_encoding_are_refused_without_raising
+    seed_happy
+    utf16 = ->(text) { text.encode("UTF-16LE") }
+    [ utf16.(DFN), "#{DFN}\xFF", "#{DFN}\xFF".b ].each do |bad|
+      assert_refused :invalid_dfn, "dfn #{bad.inspect}", dfn: bad, proc: "D", rien: RIEN, params: {}
+    end
+    [ utf16.("D"), "D\xFF", "D\xFF".b ].each do |bad|
+      assert_refused :invalid_proc, "proc #{bad.inspect}", dfn: DFN, proc: bad, rien: RIEN, params: {}
+    end
+    [ utf16.(RIEN), "#{RIEN}\xFF", "#{RIEN}\xFF".b ].each do |bad|
+      assert_refused :invalid_rien, "rien #{bad.inspect}", dfn: DFN, proc: "D", rien: bad, params: {}
+    end
+  end
+
+  # What is validated is the String's bytes, so those bytes are what is sent:
+  # a subclass whose to_s answers something else never puts that on the wire.
+  def test_dfn_proc_and_rien_reach_the_wire_as_plain_strings_of_the_validated_bytes
+    [ RIEN, "43" ].each { |rien| seed_owner(rien, DFN) }
+    [ DFN, DFN_B ].each { |dfn| seed_legl("1^^#{RIEN}", dfn: dfn) }
+    { dfn: masked(DFN, DFN_B), proc: masked("D", "A"), rien: masked(RIEN, "43") }.each do |name, value|
+      @mock.received_calls.clear
+      result = Agg.update_legal_names(**{ dfn: DFN, proc: "D", rien: RIEN, params: {} }.merge(name => value))
+
+      if @mock.received_calls.empty?
+        assert_equal [ false, :"invalid_#{name}" ], result.values_at(:success, :error), "#{name} refused"
+      else
+        assert_equal [ gets_param(RIEN) ], @mock.received_calls.first[:params], "#{name}: the read is of the validated RIEN"
+        assert_equal [ DFN, "D", RIEN, "" ], legl_call[:params], "#{name}: validated bytes, not to_s"
+        assert_equal({ success: true, ien: 42 }, result, name)
+      end
+    end
+  end
+
   # AGGLNEBY's EXEC files DUZ whatever the value, and ALIASCK has no field:
-  # both answer success while filing nothing the caller asked.
-  def test_legal_name_parms_allowlist_is_the_four_fields_legl_files
-    assert_equal %w[AGGLNDTC AGGLNMC AGGLNPRF AGGLGDOC], Agg::LEGAL_NAME_PARMS
+  # both answer success while filing nothing the caller asked. AGGLNPRF (.04)
+  # is a screened pointer to #9000030 that LEGL files unchecked.
+  def test_legal_name_parms_allowlist_is_the_three_fields_legl_files_as_asked
+    assert_equal %w[AGGLNDTC AGGLNMC AGGLGDOC], Agg::LEGAL_NAME_PARMS
+  end
+
+  def test_refuses_agglnprf_whatever_its_value
+    seed_happy
+    [ "AGGLNPRF", :AGGLNPRF ].each do |name|
+      [ "7", 7 ].each do |value|
+        [ "", "A" ].each do |proc|
+          assert_refused :invalid_param, "#{name.inspect} => #{value.inspect} proc #{proc.inspect}",
+                         dfn: DFN, proc: proc, rien: RIEN, params: { name => value }
+        end
+      end
+    end
   end
 
   def test_refuses_agglneby_aliasck_and_keys_that_are_not_a_string_or_symbol
@@ -76,13 +139,10 @@ class AggLegalNamesTest < Minitest::Test
     end
   end
 
-  def test_refuses_values_that_are_not_a_string_or_for_agglnprf_a_positive_integer
+  def test_refuses_values_that_are_not_a_string
     seed_happy
     [ [ "SYNTH,LEGAL" ], { "SYNTH" => "LEGAL" }, :SYNTH_LEGAL, 1.5, 12_345, to_s_object("SYNTH,LEGAL") ].each do |bad|
       assert_refused :invalid_param, "AGGLNMC #{bad.class}", dfn: DFN, proc: "", rien: RIEN, params: { "AGGLNMC" => bad }
-    end
-    [ 0, -1, 1.5, "07", "0", "1.5", "SYNTH", :"7", [ 7 ] ].each do |bad|
-      assert_refused :invalid_param, "AGGLNPRF #{bad.inspect}", dfn: DFN, proc: "", rien: RIEN, params: { "AGGLNPRF" => bad }
     end
   end
 
@@ -96,12 +156,23 @@ class AggLegalNamesTest < Minitest::Test
         assert_refused :invalid_param, "#{name} #{bad.inspect}", dfn: DFN, proc: "", rien: RIEN, params: { name => bad }
       end
     end
-    [ "@", " 7", "7 ", "7\n", "7^8" ].each do |bad|
-      assert_refused :invalid_param, "AGGLNPRF #{bad.inspect}", dfn: DFN, proc: "", rien: RIEN, params: { "AGGLNPRF" => bad }
+  end
+
+  # The wire carries bytes, so the bytes are what is checked, whatever the
+  # String's encoding: each must be printable ASCII, 0x20-0x7E. 0x83 0x5E is
+  # one Shift_JIS character whose second byte is "^".
+  def test_refuses_any_value_byte_outside_printable_ascii_without_raising
+    seed_happy
+    [ "É" * 10, "SYN\u0085TH", "SYN TH", "SYNTH　", "SYNTH".encode("UTF-16LE"),
+      "AB\x83\x5ECD".dup.force_encoding("Shift_JIS"), "\xFF\xFE".b, "SYN\xFFTH", "SYN\xFFTH".b ].each do |bad|
+      %w[AGGLNMC AGGLGDOC AGGLNDTC].each do |name|
+        assert_refused :invalid_param, "#{name} #{bad.encoding} #{bad.b.inspect}",
+                       dfn: DFN, proc: "", rien: RIEN, params: { name => bad }
+      end
     end
   end
 
-  def test_refuses_agglnmc_outside_3_to_45_and_agglgdoc_outside_3_to_20_characters
+  def test_refuses_agglnmc_outside_3_to_45_and_agglgdoc_outside_3_to_20_bytes
     seed_happy
     { "AGGLNMC" => [ "AB", "A" * 46 ], "AGGLGDOC" => [ "AB", "A" * 21 ] }.each do |name, values|
       values.each do |bad|
@@ -110,11 +181,10 @@ class AggLegalNamesTest < Minitest::Test
     end
   end
 
-  def test_sends_values_at_the_length_bounds_and_agglnprf_as_string_or_integer
+  def test_sends_values_at_the_length_and_year_bounds
     seed_happy
     { { "AGGLNMC" => "ABC" } => "AGGLNMC=ABC", { "AGGLNMC" => "A" * 45 } => "AGGLNMC=#{'A' * 45}",
       { "AGGLGDOC" => "ABC" } => "AGGLGDOC=ABC", { AGGLGDOC: "A" * 20 } => "AGGLGDOC=#{'A' * 20}",
-      { "AGGLNPRF" => "7" } => "AGGLNPRF=7", { AGGLNPRF: 7 } => "AGGLNPRF=7",
       { "AGGLNDTC" => "01/01/1800" } => "AGGLNDTC=01/01/1800",
       { "AGGLNDTC" => "12/31/2699" } => "AGGLNDTC=12/31/2699" }.each do |params, parms|
       @mock.received_calls.clear
@@ -123,21 +193,16 @@ class AggLegalNamesTest < Minitest::Test
     end
   end
 
-  # The bytes validated are the bytes sent: a String subclass whose bytes are
-  # "@" and whose to_s answers a valid name once is refused, or sent as that
-  # one validated answer; "AGGLNMC=@" (a field delete) never reaches the wire.
-  def test_each_value_is_converted_once_so_the_wire_carries_what_was_validated
+  # The bytes validated are the bytes sent, never a String subclass's to_s:
+  # "AGGLNMC=@" (a field delete) cannot reach the wire either way round.
+  def test_a_value_is_validated_and_sent_as_its_bytes_not_its_to_s
     seed_happy
-    value = Class.new(String) do
-      def to_s = (@asked = @asked.to_i + 1) == 1 ? "SYNTH,LEGAL" : "@"
-    end.new("@")
+    result = Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: { "AGGLNMC" => masked("SYNTH,LEGAL", "@") })
 
-    result = Agg.update_legal_names(dfn: DFN, proc: "", rien: RIEN, params: { "AGGLNMC" => value })
+    assert_equal({ success: true, ien: 42 }, result)
+    assert_equal [ DFN, "", RIEN, "AGGLNMC=SYNTH,LEGAL" ], legl_call[:params]
 
-    sent = @mock.received_calls.select { |c| c[:rpc] == LEGL }.map { |c| c[:params][3] }
-    assert_includes [ [], [ "AGGLNMC=SYNTH,LEGAL" ] ], sent
-    assert_equal :invalid_param, result[:error] if sent.empty?
-    assert_empty @mock.received_calls if sent.empty?
+    assert_refused :invalid_param, "bytes @", dfn: DFN, proc: "", rien: RIEN, params: { "AGGLNMC" => masked("@", "SYNTH,LEGAL") }
   end
 
   def test_refuses_params_that_are_not_a_hash_or_name_an_unlisted_parameter
@@ -150,7 +215,7 @@ class AggLegalNamesTest < Minitest::Test
   end
 
   def test_refuses_duplicate_names_and_any_edit_without_exactly_one_entry
-    [ { "AGGLNMC" => "X", AGGLNMC: "Y" }, {}, { "AGGLNMC" => "X", "AGGLNPRF" => "Y" } ].each do |bad|
+    [ { "AGGLNMC" => "X", AGGLNMC: "Y" }, {}, { "AGGLNMC" => "X", "AGGLGDOC" => "Y" } ].each do |bad|
       [ "A", "" ].each do |proc|
         assert_refused :invalid_param, "proc #{proc.inspect} params #{bad.inspect}",
                        dfn: DFN, proc: proc, rien: RIEN, params: bad
@@ -203,9 +268,10 @@ class AggLegalNamesTest < Minitest::Test
   end
 
   def test_unverifiable_owner_is_rien_unverified_without_legl
-    { "no reply" => nil, "error" => [ "[ERROR]" ], "malformed" => [ "garbage" ],
-      "blank .02" => [ "[Data]", "9000033^#{RIEN},^.02^^" ], "no .02 row" => [ "[Data]" ] }.each do |label, lines|
-      seed_lines(GETS, gets_param(RIEN).to_s, lines)
+    seed_legl("1^^#{RIEN}")
+    { "no reply" => nil, "error" => [ "[ERROR]" ], "malformed" => [ "garbage" ], "no .02 row" => [ "[Data]" ],
+      "blank .02" => [ "[Data]", "9000033^#{RIEN}^.02^^" ] }.each do |label, lines|
+      seed_lines(GETS, gets_param(RIEN).to_s, lines) if lines
       [ [ "D", {} ], [ "", EDIT ] ].each do |proc, params|
         assert_read_refusal :rien_unverified, "#{label} proc #{proc.inspect}", proc: proc, params: params
       end
@@ -214,27 +280,61 @@ class AggLegalNamesTest < Minitest::Test
 
   def test_row_of_another_patient_is_rien_not_for_dfn_without_legl
     seed_owner(RIEN, DFN_B)
+    seed_legl("1^^#{RIEN}")
     [ [ "D", {} ], [ "A", EDIT ], [ "", EDIT ] ].each do |proc, params|
       assert_read_refusal :rien_not_for_dfn, "proc #{proc.inspect}", proc: proc, params: params
     end
   end
 
-  # The read proves ownership only when it is exactly one clean .02 row of
-  # this file and this IENS holding the canonical DFN.
-  def test_ownership_read_fails_closed_on_any_reply_that_is_not_one_clean_row
+  # GETSC^DDR2 answers "[Data]" and then one row per field with the trailing
+  # comma cut from the IENS (DDR2.m:32): 9000033^42^.02^990031^. The read
+  # proves ownership only when it is exactly that: nothing before, between or
+  # after, this file, this RIEN, five pieces with the last one empty.
+  def test_ownership_read_fails_closed_on_any_reply_that_is_not_data_then_the_one_row
     seed_legl("1^^#{RIEN}")
-    { "duplicate .02 rows" => [ "9000033^#{RIEN},^.02^#{DFN_B}^", "9000033^#{RIEN},^.02^#{DFN}^" ],
-      "four-piece row" => [ "9000033^#{RIEN},^.02^#{DFN}" ],
-      "row for IENS 7," => [ "9000033^7,^.02^#{DFN}^" ],
-      "row for IENS without a comma" => [ "9000033^#{RIEN}^.02^#{DFN}^" ],
-      "row for file 2" => [ "2^#{RIEN},^.02^#{DFN}^" ],
-      "second row of another file" => [ "9000033^#{RIEN},^.02^#{DFN}^", "2^#{RIEN},^.01^SYNTH^" ],
-      "altered reply" => [ "9000033^#{RIEN},^.02^#{DFN}^\xFF" ],
-      "padded .02" => [ "9000033^#{RIEN},^.02^ #{DFN} ^" ],
-      "non-canonical .02" => [ "9000033^#{RIEN},^.02^0#{DFN}^" ] }.each do |label, rows|
-      seed_lines(GETS, gets_param(RIEN).to_s, [ "[Data]", *rows ])
+    row = owner_row(RIEN, DFN)
+    { "no [Data] line" => [ row ],
+      "[ERROR] after the row" => [ "[Data]", row, "[ERROR]" ],
+      "[Data] twice" => [ "[Data]", "[Data]", row ],
+      "blank line after the row" => [ "[Data]", row, "" ],
+      "extra .01 row after" => [ "[Data]", row, "9000033^#{RIEN}^.01^3261105^" ],
+      "extra .01 row before" => [ "[Data]", "9000033^#{RIEN}^.01^3261105^", row ],
+      "duplicate .02 rows" => [ "[Data]", row, row ],
+      "two .02 rows, two owners" => [ "[Data]", owner_row(RIEN, DFN_B), row ],
+      "second row of another file" => [ "[Data]", row, "2^#{RIEN}^.01^SYNTH^" ],
+      "row for file 2" => [ "[Data]", "2^#{RIEN}^.02^#{DFN}^" ],
+      "IENS with its comma" => [ "[Data]", "9000033^#{RIEN},^.02^#{DFN}^" ],
+      "IENS 7" => [ "[Data]", owner_row("7", DFN) ],
+      "IENS 042" => [ "[Data]", owner_row("0#{RIEN}", DFN) ],
+      "row for field .01" => [ "[Data]", "9000033^#{RIEN}^.01^#{DFN}^" ],
+      "four-piece row" => [ "[Data]", "9000033^#{RIEN}^.02^#{DFN}" ],
+      "external piece filled" => [ "[Data]", "9000033^#{RIEN}^.02^#{DFN}^SYNTH,PATIENT" ],
+      "six-piece row" => [ "[Data]", "9000033^#{RIEN}^.02^#{DFN}^^" ],
+      "padded .02" => [ "[Data]", "9000033^#{RIEN}^.02^ #{DFN} ^" ],
+      "non-canonical .02" => [ "[Data]", owner_row(RIEN, "0#{DFN}") ] }.each do |label, lines|
+      seed_lines(GETS, gets_param(RIEN).to_s, lines)
       [ [ "D", {} ], [ "", EDIT ] ].each do |proc, params|
         assert_read_refusal :rien_unverified, "#{label} proc #{proc.inspect}", proc: proc, params: params
+      end
+    end
+  end
+
+  # The same two lines verify when the client did not alter them and do not
+  # when it did: text the client had to repair is never proof of an owner.
+  def test_ownership_read_the_client_marked_altered_is_unverified_though_its_lines_are_clean
+    seed_legl("1^^#{RIEN}")
+    clean = [ "[Data]", owner_row(RIEN, DFN) ]
+    seed_lines(GETS, gets_param(RIEN).to_s, clean)
+    assert_equal({ success: true, ien: 42 }, Agg.update_legal_names(dfn: DFN, proc: "D", rien: RIEN, params: {}))
+
+    [ 0, 1 ].each do |index|
+      seed_lines(GETS, gets_param(RIEN).to_s, RpmsRpc::Reply.from_wire(clean, altered: [ index ]))
+      reply = @mock.call_rpc(GETS, gets_param(RIEN))
+      assert RpmsRpc::Reply.altered?(reply), "the mock hands back the altered flag"
+      assert_equal clean, RpmsRpc::DdrFileman.lines(reply)
+
+      [ [ "D", {} ], [ "", EDIT ] ].each do |proc, params|
+        assert_read_refusal :rien_unverified, "line #{index} altered, proc #{proc.inspect}", proc: proc, params: params
       end
     end
   end
@@ -293,7 +393,7 @@ class AggLegalNamesTest < Minitest::Test
 
   def test_header_only_legl_reply_is_agg_empty_reply_with_written_unknown
     seed_owner(RIEN, DFN)
-    seed_lines(LEGL, DFN, "5\x00#{HEADER}#{RS}#{US}")
+    seed_legl(nil)
 
     result = Agg.update_legal_names(dfn: DFN, proc: "D", rien: RIEN, params: {})
 
@@ -358,7 +458,7 @@ class AggLegalNamesTest < Minitest::Test
 
       def call_rpc(rpc_name, *)
         (@owned ||= []) << [ rpc_name, RpmsRpc::MODULE_WIRE_LOCK.mon_owned? ]
-        return [ "[Data]", "9000033^#{RIEN},^.02^#{DFN}^" ] if rpc_name == GETS
+        return [ "[Data]", "9000033^#{RIEN}^.02^#{DFN}^" ] if rpc_name == GETS
 
         "5\x00#{HEADER}#{RS}1^^#{RIEN}#{RS}#{US}"
       end
@@ -409,32 +509,36 @@ class AggLegalNamesTest < Minitest::Test
     Object.new.tap { |o| o.define_singleton_method(:to_s) { (asked += 1) == 1 ? first : later } }
   end
 
+  # A String of +bytes+ whose to_s answers +shown+.
+  def masked(bytes, shown) = Class.new(String) { define_method(:to_s) { shown } }.new(bytes)
+
   # The row is DFN's and LEGL answers success: a refusal is the wrapper's own.
   def seed_happy
     seed_owner(RIEN, DFN)
     seed_legl("1^^#{RIEN}")
   end
 
-  def seed_lines(rpc, key, reply, mock: @mock)
-    return mock.seed_raw_lines(MAPPINGS.fetch(rpc), key, reply) if reply.is_a?(Array)
-
-    tables = mock.instance_variable_get(:@lines) || {}
-    tables[rpc] ||= {}
-    reply.nil? ? tables[rpc].delete(key.to_s) : tables[rpc][key.to_s] = reply
-    mock.instance_variable_set(:@lines, tables)
+  def seed_lines(rpc, key, lines, mock: @mock)
+    mock.seed_raw_lines(MAPPINGS.fetch(rpc), key, lines)
   end
+
+  # GETSC^DDR2's row for the .02 of one entry: the IENS without its comma.
+  def owner_row(rien, owner) = "9000033^#{rien}^.02^#{owner}^"
 
   def seed_owner(rien, owner, mock: @mock)
-    seed_lines(GETS, gets_param(rien).to_s, [ "[Data]", "9000033^#{rien},^.02^#{owner}^" ], mock: mock)
+    seed_lines(GETS, gets_param(rien).to_s, [ "[Data]", owner_row(rien, owner) ], mock: mock)
   end
 
-  def seed_legl(row, mock: @mock)
-    seed_lines(LEGL, DFN, "5\x00#{HEADER}#{RS}#{row}#{RS}#{US}", mock: mock)
+  # LEGL's reply as lines: the typed header, then +row+ (nil for header only).
+  def seed_legl(row, dfn: DFN, mock: @mock)
+    seed_lines(LEGL, dfn, [ HEADER, row ].compact, mock: mock)
   end
 
+  # The one LEGL call, whose parameters are all plain Strings.
   def legl_call
     calls = @mock.received_calls.select { |c| c[:rpc] == LEGL }
     assert_equal 1, calls.size, "exactly one #{LEGL} call"
+    calls.first[:params].each { |param| assert_instance_of String, param, "LEGL parameter #{param.inspect}" }
     calls.first
   end
 
