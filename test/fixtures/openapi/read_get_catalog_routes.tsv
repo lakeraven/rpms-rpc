@@ -37,6 +37,8 @@ RpmsRpc::Eligibility.codes	GET /eligibility/codes
 RpmsRpc::Eligibility.for_patient	GET /patients/{dfn}/eligibility
 RpmsRpc::Encounter.for_patient	GET /patients/{dfn}/encounters
 RpmsRpc::Encounter.visits	GET /patients/{dfn}/encounters/visits
+RpmsRpc::ExamComponent.for_patient	GET /patients/{dfn}/exam-components
+RpmsRpc::HealthFactor.for_patient	GET /patients/{dfn}/health-factors
 RpmsRpc::HealthSummary.clinical_reminders	GET /patients/{dfn}/health-summaries/clinical-reminders
 RpmsRpc::HealthSummary.component_data	GET /patients/{dfn}/health-summaries/component-data
 RpmsRpc::HealthSummary.for_patient	GET /patients/{dfn}/health-summaries
@@ -80,6 +82,7 @@ RpmsRpc::Patient.lookup	GET /patients/lookup
 RpmsRpc::Patient.search	GET /patients
 RpmsRpc::PatientApplication.for_patient	GET /patients/{dfn}/patient-applications
 RpmsRpc::PatientApplication.types	GET /patient-applications/types
+RpmsRpc::PatientEducation.for_patient	GET /patients/{dfn}/patient-education
 RpmsRpc::PatientProfile.aliases	GET /patients/{dfn}/patient-profiles/aliases
 RpmsRpc::PatientProfile.contacts	GET /patients/{dfn}/patient-profiles/contacts
 RpmsRpc::PatientProfile.language_lookup	GET /patient-profiles/language-lookup
@@ -95,6 +98,7 @@ RpmsRpc::Phr.for_patient	GET /patients/{dfn}/phr
 RpmsRpc::Phr.has_access?	GET /patients/{dfn}/phr/has-access
 RpmsRpc::Phr.referrals_for_visits	GET /phr/referrals
 RpmsRpc::Pov.for_patient	GET /patients/{dfn}/purposes-of-visit
+RpmsRpc::Pov.for_visit	GET /visits/{visit_ien}/purposes-of-visit
 RpmsRpc::Practitioner.find	GET /practitioners/{ien}
 RpmsRpc::Practitioner.search	GET /practitioners
 RpmsRpc::Problem.audit_history	GET /problems/{ien}/audit-history

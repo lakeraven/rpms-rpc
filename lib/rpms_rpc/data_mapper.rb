@@ -652,6 +652,25 @@ module RpmsRpc
         parse_many(lines)
       end
 
+      # fetch_many for a read whose failure must not read as "nothing on
+      # file": [] for an empty reply, Client::RpcError when the first row is
+      # an error row ("-N^text"), otherwise the parsed rows.
+      def fetch_many!(*params)
+        parse_many(lines!(*params))
+      end
+
+      # The data lines of a reply, for a read that parses them itself: []
+      # for an empty reply, Client::RpcError when the first line is an error
+      # row ("-N^text"). $C(30)/$C(31) separators are stripped.
+      def lines!(*params)
+        response = call(*params)
+        lines = response.is_a?(String) ? response.split(/\r\n|\r|\n/) : Array(response)
+        lines = lines.map { |line| DataMapper.strip_recordset_separators(line.to_s) }.reject(&:empty?)
+        raise Client::RpcError, RpmsRpc.sanitize_error("#{rpc_name} refused: #{lines.first}") if lines.first && DataMapper.error_row?(lines.first)
+
+        lines
+      end
+
       def fetch_scalar(*params)
         response = call(*params)
         return nil if response.nil? || response.empty?
@@ -739,6 +758,8 @@ module RpmsRpc
           end
         when :integer
           val.to_s
+        when :slash_date
+          val.respond_to?(:strftime) ? val.strftime("%m/%d/%Y") : val.to_s
         when :boolean
           val ? "1" : "0"
         else
@@ -775,6 +796,10 @@ module RpmsRpc
           FilemanDateParser.parse_external_date(raw)
         when :external_datetime
           FilemanDateParser.parse_external_datetime(raw)
+        when :slash_date
+          # MM/DD/YYYY, as FMTDATE^BGOUTL writes a date (FMTE^XLFDT "5ZD").
+          md = raw.match(%r{\A(\d{2})/(\d{2})/(\d{4})\z})
+          md && (Date.new(md[3].to_i, md[1].to_i, md[2].to_i) rescue nil)
         when :boolean
           raw == "1" || raw.casecmp?("yes")
         else

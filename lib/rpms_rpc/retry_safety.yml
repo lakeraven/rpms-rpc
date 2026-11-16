@@ -169,7 +169,9 @@
 "RpmsRpc::Encounter.visit_string": read
 "RpmsRpc::Encounter.visits": read
 "RpmsRpc::ExamComponent.add": non_idempotent_write
+"RpmsRpc::ExamComponent.for_patient": read
 "RpmsRpc::HealthFactor.add": non_idempotent_write
+"RpmsRpc::HealthFactor.for_patient": read
 "RpmsRpc::HealthSummary.clinical_reminders": read
 "RpmsRpc::HealthSummary.component_data": read
 "RpmsRpc::HealthSummary.for_patient": read
@@ -235,6 +237,7 @@
 "RpmsRpc::PatientApplication.for_patient": read
 "RpmsRpc::PatientApplication.types": read
 "RpmsRpc::PatientApplication.update_status": non_idempotent_write
+"RpmsRpc::PatientEducation.for_patient": read
 "RpmsRpc::PatientProfile.add_alias": non_idempotent_write
 "RpmsRpc::PatientProfile.add_other_tribe": non_idempotent_write
 "RpmsRpc::PatientProfile.aliases": read
@@ -258,6 +261,7 @@
 "RpmsRpc::Phr.referrals_for_visits": read
 "RpmsRpc::Pov.add": non_idempotent_write
 "RpmsRpc::Pov.for_patient": read
+"RpmsRpc::Pov.for_visit": read
 "RpmsRpc::Practitioner.detail": non_idempotent_write
 "RpmsRpc::Practitioner.find": read
 "RpmsRpc::Practitioner.roles": non_idempotent_write
