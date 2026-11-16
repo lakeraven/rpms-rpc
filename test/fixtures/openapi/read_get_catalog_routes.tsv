@@ -122,6 +122,8 @@ RpmsRpc::ProgressNote.fetch_text	GET /progress-notes/{note_ien}/text
 RpmsRpc::ProgressNote.list	GET /patients/{dfn}/progress-notes
 RpmsRpc::Referral.pending	GET /referrals/pending
 RpmsRpc::Registration.address_history	GET /patients/{dfn}/registrations/address-history
+RpmsRpc::Registration.advance_directive_types	GET /registrations/advance-directive-types
+RpmsRpc::Registration.advance_directives	GET /patients/{dfn}/registrations/advance-directives
 RpmsRpc::Registration.cell_phone	GET /patients/{dfn}/registrations/cell-phone
 RpmsRpc::Registration.eligibility_modifier_choices	GET /registrations/eligibility-modifier-choices
 RpmsRpc::Registration.eligibility_modifiers	GET /patients/{dfn}/registrations/eligibility-modifiers
