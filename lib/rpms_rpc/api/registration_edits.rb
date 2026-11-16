@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "date"
+require_relative "../server_clock"
 
 module RpmsRpc
   # Three registration edits no stock RPC files for a registration user
@@ -127,16 +128,18 @@ module RpmsRpc
     #
     # Refused before anything is locked (sends no RPC): an attribute outside
     # the Address window (ArgumentError for an unknown one, as update),
-    # moved_on not a Date, in the future or before 1871. Refused after the
-    # read and before any write: moved_on before the date of birth or before
-    # the old address's 7911.
+    # moved_on not a Date or before 1871. Then the server's today is read
+    # (ORWU DT): moved_on defaults to it, and a moved_on after it is refused
+    # before the lock. The history entry's .01 is that same day. Refused
+    # after the read and before any write: moved_on before the date of birth
+    # or before the old address's 7911.
     #
     # Returns update's answers, with history: true when the old address was
     # kept and false when the address itself did not change; or
     # { success: false, error: :partial, message: } when the Address window
     # was filed and the history was not (the message says so); nil when AGG
     # UPDATE PATIENT gave no reply.
-    def change_address(dfn, moved_on: Date.today, **attrs)
+    def change_address(dfn, moved_on: nil, **attrs)
       id = patient_dfn(dfn)
       return invalid("a positive DFN is required") unless id
 
@@ -149,7 +152,11 @@ module RpmsRpc
       refused = validate_update(id.to_i, params_by_window)
       return refused if refused
 
-      Agg.editing(dfn: id) { change_address_locked(id, moved_on, params_by_window) }
+      today = ServerClock.today
+      moved_on ||= today
+      return invalid("the date they moved cannot be in the future") if moved_on > today
+
+      Agg.editing(dfn: id) { change_address_locked(id, moved_on, params_by_window, today) }
     end
     shape :change_address, resource: "registrations", verb: "PUT",
           path: "/patients/{dfn}/registrations/address"
@@ -310,8 +317,8 @@ module RpmsRpc
     end
 
     def refuse_moved_on(moved_on)
+      return if moved_on.nil?
       return invalid("the date they moved must be a date") unless moved_on.instance_of?(Date)
-      return invalid("the date they moved cannot be in the future") if moved_on > Date.today
 
       invalid("the date they moved cannot be before 1871") if moved_on < EARLIEST_DATE
     end
@@ -321,7 +328,7 @@ module RpmsRpc
       invalid("change_address files the Address window only, not #{outside.join(', ')}") unless outside.empty?
     end
 
-    def change_address_locked(id, moved_on, params_by_window)
+    def change_address_locked(id, moved_on, params_by_window, today)
       before = in_context { read_address(id) }
       return before if before.key?(:success)
 
@@ -335,7 +342,7 @@ module RpmsRpc
       return address_partial(after[:message]) if after.key?(:success)
       return updated.merge(history: false) if same_address?(before, after) || empty_address?(before)
 
-      filed = in_context { DdrFileman.filer(mode: "ADD", rows: address_history_rows(id, before, moved_on)) }
+      filed = in_context { DdrFileman.filer(mode: "ADD", rows: address_history_rows(id, before, moved_on, today)) }
       return address_partial("RPMS gave no reply") if filed.nil?
       return address_partial(Array(filed[:errors]).join("\n")) unless filed[:success]
 
@@ -377,10 +384,10 @@ module RpmsRpc
       ADDRESS_COMPARED.all? { |field| before[:values][field].empty? }
     end
 
-    def address_history_rows(id, before, moved_on)
+    def address_history_rows(id, before, moved_on, today)
       node = "+1,#{id},"
       moved = FilemanDateParser.to_fileman(moved_on)
-      rows = [ edit_row(ADDRESS_HISTORY_FILE, ".01", node, FilemanDateParser.to_fileman(Date.today)) ]
+      rows = [ edit_row(ADDRESS_HISTORY_FILE, ".01", node, FilemanDateParser.to_fileman(today)) ]
       ADDRESS_HISTORY_COPY.each do |field, source|
         value = source == :zip ? history_zip(before) : before[:values][source]
         rows << edit_row(ADDRESS_HISTORY_FILE, field, node, value) unless value.empty?
@@ -400,12 +407,13 @@ module RpmsRpc
         message: "The address was saved, but the previous address was not kept: #{reason}" }
     end
 
-    # UPDATE1^AGED's FileMan part: #9000001 .03 and .16 today, .12 DUZ.
+    # UPDATE1^AGED's FileMan part: #9000001 .03 and .16 the server's today
+    # (DT, read with ORWU DT), .12 DUZ.
     def update1_stamp_rows(id)
       duz = signed_on_duz
       return invalid("a signed-on DUZ is required") unless duz
 
-      today = FilemanDateParser.to_fileman(Date.today)
+      today = FilemanDateParser.to_fileman(ServerClock.today)
       [ edit_row(PATIENT_FILE, ".03", "#{id},", today), edit_row(PATIENT_FILE, ".12", "#{id},", duz),
         edit_row(PATIENT_FILE, ".16", "#{id},", today) ]
     end

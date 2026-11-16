@@ -207,7 +207,8 @@
     ],
     "RpmsRpc::ImmunizationRefusal": [
       "BGOREF GETREA",
-      "BGOREF SET"
+      "BGOREF SET",
+      "ORWU DT"
     ],
     "RpmsRpc::Location": [
       "DDR GETS ENTRY DATA",
@@ -285,7 +286,8 @@
       "AGG UNLOCK PATIENT",
       "DDR FILER",
       "DDR GETS ENTRY DATA",
-      "DDR LISTER"
+      "DDR LISTER",
+      "ORWU DT"
     ],
     "RpmsRpc::PatientProfile": [
       "AGG BUILD WINDOW DISPLAY",
@@ -385,7 +387,8 @@
       "AGG WINDOW DATA VALIDATION",
       "DDR FILER",
       "DDR GETS ENTRY DATA",
-      "DDR LISTER"
+      "DDR LISTER",
+      "ORWU DT"
     ],
     "RpmsRpc::RegistrationParameters": [
       "DDR GETS ENTRY DATA",
@@ -394,7 +397,8 @@
     "RpmsRpc::RegistrationSetup": [
       "DDR FILER",
       "DDR GETS ENTRY DATA",
-      "DDR LISTER"
+      "DDR LISTER",
+      "ORWU DT"
     ],
     "RpmsRpc::Reminders": [
       "ORQQPXRM REMINDERS APPLICABLE"
@@ -463,7 +467,8 @@
       "BEHOVM SAVE",
       "BEHOVM TEMPLATE",
       "BEHOVM VALIDATE",
-      "ORQQVI VITALS"
+      "ORQQVI VITALS",
+      "ORWU DT"
     ],
     "RpmsRpc::WaitList": [
       "DDR FILER",

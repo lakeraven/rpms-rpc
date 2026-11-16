@@ -5,6 +5,7 @@ require_relative "agg"
 require_relative "../shape"
 require_relative "../context_scope"
 require_relative "../fileman_date_parser"
+require_relative "../server_clock"
 require_relative "ddr_fileman"
 
 module RpmsRpc
@@ -601,7 +602,8 @@ module RpmsRpc
     # rows ride in the same ADD call as the header.
     #
     # SETGI's code translation and defaults do not run: values are internal
-    # IENs, and an omitted date is today only because this method sends it.
+    # IENs, and an omitted date is the server's today (ORWU DT, read after
+    # the other checks) only because this method sends it.
     # Returns { success: true }, { success: false, error: :invalid /
     # :lookup_failed / :filer_failed, message: }, or nil when DDR FILER
     # gives no reply. A FILER reply with no [Data] marker is :filer_failed
@@ -609,7 +611,7 @@ module RpmsRpc
     # non-integer value, or other text that after strip contains "^", a
     # control character, or is exactly "@" sends no RPC. Ordinary other
     # text still files.
-    def set_gender_identity(dfn, values:, other: nil, date: Date.today)
+    def set_gender_identity(dfn, values:, other: nil, date: nil)
       ready = prepare_sogi(dfn, values: values, other: other, date: date)
       return ready if ready[:error]
 
@@ -638,7 +640,7 @@ module RpmsRpc
     # and the text is non-blank ($$SO^AUTSOGI(val,"C")), otherwise "".
     # FileMan xrefs ASO1/ASO2 still fire; SETSO's code translation and
     # defaults do not.
-    def set_sexual_orientation(dfn, values:, other: nil, date: Date.today)
+    def set_sexual_orientation(dfn, values:, other: nil, date: nil)
       ready = prepare_sogi(dfn, values: values, other: other, date: date)
       return ready if ready[:error]
 
@@ -659,19 +661,20 @@ module RpmsRpc
     # reply with no [Data] line is :lookup_failed and files nothing.
     # "[Data]" with no rows is a missing date. No #8994 entry reaches SETLSEX
     # (rpms-rpc#418, resolution 2). sex must already be M, F, or X; source
-    # must already be the #9000030 IEN. DATE ENTERED is the client's today:
-    # FILEC^DDR3 does not default it to DT.
-    def set_legal_sex(dfn, sex:, source:, date: Date.today)
+    # must already be the #9000030 IEN. DATE ENTERED is the server's today
+    # (ORWU DT), filed by this method: FILEC^DDR3 does not default it to DT.
+    # An omitted date is that same day.
+    def set_legal_sex(dfn, sex:, source:, date: nil)
       id = patient_dfn(dfn)
       return invalid("a positive DFN is required") unless id
       return invalid("legal sex must be M, F, or X") unless sex.is_a?(String) && LEGAL_SEX_CODES.include?(sex.strip.upcase)
       return invalid("source must be a positive integer") unless positive_integer?(source)
 
-      day = fileman_day(date)
-      return invalid("date must be a Date") unless day
+      return invalid("date must be a Date") unless date.nil? || date.instance_of?(Date)
 
       sex_code = sex.strip.upcase
-      today = FilemanDateParser.to_fileman(Date.today)
+      today = FilemanDateParser.to_fileman(ServerClock.today)
+      day = date ? fileman_day(date) : today
       in_context do
         file_dated_row(LEGAL_SEX_FILE, id, day) do |node|
           [
@@ -761,7 +764,7 @@ module RpmsRpc
     # No #8994 entry reaches ADDMBI (rpms-rpc#418, resolution 2), so this is
     # DDR FILER. Field 1's triggers and xrefs still fire. Anything else
     # ADDMBI does is not run. The MBI is uppercased here; DATE ENTERED is the
-    # client's today; ENTERED BY is the signed-on DUZ. ADDMBI^AUPNMBI
+    # server's today (ORWU DT); ENTERED BY is the signed-on DUZ. ADDMBI^AUPNMBI
     # always sets FDA(SF,IENS,2)=$G(SOURCE) (AUPNMBI.m:19). On an existing
     # row this EDIT call files field 2 as "@" when source is omitted, so a
     # source already stored is cleared, and files the source when one is
@@ -781,7 +784,7 @@ module RpmsRpc
       duz = signed_on_duz
       return invalid("a signed-on DUZ is required") unless duz
 
-      today = FilemanDateParser.to_fileman(Date.today)
+      today = FilemanDateParser.to_fileman(ServerClock.today)
       in_context do
         file_dated_row(MBI_FILE, id, day) do |node, adding|
           rows = [
@@ -1551,10 +1554,9 @@ module RpmsRpc
       # character is not free text. Blank stays "no other text".
       return invalid("other cannot contain ^, a control character, or be @") if text && refused_free_text?(text)
 
-      day = fileman_day(date)
-      return invalid("date must be a Date") unless day
+      return invalid("date must be a Date") unless date.nil? || date.instance_of?(Date)
 
-      { dfn: id, other: text, day: day }
+      { dfn: id, other: text, day: FilemanDateParser.to_fileman(date || ServerClock.today) }
     end
 
     def file_sogi(dfn, file:, multiple:, code_file:, values:, other:, day:)

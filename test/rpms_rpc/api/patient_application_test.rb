@@ -19,12 +19,17 @@ class PatientApplicationTest < Minitest::Test
   HEADER = 7
   APP = 3
   TYPE = 1
-  OBTAINED = Date.today - 3
-  SUBMITTED = Date.today - 2
+  # The server's clock (ORWU DT "NOW") a day behind this process's: "today"
+  # and "the future" are the server's (rpms-rpc#741).
+  SERVER_TODAY = Date.today - 1
+  SERVER_NOW = "#{RpmsRpc::FilemanDateParser.to_fileman(SERVER_TODAY)}.2130".freeze
+  OBTAINED = SERVER_TODAY - 3
+  SUBMITTED = SERVER_TODAY - 2
 
   def setup
     @mock = RpmsRpc.mock!
     @mock.set_authenticated("501")
+    @mock.seed_scalar(:orwu_dt, "NOW", SERVER_NOW)
   end
 
   def teardown
@@ -72,7 +77,7 @@ class PatientApplicationTest < Minitest::Test
   end
 
   def stamp_rows
-    today = fm(Date.today)
+    today = fm(SERVER_TODAY)
     [ "9000001^.03^#{DFN},^#{today}", "9000001^.12^#{DFN},^501", "9000001^.16^#{DFN},^#{today}" ]
   end
 
@@ -90,7 +95,7 @@ class PatientApplicationTest < Minitest::Test
                    "9000045.11^.03^+2,+1,^501", "9000045.11^.04^+2,+1,^P",
                    "9000045.1101^.01^+3,+2,+1,^#{fm(SUBMITTED)}", "9000045.1101^.02^+3,+2,+1,^O",
                    *stamp_rows ], filer_rows
-    assert_equal "AGG LOCK PATIENT", rpcs.first
+    assert_equal [ "ORWU DT", "AGG LOCK PATIENT" ], rpcs.first(2)
     assert_equal "AGG UNLOCK PATIENT", rpcs.last
   end
 
@@ -138,12 +143,12 @@ class PatientApplicationTest < Minitest::Test
   end
 
   def test_s_reg_03_3_what_fileman_would_refuse_is_refused_before_anything_is_sent
-    assert_equal :invalid, PA.add(DFN, obtained: Date.today + 1, type: TYPE)[:error]
+    assert_equal :invalid, PA.add(DFN, obtained: SERVER_TODAY + 1, type: TYPE)[:error]
     assert_equal :invalid, PA.add(DFN, obtained: OBTAINED, type: TYPE, status: "X")[:error]
     assert_equal :invalid, PA.add(DFN, obtained: OBTAINED, type: TYPE, via: "O")[:error]
     assert_equal :invalid, PA.add(DFN, obtained: OBTAINED, type: TYPE, submitted: SUBMITTED, reason: "AB")[:error]
     assert_equal :invalid, PA.add(DFN, obtained: OBTAINED, type: TYPE, submitted: SUBMITTED, reason: "A^B C")[:error]
-    assert_empty rpcs
+    assert_equal [ "ORWU DT" ], rpcs, "only the server's date is read"
   end
 
   def test_a_held_lock_sends_no_ddr_call
@@ -160,9 +165,9 @@ class PatientApplicationTest < Minitest::Test
     seed_submissions([ "1^#{fm(SUBMITTED - 5)}", "2^#{fm(SUBMITTED)}" ])
     @mock.seed(:ddr_filer, "ADD", "[Data]\n+1,^1")
 
-    assert_equal({ success: true, dated: true }, PA.update_status(DFN, application: APP, status: "A", date: Date.today))
+    assert_equal({ success: true, dated: true }, PA.update_status(DFN, application: APP, status: "A"))
     assert_equal [ "9000045.11^.04^#{APP},#{HEADER},^A",
-                   "9000045.110101^.01^+1,2,#{APP},#{HEADER},^#{fm(Date.today)}",
+                   "9000045.110101^.01^+1,2,#{APP},#{HEADER},^#{fm(SERVER_TODAY)}",
                    "9000045.110101^.02^+1,2,#{APP},#{HEADER},^A", *stamp_rows ], filer_rows
   end
 
