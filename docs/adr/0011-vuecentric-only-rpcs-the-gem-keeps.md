@@ -14,11 +14,11 @@ A web client that keeps them stays tied to VueCentric's option, so each one shou
 This ADR is the short list that analysis feeds: which VueCentric-only RPCs the gem keeps today, and why.
 
 The list is computed, not kept by hand: an RPC is on it when `lib/rpms_rpc/required_rpcs.json` names it and the build's broker-option inventory (`data/inventories/<build>/<build>-contexts_19_05.txt`, the build `required_rpcs.json` names) lists it in `CIAV VUECENTRIC` only.
-On `bcer-9.0-20261012-e7923a4-ydb` that is 41 RPCs.
+On `bcer-9.0-20261012-e7923a4-ydb` that is 43 RPCs.
 
 ## Decision
 
-1. The gem keeps the 41 RPCs below. Each row names the module that sends it, why no stock route is used yet, and the route that would replace it.
+1. The gem keeps the 43 RPCs below. Each row names the module that sends it, why no stock route is used yet, and the route that would replace it.
 2. A VueCentric-only RPC is added to the gem only with a row here, in the same change. `test/rpms_rpc/vuecentric_only_rpcs_test.rb` fails when `required_rpcs.json` gains one this table does not list, and when the table lists one that is no longer VueCentric-only or no longer sent.
 3. The problem-list writes and the psych CPT are decided, not pending: problem writes stay on `BGOPROB SET` / `BGOPROB DEL` (#527), and the CPT is filed through `BEHOENPC SAVE` (#524). Both are live-proven.
 4. Leaving one of these for a stock route takes its own change: the stock route proven live, the RPC gone from `required_rpcs.json`, and its row deleted.
@@ -49,6 +49,8 @@ On `bcer-9.0-20261012-e7923a4-ydb` that is 41 RPCs.
 | `BEHOXQ ALRMSG` | `RpmsRpc::Notifications` | `ALRMSG^BEHOXQ` returns an alert's long text through `ENTRY^XQALGUI` (`GETLONG`), then adds its forwarding comment from the ALERT file (#8992). The stock route is not switched to yet. | `XQAL GUI ALERTS` (`ENTRY^XQALGUI`, in its own option `XQAL GUI ALERTS`) for the text, and a DDR read of #8992 for the comment, unverified. |
 | `BEHOXQ ALRPP` | `RpmsRpc::Notifications` | `ALRPP^BEHOXQ` runs the alert's IHS post-processing code (file 90460.021, node 3), which is how VueCentric clears an alert. That handler exists only in BEHOXQ. | None; `ORB DELETE ALERT` deletes without the handler, unverified. |
 | `BEHOXQ FORWARD` | `RpmsRpc::Notifications` | `FORWARD^BEHOXQ` calls `FORWARD^XQALFWD`, the Kernel forward. | `ORB FORWARD ALERT` (`OR CPRS GUI CHART`), a candidate, unverified. |
+| `BGOCC GET` | `RpmsRpc::ChiefComplaint` | The chief complaint as VueCentric's Triage tab files it, in V NARRATIVE TEXT (#9000010.34) of type CHIEF COMPLAINT; no stock route checked. | DDR LISTER on #9000010.34, unverified. |
+| `BGOCC SET` | `RpmsRpc::ChiefComplaint` | As above. | DDR FILER on #9000010.34, unverified. |
 | `BGOPROB DEL` | `RpmsRpc::Problem` | `ORQQPL DELETE` loses SNOMED CT, laterality and the IHS problem numbering. Decided (#527). | None; stays. |
 | `BGOPROB SET` | `RpmsRpc::Problem` | `ORQQPL ADD SAVE` / `EDIT SAVE` lose the same. Decided (#527). | None; stays. |
 | `BGOREF GETREA` | `RpmsRpc::ImmunizationRefusal` | Refusals; no stock route found. | None; primary care, planned for later. |
