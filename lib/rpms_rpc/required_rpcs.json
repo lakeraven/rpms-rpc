@@ -183,9 +183,11 @@
       "ORWPT APPTLST"
     ],
     "RpmsRpc::ExamComponent": [
+      "BGOVEXAM GET",
       "BGOVEXAM SET"
     ],
     "RpmsRpc::HealthFactor": [
+      "BGOVHF GET",
       "BGOVHF SET"
     ],
     "RpmsRpc::HealthSummary": [
@@ -290,6 +292,9 @@
       "DDR LISTER",
       "ORWU DT"
     ],
+    "RpmsRpc::PatientEducation": [
+      "BGOVPED GET"
+    ],
     "RpmsRpc::PatientProfile": [
       "AGG BUILD WINDOW DISPLAY",
       "AGG BUILD WINDOW MULTIPLE",
@@ -318,6 +323,7 @@
       "BEHOCIR1 GETCCDS"
     ],
     "RpmsRpc::Pov": [
+      "BGOVPOV GET",
       "BGOVPOV RECENT",
       "BGOVPOV SET"
     ],

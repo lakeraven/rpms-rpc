@@ -60,7 +60,9 @@ On `bcer-9.0-20261012-e7923a4-ydb` that is 49 RPCs.
 | `BGOREF SET` | `RpmsRpc::ImmunizationRefusal` | As above. | As above. |
 | `BGOUTL CHKSEC` | `RpmsRpc::Authentication` | Key flags and per-user parameter settings with the granting user class, in one call; how the BGO components decide editing (`BGO DISABLE ... EDITING`). Keys alone have the stock `ORWU NPHASKEY` (`held_keys`). | `ORWU NPHASKEY` for keys; for the parameter and its class grant, none found. |
 | `BGOVCPT GET` | `RpmsRpc::Procedure` | The V CPT read VueCentric's procedure component uses. | DDR LISTER on V CPT (#9000010.18). |
+| `BGOVEXAM GET` | `RpmsRpc::ExamComponent` | The exams VueCentric lists for a patient (V EXAM), with the lock flag; no stock route checked. | DDR LISTER on V EXAM (#9000010.13), unverified. |
 | `BGOVEXAM SET` | `RpmsRpc::ExamComponent` | Exam entries; no stock route checked. | `BEHOENPC SAVE` also files exams (VueCentric-only); otherwise none. |
+| `BGOVHF GET` | `RpmsRpc::HealthFactor` | The health factors VueCentric lists for a patient (V HEALTH FACTORS), with category and lock flag. | DDR LISTER on V HEALTH FACTORS (#9000010.23), unverified. |
 | `BGOVHF SET` | `RpmsRpc::HealthFactor` | Health factors; which store a BH screening belongs in is unconfirmed. | `AMHG SAVE SCREENING` for BH, probable. |
 | `BGOVIMM GET` | `RpmsRpc::Immunization` | Immunization reads; no stock route. | None; primary care, planned for later. |
 | `BGOVIMM GETVFC` | `RpmsRpc::Eligibility` | VFC eligibility; as above. | As above. |
@@ -69,6 +71,8 @@ On `bcer-9.0-20261012-e7923a4-ydb` that is 49 RPCs.
 | `BGOVMSR GET` | `RpmsRpc::Measurement` | Measurements; GMV not checked. | `AMHG SAVE MEASUREMENTS` for BH; otherwise unverified. |
 | `BGOVMSR LAST` | `RpmsRpc::Measurement` | As above. | As above. |
 | `BGOVMSR SET` | `RpmsRpc::Measurement` | As above. | As above. |
+| `BGOVPED GET` | `RpmsRpc::PatientEducation` | Patient education entries (V PATIENT ED) with the topic name VueCentric shows; no stock route checked. | DDR LISTER on V PATIENT ED (#9000010.16), unverified. |
+| `BGOVPOV GET` | `RpmsRpc::Pov` | One visit's diagnoses with episodicity, modifiers, injury, primary/secondary and qualifiers. `ORWPCE PCE4NOTE` gives the visit's diagnoses without those. | DDR LISTER on V POV (#9000010.07). |
 | `BGOVPOV RECENT` | `RpmsRpc::Pov` | `RECENT^BGOVPOV` lists V POVs by patient or by visit, with SNOMED CT, asthma control and the lock flag. `ORWPCE PCE4NOTE` gives one visit's diagnoses only. | DDR LISTER on V POV (#9000010.07). |
 | `BGOVPOV SET` | `RpmsRpc::Pov` | Visit diagnosis outside BH. | `AMHG SAVE POV` for BH; `BEHOENPC SAVE` (VueCentric-only) otherwise. |
 | `BGOVUPD GET` | `RpmsRpc::ClinicalReview` | That a list was reviewed or updated on a visit, as VueCentric files it in V UPDATED/REVIEWED (#9000010.54); no stock route checked. | DDR LISTER on #9000010.54, unverified. |
