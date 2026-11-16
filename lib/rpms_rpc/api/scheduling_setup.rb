@@ -575,7 +575,9 @@ module RpmsRpc
       resource = positive_id(resource_id)
       raise ArgumentError, "resource_id must be a positive integer" unless resource
 
-      list(RESOURCE_USER_FILE, "@;.01I;.02I;.02E;.03I;.04I;.05I;.06I").filter_map do |entry|
+      # The B index repeats a resource for each user. Resume by unique IEN,
+      # not by resource value, so a page boundary cannot skip its other users.
+      list(RESOURCE_USER_FILE, "@;.01I;.02I;.02E;.03I;.04I;.05I;.06I", xref: "#").filter_map do |entry|
         res, duz, name, overbook, schedule, appointments, master = entry[:pieces]
         next unless res.to_i == resource.to_i
 
