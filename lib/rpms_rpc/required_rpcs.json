@@ -32,6 +32,7 @@
       "ORWDAL32 ALLERGY MATCH"
     ],
     "RpmsRpc::Allergy": [
+      "BEHOART SIGNLIST",
       "ORQQAL LIST",
       "ORWDAL32 SAVE ALLERGY"
     ],
@@ -178,6 +179,7 @@
     "RpmsRpc::Encounter": [
       "BEHOENCX CHKVISIT",
       "BEHOENCX FETCH",
+      "BEHOENCX GETPRV",
       "BEHOENCX GETVISIT",
       "BEHOENCX VISITLST",
       "ORWPT APPTLST"
@@ -248,6 +250,7 @@
       "ORWDX SAVE",
       "ORWDX SEND",
       "ORWDXC ACCEPT",
+      "ORWDXC ON",
       "ORWOR ACTION TEXT",
       "ORWOR EXPIRED",
       "ORWOR RESULT",
@@ -255,6 +258,7 @@
       "ORWOR SHEETS",
       "ORWOR TSALL",
       "ORWOR UNSIGN",
+      "ORWORDG IEN",
       "ORWORR AGET",
       "ORWU VALIDSIG"
     ],

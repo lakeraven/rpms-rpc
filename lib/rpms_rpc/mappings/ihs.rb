@@ -591,6 +591,34 @@ module RpmsRpc
       m.field 28, :laterality
     end
 
+    # BEHOENCX GETPRV — GETPRV^BEHOENCX(DATA,DFN,VSTR,PRI) (BEHOENCX.m:303):
+    # the providers on a visit, from V PROVIDER's AD cross-reference
+    # (GETPRV2^BEHOENCX). VSTR's fourth piece names the visit
+    # (VSTR2VIS^BEHOENCX); a visit of another patient answers nothing. With
+    # PRI set, the primary provider only. Row:
+    #   DUZ ^ NAME ^ PRIMARY (1/0) ^ EVENT DATE/TIME (V PROVIDER 1201)
+    DataMapper.define(:visit_providers) do |m|
+      m.rpc "BEHOENCX GETPRV"
+      m.context VUECENTRIC
+      m.field 0, :duz,                :integer
+      m.field 1, :name
+      m.field 2, :primary,            :boolean
+      m.field 3, :event_datetime,     :fileman_datetime
+    end
+
+    # BEHOART SIGNLIST — SIGNLIST^BEHOART(DATA,DFN,VER) (BEHOART.m:46): the
+    # patient's allergy entries (#120.8) the signed-on user may sign (they
+    # entered it and it is not signed, $$CANSIGN) or verify (signed and a
+    # verify candidate, $$CANVERIF; VER=1 skips GMRA's autoverify check).
+    # Row: ADVERSE REACTION IEN ^ ["Verify "]"Adverse Reaction to " REACTANT,
+    # or -DFN ^ "No Known Allergies" for an NKA assessment the user entered
+    # and has not signed. Read by Allergy.awaiting_signature.
+    DataMapper.define(:allergy_sign_list) do |m|
+      m.rpc "BEHOART SIGNLIST"
+      m.context VUECENTRIC
+      m.field 0, :ien
+    end
+
     DataMapper.define(:encounter_visit) do |m|
       m.rpc "BEHOENCX GETVISIT"
       m.context VUECENTRIC

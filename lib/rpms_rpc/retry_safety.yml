@@ -45,6 +45,7 @@
 "RpmsRpc::Agg.window_values": non_idempotent_write
 "RpmsRpc::Allergen.search": read
 "RpmsRpc::Allergy.assessment": read
+"RpmsRpc::Allergy.awaiting_signature": read
 "RpmsRpc::Allergy.for_patient": read
 "RpmsRpc::Allergy.no_known_allergies": non_idempotent_write
 "RpmsRpc::Allergy.save": non_idempotent_write
@@ -166,6 +167,7 @@
 "RpmsRpc::Encounter.create": non_idempotent_write
 "RpmsRpc::Encounter.for_patient": read
 "RpmsRpc::Encounter.open": non_idempotent_write
+"RpmsRpc::Encounter.providers": read
 "RpmsRpc::Encounter.visit_string": read
 "RpmsRpc::Encounter.visits": read
 "RpmsRpc::ExamComponent.add": non_idempotent_write
@@ -209,6 +211,8 @@
 "RpmsRpc::Order.action_text": read
 "RpmsRpc::Order.all_sheets": read
 "RpmsRpc::Order.check": non_idempotent_write
+"RpmsRpc::Order.checking_enabled?": read
+"RpmsRpc::Order.display_group_ien": read
 "RpmsRpc::Order.expired_search_start": read
 "RpmsRpc::Order.list": read
 "RpmsRpc::Order.result": read

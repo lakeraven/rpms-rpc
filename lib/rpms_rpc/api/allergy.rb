@@ -247,6 +247,32 @@ module RpmsRpc
     end
     shape :assessment, resource: "allergies", verb: "GET", path: "/patients/{dfn}/allergies/assessment"
 
+    # The patient's allergy entries the signed-on user has to sign or may
+    # verify, as VueCentric's sign list shows them: BEHOART SIGNLIST
+    # (SIGNLIST^BEHOART).
+    #
+    #   awaiting_signature(dfn, skip_autoverify: false)
+    #     => [{ ien:, action: :sign or :verify, reactant: }, ...]
+    #
+    # :sign is an entry the user entered and has not signed ($$CANSIGN);
+    # :verify a signed entry that is a candidate for verification
+    # ($$CANVERIF; skip_autoverify: true sends VER and skips GMRA's
+    # autoverify test). An unsigned No Known Allergies assessment the user
+    # entered is { ien: nil, action: :sign, reactant: nil, nka: true }.
+    # The reactant is the text after "Adverse Reaction to ". A -N^text reply
+    # other than that NKA row raises Client::RpcError.
+    def awaiting_signature(dfn, skip_autoverify: false)
+      return [] unless dfn.to_s.match?(/\A[1-9]\d*\z/)
+
+      mapping = DataMapper.allergy_sign_list
+      client = RpmsRpc.client
+      reply = mapping.in_context(client) { client.call_rpc(mapping.rpc_name, dfn.to_s, skip_autoverify ? "1" : "") }
+      lines = Array(reply.is_a?(String) ? reply.split(/\r\n|\r|\n/) : reply)
+              .map { |line| DataMapper.strip_recordset_separators(line.to_s) }.reject(&:empty?)
+      lines.map { |line| sign_list_entry(line, dfn) }
+    end
+    shape :awaiting_signature, resource: "allergies", verb: "GET", path: "/patients/{dfn}/allergies/awaiting-signature"
+
     # Add an allergy. ORALIEN "" is new: UPDATE sets NEW='$G(GMRAIEN)
     # (GMRAGUI1.m:88) and EDITSAVE passes that ORALIEN through
     # (ORWDAL32.m:128). OREDITED carries GMRAGNT, GMRATYPE, GMRANATR,
@@ -573,6 +599,18 @@ module RpmsRpc
       return false unless text_encoding_ok?(text)
 
       text.strip.empty?
+    end
+
+    # One SIGNLIST row (BEHOART.m:56,61).
+    def sign_list_entry(line, dfn)
+      return { ien: nil, action: :sign, reactant: nil, nka: true } if line == "-#{dfn}^No Known Allergies"
+      raise Client::RpcError, RpmsRpc.sanitize_error("BEHOART SIGNLIST refused: #{line}") if DataMapper.error_row?(line)
+
+      ien, text = line.split("^", 2)
+      md = text.to_s.match(/\A(Verify )?Adverse Reaction to (.*)\z/)
+      raise Client::RpcError, "BEHOART SIGNLIST answered a row it does not write: #{line.inspect}" unless md && ien.match?(/\A[1-9]\d*\z/)
+
+      { ien: ien.to_i, action: md[1] ? :verify : :sign, reactant: md[2] }
     end
 
     def invalid_dfn
