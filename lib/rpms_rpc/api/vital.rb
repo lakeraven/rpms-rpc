@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../shape"
+require_relative "../server_clock"
 
 module RpmsRpc
   module Vital
@@ -41,10 +42,20 @@ module RpmsRpc
     # $G(METRIC,-1) and normalised to -1 / 0 / 1 (QUERY^BEHOVM:
     # BEHOVM.m:95): -1 each vital's own default units, 0 US, 1 metric.
     # A location-only frame died in M on VSTR (#259).
+    #
+    # The reply is what GRID^BEHOVM builds: node 0 is a count header
+    # "<vitals>^<dates>^<results>" (BEHOVM.m:45), the vital rows follow
+    # (node 0,n, merged from VLIST), then the visit's date and result rows
+    # (GRIDX, BEHOVM.m:48-54). Only the <vitals> rows after the header are
+    # template rows. Read whole, the header parsed as a vital whose IEN was
+    # the count.
     def template(dfn, visit_string, metric: -1)
       return [] if invalid_id?(dfn) || visit_string.to_s.strip.empty?
 
-      DataMapper.vital_template.fetch_many(dfn.to_s, visit_string.to_s, metric.to_i.to_s) || []
+      mapping = DataMapper.vital_template
+      lines = mapping.fetch_text(dfn.to_s, visit_string.to_s, metric.to_i.to_s).to_s.split(/\r?\n/)
+      count = lines.first.to_s.split("^").first.to_i
+      mapping.parse_many(lines[1, count] || [])
     end
     shape :template, resource: "vitals", verb: "GET", path: "/patients/{dfn}/vitals/template"
 
@@ -107,8 +118,8 @@ module RpmsRpc
     #
     # taken_at is when the measurements were taken, as the site's wall-clock
     # Time (the caller's RPMS clock, not this process's); it is filed as each
-    # measurement's date/time. Omitted, it is this process's Time.now, which
-    # is the site's only when the process runs in the site's zone.
+    # measurement's date/time. Omitted, it is now on the server's clock
+    # (ServerClock, ORWU DT "NOW"), not this process's (rpms-rpc#741).
     def add(dfn, visit_string, measurements, provider_duz:, taken_at: nil)
       # provider_duz is required regardless of measurement count — checking
       # before the empty-list early return so add(..., [], provider_duz: nil)
@@ -118,7 +129,8 @@ module RpmsRpc
       measurements = coerce_measurements(measurements)
       return { success: false, measurement_count: 0, raw: "EMPTY", payload: [] } if measurements.empty?
 
-      payload = build_save_payload(dfn, visit_string, measurements, provider_duz: provider_duz, taken_at: taken_at)
+      payload = build_save_payload(dfn, visit_string, measurements, provider_duz: provider_duz,
+                                                                    taken_at: taken_at || ServerClock.now)
       raw = DataMapper.vital_save.fetch_scalar(dfn.to_s, payload)
 
       {
@@ -134,10 +146,12 @@ module RpmsRpc
     # lines: HDR (visit string), VST (date/patient), and one VIT+ per measurement.
     # Public for testability; callers should normally go through .add.
     # provider_duz is required (matches .add); raises ArgumentError when nil.
-    def build_save_payload(dfn, visit_string, measurements, provider_duz:, taken_at: nil)
+    # taken_at is required here (.add supplies the server's now when its
+    # caller gives none), so building a payload sends no RPC.
+    def build_save_payload(dfn, visit_string, measurements, provider_duz:, taken_at:)
       raise ArgumentError, "provider_duz is required (got nil)" if provider_duz.nil?
 
-      now = FilemanDateParser.format_datetime(taken_at || Time.now, seconds: true)
+      now = FilemanDateParser.format_datetime(taken_at, seconds: true)
       duz = provider_duz.to_s
       payload = [ "HDR^^^#{visit_string}" ]
       payload << "VST^DT^#{now}"

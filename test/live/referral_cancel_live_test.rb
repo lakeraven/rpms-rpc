@@ -52,12 +52,42 @@ class ReferralCancelLiveTest < LiveSpec::Test
     assert_nil status_of("999999999"), "a referral 999999999 is on file after the refused cancel"
   end
 
+  # Referral.find reads one referral through BMC GET REFERRAL
+  # (GTRFBYID^BMCRPC1). The routine finds the record by its REFERRAL #
+  # (.02, 13 digits) on the C index (BMCRPC1.m:62-65), so a referral filed
+  # without one cannot be read: the fixture gets a number first.
+  def test_find_reads_the_referral_by_its_ien
+    ien = active_referral
+    number = referral_number!(ien)
+    record = RpmsRpc::Referral.find(ien)
+    refute_nil record, "Referral.find(#{ien}) answered nothing"
+    assert_equal ien.to_i, record[:ien].to_i
+    assert_equal number, record[:referral_number]
+    filed = RpmsRpc::DdrFileman.gets_entry(file: REFERRAL_FILE, iens: "#{ien},", fields: ".03", flags: "I")
+    assert_equal filed[:fields].dig(".03", :internal).to_i, record[:patient_dfn], "the patient filed on the referral"
+    assert_kind_of Array, record[:diagnoses]
+    assert_equal [ "N", "O" ], record.values_at(:type, :visit_type), "in-house (.04) and outpatient (.14), as filed"
+    puts "\n#{persona}: Referral.find(#{ien}) read referral #{number} of DFN #{record[:patient_dfn]}"
+  end
+
   def test_cancel_of_a_non_ien_answers_without_the_wire
     refute RpmsRpc::Referral.cancel(nil)[:success]
     refute RpmsRpc::Referral.cancel("0")[:success]
   end
 
   private
+
+  # The referral's REFERRAL # (.02), filed when it has none.
+  def referral_number!(ien)
+    entry = RpmsRpc::DdrFileman.gets_entry(file: REFERRAL_FILE, iens: "#{ien},", fields: ".02", flags: "I")
+    number = entry && !entry[:error] ? entry[:fields].dig(".02", :internal).to_s : ""
+    return number unless number.empty?
+
+    number = format("9%012d", Integer(ien))
+    filed = RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: [ { file: REFERRAL_FILE, field: ".02", iens: "#{ien},", value: number } ])
+    assert filed && filed[:success], "DDR FILER could not file REFERRAL # on #{ien}: #{filed.inspect}"
+    number
+  end
 
   # STATUS OF REFERRAL, internal, or nil when the entry is not on file.
   def status_of(ien)

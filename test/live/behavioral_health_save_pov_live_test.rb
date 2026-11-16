@@ -93,6 +93,8 @@ class BehavioralHealthSavePovLiveTest < LiveSpec::Test
       gaf: GAF_FIRST,
       axis_iii: AXIS_III
     )
+    assert_visit_tabs_read_back!(record_ien, problems: problem_iens.first(2), narratives: [ NARR_A, NARR_B ],
+                                             axis_iv: axis_iv_iens.first(2))
 
     RpmsRpc::BehavioralHealth.save_pov(
       record_ien: record_ien,
@@ -121,6 +123,19 @@ class BehavioralHealthSavePovLiveTest < LiveSpec::Test
   end
 
   private
+
+  # The visit's POV, Axis III, IV and V tabs as the gem's own reads answer
+  # them (AMHG GET VISIT AXIS II, III, IV, V): the same rows DDR reads back.
+  def assert_visit_tabs_read_back!(record_ien, problems:, narratives:, axis_iv:)
+    bh = RpmsRpc::BehavioralHealth
+    pov = bh.visit_axis_ii(record_ien)
+    puts "\n#{persona}: visit #{record_ien} tabs read back: #{pov.size} POV, Axis III, IV and V"
+    assert_equal problems.map(&:to_s).sort, pov.map { |r| r[:code_pointer] }.sort
+    assert_equal narratives.sort, pov.map { |r| r[:narrative] }.sort
+    assert_equal axis_iv.map(&:to_s).sort, bh.visit_axis_iv(record_ien).map { |r| r[:code_pointer] }.sort
+    assert_equal AXIS_III, bh.visit_axis_iii(record_ien).join
+    assert_equal({ axis_v: AXIS_V_FIRST.to_s, gaf: GAF_FIRST }, bh.visit_axis_v(record_ien))
+  end
 
   def discover_visit_reference_iens!
     clinic = first_listed_ien!(CLINIC_FILE, label: "BH clinic")

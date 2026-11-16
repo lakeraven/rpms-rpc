@@ -14,9 +14,13 @@ require_relative "../captured_replies"
 # Each test replays one recorded flow (test/fixtures/captured_replies/
 # registration-edits.yml): the gem run as PROFILE,REG (DUZ 207) on seed
 # patient DFN 990009 on the pinned build, with every reply it got, in order.
-# The gem dates some rows with the client's today, so where a recorded frame
-# carries the capture's day, the replay expects today in its place; every
-# other piece of each frame must be exactly what the gem sent the build.
+# The gem dates some rows with the server's today, which it reads with ORWU
+# DT "NOW" (rpms-rpc#741); the replay answers that with the build's own reply
+# captured the same evening (orwu-dt.yml "now", 3261109). The flows were
+# recorded before that read existed, by a gem that dated those rows with the
+# capture host's day (3261108, the evening before in Pacific time), so where a
+# recorded frame carries that day the replay expects the server's in its
+# place; every other piece of each frame must be exactly what the gem sent.
 class RegistrationEditsTest < Minitest::Test
   Reg = RpmsRpc::Registration
   FM = RpmsRpc::FilemanDateParser
@@ -27,6 +31,9 @@ class RegistrationEditsTest < Minitest::Test
   def self.filer_value(flow, row) = CapturedReplies.flow_calls(SLUG, flow).find { |rpc, _| rpc == "DDR FILER" }.last[1].fetch(row)
   # The day the flows ran: the date the first history row was filed under.
   CAPTURE_DAY = FM.parse_date(filer_value("move_first", 1).split("^").last)
+  # The build's ORWU DT "NOW" reply that evening, and the server's day in it.
+  SERVER_NOW = CapturedReplies.raw("orwu-dt", "now")
+  SERVER_DAY = FM.parse_date(SERVER_NOW.split("\0").last)
 
   def teardown
     RpmsRpc.reset!
@@ -35,14 +42,16 @@ class RegistrationEditsTest < Minitest::Test
   def replay(flow = nil)
     @flow = flow
     script = flow ? CapturedReplies.flow_script(SLUG, flow) : {}
+    script["ORWU DT"] = Array.new(3) { SERVER_NOW }
     @client = CapturedReplies::ReplayCiaClient.new(script).signed_on_as(DUZ)
     RpmsRpc.configure { |cfg| cfg.client = @client }
     @client
   end
 
-  def today = FM.to_fileman(Date.today)
+  def today = FM.to_fileman(SERVER_DAY)
 
-  # A recorded value with the capture's day in it, as the gem builds it today.
+  # A recorded value with the capture host's day in it, as the gem builds it
+  # now: with the server's day.
   def as_of_today(value)
     case value
     when String then value.gsub(FM.to_fileman(CAPTURE_DAY), today)
@@ -55,10 +64,13 @@ class RegistrationEditsTest < Minitest::Test
   def sent = @client.calls.reject { |c| c[:rpc] == :create_context }.map { |c| [ c[:rpc], c[:params] ] }
   def rpcs_sent = sent.map(&:first)
   def filer_calls = sent.select { |rpc, _| rpc == "DDR FILER" }
+  def clock_reads = sent.select { |rpc, _| rpc == "ORWU DT" }
 
-  # The gem sent exactly the calls of the flow it replays, frame for frame.
+  # The gem sent exactly the calls of the flow it replays, frame for frame,
+  # besides its reads of the server's clock (each ORWU DT "NOW").
   def assert_sends_the_recorded_flow
-    assert_equal as_of_today(CapturedReplies.flow_calls(SLUG, @flow)), sent
+    assert_equal as_of_today(CapturedReplies.flow_calls(SLUG, @flow)), sent.reject { |rpc, _| rpc == "ORWU DT" }
+    clock_reads.each { |call| assert_equal [ "ORWU DT", [ "NOW", "TS" ] ], call }
   end
 
   # -- address history (S-REG-21.1) ------------------------------------------
@@ -69,7 +81,7 @@ class RegistrationEditsTest < Minitest::Test
     result = Reg.change_address(DFN, moved_on: CAPTURE_DAY - 3, address_line1: "3 NEWER RD")
 
     assert_equal({ success: true, dfn: DFN, history: true }, result)
-    assert_equal [ "AGG LOCK PATIENT", "DDR GETS ENTRY DATA", "DDR GETS ENTRY DATA", "AGG UPDATE PATIENT",
+    assert_equal [ "ORWU DT", "AGG LOCK PATIENT", "DDR GETS ENTRY DATA", "DDR GETS ENTRY DATA", "AGG UPDATE PATIENT",
                    "DDR GETS ENTRY DATA", "DDR GETS ENTRY DATA", "DDR FILER", "AGG UNLOCK PATIENT" ], rpcs_sent
     node = "+1,#{DFN},"
     moved = FM.to_fileman(CAPTURE_DAY - 3)
@@ -109,7 +121,7 @@ class RegistrationEditsTest < Minitest::Test
     result = Reg.change_address(999_999, address_line1: "2 NEW RD")
 
     refute result[:success]
-    assert_equal [ "AGG LOCK PATIENT" ], rpcs_sent
+    assert_equal [ "ORWU DT", "AGG LOCK PATIENT" ], rpcs_sent
     assert_sends_the_recorded_flow
   end
 
@@ -128,10 +140,10 @@ class RegistrationEditsTest < Minitest::Test
   def test_s_reg_21_7_refuses_a_future_or_pre_1871_date_and_other_windows_without_an_rpc
     replay
 
-    assert_equal :invalid, Reg.change_address(DFN, moved_on: Date.today + 1, city: "X Y")[:error]
+    assert_equal :invalid, Reg.change_address(DFN, moved_on: SERVER_DAY + 1, city: "X Y")[:error]
     assert_equal :invalid, Reg.change_address(DFN, moved_on: Date.new(1870, 12, 31), city: "X Y")[:error]
     assert_equal :invalid, Reg.change_address(DFN, religion: 3)[:error]
-    assert_empty rpcs_sent
+    assert_equal [ "ORWU DT" ], rpcs_sent, "only the server's date is read, for the date in the future"
   end
 
   def test_s_reg_21_1_reads_the_history_newest_first
@@ -190,6 +202,7 @@ class RegistrationEditsTest < Minitest::Test
 
     assert_equal({ success: true }, result)
     assert_equal "AGG LOCK PATIENT", rpcs_sent.first
+    assert_equal 1, clock_reads.size, "the stamp's day is read once"
     assert_equal "AGG UNLOCK PATIENT", rpcs_sent.last
     assert_sends_the_recorded_flow
   end
