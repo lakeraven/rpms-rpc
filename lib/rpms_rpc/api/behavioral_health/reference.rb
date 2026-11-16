@@ -22,7 +22,7 @@ module RpmsRpc
       # stub (AMHGTVF.m:9-22).
       def clinics
         mapping = DataMapper[:amhg_clinics]
-        mapping.parse_many(call_amhg(mapping))
+        mapping.parse_many(frame_rows(call_amhg(mapping)))
       end
 
       # Patient lookup. `query` is SSN (9N), chart (1-7N), DOB (n/n/yyyy),

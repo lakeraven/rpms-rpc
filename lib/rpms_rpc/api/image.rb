@@ -16,10 +16,15 @@ module RpmsRpc
     extend self
     extend Shape::Declarable
 
+    # The reply's first node is the date range the routine searched,
+    # "BEG^END^MAX" (ROOT(-1), which GET^ORWRA sets before any exam row),
+    # not an exam, so it is dropped. The exam rows follow it.
     def exams_for_patient(dfn)
       return [] if invalid_id?(dfn)
 
-      Array(DataMapper.image_exams.fetch_many(dfn.to_s))
+      mapping = DataMapper.image_exams
+      lines = mapping.fetch_text(dfn.to_s).to_s.split(/\r?\n/)
+      mapping.parse_many(lines.drop(1))
     end
     shape :exams_for_patient, resource: "images", verb: "GET", path: "/patients/{dfn}/images/exams"
 

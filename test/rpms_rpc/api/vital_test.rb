@@ -11,17 +11,6 @@ class VitalTest < Minitest::Test
 
   def setup
     RpmsRpc.mock! do |m|
-      # Template: BEHOVM TEMPLATE — multi-line field metadata. TEMPLATE(DATA,
-      # DFN,VSTR,METRIC) (BEHOVM.m:57) takes the patient first, so the mock
-      # keys it by DFN (#259).
-      m.seed_keyed_collection(:vital_template, "8791", [
-        { ien: 3,  display_order: 3,  name: "TEMPERATURE",  abbreviation: "TMP", units: "F",     low: nil, high: nil, percentile_rpc: nil,            required: 1, display_row: 2 },
-        { ien: 5,  display_order: 5,  name: "PULSE",        abbreviation: "PU",  units: "/min",  low: 60,  high: 100, percentile_rpc: nil,            required: 1, display_row: 2 },
-        { ien: 4,  display_order: 4,  name: "BLOOD PRESSURE", abbreviation: "BP", units: "mmHg", low: 90,  high: 150, percentile_rpc: nil,            required: 1, display_row: 2 },
-        { ien: 1,  display_order: 1,  name: "HEIGHT",       abbreviation: "HT",  units: "in",    low: nil, high: nil, percentile_rpc: "BEHOVM PCTILE", required: 1, display_row: 2 },
-        { ien: 2,  display_order: 2,  name: "WEIGHT",       abbreviation: "WT",  units: "lb",    low: nil, high: nil, percentile_rpc: "BEHOVM PCTILE", required: 1, display_row: 3 }
-      ])
-
       # Save: BEHOVM SAVE — "0" success per observed trace
       m.seed_scalar(:vital_save, "8791", "0")
       m.seed_scalar(:vital_save, "9999", "1^bad request")
@@ -40,20 +29,7 @@ class VitalTest < Minitest::Test
 
   VSTR = "349;3260514.09;A;2090059"
 
-  def test_template_returns_field_metadata_for_visit
-    fields = RpmsRpc::Vital.template(8791, VSTR)
-    assert_kind_of Array, fields
-    assert_equal 5, fields.length
-    tmp = fields.find { |f| f[:abbreviation] == "TMP" }
-    assert_equal "TEMPERATURE", tmp[:name]
-    bp = fields.find { |f| f[:abbreviation] == "BP" }
-    assert_equal 90,  bp[:low]
-    assert_equal 150, bp[:high]
-  end
-
-  def test_template_returns_empty_for_unknown_patient
-    assert_equal [], RpmsRpc::Vital.template(999999, VSTR)
-  end
+  # Template rows are proven against the build in test/live/vital_reads_live_test.rb.
 
   def test_template_returns_empty_without_a_visit_string_or_patient
     assert_equal [], RpmsRpc::Vital.template(8791, "")

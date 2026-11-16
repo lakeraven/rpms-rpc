@@ -329,8 +329,9 @@ module RpmsRpc
     #
     # Returns { valid:, error: } or nil (no response). Any reply other than
     # "1"/"0" (e.g. an M error text) is valid: false with the text in :error.
-    # NB: the pinned bcer-9.0 #8994 entry points at KEYVAL^DDR3, a label that
-    # does not exist, so the live broker currently answers LABELMISSING.
+    # The #8994 entry names KEYVAL^DDR4 from bcer-9.0-20261012-e7923a4-ydb on
+    # (openrpms#720); the 0930 build named KEYVAL^DDR3, a label that does not
+    # exist.
     def validate_key(values:)
       reply = lines(call(:ddr_key_validator, key_validator_param(values: values)))
       return nil if reply.nil?
