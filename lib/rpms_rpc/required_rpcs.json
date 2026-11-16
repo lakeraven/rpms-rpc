@@ -299,6 +299,9 @@
     "RpmsRpc::PatientEducation": [
       "BGOVPED GET"
     ],
+    "RpmsRpc::PatientGoal": [
+      "BEHOPGAP GETGOAL"
+    ],
     "RpmsRpc::PatientProfile": [
       "AGG BUILD WINDOW DISPLAY",
       "AGG BUILD WINDOW MULTIPLE",

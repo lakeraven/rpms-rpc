@@ -242,6 +242,7 @@
 "RpmsRpc::PatientApplication.types": read
 "RpmsRpc::PatientApplication.update_status": non_idempotent_write
 "RpmsRpc::PatientEducation.for_patient": read
+"RpmsRpc::PatientGoal.for_patient": read
 "RpmsRpc::PatientProfile.add_alias": non_idempotent_write
 "RpmsRpc::PatientProfile.add_other_tribe": non_idempotent_write
 "RpmsRpc::PatientProfile.aliases": read

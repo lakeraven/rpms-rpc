@@ -619,6 +619,22 @@ module RpmsRpc
       m.field 0, :ien
     end
 
+    # BEHOPGAP GETGOAL — GETGOAL^BEHOPGAP(RET,DFN) (BEHOPGAP.m:91): the
+    # patient's PATIENT GOALS (#9000093), a global array subscripted by goal
+    # number, so each goal arrives as consecutive lines (BEHOPGAP.m:92-97):
+    #   IEN ^ GOAL SETTING ^ CREATED ^ CREATED BY ^ LAST MODIFIED ^ FACILITY ^
+    #     PROVIDER ^ START DATE ^ FOLLOW-UP DATE ^ STATUS;STATUS NAME ^ GOAL NO
+    #   TYPE1 ^ TYPE2 ^ ...          (may be empty)
+    #   GOAL NAME
+    #   GOAL REASON
+    #   REVIEW ^ DATE ^ NOTE         (zero or more)
+    # Read line by line by PatientGoal.for_patient.
+    DataMapper.define(:patient_goals) do |m|
+      m.rpc "BEHOPGAP GETGOAL"
+      m.context VUECENTRIC
+      m.field 0, :ien, :integer
+    end
+
     DataMapper.define(:encounter_visit) do |m|
       m.rpc "BEHOENCX GETVISIT"
       m.context VUECENTRIC

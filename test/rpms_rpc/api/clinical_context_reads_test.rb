@@ -76,3 +76,40 @@ class ClinicalContextReadsTest < Minitest::Test
     assert_empty @client.calls
   end
 end
+
+# PatientGoal.for_patient reads GETGOAL's global array, goal by goal, as the
+# pinned build sent it for a goal filed through BEHOPGAP ADDGOAL (an empty
+# type line kept) and one with two types.
+class PatientGoalReadTest < Minitest::Test
+  REPLY = [ "1^GOAL SET^3261116^MANAGER,SYSTEM^3261116.194704^DEMO IHS CLINIC^MANAGER,SYSTEM^3261116^3261216^A;ACTIVE^1",
+            "", "Walk 30 minutes a day", "Blood sugar control",
+            "2^GOAL SET^3261116^MANAGER,SYSTEM^3261116.200031^DEMO IHS CLINIC^MANAGER,SYSTEM^3261116^3261216^D;DELETED/ENTERED IN ERROR^2",
+            "PHYSICAL ACTIVITY^NUTRITION", "Walk 30 minutes a day", "Blood sugar control",
+            "REVIEW^3261120^Walked three days this week" ].freeze
+
+  def use(reply)
+    @client = ClinicalContextReadsTest::RecordingClient.new("BEHOPGAP GETGOAL" => reply)
+    RpmsRpc.configure { |cfg| cfg.client = @client }
+  end
+
+  def teardown
+    RpmsRpc.reset!
+  end
+
+  def test_goals_read_line_by_line
+    use(REPLY)
+    first, second = RpmsRpc::PatientGoal.for_patient(990_047)
+    assert_equal [ "BEHOPGAP GETGOAL", [ "990047" ] ], @client.calls.last
+    assert_equal [ 1, 1, "A", [], "Walk 30 minutes a day", [] ], first.values_at(:ien, :goal_number, :status, :types, :name, :reviews)
+    assert_equal [ "D", "DELETED/ENTERED IN ERROR", %w[PHYSICAL\ ACTIVITY NUTRITION] ], second.values_at(:status, :status_name, :types)
+    assert_equal [ { date: Date.new(2026, 11, 20), note: "Walked three days this week" } ], second[:reviews]
+    assert_equal Date.new(2026, 12, 16), first[:follow_up_date]
+  end
+
+  def test_a_reply_off_the_layout_or_refused_raises
+    use([ "Walk 30 minutes a day" ])
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::PatientGoal.for_patient(990_047) }
+    use([ "-1^No patient" ])
+    assert_raises(RpmsRpc::Client::RpcError) { RpmsRpc::PatientGoal.for_patient(990_047) }
+  end
+end
