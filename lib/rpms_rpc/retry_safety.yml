@@ -108,6 +108,9 @@
 "RpmsRpc::Bgu.send_mailman_message": non_idempotent_write
 "RpmsRpc::Busa.log_security_audit": non_idempotent_write
 "RpmsRpc::Busa.parse_log_reply": read
+"RpmsRpc::ChiefComplaint.for_visit": read
+"RpmsRpc::ChiefComplaint.record": non_idempotent_write
+"RpmsRpc::ChiefComplaint.valid_text?": read
 "RpmsRpc::ClinicalEvent.education_topics": read
 "RpmsRpc::ClinicalEvent.exam_types": read
 "RpmsRpc::ClinicalEvent.has_visit?": read

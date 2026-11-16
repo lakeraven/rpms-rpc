@@ -14,6 +14,7 @@ RpmsRpc::Authentication.timed_read	GET /users/{duz}/timed-read
 RpmsRpc::Authentication.user_info	GET /users/{duz}/info
 RpmsRpc::Authentication.user_security_keys	GET /users/{duz}/security-keys
 RpmsRpc::Authentication.user_type	GET /users/{duz}/type
+RpmsRpc::ChiefComplaint.for_visit	GET /visits/{visit_ien}/chief-complaints
 RpmsRpc::ClinicalEvent.education_topics	GET /clinical-events/education-topics
 RpmsRpc::ClinicalEvent.exam_types	GET /clinical-events/exam-types
 RpmsRpc::ClinicalEvent.has_visit?	GET /progress-notes/{note_ien}/clinical-events/patients/{dfn}/has-visit
