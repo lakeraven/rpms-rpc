@@ -316,8 +316,11 @@
 "RpmsRpc::Registration.add_eligibility_modifier": non_idempotent_write
 "RpmsRpc::Registration.add_mbi": non_idempotent_write
 "RpmsRpc::Registration.address_history": read
+"RpmsRpc::Registration.advance_directive_types": read
+"RpmsRpc::Registration.advance_directives": read
 "RpmsRpc::Registration.cell_phone": read
 "RpmsRpc::Registration.change_address": non_idempotent_write
+"RpmsRpc::Registration.change_advance_directive": non_idempotent_write
 "RpmsRpc::Registration.eligibility_modifier_choices": read
 "RpmsRpc::Registration.eligibility_modifiers": read
 "RpmsRpc::Registration.hrn_mode": read
@@ -329,8 +332,10 @@
 "RpmsRpc::Registration.race_ethnicity": read
 "RpmsRpc::Registration.race_ethnicity_choices": read
 "RpmsRpc::Registration.record": non_idempotent_write
+"RpmsRpc::Registration.record_advance_directive": non_idempotent_write
 "RpmsRpc::Registration.register": non_idempotent_write
 "RpmsRpc::Registration.register_via_agg": non_idempotent_write
+"RpmsRpc::Registration.remove_advance_directive": non_idempotent_write
 "RpmsRpc::Registration.remove_eligibility_modifier": non_idempotent_write
 "RpmsRpc::Registration.set_cell_phone": read
 "RpmsRpc::Registration.set_gender_identity": non_idempotent_write
