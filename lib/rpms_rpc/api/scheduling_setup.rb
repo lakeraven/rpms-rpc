@@ -146,7 +146,9 @@ module RpmsRpc
     # (rpms-ux S-SCH-01.9 to 01.11). BSDX RESOURCES does not carry it.
     # false when no entry names them. A failed read raises Client::RpcError.
     def master_overbook?(resource_id:, duz:)
-      list(RESOURCE_USER_FILE, "@;.01I;.02I;.06I").any? do |entry|
+      # Resource pointers repeat; unique IEN traversal keeps later users when
+      # their resource spans pages and the flat continuation has no IEN part.
+      list(RESOURCE_USER_FILE, "@;.01I;.02I;.06I", xref: "#").any? do |entry|
         resource, user, master = entry[:pieces]
         resource.to_i == resource_id.to_i && user.to_i == duz.to_i && master == "1"
       end
