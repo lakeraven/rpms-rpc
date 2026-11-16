@@ -12,18 +12,7 @@ class ImageTest < Minitest::Test
     RpmsRpc.reset!
   end
 
-  def test_exams_for_patient_returns_studies
-    RpmsRpc.mock! do |m|
-      m.seed_keyed_collection(:image_exams, DFN, [
-        { ien: 9001, exam_type: "CHEST X-RAY", status: "FINAL",   modality: "CR", description: "PA and lateral" },
-        { ien: 9002, exam_type: "ECHO",        status: "PENDING", modality: "US", description: "Routine TTE" }
-      ])
-    end
-
-    rows = RpmsRpc::Image.exams_for_patient(DFN)
-    assert_equal 2, rows.length
-    assert_equal "CHEST X-RAY", rows.first[:exam_type]
-  end
+  # Exam rows are proven against the build in test/live/chart_tab_reads_live_test.rb.
 
   def test_exams_blank_dfn_returns_empty
     assert_equal [], RpmsRpc::Image.exams_for_patient(nil)

@@ -356,7 +356,7 @@ module RpmsRpc
     def visit_information(visit_ien)
       mapping = DataMapper[:amhg_visit_information]
       response = call_amhg(mapping, visit_ien)
-      row = mapping.parse_many(response).first
+      row = mapping.parse_many(frame_rows(response)).first
       return nil if row.nil?
 
       {
@@ -1140,7 +1140,7 @@ module RpmsRpc
     # result as a complete screening list.
     def visit_screenings(visit_ien)
       mapping = DataMapper[:amhg_visit_screening]
-      mapping.parse_many(call(mapping, visit_ien)).map do |row|
+      mapping.parse_many(frame_rows(call(mapping, visit_ien))).map do |row|
         {
           visit_ien: row[:visit_ien], # BMXIEN is the visit IEN repeated
           screening_type: presence(row[:screening_type]),
@@ -1172,7 +1172,7 @@ module RpmsRpc
       mapping = DataMapper[:amhg_treatment_plan_list]
       response = call_amhg(mapping, from, to, dfn)
 
-      mapping.parse_many(response).map do |row|
+      mapping.parse_many(frame_rows(response)).map do |row|
         {
           ien: row[:ien],
           sort_date:        presence(row[:sort_date]),
@@ -1223,7 +1223,7 @@ module RpmsRpc
     # "complete" key at all, so the misnomer cannot propagate.
     def treatment_plan_reviews(plan_ien)
       mapping = DataMapper[:amhg_treatment_plan_reviews]
-      mapping.parse_many(call(mapping, plan_ien)).map do |row|
+      mapping.parse_many(frame_rows(call(mapping, plan_ien))).map do |row|
         {
           ien: row[:ien],
           plan_ien:           row[:plan_ien],
@@ -1239,7 +1239,7 @@ module RpmsRpc
     # IEN and never the subfile IEN, so these cannot be addressed for edit.
     def treatment_plan_participants(plan_ien)
       mapping = DataMapper[:amhg_treatment_plan_participants]
-      mapping.parse_many(call(mapping, plan_ien)).map do |row|
+      mapping.parse_many(frame_rows(call(mapping, plan_ien))).map do |row|
         { plan_ien: row[:plan_ien],
           participant: presence(row[:participant]),
           relationship: presence(row[:relationship]) }
@@ -1266,7 +1266,7 @@ module RpmsRpc
       mapping = DataMapper[:amhg_suicide_form_list]
       response = call_amhg(mapping, from, to, dfn)
 
-      mapping.parse_many(response).map do |row|
+      mapping.parse_many(frame_rows(response)).map do |row|
         {
           ien: row[:ien],
           sort_date:         presence(row[:sort_date]),
@@ -1316,7 +1316,7 @@ module RpmsRpc
     # callers counting rows are counting method-drug pairs.
     def suicide_form_methods(form_ien)
       mapping = DataMapper[:amhg_suicide_form_methods]
-      mapping.parse_many(call(mapping, form_ien)).map do |row|
+      mapping.parse_many(frame_rows(call(mapping, form_ien))).map do |row|
         { form_ien: row[:form_ien],
           method: presence(row[:method]),
           method_if_other: presence(row[:method_if_other]),
@@ -1331,7 +1331,7 @@ module RpmsRpc
     # all, not that the question went unasked.
     def suicide_form_substances(form_ien)
       mapping = DataMapper[:amhg_suicide_form_substances]
-      mapping.parse_many(call(mapping, form_ien)).map do |row|
+      mapping.parse_many(frame_rows(call(mapping, form_ien))).map do |row|
         { form_ien: row[:form_ien],
           substance: presence(row[:substance]),
           drug: split_ien_name(row[:drug_raw]),
@@ -1342,7 +1342,7 @@ module RpmsRpc
     # Contributing factors recorded on a form.
     def suicide_form_contributing_factors(form_ien)
       mapping = DataMapper[:amhg_suicide_form_contributing_factors]
-      mapping.parse_many(call(mapping, form_ien)).map do |row|
+      mapping.parse_many(frame_rows(call(mapping, form_ien))).map do |row|
         { form_ien: row[:form_ien],
           contributing_factor: presence(row[:contributing_factor]),
           if_other: presence(row[:if_other]) }
@@ -2829,7 +2829,7 @@ module RpmsRpc
 
     def code_rows(mapping_name, param)
       mapping = DataMapper[mapping_name]
-      mapping.parse_many(call(mapping, param)).map do |row|
+      mapping.parse_many(frame_rows(call(mapping, param))).map do |row|
         { code_pointer: presence(row[:code_pointer]),
           code: presence(row[:code]),
           narrative: presence(row[:narrative]) }

@@ -42,10 +42,20 @@ module RpmsRpc
     # $G(METRIC,-1) and normalised to -1 / 0 / 1 (QUERY^BEHOVM:
     # BEHOVM.m:95): -1 each vital's own default units, 0 US, 1 metric.
     # A location-only frame died in M on VSTR (#259).
+    #
+    # The reply is what GRID^BEHOVM builds: node 0 is a count header
+    # "<vitals>^<dates>^<results>" (BEHOVM.m:45), the vital rows follow
+    # (node 0,n, merged from VLIST), then the visit's date and result rows
+    # (GRIDX, BEHOVM.m:48-54). Only the <vitals> rows after the header are
+    # template rows. Read whole, the header parsed as a vital whose IEN was
+    # the count.
     def template(dfn, visit_string, metric: -1)
       return [] if invalid_id?(dfn) || visit_string.to_s.strip.empty?
 
-      DataMapper.vital_template.fetch_many(dfn.to_s, visit_string.to_s, metric.to_i.to_s) || []
+      mapping = DataMapper.vital_template
+      lines = mapping.fetch_text(dfn.to_s, visit_string.to_s, metric.to_i.to_s).to_s.split(/\r?\n/)
+      count = lines.first.to_s.split("^").first.to_i
+      mapping.parse_many(lines[1, count] || [])
     end
     shape :template, resource: "vitals", verb: "GET", path: "/patients/{dfn}/vitals/template"
 
