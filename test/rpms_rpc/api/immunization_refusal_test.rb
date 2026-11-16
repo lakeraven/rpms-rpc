@@ -7,6 +7,9 @@ require "rpms_rpc/api/immunization_refusal"
 
 class ImmunizationRefusalTest < Minitest::Test
   DFN = "8791"
+  # The build's ORWU DT "NOW" answer (orwu-dt.yml "now"): the server's clock,
+  # which dates a refusal given no date (rpms-rpc#741).
+  SERVER_NOW = CapturedReplies.raw("orwu-dt", "now").split("\0").last
 
   # Scripted broker: canned response per RPC name, records every call.
   class ScriptedClient
@@ -30,7 +33,7 @@ class ImmunizationRefusalTest < Minitest::Test
 
   def script(responses)
     RpmsRpc.reset!
-    client = ScriptedClient.new(responses)
+    client = ScriptedClient.new({ "ORWU DT" => SERVER_NOW }.merge(responses))
     RpmsRpc.configure { |cfg| cfg.client = client }
     client
   end
@@ -80,7 +83,7 @@ class ImmunizationRefusalTest < Minitest::Test
     RpmsRpc::ImmunizationRefusal.record(DFN, "17", reason_ien: "3")
 
     date_piece = client.calls.last[:params][0].split("^", -1)[4]
-    assert_match(/\A\d{7}\z/, date_piece, "refusal date defaults to today in FileMan form")
+    assert_equal SERVER_NOW.split(".").first, date_piece, "refusal date defaults to the server's today"
   end
 
   def test_record_error_reply_is_failure
@@ -98,7 +101,7 @@ class ImmunizationRefusalTest < Minitest::Test
     RpmsRpc.reset!
     RpmsRpc.configure { |cfg| cfg.client = client }
 
-    result = RpmsRpc::ImmunizationRefusal.record(DFN, "17", reason_ien: "3")
+    result = RpmsRpc::ImmunizationRefusal.record(DFN, "17", reason_ien: "3", refusal_date: "3260908")
     refute result[:success], "broker silence must not read as a filed refusal"
   end
 
