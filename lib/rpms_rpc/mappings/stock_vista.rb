@@ -843,6 +843,20 @@ module RpmsRpc
       m.field 0, :order_id
     end
 
+    # ORWORDG IEN — IEN^ORWORDG(VAL,X) (ORWORDG.m:54): the DISPLAY GROUP
+    # (#100.98) IEN for a name, from its B index; "" when none.
+    DataMapper.define(:order_display_group_ien) do |m|
+      m.rpc "ORWORDG IEN"
+      m.scalar :ien
+    end
+
+    # ORWDXC ON — ON^ORWDXC(VAL) (ORWDXC.m:4): "E" when order checking is
+    # enabled (ORK SYSTEM ENABLE/DISABLE at DIV^SYS^PKG), otherwise "D".
+    DataMapper.define(:order_checking_state) do |m|
+      m.rpc "ORWDXC ON"
+      m.scalar :state
+    end
+
     # AGET(REF,DFN,FILTER,GROUPS,DTFROM,DTTHRU,EVENT) (ORWORR.m:25). GET1^ORWORR1
     # writes IFN;ACT^DGrp^ActTm^PtEvtID^EvtName (ORWORR1.m:11) under a .1
     # header TOT^TXTVW^ORYD (ORWORR1.m:13) that Order.list drops. Order text

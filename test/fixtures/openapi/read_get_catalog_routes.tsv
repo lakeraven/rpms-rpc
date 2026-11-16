@@ -7,6 +7,7 @@ RpmsRpc::Agg.table_lookup	GET /agg/files/{file}/table-lookup
 RpmsRpc::Agg.window_multiple	GET /patients/{dfn}/agg/window-multiple
 RpmsRpc::Allergen.search	GET /allergens
 RpmsRpc::Allergy.assessment	GET /patients/{dfn}/allergies/assessment
+RpmsRpc::Allergy.awaiting_signature	GET /patients/{dfn}/allergies/awaiting-signature
 RpmsRpc::Allergy.for_patient	GET /patients/{dfn}/allergies
 RpmsRpc::Authentication.component_security	GET /users/component-security
 RpmsRpc::Authentication.has_security_key?	GET /users/{duz}/has-security-key
@@ -36,6 +37,7 @@ RpmsRpc::ESignature.which_action	GET /progress-notes/{note_ien}/signatures/which
 RpmsRpc::Eligibility.codes	GET /eligibility/codes
 RpmsRpc::Eligibility.for_patient	GET /patients/{dfn}/eligibility
 RpmsRpc::Encounter.for_patient	GET /patients/{dfn}/encounters
+RpmsRpc::Encounter.providers	GET /patients/{dfn}/encounters/{visit_ien}/providers
 RpmsRpc::Encounter.visits	GET /patients/{dfn}/encounters/visits
 RpmsRpc::ExamComponent.for_patient	GET /patients/{dfn}/exam-components
 RpmsRpc::HealthFactor.for_patient	GET /patients/{dfn}/health-factors
@@ -68,6 +70,8 @@ RpmsRpc::NoteTemplate.text	GET /patients/{dfn}/note-templates/text
 RpmsRpc::Notifications.message	GET /notifications/{alert_id}/message
 RpmsRpc::Order.action_text	GET /orders/{order_ien}/action-text
 RpmsRpc::Order.all_sheets	GET /orders/all-sheets
+RpmsRpc::Order.checking_enabled?	GET /orders/checking-enabled
+RpmsRpc::Order.display_group_ien	GET /orders/display-group-ien
 RpmsRpc::Order.expired_search_start	GET /orders/expired-search-start
 RpmsRpc::Order.list	GET /patients/{dfn}/orders
 RpmsRpc::Order.result	GET /patients/{dfn}/orders/{order_ien}/result
@@ -83,6 +87,7 @@ RpmsRpc::Patient.search	GET /patients
 RpmsRpc::PatientApplication.for_patient	GET /patients/{dfn}/patient-applications
 RpmsRpc::PatientApplication.types	GET /patient-applications/types
 RpmsRpc::PatientEducation.for_patient	GET /patients/{dfn}/patient-education
+RpmsRpc::PatientGoal.for_patient	GET /patients/{dfn}/patient-goals
 RpmsRpc::PatientProfile.aliases	GET /patients/{dfn}/patient-profiles/aliases
 RpmsRpc::PatientProfile.contacts	GET /patients/{dfn}/patient-profiles/contacts
 RpmsRpc::PatientProfile.language_lookup	GET /patient-profiles/language-lookup

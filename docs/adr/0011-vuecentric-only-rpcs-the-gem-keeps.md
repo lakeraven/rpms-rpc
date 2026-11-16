@@ -14,11 +14,11 @@ A web client that keeps them stays tied to VueCentric's option, so each one shou
 This ADR is the short list that analysis feeds: which VueCentric-only RPCs the gem keeps today, and why.
 
 The list is computed, not kept by hand: an RPC is on it when `lib/rpms_rpc/required_rpcs.json` names it and the build's broker-option inventory (`data/inventories/<build>/<build>-contexts_19_05.txt`, the build `required_rpcs.json` names) lists it in `CIAV VUECENTRIC` only.
-On `bcer-9.0-20261012-e7923a4-ydb` that is 53 RPCs.
+On `bcer-9.0-20261012-e7923a4-ydb` that is 56 RPCs.
 
 ## Decision
 
-1. The gem keeps the 53 RPCs below. Each row names the module that sends it, why no stock route is used yet, and the route that would replace it.
+1. The gem keeps the 56 RPCs below. Each row names the module that sends it, why no stock route is used yet, and the route that would replace it.
 2. A VueCentric-only RPC is added to the gem only with a row here, in the same change. `test/rpms_rpc/vuecentric_only_rpcs_test.rb` fails when `required_rpcs.json` gains one this table does not list, and when the table lists one that is no longer VueCentric-only or no longer sent.
 3. The problem-list writes and the psych CPT are decided, not pending: problem writes stay on `BGOPROB SET` / `BGOPROB DEL` (#527), and the CPT is filed through `BEHOENPC SAVE` (#524). Both are live-proven.
 4. Leaving one of these for a stock route takes its own change: the stock route proven live, the RPC gone from `required_rpcs.json`, and its row deleted.
@@ -26,15 +26,18 @@ On `bcer-9.0-20261012-e7923a4-ydb` that is 53 RPCs.
 
 | RPC | Used by | Why no stock route yet | Replacement path |
 |---|---|---|---|
+| `BEHOART SIGNLIST` | `RpmsRpc::Allergy` | The allergy entries the signed-on user must sign or may verify (`$$CANSIGN` / `$$CANVERIF^BEHOART`); no stock sign-list RPC checked. | DDR LISTER on #120.8 plus the GMRA verify rules, unverified. |
 | `BEHOCCD GETREF` | `RpmsRpc::Phr` | PHR and C-CDA reads; no stock RPC outside `CIAV VUECENTRIC` serves them. | None planned for December; the C-CDA is built in Rails. |
 | `BEHOCCD PHR` | `RpmsRpc::Phr` | As above. | As above. |
 | `BEHOCIR GETNUM` | `RpmsRpc::Phr` | As above. | As above. |
 | `BEHOCIR1 GETCCDS` | `RpmsRpc::Phr` | As above. | As above. |
 | `BEHOENCX CHKVISIT` | `RpmsRpc::Encounter` | The visit-context calls VueCentric makes; the stock routes that create a visit are package writes, not yet verified on a running image. | `BSDX CHECKIN APPOINTMENT` (creates the visit when the clinic's flag is set) or `AMHG SAVE VISIT` for BH. |
 | `BEHOENCX FETCH` | `RpmsRpc::Encounter`, `RpmsRpc::Scheduling` | As above. | As above. |
+| `BEHOENCX GETPRV` | `RpmsRpc::Encounter` | A visit's providers by visit string; the visit-context calls above. | DDR LISTER on V PROVIDER (#9000010.06), unverified. |
 | `BEHOENCX GETVISIT` | `RpmsRpc::ClinicalReview`, `RpmsRpc::Encounter`, `RpmsRpc::Measurement` | As above. | As above. |
 | `BEHOENCX VISITLST` | `RpmsRpc::Encounter` | `VISITLST^BEHOENCX` lists the patient's visits with the IHS lock flag (`ISLOCKED^BEHOENCX`), the primary provider and a standalone flag, then appointments pending check-in (`SDA^VADPT`). `ORWCV VST` and `ORQQVS VISITS/APPTS` (`OR CPRS GUI CHART`) list visits and appointments without those fields. Not compared live. | `ORWCV VST` plus a DDR read of VISIT for the lock and provider, unverified. |
 | `BEHOENPC SAVE` | `RpmsRpc::Procedure` | Files the visit and its V files in one call. `ORWPCE SAVE` is registered to `SAVE^CIAVCXPC`, which the build does not carry (openrpms#1042). Decided for the psych CPT (#524). | None outside `CIAV VUECENTRIC`. |
+| `BEHOPGAP GETGOAL` | `RpmsRpc::PatientGoal` | A patient's goals (PATIENT GOALS, #9000093) with types and reviews, as VueCentric's Patient Goals component lists them; no stock route checked. | DDR LISTER on #9000093, unverified. |
 | `BEHOPTPC GETBDP` | `RpmsRpc::Patient` | Designated provider. `ORWPT1 PRCARE` reads PCMM, which IHS sites do not fill. | DDR read of IHS PATIENT (#9000001) .14. |
 | `BEHOPTPL DOBLKP` | `RpmsRpc::PatientSelection` | VueCentric's patient lookups; behaviour not compared with a stock lookup. | `AGG LOOKUP PATIENTS` (`AGGRPC`), a candidate. |
 | `BEHOPTPL HRNLKP` | `RpmsRpc::PatientSelection` | As above. | As above. |

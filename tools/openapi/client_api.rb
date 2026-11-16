@@ -53,6 +53,7 @@ module OpenApi
       "Orwu" => { path: "orwu" },
       "Patient" => { path: "patients", own: %w[dfn patient_dfn] },
       "PatientEducation" => { path: "patient-education" },
+      "PatientGoal" => { path: "patient-goals" },
       "Phr" => { path: "phr" },
       "Pov" => { path: "purposes-of-visit" },
       "Practitioner" => { path: "practitioners" },

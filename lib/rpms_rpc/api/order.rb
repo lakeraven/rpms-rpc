@@ -282,6 +282,31 @@ module RpmsRpc
     end
     shape :list, resource: "orders", verb: "GET", path: "/patients/{dfn}/orders"
 
+    # The DISPLAY GROUP (#100.98) IEN for a display group name, the value
+    # #list takes as display_group: ORWORDG IEN (IEN^ORWORDG, the B index;
+    # the name as filed, e.g. "ALL SERVICES", "LABORATORY"). nil when no
+    # group has that name.
+    def display_group_ien(name)
+      return nil if name.to_s.strip.empty? || name.to_s.include?("^")
+
+      raw = DataMapper.order_display_group_ien.fetch_scalar(name.to_s)
+      raw.to_s.match?(/\A[1-9]\d*\z/) ? raw.to_i : nil
+    end
+    shape :display_group_ien, resource: "orders", verb: "GET", path: "/orders/display-group-ien"
+
+    # Whether order checking is on at this site: ORWDXC ON (ON^ORWDXC),
+    # the ORK SYSTEM ENABLE/DISABLE parameter at the division, system or
+    # package. true for "E", false for "D"; any other reply raises
+    # Client::RpcError rather than reading as either.
+    def checking_enabled?
+      raw = DataMapper.order_checking_state.fetch_scalar.to_s
+      return true if raw == "E"
+      return false if raw == "D"
+
+      raise Client::RpcError, "ORWDXC ON answered #{raw.inspect}, neither E nor D"
+    end
+    shape :checking_enabled?, resource: "orders", verb: "GET", path: "/orders/checking-enabled"
+
     # Result text for a single order. Returns the raw text blob or nil
     # if the order is unknown / has no result.
     #

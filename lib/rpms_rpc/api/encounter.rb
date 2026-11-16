@@ -72,6 +72,29 @@ module RpmsRpc
     end
     shape :visits, resource: "encounters", verb: "GET", path: "/patients/{dfn}/encounters/visits"
 
+    # The providers on one of the patient's visits: BEHOENCX GETPRV
+    # (GETPRV^BEHOENCX), from V PROVIDER (#9000010.06).
+    #
+    #   providers(dfn, visit_ien, primary_only: false)
+    #     => [{ duz:, name:, primary:, event_datetime: }, ...]
+    #
+    # The visit is named by IEN in the visit string's fourth piece
+    # (VSTR2VIS^BEHOENCX), so no location or time need match; a visit of
+    # another patient answers [] (VIS2VSTR refuses it). primary_only: true
+    # sends PRI and keeps the primary provider only.
+    def providers(dfn, visit_ien, primary_only: false)
+      return [] unless [ dfn, visit_ien ].all? { |id| id.to_s.match?(/\A[1-9]\d*\z/) }
+
+      mapping = DataMapper.visit_providers
+      client = RpmsRpc.client
+      reply = mapping.in_context(client) { client.call_rpc(mapping.rpc_name, dfn.to_s, ";;;#{visit_ien}", primary_only ? "1" : "") }
+      lines = Array(reply).map(&:to_s).reject(&:empty?)
+      raise Client::RpcError, RpmsRpc.sanitize_error("BEHOENCX GETPRV refused: #{lines.first}") if lines.first && DataMapper.error_row?(lines.first)
+
+      mapping.parse_many(lines)
+    end
+    shape :providers, resource: "encounters", verb: "GET", path: "/patients/{dfn}/encounters/{visit_ien}/providers"
+
     # Open an active encounter — hydrates the visit context the chart needs:
     # location, provider, datetime, service category, lock state, and a
     # missing-components report.
