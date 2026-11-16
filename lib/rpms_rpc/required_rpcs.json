@@ -114,6 +114,10 @@
     "RpmsRpc::Busa": [
       "BUSA LOG SECURITY AUDIT ENTRY"
     ],
+    "RpmsRpc::ChiefComplaint": [
+      "BGOCC GET",
+      "BGOCC SET"
+    ],
     "RpmsRpc::ClinicalEvent": [
       "ORWPCE GET EDUCATION TOPICS",
       "ORWPCE GET EXAM TYPE",
@@ -125,6 +129,12 @@
       "ORWPCE NOTEVSTR",
       "ORWPCE PCE4NOTE",
       "TIU GET ALERT INFO"
+    ],
+    "RpmsRpc::ClinicalReview": [
+      "BEHOENCX GETVISIT",
+      "BGOVUPD GET",
+      "BGOVUPD SET",
+      "DDR LISTER"
     ],
     "RpmsRpc::Coverage": [
       "AGG BUILD WINDOW DISPLAY",

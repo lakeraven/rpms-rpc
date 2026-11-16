@@ -765,6 +765,50 @@ module RpmsRpc
       m.scalar :result
     end
 
+    # BGOVUPD SET — SET^BGOVUPD. One INP param:
+    #   Action IEN[1] ^ V File IEN[2] ^ DFN[3] ^ Visit String[4] ^
+    #   Event dt[5] ^ Provider IEN[6] ^ Delete[7] ^ Reason[8]
+    # Answers V UPDATED/REVIEWED IEN ^ Visit IEN, or -n^text.
+    DataMapper.define(:clinical_review_set) do |m|
+      m.rpc "BGOVUPD SET"
+      m.context VUECENTRIC
+      m.scalar :result
+    end
+
+    # BGOCC GET — GET^BGOCC (BGOCC.m:23). One param, the visit IEN. Per
+    # chief complaint a header IEN^DUZ~NAME^LINE COUNT, then that many text
+    # lines; read line by line by ChiefComplaint.for_visit.
+    DataMapper.define(:chief_complaints) do |m|
+      m.rpc "BGOCC GET"
+      m.context VUECENTRIC
+      m.field 0, :ien
+    end
+
+    # BGOCC SET — SET^BGOCC (BGOCC.m:63). One INP param:
+    #   Visit IEN[1] ^ V Narrative Text IEN[2] ^ Chief Complaint[3]
+    # Answers the V NARRATIVE TEXT IEN, or -n^text.
+    DataMapper.define(:chief_complaint_set) do |m|
+      m.rpc "BGOCC SET"
+      m.context VUECENTRIC
+      m.scalar :result
+    end
+
+    # BGOVUPD GET — GET^BGOVUPD with DFN ^ Visit IEN. Rows:
+    #   IEN ^ ACTION IEN~ACTION ^ KIND ^ VISIT DATE ^ DATE ENTERED ^
+    #   ENTERED BY ^ EVENT DATE ^ ENCOUNTER PROVIDER
+    DataMapper.define(:clinical_reviews) do |m|
+      m.rpc "BGOVUPD GET"
+      m.context VUECENTRIC
+      m.field 0, :ien,                :integer
+      m.field 1, :action
+      m.field 2, :kind
+      m.field 3, :visit_date
+      m.field 4, :entered_at
+      m.field 5, :entered_by
+      m.field 6, :event_at
+      m.field 7, :encounter_provider
+    end
+
     # BGOVEXAM SET — SET^BGOVEXAM (BGOVEXAM.m:106). One INP param
     # (BGOVEXAM.m:103-104, parsed :109-129):
     #   V Exam IEN[1] ^ Exam IEN[2] ^ Visit IEN[3] ^ Provider IEN[4] ^
