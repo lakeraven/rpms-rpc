@@ -108,6 +108,15 @@ class VitalTest < Minitest::Test
 
   # === build_save_payload (public for testability) ===
 
+  def test_build_save_payload_stamps_the_time_the_caller_gives
+    # 21:30 on Nov 15 at the site is already Nov 16 in UTC; the site's time is filed.
+    taken = Time.new(2026, 11, 15, 21, 30, 5, "-08:00")
+    payload = RpmsRpc::Vital.build_save_payload(8791, "v1", [ { abbreviation: "TMP", value: 97, units: "F" } ], provider_duz: 2843, taken_at: taken)
+
+    assert_equal "VST^DT^3261115.213005", payload[1]
+    assert_equal "VIT+^TMP^0^^97^2843^F^^3261115.213005^^", payload.last
+  end
+
   def test_build_save_payload_uses_provider_duz_in_vit_lines
     payload = RpmsRpc::Vital.build_save_payload(8791, "v1", [ { abbreviation: "TMP", value: 97, units: "F" } ], provider_duz: 2843)
     assert payload.any? { |line| line.include?("^2843^") }, "VIT+ line should embed provider DUZ"

@@ -104,7 +104,12 @@ module RpmsRpc
     # A caller that needs the IEN of a specific measurement should read the
     # visit instead: `RpmsRpc::Measurement.for_visit(visit_ien)` returns
     # every V MEASUREMENT on that visit with its IEN.
-    def add(dfn, visit_string, measurements, provider_duz:)
+    #
+    # taken_at is when the measurements were taken, as the site's wall-clock
+    # Time (the caller's RPMS clock, not this process's); it is filed as each
+    # measurement's date/time. Omitted, it is this process's Time.now, which
+    # is the site's only when the process runs in the site's zone.
+    def add(dfn, visit_string, measurements, provider_duz:, taken_at: nil)
       # provider_duz is required regardless of measurement count — checking
       # before the empty-list early return so add(..., [], provider_duz: nil)
       # also fails fast on the contract violation.
@@ -113,7 +118,7 @@ module RpmsRpc
       measurements = coerce_measurements(measurements)
       return { success: false, measurement_count: 0, raw: "EMPTY", payload: [] } if measurements.empty?
 
-      payload = build_save_payload(dfn, visit_string, measurements, provider_duz: provider_duz)
+      payload = build_save_payload(dfn, visit_string, measurements, provider_duz: provider_duz, taken_at: taken_at)
       raw = DataMapper.vital_save.fetch_scalar(dfn.to_s, payload)
 
       {
@@ -129,10 +134,10 @@ module RpmsRpc
     # lines: HDR (visit string), VST (date/patient), and one VIT+ per measurement.
     # Public for testability; callers should normally go through .add.
     # provider_duz is required (matches .add); raises ArgumentError when nil.
-    def build_save_payload(dfn, visit_string, measurements, provider_duz:)
+    def build_save_payload(dfn, visit_string, measurements, provider_duz:, taken_at: nil)
       raise ArgumentError, "provider_duz is required (got nil)" if provider_duz.nil?
 
-      now = FilemanDateParser.format_datetime(Time.now, seconds: true)
+      now = FilemanDateParser.format_datetime(taken_at || Time.now, seconds: true)
       duz = provider_duz.to_s
       payload = [ "HDR^^^#{visit_string}" ]
       payload << "VST^DT^#{now}"
