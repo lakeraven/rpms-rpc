@@ -240,6 +240,46 @@ module RpmsRpc
     end
     shape :held_keys, resource: "users", verb: "GET", path: "/users/held-keys"
 
+    # What the signed-on user may do in the IHS clinical components: BGOUTL
+    # CHKSEC (CHKSEC^BGOUTL), which VueCentric's BGO components send before
+    # they enable editing. It answers, in one call, whether the user holds
+    # each security key, and for each XPAR parameter (such as BGO DISABLE
+    # PROB LIST EDITING) the user's own setting and the first of the user's
+    # classes (USR CLASS MEMBERSHIP, #8930.3) that sets it true.
+    #
+    #   component_security(keys: [...], parameters: [...])
+    #     => { keys: { "KEY" => true/false, ... },
+    #          parameters: { "PARAM" => { user_setting: Integer,
+    #                                     granted_by_class: "CLASS" or nil } } }
+    #
+    # user_setting is the parameter's value at the user's own entity
+    # (USR.`DUZ), 0 when not set. A name that is blank or carries "|" or "^"
+    # raises ArgumentError before anything is sent. A refused call or a
+    # reply that does not answer every name asked raises Client::RpcError.
+    def component_security(keys: [], parameters: [])
+      keys = security_names(keys, "keys")
+      parameters = security_names(parameters, "parameters")
+      return { keys: {}, parameters: {} } if keys.empty? && parameters.empty?
+
+      raw = DataMapper.component_security.fetch_scalar("#{keys.join('|')}^#{parameters.join('|')}").to_s
+      raise Client::RpcError, "BGOUTL CHKSEC refused: #{raw}" if DataMapper.error_row?(raw)
+
+      key_flags, param_values = raw.split("^", 2)
+      key_flags = key_flags.to_s.split("|")
+      param_values = param_values.to_s.split("|")
+      unless key_flags.size == keys.size && param_values.size == parameters.size &&
+             key_flags.all? { |f| %w[0 1].include?(f) } && param_values.all? { |v| v.match?(/\A-?\d+~/) }
+        raise Client::RpcError, "BGOUTL CHKSEC answered #{raw.inspect} for #{keys.size} keys and #{parameters.size} parameters"
+      end
+
+      { keys: keys.zip(key_flags.map { |f| f == "1" }).to_h,
+        parameters: parameters.zip(param_values).to_h do |name, value|
+          setting, cls = value.split("~", 2)
+          [ name, { user_setting: setting.to_i, granted_by_class: cls.to_s.empty? ? nil : cls } ]
+        end }
+    end
+    shape :component_security, resource: "users", verb: "GET", path: "/users/component-security"
+
     # The subset of option +names+ the signed-on user may run, in the order
     # asked, by Kernel's rule ($$ACCESS^XQCHK: on the user's primary or
     # secondary menu tree, not out of order, not locked by a key they lack).
@@ -322,6 +362,14 @@ module RpmsRpc
     # a reconnect, is a NEW broker session, and the next authentication skipped
     # SETUP entirely and validated against a partition that was never set up.
     # A per-sign-on RPC is cheap; a sign-on against the wrong partition is not.
+    def security_names(names, label)
+      list = Array(names).map { |name| name.to_s.strip }
+      bad = list.select { |name| name.empty? || name.match?(/[|^]/) || !name.match?(/\A[\x20-\x7E]+\z/) }
+      raise ArgumentError, "#{label} carries names CHKSEC cannot take: #{bad.inspect}" unless bad.empty?
+
+      list
+    end
+
     def signon_setup
       DataMapper.signon_setup.fetch_scalar
     end

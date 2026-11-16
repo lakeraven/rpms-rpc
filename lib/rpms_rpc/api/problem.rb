@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "date"
 require_relative "../shape"
 require_relative "../mappings"
 require_relative "../context_scope"
@@ -23,6 +24,17 @@ module RpmsRpc
     # insertion order can't reshuffle the payload mid-flight.
     PROB_FIELDS = %i[snomed_ct descriptive_ct description icd_code location_ien
                      onset_date status problem_class problem_number priority].freeze
+
+    # The pieces of an integrated-list "P" row after its letter, in order
+    # (GET^BGOPROB's header, BGOPROB.m:40-42; built at GET2^BGOPROB).
+    INTEGRATED_FIELDS = %i[ien snomed_concept snomed_description number status onset narrative
+                           icd_code priority problem_class pip additional_icd inpatient_dx outpatient_dx
+                           used_as_pov asthma_dx needs_normal_abnormal laterality_flag laterality
+                           default_status last_modified nonredisclosure diagnosed_on recorded_on
+                           resolved_on diagnosis_date_source].freeze
+    INTEGRATED_DATES = %i[onset diagnosed_on recorded_on resolved_on].freeze
+    # 1/0 pieces: $$USED^BGOPROB1 (ever a purpose of visit) and the laterality flag.
+    INTEGRATED_FLAGS = %i[used_as_pov laterality_flag].freeze
 
     # The option that carries BGOPROB SET / DEL and DDR GETS ENTRY DATA on
     # the pinned build (the context CIA sign-on binds).
@@ -126,6 +138,77 @@ module RpmsRpc
       failure.merge(error: e.message)
     end
     shape :delete, resource: "problems", verb: "DELETE", path: "/patients/{dfn}/problems/{ien}"
+
+    # IHS's integrated problem list, as VueCentric's Problem List component
+    # reads it: BGOPROB GET (GET^BGOPROB). Where ORQQPL LIST (for_patient)
+    # answers the stock row, this carries what IHS files beside it: the
+    # SNOMED CT concept and description IDs, the facility-scoped problem
+    # number ("DIC-1"), the IHS status, priority, laterality, date of
+    # diagnosis, and each problem's qualifiers and notes.
+    #
+    #   integrated(dfn, statuses: nil) => [problem, ...]
+    #
+    # statuses: letters of the IHS statuses wanted (A chronic, S sub-acute,
+    # E episodic, O social/environmental, R routine/admin, I inactive, P
+    # personal history); nil sends none, and GET^BGOPROB takes "ASEOR",
+    # every active status. Deleted problems are never listed.
+    #
+    # A problem is a Hash of INTEGRATED_FIELDS read from its "P" row
+    # (BGOPROB.m:40-42), plus qualifiers: from its "Q" rows ({ kind: S
+    # severity, F finding or C clinical course, ien:, snomed_ct:, text:,
+    # provider:, recorded_on: }), notes: from its "N" rows (the row's
+    # pieces, BGOPROB.m:44), and other: every other row that followed it,
+    # as sent (care plan entries, "P1", "A", "F"), so nothing the build
+    # answered is dropped. used_as_pov and laterality_flag are booleans.
+    # Dates the routine formats as MM/DD/YYYY
+    # (FMTDATE^BGOUTL) are Dates; last_modified is the FileMan datetime as
+    # sent. A -n^text reply raises Client::RpcError: a failed read is not
+    # "no problems".
+    def integrated(dfn, statuses: nil)
+      return [] if invalid_id?(dfn)
+
+      wanted = integrated_statuses(statuses)
+      lines = integrated_lines(DataMapper.problem_integrated, dfn.to_s, wanted, "", "", "")
+      integrated_problems(lines)
+    end
+    shape :integrated, resource: "problems", verb: "GET", path: "/patients/{dfn}/problems/integrated"
+
+    # One problem of the integrated list, any status, by PROBLEM (#9000011)
+    # IEN: BGOPROB1 GETONE (GETONE^BGOPROB1), the read VueCentric opens a
+    # problem with. The same Hash integrated answers, or nil for a problem
+    # not on file or deleted.
+    def integrated_entry(ien)
+      return nil if invalid_id?(ien)
+
+      integrated_problems(integrated_lines(DataMapper.problem_integrated_one, ien.to_s, "")).first
+    end
+    shape :integrated_entry, resource: "problems", verb: "GET", path: "/problems/{ien}/integrated-entry"
+
+    # The patient's active problems that carry a SNOMED CT concept: BGOPROB1
+    # EDPROB (EDPROB^BGOPROB1, EXT=1), the list VueCentric offers when a
+    # problem is chosen for patient education or a care plan.
+    #
+    #   coded_active(dfn) => [{ ien:, narrative:, snomed_ct:, icd_code:,
+    #                           status:, eye_dx:, diagnosed_on:,
+    #                           recorded_on:, resolved_on:,
+    #                           diagnosis_date_source: }, ...]
+    #
+    # status is the external IHS status (CHRONIC, EPISODIC, ...); eye_dx is
+    # true when the site's BGO IPL EYE DX filter marks the concept; the
+    # three dates are Dates or nil. A problem without a SNOMED CT concept is
+    # not listed (EDPROB+19).
+    def coded_active(dfn)
+      return [] if invalid_id?(dfn)
+
+      lines = integrated_lines(DataMapper.problem_coded_active, dfn.to_s, "1")
+      DataMapper.problem_coded_active.parse_many(lines).map do |row|
+        row.merge(eye_dx: row[:eye_dx] == "1",
+                  diagnosed_on: external_date(row[:diagnosed_on]),
+                  recorded_on: external_date(row[:recorded_on]),
+                  resolved_on: external_date(row[:resolved_on]))
+      end
+    end
+    shape :coded_active, resource: "problems", verb: "GET", path: "/patients/{dfn}/problems/coded-active"
 
     # ORQQPL stock-VistA reads. Use these when the engine wants the
     # stock-VistA lookup/audit surface rather than the IHS BGOPROB writes
@@ -245,6 +328,73 @@ module RpmsRpc
       return :not_found if entry[:error] || entry[:fields].empty?
 
       entry[:fields].transform_values { |f| f[:internal].to_s }
+    end
+
+    # The status letters GET^BGOPROB takes (BGOPROB.m:33-34, :65, GET2+33).
+    INTEGRATED_STATUS_LETTERS = /\A[ASEORIP]+\z/
+
+    def integrated_statuses(statuses)
+      return "" if statuses.nil?
+
+      letters = Array(statuses).join.upcase
+      raise ArgumentError, "statuses must be letters of ASEORIP, got #{statuses.inspect}" unless letters.match?(INTEGRATED_STATUS_LETTERS)
+
+      letters
+    end
+
+    # The reply's rows, one String per row, under the mapping's context. A
+    # -n^text first row raises.
+    def integrated_lines(mapping, *params)
+      client = RpmsRpc.client
+      reply = mapping.in_context(client) do
+        client.respond_to?(:call_rpc_lines) ? client.call_rpc_lines(mapping.rpc_name, *params) : client.call_rpc(mapping.rpc_name, *params)
+      end
+      reply = reply.split(/\r\n|\r|\n/) if reply.is_a?(String)
+      lines = Array(reply).map { |line| DataMapper.strip_recordset_separators(line.to_s) }.reject(&:empty?)
+      raise Client::RpcError, "#{mapping.rpc_name} refused: #{lines.first}" if lines.first && DataMapper.error_row?(lines.first)
+
+      lines
+    end
+
+    def integrated_problems(lines)
+      problems = []
+      lines.each do |line|
+        type, *pieces = line.split("^", -1)
+        if type == "P"
+          problems << integrated_problem(pieces)
+        elsif (current = problems.last)
+          case type
+          when "Q" then current[:qualifiers] << integrated_qualifier(pieces)
+          when "N" then current[:notes] << pieces
+          else current[:other] << line
+          end
+        end
+      end
+      problems
+    end
+
+    def integrated_problem(pieces)
+      row = INTEGRATED_FIELDS.each_with_index.to_h { |field, i| [ field, pieces[i].to_s ] }
+      row[:ien] = row[:ien].to_i
+      INTEGRATED_DATES.each { |field| row[field] = external_date(row[field]) }
+      row.transform_values! { |v| v == "" ? nil : v }
+      INTEGRATED_FLAGS.each { |field| row[field] = row[field] == "1" }
+      row.merge(qualifiers: [], notes: [], other: [])
+    end
+
+    def integrated_qualifier(pieces)
+      kind, ien, snomed, text, provider, date = pieces
+      { kind: kind, ien: ien.to_i, snomed_ct: snomed, text: text, provider: provider.to_s.empty? ? nil : provider,
+        recorded_on: external_date(date) }
+    end
+
+    # MM/DD/YYYY, as FMTDATE^BGOUTL writes a date (FMTE^XLFDT "5ZD"); nil
+    # for anything else.
+    def external_date(value)
+      md = value.to_s.match(%r{\A(\d{2})/(\d{2})/(\d{4})\z})
+      md && Date.new(md[3].to_i, md[1].to_i, md[2].to_i)
+    rescue ArgumentError
+      nil
     end
 
     def in_context(&) = ContextScope.scoped(RpmsRpc.client, CONTEXT, &)

@@ -719,6 +719,63 @@ module RpmsRpc
       m.scalar :result
     end
 
+    # ========================================================================
+    # INTEGRATED PROBLEM LIST READS (BGOPROB GET, BGOPROB1 GETONE / EDPROB)
+    # ========================================================================
+
+    # BGOPROB GET — GET^BGOPROB(RET,DFN,TYP,CPTYP,NUM,ACT) (BGOPROB.m:61).
+    # Rows led by a type letter: one "P" row per problem (26 pieces after
+    # the letter, documented at BGOPROB.m:40-42), then that problem's "P1",
+    # "F", "Q", "A", "N" and care plan rows. Read line by line by
+    # Problem.integrated.
+    DataMapper.define(:problem_integrated) do |m|
+      m.rpc "BGOPROB GET"
+      m.context VUECENTRIC
+      m.field 0, :type
+    end
+
+    # BGOPROB1 GETONE — GETONE^BGOPROB1(RET,PRIEN,PIP) (BGOPROB1.m:315): the
+    # rows GET2^BGOPROB writes for one problem, any status, with its care
+    # plan entries. Nothing for a problem IEN not on file.
+    DataMapper.define(:problem_integrated_one) do |m|
+      m.rpc "BGOPROB1 GETONE"
+      m.context VUECENTRIC
+      m.field 0, :type
+    end
+
+    # BGOPROB1 EDPROB — EDPROB^BGOPROB1(RET,DFN,EXT) (BGOPROB1.m:257): the
+    # patient's active problems that carry a SNOMED CT concept, from the
+    # ACTIVE cross-reference. With EXT=1 a row is
+    #   IEN ^ NARRATIVE ^ SNOMED CT ^ ICD ^ STATUS ^ EYE DX ^ DATE OF DX ^
+    #   DATE RECORDED ^ DATE RESOLVED ^ SOURCE OF DATE OF DX
+    DataMapper.define(:problem_coded_active) do |m|
+      m.rpc "BGOPROB1 EDPROB"
+      m.context VUECENTRIC
+      m.field 0, :ien, :integer
+      m.field 1, :narrative
+      m.field 2, :snomed_ct
+      m.field 3, :icd_code
+      m.field 4, :status
+      m.field 5, :eye_dx
+      m.field 6, :diagnosed_on
+      m.field 7, :recorded_on
+      m.field 8, :resolved_on
+      m.field 9, :diagnosis_date_source
+    end
+
+    # BGOUTL CHKSEC — CHKSEC^BGOUTL(RET,INP) (BGOUTL.m:32), how the BGO
+    # components decide what the signed-on user may do. One param:
+    #   KEY1|KEY2|... ^ PARAM1|PARAM2|... ^ USER IEN (optional)
+    # Answers 1/0 per key (HASKEY^BEHOUSCX) and, per parameter, the user's
+    # own setting and the first user class of theirs that sets it true:
+    #   K1|K2 ^ USERSETTING~CLASSNAME|...
+    # A USER IEN other than DUZ is refused -1053^text.
+    DataMapper.define(:component_security) do |m|
+      m.rpc "BGOUTL CHKSEC"
+      m.context VUECENTRIC
+      m.scalar :result
+    end
+
     # BGOPROB GET CLASS — RETIRED, never bound. The #8994 registry sends
     # this name to DICLASS^BGOASLK (.broker_dumps_8994_20260607.txt:3103
     # "BGOPROB GET CLASS^DICLASS^BGOASLK^2"), which is "Get the
