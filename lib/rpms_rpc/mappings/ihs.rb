@@ -765,6 +765,24 @@ module RpmsRpc
       m.scalar :result
     end
 
+    # BGOCC GET — GET^BGOCC (BGOCC.m:23). One param, the visit IEN. Per
+    # chief complaint a header IEN^DUZ~NAME^LINE COUNT, then that many text
+    # lines; read line by line by ChiefComplaint.for_visit.
+    DataMapper.define(:chief_complaints) do |m|
+      m.rpc "BGOCC GET"
+      m.context VUECENTRIC
+      m.field 0, :ien
+    end
+
+    # BGOCC SET — SET^BGOCC (BGOCC.m:63). One INP param:
+    #   Visit IEN[1] ^ V Narrative Text IEN[2] ^ Chief Complaint[3]
+    # Answers the V NARRATIVE TEXT IEN, or -n^text.
+    DataMapper.define(:chief_complaint_set) do |m|
+      m.rpc "BGOCC SET"
+      m.context VUECENTRIC
+      m.scalar :result
+    end
+
     # BGOVEXAM SET — SET^BGOVEXAM (BGOVEXAM.m:106). One INP param
     # (BGOVEXAM.m:103-104, parsed :109-129):
     #   V Exam IEN[1] ^ Exam IEN[2] ^ Visit IEN[3] ^ Provider IEN[4] ^
