@@ -11,13 +11,34 @@ require "rpms_rpc/live_summary"
 require_relative "../../tools/changelog_fragments"
 
 # ADR 0010 assertion 10 (offline slice): a release may be tagged only when live
-# summaries on disk prove a green run against the pinned openrpms build.
+# summaries on disk prove a green run against the openrpms release under test.
 module RpmsRpc
   class LiveSummaryTest < Minitest::Test
     REPO_ROOT = File.expand_path("../..", __dir__)
     SYNTHETIC_BUILD = "bcer-9.0-20990101-abc1234-ydb"
     SYNTHETIC_SOURCE = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     SYNTHETIC_SUITE = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    # The release cache the guard reads: the committed fixture's, whose current.json names its tag.
+    FIXTURE_CACHE = File.join(REPO_ROOT, "test/fixtures/inventories")
+
+    def setup
+      super
+      @saved_cache = ENV.fetch("OPENRPMS_INVENTORIES", nil)
+      ENV["OPENRPMS_INVENTORIES"] = FIXTURE_CACHE
+    end
+
+    def teardown
+      ENV["OPENRPMS_INVENTORIES"] = @saved_cache
+      super
+    end
+
+    def test_release_build_is_the_recorded_release_and_refuses_when_there_is_none
+      assert_equal "bcer-9.0-20261012-e7923a4-ydb", LiveSummary.release_build
+      Dir.mktmpdir do |empty|
+        err = assert_raises(ArgumentError) { LiveSummary.release_build("OPENRPMS_INVENTORIES" => empty) }
+        assert_match(/rake openrpms:fetch/, err.message)
+      end
+    end
 
     def test_missing_summary_refuses
       Dir.mktmpdir do |parent|
@@ -496,13 +517,13 @@ module RpmsRpc
       end
     end
 
-    # A release is for the pinned build. LIVE_BUILD is the runner's word, so a
+    # A release is for the release under test. LIVE_BUILD is the runner's word, so a
     # summary that only declares its build is refused.
     def test_a_declared_build_source_refuses
       Dir.mktmpdir do |dir|
         write_summary(dir, "PERSONA_A.json", summary_fields("build_source" => "declared"))
         _ok, reasons = refuse_check(dir)
-        assert_match(/PERSONA_A\.json: build_source "declared" is not "pinned"/, reasons.join(" "))
+        assert_match(/PERSONA_A\.json: build_source "declared" is not "release"/, reasons.join(" "))
       end
     end
 
@@ -570,7 +591,7 @@ module RpmsRpc
     # off the wrong directory is visible.
     def test_release_guard_ok_names_the_summary_directory
       original_app = Rake.application
-      build = LiveSummary.pinned_build(File.join(REPO_ROOT, "data/fingerprints/rpms-ops.lock.yml"))
+      build = LiveSummary.release_build
       Dir.mktmpdir do |tmpdir|
         saved_summary_dir = ENV["LIVE_SUMMARY_DIR"]
         ENV["LIVE_SUMMARY_DIR"] = tmpdir
@@ -803,14 +824,13 @@ module RpmsRpc
 
     def test_release_guard_ok_names_the_build_source
       original_app = Rake.application
-      lock_path = File.join(REPO_ROOT, "data/fingerprints/rpms-ops.lock.yml")
-      build = LiveSummary.pinned_build(lock_path)
+      build = LiveSummary.release_build
       Dir.mktmpdir do |tmpdir|
         saved_summary_dir = ENV["LIVE_SUMMARY_DIR"]
         ENV["LIVE_SUMMARY_DIR"] = tmpdir
         begin
           path = File.join(tmpdir, "PERSONA_A.json")
-          write_summary(tmpdir, "PERSONA_A.json", summary_fields("build" => build, "build_source" => "pinned",
+          write_summary(tmpdir, "PERSONA_A.json", summary_fields("build" => build, "build_source" => "release",
                                                                  "source" => repo_source, "suite" => repo_suite))
 
           Rake.application = Rake::Application.new
@@ -820,7 +840,7 @@ module RpmsRpc
           out, err = capture_io { Rake::Task["release:live_guard"].invoke }
           assert_match(/OK #{Regexp.escape(build)}/, out + err)
           # A run with skips passes, so the OK names how many were skipped.
-          assert_match(/PERSONA_A\.json: 117 passed, 3 skipped \(pinned\)/, out + err)
+          assert_match(/PERSONA_A\.json: 117 passed, 3 skipped \(release\)/, out + err)
         ensure
           saved_summary_dir.nil? ? ENV.delete("LIVE_SUMMARY_DIR") : ENV["LIVE_SUMMARY_DIR"] = saved_summary_dir
           Rake.application = original_app
@@ -927,7 +947,7 @@ module RpmsRpc
         # first whenever a fragment is pending, so this test pins the live-summary behaviour
         # against an empty fragment directory regardless of what the repo holds.
         Fragments.release_dir = File.join(dir, "no-fragments").tap { |empty| FileUtils.mkdir_p(empty) }
-        build = LiveSummary.pinned_build(File.join(REPO_ROOT, "data/fingerprints/rpms-ops.lock.yml"))
+        build = LiveSummary.release_build
         write_summary(dir, "PERSONA_A.json", summary_fields("build" => build, "source" => repo_source, "suite" => repo_suite))
         assert LiveSummary.check(dir: dir, build: build, source: repo_source, suite: repo_suite).first, "fixture must start green"
 
@@ -954,7 +974,7 @@ module RpmsRpc
       {
         "schema" => 3,
         "build" => SYNTHETIC_BUILD,
-        "build_source" => "pinned",
+        "build_source" => "release",
         "source" => SYNTHETIC_SOURCE,
         "suite" => SYNTHETIC_SUITE,
         "protocol" => "cia",
@@ -988,7 +1008,7 @@ module RpmsRpc
         persona: kwargs.fetch(:persona, "PERSONA_A"),
         protocol: kwargs.fetch(:protocol, "cia"),
         build: kwargs.fetch(:build, SYNTHETIC_BUILD),
-        build_source: kwargs.fetch(:build_source, "pinned"),
+        build_source: kwargs.fetch(:build_source, "release"),
         source: kwargs.fetch(:source, SYNTHETIC_SOURCE),
         run_id: run_id,
         env: env

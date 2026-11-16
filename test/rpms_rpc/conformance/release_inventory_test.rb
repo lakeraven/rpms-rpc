@@ -5,17 +5,19 @@ require "digest"
 require "json"
 require "tmpdir"
 require "yaml"
-require "rpms_rpc/conformance/inventory_lock"
-require "rpms_rpc/conformance/ingest"
+require "rpms_rpc/conformance/release_inventory"
 require_relative "../pinned_rpcs_test_helper"
 
-# InventoryLock (rpms-rpc#222, #394, #406) on the pinned release's own assets: each test copies
-# data/inventories/<tag>/ as openrpms published it and changes the one thing it is about.
-class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
-  Lock = RpmsRpc::Conformance::InventoryLock
+# ReleaseInventory (rpms-rpc#222, #394, #406, #724) on a release's own assets (the committed fixture,
+# cut from a real release by tools/fixture_inventory.rb): each test copies it and changes the one thing
+# it is about.
+class RpmsRpc::Conformance::ReleaseInventoryTest < Minitest::Test
+  Lock = RpmsRpc::Conformance::ReleaseInventory
   P = PinnedRpcsTestHelper
   TAG = P::TAG
-  ENTRY = P::LOCK[TAG]
+  PROVENANCE = JSON.parse(File.read(File.join(P::INVENTORY_DIR, "#{TAG}-INVENTORY-PROVENANCE.json")))
+  RPCS = PROVENANCE.dig("dumps", "rpcs", "records")
+  BUILD_COMMIT = "e7923a473fa27060c40978f4d46be3de391c97ae"
 
   def asset(dir, suffix) = File.join(dir, "#{TAG}-#{suffix}")
 
@@ -48,14 +50,15 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
     with_inventory do |dir|
       inv = Lock.verify_dir(TAG, dir)
       assert_equal %w[rpcs.json packages_9_4.txt contexts_19_05.txt INVENTORY-PROVENANCE.json], Lock::ASSET_SUFFIXES
-      assert_equal ENTRY["assets"], inv.shas.sort.to_h
-      assert_equal ENTRY["engine"], inv.engine
-      assert_equal ENTRY["build_commit"], inv.build_commit
-      assert_equal ENTRY["image"], inv.image_ref
-      assert_equal ENTRY["reach_classes"], inv.surface.reach_counts
-      assert_equal ENTRY["rpcs"], inv.surface.rpcs.size
+      assets = (Lock::ASSET_SUFFIXES + [ Lock::BUILD_RECORD_SUFFIX ]).to_h { |x| [ "#{TAG}-#{x}", Lock.sha256(asset(dir, x)) ] }
+      assert_equal assets.sort.to_h, inv.shas.sort.to_h
+      assert_equal "yottadb", inv.engine
+      assert_equal BUILD_COMMIT, inv.build_commit
+      assert_equal "ghcr.io/lakeraven/rpms-ydb@#{PROVENANCE['artifact_sha256']}", inv.image_ref
+      assert_equal PROVENANCE.dig("rpc_reach", "classes"), inv.surface.reach_counts
+      assert_equal RPCS, inv.surface.rpcs.size
       src = inv.to_source
-      assert_equal [ TAG, ENTRY["assets"]["#{TAG}-rpcs.json"], "rpcs.v1" ], src.values_at("tag", "rpcs_json_sha256", "rpcs_json_schema")
+      assert_equal [ TAG, assets["#{TAG}-rpcs.json"], "rpcs.v1" ], src.values_at("tag", "rpcs_json_sha256", "rpcs_json_schema")
       # The raw files the document was projected from, as it names them: the sidecar's bytes.
       sidecar = File.readlines(asset(dir, Lock::SIDECAR_SUFFIX), chomp: true).to_h { |l| l.split(/\s+\*?/, 2).reverse }
       %w[broker_8994 rpc_reach rpc_signatures].each do |raw|
@@ -98,7 +101,7 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
   def test_verify_dir_rejects_a_truncated_rpcs_json
     with_inventory do |dir|
       edit_json(dir, "rpcs.json") { |d| d["rpcs"].pop }
-      assert_match(/lists #{ENTRY['rpcs'] - 1} RPCs, the provenance counted #{ENTRY['rpcs']} \(truncated\?\)/, refusal(dir))
+      assert_match(/lists #{RPCS - 1} RPCs, the provenance counted #{RPCS} \(truncated\?\)/, refusal(dir))
     end
   end
 
@@ -204,75 +207,67 @@ class RpmsRpc::Conformance::InventoryLockTest < Minitest::Test
     assert_nil Lock.parse_tag("bcer-9.0-iris")
   end
 
-  # --- pin, ingest, check ----------------------------------------------------------------------
+  # --- which release: the latest published -ydb release that carries its inventory (#724) -------
 
-  def test_pin_ingest_and_check_round_trip
-    with_inventory do |inv_dir, root|
-      inventories = root
-      fp_dir = File.join(root, "fingerprints")
-      inv = Lock.verify_dir(TAG, inv_dir)
-
-      r = RpmsRpc::Conformance::Ingest.run(
-        surface: inv.surface, packages: inv.packages_dump, env: "references/#{TAG}", fingerprints_dir: fp_dir,
-        backend: RpmsRpc::Conformance::Ingest::BACKEND_FOR_ENGINE.fetch(inv.engine),
-        captured_at: inv.provenance["captured_at"].to_s[0, 10], release: TAG, dat_sha: inv.provenance["artifact_sha256"],
-        note: "openrpms release inventory #{TAG} (lakeraven/openrpms), pinned by conformance:pin", inventory: inv.to_source
-      )
-      assert_equal [ ENTRY["rpcs"], ENTRY["packages"] ], [ r[:rpcs], r[:packages] ]
-
-      # The fingerprint rake conformance:pin committed is what the same steps derive here.
-      committed = File.join(P::ROOT, "data/fingerprints", "#{ENTRY['fingerprint']}.yml")
-      assert_equal File.read(committed), File.read(r[:path])
-
-      fp = YAML.safe_load_file(r[:path])
-      assert_equal({ "tag" => "SELECT", "routine" => "ORWPT", "return_type" => "1" }, fp["rpcs"]["ORWPT SELECT"])
-      assert_equal "3", fp["rpcs"]["XUS CCOW VAULT PARAM"]["inactive"]
-
-      lock = Lock.load(File.join(fp_dir, Lock::DEFAULT_PATH))
-      lock.pin!(inv, fingerprint: "references/#{TAG}", rpcs: r[:rpcs], packages: r[:packages])
-      lock.save
-      reloaded = Lock.load(lock.path)
-      assert_equal ENTRY, reloaded[TAG]
-      assert_empty reloaded.check(fingerprints_dir: fp_dir, inventories_dir: inventories)
-      assert_equal ENTRY["rpcs"], reloaded.surfaces(inventories_dir: inventories)[TAG].names.size
-
-      # A hand-edited fingerprint no longer re-derives from the committed rpcs.json...
-      File.write(r[:path], File.read(r[:path]).sub("ORWPT SELECT:", "ORWPT SELECX:"))
-      problems = reloaded.check(fingerprints_dir: fp_dir, inventories_dir: inventories)
-      refute_empty problems.grep(/fingerprint rpcs differ from the pinned rpcs.json \(ORWPT SELECT/)
-      # ...and deleting one changes the count the lock recorded.
-      File.write(r[:path], File.read(r[:path]).sub(/^  ORWPT SELECX:\n(    .*\n)+/, ""))
-      refute_empty reloaded.check(fingerprints_dir: fp_dir).grep(/#{ENTRY['rpcs'] - 1} RPCs, lock says #{ENTRY['rpcs']}/)
-
-      # A committed rpcs.json whose bytes drifted from the lock is reported, though it still verifies.
-      edit_json(inv_dir, "rpcs.json") { |d| d["rpcs"].find { |x| x["name"] == "ORWPT SELECT" }["entry_point"]["routine"] = "ORWPX" }
-      problems = reloaded.check(fingerprints_dir: fp_dir, inventories_dir: inventories)
-      refute_empty problems.grep(/local asset #{TAG}-rpcs.json sha256 \h+ != lock/)
-    end
+  def release(tag, published_at, draft: false, prerelease: false, assets: Lock.asset_names(tag))
+    { "tag_name" => tag, "published_at" => published_at, "draft" => draft, "prerelease" => prerelease,
+      "assets" => assets.map { |n| { "name" => n } } }
   end
 
-  def test_check_reports_a_missing_fingerprint
+  def test_pick_latest_takes_the_newest_published_ydb_release_with_its_inventory
+    releases = [
+      release("bcer-9.0-20261113-3f5487a-ydb", "2026-11-13T22:38:13Z"),
+      release("bcer-9.0-20261116-2a9b3fe-iris", "2026-11-16T05:57:15Z"),
+      release("bcer-9.0-20261116-2a9b3fe-ydb", "2026-11-16T03:59:25Z"),
+      release("bcer-9.0-20261117-1111111-ydb", "2026-11-17T00:00:00Z", draft: true),
+      release("bcer-9.0-20261118-2222222-ydb", "2026-11-18T00:00:00Z", prerelease: true),
+      release("bcer-9.0-20261111-312e774-ydb", "2026-11-19T00:00:00Z", assets: [ "bcer-9.0-20261111-312e774-ydb-PROVENANCE.json" ]),
+      release("v1.0.0", "2026-11-20T00:00:00Z")
+    ]
+    assert_equal "bcer-9.0-20261116-2a9b3fe-ydb", Lock.pick_latest(releases)[:tag]
+  end
+
+  def test_pick_latest_refuses_when_no_release_carries_the_inventory
+    err = assert_raises(Lock::Error) { Lock.pick_latest([ release("bcer-9.0-20261116-2a9b3fe-iris", "2026-11-16T05:57:15Z") ]) }
+    assert_match(/no published bcer-\*-ydb release on lakeraven\/openrpms carries the inventory/, err.message)
+  end
+
+  def test_the_cache_root_is_tmp_openrpms_unless_named
+    assert_equal File.join(P::ROOT, "tmp/openrpms"), Lock.cache_root({})
+    assert_equal File.join(P::ROOT, "tmp/openrpms"), Lock.cache_root({ "OPENRPMS_INVENTORIES" => " " })
+    assert_equal "/x/y", Lock.cache_root({ "OPENRPMS_INVENTORIES" => "/x/y" })
+  end
+
+  # current.json records which release a checkout tests against; `current` reads it back offline.
+  def test_record_current_then_current_reads_the_verified_release_back
     with_inventory do |dir, root|
-      lock = Lock.load(File.join(root, "lock.yml"))
-      lock.pin!(Lock.verify_dir(TAG, dir), fingerprint: "references/#{TAG}", rpcs: ENTRY["rpcs"], packages: ENTRY["packages"])
-      problems = lock.check(fingerprints_dir: File.join(root, "fingerprints"))
-      assert_equal 1, problems.size
-      assert_match(/is missing/, problems.first)
+      inv = Lock.verify_dir(TAG, dir)
+      doc = Lock.record_current!(inv, root: root, chosen_by: "latest")
+      assert_equal [ TAG, "latest", inv.image_ref, BUILD_COMMIT, RPCS ], doc.values_at("tag", "chosen_by", "image", "build_commit", "rpcs")
+      assert_equal doc.except("resolved_at"), JSON.parse(File.read(File.join(root, "current.json"))).except("resolved_at")
+      assert_equal TAG, Lock.current(root: root).tag
     end
   end
 
-  def test_check_requires_the_committed_signature_when_asked
-    with_inventory do |dir, root|
-      lock = Lock.load(File.join(root, "lock.yml"))
-      lock.pin!(Lock.verify_dir(TAG, dir), fingerprint: "references/#{TAG}", rpcs: ENTRY["rpcs"], packages: ENTRY["packages"])
-      problems = lock.check(fingerprints_dir: root, inventories_dir: File.join(root, "absent"), require_inventories: true)
-      refute_empty problems.grep(/signature is not committed/)
-    end
-  end
-
-  def test_an_empty_lock_checks_clean
+  def test_current_refuses_without_a_record_or_with_files_that_no_longer_verify
     Dir.mktmpdir do |root|
-      assert_empty Lock.load(File.join(root, "absent.yml")).check(fingerprints_dir: root)
+      assert_match(/no openrpms release fetched into .* rake openrpms:fetch/, assert_raises(Lock::Error) { Lock.current(root: root) }.message)
     end
+    with_inventory do |dir, root|
+      Lock.record_current!(Lock.verify_dir(TAG, dir), root: root, chosen_by: "latest")
+      File.delete(asset(dir, "rpcs.json"))
+      assert_match(/missing or empty asset/, assert_raises(Lock::Error) { Lock.current(root: root) }.message)
+    end
+  end
+
+  # A downloaded dir that already verifies is used as it is: no network.
+  def test_fetch_keeps_a_cached_release_that_verifies
+    with_inventory do |_dir, root|
+      assert_equal TAG, Lock.fetch(TAG, root: root, repo: "nobody/nothing").tag
+    end
+  end
+
+  def test_fetch_refuses_a_tag_that_names_no_build
+    assert_match(/names no build/, assert_raises(Lock::Error) { Lock.fetch("latest") }.message)
   end
 end

@@ -2,11 +2,12 @@
 
 # RPC coverage against ONE backend's registry (rpms-rpc#270).
 #
-#   rake rpc:coverage   offline, CI-safe: pinned registry x committed live evidence -> one number
+#   rake rpc:coverage   offline: the release under test's registry x live evidence -> one number
 #   rake rpc:coverage_html  the same report in SimpleCov's HTML interface, one file per package
-#   rake rpc:exclusions regenerates the unreachable exclusions (no routine, no entry point, inactive,
-#                       no context, out of order) from the pinned release's reach classes, in the
-#                       <tag>-rpcs.json openrpms publishes and conformance:pin commits (#278, #394, #406)
+#   rake rpc:exclusions prints the exclusions the release under test computes: the unreachable ones (no
+#                       routine, no entry point, inactive, no context, out of order) from its reach classes
+#                       in <tag>-rpcs.json (#278, #394, #406, #724), plus the reviewed ones in
+#                       data/rpc_coverage/exclusions.yml. Nothing is written.
 #   rake rpc:cases CASES=<cases.jsonl> BROKER_HOST= BROKER_PORT= RPMS_ACCESS= RPMS_VERIFY= [PERSONA=] [OUT=]
 #                       runs openrpms' wire-level cases (data, not API calls; openrpms#834) and
 #                       exits 1 unless every case of the persona gives its expected verdict
@@ -22,7 +23,8 @@
 # <evidence dir> is rpc-coverage/live/ in an rpms-diffs checkout, by default the sibling of this
 # repo (../rpms-diffs). Override it with RPMS_DIFFS_DIR= (the checkout) or RPC_EVIDENCE_DIR= (the dir).
 #
-# Config: data/rpc_coverage/config.yml (backend, registry, minimum_percent, max_unregistered).
+# Config: data/rpc_coverage/config.yml (backend, minimum_percent, max_unregistered). The registry is the
+# openrpms release under test (`rake openrpms:fetch`, rpms-rpc#724); RPC_REGISTRY= / RPC_PACKAGES= override it.
 # The implementation lives in tools/rpc_coverage/, which is not part of the gem.
 namespace :rpc do
   rpc_root = File.expand_path("../..", __dir__)
@@ -41,7 +43,25 @@ namespace :rpc do
     dir
   end
 
-  rpc_secrets = -> { [ ENV["RPMS_ACCESS"], ENV["RPMS_VERIFY"] ] }
+rpc_secrets = -> { [ ENV["RPMS_ACCESS"], ENV["RPMS_VERIFY"] ] }
+# The release under test, its registry (RPC_REGISTRY= overrides), its packages (RPC_PACKAGES=), and every
+# exclusion: the reviewed ones in exclusions.yml plus the ones its reach classes compute. Aborts, naming
+# the task to run, when no release has been fetched.
+rpc_inputs = lambda do |task|
+  require "rpms_rpc/conformance/release_inventory"
+  release = RpmsRpc::Conformance::ReleaseInventory
+  inv = begin
+    release.current
+  rescue release::Error => e
+    abort "rpc:#{task}: #{e.message}"
+  end
+  registry = RpcCoverage.load_registry(File.expand_path(ENV["RPC_REGISTRY"] || inv.rpcs_json, rpc_root))
+  packages = File.expand_path(ENV["RPC_PACKAGES"] || inv.packages_dump, rpc_root)
+  reviewed = RpcCoverage.load_exclusions(File.join(rpc_root, "data/rpc_coverage/exclusions.yml"))
+  computed = RpcCoverage.exclusions_for(reviewed, registry.surface || inv.surface, registry)
+  { release: inv, registry: registry, packages: packages, reviewed: reviewed, computed: computed,
+    exclusions: computed.exclusions, problems: RpcCoverage.reviewed_problems(reviewed) }
+end
   # The programmer persona's evidence beside <backend>.json, or nil when there is none (not an error).
   rpc_programmer = lambda do |evidence_path, backend|
     path = RpcCoverage.evidence_path(File.dirname(evidence_path), backend, "programmer")
@@ -51,7 +71,7 @@ namespace :rpc do
     [ prog, RpcCoverage.evidence_problems(prog, secrets: rpc_secrets.call, persona: "programmer") ]
   end
 
-  desc "RPC coverage of the pinned backend registry (RPC_REGISTRY=, RPC_BACKEND= override config)"
+  desc "RPC coverage of the openrpms release under test (RPC_REGISTRY=, RPC_BACKEND= override)"
   task :coverage do
     abort "rpc:coverage needs a source checkout (#{rpc_tool} is not in the gem)" unless File.exist?(rpc_tool)
     require rpc_tool
@@ -60,15 +80,15 @@ namespace :rpc do
 
     cfg = rpc_config.call
     backend = ENV["RPC_BACKEND"] || cfg.fetch("backend")
-    registry_path = File.expand_path(ENV["RPC_REGISTRY"] || cfg.fetch("registry"), rpc_root)
     evidence_path = File.join(rpc_evidence_dir.call, "#{backend}.json")
     abort "no live evidence for #{backend} at #{evidence_path} (rake rpc:live BACKEND=#{backend} writes it)" unless File.exist?(evidence_path)
 
-    registry = RpcCoverage.load_registry(registry_path)
-    exclusions = RpcCoverage.load_exclusions(File.join(rpc_root, "data/rpc_coverage/exclusions.yml"))
+    inputs = rpc_inputs.call("coverage")
+    registry = inputs[:registry]
+    exclusions = inputs[:exclusions]
     evidence = RpcCoverage.load_evidence(evidence_path, backend)
     programmer, programmer_problems = rpc_programmer.call(evidence_path, backend)
-    problems = RpcCoverage.registry_problems(registry) +
+    problems = RpcCoverage.registry_problems(registry) + inputs[:problems] +
                RpcCoverage.exclusion_problems(exclusions, registry, evidence: evidence) +
                RpcCoverage.evidence_problems(evidence, secrets: rpc_secrets.call, persona: RpcCoverage::DEFAULT_PERSONA) +
                programmer_problems
@@ -102,15 +122,15 @@ namespace :rpc do
 
     cfg = rpc_config.call
     backend = ENV["RPC_BACKEND"] || cfg.fetch("backend")
-    registry_path = File.expand_path(ENV["RPC_REGISTRY"] || cfg.fetch("registry"), rpc_root)
-    packages_path = File.expand_path(ENV["RPC_PACKAGES"] || cfg.fetch("packages"), rpc_root)
-    registry = RpcCoverage.load_registry(registry_path)
-    exclusions = RpcCoverage.load_exclusions(File.join(rpc_root, "data/rpc_coverage/exclusions.yml"))
+    inputs = rpc_inputs.call("coverage_html")
+    registry = inputs[:registry]
+    packages_path = inputs[:packages]
+    exclusions = inputs[:exclusions]
     evidence_path = File.join(rpc_evidence_dir.call, "#{backend}.json")
     abort "no live evidence for #{backend} at #{evidence_path} (rake rpc:live BACKEND=#{backend} writes it)" unless File.exist?(evidence_path)
     evidence = RpcCoverage.load_evidence(evidence_path, backend)
     programmer, programmer_problems = rpc_programmer.call(evidence_path, backend)
-    problems = RpcCoverage.registry_problems(registry) + RpcCoverage.exclusion_problems(exclusions, registry, evidence: evidence) +
+    problems = RpcCoverage.registry_problems(registry) + inputs[:problems] + RpcCoverage.exclusion_problems(exclusions, registry, evidence: evidence) +
                RpcCoverage.evidence_problems(evidence, secrets: rpc_secrets.call, persona: RpcCoverage::DEFAULT_PERSONA) +
                programmer_problems
     abort "rpc:coverage_html: #{problems.join('; ')}" unless problems.empty?
@@ -125,50 +145,23 @@ namespace :rpc do
     puts "open #{index.delete_prefix("#{rpc_root}/")}"
   end
 
-  desc "Regenerate the unreachable RPCs in data/rpc_coverage/exclusions.yml from the pinned release's reach classes " \
-       "(data/inventories/<release>/<release>-rpcs.json; release from data/rpc_coverage/config.yml)"
+  desc "Print the exclusions the openrpms release under test computes (reach classes) plus the reviewed ones " \
+       "in data/rpc_coverage/exclusions.yml; writes nothing"
   task :exclusions do
     abort "rpc:exclusions needs a source checkout (#{rpc_tool} is not in the gem)" unless File.exist?(rpc_tool)
     require rpc_tool
-    require "rpms_rpc/conformance/inventory_lock"
 
-    cfg = rpc_config.call
-    tag = cfg.fetch("release")
-    lock_class = RpmsRpc::Conformance::InventoryLock
-    lock = lock_class.load(File.join(rpc_root, "data/fingerprints", lock_class::DEFAULT_PATH))
-    entry = lock[tag] or abort "rpc:exclusions: #{tag} is not pinned (rake conformance:pin RELEASE=#{tag})"
-    # The document is read only after its bytes are proven to be the pinned ones.
-    inv = begin
-      lock_class.verify_dir(tag, File.join(rpc_root, "data/inventories", tag))
-    rescue lock_class::Error => e
-      abort "rpc:exclusions: the pinned files for #{tag} fail verification: #{e.message}"
-    end
-    rpcs_file = "#{tag}-#{lock_class::RPCS_SUFFIX}"
-    unless inv.shas[rpcs_file] == entry.dig("assets", rpcs_file)
-      abort "rpc:exclusions: #{rpcs_file} sha256 #{inv.shas[rpcs_file]} is not the pinned #{entry.dig('assets', rpcs_file).inspect}"
-    end
-
-    surface = inv.surface
-    registry = RpcCoverage.load_registry(File.expand_path(cfg.fetch("registry"), rpc_root))
-    problems = RpcCoverage.registry_problems(registry)
-    problems << "registry #{registry.tag} is not the release #{tag}" unless registry.tag == tag
+    inputs = rpc_inputs.call("exclusions")
+    inv = inputs[:release]
+    registry = inputs[:registry]
+    problems = RpcCoverage.registry_problems(registry) + inputs[:problems] +
+               RpcCoverage.exclusion_problems(inputs[:exclusions], registry)
     abort "rpc:exclusions: #{problems.join('; ')}" unless problems.empty?
 
-    path = File.join(rpc_root, "data/rpc_coverage/exclusions.yml")
-    unreachable = RpcCoverage.unreachable_from_surface(surface)
-    result = RpcCoverage.regenerate_exclusions(RpcCoverage.load_exclusions(path), unreachable, registry)
-    source = [
-      "rpcs: data/inventories/#{tag}/#{rpcs_file}",
-      "rpcs sha256: #{inv.shas[rpcs_file]} (pinned in data/fingerprints/rpms-ops.lock.yml)",
-      "reach classes: #{surface.reach_counts.map { |k, v| "#{k}=#{v}" }.join(' ')}",
-      "registry: #{tag} (#{registry.names.size} names)",
-      "regenerate: bundle exec rake rpc:exclusions"
-    ]
-    File.write(path, RpcCoverage.exclusions_yaml(result.exclusions, source: source))
-
-    check = RpcCoverage.exclusion_problems(RpcCoverage.load_exclusions(path), registry)
-    abort "rpc:exclusions wrote #{path} but it fails its own gate: #{check.first(3).join('; ')}" unless check.empty?
-    puts "not callable on #{tag}: #{unreachable.size}; not in the registry (residue, not excluded): #{result.not_in_registry.size}"
+    result = inputs[:computed]
+    puts "release under test: #{inv.tag} (#{registry.names.size} names; reach classes " \
+         "#{inv.surface.reach_counts.map { |k, v| "#{k}=#{v}" }.join(' ')})"
+    puts "excluded: #{result.exclusions.size} (#{inputs[:reviewed].size} reviewed); not in the registry (residue, not excluded): #{result.not_in_registry.size}"
     result.not_in_registry.each { |n| puts "  residue: #{n}" }
     result.exclusions.values.tally.sort.each { |r, n| puts format("  %-24s %5d", r, n) }
     # An RPC the gem sends that the build does not let a client call is the callable gate's failure
@@ -177,7 +170,6 @@ namespace :rpc do
     result.exclusions.each do |name, reason|
       puts "  WARNING: #{name} (#{reason}) is sent by the gem (#{sent[name].first}); see data/fingerprints/uncallable_exceptions.yml" if sent.key?(name)
     end
-    puts "wrote #{path.delete_prefix("#{rpc_root}/")}: #{result.exclusions.size} exclusions"
   end
 
   desc "Run the read catalogue against one live CIA backend and merge into <rpms-diffs>/rpc-coverage/live/<BACKEND>.json"

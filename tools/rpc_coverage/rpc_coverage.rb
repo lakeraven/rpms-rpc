@@ -7,8 +7,10 @@ require_relative "../../lib/rpms_rpc/conformance/build_surface"
 # RPC coverage: how much of ONE backend's registered RPC surface rpms-rpc has shown working
 # against that backend (rpms-rpc#270). Offline; `rake rpc:coverage` drives it.
 #
-#   denominator  every RPC the pinned build registers (data/inventories/<tag>/<tag>-rpcs.json),
-#                minus the names data/rpc_coverage/exclusions.yml excludes with a reason
+#   denominator  every RPC the release under test registers (<tag>-rpcs.json, fetched by
+#                `rake openrpms:fetch`, rpms-rpc#724), minus the RPCs its reach classes say no client
+#                can call (computed per release, exclusions_for) and the reviewed exclusions in
+#                data/rpc_coverage/exclusions.yml
 #   covered      registered, not excluded, and a live run against the backend
 #                (rpc-coverage/live/<backend>.json in rpms-diffs, written by `rake rpc:live`) got an answer
 #                that was not a broker error (data, or an empty reply)
@@ -36,7 +38,7 @@ module RpcCoverage
     "gui_plumbing" => "drives a thick-client GUI (layout, window state); no headless use (ADR-0004 tiers)",
     "write_needs_fixture" => "a write or side effect that needs a disposable fixture before it can run live"
   }.freeze
-  # The pinned build's rpcs.json (openrpms#713, #732) gives each registered RPC one REACH class. The uncallable classes map to an exclusion reason; the callable ones
+  # A release's rpcs.json (openrpms#713, #732) gives each registered RPC one REACH class. The uncallable classes map to an exclusion reason; the callable ones
   # (BuildSurface::CALLABLE: client-callable, broker-exempt) stay in the denominator. A class in
   # neither fails, so a new reach class is a decision here (#394).
   REACH_REASONS = {
@@ -70,11 +72,11 @@ module RpcCoverage
 
   # --- inputs ---------------------------------------------------------------------------------
 
-  # The registry: a pinned build's <tag>-rpcs.json (data/inventories/<tag>/, rpms-rpc#406), read
+  # The registry: a release's <tag>-rpcs.json (fetched into tmp/openrpms/<tag>/, rpms-rpc#406, #724), read
   # through BuildSurface, the one reader of the build's surface; the tag is the document's. Any other
   # path is a flat registry, NAME first on each line ("#" lines are its header): the names file
   # openrpms bin/rpms_rpc_live_score.rb writes from a release's broker dump, scored here without a
-  # pinned document. The tag is the file name's.
+  # release document. The tag is the file name's.
   def load_registry(path)
     raise Error, "registry not found: #{path}" unless File.exist?(path)
 
@@ -123,9 +125,9 @@ module RpcCoverage
     end
   end
 
-  # --- exclusions generated from the pinned build's reach classes (#278, #394, #406) ------------------
+  # --- exclusions computed from the release's reach classes (#278, #394, #406, #724) ---------------
 
-  # name => reason for every RPC the pinned build's rpcs.json classes as not callable.
+  # name => reason for every RPC the release's rpcs.json classes as not callable.
   def unreachable_from_surface(surface)
     surface.uncallable.to_h do |name, reach|
       raise Error, "#{surface.tag}: #{name.inspect} has reach #{reach.inspect}, which rpc_coverage.rb does not map" unless REACH_REASONS.key?(reach)
@@ -138,7 +140,7 @@ module RpcCoverage
 
   # The reach classes own the reach-derived reasons: they are replaced wholesale, so an RPC that became
   # callable loses its exclusion. Any other reason is a reviewed decision and is kept as it is. Only
-  # names the pinned registry registers are excluded; the rest are returned as residue to report.
+  # names the registry registers are excluded; the rest are returned as residue to report.
   def regenerate_exclusions(current, unreachable, registry)
     generated = REACH_REASONS.values
     known = registry.names.to_h { |n| [ n, true ] }
@@ -148,28 +150,25 @@ module RpcCoverage
                     not_in_registry: unreachable.keys.reject { |n| known[n] }.sort)
   end
 
-  def exclusions_yaml(exclusions, source:)
-    width = EXCLUSION_REASONS.keys.map(&:size).max
-    head = [
-      "# RPCs left out of the rpc:coverage denominator, each with a reason from this fixed vocabulary",
-      "# (any other reason, or a name the registry does not register, fails the task; so does an",
-      "# excluded RPC that answered live):",
-      "#"
-    ]
-    head += EXCLUSION_REASONS.map { |r, why| "#   #{r.ljust(width)}  #{why}" }
-    head += [
-      "#",
-      "# The unreachable reasons (no_routine_on_image .. context_out_of_order) are GENERATED from the",
-      "# pinned release's reach classes (data/inventories/<tag>/<tag>-rpcs.json, published by openrpms)",
-      "# by `rake rpc:exclusions`; regenerate on every re-pin, never hand-edit them. gui_plumbing and",
-      "# write_needs_fixture are reviewed decisions: add one per PR with its evidence; regeneration keeps them.",
-      "#"
-    ]
-    head += source.map { |l| "# #{l}" }
-    head += exclusions.values.tally.sort.map { |r, n| "# count #{r}: #{n}" }
-    body = exclusions.sort.map { |name, reason| "#{name.to_json}: #{reason}" }
-    body = [ "{}" ] if body.empty?
-    (head + body).join("\n") + "\n"
+  # The reasons a person decides and data/rpc_coverage/exclusions.yml records (gui_plumbing,
+  # write_needs_fixture). The reach-derived ones are computed per release, never committed.
+  REVIEWED_REASONS = (EXCLUSION_REASONS.keys - REACH_REASONS.values).freeze
+
+  # Every exclusion for a release: the REVIEWED ones (exclusions.yml) plus the reach-derived ones its
+  # SURFACE computes, for the names REGISTRY registers. A Regenerated (exclusions, not_in_registry).
+  def exclusions_for(reviewed, surface, registry)
+    regenerate_exclusions(reviewed, unreachable_from_surface(surface), registry)
+  end
+
+  # The committed file holds reviewed decisions only: a reach-derived reason there is a release's
+  # fact written down, and would go stale on the next release.
+  def reviewed_problems(reviewed)
+    reviewed.filter_map do |name, reason|
+      next if REVIEWED_REASONS.include?(reason)
+
+      "exclusion #{name.inspect} has reason #{reason.inspect}: exclusions.yml holds only reviewed reasons " \
+        "(#{REVIEWED_REASONS.join(', ')}); the reach-derived ones are computed per release"
+    end
   end
 
   # --- personas (#335) ------------------------------------------------------------------------

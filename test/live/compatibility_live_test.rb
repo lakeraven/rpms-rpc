@@ -7,26 +7,26 @@ require "rpms_rpc/compatibility"
 # REMOTE PROCEDURE (#8994) reads the server's registry, and the report names each RPC this release
 # sends that the server does not serve, by API module.
 #
-#   - on the pinned build, nothing is missing: the callable gate (callable_rpc_names_test.rb)
-#     holds every RPC the API sends to the pinned registry offline, and this proves the server
+#   - on the release under test, nothing is missing: the callable gate (callable_rpc_names_test.rb)
+#     holds every RPC the API sends to that release's registry offline, and this proves the server
 #     answers the same;
 #   - an RPC the build does not register is reported, under the module that names it, and the
 #     strict form raises naming it.
 #
 # Read only: DDR LISTER lists #8994; nothing is filed.
 class CompatibilityLiveTest < LiveSpec::Test
-  # Registered on no pinned registry (#207); the gem no longer sends it.
+  # Registered on no openrpms registry (#207); the gem no longer sends it.
   UNREGISTERED_RPC = "ORWU USERKEYS"
   SERVED_RPC = "ORWPT SELECT"
 
-  def test_the_pinned_build_serves_every_rpc_this_release_sends
+  def test_the_release_under_test_serves_every_rpc_this_gem_sends
     report = client.compatibility
     assert_predicate report, :ok?, report.to_s
     assert_operator report.required.values.flatten.uniq.size, :>, 100, "the release's list is too short to be the API's"
   end
 
   def test_an_rpc_the_build_does_not_register_is_reported_by_name
-    required = { "build" => "live", "modules" => { "RpmsRpc::Probe" => [ SERVED_RPC, UNREGISTERED_RPC ] } }
+    required = { "modules" => { "RpmsRpc::Probe" => [ SERVED_RPC, UNREGISTERED_RPC ] } }
     report = RpmsRpc::Compatibility.check(client, required: required)
 
     assert_equal({ "RpmsRpc::Probe" => [ UNREGISTERED_RPC ] }, report.missing)

@@ -13,11 +13,12 @@ require "rpms_rpc/api/agg"
 # registration RPCs on the pinned build as PROV123.
 class RpmsRpc::PilotRegistrationTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
-  LOCK_PATH = File.join(ROOT, "data/fingerprints/rpms-ops.lock.yml")
   CHECKLIST_PATH = File.join(ROOT, "docs/pilot_rpc_readiness.md")
   DRIVER_PATH = File.join(ROOT, "bin/wire_capture_driver.rb")
 
-  PINNED_RELEASE = RpmsRpc::LiveSummary.pinned_build(LOCK_PATH).freeze
+  # The release the committed wire fixtures were captured on: their provenance, kept with them as
+  # evidence. The release the gem is tested against moves (rpms-rpc#724); a capture does not.
+  PINNED_RELEASE = "bcer-9.0-20261012-e7923a4-ydb"
   PERSONA = "PROV123"
 
   CHECKLIST_LINE = /

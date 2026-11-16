@@ -27,7 +27,7 @@ class OpenApiPinnedDocumentsTest < Minitest::Test
 
   def self.methods
     @methods ||= begin
-      r = ApiCoverage.build(ROOT)
+      r = ApiCoverage.build(ROOT, surface: pin[:surface])
       JSON.parse(JSON.generate(ApiCoverage.document(r[:entries], registry_tag: r[:registry_tag])))
     end
   end
@@ -96,13 +96,11 @@ class OpenApiPinnedDocumentsTest < Minitest::Test
     assert_equal self.class.methods["registry"], doc["x-rpms-build"]["tag"]
   end
 
-  # The surface's pin (data/openapi/rpcs.lock.yml) and the client API's (data/rpc_coverage/config.yml)
-  # are kept apart because conformance:pin does not fetch rpcs.json; the defaults must still name one build.
+  # Both documents are built on the surface's pin (data/openapi/rpcs.lock.yml), so they name one build.
   def test_both_documents_name_the_same_build
     surface = JSON.parse(self.class.surface_text).dig("x-rpms-build", "tag")
     api = JSON.parse(self.class.api_text).dig("x-rpms-build", "tag")
-    assert_equal surface, api, "re-pin both with the same RELEASE=: rake conformance:pin and rake openapi:pin"
-    assert_equal YAML.safe_load_file(File.join(ROOT, "data/rpc_coverage/config.yml")).fetch("release"), surface
+    assert_equal surface, api, "the client API must be built on the openapi:pin surface"
   end
 
   def test_the_same_inputs_give_byte_identical_documents

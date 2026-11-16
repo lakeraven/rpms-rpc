@@ -131,7 +131,10 @@ namespace :openapi do
       require File.join(root, "tools/api_coverage/api_coverage")
       $LOAD_PATH.unshift(File.join(root, "lib"))
       require "rpms_rpc"
-      r = ApiCoverage.build(root)
+      # The client API is described on the surface's own pin (data/openapi/rpcs.lock.yml), so the two
+      # documents name one build (rpms-rpc#724 left that pin as it was).
+      load_tool.("rpcs_pin")
+      r = ApiCoverage.build(root, surface: OpenApi::RpcsPin.verify(root)[:surface])
       JSON.parse(JSON.generate(ApiCoverage.document(r[:entries], registry_tag: r[:registry_tag])))
     end
     document = OpenApi::ClientApi.document(methods, gem: OpenApi.gem_provenance(root))
@@ -150,6 +153,6 @@ task openapi: %w[openapi:surface openapi:api] do
   next puts "openapi: OUT= set; the build-tag check needs the default outputs" if ENV["OUT"]
 
   tags = %w[rpc-surface.openapi.json client-api.openapi.json].to_h { |f| [ f, JSON.parse(File.read(File.join(dir, f))).dig("x-rpms-build", "tag") ] }
-  abort "openapi: the documents name different builds: #{tags} (re-pin both: conformance:pin and openapi:pin, same RELEASE=)" unless tags.values.uniq.size == 1
+  abort "openapi: the documents name different builds: #{tags} (the client API is built on the openapi:pin surface; rebuild both)" unless tags.values.uniq.size == 1
   puts "EXPLICIT SUCCESS: openapi: both documents name #{tags.values.first}"
 end

@@ -4,6 +4,7 @@ require "prism"
 require "json"
 require "yaml"
 require_relative "../../lib/rpms_rpc/conformance/build_surface"
+require_relative "../../lib/rpms_rpc/conformance/release_inventory"
 
 # API coverage (rpms-rpc#358, ADR 0010 assertion 2): which public methods of the API modules a live
 # spec proves. Generated from the code each run; there is no hand-maintained list.
@@ -379,19 +380,20 @@ module ApiCoverage
   # --- the report ----------------------------------------------------------------------------
 
   # The whole report for a source checkout at root, with lib/rpms_rpc loaded:
-  # { entries:, registry_tag: }. The build is the pinned release in data/rpc_coverage/config.yml.
-  def build(root)
-    cfg = YAML.safe_load_file(File.join(root, "data/rpc_coverage/config.yml"))
-    registry_path = File.expand_path(cfg.fetch("registry"), root)
-    surface = RpmsRpc::Conformance::BuildSurface.load(File.dirname(registry_path), cfg.fetch("release"))
-    raise "no #8994 names in #{registry_path}" if surface.names.empty?
+  # { entries:, registry_tag: }. SURFACE is the build each RPC is looked up on (registered, entry point,
+  # reach): by default the openrpms release this checkout tests against (`rake openrpms:fetch`,
+  # rpms-rpc#724); nil reports the names alone, with registered/entry_point/reach left nil, which is
+  # all required_rpcs.json needs.
+  def build(root, surface: :current)
+    surface = RpmsRpc::Conformance::ReleaseInventory.current.surface if surface == :current
+    raise "no #8994 names in #{surface.tag}" if surface && surface.names.empty?
 
     methods = public_methods_of(RpmsRpc, File.join(root, "lib/rpms_rpc/api"))
     raise "found no public API methods under lib/rpms_rpc/api (was it loaded?)" if methods.empty?
 
     resolver = Resolver.new(lib_dir: File.join(root, "lib"), mappings: mapping_rpcs)
     live = live_call_sites(Dir[File.join(root, "test/live/**/*.rb")], root: root)
-    { entries: entries(methods, resolver: resolver, live: live, surface: surface), registry_tag: surface.tag }
+    { entries: entries(methods, resolver: resolver, live: live, surface: surface), registry_tag: surface&.tag }
   end
 
   # { mapping name => RPC name } for every loaded DataMapper mapping.
@@ -400,7 +402,7 @@ module ApiCoverage
   end
 
   # One entry per public method. methods: [[module, name]]; live: live_call_sites output;
-  # surface: the pinned build's RpmsRpc::Conformance::BuildSurface.
+  # surface: the build's RpmsRpc::Conformance::BuildSurface, or nil for names only.
   def entries(methods, resolver:, live:, surface:)
     methods.map do |mod, m|
       r = resolver.resolve(mod, m)
@@ -412,8 +414,8 @@ module ApiCoverage
         arity: mod.method(m).arity,
         params: mod.method(m).parameters.map { |kind, name| { name: name.to_s, kind: kind.to_s } },
         rpcs: r[:rpcs].map do |x|
-          rpc = surface[x[:name]]
-          { name: x[:name], registered: !rpc.nil?, entry_point: rpc&.entry_point, reach: rpc&.reach, via: x[:via] }
+          rpc = surface&.[](x[:name])
+          { name: x[:name], registered: surface ? !rpc.nil? : nil, entry_point: rpc&.entry_point, reach: rpc&.reach, via: x[:via] }
         end,
         unresolved: r[:unresolved],
         live_specs: specs,
@@ -496,12 +498,12 @@ module ApiCoverage
   #            RPC: the public methods that send it with each one's retry-safety class (read, or a
   #            write; unclassified when retry_safety.yml has no entry), and the captured replies its
   #            parser is tested against (none yet is an empty list)
-  def required_rpcs(entries, build:, root: nil, retry_safety: RpmsRpc::RetrySafety.table)
+  def required_rpcs(entries, root: nil, retry_safety: RpmsRpc::RetrySafety.table)
     modules = entries.group_by { |e| e[:module] }.filter_map do |mod, es|
       names = es.flat_map { |e| e[:rpcs].map { |r| r[:name] } }.uniq.sort
       [ mod, names ] unless names.empty?
     end
-    { "contract" => CONTRACT, "build" => build, "modules" => modules.sort.to_h,
+    { "contract" => CONTRACT, "modules" => modules.sort.to_h,
       "rpcs" => contract_rpcs(entries, replies: root ? captured_replies(root) : {}, retry_safety: retry_safety) }
   end
 

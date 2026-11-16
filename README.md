@@ -202,15 +202,15 @@ RpmsRpc::Patient.find(4)                  # the public API answers too, through 
 RpmsRpc::Authentication.held_keys(%w[PROVIDER XUPROGMODE])
 ```
 
-### A local broker from the pinned release (`bin/cloud_rpms`)
+### A local broker from an openrpms release (`bin/cloud_rpms`)
 
 On a machine with Docker and no route to a staging stack (a cloud agent VM, say),
 `bin/cloud_rpms up` starts `dockerd` if none is running, then runs lakeraven-ehr's
-`compose.yml`, so the run recipe lives in one place. By default it runs the openrpms
-release marked Latest (the newest that passed the gate); `RPMS_TAG=<release tag>` runs a
-specific one, and `PINNED=1` runs the build `data/fingerprints/rpms-ops.lock.yml` records.
-When `gh` can't read the Latest release (no access to openrpms), it falls back to that
-lock pin. Changing release resets the container's synthetic data. It needs a
+`compose.yml`, so the run recipe lives in one place. By default it runs the newest
+published `bcer-*-ydb` openrpms release; `RPMS_TAG=<release tag>` runs a specific one, and
+`PINNED=1` runs the release this checkout tests against (`tmp/openrpms/current.json`, written by
+`rake openrpms:fetch`). When `gh` can't read the releases (no access to openrpms), it falls back
+to that one. Changing release resets the container's synthetic data. It needs a
 lakeraven-ehr checkout (`LAKERAVEN_EHR_PATH=`, default `../lakeraven-ehr`) and pull
 access to `ghcr.io/lakeraven`. The CIA broker is on `127.0.0.1:9100`; `down` removes the
 container and `status` shows its health.
@@ -435,19 +435,18 @@ rake rpc:coverage
 # RPC coverage: 0.7% (37 / 4961 registered on bcer-9.0-20261012-e7923a4-ydb; 596 excluded) · declared 197 · unregistered names used 0
 ```
 
-- **Denominator:** every #8994 name on the pinned openrpms build
-  (`data/inventories/<release-tag>/<release-tag>-rpcs.json`, the release's own RPC surface,
-  pinned by `rake conformance:pin`; see [docs/conformance/CAPTURE.md](docs/conformance/CAPTURE.md)),
-  minus the names in `data/rpc_coverage/exclusions.yml`. Each exclusion carries a reason from a
-  fixed list, and is reviewed like code.
-- **Unreachable RPCs are excluded from the pinned build's reach classes (#278, #394, #406):** an RPC whose
+- **Denominator:** every #8994 name on the openrpms release under test (the latest published
+  `-ydb` release, or `OPENRPMS_RELEASE=<tag>`, fetched by `rake openrpms:fetch` into
+  `tmp/openrpms/<tag>/`; see [docs/conformance/CAPTURE.md](docs/conformance/CAPTURE.md)),
+  minus its unreachable RPCs and the reviewed exclusions in `data/rpc_coverage/exclusions.yml`.
+- **Unreachable RPCs are excluded from the release's reach classes (#278, #394, #406, #724):** an RPC whose
   routine or entry point is not on the image, that is inactive, that no context lists, or whose
   every context is out of order cannot be called by any client. openrpms publishes that class per
-  RPC (in `<tag>-rpcs.json`), `rake conformance:pin` commits it, and `rake rpc:exclusions`
-  regenerates the exclusions from it, recording its path and pinned sha256. Run it after every
-  re-pin; a test fails when the committed file is stale against the pinned document. Out-of-order RPCs get their own reason (`context_out_of_order`),
-  since a site can put a context back in service. Reviewed reasons (`gui_plumbing`,
-  `write_needs_fixture`) survive regeneration.
+  RPC (in `<tag>-rpcs.json`), and rpc:coverage computes the exclusions from it each run
+  (`rake rpc:exclusions` prints them); none is committed, so none goes stale. Out-of-order RPCs get
+  their own reason (`context_out_of_order`), since a site can put a context back in service.
+  Reviewed reasons (`gui_plumbing`, `write_needs_fixture`) are the only ones committed, each reviewed
+  like code.
 - **"Not in FOIA" is not "not real"; registration is the test (openrpms `docs/CLIENTS.md`).** FOIA is a
   partial public copy of what IHS distributes. On bcer-8.3, 550 registered RPCs had backing routines absent
   from the FOIA *source tree*, and every one was legitimate IHS: most from packages registered in `#9.4`
@@ -455,7 +454,7 @@ rake rpc:coverage
   namespaces with no `#9.4` row (AKFR, BMQ). The *built image* closes much of that gap, since KIDS installs
   routines FOIA lacks: `bcer-9.0-20261020-f28336e-iris` marks 203 RPCs `no-routine` and 95 `no-entry-point`
   in its reach face. So: never drop or "fix" a mapping because its routine is missing from FOIA; check the
-  pinned registry and reach face, and treat a name registered nowhere (no `#8994` row on any captured
+  release's registry and reach face, and treat a name registered nowhere (no `#8994` row on any captured
   build) as the only sign of an invented RPC. Every invented name found so far was client-side.
 - **Covered:** a live run against that backend got an answer that was not a broker error.
   Mock-driven unit tests do not count: `MockClient` answers any name it is seeded with.
@@ -503,7 +502,7 @@ It maps RPC coverage onto SimpleCov's terms:
 
 | SimpleCov | RPC coverage |
 |---|---|
-| a file | one #9.4 package: the RPCs whose name begins with its namespace prefix (`data/inventories/<release-tag>/<release-tag>-packages_9_4.txt`, from the same pinned inventory) |
+| a file | one #9.4 package: the RPCs whose name begins with its namespace prefix (`<tag>-packages_9_4.txt`, from the same release inventory) |
 | a line | one registered RPC, with its status and detail |
 | hit | `covered` |
 | missed | `live_error`, `declared_untested`, `not_declared` |
@@ -535,7 +534,7 @@ rake rpc:api_coverage            # summary per module; VERBOSE=1 adds one line p
 - **RPCs:** static analysis (Prism) of the method body and of every `lib/rpms_rpc` method it calls, binding the arguments it passes.
   A DataMapper mapping (`DataMapper.x`, `DataMapper[:x]`, or `:x` handed to a helper) resolves through the loaded mapping registry; a `call_rpc*` with a string literal or a String constant resolves to that string.
   An RPC name the analysis cannot bind (a helper whose RPC is its own argument, an expression) is listed under `unresolved`, never guessed.
-- **Registered:** each RPC is looked up on the pinned #8994 registry named in `data/rpc_coverage/config.yml`, with its entry point `TAG^ROUTINE`.
+- **Registered:** each RPC is looked up on the #8994 registry of the openrpms release under test (`rake openrpms:fetch`), with its entry point `TAG^ROUTINE`.
 - **Live specs:** every `RpmsRpc::Module.method` call site in `test/live/**`, including a call through a constant the file assigns a module (`BH = RpmsRpc::BehavioralHealth`, then `BH::Groups.groups`) or a parameterless one-line helper that returns one (`def maint = RpmsRpc::SchedulingMaintenance`, then `maint.save_access_type`).
   The harness runs every live spec as the persona the run names, and a spec cannot declare its own, so a proven method runs as both the least-privilege and the programmer persona.
 - **Status:** `proven` when a live spec calls the method, `not_in_contract` when none does.
@@ -570,7 +569,7 @@ The JSON (default `coverage/api/methods.json`, `OUT=` to override) is the input 
 |---|---|
 | `module`, `method` | `RpmsRpc::Patient` and `find`: the call is `RpmsRpc::Patient.find` |
 | `arity`, `params` | Ruby's `Method#arity` and `#parameters`; `kind` is `req`, `opt`, `rest`, `keyreq`, `key`, `keyrest` or `block` |
-| `rpcs[]` | each RPC the method sends: `name`, `registered` on the pinned registry, `entry_point` (`TAG^ROUTINE`, `null` when not registered), `reach` (its class in the pinned build's `rpcs.json`: `client-callable`, `broker-exempt`, `no-context`, ...; `null` when not registered), `via` (`mapping :name` or `literal`) |
+| `rpcs[]` | each RPC the method sends: `name`, `registered` on the release's registry, `entry_point` (`TAG^ROUTINE`, `null` when not registered), `reach` (its class in the release's `rpcs.json`: `client-callable`, `broker-exempt`, `no-context`, ...; `null` when not registered), `via` (`mapping :name` or `literal`) |
 | `unresolved[]` | RPC names the analysis could not bind, with where; empty when every send resolved |
 | `live_specs[]` | `file:line` of each call in `test/live/` |
 | `personas[]` | the personas those specs run as; empty when there are none |
@@ -676,7 +675,15 @@ bundle install
 bundle exec rake test
 ```
 
-The test suite is hermetic — no sockets, no live RPMS.
+No sockets, no live RPMS. The gem is tested against the latest published openrpms YottaDB release,
+looked up when the tests run, never pinned here (#724): the gates (every RPC name registered, every RPC
+callable, every feature served) read its RPC surface, which `rake openrpms:fetch` downloads into
+`tmp/openrpms/` and records in `tmp/openrpms/current.json` (the first `rake test` fetches it if needed;
+`OPENRPMS_RELEASE=<tag>` names a specific release). That needs `gh` with read access to
+lakeraven/openrpms. `OPENRPMS_OFFLINE=1` keeps the run hermetic: those gate tests skip, each saying so,
+and the rest read a small fixture inventory cut from a real release. CI runs both: the hermetic `Test`
+job, and `.github/workflows/openrpms-release.yml`, which runs the gates and the live specs (PROV123 and
+SYS123) against the latest release and uploads `tested-against.json`.
 
 ### Test results, quickly
 
@@ -716,18 +723,18 @@ Each of those prints its own summary: minitest's `runs, assertions, failures, er
 ### Releasing
 
 `rake release` refuses to tag or push unless the live summaries in `coverage/live/` prove a green run of exactly what it is about to ship (#361, #441).
-Each summary is schema 3. It names the pinned build it ran against, the source it tested, and the suite it ran, and records `passed`.
+Each summary is schema 3. It names the openrpms release it ran against (the one `rake openrpms:fetch` recorded), the source it tested, and the suite it ran, and records `passed`.
 The source is a SHA-256 over every file the gemspec ships, plus the gemspec, read from the working tree.
-The suite is a SHA-256 over every file under `test/live/` plus `data/rpc_coverage/config.yml`, so a change to the specs or the pin is a different suite.
+The suite is a SHA-256 over every file under `test/live/` plus `data/rpc_coverage/config.yml`, so a change to the specs or the coverage config is a different suite.
 `passed` is true only when every non-skipped result passed.
 `CHANGELOG.md` is not shipped, so the release section can quote the live summary without invalidating the source fingerprint.
-Anything that is shipped does invalidate the source, including the version bump and a README edit. A change under `test/live/` or to the coverage pin invalidates the suite.
+Anything that is shipped does invalidate the source, including the version bump and a README edit. A change under `test/live/` or to the coverage config invalidates the suite.
 
 So the order is: bump the version and finish every shipped file and the live specs, then `rake test:live` once per persona, then `rake changelog:assemble` and commit the result (`rake release` refuses while any fragment is left in `changelog.d/`), then `rake release`.
 A run during which a shipped file or the live suite changes is not recorded.
 A summary from before schema 3, or for another build, source, or suite, or with `passed` other than true, is refused until `rake test:live` is re-run for that persona. Delete the file if that persona is not part of the release.
 
-The policy on top of that: a CIA summary is required (`<persona>.json`); BMX and XWB summaries are optional, but any that is on disk must be green. A summary must have run against the pinned build (`build_source` is `pinned`), so a run that set `LIVE_BUILD` is refused. A file that skipped more than 10% of its runs is refused. The guard's OK line names the directory it read.
+The policy on top of that: a CIA summary is required (`<persona>.json`); BMX and XWB summaries are optional, but any that is on disk must be green. A summary must have run against the release under test (`build_source` is `release`), so a run that set `LIVE_BUILD` is refused. A file that skipped more than 10% of its runs is refused. The guard's OK line names the directory it read.
 
 ### MockClient usage
 

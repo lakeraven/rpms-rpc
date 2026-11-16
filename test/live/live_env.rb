@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 
 require "yaml"
+require_relative "../../lib/rpms_rpc/live_summary"
 
 # The live-spec settings, without Minitest, so the Rakefile can check them
 # before `rake test:live` loads a single spec. See live_helper.rb.
 module LiveSpec
   REQUIRED_ENV = %w[BROKER_HOST BROKER_PORT RPMS_ACCESS RPMS_VERIFY PERSONA].freeze
   LOOPBACK_HOSTS = %w[127.0.0.1 localhost ::1].freeze
-  COVERAGE_CONFIG = File.expand_path("../../data/rpc_coverage/config.yml", __dir__)
 
   # The broker line a run speaks, from BROKER_PROTOCOL (default cia). Each
   # spec is written for one line: CIA specs live in test/live/, XWB specs in
@@ -57,18 +57,15 @@ module LiveSpec
     nil
   end
 
-  # The release the specs are pinned to. The gem has no live read of the
-  # server's build yet, so this is the pin, labelled as such. A run against
-  # another build names it in LIVE_BUILD, labelled as the runner's word.
+  # The release the specs run against: the openrpms release under test, the one `rake openrpms:fetch`
+  # recorded (rpms-rpc#724). The gem has no live read of the server's build yet, so this is that record,
+  # labelled as such. A run against another build names it in LIVE_BUILD, labelled as the runner's word.
   def build_label(env = ENV)
     declared = env["LIVE_BUILD"].to_s.strip
     return "#{declared} (declared by LIVE_BUILD, not verified)" unless declared.empty?
 
-    release = YAML.safe_load_file(COVERAGE_CONFIG)["release"].to_s.strip
-    raise ArgumentError, "no release" if release.empty?
-
-    "#{release} (pinned, not verified: data/rpc_coverage/config.yml)"
+    "#{RpmsRpc::LiveSummary.release_build(env)} (release under test, not verified: tmp/openrpms/current.json)"
   rescue StandardError => e
-    "unknown (no pinned release readable: #{e.class})"
+    "unknown (no release under test recorded: #{e.class}; run rake openrpms:fetch)"
   end
 end

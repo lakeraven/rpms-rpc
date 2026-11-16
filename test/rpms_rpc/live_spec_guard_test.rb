@@ -16,7 +16,9 @@ require_relative "../live/live_helper"
 # green when no live spec ran.
 class LiveSpecGuardTest < Minitest::Test
   FULL = { "BROKER_HOST" => "127.0.0.1", "BROKER_PORT" => "19300", "RPMS_ACCESS" => "a",
-           "RPMS_VERIFY" => "v", "PERSONA" => "PROV123" }.freeze
+           "RPMS_VERIFY" => "v", "PERSONA" => "PROV123",
+           # The release cache: the committed fixture, whose current.json names a bcer-9.0 -ydb release.
+           "OPENRPMS_INVENTORIES" => File.expand_path("../fixtures/inventories", __dir__) }.freeze
 
   def test_names_every_unset_or_blank_variable
     assert_equal LiveSpec::REQUIRED_ENV, LiveSpec.missing_env({})
@@ -152,7 +154,7 @@ class LiveSpecGuardTest < Minitest::Test
 
     out = summary[:io].string
     assert_match(/backend\s+127\.0\.0\.1:19300/, out)
-    assert_match(/build\s+bcer-9\.0-\S+-(ydb|iris) \(pinned, not verified/, out)
+    assert_match(/build\s+bcer-9\.0-\S+-(ydb|iris) \(release under test, not verified/, out)
     assert_match(/persona\s+PROV123/, out)
     assert_match(/1 runs, 0 assertions, 0 failures, 0 errors, 1 skips/, out)
     assert_match(/#310\s+1\s/, out)

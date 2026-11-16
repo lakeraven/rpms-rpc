@@ -4,16 +4,18 @@ require "minitest/autorun"
 require "tmpdir"
 require "yaml"
 require "rpms_rpc"
-require "rpms_rpc/conformance/inventory_lock"
+require "rpms_rpc/conformance/release_inventory"
+require_relative "release_under_test"
 require_relative "../../tools/rpc_coverage/rpc_coverage"
 require_relative "../../tools/api_coverage/api_coverage"
 
-# Every RPC the gem sends must be CALLABLE on every pinned openrpms build (rpms-rpc#394).
+# Every RPC the gem sends must be CALLABLE on the openrpms release under test (rpms-rpc#394, #724):
+# the latest published -ydb release, or OPENRPMS_RELEASE=<tag> (test/rpms_rpc/release_under_test.rb).
 #
 # "Registered" (registered_rpc_names_test.rb) passed while BMC ADD SECONDARY REFERRAL could not be
 # called: its #8994 entry names a label that does not exist (openrpms#653). openrpms now publishes,
 # per release, whether each registered RPC is callable (each record's reach in <tag>-rpcs.json, openrpms#713, #732), and
-# `rake conformance:pin` commits it under data/inventories/<tag>/. This test reads it through
+# `rake openrpms:fetch` fetches it into tmp/openrpms/<tag>/. This test reads it through
 # RpmsRpc::Conformance::BuildSurface and holds every RPC the gem sends to it:
 #
 #   callable  client-callable (a context that is not out of order lists it) or broker-exempt
@@ -28,13 +30,15 @@ require_relative "../../tools/api_coverage/api_coverage"
 # printed on every run, and a stale one fails.
 class CallableRpcNamesTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
-  Lock = RpmsRpc::Conformance::InventoryLock
-  LOCK = Lock.load(File.join(ROOT, "data/fingerprints", Lock::DEFAULT_PATH))
   EXCEPTIONS_PATH = File.join(ROOT, "data/fingerprints/uncallable_exceptions.yml")
   ISSUE = %r{\A[\w.-]+/[\w.-]+#\d+\z}
 
+  # { tag => BuildSurface } of the release under test: one release, the gates' one question.
   def surfaces
-    @surfaces ||= LOCK.surfaces(inventories_dir: File.join(ROOT, "data/inventories"))
+    @surfaces ||= begin
+      inv = ReleaseUnderTest.inventory(self)
+      { inv.tag => inv.surface }
+    end
   end
 
   def exceptions
@@ -42,7 +46,7 @@ class CallableRpcNamesTest < Minitest::Test
   end
 
   def api_report
-    @api_report ||= ApiCoverage.build(ROOT)
+    @api_report ||= ApiCoverage.build(ROOT, surface: surfaces.values.first)
   end
 
   # { RPC name => [who sends it] }: the public methods first, then the lib/ lines no method reaches.
@@ -57,10 +61,9 @@ class CallableRpcNamesTest < Minitest::Test
     end
   end
 
-  def test_every_pinned_build_has_its_reach_face
-    refute_empty surfaces, "no openrpms build pinned in #{LOCK.path}"
+  def test_the_release_under_test_has_its_reach_face
     surfaces.each do |tag, surface|
-      assert surface.reach?, "#{tag}: no rpcs.json pinned; re-pin it (rake conformance:pin RELEASE=#{tag})"
+      assert surface.reach?, "#{tag}: its rpcs.json has no reach face"
       assert_equal surface.names.size, surface.rpcs.count(&:reach), "#{tag}: every registered RPC has a reach class"
     end
   end
@@ -72,7 +75,7 @@ class CallableRpcNamesTest < Minitest::Test
     assert_empty unresolved, "the callable gate cannot see these methods' RPCs:\n  #{unresolved.join("\n  ")}"
   end
 
-  def test_every_rpc_a_public_method_sends_is_callable_on_every_pinned_build
+  def test_every_rpc_a_public_method_sends_is_callable_on_the_release_under_test
     refute_empty senders
     problems = []
     excepted = []
@@ -89,20 +92,20 @@ class CallableRpcNamesTest < Minitest::Test
     end
 
     unless excepted.empty?
-      warn "\nCALLABLE GATE: #{excepted.size} RPC(s) the gem sends are NOT callable on a pinned build, " \
+      warn "\nCALLABLE GATE: #{excepted.size} RPC(s) the gem sends are NOT callable on the release under test, " \
            "excepted as build defects (data/fingerprints/uncallable_exceptions.yml):\n  #{excepted.join("\n  ")}\n"
     end
     assert_empty problems,
                  "#{problems.size} RPC(s) the gem sends are not callable (client-callable or broker-exempt) " \
-                 "on a pinned openrpms build:\n  #{problems.join("\n  ")}"
+                 "on the openrpms release under test:\n  #{problems.join("\n  ")}"
   end
 
-  # An exception names a pinned build, an RPC the gem still sends that is still uncallable there in
+  # An exception names a release, an RPC the gem still sends that is still uncallable there in
   # the recorded way, and the issue that tracks the fix.
   def test_every_exception_is_current_and_issue_linked
     problems = exceptions.flat_map do |tag, entries|
       surface = surfaces[tag]
-      next [ "#{tag}: not pinned; remove its exceptions" ] unless surface
+      next [ "#{tag}: not the release under test; remove its exceptions, or re-run with OPENRPMS_RELEASE=#{tag}" ] unless surface
 
       entries.filter_map do |name, exc|
         reach = surface.not_callable([ name ])[name]
@@ -117,10 +120,9 @@ class CallableRpcNamesTest < Minitest::Test
     assert_empty problems, "stale entries in #{EXCEPTIONS_PATH.delete_prefix("#{ROOT}/")}:\n  #{problems.join("\n  ")}"
   end
 
-  # The gate's question on the pinned build's own rpcs.json records, one per kind of answer.
+  # The gate's question on real rpcs.json records (the committed fixture), one per kind of answer.
   def test_not_callable_names_the_reach_class
-    tag = LOCK.entries.keys.first
-    surface = RpmsRpc::Conformance::BuildSurface.load(File.join(ROOT, "data/inventories", tag), tag)
+    surface = ReleaseUnderTest.fixture.surface
 
     assert_equal({ "VAFC VOA ADD PATIENT" => "no-context", "BMC ADD SECONDARY REFERRAL" => "no-entry-point",
                    "SC FIND" => "out-of-order", "MAGGECHO" => "no-routine", "ZZZ NOT REGISTERED" => "not registered" },

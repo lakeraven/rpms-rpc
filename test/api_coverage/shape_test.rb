@@ -4,11 +4,15 @@ require "minitest/autorun"
 require "json"
 require "rpms_rpc"
 require_relative "../../tools/api_coverage/api_coverage"
+require_relative "../../tools/openapi/rpcs_pin"
 require_relative "../../tools/openapi/client_api"
 
 # Issue #389: declared resource/verb/path per public API method; rpc:api_coverage reports shape.
 class ShapeTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
+  # The catalog is the OpenAPI client API, which is built on the surface of data/openapi/rpcs.lock.yml.
+  def self.openapi_surface = (@openapi_surface ||= OpenApi::RpcsPin.verify(ROOT)[:surface])
+  def openapi_surface = self.class.openapi_surface
   BASELINE = File.join(__dir__, "undeclared_baseline.txt")
   WRITE_CLASS_GET_BASELINE = File.join(ROOT, "data/openapi/write_class_get_baseline.txt")
   # Baseline line count when the ratchet was introduced; may only be lowered.
@@ -18,7 +22,7 @@ class ShapeTest < Minitest::Test
   WRITE_CLASS_GET_BASELINE_LINE_COUNT = 67
 
   def test_every_public_method_that_sends_rpcs_is_declared_or_baselined
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: openapi_surface)
     baseline = File.readlines(BASELINE, chomp: true).reject(&:empty?)
     violations = report[:entries].select do |e|
       next false if e[:rpcs].empty?
@@ -60,7 +64,7 @@ class ShapeTest < Minitest::Test
   # Every RPC-sending method the catalog publishes with POST, PUT or DELETE has a verb derivable
   # from its retry class, so it must carry a declaration (the catalog's verb, path and resource).
   def test_every_rpc_sending_method_published_non_get_is_declared
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: openapi_surface)
     catalog_by_method = openapi_catalog_by_method(report[:entries], registry_tag: report[:registry_tag])
     refute_empty catalog_by_method, "OpenAPI catalog is empty"
 
@@ -111,7 +115,7 @@ class ShapeTest < Minitest::Test
     retry_table = RpmsRpc::RetrySafety.table
     write_classes = %i[idempotent_write non_idempotent_write]
 
-    violations = ApiCoverage.build(ROOT)[:entries].filter_map do |entry|
+    violations = ApiCoverage.build(ROOT, surface: openapi_surface)[:entries].filter_map do |entry|
       next unless entry[:shape_status] == "declared"
 
       key = "#{entry[:module]}.#{entry[:method]}"
@@ -128,7 +132,7 @@ class ShapeTest < Minitest::Test
   end
 
   def test_every_read_method_published_as_get_is_declared
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: openapi_surface)
     violations = undeclared_read_methods_published_as_get(report)
 
     assert_empty violations,
@@ -137,7 +141,7 @@ class ShapeTest < Minitest::Test
   end
 
   def test_write_class_methods_published_as_get_honors_injected_retry_table_for_catalog_verbs
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: openapi_surface)
     key = "RpmsRpc::Patient.find"
     retry_table = RpmsRpc::RetrySafety.table.merge(key => :non_idempotent_write)
 
@@ -186,7 +190,7 @@ class ShapeTest < Minitest::Test
   end
 
   def test_every_write_class_method_is_published_with_a_non_get_verb
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: openapi_surface)
     baseline = load_write_class_get_baseline
     violations = write_class_methods_published_as_get(report, allowed: baseline)
     stale = stale_write_class_get_baseline_entries(report, baseline: baseline)
@@ -201,7 +205,7 @@ class ShapeTest < Minitest::Test
 
   def test_write_class_get_baseline_lists_only_write_class_methods_published_as_get
     baseline = load_write_class_get_baseline
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: openapi_surface)
     published_keys = write_class_methods_published_as_get(report, allowed: []).map do |line|
       line.split(": ", 2).first
     end.to_set
@@ -250,7 +254,7 @@ class ShapeTest < Minitest::Test
                  "helper must flag GET declared on a non-read retry class"
     assert_match(/requires retry class read/, synthetic_violations.join("\n"))
 
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: openapi_surface)
     violations = declared_get_declarations_not_classified_read(report[:entries])
     assert_empty violations,
                  "GET-declared methods must be classified read in retry_safety.yml:\n" \
@@ -261,7 +265,7 @@ class ShapeTest < Minitest::Test
 
   def test_baseline_lists_no_declared_or_missing_method
     baseline = File.readlines(BASELINE, chomp: true).reject(&:empty?)
-    by_key = ApiCoverage.build(ROOT)[:entries].to_h { |e| [ "#{e[:module]}.#{e[:method]}", e ] }
+    by_key = ApiCoverage.build(ROOT, surface: openapi_surface)[:entries].to_h { |e| [ "#{e[:module]}.#{e[:method]}", e ] }
     problems = baseline.filter_map do |line|
       entry = by_key[line]
       if entry.nil?
@@ -298,7 +302,7 @@ class ShapeTest < Minitest::Test
     assert_equal "POST", validate_shape[:verb]
     assert_equal "/patients/{dfn}/vitals/validate", validate_shape[:path]
 
-    rpc_sending = ApiCoverage.build(ROOT)[:entries].select do |e|
+    rpc_sending = ApiCoverage.build(ROOT, surface: openapi_surface)[:entries].select do |e|
       e[:module] == "RpmsRpc::Vital" && !e[:rpcs].empty?
     end
     refute_empty rpc_sending, "expected Vital methods that send RPCs"
@@ -309,7 +313,7 @@ class ShapeTest < Minitest::Test
   end
 
   def test_every_declaration_names_an_api_coverage_entry
-    listed = ApiCoverage.build(ROOT)[:entries].to_h { |e| [ [ e[:module], e[:method] ], true ] }
+    listed = ApiCoverage.build(ROOT, surface: openapi_surface)[:entries].to_h { |e| [ [ e[:module], e[:method] ], true ] }
 
     unlisted = RpmsRpc::Shape.all.filter_map do |(mod, meth), _shape|
       next if mod.name.nil? || mod.name.empty?
@@ -323,7 +327,7 @@ class ShapeTest < Minitest::Test
   end
 
   def test_declared_shapes_have_no_verb_and_path_conflicts
-    entries = ApiCoverage.build(ROOT)[:entries]
+    entries = ApiCoverage.build(ROOT, surface: openapi_surface)[:entries]
     conflicts = ApiCoverage.shape_conflicts(entries)
     message = conflicts.map do |group|
       shape = group.first[:shape]
@@ -335,7 +339,7 @@ class ShapeTest < Minitest::Test
   end
 
   def test_declared_shapes_match_openapi_client_api
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: openapi_surface)
     declared_entries = report[:entries].select { |e| e[:shape_status] == "declared" }
     vital_entries = declared_entries.select { |e| e[:module] == "RpmsRpc::Vital" }
     refute_empty vital_entries, "expected declared Vital shapes"
@@ -347,7 +351,7 @@ class ShapeTest < Minitest::Test
   end
 
   def test_declared_shapes_compared_against_catalog_not_first_choice_address
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: openapi_surface)
     entries = JSON.parse(JSON.generate(report[:entries]), symbolize_names: true)
     lookup = entries.find { |e| e[:module] == "RpmsRpc::Patient" && e[:method] == "lookup" }
     refute_nil lookup, "expected Patient.lookup in api_coverage entries"
@@ -370,7 +374,7 @@ class ShapeTest < Minitest::Test
   end
 
   def test_methods_json_carries_shape_for_declared_and_marks_undeclared
-    report = ApiCoverage.build(ROOT)
+    report = ApiCoverage.build(ROOT, surface: openapi_surface)
     doc = ApiCoverage.document(report[:entries], registry_tag: report[:registry_tag])
 
     for_patient = doc[:methods].find { |e| e[:module] == "RpmsRpc::Vital" && e[:method] == "for_patient" }

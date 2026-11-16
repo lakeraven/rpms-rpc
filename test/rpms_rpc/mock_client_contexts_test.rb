@@ -2,22 +2,20 @@
 
 require "minitest/autorun"
 require "rpms_rpc/mock_client"
-require "rpms_rpc/conformance/inventory_lock"
+require "rpms_rpc/conformance/release_inventory"
+require_relative "release_under_test"
 
-# rpms-rpc#416: a MockClient held to a pinned build's #19.05 (<tag>-contexts_19_05.txt, openrpms#626)
+# rpms-rpc#416: a MockClient held to a release's #19.05 (the committed fixture, cut from a real release; (<tag>-contexts_19_05.txt, openrpms#626)
 # refuses an RPC its bound context does not serve, and a locked context, the way the server does.
 class RpmsRpc::MockClientContextsTest < Minitest::Test
-  Lock = RpmsRpc::Conformance::InventoryLock
-  ROOT = File.expand_path("../..", __dir__)
-  LOCK = Lock.load(File.join(ROOT, "data/fingerprints/rpms-ops.lock.yml"))
-  SURFACE = LOCK.surfaces(inventories_dir: File.join(ROOT, "data/inventories")).values.last
+  SURFACE = ReleaseUnderTest.fixture.surface
 
   def mock(keys: [])
     RpmsRpc::MockClient.new.tap { |m| m.enforce_contexts!(SURFACE, keys: keys) }
   end
 
-  def test_the_pinned_build_has_a_contexts_face
-    assert SURFACE.contexts?, "#{SURFACE.tag}: no contexts_19_05.txt pinned"
+  def test_the_release_has_a_contexts_face
+    assert SURFACE.contexts?, "#{SURFACE.tag}: no contexts_19_05.txt"
   end
 
   def test_an_rpc_the_bound_context_serves_is_answered

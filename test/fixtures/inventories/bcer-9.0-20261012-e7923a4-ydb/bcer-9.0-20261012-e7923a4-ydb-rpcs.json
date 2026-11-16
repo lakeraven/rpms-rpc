@@ -1,0 +1,3694 @@
+{
+  "schema": "rpcs.v1",
+  "tag": "bcer-9.0-20261012-e7923a4-ydb",
+  "commit": "e7923a473fa27060c40978f4d46be3de391c97ae",
+  "engine": "yottadb",
+  "rpms_version": "bcer-9.0",
+  "inputs": {
+    "broker_8994.txt": "f4af4bbc79e22119785ede7d858a5236fb49276d1501885ece95153c7faeb4ef",
+    "rpc_signatures.txt": "5040d2d4789c511f15e52cfbc1e7f1b86a7e56a753bea4bf720442931ced7313",
+    "rpc_reach.txt": "810b6a5d357414b54bea986075cd221934e203fe29b404cc0dd0a778278bbcf6",
+    "packages_9_4.txt": "e4ac1cb5cb7cc7a3132f4b71ac72a3cee076135e176d98c165d6e5f213256202",
+    "INVENTORY-PROVENANCE.json": "ea51c83308963b5a390bd5ce5449d339cfebd6df461d3699d85f656dc8ed437f"
+  },
+  "rpcs": [
+    {
+      "name": "ADE APPT ADD",
+      "entry_point": {
+        "tag": "APADD",
+        "routine": "ADEKT1",
+        "formals": []
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [],
+      "package": {
+        "prefix": "ADE",
+        "name": "IHS DENTAL",
+        "version": "6.0"
+      },
+      "reach": {
+        "class": "no-routine",
+        "routine_present": false,
+        "tag_present": false,
+        "contexts": [],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ADE GET VARIABLE VALUE",
+      "entry_point": {
+        "tag": "VARVAL",
+        "routine": "ADEKT",
+        "formals": []
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [],
+      "package": {
+        "prefix": "ADE",
+        "name": "IHS DENTAL",
+        "version": "6.0"
+      },
+      "reach": {
+        "class": "no-routine",
+        "routine_present": false,
+        "tag_present": false,
+        "contexts": [
+          "ADEKRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "AGG ACKNOWLEDGE TRIGGER",
+      "entry_point": {
+        "tag": "ACK",
+        "routine": "AGGDCTRG",
+        "formals": [
+          "DATA",
+          "ACK"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "4",
+      "parameters": [
+        {
+          "name": "ACK",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "AGG",
+        "name": "Patient Registration GUI",
+        "version": "1.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "AGGRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "AGG DAILY REPORT",
+      "entry_point": {
+        "tag": "EN",
+        "routine": "AGGRPRT",
+        "formals": [
+          "DATA",
+          "BDT",
+          "EDT",
+          "TYPE",
+          "AGGDUZ2"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "4",
+      "parameters": [
+        {
+          "name": "BDT",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "EDT",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "TYPE",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "AGGDUZ2",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "AGG",
+        "name": "Patient Registration GUI",
+        "version": "1.0"
+      },
+      "reach": {
+        "class": "no-context",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "AGG DELETE POLICY MEMBER",
+      "entry_point": {
+        "tag": "DEL",
+        "routine": "AGGPOLCY",
+        "formals": []
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "4",
+      "parameters": [],
+      "package": {
+        "prefix": "AGG",
+        "name": "Patient Registration GUI",
+        "version": "1.0"
+      },
+      "reach": {
+        "class": "no-entry-point",
+        "routine_present": true,
+        "tag_present": false,
+        "contexts": [
+          "AGGRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "AGG UPDATE MEDICAID",
+      "entry_point": {
+        "tag": "UPD",
+        "routine": "AGGUPMCD",
+        "formals": [
+          "DATA",
+          "DFN",
+          "PROC",
+          "DEF",
+          "RIEN",
+          "MIEN",
+          "PARMS"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "4",
+      "parameters": [
+        {
+          "name": "DFN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "PROC",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "DEF",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "RIEN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "MIEN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "PARMS",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "AGG",
+        "name": "Patient Registration GUI",
+        "version": "1.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "AGGRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "AGG UPDATE MEDICARE",
+      "entry_point": {
+        "tag": "UPD",
+        "routine": "AGGUPMCR",
+        "formals": [
+          "DATA",
+          "DFN",
+          "PROC",
+          "DEF",
+          "MIEN",
+          "PARMS"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "4",
+      "parameters": [
+        {
+          "name": "DFN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "PROC",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "DEF",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "MIEN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "PARMS",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "AGG",
+        "name": "Patient Registration GUI",
+        "version": "1.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "AGGRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BEHOPTCX PTINFO",
+      "entry_point": {
+        "tag": "PTINFO",
+        "routine": "BEHOPTCX",
+        "formals": [
+          "DATA",
+          "DFN",
+          "SLCT"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "DFN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "SLCT",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "BEHO",
+        "name": "BEH COMPONENTS",
+        "version": "1.1"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "CIAV VUECENTRIC",
+          "VEN RPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BEHOPTPC GETBDP",
+      "entry_point": {
+        "tag": "GETBDP",
+        "routine": "BEHOPTPC",
+        "formals": [
+          "RET",
+          "DFN"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "DFN",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "BEHO",
+        "name": "BEH COMPONENTS",
+        "version": "1.1"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BEHOVM2 VUNITS",
+      "entry_point": {
+        "tag": "VUNITS",
+        "routine": "BEHOVM2",
+        "formals": [
+          "RET",
+          "VIT"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "VIT",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "BEHO",
+        "name": "BEH COMPONENTS",
+        "version": "1.1"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BGOPROB DEL",
+      "entry_point": {
+        "tag": "DEL",
+        "routine": "BGOPROB",
+        "formals": [
+          "RET",
+          "PRIEN"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "PRIEN",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "BGO",
+        "name": "BGO COMPONENTS",
+        "version": "1.1"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BGOPROB SET",
+      "entry_point": {
+        "tag": "SET",
+        "routine": "BGOPROB",
+        "formals": [
+          "RET",
+          "DFN",
+          "PRIEN",
+          "VIEN",
+          "ARRAY",
+          "SPEC",
+          "PIP"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "DFN",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "PRIEN",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "VIEN",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "LIST",
+          "type": "2",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "BGO",
+        "name": "BGO COMPONENTS",
+        "version": "1.1"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC ADD C32 PRINT LOG",
+      "entry_point": {
+        "tag": "ADDC32LG",
+        "routine": "BMCRPC3",
+        "formals": [
+          "RSLT",
+          "REFIEN",
+          "USERIEN",
+          "RRINTDT"
+        ]
+      },
+      "availability": "P",
+      "inactive": "0",
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "REFIEN",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "USERIEN",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "PRINTDATE",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC ADD REFERRAL",
+      "entry_point": {
+        "tag": "SETREFRL",
+        "routine": "BMCRPC2",
+        "formals": [
+          "RSLT",
+          "RFDT",
+          "PTIEN",
+          "TYPE",
+          "IORO",
+          "ICDCAT",
+          "CPTCAT",
+          "PURPOS",
+          "PRORTY",
+          "TYPEX",
+          "VSTS",
+          "NSCHD",
+          "HXCMT",
+          "RQPR",
+          "SCHDAY",
+          "ICSRP",
+          "IFS",
+          "IHLSM",
+          "IHSPH",
+          "IEKG",
+          "ILBRP",
+          "IPCC",
+          "IPRNL",
+          "ITC",
+          "ICLNT",
+          "IXRYR",
+          "IXRYF",
+          "TMIEN",
+          "SITE",
+          "BCMT",
+          "PRVDR",
+          "LOC",
+          "VST",
+          "RPNM",
+          "SNMDCT",
+          "SNMDPT",
+          "PROB",
+          "SNMDST",
+          "OTTYP",
+          "CN",
+          "RDDX"
+        ]
+      },
+      "availability": "P",
+      "inactive": "0",
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "REFERRAL DATE",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "PATIENT IEN",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "TYPE",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INOUT PATIENT",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "ICD CATEGORY",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "CPT CATEGORY",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "PURPOSE",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "PRIORITY",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "TYPE EXTENTION",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "VISITS",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "SCHEDULAR NOTES",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "MEDHX CMNTS",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "RQST PRVDR",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "SCHED W/I DAYS",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLCSRP",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLFSHT",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLHLSM",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLHSPH",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLEKG",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLLBRP",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLPCC",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLPRNL",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLTUBL",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLCLNT",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLXRYR",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLXRYF",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "TEMPLATE IEN",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC ADD SECONDARY REFERRAL",
+      "entry_point": {
+        "tag": "SETSCNRF",
+        "routine": "BMCRPC2",
+        "formals": []
+      },
+      "availability": "P",
+      "inactive": "0",
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "PRIMREF",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "CALLIN",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "REFDATE",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "PATIEN",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "TYPE",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "INOUT PATIENT",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "ICDCAT",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "CPTCAT",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "PURPOSE",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "PRIORITY",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "TYPEEXT",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "MEDHX",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "SCHED WI DAYS",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLCSRP",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLFSHT",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLHLSM",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLHSPH",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLEKG",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLLBRP",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLPCC",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLPRNL",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLTUBL",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLCLNT",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLXRYR",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLXRYF",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "no-entry-point",
+        "routine_present": true,
+        "tag_present": false,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC CHK YEAR SITE PARAM",
+      "entry_point": {
+        "tag": "CHKYEAR",
+        "routine": "BMCRPC2",
+        "formals": [
+          "RSLT",
+          "SITE"
+        ]
+      },
+      "availability": "P",
+      "inactive": "0",
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "SITE",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC CONSULTATION STATUS UPDATE",
+      "entry_point": {
+        "tag": "UPCNRINF",
+        "routine": "BMCRPC3",
+        "formals": [
+          "RSLT",
+          "REFIEN",
+          "CONSULTBY",
+          "CONSULTDT",
+          "CONSULTSTATUS"
+        ]
+      },
+      "availability": "P",
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "REFIEN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "CONSULTBY",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "CONSULTDT",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "CONSULTSTATUS",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC GET PURPOSE OF REF API",
+      "entry_point": {
+        "tag": "GTREFTYP",
+        "routine": "BMCRPC3",
+        "formals": [
+          "RSLT"
+        ]
+      },
+      "availability": "P",
+      "inactive": null,
+      "return_type": "4",
+      "parameters": [],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC GET RCIS TEMPLATE DETAIL",
+      "entry_point": {
+        "tag": "GETTMPLT",
+        "routine": "BMCRPC3",
+        "formals": [
+          "RSLT",
+          "TMPLTIEN"
+        ]
+      },
+      "availability": "P",
+      "inactive": "0",
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "TMPLTIEN",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC GET RCIS TEMPLATE LIST",
+      "entry_point": {
+        "tag": "GTTMPLST",
+        "routine": "BMCRPC3",
+        "formals": [
+          "RSLT"
+        ]
+      },
+      "availability": "P",
+      "inactive": "0",
+      "return_type": "1",
+      "parameters": [],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC GET REFERENCE DATA",
+      "entry_point": {
+        "tag": "GETREFDT",
+        "routine": "BMCRPC1",
+        "formals": [
+          "RSLT"
+        ]
+      },
+      "availability": "P",
+      "inactive": "0",
+      "return_type": "4",
+      "parameters": [],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC GET REFERRAL",
+      "entry_point": {
+        "tag": "GTRFBYID",
+        "routine": "BMCRPC1",
+        "formals": [
+          "RSLT",
+          "REFIEN"
+        ]
+      },
+      "availability": "P",
+      "inactive": "0",
+      "return_type": "4",
+      "parameters": [
+        {
+          "name": "REFIEN",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC GET USERS/PROVIDERS",
+      "entry_point": {
+        "tag": "PROV",
+        "routine": "BMCRPC4",
+        "formals": [
+          "Y",
+          "ISPROV"
+        ]
+      },
+      "availability": "P",
+      "inactive": null,
+      "return_type": "4",
+      "parameters": [
+        {
+          "name": "ISPROV",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC HEALTH SUMMARY TYPE",
+      "entry_point": {
+        "tag": "HSLIST",
+        "routine": "BQIRHSR",
+        "formals": [
+          "DATA",
+          "FAKE"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "4",
+      "parameters": [
+        {
+          "name": "FAKE",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "BQI",
+        "name": "ICARE MANAGEMENT SYSTEM",
+        "version": "2.9"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC PATIENT ELIGIBILITY STATUS",
+      "entry_point": {
+        "tag": "GTPTELST",
+        "routine": "BMCRPC4",
+        "formals": [
+          "RSLT",
+          "PATIEN"
+        ]
+      },
+      "availability": "P",
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "PATIEN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC PATIENT FACE SHEET",
+      "entry_point": {
+        "tag": "EN",
+        "routine": "AGGRFCE",
+        "formals": [
+          "DATA",
+          "DFN"
+        ]
+      },
+      "availability": null,
+      "inactive": "0",
+      "return_type": "4",
+      "parameters": [
+        {
+          "name": "DFN",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "AGG",
+        "name": "Patient Registration GUI",
+        "version": "1.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC PATIENT HEALTH SUMMARY",
+      "entry_point": {
+        "tag": "EN",
+        "routine": "BQIRHS",
+        "formals": [
+          "DATA",
+          "DFN",
+          "SUMMTYP"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "4",
+      "parameters": [
+        {
+          "name": "DFN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "SUMMTYP",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "BQI",
+        "name": "ICARE MANAGEMENT SYSTEM",
+        "version": "2.9"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC PRINT REFERRAL",
+      "entry_point": {
+        "tag": "PRINT",
+        "routine": "BMCRPC5",
+        "formals": [
+          "ROOT",
+          "BMCREF",
+          "BMCPCSE"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "4",
+      "parameters": [
+        {
+          "name": "BMCREF",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC PROVIDERS",
+      "entry_point": {
+        "tag": "PROV",
+        "routine": "ORQPTQ2",
+        "formals": [
+          "Y"
+        ]
+      },
+      "availability": "S",
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC REFERRAL STATUS UPDATE",
+      "entry_point": {
+        "tag": "UPDTSTRF",
+        "routine": "BMCRPC3",
+        "formals": [
+          "RSLT",
+          "REFIEN",
+          "STATUS"
+        ]
+      },
+      "availability": "P",
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "REFIEN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "STATUS",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC SEARCH REFERRAL",
+      "entry_point": {
+        "tag": "SRCHREF",
+        "routine": "BMCRPC1",
+        "formals": [
+          "RSLT",
+          "PATIENT",
+          "REFPRVDR",
+          "STRTDATE",
+          "ENDDATE",
+          "RECNMBR",
+          "STATUS"
+        ]
+      },
+      "availability": "P",
+      "inactive": "0",
+      "return_type": "4",
+      "parameters": [
+        {
+          "name": "PATIENT",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "REFPROVIDER",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "STARTDATE",
+          "type": "1",
+          "required": false,
+          "source": "8994"
+        },
+        {
+          "name": "ENDDATE",
+          "type": "1",
+          "required": false,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC SEARCH REFERRED TO",
+      "entry_point": {
+        "tag": "SRRFRDTO",
+        "routine": "BMCRPC1",
+        "formals": [
+          "RSLT",
+          "SRHSTRNG",
+          "REFTYPE"
+        ]
+      },
+      "availability": "P",
+      "inactive": "0",
+      "return_type": "4",
+      "parameters": [
+        {
+          "name": "SEARCH STRING",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "REFERRAL TYPE",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BMC UPDATE REFERRAL",
+      "entry_point": {
+        "tag": "UPDREFRL",
+        "routine": "BMCRPC2",
+        "formals": [
+          "RSLT",
+          "REFIEN",
+          "TYPE",
+          "INOROUT",
+          "ICDCAT",
+          "CPTCAT",
+          "PURPOSE",
+          "PRIORITY",
+          "TYPEEXT",
+          "VISITS",
+          "NOTESCHD",
+          "HXCMNTS",
+          "SCHWIDAY",
+          "ICSRP",
+          "IFSHT",
+          "IHLSM",
+          "IHSPH",
+          "IEKG",
+          "ILBRP",
+          "IPCC",
+          "IPRNL",
+          "ITUBL",
+          "ICLNT",
+          "IXRYR",
+          "IXRYF",
+          "BCMNTS",
+          "OTHRTYP",
+          "SNMDCT",
+          "PROB",
+          "SNMDST",
+          "CN",
+          "RDCODE",
+          "RDN",
+          "RDT",
+          "RQPR",
+          "DUPREF"
+        ]
+      },
+      "availability": "P",
+      "inactive": "0",
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "REFIEN",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "IN/OUT PATIENT",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "ICDCAT",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "CPTCAT",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "PURPOSE",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "PRIORITY",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "TYPE",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "VISITS",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "NOTESCHD",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "TYPEEXT",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "MEDHX",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "SCHED WI DAY",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLCSRP",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLFSHT",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLHLSM",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLHSPH",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLEKG",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLLBRP",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLPCC",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLPRNL",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLTUBL",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLCLNT",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLXRYR",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "INCLXRYF",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "BMC",
+        "name": "REFERRED CARE INFO SYSTEM",
+        "version": "4.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BMCRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BPC GETLABVISITDATA",
+      "entry_point": {
+        "tag": null,
+        "routine": null,
+        "formals": []
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": null,
+      "parameters": [],
+      "package": null,
+      "reach": {
+        "class": "no-routine",
+        "routine_present": false,
+        "tag_present": false,
+        "contexts": [],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BPC PMR",
+      "entry_point": {
+        "tag": null,
+        "routine": "BGUPMR",
+        "formals": []
+      },
+      "availability": "P",
+      "inactive": null,
+      "return_type": "4",
+      "parameters": [],
+      "package": {
+        "prefix": "BGU",
+        "name": "IHS RPC BROKER",
+        "version": "1.5"
+      },
+      "reach": {
+        "class": "no-context",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "BQI PATIENT INSURANCE",
+      "entry_point": {
+        "tag": "GET",
+        "routine": "BQIPTINS",
+        "formals": [
+          "DATA",
+          "DFN"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "4",
+      "parameters": [
+        {
+          "name": "DFN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "BQI",
+        "name": "ICARE MANAGEMENT SYSTEM",
+        "version": "2.9"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "BQIRPC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "CIANBASY STOP",
+      "entry_point": {
+        "tag": "STOP",
+        "routine": "CIANBASY",
+        "formals": [
+          "CIAD",
+          "ZTSK"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "ZTSK",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "CIAN",
+        "name": "CIA NETWORK COMPONENTS",
+        "version": "1.1"
+      },
+      "reach": {
+        "class": "broker-exempt",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [],
+        "exemptions": [
+          "cia"
+        ]
+      }
+    },
+    {
+      "name": "CIANBRPC AUTH",
+      "entry_point": {
+        "tag": "AUTH",
+        "routine": "CIANBRPC",
+        "formals": [
+          "DATA",
+          "AID",
+          "WID",
+          "SID",
+          "AVC",
+          "WIP"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "AID",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "WID",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "SID",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "AVC",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "WIP",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "CIAN",
+        "name": "CIA NETWORK COMPONENTS",
+        "version": "1.1"
+      },
+      "reach": {
+        "class": "broker-exempt",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [],
+        "exemptions": [
+          "cia"
+        ]
+      }
+    },
+    {
+      "name": "DDR GETS ENTRY DATA",
+      "entry_point": {
+        "tag": "GETSC",
+        "routine": "DDR2",
+        "formals": [
+          "DDRDATA",
+          "DDR"
+        ]
+      },
+      "availability": "R",
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "GETS ATTRIBUTES",
+          "type": "2",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": null,
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "SCMC PCMM GUI WORKSTATION",
+          "CIAV VUECENTRIC",
+          "XU EPCS EDIT DATA"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "DDR LISTER",
+      "entry_point": {
+        "tag": "LISTC",
+        "routine": "DDR",
+        "formals": [
+          "DDRDATA",
+          "DDR"
+        ]
+      },
+      "availability": "R",
+      "inactive": null,
+      "return_type": "4",
+      "parameters": [
+        {
+          "name": "LIST ATTRIBUTES",
+          "type": "2",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": null,
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "SCMC PCMM GUI WORKSTATION",
+          "CIAV VUECENTRIC",
+          "XU EPCS EDIT DATA"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "MAGGECHO",
+      "entry_point": {
+        "tag": "ECHO",
+        "routine": "MAGGTCP",
+        "formals": []
+      },
+      "availability": "P",
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [],
+      "package": {
+        "prefix": "MAG",
+        "name": "IMAGING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "no-routine",
+        "routine_present": false,
+        "tag_present": false,
+        "contexts": [],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORQQPL AUDIT HIST",
+      "entry_point": {
+        "tag": "HIST",
+        "routine": "ORQQPL2",
+        "formals": [
+          "RETURN",
+          "GMPIFN"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "GMPIFN",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORQQPL CLIN SRCH",
+      "entry_point": {
+        "tag": "CLINSRCH",
+        "routine": "ORQQPL1",
+        "formals": [
+          "Y",
+          "X"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "X",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORQQPL DETAIL",
+      "entry_point": {
+        "tag": "DETAIL",
+        "routine": "ORQQPL",
+        "formals": [
+          "Y",
+          "DFN",
+          "PROBIEN",
+          "ID"
+        ]
+      },
+      "availability": "S",
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "PROBLEM ID",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORQQPL EDIT LOAD",
+      "entry_point": {
+        "tag": "EDLOAD",
+        "routine": "ORQQPL1",
+        "formals": [
+          "RETURN",
+          "DA",
+          "GMPROV",
+          "GMPVAMC"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "IFN",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "provider",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "vamc",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORQQPL INIT PT",
+      "entry_point": {
+        "tag": "INITPT",
+        "routine": "ORQQPL1",
+        "formals": [
+          "RETURN",
+          "DFN"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "DFN",
+          "type": null,
+          "required": null,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORQQPL LIST",
+      "entry_point": {
+        "tag": "LIST",
+        "routine": "ORQQPL",
+        "formals": [
+          "ORPY",
+          "DFN",
+          "STATUS"
+        ]
+      },
+      "availability": "S",
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "PATIENT ID",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        },
+        {
+          "name": "STATUS",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORQQPL PROB COMMENTS",
+      "entry_point": {
+        "tag": "GETCOMM",
+        "routine": "ORQQPL2",
+        "formals": [
+          "ORY",
+          "PIFN"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "Problem IEN",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORQQPL PROBLEM LEX SEARCH",
+      "entry_point": {
+        "tag": "LEXSRCH",
+        "routine": "ORQQPL1",
+        "formals": [
+          "LIST",
+          "FROM",
+          "N",
+          "VIEW",
+          "ORDATE"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "FLAG",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "NUM",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORQQPL PROVIDER LIST",
+      "entry_point": {
+        "tag": "PROVSRCH",
+        "routine": "ORQQPL1",
+        "formals": [
+          "LST",
+          "FLAG",
+          "N",
+          "FROM",
+          "PART"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "FLAG",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "N",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "FROM",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "PART",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE DIAG",
+      "entry_point": {
+        "tag": "DIAG",
+        "routine": "ORWPCE",
+        "formals": [
+          "LST",
+          "CLINIC",
+          "ORDATE"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "CLINIC",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "ORDATE",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE GET EDUCATION TOPICS",
+      "entry_point": {
+        "tag": "EDTTYPE",
+        "routine": "ORWPCE2",
+        "formals": [
+          "ORWLST"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE GET EXAM TYPE",
+      "entry_point": {
+        "tag": "EXAMTYPE",
+        "routine": "ORWPCE2",
+        "formals": [
+          "ORWLST"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE GET HEALTH FACTORS TY",
+      "entry_point": {
+        "tag": "HFTYPE",
+        "routine": "ORWPCE2",
+        "formals": [
+          "ORWLST",
+          "ADDCATS"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "ADDCATS",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE GET IMMUNIZATION TYPE",
+      "entry_point": {
+        "tag": "IMMTYPE",
+        "routine": "ORWPCE2",
+        "formals": [
+          "ORWLST",
+          "ORDT"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "ORDT",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE GET SKIN TEST TYPE",
+      "entry_point": {
+        "tag": "SKTYPE",
+        "routine": "ORWPCE2",
+        "formals": [
+          "ORWLST",
+          "ORDT"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "ORDT",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE GET TREATMENT TYPE",
+      "entry_point": {
+        "tag": "TRTTYPE",
+        "routine": "ORWPCE2",
+        "formals": [
+          "ORWLST"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE GET VISIT",
+      "entry_point": {
+        "tag": "GETVISIT",
+        "routine": "ORWPCE2",
+        "formals": [
+          "VISIT",
+          "IEN",
+          "DFN",
+          "VSITSTR"
+        ]
+      },
+      "availability": "R",
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "IEN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "DFN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "VSITSTR",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE HASVISIT",
+      "entry_point": {
+        "tag": "HASVISIT",
+        "routine": "ORWPCE",
+        "formals": [
+          "ORY",
+          "IEN",
+          "DFN",
+          "ORLOC",
+          "ORDTE"
+        ]
+      },
+      "availability": "R",
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "IEN",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "DFN",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "ORLOC",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        },
+        {
+          "name": "ORDTE",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE HF",
+      "entry_point": {
+        "tag": "HF",
+        "routine": "ORWPCE",
+        "formals": [
+          "LST",
+          "CLINIC"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "CLINIC",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE IMM",
+      "entry_point": {
+        "tag": "IMM",
+        "routine": "ORWPCE",
+        "formals": [
+          "LST",
+          "CLINIC"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "CLINIC",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE NOTEVSTR",
+      "entry_point": {
+        "tag": "NOTEVSTR",
+        "routine": "ORWPCE",
+        "formals": [
+          "VAL",
+          "IEN"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "IEN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE PCE4NOTE",
+      "entry_point": {
+        "tag": "PCE4NOTE",
+        "routine": "ORWPCE3",
+        "formals": [
+          "LST",
+          "IEN",
+          "DFN",
+          "VSITSTR"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "IEN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "DFN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "VSITSTR",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE PED",
+      "entry_point": {
+        "tag": "PED",
+        "routine": "ORWPCE",
+        "formals": [
+          "LST",
+          "CLINIC"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "CLINIC",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE PROC",
+      "entry_point": {
+        "tag": "PROC",
+        "routine": "ORWPCE",
+        "formals": [
+          "LST",
+          "CLINIC",
+          "ORDATE"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "CLINIC",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "ORDATE",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE SK",
+      "entry_point": {
+        "tag": "SK",
+        "routine": "ORWPCE",
+        "formals": [
+          "LST",
+          "CLINIC"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "CLINIC",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE TRT",
+      "entry_point": {
+        "tag": "TRT",
+        "routine": "ORWPCE",
+        "formals": [
+          "LST",
+          "CLINIC"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "CLINIC",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE VISIT",
+      "entry_point": {
+        "tag": "VISIT",
+        "routine": "ORWPCE",
+        "formals": [
+          "LST",
+          "CLINIC",
+          "ORDATE"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "CLINIC",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "ORDATE",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPCE XAM",
+      "entry_point": {
+        "tag": "XAM",
+        "routine": "ORWPCE",
+        "formals": [
+          "LST",
+          "CLINIC"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "CLINIC",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPT CWAD",
+      "entry_point": {
+        "tag": "CWAD",
+        "routine": "ORWPT",
+        "formals": [
+          "Y",
+          "DFN"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "DFN",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "CIAV VUECENTRIC"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "ORWPT SELECT",
+      "entry_point": {
+        "tag": "SELECT",
+        "routine": "ORWPT",
+        "formals": [
+          "REC",
+          "DFN"
+        ]
+      },
+      "availability": null,
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "DFN",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "OR",
+        "name": "ORDER ENTRY/RESULTS REPORTING",
+        "version": "3.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "OR CPRS GUI CHART",
+          "OR BCMA ORDER COM",
+          "CIAV VUECENTRIC",
+          "ORRCMC GENERAL"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "SC ACTIVE POSITION ASSIGNMENTS",
+      "entry_point": {
+        "tag": "ACTPOS",
+        "routine": "SCUTBK4",
+        "formals": [
+          "RESULTS",
+          "SCARY"
+        ]
+      },
+      "availability": "A",
+      "inactive": null,
+      "return_type": "4",
+      "parameters": [
+        {
+          "name": "INPU",
+          "type": "2",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": null,
+      "reach": {
+        "class": "out-of-order",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "SCMC PCMM GUI WORKSTATION"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "SC DELETE ENTRY",
+      "entry_point": {
+        "tag": "DIKC",
+        "routine": "SCUTBK1",
+        "formals": [
+          "SCOK",
+          "SC"
+        ]
+      },
+      "availability": "P",
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "PARAMETERS",
+          "type": "2",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": null,
+      "reach": {
+        "class": "out-of-order",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "SCMC PCMM GUI WORKSTATION"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "SC FIND",
+      "entry_point": {
+        "tag": "FINDC",
+        "routine": "SCUTBK2",
+        "formals": [
+          "SCDATA",
+          "SC"
+        ]
+      },
+      "availability": "P",
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "LIST OF ATTRIBUTES",
+          "type": "2",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": null,
+      "reach": {
+        "class": "out-of-order",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "SCMC PCMM GUI WORKSTATION"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "SD W/L PRIORITY(#409.3)",
+      "entry_point": {
+        "tag": "SDPRIOUT",
+        "routine": "SDWLRP3",
+        "formals": []
+      },
+      "availability": "R",
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [],
+      "package": {
+        "prefix": "SD",
+        "name": "SCHEDULING",
+        "version": "5.3"
+      },
+      "reach": {
+        "class": "no-context",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "VAFC VOA ADD PATIENT",
+      "entry_point": {
+        "tag": "ADD",
+        "routine": "VAFCPTAD",
+        "formals": [
+          "RETURN",
+          "PARAM"
+        ]
+      },
+      "availability": "R",
+      "inactive": "0",
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "PARAM",
+          "type": "2",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": null,
+      "reach": {
+        "class": "no-context",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "XUS AV CODE",
+      "entry_point": {
+        "tag": "VALIDAV",
+        "routine": "XUSRB",
+        "formals": [
+          "RET",
+          "AVCODE"
+        ]
+      },
+      "availability": "R",
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "AVCODE",
+          "type": "1",
+          "required": true,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "XU",
+        "name": "KERNEL",
+        "version": "8.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "XUS SIGNON"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "XUS CCOW VAULT PARAM",
+      "entry_point": {
+        "tag": "CCOWPC",
+        "routine": "XUSRB4",
+        "formals": [
+          "RET"
+        ]
+      },
+      "availability": "R",
+      "inactive": "3",
+      "return_type": "2",
+      "parameters": [],
+      "package": {
+        "prefix": "XU",
+        "name": "KERNEL",
+        "version": "8.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "XUS SIGNON"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "XUS DIVISION GET",
+      "entry_point": {
+        "tag": "DIVGET",
+        "routine": "XUSRB2",
+        "formals": [
+          "RET",
+          "IEN"
+        ]
+      },
+      "availability": "R",
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "IEN",
+          "type": "1",
+          "required": false,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "XU",
+        "name": "KERNEL",
+        "version": "8.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "XUS SIGNON"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "XUS SIGNON SETUP",
+      "entry_point": {
+        "tag": "SETUP",
+        "routine": "XUSRB",
+        "formals": [
+          "RET",
+          "XWBUSRNM",
+          "ASOSKIP",
+          "D2"
+        ]
+      },
+      "availability": "R",
+      "inactive": null,
+      "return_type": "2",
+      "parameters": [
+        {
+          "name": "XWBUSRNM",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "ASOSKIP",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        },
+        {
+          "name": "D2",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "XU",
+        "name": "KERNEL",
+        "version": "8.0"
+      },
+      "reach": {
+        "class": "client-callable",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [
+          "XUS SIGNON"
+        ],
+        "exemptions": []
+      }
+    },
+    {
+      "name": "XWB CREATE CONTEXT",
+      "entry_point": {
+        "tag": "CRCONTXT",
+        "routine": "XWBSEC",
+        "formals": [
+          "RESULT",
+          "OPTION"
+        ]
+      },
+      "availability": "R",
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "OPTION",
+          "type": null,
+          "required": null,
+          "source": "formals"
+        }
+      ],
+      "package": {
+        "prefix": "XWB",
+        "name": "RPC BROKER",
+        "version": "1.1"
+      },
+      "reach": {
+        "class": "broker-exempt",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [],
+        "exemptions": [
+          "xwb"
+        ]
+      }
+    },
+    {
+      "name": "XWB ECHO STRING",
+      "entry_point": {
+        "tag": "ECHO1",
+        "routine": "XWBZ1",
+        "formals": [
+          "Y",
+          "X"
+        ]
+      },
+      "availability": "P",
+      "inactive": null,
+      "return_type": "1",
+      "parameters": [
+        {
+          "name": "INP",
+          "type": "1",
+          "required": null,
+          "source": "8994"
+        }
+      ],
+      "package": {
+        "prefix": "XWB",
+        "name": "RPC BROKER",
+        "version": "1.1"
+      },
+      "reach": {
+        "class": "no-context",
+        "routine_present": true,
+        "tag_present": true,
+        "contexts": [],
+        "exemptions": []
+      }
+    }
+  ]
+}
