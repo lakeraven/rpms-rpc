@@ -31,6 +31,7 @@ module OpenApi
       "Bgu" => { path: "bgu" },
       "Busa" => { path: "busa" },
       "ChiefComplaint" => { path: "chief-complaints" },
+      "ClinicalReview" => { path: "clinical-reviews" },
       "DdrFileman" => { path: "files", own: %w[file] },
       "DgSensitive" => { path: "sensitive-records" },
       "ESignature" => { path: "signatures" },

@@ -130,6 +130,12 @@
       "ORWPCE PCE4NOTE",
       "TIU GET ALERT INFO"
     ],
+    "RpmsRpc::ClinicalReview": [
+      "BEHOENCX GETVISIT",
+      "BGOVUPD GET",
+      "BGOVUPD SET",
+      "DDR LISTER"
+    ],
     "RpmsRpc::Coverage": [
       "AGG BUILD WINDOW DISPLAY",
       "AGG BUILD WINDOW MANY",
