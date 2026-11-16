@@ -28,6 +28,9 @@
       "AGG WINDOW TABLE LOOKUP",
       "CIANBRPC CANRUN"
     ],
+    "RpmsRpc::Allergen": [
+      "ORWDAL32 ALLERGY MATCH"
+    ],
     "RpmsRpc::Allergy": [
       "ORQQAL LIST",
       "ORWDAL32 SAVE ALLERGY"

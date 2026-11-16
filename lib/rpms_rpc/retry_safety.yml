@@ -43,6 +43,7 @@
 "RpmsRpc::Agg.validate_field": non_idempotent_write
 "RpmsRpc::Agg.window_multiple": read
 "RpmsRpc::Agg.window_values": non_idempotent_write
+"RpmsRpc::Allergen.search": read
 "RpmsRpc::Allergy.assessment": read
 "RpmsRpc::Allergy.for_patient": read
 "RpmsRpc::Allergy.no_known_allergies": non_idempotent_write
