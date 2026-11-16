@@ -2032,3 +2032,4 @@ module RpmsRpc
 end
 
 require_relative "registration_edits"
+require_relative "registration_advance_directives"
