@@ -21,6 +21,7 @@
 # registry: bcer-9.0-20261012-e7923a4-ydb (5557 names)
 # regenerate: bundle exec rake rpc:exclusions
 # count context_out_of_order: 80
+# count gui_plumbing: 29
 # count no_context: 226
 # count no_entry_point_on_image: 87
 # count no_routine_on_image: 203
@@ -156,7 +157,14 @@
 "BDMG QUEUE DM AUDIT 12": no_entry_point_on_image
 "BDMG QUEUE DM AUDIT 12 P": no_entry_point_on_image
 "BDMG QUEUE MULT SUMMARIES": no_entry_point_on_image
+"BEHOPTCX LAST": gui_plumbing
+"BEHOPTPL CLINRNG": gui_plumbing
+"BEHOPTPL GETDFLT": gui_plumbing
+"BEHOPTPL LISTINFO": gui_plumbing
 "BGOPROB1 INPT": no_entry_point_on_image
+"BGOUTL GETPARM": gui_plumbing
+"BGOUTL SETPARM": gui_plumbing
+"BGOVEM GETCOLOR": gui_plumbing
 "BGPG 06 CHK COMM TAX NTL": no_entry_point_on_image
 "BGPG 06 CMP PAT LIST": no_entry_point_on_image
 "BGPG 07 CHK COMM TAX NTL": no_entry_point_on_image
@@ -363,8 +371,16 @@
 "BYIM DISPLAY IMM AND FORECAST": no_context
 "BYIM QUERY SIIS": no_context
 "BYIM SEND IMMS TO SIIS": no_context
+"CIANBRPC SETVAR": gui_plumbing
 "CIAVCXPT PTINQ": no_context
 "CIAVCXUS GETALRTS": no_entry_point_on_image
+"CIAVMCFG GETREG": gui_plumbing
+"CIAVMCFG GETTEMPL": gui_plumbing
+"CIAVMRPC GETPAR": gui_plumbing
+"CIAVMRPC GETPARLI": gui_plumbing
+"CIAVMRPC INIT": gui_plumbing
+"CIAVMRPC SETPAR": gui_plumbing
+"CIAVMRPC SETVAR": gui_plumbing
 "CIAVMRPC UNINIT": no_entry_point_on_image
 "CIAZG DEFINITION CHILD": no_context
 "CIAZG DEFINITION CLEANUP": no_context
@@ -421,14 +437,28 @@
 "MAGPUT": no_routine_on_image
 "MAGRGETWRITE": no_routine_on_image
 "MAGRTELW": no_routine_on_image
+"ORQQCN SET ACT MENUS": gui_plumbing
+"ORQQPX GET FOLDERS": gui_plumbing
 "ORQQPX GET NOT PURPOSE": no_routine_on_image
+"ORQQPX NEW COVER SHEET ACTIVE": gui_plumbing
+"ORQQPX NEW REMINDERS ACTIVE": gui_plumbing
 "ORQQPXRM GET WH LETTER TEXT": no_routine_on_image
 "ORQQPXRM GET WH LETTER TYPE": no_routine_on_image
 "ORQQPXRM GET WH PROC RESULT": no_routine_on_image
 "ORWDX SENDP": no_entry_point_on_image
+"ORWDX WRLST": gui_plumbing
 "ORWDXA DCREASON": no_entry_point_on_image
 "ORWGEPT CLINRNG": no_routine_on_image
+"ORWGRPC ALLVIEWS": gui_plumbing
+"ORWGRPC GETPREF": gui_plumbing
+"ORWGRPC TYPES": gui_plumbing
+"ORWOR VWGET": gui_plumbing
+"ORWORDG MAPSEQ": gui_plumbing
 "ORWPCE SAVE": no_routine_on_image
+"ORWRP GET DEFAULT PRINTER": gui_plumbing
+"ORWRP REPORT LISTS": gui_plumbing
+"ORWRP3 EXPAND COLUMNS": gui_plumbing
+"ORWTIU GET TIU CONTEXT": gui_plumbing
 "PSB LOCK": no_entry_point_on_image
 "PXRM EDUCATION SUBTOPICS": no_context
 "PXRM EDUCATION SUMMARY": no_context
