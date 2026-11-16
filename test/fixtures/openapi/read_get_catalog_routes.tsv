@@ -5,6 +5,7 @@ RpmsRpc::Agg.error_screen	GET /agg/error-screen
 RpmsRpc::Agg.patient_languages	GET /patients/{dfn}/agg/languages
 RpmsRpc::Agg.table_lookup	GET /agg/files/{file}/table-lookup
 RpmsRpc::Agg.window_multiple	GET /patients/{dfn}/agg/window-multiple
+RpmsRpc::Allergen.search	GET /allergens
 RpmsRpc::Allergy.assessment	GET /patients/{dfn}/allergies/assessment
 RpmsRpc::Allergy.for_patient	GET /patients/{dfn}/allergies
 RpmsRpc::Authentication.has_security_key?	GET /users/{duz}/has-security-key

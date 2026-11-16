@@ -1,0 +1,93 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb allergen.rb.
+---
+rpc: ORWDAL32 ALLERGY MATCH
+entry_point: ALLSRCH^ORWDAL32
+release_tag: bcer-9.0-20261012-e7923a4-ydb
+image: ghcr.io/lakeraven/rpms-ydb@sha256:a1e341cc3ec152fb89f9bfe6f25dd3f7bc57f9e471b8641b34fd14ddd12eb1f7
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-16T18:46:20Z'
+note: GMR ALLERGIES (120.82) and the National Drug File are the build's own tables;
+  nothing is filed.
+captures:
+- name: strawb
+  inputs:
+  - STRAWB
+  context: an allergen by name and by synonym (GMR ALLERGIES)
+  raw_return: "5\01^VA Allergies File^^^TOP^+\r6^STRAWBERRIES^GMRD(120.82,\"B\")^DF^1\r6^STRAWBERRIES
+    <STRAWBERRY>^GMRD(120.82,\"D\")^DF^1\r3^National Drug File - Generic Drug Name^^^TOP^+\r4^National
+    Drug file - Trade Name^^^TOP^+\r5^Local Drug File^^^TOP^+\r7^Drug Ingredients
+    File^^^TOP^+\r8^VA Drug Class File^^^TOP^+\r"
+  sha256: 2773dd871e996ddff1ed6f7481c093f3d352ad24cd350ba634840173c33d9408
+- name: aspirin_comma
+  inputs:
+  - ASPIRIN,
+  context: synonyms of an allergen, and drug trade names
+  raw_return: "6\01^VA Allergies File^^^TOP^+\r805^ASPIRIN RELATED MEDICATIONS <ASPIRIN,
+    BUFFERED>^GMRD(120.82,\"D\")^D^1\r805^ASPIRIN RELATED MEDICATIONS <ASPIRIN,BUFFERED>^GMRD(120.82,\"D\")^D^1\r3^National
+    Drug File - Generic Drug Name^^^TOP^+\r4^National Drug file - Trade Name^^^TOP^+\r964^ASPIRIN,ENTERIC
+    COATED^PSNDF(50.67,\"T\")^D^4\r964^ASPIRIN, BUFFERED^PSNDF(50.67,\"T\")^D^4\r964^ASPIRIN,BUFFERED^PSNDF(50.67,\"T\")^D^4\r1098^ASPIRIN,
+    CAFFEINE & BUTALBITAL^PSNDF(50.67,\"T\")^D^4\r2326^ASPIRIN,BUFFERED 325MG TABLET^PSNDF(50.67,\"T\")^D^4\r5^Local
+    Drug File^^^TOP^+\r7^Drug Ingredients File^^^TOP^+\r8^VA Drug Class File^^^TOP^+\r"
+  sha256: 234ad23e3e1bc9c799cf80518de23bc3ade42a1c369004b06f2637bf6e4d92d0
+- name: amoxicillin
+  inputs:
+  - AMOXICILLIN
+  context: drug generic and trade names
+  raw_return: "7\01^VA Allergies File^^^TOP^+\r3^National Drug File - Generic Drug
+    Name^^^TOP^+\r95^AMOXICILLIN^PSNDF(50.6,\"B\")^D^3\r710^AMOXICILLIN/CLAVULANATE^PSNDF(50.6,\"B\")^D^3\r3506^AMOXICILLIN/CLARITHROMYCIN/LANSOPRAZOLE^PSNDF(50.6,\"B\")^D^3\r4^National
+    Drug file - Trade Name^^^TOP^+\r95^AMOXICILLIN^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    TRIHYDRATE^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN CAPSULES USP^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    CAPSULES^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN CAPSULES 250MG^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    250MG CAPS^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN 250MG CAPSULE^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    CAPSULES USP 500 MG^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN CAPSULES 500MG^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    500MG CAPS^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN 500MG CAPSULE^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    CAPSULES 500 MG^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN 500MG CAP^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    500 MG CAPSULES^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN FOR ORAL SUSPENSION^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    125 MG/5 CC^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN FOR ORAL SUSPENSION USP 125
+    MG^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN 125 ORAL SUSP^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    125MG/5ML SUSP^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN SUSPENSION^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    125MG/5ML SUSPENSION^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN FOR ORAL SUSPENSION
+    USP 250 MG^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN FOR ORAL SUSPENSION 25OMG/5ML^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    SUSP^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN 250MG/5ML SUSP^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    250 MG/5 CC^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN 250 ORAL SUSP^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    250MG/5ML POWDER^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN 250MG/5ML SUSPENSION^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    PEDIATRIC DROPS^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN CHEWABLE TABLETS^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    CHEWABLE TAB^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN 250MG CHEW TABLET^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    250MG TAB,CHEWABLE^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN 250MG TAB,CHEW^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    250MG TAB CHEW^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN CHEWABLE^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    250 MG CHEWABLE^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN 125MG CHEW TAB^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    125MG/5ML POWDER^PSNDF(50.67,\"T\")^D^4\r710^AMOXICILLIN 400MG/CLAVULANIC 57MG/5ML
+    SUSP^PSNDF(50.67,\"T\")^D^4\r710^AMOXICILLIN/CLAVULANATE^PSNDF(50.67,\"T\")^D^4\r710^AMOXICILLIN/CLAVULANATE
+    CHEW TAB^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN 200MG/5ML^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN
+    TRIHYDRATE 500MG TAB^PSNDF(50.67,\"T\")^D^4\r95^AMOXICILLIN CHEW TAB^PSNDF(50.67,\"T\")^D^4\r5^Local
+    Drug File^^^TOP^+\r7^Drug Ingredients File^^^TOP^+\r198^AMOXICILLIN^PS(50.416,\"P\")^D^7\r8^VA
+    Drug Class File^^^TOP^+\r"
+  sha256: 4176a2c744193ee1287296ebccadcf08d9022a672e03421543c005c612f60b06
+- name: latex
+  inputs:
+  - LATEX
+  context: a drug ingredient
+  raw_return: "8\01^VA Allergies File^^^TOP^+\r3^National Drug File - Generic Drug
+    Name^^^TOP^+\r4^National Drug file - Trade Name^^^TOP^+\r5^Local Drug File^^^TOP^+\r7^Drug
+    Ingredients File^^^TOP^+\r3912^LATEX^PS(50.416,\"P\")^D^7\r8^VA Drug Class File^^^TOP^+\r"
+  sha256: 9a9e7de4eb62901dabf50fda837729010f1a4d6460fd78d10c3f8e40e9733d57
+- name: penicillins
+  inputs:
+  - PENICILLINS
+  context: VA drug classes
+  raw_return: "9\01^VA Allergies File^^^TOP^+\r3^National Drug File - Generic Drug
+    Name^^^TOP^+\r4^National Drug file - Trade Name^^^TOP^+\r5^Local Drug File^^^TOP^+\r7^Drug
+    Ingredients File^^^TOP^+\r8^VA Drug Class File^^^TOP^+\r11^PENICILLINS AND BETA-LACTAM
+    ANTIMICROBIALS^PS(50.605,\"C\")^D^8\r249^PENICILLINS,AMINO DERIVATIVES^PS(50.605,\"C\")^D^8\r"
+  sha256: aeef3b9d9ce3709be8597b41239993ab2bf8c3e46b039b0f10ed81ce6d50623e
+- name: no_match
+  inputs:
+  - ZZZQX
+  context: 'text nothing matches: only the source headers'
+  raw_return: "1\01^VA Allergies File^^^TOP^+\r3^National Drug File - Generic Drug
+    Name^^^TOP^+\r4^National Drug file - Trade Name^^^TOP^+\r5^Local Drug File^^^TOP^+\r7^Drug
+    Ingredients File^^^TOP^+\r8^VA Drug Class File^^^TOP^+\r"
+  sha256: 0eb63569b9659e185119160d036aada410b17e2b58f0562ca356177b9b9972de

@@ -931,6 +931,22 @@ module RpmsRpc
       m.field 2, :preferred_name
     end
 
+    # ORWDAL32 ALLERGY MATCH — ALLSRCH^ORWDAL32 as built (IHS/MSC/MGH mods,
+    # OR*3.0*233). One header row per source file it searched,
+    #   SOURCE ^ FILE NAME ^^^ TOP ^ +
+    # then that file's matches,
+    #   IEN ^ NAME ^ ROOT ^ ALLERGY TYPE ^ SOURCE
+    # ROOT is the cross-reference walked, without its leading caret
+    # (GMRD(120.82,"B")). Read by RpmsRpc::Allergen.search (#762).
+    DataMapper.define(:allergen_match) do |m|
+      m.rpc "ORWDAL32 ALLERGY MATCH"
+      m.field 0, :ien
+      m.field 1, :name
+      m.field 2, :root
+      m.field 3, :type
+      m.field 4, :source
+    end
+
     # ORWDAL32 DEF — defaults tree for the allergy-symptom entry UI. Takes
     # no params and returns a typed-tree response: lines starting with "~"
     # are category headers, lines starting with "i" are items belonging to
