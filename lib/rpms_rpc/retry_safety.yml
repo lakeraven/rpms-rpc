@@ -118,6 +118,8 @@
 "RpmsRpc::ClinicalEvent.skin_test_types": read
 "RpmsRpc::ClinicalEvent.visit_for_note": read
 "RpmsRpc::ClinicalEvent.visit_status": read
+"RpmsRpc::ClinicalReview.for_visit": read
+"RpmsRpc::ClinicalReview.record": non_idempotent_write
 "RpmsRpc::Coverage.add_medicaid": non_idempotent_write
 "RpmsRpc::Coverage.add_medicare": non_idempotent_write
 "RpmsRpc::Coverage.add_private_insurance": non_idempotent_write
