@@ -36,6 +36,7 @@
       "ORWDAL32 SAVE ALLERGY"
     ],
     "RpmsRpc::Authentication": [
+      "BGOUTL CHKSEC",
       "DDR LISTER",
       "ORWU HAS OPTION ACCESS",
       "ORWU NPHASKEY",
@@ -328,7 +329,10 @@
     ],
     "RpmsRpc::Problem": [
       "BGOPROB DEL",
+      "BGOPROB GET",
       "BGOPROB SET",
+      "BGOPROB1 EDPROB",
+      "BGOPROB1 GETONE",
       "DDR GETS ENTRY DATA",
       "ORQQPL AUDIT HIST",
       "ORQQPL CLIN SRCH",

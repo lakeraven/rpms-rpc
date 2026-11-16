@@ -51,6 +51,7 @@
 "RpmsRpc::Authentication.authenticate": non_idempotent_write
 "RpmsRpc::Authentication.change_verify_code": non_idempotent_write
 "RpmsRpc::Authentication.clear_cache!": non_idempotent_write
+"RpmsRpc::Authentication.component_security": read
 "RpmsRpc::Authentication.has_security_key?": read
 "RpmsRpc::Authentication.held_keys": read
 "RpmsRpc::Authentication.option_access": read
@@ -264,12 +265,15 @@
 "RpmsRpc::Problem.add": non_idempotent_write
 "RpmsRpc::Problem.audit_history": read
 "RpmsRpc::Problem.clinic_search": read
+"RpmsRpc::Problem.coded_active": read
 "RpmsRpc::Problem.comments": read
 "RpmsRpc::Problem.delete": non_idempotent_write
 "RpmsRpc::Problem.details": read
 "RpmsRpc::Problem.edit_load": non_idempotent_write
 "RpmsRpc::Problem.for_patient": read
 "RpmsRpc::Problem.init_patient": read
+"RpmsRpc::Problem.integrated": read
+"RpmsRpc::Problem.integrated_entry": read
 "RpmsRpc::Problem.lex_search": read
 "RpmsRpc::Problem.provider_list": read
 "RpmsRpc::Problem.update": non_idempotent_write
