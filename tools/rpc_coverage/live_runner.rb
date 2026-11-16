@@ -249,6 +249,7 @@ cases = {
   # reference data
   "Symptom.defaults" => -> { RpmsRpc::Symptom.defaults },
   "Symptom.search(\"COUGH\")" => -> { RpmsRpc::Symptom.search("COUGH") },
+  "Allergen.search(\"PENIC\")" => -> { RpmsRpc::Allergen.search("PENIC") },
   "Problem.lex_search(\"DIABETES\")" => -> { RpmsRpc::Problem.lex_search("DIABETES") },
   "ImmunizationRefusal.reasons" => -> { RpmsRpc::ImmunizationRefusal.reasons },
   "Tribal.tribes" => -> { RpmsRpc::Tribal.tribes },
