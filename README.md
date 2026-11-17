@@ -515,7 +515,7 @@ rake rpc:api_coverage            # summary per module; VERBOSE=1 adds one line p
   A DataMapper mapping (`DataMapper.x`, `DataMapper[:x]`, or `:x` handed to a helper) resolves through the loaded mapping registry; a `call_rpc*` with a string literal or a String constant resolves to that string.
   An RPC name the analysis cannot bind (a helper whose RPC is its own argument, an expression) is listed under `unresolved`, never guessed.
 - **Registered:** each RPC is looked up on the pinned #8994 registry named in `data/rpc_coverage/config.yml`, with its entry point `TAG^ROUTINE`.
-- **Live specs:** every `RpmsRpc::Module.method` call site in `test/live/**`.
+- **Live specs:** every `RpmsRpc::Module.method` call site in `test/live/**`, including a call through a constant the file assigns a module (`BH = RpmsRpc::BehavioralHealth`, then `BH::Groups.groups`) or a parameterless one-line helper that returns one (`def maint = RpmsRpc::SchedulingMaintenance`, then `maint.save_access_type`).
   The harness runs every live spec as the persona the run names, and a spec cannot declare its own, so a proven method runs as both the least-privilege and the programmer persona.
 - **Status:** `proven` when a live spec calls the method, `not_in_contract` when none does.
   This is static: whether the spec passes is `rake test:live`'s answer, per persona.
