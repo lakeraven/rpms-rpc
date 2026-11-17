@@ -44,6 +44,10 @@ class LabVitalMedicationReadsLiveTest < LiveSpec::Test
     end
     latest = RpmsRpc::Vital.latest_by_type(DFN).map { |r| r[:measurement_ien] }
     assert_empty latest - grid[:results].map { |r| r[:measurement_ien] }, "every latest measurement is on the grid"
+
+    metric = RpmsRpc::Vital.grid(DFN, metric: 1)
+    assert_equal grid[:results].map { |r| r[:measurement_ien] }, metric[:results].map { |r| r[:measurement_ien] }
+    assert_equal "cm", metric[:vitals].find { |v| v[:abbreviation] == "HT" }&.fetch(:units), "metric: 1 reports height in cm"
   end
 
   def test_lab_reads_against_lab_data
