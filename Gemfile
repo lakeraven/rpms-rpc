@@ -9,6 +9,9 @@ group :development, :test do
   gem "irb", require: false
   # rake openapi:* and test/openapi/ validate the generated documents against the OpenAPI 3.1 schema (#395)
   gem "json_schemer", "~> 2.4", require: false
+  # regexp_parser 2.13.2 drops Regexp::Syntax::Base#implements, which json_schemer 2.5.0 calls at load
+  # (NoMethodError in ecma_regexp.rb), so every OpenAPI document test errors. Lift when json_schemer catches up.
+  gem "regexp_parser", "!= 2.13.2", require: false
   gem "minitest", "~> 5.0"
   gem "rake", "~> 13.0"
   gem "rubocop-rails-omakase", require: false
