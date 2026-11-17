@@ -58,6 +58,35 @@ module RpmsRpc
     end
     shape :active_for_patient, resource: "medications", verb: "GET", path: "/patients/{dfn}/medications/active"
 
+    # The patient's medication profile over the last +days+ (default 365),
+    # as VueCentric's medication component lists it, with the IHS fields
+    # ORWPS ACTIVE does not carry. Underlying RPC: BEHORXFN GETRXS
+    # (GETRXS^BEHORXFN): OCL^PSOORRL from today minus DAYS, one "~" header
+    # per medication, then its instruction lines and "t" comment lines.
+    #
+    #   profile(dfn, days: 365)
+    #   => [{ order_id:, type:, name:, status:, stop_date:, order_ien:, last_filled:, days_supply:,
+    #         quantity:, refills_remaining:, start_date:, prescription_number:, ndc:, rxnorm:,
+    #         indication:, instructions: [], comments: [] }, ...]
+    #
+    # The header is "~"TYPE (OP, UD, IV or NV) ^ the twelve OCL pieces ^
+    # CHRONIC ^ START ^ RX # ^ PROVIDER ^ REASON ^ DEA ^ LOCATION ^
+    # INDICATION ^ DAW ^ NON-VA ^ NDC ^ RXNORM ^ ... (BEHORXFN GETRXS,
+    # ADDOUT). Status is OCL piece 9 as sent (a held order reads
+    # "ACTIVE/SEE DETAILS"), stop_date piece 4 except for a non-VA row.
+    # Instructions and comments are grouped as for {active_for_patient}.
+    def profile(dfn, days: 365)
+      return [] unless dfn.to_s.match?(/\A[1-9]\d*\z/) && days.to_s.match?(/\A[1-9]\d*\z/)
+
+      lines = DataMapper.medication_profile.lines!(dfn.to_s, days.to_s)
+      raise Client::RpcError, "BEHORXFN GETRXS answered #{lines.first.inspect} before any medication" if lines.first && !lines.first.start_with?("~")
+
+      parse_active(lines.join("\n")).zip(lines.select { |line| line.start_with?("~") }).map do |row, header|
+        row.merge(profile_fields(header.delete_prefix("~").split("^", -1)))
+      end
+    end
+    shape :profile, resource: "medications", verb: "GET", path: "/patients/{dfn}/medications/profile"
+
     # A medication's id as ORQQPS LIST gives it, piece 1 of a row: the
     # order or prescription number, a kind letter, ";", and O (outpatient)
     # or I (inpatient). PSOORRL writes "<IFN>R;O", "<IFN>P;O" and
@@ -127,6 +156,13 @@ module RpmsRpc
       return nil if type == "NV"
 
       FilemanDateParser.parse_date(piece)
+    end
+
+    def profile_fields(pieces)
+      value = ->(i) { pieces[i].to_s.strip.empty? ? nil : pieces[i].strip }
+      { order_ien: value[8]&.to_i, refills_remaining: value[5], last_filled: FilemanDateParser.parse_date(pieces[10].to_s),
+        days_supply: value[11], quantity: value[12], start_date: FilemanDateParser.parse_date(pieces[14].to_s),
+        prescription_number: value[15], indication: value[20], ndc: value[23], rxnorm: value[24] }
     end
 
     def finish_active(row)
