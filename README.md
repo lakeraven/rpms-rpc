@@ -53,6 +53,27 @@ Then `bundle install`.
 
 Requires Ruby 4.0+ (the version in `.ruby-version`).
 
+### Versions follow openrpms releases
+
+rpms-rpc is the conformance suite for openrpms, kept in its own repository, and the client lakeraven-ehr uses (#724).
+Its versions are openrpms release names, not semver.
+- `main` is tested by this repository's CI against the latest published openrpms release; a change merges when green.
+- An openrpms release gate checks out rpms-rpc `main` as it stands at the cut and runs its live suite and wire cases against the candidate.
+- When that release publishes, openrpms tags the exact rpms-rpc commit it ran with the release's name, for example `bcer-9.0-20261116-2a9b3fe-ydb`.
+  That tag means "this build, and the client verified against it".
+- A host pins the rpms-rpc tag that matches the openrpms release it deploys against:
+
+```ruby
+gem "rpms-rpc", github: "lakeraven/rpms-rpc", tag: "bcer-9.0-20261116-2a9b3fe-ydb"
+```
+
+`RpmsRpc::VERSION` is not a compatibility promise; the tag is.
+What the gate holds each release to is the contract in `lib/rpms_rpc/required_rpcs.json` (schema `rpms-rpc-contract.v1`):
+- `modules`: every RPC each public API module sends, which `client.compatibility` checks a server against;
+- `rpcs`: one entry per RPC, naming the public methods that send it, each with its retry-safety class (`read` or a write, from `lib/rpms_rpc/retry_safety.yml`), and the captured replies its parser is tested against.
+
+`rake rpc:required_rpcs` writes it from `lib/` and `test/fixtures/`; a test fails when it is stale.
+
 ## Usage
 
 > **The broker connection is plaintext.** XWB, BMX and CIA carry access/verify
