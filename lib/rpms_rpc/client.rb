@@ -84,6 +84,20 @@ module RpmsRpc
     # An API method never answers empty in place of any of them.
     class RpcNotAvailableError < RpcError; end
     class RpcRefusedError < RpcError; end
+    # XWB CREATE CONTEXT refused the option over XWB or BMX: the user does not
+    # hold it, or the server has no such option (#756). `option` names it and
+    # the message carries the server's reason. A subclass of RpcRefusedError,
+    # so it reads like CIA's refusal of the same user, which arrives as
+    # RpcRefusedError at the first RPC the option registers (the CIA bind sends
+    # nothing). Not ContextRefusedError, the CIA sign-on's AuthenticationError.
+    class ContextBindRefusedError < RpcRefusedError
+      attr_reader :option
+
+      def initialize(message = nil, option: nil)
+        super(message)
+        @option = option
+      end
+    end
     class RpcMError < RpcError; end
     class TimeoutError < ConnectionError; end
     # Raised when a single RPC's reply times out mid-call. Subclass of
@@ -531,6 +545,14 @@ module RpmsRpc
     # (scope entry or nested). If that restore is refused too,
     # current_context stays nil. XwbClient and BmxClient use this method.
     # CiaClient binds on the client and does not share this path.
+    #
+    # A refusal raises ContextBindRefusedError naming the option (#756).
+    # CRCONTXT^XWBSEC puts its reason in both RESULT and XWBSEC (XWBSEC.m), so
+    # it can arrive two ways: as the reply (BMX, seen live: "User ... does not
+    # have access to option AGGRPC", "The context '...' does not exist on
+    # server."), or as XWB's security packet, which XwbClient#read_response
+    # raises as an RpcError. An M error or an unserved RPC is not a refusal of
+    # the option and propagates as it is.
     def create_context(option_name = "OR CPRS GUI CHART")
       synchronize_wire do
         raise ConnectionError, "Not connected" unless connected?
@@ -540,17 +562,27 @@ module RpmsRpc
         # Unknown until the reply is "1". The frame is about to be sent, so
         # any exception from here on must not leave the previous name.
         @current_context = nil
-        reply = call_rpc_raw("XWB CREATE CONTEXT", encrypted)
-        unless reply&.strip == "1"
-          raise RpcError, RpmsRpc.sanitize_error(
-            "Failed to create context '#{option_name}': #{reply}"
-          )
+        begin
+          reply = call_rpc_raw("XWB CREATE CONTEXT", encrypted)
+        rescue RpcMError, RpcNotAvailableError
+          raise
+        rescue RpcError => e
+          context_bind_refused(option_name, e.message)
         end
+        context_bind_refused(option_name, reply) unless reply&.strip == "1"
 
         @current_context = option_name # ContextScope — lets APIs scope + restore
         true
       end
     end
+
+    def context_bind_refused(option_name, reason)
+      raise ContextBindRefusedError.new(
+        RpmsRpc.sanitize_error("Failed to create context '#{option_name}': #{reason.to_s.strip}"),
+        option: option_name
+      )
+    end
+    private :context_bind_refused
 
     # -- credential resolution ------------------------------------------------
 
