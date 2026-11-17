@@ -955,4 +955,33 @@ class RpmsRpc::DailyReport::OrchestratorTest < Minitest::Test
       assert_match(/docker rm failed|container removal/i, summary.io.string)
     end
   end
+# Each suite's output is kept beside the report and linked from its row
+# (#757). The demo access codes equal the persona names, so redaction must
+# not reach the link or the file name: both come from the suite's id.
+def test_each_suite_links_a_redacted_log_beside_the_report_even_when_codes_equal_persona_names
+  Dir.mktmpdir do |diffs|
+    FileUtils.mkdir_p(File.join(diffs, "rpc-coverage/daily"))
+    writer = FakeWriter.new
+    failing_live = "#{failing_minitest}persona PROV123 signed on with PROV123!!\n"
+    runner = FakeRunner.new([ { stdout: passing_minitest }, { stdout: failing_live }, { stdout: passing_minitest } ])
+    env = persona_sign_on_env("PROV123_ACCESS" => "PROV123", "PROV123_VERIFY" => "PROV123!!",
+                              "SYS123_ACCESS" => "SYS123", "SYS123_VERIFY" => "SYS123!!")
+    orch = orchestrator(rpms_diffs_dir: diffs, runner: runner, writer: writer, env: env)
+
+    assert_equal 1, orch.run
+
+    report_path, report = writer.writes.find { |path, _| path.end_with?(".md") }
+    links = report.scan(/\[log\]\(([^)]+)\)/).flatten
+    assert_equal 3, links.size, "one log link per suite that ran: #{report}"
+    written = writer.writes.to_h
+    links.each do |link|
+      assert_equal File.basename(link), link, "the link is a sibling file name"
+      assert written.key?(File.join(File.dirname(report_path), link)), "#{link} was written beside the report"
+    end
+    assert_equal links.uniq, links, "each suite has its own log"
+    provider_log = written.fetch(File.join(File.dirname(report_path), links[1]))
+    assert_match(/UnitTest#test_bad:\nexpected/, provider_log, "the log holds the failure's message")
+    refute_match(/PROV123!!/, provider_log, "the log is redacted like the report")
+  end
+end
 end
