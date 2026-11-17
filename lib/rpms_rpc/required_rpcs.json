@@ -187,6 +187,7 @@
       "BEHOENCX GETPRV",
       "BEHOENCX GETVISIT",
       "BEHOENCX VISITLST",
+      "BGOVTM GET",
       "ORWPT APPTLST"
     ],
     "RpmsRpc::ExamComponent": [
@@ -258,10 +259,12 @@
       "BEHOXQ FORWARD"
     ],
     "RpmsRpc::Order": [
+      "OREVNTX PAT",
       "ORWDX SAVE",
       "ORWDX SEND",
       "ORWDXC ACCEPT",
       "ORWDXC ON",
+      "ORWDXIHS CLININD",
       "ORWOR ACTION TEXT",
       "ORWOR EXPIRED",
       "ORWOR RESULT",
@@ -271,6 +274,7 @@
       "ORWOR UNSIGN",
       "ORWORDG IEN",
       "ORWORR AGET",
+      "ORWORR GET4LST",
       "ORWU VALIDSIG"
     ],
     "RpmsRpc::Organization": [
@@ -288,6 +292,7 @@
       "AGG UNLOCK PATIENT",
       "AGG UPDATE PATIENT",
       "AGG WINDOW DATA VALIDATION",
+      "BEHOCACV LIST",
       "BEHOPTCX PTINFO",
       "BEHOPTPC GETBDP",
       "DDR GETS ENTRY DATA",
@@ -308,7 +313,8 @@
       "ORWU DT"
     ],
     "RpmsRpc::PatientEducation": [
-      "BGOVPED GET"
+      "BGOVPED GET",
+      "BGOVPED2 GETPVED"
     ],
     "RpmsRpc::PatientGoal": [
       "BEHOPGAP GETGOAL"

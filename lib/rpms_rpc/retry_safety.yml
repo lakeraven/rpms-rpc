@@ -167,6 +167,7 @@
 "RpmsRpc::ESignature.which_action": read
 "RpmsRpc::Eligibility.codes": read
 "RpmsRpc::Eligibility.for_patient": read
+"RpmsRpc::Encounter.activity_time": read
 "RpmsRpc::Encounter.create": non_idempotent_write
 "RpmsRpc::Encounter.for_patient": read
 "RpmsRpc::Encounter.open": non_idempotent_write
@@ -219,6 +220,8 @@
 "RpmsRpc::Order.all_sheets": read
 "RpmsRpc::Order.check": non_idempotent_write
 "RpmsRpc::Order.checking_enabled?": read
+"RpmsRpc::Order.clinical_indications": read
+"RpmsRpc::Order.delayed_events": read
 "RpmsRpc::Order.display_group_ien": read
 "RpmsRpc::Order.expired_search_start": read
 "RpmsRpc::Order.list": read
@@ -227,6 +230,7 @@
 "RpmsRpc::Order.save": non_idempotent_write
 "RpmsRpc::Order.sheets_for_patient": read
 "RpmsRpc::Order.sign_and_release": non_idempotent_write
+"RpmsRpc::Order.summaries": read
 "RpmsRpc::Order.unsigned_for_patient": non_idempotent_write
 "RpmsRpc::Organization.find": read
 "RpmsRpc::Orwu.fileman_datetime": read
@@ -239,6 +243,7 @@
 "RpmsRpc::Patient.flags": read
 "RpmsRpc::Patient.lookup": read
 "RpmsRpc::Patient.normalize_lookup_row": read
+"RpmsRpc::Patient.postings": read
 "RpmsRpc::Patient.race": non_idempotent_write
 "RpmsRpc::Patient.register": non_idempotent_write
 "RpmsRpc::Patient.registration_record": non_idempotent_write
@@ -249,6 +254,7 @@
 "RpmsRpc::PatientApplication.types": read
 "RpmsRpc::PatientApplication.update_status": non_idempotent_write
 "RpmsRpc::PatientEducation.for_patient": read
+"RpmsRpc::PatientEducation.problem_linked": read
 "RpmsRpc::PatientGoal.for_patient": read
 "RpmsRpc::PatientProfile.add_alias": non_idempotent_write
 "RpmsRpc::PatientProfile.add_other_tribe": non_idempotent_write

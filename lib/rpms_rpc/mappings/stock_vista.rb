@@ -949,6 +949,23 @@ module RpmsRpc
       m.scalar :ien
     end
 
+    # OREVNTX PAT — PAT^OREVNTX(ORY,DFN): the patient's waiting delayed-order
+    # events, a count line then PATIENT EVENT (#100.2) IEN ^ "Delayed <event>".
+    # Read by Order.delayed_events.
+    DataMapper.define(:order_delayed_events) do |m|
+      m.rpc "OREVNTX PAT"
+      m.field 0, :event_ien, :integer
+    end
+
+    # ORWORR GET4LST — GET4V11^ORWORR(LST,TXTVW,ORYD,IFNLST) -> GETFLDS: per
+    # order "~IFN;ACT^Grp^OrdTm^Strt^Stop^Sts^Sig^Nrs^Clk^PrvID^PrvNam^Act^
+    # Flagged^DCType^ChartRev^DEA^^DigSig^LOC" then "t" text lines. Read by
+    # Order.details.
+    DataMapper.define(:order_details) do |m|
+      m.rpc "ORWORR GET4LST"
+      m.field 0, :order_id
+    end
+
     # ORWDXC ON — ON^ORWDXC(VAL) (ORWDXC.m:4): "E" when order checking is
     # enabled (ORK SYSTEM ENABLE/DISABLE at DIV^SYS^PKG), otherwise "D".
     DataMapper.define(:order_checking_state) do |m|

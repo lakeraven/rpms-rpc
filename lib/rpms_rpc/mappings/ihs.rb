@@ -683,6 +683,49 @@ module RpmsRpc
       m.field 0, :ien, :integer
     end
 
+    # BGOVTM GET — GET^BGOVTM(RET,INP), INP = VISIT IEN ^ PROVIDER IEN: the V
+    # ACTIVITY TIME (#9000010.19) entry of that provider on the visit as
+    # IEN ^ ACTIVITY TIME ^ TRAVEL MINUTES, 0^0^0 when none, -N^text for a
+    # missing visit or provider. Read by Encounter.activity_time.
+    DataMapper.define(:visit_activity_time) do |m|
+      m.rpc "BGOVTM GET"
+      m.context VUECENTRIC
+      m.field 0, :ien, :integer
+    end
+
+    # BGOVPED2 GETPVED — GETPVED^BGOVPED2(RET,VIEN): the visit's V PATIENT ED
+    # (#9000010.16) entries that name a PROBLEM (1103):
+    #   PROBLEM IEN ^ TOPIC ^ DATE (MM/DD/YYYY) ^ PROVIDER IEN ^ PROVIDER ^
+    #   V PATIENT ED IEN ^ CODE ^ SUBTOPIC ^ LEVEL ^ MINUTES ^ READINESS ^ MNEMONIC
+    # Read by PatientEducation.problem_linked.
+    DataMapper.define(:problem_linked_education) do |m|
+      m.rpc "BGOVPED2 GETPVED"
+      m.context VUECENTRIC
+      m.field 0, :problem_ien, :integer
+    end
+
+    # ORWDXIHS CLININD — CLININD^ORWDXIHS(DATA,DFN,VIEN,OI,SNOMED) -> SNOMED:
+    # the patient's problems with a SNOMED CT concept as clinical indications,
+    # by subscript (1 the visit's POV, 2-6 the problem statuses):
+    #   NARRATIVE ^ POV|PL ^ ICD ^ PROBLEM IEN ^ CONCEPT ID
+    # Read by Order.clinical_indications.
+    DataMapper.define(:order_clinical_indications) do |m|
+      m.rpc "ORWDXIHS CLININD"
+      m.context VUECENTRIC
+      m.field 0, :name
+    end
+
+    # BEHOCACV LIST — LIST^BEHOCACV(DATA,DFN): the patient's postings
+    # (ENCOVER^TIUPP3) then active record flags (GET^BEHOCACV):
+    #   TIU IEN ^ A|C|W|D ^ TITLE ^ MODIFIER ^ DATE ^ ADDENDUM
+    #   ASSIGNMENT IEN ^ F ^ FLAG ^ FLAG TYPE ^ ASSIGNED ^ FLAG NUMBER
+    # The allergies row has no IEN. Read by Patient.postings.
+    DataMapper.define(:patient_postings) do |m|
+      m.rpc "BEHOCACV LIST"
+      m.context VUECENTRIC
+      m.field 1, :letter
+    end
+
     DataMapper.define(:encounter_visit) do |m|
       m.rpc "BEHOENCX GETVISIT"
       m.context VUECENTRIC
