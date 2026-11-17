@@ -58,6 +58,16 @@ module RpmsRpc
     # gate), and it answers for the same persona.
     HELD_KEYS_CONTEXT = "CIAV VUECENTRIC"
 
+    # The option whose RPC multiple registers XUS GET USER INFO, and the only one
+    # (contexts_19_05 on bcer-9.0-20261116-2a9b3fe, both engines). XWB lets the
+    # RPC run in any context: CHKPRMIT^XWBSEC lists it among the RPCs allowed
+    # everywhere. The CIA broker has no such list: CANRUN^CIANBACT answers from
+    # the RPC multiple of the option the frame names, and a user need not hold
+    # that option for the frame to name it. So over CIA the read names XUS
+    # SIGNON, or a user without XUPROGMODE is refused it ("Access denied for
+    # remote procedure: XUS GET USER INFO", #778).
+    USER_INFO_CONTEXT = "XUS SIGNON"
+
     # Sign on with an access/verify pair.
     #
     # The pair crosses the wire ENCRYPTED. XUSRB.VALIDAV always runs
@@ -99,7 +109,7 @@ module RpmsRpc
       # XUS GET USER INFO returns the authenticated session user's info
       # and takes no params; the duz arg is validated here only as an
       # API guard, not passed to the broker.
-      info = DataMapper.user_info.fetch_lines
+      info = session_user_info
       return nil if info.nil? || info[:duz].to_i != duz.to_i
 
       info
@@ -344,6 +354,18 @@ module RpmsRpc
     end
 
     private
+
+    # XUS GET USER INFO, named under USER_INFO_CONTEXT over CIA, where the
+    # context rides on each frame, so the bind and the restore send nothing.
+    # Over XWB and BMX it runs as before: no bind, no extra round trip, and an
+    # XWB sign-on, which reads it before the host binds any context, is left
+    # with no context declared.
+    def session_user_info
+      client = RpmsRpc.client
+      return DataMapper.user_info.fetch_lines unless defined?(RpmsRpc::CiaClient) && client.is_a?(RpmsRpc::CiaClient)
+
+      client.with_context(USER_INFO_CONTEXT) { DataMapper.user_info.fetch_lines }
+    end
 
     # Run a multi-RPC sequence as one uninterruptible unit on the shared
     # client. Reentrant, so nested calls that take the lock themselves are
