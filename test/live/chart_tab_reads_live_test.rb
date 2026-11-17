@@ -32,7 +32,7 @@ class ChartTabReadsLiveTest < LiveSpec::Test
   # ROOT(-1)), not an exam. The demo build files no radiology exam.
   def test_imaging_exams_are_not_the_searched_date_range
     rows = RpmsRpc::Image.exams_for_patient(DFN)
-    rows.each { |row| refute_match(/\A\d{7}\z/, row[:exam_type].to_s, "the date range read as an exam: #{row.inspect}") }
+    rows.each { |row| refute_match(/\A\d{7}\z/, row[:exam_id].to_s, "the date range read as an exam: #{row.inspect}") }
     assert_empty rows, "the demo build has no radiology exam for DFN #{DFN}: #{rows.inspect}"
   end
 
