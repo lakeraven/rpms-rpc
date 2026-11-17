@@ -978,16 +978,23 @@ module RpmsRpc
     # ========================================================================
     # IMAGING (ORWRA IMAGING*, MAG*)
     # ========================================================================
-    # Field positions are best-effort pending wider trace capture.
 
+    # ORWRA IMAGING EXAMS1 — EXAMS1^ORWRA. GET^ORWRA writes each exam row as
+    # SITE ^ ID ^ (9999999.9999-ID) ^ the EN1^RAO7PC1 row, SITE being
+    # "name;station" because EXAMS1 asks for it (ORWRA.m, GET). The exam ID is
+    # the inverse exam date, a dash and the case IEN; the RAO7PC1 row starts
+    # procedure ^ case number ^ report status ^ abnormal alert flag
+    # (RAO7PC1A.m, SETDATA). The reply's first node is BEG^END^MAX, which
+    # Image.exams_for_patient drops. Proven live on a filed exam (#766).
     DataMapper.define(:image_exams) do |m|
       m.rpc "ORWRA IMAGING EXAMS1"
-      m.field 0, :ien, :integer
-      m.field 1, :exam_type
-      m.field 2, :datetime, :fileman_datetime
-      m.field 3, :status
-      m.field 4, :modality
-      m.field 5, :description
+      m.field 0, :site                          # $$SITE^VASITE name;station
+      m.field 1, :exam_id                       # inverse date-case IEN
+      m.field 2, :datetime, :fileman_datetime   # 9999999.9999-ID: the exam date/time
+      m.field 3, :procedure                     # RAD/NUC MED PROCEDURE (#71) name
+      m.field 4, :case_number                   # EXAMINATIONS (#70.03) .01
+      m.field 5, :status                        # report status, "No Report" when none
+      m.field 6, :abnormal                      # abnormal alert flag: Y or empty
     end
 
     # ========================================================================

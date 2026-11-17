@@ -1,0 +1,29 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb orwra-imaging-exams1.rb.
+---
+rpc: ORWRA IMAGING EXAMS1
+entry_point: EXAMS1^ORWRA
+release_tag: bcer-9.0-20261116-2a9b3fe-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:411e11f1804eb48c53cefae1230c218e77980d3070b4d5f775e29411ed67c005
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROFILE,MD (PMD123, a published demo pair)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-17T03:35:20Z'
+note: 'Setup files one radiology exam for DFN 990001 at the server''s NOW: case 12345,
+  procedure ABDOMEN 1 VIEW (#71), GENERAL RADIOLOGY, status EXAMINED, no report.'
+captures:
+- name: exams/1
+  rpc: ORWRA IMAGING EXAMS1
+  inputs:
+  - '990001'
+  context: Image.exams_for_patient of DFN 990001, which has the one exam setup filed
+  raw_return: "5\03261110^3261117^10\rDEMO IHS CLINIC;8904^6738882.9664-1^3261117.0335^ABDOMEN
+    1 VIEW^12345^No Report^^^2~EXAMINED^^RAD~GENERAL RADIOLOGY^^^^N^^\r"
+  sha256: a710a9da57a98bdc9940264d3a3caa51da1df94229edf58ba48a55f7de7e3a7d
+- name: no_exams/1
+  rpc: ORWRA IMAGING EXAMS1
+  inputs:
+  - '4'
+  context: Image.exams_for_patient of DFN 4, which has no radiology exam
+  raw_return: "5\03261110^3261117^10\r"
+  sha256: 0510cf032033917c661e902a13cff779f6bee83cc2657ab555f854a0e0713184
