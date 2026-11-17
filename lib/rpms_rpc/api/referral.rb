@@ -4,6 +4,7 @@ require_relative "../mappings"
 require_relative "../context_scope"
 require_relative "../rcis_wire"
 require_relative "../shape"
+require_relative "ddr_fileman"
 
 module RpmsRpc
   # Symbolic API for referral records. Read via referral_search /
@@ -25,6 +26,9 @@ module RpmsRpc
   # RpmsRpc::Agg does for AGGRPC. A client that cannot scope contexts runs
   # as-is. A programmer-key session bypasses the check either way, so only a
   # non-programmer run is evidence of this bind.
+  #
+  # One call is not a BMC RPC: find first reads the entry with DDR GETS
+  # ENTRY DATA, which BMCRPC does not list, under the caller's option (#767).
   #
   # The BMC methods call their RPC unconditionally. A broker that does not
   # serve it raises Client::RpcNotAvailableError; one that serves it but not
@@ -109,10 +113,26 @@ module RpmsRpc
     end
     shape :pending, resource: "referrals", verb: "GET", path: "/referrals/pending"
 
+    # RCIS REFERRAL, the file BMC GET REFERRAL reads.
+    REFERRAL_FILE = "90001"
+
     # One referral by RCIS REFERRAL (#90001) IEN, with its diagnoses and
     # notes named from the sections GTRFBYID^BMCRPC1 appends (#210).
+    #
+    # Nil for a referral not on file, and for one with no REFERRAL # (.02).
+    # The routine cannot answer either: for an IEN not on file it answers
+    # "Not a valid Referral Ien" as a scalar under a GLOBAL ARRAY RPC
+    # (BMCRPC1.m:57), which the broker reads as a global name and raises an
+    # M error on; and it finds the record by .02 on the C index
+    # (BMCRPC1.m:62-65), so a referral without a number dies with GVUNDEF
+    # ^TMP($J,"PRNRC",1) (#767). RCIS always files a number, so the second is
+    # a data problem, not a referral a user made. find checks both with DDR
+    # GETS ENTRY DATA (.01, .02) under the caller's context first, and does
+    # not call BMC GET REFERRAL when the entry is missing or has no number.
+    # When that check gets no reply at all, find reads as it did before it.
     def find(ien)
       return nil if ien.nil?
+      return nil if numbered?(ien) == false
 
       record = in_context { DataMapper.referral_detail.fetch_one(ien.to_s) }
       record && name_sections(record)
@@ -297,6 +317,16 @@ module RpmsRpc
     # Bind BMCRPC for the duration of the block and restore the caller's
     # option afterward (a no-op round-trip-wise when BMCRPC is already bound).
     # Every wire-reaching path below goes through here.
+    # True when the referral is on file with a REFERRAL # (.02), false when it
+    # is not on file or has none, nil when DDR GETS ENTRY DATA gave no reply.
+    def numbered?(ien)
+      entry = DdrFileman.gets_entry(file: REFERRAL_FILE, iens: "#{ien},", fields: ".01;.02", flags: "I")
+      return nil if entry.nil?
+      return false if entry[:error]
+
+      !entry[:fields].dig(".01", :internal).to_s.empty? && !entry[:fields].dig(".02", :internal).to_s.empty?
+    end
+
     def in_context(&block)
       ContextScope.scoped(RpmsRpc.client, CONTEXT, &block)
     end

@@ -70,6 +70,29 @@ class ReferralCancelLiveTest < LiveSpec::Test
     puts "\n#{persona}: Referral.find(#{ien}) read referral #{number} of DFN #{record[:patient_dfn]}"
   end
 
+  # GTRFBYID^BMCRPC1 answers "Not a valid Referral Ien" as a scalar under a
+  # GLOBAL ARRAY RPC (BMCRPC1.m:57), so the broker raised an M error reading
+  # it as a global name (#767). find answers nil instead.
+  def test_find_of_a_referral_not_on_file_answers_nil
+    assert_nil status_of("999999999"), "a referral 999999999 is on file"
+    assert_nil RpmsRpc::Referral.find("999999999")
+  end
+
+  # A referral with no REFERRAL # (.02) is one RCIS never files, and
+  # GTRFBYID^BMCRPC1 cannot read it: it looks the record up by .02 on the C
+  # index, finds nothing and dies with GVUNDEF ^TMP($J,"PRNRC",1) (#767).
+  # find answers nil. The spec files one with DDR FILER and deletes it.
+  def test_find_of_a_referral_with_no_number_answers_nil
+    ien = file_fixture
+    begin
+      entry = RpmsRpc::DdrFileman.gets_entry(file: REFERRAL_FILE, iens: "#{ien},", fields: ".02", flags: "I")
+      assert_equal "", entry[:fields].dig(".02", :internal).to_s, "the fixture referral #{ien} has a REFERRAL #"
+      assert_nil RpmsRpc::Referral.find(ien)
+    ensure
+      delete_referral(ien)
+    end
+  end
+
   def test_cancel_of_a_non_ien_answers_without_the_wire
     refute RpmsRpc::Referral.cancel(nil)[:success]
     refute RpmsRpc::Referral.cancel("0")[:success]
@@ -115,6 +138,14 @@ class ReferralCancelLiveTest < LiveSpec::Test
     filed = RpmsRpc::DdrFileman.filer(mode: "ADD", rows: rows)
     assert filed && filed[:success], "DDR FILER could not file a fixture referral: #{filed.inspect}"
     filed[:iens].fetch(1)
+  end
+
+  # FileMan deletes an entry when its .01 is filed as "@".
+  def delete_referral(ien)
+    rows = [ { file: REFERRAL_FILE, field: ".01", iens: "#{ien},", value: "@" } ]
+    deleted = RpmsRpc::DdrFileman.filer(mode: "EDIT", rows: rows)
+    assert deleted && deleted[:success], "DDR FILER could not delete fixture referral #{ien}: #{deleted.inspect}"
+    assert_nil status_of(ien), "fixture referral #{ien} is still on file after the delete"
   end
 
   def today_fileman
