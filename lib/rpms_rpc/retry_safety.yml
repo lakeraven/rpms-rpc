@@ -126,6 +126,9 @@
 "RpmsRpc::ClinicalEvent.visit_status": read
 "RpmsRpc::ClinicalReview.for_visit": read
 "RpmsRpc::ClinicalReview.record": non_idempotent_write
+"RpmsRpc::Consult.find": read
+"RpmsRpc::Consult.for_patient": read
+"RpmsRpc::Consult.resubmittable": read
 "RpmsRpc::Coverage.add_medicaid": non_idempotent_write
 "RpmsRpc::Coverage.add_medicare": non_idempotent_write
 "RpmsRpc::Coverage.add_private_insurance": non_idempotent_write
@@ -364,6 +367,10 @@
 "RpmsRpc::RegistrationSetup.rename_eligibility_modifier": non_idempotent_write
 "RpmsRpc::RegistrationSetup.update_local_flag": non_idempotent_write
 "RpmsRpc::Reminders.applicable": read
+"RpmsRpc::Reminders.categories": read
+"RpmsRpc::Reminders.education_topics": read
+"RpmsRpc::Reminders.unevaluated": read
+"RpmsRpc::Reminders.web_references": read
 "RpmsRpc::Scheduling.add_appointment": non_idempotent_write
 "RpmsRpc::Scheduling.add_availability": non_idempotent_write
 "RpmsRpc::Scheduling.all_appointments": non_idempotent_write

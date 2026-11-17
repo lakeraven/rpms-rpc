@@ -29,6 +29,9 @@ RpmsRpc::ClinicalEvent.skin_test_types	GET /clinical-events/skin-test-types
 RpmsRpc::ClinicalEvent.visit_for_note	GET /progress-notes/{note_ien}/clinical-events/patients/{dfn}/visit
 RpmsRpc::ClinicalEvent.visit_status	GET /progress-notes/{note_ien}/clinical-events/patients/{dfn}/visit-status
 RpmsRpc::ClinicalReview.for_visit	GET /patients/{dfn}/clinical-reviews/visits/{visit_ien}
+RpmsRpc::Consult.find	GET /consults/{consult_ien}
+RpmsRpc::Consult.for_patient	GET /patients/{dfn}/consults
+RpmsRpc::Consult.resubmittable	GET /consults/{consult_ien}/resubmittable
 RpmsRpc::Coverage.for_patient	GET /patients/{dfn}/coverages
 RpmsRpc::Coverage.insurers	GET /coverages/insurers
 RpmsRpc::Coverage.on_file	GET /patients/{dfn}/coverages/on-file
@@ -139,6 +142,10 @@ RpmsRpc::RegistrationSetup.local_flag	GET /registration-setups/{ien}/local-flag
 RpmsRpc::RegistrationSetup.local_flag_history	GET /registration-setups/{ien}/local-flag-history
 RpmsRpc::RegistrationSetup.local_flags	GET /registration-setups/local-flags
 RpmsRpc::Reminders.applicable	GET /patients/{dfn}/reminders/applicable
+RpmsRpc::Reminders.categories	GET /patients/{dfn}/reminders/categories
+RpmsRpc::Reminders.education_topics	GET /reminders/{reminder_ien}/education-topics
+RpmsRpc::Reminders.unevaluated	GET /patients/{dfn}/reminders/unevaluated
+RpmsRpc::Reminders.web_references	GET /reminders/{reminder_ien}/web-references
 RpmsRpc::Scheduling.checkin_visit	GET /patients/{dfn}/appointments/clinics/{clinic_ien}/checkin-visit
 RpmsRpc::Scheduling.patient_appointments	GET /patients/{dfn}/appointments
 RpmsRpc::Scheduling.resources	GET /appointments/resources
