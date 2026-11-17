@@ -162,19 +162,58 @@ module ApiCoverage
   end
 
   # `RpmsRpc::Module.method` call sites in live spec sources: { "RpmsRpc::Patient" => { find: ["test/live/x.rb:12"] } }.
+  # A spec may name the module through a constant (`BH = RpmsRpc::BehavioralHealth`, then `BH::Groups.x`) or a
+  # one-line helper with no parameters (`def maint = RpmsRpc::SchedulingMaintenance`, then `maint.x`); both resolve
+  # to the module, per file (rpms-rpc#765).
   def live_call_sites(files, root:)
     out = Hash.new { |h, k| h[k] = Hash.new { |hh, kk| hh[kk] = [] } }
     files.sort.each do |f|
-      walk(Prism.parse_file(f).value) do |n|
+      program = Prism.parse_file(f).value
+      consts, helpers = module_aliases(program)
+      walk(program) do |n|
         next unless n.is_a?(Prism::CallNode)
 
-        const = const_name(n.receiver)
+        const = live_receiver(n.receiver, consts, helpers)
         next unless const&.start_with?("RpmsRpc::")
 
         out[const][n.name] << "#{rel(f, root)}:#{n.location.start_line}"
       end
     end
     out
+  end
+
+  # { "BH" => "RpmsRpc::BehavioralHealth" } for constants, { maint: "RpmsRpc::SchedulingMaintenance" } for helpers.
+  def module_aliases(program)
+    consts = {}
+    helpers = {}
+    walk(program) do |n|
+      case n
+      when Prism::ConstantWriteNode
+        target = const_name(n.value)
+        consts[n.name.to_s] = target if target&.start_with?("RpmsRpc::")
+      when Prism::DefNode
+        next if n.receiver || n.parameters
+
+        body = n.body.is_a?(Prism::StatementsNode) && n.body.body.size == 1 ? n.body.body.first : n.body
+        target = const_name(body)
+        helpers[n.name] = target if target&.start_with?("RpmsRpc::")
+      end
+    end
+    [ consts, helpers ]
+  end
+
+  def live_receiver(node, consts, helpers)
+    if node.is_a?(Prism::CallNode) && node.receiver.nil? && node.arguments.nil? && node.block.nil?
+      return helpers[node.name]
+    end
+
+    name = const_name(node)
+    return unless name
+
+    head, rest = name.split("::", 2)
+    return name unless consts.key?(head)
+
+    [ consts[head], rest ].compact.join("::")
   end
 
   def rel(path, root) = path.delete_prefix("#{File.expand_path(root)}/")
