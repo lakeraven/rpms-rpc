@@ -191,6 +191,9 @@
 "RpmsRpc::ImmunizationLot.list": read
 "RpmsRpc::ImmunizationRefusal.reasons": read
 "RpmsRpc::ImmunizationRefusal.record": non_idempotent_write
+"RpmsRpc::Lab.cover_sheet_orders": read
+"RpmsRpc::Lab.result_date_range": read
+"RpmsRpc::Lab.specimen": read
 "RpmsRpc::Location.find": read
 "RpmsRpc::Location.search": read
 "RpmsRpc::Measurement.add": non_idempotent_write
@@ -202,6 +205,7 @@
 "RpmsRpc::Medication.active_for_patient": read
 "RpmsRpc::Medication.find": read
 "RpmsRpc::Medication.for_patient": read
+"RpmsRpc::Medication.profile": read
 "RpmsRpc::NoteTemplate.access_level": read
 "RpmsRpc::NoteTemplate.boilerplate": read
 "RpmsRpc::NoteTemplate.items": read
@@ -441,6 +445,8 @@
 "RpmsRpc::Vital.add": non_idempotent_write
 "RpmsRpc::Vital.build_save_payload": read
 "RpmsRpc::Vital.for_patient": read
+"RpmsRpc::Vital.grid": read
+"RpmsRpc::Vital.latest_by_type": read
 "RpmsRpc::Vital.template": read
 "RpmsRpc::Vital.validate": read
 "RpmsRpc::WaitList.add": non_idempotent_write

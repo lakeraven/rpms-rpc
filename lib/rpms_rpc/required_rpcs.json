@@ -220,6 +220,11 @@
       "BGOREF SET",
       "ORWU DT"
     ],
+    "RpmsRpc::Lab": [
+      "BEHOLRCV LIST",
+      "ORWLRR INTERIMG",
+      "ORWLRR NEWOLD"
+    ],
     "RpmsRpc::Location": [
       "DDR GETS ENTRY DATA",
       "DDR LISTER"
@@ -234,6 +239,7 @@
       "ORQQVI VITALS"
     ],
     "RpmsRpc::Medication": [
+      "BEHORXFN GETRXS",
       "ORQQPS DETAIL",
       "ORQQPS LIST",
       "ORWPS ACTIVE"
@@ -491,6 +497,8 @@
       "XUS GET USER INFO"
     ],
     "RpmsRpc::Vital": [
+      "BEHOVM GRID",
+      "BEHOVM LIST",
       "BEHOVM SAVE",
       "BEHOVM TEMPLATE",
       "BEHOVM VALIDATE",

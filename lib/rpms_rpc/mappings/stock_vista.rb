@@ -649,6 +649,30 @@ module RpmsRpc
     end
 
     # ========================================================================
+    # LABORATORY (ORWLRR*)
+    # ========================================================================
+
+    # ORWLRR NEWOLD — NEWOLD^ORWLRR(ORY,DFN) -> NEWOLD^LR7OGMU: NEWEST^OLDEST,
+    # the FileMan dates of the patient's newest and oldest LAB DATA (#63)
+    # results; "^" when there is none.
+    DataMapper.define(:lab_result_date_range) do |m|
+      m.rpc "ORWLRR NEWOLD"
+      m.field 0, :newest
+    end
+
+    # ORWLRR INTERIMG — INTERIMG^ORWLRR(ORY,DFN,DATE1,DIR,FORMAT) ->
+    # INTERIMG^LR7OGM: one specimen from DATE1, DIR 1 older or -1 newer.
+    # With FORMAT 1 a chemistry specimen is the header TEST COUNT^CH^
+    # COLLECTED^SPECIMEN IEN^SPECIMEN^ACCESSION^PROVIDER (CH^LR7OGMC,
+    # GRID^LR7OGMG), TEST COUNT rows TEST IEN^NAME^VALUE^FLAG^UNITS^RANGE
+    # (LOINC piece 15), then report text. Nothing when the patient has no
+    # lab data that way. Read by Lab.specimen.
+    DataMapper.define(:lab_specimen) do |m|
+      m.rpc "ORWLRR INTERIMG"
+      m.field 0, :count
+    end
+
+    # ========================================================================
     # SCALAR / BOOLEAN RPCs
     # ========================================================================
 

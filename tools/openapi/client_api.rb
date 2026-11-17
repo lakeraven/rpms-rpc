@@ -44,6 +44,7 @@ module OpenApi
       "Image" => { path: "images" },
       "Immunization" => { path: "immunizations" },
       "ImmunizationRefusal" => { path: "immunization-refusals" },
+      "Lab" => { path: "labs" },
       "Location" => { path: "locations" },
       "Measurement" => { path: "measurements" },
       "Medication" => { path: "medications", own: %w[medication_id] },

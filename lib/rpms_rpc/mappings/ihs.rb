@@ -86,6 +86,54 @@ module RpmsRpc
       m.scalar :validated_value
     end
 
+    # BEHOVM LIST — LIST^BEHOVM(DATA,DFN,START,END,VITS,VSTR,METRIC,PTST,FSDATA)
+    # (BEHOVM.m:6): the latest measurement of each vital on BEHOVM VITAL
+    # LIST (QUERY^BEHOVM with RMAX 1), LISTX's row (BEHOVM.m:12-17):
+    #   V MEASUREMENT IEN ^ NAME ^ ABBR ^ DATE/TIME ^ VALUE UNITS ^
+    #   OTHER-SYSTEM VALUE UNITS ^ QUALIFIERS
+    # Read by Vital.latest_by_type.
+    DataMapper.define(:vital_latest_by_type) do |m|
+      m.rpc "BEHOVM LIST"
+      m.context VUECENTRIC
+      m.field 0, :measurement_ien, :integer
+    end
+
+    # BEHOVM GRID — GRID^BEHOVM(DATA,DFN,START,END,RMAX,VITS,VSTR,METRIC,SD,
+    # FSDATA,PTST) (BEHOVM.m:40): header VITALS^DATES^RESULTS, the vital rows
+    # (VCTL^VTYP^NAME^ABBR^UNITS^LOW^HIGH^PCTILE RPC^HAS QUALIFIERS^SD,
+    # QUERY^BEHOVM), the date rows (N^DATE) and the result rows (DATE N^
+    # VITAL N^VALUE^FLAG^VIEN^QUALIFIERS, GRIDX BEHOVM.m:48-54). Read by
+    # Vital.grid; the same layout BEHOVM TEMPLATE answers.
+    DataMapper.define(:vital_grid) do |m|
+      m.rpc "BEHOVM GRID"
+      m.context VUECENTRIC
+      m.field 0, :count, :integer
+    end
+
+    # BEHORXFN GETRXS — GETRXS^BEHORXFN(DATA,DFN,DAYS): the medication
+    # profile from OCL^PSOORRL over the last DAYS (default 365), one header
+    # per medication then its lines (ADDOUT):
+    #   ~TYPE ^ OCL PIECES 1-12 ^ CHRONIC ^ START ^ RX # ^ PROVIDER ^ REASON ^
+    #     DEA ^ LOCATION ^ INDICATION ^ DAW ^ NON-VA ^ NDC ^ RXNORM ^ STATE ^
+    #     E-PHARMACY ^ DOSE SIG ^ PICKUP
+    #   instruction lines, and "t"-prefixed comment and reason lines
+    # Read by Medication.profile.
+    DataMapper.define(:medication_profile) do |m|
+      m.rpc "BEHORXFN GETRXS"
+      m.context VUECENTRIC
+      m.text_blob :profile_text
+    end
+
+    # BEHOLRCV LIST — LIST^BEHOLRCV(DATA,DFN) -> LIST^ORQOR1 for display
+    # group LAB from T-(BEHOLRCV DATE RANGE) to T:
+    #   ORDER IEN ^ ORDER TEXT (60) ^ START ^ STATUS NAME
+    # "^No orders found." when none. Read by Lab.cover_sheet_orders.
+    DataMapper.define(:lab_cover_sheet_orders) do |m|
+      m.rpc "BEHOLRCV LIST"
+      m.context VUECENTRIC
+      m.field 0, :order_id
+    end
+
     # BEHOVM SAVE — bulk vital save (scalar)
     # Returns "0" for success; non-zero/non-empty for error.
     DataMapper.define(:vital_save) do |m|
