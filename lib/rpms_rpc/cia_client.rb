@@ -524,12 +524,16 @@ module RpmsRpc
     end
 
     # Keep the broker session open: the {CIA} poll ACTION ("P", ACTP^CIANBACT,
-    # CIANBACT.m:32), the frame VueCentric sends between RPCs. The listener reads
-    # each frame with a 10 s timeout and ends a session that sends nothing for
-    # about 45 s (CIARETRY, CIANBLIS.m:152 and :223; measured on a 7c3119b build:
-    # idle 45 s still answers, idle 60 s is closed). A host that keeps a signed-in
-    # user's session polls at the interval RPMS returns; when the user's own idle
-    # limit passes, it stops polling and the broker ends the session.
+    # CIANBACT.m:32), the frame VueCentric sends between RPCs. Stock CIANBLIS
+    # reads each frame header with a 10 s timeout (DOACTION, $$TCPREAD(8,10));
+    # each empty read adds .5 to CIARETRY in concurrent mode (TCPREAD) and the
+    # session ends when CIARETRY>5 (QUIT): 11 empty reads, about 110 s
+    # (measured on IRIS: closed after 110.2 s, rpms-rpc#707). The YottaDB
+    # image's own CIA listener (openrpms ZBROKER) closes sooner, at 60 s, so a
+    # host polls well inside 60 s to hold a session on either engine. A host
+    # that keeps a signed-in user's session polls at the interval RPMS returns;
+    # when the user's own idle limit passes, it stops polling and the broker
+    # ends the session.
     #
     # Returns { interval: seconds (the CIANB POLLING INTERVAL parameter, default
     # 60), server_time: Time }. Raises ConnectionError when not connected.
@@ -689,7 +693,8 @@ module RpmsRpc
     # ACTD^CIANBACT (CIANBACT.m:24-27): it runs RESET^CIANBRPC() — the session
     # logout and cleanup — then sets CIADATA=1 and CIAQUIT=1. CIAQUIT makes the
     # listener's QUIT() return true (CIANBLIS.m:151-152), so the main loop stops
-    # and TCPCLOSE runs (CIANBLIS.m:114-117) instead of the ~45 s retry drain.
+    # and TCPCLOSE runs (CIANBLIS.m:114-117) instead of the idle retry drain
+    # (about 110 s stock, 60 s on the YottaDB listener; #poll).
     #
     # RESET^CIANBRPC quits immediately unless CIA("UID") is set
     # (CIANBRPC.m:102), and DOACTION only populates CIA("UID") from a UID field
