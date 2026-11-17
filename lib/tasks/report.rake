@@ -20,7 +20,9 @@
 # Sign-on: PROV123_ACCESS, PROV123_VERIFY, SYS123_ACCESS, SYS123_VERIFY.
 # Those values are handed only to that persona's rake test:live child.
 # Output: <rpms-diffs>/rpc-coverage/daily/<date>-<build>.md
-# (RPMS_DIFFS_DIR selects the checkout). The task exits with the report status.
+# (RPMS_DIFFS_DIR selects the checkout). Each suite's output, redacted like
+# the report, is kept beside it as <date>-<build>.<suite id>.log and linked
+# from the suite's row (#757). The task exits with the report status.
 namespace :report do
   desc "Run rake test and rake test:live for PROV123 and SYS123, and write rpc-coverage/daily/<date>-<build>.md"
   task :daily do
