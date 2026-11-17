@@ -161,9 +161,9 @@ module RpmsRpc
     end
 
     # The longest the keeper sleeps between passes. The CIA listener ends a
-    # session that sends nothing for about 45 s (CIANBLIS, measured on a
-    # 7c3119b build), so a pass must come sooner than that whatever polling
-    # interval the server names.
+    # session that sends nothing for about 110 s on stock CIANBLIS and 60 s on
+    # the YottaDB listener (CiaClient#poll, rpms-rpc#707), so a pass must come
+    # well inside the shorter whatever polling interval the server names.
     KEEPER_MAX_INTERVAL = 20
 
     # The user of `session_key` did something: keep the session open for

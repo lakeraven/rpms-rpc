@@ -5,14 +5,15 @@ require "rpms_rpc/session_pool"
 
 # SessionPool's keeper on a real broker: each pooled session stays open as
 # long as its own user may sit idle, and ends after. The CIA listener ends a
-# session that sends nothing for about 45 s, so a session kept past that,
+# session that sends nothing after about 110 s on stock CIANBLIS (IRIS) and
+# 60 s on the YottaDB listener (rpms-rpc#707), so a session kept past both,
 # and still answering as its user, was kept by the keeper's polls; the other
 # session, whose limit passed, is released and disconnected. Two demo
 # personas from the build's published seed pairs sign on; it reads only.
-# Runs for about 75 seconds.
+# Runs for about 125 seconds.
 class SessionPoolKeeperLiveTest < LiveSpec::Test
   PAIRS = [ [ "PSCH123", "PSCH123!!" ], [ "PREG123", "PREG123!!" ] ].freeze
-  KEPT_FOR = 75
+  KEPT_FOR = 125
 
   def signed_on(pair)
     c = RpmsRpc::CiaClient.new(host: ENV.fetch("BROKER_HOST"), port: Integer(ENV.fetch("BROKER_PORT")), timeout: 30)

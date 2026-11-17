@@ -357,7 +357,7 @@ Bind only options the signed-on user holds, and treat `4 Access denied for remot
 ### Keep-alive and disconnect
 
 - **Poll** (action `P`, field `UID`): answers `interval^server time`, the interval from the `CIANB POLLING INTERVAL` parameter (`cia_client.rb:471-486`).
-  The listener ends a session that sends nothing for about 45 seconds (measured; `cia_client.rb:473-477`).
+  The listener ends a session that sends nothing: stock `CIANBLIS` after 11 empty 10-second header reads, about 110 seconds (`TCPREAD` and `QUIT`), and the YottaDB image's own listener after 60 seconds (both measured, rpms-rpc#707). Poll well inside 60 seconds to hold a session on either engine.
 - **Disconnect** (action `D`, field `UID`): runs the session logout and stops the listener (`ACTD`, `CIANBACT.m:24-26`).
   Send it before closing: it needs the UID to release the session's locks and `^XTMP` state, and a peer that simply vanishes leaves the listener draining a dead socket until its retry bound while the next connection waits (rpms-rpc#192; `cia_client.rb:594-617`).
   The broker may close before its reply arrives; that is a clean quit.
