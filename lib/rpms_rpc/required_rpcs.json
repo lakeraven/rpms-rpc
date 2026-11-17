@@ -141,6 +141,11 @@
       "BGOVUPD SET",
       "DDR LISTER"
     ],
+    "RpmsRpc::Consult": [
+      "ORQQCN CANEDIT",
+      "ORQQCN GET CONSULT",
+      "ORQQCN LIST"
+    ],
     "RpmsRpc::Coverage": [
       "AGG BUILD WINDOW DISPLAY",
       "AGG BUILD WINDOW MANY",
@@ -419,7 +424,11 @@
       "ORWU DT"
     ],
     "RpmsRpc::Reminders": [
-      "ORQQPXRM REMINDERS APPLICABLE"
+      "ORQQPXRM EDUCATION SUMMARY",
+      "ORQQPXRM REMINDER CATEGORIES",
+      "ORQQPXRM REMINDER WEB",
+      "ORQQPXRM REMINDERS APPLICABLE",
+      "ORQQPXRM REMINDERS UNEVALUATED"
     ],
     "RpmsRpc::Scheduling": [
       "BEHOENCX FETCH",

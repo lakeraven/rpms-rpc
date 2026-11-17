@@ -32,6 +32,7 @@ module OpenApi
       "Busa" => { path: "busa" },
       "ChiefComplaint" => { path: "chief-complaints" },
       "ClinicalReview" => { path: "clinical-reviews" },
+      "Consult" => { path: "consults", own: %w[consult_ien] },
       "DdrFileman" => { path: "files", own: %w[file] },
       "DgSensitive" => { path: "sensitive-records" },
       "ESignature" => { path: "signatures" },

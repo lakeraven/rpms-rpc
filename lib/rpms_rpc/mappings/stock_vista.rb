@@ -573,6 +573,81 @@ module RpmsRpc
       m.text_blob :detail_text
     end
 
+    # ORQQPXRM REMINDER CATEGORIES — CATEGORY^ORQQPXRM(ORY,ORPT,ORLOC) ->
+    # CATEGORY^PXRMRPCA (PXRMRPCA.m): the categories the PXRM CPRS LOOKUP
+    # CATEGORIES parameter names at USR^LOC^SRV^DIV^SYS^PKG, each followed
+    # by its CPRS reminders (GETLST^PXRMRPCA), as a tree:
+    #   UNIQUE ID ^ C ^ CATEGORY NAME ^ PARENT ID ^
+    #   UNIQUE ID ^ R ^ PRINT NAME ^ PARENT ID ^ REMINDER IEN ^ DIALOG (1/0)
+    # "^Error: text" when the parameter read fails. Read by
+    # Reminders.categories.
+    DataMapper.define(:reminder_categories) do |m|
+      m.rpc "ORQQPXRM REMINDER CATEGORIES"
+      m.field 0, :id, :integer
+    end
+
+    # ORQQPXRM REMINDERS UNEVALUATED — LIST^ORQQPXRM(ORY,ORPT,ORLOC) ->
+    # GETLIST^ORQQPX(.ORY,ORLOC): the cover-sheet reminders for the user's
+    # location, service, division, system and package, not evaluated; one
+    # REMINDER DEFINITION (#811.9) IEN per line. ORPT is not read.
+    DataMapper.define(:reminders_unevaluated) do |m|
+      m.rpc "ORQQPXRM REMINDERS UNEVALUATED"
+      m.field 0, :ien, :integer
+    end
+
+    # ORQQPXRM EDUCATION SUMMARY — EDL^ORQQPXRM(ORY,OREM) -> EDL^PXRMRPCB:
+    # the EDUCATION TOPICS (#9999999.09) among a reminder's findings, direct
+    # or through a reminder term (#811.5):
+    #   TOPIC IEN ^ NAME ^ PRINT NAME
+    DataMapper.define(:reminder_education_topics) do |m|
+      m.rpc "ORQQPXRM EDUCATION SUMMARY"
+      m.field 0, :ien,        :integer
+      m.field 1, :name
+      m.field 2, :print_name
+    end
+
+    # ORQQPXRM REMINDER WEB — WEB^ORQQPXRM(ORY,ORREM) -> WEB^PXRMRPCA: the
+    # reminder's own web sites (#811.9 multiple 50), then the general ones
+    # (CLINICAL REMINDER PARAMETERS #800, multiple 1), each alphabetical:
+    #   1 ^ UNIQUE ID ^ URL ^ TITLE
+    #   2 ^ UNIQUE ID ^ DESCRIPTION LINE      (zero or more)
+    # Read by Reminders.web_references.
+    DataMapper.define(:reminder_web_references) do |m|
+      m.rpc "ORQQPXRM REMINDER WEB"
+      m.field 0, :line_type, :integer
+    end
+
+    # ========================================================================
+    # CONSULTS (ORQQCN*)
+    # ========================================================================
+
+    # ORQQCN LIST — LIST^ORQQCN(ORY,ORPT,ORSDT,OREDT,ORSERV,ORSTATUS)
+    # (ORQQCN.m:3) -> OER^GMRCSLM1 with GMRCOER=2 (GMRCSLM1.m:76-90):
+    #   IEN ^ REQUEST DATE ^ STATUS ABBR ^ TO SERVICE ^ Consult|PROCEDURE ^
+    #   "*" (significant findings) ^ TITLE ^ ORDER IEN ^ TYPE (C,P,M,I,R)
+    # or "< PATIENT DOES NOT HAVE ANY CONSULTS/REQUESTS  ON FILE. >" (:93).
+    # Read by Consult.for_patient.
+    DataMapper.define(:consult_list) do |m|
+      m.rpc "ORQQCN LIST"
+      m.field 0, :ien, :integer
+    end
+
+    # ORQQCN GET CONSULT — GETCSLT^ORQQCN1(ORY,ORIEN,SHOWADD) (ORQQCN1.m:63):
+    # line 0 the REQUEST/CONSULTATION (#123) zero node, piece 14 "DUZ;NAME";
+    # then each linked result. "-1^Invalid consult" for an IEN not on file.
+    # Read by Consult.find.
+    DataMapper.define(:consult_record) do |m|
+      m.rpc "ORQQCN GET CONSULT"
+      m.field 0, :entered_at
+    end
+
+    # ORQQCN CANEDIT — CANEDIT^ORQQCN1(Y,GMRCO) (ORQQCN1.m:117):
+    # $$EDRESOK^GMRCEDT2, "1" or "0^reason".
+    DataMapper.define(:consult_resubmittable) do |m|
+      m.rpc "ORQQCN CANEDIT"
+      m.scalar :answer
+    end
+
     # ========================================================================
     # SCALAR / BOOLEAN RPCs
     # ========================================================================
