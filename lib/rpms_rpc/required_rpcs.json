@@ -2063,6 +2063,7 @@
         "test/fixtures/captured_replies/registration-edits.yml",
         "test/fixtures/captured_replies/registration-parameters.yml",
         "test/fixtures/captured_replies/registration-preferred-name.yml",
+        "test/fixtures/captured_replies/tribal.yml",
         "test/fixtures/wire_captures/ddr-gets-entry-data.yml"
       ]
     },
@@ -2158,7 +2159,8 @@
         "test/fixtures/captured_replies/immunization-lot.yml",
         "test/fixtures/captured_replies/registration-bprm418.yml",
         "test/fixtures/captured_replies/registration-edits.yml",
-        "test/fixtures/captured_replies/registration-parameters.yml"
+        "test/fixtures/captured_replies/registration-parameters.yml",
+        "test/fixtures/captured_replies/tribal.yml"
       ]
     },
     "DDR LOCK/UNLOCK NODE": {
@@ -2180,7 +2182,9 @@
         "RpmsRpc::SchedulingSetup.add_clinic_provider": "non_idempotent_write",
         "RpmsRpc::Tribal.validate": "read"
       },
-      "replies": []
+      "replies": [
+        "test/fixtures/captured_replies/tribal.yml"
+      ]
     },
     "DG SENSITIVE RECORD ACCESS": {
       "methods": {
