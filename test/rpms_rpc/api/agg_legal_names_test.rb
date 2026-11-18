@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "json"
 require "rpms_rpc/client"
 require "rpms_rpc/mock_client"
 require "rpms_rpc/retry_safety"
@@ -168,6 +169,30 @@ class AggLegalNamesTest < Minitest::Test
       %w[AGGLNMC AGGLGDOC AGGLNDTC].each do |name|
         assert_refused :invalid_param, "#{name} #{bad.encoding} #{bad.b.inspect}",
                        dfn: DFN, proc: "", rien: RIEN, params: { name => bad }
+      end
+    end
+  end
+
+  # A refusal is the shaped result of PUT /patients/{dfn}/agg/legal-names, so
+  # it has to serialise: a key whose bytes are not UTF-8 is named in the
+  # message by its inspect form, never by its raw bytes (rpms-rpc#627).
+  def test_every_refusal_for_a_non_utf8_key_serialises_with_json_generate
+    seed_happy
+    keys = [ "\xFF".b, "\xC3".b, "AGG\xFFLNMC".b, "\xFF".b.to_sym, "AGG\xFFLNMC".b.to_sym,
+             "\xFF".b.force_encoding(Encoding::Windows_1252), "\xFF".b.force_encoding(Encoding::UTF_8) ]
+    keys.each do |key|
+      shown = key.to_s.b.inspect
+      [ nil, 5, :sym, 1.5, [ "SYNTH,LEGAL" ], "SYNTH,LEGAL" ].each do |value|
+        [ { key => value }, { key => value, "AGGLNMC" => "SYNTH,LEGAL" }, { "AGGLNMC" => "SYNTH,LEGAL", key => value } ].each do |params|
+          [ "A", "", "D" ].each do |proc|
+            label = "proc #{proc.inspect} key #{key.class} #{key.encoding} #{shown} value #{value.inspect} of #{params.size}"
+            result = assert_refused :invalid_param, label, dfn: DFN, proc: proc, rien: RIEN, params: params
+            assert_serialisable_refusal result, label
+            next if value.is_a?(String)
+
+            assert_includes result[:message], shown, "#{label}: the message names the key by its inspect form"
+          end
+        end
       end
     end
   end
@@ -552,6 +577,21 @@ class AggLegalNamesTest < Minitest::Test
     assert_empty @mock.received_calls, "#{label}: no RPC may be sent"
     refute result.key?(:written), "#{label}: nothing was sent, so no :written"
     result
+  end
+
+  # A refusal whose message is text JSON can carry: not binary, valid, and
+  # generated without raising.
+  def assert_serialisable_refusal(result, label)
+    message = result[:message]
+    json = begin
+      JSON.generate(result)
+    rescue JSON::GeneratorError, EncodingError => e
+      flunk "#{label}: JSON.generate raised #{e.class}: #{e.message} for the message #{message.inspect}"
+    end
+    refute_equal Encoding::BINARY, message.encoding, "#{label}: the message is ASCII-8BIT (#{message.inspect})"
+    assert message.valid_encoding?, "#{label}: the message is not valid #{message.encoding}"
+    assert message.dup.force_encoding(Encoding::UTF_8).valid_encoding?, "#{label}: the message bytes are not UTF-8"
+    assert_equal result[:message], JSON.parse(json).fetch("message"), "#{label}: the message survives JSON"
   end
 
   # A refusal decided by the ownership read: the read ran, LEGL did not.
