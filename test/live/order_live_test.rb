@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require_relative "live_helper"
-require "rpms_rpc/api/authentication"
 require "rpms_rpc/api/order"
 require "rpms_rpc/api/ddr_fileman"
 
@@ -11,17 +10,17 @@ require "rpms_rpc/api/ddr_fileman"
 # RESULT HISTORY). They replace the fabricated-reply cases of order_test.rb.
 #
 # What the build holds decides what a reply can show: SEEDORD (openrpms#723)
-# puts one unsigned order on file 100 on the pinned build (and the 1029 build),
-# so list and result_history row-layout specs fail closed if file 100 is empty.
-# unsigned_for_patient (ORWOR UNSIGN) may still answer no rows when any of
-# three separate gates apply: ORWOR.m:122 quits without ORES, ORELSE, or
-# ^ORAM(103,DFN); ORWOR.m:124-129 quits when OR UNSIGNED ORDERS ON EXIT is 0
-# or unset (ORELSE forces 1); ORWOR.m:130 finds no ^OR(100,"AS") for the patient (#391).
+# puts one unsigned order on file 100, so the list, unsigned and
+# result_history row-layout specs fail closed if file 100 is empty.
 #
-# Every RPC here is in CIAV VUECENTRIC, the option sign-on binds, for PROV123
-# and the programmer alike. These specs read only; they file nothing.
+# The specs run as the physician, PROFILE,MD, who authored that order:
+# ORWOR UNSIGN lists an unsigned order only to a user who may act on it
+# (ORWOR.m:122 needs ORES, ORELSE or a ^ORAM(103,DFN) entry, and ORWOR.m:130
+# reads the patient's ^OR(100,"AS") entries), so for any other persona it
+# answers no rows (#391). Every RPC here is in CIAV VUECENTRIC, the option
+# sign-on binds. These specs read only; they file nothing.
 class OrderLiveTest < LiveSpec::Test
-  runs_as "PROV123"
+  runs_as "PMD123"
   DEMO_DFNS = %w[3 4 990001 990027].freeze
 
   # AGET's MULT views (ORWORR.m: S MULT=...): the header's TXTVW is 0 for
@@ -84,27 +83,7 @@ class OrderLiveTest < LiveSpec::Test
     flunk_if_order_file_empty!(dfn)
 
     rows = RpmsRpc::Order.unsigned_for_patient(dfn)
-    if rows.empty?
-      held = RpmsRpc::Authentication.held_keys(%w[ORES ORELSE])
-      flunk "CIAVCXUS HASKEYS gave no answer for ORES/ORELSE" if held.nil?
-
-      gate1 = if held.empty?
-        "Gate 1 (ORWOR.m:122): blocks unless a ^ORAM(103,#{dfn}) entry exists (not checkable over RPC)."
-      else
-        "Gate 1 (ORWOR.m:122): passes (#{persona} holds #{held.join(", ")})."
-      end
-      gate2 = "Gate 2 (ORWOR.m:124-129): OR UNSIGNED ORDERS ON EXIT 0 or unset for ALL^SRV: not checkable over RPC"
-      gate2 += " (ORELSE forces it to 1)" if held.include?("ORELSE")
-      gate2 += "."
-      why = [
-        "ORWOR UNSIGN returned no rows for DFN #{dfn}; an empty and a faulted reply read the same here.",
-        gate1,
-        gate2,
-        "Cause 3 (ORWOR.m:130): no ^OR(100,\"AS\") entry for the patient: not checkable over RPC.",
-        "Build under test: #{LiveSpec.build_label}. By direct inspection (2026-10-30): on bcer-9.0-20261012-e7923a4-ydb (the pin) OR UNSIGNED ORDERS ON EXIT is empty for ALL^SRV while ^OR(100,\"AS\") has entries, so gate 2 blocks; on bcer-9.0-20261029-7c3119b-ydb the parameter is empty and ^OR(100,\"AS\") is undefined."
-      ].join(" ")
-      skip_tracked("#391", why)
-    end
+    refute_empty rows, "ORWOR UNSIGN listed no unsigned order for DFN #{dfn} to #{persona}; PROFILE,MD authored the seeded order"
     assert(rows.all? { |r| r[:ien].positive? && r[:action_ien].positive? }, rows.inspect)
   end
 
