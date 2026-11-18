@@ -11,6 +11,7 @@ require "rpms_rpc/api/ddr_fileman"
 # S-SCH-07.1, 07.2, 07.3, 07.6). The appointment is booked on a weekday in the
 # past, so every time sent is behind the server's clock whatever its zone.
 class SchedulingCheckoutLiveTest < LiveSpec::Test
+  runs_as "PSCH123"
   writes!
 
   PATIENT = 3

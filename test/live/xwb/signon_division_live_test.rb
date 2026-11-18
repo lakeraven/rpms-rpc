@@ -25,6 +25,7 @@ module XwbSignonDivisionLive
 end
 
 class XwbSignonDivisionLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   include XwbSignonDivisionLive
   broker :xwb
   connect_only!

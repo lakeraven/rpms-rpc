@@ -10,6 +10,8 @@ require "rpms_rpc/fileman_date_parser"
 # Replaces all POV and (mode E) Axis IV rows on each call. WRITES against a disposable
 # local container only.
 class BehavioralHealthSavePovLiveTest < LiveSpec::Test
+  # No demo persona holds what this needs on bcer-9.0-20261116-2a9b3fe-ydb; the operator runs it until #814.
+  runs_as "SYS123"
   writes!
 
   # Synthetic seed patient; not used by save_visit (990033/990034) or other live write specs.

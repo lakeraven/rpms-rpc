@@ -15,6 +15,8 @@ end
 # RpmsRpc::BehavioralHealth::Wellness — AMHG SAVE SCREENING and AMHG SAVE
 # MEASUREMENTS (rpms-rpc#540). WRITES on a disposable local container only.
 class BehavioralHealthWellnessLiveTest < LiveSpec::Test
+  # No demo persona holds what this needs on bcer-9.0-20261116-2a9b3fe-ydb; the operator runs it until #814.
+  runs_as "SYS123"
   writes!
 
   DFN = 990_045

@@ -10,6 +10,8 @@ require "rpms_rpc/fileman_date_parser"
 # Pinned build: site PCC link off and save_visit does not file .06 activity type, so
 # EN^AMHBHRU returns 0~Activity Type Missing! and #9002011 .16 stays blank.
 class BehavioralHealthSavePccVisitLiveTest < LiveSpec::Test
+  # No demo persona holds what this needs on bcer-9.0-20261116-2a9b3fe-ydb; the operator runs it until #814.
+  runs_as "SYS123"
   writes!
 
   DFN = 990_033

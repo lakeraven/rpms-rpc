@@ -13,6 +13,7 @@ require "rpms_rpc/api/scheduling"
 # (ORWPS ACTIVE), Reminders.applicable (ORQQPXRM REMINDERS APPLICABLE) and
 # Scheduling.clinic_setup (BSDX CLINIC SETUP). Reads only.
 class WebTierReadsLiveTest < LiveSpec::Test
+  runs_as "PMD123"
   DFN = 4 # DEMO,PATIENT ONE on the pinned build
   CLINIC = 3 # DEMO IHS CLINIC, HOSPITAL LOCATION #44
   NO_SUCH_DUZ = 999_999_999

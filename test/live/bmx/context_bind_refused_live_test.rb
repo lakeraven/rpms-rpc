@@ -22,6 +22,7 @@ require "date"
 #
 #   BROKER_PROTOCOL=bmx BROKER_PORT=<the image's 9101> rake test:live
 class BmxContextBindRefusedLiveTest < LiveSpec::Test
+  runs_as "PMD123"
   broker :bmx
   connect_only!
   writes! # the registration spec is refused before AG files anything

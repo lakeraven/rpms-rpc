@@ -9,6 +9,7 @@ require "rpms_rpc/api/health_summary"
 # "DFN^IEN" parameter it used to send left ORIEN undefined and the build died
 # in M. Both RPCs are in CIAV VUECENTRIC; the spec reads only.
 class HealthSummaryRemindersLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   CONTEXT = "CIAV VUECENTRIC"
   DFN = 4 # DEMO,PATIENT ONE on the pinned build
 

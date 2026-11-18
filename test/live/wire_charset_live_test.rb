@@ -7,6 +7,7 @@ require_relative "live_helper"
 # the single byte 0xB7, and compares the reply with the committed capture
 # (test/fixtures/wire_charset/captures.yml). Reads only.
 class WireCharsetLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   FIXTURES = File.expand_path("../fixtures/wire_charset", __dir__)
   ENTRY = YAML.safe_load_file(File.join(FIXTURES, "captures.yml")).dig("captures", "cia")
 

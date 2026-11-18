@@ -7,6 +7,7 @@ require "securerandom"
 # Creates one synthetic patient on a disposable container. There is no
 # supported patient-delete RPC; discard the container after running this spec.
 class RegistrationDuplicateLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   writes!
 
   def test_second_registration_refuses_without_creating_another_chart

@@ -7,6 +7,7 @@ require "rpms_rpc/api/pov"
 # A patient's visits (BEHOENCX VISITLST) and diagnoses (BGOVPOV RECENT) on seed
 # patient DFN 2, whose visit 1 carries the panel's POVs.
 class EncounterVisitsLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   DFN = 2
   VISIT_IEN = 1
   LOCATION_IEN = 6

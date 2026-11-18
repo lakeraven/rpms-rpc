@@ -7,6 +7,7 @@ require "rpms_rpc/fileman_date_parser"
 
 # Visit open/create over BEHOENCX on seed patient DFN 2, visit IEN 1 (#563).
 class EncounterVisitLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   writes!
 
   DFN = 2

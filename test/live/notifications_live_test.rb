@@ -26,6 +26,8 @@ require "rpms_rpc/api/ddr_fileman"
 # user is a published demo persona of the build, signed on on its own
 # connection, as in scoped_client_two_identities_live_test.rb.
 class NotificationsLiveTest < LiveSpec::Test
+  # No demo persona holds what this needs on bcer-9.0-20261116-2a9b3fe-ydb; the operator runs it until #814.
+  runs_as "SYS123"
   writes!
 
   SEND_RPC = "XQAL GUI ALERTS"

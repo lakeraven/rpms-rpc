@@ -14,6 +14,7 @@ require "securerandom"
 # Each spec registers its own synthetic patient, so no seed patient is
 # changed. There is no supported patient-delete RPC: discard the container.
 class PatientRegistrationRecordLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   writes!
 
   IHS_PATIENT_FILE = "9000001"

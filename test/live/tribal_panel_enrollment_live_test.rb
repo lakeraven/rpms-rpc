@@ -8,6 +8,7 @@ require "rpms_rpc/api/tribal"
 # SYN<DFN> on every panel patient; the pin predates it until #639. The panel
 # carries no tribe or quantum, so those fields stay unproven here.
 class TribalPanelEnrollmentLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   DFN = 990_001 # ALPHA,CASEY, a synthetic panel patient
   BUILD_BEFORE_THE_SEED = "bcer-9.0-20261012-e7923a4-ydb"
 

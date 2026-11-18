@@ -9,6 +9,7 @@ require "securerandom"
 # files a duplicate SSN. Creates synthetic patients on a disposable container;
 # there is no supported patient-delete RPC, so discard the container afterwards.
 class RegistrationWindowValidationLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   writes!
 
   def synthetic(**extra)

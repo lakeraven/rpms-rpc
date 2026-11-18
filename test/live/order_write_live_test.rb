@@ -16,6 +16,7 @@ require "rpms_rpc/fileman_date_parser"
 # RPMS_ESIG (never logged). Without it the spec skips, tracked by #456, rather
 # than pass or fail on a code it was never given.
 class OrderWriteLiveTest < LiveSpec::Test
+  runs_as "PMD123"
   writes!
 
   DFN = 990_034 # synthetic patient; not used by other live order specs

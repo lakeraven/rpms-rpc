@@ -21,6 +21,7 @@ require "rpms_rpc/api/ddr_fileman"
 # Every RPC here is in CIAV VUECENTRIC, the option sign-on binds, for PROV123
 # and the programmer alike. These specs read only; they file nothing.
 class OrderLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   DEMO_DFNS = %w[3 4 990001 990027].freeze
 
   # AGET's MULT views (ORWORR.m: S MULT=...): the header's TXTVW is 0 for

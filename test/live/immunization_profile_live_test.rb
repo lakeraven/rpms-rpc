@@ -13,5 +13,6 @@ require_relative "immunization_profile_checks"
 # error raises; the captured error reply is pinned in
 # test/rpms_rpc/api/immunization_test.rb.
 class ImmunizationProfileLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   include ImmunizationProfileChecks
 end

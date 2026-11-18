@@ -8,6 +8,7 @@ require_relative "live_helper"
 # old default, "VEH,EXTERNAL", names a namespace a broker may not have, and
 # one that does not have it hangs up on the connect.
 class CiaConnectUciLiveTest < LiveSpec::Test
+  runs_as "PROV123"
   connect_only!
 
   def test_an_unset_uci_connects_and_signs_on_in_the_brokers_namespace

@@ -22,6 +22,7 @@ require "rpms_rpc/api/ddr_fileman"
 #
 # WRITES against a disposable local container only.
 class ServerClockWritesLiveTest < LiveSpec::Test
+  runs_as "PREG123"
   writes!
 
   APP_DFN = 990_010   # a synthetic seed patient (PatientApplicationLiveTest's)
