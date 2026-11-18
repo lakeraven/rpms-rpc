@@ -13,19 +13,24 @@ require "rpms_rpc/mappings"
 require "rpms_rpc/api/scheduling"
 require "rpms_rpc/api/ddr_fileman"
 
-# Issue #565 / #224 scheduling write slice: pilot-ready wire evidence on the pinned build.
+# Issue #565 / #224 scheduling write slice: pilot-ready wire evidence on the latest
+# published release (CAPTURE_RELEASE; the maintainer's decision for #626, 2026-11-18:
+# prove it there, not on the old pin).
 #
-# Grading: pilot-ready iff signed_on_as == PROV123 and every effect is proven via
-# read-back (and read_before causation for CHECKIN/CANCEL/NOSHOW); partial iff PROV123
-# and some effects proven; not-proven otherwise. CHECKIN success requires the first
-# data row's leading piece to be exactly "0". CHECKIN also requires #44.003 clinic proof.
+# Grading: pilot-ready iff signed_on_as == PSCH123, the scheduling persona whose role
+# this is (#452, #626), and every effect is proven via read-back (and read_before
+# causation for CHECKIN/CANCEL/NOSHOW); partial iff PSCH123 and some effects proven;
+# not-proven otherwise. CHECKIN success requires the first data row's leading piece to
+# be exactly "0". CHECKIN also requires #44.003 clinic proof.
 class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
   LOCK_PATH = File.join(ROOT, "data/fingerprints/rpms-ops.lock.yml")
   CHECKLIST_PATH = File.join(ROOT, "docs/pilot_rpc_readiness.md")
 
   PINNED_RELEASE = RpmsRpc::LiveSummary.pinned_build(LOCK_PATH).freeze
-  SCHEDULING_PERSONA = "PROV123"
+  SCHEDULING_PERSONA = "PSCH123"
+  SETUP_PERSONA = "SYS123"
+  CAPTURE_RELEASE = "bcer-9.0-20261116-2a9b3fe-ydb"
   SYNTHETIC_RESOURCE = "ZZ PILOT SCHED CAPTURE"
 
   SCHEDULING_WRITE_SLICE = [
@@ -613,24 +618,6 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
         "partial"
       end
     end
-
-    def persona_probe_refusal?(raw_return)
-      return false if raw_return.nil?
-      return false if RpmsRpc::WireCapture.error_reply?(raw_return)
-
-      rows = RpmsRpc::WireCapture.data_rows(raw_return)
-      return false if rows.nil? || rows.empty?
-
-      mapped = RpmsRpc::DataMapper[:scheduling_add_appointment].parse_one(rows.first.to_s)
-      mapped[:appointment_id].to_i <= 0 && !mapped[:error].to_s.empty?
-    end
-
-    def persona_probe_error_text(raw_return)
-      rows = RpmsRpc::WireCapture.data_rows(raw_return)
-      return "" if rows.nil? || rows.empty?
-
-      RpmsRpc::DataMapper[:scheduling_add_appointment].parse_one(rows.first.to_s)[:error].to_s
-    end
   end
 
   def parse_checklist
@@ -666,8 +653,10 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     [ yaml, fixture ]
   end
 
-  def test_pinned_release_is_the_issue_565_build
-    assert_equal "bcer-9.0-20261012-e7923a4-ydb", PINNED_RELEASE
+  # The slice is proven on the latest published release, which is not the pin.
+  def test_the_capture_release_is_a_published_build_newer_than_the_pin
+    refute_equal PINNED_RELEASE, CAPTURE_RELEASE
+    assert_match(/\Abcer-9\.0-\d{8}-[0-9a-f]{7}-ydb\z/, CAPTURE_RELEASE)
   end
 
   def test_each_scheduling_write_has_a_committed_wire_fixture
@@ -726,67 +715,23 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     assert_empty failures, failures.join("\n  ")
   end
 
-  def test_pilot_checklist_add_reason_names_prov123_refusal_and_seed_gap
-    rows = parse_checklist
-    row = rows["BSDX ADD NEW APPOINTMENT"]
-    assert row, "checklist must list BSDX ADD NEW APPOINTMENT"
-    assert_match(/PROV123/i, row[:reason])
-    assert_match(/seed gap/i, row[:reason])
-  end
-
-  def test_pilot_checklist_add_reason_quotes_persona_probe_error_text
-    rows = parse_checklist
-    row = rows["BSDX ADD NEW APPOINTMENT"]
-    yaml = self.class.load_fixture_yaml("BSDX ADD NEW APPOINTMENT")
-    assert yaml, "missing ADD fixture"
-    probe = yaml["persona_probe"]
-    assert probe, "ADD fixture must carry persona_probe (re-capture pending)"
-    error_text = self.class.persona_probe_error_text(probe["raw_return"])
-    assert error_text.match?(/\S/), "persona_probe must map a non-empty :error (re-capture pending)"
-    assert_match(/#{Regexp.escape(error_text)}/, row[:reason])
-  end
-
-  def test_add_fixture_setup_seed_gap_division_keys
-    yaml = self.class.load_fixture_yaml("BSDX ADD NEW APPOINTMENT")
-    assert yaml, "missing ADD fixture"
-    setup = yaml["setup"]
-    division = setup["division"]
-    assert division.is_a?(Hash), "setup.division required on ADD fixture (re-capture pending)"
-    assert division["SYS123"], "setup.division.SYS123 required (re-capture pending)"
-    assert division["PROV123"], "setup.division.PROV123 required (re-capture pending)"
-    mcd = setup["medical_center_division_institutions"]
-    assert mcd.is_a?(Array) && !mcd.empty?,
-           "setup.medical_center_division_institutions required (re-capture pending)"
-  end
-
-  def test_add_fixture_setup_prov123_division_outside_medical_center_list
+  # Setup signs on as the operator and the pilot as PSCH123; both sessions
+  # record a DUZ and a division, and the pilot's division is a MEDICAL CENTER
+  # DIVISION (#40.8) institution, without which $$DIV^BSDU refuses a booking.
+  def test_add_fixture_setup_records_both_personas_and_the_pilots_division_books
     yaml = self.class.load_fixture_yaml("BSDX ADD NEW APPOINTMENT")
     assert yaml, "missing ADD fixture"
     setup = yaml["setup"]
     division = setup["division"]
     mcd = setup["medical_center_division_institutions"]
-    unless division.is_a?(Hash) && mcd.is_a?(Array) && !mcd.empty?
-      flunk "setup division keys missing (re-capture pending)"
+    assert division.is_a?(Hash) && mcd.is_a?(Array) && !mcd.empty?, "setup division keys missing (re-capture pending)"
+
+    [ SETUP_PERSONA, SCHEDULING_PERSONA ].each do |persona|
+      assert setup.dig("duz", persona).is_a?(Integer) && setup.dig("duz", persona).positive?, "setup.duz.#{persona}"
+      assert division[persona].is_a?(Integer) && division[persona].positive?, "setup.division.#{persona}"
     end
-
-    prov_div = division["PROV123"]
-    sys_div = division["SYS123"]
-    assert prov_div.is_a?(Integer) && prov_div.positive?, "PROV123 division must be a positive integer"
-    assert sys_div.is_a?(Integer) && sys_div.positive?, "SYS123 division must be a positive integer"
-    refute_includes mcd, prov_div,
-                    "PROV123 division #{prov_div} must not be in medical_center_division_institutions"
-    assert_includes mcd, sys_div,
-                    "SYS123 division #{sys_div} must be in medical_center_division_institutions"
-  end
-
-  def test_pilot_checklist_add_reason_names_prov123_division_institution_ien
-    rows = parse_checklist
-    row = rows["BSDX ADD NEW APPOINTMENT"]
-    yaml = self.class.load_fixture_yaml("BSDX ADD NEW APPOINTMENT")
-    assert yaml, "missing ADD fixture"
-    ien = yaml.dig("setup", "division", "PROV123")
-    assert ien, "setup.division.PROV123 required (re-capture pending)"
-    assert_match(/\b#{Regexp.escape(ien.to_s)}\b/, row[:reason])
+    assert_includes mcd, division[SCHEDULING_PERSONA],
+                    "#{SCHEDULING_PERSONA} division #{division[SCHEDULING_PERSONA]} must be in medical_center_division_institutions"
   end
 
   def test_pilot_checklist_cancel_reason_names_sent_reason_ien
@@ -798,9 +743,10 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     assert_match(/\b#{Regexp.escape(reason)}\b/, row[:reason]) if reason.match?(/\A\d+\z/)
   end
 
-  def test_checkin_cancel_noshow_fixtures_signed_on_as_prov123
+  def test_every_scheduling_write_fixture_is_signed_on_as_the_scheduling_persona
     failures = []
     [
+      "BSDX ADD NEW APPOINTMENT",
       "BSDX CHECKIN APPOINTMENT",
       "BSDX CANCEL APPOINTMENT",
       "BSDX NOSHOW"
@@ -816,25 +762,12 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     assert_empty failures, failures.join("\n  ")
   end
 
-  def test_add_fixture_signed_on_as_sys123_with_persona_probe_for_prov123
-    yaml = self.class.load_fixture_yaml("BSDX ADD NEW APPOINTMENT")
-    assert yaml, "missing BSDX ADD NEW APPOINTMENT fixture"
-    assert_equal "SYS123", yaml["signed_on_as"]
-    probe = yaml["persona_probe"]
-    assert probe, "ADD fixture must carry persona_probe for PROV123 refusal"
-    assert_equal SCHEDULING_PERSONA, probe["signed_on_as"]
-    assert probe["raw_return"], "persona_probe must record raw_return"
-    assert_equal Digest::SHA256.hexdigest(probe["raw_return"]), probe["sha256"]
-    assert self.class.persona_probe_refusal?(probe["raw_return"]),
-           "committed ADD persona_probe must be a booking refusal (id<=0 with error text)"
-  end
-
-  def test_committed_write_fixtures_are_write_captures_on_pinned_build
+  def test_committed_write_fixtures_are_write_captures_on_the_capture_release
     failures = []
     SCHEDULING_WRITE_SLICE.each do |slice|
       yaml, fixture = load_slice_fixture(slice)
       failures << "#{slice[:rpc]}: write: true required" unless yaml["write"] == true
-      failures << "#{slice[:rpc]}: release_tag #{fixture.release_tag.inspect}" if fixture.release_tag != PINNED_RELEASE
+      failures << "#{slice[:rpc]}: release_tag #{fixture.release_tag.inspect}" if fixture.release_tag != CAPTURE_RELEASE
       unless %w[live-capture no-data].include?(fixture.source)
         failures << "#{slice[:rpc]}: source #{fixture.source.inspect}, expected live-capture or no-data"
       end
@@ -881,14 +814,15 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     assert_empty failures, failures.join("\n  ")
   end
 
-  def test_add_committed_fixture_proves_every_add_effect_for_sys123_capture
+  def test_add_committed_fixture_proves_every_add_effect_as_the_scheduling_persona
     slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_add_appointment }
     yaml, fixture = load_slice_fixture(slice)
-    assert_equal "SYS123", yaml["signed_on_as"]
+    assert_equal SCHEDULING_PERSONA, yaml["signed_on_as"]
     slice[:effects].each do |effect|
       assert self.class.effect_proven?(slice, effect, yaml, fixture),
-             "ADD fixture as SYS123 must prove #{effect} from read-back bytes"
+             "ADD fixture as #{SCHEDULING_PERSONA} must prove #{effect} from read-back bytes"
     end
+    assert_equal "pilot-ready", self.class.expected_checklist_status(slice, yaml, fixture)
   end
 
   def test_hermetic_cancel_reason_default_fourteen_is_unproven
@@ -1034,7 +968,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     refute self.class.effect_proven?(slice, :success, yaml, fixture)
   end
 
-  def test_committed_checkin_cancel_noshow_fixtures_setup_duz_prov123_positive
+  def test_committed_checkin_cancel_noshow_fixtures_setup_duz_of_the_scheduling_persona
     failures = []
     [
       "BSDX CHECKIN APPOINTMENT",
@@ -1044,14 +978,14 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       yaml = self.class.load_fixture_yaml(rpc)
       next failures << "#{rpc}: no fixture" unless yaml
 
-      duz = yaml.dig("setup", "duz", "PROV123")
-      failures << "#{rpc}: setup.duz.PROV123 must be a positive integer (re-capture pending)" unless
+      duz = yaml.dig("setup", "duz", SCHEDULING_PERSONA)
+      failures << "#{rpc}: setup.duz.#{SCHEDULING_PERSONA} must be a positive integer (re-capture pending)" unless
         duz.is_a?(Integer) && duz.positive?
     end
     assert_empty failures, failures.join("\n  ")
   end
 
-  def test_committed_cancel_noshow_field_14_matches_prov123_duz
+  def test_committed_cancel_noshow_field_14_matches_the_scheduling_personas_duz
     failures = []
     [
       [ "BSDX CANCEL APPOINTMENT", :scheduling_cancel_appointment ],
@@ -1060,20 +994,20 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       yaml = self.class.load_fixture_yaml(rpc)
       next failures << "#{rpc}: no fixture" unless yaml
 
-      duz = yaml.dig("setup", "duz", "PROV123")
-      next failures << "#{rpc}: setup.duz.PROV123 missing (re-capture pending)" unless duz.is_a?(Integer) && duz.positive?
+      duz = yaml.dig("setup", "duz", SCHEDULING_PERSONA)
+      next failures << "#{rpc}: setup.duz.#{SCHEDULING_PERSONA} missing (re-capture pending)" unless duz.is_a?(Integer) && duz.positive?
 
       index = self.class.read_back_index(yaml["read_back"])
       ctx = self.class.appointment_context(yaml, index)
       next failures << "#{rpc}: appointment context missing" unless ctx
 
       got = self.class.index_lookup(index, file: "2.98", iens: ctx[:dpt_iens], field: "14")
-      failures << "#{rpc}: #2.98 field 14 #{got.inspect} != PROV123 DUZ #{duz}" unless got.to_s == duz.to_s
+      failures << "#{rpc}: #2.98 field 14 #{got.inspect} != #{SCHEDULING_PERSONA} DUZ #{duz}" unless got.to_s == duz.to_s
     end
     assert_empty failures, failures.join("\n  ")
   end
 
-  def test_hermetic_prov123_cancel_fixture_grades_pilot_ready
+  def test_hermetic_scheduling_persona_cancel_fixture_grades_pilot_ready
     slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_cancel_appointment }
     yaml = hermetic_cancel_fixture(reason: "5")
     fixture = hermetic_fixture(yaml, [ "" ])
@@ -1081,7 +1015,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     assert_equal "pilot-ready", self.class.expected_checklist_status(slice, yaml, fixture)
   end
 
-  def test_hermetic_prov123_noshow_fixture_grades_pilot_ready
+  def test_hermetic_scheduling_persona_noshow_fixture_grades_pilot_ready
     slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_noshow_appointment }
     yaml = hermetic_noshow_fixture
     fixture = hermetic_fixture(yaml, [ "1^" ])
@@ -1102,7 +1036,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
     assert_equal "not-proven", self.class.expected_checklist_status(slice, yaml, fixture)
   end
 
-  def test_hermetic_prov123_checkin_fixture_grades_pilot_ready
+  def test_hermetic_scheduling_persona_checkin_fixture_grades_pilot_ready
     slice = SCHEDULING_WRITE_SLICE.find { |s| s[:mapping] == :scheduling_checkin_appointment }
     yaml = hermetic_checkin_fixture
     fixture = hermetic_fixture(yaml, [ "0^" ])
@@ -1177,7 +1111,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       "source" => "live-capture",
       "write" => true,
       "cite" => "CHECKIN^BSDX25 (hermetic)",
-      "release_tag" => PINNED_RELEASE,
+      "release_tag" => CAPTURE_RELEASE,
       "captured_at" => "2026-11-05T00:00:00Z",
       "signed_on_as" => SCHEDULING_PERSONA,
       "inputs" => [ "5", checkin_time, "", "", "", "", "", "", "" ],
@@ -1192,7 +1126,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       "setup" => {
         "resource_ien" => "99",
         "hospital_location_id" => clinic,
-        "duz" => { "PROV123" => 200, "SYS123" => 1 }
+        "duz" => { "PSCH123" => 208, "SYS123" => 1 }
       },
       "read_before" => [
         {
@@ -1252,7 +1186,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       "source" => "live-capture",
       "write" => true,
       "cite" => "APPDEL^BSDX08 (hermetic)",
-      "release_tag" => PINNED_RELEASE,
+      "release_tag" => CAPTURE_RELEASE,
       "captured_at" => "2026-11-05T00:00:00Z",
       "signed_on_as" => SCHEDULING_PERSONA,
       "inputs" => [ "5", "PC", reason, "" ],
@@ -1267,7 +1201,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       "setup" => {
         "resource_ien" => "99",
         "hospital_location_id" => "3",
-        "duz" => { "PROV123" => 200, "SYS123" => 1 }
+        "duz" => { "PSCH123" => 208, "SYS123" => 1 }
       },
       "read_before" => [
         {
@@ -1317,7 +1251,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       "source" => "live-capture",
       "write" => true,
       "cite" => "NOSHOW^BSDX08 (hermetic)",
-      "release_tag" => PINNED_RELEASE,
+      "release_tag" => CAPTURE_RELEASE,
       "captured_at" => "2026-11-05T00:00:00Z",
       "signed_on_as" => SCHEDULING_PERSONA,
       "inputs" => [ "5", "", "", "", "", "", "", "" ],
@@ -1335,7 +1269,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       "setup" => {
         "resource_ien" => "99",
         "hospital_location_id" => "3",
-        "duz" => { "PROV123" => 200, "SYS123" => 1 }
+        "duz" => { "PSCH123" => 208, "SYS123" => 1 }
       },
       "read_before" => [
         {
@@ -1385,7 +1319,7 @@ class RpmsRpc::PilotSchedulingWritesTest < Minitest::Test
       "source" => "live-capture",
       "write" => true,
       "cite" => "APPADD^BSDX07 (hermetic)",
-      "release_tag" => PINNED_RELEASE,
+      "release_tag" => CAPTURE_RELEASE,
       "captured_at" => "2026-11-05T00:00:00Z",
       "signed_on_as" => "SYS123",
       "inputs" => [ start, "#{start}3", patient, SYNTHETIC_RESOURCE, "30", "", "", "" ],

@@ -53,6 +53,10 @@ module RpmsRpc
     # Access codes README.md documents as synthetic dev personas. A capture
     # may record one of these as signed_on_as and nothing else.
     SYNTHETIC_PERSONAS = %w[SYS123 PROV123].freeze
+    # The personas a committed fixture may name as signed_on_as: those, and
+    # the scheduling slice's pilot, PROFILE,SCHED (rpms-rpc#626), a published
+    # demo pair that only the scheduling-write capture signs on as.
+    FIXTURE_PERSONAS = (SYNTHETIC_PERSONAS + %w[PSCH123]).freeze
 
     # BMX recordset column: a type letter, a 5-digit width, then the name
     # (I00020APPOINTMENTID, T00020ERRORID). A header row is one whose every
@@ -167,7 +171,7 @@ module RpmsRpc
       payload_rows(raw).reject(&:empty?).any? { |row| row.match?(/\A-\d+(?:\.\d+)?\^/) }
     end
 
-    # A PROV123 booking probe is evidence only as a refusal. A broker error
+    # A persona's booking probe is evidence only as a refusal. A broker error
     # is not one. The first data row has to map through
     # :scheduling_add_appointment to an appointment id <= 0 and a non-empty
     # error. The mapping is loaded here, on this path only.
@@ -465,7 +469,7 @@ module RpmsRpc
       end
 
       def validate_write_capture!
-        unless SYNTHETIC_PERSONAS.include?(@signed_on_as.to_s)
+        unless FIXTURE_PERSONAS.include?(@signed_on_as.to_s)
           fail!("signed_on_as must be a synthetic persona")
         end
         entries = @read_back
@@ -500,7 +504,7 @@ module RpmsRpc
         raw = probe["raw_return"].to_s
         actual = Digest::SHA256.hexdigest(raw)
         fail!("persona_probe sha256 does not match raw_return (#{actual})") unless actual == probe["sha256"]
-        unless SYNTHETIC_PERSONAS.include?(probe["signed_on_as"].to_s)
+        unless FIXTURE_PERSONAS.include?(probe["signed_on_as"].to_s)
           fail!("persona_probe signed_on_as must be a synthetic persona")
         end
         fail!("persona_probe must be a booking refusal") unless WireCapture.persona_probe_refusal?(raw)
@@ -1276,9 +1280,8 @@ module RpmsRpc
           Piece.new(position: 0, attributes: [ "appointment_id" ], fileman_type: "integer"),
           Piece.new(position: 1, attributes: [ "error" ])
         ],
-        note: "Booked as the setup persona. PROV123 cannot book on this seed " \
-              "(DUZ(2) has no #40.8 division, so $$DIV^BSDU is 0); persona_probe is " \
-              "that refusal. The read-back, not this reply, proves the appointment."
+        note: "Booked as PSCH123, the scheduling persona (rpms-rpc#626). The read-back, " \
+              "not this reply, proves the appointment."
       ),
       CatalogEntry.new(
         rpc: "BSDX CHECKIN APPOINTMENT", mapping: :scheduling_checkin_appointment,
@@ -1289,7 +1292,7 @@ module RpmsRpc
         pieces: [
           Piece.new(position: 0, attributes: [ "error" ])
         ],
-        note: "Checked in as PROV123. The sent time is one minute before the server " \
+        note: "Checked in as PSCH123. The sent time is one minute before the server " \
               "minute, at minute precision, so the clamp does not rewrite it. " \
               "The read-back of #9002018.4 .03 is the proof."
       ),
@@ -1303,7 +1306,7 @@ module RpmsRpc
         pieces: [
           Piece.new(position: 0, attributes: [ "error" ])
         ],
-        note: "Cancelled as PROV123 with type PC and a coded #409.2 reason. The " \
+        note: "Cancelled as PSCH123 with type PC and a coded #409.2 reason. The " \
               "reply is an empty ERRORID row (no-data) and proves nothing; #2.98 " \
               "field 16 is the proof, and it is unproven when the sent reason is " \
               "blank or 14."
@@ -1318,7 +1321,7 @@ module RpmsRpc
           Piece.new(position: 0, attributes: [ "result" ], fileman_type: "integer"),
           Piece.new(position: 1, attributes: [ "error" ])
         ],
-        note: "No-show as PROV123. The read-back proves #9002018.4 .1 and #2.98 " \
+        note: "No-show as PSCH123. The read-back proves #9002018.4 .1 and #2.98 " \
               "status N; the reply's success flag is not that proof."
       )
     ].freeze

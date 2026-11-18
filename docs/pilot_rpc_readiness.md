@@ -82,32 +82,28 @@ BEHOENCX CHKVISIT | pilot-ready | visit 1 signed on as PROV123 returns POV^Visit
 BEHOENCX FETCH CREATE=1 | partial | on bcer-9.0-20261116-2a9b3fe-ydb, signed on as PROV123, test/live/encounter_visit_live_test.rb passes (#798): CREATE=0 finds no visit on an unused date, CREATE=1 files one for DFN 2 at location 6 (visit 118 in a probe on that build, provider 200 PROVIDER,TEST), a second identical CREATE=1 returns the same IEN, CREATE=0 then finds it, and BEHOENCX GETVISIT reads back patient 2, location 6, service category A and the sent date; visit_id came back blank (VISIT ID 15001 not set) and locked only as 0, and the spec asserts neither. On bcer-9.0-20261012-e7923a4-ydb the same create replied "Error Creating Visit" as PROV123 (its division, institution 1, had no PCC MASTER CONTROL entry, so APCDALV refused with .03 TYPE OF VISIT MISSING); that seed gap is closed on the graded build | unproven: locked, visit_id
 AMHG CREATE/EDIT VISIT | not-proven | signed on as PROV123 (and SYS123) EN^AMHBHRU refuses with 0~Activity Type Missing! because BehavioralHealth.save_visit cannot file #9002011 .06 activity type, so PCC VISIT LINK .16 stays blank and no PCC visit is linked (rpms-rpc API gap, not seed) | unproven: row
 
-# Scheduling write pilot status on bcer-9.0-20261012-e7923a4-ydb (issue #565, part of #224).
+# Scheduling write pilot status on bcer-9.0-20261116-2a9b3fe-ydb (issues #565, #626, part of #224).
 # Captured by `rake wire:capture_writes` (LIVE_DISPOSABLE=1, loopback broker), seed patient
 # DFN 3 on the synthetic resource ZZ PILOT SCHED CAPTURE (hospital location 3). A write's
 # reply is never proof by itself: each effect is proven only by a DDR GETS read-back of
 # #9002018.4 or #2.98 (internal values) equal to what the API sent.
-# pilot-ready needs every effect proven with the capture signed on as PROV123, the pilot's
-# least-privilege persona. A capture signed on as another persona proves the mapping live
-# but leaves every effect unproven for the pilot.
-# Seed gaps (openrpms seed issues to file) on a fresh volume of the pinned build:
-# (1) no BSDX RESOURCE (#9002018.1) entry, so booking answers "Invalid Resource ID"
-# (BSDX07.m:55), and no BSDX RESOURCE USER (#9002018.15) entries (DDR LISTER, observed
-# while preparing the capture; not recorded in the fixtures); (2) BSD PARAMETERS
-# (#9009020.2) entries have no FILE ROOM PRINTER (.05) (the capture driver sets the null device on every entry missing one), so booking answers "No file room
-# printer is defined for the chart request." (BSDX07.m:64); (3) PROV123's sign-on division
-# is INSTITUTION 1, and no MEDICAL CENTER DIVISION (#40.8) points to it (the fixtures'
-# setup.division and setup.medical_center_division_institutions), so $$DIV^BSDU is 0 for
-# PROV123 and booking answers the same printer refusal even with (2) fixed -- the ADD
-# fixture's persona_probe is that refusal. On the disposable rung the capture creates the
-# synthetic resource and sets the ZZNULL device as the printer (its setup.notes say so); it
-# adds no RESOURCE USER entry and changes no division.
+# pilot-ready needs every effect proven with the capture signed on as PSCH123,
+# PROFILE,SCHED, the scheduling persona whose role this is (#452, #626). A capture signed on
+# as another persona proves the mapping live but leaves every effect unproven for the pilot.
+# The captures are from bcer-9.0-20261116-2a9b3fe-ydb, the latest published release (the
+# maintainer's decision for #626, 2026-11-18), not the pin. On a fresh volume of it the
+# setup persona (SYS123) creates the synthetic resource ZZ PILOT SCHED CAPTURE (no BSDX
+# RESOURCE is seeded for it); the file room printer is already set on every BSD PARAMETERS
+# entry, and PSCH123's sign-on division (7819) is a MEDICAL CENTER DIVISION (#40.8)
+# institution, so the seed gaps that refused PROV123's booking on the old pin do not apply
+# (the fixtures' setup.notes, setup.division and setup.medical_center_division_institutions).
+# PROV123 is refused BSDXRPC on this build (least_privilege_live_test.rb).
 # One line per RPC: RPC | status | reason | unproven: <effects or none>
 
-BSDX ADD NEW APPOINTMENT | not-proven | proven live signed on as SYS123 (division 7819; appointment 1 at 3261126.09 for DFN 3, the effects read back on #9002018.4 and #2.98: not the .02 end time), but PROV123's booking is refused with "BSDX07 Error: No file room printer is defined for the chart request." -- seed gap: PROV123's division, INSTITUTION 1, has no #40.8 MEDICAL CENTER DIVISION, so $$DIV^BSDU is 0 | unproven: appointment_id, dpt_appt_clinic, patient, resource, start
-BSDX CHECKIN APPOINTMENT | pilot-ready | signed on as PROV123 (DUZ 200), appointment 1 checked in at 3261105.0805; #9002018.4 .03 and the clinic's #44.003 entry (patient 3, field 309) read back that time, both empty just before the call; the call sends the 8 client formals the capture ran with (BSDX25.m:12 through BSDXOG); the pinned build's tag takes three more ($G-guarded, BSDX25.m:67-69) that this API does not send, and an 11-actual call shape has not been dispatched live; check-in, cancel and no-show take only the appointment IEN and the API has no patient cross-check | unproven: none
-BSDX CANCEL APPOINTMENT | pilot-ready | signed on as PROV123 (DUZ 200), appointment 2 cancelled type PC with coded reason 5; the reply is an empty ERRORID row (no-data, not proof by itself), and #2.98 reads back status PC, reason 5 and user 200, #9002018.4 .12 a cancel time, none of them set just before the call | unproven: none
-BSDX NOSHOW | pilot-ready | signed on as PROV123 (DUZ 200), appointment 3 marked no-show; #9002018.4 .1 reads back 1 and #2.98 status N and user 200 on the patient record, neither set just before the call | unproven: none
+BSDX ADD NEW APPOINTMENT | pilot-ready | signed on as PSCH123 (DUZ 208, division 7819), appointment 1 booked at 3261209.09 for DFN 3 on the synthetic resource; #9002018.4 (.01 start, .05 patient, .07 resource) and #2.98 (.01 clinic) read back what was sent: not the .02 end time | unproven: none
+BSDX CHECKIN APPOINTMENT | pilot-ready | signed on as PSCH123 (DUZ 208), appointment 1 checked in at 3261118.18; #9002018.4 .03 and the clinic's #44.003 entry (patient 3, field 309, checked in by 208) read back that time, both empty just before the call; the call sends the 8 client formals the capture ran with (BSDX25.m:12 through BSDXOG); the build's tag takes three more ($G-guarded, BSDX25.m:67-69) that this API does not send, and an 11-actual call shape has not been dispatched live; check-in, cancel and no-show take only the appointment IEN and the API has no patient cross-check | unproven: none
+BSDX CANCEL APPOINTMENT | pilot-ready | signed on as PSCH123 (DUZ 208), appointment 2 cancelled type PC with coded reason 5; the reply is an empty ERRORID row (no-data, not proof by itself), and #2.98 reads back status PC, reason 5 and user 208, #9002018.4 .12 a cancel time, none of them set just before the call | unproven: none
+BSDX NOSHOW | pilot-ready | signed on as PSCH123 (DUZ 208), appointment 3 marked no-show; #9002018.4 .1 reads back 1 and #2.98 status N and user 208 on the patient record, neither set just before the call | unproven: none
 
 # TIU note-write pilot status on bcer-9.0-20261012-e7923a4-ydb (issue #564, slice of #224).
 # One flow written by `WRITES=1 rake wire:capture` (host mode, loopback broker), signed on as
