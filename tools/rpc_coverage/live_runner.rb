@@ -261,8 +261,9 @@ cases = {
   "Referral.purposes" => -> { RpmsRpc::Referral.purposes },
   "Referral.health_summary_types" => -> { RpmsRpc::Referral.health_summary_types }
 }
-cases["Vital.template"] = -> { RpmsRpc::Vital.template(ctx[:location]) } if ctx[:location]
-cases["Encounter.visit_string"] = -> { RpmsRpc::Encounter.visit_string(ctx[:location], today, "A") } if ctx[:location]
+# Vital.template takes the patient and a visit string (#259); Encounter.visit_string builds that string locally and
+# sends no RPC, so it is an argument here, not a case (#795).
+cases["Vital.template"] = -> { RpmsRpc::Vital.template(d, RpmsRpc::Encounter.visit_string(ctx[:location], today, "A")) } if ctx[:location]
 cases["Reminders.applicable"] = -> { RpmsRpc::Reminders.applicable(d, ctx[:location]) } # location optional: sent empty when unknown (#238)
 cases["BehavioralHealth.visit_information"] = -> { RpmsRpc::BehavioralHealth.visit_information(ctx[:visit]) } if ctx[:visit]
 cases["ProgressNote.fetch_text"] = -> { RpmsRpc::ProgressNote.fetch_text(ctx[:note]) } if ctx[:note]
