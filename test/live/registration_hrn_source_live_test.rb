@@ -13,10 +13,26 @@ require "securerandom"
 class RegistrationHrnSourceLiveTest < LiveSpec::Test
   writes!
 
+  # A synthetic name on a 1903 birth date no patient has: AG's duplicate
+  # lookup matches a candidate on the date and first name, so a date another
+  # spec's DEMO patient already holds makes the registration a duplicate.
   def synthetic(**extra)
     suffix = SecureRandom.hex(5).tr("0-9", "G-P").upcase
-    { name_last: "ZZHRN#{suffix}", name_first: "DEMO", dob: Date.new(1903, 1 + rand(12), 1 + rand(28)),
-      sex: "F", no_ssn_reason: "N" }.merge(extra)
+    attrs = { name_last: "ZZHRN#{suffix}", name_first: "DEMO", dob: Date.new(1903, 1 + rand(12), 1 + rand(28)),
+              sex: "F", no_ssn_reason: "N" }
+    365.times do
+      return attrs.merge(extra) if candidates(attrs).empty?
+
+      attrs[:dob] = attrs[:dob].next_day
+    end
+    flunk "no free synthetic 1903 birth date for #{attrs[:name_last]}"
+  end
+
+  def candidates(attrs)
+    RpmsRpc.with_client(lookup_client) do
+      RpmsRpc::Agg.registration_candidates("AGGPTLNM" => attrs[:name_last], "AGGPTFNM" => attrs[:name_first],
+                                           "AGGPTDOB" => attrs[:dob].strftime("%m/%d/%Y"))
+    end
   end
 
   # The facility's chart numbers, as RPMS lists them on the patient: the

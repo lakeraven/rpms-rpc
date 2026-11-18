@@ -32,7 +32,8 @@ class ImageExamsLiveTest < LiveSpec::Test
       refute_nil row, "the filed exam #{exam[:exam_id]} is not among #{rows.inspect}"
 
       assert_match(/\A[^;^]+;\d+\z/, row[:site], "SITE is name;station")
-      assert_equal exam[:datetime], RpmsRpc::FilemanDateParser.format_datetime(row[:datetime])
+      # The same instant: FileMan drops a time's trailing zeros (.183 is 18:30), the parse does not.
+      assert_equal RpmsRpc::FilemanDateParser.parse_datetime(exam[:datetime]), row[:datetime]
       assert_equal PROCEDURE_NAME, row[:procedure]
       assert_equal exam[:case_number], row[:case_number]
       assert_equal "No Report", row[:status], "no report is filed for the exam"
