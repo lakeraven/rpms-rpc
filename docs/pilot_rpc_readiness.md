@@ -71,14 +71,15 @@ AGG GET TEMP PAT HRN | not-proven | returns the next T-number as PROV123, but th
 # test/live/encounter_visit_live_test.rb and test/live/behavioral_health_save_pcc_visit_live_test.rb.
 # Seed gaps for openrpms (one issue, openrpms#1078): PROV123 fails $$ISPROV^BEHOUSCX, so the pilot
 # clinician persona is not a provider (affects FETCH piece 4 and any provider-gated call); PROV123's
-# division has no PCC MASTER CONTROL (#9001000) entry (see FETCH CREATE=1 below).
+# division had no PCC MASTER CONTROL (#9001000) entry on that build, a gap closed by
+# bcer-9.0-20261116-2a9b3fe-ydb (see FETCH CREATE=1 below, re-graded on that build, #798).
 # A write row's status and unproven list are for the pilot persona PROV123; what SYS123 proved is
 # stated in the reason but does not make the row pilot-ready.
 
 BEHOENCX GETVISIT | partial | visit 1 for DFN 2 signed on as PROV123 returns location 6, 3260825.09, service category A and patient 2; mapped visit_id is blank (VISIT ID 15001 not set on the seed visit) and locked was observed only as 0, never 1 | unproven: locked, visit_id
 BEHOENCX FETCH | partial | CREATE=0 read of visit 1 for DFN 2 signed on as PROV123 returns DEMO PRIMARY CARE, provider 12 DEMO,DOCTOR and visit 1; piece 4 is INFERRED to be the visit's primary provider, not pinned by a test: it is 12, which differs from PROV123's DUZ, and PROV123 fails $$ISPROV^BEHOUSCX (so GETPRV2 under BEHOENCX PROV ENC FETCH, BEHOENCX.m:36-40, would supply it, but that presumes the XPAR BEHOENCX PROV ENC FETCH is set, which was not observed), while for a provider persona it is the signed-on user; room_bed is blank for the outpatient, visit_id is blank (^AUPNVSIT(1,150) not set), locked was observed only as 0, and error is set only when the visit does not resolve | unproven: error, locked, room_bed, visit_id
 BEHOENCX CHKVISIT | pilot-ready | visit 1 signed on as PROV123 returns POV^Visit has POV and E&M^Visit has no note; pilot-ready grades the mapped component and message fields; Encounter.open now lists only E&M (not checked: no note), since POV is present, and of the four present/not-required texts it drops only Visit has POV was seen live (the other three are read from BEHOXQPC.m and fail closed if they differ); visit 1 has no note, so no alert is filed by the call | unproven: none
-BEHOENCX FETCH CREATE=1 | not-proven | signed on as PROV123 the create replies "Error Creating Visit" (live spec); diagnosed in the container, not pinned by a test: PROV123's NEW PERSON division is institution 1, which has no PCC MASTER CONTROL (#9001000) entry, so FNDVIS sends a blank VISIT TYPE and APCDALV refuses with .03 TYPE OF VISIT MISSING (seed gap, openrpms); no V VISIT is written. Signed on as SYS123 (division 7819) the same call created a visit, a second CREATE=1 returned the same IEN, and CREATE=0 found it, but that is not the pilot persona | unproven: locked, visit_id, visit_ien
+BEHOENCX FETCH CREATE=1 | partial | on bcer-9.0-20261116-2a9b3fe-ydb, signed on as PROV123, test/live/encounter_visit_live_test.rb passes (#798): CREATE=0 finds no visit on an unused date, CREATE=1 files one for DFN 2 at location 6 (visit 118 in a probe on that build, provider 200 PROVIDER,TEST), a second identical CREATE=1 returns the same IEN, CREATE=0 then finds it, and BEHOENCX GETVISIT reads back patient 2, location 6, service category A and the sent date; visit_id came back blank (VISIT ID 15001 not set) and locked only as 0, and the spec asserts neither. On bcer-9.0-20261012-e7923a4-ydb the same create replied "Error Creating Visit" as PROV123 (its division, institution 1, had no PCC MASTER CONTROL entry, so APCDALV refused with .03 TYPE OF VISIT MISSING); that seed gap is closed on the graded build | unproven: locked, visit_id
 AMHG CREATE/EDIT VISIT | not-proven | signed on as PROV123 (and SYS123) EN^AMHBHRU refuses with 0~Activity Type Missing! because BehavioralHealth.save_visit cannot file #9002011 .06 activity type, so PCC VISIT LINK .16 stays blank and no PCC visit is linked (rpms-rpc API gap, not seed) | unproven: row
 
 # Scheduling write pilot status on bcer-9.0-20261012-e7923a4-ydb (issue #565, part of #224).
@@ -134,10 +135,10 @@ BSDX NOSHOW | pilot-ready | signed on as PROV123 (DUZ 200), appointment 3 marked
 # CANDO^TIULP (TIUSRVP2.m:49) runs before VALIDATE (TIUSRVP2.m:51).
 # Evidence limits of the capture itself:
 # - The esig gate (WireCapture.write_refusal) refuses a code found in the note text or the
-#   withheld marker, but not one found in the read-back header. The quarantine scans every
-#   capture's raw bytes. So a code equal to a header word (for example UNSIGNED or PROVIDER)
-#   passes the gate, SIGN fires, and the GET capture is then dropped: the fixture set mixes
-#   note IENs. Choose a code that is not an English word until that is closed (rpms-rpc#617).
+#   withheld marker before the run; it cannot know the read-back header. A code equal to a
+#   header word (for example UNSIGNED or PROVIDER) is caught in the captures instead: SIGN
+#   does not fire, and every capture of the run is dropped, so the fixture set never mixes
+#   note IENs (rpms-rpc#617). Choose a code that is not an English word, or the run records nothing.
 # - The TIU GET RECORD TEXT reply carries no note IEN (no TIUDA). Its evidence is bound to the
 #   note by the call's input and by the note text matching, not by anything in the reply.
 # One line per RPC: RPC | status | reason | unproven: <fields or none>
