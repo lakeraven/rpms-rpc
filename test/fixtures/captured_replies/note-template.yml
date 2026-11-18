@@ -1,0 +1,60 @@
+# Captured broker replies, verbatim from a throwaway container of the release below; synthetic
+# demo data only. Do not edit raw_return: re-run tools/capture_replies.rb note-template.rb.
+---
+rpc: TIU TEMPLATE GETROOTS
+entry_point: GETROOTS^TIUSRVT
+release_tag: bcer-9.0-20261116-2a9b3fe-ydb
+image: ghcr.io/lakeraven/openrpms@sha256:411e11f1804eb48c53cefae1230c218e77980d3070b4d5f775e29411ed67c005
+client: RpmsRpc::CiaClient#call_rpc_raw
+signed_on_as: PROVIDER,TEST (PROV123, a published demo pair; DUZ 200)
+bound_context: CIAV VUECENTRIC
+captured_at: '2026-11-18T17:44:10Z'
+note: Run on a throwaway container; every call reads.
+captures:
+- name: roots/1
+  rpc: TIU TEMPLATE GETROOTS
+  inputs:
+  - '200'
+  context: roots of DUZ 200
+  raw_return: "5\01^R^A^Shared Templates^^^^1^^^^^^^^^^\r1952^TF^A^Document Titles^^^^1^^^^^^^^^^\r53^CF^A^Consult
+    Reasons for Request^^^^0^^^^^^^^^^\r"
+  sha256: 0cf9c09a47037ee7d7cdfae5f7234926dd6c478cafe3fa19e849d37943339c7a
+- name: items/1
+  rpc: TIU TEMPLATE GETITEMS
+  inputs:
+  - '1'
+  context: items of template 1, Shared Templates
+  raw_return: "5\03454^T^A^SCREENING BUNDLE^0^^^0^0^0^0^0^0^0^0^747^IHS-SCREENING
+    BUNDLE 2015^0^^^^^^^0\r3318^G^A^New Patient Visit Note^0^1^^3^1^0^0^0^1^0^0^^^0^^^\r3419^G^A^Primary
+    Care Progress Note^0^1^^3^1^0^0^0^0^0^0^^^0^^^\r4^C^A^Patient Data Objects^^^^1^^^^^^^^^^\r3194^C^A^Patient
+    Inpatient Objects^^^^1^^^^^^^^^^\r"
+  sha256: a36894591f6c155676e590bfa2ac95a987d49a6cbc27dbd600ab9fb932d4c9be
+- name: boilerplate/1
+  rpc: TIU TEMPLATE GETBOIL
+  inputs:
+  - '3337'
+  context: boilerplate of template 3337, Vitals
+  raw_return: "5\0VITALS:\r  |VITALS FOR VISIT CONTEXT|\r{FLD:BLANK LINE1}\r"
+  sha256: 53fd286932c9a3082ad861cfc68b6303a7e45cd1f516d74f3a3ab2b7bb2a12d2
+- name: text/1
+  rpc: TIU TEMPLATE GETTEXT
+  inputs:
+  - '4'
+  - ''
+  - ? - 1
+      - 0
+    : 'Name: |PATIENT NAME|'
+    ? - 2
+      - 0
+    : 'Sex: |PATIENT SEX|'
+  context: 'text: two lines with patient objects, for DFN 4'
+  raw_return: "5\0^^2^2^3261118^^\rName: DEMO,PATIENT ONE\rSex: FEMALE\r"
+  sha256: b56114679eecf76e79bfd912548dbaafa6afa7c6b33f49606c84f29c07112d87
+- name: access_level/1
+  rpc: TIU TEMPLATE ACCESS LEVEL
+  inputs:
+  - '1'
+  - '200'
+  context: access level of template 1 for DUZ 200
+  raw_return: "5\02"
+  sha256: fedbeae6fe6ce75b0b17aa76157db93e20dc59cf632a6efe28dad5b644865d8e
