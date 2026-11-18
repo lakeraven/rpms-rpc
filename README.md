@@ -699,12 +699,32 @@ FRESH=1 DRY_RUN=1 bundle exec rake report:daily
 FRESH=1 PROV123_ACCESS=... PROV123_VERIFY=... SYS123_ACCESS=... SYS123_VERIFY=... bundle exec rake report:daily
 
 bundle exec rake test
-VISTA_RPC_ENV=development BROKER_HOST=127.0.0.1 BROKER_PORT=<port> PERSONA=PROV123 RPMS_ACCESS=... RPMS_VERIFY=... bundle exec rake test:live
-BROKER_HOST=127.0.0.1 BROKER_PORT=<port> PERSONA=SYS123 RPMS_ACCESS=... RPMS_VERIFY=... bundle exec rake test:live
 bundle exec rake rpc:coverage
 ```
 
 Each of those prints its own summary: minitest's `runs, assertions, failures, errors, skips` line, the live run's skips listed by issue (a live run in which no spec ran fails), and the coverage headline. Any failure exits non-zero.
+
+To run the live specs yourself, start one throwaway container of the newest `bcer-*-ydb` release, run the suite once per persona, then remove the container.
+Many live specs write, so they run only when the target is declared disposable (`LIVE_DISPOSABLE=1`) and on this machine; without it each write spec fails with `LIVE_DISPOSABLE=1 is not set`.
+`BMX_PORT` is the same container's BMX broker, which patient registration uses for its duplicate lookup.
+`LIVE_BUILD` names the release in the run's summary; without it the summary names the pin in `data/rpc_coverage/config.yml`.
+
+```sh
+TAG=$(gh release list -R lakeraven/openrpms --json tagName,isDraft --jq '[.[] | select(.isDraft | not) | .tagName | select(endswith("-ydb"))][0]')
+docker run --detach --name rpms-live --publish 127.0.0.1:19100:9100 --publish 127.0.0.1:19101:9101 ghcr.io/lakeraven/openrpms:$TAG
+docker inspect -f '{{.State.Health.Status}}' rpms-live   # repeat until it prints healthy
+
+export BROKER_HOST=127.0.0.1 BROKER_PORT=19100 BMX_PORT=19101 LIVE_DISPOSABLE=1 LIVE_BUILD=$TAG
+VISTA_RPC_ENV=development PERSONA=PROV123 RPMS_ACCESS=... RPMS_VERIFY=... bundle exec rake test:live
+PERSONA=SYS123 RPMS_ACCESS=... RPMS_VERIFY=... bundle exec rake test:live
+
+docker rm -f rpms-live
+```
+
+A file runs on its own the same way: `bundle exec ruby -Ilib -Itest test/live/<name>_live_test.rb`.
+SYS123, the build's operator, passes the suite (two specs can still collide with data an earlier run left, #810).
+PROV123 is least-privilege, so specs outside its role fail with `Access denied for remote procedure` (#452).
+A spec that writes changes the container's data, so start a new container for a clean run.
 
 - **Wire-format tests** construct packet bytes and assert their layout
 - **DataMapper tests** verify field/text_blob/scalar round-trip through parse + format
